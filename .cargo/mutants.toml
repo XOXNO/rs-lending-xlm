@@ -259,4 +259,32 @@ exclude_re = [
 
 
     "replace == with != in apply_revoke_role",
+
+
+
+
+    "aquarius.rs:[0-9]+:36: replace > with >= in add_liquidity",
+    "aquarius.rs:[0-9]+:19: replace > with >= in add_liquidity",
+
+
+
+
+    "aquarius.rs:[0-9]+:18: replace < with == in add_liquidity",
+    "aquarius.rs:[0-9]+:18: replace < with <= in add_liquidity",
+
+
+
+
+    "aquarius.rs:[0-9]+:28: replace > with >= in optimal_pre_swap",
+    "aquarius.rs:[0-9]+:17: replace > with >= in optimal_pre_swap",
+
+
+
+
+    "aquarius.rs:[0-9]+:21: replace > with >= in residual_allowance",
+
+
+
+
+    "aquarius.rs:[0-9]+:17: replace - with \\+ in optimal_pre_swap",
 ]

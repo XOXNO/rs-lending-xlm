@@ -1,4 +1,6 @@
-use soroban_sdk::{contract, contractimpl, contracttype, token, vec, Address, Env, Val, Vec, U256};
+use soroban_sdk::{
+    contract, contractimpl, contracttype, token, vec, Address, Env, Symbol, Val, Vec, U256,
+};
 
 pub mod soroswap_mock {
     use super::*;
@@ -141,6 +143,214 @@ pub mod aquarius_mock {
             token::Client::new(&env, &token_in).transfer(&user, &pool, &amount);
             token::Client::new(&env, &token_out).transfer(&pool, &user, &amount);
             in_amount
+        }
+    }
+}
+
+/// Two-token Aquarius liquidity pool, faithful to the deployed `deposit` /
+/// `withdraw` ABI: `deposit` consumes only a balanced subset of the requested
+/// amounts and leaves the remainder with the caller, and `withdraw` burns the
+/// caller's shares off the share token itself.
+pub mod aquarius_lp_mock {
+    use super::*;
+
+    #[contract]
+    pub struct AqLpPool;
+
+    #[contracttype]
+    enum LpKey {
+        TokenA,
+        TokenB,
+        Share,
+        TotalShares,
+        Stable,
+    }
+
+    #[contractimpl]
+    impl AqLpPool {
+        pub fn init(env: Env, token_a: Address, token_b: Address, share: Address) {
+            env.storage().instance().set(&LpKey::TokenA, &token_a);
+            env.storage().instance().set(&LpKey::TokenB, &token_b);
+            env.storage().instance().set(&LpKey::Share, &share);
+            env.storage().instance().set(&LpKey::TotalShares, &0i128);
+        }
+
+        pub fn get_tokens(env: Env) -> Vec<Address> {
+            let token_a: Address = env.storage().instance().get(&LpKey::TokenA).unwrap();
+            let token_b: Address = env.storage().instance().get(&LpKey::TokenB).unwrap();
+            vec![&env, token_a, token_b]
+        }
+
+        pub fn share_id(env: Env) -> Address {
+            env.storage().instance().get(&LpKey::Share).unwrap()
+        }
+
+        pub fn get_total_shares(env: Env) -> u128 {
+            let total: i128 = env.storage().instance().get(&LpKey::TotalShares).unwrap();
+            total as u128
+        }
+
+        /// Marks the pool as a stableswap, which consumes every amount offered
+        /// instead of keeping only the balanced subset.
+        pub fn set_stable(env: Env) {
+            env.storage().instance().set(&LpKey::Stable, &true);
+        }
+
+        pub fn pool_type(env: Env) -> Symbol {
+            if env
+                .storage()
+                .instance()
+                .get(&LpKey::Stable)
+                .unwrap_or(false)
+            {
+                Symbol::new(&env, "stable")
+            } else {
+                Symbol::new(&env, "constant_product")
+            }
+        }
+
+        pub fn get_reserves(env: Env) -> Vec<u128> {
+            let pool = env.current_contract_address();
+            let tokens = Self::get_tokens(env.clone());
+            let r0 = token::Client::new(&env, &tokens.get(0).unwrap()).balance(&pool);
+            let r1 = token::Client::new(&env, &tokens.get(1).unwrap()).balance(&pool);
+            vec![&env, r0 as u128, r1 as u128]
+        }
+
+        pub fn get_fee_fraction(_env: Env) -> u32 {
+            30
+        }
+
+        /// Constant-product swap with the fee taken on input, matching how
+        /// Aquarius charges it. The router's pre-balance step calls this.
+        pub fn swap(
+            env: Env,
+            user: Address,
+            in_idx: u32,
+            out_idx: u32,
+            in_amount: u128,
+            out_min: u128,
+        ) -> u128 {
+            user.require_auth();
+            let pool = env.current_contract_address();
+            let tokens = Self::get_tokens(env.clone());
+            let token_in = tokens.get(in_idx).unwrap();
+            let token_out = tokens.get(out_idx).unwrap();
+            let r_in = token::Client::new(&env, &token_in).balance(&pool);
+            let r_out = token::Client::new(&env, &token_out).balance(&pool);
+            let amount = in_amount as i128;
+            let net = amount * 9_970 / 10_000;
+            let out = net * r_out / (r_in + net);
+            assert!(out as u128 >= out_min, "out_min not met");
+            token::Client::new(&env, &token_in).transfer(&user, &pool, &amount);
+            token::Client::new(&env, &token_out).transfer(&pool, &user, &out);
+            out as u128
+        }
+
+        pub fn deposit(
+            env: Env,
+            user: Address,
+            desired_amounts: Vec<u128>,
+            min_shares: u128,
+        ) -> (Vec<u128>, u128) {
+            user.require_auth();
+            let pool = env.current_contract_address();
+            let tokens = Self::get_tokens(env.clone());
+            let share: Address = env.storage().instance().get(&LpKey::Share).unwrap();
+            let total: i128 = env.storage().instance().get(&LpKey::TotalShares).unwrap();
+
+            let d0 = desired_amounts.get(0).unwrap() as i128;
+            let d1 = desired_amounts.get(1).unwrap() as i128;
+            let r0 = token::Client::new(&env, &tokens.get(0).unwrap()).balance(&pool);
+            let r1 = token::Client::new(&env, &tokens.get(1).unwrap()).balance(&pool);
+
+            // Balanced join, in the live pool's order: balance the AMOUNTS
+            // first (the scarcer side is taken in full, the other is scaled to
+            // it by reserve ratio), then derive shares from that pair. Doing it
+            // shares-first differs by a unit on some inputs.
+            let stable: bool = env
+                .storage()
+                .instance()
+                .get(&LpKey::Stable)
+                .unwrap_or(false);
+            let (used0, used1, shares) = if stable {
+                // Consumes both amounts whole; shares track the pool's growth.
+                let s = if r0 + r1 > 0 {
+                    (d0 + d1) * total / (r0 + r1)
+                } else {
+                    d0 + d1
+                };
+                (d0, d1, s)
+            } else if total == 0 || r0 == 0 || r1 == 0 {
+                let s = if d0 < d1 { d0 } else { d1 };
+                (d0, d1, s)
+            } else {
+                let (u0, u1) = if d0 * r1 <= d1 * r0 {
+                    (d0, d0 * r1 / r0)
+                } else {
+                    (d1 * r0 / r1, d1)
+                };
+                let by0 = u0 * total / r0;
+                let by1 = u1 * total / r1;
+                let s = if by0 < by1 { by0 } else { by1 };
+                (u0, u1, s)
+            };
+            assert!(shares as u128 >= min_shares, "min_shares not met");
+
+            // The live pool pulls the FULL desired amounts and refunds the
+            // surplus afterwards — it does not pull a subset. That distinction
+            // decides what the caller has to authorize, so the mock mirrors it.
+            for (i, (desired, used)) in [(d0, used0), (d1, used1)].iter().enumerate() {
+                let client = token::Client::new(&env, &tokens.get(i as u32).unwrap());
+                if *desired > 0 {
+                    client.transfer(&user, &pool, desired);
+                }
+                let refund = desired - used;
+                if refund > 0 {
+                    client.transfer(&pool, &user, &refund);
+                }
+            }
+            token::StellarAssetClient::new(&env, &share).mint(&user, &shares);
+            env.storage()
+                .instance()
+                .set(&LpKey::TotalShares, &(total + shares));
+
+            (vec![&env, used0 as u128, used1 as u128], shares as u128)
+        }
+
+        pub fn withdraw(
+            env: Env,
+            user: Address,
+            share_amount: u128,
+            min_amounts: Vec<u128>,
+        ) -> Vec<u128> {
+            let pool = env.current_contract_address();
+            let tokens = Self::get_tokens(env.clone());
+            let share: Address = env.storage().instance().get(&LpKey::Share).unwrap();
+            let total: i128 = env.storage().instance().get(&LpKey::TotalShares).unwrap();
+            let amount = share_amount as i128;
+
+            let r0 = token::Client::new(&env, &tokens.get(0).unwrap()).balance(&pool);
+            let r1 = token::Client::new(&env, &tokens.get(1).unwrap()).balance(&pool);
+            let out0 = r0 * amount / total;
+            let out1 = r1 * amount / total;
+            assert!(
+                out0 as u128 >= min_amounts.get(0).unwrap(),
+                "min_amounts[0]"
+            );
+            assert!(
+                out1 as u128 >= min_amounts.get(1).unwrap(),
+                "min_amounts[1]"
+            );
+
+            token::Client::new(&env, &share).burn(&user, &amount);
+            token::Client::new(&env, &tokens.get(0).unwrap()).transfer(&pool, &user, &out0);
+            token::Client::new(&env, &tokens.get(1).unwrap()).transfer(&pool, &user, &out1);
+            env.storage()
+                .instance()
+                .set(&LpKey::TotalShares, &(total - amount));
+
+            vec![&env, out0 as u128, out1 as u128]
         }
     }
 }

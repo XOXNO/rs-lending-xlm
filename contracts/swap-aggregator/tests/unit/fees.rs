@@ -1,3 +1,4 @@
+use crate::errors::Error;
 use crate::types::SwapVenue;
 use crate::{Router, RouterClient};
 use soroban_sdk::testutils::Address as _;
@@ -265,4 +266,47 @@ fn claim_skips_transfer_when_bucket_is_empty() {
     router.claim_admin_fees(&admin, &vec![&env, token.clone()]);
     let id = router.add_referral(&Address::generate(&env), &100);
     router.claim_referral_fees(&id, &vec![&env, token]);
+}
+
+/// The static and referral fees stack when charged, so the cap has to hold on
+/// the sum. Each is individually capped at 10%, which would otherwise let a
+/// trade be charged 20%.
+#[test]
+fn combined_static_and_referral_fee_cannot_exceed_the_cap() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let router_addr = env.register(Router, (admin.clone(),));
+    let router = RouterClient::new(&env, &router_addr);
+
+    router.set_static_fee(&600);
+    let id = router.add_referral(&Address::generate(&env), &600);
+
+    let sender = Address::generate(&env);
+    let (token_a, sac_a) = new_asset(&env, &admin);
+    let (token_b, sac_b) = new_asset(&env, &admin);
+    let pool = env.register(aquarius_mock::AqPool, ());
+    aquarius_mock::AqPoolClient::new(&env, &pool).init(&token_a, &token_b);
+    sac_a.mint(&sender, &1_000);
+    sac_b.mint(&pool, &1_000);
+
+    let xdr = strategy_xdr_with_referral(
+        &env,
+        token_a.clone(),
+        token_b.clone(),
+        1,
+        vec![
+            &env,
+            one_hop_path(&env, SwapVenue::Aquarius, pool, token_a, token_b, 1_000_000),
+        ],
+        id,
+    );
+
+    assert_eq!(
+        router
+            .try_execute_strategy(&sender, &1_000, &xdr)
+            .unwrap_err()
+            .unwrap(),
+        Error::FeeTooHigh.into()
+    );
 }

@@ -18,4 +18,8 @@ pub enum Error {
     FeeTooHigh = 21,
     ReferralNotFound = 22,
     SameToken = 25,
+    LpTokenMismatch = 26,
+    MinSharesNotMet = 27,
+    MinAmountsNotMet = 28,
+    ExcessiveResidual = 29,
 }

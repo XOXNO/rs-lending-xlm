@@ -30,6 +30,15 @@ pub struct SwapPath {
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct StrategyPayload {
+    /// Aquarius pool whose LP shares are burned before routing. `token_in` is
+    /// the share token, and is checked against the pool's own `share_id`.
+    pub burn_pool: Option<Address>,
+    /// Per-constituent floor for the burn, in the pool's token order.
+    pub burn_min_amounts: Vec<i128>,
+    /// Aquarius pool that mints `token_out` from the routed constituents after
+    /// routing. `token_out` is checked against the pool's own `share_id`.
+    pub mint_pool: Option<Address>,
+    pub mint_min_shares: i128,
     pub paths: Vec<SwapPath>,
     pub referral_id: u64,
     pub token_in: Address,

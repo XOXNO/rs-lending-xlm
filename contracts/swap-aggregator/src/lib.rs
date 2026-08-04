@@ -24,6 +24,30 @@ use crate::types::{DataKey, ReferralConfig, StrategyPayload, SwapPath};
 use crate::vault::Vault;
 
 const PPM_DENOMINATOR: i128 = 1_000_000;
+
+/// Absolute dust allowance per token, in atomic units — 0.0001 of a 7-decimal
+/// Stellar asset.
+const RESIDUAL_DUST_FLOOR: i128 = 1_000;
+
+/// Relative dust allowance: one part per million of what the vault ever held of
+/// that token.
+const RESIDUAL_PPM: i128 = 1_000_000;
+
+/// Dust a route may leave behind for one token: one part per million of
+/// everything the vault ever held of it, never below an absolute floor so small
+/// trades are not held to an impossible standard.
+///
+/// This is the single definition of "how much may become revenue". It is
+/// enforced once, on the vault, after every leg has run — a per-leg copy would
+/// only duplicate a rule the vault-wide check already sees.
+pub(crate) fn residual_allowance(credited: i128) -> i128 {
+    let proportional = credited / RESIDUAL_PPM;
+    if proportional > RESIDUAL_DUST_FLOOR {
+        proportional
+    } else {
+        RESIDUAL_DUST_FLOOR
+    }
+}
 const TOTAL_FEE: i128 = 10_000;
 const FEE_CAP: u32 = 1_000;
 
@@ -289,6 +313,12 @@ fn apply_fees_on_token(env: &Env, vault: &mut Vault, token: &Address, referral_i
     if combined_bps == 0 {
         return;
     }
+    // `FEE_CAP` is enforced on each fee as it is set, but the two stack at
+    // charge time — without this the ceiling is really twice what setting a fee
+    // appears to allow.
+    if combined_bps > FEE_CAP {
+        panic_with_error!(env, Error::FeeTooHigh);
+    }
 
     let static_fee = fee_amount(env, balance, static_fee_bps);
     let referral_fee = fee_amount(env, balance, cfg.fee_bps);
@@ -397,9 +427,6 @@ fn checked_mul(env: &Env, lhs: i128, rhs: i128) -> i128 {
 fn execute_payload(env: Env, sender: Address, total_in: i128, payload: StrategyPayload) -> i128 {
     sender.require_auth();
 
-    if payload.paths.is_empty() {
-        panic_with_error!(&env, Error::EmptyBatch);
-    }
     if total_in <= 0 {
         panic_with_error!(&env, Error::InvalidAmount);
     }
@@ -407,10 +434,9 @@ fn execute_payload(env: Env, sender: Address, total_in: i128, payload: StrategyP
         panic_with_error!(&env, Error::SlippageExceeded);
     }
 
-    let (input_token, output_token) = validate_batch_shape(&env, &payload.paths);
-    if input_token != payload.token_in || output_token != payload.token_out {
-        panic_with_error!(&env, Error::BrokenTokenChain);
-    }
+    let input_token = payload.token_in.clone();
+    let output_token = payload.token_out.clone();
+    validate_payload(&env, &payload);
 
     let router = env.current_contract_address();
     let mut vault = Vault::new(&env);
@@ -432,30 +458,28 @@ fn execute_payload(env: Env, sender: Address, total_in: i128, payload: StrategyP
         apply_fees_on_token(&env, &mut vault, &input_token, payload.referral_id);
     }
 
-    let total_after_fee = vault.balance_of(&input_token);
-    if total_after_fee <= 0 {
-        panic_with_error!(&env, Error::InvalidAmount);
+    if let Some(pool) = payload.burn_pool.as_ref() {
+        venues::aquarius::remove_liquidity(
+            &env,
+            &router,
+            &mut vault,
+            pool,
+            &input_token,
+            &payload.burn_min_amounts,
+        );
     }
 
-    let n = payload.paths.len();
-    let mut consumed: i128 = 0;
-    for i in 0..n {
-        let path = payload
-            .paths
-            .get(i)
-            .unwrap_or_else(|| panic_with_error!(&env, Error::EmptyPath));
-        let path_input = if i + 1 == n {
-            total_after_fee - consumed
-        } else {
-            let allocated =
-                checked_mul(&env, total_after_fee, path.split_ppm as i128) / PPM_DENOMINATOR;
-            consumed = checked_add(&env, consumed, allocated);
-            allocated
-        };
-        if path_input <= 0 {
-            panic_with_error!(&env, Error::InvalidAmount);
-        }
-        execute_path(&env, &router, &mut vault, &path, path_input);
+    execute_paths(&env, &router, &mut vault, &payload.paths);
+
+    if let Some(pool) = payload.mint_pool.as_ref() {
+        venues::aquarius::add_liquidity(
+            &env,
+            &router,
+            &mut vault,
+            pool,
+            &output_token,
+            payload.mint_min_shares,
+        );
     }
 
     if !fee_on_input {
@@ -470,7 +494,94 @@ fn execute_payload(env: Env, sender: Address, total_in: i128, payload: StrategyP
     vault.withdraw(&output_token, total_out);
     token::Client::new(&env, &output_token).transfer(&router, &sender, &total_out);
 
+    accrue_residual_as_revenue(&env, &mut vault);
+
     total_out
+}
+
+/// Runs every path, grouped by the token it starts from. Each group splits the
+/// balance available for that token when the group starts, so a burn leg's
+/// released constituents each get their own independent set of splits.
+fn execute_paths(env: &Env, router: &Address, vault: &mut Vault, paths: &Vec<SwapPath>) {
+    let n = paths.len();
+    for i in 0..n {
+        let token = path_token_in(env, paths, i);
+        if i != first_index_for_token(env, paths, &token) {
+            continue;
+        }
+
+        let available = vault.balance_of(&token);
+        if available <= 0 {
+            panic_with_error!(env, Error::InvalidAmount);
+        }
+
+        let mut consumed: i128 = 0;
+        let mut last = i;
+        for j in i..n {
+            if path_token_in(env, paths, j) == token {
+                last = j;
+            }
+        }
+        // Only a group that routes its whole balance hands the remainder to its
+        // final path; a partial group takes exactly its declared share and
+        // leaves the rest for the mint leg.
+        let routes_everything = group_split_ppm(env, paths, &token) == PPM_DENOMINATOR as u32;
+        for j in i..n {
+            if path_token_in(env, paths, j) != token {
+                continue;
+            }
+            let path = paths
+                .get(j)
+                .unwrap_or_else(|| panic_with_error!(env, Error::EmptyPath));
+            let path_input = if j == last && routes_everything {
+                available - consumed
+            } else {
+                let allocated =
+                    checked_mul(env, available, path.split_ppm as i128) / PPM_DENOMINATOR;
+                consumed = checked_add(env, consumed, allocated);
+                allocated
+            };
+            if path_input <= 0 {
+                panic_with_error!(env, Error::InvalidAmount);
+            }
+            execute_path(env, router, vault, &path, path_input);
+        }
+    }
+}
+
+/// Books whatever the route did not convert — a mint leg's declined remainder,
+/// or a burned constituent no path picked up — as protocol revenue.
+///
+/// Paying it back was worse on every axis: the tokens already sit in the router,
+/// so a refund is a transfer that costs a cross-contract call and, for a classic
+/// asset, reverts the whole route when the sender holds no trustline for it.
+/// Accruing is a pure ledger write into the same admin bucket `sweep_balance`
+/// already treats as reserved.
+///
+/// This shifts the cost of a badly-allocated route onto the user, so the
+/// off-chain planner must not emit routes that strand a meaningful share of the
+/// input.
+fn accrue_residual_as_revenue(env: &Env, vault: &mut Vault) {
+    let tokens = vault.tokens();
+    let n = tokens.len();
+    for i in 0..n {
+        let token = tokens.get_unchecked(i);
+        let amount = vault.balance_of(&token);
+        if amount <= 0 {
+            continue;
+        }
+        // A residual is revenue taken from the sender, so it may only ever be
+        // rounding dust. Anything larger means the route failed to convert
+        // something it promised to — most often a burned constituent no path
+        // could reach — and charging the sender for that silently is worse than
+        // refusing the trade. Measured against what the vault ever held of this
+        // token, so the bar scales with the trade instead of punishing large ones.
+        if amount > residual_allowance(vault.credited_of(&token)) {
+            panic_with_error!(env, Error::ExcessiveResidual);
+        }
+        vault.withdraw(&token, amount);
+        accumulate_fee(env, DataKey::AdminFee(token), amount);
+    }
 }
 
 fn execute_path(env: &Env, router: &Address, vault: &mut Vault, path: &SwapPath, path_input: i128) {
@@ -504,25 +615,31 @@ fn execute_path(env: &Env, router: &Address, vault: &mut Vault, path: &SwapPath,
     }
 }
 
-fn validate_batch_shape(env: &Env, paths: &Vec<SwapPath>) -> (Address, Address) {
-    let first_path = paths
-        .get(0)
-        .unwrap_or_else(|| panic_with_error!(env, Error::EmptyBatch));
-    if first_path.hops.is_empty() {
-        panic_with_error!(env, Error::EmptyPath);
-    }
-    let input_token = first_path
-        .hops
-        .get(0)
-        .unwrap_or_else(|| panic_with_error!(env, Error::EmptyPath))
-        .token_in;
-    let output_token = last_token_out(env, &first_path);
-    if input_token == output_token {
-        panic_with_error!(env, Error::SameToken);
+/// Checks the batch is executable before any funds move.
+///
+/// Without a mint leg every path must still terminate at `token_out`, and
+/// without a burn leg every path must still start from `token_in` — so a plain
+/// swap batch is constrained exactly as it was. LP legs relax only what they
+/// have to: a burn fans `token_in` out into constituents the batch starts from,
+/// and a mint funnels several terminal tokens into `token_out`. The tokens an LP
+/// leg introduces are not enumerable here (they are read from the pool at
+/// execution), so those ends are left to the vault, which cannot overdraw, and
+/// to `total_min_out`.
+fn validate_payload(env: &Env, payload: &StrategyPayload) {
+    let paths = &payload.paths;
+    let n = paths.len();
+    if n == 0 {
+        // A batch with no routing is legitimate whenever a liquidity leg is the
+        // whole operation: a single-sided deposit of a token the pool already
+        // holds (the optimal shape for a stable pool, where balancing costs
+        // more in swap fees than the imbalance fee it avoids), a burn whose
+        // constituents are already the requested output, or an LP-to-LP move
+        // between pools that share constituents.
+        if payload.burn_pool.is_none() && payload.mint_pool.is_none() {
+            panic_with_error!(env, Error::EmptyBatch);
+        }
     }
 
-    let mut sum_ppm: u32 = 0;
-    let n = paths.len();
     for i in 0..n {
         let path = paths
             .get(i)
@@ -533,24 +650,74 @@ fn validate_batch_shape(env: &Env, paths: &Vec<SwapPath>) -> (Address, Address) 
         if path.split_ppm == 0 {
             panic_with_error!(env, Error::ZeroSplitPpm);
         }
+
+        let path_in = path_token_in(env, paths, i);
+        if payload.burn_pool.is_none() && path_in != payload.token_in {
+            panic_with_error!(env, Error::BrokenTokenChain);
+        }
+        if payload.mint_pool.is_none() && last_token_out(env, &path) != payload.token_out {
+            panic_with_error!(env, Error::BrokenTokenChain);
+        }
+
+        // Each starting token splits its own balance, so sum the group once, at
+        // the position that group is first seen.
+        if i != first_index_for_token(env, paths, &path_in) {
+            continue;
+        }
+        let sum_ppm = group_split_ppm(env, paths, &path_in);
+        if sum_ppm > PPM_DENOMINATOR as u32 {
+            panic_with_error!(env, Error::SplitPpmMismatch);
+        }
+        // A mint leg deposits whatever routing leaves behind, so a group may
+        // deliberately route only part of its balance — that is how one input
+        // token is halved into two LP constituents. Everything else must still
+        // consume its input completely.
+        if payload.mint_pool.is_none() && sum_ppm != PPM_DENOMINATOR as u32 {
+            panic_with_error!(env, Error::SplitPpmMismatch);
+        }
+    }
+
+    if payload.token_in == payload.token_out {
+        panic_with_error!(env, Error::SameToken);
+    }
+}
+
+fn path_token_in(env: &Env, paths: &Vec<SwapPath>, index: u32) -> Address {
+    paths
+        .get(index)
+        .unwrap_or_else(|| panic_with_error!(env, Error::EmptyPath))
+        .hops
+        .get(0)
+        .unwrap_or_else(|| panic_with_error!(env, Error::EmptyPath))
+        .token_in
+}
+
+/// Total split of every path starting from `token`.
+fn group_split_ppm(env: &Env, paths: &Vec<SwapPath>, token: &Address) -> u32 {
+    let n = paths.len();
+    let mut sum_ppm: u32 = 0;
+    for i in 0..n {
+        if path_token_in(env, paths, i) != *token {
+            continue;
+        }
+        let path = paths
+            .get(i)
+            .unwrap_or_else(|| panic_with_error!(env, Error::EmptyPath));
         sum_ppm = sum_ppm
             .checked_add(path.split_ppm)
             .unwrap_or_else(|| panic_with_error!(env, Error::SplitPpmMismatch));
+    }
+    sum_ppm
+}
 
-        let path_in = path
-            .hops
-            .get(0)
-            .unwrap_or_else(|| panic_with_error!(env, Error::EmptyPath))
-            .token_in;
-        let path_out = last_token_out(env, &path);
-        if path_in != input_token || path_out != output_token {
-            panic_with_error!(env, Error::BrokenTokenChain);
+fn first_index_for_token(env: &Env, paths: &Vec<SwapPath>, token: &Address) -> u32 {
+    let n = paths.len();
+    for i in 0..n {
+        if path_token_in(env, paths, i) == *token {
+            return i;
         }
     }
-    if sum_ppm != PPM_DENOMINATOR as u32 {
-        panic_with_error!(env, Error::SplitPpmMismatch);
-    }
-    (input_token, output_token)
+    panic_with_error!(env, Error::EmptyPath)
 }
 
 fn last_token_out(env: &Env, path: &SwapPath) -> Address {
