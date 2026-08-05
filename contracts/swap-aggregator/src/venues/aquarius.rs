@@ -1,6 +1,6 @@
 use soroban_sdk::{
     auth::InvokerContractAuthEntry, panic_with_error, symbol_short, token, vec, Address, Env,
-    IntoVal, Symbol, Val, Vec,
+    IntoVal, Map, Symbol, Val, Vec,
 };
 
 use crate::errors::Error;
@@ -37,8 +37,8 @@ fn invoke_pool_swap(
     env.invoke_contract(pool, &symbol_short!("swap"), args)
 }
 
-pub(crate) fn swap(ctx: &HopContext<'_>) -> i128 {
-    let tokens = pool_tokens(ctx.env, &ctx.hop.pool);
+pub(crate) fn swap(ctx: &HopContext<'_>, cache: &mut Map<Address, Vec<Address>>) -> i128 {
+    let tokens = pool_tokens(ctx.env, cache, &ctx.hop.pool);
     let in_idx = find_index(ctx.env, &tokens, &ctx.hop.token_in);
     let out_idx = find_index(ctx.env, &tokens, &ctx.hop.token_out);
 
@@ -76,14 +76,23 @@ pub(crate) fn add_liquidity(
     pool: &Address,
     lp_token: &Address,
     min_shares: i128,
+    pre_balance_fee_bps: u32,
+    cache: &mut Map<Address, Vec<Address>>,
 ) -> i128 {
-    let tokens = pool_tokens(env, pool);
+    let tokens = pool_tokens(env, cache, pool);
     assert_share_token(env, pool, lp_token);
     if min_shares <= 0 {
         panic_with_error!(env, Error::MinSharesNotMet);
     }
 
-    pre_balance(env, router, vault, pool, &tokens);
+    pre_balance(
+        env,
+        router,
+        vault,
+        pool,
+        &tokens,
+        i128::from(pre_balance_fee_bps),
+    );
 
     let n = tokens.len();
     let mut amounts: Vec<u128> = Vec::new(env);
@@ -189,8 +198,9 @@ pub(crate) fn remove_liquidity(
     pool: &Address,
     lp_token: &Address,
     min_amounts_in: &Vec<i128>,
+    cache: &mut Map<Address, Vec<Address>>,
 ) {
-    let tokens = pool_tokens(env, pool);
+    let tokens = pool_tokens(env, cache, pool);
     assert_share_token(env, pool, lp_token);
 
     let n = tokens.len();
@@ -275,8 +285,16 @@ fn pre_balance(
     vault: &mut Vault,
     pool: &Address,
     tokens: &Vec<Address>,
+    fee_bps: i128,
 ) {
-    if tokens.len() != 2 || !is_constant_product(env, pool) {
+    // `fee_bps == 0` is the payload saying "do not pre-balance" — stable
+    // pools consume imbalance instead of refunding it, so balancing them
+    // pays a swap fee for nothing. The kind and fee travel in the payload
+    // because reading them from the pool costs two cross-contract calls,
+    // and the per-call VM-instantiation memory wall (the 8th call into
+    // this pool trips `Budget(ExceededLimit)`, measured on testnet) leaves
+    // budget for exactly one extra pool call: the pre-swap itself.
+    if fee_bps <= 0 || tokens.len() != 2 {
         return;
     }
     let token_a = tokens.get_unchecked(0);
@@ -293,7 +311,6 @@ fn pre_balance(
     if !pre_balance_possible(held_a, held_b, reserve_a, reserve_b) {
         return;
     }
-    let fee_bps = pool_fee_bps(env, pool);
 
     let (from_a, amount) = optimal_pre_swap(env, held_a, held_b, reserve_a, reserve_b, fee_bps);
     if amount <= 0 {
@@ -391,33 +408,8 @@ pub(crate) fn cp_swap_out(
     checked_mul(env, net, reserve_out) / (reserve_in + net)
 }
 
-fn is_constant_product(env: &Env, pool: &Address) -> bool {
-    let kind: Symbol =
-        env.invoke_contract(pool, &Symbol::new(env, "pool_type"), Vec::<Val>::new(env));
-    kind == Symbol::new(env, "constant_product")
-}
 
-fn pool_reserves(env: &Env, pool: &Address) -> Vec<i128> {
-    let raw: Vec<u128> = env.invoke_contract(
-        pool,
-        &Symbol::new(env, "get_reserves"),
-        Vec::<Val>::new(env),
-    );
-    let mut out: Vec<i128> = Vec::new(env);
-    for i in 0..raw.len() {
-        out.push_back(to_i128(env, raw.get_unchecked(i)));
-    }
-    out
-}
 
-fn pool_fee_bps(env: &Env, pool: &Address) -> i128 {
-    let fee: u32 = env.invoke_contract(
-        pool,
-        &Symbol::new(env, "get_fee_fraction"),
-        Vec::<Val>::new(env),
-    );
-    i128::from(fee)
-}
 
 /// Runs one swap through the pool, crediting only the measured output delta.
 fn swap_through_pool(
@@ -442,6 +434,19 @@ fn swap_through_pool(
     received
 }
 
+fn pool_reserves(env: &Env, pool: &Address) -> Vec<i128> {
+    let reserves: Vec<u128> = env.invoke_contract(
+        pool,
+        &Symbol::new(env, "get_reserves"),
+        Vec::<Val>::new(env),
+    );
+    let mut out: Vec<i128> = Vec::new(env);
+    for value in reserves.iter() {
+        out.push_back(to_i128(env, value));
+    }
+    out
+}
+
 fn to_i128(env: &Env, amount: u128) -> i128 {
     amount
         .try_into()
@@ -464,12 +469,21 @@ pub(crate) fn pre_balance_possible(
     (held_a > 0 || held_b > 0) && reserve_a > 0 && reserve_b > 0
 }
 
-fn pool_tokens(env: &Env, pool: &Address) -> Vec<Address> {
+/// Pool constituents, read once per transaction. A route's hop and its LP leg
+/// address the same pool, and every cross-contract call re-instantiates the
+/// pool's VM against the transaction memory budget — the measured wall sits
+/// within one call of a pre-balanced mint, so the duplicate `get_tokens` is
+/// the difference between fitting and `Budget(ExceededLimit)`.
+fn pool_tokens(env: &Env, cache: &mut Map<Address, Vec<Address>>, pool: &Address) -> Vec<Address> {
+    if let Some(tokens) = cache.get(pool.clone()) {
+        return tokens;
+    }
     let tokens: Vec<Address> =
         env.invoke_contract(pool, &Symbol::new(env, "get_tokens"), Vec::<Val>::new(env));
     if tokens.is_empty() {
         panic_with_error!(env, Error::BrokenTokenChain);
     }
+    cache.set(pool.clone(), tokens.clone());
     tokens
 }
 

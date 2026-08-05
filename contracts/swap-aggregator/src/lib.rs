@@ -13,7 +13,8 @@ mod test;
 use common::constants::{TTL_BUMP_SHARED, TTL_THRESHOLD_SHARED};
 
 use soroban_sdk::{
-    contract, contractimpl, panic_with_error, token, xdr::FromXdr, Address, Bytes, BytesN, Env, Vec,
+    contract, contractimpl, panic_with_error, token, xdr::FromXdr, Address, Bytes, BytesN, Env,
+    Map, Vec,
 };
 
 use stellar_access::ownable::{self, Ownable};
@@ -440,6 +441,8 @@ fn execute_payload(env: Env, sender: Address, total_in: i128, payload: StrategyP
 
     let router = env.current_contract_address();
     let mut vault = Vault::new(&env);
+    // One transaction-scoped read of each pool's constituents; see `pool_tokens`.
+    let mut tokens_cache: Map<Address, Vec<Address>> = Map::new(&env);
 
     token::Client::new(&env, &input_token).transfer(&sender, &router, &total_in);
     vault.deposit(&input_token, total_in);
@@ -466,10 +469,11 @@ fn execute_payload(env: Env, sender: Address, total_in: i128, payload: StrategyP
             pool,
             &input_token,
             &payload.burn_min_amounts,
+            &mut tokens_cache,
         );
     }
 
-    execute_paths(&env, &router, &mut vault, &payload.paths);
+    execute_paths(&env, &router, &mut vault, &payload.paths, &mut tokens_cache);
 
     if let Some(pool) = payload.mint_pool.as_ref() {
         venues::aquarius::add_liquidity(
@@ -479,6 +483,8 @@ fn execute_payload(env: Env, sender: Address, total_in: i128, payload: StrategyP
             pool,
             &output_token,
             payload.mint_min_shares,
+            payload.pre_balance_fee_bps,
+            &mut tokens_cache,
         );
     }
 
@@ -502,7 +508,13 @@ fn execute_payload(env: Env, sender: Address, total_in: i128, payload: StrategyP
 /// Runs every path, grouped by the token it starts from. Each group splits the
 /// balance available for that token when the group starts, so a burn leg's
 /// released constituents each get their own independent set of splits.
-fn execute_paths(env: &Env, router: &Address, vault: &mut Vault, paths: &Vec<SwapPath>) {
+fn execute_paths(
+    env: &Env,
+    router: &Address,
+    vault: &mut Vault,
+    paths: &Vec<SwapPath>,
+    tokens_cache: &mut Map<Address, Vec<Address>>,
+) {
     let n = paths.len();
     for i in 0..n {
         let token = path_token_in(env, paths, i);
@@ -544,7 +556,7 @@ fn execute_paths(env: &Env, router: &Address, vault: &mut Vault, paths: &Vec<Swa
             if path_input <= 0 {
                 panic_with_error!(env, Error::InvalidAmount);
             }
-            execute_path(env, router, vault, &path, path_input);
+            execute_path(env, router, vault, &path, path_input, tokens_cache);
         }
     }
 }
@@ -584,7 +596,14 @@ fn accrue_residual_as_revenue(env: &Env, vault: &mut Vault) {
     }
 }
 
-fn execute_path(env: &Env, router: &Address, vault: &mut Vault, path: &SwapPath, path_input: i128) {
+fn execute_path(
+    env: &Env,
+    router: &Address,
+    vault: &mut Vault,
+    path: &SwapPath,
+    path_input: i128,
+    tokens_cache: &mut Map<Address, Vec<Address>>,
+) {
     if path.hops.is_empty() {
         panic_with_error!(env, Error::EmptyPath);
     }
@@ -606,7 +625,7 @@ fn execute_path(env: &Env, router: &Address, vault: &mut Vault, path: &SwapPath,
             }
         }
         vault.withdraw(&hop.token_in, current);
-        let out = venues::dispatch_hop(env, router, &hop, current);
+        let out = venues::dispatch_hop(env, router, &hop, current, tokens_cache);
         if out <= 0 {
             panic_with_error!(env, Error::ZeroOutput);
         }

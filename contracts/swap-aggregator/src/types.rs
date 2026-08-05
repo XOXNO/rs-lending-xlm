@@ -13,7 +13,6 @@ pub enum SwapVenue {
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct SwapHop {
-    pub amount_out: i128,
     pub pool: Address,
     pub token_in: Address,
     pub token_out: Address,
@@ -40,6 +39,15 @@ pub struct StrategyPayload {
     pub mint_pool: Option<Address>,
     pub mint_min_shares: i128,
     pub paths: Vec<SwapPath>,
+    /// Swap fee of the mint pool, in bps, when a constant-product deposit
+    /// should be pre-balanced on-chain; `0` skips pre-balancing (stable
+    /// pools, plain swaps). Carried in the payload because reading the kind
+    /// and fee from the pool costs two extra cross-contract calls, and the
+    /// per-call VM-instantiation memory wall (measured: the 8th call into
+    /// the pool trips `Budget(ExceededLimit)`) leaves room for exactly one —
+    /// the pre-swap itself. A wrong hint only shifts the bisection target:
+    /// settlement stays measured-delta and floor-guarded.
+    pub pre_balance_fee_bps: u32,
     pub referral_id: u64,
     pub token_in: Address,
     pub token_out: Address,

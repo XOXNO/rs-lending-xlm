@@ -6,20 +6,26 @@ pub(crate) mod sushi;
 
 use soroban_sdk::{
     auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation},
-    panic_with_error, token, vec, Address, Env, IntoVal, Symbol, Val,
+    panic_with_error, token, vec, Address, Env, IntoVal, Map, Symbol, Val, Vec,
 };
 
 use crate::errors::Error;
 use crate::types::{SwapHop, SwapVenue};
 
-pub(crate) fn dispatch_hop(env: &Env, router: &Address, hop: &SwapHop, amount_in: i128) -> i128 {
+pub(crate) fn dispatch_hop(
+    env: &Env,
+    router: &Address,
+    hop: &SwapHop,
+    amount_in: i128,
+    tokens_cache: &mut Map<Address, Vec<Address>>,
+) -> i128 {
     let ctx = HopContext::new(env, router, hop, amount_in);
     let before_in = ctx.input_balance();
     let before_out = ctx.output_balance();
 
     match hop.venue {
         SwapVenue::Soroswap => soroswap::swap(&ctx),
-        SwapVenue::Aquarius => aquarius::swap(&ctx),
+        SwapVenue::Aquarius => aquarius::swap(&ctx, tokens_cache),
         SwapVenue::Phoenix => phoenix::swap(&ctx),
         SwapVenue::Sushi => sushi::swap(&ctx),
         SwapVenue::CometDex => comet::swap(&ctx),

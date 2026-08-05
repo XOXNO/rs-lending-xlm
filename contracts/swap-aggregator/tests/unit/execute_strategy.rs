@@ -283,14 +283,12 @@ fn execute_strategy_errors_on_broken_token_chain() {
         &env,
         SwapHop {
             venue: SwapVenue::Aquarius,
-            amount_out: 0,
             pool: pool.clone(),
             token_in: token_a.clone(),
             token_out: token_a.clone(),
         },
         SwapHop {
             venue: SwapVenue::Aquarius,
-            amount_out: 0,
             pool,
             token_in: token_b.clone(),
             token_out: token_b.clone(),

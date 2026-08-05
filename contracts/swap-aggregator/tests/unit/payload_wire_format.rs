@@ -19,6 +19,7 @@ fn payload_wire_format_is_stable() {
         mint_pool: None,
         mint_min_shares: 0,
         paths: SVec::new(&env),
+        pre_balance_fee_bps: 0,
         referral_id: 0,
         token_in: Address::generate(&env),
         token_out: Address::generate(&env),
@@ -39,12 +40,13 @@ fn payload_wire_format_is_stable() {
         _ => panic!("payload must encode as an ScMap"),
     };
 
-    const EXPECTED: [&str; 9] = [
+    const EXPECTED: [&str; 10] = [
         "burn_min_amounts",
         "burn_pool",
         "mint_min_shares",
         "mint_pool",
         "paths",
+        "pre_balance_fee_bps",
         "referral_id",
         "token_in",
         "token_out",

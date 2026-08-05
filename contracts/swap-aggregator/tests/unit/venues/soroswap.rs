@@ -34,8 +34,6 @@ fn soroswap_single_hop_derives_output_from_live_reserves() {
     sac_out.mint(&pool, &reserve_1);
     sac_in.mint(&sender, &1_000);
 
-    let stale_quoted_out: i128 = 375;
-
     let total_min_out: i128 = 900;
 
     let swap_xdr = strategy_xdr(
@@ -51,7 +49,6 @@ fn soroswap_single_hop_derives_output_from_live_reserves() {
                     &env,
                     SwapHop {
                         venue: SwapVenue::Soroswap,
-                        amount_out: stale_quoted_out,
                         pool,
                         token_in: token_in.clone(),
                         token_out: token_out.clone(),
@@ -63,7 +60,6 @@ fn soroswap_single_hop_derives_output_from_live_reserves() {
 
     let out = RouterClient::new(&env, &router_addr).execute_strategy(&sender, &500, &swap_xdr);
     assert_eq!(out, reserve_derived_out);
-    assert_ne!(out, stale_quoted_out);
     assert_eq!(token::Client::new(&env, &token_in).balance(&sender), 500);
     assert_eq!(
         token::Client::new(&env, &token_out).balance(&sender),

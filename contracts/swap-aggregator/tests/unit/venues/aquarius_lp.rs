@@ -94,6 +94,7 @@ fn mint_lp_from_single_token_routes_half_and_deposits_both() {
         Vec::new(&env),
         Some(pool.clone()),
         1,
+        0,
     );
 
     let shares = RouterClient::new(&env, &router_addr).execute_strategy(&sender, &1_000, &xdr);
@@ -148,6 +149,7 @@ fn mint_pre_balances_a_lopsided_input_rather_than_charging_for_it() {
         Vec::new(&env),
         Some(pool),
         1,
+        30,
     );
 
     let shares = RouterClient::new(&env, &router_addr).execute_strategy(&sender, &1_000, &xdr);
@@ -212,6 +214,7 @@ fn burn_lp_to_single_token_routes_both_constituents() {
         vec![&env, 0i128, 0i128],
         None,
         0,
+        0,
     );
 
     let out = RouterClient::new(&env, &router_addr).execute_strategy(&sender, &1_000, &xdr);
@@ -267,6 +270,7 @@ fn burn_honours_per_constituent_minimums() {
         vec![&env, 5_000i128, 0i128],
         None,
         0,
+        0,
     );
 
     assert!(RouterClient::new(&env, &router_addr)
@@ -312,6 +316,7 @@ fn mint_rejects_pool_that_does_not_issue_the_declared_share_token() {
         Vec::new(&env),
         Some(pool),
         1,
+        0,
     );
 
     assert_eq!(
@@ -358,6 +363,7 @@ fn mint_enforces_min_shares() {
         Vec::new(&env),
         Some(pool),
         10_000,
+        0,
     );
 
     assert!(RouterClient::new(&env, &router_addr)
@@ -401,6 +407,7 @@ fn swap_batch_must_still_route_its_whole_input() {
         None,
         Vec::new(&env),
         None,
+        0,
         0,
     );
 
@@ -468,6 +475,7 @@ fn mint_on_an_unbalanced_pool_settles_on_measured_deltas() {
         Vec::new(&env),
         Some(pool),
         1,
+        0,
     );
 
     let shares = RouterClient::new(&env, &router_addr).execute_strategy(&sender, &3_000, &xdr);
@@ -513,6 +521,7 @@ fn mint_accepts_a_single_sided_deposit_with_no_paths() {
         Vec::new(&env),
         Some(pool),
         1,
+        0,
     );
 
     // The mock is constant-product, which mints nothing for a one-sided
@@ -570,6 +579,7 @@ fn mint_pre_balances_even_a_wildly_skewed_input() {
         Vec::new(&env),
         Some(pool),
         1,
+        30,
     );
 
     let shares =
@@ -635,6 +645,7 @@ fn burn_rejects_a_constituent_that_cannot_reach_the_output() {
         vec![&env, 0i128, 0i128],
         None,
         0,
+        0,
     );
 
     assert_eq!(
@@ -649,9 +660,9 @@ fn burn_rejects_a_constituent_that_cannot_reach_the_output() {
 /// A stable pool must NOT be pre-balanced.
 ///
 /// Stable pools consume every amount offered and price the imbalance into the
-/// shares, which costs less than the swap fee a rebalance would pay. Swapping
-/// first would burn a fee to fix something the pool does not charge for, so the
-/// router leaves a lopsided stable deposit exactly as it is.
+/// shares, which costs less than the swap fee a rebalance would pay. The
+/// planner expresses that by sending `pre_balance_fee_bps: 0`, and the router
+/// must honor it and deposit the lopsided pair exactly as held.
 #[test]
 fn stable_pool_is_not_pre_balanced() {
     let env = Env::default();
@@ -677,6 +688,7 @@ fn stable_pool_is_not_pre_balanced() {
         Vec::new(&env),
         Some(pool.clone()),
         1,
+        0,
     );
 
     let shares = RouterClient::new(&env, &router_addr).execute_strategy(&sender, &1_000, &xdr);
@@ -720,7 +732,8 @@ fn mint_min_shares_boundary_is_inclusive() {
             Vec::new(&env),
             Some(pool),
             min_shares,
-        );
+            0,
+    );
         (router_addr, sender, xdr)
     };
 
@@ -793,7 +806,8 @@ fn burn_min_amounts_boundary_is_inclusive() {
             vec![&env, min, min],
             None,
             0,
-        );
+            0,
+    );
         (router_addr, sender, shares, xdr)
     };
 
@@ -815,4 +829,51 @@ fn burn_min_amounts_boundary_is_inclusive() {
             .is_err(),
         "a minimum above what the burn releases must fail"
     );
+}
+
+/// TEMP probe: mainnet-scale reserves + realistic zap split. Reproduces the
+/// on-chain Budget(ExceededLimit) if the CPU bomb lives in router code.
+#[test]
+fn temp_budget_probe_mainnet_scale() {
+    let env = Env::default();
+    env.mock_all_auths();
+    env.cost_estimate().budget().reset_unlimited();
+
+    let router_addr = env.register(Router, (Address::generate(&env),));
+    let sender = Address::generate(&env);
+    let admin = Address::generate(&env);
+    let (pool, share, (token_a, sac_a), (token_b, sac_b)) =
+        lp_pool_seeded(&env, &admin, 3_137_000_000_000, 574_000_000_000);
+
+    sac_a.mint(&sender, &100_000_000);
+
+    // The real failing route hops through the SAME pool it deposits into.
+    let xdr = lp_strategy_xdr(
+        &env,
+        token_a.clone(),
+        share.clone(),
+        1,
+        vec![
+            &env,
+            one_hop_path(
+                &env,
+                SwapVenue::Aquarius,
+                pool.clone(),
+                token_a.clone(),
+                token_b.clone(),
+                500_755,
+            ),
+        ],
+        None,
+        Vec::new(&env),
+        Some(pool.clone()),
+        1,
+        0,
+    );
+
+    env.cost_estimate().budget().reset_unlimited();
+    let shares = RouterClient::new(&env, &router_addr).execute_strategy(&sender, &100_000_000, &xdr);
+    let cpu = env.cost_estimate().budget().cpu_instruction_cost();
+    assert!(shares > 0);
+    assert!(cpu < 100_000_000, "CPU bomb reproduced: {} instructions", cpu);
 }
