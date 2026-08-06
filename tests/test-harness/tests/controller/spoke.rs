@@ -1268,8 +1268,8 @@ fn set_spoke_asset_flags(
         threshold: config.liquidation_threshold,
         bonus: config.liquidation_bonus,
         liquidation_fees: config.liquidation_fees,
-        supply_cap: 0,
-        borrow_cap: 0,
+        supply_cap: config.supply_cap,
+        borrow_cap: config.borrow_cap,
     });
 }
 

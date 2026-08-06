@@ -21,6 +21,8 @@ pub struct AssetConfigView {
     pub is_flashloanable: bool,
     pub flashloan_fee: u32,
     pub asset_decimals: u32,
+    pub supply_cap: i128,
+    pub borrow_cap: i128,
 }
 
 impl LendingTest {
@@ -254,6 +256,8 @@ impl LendingTest {
             is_flashloanable: params.is_flashloanable,
             flashloan_fee: params.flashloan_fee,
             asset_decimals: params.asset_decimals,
+            supply_cap: spoke.supply_cap,
+            borrow_cap: spoke.borrow_cap,
         }
     }
 

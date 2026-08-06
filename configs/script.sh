@@ -124,6 +124,41 @@ get_spoke_value() {
     jq -r ".\"$category_id\"$path" "$SPOKES_FILE"
 }
 
+
+
+
+require_spoke_cap() {
+    local category_id=$1
+    local asset_name=$2
+    local field=$3
+    local value
+    value=$(get_spoke_value "$category_id" ".assets.\"$asset_name\".$field")
+    if [ -z "$value" ] || [ "$value" = "null" ]; then
+        die "spoke asset ${asset_name} (category ${category_id}) missing ${field} in ${SPOKES_FILE}; every cap is an enforced ceiling and there is no unlimited sentinel, so state one explicitly (\"0\" accepts nothing on that side)"
+    fi
+    case "$value" in
+        ''|*[!0-9]*)
+            die "spoke asset ${asset_name} (category ${category_id}) has invalid ${field} '${value}' in ${SPOKES_FILE}; expected a decimal integer of base units quoted as a JSON string" ;;
+    esac
+    printf '%s\n' "$value"
+}
+
+require_spoke_caps_configured() {
+    local bad
+    bad=$(jq -r '
+        to_entries[] | .key as $cat | (.value.assets // {}) | to_entries[] |
+        .key as $asset | .value as $cfg |
+        ("supply_cap", "borrow_cap") as $field |
+        select(($cfg[$field] == null) or (($cfg[$field] | tostring | test("^[0-9]+$")) | not)) |
+        "       category \($cat), asset \($asset): \($field) is \($cfg[$field] | tojson)"
+    ' "$SPOKES_FILE")
+    if [ -n "$bad" ]; then
+        echo "ERROR: ${SPOKES_FILE} has spoke assets without a usable cap:" >&2
+        printf '%s\n' "$bad" >&2
+        die "refusing to submit spoke transactions; every cap is an enforced ceiling and there is no unlimited sentinel (\"0\" accepts nothing on that side)"
+    fi
+}
+
 get_controller() {
     stellar contract alias show controller --network "$NETWORK" 2>/dev/null || get_network_value "controller"
 }
@@ -408,6 +443,12 @@ scval_hub_asset() {
 scval_spoke_args() {
     local hub=$1 asset=$2 spoke=$3 cc=$4 cb=$5 ltv=$6 thr=$7 bonus=$8 sc=$9 bc=${10} lf=${11}
     local paused=${12:-false} frozen=${13:-false}
+    case "$sc" in
+        ''|*[!0-9]*) die "scval_spoke_args: supply_cap '${sc}' for asset ${asset} is not a decimal integer; caps are always enforced and have no unlimited sentinel" ;;
+    esac
+    case "$bc" in
+        ''|*[!0-9]*) die "scval_spoke_args: borrow_cap '${bc}' for asset ${asset} is not a decimal integer; caps are always enforced and have no unlimited sentinel" ;;
+    esac
     jq -nc \
         --argjson hub "$hub" \
         --arg asset "$asset" --argjson spoke "$spoke" --argjson cc "$cc" --argjson cb "$cb" \
@@ -1607,6 +1648,13 @@ validate_configs() {
             if ! printf '%s' "$sj" | jq -e --argjson mh "${mhub:-null}" '(.hub_id // null) == $mh' >/dev/null; then
                 vc_err "spoke ${cat}/${a}: hub_id $(printf '%s' "$sj" | jq -r '.hub_id // "missing"') != market hub_id ${mhub}"
             fi
+            local field
+            for field in supply_cap borrow_cap; do
+                if ! printf '%s' "$sj" | jq -e --arg f "$field" '
+                    (.[$f] != null) and (.[$f] | tostring | test("^[0-9]+$"))' >/dev/null; then
+                    vc_err "spoke ${cat}/${a}: ${field} is $(printf '%s' "$sj" | jq -c --arg f "$field" '.[$f]') (need a decimal integer of base units; caps are always enforced and \"0\" accepts nothing on that side)"
+                fi
+            done
             if ! printf '%s' "$sj" | jq -e '
                 (.ltv // 99999) < (.liquidation_threshold // 0) and
                 (.liquidation_threshold // 99999) <= 10000 and
@@ -1904,11 +1952,9 @@ add_asset_to_spoke() {
     local bonus
     bonus=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".liquidation_bonus")
     local supply_cap
-    supply_cap=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".supply_cap")
+    supply_cap=$(require_spoke_cap "$config_category_id" "$asset_name" supply_cap)
     local borrow_cap
-    borrow_cap=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".borrow_cap")
-    if [ -z "$supply_cap" ] || [ "$supply_cap" = "null" ]; then supply_cap=0; fi
-    if [ -z "$borrow_cap" ] || [ "$borrow_cap" = "null" ]; then borrow_cap=0; fi
+    borrow_cap=$(require_spoke_cap "$config_category_id" "$asset_name" borrow_cap)
 
 
 
@@ -1986,11 +2032,9 @@ edit_asset_in_spoke() {
     local bonus
     bonus=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".liquidation_bonus")
     local supply_cap
-    supply_cap=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".supply_cap")
+    supply_cap=$(require_spoke_cap "$config_category_id" "$asset_name" supply_cap)
     local borrow_cap
-    borrow_cap=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".borrow_cap")
-    if [ -z "$supply_cap" ] || [ "$supply_cap" = "null" ]; then supply_cap=0; fi
-    if [ -z "$borrow_cap" ] || [ "$borrow_cap" = "null" ]; then borrow_cap=0; fi
+    borrow_cap=$(require_spoke_cap "$config_category_id" "$asset_name" borrow_cap)
 
 
 
@@ -2056,11 +2100,9 @@ ensure_asset_in_spoke() {
     local bonus
     bonus=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".liquidation_bonus")
     local supply_cap
-    supply_cap=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".supply_cap")
+    supply_cap=$(require_spoke_cap "$config_category_id" "$asset_name" supply_cap)
     local borrow_cap
-    borrow_cap=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".borrow_cap")
-    if [ -z "$supply_cap" ] || [ "$supply_cap" = "null" ]; then supply_cap=0; fi
-    if [ -z "$borrow_cap" ] || [ "$borrow_cap" = "null" ]; then borrow_cap=0; fi
+    borrow_cap=$(require_spoke_cap "$config_category_id" "$asset_name" borrow_cap)
 
 
 
@@ -2125,6 +2167,11 @@ ensure_asset_in_spoke() {
 
 setup_all_spokes() {
     echo "=== Setting up all Spoke categories for ${NETWORK} ==="
+
+
+
+    require_spoke_caps_configured
+
     local categories
     categories=$(jq -r "keys[]" "$SPOKES_FILE")
 

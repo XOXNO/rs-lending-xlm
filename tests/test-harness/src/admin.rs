@@ -3,6 +3,7 @@ use soroban_sdk::Address;
 
 use crate::context::LendingTest;
 use crate::helpers::{hub_asset, HARNESS_HUB, HARNESS_SPOKE};
+use crate::presets::UNCONSTRAINED_TEST_CAP;
 use crate::view::AssetConfigView;
 
 impl LendingTest {
@@ -43,8 +44,8 @@ impl LendingTest {
             threshold: config.liquidation_threshold,
             bonus: config.liquidation_bonus,
             liquidation_fees: config.liquidation_fees,
-            supply_cap: 0,
-            borrow_cap: 0,
+            supply_cap: config.supply_cap,
+            borrow_cap: config.borrow_cap,
         });
 
         let pool = self.get_pool_address(asset_name);
@@ -77,8 +78,8 @@ impl LendingTest {
             threshold: config.liquidation_threshold,
             bonus: config.liquidation_bonus,
             liquidation_fees: config.liquidation_fees,
-            supply_cap: 0,
-            borrow_cap: 0,
+            supply_cap: config.supply_cap,
+            borrow_cap: config.borrow_cap,
         });
     }
 
@@ -124,8 +125,8 @@ impl LendingTest {
             threshold,
             bonus,
             liquidation_fees: 0,
-            supply_cap: 0,
-            borrow_cap: 0,
+            supply_cap: UNCONSTRAINED_TEST_CAP,
+            borrow_cap: UNCONSTRAINED_TEST_CAP,
         });
     }
 
@@ -153,8 +154,8 @@ impl LendingTest {
             threshold,
             bonus,
             liquidation_fees: 0,
-            supply_cap: 0,
-            borrow_cap: 0,
+            supply_cap: UNCONSTRAINED_TEST_CAP,
+            borrow_cap: UNCONSTRAINED_TEST_CAP,
         });
     }
 

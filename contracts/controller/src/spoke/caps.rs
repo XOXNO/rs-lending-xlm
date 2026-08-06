@@ -1,7 +1,8 @@
+use common::constants::RAY;
 use common::errors::{GenericError, SpokeError};
 use common::math::fp::Ray;
+use common::math::fp_core;
 use common::types::{HubAssetKey, MarketIndexRaw, SpokeAssetConfig, SpokeUsageRaw};
-use common::validation::cap_is_enabled;
 use soroban_sdk::{assert_with_error, panic_with_error, Env, Map};
 
 use crate::storage;
@@ -142,10 +143,35 @@ impl SpokeUsageContext {
     }
 }
 
+/// The configured cap expressed in scaled (share) units.
+///
+/// The division by `index` **saturates** instead of panicking. Below a supply
+/// index of `RAY` — which only happens after bad-debt socialisation, floored at
+/// `SUPPLY_INDEX_FLOOR_RAW = RAY / 1_000` — the same asset-denominated cap maps
+/// to proportionally more shares, and for a large cap that share count exceeds
+/// `i128`. Panicking there would brick every supply and borrow for the asset
+/// until governance lowered the cap; saturating instead makes the cap
+/// non-binding in that corner, which is the safe direction: exits are already
+/// uncapped, so the market stays unwindable either way.
+///
+/// The alternative — bounding the config-time ceiling by this factor too —
+/// would cap every 7-decimal asset at ~170M tokens, tighter than real risk
+/// parameters need.
 fn cap_to_scaled(env: &Env, cap: i128, decimals: u32, index: Ray) -> Ray {
-    Ray::from_asset(cap, decimals).div_floor(env, index)
+    Ray::from(fp_core::mul_div_floor_saturating(
+        env,
+        Ray::from_asset(cap, decimals).raw(),
+        RAY,
+        index.raw(),
+    ))
 }
 
+/// Rejects an entry that would push spoke usage past the configured cap.
+///
+/// The cap is always enforced. A cap of `0` scales to `0`, so any positive
+/// `delta_scaled` trips the assertion and the market accepts nothing on that
+/// side. Exits are deliberately not routed through here: a closed market must
+/// still let existing positions unwind.
 fn enforce_spoke_cap(
     env: &Env,
     side: UsageSide,
@@ -155,9 +181,6 @@ fn enforce_spoke_cap(
     index: Ray,
     decimals: u32,
 ) {
-    if !cap_is_enabled(cap) {
-        return;
-    }
     let cap_scaled = cap_to_scaled(env, cap, decimals, index);
     let next_scaled = Ray::from(side.scaled(usage)).checked_add(env, delta_scaled);
     assert_with_error!(env, next_scaled <= cap_scaled, side.cap_error());

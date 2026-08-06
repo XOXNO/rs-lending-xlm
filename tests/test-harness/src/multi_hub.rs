@@ -5,6 +5,7 @@ use soroban_sdk::{token, vec, TryFromVal, Vec};
 
 use crate::core::LendingTest;
 use crate::helpers::{f64_to_i128, hub_asset, HARNESS_SPOKE};
+use crate::presets::UNCONSTRAINED_TEST_CAP;
 
 impl LendingTest {
     pub fn create_hub(&self) -> u32 {
@@ -163,8 +164,8 @@ impl LendingTest {
                 threshold: risk.liquidation_threshold,
                 bonus: risk.liquidation_bonus,
                 liquidation_fees,
-                supply_cap: 0,
-                borrow_cap: 0,
+                supply_cap: UNCONSTRAINED_TEST_CAP,
+                borrow_cap: UNCONSTRAINED_TEST_CAP,
             }),
         );
     }

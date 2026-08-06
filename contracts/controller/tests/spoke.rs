@@ -156,6 +156,72 @@ fn usage_borrow_decrement_below_zero_panics() {
     });
 }
 
+/// A cap of `0` means the market accepts nothing on that side, so any
+/// positive entry must be rejected. Previously `0` was an "unlimited"
+/// sentinel and this entry was waved through.
+#[test]
+#[should_panic(expected = "Error(Contract, #311)")]
+fn zero_supply_cap_rejects_entry() {
+    let env = Env::default();
+    let contract = new_controller(&env);
+    let asset = Address::generate(&env);
+    env.as_contract(&contract, || {
+        let mut ctx = SpokeUsageContext::new(&env, 1);
+        ctx.apply_entry(
+            &env,
+            UsageSide::Supply,
+            &hub(&asset),
+            Ray::from(RAY),
+            0,
+            Ray::from(RAY),
+            7,
+        );
+    });
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #312)")]
+fn zero_borrow_cap_rejects_entry() {
+    let env = Env::default();
+    let contract = new_controller(&env);
+    let asset = Address::generate(&env);
+    env.as_contract(&contract, || {
+        let mut ctx = SpokeUsageContext::new(&env, 1);
+        ctx.apply_entry(
+            &env,
+            UsageSide::Borrow,
+            &hub(&asset),
+            Ray::from(RAY),
+            0,
+            Ray::from(RAY),
+            7,
+        );
+    });
+}
+
+/// A cap at the config-time ceiling must not brick the market once bad-debt
+/// socialisation floors the supply index. `cap_to_scaled` saturates instead of
+/// overflowing, so the cap simply stops binding rather than panicking with
+/// MathOverflow on every supply.
+#[test]
+fn ceiling_cap_saturates_instead_of_panicking_at_the_index_floor() {
+    let env = Env::default();
+    let contract = new_controller(&env);
+    let asset = Address::generate(&env);
+    env.as_contract(&contract, || {
+        let mut ctx = SpokeUsageContext::new(&env, 1);
+        ctx.apply_entry(
+            &env,
+            UsageSide::Supply,
+            &hub(&asset),
+            Ray::from(RAY),
+            common::validation::max_cap_for_decimals(7),
+            Ray::from(common::constants::SUPPLY_INDEX_FLOOR_RAW),
+            7,
+        );
+    });
+}
+
 #[test]
 #[should_panic(expected = "Error(Contract, #34)")]
 fn apply_supply_without_listing_panics() {

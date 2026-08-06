@@ -121,6 +121,29 @@ groups:
           summary: "Spoke {{ $labels.spoke_id }} cap for {{ $labels.symbol }} above 95%"
           description: "Supply/borrow cap is nearly exhausted for this spoke-asset."
 
+      # A cap of 0 is an enforced ceiling, not an "uncapped" sentinel, and caps
+      # are orthogonal to the enable flags by design. A closed side therefore
+      # still reads as an enabled listing everywhere else on the board, and its
+      # cap-utilization series is absent rather than pinned — these two rules are
+      # the only thing that distinguishes it from a healthy idle market.
+      # `on(...)` pins the join to the identifying labels; without it the set
+      # operation would also match on __name__ and never fire.
+      - alert: LendingSpokeSupplyClosedWhileCollateralEnabled
+        expr: lending_spoke_supply_closed == 1 and on(network, spoke_id, hub_id, asset) lending_spoke_collateral_enabled == 1
+        for: 15m
+        labels: { severity: info }
+        annotations:
+          summary: "Spoke {{ $labels.spoke_id }} supply for {{ $labels.symbol }} is closed but still flagged collateral ({{ $labels.network }})"
+          description: "supply_cap is 0, so no new supply is accepted, while is_collateralizable is still set. Intentional for a soft wind-down; otherwise the cap was never configured."
+
+      - alert: LendingSpokeBorrowClosedWhileBorrowEnabled
+        expr: lending_spoke_borrow_closed == 1 and on(network, spoke_id, hub_id, asset) lending_spoke_borrow_enabled == 1
+        for: 15m
+        labels: { severity: info }
+        annotations:
+          summary: "Spoke {{ $labels.spoke_id }} borrowing for {{ $labels.symbol }} is closed but still flagged borrowable ({{ $labels.network }})"
+          description: "borrow_cap is 0, so no new borrows are accepted, while is_borrowable is still set. Intentional for a soft wind-down; otherwise the cap was never configured."
+
       - alert: LendingAccrualStalled
         expr: (time() - lending_market_last_accrual_timestamp) > 86400
         for: 30m

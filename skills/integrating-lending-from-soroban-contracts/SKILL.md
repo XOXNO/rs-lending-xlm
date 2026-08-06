@@ -117,8 +117,14 @@ client.repay(&me, &account_id, &vec![env, (hub_asset, amount)]);
 - `get_market_index(hub_asset)` — supply/borrow indexes accrued to now,
   **reads no oracle** — safe for share pricing (defindex derives its
   price-per-share from `supply_index`).
-- `max_withdraw` / `max_borrow` fold in liquidity, caps, and LTV/HF gates;
-  `max_supply` is supply-cap headroom only (i128::MAX uncapped). All return `0` while paused (global or per-spoke) or on frozen/paused listings for the relevant op (3-layer matrix: global blocks risk-increasing; per-spoke paused blocks exits; frozen only new entries). See INVARIANTS §5.4, ADR 0011, central facts.
+- No `max_withdraw` / `max_borrow` / `max_supply` views exist — size actions
+  yourself from `get_spoke_asset` caps and `get_spoke_usage`. `supply_cap` /
+  `borrow_cap` are always-enforced ceilings in asset units with no unlimited
+  sentinel: `0` closes that side entirely (`SpokeSupplyCapReached` #311 /
+  `SpokeBorrowCapReached` #312) while exits stay uncapped. Entries also fail
+  while paused (global or per-spoke) or on frozen listings (3-layer matrix:
+  global blocks risk-increasing; per-spoke paused blocks exits; frozen only
+  new entries).
 - `account_exists(account_id)` — reconcile your stored id; clear it if the
   account is gone.
 - Full view surface: `reading-lending-protocol-state` skill.

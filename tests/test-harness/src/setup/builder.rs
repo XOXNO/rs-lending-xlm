@@ -10,6 +10,7 @@ use crate::core::types::{LendingTest, MarketState, PendingMarket, PendingSpoke};
 use crate::helpers::{f64_to_i128, hub_asset, HARNESS_HUB, HARNESS_SPOKE};
 use crate::presets::{
     AssetConfigPreset, MarketParamsPreset, MarketPreset, SpokePreset, DEFAULT_TOLERANCE,
+    UNCONSTRAINED_TEST_CAP,
 };
 
 pub struct LendingTestBuilder {
@@ -367,8 +368,8 @@ impl LendingTestBuilder {
                         threshold: spoke.preset.threshold,
                         bonus: spoke.preset.bonus,
                         liquidation_fees: 0,
-                        supply_cap: 0i128,
-                        borrow_cap: 0i128,
+                        supply_cap: UNCONSTRAINED_TEST_CAP,
+                        borrow_cap: UNCONSTRAINED_TEST_CAP,
                     }),
                 );
             }

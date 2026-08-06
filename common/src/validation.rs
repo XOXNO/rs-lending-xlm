@@ -16,10 +16,6 @@ pub fn require_nonneg_amount(env: &Env, amount: i128) {
     assert_with_error!(env, amount >= 0, GenericError::AmountMustBePositive);
 }
 
-pub fn cap_is_enabled(cap: i128) -> bool {
-    cap > 0 && cap != i128::MAX
-}
-
 #[inline]
 pub fn expect_invariant<T>(env: &Env, opt: Option<T>) -> T {
     opt.unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError))
@@ -29,20 +25,42 @@ pub fn require_non_empty_payments<T>(env: &Env, payments: &Vec<T>) {
     assert_with_error!(env, !payments.is_empty(), GenericError::InvalidPayments);
 }
 
+/// Largest cap, in asset units, that `Ray::from_asset` can rescale by
+/// `10^(RAY_DECIMALS - asset_decimals)` without overflowing `i128`.
+///
+/// `cap_to_scaled` then divides by the supply index, which grows the value
+/// further when the index sits below `RAY` (bad-debt socialisation floors it at
+/// `SUPPLY_INDEX_FLOOR_RAW = RAY / 1_000`, a further 1000x). That second step
+/// deliberately **saturates** rather than panicking — see `cap_to_scaled` — so
+/// only the upscale needs bounding here. Bounding both would force every
+/// 7-decimal cap under ~170M tokens, which is tighter than real risk parameters
+/// need.
+///
+/// This is the single source of truth: the validator, the test fixtures, the
+/// Certora specs, and the pre-deploy verification script must all derive from
+/// it rather than re-deriving the formula.
+pub fn max_cap_for_decimals(asset_decimals: u32) -> i128 {
+    let exp = RAY_DECIMALS.saturating_sub(asset_decimals);
+    let upscale = 10i128
+        .checked_pow(exp)
+        .expect("10^(RAY_DECIMALS - asset_decimals) fits i128 for asset_decimals <= RAY_DECIMALS");
+    i128::MAX / upscale
+}
+
+/// Bounds a supply/borrow cap to the range the controller can scale without
+/// overflowing. See [`max_cap_for_decimals`].
+///
+/// Caps are always enforced and carry no "unlimited" sentinel: `0` means the
+/// market accepts nothing on that side, and every larger value is a literal
+/// ceiling in asset units. `i128::MAX` therefore has no exemption here — it is
+/// rejected like any other out-of-domain value.
 pub fn require_cap_within_asset_domain(env: &Env, cap: i128, asset_decimals: u32) {
-    if cap == i128::MAX {
-        return;
+    if RAY_DECIMALS.checked_sub(asset_decimals).is_none() {
+        panic_with_error!(env, CollateralError::AssetDecimalsTooHigh);
     }
-    let exp = RAY_DECIMALS
-        .checked_sub(asset_decimals)
-        .unwrap_or_else(|| panic_with_error!(env, CollateralError::AssetDecimalsTooHigh));
-    let cap_ceiling = i128::MAX
-        / 10i128.checked_pow(exp).expect(
-            "10^(RAY_DECIMALS - asset_decimals) fits i128 for asset_decimals <= RAY_DECIMALS",
-        );
     assert_with_error!(
         env,
-        cap <= cap_ceiling,
+        cap <= max_cap_for_decimals(asset_decimals),
         CollateralError::InvalidBorrowParams
     );
 }

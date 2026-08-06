@@ -28,6 +28,7 @@ mod multi_hub;
 mod ownership;
 mod repay;
 mod spoke;
+mod spoke_caps;
 mod spoke_liquidation_combo;
 
 mod security_audit;

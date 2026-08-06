@@ -78,6 +78,9 @@ pub struct Metrics {
     pub spoke_liq_fees_bps: GaugeVec,
     pub spoke_supply_cap: GaugeVec,
     pub spoke_borrow_cap: GaugeVec,
+
+    pub spoke_supply_closed: GaugeVec,
+    pub spoke_borrow_closed: GaugeVec,
     pub spoke_supply_usage: GaugeVec,
     pub spoke_supply_usage_usd: GaugeVec,
     pub spoke_borrow_usage: GaugeVec,
@@ -166,14 +169,16 @@ impl Metrics {
             spoke_liq_threshold_bps: register_gauge_vec(&registry, "lending_spoke_liquidation_threshold_bps", "Liquidation threshold (bps)", SPOKE_ASSET_LABELS)?,
             spoke_liq_bonus_bps: register_gauge_vec(&registry, "lending_spoke_liquidation_bonus_bps", "Liquidation bonus (bps)", SPOKE_ASSET_LABELS)?,
             spoke_liq_fees_bps: register_gauge_vec(&registry, "lending_spoke_liquidation_fees_bps", "Liquidation protocol fee (bps)", SPOKE_ASSET_LABELS)?,
-            spoke_supply_cap: register_gauge_vec(&registry, "lending_spoke_supply_cap", "Supply cap (whole tokens; 0 = uncapped)", SPOKE_ASSET_LABELS)?,
-            spoke_borrow_cap: register_gauge_vec(&registry, "lending_spoke_borrow_cap", "Borrow cap (whole tokens; 0 = uncapped)", SPOKE_ASSET_LABELS)?,
+            spoke_supply_cap: register_gauge_vec(&registry, "lending_spoke_supply_cap", "Supply cap (whole tokens); always an enforced ceiling, 0 = closed to new supply", SPOKE_ASSET_LABELS)?,
+            spoke_borrow_cap: register_gauge_vec(&registry, "lending_spoke_borrow_cap", "Borrow cap (whole tokens); always an enforced ceiling, 0 = closed to new borrows", SPOKE_ASSET_LABELS)?,
+            spoke_supply_closed: register_gauge_vec(&registry, "lending_spoke_supply_closed", "1 if the supply cap is 0, i.e. the spoke-asset accepts no new supply regardless of the collateral flag", SPOKE_ASSET_LABELS)?,
+            spoke_borrow_closed: register_gauge_vec(&registry, "lending_spoke_borrow_closed", "1 if the borrow cap is 0, i.e. the spoke-asset accepts no new borrows regardless of the borrow flag", SPOKE_ASSET_LABELS)?,
             spoke_supply_usage: register_gauge_vec(&registry, "lending_spoke_supply_usage", "Supply usage (whole tokens)", SPOKE_ASSET_LABELS)?,
             spoke_supply_usage_usd: register_gauge_vec(&registry, "lending_spoke_supply_usage_usd", "Supply usage in USD", SPOKE_ASSET_LABELS)?,
             spoke_borrow_usage: register_gauge_vec(&registry, "lending_spoke_borrow_usage", "Borrow usage (whole tokens)", SPOKE_ASSET_LABELS)?,
             spoke_borrow_usage_usd: register_gauge_vec(&registry, "lending_spoke_borrow_usage_usd", "Borrow usage in USD", SPOKE_ASSET_LABELS)?,
-            spoke_supply_cap_utilization: register_gauge_vec(&registry, "lending_spoke_supply_cap_utilization", "Supply usage / supply cap (0..1)", SPOKE_ASSET_LABELS)?,
-            spoke_borrow_cap_utilization: register_gauge_vec(&registry, "lending_spoke_borrow_cap_utilization", "Borrow usage / borrow cap (0..1)", SPOKE_ASSET_LABELS)?,
+            spoke_supply_cap_utilization: register_gauge_vec(&registry, "lending_spoke_supply_cap_utilization", "Supply usage / supply cap (0..1); not published when closed, see lending_spoke_supply_closed", SPOKE_ASSET_LABELS)?,
+            spoke_borrow_cap_utilization: register_gauge_vec(&registry, "lending_spoke_borrow_cap_utilization", "Borrow usage / borrow cap (0..1); not published when closed, see lending_spoke_borrow_closed", SPOKE_ASSET_LABELS)?,
 
             protocol_tvl_usd: register_gauge_vec(&registry, "lending_protocol_tvl_usd", "Sum of supplied USD across markets", &["network"])?,
             protocol_borrowed_usd: register_gauge_vec(&registry, "lending_protocol_total_borrowed_usd", "Sum of borrowed USD across markets", &["network"])?,
@@ -232,4 +237,54 @@ async fn scrape(State(metrics): State<Arc<Metrics>>) -> Result<String, StatusCod
         tracing::error!(target: "exporter.metrics", error = ?e, "metrics buffer not utf-8");
         StatusCode::INTERNAL_SERVER_ERROR
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SAMPLE_SPOKE_ASSET: [&str; 7] = ["testnet", "1", "Main", "2", "Core", "CDEADBEEF", "USDC"];
+
+    #[test]
+    fn every_family_registers_without_a_name_collision() {
+        Metrics::new().expect("all metric families must register cleanly");
+    }
+
+    #[test]
+    fn cap_families_document_zero_as_closed_not_uncapped() {
+        let m = Metrics::new().unwrap();
+        // Gauges only reach `gather()` once a child exists, so touch the four
+        // cap-related families whose help text carries the semantics.
+        m.spoke_supply_cap.with_label_values(&SAMPLE_SPOKE_ASSET).set(0.0);
+        m.spoke_borrow_cap.with_label_values(&SAMPLE_SPOKE_ASSET).set(0.0);
+        m.spoke_supply_closed.with_label_values(&SAMPLE_SPOKE_ASSET).set(1.0);
+        m.spoke_borrow_closed.with_label_values(&SAMPLE_SPOKE_ASSET).set(1.0);
+
+        let families = m.registry.gather();
+        let help = |name: &str| {
+            families
+                .iter()
+                .find(|f| f.get_name() == name)
+                .unwrap_or_else(|| panic!("{name} not registered"))
+                .get_help()
+                .to_string()
+        };
+
+        for name in ["lending_spoke_supply_cap", "lending_spoke_borrow_cap"] {
+            let h = help(name);
+            assert!(h.contains("0 = closed"), "{name} must call 0 a closed market: {h}");
+        }
+        assert!(help("lending_spoke_supply_closed").contains("supply cap is 0"));
+        assert!(help("lending_spoke_borrow_closed").contains("borrow cap is 0"));
+
+        // The sentinel is gone from the protocol; no help text may resurrect it.
+        for f in &families {
+            let h = f.get_help();
+            assert!(
+                !h.contains("uncapped") && !h.contains("unlimited"),
+                "{} still documents an unlimited-cap sentinel: {h}",
+                f.get_name()
+            );
+        }
+    }
 }

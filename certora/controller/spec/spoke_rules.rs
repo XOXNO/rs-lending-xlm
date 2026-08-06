@@ -265,8 +265,8 @@ fn add_asset_enforces_valid_bounds(e: Env, asset: Address, ltv: u32, threshold: 
             threshold,
             bonus,
             liquidation_fees: 0,
-            supply_cap: 0,
-            borrow_cap: 0,
+            supply_cap: crate::spec::fixture::UNCONSTRAINED_CAP,
+            borrow_cap: crate::spec::fixture::UNCONSTRAINED_CAP,
         },
     );
 
@@ -293,8 +293,8 @@ fn edit_asset_enforces_valid_bounds(e: Env, asset: Address, ltv: u32, threshold:
             threshold,
             bonus,
             liquidation_fees: 0,
-            supply_cap: 0,
-            borrow_cap: 0,
+            supply_cap: crate::spec::fixture::UNCONSTRAINED_CAP,
+            borrow_cap: crate::spec::fixture::UNCONSTRAINED_CAP,
         },
     );
 
@@ -342,8 +342,8 @@ fn spoke_add_asset_to_deprecated_category(e: Env, asset: Address) {
             threshold: 9_300,
             bonus: 300,
             liquidation_fees: 0,
-            supply_cap: 0,
-            borrow_cap: 0,
+            supply_cap: crate::spec::fixture::UNCONSTRAINED_CAP,
+            borrow_cap: crate::spec::fixture::UNCONSTRAINED_CAP,
         },
     );
 

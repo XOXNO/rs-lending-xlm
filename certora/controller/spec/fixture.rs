@@ -9,6 +9,32 @@ pub const ACCOUNT_ID: u64 = 1;
 pub const HUB_ID: u32 = 1;
 pub const SPOKE_ID: u32 = 1;
 
+/// Supply/borrow cap for fixtures that are not exercising cap behaviour.
+///
+/// Caps are always enforced and carry no "unlimited" sentinel, so a fixture
+/// has to name a finite ceiling. It must be one `enforce_spoke_cap` can scale
+/// without overflowing for every market shape the pool summaries can invent:
+/// `get_sync_data_summary` draws `asset_decimals` anywhere in `0..=27`, and
+/// `nondet_market_index` draws the supply index as low as
+/// `SUPPLY_INDEX_FLOOR_RAW`. Both worst cases can land together, and
+/// `cap_to_scaled` hits them in order:
+///
+/// 1. `Ray::from_asset(cap, 0)` upscales by `10^RAY_DECIMALS` through a
+///    `checked_mul` that panics rather than wrapping;
+/// 2. `div_floor(index)` then scales by `RAY / SUPPLY_INDEX_FLOOR_RAW` before
+///    narrowing the `I256` result back to `i128`.
+///
+/// Dividing `i128::MAX` by both factors yields the largest cap that survives
+/// the pair. Note that no finite cap is unconditionally non-binding here: the
+/// pool summaries hand back an unbounded nondeterministic scaled position, so
+/// the prover can always pick a leg that trips any ceiling. Taking the maximum
+/// keeps the space of entries the prover may still take as wide as possible.
+///
+/// A fixture that means "this market is closed" writes `0` instead.
+pub const UNCONSTRAINED_CAP: i128 = i128::MAX
+    / 10i128.pow(common::constants::RAY_DECIMALS)
+    / (common::constants::RAY / common::constants::SUPPLY_INDEX_FLOOR_RAW);
+
 pub fn hub_asset(asset: &Address) -> HubAssetKey {
     HubAssetKey {
         hub_id: HUB_ID,
@@ -69,8 +95,8 @@ pub fn seed_market(env: &Env, asset: &Address) {
             liquidation_threshold: 8_000,
             liquidation_bonus: 500,
             liquidation_fees: 100,
-            supply_cap: i128::MAX,
-            borrow_cap: i128::MAX,
+            supply_cap: UNCONSTRAINED_CAP,
+            borrow_cap: UNCONSTRAINED_CAP,
         },
     );
 }
