@@ -1,18 +1,19 @@
 use crate::account;
-use common::errors::SpokeError;
 use common::math::fp::Wad;
 use common::types::{
     Account, AccountPosition, DebtPosition, PoolAction, PoolWithdrawEntry, RepayEntry, SeizeEntry,
 };
 use common::validation::expect_invariant;
-use soroban_sdk::{assert_with_error, Address, Env, Vec};
+use soroban_sdk::{Address, Env, Vec};
 
 use crate::context::Cache;
 use crate::events;
 use crate::external::sac::sac_transfer_call;
 use crate::positions::liquidation::bad_debt;
 use crate::positions::liquidation::curve::is_socializable_bad_debt;
-use crate::positions::{make_pool_action, repay, withdraw};
+use crate::positions::{
+    enforce_spoke_asset_flags, make_pool_action, repay, withdraw, FreezePolicy,
+};
 
 pub(crate) fn apply_liquidation_repayments(
     env: &Env,
@@ -24,10 +25,13 @@ pub(crate) fn apply_liquidation_repayments(
     let pool_addr = cache.cached_pool_address();
     let mut actions: Vec<PoolAction> = Vec::new(env);
     for entry in repaid.iter() {
-        let debt_paused = cache
-            .cached_spoke_asset(account.spoke_id, &entry.hub_asset)
-            .is_some_and(|c| c.paused);
-        assert_with_error!(env, !debt_paused, SpokeError::SpokeAssetPaused);
+        enforce_spoke_asset_flags(
+            env,
+            cache,
+            account.spoke_id,
+            &entry.hub_asset,
+            FreezePolicy::AllowOnExit,
+        );
 
         sac_transfer_call(
             env,
@@ -60,10 +64,13 @@ pub(crate) fn apply_liquidation_seizures(
 ) {
     let mut entries: Vec<PoolWithdrawEntry> = Vec::new(env);
     for entry in seized.iter() {
-        let collateral_paused = cache
-            .cached_spoke_asset(account.spoke_id, &entry.hub_asset)
-            .is_some_and(|c| c.paused);
-        assert_with_error!(env, !collateral_paused, SpokeError::SpokeAssetPaused);
+        enforce_spoke_asset_flags(
+            env,
+            cache,
+            account.spoke_id,
+            &entry.hub_asset,
+            FreezePolicy::AllowOnExit,
+        );
 
         let position: AccountPosition =
             (&expect_invariant(env, account.supply_positions.get(entry.hub_asset.clone()))).into();
