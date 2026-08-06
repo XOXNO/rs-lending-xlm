@@ -59,6 +59,7 @@ impl CreateMarketEvent {
 #[contractevent(topics = ["market", "params_update"])]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UpdateMarketParamsEvent {
+    pub hub_id: u32,
     pub asset: Address,
     pub max_borrow_rate: i128,
     pub base_borrow_rate: i128,
@@ -72,12 +73,13 @@ pub struct UpdateMarketParamsEvent {
 }
 
 impl UpdateMarketParamsEvent {
-    /// Flatten an interest-rate model onto the wire shape for `asset`.
+    /// Flatten an interest-rate model onto the wire shape for `(hub_id, asset)`.
     ///
     /// Copies the shared interest-curve fields only; does **not** nest
     /// `InterestRateModel` or emit `is_flashloanable` / `flashloan_fee`.
-    pub fn from_rate_model(asset: Address, model: &InterestRateModel) -> Self {
+    pub fn from_rate_model(hub_id: u32, asset: Address, model: &InterestRateModel) -> Self {
         Self {
+            hub_id,
             asset,
             max_borrow_rate: model.max_borrow_rate,
             base_borrow_rate: model.base_borrow_rate,
@@ -92,13 +94,13 @@ impl UpdateMarketParamsEvent {
     }
 }
 
-/// `(asset, &InterestRateModel)` → flat event fields.
+/// `(hub_id, asset, &InterestRateModel)` → flat event fields.
 ///
-/// Pure `From<&InterestRateModel>` is impossible without dropping `asset`; the
-/// pair form keeps the mapping in one place while the published event stays
+/// Pure `From<&InterestRateModel>` is impossible without dropping hub/asset; the
+/// triple form keeps the mapping in one place while the published event stays
 /// field-flat.
-impl From<(Address, &InterestRateModel)> for UpdateMarketParamsEvent {
-    fn from((asset, model): (Address, &InterestRateModel)) -> Self {
-        Self::from_rate_model(asset, model)
+impl From<(u32, Address, &InterestRateModel)> for UpdateMarketParamsEvent {
+    fn from((hub_id, asset, model): (u32, Address, &InterestRateModel)) -> Self {
+        Self::from_rate_model(hub_id, asset, model)
     }
 }

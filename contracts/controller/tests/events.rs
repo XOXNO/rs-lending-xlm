@@ -100,10 +100,15 @@ fn every_event_helper_publishes_exactly_one_event() {
         let asset = dummy_address(&env);
         let caller = dummy_address(&env);
 
-        CreateMarketEvent::from_params(1, asset.clone(), asset.clone(), &sample_market_params(&asset))
-            .publish(&env);
+        CreateMarketEvent::from_params(
+            1,
+            asset.clone(),
+            asset.clone(),
+            &sample_market_params(&asset),
+        )
+        .publish(&env);
 
-        UpdateMarketParamsEvent::from((asset.clone(), &sample_rate_model())).publish(&env);
+        UpdateMarketParamsEvent::from((1u32, asset.clone(), &sample_rate_model())).publish(&env);
 
         let mut deposits = Vec::new(&env);
         deposits.push_back(EventDepositDelta(
@@ -234,10 +239,11 @@ fn update_market_params_event_from_rate_model_is_flat() {
     let asset = dummy_address(&env);
     let model = sample_rate_model();
 
-    let via_ctor = UpdateMarketParamsEvent::from_rate_model(asset.clone(), &model);
-    let via_from = UpdateMarketParamsEvent::from((asset.clone(), &model));
+    let via_ctor = UpdateMarketParamsEvent::from_rate_model(7, asset.clone(), &model);
+    let via_from = UpdateMarketParamsEvent::from((7u32, asset.clone(), &model));
 
     assert_eq!(via_ctor, via_from);
+    assert_eq!(via_ctor.hub_id, 7);
     assert_eq!(via_ctor.asset, asset);
     assert_eq!(via_ctor.max_borrow_rate, model.max_borrow_rate);
     assert_eq!(via_ctor.base_borrow_rate, model.base_borrow_rate);
@@ -256,7 +262,12 @@ fn update_market_params_event_from_rate_model_is_flat() {
 fn create_market_event_carries_hub_id() {
     let env = Env::default();
     let asset = dummy_address(&env);
-    let ev = CreateMarketEvent::from_params(2, asset.clone(), asset.clone(), &sample_market_params(&asset));
+    let ev = CreateMarketEvent::from_params(
+        2,
+        asset.clone(),
+        asset.clone(),
+        &sample_market_params(&asset),
+    );
     assert_eq!(ev.hub_id, 2);
 }
 

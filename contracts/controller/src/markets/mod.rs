@@ -64,7 +64,7 @@ pub(crate) fn upgrade_liquidity_pool_params(
 
     pool_update_params_call(env, &pool_addr, hub_asset, params);
 
-    UpdateMarketParamsEvent::from((hub_asset.asset.clone(), params)).publish(env);
+    UpdateMarketParamsEvent::from((hub_asset.hub_id, hub_asset.asset.clone(), params)).publish(env);
 }
 
 pub(crate) fn upgrade_pool(env: &Env, new_wasm_hash: BytesN<32>) {
