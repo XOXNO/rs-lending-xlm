@@ -75,12 +75,5 @@ pub(crate) fn withdraw_and_swap_from_supply(
         },
     );
 
-    swap_tokens_or_passthrough(
-        env,
-        caller,
-        &from.asset,
-        actual_withdrawn,
-        token_out,
-        swap,
-    )
+    swap_tokens_or_passthrough(env, caller, &from.asset, actual_withdrawn, token_out, swap)
 }

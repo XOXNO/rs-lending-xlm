@@ -81,12 +81,8 @@ pub(crate) fn blend_repay_all(
 fn guarded_submit(env: &Env, blend_pool: &Address, from: &Address, requests: &Vec<BlendRequest>) {
     storage::with_flash_guard(env, || {
         let controller = env.current_contract_address();
-        let _ = BlendPoolClient::new(env, blend_pool).submit(
-            from,
-            &controller,
-            &controller,
-            requests,
-        );
+        let _ =
+            BlendPoolClient::new(env, blend_pool).submit(from, &controller, &controller, requests);
     });
 }
 

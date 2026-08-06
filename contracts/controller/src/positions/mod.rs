@@ -323,13 +323,7 @@ pub(crate) fn require_can_supply(
     // Unlisted assets revert `AssetNotInSpoke`.
     let asset_config = cache.require_listed_active_config(spoke_id, hub_asset);
     // New entries: frozen blocks; paused blocks every verb.
-    enforce_spoke_asset_flags(
-        env,
-        cache,
-        spoke_id,
-        hub_asset,
-        FreezePolicy::BlockOnEntry,
-    );
+    enforce_spoke_asset_flags(env, cache, spoke_id, hub_asset, FreezePolicy::BlockOnEntry);
     assert_with_error!(
         env,
         asset_config.can_supply(),
@@ -357,8 +351,7 @@ pub(crate) fn validate_position_entry_gates(
                 // TODO: Use Cache to cache hub ID storage and avoid a loop of reads if that ID was fetched and status checked once
                 config::require_hub_active(env, hub_asset.hub_id);
                 // Unlisted assets revert `AssetNotInSpoke`.
-                let asset_config =
-                    cache.require_listed_active_config(account.spoke_id, &hub_asset);
+                let asset_config = cache.require_listed_active_config(account.spoke_id, &hub_asset);
                 // New entries: frozen blocks; paused blocks every verb.
                 enforce_spoke_asset_flags(
                     env,

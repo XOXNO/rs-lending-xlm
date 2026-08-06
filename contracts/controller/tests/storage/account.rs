@@ -137,9 +137,7 @@ fn sample_debt_map(env: &Env) -> Map<HubAssetKey, DebtPositionRaw> {
             hub_id: 0,
             asset: Address::generate(env),
         },
-        DebtPositionRaw {
-            scaled_amount: 500,
-        },
+        DebtPositionRaw { scaled_amount: 500 },
     );
     map
 }

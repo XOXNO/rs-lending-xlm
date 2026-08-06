@@ -107,11 +107,7 @@ pub(crate) fn require_owner_or_delegate(
 /// [`GenericError::AccountNotInMarket`]. Non-owners intentionally use the same
 /// error (not [`GenericError::NotAuthorized`]) so owner-only entrypoints do not
 /// distinguish existence from ownership.
-pub(crate) fn require_account_owner(
-    env: &Env,
-    account_id: u64,
-    caller: &Address,
-) -> AccountMeta {
+pub(crate) fn require_account_owner(env: &Env, account_id: u64, caller: &Address) -> AccountMeta {
     let meta = storage::get_account_meta(env, account_id);
     assert_with_error!(env, meta.owner == *caller, GenericError::AccountNotInMarket);
     meta
