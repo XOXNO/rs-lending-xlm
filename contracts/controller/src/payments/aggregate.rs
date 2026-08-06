@@ -52,19 +52,23 @@ fn aggregate_payment_amount(
     amount: i128,
     zero_leg: ZeroLeg,
 ) -> i128 {
-    let zero_means_all = zero_leg == ZeroLeg::MeansAll;
-    if amount < 0 || (!zero_means_all && amount == 0) {
+    // Negative is always fatal and must run before sticky-zero arms.
+    // Otherwise MeansAll + previous==Some(0) would swallow negatives as 0.
+    if amount < 0 {
         panic_with_error!(env, GenericError::AmountMustBePositive);
     }
 
-    if zero_means_all && (amount == 0 || previous == Some(0)) {
-        return 0;
+    match (zero_leg, amount, previous) {
+        (ZeroLeg::Rejected, 0, _) => {
+            panic_with_error!(env, GenericError::AmountMustBePositive);
+        }
+        // Withdraw-all sentinel, and sticky zero once a MeansAll total is 0.
+        (ZeroLeg::MeansAll, 0, _) | (ZeroLeg::MeansAll, _, Some(0)) => 0,
+        (_, amount, previous) => previous
+            .unwrap_or(0)
+            .checked_add(amount)
+            .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow)),
     }
-
-    previous
-        .unwrap_or(0)
-        .checked_add(amount)
-        .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow))
 }
 
 #[cfg(test)]
