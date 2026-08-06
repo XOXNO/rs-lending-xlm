@@ -307,3 +307,63 @@ fn combined_static_and_referral_fee_cannot_exceed_the_cap() {
         Error::FeeTooHigh.into()
     );
 }
+
+/// A combined fee landing exactly on the cap is allowed, not rejected.
+///
+/// `apply_fees_on_token` rejects with `FeeTooHigh` when
+/// `combined_bps > FEE_CAP`. The neighbouring test only exercises 1200 bps,
+/// comfortably above the 1000 bps cap, so nothing pins the boundary itself.
+///
+/// Break this catches: that `>` becoming `>=`, which would reject a fee
+/// configuration sitting exactly at the documented maximum. Surfaced as a
+/// surviving mutant by `make mutants-swap-aggregator`
+/// (lib.rs:307 `replace > with >= in apply_fees_on_token`).
+#[test]
+fn combined_fee_exactly_at_the_cap_is_charged_not_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let router_addr = env.register(Router, (admin.clone(),));
+    let router = RouterClient::new(&env, &router_addr);
+
+    // 500 + 500 == FEE_CAP (1000 bps).
+    router.set_static_fee(&500);
+    let referral_owner = Address::generate(&env);
+    let id = router.add_referral(&referral_owner, &500);
+
+    let sender = Address::generate(&env);
+    let (token_a, sac_a) = new_asset(&env, &admin);
+    let (token_b, sac_b) = new_asset(&env, &admin);
+    let pool = env.register(aquarius_mock::AqPool, ());
+    aquarius_mock::AqPoolClient::new(&env, &pool).init(&token_a, &token_b);
+    sac_a.mint(&sender, &1_000);
+    sac_b.mint(&pool, &1_000);
+
+    let xdr = strategy_xdr_with_referral(
+        &env,
+        token_a.clone(),
+        token_b.clone(),
+        1,
+        vec![
+            &env,
+            one_hop_path(
+                &env,
+                SwapVenue::Aquarius,
+                pool,
+                token_a.clone(),
+                token_b.clone(),
+                1_000_000,
+            ),
+        ],
+        id,
+    );
+
+    let out = router.execute_strategy(&sender, &1_000, &xdr);
+
+    // 1:1 fill of 1000, less 5% static and 5% referral.
+    // With no whitelist configured the fee is taken on the input token: 5%
+    // static + 5% referral of 1000, leaving 900 to swap at the mock's 1:1 rate.
+    assert_eq!(out, 900);
+    assert_eq!(router.admin_fee_balance(&token_a), 50);
+    assert_eq!(router.referral_fee_balance(&id, &token_a), 50);
+}

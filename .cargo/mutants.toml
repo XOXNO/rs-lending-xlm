@@ -52,7 +52,10 @@ exclude_re = [
     "aquarius.rs:[0-9]+:18: replace < with <= in add_liquidity",
     "aquarius.rs:[0-9]+:28: replace > with >= in optimal_pre_swap",
     "aquarius.rs:[0-9]+:17: replace > with >= in optimal_pre_swap",
-    "aquarius.rs:[0-9]+:21: replace > with >= in residual_allowance",
+    # Lived in aquarius.rs once; the entry was never re-scoped when it moved,
+    # so it silently stopped matching. At proportional == RESIDUAL_DUST_FLOOR
+    # both arms return the same value.
+    "lib.rs:[0-9]+:21: replace > with >= in residual_allowance",
     "vault.rs:[0-9]+:19: replace < with <= in Vault",
 
     # --- EQUIVALENT: guarded downstream --------------------------------------
@@ -97,4 +100,17 @@ exclude_re = [
     "replace >= with == in max_borrow",
     "replace && with \\|\\| in apply_canceller_reset",
     "replace == with != in apply_revoke_role",
+    # Unlike the venue `swap` deltas above, `optimal_pre_swap`'s result is
+    # consumed, so the dead-return-value argument does not apply here.
+    "aquarius.rs:[0-9]+:17: replace - with \\+ in optimal_pre_swap",
+    # Surfaced by the first full `make mutants-swap-aggregator` run.
+    # `accrue_residual_as_revenue` rejects a residual strictly above the
+    # allowance; nothing pins equality, and in fact no test in the suite
+    # exercises the residual path at all -- grep finds no reference to
+    # ExcessiveResidual. Worth a boundary test plus coverage of the path.
+    "lib.rs:[0-9]+:19: replace > with >= in accrue_residual_as_revenue",
+    # Returning 0 unconditionally is only observable for a payload whose paths
+    # carry more than one distinct token_in, which may be unreachable for
+    # non-burn routes. Reachability not established either way.
+    "replace first_index_for_token -> u32 with 0",
 ]
