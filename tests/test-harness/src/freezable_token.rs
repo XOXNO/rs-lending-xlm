@@ -5,6 +5,7 @@ enum Key {
     Balance(Address),
     Allowance(Address, Address),
     Blocked,
+    Decimals,
 }
 
 #[contract]
@@ -28,8 +29,12 @@ impl FreezableToken {
         read_balance(&env, &id)
     }
 
-    pub fn decimals(_env: Env) -> u32 {
-        7
+    pub fn set_decimals(env: Env, decimals: u32) {
+        env.storage().instance().set(&Key::Decimals, &decimals);
+    }
+
+    pub fn decimals(env: Env) -> u32 {
+        env.storage().instance().get(&Key::Decimals).unwrap_or(7)
     }
 
     pub fn name(env: Env) -> String {

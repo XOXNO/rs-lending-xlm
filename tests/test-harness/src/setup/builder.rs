@@ -251,8 +251,12 @@ impl LendingTestBuilder {
         let mut markets = HashMap::new();
 
         for pm in &self.pending_markets {
-            let asset_address = if pm.freezable {
-                env.register(crate::freezable_token::FreezableToken, ())
+            let needs_mock_token = pm.freezable || pm.decimals != 7;
+            let asset_address = if needs_mock_token {
+                let addr = env.register(crate::freezable_token::FreezableToken, ());
+                crate::freezable_token::FreezableTokenClient::new(&env, &addr)
+                    .set_decimals(&pm.decimals);
+                addr
             } else {
                 env.register_stellar_asset_contract_v2(admin.clone())
                     .address()
@@ -261,7 +265,11 @@ impl LendingTestBuilder {
             let token_admin = token::StellarAssetClient::new(&env, &asset_address);
 
             let token_decimals = token::Client::new(&env, &asset_address).decimals();
-            let _ = pm.decimals;
+            assert_eq!(
+                token_decimals, pm.decimals,
+                "market '{}' declares {} decimals but its token reports {}",
+                pm.name, pm.decimals, token_decimals
+            );
             let market_decimals = token_decimals;
 
             let mut market_params = pm.params.to_market_params(&asset_address, market_decimals);
@@ -288,6 +296,7 @@ impl LendingTestBuilder {
                     HARNESS_HUB,
                     asset_address.clone(),
                     HARNESS_SPOKE,
+                    market_decimals,
                 )),
             );
 

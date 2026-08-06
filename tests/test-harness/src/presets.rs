@@ -10,7 +10,11 @@ pub const EVE: &str = "eve";
 pub const LIQUIDATOR: &str = "liquidator";
 pub const KEEPER_USER: &str = "keeper";
 
-pub const UNCONSTRAINED_TEST_CAP: i128 = 100_000_000_000_000;
+pub const UNCONSTRAINED_TEST_CAP: i128 = unconstrained_test_cap(7);
+
+pub const fn unconstrained_test_cap(decimals: u32) -> i128 {
+    10_000_000 * 10i128.pow(decimals)
+}
 
 pub struct MarketPreset {
     pub name: &'static str,
@@ -162,6 +166,7 @@ impl AssetConfigPreset {
         hub_id: u32,
         asset: soroban_sdk::Address,
         spoke_id: u32,
+        decimals: u32,
     ) -> controller::types::SpokeAssetArgs {
         controller::types::SpokeAssetArgs {
             hub_id,
@@ -175,8 +180,8 @@ impl AssetConfigPreset {
             threshold: self.liquidation_threshold,
             bonus: self.liquidation_bonus,
             liquidation_fees: self.liquidation_fees,
-            supply_cap: UNCONSTRAINED_TEST_CAP,
-            borrow_cap: UNCONSTRAINED_TEST_CAP,
+            supply_cap: unconstrained_test_cap(decimals),
+            borrow_cap: unconstrained_test_cap(decimals),
         }
     }
 }
