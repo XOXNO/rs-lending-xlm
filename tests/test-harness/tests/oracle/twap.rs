@@ -32,7 +32,6 @@ fn configure_rejects_twap_window_larger_than_max_stale() {
     t.configure_market_oracle(&usdc, &cfg);
 }
 
-/// Reads `asset` through the aggregator, flattening to a contract error.
 fn try_price(t: &LendingTest, asset: &soroban_sdk::Address) -> Result<(), soroban_sdk::Error> {
     t.price_agg_client()
         .try_price(&controller::types::PriceKey::Token(asset.clone()))

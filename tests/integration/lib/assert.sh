@@ -1,9 +1,3 @@
-
-
-
-
-
-
 _view_int() {
   view "$1" "$CONTROLLER" -- "${@:2}" | tr -d '"' | tr -d '[:space:]'
 }
@@ -12,18 +6,12 @@ _view_pool_int() {
   view "$1" "$POOL" -- "${@:2}" | tr -d '"' | tr -d '[:space:]'
 }
 
-
 _assert_fail() {
   local label="$1" msg="$2"
   log "ASSERT FAIL [$label]: $msg"
   record "$label" FAIL assert "" "" "" "" "" "$msg"
   return 1
 }
-
-
-
-
-
 
 _strip0() {
   local s="$1"
@@ -39,21 +27,11 @@ _uint_ge() {
 }
 _uint_lt() {
 
-
-
   _is_uint "$1" && _is_uint "$2" || return 1
   ! _uint_ge "$1" "$2"
 }
 _uint_le() { _uint_ge "$2" "$1"; }
 _str_eq() { [ "$1" = "$2" ]; }
-
-
-
-
-
-
-
-
 
 _retry_until() {
   local reader="$1" cmp="$2" bound="$3" label="$4"; shift 4
@@ -74,7 +52,6 @@ assert_bool_view() {
   actual=$(_retry_until _view_int _str_eq "$expected" "$label" "$@") \
     || _assert_fail "$label" "got '$actual', want '$expected'"
 }
-
 
 assert_int_view_eq() {
   local label="$1" expected="$2"
@@ -124,8 +101,6 @@ assert_can_liquidated() {
   assert_bool_view "$label" "$expected" is_liquidatable --account_id "$acct"
 }
 
-
-
 assert_int_view_positive() {
   local label="$1"; shift
   local v
@@ -139,10 +114,6 @@ assert_int_view_nonneg() {
   v=$(_view_int "$label" "$@")
   [[ "$v" =~ ^[0-9]+$ ]] || _assert_fail "$label" "got '$v' want non-negative int"
 }
-
-
-
-
 
 assert_market_field() {
   local label="$1" asset="$2" field="$3" expected="$4"

@@ -1,4 +1,3 @@
-
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -253,8 +252,7 @@ mod tests {
     #[test]
     fn cap_families_document_zero_as_closed_not_uncapped() {
         let m = Metrics::new().unwrap();
-        // Gauges only reach `gather()` once a child exists, so touch the four
-        // cap-related families whose help text carries the semantics.
+
         m.spoke_supply_cap.with_label_values(&SAMPLE_SPOKE_ASSET).set(0.0);
         m.spoke_borrow_cap.with_label_values(&SAMPLE_SPOKE_ASSET).set(0.0);
         m.spoke_supply_closed.with_label_values(&SAMPLE_SPOKE_ASSET).set(1.0);
@@ -277,7 +275,6 @@ mod tests {
         assert!(help("lending_spoke_supply_closed").contains("supply cap is 0"));
         assert!(help("lending_spoke_borrow_closed").contains("borrow cap is 0"));
 
-        // The sentinel is gone from the protocol; no help text may resurrect it.
         for f in &families {
             let h = f.get_help();
             assert!(

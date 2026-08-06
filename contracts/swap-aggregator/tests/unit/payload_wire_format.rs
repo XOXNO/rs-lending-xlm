@@ -4,12 +4,6 @@ use soroban_sdk::{Address, Env, Vec as SVec};
 
 use crate::types::StrategyPayload;
 
-/// Pins the `StrategyPayload` wire format.
-///
-/// Off-chain encoders build this `ScMap` by hand and Soroban requires map keys
-/// in sorted order, so a producer that emits a different order — or omits a
-/// field — fails to decode. Adding or renaming a field is a breaking change for
-/// every producer, and this test is where that shows up.
 #[test]
 fn payload_wire_format_is_stable() {
     let env = Env::default();

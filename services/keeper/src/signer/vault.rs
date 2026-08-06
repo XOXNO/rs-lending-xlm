@@ -1,4 +1,3 @@
-
 use anyhow::{anyhow, Context, Result};
 use mx_keyvault::KeyVaultClient;
 use tracing::info;

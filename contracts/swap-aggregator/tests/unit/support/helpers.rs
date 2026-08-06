@@ -66,7 +66,6 @@ pub(crate) fn strategy_xdr_with_referral(
     .to_xdr(env)
 }
 
-/// Payload with an LP burn leg, a mint leg, or both.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn lp_strategy_xdr(
     env: &Env,

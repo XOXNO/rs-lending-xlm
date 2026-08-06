@@ -488,7 +488,6 @@ enum AquaKey {
     Amp,
 }
 
-/// Minimal Aquarius pool exposing the views the oracle binds to.
 #[contract]
 pub(crate) struct MockAquariusPool;
 
@@ -578,7 +577,6 @@ impl MockAquariusPool {
     }
 }
 
-/// Aquarius pools-plane mirror: `(kind, params, reserves)` per requested pool.
 #[contract]
 pub(crate) struct MockAquariusPlane;
 
@@ -614,8 +612,6 @@ impl MockAquariusPlane {
     }
 }
 
-/// Mirrors the live Reflector contract: `records` periods back means the current
-/// period plus that many historical ones, newest first, one resolution apart.
 #[contract]
 pub(crate) struct PlusOneReflector;
 

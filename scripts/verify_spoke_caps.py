@@ -52,24 +52,20 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIGS = os.path.join(REPO_ROOT, "configs")
 
 I128_MAX = (1 << 127) - 1
-RAY_DECIMALS = 27  # common/src/constants.rs
+RAY_DECIMALS = 27
 RAY = 10 ** RAY_DECIMALS
-# Bad-debt socialization floors the supply index here (common/src/constants/pool.rs).
+
 SUPPLY_INDEX_FLOOR_RAW = RAY // 1_000
 
-# Any account works: simulation never checks the source's balance or signature.
 READONLY_SOURCE = "GDBBOILYIJBSUQKC3Z3USAW3DGPFHIGVKYA5T4ZUZBO56HBUPHJEN3FV"
 
-ERR_ASSET_NOT_IN_SPOKE = 307  # SpokeError::AssetNotInSpoke
-ERR_SPOKE_NOT_FOUND = 300  # SpokeError::SpokeNotFound
+ERR_ASSET_NOT_IN_SPOKE = 307
+ERR_SPOKE_NOT_FOUND = 300
 
-# How far past the highest configured spoke id to probe for unknown live spokes.
 SPOKE_PROBE_MARGIN = 3
-
 
 class QueryError(RuntimeError):
     """A read query failed for a reason other than a clean contract error."""
-
 
 def cap_ceiling(asset_decimals: int) -> int:
     """Largest cap `Ray::from_asset` can rescale without overflowing i128.
@@ -81,7 +77,6 @@ def cap_ceiling(asset_decimals: int) -> int:
     if asset_decimals > RAY_DECIMALS:
         raise ValueError(f"asset_decimals {asset_decimals} exceeds RAY_DECIMALS")
     return I128_MAX // 10 ** (RAY_DECIMALS - asset_decimals)
-
 
 def invoke(contract, rpc, passphrase, fn, args, timeout=120):
     """Simulate a view call. Returns (parsed_json, contract_error_code)."""
@@ -117,7 +112,6 @@ def invoke(contract, rpc, passphrase, fn, args, timeout=120):
     except json.JSONDecodeError as exc:
         raise QueryError(f"{fn} returned non-JSON: {out.stdout.strip()[:200]}") from exc
 
-
 def parse_contract_error(stderr: str):
     """Extract N from `HostError: Error(Contract, #N)`, else None."""
     marker = "Error(Contract, #"
@@ -133,11 +127,9 @@ def parse_contract_error(stderr: str):
             break
     return int(digits) if digits else None
 
-
 def load_json(path):
     with open(path, encoding="utf-8") as handle:
         return json.load(handle)
-
 
 def load_network(network):
     networks = load_json(os.path.join(CONFIGS, "networks.json"))
@@ -147,7 +139,6 @@ def load_network(network):
     if not net.get("controller"):
         return None, net
     return net["controller"], net
-
 
 def load_markets(network):
     """asset name -> {hub_id, address, config_decimals}."""
@@ -160,7 +151,6 @@ def load_markets(network):
             "config_decimals": entry.get("oracle", {}).get("asset_decimals"),
         }
     return markets
-
 
 def load_spokes(network):
     """spoke id (int) -> {name, assets: {asset name -> config}}."""
@@ -175,7 +165,6 @@ def load_spokes(network):
         }
     return spokes
 
-
 def cfg_cap(asset_cfg, key):
     """Checked-in cap as int, or None when the key is absent entirely.
 
@@ -185,7 +174,6 @@ def cfg_cap(asset_cfg, key):
     if key not in asset_cfg:
         return None
     return int(asset_cfg[key])
-
 
 class Auditor:
     def __init__(self, network, verbose=True, rpc_url=None, controller=None):
@@ -275,7 +263,6 @@ class Auditor:
         for spoke_id in self.discover_spokes():
             self.audit_spoke(spoke_id)
 
-        # Config lists a spoke that does not exist on-chain.
         live_ids = {row["spoke_id"] for row in self.rows}
         for spoke_id in self.spokes:
             if spoke_id not in live_ids and not any(
@@ -331,8 +318,6 @@ class Auditor:
                 )
             self.rows.append(self.evaluate(spoke_id, name, market, live, cfg_assets.get(name, {})))
 
-        # Same asset name may map to one address under two hub ids; `seen` keys on
-        # name, so only report config entries whose asset never resolved at all.
         for name in cfg_assets:
             if name not in seen and name not in self.markets:
                 self.divergences.append(
@@ -378,19 +363,19 @@ class Auditor:
             ("supply", supply_cap, "is_collateralizable", live["is_collateralizable"]),
             ("borrow", borrow_cap, "is_borrowable", live["is_borrowable"]),
         ):
-            # Check 1 -- the sentinel that used to mean "unlimited".
+
             if cap == I128_MAX:
                 row["blockers"].append(
                     f"{side}_cap == i128::MAX; enforcement will panic in "
                     "Ray::from_asset and brick this market"
                 )
-            # Check 2 -- domain ceiling.
+
             elif ceiling is not None and cap > ceiling:
                 row["blockers"].append(
                     f"{side}_cap {cap} exceeds the {decimals}-decimal ceiling {ceiling}; "
                     "Ray::from_asset will overflow and panic"
                 )
-            # Check 3 -- a zero cap is legal but closes the market.
+
             if cap == 0:
                 if flag:
                     row["warnings"].append(
@@ -431,7 +416,6 @@ class Auditor:
                     f"spoke {spoke_id} / {name}: {flag} live={row[flag]} config={cfg[key]}"
                 )
 
-
 def scan_config_events(auditor, lookback=119000):
     """Cross-check the asset set against live `config/spoke_asset` events.
 
@@ -455,7 +439,7 @@ def scan_config_events(auditor, lookback=119000):
             capture_output=True, text=True, timeout=60,
         )
         sequence = json.loads(latest.stdout)["result"]["sequence"]
-    except Exception as exc:  # noqa: BLE001 -- any failure means "cannot scan"
+    except Exception as exc:
         auditor.query_failures.append(f"event scan: could not read latest ledger ({exc})")
         return
 
@@ -471,7 +455,7 @@ def scan_config_events(auditor, lookback=119000):
     ]
     try:
         out = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         auditor.query_failures.append(f"event scan: {exc}")
         return
     if out.returncode != 0:
@@ -503,7 +487,6 @@ def scan_config_events(auditor, lookback=119000):
                 f"asset {asset}, which is absent from configs/{auditor.network}/markets.json -- "
                 "the probe loop could not have covered it"
             )
-
 
 def config_audit(network):
     """Static lint of the checked-in JSON. NOT evidence about on-chain state.
@@ -555,7 +538,6 @@ def config_audit(network):
     ok = not problems
     print(f"{network} config audit: {'PASS' if ok else 'FAIL'} (config only, not live)")
     return ok
-
 
 def render(auditor):
     print(f"\n=== {auditor.network} ===")
@@ -609,7 +591,6 @@ def render(auditor):
     ok = not blockers and not auditor.query_failures
     print(f"\n{auditor.network}: {'PASS' if ok else 'FAIL'}")
     return ok
-
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
@@ -670,7 +651,6 @@ def main():
 
     print(f"\nOVERALL: {'PASS' if overall else 'FAIL'}")
     return 0 if overall else 1
-
 
 if __name__ == "__main__":
     sys.exit(main())

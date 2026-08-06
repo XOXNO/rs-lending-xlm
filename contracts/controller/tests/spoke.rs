@@ -156,9 +156,6 @@ fn usage_borrow_decrement_below_zero_panics() {
     });
 }
 
-/// A cap of `0` means the market accepts nothing on that side, so any
-/// positive entry must be rejected. Previously `0` was an "unlimited"
-/// sentinel and this entry was waved through.
 #[test]
 #[should_panic(expected = "Error(Contract, #311)")]
 fn zero_supply_cap_rejects_entry() {
@@ -199,10 +196,6 @@ fn zero_borrow_cap_rejects_entry() {
     });
 }
 
-/// A cap at the config-time ceiling must not brick the market once bad-debt
-/// socialisation floors the supply index. `cap_to_scaled` saturates instead of
-/// overflowing, so the cap simply stops binding rather than panicking with
-/// MathOverflow on every supply.
 #[test]
 fn ceiling_cap_saturates_instead_of_panicking_at_the_index_floor() {
     let env = Env::default();

@@ -1,4 +1,3 @@
-
 use anyhow::{anyhow, Result};
 use stellar_xdr::curr::ScVal;
 
@@ -89,11 +88,7 @@ pub fn decode_spoke_asset(value: &ScVal) -> Result<SpokeAssetConfig> {
         liquidation_threshold_bps: field_u32(value, "liquidation_threshold").unwrap_or(0),
         liquidation_bonus_bps: field_u32(value, "liquidation_bonus").unwrap_or(0),
         liquidation_fees_bps: field_u32(value, "liquidation_fees").unwrap_or(0),
-        // Required, not defaulted: `SpokeAssetConfig` always carries both caps,
-        // and 0 is now the enforced "market closed" value rather than a benign
-        // "uncapped" default. Defaulting a missing field to 0 would publish a
-        // closed market that the chain never reported, so fail the decode and
-        // let the caller drop the row instead.
+
         supply_cap: field_i128(value, "supply_cap").ok_or_else(|| anyhow!("supply_cap missing"))?,
         borrow_cap: field_i128(value, "borrow_cap").ok_or_else(|| anyhow!("borrow_cap missing"))?,
     })
@@ -191,7 +186,7 @@ mod tests {
         assert!(cfg.is_collateralizable);
         assert!(cfg.paused);
         assert_eq!(cfg.loan_to_value_bps, 7500);
-        // 0 decodes as a real value: this side is closed, not uncapped.
+
         assert_eq!(cfg.borrow_cap, 0);
     }
 

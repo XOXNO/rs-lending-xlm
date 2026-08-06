@@ -1,4 +1,3 @@
-
 pub use test_harness::{eth_preset, usdc_preset, xlm_preset, LendingTest};
 
 pub fn build_min_context() -> LendingTest {

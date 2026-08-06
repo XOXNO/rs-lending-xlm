@@ -1,4 +1,3 @@
-
 pub mod mnemonic;
 pub mod vault;
 

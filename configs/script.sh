@@ -1,29 +1,6 @@
 #!/bin/bash
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 set -e
-
-
-
-
 
 NETWORK=${NETWORK:-testnet}
 SIGNER=${SIGNER:-deployer}
@@ -43,9 +20,6 @@ require_tool() {
     fi
 }
 
-
-
-
 die() {
     echo "ERROR: $*" >&2
     exit 1
@@ -54,7 +28,6 @@ die() {
 require_tool stellar
 require_tool jq
 
-
 SIGNER_ADDRESS=$(stellar keys public-key "$SIGNER" 2>/dev/null || stellar keys address "$SIGNER" 2>/dev/null || echo "$SIGNER")
 if [ "$SIGNER" = "ledger" ]; then
     SOURCE_FLAG="--source-account $SIGNER_ADDRESS --sign-with-ledger"
@@ -62,20 +35,10 @@ else
     SOURCE_FLAG="--source $SIGNER"
 fi
 
-
-
-
-
-
-
 _cfg_rpc=$(jq -r ".\"$NETWORK\".rpc_url // empty" "$NETWORKS_FILE" 2>/dev/null)
 _cfg_pass=$(jq -r ".\"$NETWORK\".network_passphrase // empty" "$NETWORKS_FILE" 2>/dev/null)
 if [ -n "$_cfg_rpc" ]; then export STELLAR_RPC_URL="$_cfg_rpc"; fi
 if [ -n "$_cfg_pass" ]; then export STELLAR_NETWORK_PASSPHRASE="$_cfg_pass"; fi
-
-
-
-
 
 get_network_value() {
     jq -r ".\"$NETWORK\".\"$1\"" "$NETWORKS_FILE"
@@ -124,9 +87,6 @@ get_spoke_value() {
     jq -r ".\"$category_id\"$path" "$SPOKES_FILE"
 }
 
-
-
-
 require_spoke_cap() {
     local category_id=$1
     local asset_name=$2
@@ -163,14 +123,9 @@ get_controller() {
     stellar contract alias show controller --network "$NETWORK" 2>/dev/null || get_network_value "controller"
 }
 
-
-
-
 get_governance() {
     stellar contract alias show governance --network "$NETWORK" 2>/dev/null || get_network_value "governance"
 }
-
-
 
 get_price_aggregator() {
     local gov addr
@@ -189,13 +144,9 @@ get_price_aggregator() {
         || get_network_value "price-aggregator"
 }
 
-
-
-
 get_pool() {
     get_network_value "pool"
 }
-
 
 get_aggregator_address() {
     local addr
@@ -210,8 +161,6 @@ get_aggregator_address() {
     echo "$addr"
 }
 
-
-
 get_accumulator_address() {
     local addr
     addr=$(jq -r ".\"$NETWORK\".accumulator // empty" "$NETWORKS_FILE")
@@ -225,15 +174,9 @@ get_accumulator_address() {
     echo "$addr"
 }
 
-
-
-
-
-
 get_cex_oracle() { get_network_value "reflector_cex_oracle"; }
 get_dex_oracle() { get_network_value "reflector_dex_oracle"; }
 get_fx_oracle()  { get_network_value "reflector_fx_oracle"; }
-
 
 get_oracle() { get_cex_oracle; }
 
@@ -251,7 +194,6 @@ get_signer_address() {
 
 invoke_view() {
 
-
     local output
     output=$(stellar contract invoke --id "$1" $SOURCE_FLAG --network "$NETWORK" --send=no -- "${@:2}")
     if command -v jq >/dev/null 2>&1 && printf '%s' "$output" | jq . >/dev/null 2>&1; then
@@ -265,46 +207,9 @@ get_contract_decimals() {
     invoke_view "$1" decimals | tail -n1
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 ZERO_PREDECESSOR_HEX="0000000000000000000000000000000000000000000000000000000000000000"
 
-
-
-
 OPS_DIR="$ROOT_DIR/configs/ops/$NETWORK"
-
-
-
 
 AWAIT_POLL_SECONDS=${AWAIT_POLL_SECONDS:-5}
 
@@ -318,17 +223,6 @@ ops_dir() {
 op_record_path() {
     echo "$(ops_dir)/$1.json"
 }
-
-
-
-
-
-
-
-
-
-
-
 
 gen_salt() {
     local function=$1
@@ -347,8 +241,6 @@ gen_salt() {
     echo "$hash"
 }
 
-
-
 scval_address() { jq -nc --arg v "$1" '{address:$v}'; }
 scval_symbol()  { jq -nc --arg v "$1" '{symbol:$v}'; }
 scval_bytes()   { jq -nc --arg v "$1" '{bytes:$v}'; }
@@ -361,8 +253,6 @@ scval_vec_u32() {
     jq -nc --argjson a "$1" '{vec: ($a | map({u32: .}))}'
 }
 
-
-
 scval_position_limits() {
 
     local j=$1
@@ -374,9 +264,6 @@ scval_position_limits() {
             {key:{symbol:"max_supply_positions"},val:{u32:$ms}}
         ]}'
 }
-
-
-
 
 scval_interest_rate_model() {
     local j=$1
@@ -396,10 +283,6 @@ scval_interest_rate_model() {
             i("slope3")
         ]}'
 }
-
-
-
-
 
 scval_market_params() {
     local j=$1
@@ -422,8 +305,6 @@ scval_market_params() {
         ]}'
 }
 
-
-
 scval_hub_asset() {
     local asset=$1 hub_id=$2
     if [ -z "$hub_id" ] || [ "$hub_id" = "null" ]; then
@@ -435,10 +316,6 @@ scval_hub_asset() {
             {key:{symbol:"hub_id"}, val:{u32:$h}}
         ]}'
 }
-
-
-
-
 
 scval_spoke_args() {
     local hub=$1 asset=$2 spoke=$3 cc=$4 cb=$5 ltv=$6 thr=$7 bonus=$8 sc=$9 bc=${10} lf=${11}
@@ -472,8 +349,6 @@ scval_spoke_args() {
         ]}'
 }
 
-
-
 friendly_spoke_args() {
     local hub=$1 asset=$2 spoke=$3 cc=$4 cb=$5 ltv=$6 thr=$7 bonus=$8 sc=$9 bc=${10} lf=${11}
     local paused=${12:-false} frozen=${13:-false}
@@ -489,18 +364,6 @@ friendly_spoke_args() {
           supply_cap:$sc, borrow_cap:$bc}'
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
 admin_op() {
     local variant=$1
     shift
@@ -514,8 +377,6 @@ admin_op() {
             '{($v): $fields}'
     fi
 }
-
-
 
 write_op_record() {
     local op_id=$1
@@ -547,10 +408,6 @@ write_op_record() {
     echo "  Recorded op $op_id -> $path" >&2
 }
 
-
-
-
-
 write_gov_self_op_record() {
     local op_id=$1
     local execute_label=$2
@@ -575,13 +432,6 @@ write_gov_self_op_record() {
           salt:$salt, op:$op, cli_executable:$cli_executable, executed:$executed}' > "$path"
     echo "  Recorded governance-self op $op_id -> $path" >&2
 }
-
-
-
-
-
-
-
 
 write_oracle_op_record() {
     local op_id=$1
@@ -613,16 +463,13 @@ write_oracle_op_record() {
     echo "  Recorded oracle op $op_id -> $path" >&2
 }
 
-
 price_key_token() {
     jq -nc --arg a "$1" '{Token:$a}'
 }
 
-
 price_key_ref() {
     jq -nc --arg s "$1" '{Ref:$s}'
 }
-
 
 oracle_cfg_cli_union() {
     jq -c '
@@ -646,8 +493,6 @@ oracle_cfg_cli_union() {
     '
 }
 
-
-
 mark_op_executed() {
     local op_id=$1
     local path
@@ -659,18 +504,6 @@ mark_op_executed() {
     tmp=$(mktemp)
     jq '.executed = true' "$path" > "$tmp" && mv "$tmp" "$path"
 }
-
-
-
-
-
-
-
-
-
-
-
-
 
 resolve_oracle_args_for() {
     local view_fn=$1 target=$2 function=$3 key_json=$4 payload=$5
@@ -747,37 +580,22 @@ resolve_oracle_op_args() {
     esac
 }
 
-
 parse_op_id() {
     printf '%s' "$1" | tail -n1 | tr -d '"' | tr -d '[:space:]'
 }
-
-
-
 
 parse_returned_u32() {
     printf '%s\n' "$1" | tail -n1 | tr -d '"' | grep -oE '[0-9]+' | tail -n1
 }
 
-
-
-
-
-
 RPC_RETRYABLE_RE='TxBadSeq|error sending request|tcp connect error|client error \(Connect\)|Connection refused|connection closed before message completed|dns error'
 STELLAR_TX_MAX_RETRIES=${STELLAR_TX_MAX_RETRIES:-4}
 STELLAR_TX_RETRY_DELAY=${STELLAR_TX_RETRY_DELAY:-4}
-
-
-
-
 
 retry_tx() {
     local attempt=1 out rc errfile
     errfile=$(mktemp)
     while :; do
-
-
 
         out=$("$@" 2>"$errfile") && rc=0 || rc=$?
         if [ "$rc" -eq 0 ]; then
@@ -799,12 +617,6 @@ retry_tx() {
     done
 }
 
-
-
-
-
-
-
 precomputed_op_id() {
     local target=$1
     local function=$2
@@ -825,10 +637,6 @@ precomputed_op_id() {
     echo "$op_id"
 }
 
-
-
-
-
 salt_generation() {
     local base=$1
     local n=$2
@@ -844,12 +652,6 @@ salt_generation() {
 }
 
 MAX_SALT_GENERATIONS=${MAX_SALT_GENERATIONS:-16}
-
-
-
-
-
-
 
 probe_salt_generations() {
     local target=$1
@@ -874,25 +676,6 @@ probe_salt_generations() {
     printf '%s %s %s %s\n' "$base" "-" "Exhausted" "$n"
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 schedule_via_proposer() {
     local controller_fn=$1; shift
     local admin_op_json=$1; shift
@@ -911,7 +694,6 @@ schedule_via_proposer() {
     case "$state" in
         Ready|Waiting)
             echo "Op ${known_id} (${controller_fn}) already ${state}; reusing it instead of re-proposing." >&2
-
 
             write_op_record "$known_id" "$controller_fn" "$args_json" "$salt_use" "$cli_executable"
             echo "$known_id"
@@ -936,7 +718,6 @@ schedule_via_proposer() {
             fi
             ;;
         *)
-
 
             ;;
     esac
@@ -963,16 +744,6 @@ schedule_via_proposer() {
     echo "Scheduled op ${op_id} (function ${controller_fn})." >&2
     echo "$op_id"
 }
-
-
-
-
-
-
-
-
-
-
 
 schedule_via_gov_self_proposer() {
     local execute_label=$1; shift
@@ -1076,9 +847,6 @@ op_ready_ledger() {
         -- get_operation_ledger --operation_id "$op_id" | tr -d '"' | tr -d '[:space:]'
 }
 
-
-
-
 op_state() {
     local op_id=$1
     local gov state
@@ -1095,8 +863,6 @@ op_state() {
     fi
     echo "$state"
 }
-
-
 
 await_op_ready() {
     local op_id=$1
@@ -1128,8 +894,6 @@ await_op_ready() {
                     exit 1
                 fi
 
-
-
                 sleep_s=$AWAIT_POLL_SECONDS
                 if [ -n "$ready_ledger" ] && [ -n "$current" ] && [ "$ready_ledger" -gt "$current" ] 2>/dev/null; then
                     sleep_s=$(( (ready_ledger - current) * 6 / 2 ))
@@ -1140,8 +904,6 @@ await_op_ready() {
                 sleep "$sleep_s"
                 ;;
             Unset)
-
-
 
                 unset_seen=$(( unset_seen + 1 ))
                 if [ "$unset_seen" -ge "${UNSET_MAX_POLLS:-6}" ]; then
@@ -1156,9 +918,6 @@ await_op_ready() {
     done
 }
 
-
-
-
 execute_gov_self_op() {
     local op_id=$1
     local path
@@ -1172,7 +931,6 @@ execute_gov_self_op() {
     op_file=$(mktemp)
     jq -c '.op' "$path" > "$op_file"
 
-
     retry_tx stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
         -- execute_self \
         --executor null \
@@ -1182,8 +940,6 @@ execute_gov_self_op() {
     mark_op_executed "$op_id"
     echo "Executed governance-self op ${op_id}." >&2
 }
-
-
 
 execute_op() {
     local op_id=$1
@@ -1216,8 +972,6 @@ execute_op() {
     predecessor=$(jq -r '.predecessor' "$path")
     salt=$(jq -r '.salt' "$path")
 
-
-
     if [ "$(jq -r 'has("resolve")' "$path")" = "true" ]; then
         args_json=$(resolve_oracle_op_args "$path")
         if [ -z "$args_json" ] || [ "$args_json" = "null" ]; then
@@ -1232,8 +986,6 @@ execute_op() {
     args_file=$(mktemp)
     printf '%s' "$args_json" > "$args_file"
 
-
-
     retry_tx stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
         -- execute \
         --executor null \
@@ -1246,7 +998,6 @@ execute_op() {
     mark_op_executed "$op_id"
     echo "Executed op ${op_id}." >&2
 }
-
 
 cancel_op() {
     local op_id=$1
@@ -1261,9 +1012,6 @@ cancel_op() {
     rm -f "$(op_record_path "$op_id")"
     echo "Cancelled op ${op_id}." >&2
 }
-
-
-
 
 list_ops() {
     local dir="$OPS_DIR"
@@ -1294,8 +1042,6 @@ list_ops() {
     fi
 }
 
-
-
 execute_ready_ops() {
     local dir="$OPS_DIR"
     if [ ! -d "$dir" ] || ! ls "$dir"/*.json >/dev/null 2>&1; then
@@ -1316,9 +1062,6 @@ execute_ready_ops() {
     fi
 }
 
-
-
-
 schedule_and_maybe_execute() {
     local op_id=$1
     if [ "${AUTO_EXECUTE:-1}" != "1" ]; then
@@ -1335,22 +1078,12 @@ schedule_and_maybe_execute() {
 
 require_static_config
 
-
-
-
-
-
-
-
-
-
 validate_configs() {
     local errors=0 warnings=0
     vc_err() { echo "ERROR: $*" >&2; errors=$(( errors + 1 )); }
     vc_warn() { echo "WARN:  $*" >&2; warnings=$(( warnings + 1 )); }
 
     echo "=== Validating ${NETWORK} configs ===" >&2
-
 
     local f v
     for f in rpc_url network_passphrase timelock_min_delay_ledgers; do
@@ -1360,14 +1093,12 @@ validate_configs() {
         fi
     done
 
-
     local cex dex fx redstone xoxno_adapter
     cex=$(get_cex_oracle)
     dex=$(get_dex_oracle)
     fx=$(get_fx_oracle)
     redstone=$(get_redstone_adapter)
     xoxno_adapter=$(get_xoxno_oracle_adapter)
-
 
     local dup
     dup=$(jq -r '[.markets[].name] | group_by(.) | map(select(length > 1) | .[0]) | join(", ")' "$MARKET_CONFIG_FILE")
@@ -1378,10 +1109,6 @@ validate_configs() {
     if [ -n "$dup" ]; then
         vc_err "duplicate (hub_id, asset_address) pairs: ${dup}"
     fi
-
-
-
-
 
     local oracle_bot_heartbeat_seconds=3600
     local m mj hub addr missing o strat anchor_tag minw maxw ptag pcontract atag acontract pstale astale
@@ -1398,7 +1125,6 @@ validate_configs() {
         if ! printf '%s' "$addr" | grep -qE '^C[A-Z2-7]{55}$'; then
             vc_err "market ${m}: asset_address '${addr}' is not a contract strkey"
         fi
-
 
         missing=$(printf '%s' "$mj" | jq -r '[(.market_params // {}) |
             {max_borrow_rate, base_borrow_rate, slope1, slope2, slope3, mid_utilization,
@@ -1418,13 +1144,6 @@ validate_configs() {
             vc_err "market ${m}: reserve_factor out of [0, 10000] bps"
         fi
 
-
-
-
-
-
-
-
         if ! printf '%s' "$mj" | jq -e '(.market_params.flashloan_fee // 0) <= 500' >/dev/null; then
             vc_err "market ${m}: flashloan_fee > 500 bps (MAX_FLASHLOAN_FEE_BPS)"
         fi
@@ -1432,7 +1151,6 @@ validate_configs() {
             (.market_params.is_flashloanable | type) == "boolean"' >/dev/null; then
             vc_err "market ${m}: market_params.is_flashloanable must be a boolean"
         fi
-
 
         o=$(printf '%s' "$mj" | jq -c '.oracle // {}')
         if ! printf '%s' "$o" | jq -e '(.sources | type) == "array" and ((.sources | length) == 1 or (.sources | length) == 2)' >/dev/null; then
@@ -1471,9 +1189,6 @@ validate_configs() {
         elif ! jq -ne --arg a "$minw" --arg b "$maxw" '($a | tonumber) < ($b | tonumber)' >/dev/null; then
             vc_err "market ${m}: min_sanity_price_wad >= max_sanity_price_wad"
         fi
-
-
-
 
         local nsrc i sjson pkind pcontract fstale
         nsrc=$(printf '%s' "$o" | jq -r '.sources | length')
@@ -1586,8 +1301,6 @@ validate_configs() {
         done
     done
 
-
-
     local rname ro needed
     for rname in $(jq -r '(.references // [])[].name // empty' "$MARKET_CONFIG_FILE"); do
         ro=$(jq -c --arg n "$rname" '.references[] | select(.name == $n) | .oracle' "$MARKET_CONFIG_FILE")
@@ -1619,8 +1332,6 @@ validate_configs() {
         fi
     done
 
-
-
     local first_dex
     first_dex=$(jq -r --arg dex "$dex" '
         first(.markets | to_entries[] |
@@ -1632,8 +1343,6 @@ validate_configs() {
     elif [ -n "$first_dex" ]; then
         vc_warn "DEX-oracle markets present: each one's USD quote market must appear EARLIER in ${MARKET_CONFIG_FILE} (file order = setup order)"
     fi
-
-
 
     local cat a sj maddr mhub
     for cat in $(jq -r 'keys[]' "$SPOKES_FILE"); do
@@ -1666,8 +1375,6 @@ validate_configs() {
         done
     done
 
-
-
     for m in $(jq -r '.markets[].name' "$MARKET_CONFIG_FILE"); do
         if ! jq -e --arg m "$m" '[.[].assets | keys[]] | index($m) != null' "$SPOKES_FILE" >/dev/null; then
             vc_warn "market ${m} is not referenced by any spoke (deploys pending; unusable until listed)"
@@ -1680,10 +1387,6 @@ validate_configs() {
     fi
     return 0
 }
-
-
-
-
 
 list_markets() {
     echo "Available markets (${NETWORK}):"
@@ -1707,9 +1410,6 @@ list_spokes() {
         echo "  No spokes config found: $SPOKES_FILE"
     fi
 }
-
-
-
 
 build_hub_assets_json() {
     local assets_json="["
@@ -1741,10 +1441,6 @@ build_hub_assets_json() {
     echo "$assets_json"
 }
 
-
-
-
-
 add_spoke() {
     local category_id=$1
 
@@ -1753,15 +1449,9 @@ add_spoke() {
 
     echo "Adding Spoke category ${category_id}: ${name}" >&2
 
-
-
-
-
-
     local args_json='[]'
     local salt
     salt=$(gen_salt "add_spoke:${category_id}" "$args_json")
-
 
     local op_id
     op_id=$(schedule_via_proposer \
@@ -1777,7 +1467,6 @@ add_spoke() {
         die "spoke-create op ${op_id} already executed; its returned id cannot be re-read. Record the on-chain id in ${NETWORKS_FILE} spoke_ids manually."
     fi
     await_op_ready "$op_id"
-
 
     local result errf
     errf=$(mktemp)
@@ -1829,22 +1518,9 @@ spoke_is_deprecated() {
     printf '%s' "$category_json" | jq -e '.is_deprecated == true' >/dev/null
 }
 
-
-
-
-
-
-
-
 spoke_assets_match_config() {
     local config_category_id=$1
     local category_json=$2
-
-
-
-
-
-
 
     if ! printf '%s' "$category_json" | jq -e '.assets | type == "object"' >/dev/null 2>&1; then
         echo "WARN: on-chain Spoke category for config ${config_category_id} has no readable .assets map (current contract); cannot fully verify. Proceeding." >&2
@@ -1860,8 +1536,6 @@ spoke_assets_match_config() {
     local asset_name asset_addr
     for asset_name in $(jq -r ".\"$config_category_id\".assets | keys[]" "$SPOKES_FILE"); do
         asset_addr=$(get_market_value "$asset_name" "asset_address")
-
-
 
         if [ -z "$asset_addr" ] || [ "$asset_addr" = "null" ]; then
             echo "ERROR: spoke config ${config_category_id} lists asset '${asset_name}' missing from the markets file; cannot verify category reuse." >&2
@@ -1879,11 +1553,6 @@ spoke_assets_match_config() {
     done
     return 0
 }
-
-
-
-
-
 
 ensure_spoke() {
     local config_category_id=$1
@@ -1956,15 +1625,12 @@ add_asset_to_spoke() {
     local borrow_cap
     borrow_cap=$(require_spoke_cap "$config_category_id" "$asset_name" borrow_cap)
 
-
-
     local liquidation_fees
     liquidation_fees=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".liquidation_fees")
     if [ -z "$liquidation_fees" ] || [ "$liquidation_fees" = "null" ]; then
         liquidation_fees=$(get_market_value "$asset_name" "liquidation_fees")
     fi
     if [ -z "$liquidation_fees" ] || [ "$liquidation_fees" = "null" ]; then liquidation_fees=0; fi
-
 
     local paused frozen
     paused=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".paused")
@@ -1990,8 +1656,6 @@ add_asset_to_spoke() {
         die "spoke asset ${asset_name} (category ${config_category_id}) missing hub_id in ${SPOKES_FILE}"
     fi
 
-
-
     local args_json
     args_json=$(jq -nc \
         --argjson arg "$(scval_spoke_args "$hub_id" "$asset_address" "$category_id" "$can_collateral" \
@@ -1999,7 +1663,6 @@ add_asset_to_spoke() {
         '[$arg]')
     local salt
     salt=$(gen_salt "add_asset_to_spoke" "$args_json")
-
 
     local admin_op_json
     admin_op_json=$(admin_op AddAssetToSpoke \
@@ -2036,15 +1699,12 @@ edit_asset_in_spoke() {
     local borrow_cap
     borrow_cap=$(require_spoke_cap "$config_category_id" "$asset_name" borrow_cap)
 
-
-
     local liquidation_fees
     liquidation_fees=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".liquidation_fees")
     if [ -z "$liquidation_fees" ] || [ "$liquidation_fees" = "null" ]; then
         liquidation_fees=$(get_market_value "$asset_name" "liquidation_fees")
     fi
     if [ -z "$liquidation_fees" ] || [ "$liquidation_fees" = "null" ]; then liquidation_fees=0; fi
-
 
     local paused frozen
     paused=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".paused")
@@ -2060,8 +1720,6 @@ edit_asset_in_spoke() {
         die "spoke asset ${asset_name} (category ${config_category_id}) missing hub_id in ${SPOKES_FILE}"
     fi
 
-
-
     local args_json
     args_json=$(jq -nc \
         --argjson arg "$(scval_spoke_args "$hub_id" "$asset_address" "$category_id" "$can_collateral" \
@@ -2069,7 +1727,6 @@ edit_asset_in_spoke() {
         '[$arg]')
     local salt
     salt=$(gen_salt "edit_asset_in_spoke" "$args_json")
-
 
     local admin_op_json
     admin_op_json=$(admin_op EditAssetInSpoke \
@@ -2104,8 +1761,6 @@ ensure_asset_in_spoke() {
     local borrow_cap
     borrow_cap=$(require_spoke_cap "$config_category_id" "$asset_name" borrow_cap)
 
-
-
     local liquidation_fees
     liquidation_fees=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".liquidation_fees")
     if [ -z "$liquidation_fees" ] || [ "$liquidation_fees" = "null" ]; then
@@ -2120,7 +1775,6 @@ ensure_asset_in_spoke() {
     fi
 
     category_json=$(fetch_spoke_json "$category_id")
-
 
     local _hub _ha _probe
     _hub=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".hub_id")
@@ -2154,12 +1808,9 @@ ensure_asset_in_spoke() {
             echo "Asset ${asset_name} already configured in Spoke category ${category_id}."
         else
 
-
-
             REAPPLY_ON_DONE=1 edit_asset_in_spoke "$category_id" "$asset_name" "$config_category_id"
         fi
     else
-
 
         REAPPLY_ON_DONE=1 add_asset_to_spoke "$category_id" "$asset_name" "$config_category_id"
     fi
@@ -2168,8 +1819,6 @@ ensure_asset_in_spoke() {
 setup_all_spokes() {
     echo "=== Setting up all Spoke categories for ${NETWORK} ==="
 
-
-
     require_spoke_caps_configured
 
     local categories
@@ -2177,12 +1826,6 @@ setup_all_spokes() {
 
     for cat_id in $categories; do
         local onchain_id
-
-
-
-
-
-
 
         onchain_id=$(ensure_spoke "$cat_id")
         onchain_id=$(printf '%s\n' "$onchain_id" | tail -n1)
@@ -2196,20 +1839,6 @@ setup_all_spokes() {
     configure_spoke_curves
     echo "=== All Spoke categories configured ==="
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 get_mapped_hub_id() {
     local config_hub_id=$1
@@ -2228,9 +1857,6 @@ persist_hub_id() {
         "$NETWORKS_FILE" > "$tmp" && mv "$tmp" "$NETWORKS_FILE"
 }
 
-
-
-
 ensure_hub() {
     local expected=$1
     case "$expected" in
@@ -2247,12 +1873,9 @@ ensure_hub() {
         return 0
     fi
 
-
-
     local args_json='[]'
     local salt
     salt=$(gen_salt "create_hub:${expected}" "$args_json")
-
 
     local op_id
     op_id=$(schedule_via_proposer \
@@ -2287,9 +1910,6 @@ ensure_hub() {
     echo "Hub ${expected} created with on-chain id ${onchain_id}." >&2
 }
 
-
-
-
 ensure_hubs() {
     echo "=== Ensuring hubs for ${NETWORK} ===" >&2
     local hub_ids
@@ -2303,10 +1923,6 @@ ensure_hubs() {
     done
     echo "=== Hubs ready ===" >&2
 }
-
-
-
-
 
 create_market() {
     local market_name=$1
@@ -2339,18 +1955,12 @@ create_market() {
     local ctrl
     ctrl=$(get_controller)
 
-
-
     local hub_asset
     hub_asset=$(build_hub_assets_json "$market_name" | jq -c '.[0]')
     if stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" --send=no -- get_spoke_asset --spoke_id 0 --hub_asset "$hub_asset" &>/dev/null; then
         echo "Market for ${market_name} already exists, skipping creation."
         return 0
     fi
-
-
-
-
 
     local params
     params=$(jq -c --arg decimals "$decimals" \
@@ -2362,13 +1972,6 @@ create_market() {
         }" \
         "$MARKET_CONFIG_FILE")
 
-
-
-
-
-
-
-
     local params_scval
     params_scval=$(scval_market_params "$params")
     local args_json
@@ -2379,8 +1982,6 @@ create_market() {
         '[{u32:$hub_id}, {address:$asset}, $params]')
     local salt
     salt=$(gen_salt "create_liquidity_pool" "$args_json")
-
-
 
     local admin_op_json
     admin_op_json=$(admin_op CreateLiquidityPool \
@@ -2395,10 +1996,6 @@ create_market() {
     echo "Market ${market_name} scheduled/created."
 }
 
-
-
-
-
 update_market_params() {
     local market_name=$1
 
@@ -2406,7 +2003,6 @@ update_market_params() {
 
     local asset_address
     asset_address=$(get_market_value "$market_name" "asset_address")
-
 
     local params
     params=$(jq -c \
@@ -2424,8 +2020,6 @@ update_market_params() {
         die "market ${market_name} missing hub_id in ${MARKET_CONFIG_FILE}"
     fi
 
-
-
     local args_json
     args_json=$(jq -nc \
         --argjson hub_asset "$(scval_hub_asset "$asset_address" "$hub_id")" \
@@ -2433,8 +2027,6 @@ update_market_params() {
         '[$hub_asset, $params]')
     local salt
     salt=$(gen_salt "upgrade_liquidity_pool_params" "$args_json")
-
-
 
     local irm_friendly
     irm_friendly=$(jq -nc --argjson p "$params" '{
@@ -2479,8 +2071,6 @@ update_indexes() {
     local assets_json
     assets_json=$(build_hub_assets_json "$@")
 
-
-
     stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
         -- update_indexes \
         --caller "$caller" \
@@ -2506,8 +2096,6 @@ claim_revenue() {
     local assets_json
     assets_json=$(build_hub_assets_json "$@")
 
-
-
     stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
         -- claim_revenue \
         --caller "$caller" \
@@ -2532,8 +2120,6 @@ claim_revenue_all() {
     local caller
     caller=$(get_signer_address)
 
-
-
     stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
         -- claim_revenue \
         --caller "$caller" \
@@ -2541,17 +2127,6 @@ claim_revenue_all() {
 
     echo "Revenue claimed for all markets."
 }
-
-
-
-
-
-
-
-
-
-
-
 
 is_blend_pool_whitelisted() {
     local pool=$1
@@ -2570,7 +2145,6 @@ approve_blend_pool() {
     fi
 
     echo "Whitelisting Blend pool ${pool} (timelocked approve_blend_pool)..." >&2
-
 
     local args_json
     args_json=$(jq -nc --arg p "$pool" '[{address:$p}]')
@@ -2605,18 +2179,6 @@ whitelist_blend_pools() {
     done
     echo "=== Blend pool whitelist complete (${NETWORK}) ===" >&2
 }
-
-
-
-
-
-
-
-
-
-
-
-
 
 configure_spoke_curves() {
     if [ ! -f "$SPOKES_FILE" ]; then
@@ -2675,7 +2237,6 @@ set_aggregator() {
 
     echo "  Swap Aggregator Address: ${router}" >&2
 
-
     local args_json
     args_json=$(jq -nc --arg a "$router" '[{address:$a}]')
     local salt
@@ -2689,9 +2250,6 @@ set_aggregator() {
 
     echo "Swap aggregator scheduled via governance."
 }
-
-
-
 
 set_price_aggregator() {
     echo "Wiring Price Aggregator (oracle authority) for ${NETWORK}..."
@@ -2727,7 +2285,6 @@ set_accumulator() {
 
     echo "  Accumulator Address: ${accumulator}" >&2
 
-
     local args_json
     args_json=$(jq -nc --arg a "$accumulator" '[{address:$a}]')
     local salt
@@ -2741,18 +2298,6 @@ set_accumulator() {
 
     echo "Accumulator scheduled via governance."
 }
-
-
-
-
-
-
-
-
-
-
-
-
 
 supply_position() {
     local market=$1
@@ -2778,7 +2323,6 @@ supply_position() {
     echo "  Amount:   $amount_raw"
     echo
 
-
     stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
         -- supply \
         --caller "$caller" \
@@ -2786,8 +2330,6 @@ supply_position() {
         --spoke_id "$spoke_id" \
         --assets "[[{\"hub_id\":$hub_id,\"asset\":\"$asset_addr\"}, \"$amount_raw\"]]"
 }
-
-
 
 borrow_position() {
     local market=$1
@@ -2811,7 +2353,6 @@ borrow_position() {
     echo "  Amount:  $amount_raw"
     echo
 
-
     stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
         -- borrow \
         --caller "$caller" \
@@ -2819,8 +2360,6 @@ borrow_position() {
         --borrows "[[{\"hub_id\":$hub_id,\"asset\":\"$asset_addr\"}, \"$amount_raw\"]]" \
         --to null
 }
-
-
 
 withdraw_position() {
     local market=$1
@@ -2852,7 +2391,6 @@ withdraw_position() {
         --to null
 }
 
-
 market_oracle_ref_dependencies() {
     local market_name=$1
     jq -r --arg m "$market_name" '
@@ -2861,7 +2399,6 @@ market_oracle_ref_dependencies() {
         ((.AquariusLp // .AquariusStableLp).key_b.Ref // empty)
     ' "$MARKET_CONFIG_FILE" | sort -u
 }
-
 
 all_oracle_ref_dependencies() {
     jq -r '
@@ -2903,11 +2440,6 @@ preflight_oracle_sanity() {
     fi
 }
 
-
-
-
-
-
 schedule_configure_asset_oracle() {
     local label=$1
     local key_json=$2
@@ -2923,7 +2455,6 @@ schedule_configure_asset_oracle() {
     salt=$(gen_salt "set_oracle" "$salt_input")
     resolve_args=$(jq -nc --argjson key "$key_json" --argjson oracle "$cfg_json" \
         '{key:$key, oracle:$oracle}')
-
 
     local agg resolved_args salt_use known_id state gen
     agg=$(get_price_aggregator)
@@ -2989,7 +2520,6 @@ schedule_configure_asset_oracle() {
     schedule_and_maybe_execute "$op_id"
 }
 
-
 configure_reference_oracle() {
     local ref_name=$1
     if [ -z "$ref_name" ]; then
@@ -3012,8 +2542,6 @@ configure_reference_oracle() {
     schedule_configure_asset_oracle "reference ${ref_name}" "$key_json" "$cfg_json"
 }
 
-
-
 ensure_reference_oracles_for_market() {
     local market_name=$1
     local ref
@@ -3023,7 +2551,6 @@ ensure_reference_oracles_for_market() {
         configure_reference_oracle "$ref"
     done
 }
-
 
 setup_all_reference_oracles() {
     local refs ref
@@ -3074,7 +2601,6 @@ configure_market_oracle() {
 
     echo "Configuring market oracle for ${market_name}..."
 
-
     ensure_reference_oracles_for_market "$market_name"
 
     local cfg_json
@@ -3094,9 +2620,6 @@ configure_market_oracle() {
 
     schedule_configure_asset_oracle "market ${market_name}" "$key_json" "$cfg_json"
 }
-
-
-
 
 edit_oracle_tolerance() {
     local market_name=$1
@@ -3123,8 +2646,6 @@ edit_oracle_tolerance() {
     local resolve_args
     resolve_args=$(jq -nc --argjson key "$key_json" --argjson t "$tolerance" \
         '{key:$key, tolerance:$t}')
-
-
 
     local agg resolved_args salt_use known_id state gen
     agg=$(get_price_aggregator)
@@ -3162,9 +2683,6 @@ edit_oracle_tolerance() {
         esac
     fi
 
-
-
-
     local admin_op_json
     admin_op_json=$(admin_op EditOracleTolerance \
         "$(jq -nc --argjson key "$key_json" --argjson t "$tolerance" \
@@ -3199,9 +2717,7 @@ edit_oracle_tolerance() {
 setup_all_markets() {
     echo "=== Setting up all markets for ${NETWORK} ==="
 
-
     ensure_hubs
-
 
     setup_all_reference_oracles
     local markets
@@ -3213,10 +2729,6 @@ setup_all_markets() {
     done
     echo "=== All markets configured ==="
 }
-
-
-
-
 
 require_market_address() {
     local market_name=$1
@@ -3237,15 +2749,6 @@ all_configured_asset_addresses() {
 all_configured_hub_assets() {
     jq -c '[.markets[] | select(.asset_address != null and .asset_address != "") | {hub_id, asset: .asset_address}]' "$MARKET_CONFIG_FILE"
 }
-
-
-
-
-
-
-
-
-
 
 schedule_upgrade_controller() {
     local hash=$1
@@ -3318,8 +2821,6 @@ schedule_transfer_gov_ownership() {
     echo "Governance ownership transfer scheduled to ${new_owner}."
 }
 
-
-
 schedule_deploy_pool() {
     local hash=$1
     if [ -z "$hash" ]; then
@@ -3368,7 +2869,6 @@ schedule_upgrade_pool() {
         exit 1
     fi
 
-
     local args_json
     args_json=$(jq -nc --arg h "$hash" '[{bytes:$h}]')
     local salt
@@ -3381,14 +2881,6 @@ schedule_upgrade_pool() {
     echo "Pool upgrade scheduled (hash ${hash})."
 }
 
-
-
-
-
-
-
-
-
 pause_protocol() {
     local gov caller
     gov=$(get_governance)
@@ -3400,10 +2892,6 @@ pause_protocol() {
 }
 
 unpause_protocol() {
-
-
-
-
 
     if [ "$NETWORK" = "mainnet" ]; then
         local floor current
@@ -3429,14 +2917,6 @@ unpause_protocol() {
     schedule_and_maybe_execute "$op_id"
     echo "Protocol unpause scheduled/executed on ${NETWORK} (timelocked AdminOperation::Unpause, op ${op_id})."
 }
-
-
-
-
-
-
-
-
 
 schedule_address_op() {
     local variant=$1
@@ -3506,7 +2986,6 @@ set_spoke_liquidation_curve_cmd() {
     local target_hf_wad=$2
     local hf_for_max_bonus_wad=$3
     local bonus_factor_bps=$4
-
 
     local args_json
     args_json=$(jq -nc \
@@ -3623,8 +3102,6 @@ validate_governance_role() {
     esac
 }
 
-
-
 grant_gov_role_cmd() {
     local account=$1
     local role=$2
@@ -3665,10 +3142,6 @@ has_role_cmd() {
     invoke_view "$gov" has_role --account "$account" --role "$role"
 }
 
-
-
-
-
 show_info() {
     echo "=== Deployment info (${NETWORK}) ==="
     local gov_alias
@@ -3681,9 +3154,6 @@ show_info() {
     echo "Governance: ${gov_alias} (controller owner; all admin ops route through it)"
     echo "Controller: ${ctrl_alias}"
     echo "Pool:       $(get_pool)"
-
-
-
 
     echo "Aggregator (local alias, NOT chain-verified): ${agg_alias}"
     echo "Aggregator (networks.json, NOT chain-verified): $(get_aggregator_address 2>/dev/null || echo 'not set (set networks.json or AGGREGATOR_CONTRACT)')"
@@ -3699,7 +3169,6 @@ show_info() {
     echo "RedStone adapter: $(get_redstone_adapter)"
     echo "XOXNO oracle adapter (networks.json, NOT chain-verified): $(get_oracle_adapter_address 2>/dev/null || echo 'not set (make <network> deployOracleAdapter)')"
 
-
     local agg_addr adapter_addr
     if agg_addr=$(get_aggregator_address 2>/dev/null); then
         echo "Aggregator owner (chain-verified): $(invoke_view "$agg_addr" admin 2>/dev/null | tail -n1 || echo 'read failed')"
@@ -3711,9 +3180,6 @@ show_info() {
     echo "RedStone markets: $(jq -r '[.markets[] | select(any(.oracle.sources[]?; .Feed.provider.RedStone? != null)) | .name] | if length == 0 then "none" else join(", ") end' "$MARKET_CONFIG_FILE" 2>/dev/null || echo "n/a")"
 }
 
-
-
-
 check_delay() {
     local live cfg
     live=$(min_delay_ledgers)
@@ -3722,16 +3188,10 @@ check_delay() {
     if [ -n "$cfg" ] && [ "$cfg" != "null" ] && [ "$live" -lt "$cfg" ] 2>/dev/null; then
         cat >&2 <<EOF
 
-
-
-
-
-
 EOF
     fi
     return 0
 }
-
 
 list_hubs() {
     echo "Hubs (${NETWORK}) referenced by ${MARKET_CONFIG_FILE}:"
@@ -3751,9 +3211,6 @@ list_hubs() {
         fi
     done
 }
-
-
-
 
 list_oracles() {
     list_references
@@ -3776,16 +3233,6 @@ list_oracles() {
     done
 }
 
-
-
-
-
-
-
-
-
-
-
 ORACLE_FEEDS_FILE="$SCRIPT_DIR/${NETWORK}/oracle_feeds.json"
 
 get_oracle_adapter_address() {
@@ -3798,9 +3245,6 @@ get_oracle_adapter_address() {
     echo "$addr"
 }
 
-
-
-
 _oracle_asset_json() {
     local tag=$1 value=$2
     case "$tag" in
@@ -3809,9 +3253,6 @@ _oracle_asset_json() {
         *) die "Unknown asset.tag '${tag}' (expected Stellar or Other)" ;;
     esac
 }
-
-
-
 
 configure_oracle_feeds() {
     local adapter
@@ -3833,8 +3274,6 @@ configure_oracle_feeds() {
             -- add_feed --feed_id "$feed_id" --asset "$asset_json" 2>"$errfile") && rc=0 || rc=$?
         if [ "$rc" -ne 0 ]; then
 
-
-
             if grep -qiE 'FeedAlreadyMapped|Error\(Contract, #12\)' "$errfile"; then
                 echo "    already mapped, skipping" >&2
             else
@@ -3847,9 +3286,6 @@ configure_oracle_feeds() {
     done
     echo "=== Oracle feeds configured (${NETWORK}) ===" >&2
 }
-
-
-
 
 reconfigure_oracle_feeds() {
     local adapter
@@ -3900,15 +3336,12 @@ reconfigure_oracle_feeds() {
     echo "=== Oracle feeds reconfigured (${NETWORK}); wait for bot quorum ===" >&2
 }
 
-
 list_oracle_feeds() {
     local adapter
     adapter=$(get_oracle_adapter_address) || die "No oracle adapter deployed for ${NETWORK}."
     echo "=== Oracle adapter feeds (${NETWORK}, ${adapter}) ===" >&2
     invoke_view "$adapter" assets
 }
-
-
 
 add_oracle_signer() {
     local signer=$1
@@ -3923,8 +3356,6 @@ add_oracle_signer() {
         -- add_signer --signer "$signer" 2>"$errfile" && rc=0 || rc=$?
     if [ "$rc" -ne 0 ]; then
 
-
-
         if grep -qiE 'SignerAlreadyRegistered|Error\(Contract, #4\)' "$errfile"; then
             echo "  already registered, skipping" >&2
         else
@@ -3937,17 +3368,11 @@ add_oracle_signer() {
     echo "=== Signer added (${NETWORK}) ===" >&2
 }
 
-
-
 _invoke_set_window() {
     local fn=$1 seconds=$2 adapter=$3
     stellar contract invoke --id "$adapter" $SOURCE_FLAG --network "$NETWORK" \
         -- "$fn" --seconds "$seconds" >/dev/null 2>&1
 }
-
-
-
-
 
 configure_oracle_windows() {
     local adapter
@@ -3984,7 +3409,6 @@ configure_oracle_windows() {
     echo "=== Oracle windows configured (${NETWORK}) ===" >&2
 }
 
-
 set_oracle_submission_age() {
     local seconds=$1
     [ -n "$seconds" ] || die "Usage: $0 setOracleSubmissionAge <seconds>"
@@ -3994,7 +3418,6 @@ set_oracle_submission_age() {
     stellar contract invoke --id "$adapter" $SOURCE_FLAG --network "$NETWORK" \
         -- set_max_submission_age_seconds --seconds "$seconds"
 }
-
 
 set_oracle_max_stale() {
     local seconds=$1
@@ -4006,7 +3429,6 @@ set_oracle_max_stale() {
         -- set_max_stale_seconds --seconds "$seconds"
 }
 
-
 set_oracle_relative_skew() {
     local seconds=$1
     [ -n "$seconds" ] || die "Usage: $0 setOracleRelativeSkew <seconds>"
@@ -4016,7 +3438,6 @@ set_oracle_relative_skew() {
     stellar contract invoke --id "$adapter" $SOURCE_FLAG --network "$NETWORK" \
         -- set_max_relative_skew_seconds --seconds "$seconds"
 }
-
 
 verify_oracle_adapter_windows() {
     local adapter
@@ -4030,8 +3451,6 @@ verify_oracle_adapter_windows() {
     invoke_view "$adapter" max_relative_skew_seconds
 }
 
-
-
 finalize_oracle_adapter_upgrade() {
     echo "=== Finalizing oracle adapter upgrade on ${NETWORK} (signer=${SIGNER}) ===" >&2
     configure_oracle_windows
@@ -4043,16 +3462,6 @@ finalize_oracle_adapter_upgrade() {
     echo "then probe: make ${NETWORK} queryRedStone <feed_id>" >&2
     echo "=== Oracle adapter upgrade finalize complete (${NETWORK}) ===" >&2
 }
-
-
-
-
-
-
-
-
-
-
 
 _json_addr_vec() {
     jq -nc '$ARGS.positional' --args "$@"
@@ -4172,14 +3581,6 @@ upgrade_oracle_adapter_hash() {
         -- upgrade --new_wasm_hash "$hash"
 }
 
-
-
-
-
-
-
-
-
 transfer_aggregator_ownership() {
     local new_owner=$1 live_until=$2
     [ -n "$new_owner" ] && [ -n "$live_until" ] || die "Usage: $0 transferAggregatorOwnership <new_owner> <live_until_ledger>"
@@ -4216,10 +3617,6 @@ accept_oracle_adapter_ownership() {
         -- accept_ownership
 }
 
-
-
-
-
 get_price() {
     local market_name=$1
     local asset_address
@@ -4240,7 +3637,6 @@ get_market_config_view_cmd() {
     hub_asset=$(build_hub_assets_json "$market_name" | jq -c '.[0]')
     local ctrl
     ctrl=$(get_controller)
-
 
     echo "=== Market config (base spoke 0) for ${market_name} (${asset_address}) ===" >&2
     invoke_view "$ctrl" get_spoke_asset --spoke_id 0 --hub_asset "$hub_asset"
@@ -4279,9 +3675,6 @@ get_all_indexes_cmd() {
     invoke_view "$ctrl" get_market_indexes_detailed --hub_assets "$assets_json"
 }
 
-
-
-
 get_spoke_asset_cmd() {
     local spoke_id=$1
     local market_name=$2
@@ -4314,8 +3707,6 @@ is_blend_pool_approved_cmd() {
     invoke_view "$ctrl" is_blend_pool_approved --pool "$pool"
 }
 
-
-
 max_withdraw_cmd() {
     local account_id=$1 market_name=$2
     local hub_asset
@@ -4336,9 +3727,6 @@ max_borrow_cmd() {
     hub_asset=$(build_hub_assets_json "$market_name" | jq -c '.[0]')
     invoke_view "$(get_controller)" max_borrow --account_id "$account_id" --hub_asset "$hub_asset"
 }
-
-
-
 
 get_liquidation_estimate_cmd() {
     local account_id=$1; shift
@@ -4364,14 +3752,6 @@ get_liquidation_estimate_cmd() {
         --account_id "$account_id" --debt_payments "$payments_json"
 }
 
-
-
-
-
-
-
-
-
 pool_view_for_market() {
     local fn=$1 market_name=$2
     local hub_asset
@@ -4394,10 +3774,6 @@ get_bulk_indexes_cmd() {
     echo "=== Pool bulk indexes (${NETWORK}) ===" >&2
     invoke_view "$(get_pool)" get_bulk_indexes --hub_assets "$assets_json"
 }
-
-
-
-
 
 get_health_cmd() {
     local account_id=$1
@@ -4475,25 +3851,11 @@ get_borrow_cmd() {
     invoke_view "$ctrl" get_borrow_amount --account_id "$account_id" --hub_asset "$hub_asset"
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
 build_reflector_asset_json() {
     local kind=$1
     local value=$2
     case "$kind" in
         stellar|Stellar|0)
-
-
 
             printf '{"Stellar":"%s"}' "$value"
             ;;
@@ -4599,7 +3961,6 @@ describe_oracle_source() {
         return
     fi
 
-
     local shape provider_tag body feed_decimals feed_stale
     shape=$(printf '%s' "$source_json" | oracle_union_tag)
     case "$shape" in
@@ -4655,8 +4016,6 @@ describe_oracle_source() {
     esac
 }
 
-
-
 get_oracle_cmd() {
     local market_name=$1
     local asset_address
@@ -4675,10 +4034,6 @@ get_reflector_cmd() {
     echo "getReflector is deprecated; showing generic Oracle V2 wiring." >&2
     get_oracle_cmd "$1"
 }
-
-
-
-
 
 case "$1" in
     "listMarkets")
@@ -4712,7 +4067,6 @@ case "$1" in
         edit_asset_in_spoke "$2" "$3"
         ;;
     "setupAllSpokes")
-
 
         export REAPPLY_ON_DONE=${REAPPLY_ON_DONE:-0}
         validate_configs

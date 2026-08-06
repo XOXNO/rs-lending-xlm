@@ -10,22 +10,6 @@ pub const EVE: &str = "eve";
 pub const LIQUIDATOR: &str = "liquidator";
 pub const KEEPER_USER: &str = "keeper";
 
-/// Cap for harness fixtures that are not exercising cap behavior.
-///
-/// Caps are always enforced and carry no "unlimited" sentinel, so a fixture
-/// that just wants an unconstrained market needs a finite ceiling high enough
-/// never to bind in practice but low enough to stay inside the validator's
-/// domain.
-///
-/// Every harness market is 7 decimals (`register_stellar_asset_contract_v2`),
-/// where `common::validation::max_cap_for_decimals(7)` is ~1.70e18. This value
-/// is 1e14 — 10 million whole tokens at 7 decimals — which also stays under the
-/// tightest listable ceiling (~1.70e14 at 3 decimals), so it remains valid if a
-/// lower-decimal preset is ever added. Raising it past that reintroduces the
-/// trap: `require_cap_within_asset_domain` would reject every fixture build
-/// with an error naming neither the preset nor the cap.
-///
-/// A fixture that means "this market is closed" must pass `0` explicitly.
 pub const UNCONSTRAINED_TEST_CAP: i128 = 100_000_000_000_000;
 
 pub struct MarketPreset {

@@ -5,17 +5,12 @@ use soroban_sdk::{
 
 use crate::errors::Error;
 
-/// Aquarius states swap fees in basis points out of this denominator.
 const FEE_DENOMINATOR: i128 = 10_000;
 
-/// Hard cap on pre-swap bisection passes, matching MultiversX's zap.
 const MAX_PRE_SWAP_ITERATIONS: u32 = 128;
 use crate::vault::Vault;
 use crate::venues::{auth_entry, authorize_as_current, authorize_token_transfer, HopContext};
 
-/// Authorizes the pool's pull and invokes its `swap`, returning what the pool
-/// claims to have paid out. Callers settle on measured balance deltas instead —
-/// this figure is only good for a cheap zero check.
 fn invoke_pool_swap(
     env: &Env,
     router: &Address,
@@ -59,16 +54,6 @@ pub(crate) fn swap(ctx: &HopContext<'_>, cache: &mut Map<Address, Vec<Address>>)
         .unwrap_or_else(|_| panic_with_error!(ctx.env, Error::IntegerOverflow))
 }
 
-/// Deposit every constituent balance the vault currently holds and credit the
-/// minted shares back to it.
-///
-/// The pool pulls the FULL `desired_amounts` and refunds whatever it did not
-/// consume — a constant-product pool keeps only the balanced subset, a stable
-/// pool keeps everything and prices the imbalance into the shares. So the
-/// authorization covers the full amounts, and both legs are settled by measured
-/// balance deltas rather than by what we asked for or what the pool reports.
-/// Verified on testnet: a 500000000 XLM leg was pulled in full and 1489866
-/// refunded in the same call.
 pub(crate) fn add_liquidity(
     env: &Env,
     router: &Address,
@@ -104,10 +89,7 @@ pub(crate) fn add_liquidity(
         let amount = vault.balance_of(&token);
         amounts.push_back(to_u128(env, amount));
         held.push_back(amount);
-        // A constituent we are depositing none of cannot be spent, so its
-        // balance never needs reading. Every skipped read is a cross-contract
-        // call saved, and single-sided deposits skip one per pool. Widening this
-        // to `>=` only costs a wasted read, so no test can observe it.
+
         before.push_back(if amount > 0 {
             token::Client::new(env, &token).balance(router)
         } else {
@@ -125,8 +107,7 @@ pub(crate) fn add_liquidity(
     let mut auth: Vec<InvokerContractAuthEntry> = Vec::new(env);
     for i in 0..n {
         let amount = pulled.get_unchecked(i);
-        // Widening to `>=` would authorize a zero transfer the pool never makes;
-        // an unused entry is ignored, so it is unobservable.
+
         if amount > 0 {
             auth.push_back(auth_entry(
                 env,
@@ -166,9 +147,7 @@ pub(crate) fn add_liquidity(
             .get_unchecked(i)
             .checked_sub(token::Client::new(env, &token).balance(router))
             .unwrap_or_else(|| panic_with_error!(env, Error::IntegerOverflow));
-        // Unreachable in practice — a deposit cannot hand the router MORE of an
-        // input token than it started with — but kept because the alternative is
-        // trusting a venue's arithmetic.
+
         if spent < 0 {
             panic_with_error!(env, Error::InvalidAmount);
         }
@@ -187,10 +166,6 @@ pub(crate) fn add_liquidity(
     shares
 }
 
-/// Burn the vault's entire LP balance and credit the released constituents.
-///
-/// The pool burns the shares straight off the router via the share token, so the
-/// only authorization handed out is that single `burn`.
 pub(crate) fn remove_liquidity(
     env: &Env,
     router: &Address,
@@ -266,19 +241,6 @@ pub(crate) fn remove_liquidity(
     }
 }
 
-/// Swaps the excess side into the scarce one so the deposit that follows lands
-/// on the pool's ratio, using the balances actually in the vault.
-///
-/// Deciding this off-chain cannot work. A `split_ppm` only resolves to one part
-/// per million, and the hop that produces the second constituent slips between
-/// quote and execution, so a pre-computed split is imbalanced by construction —
-/// the pool then refuses the surplus and it becomes revenue taken from the user.
-/// Balancing here, against real balances and live reserves, has nothing left to
-/// predict.
-///
-/// Only constant-product pools need it. A stable pool consumes every amount
-/// offered and prices the imbalance into the shares, which costs less than the
-/// swap fee a rebalance would pay, so single-sided is already its optimum.
 fn pre_balance(
     env: &Env,
     router: &Address,
@@ -287,13 +249,6 @@ fn pre_balance(
     tokens: &Vec<Address>,
     fee_bps: i128,
 ) {
-    // `fee_bps == 0` is the payload saying "do not pre-balance" — stable
-    // pools consume imbalance instead of refunding it, so balancing them
-    // pays a swap fee for nothing. The kind and fee travel in the payload
-    // because reading them from the pool costs two cross-contract calls,
-    // and the per-call VM-instantiation memory wall (the 8th call into
-    // this pool trips `Budget(ExceededLimit)`, measured on testnet) leaves
-    // budget for exactly one extra pool call: the pre-swap itself.
     if fee_bps <= 0 || tokens.len() != 2 {
         return;
     }
@@ -334,13 +289,6 @@ fn pre_balance(
     vault.deposit(&token_out, received);
 }
 
-/// Largest swap that still leaves the scarce side scarce.
-///
-/// `f(s) = (held_in - s)·(reserve_out - dy) - (held_out + dy)·(reserve_in + s)`
-/// is the balance condition written as a difference; it falls monotonically in
-/// `s`, so a bisection finds the crossing. Following MultiversX's zap, there is
-/// deliberately no "close enough" short-circuit: the pool's own division
-/// truncates, so even a nearly balanced pair has an optimum worth finding.
 pub(crate) fn optimal_pre_swap(
     env: &Env,
     held_a: i128,
@@ -354,7 +302,7 @@ pub(crate) fn optimal_pre_swap(
     if product_a == product_b {
         return (true, 0);
     }
-    // Equality already returned above, so `>` and `>=` cannot differ here.
+
     let from_a = product_a > product_b;
     let (held_in, held_out, reserve_in, reserve_out) = if from_a {
         (held_a, held_b, reserve_a, reserve_b)
@@ -364,13 +312,8 @@ pub(crate) fn optimal_pre_swap(
 
     let mut low: i128 = 0;
     let mut high: i128 = held_in;
-    // Bounded rather than `while high - low > 1`: the loop halves its range each
-    // pass so it converges long before the cap, but leaving termination to
-    // depend on the arithmetic being right is not a property worth betting a
-    // transaction on. 128 covers the full i128 range.
+
     for _ in 0..MAX_PRE_SWAP_ITERATIONS {
-        // Widening this to `+` cannot hang now the loop is bounded; it only
-        // stops the early exit, and the search still settles on the same answer.
         if high - low <= 1 {
             break;
         }
@@ -378,8 +321,7 @@ pub(crate) fn optimal_pre_swap(
         let out = cp_swap_out(env, mid, reserve_in, reserve_out, fee_bps);
         let left = checked_mul(env, held_in - mid, reserve_out - out);
         let right = checked_mul(env, held_out + out, reserve_in + mid);
-        // On exact equality either branch is correct and the answer moves by at
-        // most one atomic unit — far below the dust floor.
+
         if left > right {
             low = mid;
         } else {
@@ -389,8 +331,6 @@ pub(crate) fn optimal_pre_swap(
     (from_a, low)
 }
 
-/// Constant-product output with the fee taken on the way in, which is how
-/// Aquarius charges it — calibrated against a live trade to the unit.
 pub(crate) fn cp_swap_out(
     env: &Env,
     amount_in: i128,
@@ -408,10 +348,6 @@ pub(crate) fn cp_swap_out(
     checked_mul(env, net, reserve_out) / (reserve_in + net)
 }
 
-
-
-
-/// Runs one swap through the pool, crediting only the measured output delta.
 fn swap_through_pool(
     env: &Env,
     router: &Address,
@@ -458,8 +394,6 @@ fn checked_mul(env: &Env, lhs: i128, rhs: i128) -> i128 {
         .unwrap_or_else(|| panic_with_error!(env, Error::IntegerOverflow))
 }
 
-/// Whether a pre-balance swap can run at all: something to balance, and a pool
-/// with reserves on both sides to balance against.
 pub(crate) fn pre_balance_possible(
     held_a: i128,
     held_b: i128,
@@ -469,11 +403,6 @@ pub(crate) fn pre_balance_possible(
     (held_a > 0 || held_b > 0) && reserve_a > 0 && reserve_b > 0
 }
 
-/// Pool constituents, read once per transaction. A route's hop and its LP leg
-/// address the same pool, and every cross-contract call re-instantiates the
-/// pool's VM against the transaction memory budget — the measured wall sits
-/// within one call of a pre-balanced mint, so the duplicate `get_tokens` is
-/// the difference between fitting and `Budget(ExceededLimit)`.
 fn pool_tokens(env: &Env, cache: &mut Map<Address, Vec<Address>>, pool: &Address) -> Vec<Address> {
     if let Some(tokens) = cache.get(pool.clone()) {
         return tokens;
@@ -487,8 +416,6 @@ fn pool_tokens(env: &Env, cache: &mut Map<Address, Vec<Address>>, pool: &Address
     tokens
 }
 
-/// Bind the declared LP token to the pool's own `share_id`, so a payload cannot
-/// point the mint/burn accounting at a token the pool does not actually issue.
 fn assert_share_token(env: &Env, pool: &Address, lp_token: &Address) {
     let share: Address =
         env.invoke_contract(pool, &Symbol::new(env, "share_id"), Vec::<Val>::new(env));

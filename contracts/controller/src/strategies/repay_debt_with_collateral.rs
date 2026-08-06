@@ -7,11 +7,10 @@ use crate::account;
 use crate::config;
 use crate::context::Cache;
 use crate::events;
-use crate::positions::{get_debt_position_or_panic, get_supply_position_or_panic};
+use crate::positions::get_debt_position_or_panic;
 use crate::strategies::{
     execute_withdraw_all, net_settle_collateral_against_debt, prefetch_strategy_prices,
-    repay_debt_from_controller, strategy_finalize, swap_tokens_or_passthrough,
-    withdraw_collateral_to_controller, StrategyRepay, StrategyWithdraw,
+    repay_debt_from_controller, strategy_finalize, withdraw_and_swap_from_supply, StrategyRepay,
 };
 use crate::{risk::validation, storage};
 
@@ -108,29 +107,21 @@ fn repay_via_collateral_swap(
     debt: &HubAssetKey,
     swap: &StrategySwap,
 ) {
-    let collateral_pos = get_supply_position_or_panic(env, account, collateral);
+    // Fail fast if debt is missing before withdrawing collateral.
     let debt_pos = get_debt_position_or_panic(env, account, debt);
 
-    let actual_withdrawn = withdraw_collateral_to_controller(
+    let debt_available = withdraw_and_swap_from_supply(
         env,
         account,
         cache,
-        StrategyWithdraw {
-            hub_asset: collateral,
-            amount: collateral_amount,
-            position: &collateral_pos,
-            action: events::PositionAction::RpColWd,
-        },
-    );
-
-    let debt_available = swap_tokens_or_passthrough(
-        env,
         caller,
-        &collateral.asset,
-        actual_withdrawn,
+        collateral,
+        collateral_amount,
         &debt.asset,
         swap,
+        events::PositionAction::RpColWd,
     );
+
     repay_debt_from_controller(
         env,
         account,

@@ -1,22 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 deploy_protocol() {
     if [ -z "${XLM_SAC:-}" ]; then
         save_state XLM_SAC "$(stellar contract id asset --asset native --network "$NETWORK")"
@@ -52,7 +33,6 @@ deploy_protocol() {
         log "central pool = $pool"
     fi
 
-
     if [ -z "${PRICE_AGGREGATOR:-}" ]; then
         local out_f="$LOG_DIR/deploy_price_agg.out" err_f="$LOG_DIR/deploy_price_agg.err"
         local pa_wasm=""
@@ -72,7 +52,6 @@ deploy_protocol() {
     fi
     if [ -z "${WIRED:-}" ]; then
         inv set_swap_aggregator "$ADMIN" "$CONTROLLER" -- set_swap_aggregator --addr "$AGGREGATOR" >/dev/null
-
 
         inv set_accumulator "$ADMIN" "$CONTROLLER" -- set_accumulator --addr "$ADMIN_ADDR" >/dev/null
         inv set_price_aggregator "$ADMIN" "$CONTROLLER" -- set_price_aggregator --addr "$PRICE_AGGREGATOR" >/dev/null
@@ -106,9 +85,6 @@ deploy_protocol() {
         save_state UNPAUSED 1
     fi
 
-
-
-
     if [ -z "${GOVERNANCE:-}" ]; then
         local out_f="$LOG_DIR/deploy_governance.out" err_f="$LOG_DIR/deploy_governance.err"
         run_deploy "$out_f" "$err_f" -- stellar contract deploy --wasm "$WASM_DIR/governance.wasm" \
@@ -123,7 +99,6 @@ deploy_protocol() {
         log "governance = $gov"
     fi
 
-
     if [ -z "${CTRL_HASH:-}" ]; then
         local out_f="$LOG_DIR/upload_controller.out" err_f="$LOG_DIR/upload_controller.err"
         run_deploy "$out_f" "$err_f" -- stellar contract upload --wasm "$WASM_DIR/controller.wasm" \
@@ -136,7 +111,6 @@ deploy_protocol() {
         record upload_controller_wasm ok upload "$txh" "" "" "" "" "$chash"
     fi
 
-
     if [ -z "${GOV_CONTROLLER:-}" ]; then
         local gc
         gc=$(inv deploy_controller "$ADMIN" "$GOVERNANCE" -- deploy_controller \
@@ -146,9 +120,6 @@ deploy_protocol() {
         log "governance-owned controller = $gc"
     fi
 }
-
-
-
 
 create_test_hub() {
     local label="$1" id var
@@ -182,9 +153,6 @@ primary_spoke_id() {
     echo "${PRIMARY_SPOKE_ID:?PRIMARY_SPOKE_ID missing; deploy_protocol must create spoke first}"
 }
 
-
-
-
 market_params_json() {
     local sac="$1" decimals="$2"
     jq -nc --arg sac "$sac" --argjson dec "$decimals" '{
@@ -206,9 +174,6 @@ market_params_json() {
     }'
 }
 
-
-
-
 asset_config_json() {
     local ltv="$1" thr="$2" bonus="$3" overrides="${4:-.}"
     jq -nc --argjson ltv "$ltv" --argjson thr "$thr" --argjson bonus "$bonus" '{
@@ -224,11 +189,6 @@ asset_config_json() {
         borrow_cap: "0"
     }' | jq -c "$overrides"
 }
-
-
-
-
-
 
 spoke_args() {
     jq -nc --argjson hub "$1" --arg asset "$2" --argjson spoke "$3" --argjson cc "$4" --argjson cb "$5" \
@@ -250,14 +210,9 @@ spoke_args() {
     }'
 }
 
-
-
 price_key_token() {
     jq -nc --arg a "$1" '{Token:$a}'
 }
-
-
-
 
 oracle_tolerance_band() {
     local bps="$1"
@@ -266,10 +221,6 @@ oracle_tolerance_band() {
         {upper_ratio_bps: (10000 + $t),
          lower_ratio_bps: half_up(10000 * 10000; 10000 + $t)}'
 }
-
-
-
-
 
 oracle_cfg_mock_single() {
     local sac="$1"
@@ -293,9 +244,6 @@ oracle_cfg_mock_single() {
         max_sanity_price_wad: "1100000000000000000"
     }'
 }
-
-
-
 
 oracle_cfg_mock_dual() {
     local sac="$1" feed="$2"
@@ -330,8 +278,6 @@ oracle_cfg_mock_dual() {
     }'
 }
 
-
-
 oracle_cfg_reflector() {
     local sym="$1" min_wad="$2" max_wad="$3"
     jq -nc --arg orc "$REFLECTOR_CEX" --arg sym "$sym" --arg min "$min_wad" --arg max "$max_wad" \
@@ -356,18 +302,11 @@ oracle_cfg_reflector() {
     }'
 }
 
-
-
-
-
-
 market_listing_exists() {
     local hub_id="$1" sac="$2"
     stellar contract invoke --id "$CONTROLLER" --source "$ADMIN" --network "$NETWORK" \
         --send=no -- get_spoke_asset --spoke_id "$PRIMARY_SPOKE_ID" --hub_asset "$(hub_key "$hub_id" "$sac")" >/dev/null 2>&1
 }
-
-
 
 market_wait_listed() {
     local hub_id="$1" sac="$2" probe got
@@ -380,10 +319,6 @@ market_wait_listed() {
     done
     return 1
 }
-
-
-
-
 
 create_market() {
     local name="$1" hub_id="$2" sac="$3" decimals="$4" oracle_json="$5" active_cfg="$6"
@@ -431,13 +366,9 @@ create_market() {
     save_state "$done_var" 1
 }
 
-
-
 hub_key() {
     jq -nc --argjson h "$1" --arg a "$2" '{hub_id:$h, asset:$a}'
 }
-
-
 
 hub_vec() {
     local hub_id="$1"
@@ -451,8 +382,6 @@ hub_vec() {
     done
     echo "$out]"
 }
-
-
 
 pay_vec() {
     local hub_id="$1"

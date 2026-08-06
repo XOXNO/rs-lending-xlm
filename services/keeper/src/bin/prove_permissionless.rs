@@ -1,4 +1,3 @@
-
 use anyhow::{anyhow, Result};
 use clap::Parser;
 use keeper_bot::{

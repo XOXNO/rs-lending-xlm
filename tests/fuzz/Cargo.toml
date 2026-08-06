@@ -7,11 +7,9 @@ edition = "2021"
 [package.metadata]
 cargo-fuzz = true
 
-
 [workspace]
 
 [features]
-
 
 default = []
 seed-corpus = ["dep:serde", "dep:serde_json", "dep:sha2"]
@@ -30,11 +28,6 @@ test-harness = { path = "../test-harness", features = ["testing"] }
 serde = { version = "1", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true }
 sha2 = { version = "0.10", optional = true }
-
-
-
-
-
 
 [lib]
 path = "src/lib.rs"
@@ -87,8 +80,6 @@ path = "fuzz_targets/aggregator.rs"
 test = false
 doc = false
 bench = false
-
-
 
 [[bin]]
 name = "seed_corpus"

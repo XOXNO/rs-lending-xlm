@@ -1,42 +1,10 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 RPC_TRANSIENT_RE='rejected .?50[0-9]|status_code: 50[0-9]|No status yet|Transport\(Rejected|error sending request|timed out|timeout|connection (reset|refused|closed)|tcp connect error|temporarily unavailable|TxBadSeq|tx_bad_seq'
 
-
-
-
-
-
 DEPLOY_PROPAGATION_RE='Contract not found|non-existing value for contract instance'
-
-
-
-
-
 
 INV_MAX_ATTEMPTS="${INV_MAX_ATTEMPTS:-8}"
 DEPLOY_MAX_ATTEMPTS="${DEPLOY_MAX_ATTEMPTS:-8}"
 XFAIL_MAX_ATTEMPTS="${XFAIL_MAX_ATTEMPTS:-5}"
-
-
-
 
 backoff_sleep() {
     local attempt="$1" step="${2:-5}" cap="${3:-20}" s
@@ -45,13 +13,6 @@ backoff_sleep() {
     [ "$s" -gt 0 ] && sleep "$s"
     return 0
 }
-
-
-
-
-
-
-
 
 run_deploy() {
     local out_f="$1" err_f="$2"; shift 2
@@ -67,12 +28,6 @@ run_deploy() {
     return 1
 }
 
-
-
-
-
-
-
 tx_status() {
     local hash="$1" resp st _
     for _ in 1 2 3 4 5; do
@@ -87,8 +42,6 @@ tx_status() {
     done
     echo NOT_FOUND
 }
-
-
 
 fetch_resources() {
     local hash="$1"
@@ -108,9 +61,6 @@ fetch_resources() {
     RES_WRITE=$(jq -r '.resources.write_bytes // empty' <<<"$sdata")
     RES_FEE=$(jq -r '.resource_fee // empty' <<<"$sdata")
 }
-
-
-
 
 inv() {
     local label="$1" signer="$2" contract="$3"; shift 3
@@ -136,17 +86,12 @@ inv() {
             return 0
         fi
 
-
-
-
-
         if [ "$attempt" -lt "$INV_MAX_ATTEMPTS" ] \
             && [ -n "${INV_TRANSIENT_CONTRACT_RE:-}" ] \
             && grep -qE "$INV_TRANSIENT_CONTRACT_RE" "$err_f"; then
             record "$label" retry "$fn" "" "" "" "" "" "transient contract state; resimulating"
             continue
         fi
-
 
         if [ "$attempt" -lt "$INV_MAX_ATTEMPTS" ] \
             && grep -qE "$DEPLOY_PROPAGATION_RE" "$err_f" \
@@ -155,11 +100,6 @@ inv() {
             continue
         fi
 
-
-
-
-
-
         if [ "$attempt" -lt "$INV_MAX_ATTEMPTS" ] \
             && grep -qE "$RPC_TRANSIENT_RE" "$err_f" \
             && ! grep -q "Error(Contract" "$err_f"; then
@@ -167,13 +107,11 @@ inv() {
             thash=$(extract_signing_hash "$err_f")
             if [ -z "$thash" ]; then
 
-
                 record "$label" retry "$fn" "" "" "" "" "" "transient rpc failure pre-send; retrying"
                 continue
             fi
             case "$(tx_status "$thash")" in
                 SUCCESS)
-
 
                     fetch_resources "$thash"
                     record "$label" ok "$fn" "$thash" "$RES_INSTR" "$RES_READ" "$RES_WRITE" "$RES_FEE" "recovered: tx landed despite transient response"
@@ -181,7 +119,6 @@ inv() {
                     return 0
                     ;;
                 NOT_FOUND)
-
 
                     record "$label" retry "$fn" "" "" "" "" "" "transient after send; tx not on ledger, resubmitting"
                     continue
@@ -193,11 +130,6 @@ inv() {
             esac
         fi
 
-
-
-
-
-
         if [ "$attempt" -lt "$INV_MAX_ATTEMPTS" ] \
             && grep -q "Signing transaction" "$err_f" \
             && grep -qE "Trapped|ResourceLimitExceeded" "$err_f" \
@@ -208,15 +140,10 @@ inv() {
         break
     done
 
-
     record "$label" "${INV_FAIL_STATUS:-FAIL}" "$fn" "" "" "" "" "" "$(tail -c 300 "$err_f" | tr '\n\t' '  ')"
     log "${INV_FAIL_STATUS:-FAIL} [$label]: $(tail -3 "$err_f")"
     return 1
 }
-
-
-
-
 
 xfail() {
     local label="$1" pattern="$2" signer="$3" contract="$4"; shift 4
@@ -250,20 +177,9 @@ xfail() {
     return 1
 }
 
-
-
-
-
-
 xfail_sim() {
     XFAIL_SEND_NO=1 xfail "$@"
 }
-
-
-
-
-
-
 
 view() {
     local label="$1" contract="$2"; shift 2
@@ -280,21 +196,12 @@ view() {
             return 0
         fi
 
-
-
-
-
         [ "$attempt" -lt "$INV_MAX_ATTEMPTS" ] && continue
         break
     done
     record "$label" FAIL "$fn" "" "" "" "" "" "view failed: $(tail -c 200 "$err_f" | tr '\n\t' '  ')"
     return 1
 }
-
-
-
-
-
 
 retry_leg() {
     local attempt
@@ -306,11 +213,6 @@ retry_leg() {
     done
     return 1
 }
-
-
-
-
-
 
 sim_probe() {
     local label="$1" signer="$2" contract="$3"; shift 3

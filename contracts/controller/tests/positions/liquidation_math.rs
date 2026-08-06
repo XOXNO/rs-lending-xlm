@@ -536,7 +536,6 @@ fn normalize_accepts_partial_when_cap_equals_base() {
     });
 }
 
-/// V = $100, D = $120, W = $80 => p = 0.8, hf = 2/3, cap = BPS*(V/D - 1) = -1667 (insolvent).
 fn insolvent_snap() -> LiquidationSnapshot {
     snap(
         120 * WAD,
@@ -547,14 +546,6 @@ fn insolvent_snap() -> LiquidationSnapshot {
     )
 }
 
-/// Insolvent accounts are deliberately liquidatable in part. A full close on `V < D` can never be
-/// economic — the liquidator pays `D` and recovers at most `V` — so demanding one would make every
-/// insolvent position permanently unliquidatable and let bad debt grow unchecked. The protocol
-/// instead accepts that a partial grows the shortfall by `repaid * bonus`, which is the cost of
-/// keeping liquidators willing to retire the debt at all.
-///
-/// This is the behaviour the whole `test-harness` liquidation suite depends on: its canonical
-/// fixture (10k USDC at $0.50 backing 3 ETH at $2000) is itself insolvent, V=$5000 vs D=$6000.
 #[test]
 fn partial_liquidation_of_insolvent_account_is_permitted() {
     let env = Env::default();
@@ -587,8 +578,6 @@ fn partial_liquidation_of_insolvent_account_is_permitted() {
     });
 }
 
-/// The solvent-but-toxic band is the one that *is* gated: `0 <= cap < base` means a full close is
-/// economic, so an underfunded partial is rejected rather than allowed to ratchet HF down.
 #[test]
 #[should_panic(expected = "Error(Contract, #135)")]
 fn normalize_rejects_underfunded_partial_when_cap_is_below_base_but_solvent() {
@@ -710,13 +699,6 @@ fn seizure_never_exceeds_collateral() {
     );
 }
 
-/// The full-close escalation deliberately asks for `total_debt` even when the account cannot
-/// cover it at the bonus. `calculate_seized_collateral` is the component that makes this safe:
-/// every leg is clamped to the position actually held, so the borrower can never lose more than
-/// their collateral no matter what the planner requested.
-///
-/// Fixture holds 1000 tokens of collateral at $1. Asking to seize $1200 at a 500 bps bonus
-/// implies $1260 of collateral — 26% more than exists.
 #[test]
 fn escalated_full_close_over_asks_and_is_clamped_to_collateral() {
     let env = Env::default();
@@ -731,8 +713,6 @@ fn escalated_full_close_over_asks_and_is_clamped_to_collateral() {
     );
 }
 
-/// Sweeps the over-ask region: for any requested repayment at any bonus, the seized amount is
-/// `min(requested * (1 + bonus), position)` and never exceeds the position.
 #[test]
 fn seizure_is_clamped_to_position_across_requests() {
     let env = Env::default();
@@ -756,9 +736,6 @@ fn seizure_is_clamped_to_position_across_requests() {
     }
 }
 
-/// Value conservation on the repayment side: whatever the liquidator offers is either applied to
-/// debt or handed back as a refund — never silently absorbed. The fixture carries 500 tokens of
-/// debt, so paying 700 must produce 500 repaid and 200 refunded.
 #[test]
 fn over_payment_is_split_between_repaid_and_refunds_without_loss() {
     let env = Env::default();
@@ -788,9 +765,6 @@ fn over_payment_is_split_between_repaid_and_refunds_without_loss() {
     });
 }
 
-/// The same conservation must survive `normalize_repayment_plan`, which can shrink the repayment
-/// a second time when the offer exceeds the plan's ideal. Solvent-toxic account: cap >= base, so
-/// a partial is legitimate and the surplus is refunded rather than kept.
 #[test]
 fn normalize_conserves_value_when_offer_exceeds_ideal() {
     let env = Env::default();

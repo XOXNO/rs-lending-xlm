@@ -23,11 +23,10 @@ import sys
 DEFAULT_RPC = "https://mainnet.sorobanrpc.com"
 DEFAULT_PASSPHRASE = "Public Global Stellar Network ; September 2015"
 
-N = 2  # Aquarius stableswap pools are pairs
-FEE_DENOM = 10000  # fee_fraction is out of 10_000 (bps); calibrated below and asserted
-CONV_CORRECT = N  # Ann = A * n  (Curve "code" amplification, what a() returns)
-CONV_WRONG = N ** N  # Ann = A * n^n  (the whitepaper-A bug this tool would catch)
-
+N = 2
+FEE_DENOM = 10000
+CONV_CORRECT = N
+CONV_WRONG = N ** N
 
 def invoke(pool, rpc, passphrase, fn, *args):
     cmd = [
@@ -40,7 +39,6 @@ def invoke(pool, rpc, passphrase, fn, *args):
     if out.returncode != 0:
         sys.exit(f"invoke {fn} failed: {out.stderr.strip()}")
     return json.loads(out.stdout.strip())
-
 
 def get_d(xp, amp, ann_factor):
     """Curve stableswap invariant D over reserves xp, Ann = amp * ann_factor."""
@@ -58,7 +56,6 @@ def get_d(xp, amp, ann_factor):
         if abs(d - d_prev) <= 1:
             return d
     raise RuntimeError("D did not converge")
-
 
 def get_y(i, j, x, xp, amp, ann_factor):
     """New balance of coin j when coin i is set to x, holding the invariant."""
@@ -82,14 +79,12 @@ def get_y(i, j, x, xp, amp, ann_factor):
             return y
     raise RuntimeError("y did not converge")
 
-
 def our_estimate_swap(i, j, dx, xp, amp, fee, ann_factor):
     """Reproduce Aquarius estimate_swap: dy on the invariant, minus the swap fee."""
     x = xp[i] + dx
     y = get_y(i, j, x, xp, amp, ann_factor)
-    dy = xp[j] - y - 1  # Curve subtracts 1 for conservative rounding
+    dy = xp[j] - y - 1
     return dy - dy * fee // FEE_DENOM
-
 
 def main():
     ap = argparse.ArgumentParser()
@@ -116,15 +111,12 @@ def main():
     print(f"pool {args.pool}")
     print(f"  reserves={reserves} A={amp} shares={shares} decimals={decimals} fee={fee}")
 
-    # 1) get_virtual_price parity (checks D magnitude; weak near-peg, but free).
-    #    Aquarius scales virtual_price to the share decimals; D/S in the same scale.
     share_scale = 10 ** decimals[0]
     d_correct = get_d(reserves, amp, CONV_CORRECT)
     our_vp = d_correct * share_scale // shares
     vp_ok = abs(our_vp - vprice) <= 2
     print(f"  virtual_price: pool={vprice}  ours(A*n)={our_vp}  {'OK' if vp_ok else 'MISMATCH'}")
 
-    # 2) estimate_swap sweep — the A-sensitive probe across the whole curve.
     r = min(reserves)
     probes = [(0, 1, dx) for dx in
               (r // 1000, r // 100, r // 10, r // 4, r // 2, (r * 3) // 4, (r * 9) // 10)]
@@ -158,7 +150,6 @@ def main():
         return 0
     print(f"\nFAIL: drift exceeds {args.tol_bps} bps or virtual_price mismatch.")
     return 1
-
 
 if __name__ == "__main__":
     sys.exit(main())

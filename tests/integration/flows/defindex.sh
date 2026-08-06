@@ -1,16 +1,4 @@
-
-
-
-
-
-
-
-
-
-
-
 DFX_UNIT=10000000
-
 
 _dfx_view() { view "$1" "$STRATEGY" -- "${@:2}" | tr -d '"' | tr -d '[:space:]'; }
 
@@ -32,8 +20,6 @@ assert_dfx_uint_lt() {
     _uint_lt "$got" "$max" || _assert_fail "$label" "got '$got' want < $max"
 }
 
-
-
 deploy_dfx_strategy() {
     [ -n "${STRATEGY:-}" ] && return 0
     local out_f="$LOG_DIR/deploy_strategy.out" err_f="$LOG_DIR/deploy_strategy.err"
@@ -53,7 +39,6 @@ deploy_dfx_strategy() {
 flow_defindex_strategy() {
     phase defindex
 
-
     if [ -z "${DFX_SETUP_DONE:-}" ]; then
         deploy_mock_reflector
         issue_sac SAC_DFX DFX
@@ -66,10 +51,7 @@ flow_defindex_strategy() {
     fi
     deploy_dfx_strategy || return 1
 
-
-
     assert_dfx_eq dfx_asset "$SAC_DFX" asset
-
 
     xfail dfx_deposit_zero 'Error\(Contract, #460\)' "$DAVE" "$STRATEGY" -- deposit \
         --amount 0 --from "$DAVE_ADDR"
@@ -80,9 +62,7 @@ flow_defindex_strategy() {
     log "deposit reported balance = $reported"
     assert_dfx_uint_ge dfx_balance_post_deposit "$reported" balance --from "$DAVE_ADDR"
 
-
     inv dfx_harvest "$DAVE" "$STRATEGY" -- harvest --from "$DAVE_ADDR" >/dev/null || return 1
-
 
     xfail dfx_withdraw_zero 'Error\(Contract, #460\)' "$DAVE" "$STRATEGY" -- withdraw \
         --amount 0 --from "$DAVE_ADDR" --to "$DAVE_ADDR"
@@ -95,7 +75,6 @@ flow_defindex_strategy() {
     inv dfx_withdraw_partial "$DAVE" "$STRATEGY" -- withdraw \
         --amount "$part" --from "$DAVE_ADDR" --to "$DAVE_ADDR" >/dev/null || return 1
     assert_dfx_uint_lt dfx_balance_post_partial "$reported" balance --from "$DAVE_ADDR"
-
 
     local remaining
     remaining=$(_dfx_view dfx_balance_pre_full balance --from "$DAVE_ADDR")

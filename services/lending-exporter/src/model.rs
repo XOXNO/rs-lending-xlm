@@ -1,4 +1,3 @@
-
 pub const RAY_F64: f64 = 1e27;
 pub const WAD_F64: f64 = 1e18;
 pub const BPS_F64: f64 = 1e4;
@@ -48,37 +47,18 @@ pub fn seconds_until_stale(now_secs: i64, feed_ts_secs: u64, max_stale_secs: u64
     max_stale_secs as f64 - age as f64
 }
 
-/// Usage / cap as a ratio, or `None` when the ratio has no arithmetically
-/// correct value.
-///
-/// A cap is always an enforced ceiling in asset units; there is no "unlimited"
-/// sentinel. `cap_base_units == 0` therefore means the side is **closed** — it
-/// accepts nothing — so usage/cap is 0/0 and undefined. Publish
-/// [`market_closed`] alongside this so a dashboard can tell a closed market from
-/// an absent scrape.
 pub fn cap_utilization(usage_token: f64, cap_base_units: i128, decimals: u32) -> Option<f64> {
     if cap_base_units <= 0 {
         return None;
     }
     let cap = token_to_f64(cap_base_units, decimals);
     if cap == 0.0 {
-        // A non-zero cap that underflows f64 (absurd `decimals`) is still not a
-        // usable divisor.
+
         return None;
     }
     Some(usage_token / cap)
 }
 
-/// `1.0` when a cap of `0` closes that side of the market, `0.0` otherwise.
-///
-/// Caps and the `can_be_collateral` / `can_be_borrowed` flags are orthogonal by
-/// design, so `cap == 0` on a side whose flag is enabled is a legitimate soft
-/// wind-down: the listing reads as live everywhere else. This gauge is the
-/// signal that says otherwise, and it needs no `decimals`, so it stays
-/// publishable even when the asset's decimals could not be read.
-///
-/// A negative cap is not reachable on-chain; it is reported as closed to match
-/// [`cap_utilization`]'s guard rather than silently reading as open.
 pub fn market_closed(cap_base_units: i128) -> f64 {
     if cap_base_units <= 0 {
         1.0
@@ -132,8 +112,7 @@ mod tests {
 
     #[test]
     fn cap_utilization_is_undefined_for_a_closed_market() {
-        // cap == 0 closes the side: 0/0 has no correct ratio, so callers must
-        // read `market_closed` instead of inferring anything from the gap.
+
         assert_eq!(cap_utilization(5.0, 0, 7), None);
         assert_eq!(cap_utilization(0.0, 0, 7), None);
         assert_eq!(cap_utilization(5.0, 100_000_000, 7), Some(0.5));
@@ -160,9 +139,7 @@ mod tests {
 
     #[test]
     fn closed_market_is_exactly_the_case_cap_utilization_drops() {
-        // The two signals must stay complementary: whenever the closed gauge is
-        // 1 the utilization series is absent, and whenever it is 0 the series is
-        // present. Otherwise a dashboard cannot tell "closed" from "no scrape".
+
         for cap in [i128::MIN, -1, 0, 1, 100_000_000, i128::MAX] {
             let closed = market_closed(cap) == 1.0;
             assert_eq!(closed, cap_utilization(5.0, cap, 7).is_none(), "cap={cap}");

@@ -1,4 +1,3 @@
-
 use anyhow::{anyhow, Context, Result};
 use std::collections::{HashMap, HashSet};
 use stellar_rpc_client::Client as InnerClient;

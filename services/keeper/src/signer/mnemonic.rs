@@ -1,4 +1,3 @@
-
 use anyhow::{anyhow, bail, Result};
 use hmac::{Hmac, Mac};
 use sha2::Sha512;

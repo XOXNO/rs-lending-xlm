@@ -1,9 +1,7 @@
 {
-  "_comment": "Mainnet Hub/Spoke market listing. Hub 1 Core, Hub 2 RWA. is_flashloanable/flashloan_fee live on market_params (flat MarketParamsRaw). Per-asset risk (LTV, caps, pause/freeze) is spoke-scoped via addAssetToSpoke from spokes.json. strategy=0 (Single) for RWA: production enforces a ±10% midpoint-relative sanity band (validate_single_source_sanity_band). references are PriceKey::Ref oracles (no market/spoke); configure before any Scaled market that quotes them.",
   "network": "mainnet",
   "references": [
     {
-      "_note": "Pure BTC/USD reference for Scaled quotes (e.g. SolvBTC). Not listable as a market.",
       "name": "BTC",
       "key": {
         "Ref": "BTC"
@@ -844,7 +842,6 @@
       }
     },
     {
-      "_note": "SolvBTC (SAC CBIJBD…, 8 decimals). Dual: Scaled RedStone SolvBTC_FUNDAMENTAL × Reflector BTC Ref, plus RedStone SolvBTC_FUNDAMENTAL/USD. Shared RedStone domain declared. Configure references.BTC before this market.",
       "name": "SolvBTC",
       "hub_id": 1,
       "asset_address": "CBIJBDNZNF4X35BJ4FFZWCDBSCKOP5NB4PLG4SNENRMLAPYG4P5FM6VN",
@@ -913,7 +910,6 @@
       }
     },
     {
-      "_comment": "Aquarius XLM/USDC constant-product LP share token (share_id of pool CA6PUJLB...). Priced as 2*sqrt(Va*Vb)/S. The source binds both reserve tokens, share token and plane to the live pool at listing and every read; it rejects non-standard rows and fair pool value below $1m. The price band remains a separate wide backstop. Re-derive the band and liquidity floor when underlying bands or market depth materially change.",
       "name": "XLMUSDC_LP",
       "hub_id": 3,
       "asset_address": "CAVKLYY4RWFQBRA2YI5GTGGXKUKJQI3JLAHDGXMS7L5RDH6X6A47NMOZ",
@@ -962,7 +958,6 @@
       }
     },
     {
-      "_comment": "Aquarius XLM/SolvBTC constant-product LP share token (share_id of pool CD2O2B6P...). Priced as 2*sqrt(Va*Vb)/S. The source binds both reserve tokens, share token and plane to the live pool at listing and every read; it rejects non-standard rows and fair pool value below $1m. Sanity band derived from each leg's own sanity range via sqrt scaling; re-derive when underlying bands or market depth materially change.",
       "name": "XLMSolvBTC_LP",
       "hub_id": 3,
       "asset_address": "CAPPL34NF6X7M3EQFIPDXZHQX2PT3EOE2LYCDORH3PF2LTRDSFGWV6NL",
@@ -1011,7 +1006,6 @@
       }
     },
     {
-      "_comment": "Aquarius CETES/USDC constant-product LP share token (share_id of pool CCKGQSQG...). Priced as 2*sqrt(Va*Vb)/S. The source binds both reserve tokens, share token and plane to the live pool at listing and every read; it rejects non-standard rows and fair pool value below $1m. Sanity band derived from each leg's own sanity range via sqrt scaling; re-derive when underlying bands or market depth materially change.",
       "name": "CETESUSDC_LP",
       "hub_id": 3,
       "asset_address": "CB2WUVUP2SKZVFZFNU33EZCISH65DKHQP4WBEHJ4WE3BF7QOABYGCQMS",
@@ -1060,7 +1054,6 @@
       }
     },
     {
-      "_comment": "Aquarius USTRY/USDC constant-product LP share token (share_id of pool CCX2TYR4...). Priced as 2*sqrt(Va*Vb)/S. The source binds both reserve tokens, share token and plane to the live pool at listing and every read; it rejects non-standard rows and fair pool value below $1m. Sanity band derived from each leg's own sanity range via sqrt scaling; re-derive when underlying bands or market depth materially change.",
       "name": "USTRYUSDC_LP",
       "hub_id": 3,
       "asset_address": "CCLJBNY2KMUOSAW7URIZHREO5ORQREDX7NIHLFRAT6KAZ5GO7652OA4I",
@@ -1109,7 +1102,6 @@
       }
     },
     {
-      "_comment": "Aquarius USDY/USDC constant-product LP share token (share_id of pool CAFHLHGZ...). Priced as 2*sqrt(Va*Vb)/S. The source binds both reserve tokens, share token and plane to the live pool at listing and every read; it rejects non-standard rows and fair pool value below $1m. Sanity band derived from each leg's own sanity range via sqrt scaling; re-derive when underlying bands or market depth materially change.",
       "name": "USDYUSDC_LP",
       "hub_id": 3,
       "asset_address": "CCYD4C2WFWIIDF235SCDXEWL5RT6S53WQWLDHUTQ5USZ5VNF5NHJGVW7",
@@ -1158,7 +1150,6 @@
       }
     },
     {
-      "_comment": "Aquarius PYUSD/USDC stableswap LP share token (share_id of pool CDMH535J...). Priced as (D/S)*min(Pa,Pb) with D the swap-invariant Curve invariant and A read live from the pool; both legs bind directly to their token markets. Rejects non-stable rows and fair pool value below $1m. Sanity band brackets virtual_price (fee-growth headroom) times each leg's own sanity floor/ceiling; re-derive when underlying bands or market depth materially change.",
       "name": "PYUSDUSDC_LP",
       "hub_id": 3,
       "asset_address": "CD3EQXQGRYUKM7LZ6MZVTXSW74ROXU6YI2SXHJ6KTB5BQ425E5KXRDBC",

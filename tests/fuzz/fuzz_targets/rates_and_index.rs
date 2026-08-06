@@ -1,4 +1,3 @@
-
 #![no_main]
 use arbitrary::Arbitrary;
 use common::constants::{

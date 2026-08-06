@@ -147,10 +147,6 @@ pub mod aquarius_mock {
     }
 }
 
-/// Two-token Aquarius liquidity pool, faithful to the deployed `deposit` /
-/// `withdraw` ABI: `deposit` consumes only a balanced subset of the requested
-/// amounts and leaves the remainder with the caller, and `withdraw` burns the
-/// caller's shares off the share token itself.
 pub mod aquarius_lp_mock {
     use super::*;
 
@@ -190,8 +186,6 @@ pub mod aquarius_lp_mock {
             total as u128
         }
 
-        /// Marks the pool as a stableswap, which consumes every amount offered
-        /// instead of keeping only the balanced subset.
         pub fn set_stable(env: Env) {
             env.storage().instance().set(&LpKey::Stable, &true);
         }
@@ -221,8 +215,6 @@ pub mod aquarius_lp_mock {
             30
         }
 
-        /// Constant-product swap with the fee taken on input, matching how
-        /// Aquarius charges it. The router's pre-balance step calls this.
         pub fn swap(
             env: Env,
             user: Address,
@@ -264,17 +256,12 @@ pub mod aquarius_lp_mock {
             let r0 = token::Client::new(&env, &tokens.get(0).unwrap()).balance(&pool);
             let r1 = token::Client::new(&env, &tokens.get(1).unwrap()).balance(&pool);
 
-            // Balanced join, in the live pool's order: balance the AMOUNTS
-            // first (the scarcer side is taken in full, the other is scaled to
-            // it by reserve ratio), then derive shares from that pair. Doing it
-            // shares-first differs by a unit on some inputs.
             let stable: bool = env
                 .storage()
                 .instance()
                 .get(&LpKey::Stable)
                 .unwrap_or(false);
             let (used0, used1, shares) = if stable {
-                // Consumes both amounts whole; shares track the pool's growth.
                 let s = if r0 + r1 > 0 {
                     (d0 + d1) * total / (r0 + r1)
                 } else {
@@ -297,9 +284,6 @@ pub mod aquarius_lp_mock {
             };
             assert!(shares as u128 >= min_shares, "min_shares not met");
 
-            // The live pool pulls the FULL desired amounts and refunds the
-            // surplus afterwards — it does not pull a subset. That distinction
-            // decides what the caller has to authorize, so the mock mirrors it.
             for (i, (desired, used)) in [(d0, used0), (d1, used1)].iter().enumerate() {
                 let client = token::Client::new(&env, &tokens.get(i as u32).unwrap());
                 if *desired > 0 {

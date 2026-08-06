@@ -1,12 +1,5 @@
 #!/usr/bin/env bash
 
-
-
-
-
-
-
-
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -24,7 +17,6 @@ if [ -f "$INTEG_DIR/appendix.md" ]; then
 else
     log "NOTE: no $INTEG_DIR/appendix.md (run 'make integration-appendix' to (re)generate)"
 fi
-
 
 check_tools 2>/dev/null || log "WARNING: some required tools missing (see check_tools)"
 check_stellar_version 2>/dev/null || log "WARNING: stellar CLI version check failed or not met"
@@ -61,12 +53,6 @@ fi
 
 if want liquidation; then
 
-
-
-
-
-
-
     INV_TRANSIENT_CONTRACT_RE='Error\(Contract, #'
     flow_liq_setup
     flow_liq_single
@@ -76,8 +62,6 @@ if want liquidation; then
     unset INV_TRANSIENT_CONTRACT_RE
 fi
 
-
-
 if want defindex; then
     flow_defindex_strategy
 fi
@@ -85,8 +69,6 @@ fi
 if want admin; then
     flow_admin
 fi
-
-
 
 if want governance; then
     flow_governance

@@ -19,7 +19,6 @@ import tempfile
 SPEC_SECTION = b"contractspecv0"
 META_SECTION = b"contractmetav0"
 
-
 def read_leb128(data: bytes, i: int) -> tuple[int, int]:
     value = shift = 0
     while True:
@@ -29,7 +28,6 @@ def read_leb128(data: bytes, i: int) -> tuple[int, int]:
         if not (byte & 0x80):
             return value, i
         shift += 7
-
 
 def write_leb128(value: int) -> bytes:
     out = bytearray()
@@ -42,7 +40,6 @@ def write_leb128(value: int) -> bytes:
             out.append(byte)
             return bytes(out)
 
-
 def blank_docs(node):
     if isinstance(node, dict):
         return {
@@ -52,7 +49,6 @@ def blank_docs(node):
     if isinstance(node, list):
         return [blank_docs(item) for item in node]
     return node
-
 
 def main() -> None:
     src, dst = sys.argv[1], sys.argv[2]
@@ -110,7 +106,6 @@ def main() -> None:
         rebuilt += bytes([sec_id]) + write_leb128(len(body)) + body
     open(dst, "wb").write(bytes(rebuilt))
     print(f"{src}: {len(wasm)} -> {len(rebuilt)} bytes (spec docs + meta stripped)")
-
 
 if __name__ == "__main__":
     main()

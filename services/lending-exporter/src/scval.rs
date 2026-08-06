@@ -1,4 +1,3 @@
-
 use stellar_xdr::curr::{ScAddress, ScVal};
 
 pub fn map_field<'a>(value: &'a ScVal, name: &str) -> Option<&'a ScVal> {

@@ -1,6 +1,3 @@
-
-
-
 : "${LIQ20_TX_CAP:=400000000}"
 : "${LIQ20_DEFAULT_REPAY_EACH:=$((3000 * ${STRESS_UNIT:-10000000}))}"
 : "${LIQ20_DEFAULT_LEEWAY:=8000000}"
@@ -42,7 +39,6 @@ liq20_liquidate_send() {
     return 1
 }
 
-
 liq20_events_width_walk() {
     local state_key="$1"; shift
     local n repay_each label
@@ -60,7 +56,6 @@ liq20_events_width_walk() {
     done
     return 1
 }
-
 
 liq20_v2_walk_widths() {
     local state_key="$1"; shift
@@ -94,7 +89,6 @@ liq20_v2_walk_widths() {
     return 1
 }
 
-
 liq20_bisect_widths() {
     local state_key="$1"; shift
     local n repay_each
@@ -117,7 +111,6 @@ liq20_bisect_widths() {
     return 1
 }
 
-
 liq20_fullrepay_probe() {
     local state_key="$1"; shift
     local best_n=0 n repay_each
@@ -139,7 +132,6 @@ liq20_fullrepay_probe() {
     fi
     save_state "$state_key" "$best_n"
 }
-
 
 liq20_send_9debt_leeway() {
     local label=liq20_proof_9debt_leeway

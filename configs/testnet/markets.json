@@ -356,7 +356,6 @@
       }
     },
     {
-      "_comment": "Aquarius XLM/USDC constant-product LP token (share_id of pool CAYBMZYJ...). Priced as 2*sqrt(Va*Vb)/S. The source binds both reserve tokens, share token and plane to the live pool at listing and every read; both legs bind directly to their token markets (this pool's USDC reserve is the canonical USDC contract). It rejects non-standard rows and fair pool value below $2,500. The price band remains a separate wide backstop.",
       "name": "XLMUSDC_LP",
       "hub_id": 3,
       "asset_address": "CDEUHPEUQAQNLCHFVBX3ZOSIR2FUWD2COYTSHUPQPJWK2BCLLQCW66FY",

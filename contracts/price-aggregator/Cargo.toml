@@ -28,7 +28,6 @@ certora-tolerance-math-rules = ["certora", "certora-focused"]
 soroban-sdk = { workspace = true, features = ["testutils"] }
 mock-redstone = { path = "../../mock/mock-redstone" }
 
-
 [[test]]
 name = "surface"
 path = "tests/surface.rs"

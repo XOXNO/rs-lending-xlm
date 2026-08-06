@@ -31,16 +31,13 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 futures = "0.3"
 
-
 serde = { version = "1", features = ["derive"] }
 serde_yaml = "0.9"
 clap = { version = "4", features = ["derive", "env"] }
 
-
 stellar-rpc-client = "=26.0.0"
 stellar-xdr = { version = "=26.0.1", features = ["curr", "std", "base64", "serde"] }
 stellar-strkey = "0.0.16"
-
 
 ed25519-dalek = { version = "2", features = ["rand_core"] }
 bip39 = { version = "2.2", features = ["std"] }
@@ -48,14 +45,11 @@ hmac = "0.12"
 sha2 = "0.10"
 hex = "0.4"
 
-
 mx-keyvault = { version = "0.1.0", default-features = false, features = ["keyvault"] }
-
 
 axum = { version = "0.7", default-features = false, features = ["http1", "tokio"] }
 hyper = { version = "1", features = ["server", "http1"] }
 prometheus = { version = "0.13", default-features = false }
-
 
 num-bigint = "0.4"
 

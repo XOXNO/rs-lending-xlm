@@ -1,9 +1,3 @@
-//! PoC: `multiply`'s `initial_payment` accepts an arbitrary, unvalidated token
-//! address and invokes `transfer` on it BEFORE any reentrancy guard is armed,
-//! while `account` is already loaded in memory. A reentrant `withdraw` drains
-//! the position on-chain; the outer `multiply` then persists its stale
-//! in-memory snapshot, resurrecting the withdrawn collateral.
-
 use controller::types::PositionMode;
 use soroban_sdk::{contract, contractimpl, token, vec, Address, Env, Symbol};
 use test_harness::{hub_asset, mock_swap_payload_xdr, LendingTest, ALICE, BOB, HARNESS_SPOKE};
@@ -97,7 +91,7 @@ fn poc_multiply_initial_payment_reentrancy_duplicates_collateral() {
         &alice_id,
         &HARNESS_SPOKE,
         &hub_asset(usdc.clone()),
-        &1_0000000i128, // borrow 1 ETH
+        &1_0000000i128,
         &hub_asset(eth.clone()),
         &PositionMode::Multiply,
         &debt_swap,

@@ -1,4 +1,3 @@
-
 #[derive(Debug, Clone, Copy)]
 pub struct TickBudget {
     pub max_txs: usize,

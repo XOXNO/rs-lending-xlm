@@ -1,4 +1,3 @@
-
 use anyhow::{anyhow, Context, Result};
 use stellar_xdr::curr::{
     ContractExecutable, ContractId, Hash, LedgerEntryData, LedgerKey, ScAddress,

@@ -1,4 +1,3 @@
-
 use anyhow::{anyhow, Result};
 use stellar_xdr::curr::{
     ContractId, Hash, HostFunction, InvokeContractArgs, InvokeHostFunctionOp, Operation,

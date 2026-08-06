@@ -17,7 +17,7 @@ use crate::storage;
 pub(crate) struct Cache {
     env: Env,
 
-    pub(crate) token_prices: Map<Address, PriceFeedRaw>,
+    token_prices: Map<Address, PriceFeedRaw>,
 
     market_indexes: Map<HubAssetKey, MarketIndexRaw>,
     pool_address: Option<Address>,

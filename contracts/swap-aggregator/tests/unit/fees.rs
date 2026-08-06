@@ -268,9 +268,6 @@ fn claim_skips_transfer_when_bucket_is_empty() {
     router.claim_referral_fees(&id, &vec![&env, token]);
 }
 
-/// The static and referral fees stack when charged, so the cap has to hold on
-/// the sum. Each is individually capped at 10%, which would otherwise let a
-/// trade be charged 20%.
 #[test]
 fn combined_static_and_referral_fee_cannot_exceed_the_cap() {
     let env = Env::default();

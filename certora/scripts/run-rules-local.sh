@@ -1,11 +1,5 @@
 #!/usr/bin/env bash
 
-
-
-
-
-
-
 set -euo pipefail
 jobs=1
 if [ "${1:-}" = "-j" ]; then jobs="$2"; shift 2; fi
@@ -15,16 +9,9 @@ conf="$conf_dir/$(basename "$conf_input")"
 name=$(basename "$conf")
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)
 
-
-
 heap="${CERTORA_JAVA_HEAP:--Xmx8g}"
 
-
-
-
 local_multi_assert="${CERTORA_LOCAL_MULTI_ASSERT:-false}"
-
-
 
 install_dir="${CERTORA_INSTALL:-$HOME/certora-install}"
 if [ -n "${CERTORA_LOCAL:-}" ]; then
@@ -56,10 +43,6 @@ else
   fi
   local_cmd=("$certora_python" "$install_dir/certoraSorobanProver.py")
 fi
-
-
-
-
 
 work_dir=$(mktemp -d "${TMPDIR:-/tmp}/certora-local.XXXXXX")
 local_conf="$work_dir/local.conf"
@@ -139,8 +122,6 @@ if [ $# -gt 0 ]; then rules=("$@"); else
     rules+=("$rule")
   done < <(python3 -c "import json,sys; [print(r) for r in json.load(open(sys.argv[1]))['rule']]" "$conf")
 fi
-
-
 
 java_home="${CERTORA_JAVA_HOME:-${JAVA_HOME:-}}"
 if [ -z "$java_home" ] && [ -x /usr/libexec/java_home ]; then

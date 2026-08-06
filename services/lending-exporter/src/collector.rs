@@ -1,4 +1,3 @@
-
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{anyhow, Result};
@@ -550,10 +549,7 @@ async fn publish_spoke_asset(
         Ok(s) => s,
         Err(_) => return,
     };
-    // Unlike the view reverting above (routine for an unlisted spoke/asset pair),
-    // a view that returned but would not decode is always an ABI mismatch. Count
-    // it: the row is dropped, and a silently missing listing is exactly what the
-    // closed-market gauges exist to rule out.
+
     let cfg = match controller::decode_spoke_asset(&cfg_scv) {
         Ok(cfg) => cfg,
         Err(e) => {
@@ -575,10 +571,7 @@ async fn publish_spoke_asset(
     metrics.spoke_collateral_enabled.with_label_values(&labels).set(b(cfg.is_collateralizable));
     metrics.spoke_borrow_enabled.with_label_values(&labels).set(b(cfg.is_borrowable));
     metrics.spoke_deprecated.with_label_values(&labels).set(b(deprecated));
-    // A cap of 0 closes that side even while the matching enable flag is set — a
-    // legitimate soft wind-down that otherwise reads as a live listing. Publish
-    // it here, ahead of the decimals guard, so the signal survives a market
-    // whose decimals we could not read.
+
     metrics.spoke_supply_closed.with_label_values(&labels).set(model::market_closed(cfg.supply_cap));
     metrics.spoke_borrow_closed.with_label_values(&labels).set(model::market_closed(cfg.borrow_cap));
     metrics.spoke_ltv_bps.with_label_values(&labels).set(cfg.loan_to_value_bps as f64);

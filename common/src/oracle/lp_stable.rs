@@ -1,22 +1,3 @@
-//! Manipulation-resistant fair-value pricing for stableswap (Curve-style) AMM
-//! LP shares.
-//!
-//! A stableswap pool holds near-pegged assets on the invariant
-//! `A·nⁿ·Σxᵢ + D = A·D·nⁿ + Dⁿ⁺¹/(nⁿ·Πxᵢ)`. `D` — the invariant "size" — is
-//! preserved by swaps (only deposits, withdrawals, fees and the `A`-ramp move
-//! it), exactly as `k = xy` is for constant-product. Pricing off `D` therefore
-//! cancels the reserve *split*, the only thing a flash-loan swap can move.
-//!
-//! Value is `(D / S) · min(Pᵢ)`: `D/S` is the invariant units per share and
-//! `min(Pᵢ)` the conservative USD floor per unit — under a depeg the pool
-//! drains into the cheapest leg, so the cheapest oracle price is what an LP
-//! redeemer actually recovers. Both legs' prices come from independent oracles.
-//!
-//! Every anomaly (non-positive input, out-of-range `A`, absurd magnitude, or a
-//! `D` iteration that fails to converge) maps to an error, never a panic: a
-//! compromised pool must not brick the market with an unrecoverable host trap,
-//! and must never yield a manipulable number.
-
 use crate::constants::WAD_DECIMALS;
 use crate::errors::OracleError;
 use crate::math::fp_core::try_mul_div_half_up;
@@ -24,34 +5,15 @@ use crate::oracle::lp::{LpLeg, LpSupply};
 use crate::oracle::observation::try_u256_to_i128;
 use soroban_sdk::{Env, U256};
 
-/// Two-coin pool. Aquarius constant-product and stableswap pools are both pairs.
 const N_COINS: u32 = 2;
 
-/// `A` bounds. Curve caps amplification at 1e6; below 1 the invariant degrades
-/// to (and past) constant-sum. An `A` outside this is a compromised/garbage row.
 const MIN_AMP: u128 = 1;
 const MAX_AMP: u128 = 1_000_000;
 
-/// The `D` Newton iteration converges in a handful of steps for sane pools; the
-/// cap is a safety backstop. Non-convergence within it is treated as an error.
 const MAX_D_ITERATIONS: u32 = 255;
 
-/// Upper bound on a WAD-normalized reserve. Keeps every `U256` product in the
-/// `D` iteration (`~Ann·Σx·D`) well inside 256 bits, so the solver can never
-/// overflow-panic. 1e34 WAD is a ~$1e16 leg — astronomically above any real
-/// pool, so a larger value is itself evidence of a corrupt reserve.
 const MAX_NORMALIZED_RESERVE_WAD: u128 = 10u128.pow(34);
 
-/// Manipulation-resistant invariant `D` for a two-coin stableswap, over reserves
-/// already normalized to a common WAD scale.
-///
-/// `D` is swap-invariant, so pricing off it is immune to reserve-split
-/// manipulation. Computed by Newton's method in `U256`; the per-coin division
-/// keeps `D_P` near `D`'s magnitude (never forming `D³` directly).
-///
-/// # Errors
-/// * [`OracleError::InvalidPrice`] - non-positive reserve, `amp` out of range,
-///   a reserve past [`MAX_NORMALIZED_RESERVE_WAD`], or non-convergence.
 pub fn solve_stable_d(
     env: &Env,
     xa_wad: i128,
@@ -98,14 +60,6 @@ pub fn solve_stable_d(
     Err(OracleError::InvalidPrice)
 }
 
-/// Fair USD price (WAD) of one whole LP share of a two-coin stableswap:
-/// `D · min(Pₐ, P_b) / S_whole`, with `D` the invariant over WAD-normalized
-/// reserves. The two `WAD` factors (unit→USD and per-share) cancel to a single
-/// `U256` `mul`/`div`.
-///
-/// # Errors
-/// * [`OracleError::InvalidPrice`] - non-positive reserve/price/supply, a
-///   decimals value past [`WAD_DECIMALS`], overflow, or `D` non-convergence.
 pub fn fair_stable_lp_price_wad(
     env: &Env,
     a: &LpLeg,
@@ -138,12 +92,6 @@ pub fn fair_stable_lp_price_wad(
     try_u256_to_i128(&fair).ok_or(OracleError::InvalidPrice)
 }
 
-/// Normalized invariant `D` (WAD) for a two-coin stableswap from raw reserves.
-/// Exposed for the listing-time cross-check between the pool and its plane
-/// mirror: `D` is the swap-invariant the two views must agree on.
-///
-/// # Errors
-/// * [`OracleError::InvalidPrice`] - as [`solve_stable_d`], or a `D` past `i128`.
 pub fn stable_invariant_d_wad(
     env: &Env,
     reserve_a: i128,
@@ -158,8 +106,6 @@ pub fn stable_invariant_d_wad(
     try_u256_to_i128(&d).ok_or(OracleError::InvalidPrice)
 }
 
-/// `amount` (in `decimals`) upscaled to WAD; `InvalidPrice` on overflow or
-/// `decimals > 18`.
 fn amount_to_wad(env: &Env, amount: i128, decimals: u32) -> Result<i128, OracleError> {
     let scale = WAD_DECIMALS
         .checked_sub(decimals)
@@ -188,9 +134,6 @@ mod tests {
         }
     }
 
-    /// Reference `get_y`: the reserve `y` for a target `x` on invariant `D` — a
-    /// swap moving the pool from `(x0, y0)` to `(x, y)`. Same math as the pool's
-    /// own swap, so post-swap reserves lie exactly on invariant `D`.
     fn solve_stable_y(env: &Env, x_wad: i128, d: &U256, amp: u128) -> U256 {
         let n = U256::from_u32(env, N_COINS);
         let one = U256::from_u32(env, 1);

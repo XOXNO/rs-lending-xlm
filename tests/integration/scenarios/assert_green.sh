@@ -1,23 +1,11 @@
 #!/usr/bin/env bash
 
-
-
-
-
-
-
-
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$HERE/../env.sh"
 
 [ -f "$ACTIONS_TSV" ] || { echo "no actions.tsv for RUN_TS=$RUN_TS" >&2; exit 1; }
-
-
-
-
-
 
 LANE_LOG="$INTEG_DIR/runs/$RUN_TS.log"
 if [ -f "$LANE_LOG" ] && ! grep -q "run complete" "$LANE_LOG"; then

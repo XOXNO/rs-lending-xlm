@@ -1,11 +1,3 @@
-//! Regression coverage for spoke caps after the "cap == 0 means unlimited"
-//! sentinel was removed.
-//!
-//! A cap is always an enforced ceiling in asset units: `0` closes the market
-//! on that side and `i128::MAX` is an ordinary value that the per-asset domain
-//! check rejects at config time. Exits stay uncapped, so closing a market must
-//! never trap an existing position.
-
 use controller::constants::RAY_DECIMALS;
 use controller::types::{ControllerKey, SpokeAssetArgs, SpokeUsageRaw};
 use soroban_sdk::{vec, Vec};
@@ -15,11 +7,8 @@ use test_harness::{
     STABLECOIN_SPOKE, UNCONSTRAINED_TEST_CAP,
 };
 
-/// One whole token at the 7 decimals every harness market uses.
 const UNIT: i128 = 10_000_000;
 
-/// Rebuilds the stored listing with new caps, leaving every other field alone
-/// so a cap edit cannot be confused with a flag or risk-parameter change.
 fn spoke_cap_args(
     t: &LendingTest,
     spoke_id: u32,
@@ -85,9 +74,6 @@ fn spoke_usage(t: &LendingTest, spoke_id: u32, asset_name: &str) -> SpokeUsageRa
     })
 }
 
-/// Raw-amount `try_supply`. The harness only exposes a panicking `supply_raw`
-/// and an `f64` `try_supply`; cap boundaries need an exact sub-unit amount and
-/// a recoverable error.
 fn try_supply_raw(
     t: &mut LendingTest,
     user: &str,
@@ -113,7 +99,6 @@ fn try_supply_raw(
     }
 }
 
-/// Raw-amount `try_borrow`, for the same reason as `try_supply_raw`.
 fn try_borrow_raw(
     t: &mut LendingTest,
     user: &str,
@@ -153,9 +138,6 @@ fn usdc_usdt_spoke_market() -> LendingTest {
         .build()
 }
 
-/// `supply_cap == 0` closes the supply side outright. Under the old sentinel
-/// this listing was treated as unlimited and every one of these supplies
-/// succeeded.
 #[test]
 fn test_zero_supply_cap_rejects_every_supply() {
     let mut t = usdc_spoke_market();
@@ -178,8 +160,6 @@ fn test_zero_supply_cap_rejects_every_supply() {
     );
 }
 
-/// `borrow_cap == 0` closes the borrow side outright, even for an account with
-/// ample collateral.
 #[test]
 fn test_zero_borrow_cap_rejects_every_borrow() {
     let mut t = usdc_usdt_spoke_market();
@@ -203,10 +183,6 @@ fn test_zero_borrow_cap_rejects_every_borrow() {
     );
 }
 
-/// The load-bearing property of the new semantics: closing a market blocks new
-/// entries but never traps an existing position. Repay and withdraw are
-/// deliberately not routed through the cap check, so a fully closed market
-/// still unwinds to zero.
 #[test]
 fn test_closed_market_still_allows_full_repay_and_withdraw() {
     let mut t = usdc_usdt_spoke_market();
@@ -252,8 +228,6 @@ fn test_closed_market_still_allows_full_repay_and_withdraw() {
     );
 }
 
-/// Bad-debt cleanup seizes both sides through the exit path, so it must keep
-/// working against a market that accepts nothing.
 #[test]
 fn test_closed_market_still_allows_bad_debt_cleanup() {
     let mut t = LendingTest::new()
@@ -294,8 +268,6 @@ fn test_closed_market_still_allows_bad_debt_cleanup() {
     );
 }
 
-/// A cap sitting exactly on the per-asset domain ceiling is legal: it is the
-/// largest value `Ray::from_asset` can rescale without overflow.
 #[test]
 fn test_spoke_cap_at_asset_domain_ceiling_accepted() {
     let t = usdc_spoke_market();
@@ -324,8 +296,6 @@ fn test_spoke_cap_at_asset_domain_ceiling_accepted() {
     assert_eq!(cfg.borrow_cap, ceiling);
 }
 
-/// One unit above the ceiling would overflow `Ray::from_asset` at supply time,
-/// so it has to be refused at config time instead.
 #[test]
 fn test_spoke_cap_above_asset_domain_ceiling_rejected() {
     let t = usdc_spoke_market();
@@ -341,8 +311,6 @@ fn test_spoke_cap_above_asset_domain_ceiling_rejected() {
     );
 }
 
-/// `i128::MAX` lost its "unlimited" exemption, so `edit_asset_in_spoke` now
-/// rejects it like any other out-of-domain cap.
 #[test]
 fn test_edit_asset_in_spoke_rejects_i128_max_cap() {
     let t = usdc_spoke_market();
@@ -357,8 +325,6 @@ fn test_edit_asset_in_spoke_rejects_i128_max_cap() {
     );
 }
 
-/// The listing entry point has to reject `i128::MAX` too, otherwise a market
-/// could be created with a cap that panics on its first supply.
 #[test]
 fn test_add_asset_to_spoke_rejects_i128_max_cap() {
     let t = LendingTest::new()
@@ -390,8 +356,6 @@ fn test_add_asset_to_spoke_rejects_i128_max_cap() {
     assert_contract_error(result, errors::INVALID_BORROW_PARAMS);
 }
 
-/// The cap is inclusive: usage may reach it exactly, and the next sub-unit is
-/// refused.
 #[test]
 fn test_supply_of_exactly_the_cap_succeeds_then_one_unit_reverts() {
     let cap = 1_000 * UNIT;
@@ -412,8 +376,6 @@ fn test_supply_of_exactly_the_cap_succeeds_then_one_unit_reverts() {
     );
 }
 
-/// A single supply of `cap + 1` is refused whole; the market is not left
-/// partially filled, and a supply of exactly `cap` still goes through after.
 #[test]
 fn test_single_supply_of_cap_plus_one_reverts() {
     let cap = 1_000 * UNIT;
@@ -438,7 +400,6 @@ fn test_single_supply_of_cap_plus_one_reverts() {
     );
 }
 
-/// Borrow side of the same inclusive boundary.
 #[test]
 fn test_borrow_of_exactly_the_cap_succeeds_then_one_unit_reverts() {
     let cap = 500 * UNIT;

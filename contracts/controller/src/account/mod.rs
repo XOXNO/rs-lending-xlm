@@ -101,6 +101,22 @@ pub(crate) fn require_owner_or_delegate(
     panic_with_error!(env, GenericError::NotAuthorized);
 }
 
+/// Load account meta and require `caller` is the account owner.
+///
+/// Missing accounts fail via [`storage::get_account_meta`] with
+/// [`GenericError::AccountNotInMarket`]. Non-owners intentionally use the same
+/// error (not [`GenericError::NotAuthorized`]) so owner-only entrypoints do not
+/// distinguish existence from ownership.
+pub(crate) fn require_account_owner(
+    env: &Env,
+    account_id: u64,
+    caller: &Address,
+) -> AccountMeta {
+    let meta = storage::get_account_meta(env, account_id);
+    assert_with_error!(env, meta.owner == *caller, GenericError::AccountNotInMarket);
+    meta
+}
+
 fn require_spoke_match(env: &Env, account: &Account, spoke_id: u32) {
     if spoke_id != account.spoke_id {
         panic_with_error!(env, SpokeError::SpokeMismatch);
@@ -145,8 +161,7 @@ pub(crate) fn renew_account(env: &Env, caller: Address, account_id: u64) {
     storage::renew_controller_instance(env);
 
     caller.require_auth();
-    let meta = storage::get_account_meta(env, account_id);
-    assert_with_error!(env, meta.owner == caller, GenericError::AccountNotInMarket);
+    let _meta = require_account_owner(env, account_id, &caller);
 
     storage::renew_user_account(env, account_id);
 }
@@ -169,8 +184,7 @@ fn set_account_delegate(
     add: bool,
 ) {
     caller.require_auth();
-    let meta = storage::get_account_meta(env, account_id);
-    assert_with_error!(env, meta.owner == *caller, GenericError::AccountNotInMarket);
+    let meta = require_account_owner(env, account_id, caller);
 
     let changed = if add {
         storage::add_delegate(env, account_id, delegate)

@@ -1,4 +1,3 @@
-
 """Summarize llvm-cov LCOV into a markdown table for one coverage mode."""
 
 from __future__ import annotations
@@ -7,7 +6,6 @@ import sys
 from pathlib import Path
 
 REPO_MARKER = "/rs-lending-xlm/"
-
 
 MODE_PATHS: dict[str, tuple[str, ...]] = {
     "controller": ("/contracts/controller/", "/common/"),
@@ -21,7 +19,6 @@ MODE_PATHS: dict[str, tuple[str, ...]] = {
     ),
 }
 
-
 def parse_lcov(path: Path) -> dict[str, dict[str, int]]:
     files: dict[str, dict[str, int]] = {}
     current: str | None = None
@@ -34,7 +31,6 @@ def parse_lcov(path: Path) -> dict[str, dict[str, int]]:
             files.setdefault(current, {})["total"] = int(raw[3:])
     return files
 
-
 def keep(path: str, mode: str) -> bool:
     if REPO_MARKER not in path or "/tests/test-harness/" in path:
         return False
@@ -42,7 +38,6 @@ def keep(path: str, mode: str) -> bool:
     if prefixes is None:
         raise ValueError(f"unsupported mode: {mode}")
     return any(p in path for p in prefixes)
-
 
 def write_report(lcov_path: Path, report_path: Path, mode: str) -> tuple[int, int, float]:
     selected = {k: v for k, v in parse_lcov(lcov_path).items() if keep(k, mode)}
@@ -69,7 +64,6 @@ def write_report(lcov_path: Path, report_path: Path, mode: str) -> tuple[int, in
     report_path.write_text("\n".join(lines) + "\n")
     return hit_total, total_total, overall
 
-
 def main() -> int:
     if len(sys.argv) != 4:
         modes = "|".join(MODE_PATHS)
@@ -81,7 +75,6 @@ def main() -> int:
     hit, total, overall = write_report(Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3])
     print(f"TOTAL {hit}/{total} {overall:.2f}%")
     return 0
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

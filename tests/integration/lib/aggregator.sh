@@ -1,18 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 agg_route_hex() {
     local from="$1" to="$2" amount_in="$3" slippage="${4:-0.05}"
     local max_hops="${AGGREGATOR_MAX_HOPS:-2}"
@@ -20,7 +5,6 @@ agg_route_hex() {
 
     local hdr=()
     [ -n "${AGGREGATOR_HEADER:-}" ] && hdr=(-H "$AGGREGATOR_HEADER")
-
 
     local try hops
     for try in 1 2 3 4; do

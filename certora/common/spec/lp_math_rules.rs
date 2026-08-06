@@ -6,8 +6,6 @@ use crate::constants::WAD;
 use crate::oracle::lp::{fair_lp_price_wad, isqrt_of_product, LpLeg, LpSupply};
 use crate::oracle::lp_stable::fair_stable_lp_price_wad;
 
-/// Stellar assets are 7 decimals; the rules below fix that so the prover reasons
-/// about the arithmetic rather than the decimals ladder, which `policy` bounds.
 const DEC: u32 = 7;
 
 fn leg(reserve: i128, price_wad: i128) -> LpLeg {
@@ -25,10 +23,6 @@ fn supply(total_shares: i128) -> LpSupply {
     }
 }
 
-/// The share price divides by supply and is fed to a collateral valuation, so
-/// every degenerate input has to fail closed rather than produce a number or
-/// trap. A trap would be worse than an error: it aborts the whole transaction
-/// instead of marking one asset unusable.
 #[rule]
 fn lp_price_rejects_degenerate_inputs(
     e: Env,
@@ -52,8 +46,6 @@ fn lp_price_rejects_degenerate_inputs(
     cvlr_assert!(priced.is_err());
 }
 
-/// `share_decimals` past WAD has no upscale factor, so it must surface as an
-/// error. This is the shape a mis-attested share token would take.
 #[rule]
 fn lp_price_rejects_share_decimals_past_wad(e: Env, share_decimals: u32) {
     cvlr_assume!(share_decimals > 18 && share_decimals <= 40);
@@ -71,9 +63,6 @@ fn lp_price_rejects_share_decimals_past_wad(e: Env, share_decimals: u32) {
     cvlr_assert!(priced.is_err());
 }
 
-/// `2*sqrt(Va*Vb)` is symmetric, so which reserve is called `a` cannot change the
-/// price. This is what makes a key_a/key_b ordering mistake at listing harmless,
-/// and it is asserted here rather than left to the reviewer's arithmetic.
 #[rule]
 fn lp_price_is_symmetric_under_leg_swap(
     e: Env,
@@ -108,9 +97,6 @@ fn lp_price_is_symmetric_under_leg_swap(
     }
 }
 
-/// The fair value rounds down through the root, which is only conservative if it
-/// really is the floor: `r*r <= a*b < (r+1)*(r+1)`. An over-estimating root would
-/// over-price every LP share that uses it.
 #[rule]
 fn isqrt_is_the_integer_floor_of_the_root(e: Env, a: u64, b: u64) {
     let product = U256::from_u128(&e, u128::from(a)).mul(&U256::from_u128(&e, u128::from(b)));
@@ -121,8 +107,6 @@ fn isqrt_is_the_integer_floor_of_the_root(e: Env, a: u64, b: u64) {
     cvlr_assert!(next.mul(&next) > product);
 }
 
-/// Stableswap analogue of the degenerate-input rule: every non-positive input
-/// fails closed rather than pricing a broken pool or trapping the whole tx.
 #[rule]
 fn stable_lp_price_rejects_degenerate_inputs(
     e: Env,
@@ -148,8 +132,6 @@ fn stable_lp_price_rejects_degenerate_inputs(
     cvlr_assert!(priced.is_err());
 }
 
-/// An amplification outside `[1, 1e6]` is a garbage or compromised row; it must
-/// fail closed, never feed a bogus `D` into a collateral valuation.
 #[rule]
 fn stable_lp_price_rejects_out_of_range_amp(e: Env, amp: u128) {
     cvlr_assume!(amp == 0 || amp > 1_000_000);
@@ -165,9 +147,6 @@ fn stable_lp_price_rejects_out_of_range_amp(e: Env, amp: u128) {
     cvlr_assert!(priced.is_err());
 }
 
-/// `D` and `min` are both symmetric in the two legs, so a key_a/key_b ordering
-/// mistake at listing is harmless — the price cannot depend on which reserve is
-/// called `a`.
 #[rule]
 fn stable_lp_price_is_symmetric_under_leg_swap(
     e: Env,
@@ -206,10 +185,6 @@ fn stable_lp_price_is_symmetric_under_leg_swap(
     }
 }
 
-/// The mark tracks the cheaper leg only: with leg A fixed at the lower price,
-/// two different (higher) prices for leg B must yield the same share price. This
-/// is the manipulation guarantee — inflating the dearer oracle leg cannot lift
-/// the LP valuation.
 #[rule]
 fn stable_lp_price_tracks_only_the_cheaper_leg(
     e: Env,

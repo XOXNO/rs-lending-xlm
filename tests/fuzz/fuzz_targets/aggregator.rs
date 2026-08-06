@@ -1,15 +1,5 @@
 #![no_main]
-//! Fuzzes the PriceAggregator resolution engine over a shared-adapter RedStone
-//! config: arbitrary prices, staleness and tolerance/sanity bands driven through
-//! the public client. Config is seeded (validation bypassed) so the engine itself
-//! is exercised, not the admit-time validator.
-//!
-//! Invariants:
-//! 1. `quote` never host-traps (it is the fail-closed soft path).
-//! 2. `quote(k).valid` iff `price(k)` resolves (both derive from one `failure()`).
-//! 3. a resolved price equals `quote.final_wad`, sits inside its sanity band, and
-//!    is bracketed by `price_spread` (which is itself ordered).
-//! 4. swapping the two source legs changes neither usability, price, nor spread.
+
 use arbitrary::Arbitrary;
 use common::constants::{BPS, WAD};
 use common::math::fp_core::mul_div_half_up;

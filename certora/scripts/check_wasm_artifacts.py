@@ -1,4 +1,3 @@
-
 """Ensure Certora conf files point at existing prebuilt WASM artifacts."""
 
 from __future__ import annotations
@@ -18,7 +17,6 @@ REQUIRED = {
     for artifact in TARGETS
 }
 MANIFEST = ROOT / "artifacts" / "wasm" / "manifest.json"
-
 
 def main() -> int:
     missing = [path for path in REQUIRED.values() if not path.is_file()]
@@ -96,7 +94,6 @@ def main() -> int:
 
     print("certora wasm artifacts ok")
     return 0
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

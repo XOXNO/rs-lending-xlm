@@ -251,16 +251,10 @@ fn liquidation_curve_accepts_bonus_factor_zero() {
 fn cap_domain_accepts_zero_and_reasonable() {
     let env = Env::default();
 
-    // `0` is a legal cap value: it closes the market on that side rather than
-    // disabling the ceiling. `i128::MAX` is covered by its own rejection test.
     require_cap_within_asset_domain(&env, 0, 7);
     require_cap_within_asset_domain(&env, 250_000_000_000_000, 7);
 }
 
-/// The ceiling is inclusive, and it has to hold across the whole listable
-/// decimal range (`MIN_ASSET_DECIMALS..=MAX_ASSET_DECIMALS`, 3..=18, enforced
-/// by `governance::validate::asset`) -- a market cannot be listed outside it,
-/// so those are the only ends worth pinning.
 #[test]
 fn cap_domain_accepts_ceiling_across_listable_decimals() {
     let env = Env::default();
@@ -301,11 +295,6 @@ fn cap_domain_rejects_above_ceiling_at_max_listable_decimals() {
     require_cap_within_asset_domain(&env, max_cap_for_decimals(18) + 1, 18);
 }
 
-/// `i128::MAX` is no longer an "unlimited" sentinel: it is an ordinary cap
-/// value and must lose its exemption from the per-asset domain ceiling.
-/// Without this, a stored `i128::MAX` would reach `Ray::from_asset`, which
-/// rescales by `10^(RAY_DECIMALS - decimals)` under `overflow-checks`, and
-/// panic on every supply/borrow instead of being rejected at config time.
 #[test]
 #[should_panic(expected = "#116")]
 fn cap_domain_rejects_i128_max() {
@@ -330,10 +319,6 @@ fn cap_domain_rejects_i128_max_at_max_listable_decimals() {
     require_cap_within_asset_domain(&env, i128::MAX, 18);
 }
 
-/// A cap at the ceiling scales without panicking even when the supply index
-/// has been floored by bad-debt socialisation — `cap_to_scaled` saturates
-/// rather than overflowing. Panicking there would brick supply and borrow for
-/// the asset until governance lowered the cap.
 #[test]
 fn cap_at_domain_ceiling_saturates_under_a_floored_supply_index() {
     use crate::constants::SUPPLY_INDEX_FLOOR_RAW;

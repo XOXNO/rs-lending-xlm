@@ -15,7 +15,6 @@ import sys
 SEV = ("critical", "medium", "minor", "enhancement")
 EMOJI = {"critical": "🔴", "medium": "🟠", "minor": "🟡", "enhancement": "🔵"}
 
-
 def collect(args: list[str]) -> list[str]:
     files: list[str] = []
     for a in args:
@@ -24,12 +23,10 @@ def collect(args: list[str]) -> list[str]:
         )
     return [f for f in files if os.path.isfile(f)]
 
-
 def span_line(span: str) -> str:
     left = (span or "").split(" - ", 1)[0]
     parts = left.rsplit(":", 2)
     return parts[1] if len(parts) >= 3 else ""
-
 
 def main() -> None:
     rows: list[tuple] = []
@@ -93,7 +90,6 @@ def main() -> None:
         out += ["", "</details>"]
 
     print("\n".join(out))
-
 
 if __name__ == "__main__":
     main()
