@@ -199,6 +199,31 @@ impl Metrics {
             registry,
         })
     }
+
+    pub fn reset_spoke_series(&self) {
+        self.spoke_paused.reset();
+        self.spoke_frozen.reset();
+        self.spoke_collateral_enabled.reset();
+        self.spoke_borrow_enabled.reset();
+        self.spoke_deprecated.reset();
+        self.spoke_liquidation_target_hf.reset();
+        self.spoke_hf_for_max_bonus.reset();
+        self.spoke_liquidation_bonus_factor_bps.reset();
+        self.spoke_ltv_bps.reset();
+        self.spoke_liq_threshold_bps.reset();
+        self.spoke_liq_bonus_bps.reset();
+        self.spoke_liq_fees_bps.reset();
+        self.spoke_supply_cap.reset();
+        self.spoke_borrow_cap.reset();
+        self.spoke_supply_closed.reset();
+        self.spoke_borrow_closed.reset();
+        self.spoke_supply_usage.reset();
+        self.spoke_supply_usage_usd.reset();
+        self.spoke_borrow_usage.reset();
+        self.spoke_borrow_usage_usd.reset();
+        self.spoke_supply_cap_utilization.reset();
+        self.spoke_borrow_cap_utilization.reset();
+    }
 }
 
 pub async fn serve(bind: SocketAddr, metrics: Arc<Metrics>, cancel: CancellationToken) -> Result<()> {

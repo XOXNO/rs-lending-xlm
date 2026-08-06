@@ -128,21 +128,43 @@ groups:
       # the only thing that distinguishes it from a healthy idle market.
       # `on(...)` pins the join to the identifying labels; without it the set
       # operation would also match on __name__ and never fire.
+      # `unless` drops deprecated spokes: winding one down by zeroing its caps
+      # while leaving the flags set is exactly the intentional case, and without
+      # this it would alert forever.
       - alert: LendingSpokeSupplyClosedWhileCollateralEnabled
-        expr: lending_spoke_supply_closed == 1 and on(network, spoke_id, hub_id, asset) lending_spoke_collateral_enabled == 1
+        expr: lending_spoke_supply_closed == 1 and on(network, spoke_id, hub_id, asset) lending_spoke_collateral_enabled == 1 unless on(network, spoke_id, hub_id, asset) lending_spoke_deprecated == 1
         for: 15m
         labels: { severity: info }
         annotations:
           summary: "Spoke {{ $labels.spoke_id }} supply for {{ $labels.symbol }} is closed but still flagged collateral ({{ $labels.network }})"
-          description: "supply_cap is 0, so no new supply is accepted, while is_collateralizable is still set. Intentional for a soft wind-down; otherwise the cap was never configured."
+          description: "supply_cap is 0, so no new supply is accepted, while is_collateralizable is still set, and the spoke is not deprecated. Either the cap was never configured, or the spoke should be marked deprecated."
 
       - alert: LendingSpokeBorrowClosedWhileBorrowEnabled
-        expr: lending_spoke_borrow_closed == 1 and on(network, spoke_id, hub_id, asset) lending_spoke_borrow_enabled == 1
+        expr: lending_spoke_borrow_closed == 1 and on(network, spoke_id, hub_id, asset) lending_spoke_borrow_enabled == 1 unless on(network, spoke_id, hub_id, asset) lending_spoke_deprecated == 1
         for: 15m
         labels: { severity: info }
         annotations:
           summary: "Spoke {{ $labels.spoke_id }} borrowing for {{ $labels.symbol }} is closed but still flagged borrowable ({{ $labels.network }})"
-          description: "borrow_cap is 0, so no new borrows are accepted, while is_borrowable is still set. Intentional for a soft wind-down; otherwise the cap was never configured."
+          description: "borrow_cap is 0, so no new borrows are accepted, while is_borrowable is still set, and the spoke is not deprecated. Either the cap was never configured, or the spoke should be marked deprecated."
+
+      # Without this the closed-market rules above go SILENT under ABI skew: a
+      # decode failure drops the whole spoke-asset row, and PromQL `and` on an
+      # absent series never fires. The counter is then the only signal.
+      - alert: LendingExporterViewFailures
+        expr: increase(lending_exporter_view_failures_total[15m]) > 0
+        for: 15m
+        labels: { severity: warning }
+        annotations:
+          summary: "Exporter cannot read {{ $labels.view }} for {{ $labels.asset }} ({{ $labels.network }})"
+          description: "Contract view failing with code {{ $labels.code }}. Spoke-asset gauges for the affected listing are absent, so cap/closed/flag alerts cannot evaluate for it."
+
+      - alert: LendingExporterSpokeAssetDecodeBroken
+        expr: increase(lending_exporter_view_failures_total{view="get_spoke_asset",code="decode"}[15m]) > 0
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: "Exporter cannot decode get_spoke_asset ({{ $labels.network }})"
+          description: "Usually contract/exporter ABI skew during a rolling deploy. Every spoke-asset series is missing while this persists, so closed-market and cap-utilization alerting is blind."
 
       - alert: LendingAccrualStalled
         expr: (time() - lending_market_last_accrual_timestamp) > 86400

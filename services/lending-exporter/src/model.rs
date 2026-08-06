@@ -47,20 +47,31 @@ pub fn seconds_until_stale(now_secs: i64, feed_ts_secs: u64, max_stale_secs: u64
     max_stale_secs as f64 - age as f64
 }
 
-pub fn cap_utilization(usage_token: f64, cap_base_units: i128, decimals: u32) -> Option<f64> {
+pub fn effective_cap_tokens(cap_base_units: i128, decimals: u32) -> Option<f64> {
     if cap_base_units <= 0 {
         return None;
     }
     let cap = token_to_f64(cap_base_units, decimals);
-    if cap == 0.0 {
-
+    if cap == 0.0 || !cap.is_finite() {
         return None;
     }
-    Some(usage_token / cap)
+    Some(cap)
+}
+
+pub fn cap_utilization(usage_token: f64, cap_base_units: i128, decimals: u32) -> Option<f64> {
+    effective_cap_tokens(cap_base_units, decimals).map(|cap| usage_token / cap)
 }
 
 pub fn market_closed(cap_base_units: i128) -> f64 {
     if cap_base_units <= 0 {
+        1.0
+    } else {
+        0.0
+    }
+}
+
+pub fn market_closed_at(cap_base_units: i128, decimals: u32) -> f64 {
+    if effective_cap_tokens(cap_base_units, decimals).is_none() {
         1.0
     } else {
         0.0
@@ -140,9 +151,28 @@ mod tests {
     #[test]
     fn closed_market_is_exactly_the_case_cap_utilization_drops() {
 
-        for cap in [i128::MIN, -1, 0, 1, 100_000_000, i128::MAX] {
-            let closed = market_closed(cap) == 1.0;
-            assert_eq!(closed, cap_utilization(5.0, cap, 7).is_none(), "cap={cap}");
+        for dec in 3..=18u32 {
+            for cap in [i128::MIN, -1, 0, 1, 100_000_000, i128::MAX] {
+                let closed = market_closed_at(cap, dec) == 1.0;
+                assert_eq!(
+                    closed,
+                    cap_utilization(5.0, cap, dec).is_none(),
+                    "cap={cap} dec={dec}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn market_closed_agrees_with_market_closed_at_across_listable_decimals() {
+        for dec in 3..=18u32 {
+            for cap in [i128::MIN, -1, 0, 1, 100_000_000, i128::MAX] {
+                assert_eq!(
+                    market_closed(cap),
+                    market_closed_at(cap, dec),
+                    "cap={cap} dec={dec}"
+                );
+            }
         }
     }
 

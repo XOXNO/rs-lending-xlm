@@ -47,6 +47,8 @@ pub async fn scrape_once(
     let net = cfg.network.as_str();
     let started = Instant::now();
 
+    metrics.reset_spoke_series();
+
     let now_secs = read_ledger_now(client, metrics, net).await;
     let index_rows = read_market_indexes(client, metrics, net, contracts).await;
 
@@ -584,6 +586,8 @@ async fn publish_spoke_asset(
     };
     metrics.spoke_supply_cap.with_label_values(&labels).set(model::token_to_f64(cfg.supply_cap, dec));
     metrics.spoke_borrow_cap.with_label_values(&labels).set(model::token_to_f64(cfg.borrow_cap, dec));
+    metrics.spoke_supply_closed.with_label_values(&labels).set(model::market_closed_at(cfg.supply_cap, dec));
+    metrics.spoke_borrow_closed.with_label_values(&labels).set(model::market_closed_at(cfg.borrow_cap, dec));
 
     let (supply_index, borrow_index, price_wad) = match row {
         Some(r) => (r.supply_index_ray, r.borrow_index_ray, r.final_price_wad),
