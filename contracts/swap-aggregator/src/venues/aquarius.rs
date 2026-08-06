@@ -54,16 +54,29 @@ pub(crate) fn swap(ctx: &HopContext<'_>, cache: &mut Map<Address, Vec<Address>>)
         .unwrap_or_else(|_| panic_with_error!(ctx.env, Error::IntegerOverflow))
 }
 
+/// The mint leg of an Aquarius LP deposit, separated from the router plumbing
+/// (`env` / `router` / `vault` / `cache`) that every venue call carries.
+pub(crate) struct MintLiquidity<'a> {
+    pub pool: &'a Address,
+    pub lp_token: &'a Address,
+    pub min_shares: i128,
+    pub pre_balance_fee_bps: u32,
+}
+
 pub(crate) fn add_liquidity(
     env: &Env,
     router: &Address,
     vault: &mut Vault,
-    pool: &Address,
-    lp_token: &Address,
-    min_shares: i128,
-    pre_balance_fee_bps: u32,
+    mint: MintLiquidity<'_>,
     cache: &mut Map<Address, Vec<Address>>,
 ) -> i128 {
+    let MintLiquidity {
+        pool,
+        lp_token,
+        min_shares,
+        pre_balance_fee_bps,
+    } = mint;
+
     let tokens = pool_tokens(env, cache, pool);
     assert_share_token(env, pool, lp_token);
     if min_shares <= 0 {

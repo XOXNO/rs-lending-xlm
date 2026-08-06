@@ -467,10 +467,12 @@ fn execute_payload(env: Env, sender: Address, total_in: i128, payload: StrategyP
             &env,
             &router,
             &mut vault,
-            pool,
-            &output_token,
-            payload.mint_min_shares,
-            payload.pre_balance_fee_bps,
+            venues::aquarius::MintLiquidity {
+                pool,
+                lp_token: &output_token,
+                min_shares: payload.mint_min_shares,
+                pre_balance_fee_bps: payload.pre_balance_fee_bps,
+            },
             &mut tokens_cache,
         );
     }
@@ -602,10 +604,9 @@ fn execute_path(
 fn validate_payload(env: &Env, payload: &StrategyPayload) {
     let paths = &payload.paths;
     let n = paths.len();
-    if n == 0 {
-        if payload.burn_pool.is_none() && payload.mint_pool.is_none() {
-            panic_with_error!(env, Error::EmptyBatch);
-        }
+    // A pure burn or pure mint carries no paths; anything else with no path is empty.
+    if n == 0 && payload.burn_pool.is_none() && payload.mint_pool.is_none() {
+        panic_with_error!(env, Error::EmptyBatch);
     }
 
     for i in 0..n {

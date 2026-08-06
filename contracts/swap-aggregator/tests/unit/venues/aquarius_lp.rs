@@ -766,7 +766,7 @@ fn temp_budget_probe_mainnet_scale() {
     let router_addr = env.register(Router, (Address::generate(&env),));
     let sender = Address::generate(&env);
     let admin = Address::generate(&env);
-    let (pool, share, (token_a, sac_a), (token_b, sac_b)) =
+    let (pool, share, (token_a, sac_a), (token_b, _sac_b)) =
         lp_pool_seeded(&env, &admin, 3_137_000_000_000, 574_000_000_000);
 
     sac_a.mint(&sender, &100_000_000);
