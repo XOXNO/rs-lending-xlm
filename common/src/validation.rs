@@ -25,8 +25,18 @@ pub fn require_non_empty_payments<T>(env: &Env, payments: &Vec<T>) {
     assert_with_error!(env, !payments.is_empty(), GenericError::InvalidPayments);
 }
 
+/// Largest cap, in asset base units, whose ray form still fits `i128`.
+///
+/// Fails closed: `asset_decimals > RAY_DECIMALS` has no representable ray form,
+/// so the ceiling is 0 and every positive cap is rejected. Callers that need a
+/// distinguishable error should check the domain first — see
+/// [`require_cap_within_asset_domain`], which raises `AssetDecimalsTooHigh`.
+/// Mirrors `cap_ceiling()` in `scripts/verify_spoke_caps.py`, which raises on
+/// the same input.
 pub fn max_cap_for_decimals(asset_decimals: u32) -> i128 {
-    let exp = RAY_DECIMALS.saturating_sub(asset_decimals);
+    let Some(exp) = RAY_DECIMALS.checked_sub(asset_decimals) else {
+        return 0;
+    };
     let upscale = 10i128
         .checked_pow(exp)
         .expect("10^(RAY_DECIMALS - asset_decimals) fits i128 for asset_decimals <= RAY_DECIMALS");
