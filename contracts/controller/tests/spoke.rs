@@ -202,10 +202,10 @@ fn apply_entry_stores_single_add_not_dual_add() {
     let contract = new_controller(&env);
     let asset = Address::generate(&env);
     let key = hub(&asset);
-    let prior = 3 * RAY;
-    let delta = 2 * RAY;
-    // Cap in asset units at index = RAY: cap_scaled = from_asset(cap, 7).
-    // 10 asset units → 10 * 10^(27-7) = 10 * RAY of scaled headroom.
+    // decimals=7: 1 asset unit as ray = 10^(27-7). Cap is asset units; usage is scaled ray.
+    let unit = Ray::from_asset(1, 7).raw();
+    let prior = 3 * unit;
+    let delta = 2 * unit;
     let cap_asset = 10;
     env.as_contract(&contract, || {
         storage::set_spoke_usage(
@@ -245,9 +245,9 @@ fn apply_entry_at_exact_cap_succeeds() {
     let contract = new_controller(&env);
     let asset = Address::generate(&env);
     let key = hub(&asset);
-    // 5 asset units at index RAY → 5 * RAY scaled.
+    // Cap 5 asset units at index RAY → scaled = from_asset(5, 7).
     let cap_asset = 5;
-    let delta = 5 * RAY;
+    let delta = Ray::from_asset(5, 7).raw();
     env.as_contract(&contract, || {
         let mut ctx = SpokeUsageContext::new(&env, 1);
         ctx.apply_entry(

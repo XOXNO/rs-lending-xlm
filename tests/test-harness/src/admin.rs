@@ -3,7 +3,7 @@ use soroban_sdk::Address;
 
 use crate::context::LendingTest;
 use crate::helpers::{hub_asset, HARNESS_HUB, HARNESS_SPOKE};
-use crate::presets::UNCONSTRAINED_TEST_CAP;
+use crate::presets::unconstrained_test_cap;
 use crate::view::AssetConfigView;
 
 impl LendingTest {
@@ -113,6 +113,7 @@ impl LendingTest {
         bonus: u32,
     ) {
         let asset = self.resolve_asset(asset_name);
+        let cap = unconstrained_test_cap(self.resolve_market(asset_name).decimals);
         self.ctrl_client().add_asset_to_spoke(&SpokeAssetArgs {
             hub_id: HARNESS_HUB,
             asset,
@@ -125,8 +126,8 @@ impl LendingTest {
             threshold,
             bonus,
             liquidation_fees: 0,
-            supply_cap: UNCONSTRAINED_TEST_CAP,
-            borrow_cap: UNCONSTRAINED_TEST_CAP,
+            supply_cap: cap,
+            borrow_cap: cap,
         });
     }
 
@@ -142,6 +143,7 @@ impl LendingTest {
         bonus: u32,
     ) {
         let asset = self.resolve_asset(asset_name);
+        let cap = unconstrained_test_cap(self.resolve_market(asset_name).decimals);
         self.ctrl_client().edit_asset_in_spoke(&SpokeAssetArgs {
             hub_id: HARNESS_HUB,
             asset,
@@ -154,8 +156,8 @@ impl LendingTest {
             threshold,
             bonus,
             liquidation_fees: 0,
-            supply_cap: UNCONSTRAINED_TEST_CAP,
-            borrow_cap: UNCONSTRAINED_TEST_CAP,
+            supply_cap: cap,
+            borrow_cap: cap,
         });
     }
 

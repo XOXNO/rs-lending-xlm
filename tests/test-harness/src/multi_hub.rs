@@ -5,7 +5,7 @@ use soroban_sdk::{token, vec, TryFromVal, Vec};
 
 use crate::core::LendingTest;
 use crate::helpers::{f64_to_i128, hub_asset, HARNESS_SPOKE};
-use crate::presets::UNCONSTRAINED_TEST_CAP;
+use crate::presets::unconstrained_test_cap;
 
 impl LendingTest {
     pub fn create_hub(&self) -> u32 {
@@ -41,7 +41,13 @@ impl LendingTest {
                 params,
             }),
         );
-        self.list_hub_asset_on_base_spoke(hub_id, &asset, &base_cfg, base_cfg.liquidation_fees);
+        self.list_hub_asset_on_base_spoke(
+            hub_id,
+            &asset,
+            &base_cfg,
+            base_cfg.liquidation_fees,
+            decimals,
+        );
 
         let liquidity = f64_to_i128(initial_liquidity, decimals);
         token::StellarAssetClient::new(&self.env, &asset).mint(&pool, &liquidity);
@@ -93,7 +99,7 @@ impl LendingTest {
                 params,
             }),
         );
-        self.list_hub_asset_on_base_spoke(hub_id, &asset, &base_cfg, liquidation_fees);
+        self.list_hub_asset_on_base_spoke(hub_id, &asset, &base_cfg, liquidation_fees, decimals);
 
         let liquidity = f64_to_i128(initial_liquidity, decimals);
         token::StellarAssetClient::new(&self.env, &asset).mint(&pool, &liquidity);
@@ -149,7 +155,9 @@ impl LendingTest {
         asset: &soroban_sdk::Address,
         risk: &SpokeAssetConfig,
         liquidation_fees: u32,
+        decimals: u32,
     ) {
+        let cap = unconstrained_test_cap(decimals);
         self.gov_client().execute_immediate(
             &self.admin,
             &AdminOperation::AddAssetToSpoke(SpokeAssetArgs {
@@ -164,8 +172,8 @@ impl LendingTest {
                 threshold: risk.liquidation_threshold,
                 bonus: risk.liquidation_bonus,
                 liquidation_fees,
-                supply_cap: UNCONSTRAINED_TEST_CAP,
-                borrow_cap: UNCONSTRAINED_TEST_CAP,
+                supply_cap: cap,
+                borrow_cap: cap,
             }),
         );
     }

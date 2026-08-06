@@ -9,8 +9,8 @@ use soroban_sdk::{token, Address, Env, TryFromVal};
 use crate::core::types::{LendingTest, MarketState, PendingMarket, PendingSpoke};
 use crate::helpers::{f64_to_i128, hub_asset, HARNESS_HUB, HARNESS_SPOKE};
 use crate::presets::{
-    AssetConfigPreset, MarketParamsPreset, MarketPreset, SpokePreset, DEFAULT_TOLERANCE,
-    UNCONSTRAINED_TEST_CAP,
+    unconstrained_test_cap, AssetConfigPreset, MarketParamsPreset, MarketPreset, SpokePreset,
+    DEFAULT_TOLERANCE,
 };
 
 pub struct LendingTestBuilder {
@@ -353,16 +353,16 @@ impl LendingTestBuilder {
             );
 
             for (asset_name, can_collateral, can_borrow) in &spoke.assets {
-                let asset_addr = markets
-                    .get(asset_name.as_str())
-                    .unwrap_or_else(|| {
-                        panic!(
-                            "spoke asset '{}' not found -- add it with .with_market() first",
-                            asset_name
-                        )
-                    })
-                    .asset
-                    .clone();
+                let market = markets.get(asset_name.as_str()).unwrap_or_else(|| {
+                    panic!(
+                        "spoke asset '{}' not found -- add it with .with_market() first",
+                        asset_name
+                    )
+                });
+                let asset_addr = market.asset.clone();
+                // Cap must track the market's own decimals: a fixed base-unit
+                // value is only meaningful at one scale.
+                let cap = unconstrained_test_cap(market.decimals);
                 gov.execute_immediate(
                     &admin,
                     &AdminOperation::AddAssetToSpoke(SpokeAssetArgs {
@@ -377,8 +377,8 @@ impl LendingTestBuilder {
                         threshold: spoke.preset.threshold,
                         bonus: spoke.preset.bonus,
                         liquidation_fees: 0,
-                        supply_cap: UNCONSTRAINED_TEST_CAP,
-                        borrow_cap: UNCONSTRAINED_TEST_CAP,
+                        supply_cap: cap,
+                        borrow_cap: cap,
                     }),
                 );
             }
