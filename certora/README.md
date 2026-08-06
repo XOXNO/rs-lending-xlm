@@ -23,9 +23,7 @@ certora/
 Partitioning starts at the crate boundary (`common` / `pool` / `controller` /
 `price-aggregator`) and then narrows each prover artifact to one rule-source
 module. Domain docs live in each layer's `spec/README.txt`.
-Cross-reference: [`docs/reference/invariants.md`](../docs/reference/invariants.md)
-and the verification surface in [`docs/reference/architecture.md`](../docs/reference/architecture.md)
-§14. Ownership: governance → controller → pool. New deploys start paused.
+Ownership: governance → controller → pool. New deploys start paused.
 Pause/freeze is three-layer; GUARDIAN can pause immediately; unpause is
 timelocked. Keeper self-authorizes where the contract allows.
 

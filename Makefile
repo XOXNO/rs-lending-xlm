@@ -1874,7 +1874,7 @@ usage:
 	@echo "  make testnet listOps               Governance ops + live state (pending/executed)"
 	@echo "  make testnet info                  Deployed addresses + oracle wiring summary"
 	@echo ""
-	@echo "Docs: docs/how-to/deploy-and-operate.md (runbook) - 'make help' lists every action."
+	@echo "Ops: 'make help' lists every action; configs live under configs/."
 
 
 help:
@@ -1980,7 +1980,7 @@ help:
 	@echo "                                       can't veto own removal; Recovery ops are non-vetoable)"
 	@echo "    make testnet checkDelay            Live timelock delay vs configured target"
 	@echo ""
-	@echo "  Canceller-council recovery (owner-only, ~30d, non-vetoable — see docs/how-to/deploy-and-operate.md):"
+	@echo "  Canceller-council recovery (owner-only, ~30d, non-vetoable):"
 	@echo "    No config-driven verb: propose_canceller_reset/execute_canceller_reset take a"
 	@echo "    Vec<Address>, which doesn't fit this dispatcher. These are GOVERNANCE entrypoints,"
 	@echo "    so use invoke-id against the governance contract (invoke targets the controller):"

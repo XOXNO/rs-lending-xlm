@@ -1,6 +1,8 @@
 ## Summary
 
-One paragraph: what changed and why. Reference specific INVARIANTS sections or ADRs (e.g. "ADR 0002 / INVARIANTS §5.2 storage", "oracle call-site policy per ADR 0004").
+One paragraph: what changed and why. Cite concrete modules or entrypoints
+(e.g. "controller withdraw restamp", "pool interest index floor", "oracle
+call-site policy").
 
 ## Risk Surface
 
@@ -9,18 +11,19 @@ One paragraph: what changed and why. Reference specific INVARIANTS sections or A
 - [ ] Oracle config, price resolution, tolerance, providers (Reflector/RedStone/Xoxno), sanity/staleness, or call-site policy
 - [ ] Risk params, LTV/liquidation curves, caps, position limits, min-borrow-collateral, or spoke overrides
 - [ ] Authorization, delegates, position managers, pause/freeze matrix, or governance/timelock/roles/upgrade
-- [ ] Flash-loan or strategy reentrancy, callback surfaces, or balance-delta validation (ADR 0005)
+- [ ] Flash-loan or strategy reentrancy, callback surfaces, or balance-delta validation
 - [ ] Pool accounting, cash, interest split, revenue, bad-debt socialization, or reserves
-- [ ] Controller–pool–governance boundaries (ADR 0001) or `HubAssetKey` isolation
+- [ ] Controller–pool–governance boundaries or `HubAssetKey` isolation
 - [ ] Common math/rates/types, events (stable ABI), or interface/ABI changes
 - [ ] WASM size, Soroban footprint (reads/writes/entries), compute, or resource usage (`make wasm-size-check`)
 - [ ] Other (describe):
 
 - Affected contracts/modules:
-- Affected invariants or ADRs (cite file:section):
+- Affected invariants (cite file:function or test):
 - Specific impact (solvency, oracle, liquidation, flash-loan, storage, etc.):
 
-See `docs/reference/invariants.md`, `docs/reference/architecture.md` §14–15, and `docs/explanation/decisions/README.md`.
+See [CONTRIBUTING.md](../CONTRIBUTING.md), contract rustdoc, and
+`skills/lending-protocol-fundamentals`.
 
 ## Verification
 
@@ -36,7 +39,7 @@ See `docs/reference/invariants.md`, `docs/reference/architecture.md` §14–15, 
 - Fuzz target(s) + duration (`make fuzz` / `make fuzz-contract`):
 - Proptest / mutants / other (Scout, miri, specific harness tests):
 
-Re-run against the exact tree in this PR. See docs/reference/architecture.md §14 and CONTRIBUTING.md.
+Re-run against the exact tree in this PR. See CONTRIBUTING.md.
 
 ## Operations & Downstream
 

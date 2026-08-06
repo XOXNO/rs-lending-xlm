@@ -79,20 +79,21 @@ pub(crate) fn sum_supply_usd(
     total
 }
 
-pub(crate) fn sum_debt_usd(
+/// Shared debt USD loop. Caller selects valuation (`position_value` half-up or
+/// `position_value_ceil`). Markets must already be loaded in `cache`.
+fn sum_debt_usd_loaded(
     env: &Env,
     cache: &mut Cache,
     borrow_positions: &Map<HubAssetKey, DebtPositionRaw>,
+    value: fn(&Env, Ray, Ray, Wad) -> Wad,
 ) -> Wad {
-    cache.load_markets(&borrow_positions.keys());
-
     let mut total = Wad::ZERO;
     for (hub_asset, position) in iter_debt_positions(borrow_positions) {
         let feed = cache.cached_price(&hub_asset.asset);
         let market_index = cache.cached_market_index(&hub_asset);
         total = total.checked_add(
             env,
-            position_value(
+            value(
                 env,
                 position.scaled_amount,
                 market_index.borrow_index,
@@ -103,26 +104,13 @@ pub(crate) fn sum_debt_usd(
     total
 }
 
-fn sum_debt_usd_ceil_loaded(
+pub(crate) fn sum_debt_usd(
     env: &Env,
     cache: &mut Cache,
     borrow_positions: &Map<HubAssetKey, DebtPositionRaw>,
 ) -> Wad {
-    let mut total = Wad::ZERO;
-    for (hub_asset, position) in iter_debt_positions(borrow_positions) {
-        let feed = cache.cached_price(&hub_asset.asset);
-        let market_index = cache.cached_market_index(&hub_asset);
-        total = total.checked_add(
-            env,
-            position_value_ceil(
-                env,
-                position.scaled_amount,
-                market_index.borrow_index,
-                feed.price,
-            ),
-        );
-    }
-    total
+    cache.load_markets(&borrow_positions.keys());
+    sum_debt_usd_loaded(env, cache, borrow_positions, position_value)
 }
 
 pub(crate) fn calculate_ltv_collateral_wad(
@@ -222,7 +210,7 @@ fn calculate_account_risk_totals_body(
         );
     }
 
-    let total_debt = sum_debt_usd_ceil_loaded(env, cache, borrow_positions);
+    let total_debt = sum_debt_usd_loaded(env, cache, borrow_positions, position_value_ceil);
 
     let health_factor = if total_debt == Wad::ZERO {
         Wad::from(i128::MAX)

@@ -112,3 +112,20 @@ fn get_spoke_usage_returns_stored_row() {
     assert_eq!(usage.supplied_scaled_ray, 5);
     assert_eq!(usage.borrowed_scaled_ray, 7);
 }
+
+#[test]
+fn collateral_and_borrow_amount_return_zero_for_missing_position() {
+    use crate::Controller;
+    let env = Env::default();
+    let admin = Address::generate(&env);
+    let contract_id = env.register(Controller, (admin,));
+    env.as_contract(&contract_id, || {
+        let hub = HubAssetKey {
+            hub_id: 0,
+            asset: Address::generate(&env),
+        };
+        // Missing account / position short-circuits before pool index fetch.
+        assert_eq!(collateral_amount_for_hub_asset(&env, 1, &hub), 0);
+        assert_eq!(borrow_amount_for_hub_asset(&env, 1, &hub), 0);
+    });
+}

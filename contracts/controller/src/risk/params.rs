@@ -22,11 +22,13 @@ pub(crate) fn refresh_supply_risk_params(
     position: &mut AccountPosition,
     effective_config: &AssetConfig,
     scope: RiskRefreshScope,
-) {
+) -> bool {
+    let before = *position;
     position.loan_to_value = effective_config.loan_to_value;
     if scope == RiskRefreshScope::FullTuple {
         apply_gated_liquidation_params(env, cache, account, hub_asset, position, effective_config);
     }
+    *position != before
 }
 
 pub(crate) fn restamp_listed_supply_ltv(cache: &mut Cache, account: &mut Account) -> bool {

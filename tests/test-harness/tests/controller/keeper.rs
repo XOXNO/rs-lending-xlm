@@ -1,4 +1,8 @@
 use controller::types::ControllerKey;
+use soroban_sdk::{
+    testutils::{ContractEvents, Events},
+    xdr::{ContractEventBody, ScVal},
+};
 use test_harness::{
     assert_contract_error, days, errors, eth_preset, hub_asset, usd_cents, usdc_preset,
     HubAssetKey, LendingTest, ALICE, BOB, STABLECOIN_SPOKE,
@@ -52,6 +56,47 @@ fn supply_risk_fields(t: &LendingTest, account_id: u64, asset_name: &str) -> (u3
             p.loan_to_value,
         )
     })
+}
+
+fn count_topic(events: &ContractEvents, first: &str, second: &str) -> usize {
+    events
+        .events()
+        .iter()
+        .filter(|event| {
+            let ContractEventBody::V0(body) = &event.body;
+            match (body.topics.first(), body.topics.get(1)) {
+                (Some(ScVal::Symbol(a)), Some(ScVal::Symbol(b))) => {
+                    a.0.to_string() == first && b.0.to_string() == second
+                }
+                _ => false,
+            }
+        })
+        .count()
+}
+
+fn data_for_topic(events: &ContractEvents, first: &str, second: &str) -> std::vec::Vec<ScVal> {
+    events
+        .events()
+        .iter()
+        .filter_map(|event| {
+            let ContractEventBody::V0(body) = &event.body;
+            match (body.topics.first(), body.topics.get(1)) {
+                (Some(ScVal::Symbol(a)), Some(ScVal::Symbol(b)))
+                    if a.0.to_string() == first && b.0.to_string() == second =>
+                {
+                    Some(body.data.clone())
+                }
+                _ => None,
+            }
+        })
+        .collect()
+}
+
+fn as_vec(v: &ScVal) -> &soroban_sdk::xdr::VecM<ScVal> {
+    match v {
+        ScVal::Vec(Some(entries)) => &entries.0,
+        other => panic!("expected ScVal::Vec, got {:?}", other),
+    }
 }
 
 #[test]
@@ -514,5 +559,89 @@ fn test_update_account_threshold_rejects_bonus_raise_below_min_hf() {
     assert_eq!(
         bonus_after, bonus_before,
         "the rejected batch must leave the stamp untouched"
+    );
+}
+
+#[test]
+fn test_update_account_threshold_skips_param_upd_when_stamps_unchanged() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .with_dust_disabled_all_markets()
+        .build();
+
+    t.supply(ALICE, "USDC", 100_000.0);
+    t.borrow(ALICE, "ETH", 1.0);
+    let account_id = t.resolve_account_id(ALICE);
+    let stamps_before = supply_risk_fields(&t, account_id, "USDC");
+
+    let batches_before = count_topic(&t.env.events().all(), "position", "batch_update");
+    t.update_account_threshold(true, &[account_id]);
+    let batches_after = count_topic(&t.env.events().all(), "position", "batch_update");
+
+    assert_eq!(
+        batches_after, batches_before,
+        "noop restamp must not emit position:batch_update / ParamUpd"
+    );
+    assert_eq!(
+        supply_risk_fields(&t, account_id, "USDC"),
+        stamps_before,
+        "stamps stay put when listing already matches"
+    );
+}
+
+#[test]
+fn test_update_account_threshold_emits_param_upd_only_for_changed_assets() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .with_dust_disabled_all_markets()
+        .build();
+
+    t.supply(ALICE, "USDC", 50_000.0);
+    t.supply(ALICE, "ETH", 10.0);
+    t.borrow(ALICE, "ETH", 0.5);
+    let account_id = t.resolve_account_id(ALICE);
+    let eth_before = supply_risk_fields(&t, account_id, "ETH");
+
+    // Only USDC listing moves; ETH stamps already match listing.
+    t.edit_asset_config("USDC", |c| {
+        c.loan_to_value = 5_000;
+        c.liquidation_threshold = 6_100;
+    });
+
+    let batches_before = count_topic(&t.env.events().all(), "position", "batch_update");
+    t.update_account_threshold(true, &[account_id]);
+    let events = t.env.events().all();
+    let batches_after = count_topic(&events, "position", "batch_update");
+    assert_eq!(
+        batches_after,
+        batches_before + 1,
+        "changed stamps emit one batch"
+    );
+
+    let batches = data_for_topic(&events, "position", "batch_update");
+    let data = as_vec(batches.last().expect("param batch"));
+    let deposits = as_vec(&data[2]);
+    assert_eq!(
+        deposits.len(),
+        1,
+        "only the changed supply asset should carry ParamUpd"
+    );
+    let entry = as_vec(&deposits[0]);
+    // PositionAction::ParamUpd = 7
+    assert_eq!(entry[0], ScVal::U32(7), "action discriminant is ParamUpd");
+    assert_eq!(entry[8], ScVal::U32(5_000), "updated LTV in event payload");
+    assert_eq!(
+        entry[6],
+        ScVal::U32(6_100),
+        "updated threshold in event payload"
+    );
+
+    assert_eq!(supply_threshold_bps(&t, account_id, "USDC"), 6_100);
+    assert_eq!(
+        supply_risk_fields(&t, account_id, "ETH"),
+        eth_before,
+        "unchanged asset must keep its stamps and skip ParamUpd"
     );
 }

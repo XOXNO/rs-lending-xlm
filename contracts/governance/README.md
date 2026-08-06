@@ -8,7 +8,6 @@ delays, and Recovery reset are documented on the rustdoc entrypoints.
 | Owner | OZ `Ownable` (two-step) |
 | Roles | `PROPOSER`, `EXECUTOR`, `CANCELLER`, `GUARDIAN`, `ORACLE` |
 | Interface | `interfaces/governance` |
-| Design | [ADR 0010](../../docs/explanation/decisions/0010-governance-timelock-for-controller-admin.md) |
 
 Pending ops only keep `OperationLedger` storage; execute and cancel remove it.
 `salt` uniquifies re-proposes; `predecessor` is always `0`.
@@ -28,11 +27,14 @@ Pending ops only keep `OperationLedger` storage; execute and cancel remove it.
 | `accept_ownership` | Pending owner |
 | Views (`get_*`, `hash_operation`, `has_role`, `resolve_*`, addresses) | Public |
 
-## Related
+## Halt controls (global + per listing)
 
-| Doc | Topic |
-| --- | --- |
-| [INVARIANTS](../../docs/reference/invariants.md) | Governance / pause matrix |
-| [ADR 0001](../../docs/explanation/decisions/0001-controller-pool-ownership-boundary.md) | Topology |
-| [ADR 0010](../../docs/explanation/decisions/0010-governance-timelock-for-controller-admin.md) | Timelock design |
-| [ADR 0011](../../docs/explanation/decisions/0011-pause-and-freeze-matrix.md) | Pause / freeze |
+| Control | Immediate (GUARDIAN) | Recovery / clear |
+| --- | --- | --- |
+| Global controller pause | `pause` | Timelocked `AdminOperation::Unpause` |
+| Per-spoke-asset `paused` / `frozen` | `set_spoke_asset_flags` (**ratchet**: may only tighten; clearing reverts `SpokeAssetFlagRelaxation`) | Timelocked `AdminOperation::EditAssetInSpoke` with the desired flags |
+
+`EditAssetInSpoke` rewrites the full listing (risk params, caps, **and** halt
+flags). Clearing flags there is intentional and delayed — not a bypass of the
+immediate-path ratchet. Always pass the intended `paused`/`frozen` on every
+edit so a risk-param change does not accidentally re-open a halted listing.

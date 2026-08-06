@@ -68,10 +68,7 @@ pub(crate) fn set_accumulator(env: &Env, addr: &Address) {
 }
 
 pub(crate) fn get_account_nonce(env: &Env) -> u64 {
-    env.storage()
-        .persistent()
-        .get(&ControllerKey::AccountNonce)
-        .unwrap_or(0u64)
+    get_shared(env, &ControllerKey::AccountNonce).unwrap_or(0u64)
 }
 
 pub(crate) fn increment_account_nonce(env: &Env) -> u64 {

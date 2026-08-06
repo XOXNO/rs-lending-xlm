@@ -1,5 +1,5 @@
-use common::errors::{CollateralError, GenericError};
-use common::types::{Account, HubAssetKey, StrategySwap};
+use common::errors::GenericError;
+use common::types::{Account, AccountPosition, HubAssetKey, StrategySwap};
 use common::validation::require_positive_amount;
 use soroban_sdk::{assert_with_error, vec, Address, Env};
 
@@ -7,8 +7,10 @@ use crate::account;
 use crate::config;
 use crate::context::Cache;
 use crate::events;
+use crate::positions::{get_supply_position_or_panic, require_can_supply};
 use crate::strategies::{
-    prefetch_strategy_prices, strategy_finalize, withdraw_and_swap_from_supply,
+    prefetch_strategy_prices, strategy_finalize, swap_tokens_or_passthrough,
+    withdraw_collateral_to_controller, StrategyWithdraw,
 };
 use crate::{positions::supply, risk::validation, storage};
 
@@ -48,16 +50,27 @@ pub(crate) fn process_swap_collateral(
     let extra_assets = vec![env, current.asset.clone(), new.asset.clone()];
     prefetch_strategy_prices(&mut cache, &account, &extra_assets);
 
-    let swapped_amount = withdraw_and_swap_from_supply(
+    let current_pos: AccountPosition = get_supply_position_or_panic(env, &account, current);
+
+    let actual_withdrawn = withdraw_collateral_to_controller(
         env,
         &mut account,
         &mut cache,
+        StrategyWithdraw {
+            hub_asset: current,
+            amount: from_amount,
+            position: &current_pos,
+            action: events::PositionAction::SwColWd,
+        },
+    );
+
+    let swapped_amount = swap_tokens_or_passthrough(
+        env,
         caller,
-        current,
-        from_amount,
+        &current.asset,
+        actual_withdrawn,
         &new.asset,
         swap,
-        events::PositionAction::SwColWd,
     );
 
     let deposit_assets = vec![env, (new.clone(), swapped_amount)];
@@ -78,7 +91,5 @@ pub(crate) fn validate_swap_new_collateral_preflight(
     account: &Account,
     new: &HubAssetKey,
 ) {
-    let config = cache.require_listed_active_config(account.spoke_id, new);
-
-    assert_with_error!(env, config.can_supply(), CollateralError::NotCollateral);
+    require_can_supply(env, cache, account.spoke_id, new);
 }

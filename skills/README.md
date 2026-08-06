@@ -5,9 +5,9 @@ Each skill is a how-to an agent loads on demand, grounded in contract ABIs and
 `@xoxno/sdk-js`. Addresses and RPC endpoints come from configuration — never
 from these docs.
 
-Canonical protocol rules: [docs/reference/invariants.md](../docs/reference/invariants.md).
-Topology: [docs/reference/architecture.md](../docs/reference/architecture.md).
 Shared model: [lending-protocol-fundamentals](./lending-protocol-fundamentals/SKILL.md).
+Equations: [docs/reference/formulas.md](../docs/reference/formulas.md).
+Source of truth: contracts, interfaces, and tests (formulas doc must match).
 
 | Layer | Skill | Use it for |
 |---|---|---|
@@ -30,5 +30,4 @@ cp -R path/to/rs-lending-xlm/skills/*/ .claude/skills/
 ```
 
 Ship the whole set — layer skills assume `lending-protocol-fundamentals`.
-When the ABI or SDK changes, re-verify the affected skill against the docs
-above and the code.
+When the ABI or SDK changes, re-verify the affected skill against the code.

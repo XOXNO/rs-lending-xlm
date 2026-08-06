@@ -3,6 +3,7 @@ use common::collections::unique_hub_tokens;
 
 use crate::risk;
 use common::errors::GenericError;
+use common::rates::{unscale_borrow, unscale_supply};
 use common::types::{
     AccountAttributes, AccountPositionRaw, DebtPositionRaw, HubAssetKey, HubPayment,
     LiquidationEstimate, MarketIndexView, PaymentTuple, PriceStatus,
@@ -60,10 +61,13 @@ pub(crate) fn collateral_amount_for_hub_asset(
     let market_index = cache.cached_market_index(hub_asset);
     let decimals = cache.cached_pool_sync_data(hub_asset).params.asset_decimals;
 
-    position
-        .scaled_amount
-        .mul(env, market_index.supply_index)
-        .to_asset(decimals)
+    // Half-up: scaled * supply_index → asset units (same as pool supplied_amount).
+    unscale_supply(
+        env,
+        position.scaled_amount,
+        market_index.supply_index,
+        decimals,
+    )
 }
 
 pub(crate) fn borrow_amount_for_hub_asset(
@@ -79,10 +83,14 @@ pub(crate) fn borrow_amount_for_hub_asset(
     let market_index = cache.cached_market_index(hub_asset);
     let decimals = cache.cached_pool_sync_data(hub_asset).params.asset_decimals;
 
-    position
-        .scaled_amount
-        .mul(env, market_index.borrow_index)
-        .to_asset(decimals)
+    // Half-up: scaled * borrow_index → asset units (same as pool borrowed_amount).
+    // Not ceil: view amounts are not liquidation close amounts.
+    unscale_borrow(
+        env,
+        position.scaled_amount,
+        market_index.borrow_index,
+        decimals,
+    )
 }
 
 pub(crate) fn account_exists(env: &Env, account_id: u64) -> bool {

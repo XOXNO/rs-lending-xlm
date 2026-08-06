@@ -74,4 +74,4 @@ Proof ordering
 3. controller/confs/solvency-*.conf + liquidation.conf
 4. *-heavy.conf audit configs
 
-See docs/reference/invariants.md sections 2–5 for runtime cross-references.
+Runtime cross-references: controller/pool source and harness tests.
