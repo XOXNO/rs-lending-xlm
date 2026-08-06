@@ -1,7 +1,7 @@
 use common::errors::GenericError;
 use common::types::{ControllerKey, PositionLimits};
 use soroban_sdk::{assert_with_error, panic_with_error, Address, BytesN, Env};
-use stellar_access::{access_control, ownable};
+use stellar_access::ownable;
 
 use common::constants::DEFAULT_MIN_BORROW_COLLATERAL_USD_WAD;
 
@@ -11,51 +11,13 @@ use crate::Controller;
 
 const INITIAL_APP_VERSION: u32 = 1;
 
-fn sync_pending_admin_transfer(env: &Env, new_owner: &Address, live_until_ledger: u32) {
-    let pending_admin_key = access_control::AccessControlStorageKey::PendingAdmin;
-
-    if live_until_ledger == 0 {
-        env.storage().temporary().remove(&pending_admin_key);
-    } else {
-        stellar_access::role_transfer::transfer_role(
-            env,
-            new_owner,
-            &pending_admin_key,
-            live_until_ledger,
-        );
-    }
-
-    let current_admin = access_control::get_admin(env)
-        .or_else(|| ownable::get_owner(env))
-        .unwrap_or_else(|| panic_with_error!(env, GenericError::OwnerNotSet));
-    access_control::emit_admin_transfer_initiated(
-        env,
-        &current_admin,
-        new_owner,
-        live_until_ledger,
-    );
-}
-
-fn sync_owner_access_control(env: &Env, previous_owner: &Address, new_owner: &Address) {
-    let previous_admin = access_control::get_admin(env).unwrap_or_else(|| previous_owner.clone());
-
-    env.storage()
-        .instance()
-        .set(&access_control::AccessControlStorageKey::Admin, new_owner);
-    env.storage()
-        .temporary()
-        .remove(&access_control::AccessControlStorageKey::PendingAdmin);
-    access_control::emit_admin_transfer_completed(env, &previous_admin, new_owner);
-}
-
 fn owner_or_panic(env: &Env) -> Address {
     ownable::get_owner(env).unwrap_or_else(|| panic_with_error!(env, GenericError::OwnerNotSet))
 }
 
 pub(crate) fn init(env: &Env, admin: &Address) {
     ownable::set_owner(env, admin);
-
-    access_control::set_admin(env, admin);
+    // AccessControl Admin intentionally not set: Ownable is sole SoT on controller.
 
     storage::set_position_limits(
         env,
@@ -119,6 +81,7 @@ pub(crate) fn unpause(env: &Env) {
 
 pub(crate) fn transfer_ownership(env: &Env, new_owner: &Address, live_until_ledger: u32) {
     storage::renew_controller_instance(env);
+    // #[only_owner] already authenticated; low-level role_transfer does not re-auth.
     let current_owner = owner_or_panic(env);
 
     stellar_access::role_transfer::transfer_role(
@@ -128,15 +91,11 @@ pub(crate) fn transfer_ownership(env: &Env, new_owner: &Address, live_until_ledg
         live_until_ledger,
     );
     ownable::emit_ownership_transfer(env, &current_owner, new_owner, live_until_ledger);
-    sync_pending_admin_transfer(env, new_owner, live_until_ledger);
 }
 
 pub(crate) fn accept_ownership(env: &Env) {
     storage::renew_controller_instance(env);
-    let previous_owner = owner_or_panic(env);
     ownable::accept_ownership(env);
-    let new_owner = owner_or_panic(env);
-    sync_owner_access_control(env, &previous_owner, &new_owner);
 }
 
 #[cfg(test)]
