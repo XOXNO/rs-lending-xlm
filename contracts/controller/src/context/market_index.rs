@@ -1,3 +1,4 @@
+use common::collections::collect_uncached_keys;
 use common::types::{HubAssetKey, MarketIndex, MarketIndexRaw};
 use soroban_sdk::vec;
 
@@ -14,13 +15,7 @@ impl Cache {
 
     #[cfg(not(feature = "certora"))]
     pub(crate) fn fetch_market_indexes(&mut self, hub_assets: &Vec<HubAssetKey>) {
-        let mut missing: Vec<HubAssetKey> = Vec::new(&self.env);
-        for hub_asset in hub_assets.iter() {
-            if self.market_indexes.contains_key(hub_asset.clone()) || missing.contains(&hub_asset) {
-                continue;
-            }
-            missing.push_back(hub_asset);
-        }
+        let missing = collect_uncached_keys(&self.env, hub_assets, &self.market_indexes);
         if missing.is_empty() {
             return;
         }
