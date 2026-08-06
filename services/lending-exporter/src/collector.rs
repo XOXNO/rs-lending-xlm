@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{anyhow, Result};
@@ -46,8 +47,6 @@ pub async fn scrape_once(
 ) {
     let net = cfg.network.as_str();
     let started = Instant::now();
-
-    metrics.reset_spoke_series();
 
     let now_secs = read_ledger_now(client, metrics, net).await;
     let index_rows = read_market_indexes(client, metrics, net, contracts).await;
@@ -497,6 +496,7 @@ async fn publish_spokes(
     index_rows: &[Option<controller::MarketIndexView>],
     decimals: &[Option<u32>],
 ) {
+    let mut attempted = BTreeSet::new();
     for &spoke_id in &cfg.spokes {
         let spoke_name = cfg.spoke_name(spoke_id);
         let spoke_cfg = read_spoke_config(client, metrics, net, contracts, spoke_id).await;
@@ -511,9 +511,21 @@ async fn publish_spokes(
         for (i, (market, row)) in contracts.markets.iter().zip(index_rows.iter()).enumerate() {
             let dec = decimals.get(i).copied().flatten();
             let hub_name = cfg.hub_name(market.hub_id);
+            let s = spoke_id.to_string();
+            let hub = market.hub_id.to_string();
+            attempted.insert(crate::metrics::spoke_asset_label_key(&[
+                net,
+                s.as_str(),
+                spoke_name.as_str(),
+                hub.as_str(),
+                hub_name.as_str(),
+                market.asset_strkey.as_str(),
+                market.symbol.as_str(),
+            ]));
             publish_spoke_asset(client, metrics, net, contracts, spoke_id, &spoke_name, &hub_name, market, row, dec, deprecated).await;
         }
     }
+    metrics.prune_spoke_assets(&attempted);
 }
 
 async fn read_spoke_config(
