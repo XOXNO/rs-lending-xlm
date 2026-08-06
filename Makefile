@@ -763,7 +763,8 @@ mutants: mutants-common mutants-pool mutants-governance \
 		 mutants-controller-core \
          mutants-controller-oracle mutants-controller-positions \
          mutants-controller-strategies mutants-controller-views \
-         mutants-aggregator mutants-oracle-adapter mutants-defindex-strategy
+         mutants-aggregator mutants-oracle-adapter mutants-defindex-strategy \
+         mutants-swap-aggregator
 
 
 mutants-math: _mutants-check
@@ -853,6 +854,9 @@ mutants-aggregator: _mutants-check
 
 mutants-oracle-adapter: _mutants-check
 	$(call run_mutants,--package xoxno-oracle --test-package xoxno-oracle)
+
+mutants-swap-aggregator: _mutants-check
+	$(call run_mutants,--package swap-aggregator --test-package swap-aggregator)
 
 
 
