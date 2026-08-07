@@ -10,7 +10,9 @@ mod venues;
 #[path = "../tests/unit/mod.rs"]
 mod test;
 
-use common::constants::{TTL_BUMP_SHARED, TTL_THRESHOLD_SHARED};
+use common::constants::{
+    TTL_BUMP_INSTANCE, TTL_BUMP_SHARED, TTL_THRESHOLD_INSTANCE, TTL_THRESHOLD_SHARED,
+};
 
 use soroban_sdk::{
     contract, contractimpl, panic_with_error, token, xdr::FromXdr, Address, Bytes, BytesN, Env,
@@ -23,6 +25,12 @@ use stellar_macros::only_owner;
 use crate::errors::Error;
 use crate::types::{DataKey, ReferralConfig, StrategyPayload, SwapPath};
 use crate::vault::Vault;
+
+fn renew_instance(env: &Env) {
+    env.storage()
+        .instance()
+        .extend_ttl(TTL_THRESHOLD_INSTANCE, TTL_BUMP_INSTANCE);
+}
 
 const PPM_DENOMINATOR: i128 = 1_000_000;
 
@@ -51,10 +59,12 @@ impl Router {
         let storage = env.storage().instance();
         storage.set(&DataKey::StaticFeeBps, &0u32);
         storage.set(&DataKey::ReferralCounter, &0u64);
+        renew_instance(&env);
     }
 
     #[only_owner]
     pub fn set_static_fee(env: Env, fee_bps: u32) {
+        renew_instance(&env);
         if fee_bps > FEE_CAP {
             panic_with_error!(&env, Error::FeeTooHigh);
         }
@@ -65,6 +75,7 @@ impl Router {
 
     #[only_owner]
     pub fn add_to_whitelist(env: Env, token: Address) {
+        renew_instance(&env);
         let mut list = load_whitelist(&env);
         if !list.contains(&token) {
             list.push_back(token);
@@ -76,6 +87,7 @@ impl Router {
 
     #[only_owner]
     pub fn remove_from_whitelist(env: Env, token: Address) {
+        renew_instance(&env);
         let mut list = load_whitelist(&env);
         if let Some(idx) = list.first_index_of(&token) {
             list.remove(idx);
@@ -87,11 +99,13 @@ impl Router {
 
     #[only_owner]
     pub fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
+        renew_instance(&env);
         stellar_contract_utils::upgradeable::upgrade(&env, &new_wasm_hash);
     }
 
     #[only_owner]
     pub fn add_referral(env: Env, owner: Address, fee_bps: u32) -> u64 {
+        renew_instance(&env);
         if fee_bps > FEE_CAP {
             panic_with_error!(&env, Error::FeeTooHigh);
         }
@@ -114,6 +128,7 @@ impl Router {
 
     #[only_owner]
     pub fn set_referral_fee(env: Env, id: u64, fee_bps: u32) {
+        renew_instance(&env);
         if fee_bps > FEE_CAP {
             panic_with_error!(&env, Error::FeeTooHigh);
         }
@@ -124,6 +139,7 @@ impl Router {
 
     #[only_owner]
     pub fn set_referral_active(env: Env, id: u64, active: bool) {
+        renew_instance(&env);
         let mut cfg = load_referral(&env, id);
         cfg.active = active;
         env.storage().persistent().set(&DataKey::Referral(id), &cfg);
@@ -131,6 +147,7 @@ impl Router {
 
     #[only_owner]
     pub fn set_referral_owner(env: Env, id: u64, new_owner: Address) {
+        renew_instance(&env);
         let mut cfg = load_referral(&env, id);
         cfg.owner = new_owner;
         env.storage().persistent().set(&DataKey::Referral(id), &cfg);
@@ -138,11 +155,13 @@ impl Router {
 
     #[only_owner]
     pub fn claim_admin_fees(env: Env, recipient: Address, tokens: Vec<Address>) {
+        renew_instance(&env);
         let router = env.current_contract_address();
         claim_fee_bucket(&env, &router, &recipient, tokens, FeeBucket::Admin);
     }
 
     pub fn claim_referral_fees(env: Env, id: u64, tokens: Vec<Address>) {
+        renew_instance(&env);
         let cfg = load_referral(&env, id);
         let router = env.current_contract_address();
         claim_fee_bucket(&env, &router, &cfg.owner, tokens, FeeBucket::Referral(id));
@@ -150,6 +169,7 @@ impl Router {
 
     #[only_owner]
     pub fn sweep_balance(env: Env, recipient: Address, tokens: Vec<Address>) {
+        renew_instance(&env);
         let router = env.current_contract_address();
         let n = tokens.len();
         for i in 0..n {
@@ -225,6 +245,7 @@ impl Router {
     }
 
     pub fn execute_strategy(env: Env, sender: Address, total_in: i128, swap_xdr: Bytes) -> i128 {
+        renew_instance(&env);
         let payload = StrategyPayload::from_xdr(&env, &swap_xdr)
             .unwrap_or_else(|_| panic_with_error!(&env, Error::InvalidRouteXdr));
         execute_payload(env, sender, total_in, payload)
