@@ -299,7 +299,10 @@ compile only under `cfg(any(test, feature = "testing"))`
 (`contracts/governance/src/deploy.rs`,
 `contracts/governance/src/timelock/testing.rs`,
 `contracts/price-aggregator/src/lib.rs`), and
-the build pipeline greps the deployable WASM for `set_controller` (governance) and
-`seed_oracle`/`seed_oracle_config` (price-aggregator) and fails on a hit
-(`Makefile::wasm-testing-abi-check`); the other cfg-gated symbols rely on feature
-discipline alone.
+the build pipeline greps the deployable WASM for `set_controller` and
+`execute_immediate` (governance) and `seed_oracle`/`seed_oracle_config`/`remove_oracle`
+(price-aggregator), failing on any hit (`Makefile::wasm-testing-abi-check`). A leak
+co-exports every symbol in its cfg-gated impl, so one match catches it;
+`set_price_aggregator` is intentionally not grepped because production governance
+references it as a cross-contract invoke target, and a governance-testing leak is
+still caught by the two symbols above.

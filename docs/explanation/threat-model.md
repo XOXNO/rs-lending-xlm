@@ -317,7 +317,7 @@ signer set is the sole price authority.
 | Test harness | Cross-contract flows, adversarial PoCs, reentrancy matrix, economic attacks | `tests/test-harness/tests/controller/security_audit.rs`, `tests/test-harness/tests/meta/reentrancy_matrix.rs` |
 | Proptest | Accounting conservation, liquidation vs. exact rational reference, router invariants | `tests/test-harness/tests/fuzz/main.rs` |
 | libFuzzer | Math kernels plus end-to-end flow/state targets | `tests/fuzz/Cargo.toml` |
-| Mutation testing | Twelve Makefile scopes, diff-scoped on PRs; the scheduled matrix runs 11 of them — `mutants-swap-aggregator` is absent, leaving that crate with no scheduled mutation, no Certora, and no merged-coverage measurement | `Makefile::mutants`, `.github/workflows/fuzz.yml` |
+| Mutation testing | Twelve Makefile scopes, diff-scoped on PRs; the scheduled matrix runs all twelve. The swap-aggregator has mutation coverage but still no Certora and no merged line-coverage measurement | `Makefile::mutants`, `.github/workflows/fuzz.yml` |
 | Certora (Sunbeam) | 254 `#[rule]`s (253 unique names) over common math/rates, controller solvency/liquidation/isolation, pool state invariant, aggregator fail-closed behavior | `certora/README.md`, `certora/pool/spec/state_invariant_rules.rs` |
 | Live testnet e2e | Full lifecycle, strategies over real routes, governance timelock, on release only | `tests/integration/scenarios/parallel_e2e.sh`, `.github/workflows/release.yml` |
 
