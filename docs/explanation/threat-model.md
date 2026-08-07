@@ -15,7 +15,7 @@ Assets an attacker could target:
   (`contracts/pool/src/cache/cash.rs::require_reserves`).
 - **Borrower collateral** — per-account scaled positions in controller user
   storage (`contracts/controller/src/storage/account.rs::write_side_map`),
-  seizable only through liquidation or bad-debt cleanup (§INV-LIQ, §INV-ACCT).
+  seizable only through liquidation or bad-debt cleanup (§INV-LIQ, §INV-STOR).
 - **Protocol revenue** — revenue shares inside `supplied`
   (`contracts/pool/src/cache/shares.rs::accrue_revenue`), claimed and
   forwarded to the accumulator
@@ -39,7 +39,7 @@ reproducible PoC, and `mock/flash-loan-receiver`, which is test-only.
 
 | Actor | Capabilities |
 |---|---|
-| Anonymous address | Call any non-view controller entrypoint with own auth: create accounts via `supply`, `repay` anyone's debt, `liquidate`, `clean_bad_debt`, `recapitalize`, run keepers (`contracts/controller/src/positions/repay.rs::process_repay`) |
+| Anonymous address | Call any non-view *user* entrypoint with own auth (the 26 `#[only_owner]` `ControllerAdmin` methods stay governance-only): create accounts via `supply`, `repay` anyone's debt, `liquidate`, `clean_bad_debt`, `recapitalize`, run keepers (`contracts/controller/src/positions/repay.rs::process_repay`) |
 | Supplier / borrower | Own accounts (`u64` ids); full verb set on owned accounts (`contracts/controller/src/account/mod.rs::require_owner_or_delegate`) |
 | Liquidator | Any address; repays underwater debt and receives discounted collateral (`contracts/controller/src/positions/liquidation/mod.rs::process_liquidation`) |
 | Delegate | Acts on owner-gated verbs, but only while also an active governance-registered position manager (`contracts/controller/src/account/mod.rs::is_owner_or_delegate`) |
@@ -137,9 +137,10 @@ credited (`contracts/controller/src/payments/transfer.rs::transfer_amount_measur
 ### Liquidation
 
 Attacker controls: liquidator identity, debt payment selection and amounts.
-Mitigations: HF < 1 WAD gate, self-liquidation rejected, repayment capped at
-the curve's ideal amount with excess refunded, seizures scaled down when a
-debt token under-delivers
+Mitigations: HF < 1 WAD gate, self-liquidation rejected
+(`contracts/controller/src/positions/liquidation/mod.rs::validate_liquidation_inputs`),
+repayment capped at the curve's ideal amount with excess refunded, seizures
+scaled down when a debt token under-delivers
 (`contracts/controller/src/positions/liquidation/plan.rs::build_liquidation_plan`,
 `contracts/controller/src/positions/liquidation/math.rs::normalize_repayment_plan`,
 `::scale_seizures_to_received`) (§INV-LIQ). Two fail-closed edges deserve
@@ -242,8 +243,9 @@ liquidator-favoring parameter changes are gated the same way
   upstream predecessor-chaining mechanism is unusable by construction.
 - **Sensitive tier is nominal.** The Sensitive floor is 12 ledgers
   (`contracts/governance/src/constants.rs::TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS`),
-  far below the 34 560-ledger recommended minimum, so at any production
-  `min_delay` the Sensitive tier equals Standard
+  far below the 34 560-ledger recommended minimum, so at any `min_delay` of
+  12 ledgers or more the Sensitive tier equals Standard (at the current
+  mainnet bootstrap value of 1, Sensitive is 12 vs Standard's 1)
   (`contracts/governance/src/timelock/mod.rs::operation_delay`). Only the
   Recovery tier (518 400 ledgers) adds real delay.
 - **Bootstrap delay.** `configs/networks.json` records
@@ -255,13 +257,22 @@ liquidator-favoring parameter changes are gated the same way
 
 ### Oracle submission (xoxno)
 
-A minority of compromised signers below the threshold cannot move the
-published median; a signer replaying old data is stopped by per-signer
-monotonic package timestamps, and stale submissions age out of the cluster
-(`contracts/xoxno-oracle/src/submit.rs::XoxnoOracle::submit_price`,
-`contracts/xoxno-oracle/src/aggregation.rs::recompute_aggregate`). No deployed
-market currently consumes the xoxno adapter as an aggregator source
-(`configs/mainnet/markets.json`, `configs/testnet/markets.json`).
+Compromised signers can shift the published median only within the range of
+honest submissions *so long as honest submissions are a strict majority of
+the surviving cluster* — clustering is by timestamp skew relative to the
+newest submission, so honest submissions older than `max_relative_skew` can
+be evicted, and `threshold - 1` compromised signers plus one honest survivor
+form a quorum whose median is malicious; a signer replaying old data is stopped by
+per-signer monotonic package timestamps, and stale submissions age out of the
+cluster (`contracts/xoxno-oracle/src/submit.rs::XoxnoOracle::submit_price`,
+`contracts/xoxno-oracle/src/aggregation.rs::recompute_aggregate`). The
+distinct `ProviderRef::Xoxno` variant is unused in deployed config, but
+mainnet routes six single-source SPIKO* markets through the xoxno adapter
+address under the RedStone provider shape
+(`configs/mainnet/markets.json` feeds pointing at the
+`xoxno_oracle_adapter` address in `configs/networks.json`) — for those
+markets the dual-source tolerance mechanism does not apply and the xoxno
+signer set is the sole price authority.
 
 ## 5. Denial of service and resource risks
 
@@ -285,10 +296,14 @@ market currently consumes the xoxno adapter as an aggregator source
   (`services/keeper/README.md`) (§INV-STOR).
 - **Liquidation worst case.** Position limits default to 10/10 and are capped
   at `POSITION_LIMIT_MAX` (`contracts/controller/src/config/limits.rs::set_position_limits`);
-  the harness proves a 5-supply/5-borrow liquidation fits the default budget
-  and asserts the configured cap matches what the bench covers
-  (`tests/test-harness/tests/meta/bench_liquidate_max_positions.rs::bench_liquidate_5_supply_5_borrow_within_default_budget`,
-  `::test_position_limit_cap_matches_bench_coverage`).
+  the harness exercises a 5-supply/5-borrow liquidation under the default
+  budget but routes budget-exceeded panics through `classify_panic` and
+  tolerates them — it proves absence of overflow/logic panics, not budget fit
+  (`tests/test-harness/tests/meta/bench_liquidate_max_positions.rs::bench_liquidate_5_supply_5_borrow_within_default_budget`).
+  The companion cap-matching assertion checks only the harness's own 5/5
+  configuration, not the production 10/10 default — a full-limit liquidation
+  budget is unproven
+  (`::test_position_limit_cap_matches_bench_coverage`).
 - **Liquidation-bricking griefing.** The dust-leg shapes in section 4 are the
   practical DoS risk: cheap third-party supply of a soon-to-be-stale asset
   into a victim account is bounded by the new-slot restriction
@@ -302,8 +317,8 @@ market currently consumes the xoxno adapter as an aggregator source
 | Test harness | Cross-contract flows, adversarial PoCs, reentrancy matrix, economic attacks | `tests/test-harness/tests/controller/security_audit.rs`, `tests/test-harness/tests/meta/reentrancy_matrix.rs` |
 | Proptest | Accounting conservation, liquidation vs. exact rational reference, router invariants | `tests/test-harness/tests/fuzz/main.rs` |
 | libFuzzer | Math kernels plus end-to-end flow/state targets | `tests/fuzz/Cargo.toml` |
-| Mutation testing | Twelve scopes, diff-scoped on PRs, nightly full lanes | `Makefile::mutants`, `.github/workflows/fuzz.yml` |
-| Certora (Sunbeam) | 253 rules over common math/rates, controller solvency/liquidation/isolation, pool state invariant, aggregator fail-closed behavior | `certora/README.md`, `certora/pool/spec/state_invariant_rules.rs` |
+| Mutation testing | Twelve Makefile scopes, diff-scoped on PRs; the scheduled matrix runs 11 of them — `mutants-swap-aggregator` is absent, leaving that crate with no scheduled mutation, no Certora, and no merged-coverage measurement | `Makefile::mutants`, `.github/workflows/fuzz.yml` |
+| Certora (Sunbeam) | 254 `#[rule]`s (253 unique names) over common math/rates, controller solvency/liquidation/isolation, pool state invariant, aggregator fail-closed behavior | `certora/README.md`, `certora/pool/spec/state_invariant_rules.rs` |
 | Live testnet e2e | Full lifecycle, strategies over real routes, governance timelock, on release only | `tests/integration/scenarios/parallel_e2e.sh`, `.github/workflows/release.yml` |
 
 Honest gaps: no Certora rules exist for `governance`, `swap-aggregator`,
@@ -342,7 +357,8 @@ swap-aggregator, xoxno-oracle, and defindex-strategy (`Makefile::coverage-merged
   (`contracts/pool/src/lib.rs::LiquidityPool::__constructor`).
 - **Bootstrap governance.** Mainnet ships with `min_delay = 1` ledger and a
   config-relative unpause guard until operators ratchet the delay up
-  (section 4); the Sensitive tier adds no delay over Standard in production.
+  (section 4); once `min_delay` reaches 12 ledgers the Sensitive tier adds no
+  delay over Standard.
 - **Fee-on-transfer tokens.** Measured transfers protect pool crediting, but
   `multiply`'s optional `initial_payment` uses a raw transfer and does not
   support such tokens (`contracts/controller/src/strategies/multiply.rs::collect_initial_multiply_payment`).

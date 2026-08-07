@@ -143,8 +143,10 @@ on failure; `delta_ms == 0` returns `1 RAY`):
 
 unrolled with no data-dependent branch; powers use half-up RAY multiply,
 factorial divides are half-up. Every omitted tail term is positive, so the
-cutoff error is one-directional: the factor under-estimates the true
-exponential — the series never over-accrues interest.
+truncation error is one-directional (the eight-term sum sits below the true
+exponential), but the half-up rounding of each power and factorial divide can
+push the returned factor a few raw RAY units above `RAY * e^x`; the factor is
+not a guaranteed under-estimate.
 
 Per chunk (`contracts/pool/src/interest.rs::accrue_chunk`):
 
@@ -216,11 +218,12 @@ then floor multiply (`common/src/math/fp.rs::Bps::apply_to_wad_floor`,
 (`common/src/math/fp.rs::Wad::div_floor_saturating`). Saturation means
 dust-debt accounts whose ratio overflows also read `i128::MAX`. The
 `get_health_factor` view returns `i128::MAX` for missing and debt-free accounts
-without computing totals; `can_be_liquidated` is exactly `health_factor < WAD`
+without computing totals; `can_be_liquidated` (exposed as the `is_liquidatable`
+entrypoint) is exactly `health_factor < WAD`
 (`contracts/controller/src/views/mod.rs::health_factor`, `::can_be_liquidated`).
 
 The USD views are half-up, not directional: `sum_debt_usd` (behind
-`get_total_borrow_in_usd`) uses `position_value`, so the view can read below
+`get_total_borrow_usd`) uses `position_value`, so the view can read below
 the ceil debt the risk gate enforces against; `sum_supply_usd` likewise
 (`contracts/controller/src/risk/totals.rs::sum_debt_usd`, `::sum_supply_usd`).
 Liquidation repay legs are valued
@@ -265,14 +268,19 @@ Proportion seized per unit of debt repaid
 
     proportion_seized = half_up(weighted_collateral * WAD / total_collateral)   (0 when total_collateral == 0)
 
-Bonus ceiling (`contracts/controller/src/positions/liquidation/curve.rs::max_bonus_for_threshold`):
+Bonus ceiling (`contracts/controller/src/positions/liquidation/curve.rs::max_bonus_for_threshold`;
+returns `0` outright when `proportion_seized <= 0`):
 
     eff_thr_bps = clamp(ceil(proportion_seized * BPS / WAD), 1, BPS)
     max_bonus   = floor(BPS * (BPS - eff_thr_bps) / eff_thr_bps)
 
 — the largest bonus with `(1 + bonus) * effective_threshold <= 1`. The base
-bonus is the collateral-value-weighted average of per-position bonuses, capped:
-`base = min(sum of half_up(value_i/total_collateral) * bonus_i, max_bonus)`
+bonus is the collateral-value-weighted average of per-position bonuses with a
+half-up rounding at each of the two steps, capped:
+
+    weight_i = half_up(value_i * WAD / total_collateral)
+    base     = min(sum of half_up(weight_i * bonus_i / WAD), max_bonus)
+
 (`contracts/controller/src/positions/liquidation/math.rs::get_account_bonus_params`).
 
 Per-spoke curve (`contracts/controller/src/positions/liquidation/curve.rs::LiquidationCurve::from_config`;
@@ -458,8 +466,11 @@ at the pool's gross payout. Reserve factor: per accrual chunk,
 Revenue shares: `accrue_revenue` **mints** (`revenue += s` and `supplied += s`;
 interest fees, flash/strategy fees, withheld liquidation fees) while
 `absorb_supply_as_revenue` only **reassigns** existing shares (`revenue += s`,
-`supplied` unchanged; seized deposits); `revenue <= supplied` is asserted after
-every burn or absorb (`contracts/pool/src/cache/shares.rs`). Claiming pays
+`supplied` unchanged; seized deposits); `revenue <= supplied` is asserted by
+`require_revenue_backed` after supply burns and revenue absorption
+(`contracts/pool/src/cache/shares.rs::burn_supply`,
+`::absorb_supply_as_revenue`); debt burns and revenue claims do not re-assert
+it. Claiming pays
 `min(cash, unscale_supply_floor(revenue))`; a partial claim burns
 `ceil(revenue * amount / treasury_actual)` shares — more than proportional
 (`contracts/pool/src/cache/shares.rs::burn_claimable_revenue`).
@@ -474,10 +485,10 @@ every burn or absorb (`contracts/pool/src/cache/shares.rs`). Claiming pays
 | Debt burn shares (partial repay) | floor | pool over repayer | `common/src/rates/scaling.rs::calculate_scaled_borrow_floor` |
 | Full-close withdrawal payout | floor | pool over withdrawer | `common/src/rates/scaling.rs::resolve_withdrawal` |
 | Full-close debt (repay target) | ceil | pool over repayer | `common/src/rates/scaling.rs::resolve_repay` |
-| Compounding series cutoff | under-estimate of exp | borrowers (never over-accrues) | `common/src/rates/compound.rs::compound_interest` |
+| Compounding series cutoff | truncation down, per-term half-up | truncation favors borrowers; half-up terms can exceed `RAY * e^x` by raw-unit dust | `common/src/rates/compound.rs::compound_interest` |
 | Supply-index growth | floor (+ shortfall to revenue) | protocol over suppliers | `common/src/rates/index.rs::update_supply_index` |
 | Protocol fee shares | floor | suppliers over treasury | `common/src/rates/index.rs::protocol_fee_shares` |
-| Backing shortfall: supplied claim floor, debt ceil | asymmetric | declares solvency conservatively | `contracts/pool/src/guards.rs::backing_shortfall` |
+| Backing shortfall: supplied claim floor, debt ceil | asymmetric | reads the smallest defensible shortfall — the most optimistic solvency view, so `require_backed_market` trips last | `contracts/pool/src/guards.rs::backing_shortfall` |
 | Collateral `gate_value` (LTV/threshold sums) | floor | protocol over account | `contracts/controller/src/risk/totals.rs::calculate_account_risk_totals_body` |
 | LTV / threshold bps application | floor | protocol over account | `contracts/controller/src/risk/totals.rs::weighted_collateral` |
 | Risk-gate debt total | ceil | protocol over account | `contracts/controller/src/risk/totals.rs::calculate_account_risk_totals_body` |

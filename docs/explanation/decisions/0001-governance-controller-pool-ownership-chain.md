@@ -19,10 +19,11 @@ enforcement have exactly one place to live.
 ## Decision
 
 Authority flows through a single strict chain: Governance owns the Controller,
-and the Controller owns the Pool. Each link is enforced with `#[only_owner]`
-on every mutating entrypoint — the pool applies it to every mutating
-`LiquidityPoolInterface` function in `contracts/pool/src/lib.rs`, so the
-Controller is the pool's sole caller.
+and the Controller owns the Pool. The Controller→Pool link is enforced with
+`#[only_owner]` on every mutating `LiquidityPoolInterface` function in
+`contracts/pool/src/lib.rs`, so the Controller is the pool's sole caller; the
+Governance→Controller link gates every `ControllerAdmin` entrypoint the same
+way, while the controller's user verbs stay open under their own caller auth.
 
 Governance deploys the Controller itself, passing its own address as the
 constructor admin

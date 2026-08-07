@@ -36,9 +36,12 @@ again when applying repayments and collateral seizures
 `apply.rs::apply_liquidation_seizures`). A listing absent from the spoke makes the check
 a no-op, so delisted assets stay exitable and liquidatable.
 
-Both consequences are pinned adversarially:
+Both paused-side consequences are pinned adversarially:
 `tests/test-harness/tests/controller/security_audit.rs::poc_paused_debt_blocks_liquidation_repay`
-and `security_audit.rs::poc_untransferable_collateral_leg_bricks_whole_liquidation`.
+(debt side) and
+`security_audit.rs::poc_paused_collateral_blocks_liquidation_seizure`
+(collateral side); the delisted-listing no-op is pinned by
+`contracts/controller/tests/positions/flags.rs::missing_spoke_asset_is_noop`.
 
 ## Alternatives
 

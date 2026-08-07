@@ -15,8 +15,10 @@ controller's constructor admin), and the controller owns the pool
 (`contracts/controller/src/markets/mod.rs::deploy_pool` passes its own address as the
 pool's constructor admin). Every mutating pool entrypoint is `#[only_owner]`
 (`contracts/pool/src/lib.rs`, `LiquidityPoolInterface` impl), so the controller is the
-only caller for all pool mutations; pool views are public. The pool holds no risk,
-oracle, or pause logic — all of that lives in the controller. Fresh controller
+only caller for all pool mutations; pool views are public. The pool holds no account
+risk, oracle, or pause logic — that lives in the controller; the pool keeps only
+market-level arithmetic guards (backing, utilization, withdraw solvency:
+`contracts/pool/src/guards.rs`). Fresh controller
 deployments start paused (`contracts/controller/src/governance/access.rs::init` calls
 `stellar_contract_utils::pausable::pause`).
 
@@ -78,12 +80,12 @@ flowchart TD
 
 | Contract | Crate path | Owner | Role | Mutating-entrypoint gate |
 |---|---|---|---|---|
-| Governance | `contracts/governance` | External admin (constructor); two-step transferable | Timelock, role registry, deployer of controller and price-aggregator | `#[only_owner]` for deploys/recovery; role gates for immediates; `PROPOSER`/`EXECUTOR`/`CANCELLER` for the timelock lifecycle |
-| Controller | `contracts/controller` | Governance; two-step `transfer_ownership`/`accept_ownership` (`contracts/controller/src/lib.rs`) | The only user-facing contract: accounts, risk checks, oracle validation, liquidations, flash loans, strategies | `#[only_owner]` on every `ControllerAdmin` method; user verbs gate on `caller.require_auth()` plus the pause matrix |
+| Governance | `contracts/governance` | External admin (constructor); two-step transferable | Timelock, role registry, deployer of controller and price-aggregator | `#[only_owner]` for deploys/recovery; role gates for immediates; `PROPOSER` gates propose, `CANCELLER` gates cancel; execution of a Ready operation with `executor: None` is permissionless (`contracts/governance/src/timelock/mod.rs::authorize_executor`) |
+| Controller | `contracts/controller` | Governance; two-step `transfer_ownership`/`accept_ownership` (`contracts/controller/src/lib.rs`) | The user-facing lending contract: accounts, risk checks, oracle validation, liquidations, flash loans, strategies | `#[only_owner]` on every `ControllerAdmin` method except the `get_app_version` view and `accept_ownership` (pending-owner auth); user verbs gate on `caller.require_auth()` plus the pause matrix |
 | Liquidity Pool | `contracts/pool` | Controller — immutable; the pool does not export `transfer_ownership` (`contracts/pool/src/lib.rs::LiquidityPool::__constructor` is the only owner write) | Single liquidity vault and interest accounting per market | `#[only_owner]` on all 14 mutating entrypoints; 10 views are public |
 | Price Aggregator | `contracts/price-aggregator` | Governance — no ownership-transfer entrypoint on its ABI (`contracts/price-aggregator/src/lib.rs`) | Price composition, staleness/tolerance/sanity validation | `#[only_owner]` on `set_oracle`, `set_sanity_band`, `set_tolerance` |
-| xoxno-oracle | `contracts/xoxno-oracle` | Own admin; full `Ownable` incl. transfer (`contracts/xoxno-oracle/src/lib.rs`) | Multi-signer median price feed with RedStone-shaped read ABI | `#[only_owner]` admin surface; `submit_price` requires a registered signer's auth |
-| Swap Aggregator | `contracts/swap-aggregator` | Separate admin; full `Ownable` incl. `renounce_ownership` (`contracts/swap-aggregator/src/lib.rs`) | DEX route executor across five venues; untrusted by the controller | `#[only_owner]` for fees/whitelist/referrals/upgrade; `execute_strategy` gates on `sender.require_auth()` |
+| xoxno-oracle | `contracts/xoxno-oracle` | Own admin; full `Ownable` incl. transfer (`contracts/xoxno-oracle/src/lib.rs`) | Multi-signer median price feed with a dual read ABI: RedStone-shaped `read_price_data*` plus SEP-40 reads (`contracts/xoxno-oracle/src/reads.rs`) | `#[only_owner]` admin surface; `submit_price` requires a registered signer's auth |
+| Swap Aggregator | `contracts/swap-aggregator` | Separate admin; full `Ownable` incl. `renounce_ownership` (`contracts/swap-aggregator/src/lib.rs`) | DEX route executor across five venues; untrusted by the controller | `#[only_owner]` for fees/whitelist/referrals/upgrade; `execute_strategy` gates on `sender.require_auth()`; `claim_referral_fees` is permissionless but pays only the stored referral owner |
 | DeFindex Strategy | `contracts/defindex-strategy` | None — no admin, no upgrade | Adapter binding one DeFindex vault to one controller account | `from.require_auth()` on `deposit`/`withdraw`/`harvest` |
 
 ## Market and account model
@@ -135,8 +137,9 @@ results reflect live cross-contract state.
 (`common/src/types/controller.rs::ControllerKey`), split across three classes:
 
 - *Instance*: `Pool`, `SwapAggregator`, `PriceAggregator`, `Accumulator`,
-  `PositionLimits`, `MinBorrowCollateralUsd`, `AppVersion`
-  (`contracts/controller/src/storage/protocol.rs`), plus the `LastSpokeId`/`LastHubId`
+  `PositionLimits`, `MinBorrowCollateralUsd`
+  (`contracts/controller/src/storage/protocol.rs`), `AppVersion`
+  (`contracts/controller/src/governance/access.rs`), plus the `LastSpokeId`/`LastHubId`
   counters (`contracts/controller/src/storage/spoke.rs`,
   `contracts/controller/src/storage/hub.rs`).
 - *Persistent, shared tier* (5-day threshold, 180-day bump): `AccountNonce`,
@@ -144,8 +147,11 @@ results reflect live cross-contract state.
   `BlendPoolAllowed(Address)` via `get_shared`/`set_shared`
   (`contracts/controller/src/storage/ttl.rs`).
 - *Persistent, user tier* (30-day threshold, 120-day bump): `AccountMeta(u64)`,
-  `SupplyPositions(u64)`, `BorrowPositions(u64)`, `Delegates(u64)` via
-  `get_user`/`set_user` (`contracts/controller/src/storage/account.rs`).
+  `SupplyPositions(u64)`, `BorrowPositions(u64)`, `Delegates(u64)`. Reads go through
+  `get_user`; `AccountMeta`/`Delegates` writes go through `set_user`, while the two
+  position maps are written by `write_side_map`, which bypasses `set_user` and does
+  not renew (`contracts/controller/src/storage/account.rs::write_side_map`,
+  `contracts/controller/src/storage/ttl.rs`).
 
 `get_persistent` renews a key's TTL on every successful read as well as every write
 (`contracts/controller/src/storage/ttl.rs::get_persistent`). Position-map writers
@@ -203,10 +209,14 @@ delta, so fee-on-transfer tokens cannot inflate credits
 `contracts/controller/src/positions/supply.rs::build_supply_entries`,
 `contracts/controller/src/positions/repay.rs`,
 `contracts/controller/src/keepers/mod.rs::recapitalize`). The pool never pulls tokens
-in on those paths; it trusts the amount argument from its owner. The pool's only
-outbound path is `Cache::transfer_out`
-(`contracts/pool/src/cache/cash.rs::transfer_out`): borrow/withdraw/strategy payouts
-to the receiver, overpayment refunds to the payer, and revenue to the pool owner.
+in on those paths; it trusts the amount argument from its owner. The pool has two
+outbound paths: `Cache::transfer_out`
+(`contracts/pool/src/cache/cash.rs::transfer_out`) for borrow/withdraw/strategy
+payouts to the receiver, overpayment and recapitalize refunds to the payer, and
+revenue to the pool owner — and the flash-loan principal payout, which transfers
+directly and bypasses `transfer_out`/`debit_cash` because the principal is settled by
+balance assertions within the same call
+(`contracts/pool/src/ops/flash.rs::payout`).
 
 Liquidity accounting uses a tracked `cash` field on `PoolStateRaw`
 (`common/src/types/pool.rs::PoolStateRaw`), not the live token balance:
@@ -283,8 +293,13 @@ tracked by a strictly increasing `AppVersion`
 (`contracts/controller/src/governance/access.rs::migrate`).
 
 Test-only ABI is feature-gated out of production builds: governance's
-`set_controller`/`set_price_aggregator` and the price-aggregator's
-`seed_oracle`/`remove_oracle` compile only under `cfg(any(test, feature = "testing"))`
-(`contracts/governance/src/deploy.rs`, `contracts/price-aggregator/src/lib.rs`), and
-the build pipeline fails if those symbols appear in the deployable WASM
-(`Makefile::wasm-testing-abi-check`).
+`set_controller`/`set_price_aggregator` and timelock-bypassing
+`execute_immediate`, and the price-aggregator's `seed_oracle`/`remove_oracle`,
+compile only under `cfg(any(test, feature = "testing"))`
+(`contracts/governance/src/deploy.rs`,
+`contracts/governance/src/timelock/testing.rs`,
+`contracts/price-aggregator/src/lib.rs`), and
+the build pipeline greps the deployable WASM for `set_controller` (governance) and
+`seed_oracle`/`seed_oracle_config` (price-aggregator) and fails on a hit
+(`Makefile::wasm-testing-abi-check`); the other cfg-gated symbols rely on feature
+discipline alone.

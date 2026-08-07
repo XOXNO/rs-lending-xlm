@@ -33,10 +33,11 @@ elapsed time in pieces of at most
 borrow rate for that chunk, so a long-stale market re-prices per simulated
 year instead of freezing one rate across the whole gap. The per-chunk growth
 factor is `common/src/rates/compound.rs::compound_interest`: an unrolled
-8-term Taylor series of `e^x` for `x = rate · delta_ms`, with no
-data-dependent branches beyond the `delta_ms == 0` fast path. Truncating the
-series under-estimates `e^x` for positive rates — the error direction that
-charges borrowers slightly less rather than crediting suppliers value that
+Taylor series of `e^x` truncated after the `x^8` term, for
+`x = rate · delta_ms`, with no data-dependent branches beyond the
+`delta_ms == 0` fast path. The truncation under-estimates `e^x` for positive
+rates — the error direction that charges borrowers slightly less rather than
+crediting suppliers value that
 was never collected.
 
 Value conservation is explicit. The supplier reward that the floor-rounded

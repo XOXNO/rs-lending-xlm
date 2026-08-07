@@ -18,8 +18,8 @@ by intent. If an invariant below breaks, something in
   proofs are deliberately separate. No verdict record is tracked in-repo — rule
   names indicate what is specified, not a proven-on-this-artifact claim.
 
-Domain order matches the threat model: AUTH, ACCT, IDX, ORACLE, RISK, LIQ,
-HALT, STOR, FLASH, STRAT.
+Domains, in order: AUTH, ACCT, IDX, ORACLE, RISK, LIQ, HALT, STOR, FLASH,
+STRAT. The threat model references these domains by name.
 
 ---
 
@@ -27,12 +27,12 @@ HALT, STOR, FLASH, STRAT.
 
 ### INV-AUTH-01 — Strict ownership chain: Governance → Controller → Pool
 - **Statement** — Every mutating pool entrypoint is `#[only_owner]` with the controller as owner, and every controller admin entrypoint is `#[only_owner]` with governance as owner, because each parent deploys its child passing its own address as the constructor admin.
-- **Enforced by** — `contracts/pool/src/lib.rs::LiquidityPoolInterface` (fifteen `#[only_owner]` mutators) [code]; `contracts/controller/src/markets/mod.rs::deploy_pool` (controller address as constructor arg) [code]; `contracts/governance/src/deploy.rs::deploy_controller` (governance address as constructor arg) [code]; `contracts/pool/tests/flows.rs::test_flash_loan_rejects_direct_non_owner_pool_call` [test].
+- **Enforced by** — `contracts/pool/src/lib.rs::LiquidityPoolInterface` (fourteen `#[only_owner]` mutators) [code]; `contracts/controller/src/markets/mod.rs::deploy_pool` (controller address as constructor arg) [code]; `contracts/governance/src/deploy.rs::deploy_controller` (governance address as constructor arg) [code]; `contracts/pool/tests/flows.rs::test_flash_loan_rejects_direct_non_owner_pool_call` [test].
 - **On violation** — Anyone could mint debt shares, drain cash, or rewrite market params directly against the pool, bypassing every risk check.
 
 ### INV-AUTH-02 — Health-reducing verbs require owner-or-delegate
 - **Statement** — `borrow` and `withdraw` require the caller to be the account owner, or a delegate that is both listed on the account and registered as an *active* position manager.
-- **Enforced by** — `contracts/controller/src/positions/borrow.rs::process_borrow` and `contracts/controller/src/positions/withdraw.rs::process_withdraw` (both call `require_owner_or_delegate`) [code]; `contracts/controller/src/account/mod.rs::is_owner_or_delegate` (active-manager AND delegate-list conjunction) [code]; `certora/controller/spec/market_guard_rules.rs::supply_new_slot_requires_owner_or_delegate` [formal*].
+- **Enforced by** — `contracts/controller/src/positions/borrow.rs::process_borrow` and `contracts/controller/src/positions/withdraw.rs::process_withdraw` (both call `require_owner_or_delegate`) [code]; `contracts/controller/src/account/mod.rs::is_owner_or_delegate` (active-manager AND delegate-list conjunction) [code].
 - **On violation** — A stranger could borrow against or drain another account's collateral.
 
 ### INV-AUTH-03 — Delegate management and TTL renewal are strict-owner
@@ -42,10 +42,10 @@ HALT, STOR, FLASH, STRAT.
 
 ### INV-AUTH-04 — Permissionless verbs carry only caller auth and only reduce risk
 - **Statement** — `repay`, `liquidate`, `clean_bad_debt`, `recapitalize`, `update_indexes`, `claim_revenue`, and `update_account_threshold` require only the caller's own signature, and third-party `supply` into an existing account is accepted only for hub assets that already have an open supply position on that account.
-- **Enforced by** — `contracts/controller/src/positions/repay.rs::process_repay` (no owner check; caller funds the transfer) [code]; `contracts/controller/src/positions/supply.rs::process_supply` (already-open-position gate, `GenericError::NotAuthorized`) [code]; `tests/test-harness/tests/controller/security_audit.rs::poc_permissionless_repay_any_caller` and `tests/test-harness/tests/controller/security_audit.rs::regression_third_party_cannot_open_new_supply_slots` [test].
+- **Enforced by** — `contracts/controller/src/positions/repay.rs::process_repay` (no owner check; caller funds the transfer) [code]; `contracts/controller/src/positions/supply.rs::process_supply` (already-open-position gate, `GenericError::NotAuthorized`) [code]; `certora/controller/spec/market_guard_rules.rs::supply_new_slot_requires_owner_or_delegate` [formal*]; `tests/test-harness/tests/controller/security_audit.rs::poc_permissionless_repay_any_caller` and `tests/test-harness/tests/controller/security_audit.rs::regression_third_party_cannot_open_new_supply_slots` [test].
 - **On violation** — Either liveness breaks (nobody can repay/liquidate on behalf of others) or a stranger can open unwanted position slots on a victim account.
 
-### INV-AUTH-05 — Guardian ratchet: immediate powers only tighten
+### INV-AUTH-05 — Guardian ratchet: immediate halt powers only tighten
 - **Statement** — The GUARDIAN role can immediately `pause` the controller and set per-listing `paused`/`frozen` flags, but the immediate flags path can never clear a set flag, and there is no immediate unpause.
 - **Enforced by** — `contracts/governance/src/timelock/immediate.rs::pause` and `contracts/governance/src/timelock/immediate.rs::set_spoke_asset_flags` (GUARDIAN-gated via `begin_immediate`) [code]; `contracts/controller/src/config/asset.rs::require_flag_ratchet` (`SpokeError::SpokeAssetFlagRelaxation`) [code].
 - **On violation** — A compromised guardian key could silently re-open a halted market instead of only being able to stop it.
@@ -56,8 +56,8 @@ HALT, STOR, FLASH, STRAT.
 - **On violation** — A single hot key could flip protection off without the community reaction window the timelock exists to provide.
 
 ### INV-AUTH-07 — Timelock delay only ratchets up
-- **Statement** — The governance `min_delay` is non-zero, can never decrease, and is capped at `TIMELOCK_MAX_DELAY_LEDGERS`.
-- **Enforced by** — `contracts/governance/src/timelock/mod.rs::require_nonzero_delay` and `contracts/governance/src/timelock/mod.rs::validate_delay_update` (`new_delay >= current && new_delay <= max`) [code].
+- **Statement** — The governance `min_delay` is non-zero at construction, and every subsequent update can only increase it, capped at `TIMELOCK_MAX_DELAY_LEDGERS`; the constructor itself enforces only the non-zero bound.
+- **Enforced by** — `contracts/governance/src/access.rs::Governance::__constructor` (via `require_nonzero_delay`; no max-cap check at deploy) [code]; `contracts/governance/src/timelock/mod.rs::validate_delay_update` (`new_delay >= current && new_delay <= max`, updates only) [code].
 - **On violation** — Governance could shorten its own delay to zero and convert every timelocked power into an immediate one.
 
 ---
@@ -66,12 +66,12 @@ HALT, STOR, FLASH, STRAT.
 
 ### INV-ACCT-01 — Revenue shares are a subset of supplied shares
 - **Statement** — `revenue <= supplied` holds after every supply burn and every revenue absorption, and both quantities stay non-negative.
-- **Enforced by** — `contracts/pool/src/cache/shares.rs::require_revenue_backed` (asserted in `burn_supply` and `absorb_supply_as_revenue`) [code]; `certora/pool/spec/state_invariant_rules.rs::assert_invariant` (checked by every `invariant_preserved_by_*` rule) [formal*]; `tests/test-harness/tests/fuzz/accounting_conservation.rs::assert_accounting_laws` [test].
+- **Enforced by** — `contracts/pool/src/cache/shares.rs::require_revenue_backed` (asserted in `burn_supply` and `absorb_supply_as_revenue`) [code]; `certora/pool/spec/state_invariant_rules.rs::assert_invariant` (checked by every `invariant_preserved_by_*` rule) [formal*]; `tests/test-harness/tests/fuzz/accounting_conservation.rs::prop_accounting_conservation` (via the `assert_accounting_laws` helper; relaxed to a 4-raw-unit tolerance over unscaled amounts) [test].
 - **On violation** — The protocol would claim treasury value backed by no depositor shares, and revenue claims could dilute suppliers.
 
 ### INV-ACCT-02 — Cash is an internally tracked counter, not a token balance
-- **Statement** — Pool liquidity checks compare against the tracked `cash` field maintained with checked arithmetic; direct token donations to the pool address change no accounting state, and `cash` never goes negative.
-- **Enforced by** — `contracts/pool/src/cache/cash.rs::credit_cash` / `contracts/pool/src/cache/cash.rs::debit_cash` (checked, panic on overflow/underflow) [code]; `contracts/pool/src/cache/cash.rs::require_reserves` [code]; `certora/pool/spec/state_invariant_rules.rs::assert_invariant` (`cash >= 0`) [formal*]; `certora/pool/spec/guard_rules.rs::withdraw_never_overdraws_cash` [formal*].
+- **Statement** — Pool liquidity checks compare against the tracked `cash` field; direct token donations to the pool address change no accounting state. Non-negativity comes from `require_reserves`/`min`-capped debits at every debit site, while the checked arithmetic in `credit_cash`/`debit_cash` guards i128 overflow.
+- **Enforced by** — `contracts/pool/src/cache/cash.rs::credit_cash` / `contracts/pool/src/cache/cash.rs::debit_cash` (checked arithmetic; traps on i128 overflow only — non-negativity comes from the guards below) [code]; `contracts/pool/src/cache/cash.rs::require_reserves` and `min`-capped debits at every debit site [code]; `certora/pool/spec/state_invariant_rules.rs::assert_invariant` (`cash >= 0`) [formal*]; `certora/pool/spec/guard_rules.rs::withdraw_never_overdraws_cash` [formal*].
 - **On violation** — Donation-based balance inflation could fake solvency, or a withdrawal could pay out tokens the book does not hold.
 
 ### INV-ACCT-03 — Inbound value is credited by measured receipt only
@@ -96,7 +96,7 @@ HALT, STOR, FLASH, STRAT.
 
 ### INV-ACCT-07 — No positive value movement rounds to zero shares
 - **Statement** — Any positive-amount supply, borrow, withdraw, repay, or net-settle whose share conversion rounds to zero reverts instead of moving tokens against no book entry.
-- **Enforced by** — `contracts/pool/src/ops/supply.rs::apply` (`SupplyRoundsToZeroShares`), `contracts/pool/src/ops/withdraw.rs::accounting` (`WithdrawRoundsToZeroShares`), `contracts/pool/src/ops/net_settle.rs::apply` (`NetSettleRoundsToZeroShares`, plus `overpayment == 0`) [code]; `certora/pool/spec/position_accounting_rules.rs::supply_scaled_balance_matches_index` and siblings (exact directed-rounding mint/burn) [formal*].
+- **Enforced by** — `contracts/pool/src/ops/supply.rs::apply` (`SupplyRoundsToZeroShares`), `contracts/pool/src/ops/borrow.rs::mint_debt` (`BorrowRoundsToZeroShares`), `contracts/pool/src/ops/withdraw.rs::accounting` (`WithdrawRoundsToZeroShares`), `contracts/pool/src/ops/repay.rs::accounting` (`RepayRoundsToZeroShares`), `contracts/pool/src/ops/net_settle.rs::apply` (`NetSettleRoundsToZeroShares`, plus `overpayment == 0`) [code]; `certora/pool/spec/position_accounting_rules.rs::supply_scaled_balance_matches_index` and siblings (exact directed-rounding mint/burn) [formal*].
 - **On violation** — Dust-sized operations could move real tokens while leaving positions unchanged — a slow-drain primitive.
 
 ---
@@ -105,7 +105,7 @@ HALT, STOR, FLASH, STRAT.
 
 ### INV-IDX-01 — Borrow index is monotone non-decreasing and capped
 - **Statement** — The borrow index only grows under accrual (`old * factor`, factor >= 1) and is clamped at `MAX_BORROW_INDEX_RAY = 1e36`; nothing ever writes it down.
-- **Enforced by** — `common/src/rates/index.rs::update_borrow_index` [code]; `certora/common/spec/rate_index_accounting_rules.rs::borrow_index_strictly_grows_below_cap` and `certora/common/spec/rate_index_accounting_rules.rs::borrow_index_cap_is_sticky` [formal*]; `tests/test-harness/tests/fuzz/accounting_conservation.rs::assert_accounting_laws` (borrow-index regression check) [test].
+- **Enforced by** — `common/src/rates/index.rs::update_borrow_index` [code]; `certora/common/spec/rate_index_accounting_rules.rs::borrow_index_strictly_grows_below_cap` and `certora/common/spec/rate_index_accounting_rules.rs::borrow_index_cap_is_sticky` [formal*]; `tests/test-harness/tests/fuzz/accounting_conservation.rs::prop_accounting_conservation` (inline borrow-index regression assert) [test].
 - **On violation** — Debt could shrink without repayment, or grow unboundedly past the i128 domain.
 
 ### INV-IDX-02 — Supply index stays inside [SUPPLY_INDEX_FLOOR_RAW, MAX_SUPPLY_INDEX_RAY]
@@ -164,7 +164,7 @@ HALT, STOR, FLASH, STRAT.
 
 ### INV-ORACLE-06 — One consistent price snapshot per transaction
 - **Statement** — The controller fetches each asset's price at most once per flow and reuses it for every calculation in that transaction, and the aggregator judges all keys in one call against a single clock reading and returns session-cached prices byte-identically.
-- **Enforced by** — `contracts/controller/src/context/oracle.rs::Cache::fetch_prices` (fetch-missing-only) and `contracts/controller/src/context/oracle.rs::Cache::cached_price` [code]; `contracts/price-aggregator/src/session.rs::Session::new` (single `now_secs` snapshot) [code]; `certora/price-aggregator/spec/oracle_rules.rs::price_cache_consistency` and `certora/controller/spec/solvency_rules.rs::index_cache_single_snapshot` [formal*].
+- **Enforced by** — `contracts/controller/src/context/oracle.rs::Cache::fetch_prices` (fetch-missing-only) and `contracts/controller/src/context/oracle.rs::Cache::cached_price` [code]; `contracts/price-aggregator/src/session.rs::Session::new` (single `now_secs` snapshot) [code]; `certora/price-aggregator/spec/oracle_rules.rs::price_cache_consistency` [formal*].
 - **On violation** — Intra-transaction price movement could make debt and collateral legs of one liquidation disagree, opening arbitrage against the protocol.
 
 ### INV-ORACLE-07 — Sanity bands are validated and can only move by overlapping steps
@@ -255,7 +255,7 @@ HALT, STOR, FLASH, STRAT.
 ## INV-HALT — Pause, freeze, and caps
 
 ### INV-HALT-01 — Global pause blocks risk-increasing verbs; exits and liquidations stay open
-- **Statement** — `#[when_not_paused]` gates exactly `supply`, `borrow`, `flash_loan`, the five strategies, `migrate_from_blend`, `update_indexes`, `claim_revenue`, `update_account_threshold`, and `add_delegate`; `withdraw`, `repay`, `liquidate`, `clean_bad_debt`, `recapitalize`, `renew_account`, `remove_delegate`, and all views stay callable while paused.
+- **Statement** — `#[when_not_paused]` gates exactly `supply`, `borrow`, `flash_loan`, the five strategy verbs (`multiply`, `swap_debt`, `swap_collateral`, `repay_debt_with_collateral`, `migrate_from_blend`), `update_indexes`, `claim_revenue`, `update_account_threshold`, and `add_delegate`; `withdraw`, `repay`, `liquidate`, `clean_bad_debt`, `recapitalize`, `renew_account`, `remove_delegate`, and all views stay callable while paused.
 - **Enforced by** — `contracts/controller/src/lib.rs::Controller` (`ControllerInterface` impl, attribute placement) [code]; `tests/test-harness/tests/controller/security_audit_extended.rs::poc_global_pause_blocks_risk_increasing_allows_exit_and_liq` [test].
 - **On violation** — Either pause becomes a fund trap (exits blocked) or it stops protecting (new risk admitted during an incident).
 
@@ -354,12 +354,12 @@ HALT, STOR, FLASH, STRAT.
 
 ### INV-FLASH-05 — Guard exceptions are exactly the non-monetary account verbs
 - **Statement** — `renew_account`, `add_delegate`, and `remove_delegate` are the only state-changing user entrypoints that skip the flash-loan guard — none of them can move value or change positions.
-- **Enforced by** — `contracts/controller/src/account/mod.rs::renew_account` and `contracts/controller/src/account/mod.rs::set_account_delegate` (no `require_not_flash_loaning` on their paths) [code]; `certora/controller/spec/flash_loan_rules.rs::flash_loan_guard_allows_when_clear` (complement direction) [formal*].
+- **Enforced by** — `contracts/controller/src/account/mod.rs::renew_account` and `contracts/controller/src/account/mod.rs::set_account_delegate` (no `require_not_flash_loaning` on their paths; admin verbs and `accept_ownership` likewise skip the guard) [code].
 - **On violation** — Widening the exception set to any monetary verb reopens the reentrancy surface the guard exists to close.
 
 ### INV-FLASH-06 — Pool state is uncommitted during the callback
-- **Statement** — The pool cache commits only after repayment succeeds, so a failed or dishonest callback rolls back to the pre-call persisted state, and the fee is the only state delta a successful flash loan leaves.
-- **Enforced by** — `contracts/pool/src/ops/flash.rs::apply` (commit ordered after `collect_repayment`) [code]; `certora/pool/spec/state_invariant_rules.rs::invariant_preserved_by_flash_fee_booking` [formal*].
+- **Statement** — The pool cache commits only after repayment succeeds, so a failed or dishonest callback rolls back to the pre-call persisted state; a successful flash loan's state deltas are the fee plus ordinary interest accrual (indexes, timestamp, accrual revenue) from the initial `global_sync`.
+- **Enforced by** — `contracts/pool/src/ops/flash.rs::apply` (commit ordered after `collect_repayment`) [code]; `certora/pool/spec/state_invariant_rules.rs::invariant_preserved_by_flash_fee_booking` (covers `book_fee` in isolation, not callback ordering) [formal*].
 - **On violation** — A reverted flash loan would leave partially-updated market state — the classic flash-attack foothold.
 
 ### INV-FLASH-07 — Receivers must be Wasm contracts on an active hub

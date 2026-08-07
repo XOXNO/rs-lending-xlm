@@ -5,8 +5,9 @@ Status: Accepted
 ## Context
 
 Price sources compose: a config may hold a direct feed, a scaled source (factor
-feed × a nested quote key), or an Aquarius LP valuation whose legs are
-themselves priced keys (`common/src/types/composable_oracle.rs::PriceSource`).
+feed × a nested quote key), or an Aquarius LP valuation — constant-product
+`AquariusLp` or `AquariusStableLp` — whose legs are themselves priced keys
+(`common/src/types/composable_oracle.rs::PriceSource`, four variants).
 Composition creates three hazards. First, operator misconfiguration — wrong
 decimals, a staleness budget looser than the provider actually delivers, a
 quote-currency mismatch — is silent until a user transaction consumes the bad

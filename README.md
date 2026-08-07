@@ -20,7 +20,11 @@ fail-closed reads. GUARDIAN can pause immediately; **unpause is timelocked**.
 | Document | Audience |
 |----------|----------|
 | [docs/README.md](./docs/README.md) | Docs map |
+| [Architecture](./docs/reference/architecture.md) | Topology, storage, money flows, upgrade surface |
+| [Invariants](./docs/reference/invariants.md) | Rules that must not break |
 | [Formulas](./docs/reference/formulas.md) | Risk, HF, liquidation math (code-matched) |
+| [Threat model](./docs/explanation/threat-model.md) | Actors, trust boundaries, attack surfaces |
+| [ADRs](./docs/explanation/decisions/README.md) | Why decisions were made |
 | [CONTRIBUTING.md](./CONTRIBUTING.md) | Contributors |
 | [skills/](./skills/README.md) | Integrator agent recipes |
 | [certora/](./certora/README.md) | Formal verification |
@@ -36,7 +40,7 @@ for the shared model (hubs, spokes, units, HF, pause matrix), and
 
 | Layer | In this repo |
 |-------|----------------|
-| **Design** | [Formulas](./docs/reference/formulas.md), contract rustdoc, skills fundamentals |
+| **Design** | [Invariants](./docs/reference/invariants.md), [threat model](./docs/explanation/threat-model.md), [formulas](./docs/reference/formulas.md), contract rustdoc |
 | **Testing** | Crate tests, Soroban harness (`make test`), live testnet scripts, fuzz |
 | **Formal** | [Certora](./certora/README.md) |
 | **Static** | Clippy, Scout, CI |
