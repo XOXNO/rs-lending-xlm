@@ -509,19 +509,26 @@ WASM_BUDGET_FILE ?= configs/wasm_size_budget.txt
 
 
 
+# Fail the build if a `testing`-feature-only entrypoint leaked into a deployable
+# WASM. We grep only for symbols that are unambiguously test-only: a leak
+# co-exports every symbol in the cfg-gated impl, so any one firing catches it.
+# `set_price_aggregator` is deliberately NOT grepped — production governance
+# references it as a cross-contract invoke target (op.rs `Symbol::new`), so it is
+# not a reliable leak-only marker; a governance-testing leak is still caught by
+# `set_controller` / `execute_immediate` on the same artifact.
 wasm-testing-abi-check: deploy-artifacts
 	@gov="$(DEPLOY_DIR)/governance.wasm"; \
 	if [ ! -f "$$gov" ]; then echo "governance deploy WASM missing: $$gov"; exit 1; fi; \
-	if strings "$$gov" | grep -q "set_controller"; then \
-		echo "FAIL: governance.wasm exports test-only ABI 'set_controller'"; \
+	if strings "$$gov" | grep -Eqw 'set_controller|execute_immediate'; then \
+		echo "FAIL: governance.wasm exports test-only ABI (set_controller / execute_immediate)"; \
 		echo "  The governance/testing feature leaked into the deployable build."; \
 		exit 1; \
 	fi; \
 	echo "OK   governance.wasm exports no test-only ABI"
 	@pa="$(DEPLOY_DIR)/price_aggregator.wasm"; \
 	if [ ! -f "$$pa" ]; then echo "price-aggregator deploy WASM missing: $$pa"; exit 1; fi; \
-	if strings "$$pa" | grep -Eq 'seed_oracle(_config)?'; then \
-		echo "FAIL: price_aggregator.wasm exports test-only ABI 'seed_oracle' (or legacy seed_oracle_config)"; \
+	if strings "$$pa" | grep -Eqw 'seed_oracle|seed_oracle_config|remove_oracle'; then \
+		echo "FAIL: price_aggregator.wasm exports test-only ABI (seed_oracle / seed_oracle_config / remove_oracle)"; \
 		echo "  The price-aggregator/testing feature leaked into the deployable build."; \
 		exit 1; \
 	fi; \
