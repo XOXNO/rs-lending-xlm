@@ -5,9 +5,6 @@ use soroban_sdk::{
 
 use crate::errors::Error;
 
-const FEE_DENOMINATOR: i128 = 10_000;
-
-const MAX_PRE_SWAP_ITERATIONS: u32 = 128;
 use crate::vault::Vault;
 use crate::venues::{auth_entry, authorize_as_current, authorize_token_transfer, HopContext};
 
@@ -54,13 +51,20 @@ pub(crate) fn swap(ctx: &HopContext<'_>, cache: &mut Map<Address, Vec<Address>>)
         .unwrap_or_else(|_| panic_with_error!(ctx.env, Error::IntegerOverflow))
 }
 
+/// A pre-swap the caller computed off-chain: move `amount` of the pool's first
+/// token into the second when `from_a`, otherwise the reverse.
+pub(crate) struct PreSwap {
+    pub from_a: bool,
+    pub amount: i128,
+}
+
 /// The mint leg of an Aquarius LP deposit, separated from the router plumbing
 /// (`env` / `router` / `vault` / `cache`) that every venue call carries.
 pub(crate) struct MintLiquidity<'a> {
     pub pool: &'a Address,
     pub lp_token: &'a Address,
     pub min_shares: i128,
-    pub pre_balance_fee_bps: u32,
+    pub pre_swap: PreSwap,
 }
 
 pub(crate) fn add_liquidity(
@@ -74,7 +78,7 @@ pub(crate) fn add_liquidity(
         pool,
         lp_token,
         min_shares,
-        pre_balance_fee_bps,
+        pre_swap,
     } = mint;
 
     let tokens = pool_tokens(env, cache, pool);
@@ -83,14 +87,7 @@ pub(crate) fn add_liquidity(
         panic_with_error!(env, Error::MinSharesNotMet);
     }
 
-    pre_balance(
-        env,
-        router,
-        vault,
-        pool,
-        &tokens,
-        i128::from(pre_balance_fee_bps),
-    );
+    pre_balance(env, router, vault, pool, &tokens, pre_swap);
 
     let n = tokens.len();
     let mut amounts: Vec<u128> = Vec::new(env);
@@ -260,9 +257,9 @@ fn pre_balance(
     vault: &mut Vault,
     pool: &Address,
     tokens: &Vec<Address>,
-    fee_bps: i128,
+    pre_swap: PreSwap,
 ) {
-    if fee_bps <= 0 || tokens.len() != 2 {
+    if pre_swap.amount <= 0 || tokens.len() != 2 {
         return;
     }
     let token_a = tokens.get_unchecked(0);
@@ -280,9 +277,10 @@ fn pre_balance(
         return;
     }
 
-    let (from_a, amount) = optimal_pre_swap(env, held_a, held_b, reserve_a, reserve_b, fee_bps);
-    if amount <= 0 {
-        return;
+    let (from_a, amount) = (pre_swap.from_a, pre_swap.amount);
+    let held_in = if from_a { held_a } else { held_b };
+    if amount > held_in {
+        panic_with_error!(env, Error::InvalidAmount);
     }
 
     let (token_in, token_out, in_idx, out_idx) = if from_a {
@@ -300,65 +298,6 @@ fn pre_balance(
     );
     vault.withdraw(&token_in, amount);
     vault.deposit(&token_out, received);
-}
-
-pub(crate) fn optimal_pre_swap(
-    env: &Env,
-    held_a: i128,
-    held_b: i128,
-    reserve_a: i128,
-    reserve_b: i128,
-    fee_bps: i128,
-) -> (bool, i128) {
-    let product_a = checked_mul(env, held_a, reserve_b);
-    let product_b = checked_mul(env, held_b, reserve_a);
-    if product_a == product_b {
-        return (true, 0);
-    }
-
-    let from_a = product_a > product_b;
-    let (held_in, held_out, reserve_in, reserve_out) = if from_a {
-        (held_a, held_b, reserve_a, reserve_b)
-    } else {
-        (held_b, held_a, reserve_b, reserve_a)
-    };
-
-    let mut low: i128 = 0;
-    let mut high: i128 = held_in;
-
-    for _ in 0..MAX_PRE_SWAP_ITERATIONS {
-        if high - low <= 1 {
-            break;
-        }
-        let mid = low + (high - low) / 2;
-        let out = cp_swap_out(env, mid, reserve_in, reserve_out, fee_bps);
-        let left = checked_mul(env, held_in - mid, reserve_out - out);
-        let right = checked_mul(env, held_out + out, reserve_in + mid);
-
-        if left > right {
-            low = mid;
-        } else {
-            high = mid;
-        }
-    }
-    (from_a, low)
-}
-
-pub(crate) fn cp_swap_out(
-    env: &Env,
-    amount_in: i128,
-    reserve_in: i128,
-    reserve_out: i128,
-    fee_bps: i128,
-) -> i128 {
-    if amount_in <= 0 {
-        return 0;
-    }
-    let net = checked_mul(env, amount_in, FEE_DENOMINATOR - fee_bps) / FEE_DENOMINATOR;
-    if net <= 0 {
-        return 0;
-    }
-    checked_mul(env, net, reserve_out) / (reserve_in + net)
 }
 
 fn swap_through_pool(
@@ -400,11 +339,6 @@ fn to_i128(env: &Env, amount: u128) -> i128 {
     amount
         .try_into()
         .unwrap_or_else(|_| panic_with_error!(env, Error::IntegerOverflow))
-}
-
-fn checked_mul(env: &Env, lhs: i128, rhs: i128) -> i128 {
-    lhs.checked_mul(rhs)
-        .unwrap_or_else(|| panic_with_error!(env, Error::IntegerOverflow))
 }
 
 pub(crate) fn pre_balance_possible(

@@ -492,7 +492,10 @@ fn execute_payload(env: Env, sender: Address, total_in: i128, payload: StrategyP
                 pool,
                 lp_token: &output_token,
                 min_shares: payload.mint_min_shares,
-                pre_balance_fee_bps: payload.pre_balance_fee_bps,
+                pre_swap: venues::aquarius::PreSwap {
+                    from_a: payload.pre_swap_from_a,
+                    amount: payload.pre_swap_amount,
+                },
             },
             &mut tokens_cache,
         );

@@ -50,8 +50,6 @@ exclude_re = [
     "aquarius.rs:[0-9]+:19: replace > with >= in add_liquidity",
     "aquarius.rs:[0-9]+:18: replace < with == in add_liquidity",
     "aquarius.rs:[0-9]+:18: replace < with <= in add_liquidity",
-    "aquarius.rs:[0-9]+:28: replace > with >= in optimal_pre_swap",
-    "aquarius.rs:[0-9]+:17: replace > with >= in optimal_pre_swap",
     # Lived in aquarius.rs once; the entry was never re-scoped when it moved,
     # so it silently stopped matching. At proportional == RESIDUAL_DUST_FLOOR
     # both arms return the same value.
@@ -113,16 +111,6 @@ exclude_re = [
     # true for every account the grant loop sees; and for the owner both operands
     # are false. `&&` and `||` agree on every reachable input.
     "replace && with \\|\\| in apply_canceller_reset",
-
-    # `if high - low <= 1 { break }` is the binary search's early exit, with low
-    # starting at 0. Mutated to `high + low`, the loop stops breaking early and
-    # runs the full MAX_PRE_SWAP_ITERATIONS -- but once high - low reaches 1,
-    # `mid` equals `low` and neither bound moves again, so the converged result
-    # is identical. The mutant costs CPU budget without changing the answer, and
-    # the only test that could distinguish it would assert an instruction count,
-    # which is a change detector. Equivalent in output; noted here because the
-    # budget difference is real if the iteration cap is ever raised.
-    "aquarius.rs:[0-9]+:17: replace - with \\+ in optimal_pre_swap",
 
     # --- UNREVIEWED: possible test gaps, not shown equivalent -----------------
     # Each of these changes real branch or accounting behaviour and nobody has

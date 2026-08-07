@@ -37,7 +37,12 @@ pub struct StrategyPayload {
     pub mint_min_shares: i128,
     pub paths: Vec<SwapPath>,
 
-    pub pre_balance_fee_bps: u32,
+    /// Caller-computed pre-swap that balances a lopsided mint against the
+    /// pool's ratio. `pre_swap_amount <= 0` skips it. Solving for the optimal
+    /// amount is the router's job off-chain; the contract only executes it and
+    /// still enforces `mint_min_shares` and the residual allowance afterwards.
+    pub pre_swap_amount: i128,
+    pub pre_swap_from_a: bool,
     pub referral_id: u64,
     pub token_in: Address,
     pub token_out: Address,

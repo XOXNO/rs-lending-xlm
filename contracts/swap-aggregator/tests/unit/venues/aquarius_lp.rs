@@ -89,6 +89,7 @@ fn mint_lp_from_single_token_routes_half_and_deposits_both() {
         Some(pool.clone()),
         1,
         0,
+        false,
     );
 
     let shares = RouterClient::new(&env, &router_addr).execute_strategy(&sender, &1_000, &xdr);
@@ -138,7 +139,8 @@ fn mint_pre_balances_a_lopsided_input_rather_than_charging_for_it() {
         Vec::new(&env),
         Some(pool),
         1,
-        30,
+        300,
+        true,
     );
 
     let shares = RouterClient::new(&env, &router_addr).execute_strategy(&sender, &1_000, &xdr);
@@ -201,6 +203,7 @@ fn burn_lp_to_single_token_routes_both_constituents() {
         None,
         0,
         0,
+        false,
     );
 
     let out = RouterClient::new(&env, &router_addr).execute_strategy(&sender, &1_000, &xdr);
@@ -255,6 +258,7 @@ fn burn_honours_per_constituent_minimums() {
         None,
         0,
         0,
+        false,
     );
 
     assert!(RouterClient::new(&env, &router_addr)
@@ -300,6 +304,7 @@ fn mint_rejects_pool_that_does_not_issue_the_declared_share_token() {
         Some(pool),
         1,
         0,
+        false,
     );
 
     assert_eq!(
@@ -347,6 +352,7 @@ fn mint_enforces_min_shares() {
         Some(pool),
         10_000,
         0,
+        false,
     );
 
     assert!(RouterClient::new(&env, &router_addr)
@@ -391,6 +397,7 @@ fn swap_batch_must_still_route_its_whole_input() {
         None,
         0,
         0,
+        false,
     );
 
     assert_eq!(
@@ -448,6 +455,7 @@ fn mint_on_an_unbalanced_pool_settles_on_measured_deltas() {
         Some(pool),
         1,
         0,
+        false,
     );
 
     let shares = RouterClient::new(&env, &router_addr).execute_strategy(&sender, &3_000, &xdr);
@@ -489,6 +497,7 @@ fn mint_accepts_a_single_sided_deposit_with_no_paths() {
         Some(pool),
         1,
         0,
+        false,
     );
 
     let err = RouterClient::new(&env, &router_addr)
@@ -535,7 +544,11 @@ fn mint_pre_balances_even_a_wildly_skewed_input() {
         Vec::new(&env),
         Some(pool),
         1,
-        30,
+        // Off-chain optimum for 8B/2B against 100B/100B @ 30 bps (the LP
+        // pool's fee). A nearby wrong guess (e.g. 2_903_518_000) leaves
+        // residual above the allowance and reverts with ExcessiveResidual.
+        2_903_506_438,
+        true,
     );
 
     let shares =
@@ -595,6 +608,7 @@ fn burn_rejects_a_constituent_that_cannot_reach_the_output() {
         None,
         0,
         0,
+        false,
     );
 
     assert_eq!(
@@ -631,6 +645,7 @@ fn stable_pool_is_not_pre_balanced() {
         Some(pool.clone()),
         1,
         0,
+        false,
     );
 
     let shares = RouterClient::new(&env, &router_addr).execute_strategy(&sender, &1_000, &xdr);
@@ -669,6 +684,7 @@ fn mint_min_shares_boundary_is_inclusive() {
             Some(pool),
             min_shares,
             0,
+            false,
         );
         (router_addr, sender, xdr)
     };
@@ -736,6 +752,7 @@ fn burn_min_amounts_boundary_is_inclusive() {
             None,
             0,
             0,
+            false,
         );
         (router_addr, sender, shares, xdr)
     };
@@ -792,6 +809,7 @@ fn temp_budget_probe_mainnet_scale() {
         Some(pool.clone()),
         1,
         0,
+        false,
     );
 
     env.cost_estimate().budget().reset_unlimited();
@@ -875,6 +893,7 @@ fn burn_routes_every_constituent_through_its_own_path() {
         None,
         0,
         0,
+        false,
     );
 
     let out = RouterClient::new(&env, &router_addr).execute_strategy(&sender, &1_000, &xdr);
@@ -946,6 +965,7 @@ fn residual_exactly_at_the_allowance_is_accrued_not_rejected() {
         None,
         0,
         0,
+        false,
     );
 
     let router = RouterClient::new(&env, &router_addr);
