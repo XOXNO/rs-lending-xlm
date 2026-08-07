@@ -810,3 +810,86 @@ fn normalize_conserves_value_when_offer_exceeds_ideal() {
         );
     });
 }
+
+// --- scale_seizures_to_received ------------------------------------------
+//
+// Liquidation sizes collateral from the repayment value the plan *intended* to
+// collect. When a debt token delivers less than was sent, the seizure must
+// shrink to match, or the liquidator walks away with collateral they never
+// paid for.
+
+fn seize(asset: &Address, amount: i128, protocol_fee: i128) -> SeizeEntry {
+    SeizeEntry {
+        hub_asset: HubAssetKey {
+            hub_id: 1,
+            asset: asset.clone(),
+        },
+        amount,
+        protocol_fee,
+        feed: feed_raw(),
+        market_index: index_raw(),
+    }
+}
+
+#[test]
+fn scaling_is_exact_identity_when_every_token_delivered_in_full() {
+    let env = Env::default();
+    let asset = Address::generate(&env);
+    let seized = vec![&env, seize(&asset, 1_000, 70)];
+
+    let out = scale_seizures_to_received(&env, &seized, Wad::from(500), Wad::from(500));
+
+    // No rounding drift may creep in on the well-behaved path.
+    assert_eq!(out.get_unchecked(0).amount, 1_000);
+    assert_eq!(out.get_unchecked(0).protocol_fee, 70);
+}
+
+#[test]
+fn seizure_shrinks_in_proportion_to_value_actually_received() {
+    let env = Env::default();
+    let asset = Address::generate(&env);
+    let seized = vec![&env, seize(&asset, 1_000, 70)];
+
+    // Only 60% of the intended repayment value arrived.
+    let out = scale_seizures_to_received(&env, &seized, Wad::from(300), Wad::from(500));
+
+    assert_eq!(out.get_unchecked(0).amount, 600);
+    assert_eq!(out.get_unchecked(0).protocol_fee, 42);
+}
+
+#[test]
+fn scaling_rounds_down_so_the_residue_stays_with_the_liquidated_account() {
+    let env = Env::default();
+    let asset = Address::generate(&env);
+    // 7 * 1 / 3 == 2.333..; the liquidator must get 2, not 3.
+    let seized = vec![&env, seize(&asset, 7, 7)];
+
+    let out = scale_seizures_to_received(&env, &seized, Wad::from(1), Wad::from(3));
+
+    assert_eq!(out.get_unchecked(0).amount, 2);
+    assert_eq!(out.get_unchecked(0).protocol_fee, 2);
+}
+
+#[test]
+fn nothing_received_seizes_nothing() {
+    let env = Env::default();
+    let asset = Address::generate(&env);
+    let seized = vec![&env, seize(&asset, 1_000, 70)];
+
+    let out = scale_seizures_to_received(&env, &seized, Wad::ZERO, Wad::from(500));
+
+    assert_eq!(out.get_unchecked(0).amount, 0);
+    assert_eq!(out.get_unchecked(0).protocol_fee, 0);
+}
+
+#[test]
+fn a_token_delivering_more_than_planned_cannot_inflate_the_seizure() {
+    let env = Env::default();
+    let asset = Address::generate(&env);
+    let seized = vec![&env, seize(&asset, 1_000, 70)];
+
+    let out = scale_seizures_to_received(&env, &seized, Wad::from(900), Wad::from(500));
+
+    assert_eq!(out.get_unchecked(0).amount, 1_000);
+    assert_eq!(out.get_unchecked(0).protocol_fee, 70);
+}

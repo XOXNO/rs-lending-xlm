@@ -50,7 +50,8 @@ pub(crate) fn repay_debt_from_controller(
     let debt_pool_addr = cache.cached_pool_address();
     let debt_tok = token::Client::new(env, &req.debt.asset);
 
-    utils::transfer_amount(
+    // Measure pool receipt so strategy debt burn matches tokens that arrived.
+    let received = utils::transfer_amount_measured(
         env,
         &req.debt.asset,
         &env.current_contract_address(),
@@ -68,7 +69,7 @@ pub(crate) fn repay_debt_from_controller(
         RepaymentRequest {
             hub_asset: req.debt,
             position: req.debt_pos,
-            amount: req.debt_available,
+            amount: received,
         },
         cache,
     );

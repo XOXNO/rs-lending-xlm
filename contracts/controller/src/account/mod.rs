@@ -41,9 +41,7 @@ pub(crate) fn create_account(
 
 pub(crate) enum AccountGuard {
     Supply,
-
     Migrate,
-
     Multiply,
 }
 

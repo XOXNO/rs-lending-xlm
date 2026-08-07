@@ -213,6 +213,44 @@ fn sum_repaid_usd_ceil(env: &Env, repaid_tokens: &Vec<RepayEntry>) -> Wad {
     total
 }
 
+/// Shrink planned seizures to the repayment value that actually arrived.
+///
+/// [`calculate_seized_collateral`] sizes collateral from the repayment the plan
+/// intended to collect. A token that delivers less than was sent -- fee-on-
+/// transfer, or any other non-standard behaviour -- would otherwise hand the
+/// liquidator collateral they never paid for, because the debt book is credited
+/// with the measured receipt while the seizure still reflects the plan.
+///
+/// Scaling by `received / planned` keeps the two sides proportional. Rounding is
+/// floor, so any residue stays with the account being liquidated rather than the
+/// liquidator. When the full amount arrived the entries are returned untouched,
+/// so the well-behaved path carries no rounding drift, and an over-delivery
+/// cannot inflate the seizure beyond what the plan authorised.
+pub(crate) fn scale_seizures_to_received(
+    env: &Env,
+    seized: &Vec<SeizeEntry>,
+    received_usd: Wad,
+    planned_usd: Wad,
+) -> Vec<SeizeEntry> {
+    if planned_usd <= Wad::ZERO || received_usd >= planned_usd {
+        return seized.clone();
+    }
+
+    let num = received_usd.raw();
+    let den = planned_usd.raw();
+    let mut scaled: Vec<SeizeEntry> = Vec::new(env);
+    for entry in seized.iter() {
+        scaled.push_back(SeizeEntry {
+            amount: common::math::fp_core::mul_div_floor(env, entry.amount, num, den),
+            protocol_fee: common::math::fp_core::mul_div_floor(env, entry.protocol_fee, num, den),
+            hub_asset: entry.hub_asset,
+            feed: entry.feed,
+            market_index: entry.market_index,
+        });
+    }
+    scaled
+}
+
 pub(crate) fn calculate_seized_collateral(
     env: &Env,
     account: &Account,

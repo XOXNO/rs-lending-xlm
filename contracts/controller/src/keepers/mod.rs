@@ -48,7 +48,8 @@ pub(crate) fn recapitalize(
 
     let mut cache = Cache::new(env);
     let pool_addr = cache.cached_pool_address();
-    payments::transfer_amount(
+    // Credit only tokens actually received (mirrors supply/repay measurement).
+    let received = payments::transfer_amount_measured(
         env,
         &hub_asset.asset,
         &payer,
@@ -57,7 +58,7 @@ pub(crate) fn recapitalize(
         GenericError::AmountMustBePositive,
     );
 
-    pool_recapitalize_call(env, &pool_addr, &hub_asset, &payer, amount).actual_amount
+    pool_recapitalize_call(env, &pool_addr, &hub_asset, &payer, received).actual_amount
 }
 
 pub(crate) fn update_account_threshold(
