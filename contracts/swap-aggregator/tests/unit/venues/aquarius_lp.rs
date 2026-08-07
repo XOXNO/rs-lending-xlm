@@ -805,3 +805,155 @@ fn temp_budget_probe_mainnet_scale() {
         cpu
     );
 }
+
+/// A burn whose constituents both need routing must execute both paths.
+///
+/// `execute_paths` groups paths by `token_in` and processes each group once,
+/// skipping any path whose index is not the group's first
+/// (`i != first_index_for_token(..)`). Every other burn test routes a single
+/// path, because one constituent is already the output token -- so only one
+/// distinct `token_in` exists and `first_index_for_token` can only ever return
+/// 0. Burning into a third token forces two groups.
+///
+/// Break this catches: `first_index_for_token` returning a constant 0 (the
+/// surviving mutant in `.cargo/mutants.toml`). The second group's index would
+/// never equal 0, so that path would be skipped, its constituent stranded in
+/// the vault, and only half the position converted.
+#[test]
+fn burn_routes_every_constituent_through_its_own_path() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let router_addr = env.register(Router, (Address::generate(&env),));
+    let sender = Address::generate(&env);
+    let admin = Address::generate(&env);
+    let (pool, share, (token_a, sac_a), (token_b, sac_b)) = lp_pool(&env, &admin, 1_000_000);
+    let (token_c, sac_c) = new_asset(&env, &admin);
+
+    sac_a.mint(&sender, &1_000);
+    sac_b.mint(&sender, &1_000);
+    aquarius_lp_mock::AqLpPoolClient::new(&env, &pool).deposit(
+        &sender,
+        &vec![&env, 1_000u128, 1_000u128],
+        &0u128,
+    );
+
+    // Neither constituent is the output token, so both need their own hop.
+    let pool_ac = env.register(aquarius_mock::AqPool, ());
+    aquarius_mock::AqPoolClient::new(&env, &pool_ac).init(&token_a, &token_c);
+    sac_c.mint(&pool_ac, &1_000_000);
+    let pool_bc = env.register(aquarius_mock::AqPool, ());
+    aquarius_mock::AqPoolClient::new(&env, &pool_bc).init(&token_b, &token_c);
+    sac_c.mint(&pool_bc, &1_000_000);
+
+    let xdr = lp_strategy_xdr(
+        &env,
+        share.clone(),
+        token_c.clone(),
+        1,
+        vec![
+            &env,
+            one_hop_path(
+                &env,
+                SwapVenue::Aquarius,
+                pool_ac,
+                token_a.clone(),
+                token_c.clone(),
+                1_000_000,
+            ),
+            one_hop_path(
+                &env,
+                SwapVenue::Aquarius,
+                pool_bc,
+                token_b.clone(),
+                token_c.clone(),
+                1_000_000,
+            ),
+        ],
+        Some(pool),
+        vec![&env, 0i128, 0i128],
+        None,
+        0,
+        0,
+    );
+
+    let out = RouterClient::new(&env, &router_addr).execute_strategy(&sender, &1_000, &xdr);
+
+    // 1000 of each constituent, each swapped 1:1 -- not 1000 from one leg alone.
+    assert_eq!(out, 2_000);
+    assert_eq!(token::Client::new(&env, &token_c).balance(&sender), 2_000);
+    assert_eq!(token::Client::new(&env, &token_a).balance(&router_addr), 0);
+    assert_eq!(token::Client::new(&env, &token_b).balance(&router_addr), 0);
+}
+
+/// A constituent left behind at exactly the residual allowance is swept, not
+/// rejected.
+///
+/// `accrue_residual_as_revenue` reverts with `ExcessiveResidual` when a leftover
+/// vault balance is strictly above `residual_allowance(credited)`.
+/// `burn_rejects_a_constituent_that_cannot_reach_the_output` covers the
+/// comfortably-over case (100_000 against a 1_000 floor); nothing pinned the
+/// boundary itself, and the whole residual path had no other coverage.
+///
+/// Here token_b is deliberately unrouted and its 1_000 leftover sits exactly on
+/// RESIDUAL_DUST_FLOOR, so it must be accepted and accrued to admin fees.
+///
+/// Break this catches: that `>` becoming `>=` (the surviving mutant in
+/// `.cargo/mutants.toml`), which would reject a burn whose dust lands precisely
+/// on the allowance.
+#[test]
+fn residual_exactly_at_the_allowance_is_accrued_not_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let router_addr = env.register(Router, (Address::generate(&env),));
+    let sender = Address::generate(&env);
+    let admin = Address::generate(&env);
+    let (pool, share, (token_a, sac_a), (token_b, sac_b)) = lp_pool(&env, &admin, 1_000_000);
+    let (token_c, sac_c) = new_asset(&env, &admin);
+
+    sac_a.mint(&sender, &1_000);
+    sac_b.mint(&sender, &1_000);
+    aquarius_lp_mock::AqLpPoolClient::new(&env, &pool).deposit(
+        &sender,
+        &vec![&env, 1_000u128, 1_000u128],
+        &0u128,
+    );
+
+    // Only token_a is routed; token_b's 1_000 becomes residual.
+    let pool_ac = env.register(aquarius_mock::AqPool, ());
+    aquarius_mock::AqPoolClient::new(&env, &pool_ac).init(&token_a, &token_c);
+    sac_c.mint(&pool_ac, &1_000_000);
+
+    let xdr = lp_strategy_xdr(
+        &env,
+        share.clone(),
+        token_c.clone(),
+        1,
+        vec![
+            &env,
+            one_hop_path(
+                &env,
+                SwapVenue::Aquarius,
+                pool_ac,
+                token_a.clone(),
+                token_c.clone(),
+                1_000_000,
+            ),
+        ],
+        Some(pool),
+        vec![&env, 0i128, 0i128],
+        None,
+        0,
+        0,
+    );
+
+    let router = RouterClient::new(&env, &router_addr);
+    let out = router.execute_strategy(&sender, &1_000, &xdr);
+
+    assert_eq!(out, 1_000);
+    assert_eq!(token::Client::new(&env, &token_c).balance(&sender), 1_000);
+    // The stranded constituent is revenue, not a revert.
+    assert_eq!(router.admin_fee_balance(&token_b), 1_000);
+    assert_eq!(token::Client::new(&env, &token_b).balance(&sender), 0);
+}

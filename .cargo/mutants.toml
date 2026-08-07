@@ -89,28 +89,44 @@ exclude_re = [
     "replace authorize_token_approve with \\(\\)",
     "replace authorize_comet_swap with \\(\\)",
 
+    # --- OUT OF SCOPE: not in the deployed contract ---------------------------
+    # Both are `#[cfg(feature = "certora")]` helpers in price-aggregator's engine,
+    # used to drive two-leg *price blending* in formal verification. Nothing to do
+    # with the Blend lending protocol. They are not compiled into the shipped wasm
+    # and no ordinary test builds them, so no test can ever kill these.
+    "replace blend_empty -> Outcome with Default::default\\(\\)",
+    "replace blend_partial -> Outcome with Default::default\\(\\)",
+
+    # --- EQUIVALENT: guard is unreachable under the owner-holds-all invariant --
+    # `__constructor` grants all five operational roles to the owner and
+    # `sync_owner_access_control` migrates them on transfer, while
+    # `apply_revoke_role` refuses to act on the owner at all. So the owner holds
+    # every role permanently, and any role a non-owner holds has member count >= 2.
+    # The `count > 1` last-proposer guard therefore never fails -- with `==` or
+    # with `!=`. CannotRemoveLastProposer (error 48) is unreachable today; if the
+    # owner ever stops being auto-granted every role, this becomes killable and
+    # should move back to UNREVIEWED.
+    "replace == with != in apply_revoke_role",
+
+    # The `while` loop directly above the grant loop revokes CANCELLER from every
+    # non-owner holder first, so `has_role(account, role).is_none()` is already
+    # true for every account the grant loop sees; and for the owner both operands
+    # are false. `&&` and `||` agree on every reachable input.
+    "replace && with \\|\\| in apply_canceller_reset",
+
+    # `if high - low <= 1 { break }` is the binary search's early exit, with low
+    # starting at 0. Mutated to `high + low`, the loop stops breaking early and
+    # runs the full MAX_PRE_SWAP_ITERATIONS -- but once high - low reaches 1,
+    # `mid` equals `low` and neither bound moves again, so the converged result
+    # is identical. The mutant costs CPU budget without changing the answer, and
+    # the only test that could distinguish it would assert an instruction count,
+    # which is a change detector. Equivalent in output; noted here because the
+    # budget difference is real if the iteration cap is ever raised.
+    "aquarius.rs:[0-9]+:17: replace - with \\+ in optimal_pre_swap",
+
     # --- UNREVIEWED: possible test gaps, not shown equivalent -----------------
     # Each of these changes real branch or accounting behaviour and nobody has
     # demonstrated the mutated program is observably identical. Treat as open
     # work: either write the test that kills it, or move it up with a note
     # saying what makes it equivalent.
-    "replace blend_empty -> Outcome with Default::default\\(\\)",
-    "replace blend_partial -> Outcome with Default::default\\(\\)",
-    "replace >= with > in max_borrow",
-    "replace >= with == in max_borrow",
-    "replace && with \\|\\| in apply_canceller_reset",
-    "replace == with != in apply_revoke_role",
-    # Unlike the venue `swap` deltas above, `optimal_pre_swap`'s result is
-    # consumed, so the dead-return-value argument does not apply here.
-    "aquarius.rs:[0-9]+:17: replace - with \\+ in optimal_pre_swap",
-    # Surfaced by the first full `make mutants-swap-aggregator` run.
-    # `accrue_residual_as_revenue` rejects a residual strictly above the
-    # allowance; nothing pins equality, and in fact no test in the suite
-    # exercises the residual path at all -- grep finds no reference to
-    # ExcessiveResidual. Worth a boundary test plus coverage of the path.
-    "lib.rs:[0-9]+:19: replace > with >= in accrue_residual_as_revenue",
-    # Returning 0 unconditionally is only observable for a payload whose paths
-    # carry more than one distinct token_in, which may be unreachable for
-    # non-burn routes. Reachability not established either way.
-    "replace first_index_for_token -> u32 with 0",
 ]
