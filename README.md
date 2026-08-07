@@ -17,31 +17,26 @@ fail-closed reads. GUARDIAN can pause immediately; **unpause is timelocked**.
 
 ## Documentation
 
-Start at **[docs/README.md](./docs/README.md)** (Diátaxis map).
-
 | Document | Audience |
 |----------|----------|
-| [Tutorial: build and test](./docs/tutorials/01-build-and-test.md) | New contributors |
-| [Deploy and operate](./docs/how-to/deploy-and-operate.md) | Operators |
-| [Architecture](./docs/reference/architecture.md) | Engineers / auditors |
-| [Invariants](./docs/reference/invariants.md) | Anyone changing accounting, risk, oracle, or auth |
-| [ADRs](./docs/explanation/decisions/README.md) | Design trade-offs |
-| [Threat model](./docs/explanation/threat-model.md) | Security review |
+| [docs/README.md](./docs/README.md) | Docs map |
+| [Formulas](./docs/reference/formulas.md) | Risk, HF, liquidation math (code-matched) |
 | [CONTRIBUTING.md](./CONTRIBUTING.md) | Contributors |
-| [Doc style](./docs/reference/doc-style.md) | Rustdoc / public ABI comments |
 | [skills/](./skills/README.md) | Integrator agent recipes |
 | [certora/](./certora/README.md) | Formal verification |
 | [SECURITY.md](./SECURITY.md) | Vulnerability disclosure |
+| Contract READMEs under `contracts/*/` | Per-crate entrypoints and layout |
 
-Root redirects: [DEPLOYMENT.md](./DEPLOYMENT.md),
-[SCF_BUILD_ARCHITECTURE.md](./SCF_BUILD_ARCHITECTURE.md),
-[STRIDE.md](./STRIDE.md).
+Protocol behavior is defined by the contracts, interfaces, and tests. Start
+with [skills/lending-protocol-fundamentals](./skills/lending-protocol-fundamentals/SKILL.md)
+for the shared model (hubs, spokes, units, HF, pause matrix), and
+[docs/reference/formulas.md](./docs/reference/formulas.md) for equations.
 
 ## Security
 
 | Layer | In this repo |
 |-------|----------------|
-| **Design** | [Invariants](./docs/reference/invariants.md), [ADRs](./docs/explanation/decisions/README.md), [threat model](./docs/explanation/threat-model.md) |
+| **Design** | [Formulas](./docs/reference/formulas.md), contract rustdoc, skills fundamentals |
 | **Testing** | Crate tests, Soroban harness (`make test`), live testnet scripts, fuzz |
 | **Formal** | [Certora](./certora/README.md) |
 | **Static** | Clippy, Scout, CI |
@@ -64,7 +59,7 @@ mock/               Test-only contracts (oracles, flash-loan receiver)
 common/             Shared math, types, errors
 interfaces/         Client ABIs
 configs/            Network and market deploy inputs (`networks.json`)
-docs/               Tutorials, how-tos, reference, explanation
+docs/               Formula reference and docs map
 tests/              Harness, fuzz, live scenarios
 services/           Keeper (TTL), metrics exporter
 certora/            Formal verification
@@ -93,7 +88,7 @@ make help
 | Crate tests | `cargo test --workspace` |
 | Integration harness | `make test` |
 | Lint / format | `make clippy`, `make fmt` |
-| Deploy / ops | `make testnet setup` — [deploy guide](./docs/how-to/deploy-and-operate.md) |
+| Deploy / ops | `make testnet setup` — see `make help` (topics: `help-deploy`, `help-ops`) and `configs/` |
 
 Keeper and exporter are separate Cargo workspaces under `services/`.
 
@@ -105,5 +100,6 @@ agreement with XOXNO.
 ## Contributing
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md). Protocol changes must preserve
-[invariants](./docs/reference/invariants.md) and ship verification that matches
+on-chain invariants (accounting, risk, oracle, auth)—see
+[formulas](./docs/reference/formulas.md)—and ship verification that matches
 the risk of the change.

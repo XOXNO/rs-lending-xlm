@@ -57,7 +57,8 @@ pub(crate) fn strategy_xdr_with_referral(
         mint_pool: None,
         mint_min_shares: 0,
         paths,
-        pre_balance_fee_bps: 0,
+        pre_swap_amount: 0,
+        pre_swap_from_a: false,
         referral_id,
         token_in,
         token_out,
@@ -66,7 +67,6 @@ pub(crate) fn strategy_xdr_with_referral(
     .to_xdr(env)
 }
 
-/// Payload with an LP burn leg, a mint leg, or both.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn lp_strategy_xdr(
     env: &Env,
@@ -78,7 +78,8 @@ pub(crate) fn lp_strategy_xdr(
     burn_min_amounts: Vec<i128>,
     mint_pool: Option<Address>,
     mint_min_shares: i128,
-    pre_balance_fee_bps: u32,
+    pre_swap_amount: i128,
+    pre_swap_from_a: bool,
 ) -> soroban_sdk::Bytes {
     StrategyPayload {
         burn_pool,
@@ -86,7 +87,8 @@ pub(crate) fn lp_strategy_xdr(
         mint_pool,
         mint_min_shares,
         paths,
-        pre_balance_fee_bps,
+        pre_swap_amount,
+        pre_swap_from_a,
         referral_id: 0,
         token_in,
         token_out,

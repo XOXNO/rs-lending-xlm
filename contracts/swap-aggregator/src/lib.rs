@@ -10,7 +10,9 @@ mod venues;
 #[path = "../tests/unit/mod.rs"]
 mod test;
 
-use common::constants::{TTL_BUMP_SHARED, TTL_THRESHOLD_SHARED};
+use common::constants::{
+    TTL_BUMP_INSTANCE, TTL_BUMP_SHARED, TTL_THRESHOLD_INSTANCE, TTL_THRESHOLD_SHARED,
+};
 
 use soroban_sdk::{
     contract, contractimpl, panic_with_error, token, xdr::FromXdr, Address, Bytes, BytesN, Env,
@@ -24,23 +26,18 @@ use crate::errors::Error;
 use crate::types::{DataKey, ReferralConfig, StrategyPayload, SwapPath};
 use crate::vault::Vault;
 
+fn renew_instance(env: &Env) {
+    env.storage()
+        .instance()
+        .extend_ttl(TTL_THRESHOLD_INSTANCE, TTL_BUMP_INSTANCE);
+}
+
 const PPM_DENOMINATOR: i128 = 1_000_000;
 
-/// Absolute dust allowance per token, in atomic units — 0.0001 of a 7-decimal
-/// Stellar asset.
 const RESIDUAL_DUST_FLOOR: i128 = 1_000;
 
-/// Relative dust allowance: one part per million of what the vault ever held of
-/// that token.
 const RESIDUAL_PPM: i128 = 1_000_000;
 
-/// Dust a route may leave behind for one token: one part per million of
-/// everything the vault ever held of it, never below an absolute floor so small
-/// trades are not held to an impossible standard.
-///
-/// This is the single definition of "how much may become revenue". It is
-/// enforced once, on the vault, after every leg has run — a per-leg copy would
-/// only duplicate a rule the vault-wide check already sees.
 pub(crate) fn residual_allowance(credited: i128) -> i128 {
     let proportional = credited / RESIDUAL_PPM;
     if proportional > RESIDUAL_DUST_FLOOR {
@@ -62,10 +59,12 @@ impl Router {
         let storage = env.storage().instance();
         storage.set(&DataKey::StaticFeeBps, &0u32);
         storage.set(&DataKey::ReferralCounter, &0u64);
+        renew_instance(&env);
     }
 
     #[only_owner]
     pub fn set_static_fee(env: Env, fee_bps: u32) {
+        renew_instance(&env);
         if fee_bps > FEE_CAP {
             panic_with_error!(&env, Error::FeeTooHigh);
         }
@@ -76,6 +75,7 @@ impl Router {
 
     #[only_owner]
     pub fn add_to_whitelist(env: Env, token: Address) {
+        renew_instance(&env);
         let mut list = load_whitelist(&env);
         if !list.contains(&token) {
             list.push_back(token);
@@ -87,6 +87,7 @@ impl Router {
 
     #[only_owner]
     pub fn remove_from_whitelist(env: Env, token: Address) {
+        renew_instance(&env);
         let mut list = load_whitelist(&env);
         if let Some(idx) = list.first_index_of(&token) {
             list.remove(idx);
@@ -98,11 +99,13 @@ impl Router {
 
     #[only_owner]
     pub fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
+        renew_instance(&env);
         stellar_contract_utils::upgradeable::upgrade(&env, &new_wasm_hash);
     }
 
     #[only_owner]
     pub fn add_referral(env: Env, owner: Address, fee_bps: u32) -> u64 {
+        renew_instance(&env);
         if fee_bps > FEE_CAP {
             panic_with_error!(&env, Error::FeeTooHigh);
         }
@@ -125,6 +128,7 @@ impl Router {
 
     #[only_owner]
     pub fn set_referral_fee(env: Env, id: u64, fee_bps: u32) {
+        renew_instance(&env);
         if fee_bps > FEE_CAP {
             panic_with_error!(&env, Error::FeeTooHigh);
         }
@@ -135,6 +139,7 @@ impl Router {
 
     #[only_owner]
     pub fn set_referral_active(env: Env, id: u64, active: bool) {
+        renew_instance(&env);
         let mut cfg = load_referral(&env, id);
         cfg.active = active;
         env.storage().persistent().set(&DataKey::Referral(id), &cfg);
@@ -142,6 +147,7 @@ impl Router {
 
     #[only_owner]
     pub fn set_referral_owner(env: Env, id: u64, new_owner: Address) {
+        renew_instance(&env);
         let mut cfg = load_referral(&env, id);
         cfg.owner = new_owner;
         env.storage().persistent().set(&DataKey::Referral(id), &cfg);
@@ -149,11 +155,13 @@ impl Router {
 
     #[only_owner]
     pub fn claim_admin_fees(env: Env, recipient: Address, tokens: Vec<Address>) {
+        renew_instance(&env);
         let router = env.current_contract_address();
         claim_fee_bucket(&env, &router, &recipient, tokens, FeeBucket::Admin);
     }
 
     pub fn claim_referral_fees(env: Env, id: u64, tokens: Vec<Address>) {
+        renew_instance(&env);
         let cfg = load_referral(&env, id);
         let router = env.current_contract_address();
         claim_fee_bucket(&env, &router, &cfg.owner, tokens, FeeBucket::Referral(id));
@@ -161,6 +169,7 @@ impl Router {
 
     #[only_owner]
     pub fn sweep_balance(env: Env, recipient: Address, tokens: Vec<Address>) {
+        renew_instance(&env);
         let router = env.current_contract_address();
         let n = tokens.len();
         for i in 0..n {
@@ -236,6 +245,7 @@ impl Router {
     }
 
     pub fn execute_strategy(env: Env, sender: Address, total_in: i128, swap_xdr: Bytes) -> i128 {
+        renew_instance(&env);
         let payload = StrategyPayload::from_xdr(&env, &swap_xdr)
             .unwrap_or_else(|_| panic_with_error!(&env, Error::InvalidRouteXdr));
         execute_payload(env, sender, total_in, payload)
@@ -314,9 +324,7 @@ fn apply_fees_on_token(env: &Env, vault: &mut Vault, token: &Address, referral_i
     if combined_bps == 0 {
         return;
     }
-    // `FEE_CAP` is enforced on each fee as it is set, but the two stack at
-    // charge time — without this the ceiling is really twice what setting a fee
-    // appears to allow.
+
     if combined_bps > FEE_CAP {
         panic_with_error!(env, Error::FeeTooHigh);
     }
@@ -441,7 +449,7 @@ fn execute_payload(env: Env, sender: Address, total_in: i128, payload: StrategyP
 
     let router = env.current_contract_address();
     let mut vault = Vault::new(&env);
-    // One transaction-scoped read of each pool's constituents; see `pool_tokens`.
+
     let mut tokens_cache: Map<Address, Vec<Address>> = Map::new(&env);
 
     token::Client::new(&env, &input_token).transfer(&sender, &router, &total_in);
@@ -480,10 +488,15 @@ fn execute_payload(env: Env, sender: Address, total_in: i128, payload: StrategyP
             &env,
             &router,
             &mut vault,
-            pool,
-            &output_token,
-            payload.mint_min_shares,
-            payload.pre_balance_fee_bps,
+            venues::aquarius::MintLiquidity {
+                pool,
+                lp_token: &output_token,
+                min_shares: payload.mint_min_shares,
+                pre_swap: venues::aquarius::PreSwap {
+                    from_a: payload.pre_swap_from_a,
+                    amount: payload.pre_swap_amount,
+                },
+            },
             &mut tokens_cache,
         );
     }
@@ -505,9 +518,6 @@ fn execute_payload(env: Env, sender: Address, total_in: i128, payload: StrategyP
     total_out
 }
 
-/// Runs every path, grouped by the token it starts from. Each group splits the
-/// balance available for that token when the group starts, so a burn leg's
-/// released constituents each get their own independent set of splits.
 fn execute_paths(
     env: &Env,
     router: &Address,
@@ -534,9 +544,7 @@ fn execute_paths(
                 last = j;
             }
         }
-        // Only a group that routes its whole balance hands the remainder to its
-        // final path; a partial group takes exactly its declared share and
-        // leaves the rest for the mint leg.
+
         let routes_everything = group_split_ppm(env, paths, &token) == PPM_DENOMINATOR as u32;
         for j in i..n {
             if path_token_in(env, paths, j) != token {
@@ -561,18 +569,6 @@ fn execute_paths(
     }
 }
 
-/// Books whatever the route did not convert — a mint leg's declined remainder,
-/// or a burned constituent no path picked up — as protocol revenue.
-///
-/// Paying it back was worse on every axis: the tokens already sit in the router,
-/// so a refund is a transfer that costs a cross-contract call and, for a classic
-/// asset, reverts the whole route when the sender holds no trustline for it.
-/// Accruing is a pure ledger write into the same admin bucket `sweep_balance`
-/// already treats as reserved.
-///
-/// This shifts the cost of a badly-allocated route onto the user, so the
-/// off-chain planner must not emit routes that strand a meaningful share of the
-/// input.
 fn accrue_residual_as_revenue(env: &Env, vault: &mut Vault) {
     let tokens = vault.tokens();
     let n = tokens.len();
@@ -582,12 +578,7 @@ fn accrue_residual_as_revenue(env: &Env, vault: &mut Vault) {
         if amount <= 0 {
             continue;
         }
-        // A residual is revenue taken from the sender, so it may only ever be
-        // rounding dust. Anything larger means the route failed to convert
-        // something it promised to — most often a burned constituent no path
-        // could reach — and charging the sender for that silently is worse than
-        // refusing the trade. Measured against what the vault ever held of this
-        // token, so the bar scales with the trade instead of punishing large ones.
+
         if amount > residual_allowance(vault.credited_of(&token)) {
             panic_with_error!(env, Error::ExcessiveResidual);
         }
@@ -634,29 +625,12 @@ fn execute_path(
     }
 }
 
-/// Checks the batch is executable before any funds move.
-///
-/// Without a mint leg every path must still terminate at `token_out`, and
-/// without a burn leg every path must still start from `token_in` — so a plain
-/// swap batch is constrained exactly as it was. LP legs relax only what they
-/// have to: a burn fans `token_in` out into constituents the batch starts from,
-/// and a mint funnels several terminal tokens into `token_out`. The tokens an LP
-/// leg introduces are not enumerable here (they are read from the pool at
-/// execution), so those ends are left to the vault, which cannot overdraw, and
-/// to `total_min_out`.
 fn validate_payload(env: &Env, payload: &StrategyPayload) {
     let paths = &payload.paths;
     let n = paths.len();
-    if n == 0 {
-        // A batch with no routing is legitimate whenever a liquidity leg is the
-        // whole operation: a single-sided deposit of a token the pool already
-        // holds (the optimal shape for a stable pool, where balancing costs
-        // more in swap fees than the imbalance fee it avoids), a burn whose
-        // constituents are already the requested output, or an LP-to-LP move
-        // between pools that share constituents.
-        if payload.burn_pool.is_none() && payload.mint_pool.is_none() {
-            panic_with_error!(env, Error::EmptyBatch);
-        }
+    // A pure burn or pure mint carries no paths; anything else with no path is empty.
+    if n == 0 && payload.burn_pool.is_none() && payload.mint_pool.is_none() {
+        panic_with_error!(env, Error::EmptyBatch);
     }
 
     for i in 0..n {
@@ -678,8 +652,6 @@ fn validate_payload(env: &Env, payload: &StrategyPayload) {
             panic_with_error!(env, Error::BrokenTokenChain);
         }
 
-        // Each starting token splits its own balance, so sum the group once, at
-        // the position that group is first seen.
         if i != first_index_for_token(env, paths, &path_in) {
             continue;
         }
@@ -687,10 +659,7 @@ fn validate_payload(env: &Env, payload: &StrategyPayload) {
         if sum_ppm > PPM_DENOMINATOR as u32 {
             panic_with_error!(env, Error::SplitPpmMismatch);
         }
-        // A mint leg deposits whatever routing leaves behind, so a group may
-        // deliberately route only part of its balance — that is how one input
-        // token is halved into two LP constituents. Everything else must still
-        // consume its input completely.
+
         if payload.mint_pool.is_none() && sum_ppm != PPM_DENOMINATOR as u32 {
             panic_with_error!(env, Error::SplitPpmMismatch);
         }
@@ -711,7 +680,6 @@ fn path_token_in(env: &Env, paths: &Vec<SwapPath>, index: u32) -> Address {
         .token_in
 }
 
-/// Total split of every path starting from `token`.
 fn group_split_ppm(env: &Env, paths: &Vec<SwapPath>, token: &Address) -> u32 {
     let n = paths.len();
     let mut sum_ppm: u32 = 0;

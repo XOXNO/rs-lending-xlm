@@ -14,10 +14,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 MANIFEST = ROOT / "certora" / "profiles.json"
 
-
 def load_profiles() -> dict[str, list[dict[str, object]]]:
     return json.loads(MANIFEST.read_text())["profiles"]
-
 
 def expand_profile(
     profiles: dict[str, list[dict[str, object]]],
@@ -40,7 +38,6 @@ def expand_profile(
             commands.append(item)
     return commands
 
-
 def command_line(
     item: dict[str, object], extra_args: list[str], *, local: bool
 ) -> tuple[Path, list[str]]:
@@ -51,12 +48,10 @@ def command_line(
         return ROOT, [str(runner), str(conf_path), *args, *extra_args]
     return conf_path.parent, ["certoraSorobanProver", conf_path.name, *args, *extra_args]
 
-
 def _strip_flag(extra: list[str], flag: str) -> tuple[list[str], bool]:
     if flag not in extra:
         return extra, False
     return [a for a in extra if a != flag], True
-
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -116,7 +111,6 @@ def main() -> int:
         if result.returncode != 0:
             return result.returncode
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

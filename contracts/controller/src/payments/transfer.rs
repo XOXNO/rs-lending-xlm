@@ -3,19 +3,11 @@ use soroban_sdk::{assert_with_error, panic_with_error, token, Address, Env};
 
 use crate::external::sac::sac_transfer_call;
 
-pub(crate) fn transfer_amount(
-    env: &Env,
-    asset: &Address,
-    from: &Address,
-    to: &Address,
-    amount: i128,
-    non_positive_error: GenericError,
-) -> i128 {
-    assert_with_error!(env, amount > 0, non_positive_error);
-    sac_transfer_call(env, asset, from, to, &amount);
-    amount
-}
-
+/// Transfer and credit only what actually arrived.
+///
+/// Returns the recipient's balance delta rather than the requested amount, so a
+/// fee-on-transfer or otherwise non-standard token cannot cause the protocol to
+/// credit more than it received.
 pub(crate) fn transfer_amount_measured(
     env: &Env,
     asset: &Address,

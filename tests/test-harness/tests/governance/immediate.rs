@@ -166,7 +166,10 @@ fn sanity_band_not_containing_price_fails_closed_at_read() {
 
         let read = t
             .price_agg_client()
-            .try_price(&controller::types::PriceKey::Token(usdc.clone()))
+            .try_prices(&soroban_sdk::vec![
+                &t.env,
+                controller::types::PriceKey::Token(usdc.clone())
+            ])
             .map(|inner| inner.map(|_| ()).map_err(|e| e.into()))
             .unwrap_or_else(|e| Err(e.expect("expected contract error")));
         assert_contract_error(read, errors::SANITY_BOUND_VIOLATED);

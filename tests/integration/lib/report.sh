@@ -1,11 +1,3 @@
-
-
-
-
-
-
-
-
 write_report() {
     local report="$RUN_DIR/report.md"
     {

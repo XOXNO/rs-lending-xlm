@@ -58,6 +58,22 @@ Per hub-asset (market labels include `hub_id` / `hub`):
 - per listing: paused/frozen/collateral/borrow, LTV/threshold/bonus/fees, caps, usage, cap util
 - per spoke: deprecation (on asset series), liquidation target HF, HF for max bonus, bonus factor bps
 
+A cap is **always** an enforced ceiling in asset units — there is no "unlimited"
+sentinel. `0` means that side accepts nothing: the market is **closed**. Because
+caps are orthogonal to the `can_be_collateral` / `can_be_borrowed` flags by
+design, `cap = 0` on a side that is still flagged enabled is a legitimate soft
+wind-down, and nothing else on the board distinguishes it from a live listing:
+
+| Metric | Meaning |
+|---|---|
+| `lending_spoke_supply_closed` | 1 when `supply_cap = 0` (no new supply accepted) |
+| `lending_spoke_borrow_closed` | 1 when `borrow_cap = 0` (no new borrows accepted) |
+
+Cap utilization is 0/0 while closed and so is **not published** — read the gauge
+above, not the gap, or a closed market is indistinguishable from a failed scrape.
+`LendingSpoke{Supply,Borrow}Closed*` in `ops/alerts.yml` fires on the closed-but-
+enabled combination.
+
 ### Protocol + exporter health
 
 - TVL / borrowed / liquidity / revenue aggregates, market/spoke counts, min borrow collateral

@@ -32,18 +32,36 @@ fn get_account_attributes(account_id: u64) -> AccountAttributes; // mode + spoke
 fn account_exists(account_id: u64) -> bool;
 ```
 
-## Action-sizing views
+## Action sizing
 
-Use these instead of re-deriving limits; all return `0` while paused:
+There are **no** `max_supply` / `max_borrow` / `max_withdraw` views — they
+were removed from the controller. Size actions yourself from the config and
+usage views below.
 
 ```rust
-// pool cash, max-utilization, borrow cap, LTV/HF gates:
-fn max_borrow(account_id: u64, hub_asset: HubAssetKey) -> i128;
-// position, pool cash, max-utilization cap, LTV/HF gates, dust floor:
-fn max_withdraw(account_id: u64, hub_asset: HubAssetKey) -> i128;
-// supply-cap headroom ONLY; i128::MAX when uncapped:
-fn max_supply(account_id: u64, hub_asset: HubAssetKey) -> i128;
+fn get_spoke_usage(spoke_id: u32, hub_asset: HubAssetKey) -> SpokeUsageRaw;
 ```
+
+`SpokeUsageRaw`: `supplied_scaled_ray`, `borrowed_scaled_ray` — RAY-scaled
+shares, not underlying. The controller compares them against the cap rescaled
+the same way, so compare in that domain:
+
+```text
+cap_scaled = floor(rescale(cap, asset_decimals -> 27) / index)  // supply or borrow index
+headroom   = cap_scaled - usage_scaled                          // entry reverts if it would go negative
+```
+
+`supply_cap` / `borrow_cap` are **always-enforced** ceilings in asset units.
+There is no unlimited sentinel: `0` means the market accepts nothing on that
+side, and `i128::MAX` is rejected at config time (`InvalidBorrowParams`, #116)
+— the only ceiling is the per-asset domain limit `i128::MAX / 10^(27 -
+asset_decimals)`. Breaches trap with `SpokeSupplyCapReached` (#311) /
+`SpokeBorrowCapReached` (#312).
+
+Exits — withdraw, repay, bad-debt cleanup — are **uncapped**, so a closed
+market still lets existing positions unwind. Caps are orthogonal to
+`is_collateralizable` / `is_borrowable`: a `borrow_cap` of `0` on an otherwise
+enabled side is a deliberate soft wind-down, not a misconfiguration.
 
 ## Market and config views (controller)
 
@@ -107,5 +125,8 @@ underlying = rescale(scaled * index / RAY, 27 -> asset_decimals)  // half-up
 - **Reading rates from the controller** — they live on the pool.
 - **Polling per-asset indexes N times** — use `get_bulk_indexes` /
   `get_market_indexes_detailed`.
-- **Conflating `i128::MAX` meanings** — from `get_health_factor`: no
-  effective debt; from `max_supply`: uncapped.
+- **Reading a cap of `0` as "unlimited"** — `0` is a literal ceiling: that
+  side of the market accepts nothing. Headroom is `cap - usage`, never
+  infinite.
+- **Comparing a cap against underlying** — caps are asset units, usage is
+  RAY-scaled shares; rescale and divide by the index before subtracting.

@@ -78,5 +78,5 @@ Property-based fuzz properties: [`tests/fuzz/README.md`](tests/fuzz/README.md).
 
 | Path | Role |
 |------|------|
-| `tests/fuzz/` | libFuzzer targets (math + protocol byte-mutation campaigns; cross-checks INVARIANTS/ADRs) |
-| `certora/` | Formal verification specs (protects properties in `docs/reference/invariants.md`; see `certora/README.md` + architecture §14) |
+| `tests/fuzz/` | libFuzzer targets (math + protocol byte-mutation campaigns) |
+| `certora/` | Formal verification specs (see `certora/README.md`) |

@@ -1,4 +1,3 @@
-
 pub const RAY_F64: f64 = 1e27;
 pub const WAD_F64: f64 = 1e18;
 pub const BPS_F64: f64 = 1e4;
@@ -48,15 +47,35 @@ pub fn seconds_until_stale(now_secs: i64, feed_ts_secs: u64, max_stale_secs: u64
     max_stale_secs as f64 - age as f64
 }
 
-pub fn cap_utilization(usage_token: f64, cap_base_units: i128, decimals: u32) -> Option<f64> {
+pub fn effective_cap_tokens(cap_base_units: i128, decimals: u32) -> Option<f64> {
     if cap_base_units <= 0 {
         return None;
     }
     let cap = token_to_f64(cap_base_units, decimals);
-    if cap == 0.0 {
+    if cap == 0.0 || !cap.is_finite() {
         return None;
     }
-    Some(usage_token / cap)
+    Some(cap)
+}
+
+pub fn cap_utilization(usage_token: f64, cap_base_units: i128, decimals: u32) -> Option<f64> {
+    effective_cap_tokens(cap_base_units, decimals).map(|cap| usage_token / cap)
+}
+
+pub fn market_closed(cap_base_units: i128) -> f64 {
+    if cap_base_units <= 0 {
+        1.0
+    } else {
+        0.0
+    }
+}
+
+pub fn market_closed_at(cap_base_units: i128, decimals: u32) -> f64 {
+    if effective_cap_tokens(cap_base_units, decimals).is_none() {
+        1.0
+    } else {
+        0.0
+    }
 }
 
 #[cfg(test)]
@@ -103,9 +122,58 @@ mod tests {
     }
 
     #[test]
-    fn cap_utilization_guards_uncapped() {
+    fn cap_utilization_is_undefined_for_a_closed_market() {
+
         assert_eq!(cap_utilization(5.0, 0, 7), None);
+        assert_eq!(cap_utilization(0.0, 0, 7), None);
         assert_eq!(cap_utilization(5.0, 100_000_000, 7), Some(0.5));
+    }
+
+    #[test]
+    fn cap_utilization_reports_a_saturated_open_market() {
+        assert_eq!(cap_utilization(10.0, 100_000_000, 7), Some(1.0));
+        assert_eq!(cap_utilization(1e-7, 1, 7), Some(1.0));
+    }
+
+    #[test]
+    fn market_closed_flags_only_a_zero_cap() {
+        assert_eq!(market_closed(0), 1.0);
+        assert_eq!(market_closed(1), 0.0);
+        assert_eq!(market_closed(i128::MAX), 0.0);
+    }
+
+    #[test]
+    fn market_closed_treats_a_negative_cap_as_closed() {
+        assert_eq!(market_closed(-1), 1.0);
+        assert_eq!(market_closed(i128::MIN), 1.0);
+    }
+
+    #[test]
+    fn closed_market_is_exactly_the_case_cap_utilization_drops() {
+
+        for dec in 3..=18u32 {
+            for cap in [i128::MIN, -1, 0, 1, 100_000_000, i128::MAX] {
+                let closed = market_closed_at(cap, dec) == 1.0;
+                assert_eq!(
+                    closed,
+                    cap_utilization(5.0, cap, dec).is_none(),
+                    "cap={cap} dec={dec}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn market_closed_agrees_with_market_closed_at_across_listable_decimals() {
+        for dec in 3..=18u32 {
+            for cap in [i128::MIN, -1, 0, 1, 100_000_000, i128::MAX] {
+                assert_eq!(
+                    market_closed(cap),
+                    market_closed_at(cap, dec),
+                    "cap={cap} dec={dec}"
+                );
+            }
+        }
     }
 
     #[test]

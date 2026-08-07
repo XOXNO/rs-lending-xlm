@@ -1,7 +1,8 @@
+use common::constants::RAY;
 use common::errors::{GenericError, SpokeError};
 use common::math::fp::Ray;
+use common::math::fp_core;
 use common::types::{HubAssetKey, MarketIndexRaw, SpokeAssetConfig, SpokeUsageRaw};
-use common::validation::cap_is_enabled;
 use soroban_sdk::{assert_with_error, panic_with_error, Env, Map};
 
 use crate::storage;
@@ -49,6 +50,18 @@ impl UsageSide {
     }
 }
 
+/// Policy for a spoke usage row that is neither cached nor stored.
+///
+/// - `InsertDefault`: entry path. Treat missing storage as zero usage and
+///   cache that synthetic row so subsequent updates in the same context see it.
+/// - `Absent`: exit path. Leave missing storage missing and do not cache a
+///   synthetic zero row (exit becomes a no-op when no usage exists).
+#[derive(Clone, Copy)]
+enum MissingUsage {
+    InsertDefault,
+    Absent,
+}
+
 pub(crate) struct SpokeUsageContext {
     spoke_id: u32,
     usage: Map<HubAssetKey, SpokeUsageRaw>,
@@ -72,26 +85,33 @@ impl SpokeUsageContext {
         self.spoke_id
     }
 
-    fn usage_row(&mut self, env: &Env, hub_asset: &HubAssetKey) -> SpokeUsageRaw {
-        if let Some(usage) = self.usage.get(hub_asset.clone()) {
-            return usage;
-        }
-        let loaded = storage::get_spoke_usage(env, self.spoke_id, hub_asset).unwrap_or_default();
-        self.usage.set(hub_asset.clone(), loaded.clone());
-        loaded
-    }
-
-    fn usage_row_if_present(
+    /// Shared cache/storage loader for spoke usage rows.
+    ///
+    /// Always prefers the in-memory map. On a storage miss, `missing`
+    /// selects between entry default-insert and exit no-insert.
+    fn load_usage_row(
         &mut self,
         env: &Env,
         hub_asset: &HubAssetKey,
+        missing: MissingUsage,
     ) -> Option<SpokeUsageRaw> {
         if let Some(usage) = self.usage.get(hub_asset.clone()) {
             return Some(usage);
         }
-        let loaded = storage::get_spoke_usage(env, self.spoke_id, hub_asset)?;
-        self.usage.set(hub_asset.clone(), loaded.clone());
-        Some(loaded)
+        match storage::get_spoke_usage(env, self.spoke_id, hub_asset) {
+            Some(loaded) => {
+                self.usage.set(hub_asset.clone(), loaded.clone());
+                Some(loaded)
+            }
+            None => match missing {
+                MissingUsage::InsertDefault => {
+                    let loaded = SpokeUsageRaw::default();
+                    self.usage.set(hub_asset.clone(), loaded.clone());
+                    Some(loaded)
+                }
+                MissingUsage::Absent => None,
+            },
+        }
     }
 
     fn set_usage(&mut self, hub_asset: &HubAssetKey, usage: SpokeUsageRaw) {
@@ -108,13 +128,13 @@ impl SpokeUsageContext {
         index: Ray,
         decimals: u32,
     ) {
-        let mut usage = self.usage_row(env, hub_asset);
-        enforce_spoke_cap(env, side, &usage, delta_scaled, cap, index, decimals);
-        let next = side
-            .scaled(&usage)
-            .checked_add(delta_scaled.raw())
-            .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
-        side.set_scaled(&mut usage, next);
+        // InsertDefault always yields Some; unwrap_or_default preserves the
+        // zero-row entry semantics if that invariant is ever broken.
+        let mut usage = self
+            .load_usage_row(env, hub_asset, MissingUsage::InsertDefault)
+            .unwrap_or_default();
+        let next = enforce_spoke_cap(env, side, &usage, delta_scaled, cap, index, decimals);
+        side.set_scaled(&mut usage, next.raw());
         self.set_usage(hub_asset, usage);
     }
 
@@ -128,7 +148,7 @@ impl SpokeUsageContext {
         if delta_scaled == Ray::ZERO {
             return;
         }
-        let Some(mut usage) = self.usage_row_if_present(env, hub_asset) else {
+        let Some(mut usage) = self.load_usage_row(env, hub_asset, MissingUsage::Absent) else {
             return;
         };
         let next = side
@@ -143,9 +163,16 @@ impl SpokeUsageContext {
 }
 
 fn cap_to_scaled(env: &Env, cap: i128, decimals: u32, index: Ray) -> Ray {
-    Ray::from_asset(cap, decimals).div_floor(env, index)
+    Ray::from(fp_core::mul_div_floor_saturating(
+        env,
+        Ray::from_asset(cap, decimals).raw(),
+        RAY,
+        index.raw(),
+    ))
 }
 
+/// Returns `usage + delta` after enforcing the asset-unit cap.
+/// Overflow → `GenericError::MathOverflow`; breach → side cap error.
 fn enforce_spoke_cap(
     env: &Env,
     side: UsageSide,
@@ -154,11 +181,9 @@ fn enforce_spoke_cap(
     cap: i128,
     index: Ray,
     decimals: u32,
-) {
-    if !cap_is_enabled(cap) {
-        return;
-    }
+) -> Ray {
     let cap_scaled = cap_to_scaled(env, cap, decimals, index);
     let next_scaled = Ray::from(side.scaled(usage)).checked_add(env, delta_scaled);
     assert_with_error!(env, next_scaled <= cap_scaled, side.cap_error());
+    next_scaled
 }

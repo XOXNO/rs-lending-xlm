@@ -43,8 +43,24 @@ pub(crate) fn process_liquidation(
 
     require_non_empty_payments(env, &result.repaid);
 
-    apply::apply_liquidation_repayments(env, liquidator, &mut account, &result.repaid, &mut cache);
-    apply::apply_liquidation_seizures(env, liquidator, &mut account, &result.seized, &mut cache);
+    let received_usd = apply::apply_liquidation_repayments(
+        env,
+        liquidator,
+        &mut account,
+        &result.repaid,
+        &mut cache,
+    );
+
+    // Collateral is sized from the repayment the plan intended to collect. If a
+    // debt token delivered less than was sent, shrink the seizure to match, or
+    // the liquidator keeps collateral they did not pay for.
+    let seized = math::scale_seizures_to_received(
+        env,
+        &result.seized,
+        received_usd,
+        math::sum_repaid_usd(env, &result.repaid),
+    );
+    apply::apply_liquidation_seizures(env, liquidator, &mut account, &seized, &mut cache);
 
     LiquidationEvent {
         liquidator: liquidator.clone(),

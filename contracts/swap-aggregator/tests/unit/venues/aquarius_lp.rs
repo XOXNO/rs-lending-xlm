@@ -8,8 +8,6 @@ use super::super::support::{
     aquarius_lp_mock, aquarius_mock, lp_strategy_xdr, new_asset, one_hop_path,
 };
 
-/// Registers an LP pool seeded with `reserve` of each token, plus its share
-/// token. Returns `(pool, share, token_a, token_b)`.
 fn lp_pool<'a>(
     env: &'a Env,
     admin: &Address,
@@ -23,8 +21,6 @@ fn lp_pool<'a>(
     lp_pool_seeded(env, admin, reserve, reserve)
 }
 
-/// Same, but with an unbalanced seed so total shares land off the reserve
-/// values — the state where deposit rounding actually splits.
 fn lp_pool_seeded<'a>(
     env: &'a Env,
     admin: &Address,
@@ -44,7 +40,6 @@ fn lp_pool_seeded<'a>(
         .address();
     aquarius_lp_mock::AqLpPoolClient::new(env, &pool).init(&a.0, &b.0, &share);
 
-    // Seed the pool by depositing as a bootstrap provider.
     let seeder = Address::generate(env);
     a.1.mint(&seeder, &reserve_a);
     b.1.mint(&seeder, &reserve_b);
@@ -67,7 +62,6 @@ fn mint_lp_from_single_token_routes_half_and_deposits_both() {
     let admin = Address::generate(&env);
     let (pool, share, (token_a, sac_a), (token_b, sac_b)) = lp_pool(&env, &admin, 1_000_000);
 
-    // A 1:1 swap venue so half the input becomes token_b.
     let swap_pool = env.register(aquarius_mock::AqPool, ());
     aquarius_mock::AqPoolClient::new(&env, &swap_pool).init(&token_a, &token_b);
     sac_b.mint(&swap_pool, &1_000_000);
@@ -95,16 +89,16 @@ fn mint_lp_from_single_token_routes_half_and_deposits_both() {
         Some(pool.clone()),
         1,
         0,
+        false,
     );
 
     let shares = RouterClient::new(&env, &router_addr).execute_strategy(&sender, &1_000, &xdr);
 
-    // 500 of each side deposited into a balanced 1:1 pool.
     assert_eq!(shares, 500);
     assert_eq!(token::Client::new(&env, &share).balance(&sender), 500);
     assert_eq!(token::Client::new(&env, &token_a).balance(&sender), 0);
     assert_eq!(token::Client::new(&env, &token_b).balance(&sender), 0);
-    // Router keeps nothing.
+
     assert_eq!(token::Client::new(&env, &token_a).balance(&router_addr), 0);
     assert_eq!(token::Client::new(&env, &token_b).balance(&router_addr), 0);
     assert_eq!(token::Client::new(&env, &share).balance(&router_addr), 0);
@@ -120,10 +114,6 @@ fn mint_pre_balances_a_lopsided_input_rather_than_charging_for_it() {
     let admin = Address::generate(&env);
     let (pool, share, (token_a, sac_a), (token_b, sac_b)) = lp_pool(&env, &admin, 1_000_000);
 
-    // Route only 20% to token_b, so the router arrives holding a badly lopsided
-    // pair. The pre-balance step swaps the excess before depositing, so almost
-    // nothing is left over — previously this handed ~75% of one side to the
-    // protocol as revenue.
     let swap_pool = env.register(aquarius_mock::AqPool, ());
     aquarius_mock::AqPoolClient::new(&env, &swap_pool).init(&token_a, &token_b);
     sac_b.mint(&swap_pool, &1_000_000);
@@ -149,14 +139,14 @@ fn mint_pre_balances_a_lopsided_input_rather_than_charging_for_it() {
         Vec::new(&env),
         Some(pool),
         1,
-        30,
+        300,
+        true,
     );
 
     let shares = RouterClient::new(&env, &router_addr).execute_strategy(&sender, &1_000, &xdr);
 
     let router = RouterClient::new(&env, &router_addr);
-    // Without pre-balancing this minted 200 shares and handed ~600 units to the
-    // protocol as revenue; balancing on-chain turns the same input into 497.
+
     assert_eq!(shares, 497);
     assert_eq!(token::Client::new(&env, &share).balance(&sender), 497);
     assert_eq!(token::Client::new(&env, &token_a).balance(&sender), 0);
@@ -178,7 +168,6 @@ fn burn_lp_to_single_token_routes_both_constituents() {
     let admin = Address::generate(&env);
     let (pool, share, (token_a, _sac_a), (token_b, sac_b)) = lp_pool(&env, &admin, 1_000_000);
 
-    // Give the sender LP shares by depositing directly.
     let (_, sac_a2) = (token_a.clone(), _sac_a);
     sac_a2.mint(&sender, &1_000);
     sac_b.mint(&sender, &1_000);
@@ -189,7 +178,6 @@ fn burn_lp_to_single_token_routes_both_constituents() {
     );
     assert_eq!(token::Client::new(&env, &share).balance(&sender), 1_000);
 
-    // token_b leg routes back into token_a; the token_a leg needs no path.
     let swap_pool = env.register(aquarius_mock::AqPool, ());
     aquarius_mock::AqPoolClient::new(&env, &swap_pool).init(&token_a, &token_b);
     sac_a2.mint(&swap_pool, &1_000_000);
@@ -215,11 +203,11 @@ fn burn_lp_to_single_token_routes_both_constituents() {
         None,
         0,
         0,
+        false,
     );
 
     let out = RouterClient::new(&env, &router_addr).execute_strategy(&sender, &1_000, &xdr);
 
-    // 1000 shares release 1000 of each side; the token_b half swaps 1:1 back.
     assert_eq!(out, 2_000);
     assert_eq!(token::Client::new(&env, &token_a).balance(&sender), 2_000);
     assert_eq!(token::Client::new(&env, &share).balance(&sender), 0);
@@ -249,7 +237,6 @@ fn burn_honours_per_constituent_minimums() {
     aquarius_mock::AqPoolClient::new(&env, &swap_pool).init(&token_a, &token_b);
     sac_a.mint(&swap_pool, &1_000_000);
 
-    // Demand more of constituent 0 than 1000 shares can release.
     let xdr = lp_strategy_xdr(
         &env,
         share.clone(),
@@ -271,6 +258,7 @@ fn burn_honours_per_constituent_minimums() {
         None,
         0,
         0,
+        false,
     );
 
     assert!(RouterClient::new(&env, &router_addr)
@@ -288,7 +276,6 @@ fn mint_rejects_pool_that_does_not_issue_the_declared_share_token() {
     let admin = Address::generate(&env);
     let (pool, _share, (token_a, sac_a), (token_b, sac_b)) = lp_pool(&env, &admin, 1_000_000);
 
-    // An unrelated token stands in for the pool's real share token.
     let (impostor, _) = new_asset(&env, &admin);
 
     let swap_pool = env.register(aquarius_mock::AqPool, ());
@@ -317,6 +304,7 @@ fn mint_rejects_pool_that_does_not_issue_the_declared_share_token() {
         Some(pool),
         1,
         0,
+        false,
     );
 
     assert_eq!(
@@ -364,6 +352,7 @@ fn mint_enforces_min_shares() {
         Some(pool),
         10_000,
         0,
+        false,
     );
 
     assert!(RouterClient::new(&env, &router_addr)
@@ -387,7 +376,6 @@ fn swap_batch_must_still_route_its_whole_input() {
     sac_b.mint(&swap_pool, &1_000_000);
     sac_a.mint(&sender, &1_000);
 
-    // Partial splits are only legal when a mint leg consumes the remainder.
     let xdr = lp_strategy_xdr(
         &env,
         token_a.clone(),
@@ -409,6 +397,7 @@ fn swap_batch_must_still_route_its_whole_input() {
         None,
         0,
         0,
+        false,
     );
 
     assert_eq!(
@@ -420,14 +409,6 @@ fn swap_batch_must_still_route_its_whole_input() {
     );
 }
 
-/// An unbalanced pool must still mint, with the unconsumed remainder returned.
-///
-/// The pool pulls the full amounts and refunds the surplus, so the router
-/// authorizes the full amounts; an invoker auth entry matches on argument
-/// equality, so authorizing a predicted subset instead fails outright with
-/// `Auth(InvalidAction)`. The pool is seeded unbalanced and deposited into once
-/// so total shares sit off the reserve values — on a 1:1 pool the rounding
-/// never splits and this case is invisible.
 #[test]
 fn mint_on_an_unbalanced_pool_settles_on_measured_deltas() {
     let env = Env::default();
@@ -453,8 +434,6 @@ fn mint_on_an_unbalanced_pool_settles_on_measured_deltas() {
     sac_b.mint(&swap_pool, &1_000_000);
     sac_a.mint(&sender, &3_000);
 
-    // Routes 1999 of the 3000 into token B, leaving 1001 token A — the exact
-    // pair where the two roundings disagree.
     let xdr = lp_strategy_xdr(
         &env,
         token_a.clone(),
@@ -476,6 +455,7 @@ fn mint_on_an_unbalanced_pool_settles_on_measured_deltas() {
         Some(pool),
         1,
         0,
+        false,
     );
 
     let shares = RouterClient::new(&env, &router_addr).execute_strategy(&sender, &3_000, &xdr);
@@ -483,8 +463,7 @@ fn mint_on_an_unbalanced_pool_settles_on_measured_deltas() {
     let router = RouterClient::new(&env, &router_addr);
     assert!(shares > 0);
     assert_eq!(token::Client::new(&env, &share).balance(&sender), shares);
-    // Anything the pool declined is revenue, so the router's holdings equal the
-    // accrued fee balances exactly — nothing is stranded unaccounted for.
+
     assert_eq!(
         token::Client::new(&env, &token_a).balance(&router_addr),
         router.admin_fee_balance(&token_a)
@@ -495,10 +474,6 @@ fn mint_on_an_unbalanced_pool_settles_on_measured_deltas() {
     );
 }
 
-/// A single-sided deposit needs no swap at all, so the batch carries no paths.
-/// That is the optimal shape on a stable pool, where balancing costs more in
-/// swap fees than the imbalance fee it avoids — rejecting it as an empty batch
-/// would make the best stable route unexpressible.
 #[test]
 fn mint_accepts_a_single_sided_deposit_with_no_paths() {
     let env = Env::default();
@@ -522,11 +497,9 @@ fn mint_accepts_a_single_sided_deposit_with_no_paths() {
         Some(pool),
         1,
         0,
+        false,
     );
 
-    // The mock is constant-product, which mints nothing for a one-sided
-    // deposit; what matters here is that the payload is accepted rather than
-    // rejected as an empty batch.
     let err = RouterClient::new(&env, &router_addr)
         .try_execute_strategy(&sender, &1_000, &xdr)
         .err();
@@ -536,12 +509,6 @@ fn mint_accepts_a_single_sided_deposit_with_no_paths() {
     );
 }
 
-/// Even a wildly mis-allocated deposit is rescued by pre-balancing.
-///
-/// Only 20% of the input is routed into the other constituent, so the router
-/// holds roughly 4:1 against a 1:1 pool. Balancing on-chain against the real
-/// balances turns that into a near-exact deposit; without it the pool would
-/// decline most of one side and the sender would be charged for it.
 #[test]
 fn mint_pre_balances_even_a_wildly_skewed_input() {
     let env = Env::default();
@@ -552,8 +519,6 @@ fn mint_pre_balances_even_a_wildly_skewed_input() {
     let admin = Address::generate(&env);
     let (pool, share, (token_a, sac_a), (token_b, sac_b)) = lp_pool(&env, &admin, 100_000_000_000);
 
-    // Route only 20% into token_b, so the pool can take a balanced pair and
-    // leaves ~60% of token_a behind — orders of magnitude past dust.
     let swap_pool = env.register(aquarius_mock::AqPool, ());
     aquarius_mock::AqPoolClient::new(&env, &swap_pool).init(&token_a, &token_b);
     sac_b.mint(&swap_pool, &100_000_000_000);
@@ -579,14 +544,18 @@ fn mint_pre_balances_even_a_wildly_skewed_input() {
         Vec::new(&env),
         Some(pool),
         1,
-        30,
+        // Off-chain optimum for 8B/2B against 100B/100B @ 30 bps (the LP
+        // pool's fee). A nearby wrong guess (e.g. 2_903_518_000) leaves
+        // residual above the allowance and reverts with ExcessiveResidual.
+        2_903_506_438,
+        true,
     );
 
     let shares =
         RouterClient::new(&env, &router_addr).execute_strategy(&sender, &10_000_000_000, &xdr);
     let router = RouterClient::new(&env, &router_addr);
     assert!(shares > 0);
-    // Residual must be dust against a 10_000_000_000 input, not a share of it.
+
     let residual = router.admin_fee_balance(&token_a) + router.admin_fee_balance(&token_b);
     assert!(
         residual <= 10_000,
@@ -594,12 +563,6 @@ fn mint_pre_balances_even_a_wildly_skewed_input() {
     );
 }
 
-/// A burn whose released constituents cannot all reach `token_out` is refused.
-///
-/// The router books leftovers as revenue, so without this the sender would hand
-/// over a whole constituent — half their position — and be told the trade
-/// succeeded. Here only the token_b leg is routed and token_a is left stranded,
-/// which must revert rather than settle.
 #[test]
 fn burn_rejects_a_constituent_that_cannot_reach_the_output() {
     let env = Env::default();
@@ -620,7 +583,6 @@ fn burn_rejects_a_constituent_that_cannot_reach_the_output() {
     );
     let shares = token::Client::new(&env, &share).balance(&sender);
 
-    // Only token_b can reach token_c; token_a has no path and would be stranded.
     let swap_pool = env.register(aquarius_mock::AqPool, ());
     aquarius_mock::AqPoolClient::new(&env, &swap_pool).init(&token_b, &token_c);
     sac_c.mint(&swap_pool, &1_000_000);
@@ -646,6 +608,7 @@ fn burn_rejects_a_constituent_that_cannot_reach_the_output() {
         None,
         0,
         0,
+        false,
     );
 
     assert_eq!(
@@ -657,12 +620,6 @@ fn burn_rejects_a_constituent_that_cannot_reach_the_output() {
     );
 }
 
-/// A stable pool must NOT be pre-balanced.
-///
-/// Stable pools consume every amount offered and price the imbalance into the
-/// shares, which costs less than the swap fee a rebalance would pay. The
-/// planner expresses that by sending `pre_balance_fee_bps: 0`, and the router
-/// must honor it and deposit the lopsided pair exactly as held.
 #[test]
 fn stable_pool_is_not_pre_balanced() {
     let env = Env::default();
@@ -677,7 +634,6 @@ fn stable_pool_is_not_pre_balanced() {
     sac_a.mint(&sender, &1_000);
     let pool_a_before = token::Client::new(&env, &token_a).balance(&pool);
 
-    // Single-sided: a constant-product pool would have to swap half away first.
     let xdr = lp_strategy_xdr(
         &env,
         token_a.clone(),
@@ -689,14 +645,11 @@ fn stable_pool_is_not_pre_balanced() {
         Some(pool.clone()),
         1,
         0,
+        false,
     );
 
     let shares = RouterClient::new(&env, &router_addr).execute_strategy(&sender, &1_000, &xdr);
 
-    // The whole 1000 reaches the pool as a deposit. A pre-swap would route part
-    // of it through the pool first and pay a fee, so the shares would come out
-    // lower — that share count is what makes this test able to tell the two
-    // apart, since the pool's token_a balance rises by 1000 either way.
     assert_eq!(
         shares, 500,
         "single-sided stable deposit must not be pre-swapped"
@@ -708,8 +661,6 @@ fn stable_pool_is_not_pre_balanced() {
     assert_eq!(token::Client::new(&env, &share).balance(&sender), shares);
 }
 
-/// `min_shares` is a floor, not a strict bound: minting exactly the requested
-/// amount must succeed, one more than achievable must not.
 #[test]
 fn mint_min_shares_boundary_is_inclusive() {
     let env = Env::default();
@@ -733,11 +684,11 @@ fn mint_min_shares_boundary_is_inclusive() {
             Some(pool),
             min_shares,
             0,
-    );
+            false,
+        );
         (router_addr, sender, xdr)
     };
 
-    // Learn what this deposit actually mints.
     let (router_addr, sender, xdr) = build(1);
     let achievable = RouterClient::new(&env, &router_addr).execute_strategy(&sender, &1_000, &xdr);
 
@@ -748,8 +699,6 @@ fn mint_min_shares_boundary_is_inclusive() {
         "exactly meeting min_shares must succeed"
     );
 
-    // Asking for one more than achievable must fail. The pool's own floor
-    // rejects it first, so this asserts the outcome rather than our error code.
     let (router_addr, sender, xdr) = build(achievable + 1);
     assert!(
         RouterClient::new(&env, &router_addr)
@@ -759,16 +708,12 @@ fn mint_min_shares_boundary_is_inclusive() {
     );
 }
 
-/// `burn_min_amounts` is a floor: receiving exactly the requested minimum must
-/// succeed, one unit more must not.
 #[test]
 fn burn_min_amounts_boundary_is_inclusive() {
     let env = Env::default();
     env.mock_all_auths();
     let admin = Address::generate(&env);
 
-    // Burning 1000 of 1_001_000 shares against equal reserves releases exactly
-    // 1000 of each side.
     let build = |min: i128| {
         let router_addr = env.register(Router, (Address::generate(&env),));
         let sender = Address::generate(&env);
@@ -807,11 +752,11 @@ fn burn_min_amounts_boundary_is_inclusive() {
             None,
             0,
             0,
-    );
+            false,
+        );
         (router_addr, sender, shares, xdr)
     };
 
-    // Exactly the released amount is acceptable.
     let (router_addr, sender, shares, xdr) = build(1_000);
     assert!(
         RouterClient::new(&env, &router_addr)
@@ -820,8 +765,6 @@ fn burn_min_amounts_boundary_is_inclusive() {
         "a minimum met exactly must be accepted"
     );
 
-    // One unit beyond what the burn can release is not. The pool enforces its
-    // own floor first, so this asserts the outcome rather than our error code.
     let (router_addr, sender, shares, xdr) = build(1_001);
     assert!(
         RouterClient::new(&env, &router_addr)
@@ -831,8 +774,6 @@ fn burn_min_amounts_boundary_is_inclusive() {
     );
 }
 
-/// TEMP probe: mainnet-scale reserves + realistic zap split. Reproduces the
-/// on-chain Budget(ExceededLimit) if the CPU bomb lives in router code.
 #[test]
 fn temp_budget_probe_mainnet_scale() {
     let env = Env::default();
@@ -842,12 +783,11 @@ fn temp_budget_probe_mainnet_scale() {
     let router_addr = env.register(Router, (Address::generate(&env),));
     let sender = Address::generate(&env);
     let admin = Address::generate(&env);
-    let (pool, share, (token_a, sac_a), (token_b, sac_b)) =
+    let (pool, share, (token_a, sac_a), (token_b, _sac_b)) =
         lp_pool_seeded(&env, &admin, 3_137_000_000_000, 574_000_000_000);
 
     sac_a.mint(&sender, &100_000_000);
 
-    // The real failing route hops through the SAME pool it deposits into.
     let xdr = lp_strategy_xdr(
         &env,
         token_a.clone(),
@@ -869,11 +809,171 @@ fn temp_budget_probe_mainnet_scale() {
         Some(pool.clone()),
         1,
         0,
+        false,
     );
 
     env.cost_estimate().budget().reset_unlimited();
-    let shares = RouterClient::new(&env, &router_addr).execute_strategy(&sender, &100_000_000, &xdr);
+    let shares =
+        RouterClient::new(&env, &router_addr).execute_strategy(&sender, &100_000_000, &xdr);
     let cpu = env.cost_estimate().budget().cpu_instruction_cost();
     assert!(shares > 0);
-    assert!(cpu < 100_000_000, "CPU bomb reproduced: {} instructions", cpu);
+    assert!(
+        cpu < 100_000_000,
+        "CPU bomb reproduced: {} instructions",
+        cpu
+    );
+}
+
+/// A burn whose constituents both need routing must execute both paths.
+///
+/// `execute_paths` groups paths by `token_in` and processes each group once,
+/// skipping any path whose index is not the group's first
+/// (`i != first_index_for_token(..)`). Every other burn test routes a single
+/// path, because one constituent is already the output token -- so only one
+/// distinct `token_in` exists and `first_index_for_token` can only ever return
+/// 0. Burning into a third token forces two groups.
+///
+/// Break this catches: `first_index_for_token` returning a constant 0 (the
+/// surviving mutant in `.cargo/mutants.toml`). The second group's index would
+/// never equal 0, so that path would be skipped, its constituent stranded in
+/// the vault, and only half the position converted.
+#[test]
+fn burn_routes_every_constituent_through_its_own_path() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let router_addr = env.register(Router, (Address::generate(&env),));
+    let sender = Address::generate(&env);
+    let admin = Address::generate(&env);
+    let (pool, share, (token_a, sac_a), (token_b, sac_b)) = lp_pool(&env, &admin, 1_000_000);
+    let (token_c, sac_c) = new_asset(&env, &admin);
+
+    sac_a.mint(&sender, &1_000);
+    sac_b.mint(&sender, &1_000);
+    aquarius_lp_mock::AqLpPoolClient::new(&env, &pool).deposit(
+        &sender,
+        &vec![&env, 1_000u128, 1_000u128],
+        &0u128,
+    );
+
+    // Neither constituent is the output token, so both need their own hop.
+    let pool_ac = env.register(aquarius_mock::AqPool, ());
+    aquarius_mock::AqPoolClient::new(&env, &pool_ac).init(&token_a, &token_c);
+    sac_c.mint(&pool_ac, &1_000_000);
+    let pool_bc = env.register(aquarius_mock::AqPool, ());
+    aquarius_mock::AqPoolClient::new(&env, &pool_bc).init(&token_b, &token_c);
+    sac_c.mint(&pool_bc, &1_000_000);
+
+    let xdr = lp_strategy_xdr(
+        &env,
+        share.clone(),
+        token_c.clone(),
+        1,
+        vec![
+            &env,
+            one_hop_path(
+                &env,
+                SwapVenue::Aquarius,
+                pool_ac,
+                token_a.clone(),
+                token_c.clone(),
+                1_000_000,
+            ),
+            one_hop_path(
+                &env,
+                SwapVenue::Aquarius,
+                pool_bc,
+                token_b.clone(),
+                token_c.clone(),
+                1_000_000,
+            ),
+        ],
+        Some(pool),
+        vec![&env, 0i128, 0i128],
+        None,
+        0,
+        0,
+        false,
+    );
+
+    let out = RouterClient::new(&env, &router_addr).execute_strategy(&sender, &1_000, &xdr);
+
+    // 1000 of each constituent, each swapped 1:1 -- not 1000 from one leg alone.
+    assert_eq!(out, 2_000);
+    assert_eq!(token::Client::new(&env, &token_c).balance(&sender), 2_000);
+    assert_eq!(token::Client::new(&env, &token_a).balance(&router_addr), 0);
+    assert_eq!(token::Client::new(&env, &token_b).balance(&router_addr), 0);
+}
+
+/// A constituent left behind at exactly the residual allowance is swept, not
+/// rejected.
+///
+/// `accrue_residual_as_revenue` reverts with `ExcessiveResidual` when a leftover
+/// vault balance is strictly above `residual_allowance(credited)`.
+/// `burn_rejects_a_constituent_that_cannot_reach_the_output` covers the
+/// comfortably-over case (100_000 against a 1_000 floor); nothing pinned the
+/// boundary itself, and the whole residual path had no other coverage.
+///
+/// Here token_b is deliberately unrouted and its 1_000 leftover sits exactly on
+/// RESIDUAL_DUST_FLOOR, so it must be accepted and accrued to admin fees.
+///
+/// Break this catches: that `>` becoming `>=` (the surviving mutant in
+/// `.cargo/mutants.toml`), which would reject a burn whose dust lands precisely
+/// on the allowance.
+#[test]
+fn residual_exactly_at_the_allowance_is_accrued_not_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let router_addr = env.register(Router, (Address::generate(&env),));
+    let sender = Address::generate(&env);
+    let admin = Address::generate(&env);
+    let (pool, share, (token_a, sac_a), (token_b, sac_b)) = lp_pool(&env, &admin, 1_000_000);
+    let (token_c, sac_c) = new_asset(&env, &admin);
+
+    sac_a.mint(&sender, &1_000);
+    sac_b.mint(&sender, &1_000);
+    aquarius_lp_mock::AqLpPoolClient::new(&env, &pool).deposit(
+        &sender,
+        &vec![&env, 1_000u128, 1_000u128],
+        &0u128,
+    );
+
+    // Only token_a is routed; token_b's 1_000 becomes residual.
+    let pool_ac = env.register(aquarius_mock::AqPool, ());
+    aquarius_mock::AqPoolClient::new(&env, &pool_ac).init(&token_a, &token_c);
+    sac_c.mint(&pool_ac, &1_000_000);
+
+    let xdr = lp_strategy_xdr(
+        &env,
+        share.clone(),
+        token_c.clone(),
+        1,
+        vec![
+            &env,
+            one_hop_path(
+                &env,
+                SwapVenue::Aquarius,
+                pool_ac,
+                token_a.clone(),
+                token_c.clone(),
+                1_000_000,
+            ),
+        ],
+        Some(pool),
+        vec![&env, 0i128, 0i128],
+        None,
+        0,
+        0,
+        false,
+    );
+
+    let router = RouterClient::new(&env, &router_addr);
+    let out = router.execute_strategy(&sender, &1_000, &xdr);
+
+    assert_eq!(out, 1_000);
+    assert_eq!(token::Client::new(&env, &token_c).balance(&sender), 1_000);
+    // The stranded constituent is revenue, not a revert.
+    assert_eq!(router.admin_fee_balance(&token_b), 1_000);
+    assert_eq!(token::Client::new(&env, &token_b).balance(&sender), 0);
 }

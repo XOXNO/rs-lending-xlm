@@ -248,14 +248,27 @@ fn liquidation_curve_accepts_bonus_factor_zero() {
 }
 
 #[test]
-fn cap_domain_accepts_disabled_and_reasonable() {
+fn cap_domain_accepts_zero_and_reasonable() {
     let env = Env::default();
 
     require_cap_within_asset_domain(&env, 0, 7);
-    require_cap_within_asset_domain(&env, i128::MAX, 7);
     require_cap_within_asset_domain(&env, 250_000_000_000_000, 7);
+}
 
-    require_cap_within_asset_domain(&env, i128::MAX - 1, 27);
+#[test]
+fn cap_domain_accepts_ceiling_across_listable_decimals() {
+    let env = Env::default();
+
+    assert_eq!(max_cap_for_decimals(3), 170_141_183_460_469);
+    assert_eq!(max_cap_for_decimals(7), 1_701_411_834_604_692_317);
+    assert_eq!(
+        max_cap_for_decimals(18),
+        170_141_183_460_469_231_731_687_303_715
+    );
+
+    require_cap_within_asset_domain(&env, max_cap_for_decimals(3), 3);
+    require_cap_within_asset_domain(&env, max_cap_for_decimals(7), 7);
+    require_cap_within_asset_domain(&env, max_cap_for_decimals(18), 18);
 }
 
 #[test]
@@ -264,6 +277,70 @@ fn cap_domain_rejects_overflowing_cap() {
     let env = Env::default();
 
     require_cap_within_asset_domain(&env, i128::MAX - 1, 7);
+}
+
+#[test]
+#[should_panic(expected = "#116")]
+fn cap_domain_rejects_above_ceiling_at_min_listable_decimals() {
+    let env = Env::default();
+
+    require_cap_within_asset_domain(&env, max_cap_for_decimals(3) + 1, 3);
+}
+
+#[test]
+#[should_panic(expected = "#116")]
+fn cap_domain_rejects_above_ceiling_at_max_listable_decimals() {
+    let env = Env::default();
+
+    require_cap_within_asset_domain(&env, max_cap_for_decimals(18) + 1, 18);
+}
+
+#[test]
+#[should_panic(expected = "#116")]
+fn cap_domain_rejects_i128_max() {
+    let env = Env::default();
+
+    require_cap_within_asset_domain(&env, i128::MAX, 7);
+}
+
+#[test]
+#[should_panic(expected = "#116")]
+fn cap_domain_rejects_i128_max_at_min_listable_decimals() {
+    let env = Env::default();
+
+    require_cap_within_asset_domain(&env, i128::MAX, 3);
+}
+
+#[test]
+#[should_panic(expected = "#116")]
+fn cap_domain_rejects_i128_max_at_max_listable_decimals() {
+    let env = Env::default();
+
+    require_cap_within_asset_domain(&env, i128::MAX, 18);
+}
+
+#[test]
+fn cap_at_domain_ceiling_saturates_under_a_floored_supply_index() {
+    use crate::constants::SUPPLY_INDEX_FLOOR_RAW;
+    use crate::math::fp::Ray;
+    use crate::math::fp_core::mul_div_floor_saturating;
+
+    let env = Env::default();
+    let ceiling = max_cap_for_decimals(7);
+
+    require_cap_within_asset_domain(&env, ceiling, 7);
+
+    let scaled = mul_div_floor_saturating(
+        &env,
+        Ray::from_asset(ceiling, 7).raw(),
+        crate::constants::RAY,
+        SUPPLY_INDEX_FLOOR_RAW,
+    );
+    assert_eq!(
+        scaled,
+        i128::MAX,
+        "a ceiling cap at the index floor must saturate, not overflow"
+    );
 }
 
 #[test]
@@ -304,15 +381,6 @@ fn require_nonneg_accepts_zero() {
 fn require_nonneg_rejects_negative() {
     let env = Env::default();
     require_nonneg_amount(&env, -1);
-}
-
-#[test]
-fn cap_is_enabled_truth_table() {
-    assert!(!cap_is_enabled(0));
-    assert!(!cap_is_enabled(-1));
-    assert!(!cap_is_enabled(i128::MAX));
-    assert!(cap_is_enabled(1));
-    assert!(cap_is_enabled(1_000_000));
 }
 
 #[test]

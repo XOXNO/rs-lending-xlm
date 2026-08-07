@@ -90,11 +90,7 @@ impl Cache {
         market_index: &MarketIndexRaw,
         decimals: u32,
     ) {
-        let cap = side.cap(
-            &self
-                .cached_spoke_asset(spoke_id, hub_asset)
-                .unwrap_or_else(|| panic_with_error!(&self.env, GenericError::InternalError)),
-        );
+        let cap = side.cap(&self.require_spoke_asset(spoke_id, hub_asset));
         let env = self.env.clone();
         self.require_spoke_usage_context(spoke_id).apply_entry(
             &env,

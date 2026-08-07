@@ -54,10 +54,8 @@ Reporters who follow this policy may be credited in release notes (with consent)
 - `mock/flash-loan-receiver` as a production surface — it is **test-only**
   unless you are attacking the test harness itself
 
-Technical properties: [docs/reference/invariants.md](./docs/reference/invariants.md),
-[docs/explanation/threat-model.md](./docs/explanation/threat-model.md),
-[docs/reference/architecture.md](./docs/reference/architecture.md).
-Report concrete deviations from those.
+Technical properties are enforced in the contracts, interfaces, Certora rules,
+and harness tests. Report concrete deviations from on-chain behavior.
 
 ## Supported versions
 
@@ -76,8 +74,6 @@ action against researchers who:
 
 ## Audit status
 
-The design includes hardening ADRs (including 0009–0012: launch controls,
-timelock, pause/freeze matrix, per-spoke liquidation curve). External audit
-artifacts, when published for a release, will ship with that release or be
-linked from the repo. Current design and threat posture: STRIDE, INVARIANTS,
-and the contracts.
+External audit artifacts, when published for a release, will ship with that
+release or be linked from the repo. Current design and threat posture: the
+contracts, skills fundamentals, and Certora specs.

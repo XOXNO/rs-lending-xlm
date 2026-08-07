@@ -1,4 +1,3 @@
-
 """Write SHA-256 manifest for artifacts/wasm deploy and certora binaries."""
 
 from __future__ import annotations
@@ -24,7 +23,6 @@ CERTORA_INPUTS: dict[str, tuple[str, ...]] = {
     artifact: target.inputs for artifact, target in CERTORA_TARGETS.items()
 }
 
-
 def sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -32,17 +30,14 @@ def sha256(path: Path) -> str:
             digest.update(chunk)
     return digest.hexdigest()
 
-
 def tool_version(cmd: list[str]) -> str | None:
     try:
         return subprocess.check_output(cmd, text=True, stderr=subprocess.STDOUT).strip()
     except (OSError, subprocess.CalledProcessError):
         return None
 
-
 def git_output(args: list[str]) -> str | None:
     return tool_version(["git", "-C", str(ROOT), *args])
-
 
 def resolved_inputs(inputs: tuple[str, ...]) -> list[Path]:
     files: set[Path] = set()
@@ -56,7 +51,6 @@ def resolved_inputs(inputs: tuple[str, ...]) -> list[Path]:
             raise FileNotFoundError(f"manifest input does not exist: {relative}")
     return sorted(files)
 
-
 def input_fingerprint(inputs: tuple[str, ...]) -> tuple[str, int]:
     digest = hashlib.sha256()
     files = resolved_inputs(inputs)
@@ -66,7 +60,6 @@ def input_fingerprint(inputs: tuple[str, ...]) -> tuple[str, int]:
         digest.update(relative)
         digest.update(bytes.fromhex(sha256(path)))
     return digest.hexdigest(), len(files)
-
 
 def input_snapshot() -> dict[str, dict[str, object]]:
     snapshot: dict[str, dict[str, object]] = {}
@@ -78,7 +71,6 @@ def input_snapshot() -> dict[str, dict[str, object]]:
             "source_input_sha256": fingerprint,
         }
     return snapshot
-
 
 def snapshot_errors(expected: dict[str, object]) -> list[str]:
     current = input_snapshot()
@@ -94,7 +86,6 @@ def snapshot_errors(expected: dict[str, object]) -> list[str]:
             errors.append(f"{artifact}: source inputs changed during build")
     return errors
 
-
 def build_metadata() -> dict[str, object]:
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -104,7 +95,6 @@ def build_metadata() -> dict[str, object]:
             "platform": platform.platform(),
         },
     }
-
 
 def section(
     dir_path: Path,
@@ -154,7 +144,6 @@ def section(
             }
         files[wasm.name] = entry
     return files
-
 
 def main() -> int:
     parser = argparse.ArgumentParser()
@@ -231,7 +220,6 @@ def main() -> int:
     MANIFEST.write_text(json.dumps(manifest, indent=2) + "\n")
     print(f"wrote {MANIFEST.relative_to(ROOT)}")
     return 0
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

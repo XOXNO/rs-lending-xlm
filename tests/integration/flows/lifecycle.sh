@@ -1,8 +1,3 @@
-
-
-
-
-
 flow_real_markets() {
     phase real_markets
     create_market XLM "$PRIMARY_HUB_ID" "$XLM_SAC" 7 \
@@ -16,14 +11,11 @@ flow_real_markets() {
         "$(asset_config_json 7500 8000 500)"
 }
 
-
 classic_line() {
     local sac="$1"
     stellar contract invoke --id "$sac" --source "$ADMIN" --network "$NETWORK" --send=no \
         -- name 2>/dev/null | tr -d '"'
 }
-
-
 
 flow_fund_usdc() {
     phase funding
@@ -51,7 +43,6 @@ flow_fund_usdc() {
     swap_xlm_to "$ALICE" "$ALICE_ADDR" "$EURC_SAC" 5000000000 fund_alice_eurc
     save_state FUNDED_USDC 1
 }
-
 
 flow_seed_liquidity() {
     phase seed_liquidity
@@ -100,33 +91,20 @@ view indexes_view "$CONTROLLER" -- get_market_indexes_detailed \
     assert_hf_at_least hf_alice_post_borrow "$acct" "$WAD"
     assert_borrow_at_least debt_usdc_post_borrow "$acct" "$USDC_SAC" 200000000
 
-
-
-
     assert_bool_view account_exists_alice true account_exists --account_id "$acct"
     assert_int_view_eq pool_addr_view "$POOL" get_pool_address
-
 
     xfail supply_zero 'Error\(Contract, #14\)' "$ALICE" "$CONTROLLER" -- supply \
         --caller "$ALICE_ADDR" --account_id "$acct" --spoke_id "$PRIMARY_SPOKE_ID" \
         --assets "$(pay_vec "$PRIMARY_HUB_ID" "$XLM_SAC" 0)"
 
-
-
     xfail borrow_over_ltv 'Error\(Contract, #100\)' "$ALICE" "$CONTROLLER" -- borrow \
         --caller "$ALICE_ADDR" --account_id "$acct" \
         --borrows "$(pay_vec "$PRIMARY_HUB_ID" "$XLM_SAC" 25000000000)" --to null
 
-
-
-
-
-
-
     xfail_sim withdraw_locked 'Error\(Contract, #100\)' "$ALICE" "$CONTROLLER" -- withdraw \
         --caller "$ALICE_ADDR" --account_id "$acct" \
         --withdrawals "$(pay_vec "$PRIMARY_HUB_ID" "$XLM_SAC" 0 "$USDC_SAC" 0)" --to null
-
 
     local usdc_debt_pre_partial
 usdc_debt_pre_partial=$(_view_int debt_usdc_pre_partial get_borrow_amount \
@@ -145,10 +123,6 @@ xlm_debt=$(view debt_xlm_alice "$CONTROLLER" -- get_borrow_amount \
         --payments "$(pay_vec "$PRIMARY_HUB_ID" "$USDC_SAC" $((usdc_debt + 10000000)) "$XLM_SAC" $((xlm_debt + 10000000)))" >/dev/null
     assert_borrow_at_most debt_usdc_cleared "$acct" "$USDC_SAC" 1000000
     assert_borrow_at_most debt_xlm_cleared "$acct" "$XLM_SAC" 1000000
-
-
-
-
 
     leg_borrow_again() {
         inv borrow_again "$ALICE" "$CONTROLLER" -- borrow \
@@ -180,7 +154,6 @@ xlm_coll=$(view coll_xlm_alice "$CONTROLLER" -- get_collateral_amount \
 --account_id "$acct" --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$XLM_SAC")" | tr -d '"')
 usdc_coll=$(view coll_usdc_alice "$CONTROLLER" -- get_collateral_amount \
 --account_id "$acct" --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")" | tr -d '"')
-
 
     leg_withdraw_full_bulk() {
         inv withdraw_full_bulk "$ALICE" "$CONTROLLER" -- withdraw \

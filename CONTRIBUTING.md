@@ -7,9 +7,9 @@ evidence for reviewers.
 ## Before you start
 
 - [README.md](./README.md) — layout and commands
-- [docs/README.md](./docs/README.md) — documentation map
-- [docs/reference/invariants.md](./docs/reference/invariants.md) — before touching accounting, auth, oracle, liquidation, flash loans, or risk
-- [docs/reference/doc-style.md](./docs/reference/doc-style.md) — rustdoc / public endpoint docs (code is source of truth)
+- [skills/lending-protocol-fundamentals](./skills/lending-protocol-fundamentals/SKILL.md) — shared model before touching accounting, auth, oracle, liquidation, flash loans, or risk
+- [docs/reference/formulas.md](./docs/reference/formulas.md) — risk and liquidation equations (must stay code-matched)
+- Contract rustdoc and [interfaces/](./interfaces/) — public endpoint semantics (code is source of truth)
 - [SECURITY.md](./SECURITY.md) — vulnerabilities go to **security@xoxno.com**, never public issues/PRs
 - Large protocol changes: open an issue first for scope and verification expectations
 
@@ -24,7 +24,7 @@ cargo test --workspace
 make build
 make test
 make test-pool
-make help
+make help          # index; topics: help-build, help-verify, help-deploy, help-ops, ...
 ```
 
 Separate workspaces:
@@ -37,10 +37,11 @@ cargo test --manifest-path services/keeper/Cargo.toml
 ## Change guidelines
 
 - Keep PRs focused (no drive-by format or unrelated refactors).
-- Preserve invariants; update docs when behavior changes.
+- Preserve invariants; update rustdoc, skills, and `docs/reference/formulas.md`
+  when risk or liquidation math changes.
 - Fixed-point: token-native at transfers, WAD for USD/HF, RAY for rates/indexes.
 - Call out auth/role changes in the PR description.
-- Add or update tests / fuzz / Certora / docs when you change a verified surface.
+- Add or update tests / fuzz / Certora when you change a verified surface.
 - Never commit secrets, keys, `.env`, or local deploy state.
 
 ## Verification tiers
@@ -57,7 +58,7 @@ Run the harness layers that match what you touched (`make test`, `make test-pool
 
 ### If you touch money, risk, oracle, gov, storage, or strategies
 
-Add the relevant deeper checks (pick by surface; see [architecture §14](./docs/reference/architecture.md#14-verification-surface)):
+Add the relevant deeper checks (pick by surface):
 
 ```bash
 make certora-wasm
@@ -69,7 +70,8 @@ make miri-common                # pure math changes
 
 ### Release / protocol-wide
 
-Full matrix in architecture §14 (`mutants`, full Certora profiles, coverage, Scout, etc.).
+Full matrix: `mutants`, full Certora profiles, coverage, Scout, etc.
+See `make help-verify`, [certora/](./certora/README.md), and harness READMEs.
 
 ### Local CI-adjacent checks (optional)
 
@@ -87,14 +89,13 @@ Full GitHub Actions runs on the self-hosted runners; there is no local
 State:
 
 1. What changed and why  
-2. Which invariants / ADRs are affected  
+2. Which protocol surfaces / invariants are affected  
 3. Which checks you ran (tier above)  
 4. Any deploy, migration, oracle, or ops follow-up  
 
-All changes must preserve [invariants](./docs/reference/invariants.md). Live facts
-(controller/pool boundary, pause matrix, fail-closed oracle, scaled balances) are
-in the contracts and [architecture reference](./docs/reference/architecture.md) —
-not in outdated prose.
+All changes must preserve on-chain invariants. Live facts (controller/pool
+boundary, pause matrix, fail-closed oracle, scaled balances) live in the
+contracts, interfaces, and tests — not in outdated prose.
 
 ## CI security (self-hosted PR jobs)
 

@@ -35,17 +35,6 @@ pub trait BlendPool {
     ) -> BlendPositions;
 }
 
-fn blend_submit_call(
-    env: &Env,
-    blend_pool: &Address,
-    from: &Address,
-    spender: &Address,
-    to: &Address,
-    requests: &Vec<BlendRequest>,
-) -> BlendPositions {
-    BlendPoolClient::new(env, blend_pool).submit(from, spender, to, requests)
-}
-
 pub(crate) fn blend_sweep_all(
     env: &Env,
     blend_pool: &Address,
@@ -92,7 +81,8 @@ pub(crate) fn blend_repay_all(
 fn guarded_submit(env: &Env, blend_pool: &Address, from: &Address, requests: &Vec<BlendRequest>) {
     storage::with_flash_guard(env, || {
         let controller = env.current_contract_address();
-        let _ = blend_submit_call(env, blend_pool, from, &controller, &controller, requests);
+        let _ =
+            BlendPoolClient::new(env, blend_pool).submit(from, &controller, &controller, requests);
     });
 }
 

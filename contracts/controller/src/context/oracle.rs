@@ -1,3 +1,4 @@
+use common::collections::collect_uncached_keys;
 use common::errors::OracleError;
 use common::types::PriceFeed;
 #[cfg(test)]
@@ -15,17 +16,11 @@ impl Cache {
     }
 
     pub(crate) fn fetch_prices(&mut self, assets: &Vec<Address>) {
-        let env = self.env.clone();
-        let mut missing = Vec::new(&env);
-        for asset in assets.iter() {
-            if !self.token_prices.contains_key(asset.clone()) && !missing.contains(&asset) {
-                missing.push_back(asset);
-            }
-        }
+        let missing = collect_uncached_keys(&self.env, assets, &self.token_prices);
         if missing.is_empty() {
             return;
         }
-        let fetched = crate::external::price_aggregator::fetch_prices(&env, &missing);
+        let fetched = crate::external::price_aggregator::fetch_prices(&self.env, &missing);
         for (asset, feed) in fetched.iter() {
             self.token_prices.set(asset, feed);
         }

@@ -14,7 +14,7 @@ address **except the account owner** may liquidate (self-liquidation reverts
 `SelfLiquidationNotAllowed`; registered delegates and active position managers
 are deliberately allowed per governance). Liquidations survive global pause and
 frozen; a paused debt listing blocks only the repay leg (tainted-debt). All
-through the controller (see ADR 0011 addendum, INVARIANTS §3.3/4.4).
+through the controller.
 
 ```rust
 fn is_liquidatable(account_id: u64) -> bool;         // HF < 1 WAD
@@ -51,6 +51,9 @@ Simulate the estimate, check profitability
 `liquidate` with the same payments.
 
 ## Bonus and close-amount model
+
+Normative equations: `docs/reference/formulas.md` (bonus ramp, ideal repay,
+seize, offer caps). Summary below for bot authors.
 
 The bonus is a curve, not a flat rate:
 

@@ -14,11 +14,12 @@ pub(crate) use legs::{
 };
 pub(crate) use swap::{swap_tokens, swap_tokens_or_passthrough};
 
-use common::types::Account;
+use common::types::{Account, HubAssetKey, StrategySwap};
 use soroban_sdk::{Address, Env, Vec};
 
 use crate::context::Cache;
-use crate::positions::{finalize_position_flow, PositionSides};
+use crate::events;
+use crate::positions::{finalize_position_flow, get_supply_position_or_panic, PositionSides};
 use crate::risk::{self, account_price_assets, validation};
 
 pub(crate) fn prefetch_strategy_prices(
@@ -39,4 +40,40 @@ pub(crate) fn strategy_finalize(
     let _ = risk::restamp_listed_supply_ltv(cache, account);
     validation::require_post_pool_risk_gates(env, cache, account);
     finalize_position_flow(env, account_id, account, cache, PositionSides::BOTH, true);
+}
+
+/// Shared strategy leg: load supply → withdraw to controller → swap.
+///
+/// Order is fixed and intentional:
+/// 1. `get_supply_position_or_panic`
+/// 2. `withdraw_collateral_to_controller`
+/// 3. `swap_tokens_or_passthrough` with `refund_to = caller`
+///
+/// Deposit / repay and any post-swap position work remain in the caller.
+pub(crate) fn withdraw_and_swap_from_supply(
+    env: &Env,
+    account: &mut Account,
+    cache: &mut Cache,
+    caller: &Address,
+    from: &HubAssetKey,
+    amount: i128,
+    token_out: &Address,
+    swap: &StrategySwap,
+    action: events::PositionAction,
+) -> i128 {
+    let supply_pos = get_supply_position_or_panic(env, account, from);
+
+    let actual_withdrawn = withdraw_collateral_to_controller(
+        env,
+        account,
+        cache,
+        StrategyWithdraw {
+            hub_asset: from,
+            amount,
+            position: &supply_pos,
+            action,
+        },
+    );
+
+    swap_tokens_or_passthrough(env, caller, &from.asset, actual_withdrawn, token_out, swap)
 }

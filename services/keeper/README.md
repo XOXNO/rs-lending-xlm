@@ -31,9 +31,9 @@ Each TTL tick discovers:
 The current protocol does not have controller `KEEPER`, `REVENUE`, or `ORACLE`
 roles (see central implementation facts and governance access control). Governance
 role keys are discovered from `ExistingRoles`; expected governance roles are
-`PROPOSER`, `EXECUTOR`, `CANCELLER`, `ORACLE`, and `GUARDIAN`. See
-`docs/reference/invariants.md` and `docs/reference/architecture.md` for the full
-controller/pool/governance boundary and role model.
+`PROPOSER`, `EXECUTOR`, `CANCELLER`, `ORACLE`, and `GUARDIAN`. The
+controller/pool/governance boundary and role model live in the contract
+rustdoc and `skills/lending-protocol-fundamentals`.
 
 ## Market Configuration
 

@@ -1,4 +1,3 @@
-
 """Derive one focused Certora WASM target per rule-source module."""
 
 from __future__ import annotations
@@ -28,10 +27,8 @@ _ROOT_INPUTS = (
     "vendor/cvlr-log",
 )
 
-
 def _inputs(*extra: str) -> tuple[str, ...]:
     return _ROOT_INPUTS + extra
-
 
 BASE_INPUTS: dict[str, tuple[str, ...]] = {
     "common": _inputs(
@@ -71,7 +68,6 @@ BASE_INPUTS: dict[str, tuple[str, ...]] = {
     ),
 }
 
-
 @dataclass(frozen=True)
 class FocusedTarget:
     layer: str
@@ -105,7 +101,6 @@ class FocusedTarget:
     def conf_relative_wasm(self) -> str:
         return f"../../../artifacts/wasm/certora/{self.artifact}"
 
-
 def rules_by_module(layer: str) -> dict[str, str]:
     mapping: dict[str, str] = {}
     for source in sorted((CERTORA_ROOT / layer / "spec").glob("*_rules.rs")):
@@ -114,7 +109,6 @@ def rules_by_module(layer: str) -> dict[str, str]:
                 raise ValueError(f"duplicate rule {rule} in {layer}")
             mapping[rule] = source.stem
     return mapping
-
 
 def target_for_conf(conf: Path, layer: str) -> FocusedTarget:
     data = json.loads(conf.read_text())
@@ -129,7 +123,6 @@ def target_for_conf(conf: Path, layer: str) -> FocusedTarget:
         )
     return FocusedTarget(layer, modules.pop())
 
-
 def all_targets() -> list[FocusedTarget]:
     targets: set[FocusedTarget] = set()
     for layer in PACKAGES:
@@ -137,10 +130,8 @@ def all_targets() -> list[FocusedTarget]:
             targets.add(target_for_conf(conf, layer))
     return sorted(targets, key=lambda t: (t.layer, t.module))
 
-
 def target_by_artifact() -> dict[str, FocusedTarget]:
     return {t.artifact: t for t in all_targets()}
-
 
 if __name__ == "__main__":
     for t in all_targets():

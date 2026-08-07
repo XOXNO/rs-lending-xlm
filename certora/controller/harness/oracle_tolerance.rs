@@ -1,4 +1,3 @@
-
 use crate::types::OracleTolerance;
 use common::errors::{GenericError, OracleError};
 use cvlr::nondet::nondet;

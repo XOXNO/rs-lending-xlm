@@ -321,3 +321,32 @@ fn test_swap_collateral_non_collateralizable() {
     let result = t.try_swap_collateral(ALICE, "USDC", 1000.0, "WBTC", &steps);
     assert_contract_error(result, errors::NOT_COLLATERAL);
 }
+
+#[test]
+fn test_swap_collateral_rejects_frozen_destination() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .with_market(wbtc_preset())
+        .build();
+
+    t.supply(ALICE, "USDC", 100_000.0);
+    t.borrow(ALICE, "ETH", 1.0);
+
+    let wbtc = t.resolve_asset("WBTC");
+    t.env.as_contract(&t.controller_address(), || {
+        let key = ControllerKey::SpokeAsset(1, hub_asset(wbtc.clone()));
+        let mut config: SpokeAssetConfig = t
+            .env
+            .storage()
+            .persistent()
+            .get(&key)
+            .expect("WBTC spoke listing should exist");
+        config.frozen = true;
+        t.env.storage().persistent().set(&key, &config);
+    });
+
+    let steps = build_swap_steps(&t, "USDC", "WBTC", 1_00000000);
+    let result = t.try_swap_collateral(ALICE, "USDC", 1000.0, "WBTC", &steps);
+    assert_contract_error(result, errors::SPOKE_ASSET_FROZEN);
+}

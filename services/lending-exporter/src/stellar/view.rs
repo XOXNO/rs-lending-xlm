@@ -1,4 +1,3 @@
-
 use anyhow::{anyhow, Context};
 use stellar_xdr::curr::{
     ContractId, Hash, HostFunction, InvokeContractArgs, InvokeHostFunctionOp, LedgerFootprint,

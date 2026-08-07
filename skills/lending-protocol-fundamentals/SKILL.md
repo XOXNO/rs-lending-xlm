@@ -16,6 +16,9 @@ Three core contracts (strict ownership chain: Governance owns Controller owns Po
 
 - **Governance** — owns the controller; timelocks admin changes. GUARDIAN can
   **pause** immediately; **unpause is timelocked** (`AdminOperation::Unpause`).
+  Same shape for per-listing halt flags: GUARDIAN `set_spoke_asset_flags`
+  **ratchets** (may only tighten `paused`/`frozen`); clearing those flags is
+  timelocked via `AdminOperation::EditAssetInSpoke`.
 - **Controller** — the only user-facing contract: accounts, risk checks,
   oracle validation, liquidations, flash loans, and strategies. It is the
   sole caller of the pool for all mutations.
@@ -48,11 +51,17 @@ isolation.
   - Global controller pause (immediate): blocks risk-increasing actions
     (supply, borrow, strategies, flash loans, keepers, add/remove delegate,
     etc.) but leaves withdraw, repay, liquidate, clean_bad_debt, and
-    renew_account open.
+    renew_account open. Recovery: timelocked `Unpause`.
   - Per-spoke-asset `paused`: blocks supply/borrow/withdraw/repay for that
-    listing (including exits).
+    listing (including exits). Immediate GUARDIAN may only set (not clear)
+    via `set_spoke_asset_flags`; clearing is timelocked `EditAssetInSpoke`.
   - Per-spoke-asset `frozen`: blocks only new supply/borrow; exits remain
-    possible.
+    possible. Same dual path as `paused` (ratchet on immediate flags API;
+    clear only via timelocked edit).
+  - Per-spoke-asset `supply_cap` / `borrow_cap`: always-enforced ceilings in
+    asset units, orthogonal to the flags above. There is no unlimited
+    sentinel — `0` means that side accepts nothing, and exits stay uncapped,
+    so a zero cap is a soft wind-down rather than a freeze.
   Liquidations and clean_bad_debt survive global pause and frozen (narrow
   exception: repay leg on a paused debt listing reverts — "tainted debt").
 - The owner can `add_delegate` / `remove_delegate`: a delegate may act on
@@ -114,7 +123,7 @@ as `GenericError`, `CollateralError`, `OracleError`, `SpokeError`,
 `FlashLoanError`, `StrategyError`. Off-chain, map raw Soroban error codes to
 these names with the SDK's `mapSorobanError`.
 
-Normative rules: `docs/reference/invariants.md`. Topology:
-`docs/reference/architecture.md`. Layer skills cover auth, flash-loan
-receivers, liquidation bots, indexing, and the SDK. Treat network and contract
-addresses as configuration — never hardcode.
+Normative math: `docs/reference/formulas.md` (must match contracts). Behavior
+also lives in contracts, interfaces, and tests. Layer skills cover auth,
+flash-loan receivers, liquidation bots, indexing, and the SDK. Treat network
+and contract addresses as configuration — never hardcode.

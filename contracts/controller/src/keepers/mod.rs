@@ -48,7 +48,8 @@ pub(crate) fn recapitalize(
 
     let mut cache = Cache::new(env);
     let pool_addr = cache.cached_pool_address();
-    payments::transfer_amount(
+    // Credit only tokens actually received (mirrors supply/repay measurement).
+    let received = payments::transfer_amount_measured(
         env,
         &hub_asset.asset,
         &payer,
@@ -57,7 +58,7 @@ pub(crate) fn recapitalize(
         GenericError::AmountMustBePositive,
     );
 
-    pool_recapitalize_call(env, &pool_addr, &hub_asset, &payer, amount).actual_amount
+    pool_recapitalize_call(env, &pool_addr, &hub_asset, &payer, received).actual_amount
 }
 
 pub(crate) fn update_account_threshold(
@@ -129,6 +130,7 @@ fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &
         risk::RiskRefreshScope::LtvOnly
     };
 
+    let mut any_changed = false;
     for hub_asset in assets.iter() {
         let Some(spoke_config) = cache.cached_spoke_asset(account.spoke_id, &hub_asset) else {
             continue;
@@ -138,7 +140,7 @@ fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &
         let raw = expect_invariant(env, account.supply_positions.get(hub_asset.clone()));
         let mut updated = AccountPosition::from(&raw);
 
-        risk::refresh_supply_risk_params(
+        let changed = risk::refresh_supply_risk_params(
             env,
             cache,
             &account,
@@ -147,7 +149,11 @@ fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &
             &asset_config,
             scope,
         );
+        if !changed {
+            continue;
+        }
 
+        any_changed = true;
         account::update_or_remove_supply_position(&mut account, &hub_asset, &updated);
 
         let market_index = cache.cached_market_index(&hub_asset);
@@ -160,7 +166,9 @@ fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &
         );
     }
 
-    storage::set_supply_positions(env, account_id, &account.supply_positions);
+    if any_changed {
+        storage::set_supply_positions(env, account_id, &account.supply_positions);
+    }
 
     if has_risks {
         let hf = risk::calculate_account_risk_totals(

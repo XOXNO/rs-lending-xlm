@@ -9,6 +9,10 @@ pub const ACCOUNT_ID: u64 = 1;
 pub const HUB_ID: u32 = 1;
 pub const SPOKE_ID: u32 = 1;
 
+pub const UNCONSTRAINED_CAP: i128 = i128::MAX
+    / 10i128.pow(common::constants::RAY_DECIMALS)
+    / (common::constants::RAY / common::constants::SUPPLY_INDEX_FLOOR_RAW);
+
 pub fn hub_asset(asset: &Address) -> HubAssetKey {
     HubAssetKey {
         hub_id: HUB_ID,
@@ -69,8 +73,8 @@ pub fn seed_market(env: &Env, asset: &Address) {
             liquidation_threshold: 8_000,
             liquidation_bonus: 500,
             liquidation_fees: 100,
-            supply_cap: i128::MAX,
-            borrow_cap: i128::MAX,
+            supply_cap: UNCONSTRAINED_CAP,
+            borrow_cap: UNCONSTRAINED_CAP,
         },
     );
 }

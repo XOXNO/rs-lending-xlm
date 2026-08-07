@@ -1,4 +1,3 @@
-
 use anyhow::{anyhow, Result};
 use stellar_xdr::curr::ScVal;
 
@@ -89,8 +88,9 @@ pub fn decode_spoke_asset(value: &ScVal) -> Result<SpokeAssetConfig> {
         liquidation_threshold_bps: field_u32(value, "liquidation_threshold").unwrap_or(0),
         liquidation_bonus_bps: field_u32(value, "liquidation_bonus").unwrap_or(0),
         liquidation_fees_bps: field_u32(value, "liquidation_fees").unwrap_or(0),
-        supply_cap: field_i128(value, "supply_cap").unwrap_or(0),
-        borrow_cap: field_i128(value, "borrow_cap").unwrap_or(0),
+
+        supply_cap: field_i128(value, "supply_cap").ok_or_else(|| anyhow!("supply_cap missing"))?,
+        borrow_cap: field_i128(value, "borrow_cap").ok_or_else(|| anyhow!("borrow_cap missing"))?,
     })
 }
 
@@ -186,7 +186,32 @@ mod tests {
         assert!(cfg.is_collateralizable);
         assert!(cfg.paused);
         assert_eq!(cfg.loan_to_value_bps, 7500);
+
         assert_eq!(cfg.borrow_cap, 0);
+    }
+
+    #[test]
+    fn spoke_asset_missing_cap_fails_rather_than_defaulting_to_closed() {
+        let base = vec![
+            ("is_collateralizable", ScVal::Bool(true)),
+            ("is_borrowable", ScVal::Bool(true)),
+            ("paused", ScVal::Bool(false)),
+            ("frozen", ScVal::Bool(false)),
+            ("loan_to_value", ScVal::U32(7500)),
+            ("liquidation_threshold", ScVal::U32(8000)),
+            ("liquidation_bonus", ScVal::U32(500)),
+            ("liquidation_fees", ScVal::U32(100)),
+        ];
+
+        let mut no_supply = base.clone();
+        no_supply.push(("borrow_cap", i128v(1_000_000)));
+        assert!(decode_spoke_asset(&map(no_supply)).is_err());
+
+        let mut no_borrow = base.clone();
+        no_borrow.push(("supply_cap", i128v(1_000_000)));
+        assert!(decode_spoke_asset(&map(no_borrow)).is_err());
+
+        assert!(decode_spoke_asset(&map(base)).is_err());
     }
 
     #[test]

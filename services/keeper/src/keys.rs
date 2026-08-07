@@ -1,4 +1,3 @@
-
 use anyhow::{anyhow, Result};
 use stellar_xdr::curr::{
     ContractDataDurability, ContractId, Hash, LedgerKey, LedgerKeyContractData, ScAddress, ScMap,

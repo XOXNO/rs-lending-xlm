@@ -1,14 +1,5 @@
 #!/usr/bin/env bash
 
-
-
-
-
-
-
-
-
-
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -25,7 +16,6 @@ trap 'write_report; run_summary' EXIT
 
 phase liq20_reprice
 
-
 if [ -z "${LIQ20_REPRICED:-}" ]; then
     for i in $(seq 0 $((STRESS_N - 1))); do
         dual_px "$(stress_sac $i)" "$(stress_code $i)" "$WAD" "liq20_px_$(stress_code $i)"
@@ -34,7 +24,6 @@ if [ -z "${LIQ20_REPRICED:-}" ]; then
 fi
 
 phase liq20_build
-
 
 BORROW_ARGS=""
 for i in $(seq 10 19); do BORROW_ARGS+=" $(stress_sac $i) $((50000 * STRESS_UNIT))"; done
@@ -87,7 +76,6 @@ assert_can_liquidated liq20_can_liq "$ACCT" true
 assert_hf_below_wad liq20_hf "$ACCT"
 
 phase liq20_liquidate
-
 
 REPAY=$((10000 * STRESS_UNIT))
 [ -n "${LIQ20_CRASH_WAD:-}" ] && [ "$LIQ20_CRASH_WAD" = "$((WAD / 10 * 4))" ] && REPAY=$((100 * STRESS_UNIT))

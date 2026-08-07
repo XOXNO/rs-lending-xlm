@@ -227,6 +227,8 @@ pub enum SpokeError {
 
     SpokeAssetFrozen = 316,
 
+    /// Immediate GUARDIAN `set_spoke_asset_flags` only: cannot clear paused/frozen.
+    /// Timelocked `edit_asset_in_spoke` may clear flags intentionally.
     SpokeAssetFlagRelaxation = 317,
 }
 

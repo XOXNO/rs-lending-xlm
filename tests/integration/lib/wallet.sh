@@ -1,9 +1,3 @@
-
-
-
-
-
-
 new_wallet() {
     local var="$1" role="$2"
     local alias="e2e_${role}_${RUN_TS}"
@@ -19,7 +13,6 @@ new_wallet() {
     fi
     local addr
     addr=$(stellar keys address "$alias")
-
 
     curl -s -m 30 "https://friendbot.stellar.org/?addr=$addr" >/dev/null 2>&1 || true
     save_state "$var" "$alias"

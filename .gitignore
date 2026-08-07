@@ -1,7 +1,7 @@
 # Rust build artifacts
 **/target/
 target/
-
+.grok
 # WASM build output (deploy + certora prover binaries; rebuilt by `make wasm-artifacts`)
 /artifacts/
 
@@ -24,7 +24,7 @@ mutants.out/
 mutants.out.old/
 **/mutants.out/
 **/mutants.out.old/
-# Agent brainstorm scratch (Diátaxis docs under docs/ are tracked)
+# Agent brainstorm scratch
 docs/superpowers/
 .zed
 # Claude Code runtime
@@ -84,8 +84,10 @@ superpowers
 # Certora local prover run reports
 **/emv-*-certora-*/
 
-# codebase-memory-mcp persisted graph artifact
-.codebase-memory/
+# codebase-memory-mcp persisted graph artifact is TRACKED on purpose, so
+# teammates and CI can bootstrap the code graph without a full reindex.
+# .codebase-memory/.gitattributes marks graph.db.zst as `merge=ours binary`
+# (requires `git config merge.ours.driver true`, already set locally).
 target-mutants/
 target-fixtures/
 .cursor/settings.json

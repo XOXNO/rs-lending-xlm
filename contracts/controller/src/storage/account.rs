@@ -45,22 +45,30 @@ pub(crate) fn get_debt_positions(env: &Env, account_id: u64) -> Map<HubAssetKey,
     get_user(env, &ControllerKey::BorrowPositions(account_id)).unwrap_or_else(|| Map::new(env))
 }
 
+/// Writes supply positions. Empty maps remove the storage key.
+///
+/// Does not renew account TTL. Callers that mutate positions and must keep the
+/// account live should call `renew_user_account` after all side writes (see
+/// `positions::persist_account_positions`).
 pub(crate) fn set_supply_positions(
     env: &Env,
     account_id: u64,
     map: &Map<HubAssetKey, AccountPositionRaw>,
 ) {
     write_side_map(env, &ControllerKey::SupplyPositions(account_id), map);
-    renew_user_account(env, account_id);
 }
 
+/// Writes debt positions. Empty maps remove the storage key.
+///
+/// Does not renew account TTL. Callers that mutate positions and must keep the
+/// account live should call `renew_user_account` after all side writes (see
+/// `positions::persist_account_positions`).
 pub(crate) fn set_debt_positions(
     env: &Env,
     account_id: u64,
     map: &Map<HubAssetKey, DebtPositionRaw>,
 ) {
     write_side_map(env, &ControllerKey::BorrowPositions(account_id), map);
-    renew_user_account(env, account_id);
 }
 
 fn write_side_map<
@@ -178,6 +186,7 @@ pub(crate) fn remove_account_entry(env: &Env, account_id: u64) {
     persistent.remove(&ControllerKey::Delegates(account_id));
 }
 
+/// Co-renews every live user-account key (meta, supply, debt, delegates).
 pub(crate) fn renew_user_account(env: &Env, account_id: u64) {
     let persistent = env.storage().persistent();
     let keys = [

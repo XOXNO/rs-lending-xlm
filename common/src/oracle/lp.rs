@@ -1,25 +1,9 @@
-//! Manipulation-resistant fair-value pricing for constant-product (`xy=k`) AMM
-//! LP shares.
-//!
-//! The share value is priced from the pool invariant against external oracle
-//! prices, so the reserve *ratio* — the only thing a flash-loan swap can move —
-//! cancels out. Reserves enter solely through their product.
-
 use crate::constants::{WAD, WAD_DECIMALS};
 use crate::errors::OracleError;
 use crate::math::fp_core::try_mul_div_half_up;
 use crate::oracle::observation::try_u256_to_i128;
 use soroban_sdk::{Env, U256};
 
-/// Integer square root of `a·b`, where both factors fit `u128`.
-///
-/// Soroban has no sqrt host function and `U256` exposes none, so the root is
-/// computed here. Only the product needs 256 bits — the seed does not, so the
-/// factors' own `u128::isqrt` gives `(√a+1)·(√b+1)`, an over-estimate within a
-/// hair of the true root. Newton then lands in one or two steps.
-///
-/// Seeding is the whole game: from `x0 = n` each step merely halves, so a real
-/// LP product (~2^161) took ~86 U256 divisions and the worst case ~132.
 pub fn isqrt_of_product(env: &Env, a: u128, b: u128) -> U256 {
     let n = U256::from_u128(env, a).mul(&U256::from_u128(env, b));
     let one = U256::from_u32(env, 1);
@@ -39,9 +23,6 @@ pub fn isqrt_of_product(env: &Env, a: u128, b: u128) -> U256 {
     x
 }
 
-/// One side of a constant-product pool: how much of the token the pool holds,
-/// the token's own decimals, and its USD price. Grouping these keeps the three
-/// values that must agree together, so a leg cannot be assembled half-swapped.
 #[derive(Clone, Debug)]
 pub struct LpLeg {
     pub reserve: i128,
@@ -49,19 +30,12 @@ pub struct LpLeg {
     pub price_wad: i128,
 }
 
-/// The pool's share token: supply in base units, plus its decimals.
 #[derive(Clone, Debug)]
 pub struct LpSupply {
     pub total_shares: i128,
     pub decimals: u32,
 }
 
-/// Fair USD price (WAD) of one whole LP share of a constant-product pool:
-/// `2·sqrt(V_a·V_b) / S_whole`, where `V_i` is the USD value of reserve `i`.
-///
-/// # Errors
-/// * [`OracleError::InvalidPrice`] - a non-positive reserve, price, or supply,
-///   or an intermediate that exceeds its domain.
 pub fn fair_lp_price_wad(
     env: &Env,
     a: &LpLeg,
@@ -94,7 +68,6 @@ pub fn fair_lp_price_wad(
     try_u256_to_i128(&fair).ok_or(OracleError::InvalidPrice)
 }
 
-/// `reserve · price_wad / 10^decimals` in WAD USD; `InvalidPrice` on overflow.
 fn reserve_value_wad(env: &Env, leg: &LpLeg) -> Result<i128, OracleError> {
     let denom = 10i128
         .checked_pow(leg.decimals)
@@ -102,8 +75,6 @@ fn reserve_value_wad(env: &Env, leg: &LpLeg) -> Result<i128, OracleError> {
     try_mul_div_half_up(env, leg.reserve, leg.price_wad, denom).ok_or(OracleError::InvalidPrice)
 }
 
-/// `amount` (in `decimals`) upscaled to WAD; `InvalidPrice` on overflow or
-/// `decimals > 18`.
 fn amount_to_wad(env: &Env, amount: i128, decimals: u32) -> Result<i128, OracleError> {
     let scale = WAD_DECIMALS
         .checked_sub(decimals)
@@ -116,7 +87,6 @@ fn amount_to_wad(env: &Env, amount: i128, decimals: u32) -> Result<i128, OracleE
 mod tests {
     use super::*;
 
-    /// Stellar assets are 7 decimals throughout these fixtures.
     fn leg(reserve: i128, price_wad: i128) -> LpLeg {
         LpLeg {
             reserve,
@@ -137,8 +107,8 @@ mod tests {
         let env = Env::default();
         let price = fair_lp_price_wad(
             &env,
-            &leg(340_673_965, 110_000_000_000_000_000), // XLM @ $0.11
-            &leg(58_315_575, 1_000_000_000_000_000_000), // PYUSD @ $1.00
+            &leg(340_673_965, 110_000_000_000_000_000),
+            &leg(58_315_575, 1_000_000_000_000_000_000),
             &supply(140_754_159),
         )
         .unwrap();

@@ -1,8 +1,3 @@
-
-
-
-
-
 flash_data_hex() {
     local mode="$1"
     jq -nc --argjson m "$mode" '{map:[{key:{symbol:"mode"},val:{u32:$m}}]}' \
@@ -17,16 +12,6 @@ flow_flash_loans() {
     inv flash_loan_success "$ALICE" "$CONTROLLER" -- flash_loan \
         --caller "$ALICE_ADDR" --asset "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")" --amount 100000000 \
         --receiver "$FLASH_RECEIVER" --data "$(flash_data_hex 0)" >/dev/null
-
-
-
-
-
-
-
-
-
-
 
     local mode name pattern
     for mode in 1 2 3 4 5; do
@@ -43,11 +28,6 @@ flow_flash_loans() {
     done
 }
 
-
-
-
-
-
 flow_strategies() {
     phase strategies
     local flash_usdc=300000000
@@ -62,9 +42,6 @@ flow_strategies() {
     save_state ALICE_MACCT "$macct"
     log "multiply account = $macct"
     assert_hf_at_least hf_multiply "$macct" "$WAD"
-
-
-
 
     local new_xlm_debt=1000000000
     swap_hex=$(agg_route_hex "$XLM_SAC" "$USDC_SAC" "$new_xlm_debt") || return 1
@@ -84,12 +61,6 @@ flow_strategies() {
     }
     retry_leg leg_swap_collateral
 
-
-
-
-
-
-
     inv supply_for_rdwc "$ALICE" "$CONTROLLER" -- supply \
         --caller "$ALICE_ADDR" --account_id "$macct" --spoke_id "$PRIMARY_SPOKE_ID" \
         --assets "$(pay_vec "$PRIMARY_HUB_ID" "$XLM_SAC" 10000000000)" >/dev/null
@@ -107,15 +78,6 @@ flow_strategies() {
     retry_leg leg_repay_debt_with_coll
 
     assert_hf_at_least hf_post_strategies "$macct" "$WAD"
-
-
-
-
-
-
-
-
-
 
     local rdwc_acct
     rdwc_acct=$(inv rdwc_close_supply "$CAROL" "$CONTROLLER" -- supply \
@@ -136,12 +98,6 @@ flow_strategies() {
     retry_leg leg_rdwc_close
 
     assert_bool_view rdwc_closed false account_exists --account_id "$rdwc_acct"
-
-
-
-
-
-
 
     local flash_xlm=5000000000 sacct=""
     leg_multiply_short() {

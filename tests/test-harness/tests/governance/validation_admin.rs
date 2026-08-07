@@ -309,7 +309,10 @@ fn test_configure_market_oracle_defers_missing_twap_history_to_read_time() {
 
     let read = t
         .price_agg_client()
-        .try_price(&controller::types::PriceKey::Token(asset))
+        .try_prices(&soroban_sdk::vec![
+            &t.env,
+            controller::types::PriceKey::Token(asset)
+        ])
         .map(|inner| inner.map(|_| ()).map_err(|e| e.into()))
         .unwrap_or_else(|e| Err(e.expect("expected contract error")));
     assert_contract_error(read, errors::NO_LAST_PRICE);

@@ -9,7 +9,8 @@ use soroban_sdk::{token, Address, Env, TryFromVal};
 use crate::core::types::{LendingTest, MarketState, PendingMarket, PendingSpoke};
 use crate::helpers::{f64_to_i128, hub_asset, HARNESS_HUB, HARNESS_SPOKE};
 use crate::presets::{
-    AssetConfigPreset, MarketParamsPreset, MarketPreset, SpokePreset, DEFAULT_TOLERANCE,
+    unconstrained_test_cap, AssetConfigPreset, MarketParamsPreset, MarketPreset, SpokePreset,
+    DEFAULT_TOLERANCE,
 };
 
 pub struct LendingTestBuilder {
@@ -250,8 +251,12 @@ impl LendingTestBuilder {
         let mut markets = HashMap::new();
 
         for pm in &self.pending_markets {
-            let asset_address = if pm.freezable {
-                env.register(crate::freezable_token::FreezableToken, ())
+            let needs_mock_token = pm.freezable || pm.decimals != 7;
+            let asset_address = if needs_mock_token {
+                let addr = env.register(crate::freezable_token::FreezableToken, ());
+                crate::freezable_token::FreezableTokenClient::new(&env, &addr)
+                    .set_decimals(&pm.decimals);
+                addr
             } else {
                 env.register_stellar_asset_contract_v2(admin.clone())
                     .address()
@@ -260,7 +265,11 @@ impl LendingTestBuilder {
             let token_admin = token::StellarAssetClient::new(&env, &asset_address);
 
             let token_decimals = token::Client::new(&env, &asset_address).decimals();
-            let _ = pm.decimals;
+            assert_eq!(
+                token_decimals, pm.decimals,
+                "market '{}' declares {} decimals but its token reports {}",
+                pm.name, pm.decimals, token_decimals
+            );
             let market_decimals = token_decimals;
 
             let mut market_params = pm.params.to_market_params(&asset_address, market_decimals);
@@ -287,6 +296,7 @@ impl LendingTestBuilder {
                     HARNESS_HUB,
                     asset_address.clone(),
                     HARNESS_SPOKE,
+                    market_decimals,
                 )),
             );
 
@@ -343,16 +353,16 @@ impl LendingTestBuilder {
             );
 
             for (asset_name, can_collateral, can_borrow) in &spoke.assets {
-                let asset_addr = markets
-                    .get(asset_name.as_str())
-                    .unwrap_or_else(|| {
-                        panic!(
-                            "spoke asset '{}' not found -- add it with .with_market() first",
-                            asset_name
-                        )
-                    })
-                    .asset
-                    .clone();
+                let market = markets.get(asset_name.as_str()).unwrap_or_else(|| {
+                    panic!(
+                        "spoke asset '{}' not found -- add it with .with_market() first",
+                        asset_name
+                    )
+                });
+                let asset_addr = market.asset.clone();
+                // Cap must track the market's own decimals: a fixed base-unit
+                // value is only meaningful at one scale.
+                let cap = unconstrained_test_cap(market.decimals);
                 gov.execute_immediate(
                     &admin,
                     &AdminOperation::AddAssetToSpoke(SpokeAssetArgs {
@@ -367,8 +377,8 @@ impl LendingTestBuilder {
                         threshold: spoke.preset.threshold,
                         bonus: spoke.preset.bonus,
                         liquidation_fees: 0,
-                        supply_cap: 0i128,
-                        borrow_cap: 0i128,
+                        supply_cap: cap,
+                        borrow_cap: cap,
                     }),
                 );
             }

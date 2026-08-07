@@ -58,6 +58,8 @@
         "ltv": 6847,
         "liquidation_threshold": 7512,
         "liquidation_bonus": 423,
+        "supply_cap": "100000000000000",
+        "borrow_cap": "50000000000000",
         "liquidation_fees": 100
       },
       "USDC": {

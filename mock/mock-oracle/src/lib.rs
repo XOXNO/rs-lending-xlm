@@ -83,9 +83,6 @@ impl MockReflectorOracle {
         Some(PriceData { price, timestamp })
     }
 
-    /// Newest first, one resolution apart, mirroring the real Reflector ring
-    /// buffer: consumers reject history whose entries sit closer than one
-    /// resolution.
     pub fn prices(env: Env, asset: ReflectorAsset, records: u32) -> Option<Vec<PriceData>> {
         let entry = Self::lastprice(env.clone(), asset)?;
         let resolution = u64::from(Self::resolution(env.clone()));

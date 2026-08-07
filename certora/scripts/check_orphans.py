@@ -31,13 +31,8 @@ SOROBAN_CONF_KEYS = {
     "smt_use_bv",
 }
 
-
-
-
 MIN_HOST_STATE_LOOP_ITER = 28
-# Confs whose target is a convergence loop bounded far past any feasible unroll
-# (stableswap `D` Newton, capped at 255 rounds). Their proofs hold conditional on
-# convergence within `loop_iter`, which the reference implementation always hits.
+
 OPTIMISTIC_LOOP_CONFS = {"lp-math-stable.conf"}
 PURE_CONTROLLER_CONFS = {
     "boundary-compound-sanity.conf",
@@ -65,7 +60,6 @@ PURE_PRICE_AGGREGATOR_CONFS = {
     "tolerance-math.conf",
 }
 
-
 def read_rules(spec_dir: Path) -> set[str]:
     rules: set[str] = set()
     if not spec_dir.exists():
@@ -73,7 +67,6 @@ def read_rules(spec_dir: Path) -> set[str]:
     for source in spec_dir.rglob("*_rules.rs"):
         rules.update(RULE_RE.findall(source.read_text()))
     return rules
-
 
 def read_rule_kinds(spec_dir: Path) -> dict[str, str]:
     kinds: dict[str, str] = {}
@@ -95,14 +88,12 @@ def read_rule_kinds(spec_dir: Path) -> dict[str, str]:
                 kinds[match.group(1)] = "assert"
     return kinds
 
-
 def conf_rules(conf: Path) -> list[str]:
     data = json.loads(conf.read_text())
     rules = data.get("rule", [])
     if isinstance(rules, str):
         return [rules]
     return list(rules)
-
 
 def profile_rule_args(args: list[str]) -> list[str]:
     rules: list[str] = []
@@ -116,7 +107,6 @@ def profile_rule_args(args: list[str]) -> list[str]:
             continue
         index += 1
     return rules
-
 
 def expand_profile(
     profiles: dict[str, list[dict[str, object]]],
@@ -135,7 +125,6 @@ def expand_profile(
         else:
             commands.append(item)
     return commands
-
 
 def main() -> int:
     total_confs = 0
@@ -268,7 +257,6 @@ def main() -> int:
         f"{total_profiles} profiles, zero orphans, zero dead rules"
     )
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

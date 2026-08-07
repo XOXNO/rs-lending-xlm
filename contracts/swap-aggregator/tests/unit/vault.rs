@@ -48,12 +48,6 @@ fn vault_withdraw_overdraw_returns_invalid_amount() {
     assert_eq!(v.try_withdraw(&token, 20), Err(Error::InvalidAmount));
 }
 
-/// `credited_of` is a high-water mark, not a balance.
-///
-/// A leftover has to be judged against everything the vault ever held of a
-/// token, because judging it against the current balance would be circular —
-/// the balance IS the leftover. So credits accumulate and withdrawals never
-/// reduce it.
 #[test]
 fn credited_accumulates_and_ignores_withdrawals() {
     let env = Env::default();
@@ -66,26 +60,21 @@ fn credited_accumulates_and_ignores_withdrawals() {
     vault.deposit(&token, 400);
     assert_eq!(vault.credited_of(&token), 400);
 
-    // A second credit adds to the mark.
     vault.deposit(&token, 600);
     assert_eq!(vault.credited_of(&token), 1_000);
     assert_eq!(vault.balance_of(&token), 1_000);
 
-    // Spending the balance leaves the mark untouched.
     vault.withdraw(&token, 900);
     assert_eq!(vault.balance_of(&token), 100);
     assert_eq!(vault.credited_of(&token), 1_000);
 
-    // Draining it entirely still leaves the mark.
     vault.withdraw(&token, 100);
     assert_eq!(vault.balance_of(&token), 0);
     assert_eq!(vault.credited_of(&token), 1_000);
 
-    // Tokens are tracked independently.
     assert_eq!(vault.credited_of(&other), 0);
 }
 
-/// A zero credit is a no-op, so it must not move the mark either.
 #[test]
 fn credited_ignores_zero_deposits() {
     let env = Env::default();

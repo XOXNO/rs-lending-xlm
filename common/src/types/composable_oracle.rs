@@ -97,10 +97,9 @@ pub struct ScaledSource {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AquariusLpSource {
     pub pool: Address,
-    /// The pool's reserve-mirror plane (`pool.get_pools_plane()`), captured at
-    /// listing; reserves are read from here so the pricing path stays read-only.
+
     pub plane: Address,
-    /// Reserve-token identities in the exact order returned by `pool.get_tokens()`.
+
     pub token_a: Address,
     pub token_b: Address,
     pub key_a: PriceKey,
@@ -110,7 +109,6 @@ pub struct AquariusLpSource {
 
     pub reserve_b_decimals: u32,
 
-    /// Minimum manipulation-resistant pool value, in USD WAD.
     pub min_pool_value_wad: i128,
 }
 
@@ -121,16 +119,11 @@ pub enum PriceSource {
     Feed(FeedSource),
     Scaled(ScaledSource),
     AquariusLp(AquariusLpSource),
-    /// Stableswap (Curve-style) LP share. Same binding payload as
-    /// [`PriceSource::AquariusLp`]; the variant selects the invariant-`D`
-    /// pricing path, and the amplification is read live from the pool.
+
     AquariusStableLp(AquariusLpSource),
 }
 
 impl PriceSource {
-    /// Either Aquarius LP-share pricing path (constant-product or stableswap).
-    /// Both are sole-source oracles priced from pool reserves against two
-    /// independently-banded underlyings.
     pub fn is_aquarius_lp(&self) -> bool {
         matches!(
             self,
@@ -169,9 +162,6 @@ impl AssetOracle {
         self.sources.len() == 2
     }
 
-    /// LP-share pricing derives from two independently-banded underlyings, so —
-    /// like a dual-source oracle — its own sanity band is a wide backstop, not a
-    /// tight single-feed guard, and is exempt from the single-source width cap.
     pub fn has_aquarius_lp_source(&self) -> bool {
         self.sources
             .get(0)

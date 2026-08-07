@@ -3,6 +3,7 @@ use soroban_sdk::Address;
 
 use crate::context::LendingTest;
 use crate::helpers::{hub_asset, HARNESS_HUB, HARNESS_SPOKE};
+use crate::presets::unconstrained_test_cap;
 use crate::view::AssetConfigView;
 
 impl LendingTest {
@@ -43,8 +44,8 @@ impl LendingTest {
             threshold: config.liquidation_threshold,
             bonus: config.liquidation_bonus,
             liquidation_fees: config.liquidation_fees,
-            supply_cap: 0,
-            borrow_cap: 0,
+            supply_cap: config.supply_cap,
+            borrow_cap: config.borrow_cap,
         });
 
         let pool = self.get_pool_address(asset_name);
@@ -77,8 +78,8 @@ impl LendingTest {
             threshold: config.liquidation_threshold,
             bonus: config.liquidation_bonus,
             liquidation_fees: config.liquidation_fees,
-            supply_cap: 0,
-            borrow_cap: 0,
+            supply_cap: config.supply_cap,
+            borrow_cap: config.borrow_cap,
         });
     }
 
@@ -112,6 +113,7 @@ impl LendingTest {
         bonus: u32,
     ) {
         let asset = self.resolve_asset(asset_name);
+        let cap = unconstrained_test_cap(self.resolve_market(asset_name).decimals);
         self.ctrl_client().add_asset_to_spoke(&SpokeAssetArgs {
             hub_id: HARNESS_HUB,
             asset,
@@ -124,8 +126,8 @@ impl LendingTest {
             threshold,
             bonus,
             liquidation_fees: 0,
-            supply_cap: 0,
-            borrow_cap: 0,
+            supply_cap: cap,
+            borrow_cap: cap,
         });
     }
 
@@ -141,6 +143,7 @@ impl LendingTest {
         bonus: u32,
     ) {
         let asset = self.resolve_asset(asset_name);
+        let cap = unconstrained_test_cap(self.resolve_market(asset_name).decimals);
         self.ctrl_client().edit_asset_in_spoke(&SpokeAssetArgs {
             hub_id: HARNESS_HUB,
             asset,
@@ -153,8 +156,8 @@ impl LendingTest {
             threshold,
             bonus,
             liquidation_fees: 0,
-            supply_cap: 0,
-            borrow_cap: 0,
+            supply_cap: cap,
+            borrow_cap: cap,
         });
     }
 

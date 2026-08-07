@@ -1,4 +1,3 @@
-
 """Point Certora conf files at prebuilt WASM under artifacts/wasm/certora/."""
 
 from __future__ import annotations
@@ -13,7 +12,6 @@ from focused_wasm import PACKAGES, target_for_conf
 ROOT = Path(__file__).resolve().parents[2]
 CERTORA_ROOT = ROOT / "certora"
 
-
 def conf_drift(conf: Path, layer: str) -> tuple[dict, object, bool]:
     data = json.loads(conf.read_text())
     target = target_for_conf(conf, layer)
@@ -24,7 +22,6 @@ def conf_drift(conf: Path, layer: str) -> tuple[dict, object, bool]:
     )
     return data, target, drifted
 
-
 def patch_conf(conf: Path, layer: str) -> bool:
     data, target, drifted = conf_drift(conf, layer)
     if not drifted:
@@ -34,7 +31,6 @@ def patch_conf(conf: Path, layer: str) -> bool:
     data["cargo_features"] = target.cargo_features
     conf.write_text(json.dumps(data, indent=4) + "\n")
     return True
-
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -71,7 +67,6 @@ def main() -> int:
     else:
         print(f"patched {changed} conf file(s)")
     return 0
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

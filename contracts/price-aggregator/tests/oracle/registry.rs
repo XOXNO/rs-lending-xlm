@@ -357,8 +357,6 @@ fn test_probe_still_rejects_a_structurally_broken_config() {
     });
 }
 
-/// Builds a listable Aquarius LP market: two 7-dp reserve SACs, a 7-dp share
-/// SAC, a plane mirroring `(reserve_a, reserve_b)` and a pool wired to them.
 fn lp_fixture(
     env: &Env,
     kind: &str,
@@ -436,7 +434,6 @@ fn lp_oracle(
     }
 }
 
-/// Lists both underlyings at $1 through the production path and returns their keys.
 fn dollar_underlyings(env: &Env, token_a: &Address, token_b: &Address) -> (PriceKey, PriceKey) {
     let (adapter, client) = crate::test_support::register_redstone_feed(env);
     let ts = env.ledger().timestamp() * 1_000;
@@ -545,15 +542,10 @@ fn stable_lp_oracle(
 
 const STABLE_AMP: u128 = 1_500;
 
-/// Whole tokens per reserve leg and whole shares outstanding, both 7-dp: a
-/// balanced $1/$1 stableswap pool worth $2000 at ~$2.00 per share.
 const BALANCED_STABLE_UNITS: u128 = 10_000_000_000;
 
-/// `BALANCED_STABLE_UNITS / 10^7` — the share count the pool value scales by.
 const BALANCED_STABLE_SHARES: i128 = 1_000;
 
-/// A listable balanced stableswap LP: `lp_fixture` with a live amplification,
-/// dollar-priced underlyings and an `AquariusStableLp` source.
 fn balanced_stable_lp(env: &Env) -> (Address, Address, Address, AssetOracle) {
     let (pool, plane, share, token_a, token_b) = lp_fixture(
         env,
@@ -1102,8 +1094,6 @@ fn test_set_oracle_accepts_a_pool_worth_exactly_its_liquidity_floor() {
     });
 }
 
-/// Re-lists `leg` as a scaled source over a copy of its own feed: one extra
-/// composition level below it, reporting the same price it did before.
 fn deepen_leg(env: &Env, leg: &PriceKey, leaf: &str) {
     let original = get_oracle(env, leg).unwrap();
     let PriceSource::Feed(feed) = original.sources.get_unchecked(0) else {
@@ -1124,9 +1114,6 @@ fn deepen_leg(env: &Env, leg: &PriceKey, leaf: &str) {
     store_oracle(env, leg, &nested);
 }
 
-/// An LP parked at `MAX_RESOLUTION_DEPTH - 1` still resolves, but each of its
-/// underlyings is walked one level below it, so a leg needing a level of its own
-/// lands exactly on the cap and must be refused.
 fn assert_deepened_leg_exhausts_the_cap(deepen_key_a: bool) {
     let env = Env::default();
     env.ledger().set_timestamp(1_000_000);
@@ -1178,9 +1165,6 @@ fn test_set_oracle_rejects_a_stable_plane_whose_invariant_drifts_past_the_cap() 
     });
 }
 
-/// Prices a balanced stableswap LP and returns its share key, its source and the
-/// pool value that price implies. Supply is a round 1000 whole shares, so the
-/// value is exactly a thousand times the share price with nothing rounded away.
 fn priced_stable_lp(env: &Env) -> (PriceKey, AquariusLpSource, i128) {
     let (_pool, _plane, share, oracle) = balanced_stable_lp(env);
     let key = PriceKey::Token(share);
@@ -1223,7 +1207,6 @@ fn test_a_stable_pool_one_wei_under_its_liquidity_floor_is_refused() {
     });
 }
 
-/// The stableswap twin of [`assert_deepened_leg_exhausts_the_cap`].
 fn assert_deepened_stable_leg_exhausts_the_cap(deepen_key_a: bool) {
     let env = Env::default();
     env.ledger().set_timestamp(1_000_000);

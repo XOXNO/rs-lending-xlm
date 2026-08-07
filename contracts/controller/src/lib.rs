@@ -335,6 +335,18 @@ impl ControllerInterface for Controller {
         views::account_exists(&env, account_id)
     }
 
+    /// Liquidation preview for off-chain liquidators.
+    ///
+    /// KEEP. This has no caller inside this repository -- only tests -- which is
+    /// exactly the signature that got `max_withdraw`, `max_supply` and
+    /// `max_borrow` deleted in 0edce973 ("no consumers: sdk-js never invoked
+    /// them, xoxno-ui computes headroom client-side"). This one is different:
+    /// liquidator bots call it off-repo. Confirmed by the repo owner. Do not
+    /// remove it on a no-consumers sweep without checking with them first.
+    ///
+    /// It does replicate part of the real liquidation path, so the two can
+    /// drift -- the drift risk 0edce973 called out is real here even though the
+    /// deletion is not. Changes to the liquidation plan belong in both.
     fn get_liquidation_estimate(
         env: Env,
         account_id: u64,

@@ -46,21 +46,7 @@ pub(crate) fn create_liquidity_pool(
 
     storage::renew_controller_instance(env);
 
-    CreateMarketEvent {
-        hub_id,
-        base_asset: asset.clone(),
-        max_borrow_rate: params.max_borrow_rate,
-        base_borrow_rate: params.base_borrow_rate,
-        slope1: params.slope1,
-        slope2: params.slope2,
-        slope3: params.slope3,
-        mid_utilization: params.mid_utilization,
-        optimal_utilization: params.optimal_utilization,
-        max_utilization: params.max_utilization,
-        reserve_factor: params.reserve_factor,
-        market_address: pool_address.clone(),
-    }
-    .publish(env);
+    CreateMarketEvent::from_params(hub_id, asset, pool_address.clone(), &params).publish(env);
 
     pool_address
 }
@@ -78,19 +64,7 @@ pub(crate) fn upgrade_liquidity_pool_params(
 
     pool_update_params_call(env, &pool_addr, hub_asset, params);
 
-    UpdateMarketParamsEvent {
-        asset: hub_asset.asset.clone(),
-        max_borrow_rate: params.max_borrow_rate,
-        base_borrow_rate: params.base_borrow_rate,
-        slope1: params.slope1,
-        slope2: params.slope2,
-        slope3: params.slope3,
-        mid_utilization: params.mid_utilization,
-        optimal_utilization: params.optimal_utilization,
-        max_utilization: params.max_utilization,
-        reserve_factor: params.reserve_factor,
-    }
-    .publish(env);
+    UpdateMarketParamsEvent::from((hub_asset.hub_id, hub_asset.asset.clone(), params)).publish(env);
 }
 
 pub(crate) fn upgrade_pool(env: &Env, new_wasm_hash: BytesN<32>) {

@@ -1,23 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 gitignore = true
 
 exclude_globs = [
@@ -26,265 +6,115 @@ exclude_globs = [
     "tests/fuzz/**",
     "mock/**",
 
-
     "**/certora/**",
     "**/test_support.rs",
     "**/tests.rs",
-
 
     "common/src/types/shared.rs",
     "common/src/types/aggregator.rs",
 ]
 
-
+# Surviving mutants we accept. Grouped by WHY, because "a mutant survives" has
+# two very different meanings and they need different follow-up:
+#
+#   EQUIVALENT  the mutated program is observably identical to the original, so
+#               no test can ever kill it. Nothing to fix.
+#   UNREVIEWED  the mutant survives and nobody has shown it is equivalent. Each
+#               of these is a possible test gap. Do not add to this group
+#               without saying what you checked.
+#
+# Entries naming a function that no longer exists are worse than useless: they
+# are dead, and a name-scoped regex will silently suppress a *future* function
+# that happens to reuse the name. Prune on rename.
 exclude_re = [
     "test_support::",
 
-
-
-
-
-
-
-
-    "replace blend_empty -> Outcome with Default::default\\(\\)",
-    "replace blend_partial -> Outcome with Default::default\\(\\)",
-
-
-
-
-    "replace prefetch_strategy_oracles with \\(\\)",
-
-
-
-
-    "replace > with >= in anchor_ratio_bps",
-
-
-
-
-
-    "reflector.rs:[0-9]+:(25|33): replace < with <= in read_twap",
-
-
-
-
-    "replace > with >= in <impl LiquidityPoolInterface for LiquidityPool>::claim_revenue",
-
-
+    # --- EQUIVALENT: boundary-equivalent comparisons -------------------------
+    # Flipping strict/non-strict at a point the surrounding logic already
+    # handles identically (the equal case is unreachable, or both branches
+    # produce the same value).
     "replace < with <= in Wad::min",
     "replace > with >= in Wad::max",
     "replace > with >= in rescale_half_up",
     "replace > with >= in rescale_floor",
     "replace > with >= in rescale_ceil",
-    "replace < with <= in mul_div_half_up_signed",
-
-
-
+    "reflector.rs:[0-9]+:(25|33): replace < with <= in read_twap",
     "observation.rs:[0-9]+:14: replace > with >= in is_stale",
-
-
-
     "replace > with >= in calculate_borrow_rate",
     "replace > with >= in update_borrow_index",
-
-
-
-
-
-
     "replace > with >= in normalize_repayment_plan",
-
-
-
-
-
-
-
-
-
-
-
     "replace > with >= in estimate_liquidation_amount",
-
-
-
-
-
-
-    "replace \\|\\| with && in Cache::prefetch_market_indexes",
-
-
-
-
-
-
-
-
-
-
-
-    "replace -= with \\+= in settle_partial_max",
-    "replace -= with /= in settle_partial_max",
-
-
-
-
-
-    "replace \\+= with -= in settle_partial_max",
-    "replace \\+= with \\*= in settle_partial_max",
-
-
-
-
-
-    "replace >= with < in settle_partial_max",
-    "replace >= with > in settle_partial_max",
-    "replace >= with == in settle_partial_max",
-
-
-
-
-
-    "withdraw.rs:[0-9]+:15: replace < with <= in settle_partial_max",
-
-
-
-
-
-
-
-
-
-
-
-    "withdraw.rs:[0-9]+:15: replace < with <= in partial_ok",
-
-
-
-
-
-
-
-    "replace >= with > in max_borrow",
-    "replace >= with == in max_borrow",
-    "replace >= with > in binary_search_partial",
-    "replace >= with == in binary_search_partial",
-
-
-
-
-
-
-
-
-
-
-
-
-    "replace && with \\|\\| in risk_partial_cap",
-    "withdraw.rs:[0-9]+:18: replace == with != in risk_partial_cap",
-    "withdraw.rs:[0-9]+:35: replace == with != in risk_partial_cap",
-    "withdraw.rs:[0-9]+:35: replace \\|\\| with && in risk_partial_cap",
-
-
-
-
-
-
-
+    "replace > with >= in <impl LiquidityPoolInterface for LiquidityPool>::claim_revenue",
     "aggregation.rs:[0-9]+:78: replace > with >= in sorted_copy",
-
-
-
-
-
-
-
-    "replace \\|\\| with && in update_supply_index",
-
-
-
-
-
+    "aquarius.rs:[0-9]+:36: replace > with >= in add_liquidity",
+    "aquarius.rs:[0-9]+:19: replace > with >= in add_liquidity",
+    "aquarius.rs:[0-9]+:18: replace < with == in add_liquidity",
+    "aquarius.rs:[0-9]+:18: replace < with <= in add_liquidity",
+    # Lived in aquarius.rs once; the entry was never re-scoped when it moved,
+    # so it silently stopped matching. At proportional == RESIDUAL_DUST_FLOOR
+    # both arms return the same value.
+    "lib.rs:[0-9]+:21: replace > with >= in residual_allowance",
     "vault.rs:[0-9]+:19: replace < with <= in Vault",
 
+    # --- EQUIVALENT: guarded downstream --------------------------------------
+    # `update_supply_index` returns `old_index` when supplied == 0 OR
+    # rewards_increase == 0. Narrowing `||` to `&&` lets a single-zero case fall
+    # through, but the `total_supplied_value == Ray::ZERO` guard immediately
+    # below returns `old_index` when supplied == 0, and with rewards_increase
+    # == 0 the arithmetic reduces to `old_index` anyway. Same output on every
+    # input.
+    "replace \\|\\| with && in update_supply_index",
 
-
-
-
+    # --- EQUIVALENT: return value is discarded by the caller ------------------
+    # `venues::dispatch_hop` drops whatever a venue's `swap` returns and
+    # recomputes the fill itself as `output_balance() - before_out`. The
+    # venue-level delta is therefore dead, and mutating it is unobservable.
+    # The dispatcher's own subtraction IS covered -- see
+    # `sushi_split_credits_only_the_delta_of_each_hop`, which is the only test
+    # that fails when it becomes `checked_add`.
+    "sushi.rs:[0-9]+:43: replace - with \\+ in swap",
     "soroswap.rs:[0-9]+:42: replace < with <= in swap",
 
-
-
-
-
-
-
-
-    "sushi.rs:[0-9]+:43: replace - with \\+ in swap",
-
-
-
-
-
-
-
-
-
-
-
+    # --- EQUIVALENT: unobservable against a Stellar Asset Contract ------------
+    # Both build invoker-contract auth for the Comet hop. Against a SAC token
+    # neither is load-bearing: `approve` is invoked directly by the router, so
+    # the router's authorization is implicit, and SAC `transfer_from` requires
+    # the *spender* (the pool), not the router. Confirmed by deleting each call
+    # and running the suite under `mock_auths` rather than `mock_all_auths` --
+    # `env.auths()` records only the sender's tree either way.
+    # Killing these needs a venue mock that demands the caller's auth the way a
+    # real Comet pool might; until such a mock exists they cannot be killed.
     "replace authorize_token_approve with \\(\\)",
     "replace authorize_comet_swap with \\(\\)",
 
+    # --- OUT OF SCOPE: not in the deployed contract ---------------------------
+    # Both are `#[cfg(feature = "certora")]` helpers in price-aggregator's engine,
+    # used to drive two-leg *price blending* in formal verification. Nothing to do
+    # with the Blend lending protocol. They are not compiled into the shipped wasm
+    # and no ordinary test builds them, so no test can ever kill these.
+    "replace blend_empty -> Outcome with Default::default\\(\\)",
+    "replace blend_partial -> Outcome with Default::default\\(\\)",
 
-
-
-
-
-
-
-
-
-    "replace && with \\|\\| in apply_canceller_reset",
-
-
-
-
-
-
-
-
-
-
-
+    # --- EQUIVALENT: guard is unreachable under the owner-holds-all invariant --
+    # `__constructor` grants all five operational roles to the owner and
+    # `sync_owner_access_control` migrates them on transfer, while
+    # `apply_revoke_role` refuses to act on the owner at all. So the owner holds
+    # every role permanently, and any role a non-owner holds has member count >= 2.
+    # The `count > 1` last-proposer guard therefore never fails -- with `==` or
+    # with `!=`. CannotRemoveLastProposer (error 48) is unreachable today; if the
+    # owner ever stops being auto-granted every role, this becomes killable and
+    # should move back to UNREVIEWED.
     "replace == with != in apply_revoke_role",
 
+    # The `while` loop directly above the grant loop revokes CANCELLER from every
+    # non-owner holder first, so `has_role(account, role).is_none()` is already
+    # true for every account the grant loop sees; and for the owner both operands
+    # are false. `&&` and `||` agree on every reachable input.
+    "replace && with \\|\\| in apply_canceller_reset",
 
-
-
-    "aquarius.rs:[0-9]+:36: replace > with >= in add_liquidity",
-    "aquarius.rs:[0-9]+:19: replace > with >= in add_liquidity",
-
-
-
-
-    "aquarius.rs:[0-9]+:18: replace < with == in add_liquidity",
-    "aquarius.rs:[0-9]+:18: replace < with <= in add_liquidity",
-
-
-
-
-    "aquarius.rs:[0-9]+:28: replace > with >= in optimal_pre_swap",
-    "aquarius.rs:[0-9]+:17: replace > with >= in optimal_pre_swap",
-
-
-
-
-    "aquarius.rs:[0-9]+:21: replace > with >= in residual_allowance",
-
-
-
-
-    "aquarius.rs:[0-9]+:17: replace - with \\+ in optimal_pre_swap",
+    # --- UNREVIEWED: possible test gaps, not shown equivalent -----------------
+    # Each of these changes real branch or accounting behaviour and nobody has
+    # demonstrated the mutated program is observably identical. Treat as open
+    # work: either write the test that kills it, or move it up with a note
+    # saying what makes it equivalent.
 ]

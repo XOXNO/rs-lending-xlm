@@ -1,13 +1,3 @@
-
-
-
-
-
-
-
-
-
-
 flow_admin() {
     phase admin
 
@@ -18,16 +8,8 @@ flow_admin() {
     inv admin_unpause "$ADMIN" "$CONTROLLER" -- unpause >/dev/null
     xfail unpause_when_live 'Error\(Contract, #1001\)' "$ADMIN" "$CONTROLLER" -- unpause
 
-
-
-
-
     inv set_position_limits "$ADMIN" "$CONTROLLER" -- set_position_limits \
         --limits '{"max_supply_positions":10,"max_borrow_positions":10}' >/dev/null
-
-
-
-
 
     inv update_pool_params "$ADMIN" "$CONTROLLER" -- upgrade_liquidity_pool_params \
         --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$EURC_SAC")" \
@@ -46,9 +28,6 @@ flow_admin() {
     xfail asset_cfg_bad_bounds 'Error\(Contract, #113\)' "$ADMIN" "$CONTROLLER" -- edit_asset_in_spoke \
         --input "$(spoke_args "$PRIMARY_HUB_ID" "$EURC_SAC" "$PRIMARY_SPOKE_ID" true true 9000 7000 900)"
 
-
-
-
     local tol_bands eurc_key
     eurc_key=$(price_key_token "$EURC_SAC")
     tol_bands=$(view oracle_tol_resolve "$GOVERNANCE" -- resolve_oracle_tolerance \
@@ -56,24 +35,19 @@ flow_admin() {
     inv set_tolerance "$ADMIN" "$PRICE_AGGREGATOR" -- set_tolerance \
         --key "$eurc_key" --tolerance "$tol_bands" >/dev/null
 
-
     xfail oracle_tol_owner_guard 'Missing signing key' "$ALICE" "$PRICE_AGGREGATOR" -- set_tolerance \
         --key "$eurc_key" --tolerance "$tol_bands"
-
 
     inv update_indexes "$ADMIN" "$CONTROLLER" -- update_indexes \
         --caller "$ADMIN_ADDR" --assets "$(hub_vec "$PRIMARY_HUB_ID" "$XLM_SAC" "$USDC_SAC" "$EURC_SAC")" >/dev/null
     inv update_indexes "$ALICE" "$CONTROLLER" -- update_indexes \
         --caller "$ALICE_ADDR" --assets "$(hub_vec "$PRIMARY_HUB_ID" "$XLM_SAC")" >/dev/null
 
-
     inv update_account_threshold "$ADMIN" "$CONTROLLER" -- update_account_threshold \
         --caller "$ADMIN_ADDR" --has_risks false \
         --account_ids "[${ADMIN_ACCT:-1}]" >/dev/null
     inv update_account_threshold "$ALICE" "$CONTROLLER" -- update_account_threshold \
         --caller "$ALICE_ADDR" --has_risks false --account_ids "[${ADMIN_ACCT:-1}]" >/dev/null
-
-
 
     local pool_rev_before
     pool_rev_before=$(_view_pool_int pool_revenue_pre get_revenue --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")")
@@ -84,9 +58,6 @@ flow_admin() {
         --caller "$ALICE_ADDR" --assets "$(hub_vec "$PRIMARY_HUB_ID" "$USDC_SAC")" >/dev/null
     view pool_rates_view "$POOL" -- get_borrow_rate --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")" >/dev/null
     view pool_util_view "$POOL" -- get_utilisation --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")" >/dev/null
-
-
-
 
     local tmp_cat
     tmp_cat=$(inv spoke_tmp_add "$ADMIN" "$CONTROLLER" -- add_spoke | tr -d '"')
@@ -104,9 +75,6 @@ inv spoke_tmp_remove_asset "$ADMIN" "$CONTROLLER" -- remove_asset_from_spoke \
         --caller "$BOB_ADDR" --account_id 0 --spoke_id "$tmp_cat" \
         --assets "$(pay_vec "$PRIMARY_HUB_ID" "$XLM_SAC" 1000000000)"
 
-
-
-
     local bob_minb_acct
     bob_minb_acct=$(inv minb_supply "$BOB" "$CONTROLLER" -- supply \
         --caller "$BOB_ADDR" --account_id 0 --spoke_id "$PRIMARY_SPOKE_ID" \
@@ -121,7 +89,6 @@ inv spoke_tmp_remove_asset "$ADMIN" "$CONTROLLER" -- remove_asset_from_spoke \
     assert_int_view_eq minb_read_zero 0 get_min_borrow_collateral_usd
     xfail minb_negative 'Error\(Contract, #116\)' "$ADMIN" "$CONTROLLER" -- set_min_borrow_collateral_usd \
 --floor_wad=-1
-
 
 view pool_address_view "$CONTROLLER" -- get_pool_address >/dev/null
 view market_index_xlm "$CONTROLLER" -- get_market_index \
@@ -143,8 +110,6 @@ xfail delegated_borrow_removed 'Error\(Contract' "$ALICE" "$CONTROLLER" -- borro
 inv manager_deactivate_alice "$ADMIN" "$CONTROLLER" -- set_position_manager \
 --manager "$ALICE_ADDR" --is_active false >/dev/null
 
-
-
 local blend_pool
 blend_pool=$(jq -r '.pools[0].address // empty' "$REPO_ROOT/configs/$NETWORK/blend.json")
 if [ -n "$blend_pool" ] && [ "$blend_pool" != "null" ]; then
@@ -155,14 +120,6 @@ inv blend_pool_revoke "$ADMIN" "$CONTROLLER" -- revoke_blend_pool --pool "$blend
 view blend_pool_false "$CONTROLLER" -- is_blend_pool_approved --pool "$blend_pool" >/dev/null
 inv blend_pool_reapprove "$ADMIN" "$CONTROLLER" -- approve_blend_pool --pool "$blend_pool" >/dev/null
 if [ "${BLEND_MIGRATION_LIVE:-0}" = "1" ]; then
-
-
-
-
-
-
-
-
 
 local coll_amt supply_amt debt_amt debt_cap seed_requests coll_json supply_json debt_json migrate_acct
 coll_amt="${BLEND_XLM_COLLATERAL_AMOUNT:-${BLEND_XLM_AMOUNT:-2000000000}}"
@@ -213,7 +170,6 @@ migrate_acct=$(inv migrate_blend_live "$ALICE" "$CONTROLLER" -- migrate_from_ble
     --supply_assets "$supply_json" \
     --debt_caps "$debt_json" | tr -d '"')
 
-
 view blend_position_swept "$blend_pool" -- get_positions --address "$ALICE_ADDR" >/dev/null
 
 assert_bool_view migrate_blend_account_exists true account_exists --account_id "$migrate_acct"
@@ -230,10 +186,6 @@ record migrate_blend_live environment-blocked migrate_from_blend "" "" "" "" "" 
 fi
 fi
 
-
-
-
-
     create_market XLM_SECONDARY "$SECONDARY_HUB_ID" "$XLM_SAC" 7 \
         "$(oracle_cfg_reflector XLM 163000000000000000 199000000000000000)" \
         "$(asset_config_json 7000 7500 1000)"
@@ -246,7 +198,6 @@ fi
     assert_bool_view secondary_account_exists true account_exists --account_id "$secondary_acct"
 
 }
-
 
 flow_admin_upgrade() {
     phase admin_upgrade
@@ -270,7 +221,6 @@ flow_admin_upgrade() {
         inv controller_migrate "$ADMIN" "$CONTROLLER" -- migrate --new_version $((ver + 1)) >/dev/null
         inv unpause_after_upgrade "$ADMIN" "$CONTROLLER" -- unpause >/dev/null
     fi
-
 
     local ledger
     ledger=$(curl -s -m 30 -X POST "$RPC_URL" -H 'Content-Type: application/json' \

@@ -51,7 +51,7 @@ EURC market, not liquidation's mocks; `caps` uses its own mock collateral).
 | Tier | Scripts | Gate |
 |------|---------|------|
 | **Release CI** | `parallel_e2e.sh` (per-lane `full_e2e.sh` → `assert_green.sh`) | All actions must be `ok`, `xfail`, `read`, or `sim-*` (not `sim-error`); no unresolved `FAIL` in any lane. Exercises the full model (see central facts: 3-contract ownership, scaled balances, pause matrix, multi-hub, bad-debt floor, etc.). |
-| **Research** | `liq_20feed.sh`, `liq20_v2_walk.sh`, `liq_20feed_*.sh` | Width probes record `research` status (intentional frontier misses); run manually after stress. See `tests/test-harness/tests/fuzz/` for proptest coverage of INVARIANTS/ADRs. |
+| **Research** | `liq_20feed.sh`, `liq20_v2_walk.sh`, `liq_20feed_*.sh` | Width probes record `research` status (intentional frontier misses); run manually after stress. See `tests/test-harness/tests/fuzz/` for proptest coverage. |
 
 Shared width logic lives in `lib/liq20_width.sh`. **`liq20_v2_walk.sh`** is the canonical instruction-cap walk; `liq_20feed_walk.sh`, `width.sh`, `bisect.sh`, and `retry9.sh` are thin wrappers.
 

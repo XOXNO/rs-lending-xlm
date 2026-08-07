@@ -1,4 +1,3 @@
-
 use anyhow::{anyhow, Result};
 use stellar_xdr::curr::{
     ExtendFootprintTtlOp, ExtensionPoint, LedgerKey, Operation, OperationBody,

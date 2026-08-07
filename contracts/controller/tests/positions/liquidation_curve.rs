@@ -570,8 +570,6 @@ fn bonus_within_base_and_max_bounds() {
     }
 }
 
-/// Builds a consistent snapshot from (collateral, p, hf). Returns `None` when the
-/// derived debt would round to zero.
 fn grid_snap(collateral: i128, p_pct: i128, hf_pct: i128) -> Option<LiquidationSnapshot> {
     let weighted = collateral * p_pct / 100;
     if hf_pct == 0 {
@@ -590,9 +588,6 @@ fn grid_snap(collateral: i128, p_pct: i128, hf_pct: i128) -> Option<LiquidationS
     ))
 }
 
-/// `max_hf_preserving_bonus_bps` must equal BPS*(V/D - 1) — the exact threshold at which a
-/// liquidation stops improving the health factor. This is the load-bearing identity behind
-/// every escalation decision, so it is asserted directly against the closed form.
 #[test]
 fn hf_preserving_cap_equals_collateral_over_debt_ratio() {
     let collateral = 100 * WAD;
@@ -625,8 +620,6 @@ fn hf_preserving_cap_equals_collateral_over_debt_ratio() {
     assert!(checked > 50, "grid too small: only {checked} points");
 }
 
-/// The structural ceiling: seizing collateral weighted at `p` to repay debt 1:1 can only stay
-/// solvency-neutral while `(1+b) <= 1/p`. `max_bonus_for_threshold` must be that closed form.
 #[test]
 fn max_bonus_for_threshold_matches_closed_form() {
     let env = Env::default();
@@ -634,7 +627,7 @@ fn max_bonus_for_threshold_matches_closed_form() {
     for p_pct in [10i128, 25, 40, 50, 75, 80, 90, 99] {
         let p = Wad::from(p_pct * WAD / 100);
         let got = max_bonus_for_threshold(&env, p).raw();
-        let eff_thr = p_pct * 100; // p in bps
+        let eff_thr = p_pct * 100;
         let want = 10_000 * (10_000 - eff_thr) / eff_thr;
         assert_eq!(got, want, "max bonus mismatch at p={p_pct}%");
 
@@ -645,8 +638,6 @@ fn max_bonus_for_threshold_matches_closed_form() {
     }
 }
 
-/// The bonus actually returned must never exceed the HF-preserving cap whenever that cap is
-/// the binding constraint (i.e. whenever the plan is not escalated to a full close).
 #[test]
 fn returned_bonus_never_exceeds_the_hf_preserving_cap() {
     let env = Env::default();
@@ -681,8 +672,6 @@ fn returned_bonus_never_exceeds_the_hf_preserving_cap() {
     assert!(partials > 0, "grid never produced a partial liquidation");
 }
 
-/// The escalation predicate must be exactly `cap < base`. This pins the boundary that
-/// `normalize_repayment_plan` relies on to decide whether a partial may be accepted.
 #[test]
 fn full_close_region_is_exactly_where_cap_is_below_base() {
     let env = Env::default();
@@ -724,9 +713,6 @@ fn full_close_region_is_exactly_where_cap_is_below_base() {
     );
 }
 
-/// The central invariant, swept across the whole grid **including the insolvent region** that
-/// the older spot test skipped. Either the plan escalates to a full close (debt -> 0, so HF
-/// cannot fall), or every accepted partial repayment leaves HF non-decreasing.
 #[test]
 fn no_accepted_liquidation_reduces_health_factor() {
     let env = Env::default();
@@ -784,15 +770,6 @@ fn no_accepted_liquidation_reduces_health_factor() {
     );
 }
 
-/// Partial plans must be self-limiting: the planner sizes them so the implied seizure fits
-/// inside the available collateral, via the `d_max = V/(1+b)` term in `try_liquidation_at_target`.
-///
-/// Full-close escalations are the deliberate exception — on an insolvent account the planner asks
-/// for the whole debt even though `D*(1+b) > V`, and relies on `calculate_seized_collateral` to
-/// clamp each leg to the position actually held. That clamp is proven separately in
-/// `escalated_full_close_over_asks_and_is_clamped_to_collateral` (liquidation_math.rs); asserting
-/// it here would be asserting the wrong contract, which is why this test partitions the two cases
-/// instead of skipping one.
 #[test]
 fn partial_plans_size_seizure_within_collateral() {
     let env = Env::default();
@@ -831,20 +808,6 @@ fn partial_plans_size_seizure_within_collateral() {
     );
 }
 
-/// A full close is reached by three distinct routes, and they are worth naming because they carry
-/// very different consequences for the borrower:
-///
-///   1. `cap < base`  — no bonus-bearing partial can avoid worsening the position, so the plan
-///      demands the whole debt. Includes every insolvent account (`cap < 0`).
-///   2. `base <= cap < scaled_bonus` — the curve wants more bonus than HF-neutrality allows, so
-///      the bonus is clamped to `cap = V/D - 1`. Substituting `(1+b) = V/D` into
-///      `try_liquidation_at_target` yields `d_ideal = D`, i.e. a full close that seizes **all**
-///      collateral. This is the borrower-wipeout band.
-///   3. dust remainder — the partial would leave less than `BAD_DEBT_USD_THRESHOLD` outstanding,
-///      so it is rounded up to a full close.
-///
-/// This test asserts all three are reachable and that route 2 really does consume the entire
-/// collateral, so the behaviour is a recorded decision rather than an accident.
 #[test]
 fn full_close_escalation_causes() {
     let env = Env::default();
@@ -901,13 +864,6 @@ fn full_close_escalation_causes() {
     let _ = other;
 }
 
-/// The bonus ramp must match its closed form exactly, not merely be monotone and in-bounds:
-///
-///     scale(hf) = clamp((target - hf) / (target - knee), 0, 1)
-///     bonus(hf) = base + (max - base) * scale(hf) * factor
-///
-/// Swept at 1% HF resolution across the whole ramp, including both clamped ends. A 1 bps
-/// tolerance covers the half-up rounding in the fixed-point multiply.
 #[test]
 fn bonus_ramp_matches_closed_form_exactly() {
     let env = Env::default();
@@ -947,14 +903,6 @@ fn bonus_ramp_matches_closed_form_exactly() {
     );
 }
 
-/// `max_bonus_for_threshold` must (a) match its specification exactly — ceil the effective
-/// threshold to whole bps, then floor the resulting bonus — and (b) as a consequence of those two
-/// rounding choices, never exceed the exact real-valued `(1-p)/p`.
-///
-/// Both roundings push the same way, so the returned ceiling is always conservative. The shortfall
-/// is not negligible at small `p`: ceiling the threshold by up to 1 bps moves the bonus by roughly
-/// `BPS²/thr²` bps, which is ~6 bps at p=1/3 and grows sharply as `p` falls. That is safe, but it
-/// is worth pinning so a future "optimisation" to round-to-nearest is caught.
 #[test]
 fn max_bonus_for_threshold_matches_spec_and_rounds_against_the_liquidator() {
     let env = Env::default();
@@ -980,15 +928,6 @@ fn max_bonus_for_threshold_matches_spec_and_rounds_against_the_liquidator() {
     }
 }
 
-/// Why insolvent accounts are allowed to be liquidated in part rather than forced to a full close:
-/// a full close on `V < D` pays `D` and recovers at most `V`, so it is always loss-making and no
-/// liquidator would ever fund it. Demanding one would make every insolvent position permanently
-/// unliquidatable.
-///
-/// The accepted cost is that a partial at bonus `b` grows the shortfall `S = D - V` by `repaid * b`,
-/// which suppliers ultimately absorb. That trade-off is deliberate and matches the standard
-/// lending-protocol design; this test pins the economics so a future change that makes insolvent
-/// full-closes look profitable (and would therefore be arithmetically wrong) is caught.
 #[test]
 fn full_close_on_insolvent_account_would_never_be_profitable() {
     let env = Env::default();
@@ -1002,7 +941,7 @@ fn full_close_on_insolvent_account_would_never_be_profitable() {
                 continue;
             };
             if s.total_collateral.raw() >= s.total_debt.raw() {
-                continue; // solvent: a full close can be profitable, and that is fine
+                continue;
             }
             let bounds = BonusBounds {
                 base: Bps::from(500i128),
@@ -1029,10 +968,6 @@ fn full_close_on_insolvent_account_would_never_be_profitable() {
     assert!(checked > 0, "grid never covered an insolvent account");
 }
 
-/// Evolves a snapshot through one liquidation of `repay` at `bonus`, mirroring the
-/// contract's own arithmetic: `calculate_seized_collateral` seizes
-/// `repay * (1 + bonus)` spread pro-rata, so every position — and therefore `W` —
-/// loses the same fraction of value.
 fn apply_liquidation(s: &LiquidationSnapshot, repay: i128, bonus_bps: i128) -> LiquidationSnapshot {
     let (v, d, w) = (
         s.total_collateral.raw(),
@@ -1044,7 +979,7 @@ fn apply_liquidation(s: &LiquidationSnapshot, repay: i128, bonus_bps: i128) -> L
 
     let v2 = v - seized;
     let d2 = d - repay;
-    let w2 = w - p * seized / WAD; // pro-rata: W loses p * (seized value)
+    let w2 = w - p * seized / WAD;
 
     snap(
         d2,
@@ -1055,9 +990,6 @@ fn apply_liquidation(s: &LiquidationSnapshot, repay: i128, bonus_bps: i128) -> L
     )
 }
 
-/// At the HF-neutral rate the post-liquidation health factor is unchanged, for any
-/// partial size. Uses the repo's own `calculate_post_liquidation_hf` as the oracle so
-/// the assertion is against contract arithmetic, not a re-derivation.
 #[test]
 fn hf_neutral_bonus_leaves_health_factor_invariant() {
     let env = Env::default();
@@ -1128,9 +1060,6 @@ fn hf_neutral_bonus_leaves_health_factor_invariant() {
     assert!(checked > 0, "grid never reached the neutral-rate arm");
 }
 
-/// The economic statement of the same property: slicing a liquidation into N partials at
-/// the neutral rate seizes the same collateral in total as a single full close, so there is
-/// no fee loop to farm.
 #[test]
 fn slicing_at_the_neutral_rate_seizes_the_same_total_as_one_full_close() {
     let env = Env::default();
@@ -1176,9 +1105,6 @@ fn slicing_at_the_neutral_rate_seizes_the_same_total_as_one_full_close() {
     let _ = env;
 }
 
-/// The complement: any bonus above the neutral rate breaks the fixed point and drives
-/// coverage down on every pass. This is the ratchet that `FullCloseRequired` blocks in the
-/// `0 <= cap < base` band, and it is why that band cannot simply allow partials.
 #[test]
 fn bonus_above_the_neutral_rate_ratchets_coverage_down() {
     let mut s = snap(

@@ -1,18 +1,20 @@
 use crate::account;
-use common::errors::SpokeError;
 use common::math::fp::Wad;
 use common::types::{
     Account, AccountPosition, DebtPosition, PoolAction, PoolWithdrawEntry, RepayEntry, SeizeEntry,
 };
 use common::validation::expect_invariant;
-use soroban_sdk::{assert_with_error, Address, Env, Vec};
+use soroban_sdk::{Address, Env, Vec};
 
 use crate::context::Cache;
 use crate::events;
-use crate::external::sac::sac_transfer_call;
+use crate::payments;
 use crate::positions::liquidation::bad_debt;
 use crate::positions::liquidation::curve::is_socializable_bad_debt;
-use crate::positions::{make_pool_action, repay, withdraw};
+use crate::positions::{
+    enforce_spoke_asset_flags, make_pool_action, repay, withdraw, FreezePolicy,
+};
+use common::errors::GenericError;
 
 pub(crate) fn apply_liquidation_repayments(
     env: &Env,
@@ -20,26 +22,47 @@ pub(crate) fn apply_liquidation_repayments(
     account: &mut Account,
     repaid: &Vec<RepayEntry>,
     cache: &mut Cache,
-) {
+) -> Wad {
     let pool_addr = cache.cached_pool_address();
     let mut actions: Vec<PoolAction> = Vec::new(env);
+    let mut received_usd = Wad::ZERO;
     for entry in repaid.iter() {
-        let debt_paused = cache
-            .cached_spoke_asset(account.spoke_id, &entry.hub_asset)
-            .is_some_and(|c| c.paused);
-        assert_with_error!(env, !debt_paused, SpokeError::SpokeAssetPaused);
+        enforce_spoke_asset_flags(
+            env,
+            cache,
+            account.spoke_id,
+            &entry.hub_asset,
+            FreezePolicy::AllowOnExit,
+        );
 
-        sac_transfer_call(
+        // Measure pool receipt (same as user supply/repay) so cash/debt books
+        // never credit more than tokens actually received.
+        let received = payments::transfer_amount_measured(
             env,
             &entry.hub_asset.asset,
             liquidator,
             &pool_addr,
-            &entry.amount,
+            entry.amount,
+            GenericError::AmountMustBePositive,
         );
+
+        // Value that actually arrived for this leg. `transfer_amount_measured`
+        // has already asserted `entry.amount > 0`, so the ratio is well defined.
+        let leg_usd = if received >= entry.amount {
+            Wad::from(entry.usd_wad)
+        } else {
+            Wad::from(common::math::fp_core::mul_div_floor(
+                env,
+                entry.usd_wad,
+                received,
+                entry.amount,
+            ))
+        };
+        received_usd = received_usd.checked_add(env, leg_usd);
 
         let position: DebtPosition =
             (&expect_invariant(env, account.borrow_positions.get(entry.hub_asset.clone()))).into();
-        actions.push_back(make_pool_action(&position, entry.amount, entry.hub_asset));
+        actions.push_back(make_pool_action(&position, received, entry.hub_asset));
     }
     repay::apply_repay_batch(
         env,
@@ -49,6 +72,7 @@ pub(crate) fn apply_liquidation_repayments(
         &actions,
         cache,
     );
+    received_usd
 }
 
 pub(crate) fn apply_liquidation_seizures(
@@ -60,10 +84,13 @@ pub(crate) fn apply_liquidation_seizures(
 ) {
     let mut entries: Vec<PoolWithdrawEntry> = Vec::new(env);
     for entry in seized.iter() {
-        let collateral_paused = cache
-            .cached_spoke_asset(account.spoke_id, &entry.hub_asset)
-            .is_some_and(|c| c.paused);
-        assert_with_error!(env, !collateral_paused, SpokeError::SpokeAssetPaused);
+        enforce_spoke_asset_flags(
+            env,
+            cache,
+            account.spoke_id,
+            &entry.hub_asset,
+            FreezePolicy::AllowOnExit,
+        );
 
         let position: AccountPosition =
             (&expect_invariant(env, account.supply_positions.get(entry.hub_asset.clone()))).into();

@@ -153,6 +153,4 @@ seed_liquidatable_usdc_eth(&mut t);
 Crate root: [`../README.md`](../README.md). Public API surface: `test_harness::prelude::*` or granular imports from `test_harness::{LendingTest, …}`.
 
 Harness coverage for live contract facts (ownership chain, pause matrix, hubs,
-spokes, bad-debt floor, oracle call-site policy). See
-`docs/reference/invariants.md`, `docs/reference/architecture.md`, and
-`docs/explanation/decisions/`.
+spokes, bad-debt floor, oracle call-site policy).

@@ -1,13 +1,3 @@
-
-
-
-
-
-
-
-
-
-
 GOV_ZERO32="0000000000000000000000000000000000000000000000000000000000000000"
 GOV_SALT_CANCEL="1111111111111111111111111111111111111111111111111111111111111111"
 GOV_SALT_EXEC="2222222222222222222222222222222222222222222222222222222222222222"
@@ -18,12 +8,10 @@ GOV_SALT_BADCURVE="6666666666666666666666666666666666666666666666666666666666666
 GOV_SALT_UNPAUSE="7777777777777777777777777777777777777777777777777777777777777777"
 GOV_SALT_SELF_SENSITIVE="8888888888888888888888888888888888888888888888888888888888888888"
 
-
 gov_state() {
     stellar contract invoke --id "$GOVERNANCE" --source "$ADMIN" --network "$NETWORK" --send=no \
         -- get_operation_state --operation_id "$1" 2>/dev/null | tr -d '"[:space:]'
 }
-
 
 gov_assert_state() {
     local label="$1" op_id="$2" want="$3" got
@@ -35,7 +23,6 @@ gov_assert_state() {
     fi
 }
 
-
 gov_await_ready() {
     local op_id="$1" tries="${2:-30}" st i
     for ((i = 0; i < tries; i++)); do
@@ -46,8 +33,6 @@ gov_await_ready() {
     echo "$st"
     return 1
 }
-
-
 
 gov_scval_args() {
     local fn="$1"; shift
@@ -61,7 +46,6 @@ gov_scval_args() {
 flow_governance() {
     phase governance
 
-
     local gov_ctrl
     gov_ctrl=$(view gov_controller_view "$GOVERNANCE" -- controller | tr -d '"[:space:]')
     if [ "$gov_ctrl" != "$GOV_CONTROLLER" ]; then
@@ -69,11 +53,6 @@ flow_governance() {
     fi
     xfail gov_deploy_twice 'Error\(Contract, #5\)' "$ADMIN" "$GOVERNANCE" -- deploy_controller \
         --wasm_hash "$CTRL_HASH"
-
-
-
-
-
 
     local op_unpause st_unpause unpause_args_f
     op_unpause=$(inv gov_propose_unpause "$ADMIN" "$GOVERNANCE" -- propose \
@@ -95,10 +74,6 @@ view gov_has_role_admin_executor "$GOVERNANCE" -- has_role \
 view gov_resolve_tol "$GOVERNANCE" -- resolve_oracle_tolerance \
 --tolerance 200 >/dev/null
 
-
-
-
-
     local op_cancel
     op_cancel=$(inv gov_propose_cancel "$ADMIN" "$GOVERNANCE" -- propose \
         --proposer "$ADMIN_ADDR" \
@@ -108,7 +83,6 @@ view gov_resolve_tol "$GOVERNANCE" -- resolve_oracle_tolerance \
     inv gov_cancel "$ADMIN" "$GOVERNANCE" -- cancel \
         --canceller "$ADMIN_ADDR" --operation_id "$op_cancel" >/dev/null
     gov_assert_state gov_state_unset "$op_cancel" Unset
-
 
     local op_exec st args_f
     op_exec=$(inv gov_propose_exec "$ADMIN" "$GOVERNANCE" -- propose \
@@ -136,31 +110,20 @@ inv gov_execute "$ADMIN" "$GOVERNANCE" -- execute \
         --executor null --target "$GOV_CONTROLLER" --function set_position_limits \
         --args-file-path "$args_f" --predecessor "$GOV_ZERO32" --salt "$GOV_SALT_EXEC"
 
-
     xfail gov_propose_non_proposer 'Error\(Contract, #2000\)' "$ALICE" "$GOVERNANCE" -- propose \
         --proposer "$ALICE_ADDR" \
         --op '{"SetPositionLimits":{"max_supply_positions":5,"max_borrow_positions":5}}' \
         --salt "$GOV_SALT_DENY"
-
-
-
 
 xfail gov_propose_bad_limits 'Error\(Contract, #36\)' "$ADMIN" "$GOVERNANCE" -- propose \
 --proposer "$ADMIN_ADDR" \
 --op '{"SetPositionLimits":{"max_supply_positions":11,"max_borrow_positions":11}}' \
 --salt "$GOV_SALT_BADLIMITS"
 
-
-
 xfail gov_propose_bad_liquidation_curve 'Error\(Contract, #134\)' "$ADMIN" "$GOVERNANCE" -- propose \
 --proposer "$ADMIN_ADDR" \
 --op '{"SetSpokeLiquidationCurve":{"spoke_id":1,"target_hf_wad":"1020000000000000000","hf_for_max_bonus_wad":"510000000000000000","liquidation_bonus_factor_bps":10001}}' \
 --salt "$GOV_SALT_BADCURVE"
-
-
-
-
-
 
 local delay_now delay_next op_self delay_got
 delay_now=$(view gov_min_delay_pre_self "$GOVERNANCE" -- get_min_delay | tr -d '"[:space:]')
@@ -179,12 +142,10 @@ inv gov_self_execute_delay "$ADMIN" "$GOVERNANCE" -- execute_self \
     --op "{\"UpdateGovDelay\":$delay_next}" \
     --salt "$GOV_SALT_SELF_DELAY" >/dev/null
 
-
 delay_got=$(view gov_min_delay_post_self "$GOVERNANCE" -- get_min_delay | tr -d '"[:space:]')
 if [ "$delay_got" != "$delay_next" ]; then
     _assert_fail gov_min_delay_post_self "got '$delay_got', want '$delay_next'"
 fi
-
 
 local op_sensitive
 op_sensitive=$(inv gov_self_propose_grant "$ADMIN" "$GOVERNANCE" -- propose \
@@ -196,15 +157,12 @@ inv gov_self_cancel_grant "$ADMIN" "$GOVERNANCE" -- cancel \
     --canceller "$ADMIN_ADDR" --operation_id "$op_sensitive" >/dev/null
 gov_assert_state gov_self_sensitive_unset "$op_sensitive" Unset
 
-
 xfail gov_execute_immediate_absent 'execute_immediate|unknown|not found|No such' \
 "$ADMIN" "$GOVERNANCE" -- execute_immediate \
 --caller "$ADMIN_ADDR" \
 --op '{"GrantGovRole":{"account":"'"$DAVE_ADDR"'","role":"EXECUTOR"}}'
 xfail gov_set_controller_absent 'set_controller|unknown|not found|No such' \
 "$ADMIN" "$GOVERNANCE" -- set_controller --addr "$CONTROLLER"
-
-
 
     inv gov_pause "$ADMIN" "$GOVERNANCE" -- pause --caller "$ADMIN_ADDR" >/dev/null
 }

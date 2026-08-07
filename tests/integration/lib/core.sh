@@ -1,11 +1,8 @@
-
-
 init_run() {
     mkdir -p "$RUN_DIR" "$LOG_DIR"
     if [ ! -f "$ACTIONS_TSV" ]; then
         printf 'seq\tphase\tlabel\tstatus\tfn\thash\tinstructions\tread_bytes\twrite_bytes\tresource_fee\tnote\n' > "$ACTIONS_TSV"
     fi
-
 
     [ -f "$STATE_ENV" ] && source "$STATE_ENV"
     PHASE="${PHASE:-init}"
@@ -20,7 +17,6 @@ log() {
     printf '[%s] %s\n' "$(date +%H:%M:%S)" "$*" >&2
 }
 
-
 save_state() {
     local key="$1" value="$2"
     touch "$STATE_ENV"
@@ -29,7 +25,6 @@ save_state() {
     mv "$STATE_ENV.tmp" "$STATE_ENV"
     eval "$key=\$value"
 }
-
 
 record() {
     local seq
@@ -42,11 +37,6 @@ run_summary() {
     awk -F'\t' 'NR>1 {c[$4]++} END {for (k in c) printf "  %s: %d\n", k, c[k]}' "$ACTIONS_TSV" >&2
 }
 
-
-
-
-
-
 die() {
     local label="$1" msg="$2"
     log "FATAL [$label]: $msg"
@@ -54,19 +44,9 @@ die() {
     exit 1
 }
 
-
-
-
-
 is_contract_id() { [[ "$1" =~ ^C[A-Z2-7]{55}$ ]]; }
 
-
-
-
-
 is_wasm_hash() { [[ "$1" =~ ^[0-9a-f]{64}$ ]]; }
-
-
 
 check_tools() {
     local missing=0 t
@@ -78,9 +58,6 @@ check_tools() {
     done
     return $missing
 }
-
-
-
 
 check_stellar_version() {
     local ver min major minor
@@ -98,26 +75,17 @@ check_stellar_version() {
     return 0
 }
 
-
-
-
-
 extract_signing_hash() {
     local f="$1"
     [ -f "$f" ] || return 1
     grep -oE 'Signing transaction: [0-9a-f]{64}' "$f" | tail -1 | awk '{print $3}'
 }
 
-
-
-
 sanitize_output() {
     local f="$1"
     [ -f "$f" ] || { echo ""; return 1; }
     tr -d '"\n[:space:]' < "$f"
 }
-
-
 
 require_var() {
     local name="$1" label="${2:-$1}"
@@ -126,21 +94,14 @@ require_var() {
     [ -n "$val" ] || die "require_$name" "$label is empty (missing from state.env or prior phase)"
 }
 
-
-
 tail_err_note() {
     local f="$1" n="${2:-300}"
     [ -f "$f" ] || { echo ""; return 0; }
     tail -c "$n" "$f" | tr '\n\t' '  '
 }
 
-
-
-
-
 run_captured() {
     local label="$1" out_f="$2" err_f="$3"; shift 3
     [ "$1" = "--" ] && shift
     "$@" >"$out_f" 2>"$err_f"
 }
-

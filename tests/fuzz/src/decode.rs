@@ -1,4 +1,3 @@
-
 #[inline]
 pub fn arb_amount(raw: u32, lo: f64, hi: f64) -> f64 {
     debug_assert!(hi > lo);

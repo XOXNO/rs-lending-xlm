@@ -1,12 +1,13 @@
 use super::curve::{LiquidationCurve, LiquidationSnapshot};
 use crate::risk;
-use common::errors::{CollateralError, SpokeError};
+use common::errors::CollateralError;
 use common::math::fp::Wad;
 use common::types::{Account, HubPayment, LiquidationResult};
 use soroban_sdk::{assert_with_error, panic_with_error, Env, Vec};
 
 use crate::context::Cache;
 use crate::positions::liquidation::math::*;
+use crate::positions::{enforce_spoke_asset_flags, FreezePolicy};
 
 pub(crate) fn execute_liquidation(
     env: &Env,
@@ -28,10 +29,13 @@ pub(crate) fn build_liquidation_plan(
     }
 
     for (hub_asset, _) in aggregated_debt.iter() {
-        let debt_paused = cache
-            .cached_spoke_asset(account.spoke_id, &hub_asset)
-            .is_some_and(|c| c.paused);
-        assert_with_error!(env, !debt_paused, SpokeError::SpokeAssetPaused);
+        enforce_spoke_asset_flags(
+            env,
+            cache,
+            account.spoke_id,
+            &hub_asset,
+            FreezePolicy::AllowOnExit,
+        );
     }
 
     let totals = risk::calculate_account_risk_totals(
@@ -77,10 +81,13 @@ pub(crate) fn build_liquidation_plan(
         calculate_seized_collateral(env, account, totals.total_collateral, &repayment, cache);
 
     for entry in seized_collaterals.iter() {
-        let collateral_paused = cache
-            .cached_spoke_asset(account.spoke_id, &entry.hub_asset)
-            .is_some_and(|c| c.paused);
-        assert_with_error!(env, !collateral_paused, SpokeError::SpokeAssetPaused);
+        enforce_spoke_asset_flags(
+            env,
+            cache,
+            account.spoke_id,
+            &entry.hub_asset,
+            FreezePolicy::AllowOnExit,
+        );
     }
 
     let plan = LiquidationPlan {

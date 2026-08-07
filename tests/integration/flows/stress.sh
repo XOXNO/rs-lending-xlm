@@ -1,18 +1,5 @@
-
-
-
-
-
-
-
-
-
-
-
 stress_code() { printf 'ST%02d' "$1"; }
 stress_sac()  { local v="SAC_ST$(printf '%02d' "$1")"; echo "${!v}"; }
-
-
 
 flow_stress_setup() {
     phase stress_setup
@@ -45,8 +32,6 @@ flow_stress_setup() {
     save_state STRESS_SETUP_DONE 1
 }
 
-
-
 flow_stress_supply_frontier() {
     phase stress_supply_frontier
     local k args i
@@ -59,12 +44,6 @@ flow_stress_supply_frontier() {
         [ "$PROBE_STATUS" = exceeded ] && { log "supply frontier: $k distinct assets exceeds"; break; }
     done
 }
-
-
-
-
-
-
 
 flow_stress_borrow_frontier() {
     local mode="${1:-single}" colls acct_var
@@ -104,7 +83,6 @@ flow_stress_borrow_frontier() {
     mode_key=$(printf '%s' "$mode" | tr '[:lower:]' '[:upper:]')
     save_state "BORROW_FRONTIER_${mode_key}" "$((colls + best_k))"
 
-
     if [ "$best_k" -gt 0 ]; then
         args=""
         for i in $(seq 10 $((9 + best_k))); do args+=" $(stress_sac $i) $((1000 * STRESS_UNIT))"; done
@@ -121,7 +99,6 @@ flow_stress_borrow_frontier() {
             --payments "$(pay_vec "$PRIMARY_HUB_ID" $args)" >/dev/null
     fi
 }
-
 
 flow_stress_dualify() {
     phase stress_dualify
@@ -152,8 +129,6 @@ flow_stress_dualify() {
     done
     save_state STRESS_DUAL_DONE 1
 }
-
-
 
 flow_stress_liq_frontier() {
     phase stress_liq_frontier

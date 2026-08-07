@@ -27,6 +27,16 @@ pub(crate) fn add_asset_to_spoke(env: &Env, args: &SpokeAssetArgs) {
     store_spoke_asset(env, args, &hub_asset, config);
 }
 
+/// Full listing rewrite (risk params, caps, and halt flags).
+///
+/// Halt flags are **not** ratcheted here. Clearing `paused`/`frozen` is the
+/// intentional recovery path after an emergency freeze, reachable only via
+/// `#[only_owner]` (governance `AdminOperation::EditAssetInSpoke`, which is
+/// timelocked). Immediate GUARDIAN tighten-only control lives on
+/// [`set_spoke_asset_flags`].
+///
+/// Operators must pass the desired flag state on every edit — omitting prior
+/// `paused`/`frozen` values will clear them.
 pub(crate) fn edit_asset_in_spoke(env: &Env, args: &SpokeAssetArgs) {
     let hub_asset = validate_spoke_asset_args(env, args);
     storage::get_spoke(env, args.spoke_id);
@@ -100,6 +110,12 @@ fn store_spoke_asset(
     .publish(env);
 }
 
+/// Immediate GUARDIAN path: may only **tighten** halt flags (`false → true`).
+///
+/// Ratchet rule: once `paused` or `frozen` is set, this entrypoint cannot clear
+/// it (`SpokeAssetFlagRelaxation`). Relaxation is deliberate and delayed via
+/// timelocked [`edit_asset_in_spoke`] (same product shape as global `pause`
+/// immediate / `Unpause` timelocked).
 pub(crate) fn set_spoke_asset_flags(
     env: &Env,
     spoke_id: u32,
@@ -109,11 +125,7 @@ pub(crate) fn set_spoke_asset_flags(
 ) {
     let mut config = storage::get_spoke_asset(env, spoke_id, &hub_asset)
         .unwrap_or_else(|| panic_with_error!(env, SpokeError::AssetNotInSpoke));
-    assert_with_error!(
-        env,
-        (paused || !config.paused) && (frozen || !config.frozen),
-        SpokeError::SpokeAssetFlagRelaxation
-    );
+    require_flag_ratchet(env, &config, paused, frozen);
     config.paused = paused;
     config.frozen = frozen;
     storage::set_spoke_asset(env, spoke_id, &hub_asset, &config);
@@ -125,6 +137,15 @@ pub(crate) fn set_spoke_asset_flags(
         hub_id: hub_asset.hub_id,
     }
     .publish(env);
+}
+
+/// `paused`/`frozen` may only stay set or become set — never clear.
+fn require_flag_ratchet(env: &Env, config: &SpokeAssetConfig, paused: bool, frozen: bool) {
+    assert_with_error!(
+        env,
+        (paused || !config.paused) && (frozen || !config.frozen),
+        SpokeError::SpokeAssetFlagRelaxation
+    );
 }
 
 pub(crate) fn remove_asset_from_spoke(env: &Env, hub_asset: HubAssetKey, spoke_id: u32) {
@@ -149,3 +170,7 @@ pub(crate) fn remove_asset_from_spoke(env: &Env, hub_asset: HubAssetKey, spoke_i
     }
     .publish(env);
 }
+
+#[cfg(test)]
+#[path = "../../tests/config/asset_flags.rs"]
+mod tests;

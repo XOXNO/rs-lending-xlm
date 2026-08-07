@@ -5,7 +5,7 @@ Core invariant
 --------------
 Fixed-point values stay in their declared domain (BPS / WAD / RAY), rescale
 correctly across token decimals, and use half-up multiply/divide unless a call
-site explicitly floors. Rate and index math is monotone where INVARIANTS.md
+site explicitly floors. Rate and index math is monotone where production
 requires it (borrow index, supply index outside bad-debt paths, utilization at
 empty markets).
 
@@ -34,4 +34,4 @@ rates.conf
 Lemma-before-main
 -----------------
 Run math.conf and rates.conf (basic sanity) before controller confs that depend
-on the same primitives. See docs/reference/invariants.md sections 1.1–1.6.
+on the same primitives.

@@ -1,4 +1,3 @@
-
 """Narrow soroban-scanner JSON to deployable crates.
 
 The scanner walks the whole workspace so the symbol resolver can follow
@@ -23,10 +22,8 @@ IN_SCOPE = (
     "/interfaces/price-aggregator/",
 )
 
-
 def in_scope(path: str) -> bool:
     return any(m in path for m in IN_SCOPE)
-
 
 def main() -> None:
     data = json.load(sys.stdin)
@@ -48,7 +45,6 @@ def main() -> None:
     data["detector_responses"] = narrowed
     json.dump(data, sys.stdout, indent=2)
     sys.stdout.write("\n")
-
 
 if __name__ == "__main__":
     main()

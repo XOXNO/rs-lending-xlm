@@ -18,8 +18,6 @@ use crate::engine;
 use crate::observation::OracleObservation;
 use crate::session::Session;
 
-/// The plane can lag a swap without changing the constant-product fair value.
-/// Bound drift in sqrt(k), the exact reserve term used by LP pricing.
 const MAX_LISTING_INVARIANT_DRIFT_BPS: i128 = 10;
 
 pub(crate) fn attest(env: &Env, key: &PriceKey, oracle: &AssetOracle, lp: &AquariusLpSource) {
@@ -112,10 +110,6 @@ pub(crate) fn read(
     )))
 }
 
-/// Listing-time attestation for a stableswap LP share. Mirrors [`attest`] but
-/// binds against the pool's stableswap invariant `D`: the amplification is read
-/// live, the plane row must be `"stable"`, and the pool's own `pool_type` must
-/// agree so a mislabelled plane row alone can never qualify it.
 pub(crate) fn attest_stable(
     env: &Env,
     key: &PriceKey,
@@ -215,9 +209,6 @@ pub(crate) fn read_stable(
     )))
 }
 
-/// Direct and plane reserves must agree on the swap-invariant `D` within a hair.
-/// Like the constant-product check, the plane may lag a swap — which preserves
-/// `D` — so drift is bounded in `D` itself, not the raw reserve split.
 fn stable_invariants_match(
     env: &Env,
     direct: (i128, i128),

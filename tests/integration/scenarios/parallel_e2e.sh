@@ -1,18 +1,5 @@
 #!/usr/bin/env bash
 
-
-
-
-
-
-
-
-
-
-
-
-
-
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -38,7 +25,6 @@ log_orch() { printf '[%s] [orchestrator] %s\n' "$(date +%H:%M:%S)" "$*" >&2; }
 
 mkdir -p "$INTEG_DIR/runs"
 
-
 pids=()
 for lane in "${LANES[@]}"; do
     lane_ts="${BASE}-${lane}"
@@ -51,10 +37,6 @@ for lane in "${LANES[@]}"; do
     pids+=("$!")
 done
 
-
-
-
-
 declare -a lane_exit
 for i in "${!LANES[@]}"; do
     if wait "${pids[$i]}"; then
@@ -65,12 +47,6 @@ for i in "${!LANES[@]}"; do
         log_orch "lane '${LANES[$i]}' process exited NON-ZERO (${lane_exit[$i]}: timeout/crash) — see runs/${BASE}-${LANES[$i]}.log"
     fi
 done
-
-
-
-
-
-
 
 overall=0
 for i in "${!LANES[@]}"; do
@@ -95,7 +71,6 @@ for i in "${!LANES[@]}"; do
         overall=1
     fi
 done
-
 
 combined="$INTEG_DIR/runs/${BASE}-combined.md"
 {

@@ -1,20 +1,5 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
 : "${LIQ_UNIT:=10000000}"
 : "${LIQ_CODES:=(LIQA LIQB LIQC LIQD LIQE LIQF LIQG)}"
-
-
 
 flow_liq_setup() {
     phase liq_setup
@@ -35,7 +20,6 @@ flow_liq_setup() {
         dual_px "$sac" "$code" "$WAD" "px_init_$code"
     done
 
-
     create_market LIQA "$PRIMARY_HUB_ID" "$SAC_LIQA" 7 "$(oracle_cfg_mock_dual "$SAC_LIQA" LIQA)" "$(asset_config_json 7000 7500 800)"
     create_market LIQB "$PRIMARY_HUB_ID" "$SAC_LIQB" 7 "$(oracle_cfg_mock_dual "$SAC_LIQB" LIQB)" "$(asset_config_json 7000 7500 800)"
     create_market LIQC "$PRIMARY_HUB_ID" "$SAC_LIQC" 7 "$(oracle_cfg_mock_dual "$SAC_LIQC" LIQC)" "$(asset_config_json 7000 7500 800)"
@@ -44,14 +28,11 @@ flow_liq_setup() {
     create_market LIQF "$PRIMARY_HUB_ID" "$SAC_LIQF" 7 "$(oracle_cfg_mock_dual "$SAC_LIQF" LIQF)" "$(asset_config_json 7000 7500 200)"
     create_market LIQG "$PRIMARY_HUB_ID" "$SAC_LIQG" 7 "$(oracle_cfg_mock_dual "$SAC_LIQG" LIQG)" "$(asset_config_json 7000 7500 800)"
 
-
-
     inv liq_seed_liquidity "$CAROL" "$CONTROLLER" -- supply \
         --caller "$CAROL_ADDR" --account_id 0 --spoke_id "$PRIMARY_SPOKE_ID" \
         --assets "$(pay_vec "$PRIMARY_HUB_ID" "$SAC_LIQB" $((50000 * LIQ_UNIT)) "$SAC_LIQD" $((50000 * LIQ_UNIT)) "$SAC_LIQF" $((50000 * LIQ_UNIT)))" >/dev/null || return 1
     save_state LIQ_SETUP_DONE 1
 }
-
 
 flow_liq_single() {
     phase liq_single
@@ -68,7 +49,6 @@ flow_liq_single() {
         --liquidator "$CAROL_ADDR" --account_id "$acct" \
         --debt_payments "$(pay_vec "$PRIMARY_HUB_ID" "$SAC_LIQB" $((100 * LIQ_UNIT)))"
 
-
     dual_px "$SAC_LIQA" LIQA $((WAD / 10 * 7)) liq1_crash
     assert_hf_below_wad liq1_hf "$acct"
     assert_can_liquidated liq1_can_liq "$acct" true
@@ -84,12 +64,6 @@ flow_liq_single() {
 
     assert_borrow_at_most liq1_debt_cap_partial "$acct" "$SAC_LIQB" $(( 501 * LIQ_UNIT ))
 
-
-
-
-
-
-
     local est refund close
     est=$(view liq1_estimate_close "$CONTROLLER" -- get_liquidation_estimate \
         --account_id "$acct" --debt_payments "$(pay_vec "$PRIMARY_HUB_ID" "$SAC_LIQB" $((600 * LIQ_UNIT)))")
@@ -102,14 +76,9 @@ flow_liq_single() {
     }
     retry_leg leg_liq1_full
 
-
-
     assert_borrow_at_most liq1_debt_cleared "$acct" "$SAC_LIQB" $(( 100 * LIQ_UNIT ))
     save_state LIQ1_ACCT "$acct"
 }
-
-
-
 
 flow_liq_bulk() {
     phase liq_bulk
@@ -120,7 +89,6 @@ flow_liq_bulk() {
     inv liq2_borrow_bulk "$BOB" "$CONTROLLER" -- borrow \
         --caller "$BOB_ADDR" --account_id "$acct" \
         --borrows "$(pay_vec "$PRIMARY_HUB_ID" "$SAC_LIQB" $((500 * LIQ_UNIT)) "$SAC_LIQD" $((500 * LIQ_UNIT)))" --to null >/dev/null
-
 
     dual_px "$SAC_LIQC" LIQC $((WAD / 10 * 7)) liq2_crash_c
     dual_px "$SAC_LIQA" LIQA $((WAD / 100 * 49)) liq2_crash_a
@@ -136,7 +104,6 @@ liq2_debt_d_pre=$(_view_int liq2_debt_d_pre get_borrow_amount --account_id "$acc
     assert_borrow_decreased liq2_debt_d_post "$acct" "$SAC_LIQD" "$liq2_debt_d_pre"
     save_state LIQ2_ACCT "$acct"
 }
-
 
 flow_liq_spoke() {
     phase liq_spoke
@@ -170,9 +137,6 @@ flow_liq_spoke() {
     save_state LIQ3_ACCT "$acct"
 }
 
-
-
-
 flow_clean_bad_debt() {
     phase clean_bad_debt
     xfail cbd_healthy 'Error\(Contract, #114\)' "$ADMIN" "$CONTROLLER" -- clean_bad_debt \
@@ -185,10 +149,8 @@ flow_clean_bad_debt() {
         --caller "$BOB_ADDR" --account_id "$acct" \
         --borrows "$(pay_vec "$PRIMARY_HUB_ID" "$SAC_LIQB" $((12 * LIQ_UNIT)))" --to null >/dev/null
 
-
     dual_px "$SAC_LIQC" LIQC $((WAD / 100 * 15)) cbd_crash
     inv cbd_clean "$ADMIN" "$CONTROLLER" -- clean_bad_debt \
         --caller "$ADMIN_ADDR" --account_id "$acct" >/dev/null
     assert_borrow_at_most cbd_debt_cleared "$acct" "$SAC_LIQB" 0
 }
-

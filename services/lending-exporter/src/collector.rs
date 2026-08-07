@@ -1,4 +1,4 @@
-
+use std::collections::BTreeSet;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{anyhow, Result};
@@ -496,6 +496,7 @@ async fn publish_spokes(
     index_rows: &[Option<controller::MarketIndexView>],
     decimals: &[Option<u32>],
 ) {
+    let mut attempted = BTreeSet::new();
     for &spoke_id in &cfg.spokes {
         let spoke_name = cfg.spoke_name(spoke_id);
         let spoke_cfg = read_spoke_config(client, metrics, net, contracts, spoke_id).await;
@@ -510,9 +511,21 @@ async fn publish_spokes(
         for (i, (market, row)) in contracts.markets.iter().zip(index_rows.iter()).enumerate() {
             let dec = decimals.get(i).copied().flatten();
             let hub_name = cfg.hub_name(market.hub_id);
+            let s = spoke_id.to_string();
+            let hub = market.hub_id.to_string();
+            attempted.insert(crate::metrics::spoke_asset_label_key(&[
+                net,
+                s.as_str(),
+                spoke_name.as_str(),
+                hub.as_str(),
+                hub_name.as_str(),
+                market.asset_strkey.as_str(),
+                market.symbol.as_str(),
+            ]));
             publish_spoke_asset(client, metrics, net, contracts, spoke_id, &spoke_name, &hub_name, market, row, dec, deprecated).await;
         }
     }
+    metrics.prune_spoke_assets(&attempted);
 }
 
 async fn read_spoke_config(
@@ -550,8 +563,17 @@ async fn publish_spoke_asset(
         Ok(s) => s,
         Err(_) => return,
     };
-    let Ok(cfg) = controller::decode_spoke_asset(&cfg_scv) else {
-        return;
+
+    let cfg = match controller::decode_spoke_asset(&cfg_scv) {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            metrics
+                .view_failures
+                .with_label_values(&[net, "get_spoke_asset", &market.asset_strkey, "decode"])
+                .inc();
+            debug!(target: "exporter.collector", spoke_id, asset = %market.asset_strkey, error = %e, "decode spoke_asset failed");
+            return;
+        }
     };
 
     let s = spoke_id.to_string();
@@ -563,6 +585,9 @@ async fn publish_spoke_asset(
     metrics.spoke_collateral_enabled.with_label_values(&labels).set(b(cfg.is_collateralizable));
     metrics.spoke_borrow_enabled.with_label_values(&labels).set(b(cfg.is_borrowable));
     metrics.spoke_deprecated.with_label_values(&labels).set(b(deprecated));
+
+    metrics.spoke_supply_closed.with_label_values(&labels).set(model::market_closed(cfg.supply_cap));
+    metrics.spoke_borrow_closed.with_label_values(&labels).set(model::market_closed(cfg.borrow_cap));
     metrics.spoke_ltv_bps.with_label_values(&labels).set(cfg.loan_to_value_bps as f64);
     metrics.spoke_liq_threshold_bps.with_label_values(&labels).set(cfg.liquidation_threshold_bps as f64);
     metrics.spoke_liq_bonus_bps.with_label_values(&labels).set(cfg.liquidation_bonus_bps as f64);
@@ -573,6 +598,8 @@ async fn publish_spoke_asset(
     };
     metrics.spoke_supply_cap.with_label_values(&labels).set(model::token_to_f64(cfg.supply_cap, dec));
     metrics.spoke_borrow_cap.with_label_values(&labels).set(model::token_to_f64(cfg.borrow_cap, dec));
+    metrics.spoke_supply_closed.with_label_values(&labels).set(model::market_closed_at(cfg.supply_cap, dec));
+    metrics.spoke_borrow_closed.with_label_values(&labels).set(model::market_closed_at(cfg.borrow_cap, dec));
 
     let (supply_index, borrow_index, price_wad) = match row {
         Some(r) => (r.supply_index_ray, r.borrow_index_ray, r.final_price_wad),

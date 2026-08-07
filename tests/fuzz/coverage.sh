@@ -1,24 +1,5 @@
 #!/usr/bin/env bash
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -45,9 +26,6 @@ if [ -n "$BUILD_STD" ]; then
     EXTRA_FLAGS+=("-Zbuild-std")
 fi
 
-
-
-
 SYSROOT="$(rustc +nightly --print sysroot)"
 HOST_TRIPLE="$(rustc +nightly -vV | sed -n 's|host: ||p')"
 SYSROOT_LLVM_COV="$SYSROOT/lib/rustlib/$HOST_TRIPLE/bin/llvm-cov"
@@ -65,14 +43,10 @@ else
     exit 1
 fi
 
-
 DEMANGLER_ARGS=()
 if command -v rustfilt >/dev/null 2>&1; then
     DEMANGLER_ARGS=(-Xdemangler=rustfilt)
 fi
-
-
-
 
 IGNORE_REGEX='(\.rustup/|/\.cargo/|/rustc/|rs-lending-xlm/tests/fuzz/|tests/test-harness/|/types/|events\.rs|contracts/controller/src/(governance|views)/)'
 
@@ -121,11 +95,6 @@ for target in "${TARGETS[@]}"; do
     fi
 
     echo "  [2/3] coverage build + corpus replay"
-
-
-
-
-
 
     RUSTFLAGS="-Cunsafe-allow-abi-mismatch=sanitizer${RUSTFLAGS:+ }${RUSTFLAGS:-}" \
         cargo +nightly fuzz coverage --fuzz-dir . "$target" "corpus/$target" "seeds/$target" \

@@ -1,4 +1,3 @@
-
 use anyhow::{anyhow, Context, Result};
 use axum::{extract::State, http::StatusCode, routing::get, Router};
 use prometheus::{Encoder, IntCounterVec, IntGauge, Registry, TextEncoder};
