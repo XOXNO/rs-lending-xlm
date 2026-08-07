@@ -63,7 +63,8 @@ SHELL := /bin/bash
         configure-controller setup-testnet setup-mainnet _setup-markets _unpause-after-setup \
         info invoke invoke-id view view-id \
         testnet mainnet \
-        usage help
+        usage help help-build help-verify help-deploy help-ops \
+        help-views help-oracle help-aggregator help-all
 
 
 
@@ -1861,248 +1862,326 @@ view-id:
 
 
 
+# -----------------------------------------------------------------------------
+# Help (layered): usage (default) -> help (index) -> help-<topic> -> help-all
+#
+# Layout helpers (printf two-column). ASCII-only for stable column width.
+#   $(call H1,title)     section banner
+#   $(call H2,title)     subsection label
+#   $(call ROW,cmd,desc) aligned command + description
+#   $(call NOTE,text)    indented note / env line
+# Commas inside call args split parameters -- avoid commas in text, or use
+# a single-arg NOTE line. Do not put unescaped # or lone \ at EOL in recipes.
+# -----------------------------------------------------------------------------
+H_RULE := ----------------------------------------------------------------
+H1 = @printf '%s\n%s\n%s\n\n' "$(H_RULE)" "  $(1)" "$(H_RULE)"
+H2 = @printf '  %s\n' "$(1)"
+ROW = @printf '    %-48s %s\n' "$(1)" "$(2)"
+NOTE = @printf '    %s\n' "$(1)"
+BLANK = @printf '\n'
+
 usage:
-	@echo "Stellar Lending Protocol"
-	@echo ""
-	@echo "  make help                          Full command reference"
-	@echo ""
-	@echo "Develop:"
-	@echo "  make build | test | clippy | fmt | coverage"
-	@echo ""
-	@echo "Deploy & operate (network = testnet | mainnet):"
-	@echo "  make <network> <action> [args]"
-	@echo ""
-	@echo "  make testnet setup                 Deploy + configure + unpause (full bootstrap)"
-	@echo "  make testnet resume                Re-run config phases after a partial failure"
-	@echo "  make testnet validateConfigs       Cross-check markets/spokes/networks JSON"
-	@echo "  make testnet listOps               Governance ops + live state (pending/executed)"
-	@echo "  make testnet info                  Deployed addresses + oracle wiring summary"
-	@echo ""
-	@echo "Ops: 'make help' lists every action; configs live under configs/."
+	$(call H1,Stellar Lending Protocol)
+	$(call H2,Quick start)
+	$(call ROW,make help,command index + topics)
+	$(call ROW,make build | test | clippy | fmt | coverage,daily develop loop)
+	$(call BLANK)
+	$(call H2,Deploy  (network = testnet | mainnet))
+	$(call ROW,make <network> setup,deploy + configure + unpause)
+	$(call ROW,make <network> resume,re-run config after partial failure)
+	$(call ROW,make <network> validateConfigs,cross-check markets/spokes/networks JSON)
+	$(call ROW,make <network> listOps,governance ops + live state)
+	$(call ROW,make <network> info,deployed addresses + oracle wiring)
+	$(call BLANK)
+	$(call H2,Topics)
+	$(call NOTE,make help-build | help-verify | help-deploy | help-ops)
+	$(call NOTE,make help-views | help-oracle | help-aggregator | help-all)
+	$(call NOTE,configs live under configs/)
+	$(call BLANK)
 
 
 help:
-	@echo "Stellar Lending Protocol Makefile"
-	@echo ""
-	@echo "Build & Test:"
-	@echo "  make build              Build all contracts (WASM)"
-	@echo "  make optimize           Build + optimize WASM binaries"
-	@echo "  make deploy-artifacts   Optimized WASM for mainnet ($(DEPLOY_DIR))"
-	@echo "  make wasm-size-check    Build deploy artifacts + enforce size budget"
-	@echo "  make integration-wasm   Deploy-sized WASM + mocks for testnet harness"
-	@echo "  make certora-wasm       Certora-feature WASM for hosted prover"
-	@echo "  make wasm-artifacts     Build deploy + certora WASM ($(WASM_ARTIFACTS_DIR))"
-	@echo "  make certora            Submit Certora cloud jobs (CERTORA_PROFILE=sanity)"
-	@echo "  make certora-list       List Certora profiles"
-	@echo "  make test               Run all test-harness tests"
-	@echo "  make test-one FILE=x    Run specific test file"
-	@echo "  make coverage           Run merged coverage with CLI summary"
-	@echo "  make fuzz-coverage      Fast fuzz coverage (fp_math, rates_and_index) — corpus replay only"
-	@echo "  make fuzz-coverage-all  Include contract-level targets (slower on macOS: TSAN build)"
-	@echo "  make fuzz-coverage-one TARGET=flow_e2e [FUZZ_COV_TIME=30]"
-	@echo "  make coverage-controller  Coverage for controller/common via unit+harness"
-	@echo "  make coverage-pool        Coverage for pool via direct unit tests"
-	@echo "  make coverage-merged      Coverage merged across pool + controller + harness"
-	@echo "  make fmt                Format code"
-	@echo "  make clippy             Lint all targets with warnings denied"
-	@echo "  make clean              Clean artifacts"
-	@echo ""
-	@echo "Deep verification (security-critical paths):"
-	@echo "  make miri-all           Miri UB checks on pure-i128 math (common/pool/controller)"
-	@echo "  make fuzz               libFuzzer math primitives (FUZZ_TIME=60)"
-	@echo "  make fuzz-contract      libFuzzer contract-level flows (flow_e2e, pool_native, ...)"
-	@echo "  make proptest           Contract properties (tuned defaults; override PROPTEST_CASES=N)"
-	@echo "  make mutants            Full non-overlapping mutation suite (common/pool/governance/controller)"
-	@echo "  make mutants-math       Focused local mutation run (also -rates and -pool-interest)"
-	@echo "  make scout              Scout audit on host (scout-strict gates incomplete reports)"
-	@echo ""
-	@echo "Deployment (pattern: make <network> <action>, network = testnet | mainnet):"
-	@echo "  make keygen                         Generate deployer key (testnet: friendbot-funded)"
-	@echo "  make setup-testnet                  Same as 'make testnet setup'"
-	@echo "  make testnet setup                  Full setup (deploy + config + markets/spokes + unpause)"
-	@echo "  make testnet resume                 Re-run configure/markets/spokes/unpause (skips deploy)"
-	@echo "  make testnet deploy                 Deploy all contracts (no market config)"
-	@echo "  make testnet upgradeController      Upgrade controller WASM in-place (timelocked)"
-	@echo "  make testnet upgradeGovernance      Upgrade governance WASM in-place (timelocked)"
-	@echo "  make testnet upgradePool            Upload + upgrade central pool WASM (timelocked)"
-	@echo "  make testnet upgradeAll             upgradePool + upgradeController + unpause path"
-	@echo "  AGGREGATOR_CONTRACT=C... ACCUMULATOR_CONTRACT=G... make mainnet setup"
-	@echo "    Aggregator = swap router (contract). Accumulator = revenue treasury (wallet or contract)."
-	@echo "    ALLOW_MISSING_AGGREGATOR=1 / ALLOW_MISSING_ACCUMULATOR=1 to bootstrap without them (deliberate)."
-	@echo "  AWAIT_MAX_WAIT_SECONDS=259200 make mainnet setup   Optional cap for ~48h mainnet timelock await"
-	@echo "  DEPLOY_MIN_DELAY=1 make mainnet setup              Bootstrap with 1-ledger delay; raise after:"
-	@echo "  make mainnet updateDelay 34560                     Timelocked min-delay increase (cannot shorten)"
-	@echo "  make testnet deployFlashReceiver    Deploy flash-loan test receiver"
-	@echo "  make testnet fundFlashReceiver      Fund flash receiver with FLASH_MARKET"
-	@echo "  make testnet testFlashReceiver      Run flash receiver smoke cases"
-	@echo "  make testnet deployAggregator       Deploy swap-router contract; writes networks.json aggregator"
-	@echo "    AGGREGATOR_ADMIN=G...              Constructor admin (default: deploying signer)"
-	@echo "    Then: make testnet setAggregator   Point the controller at it (timelocked)"
-	@echo "  make testnet deployOracleAdapter    Deploy xoxno-oracle-adapter; writes networks.json xoxno_oracle_adapter"
-	@echo "    ORACLE_ADAPTER_ADMIN=G...          Constructor admin (default: deploying signer)"
-	@echo "    ORACLE_ADAPTER_SIGNERS='[\"G...\"]' Constructor bot-signer set (default: deploying signer alone)"
-	@echo "    ORACLE_ADAPTER_THRESHOLD=N         N-of-M aggregation threshold (default: 1)"
-	@echo "    Then: make testnet configureOracleFeeds  add_feed for every entry in oracle_feeds.json"
-	@echo "  make testnet addOracleSigner <address>   Register a bot wallet's signer address (idempotent)"
-	@echo ""
-	@echo "  Aggregator + oracle adapter are standalone contracts (NOT governance-owned);"
-	@echo "  every verb below is a direct owner-gated stellar contract invoke, no timelock:"
-	@echo "    make testnet setAggregatorFee <bps>"
-	@echo "    make testnet addAggregatorWhitelist <token>       / removeAggregatorWhitelist <token>"
-	@echo "    make testnet addAggregatorReferral <owner> <bps>"
-	@echo "    make testnet setAggregatorReferralFee <id> <bps>  / setAggregatorReferralActive <id> <bool>"
-	@echo "    make testnet setAggregatorReferralOwner <id> <new_owner>"
-	@echo "    make testnet claimAggregatorAdminFees <recipient> <token...>"
-	@echo "    make testnet sweepAggregatorBalance <recipient> <token...>"
-	@echo "    make testnet upgradeAggregator                    Build + upload + upgrade in place"
-	@echo "    make testnet upgradeOracleAdapter                 Wasm only (build+upload+upgrade)"
-	@echo "    SIGNER=ledger make mainnet upgradeOracleAdapterFull"
-	@echo "      Full cutover: Wasm + configureOracleWindows (age/stale/skew from oracle_feeds.json)"
-	@echo "      + reconfigureOracleFeeds (remove_feed then add_feed per feed) + verify getters"
-	@echo "    make testnet reconfigureOracleFeeds               remove+add feeds only"
-	@echo "    make testnet configureOracleWindows               age + stale + relative skew from JSON"
-	@echo "    make testnet setOracleRelativeSkew <secs>         One-off skew setter"
-	@echo "    make testnet verifyOracleAdapterWindows           Print live window getters"
-	@echo "    make testnet finalizeOracleAdapterUpgrade         Windows + reconfigure (no Wasm)"
-	@echo "  Ownership handoff (both are OZ Ownable, two-step transfer -> accept):"
-	@echo "    make testnet transferAggregatorOwnership <new_owner> <live_until_ledger>"
-	@echo "    SIGNER=ledger make testnet acceptAggregatorOwnership       Run as the NEW owner"
-	@echo "    make testnet transferOracleAdapterOwnership <new_owner> <live_until_ledger>"
-	@echo "    SIGNER=ledger make testnet acceptOracleAdapterOwnership    Run as the NEW owner"
-	@echo "  make testnet info                   Show deployed contract IDs"
-	@echo ""
-	@echo "Config-driven operations (pattern: make <network> <action> [args]):"
-	@echo ""
-	@echo "  Validation & governance ops:"
-	@echo "    make testnet validateConfigs       Cross-check markets/spokes/networks JSON (also runs pre-setup)"
-	@echo "    make testnet listOps               All recorded governance ops with live state"
-	@echo "    make testnet executeReady          Execute every recorded op that is Ready"
-	@echo "    make testnet opState <op-id>       Unset | Waiting | Ready | Done"
-	@echo "    make testnet awaitOp <op-id>       Poll until the op is Ready"
-	@echo "    make testnet executeOp <op-id>     Execute one recorded, ready op"
-	@echo "    make testnet cancelOp <op-id>      Cancel a pending op (CANCELLER role; single-veto,"
-	@echo "                                       can't veto own removal; Recovery ops are non-vetoable)"
-	@echo "    make testnet checkDelay            Live timelock delay vs configured target"
-	@echo ""
-	@echo "  Canceller-council recovery (owner-only, ~30d, non-vetoable):"
-	@echo "    No config-driven verb: propose_canceller_reset/execute_canceller_reset take a"
-	@echo "    Vec<Address>, which doesn't fit this dispatcher. These are GOVERNANCE entrypoints,"
-	@echo "    so use invoke-id against the governance contract (invoke targets the controller):"
-	@echo "    make invoke-id CONTRACT_ID=<gov> FN=propose_canceller_reset ARGS='--new_cancellers [\"G...\"] --salt <64-hex>'"
-	@echo "    make invoke-id CONTRACT_ID=<gov> FN=execute_canceller_reset ARGS='--executor null --new_cancellers [\"G...\"] --salt <64-hex>'"
-	@echo "    AUTO_EXECUTE=0 make testnet <verb> Schedule-only; execute later via executeOp/executeReady"
-	@echo "    Re-applying a previously-executed setting is AUTOMATIC for direct verbs"
-	@echo "    (fresh salt generation); setupAll*/resume converge and skip Done ops."
-	@echo "    REAPPLY_ON_DONE=0 disables auto re-apply; SALT_NONCE=<n> forces a fresh id."
-	@echo ""
-	@echo "  Markets (writes):"
-	@echo "    make testnet createMarket USDC"
-	@echo "    make testnet updateMarketParams USDC                       Push max_utilization/rate model from JSON"
-	@echo "    make testnet configureMarketOracle USDC   Auto-configures Scaled Ref quotes first"
-	@echo "    make testnet configureReferenceOracle BTC set_oracle(PriceKey::Ref) from .references[]"
-	@echo "    make testnet setupAllReferenceOracles     All Refs required by Scaled markets"
-	@echo "    make testnet editOracleTolerance USDC 500"
-	@echo "    make testnet updateIndexes USDC XLM"
-	@echo "    make testnet setupAllMarkets       Refs then markets; does not deploy or unpause"
-	@echo "    make testnet listMarkets"
-	@echo "    make testnet listReferences        PriceKey::Ref oracles from markets.json"
-	@echo "    make testnet listOracles           References + per-market oracle wiring from JSON"
-	@echo ""
-	@echo "  Hubs / Spokes (writes):"
-	@echo "    make testnet listHubs"
-	@echo "    make testnet createHub 1"
-	@echo "    make testnet addSpoke 1"
-	@echo "    make testnet addAssetToSpoke 1 USDC"
-	@echo "    make testnet editAssetInSpoke 1 USDC"
-	@echo "    make testnet removeAssetFromSpoke 1 USDC"
-	@echo "    make testnet removeSpoke 1"
-	@echo "    make testnet setupAllSpokes        Configure spokes only; does not deploy or unpause"
-	@echo "    make testnet setupAll              Configure markets/spokes only; does not deploy or unpause"
-	@echo "    make testnet listSpokes"
-	@echo ""
-	@echo "  Positions (writes):"
-	@echo "    make testnet supply USDC 1000000000                  100 USDC at 7 dec, into account 0"
-	@echo "    make testnet borrow USDC 100000000 <account_id>      Direct borrow (no swap)"
-	@echo "    make testnet withdraw USDC 100000000 <account_id>    Withdraw collateral (0 = all)"
-	@echo ""
-	@echo "  Strategies (multiply / swap_debt / swap_collateral / repay_debt_with_collateral)"
-	@echo "  require an AggregatorSwap JSON from the off-chain quote server. Invoke directly:"
-	@echo "    make invoke FN=multiply ARGS='--caller G... --account_id 0 ... --swap @swap.json' NETWORK=testnet"
-	@echo ""
-	@echo "  Protocol control (writes):"
-	@echo "    make testnet pause                              GUARDIAN-immediate (signer = caller)"
-	@echo "    make testnet unpause                            Timelocked AdminOperation::Unpause"
-	@echo "    make testnet setAggregator                      From networks.json or AGGREGATOR_CONTRACT"
-	@echo "    make testnet setAccumulator                     Revenue treasury (required for claimRevenue)"
-	@echo "    make testnet disableTokenOracle C...            Timelocked oracle circuit-breaker"
-	@echo "    make testnet grantGovRole GAB...XYZ PROPOSER    Roles: PROPOSER|EXECUTOR|CANCELLER|ORACLE|GUARDIAN"
-	@echo "    make testnet revokeGovRole GAB...XYZ PROPOSER"
-	@echo "    make testnet setPositionLimits 10 10            Timelocked max supply/borrow positions"
-	@echo "    make testnet setMinBorrowCollateralUsd 5000000000000000000"
-	@echo "    make testnet setPositionManager GAB... true"
-	@echo "    make testnet setSpokeLiquidationCurve 1 1020000000000000000 510000000000000000 10000"
-	@echo "                                                     Timelocked target_hf/hf_for_max_bonus/bonus_factor_bps"
-	@echo "    make testnet transferCtrlOwnership C... <live_until_ledger>"
-	@echo "    make testnet transferGovOwnership G... <live_until_ledger>"
-	@echo "    make testnet migrateController 2"
-	@echo "    make testnet revokeBlendPool C..."
-	@echo "    make testnet claimRevenue USDC XLM              Claim revenue one or more markets"
-	@echo "    make testnet claimRevenueAll                    Claim revenue for every configured market"
-	@echo "    make testnet whitelistBlendPools                Approve Blend pools from configs/$(NETWORK)/blend.json"
-	@echo "    make testnet configureSpokeCurves               Apply spoke liquidation_curve overrides from configs/$(NETWORK)/spokes.json"
-	@echo "    make testnet approveBlendPools                  Same as whitelistBlendPools"
-	@echo ""
-	@echo "  Quick views (reads, no signing cost):"
-	@echo "    make testnet info                      Deployment addresses"
-	@echo "    make testnet hasRole GAB... PROPOSER"
-	@echo "    make testnet getPrice USDC             Spot / safe / aggregator prices"
-	@echo "    make testnet getMarket USDC            Base spoke-0 listing"
-	@echo "    make testnet getSpokeAsset 1 USDC      Live config for ANY spoke (not just base 0)"
-	@echo "    make testnet getIndex USDC             Supply / borrow RAY index"
-	@echo "    make testnet getAllMarkets"
-	@echo "    make testnet getAllIndexes"
-	@echo "    make testnet getSpoke 1"
-	@echo "    make testnet getHealth 1"
-	@echo "    make testnet getAccount 1"
-	@echo "    make testnet accountExists 1"
-	@echo "    make testnet getCollateralUsd 1"
-	@echo "    make testnet getBorrowUsd 1"
-	@echo "    make testnet getLtvUsd 1"
-	@echo "    make testnet getLiqAvailable 1"
-	@echo "    make testnet canLiquidate 1"
-	@echo "    make testnet getCollateral 1 XLM"
-	@echo "    make testnet getBorrow 1 USDC"
-	@echo "    make testnet maxWithdraw 1 USDC        Largest withdraw currently executable"
-	@echo "    make testnet maxSupply 1 USDC          Remaining supply-cap headroom"
-	@echo "    make testnet maxBorrow 1 USDC          Largest borrow currently executable"
-	@echo "    make testnet getLiquidationEstimate 1 USDC 100000000   Seize/repay/refund/bonus estimate"
-	@echo "    make testnet getMinBorrowCollateralUsd"
-	@echo "    make testnet isBlendPoolApproved C..."
-	@echo ""
-	@echo "  Pool views (hub-level utilization/reserves/rates; spokes share hub liquidity):"
-	@echo "    make testnet getUtilisation USDC | getReserves USDC | getSupplied USDC | getBorrowed USDC"
-	@echo "    make testnet getDepositRate USDC | getBorrowRate USDC | getRevenue USDC | getSyncData USDC"
-	@echo "    make testnet getBulkIndexes"
-	@echo ""
-	@echo "  NOTE: no on-chain view exists for is_paused, get_hub, get_aggregator,"
-	@echo "  get_accumulator, or get_position_limits (controller stores them without a"
-	@echo "  getter). 'info'/'listHubs' show local config for those, not chain truth."
-	@echo ""
-	@echo "  Oracle probes (debug Oracle V2 wiring):"
-	@echo "    make testnet getOracle USDC            Live price components for a market"
-	@echo "    make testnet queryReflector CCYOZJ...MJRN63                    decimals + resolution"
-	@echo "    make testnet queryReflectorPrice CCYOZJ... other USDC          lastprice"
-	@echo "    make testnet queryReflectorTwap  CCYOZJ... other USDC 3        prices history"
-	@echo "    make testnet queryReflectorPrice C...DEX... stellar CBIELTK... lastprice on Stellar DEX"
-	@echo "    make testnet queryRedStone <feed_id> [adapter]                 RedStone feed price data"
-	@echo ""
-	@echo "Escape hatches for ad-hoc calls:"
-	@echo "    make view FN=get_markets_detailed ARGS='--hub_assets [{\"hub_id\":1,\"asset\":\"C...\"}]' NETWORK=testnet"
-	@echo "    make invoke FN=<controller_fn> ARGS='...' NETWORK=testnet"
-	@echo "    make invoke-id CONTRACT_ID=C... FN=<fn> ARGS='...' NETWORK=testnet"
-	@echo ""
-	@echo "Ledger signing (any command):"
-	@echo "    SIGNER=ledger make mainnet setupAll"
+	$(call H1,Command index)
+	$(call H2,Conventions)
+	$(call ROW,make <network> <action> [args],network = testnet | mainnet)
+	$(call ROW,SIGNER=ledger make mainnet ...,hardware-wallet signing)
+	$(call ROW,configs/,JSON under configs/)
+	$(call BLANK)
+	$(call H2,Daily drivers)
+	$(call ROW,develop,build | test | test-one FILE=x | clippy | fmt | coverage | clean)
+	$(call ROW,keys,keygen)
+	$(call ROW,deploy,setup | resume | deploy | upgradeAll | info)
+	$(call ROW,governance,validateConfigs | listOps | executeReady)
+	$(call ROW,markets,setupAllMarkets | setupAllSpokes | setupAll)
+	$(call ROW,positions,supply | borrow | withdraw <asset> <amt> [account])
+	$(call ROW,control,pause | unpause)
+	$(call ROW,escape,view | invoke FN=... ARGS=... NETWORK=testnet)
+	$(call NOTE,           invoke-id CONTRACT_ID=C... FN=... ARGS=... NETWORK=testnet)
+	$(call BLANK)
+	$(call H2,Topics)
+	$(call ROW,make help-build,WASM | tests | coverage | lint)
+	$(call ROW,make help-verify,miri | fuzz | proptest | mutants | scout | certora)
+	$(call ROW,make help-deploy,setup | upgrades | mainnet env | flash receiver)
+	$(call ROW,make help-ops,governance | markets | spokes | positions | control)
+	$(call ROW,make help-views,read-only probes (controller + pool))
+	$(call ROW,make help-oracle,adapter | feeds | Reflector | RedStone)
+	$(call ROW,make help-aggregator,swap aggregator admin + ownership)
+	$(call ROW,make help-all,print every topic (grep-friendly))
+	$(call BLANK)
+
+
+help-build:
+	$(call H1,Build | test | coverage | lint)
+	$(call H2,Build)
+	$(call ROW,make build,all contracts (WASM))
+	$(call ROW,make build-one CRATE=...,one crate)
+	$(call ROW,make optimize,build + optimize WASM)
+	$(call ROW,make deploy-artifacts,mainnet WASM -> $(DEPLOY_DIR))
+	$(call ROW,make wasm-size-check,deploy artifacts + size budget)
+	$(call ROW,make integration-wasm,deploy-sized WASM + harness mocks)
+	$(call ROW,make certora-wasm,Certora-feature WASM)
+	$(call ROW,make wasm-artifacts,deploy + certora -> $(WASM_ARTIFACTS_DIR))
+	$(call BLANK)
+	$(call H2,Test)
+	$(call ROW,make test,all test-harness tests)
+	$(call ROW,make test-one FILE=x,one harness file)
+	$(call ROW,make test-match | test-pool,filtered / pool-focused)
+	$(call BLANK)
+	$(call H2,Coverage)
+	$(call ROW,make coverage,merged coverage + CLI summary)
+	$(call ROW,make coverage-controller | -pool | -merged,scoped reports)
+	$(call ROW,make fuzz-coverage,fast math fuzz (corpus replay))
+	$(call ROW,make fuzz-coverage-all,+ contract targets (slow on macOS))
+	$(call ROW,make fuzz-coverage-one TARGET=flow_e2e,[FUZZ_COV_TIME=30])
+	$(call BLANK)
+	$(call H2,Lint / clean)
+	$(call ROW,make fmt | fmt-check | clippy | clean,)
+	$(call BLANK)
+
+
+help-verify:
+	$(call H1,Deep verification)
+	$(call ROW,make miri-all,Miri UB on pure-i128 math)
+	$(call ROW,make fuzz,libFuzzer math (FUZZ_TIME=60))
+	$(call ROW,make fuzz-contract,libFuzzer contract flows)
+	$(call ROW,make proptest,properties (PROPTEST_CASES=N))
+	$(call ROW,make mutants,full mutation suite)
+	$(call ROW,make mutants-math,focused math (+ -rates | -pool-interest))
+	$(call ROW,make scout,Scout audit (scout-strict gates incomplete))
+	$(call ROW,make certora,cloud jobs (CERTORA_PROFILE=sanity))
+	$(call ROW,make certora-list,list Certora profiles)
+	$(call ROW,make certora-wasm,build Certora-feature WASM first)
+	$(call BLANK)
+
+
+help-deploy:
+	$(call H1,Deployment)
+	$(call NOTE,Pattern:  make <network> <action>     network = testnet | mainnet)
+	$(call BLANK)
+	$(call H2,Bootstrap)
+	$(call ROW,make keygen,deployer key (testnet: friendbot))
+	$(call ROW,make setup-testnet,alias for make testnet setup)
+	$(call ROW,make <n> setup,deploy + config + markets/spokes + unpause)
+	$(call ROW,make <n> resume,re-run config (skips deploy))
+	$(call ROW,make <n> deploy,contracts only (no market config))
+	$(call ROW,make <n> info,deployed contract IDs)
+	$(call BLANK)
+	$(call H2,Upgrades (timelocked))
+	$(call NOTE,make <n> upgradeController | upgradeGovernance | upgradePool | upgradeAll)
+	$(call BLANK)
+	$(call H2,Mainnet env (optional))
+	$(call NOTE,AGGREGATOR_CONTRACT=C... ACCUMULATOR_CONTRACT=G... make mainnet setup)
+	$(call NOTE,  Aggregator = swap router | Accumulator = revenue treasury)
+	$(call NOTE,  ALLOW_MISSING_AGGREGATOR=1 / ALLOW_MISSING_ACCUMULATOR=1 to bootstrap without)
+	$(call NOTE,AWAIT_MAX_WAIT_SECONDS=259200 make mainnet setup     (cap ~48h await))
+	$(call NOTE,DEPLOY_MIN_DELAY=1 make mainnet setup               (bootstrap delay; then:))
+	$(call NOTE,make mainnet updateDelay 34560                      (timelocked min-delay))
+	$(call BLANK)
+	$(call H2,Flash-loan test receiver)
+	$(call NOTE,make <n> deployFlashReceiver | fundFlashReceiver | testFlashReceiver)
+	$(call BLANK)
+	$(call H2,Related)
+	$(call NOTE,make help-oracle | help-aggregator)
+	$(call BLANK)
+
+
+help-ops:
+	$(call H1,Config-driven ops)
+	$(call NOTE,Pattern:  make <network> <action> [args])
+	$(call BLANK)
+	$(call H2,Governance / timelock)
+	$(call ROW,make <n> validateConfigs,cross-check markets/spokes/networks JSON)
+	$(call ROW,make <n> listOps,recorded ops + live state)
+	$(call ROW,make <n> executeReady,execute every Ready op)
+	$(call NOTE,make <n> opState | awaitOp | executeOp | cancelOp <id>)
+	$(call NOTE,    per-op lifecycle: Unset | Waiting | Ready | Done)
+	$(call ROW,make <n> checkDelay,live timelock delay vs config)
+	$(call BLANK)
+	$(call H2,Timelock knobs)
+	$(call NOTE,AUTO_EXECUTE=0 make <n> <verb>     schedule only; execute later)
+	$(call NOTE,REAPPLY_ON_DONE=0 / SALT_NONCE=N   re-apply / fresh salt for Done ops)
+	$(call NOTE,Direct verbs auto re-apply Done (fresh salt); setupAll*/resume skip Done)
+	$(call BLANK)
+	$(call H2,Canceller-council recovery (owner-only | ~30d | non-vetoable))
+	$(call NOTE,GOVERNANCE entrypoints via invoke-id (not the config dispatcher):)
+	$(call NOTE,propose:  make invoke-id CONTRACT_ID=GOV FN=propose_canceller_reset)
+	$(call NOTE,           ARGS=--new_cancellers [G...] --salt SALT64)
+	$(call NOTE,execute:  make invoke-id CONTRACT_ID=GOV FN=execute_canceller_reset)
+	$(call NOTE,           ARGS=--executor null --new_cancellers [G...] --salt SALT64)
+	$(call BLANK)
+	$(call H2,Markets)
+	$(call NOTE,make <n> createMarket|updateMarketParams|configureMarketOracle SYM)
+	$(call ROW,make <n> configureReferenceOracle SYM,set_oracle(PriceKey::Ref))
+	$(call NOTE,make <n> setupAllReferenceOracles | setupAllMarkets     (batch from JSON))
+	$(call NOTE,make <n> editOracleTolerance SYM BPS | updateIndexes SYM...)
+	$(call NOTE,make <n> listMarkets | listReferences | listOracles)
+	$(call BLANK)
+	$(call H2,Hubs / spokes)
+	$(call NOTE,make <n> listHubs | createHub ID | addSpoke ID | listSpokes)
+	$(call NOTE,make <n> addAssetToSpoke|editAssetInSpoke|removeAssetFromSpoke ID SYM)
+	$(call NOTE,make <n> removeSpoke ID | setupAllSpokes | setupAll)
+	$(call BLANK)
+	$(call H2,Positions)
+	$(call ROW,make <n> supply USDC 1000000000,100 USDC @ 7 dec -> account 0)
+	$(call ROW,make <n> borrow USDC 100000000 ACCOUNT,direct borrow (no swap))
+	$(call ROW,make <n> withdraw USDC 100000000 ACCOUNT,0 amount = withdraw all)
+	$(call BLANK)
+	$(call H2,Strategies (need AggregatorSwap JSON from quote server))
+	$(call NOTE,make invoke FN=multiply ARGS=--caller G... --swap @swap.json NETWORK=testnet)
+	$(call BLANK)
+	$(call H2,Protocol control)
+	$(call ROW,make <n> pause | unpause,guardian immediate / timelocked unpause)
+	$(call ROW,make <n> setAggregator | setAccumulator,from networks.json or env)
+	$(call ROW,make <n> disableTokenOracle C...,timelocked oracle circuit-breaker)
+	$(call NOTE,make <n> grantGovRole|revokeGovRole G... ROLE)
+	$(call NOTE,    ROLE = PROPOSER | EXECUTOR | CANCELLER | ORACLE | GUARDIAN)
+	$(call ROW,make <n> setPositionLimits 10 10,max supply/borrow positions)
+	$(call NOTE,make <n> setMinBorrowCollateralUsd RAY)
+	$(call NOTE,make <n> setPositionManager G... true)
+	$(call NOTE,make <n> setSpokeLiquidationCurve SPOKE THF HF_MAX BPS)
+	$(call NOTE,make <n> transferCtrlOwnership|transferGovOwnership ADDR LEDGER)
+	$(call NOTE,make <n> migrateController VER | revokeBlendPool C...)
+	$(call NOTE,make <n> claimRevenue SYM... | claimRevenueAll)
+	$(call NOTE,make <n> whitelistBlendPools | approveBlendPools | configureSpokeCurves)
+	$(call BLANK)
+	$(call H2,Escape hatches)
+	$(call NOTE,make view FN=... ARGS=... NETWORK=testnet)
+	$(call NOTE,make invoke FN=... ARGS=... NETWORK=testnet)
+	$(call NOTE,make invoke-id CONTRACT_ID=C... FN=... ARGS=... NETWORK=testnet)
+	$(call BLANK)
+
+
+help-views:
+	$(call H1,Read-only probes)
+	$(call NOTE,No signing cost.  Prefix:  make testnet <verb> [args])
+	$(call BLANK)
+	$(call H2,Deployment / roles)
+	$(call ROW,info,deployment addresses)
+	$(call ROW,hasRole ADDR ROLE,)
+	$(call BLANK)
+	$(call H2,Markets)
+	$(call ROW,getPrice|getMarket|getIndex SYM,spot / listing / RAY index)
+	$(call NOTE,getAllMarkets | getAllIndexes)
+	$(call ROW,getSpokeAsset SPOKE SYM,live config for any spoke)
+	$(call ROW,getOracle SYM,price components  (-> help-oracle))
+	$(call BLANK)
+	$(call H2,Account / position)
+	$(call NOTE,getSpoke|getHealth|getAccount|accountExists ID)
+	$(call NOTE,getCollateralUsd|getBorrowUsd|getLtvUsd ID)
+	$(call NOTE,getLiqAvailable|canLiquidate ID)
+	$(call NOTE,getCollateral|getBorrow ID SYM)
+	$(call ROW,maxWithdraw|maxSupply|maxBorrow ID SYM,headroom / max executable)
+	$(call ROW,getLiquidationEstimate ID SYM AMT,seize / repay / refund / bonus)
+	$(call NOTE,getMinBorrowCollateralUsd | isBlendPoolApproved C...)
+	$(call BLANK)
+	$(call H2,Pool (hub-level; spokes share hub liquidity))
+	$(call NOTE,getUtilisation|getReserves|getSupplied|getBorrowed SYM)
+	$(call NOTE,getDepositRate|getBorrowRate|getRevenue|getSyncData SYM)
+	$(call NOTE,getBulkIndexes)
+	$(call BLANK)
+	$(call H2,Note)
+	$(call NOTE,No on-chain getters for is_paused | get_hub | get_aggregator |)
+	$(call NOTE,get_accumulator | get_position_limits.  info/listHubs = local config only.)
+	$(call BLANK)
+
+
+help-oracle:
+	$(call H1,Oracle adapter + probes)
+	$(call NOTE,Standalone Ownable -- not governance-timelocked)
+	$(call BLANK)
+	$(call H2,Deploy / configure)
+	$(call NOTE,make <n> deployOracleAdapter)
+	$(call NOTE,  ORACLE_ADAPTER_ADMIN=G...            constructor admin (default: deployer))
+	$(call NOTE,  ORACLE_ADAPTER_SIGNERS=[G...]         bot-signer set (default: deployer alone))
+	$(call NOTE,  ORACLE_ADAPTER_THRESHOLD=N           N-of-M threshold (default: 1))
+	$(call ROW,make <n> configureOracleFeeds,add_feed for every oracle_feeds.json entry)
+	$(call ROW,make <n> addOracleSigner ADDR,register bot signer (idempotent))
+	$(call BLANK)
+	$(call H2,Upgrade / windows)
+	$(call ROW,make <n> upgradeOracleAdapter,Wasm only)
+	$(call NOTE,SIGNER=ledger make mainnet upgradeOracleAdapterFull)
+	$(call NOTE,    Wasm + windows + feeds + verify getters)
+	$(call ROW,make <n> reconfigureOracleFeeds,remove+add feeds only)
+	$(call ROW,make <n> configureOracleWindows,age + stale + relative skew from JSON)
+	$(call NOTE,make <n> setOracleRelativeSkew SECS)
+	$(call ROW,make <n> verifyOracleAdapterWindows,print live window getters)
+	$(call ROW,make <n> finalizeOracleAdapterUpgrade,windows + reconfigure (no Wasm))
+	$(call BLANK)
+	$(call H2,Ownership (OZ Ownable two-step))
+	$(call NOTE,make <n> transferOracleAdapterOwnership OWNER LEDGER)
+	$(call NOTE,SIGNER=ledger make <n> acceptOracleAdapterOwnership    (run as NEW owner))
+	$(call BLANK)
+	$(call H2,Probes)
+	$(call ROW,make <n> getOracle SYM,live price components)
+	$(call ROW,make <n> queryReflector CONTRACT,decimals + resolution)
+	$(call NOTE,make <n> queryReflectorPrice C other|stellar ASSET     (lastprice))
+	$(call ROW,make <n> queryReflectorTwap C other ASSET N,prices history)
+	$(call NOTE,make <n> queryRedStone FEED_ID [adapter])
+	$(call BLANK)
+
+
+help-aggregator:
+	$(call H1,Swap aggregator)
+	$(call NOTE,Standalone Ownable -- not governance-timelocked)
+	$(call NOTE,Prefix for admin verbs:  make testnet <verb> ...)
+	$(call BLANK)
+	$(call H2,Deploy / wire)
+	$(call NOTE,make <n> deployAggregator)
+	$(call NOTE,  AGGREGATOR_ADMIN=G...                constructor admin (default: deployer))
+	$(call ROW,make <n> setAggregator,point controller at it (timelocked))
+	$(call ROW,make <n> upgradeAggregator,build + upload + upgrade in place)
+	$(call BLANK)
+	$(call H2,Admin (direct owner invoke))
+	$(call NOTE,setAggregatorFee BPS)
+	$(call NOTE,addAggregatorWhitelist|removeAggregatorWhitelist TOKEN)
+	$(call NOTE,addAggregatorReferral OWNER BPS)
+	$(call NOTE,setAggregatorReferralFee ID BPS | setAggregatorReferralActive ID BOOL)
+	$(call NOTE,setAggregatorReferralOwner ID NEW_OWNER)
+	$(call NOTE,claimAggregatorAdminFees RECIPIENT TOKEN...)
+	$(call NOTE,sweepAggregatorBalance RECIPIENT TOKEN...)
+	$(call BLANK)
+	$(call H2,Ownership (OZ Ownable two-step))
+	$(call NOTE,make <n> transferAggregatorOwnership OWNER LEDGER)
+	$(call NOTE,SIGNER=ledger make <n> acceptAggregatorOwnership       (run as NEW owner))
+	$(call BLANK)
+
+
+help-all:
+	@$(MAKE) --no-print-directory help
+	@printf '\n'
+	@$(MAKE) --no-print-directory help-build
+	@printf '\n'
+	@$(MAKE) --no-print-directory help-verify
+	@printf '\n'
+	@$(MAKE) --no-print-directory help-deploy
+	@printf '\n'
+	@$(MAKE) --no-print-directory help-ops
+	@printf '\n'
+	@$(MAKE) --no-print-directory help-views
+	@printf '\n'
+	@$(MAKE) --no-print-directory help-oracle
+	@printf '\n'
+	@$(MAKE) --no-print-directory help-aggregator
 
 .DEFAULT_GOAL := usage
 

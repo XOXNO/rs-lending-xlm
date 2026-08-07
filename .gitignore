@@ -1,7 +1,7 @@
 # Rust build artifacts
 **/target/
 target/
-
+.grok
 # WASM build output (deploy + certora prover binaries; rebuilt by `make wasm-artifacts`)
 /artifacts/
 

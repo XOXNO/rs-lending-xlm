@@ -24,7 +24,7 @@ cargo test --workspace
 make build
 make test
 make test-pool
-make help
+make help          # index; topics: help-build, help-verify, help-deploy, help-ops, ...
 ```
 
 Separate workspaces:
@@ -71,7 +71,7 @@ make miri-common                # pure math changes
 ### Release / protocol-wide
 
 Full matrix: `mutants`, full Certora profiles, coverage, Scout, etc.
-See `make help`, [certora/](./certora/README.md), and harness READMEs.
+See `make help-verify`, [certora/](./certora/README.md), and harness READMEs.
 
 ### Local CI-adjacent checks (optional)
 

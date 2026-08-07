@@ -88,7 +88,7 @@ make help
 | Crate tests | `cargo test --workspace` |
 | Integration harness | `make test` |
 | Lint / format | `make clippy`, `make fmt` |
-| Deploy / ops | `make testnet setup` — see `make help` and `configs/` |
+| Deploy / ops | `make testnet setup` — see `make help` (topics: `help-deploy`, `help-ops`) and `configs/` |
 
 Keeper and exporter are separate Cargo workspaces under `services/`.
 
