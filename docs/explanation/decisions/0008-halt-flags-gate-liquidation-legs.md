@@ -82,5 +82,5 @@ Both paused-side consequences are pinned adversarially:
   delisting can never trap funds, only `paused` can, and only deliberately.
 - The gating matrix (global pause, `paused`, `frozen`, per verb) is pinned by the HALT
   domain, its interaction with liquidation by the LIQ and RISK domains (see
-  ../../reference/invariants.md §HALT, §LIQ, §RISK), and the tainted-asset scenario is
+  ../../reference/invariants.md §INV-HALT, §INV-LIQ, §INV-RISK), and the tainted-asset scenario is
   analyzed in ../threat-model.md.

@@ -70,4 +70,4 @@ upgrade land paused, and going live always transits the timelocked `Unpause`.
 - The pause taxonomy this creates (global pause, per-listing `paused`, per-listing
   `frozen`) is what liquidation gating in ADR 0008 builds on; the ratchet and
   start-paused properties are pinned by the HALT domain and the role boundaries by the
-  AUTH domain (see ../../reference/invariants.md §HALT, §AUTH).
+  AUTH domain (see ../../reference/invariants.md §INV-HALT, §INV-AUTH).

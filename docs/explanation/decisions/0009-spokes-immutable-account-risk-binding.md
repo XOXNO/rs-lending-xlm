@@ -69,14 +69,14 @@ exitable, and liquidatable.
 - One account resolves to exactly one risk regime, always: health-factor math,
   liquidation-curve selection (`SpokeLiquidationCurve`), and cap accounting
   (`SpokeUsage`, keyed by spoke id) never face an ambiguous or mid-flight binding — see
-  ../../reference/invariants.md §RISK and §ACCT.
+  ../../reference/invariants.md §INV-RISK and §INV-ACCT.
 - Moving to a different risk regime means exiting positions and re-entering under a new
   account; there is no in-place migration, and any future one would have to be invented
   along with its atomic re-validation.
 - Spoke wind-down is slow by construction: deprecation stops growth but existing
   accounts persist until they exit, so operators cannot reclaim a spoke id or force
   closure — funds can never be stranded by deprecation (deprecate-not-delete keeps every
-  stored `AccountMeta` resolvable; see ../../reference/invariants.md §STOR).
+  stored `AccountMeta` resolvable; see ../../reference/invariants.md §INV-STOR).
 - Parameter retunes are safe against instant-liquidation griefing by the 1.05-WAD
   hypothetical-HF gate, at the cost that stale liquidator-favoring parameters can linger
   on positions the gate protects until their health recovers (the position keeps its

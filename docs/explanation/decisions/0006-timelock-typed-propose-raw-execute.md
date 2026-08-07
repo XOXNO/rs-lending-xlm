@@ -87,5 +87,5 @@ holds both the trigger and the veto.
   captured-council and compromised-owner scenarios).
 - The authorization chain this preserves — timelocked owner actions, role separation,
   no self-call through raw execute — is pinned by the AUTH domain (see
-  ../../reference/invariants.md §AUTH); the operation ledger's storage lifecycle falls
+  ../../reference/invariants.md §INV-AUTH); the operation ledger's storage lifecycle falls
   under the STOR domain.
