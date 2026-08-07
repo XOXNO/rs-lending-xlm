@@ -156,16 +156,11 @@ favor of the protocol**. Changing a `floor` to a `ceil` is never cosmetic.
 Dust defences: the `*RoundsToZeroShares` errors reject amounts that move value
 without moving shares, and `Bps::flash_loan_fee_on` floors a fee at `1`.
 
-`SUPPLY_VIRTUAL_VALUE_RAY` (`+1 RAY` added to the denominator in
-`update_supply_index`) blocks first-depositor share inflation, but it is **not**
-a dust-scale cost. `Ray::from_asset` normalizes every asset to `1 token = 1 RAY`
-regardless of decimals, so the offset is exactly **one whole token**, and it
-diverts `1 / (N + 1)` of *all* accrued interest to protocol revenue, where `N`
-is the whole-token supply. That is 0.0001% for a 1,000,000-token USDC market and
-**9.1% for a 10-token WBTC market of the same dollar size**. The diverted share
-is measured by `supply_index_reward_shortfall` and booked as revenue, so no
-value is destroyed — but `calculate_deposit_rate` models only `reserve_factor`,
-so `get_deposit_rate` overstates realized supplier yield by this fraction.
+Rewards that floor rounding keeps out of the supply index are measured by
+`supply_index_reward_shortfall` and booked as protocol revenue, so no accrued
+value is destroyed. `calculate_deposit_rate` models only `reserve_factor`, so
+`get_deposit_rate` overstates realized supplier yield by that rounding
+shortfall.
 
 ## Interest
 
@@ -180,8 +175,7 @@ util → borrow rate (curve) → e^x (compound) → borrow index
 ```
 
 Bounds: `MAX_BORROW_INDEX_RAY` and `MAX_SUPPLY_INDEX_RAY` at `1e36`;
-`SUPPLY_INDEX_REWARD_CEILING_RAY` at `1e5 × RAY`; `SUPPLY_INDEX_FLOOR_RAW` at
-`RAY/1000` floors bad-debt write-down.
+`SUPPLY_INDEX_FLOOR_RAW` at `RAY/1000` floors bad-debt write-down.
 
 **`compound_interest` is an unrolled 8-term series, deliberately.**
 Straight-line code with no data-dependent branch is what Certora's SMT backend

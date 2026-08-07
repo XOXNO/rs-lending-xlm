@@ -542,6 +542,7 @@ jobs:
           - target: mutants-controller-positions
           - target: mutants-oracle-adapter
           - target: mutants-aggregator
+          - target: mutants-swap-aggregator
           - target: mutants-pool
           - target: mutants-governance
           - target: mutants-defindex-strategy
