@@ -127,7 +127,7 @@ fn test_scaled_read_fails_closed_when_quote_key_loses_its_oracle() {
 
     let mapped = match t
         .price_agg_client()
-        .try_price(&PriceKey::Token(xlm.clone()))
+        .try_prices(&soroban_sdk::vec![&t.env, PriceKey::Token(xlm.clone())])
     {
         Ok(res) => res.map_err(|e| e.into()),
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),

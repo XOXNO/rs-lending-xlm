@@ -64,16 +64,6 @@ impl PriceAggregator {
         out
     }
 
-    pub fn price(env: Env, key: PriceKey) -> PriceFeedRaw {
-        let keys = Vec::from_array(&env, [key.clone()]);
-        engine::resolve(&mut warmed_session(&env, &keys), &key, 0)
-    }
-
-    pub fn quote(env: Env, key: PriceKey) -> PriceStatus {
-        let keys = Vec::from_array(&env, [key.clone()]);
-        engine::resolve_status(&mut warmed_session(&env, &keys), &key, 0)
-    }
-
     pub fn quotes(env: Env, keys: Vec<PriceKey>) -> Map<PriceKey, PriceStatus> {
         let mut out = Map::new(&env);
         let mut session = warmed_session(&env, &keys);

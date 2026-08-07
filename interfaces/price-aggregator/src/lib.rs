@@ -13,10 +13,6 @@ pub trait PriceAggregatorInterface {
 
     fn prices(env: Env, keys: Vec<PriceKey>) -> Map<PriceKey, PriceFeedRaw>;
 
-    fn price(env: Env, key: PriceKey) -> PriceFeedRaw;
-
-    fn quote(env: Env, key: PriceKey) -> PriceStatus;
-
     fn quotes(env: Env, keys: Vec<PriceKey>) -> Map<PriceKey, PriceStatus>;
 
     fn price_spread(env: Env, key: PriceKey) -> (i128, i128);

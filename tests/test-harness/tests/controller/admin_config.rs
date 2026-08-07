@@ -494,9 +494,10 @@ fn test_configure_market_oracle_defers_an_out_of_band_price_to_read_time() {
     );
     t.configure_market_oracle(&usdc, &cfg);
 
-    let result = t
-        .price_agg_client()
-        .try_price(&controller::types::PriceKey::Token(usdc.clone()));
+    let result = t.price_agg_client().try_prices(&soroban_sdk::vec![
+        &t.env,
+        controller::types::PriceKey::Token(usdc.clone())
+    ]);
     let mapped = match result {
         Ok(res) => res.map_err(|e| e.into()),
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),

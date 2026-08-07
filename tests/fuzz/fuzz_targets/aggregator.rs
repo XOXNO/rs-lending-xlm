@@ -77,8 +77,11 @@ fn config(env: &Env, adapter: &Address, ids: &[&str], i: &In, min: i128, max: i1
     }
 }
 
-fn try_price(c: &PriceAggregatorClient, k: &PriceKey) -> Option<PriceFeedRaw> {
-    c.try_price(k).ok().and_then(Result::ok)
+fn try_price(env: &Env, c: &PriceAggregatorClient, k: &PriceKey) -> Option<PriceFeedRaw> {
+    c.try_prices(&vec![env, k.clone()])
+        .ok()
+        .and_then(Result::ok)
+        .and_then(|m| m.get(k.clone()))
 }
 
 fn feed_id(f: &PriceFeedRaw) -> (i128, u32, u64) {
@@ -106,8 +109,8 @@ fuzz_target!(|i: In| {
     let key1 = PriceKey::Token(Address::generate(&env));
     agg.seed_oracle(&key1, &config(&env, &adapter, ids_fwd, &i, min, max));
 
-    let q1 = agg.quote(&key1);
-    let r1 = try_price(&agg, &key1);
+    let q1 = agg.quotes(&vec![&env, key1.clone()]).get(key1.clone()).unwrap();
+    let r1 = try_price(&env, &agg, &key1);
     assert_eq!(q1.valid, r1.is_some(), "quote.valid must match price resolvability");
 
     if let Some(f1) = &r1 {
@@ -133,9 +136,9 @@ fuzz_target!(|i: In| {
     if i.dual {
         let key2 = PriceKey::Token(Address::generate(&env));
         agg.seed_oracle(&key2, &config(&env, &adapter, &["B", "A"], &i, min, max));
-        let q2 = agg.quote(&key2);
+        let q2 = agg.quotes(&vec![&env, key2.clone()]).get(key2.clone()).unwrap();
         assert_eq!(q1.valid, q2.valid, "source order changed usability");
-        let r2 = try_price(&agg, &key2);
+        let r2 = try_price(&env, &agg, &key2);
         assert_eq!(
             r1.as_ref().map(feed_id),
             r2.as_ref().map(feed_id),

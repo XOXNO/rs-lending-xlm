@@ -34,7 +34,10 @@ fn configure_rejects_twap_window_larger_than_max_stale() {
 
 fn try_price(t: &LendingTest, asset: &soroban_sdk::Address) -> Result<(), soroban_sdk::Error> {
     t.price_agg_client()
-        .try_price(&controller::types::PriceKey::Token(asset.clone()))
+        .try_prices(&soroban_sdk::vec![
+            &t.env,
+            controller::types::PriceKey::Token(asset.clone())
+        ])
         .map(|inner| inner.map(|_| ()).map_err(|e| e.into()))
         .unwrap_or_else(|e| Err(e.expect("expected contract error")))
 }

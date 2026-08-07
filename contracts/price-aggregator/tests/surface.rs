@@ -1,7 +1,7 @@
 use common::constants::{TTL_BUMP_INSTANCE, TTL_THRESHOLD_INSTANCE};
 use common::types::{
     AssetOracle, FeedNature, FeedSource, IndependencePolicy, MultiFeedRef, OracleTolerance,
-    PriceKey, PriceSource, ProviderRef, ScaledSource,
+    PriceFeedRaw, PriceKey, PriceSource, PriceStatus, ProviderRef, ScaledSource,
 };
 use mock_redstone::{MockRedStonePriceFeed, MockRedStonePriceFeedClient};
 use price_aggregator::{Error, PriceAggregator, PriceAggregatorClient};
@@ -10,6 +10,22 @@ use soroban_sdk::testutils::{Address as _, Events as _, Ledger as _};
 use soroban_sdk::{Address, Env, String, Vec};
 
 const WAD: i128 = 1_000_000_000_000_000_000;
+
+/// Single-key reads. `prices()` / `quotes()` are the only entrypoints; these
+/// keep call sites readable without a one-key wrapper on the contract itself.
+fn hard_price(env: &Env, client: &PriceAggregatorClient, key: PriceKey) -> PriceFeedRaw {
+    client
+        .prices(&Vec::from_array(env, [key.clone()]))
+        .get(key)
+        .expect("prices() must return every requested key")
+}
+
+fn soft_quote(env: &Env, client: &PriceAggregatorClient, key: PriceKey) -> PriceStatus {
+    client
+        .quotes(&Vec::from_array(env, [key.clone()]))
+        .get(key)
+        .expect("quotes() must return every requested key")
+}
 
 fn register_agg(env: &Env) -> (Address, PriceAggregatorClient<'_>) {
     let owner = Address::generate(env);
@@ -164,7 +180,7 @@ fn child_reconfiguration_cannot_invalidate_parent_independence() {
     repointed.asset_decimals = 0;
     assert!(client.try_set_oracle(&quote_key, &repointed).is_err());
     assert_eq!(client.oracle(&quote_key), Some(original_quote));
-    assert_eq!(client.price(&parent_key).price_wad, WAD);
+    assert_eq!(hard_price(&env, &client, parent_key).price_wad, WAD);
 }
 
 #[test]
@@ -191,7 +207,7 @@ fn quote_dual_one_stale_leg_marks_stale() {
         &redstone_dual(&env, &feed, "PRIMARY", "ANCHOR", 900, 10_500, 9_524),
     );
 
-    let status = client.quote(&PriceKey::Token(asset.clone()));
+    let status = soft_quote(&env, &client, PriceKey::Token(asset.clone()));
     assert!(status.stale);
     assert!(!status.valid);
     assert!(!status.deviation);
@@ -226,7 +242,7 @@ fn price_and_prices_resolve_live_redstone_feed() {
         &redstone_single(&env, &feed, "BTC/USD", 900),
     );
 
-    let single = client.price(&PriceKey::Token(asset.clone()));
+    let single = hard_price(&env, &client, PriceKey::Token(asset.clone()));
     assert_eq!(single.price_wad, WAD);
     assert_eq!(single.asset_decimals, 7);
 
@@ -253,7 +269,7 @@ fn quote_and_quotes_report_valid_single() {
         &redstone_single(&env, &feed, "BTC/USD", 900),
     );
 
-    let status = client.quote(&PriceKey::Token(asset.clone()));
+    let status = soft_quote(&env, &client, PriceKey::Token(asset.clone()));
     assert!(status.valid);
     assert!(!status.stale);
     assert!(!status.deviation);
@@ -270,7 +286,7 @@ fn quote_and_quotes_report_valid_single() {
 fn quote_unconfigured_is_unusable() {
     let env = Env::default();
     let (_owner, client) = register_agg(&env);
-    let status = client.quote(&PriceKey::Token(Address::generate(&env)));
+    let status = soft_quote(&env, &client, PriceKey::Token(Address::generate(&env)));
     assert!(!status.valid);
     assert_eq!(status.final_wad, 0);
     assert_eq!(status.price_timestamp, 0);
@@ -283,7 +299,7 @@ fn quote_unconfigured_key_is_unusable() {
     let (_owner, client) = register_agg(&env);
     let asset = Address::generate(&env);
 
-    let status = client.quote(&PriceKey::Token(asset.clone()));
+    let status = soft_quote(&env, &client, PriceKey::Token(asset.clone()));
     assert!(!status.valid);
     assert_eq!(status.final_wad, 0);
 }
@@ -305,11 +321,13 @@ fn quote_non_positive_payload_is_unusable_without_revert() {
         &redstone_single(&env, &feed, "BTC/USD", 900),
     );
 
-    let status = client.quote(&PriceKey::Token(asset.clone()));
+    let status = soft_quote(&env, &client, PriceKey::Token(asset.clone()));
     assert!(!status.valid);
     assert_eq!(status.final_wad, 0);
 
-    assert!(client.try_price(&PriceKey::Token(asset.clone())).is_err());
+    assert!(client
+        .try_prices(&Vec::from_array(&env, [PriceKey::Token(asset.clone())]))
+        .is_err());
 }
 
 #[test]
@@ -332,11 +350,13 @@ fn quote_future_timestamp_is_unusable_without_revert() {
         &redstone_single(&env, &feed, "BTC/USD", 900),
     );
 
-    let status = client.quote(&PriceKey::Token(asset.clone()));
+    let status = soft_quote(&env, &client, PriceKey::Token(asset.clone()));
     assert!(!status.valid);
     assert_eq!(status.final_wad, 0);
 
-    assert!(client.try_price(&PriceKey::Token(asset.clone())).is_err());
+    assert!(client
+        .try_prices(&Vec::from_array(&env, [PriceKey::Token(asset.clone())]))
+        .is_err());
 }
 
 #[test]
@@ -360,7 +380,7 @@ fn quote_single_future_multi_feed_timestamp_is_unusable() {
         &redstone_single(&env, &feed, "BTC/USD", 900),
     );
 
-    let status = client.quote(&PriceKey::Token(asset.clone()));
+    let status = soft_quote(&env, &client, PriceKey::Token(asset.clone()));
     assert!(!status.valid);
     assert_eq!(status.final_wad, 0);
 }
@@ -378,7 +398,7 @@ fn quote_missing_primary_feed_is_unusable() {
         &redstone_single(&env, &feed, "MISSING", 900),
     );
 
-    let status = client.quote(&PriceKey::Token(asset.clone()));
+    let status = soft_quote(&env, &client, PriceKey::Token(asset.clone()));
     assert!(!status.valid);
     assert_eq!(status.final_wad, 0);
 }
@@ -403,7 +423,7 @@ fn quote_marks_stale_single_source() {
         li.timestamp = 1_000 + 10_000;
     });
 
-    let status = client.quote(&PriceKey::Token(asset.clone()));
+    let status = soft_quote(&env, &client, PriceKey::Token(asset.clone()));
     assert!(status.stale);
     assert!(!status.valid);
     assert!(!status.deviation);
@@ -426,7 +446,7 @@ fn quote_sourceless_config_is_unusable() {
     cfg.sources = Vec::new(&env);
     client.seed_oracle(&PriceKey::Token(asset.clone()), &cfg);
 
-    let status = client.quote(&PriceKey::Token(asset.clone()));
+    let status = soft_quote(&env, &client, PriceKey::Token(asset.clone()));
     assert!(!status.valid);
     assert_eq!(status.primary_wad, 0);
     assert_eq!(status.secondary_wad, 0);
@@ -450,7 +470,7 @@ fn quote_dual_missing_anchor_feed_marks_deviation() {
         &redstone_dual(&env, &feed, "PRIMARY", "ANCHOR", 900, 10_500, 9_524),
     );
 
-    let status = client.quote(&PriceKey::Token(asset.clone()));
+    let status = soft_quote(&env, &client, PriceKey::Token(asset.clone()));
     assert!(!status.valid);
     assert!(status.deviation);
     assert_eq!(status.primary_wad, WAD);
@@ -474,7 +494,7 @@ fn quote_dual_in_band_is_valid_midpoint() {
         &redstone_dual(&env, &feed, "PRIMARY", "ANCHOR", 900, 10_500, 9_524),
     );
 
-    let status = client.quote(&PriceKey::Token(asset.clone()));
+    let status = soft_quote(&env, &client, PriceKey::Token(asset.clone()));
     assert!(status.valid);
     assert!(!status.stale);
     assert!(!status.deviation);
@@ -498,7 +518,7 @@ fn quote_dual_out_of_band_marks_deviation() {
         &redstone_dual(&env, &feed, "PRIMARY", "ANCHOR", 900, 10_500, 9_524),
     );
 
-    let status = client.quote(&PriceKey::Token(asset.clone()));
+    let status = soft_quote(&env, &client, PriceKey::Token(asset.clone()));
     assert!(!status.valid);
     assert!(status.deviation);
     assert!(!status.stale);
@@ -524,7 +544,7 @@ fn quote_outside_sanity_band_is_invalid() {
     cfg.max_sanity_price_wad = WAD * 20;
     client.seed_oracle(&PriceKey::Token(asset.clone()), &cfg);
 
-    let status = client.quote(&PriceKey::Token(asset.clone()));
+    let status = soft_quote(&env, &client, PriceKey::Token(asset.clone()));
     assert!(!status.valid);
     assert!(!status.stale);
     assert!(!status.deviation);
@@ -669,7 +689,7 @@ fn set_tolerance_narrowing_past_the_legs_fails_closed_at_read() {
         },
     );
     assert!(matches!(
-        client.try_price(&PriceKey::Token(asset)),
+        client.try_prices(&Vec::from_array(&env, [PriceKey::Token(asset)])),
         Err(Ok(e)) if e == soroban_sdk::Error::from_contract_error(Error::UnsafePriceNotAllowed as u32)
     ));
 }
@@ -710,7 +730,7 @@ fn remove_oracle_disables_pricing() {
 
     client.remove_oracle(&PriceKey::Token(asset.clone()));
     assert!(client.oracle(&PriceKey::Token(asset.clone())).is_none());
-    assert!(!client.quote(&PriceKey::Token(asset.clone())).valid);
+    assert!(!soft_quote(&env, &client, PriceKey::Token(asset.clone())).valid);
 }
 
 #[test]
@@ -741,12 +761,12 @@ fn audit_hard_price_reverts_stale_while_status_soft_flags() {
         li.timestamp = 1_000 + 10_000;
     });
 
-    let status = client.quote(&PriceKey::Token(asset.clone()));
+    let status = soft_quote(&env, &client, PriceKey::Token(asset.clone()));
     assert!(status.stale);
     assert!(!status.valid);
     assert_eq!(status.final_wad, WAD);
 
-    let hard = client.try_price(&PriceKey::Token(asset.clone()));
+    let hard = client.try_prices(&Vec::from_array(&env, [PriceKey::Token(asset.clone())]));
     assert!(
         hard.is_err(),
         "hard price must revert on stale feed; got {hard:?}"
@@ -770,11 +790,11 @@ fn audit_hard_price_reverts_dual_out_of_band() {
         &redstone_dual(&env, &feed, "PRIMARY", "ANCHOR", 900, 10_500, 9_524),
     );
 
-    let status = client.quote(&PriceKey::Token(asset.clone()));
+    let status = soft_quote(&env, &client, PriceKey::Token(asset.clone()));
     assert!(!status.valid);
     assert!(status.deviation);
 
-    let hard = client.try_price(&PriceKey::Token(asset.clone()));
+    let hard = client.try_prices(&Vec::from_array(&env, [PriceKey::Token(asset.clone())]));
     assert!(
         hard.is_err(),
         "hard dual out-of-band must revert; got {hard:?}"
@@ -802,7 +822,7 @@ fn audit_multi_feed_stale_gated_by_both_source_and_asset_windows() {
     env.ledger().with_mut(|li| {
         li.timestamp = 1_000 + 100;
     });
-    let hard = client.try_price(&PriceKey::Token(asset.clone()));
+    let hard = client.try_prices(&Vec::from_array(&env, [PriceKey::Token(asset.clone())]));
     assert!(
         hard.is_err(),
         "the asset ceiling must gate a leg its own window would have accepted; got {hard:?}"
@@ -811,7 +831,10 @@ fn audit_multi_feed_stale_gated_by_both_source_and_asset_windows() {
     env.ledger().with_mut(|li| {
         li.timestamp = 1_000 + 10;
     });
-    assert_eq!(client.price(&PriceKey::Token(asset.clone())).price_wad, WAD);
+    assert_eq!(
+        hard_price(&env, &client, PriceKey::Token(asset.clone())).price_wad,
+        WAD
+    );
 }
 
 #[test]
@@ -841,7 +864,7 @@ fn audit_set_sanity_band_excluding_live_price_fails_closed_at_read() {
     assert_eq!(cfg.min_sanity_price_wad, WAD + WAD / 100);
     assert_eq!(cfg.max_sanity_price_wad, WAD + WAD / 20);
     assert!(matches!(
-        client.try_price(&PriceKey::Token(asset.clone())),
+        client.try_prices(&Vec::from_array(&env, [PriceKey::Token(asset.clone())])),
         Err(Ok(e)) if e == soroban_sdk::Error::from_contract_error(Error::SanityBoundViolated as u32)
     ));
 }
@@ -865,7 +888,7 @@ fn audit_hard_price_dual_in_band_is_midpoint() {
         &redstone_dual(&env, &feed, "PRIMARY", "ANCHOR", 900, 10_500, 9_524),
     );
 
-    let hard = client.price(&PriceKey::Token(asset.clone()));
+    let hard = hard_price(&env, &client, PriceKey::Token(asset.clone()));
     assert_eq!(hard.price_wad, (primary + anchor) / 2);
 }
 
@@ -891,7 +914,7 @@ fn audit_hard_price_rejects_zero_primary() {
         &redstone_single(&env, &feed, "BTC/USD", 900),
     );
 
-    let hard = client.try_price(&PriceKey::Token(asset.clone()));
+    let hard = client.try_prices(&Vec::from_array(&env, [PriceKey::Token(asset.clone())]));
     assert!(hard.is_err(), "zero price must fail closed; got {hard:?}");
 }
 
@@ -915,7 +938,7 @@ fn set_oracle_defers_an_unreadable_feed_to_read_time() {
         "the config must be stored"
     );
     assert!(matches!(
-        client.try_price(&PriceKey::Token(asset.clone())),
+        client.try_prices(&Vec::from_array(&env, [PriceKey::Token(asset.clone())])),
         Err(Ok(e)) if e == soroban_sdk::Error::from_contract_error(Error::NoLastPrice as u32)
     ));
 }
@@ -936,11 +959,11 @@ fn audit_hard_price_reverts_outside_sanity_band() {
     cfg.max_sanity_price_wad = WAD * 20;
     client.seed_oracle(&PriceKey::Token(asset.clone()), &cfg);
 
-    let status = client.quote(&PriceKey::Token(asset.clone()));
+    let status = soft_quote(&env, &client, PriceKey::Token(asset.clone()));
     assert!(!status.valid);
     assert_eq!(status.final_wad, WAD);
 
-    let hard = client.try_price(&PriceKey::Token(asset.clone()));
+    let hard = client.try_prices(&Vec::from_array(&env, [PriceKey::Token(asset.clone())]));
     assert!(
         hard.is_err(),
         "hard price must revert outside sanity band; got {hard:?}"
@@ -967,7 +990,10 @@ fn price_spread_of_a_single_source_is_the_degenerate_interval() {
         client.price_spread(&PriceKey::Token(asset.clone())),
         (WAD, WAD)
     );
-    assert_eq!(client.price(&PriceKey::Token(asset.clone())).price_wad, WAD);
+    assert_eq!(
+        hard_price(&env, &client, PriceKey::Token(asset.clone())).price_wad,
+        WAD
+    );
 }
 
 #[test]
@@ -992,7 +1018,7 @@ fn price_spread_of_dual_legs_brackets_the_reported_price() {
     assert_eq!((low, high), (WAD, anchor));
     assert!(low < high, "two disagreeing legs span a real interval");
 
-    let price = client.price(&PriceKey::Token(asset.clone())).price_wad;
+    let price = hard_price(&env, &client, PriceKey::Token(asset.clone())).price_wad;
     assert_eq!(price, (WAD + anchor) / 2);
     assert!(low <= price && price <= high);
 }
@@ -1040,7 +1066,7 @@ fn hard_price_accepts_the_inclusive_edges_of_the_sanity_band() {
         client.set_oracle(&PriceKey::Token(asset.clone()), &cfg);
 
         assert_eq!(
-            client.price(&PriceKey::Token(asset.clone())).price_wad,
+            hard_price(&env, &client, PriceKey::Token(asset.clone())).price_wad,
             WAD,
             "price on the band edge [{min}, {max}] must resolve"
         );
