@@ -73,7 +73,7 @@ jobs:
       - name: Install cargo-fuzz (prebuilt)
         # Was `cargo install cargo-fuzz --locked` (compiled from source every
         # run). install-action fetches a prebuilt binary in seconds.
-        uses: taiki-e/install-action@v2.85.5
+        uses: taiki-e/install-action@v2.85.8
         with:
           tool: cargo-fuzz
 
@@ -149,7 +149,7 @@ jobs:
           targets: wasm32v1-none
 
       - name: Install cargo-mutants + nextest
-        uses: taiki-e/install-action@v2.85.5
+        uses: taiki-e/install-action@v2.85.8
         with:
           tool: cargo-mutants@${{ env.CARGO_MUTANTS_VERSION }},cargo-nextest
 
@@ -258,12 +258,12 @@ jobs:
           toolchain: "1.95"
 
       - name: Install cargo-mutants
-        uses: taiki-e/install-action@v2.85.5
+        uses: taiki-e/install-action@v2.85.8
         with:
           tool: cargo-mutants@${{ env.CARGO_MUTANTS_VERSION }}
 
       - name: Install sccache
-        uses: taiki-e/install-action@v2.85.5
+        uses: taiki-e/install-action@v2.85.8
         with:
           tool: sccache
 
@@ -391,7 +391,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@nightly
 
       - name: Install cargo-fuzz (prebuilt)
-        uses: taiki-e/install-action@v2.85.5
+        uses: taiki-e/install-action@v2.85.8
         with:
           tool: cargo-fuzz
 
