@@ -1731,7 +1731,7 @@ POSITIONAL_MARKET_ACTIONS := createMarket updateMarketParams \
 	getUtilisation getReserves getSupplied getBorrowed getDepositRate getBorrowRate \
 	getRevenue getSyncData
 POSITIONAL_ID_ACTIONS := addSpoke getSpoke createHub removeSpoke \
-	executeOp cancelOp opState awaitOp transferGovOwnership disableTokenOracle \
+	executeOp cancelOp opState awaitOp transferGovOwnership \
 	revokeBlendPool setPositionLimits setMinBorrowCollateralUsd setPositionManager \
 	transferCtrlOwnership migrateController accountExists isBlendPoolApproved \
 	addOracleSigner setOracleSubmissionAge setOracleMaxStale setOracleRelativeSkew \
@@ -2059,7 +2059,6 @@ help-ops:
 	$(call H2,Protocol control)
 	$(call ROW,make <n> pause | unpause,guardian immediate / timelocked unpause)
 	$(call ROW,make <n> setAggregator | setAccumulator,from networks.json or env)
-	$(call ROW,make <n> disableTokenOracle C...,timelocked oracle circuit-breaker)
 	$(call NOTE,make <n> grantGovRole|revokeGovRole G... ROLE)
 	$(call NOTE,    ROLE = PROPOSER | EXECUTOR | CANCELLER | ORACLE | GUARDIAN)
 	$(call ROW,make <n> setPositionLimits 10 10,max supply/borrow positions)
