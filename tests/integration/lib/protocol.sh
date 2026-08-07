@@ -165,8 +165,6 @@ market_params_json() {
         optimal_utilization: "800000000000000000000000000",
         max_utilization: "950000000000000000000000000",
         reserve_factor: 1000,
-        supply_cap: "0",
-        borrow_cap: "0",
         is_flashloanable: true,
         flashloan_fee: 5,
         asset_id: $sac,
@@ -185,15 +183,15 @@ asset_config_json() {
         liquidation_threshold: $thr,
         liquidation_bonus: $bonus,
         liquidation_fees: 100,
-        supply_cap: "0",
-        borrow_cap: "0"
+        supply_cap: "1000000000000000000",
+        borrow_cap: "1000000000000000000"
     }' | jq -c "$overrides"
 }
 
 spoke_args() {
     jq -nc --argjson hub "$1" --arg asset "$2" --argjson spoke "$3" --argjson cc "$4" --argjson cb "$5" \
         --argjson ltv "$6" --argjson thr "$7" --argjson bonus "$8" \
-        --arg sc "${9:-0}" --arg bc "${10:-0}" '{
+        --arg sc "${9:-1000000000000000000}" --arg bc "${10:-1000000000000000000}" '{
         hub_id: $hub,
         asset: $asset,
         spoke_id: $spoke,
