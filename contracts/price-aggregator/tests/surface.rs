@@ -1072,3 +1072,28 @@ fn hard_price_accepts_the_inclusive_edges_of_the_sanity_band() {
         );
     }
 }
+
+/// The oracle authority's owner must be reachable from events alone.
+///
+/// `ownable::set_owner` is a silent storage write, and this contract emits
+/// nothing else about ownership — `config:asset_oracle` is its only other
+/// event — so without this emission the owner of the price authority is
+/// invisible to an event-sourced indexer.
+#[test]
+fn constructor_emits_owner() {
+    use soroban_sdk::xdr::{ContractEventBody, ScSymbol, ScVal};
+
+    let env = Env::default();
+    let owner = Address::generate(&env);
+    env.register(PriceAggregator, (owner.clone(),));
+
+    let expected = ScVal::Symbol(ScSymbol(
+        "ownership_transfer_completed".try_into().unwrap(),
+    ));
+    let saw_owner = env.events().all().events().iter().any(|event| {
+        let ContractEventBody::V0(body) = &event.body;
+        body.topics.as_slice().first() == Some(&expected)
+    });
+
+    assert!(saw_owner, "constructor must publish the initial owner");
+}

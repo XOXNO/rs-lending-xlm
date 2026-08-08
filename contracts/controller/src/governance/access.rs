@@ -17,17 +17,29 @@ fn owner_or_panic(env: &Env) -> Address {
 
 pub(crate) fn init(env: &Env, admin: &Address) {
     ownable::set_owner(env, admin);
+    // `ownable::set_owner` is a bare storage write, so without this the initial
+    // owner is invisible to any event-sourced consumer: `ownership_transfer*`
+    // only fires on a later transfer, and an indexer replaying from genesis
+    // would still never learn who owns the contract.
+    ownable::emit_ownership_transfer_completed(env, admin);
     // AccessControl Admin intentionally not set: Ownable is sole SoT on controller.
 
-    storage::set_position_limits(
+    // Through the config module rather than `storage::` directly: it validates
+    // the values and emits `config:position_limits` /
+    // `config:min_borrow_collateral`, so the defaults chosen here are
+    // observable instead of being silent state that only an RPC read can find.
+    crate::config::limits::set_position_limits(
         env,
-        &PositionLimits {
+        PositionLimits {
             max_supply_positions: 10,
             max_borrow_positions: 10,
         },
     );
 
-    storage::set_min_borrow_collateral_usd_wad(env, DEFAULT_MIN_BORROW_COLLATERAL_USD_WAD);
+    crate::config::limits::set_min_borrow_collateral_usd(
+        env,
+        DEFAULT_MIN_BORROW_COLLATERAL_USD_WAD,
+    );
 
     env.storage()
         .instance()

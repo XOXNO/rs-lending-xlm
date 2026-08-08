@@ -45,6 +45,9 @@ pub struct PriceAggregator;
 impl PriceAggregator {
     pub fn __constructor(env: Env, owner: Address) {
         ownable::set_owner(&env, &owner);
+        // `set_owner` writes storage without emitting, so the oracle
+        // authority's owner would otherwise be invisible to indexers.
+        ownable::emit_ownership_transfer_completed(&env, &owner);
         renew_instance(&env);
     }
 }

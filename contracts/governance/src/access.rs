@@ -185,7 +185,16 @@ pub(crate) fn has_role(env: &Env, account: &Address, role: &Symbol) -> bool {
 impl Governance {
     pub fn __constructor(env: Env, admin: Address, min_delay: u32) {
         ownable::set_owner(&env, &admin);
+        // Both `set_owner` and `set_admin` are bare storage writes. Without
+        // these emissions the initial owner and admin are unreachable from the
+        // event stream — `ownership_transfer*` and `admin_transfer*` only fire
+        // on a later handover, so a replay from genesis still learns nothing.
+        ownable::emit_ownership_transfer_completed(&env, &admin);
         access_control::set_admin(&env, &admin);
+        // Previous and new admin are the same address at construction: there is
+        // no prior admin to hand over from, and the event's meaning here is
+        // "admin is now this address".
+        access_control::emit_admin_transfer_completed(&env, &admin, &admin);
 
         for role in default_operational_roles(&env) {
             access_control::grant_role_no_auth(&env, &admin, &role, &admin);

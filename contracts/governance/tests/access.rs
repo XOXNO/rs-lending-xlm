@@ -133,3 +133,36 @@ fn canceller_reset_grants_each_member_once() {
         assert_eq!(access_control::get_role_member_count(&env, &role), 2);
     });
 }
+
+/// The constructor's owner and admin must be reachable from events alone.
+///
+/// `ownable::set_owner` and `access_control::set_admin` are silent storage
+/// writes, so without these emissions the governance contract's owner and admin
+/// are invisible to an event-sourced indexer — the `*_transfer_*` events only
+/// fire on a later handover. Roles and the timelock delay were already
+/// observable (`grant_role_no_auth` and `set_min_delay` emit).
+#[test]
+fn constructor_emits_owner_and_admin() {
+    use soroban_sdk::testutils::Events as _;
+    use soroban_sdk::xdr::{ContractEventBody, ScSymbol, ScVal};
+
+    let env = Env::default();
+    let admin = Address::generate(&env);
+    env.register(Governance, (admin.clone(), 12u32));
+
+    let symbol = |name: &str| ScVal::Symbol(ScSymbol(name.try_into().unwrap()));
+    let mut saw_owner = false;
+    let mut saw_admin = false;
+
+    for event in env.events().all().events().iter() {
+        let ContractEventBody::V0(body) = &event.body;
+        match body.topics.as_slice().first() {
+            Some(t) if t == &symbol("ownership_transfer_completed") => saw_owner = true,
+            Some(t) if t == &symbol("admin_transfer_completed") => saw_admin = true,
+            _ => {}
+        }
+    }
+
+    assert!(saw_owner, "constructor must publish the initial owner");
+    assert!(saw_admin, "constructor must publish the initial admin");
+}

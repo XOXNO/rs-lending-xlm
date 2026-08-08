@@ -38,3 +38,43 @@ fn accept_ownership_updates_owner_only() {
         assert_eq!(stellar_access::access_control::get_admin(&env), None);
     });
 }
+
+/// The constructor's state must be reachable from the event stream alone.
+///
+/// `ownable::set_owner` and the storage setters are silent writes, so before
+/// these emissions an indexer replaying from genesis could never learn the
+/// owner, the position limits or the borrow-collateral floor — they only
+/// became observable once someone changed them.
+#[test]
+fn init_emits_owner_and_default_limits() {
+    use soroban_sdk::testutils::Events as _;
+    use soroban_sdk::xdr::{ContractEventBody, ScSymbol, ScVal};
+
+    let env = Env::default();
+    let admin = Address::generate(&env);
+    env.register(Controller, (admin.clone(),));
+
+    let symbol = |name: &str| ScVal::Symbol(ScSymbol(name.try_into().unwrap()));
+    let mut saw_owner = false;
+    let mut saw_limits = false;
+    let mut saw_floor = false;
+
+    for event in env.events().all().events().iter() {
+        let ContractEventBody::V0(body) = &event.body;
+        let topics = body.topics.as_slice();
+
+        if topics.first() == Some(&symbol("ownership_transfer_completed")) {
+            saw_owner = true;
+        }
+        if topics.get(1) == Some(&symbol("position_limits")) {
+            saw_limits = true;
+        }
+        if topics.get(1) == Some(&symbol("min_borrow_collateral")) {
+            saw_floor = true;
+        }
+    }
+
+    assert!(saw_owner, "constructor must publish the initial owner");
+    assert!(saw_limits, "constructor must publish the default position limits");
+    assert!(saw_floor, "constructor must publish the default borrow floor");
+}
