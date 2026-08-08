@@ -86,7 +86,7 @@
       },
       "USDC": {
         "hub_id": 1,
-        "can_be_collateral": true,
+        "can_be_collateral": false,
         "can_be_borrowed": true,
         "ltv": 7600,
         "liquidation_threshold": 8000,
@@ -97,7 +97,7 @@
       },
       "XLM": {
         "hub_id": 1,
-        "can_be_collateral": true,
+        "can_be_collateral": false,
         "can_be_borrowed": true,
         "ltv": 7500,
         "liquidation_threshold": 7800,
@@ -108,7 +108,7 @@
       },
       "EURC": {
         "hub_id": 1,
-        "can_be_collateral": true,
+        "can_be_collateral": false,
         "can_be_borrowed": true,
         "ltv": 7200,
         "liquidation_threshold": 7900,
@@ -119,7 +119,7 @@
       },
       "PYUSD": {
         "hub_id": 1,
-        "can_be_collateral": true,
+        "can_be_collateral": false,
         "can_be_borrowed": true,
         "ltv": 7200,
         "liquidation_threshold": 7900,
@@ -201,7 +201,7 @@
       },
       "USDC": {
         "hub_id": 1,
-        "can_be_collateral": true,
+        "can_be_collateral": false,
         "can_be_borrowed": true,
         "ltv": 7600,
         "liquidation_threshold": 8000,
@@ -212,7 +212,7 @@
       },
       "XLM": {
         "hub_id": 1,
-        "can_be_collateral": true,
+        "can_be_collateral": false,
         "can_be_borrowed": true,
         "ltv": 7500,
         "liquidation_threshold": 7800,
@@ -223,7 +223,7 @@
       },
       "EURC": {
         "hub_id": 1,
-        "can_be_collateral": true,
+        "can_be_collateral": false,
         "can_be_borrowed": true,
         "ltv": 7200,
         "liquidation_threshold": 7900,
@@ -234,7 +234,7 @@
       },
       "PYUSD": {
         "hub_id": 1,
-        "can_be_collateral": true,
+        "can_be_collateral": false,
         "can_be_borrowed": true,
         "ltv": 7200,
         "liquidation_threshold": 7900,
@@ -272,7 +272,7 @@
       },
       "USDC": {
         "hub_id": 1,
-        "can_be_collateral": true,
+        "can_be_collateral": false,
         "can_be_borrowed": true,
         "ltv": 7600,
         "liquidation_threshold": 8000,
@@ -283,7 +283,7 @@
       },
       "XLM": {
         "hub_id": 1,
-        "can_be_collateral": true,
+        "can_be_collateral": false,
         "can_be_borrowed": true,
         "ltv": 7500,
         "liquidation_threshold": 7800,
@@ -294,7 +294,7 @@
       },
       "EURC": {
         "hub_id": 1,
-        "can_be_collateral": true,
+        "can_be_collateral": false,
         "can_be_borrowed": true,
         "ltv": 7200,
         "liquidation_threshold": 7900,
@@ -305,7 +305,7 @@
       },
       "PYUSD": {
         "hub_id": 1,
-        "can_be_collateral": true,
+        "can_be_collateral": false,
         "can_be_borrowed": true,
         "ltv": 7200,
         "liquidation_threshold": 7900,
@@ -643,8 +643,8 @@
         "ltv": 6500,
         "liquidation_threshold": 7500,
         "liquidation_bonus": 800,
-        "supply_cap": "1000000000000",
-        "borrow_cap": "750000000000",
+        "supply_cap": "750000000",
+        "borrow_cap": "562500000",
         "liquidation_fees": 1000
       },
       "XAUMUSDC_LP": {
