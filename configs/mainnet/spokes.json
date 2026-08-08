@@ -515,6 +515,192 @@
         "liquidation_fees": 100,
         "supply_cap": "5000000000",
         "borrow_cap": "0"
+      },
+      "USDC": {
+        "hub_id": 1,
+        "can_be_collateral": false,
+        "can_be_borrowed": true,
+        "ltv": 7600,
+        "liquidation_threshold": 8000,
+        "liquidation_bonus": 400,
+        "supply_cap": "9973722627737",
+        "borrow_cap": "7480291970803",
+        "liquidation_fees": 1000
+      },
+      "EURC": {
+        "hub_id": 1,
+        "can_be_collateral": false,
+        "can_be_borrowed": true,
+        "ltv": 7200,
+        "liquidation_threshold": 7900,
+        "liquidation_bonus": 500,
+        "supply_cap": "650000000000",
+        "borrow_cap": "487500000000",
+        "liquidation_fees": 1000
+      },
+      "XLM": {
+        "hub_id": 1,
+        "can_be_collateral": false,
+        "can_be_borrowed": true,
+        "ltv": 7500,
+        "liquidation_threshold": 7800,
+        "liquidation_bonus": 900,
+        "supply_cap": "400000000000000",
+        "borrow_cap": "240000000000000",
+        "liquidation_fees": 1200
+      },
+      "PYUSD": {
+        "hub_id": 1,
+        "can_be_collateral": false,
+        "can_be_borrowed": true,
+        "ltv": 7200,
+        "liquidation_threshold": 7900,
+        "liquidation_bonus": 500,
+        "supply_cap": "98968957930",
+        "borrow_cap": "74226718447",
+        "liquidation_fees": 1000
+      }
+    }
+  },
+  "7": {
+    "name": "Ondo",
+    "assets": {
+      "USDY": {
+        "hub_id": 2,
+        "can_be_collateral": true,
+        "can_be_borrowed": false,
+        "ltv": 8000,
+        "liquidation_threshold": 8500,
+        "liquidation_bonus": 500,
+        "supply_cap": "44000000000000",
+        "borrow_cap": "33000000000000",
+        "liquidation_fees": 1000
+      },
+      "USDYUSDC_LP": {
+        "hub_id": 3,
+        "can_be_collateral": true,
+        "can_be_borrowed": false,
+        "ltv": 5000,
+        "liquidation_threshold": 6000,
+        "liquidation_bonus": 1000,
+        "liquidation_fees": 100,
+        "supply_cap": "5000000000",
+        "borrow_cap": "3750000000"
+      },
+      "USDC": {
+        "hub_id": 1,
+        "can_be_collateral": false,
+        "can_be_borrowed": true,
+        "ltv": 7600,
+        "liquidation_threshold": 8000,
+        "liquidation_bonus": 400,
+        "supply_cap": "9973722627737",
+        "borrow_cap": "7480291970803",
+        "liquidation_fees": 1000
+      },
+      "EURC": {
+        "hub_id": 1,
+        "can_be_collateral": false,
+        "can_be_borrowed": true,
+        "ltv": 7200,
+        "liquidation_threshold": 7900,
+        "liquidation_bonus": 500,
+        "supply_cap": "650000000000",
+        "borrow_cap": "487500000000",
+        "liquidation_fees": 1000
+      },
+      "XLM": {
+        "hub_id": 1,
+        "can_be_collateral": false,
+        "can_be_borrowed": true,
+        "ltv": 7500,
+        "liquidation_threshold": 7800,
+        "liquidation_bonus": 900,
+        "supply_cap": "400000000000000",
+        "borrow_cap": "240000000000000",
+        "liquidation_fees": 1200
+      },
+      "PYUSD": {
+        "hub_id": 1,
+        "can_be_collateral": false,
+        "can_be_borrowed": true,
+        "ltv": 7200,
+        "liquidation_threshold": 7900,
+        "liquidation_bonus": 500,
+        "supply_cap": "98968957930",
+        "borrow_cap": "74226718447",
+        "liquidation_fees": 1000
+      }
+    }
+  },
+  "8": {
+    "name": "Commodities",
+    "assets": {
+      "XAUM": {
+        "hub_id": 2,
+        "can_be_collateral": true,
+        "can_be_borrowed": false,
+        "ltv": 6500,
+        "liquidation_threshold": 7500,
+        "liquidation_bonus": 800,
+        "supply_cap": "1000000000000",
+        "borrow_cap": "750000000000",
+        "liquidation_fees": 1000
+      },
+      "XAUMUSDC_LP": {
+        "hub_id": 3,
+        "can_be_collateral": true,
+        "can_be_borrowed": false,
+        "ltv": 5000,
+        "liquidation_threshold": 6000,
+        "liquidation_bonus": 1000,
+        "liquidation_fees": 100,
+        "supply_cap": "5000000000",
+        "borrow_cap": "3750000000"
+      },
+      "USDC": {
+        "hub_id": 1,
+        "can_be_collateral": false,
+        "can_be_borrowed": true,
+        "ltv": 7600,
+        "liquidation_threshold": 8000,
+        "liquidation_bonus": 400,
+        "supply_cap": "9973722627737",
+        "borrow_cap": "7480291970803",
+        "liquidation_fees": 1000
+      },
+      "EURC": {
+        "hub_id": 1,
+        "can_be_collateral": false,
+        "can_be_borrowed": true,
+        "ltv": 7200,
+        "liquidation_threshold": 7900,
+        "liquidation_bonus": 500,
+        "supply_cap": "650000000000",
+        "borrow_cap": "487500000000",
+        "liquidation_fees": 1000
+      },
+      "XLM": {
+        "hub_id": 1,
+        "can_be_collateral": false,
+        "can_be_borrowed": true,
+        "ltv": 7500,
+        "liquidation_threshold": 7800,
+        "liquidation_bonus": 900,
+        "supply_cap": "400000000000000",
+        "borrow_cap": "240000000000000",
+        "liquidation_fees": 1200
+      },
+      "PYUSD": {
+        "hub_id": 1,
+        "can_be_collateral": false,
+        "can_be_borrowed": true,
+        "ltv": 7200,
+        "liquidation_threshold": 7900,
+        "liquidation_bonus": 500,
+        "supply_cap": "98968957930",
+        "borrow_cap": "74226718447",
+        "liquidation_fees": 1000
       }
     }
   }

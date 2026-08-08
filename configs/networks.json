@@ -23,7 +23,9 @@
       "2": 2,
       "3": 3
     },
-    "spoke_ids": {},
+    "spoke_ids": {
+      "1": 1
+    },
     "price_aggregator": "CDD4CFSYS53SWGEJLC32Z33LEVNO4244VCPHYUKK4HK2SEZ4NCRMNYI4"
   },
   "mainnet": {

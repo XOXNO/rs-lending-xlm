@@ -1,0 +1,16 @@
+{
+  "kind": "controller",
+  "op_id": "0b0ac120ca7e3fa96a46316f18c4fec86434811c3938a48cf98bd9a1c18e2e13",
+  "network": "testnet",
+  "target": "CBY6ZCBOMH47F6H7QZUEHLLZCS3Z5PIFBY7Q4FWKZFYKERWKHB2MH4YP",
+  "function": "set_swap_aggregator",
+  "args": [
+    {
+      "address": "CAFL5AK2L6DWHNOHTHZX5EVI3KDPM4DDJT4B4VBVUGBFC635S4MVLVQP"
+    }
+  ],
+  "predecessor": "0000000000000000000000000000000000000000000000000000000000000000",
+  "salt": "6adf849c8cb6a43101c065d0bff3bc7e6806153716b7ee5b1e4ad88b40f7d022",
+  "cli_executable": true,
+  "executed": true
+}
