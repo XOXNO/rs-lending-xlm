@@ -46,15 +46,28 @@ exclude_re = [
     "replace > with >= in estimate_liquidation_amount",
     "replace > with >= in <impl LiquidityPoolInterface for LiquidityPool>::claim_revenue",
     "aggregation.rs:[0-9]+:78: replace > with >= in sorted_copy",
-    "aquarius.rs:[0-9]+:36: replace > with >= in add_liquidity",
-    "aquarius.rs:[0-9]+:19: replace > with >= in add_liquidity",
-    "aquarius.rs:[0-9]+:18: replace < with == in add_liquidity",
-    "aquarius.rs:[0-9]+:18: replace < with <= in add_liquidity",
-    # Lived in aquarius.rs once; the entry was never re-scoped when it moved,
-    # so it silently stopped matching. At proportional == RESIDUAL_DUST_FLOOR
-    # both arms return the same value.
-    "lib.rs:[0-9]+:21: replace > with >= in residual_allowance",
+    # `add_liquidity` pushes `before[i] = if amount > 0 { balance(router) } else
+    # { 0 }`, and `before[i]` is only read inside `if held[i] != 0` -- where
+    # `held[i]` *is* the `amount` compared here. At amount == 0 the pushed value
+    # is dead, so `>=` only adds a `balance` read whose result is discarded.
+    # (Was scoped to `aquarius.rs`, which since split into
+    # `venues/aquarius/{mint,burn}.rs`; the old entry had stopped matching.)
+    "venues/aquarius/mint.rs:[0-9]+:36: replace > with >= in add_liquidity",
+    # `residual_allowance` returns `proportional` above the floor and the floor
+    # otherwise, so at proportional == RESIDUAL_DUST_FLOOR both arms return the
+    # same value. It has lived in aquarius.rs, then lib.rs, and now
+    # constants.rs, and the entry was never re-scoped on either move.
+    "constants.rs:[0-9]+:21: replace > with >= in residual_allowance",
     "vault.rs:[0-9]+:19: replace < with <= in Vault",
+
+    # --- EQUIVALENT: widened slice bound that is never read -------------------
+    # The referral id is read as `&buf[head::REFERRAL..head::REFERRAL + 4]`, and
+    # `head::REFERRAL` is 4, so the mutant widens the slice from `buf[4..8]` to
+    # `buf[4..16]`. `buf` is `[u8; MAX_PROGRAM_BYTES]` (346 bytes) regardless of
+    # the payload length, so the wider range can never go out of bounds, and the
+    # slice is only indexed at 0..=3 -- `buf[4..8]` either way. Byte-identical
+    # referral id on every input.
+    "program.rs:[0-9]+:60: replace \\+ with \\* in Program::decode",
 
     # --- EQUIVALENT: guarded downstream --------------------------------------
     # `update_supply_index` returns `old_index` when supplied == 0 OR
