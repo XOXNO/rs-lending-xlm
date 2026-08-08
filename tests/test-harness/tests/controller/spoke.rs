@@ -372,6 +372,28 @@ fn test_supply_zero_spoke_rejects_mismatch_against_active_category() {
     assert_contract_error(result, errors::SPOKE_MISMATCH);
 }
 
+/// New-account branch of the spoke-id gate: `account_id == 0` has no stored
+/// spoke to match against, so `create_account` must reject an unregistered id
+/// instead of minting an account pinned to a spoke that does not exist.
+#[test]
+fn test_supply_new_account_rejects_unknown_spoke() {
+    let mut t = LendingTest::new().with_market(usdc_preset()).build();
+
+    let result = t.try_supply_with_spoke(ALICE, "USDC", 10.0, HARNESS_SPOKE + 98);
+    assert_contract_error(result, errors::SPOKE_NOT_FOUND);
+}
+
+/// Spoke ids are 1-based, so `0` is the "unset" sentinel and can never name a
+/// listing. On an existing account it surfaces as `SpokeMismatch`; on a new one
+/// there is nothing to mismatch, so the explicit `spoke_id >= 1` guard answers.
+#[test]
+fn test_supply_new_account_rejects_zero_spoke() {
+    let mut t = LendingTest::new().with_market(usdc_preset()).build();
+
+    let result = t.try_supply_with_spoke(ALICE, "USDC", 10.0, 0);
+    assert_contract_error(result, errors::SPOKE_NOT_FOUND);
+}
+
 #[test]
 fn test_deprecated_spoke_debt_free_account_can_partially_withdraw_collateral() {
     let mut t = LendingTest::new()
