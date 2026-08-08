@@ -29,7 +29,9 @@ mod venues;
 #[path = "../tests/unit/mod.rs"]
 mod test;
 
+#[cfg(test)]
 pub(crate) use constants::residual_allowance;
+#[cfg(test)]
 pub(crate) use storage::{renew_instance, reserved_fee_balance};
 
 use soroban_sdk::{
