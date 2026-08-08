@@ -1,6 +1,6 @@
 {
   "kind": "controller",
-  "op_id": "a428bb89e9dfe74b942602e8c4b7960dde2b3c29788b193644c1ae7d62712e09",
+  "op_id": "f4ccd419b9d0f7231faaf33605611e0eeccddf89157bd70fc8b9f172ca092766",
   "network": "testnet",
   "target": "CBY6ZCBOMH47F6H7QZUEHLLZCS3Z5PIFBY7Q4FWKZFYKERWKHB2MH4YP",
   "function": "add_asset_to_spoke",
@@ -12,7 +12,7 @@
             "symbol": "asset"
           },
           "val": {
-            "address": "CCUUDM434BMZMYWYDITHFXHDMIVTGGD6T2I5UKNX5BSLXLW7HVR4MCGZ"
+            "address": "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
           }
         },
         {
@@ -20,7 +20,7 @@
             "symbol": "bonus"
           },
           "val": {
-            "u32": 200
+            "u32": 423
           }
         },
         {
@@ -28,7 +28,7 @@
             "symbol": "borrow_cap"
           },
           "val": {
-            "i128": "25000000000000"
+            "i128": "50000000000000"
           }
         },
         {
@@ -76,7 +76,7 @@
             "symbol": "ltv"
           },
           "val": {
-            "u32": 9700
+            "u32": 6847
           }
         },
         {
@@ -100,7 +100,7 @@
             "symbol": "supply_cap"
           },
           "val": {
-            "i128": "50000000000000"
+            "i128": "100000000000000"
           }
         },
         {
@@ -108,14 +108,14 @@
             "symbol": "threshold"
           },
           "val": {
-            "u32": 9800
+            "u32": 7512
           }
         }
       ]
     }
   ],
   "predecessor": "0000000000000000000000000000000000000000000000000000000000000000",
-  "salt": "c8d0247c6c2c51a4c10da1bbe3ef43d34e0b7f6bf9184c5706162a40f27216d6",
+  "salt": "290d418e5fe2c62ca5a16ab61dea6760a56806e1bc73637f24f66363d7e0d7f3",
   "cli_executable": true,
   "executed": true
 }

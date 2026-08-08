@@ -1,6 +1,6 @@
 {
   "kind": "controller",
-  "op_id": "a428bb89e9dfe74b942602e8c4b7960dde2b3c29788b193644c1ae7d62712e09",
+  "op_id": "eec4e1340c2ec7dcb911a5e359e05137b404c1a255d2eb1680ad18364cf4ebd2",
   "network": "testnet",
   "target": "CBY6ZCBOMH47F6H7QZUEHLLZCS3Z5PIFBY7Q4FWKZFYKERWKHB2MH4YP",
   "function": "add_asset_to_spoke",
@@ -12,7 +12,7 @@
             "symbol": "asset"
           },
           "val": {
-            "address": "CCUUDM434BMZMYWYDITHFXHDMIVTGGD6T2I5UKNX5BSLXLW7HVR4MCGZ"
+            "address": "CDEUHPEUQAQNLCHFVBX3ZOSIR2FUWD2COYTSHUPQPJWK2BCLLQCW66FY"
           }
         },
         {
@@ -20,7 +20,7 @@
             "symbol": "bonus"
           },
           "val": {
-            "u32": 200
+            "u32": 1000
           }
         },
         {
@@ -28,7 +28,7 @@
             "symbol": "borrow_cap"
           },
           "val": {
-            "i128": "25000000000000"
+            "i128": "0"
           }
         },
         {
@@ -36,7 +36,7 @@
             "symbol": "can_borrow"
           },
           "val": {
-            "bool": true
+            "bool": false
           }
         },
         {
@@ -60,7 +60,7 @@
             "symbol": "hub_id"
           },
           "val": {
-            "u32": 1
+            "u32": 3
           }
         },
         {
@@ -76,7 +76,7 @@
             "symbol": "ltv"
           },
           "val": {
-            "u32": 9700
+            "u32": 5000
           }
         },
         {
@@ -92,7 +92,7 @@
             "symbol": "spoke_id"
           },
           "val": {
-            "u32": 1
+            "u32": 4
           }
         },
         {
@@ -100,7 +100,7 @@
             "symbol": "supply_cap"
           },
           "val": {
-            "i128": "50000000000000"
+            "i128": "10000000000"
           }
         },
         {
@@ -108,14 +108,14 @@
             "symbol": "threshold"
           },
           "val": {
-            "u32": 9800
+            "u32": 6000
           }
         }
       ]
     }
   ],
   "predecessor": "0000000000000000000000000000000000000000000000000000000000000000",
-  "salt": "c8d0247c6c2c51a4c10da1bbe3ef43d34e0b7f6bf9184c5706162a40f27216d6",
+  "salt": "86060518b36ab1bc347a112720008feb79c03c3810fff412f189b1a5c3b528b3",
   "cli_executable": true,
   "executed": true
 }
