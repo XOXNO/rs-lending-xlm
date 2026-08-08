@@ -1,9 +1,9 @@
-mod immediate;
-mod lifecycle;
-mod recovery;
+pub(crate) mod immediate;
+pub(crate) mod lifecycle;
+pub(crate) mod recovery;
 #[cfg(any(test, feature = "testing"))]
 mod testing;
-mod views;
+pub(crate) mod views;
 
 use common::errors::GenericError;
 

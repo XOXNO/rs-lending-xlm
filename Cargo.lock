@@ -347,6 +347,7 @@ dependencies = [
  "stellar-access",
  "stellar-contract-utils",
  "stellar-macros",
+ "swap-aggregator-interface",
 ]
 
 [[package]]
@@ -1431,6 +1432,7 @@ dependencies = [
  "cvlr-soroban-derive",
  "cvlr-soroban-macros",
  "mock-redstone",
+ "price-aggregator-interface",
  "soroban-sdk",
  "stellar-access",
  "stellar-macros",
@@ -2145,6 +2147,14 @@ dependencies = [
  "stellar-access",
  "stellar-contract-utils",
  "stellar-macros",
+ "swap-aggregator-interface",
+]
+
+[[package]]
+name = "swap-aggregator-interface"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk",
 ]
 
 [[package]]

@@ -7,8 +7,8 @@ mod balances;
 mod route;
 
 use crate::storage;
-use route::aggregator::AggregatorClient;
 use route::validate_strategy_swap;
+use swap_aggregator_interface::SwapAggregatorClient;
 
 pub(crate) fn swap_tokens(
     env: &Env,
@@ -19,7 +19,7 @@ pub(crate) fn swap_tokens(
     swap: &StrategySwap,
 ) -> i128 {
     let router_addr = storage::get_swap_aggregator(env);
-    let router = AggregatorClient::new(env, &router_addr);
+    let router = SwapAggregatorClient::new(env, &router_addr);
     let token_out_client = token::Client::new(env, token_out);
     let token_in_client = token::Client::new(env, token_in);
 

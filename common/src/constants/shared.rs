@@ -8,8 +8,6 @@ pub const RAY_DECIMALS: u32 = 27;
 
 pub const WAD_DECIMALS: u32 = 18;
 
-pub const BPS_DECIMALS: u32 = 4;
-
 /// Minimum allowed market / listed-token decimals (governance + price-aggregator).
 pub const MIN_ASSET_DECIMALS: u32 = 3;
 

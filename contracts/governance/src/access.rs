@@ -169,6 +169,18 @@ pub(crate) fn apply_revoke_role(env: &Env, account: &Address, role: &Symbol) {
     access_control::revoke_role_no_auth(env, account, role, &owner);
 }
 
+pub(crate) fn accept_ownership(env: &Env) {
+    storage::renew_governance_instance(env);
+    let previous_owner = owner_or_panic(env);
+    ownable::accept_ownership(env);
+    let new_owner = owner_or_panic(env);
+    sync_owner_access_control(env, &previous_owner, &new_owner);
+}
+
+pub(crate) fn has_role(env: &Env, account: &Address, role: &Symbol) -> bool {
+    access_control::has_role(env, account, role).is_some()
+}
+
 #[contractimpl]
 impl Governance {
     pub fn __constructor(env: Env, admin: Address, min_delay: u32) {
@@ -181,18 +193,6 @@ impl Governance {
 
         timelock::require_nonzero_delay(&env, min_delay);
         stellar_governance::timelock::set_min_delay(&env, min_delay);
-    }
-
-    pub fn accept_ownership(env: Env) {
-        storage::renew_governance_instance(&env);
-        let previous_owner = owner_or_panic(&env);
-        ownable::accept_ownership(&env);
-        let new_owner = owner_or_panic(&env);
-        sync_owner_access_control(&env, &previous_owner, &new_owner);
-    }
-
-    pub fn has_role(env: Env, account: Address, role: Symbol) -> bool {
-        access_control::has_role(&env, &account, &role).is_some()
     }
 }
 

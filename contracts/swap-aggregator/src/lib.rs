@@ -46,6 +46,7 @@ use soroban_sdk::{
 
 use stellar_access::ownable::{self, Ownable};
 use stellar_macros::only_owner;
+use swap_aggregator_interface::SwapAggregatorInterface;
 
 use crate::constants::FEE_CAP;
 use crate::errors::Error;
@@ -65,17 +66,20 @@ impl Router {
         storage.set(&types::DataKey::ReferralCounter, &0u64);
         storage::renew_instance(&env);
     }
+}
 
+#[contractimpl]
+impl SwapAggregatorInterface for Router {
     /// Set the protocol static fee in bps (`<= FEE_CAP`). Owner only.
     #[only_owner]
-    pub fn set_static_fee(env: Env, fee_bps: u32) {
+    fn set_static_fee(env: Env, fee_bps: u32) {
         storage::renew_instance(&env);
         fees::set_static_fee(&env, fee_bps);
     }
 
     /// Mark `token` as fee-whitelisted (affects input-side fee selection). Owner only.
     #[only_owner]
-    pub fn add_to_whitelist(env: Env, token: Address) {
+    fn add_to_whitelist(env: Env, token: Address) {
         storage::renew_instance(&env);
         let mut list = storage::load_whitelist(&env);
         if !list.contains(&token) {
@@ -86,7 +90,7 @@ impl Router {
 
     /// Remove `token` from the fee whitelist. Owner only.
     #[only_owner]
-    pub fn remove_from_whitelist(env: Env, token: Address) {
+    fn remove_from_whitelist(env: Env, token: Address) {
         storage::renew_instance(&env);
         let mut list = storage::load_whitelist(&env);
         if let Some(idx) = list.first_index_of(&token) {
@@ -97,14 +101,14 @@ impl Router {
 
     /// Upgrade contract WASM. Owner only.
     #[only_owner]
-    pub fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
+    fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
         storage::renew_instance(&env);
         stellar_contract_utils::upgradeable::upgrade(&env, &new_wasm_hash);
     }
 
     /// Create a referral; returns the new id. Owner only.
     #[only_owner]
-    pub fn add_referral(env: Env, owner: Address, fee_bps: u32) -> u64 {
+    fn add_referral(env: Env, owner: Address, fee_bps: u32) -> u64 {
         storage::renew_instance(&env);
         if fee_bps > FEE_CAP {
             panic_with_error!(&env, Error::FeeTooHigh);
@@ -128,7 +132,7 @@ impl Router {
 
     /// Update a referral's fee bps. Owner only.
     #[only_owner]
-    pub fn set_referral_fee(env: Env, id: u64, fee_bps: u32) {
+    fn set_referral_fee(env: Env, id: u64, fee_bps: u32) {
         storage::renew_instance(&env);
         if fee_bps > FEE_CAP {
             panic_with_error!(&env, Error::FeeTooHigh);
@@ -140,7 +144,7 @@ impl Router {
 
     /// Activate or deactivate a referral. Owner only.
     #[only_owner]
-    pub fn set_referral_active(env: Env, id: u64, active: bool) {
+    fn set_referral_active(env: Env, id: u64, active: bool) {
         storage::renew_instance(&env);
         let mut cfg = storage::load_referral(&env, id);
         cfg.active = active;
@@ -149,7 +153,7 @@ impl Router {
 
     /// Transfer claim rights for a referral. Owner only.
     #[only_owner]
-    pub fn set_referral_owner(env: Env, id: u64, new_owner: Address) {
+    fn set_referral_owner(env: Env, id: u64, new_owner: Address) {
         storage::renew_instance(&env);
         let mut cfg = storage::load_referral(&env, id);
         cfg.owner = new_owner;
@@ -158,14 +162,14 @@ impl Router {
 
     /// Pay out accrued admin fee balances for `tokens`. Owner only.
     #[only_owner]
-    pub fn claim_admin_fees(env: Env, recipient: Address, tokens: Vec<Address>) {
+    fn claim_admin_fees(env: Env, recipient: Address, tokens: Vec<Address>) {
         storage::renew_instance(&env);
         let router = env.current_contract_address();
         fees::claim_admin_fees(&env, &router, &recipient, tokens);
     }
 
     /// Pay out accrued fees for referral `id` to its configured owner.
-    pub fn claim_referral_fees(env: Env, id: u64, tokens: Vec<Address>) {
+    fn claim_referral_fees(env: Env, id: u64, tokens: Vec<Address>) {
         storage::renew_instance(&env);
         let router = env.current_contract_address();
         fees::claim_referral_fees(&env, &router, id, tokens);
@@ -173,7 +177,7 @@ impl Router {
 
     /// Recover non-fee token balances to `recipient`. Leaves fee buckets intact. Owner only.
     #[only_owner]
-    pub fn sweep_balance(env: Env, recipient: Address, tokens: Vec<Address>) {
+    fn sweep_balance(env: Env, recipient: Address, tokens: Vec<Address>) {
         storage::renew_instance(&env);
         let router = env.current_contract_address();
         let n = tokens.len();
@@ -191,42 +195,42 @@ impl Router {
     }
 
     /// Current Ownable owner.
-    pub fn admin(env: Env) -> Address {
+    fn admin(env: Env) -> Address {
         ownable::get_owner(&env).unwrap_or_else(|| panic_with_error!(&env, Error::NotAdmin))
     }
 
     /// Protocol static fee in basis points.
-    pub fn static_fee_bps(env: Env) -> u32 {
+    fn static_fee_bps(env: Env) -> u32 {
         storage::static_fee_bps(&env)
     }
 
     /// Referral config if `id` exists.
-    pub fn referral(env: Env, id: u64) -> Option<ReferralConfig> {
+    fn referral(env: Env, id: u64) -> Option<ReferralConfig> {
         storage::try_load_referral(&env, id)
     }
 
     /// Highest referral id issued so far.
-    pub fn referral_counter(env: Env) -> u64 {
+    fn referral_counter(env: Env) -> u64 {
         storage::referral_counter(&env)
     }
 
     /// Whether `token` is on the fee whitelist.
-    pub fn is_whitelisted(env: Env, token: Address) -> bool {
+    fn is_whitelisted(env: Env, token: Address) -> bool {
         storage::load_whitelist(&env).contains(&token)
     }
 
     /// Full fee-whitelist token list.
-    pub fn whitelisted_tokens(env: Env) -> Vec<Address> {
+    fn whitelisted_tokens(env: Env) -> Vec<Address> {
         storage::load_whitelist(&env)
     }
 
     /// Accrued admin fee balance for `token`.
-    pub fn admin_fee_balance(env: Env, token: Address) -> i128 {
+    fn admin_fee_balance(env: Env, token: Address) -> i128 {
         storage::fee_balance(&env, &types::DataKey::AdminFee(token))
     }
 
     /// Accrued referral fee balance for `(id, token)`.
-    pub fn referral_fee_balance(env: Env, id: u64, token: Address) -> i128 {
+    fn referral_fee_balance(env: Env, id: u64, token: Address) -> i128 {
         storage::fee_balance(&env, &types::DataKey::ReferralFee(id, token))
     }
 
@@ -234,7 +238,7 @@ impl Router {
     ///
     /// Pulls `total_in` from `sender`, runs optional LP burn/paths/mint, applies
     /// fees, enforces `total_min_out`, and returns delivered output.
-    pub fn execute_strategy(env: Env, sender: Address, total_in: i128, swap_xdr: Bytes) -> i128 {
+    fn execute_strategy(env: Env, sender: Address, total_in: i128, swap_xdr: Bytes) -> i128 {
         storage::renew_instance(&env);
         let payload = StrategyPayload::from_xdr(&env, &swap_xdr)
             .unwrap_or_else(|_| panic_with_error!(&env, Error::InvalidRouteXdr));

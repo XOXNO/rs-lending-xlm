@@ -1,6 +1,7 @@
 use cvlr::macros::rule;
 use cvlr::nondet::nondet;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
+use price_aggregator_interface::PriceAggregatorInterface;
 use soroban_sdk::{panic_with_error, Address, Env, Vec};
 
 use common::constants::{MAX_TOLERANCE, MIN_TOLERANCE, WAD};
@@ -15,6 +16,17 @@ fn midpoint_if_in_band(e: &Env, anchor: i128, primary: i128, tolerance: &OracleT
         panic_with_error!(e, OracleError::UnsafePriceNotAllowed);
     }
     crate::tolerance::midpoint_price_or_zero(anchor, primary)
+}
+
+/// Resolve one key through the public `prices` entrypoint.
+///
+/// Replaces the former single-key `PriceAggregator::price`, which was removed in
+/// favour of the batch endpoint; that function's body was exactly this, so rules
+/// written against it keep their meaning — including the revert on missing
+/// config, which still originates inside `engine::resolve`.
+fn single_price(e: Env, key: PriceKey) -> PriceFeedRaw {
+    let requested = soroban_sdk::vec![&e, key.clone()];
+    crate::PriceAggregator::prices(e, requested).get_unchecked(key)
 }
 
 const MAX_REALISTIC_PRICE: i128 = 1_000_000 * WAD;
@@ -117,7 +129,7 @@ fn single_price_respects_configured_sanity_bounds(e: Env, asset: Address, oracle
     let key = PriceKey::Token(asset.clone());
     crate::registry::store_oracle(&e, &key, &config);
 
-    let feed = crate::PriceAggregator::price(e, key);
+    let feed = single_price(e, key);
     cvlr_assert!(feed.price_wad >= config.min_sanity_price_wad);
     cvlr_assert!(feed.price_wad <= config.max_sanity_price_wad);
     cvlr_assert!(feed.asset_decimals == config.asset_decimals);
@@ -130,7 +142,7 @@ fn price_endpoint_sanity(e: Env, asset: Address, oracle: Address) {
     let key = PriceKey::Token(asset);
     crate::registry::store_oracle(&e, &key, &config);
 
-    let feed = crate::PriceAggregator::price(e, key);
+    let feed = single_price(e, key);
     cvlr_satisfy!(feed.price_wad > 0);
 }
 
@@ -205,7 +217,7 @@ fn partial_legs_soft_deviation(e: Env, asset: Address, oracle: Address, reading_
 fn missing_oracle_config_reverts(e: Env, asset: Address) {
     let key = PriceKey::Token(asset);
     cvlr_assume!(crate::registry::get_oracle(&e, &key).is_none());
-    let _ = crate::PriceAggregator::price(e, key);
+    let _ = single_price(e, key);
     cvlr_assert!(false);
 }
 

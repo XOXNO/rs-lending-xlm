@@ -45,13 +45,10 @@ pub struct StrategyPayload {
 }
 
 /// Stored referral account.
-#[contracttype]
-#[derive(Clone, Debug, PartialEq)]
-pub struct ReferralConfig {
-    pub owner: Address,
-    pub fee_bps: u32,
-    pub active: bool,
-}
+///
+/// Owned by `swap-aggregator-interface` so the published trait can name it;
+/// re-exported here because storage and fee accounting reach for it locally.
+pub use swap_aggregator_interface::ReferralConfig;
 
 /// Instance and persistent storage keys.
 #[contracttype]

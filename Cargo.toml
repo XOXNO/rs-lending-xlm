@@ -5,6 +5,7 @@ members = [
     "interfaces/controller",
     "interfaces/governance",
     "interfaces/price-aggregator",
+    "interfaces/swap-aggregator",
     "contracts/pool",
     "contracts/controller",
     "contracts/governance",

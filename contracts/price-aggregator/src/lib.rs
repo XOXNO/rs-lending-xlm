@@ -18,6 +18,7 @@ pub mod spec;
 #[path = "../tests/oracle/support.rs"]
 mod test_support;
 
+use price_aggregator_interface::PriceAggregatorInterface;
 use soroban_sdk::{contract, contractimpl, Address, Env, Map, Vec};
 use stellar_access::ownable;
 use stellar_macros::only_owner;
@@ -46,13 +47,16 @@ impl PriceAggregator {
         ownable::set_owner(&env, &owner);
         renew_instance(&env);
     }
+}
 
-    pub fn get_owner(env: Env) -> Option<Address> {
+#[contractimpl]
+impl PriceAggregatorInterface for PriceAggregator {
+    fn get_owner(env: Env) -> Option<Address> {
         renew_instance(&env);
         ownable::get_owner(&env)
     }
 
-    pub fn prices(env: Env, keys: Vec<PriceKey>) -> Map<PriceKey, PriceFeedRaw> {
+    fn prices(env: Env, keys: Vec<PriceKey>) -> Map<PriceKey, PriceFeedRaw> {
         let mut out = Map::new(&env);
         let mut session = warmed_session(&env, &keys);
         for key in keys.iter() {
@@ -61,7 +65,7 @@ impl PriceAggregator {
         out
     }
 
-    pub fn quotes(env: Env, keys: Vec<PriceKey>) -> Map<PriceKey, PriceStatus> {
+    fn quotes(env: Env, keys: Vec<PriceKey>) -> Map<PriceKey, PriceStatus> {
         let mut out = Map::new(&env);
         let mut session = warmed_session(&env, &keys);
         for key in keys.iter() {
@@ -70,7 +74,7 @@ impl PriceAggregator {
         out
     }
 
-    pub fn price_spread(env: Env, key: PriceKey) -> (i128, i128) {
+    fn price_spread(env: Env, key: PriceKey) -> (i128, i128) {
         let keys = Vec::from_array(&env, [key.clone()]);
         let (_, outcome) = engine::resolve_detailed(&mut warmed_session(&env, &keys), &key, 0);
         (
@@ -79,25 +83,25 @@ impl PriceAggregator {
         )
     }
 
-    pub fn oracle(env: Env, key: PriceKey) -> Option<AssetOracle> {
+    fn oracle(env: Env, key: PriceKey) -> Option<AssetOracle> {
         renew_instance(&env);
         registry::get_oracle(&env, &key)
     }
 
     #[only_owner]
-    pub fn set_oracle(env: Env, key: PriceKey, oracle: AssetOracle) {
+    fn set_oracle(env: Env, key: PriceKey, oracle: AssetOracle) {
         renew_instance(&env);
         admin::set_oracle(&env, key, oracle);
     }
 
     #[only_owner]
-    pub fn set_sanity_band(env: Env, key: PriceKey, min_wad: i128, max_wad: i128) {
+    fn set_sanity_band(env: Env, key: PriceKey, min_wad: i128, max_wad: i128) {
         renew_instance(&env);
         admin::set_sanity_band(&env, key, min_wad, max_wad);
     }
 
     #[only_owner]
-    pub fn set_tolerance(env: Env, key: PriceKey, tolerance: OracleTolerance) {
+    fn set_tolerance(env: Env, key: PriceKey, tolerance: OracleTolerance) {
         renew_instance(&env);
         admin::set_tolerance(&env, key, tolerance);
     }
