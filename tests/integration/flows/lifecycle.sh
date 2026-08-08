@@ -100,13 +100,47 @@ view indexes_view "$CONTROLLER" -- get_market_indexes_detailed \
         --caller "$ALICE_ADDR" --account_id "$acct" --spoke_id "$PRIMARY_SPOKE_ID" \
         --assets "$(pay_vec "$PRIMARY_HUB_ID" "$XLM_SAC" 0)"
 
+    # Both guards below have to bind on collateral (#100), and neither does at
+    # rest: Alice's collateral (1k XLM plus the USDC the funding swap hands out)
+    # dwarfs her debt, so a fixed over-borrow sits well inside her limit and any
+    # withdrawal big enough to breach LTV exhausts pool liquidity first (#112).
+    # Both amounts are therefore derived from her actual borrowing power, and we
+    # first spend most of that power so the limit is the binding constraint. The
+    # repays below read the debt back at runtime, so they clear this too.
+    local ltv_wad debt_wad headroom_usdc over_usdc
+    ltv_wad=$(_view_int ltv_usd_pre_edge get_ltv_collateral_usd --account_id "$acct")
+    debt_wad=$(_view_int borrow_usd_pre_edge get_total_borrow_usd --account_id "$acct")
+    # USD is WAD-scaled (1e18) and USDC has 7 decimals, so 1 USDC unit == 1e11.
+    # Borrow 90% of the headroom: enough to leave the limit within reach, with
+    # room for a price tick between this read and the transaction.
+    headroom_usdc=$(awk -v l="$ltv_wad" -v d="$debt_wad" 'BEGIN{printf "%d", (l-d)/1e11*0.9}')
+    if [ -z "$headroom_usdc" ] || [ "$headroom_usdc" -lt 1000000 ]; then
+        _assert_fail borrow_to_ltv_edge "no borrowing headroom to set up the LTV guards (got ${headroom_usdc:-<none>})"
+    else
+        inv borrow_to_ltv_edge "$ALICE" "$CONTROLLER" -- borrow \
+            --caller "$ALICE_ADDR" --account_id "$acct" \
+            --borrows "$(pay_vec "$PRIMARY_HUB_ID" "$USDC_SAC" "$headroom_usdc")" --to null >/dev/null
+    fi
+
+    # Half the original headroom against the ~10% that is left is unambiguously
+    # over the limit, and in USDC it stays inside what the pool can lend, so the
+    # revert is #100 and not #112.
+    over_usdc=$(awk -v l="$ltv_wad" -v d="$debt_wad" 'BEGIN{printf "%d", (l-d)/1e11*0.5}')
     xfail borrow_over_ltv 'Error\(Contract, #100\)' "$ALICE" "$CONTROLLER" -- borrow \
         --caller "$ALICE_ADDR" --account_id "$acct" \
-        --borrows "$(pay_vec "$PRIMARY_HUB_ID" "$XLM_SAC" 25000000000)" --to null
+        --borrows "$(pay_vec "$PRIMARY_HUB_ID" "$USDC_SAC" "$over_usdc")" --to null
 
+    # Pulling all the XLM and half the USDC strips far more borrowing power than
+    # the headroom left above, while staying well inside what the pool can pay
+    # out -- so the withdrawal is refused for being unbacked, not for liquidity.
+    local xlm_coll_pre usdc_coll_pre
+    xlm_coll_pre=$(_view_int coll_xlm_pre_lock get_collateral_amount \
+        --account_id "$acct" --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$XLM_SAC")")
+    usdc_coll_pre=$(_view_int coll_usdc_pre_lock get_collateral_amount \
+        --account_id "$acct" --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")")
     xfail_sim withdraw_locked 'Error\(Contract, #100\)' "$ALICE" "$CONTROLLER" -- withdraw \
         --caller "$ALICE_ADDR" --account_id "$acct" \
-        --withdrawals "$(pay_vec "$PRIMARY_HUB_ID" "$XLM_SAC" 0 "$USDC_SAC" 0)" --to null
+        --withdrawals "$(pay_vec "$PRIMARY_HUB_ID" "$XLM_SAC" "$xlm_coll_pre" "$USDC_SAC" $((usdc_coll_pre / 2)))" --to null
 
     local usdc_debt_pre_partial
 usdc_debt_pre_partial=$(_view_int debt_usdc_pre_partial get_borrow_amount \
