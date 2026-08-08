@@ -1,4 +1,4 @@
-//! Aquarius LP deposit (mint) and optional pre-balance swap.
+//! Aquarius LP deposit (mint).
 
 use soroban_sdk::{
     auth::InvokerContractAuthEntry, panic_with_error, token, vec, Address, Env, IntoVal, Map,
@@ -7,28 +7,21 @@ use soroban_sdk::{
 
 use crate::errors::Error;
 use crate::vault::Vault;
-use crate::venues::aquarius::pool::{
-    assert_share_token, invoke_pool_swap, pool_reserves, pool_tokens, to_u128,
-};
+use crate::venues::aquarius::pool::{assert_share_token, pool_tokens, to_u128};
 use crate::venues::auth::auth_entry;
-
-/// Off-chain sized pre-swap before mint: move `amount` A→B when `from_a`, else B→A.
-pub(crate) struct PreSwap {
-    pub from_a: bool,
-    pub amount: i128,
-}
 
 /// Mint parameters; router plumbing (`env` / vault / cache) is passed separately.
 pub(crate) struct MintLiquidity<'a> {
     pub pool: &'a Address,
     pub lp_token: &'a Address,
     pub min_shares: i128,
-    pub pre_swap: PreSwap,
 }
 
 /// Deposit vault holdings of pool constituents; credit measured LP shares.
 ///
-/// Optional pre-swap rebalances a 2-token pool before deposit.
+/// Rebalancing before a lopsided deposit is not special-cased here: the caller
+/// emits an ordinary swap instruction against the same pool ahead of the mint,
+/// which goes through the venue adapter's measured-delta accounting.
 pub(crate) fn add_liquidity(
     env: &Env,
     router: &Address,
@@ -40,7 +33,6 @@ pub(crate) fn add_liquidity(
         pool,
         lp_token,
         min_shares,
-        pre_swap,
     } = mint;
 
     let tokens = pool_tokens(env, cache, pool);
@@ -48,8 +40,6 @@ pub(crate) fn add_liquidity(
     if min_shares <= 0 {
         panic_with_error!(env, Error::MinSharesNotMet);
     }
-
-    pre_balance(env, router, vault, pool, &tokens, pre_swap);
 
     let n = tokens.len();
     let mut amounts: Vec<u128> = Vec::new(env);
@@ -136,87 +126,4 @@ pub(crate) fn add_liquidity(
     }
     vault.deposit(lp_token, shares);
     shares
-}
-
-/// Run caller-provided pre-swap when the pool is a 2-asset book with positive reserves.
-fn pre_balance(
-    env: &Env,
-    router: &Address,
-    vault: &mut Vault,
-    pool: &Address,
-    tokens: &Vec<Address>,
-    pre_swap: PreSwap,
-) {
-    if pre_swap.amount <= 0 || tokens.len() != 2 {
-        return;
-    }
-    let token_a = tokens.get_unchecked(0);
-    let token_b = tokens.get_unchecked(1);
-    let held_a = vault.balance_of(&token_a);
-    let held_b = vault.balance_of(&token_b);
-
-    let reserves = pool_reserves(env, pool);
-    if reserves.len() != 2 {
-        return;
-    }
-    let reserve_a = reserves.get_unchecked(0);
-    let reserve_b = reserves.get_unchecked(1);
-    if !pre_balance_possible(held_a, held_b, reserve_a, reserve_b) {
-        return;
-    }
-
-    let (from_a, amount) = (pre_swap.from_a, pre_swap.amount);
-    let held_in = if from_a { held_a } else { held_b };
-    if amount > held_in {
-        panic_with_error!(env, Error::InvalidAmount);
-    }
-
-    let (token_in, token_out, in_idx, out_idx) = if from_a {
-        (token_a, token_b, 0u32, 1u32)
-    } else {
-        (token_b, token_a, 1u32, 0u32)
-    };
-    let received = swap_through_pool(
-        env,
-        router,
-        pool,
-        (&token_in, &token_out),
-        (in_idx, out_idx),
-        amount,
-    );
-    vault.withdraw(&token_in, amount);
-    vault.deposit(&token_out, received);
-}
-
-/// Swap via pool and credit vault with measured output delta.
-fn swap_through_pool(
-    env: &Env,
-    router: &Address,
-    pool: &Address,
-    tokens: (&Address, &Address),
-    indices: (u32, u32),
-    amount_in: i128,
-) -> i128 {
-    let (token_in, token_out) = tokens;
-    let (in_idx, out_idx) = indices;
-    let before = token::Client::new(env, token_out).balance(router);
-    invoke_pool_swap(env, router, pool, token_in, in_idx, out_idx, amount_in);
-    let received = token::Client::new(env, token_out)
-        .balance(router)
-        .checked_sub(before)
-        .unwrap_or_else(|| panic_with_error!(env, Error::IntegerOverflow));
-    if received <= 0 {
-        panic_with_error!(env, Error::ZeroOutput);
-    }
-    received
-}
-
-/// True when held inventory and pool reserves allow a pre-balance swap.
-pub(crate) fn pre_balance_possible(
-    held_a: i128,
-    held_b: i128,
-    reserve_a: i128,
-    reserve_b: i128,
-) -> bool {
-    (held_a > 0 || held_b > 0) && reserve_a > 0 && reserve_b > 0
 }

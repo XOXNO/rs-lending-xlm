@@ -2,7 +2,7 @@ use crate::errors::Error;
 use crate::types::SwapVenue;
 use crate::{Router, RouterClient};
 use soroban_sdk::testutils::Address as _;
-use soroban_sdk::{token, vec, Address, Env, Vec};
+use soroban_sdk::{token, vec, Address, Env};
 
 use super::super::support::{
     aquarius_lp_mock, aquarius_mock, lp_strategy_xdr, new_asset, one_hop_path,
@@ -73,19 +73,16 @@ fn mint_lp_from_single_token_routes_half_and_deposits_both() {
         token_a.clone(),
         share.clone(),
         1,
-        vec![
+        alloc::vec![one_hop_path(
             &env,
-            one_hop_path(
-                &env,
-                SwapVenue::Aquarius,
-                swap_pool,
-                token_a.clone(),
-                token_b.clone(),
-                500_000,
-            ),
-        ],
+            SwapVenue::Aquarius,
+            swap_pool,
+            token_a.clone(),
+            token_b.clone(),
+            500_000,
+        ),],
         None,
-        Vec::new(&env),
+        alloc::vec::Vec::new(),
         Some(pool.clone()),
         1,
         0,
@@ -124,19 +121,16 @@ fn mint_pre_balances_a_lopsided_input_rather_than_charging_for_it() {
         token_a.clone(),
         share.clone(),
         1,
-        vec![
+        alloc::vec![one_hop_path(
             &env,
-            one_hop_path(
-                &env,
-                SwapVenue::Aquarius,
-                swap_pool,
-                token_a.clone(),
-                token_b.clone(),
-                200_000,
-            ),
-        ],
+            SwapVenue::Aquarius,
+            swap_pool,
+            token_a.clone(),
+            token_b.clone(),
+            200_000,
+        ),],
         None,
-        Vec::new(&env),
+        alloc::vec::Vec::new(),
         Some(pool),
         1,
         300,
@@ -187,19 +181,16 @@ fn burn_lp_to_single_token_routes_both_constituents() {
         share.clone(),
         token_a.clone(),
         1,
-        vec![
+        alloc::vec![one_hop_path(
             &env,
-            one_hop_path(
-                &env,
-                SwapVenue::Aquarius,
-                swap_pool,
-                token_b.clone(),
-                token_a.clone(),
-                1_000_000,
-            ),
-        ],
+            SwapVenue::Aquarius,
+            swap_pool,
+            token_b.clone(),
+            token_a.clone(),
+            1_000_000,
+        ),],
         Some(pool),
-        vec![&env, 0i128, 0i128],
+        alloc::vec![0i128, 0i128],
         None,
         0,
         0,
@@ -242,19 +233,16 @@ fn burn_honours_per_constituent_minimums() {
         share.clone(),
         token_a.clone(),
         1,
-        vec![
+        alloc::vec![one_hop_path(
             &env,
-            one_hop_path(
-                &env,
-                SwapVenue::Aquarius,
-                swap_pool,
-                token_b.clone(),
-                token_a.clone(),
-                1_000_000,
-            ),
-        ],
+            SwapVenue::Aquarius,
+            swap_pool,
+            token_b.clone(),
+            token_a.clone(),
+            1_000_000,
+        ),],
         Some(pool),
-        vec![&env, 5_000i128, 0i128],
+        alloc::vec![5_000i128, 0i128],
         None,
         0,
         0,
@@ -288,19 +276,16 @@ fn mint_rejects_pool_that_does_not_issue_the_declared_share_token() {
         token_a.clone(),
         impostor,
         1,
-        vec![
+        alloc::vec![one_hop_path(
             &env,
-            one_hop_path(
-                &env,
-                SwapVenue::Aquarius,
-                swap_pool,
-                token_a.clone(),
-                token_b.clone(),
-                500_000,
-            ),
-        ],
+            SwapVenue::Aquarius,
+            swap_pool,
+            token_a.clone(),
+            token_b.clone(),
+            500_000,
+        ),],
         None,
-        Vec::new(&env),
+        alloc::vec::Vec::new(),
         Some(pool),
         1,
         0,
@@ -336,19 +321,16 @@ fn mint_enforces_min_shares() {
         token_a.clone(),
         share,
         1,
-        vec![
+        alloc::vec![one_hop_path(
             &env,
-            one_hop_path(
-                &env,
-                SwapVenue::Aquarius,
-                swap_pool,
-                token_a.clone(),
-                token_b.clone(),
-                500_000,
-            ),
-        ],
+            SwapVenue::Aquarius,
+            swap_pool,
+            token_a.clone(),
+            token_b.clone(),
+            500_000,
+        ),],
         None,
-        Vec::new(&env),
+        alloc::vec::Vec::new(),
         Some(pool),
         10_000,
         0,
@@ -361,7 +343,7 @@ fn mint_enforces_min_shares() {
 }
 
 #[test]
-fn swap_batch_must_still_route_its_whole_input() {
+fn a_swap_batch_that_leaves_input_behind_trips_the_residual_guard() {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -373,27 +355,24 @@ fn swap_batch_must_still_route_its_whole_input() {
 
     let swap_pool = env.register(aquarius_mock::AqPool, ());
     aquarius_mock::AqPoolClient::new(&env, &swap_pool).init(&token_a, &token_b);
-    sac_b.mint(&swap_pool, &1_000_000);
-    sac_a.mint(&sender, &1_000);
+    sac_b.mint(&swap_pool, &100_000_000_000);
+    sac_a.mint(&sender, &10_000_000_000);
 
     let xdr = lp_strategy_xdr(
         &env,
         token_a.clone(),
         token_b.clone(),
         1,
-        vec![
+        alloc::vec![one_hop_path(
             &env,
-            one_hop_path(
-                &env,
-                SwapVenue::Aquarius,
-                swap_pool,
-                token_a.clone(),
-                token_b.clone(),
-                500_000,
-            ),
-        ],
+            SwapVenue::Aquarius,
+            swap_pool,
+            token_a.clone(),
+            token_b.clone(),
+            500_000,
+        ),],
         None,
-        Vec::new(&env),
+        alloc::vec::Vec::new(),
         None,
         0,
         0,
@@ -402,10 +381,10 @@ fn swap_batch_must_still_route_its_whole_input() {
 
     assert_eq!(
         RouterClient::new(&env, &router_addr)
-            .try_execute_strategy(&sender, &1_000, &xdr)
+            .try_execute_strategy(&sender, &10_000_000_000, &xdr)
             .unwrap_err()
             .unwrap(),
-        Error::SplitPpmMismatch.into()
+        Error::ExcessiveResidual.into()
     );
 }
 
@@ -439,19 +418,16 @@ fn mint_on_an_unbalanced_pool_settles_on_measured_deltas() {
         token_a.clone(),
         share.clone(),
         1,
-        vec![
+        alloc::vec![one_hop_path(
             &env,
-            one_hop_path(
-                &env,
-                SwapVenue::Aquarius,
-                swap_pool,
-                token_a.clone(),
-                token_b.clone(),
-                666_666,
-            ),
-        ],
+            SwapVenue::Aquarius,
+            swap_pool,
+            token_a.clone(),
+            token_b.clone(),
+            666_666,
+        ),],
         None,
-        Vec::new(&env),
+        alloc::vec::Vec::new(),
         Some(pool),
         1,
         0,
@@ -491,9 +467,9 @@ fn mint_accepts_a_single_sided_deposit_with_no_paths() {
         token_a.clone(),
         share.clone(),
         1,
-        Vec::new(&env),
+        alloc::vec::Vec::new(),
         None,
-        Vec::new(&env),
+        alloc::vec::Vec::new(),
         Some(pool),
         1,
         0,
@@ -529,19 +505,16 @@ fn mint_pre_balances_even_a_wildly_skewed_input() {
         token_a.clone(),
         share,
         1,
-        vec![
+        alloc::vec![one_hop_path(
             &env,
-            one_hop_path(
-                &env,
-                SwapVenue::Aquarius,
-                swap_pool,
-                token_a.clone(),
-                token_b.clone(),
-                200_000,
-            ),
-        ],
+            SwapVenue::Aquarius,
+            swap_pool,
+            token_a.clone(),
+            token_b.clone(),
+            200_000,
+        ),],
         None,
-        Vec::new(&env),
+        alloc::vec::Vec::new(),
         Some(pool),
         1,
         // Off-chain optimum for 8B/2B against 100B/100B @ 30 bps (the LP
@@ -592,19 +565,16 @@ fn burn_rejects_a_constituent_that_cannot_reach_the_output() {
         share,
         token_c.clone(),
         1,
-        vec![
+        alloc::vec![one_hop_path(
             &env,
-            one_hop_path(
-                &env,
-                SwapVenue::Aquarius,
-                swap_pool,
-                token_b.clone(),
-                token_c.clone(),
-                1_000_000,
-            ),
-        ],
+            SwapVenue::Aquarius,
+            swap_pool,
+            token_b.clone(),
+            token_c.clone(),
+            1_000_000,
+        ),],
         Some(pool),
-        vec![&env, 0i128, 0i128],
+        alloc::vec![0i128, 0i128],
         None,
         0,
         0,
@@ -639,9 +609,9 @@ fn stable_pool_is_not_pre_balanced() {
         token_a.clone(),
         share.clone(),
         1,
-        Vec::new(&env),
+        alloc::vec::Vec::new(),
         None,
-        Vec::new(&env),
+        alloc::vec::Vec::new(),
         Some(pool.clone()),
         1,
         0,
@@ -678,9 +648,9 @@ fn mint_min_shares_boundary_is_inclusive() {
             token_a,
             share,
             1,
-            Vec::new(&env),
+            alloc::vec::Vec::new(),
             None,
-            Vec::new(&env),
+            alloc::vec::Vec::new(),
             Some(pool),
             min_shares,
             0,
@@ -736,19 +706,16 @@ fn burn_min_amounts_boundary_is_inclusive() {
             share,
             token_a.clone(),
             1,
-            vec![
+            alloc::vec![one_hop_path(
                 &env,
-                one_hop_path(
-                    &env,
-                    SwapVenue::Aquarius,
-                    swap_pool,
-                    token_b.clone(),
-                    token_a,
-                    1_000_000,
-                ),
-            ],
+                SwapVenue::Aquarius,
+                swap_pool,
+                token_b.clone(),
+                token_a,
+                1_000_000,
+            ),],
             Some(pool),
-            vec![&env, min, min],
+            alloc::vec![min, min],
             None,
             0,
             0,
@@ -793,19 +760,16 @@ fn temp_budget_probe_mainnet_scale() {
         token_a.clone(),
         share.clone(),
         1,
-        vec![
+        alloc::vec![one_hop_path(
             &env,
-            one_hop_path(
-                &env,
-                SwapVenue::Aquarius,
-                pool.clone(),
-                token_a.clone(),
-                token_b.clone(),
-                500_755,
-            ),
-        ],
+            SwapVenue::Aquarius,
+            pool.clone(),
+            token_a.clone(),
+            token_b.clone(),
+            500_755,
+        ),],
         None,
-        Vec::new(&env),
+        alloc::vec::Vec::new(),
         Some(pool.clone()),
         1,
         0,
@@ -869,8 +833,7 @@ fn burn_routes_every_constituent_through_its_own_path() {
         share.clone(),
         token_c.clone(),
         1,
-        vec![
-            &env,
+        alloc::vec![
             one_hop_path(
                 &env,
                 SwapVenue::Aquarius,
@@ -889,7 +852,7 @@ fn burn_routes_every_constituent_through_its_own_path() {
             ),
         ],
         Some(pool),
-        vec![&env, 0i128, 0i128],
+        alloc::vec![0i128, 0i128],
         None,
         0,
         0,
@@ -949,19 +912,16 @@ fn residual_exactly_at_the_allowance_is_accrued_not_rejected() {
         share.clone(),
         token_c.clone(),
         1,
-        vec![
+        alloc::vec![one_hop_path(
             &env,
-            one_hop_path(
-                &env,
-                SwapVenue::Aquarius,
-                pool_ac,
-                token_a.clone(),
-                token_c.clone(),
-                1_000_000,
-            ),
-        ],
+            SwapVenue::Aquarius,
+            pool_ac,
+            token_a.clone(),
+            token_c.clone(),
+            1_000_000,
+        ),],
         Some(pool),
-        vec![&env, 0i128, 0i128],
+        alloc::vec![0i128, 0i128],
         None,
         0,
         0,
@@ -1003,19 +963,16 @@ fn pre_balance_fixture(
         token_a.clone(),
         share,
         1,
-        vec![
+        alloc::vec![one_hop_path(
             env,
-            one_hop_path(
-                env,
-                SwapVenue::Aquarius,
-                swap_pool,
-                token_a.clone(),
-                token_b.clone(),
-                200_000,
-            ),
-        ],
+            SwapVenue::Aquarius,
+            swap_pool,
+            token_a.clone(),
+            token_b.clone(),
+            200_000,
+        ),],
         None,
-        Vec::new(env),
+        alloc::vec::Vec::new(),
         Some(pool),
         1,
         pre_swap_amount,
@@ -1074,11 +1031,28 @@ fn pre_swap_of_the_entire_held_side_clears_the_amount_guard() {
 // pre-swap outright: swapping into a pool with nothing on the other side
 // returns zero and aborts the whole strategy.
 #[test]
-fn an_empty_mint_pool_vetoes_the_pre_swap() {
+fn a_pre_swap_against_an_empty_pool_reverts_instead_of_being_skipped() {
     let env = Env::default();
     env.mock_all_auths();
 
+    // The pre-swap is now an ordinary instruction, so an empty book fails the
+    // whole strategy rather than being silently vetoed mid-mint.
     let (router_addr, sender, xdr) = pre_balance_fixture(&env, 300, 0);
+
+    assert!(
+        RouterClient::new(&env, &router_addr)
+            .try_execute_strategy(&sender, &1_000, &xdr)
+            .is_err(),
+        "a pre-swap the caller asked for must not be skipped"
+    );
+}
+
+#[test]
+fn an_empty_mint_pool_still_takes_a_first_deposit_without_a_pre_swap() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (router_addr, sender, xdr) = pre_balance_fixture(&env, 0, 0);
 
     let shares = RouterClient::new(&env, &router_addr).execute_strategy(&sender, &1_000, &xdr);
     assert!(shares > 0, "first deposit into an empty pool must mint");

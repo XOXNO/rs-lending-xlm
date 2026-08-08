@@ -27,17 +27,14 @@ fn referral_missing_id_is_noop() {
         token_a.clone(),
         token_b.clone(),
         500,
-        vec![
+        alloc::vec![one_hop_path(
             &env,
-            one_hop_path(
-                &env,
-                SwapVenue::Aquarius,
-                pool,
-                token_a.clone(),
-                token_b.clone(),
-                1_000_000,
-            ),
-        ],
+            SwapVenue::Aquarius,
+            pool,
+            token_a.clone(),
+            token_b.clone(),
+            1_000_000,
+        ),],
         99,
     );
     assert_eq!(router.execute_strategy(&sender, &500, &xdr), 500);
@@ -68,17 +65,14 @@ fn referral_inactive_and_zero_combined_bps_noop() {
             token_a.clone(),
             token_b.clone(),
             500,
-            vec![
+            alloc::vec![one_hop_path(
                 &env,
-                one_hop_path(
-                    &env,
-                    SwapVenue::Aquarius,
-                    pool,
-                    token_a.clone(),
-                    token_b.clone(),
-                    1_000_000,
-                ),
-            ],
+                SwapVenue::Aquarius,
+                pool,
+                token_a.clone(),
+                token_b.clone(),
+                1_000_000,
+            ),],
             id,
         );
         assert_eq!(router.execute_strategy(&sender, &500, &xdr), 500);
@@ -104,17 +98,14 @@ fn referral_inactive_and_zero_combined_bps_noop() {
             token_a.clone(),
             token_b.clone(),
             500,
-            vec![
+            alloc::vec![one_hop_path(
                 &env,
-                one_hop_path(
-                    &env,
-                    SwapVenue::Aquarius,
-                    pool,
-                    token_a.clone(),
-                    token_b.clone(),
-                    1_000_000,
-                ),
-            ],
+                SwapVenue::Aquarius,
+                pool,
+                token_a.clone(),
+                token_b.clone(),
+                1_000_000,
+            ),],
             id,
         );
         assert_eq!(router.execute_strategy(&sender, &500, &xdr), 500);
@@ -141,17 +132,14 @@ fn referral_inactive_and_zero_combined_bps_noop() {
             token_a.clone(),
             token_b.clone(),
             1,
-            vec![
+            alloc::vec![one_hop_path(
                 &env,
-                one_hop_path(
-                    &env,
-                    SwapVenue::Aquarius,
-                    pool,
-                    token_a.clone(),
-                    token_b.clone(),
-                    1_000_000,
-                ),
-            ],
+                SwapVenue::Aquarius,
+                pool,
+                token_a.clone(),
+                token_b.clone(),
+                1_000_000,
+            ),],
             id,
         );
         assert_eq!(router.execute_strategy(&sender, &1, &xdr), 1);
@@ -182,17 +170,14 @@ fn zero_fee_side_creates_no_bucket_entry() {
             token_a.clone(),
             token_b.clone(),
             990,
-            vec![
+            alloc::vec![one_hop_path(
                 &env,
-                one_hop_path(
-                    &env,
-                    SwapVenue::Aquarius,
-                    pool,
-                    token_a.clone(),
-                    token_b,
-                    1_000_000,
-                ),
-            ],
+                SwapVenue::Aquarius,
+                pool,
+                token_a.clone(),
+                token_b,
+                1_000_000,
+            ),],
             id,
         );
         assert_eq!(router.execute_strategy(&sender, &1_000, &xdr), 990);
@@ -226,17 +211,14 @@ fn zero_fee_side_creates_no_bucket_entry() {
             token_a.clone(),
             token_b.clone(),
             990,
-            vec![
+            alloc::vec![one_hop_path(
                 &env,
-                one_hop_path(
-                    &env,
-                    SwapVenue::Aquarius,
-                    pool,
-                    token_a.clone(),
-                    token_b,
-                    1_000_000,
-                ),
-            ],
+                SwapVenue::Aquarius,
+                pool,
+                token_a.clone(),
+                token_b,
+                1_000_000,
+            ),],
             id,
         );
         assert_eq!(router.execute_strategy(&sender, &1_000, &xdr), 990);
@@ -292,10 +274,14 @@ fn combined_static_and_referral_fee_cannot_exceed_the_cap() {
         token_a.clone(),
         token_b.clone(),
         1,
-        vec![
+        alloc::vec![one_hop_path(
             &env,
-            one_hop_path(&env, SwapVenue::Aquarius, pool, token_a, token_b, 1_000_000),
-        ],
+            SwapVenue::Aquarius,
+            pool,
+            token_a,
+            token_b,
+            1_000_000
+        ),],
         id,
     );
 
@@ -344,17 +330,14 @@ fn combined_fee_exactly_at_the_cap_is_charged_not_rejected() {
         token_a.clone(),
         token_b.clone(),
         1,
-        vec![
+        alloc::vec![one_hop_path(
             &env,
-            one_hop_path(
-                &env,
-                SwapVenue::Aquarius,
-                pool,
-                token_a.clone(),
-                token_b.clone(),
-                1_000_000,
-            ),
-        ],
+            SwapVenue::Aquarius,
+            pool,
+            token_a.clone(),
+            token_b.clone(),
+            1_000_000,
+        ),],
         id,
     );
 

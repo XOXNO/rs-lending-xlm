@@ -1,5 +1,4 @@
 use crate::residual_allowance;
-use crate::venues::aquarius::pre_balance_possible;
 
 #[test]
 fn allowance_is_the_floor_until_proportional_overtakes_it() {
@@ -26,17 +25,4 @@ fn residual_is_allowed_up_to_and_including_the_allowance() {
 fn small_trades_are_judged_against_the_floor_not_a_ratio() {
     assert_eq!(residual_allowance(5_000), 1_000);
     assert_eq!(residual_allowance(0), 1_000);
-}
-
-#[test]
-fn pre_balance_needs_something_to_balance_and_a_pool_to_balance_against() {
-    assert!(pre_balance_possible(100, 100, 1_000, 1_000));
-
-    assert!(pre_balance_possible(100, 0, 1_000, 1_000));
-    assert!(pre_balance_possible(0, 100, 1_000, 1_000));
-
-    assert!(!pre_balance_possible(0, 0, 1_000, 1_000));
-
-    assert!(!pre_balance_possible(100, 100, 0, 1_000));
-    assert!(!pre_balance_possible(100, 100, 1_000, 0));
 }

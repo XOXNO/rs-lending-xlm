@@ -20,10 +20,16 @@ mod errors;
 mod execute;
 mod fees;
 mod math;
+mod program;
 mod storage;
 mod types;
 mod vault;
 mod venues;
+
+// Test payload builders assemble registries before their length is known;
+// `alloc` is available under `cargo test` and never linked into the Wasm.
+#[cfg(test)]
+extern crate alloc;
 
 #[cfg(test)]
 #[path = "../tests/unit/mod.rs"]

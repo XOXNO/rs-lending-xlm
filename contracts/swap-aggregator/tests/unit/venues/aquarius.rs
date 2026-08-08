@@ -2,7 +2,7 @@ use crate::errors::Error;
 use crate::types::SwapVenue;
 use crate::{Router, RouterClient};
 use soroban_sdk::testutils::Address as _;
-use soroban_sdk::{token, vec, Address, Env};
+use soroban_sdk::{token, Address, Env};
 
 use super::super::support::{
     aquarius_mock, malicious_aquarius_mock, new_asset, one_hop_path, strategy_xdr,
@@ -29,17 +29,14 @@ fn aquarius_single_hop_happy_path() {
         token_a.clone(),
         token_b.clone(),
         500,
-        vec![
+        alloc::vec![one_hop_path(
             &env,
-            one_hop_path(
-                &env,
-                SwapVenue::Aquarius,
-                pool,
-                token_a.clone(),
-                token_b.clone(),
-                1_000_000,
-            ),
-        ],
+            SwapVenue::Aquarius,
+            pool,
+            token_a.clone(),
+            token_b.clone(),
+            1_000_000,
+        ),],
     );
 
     let out = RouterClient::new(&env, &router_addr).execute_strategy(&sender, &500, &swap_xdr);
@@ -66,17 +63,14 @@ fn aquarius_token_not_in_pool_rejected() {
         token_c.clone(),
         token_b.clone(),
         1,
-        vec![
+        alloc::vec![one_hop_path(
             &env,
-            one_hop_path(
-                &env,
-                SwapVenue::Aquarius,
-                pool,
-                token_c.clone(),
-                token_b.clone(),
-                1_000_000,
-            ),
-        ],
+            SwapVenue::Aquarius,
+            pool,
+            token_c.clone(),
+            token_b.clone(),
+            1_000_000,
+        ),],
     );
     assert_eq!(
         RouterClient::new(&env, &router_addr)
@@ -105,17 +99,14 @@ fn aquarius_zero_report_rejected() {
         token_a.clone(),
         token_b.clone(),
         1,
-        vec![
+        alloc::vec![one_hop_path(
             &env,
-            one_hop_path(
-                &env,
-                SwapVenue::Aquarius,
-                pool,
-                token_a.clone(),
-                token_b.clone(),
-                1_000_000,
-            ),
-        ],
+            SwapVenue::Aquarius,
+            pool,
+            token_a.clone(),
+            token_b.clone(),
+            1_000_000,
+        ),],
     );
     assert_eq!(
         RouterClient::new(&env, &router_addr)

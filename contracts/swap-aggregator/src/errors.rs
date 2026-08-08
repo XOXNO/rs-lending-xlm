@@ -6,25 +6,23 @@ use soroban_sdk::contracterror;
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum Error {
-    /// No paths and no LP burn/mint legs.
+    /// Instruction count is zero or above the program cap.
     EmptyBatch = 1,
-    /// Path missing or hop list empty.
-    EmptyPath = 2,
     /// Non-positive amount, overdraft, or spend mismatch.
     InvalidAmount = 3,
-    /// Hop token chain or path endpoints do not line up.
+    /// `Prev` has no predecessor output, or it names a different token.
     BrokenTokenChain = 4,
-    /// Delivered output below `total_min_out`.
+    /// Delivered output below the declared minimum.
     SlippageExceeded = 5,
     /// Venue returned zero usable output.
     ZeroOutput = 7,
     /// Checked arithmetic overflow.
     IntegerOverflow = 9,
-    /// Path `split_ppm` is zero.
+    /// A split weight is zero.
     ZeroSplitPpm = 11,
-    /// Per-token split weights do not sum to 1e6 (or exceed it).
+    /// A split weight exceeds 1e6.
     SplitPpmMismatch = 12,
-    /// Strategy XDR failed to decode.
+    /// Strategy XDR or packed program failed to decode or validate.
     InvalidRouteXdr = 13,
     /// Ownable owner missing when required.
     NotAdmin = 20,

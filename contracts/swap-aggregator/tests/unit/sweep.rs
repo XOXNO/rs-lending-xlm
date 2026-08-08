@@ -134,17 +134,14 @@ fn sweep_balance_keeps_fee_backing_claimable() {
         token_a.clone(),
         token_b.clone(),
         980,
-        vec![
+        alloc::vec![one_hop_path(
             &env,
-            one_hop_path(
-                &env,
-                SwapVenue::Aquarius,
-                pool,
-                token_a.clone(),
-                token_b,
-                1_000_000,
-            ),
-        ],
+            SwapVenue::Aquarius,
+            pool,
+            token_a.clone(),
+            token_b,
+            1_000_000,
+        ),],
         referral_id,
     );
 

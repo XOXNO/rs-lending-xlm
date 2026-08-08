@@ -1,7 +1,7 @@
 use crate::types::SwapVenue;
 use crate::{Router, RouterClient};
 use soroban_sdk::testutils::Address as _;
-use soroban_sdk::{token, vec, Address, Env};
+use soroban_sdk::{token, Address, Env};
 
 use super::super::support::{new_asset, one_hop_path, phoenix_mock, strategy_xdr};
 
@@ -23,17 +23,14 @@ fn phoenix_single_hop_happy_path() {
         token_a.clone(),
         token_b.clone(),
         400,
-        vec![
+        alloc::vec![one_hop_path(
             &env,
-            one_hop_path(
-                &env,
-                SwapVenue::Phoenix,
-                pool,
-                token_a.clone(),
-                token_b.clone(),
-                1_000_000,
-            ),
-        ],
+            SwapVenue::Phoenix,
+            pool,
+            token_a.clone(),
+            token_b.clone(),
+            1_000_000,
+        ),],
     );
     let out = RouterClient::new(&env, &router_addr).execute_strategy(&sender, &400, &swap_xdr);
     assert_eq!(out, 400);

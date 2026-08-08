@@ -8,20 +8,29 @@ use crate::venues::aquarius::pool::{assert_share_token, pool_tokens, to_u128};
 use crate::venues::auth::authorize_as_current;
 
 /// Burn vault LP shares; credit measured constituent amounts (mins enforced).
+///
+/// Floors are read from `amounts[min_start .. min_start + n]`, in the pool's own
+/// token order, where `n` is the pool's constituent count.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn remove_liquidity(
     env: &Env,
     router: &Address,
     vault: &mut Vault,
     pool: &Address,
     lp_token: &Address,
-    min_amounts_in: &Vec<i128>,
+    amounts: &Vec<i128>,
+    min_start: u32,
     cache: &mut Map<Address, Vec<Address>>,
 ) {
     let tokens = pool_tokens(env, cache, pool);
     assert_share_token(env, pool, lp_token);
 
     let n = tokens.len();
-    if min_amounts_in.len() != n {
+    // The registry must carry a full floor run for this pool's arity.
+    if min_start
+        .checked_add(n)
+        .is_none_or(|end| end > amounts.len())
+    {
         panic_with_error!(env, Error::MinAmountsNotMet);
     }
 
@@ -33,7 +42,7 @@ pub(crate) fn remove_liquidity(
     let mut min_amounts: Vec<u128> = Vec::new(env);
     let mut before: Vec<i128> = Vec::new(env);
     for i in 0..n {
-        min_amounts.push_back(to_u128(env, min_amounts_in.get_unchecked(i)));
+        min_amounts.push_back(to_u128(env, amounts.get_unchecked(min_start + i)));
         before.push_back(token::Client::new(env, &tokens.get_unchecked(i)).balance(router));
     }
     let shares_before = token::Client::new(env, lp_token).balance(router);
@@ -70,7 +79,7 @@ pub(crate) fn remove_liquidity(
             .balance(router)
             .checked_sub(before.get_unchecked(i))
             .unwrap_or_else(|| panic_with_error!(env, Error::IntegerOverflow));
-        if received < min_amounts_in.get_unchecked(i) {
+        if received < amounts.get_unchecked(min_start + i) {
             panic_with_error!(env, Error::MinAmountsNotMet);
         }
         total_received = total_received

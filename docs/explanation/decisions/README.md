@@ -27,6 +27,7 @@ lives in the [threat model](../threat-model.md).
 | 0015 | [Caps are declared in asset units, converted at the live index per call, and zero means zero](./0015-caps-asset-units-zero-means-zero.md) | Accepted |
 | 0016 | [Interest rates are per-millisecond RAY values, accrued in year-capped chunks of a truncated exponential series](./0016-per-millisecond-rates-chunked-accrual.md) | Accepted |
 | 0017 | [Test and verification surfaces live behind cargo features, guarded by WASM-export build gates](./0017-testing-surfaces-behind-features.md) | Accepted |
+| 0018 | [The swap payload is a packed instruction stream over address and amount registries](./0018-compact-instruction-payload-registry-indices.md) | Accepted |
 
 ## Related
 

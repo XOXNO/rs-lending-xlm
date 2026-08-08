@@ -1,10 +1,10 @@
 use crate::errors::Error;
-use crate::types::{SwapHop, SwapPath, SwapVenue};
+use crate::types::{SwapHop, SwapVenue};
 use crate::{Router, RouterClient};
 use soroban_sdk::testutils::Address as _;
-use soroban_sdk::{token, vec, Address, Env};
+use soroban_sdk::{token, Address, Env};
 
-use super::super::support::{new_asset, one_hop_path, soroswap_mock, strategy_xdr};
+use super::super::support::{new_asset, one_hop_path, soroswap_mock, strategy_xdr, SwapPath};
 
 #[test]
 fn soroswap_single_hop_derives_output_from_live_reserves() {
@@ -41,21 +41,15 @@ fn soroswap_single_hop_derives_output_from_live_reserves() {
         token_in.clone(),
         token_out.clone(),
         total_min_out,
-        vec![
-            &env,
-            SwapPath {
-                split_ppm: 1_000_000,
-                hops: vec![
-                    &env,
-                    SwapHop {
-                        venue: SwapVenue::Soroswap,
-                        pool,
-                        token_in: token_in.clone(),
-                        token_out: token_out.clone(),
-                    },
-                ],
-            },
-        ],
+        alloc::vec![SwapPath {
+            split_ppm: 1_000_000,
+            hops: alloc::vec![SwapHop {
+                venue: SwapVenue::Soroswap,
+                pool,
+                token_in: token_in.clone(),
+                token_out: token_out.clone(),
+            },],
+        },],
     );
 
     let out = RouterClient::new(&env, &router_addr).execute_strategy(&sender, &500, &swap_xdr);
@@ -93,17 +87,14 @@ fn soroswap_reverse_orientation() {
         t1.clone(),
         t0.clone(),
         900,
-        vec![
+        alloc::vec![one_hop_path(
             &env,
-            one_hop_path(
-                &env,
-                SwapVenue::Soroswap,
-                pool,
-                t1.clone(),
-                t0.clone(),
-                1_000_000,
-            ),
-        ],
+            SwapVenue::Soroswap,
+            pool,
+            t1.clone(),
+            t0.clone(),
+            1_000_000,
+        ),],
     );
     let out = client.execute_strategy(&sender, &500, &xdr);
     assert!(out >= 900);
@@ -134,17 +125,14 @@ fn soroswap_zero_output_rejected() {
         t0.clone(),
         t1.clone(),
         1,
-        vec![
+        alloc::vec![one_hop_path(
             &env,
-            one_hop_path(
-                &env,
-                SwapVenue::Soroswap,
-                pool0,
-                t0.clone(),
-                t1.clone(),
-                1_000_000,
-            ),
-        ],
+            SwapVenue::Soroswap,
+            pool0,
+            t0.clone(),
+            t1.clone(),
+            1_000_000,
+        ),],
     );
     assert_eq!(
         client
@@ -161,17 +149,14 @@ fn soroswap_zero_output_rejected() {
         t0.clone(),
         t1.clone(),
         1,
-        vec![
+        alloc::vec![one_hop_path(
             &env,
-            one_hop_path(
-                &env,
-                SwapVenue::Soroswap,
-                pool1,
-                t0.clone(),
-                t1.clone(),
-                1_000_000,
-            ),
-        ],
+            SwapVenue::Soroswap,
+            pool1,
+            t0.clone(),
+            t1.clone(),
+            1_000_000,
+        ),],
     );
     assert_eq!(
         client
@@ -207,17 +192,14 @@ fn soroswap_zero_input_reserve_rejected() {
         t0.clone(),
         t1.clone(),
         1,
-        vec![
+        alloc::vec![one_hop_path(
             &env,
-            one_hop_path(
-                &env,
-                SwapVenue::Soroswap,
-                pool,
-                t0.clone(),
-                t1.clone(),
-                1_000_000,
-            ),
-        ],
+            SwapVenue::Soroswap,
+            pool,
+            t0.clone(),
+            t1.clone(),
+            1_000_000,
+        ),],
     );
     assert_eq!(
         RouterClient::new(&env, &router_addr)

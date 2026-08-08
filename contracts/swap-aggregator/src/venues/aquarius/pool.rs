@@ -27,20 +27,6 @@ pub(super) fn invoke_pool_swap(
     env.invoke_contract(pool, &symbol_short!("swap"), args)
 }
 
-/// Pool reserves as signed integers.
-pub(super) fn pool_reserves(env: &Env, pool: &Address) -> Vec<i128> {
-    let reserves: Vec<u128> = env.invoke_contract(
-        pool,
-        &Symbol::new(env, "get_reserves"),
-        Vec::<Val>::new(env),
-    );
-    let mut out: Vec<i128> = Vec::new(env);
-    for value in reserves.iter() {
-        out.push_back(to_i128(env, value));
-    }
-    out
-}
-
 /// Pool constituent tokens, cached per invocation in `cache`.
 pub(super) fn pool_tokens(
     env: &Env,
@@ -69,12 +55,6 @@ pub(super) fn assert_share_token(env: &Env, pool: &Address, lp_token: &Address) 
 }
 
 pub(super) fn to_u128(env: &Env, amount: i128) -> u128 {
-    amount
-        .try_into()
-        .unwrap_or_else(|_| panic_with_error!(env, Error::IntegerOverflow))
-}
-
-pub(super) fn to_i128(env: &Env, amount: u128) -> i128 {
     amount
         .try_into()
         .unwrap_or_else(|_| panic_with_error!(env, Error::IntegerOverflow))

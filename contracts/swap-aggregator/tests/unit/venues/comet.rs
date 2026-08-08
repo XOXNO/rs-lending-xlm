@@ -2,7 +2,7 @@ use crate::errors::Error;
 use crate::types::SwapVenue;
 use crate::{Router, RouterClient};
 use soroban_sdk::testutils::{Address as _, Ledger as _, MockAuth, MockAuthInvoke};
-use soroban_sdk::{token, vec, Address, Env, IntoVal};
+use soroban_sdk::{token, Address, Env, IntoVal};
 
 use super::super::support::{
     comet_mock, comet_zero_mock, new_asset, one_hop_path, sticky_allowance_token_mock, strategy_xdr,
@@ -28,17 +28,14 @@ fn comet_single_hop_happy_path() {
         token_a.clone(),
         token_b.clone(),
         250,
-        vec![
+        alloc::vec![one_hop_path(
             &env,
-            one_hop_path(
-                &env,
-                SwapVenue::CometDex,
-                pool.clone(),
-                token_a.clone(),
-                token_b.clone(),
-                1_000_000,
-            ),
-        ],
+            SwapVenue::CometDex,
+            pool.clone(),
+            token_a.clone(),
+            token_b.clone(),
+            1_000_000,
+        ),],
     );
 
     let out = RouterClient::new(&env, &router_addr).execute_strategy(&sender, &250, &swap_xdr);
@@ -71,17 +68,14 @@ fn comet_rejects_output_without_input_spend() {
         token_a.clone(),
         token_b.clone(),
         250,
-        vec![
+        alloc::vec![one_hop_path(
             &env,
-            one_hop_path(
-                &env,
-                SwapVenue::CometDex,
-                pool.clone(),
-                token_a.clone(),
-                token_b.clone(),
-                1_000_000,
-            ),
-        ],
+            SwapVenue::CometDex,
+            pool.clone(),
+            token_a.clone(),
+            token_b.clone(),
+            1_000_000,
+        ),],
     );
 
     let err = RouterClient::new(&env, &router_addr)
@@ -112,17 +106,14 @@ fn comet_zero_report_rejected() {
         token_a.clone(),
         token_b.clone(),
         1,
-        vec![
+        alloc::vec![one_hop_path(
             &env,
-            one_hop_path(
-                &env,
-                SwapVenue::CometDex,
-                pool,
-                token_a.clone(),
-                token_b.clone(),
-                1_000_000,
-            ),
-        ],
+            SwapVenue::CometDex,
+            pool,
+            token_a.clone(),
+            token_b.clone(),
+            1_000_000,
+        ),],
     );
     assert_eq!(
         RouterClient::new(&env, &router_addr)
@@ -153,17 +144,14 @@ fn comet_clears_unconsumed_allowance() {
         token_a.clone(),
         token_b.clone(),
         250,
-        vec![
+        alloc::vec![one_hop_path(
             &env,
-            one_hop_path(
-                &env,
-                SwapVenue::CometDex,
-                pool.clone(),
-                token_a.clone(),
-                token_b.clone(),
-                1_000_000,
-            ),
-        ],
+            SwapVenue::CometDex,
+            pool.clone(),
+            token_a.clone(),
+            token_b.clone(),
+            1_000_000,
+        ),],
     );
     let out = RouterClient::new(&env, &router_addr).execute_strategy(&sender, &250, &xdr);
     assert_eq!(out, 250);
@@ -194,17 +182,14 @@ fn comet_approval_ledger_covers_current_sequence() {
         token_a.clone(),
         token_b.clone(),
         250,
-        vec![
+        alloc::vec![one_hop_path(
             &env,
-            one_hop_path(
-                &env,
-                SwapVenue::CometDex,
-                pool.clone(),
-                token_a.clone(),
-                token_b.clone(),
-                1_000_000,
-            ),
-        ],
+            SwapVenue::CometDex,
+            pool.clone(),
+            token_a.clone(),
+            token_b.clone(),
+            1_000_000,
+        ),],
     );
     let out = RouterClient::new(&env, &router_addr).execute_strategy(&sender, &250, &xdr);
     assert_eq!(out, 250);
@@ -254,17 +239,14 @@ fn comet_swap_relies_on_router_invoker_auth_not_mocked_auth() {
         token_a.clone(),
         token_b.clone(),
         250,
-        vec![
+        alloc::vec![one_hop_path(
             &env,
-            one_hop_path(
-                &env,
-                SwapVenue::CometDex,
-                pool.clone(),
-                token_a.clone(),
-                token_b.clone(),
-                1_000_000,
-            ),
-        ],
+            SwapVenue::CometDex,
+            pool.clone(),
+            token_a.clone(),
+            token_b.clone(),
+            1_000_000,
+        ),],
     );
 
     // From here on only the sender's own tree is mocked.

@@ -2,7 +2,7 @@ use crate::errors::Error;
 use crate::types::SwapVenue;
 use crate::{Router, RouterClient};
 use soroban_sdk::testutils::Address as _;
-use soroban_sdk::{token, vec, Address, Env};
+use soroban_sdk::{token, Address, Env};
 
 use super::super::support::{new_asset, one_hop_path, strategy_xdr, sushi_mock};
 
@@ -27,17 +27,14 @@ fn sushi_single_hop_happy_path() {
         token_a.clone(),
         token_b.clone(),
         300,
-        vec![
+        alloc::vec![one_hop_path(
             &env,
-            one_hop_path(
-                &env,
-                SwapVenue::Sushi,
-                pool,
-                token_a.clone(),
-                token_b.clone(),
-                1_000_000,
-            ),
-        ],
+            SwapVenue::Sushi,
+            pool,
+            token_a.clone(),
+            token_b.clone(),
+            1_000_000,
+        ),],
     );
 
     let out = RouterClient::new(&env, &router_addr).execute_strategy(&sender, &300, &swap_xdr);
@@ -65,17 +62,14 @@ fn sushi_reverse_direction() {
         token_b.clone(),
         token_a.clone(),
         300,
-        vec![
+        alloc::vec![one_hop_path(
             &env,
-            one_hop_path(
-                &env,
-                SwapVenue::Sushi,
-                pool,
-                token_b.clone(),
-                token_a.clone(),
-                1_000_000,
-            ),
-        ],
+            SwapVenue::Sushi,
+            pool,
+            token_b.clone(),
+            token_a.clone(),
+            1_000_000,
+        ),],
     );
     let out = RouterClient::new(&env, &router_addr).execute_strategy(&sender, &300, &xdr);
     assert_eq!(out, 300);
@@ -104,10 +98,14 @@ fn sushi_direction_requires_exact_pair_match() {
             token_a.clone(),
             token_c.clone(),
             1,
-            vec![
+            alloc::vec![one_hop_path(
                 &env,
-                one_hop_path(&env, SwapVenue::Sushi, pool, token_a, token_c, 1_000_000),
-            ],
+                SwapVenue::Sushi,
+                pool,
+                token_a,
+                token_c,
+                1_000_000
+            ),],
         );
         assert_eq!(
             RouterClient::new(&env, &router_addr)
@@ -138,10 +136,14 @@ fn sushi_direction_requires_exact_pair_match() {
             token_c.clone(),
             token_a.clone(),
             1,
-            vec![
+            alloc::vec![one_hop_path(
                 &env,
-                one_hop_path(&env, SwapVenue::Sushi, pool, token_c, token_a, 1_000_000),
-            ],
+                SwapVenue::Sushi,
+                pool,
+                token_c,
+                token_a,
+                1_000_000
+            ),],
         );
         assert_eq!(
             RouterClient::new(&env, &router_addr)
@@ -196,8 +198,7 @@ fn sushi_split_credits_only_the_delta_of_each_hop() {
         token_a.clone(),
         token_b.clone(),
         300,
-        vec![
-            &env,
+        alloc::vec![
             one_hop_path(
                 &env,
                 SwapVenue::Sushi,
