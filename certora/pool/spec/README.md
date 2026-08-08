@@ -1,112 +1,98 @@
-Pool-core formal verification
-=============================
+# Pool-core verification
 
-Purpose
--------
-This directory verifies the pool's essential scaled-share, index, cash, loss,
-and protocol-fee accounting. It deliberately excludes controller solvency,
-oracle behavior, governance, and broad view smoke checks.
+## Purpose
 
-The pool stores market aggregates, not account maps. Therefore these proofs
-show that each returned position delta equals the corresponding market-total
-delta. Proving that the controller persists every returned account delta is a
-separate cross-contract obligation.
+The pool suite verifies the accounting core of each isolated market: scaled
+supply and debt shares, indexes, cash, protocol revenue, bad-debt treatment,
+fees, settlement, and flash-loan accounting.
 
-Six focused jobs
-----------------
-rate-index-accounting.conf
-  Validated utilization kink monotonicity and boundaries; rate cap; deposit
-  rate bound; compound-factor lower bound; borrow/supply index monotonicity and
-  caps; conservative reward distribution; accrued-interest split conservation.
+The pool holds market aggregates, not account maps. These rules establish that
+a returned position change agrees with the corresponding market-total change.
+Persisting that result in an account is a separate controller responsibility.
 
-position-accounting.conf
-  Exact successful supply and borrow share minting from their indexes with
-  conservative directed rounding (credits floor, debits ceil); partial/full
-  withdrawal burns; partial/full repay burns, cash, and overpayment refund
-  across every validated asset-decimal setting.
+## Review map
 
-seize-settle-accounting.conf
-  Borrow-side bad-debt share removal and supply-index write-down; deposit-side
-  share transfer into protocol revenue; independently derived net-settle
-  lesser-of math, cash invariance, and exact two-leg aggregate/position deltas.
+| Job | Primary evidence |
+|---|---|
+| Rate and index accounting | Utilization and rate bounds, compounding, index limits, and interest allocation |
+| Position accounting | Directed share rounding for supply, borrow, withdraw, repay, and full close |
+| Seize and settlement accounting | Bad-debt removal, supply-index write-down, revenue absorption, and net settlement |
+| Fee and strategy accounting | Revenue allocation, withdrawal fees, strategy debt and payout, claims, and recapitalization |
+| Flash-loan accounting | Fee, balance targets, principal recovery, and fee booking |
+| Pool-core sanity | Reachable witnesses for every fixture family and floor exception |
 
-fee-strategy-accounting.conf
-  One positive production `global_sync` chunk, including reserve-fee and
-  supplier-shortfall booking into protocol revenue; reward allocation and
-  cash; liquidation withdrawal fee shares; strategy gross debt/net payout/fee;
-  protocol revenue claim burns and cash, including fail-closed rejection when
-  a positive payout would round its share burn to zero; recapitalization caps
-  retained cash to the backing shortfall, refunds all excess, and creates no
-  liabilities.
+## Properties under review
 
-flash-loan-accounting.conf
-  Exact configured fee, payout/repayment balance targets, principal-plus-fee
-  recovery identity, successful fee booking into cash/revenue/supply, and the
-  full successful `apply` accounting chain (`prepare_with_balance` → `book_fee`
-  → commit): principal never touches the cash book; zero-fee path is a cash
-  no-op. SAC/callback hosts remain out of scope (see Proof boundary).
+### Share accounting
 
-pool-core-sanity.conf
-  Concrete satisfy-only witnesses for every proof fixture family, including
-  the floor-clamped seizure residual. Universal assertions and witnesses are
-  intentionally never mixed in one config.
+Supply and debt are stored as scaled shares. Each conversion has a fixed,
+conservative rounding direction. Positive token movement that would change zero
+shares must fail, so no operation moves value without changing the accounting
+record.
 
-Proof boundary
---------------
-Position, strategy, and claim rules call accounting helpers used verbatim by
-the production ABI before its external SAC transfer/refund. This avoids a fake
-proof caused by an unresolved token contract while preserving production code
-identity. The flash job proves the exact balance targets consumed by the real
-endpoint, its persisted fee transition, and the composed successful-path
-helpers (`prepare` / `prepare_with_balance` / `terms` / `book_fee`) that
-`apply` runs around the external SAC and callback steps. It does not prove
-arbitrary SAC, callback, allowance, reentrancy, or Soroban rollback behavior;
-those require a sound external-call model.
+### Interest and indexes
 
-Each operation fixture sets last_timestamp to the current ledger time, so the
-rule isolates one operation from interest accrual. The accrual integration rule
-directly executes the exact production `global_sync` wrapper for one positive,
-at-most-one-year chunk and checks timestamp advancement, both indexes, and
-protocol-fee share booking.
-Arbitrary multi-year `global_sync` loop completeness and arbitrary-length batch
-induction remain out of scope unless the production ABI enforces a bound or the
-Prover supports the needed loop invariant.
+Rate rules cover utilization, the kinked rate curve, rate caps, compounding,
+and the split of accrued interest into supplier reward and protocol revenue.
+Borrow index growth is monotone and bounded. Supply index growth is bounded but
+may fall during eligible bad-debt socialization.
 
-Supply-index monotonicity and its cap cover arithmetic-success paths across the
-complete validated index band. Monotonicity is structurally enforced by the
-production lower bound; separate reward-conservation rules check that the index
-arithmetic cannot over-credit suppliers. Conservation is split for solver
-tractability: the ordinary symbolic state band, a separate high-index band
-through 200,000,000x that contains the confirmed rounding regression, and the
-exact validated cap boundary. Net settlement expands the supply and debt
-formulas without calling the two resolver helpers under test and spans every
-validated asset-decimal setting. Supply-share burns round up; positive
-settlements whose debt-share credit rounds to zero are rejected by production
-and pinned by Rust regressions. The universal rule covers the remaining
-successful domain.
+### Loss socialization
 
-Successful position-flow rules span asset decimals 0 through 27 and the
-validated index caps, subject to explicit bounded amount/position fixtures and
-arithmetic-success assumptions. Supply and repay credits round down and reject
-positive zero-share results; borrow and withdrawal debits round up. The rules
-also assert the independently valued shares cannot favor the caller. Concrete
-Rust regressions pin the zero-credit rollback boundaries.
+Residual eligible debt reduces the supply index of the affected market only.
+The non-zero index floor is an intentional exception to exact proportional
+write-down:
 
-Net settlement, bad-debt seizure, liquidation-fee, strategy, revenue-claim,
-and flash-fee transitions also span the full validated supply/borrow index
-caps. The one-chunk accrual integration remains in its explicit 10x index band
-because it symbolically executes compounding, both reward splits, and storage
-together.
+```rust
+let new_supply_index = max(
+    proportional_write_down,
+    SUPPLY_INDEX_FLOOR_RAW,
+);
+```
 
-Bad-debt floor caveat
----------------------
-The borrow-seizure rule proves the production formula:
+The floor keeps later share conversion defined. It can leave a small residual
+claim after a total loss, so backing and recapitalization rules remain part of
+the same safety story.
 
-  new_supply_index = max(proportional_write_down, SUPPLY_INDEX_FLOOR_RAW)
+### Cash and revenue
 
-Thus exact proportionality holds only while the floor does not bind. A total
-wipeout retains a small legacy claim at the floor. Every fresh supply checks
-that aggregate claims remain covered by tracked cash plus outstanding debt,
-including after accrual or rewards lift the index above the floor. The sanity
-profile keeps an explicit witness for this exception instead of hiding it
-behind the universal seizure rule.
+Tracked cash, rather than an incidental token balance, is the reserve book.
+Claims, recapitalization, strategy fees, and liquidation fees must preserve
+the relationship among cash, supplied shares, borrowed shares, and revenue.
+
+### Flash loans
+
+The suite checks the successful accounting chain: fee calculation, required
+balance targets, principal recovery, and fee booking. Principal does not enter
+the cash book merely because it was lent during a transaction.
+
+## What these proofs do not establish
+
+- Arbitrary token-contract behavior, allowance behavior, or callback behavior.
+- Reentrancy and rollback across external calls.
+- Persistence of returned account positions by the controller.
+- Unbounded multi-year accrual or arbitrary-length batch-loop induction.
+
+Those boundaries are deliberate. They must be covered by controller proofs,
+integration tests, targeted adversarial tests, or a future sound external-call
+model.
+
+## How to run and extend
+
+Run static proof checks before submitting:
+
+    ./certora/compile_all.sh
+    make certora-wasm
+
+Run the pool sanity profile first, then the targeted job or the core profile.
+
+    ./certora/scripts/run_profile.py sanity
+    ./certora/scripts/run_profile.py core
+
+When changing pool accounting:
+
+1. Identify the invariant and affected market transition.
+2. Add a focused fixture and reachability witness.
+3. Add or revise the smallest rule that proves the intended property.
+4. Run the relevant pool configuration and inspect the exact artifact report.
+5. Update this guide if the proof boundary or residual risk changes.

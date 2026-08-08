@@ -1,79 +1,86 @@
-# Security Policy
+# Security policy
 
-Private vulnerability reporting for `rs-lending-xlm`.
+XOXNO Lending welcomes good-faith security research. Report vulnerabilities
+privately so maintainers can validate, fix, and coordinate disclosure without
+putting users at risk.
 
-## Reporting
+## Report privately
 
-Do **not** open a public issue, pull request, or discussion for security
-problems.
+Do not open a public issue, pull request, discussion, or social-media post for
+a suspected vulnerability.
 
-Email **security@xoxno.com**.
+Email [security@xoxno.com](mailto:security@xoxno.com). Encrypt sensitive
+details when possible; a PGP key is available on request.
 
-Encrypt sensitive details when possible. A PGP key is available on request at
-the same address (within one business day).
+A useful report includes:
 
-### Include
+- a clear description of the issue and its practical impact;
+- a minimal reproduction or proof of concept;
+- the affected revision or release, ideally a commit SHA;
+- the relevant environment, network, and contract addresses where applicable;
+- observed behavior, expected behavior, and any assumptions needed to trigger
+  the issue; and
+- whether any part of the issue is already public.
 
-- Description and impact  
-- Repro steps or PoC (prefer commit SHA + file:line)  
-- Observed vs expected behavior  
-- Environment (network, contract addresses if relevant, toolchain)  
-- Whether the issue is already public  
+Do not access, modify, or disclose another person's data. Stop once you have
+enough evidence to demonstrate impact.
 
-Report against a **specific commit SHA** when you can.
-
-## Response targets
+## What to expect
 
 | Stage | Target |
-|-------|--------|
-| Ack | 2 business days |
-| Initial triage | 5 business days |
-| Updates while open | every 7 days |
-| Coordinated disclosure | 90 days from report (negotiable) |
+|---|---|
+| Acknowledgement | Within 2 business days |
+| Initial triage | Within 5 business days |
+| Updates while open | At least every 7 days |
+| Coordinated disclosure | 90 days from report, unless we agree otherwise |
 
-Reporters who follow this policy may be credited in release notes (with consent).
+We may credit reporters in release notes with their consent.
 
 ## Scope
 
-**In scope**
+### In scope
 
-- On-chain crates: `contracts/controller`, `pool`, `governance`,
-  `swap-aggregator`, `price-aggregator`, `xoxno-oracle`, `defindex-strategy`,
-  plus `common/` and `interfaces/`
-- `services/keeper` (TTL / restore)
-- `services/lending-exporter` (ops metrics service)
-- Makefile / `configs/` operator tooling that deploys or configures the protocol
+- The deployed lending protocol and its supporting on-chain components.
+- Shared protocol logic and public interfaces.
+- Keeper and operational exporter services.
+- Deployment and configuration tooling that can affect protocol behavior.
 
-**Out of scope**
+### Out of scope
 
-- Upstream dependencies (Soroban SDK, OZ Stellar contracts, third-party oracles) —
-  report upstream
-- Issues that require already-compromised operator keys (governance owner, role
-  holders including GUARDIAN, keeper keys)
-- Theoretical issues without a reproducible PoC
-- `mock/flash-loan-receiver` as a production surface — it is **test-only**
-  unless you are attacking the test harness itself
+- Vulnerabilities in upstream dependencies or third-party oracle providers;
+  report these to their maintainers.
+- Scenarios that require a compromised governance, operational-role, or keeper
+  key, unless the report demonstrates that the protocol makes that compromise
+  materially worse.
+- Purely theoretical claims without a reproducible security impact.
+- Test-only contracts, unless the issue affects a production build or the test
+  harness is itself in scope.
 
-Technical properties are enforced in the contracts, interfaces, Certora rules,
-and harness tests. Report concrete deviations from on-chain behavior.
+A strong report identifies a concrete deviation from a protocol invariant,
+authorization boundary, accounting rule, price guarantee, or liveness property.
 
 ## Supported versions
 
-Security patches target the **latest tag on `main`**. Mainnet tracks that
-release; testnet may run release candidates.
+Security fixes target the latest tag on main. Mainnet follows that release;
+testnet may run release candidates. If you are unsure whether a deployment is
+affected, include its network and contract addresses in the private report.
 
 ## Safe harbor
 
-Good-faith research under this policy is welcome. XOXNO will not pursue legal
-action against researchers who:
+XOXNO will not pursue legal action against good-faith researchers who follow
+this policy and:
 
-- Report via **security@xoxno.com** (not public channels)
-- Avoid privacy violations, disruption, and data destruction
-- Prefer testnet / local environments for active testing
-- Do not exploit beyond what is needed to demonstrate the issue
+- report privately;
+- avoid disruption, privacy violations, and data destruction;
+- prefer local or testnet environments for active testing; and
+- do not exploit an issue beyond what is necessary to demonstrate it.
+
+This policy does not authorize activity that violates law, targets third-party
+systems, or places user assets or data at risk.
 
 ## Audit status
 
-External audit artifacts, when published for a release, will ship with that
-release or be linked from the repo. Current design and threat posture: the
-contracts, skills fundamentals, and Certora specs.
+Published audit material, when available, is linked with the relevant release.
+Repository documentation describes the current design and threat model; it is
+not a substitute for independent review of deployed contracts and active
+configuration.

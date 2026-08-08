@@ -1,123 +1,117 @@
 # Contributing
 
-Thanks for helping improve XOXNO Lending. This repo holds **invariant-critical**
-Soroban contracts. Changes must preserve protocol rules and leave enough
-evidence for reviewers.
+XOXNO Lending contains invariant-critical Soroban contracts. A good change is
+small, reviewable, and accompanied by evidence that it preserves the relevant
+protocol properties.
 
-## Before you start
+## Before you change code
 
-- [README.md](./README.md) — layout and commands
-- [skills/lending-protocol-fundamentals](./skills/lending-protocol-fundamentals/SKILL.md) — shared model before touching accounting, auth, oracle, liquidation, flash loans, or risk
-- [docs/reference/formulas.md](./docs/reference/formulas.md) — risk and liquidation equations (must stay code-matched)
-- Contract rustdoc and [interfaces/](./interfaces/) — public endpoint semantics (code is source of truth)
-- [SECURITY.md](./SECURITY.md) — vulnerabilities go to **security@xoxno.com**, never public issues/PRs
-- Large protocol changes: open an issue first for scope and verification expectations
+Read the material that matches your change:
 
-## Setup
+| Change | Read first |
+|---|---|
+| Protocol overview and local setup | [README.md](README.md) |
+| Accounting, risk, and liquidation arithmetic | [Formulas](docs/reference/formulas.md) |
+| Required protocol properties | [Runtime invariants](docs/reference/invariants.md) |
+| Threats and trust boundaries | [Threat model](docs/explanation/threat-model.md) |
+| Design rationale | [Decision records](docs/explanation/decisions/README.md) |
+| Formal verification | [Certora guide](certora/README.md) |
+| Vulnerability reporting | [SECURITY.md](SECURITY.md) |
 
-- Rust from [rust-toolchain.toml](./rust-toolchain.toml)
-- Target `wasm32v1-none`
-- Stellar CLI (Soroban)
+For a large protocol change, open an issue before implementation to agree on
+scope, migration implications, and verification expectations. Do not open a
+public issue or pull request for a vulnerability.
 
-```bash
-cargo test --workspace
-make build
-make test
-make test-pool
-make help          # index; topics: help-build, help-verify, help-deploy, help-ops, ...
-```
+## Set up
 
-Separate workspaces:
+Install the Rust toolchain declared by the repository, the wasm32v1-none
+target, and Stellar CLI with Soroban support.
 
-```bash
-cargo test --manifest-path services/keeper/Cargo.toml
-# lending-exporter: see services/lending-exporter/README.md
-```
+    cargo test --workspace
+    make build
+    make test
+    make help
 
-## Change guidelines
+The keeper and lending exporter have separate Cargo workspaces. Run their
+checks from their own manifests and follow their local documentation.
 
-- Keep PRs focused (no drive-by format or unrelated refactors).
-- Preserve invariants; update rustdoc, skills, and `docs/reference/formulas.md`
-  when risk or liquidation math changes.
-- Fixed-point: token-native at transfers, WAD for USD/HF, RAY for rates/indexes.
-- Call out auth/role changes in the PR description.
-- Add or update tests / fuzz / Certora when you change a verified surface.
-- Never commit secrets, keys, `.env`, or local deploy state.
+## Working agreement
 
-## Verification tiers
+- Keep pull requests focused. Do not combine a protocol change with unrelated
+  cleanup or formatting.
+- Preserve the unit boundary: token amounts at transfers, WAD for USD and
+  health factor, RAY for shares and rates, and BPS for ratios and fees.
+- Identify changes to authorization, governance, price handling, storage,
+  accounting, risk, liquidation, or external-call behavior explicitly.
+- Update public documentation when behavior, an invariant, or a proof boundary
+  changes.
+- Never commit secrets, private keys, environment files, or local deployment
+  state.
 
-### Always (every PR)
+## Verification
 
-```bash
-cargo fmt --all -- --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
-```
+Choose the smallest evidence set that covers the changed surface. More
+risk-sensitive changes require more than a passing workspace build.
 
-Run the harness layers that match what you touched (`make test`, `make test-pool`).
+| Surface | Minimum evidence |
+|---|---|
+| Documentation or isolated non-protocol tooling | Relevant formatting or targeted test |
+| Ordinary contract change | Format, lint, workspace tests, and matching harness tests |
+| Arithmetic, accounting, risk, price, governance, storage, or strategy change | Above, plus focused regression or property test; fuzz, Miri, or Certora where applicable |
+| Release-wide or cross-contract change | Full targeted matrix, artifact checks, and operational or migration review |
 
-### If you touch money, risk, oracle, gov, storage, or strategies
+Every pull request should start with:
 
-Add the relevant deeper checks (pick by surface):
+    cargo fmt --all -- --check
+    cargo clippy --workspace --all-targets -- -D warnings
+    cargo test --workspace
 
-```bash
-make certora-wasm
-# then the Certora profile that covers your domain
-make fuzz FUZZ_TIME=30          # or a single target
-make proptest PROPTEST_CASES=256
-make miri-common                # pure math changes
-```
+Then run the focused checks for the changed behavior:
 
-### Release / protocol-wide
+    make test
+    make test-pool
+    make fuzz FUZZ_TIME=30
+    make proptest PROPTEST_CASES=256
+    make miri-common
+    make certora-wasm
 
-Full matrix: `mutants`, full Certora profiles, coverage, Scout, etc.
-See `make help-verify`, [certora/](./certora/README.md), and harness READMEs.
+Not every command applies to every change. If a check is skipped, say why in
+the pull request rather than implying it ran.
 
-### Local CI-adjacent checks (optional)
+For repository-wide assurance, use the verification targets listed by
+make help-verify. Scout, mutation testing, coverage, and broader Certora
+profiles are intentionally heavier and should be selected by risk and scope.
 
-```bash
-make scout            # Scout on host (CI uses the scout.yml action)
-make scout-strict     # fail if any crate report is incomplete
-make certora-wasm     # focused Certora WASM artifacts
-```
-
-Full GitHub Actions runs on the self-hosted runners; there is no local
-`act` / Docker mirror of workflows.
-
-## Pull request body
+## Pull request description
 
 State:
 
-1. What changed and why  
-2. Which protocol surfaces / invariants are affected  
-3. Which checks you ran (tier above)  
-4. Any deploy, migration, oracle, or ops follow-up  
+1. What changed and why.
+2. Which invariants, threat boundaries, or users are affected.
+3. Tests, fuzzing, formal checks, and manual validation that ran.
+4. Any configuration, deployment, migration, oracle, or operational follow-up.
+5. Known limitations or work deliberately left out of scope.
 
-All changes must preserve on-chain invariants. Live facts (controller/pool
-boundary, pause matrix, fail-closed oracle, scaled balances) live in the
-contracts, interfaces, and tests — not in outdated prose.
+A reviewer should be able to understand the safety argument without reconstructing
+the entire change history.
 
-## CI security (self-hosted PR jobs)
+## Self-hosted CI safety
 
-Some jobs run PR-controlled code on a persistent self-hosted runner. **Required
-repo setting (admin UI, not YAML):**
+Some workflows execute pull-request-controlled code on persistent self-hosted
+runners. Repository administrators must require approval for workflow runs from
+outside collaborators. This setting lives in the repository's GitHub Actions
+configuration, not in workflow YAML.
 
-**Settings → Actions → General → Fork pull request workflows from outside
-collaborators** → *Require approval for all outside collaborators* (or first-time
-contributors).
+Do not weaken pinned-action, least-privilege, or deployable-ABI safeguards to
+make CI pass. Raise a maintainer discussion if a legitimate change needs a
+different CI permission or execution model.
 
-Also in place: third-party actions pinned by SHA, least-privilege
-`permissions:`, and `wasm-testing-abi-check` so deployable governance WASM does
-not export test-only ABIs.
+## Issues and reviews
 
-## Documentation style
+Use public issues for reproducible bugs, documentation gaps, features, and
+non-sensitive design discussion. Include the environment, expected result, and
+observed result.
 
-Public ABI and type comments follow the interface and `contractimpl` rustdoc in
-source. Code is the source of truth; update rustdoc when behavior changes.
-
-## Issues
-
-Public issues: bugs, docs gaps, features, non-sensitive design. Include repro
-steps, expected vs actual, environment.
-
-Vulnerabilities: **security@xoxno.com** only.
+Review with evidence: explain the affected behavior, the adversarial case, and
+the verification result. Be direct about uncertainty. Follow the
+[Code of conduct](CODE_OF_CONDUCT.md) in every project space.

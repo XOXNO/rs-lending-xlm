@@ -1,336 +1,160 @@
-# Certora Formal Verification
+# Formal verification
 
-Formal verification for the lending protocol's critical invariants, using
-[Certora Sunbeam](https://docs.certora.com/en/latest/docs/sunbeam/index.html)
-(Rust + CVLR `#[rule]` specs compiled to WASM).
+This directory contains Certora Sunbeam specifications for the protocol's
+highest-risk arithmetic, accounting, solvency, liquidation, oracle, and
+strategy properties.
 
-## Layout
+Formal verification complements tests and review. A successful compilation,
+submission, or older report is not a proof verdict for the current artifact.
+Read the report associated with the exact built WASM and source fingerprint.
 
-```text
-certora/
-├── common/          # fixed-point and rate math
-├── pool/            # minimal pool-core rate/share/cash/fee accounting suite
-├── controller/      # solvency, liquidation, oracle, strategy rules
-│   ├── harness/
-│   ├── confs/
-│   └── spec/        # README.txt — domain invariant + conf map
-├── shared/          # cross-contract summaries
-├── scripts/         # Python entrypoints, wasm helpers, local runner
-├── profiles.json    # sanity | fast | core | heavy | manual | all
-└── compile_all.sh
-```
+## Start here
 
-Partitioning starts at the crate boundary (`common` / `pool` / `controller` /
-`price-aggregator`) and then narrows each prover artifact to one rule-source
-module. Domain docs live in each layer's `spec/README.txt`.
-Ownership: governance → controller → pool. New deploys start paused.
-Pause/freeze is three-layer; GUARDIAN can pause immediately; unpause is
-timelocked. Keeper self-authorizes where the contract allows.
+| Goal | Command |
+|---|---|
+| Check feature paths, configuration, and rule coverage | ./certora/compile_all.sh |
+| Also build and verify Certora WASM provenance | ./certora/compile_all.sh --wasm |
+| Build focused prover artifacts | make certora-wasm |
+| List available proof profiles | make certora-list |
+| Submit the default hosted profile | make certora |
+| Submit a chosen profile | make certora CERTORA_PROFILE=fast |
 
-## WASM artifacts (deploy + prover)
+The hosted prover requires CERTORAKEY and the Certora command-line tool. Build
+the focused WASM before submitting directly or through a profile.
 
-Production and Certora WASM share one tree under `artifacts/wasm/`:
+## What is covered
 
-| Path | Built by | Used for |
-| --- | --- | --- |
-| `deploy/pool.wasm`, `deploy/controller.wasm` | `make deploy-artifacts` | Mainnet deploy / upgrades |
-| `certora/<layer>-<rule-module>.wasm` | `make certora-wasm` | Certora conf `files` entries, one rule module per artifact |
+| Area | Main question |
+|---|---|
+| Common | Does fixed-point arithmetic preserve its stated bounds and rounding rules? |
+| Pool | Do shares, indexes, cash, revenue, settlement, fees, and flash accounting remain coherent? |
+| Controller | Do account actions preserve authorization and solvency requirements? |
+| Price system | Do source admission, freshness, tolerance, and fail-closed outcomes hold? |
+| Shared summaries | Are cross-contract assumptions explicit and reviewable? |
 
-```bash
-make wasm-artifacts          # both deploy + certora
-make certora-wasm            # prover only (rebuild after contract/spec changes)
-# Default: one rustc job to avoid host-memory spikes. Raise only with headroom.
-make certora-wasm CERTORA_BUILD_JOBS=2
-```
+Each proof area has configuration files, rule modules, fixtures, and
+domain-specific documentation. The [pool-core guide](pool/spec/README.md)
+explains the pool suite in review terms.
 
-Conf files reference prebuilt focused `certora/*.wasm` files so Certora cloud
-skips `stellar contract build`. Each config also declares the exact three
-Cargo features recorded in the artifact manifest: `certora`,
-`certora-focused`, and its rule-module feature. Rebuild locally, then submit
-jobs. `check_wasm_artifacts.py` rejects artifact hashes, source fingerprints,
-paths, or feature declarations that do not match.
+## Artifact integrity
 
-The focused build removes unrelated `#[rule]` exports before the Prover's
-initial WASM transformation. The feature is used only by rule-module gates;
-production behavior has no `certora-focused` branch. This is intended as a
-transformation RAM/time optimization, not a separate equivalence proof. The
-full non-focused `certora` feature path is still compiled by `compile_all.sh`
-as a compatibility check.
+Deployable WASM and prover WASM serve different purposes:
 
-**Important:** `make certora-wasm` uses `stellar contract build --optimize=false`.
-Stellar's WASM optimizer can emit bytecode that passes `wasm-validate` but triggers
-Certora internal errors on large controller builds, e.g.:
+| Artifact | Purpose |
+|---|---|
+| Deploy artifact | Optimized bytecode for deployment and upgrade |
+| Focused Certora artifact | Unoptimized bytecode containing one focused rule module |
 
-```text
-Inconsistent ref stack sizes in preds ... FunctionIndex_294
-```
+Focused artifacts reduce prover transformation cost. They are not a separate
+production behavior: production code has no focused-verification branch.
 
-Mainnet deploy still uses optimized WASM from `make deploy-artifacts`.
-The focused build overwrites artifacts only after each module succeeds and
-does not erase the previous complete set up front. If a later module fails,
-the manifest/provenance check still rejects the mixed set, but usable prior
-artifacts are not destroyed.
+The artifact manifest binds each focused artifact to its source fingerprint and
+feature set. Rebuild after changing a contract, rule, fixture, summary, or
+relevant dependency. Do not submit a stale artifact.
 
-## Local checks
+    make certora-wasm
+    python3 certora/scripts/check_wasm_artifacts.py
 
-```bash
-./certora/compile_all.sh
-./certora/compile_all.sh --wasm   # also builds + checks certora WASM
-```
+The focused build intentionally disables the Stellar optimizer. Optimized
+bytecode can trigger internal prover transformation failures despite passing
+ordinary WASM validation.
 
-Runs `cargo check` for all `certora` feature paths, then `check_orphans.py`
-(conf ↔ `#[rule]` alignment, profile coverage, conf integrity) and
-`sync_wasm_conf.py --check` (focused WASM path/features).
+## Proof profiles
 
-## Local prover (no cloud)
+| Profile | Use |
+|---|---|
+| sanity | Reachability and non-vacuity checks; used by CI |
+| fast | Stable math, rate, integrity, and light controller properties |
+| core | Main audit set: solvency, liquidation, strategies, pool accounting, and oracle rules |
+| heavy | Expensive targeted proofs |
+| manual | Core plus heavy |
+| all | Sanity, fast, core, and heavy |
 
-The open-source [CertoraProver](https://github.com/Certora/CertoraProver) is
-built on this machine and runs our Soroban confs fully locally:
+Start with sanity. Run fast or core for a relevant change. Use heavy only for
+the targeted surface or an intentional full verification run.
 
-| Piece | Location |
-| --- | --- |
-| Prover source | `~/certora-work/CertoraProver` |
-| Built artifacts (`emv.jar`, `certora_jars`, CLI scripts) | `~/certora-install` |
-| Python CLI deps | any venv with `~/certora-work/CertoraProver/scripts/certora_cli_requirements.txt` installed |
-| JDK 21 (temurin) | `/Library/Java/JavaVirtualMachines/temurin-21.jdk` |
+Extra prover flags follow a double dash:
 
-```bash
-# Reproducible CLI environment (run once from the repository root).
-python3.12 -m venv ~/certora-install/.venv
-~/certora-install/.venv/bin/pip install --require-hashes \
-    -r certora/requirements-cli.txt
+    ./certora/scripts/run_profile.py fast -- --rule borrow_rate_capped
 
-(cd certora/common/confs && \
-  JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home \
-  PATH="$HOME/certora-install:$PATH" \
-  ~/certora-install/.venv/bin/python ~/certora-install/certoraSorobanProver.py math.conf \
-      --jar ~/certora-install/emv.jar)                   # whole conf
-(cd certora/common/confs && \
-  JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home \
-  PATH="$HOME/certora-install:$PATH" \
-  ~/certora-install/.venv/bin/python ~/certora-install/certoraSorobanProver.py math.conf \
-      --jar ~/certora-install/emv.jar --rule ray_mul_identity)
+## Local and hosted execution
 
-# Runs each rule separately, keeps full logs, propagates failures, and prefers JDK 21.
-CERTORA_PYTHON="$HOME/certora-install/.venv/bin/python" \
-./certora/scripts/run-rules-local.sh certora/common/confs/math.conf
+The profile runner can submit hosted jobs or invoke a local prover installation.
+For local execution, provide a compatible Java runtime, Certora CLI
+dependencies, and a local prover binary. Build focused WASM first.
 
-# The same local runner across every config in a profile.
-CERTORA_PYTHON="$HOME/certora-install/.venv/bin/python" \
-./certora/scripts/run_profile.py sanity --local
-```
+    ./certora/scripts/run_profile.py sanity --local
 
-Run the block above from the repository root. Passing
-`--jar ~/certora-install/emv.jar` forces local execution — our confs
-keep `"server": "prover"` so plain `certoraSorobanProver` still submits to the
-cloud unchanged. The runner writes durable text logs to
-`target/certora-local-logs/`; its isolated build/report directories are
-temporary so concurrent rules cannot reset each other's `.certora_internal`.
-Rebuild the prover after upstream updates with
-`cd ~/certora-work/CertoraProver && ./gradlew assemble`.
-Local runs still need `make certora-wasm` first, same as cloud. The local
-optimizer helper (`tac_optimizer`) is installed beside the Prover, so that
-directory must be on `PATH`. The runner does this automatically. It also
-defaults each JVM to `-Xmx8g`; override with `CERTORA_JAVA_HEAP` for a solo
-heavy rule. The heap cap does not include external Z3 workers. To prevent local
-solver fan-out from exhausting RAM, the runner removes `-splitParallel true`
-from a temporary conf copy by default; set `CERTORA_LOCAL_SPLIT_PARALLEL=true`
-only when the host has measured headroom. Do not combine local split-parallel
-with `-j N`. It also sets `multi_assert_check: false` only in the temporary
-local config, so one rule uses an aggregate assertion instead of launching a
-solver group per source assertion. Set `CERTORA_LOCAL_MULTI_ASSERT=true` when
-per-assert diagnostics matter and the host has headroom; hosted configs remain
-unchanged. On a 48 GiB host, use `-Xmx12g` only for one rule after closing other
-memory-heavy processes; giving Java all physical RAM starves Z3.
+For expensive local rules, use the dedicated local runner. It isolates temporary
+prover state and retains logs under the build directory.
 
-## Hosted prover
+    ./certora/scripts/run-rules-local.sh certora/pool/confs/position-accounting.conf
 
-**CI:** `.github/workflows/certora-verification.yml` derives its dispatched
-reachability matrix from every focused config in the `sanity` profile. It
-builds the focused WASMs once, transfers them with the manifest, and rechecks
-their source fingerprints before submission. Requires the `CERTORAKEY` secret.
+The local runner defaults to conservative parallelism and an 8 GiB Java heap.
+Increase CERTORA_JAVA_HEAP, enable split parallelism, or enable per-assert
+diagnostics only after measuring available host and solver capacity.
 
-**Manual profiles:**
+## How to read a proof result
 
-```bash
-./certora/scripts/run_profile.py --list
-./certora/scripts/run_profile.py sanity
-./certora/scripts/run_profile.py fast
-./certora/scripts/run_profile.py core
-./certora/scripts/run_profile.py heavy
-```
+A verdict applies only within its model.
 
-| Profile | Purpose |
-| --- | --- |
-| `sanity` | Reachability / non-vacuity smoke (CI) |
-| `fast` | Stable subset: math, rates, integrity, light controller safety |
-| `core` | Audit: summaries, solvency, liquidation, strategy |
-| `heavy` | Expensive targeted configs (parallel-friendly) |
+- Check the artifact fingerprint and configuration used by the report.
+- Read assumptions, fixtures, summaries, loop bounds, and rule preconditions.
+- Treat a reached cross-contract summary as conditional on that summary.
+- Distinguish a counterexample, timeout, loop-unwind failure, and transformation
+  error before changing a rule or production code.
+- Keep universal assertions and satisfy witnesses separate; reachability is not
+  a substitute for a universal property.
 
-Forward extra prover flags after `--`:
+## Important proof boundaries
 
-```bash
-./certora/scripts/run_profile.py fast -- --rule borrow_rate_capped
-```
+Pool rules directly exercise the accounting transitions used before token
+transfers. They do not model arbitrary token behavior, flash callbacks,
+allowances, reentrancy, or transaction rollback.
 
-## Proof ordering
+Controller rules use explicit summaries for cross-contract work where a full
+composition would be intractable. A controller verdict therefore does not
+independently prove the summarized pool, oracle, token, or external-call
+behavior.
 
-Follow lemma-before-main ordering when adding proofs:
+Price-system rules separate success-path properties from fail-closed outcomes.
+Controller valuation rules assume an accepted price unless the rule explicitly
+models price failure.
 
-1. `pool/confs/pool-core-sanity.conf` for explicit fixture reachability
-2. `pool/confs/rate-index-accounting.conf` for pure accrual lemmas
-3. Pool position, seizure/settlement, fee/strategy, and flash accounting jobs
-4. `tolerance-math.conf` before full oracle-dependent liquidation
+Long unbounded batch processing and arbitrary multi-year accrual loops remain
+outside the current proof model when no suitable induction invariant exists.
 
-## Production boundary
+## Adding or changing a proof
 
-Production crates expose only `#[cfg(feature = "certora")]` hooks; rule bodies,
-harnesses, and summary implementations live under `certora/`.
-Summary call sites use `apply_summary!` in production because CVLR must wrap
-the summarized function at its definition site.
+1. State the invariant and threat first.
+2. Identify whether it belongs in common, pool, controller, or price-system
+   verification.
+3. Add a fixture that makes the relevant state reachable.
+4. Add a focused rule and a configuration with appropriate sanity policy.
+5. Build artifacts and run the static checks.
+6. Run the smallest relevant profile or rule, then record the exact report
+   and artifact identity.
+7. Update the domain guide when the proven boundary or residual assumption
+   changes.
 
-Controller jobs use trusted cross-contract summaries for tractability. The
-pool-core jobs call the production accounting functions used immediately
-before token transfers. They do not prove arbitrary SAC/callback behavior,
-unbounded batches, or controller persistence of returned account positions. A
-controller verdict that reaches a summarized pool call remains conditional on
-that summary; keep pool accounting and controller summary proofs separate.
+Prefer a small lemma before a large stateful rule. Do not hide a timeout by
+loosening a property or increasing resource limits without explaining the
+change.
 
-**Oracle modeling notes (price-aggregator + controller):**
-- Aggregator provider summaries (`read_*_source_summary`) use `nondet_option` so
-  `None` / Empty / Partial are reachable. Endpoint rules in
-  `feed-endpoints.conf` / `price-sanity.conf` are **success-path** lemmas
-  (assertions hold when a feed is returned). Fail-closed Empty/Partial gates
-  are proved separately in `fail-closed-miss.conf`.
-- Those fail-closed rules build their outcomes with `engine::blend_{empty,
-  partial}`, cfg-gated shims over the live `blend`, so they bind to the real
-  `Outcome` constructors. What they do **not** cover is `compose`'s
-  `(None, None) → Empty` / `(Some, None) → Partial` match: forcing a provider
-  summary to miss needs ghost state shared between rule and summary. That match
-  is driven end to end by the integration suite instead — see
-  `tests/test-harness/tests/oracle/tolerance/staleness.rs` and `twap.rs`.
-- Controller hard `fetch_prices` harness still always returns a positive feed
-  (solvency / health / liquidation remain **oracle-success-conditional**). Soft
-  `fetch_prices_status` draws nondet `stale` / `deviation` / `valid`, assumed
-  consistent with `Outcome::failure`'s gate order (`valid` implies neither flag).
+## Troubleshooting
 
-## Cloud readiness (Certora hosted prover)
+| Symptom | First action |
+|---|---|
+| Artifact-provenance failure | Rebuild focused WASM and run the artifact checker |
+| Optimizer-related transformation error | Rebuild with make certora-wasm; it uses unoptimized prover WASM |
+| Rule is unreachable or vacuous | Add or repair a satisfy witness before trusting a universal result |
+| Expanded-command limit | Review the modeled surface and raise the relevant limit only when justified |
+| Local host runs out of memory | Run one rule, keep split parallelism off, and lower Java heap before increasing it |
+| Counterexample appears bitwise-spurious | Re-run the targeted rule with precise bitwise modeling |
 
-All confs pass local syntax, rule-coverage, profile-coverage, compilation, and
-artifact-provenance gates. Those checks are not proof verdicts. Runtime status
-must come from the report for the exact artifact hash; do not infer success
-from a submitted job or from an older run.
+## References
 
-**Build requirement:** run `make certora-wasm` locally (or in CI) before
-submitting jobs. Confs use the `files` field pointing at
-`artifacts/wasm/certora/*.wasm`, so the hosted prover does not rebuild contracts.
-You still need `stellar-cli` ≥ 25.2 on the machine that produces those WASM
-artifacts (`experimental_spec_shaking_v2` in soroban-sdk 26).
-
-Controller state rules can spend minutes in initial WASM transformation before
-SMT starts. This is distinct from an SMT timeout. Run focused configs one rule
-at a time locally to distinguish transformation cost, loop-unwind failure,
-counterexample, and solver timeout.
-
-**Recommended cloud usage:**
-
-```bash
-# One rule per submission for expensive state jobs
-(cd certora/controller/confs && \
-  certoraSorobanProver solvency-borrow.conf --rule ltv_borrow_bound_enforced)
-(cd certora/controller/confs && \
-  certoraSorobanProver boundary-math.conf --rule mul_at_max_i128)
-```
-
-Run the `sanity` profile before `fast`/`core`.
-
-## Config policy
-
-- `rule_sanity: "basic"` by default; heavy configs may use `"none"` when paired
-  with a basic-sanity config for the same rule family
-- `independent_satisfy: true` on all configs
-- `optimistic_loop: false` everywhere; unwind failures remain visible
-- `loop_iter`: `1`, `6`, or `8` for bounded pure math; `28` or `32` for Soroban
-  host-state jobs. Pool-core jobs use the minimum accepted `28`. A real pool
-  fixture needs at least 28 iterations because
-  host-value/storage encoding contains fixed loops longer than ten. The static
-  checker rejects undersized state configs.
-- `multi_assert_check: true` for universal jobs and `false` for standalone
-  witness jobs. `dontStopAtFirstSplitTimeout` is reserved for witness search.
-- `precise_bitwise_ops` is escalation-only: the default LIA encoding
-  overapproximates bitwise ops, which is sound for Verified verdicts and an
-  order of magnitude faster (common/math: 8/8 in 6 min locally vs 4/8 with
-  bit-blasting). Enable it per-rule only when a counterexample is
-  bitwise-spurious. Boundary confs that assert exact overflow behavior may
-  still need it — validate locally before removing. Dedicated escalation
-  confs: `common/confs/math-hard.conf` (NIA-hard bps→wad floor chain) and
-  `controller/confs/math-bv.conf` (bit-precise sign/rounding semantics);
-  both run in the `heavy` profile
-- EVM-only options (`solc`, `solc_via_ir`, hashing bounds,
-  `havocAllByDefault`) are not used. `multi_assert_check` is supported by the
-  Soroban Prover and is intentionally enabled for universal jobs.
-- `-maxCommandCount` must exceed the rule's expanded command count, or the job
-  errors (`expanded to too many commands: N > limit`). Controller state confs
-  set `2000000`; raise it (not lower it) when a sanity rule trips the cap.
-
-### Difficulty timeouts (hard stop at `global_timeout`)
-
-Confs whose rules run the full position/strategy/solvency paths (high path
-count, kinked-rate nonlinearity, multi-loop portfolios) can hit the
-`global_timeout` hard stop rather than the SMT `smt_timeout`. Provisioning
-policy across all confs:
-
-- **`-maxCommandCount`** is set on every state/oracle conf (≥ `2000000`); the
-  prover default (`1000000`) is below what a single position-mutation sanity
-  rule expands to. Pure fixed-point math confs (`common/math`, `controller/math`,
-  `tolerance-math`) stay lower — they never approach the cap.
-- **`-splitParallel true`** is used selectively on control-flow-heavy LIA/NIA
-  jobs. It is omitted from `math-bv.conf` because the parallel splitter does
-  not support bit-vector theory.
-- **Destructive optimization** is reserved for the nine heavy configs. Routine
-  configs keep smaller depth/command limits so easy rules do not inherit
-  heavy-job cost.
-- Heavy jobs use the hosted maximum `global_timeout` of 7200 seconds and an
-  1800-second per-query SMT timeout. Ten-seed solver portfolios are not the
-  default: add one only after a reproducible solver-instability result, because
-  every seed increases solver and credit load.
-
-The escape hatch — the same lever the Certora/Blend pool confs use on their
-hardest status rules:
-
-```json
-"prover_args": [
-    "-maxBlockCount 500000",
-    "-maxCommandCount 2000000",
-    "-splitParallel true",
-    "-depth 15"
-]
-```
-
-`-splitParallel true` solves supported control-flow splits across workers
-instead of sequentially. If a conf still hard-stops, run it one rule at a time
-(`--rule <name>`) and reduce the modeled surface with a separately proved
-summary rather than only raising the timeout.
-
-**`Inconsistent ref stack sizes … FunctionIndex_294`** is the Stellar-optimizer
-internal error: re-run `make certora-wasm` (it builds `--optimize=false`) and
-submit the freshly-built `artifacts/wasm/certora/*.wasm`. A stale or optimized
-artifact reproduces it and cascades into spurious `Violated` sanity rules.
-
-## Learning resources
-
-- [Sunbeam docs](https://docs.certora.com/en/latest/docs/sunbeam/index.html) and [tutorials](https://certora-sunbeam-tutorials.readthedocs-hosted.com/en/latest/)
-- [Certora user guide](https://docs.certora.com/en/latest/docs/user-guide/index.html) — sanity, CI, timeout strategy (translate to Sunbeam)
-- Large Certora projects for examples of solvency README patterns and lemma→main splits (see Certora user guide)
-- [AIComposer](https://github.com/Certora/AIComposer) — Solidity/CVL only; use its spec-first workflow manually with `*_rules.rs`
-
-## Targeted high-signal runs
-
-```bash
-(cd certora/pool/confs && certoraSorobanProver position-accounting.conf)
-(cd certora/pool/confs && certoraSorobanProver seize-settle-accounting.conf)
-(cd certora/controller/confs && certoraSorobanProver no-collateral-no-debt.conf)
-(cd certora/controller/confs && certoraSorobanProver controller-pool-consistency.conf)
-(cd certora/controller/confs && certoraSorobanProver global-solvency-heavy.conf)
-(cd certora/controller/confs && certoraSorobanProver liquidation-integrity-heavy.conf)
-```
+- [Certora Sunbeam documentation](https://docs.certora.com/en/latest/docs/sunbeam/index.html)
+- [Sunbeam tutorials](https://certora-sunbeam-tutorials.readthedocs-hosted.com/en/latest/)
+- [Protocol invariants](../docs/reference/invariants.md)
+- [Threat model](../docs/explanation/threat-model.md)

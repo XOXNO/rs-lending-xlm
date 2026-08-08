@@ -1,29 +1,35 @@
-# Documentation
+# XOXNO Lending documentation
 
-Documentation map for XOXNO Lending. Code is the source of truth; these pages
-orient auditors, integrators, and contributors. Public ABI semantics live in
-rustdoc on the interface crates.
+This documentation is written for reviewers first. It explains what the
+protocol is meant to protect, why its design choices exist, and what should be
+true across every execution path. Implementation navigation belongs in the
+codebase; these documents are the map for understanding it.
 
-| Need | Start here |
-|------|------------|
-| Topology, storage, money flows, upgrade surface | [Reference: architecture](./reference/architecture.md) |
-| Rules that must not break | [Reference: invariants](./reference/invariants.md) |
-| Risk, HF, liquidation math (code-matched) | [Reference: formulas](./reference/formulas.md) |
-| Actors, trust boundaries, attack surfaces | [Explanation: threat model](./explanation/threat-model.md) |
-| Why a decision was made | [Explanation: ADRs](./explanation/decisions/README.md) |
-| Shared protocol model for any integration | [skills/lending-protocol-fundamentals](../skills/lending-protocol-fundamentals/SKILL.md) |
-| Agent integration recipes | [skills/](../skills/README.md) |
-| Formal verification | [certora/](../certora/README.md) |
-| Contribute a change | [CONTRIBUTING.md](../CONTRIBUTING.md) |
-| Report a vulnerability | [SECURITY.md](../SECURITY.md) |
+## Start here
 
-## Layout
+| Question | Read |
+|---|---|
+| What system is this? | [Architecture](reference/architecture.md) |
+| What must never break? | [Runtime invariants](reference/invariants.md) |
+| Who can attack or operate it? | [Threat model](explanation/threat-model.md) |
+| How do values and risk calculations work? | [Formulas](reference/formulas.md) |
+| Why was a design chosen? | [Decision records](explanation/decisions/README.md) |
 
-- **reference/** — accurate description of the system as built: architecture,
-  invariants, formulas.
-- **explanation/** — understanding: the threat model and architecture decision
-  records (ADRs).
-- **research/** — point-in-time research notes; not normative.
+## Reading order for an audit
 
-Contract package READMEs under `contracts/*/` are indexes (entrypoint name,
-role, links). Where a README and source disagree, the source wins.
+1. Architecture: components, custody, authority, and money flow.
+2. Threat model: actors, trust boundaries, attack surfaces, and residual risk.
+3. Invariants: the properties to test or prove.
+4. Formulas: unit conventions, rounding, interest, health, and liquidation.
+5. Decision records: the rationale behind consequential choices.
+
+## Documentation conventions
+
+- “Must” describes a safety property, not an aspiration.
+- “Fails closed” means the transaction reverts rather than guessing.
+- “Pool” is one custody system with isolated per-market accounting.
+- “Hub asset” identifies a market; “spoke” identifies an account’s risk regime.
+- RAY is 10^27, WAD is 10^18, and BPS is 10,000.
+
+The documents describe the intended current protocol behavior. Configuration,
+deployment state, and external dependencies still require independent audit.

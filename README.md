@@ -1,109 +1,89 @@
 # XOXNO Lending
 
-[![CI](https://img.shields.io/github/actions/workflow/status/XOXNO/rs-lending-xlm/tests.yml?label=CI&style=flat-square)](https://github.com/XOXNO/rs-lending-xlm/actions/workflows/tests.yml) ![Rust](https://img.shields.io/badge/Rust-1.95-orange?style=flat-square) ![Stellar Soroban](https://img.shields.io/badge/Stellar-Soroban-blue?style=flat-square)
+[![CI](https://img.shields.io/github/actions/workflow/status/XOXNO/rs-lending-xlm/tests.yml?label=CI&style=flat-square)](https://github.com/XOXNO/rs-lending-xlm/actions/workflows/tests.yml)
 
-Smart contracts and deploy tooling for **XOXNO Lending**: an over-collateralized
-money market on [Stellar](https://stellar.org) (Soroban).
-
-Suppliers deposit SAC assets and earn interest. Borrowers take loans against
-collateral under LTV and health-factor limits. Liquidators close underwater
-positions. Governance changes markets, oracles, risk, and upgrades through a
+XOXNO Lending is an over-collateralized money market built on Stellar Soroban.
+Suppliers provide liquidity and earn interest. Borrowers use accepted
+collateral to take loans within an account-specific risk regime. Liquidators
+can reduce unhealthy positions, and governance manages the protocol through a
 timelock.
 
-One central **pool** holds liquidity. Markets use `HubAssetKey { hub_id, asset }`
-for isolation; **spokes** hold risk (LTV, caps, pause/freeze) per account group.
-Oracles: Reflector, RedStone, and `xoxno-oracle`, with dual-source tolerance and
-fail-closed reads. GUARDIAN can pause immediately; **unpause is timelocked**.
+## How the protocol is organized
+
+| Concept | Role |
+|---|---|
+| Central pool | Custodies liquidity while preserving isolated accounting for every market |
+| Markets | Track their own cash, shares, interest indexes, revenue, and rate policy |
+| Accounts | Hold positions and bind once to a spoke, the account's risk regime |
+| Controller | Applies authorization, price, risk, liquidation, and strategy rules |
+| Price system | Supplies complete validated prices; risk-taking fails closed on invalid prices |
+| Governance | Delays ordinary changes; emergency power can tighten protection but not reopen it |
+
+The protocol uses RAY for interest and scaled shares, WAD for USD values and
+health factor, and BPS for ratios and fees. See the formula reference for the
+precise arithmetic and rounding policy.
 
 ## Documentation
 
-| Document | Audience |
-|----------|----------|
-| [docs/README.md](./docs/README.md) | Docs map |
-| [Architecture](./docs/reference/architecture.md) | Topology, storage, money flows, upgrade surface |
-| [Invariants](./docs/reference/invariants.md) | Rules that must not break |
-| [Formulas](./docs/reference/formulas.md) | Risk, HF, liquidation math (code-matched) |
-| [Threat model](./docs/explanation/threat-model.md) | Actors, trust boundaries, attack surfaces |
-| [ADRs](./docs/explanation/decisions/README.md) | Why decisions were made |
-| [CONTRIBUTING.md](./CONTRIBUTING.md) | Contributors |
-| [skills/](./skills/README.md) | Integrator agent recipes |
-| [certora/](./certora/README.md) | Formal verification |
-| [SECURITY.md](./SECURITY.md) | Vulnerability disclosure |
-| Contract READMEs under `contracts/*/` | Per-crate entrypoints and layout |
-
-Protocol behavior is defined by the contracts, interfaces, and tests. Start
-with [skills/lending-protocol-fundamentals](./skills/lending-protocol-fundamentals/SKILL.md)
-for the shared model (hubs, spokes, units, HF, pause matrix), and
-[docs/reference/formulas.md](./docs/reference/formulas.md) for equations.
+| If you want to understand… | Start here |
+|---|---|
+| Protocol components, authority, and value flow | [Architecture](docs/reference/architecture.md) |
+| Properties that must hold | [Runtime invariants](docs/reference/invariants.md) |
+| Prices, interest, health, and liquidation math | [Formulas](docs/reference/formulas.md) |
+| Threats, trust boundaries, and residual risks | [Threat model](docs/explanation/threat-model.md) |
+| Why the design has this shape | [Decision records](docs/explanation/decisions/README.md) |
+| How to contribute safely | [Contributing](CONTRIBUTING.md) |
+| How to report a vulnerability | [Security policy](SECURITY.md) |
 
 ## Security
 
-| Layer | In this repo |
-|-------|----------------|
-| **Design** | [Invariants](./docs/reference/invariants.md), [threat model](./docs/explanation/threat-model.md), [formulas](./docs/reference/formulas.md), contract rustdoc |
-| **Testing** | Crate tests, Soroban harness (`make test`), live testnet scripts, fuzz |
-| **Formal** | [Certora](./certora/README.md) |
-| **Static** | Clippy, Scout, CI |
-| **Report** | **security@xoxno.com** only — [SECURITY.md](./SECURITY.md) |
+Protocol changes are security-sensitive. Do not report vulnerabilities in a
+public issue, pull request, or discussion. Use the private process in
+[SECURITY.md](SECURITY.md).
 
-Do **not** open public issues or PRs for vulnerabilities.
-
-## Repository layout
-
-```text
-contracts/          Soroban contracts
-  controller/       Accounts, risk, oracle, liquidation, strategies
-  pool/             Liquidity and flash loans (controller-owned)
-  governance/       Timelock and roles
-  swap-aggregator/  DEX routing for strategies
-  price-aggregator/ Oracle authority
-  xoxno-oracle/     Multi-signer RedStone / SEP-40 feed
-  defindex-strategy/
-mock/               Test-only contracts (oracles, flash-loan receiver)
-common/             Shared math, types, errors
-interfaces/         Client ABIs
-configs/            Network and market deploy inputs (`networks.json`)
-docs/               Formula reference and docs map
-tests/              Harness, fuzz, live scenarios
-services/           Keeper (TTL), metrics exporter
-certora/            Formal verification
-skills/             Agent integration skills
-```
-
-Resolve contract addresses from `configs/networks.json`. Do not hardcode them.
+Before changing money movement, risk, authorization, prices, governance,
+storage, or strategies, identify the affected invariant and add verification
+that matches the change's risk.
 
 ## Development
 
-**Needs:** Rust from [rust-toolchain.toml](./rust-toolchain.toml) (`wasm32v1-none`),
-Stellar CLI with Soroban support.
+Requirements:
 
-```bash
-git clone https://github.com/XOXNO/rs-lending-xlm.git
-cd rs-lending-xlm
-cargo test --workspace
-make build
-make help
-```
+- Rust from [rust-toolchain.toml](rust-toolchain.toml), including the
+  wasm32v1-none target.
+- Stellar CLI with Soroban support.
+
+    git clone https://github.com/XOXNO/rs-lending-xlm.git
+    cd rs-lending-xlm
+    cargo test --workspace
+    make build
+    make help
 
 | Task | Command |
-|------|---------|
-| Compile contracts | `make build` |
-| Optimized WASM | `make optimize` |
-| Crate tests | `cargo test --workspace` |
-| Integration harness | `make test` |
-| Lint / format | `make clippy`, `make fmt` |
-| Deploy / ops | `make testnet setup` — see `make help` (topics: `help-deploy`, `help-ops`) and `configs/` |
+|---|---|
+| Build contracts | make build |
+| Build optimized WASM | make optimize |
+| Run workspace tests | cargo test --workspace |
+| Run the integration harness | make test |
+| Lint and format | make clippy, make fmt |
+| View deployment and operations help | make help |
 
-Keeper and exporter are separate Cargo workspaces under `services/`.
+The keeper and lending exporter are separate Cargo workspaces. Network
+configuration is environment-specific; resolve deployed addresses from the
+active network configuration instead of hard-coding them.
+
+## Repository guide
+
+| Area | Purpose |
+|---|---|
+| Contracts | On-chain protocol components |
+| Common and interfaces | Shared arithmetic, types, errors, and public client interfaces |
+| Tests | Harness, fuzzing, and live scenarios |
+| Services | Permissionless maintenance and operational metrics |
+| Formal verification | Specifications and proof-oriented checks |
+| Docs | Auditor and integrator documentation |
 
 ## License
 
-[PolyForm Noncommercial 1.0.0](./LICENSE). Commercial use needs a written
-agreement with XOXNO.
-
-## Contributing
-
-See [CONTRIBUTING.md](./CONTRIBUTING.md). Protocol changes must preserve
-on-chain invariants (accounting, risk, oracle, auth)—see
-[formulas](./docs/reference/formulas.md)—and ship verification that matches
-the risk of the change.
+Licensed under [PolyForm Noncommercial 1.0.0](LICENSE). Commercial use requires
+a written agreement with XOXNO.
