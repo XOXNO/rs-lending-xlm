@@ -1,3 +1,8 @@
+//! Fixed-point scale conversions between asset amounts and share positions.
+//!
+//! Wraps `common::rates` helpers with this market's decimals and live indexes
+//! so ops code does not pass index/decimals on every call.
+
 use common::math::fp::Ray;
 use common::rates::{
     calculate_scaled_borrow, calculate_scaled_supply, resolve_repay, resolve_withdrawal,
@@ -8,6 +13,9 @@ use common::rates::{
 use super::Cache;
 
 impl Cache {
+    /// Utilization = total borrowed value / total supplied value (RAY).
+    ///
+    /// Returns zero when there is no supply.
     pub(crate) fn calculate_utilization(&self) -> Ray {
         if self.supplied == Ray::ZERO {
             return Ray::ZERO;
@@ -18,6 +26,7 @@ impl Cache {
         utilization(&self.env, total_borrowed, total_supplied)
     }
 
+    /// Convert an asset deposit into scaled supply shares at the current index.
     pub(crate) fn calculate_scaled_supply(&self, amount: i128) -> Ray {
         calculate_scaled_supply(
             &self.env,
@@ -27,6 +36,7 @@ impl Cache {
         )
     }
 
+    /// Convert an asset borrow into scaled debt shares at the current index.
     pub(crate) fn calculate_scaled_borrow(&self, amount: i128) -> Ray {
         calculate_scaled_borrow(
             &self.env,
@@ -36,6 +46,7 @@ impl Cache {
         )
     }
 
+    /// Unscale supply shares to asset units (standard rounding).
     pub(crate) fn unscale_supply(&self, scaled: Ray) -> i128 {
         unscale_supply(
             &self.env,
@@ -45,6 +56,7 @@ impl Cache {
         )
     }
 
+    /// Unscale supply shares rounding **down** (conservative claim value).
     pub(crate) fn unscale_supply_floor(&self, scaled: Ray) -> i128 {
         unscale_supply_floor(
             &self.env,
@@ -54,6 +66,7 @@ impl Cache {
         )
     }
 
+    /// Unscale debt shares to asset units (standard rounding).
     pub(crate) fn unscale_borrow(&self, scaled: Ray) -> i128 {
         unscale_borrow(
             &self.env,
@@ -63,6 +76,7 @@ impl Cache {
         )
     }
 
+    /// Unscale debt shares rounding **up** (conservative liability).
     pub(crate) fn unscale_borrow_ceil(&self, scaled: Ray) -> i128 {
         unscale_borrow_ceil(
             &self.env,
@@ -72,10 +86,14 @@ impl Cache {
         )
     }
 
+    /// Unscale debt shares to a RAY asset amount, rounding up.
     pub(crate) fn unscale_borrow_ceil_ray(&self, scaled: Ray) -> Ray {
         unscale_borrow_ceil_ray(&self.env, scaled, self.borrow_index)
     }
 
+    /// Resolve a withdrawal request into (shares burned, gross asset amount).
+    ///
+    /// Caps against `pos_scaled` so the user cannot withdraw more than held.
     pub(crate) fn resolve_withdrawal(&self, amount: i128, pos_scaled: Ray) -> (Ray, i128) {
         resolve_withdrawal(
             &self.env,
@@ -86,6 +104,9 @@ impl Cache {
         )
     }
 
+    /// Resolve a repay request into (shares burned, overpayment in asset units).
+    ///
+    /// Overpayment is returned to the payer by the repay op.
     pub(crate) fn resolve_repay(&self, amount: i128, pos_scaled: Ray) -> (Ray, i128) {
         resolve_repay(
             &self.env,

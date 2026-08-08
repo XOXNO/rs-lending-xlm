@@ -1,3 +1,9 @@
+//! Strategy open: mint debt like a borrow, optionally withhold a flash-style fee.
+//!
+//! Used when the hub opens a leveraged or strategy position that draws pool
+//! liquidity. Fee (if charged) is booked as protocol revenue and never leaves
+//! the pool as cash debit.
+
 use common::errors::{FlashLoanError, GenericError};
 use common::math::fp::{Bps, Ray};
 use common::types::{PoolAction, PoolStrategyMutation};
@@ -9,12 +15,17 @@ use crate::cache::Cache;
 use crate::ops::borrow;
 use crate::{events, interest, ops};
 
+/// Intermediate result of strategy accounting before token transfer and events.
 pub(crate) struct StrategyOutcome {
     pub(crate) cache: Cache,
     pub(crate) mutation: PoolStrategyMutation,
+    /// Fee withheld when `charge_fee` was true.
     pub(crate) fee: i128,
 }
 
+/// Open a strategy position and transfer net proceeds to `receiver`.
+///
+/// Emits a strategy-fee event (when fee > 0) and a market state event.
 pub(crate) fn apply(
     env: &Env,
     receiver: &Address,
@@ -39,6 +50,10 @@ pub(crate) fn apply(
     outcome.mutation
 }
 
+/// Mint debt for `action.amount`, book fee, debit cash for net send amount.
+///
+/// Cash debit is only `amount - fee` because the fee stays in the pool as
+/// protocol revenue (also credited via [`interest::add_protocol_revenue`]).
 pub(crate) fn accounting(env: &Env, action: PoolAction, charge_fee: bool) -> StrategyOutcome {
     let PoolAction {
         position,
@@ -71,6 +86,9 @@ pub(crate) fn accounting(env: &Env, action: PoolAction, charge_fee: bool) -> Str
     }
 }
 
+/// Compute the strategy fee from the market's flash-loan bps, or zero if disabled.
+///
+/// Panics if the fee would exceed principal when charging.
 fn compute_fee(env: &Env, cache: &Cache, amount: i128, charge_fee: bool) -> i128 {
     if !charge_fee {
         return 0;

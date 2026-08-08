@@ -185,11 +185,9 @@ pub(crate) fn max_bonus_for_threshold(env: &Env, proportion_seized: Wad) -> Bps 
         return Bps::from(0);
     }
 
-    let scaled = proportion_seized
-        .raw()
-        .checked_mul(BPS)
-        .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
-    let eff_thr_bps = ((scaled + (WAD - 1)) / WAD).clamp(1, BPS);
+    // Ceil(proportion * BPS / WAD), clamped into [1, BPS].
+    let eff_thr_bps =
+        common::math::fp_core::mul_div_ceil(env, proportion_seized.raw(), BPS, WAD).clamp(1, BPS);
     let numerator = BPS
         .checked_mul(BPS - eff_thr_bps)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));

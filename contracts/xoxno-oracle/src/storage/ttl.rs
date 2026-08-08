@@ -1,14 +1,10 @@
-use common::constants::{
-    TTL_BUMP_INSTANCE, TTL_BUMP_SHARED, TTL_THRESHOLD_INSTANCE, TTL_THRESHOLD_SHARED,
-};
+use common::constants::{TTL_BUMP_SHARED, TTL_THRESHOLD_SHARED};
 use soroban_sdk::Env;
 
 use crate::storage::DataKey;
 
 pub(crate) fn renew_oracle_instance(env: &Env) {
-    env.storage()
-        .instance()
-        .extend_ttl(TTL_THRESHOLD_INSTANCE, TTL_BUMP_INSTANCE);
+    common::ttl::renew_instance(env);
 }
 
 pub(crate) fn renew_persistent_key(env: &Env, key: &DataKey) {

@@ -77,15 +77,21 @@ jobs:
         with:
           tool: cargo-fuzz
 
-      - name: Cache cargo
+      # Only build artifacts are cached, never ~/.cargo. Every self-hosted
+      # runner instance shares one CARGO_HOME (/home/truststaking/.cargo), so
+      # the registry is global while the jobs are concurrent. Cargo itself is
+      # safe there -- it serialises on .package-cache -- but actions/cache
+      # knows nothing of that lock and unpacks its tarball straight over the
+      # live registry, so a job compiling at that moment can read a
+      # half-written crate source. That is the base64 E0583 in run 31214351035.
+      # The registry needs no cache anyway: it persists on the runner.
+      - name: Cache cargo build artifacts
         uses: actions/cache@v6
         with:
           path: |
-            ~/.cargo/registry
-            ~/.cargo/git
             target
             tests/fuzz/target
-          key: ${{ runner.os }}-fuzz-${{ hashFiles('Cargo.lock', 'tests/fuzz/Cargo.lock') }}
+          key: ${{ runner.os }}-fuzz-v2-${{ hashFiles('Cargo.lock', 'tests/fuzz/Cargo.lock') }}
 
       - name: Install stellar-cli
 
@@ -171,18 +177,23 @@ jobs:
             echo "toolchain cannot link with mold (gcc < 12.1?); using default linker"
           fi
 
-      - name: Cache cargo
+      # Only build artifacts are cached, never ~/.cargo. Every self-hosted
+      # runner instance shares one CARGO_HOME (/home/truststaking/.cargo), so
+      # the registry is global while the jobs are concurrent. Cargo itself is
+      # safe there -- it serialises on .package-cache -- but actions/cache
+      # knows nothing of that lock and unpacks its tarball straight over the
+      # live registry, so a job compiling at that moment can read a
+      # half-written crate source. That is the base64 E0583 in run 31214351035.
+      # The registry needs no cache anyway: it persists on the runner.
+      - name: Cache cargo build artifacts
         uses: actions/cache@v6
         with:
           path: |
-            ~/.cargo/registry
-            ~/.cargo/git
             target-mutants
-          key: ${{ runner.os }}-mutants-diff-v3-s${{ matrix.shard }}-${{ hashFiles('Cargo.lock', '.cargo/mutants.toml') }}
+          key: ${{ runner.os }}-mutants-diff-v4-s${{ matrix.shard }}-${{ hashFiles('Cargo.lock', '.cargo/mutants.toml') }}
           restore-keys: |
-            ${{ runner.os }}-mutants-diff-v3-s${{ matrix.shard }}-
-            ${{ runner.os }}-mutants-diff-v3-
-            ${{ runner.os }}-mutants-diff-v2-
+            ${{ runner.os }}-mutants-diff-v4-s${{ matrix.shard }}-
+            ${{ runner.os }}-mutants-diff-v4-
 
       - name: Invalidate any mutant-built artifacts from the cache
         run: git ls-files -z '*.rs' | xargs -0 touch
@@ -395,17 +406,23 @@ jobs:
         with:
           tool: cargo-fuzz
 
-      - name: Cache cargo
+      # Only build artifacts are cached, never ~/.cargo. Every self-hosted
+      # runner instance shares one CARGO_HOME (/home/truststaking/.cargo), so
+      # the registry is global while the jobs are concurrent. Cargo itself is
+      # safe there -- it serialises on .package-cache -- but actions/cache
+      # knows nothing of that lock and unpacks its tarball straight over the
+      # live registry, so a job compiling at that moment can read a
+      # half-written crate source. That is the base64 E0583 in run 31214351035.
+      # The registry needs no cache anyway: it persists on the runner.
+      - name: Cache cargo build artifacts
         uses: actions/cache@v6
         with:
           path: |
-            ~/.cargo/registry
-            ~/.cargo/git
             target
             tests/fuzz/target
-          key: ${{ runner.os }}-fuzz-${{ matrix.target }}-${{ hashFiles('Cargo.lock', 'tests/fuzz/Cargo.lock') }}
+          key: ${{ runner.os }}-fuzz-v2-${{ matrix.target }}-${{ hashFiles('Cargo.lock', 'tests/fuzz/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-fuzz-
+            ${{ runner.os }}-fuzz-v2-
 
       - name: Download stellar-cli
         if: matrix.kind == 'contract'
@@ -466,16 +483,22 @@ jobs:
           toolchain: "1.95"
           targets: wasm32v1-none
 
-      - name: Cache cargo
+      # Only build artifacts are cached, never ~/.cargo. Every self-hosted
+      # runner instance shares one CARGO_HOME (/home/truststaking/.cargo), so
+      # the registry is global while the jobs are concurrent. Cargo itself is
+      # safe there -- it serialises on .package-cache -- but actions/cache
+      # knows nothing of that lock and unpacks its tarball straight over the
+      # live registry, so a job compiling at that moment can read a
+      # half-written crate source. That is the base64 E0583 in run 31214351035.
+      # The registry needs no cache anyway: it persists on the runner.
+      - name: Cache cargo build artifacts
         uses: actions/cache@v6
         with:
           path: |
-            ~/.cargo/registry
-            ~/.cargo/git
             target
-          key: ${{ runner.os }}-proptest-${{ matrix.test }}-${{ hashFiles('Cargo.lock') }}
+          key: ${{ runner.os }}-proptest-v2-${{ matrix.test }}-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-proptest-
+            ${{ runner.os }}-proptest-v2-
 
       - name: Download stellar-cli
         uses: actions/download-artifact@v8.0.1

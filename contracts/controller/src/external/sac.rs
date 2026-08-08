@@ -1,5 +1,6 @@
-use soroban_sdk::{token, Address, Env};
+use soroban_sdk::{Address, Env};
 
+/// Controller-local name for [`common::token::sac_transfer`].
 pub(crate) fn sac_transfer_call(
     env: &Env,
     token: &Address,
@@ -7,8 +8,5 @@ pub(crate) fn sac_transfer_call(
     to: &Address,
     amount: &i128,
 ) {
-    if *amount == 0 {
-        return;
-    }
-    token::Client::new(env, token).transfer(from, to, amount)
+    common::token::sac_transfer(env, token, from, to, *amount);
 }

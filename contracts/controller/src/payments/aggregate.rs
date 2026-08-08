@@ -2,7 +2,7 @@ use common::errors::GenericError;
 use common::types::{HubAssetKey, HubPayment};
 use soroban_sdk::{panic_with_error, Env, Map, Vec};
 
-use common::validation::{expect_invariant, require_non_empty_payments};
+use common::validation::{expect_invariant, require_non_empty_payments, require_nonneg_amount};
 
 #[derive(Clone, Copy, PartialEq)]
 pub(crate) enum ZeroLeg {
@@ -54,9 +54,7 @@ fn aggregate_payment_amount(
 ) -> i128 {
     // Negative is always fatal and must run before sticky-zero arms.
     // Otherwise MeansAll + previous==Some(0) would swallow negatives as 0.
-    if amount < 0 {
-        panic_with_error!(env, GenericError::AmountMustBePositive);
-    }
+    require_nonneg_amount(env, amount);
 
     match (zero_leg, amount, previous) {
         (ZeroLeg::Rejected, 0, _) => {

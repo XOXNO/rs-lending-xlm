@@ -1,9 +1,26 @@
 use soroban_sdk::{panic_with_error, Env};
 
+use crate::constants::RAY;
 use crate::math::fp::Ray;
+use crate::math::fp_core;
 
 pub fn scaled_to_original(env: &Env, scaled: Ray, index: Ray) -> Ray {
     scaled.mul(env, index)
+}
+
+/// Asset-unit amount → scaled ray with floor rounding, saturating on overflow.
+///
+/// Used for spoke supply/borrow **caps** where overflow must not panic an entry
+/// path: the scaled cap becomes `i128::MAX`, so the cap check fails open rather
+/// than trapping. Distinct from [`calculate_scaled_supply`] /
+/// [`calculate_scaled_borrow`], which panic on overflow (position accounting).
+pub fn calculate_scaled_cap(env: &Env, cap: i128, decimals: u32, index: Ray) -> Ray {
+    Ray::from(fp_core::mul_div_floor_saturating(
+        env,
+        Ray::from_asset(cap, decimals).raw(),
+        RAY,
+        index.raw(),
+    ))
 }
 
 pub fn calculate_scaled_supply(env: &Env, amount: i128, decimals: u32, supply_index: Ray) -> Ray {

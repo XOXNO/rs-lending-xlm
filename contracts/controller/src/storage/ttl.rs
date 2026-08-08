@@ -1,7 +1,4 @@
-use crate::constants::{
-    TTL_BUMP_INSTANCE, TTL_BUMP_SHARED, TTL_BUMP_USER, TTL_THRESHOLD_INSTANCE,
-    TTL_THRESHOLD_SHARED, TTL_THRESHOLD_USER,
-};
+use crate::constants::{TTL_BUMP_SHARED, TTL_BUMP_USER, TTL_THRESHOLD_SHARED, TTL_THRESHOLD_USER};
 use common::types::ControllerKey;
 use soroban_sdk::{Env, IntoVal, TryFromVal, Val};
 
@@ -14,9 +11,7 @@ pub(crate) fn renew_user_key(env: &Env, key: &ControllerKey) {
 }
 
 pub(crate) fn renew_controller_instance(env: &Env) {
-    env.storage()
-        .instance()
-        .extend_ttl(TTL_THRESHOLD_INSTANCE, TTL_BUMP_INSTANCE);
+    common::ttl::renew_instance(env);
 }
 
 fn get_persistent<V: TryFromVal<Env, Val>>(

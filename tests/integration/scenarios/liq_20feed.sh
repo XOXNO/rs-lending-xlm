@@ -42,7 +42,7 @@ if [ -z "${LIQ20_ACCT:-}" ]; then
         log "20-feed dual borrow exceeds budget — building via path B"
         args=""
         for i in $(seq 0 4); do args+=" $(stress_sac $i) $((1000 * STRESS_UNIT))"; done
-        acct=$(inv liq20b_supply_5coll "$DAVE" "$CONTROLLER" -- supply \
+        acct=$(inv_create liq20b_supply_5coll "$DAVE" "$CONTROLLER" -- supply \
             --caller "$DAVE_ADDR" --account_id 0 --spoke_id "$PRIMARY_SPOKE_ID" \
             --assets "$(pay_vec "$PRIMARY_HUB_ID" $args)" | tr -d '"') || exit 1
         args=""

@@ -1,14 +1,15 @@
 #![no_std]
 
-use common::constants::RAY;
+use common::constants::{TTL_BUMP_INSTANCE, TTL_THRESHOLD_USER};
+use common::math::fp::Ray;
+use common::token::authorize_transfer_as_current;
 use common::types::pool::HubAssetKey;
 
 use controller_interface::ControllerClient;
 
-use soroban_sdk::auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation};
 use soroban_sdk::{
     contract, contracterror, contractevent, contractimpl, contracttype, panic_with_error, token,
-    vec, Address, Bytes, Env, IntoVal, Symbol, TryFromVal, Val, Vec,
+    vec, Address, Bytes, Env, TryFromVal, Val, Vec,
 };
 
 #[contractevent(topics = ["strategy", "harvest"])]
@@ -28,12 +29,8 @@ pub(crate) fn emit_harvest(e: &Env, from: Address, amount: i128, price_per_share
     .publish(e);
 }
 
-const PPS_SCALAR: i128 = 1_000_000_000_000;
-
-const RAY_PER_PPS: i128 = RAY / PPS_SCALAR;
-
-const VAULT_ACCOUNT_TTL_THRESHOLD: u32 = 17_280 * 30;
-const VAULT_ACCOUNT_TTL_EXTEND_TO: u32 = 17_280 * 180;
+/// DeFindex price-per-share is reported with 12 decimals (RAY → 12-dec rescale).
+const PPS_DECIMALS: u32 = 12;
 
 #[contracterror]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -133,9 +130,8 @@ impl<'a> Ctx<'a> {
             .get_market_index(&self.hub_asset())
             .supply_index;
 
-        supply_index
-            .checked_div(RAY_PER_PPS)
-            .ok_or(DeFindexStrategyError::ArithmeticError)
+        // Floor rescale RAY (27 dec) → PPS (12 dec); matches prior `index / (RAY/1e12)`.
+        Ok(Ray::from(supply_index).to_asset_floor(PPS_DECIMALS))
     }
 
     fn to_payment(&self, amount: i128) -> Vec<(HubAssetKey, i128)> {
@@ -143,17 +139,13 @@ impl<'a> Ctx<'a> {
     }
 
     fn authorize_supply_to_pool(&self, amount: i128) {
-        self.env.authorize_as_current_contract(vec![
+        authorize_transfer_as_current(
             self.env,
-            InvokerContractAuthEntry::Contract(SubContractInvocation {
-                context: ContractContext {
-                    contract: self.cfg.asset.clone(),
-                    fn_name: Symbol::new(self.env, "transfer"),
-                    args: (self.strategy.clone(), self.cfg.pool.clone(), amount).into_val(self.env),
-                },
-                sub_invocations: Vec::new(self.env),
-            }),
-        ]);
+            &self.cfg.asset,
+            &self.strategy,
+            &self.cfg.pool,
+            amount,
+        );
     }
 }
 
@@ -288,11 +280,7 @@ fn set_vault_account(env: &Env, vault: &Address, account_id: u64) {
     let key = DataKey::VaultAccount(vault.clone());
     let storage = env.storage().persistent();
     storage.set(&key, &account_id);
-    storage.extend_ttl(
-        &key,
-        VAULT_ACCOUNT_TTL_THRESHOLD,
-        VAULT_ACCOUNT_TTL_EXTEND_TO,
-    );
+    storage.extend_ttl(&key, TTL_THRESHOLD_USER, TTL_BUMP_INSTANCE);
 }
 
 fn clear_vault_account(env: &Env, vault: &Address) {
@@ -305,11 +293,8 @@ fn extend_vault_account_ttl(env: &Env, vault: &Address) {
     let key = DataKey::VaultAccount(vault.clone());
     let storage = env.storage().persistent();
     if storage.has(&key) {
-        storage.extend_ttl(
-            &key,
-            VAULT_ACCOUNT_TTL_THRESHOLD,
-            VAULT_ACCOUNT_TTL_EXTEND_TO,
-        );
+        // Same day bases as before: 30d threshold (user) + 180d bump (instance/shared).
+        storage.extend_ttl(&key, TTL_THRESHOLD_USER, TTL_BUMP_INSTANCE);
     }
 }
 

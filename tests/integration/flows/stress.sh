@@ -52,7 +52,7 @@ flow_stress_borrow_frontier() {
     local args="" i acct
     if [ -z "${!acct_var:-}" ]; then
         for i in $(seq 0 $(( colls > 5 ? 4 : colls - 1 ))); do args+=" $(stress_sac $i) $((100000 * STRESS_UNIT))"; done
-        acct=$(inv "stress_supply_${mode}_base" "$DAVE" "$CONTROLLER" -- supply \
+        acct=$(inv_create "stress_supply_${mode}_base" "$DAVE" "$CONTROLLER" -- supply \
             --caller "$DAVE_ADDR" --account_id 0 --spoke_id "$PRIMARY_SPOKE_ID" \
             --assets "$(pay_vec "$PRIMARY_HUB_ID" $args)" | tr -d '"') || return 1
         save_state "$acct_var" "$acct"
@@ -138,7 +138,7 @@ local k i args acct var debt_args repay_args full_args
         if [ -z "${!var:-}" ]; then
             args=""
             for i in $(seq 0 $((k - 1))); do args+=" $(stress_sac $i) $((1000 * STRESS_UNIT))"; done
-            acct=$(inv "liqf_supply_${k}coll" "$DAVE" "$CONTROLLER" -- supply \
+            acct=$(inv_create "liqf_supply_${k}coll" "$DAVE" "$CONTROLLER" -- supply \
                 --caller "$DAVE_ADDR" --account_id 0 --spoke_id "$PRIMARY_SPOKE_ID" \
                 --assets "$(pay_vec "$PRIMARY_HUB_ID" $args)" | tr -d '"') || continue
             inv "liqf_borrow_${k}coll" "$DAVE" "$CONTROLLER" -- borrow \
@@ -150,7 +150,7 @@ local k i args acct var debt_args repay_args full_args
     if [ -z "${LIQF_ACCT_8C8D:-}" ]; then
         args=""
         for i in $(seq 0 7); do args+=" $(stress_sac $i) $((1000 * STRESS_UNIT))"; done
-        acct=$(inv liqf_supply_8coll_8debt "$DAVE" "$CONTROLLER" -- supply \
+        acct=$(inv_create liqf_supply_8coll_8debt "$DAVE" "$CONTROLLER" -- supply \
             --caller "$DAVE_ADDR" --account_id 0 --spoke_id "$PRIMARY_SPOKE_ID" \
             --assets "$(pay_vec "$PRIMARY_HUB_ID" $args)" | tr -d '"') || return 1
         debt_args=""
@@ -163,7 +163,7 @@ fi
 if [ -z "${LIQF_ACCT_10C10D:-}" ]; then
 args=""
 for i in $(seq 0 9); do args+=" $(stress_sac $i) $((1000 * STRESS_UNIT))"; done
-acct=$(inv liqf_supply_10coll_10debt "$DAVE" "$CONTROLLER" -- supply \
+acct=$(inv_create liqf_supply_10coll_10debt "$DAVE" "$CONTROLLER" -- supply \
 --caller "$DAVE_ADDR" --account_id 0 --spoke_id "$PRIMARY_SPOKE_ID" \
 --assets "$(pay_vec "$PRIMARY_HUB_ID" $args)" | tr -d '"') || return 1
 debt_args=""

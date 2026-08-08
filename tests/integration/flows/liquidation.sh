@@ -37,7 +37,7 @@ flow_liq_setup() {
 flow_liq_single() {
     phase liq_single
     local acct
-    acct=$(inv liq1_supply "$BOB" "$CONTROLLER" -- supply \
+    acct=$(inv_create liq1_supply "$BOB" "$CONTROLLER" -- supply \
         --caller "$BOB_ADDR" --account_id 0 --spoke_id "$PRIMARY_SPOKE_ID" \
         --assets "$(pay_vec "$PRIMARY_HUB_ID" "$SAC_LIQA" $((1000 * LIQ_UNIT)))" | tr -d '"')
     inv liq1_borrow "$BOB" "$CONTROLLER" -- borrow \
@@ -83,7 +83,7 @@ flow_liq_single() {
 flow_liq_bulk() {
     phase liq_bulk
     local acct
-    acct=$(inv liq2_supply "$BOB" "$CONTROLLER" -- supply \
+    acct=$(inv_create liq2_supply "$BOB" "$CONTROLLER" -- supply \
         --caller "$BOB_ADDR" --account_id 0 --spoke_id "$PRIMARY_SPOKE_ID" \
         --assets "$(pay_vec "$PRIMARY_HUB_ID" "$SAC_LIQC" $((800 * LIQ_UNIT)) "$SAC_LIQA" $((1143 * LIQ_UNIT)))" | tr -d '"')
     inv liq2_borrow_bulk "$BOB" "$CONTROLLER" -- borrow \
@@ -119,7 +119,7 @@ flow_liq_spoke() {
     view spoke_view "$CONTROLLER" -- get_spoke --spoke_id "$SPOKE_ID" >/dev/null
 
     local acct
-    acct=$(inv liq3_supply_spoke "$BOB" "$CONTROLLER" -- supply \
+    acct=$(inv_create liq3_supply_spoke "$BOB" "$CONTROLLER" -- supply \
         --caller "$BOB_ADDR" --account_id 0 --spoke_id "$SPOKE_ID" \
         --assets "$(pay_vec "$PRIMARY_HUB_ID" "$SAC_LIQE" $((1000 * LIQ_UNIT)))" | tr -d '"')
 
@@ -142,7 +142,7 @@ flow_clean_bad_debt() {
     xfail cbd_healthy 'Error\(Contract, #114\)' "$ADMIN" "$CONTROLLER" -- clean_bad_debt \
         --caller "$ADMIN_ADDR" --account_id "${LIQ2_ACCT:-1}"
     local acct
-    acct=$(inv cbd_supply "$BOB" "$CONTROLLER" -- supply \
+    acct=$(inv_create cbd_supply "$BOB" "$CONTROLLER" -- supply \
         --caller "$BOB_ADDR" --account_id 0 --spoke_id "$PRIMARY_SPOKE_ID" \
         --assets "$(pay_vec "$PRIMARY_HUB_ID" "$SAC_LIQC" $((30 * LIQ_UNIT)))" | tr -d '"')
     inv cbd_borrow "$BOB" "$CONTROLLER" -- borrow \

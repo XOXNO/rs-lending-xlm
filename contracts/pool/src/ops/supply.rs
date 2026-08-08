@@ -1,3 +1,9 @@
+//! Supply leg: mint supply shares and credit cash for deposited assets.
+//!
+//! The hub is expected to have transferred the underlying into the pool before
+//! calling. Requires a solvent (backed) market so suppliers do not enter an
+//! insolvent book.
+
 use common::errors::GenericError;
 use common::types::{MarketStateSnapshot, PoolPositionMutation, PoolSupplyEntry};
 
@@ -5,6 +11,14 @@ use soroban_sdk::{assert_with_error, Env};
 
 use crate::{guards, ops};
 
+/// Accrue, mint scaled supply, credit cash, commit.
+///
+/// Zero amount is allowed only when it produces zero shares (no-op supply).
+/// Positive amounts that round to zero shares panic.
+///
+/// # Returns
+///
+/// Position mutation (updated scaled supply + indexes) and market snapshot.
 pub(crate) fn apply(
     env: &Env,
     entry: &PoolSupplyEntry,

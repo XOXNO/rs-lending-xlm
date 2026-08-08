@@ -1,7 +1,9 @@
 flow_real_markets() {
     phase real_markets
+    local xlm_band
+    xlm_band=$(reflector_band XLM) || { log "XLM live price unavailable; cannot calibrate sanity band"; return 1; }
     create_market XLM "$PRIMARY_HUB_ID" "$XLM_SAC" 7 \
-        "$(oracle_cfg_reflector XLM 163000000000000000 199000000000000000)" \
+        "$(oracle_cfg_reflector XLM $xlm_band)" \
         "$(asset_config_json 7000 7500 1000)"
     create_market USDC "$PRIMARY_HUB_ID" "$USDC_SAC" 7 \
         "$(oracle_cfg_reflector USDC 900000000000000000 1100000000000000000)" \
@@ -50,7 +52,7 @@ flow_seed_liquidity() {
     local usdc_left acct
     usdc_left=$(balance "$USDC_SAC" "$ADMIN_ADDR")
     [ -z "$usdc_left" ] || [ "$usdc_left" -le 0 ] && { log "no USDC to seed"; return 1; }
-    acct=$(inv seed_supply "$ADMIN" "$CONTROLLER" -- supply \
+    acct=$(inv_create seed_supply "$ADMIN" "$CONTROLLER" -- supply \
         --caller "$ADMIN_ADDR" --account_id 0 --spoke_id "$PRIMARY_SPOKE_ID" \
         --assets "$(pay_vec "$PRIMARY_HUB_ID" "$XLM_SAC" 20000000000 "$USDC_SAC" "$usdc_left")" | tr -d '"') || return 1
     save_state ADMIN_ACCT "$acct"
@@ -60,7 +62,7 @@ flow_seed_liquidity() {
 flow_lifecycle() {
     phase lifecycle
     local acct
-    acct=$(inv supply_create "$ALICE" "$CONTROLLER" -- supply \
+    acct=$(inv_create supply_create "$ALICE" "$CONTROLLER" -- supply \
         --caller "$ALICE_ADDR" --account_id 0 --spoke_id "$PRIMARY_SPOKE_ID" \
         --assets "$(pay_vec "$PRIMARY_HUB_ID" "$XLM_SAC" 10000000000)" | tr -d '"')
     save_state ALICE_ACCT "$acct"

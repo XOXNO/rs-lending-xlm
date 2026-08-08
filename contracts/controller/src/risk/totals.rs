@@ -7,6 +7,8 @@ use common::collections::push_unique_address;
 use crate::context::Cache;
 use crate::storage::{iter_debt_positions, iter_typed_positions};
 
+pub(crate) use common::rates::{position_value, position_value_ceil, position_value_floor};
+
 pub(crate) fn portfolio_hub_keys(
     mut supply_keys: Vec<HubAssetKey>,
     borrow_keys: &Vec<HubAssetKey>,
@@ -31,24 +33,6 @@ pub(crate) fn account_price_assets(
         push_unique_address(&mut assets, asset.clone());
     }
     assets
-}
-
-pub(crate) fn position_value(env: &Env, scaled: Ray, index: Ray, price: Wad) -> Wad {
-    let actual = scaled.mul(env, index);
-    let actual_wad = actual.to_wad();
-    actual_wad.mul(env, price)
-}
-
-pub(crate) fn position_value_floor(env: &Env, scaled: Ray, index: Ray, price: Wad) -> Wad {
-    let actual = scaled.mul_floor(env, index);
-    let actual_wad = actual.to_wad_floor();
-    actual_wad.mul_floor(env, price)
-}
-
-pub(crate) fn position_value_ceil(env: &Env, scaled: Ray, index: Ray, price: Wad) -> Wad {
-    let actual = scaled.mul_ceil(env, index);
-    let actual_wad = actual.to_wad_ceil();
-    actual_wad.mul_ceil(env, price)
 }
 
 pub(crate) fn weighted_collateral(env: &Env, value: Wad, threshold: Bps) -> Wad {

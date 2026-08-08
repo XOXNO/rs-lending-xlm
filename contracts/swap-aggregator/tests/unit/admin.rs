@@ -122,3 +122,34 @@ fn upgrade_to_unknown_wasm_hash_fails() {
     let missing = soroban_sdk::BytesN::from_array(&env, &[7u8; 32]);
     assert!(router.try_upgrade(&missing).is_err());
 }
+
+// Every entry point calls `renew_instance` precisely so the router's instance
+// storage -- owner, fee config, whitelist -- cannot expire out from under a
+// live contract. Asserting the TTL is the only way to observe that: a router
+// that never renews behaves identically until the ledger passes the threshold,
+// at which point the instance is archived and every entry point starts failing.
+#[test]
+fn renew_instance_re_extends_router_instance_ttl() {
+    use common::constants::{TTL_BUMP_INSTANCE, TTL_THRESHOLD_INSTANCE};
+    use soroban_sdk::testutils::storage::Instance as _;
+    use soroban_sdk::testutils::Ledger as _;
+
+    let env = Env::default();
+    let router_addr = env.register(Router, (Address::generate(&env),));
+
+    env.as_contract(&router_addr, || {
+        crate::renew_instance(&env);
+        assert_eq!(env.storage().instance().get_ttl(), TTL_BUMP_INSTANCE);
+    });
+
+    // Age the ledger just past the renewal threshold so the next call has to do
+    // real work rather than finding the TTL already high enough.
+    let aged = TTL_BUMP_INSTANCE - TTL_THRESHOLD_INSTANCE + 1;
+    env.ledger().with_mut(|l| l.sequence_number += aged);
+
+    env.as_contract(&router_addr, || {
+        assert!(env.storage().instance().get_ttl() < TTL_THRESHOLD_INSTANCE);
+        crate::renew_instance(&env);
+        assert_eq!(env.storage().instance().get_ttl(), TTL_BUMP_INSTANCE);
+    });
+}

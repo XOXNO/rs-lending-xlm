@@ -43,13 +43,19 @@ Fee cap: 1000 bps (static and referral).
 
 ```text
 src/
-  lib.rs     Entrypoints, fees, path execution
-  types.rs   StrategyPayload, venues, storage keys
-  vault.rs   Invocation-local balance ledger
-  venues/    Per-DEX hop adapters
-  errors.rs  Error codes
-tests/unit/  Unit tests (wired via `#[path]` from lib.rs)
-  support/   Shared helpers + mock pools/tokens
-  venues/    Per-venue adapter cases
+  lib.rs          Thin public API (Router + Ownable)
+  execute/        Strategy orchestration, paths, validate, residual
+  fees.rs         Static + referral fee apply/claim
+  storage.rs      Keys, TTL, fee buckets, whitelist, referrals
+  constants.rs    Fee cap, PPM, residual policy
+  math.rs         Checked arithmetic
+  types.rs        StrategyPayload, venues, storage keys
+  vault.rs        Invocation-local balance ledger
+  venues/         Per-DEX hop adapters + auth helpers
+    aquarius/     Hop swap + LP mint/burn
+  errors.rs       Error codes
+tests/unit/       Unit tests (wired via `#[path]` from lib.rs)
+  support/        Shared helpers + mock pools/tokens
+  venues/         Per-venue adapter cases
   execute_strategy.rs · splits.rs · admin.rs · fees.rs · sweep.rs · vault.rs
 ```

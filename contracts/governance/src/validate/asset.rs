@@ -1,10 +1,7 @@
-use common::constants::POSITION_LIMIT_MAX;
+use common::constants::{MAX_ASSET_DECIMALS, MIN_ASSET_DECIMALS, POSITION_LIMIT_MAX};
 use common::errors::{CollateralError, GenericError};
 use common::types::{MarketParamsRaw, PositionLimits};
 use soroban_sdk::{assert_with_error, panic_with_error, token, Address, Env};
-
-const MIN_ASSET_DECIMALS: u32 = 3;
-const MAX_ASSET_DECIMALS: u32 = 18;
 
 pub(crate) fn validate_and_fetch_token_decimals(env: &Env, token: &Address) -> u32 {
     let token_client = token::Client::new(env, token);

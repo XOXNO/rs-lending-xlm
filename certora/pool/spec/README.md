@@ -41,7 +41,10 @@ fee-strategy-accounting.conf
 
 flash-loan-accounting.conf
   Exact configured fee, payout/repayment balance targets, principal-plus-fee
-  recovery identity, and successful fee booking into cash/revenue/supply.
+  recovery identity, successful fee booking into cash/revenue/supply, and the
+  full successful `apply` accounting chain (`prepare_with_balance` → `book_fee`
+  → commit): principal never touches the cash book; zero-fee path is a cash
+  no-op. SAC/callback hosts remain out of scope (see Proof boundary).
 
 pool-core-sanity.conf
   Concrete satisfy-only witnesses for every proof fixture family, including
@@ -54,9 +57,11 @@ Position, strategy, and claim rules call accounting helpers used verbatim by
 the production ABI before its external SAC transfer/refund. This avoids a fake
 proof caused by an unresolved token contract while preserving production code
 identity. The flash job proves the exact balance targets consumed by the real
-endpoint and its persisted fee transition. It does not prove arbitrary SAC,
-callback, allowance, reentrancy, or Soroban rollback behavior; those require a
-sound external-call model.
+endpoint, its persisted fee transition, and the composed successful-path
+helpers (`prepare` / `prepare_with_balance` / `terms` / `book_fee`) that
+`apply` runs around the external SAC and callback steps. It does not prove
+arbitrary SAC, callback, allowance, reentrancy, or Soroban rollback behavior;
+those require a sound external-call model.
 
 Each operation fixture sets last_timestamp to the current ledger time, so the
 rule isolates one operation from interest accrual. The accrual integration rule

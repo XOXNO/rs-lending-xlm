@@ -1,17 +1,22 @@
+//! DEX hop adapters. Output is always a measured balance delta, never a report.
+
 pub(crate) mod aquarius;
+mod auth;
 pub(crate) mod comet;
 pub(crate) mod phoenix;
 pub(crate) mod soroswap;
 pub(crate) mod sushi;
 
-use soroban_sdk::{
-    auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation},
-    panic_with_error, token, vec, Address, Env, IntoVal, Map, Symbol, Val, Vec,
-};
+pub(crate) use auth::{auth_entry, authorize_token_approve, authorize_token_transfer};
+
+use soroban_sdk::{panic_with_error, token, Address, Env, Map, Vec};
 
 use crate::errors::Error;
 use crate::types::{SwapHop, SwapVenue};
 
+/// Invoke the hop venue and return measured `token_out` delta.
+///
+/// Requires the router spent exactly `amount_in` of `token_in`.
 pub(crate) fn dispatch_hop(
     env: &Env,
     router: &Address,
@@ -50,6 +55,7 @@ pub(crate) fn dispatch_hop(
     received
 }
 
+/// Shared hop inputs for venue adapters.
 pub(crate) struct HopContext<'a> {
     pub env: &'a Env,
     pub router: &'a Address,
@@ -73,6 +79,7 @@ impl<'a> HopContext<'a> {
         }
     }
 
+    /// Authorize the pool to pull `amount_in` of `token_in` from the router.
     pub fn authorize_pool_pull(&self) {
         authorize_token_transfer(
             self.env,
@@ -83,14 +90,17 @@ impl<'a> HopContext<'a> {
         );
     }
 
+    /// Router balance of hop input token.
     pub fn input_balance(&self) -> i128 {
         token::Client::new(self.env, &self.hop.token_in).balance(self.router)
     }
 
+    /// Router balance of hop output token.
     pub fn output_balance(&self) -> i128 {
         token::Client::new(self.env, &self.hop.token_out).balance(self.router)
     }
 
+    /// True if swapping token0→token1; false for the reverse. Panics on mismatch.
     pub fn direction_for_pair(&self, token0: &Address, token1: &Address) -> bool {
         if self.hop.token_in == *token0 && self.hop.token_out == *token1 {
             true
@@ -100,75 +110,4 @@ impl<'a> HopContext<'a> {
             panic_with_error!(self.env, Error::BrokenTokenChain);
         }
     }
-}
-
-pub(crate) fn authorize_token_transfer(
-    env: &Env,
-    token: &Address,
-    from: &Address,
-    to: &Address,
-    amount: i128,
-) {
-    authorize_as_current(
-        env,
-        token,
-        "transfer",
-        vec![
-            env,
-            from.into_val(env),
-            to.into_val(env),
-            amount.into_val(env),
-        ],
-    );
-}
-
-pub(crate) fn authorize_token_approve(
-    env: &Env,
-    token: &Address,
-    owner: &Address,
-    spender: &Address,
-    amount: i128,
-    expiration_ledger: u32,
-) {
-    authorize_as_current(
-        env,
-        token,
-        "approve",
-        vec![
-            env,
-            owner.into_val(env),
-            spender.into_val(env),
-            amount.into_val(env),
-            expiration_ledger.into_val(env),
-        ],
-    );
-}
-
-pub(crate) fn auth_entry(
-    env: &Env,
-    contract: &Address,
-    fn_name: &str,
-    args: soroban_sdk::Vec<Val>,
-    sub_invocations: soroban_sdk::Vec<InvokerContractAuthEntry>,
-) -> InvokerContractAuthEntry {
-    InvokerContractAuthEntry::Contract(SubContractInvocation {
-        context: ContractContext {
-            contract: contract.clone(),
-            fn_name: Symbol::new(env, fn_name),
-            args,
-        },
-        sub_invocations,
-    })
-}
-
-pub(crate) fn authorize_as_current(
-    env: &Env,
-    contract: &Address,
-    fn_name: &str,
-    args: soroban_sdk::Vec<Val>,
-) {
-    env.authorize_as_current_contract(vec![
-        env,
-        auth_entry(env, contract, fn_name, args, vec![env]),
-    ]);
 }

@@ -1,7 +1,7 @@
-use crate::constants::{WAD, WAD_DECIMALS};
+use crate::constants::WAD;
 use crate::errors::OracleError;
 use crate::math::fp_core::try_mul_div_half_up;
-use crate::oracle::observation::try_u256_to_i128;
+use crate::oracle::observation::{try_amount_to_wad, try_u256_to_i128};
 use soroban_sdk::{Env, U256};
 
 pub fn isqrt_of_product(env: &Env, a: u128, b: u128) -> U256 {
@@ -57,7 +57,7 @@ pub fn fair_lp_price_wad(
     let total_value =
         isqrt_of_product(env, value_a as u128, value_b as u128).mul(&U256::from_u32(env, 2));
 
-    let share_supply_wad = amount_to_wad(env, supply.total_shares, supply.decimals)?;
+    let share_supply_wad = try_amount_to_wad(env, supply.total_shares, supply.decimals)?;
     if share_supply_wad <= 0 {
         return Err(OracleError::InvalidPrice);
     }
@@ -73,14 +73,6 @@ fn reserve_value_wad(env: &Env, leg: &LpLeg) -> Result<i128, OracleError> {
         .checked_pow(leg.decimals)
         .ok_or(OracleError::InvalidPrice)?;
     try_mul_div_half_up(env, leg.reserve, leg.price_wad, denom).ok_or(OracleError::InvalidPrice)
-}
-
-fn amount_to_wad(env: &Env, amount: i128, decimals: u32) -> Result<i128, OracleError> {
-    let scale = WAD_DECIMALS
-        .checked_sub(decimals)
-        .and_then(|exp| 10i128.checked_pow(exp))
-        .ok_or(OracleError::InvalidPrice)?;
-    try_mul_div_half_up(env, amount, scale, 1).ok_or(OracleError::InvalidPrice)
 }
 
 #[cfg(test)]

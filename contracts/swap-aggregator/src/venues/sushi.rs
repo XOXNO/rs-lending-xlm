@@ -1,3 +1,5 @@
+//! Sushi V3-style hop: `swap` with sqrt-price limit and oracle hints.
+
 use soroban_sdk::{panic_with_error, vec, Address, Bytes, Env, IntoVal, Symbol, Val, Vec, U256};
 
 use crate::errors::Error;
@@ -9,6 +11,7 @@ const MAX_SQRT_RATIO_MINUS_ONE: [u8; 32] = [
     0xef, 0xd1, 0xfc, 0x6a, 0x50, 0x64, 0x88, 0x49, 0x5d, 0x95, 0x1d, 0x52, 0x63, 0x98, 0x8d, 0x25,
 ];
 
+/// Exact-in concentrated-liquidity swap; returns measured output delta.
 pub(crate) fn swap(ctx: &HopContext<'_>) -> i128 {
     let no_args: Vec<Val> = vec![ctx.env];
     let token0: Address = ctx.env.invoke_contract(
@@ -51,6 +54,7 @@ pub(crate) fn swap(ctx: &HopContext<'_>) -> i128 {
     amount_out
 }
 
+/// Extreme sqrt price so the swap can consume the full exact-in amount.
 fn sqrt_price_limit(env: &Env, zero_for_one: bool) -> U256 {
     if zero_for_one {
         U256::from_u128(env, MIN_SQRT_RATIO_PLUS_ONE)

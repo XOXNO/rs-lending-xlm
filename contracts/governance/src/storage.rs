@@ -1,6 +1,4 @@
-use common::constants::{
-    TTL_BUMP_INSTANCE, TTL_BUMP_SHARED, TTL_THRESHOLD_INSTANCE, TTL_THRESHOLD_SHARED,
-};
+use common::constants::{TTL_BUMP_SHARED, TTL_THRESHOLD_SHARED};
 use common::errors::GenericError;
 
 use soroban_sdk::{contracttype, panic_with_error, Address, BytesN, Env};
@@ -15,9 +13,7 @@ enum GovernanceKey {
 }
 
 pub(crate) fn renew_governance_instance(env: &Env) {
-    env.storage()
-        .instance()
-        .extend_ttl(TTL_THRESHOLD_INSTANCE, TTL_BUMP_INSTANCE);
+    common::ttl::renew_instance(env);
 }
 
 pub(crate) fn mark_role_revocation_target(env: &Env, operation_id: &BytesN<32>, account: &Address) {

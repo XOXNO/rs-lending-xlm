@@ -1,5 +1,6 @@
 use crate::constants::{MS_PER_SECOND, WAD_DECIMALS};
 use crate::errors::{GenericError, OracleError};
+use crate::math::fp_core::try_mul_div_half_up;
 use soroban_sdk::{assert_with_error, panic_with_error, Env, U256};
 
 pub const MAX_FUTURE_SKEW_SECONDS: u64 = 60;
@@ -53,6 +54,17 @@ pub fn u256_to_i128(env: &Env, value: &U256) -> i128 {
 pub fn try_u256_to_i128(value: &U256) -> Option<i128> {
     let raw = value.to_u128()?;
     (raw <= i128::MAX as u128).then_some(raw as i128)
+}
+
+/// Scale a non-negative token amount into WAD (`10^18`) base units.
+///
+/// Fails when `decimals > WAD_DECIMALS` or the product overflows.
+pub fn try_amount_to_wad(env: &Env, amount: i128, decimals: u32) -> Result<i128, OracleError> {
+    let scale = WAD_DECIMALS
+        .checked_sub(decimals)
+        .and_then(|exp| 10i128.checked_pow(exp))
+        .ok_or(OracleError::InvalidPrice)?;
+    try_mul_div_half_up(env, amount, scale, 1).ok_or(OracleError::InvalidPrice)
 }
 
 pub fn millis_to_seconds(timestamp_ms: u64) -> u64 {

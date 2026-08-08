@@ -10,6 +10,12 @@ pub const WAD_DECIMALS: u32 = 18;
 
 pub const BPS_DECIMALS: u32 = 4;
 
+/// Minimum allowed market / listed-token decimals (governance + price-aggregator).
+pub const MIN_ASSET_DECIMALS: u32 = 3;
+
+/// Maximum allowed market / listed-token decimals (matches WAD-scale prices).
+pub const MAX_ASSET_DECIMALS: u32 = 18;
+
 pub const MILLISECONDS_PER_YEAR: u64 = 31_556_926_000;
 
 pub const MAX_REASONABLE_PRICE_WAD: i128 = 1_000_000_000 * WAD;

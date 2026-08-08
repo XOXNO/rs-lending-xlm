@@ -300,6 +300,31 @@ oracle_cfg_reflector() {
     }'
 }
 
+# Self-calibrating single-source sanity band for a live reflector-CEX symbol.
+# Reads the current price and brackets it by ±PCT (default 9 → ~900 bps half-width
+# ratio, safely under MAX_SINGLE_SOURCE_SANITY_BAND_BPS=1000 and above
+# MIN_SANITY_BAND_BPS=50). Echoes "min_wad max_wad" for oracle_cfg_reflector to
+# splat as its $2 $3. A single-source band is capped at ~10% half-width, so a
+# hardcoded band silently goes stale as the live price drifts and eventually the
+# reflector price falls outside it — the aggregator then fails closed with
+# OracleError::SanityBoundViolated (#223) and every borrow/multiply reverts.
+# Returns non-zero if the live price is unavailable so the caller aborts rather
+# than listing a market whose oracle is guaranteed to reject. Reflector CEX prices
+# are 14-decimal; WAD is 18-decimal, hence the ×10000. Bracketing is done in
+# 14-decimal space first so 64-bit intermediates cannot overflow before scaling.
+reflector_band() {
+    local sym="$1" pct="${2:-9}" raw px14 min14 max14
+    raw=$(stellar contract invoke --id "$REFLECTOR_CEX" --source "$ADMIN" --network "$NETWORK" \
+        --send=no -- lastprice --asset "{\"Other\":\"$sym\"}" 2>/dev/null) || return 1
+    px14=$(printf '%s' "$raw" | jq -r '.price // empty' 2>/dev/null)
+    case "$px14" in
+        ''|*[!0-9]*) log "reflector_band[$sym]: no live price (got '${raw:-<none>}')"; return 1 ;;
+    esac
+    min14=$(( px14 * (100 - pct) / 100 ))
+    max14=$(( px14 * (100 + pct) / 100 ))
+    printf '%s %s\n' "$(( min14 * 10000 ))" "$(( max14 * 10000 ))"
+}
+
 market_listing_exists() {
     local hub_id="$1" sac="$2"
     stellar contract invoke --id "$CONTROLLER" --source "$ADMIN" --network "$NETWORK" \

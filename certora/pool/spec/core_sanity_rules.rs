@@ -201,13 +201,15 @@ fn flash_accounting_domain_reachable(e: Env, admin: Address, asset: Address) {
             e.ledger().timestamp(),
         ),
     );
+    // Witness the full successful apply accounting chain (gates + terms + fee book).
+    let (mut cache, terms) =
+        crate::ops::flash::prepare_with_balance(&e, hub(asset), ONE_TOKEN, 100 * ONE_TOKEN);
     let FlashTerms {
         fee,
         total_repayment: total,
         balance_after_payout: after_payout,
         balance_after_repayment: after_repayment,
-    } = crate::ops::flash::terms(&e, ONE_TOKEN, 50, 100 * ONE_TOKEN);
-    let mut cache = crate::cache::Cache::load(&e, &hub(asset));
+    } = terms;
     crate::ops::flash::book_fee(&mut cache, fee);
     cvlr_satisfy!(
         fee > 0

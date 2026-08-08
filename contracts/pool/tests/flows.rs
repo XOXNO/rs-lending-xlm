@@ -9,8 +9,10 @@ use common::constants::{
 };
 use common::errors::{CollateralError, FlashLoanError, GenericError};
 use common::math::fp::Ray;
+use common::rates::simulate_update_indexes;
 use common::types::{
-    AccountPositionType, MarketIndexRaw, MarketParamsRaw, PoolKey, PoolStateRaw, ScaledPositionRaw,
+    AccountPositionType, InterestRateModel, MarketIndexRaw, MarketParamsRaw, PoolKey,
+    PoolNetSettleEntry, PoolStateRaw, ScaledPositionRaw,
 };
 use soroban_sdk::testutils::storage::{Instance as _, Persistent as _};
 use soroban_sdk::testutils::{Address as _, ContractEvents, Events, Ledger, LedgerInfo};
@@ -1193,6 +1195,112 @@ fn test_create_strategy_rejects_insufficient_liquidity() {
     ));
     assert_contract_error(result, CollateralError::InsufficientLiquidity as u32);
 }
+
+/// Min-unit principal with a positive fee bps charges fee=1 and pays out nothing.
+#[test]
+fn test_create_strategy_dust_fee_consumes_entire_payout() {
+    let t = TestSetup::new();
+    let client = t.client();
+    enable_flashloan(&t); // flashloan_fee = 100 bps → min fee 1 on amount 1
+    let caller = Address::generate(&t.env);
+    let tok = token::Client::new(&t.env, &t.asset);
+
+    let cash_before = client.get_reserves(&hub(&t.asset));
+    let caller_before = tok.balance(&caller);
+    let state_before = t.state_snapshot();
+
+    let result = client.create_strategy(&caller, &t.action(0, 1i128), &true);
+
+    assert_eq!(result.actual_amount, 1, "gross principal is the min unit");
+    assert_eq!(
+        result.amount_received, 0,
+        "min fee of 1 consumes the entire dust payout"
+    );
+    assert_eq!(
+        tok.balance(&caller),
+        caller_before,
+        "receiver gets no tokens when fee equals principal"
+    );
+    assert_eq!(
+        client.get_reserves(&hub(&t.asset)),
+        cash_before,
+        "cash debit is amount-fee (=0); fee stays as cash"
+    );
+    let state_after = t.state_snapshot();
+    assert!(
+        state_after.borrowed > state_before.borrowed,
+        "gross principal still mints debt shares"
+    );
+    assert!(
+        state_after.revenue >= state_before.revenue,
+        "fee books as protocol revenue when share mint is non-zero"
+    );
+    assert_eq!(
+        state_after.cash, state_before.cash,
+        "net cash unchanged: no outbound transfer and fee remains booked"
+    );
+}
+
+#[test]
+fn test_create_strategy_above_max_utilization_panics() {
+    let t = TestSetup::new();
+    let client = t.client();
+    set_max_utilization(&t, RAY / 2);
+    // 1000 tokens supplied (7 decimals).
+    client.supply(&t.sup(0, 10_000_000_000i128));
+    let caller = Address::generate(&t.env);
+    // 600 tokens → 60% util > 50% max.
+    let result = flatten_contract_result(client.try_create_strategy(
+        &caller,
+        &t.action(0, 6_000_000_000i128),
+        &false,
+    ));
+    assert_contract_error(result, CollateralError::UtilizationAboveMax as u32);
+}
+
+#[test]
+fn test_create_strategy_near_max_utilization_succeeds() {
+    let t = TestSetup::new();
+    let client = t.client();
+    set_max_utilization(&t, RAY / 2);
+    client.supply(&t.sup(0, 10_000_000_000i128));
+    let caller = Address::generate(&t.env);
+    // 400 tokens → 40% util < 50% max.
+    let result = client.create_strategy(&caller, &t.action(0, 4_000_000_000i128), &false);
+    assert_eq!(result.actual_amount, 4_000_000_000i128);
+    assert_eq!(result.amount_received, 4_000_000_000i128);
+    assert!(result.position.scaled_amount > 0);
+    let util = client.get_utilisation(&hub(&t.asset));
+    assert!(
+        util <= RAY / 2,
+        "post-strategy util must stay at or under the cap"
+    );
+}
+
+/// Util gate runs on gross debt mint before fee supply shares; a high fee cannot
+/// bypass max utilization.
+#[test]
+fn test_create_strategy_fee_cannot_bypass_max_utilization() {
+    let t = TestSetup::new();
+    let client = t.client();
+    enable_flashloan(&t);
+    set_max_utilization(&t, RAY / 2);
+    t.env.as_contract(&t.pool, || {
+        let key = PoolKey::Params(hub(&t.asset));
+        let mut params: MarketParamsRaw = t.env.storage().persistent().get(&key).unwrap();
+        params.flashloan_fee = 5_000; // 50% fee — still mints full gross debt
+        t.env.storage().persistent().set(&key, &params);
+    });
+    client.supply(&t.sup(0, 10_000_000_000i128));
+    let caller = Address::generate(&t.env);
+    // Gross 60% util fails even though net cash out is only 30% of supply.
+    let result = flatten_contract_result(client.try_create_strategy(
+        &caller,
+        &t.action(0, 6_000_000_000i128),
+        &true,
+    ));
+    assert_contract_error(result, CollateralError::UtilizationAboveMax as u32);
+}
 #[test]
 fn test_seize_positions_bad_debt() {
     let t = TestSetup::new();
@@ -1344,6 +1452,58 @@ fn test_net_settle_rejects_burn_that_strands_revenue_above_supply() {
 
     let result = flatten_contract_result(client.try_net_settle(&entry));
     assert_contract_error(result, GenericError::InternalError as u32);
+}
+
+#[test]
+fn test_seize_positions_rejects_negative_scaled_amount() {
+    let t = TestSetup::new();
+    let client = t.client();
+    client.supply(&t.sup(0, 100_0000000i128));
+
+    let negative = ScaledPositionRaw { scaled_amount: -1 };
+    for side in [AccountPositionType::Deposit, AccountPositionType::Borrow] {
+        let result = flatten_contract_result(client.try_seize_positions(&t.sez(side, &negative)));
+        assert_contract_error(result, GenericError::AmountMustBePositive as u32);
+    }
+}
+
+#[test]
+fn test_net_settle_rejects_negative_scaled_positions() {
+    let t = TestSetup::new();
+    let client = t.client();
+    client.supply(&t.sup(0, 100_0000000i128));
+    let borrower = Address::generate(&t.env);
+    let debt = client
+        .borrow(&borrower, &t.bor(0, 10_0000000i128))
+        .get_unchecked(0);
+
+    let good_supply = ScaledPositionRaw {
+        scaled_amount: 1_000,
+    };
+    let good_debt = debt.position.clone();
+    let neg = ScaledPositionRaw { scaled_amount: -1 };
+
+    let bad_supply = PoolNetSettleEntry {
+        hub_asset: hub(&t.asset),
+        amount: 1_0000000i128,
+        supply_position: neg.clone(),
+        debt_position: good_debt.clone(),
+    };
+    assert_contract_error(
+        flatten_contract_result(client.try_net_settle(&bad_supply)),
+        GenericError::AmountMustBePositive as u32,
+    );
+
+    let bad_debt = PoolNetSettleEntry {
+        hub_asset: hub(&t.asset),
+        amount: 1_0000000i128,
+        supply_position: good_supply,
+        debt_position: neg,
+    };
+    assert_contract_error(
+        flatten_contract_result(client.try_net_settle(&bad_debt)),
+        GenericError::AmountMustBePositive as u32,
+    );
 }
 
 #[test]
@@ -2023,6 +2183,107 @@ fn test_update_params_happy_path() {
     assert!(
         borrowed.position.scaled_amount > 0,
         "borrow under updated params must mint debt shares"
+    );
+}
+
+/// Accrual during `update_params` must use the **old** rate curve for elapsed time,
+/// then commit indexes before the new model is written (ops residual from pool-ops audit).
+#[test]
+fn test_update_params_accrues_under_old_curve_after_time_advance() {
+    let t = TestSetup::new();
+    let client = t.client();
+
+    // Positive utilization so borrow rate depends on the rate-curve params.
+    client.supply(&t.sup(0, 10_000_000_000i128));
+    let borrower = Address::generate(&t.env);
+    client.borrow(&borrower, &t.bor(0, 5_000_000_000i128));
+
+    let pre = client.get_sync_data(&hub(&t.asset));
+    assert_eq!(
+        pre.params.base_borrow_rate,
+        RAY / 100,
+        "fixture starts on market_params base rate"
+    );
+    assert!(
+        pre.state.borrowed > 0 && pre.state.supplied > 0,
+        "need both supply and debt so accrual moves indexes"
+    );
+
+    t.advance_time(86_400);
+    let now_ms = t.env.ledger().timestamp() * MS_PER_SECOND;
+
+    let expected_old = MarketIndexRaw::from(&simulate_update_indexes(&t.env, now_ms, &pre));
+    assert!(
+        expected_old.borrow_index > pre.state.borrow_index,
+        "old-curve simulation must grow the borrow index over a day"
+    );
+
+    // Counterfactual: same state + elapsed time but with a much cheaper curve.
+    // If replace_rate_model wrongly accrued under the new model, indexes would land here.
+    let mut pre_with_new = pre.clone();
+    pre_with_new.params.base_borrow_rate = 0;
+    pre_with_new.params.slope1 = RAY / 1000;
+    pre_with_new.params.slope2 = RAY / 100;
+    pre_with_new.params.slope3 = RAY / 10;
+    pre_with_new.params.max_borrow_rate = 2 * RAY;
+    let expected_if_new_curve =
+        MarketIndexRaw::from(&simulate_update_indexes(&t.env, now_ms, &pre_with_new));
+    assert_ne!(
+        expected_old.borrow_index, expected_if_new_curve.borrow_index,
+        "test requires the two curves to diverge over the same window"
+    );
+
+    let new_model = InterestRateModel {
+        max_borrow_rate: 2 * RAY,
+        base_borrow_rate: 0,
+        slope1: RAY / 1000,
+        slope2: RAY / 100,
+        slope3: RAY / 10,
+        mid_utilization: RAY / 2,
+        optimal_utilization: RAY * 8 / 10,
+        max_utilization: RAY * 95 / 100,
+        reserve_factor: 1000,
+        is_flashloanable: false,
+        flashloan_fee: 0,
+    };
+    client.update_params(&hub(&t.asset), &new_model);
+
+    let after = client.get_sync_data(&hub(&t.asset));
+    assert_eq!(
+        after.state.borrow_index, expected_old.borrow_index,
+        "committed borrow index must match accrual under the pre-update curve"
+    );
+    assert_eq!(
+        after.state.supply_index, expected_old.supply_index,
+        "committed supply index must match accrual under the pre-update curve"
+    );
+    assert_eq!(
+        after.state.last_timestamp, now_ms,
+        "update_params must stamp accrual through the current ledger"
+    );
+    assert_eq!(
+        after.params.base_borrow_rate, 0,
+        "params must switch to the new model after the old-curve commit"
+    );
+    assert_ne!(
+        after.state.borrow_index, expected_if_new_curve.borrow_index,
+        "indexes must not match new-curve simulation for the same window"
+    );
+
+    // Further time under the new curve must follow the post-update sync data.
+    t.advance_time(172_800);
+    let later_ms = t.env.ledger().timestamp() * MS_PER_SECOND;
+    let expected_new_window =
+        MarketIndexRaw::from(&simulate_update_indexes(&t.env, later_ms, &after));
+    client.update_indexes(&hub(&t.asset));
+    let final_state = client.get_sync_data(&hub(&t.asset));
+    assert_eq!(
+        final_state.state.borrow_index, expected_new_window.borrow_index,
+        "post-swap accrual must use the new curve"
+    );
+    assert_eq!(
+        final_state.state.supply_index, expected_new_window.supply_index,
+        "post-swap supply index must use the new curve"
     );
 }
 

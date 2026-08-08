@@ -1,8 +1,11 @@
+//! Soroswap (constant-product) hop: transfer in, then pool `swap`.
+
 use soroban_sdk::{panic_with_error, symbol_short, token, vec, IntoVal, Symbol, Val};
 
 use crate::errors::Error;
 use crate::venues::HopContext;
 
+/// 0.3% fee rounded up (Soroswap convention).
 fn soroswap_fee(amount_in: i128) -> i128 {
     if amount_in <= 0 {
         return 0;
@@ -10,6 +13,7 @@ fn soroswap_fee(amount_in: i128) -> i128 {
     (amount_in * 3 + 999) / 1000
 }
 
+/// Expected out from live reserves (router still credits only measured delta).
 fn soroswap_amount_out(amount_in: i128, reserve_in: i128, reserve_out: i128) -> i128 {
     if amount_in <= 0 || reserve_in <= 0 || reserve_out <= 0 {
         return 0;
@@ -21,6 +25,7 @@ fn soroswap_amount_out(amount_in: i128, reserve_in: i128, reserve_out: i128) -> 
     in_less * reserve_out / (reserve_in + in_less)
 }
 
+/// Push input to the pair and request the constant-product output amount.
 pub(crate) fn swap(ctx: &HopContext<'_>) -> i128 {
     let token_in_is_0 = ctx.hop.token_in < ctx.hop.token_out;
 

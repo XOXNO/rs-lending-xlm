@@ -1,3 +1,9 @@
+//! Market mutation operations invoked from the pool's public interface.
+//!
+//! Each submodule implements one logical action (supply, borrow, …). Shared
+//! helpers here load an interest-synced [`Cache`], run multi-leg batches, and
+//! emit market state events after each batch.
+
 pub(crate) mod borrow;
 pub(crate) mod flash;
 pub(crate) mod market;
@@ -19,23 +25,29 @@ use soroban_sdk::{Env, IntoVal, TryFromVal, Val, Vec};
 use crate::cache::Cache;
 use crate::{events, interest, storage};
 
+/// Load a market cache and accrue interest through the current ledger time.
 pub(crate) fn synced_market(env: &Env, hub_asset: &HubAssetKey) -> Cache {
     let mut cache = Cache::load(env, hub_asset);
     interest::global_sync(env, &mut cache);
     cache
 }
 
+/// Renew instance TTL, then load and accrue the market.
 pub(crate) fn renewed_market(env: &Env, hub_asset: &HubAssetKey) -> Cache {
     storage::renew_instance(env);
     synced_market(env, hub_asset)
 }
 
+/// Validate `action.amount ≥ 0`, sync the market, and return (cache, scaled position).
 pub(crate) fn load_leg(env: &Env, action: &PoolAction) -> (Cache, Ray) {
     require_nonneg_amount(env, action.amount);
     let cache = synced_market(env, &action.hub_asset);
     (cache, Ray::from(action.position.scaled_amount))
 }
 
+/// Run a multi-entry batch: renew instance, apply `leg` per entry, emit state events.
+///
+/// Each leg returns a result `R` plus a [`MarketStateSnapshot`] for the event batch.
 pub(crate) fn run_batch<E, R>(
     env: &Env,
     entries: Vec<E>,
@@ -59,6 +71,7 @@ where
     results
 }
 
+/// Like [`run_batch`] but legs only produce snapshots (e.g. seize).
 pub(crate) fn run_batch_without_result<E>(
     env: &Env,
     entries: Vec<E>,

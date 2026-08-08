@@ -1,3 +1,4 @@
+use common::constants::{MAX_ASSET_DECIMALS, MIN_ASSET_DECIMALS};
 use common::errors::{GenericError, OracleError};
 use common::oracle::observation::{
     MAX_ORACLE_DECIMALS, MAX_PRICE_STALE_SECONDS, MIN_ORACLE_DECIMALS, MIN_PRICE_STALE_SECONDS,
@@ -11,8 +12,6 @@ use soroban_sdk::{panic_with_error, Address, Env, Vec};
 
 use crate::properties::SourceProperties;
 
-const MIN_ASSET_DECIMALS: u32 = 3;
-const MAX_ASSET_DECIMALS: u32 = 18;
 const MIN_SMOOTHING_TWAP_RECORDS: u32 = 2;
 
 pub(crate) fn source_count(env: &Env, count: u32) {

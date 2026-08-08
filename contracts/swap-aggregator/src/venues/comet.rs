@@ -1,8 +1,11 @@
+//! Comet DEX hop: approve → `swap_exact_amount_in` → clear allowance.
+
 use soroban_sdk::{panic_with_error, token, vec, Env, IntoVal, Symbol, Val, Vec};
 
 use crate::errors::Error;
 use crate::venues::{auth_entry, authorize_token_approve, HopContext};
 
+/// Exact-in swap; nested auth covers pool `transfer_from` of the input token.
 pub(crate) fn swap(ctx: &HopContext<'_>) -> i128 {
     let approval_ledger = comet_approval_ledger(ctx.env);
     authorize_token_approve(
@@ -34,6 +37,7 @@ pub(crate) fn swap(ctx: &HopContext<'_>) -> i128 {
     amount_out
 }
 
+/// Allowance expiry rounded up to the next 100k ledger boundary.
 fn comet_approval_ledger(env: &Env) -> u32 {
     let seq = env.ledger().sequence();
     (seq / 100_000 + 1) * 100_000
@@ -51,6 +55,7 @@ fn swap_args(ctx: &HopContext<'_>) -> Vec<Val> {
     ]
 }
 
+/// Zero residual allowance after the swap.
 fn clear_comet_approval(ctx: &HopContext<'_>) {
     authorize_token_approve(ctx.env, &ctx.hop.token_in, ctx.router, &ctx.hop.pool, 0, 0);
     token::Client::new(ctx.env, &ctx.hop.token_in).approve(ctx.router, &ctx.hop.pool, &0, &0);

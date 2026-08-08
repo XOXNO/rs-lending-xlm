@@ -1,3 +1,5 @@
+//! Claim protocol revenue: burn treasury shares and transfer cash to the owner.
+
 use common::errors::GenericError;
 use common::types::{HubAssetKey, PoolAmountMutation};
 
@@ -8,11 +10,20 @@ use stellar_access::ownable;
 use crate::cache::Cache;
 use crate::{events, guards, ops};
 
+/// Intermediate result after burning claimable revenue and debiting cash.
 pub(crate) struct RevenueOutcome {
     pub(crate) cache: Cache,
     pub(crate) mutation: PoolAmountMutation,
 }
 
+/// Claim all currently claimable revenue and pay it to the Ownable owner.
+///
+/// If nothing is claimable, still emits a market state snapshot and returns
+/// zero. Otherwise transfers tokens to the owner after accounting.
+///
+/// # Returns
+///
+/// Mutation with `actual_amount` equal to asset units paid out.
 pub(crate) fn apply(env: &Env, hub_asset: HubAssetKey) -> PoolAmountMutation {
     let outcome = accounting(env, hub_asset);
 
@@ -31,6 +42,7 @@ pub(crate) fn apply(env: &Env, hub_asset: HubAssetKey) -> PoolAmountMutation {
     outcome.mutation
 }
 
+/// Burn claimable revenue shares, enforce solvency/util guards, debit cash.
 pub(crate) fn accounting(env: &Env, hub_asset: HubAssetKey) -> RevenueOutcome {
     let mut cache = ops::renewed_market(env, &hub_asset);
 

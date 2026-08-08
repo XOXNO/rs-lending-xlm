@@ -34,7 +34,7 @@ flow_strategies() {
     local swap_hex
     swap_hex=$(agg_route_hex "$USDC_SAC" "$XLM_SAC" "$flash_usdc") || return 1
     local macct
-    macct=$(inv multiply_long "$ALICE" "$CONTROLLER" -- multiply \
+    macct=$(inv_create multiply_long "$ALICE" "$CONTROLLER" -- multiply \
         --caller "$ALICE_ADDR" --account_id 0 --spoke_id "$PRIMARY_SPOKE_ID" \
         --collateral "$(hub_key "$PRIMARY_HUB_ID" "$XLM_SAC")" --debt_to_flash_loan "$flash_usdc" \
         --debt "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")" --mode 2 --swap "$swap_hex" \
@@ -80,7 +80,7 @@ flow_strategies() {
     assert_hf_at_least hf_post_strategies "$macct" "$WAD"
 
     local rdwc_acct
-    rdwc_acct=$(inv rdwc_close_supply "$CAROL" "$CONTROLLER" -- supply \
+    rdwc_acct=$(inv_create rdwc_close_supply "$CAROL" "$CONTROLLER" -- supply \
         --caller "$CAROL_ADDR" --account_id 0 --spoke_id "$PRIMARY_SPOKE_ID" \
         --assets "$(pay_vec "$PRIMARY_HUB_ID" "$XLM_SAC" 4000000000)" | tr -d '"') || return 1
     inv rdwc_close_borrow "$CAROL" "$CONTROLLER" -- borrow \
@@ -103,7 +103,7 @@ flow_strategies() {
     leg_multiply_short() {
         local hex
         hex=$(agg_route_hex "$XLM_SAC" "$USDC_SAC" "$flash_xlm" 0.10) || return 1
-        sacct=$(inv multiply_short "$ALICE" "$CONTROLLER" -- multiply \
+        sacct=$(inv_create multiply_short "$ALICE" "$CONTROLLER" -- multiply \
             --caller "$ALICE_ADDR" --account_id 0 --spoke_id "$PRIMARY_SPOKE_ID" \
             --collateral "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")" --debt_to_flash_loan "$flash_xlm" \
             --debt "$(hub_key "$PRIMARY_HUB_ID" "$XLM_SAC")" --mode 3 --swap "$hex" \

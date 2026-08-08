@@ -76,7 +76,7 @@ inv spoke_tmp_remove_asset "$ADMIN" "$CONTROLLER" -- remove_asset_from_spoke \
         --assets "$(pay_vec "$PRIMARY_HUB_ID" "$XLM_SAC" 1000000000)"
 
     local bob_minb_acct
-    bob_minb_acct=$(inv minb_supply "$BOB" "$CONTROLLER" -- supply \
+    bob_minb_acct=$(inv_create minb_supply "$BOB" "$CONTROLLER" -- supply \
         --caller "$BOB_ADDR" --account_id 0 --spoke_id "$PRIMARY_SPOKE_ID" \
         --assets "$(pay_vec "$PRIMARY_HUB_ID" "$XLM_SAC" 5000000000)" | tr -d '"')
     inv minb_set_high "$ADMIN" "$CONTROLLER" -- set_min_borrow_collateral_usd \
@@ -163,7 +163,7 @@ else
     debt_json="[]"
 fi
 
-migrate_acct=$(inv migrate_blend_live "$ALICE" "$CONTROLLER" -- migrate_from_blend \
+migrate_acct=$(inv_create migrate_blend_live "$ALICE" "$CONTROLLER" -- migrate_from_blend \
     --caller "$ALICE_ADDR" --account_id 0 --spoke_id "$PRIMARY_SPOKE_ID" --hub_id "$PRIMARY_HUB_ID" \
     --blend_pool "$blend_pool" \
     --collateral_assets "$coll_json" \
@@ -186,13 +186,15 @@ record migrate_blend_live environment-blocked migrate_from_blend "" "" "" "" "" 
 fi
 fi
 
+    local xlm_sec_band
+    xlm_sec_band=$(reflector_band XLM) || { log "XLM live price unavailable; cannot calibrate secondary sanity band"; return 1; }
     create_market XLM_SECONDARY "$SECONDARY_HUB_ID" "$XLM_SAC" 7 \
-        "$(oracle_cfg_reflector XLM 163000000000000000 199000000000000000)" \
+        "$(oracle_cfg_reflector XLM $xlm_sec_band)" \
         "$(asset_config_json 7000 7500 1000)"
     view market_index_secondary_xlm "$CONTROLLER" -- get_market_index \
         --hub_asset "$(hub_key "$SECONDARY_HUB_ID" "$XLM_SAC")" >/dev/null
     local secondary_acct
-    secondary_acct=$(inv secondary_hub_supply "$CAROL" "$CONTROLLER" -- supply \
+    secondary_acct=$(inv_create secondary_hub_supply "$CAROL" "$CONTROLLER" -- supply \
         --caller "$CAROL_ADDR" --account_id 0 --spoke_id "$PRIMARY_SPOKE_ID" \
         --assets "$(pay_vec "$SECONDARY_HUB_ID" "$XLM_SAC" 1000000000)" | tr -d '"')
     assert_bool_view secondary_account_exists true account_exists --account_id "$secondary_acct"

@@ -977,3 +977,109 @@ fn residual_exactly_at_the_allowance_is_accrued_not_rejected() {
     assert_eq!(router.admin_fee_balance(&token_b), 1_000);
     assert_eq!(token::Client::new(&env, &token_b).balance(&sender), 0);
 }
+
+/// Builds the standard pre-balance fixture: a 1:1 mint pool, a swap pool that
+/// can turn token_a into token_b, and a sender holding 1_000 token_a. The
+/// payload routes 20% of the input through the swap pool, so by the time
+/// `pre_balance` runs the vault holds exactly 800 token_a -- the `held_in` that
+/// the pre-swap amount is checked against.
+fn pre_balance_fixture(
+    env: &Env,
+    pre_swap_amount: i128,
+    mint_reserve: i128,
+) -> (Address, Address, soroban_sdk::Bytes) {
+    let router_addr = env.register(Router, (Address::generate(env),));
+    let sender = Address::generate(env);
+    let admin = Address::generate(env);
+    let (pool, share, (token_a, sac_a), (token_b, sac_b)) = lp_pool(env, &admin, mint_reserve);
+
+    let swap_pool = env.register(aquarius_mock::AqPool, ());
+    aquarius_mock::AqPoolClient::new(env, &swap_pool).init(&token_a, &token_b);
+    sac_b.mint(&swap_pool, &1_000_000);
+    sac_a.mint(&sender, &1_000);
+
+    let xdr = lp_strategy_xdr(
+        env,
+        token_a.clone(),
+        share,
+        1,
+        vec![
+            env,
+            one_hop_path(
+                env,
+                SwapVenue::Aquarius,
+                swap_pool,
+                token_a.clone(),
+                token_b.clone(),
+                200_000,
+            ),
+        ],
+        None,
+        Vec::new(env),
+        Some(pool),
+        1,
+        pre_swap_amount,
+        true,
+    );
+
+    (router_addr, sender, xdr)
+}
+
+// `pre_balance` rejects a pre-swap that would spend more of a constituent than
+// the vault holds. The bound is deliberately `amount > held_in` rather than
+// `>=`: spending the entire held side is a legal instruction, it just cannot
+// produce a balanced mint afterwards. The next two tests pin both sides of that
+// boundary -- an off-by-one here either rejects a legal payload or lets an
+// over-spend reach `vault.withdraw`.
+#[test]
+fn pre_swap_beyond_the_held_side_is_rejected_as_invalid_amount() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    // 5_000 against the 800 token_a the vault holds once the paths have run.
+    let (router_addr, sender, xdr) = pre_balance_fixture(&env, 5_000, 1_000_000);
+
+    assert_eq!(
+        RouterClient::new(&env, &router_addr)
+            .try_execute_strategy(&sender, &1_000, &xdr)
+            .unwrap_err()
+            .unwrap(),
+        Error::InvalidAmount.into()
+    );
+}
+
+#[test]
+fn pre_swap_of_the_entire_held_side_clears_the_amount_guard() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    // Exactly the 800 token_a held: the guard must let this through. It still
+    // reverts, but on the unbalanced mint downstream -- not as InvalidAmount.
+    let (router_addr, sender, xdr) = pre_balance_fixture(&env, 800, 1_000_000);
+
+    let err = RouterClient::new(&env, &router_addr)
+        .try_execute_strategy(&sender, &1_000, &xdr)
+        .unwrap_err()
+        .unwrap();
+
+    assert_ne!(
+        err,
+        Error::InvalidAmount.into(),
+        "spending exactly the held side must clear the amount guard"
+    );
+}
+
+// Reserves only reach `pre_balance_possible`, whose sole question is whether
+// both sides are non-zero. An empty mint pool therefore has to veto the
+// pre-swap outright: swapping into a pool with nothing on the other side
+// returns zero and aborts the whole strategy.
+#[test]
+fn an_empty_mint_pool_vetoes_the_pre_swap() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (router_addr, sender, xdr) = pre_balance_fixture(&env, 300, 0);
+
+    let shares = RouterClient::new(&env, &router_addr).execute_strategy(&sender, &1_000, &xdr);
+    assert!(shares > 0, "first deposit into an empty pool must mint");
+}

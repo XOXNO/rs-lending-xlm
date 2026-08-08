@@ -1,7 +1,6 @@
-use common::constants::RAY;
 use common::errors::{GenericError, SpokeError};
 use common::math::fp::Ray;
-use common::math::fp_core;
+use common::rates::calculate_scaled_cap;
 use common::types::{HubAssetKey, MarketIndexRaw, SpokeAssetConfig, SpokeUsageRaw};
 use soroban_sdk::{assert_with_error, panic_with_error, Env, Map};
 
@@ -162,15 +161,6 @@ impl SpokeUsageContext {
     }
 }
 
-fn cap_to_scaled(env: &Env, cap: i128, decimals: u32, index: Ray) -> Ray {
-    Ray::from(fp_core::mul_div_floor_saturating(
-        env,
-        Ray::from_asset(cap, decimals).raw(),
-        RAY,
-        index.raw(),
-    ))
-}
-
 /// Returns `usage + delta` after enforcing the asset-unit cap.
 /// Overflow → `GenericError::MathOverflow`; breach → side cap error.
 fn enforce_spoke_cap(
@@ -182,7 +172,7 @@ fn enforce_spoke_cap(
     index: Ray,
     decimals: u32,
 ) -> Ray {
-    let cap_scaled = cap_to_scaled(env, cap, decimals, index);
+    let cap_scaled = calculate_scaled_cap(env, cap, decimals, index);
     let next_scaled = Ray::from(side.scaled(usage)).checked_add(env, delta_scaled);
     assert_with_error!(env, next_scaled <= cap_scaled, side.cap_error());
     next_scaled

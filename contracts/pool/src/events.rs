@@ -1,7 +1,16 @@
+//! On-chain event types and publish helpers for the liquidity pool.
+//!
+//! Mutation paths emit market state snapshots so the hub and indexers can
+//! track cash, indexes, and share totals without re-simulating accrual.
+
 use common::types::{MarketParamsRaw, MarketStateSnapshot};
 
 use soroban_sdk::{contractevent, contracttype, vec, Address, Env, Vec};
 
+/// Compact market state row packed for batch events.
+///
+/// Field order: hub_id, asset, timestamp, supply_index, borrow_index, cash,
+/// supplied, borrowed, revenue.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PoolMarketStateEvent(
@@ -17,6 +26,7 @@ pub struct PoolMarketStateEvent(
 );
 
 impl From<&MarketStateSnapshot> for PoolMarketStateEvent {
+    /// Map a domain snapshot into the event payload tuple layout.
     fn from(s: &MarketStateSnapshot) -> Self {
         Self(
             s.hub_asset.hub_id,
@@ -32,12 +42,14 @@ impl From<&MarketStateSnapshot> for PoolMarketStateEvent {
     }
 }
 
+/// Batch of market state updates after a multi-leg operation.
 #[contractevent(topics = ["market", "batch_state_update"], data_format = "single-value")]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PoolMarketStateBatchEvent {
     pub updates: Vec<PoolMarketStateEvent>,
 }
 
+/// Market params payload used when a market is created or reconfigured.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct PoolMarketParamsEvent {
@@ -46,22 +58,28 @@ pub struct PoolMarketParamsEvent {
     pub params: MarketParamsRaw,
 }
 
+/// Batch of market params updates (create / rate-model replace).
 #[contractevent(topics = ["market", "batch_params_update"], data_format = "single-value")]
 #[derive(Clone, Debug)]
 pub struct PoolMarketParamsBatchEvent {
     pub updates: Vec<PoolMarketParamsEvent>,
 }
 
+/// Fee charged when opening a strategy position with fee collection enabled.
 #[contractevent(topics = ["strategy", "fee"])]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StrategyFeeEvent {
     pub hub_id: u32,
     pub asset: Address,
+    /// Gross strategy principal (asset units).
     pub amount: i128,
+    /// Protocol fee withheld (asset units).
     pub fee: i128,
+    /// Net amount transferred out after fee.
     pub amount_sent: i128,
 }
 
+/// Publish a batch of market state snapshots, or no-op when `snapshots` is empty.
 pub(crate) fn emit_market_state_batch(env: &Env, snapshots: Vec<MarketStateSnapshot>) {
     if snapshots.is_empty() {
         return;
@@ -74,10 +92,12 @@ pub(crate) fn emit_market_state_batch(env: &Env, snapshots: Vec<MarketStateSnaps
     PoolMarketStateBatchEvent { updates }.publish(env);
 }
 
+/// Publish a single market state snapshot as a one-element batch event.
 pub(crate) fn emit_market_state(env: &Env, snapshot: MarketStateSnapshot) {
     emit_market_state_batch(env, vec![env, snapshot]);
 }
 
+/// Publish market params after create or rate-model update.
 pub(crate) fn emit_market_params(env: &Env, hub_id: u32, asset: Address, params: MarketParamsRaw) {
     let updates = vec![
         env,
@@ -90,6 +110,7 @@ pub(crate) fn emit_market_params(env: &Env, hub_id: u32, asset: Address, params:
     PoolMarketParamsBatchEvent { updates }.publish(env);
 }
 
+/// Publish a strategy fee event only when `fee` is non-zero.
 pub(crate) fn emit_strategy_fee(
     env: &Env,
     hub_id: u32,

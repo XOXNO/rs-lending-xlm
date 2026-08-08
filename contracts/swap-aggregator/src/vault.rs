@@ -1,15 +1,22 @@
+//! Invocation-local token ledger for one `execute_strategy` call.
+//!
+//! Tracks spendable balances and lifetime credits (deposits only). Credits
+//! drive residual allowance; withdrawals do not reduce credited amounts.
+
 use soroban_sdk::{panic_with_error, Address, Env, Map, Vec};
 
 use crate::errors::Error;
 
+/// In-memory balances for tokens held by the router during a strategy.
 pub(crate) struct Vault<'a> {
     env: &'a Env,
     balances: Map<Address, i128>,
-
+    /// Cumulative deposits per token (never decreased by withdraw).
     credited: Map<Address, i128>,
 }
 
 impl<'a> Vault<'a> {
+    /// Empty vault bound to `env`.
     pub fn new(env: &'a Env) -> Self {
         Self {
             env,
@@ -18,18 +25,22 @@ impl<'a> Vault<'a> {
         }
     }
 
+    /// Current tracked balance for `token`.
     pub fn balance_of(&self, token: &Address) -> i128 {
         self.balances.get(token.clone()).unwrap_or(0)
     }
 
+    /// Tokens with a balance entry.
     pub fn tokens(&self) -> Vec<Address> {
         self.balances.keys()
     }
 
+    /// Lifetime credited amount for `token` (deposits only).
     pub fn credited_of(&self, token: &Address) -> i128 {
         self.credited.get(token.clone()).unwrap_or(0)
     }
 
+    /// Credit `amount` to `token`. Zero is a no-op; negative fails.
     pub fn try_deposit(&mut self, token: &Address, amount: i128) -> Result<(), Error> {
         if amount == 0 {
             return Ok(());
@@ -48,12 +59,14 @@ impl<'a> Vault<'a> {
         Ok(())
     }
 
+    /// [`try_deposit`](Self::try_deposit) or panic.
     pub fn deposit(&mut self, token: &Address, amount: i128) {
         if let Err(err) = self.try_deposit(token, amount) {
             panic_with_error!(self.env, err);
         }
     }
 
+    /// Debit `amount` from `token`. Zero is a no-op; overdraft fails.
     pub fn try_withdraw(&mut self, token: &Address, amount: i128) -> Result<(), Error> {
         if amount == 0 {
             return Ok(());
@@ -69,6 +82,7 @@ impl<'a> Vault<'a> {
         Ok(())
     }
 
+    /// [`try_withdraw`](Self::try_withdraw) or panic.
     pub fn withdraw(&mut self, token: &Address, amount: i128) {
         if let Err(err) = self.try_withdraw(token, amount) {
             panic_with_error!(self.env, err);

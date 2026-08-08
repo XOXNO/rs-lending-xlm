@@ -1,7 +1,8 @@
 use common::errors::GenericError;
 use common::types::StrategySwap;
+use common::validation::require_positive_amount;
 
-use soroban_sdk::{assert_with_error, panic_with_error, Env};
+use soroban_sdk::{assert_with_error, Env};
 
 use crate::storage;
 
@@ -16,9 +17,7 @@ pub(crate) mod aggregator {
 }
 
 pub(crate) fn validate_strategy_swap(env: &Env, swap: &StrategySwap, amount_in: i128) {
-    if amount_in <= 0 {
-        panic_with_error!(env, GenericError::AmountMustBePositive);
-    }
+    require_positive_amount(env, amount_in);
     assert_with_error!(env, !swap.is_empty(), GenericError::InvalidPayments);
 }
 

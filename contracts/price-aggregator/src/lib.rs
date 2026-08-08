@@ -22,15 +22,12 @@ use soroban_sdk::{contract, contractimpl, Address, Env, Map, Vec};
 use stellar_access::ownable;
 use stellar_macros::only_owner;
 
-use common::constants::{TTL_BUMP_INSTANCE, TTL_THRESHOLD_INSTANCE};
 use common::types::{AssetOracle, OracleTolerance, PriceFeedRaw, PriceKey, PriceStatus};
 
 pub use common::errors::OracleError as Error;
 
 fn renew_instance(env: &Env) {
-    env.storage()
-        .instance()
-        .extend_ttl(TTL_THRESHOLD_INSTANCE, TTL_BUMP_INSTANCE);
+    common::ttl::renew_instance(env);
 }
 
 fn warmed_session(env: &Env, keys: &Vec<PriceKey>) -> session::Session {

@@ -13,6 +13,23 @@ fn test_scaled_to_original() {
 }
 
 #[test]
+fn calculate_scaled_cap_floors_and_saturates() {
+    let env = Env::default();
+    let index = Ray::from(RAY + RAY / 2);
+    let cap = 10i128;
+    let scaled = calculate_scaled_cap(&env, cap, 0, index);
+    let expected = Ray::from_asset(cap, 0).div_floor(&env, index);
+    assert_eq!(scaled, expected);
+
+    // Overflow path: ray form fits i128, but × RAY / 1 saturates instead of panicking.
+    // 1e11 asset units @ 0 decimals → 1e38 ray (fits); 1e38 * RAY overflows mul_div.
+    let large_cap = 100_000_000_000i128;
+    let tiny_index = Ray::from(1);
+    let saturated = calculate_scaled_cap(&env, large_cap, 0, tiny_index);
+    assert_eq!(saturated.raw(), i128::MAX);
+}
+
+#[test]
 fn test_resolve_withdrawal_partial_uses_ceil_burn() {
     let env = Env::default();
     let index = Ray::from(RAY + RAY / 3);

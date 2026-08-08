@@ -1,8 +1,11 @@
+//! Phoenix hop: authorized pool `swap` with optional params left empty.
+
 use soroban_sdk::{panic_with_error, symbol_short, vec, IntoVal, Val, Vec};
 
 use crate::errors::Error;
 use crate::venues::HopContext;
 
+/// Exact-in swap; pool-reported out must be positive (delta checked upstream).
 pub(crate) fn swap(ctx: &HopContext<'_>) -> i128 {
     let args: Vec<Val> = vec![
         ctx.env,

@@ -1,8 +1,6 @@
-use crate::constants::WAD_DECIMALS;
 use crate::errors::OracleError;
-use crate::math::fp_core::try_mul_div_half_up;
 use crate::oracle::lp::{LpLeg, LpSupply};
-use crate::oracle::observation::try_u256_to_i128;
+use crate::oracle::observation::{try_amount_to_wad, try_u256_to_i128};
 use soroban_sdk::{Env, U256};
 
 const N_COINS: u32 = 2;
@@ -76,12 +74,12 @@ pub fn fair_stable_lp_price_wad(
         return Err(OracleError::InvalidPrice);
     }
 
-    let xa_wad = amount_to_wad(env, a.reserve, a.decimals)?;
-    let xb_wad = amount_to_wad(env, b.reserve, b.decimals)?;
+    let xa_wad = try_amount_to_wad(env, a.reserve, a.decimals)?;
+    let xb_wad = try_amount_to_wad(env, b.reserve, b.decimals)?;
     let d = solve_stable_d(env, xa_wad, xb_wad, amp)?;
 
     let min_price = a.price_wad.min(b.price_wad);
-    let share_supply_wad = amount_to_wad(env, supply.total_shares, supply.decimals)?;
+    let share_supply_wad = try_amount_to_wad(env, supply.total_shares, supply.decimals)?;
     if share_supply_wad <= 0 {
         return Err(OracleError::InvalidPrice);
     }
@@ -100,18 +98,10 @@ pub fn stable_invariant_d_wad(
     decimals_b: u32,
     amp: u128,
 ) -> Result<i128, OracleError> {
-    let xa = amount_to_wad(env, reserve_a, decimals_a)?;
-    let xb = amount_to_wad(env, reserve_b, decimals_b)?;
+    let xa = try_amount_to_wad(env, reserve_a, decimals_a)?;
+    let xb = try_amount_to_wad(env, reserve_b, decimals_b)?;
     let d = solve_stable_d(env, xa, xb, amp)?;
     try_u256_to_i128(&d).ok_or(OracleError::InvalidPrice)
-}
-
-fn amount_to_wad(env: &Env, amount: i128, decimals: u32) -> Result<i128, OracleError> {
-    let scale = WAD_DECIMALS
-        .checked_sub(decimals)
-        .and_then(|exp| 10i128.checked_pow(exp))
-        .ok_or(OracleError::InvalidPrice)?;
-    try_mul_div_half_up(env, amount, scale, 1).ok_or(OracleError::InvalidPrice)
 }
 
 #[cfg(test)]
