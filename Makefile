@@ -638,10 +638,13 @@ MUTANTS_TEST_TOOL_ARGS = $(if $(MUTANTS_TEST_TOOL),--test-tool=$(MUTANTS_TEST_TO
 
 
 
-MUTANTS_RUN_ARGS_UNSHARDED = $(MUTANTS_JOB_ARGS) \
+# Named for the pass they belong to, not for their shape: the shard flag must
+# be applied exactly once per target (see run_mutants_two_pass), so a call site
+# passing the wrong one is a coverage bug that nothing else catches.
+MUTANTS_RUN_ARGS_ITERATE = $(MUTANTS_JOB_ARGS) \
 	$(MUTANTS_JOBSERVER_ARGS) $(MUTANTS_TEST_TOOL_ARGS) \
 	$(MUTANTS_FILTER) $(MUTANTS_EXTRA_ARGS)
-MUTANTS_RUN_ARGS = $(MUTANTS_SHARD_ARGS) $(MUTANTS_RUN_ARGS_UNSHARDED)
+MUTANTS_RUN_ARGS = $(MUTANTS_SHARD_ARGS) $(MUTANTS_RUN_ARGS_ITERATE)
 MUTANTS_POOL_WASM := $(abspath $(RELEASE_DIR)/pool.wasm)
 MUTANTS_CONTROLLER_WASM := $(abspath $(RELEASE_DIR)/controller.wasm)
 MUTANTS_PRICE_AGGREGATOR_WASM := $(abspath $(RELEASE_DIR)/price_aggregator.wasm)
@@ -675,17 +678,28 @@ endef
 
 
 
+# Sharding rule for every multi-pass macro below: `--shard k/N` partitions the
+# mutant list cargo-mutants has just generated, so it must be applied EXACTLY
+# ONCE, on the widest pass. The later passes run under `--iterate`, whose list
+# is already the previous pass's missed/timeout set -- sharding again there
+# would partition an already-partitioned set and silently drop mutants.
+#
+# Applying it to pass 1 (rather than to the `--iterate` passes, as this used to)
+# is also what makes sharding pay: pass 1 compiles and tests every mutant in
+# scope and dominates the runtime, so an unsharded pass 1 was duplicated in full
+# by every shard. Each shard now owns a slice end to end, and the union over
+# shards is the same coverage as an unsharded run.
 define run_mutants_two_pass
 	@count=$$(cargo mutants $(1) $(MUTANTS_FILTER) --list | wc -l); \
 		[ "$$count" -gt 0 ] || { echo "No mutants matched scope: $(1)"; exit 1; }; \
 		echo "Mutation scope: $$count mutants (two-pass)"
 	@status=0; \
 		$(MUTANTS_ENV) GITHUB_ACTIONS=false cargo mutants $(MUTANTS_RUN_MODE) $(1) $(2) \
-			--minimum-test-timeout $(MUTANTS_TIMEOUT) $(MUTANTS_RUN_ARGS_UNSHARDED) \
+			--minimum-test-timeout $(MUTANTS_TIMEOUT) $(MUTANTS_RUN_ARGS) \
 			|| status=$$?; \
 		case $$status in 0|2|3) ;; *) exit $$status;; esac
 	$(MUTANTS_ENV) cargo mutants $(MUTANTS_RUN_MODE) --iterate $(1) $(3) \
-		--minimum-test-timeout $(MUTANTS_TIMEOUT) $(MUTANTS_RUN_ARGS)
+		--minimum-test-timeout $(MUTANTS_TIMEOUT) $(MUTANTS_RUN_ARGS_ITERATE)
 endef
 
 
@@ -700,13 +714,13 @@ define run_mutants_three_pass
 		echo "Mutation scope: $$count mutants (three-pass)"
 	@status=0; \
 		$(MUTANTS_ENV) GITHUB_ACTIONS=false cargo mutants $(MUTANTS_RUN_MODE) $(1) $(2) \
-			--minimum-test-timeout $(MUTANTS_TIMEOUT) $(MUTANTS_RUN_ARGS_UNSHARDED) \
+			--minimum-test-timeout $(MUTANTS_TIMEOUT) $(MUTANTS_RUN_ARGS) \
 			|| status=$$?; \
 		case $$status in 0|2|3) ;; *) exit $$status;; esac
 	@if [ -s mutants.out/missed.txt ] || [ -s mutants.out/timeout.txt ]; then \
 		status=0; \
 		$(MUTANTS_ENV) GITHUB_ACTIONS=false cargo mutants $(MUTANTS_RUN_MODE) --iterate $(1) $(3) \
-			--minimum-test-timeout $(MUTANTS_TIMEOUT) $(MUTANTS_RUN_ARGS_UNSHARDED) \
+			--minimum-test-timeout $(MUTANTS_TIMEOUT) $(MUTANTS_RUN_ARGS_ITERATE) \
 			|| status=$$?; \
 		case $$status in 0|2|3) ;; *) exit $$status;; esac; \
 	else \
@@ -714,7 +728,7 @@ define run_mutants_three_pass
 	fi
 	@if [ -s mutants.out/missed.txt ] || [ -s mutants.out/timeout.txt ]; then \
 		$(MUTANTS_ENV) cargo mutants $(MUTANTS_RUN_MODE) --iterate $(1) $(4) \
-			--minimum-test-timeout $(MUTANTS_TIMEOUT) $(MUTANTS_RUN_ARGS); \
+			--minimum-test-timeout $(MUTANTS_TIMEOUT) $(MUTANTS_RUN_ARGS_ITERATE); \
 	else \
 		echo "Integration pass skipped: native tests resolved every mutant"; \
 	fi

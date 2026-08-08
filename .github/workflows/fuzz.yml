@@ -268,34 +268,30 @@ jobs:
         with:
           toolchain: "1.95"
 
-      - name: Install cargo-mutants
+      # One install-action for all three, as the mutants-diff job already does.
+      # Staging them here rather than installing per matrix cell matters: the
+      # mutants matrix is wide, so a per-cell install repeats the download once
+      # per cell.
+      - name: Install tools
         uses: taiki-e/install-action@v2.85.8
         with:
-          tool: cargo-mutants@${{ env.CARGO_MUTANTS_VERSION }}
-
-      - name: Install sccache
-        uses: taiki-e/install-action@v2.85.8
-        with:
-          tool: sccache
+          tool: cargo-mutants@${{ env.CARGO_MUTANTS_VERSION }},sccache,cargo-nextest
 
       - name: Stage tools
         run: |
           mkdir -p "$RUNNER_TEMP/cargo-mutants/bin"
-          cp "$(command -v cargo-mutants)" "$RUNNER_TEMP/cargo-mutants/bin/cargo-mutants"
-          cp "$(command -v sccache)" "$RUNNER_TEMP/cargo-mutants/bin/sccache"
+          for t in cargo-mutants sccache cargo-nextest; do
+            cp "$(command -v "$t")" "$RUNNER_TEMP/cargo-mutants/bin/$t"
+          done
 
-      - name: Upload cargo-mutants
+      # One artifact for the whole bin directory, not one per binary: adding a
+      # tool is then a single line above, and each matrix cell does one download
+      # instead of one per tool.
+      - name: Upload tools
         uses: actions/upload-artifact@v7.0.1
         with:
-          name: cargo-mutants-${{ github.run_id }}
-          path: ${{ runner.temp }}/cargo-mutants/bin/cargo-mutants
-          overwrite: true
-
-      - name: Upload sccache
-        uses: actions/upload-artifact@v7.0.1
-        with:
-          name: sccache-${{ github.run_id }}
-          path: ${{ runner.temp }}/cargo-mutants/bin/sccache
+          name: mutants-tools-${{ github.run_id }}
+          path: ${{ runner.temp }}/cargo-mutants/bin
           overwrite: true
 
   wasm-fixtures:
@@ -543,33 +539,74 @@ jobs:
     strategy:
       fail-fast: false
 
+      # An upper bound, not a measurement: the pool happened to serve 5 lanes in
+      # run 31264146755, but host contention is cross-job (sibling matrices run
+      # concurrently) and is owned by the adaptive "Size the worker budget"
+      # step below. Capping at the observed number could only forfeit
+      # throughput once runners come back online.
       max-parallel: 8
+
+      # Cells are listed longest-first: GitHub dispatches matrix cells in order,
+      # and the long poles must claim lanes before the short ones, or they start
+      # late and become the tail.
+      #
+      # Shard counts were balanced against run 31264146755, which predates the
+      # sharding fix and so measured every shard as pass 1 plus its slice --
+      # treat them as a starting point, not a measurement. The run step prints
+      # scope and elapsed time to the job summary; re-balance from that.
       matrix:
         include:
+          # Sole critical path at 3h02: the other 13 cells finished 55 min ahead
+          # of it.
           - target: mutants-common
+            shard: 0/4
+            suffix: "-1of4"
+          - target: mutants-common
+            shard: 1/4
+            suffix: "-2of4"
+          - target: mutants-common
+            shard: 2/4
+            suffix: "-3of4"
+          - target: mutants-common
+            shard: 3/4
+            suffix: "-4of4"
 
-          - target: mutants-controller-views
-            shard: 0/2
-            suffix: "-1of2"
-          - target: mutants-controller-views
-            shard: 1/2
-            suffix: "-2of2"
+          # 1h24 + 1h28 for two shards that were doing the same pass-1 work
+          # twice; post-fix each shard owns half of it.
           - target: mutants-controller-core
             shard: 0/2
             suffix: "-1of2"
           - target: mutants-controller-core
             shard: 1/2
             suffix: "-2of2"
+
+          # Split because 1h18 and 1h13 unsharded would each outlast a
+          # mutants-common shard and become the new tail.
           - target: mutants-controller-strategies
-
+            shard: 0/2
+            suffix: "-1of2"
+          - target: mutants-controller-strategies
+            shard: 1/2
+            suffix: "-2of2"
           - target: mutants-controller-positions
-          - target: mutants-oracle-adapter
-          - target: mutants-aggregator
+            shard: 0/2
+            suffix: "-1of2"
+          - target: mutants-controller-positions
+            shard: 1/2
+            suffix: "-2of2"
+
+          # Was split 2 ways for 22m + 18m. Merged back: two cells each pay a
+          # baseline build to save minutes, a net loss once the shards are no
+          # longer duplicating pass 1.
+          - target: mutants-controller-views
+
           - target: mutants-swap-aggregator
+          - target: mutants-aggregator
           - target: mutants-pool
+          - target: mutants-oracle-adapter
           - target: mutants-governance
-          - target: mutants-defindex-strategy
           - target: mutants-controller-oracle
+          - target: mutants-defindex-strategy
     steps:
       - uses: actions/checkout@v7
 
@@ -588,17 +625,30 @@ jobs:
           name: stellar-cli-${{ github.run_id }}
           path: .github/tools
 
-      - name: Download cargo-mutants
+      - name: Download mutants tools
         uses: actions/download-artifact@v8.0.1
         with:
-          name: cargo-mutants-${{ github.run_id }}
+          name: mutants-tools-${{ github.run_id }}
           path: .github/tools
 
-      - name: Download sccache
-        uses: actions/download-artifact@v8.0.1
-        with:
-          name: sccache-${{ github.run_id }}
-          path: .github/tools
+      # No actions/cache here, deliberately. This job's warm build state comes
+      # from the runner's own disk: target-mutants is gitignored, so it survives
+      # actions/checkout between runs, and RUSTC_WRAPPER=sccache backs it with a
+      # 50G local cache. Adding a hosted cache on top would be worse than
+      # nothing -- the repo already holds ~8.3G across 19 entries against a 10G
+      # limit, and the mutants-diff job's own entries are currently absent,
+      # evicted. Eighteen more multi-gigabyte entries would evict the fuzz and
+      # proptest caches that do work, and still pay 18 uploads every run.
+      #
+      # target-mutants persisting locally is what makes the next step
+      # load-bearing rather than cache hygiene.
+
+      # cargo-mutants writes mutated sources into the tree and builds them, and
+      # target-mutants survives from the previous run, so it can hold objects
+      # built from a mutant rather than from clean source. Touching every
+      # tracked .rs file forces cargo to rebuild anything derived from them.
+      - name: Invalidate any mutant-built artifacts left on the runner
+        run: git ls-files -z '*.rs' | xargs -0 touch
 
       - name: Download wasm fixtures
         uses: actions/download-artifact@v8.0.1
@@ -608,7 +658,7 @@ jobs:
 
       - name: Add tools to PATH
         run: |
-          chmod +x .github/tools/stellar .github/tools/cargo-mutants .github/tools/sccache
+          chmod +x .github/tools/*
           echo "$PWD/.github/tools" >> "$GITHUB_PATH"
 
       - name: Configure fast host linker
@@ -666,9 +716,30 @@ jobs:
 
           MUTANTS_FIXTURES_PREBUILT: "1"
           RUST_TEST_THREADS: "1"
+          # nextest ignores RUST_TEST_THREADS; without this it would fan out to
+          # one process per core inside a lane that is already sized to share
+          # the host with the other runner services.
+          NEXTEST_TEST_THREADS: "1"
           RUSTC_WRAPPER: sccache
           SCCACHE_CACHE_SIZE: 50G
-        run: make "${{ matrix.target }}" MUTANTS_SHARD="${{ matrix.shard || '' }}"
+        # nextest matches the PR-diff job and gives per-test timeouts, which is
+        # what --minimum-test-timeout relies on to catch a mutant that hangs
+        # rather than fails. Safe here because the crates under mutation have no
+        # runnable doctests, the one thing nextest cannot execute.
+        #
+        # Elapsed time lands in the job summary so the shard counts in the
+        # matrix can be re-balanced by reading one page, rather than by
+        # archaeology against a run id that ages out of retention.
+        run: |
+          start=$SECONDS
+          status=0
+          make "${{ matrix.target }}" \
+            MUTANTS_SHARD="${{ matrix.shard || '' }}" \
+            MUTANTS_TEST_TOOL=nextest || status=$?
+          printf '%s%s\t%dm\n' \
+            "${{ matrix.target }}" "${{ matrix.suffix || '' }}" \
+            "$(( (SECONDS - start) / 60 ))" >> "$GITHUB_STEP_SUMMARY"
+          exit $status
 
       - name: sccache stats
         if: always()
