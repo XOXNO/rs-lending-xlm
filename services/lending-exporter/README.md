@@ -120,10 +120,11 @@ container fails closed at startup if that value is absent. Add both scrape jobs
 from `ops/prometheus.example.yml` to Prometheus. Each series already carries a
 `network` label.
 
-- Dashboard: import `ops/grafana-dashboard.json` and select Prometheus at the
-  import prompt. It is variable-free (queries are static, network pinned to
-  `testnet`) so it can be **externally shared** — Grafana's public/shared
-  dashboards reject template variables.
+- Dashboard: import `ops/grafana-dashboard.json` into the production Grafana.
+  It pins that Grafana's Prometheus datasource UID, so an external/shared view
+  never depends on an unresolved import variable. For another Grafana instance,
+  replace the datasource UID before importing. Queries are static and pinned to
+  `testnet` because public/shared dashboards reject template variables.
   - **MarketIndexView** — snapshot of indexes + soft prices/flags.
   - **Oracles** — price/deviation/freshness trends + **oracle config table**
     (strategy, max/effective stale, tolerance, sanity, probe vs blend timestamps).

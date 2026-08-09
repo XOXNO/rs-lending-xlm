@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use anyhow::{anyhow, Context, Result};
 use axum::{extract::State, http::StatusCode, routing::get, Router};
@@ -18,6 +18,7 @@ const SPOKE_ASSET_LABELS: &[&str] = &["network", "spoke_id", "spoke", "hub_id", 
 
 pub struct Metrics {
     pub registry: Registry,
+    rendered: RwLock<String>,
 
     pub market_supplied: GaugeVec,
     pub market_supplied_usd: GaugeVec,
@@ -198,6 +199,7 @@ impl Metrics {
             view_failures: register_counter_vec(&registry, "lending_exporter_view_failures_total", "Contract view failures by view/asset/code", &["network", "view", "asset", "code"])?,
 
             registry,
+            rendered: RwLock::new(String::new()),
         })
     }
 
@@ -251,6 +253,24 @@ impl Metrics {
             }
         }
     }
+
+    /// Replaces the HTTP body only after a scrape has finished mutating gauges.
+    pub fn publish_snapshot(&self) -> Result<()> {
+        let mut buf = Vec::new();
+        TextEncoder::new()
+            .encode(&self.registry.gather(), &mut buf)
+            .context("encode metrics snapshot")?;
+        let rendered = String::from_utf8(buf).context("metrics snapshot is not utf-8")?;
+        *self.rendered.write().expect("metrics snapshot lock poisoned") = rendered;
+        Ok(())
+    }
+
+    pub fn rendered_snapshot(&self) -> String {
+        self.rendered
+            .read()
+            .expect("metrics snapshot lock poisoned")
+            .clone()
+    }
 }
 
 pub fn spoke_asset_label_key(values: &[&str; 7]) -> BTreeMap<String, String> {
@@ -285,17 +305,7 @@ async fn health() -> &'static str {
 }
 
 async fn scrape(State(metrics): State<Arc<Metrics>>) -> Result<String, StatusCode> {
-    let mut buf = Vec::new();
-    TextEncoder::new()
-        .encode(&metrics.registry.gather(), &mut buf)
-        .map_err(|e| {
-            tracing::error!(target: "exporter.metrics", error = ?e, "encode metrics failed");
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
-    String::from_utf8(buf).map_err(|e| {
-        tracing::error!(target: "exporter.metrics", error = ?e, "metrics buffer not utf-8");
-        StatusCode::INTERNAL_SERVER_ERROR
-    })
+    Ok(metrics.rendered_snapshot())
 }
 
 #[cfg(test)]
@@ -307,6 +317,19 @@ mod tests {
     #[test]
     fn every_family_registers_without_a_name_collision() {
         Metrics::new().expect("all metric families must register cleanly");
+    }
+
+    #[test]
+    fn rendered_snapshot_changes_only_when_published() {
+        let metrics = Metrics::new().unwrap();
+        metrics.protocol_tvl_usd.with_label_values(&["testnet"]).set(1.0);
+        metrics.publish_snapshot().unwrap();
+        let published = metrics.rendered_snapshot();
+
+        metrics.protocol_tvl_usd.with_label_values(&["testnet"]).set(2.0);
+
+        assert!(published.contains(" 1\n"));
+        assert_eq!(metrics.rendered_snapshot(), published);
     }
 
     #[test]

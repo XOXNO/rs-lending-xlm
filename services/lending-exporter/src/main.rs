@@ -78,6 +78,9 @@ async fn run_scrape_loop(
             }
             _ = tick.tick() => {
                 scrape_once(client, metrics, cfg, contracts).await;
+                if let Err(error) = metrics.publish_snapshot() {
+                    error!(target: "exporter.collector", %error, "failed to publish metrics snapshot");
+                }
             }
         }
     }
