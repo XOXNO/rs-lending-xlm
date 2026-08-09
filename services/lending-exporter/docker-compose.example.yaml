@@ -9,27 +9,28 @@ services:
     environment:
       EXPORTER_CONFIG: /etc/lending-exporter/testnet.yaml
       RUST_LOG: info
-
-
-
     networks: [monitoring]
 
-
-
-
-
-
-
-
-
-
+  # Mainnet remains a profile until a controller has been deployed. Supply the
+  # real address through MAINNET_LENDING_CONTROLLER; it is never baked into an
+  # image before deployment.
+  lending-exporter-mainnet:
+    build: .
+    image: xoxno/lending-exporter:latest
+    container_name: lending-exporter-mainnet
+    restart: unless-stopped
+    profiles: [mainnet]
+    environment:
+      EXPORTER_CONFIG: /etc/lending-exporter/mainnet.yaml
+      # Empty by default so an inactive mainnet profile never blocks testnet.
+      # The exporter rejects this configuration at mainnet startup until set.
+      EXPORTER_CONTROLLER: ${MAINNET_LENDING_CONTROLLER:-}
+      RUST_LOG: info
+    networks: [monitoring]
 
 
 
 
 networks:
   monitoring:
-    external: true
-
-  coolify:
     external: true

@@ -101,10 +101,27 @@ impl ExporterConfig {
     pub fn load(path: &Path) -> Result<Self> {
         let raw = std::fs::read_to_string(path)
             .with_context(|| format!("read config {}", path.display()))?;
-        let cfg: Self = serde_yaml::from_str(&raw)
+        let mut cfg: Self = serde_yaml::from_str(&raw)
             .with_context(|| format!("parse config {}", path.display()))?;
+        cfg.apply_environment_overrides();
         cfg.validate()?;
         Ok(cfg)
+    }
+
+    /// Deployment-specific addresses stay outside the immutable image. This is
+    /// primarily for mainnet, whose controller is intentionally not committed
+    /// before deployment.
+    fn apply_environment_overrides(&mut self) {
+        override_nonempty("EXPORTER_RPC_URL", &mut self.rpc.url);
+        override_nonempty("EXPORTER_CONTROLLER", &mut self.contracts.controller);
+        override_optional(
+            "EXPORTER_PRICE_AGGREGATOR",
+            &mut self.contracts.price_aggregator,
+        );
+        override_optional(
+            "EXPORTER_XOXNO_ORACLE_ADAPTER",
+            &mut self.contracts.xoxno_oracle_adapter,
+        );
     }
 
     pub fn hub_name(&self, hub_id: u32) -> String {
@@ -191,6 +208,24 @@ impl ExporterConfig {
     }
 }
 
+fn override_nonempty(name: &str, target: &mut String) {
+    if let Ok(value) = std::env::var(name) {
+        if !value.trim().is_empty() {
+            *target = value;
+        }
+    }
+}
+
+fn override_optional(name: &str, target: &mut Option<String>) {
+    if let Ok(value) = std::env::var(name) {
+        *target = if value.trim().is_empty() {
+            None
+        } else {
+            Some(value)
+        };
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ResolvedContracts {
     pub controller: [u8; 32],
@@ -205,4 +240,53 @@ pub struct ResolvedMarket {
     pub asset_id: [u8; 32],
     pub asset_strkey: String,
     pub symbol: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn deployment_environment_overrides_replace_only_the_configured_values() {
+        let mut cfg = ExporterConfig {
+            network: "mainnet".to_string(),
+            rpc: RpcConfig {
+                url: "https://default-rpc.example".to_string(),
+                passphrase: "network".to_string(),
+                timeout_seconds: 30,
+            },
+            contracts: ContractsConfig {
+                controller: "".to_string(),
+                price_aggregator: Some("CDEFAULT".to_string()),
+                xoxno_oracle_adapter: None,
+            },
+            markets: Vec::new(),
+            spokes: Vec::new(),
+            hubs: BTreeMap::new(),
+            spoke_names: BTreeMap::new(),
+            scrape_interval_seconds: 30,
+            metrics: MetricsConfig {
+                bind: "127.0.0.1:9110".parse().unwrap(),
+            },
+            log: LogConfig::default(),
+        };
+
+        std::env::set_var("EXPORTER_RPC_URL", "https://override-rpc.example");
+        std::env::set_var("EXPORTER_CONTROLLER", "COVERRIDE");
+        std::env::set_var("EXPORTER_PRICE_AGGREGATOR", "");
+        std::env::set_var("EXPORTER_XOXNO_ORACLE_ADAPTER", "CADAPTER");
+        cfg.apply_environment_overrides();
+        std::env::remove_var("EXPORTER_RPC_URL");
+        std::env::remove_var("EXPORTER_CONTROLLER");
+        std::env::remove_var("EXPORTER_PRICE_AGGREGATOR");
+        std::env::remove_var("EXPORTER_XOXNO_ORACLE_ADAPTER");
+
+        assert_eq!(cfg.rpc.url, "https://override-rpc.example");
+        assert_eq!(cfg.contracts.controller, "COVERRIDE");
+        assert_eq!(cfg.contracts.price_aggregator, None);
+        assert_eq!(
+            cfg.contracts.xoxno_oracle_adapter.as_deref(),
+            Some("CADAPTER")
+        );
+    }
 }

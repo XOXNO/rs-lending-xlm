@@ -103,28 +103,33 @@ controller and `(hub_id, asset, symbol)` markets + `spokes` to scan.
 - Markets / hubs / spokes labels mirror `configs/{network}/{markets,hubs,spokes}.json`.
 - `symbol`, `hubs`, `spoke_names` are display labels only.
 
-`config/mainnet.yaml` lists all mainnet markets (17), hubs (`Core` / `RWA`), and
-spokes (`Main` / `Etherfuse` / `Spiko` / `Centrifuge` / `Forex`), plus RPC and the
-xoxno oracle adapter. Controller is still empty in `configs/networks.json` —
-fill `contracts.controller` after deploy; the exporter refuses to boot until it
-is a valid `C…` address.
+`config/mainnet.yaml` lists the canonical mainnet market set (including the LP
+and XAUM listings), hubs (`Core` / `RWA` / `Aquarius`), and spokes (`Main` /
+`Etherfuse` / `Spiko` / `Centrifuge` / `Forex`). The controller is deliberately
+empty in `configs/networks.json` because it is not deployed yet. At deployment,
+set `EXPORTER_CONTROLLER` to the deployed `C…` address; it overrides only the
+container's configuration and is validated before the exporter starts.
 
 ## Deploy (two networks)
 
-Build the image and run one container per network (see
-`docker-compose.example.yaml`), then add the scrape jobs from
-`ops/prometheus.example.yml` to `/data/coolify/prometheus/prometheus.yml`. Each
-series already carries a `network` label, so one Grafana renders both.
+Build the image and run testnet with `docker compose up -d
+lending-exporter-testnet`. After the mainnet controller is deployed, set the
+required `MAINNET_LENDING_CONTROLLER=C…` in the Compose environment and run
+`docker compose --profile mainnet up -d lending-exporter-mainnet`. The mainnet
+container fails closed at startup if that value is absent. Add both scrape jobs
+from `ops/prometheus.example.yml` to Prometheus. Each series already carries a
+`network` label.
 
-- Dashboard: import `ops/grafana-dashboard.json`. It is variable-free (queries
-  are static, network pinned to `testnet`) so it can be **externally shared** —
-  Grafana's public/shared dashboards reject template variables.
+- Dashboard: import `ops/grafana-dashboard.json` and select Prometheus at the
+  import prompt. It is variable-free (queries are static, network pinned to
+  `testnet`) so it can be **externally shared** — Grafana's public/shared
+  dashboards reject template variables.
   - **MarketIndexView** — snapshot of indexes + soft prices/flags.
   - **Oracles** — price/deviation/freshness trends + **oracle config table**
     (strategy, max/effective stale, tolerance, sanity, probe vs blend timestamps).
     Soft-flag timeline lives only under MarketIndexView (not duplicated).
-  - **Spokes** — liq curve, listing table with pause/freeze/collateral/borrow,
-    LTV/threshold/bonus/fees, usage & cap util.
+  - **Spokes** — per-spoke liq curve and listing tables, plus an all-spokes
+    operational table that includes new listings and cap-closed state.
 - Alerts: recreate the exprs in `ops/alerts.yml` as Grafana-managed alert rules
   (they stay internal, off the public panels). Prefer soft-status flags over
   hard-path error codes.
