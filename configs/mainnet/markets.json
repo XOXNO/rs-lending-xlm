@@ -37,7 +37,7 @@
                 }
               },
               "decimals": 8,
-              "max_stale_seconds": 57600
+              "max_stale_seconds": 3600
             }
           }
         ],

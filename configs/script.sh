@@ -1111,6 +1111,7 @@ validate_configs() {
     fi
 
     local oracle_bot_heartbeat_seconds=3600
+    local max_leg_age_spread_seconds=3600
     local m mj hub addr missing o strat anchor_tag minw maxw ptag pcontract atag acontract pstale astale
     for m in $(jq -r '.markets[].name' "$MARKET_CONFIG_FILE"); do
         mj=$(jq -c --arg m "$m" 'first(.markets[] | select(.name == $m))' "$MARKET_CONFIG_FILE")
@@ -1171,6 +1172,20 @@ validate_configs() {
             .independence == "RequireDisjoint" or
             (.independence | type) == "object"' >/dev/null; then
             vc_err "market ${m}: oracle.independence missing or invalid"
+        fi
+        # engine.rs blends two legs at their midpoint and marks the result stale
+        # once two market legs sit further apart in time than the spread bound.
+        # A market leg may therefore never declare a staleness budget wider than
+        # that bound when its partner is also market-nature.
+        if printf '%s' "$o" | jq -e --argjson cap "$max_leg_age_spread_seconds" '
+            (.sources | length) == 2 and
+            ([.sources[] | (.Feed // .Scaled.factor) | select(. != null) |
+                if (.provider | has("Reflector")) then "Market"
+                else (.provider.RedStone // .provider.Xoxno).nature end
+             ] | length == 2 and all(. == "Market")) and
+            ([.sources[] | (.Feed // .Scaled.factor).max_stale_seconds] | any(. > $cap))
+        ' >/dev/null; then
+            vc_err "market ${m}: both legs are market-nature, so neither may declare max_stale_seconds above the ${max_leg_age_spread_seconds}s leg-spread bound"
         fi
         ceiling=$(printf '%s' "$o" | jq -r '.max_price_stale_seconds // "missing"')
         if [ "$ceiling" = "missing" ]; then
@@ -1288,7 +1303,14 @@ validate_configs() {
                     if [ -n "$pcontract" ] && [ "$pcontract" != "$redstone" ]; then
                         vc_warn "market ${m}: sources[$i] RedStone contract differs from networks.json redstone_adapter_contract"
                     fi
-                    if [ "$fstale" != "missing" ] && [ "$fstale" -lt $(( oracle_bot_heartbeat_seconds * 4 )) ]; then
+                    local fnature
+                    fnature=$(printf '%s' "$sjson" | jq -r '
+                        ((.Feed // .Scaled.factor).provider.RedStone.nature) // "unknown"')
+                    # Only a fundamental leg needs room for missed heartbeats. A
+                    # market leg is bounded from above by the leg-spread rule, and
+                    # the two floors are not simultaneously satisfiable.
+                    if [ "$fnature" != "Market" ] && [ "$fstale" != "missing" ] &&
+                       [ "$fstale" -lt $(( oracle_bot_heartbeat_seconds * 4 )) ]; then
                         vc_err "market ${m}: sources[$i] RedStone max_stale_seconds ${fstale} < 4x oracle bot heartbeat (${oracle_bot_heartbeat_seconds}s)"
                     fi
                     ;;
@@ -1316,6 +1338,16 @@ validate_configs() {
         fi
         if ! printf '%s' "$ro" | jq -e 'has("min_sanity_price_wad") and has("max_sanity_price_wad")' >/dev/null; then
             vc_err "reference ${rname}: missing min/max_sanity_price_wad"
+        fi
+        if printf '%s' "$ro" | jq -e --argjson cap "$max_leg_age_spread_seconds" '
+            (.sources | length) == 2 and
+            ([.sources[] | (.Feed // .Scaled.factor) | select(. != null) |
+                if (.provider | has("Reflector")) then "Market"
+                else (.provider.RedStone // .provider.Xoxno).nature end
+             ] | length == 2 and all(. == "Market")) and
+            ([.sources[] | (.Feed // .Scaled.factor).max_stale_seconds] | any(. > $cap))
+        ' >/dev/null; then
+            vc_err "reference ${rname}: both legs are market-nature, so neither may declare max_stale_seconds above the ${max_leg_age_spread_seconds}s leg-spread bound"
         fi
     done
     for needed in $(all_oracle_ref_dependencies); do
