@@ -171,9 +171,6 @@ pub fn validate_lp_sanity_band(env: &Env, min_wad: i128, max_wad: i128) {
     );
 }
 
-/// Realised liquidator margin after the protocol's cut of the bonus. Must stay
-/// above execution cost and the oracle's silent error window, or liquidation is
-/// configured into being irrational while still functioning.
 pub fn validate_twap_records(env: &Env, records: u32) {
     assert_with_error!(env, records != 0, OracleError::TwapInsufficientObservations);
     assert_with_error!(

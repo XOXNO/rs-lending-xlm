@@ -187,10 +187,11 @@ fn calculate_account_risk_totals_body(
         );
 
         total_collateral = total_collateral.checked_add(env, value);
-        ltv_collateral = ltv_collateral.checked_add(
-            env,
-            position.loan_to_value.apply_to_wad_floor(env, gate_value),
-        );
+        // A gated tuple can leave a position with LTV above its frozen LT;
+        // clamp so the origination buffer cannot invert.
+        let effective_ltv = position.loan_to_value.min(position.liquidation_threshold);
+        ltv_collateral =
+            ltv_collateral.checked_add(env, effective_ltv.apply_to_wad_floor(env, gate_value));
         weighted_coll = weighted_coll.checked_add(
             env,
             weighted_collateral(env, gate_value, position.liquidation_threshold),
