@@ -1,4 +1,5 @@
 mod events;
+mod hub;
 mod market_index;
 mod oracle;
 mod pool;
@@ -29,6 +30,9 @@ pub(crate) struct Cache {
 
     spoke_assets: Map<HubAssetKey, SpokeAssetConfig>,
 
+    /// Hub ids already proven active this invocation; see [`Cache::require_hub_active`].
+    verified_hubs: Map<u32, bool>,
+
     supply_updates: Vec<EventDepositDelta>,
 
     debt_updates: Vec<EventBorrowDelta>,
@@ -54,6 +58,7 @@ impl Cache {
             spoke_usage: None,
             spoke_config: None,
             spoke_assets: Map::new(env),
+            verified_hubs: Map::new(env),
             supply_updates: Vec::new(env),
             debt_updates: Vec::new(env),
         }
