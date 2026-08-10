@@ -43,8 +43,16 @@ pub(crate) fn process_multiply(env: &Env, caller: &Address, params: MultiplyPara
 
     validate_multiply_request(env, collateral, debt, mode, debt_to_flash_loan);
 
-    let (account_id, mut account, mut cache) =
-        prepare_multiply_account(env, caller, account_id, spoke_id, mode, collateral, debt);
+    let (account_id, mut account, mut cache) = prepare_multiply_account(
+        env,
+        caller,
+        account_id,
+        spoke_id,
+        mode,
+        collateral,
+        debt,
+        &initial_payment,
+    );
 
     let (collateral_amount, debt_extra) = collect_initial_multiply_payment(
         env,
@@ -99,6 +107,7 @@ fn prepare_multiply_account(
     mode: PositionMode,
     collateral: &HubAssetKey,
     debt: &HubAssetKey,
+    initial_payment: &Option<(HubAssetKey, i128)>,
 ) -> (u64, Account, Cache) {
     let mut cache = Cache::new(env);
     let (account_id, account) = account::load_or_create_account(
@@ -111,7 +120,10 @@ fn prepare_multiply_account(
         &mut cache,
     );
     require_can_supply(env, &mut cache, account.spoke_id, collateral);
-    let extra_assets = vec![env, collateral.asset.clone(), debt.asset.clone()];
+    let mut extra_assets = vec![env, collateral.asset.clone(), debt.asset.clone()];
+    if let Some((payment, _)) = initial_payment.as_ref() {
+        extra_assets.push_back(payment.asset.clone());
+    }
     prefetch_strategy_prices(&mut cache, &account, &extra_assets);
     (account_id, account, cache)
 }

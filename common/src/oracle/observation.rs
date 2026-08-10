@@ -17,6 +17,13 @@ pub const MAX_ORACLE_DECIMALS: u32 = 18;
 
 pub const MAX_SINGLE_SOURCE_SANITY_BAND_BPS: i128 = 1_000;
 
+/// Largest age gap tolerated between the two legs of a blended price.
+///
+/// Wide enough for a TWAP leg (stamped at the oldest sample in its window) to
+/// sit alongside a spot leg, tight enough that a stalled leg cannot be averaged
+/// in as an equal.
+pub const MAX_LEG_AGE_SPREAD_SECONDS: u64 = 3_600;
+
 pub const MAX_LP_SANITY_BAND_BPS: i128 = 5_000;
 
 pub fn try_normalize_positive_price(price: i128, decimals: u32) -> Option<i128> {

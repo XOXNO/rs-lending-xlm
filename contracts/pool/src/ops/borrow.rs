@@ -65,6 +65,7 @@ pub(crate) fn accounting(env: &Env, entry: &PoolBorrowEntry) -> BorrowOutcome {
 pub(crate) fn mint_debt(env: &Env, cache: &mut Cache, position: &mut Ray, amount: i128) {
     require_positive_amount(env, amount);
     cache.require_reserves(amount);
+    guards::require_liquidation_buffer(env, cache, amount);
 
     let minted = cache.calculate_scaled_borrow(amount);
 

@@ -1,6 +1,6 @@
 use common::errors::OracleError;
 use common::math::fp::Wad;
-use common::oracle::observation::is_stale;
+use common::oracle::observation::{is_stale, MAX_LEG_AGE_SPREAD_SECONDS};
 use common::types::{
     AssetOracle, FeedSource, PriceFeedRaw, PriceKey, PriceSource, PriceStatus, ProviderRef,
     ScaledSource, MAX_RESOLUTION_DEPTH,
@@ -331,7 +331,11 @@ fn blend(env: &Env, oracle: &AssetOracle, legs: Legs) -> Outcome {
         Legs::One(r) => Outcome::one(r),
         Legs::Partial { reading, slot } => Outcome::partial(reading, slot),
         Legs::Two { primary, anchor } => {
-            let stale = primary.stale || anchor.stale;
+            // The midpoint weights both legs equally, so a leg far older than
+            // its partner would drag the result while each still satisfies its
+            // own bound. Bound the spread as well as the absolute ages.
+            let age_spread = primary.timestamp.abs_diff(anchor.timestamp);
+            let stale = primary.stale || anchor.stale || age_spread > MAX_LEG_AGE_SPREAD_SECONDS;
             let ts = primary.timestamp.min(anchor.timestamp);
             let deviation =
                 !within_tolerance_band(env, anchor.price_wad, primary.price_wad, &oracle.tolerance);
