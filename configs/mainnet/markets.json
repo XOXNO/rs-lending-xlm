@@ -334,7 +334,7 @@
           {
             "Feed": {
               "provider": {
-                "RedStone": {
+                "Xoxno": {
                   "contract": "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM",
                   "feed_id": "SPIKOEUTBL",
                   "nature": "Fundamental"
@@ -378,7 +378,7 @@
           {
             "Feed": {
               "provider": {
-                "RedStone": {
+                "Xoxno": {
                   "contract": "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM",
                   "feed_id": "SPIKOUSTBL",
                   "nature": "Fundamental"
@@ -422,7 +422,7 @@
           {
             "Feed": {
               "provider": {
-                "RedStone": {
+                "Xoxno": {
                   "contract": "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM",
                   "feed_id": "SPIKOUKTBL",
                   "nature": "Fundamental"
@@ -466,7 +466,7 @@
           {
             "Feed": {
               "provider": {
-                "RedStone": {
+                "Xoxno": {
                   "contract": "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM",
                   "feed_id": "SPIKOSAFO",
                   "nature": "Fundamental"
@@ -510,7 +510,7 @@
           {
             "Feed": {
               "provider": {
-                "RedStone": {
+                "Xoxno": {
                   "contract": "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM",
                   "feed_id": "SPIKOEURSAFO",
                   "nature": "Fundamental"
@@ -554,7 +554,7 @@
           {
             "Feed": {
               "provider": {
-                "RedStone": {
+                "Xoxno": {
                   "contract": "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM",
                   "feed_id": "SPIKOGBPSAFO",
                   "nature": "Fundamental"
