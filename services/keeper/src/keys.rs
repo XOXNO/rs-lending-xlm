@@ -79,7 +79,6 @@ impl ControllerUserKey {
 
 #[derive(Debug, Clone)]
 pub enum AccessControlPersistentKey {
-
     ExistingRoles,
 
     RoleAccountsCount(String),
@@ -185,9 +184,7 @@ impl OracleAdapterKey {
                 "LatestSubmission",
                 &[feed.clone(), ScVal::Address(signer.clone())],
             )?,
-            Self::SignerFeeds(signer) => {
-                sc_enum("SignerFeeds", &[ScVal::Address(signer.clone())])?
-            }
+            Self::SignerFeeds(signer) => sc_enum("SignerFeeds", &[ScVal::Address(signer.clone())])?,
         })
     }
 
@@ -591,7 +588,9 @@ mod tests {
 
     #[test]
     fn oracle_adapter_key_is_persistent_contract_data() {
-        let key = OracleAdapterKey::FeedCount.to_ledger_key(&[5u8; 32]).unwrap();
+        let key = OracleAdapterKey::FeedCount
+            .to_ledger_key(&[5u8; 32])
+            .unwrap();
         let LedgerKey::ContractData(cd) = key else {
             panic!("expected ContractData");
         };

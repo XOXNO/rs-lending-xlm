@@ -1,6 +1,6 @@
 #![no_std]
 
-use common::constants::{TTL_BUMP_INSTANCE, TTL_THRESHOLD_USER};
+use common::constants::{TTL_BUMP_USER, TTL_THRESHOLD_USER};
 use common::math::fp::Ray;
 use common::token::authorize_transfer_as_current;
 use common::types::pool::HubAssetKey;
@@ -280,7 +280,7 @@ fn set_vault_account(env: &Env, vault: &Address, account_id: u64) {
     let key = DataKey::VaultAccount(vault.clone());
     let storage = env.storage().persistent();
     storage.set(&key, &account_id);
-    storage.extend_ttl(&key, TTL_THRESHOLD_USER, TTL_BUMP_INSTANCE);
+    storage.extend_ttl(&key, TTL_THRESHOLD_USER, TTL_BUMP_USER);
 }
 
 fn clear_vault_account(env: &Env, vault: &Address) {
@@ -293,8 +293,9 @@ fn extend_vault_account_ttl(env: &Env, vault: &Address) {
     let key = DataKey::VaultAccount(vault.clone());
     let storage = env.storage().persistent();
     if storage.has(&key) {
-        // Same day bases as before: 30d threshold (user) + 180d bump (instance/shared).
-        storage.extend_ttl(&key, TTL_THRESHOLD_USER, TTL_BUMP_INSTANCE);
+        // Same tier as the controller account this points at, so the pointer can
+        // never outlive its target.
+        storage.extend_ttl(&key, TTL_THRESHOLD_USER, TTL_BUMP_USER);
     }
 }
 
@@ -312,7 +313,9 @@ fn resolve_vault_account(
     if stored == 0 {
         return 0;
     }
-    if controller.account_exists(&stored) {
+    // Any failure to confirm the account — removed, or archived and unrestorable
+    // in this footprint — is treated as gone, so the mapping can self-heal.
+    if controller.try_account_exists(&stored) == Ok(Ok(true)) {
         extend_vault_account_ttl(env, vault);
         return stored;
     }

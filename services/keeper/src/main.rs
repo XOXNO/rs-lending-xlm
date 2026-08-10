@@ -22,7 +22,6 @@ use tracing_subscriber::EnvFilter;
     about = "XOXNO Lending off-chain TTL keeper"
 )]
 struct Args {
-
     #[arg(
         short,
         long,

@@ -143,7 +143,6 @@ async fn run_ttl_tick(
     drive_jobs(&ctx, metrics, restore_jobs, dry_run, "ttl", &mut budget).await?;
     let mut extends = extend_jobs;
     if dry_run {
-
         if !post_restore_extends.is_empty() {
             info!(
                 target: "keeper.scheduler",

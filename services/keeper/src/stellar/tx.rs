@@ -344,7 +344,6 @@ async fn submit_polling(
     timeout_s: u32,
     kind: TxKind,
 ) -> Result<SubmitOutcome> {
-
     let poll = match timeout(
         Duration::from_secs(timeout_s.max(1) as u64),
         client.send_transaction_polling(envelope),
@@ -363,7 +362,6 @@ async fn submit_polling(
     let resp = match poll {
         Ok(r) => r,
         Err(e) => {
-
             warn!(target: "keeper.tx", kind = %kind.as_str(), error = %e, "send_transaction_polling failed");
             return Ok(SubmitOutcome::Retriable(e.to_string()));
         }

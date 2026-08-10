@@ -345,7 +345,7 @@ fn test_read_path_reextends_vault_mapping_ttl_below_threshold() {
         "deposit must extend the fresh mapping well past the threshold, got {initial}"
     );
 
-    s.t.advance_time(60 * 60 * 24 * 174);
+    s.t.advance_time(60 * 60 * 24 * 114);
     let aged = s.vault_mapping_ttl(&s.vault);
     assert!(
         aged < VAULT_TTL_THRESHOLD && aged > 50_000,
