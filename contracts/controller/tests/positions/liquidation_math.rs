@@ -893,3 +893,692 @@ fn a_token_delivering_more_than_planned_cannot_inflate_the_seizure() {
     assert_eq!(out.get_unchecked(0).amount, 1_000);
     assert_eq!(out.get_unchecked(0).protocol_fee, 70);
 }
+
+/// Spoke-1 XLM as deployed on mainnet.
+const MAINNET_XLM_BONUS_BPS: i128 = 900;
+const MAINNET_XLM_FEES_BPS: u32 = 1_200;
+
+fn seize_fixture_with_collateral(
+    env: &Env,
+    fees_bps: u32,
+    collateral_tokens: i128,
+) -> (Address, HubAssetKey, Account) {
+    let contract = env.register(crate::Controller, (Address::generate(env),));
+    let asset = Address::generate(env);
+    let hub_asset = HubAssetKey {
+        hub_id: 0,
+        asset: asset.clone(),
+    };
+    let mut supply_positions = Map::new(env);
+    supply_positions.set(
+        hub_asset.clone(),
+        AccountPositionRaw {
+            scaled_amount: Ray::from_asset(stroops(collateral_tokens), 7).raw(),
+            liquidation_threshold: 7_800,
+            liquidation_bonus: MAINNET_XLM_BONUS_BPS as u32,
+            loan_to_value: 7_500,
+            liquidation_fees: fees_bps,
+        },
+    );
+    let account = Account {
+        owner: Address::generate(env),
+        spoke_id: 1,
+        mode: PositionMode::Normal,
+        supply_positions,
+        borrow_positions: Map::new(env),
+    };
+    (contract, hub_asset, account)
+}
+
+/// A full close in the solvent-toxic band pays the liquidator a positive net.
+///
+/// The seizure clamps to the collateral that exists, so the bonus is not fully
+/// realised; the fee follows the realised excess and so stays below it.
+#[test]
+fn full_close_in_the_solvent_toxic_band_pays_the_liquidator_a_positive_net() {
+    let env = Env::default();
+
+    // Collateral $1005 against debt $1000: solvent, but short of the $1090 a
+    // full 9% bonus would need.
+    let collateral_tokens = 1_005i128;
+    let repaid_usd = 1_000 * WAD;
+
+    let (contract, hub_asset, account) =
+        seize_fixture_with_collateral(&env, MAINNET_XLM_FEES_BPS, collateral_tokens);
+    let seized = env.as_contract(&contract, || {
+        let mut cache = Cache::new_view(&env);
+        cache.set_prices(single_price(&env, &hub_asset.asset));
+        cache.put_market_index(&hub_asset, &index_raw());
+        let plan = plan_for_seizure(&env, repaid_usd, MAINNET_XLM_BONUS_BPS);
+        calculate_seized_collateral(
+            &env,
+            &account,
+            Wad::from(collateral_tokens * WAD),
+            &plan,
+            &mut cache,
+        )
+    });
+
+    let entry = seized.get_unchecked(0);
+    assert_eq!(
+        entry.amount,
+        stroops(collateral_tokens),
+        "the seizure must clamp to the collateral that actually exists"
+    );
+
+    // Everything in stroops at $1/token.
+    let repaid = stroops(1_000);
+    let net = entry.amount - repaid - entry.protocol_fee;
+    assert!(
+        net >= 0,
+        "liquidator net must not be negative: seized={} repaid={} fee={} net={}",
+        entry.amount,
+        repaid,
+        entry.protocol_fee,
+        net
+    );
+}
+
+fn seize_at(env: &Env, collateral_tokens: i128, repaid_usd: i128) -> SeizeEntry {
+    let (contract, hub_asset, account) =
+        seize_fixture_with_collateral(env, MAINNET_XLM_FEES_BPS, collateral_tokens);
+    let seized = env.as_contract(&contract, || {
+        let mut cache = Cache::new_view(env);
+        cache.set_prices(single_price(env, &hub_asset.asset));
+        cache.put_market_index(&hub_asset, &index_raw());
+        let plan = plan_for_seizure(env, repaid_usd, MAINNET_XLM_BONUS_BPS);
+        calculate_seized_collateral(
+            env,
+            &account,
+            Wad::from(collateral_tokens * WAD),
+            &plan,
+            &mut cache,
+        )
+    });
+    seized.get_unchecked(0)
+}
+
+/// Collateral short of the debt itself: there is no excess to take a cut of, and
+/// deriving a bonus from the clamped seizure would invent one.
+#[test]
+fn bad_debt_seizure_charges_no_fee_and_does_not_trap() {
+    let env = Env::default();
+
+    let entry = seize_at(&env, 900, 1_000 * WAD);
+
+    assert_eq!(entry.amount, stroops(900), "seizure clamps to the collateral");
+    assert_eq!(
+        entry.protocol_fee, 0,
+        "no realised excess means no fee, got {}",
+        entry.protocol_fee
+    );
+}
+
+/// The regression guard: when nothing clamps, the realised excess IS the full
+/// bonus, so the fee must be bit-identical to the pre-change behaviour.
+#[test]
+fn unclamped_seizure_still_charges_the_full_bonus_fee() {
+    let env = Env::default();
+
+    // $2000 collateral against $1000 repaid: the 9% bonus fits with room spare.
+    let entry = seize_at(&env, 2_000, 1_000 * WAD);
+
+    assert_eq!(entry.amount, stroops(1_090), "seizure is repayment plus bonus");
+    // 12% of the realised 90-token bonus.
+    assert_eq!(
+        entry.protocol_fee,
+        (stroops(1_090) - stroops(1_000)) * i128::from(MAINNET_XLM_FEES_BPS) / 10_000,
+        "the whole bonus is realised"
+    );
+}
+
+// --- the protocol fee follows the realised excess -------------------------
+//
+// The seizure is sized as `repayment * (1 + bonus)` and then clamped to the
+// collateral that exists. The fee is a cut of the excess the liquidator
+// actually walked away with: `seized - repayment_share`, never a notional
+// bonus reconstructed from the clamped seizure.
+
+#[derive(Clone, Copy)]
+struct LegSpec {
+    /// Amount in the asset's own units, not whole tokens.
+    amount: i128,
+    decimals: u32,
+    price_wad: i128,
+    bonus_bps: u32,
+    fees_bps: u32,
+    threshold_bps: u32,
+}
+
+impl LegSpec {
+    const fn mainnet_xlm(amount: i128) -> Self {
+        LegSpec {
+            amount,
+            decimals: 7,
+            price_wad: WAD,
+            bonus_bps: MAINNET_XLM_BONUS_BPS as u32,
+            fees_bps: MAINNET_XLM_FEES_BPS,
+            threshold_bps: 7_800,
+        }
+    }
+
+    const fn with_fees(mut self, fees_bps: u32) -> Self {
+        self.fees_bps = fees_bps;
+        self
+    }
+}
+
+/// Build a real multi-leg account and derive `total_collateral` exactly the way
+/// `calculate_account_risk_totals_body` does, so the shares the seizure computes
+/// are the shares production would compute.
+fn seize_legs(
+    env: &Env,
+    legs: &[LegSpec],
+    repay_usd_raw: i128,
+    plan_bonus_bps: i128,
+) -> (Vec<Address>, Vec<SeizeEntry>) {
+    let contract = env.register(crate::Controller, (Address::generate(env),));
+    let mut prices = soroban_sdk::Map::new(env);
+    let mut supply_positions = Map::new(env);
+    let mut assets: Vec<Address> = Vec::new(env);
+    let mut keys: Vec<HubAssetKey> = Vec::new(env);
+
+    for leg in legs {
+        let asset = Address::generate(env);
+        prices.set(
+            asset.clone(),
+            PriceFeedRaw {
+                price_wad: leg.price_wad,
+                asset_decimals: leg.decimals,
+                timestamp: 0,
+            },
+        );
+        let key = HubAssetKey {
+            hub_id: 0,
+            asset: asset.clone(),
+        };
+        supply_positions.set(
+            key.clone(),
+            AccountPositionRaw {
+                scaled_amount: Ray::from_asset(leg.amount, leg.decimals).raw(),
+                liquidation_threshold: leg.threshold_bps,
+                liquidation_bonus: leg.bonus_bps,
+                loan_to_value: leg.threshold_bps - 500,
+                liquidation_fees: leg.fees_bps,
+            },
+        );
+        assets.push_back(asset);
+        keys.push_back(key);
+    }
+
+    let account = Account {
+        owner: Address::generate(env),
+        spoke_id: 1,
+        mode: PositionMode::Normal,
+        supply_positions,
+        borrow_positions: Map::new(env),
+    };
+
+    let seized = env.as_contract(&contract, || {
+        let mut cache = Cache::new_view(env);
+        cache.set_prices(prices.clone());
+        for key in keys.iter() {
+            cache.put_market_index(&key, &index_raw());
+        }
+        let mut total_collateral = Wad::ZERO;
+        for (hub_asset, position) in iter_typed_positions(&account.supply_positions) {
+            let feed = cache.cached_price(&hub_asset.asset);
+            total_collateral = total_collateral.checked_add(
+                env,
+                risk::position_value(env, position.scaled_amount, Ray::ONE, feed.price),
+            );
+        }
+        let plan = plan_for_seizure(env, repay_usd_raw, plan_bonus_bps);
+        calculate_seized_collateral(env, &account, total_collateral, &plan, &mut cache)
+    });
+
+    (assets, seized)
+}
+
+fn leg_entry(seized: &Vec<SeizeEntry>, asset: &Address) -> SeizeEntry {
+    seized
+        .iter()
+        .find(|e| e.hub_asset.asset == *asset)
+        .expect("leg missing from the seizure")
+}
+
+fn single_leg(env: &Env, leg: LegSpec, repay_usd_raw: i128, bonus_bps: i128) -> Vec<SeizeEntry> {
+    let (_, seized) = seize_legs(env, &[leg], repay_usd_raw, bonus_bps);
+    seized
+}
+
+/// Collateral worth exactly the debt: the liquidator gets every stroop back and
+/// not one more, so there is no excess for the protocol to take a cut of.
+#[test]
+fn seizure_at_exactly_the_debt_value_charges_no_protocol_fee() {
+    let env = Env::default();
+
+    let seized = single_leg(
+        &env,
+        LegSpec::mainnet_xlm(stroops(1_000)),
+        1_000 * WAD,
+        MAINNET_XLM_BONUS_BPS,
+    );
+
+    let entry = seized.get_unchecked(0);
+    assert_eq!(entry.amount, stroops(1_000), "the whole position is seized");
+    assert_eq!(entry.protocol_fee, 0, "zero excess means zero fee");
+}
+
+/// One stroop of collateral above the debt is one stroop of realised excess.
+/// The fee is bumped off zero to a whole stroop, so it consumes the entire
+/// excess -- but it must never exceed it, or the liquidator ends up under water.
+#[test]
+fn a_one_stroop_excess_is_charged_at_most_one_stroop_of_fee() {
+    let env = Env::default();
+
+    let seized = single_leg(
+        &env,
+        LegSpec::mainnet_xlm(stroops(1_000) + 1),
+        1_000 * WAD,
+        MAINNET_XLM_BONUS_BPS,
+    );
+
+    let entry = seized.get_unchecked(0);
+    assert_eq!(entry.amount, stroops(1_000) + 1, "the position clamps");
+
+    let realised_excess = entry.amount - stroops(1_000);
+    assert_eq!(realised_excess, 1);
+    assert_eq!(
+        entry.protocol_fee, 1,
+        "the fee bump takes the whole one-stroop excess"
+    );
+    assert!(
+        entry.protocol_fee <= realised_excess,
+        "fee {} exceeds the realised excess {}",
+        entry.protocol_fee,
+        realised_excess
+    );
+}
+
+/// Collateral exactly equal to `repayment * (1 + bonus)` is the point where the
+/// clamp stops binding. The fee here must equal the unclamped fee, because the
+/// whole bonus is realised at that boundary and not one stroop more.
+#[test]
+fn seizure_exactly_at_the_bonus_boundary_charges_the_full_bonus_fee() {
+    let env = Env::default();
+
+    let seized = single_leg(
+        &env,
+        LegSpec::mainnet_xlm(stroops(1_090)),
+        1_000 * WAD,
+        MAINNET_XLM_BONUS_BPS,
+    );
+
+    let entry = seized.get_unchecked(0);
+    assert_eq!(entry.amount, stroops(1_090), "the seizure just fits");
+    assert_eq!(
+        entry.protocol_fee,
+        (stroops(1_090) - stroops(1_000)) * i128::from(MAINNET_XLM_FEES_BPS) / 10_000,
+        "the boundary fee equals the unclamped fee"
+    );
+}
+
+/// Fee rates are per collateral leg. With room to spare on both legs, each one
+/// charges its own rate against its own realised bonus, never a blended rate.
+#[test]
+fn each_leg_charges_its_own_fee_rate_on_its_own_realised_bonus() {
+    let env = Env::default();
+
+    let (assets, seized) = seize_legs(
+        &env,
+        &[
+            LegSpec::mainnet_xlm(stroops(1_000)).with_fees(1_200),
+            LegSpec::mainnet_xlm(stroops(3_000)).with_fees(100),
+        ],
+        1_000 * WAD,
+        MAINNET_XLM_BONUS_BPS,
+    );
+
+    // $4000 of collateral against a $1090 seizure: neither leg clamps, and the
+    // seizure splits 1:3 by value.
+    let cheap = leg_entry(&seized, &assets.get_unchecked(0));
+    assert_eq!(cheap.amount, stroops(272) + 5_000_000);
+    assert_eq!(
+        cheap.protocol_fee,
+        (cheap.amount - stroops(250)) * 1_200 / 10_000,
+        "12% of its own 22.5-token bonus"
+    );
+
+    let dear = leg_entry(&seized, &assets.get_unchecked(1));
+    assert_eq!(dear.amount, stroops(817) + 5_000_000);
+    assert_eq!(
+        dear.protocol_fee,
+        (dear.amount - stroops(750)) * 100 / 10_000,
+        "1% of its own 67.5-token bonus"
+    );
+}
+
+/// Every leg's seizure is `repayment * (1 + bonus) * leg_value / total_value`,
+/// so the clamp condition `seizure > position` reduces to
+/// `repayment * (1 + bonus) > total_value` -- identical for every leg. A bad
+/// debt close therefore clamps all legs at once and charges no fee anywhere,
+/// whatever each leg's fee rate is.
+#[test]
+fn a_bad_debt_close_clamps_every_leg_and_charges_no_fee_on_any_of_them() {
+    let env = Env::default();
+
+    let (assets, seized) = seize_legs(
+        &env,
+        &[
+            LegSpec::mainnet_xlm(stroops(200)).with_fees(1_200),
+            LegSpec::mainnet_xlm(stroops(800)).with_fees(100),
+        ],
+        1_000 * WAD,
+        MAINNET_XLM_BONUS_BPS,
+    );
+
+    let first = leg_entry(&seized, &assets.get_unchecked(0));
+    let second = leg_entry(&seized, &assets.get_unchecked(1));
+    assert_eq!(first.amount, stroops(200), "leg clamps to its position");
+    assert_eq!(second.amount, stroops(800), "leg clamps to its position");
+    assert_eq!(first.protocol_fee, 0, "no realised excess on a bad debt");
+    assert_eq!(second.protocol_fee, 0, "no realised excess on a bad debt");
+}
+
+/// Because the clamp condition is leg-independent, a mixed clamp only exists
+/// inside the rounding noise at the exact boundary. Sitting there, two legs land
+/// on their whole position and the third lands one stroop short of it, and each
+/// still charges its own rate on its own excess.
+#[test]
+fn at_the_clamp_boundary_legs_split_by_rounding_yet_keep_their_own_fee_rates() {
+    let env = Env::default();
+
+    // $1090 of collateral against a $1000 repayment at a 9% bonus: the seizure
+    // is worth exactly the collateral, and the shares do not divide evenly.
+    let (assets, seized) = seize_legs(
+        &env,
+        &[
+            LegSpec::mainnet_xlm(3_333_333_333).with_fees(1_200),
+            LegSpec::mainnet_xlm(3_636_363_636).with_fees(100),
+            LegSpec::mainnet_xlm(3_930_303_031).with_fees(0),
+        ],
+        1_000 * WAD,
+        MAINNET_XLM_BONUS_BPS,
+    );
+
+    let clamped_dear = leg_entry(&seized, &assets.get_unchecked(0));
+    let clamped_cheap = leg_entry(&seized, &assets.get_unchecked(1));
+    let unclamped = leg_entry(&seized, &assets.get_unchecked(2));
+
+    assert_eq!(
+        clamped_dear.amount, 3_333_333_333,
+        "leg reaches its position"
+    );
+    assert_eq!(
+        clamped_cheap.amount, 3_636_363_636,
+        "leg reaches its position"
+    );
+    assert_eq!(
+        unclamped.amount, 3_930_303_030,
+        "the floored leg stays one stroop below its position"
+    );
+
+    assert_eq!(clamped_dear.protocol_fee, 33_027_522, "12% leg");
+    assert_eq!(clamped_cheap.protocol_fee, 3_002_502, "1% leg");
+    assert_eq!(unclamped.protocol_fee, 0, "0% leg pays nothing");
+
+    // Each fee is bounded by the excess its own leg realised over its own share
+    // of the repayment.
+    for (entry, base) in [
+        (&clamped_dear, 3_058_104_893i128),
+        (&clamped_cheap, 3_336_113_427),
+        (&unclamped, 3_605_782_596),
+    ] {
+        assert!(
+            entry.protocol_fee <= entry.amount - base,
+            "fee {} exceeds the leg's realised excess {}",
+            entry.protocol_fee,
+            entry.amount - base
+        );
+    }
+}
+
+/// With no bonus the repayment share IS the seizure, so there is never an excess
+/// and never a fee -- whether or not the seizure clamps.
+#[test]
+fn a_zero_bonus_never_charges_a_protocol_fee() {
+    let env = Env::default();
+
+    let mut fits = LegSpec::mainnet_xlm(stroops(2_000));
+    fits.bonus_bps = 0;
+    let unclamped = single_leg(&env, fits, 1_000 * WAD, 0).get_unchecked(0);
+    assert_eq!(unclamped.amount, stroops(1_000), "seizure is the repayment");
+    assert_eq!(unclamped.protocol_fee, 0);
+
+    let mut clamps = LegSpec::mainnet_xlm(stroops(500));
+    clamps.bonus_bps = 0;
+    let clamped = single_leg(&env, clamps, 1_000 * WAD, 0).get_unchecked(0);
+    assert_eq!(clamped.amount, stroops(500), "seizure clamps");
+    assert_eq!(clamped.protocol_fee, 0);
+}
+
+/// The per-account bonus ceiling is derived from the threshold:
+/// `threshold * (1 + bonus) <= 100%`. At that ceiling a clamped seizure must
+/// still charge only on the excess it realised, not on the 28.2% it asked for.
+#[test]
+fn at_the_derived_max_bonus_the_fee_follows_the_realised_excess() {
+    let env = Env::default();
+
+    let max = max_bonus_for_threshold(&env, Wad::from(7_800 * WAD / 10_000));
+    assert_eq!(max.raw(), 2_820, "ceiling derived from the 78% threshold");
+
+    // $1200 of collateral: the 28.2% bonus asks for $1282 and clamps.
+    let mut leg = LegSpec::mainnet_xlm(stroops(1_200));
+    leg.bonus_bps = max.raw() as u32;
+    let entry = single_leg(&env, leg, 1_000 * WAD, max.raw()).get_unchecked(0);
+
+    assert_eq!(entry.amount, stroops(1_200), "seizure clamps to collateral");
+    let realised_excess = entry.amount - stroops(1_000);
+    assert_eq!(
+        entry.protocol_fee,
+        realised_excess * i128::from(MAINNET_XLM_FEES_BPS) / 10_000,
+        "12% of the 200 tokens actually realised, not of the 282 requested"
+    );
+    assert!(
+        entry.amount - stroops(1_000) - entry.protocol_fee > 0,
+        "liquidator keeps a positive net"
+    );
+}
+
+/// KNOWN DEFECT, recorded as observed. When the whole bonus is worth less than
+/// one unit of the asset, `protocol_fee_ray > 0 && fee_asset == 0` bumps the fee
+/// to a whole unit. At one stroop of repayment the seizure floors back to the
+/// repayment itself -- zero realised excess -- and the bump still charges one
+/// stroop, so the liquidator nets minus one stroop.
+#[test]
+fn the_dust_fee_bump_charges_more_than_the_realised_excess() {
+    let env = Env::default();
+
+    // One stroop of repayment against ample collateral: seizure is 1.09 stroops.
+    let repay_stroops = 1i128;
+    let entry = single_leg(
+        &env,
+        LegSpec::mainnet_xlm(stroops(1_000)),
+        WAD / 10_000_000,
+        MAINNET_XLM_BONUS_BPS,
+    )
+    .get_unchecked(0);
+
+    assert_eq!(entry.amount, 1, "1.09 stroops floors back to 1");
+    let realised_excess = entry.amount - repay_stroops;
+    assert_eq!(realised_excess, 0, "nothing above the repayment was seized");
+    assert_eq!(entry.protocol_fee, 1, "the bump charges a whole stroop");
+    assert_eq!(
+        entry.amount - repay_stroops - entry.protocol_fee,
+        -1,
+        "the liquidator is one stroop out of pocket"
+    );
+}
+
+/// A two-decimal asset at $0.13: the leg's units are coarse enough that both the
+/// seizure and the fee floor visibly, and the fee must still land inside the
+/// floored excess.
+#[test]
+fn a_two_decimal_asset_at_a_non_unit_price_charges_within_the_floored_excess() {
+    let env = Env::default();
+
+    // 1000 tokens at two decimals.
+    let mut leg = LegSpec::mainnet_xlm(100_000);
+    leg.decimals = 2;
+    leg.price_wad = 130_000_000_000_000_000;
+    let entry = single_leg(&env, leg, 100 * WAD, MAINNET_XLM_BONUS_BPS).get_unchecked(0);
+
+    // $109 of seizure at $0.13 is 838.4615.. tokens, floored to 838.46.
+    assert_eq!(entry.amount, 83_846);
+    assert_eq!(entry.protocol_fee, 830);
+    // $100 of repayment at $0.13 is 769.2307.. tokens.
+    let realised_excess = entry.amount - 76_923;
+    assert!(
+        entry.protocol_fee <= realised_excess,
+        "fee {} exceeds the realised excess {realised_excess}",
+        entry.protocol_fee
+    );
+}
+
+/// The same trade on an eighteen-decimal asset, the maximum the protocol allows.
+/// Ray headroom above eighteen decimals is only nine digits, so this is where a
+/// rescale would break first.
+#[test]
+fn an_eighteen_decimal_asset_at_a_non_unit_price_charges_within_the_realised_excess() {
+    let env = Env::default();
+
+    let mut leg = LegSpec::mainnet_xlm(1_000 * WAD);
+    leg.decimals = 18;
+    leg.price_wad = 130_000_000_000_000_000;
+    let entry = single_leg(&env, leg, 100 * WAD, MAINNET_XLM_BONUS_BPS).get_unchecked(0);
+
+    assert_eq!(entry.amount, 838_461538461538461538);
+    assert_eq!(entry.protocol_fee, 8_307692307692307692);
+    let realised_excess = entry.amount - 769_230769230769230769;
+    assert!(
+        entry.protocol_fee <= realised_excess,
+        "fee {} exceeds the realised excess {realised_excess}",
+        entry.protocol_fee
+    );
+}
+
+/// A repayment so small against so expensive an asset that the seizure rounds to
+/// zero: the leg is skipped outright rather than emitted with a zero amount,
+/// which `LiquidationPlan::validate` would reject.
+#[test]
+fn a_leg_whose_seizure_rounds_to_zero_is_skipped_entirely() {
+    let env = Env::default();
+
+    let mut leg = LegSpec::mainnet_xlm(1);
+    leg.decimals = 0;
+    leg.price_wad = WAD * 1_000_000;
+    let seized = single_leg(&env, leg, 100_000, MAINNET_XLM_BONUS_BPS);
+
+    assert_eq!(seized.len(), 0, "no entry is emitted for a zero seizure");
+}
+
+/// The sibling of the above on the floor path: a leg so small that its share of
+/// the seizure lands just under one stroop is dropped, while the legs beside it
+/// are seized normally.
+#[test]
+fn a_sub_unit_leg_is_dropped_while_its_siblings_are_still_seized() {
+    let env = Env::default();
+
+    let (assets, seized) = seize_legs(
+        &env,
+        &[
+            LegSpec::mainnet_xlm(1),
+            LegSpec::mainnet_xlm(5_449_999_999),
+            LegSpec::mainnet_xlm(5_450_000_000),
+        ],
+        1_000 * WAD,
+        MAINNET_XLM_BONUS_BPS,
+    );
+
+    assert_eq!(seized.len(), 2, "the dust leg is dropped");
+    assert!(
+        !seized
+            .iter()
+            .any(|e| e.hub_asset.asset == assets.get_unchecked(0)),
+        "the dust leg must not appear"
+    );
+    assert_eq!(
+        leg_entry(&seized, &assets.get_unchecked(1)).amount,
+        5_449_999_999
+    );
+    assert_eq!(
+        leg_entry(&seized, &assets.get_unchecked(2)).amount,
+        5_450_000_000
+    );
+}
+
+// --- the full-close gate boundary (math.rs:160-169) -----------------------
+
+/// `cap >= 0` is the gate's solvency test. A cap of exactly zero means any bonus
+/// at all pushes the health factor down, so an underfunded partial is refused.
+#[test]
+#[should_panic(expected = "Error(Contract, #135)")]
+fn the_full_close_gate_fires_when_the_hf_preserving_cap_is_exactly_zero() {
+    let env = Env::default();
+    let (contract, hub_asset, account) = repayment_fixture(&env);
+    env.as_contract(&contract, || {
+        let mut cache = Cache::new_view(&env);
+        cache.set_prices(single_price(&env, &hub_asset.asset));
+        cache.put_market_index(&hub_asset, &index_raw());
+
+        let s = snap(500 * WAD, 500 * WAD, 400 * WAD, 8 * WAD / 10, 8 * WAD / 10);
+        assert_eq!(
+            max_hf_preserving_bonus_bps(&s),
+            Some(0),
+            "fixture must sit exactly on the cap == 0 boundary"
+        );
+        let bounds = BonusBounds {
+            base: Bps::from(500i128),
+            max: max_bonus_for_threshold(&env, s.proportion_seized),
+        };
+        let curve = LiquidationCurve::from_config(&default_spoke_config());
+
+        let payments = vec![&env, (hub_asset.clone(), 100_0000000i128)];
+        normalize_repayment_plan(&env, &account, &payments, &s, bounds, &curve, &mut cache);
+    });
+}
+
+/// One basis point the other side of the same boundary the account is insolvent,
+/// the gate stops applying, and the underfunded partial is accepted.
+#[test]
+fn the_full_close_gate_yields_when_the_hf_preserving_cap_is_one_bp_negative() {
+    let env = Env::default();
+    let (contract, hub_asset, account) = repayment_fixture(&env);
+    env.as_contract(&contract, || {
+        let mut cache = Cache::new_view(&env);
+        cache.set_prices(single_price(&env, &hub_asset.asset));
+        cache.put_market_index(&hub_asset, &index_raw());
+
+        let hf = 799_920_000_000_000_000i128;
+        let debt = Wad::from(400 * WAD).div(&env, Wad::from(hf)).raw();
+        let s = snap(debt, 500 * WAD, 400 * WAD, 8 * WAD / 10, hf);
+        assert_eq!(
+            max_hf_preserving_bonus_bps(&s),
+            Some(-1),
+            "fixture must sit one bp below the cap == 0 boundary"
+        );
+        let bounds = BonusBounds {
+            base: Bps::from(500i128),
+            max: max_bonus_for_threshold(&env, s.proportion_seized),
+        };
+        let curve = LiquidationCurve::from_config(&default_spoke_config());
+
+        let payments = vec![&env, (hub_asset.clone(), 100_0000000i128)];
+        let plan =
+            normalize_repayment_plan(&env, &account, &payments, &s, bounds, &curve, &mut cache);
+
+        assert_eq!(plan.repay_usd.raw(), 100 * WAD, "partial accepted");
+        assert_eq!(plan.bonus.raw(), 500, "the base bonus is paid");
+    });
+}

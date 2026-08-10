@@ -81,7 +81,7 @@ pub fn to_reflector_asset(env: &Env, asset: &OracleAssetRef) -> ReflectorAsset {
 }
 
 pub fn min_twap_observations(records: u32) -> u32 {
-    core::cmp::max(2, records.div_ceil(2))
+    records
 }
 
 pub fn try_twap_mean_price(history: &Vec<ReflectorPriceData>) -> Option<i128> {

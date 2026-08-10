@@ -34,7 +34,7 @@
   "mainnet": {
     "rpc_url": "https://stellar-gateway.xoxno.com",
     "network_passphrase": "Public Global Stellar Network ; September 2015",
-    "timelock_min_delay_ledgers": 1,
+    "timelock_min_delay_ledgers": 34560,
     "governance": "",
     "controller": "",
     "aggregator": "CCVENFSVCBYDHVOACFZXMNNYVOZ3LKXPZYU5LUI4N7KTXOKRVYD7F3TR",

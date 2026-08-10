@@ -1,5 +1,6 @@
 use test_harness::{
     assert_contract_error, errors, eth_preset, hub_asset, usdc_preset, LendingTest, ALICE, BOB,
+    CAROL,
 };
 
 #[test]
@@ -19,6 +20,9 @@ fn test_claim_revenue_else_branch_when_reserves_fully_drained() {
     t.set_oracle_single_spot("USDC");
 
     t.supply(ALICE, "USDC", 1_000.0);
+    // Undebted supply, so the residual the borrow buffer reserves can still be
+    // withdrawn: only borrowing is bounded by it.
+    t.supply(CAROL, "USDC", 300.0);
     t.borrow(ALICE, "USDC", 700.0);
     t.advance_time(31_536_000);
     t.update_indexes_for(&["USDC"]);
@@ -37,7 +41,10 @@ fn test_claim_revenue_else_branch_when_reserves_fully_drained() {
         "expected positive USDC reserves to drain; got {}",
         res_raw
     );
-    t.borrow_raw(BOB, "USDC", res_raw);
+    let buffer_raw = t.liquidation_buffer_raw("USDC");
+    t.borrow_raw(BOB, "USDC", res_raw - buffer_raw);
+    let residual = t.pool_client("USDC").get_reserves(&usdc);
+    t.withdraw_raw(CAROL, "USDC", residual);
 
     let res_after_drain = t.pool_client("USDC").get_reserves(&usdc);
     assert_eq!(

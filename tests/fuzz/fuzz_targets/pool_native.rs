@@ -56,9 +56,20 @@ fn make_params(_env: &Env, asset: &Address, i: &In) -> MarketParamsRaw {
     }
 }
 
+/// Second market on the same underlying, never touched by the op loop.
+///
+/// Its cash is real backing that belongs to it alone, so it is exactly the
+/// condition the summed bound has to defend: the driven market must never be
+/// able to spend it.
+const SIBLING_HUB_ID: u32 = 2;
+
 fn hub_asset(asset: &Address) -> HubAssetKey {
+    hub_asset_in(asset, 1)
+}
+
+fn hub_asset_in(asset: &Address, hub_id: u32) -> HubAssetKey {
     HubAssetKey {
-        hub_id: 1,
+        hub_id,
         asset: asset.clone(),
     }
 }
@@ -89,13 +100,25 @@ fn pool_balance(env: &Env, asset: &Address, pool_addr: &Address) -> i128 {
     token::Client::new(env, asset).balance(pool_addr)
 }
 
-fn assert_cash_matches_balance(env: &Env, pool: &Address, asset: &Address, state: &PoolStateRaw) {
-
-    let balance = pool_balance(env, asset, pool);
+/// Cash is tracked per market, but the token balance is shared by every market
+/// on the same asset. Per-market `cash <= balance` holds trivially while the
+/// sum overdraws, so the bound is asserted over the group.
+fn assert_cash_matches_balance(
+    env: &Env,
+    pool: &LiquidityPoolClient<'_>,
+    pool_addr: &Address,
+    asset: &Address,
+    state: &PoolStateRaw,
+) {
+    let sibling = pool_state(pool, &hub_asset_in(asset, SIBLING_HUB_ID)).cash;
+    let tracked = state.cash + sibling;
+    let balance = pool_balance(env, asset, pool_addr);
     assert!(
-        state.cash <= balance,
-        "cash exceeds token balance: cash={} balance={}",
+        tracked <= balance,
+        "tracked cash across markets on this asset exceeds token balance: \
+         driven={} sibling={} balance={}",
         state.cash,
+        sibling,
         balance,
     );
 }
@@ -112,7 +135,7 @@ fn assert_pool_invariants(
     let borrowed = pool.get_borrowed_amount(market);
     let revenue = pool.get_revenue(market);
 
-    assert_cash_matches_balance(env, pool_addr, asset, &state);
+    assert_cash_matches_balance(env, pool, pool_addr, asset, &state);
     assert!(state.cash >= 0, "negative tracked cash: {}", state.cash);
     assert!(
         state.supplied >= 0,
@@ -244,6 +267,7 @@ fuzz_target!(|i: In| {
     let pool_addr = env.register(LiquidityPool, (admin,));
     let pool = LiquidityPoolClient::new(&env, &pool_addr);
     pool.create_market(&1, &params);
+    pool.create_market(&SIBLING_HUB_ID, &params);
 
     let receiver = Address::generate(&env);
     let payer = Address::generate(&env);
@@ -251,6 +275,11 @@ fuzz_target!(|i: In| {
     let initial_cash = 100_000_000_000_000i128;
     mint_to_pool(&env, &asset, &pool_addr, initial_cash);
     seed_cash(&env, &pool_addr, &market, initial_cash);
+
+    // Backed, so the summed bound starts tight rather than slack.
+    let sibling = hub_asset_in(&asset, SIBLING_HUB_ID);
+    mint_to_pool(&env, &asset, &pool_addr, initial_cash);
+    seed_cash(&env, &pool_addr, &sibling, initial_cash);
 
     let bootstrap_supply = amount_from_raw(i.base_pct as u32, 10_000_000_000, 50_000_000_000);
     mint_to_pool(&env, &asset, &pool_addr, bootstrap_supply);
@@ -260,7 +289,7 @@ fuzz_target!(|i: In| {
     ]))
     .expect("bootstrap supply should succeed");
     let mut supply_scaled = bootstrap_supply_out.get_unchecked(0).position.scaled_amount;
-    assert_cash_matches_balance(&env, &pool_addr, &asset, &pool_state(&pool, &market));
+    assert_cash_matches_balance(&env, &pool, &pool_addr, &asset, &pool_state(&pool, &market));
 
     let bootstrap_borrow = amount_from_raw(i.reserve_pct as u32, 1_000_000_000, 10_000_000_000);
     let bootstrap_borrow_out = flatten_contract_result(pool.try_borrow(
@@ -299,7 +328,7 @@ fuzz_target!(|i: In| {
                         );
                         supply_scaled = updated.position.scaled_amount;
                         let after = pool_state(&pool, &market);
-                        assert_cash_matches_balance(&env, &pool_addr, &asset, &after);
+                        assert_cash_matches_balance(&env, &pool, &pool_addr, &asset, &after);
                         assert!(after.supplied >= before.supplied);
                         assert!(after.borrow_index >= before.borrow_index);
                         assert!(after.supply_index >= before.supply_index);
@@ -330,7 +359,7 @@ fuzz_target!(|i: In| {
                         );
                         borrow_scaled = updated.position.scaled_amount;
                         let after = pool_state(&pool, &market);
-                        assert_cash_matches_balance(&env, &pool_addr, &asset, &after);
+                        assert_cash_matches_balance(&env, &pool, &pool_addr, &asset, &after);
                         assert!(after.borrowed >= before.borrowed);
                         assert!(after.borrow_index >= before.borrow_index);
                         assert!(after.supply_index >= before.supply_index);
@@ -362,7 +391,7 @@ fuzz_target!(|i: In| {
                         );
                         supply_scaled = updated.position.scaled_amount;
                         let after = pool_state(&pool, &market);
-                        assert_cash_matches_balance(&env, &pool_addr, &asset, &after);
+                        assert_cash_matches_balance(&env, &pool, &pool_addr, &asset, &after);
                         assert!(after.borrow_index >= before.borrow_index);
                         assert!(after.supply_index >= before.supply_index);
                     }
@@ -398,7 +427,7 @@ fuzz_target!(|i: In| {
                         );
                         borrow_scaled = updated.position.scaled_amount;
                         let after = pool_state(&pool, &market);
-                        assert_cash_matches_balance(&env, &pool_addr, &asset, &after);
+                        assert_cash_matches_balance(&env, &pool, &pool_addr, &asset, &after);
                         assert!(after.borrowed <= before.borrowed);
                         assert!(after.borrow_index >= before.borrow_index);
                         assert!(after.supply_index >= before.supply_index);
@@ -424,7 +453,7 @@ fuzz_target!(|i: In| {
                 match result {
                     Ok(()) => {
                         let after = pool_state(&pool, &market);
-                        assert_cash_matches_balance(&env, &pool_addr, &asset, &after);
+                        assert_cash_matches_balance(&env, &pool, &pool_addr, &asset, &after);
                         assert!(after.borrow_index >= before.borrow_index);
                         assert!(after.supply_index >= before.supply_index);
                     }
@@ -442,7 +471,7 @@ fuzz_target!(|i: In| {
                     Ok(amount_mut) => {
                         assert!(amount_mut.actual_amount >= 0);
                         let after = pool_state(&pool, &market);
-                        assert_cash_matches_balance(&env, &pool_addr, &asset, &after);
+                        assert_cash_matches_balance(&env, &pool, &pool_addr, &asset, &after);
                         assert!(after.revenue <= before.revenue);
                         assert!(after.borrow_index >= before.borrow_index);
                         assert!(after.supply_index >= before.supply_index);
@@ -482,7 +511,7 @@ fuzz_target!(|i: In| {
                 match result {
                     Ok(()) => {
                         let after = pool_state(&pool, &market);
-                        assert_cash_matches_balance(&env, &pool_addr, &asset, &after);
+                        assert_cash_matches_balance(&env, &pool, &pool_addr, &asset, &after);
                         match side {
                             common::types::AccountPositionType::Borrow => {
                                 assert!(after.borrowed <= before.borrowed);
@@ -518,7 +547,7 @@ fuzz_target!(|i: In| {
                         assert!(out.position.scaled_amount >= 0);
                         assert!(out.amount_received <= amount);
                         let after = pool_state(&pool, &market);
-                        assert_cash_matches_balance(&env, &pool_addr, &asset, &after);
+                        assert_cash_matches_balance(&env, &pool, &pool_addr, &asset, &after);
                         assert!(after.borrowed >= before.borrowed);
                         assert!(after.revenue >= before.revenue);
                     }

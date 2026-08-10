@@ -21,14 +21,11 @@ fn test_to_reflector_asset_string_panics() {
 }
 
 #[test]
-fn test_min_twap_observations_clamps_and_rounds_up() {
-    assert_eq!(min_twap_observations(0), 2);
-    assert_eq!(min_twap_observations(1), 2);
-    assert_eq!(min_twap_observations(2), 2);
-    assert_eq!(min_twap_observations(3), 2);
-    assert_eq!(min_twap_observations(4), 2);
-    assert_eq!(min_twap_observations(5), 3);
-    assert_eq!(min_twap_observations(12), 6);
+fn test_min_twap_observations_requires_the_full_window() {
+    // A partial window is not smoothing: every requested record must be present.
+    assert_eq!(min_twap_observations(4), 4);
+    assert_eq!(min_twap_observations(5), 5);
+    assert_eq!(min_twap_observations(12), 12);
 }
 
 fn pd(env: &soroban_sdk::Env, price: i128) -> ReflectorPriceData {

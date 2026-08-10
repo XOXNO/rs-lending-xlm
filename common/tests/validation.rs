@@ -241,9 +241,11 @@ fn liquidation_curve_rejects_bonus_factor_above_bps() {
 }
 
 #[test]
-fn liquidation_curve_accepts_bonus_factor_zero() {
+#[should_panic]
+fn liquidation_curve_rejects_bonus_factor_zero() {
     let env = Env::default();
 
+    // Factor 0 pins the bonus at base, making the dynamic curve inert.
     validate_liquidation_curve(&env, WAD + 100, WAD / 2, 0);
 }
 
@@ -399,9 +401,12 @@ fn require_wasm_receiver_rejects_account() {
 }
 
 #[test]
-fn test_validate_liquidation_fees_accepts_full_bps() {
+#[should_panic]
+fn test_validate_liquidation_fees_rejects_full_bps() {
     let env = Env::default();
-    validate_liquidation_fees(&env, crate::constants::BPS as u32);
+
+    // 100% of the bonus to the protocol leaves the liquidator nothing.
+    validate_liquidation_fees(&env, BPS as u32);
 }
 
 #[test]
@@ -445,4 +450,36 @@ fn require_non_empty_payments_rejects_an_empty_batch() {
     let env = Env::default();
     let payments: soroban_sdk::Vec<i128> = soroban_sdk::Vec::new(&env);
     require_non_empty_payments(&env, &payments);
+}
+
+/// The widest deployed LP band (mainnet XLMSolvBTC_LP) spans a 10x range in LP
+/// fair value. A constant-product share is worth 2*sqrt(Va*Vb)/S, so a pair whose
+/// legs each move several-fold legitimately needs a band this wide; the cap has to
+/// admit it or the market cannot be listed at all.
+#[test]
+fn lp_sanity_band_admits_a_tenfold_fair_value_range() {
+    let env = Env::default();
+
+    validate_lp_sanity_band(&env, WAD, 10 * WAD);
+}
+
+#[test]
+#[should_panic]
+fn lp_sanity_band_rejects_a_twentyfold_fair_value_range() {
+    let env = Env::default();
+
+    validate_lp_sanity_band(&env, WAD, 20 * WAD);
+}
+
+/// Every Aquarius LP band this repo actually ships must pass the cap the code
+/// enforces, or the listing reverts after a full timelock cycle.
+#[test]
+fn lp_sanity_band_admits_every_deployed_band() {
+    let env = Env::default();
+
+    // mainnet XLMUSDC_LP, XLMSolvBTC_LP, XAUMUSDC_LP; testnet XLMUSDC_LP.
+    validate_lp_sanity_band(&env, 450_000_000_000_000_000, 2_500_000_000_000_000_000);
+    validate_lp_sanity_band(&env, 25_000_000_000_000_000_000, 250_000_000_000_000_000_000);
+    validate_lp_sanity_band(&env, 6_000_000_000_000_000_000, 25_000_000_000_000_000_000);
+    validate_lp_sanity_band(&env, 400_000_000_000_000_000, 3_000_000_000_000_000_000);
 }

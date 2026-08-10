@@ -397,7 +397,7 @@ fn regression_third_party_keeper_cannot_force_adverse_tuple_below_min_hf() {
     let fee_before = supply_fee_bps(&t, account_id, "USDC");
     assert_eq!(
         (lt_before, bonus_before, fee_before),
-        (8_000, 500, 100),
+        (8_000, 500, 1_200),
         "preset tuple"
     );
 

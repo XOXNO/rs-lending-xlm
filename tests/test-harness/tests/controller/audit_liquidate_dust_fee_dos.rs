@@ -34,7 +34,7 @@ fn audit_liquidate_contracts_dust_fee_full_close_dos() {
         .with_max_utilization_disabled_all_markets()
         .build();
 
-    assert_eq!(t.get_asset_config("XLM").liquidation_fees, 100);
+    assert_eq!(t.get_asset_config("XLM").liquidation_fees, 1200);
 
     t.supply(BOB, "ETH", 100.0);
     t.supply(BOB, "XLM", 100_000.0);

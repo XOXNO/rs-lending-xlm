@@ -209,8 +209,8 @@ fn test_protocol_fee_on_bonus_only_quantitative() {
     if liquidator_received > 0.0 {
         let fee_pct_of_seizure = fee_collected / liquidator_received * 100.0;
         assert!(
-            fee_pct_of_seizure < 0.5,
-            "fee should be <<1% of total seizure (bonus-only): {:.4}%",
+            fee_pct_of_seizure < 1.0,
+            "fee should be <1% of total seizure (bonus-only): {:.4}%",
             fee_pct_of_seizure
         );
     }

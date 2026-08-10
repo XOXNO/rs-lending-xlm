@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Context, Result};
+use std::sync::atomic::{AtomicU64, Ordering};
 use stellar_xdr::curr::{
     ContractExecutable, ContractId, Hash, LedgerEntryData, LedgerKey, ScAddress,
     ScContractInstance, ScMapEntry, ScSymbol, ScVal, StringM,
@@ -398,7 +399,6 @@ async fn discover_role_keys(
 }
 
 struct GovernanceEntries {
-
     instance: LedgerEntryQuery,
     role_entries: Vec<LedgerEntryQuery>,
 }
@@ -437,7 +437,6 @@ async fn discover_governance(
 }
 
 struct OracleAdapterEntries {
-
     instance: LedgerEntryQuery,
     persistent_entries: Vec<LedgerEntryQuery>,
 }
@@ -483,8 +482,7 @@ async fn discover_oracle_adapter(
     let mut derived_keys: Vec<LedgerKey> = Vec::new();
 
     for signer in &signers {
-        derived_keys
-            .push(OracleAdapterKey::SignerFeeds(signer.clone()).to_ledger_key(adapter_id)?);
+        derived_keys.push(OracleAdapterKey::SignerFeeds(signer.clone()).to_ledger_key(adapter_id)?);
     }
 
     for id_chunk in (0..asset_count).collect::<Vec<_>>().chunks(chunk) {
@@ -494,9 +492,8 @@ async fn discover_oracle_adapter(
             .collect::<Result<Vec<_>>>()?;
         for row in client.get_ledger_entries(&keys).await? {
             if let Some(asset) = contract_data_scval(&row) {
-                derived_keys.push(
-                    OracleAdapterKey::AssetIndex(asset.clone()).to_ledger_key(adapter_id)?,
-                );
+                derived_keys
+                    .push(OracleAdapterKey::AssetIndex(asset.clone()).to_ledger_key(adapter_id)?);
                 derived_keys.push(OracleAdapterKey::FeedMapping(asset).to_ledger_key(adapter_id)?);
             }
             persistent_entries.push(row);
@@ -515,8 +512,7 @@ async fn discover_oracle_adapter(
                 derived_keys
                     .push(OracleAdapterKey::FeedOwner(feed.clone()).to_ledger_key(adapter_id)?);
                 derived_keys.push(
-                    OracleAdapterKey::CurrentAggregate(feed.clone())
-                        .to_ledger_key(adapter_id)?,
+                    OracleAdapterKey::CurrentAggregate(feed.clone()).to_ledger_key(adapter_id)?,
                 );
                 derived_keys
                     .push(OracleAdapterKey::History(feed.clone()).to_ledger_key(adapter_id)?);
@@ -593,6 +589,12 @@ fn signers_needle() -> Option<ScVal> {
     Some(ScVal::Vec(Some(stellar_xdr::curr::ScVec(vec))))
 }
 
+/// Rotating start of the per-user scan window, carried across ticks.
+///
+/// A fixed `1..=max_accounts_scan` prefix would permanently exclude every
+/// account created past the cap, since account ids only ever increase.
+static USER_SCAN_CURSOR: AtomicU64 = AtomicU64::new(1);
+
 async fn discover_user_keys(
     client: &RpcClient,
     controller_id: &[u8; 32],
@@ -600,24 +602,36 @@ async fn discover_user_keys(
     max_accounts_scan: u64,
     chunk_size: usize,
 ) -> Result<Vec<LedgerEntryQuery>> {
-    let scan_ceiling = account_nonce.min(max_accounts_scan.max(1));
-    if account_nonce > scan_ceiling {
-        warn!(
+    let window = max_accounts_scan.max(1).min(account_nonce);
+    let start = {
+        let cursor = USER_SCAN_CURSOR.load(Ordering::Relaxed);
+        if cursor < 1 || cursor > account_nonce {
+            1
+        } else {
+            cursor
+        }
+    };
+    // Wrap so successive ticks cover every id in ceil(nonce / window) rounds.
+    let ids: Vec<u64> = (0..window)
+        .map(|offset| (start - 1 + offset) % account_nonce + 1)
+        .collect();
+    let next = (start - 1 + window) % account_nonce + 1;
+    USER_SCAN_CURSOR.store(next, Ordering::Relaxed);
+
+    if account_nonce > window {
+        info!(
             target: "keeper.discovery",
             account_nonce,
             max_accounts_scan,
-            dropped_from = scan_ceiling + 1,
-            dropped_to = account_nonce,
-            "AccountNonce exceeds max_accounts_scan — per-user scan TRUNCATED; \
-             ids {}..={} are NOT being bumped this tick (raise schedule.max_accounts_scan)",
-            scan_ceiling + 1,
-            account_nonce
+            scanned_from = start,
+            next_tick_from = next,
+            "per-user scan window rotating; full coverage every {} ticks",
+            account_nonce.div_ceil(window)
         );
     }
 
     let mut rows: Vec<LedgerEntryQuery> = Vec::new();
     let chunk = chunk_size.max(1);
-    let ids: Vec<u64> = (1..=scan_ceiling).collect();
 
     for id_chunk in ids.chunks(chunk) {
         let mut keys = Vec::with_capacity(id_chunk.len() * 4);
@@ -632,7 +646,7 @@ async fn discover_user_keys(
 
     debug!(
         target: "keeper.discovery",
-        scanned = scan_ceiling,
+        scanned = ids.len(),
         per_user_entries = rows.len(),
         "per-user account keys discovered"
     );
