@@ -42,6 +42,8 @@ pub enum DeFindexStrategyError {
     InsufficientBalance = 461,
 
     ArithmeticError = 462,
+
+    AccountLookupFailed = 463,
 }
 
 #[contracttype]
@@ -320,16 +322,22 @@ fn resolve_vault_account(
     if stored == 0 {
         return 0;
     }
-    // Any failure to confirm the account — removed, or archived and unrestorable
-    // in this footprint — is treated as gone, so the mapping can self-heal.
-    if controller.try_account_exists(&stored) == Ok(Ok(true)) {
-        extend_vault_account_ttl(env, vault);
-        return stored;
+    match controller.try_account_exists(&stored) {
+        Ok(Ok(true)) => {
+            extend_vault_account_ttl(env, vault);
+            stored
+        }
+        // Only an explicit "gone" clears. The mapping is the sole route back to
+        // the collateral it points at and there is no way to re-point it, so a
+        // lookup that merely failed to answer must not be read as gone.
+        Ok(Ok(false)) => {
+            if clear_if_gone {
+                clear_vault_account(env, vault);
+            }
+            0
+        }
+        _ => panic_with_error!(env, DeFindexStrategyError::AccountLookupFailed),
     }
-    if clear_if_gone {
-        clear_vault_account(env, vault);
-    }
-    0
 }
 
 fn prepare_vault_account_for_supply(
