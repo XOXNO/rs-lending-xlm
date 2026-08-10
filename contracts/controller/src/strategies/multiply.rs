@@ -3,7 +3,7 @@ use crate::events::InitialMultiplyPaymentEvent;
 use common::errors::{CollateralError, GenericError, StrategyError};
 use common::types::{Account, HubAssetKey, PositionMode, StrategySwap};
 use common::validation::require_positive_amount;
-use soroban_sdk::{assert_with_error, panic_with_error, token, vec, Address, Env};
+use soroban_sdk::{assert_with_error, panic_with_error, vec, Address, Env};
 
 use crate::context::Cache;
 use crate::positions::require_can_supply;
