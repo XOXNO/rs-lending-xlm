@@ -930,10 +930,10 @@ fn seize_fixture_with_collateral(
     (contract, hub_asset, account)
 }
 
-/// A full close in the solvent-toxic band must not pay the liquidator less than
-/// they put in. The seizure clamps to the collateral that exists, so the bonus is
-/// never realised — but the fee is derived from the clamped seizure as though it
-/// had been, and the difference is larger than the whole realised excess.
+/// A full close in the solvent-toxic band pays the liquidator a positive net.
+///
+/// The seizure clamps to the collateral that exists, so the bonus is not fully
+/// realised; the fee follows the realised excess and so stays below it.
 #[test]
 fn full_close_in_the_solvent_toxic_band_pays_the_liquidator_a_positive_net() {
     let env = Env::default();

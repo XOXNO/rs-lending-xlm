@@ -229,8 +229,8 @@ fn protocol_fee_bonus_math(
     cvlr_assume!(liquidation_fees < BPS);
 
     let one_plus_bonus_wad = WAD + mul_div_half_up(&e, bonus_bps, WAD, BPS);
-    // Mirrors math.rs: the seizure clamps to the collateral on hand, but the fee
-    // base is the pre-clamp repayment share.
+    // Mirrors math.rs: the seizure clamps to the collateral on hand, the fee base
+    // is the repayment share taken before that clamp.
     let capped = if seizure_amount > actual_amount {
         actual_amount
     } else {
@@ -269,19 +269,18 @@ fn protocol_fee_bonus_math(
         cvlr_assert!(fee_final == 0);
     }
 
-    // Nothing clamped: the realised excess is exactly the full bonus, so the
-    // fee is identical to the pre-clamp derivation.
+    // Nothing clamped: the realised excess is exactly the full bonus.
     if seizure_amount <= actual_amount {
         cvlr_assert!(bonus_amount == seizure_amount - base_amount);
     }
 }
 
-/// The property F-2 was about: a liquidator who performs the close the protocol
-/// mandates must never receive less than they paid in.
+/// A liquidator performing the close the protocol mandates never receives less
+/// than they paid in.
 ///
-/// Net, in collateral units, is `capped - base - fee`. Because the fee is a
-/// fraction strictly below one of `capped - base`, the net is non-negative for
-/// every clamp, bonus and HF the curve can produce.
+/// Net, in collateral units, is `capped - base - fee`. The fee is a fraction
+/// strictly below one of `capped - base`, so the net is non-negative for every
+/// clamp, bonus and HF the curve can produce.
 #[rule]
 fn liquidator_net_is_non_negative_for_any_clamp(
     e: Env,
@@ -320,8 +319,8 @@ fn liquidator_net_is_non_negative_for_any_clamp(
     }
 }
 
-/// Tightening the clamp may only reduce the fee. This is what makes the change
-/// safe by construction: no input can be made to pay MORE than before.
+/// Tightening the clamp may only reduce the fee, so no input can be driven to
+/// pay more by seizing less.
 #[rule]
 fn fee_is_monotone_non_increasing_in_the_clamp(
     e: Env,

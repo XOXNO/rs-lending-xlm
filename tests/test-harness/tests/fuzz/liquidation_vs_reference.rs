@@ -163,8 +163,7 @@ fn run_liquidation_differential(
     let usdc_rel_ok = usdc_ref_abs == 0 || usdc_diff * 200 <= usdc_ref_abs;
     prop_assert!(usdc_diff <= ULP_BOUND_TOKENS || usdc_rel_ok);
 
-    // The protocol fee was modelled by the reference and never compared. The
-    // liquidation is a single transaction at a fixed timestamp, so the whole
+    // The liquidation is a single transaction at a fixed timestamp, so the whole
     // revenue delta is the withheld fee.
     let prod_usdc_fee = t.snapshot_revenue("USDC") - usdc_revenue_before;
     let (_fid, ref_usdc_fee_tokens) = ref_result

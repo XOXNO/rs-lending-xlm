@@ -91,8 +91,7 @@ fn test_multiply_rejects_unlisted_third_token_payment_before_transfer() {
 
     match result {
         // The payment asset is priced with the rest of the strategy legs, so an
-        // unlisted token is rejected at the price prefetch — earlier, and with a
-        // more accurate reason, than the convert-steps branch it used to reach.
+        // unlisted token is rejected at the price prefetch, before any transfer.
         Err(Ok(err)) => assert_eq!(
             err,
             soroban_sdk::Error::from_contract_error(errors::ORACLE_NOT_CONFIGURED),

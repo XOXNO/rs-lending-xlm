@@ -116,8 +116,8 @@ pub(crate) fn calculate_ltv_collateral_wad(
             feed.price,
         );
 
-        // A gated tuple can leave a position with LTV above its frozen LT;
-        // clamp so the origination buffer cannot invert.
+        // Clamped as the gate clamps it, so the view cannot report more borrowing
+        // power than origination will grant.
         let effective_ltv = position.loan_to_value.min(position.liquidation_threshold);
         ltv = ltv.checked_add(env, effective_ltv.apply_to_wad_floor(env, value));
     }
