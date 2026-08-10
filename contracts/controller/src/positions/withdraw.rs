@@ -229,7 +229,7 @@ pub(crate) fn merge_withdraw_leg(
 
     if matches!(refresh_spoke, SpokeRefresh::Refresh) && result_position.scaled_amount != Ray::ZERO
     {
-        let config: AssetConfig = (&cache.require_spoke_asset(account.spoke_id, hub_asset)).into();
+        let config: AssetConfig = cache.require_spoke_asset(account.spoke_id, hub_asset);
         refresh_supply_risk_params(
             env,
             cache,
