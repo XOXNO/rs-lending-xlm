@@ -2,7 +2,7 @@ use common::errors::OracleError;
 use common::math::fp::Wad;
 use common::oracle::observation::{is_stale, MAX_LEG_AGE_SPREAD_SECONDS};
 use common::types::{
-    AssetOracle, FeedSource, PriceFeedRaw, PriceKey, PriceSource, PriceStatus, ProviderRef,
+    AssetOracle, FeedNature, FeedSource, PriceFeedRaw, PriceKey, PriceSource, PriceStatus, ProviderRef,
     ScaledSource, MAX_RESOLUTION_DEPTH,
 };
 use soroban_sdk::{panic_with_error, Env};
@@ -17,6 +17,7 @@ struct Reading {
     price_wad: i128,
     timestamp: u64,
     stale: bool,
+    nature: FeedNature,
 }
 
 #[derive(Clone, Copy)]
@@ -331,11 +332,17 @@ fn blend(env: &Env, oracle: &AssetOracle, legs: Legs) -> Outcome {
         Legs::One(r) => Outcome::one(r),
         Legs::Partial { reading, slot } => Outcome::partial(reading, slot),
         Legs::Two { primary, anchor } => {
-            // The midpoint weights both legs equally, so a leg far older than
-            // its partner would drag the result while each still satisfies its
-            // own bound. Bound the spread as well as the absolute ages.
+            // The midpoint weights both legs equally, so a market leg far older
+            // than its market partner would drag the result while each still
+            // satisfies its own bound. A fundamental leg is exempt: it prices a
+            // slow-moving quantity and its own bound is the intended budget, so
+            // holding it to a market leg's cadence would only fail closed.
+            let spread_bounded =
+                primary.nature == FeedNature::Market && anchor.nature == FeedNature::Market;
             let age_spread = primary.timestamp.abs_diff(anchor.timestamp);
-            let stale = primary.stale || anchor.stale || age_spread > MAX_LEG_AGE_SPREAD_SECONDS;
+            let stale = primary.stale
+                || anchor.stale
+                || (spread_bounded && age_spread > MAX_LEG_AGE_SPREAD_SECONDS);
             let ts = primary.timestamp.min(anchor.timestamp);
             let deviation =
                 !within_tolerance_band(env, anchor.price_wad, primary.price_wad, &oracle.tolerance);
@@ -381,6 +388,7 @@ pub(crate) fn blend_partial(
                 price_wad,
                 timestamp,
                 stale,
+                nature: FeedNature::Market,
             },
             slot,
         },
@@ -456,7 +464,18 @@ fn read_source(
         price_wad: observation.price_wad,
         timestamp,
         stale,
+        nature: source_nature(source),
     }))
+}
+
+/// A source is fundamental only if every feed it reads is: a fundamental factor
+/// scaled by a market quote still moves with the market.
+fn source_nature(source: &PriceSource) -> FeedNature {
+    match source {
+        PriceSource::Feed(feed) => feed.provider.nature(),
+        PriceSource::Scaled(scaled) => scaled.factor.provider.nature(),
+        PriceSource::AquariusLp(_) | PriceSource::AquariusStableLp(_) => FeedNature::Market,
+    }
 }
 
 fn evaluate_source(

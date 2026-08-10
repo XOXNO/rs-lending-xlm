@@ -24,7 +24,13 @@ pub const MAX_SINGLE_SOURCE_SANITY_BAND_BPS: i128 = 1_000;
 /// in as an equal.
 pub const MAX_LEG_AGE_SPREAD_SECONDS: u64 = 3_600;
 
-pub const MAX_LP_SANITY_BAND_BPS: i128 = 5_000;
+/// Widest band an LP source may declare, as `(max-min)/(max+min)`.
+///
+/// 8182 bps is exactly a 10x range in LP fair value. A constant-product share is
+/// worth `2*sqrt(Va*Vb)/S`, so a volatile pair's fair value legitimately ranges
+/// several-fold over a listing's life and a tighter cap would make it unlistable
+/// — the band fails closed, so an unlistable market is not the safe direction.
+pub const MAX_LP_SANITY_BAND_BPS: i128 = 8_182;
 
 pub fn try_normalize_positive_price(price: i128, decimals: u32) -> Option<i128> {
     if price <= 0 || decimals > WAD_DECIMALS {

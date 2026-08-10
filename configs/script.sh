@@ -1279,6 +1279,10 @@ validate_configs() {
                         "$cex"|"$dex"|"$fx"|"") ;;
                         *) vc_warn "market ${m}: sources[$i] Reflector ${pcontract} is none of networks.json cex/dex/fx oracles" ;;
                     esac
+                    if [ -n "$dex" ] && [ "$pcontract" = "$dex" ] &&
+                       printf '%s' "$sjson" | jq -e 'has("Feed")' >/dev/null; then
+                        vc_err "market ${m}: sources[$i] reads the Reflector DEX oracle as a bare Feed; its base is USDC, not USD, so attest rejects it — wrap it in Scaled with quote Token(USDC)"
+                    fi
                     ;;
                 RedStone)
                     if [ -n "$pcontract" ] && [ "$pcontract" != "$redstone" ]; then

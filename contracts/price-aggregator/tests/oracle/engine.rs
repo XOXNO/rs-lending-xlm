@@ -23,15 +23,79 @@ fn at_now(env: &Env) {
 }
 
 fn multi_feed(env: &Env, adapter: &Address, feed: &str, max_stale: u64) -> FeedSource {
+    nature_feed(env, adapter, feed, max_stale, FeedNature::Fundamental)
+}
+
+fn nature_feed(
+    env: &Env,
+    adapter: &Address,
+    feed: &str,
+    max_stale: u64,
+    nature: FeedNature,
+) -> FeedSource {
     FeedSource {
         provider: ProviderRef::RedStone(MultiFeedRef {
             contract: adapter.clone(),
             feed_id: String::from_str(env, feed),
-            nature: FeedNature::Fundamental,
+            nature,
         }),
         decimals: 8,
         max_stale_seconds: max_stale,
     }
+}
+
+/// Mainnet's shape: a fast market leg blended with a slow fundamental leg whose
+/// own bound legitimately allows it to lag by hours.
+const SLOW_LEG_BOUND: u64 = 57_600;
+
+fn mixed_pair_key(env: &Env, adapter: &Address, fast: FeedNature, slow: FeedNature) -> PriceKey {
+    let key = PriceKey::Token(Address::generate(env));
+    let a = PriceSource::Feed(nature_feed(env, adapter, "A", ASSET_CEILING, fast));
+    let b = PriceSource::Feed(nature_feed(env, adapter, "B", SLOW_LEG_BOUND, slow));
+    registry::store_oracle(
+        env,
+        &key,
+        &oracle(
+            env,
+            sources(env, &[a, b]),
+            SLOW_LEG_BOUND,
+            WAD / 2,
+            2 * WAD,
+        ),
+    );
+    key
+}
+
+#[test]
+fn test_a_fundamental_leg_may_lag_its_market_partner_past_the_spread_bound() {
+    let env = Env::default();
+    at_now(&env);
+    let (adapter, client) = register_redstone_feed(&env);
+    publish(&client, &env, "A", WAD, 0);
+    // Five hours old: inside its own 57600s bound, far outside the spread bound.
+    publish(&client, &env, "B", WAD, 18_000);
+
+    in_contract(&env, || {
+        let key = mixed_pair_key(&env, &adapter, FeedNature::Market, FeedNature::Fundamental);
+        let mut cache = Session::new(&env);
+        assert_eq!(resolve(&mut cache, &key, 0).price_wad, WAD);
+    });
+}
+
+#[test]
+#[should_panic]
+fn test_two_market_legs_still_cannot_straddle_the_spread_bound() {
+    let env = Env::default();
+    at_now(&env);
+    let (adapter, client) = register_redstone_feed(&env);
+    publish(&client, &env, "A", WAD, 0);
+    publish(&client, &env, "B", WAD, 18_000);
+
+    in_contract(&env, || {
+        let key = mixed_pair_key(&env, &adapter, FeedNature::Market, FeedNature::Market);
+        let mut cache = Session::new(&env);
+        let _ = resolve(&mut cache, &key, 0);
+    });
 }
 
 fn oracle(

@@ -451,3 +451,35 @@ fn require_non_empty_payments_rejects_an_empty_batch() {
     let payments: soroban_sdk::Vec<i128> = soroban_sdk::Vec::new(&env);
     require_non_empty_payments(&env, &payments);
 }
+
+/// The widest deployed LP band (mainnet XLMSolvBTC_LP) spans a 10x range in LP
+/// fair value. A constant-product share is worth 2*sqrt(Va*Vb)/S, so a pair whose
+/// legs each move several-fold legitimately needs a band this wide; the cap has to
+/// admit it or the market cannot be listed at all.
+#[test]
+fn lp_sanity_band_admits_a_tenfold_fair_value_range() {
+    let env = Env::default();
+
+    validate_lp_sanity_band(&env, WAD, 10 * WAD);
+}
+
+#[test]
+#[should_panic]
+fn lp_sanity_band_rejects_a_twentyfold_fair_value_range() {
+    let env = Env::default();
+
+    validate_lp_sanity_band(&env, WAD, 20 * WAD);
+}
+
+/// Every Aquarius LP band this repo actually ships must pass the cap the code
+/// enforces, or the listing reverts after a full timelock cycle.
+#[test]
+fn lp_sanity_band_admits_every_deployed_band() {
+    let env = Env::default();
+
+    // mainnet XLMUSDC_LP, XLMSolvBTC_LP, XAUMUSDC_LP; testnet XLMUSDC_LP.
+    validate_lp_sanity_band(&env, 450_000_000_000_000_000, 2_500_000_000_000_000_000);
+    validate_lp_sanity_band(&env, 25_000_000_000_000_000_000, 250_000_000_000_000_000_000);
+    validate_lp_sanity_band(&env, 6_000_000_000_000_000_000, 25_000_000_000_000_000_000);
+    validate_lp_sanity_band(&env, 400_000_000_000_000_000, 3_000_000_000_000_000_000);
+}
