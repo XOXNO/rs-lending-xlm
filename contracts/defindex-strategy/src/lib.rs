@@ -8,7 +8,7 @@ use common::types::pool::HubAssetKey;
 use controller_interface::ControllerClient;
 
 use soroban_sdk::{
-    contract, contracterror, contractevent, contractimpl, contracttype, panic_with_error, token,
+    contract, contracterror, contractevent, contractimpl, contracttype, panic_with_error,
     vec, Address, Bytes, Env, TryFromVal, Val, Vec,
 };
 
@@ -202,16 +202,23 @@ impl DeFindexStrategyTrait for Strategy {
 
         let ctx = Ctx::try_load(&env)?;
 
-        token::Client::new(&env, &ctx.cfg.asset).transfer(&from, &ctx.strategy, &amount);
+        let received = common::token::transfer_amount_measured(
+            &env,
+            &ctx.cfg.asset,
+            &from,
+            &ctx.strategy,
+            amount,
+            common::errors::GenericError::AmountMustBePositive,
+        );
 
         let stored_id = prepare_vault_account_for_supply(ctx.env, &ctx.controller, &from);
-        ctx.authorize_supply_to_pool(amount);
+        ctx.authorize_supply_to_pool(received);
 
         let new_or_existing_id = ctx.controller.supply(
             &ctx.strategy,
             &stored_id,
             &ctx.cfg.spoke_id,
-            &ctx.to_payment(amount),
+            &ctx.to_payment(received),
         );
         set_vault_account(ctx.env, &from, new_or_existing_id);
 

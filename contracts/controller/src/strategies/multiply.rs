@@ -166,13 +166,19 @@ fn collect_initial_multiply_payment(
 
     require_positive_amount(env, *payment_amount);
 
-    let payment_tok = token::Client::new(env, &payment.asset);
-    payment_tok.transfer(caller, env.current_contract_address(), payment_amount);
+    let received = common::token::transfer_amount_measured(
+        env,
+        &payment.asset,
+        caller,
+        &env.current_contract_address(),
+        *payment_amount,
+        GenericError::AmountMustBePositive,
+    );
 
     if payment.asset == collateral.asset {
-        (*payment_amount, 0)
+        (received, 0)
     } else if payment.asset == debt.asset {
-        (0, *payment_amount)
+        (0, received)
     } else {
         let Some(convert) = convert_swap.as_ref() else {
             panic_with_error!(env, StrategyError::ConvertStepsRequired);
@@ -182,7 +188,7 @@ fn collect_initial_multiply_payment(
             env,
             caller,
             &payment.asset,
-            *payment_amount,
+            received,
             &collateral.asset,
             convert,
         );

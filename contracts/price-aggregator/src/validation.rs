@@ -12,7 +12,7 @@ use soroban_sdk::{panic_with_error, Address, Env, Vec};
 
 use crate::properties::SourceProperties;
 
-const MIN_SMOOTHING_TWAP_RECORDS: u32 = 2;
+const MIN_SMOOTHING_TWAP_RECORDS: u32 = 3;
 
 pub(crate) fn source_count(env: &Env, count: u32) {
     if !(MIN_SOURCES..=MAX_SOURCES).contains(&count) {

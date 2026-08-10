@@ -138,7 +138,7 @@ fn reflector_leg(env: &Env, contract: &Address, decimals: u32) -> FeedSource {
         provider: ProviderRef::Reflector(ReflectorFeedRef {
             contract: contract.clone(),
             asset: OracleAssetRef::Symbol(Symbol::new(env, "BTC")),
-            read_mode: OracleReadMode::Twap(2),
+            read_mode: OracleReadMode::Twap(3),
         }),
         decimals,
         max_stale_seconds: 3_600,
