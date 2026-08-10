@@ -31,6 +31,7 @@ impl Ed25519Signer {
     }
 
     pub fn public_key_strkey(&self) -> String {
+
         format!("{}", StrKeyPublicKey(self.public_key_bytes()))
     }
 

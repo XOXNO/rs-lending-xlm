@@ -48,6 +48,7 @@ pub struct ContractsConfig {
 }
 
 impl ContractsConfig {
+
     fn require_aggregator_for_markets(&self) -> Result<()> {
         if self.price_aggregator.is_none()
             && (!self.markets.is_empty() || !self.market_assets.is_empty())
@@ -270,11 +271,14 @@ mod tests {
 
     #[test]
     fn markets_without_price_aggregator_fail_validation() {
-        let with_markets =
-            contracts("markets:\n  - { hub_id: 1, asset: CASSET }\nprice_aggregator: \"\"");
+        let with_markets = contracts(
+            "markets:\n  - { hub_id: 1, asset: CASSET }\nprice_aggregator: \"\"",
+        );
         assert!(with_markets.require_aggregator_for_markets().is_err());
 
-        let wired = contracts("markets:\n  - { hub_id: 1, asset: CASSET }\nprice_aggregator: CAGG");
+        let wired = contracts(
+            "markets:\n  - { hub_id: 1, asset: CASSET }\nprice_aggregator: CAGG",
+        );
         assert!(wired.require_aggregator_for_markets().is_ok());
 
         assert!(contracts("").require_aggregator_for_markets().is_ok());

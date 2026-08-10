@@ -42,13 +42,7 @@ fn plan(
     want: Decision,
     build: impl Fn(&[LedgerKey]) -> Result<TxJob>,
 ) -> Result<Vec<TxJob>> {
-    plan_with_chunk(
-        snapshot,
-        safety_ledgers,
-        want,
-        MAX_KEYS_PER_EXTEND_OP,
-        build,
-    )
+    plan_with_chunk(snapshot, safety_ledgers, want, MAX_KEYS_PER_EXTEND_OP, build)
 }
 
 fn plan_with_chunk(
