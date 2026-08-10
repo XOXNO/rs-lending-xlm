@@ -74,11 +74,10 @@ fn multiply_requires_collateralizable(
     );
 
     let mut cache = crate::context::Cache::new(&e);
-    let config: common::types::AssetConfig = (&cache.require_spoke_asset(
+    let config: common::types::AssetConfig = cache.require_spoke_asset(
         crate::spec::fixture::SPOKE_ID,
         &hub0(collateral_token.clone()),
-    ))
-        .into();
+    );
     cvlr_assume!(!config.is_collateralizable);
 
     crate::spec::compat::multiply_minimal(

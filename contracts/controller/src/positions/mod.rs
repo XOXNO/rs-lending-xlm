@@ -49,7 +49,6 @@ use soroban_sdk::{
 };
 
 use crate::account;
-use crate::config;
 use crate::context::Cache;
 use crate::events;
 use crate::risk::{self, validation};
@@ -318,8 +317,7 @@ pub(crate) fn require_can_supply(
     spoke_id: u32,
     hub_asset: &HubAssetKey,
 ) {
-    // TODO: Use Cache to cache hub ID storage and avoid a loop of reads if that ID was fetched and status checked once
-    config::require_hub_active(env, hub_asset.hub_id);
+    cache.require_hub_active(hub_asset.hub_id);
     // Unlisted assets revert `AssetNotInSpoke`.
     let asset_config = cache.require_listed_active_config(spoke_id, hub_asset);
     // New entries: frozen blocks; paused blocks every verb.
@@ -348,8 +346,7 @@ pub(crate) fn validate_position_entry_gates(
                 require_can_supply(env, cache, account.spoke_id, &hub_asset);
             }
             AccountPositionType::Borrow => {
-                // TODO: Use Cache to cache hub ID storage and avoid a loop of reads if that ID was fetched and status checked once
-                config::require_hub_active(env, hub_asset.hub_id);
+                cache.require_hub_active(hub_asset.hub_id);
                 // Unlisted assets revert `AssetNotInSpoke`.
                 let asset_config = cache.require_listed_active_config(account.spoke_id, &hub_asset);
                 // New entries: frozen blocks; paused blocks every verb.

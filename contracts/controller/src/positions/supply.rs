@@ -101,8 +101,7 @@ fn build_supply_entries(
 ) -> Vec<PoolSupplyEntry> {
     let mut entries: Vec<PoolSupplyEntry> = Vec::new(env);
     for (hub_asset, amount_in) in aggregated {
-        let asset_config: AssetConfig =
-            (&cache.require_spoke_asset(account.spoke_id, &hub_asset)).into();
+        let asset_config: AssetConfig = cache.require_spoke_asset(account.spoke_id, &hub_asset);
         let received = payments::transfer_amount_measured(
             env,
             &hub_asset.asset,
@@ -140,8 +139,7 @@ fn merge_supply_leg(
     cache: &mut Cache,
 ) {
     let hub_asset = &entry.action.hub_asset;
-    let asset_config: AssetConfig =
-        (&cache.require_spoke_asset(account.spoke_id, hub_asset)).into();
+    let asset_config: AssetConfig = cache.require_spoke_asset(account.spoke_id, hub_asset);
 
     let mut position = account.get_or_create_supply_position(hub_asset, &asset_config);
     let old_scaled = position.scaled_amount;

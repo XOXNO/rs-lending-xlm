@@ -51,6 +51,16 @@ impl Cache {
         &mut self,
         spoke_id: u32,
         hub_asset: &HubAssetKey,
+    ) -> AssetConfig {
+        let asset = self.require_spoke_asset_config(spoke_id, hub_asset);
+
+        (&asset).into()
+    }
+
+    pub(crate) fn require_spoke_asset_config(
+        &mut self,
+        spoke_id: u32,
+        hub_asset: &HubAssetKey,
     ) -> SpokeAssetConfig {
         self.cached_spoke_asset(spoke_id, hub_asset)
             .unwrap_or_else(|| panic_with_error!(&self.env, SpokeError::AssetNotInSpoke))
@@ -62,7 +72,7 @@ impl Cache {
         hub_asset: &HubAssetKey,
     ) -> AssetConfig {
         self.active_spoke(spoke_id);
-        (&self.require_spoke_asset(spoke_id, hub_asset)).into()
+        self.require_spoke_asset(spoke_id, hub_asset)
     }
 
     pub(crate) fn spoke_config(&mut self, spoke_id: u32) -> SpokeConfig {
@@ -90,7 +100,8 @@ impl Cache {
         market_index: &MarketIndexRaw,
         decimals: u32,
     ) {
-        let cap = side.cap(&self.require_spoke_asset(spoke_id, hub_asset));
+        let spoke_config = self.require_spoke_asset_config(spoke_id, hub_asset);
+        let cap = side.cap(&spoke_config);
         let env = self.env.clone();
         self.require_spoke_usage_context(spoke_id).apply_entry(
             &env,

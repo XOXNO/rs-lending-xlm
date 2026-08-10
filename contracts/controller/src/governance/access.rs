@@ -1,15 +1,13 @@
 use common::errors::GenericError;
 use common::types::{ControllerKey, PositionLimits};
 use soroban_sdk::{assert_with_error, panic_with_error, Address, BytesN, Env};
-use stellar_access::ownable;
 
-use common::constants::DEFAULT_MIN_BORROW_COLLATERAL_USD_WAD;
-
-use crate::storage;
 #[cfg(test)]
 use crate::Controller;
-
-const INITIAL_APP_VERSION: u32 = 1;
+use crate::{config, constants::INITIAL_APP_VERSION, storage};
+use common::constants::{DEFAULT_MIN_BORROW_COLLATERAL_USD_WAD, POSITION_LIMIT_MAX};
+use stellar_access::*;
+use stellar_contract_utils::*;
 
 fn owner_or_panic(env: &Env) -> Address {
     ownable::get_owner(env).unwrap_or_else(|| panic_with_error!(env, GenericError::OwnerNotSet))
@@ -17,44 +15,32 @@ fn owner_or_panic(env: &Env) -> Address {
 
 pub(crate) fn init(env: &Env, admin: &Address) {
     ownable::set_owner(env, admin);
-    // `ownable::set_owner` is a bare storage write, so without this the initial
-    // owner is invisible to any event-sourced consumer: `ownership_transfer*`
-    // only fires on a later transfer, and an indexer replaying from genesis
-    // would still never learn who owns the contract.
     ownable::emit_ownership_transfer_completed(env, admin);
-    // AccessControl Admin intentionally not set: Ownable is sole SoT on controller.
 
-    // Through the config module rather than `storage::` directly: it validates
-    // the values and emits `config:position_limits` /
-    // `config:min_borrow_collateral`, so the defaults chosen here are
-    // observable instead of being silent state that only an RPC read can find.
-    crate::config::limits::set_position_limits(
+    config::limits::set_position_limits(
         env,
         PositionLimits {
-            max_supply_positions: 10,
-            max_borrow_positions: 10,
+            max_supply_positions: POSITION_LIMIT_MAX,
+            max_borrow_positions: POSITION_LIMIT_MAX,
         },
     );
 
-    crate::config::limits::set_min_borrow_collateral_usd(
-        env,
-        DEFAULT_MIN_BORROW_COLLATERAL_USD_WAD,
-    );
+    config::limits::set_min_borrow_collateral_usd(env, DEFAULT_MIN_BORROW_COLLATERAL_USD_WAD);
 
     env.storage()
         .instance()
         .set(&ControllerKey::AppVersion, &INITIAL_APP_VERSION);
 
-    stellar_contract_utils::pausable::pause(env);
+    pausable::pause(env);
 }
 
 pub(crate) fn upgrade(env: &Env, new_wasm_hash: &BytesN<32>) {
     storage::renew_controller_instance(env);
 
-    if !stellar_contract_utils::pausable::paused(env) {
-        stellar_contract_utils::pausable::pause(env);
+    if !pausable::paused(env) {
+        pausable::pause(env);
     }
-    stellar_contract_utils::upgradeable::upgrade(env, new_wasm_hash);
+    upgradeable::upgrade(env, new_wasm_hash);
 }
 
 pub(crate) fn migrate(env: &Env, new_version: u32) {

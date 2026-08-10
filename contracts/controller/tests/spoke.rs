@@ -46,7 +46,7 @@ fn require_spoke_asset_converts_listed_risk_config() {
     env.as_contract(&contract, || {
         storage::set_spoke_asset(&env, 1, &hub(&asset), &spoke_asset_config(9_000));
         let mut cache = Cache::new_view(&env);
-        let cfg: AssetConfig = (&cache.require_spoke_asset(1, &hub(&asset))).into();
+        let cfg: AssetConfig = cache.require_spoke_asset(1, &hub(&asset));
         assert_eq!(cfg.loan_to_value.raw() as u32, 9_000);
         assert!(cfg.can_supply());
         assert!(cfg.can_borrow());
@@ -63,10 +63,10 @@ fn require_spoke_asset_reads_each_spoke_directly() {
         storage::set_spoke_asset(&env, 2, &hub(&asset), &spoke_asset_config(5_000));
 
         let mut cache_spoke_1 = Cache::new_view(&env);
-        let cfg1: AssetConfig = (&cache_spoke_1.require_spoke_asset(1, &hub(&asset))).into();
+        let cfg1: AssetConfig = cache_spoke_1.require_spoke_asset(1, &hub(&asset));
         assert_eq!(cfg1.loan_to_value.raw() as u32, 9_000);
         let mut cache_spoke_2 = Cache::new_view(&env);
-        let cfg2: AssetConfig = (&cache_spoke_2.require_spoke_asset(2, &hub(&asset))).into();
+        let cfg2: AssetConfig = cache_spoke_2.require_spoke_asset(2, &hub(&asset));
         assert_eq!(cfg2.loan_to_value.raw() as u32, 5_000);
     });
 }
@@ -80,7 +80,7 @@ fn require_spoke_asset_panics_when_unlisted_on_spoke() {
     env.as_contract(&contract, || {
         storage::set_spoke_asset(&env, 1, &hub(&asset), &spoke_asset_config(9_000));
         let mut cache = Cache::new_view(&env);
-        let _: SpokeAssetConfig = cache.require_spoke_asset(2, &hub(&asset));
+        let _: AssetConfig = cache.require_spoke_asset(2, &hub(&asset));
     });
 }
 
@@ -100,13 +100,13 @@ fn lowering_spoke_ltv_keeps_existing_position_ltv() {
             borrow_positions: Map::new(&env),
         };
         let mut cache_before = Cache::new_view(&env);
-        let cfg_9000: AssetConfig = (&cache_before.require_spoke_asset(1, &hub(&asset))).into();
+        let cfg_9000: AssetConfig = cache_before.require_spoke_asset(1, &hub(&asset));
         let seeded = account.get_or_create_supply_position(&hub(&asset), &cfg_9000);
         account.supply_positions.set(hub(&asset), (&seeded).into());
 
         storage::set_spoke_asset(&env, 1, &hub(&asset), &spoke_asset_config(5_000));
         let mut cache_after = Cache::new_view(&env);
-        let cfg_5000: AssetConfig = (&cache_after.require_spoke_asset(1, &hub(&asset))).into();
+        let cfg_5000: AssetConfig = cache_after.require_spoke_asset(1, &hub(&asset));
         assert_eq!(cfg_5000.loan_to_value.raw() as u32, 5_000);
 
         let existing = account.get_or_create_supply_position(&hub(&asset), &cfg_5000);
