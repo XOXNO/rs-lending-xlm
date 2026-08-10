@@ -893,3 +893,141 @@ fn a_token_delivering_more_than_planned_cannot_inflate_the_seizure() {
     assert_eq!(out.get_unchecked(0).amount, 1_000);
     assert_eq!(out.get_unchecked(0).protocol_fee, 70);
 }
+
+/// Spoke-1 XLM as deployed on mainnet.
+const MAINNET_XLM_BONUS_BPS: i128 = 900;
+const MAINNET_XLM_FEES_BPS: u32 = 1_200;
+
+fn seize_fixture_with_collateral(
+    env: &Env,
+    fees_bps: u32,
+    collateral_tokens: i128,
+) -> (Address, HubAssetKey, Account) {
+    let contract = env.register(crate::Controller, (Address::generate(env),));
+    let asset = Address::generate(env);
+    let hub_asset = HubAssetKey {
+        hub_id: 0,
+        asset: asset.clone(),
+    };
+    let mut supply_positions = Map::new(env);
+    supply_positions.set(
+        hub_asset.clone(),
+        AccountPositionRaw {
+            scaled_amount: Ray::from_asset(stroops(collateral_tokens), 7).raw(),
+            liquidation_threshold: 7_800,
+            liquidation_bonus: MAINNET_XLM_BONUS_BPS as u32,
+            loan_to_value: 7_500,
+            liquidation_fees: fees_bps,
+        },
+    );
+    let account = Account {
+        owner: Address::generate(env),
+        spoke_id: 1,
+        mode: PositionMode::Normal,
+        supply_positions,
+        borrow_positions: Map::new(env),
+    };
+    (contract, hub_asset, account)
+}
+
+/// A full close in the solvent-toxic band must not pay the liquidator less than
+/// they put in. The seizure clamps to the collateral that exists, so the bonus is
+/// never realised — but the fee is derived from the clamped seizure as though it
+/// had been, and the difference is larger than the whole realised excess.
+#[test]
+fn full_close_in_the_solvent_toxic_band_pays_the_liquidator_a_positive_net() {
+    let env = Env::default();
+
+    // Collateral $1005 against debt $1000: solvent, but short of the $1090 a
+    // full 9% bonus would need.
+    let collateral_tokens = 1_005i128;
+    let repaid_usd = 1_000 * WAD;
+
+    let (contract, hub_asset, account) =
+        seize_fixture_with_collateral(&env, MAINNET_XLM_FEES_BPS, collateral_tokens);
+    let seized = env.as_contract(&contract, || {
+        let mut cache = Cache::new_view(&env);
+        cache.set_prices(single_price(&env, &hub_asset.asset));
+        cache.put_market_index(&hub_asset, &index_raw());
+        let plan = plan_for_seizure(&env, repaid_usd, MAINNET_XLM_BONUS_BPS);
+        calculate_seized_collateral(
+            &env,
+            &account,
+            Wad::from(collateral_tokens * WAD),
+            &plan,
+            &mut cache,
+        )
+    });
+
+    let entry = seized.get_unchecked(0);
+    assert_eq!(
+        entry.amount,
+        stroops(collateral_tokens),
+        "the seizure must clamp to the collateral that actually exists"
+    );
+
+    // Everything in stroops at $1/token.
+    let repaid = stroops(1_000);
+    let net = entry.amount - repaid - entry.protocol_fee;
+    assert!(
+        net >= 0,
+        "liquidator net must not be negative: seized={} repaid={} fee={} net={}",
+        entry.amount,
+        repaid,
+        entry.protocol_fee,
+        net
+    );
+}
+
+fn seize_at(env: &Env, collateral_tokens: i128, repaid_usd: i128) -> SeizeEntry {
+    let (contract, hub_asset, account) =
+        seize_fixture_with_collateral(env, MAINNET_XLM_FEES_BPS, collateral_tokens);
+    let seized = env.as_contract(&contract, || {
+        let mut cache = Cache::new_view(env);
+        cache.set_prices(single_price(env, &hub_asset.asset));
+        cache.put_market_index(&hub_asset, &index_raw());
+        let plan = plan_for_seizure(env, repaid_usd, MAINNET_XLM_BONUS_BPS);
+        calculate_seized_collateral(
+            env,
+            &account,
+            Wad::from(collateral_tokens * WAD),
+            &plan,
+            &mut cache,
+        )
+    });
+    seized.get_unchecked(0)
+}
+
+/// Collateral short of the debt itself: there is no excess to take a cut of, and
+/// deriving a bonus from the clamped seizure would invent one.
+#[test]
+fn bad_debt_seizure_charges_no_fee_and_does_not_trap() {
+    let env = Env::default();
+
+    let entry = seize_at(&env, 900, 1_000 * WAD);
+
+    assert_eq!(entry.amount, stroops(900), "seizure clamps to the collateral");
+    assert_eq!(
+        entry.protocol_fee, 0,
+        "no realised excess means no fee, got {}",
+        entry.protocol_fee
+    );
+}
+
+/// The regression guard: when nothing clamps, the realised excess IS the full
+/// bonus, so the fee must be bit-identical to the pre-change behaviour.
+#[test]
+fn unclamped_seizure_still_charges_the_full_bonus_fee() {
+    let env = Env::default();
+
+    // $2000 collateral against $1000 repaid: the 9% bonus fits with room spare.
+    let entry = seize_at(&env, 2_000, 1_000 * WAD);
+
+    assert_eq!(entry.amount, stroops(1_090), "seizure is repayment plus bonus");
+    // 12% of the realised 90-token bonus.
+    assert_eq!(
+        entry.protocol_fee,
+        (stroops(1_090) - stroops(1_000)) * i128::from(MAINNET_XLM_FEES_BPS) / 10_000,
+        "the whole bonus is realised"
+    );
+}

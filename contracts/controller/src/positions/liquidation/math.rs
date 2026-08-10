@@ -294,8 +294,17 @@ pub(crate) fn calculate_seized_collateral(
             continue;
         }
 
-        let base_ray = capped_ray.div_floor(env, one_plus_bonus.to_ray());
-        let bonus_ray = capped_ray.checked_sub(env, base_ray);
+        // The base is the leg's own repayment share, not the clamped seizure
+        // divided back out: once the seizure clamps there is no bonus to take a
+        // cut of, and dividing the clamp by (1 + bonus) invents one.
+        let base_ray = seizure_ray.div_floor(env, one_plus_bonus.to_ray());
+        // A seizure clamped below the repayment share is a bad-debt close with no
+        // excess at all. Ray::checked_sub traps on a negative result, so guard.
+        let bonus_ray = if capped_ray > base_ray {
+            capped_ray.checked_sub(env, base_ray)
+        } else {
+            Ray::ZERO
+        };
         let protocol_fee_ray = position.liquidation_fees.apply_to_ray(env, bonus_ray);
 
         let capped_amount = if capped_ray == actual_ray {
