@@ -145,12 +145,11 @@ pub(crate) fn recompute_aggregate(env: &Env, feed_id: &String) {
 }
 
 fn clear_aggregate_and_history(env: &Env, feed_id: &String) {
+    // Only the live aggregate is cleared: a transient quorum miss must not
+    // destroy accumulated history that consumers age off themselves.
     env.storage()
         .persistent()
         .remove(&DataKey::CurrentAggregate(feed_id.clone()));
-    env.storage()
-        .persistent()
-        .remove(&DataKey::History(feed_id.clone()));
 }
 
 fn sorted_copy(prices: &Vec<i128>) -> Vec<i128> {

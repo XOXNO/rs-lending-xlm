@@ -241,9 +241,11 @@ fn liquidation_curve_rejects_bonus_factor_above_bps() {
 }
 
 #[test]
-fn liquidation_curve_accepts_bonus_factor_zero() {
+#[should_panic]
+fn liquidation_curve_rejects_bonus_factor_zero() {
     let env = Env::default();
 
+    // Factor 0 pins the bonus at base, making the dynamic curve inert.
     validate_liquidation_curve(&env, WAD + 100, WAD / 2, 0);
 }
 
@@ -399,9 +401,12 @@ fn require_wasm_receiver_rejects_account() {
 }
 
 #[test]
-fn test_validate_liquidation_fees_accepts_full_bps() {
+#[should_panic]
+fn test_validate_liquidation_fees_rejects_full_bps() {
     let env = Env::default();
-    validate_liquidation_fees(&env, crate::constants::BPS as u32);
+
+    // 100% of the bonus to the protocol leaves the liquidator nothing.
+    validate_liquidation_fees(&env, BPS as u32);
 }
 
 #[test]

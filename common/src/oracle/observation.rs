@@ -17,6 +17,8 @@ pub const MAX_ORACLE_DECIMALS: u32 = 18;
 
 pub const MAX_SINGLE_SOURCE_SANITY_BAND_BPS: i128 = 1_000;
 
+pub const MAX_LP_SANITY_BAND_BPS: i128 = 5_000;
+
 pub fn try_normalize_positive_price(price: i128, decimals: u32) -> Option<i128> {
     if price <= 0 || decimals > WAD_DECIMALS {
         return None;

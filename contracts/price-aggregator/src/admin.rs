@@ -94,17 +94,25 @@ pub(crate) fn validate_asset_oracle(env: &Env, key: &PriceKey, oracle: &AssetOra
         oracle.min_sanity_price_wad,
         oracle.max_sanity_price_wad,
     );
-    let exempt_from_band_cap = oracle.has_aquarius_lp_source()
-        || derived
+    if oracle.has_aquarius_lp_source() {
+        // Sole-source by construction, so the band is the only backstop.
+        common::validation::validate_lp_sanity_band(
+            env,
+            oracle.min_sanity_price_wad,
+            oracle.max_sanity_price_wad,
+        );
+    } else {
+        let exempt_from_band_cap = derived
             .second
             .as_ref()
             .is_some_and(|second| !derived.first.trusts_exactly_as(second));
-    validate_single_source_sanity_band(
-        env,
-        exempt_from_band_cap,
-        oracle.min_sanity_price_wad,
-        oracle.max_sanity_price_wad,
-    );
+        validate_single_source_sanity_band(
+            env,
+            exempt_from_band_cap,
+            oracle.min_sanity_price_wad,
+            oracle.max_sanity_price_wad,
+        );
+    }
     validation::asset_decimals(env, key, oracle.asset_decimals);
 
     for source in oracle.sources.iter() {
