@@ -66,7 +66,7 @@ pub const DEFAULT_ASSET_CONFIG: AssetConfigPreset = AssetConfigPreset {
     loan_to_value: 7500,
     liquidation_threshold: 8000,
     liquidation_bonus: 500,
-    liquidation_fees: 100,
+    liquidation_fees: 1200,
     is_collateralizable: true,
     is_borrowable: true,
     is_flashloanable: true,
