@@ -1,11 +1,11 @@
 deploy_protocol() {
     if [ -z "${XLM_SAC:-}" ]; then
-        save_state XLM_SAC "$(stellar contract id asset --asset native --network "$NETWORK")"
+        save_state XLM_SAC "$(stellar contract id asset --asset native "${NET_ARGS[@]}")"
     fi
     if [ -z "${POOL_HASH:-}" ]; then
         local out_f="$LOG_DIR/upload_pool.out" err_f="$LOG_DIR/upload_pool.err"
         run_deploy "$out_f" "$err_f" -- stellar contract upload --wasm "$WASM_DIR/pool.wasm" \
-            --source "$ADMIN" --network "$NETWORK"
+            --source "$ADMIN" "${NET_ARGS[@]}"
         local hash txh
         hash=$(sanitize_output "$out_f")
         txh=$(extract_signing_hash "$err_f")
@@ -16,7 +16,7 @@ deploy_protocol() {
     if [ -z "${CONTROLLER:-}" ]; then
         local out_f="$LOG_DIR/deploy_controller.out" err_f="$LOG_DIR/deploy_controller.err"
         run_deploy "$out_f" "$err_f" -- stellar contract deploy --wasm "$WASM_DIR/controller.wasm" \
-            --source "$ADMIN" --network "$NETWORK" -- --admin "$ADMIN_ADDR"
+            --source "$ADMIN" "${NET_ARGS[@]}" -- --admin "$ADMIN_ADDR"
         local ctrl txh
         ctrl=$(sanitize_output "$out_f")
         txh=$(extract_signing_hash "$err_f")
@@ -41,7 +41,7 @@ deploy_protocol() {
         done
         [ -n "$pa_wasm" ] || die deploy_price_aggregator "price_aggregator.wasm missing under $WASM_DIR (run make integration-wasm / deploy-artifacts)"
         run_deploy "$out_f" "$err_f" -- stellar contract deploy --wasm "$pa_wasm" \
-            --source "$ADMIN" --network "$NETWORK" -- --owner "$ADMIN_ADDR"
+            --source "$ADMIN" "${NET_ARGS[@]}" -- --owner "$ADMIN_ADDR"
         local pa txh
         pa=$(sanitize_output "$out_f")
         txh=$(extract_signing_hash "$err_f")
@@ -72,7 +72,7 @@ deploy_protocol() {
     if [ -z "${FLASH_RECEIVER:-}" ]; then
         local out_f="$LOG_DIR/deploy_flashrecv.out" err_f="$LOG_DIR/deploy_flashrecv.err"
         run_deploy "$out_f" "$err_f" -- stellar contract deploy --wasm "$WASM_DIR/flash_loan_receiver.wasm" \
-            --source "$ADMIN" --network "$NETWORK"
+            --source "$ADMIN" "${NET_ARGS[@]}"
         local recv txh
         recv=$(sanitize_output "$out_f")
         txh=$(extract_signing_hash "$err_f")
@@ -88,7 +88,7 @@ deploy_protocol() {
     if [ -z "${GOVERNANCE:-}" ]; then
         local out_f="$LOG_DIR/deploy_governance.out" err_f="$LOG_DIR/deploy_governance.err"
         run_deploy "$out_f" "$err_f" -- stellar contract deploy --wasm "$WASM_DIR/governance.wasm" \
-            --source "$ADMIN" --network "$NETWORK" \
+            --source "$ADMIN" "${NET_ARGS[@]}" \
             -- --admin "$ADMIN_ADDR" --min_delay "$INTEG_MIN_DELAY"
         local gov txh
         gov=$(sanitize_output "$out_f")
@@ -102,7 +102,7 @@ deploy_protocol() {
     if [ -z "${CTRL_HASH:-}" ]; then
         local out_f="$LOG_DIR/upload_controller.out" err_f="$LOG_DIR/upload_controller.err"
         run_deploy "$out_f" "$err_f" -- stellar contract upload --wasm "$WASM_DIR/controller.wasm" \
-            --source "$ADMIN" --network "$NETWORK"
+            --source "$ADMIN" "${NET_ARGS[@]}"
         local chash txh
         chash=$(sanitize_output "$out_f")
         txh=$(extract_signing_hash "$err_f")
@@ -314,7 +314,7 @@ oracle_cfg_reflector() {
 # 14-decimal space first so 64-bit intermediates cannot overflow before scaling.
 reflector_band() {
     local sym="$1" pct="${2:-9}" raw px14 min14 max14
-    raw=$(stellar contract invoke --id "$REFLECTOR_CEX" --source "$ADMIN" --network "$NETWORK" \
+    raw=$(stellar contract invoke --id "$REFLECTOR_CEX" --source "$ADMIN" "${NET_ARGS[@]}" \
         --send=no -- lastprice --asset "{\"Other\":\"$sym\"}" 2>/dev/null) || return 1
     px14=$(printf '%s' "$raw" | jq -r '.price // empty' 2>/dev/null)
     case "$px14" in
@@ -327,14 +327,14 @@ reflector_band() {
 
 market_listing_exists() {
     local hub_id="$1" sac="$2"
-    stellar contract invoke --id "$CONTROLLER" --source "$ADMIN" --network "$NETWORK" \
+    stellar contract invoke --id "$CONTROLLER" --source "$ADMIN" "${NET_ARGS[@]}" \
         --send=no -- get_spoke_asset --spoke_id "$PRIMARY_SPOKE_ID" --hub_asset "$(hub_key "$hub_id" "$sac")" >/dev/null 2>&1
 }
 
 market_wait_listed() {
     local hub_id="$1" sac="$2" probe got
     for probe in $(seq 1 8); do
-        got=$(stellar contract invoke --id "$CONTROLLER" --source "$ADMIN" --network "$NETWORK" \
+        got=$(stellar contract invoke --id "$CONTROLLER" --source "$ADMIN" "${NET_ARGS[@]}" \
             --send=no -- get_spoke_asset --spoke_id "$PRIMARY_SPOKE_ID" --hub_asset "$(hub_key "$hub_id" "$sac")" 2>/dev/null \
             | jq -r '.is_borrowable // empty' 2>/dev/null)
         [ "$got" = "true" ] && return 0

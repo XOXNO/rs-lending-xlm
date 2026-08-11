@@ -1,4 +1,4 @@
-RPC_TRANSIENT_RE='rejected .?50[0-9]|status_code: 50[0-9]|No status yet|Transport\(Rejected|error sending request|timed out|timeout|connection (reset|refused|closed)|tcp connect error|temporarily unavailable|TxBadSeq|tx_bad_seq'
+RPC_TRANSIENT_RE='rejected .?50[0-9]|status_code: 50[0-9]|No status yet|Transport\(Rejected|error sending request|timed out|timeout|connection (reset|refused|closed)|tcp connect error|temporarily unavailable|TxBadSeq|tx_bad_seq|not present in the snapshot'
 
 DEPLOY_PROPAGATION_RE='Contract not found|non-existing value for contract instance'
 
@@ -71,7 +71,7 @@ inv() {
     for attempt in $(seq 1 "$INV_MAX_ATTEMPTS"); do
         [ "$attempt" -gt 1 ] && backoff_sleep "$attempt"
         log "inv [$label] $fn"
-        if stellar contract invoke --id "$contract" --source "$signer" --network "$NETWORK" -- "$@" \
+        if stellar contract invoke --id "$contract" --source "$signer" "${NET_ARGS[@]}" -- "$@" \
             >"$out_f" 2>"$err_f"; then
             local hash
             hash=$(extract_signing_hash "$err_f")
@@ -178,7 +178,7 @@ xfail() {
     for attempt in $(seq 1 "$XFAIL_MAX_ATTEMPTS"); do
         [ "$attempt" -gt 1 ] && backoff_sleep "$attempt"
         log "xfail [$label] $fn (expect: $pattern)"
-        if stellar contract invoke --id "$contract" --source "$signer" --network "$NETWORK" ${XFAIL_SEND_NO:+--send=no} -- "$@" \
+        if stellar contract invoke --id "$contract" --source "$signer" "${NET_ARGS[@]}" ${XFAIL_SEND_NO:+--send=no} -- "$@" \
             >"$out_f" 2>"$err_f"; then
             record "$label" UNEXPECTED-OK "$fn" "" "" "" "" "" "expected revert '$pattern'"
             log "UNEXPECTED-OK [$label]"
@@ -213,7 +213,7 @@ view() {
     local attempt
     for attempt in $(seq 1 "$INV_MAX_ATTEMPTS"); do
         [ "$attempt" -gt 1 ] && backoff_sleep "$attempt"
-        if stellar contract invoke --id "$contract" --source "$ADMIN" --network "$NETWORK" --send=no -- "$@" \
+        if stellar contract invoke --id "$contract" --source "$ADMIN" "${NET_ARGS[@]}" --send=no -- "$@" \
             >"$out_f" 2>"$err_f"; then
             record "$label" read "$fn" "" "" "" "" "" "$(head -c 120 "$out_f" | tr '\n\t' '  ')"
             cat "$out_f"
@@ -244,7 +244,7 @@ sim_probe() {
     local fn="$1"
     local tx_f="$LOG_DIR/$label.txb64" sim_f="$LOG_DIR/$label.sim.json"
     PROBE_STATUS=error
-    if ! stellar contract invoke --id "$contract" --source "$signer" --network "$NETWORK" --build-only -- "$@" \
+    if ! stellar contract invoke --id "$contract" --source "$signer" "${NET_ARGS[@]}" --build-only -- "$@" \
         >"$tx_f" 2>"$LOG_DIR/$label.err"; then
         record "$label" FAIL "$fn" "" "" "" "" "" "build-only failed"
         return 1

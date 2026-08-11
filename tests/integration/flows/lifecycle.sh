@@ -68,20 +68,10 @@ flow_lifecycle() {
     save_state ALICE_ACCT "$acct"
     log "alice account = $acct"
 
-    local usdc_bal usdc_half
-    usdc_bal=$(balance "$USDC_SAC" "$ALICE_ADDR")
-    usdc_half=$(( ${usdc_bal:-0} / 2 ))
-    if [ "$usdc_half" -le 0 ]; then
-        # Funding could not source USDC on this network. Supplying a zero leg
-        # would be rejected and every USDC-dependent step after it would fail
-        # for a reason that is not the protocol's.
-        record supply_bulk environment-blocked supply "" "" "" "" "" \
-            "alice holds no USDC; funding swap produced none"
-    else
-        inv supply_bulk "$ALICE" "$CONTROLLER" -- supply \
-            --caller "$ALICE_ADDR" --account_id "$acct" --spoke_id "$PRIMARY_SPOKE_ID" \
-            --assets "$(pay_vec "$PRIMARY_HUB_ID" "$XLM_SAC" 5000000000 "$USDC_SAC" "$usdc_half")" >/dev/null
-    fi
+    local usdc_half=$(( $(balance "$USDC_SAC" "$ALICE_ADDR") / 2 ))
+    inv supply_bulk "$ALICE" "$CONTROLLER" -- supply \
+        --caller "$ALICE_ADDR" --account_id "$acct" --spoke_id "$PRIMARY_SPOKE_ID" \
+        --assets "$(pay_vec "$PRIMARY_HUB_ID" "$XLM_SAC" 5000000000 "$USDC_SAC" "$usdc_half")" >/dev/null
 
     view hf_alice "$CONTROLLER" -- get_health_factor --account_id "$acct" >/dev/null
     view coll_usd_alice "$CONTROLLER" -- get_total_collateral_usd --account_id "$acct" >/dev/null
