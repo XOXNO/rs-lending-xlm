@@ -5,7 +5,8 @@ use soroban_sdk::{panic_with_error, symbol_short, token, vec, IntoVal, Symbol, V
 use crate::errors::Error;
 use crate::venues::HopContext;
 
-/// 0.3% fee rounded up (Soroswap convention).
+/// Computes the 0.3% swap fee on `amount_in`, rounded up. Returns zero if `amount_in` is not
+/// positive.
 fn soroswap_fee(amount_in: i128) -> i128 {
     if amount_in <= 0 {
         return 0;
@@ -13,7 +14,9 @@ fn soroswap_fee(amount_in: i128) -> i128 {
     (amount_in * 3 + 999) / 1000
 }
 
-/// Expected out from live reserves (router still credits only measured delta).
+/// Computes the constant-product output amount for `amount_in` against `reserve_in` and
+/// `reserve_out`, net of the swap fee. Returns zero if any input is not positive, or if the fee
+/// consumes the entire input amount.
 fn soroswap_amount_out(amount_in: i128, reserve_in: i128, reserve_out: i128) -> i128 {
     if amount_in <= 0 || reserve_in <= 0 || reserve_out <= 0 {
         return 0;
@@ -25,7 +28,10 @@ fn soroswap_amount_out(amount_in: i128, reserve_in: i128, reserve_out: i128) -> 
     in_less * reserve_out / (reserve_in + in_less)
 }
 
-/// Push input to the pair and request the constant-product output amount.
+/// Executes a swap against a Soroswap constant-product pair: reads the pair's live reserves,
+/// computes the expected output via `soroswap_amount_out`, transfers `amount_in` of the input
+/// token from the router to the pool, then invokes the pool's `swap` requesting exactly that
+/// output amount. Panics with `Error::ZeroOutput` if the computed output is not positive.
 pub(crate) fn swap(ctx: &HopContext<'_>) -> i128 {
     let token_in_is_0 = ctx.hop.token_in < ctx.hop.token_out;
 

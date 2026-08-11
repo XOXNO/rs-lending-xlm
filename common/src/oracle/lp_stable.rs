@@ -1,17 +1,32 @@
+//! Fair-value pricing for two-coin StableSwap-style LP pools, solving the
+//! invariant `D` via Newton-Raphson iteration on WAD-normalized reserves.
+
 use crate::errors::OracleError;
 use crate::oracle::lp::{LpLeg, LpSupply};
 use crate::oracle::observation::{try_amount_to_wad, try_u256_to_i128};
 use soroban_sdk::{Env, U256};
 
+/// Number of coins the invariant computations in this module support.
 const N_COINS: u32 = 2;
 
+/// Inclusive bounds on the amplification coefficient accepted by
+/// [`solve_stable_d`].
 const MIN_AMP: u128 = 1;
 const MAX_AMP: u128 = 1_000_000;
 
+/// Maximum Newton-Raphson iterations attempted when solving for `D` before
+/// [`solve_stable_d`] returns an error.
 const MAX_D_ITERATIONS: u32 = 255;
 
+/// Maximum WAD-normalized reserve accepted per leg by [`solve_stable_d`].
 const MAX_NORMALIZED_RESERVE_WAD: u128 = 10u128.pow(34);
 
+/// Solves the two-coin StableSwap invariant `D` for WAD-normalized reserves
+/// `xa_wad` and `xb_wad` at amplification `amp`, via Newton-Raphson
+/// iteration. Returns `OracleError::InvalidPrice` if either reserve is not
+/// positive, `amp` is outside `[MIN_AMP, MAX_AMP]`, either reserve exceeds
+/// `MAX_NORMALIZED_RESERVE_WAD`, or the iteration does not converge within
+/// `MAX_D_ITERATIONS` steps.
 pub fn solve_stable_d(
     env: &Env,
     xa_wad: i128,
@@ -58,6 +73,15 @@ pub fn solve_stable_d(
     Err(OracleError::InvalidPrice)
 }
 
+/// Computes the fair-value price of one LP share, in WAD (1e18) scale, for a
+/// two-coin StableSwap pool.
+///
+/// Converts both reserves to WAD, solves the invariant `D` via
+/// [`solve_stable_d`], multiplies `D` by the lower of the two legs'
+/// WAD-scaled prices, and divides by the share supply converted to WAD.
+/// Returns `OracleError::InvalidPrice` if any reserve, price, or share
+/// amount is not positive, if `D` fails to solve, or if the result does not
+/// fit in `i128`.
 pub fn fair_stable_lp_price_wad(
     env: &Env,
     a: &LpLeg,
@@ -90,6 +114,11 @@ pub fn fair_stable_lp_price_wad(
     try_u256_to_i128(&fair).ok_or(OracleError::InvalidPrice)
 }
 
+/// Converts `reserve_a` and `reserve_b` to WAD using their respective
+/// decimals, solves the invariant `D` via [`solve_stable_d`], and returns
+/// `D` converted to `i128`. Returns `OracleError::InvalidPrice` if either
+/// amount conversion fails, `D` fails to solve, or `D` does not fit in
+/// `i128`.
 pub fn stable_invariant_d_wad(
     env: &Env,
     reserve_a: i128,

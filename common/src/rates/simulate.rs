@@ -1,3 +1,6 @@
+//! Simulates borrow and supply interest-index updates over an elapsed time
+//! interval by chunking it into bounded compounding steps.
+
 use soroban_sdk::Env;
 
 use crate::math::fp::Ray;
@@ -11,6 +14,8 @@ use crate::rates::index::{
 };
 use crate::rates::scaling::scaled_to_original;
 
+/// Computes the borrow and supply indexes for `sync`'s pool state as of
+/// `current_timestamp`, without persisting the result.
 pub fn simulate_update_indexes(
     env: &Env,
     current_timestamp: u64,
@@ -19,6 +24,7 @@ pub fn simulate_update_indexes(
     simulate_update_indexes_dispatch(env, current_timestamp, sync)
 }
 
+/// Dispatches to [`simulate_update_indexes_body`].
 #[cfg(not(feature = "certora"))]
 fn simulate_update_indexes_dispatch(
     env: &Env,
@@ -31,6 +37,7 @@ fn simulate_update_indexes_dispatch(
 #[cfg(feature = "certora")]
 cvlr_soroban_macros::apply_summary!(
     crate::spec::summaries::simulate_update_indexes_summary,
+    /// Dispatches to [`simulate_update_indexes_body`].
     pub(crate) fn simulate_update_indexes_dispatch(
         env: &Env,
         current_timestamp: u64,
@@ -40,6 +47,18 @@ cvlr_soroban_macros::apply_summary!(
     }
 );
 
+/// Simulates borrow and supply index updates for the elapsed interval
+/// between `state.last_timestamp` and `current_timestamp`, without
+/// persisting state.
+///
+/// Returns the current indexes unchanged if no time has elapsed. Otherwise
+/// splits the interval into chunks of at most `MAX_COMPOUND_DELTA_MS` and,
+/// for each chunk, computes utilization and the borrow rate from
+/// `sync.params`, compounds the borrow index by the resulting interest
+/// factor, splits the accrued interest into supplier rewards and protocol
+/// fee, grows the supply index by the supplier rewards, and folds any
+/// rounding shortfall together with the protocol fee into additional scaled
+/// supply.
 pub(crate) fn simulate_update_indexes_body(
     env: &Env,
     current_timestamp: u64,

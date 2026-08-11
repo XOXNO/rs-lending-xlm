@@ -104,6 +104,7 @@ pub(crate) enum Opcode {
 }
 
 impl Opcode {
+    /// Decodes an opcode byte into its variant, or `None` if unrecognized.
     fn from_u8(value: u8) -> Option<Self> {
         match value {
             0 => Some(Self::Swap(SwapVenue::Soroswap)),
@@ -136,6 +137,8 @@ pub(crate) enum Mode {
 }
 
 impl Mode {
+    /// Decodes a mode byte into its selector variant, by value range against
+    /// `MODE_ALL`, `MODE_PREV`, `MODE_FIXED_BASE`, and `MODE_PPM_BASE`.
     fn from_u8(value: u8) -> Self {
         match value {
             MODE_ALL => Self::All,
@@ -158,8 +161,8 @@ pub(crate) struct Op {
 
 /// A validated program held in a stack buffer.
 ///
-/// Every index has been range-checked against the registry lengths supplied to
-/// [`Program::decode`], so execution can index without re-validating.
+/// Every index is range-checked against the registry lengths supplied to
+/// [`Program::decode`].
 pub(crate) struct Program {
     buf: [u8; MAX_PROGRAM_BYTES],
     op_count: u32,
@@ -175,8 +178,7 @@ impl Program {
     ///
     /// Panics with [`Error::InvalidRouteXdr`] on any malformed field: bad
     /// version, length mismatch, unknown opcode, out-of-range index, or a
-    /// weight outside `1..=PPM_DENOMINATOR`. Nothing external is touched, so a
-    /// malformed payload cannot reach a venue.
+    /// weight outside `1..=PPM_DENOMINATOR`. Touches no external contract.
     pub(crate) fn decode(env: &Env, ops: &Bytes, assets_len: u32, amounts_len: u32) -> Self {
         if assets_len == 0 || assets_len > MAX_ASSETS || amounts_len > MAX_AMOUNTS {
             panic_with_error!(env, Error::InvalidRouteXdr);
@@ -324,9 +326,9 @@ impl Program {
 
     /// Instruction `i`. Callers must respect [`Program::len`].
     ///
-    /// `validate` already proved the opcode, but this re-checks rather than
-    /// substituting a default: a decoder bug must not silently turn an unknown
-    /// opcode into a liquidity operation over attacker-chosen indices.
+    /// Re-decodes and re-checks the opcode byte, panicking with
+    /// [`Error::InvalidRouteXdr`] if it is unrecognized, even though `validate`
+    /// already checked it.
     pub(crate) fn op(&self, env: &Env, i: u32) -> Op {
         let record = self.raw(i);
         Op {
@@ -346,10 +348,8 @@ impl Program {
     }
 }
 
-/// Encode a program header and body into wire bytes.
-///
-/// Kept in the contract so the off-chain builders have an executable reference
-/// for the layout, and so tests can build payloads without a second codec.
+/// Serializes a program header, instructions, and weights into the packed wire
+/// byte layout consumed by [`Program::decode`].
 #[cfg(test)]
 pub(crate) mod encode {
     use super::*;

@@ -1,3 +1,8 @@
+//! Resolves each `AdminOperation` variant to the concrete cross-contract call
+//! (target address, function symbol, encoded arguments, and timelock delay
+//! tier) that the timelock schedules and later executes, and applies the
+//! subset of operations that target the governance contract itself.
+
 use common::errors::{CollateralError, GenericError, OracleError};
 use common::types::{AssetOracle, PriceKey};
 use common::validation::{
@@ -18,12 +23,17 @@ pub use governance_interface::{
     TransferOwnershipArgs, UpgradePoolParamsArgs,
 };
 
+/// Validates risk bounds, liquidation fees, and supply/borrow caps for a
+/// spoke-asset add or edit operation. Panics if any of the checks fail.
 fn validate_spoke_asset(env: &Env, args: &SpokeAssetArgs) {
     validate_risk_bounds(env, args.ltv, args.threshold, args.bonus);
     validate_liquidation_fees(env, args.liquidation_fees);
     validate::asset::validate_spoke_cap_args(env, args.supply_cap, args.borrow_cap);
 }
 
+/// Returns a copy of `oracle` with `asset_decimals` set from the on-chain
+/// token contract for a `PriceKey::Token` key, or `0` for a `PriceKey::Ref`
+/// key.
 pub(crate) fn resolve_oracle(env: &Env, key: &PriceKey, oracle: &AssetOracle) -> AssetOracle {
     let mut resolved = oracle.clone();
     resolved.asset_decimals = match key {
@@ -33,6 +43,9 @@ pub(crate) fn resolve_oracle(env: &Env, key: &PriceKey, oracle: &AssetOracle) ->
     resolved
 }
 
+/// The concrete cross-contract call a resolved `AdminOperation` maps to:
+/// which contract to invoke, which function, with which encoded arguments,
+/// and under which timelock delay tier.
 pub(crate) struct ResolvedOperation {
     pub target: Address,
     pub function: Symbol,
@@ -40,6 +53,8 @@ pub(crate) struct ResolvedOperation {
     pub delay_tier: DelayTier,
 }
 
+/// Builds a `ResolvedOperation` targeting the controller contract with the
+/// `Standard` delay tier.
 fn controller_operation(env: &Env, function: &str, args: Vec<Val>) -> ResolvedOperation {
     ResolvedOperation {
         target: storage::get_controller(env),
@@ -49,6 +64,8 @@ fn controller_operation(env: &Env, function: &str, args: Vec<Val>) -> ResolvedOp
     }
 }
 
+/// Builds a `ResolvedOperation` targeting the controller contract with the
+/// `Sensitive` delay tier.
 fn sensitive_controller_operation(env: &Env, function: &str, args: Vec<Val>) -> ResolvedOperation {
     ResolvedOperation {
         target: storage::get_controller(env),
@@ -58,6 +75,8 @@ fn sensitive_controller_operation(env: &Env, function: &str, args: Vec<Val>) -> 
     }
 }
 
+/// Builds a `ResolvedOperation` targeting the price aggregator contract with
+/// the `Standard` delay tier.
 fn price_aggregator_operation(env: &Env, function: &str, args: Vec<Val>) -> ResolvedOperation {
     ResolvedOperation {
         target: storage::get_price_aggregator(env),
@@ -67,6 +86,8 @@ fn price_aggregator_operation(env: &Env, function: &str, args: Vec<Val>) -> Reso
     }
 }
 
+/// Builds a `ResolvedOperation` targeting the governance contract itself
+/// (`env.current_contract_address()`) with the given delay tier.
 fn self_operation(
     env: &Env,
     function: &str,
@@ -81,6 +102,10 @@ fn self_operation(
     }
 }
 
+/// Validates the arguments carried by `op` and maps it to the
+/// `ResolvedOperation` (target, function, encoded arguments, delay tier) the
+/// timelock queues for later execution. Panics if the operation's arguments
+/// fail validation.
 pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
     match op {
         AdminOperation::UpgradeGov(hash) => {
@@ -339,6 +364,11 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
     }
 }
 
+/// Applies the effect of an `AdminOperation` whose resolved target is the
+/// governance contract itself, in place of an `invoke_contract` call.
+/// `SetPriceAggregator` also stores the new address locally and forwards the
+/// update to the controller. Panics with `GenericError::InternalError` for
+/// any operation whose resolved target is a different contract.
 pub(crate) fn apply_self_op(env: &Env, op: &AdminOperation) {
     match op {
         AdminOperation::UpgradeGov(hash) => access::apply_upgrade(env, hash),

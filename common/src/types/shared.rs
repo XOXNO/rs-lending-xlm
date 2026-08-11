@@ -1,13 +1,21 @@
+//! Shared scalar and tuple types used across the lending protocol crates:
+//! payment tuples, account position classification, and position modes.
+
 use soroban_sdk::{contracttype, Address, Vec};
 
 use crate::types::pool::HubAssetKey;
 
+/// A token amount paired with the address of the underlying asset contract.
 pub type Payment = (Address, i128);
 
+/// A token amount paired with the `HubAssetKey` (hub identifier and asset
+/// address) it is denominated in.
 pub type HubPayment = (HubAssetKey, i128);
 
+/// An ordered collection of `HubPayment` entries.
 pub type AggregatedPayments = Vec<HubPayment>;
 
+/// Classifies an account position as a deposit or a borrow.
 #[contracttype]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u32)]
@@ -16,6 +24,8 @@ pub enum AccountPositionType {
     Borrow = 2,
 }
 
+/// Identifies the trading mode of a position: plain lending, leveraged
+/// multiply, or directional long/short exposure.
 #[contracttype]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u32)]

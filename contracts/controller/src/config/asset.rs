@@ -1,3 +1,6 @@
+//! Adds, edits, and removes spoke asset listings, and toggles their
+//! immediate-tighten halt flags.
+
 use common::errors::{CollateralError, SpokeError};
 use common::types::{HubAssetKey, PoolSyncData, SpokeAssetArgs, SpokeAssetConfig};
 use common::validation::{
@@ -12,6 +15,10 @@ use crate::{
     storage,
 };
 
+/// Lists a new asset in a spoke. Validates risk bounds, liquidation fees, and
+/// caps, then fetches the underlying pool market data and stores the
+/// resulting spoke asset config. Panics if the spoke is deprecated or the
+/// asset is already listed in the spoke.
 pub(crate) fn add_asset_to_spoke(env: &Env, args: &SpokeAssetArgs) {
     let hub_asset = validate_spoke_asset_args(env, args);
     let spoke = storage::get_spoke(env, args.spoke_id);
@@ -27,16 +34,12 @@ pub(crate) fn add_asset_to_spoke(env: &Env, args: &SpokeAssetArgs) {
     store_spoke_asset(env, args, &hub_asset, config);
 }
 
-/// Full listing rewrite (risk params, caps, and halt flags).
-///
-/// Halt flags are **not** ratcheted here. Clearing `paused`/`frozen` is the
-/// intentional recovery path after an emergency freeze, reachable only via
-/// `#[only_owner]` (governance `AdminOperation::EditAssetInSpoke`, which is
-/// timelocked). Immediate GUARDIAN tighten-only control lives on
-/// [`set_spoke_asset_flags`].
-///
-/// Operators must pass the desired flag state on every edit — omitting prior
-/// `paused`/`frozen` values will clear them.
+/// Rewrites the full spoke asset listing for `args` — risk parameters, caps,
+/// and halt flags. Validates risk bounds, liquidation fees, and caps, then
+/// fetches current market data and overwrites the stored config with the
+/// values in `args`, including `paused` and `frozen` (neither flag is
+/// ratcheted here, so omitting the current flag values clears them). Panics
+/// if the asset is not currently listed in the spoke.
 pub(crate) fn edit_asset_in_spoke(env: &Env, args: &SpokeAssetArgs) {
     let hub_asset = validate_spoke_asset_args(env, args);
     storage::get_spoke(env, args.spoke_id);
@@ -51,6 +54,9 @@ pub(crate) fn edit_asset_in_spoke(env: &Env, args: &SpokeAssetArgs) {
     store_spoke_asset(env, args, &hub_asset, config);
 }
 
+/// Validates risk bounds, liquidation fees, and non-negative supply/borrow
+/// caps for `args`, panicking on the first violation. Returns the hub asset
+/// key derived from `args`.
 fn validate_spoke_asset_args(env: &Env, args: &SpokeAssetArgs) -> HubAssetKey {
     common_validate_risk_bounds(env, args.ltv, args.threshold, args.bonus);
     common_validate_liquidation_fees(env, args.liquidation_fees);
@@ -66,6 +72,9 @@ fn validate_spoke_asset_args(env: &Env, args: &SpokeAssetArgs) -> HubAssetKey {
     }
 }
 
+/// Fetches the pool's sync data for `hub_asset` and checks that
+/// `args.supply_cap` and `args.borrow_cap` fit within the asset's decimal
+/// domain. Returns the fetched market data.
 fn load_market_and_validate_caps(
     env: &Env,
     args: &SpokeAssetArgs,
@@ -78,6 +87,7 @@ fn load_market_and_validate_caps(
     market
 }
 
+/// Builds a `SpokeAssetConfig` from the corresponding fields of `args`.
 fn build_spoke_asset_config(args: &SpokeAssetArgs) -> SpokeAssetConfig {
     SpokeAssetConfig {
         is_collateralizable: args.can_collateral,
@@ -93,6 +103,8 @@ fn build_spoke_asset_config(args: &SpokeAssetArgs) -> SpokeAssetConfig {
     }
 }
 
+/// Writes `config` as the spoke asset entry for `hub_asset` in `args.spoke_id`
+/// and publishes an `UpdateSpokeAssetEvent`.
 fn store_spoke_asset(
     env: &Env,
     args: &SpokeAssetArgs,
@@ -110,12 +122,11 @@ fn store_spoke_asset(
     .publish(env);
 }
 
-/// Immediate GUARDIAN path: may only **tighten** halt flags (`false → true`).
-///
-/// Ratchet rule: once `paused` or `frozen` is set, this entrypoint cannot clear
-/// it (`SpokeAssetFlagRelaxation`). Relaxation is deliberate and delayed via
-/// timelocked [`edit_asset_in_spoke`] (same product shape as global `pause`
-/// immediate / `Unpause` timelocked).
+/// Sets the `paused` and `frozen` flags on the spoke asset identified by
+/// `spoke_id` and `hub_asset`. Rejects any transition that would clear an
+/// already-set flag (`SpokeAssetFlagRelaxation`); a flag can only move from
+/// unset to set through this function. Panics if the asset is not listed in
+/// the spoke.
 pub(crate) fn set_spoke_asset_flags(
     env: &Env,
     spoke_id: u32,
@@ -148,6 +159,9 @@ fn require_flag_ratchet(env: &Env, config: &SpokeAssetConfig, paused: bool, froz
     );
 }
 
+/// Removes the listing for `hub_asset` from `spoke_id` and publishes a
+/// `RemoveSpokeAssetEvent`. Panics if the asset is not listed in the spoke,
+/// or if it still has nonzero supplied or borrowed scaled balances.
 pub(crate) fn remove_asset_from_spoke(env: &Env, hub_asset: HubAssetKey, spoke_id: u32) {
     assert_with_error!(
         env,

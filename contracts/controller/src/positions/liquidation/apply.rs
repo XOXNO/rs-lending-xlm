@@ -1,3 +1,7 @@
+//! Applies liquidation results to an account: settling repayments received from
+//! the liquidator, withdrawing seized collateral to the liquidator, and checking
+//! the account for bad debt once the liquidation completes.
+
 use crate::account;
 use common::math::fp::Wad;
 use common::types::{
@@ -16,6 +20,11 @@ use crate::positions::{
 };
 use common::errors::GenericError;
 
+/// Applies a batch of liquidation repayments to `account`, transferring each entry's
+/// token amount from `liquidator` into the pool and crediting the matching borrow
+/// position. If the amount actually received falls short of the requested amount,
+/// scales that entry's USD value down proportionally. Returns the total USD value
+/// received across all entries.
 pub(crate) fn apply_liquidation_repayments(
     env: &Env,
     liquidator: &Address,
@@ -75,6 +84,9 @@ pub(crate) fn apply_liquidation_repayments(
     received_usd
 }
 
+/// Applies a batch of liquidation seizures to `account`, withdrawing collateral from
+/// the account's supply positions to `liquidator` for each entry and applying the
+/// entry's protocol fee.
 pub(crate) fn apply_liquidation_seizures(
     env: &Env,
     liquidator: &Address,
@@ -110,6 +122,10 @@ pub(crate) fn apply_liquidation_seizures(
     );
 }
 
+/// If the account has no borrow positions, removes it only when fully empty (no
+/// supply either). Otherwise, if remaining debt is socializable bad debt (debt >
+/// collateral and collateral ≤ `BAD_DEBT_USD_THRESHOLD`), seizes positions and
+/// deletes the account.
 pub(crate) fn check_bad_debt_after_liquidation(
     env: &Env,
     cache: &mut Cache,

@@ -1,3 +1,7 @@
+//! Helpers for Stellar Asset Contract (SAC) token transfers and for
+//! authorizing the current contract to invoke a token transfer on its own
+//! behalf.
+
 use soroban_sdk::auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation};
 use soroban_sdk::{
     assert_with_error, panic_with_error, symbol_short, token, vec, Address, Env, IntoVal, Vec,
@@ -14,13 +18,13 @@ pub fn sac_transfer(env: &Env, token_addr: &Address, from: &Address, to: &Addres
     token::Client::new(env, token_addr).transfer(from, to, &amount);
 }
 
-/// Transfer and credit only what actually arrived.
+/// Transfers `amount` from `from` to `to` and returns the observed balance
+/// delta at `to`.
 ///
-/// Snapshots the recipient balance, performs the transfer, and returns
-/// `post - pre` so fee-on-transfer tokens cannot mint unbacked claims.
-///
-/// `non_positive_error` is raised when `amount <= 0` (callers choose between
-/// `AmountMustBePositive` and domain-specific errors such as `InternalError`).
+/// Snapshots the recipient balance before and after the transfer and returns
+/// `post - pre`. Panics with `non_positive_error` if `amount <= 0`, and
+/// panics with `GenericError::AmountMustBePositive` if the balance delta
+/// cannot be represented in `i128`.
 pub fn transfer_amount_measured(
     env: &Env,
     asset: &Address,
@@ -38,10 +42,9 @@ pub fn transfer_amount_measured(
         .unwrap_or_else(|| panic_with_error!(env, GenericError::AmountMustBePositive))
 }
 
-/// Authorize the current contract to invoke SAC `transfer(from, to, amount)`.
-///
-/// Used before nested calls that pull tokens from this contract (swap routers,
-/// pool supply, venue hops).
+/// Grants an authorization entry allowing the current contract to invoke
+/// `transfer(from, to, amount)` on the token at `token_addr`, with no further
+/// sub-invocations.
 pub fn authorize_transfer_as_current(
     env: &Env,
     token_addr: &Address,

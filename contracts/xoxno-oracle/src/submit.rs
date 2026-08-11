@@ -1,3 +1,7 @@
+//! Signer-facing entry points for submitting prices to the oracle, single
+//! and batched, with the validation chain that gates each submission before
+//! it is stored and the feed's aggregate is recomputed.
+
 use soroban_sdk::{contractimpl, Address, Env, String, Vec};
 
 use crate::aggregation::{
@@ -7,6 +11,8 @@ use crate::aggregation::{
 use crate::storage::{renew_oracle_instance, require_known_feed, require_registered_signer};
 use crate::{Error, XoxnoOracle, XoxnoOracleArgs, XoxnoOracleClient};
 
+/// Rejects `price` if it is not strictly positive or exceeds
+/// `MAX_SUBMITTED_PRICE`.
 fn validate_price(price: i128) -> Result<(), Error> {
     if price <= 0 {
         return Err(Error::InvalidPrice);
@@ -19,6 +25,13 @@ fn validate_price(price: i128) -> Result<(), Error> {
 
 #[contractimpl]
 impl XoxnoOracle {
+    /// Submits `price` for `feed_id` on behalf of `signer`, requiring
+    /// `signer`'s authorization. Validates that `signer` is registered,
+    /// `feed_id` is known, the price is within bounds, and
+    /// `package_timestamp` (milliseconds) is not in the future, not stale
+    /// (age vs max submission age in seconds), and not older than the
+    /// signer's previous submission for the feed. Stores the submission and
+    /// recomputes the feed's aggregate.
     pub fn submit_price(
         env: Env,
         signer: Address,
@@ -40,6 +53,15 @@ impl XoxnoOracle {
         Ok(())
     }
 
+    /// Submits `prices` for `feed_ids` on behalf of `signer`, requiring
+    /// `signer`'s authorization, using the same `package_timestamp`
+    /// (milliseconds) for every entry. Fails with `LengthMismatch` if
+    /// `feed_ids` and `prices` differ in length. Validates that `signer` is
+    /// registered, the timestamp is not in the future or stale (age vs max
+    /// submission age in seconds), each feed is known and monotonic for
+    /// `signer`, and each price is within bounds, before storing any
+    /// submission. Stores each submission and recomputes each feed's
+    /// aggregate.
     pub fn submit_prices(
         env: Env,
         signer: Address,

@@ -5,7 +5,10 @@ use soroban_sdk::{panic_with_error, token, vec, Env, IntoVal, Symbol, Val, Vec};
 use crate::errors::Error;
 use crate::venues::{auth_entry, authorize_token_approve, HopContext};
 
-/// Exact-in swap; nested auth covers pool `transfer_from` of the input token.
+/// Executes an exact-in swap against a Comet pool: approves the router's input-token allowance to
+/// the pool, invokes `swap_exact_amount_in` under a nested invoker auth entry covering the pool's
+/// `transfer_from` of the input token, then clears the allowance back to zero. Panics with
+/// `Error::ZeroOutput` if the pool returns a non-positive output amount.
 pub(crate) fn swap(ctx: &HopContext<'_>) -> i128 {
     let approval_ledger = comet_approval_ledger(ctx.env);
     authorize_token_approve(
@@ -37,12 +40,16 @@ pub(crate) fn swap(ctx: &HopContext<'_>) -> i128 {
     amount_out
 }
 
-/// Allowance expiry rounded up to the next 100k ledger boundary.
+/// Computes the allowance expiration ledger: the current ledger sequence rounded up to the next
+/// 100,000-ledger boundary.
 fn comet_approval_ledger(env: &Env) -> u32 {
     let seq = env.ledger().sequence();
     (seq / 100_000 + 1) * 100_000
 }
 
+/// Builds the argument vector for the pool's `swap_exact_amount_in` call: input token, input
+/// amount, output token, a zero minimum output amount, an unbounded maximum price, and the router
+/// as the recipient.
 fn swap_args(ctx: &HopContext<'_>) -> Vec<Val> {
     vec![
         ctx.env,
@@ -55,12 +62,15 @@ fn swap_args(ctx: &HopContext<'_>) -> Vec<Val> {
     ]
 }
 
-/// Zero residual allowance after the swap.
+/// Resets the router's input-token allowance to the pool to zero, authorizing the token
+/// `approve` call as the current contract.
 fn clear_comet_approval(ctx: &HopContext<'_>) {
     authorize_token_approve(ctx.env, &ctx.hop.token_in, ctx.router, &ctx.hop.pool, 0, 0);
     token::Client::new(ctx.env, &ctx.hop.token_in).approve(ctx.router, &ctx.hop.pool, &0, &0);
 }
 
+/// Authorizes the pool's `swap_exact_amount_in` call as the current contract, with a nested
+/// invoker-auth entry covering the pool's `transfer_from` of the input token from the router.
 fn authorize_comet_swap(ctx: &HopContext<'_>, swap_args: Vec<Val>) {
     ctx.env.authorize_as_current_contract(vec![
         ctx.env,

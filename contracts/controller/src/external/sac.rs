@@ -1,3 +1,6 @@
+//! Controller-local wrapper around the shared Stellar Asset Contract (SAC)
+//! transfer helper.
+
 use soroban_sdk::{Address, Env};
 
 /// Controller-local name for [`common::token::sac_transfer`].

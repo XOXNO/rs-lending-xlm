@@ -1,4 +1,4 @@
-//! Net settlement: offset a user's supply against their debt on the same market.
+//! Net settlement: offsets a user's supply against their debt on the same market.
 //!
 //! Burns matched scaled supply and debt with no cash movement or token transfer.
 //! Used by the hub to close mirrored legs atomically.
@@ -14,7 +14,7 @@ use soroban_sdk::{assert_with_error, Env};
 
 use crate::{guards, ops};
 
-/// Settle up to `entry.amount` of debt using the user's supply position.
+/// Settles up to `entry.amount` of debt using the user's supply position.
 ///
 /// Cap is the ceiled debt value. Withdrawal and repay resolvers determine shares
 /// burned; any gross that does not burn positive shares on both sides panics.

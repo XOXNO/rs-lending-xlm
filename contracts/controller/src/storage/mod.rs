@@ -1,3 +1,7 @@
+//! Storage layer for the controller contract. Groups per-domain accessors (accounts, hubs,
+//! protocol-wide configuration, flash-loan session state, spokes, and TTL renewal) and
+//! re-exports them for use by the rest of the crate.
+
 mod account;
 mod hub;
 mod protocol;

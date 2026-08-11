@@ -17,11 +17,12 @@ pub(crate) struct MintLiquidity<'a> {
     pub min_shares: i128,
 }
 
-/// Deposit vault holdings of pool constituents; credit measured LP shares.
+/// Deposits the vault's full balance of each pool constituent token into the pool
+/// and credits the vault with the measured LP shares received. Returns the minted
+/// share amount.
 ///
-/// Rebalancing before a lopsided deposit is not special-cased here: the caller
-/// emits an ordinary swap instruction against the same pool ahead of the mint,
-/// which goes through the venue adapter's measured-delta accounting.
+/// Panics if `min_shares` is not positive, if the vault holds none of the pool's
+/// constituent tokens, or if the shares received fall below `min_shares`.
 pub(crate) fn add_liquidity(
     env: &Env,
     router: &Address,

@@ -40,7 +40,9 @@ impl<'a> Vault<'a> {
         self.credited.get(token.clone()).unwrap_or(0)
     }
 
-    /// Credit `amount` to `token`. Zero is a no-op; negative fails.
+    /// Credits `amount` to `token`, updating both the tracked balance and the lifetime
+    /// credited total. A zero amount is a no-op. Returns `Err(Error::InvalidAmount)` for a
+    /// negative amount and `Err(Error::IntegerOverflow)` if either total would overflow.
     pub fn try_deposit(&mut self, token: &Address, amount: i128) -> Result<(), Error> {
         if amount == 0 {
             return Ok(());
@@ -59,14 +61,16 @@ impl<'a> Vault<'a> {
         Ok(())
     }
 
-    /// [`try_deposit`](Self::try_deposit) or panic.
+    /// Calls [`try_deposit`](Self::try_deposit) and panics with the returned error on failure.
     pub fn deposit(&mut self, token: &Address, amount: i128) {
         if let Err(err) = self.try_deposit(token, amount) {
             panic_with_error!(self.env, err);
         }
     }
 
-    /// Debit `amount` from `token`. Zero is a no-op; overdraft fails.
+    /// Debits `amount` from `token`'s tracked balance. A zero amount is a no-op. Returns
+    /// `Err(Error::InvalidAmount)` for a negative amount or if `amount` exceeds the current
+    /// balance.
     pub fn try_withdraw(&mut self, token: &Address, amount: i128) -> Result<(), Error> {
         if amount == 0 {
             return Ok(());
@@ -82,7 +86,7 @@ impl<'a> Vault<'a> {
         Ok(())
     }
 
-    /// [`try_withdraw`](Self::try_withdraw) or panic.
+    /// Calls [`try_withdraw`](Self::try_withdraw) and panics with the returned error on failure.
     pub fn withdraw(&mut self, token: &Address, amount: i128) {
         if let Err(err) = self.try_withdraw(token, amount) {
             panic_with_error!(self.env, err);

@@ -16,14 +16,10 @@ pub(crate) struct RevenueOutcome {
     pub(crate) mutation: PoolAmountMutation,
 }
 
-/// Claim all currently claimable revenue and pay it to the Ownable owner.
-///
-/// If nothing is claimable, still emits a market state snapshot and returns
-/// zero. Otherwise transfers tokens to the owner after accounting.
-///
-/// # Returns
-///
-/// Mutation with `actual_amount` equal to asset units paid out.
+/// Claims all currently claimable revenue and pays it to the Ownable owner.
+/// Emits a market state snapshot in all cases. If nothing is claimable, returns
+/// a mutation with `actual_amount` zero and performs no transfer; otherwise
+/// transfers the claimed amount to the owner after accounting.
 pub(crate) fn apply(env: &Env, hub_asset: HubAssetKey) -> PoolAmountMutation {
     let outcome = accounting(env, hub_asset);
 
@@ -42,7 +38,8 @@ pub(crate) fn apply(env: &Env, hub_asset: HubAssetKey) -> PoolAmountMutation {
     outcome.mutation
 }
 
-/// Burn claimable revenue shares, enforce solvency/util guards, debit cash.
+/// Renews and syncs the market, burns claimable revenue shares, enforces the
+/// utilization and solvency guards, and debits the net transfer from cash.
 pub(crate) fn accounting(env: &Env, hub_asset: HubAssetKey) -> RevenueOutcome {
     let mut cache = ops::renewed_market(env, &hub_asset);
 

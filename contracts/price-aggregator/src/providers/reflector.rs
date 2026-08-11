@@ -1,3 +1,8 @@
+//! Reads prices from Reflector oracle feeds in either spot or TWAP mode,
+//! validating feed configuration (quote asset, decimals, resolution) and,
+//! for TWAP, the spacing, staleness, and count of the underlying
+//! observations before averaging them.
+
 use common::errors::OracleError;
 use common::oracle::observation::{is_future_at, MIN_ORACLE_RESOLUTION_SECONDS};
 use common::oracle::providers::reflector::{
@@ -12,6 +17,14 @@ use soroban_sdk::{assert_with_error, panic_with_error, Env, Symbol};
 use crate::observation::OracleObservation;
 use crate::session::Session;
 
+/// Validates that `feed` is configured consistently with `decimals` and
+/// `max_stale`. Checks that the feed's quote base is the "USD" symbol, that
+/// its reported decimals equal `decimals`, and that its resolution is at
+/// least `MIN_ORACLE_RESOLUTION_SECONDS` and at most `max_stale`. For a TWAP
+/// read mode, also checks that the span covered by the requested record
+/// count does not exceed `max_stale`. Panics with
+/// `OracleError::InvalidOracleBase`, `OracleError::InvalidOracleDecimals`,
+/// or `OracleError::InvalidOracleResolution` if any check fails.
 pub(crate) fn attest(env: &Env, feed: &ReflectorFeedRef, decimals: u32, max_stale: u64) {
     match reflector_base(env, &feed.contract) {
         ReflectorAsset::Other(symbol) if symbol == Symbol::new(env, "USD") => {}
@@ -42,6 +55,9 @@ pub(crate) fn attest(env: &Env, feed: &ReflectorFeedRef, decimals: u32, max_stal
 #[cfg(feature = "certora")]
 pub(crate) use certora_read::read_reflector_source;
 
+/// Wraps `read_reflector_source_impl` behind a CVLR summary so the Certora
+/// prover can substitute its own model of the call during formal
+/// verification.
 #[cfg(feature = "certora")]
 mod certora_read {
     use super::*;
@@ -60,6 +76,9 @@ mod certora_read {
 #[cfg(not(feature = "certora"))]
 pub(crate) use read_reflector_source_impl as read_reflector_source;
 
+/// Reads `feed`'s price scaled to `decimals`, dispatching to a spot read or
+/// a TWAP read depending on `feed.read_mode`. Returns `None` if the read
+/// fails for either mode.
 pub(crate) fn read_reflector_source_impl(
     session: &mut Session,
     feed: &ReflectorFeedRef,
@@ -72,6 +91,9 @@ pub(crate) fn read_reflector_source_impl(
     }
 }
 
+/// Reads the latest Reflector price for `feed.asset` and converts it to an
+/// `OracleObservation` scaled to `decimals`. Returns `None` if the
+/// underlying price cannot be read or the conversion fails.
 fn read_spot(
     session: &Session,
     feed: &ReflectorFeedRef,
@@ -84,6 +106,20 @@ fn read_spot(
     OracleObservation::from_reflector(now_secs, &price_data, decimals)
 }
 
+/// Computes an equal-weight arithmetic mean of up to `records` historical
+/// Reflector observations (despite the `Twap` mode name). Validates that the
+/// history is non-empty, meets the minimum observation count for `records`,
+/// does not exceed `records + 1` entries, has no timestamp beyond
+/// `now + MAX_FUTURE_SKEW_SECONDS`, and has consecutive timestamps spaced at
+/// least one resolution period apart. Returns the mean price with the oldest
+/// observation's timestamp.
+/// Returns `Err(OracleError::ReflectorHistoryEmpty)` if the history cannot
+/// be read or is empty, `Err(OracleError::TwapInsufficientObservations)` if
+/// the count or spacing checks fail, `Err(OracleError::PriceFeedStale)` if
+/// an observation is too far in the future, and
+/// `Err(OracleError::InvalidOracleResolution)` or
+/// `Err(OracleError::InvalidPrice)` if the resolution or the resulting
+/// price cannot be derived.
 fn read_twap(
     session: &Session,
     feed: &ReflectorFeedRef,

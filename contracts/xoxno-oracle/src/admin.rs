@@ -1,3 +1,7 @@
+//! Owner-only administrative entry points for the oracle contract: signer
+//! and threshold management, staleness and skew bound configuration, feed
+//! registration and asset mapping, and price resolution.
+
 use common::oracle::providers::reflector::ReflectorAsset;
 
 use soroban_sdk::{contractimpl, Address, Env, String};
@@ -15,6 +19,8 @@ use crate::{Error, XoxnoOracle, XoxnoOracleArgs, XoxnoOracleClient};
 
 #[contractimpl]
 impl XoxnoOracle {
+    /// Adds `signer` to the set of addresses authorized to submit prices.
+    /// Fails with `SignerAlreadyRegistered` if the address is already present.
     #[only_owner]
     pub fn add_signer(env: Env, signer: Address) -> Result<(), Error> {
         renew_oracle_instance(&env);
@@ -27,6 +33,12 @@ impl XoxnoOracle {
         Ok(())
     }
 
+    /// Removes `signer` from the signer set. Fails with `SignerNotRegistered`
+    /// if the address is not currently a signer, and with
+    /// `CannotRemoveBelowThreshold` if removal would drop the signer count
+    /// below the configured threshold. Deletes the signer's latest submission
+    /// for every feed it had submitted to, recomputes the aggregate for each
+    /// of those feeds, and clears the signer's feed list.
     #[only_owner]
     pub fn remove_signer(env: Env, signer: Address) -> Result<(), Error> {
         renew_oracle_instance(&env);
@@ -55,6 +67,10 @@ impl XoxnoOracle {
         Ok(())
     }
 
+    /// Sets the minimum number of signer submissions required to accept a
+    /// price for a feed. Fails with `InvalidThreshold` if `threshold` is zero
+    /// or exceeds the current signer count. Recomputes the aggregate for
+    /// every known feed under the new threshold.
     #[only_owner]
     pub fn set_threshold(env: Env, threshold: u32) -> Result<(), Error> {
         renew_oracle_instance(&env);
@@ -72,6 +88,9 @@ impl XoxnoOracle {
         Ok(())
     }
 
+    /// Sets the maximum age, in seconds, a stored aggregate can reach before
+    /// reads treat it as stale. Fails with `InvalidSubmissionAge` if `seconds`
+    /// is smaller than the configured maximum submission age.
     #[only_owner]
     pub fn set_max_stale_seconds(env: Env, seconds: u64) -> Result<(), Error> {
         renew_oracle_instance(&env);
@@ -84,6 +103,11 @@ impl XoxnoOracle {
         Ok(())
     }
 
+    /// Sets the maximum age, in seconds, a signer's submission timestamp can
+    /// have relative to ledger time to be accepted. Fails with
+    /// `InvalidSubmissionAge` if `seconds` is below `MIN_SUBMISSION_AGE_SECONDS`
+    /// or above the configured maximum stale age. Recomputes the aggregate
+    /// for every known feed under the new bound.
     #[only_owner]
     pub fn set_max_submission_age_seconds(env: Env, seconds: u64) -> Result<(), Error> {
         renew_oracle_instance(&env);
@@ -100,6 +124,11 @@ impl XoxnoOracle {
         Ok(())
     }
 
+    /// Sets the maximum allowed timestamp skew, in seconds, between clustered
+    /// signer submissions for the same aggregate. Fails with
+    /// `InvalidRelativeSkew` if `seconds` exceeds the configured maximum
+    /// submission age. Recomputes the aggregate for every known feed under
+    /// the new bound.
     #[only_owner]
     pub fn set_max_relative_skew_seconds(env: Env, seconds: u64) -> Result<(), Error> {
         renew_oracle_instance(&env);
@@ -116,6 +145,9 @@ impl XoxnoOracle {
         Ok(())
     }
 
+    /// Registers `feed_id` as a known feed without mapping it to a
+    /// `ReflectorAsset`. Fails with `FeedAlreadyRegistered` if the feed is
+    /// already known.
     #[only_owner]
     pub fn register_feed(env: Env, feed_id: String) -> Result<(), Error> {
         renew_oracle_instance(&env);
@@ -126,6 +158,9 @@ impl XoxnoOracle {
         Ok(())
     }
 
+    /// Maps `asset` to `feed_id` in both directions and registers `feed_id`
+    /// as known. Fails with `FeedAlreadyMapped` if `asset` already has a feed
+    /// mapping or `feed_id` already has an owning asset.
     #[only_owner]
     pub fn add_feed(env: Env, feed_id: String, asset: ReflectorAsset) -> Result<(), Error> {
         renew_oracle_instance(&env);
@@ -148,6 +183,10 @@ impl XoxnoOracle {
         Ok(())
     }
 
+    /// Removes the feed mapping owned by `asset` and clears all stored state
+    /// for the underlying feed (aggregate, history, per-signer submissions,
+    /// and feed index entry). Fails with `FeedNotMapped` if `asset` has no
+    /// feed mapping.
     #[only_owner]
     pub fn remove_feed(env: Env, asset: ReflectorAsset) -> Result<(), Error> {
         renew_oracle_instance(&env);
@@ -161,6 +200,8 @@ impl XoxnoOracle {
         Ok(())
     }
 
+    /// Sets the price resolution, in seconds, used to decide whether a new
+    /// aggregate replaces or appends to the last history entry.
     #[only_owner]
     pub fn set_resolution(env: Env, resolution: u32) -> Result<(), Error> {
         renew_oracle_instance(&env);
@@ -170,6 +211,9 @@ impl XoxnoOracle {
         Ok(())
     }
 
+    /// Removes `feed_id` and all its stored state, including its asset
+    /// mapping if one exists. Fails with `FeedNotKnown` if the feed is not
+    /// registered.
     #[only_owner]
     pub fn purge_feed(env: Env, feed_id: String) -> Result<(), Error> {
         renew_oracle_instance(&env);

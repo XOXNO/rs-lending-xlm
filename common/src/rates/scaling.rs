@@ -1,19 +1,26 @@
+//! Converts between asset-unit amounts and index-scaled `Ray` values for
+//! supply and borrow positions, and resolves withdrawal and repayment
+//! amounts against a scaled position.
+
 use soroban_sdk::{panic_with_error, Env};
 
 use crate::constants::RAY;
 use crate::math::fp::Ray;
 use crate::math::fp_core;
 
+/// Converts a scaled `Ray` amount to its original (unscaled) value by
+/// multiplying by `index`.
 pub fn scaled_to_original(env: &Env, scaled: Ray, index: Ray) -> Ray {
     scaled.mul(env, index)
 }
 
-/// Asset-unit amount → scaled ray with floor rounding, saturating on overflow.
-///
-/// Used for spoke supply/borrow **caps** where overflow must not panic an entry
-/// path: the scaled cap becomes `i128::MAX`, so the cap check fails open rather
-/// than trapping. Distinct from [`calculate_scaled_supply`] /
-/// [`calculate_scaled_borrow`], which panic on overflow (position accounting).
+/// Converts an asset-unit `cap` to a scaled `Ray` value using floor rounding,
+/// saturating the division to `i128::MAX` instead of panicking on overflow, so
+/// the cap check fails open rather than trapping an entry path. (The asset→ray
+/// rescale itself panics on overflow; caps must be pre-validated to the asset's
+/// decimal domain — see [`crate::validation::require_cap_within_asset_domain`].)
+/// Distinct from [`calculate_scaled_supply`] / [`calculate_scaled_borrow`],
+/// which panic on overflow (position accounting).
 pub fn calculate_scaled_cap(env: &Env, cap: i128, decimals: u32, index: Ray) -> Ray {
     Ray::from(fp_core::mul_div_floor_saturating(
         env,
@@ -23,10 +30,14 @@ pub fn calculate_scaled_cap(env: &Env, cap: i128, decimals: u32, index: Ray) -> 
     ))
 }
 
+/// Converts an asset-unit `amount` to a scaled supply `Ray` using floor
+/// rounding relative to `supply_index`.
 pub fn calculate_scaled_supply(env: &Env, amount: i128, decimals: u32, supply_index: Ray) -> Ray {
     Ray::from_asset(amount, decimals).div_floor(env, supply_index)
 }
 
+/// Converts an asset-unit `amount` to a scaled supply `Ray` using ceiling
+/// rounding relative to `supply_index`.
 pub fn calculate_scaled_supply_ceil(
     env: &Env,
     amount: i128,
@@ -36,10 +47,14 @@ pub fn calculate_scaled_supply_ceil(
     Ray::from_asset(amount, decimals).div_ceil(env, supply_index)
 }
 
+/// Converts an asset-unit `amount` to a scaled borrow `Ray` using ceiling
+/// rounding relative to `borrow_index`.
 pub fn calculate_scaled_borrow(env: &Env, amount: i128, decimals: u32, borrow_index: Ray) -> Ray {
     Ray::from_asset(amount, decimals).div_ceil(env, borrow_index)
 }
 
+/// Converts an asset-unit `amount` to a scaled borrow `Ray` using floor
+/// rounding relative to `borrow_index`.
 pub fn calculate_scaled_borrow_floor(
     env: &Env,
     amount: i128,
@@ -49,26 +64,44 @@ pub fn calculate_scaled_borrow_floor(
     Ray::from_asset(amount, decimals).div_floor(env, borrow_index)
 }
 
+/// Converts a scaled supply `Ray` back to an asset-unit amount, using
+/// half-up rounding at `decimals` precision.
 pub fn unscale_supply(env: &Env, scaled: Ray, supply_index: Ray, decimals: u32) -> i128 {
     scaled_to_original(env, scaled, supply_index).to_asset(decimals)
 }
 
+/// Converts a scaled supply `Ray` back to an asset-unit amount, using floor
+/// rounding at `decimals` precision.
 pub fn unscale_supply_floor(env: &Env, scaled: Ray, supply_index: Ray, decimals: u32) -> i128 {
     scaled.mul_floor(env, supply_index).to_asset_floor(decimals)
 }
 
+/// Converts a scaled borrow `Ray` back to an asset-unit amount, using
+/// half-up rounding at `decimals` precision.
 pub fn unscale_borrow(env: &Env, scaled: Ray, borrow_index: Ray, decimals: u32) -> i128 {
     scaled_to_original(env, scaled, borrow_index).to_asset(decimals)
 }
 
+/// Converts a scaled borrow `Ray` back to an asset-unit amount, using
+/// ceiling rounding at `decimals` precision.
 pub fn unscale_borrow_ceil(env: &Env, scaled: Ray, borrow_index: Ray, decimals: u32) -> i128 {
     scaled.mul_ceil(env, borrow_index).to_asset_ceil(decimals)
 }
 
+/// Converts a scaled borrow `Ray` to its original value using ceiling
+/// rounding, without rescaling to asset-unit decimals.
 pub fn unscale_borrow_ceil_ray(env: &Env, scaled: Ray, borrow_index: Ray) -> Ray {
     scaled.mul_ceil(env, borrow_index)
 }
 
+/// Determines the scaled and unscaled amounts to withdraw from `pos_scaled`
+/// when a caller requests `amount` asset units.
+///
+/// If `amount` is at least the position's current (half-up-rounded) supply
+/// value, treats it as a full withdrawal and returns `pos_scaled` unchanged
+/// alongside the position's floor-rounded supply value. Otherwise returns the
+/// ceiling-rounded scaled equivalent of `amount` alongside `amount` itself,
+/// for a partial withdrawal.
 pub fn resolve_withdrawal(
     env: &Env,
     amount: i128,
@@ -87,6 +120,14 @@ pub fn resolve_withdrawal(
     )
 }
 
+/// Determines the scaled debt to **burn** and any excess repayment when a
+/// caller repays `amount` asset units against `pos_scaled`.
+///
+/// If `amount` is at least the position's ceiling-rounded debt value, treats
+/// it as a full repayment and returns `pos_scaled` (burn the whole position)
+/// alongside the excess (`amount` minus that debt value). Otherwise returns
+/// the floor-rounded scaled equivalent of `amount` alongside zero, for a
+/// partial repayment.
 pub fn resolve_repay(
     env: &Env,
     amount: i128,

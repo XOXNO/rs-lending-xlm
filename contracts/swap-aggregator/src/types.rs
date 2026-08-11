@@ -1,7 +1,7 @@
 //! Wire types, internal hop shape, referral config, and storage keys.
 //!
-//! The wire payload is deliberately thin: two registries plus one packed
-//! instruction stream. See [`crate::program`] for the byte layout.
+//! The wire payload holds two registries plus one packed instruction stream.
+//! See [`crate::program`] for the byte layout.
 
 use soroban_sdk::{contracttype, Address, Bytes, Vec};
 
@@ -44,10 +44,8 @@ pub struct StrategyPayload {
     pub ops: Bytes,
 }
 
-/// Stored referral account.
-///
-/// Owned by `swap-aggregator-interface` so the published trait can name it;
-/// re-exported here because storage and fee accounting reach for it locally.
+/// Stored referral account configuration, re-exported from
+/// `swap_aggregator_interface`.
 pub use swap_aggregator_interface::ReferralConfig;
 
 /// Instance and persistent storage keys.

@@ -11,14 +11,11 @@ use soroban_sdk::{assert_with_error, Env};
 
 use crate::{guards, ops};
 
-/// Accrue, mint scaled supply, credit cash, commit.
-///
-/// Zero amount is allowed only when it produces zero shares (no-op supply).
-/// Positive amounts that round to zero shares panic.
-///
-/// # Returns
-///
-/// Position mutation (updated scaled supply + indexes) and market snapshot.
+/// Accrues interest, mints scaled supply shares, credits cash, and commits the
+/// market state. A zero amount is allowed only when it mints zero shares
+/// (no-op supply); positive amounts that round to zero shares panic. Returns
+/// the position mutation (updated scaled supply and indexes) and the market
+/// snapshot.
 pub(crate) fn apply(
     env: &Env,
     entry: &PoolSupplyEntry,

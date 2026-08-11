@@ -14,9 +14,10 @@ use soroban_sdk::{panic_with_error, token, Address, Env, Map, Vec};
 use crate::errors::Error;
 use crate::types::{SwapHop, SwapVenue};
 
-/// Invoke the hop venue and return measured `token_out` delta.
-///
-/// Requires the router spent exactly `amount_in` of `token_in`.
+/// Dispatches the hop to its venue-specific swap function and returns the measured increase in
+/// the router's `token_out` balance. Panics with `Error::ZeroOutput` if the output balance does
+/// not strictly increase, and with `Error::InvalidAmount` if the router's `token_in` balance does
+/// not decrease by exactly `amount_in`.
 pub(crate) fn dispatch_hop(
     env: &Env,
     router: &Address,
@@ -64,6 +65,8 @@ pub(crate) struct HopContext<'a> {
 }
 
 impl<'a> HopContext<'a> {
+    /// Constructs a `HopContext`. Panics with `Error::InvalidAmount` if `amount_in` is not
+    /// positive, and with `Error::SameToken` if the hop's input and output tokens are identical.
     fn new(env: &'a Env, router: &'a Address, hop: &'a SwapHop, amount_in: i128) -> Self {
         if amount_in <= 0 {
             panic_with_error!(env, Error::InvalidAmount);
@@ -79,7 +82,7 @@ impl<'a> HopContext<'a> {
         }
     }
 
-    /// Authorize the pool to pull `amount_in` of `token_in` from the router.
+    /// Authorizes the pool to pull `amount_in` of `token_in` from the router.
     pub fn authorize_pool_pull(&self) {
         authorize_token_transfer(
             self.env,

@@ -1,3 +1,7 @@
+//! Swap-collateral strategy: withdraws an existing collateral position,
+//! swaps the withdrawn asset for a different one, and re-deposits the
+//! proceeds as collateral in the new asset on the same account.
+
 use common::errors::GenericError;
 use common::types::{Account, HubAssetKey, StrategySwap};
 use common::validation::require_positive_amount;
@@ -13,6 +17,9 @@ use crate::strategies::{
 };
 use crate::{positions::supply, risk::validation, storage};
 
+/// Parameters for [`process_swap_collateral`]: the account, the collateral
+/// asset being replaced and the amount to withdraw from it, the new
+/// collateral asset, and the swap route between them.
 pub(crate) struct SwapCollateralParams<'a> {
     pub account_id: u64,
     pub current: &'a HubAssetKey,
@@ -21,6 +28,15 @@ pub(crate) struct SwapCollateralParams<'a> {
     pub swap: &'a StrategySwap,
 }
 
+/// Withdraws `from_amount` of `current` collateral, swaps it into `new`, and
+/// deposits the swapped amount as `new` collateral on the same account, then
+/// re-runs post-transaction risk validation and finalizes the account.
+///
+/// Requires the caller's authorization and that the caller is the account
+/// owner or an active protocol position manager listed among the account's
+/// delegates. Panics if `current` and `new` are the same asset, if `current`'s
+/// hub is inactive, if `from_amount` is not positive, or if `new` cannot accept
+/// a fresh supply entry for the account's spoke.
 pub(crate) fn process_swap_collateral(
     env: &Env,
     caller: &Address,
@@ -73,6 +89,8 @@ pub(crate) fn process_swap_collateral(
     strategy_finalize(env, account_id, &mut account, &mut cache);
 }
 
+/// Verifies that `new` can accept a fresh supply entry for `account`'s spoke
+/// via [`require_can_supply`], before the withdraw-and-swap leg runs.
 pub(crate) fn validate_swap_new_collateral_preflight(
     env: &Env,
     cache: &mut Cache,

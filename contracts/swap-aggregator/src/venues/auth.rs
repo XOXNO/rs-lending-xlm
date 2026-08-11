@@ -5,7 +5,7 @@ use soroban_sdk::{
     vec, Address, Env, IntoVal, Symbol, Val,
 };
 
-/// Authorize `token.transfer(from, to, amount)` as the current contract.
+/// Authorizes `token.transfer(from, to, amount)` as the current contract.
 pub(crate) fn authorize_token_transfer(
     env: &Env,
     token: &Address,
@@ -26,7 +26,7 @@ pub(crate) fn authorize_token_transfer(
     );
 }
 
-/// Authorize `token.approve(owner, spender, amount, expiration)`.
+/// Authorizes `token.approve(owner, spender, amount, expiration)` as the current contract.
 pub(crate) fn authorize_token_approve(
     env: &Env,
     token: &Address,
@@ -49,7 +49,7 @@ pub(crate) fn authorize_token_approve(
     );
 }
 
-/// Build one invoker-auth entry for `contract.fn_name(args)`.
+/// Builds one invoker-auth entry for `contract.fn_name(args)`, wrapping the given sub-invocations.
 pub(crate) fn auth_entry(
     env: &Env,
     contract: &Address,
@@ -67,7 +67,8 @@ pub(crate) fn auth_entry(
     })
 }
 
-/// Register a single top-level invoker auth for the current contract call.
+/// Registers a single top-level invoker auth entry, with no sub-invocations,
+/// for `contract.fn_name(args)`.
 pub(crate) fn authorize_as_current(
     env: &Env,
     contract: &Address,

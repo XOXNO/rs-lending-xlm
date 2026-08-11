@@ -91,7 +91,8 @@ pub(crate) fn add_protocol_revenue(cache: &mut Cache, fee: Ray) {
 /// Socialize `bad_debt` by reducing the supply index (capped at total supply value).
 ///
 /// Used when seizing unpaid debt: remaining supplier claims shrink pro-rata.
-/// Index is floored at [`SUPPLY_INDEX_FLOOR_RAW`] to avoid a zero index.
+/// No-op when total supplied value is zero. Floors the resulting index at
+/// [`SUPPLY_INDEX_FLOOR_RAW`] to avoid a zero index.
 pub(crate) fn apply_bad_debt_to_supply_index(cache: &mut Cache, bad_debt: Ray) {
     let total_supplied_value = cache.supplied().mul(cache.env(), cache.supply_index());
 

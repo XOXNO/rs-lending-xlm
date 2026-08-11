@@ -1,8 +1,14 @@
+//! Converts raw provider price payloads (RedStone, Reflector) into normalized,
+//! WAD-scaled observations, rejecting prices timestamped in the future or that
+//! fail decimal normalization.
+
 use common::oracle::observation::{
     is_future_at, millis_to_seconds, try_normalize_positive_price, try_u256_to_i128,
 };
 use common::oracle::providers::redstone::RedStonePriceData;
 use common::oracle::providers::reflector::ReflectorPriceData;
+/// A normalized price observation: a WAD-scaled price and its observation
+/// timestamp in seconds.
 #[cfg_attr(feature = "certora", allow(dead_code))]
 #[derive(Clone, Debug)]
 pub(crate) struct OracleObservation {
@@ -11,6 +17,11 @@ pub(crate) struct OracleObservation {
 }
 
 impl OracleObservation {
+    /// Builds an observation from a RedStone multi-feed payload. Rejects the
+    /// observation if its package or write timestamp exceeds
+    /// `now_secs + MAX_FUTURE_SKEW_SECONDS`, if the price does not fit an
+    /// `i128`, or if it fails decimal normalization. Uses the earlier of the
+    /// write and package timestamps.
     pub(crate) fn from_multi_feed(
         now_secs: u64,
         price_data: &RedStonePriceData,
@@ -28,6 +39,9 @@ impl OracleObservation {
         })
     }
 
+    /// Builds an observation from a Reflector price payload. Rejects the
+    /// observation if its timestamp exceeds `now_secs + MAX_FUTURE_SKEW_SECONDS`
+    /// or if the price fails decimal normalization.
     pub(crate) fn from_reflector(
         now_secs: u64,
         price_data: &ReflectorPriceData,

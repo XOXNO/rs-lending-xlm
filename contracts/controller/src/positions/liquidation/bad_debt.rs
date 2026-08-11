@@ -1,3 +1,7 @@
+//! Cleans up an account whose remaining debt qualifies as socializable bad debt by
+//! seizing all of its supply and borrow positions through the pool and removing the
+//! account's storage entry.
+
 use common::types::{Account, AccountPositionType, PoolSeizeEntry};
 use soroban_sdk::{Env, Vec};
 
@@ -7,6 +11,10 @@ use crate::external::pool::pool_seize_positions_call;
 use crate::spoke::UsageSide;
 use crate::storage::{self, iter_debt_positions, iter_typed_positions};
 
+/// Removes every supply and borrow position's usage from the spoke cache, instructs
+/// the pool to seize all of the account's supply and borrow positions, persists the
+/// updated spoke usage, publishes a `CleanBadDebtEvent` carrying `total_debt_usd` and
+/// `total_collateral_usd`, and removes the account's storage entry.
 pub(crate) fn execute_bad_debt_cleanup(
     env: &Env,
     cache: &mut Cache,

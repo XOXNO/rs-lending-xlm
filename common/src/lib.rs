@@ -1,3 +1,7 @@
+//! Shared library for the lending contracts in this workspace: common types,
+//! contract error codes, fixed-point math and interest-rate-curve utilities,
+//! oracle validation logic, and helper functions for token transfers, TTL
+//! renewal, collection deduplication, and input validation.
 #![no_std]
 
 pub mod collections;

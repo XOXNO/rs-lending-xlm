@@ -1,3 +1,6 @@
+//! Updates borrow and supply interest indexes and splits accrued interest
+//! into supplier rewards and protocol fee.
+
 use soroban_sdk::Env;
 
 use crate::constants::{MAX_BORROW_INDEX_RAY, MAX_SUPPLY_INDEX_RAY, RAY};
@@ -5,6 +8,8 @@ use crate::math::fp::Ray;
 use crate::math::fp_core;
 use crate::types::MarketParams;
 
+/// Applies `interest_factor` to `old_index` to produce the new borrow index,
+/// capped at `MAX_BORROW_INDEX_RAY`.
 pub fn update_borrow_index(env: &Env, old_index: Ray, interest_factor: Ray) -> Ray {
     let new_index = old_index.mul(env, interest_factor);
     if new_index.raw() > MAX_BORROW_INDEX_RAY {
@@ -13,6 +18,14 @@ pub fn update_borrow_index(env: &Env, old_index: Ray, interest_factor: Ray) -> R
     new_index
 }
 
+/// Grows `old_index` by distributing `rewards_increase` over the total value
+/// currently supplied (`supplied * old_index`).
+///
+/// Returns `old_index` unchanged if `supplied` or `rewards_increase` is zero,
+/// or if the total supplied value is zero. Clamps the result between
+/// `old_index` (itself capped at `MAX_SUPPLY_INDEX_RAY`) and
+/// `MAX_SUPPLY_INDEX_RAY`, so the returned index never decreases and never
+/// exceeds the cap.
 pub fn update_supply_index(env: &Env, supplied: Ray, old_index: Ray, rewards_increase: Ray) -> Ray {
     if supplied == Ray::ZERO || rewards_increase == Ray::ZERO {
         return old_index;
@@ -31,6 +44,12 @@ pub fn update_supply_index(env: &Env, supplied: Ray, old_index: Ray, rewards_inc
     Ray::from(grown.min(MAX_SUPPLY_INDEX_RAY).max(bounded_old))
 }
 
+/// Computes the portion of `rewards_increase` not reflected by the change in
+/// supplied value implied by moving from `old_index` to `new_index` over
+/// `supplied` (i.e. `supplied * new_index - supplied * old_index`).
+///
+/// Panics if `new_index` implies less supplied value than `old_index`, or if
+/// the distributed value exceeds `rewards_increase`.
 pub fn supply_index_reward_shortfall(
     env: &Env,
     supplied: Ray,
@@ -44,6 +63,13 @@ pub fn supply_index_reward_shortfall(
     rewards_increase.checked_sub(env, distributed)
 }
 
+/// Splits the interest accrued on `borrowed` debt between `old_borrow_index`
+/// and `new_borrow_index` into supplier rewards and protocol fee, per
+/// `params.reserve_factor`. Returns `(supplier_rewards, protocol_fee)`.
+///
+/// Panics if `new_borrow_index` implies less total debt than
+/// `old_borrow_index`, or if the rounded protocol fee exceeds the accrued
+/// interest.
 pub fn calculate_supplier_rewards(
     env: &Env,
     params: &MarketParams,
@@ -62,6 +88,9 @@ pub fn calculate_supplier_rewards(
     (supplier_rewards, protocol_fee)
 }
 
+/// Converts a Ray-denominated `fee` into scaled supply-index shares
+/// (`fee / supply_index`), floor-rounded and saturating on overflow. Caps the
+/// result so that adding it to `supplied` cannot overflow `i128::MAX`.
 pub fn protocol_fee_shares(env: &Env, fee: Ray, supply_index: Ray, supplied: Ray) -> Ray {
     let raw = fp_core::mul_div_floor_saturating(env, fee.raw(), RAY, supply_index.raw());
 

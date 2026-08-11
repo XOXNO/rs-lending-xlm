@@ -1,3 +1,7 @@
+//! Types used by the controller contract: hub/spoke and asset risk configuration, account
+//! and position storage shapes, liquidation inputs/outputs, and the `ControllerKey` storage
+//! key enum.
+
 use crate::math::fp::{Bps, Ray};
 use crate::types::oracle::PriceFeedRaw;
 use crate::types::pool::{
@@ -6,6 +10,9 @@ use crate::types::pool::{
 use crate::types::shared::PositionMode;
 use soroban_sdk::{contracttype, Address, Map, Vec};
 
+/// Risk parameters used to size and evaluate a position for one asset: the fixed-point
+/// loan-to-value, liquidation threshold, liquidation bonus, and liquidation fee rates, plus
+/// whether the asset currently accepts new supply or new borrows.
 #[derive(Clone, Debug)]
 pub struct AssetConfig {
     pub loan_to_value: Bps,
@@ -20,10 +27,12 @@ pub struct AssetConfig {
 }
 
 impl AssetConfig {
+    /// Returns true if the asset currently accepts new supply as collateral.
     pub fn can_supply(&self) -> bool {
         self.is_collateralizable
     }
 
+    /// Returns true if the asset currently accepts new borrows.
     pub fn can_borrow(&self) -> bool {
         self.is_borrowable
     }
@@ -42,6 +51,8 @@ impl From<&SpokeAssetConfig> for AssetConfig {
     }
 }
 
+/// Lightweight projection of an account's spoke and position mode, omitting the owner
+/// address and position maps carried by `Account` and `AccountMeta`.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AccountAttributes {
@@ -49,6 +60,8 @@ pub struct AccountAttributes {
     pub mode: PositionMode,
 }
 
+/// Per-account metadata stored independently of the account's supply and borrow position
+/// maps: owner address, spoke membership, and position mode.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AccountMeta {
@@ -57,18 +70,22 @@ pub struct AccountMeta {
     pub mode: PositionMode,
 }
 
+/// Stored configuration for a hub: whether it currently accepts activity.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct HubConfig {
     pub is_active: bool,
 }
 
+/// Stored configuration for a registered position manager: whether it is currently active.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct PositionManagerConfig {
     pub is_active: bool,
 }
 
+/// Stored configuration for a spoke: deprecation flag and the health-factor and bonus
+/// parameters that drive its liquidation curve.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct SpokeConfig {
@@ -81,6 +98,8 @@ pub struct SpokeConfig {
     pub liquidation_bonus_factor_bps: u32,
 }
 
+/// Stored per-spoke risk and cap configuration for one asset, with basis-point rates as raw
+/// `u32` values.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct SpokeAssetConfig {
@@ -102,6 +121,7 @@ pub struct SpokeAssetConfig {
     pub borrow_cap: i128,
 }
 
+/// Input arguments for adding or editing an asset's listing in a spoke.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct SpokeAssetArgs {
@@ -126,6 +146,8 @@ pub struct SpokeAssetArgs {
     pub borrow_cap: i128,
 }
 
+/// Stored ray-scaled supply and borrow usage for one asset within a spoke, used to enforce
+/// per-spoke supply and borrow caps.
 #[contracttype]
 #[derive(Clone, Debug, Default)]
 pub struct SpokeUsageRaw {
@@ -134,6 +156,8 @@ pub struct SpokeUsageRaw {
     pub borrowed_scaled_ray: i128,
 }
 
+/// View of a market's current interest indices and resolved price, including the individual
+/// primary/anchor legs and staleness/deviation/validity flags reported by the oracle.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct MarketIndexView {
@@ -156,6 +180,7 @@ pub struct MarketIndexView {
     pub valid: bool,
 }
 
+/// Per-account caps on the number of distinct supply and borrow positions held at once.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct PositionLimits {
@@ -163,6 +188,7 @@ pub struct PositionLimits {
     pub max_supply_positions: u32,
 }
 
+/// An asset/amount pair used across payment, refund, and liquidation views.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct PaymentTuple {
@@ -171,6 +197,9 @@ pub struct PaymentTuple {
     pub amount: i128,
 }
 
+/// View-only projection of a simulated liquidation outcome: seized collateral and protocol
+/// fees per asset, any refunded payments, the maximum USD-equivalent debt repayable, and the
+/// applied bonus rate.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct LiquidationEstimate {
@@ -185,6 +214,8 @@ pub struct LiquidationEstimate {
     pub bonus_rate_bps: i128,
 }
 
+/// One collateral asset seized during a liquidation: total amount seized, the portion routed
+/// to protocol fees, and the price feed and market index used to value it.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct SeizeEntry {
@@ -197,6 +228,8 @@ pub struct SeizeEntry {
     pub market_index: crate::types::pool::MarketIndexRaw,
 }
 
+/// One debt asset repaid during a liquidation: amount repaid, its USD-equivalent value, and
+/// the price feed and market index used to value it.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct RepayEntry {
@@ -209,6 +242,8 @@ pub struct RepayEntry {
     pub market_index: crate::types::pool::MarketIndexRaw,
 }
 
+/// Full outcome of an executed liquidation: seized collateral entries, repaid debt entries,
+/// any refunded payments, the maximum USD-equivalent debt repaid, and the bonus rate applied.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct LiquidationResult {
@@ -221,6 +256,8 @@ pub struct LiquidationResult {
     pub bonus_bps: i128,
 }
 
+/// An account's full position state: owner, spoke membership, position mode, and its supply
+/// and borrow position maps keyed by hub asset.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct Account {
@@ -235,10 +272,13 @@ pub struct Account {
 }
 
 impl Account {
+    /// Projects this account down to its `AccountAttributes` (spoke and mode).
     pub fn attributes(&self) -> AccountAttributes {
         AccountAttributes::from(self)
     }
 
+    /// Returns the account's existing supply position for `hub_asset`, or a freshly seeded
+    /// zero-amount position carrying `config`'s risk parameters if none exists yet.
     pub fn get_or_create_supply_position(
         &self,
         hub_asset: &HubAssetKey,
@@ -256,6 +296,8 @@ impl Account {
             })
     }
 
+    /// Returns the account's existing debt position for `hub_asset`, or a freshly seeded
+    /// zero-amount position if none exists yet.
     pub fn get_or_create_debt_position(&self, hub_asset: &HubAssetKey) -> DebtPosition {
         self.borrow_positions
             .get(hub_asset.clone())
@@ -265,10 +307,12 @@ impl Account {
             })
     }
 
+    /// Returns true if the account holds neither supply nor borrow positions.
     pub fn is_empty(&self) -> bool {
         self.supply_positions.is_empty() && self.borrow_positions.is_empty()
     }
 
+    /// Returns true if the account holds no borrow positions.
     pub fn debt_free(&self) -> bool {
         self.borrow_positions.is_empty()
     }
@@ -517,6 +561,9 @@ mod tests {
     }
 }
 
+/// Storage keys for all controller contract state: singleton protocol settings, per-hub and
+/// per-spoke configuration, per-spoke-asset configuration and usage, and per-account
+/// metadata, positions, and delegates (keyed by account ID or address as applicable).
 #[contracttype]
 #[derive(Clone, Debug)]
 pub enum ControllerKey {

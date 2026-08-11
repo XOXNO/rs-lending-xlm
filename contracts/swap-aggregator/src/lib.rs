@@ -9,11 +9,11 @@
 //! | Layer | Role |
 //! |-------|------|
 //! | [`Router`] | Public entrypoints and Ownable |
-//! | [`execute`] | Strategy run: pull, paths, LP legs, settle |
-//! | [`fees`] | Static + referral fee apply and claim |
-//! | [`storage`] | Keys, TTL, fee buckets, whitelist, referrals |
-//! | [`vault`] | Invocation-local token ledger |
-//! | [`venues`] | Per-DEX hop adapters and Aquarius LP |
+//! | `execute` | Strategy run: pull, paths, LP legs, settle |
+//! | `fees` | Static + referral fee apply and claim |
+//! | `storage` | Keys, TTL, fee buckets, whitelist, referrals |
+//! | `vault` | Invocation-local token ledger |
+//! | `venues` | Per-DEX hop adapters and Aquarius LP |
 
 mod constants;
 mod errors;
@@ -234,7 +234,7 @@ impl SwapAggregatorInterface for Router {
         storage::fee_balance(&env, &types::DataKey::ReferralFee(id, token))
     }
 
-    /// Decode `swap_xdr` as [`StrategyPayload`] and execute it.
+    /// Decode `swap_xdr` as `StrategyPayload` and execute it.
     ///
     /// Pulls `total_in` from `sender`, runs optional LP burn/paths/mint, applies
     /// fees, enforces `total_min_out`, and returns delivered output.
@@ -248,18 +248,26 @@ impl SwapAggregatorInterface for Router {
 
 #[contractimpl]
 impl Ownable for Router {
+    /// Current owner, or `None` if ownership has been renounced or was never set.
     fn get_owner(e: &Env) -> Option<Address> {
         ownable::get_owner(e)
     }
 
+    /// Starts a two-step ownership transfer to `new_owner`, acceptable until ledger
+    /// `live_until_ledger`. Requires current-owner authorization; overrides any
+    /// pending transfer.
     fn transfer_ownership(e: &Env, new_owner: Address, live_until_ledger: u32) {
         ownable::transfer_ownership(e, &new_owner, live_until_ledger);
     }
 
+    /// Completes a pending ownership transfer. Requires authorization from the
+    /// pending owner.
     fn accept_ownership(e: &Env) {
         ownable::accept_ownership(e);
     }
 
+    /// Clears the current owner. Requires current-owner authorization and panics
+    /// if a transfer is pending.
     fn renounce_ownership(e: &Env) {
         ownable::renounce_ownership(e);
     }

@@ -1,7 +1,6 @@
-//! Borrow leg: mint debt shares, debit cash, transfer assets to the receiver.
+//! Borrow leg: mints debt shares, debits cash, and transfers assets to the receiver.
 //!
-//! Accounting is split from token transfer so other ops (e.g. strategy) can
-//! reuse [`mint_debt`] without paying out.
+//! Splits accounting ([`accounting`], [`mint_debt`]) from token transfer ([`apply`]).
 
 use common::errors::GenericError;
 use common::math::fp::Ray;
@@ -20,11 +19,12 @@ pub(crate) struct BorrowOutcome {
     pub(crate) snapshot: MarketStateSnapshot,
 }
 
-/// Accrue, mint debt, debit cash, commit, then transfer borrowed assets out.
+/// Accrues interest, mints debt, debits cash, commits the market, then
+/// transfers the borrowed assets to `receiver`.
 ///
 /// # Returns
 ///
-/// Position mutation and post-commit market snapshot for the batch event.
+/// The position mutation and the post-commit market snapshot for the batch event.
 pub(crate) fn apply(
     env: &Env,
     receiver: &Address,
@@ -38,7 +38,7 @@ pub(crate) fn apply(
     (outcome.mutation, outcome.snapshot)
 }
 
-/// Run borrow accounting without transferring tokens.
+/// Runs borrow accounting without transferring tokens.
 ///
 /// Updates the user's scaled debt position by `entry.action.amount` in asset
 /// units, debits market cash, and commits state.
@@ -58,7 +58,7 @@ pub(crate) fn accounting(env: &Env, entry: &PoolBorrowEntry) -> BorrowOutcome {
     }
 }
 
-/// Mint scaled debt for `amount` of underlying and enforce max utilization.
+/// Mints scaled debt for `amount` of underlying and enforces max utilization.
 ///
 /// Requires positive amount and sufficient cash reserves. Panics if the scaled
 /// mint rounds to zero shares.

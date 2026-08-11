@@ -1,3 +1,7 @@
+//! Executes swaps through the configured swap aggregator router, validating
+//! the swap route, pre-authorizing the router's token pull, and reconciling
+//! balances before and after the router call.
+
 use common::errors::GenericError;
 use common::types::StrategySwap;
 use soroban_sdk::{assert_with_error, token, Address, Env};
@@ -10,6 +14,13 @@ use crate::storage;
 use route::validate_strategy_swap;
 use swap_aggregator_interface::SwapAggregatorClient;
 
+/// Swaps `amount_in` of `token_in` for `token_out` through the configured
+/// swap aggregator router and returns the amount of `token_out` received.
+///
+/// Validates `swap`, snapshots balances, pre-authorizes the router to pull
+/// `amount_in` of `token_in`, invokes the router under a reentrancy guard,
+/// refunds any unspent `token_in` to `refund_to`, and verifies that
+/// `token_out` was actually received.
 pub(crate) fn swap_tokens(
     env: &Env,
     refund_to: &Address,
@@ -42,6 +53,10 @@ pub(crate) fn swap_tokens(
     balances::verify_router_output(env, &token_out_client, balance_before.token_out)
 }
 
+/// Returns `amount_in` unchanged when `token_in` and `token_out` are the
+/// same asset, otherwise delegates to `swap_tokens`. Panics with
+/// `GenericError::InvalidPayments` if `token_in` equals `token_out` but
+/// `swap` is non-empty.
 pub(crate) fn swap_tokens_or_passthrough(
     env: &Env,
     refund_to: &Address,

@@ -1,3 +1,9 @@
+//! Persistent-storage operations for the asset/feed registry: mapping
+//! between `ReflectorAsset`s and feed ids, listing all registered assets
+//! and feeds, tracking which feeds a signer submits for, clearing a feed's
+//! aggregate/history/submission state, and the signer/feed authorization
+//! checks used by the rest of the contract.
+
 use common::oracle::providers::reflector::ReflectorAsset;
 use soroban_sdk::{Address, Env, String, Vec};
 
@@ -9,6 +15,7 @@ use crate::storage::ttl::renew_persistent_key;
 use crate::storage::DataKey;
 use crate::Error;
 
+/// Loads the feed id mapped to `asset`. Renews the mapping's TTL if it exists.
 pub(crate) fn load_feed_id(env: &Env, asset: &ReflectorAsset) -> Option<String> {
     let key = DataKey::FeedMapping(asset.clone());
     env.storage().persistent().get(&key).inspect(|_| {
@@ -16,6 +23,7 @@ pub(crate) fn load_feed_id(env: &Env, asset: &ReflectorAsset) -> Option<String> 
     })
 }
 
+/// Loads the `ReflectorAsset` that owns `feed_id`. Renews the mapping's TTL if it exists.
 pub(crate) fn load_feed_owner(env: &Env, feed_id: &String) -> Option<ReflectorAsset> {
     let key = DataKey::FeedOwner(feed_id.clone());
     env.storage().persistent().get(&key).inspect(|_| {
@@ -23,6 +31,8 @@ pub(crate) fn load_feed_owner(env: &Env, feed_id: &String) -> Option<ReflectorAs
     })
 }
 
+/// Returns every registered asset, reading each from its indexed slot and renewing its TTL.
+/// Skips any slot that has expired or was never populated.
 pub(crate) fn load_all_assets(env: &Env) -> Vec<ReflectorAsset> {
     let count = asset_count(env);
     let mut out = Vec::new(env);
@@ -36,6 +46,8 @@ pub(crate) fn load_all_assets(env: &Env) -> Vec<ReflectorAsset> {
     out
 }
 
+/// Returns every registered feed id, reading each from its indexed slot and renewing its TTL.
+/// Skips any slot that has expired or was never populated.
 pub(crate) fn load_all_feeds(env: &Env) -> Vec<String> {
     let count = feed_count(env);
     let mut out = Vec::new(env);
@@ -49,12 +61,16 @@ pub(crate) fn load_all_feeds(env: &Env) -> Vec<String> {
     out
 }
 
+/// Ensures `feed_id` is present in the feed index: renews its TTL if already indexed, otherwise
+/// inserts it.
 pub(crate) fn ensure_known_feed(env: &Env, feed_id: &String) {
     if !renew_known_feed(env, feed_id) {
         feed_index_insert(env, feed_id.clone());
     }
 }
 
+/// Renews the TTL of `feed_id`'s index entry and its indexed slot if `feed_id` is already
+/// indexed. Returns whether it was indexed.
 pub(crate) fn renew_known_feed(env: &Env, feed_id: &String) -> bool {
     let index_key = DataKey::FeedIndex(feed_id.clone());
     match env.storage().persistent().get::<DataKey, u32>(&index_key) {
@@ -67,6 +83,8 @@ pub(crate) fn renew_known_feed(env: &Env, feed_id: &String) -> bool {
     }
 }
 
+/// Adds `feed_id` to `signer`'s list of feeds if not already present, then renews the list's
+/// TTL. If `feed_id` is already present, only renews the TTL.
 pub(crate) fn record_signer_feed(env: &Env, signer: &Address, feed_id: &String) {
     let key = DataKey::SignerFeeds(signer.clone());
     let mut feeds: Vec<String> = env
@@ -83,6 +101,7 @@ pub(crate) fn record_signer_feed(env: &Env, signer: &Address, feed_id: &String) 
     renew_persistent_key(env, &key);
 }
 
+/// Loads the list of feed ids `signer` submits for. Returns an empty vector if none are recorded.
 pub(crate) fn load_signer_feeds(env: &Env, signer: &Address) -> Vec<String> {
     env.storage()
         .persistent()
@@ -90,6 +109,9 @@ pub(crate) fn load_signer_feeds(env: &Env, signer: &Address) -> Vec<String> {
         .unwrap_or_else(|| Vec::new(env))
 }
 
+/// Removes `feed_id` from `signer`'s list of feeds. If `signer` has no recorded feeds, this is a
+/// no-op. If removing `feed_id` leaves the list empty, deletes the list entry entirely; otherwise
+/// writes the reduced list back and renews its TTL.
 pub(crate) fn remove_signer_feed(env: &Env, signer: &Address, feed_id: &String) {
     let key = DataKey::SignerFeeds(signer.clone());
     let Some(feeds): Option<Vec<String>> = env.storage().persistent().get(&key) else {
@@ -109,6 +131,9 @@ pub(crate) fn remove_signer_feed(env: &Env, signer: &Address, feed_id: &String) 
     }
 }
 
+/// Removes all state associated with `feed_id`: its current aggregate, its price history, every
+/// signer's latest submission for it, its entry in each submitting signer's feed list, its
+/// owning-asset mapping, and its entry in the feed index.
 pub(crate) fn clear_feed_state(env: &Env, feed_id: &String) {
     env.storage()
         .persistent()
@@ -128,6 +153,7 @@ pub(crate) fn clear_feed_state(env: &Env, feed_id: &String) {
     feed_index_remove(env, feed_id);
 }
 
+/// Returns `Error::NotAuthorizedSigner` if `signer` is not in the configured signer set.
 pub(crate) fn require_registered_signer(env: &Env, signer: &Address) -> Result<(), Error> {
     let signers = load_signers(env);
     if !signers.contains(signer) {
@@ -136,6 +162,7 @@ pub(crate) fn require_registered_signer(env: &Env, signer: &Address) -> Result<(
     Ok(())
 }
 
+/// Returns `Error::FeedNotKnown` if `feed_id` is not present in the feed index.
 pub(crate) fn require_known_feed(env: &Env, feed_id: &String) -> Result<(), Error> {
     if !feed_index_contains(env, feed_id) {
         return Err(Error::FeedNotKnown);

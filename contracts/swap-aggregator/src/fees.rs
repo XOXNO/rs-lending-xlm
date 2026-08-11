@@ -19,6 +19,7 @@ pub(crate) enum FeeBucket {
 }
 
 impl FeeBucket {
+    /// Returns the storage key for this bucket and `token`.
     fn key(self, token: Address) -> DataKey {
         match self {
             FeeBucket::Admin => DataKey::AdminFee(token),
@@ -127,6 +128,7 @@ pub(crate) fn claim_referral_fees(env: &Env, router: &Address, id: u64, tokens: 
     claim_fee_bucket(env, router, &cfg.owner, tokens, FeeBucket::Referral(id));
 }
 
+/// Computes `balance * fee_bps / BPS` using checked multiplication.
 fn fee_amount(env: &Env, balance: i128, fee_bps: u32) -> i128 {
     checked_mul(env, balance, fee_bps as i128) / BPS
 }

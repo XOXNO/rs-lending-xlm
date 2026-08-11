@@ -22,7 +22,8 @@ pub(crate) struct WithdrawOutcome {
     pub(crate) net_transfer: i128,
 }
 
-/// Accrue, burn supply, debit cash, transfer net proceeds to `receiver`.
+/// Accrues interest, burns supply shares, debits cash, and transfers the net
+/// proceeds to `receiver`.
 ///
 /// Mutation `actual_amount` is the **gross** withdrawal; `net_transfer` is what
 /// leaves the pool after any liquidation fee.
@@ -38,7 +39,7 @@ pub(crate) fn apply(
     (outcome.mutation, outcome.snapshot)
 }
 
-/// Run withdraw accounting without transferring tokens.
+/// Runs withdraw accounting without transferring tokens.
 ///
 /// Resolves full or partial close, optionally withholds liquidation fee,
 /// burns shares, and gates liquidity / utilization / solvency before debit.
@@ -72,7 +73,8 @@ pub(crate) fn accounting(
     }
 }
 
-/// Map requested amount + position to shares burned and gross asset amount.
+/// Maps requested amount and position to shares burned and gross asset amount.
+/// Panics if a nonzero gross amount would burn zero shares.
 fn resolve_close_or_partial(cache: &Cache, amount: i128, position: Ray) -> (Ray, i128) {
     let (burned, gross_amount) = cache.resolve_withdrawal(amount, position);
     assert_with_error!(
@@ -83,16 +85,14 @@ fn resolve_close_or_partial(cache: &Cache, amount: i128, position: Ray) -> (Ray,
     (burned, gross_amount)
 }
 
-/// Burn `burned` from market supply and return the user's remaining scaled position.
+/// Burns `burned` from market supply and returns the user's remaining scaled position.
 fn burn_position(env: &Env, cache: &mut Cache, position: Ray, burned: Ray) -> Ray {
     cache.burn_supply(burned);
     position.checked_sub(env, burned)
 }
 
-/// Enforce liquidity and solvency, then debit cash for the net transfer.
-///
-/// Max utilization is skipped during liquidations so underwater positions can
-/// still be closed when utilization is already at the cap.
+/// Enforces reserve, utilization, and solvency guards, then debits cash for
+/// the net transfer. The utilization guard is skipped during liquidations.
 fn gate_and_debit(env: &Env, cache: &mut Cache, net_transfer: i128, is_liquidation: bool) {
     cache.require_reserves(net_transfer);
 
@@ -103,7 +103,7 @@ fn gate_and_debit(env: &Env, cache: &mut Cache, net_transfer: i128, is_liquidati
     cache.debit_cash(net_transfer);
 }
 
-/// Subtract a liquidation protocol fee from gross, booking it as revenue.
+/// Subtracts a liquidation protocol fee from the gross amount and books it as revenue.
 ///
 /// Non-liquidation paths or zero fee return `gross_amount` unchanged. Panics
 /// if the fee exceeds the gross withdrawal.

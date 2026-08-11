@@ -39,8 +39,6 @@ pub(crate) fn require_backed_market(env: &Env, cache: &Cache) {
 }
 
 /// Asset units by which supplier claims exceed cash + debt (0 if solvent).
-///
-/// Used by recapitalization to size the cash injection needed.
 pub(crate) fn backing_shortfall(cache: &Cache) -> i128 {
     let supplied_claim = cache.unscale_supply_floor(cache.supplied());
     let outstanding_debt = cache.unscale_borrow_ceil(cache.borrowed());
@@ -48,10 +46,7 @@ pub(crate) fn backing_shortfall(cache: &Cache) -> i128 {
     supplied_claim.saturating_sub(backing).max(0)
 }
 
-/// Panic if supply is fully emptied while debt remains outstanding.
-///
-/// Prevents a withdraw path that would leave borrowers with no counterpart
-/// shares / an unbacked liability book.
+/// Panics with `PoolInsolvent` if supplied is zero while borrowed debt is non-zero.
 pub(crate) fn require_solvent_withdraw_state(env: &Env, cache: &Cache) {
     if cache.supplied() == Ray::ZERO && cache.borrowed() != Ray::ZERO {
         panic_with_error!(env, CollateralError::PoolInsolvent);

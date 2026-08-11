@@ -1,5 +1,12 @@
 #![no_std]
 
+//! XOXNO oracle contract. Aggregates prices from a configured set of authorized
+//! signers: each signer posts their latest per-feed submission (with auth), and
+//! the contract forms a median once at least `threshold` fresh, skew-clustered
+//! submissions exist. History is bounded; prices are exposed via RedStone-shaped
+//! feed APIs and a Reflector-compatible asset API. Owner-only admin configures
+//! signers, threshold, feeds, and staleness/skew bounds.
+
 mod admin;
 mod aggregation;
 mod reads;
@@ -11,6 +18,7 @@ use soroban_sdk::{contract, contracterror, contractimpl, Address, BytesN, Env, V
 use stellar_access::ownable::{self, Ownable};
 use stellar_macros::only_owner;
 
+/// Error conditions returned by the oracle's contract calls.
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
@@ -52,11 +60,17 @@ pub enum Error {
     InvalidRelativeSkew = 18,
 }
 
+/// The XOXNO oracle contract type.
 #[contract]
 pub struct XoxnoOracle;
 
 #[contractimpl]
 impl XoxnoOracle {
+    /// Initializes the contract: sets `admin` as owner and stores the
+    /// initial signer set, submission threshold, price resolution, and
+    /// default staleness and skew bounds. Fails with `InvalidThreshold` if
+    /// `threshold` is zero, exceeds the number of signers, or `signers`
+    /// contains a duplicate address.
     pub fn __constructor(
         env: Env,
         admin: Address,
@@ -89,6 +103,8 @@ impl XoxnoOracle {
         Ok(())
     }
 
+    /// Renews the contract's instance storage TTL and upgrades the contract
+    /// to the WASM code at `new_wasm_hash`.
     #[only_owner]
     pub fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
         storage::renew_oracle_instance(&env);
@@ -98,23 +114,29 @@ impl XoxnoOracle {
 
 #[contractimpl]
 impl Ownable for XoxnoOracle {
+    /// Returns the current contract owner, if set.
     fn get_owner(e: &Env) -> Option<Address> {
         ownable::get_owner(e)
     }
 
+    /// Starts an ownership transfer to `new_owner`, valid for acceptance
+    /// until `live_until_ledger`.
     fn transfer_ownership(e: &Env, new_owner: Address, live_until_ledger: u32) {
         ownable::transfer_ownership(e, &new_owner, live_until_ledger);
     }
 
+    /// Accepts a pending ownership transfer, making the caller the new owner.
     fn accept_ownership(e: &Env) {
         ownable::accept_ownership(e);
     }
 
+    /// Renounces ownership, leaving the contract without an owner.
     fn renounce_ownership(e: &Env) {
         ownable::renounce_ownership(e);
     }
 }
 
+/// Returns true if `signers` contains any address more than once.
 fn has_duplicate(signers: &Vec<Address>) -> bool {
     for i in 0..signers.len() {
         for j in (i + 1)..signers.len() {

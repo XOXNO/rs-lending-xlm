@@ -40,7 +40,7 @@ pub(crate) struct Cache {
 }
 
 impl Cache {
-    /// Load params and state from storage, renew market TTLs, stamp current time.
+    /// Loads params and state from storage, renews market TTLs, stamps current time.
     ///
     /// Does **not** accrue interest; call [`crate::interest::global_sync`] or
     /// [`crate::ops::synced_market`] when accrual is required.
@@ -68,7 +68,7 @@ impl Cache {
         }
     }
 
-    /// Persist the full market state and return a snapshot for events.
+    /// Persists the full market state and returns a snapshot for events.
     pub(crate) fn commit(&self) -> MarketStateSnapshot {
         let state = PoolStateRaw {
             supplied: self.supplied.raw(),
@@ -138,7 +138,7 @@ impl Cache {
         self.elapsed_ms() > 0
     }
 
-    /// Mark the market as fully accrued through `current_timestamp`.
+    /// Marks the market as fully accrued through `current_timestamp`.
     pub(crate) fn mark_accrued(&mut self) {
         self.last_timestamp = self.current_timestamp;
     }
@@ -154,7 +154,7 @@ impl Cache {
 
 #[cfg(test)]
 impl Cache {
-    /// Build a cache from explicit parts without reading storage.
+    /// Builds a cache from explicit parts without reading storage.
     pub(crate) fn from_parts(
         env: &Env,
         hub_asset: HubAssetKey,
@@ -183,17 +183,17 @@ impl Cache {
         self.current_timestamp
     }
 
-    /// Override current timestamp (tests that advance time without ledger ticks).
+    /// Overrides the current timestamp (used by tests that advance time without ledger ticks).
     pub(crate) fn set_current_timestamp(&mut self, timestamp: u64) {
         self.current_timestamp = timestamp;
     }
 
-    /// Force cash reserves to an exact value.
+    /// Forces cash reserves to an exact value.
     pub(crate) fn set_cash(&mut self, cash: i128) {
         self.cash = cash;
     }
 
-    /// Force revenue shares to an exact value.
+    /// Forces revenue shares to an exact value.
     pub(crate) fn set_revenue(&mut self, revenue: Ray) {
         self.revenue = revenue;
     }

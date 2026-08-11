@@ -12,12 +12,12 @@ use common::types::{
 use super::Cache;
 
 impl Cache {
-    /// Set the supply exchange-rate index after accrual or bad-debt socialization.
+    /// Sets the supply exchange-rate index after accrual or bad-debt socialization.
     pub(crate) fn set_supply_index(&mut self, index: Ray) {
         self.supply_index = index;
     }
 
-    /// Set the borrow exchange-rate index after accrual.
+    /// Sets the borrow exchange-rate index after accrual.
     pub(crate) fn set_borrow_index(&mut self, index: Ray) {
         self.borrow_index = index;
     }
@@ -44,7 +44,7 @@ impl Cache {
         }
     }
 
-    /// Build a supply/borrow position mutation for a batch leg result.
+    /// Builds a supply/borrow position mutation for a batch leg result.
     ///
     /// * `scaled` — user's remaining scaled position after the leg
     /// * `actual_amount` — asset units applied (minted, repaid, withdrawn, …)
@@ -63,7 +63,7 @@ impl Cache {
         }
     }
 
-    /// Build a strategy mutation including net amount received after fees.
+    /// Builds a strategy mutation including net amount received after fees.
     pub(crate) fn strategy_mutation(
         &self,
         scaled: Ray,

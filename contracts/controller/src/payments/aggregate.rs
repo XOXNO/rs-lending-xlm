@@ -1,16 +1,25 @@
+//! Nets a list of [`HubPayment`] entries down to one total per hub asset,
+//! preserving the order in which each asset first appears.
+
 use common::errors::GenericError;
 use common::types::{HubAssetKey, HubPayment};
 use soroban_sdk::{panic_with_error, Env, Map, Vec};
 
 use common::validation::{expect_invariant, require_non_empty_payments, require_nonneg_amount};
 
+/// Selects how a zero payment amount is handled while aggregating per-asset totals.
 #[derive(Clone, Copy, PartialEq)]
 pub(crate) enum ZeroLeg {
+    /// A zero amount panics with `GenericError::AmountMustBePositive`.
     Rejected,
 
+    /// A zero amount is a "withdraw all" sentinel: it forces the running total for
+    /// that asset to zero, and that zero stays sticky against later amounts for the
+    /// same asset within the same aggregation pass.
     MeansAll,
 }
 
+/// Aggregates `payments` into per-asset totals, rejecting any zero-amount entry.
 pub(crate) fn aggregate_positive_payments(
     env: &Env,
     payments: &Vec<HubPayment>,
@@ -18,6 +27,10 @@ pub(crate) fn aggregate_positive_payments(
     aggregate_payments(env, payments, ZeroLeg::Rejected)
 }
 
+/// Sums `payments` by hub asset, in the order each asset first appears, applying
+/// `zero_leg`'s policy to zero amounts. Panics if `payments` is empty, if any amount
+/// is negative, if `zero_leg` is `Rejected` and an amount is zero, or if summing
+/// overflows `i128`.
 pub(crate) fn aggregate_payments(
     env: &Env,
     payments: &Vec<HubPayment>,
@@ -46,6 +59,9 @@ pub(crate) fn aggregate_payments(
     result
 }
 
+/// Combines `amount` with the `previous` running total for one hub asset under
+/// `zero_leg`'s zero-handling policy. Panics if `amount` is negative, if `zero_leg`
+/// is `Rejected` and `amount` is zero, or if the addition overflows `i128`.
 fn aggregate_payment_amount(
     env: &Env,
     previous: Option<i128>,

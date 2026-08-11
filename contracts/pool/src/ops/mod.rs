@@ -25,27 +25,27 @@ use soroban_sdk::{Env, IntoVal, TryFromVal, Val, Vec};
 use crate::cache::Cache;
 use crate::{events, interest, storage};
 
-/// Load a market cache and accrue interest through the current ledger time.
+/// Loads a market cache and accrues interest through the current ledger time.
 pub(crate) fn synced_market(env: &Env, hub_asset: &HubAssetKey) -> Cache {
     let mut cache = Cache::load(env, hub_asset);
     interest::global_sync(env, &mut cache);
     cache
 }
 
-/// Renew instance TTL, then load and accrue the market.
+/// Renews instance TTL, then loads and accrues the market.
 pub(crate) fn renewed_market(env: &Env, hub_asset: &HubAssetKey) -> Cache {
     storage::renew_instance(env);
     synced_market(env, hub_asset)
 }
 
-/// Validate `action.amount ≥ 0`, sync the market, and return (cache, scaled position).
+/// Validates `action.amount ≥ 0`, syncs the market, and returns (cache, scaled position).
 pub(crate) fn load_leg(env: &Env, action: &PoolAction) -> (Cache, Ray) {
     require_nonneg_amount(env, action.amount);
     let cache = synced_market(env, &action.hub_asset);
     (cache, Ray::from(action.position.scaled_amount))
 }
 
-/// Run a multi-entry batch: renew instance, apply `leg` per entry, emit state events.
+/// Runs a multi-entry batch: renews the instance, applies `leg` per entry, and emits state events.
 ///
 /// Each leg returns a result `R` plus a [`MarketStateSnapshot`] for the event batch.
 pub(crate) fn run_batch<E, R>(

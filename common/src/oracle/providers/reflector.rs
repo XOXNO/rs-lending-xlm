@@ -1,7 +1,13 @@
+//! Cross-contract client trait and call helpers for Reflector price oracle
+//! contracts, plus TWAP helpers used to derive a price from a Reflector
+//! price history.
+
 use crate::errors::OracleError;
 use crate::types::OracleAssetRef;
 use soroban_sdk::{contractclient, contracttype, panic_with_error, Address, Env, Symbol, Vec};
 
+/// Identifies a priced asset as understood by a Reflector oracle: either a
+/// Stellar contract address or a symbol identifying a non-Stellar asset.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ReflectorAsset {
@@ -9,6 +15,8 @@ pub enum ReflectorAsset {
     Other(Symbol),
 }
 
+/// A single price observation from a Reflector oracle: the price value
+/// together with its observation timestamp.
 #[contracttype]
 #[derive(Clone)]
 pub struct ReflectorPriceData {
@@ -16,24 +24,34 @@ pub struct ReflectorPriceData {
     pub timestamp: u64,
 }
 
+/// Client interface for a Reflector price oracle contract.
 #[contractclient(name = "ReflectorClient")]
 #[allow(dead_code)]
 pub trait ReflectorOracle {
+    /// Returns the oracle's base asset, against which prices are quoted.
     fn base(env: Env) -> ReflectorAsset;
 
+    /// Returns the number of decimal places oracle prices are scaled to.
     fn decimals(env: Env) -> u32;
 
+    /// Returns the oracle's configured price resolution.
     fn resolution(env: Env) -> u32;
 
+    /// Returns the most recent price data for `asset`, or `None` if no price is available.
     fn lastprice(env: Env, asset: ReflectorAsset) -> Option<ReflectorPriceData>;
 
+    /// Returns up to `records` of the most recent price data points for `asset`,
+    /// or `None` if unavailable.
     fn prices(env: Env, asset: ReflectorAsset, records: u32) -> Option<Vec<ReflectorPriceData>>;
 }
 
+/// Calls `oracle`'s `base` function directly and returns the result.
 pub fn reflector_base(env: &Env, oracle: &Address) -> ReflectorAsset {
     ReflectorClient::new(env, oracle).base()
 }
 
+/// Returns the most recent price data for `asset` from `oracle` via
+/// `try_lastprice`. Returns `None` if the call fails or no price is available.
 pub fn reflector_last_price(
     env: &Env,
     oracle: &Address,
@@ -45,6 +63,8 @@ pub fn reflector_last_price(
     }
 }
 
+/// Returns up to `records` price data points for `asset` from `oracle` via
+/// `try_prices`. Returns `None` if the call fails or no data is available.
 pub fn reflector_prices(
     env: &Env,
     oracle: &Address,
@@ -57,14 +77,17 @@ pub fn reflector_prices(
     }
 }
 
+/// Calls `oracle`'s `decimals` function directly and returns the result.
 pub fn reflector_decimals(env: &Env, oracle: &Address) -> u32 {
     ReflectorClient::new(env, oracle).decimals()
 }
 
+/// Calls `oracle`'s `resolution` function directly and returns the result.
 pub fn reflector_resolution(env: &Env, oracle: &Address) -> u32 {
     ReflectorClient::new(env, oracle).resolution()
 }
 
+/// Returns `oracle`'s resolution via `try_resolution`, or `None` if the call fails.
 pub fn try_reflector_resolution(env: &Env, oracle: &Address) -> Option<u32> {
     match ReflectorClient::new(env, oracle).try_resolution() {
         Ok(Ok(resolution)) => Some(resolution),
@@ -72,6 +95,9 @@ pub fn try_reflector_resolution(env: &Env, oracle: &Address) -> Option<u32> {
     }
 }
 
+/// Converts `asset` to a `ReflectorAsset`, mapping a Stellar address or
+/// symbol directly. Panics with `OracleError::InvalidOracleTokenType` if
+/// `asset` is a `String` reference.
 pub fn to_reflector_asset(env: &Env, asset: &OracleAssetRef) -> ReflectorAsset {
     match asset {
         OracleAssetRef::Stellar(address) => ReflectorAsset::Stellar(address.clone()),
@@ -80,10 +106,14 @@ pub fn to_reflector_asset(env: &Env, asset: &OracleAssetRef) -> ReflectorAsset {
     }
 }
 
+/// Returns the minimum number of observations required for a TWAP window of
+/// `records` records: at least 2, or half of `records` rounded up.
 pub fn min_twap_observations(records: u32) -> u32 {
     core::cmp::max(2, records.div_ceil(2))
 }
 
+/// Computes the arithmetic mean price over `history`. Returns `None` if any
+/// price is not positive, the running sum overflows i128, or `history` is empty.
 pub fn try_twap_mean_price(history: &Vec<ReflectorPriceData>) -> Option<i128> {
     let mut sum: i128 = 0;
     for pd in history.iter() {

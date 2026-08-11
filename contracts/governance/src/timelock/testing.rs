@@ -1,3 +1,7 @@
+//! Test-only and `testing`-feature-only contract entry point that applies an
+//! admin operation immediately, bypassing the timelock's scheduling and delay
+//! machinery entirely.
+
 use soroban_sdk::{contractimpl, Address, BytesN, Env, IntoVal, Symbol, Val};
 
 use crate::op::apply_self_op;
@@ -7,6 +11,14 @@ use crate::{storage, Governance, GovernanceArgs, GovernanceClient};
 #[cfg(any(test, feature = "testing"))]
 #[contractimpl]
 impl Governance {
+    /// Applies `op` immediately without scheduling it through the timelock.
+    /// Requires `caller`'s authorization. For `ConfigureAssetOracle` and
+    /// `EditOracleTolerance`, requires `caller` to hold `ORACLE_ROLE`; for every
+    /// other operation, requires `caller` to be the contract owner (panics with
+    /// "Owner not set" if no owner is set, or "not owner" on mismatch). If the
+    /// resolved operation targets this contract, applies it via `apply_self_op`
+    /// and returns `()`; otherwise invokes the resolved target contract directly
+    /// and returns its result.
     pub fn execute_immediate(env: Env, caller: Address, op: crate::op::AdminOperation) -> Val {
         storage::renew_governance_instance(&env);
         caller.require_auth();

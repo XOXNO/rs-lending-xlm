@@ -1,3 +1,8 @@
+//! Reads RedStone-format price data from a multi-feed contract, caching each
+//! feed lookup for the duration of the session. Outside the `certora` build,
+//! also exposes a bulk-read helper for fetching several feed IDs from one
+//! contract in a single call.
+
 #[cfg(not(feature = "certora"))]
 use common::oracle::providers::redstone::RedStonePriceFeedClient;
 use common::oracle::providers::redstone::{read_price_data_uncached, RedStonePriceData};
@@ -12,6 +17,9 @@ use crate::session::Session;
 #[cfg(feature = "certora")]
 pub(crate) use certora_read::read_multi_feed_source;
 
+/// Wraps `read_multi_feed_source_impl` behind a CVLR summary so the Certora
+/// prover can substitute its own model of the call during formal
+/// verification.
 #[cfg(feature = "certora")]
 mod certora_read {
     use super::*;
@@ -30,6 +38,9 @@ mod certora_read {
 #[cfg(not(feature = "certora"))]
 pub(crate) use read_multi_feed_source_impl as read_multi_feed_source;
 
+/// Reads `feed`'s price data (via the session cache) from its contract and
+/// converts it to an `OracleObservation` scaled to `decimals`. Returns
+/// `None` if the price data cannot be read or the conversion fails.
 pub(crate) fn read_multi_feed_source_impl(
     session: &mut Session,
     feed: &MultiFeedRef,
@@ -40,6 +51,9 @@ pub(crate) fn read_multi_feed_source_impl(
     OracleObservation::from_multi_feed(now_secs, &price_data, decimals)
 }
 
+/// Returns `feed_id`'s price data for `contract`, taking it from the
+/// session cache if already present, otherwise reading it uncached from the
+/// contract and storing it in the session cache before returning it.
 fn read_price_data(
     session: &mut Session,
     contract: &Address,
@@ -54,6 +68,9 @@ fn read_price_data(
     Some(data)
 }
 
+/// Reads price data for every ID in `feed_ids` from `contract` in a single
+/// call. Returns `None` if the call fails or the returned data does not
+/// contain exactly one entry per requested feed ID.
 #[cfg(not(feature = "certora"))]
 pub(crate) fn read_price_data_bulk(
     env: &Env,

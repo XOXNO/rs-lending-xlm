@@ -1,3 +1,8 @@
+//! Submission validation and price aggregation for the oracle: freshness and
+//! monotonicity checks on incoming submissions, and the median-based
+//! aggregate computation that clusters signer submissions by timestamp skew
+//! and writes the resulting price and history.
+
 use common::constants::MS_PER_SECOND;
 use common::oracle::observation::{MAX_FUTURE_SKEW_SECONDS, MAX_TWAP_RECORDS};
 use common::oracle::providers::redstone::RedStonePriceData;
@@ -10,10 +15,14 @@ use crate::storage::{
 };
 use crate::Error;
 
+/// Maximum number of aggregate entries retained in a feed's price history.
 pub(crate) const MAX_HISTORY_LEN: u32 = MAX_TWAP_RECORDS;
 
+/// Upper bound on a submitted price value.
 pub(crate) const MAX_SUBMITTED_PRICE: i128 = 1_000_000_000_000_000_000_000_000;
 
+/// Rejects `package_timestamp` (milliseconds) if it lies further in the future
+/// than `MAX_FUTURE_SKEW_SECONDS` past the current ledger time (seconds).
 pub(crate) fn require_not_future(env: &Env, package_timestamp: u64) -> Result<(), Error> {
     let ts_secs = package_timestamp / MS_PER_SECOND;
     let max_future = env
@@ -26,6 +35,9 @@ pub(crate) fn require_not_future(env: &Env, package_timestamp: u64) -> Result<()
     Ok(())
 }
 
+/// Rejects `package_timestamp` (milliseconds) if its age in seconds relative to
+/// the current ledger time exceeds the configured maximum submission age
+/// (seconds).
 pub(crate) fn require_fresh_submission(env: &Env, package_timestamp: u64) -> Result<(), Error> {
     let ts_secs = package_timestamp / MS_PER_SECOND;
     let now = env.ledger().timestamp();
@@ -35,6 +47,9 @@ pub(crate) fn require_fresh_submission(env: &Env, package_timestamp: u64) -> Res
     Ok(())
 }
 
+/// Rejects `package_timestamp` (milliseconds) if `signer` has a stored
+/// submission for `feed_id` with a later package timestamp. Passes if no prior
+/// submission exists.
 pub(crate) fn require_monotonic_package(
     env: &Env,
     feed_id: &String,
@@ -54,6 +69,9 @@ pub(crate) fn require_monotonic_package(
     Ok(())
 }
 
+/// Records the signer's feed membership, marks the feed as recently touched,
+/// and overwrites the signer's latest submission for `feed_id` with `price`
+/// and `package_timestamp` (milliseconds).
 pub(crate) fn store_submission(
     env: &Env,
     feed_id: &String,
@@ -73,6 +91,14 @@ pub(crate) fn store_submission(
     renew_persistent_key(env, &key);
 }
 
+/// Recomputes the current aggregate price for `feed_id` from all signers'
+/// latest submissions. Discards submissions older than the maximum
+/// submission age, then keeps only those within `max_relative_skew` of the
+/// newest surviving timestamp. If fewer than `threshold` submissions survive
+/// either filter, clears the feed's aggregate and history. Otherwise takes
+/// the median of the clustered prices, writes it as the new aggregate with
+/// the oldest clustered timestamp as its package timestamp, and appends it
+/// to the feed's history.
 pub(crate) fn recompute_aggregate(env: &Env, feed_id: &String) {
     let signers = load_signers(env);
     let max_submission_age = load_max_submission_age(env);
@@ -144,6 +170,7 @@ pub(crate) fn recompute_aggregate(env: &Env, feed_id: &String) {
     push_history(env, feed_id, aggregate);
 }
 
+/// Removes the current aggregate and history entries for `feed_id`.
 fn clear_aggregate_and_history(env: &Env, feed_id: &String) {
     env.storage()
         .persistent()
@@ -153,6 +180,8 @@ fn clear_aggregate_and_history(env: &Env, feed_id: &String) {
         .remove(&DataKey::History(feed_id.clone()));
 }
 
+/// Returns an ascending-sorted copy of `prices`, computed with an in-place
+/// insertion sort.
 fn sorted_copy(prices: &Vec<i128>) -> Vec<i128> {
     let mut sorted = prices.clone();
     let len = sorted.len();
@@ -172,6 +201,7 @@ fn sorted_copy(prices: &Vec<i128>) -> Vec<i128> {
     sorted
 }
 
+/// Returns the lower median of `prices`. Panics if `prices` is empty.
 fn median_of(prices: &Vec<i128>) -> i128 {
     let sorted = sorted_copy(prices);
     let len = sorted.len();
@@ -179,6 +209,9 @@ fn median_of(prices: &Vec<i128>) -> i128 {
     sorted.get_unchecked((len - 1) / 2)
 }
 
+/// Appends `aggregate` to `feed_id`'s history, or overwrites the last entry
+/// if its write timestamp falls within one resolution period of the previous
+/// entry. Evicts the oldest entry when the history reaches `MAX_HISTORY_LEN`.
 fn push_history(env: &Env, feed_id: &String, aggregate: RedStonePriceData) {
     let key = DataKey::History(feed_id.clone());
     let mut history: Vec<RedStonePriceData> = env

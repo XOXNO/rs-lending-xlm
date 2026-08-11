@@ -1,3 +1,6 @@
+//! Payment aggregation and token-transfer helpers used by the controller's
+//! payment-processing entry points.
+
 mod aggregate;
 mod transfer;
 

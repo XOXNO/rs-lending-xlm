@@ -1,3 +1,8 @@
+//! External contract clients used by the controller: the Blend Pool, the
+//! spoke lending pool, the price aggregator oracle, and Stellar Asset
+//! Contract tokens. Each submodule selects between the production
+//! implementation and a Certora harness stub based on the `certora` feature.
+
 pub(crate) mod blend;
 #[cfg(not(feature = "certora"))]
 pub(crate) mod price_aggregator;

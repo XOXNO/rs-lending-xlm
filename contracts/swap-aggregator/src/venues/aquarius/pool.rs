@@ -27,7 +27,8 @@ pub(super) fn invoke_pool_swap(
     env.invoke_contract(pool, &symbol_short!("swap"), args)
 }
 
-/// Pool constituent tokens, cached per invocation in `cache`.
+/// Returns the pool's constituent tokens, cached per invocation in `cache`.
+/// Panics with `BrokenTokenChain` if the pool reports no tokens.
 pub(super) fn pool_tokens(
     env: &Env,
     cache: &mut Map<Address, Vec<Address>>,
@@ -45,7 +46,8 @@ pub(super) fn pool_tokens(
     tokens
 }
 
-/// Require `lp_token` is the pool share token.
+/// Validates that `lp_token` is the pool's share token. Panics with
+/// `LpTokenMismatch` if it is not.
 pub(super) fn assert_share_token(env: &Env, pool: &Address, lp_token: &Address) {
     let share: Address =
         env.invoke_contract(pool, &Symbol::new(env, "share_id"), Vec::<Val>::new(env));
@@ -54,13 +56,16 @@ pub(super) fn assert_share_token(env: &Env, pool: &Address, lp_token: &Address) 
     }
 }
 
+/// Converts `amount` from `i128` to `u128`. Panics with `IntegerOverflow` if
+/// `amount` is negative.
 pub(super) fn to_u128(env: &Env, amount: i128) -> u128 {
     amount
         .try_into()
         .unwrap_or_else(|_| panic_with_error!(env, Error::IntegerOverflow))
 }
 
-/// Index of `target` in `tokens`, or panic.
+/// Returns the index of `target` in `tokens`. Panics with `BrokenTokenChain`
+/// if `target` is not present.
 pub(super) fn find_index(env: &Env, tokens: &Vec<Address>, target: &Address) -> u32 {
     let n = tokens.len();
     for i in 0..n {

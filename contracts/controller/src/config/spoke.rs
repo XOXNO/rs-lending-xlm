@@ -1,3 +1,5 @@
+//! Registers, deprecates, and configures spokes tracked by the controller.
+
 use common::errors::SpokeError;
 use common::types::SpokeConfig;
 use common::validation::validate_liquidation_curve;
@@ -12,6 +14,8 @@ use crate::{
     storage,
 };
 
+/// Allocates the next spoke ID and stores a new spoke configuration with the default
+/// liquidation curve. Publishes an `UpdateSpokeEvent` and returns the assigned ID.
 pub(crate) fn add_spoke(env: &Env) -> u32 {
     let id = storage::increment_spoke_id(env);
 
@@ -31,6 +35,8 @@ pub(crate) fn add_spoke(env: &Env) -> u32 {
     id
 }
 
+/// Marks the spoke identified by `id` as deprecated and publishes an `UpdateSpokeEvent`.
+/// Panics if the spoke is already deprecated, or if no spoke exists for `id`.
 pub(crate) fn remove_spoke(env: &Env, id: u32) {
     let mut spoke = storage::get_spoke(env, id);
     assert_with_error!(env, !spoke.is_deprecated, SpokeError::SpokeDeprecated);
@@ -44,6 +50,10 @@ pub(crate) fn remove_spoke(env: &Env, id: u32) {
     .publish(env);
 }
 
+/// Validates and applies a new liquidation curve (target health factor, health factor
+/// for maximum bonus, and bonus factor in basis points) to the spoke identified by `id`,
+/// then publishes an `UpdateSpokeEvent`. Panics if the curve parameters are invalid or if
+/// no spoke exists for `id`.
 pub(crate) fn set_spoke_liquidation_curve(
     env: &Env,
     id: u32,

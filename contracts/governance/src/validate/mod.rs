@@ -1,3 +1,7 @@
+//! Shared validation helpers used by the `asset`, `spoke`, and `tolerance`
+//! submodules: contract-address existence/executability checks and wasm-hash
+//! zero checks used across governance validation.
+
 pub(crate) mod asset;
 pub(crate) mod spoke;
 pub(crate) mod tolerance;
@@ -8,6 +12,7 @@ use soroban_sdk::{
     assert_with_error, panic_with_error, Address, BytesN, Env, Error, Executable, SpecShakingMarker,
 };
 
+/// Panics with `error` unless `addr` exists on-chain and is a deployed Wasm contract.
 pub(crate) fn require_contract_address(
     env: &Env,
     addr: &Address,
@@ -18,6 +23,7 @@ pub(crate) fn require_contract_address(
     }
 }
 
+/// Panics with `GenericError::InvalidWasmHash` if `hash` is all zero bytes.
 pub(crate) fn require_nonzero_wasm_hash(env: &Env, hash: &BytesN<32>) {
     assert_with_error!(
         env,

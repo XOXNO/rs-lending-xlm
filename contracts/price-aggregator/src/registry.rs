@@ -1,13 +1,21 @@
+//! Persistent storage of oracle configurations: keyed lookup and storage with TTL
+//! extension, the registered-keys index, and the event emitted on configuration
+//! changes.
+
 use common::constants::{TTL_BUMP_SHARED, TTL_THRESHOLD_SHARED};
 use common::types::{AssetOracle, PriceKey};
 use soroban_sdk::{contractevent, contracttype, Env, Vec};
 
+/// Instance/persistent storage keys used by this contract: a single asset
+/// oracle's configuration, or the index of all registered oracle keys.
 #[contracttype]
 enum AggregatorKey {
     Oracle(PriceKey),
     OracleKeys,
 }
 
+/// Returns the list of all currently registered oracle keys, or an empty list
+/// if none have been registered.
 pub(crate) fn oracle_keys(env: &Env) -> Vec<PriceKey> {
     env.storage()
         .instance()
@@ -15,12 +23,15 @@ pub(crate) fn oracle_keys(env: &Env) -> Vec<PriceKey> {
         .unwrap_or_else(|| Vec::new(env))
 }
 
+/// Overwrites the registered-oracle-keys index with `keys`.
 fn store_keys(env: &Env, keys: &Vec<PriceKey>) {
     env.storage()
         .instance()
         .set(&AggregatorKey::OracleKeys, keys);
 }
 
+/// Returns the oracle configuration stored for `key`, if any, extending its
+/// persistent-storage TTL when found.
 pub(crate) fn get_oracle(env: &Env, key: &PriceKey) -> Option<AssetOracle> {
     let storage_key = AggregatorKey::Oracle(key.clone());
     let oracle = env.storage().persistent().get(&storage_key);
@@ -32,6 +43,8 @@ pub(crate) fn get_oracle(env: &Env, key: &PriceKey) -> Option<AssetOracle> {
     oracle
 }
 
+/// Stores `oracle` under `key`, extending its persistent-storage TTL, and adds
+/// `key` to the registered-keys index if it is not already present.
 pub(crate) fn store_oracle(env: &Env, key: &PriceKey, oracle: &AssetOracle) {
     let storage_key = AggregatorKey::Oracle(key.clone());
     env.storage().persistent().set(&storage_key, oracle);
@@ -46,6 +59,8 @@ pub(crate) fn store_oracle(env: &Env, key: &PriceKey, oracle: &AssetOracle) {
     }
 }
 
+/// Removes the oracle configuration stored for `key` and drops `key` from the
+/// registered-keys index if present.
 #[cfg(any(test, feature = "testing"))]
 pub(crate) fn remove_oracle(env: &Env, key: &PriceKey) {
     env.storage()
@@ -58,11 +73,13 @@ pub(crate) fn remove_oracle(env: &Env, key: &PriceKey) {
     }
 }
 
+/// Stores `oracle` under `key` and emits the corresponding update event.
 pub(crate) fn commit(env: &Env, key: &PriceKey, oracle: &AssetOracle) {
     store_oracle(env, key, oracle);
     emit(env, key, oracle);
 }
 
+/// Publishes an `UpdateAssetOracleEvent` for `key` and `oracle`.
 pub(crate) fn emit(env: &Env, key: &PriceKey, oracle: &AssetOracle) {
     UpdateAssetOracleEvent {
         key: key.clone(),
@@ -71,6 +88,8 @@ pub(crate) fn emit(env: &Env, key: &PriceKey, oracle: &AssetOracle) {
     .publish(env);
 }
 
+/// Event emitted whenever an asset's oracle configuration is stored or
+/// updated, carrying the affected key and the new configuration.
 #[contractevent(topics = ["config", "asset_oracle"])]
 #[derive(Clone, Debug)]
 pub struct UpdateAssetOracleEvent {

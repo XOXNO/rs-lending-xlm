@@ -1,9 +1,16 @@
+//! Types owned by the per-hub-asset pool contract: interest-rate model parameters, market
+//! state and indices (raw wire form and typed form), scaled position storage shapes, the
+//! request/result types for each pool operation (supply, borrow, withdraw, strategy, seize,
+//! net-settle), and the `PoolKey` storage key enum.
+
 use crate::constants::{BPS, MAX_BORROW_RATE_RAY, MAX_FLASHLOAN_FEE_BPS, RAY, WAD_DECIMALS};
 use crate::errors::CollateralError;
 use crate::math::fp::{Bps, Ray};
 use crate::types::shared::AccountPositionType;
 use soroban_sdk::{assert_with_error, contracttype, panic_with_error, Address, Env};
 
+/// Wire form of a market's interest-rate model and asset configuration, with rates as raw
+/// ray-scaled `i128` values.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct MarketParamsRaw {
@@ -34,6 +41,7 @@ pub struct MarketParamsRaw {
 }
 
 impl MarketParamsRaw {
+    /// Projects the rate-model fields out into a standalone `InterestRateModel`.
     pub fn rate_model_view(&self) -> InterestRateModel {
         InterestRateModel {
             max_borrow_rate: self.max_borrow_rate,
@@ -50,10 +58,13 @@ impl MarketParamsRaw {
         }
     }
 
+    /// Validates the rate-model fields via `InterestRateModel::verify`.
     pub fn verify_rate_model(&self, env: &Env) {
         self.rate_model_view().verify(env);
     }
 
+    /// Validates `asset_decimals` and the rate model. Panics if `asset_decimals` exceeds
+    /// `WAD_DECIMALS`, or if the rate model fails its own checks.
     pub fn verify(&self, env: &Env) {
         assert_with_error!(
             env,
@@ -65,6 +76,7 @@ impl MarketParamsRaw {
     }
 }
 
+/// Typed, in-memory form of `MarketParamsRaw`, with rates as `Ray`/`Bps` values.
 #[derive(Clone, Debug)]
 pub struct MarketParams {
     pub max_borrow_rate: Ray,
@@ -123,6 +135,8 @@ impl From<&MarketParams> for MarketParamsRaw {
     }
 }
 
+/// Standalone interest-rate-curve and flash-loan-fee configuration for a market, decoupled
+/// from the asset identity fields carried by `MarketParamsRaw`.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct InterestRateModel {
@@ -147,6 +161,11 @@ pub struct InterestRateModel {
 }
 
 impl InterestRateModel {
+    /// Validates that the rate curve is well-formed: a non-negative base rate, non-decreasing
+    /// slopes up through the max borrow rate, a max rate within bounds and above the base
+    /// rate, an increasing and in-range utilization breakpoint sequence, a reserve factor
+    /// below 100%, and a flashloan fee within the configured maximum. Panics if any of these
+    /// checks fails.
     pub fn verify(&self, env: &Env) {
         assert_with_error!(
             env,
@@ -201,6 +220,8 @@ impl InterestRateModel {
     }
 }
 
+/// Wire form of a supply position: ray-scaled amount plus the risk parameters it was seeded
+/// with at open (basis points as raw `u32`).
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AccountPositionRaw {
@@ -215,6 +236,7 @@ pub struct AccountPositionRaw {
     pub liquidation_fees: u32,
 }
 
+/// Typed, in-memory form of `AccountPositionRaw`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct AccountPosition {
     pub scaled_amount: Ray,
@@ -248,6 +270,9 @@ impl From<&AccountPosition> for AccountPositionRaw {
     }
 }
 
+/// Wire form of a scaled position holding only the ray-scaled amount, without the risk
+/// parameters carried by `AccountPositionRaw`. Used for debt positions and wherever a pool
+/// operation only needs the scaled balance.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ScaledPositionRaw {
@@ -270,12 +295,14 @@ impl From<&DebtPosition> for ScaledPositionRaw {
     }
 }
 
+/// Wire form of a debt position: the ray-scaled borrowed amount.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DebtPositionRaw {
     pub scaled_amount: i128,
 }
 
+/// Typed, in-memory form of `DebtPositionRaw`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct DebtPosition {
     pub scaled_amount: Ray,
@@ -305,6 +332,7 @@ impl From<&DebtPosition> for DebtPositionRaw {
     }
 }
 
+/// Wire form of a market's cumulative borrow and supply interest indices, ray-scaled.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MarketIndexRaw {
@@ -313,6 +341,7 @@ pub struct MarketIndexRaw {
     pub supply_index: i128,
 }
 
+/// Typed, in-memory form of `MarketIndexRaw`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct MarketIndex {
     pub borrow_index: Ray,
@@ -337,6 +366,9 @@ impl From<&MarketIndex> for MarketIndexRaw {
     }
 }
 
+/// Point-in-time snapshot of a market's committed state, emitted after each pool mutation for
+/// events and views: interest indices, cash on hand, total supplied and borrowed amounts, and
+/// accrued protocol revenue.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct MarketStateSnapshot {
@@ -357,6 +389,9 @@ pub struct MarketStateSnapshot {
     pub revenue: i128,
 }
 
+/// Result of a supply, borrow, or withdraw mutation: the position's updated scaled amount,
+/// the market's post-commit indices, the actual asset amount applied (gross, for withdraw),
+/// and the asset's token decimals.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct PoolPositionMutation {
@@ -368,6 +403,10 @@ pub struct PoolPositionMutation {
     pub asset_decimals: u32,
 }
 
+/// Result of opening a strategy (leveraged) position: the updated debt position, the
+/// market's post-commit indices, the principal amount borrowed (`actual_amount`), the net
+/// amount actually transferred to the receiver after any fee (`amount_received`), and the
+/// asset's token decimals.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct PoolStrategyMutation {
@@ -381,6 +420,9 @@ pub struct PoolStrategyMutation {
     pub asset_decimals: u32,
 }
 
+/// Result of net-settling a user's supply against their debt on the same market: the
+/// residual scaled supply and debt positions after burning the matched amount, the market's
+/// post-commit indices, and the asset amount settled.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct PoolNetSettleResult {
@@ -402,12 +444,15 @@ impl From<&PoolStrategyMutation> for PoolPositionMutation {
     }
 }
 
+/// Result of a plain amount-only pool mutation (recapitalize, claim revenue): the asset
+/// amount actually applied.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct PoolAmountMutation {
     pub actual_amount: i128,
 }
 
+/// A market's raw parameters and state loaded together, as returned by the pool's sync view.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct PoolSyncData {
@@ -415,6 +460,7 @@ pub struct PoolSyncData {
     pub state: PoolStateRaw,
 }
 
+/// Composite key identifying one asset's market within a hub.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HubAssetKey {
@@ -422,6 +468,8 @@ pub struct HubAssetKey {
     pub asset: Address,
 }
 
+/// Storage keys for pool contract market state, keyed by `HubAssetKey`: `Params` for the
+/// market's `MarketParamsRaw`, `State` for its `PoolStateRaw`.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub enum PoolKey {
@@ -429,6 +477,8 @@ pub enum PoolKey {
     State(HubAssetKey),
 }
 
+/// Common request shape for a pool operation on one market: the caller's current scaled
+/// position, the requested asset amount, and the target market.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct PoolAction {
@@ -438,18 +488,22 @@ pub struct PoolAction {
     pub hub_asset: HubAssetKey,
 }
 
+/// Request to supply assets into a market.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct PoolSupplyEntry {
     pub action: PoolAction,
 }
 
+/// Request to borrow assets from a market.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct PoolBorrowEntry {
     pub action: PoolAction,
 }
 
+/// Request to withdraw assets from a market, withholding `protocol_fee` from the gross
+/// amount when the withdrawal is part of a liquidation.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct PoolWithdrawEntry {
@@ -458,6 +512,9 @@ pub struct PoolWithdrawEntry {
     pub protocol_fee: i128,
 }
 
+/// Request to seize a position during liquidation or bad-debt cleanup. `side` selects
+/// whether the seized scaled amount is socialized as bad debt (`Borrow`) or absorbed as
+/// protocol revenue (`Deposit`).
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct PoolSeizeEntry {
@@ -466,6 +523,8 @@ pub struct PoolSeizeEntry {
     pub position: ScaledPositionRaw,
 }
 
+/// Request to net-settle a user's supply against their debt on the same market: the target
+/// amount to settle, and the caller's current supply and debt positions.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct PoolNetSettleEntry {
@@ -476,6 +535,7 @@ pub struct PoolNetSettleEntry {
     pub debt_position: ScaledPositionRaw,
 }
 
+/// Wire form of a market's mutable state: totals, indices, cash, and last accrual timestamp.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct PoolStateRaw {
@@ -493,6 +553,7 @@ pub struct PoolStateRaw {
     pub cash: i128,
 }
 
+/// Typed, in-memory form of `PoolStateRaw`.
 #[derive(Clone, Debug)]
 pub struct PoolState {
     pub supplied: Ray,
