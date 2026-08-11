@@ -6,6 +6,7 @@ use crate::test_support::{
     TightWindowReflector, TwapReflector, TWAP_OLDER_AGE_SECS,
 };
 use common::constants::WAD;
+use common::oracle::observation::MAX_LEG_AGE_SPREAD_SECONDS;
 use common::types::{
     AquariusLpSource, AssetOracle, FeedNature, FeedSource, IndependencePolicy, MultiFeedRef,
     OracleAssetRef, OracleReadMode, OracleTolerance, ProviderRef, ReflectorFeedRef, ScaledSource,
@@ -77,6 +78,23 @@ fn test_a_fundamental_leg_may_lag_its_market_partner_past_the_spread_bound() {
 
     in_contract(&env, || {
         let key = mixed_pair_key(&env, &adapter, FeedNature::Market, FeedNature::Fundamental);
+        let mut cache = Session::new(&env);
+        assert_eq!(resolve(&mut cache, &key, 0).price_wad, WAD);
+    });
+}
+
+/// The bound is exclusive: legs exactly `MAX_LEG_AGE_SPREAD_SECONDS` apart are
+/// still blended. Kills the `>` -> `>=` mutant at the comparison.
+#[test]
+fn test_two_market_legs_exactly_at_the_spread_bound_still_price() {
+    let env = Env::default();
+    at_now(&env);
+    let (adapter, client) = register_redstone_feed(&env);
+    publish(&client, &env, "A", WAD, 0);
+    publish(&client, &env, "B", WAD, MAX_LEG_AGE_SPREAD_SECONDS);
+
+    in_contract(&env, || {
+        let key = mixed_pair_key(&env, &adapter, FeedNature::Market, FeedNature::Market);
         let mut cache = Session::new(&env);
         assert_eq!(resolve(&mut cache, &key, 0).price_wad, WAD);
     });

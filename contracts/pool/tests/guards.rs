@@ -125,3 +125,32 @@ fn test_require_solvent_withdraw_state_panics_when_insolvent() {
         require_solvent_withdraw_state(&t.env, &cache);
     });
 }
+
+/// Cash the buffer holds back for a given cache, in asset units.
+fn reserved_for(env: &Env, cache: &Cache) -> i128 {
+    let supplied = cache.unscale_supply_floor(cache.supplied());
+    common::math::fp::Bps::from(common::constants::LIQUIDATION_BUFFER_BPS).apply_to(env, supplied)
+}
+
+/// An ordinary draw may take the market down to the buffer, but not through it.
+#[test]
+fn test_require_liquidation_buffer_admits_a_draw_down_to_the_reserve() {
+    let t = TestSetup::new();
+    t.as_contract(|| {
+        let cache = cache_with(&t.env, &t.params, 1_000 * RAY, 0, 1_000);
+        let reserved = reserved_for(&t.env, &cache);
+        assert!(reserved > 0, "fixture must reserve something to be meaningful");
+        require_liquidation_buffer(&t.env, &cache, 1_000 - reserved);
+    });
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #112)")]
+fn test_require_liquidation_buffer_rejects_a_draw_one_unit_past_the_reserve() {
+    let t = TestSetup::new();
+    t.as_contract(|| {
+        let cache = cache_with(&t.env, &t.params, 1_000 * RAY, 0, 1_000);
+        let reserved = reserved_for(&t.env, &cache);
+        require_liquidation_buffer(&t.env, &cache, 1_000 - reserved + 1);
+    });
+}
