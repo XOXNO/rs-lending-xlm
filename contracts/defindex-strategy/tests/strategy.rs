@@ -171,6 +171,27 @@ impl StrategyTest {
         }
     }
 
+    /// Point a vault at an account id the controller does not have, the state a
+    /// closure outside this strategy leaves behind.
+    fn point_vault_at(&self, vault: &Address, account_id: u64) {
+        let env = &self.t.env;
+        env.as_contract(&self.client_address, || {
+            env.storage()
+                .persistent()
+                .set(&DataKey::VaultAccount(vault.clone()), &account_id);
+        });
+    }
+
+    fn stored_account_id(&self, vault: &Address) -> u64 {
+        let env = &self.t.env;
+        env.as_contract(&self.client_address, || {
+            env.storage()
+                .persistent()
+                .get(&DataKey::VaultAccount(vault.clone()))
+                .unwrap_or(0)
+        })
+    }
+
     fn vault_mapping_ttl(&self, vault: &Address) -> u32 {
         let env = &self.t.env;
         env.as_contract(&self.client_address, || {
@@ -523,4 +544,27 @@ fn test_withdraw_over_balance_returns_insufficient_balance() {
     let sink = Address::generate(&s.t.env);
     let result = flatten_strategy_result(s.client().try_withdraw(&(1_001 * UNIT), &s.vault, &sink));
     assert_strategy_error(result, DeFindexStrategyError::InsufficientBalance as u32);
+}
+
+/// A mapping pointing at an account the controller has no record of is an
+/// explicit "gone": it clears and the next supply opens a fresh account, rather
+/// than surfacing as a lookup failure.
+#[test]
+fn test_supply_reopens_when_the_mapping_points_at_a_missing_account() {
+    let s = StrategyTest::new();
+
+    s.client().deposit(&(1_000 * UNIT), &s.vault);
+    let original = s.stored_account_id(&s.vault);
+    assert!(original != 0);
+
+    const NEVER_CREATED: u64 = 9_999_999;
+    assert!(!s.t.account_exists(NEVER_CREATED));
+    s.point_vault_at(&s.vault, NEVER_CREATED);
+
+    s.client().deposit(&(500 * UNIT), &s.vault);
+
+    let reopened = s.stored_account_id(&s.vault);
+    assert!(reopened != NEVER_CREATED, "stale pointer must not survive");
+    assert!(reopened != 0, "a fresh account must be opened");
+    assert!(s.client().balance(&s.vault) > 499 * UNIT);
 }

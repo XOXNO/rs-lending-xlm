@@ -589,8 +589,11 @@ fn test_set_oracle_lists_a_stableswap_lp_and_prices_it() {
     });
 }
 
+/// Attestation rejects it, not the pricing probe: the specific error pins which
+/// gate fired, so removing `attest_stable` is caught rather than masked by the
+/// probe failing later for its own reasons.
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #234)")]
 fn test_stable_lp_rejects_a_constant_product_pool() {
     let env = Env::default();
     env.ledger().set_timestamp(1_000_000);
