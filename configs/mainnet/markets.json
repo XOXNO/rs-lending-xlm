@@ -37,7 +37,7 @@
                 }
               },
               "decimals": 8,
-              "max_stale_seconds": 57600
+              "max_stale_seconds": 3600
             }
           }
         ],
@@ -684,20 +684,27 @@
         "max_price_stale_seconds": 57600,
         "sources": [
           {
-            "Feed": {
-              "provider": {
-                "Reflector": {
-                  "contract": "CALI2BYU2JE6WVRUFYTS6MSBNEHGJ35P4AVCZYF3B6QOE3QKOB2PLE6M",
-                  "asset": {
-                    "Stellar": "CBLV4ATSIWU67CFSQU2NVRKINQIKUZ2ODSZBUJTJ43VJVRSBTZYOPNUR"
-                  },
-                  "read_mode": {
-                    "Twap": 3
+            "Scaled": {
+              "factor": {
+                "provider": {
+                  "Reflector": {
+                    "contract": "CALI2BYU2JE6WVRUFYTS6MSBNEHGJ35P4AVCZYF3B6QOE3QKOB2PLE6M",
+                    "asset": {
+                      "Stellar": "CBLV4ATSIWU67CFSQU2NVRKINQIKUZ2ODSZBUJTJ43VJVRSBTZYOPNUR"
+                    },
+                    "read_mode": {
+                      "Twap": 3
+                    }
                   }
-                }
+                },
+                "decimals": 14,
+                "max_stale_seconds": 7200
               },
-              "decimals": 14,
-              "max_stale_seconds": 7200
+              "quote": {
+                "Token": "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75"
+              },
+              "min_factor_wad": "984400000000000000",
+              "max_factor_wad": "1155600000000000000"
             }
           },
           {
@@ -745,20 +752,27 @@
         "max_price_stale_seconds": 57600,
         "sources": [
           {
-            "Feed": {
-              "provider": {
-                "Reflector": {
-                  "contract": "CALI2BYU2JE6WVRUFYTS6MSBNEHGJ35P4AVCZYF3B6QOE3QKOB2PLE6M",
-                  "asset": {
-                    "Stellar": "CAL6ER2TI6CTRAY6BFXWNWA7WTYXUXTQCHUBCIBU5O6KM3HJFG6Z6VXV"
-                  },
-                  "read_mode": {
-                    "Twap": 3
+            "Scaled": {
+              "factor": {
+                "provider": {
+                  "Reflector": {
+                    "contract": "CALI2BYU2JE6WVRUFYTS6MSBNEHGJ35P4AVCZYF3B6QOE3QKOB2PLE6M",
+                    "asset": {
+                      "Stellar": "CAL6ER2TI6CTRAY6BFXWNWA7WTYXUXTQCHUBCIBU5O6KM3HJFG6Z6VXV"
+                    },
+                    "read_mode": {
+                      "Twap": 3
+                    }
                   }
-                }
+                },
+                "decimals": 14,
+                "max_stale_seconds": 7200
               },
-              "decimals": 14,
-              "max_stale_seconds": 7200
+              "quote": {
+                "Token": "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75"
+              },
+              "min_factor_wad": "61548000000000000",
+              "max_factor_wad": "72252000000000000"
             }
           },
           {

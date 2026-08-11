@@ -138,7 +138,7 @@ fn reflector_leg(env: &Env, contract: &Address, decimals: u32) -> FeedSource {
         provider: ProviderRef::Reflector(ReflectorFeedRef {
             contract: contract.clone(),
             asset: OracleAssetRef::Symbol(Symbol::new(env, "BTC")),
-            read_mode: OracleReadMode::Twap(2),
+            read_mode: OracleReadMode::Twap(3),
         }),
         decimals,
         max_stale_seconds: 3_600,
@@ -589,8 +589,11 @@ fn test_set_oracle_lists_a_stableswap_lp_and_prices_it() {
     });
 }
 
+/// Attestation rejects it, not the pricing probe: the specific error pins which
+/// gate fired, so removing `attest_stable` is caught rather than masked by the
+/// probe failing later for its own reasons.
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #234)")]
 fn test_stable_lp_rejects_a_constant_product_pool() {
     let env = Env::default();
     env.ledger().set_timestamp(1_000_000);

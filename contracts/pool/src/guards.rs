@@ -27,6 +27,20 @@ pub(crate) fn require_utilization_below_max(env: &Env, cache: &Cache) {
     );
 }
 
+/// Panic if an ordinary draw would leave less cash than the liquidation buffer.
+///
+/// Liquidation withdrawals skip this: the buffer exists for them.
+pub(crate) fn require_liquidation_buffer(env: &Env, cache: &Cache, draw: i128) {
+    let supplied = cache.unscale_supply_floor(cache.supplied());
+    let reserved = common::math::fp::Bps::from(common::constants::LIQUIDATION_BUFFER_BPS)
+        .apply_to(env, supplied);
+    assert_with_error!(
+        env,
+        cache.cash().saturating_sub(draw) >= reserved,
+        CollateralError::InsufficientLiquidity
+    );
+}
+
 /// Panic if the market has a positive backing shortfall (insolvent).
 ///
 /// Backing = cash + outstanding debt value; claims = floored supply value.

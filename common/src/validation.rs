@@ -8,7 +8,9 @@ use crate::constants::{
 };
 use crate::errors::{CollateralError, FlashLoanError, GenericError, OracleError};
 use crate::math::fp_core::{mul_div_ceil, mul_div_floor, mul_div_half_up};
-use crate::oracle::observation::{MAX_SINGLE_SOURCE_SANITY_BAND_BPS, MAX_TWAP_RECORDS};
+use crate::oracle::observation::{
+    MAX_LP_SANITY_BAND_BPS, MAX_SINGLE_SOURCE_SANITY_BAND_BPS, MAX_TWAP_RECORDS,
+};
 use crate::types::OracleTolerance;
 use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, Executable, Vec};
 
@@ -81,9 +83,11 @@ pub fn require_wasm_receiver(env: &Env, receiver: &Address) {
 /// Asserts that `fees_bps` does not exceed `BPS`, panicking with
 /// `CollateralError::InvalidLiqThreshold` otherwise.
 pub fn validate_liquidation_fees(env: &Env, fees_bps: u32) {
+    // Strict: at BPS the protocol takes the entire bonus and liquidation still
+    // functions but is never rational to perform.
     assert_with_error!(
         env,
-        i128::from(fees_bps) <= BPS,
+        i128::from(fees_bps) < BPS,
         CollateralError::InvalidLiqThreshold
     );
 }
@@ -129,7 +133,7 @@ pub fn validate_liquidation_curve(
     );
     assert_with_error!(
         env,
-        i128::from(bonus_factor_bps) <= BPS,
+        bonus_factor_bps > 0 && i128::from(bonus_factor_bps) <= BPS,
         CollateralError::InvalidLiquidationCurve
     );
 }
@@ -190,6 +194,17 @@ pub fn validate_single_source_sanity_band(env: &Env, is_dual: bool, min_wad: i12
     assert_with_error!(
         env,
         band_bps <= MAX_SINGLE_SOURCE_SANITY_BAND_BPS,
+        OracleError::SanityBandTooWideForSingleSource
+    );
+}
+
+/// LP sources are sole-source, so the band is their only backstop. Wider than a
+/// plain feed to absorb fee accrual, but still bounded.
+pub fn validate_lp_sanity_band(env: &Env, min_wad: i128, max_wad: i128) {
+    let band_bps = mul_div_ceil(env, max_wad - min_wad, BPS, max_wad + min_wad);
+    assert_with_error!(
+        env,
+        band_bps <= MAX_LP_SANITY_BAND_BPS,
         OracleError::SanityBandTooWideForSingleSource
     );
 }

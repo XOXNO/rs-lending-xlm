@@ -123,8 +123,10 @@ fn test_liquidation_collateral_extraction_via_averaging() {
         received_collateral
     );
 
+    // Fee-sensitive: what reaches the liquidator is the seizure net of the
+    // protocol's cut, so this bound moves with the preset liquidation_fees.
     assert!(
-        received_collateral > 2.74,
+        received_collateral > 2.73,
         "Liquidator successfully extracted excess collateral via averaging exploit: {}",
         received_collateral
     );

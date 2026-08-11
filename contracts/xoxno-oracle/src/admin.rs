@@ -132,7 +132,9 @@ impl XoxnoOracle {
     #[only_owner]
     pub fn set_max_relative_skew_seconds(env: Env, seconds: u64) -> Result<(), Error> {
         renew_oracle_instance(&env);
-        if seconds > load_max_submission_age(&env) {
+        if seconds > load_max_submission_age(&env)
+            || seconds <= common::oracle::observation::MAX_FUTURE_SKEW_SECONDS
+        {
             return Err(Error::InvalidRelativeSkew);
         }
         env.storage()

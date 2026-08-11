@@ -6,7 +6,7 @@
 //! configured hub asset, and each vault address is mapped to the controller
 //! account id that holds its collateral.
 
-use common::constants::{TTL_BUMP_INSTANCE, TTL_THRESHOLD_USER};
+use common::constants::{TTL_BUMP_USER, TTL_THRESHOLD_USER};
 use common::math::fp::Ray;
 use common::token::authorize_transfer_as_current;
 use common::types::pool::HubAssetKey;
@@ -14,8 +14,8 @@ use common::types::pool::HubAssetKey;
 use controller_interface::ControllerClient;
 
 use soroban_sdk::{
-    contract, contracterror, contractevent, contractimpl, contracttype, panic_with_error, token,
-    vec, Address, Bytes, Env, TryFromVal, Val, Vec,
+    contract, contracterror, contractevent, contractimpl, contracttype, panic_with_error, vec,
+    Address, Bytes, Env, TryFromVal, Val, Vec,
 };
 
 /// Event published on each `harvest` call, reporting the caller and the
@@ -52,6 +52,8 @@ pub enum DeFindexStrategyError {
     InsufficientBalance = 461,
 
     ArithmeticError = 462,
+
+    AccountLookupFailed = 463,
 }
 
 /// Configuration stored once at construction: the hub/spoke ids and asset
@@ -259,16 +261,23 @@ impl DeFindexStrategyTrait for Strategy {
 
         let ctx = Ctx::try_load(&env)?;
 
-        token::Client::new(&env, &ctx.cfg.asset).transfer(&from, &ctx.strategy, &amount);
+        let received = common::token::transfer_amount_measured(
+            &env,
+            &ctx.cfg.asset,
+            &from,
+            &ctx.strategy,
+            amount,
+            common::errors::GenericError::AmountMustBePositive,
+        );
 
         let stored_id = prepare_vault_account_for_supply(ctx.env, &ctx.controller, &from);
-        ctx.authorize_supply_to_pool(amount);
+        ctx.authorize_supply_to_pool(received);
 
         let new_or_existing_id = ctx.controller.supply(
             &ctx.strategy,
             &stored_id,
             &ctx.cfg.spoke_id,
-            &ctx.to_payment(amount),
+            &ctx.to_payment(received),
         );
         set_vault_account(ctx.env, &from, new_or_existing_id);
 
@@ -341,7 +350,7 @@ fn set_vault_account(env: &Env, vault: &Address, account_id: u64) {
     let key = DataKey::VaultAccount(vault.clone());
     let storage = env.storage().persistent();
     storage.set(&key, &account_id);
-    storage.extend_ttl(&key, TTL_THRESHOLD_USER, TTL_BUMP_INSTANCE);
+    storage.extend_ttl(&key, TTL_THRESHOLD_USER, TTL_BUMP_USER);
 }
 
 /// Removes `vault`'s stored account id mapping, if any.
@@ -356,8 +365,9 @@ fn extend_vault_account_ttl(env: &Env, vault: &Address) {
     let key = DataKey::VaultAccount(vault.clone());
     let storage = env.storage().persistent();
     if storage.has(&key) {
-        // Same day bases as before: 30d threshold (user) + 180d bump (instance/shared).
-        storage.extend_ttl(&key, TTL_THRESHOLD_USER, TTL_BUMP_INSTANCE);
+        // Same tier as the controller account this points at, so the pointer can
+        // never outlive its target.
+        storage.extend_ttl(&key, TTL_THRESHOLD_USER, TTL_BUMP_USER);
     }
 }
 
@@ -379,14 +389,22 @@ fn resolve_vault_account(
     if stored == 0 {
         return 0;
     }
-    if controller.account_exists(&stored) {
-        extend_vault_account_ttl(env, vault);
-        return stored;
+    match controller.try_account_exists(&stored) {
+        Ok(Ok(true)) => {
+            extend_vault_account_ttl(env, vault);
+            stored
+        }
+        // Only an explicit "gone" clears. The mapping is the sole route back to
+        // the collateral it points at and there is no way to re-point it, so a
+        // lookup that merely failed to answer must not be read as gone.
+        Ok(Ok(false)) => {
+            if clear_if_gone {
+                clear_vault_account(env, vault);
+            }
+            0
+        }
+        _ => panic_with_error!(env, DeFindexStrategyError::AccountLookupFailed),
     }
-    if clear_if_gone {
-        clear_vault_account(env, vault);
-    }
-    0
 }
 
 /// Resolves `vault`'s account id ahead of a supply, clearing the stored

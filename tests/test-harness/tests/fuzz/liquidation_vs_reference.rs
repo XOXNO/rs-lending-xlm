@@ -99,6 +99,7 @@ fn run_liquidation_differential(
     let debt_before_usd = t.total_debt_raw(ALICE);
     let coll_before_usd = t.total_collateral_raw(ALICE);
     let usdc_supply_before_tokens = t.supply_balance_raw(ALICE, "USDC");
+    let usdc_revenue_before = t.snapshot_revenue("USDC");
 
     if ref_result.requires_full_close && ref_total_repaid_usd_wad < debt_before_usd {
         let liq_res = t.try_liquidate(LIQUIDATOR, ALICE, "ETH", repay_amt);
@@ -161,6 +162,25 @@ fn run_liquidation_differential(
     let usdc_ref_abs = ref_usdc_seized_i128.abs();
     let usdc_rel_ok = usdc_ref_abs == 0 || usdc_diff * 200 <= usdc_ref_abs;
     prop_assert!(usdc_diff <= ULP_BOUND_TOKENS || usdc_rel_ok);
+
+    // The liquidation is a single transaction at a fixed timestamp, so the whole
+    // revenue delta is the withheld fee.
+    let prod_usdc_fee = t.snapshot_revenue("USDC") - usdc_revenue_before;
+    let (_fid, ref_usdc_fee_tokens) = ref_result
+        .protocol_fee_per_collateral
+        .iter()
+        .find(|(aid, _)| *aid == 0)
+        .expect("reference should model a fee for the seized collateral");
+    let ref_usdc_fee_i128 = reference::bigrational_to_i128_half_up(ref_usdc_fee_tokens);
+    let fee_diff = (prod_usdc_fee - ref_usdc_fee_i128).abs();
+    let fee_ref_abs = ref_usdc_fee_i128.abs();
+    let fee_rel_ok = fee_ref_abs == 0 || fee_diff * 200 <= fee_ref_abs;
+    prop_assert!(
+        fee_diff <= ULP_BOUND_TOKENS || fee_rel_ok,
+        "protocol fee drift: production {} reference {}",
+        prod_usdc_fee,
+        ref_usdc_fee_i128
+    );
 
     Ok(())
 }

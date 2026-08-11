@@ -221,6 +221,15 @@ fn set_account_delegate(
 ) {
     caller.require_auth();
     let meta = require_account_owner(env, account_id, caller);
+    if add {
+        // Grant and activation must be contemporaneous: a dormant grant to an
+        // address governance has not yet approved would arm on activation.
+        assert_with_error!(
+            env,
+            storage::get_position_manager(env, delegate).is_some_and(|c| c.is_active),
+            GenericError::NotAuthorized
+        );
+    }
 
     let changed = if add {
         storage::add_delegate(env, account_id, delegate)

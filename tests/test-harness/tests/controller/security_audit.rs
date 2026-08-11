@@ -110,7 +110,7 @@ fn regression_borrow_restamps_ltv_only() {
     t.supply(ALICE, "USDC", 10_000.0);
     let id = t.resolve_account_id(ALICE);
     let (ltv0, lt0, bonus0, fees0) = supply_risk_stamp(&t, id, "USDC");
-    assert_eq!((ltv0, lt0, bonus0, fees0), (7_500, 8_000, 500, 100));
+    assert_eq!((ltv0, lt0, bonus0, fees0), (7_500, 8_000, 500, 1_200));
 
     t.edit_asset_config("USDC", |c| {
         c.loan_to_value = 6_000;
@@ -154,7 +154,7 @@ fn account_just_below_restamp_floor() -> (LendingTest, u64) {
 fn regression_supply_skips_bonus_only_raise_below_min_hf() {
     let (mut t, id) = account_just_below_restamp_floor();
     let (_, lt0, bonus0, fees0) = supply_risk_stamp(&t, id, "USDC");
-    assert_eq!((lt0, bonus0, fees0), (8_000, 500, 100), "preset tuple");
+    assert_eq!((lt0, bonus0, fees0), (8_000, 500, 1_200), "preset tuple");
 
     t.edit_asset_config("USDC", |c| {
         c.loan_to_value = 6_000;
@@ -177,7 +177,7 @@ fn regression_supply_skips_bonus_only_raise_below_min_hf() {
 fn regression_supply_skips_fees_only_cut_below_min_hf() {
     let (mut t, id) = account_just_below_restamp_floor();
     let (_, lt0, bonus0, fees0) = supply_risk_stamp(&t, id, "USDC");
-    assert_eq!((lt0, bonus0, fees0), (8_000, 500, 100), "preset tuple");
+    assert_eq!((lt0, bonus0, fees0), (8_000, 500, 1_200), "preset tuple");
 
     t.edit_asset_config("USDC", |c| {
         c.loan_to_value = 6_000;
@@ -246,7 +246,7 @@ fn regression_strategy_finalize_restamps_safe_params() {
         c.liquidation_fees = 40;
     });
     let (ltv0, _, bonus0, fees0) = supply_risk_stamp(&t, id, "USDC");
-    assert_eq!((ltv0, bonus0, fees0), (7_500, 500, 100));
+    assert_eq!((ltv0, bonus0, fees0), (7_500, 500, 1_200));
 
     t.fund_router("ETH", 5.0);
     let steps = build_aggregator_swap(&t, "USDC", "ETH", 10_000_000_000, 5_000_000);
@@ -654,7 +654,7 @@ fn regression_third_party_supply_cannot_force_adverse_tuple_below_min_hf() {
     let (_, lt_before, bonus_before, fees_before) = supply_risk_stamp(&t, id, "USDC");
     assert_eq!(
         (lt_before, bonus_before, fees_before),
-        (8_000, 500, 100),
+        (8_000, 500, 1_200),
         "preset tuple"
     );
 

@@ -165,7 +165,7 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
 
         AdminOperation::SetSwapAggregator(addr) => {
             validate::require_contract_address(env, addr, OracleError::InvalidAggregator);
-            controller_operation(
+            sensitive_controller_operation(
                 env,
                 "set_swap_aggregator",
                 vec![env, addr.clone().into_val(env)],
@@ -291,7 +291,7 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
                 vec![env, hash.clone().into_val(env)],
             )
         }
-        AdminOperation::SetPositionManager(manager, is_active) => controller_operation(
+        AdminOperation::SetPositionManager(manager, is_active) => sensitive_controller_operation(
             env,
             "set_position_manager",
             vec![env, manager.clone().into_val(env), is_active.into_val(env)],

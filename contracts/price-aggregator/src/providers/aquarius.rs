@@ -97,6 +97,12 @@ pub(crate) fn read(
     let price_b = engine::resolve_nested(session, &lp.key_b, depth + 1)?;
     let (reserve_a, reserve_b) =
         aquarius_plane_reserves_call(&env, &lp.plane, &lp.pool).ok_or(OracleError::NoLastPrice)?;
+    // Reserves come from the plane, share supply from the pool. Reject the read
+    // when the two disagree, or a lagging plane prices a live share supply.
+    let direct = aquarius_pool_reserves_call(&env, &lp.pool).ok_or(OracleError::NoLastPrice)?;
+    if !reserve_invariants_match(&env, direct, (reserve_a, reserve_b)) {
+        return Err(OracleError::UnsupportedAquariusPool);
+    }
     let total_shares =
         aquarius_total_shares_call(&env, &lp.pool).ok_or(OracleError::NoLastPrice)?;
 
@@ -215,6 +221,12 @@ pub(crate) fn read_stable(
     let total_shares =
         aquarius_total_shares_call(&env, &lp.pool).ok_or(OracleError::NoLastPrice)?;
     let amp = aquarius_amp_call(&env, &lp.pool).ok_or(OracleError::NoLastPrice)?;
+    // Reserves come from the plane, share supply and amp from the pool. Reject
+    // the read when the two disagree on the invariant.
+    let direct = aquarius_pool_reserves_call(&env, &lp.pool).ok_or(OracleError::NoLastPrice)?;
+    if !stable_invariants_match(&env, direct, (reserve_a, reserve_b), amp, lp) {
+        return Err(OracleError::UnsupportedAquariusPool);
+    }
 
     let price_wad = fair_stable_lp_price_wad(
         &env,

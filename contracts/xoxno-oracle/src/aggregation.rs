@@ -172,12 +172,11 @@ pub(crate) fn recompute_aggregate(env: &Env, feed_id: &String) {
 
 /// Removes the current aggregate and history entries for `feed_id`.
 fn clear_aggregate_and_history(env: &Env, feed_id: &String) {
+    // Only the live aggregate is cleared: a transient quorum miss must not
+    // destroy accumulated history that consumers age off themselves.
     env.storage()
         .persistent()
         .remove(&DataKey::CurrentAggregate(feed_id.clone()));
-    env.storage()
-        .persistent()
-        .remove(&DataKey::History(feed_id.clone()));
 }
 
 /// Returns an ascending-sorted copy of `prices`, computed with an in-place
