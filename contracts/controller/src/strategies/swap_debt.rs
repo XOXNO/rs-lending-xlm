@@ -13,7 +13,7 @@ use crate::strategies::{
     borrow_into_controller, prefetch_strategy_prices, repay_debt_from_controller, strategy_finalize,
     swap_tokens_or_passthrough, StrategyRepay,
 };
-use crate::{risk::validation, storage};
+use crate::{storage};
 
 pub(crate) struct SwapDebtParams<'a> {
     pub account_id: u64,
@@ -32,8 +32,7 @@ pub(crate) fn process_swap_debt(env: &Env, caller: &Address, params: SwapDebtPar
         swap,
     } = params;
 
-    caller.require_auth();
-    validation::require_not_flash_loaning(env);
+    crate::strategies::require_strategy_caller(env, caller);
 
     assert_with_error!(
         env,

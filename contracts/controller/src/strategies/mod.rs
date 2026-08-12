@@ -23,6 +23,11 @@ use crate::events;
 use crate::positions::{finalize_position_flow, get_supply_position_or_panic, PositionSides};
 use crate::risk::{self, account_price_assets, validation};
 
+pub(crate) fn require_strategy_caller(env: &Env, caller: &Address) {
+    caller.require_auth();
+    validation::require_not_flash_loaning(env);
+}
+
 pub(crate) fn prefetch_strategy_prices(
     cache: &mut Cache,
     account: &Account,

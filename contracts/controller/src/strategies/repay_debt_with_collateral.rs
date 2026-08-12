@@ -13,7 +13,7 @@ use crate::strategies::{
     execute_withdraw_all, net_settle_collateral_against_debt, prefetch_strategy_prices,
     repay_debt_from_controller, strategy_finalize, withdraw_and_swap_from_supply, StrategyRepay,
 };
-use crate::{risk::validation, storage};
+use crate::{storage};
 
 pub(crate) struct RepayWithCollateralParams<'a> {
     pub account_id: u64,
@@ -38,8 +38,7 @@ pub(crate) fn process_repay_debt_with_collateral(
         close_position,
     } = params;
 
-    caller.require_auth();
-    validation::require_not_flash_loaning(env);
+    crate::strategies::require_strategy_caller(env, caller);
 
     require_positive_amount(env, collateral_amount);
     config::require_hub_active(env, collateral.hub_id);

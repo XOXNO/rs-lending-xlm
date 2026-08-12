@@ -13,7 +13,7 @@ use crate::strategies::{
     borrow_into_controller, prefetch_strategy_prices, strategy_finalize, swap_tokens,
     swap_tokens_or_passthrough,
 };
-use crate::{positions::supply, risk::validation};
+use crate::{positions::supply};
 
 pub(crate) struct MultiplyParams<'a> {
     pub account_id: u64,
@@ -28,8 +28,7 @@ pub(crate) struct MultiplyParams<'a> {
 }
 
 pub(crate) fn process_multiply(env: &Env, caller: &Address, params: MultiplyParams<'_>) -> u64 {
-    caller.require_auth();
-    validation::require_not_flash_loaning(env);
+    crate::strategies::require_strategy_caller(env, caller);
 
     let MultiplyParams {
         account_id,

@@ -12,7 +12,7 @@ use crate::positions::require_can_supply;
 use crate::strategies::{
     prefetch_strategy_prices, strategy_finalize, withdraw_and_swap_from_supply,
 };
-use crate::{positions::supply, risk::validation, storage};
+use crate::{positions::supply, storage};
 
 pub(crate) struct SwapCollateralParams<'a> {
     pub account_id: u64,
@@ -35,8 +35,7 @@ pub(crate) fn process_swap_collateral(
         swap,
     } = params;
 
-    caller.require_auth();
-    validation::require_not_flash_loaning(env);
+    crate::strategies::require_strategy_caller(env, caller);
 
     assert_with_error!(env, current != new, GenericError::AssetsAreTheSame);
     config::require_hub_active(env, current.hub_id);
