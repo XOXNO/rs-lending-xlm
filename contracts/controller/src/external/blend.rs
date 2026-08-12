@@ -105,3 +105,7 @@ fn authorize_repay_pulls(env: &Env, blend_pool: &Address, debt_caps: &Vec<(Addre
     }
     env.authorize_as_current_contract(entries);
 }
+
+#[cfg(test)]
+#[path = "../../tests/external/blend.rs"]
+mod tests;

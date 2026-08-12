@@ -31,7 +31,7 @@ pub(crate) use protocol::{
     get_shared, get_user, renew_controller_instance, renew_user_key, set_shared, set_user,
 };
 
-#[cfg(any(feature = "testing", feature = "certora"))]
+#[cfg(any(test, feature = "testing", feature = "certora"))]
 pub(crate) use account::set_flash_loan_ongoing;
 #[cfg(feature = "certora")]
 pub(crate) use spoke::try_get_spoke;

@@ -1,4 +1,3 @@
-
 use crate::account;
 use common::errors::GenericError;
 use common::types::{Account, DebtPosition, HubAssetKey, PositionMode};
@@ -11,8 +10,8 @@ use crate::events::{BlendMigrationEvent, PositionAction};
 use crate::external::blend::{blend_repay_all, blend_sweep_all};
 use crate::positions::{require_can_supply, supply};
 use crate::strategies::{
-    borrow_into_controller, prefetch_strategy_prices, repay_debt_from_controller, strategy_finalize,
-    StrategyRepay,
+    borrow_into_controller, prefetch_strategy_prices, repay_debt_from_controller,
+    strategy_finalize, StrategyRepay,
 };
 use crate::{risk::validation, storage};
 
@@ -126,7 +125,15 @@ fn execute_migration_debt_leg(
             hub_id,
             asset: debt_asset,
         };
-        borrow_into_controller(env, account, &hub_debt, max, false, PositionAction::Migrate, cache);
+        borrow_into_controller(
+            env,
+            account,
+            &hub_debt,
+            max,
+            false,
+            PositionAction::Migrate,
+            cache,
+        );
     }
     blend_repay_all(env, blend_pool, caller, debt_caps);
     reconcile_debt_refunds(env, account, cache, caller, hub_id, debt_caps, &before_debt);
@@ -263,7 +270,10 @@ fn deposit_withdrawn(
         let token = token::Client::new(env, &asset);
         let prev = before.get(asset.clone()).unwrap_or(0);
 
-        let received = token.balance(&env.current_contract_address()).checked_sub(prev).unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError));
+        let received = token
+            .balance(&env.current_contract_address())
+            .checked_sub(prev)
+            .unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError));
         if received > 0 {
             deposits.push_back((HubAssetKey { hub_id, asset }, received));
         }
@@ -292,7 +302,10 @@ fn reconcile_debt_refunds(
         let token = token::Client::new(env, &debt_asset);
         let prev = before.get(debt_asset.clone()).unwrap_or(0);
 
-        let refund = token.balance(&env.current_contract_address()).checked_sub(prev).unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError));
+        let refund = token
+            .balance(&env.current_contract_address())
+            .checked_sub(prev)
+            .unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError));
         if refund > 0 {
             let hub_debt = HubAssetKey {
                 hub_id,

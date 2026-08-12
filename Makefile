@@ -698,8 +698,12 @@ define run_mutants_two_pass
 			--minimum-test-timeout $(MUTANTS_TIMEOUT) $(MUTANTS_RUN_ARGS) \
 			|| status=$$?; \
 		case $$status in 0|2|3) ;; *) exit $$status;; esac
-	$(MUTANTS_ENV) cargo mutants $(MUTANTS_RUN_MODE) --iterate $(1) $(3) \
-		--minimum-test-timeout $(MUTANTS_TIMEOUT) $(MUTANTS_RUN_ARGS_ITERATE)
+	@if [ -s mutants.out/missed.txt ] || [ -s mutants.out/timeout.txt ]; then \
+		$(MUTANTS_ENV) cargo mutants $(MUTANTS_RUN_MODE) --iterate $(1) $(3) \
+			--minimum-test-timeout $(MUTANTS_TIMEOUT) $(MUTANTS_RUN_ARGS_ITERATE); \
+	else \
+		echo "Full-suite pass skipped: package tests resolved every mutant"; \
+	fi
 endef
 
 
@@ -833,7 +837,7 @@ mutants-controller-core: _mutants-harness-prepare
 		--exclude 'contracts/controller/src/context/oracle.rs' \
 		--exclude 'contracts/controller/src/positions/**' \
 		--exclude 'contracts/controller/src/strategies/**' \
-		--exclude 'contracts/controller/src/views/**',\
+		--exclude 'contracts/controller/src/views.rs',\
 		$(CONTROLLER_FAST_TESTS),$(CONTROLLER_FULL_TESTS))
 
 mutants-controller-oracle: _mutants-harness-prepare
@@ -849,7 +853,7 @@ mutants-controller-strategies: _mutants-harness-prepare
 		$(CONTROLLER_FAST_TESTS),$(CONTROLLER_FULL_TESTS))
 
 mutants-controller-views: _mutants-harness-prepare
-	$(call run_mutants_two_pass,--package controller --file 'contracts/controller/src/views/**',\
+	$(call run_mutants_two_pass,--package controller --file 'contracts/controller/src/views.rs',\
 		$(CONTROLLER_FAST_TESTS),$(CONTROLLER_FULL_TESTS))
 
 

@@ -1,4 +1,3 @@
-
 use crate::constants::MAX_DELEGATES;
 use crate::storage::{get_user, renew_user_key, set_user};
 use common::errors::GenericError;
@@ -232,4 +231,3 @@ pub(crate) fn with_flash_guard<T>(env: &Env, f: impl FnOnce() -> T) -> T {
     }
     out
 }
-

@@ -1,4 +1,3 @@
-
 use crate::account;
 use crate::events::InitialMultiplyPaymentEvent;
 use common::errors::{CollateralError, GenericError, StrategyError};
@@ -7,13 +6,13 @@ use common::validation::require_positive_amount;
 use soroban_sdk::{assert_with_error, panic_with_error, vec, Address, Env};
 
 use crate::context::Cache;
-use crate::positions::require_can_supply;
 use crate::events::PositionAction;
+use crate::positions::require_can_supply;
+use crate::positions::supply;
 use crate::strategies::{
     borrow_into_controller, prefetch_strategy_prices, strategy_finalize, swap_tokens,
     swap_tokens_or_passthrough,
 };
-use crate::{positions::supply};
 
 pub(crate) struct MultiplyParams<'a> {
     pub account_id: u64,
@@ -64,8 +63,15 @@ pub(crate) fn process_multiply(env: &Env, caller: &Address, params: MultiplyPara
         &convert_swap,
     );
 
-    let amount_received =
-        borrow_into_controller(env, &mut account, debt, debt_to_flash_loan, true, PositionAction::Multiply, &mut cache);
+    let amount_received = borrow_into_controller(
+        env,
+        &mut account,
+        debt,
+        debt_to_flash_loan,
+        true,
+        PositionAction::Multiply,
+        &mut cache,
+    );
 
     let swap_amount_in = amount_received
         .checked_add(debt_extra)

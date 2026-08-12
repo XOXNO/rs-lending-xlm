@@ -40,11 +40,29 @@ pub(crate) fn process_borrow(
     let mut cache = Cache::new(env);
     let aggregated = payments::aggregate_positive_payments(env, borrows);
 
-    validate_position_entry_gates(env, &account, &aggregated, &mut cache, AccountPositionType::Borrow);
-    settle_debt(env, &mut account, &aggregated, &mut cache, DebtFlowKind::Borrow { recipient: &recipient });
+    validate_position_entry_gates(
+        env,
+        &account,
+        &aggregated,
+        &mut cache,
+        AccountPositionType::Borrow,
+    );
+    settle_debt(
+        env,
+        &mut account,
+        &aggregated,
+        &mut cache,
+        DebtFlowKind::Borrow {
+            recipient: &recipient,
+        },
+    );
 
     let restamped = crate::positions::enforce_post_pool_solvency(env, &mut cache, &mut account);
-    let sides = if restamped { PositionSides::BOTH } else { PositionSides::DEBT };
+    let sides = if restamped {
+        PositionSides::BOTH
+    } else {
+        PositionSides::DEBT
+    };
     finalize_position_flow(env, account_id, &account, &mut cache, sides, false);
 }
 
@@ -60,14 +78,35 @@ pub(crate) fn process_repay(
     let mut account = storage::get_account_borrow_only(env, account_id);
     let mut cache = Cache::new(env);
 
-    settle_debt(env, &mut account, &aggregated, &mut cache, DebtFlowKind::Repay { payer: caller, action: events::PositionAction::Repay });
+    settle_debt(
+        env,
+        &mut account,
+        &aggregated,
+        &mut cache,
+        DebtFlowKind::Repay {
+            payer: caller,
+            action: events::PositionAction::Repay,
+        },
+    );
 
-    finalize_position_flow(env, account_id, &account, &mut cache, PositionSides::DEBT, false);
+    finalize_position_flow(
+        env,
+        account_id,
+        &account,
+        &mut cache,
+        PositionSides::DEBT,
+        false,
+    );
 }
 
 enum DebtFlowKind<'a> {
-    Borrow { recipient: &'a Address },
-    Repay { payer: &'a Address, action: events::PositionAction },
+    Borrow {
+        recipient: &'a Address,
+    },
+    Repay {
+        payer: &'a Address,
+        action: events::PositionAction,
+    },
 }
 
 fn settle_debt(
@@ -95,7 +134,9 @@ fn settle_debt(
                     account,
                     events::PositionAction::Borrow,
                     &entry.action.hub_asset,
-                    LegDirection::Entry { asset_decimals: result.asset_decimals },
+                    LegDirection::Entry {
+                        asset_decimals: result.asset_decimals,
+                    },
                     &LegOutcome::from(&result),
                     cache,
                 );
@@ -104,7 +145,13 @@ fn settle_debt(
         DebtFlowKind::Repay { payer, action } => {
             let mut actions: Vec<PoolAction> = Vec::new(env);
             for (hub_asset, amount) in aggregated.iter() {
-                enforce_spoke_asset_flags(env, cache, account.spoke_id, &hub_asset, FreezePolicy::AllowOnExit);
+                enforce_spoke_asset_flags(
+                    env,
+                    cache,
+                    account.spoke_id,
+                    &hub_asset,
+                    FreezePolicy::AllowOnExit,
+                );
                 let position = get_debt_position_or_panic(env, account, &hub_asset);
                 let amount_in = payments::transfer_amount_measured(
                     env,
@@ -152,10 +199,22 @@ pub(crate) fn execute_repayment(
     req: RepaymentRequest<'_>,
     cache: &mut Cache,
 ) -> PoolPositionMutation {
-    let EventContext { counterparty, action } = ctx;
+    let EventContext {
+        counterparty,
+        action,
+    } = ctx;
 
-    enforce_spoke_asset_flags(env, cache, account.spoke_id, req.hub_asset, FreezePolicy::AllowOnExit);
-    let actions = vec![env, make_pool_action(req.position, req.amount, req.hub_asset.clone())];
+    enforce_spoke_asset_flags(
+        env,
+        cache,
+        account.spoke_id,
+        req.hub_asset,
+        FreezePolicy::AllowOnExit,
+    );
+    let actions = vec![
+        env,
+        make_pool_action(req.position, req.amount, req.hub_asset.clone()),
+    ];
     let results = apply_repay_batch(env, account, &counterparty, action, &actions, cache);
     expect_invariant(env, results.get(0))
 }
@@ -172,19 +231,33 @@ pub(crate) fn borrow_into_controller(
     let hub_debt = hub_debt.clone();
     let payments: AggregatedPayments = vec![env, (hub_debt.clone(), amount)];
     let aggregated = payments::aggregate_positive_payments(env, &payments);
-    validate_position_entry_gates(env, account, &aggregated, cache, AccountPositionType::Borrow);
+    validate_position_entry_gates(
+        env,
+        account,
+        &aggregated,
+        cache,
+        AccountPositionType::Borrow,
+    );
 
     let position = account.get_or_create_debt_position(&hub_debt);
     let pool_addr = cache.cached_pool_address();
     let pool_action = make_pool_action(&position, amount, hub_debt.clone());
-    let result = pool_create_strategy_call(env, &pool_addr, &env.current_contract_address(), pool_action, charge_fee);
+    let result = pool_create_strategy_call(
+        env,
+        &pool_addr,
+        &env.current_contract_address(),
+        pool_action,
+        charge_fee,
+    );
     let mutation = PoolPositionMutation::from(&result);
     merge_debt_leg(
         env,
         account,
         action,
         &hub_debt,
-        LegDirection::Entry { asset_decimals: mutation.asset_decimals },
+        LegDirection::Entry {
+            asset_decimals: mutation.asset_decimals,
+        },
         &LegOutcome::from(&mutation),
         cache,
     );

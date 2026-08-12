@@ -1,4 +1,3 @@
-
 #[cfg(test)]
 #[path = "../tests/spoke.rs"]
 mod tests;
@@ -170,4 +169,3 @@ fn enforce_spoke_cap(
     assert_with_error!(env, next_scaled <= cap_scaled, side.cap_error());
     next_scaled
 }
-

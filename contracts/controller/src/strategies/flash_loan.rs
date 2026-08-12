@@ -1,4 +1,3 @@
-
 use crate::events::FlashLoanEvent;
 use common::types::HubAssetKey;
 use common::validation::{require_positive_amount, require_wasm_receiver};

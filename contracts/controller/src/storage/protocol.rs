@@ -1,4 +1,3 @@
-
 use common::errors::GenericError;
 use common::types::{ControllerKey, PositionLimits, PositionManagerConfig};
 
@@ -176,4 +175,3 @@ pub(crate) fn get_user<V: TryFromVal<Env, Val>>(env: &Env, key: &ControllerKey) 
 pub(crate) fn set_user<V: IntoVal<Env, Val>>(env: &Env, key: &ControllerKey, value: &V) {
     set_persistent(env, key, value, TTL_THRESHOLD_USER, TTL_BUMP_USER)
 }
-

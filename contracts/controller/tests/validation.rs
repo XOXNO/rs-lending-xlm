@@ -128,6 +128,39 @@ fn test_validate_bulk_position_limits_borrow_over_cap_panics() {
 }
 
 #[test]
+#[should_panic(expected = "Error(Contract, #400)")]
+fn require_not_flash_loaning_rejects_ongoing() {
+    let env = Env::default();
+    let contract = new_controller(&env);
+    env.as_contract(&contract, || {
+        storage::set_flash_loan_ongoing(&env, true);
+        require_not_flash_loaning(&env);
+    });
+}
+
+#[test]
+fn require_not_flash_loaning_passes_when_idle() {
+    let env = Env::default();
+    let contract = new_controller(&env);
+    env.as_contract(&contract, || {
+        require_not_flash_loaning(&env);
+    });
+}
+
+#[test]
+#[should_panic]
+fn require_post_pool_risk_gates_with_debt_needs_prices() {
+    let env = Env::default();
+    let contract = new_controller(&env);
+    let borrow = Address::generate(&env);
+    let account = account_with(&env, None, Some(&borrow));
+    env.as_contract(&contract, || {
+        let mut cache = crate::context::Cache::new_view(&env);
+        require_post_pool_risk_gates(&env, &mut cache, &account);
+    });
+}
+
+#[test]
 fn test_validate_bulk_position_limits_empty_aggregated_is_noop_at_cap() {
     let env = Env::default();
     let contract = new_controller(&env);

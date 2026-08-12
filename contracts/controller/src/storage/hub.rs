@@ -1,4 +1,3 @@
-
 use common::errors::GenericError;
 use common::types::{ControllerKey, HubConfig};
 use soroban_sdk::{panic_with_error, Env};

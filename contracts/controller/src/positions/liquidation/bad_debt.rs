@@ -1,4 +1,3 @@
-
 use common::types::{Account, AccountPositionType, PoolSeizeEntry};
 use soroban_sdk::{Env, Vec};
 

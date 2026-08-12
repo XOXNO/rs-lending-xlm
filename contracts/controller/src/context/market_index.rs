@@ -1,4 +1,3 @@
-
 use common::collections::collect_uncached_keys;
 use common::types::{HubAssetKey, MarketIndex, MarketIndexRaw};
 use soroban_sdk::vec;

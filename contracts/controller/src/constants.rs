@@ -1,4 +1,3 @@
-
 pub use common::constants::*;
 
 pub const BAD_DEBT_USD_THRESHOLD: i128 = DEFAULT_MIN_BORROW_COLLATERAL_USD_WAD;

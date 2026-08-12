@@ -142,3 +142,7 @@ pub(crate) fn pool_update_params_call(
 pub(crate) fn pool_upgrade_call(env: &Env, pool_addr: &Address, new_wasm_hash: &BytesN<32>) {
     LiquidityPoolClient::new(env, pool_addr).upgrade(new_wasm_hash)
 }
+
+#[cfg(test)]
+#[path = "../../tests/external/pool.rs"]
+mod tests;

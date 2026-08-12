@@ -1,4 +1,3 @@
-
 use common::errors::OracleError;
 use common::types::{PriceFeedRaw, PriceKey, PriceStatus};
 use price_aggregator_interface::PriceAggregatorClient;

@@ -1,4 +1,3 @@
-
 use common::errors::GenericError;
 use common::types::StrategySwap;
 use common::validation::require_positive_amount;

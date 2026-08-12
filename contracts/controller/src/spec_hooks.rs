@@ -1,4 +1,3 @@
-
 #[inline]
 pub(crate) fn solvency_gate_checked() {
     #[cfg(feature = "certora")]

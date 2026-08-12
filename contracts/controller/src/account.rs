@@ -1,4 +1,3 @@
-
 use common::errors::{GenericError, SpokeError};
 use common::math::fp::Ray;
 use common::types::{

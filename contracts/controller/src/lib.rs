@@ -30,6 +30,10 @@ pub mod spec;
 #[path = "../tests/test_support.rs"]
 pub mod test_support;
 
+#[cfg(test)]
+#[path = "../tests/entrypoints.rs"]
+mod entrypoint_tests;
+
 use common::errors::SpokeError;
 use common::types::{
     AccountAttributes, AccountPositionRaw, DebtPositionRaw, HubAssetKey, InterestRateModel,

@@ -59,7 +59,7 @@ fn inline_weighted_collateral_wad(
         );
         weighted = weighted.checked_add(
             env,
-            crate::risk::weighted_collateral(env, value, Bps::from(position.liquidation_threshold)),
+            Bps::from(position.liquidation_threshold).apply_to_wad_floor(env, value),
         );
     }
     weighted

@@ -1,7 +1,5 @@
-
 use common::errors::{GenericError, StrategyError};
 use soroban_sdk::{assert_with_error, panic_with_error, token, Address, Env};
-
 
 pub(crate) struct SwapBalanceSnapshot {
     pub(crate) token_in: i128,
@@ -52,7 +50,10 @@ pub(crate) fn verify_router_output(
     token_out_client: &token::Client,
     balance_before: i128,
 ) -> i128 {
-    let received = token_out_client.balance(&env.current_contract_address()).checked_sub(balance_before).unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError));
+    let received = token_out_client
+        .balance(&env.current_contract_address())
+        .checked_sub(balance_before)
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError));
     assert_with_error!(env, received > 0, StrategyError::NoSwapOutput);
     received
 }

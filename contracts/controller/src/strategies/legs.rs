@@ -1,4 +1,3 @@
-
 use common::errors::GenericError;
 use common::math::fp::Ray;
 use common::types::{
@@ -12,12 +11,12 @@ use crate::events;
 use crate::events::EventContext;
 use crate::external::pool::pool_net_settle_call;
 use crate::payments;
-use crate::positions::{execute_repayment, RepaymentRequest};
-use crate::positions::{execute_withdrawal, WithdrawalRequest};
 use crate::positions::{
     enforce_spoke_asset_flags, get_debt_position_or_panic, get_supply_position_or_panic,
     merge_debt_leg, FreezePolicy, LegDirection, LegOutcome,
 };
+use crate::positions::{execute_repayment, RepaymentRequest};
+use crate::positions::{execute_withdrawal, WithdrawalRequest};
 
 pub(crate) struct StrategyRepay<'a> {
     pub debt: &'a HubAssetKey,
@@ -104,7 +103,10 @@ pub(crate) fn withdraw_collateral_to_controller(
         cache,
     );
 
-    token.balance(&env.current_contract_address()).checked_sub(balance_before).unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError))
+    token
+        .balance(&env.current_contract_address())
+        .checked_sub(balance_before)
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError))
 }
 
 pub(crate) fn execute_withdraw_all(
@@ -216,7 +218,10 @@ fn refund_controller_balance_delta(
 ) {
     let token = token::Client::new(env, asset);
 
-    let excess = token.balance(&env.current_contract_address()).checked_sub(balance_before).unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError));
+    let excess = token
+        .balance(&env.current_contract_address())
+        .checked_sub(balance_before)
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError));
     if excess > 0 {
         token.transfer(&env.current_contract_address(), refund_to, &excess);
     }

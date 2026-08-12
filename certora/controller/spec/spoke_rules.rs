@@ -56,7 +56,7 @@ fn spoke_borrow_only_registered_assets(
 
     let mut borrows: Vec<(HubAssetKey, i128)> = Vec::new(&e);
     borrows.push_back((hub_asset, amount));
-    crate::positions::borrow::process_borrow(&e, &caller, account_id, &borrows, None);
+    crate::positions::process_borrow(&e, &caller, account_id, &borrows, None);
 
     cvlr_assert!(false);
 }
@@ -87,7 +87,7 @@ fn spoke_only_borrowable_assets(
 
     let mut borrows: Vec<(HubAssetKey, i128)> = Vec::new(&e);
     borrows.push_back((hub0(&asset), amount));
-    crate::positions::borrow::process_borrow(&e, &caller, account_id, &borrows, None);
+    crate::positions::process_borrow(&e, &caller, account_id, &borrows, None);
 
     cvlr_assert!(false);
 }
@@ -172,7 +172,7 @@ fn deprecated_spoke_blocks_new_borrow(
 
     let mut borrows: Vec<(HubAssetKey, i128)> = Vec::new(&e);
     borrows.push_back((hub0(&asset), amount));
-    crate::positions::borrow::process_borrow(&e, &caller, account_id, &borrows, None);
+    crate::positions::process_borrow(&e, &caller, account_id, &borrows, None);
 
     cvlr_assert!(false);
 }
@@ -206,7 +206,7 @@ fn deprecated_spoke_withdraw_does_not_increase_supply(
 
     let mut withdrawals: Vec<(HubAssetKey, i128)> = Vec::new(&e);
     withdrawals.push_back((hub0(&asset), amount));
-    crate::positions::withdraw::process_withdraw(&e, &caller, account_id, &withdrawals, None);
+    crate::positions::process_withdraw(&e, &caller, account_id, &withdrawals, None);
 
     let position_after =
         crate::storage::get_position(&e, account_id, AccountPositionType::Deposit, &asset);
@@ -381,7 +381,7 @@ fn spoke_borrow_sanity(e: Env, caller: Address, asset: Address) {
 
     let mut borrows: Vec<(HubAssetKey, i128)> = Vec::new(&e);
     borrows.push_back((hub0(&asset), amount));
-    crate::positions::borrow::process_borrow(&e, &caller, account_id, &borrows, None);
+    crate::positions::process_borrow(&e, &caller, account_id, &borrows, None);
     cvlr_satisfy!(true);
 }
 

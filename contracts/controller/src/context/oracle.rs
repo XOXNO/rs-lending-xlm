@@ -35,3 +35,7 @@ impl Cache {
         (&raw).into()
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/context/oracle.rs"]
+mod tests;

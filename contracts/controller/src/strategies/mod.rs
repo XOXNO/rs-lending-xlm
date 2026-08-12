@@ -1,3 +1,6 @@
+#[cfg(test)]
+#[path = "../../tests/strategies/mod.rs"]
+mod tests;
 
 pub(crate) mod flash_loan;
 pub(crate) mod legs;

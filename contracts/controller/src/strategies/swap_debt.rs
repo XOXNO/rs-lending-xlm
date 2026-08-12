@@ -1,4 +1,3 @@
-
 use common::errors::GenericError;
 use common::types::{HubAssetKey, StrategySwap};
 use common::validation::require_positive_amount;
@@ -9,11 +8,11 @@ use crate::config;
 use crate::context::Cache;
 use crate::events::PositionAction;
 use crate::positions::get_debt_position_or_panic;
+use crate::storage;
 use crate::strategies::{
-    borrow_into_controller, prefetch_strategy_prices, repay_debt_from_controller, strategy_finalize,
-    swap_tokens_or_passthrough, StrategyRepay,
+    borrow_into_controller, prefetch_strategy_prices, repay_debt_from_controller,
+    strategy_finalize, swap_tokens_or_passthrough, StrategyRepay,
 };
-use crate::{storage};
 
 pub(crate) struct SwapDebtParams<'a> {
     pub account_id: u64,
@@ -50,8 +49,16 @@ pub(crate) fn process_swap_debt(env: &Env, caller: &Address, params: SwapDebtPar
     let extra_assets = vec![env, existing_debt.asset.clone(), new_debt.asset.clone()];
     prefetch_strategy_prices(&mut cache, &account, &extra_assets);
 
-    let amount_received =
-        borrow_into_controller(env, &mut account, new_debt, new_debt_amount, true, PositionAction::SwDebtR, &mut cache);
+    // Borrow-leg action is SwDebtR. Earlier main reused Multiply via borrow_for_strategy.
+    let amount_received = borrow_into_controller(
+        env,
+        &mut account,
+        new_debt,
+        new_debt_amount,
+        true,
+        PositionAction::SwDebtR,
+        &mut cache,
+    );
 
     let repay_amount = swap_tokens_or_passthrough(
         env,

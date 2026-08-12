@@ -1,4 +1,3 @@
-
 use common::types::{HubAssetKey, PoolSyncData};
 use soroban_sdk::Address;
 

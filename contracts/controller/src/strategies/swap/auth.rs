@@ -1,4 +1,3 @@
-
 use common::token::authorize_transfer_as_current;
 use soroban_sdk::{Address, Env};
 

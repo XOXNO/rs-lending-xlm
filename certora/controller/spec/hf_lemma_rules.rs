@@ -57,6 +57,6 @@ fn hf_floor_at_least_one_when_collateral_covers_debt(e: Env, weighted: i128, deb
 #[rule]
 fn hf_lemmas_reachability(e: Env) {
     let value = WAD;
-    let w = crate::risk::weighted_collateral(&e, Wad::from(value), Bps::from(BPS));
+    let w = Bps::from(BPS).apply_to_wad_floor(&e, Wad::from(value));
     cvlr_satisfy!(w.raw() > 0);
 }

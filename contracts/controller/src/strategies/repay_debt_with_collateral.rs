@@ -1,4 +1,3 @@
-
 use common::errors::{CollateralError, GenericError};
 use common::types::{Account, HubAssetKey, StrategySwap};
 use common::validation::require_positive_amount;
@@ -9,11 +8,11 @@ use crate::config;
 use crate::context::Cache;
 use crate::events;
 use crate::positions::get_debt_position_or_panic;
+use crate::storage;
 use crate::strategies::{
     execute_withdraw_all, net_settle_collateral_against_debt, prefetch_strategy_prices,
     repay_debt_from_controller, strategy_finalize, withdraw_and_swap_from_supply, StrategyRepay,
 };
-use crate::{storage};
 
 pub(crate) struct RepayWithCollateralParams<'a> {
     pub account_id: u64,

@@ -1,4 +1,3 @@
-
 use common::errors::{CollateralError, SpokeError};
 use common::types::{HubAssetKey, PoolSyncData, SpokeAssetArgs, SpokeAssetConfig};
 use common::validation::{

@@ -1,4 +1,3 @@
-
 use super::curve::{LiquidationCurve, LiquidationSnapshot};
 use crate::risk;
 use common::errors::CollateralError;

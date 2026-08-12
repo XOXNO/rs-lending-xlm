@@ -73,6 +73,22 @@ The controller evaluates collateral conservatively and debt conservatively,
 then requires sufficient LTV and health factor after a risk-reducing or
 risk-increasing operation as applicable.
 
+## Controller events that differ from earlier main
+
+Two observer-facing shapes changed in the controller flattening branch.
+On-chain account and pool state are unchanged.
+
+- `swap_debt` records the new-debt borrow as `SwDebtR`. Earlier main reused the
+  `Multiply` action tag for that borrow through `borrow_for_strategy`. The repay
+  leg was already `SwDebtR`.
+- After a liquidation that also socializes dust bad debt, `UpdatePositionBatchEvent`
+  is published before `CleanBadDebtEvent`. Earlier main published
+  `CleanBadDebtEvent` first, then the position batch. The batch payload is the
+  same. Cleanup still deletes the account after the batch.
+
+Indexers should key swap-debt opens on `SwDebtR` as well as `Multiply`, and
+should not assume bad-debt cleanup precedes the position batch.
+
 ## External calls
 
 The router, token contracts, price sources, flash receivers, and external

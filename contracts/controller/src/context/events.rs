@@ -1,4 +1,3 @@
-
 use common::types::{Account, AccountPosition, DebtPosition, HubAssetKey};
 use soroban_sdk::Vec;
 

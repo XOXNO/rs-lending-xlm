@@ -1,4 +1,3 @@
-
 use common::errors::{CollateralError, GenericError, OracleError};
 use common::math::fp::Wad;
 use common::types::{AccountPosition, AssetConfig, HubAssetKey};

@@ -423,6 +423,25 @@ mod tests {
     }
 
     #[test]
+    fn debt_free_is_true_iff_borrow_map_empty() {
+        let env = Env::default();
+        let meta = account_meta(&env, 1);
+        let mut account = empty_account(&env, meta);
+        assert!(account.debt_free());
+        assert!(account.is_empty());
+
+        let hub = HubAssetKey {
+            hub_id: 0,
+            asset: Address::generate(&env),
+        };
+        account
+            .borrow_positions
+            .set(hub, DebtPositionRaw { scaled_amount: 1 });
+        assert!(!account.debt_free());
+        assert!(!account.is_empty());
+    }
+
+    #[test]
     fn test_account_attributes_from_account_and_meta_match() {
         let env = Env::default();
         let meta = account_meta(&env, 4);

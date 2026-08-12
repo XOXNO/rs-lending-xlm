@@ -1,4 +1,3 @@
-
 use soroban_sdk::{Address, Env};
 
 use crate::events::{
@@ -26,7 +25,6 @@ pub(crate) fn set_accumulator(env: &Env, addr: Address) {
     storage::set_accumulator(env, &addr);
     UpdateAccumulatorEvent { accumulator: addr }.publish(env);
 }
-
 
 use crate::events::ApproveBlendPoolEvent;
 
@@ -70,4 +68,3 @@ pub(crate) fn set_min_borrow_collateral_usd(env: &Env, floor_wad: i128) {
     }
     .publish(env);
 }
-

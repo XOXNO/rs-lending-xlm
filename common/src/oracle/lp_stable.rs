@@ -295,6 +295,17 @@ mod tests {
     }
 
     #[test]
+    fn stable_invariant_d_wad_is_live_and_near_sum_of_reserves() {
+        let env = Env::default();
+        let d = stable_invariant_d_wad(&env, 1_000_000_000, 7, 1_000_000_000, 7, 1500).unwrap();
+        assert_ne!(d, 0);
+        assert_ne!(d, 1);
+        let expected = 200 * WAD;
+        let drift = (d - expected).abs();
+        assert!(drift < expected / 100, "d={d}");
+    }
+
+    #[test]
     fn balanced_pool_prices_near_unit() {
         let env = Env::default();
         for amp in [1u128, 100, 1500, MAX_AMP] {

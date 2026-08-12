@@ -74,7 +74,14 @@ pub(crate) fn process_supply(
 
     process_deposit(env, caller, &mut account, &aggregated, &mut cache);
 
-    finalize_position_flow(env, acct_id, &account, &mut cache, PositionSides::SUPPLY, false);
+    finalize_position_flow(
+        env,
+        acct_id,
+        &account,
+        &mut cache,
+        PositionSides::SUPPLY,
+        false,
+    );
     acct_id
 }
 
@@ -85,7 +92,13 @@ pub(crate) fn process_deposit(
     aggregated: &AggregatedPayments,
     cache: &mut Cache,
 ) {
-    validate_position_entry_gates(env, account, aggregated, cache, AccountPositionType::Deposit);
+    validate_position_entry_gates(
+        env,
+        account,
+        aggregated,
+        cache,
+        AccountPositionType::Deposit,
+    );
     settle_supply(env, caller, account, aggregated, cache);
 }
 
@@ -139,7 +152,14 @@ pub(crate) fn process_withdraw(
     let paid = settle_withdraw(env, &mut account, &recipient, &aggregated, &mut cache);
     let _ = enforce_post_pool_solvency(env, &mut cache, &mut account);
 
-    finalize_position_flow(env, account_id, &account, &mut cache, PositionSides::SUPPLY, true);
+    finalize_position_flow(
+        env,
+        account_id,
+        &account,
+        &mut cache,
+        PositionSides::SUPPLY,
+        true,
+    );
     paid
 }
 
@@ -152,30 +172,46 @@ fn settle_withdraw(
 ) -> Vec<HubPayment> {
     let mut entries: Vec<PoolWithdrawEntry> = Vec::new(env);
     for (hub_asset, amount) in aggregated.iter() {
-        enforce_spoke_asset_flags(env, cache, account.spoke_id, &hub_asset, FreezePolicy::AllowOnExit);
+        enforce_spoke_asset_flags(
+            env,
+            cache,
+            account.spoke_id,
+            &hub_asset,
+            FreezePolicy::AllowOnExit,
+        );
         let position = get_supply_position_or_panic(env, account, &hub_asset);
         entries.push_back(PoolWithdrawEntry {
-            action: make_pool_action(&position, resolve_withdraw_amount(amount), hub_asset.clone()),
+            action: make_pool_action(
+                &position,
+                resolve_withdraw_amount(amount),
+                hub_asset.clone(),
+            ),
             protocol_fee: 0,
         });
     }
 
-    let pool_addr = cache.cached_pool_address();
-    let results = pool_withdraw_call(env, &pool_addr, recipient, false, &entries);
+    let results = apply_withdraw_batch(
+        env,
+        account,
+        recipient,
+        WithdrawKind::Normal,
+        events::PositionAction::Withdraw,
+        &entries,
+        cache,
+    );
     let mut paid: Vec<HubPayment> = Vec::new(env);
-
     for_each_leg(env, &entries, &results, |entry, result| {
-        let hub_asset = &entry.action.hub_asset;
-        let outcome = LegOutcome::from(&result);
-        let refresh = spoke_refresh_for_leg(WithdrawKind::Normal, cache, account, hub_asset, outcome.new_scaled);
-        merge_withdraw_leg(env, account, events::PositionAction::Withdraw, hub_asset, &refresh, &outcome, cache);
-        paid.push_back((hub_asset.clone(), result.actual_amount));
+        paid.push_back((entry.action.hub_asset, result.actual_amount));
     });
     paid
 }
 
 fn resolve_withdraw_amount(amount: i128) -> i128 {
-    if amount == 0 { WITHDRAW_ALL_SENTINEL } else { amount }
+    if amount == 0 {
+        WITHDRAW_ALL_SENTINEL
+    } else {
+        amount
+    }
 }
 
 pub(crate) fn execute_withdrawal(
@@ -185,8 +221,17 @@ pub(crate) fn execute_withdrawal(
     req: WithdrawalRequest<'_>,
     cache: &mut Cache,
 ) -> PoolPositionMutation {
-    let EventContext { counterparty, action } = ctx;
-    enforce_spoke_asset_flags(env, cache, account.spoke_id, req.hub_asset, FreezePolicy::AllowOnExit);
+    let EventContext {
+        counterparty,
+        action,
+    } = ctx;
+    enforce_spoke_asset_flags(
+        env,
+        cache,
+        account.spoke_id,
+        req.hub_asset,
+        FreezePolicy::AllowOnExit,
+    );
     let entries = vec![
         env,
         PoolWithdrawEntry {
@@ -194,7 +239,15 @@ pub(crate) fn execute_withdrawal(
             protocol_fee: 0,
         },
     ];
-    let results = apply_withdraw_batch(env, account, &counterparty, WithdrawKind::Normal, action, &entries, cache);
+    let results = apply_withdraw_batch(
+        env,
+        account,
+        &counterparty,
+        WithdrawKind::Normal,
+        action,
+        &entries,
+        cache,
+    );
     expect_invariant(env, results.get(0))
 }
 
@@ -232,7 +285,15 @@ pub(crate) fn merge_supply_leg(
     let mut position = account.get_or_create_supply_position(hub_asset, &asset_config);
     let old_scaled = position.scaled_amount;
 
-    refresh_supply_risk_params(env, cache, account, hub_asset, &mut position, &asset_config, RiskRefreshScope::FullTuple);
+    refresh_supply_risk_params(
+        env,
+        cache,
+        account,
+        hub_asset,
+        &mut position,
+        &asset_config,
+        RiskRefreshScope::FullTuple,
+    );
 
     let outcome = LegOutcome::from(result);
     position.scaled_amount = outcome.new_scaled;
@@ -243,13 +304,21 @@ pub(crate) fn merge_supply_leg(
         account.spoke_id,
         UsageSide::Supply,
         hub_asset,
-        LegDirection::Entry { asset_decimals: result.asset_decimals },
+        LegDirection::Entry {
+            asset_decimals: result.asset_decimals,
+        },
         old_scaled,
         &outcome,
     );
 
     cache.put_market_index(hub_asset, &outcome.market_index);
-    cache.record_supply_position_update(events::PositionAction::Supply, hub_asset, outcome.market_index.supply_index, action.amount, &position);
+    cache.record_supply_position_update(
+        events::PositionAction::Supply,
+        hub_asset,
+        outcome.market_index.supply_index,
+        action.amount,
+        &position,
+    );
 
     update_or_remove_supply_position(account, hub_asset, &position);
 }
@@ -281,11 +350,25 @@ pub(crate) fn merge_withdraw_leg(
 
     if matches!(refresh_spoke, SpokeRefresh::Refresh) && position.scaled_amount != Ray::ZERO {
         let config: AssetConfig = cache.require_spoke_asset(account.spoke_id, hub_asset);
-        refresh_supply_risk_params(env, cache, account, hub_asset, &mut position, &config, RiskRefreshScope::FullTuple);
+        refresh_supply_risk_params(
+            env,
+            cache,
+            account,
+            hub_asset,
+            &mut position,
+            &config,
+            RiskRefreshScope::FullTuple,
+        );
     }
 
     update_or_remove_supply_position(account, hub_asset, &position);
-    cache.record_supply_position_update(action, hub_asset, outcome.market_index.supply_index, outcome.amount, &position);
+    cache.record_supply_position_update(
+        action,
+        hub_asset,
+        outcome.market_index.supply_index,
+        outcome.amount,
+        &position,
+    );
 }
 
 pub(crate) fn spoke_refresh_for_leg(
@@ -298,7 +381,10 @@ pub(crate) fn spoke_refresh_for_leg(
     if kind == WithdrawKind::Liquidation {
         return SpokeRefresh::Frozen;
     }
-    if cache.cached_spoke_asset(account.spoke_id, hub_asset).is_none() {
+    if cache
+        .cached_spoke_asset(account.spoke_id, hub_asset)
+        .is_none()
+    {
         return SpokeRefresh::Frozen;
     }
     if new_scaled == Ray::ZERO {

@@ -175,7 +175,6 @@ pub(crate) struct EventContext {
     pub action: PositionAction,
 }
 
-
 /// Records the initial payment asset and amount supplied when opening a multiply
 /// position, before it is converted into the position's collateral asset.
 #[contractevent(topics = ["strategy", "initial_payment"])]
@@ -200,7 +199,6 @@ pub struct BlendMigrationEvent {
     pub debt_count: u32,
 }
 
-
 /// Event recording a change in delegate authorization for an account: either
 /// granting or revoking `delegate`'s ability to act on behalf of `owner` for
 /// `account_id`, depending on the `granted` flag.
@@ -212,4 +210,3 @@ pub struct AccountDelegateEvent {
     pub delegate: Address,
     pub granted: bool,
 }
-

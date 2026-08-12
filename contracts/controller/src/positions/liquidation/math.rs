@@ -1,4 +1,3 @@
-
 use common::errors::{CollateralError, GenericError};
 use common::math::fp::{Bps, Ray, Wad};
 use common::rates::{resolve_withdrawal, unscale_borrow_ceil};
@@ -111,7 +110,12 @@ pub(crate) fn calculate_repayment_amounts(
             .unwrap_or_else(|| panic_with_error!(env, CollateralError::DebtPositionNotFound)))
             .into();
 
-        let actual_debt = unscale_borrow_ceil(env, position.scaled_amount, market_index.borrow_index, feed.asset_decimals);
+        let actual_debt = unscale_borrow_ceil(
+            env,
+            position.scaled_amount,
+            market_index.borrow_index,
+            feed.asset_decimals,
+        );
 
         let mut payment_amount = amount;
         if payment_amount > actual_debt {
@@ -157,13 +161,7 @@ pub(crate) fn normalize_repayment_plan(
         if let Some(cap) = max_hf_preserving_bonus_bps(snap) {
             if cap >= 0
                 && cap < bonus_bounds.base.raw()
-                && {
-                let mut total = Wad::ZERO;
-                for entry in repaid_tokens.iter() {
-                    total = total.checked_add(env, Wad::from_token(entry.amount, entry.feed.asset_decimals).mul_ceil(env, Wad::from(entry.feed.price_wad)));
-                }
-                total
-            } < ideal_repayment_usd
+                && sum_repaid_usd_ceil(env, &repaid_tokens) < ideal_repayment_usd
             {
                 panic_with_error!(env, CollateralError::FullCloseRequired);
             }
@@ -173,35 +171,9 @@ pub(crate) fn normalize_repayment_plan(
     let max_debt_to_repay_usd = total_debt_payment_usd.min(ideal_repayment_usd);
 
     let mut final_repayment_tokens = repaid_tokens;
-    let mut remaining_excess_usd = if total_debt_payment_usd > max_debt_to_repay_usd {
-        total_debt_payment_usd.checked_sub(env, max_debt_to_repay_usd)
-    } else {
-        Wad::ZERO
-    };
-
-    let mut idx = final_repayment_tokens.len();
-    while remaining_excess_usd > Wad::ZERO && idx > 0 {
-        idx -= 1;
-        let entry = expect_invariant(env, final_repayment_tokens.get(idx));
-        if entry.amount <= 0 || entry.usd_wad == 0 {
-            continue;
-        }
-        let usd = Wad::from(entry.usd_wad);
-        if usd > remaining_excess_usd {
-            let ratio = remaining_excess_usd.div_floor(env, usd);
-            let refund_amount = Wad::from_token(entry.amount, entry.feed.asset_decimals)
-                .mul_floor(env, ratio)
-                .to_token_floor(entry.feed.asset_decimals);
-            let new_amount = entry.amount - refund_amount;
-            let new_usd = Wad::from_token(new_amount, entry.feed.asset_decimals).mul(env, Wad::from(entry.feed.price_wad));
-            refunds.push_back(PaymentTuple { asset: entry.hub_asset.asset.clone(), amount: refund_amount });
-            final_repayment_tokens.set(idx, RepayEntry { amount: new_amount, usd_wad: new_usd.raw(), ..entry });
-            remaining_excess_usd = Wad::ZERO;
-        } else {
-            refunds.push_back(PaymentTuple { asset: entry.hub_asset.asset.clone(), amount: entry.amount });
-            final_repayment_tokens.remove(idx);
-            remaining_excess_usd = remaining_excess_usd.checked_sub(env, usd);
-        }
+    if total_debt_payment_usd > max_debt_to_repay_usd {
+        let excess_usd = total_debt_payment_usd.checked_sub(env, max_debt_to_repay_usd);
+        process_excess_payment(env, &mut final_repayment_tokens, &mut refunds, excess_usd);
     }
 
     let repayment = NormalizedRepaymentPlan {
@@ -218,6 +190,16 @@ pub(crate) fn sum_repaid_usd(env: &Env, repaid_tokens: &Vec<RepayEntry>) -> Wad 
     let mut total = Wad::ZERO;
     for entry in repaid_tokens.iter() {
         total = total.checked_add(env, Wad::from(entry.usd_wad));
+    }
+    total
+}
+
+fn sum_repaid_usd_ceil(env: &Env, repaid_tokens: &Vec<RepayEntry>) -> Wad {
+    let mut total = Wad::ZERO;
+    for entry in repaid_tokens.iter() {
+        let value = Wad::from_token(entry.amount, entry.feed.asset_decimals)
+            .mul_ceil(env, Wad::from(entry.feed.price_wad));
+        total = total.checked_add(env, value);
     }
     total
 }
@@ -360,7 +342,6 @@ pub(crate) fn get_account_bonus_params(
 #[path = "../../../tests/positions/liquidation_math.rs"]
 mod tests;
 
-#[cfg(test)]
 pub(crate) fn scale_seizures_to_received(
     env: &Env,
     seized: &Vec<SeizeEntry>,
@@ -396,7 +377,6 @@ fn debt_close_amount(
     unscale_borrow_ceil(env, position.scaled_amount, borrow_index, asset_decimals)
 }
 
-#[cfg(test)]
 fn process_excess_payment(
     env: &Env,
     repaid_tokens: &mut Vec<RepayEntry>,
@@ -421,12 +401,28 @@ fn process_excess_payment(
                 .mul_floor(env, ratio)
                 .to_token_floor(entry.feed.asset_decimals);
             let new_amount = entry.amount - refund_amount;
-            let new_usd = Wad::from_token(new_amount, entry.feed.asset_decimals).mul(env, Wad::from(entry.feed.price_wad));
-            refunds.push_back(PaymentTuple { asset: entry.hub_asset.asset.clone(), amount: refund_amount });
-            repaid_tokens.set(current_index, RepayEntry { hub_asset: entry.hub_asset, amount: new_amount, usd_wad: new_usd.raw(), feed: entry.feed, market_index: entry.market_index });
+            let new_usd = Wad::from_token(new_amount, entry.feed.asset_decimals)
+                .mul(env, Wad::from(entry.feed.price_wad));
+            refunds.push_back(PaymentTuple {
+                asset: entry.hub_asset.asset.clone(),
+                amount: refund_amount,
+            });
+            repaid_tokens.set(
+                current_index,
+                RepayEntry {
+                    hub_asset: entry.hub_asset,
+                    amount: new_amount,
+                    usd_wad: new_usd.raw(),
+                    feed: entry.feed,
+                    market_index: entry.market_index,
+                },
+            );
             remaining_excess_usd = Wad::ZERO;
         } else {
-            refunds.push_back(PaymentTuple { asset: entry.hub_asset.asset.clone(), amount: entry.amount });
+            refunds.push_back(PaymentTuple {
+                asset: entry.hub_asset.asset.clone(),
+                amount: entry.amount,
+            });
             repaid_tokens.remove(current_index);
             remaining_excess_usd = remaining_excess_usd.checked_sub(env, usd);
         }

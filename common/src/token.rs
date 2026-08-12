@@ -62,3 +62,7 @@ pub fn authorize_transfer_as_current(
     });
     env.authorize_as_current_contract(vec![env, entry]);
 }
+
+#[cfg(test)]
+#[path = "../tests/token.rs"]
+mod tests;

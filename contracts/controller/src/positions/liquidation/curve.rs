@@ -1,4 +1,3 @@
-
 use crate::constants::{BAD_DEBT_USD_THRESHOLD, BPS, WAD};
 use common::errors::GenericError;
 use common::math::fp::{Bps, Wad};

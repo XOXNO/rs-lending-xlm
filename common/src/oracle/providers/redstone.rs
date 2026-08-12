@@ -40,3 +40,7 @@ pub fn read_price_data_uncached(
         _ => None,
     }
 }
+
+#[cfg(test)]
+#[path = "../../../tests/oracle/providers/redstone.rs"]
+mod tests;
