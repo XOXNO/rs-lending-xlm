@@ -249,5 +249,5 @@ fn set_account_delegate(
 }
 
 #[cfg(test)]
-#[path = "../../tests/helpers/account.rs"]
+#[path = "../tests/helpers/account.rs"]
 mod tests;

@@ -85,7 +85,7 @@ impl Controller {
     /// owner, applies default position limits and minimum borrow collateral, stores
     /// the initial app version, and pauses the contract.
     pub fn __constructor(env: Env, admin: Address) {
-        governance::access::init(&env, &admin);
+        governance::init(&env, &admin);
     }
 }
 
@@ -734,20 +734,20 @@ impl ControllerAdmin for Controller {
     /// Owner-only. Renews the controller instance TTL and pauses the contract.
     #[only_owner]
     fn pause(env: Env) {
-        governance::access::pause(&env);
+        governance::pause(&env);
     }
 
     /// Owner-only. Renews the controller instance TTL and unpauses the contract.
     #[only_owner]
     fn unpause(env: Env) {
-        governance::access::unpause(&env);
+        governance::unpause(&env);
     }
 
     /// Owner-only. Renews the controller instance TTL, pauses the contract if not
     /// already paused, and upgrades the contract to `new_wasm_hash`.
     #[only_owner]
     fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
-        governance::access::upgrade(&env, &new_wasm_hash);
+        governance::upgrade(&env, &new_wasm_hash);
     }
 
     /// Owner-only. Renews the controller instance TTL and stores `new_version` as
@@ -755,13 +755,13 @@ impl ControllerAdmin for Controller {
     /// stored version.
     #[only_owner]
     fn migrate(env: Env, new_version: u32) {
-        governance::access::migrate(&env, new_version);
+        governance::migrate(&env, new_version);
     }
 
     /// Returns the stored app version, or the initial app version if none is
     /// stored.
     fn get_app_version(env: Env) -> u32 {
-        governance::access::get_app_version(&env)
+        governance::get_app_version(&env)
     }
 
     /// Owner-only. Renews the controller instance TTL and starts a two-step
@@ -769,12 +769,12 @@ impl ControllerAdmin for Controller {
     /// `live_until_ledger`.
     #[only_owner]
     fn transfer_ownership(env: Env, new_owner: Address, live_until_ledger: u32) {
-        governance::access::transfer_ownership(&env, &new_owner, live_until_ledger);
+        governance::transfer_ownership(&env, &new_owner, live_until_ledger);
     }
 
     /// Renews the controller instance TTL and completes a pending ownership
     /// transfer, making the caller the new owner.
     fn accept_ownership(env: Env) {
-        governance::access::accept_ownership(&env);
+        governance::accept_ownership(&env);
     }
 }

@@ -1,8 +1,7 @@
-//! Owner, pause, upgrade, and migration operations for the controller contract.
-//!
-//! Wraps `stellar_access` and `stellar_contract_utils` primitives (ownable, pausable,
-//! upgradeable, role transfer) with controller-specific initialization and
-//! instance-storage renewal.
+//! Governance module for the controller contract: owner, pause, upgrade, and
+//! migration operations.
+
+pub(crate) 
 
 use common::errors::GenericError;
 use common::types::{ControllerKey, PositionLimits};
@@ -119,5 +118,6 @@ pub(crate) fn accept_ownership(env: &Env) {
 }
 
 #[cfg(test)]
-#[path = "../../tests/governance/access.rs"]
+#[path = "../tests/governance/access.rs"]
 mod tests;
+

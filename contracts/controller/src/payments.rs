@@ -6,6 +6,7 @@ use common::types::{HubAssetKey, HubPayment};
 use soroban_sdk::{panic_with_error, Env, Map, Vec};
 
 use common::validation::{expect_invariant, require_non_empty_payments, require_nonneg_amount};
+pub(crate) use common::token::transfer_amount_measured;
 
 /// Selects how a zero payment amount is handled while aggregating per-asset totals.
 #[derive(Clone, Copy, PartialEq)]
@@ -86,5 +87,5 @@ fn aggregate_payment_amount(
 }
 
 #[cfg(test)]
-#[path = "../../tests/helpers/utils.rs"]
+#[path = "../tests/helpers/utils.rs"]
 mod tests;

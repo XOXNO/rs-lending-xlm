@@ -3,6 +3,7 @@
 //! estimates. None of these functions mutate storage.
 
 use crate::constants::{MAX_VIEW_INPUTS, WAD};
+use crate::context::Cache;
 use common::collections::unique_hub_tokens;
 
 use crate::risk;
@@ -15,11 +16,8 @@ use common::types::{
 use soroban_sdk::{assert_with_error, Address, Env, Map, Vec};
 
 #[cfg(not(feature = "certora"))]
-mod aggregates;
 #[cfg(feature = "certora")]
-#[path = "../../../../certora/controller/harness/views/aggregates.rs"]
-mod aggregates;
-pub(crate) use aggregates::{ltv_collateral_in_usd, total_borrow_in_usd, total_collateral_in_usd};
+#[path = "../../../../certora/controller/harness/views.rs"]
 
 use crate::context::Cache;
 use crate::positions::liquidation::execute_liquidation;
@@ -241,5 +239,51 @@ pub(crate) fn liquidation_estimations_detailed(
 }
 
 #[cfg(test)]
-#[path = "../../tests/views/mod.rs"]
+#[path = "../tests/views/mod.rs"]
 mod tests;
+
+
+
+pub(crate) fn total_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
+    if storage::try_get_account_meta(env, account_id).is_none() {
+        return 0;
+    }
+    let supply = storage::get_supply_positions(env, account_id);
+    if supply.is_empty() {
+        return 0;
+    }
+
+    let mut cache = Cache::new_view(env);
+    let borrow = storage::get_debt_positions(env, account_id);
+    risk::calculate_account_risk_totals(env, &mut cache, &supply, &borrow)
+        .total_collateral
+        .raw()
+}
+
+pub(crate) fn total_borrow_in_usd(env: &Env, account_id: u64) -> i128 {
+    if storage::try_get_account_meta(env, account_id).is_none() {
+        return 0;
+    }
+    let borrow = storage::get_debt_positions(env, account_id);
+    if borrow.is_empty() {
+        return 0;
+    }
+
+    let mut cache = Cache::new_view(env);
+    let supply = storage::get_supply_positions(env, account_id);
+    risk::calculate_account_risk_totals(env, &mut cache, &supply, &borrow)
+        .total_debt
+        .raw()
+}
+
+pub(crate) fn ltv_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
+    let Some(mut account) = storage::try_get_account(env, account_id) else {
+        return 0;
+    };
+    let mut cache = Cache::new_view(env);
+    let _ = risk::restamp_listed_supply_ltv(&mut cache, &mut account);
+    risk::calculate_account_risk_totals(env, &mut cache, &account.supply_positions, &account.borrow_positions)
+        .ltv_collateral
+        .raw()
+}
+

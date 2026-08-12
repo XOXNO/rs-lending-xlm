@@ -15,7 +15,7 @@ use crate::context::Cache;
 use crate::events;
 use crate::events::EventContext;
 use crate::external::pool::pool_net_settle_call;
-use crate::payments as utils;
+use crate::payments;
 use crate::positions::repay::{self, RepaymentRequest};
 use crate::positions::withdraw::{self, WithdrawalRequest};
 use crate::positions::{
@@ -68,7 +68,7 @@ pub(crate) fn repay_debt_from_controller(
     let debt_tok = token::Client::new(env, &req.debt.asset);
 
     // Measure pool receipt so strategy debt burn matches tokens that arrived.
-    let received = utils::transfer_amount_measured(
+    let received = payments::transfer_amount_measured(
         env,
         &req.debt.asset,
         &env.current_contract_address(),
