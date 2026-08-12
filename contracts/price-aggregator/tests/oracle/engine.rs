@@ -636,7 +636,6 @@ fn test_lp_reverts_when_underlyings_missing() {
                     &env,
                     &[PriceSource::AquariusLp(AquariusLpSource {
                         pool: Address::generate(&env),
-                        plane: Address::generate(&env),
                         token_a: Address::generate(&env),
                         token_b: Address::generate(&env),
                         key_a: PriceKey::Ref(Symbol::new(&env, "A")),
@@ -814,7 +813,6 @@ fn test_cached_lp_price_still_checks_both_dependency_depths() {
                     &env,
                     &[PriceSource::AquariusLp(AquariusLpSource {
                         pool: Address::generate(&env),
-                        plane: Address::generate(&env),
                         token_a: Address::generate(&env),
                         token_b: Address::generate(&env),
                         key_a: PriceKey::Ref(Symbol::new(&env, "A")),

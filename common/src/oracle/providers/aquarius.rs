@@ -1,17 +1,7 @@
-//! Cross-contract client traits and call helpers for Aquarius AMM pool and
-//! plane contracts, used to read pool reserves, token metadata, and pool
-//! type for price derivation.
+//! Cross-contract client traits and call helpers for Aquarius AMM pools,
+//! used to read reserves, token metadata, and pool type for price derivation.
 
 use soroban_sdk::{contractclient, Address, Env, Symbol, Vec};
-
-/// Client interface for an Aquarius plane contract, which aggregates pool
-/// kind, parameters, and reserves for a set of pools.
-#[contractclient(name = "AquariusPlaneClient")]
-#[allow(dead_code)]
-pub trait AquariusPlane {
-    /// Returns, for each pool in `pools`, its kind symbol, parameters, and reserves.
-    fn get(env: Env, pools: Vec<Address>) -> Vec<(Symbol, Vec<u128>, Vec<u128>)>;
-}
 
 /// Client interface for an individual Aquarius pool contract.
 #[contractclient(name = "AquariusPoolClient")]
@@ -19,8 +9,6 @@ pub trait AquariusPlane {
 pub trait AquariusPool {
     /// Returns the pool's total LP share supply.
     fn get_total_shares(env: Env) -> u128;
-    /// Returns the address of the plane contract that aggregates this pool.
-    fn get_pools_plane(env: Env) -> Address;
     /// Returns the pool's token reserves.
     fn get_reserves(env: Env) -> Vec<u128>;
     /// Returns the pool's underlying token addresses.
@@ -32,51 +20,6 @@ pub trait AquariusPool {
 
     /// Returns the pool's amplification coefficient.
     fn a(env: Env) -> u128;
-}
-
-/// Reads `pool`'s two-asset reserves from `plane`, requiring the pool's row
-/// to be of kind `standard`. Returns `None` if the call fails, the kind
-/// does not match, the reserve count is not two, or a reserve does not fit in i128.
-pub fn aquarius_plane_reserves_call(
-    env: &Env,
-    plane: &Address,
-    pool: &Address,
-) -> Option<(i128, i128)> {
-    plane_reserves_of_kind(env, plane, pool, "standard")
-}
-
-/// Reads `pool`'s two-asset reserves from `plane`, requiring the pool's row
-/// to be of kind `stable`. Returns `None` if the call fails, the kind does
-/// not match, the reserve count is not two, or a reserve does not fit in i128.
-pub fn aquarius_stable_plane_reserves_call(
-    env: &Env,
-    plane: &Address,
-    pool: &Address,
-) -> Option<(i128, i128)> {
-    plane_reserves_of_kind(env, plane, pool, "stable")
-}
-
-/// Queries `plane` for `pool`'s row and returns its reserves as `(i128, i128)`
-/// if the row's kind symbol equals `kind` and it contains exactly two
-/// reserves that fit in i128. Returns `None` on any mismatch or call failure.
-fn plane_reserves_of_kind(
-    env: &Env,
-    plane: &Address,
-    pool: &Address,
-    kind: &str,
-) -> Option<(i128, i128)> {
-    let pools = Vec::from_array(env, [pool.clone()]);
-    let rows = match AquariusPlaneClient::new(env, plane).try_get(&pools) {
-        Ok(Ok(rows)) => rows,
-        _ => return None,
-    };
-    let (row_kind, _params, reserves) = rows.get(0)?;
-    if row_kind != Symbol::new(env, kind) || reserves.len() != 2 {
-        return None;
-    }
-    let a = i128::try_from(reserves.get_unchecked(0)).ok()?;
-    let b = i128::try_from(reserves.get_unchecked(1)).ok()?;
-    Some((a, b))
 }
 
 /// Returns `pool`'s amplification coefficient. Returns `None` if the call
@@ -149,11 +92,6 @@ pub fn aquarius_total_shares_call(env: &Env, pool: &Address) -> Option<i128> {
     }
 }
 
-/// Returns the address of the plane contract associated with `pool` via
-/// `get_pools_plane`, or `None` if the call fails.
-pub fn aquarius_plane_of_pool_call(env: &Env, pool: &Address) -> Option<Address> {
-    match AquariusPoolClient::new(env, pool).try_get_pools_plane() {
-        Ok(Ok(plane)) => Some(plane),
-        _ => None,
-    }
-}
+#[cfg(test)]
+#[path = "../../../tests/oracle/providers/aquarius.rs"]
+mod tests;

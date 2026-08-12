@@ -431,7 +431,6 @@ fn test_an_lp_source_is_an_unsmoothed_market_leg_naming_both_underlyings() {
             &env,
             &PriceSource::AquariusLp(common::types::AquariusLpSource {
                 pool: Address::generate(&env),
-                plane: Address::generate(&env),
                 token_a: Address::generate(&env),
                 token_b: Address::generate(&env),
                 key_a: key_a.clone(),
@@ -460,7 +459,6 @@ fn test_an_lp_source_paired_with_a_clean_one_is_still_refused() {
         let mut sources = one(&env, PriceSource::Feed(twap_feed(&env, &reflector)));
         sources.push_back(PriceSource::AquariusLp(common::types::AquariusLpSource {
             pool: Address::generate(&env),
-            plane: Address::generate(&env),
             token_a: Address::generate(&env),
             token_b: Address::generate(&env),
             key_a: PriceKey::Ref(Symbol::new(&env, "A")),

@@ -167,7 +167,6 @@ fn test_lp_underlyings_are_included_in_bulk_prefetch() {
                 &env,
                 PriceSource::AquariusLp(common::types::AquariusLpSource {
                     pool: Address::generate(&env),
-                    plane: Address::generate(&env),
                     token_a: Address::generate(&env),
                     token_b: Address::generate(&env),
                     key_a: first,
@@ -269,7 +268,6 @@ fn test_the_prefetch_walk_leaves_out_the_legs_of_an_lp_sitting_at_the_cap() {
                 &env,
                 PriceSource::AquariusLp(common::types::AquariusLpSource {
                     pool: Address::generate(&env),
-                    plane: Address::generate(&env),
                     token_a: Address::generate(&env),
                     token_b: Address::generate(&env),
                     key_a: feed_key(&env, &adapter, "LA"),

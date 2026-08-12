@@ -56,6 +56,17 @@
         "supply_cap": "5000000000",
         "borrow_cap": "3000000000",
         "liquidation_fees": 1200
+      },
+      "xSolvBTC": {
+        "hub_id": 1,
+        "can_be_collateral": true,
+        "can_be_borrowed": true,
+        "ltv": 6000,
+        "liquidation_threshold": 7000,
+        "liquidation_bonus": 900,
+        "supply_cap": "1000000000",
+        "borrow_cap": "500000000",
+        "liquidation_fees": 1200
       }
     }
   },
@@ -483,6 +494,17 @@
         "liquidation_bonus": 1000,
         "liquidation_fees": 100,
         "supply_cap": "5000000000",
+        "borrow_cap": "0"
+      },
+      "xSolvBTCSolvBTC_LP": {
+        "hub_id": 3,
+        "can_be_collateral": true,
+        "can_be_borrowed": false,
+        "ltv": 5000,
+        "liquidation_threshold": 6000,
+        "liquidation_bonus": 1000,
+        "liquidation_fees": 100,
+        "supply_cap": "2000000000",
         "borrow_cap": "0"
       },
       "CETESUSDC_LP": {

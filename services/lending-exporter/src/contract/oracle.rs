@@ -374,7 +374,6 @@ mod tests {
             "AquariusLp",
             vec![map(vec![
                 ("pool", addr(1)),
-                ("plane", addr(4)),
                 ("token_a", addr(2)),
                 ("token_b", addr(3)),
                 ("key_a", enum_val("Token", vec![addr(2)])),

@@ -131,8 +131,6 @@ pub struct ScaledSource {
 pub struct AquariusLpSource {
     pub pool: Address,
 
-    pub plane: Address,
-
     pub token_a: Address,
     pub token_b: Address,
     pub key_a: PriceKey,

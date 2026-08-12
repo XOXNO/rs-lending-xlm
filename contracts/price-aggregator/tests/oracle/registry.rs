@@ -363,7 +363,7 @@ fn lp_fixture(
     reserve_a: u128,
     reserve_b: u128,
     total_shares: u128,
-) -> (Address, Address, Address, Address, Address) {
+) -> (Address, Address, Address, Address) {
     let issuer = Address::generate(env);
     let token_a = env
         .register_stellar_asset_contract_v2(issuer.clone())
@@ -372,14 +372,9 @@ fn lp_fixture(
         .register_stellar_asset_contract_v2(issuer.clone())
         .address();
     let share = env.register_stellar_asset_contract_v2(issuer).address();
-    let plane = env.register(
-        crate::test_support::MockAquariusPlane,
-        (Symbol::new(env, kind), reserve_a, reserve_b),
-    );
     let pool = env.register(
         crate::test_support::MockAquariusPool,
         (
-            plane.clone(),
             share.clone(),
             token_a.clone(),
             token_b.clone(),
@@ -396,13 +391,12 @@ fn lp_fixture(
         },
     ));
     pool_client.set_reserves(&reserve_a, &reserve_b);
-    (pool, plane, share, token_a, token_b)
+    (pool, share, token_a, token_b)
 }
 
 fn lp_oracle(
     env: &Env,
     pool: &Address,
-    plane: &Address,
     token_a: &Address,
     token_b: &Address,
     key_a: PriceKey,
@@ -411,7 +405,6 @@ fn lp_oracle(
     let mut sources = Vec::new(env);
     sources.push_back(PriceSource::AquariusLp(common::types::AquariusLpSource {
         pool: pool.clone(),
-        plane: plane.clone(),
         token_a: token_a.clone(),
         token_b: token_b.clone(),
         key_a,
@@ -478,12 +471,11 @@ fn listable_lp(
     reserve_a: u128,
     reserve_b: u128,
     total_shares: u128,
-) -> (Address, Address, Address, AssetOracle) {
-    let (pool, plane, share, token_a, token_b) =
-        lp_fixture(env, kind, reserve_a, reserve_b, total_shares);
+) -> (Address, Address, AssetOracle) {
+    let (pool, share, token_a, token_b) = lp_fixture(env, kind, reserve_a, reserve_b, total_shares);
     let (key_a, key_b) = dollar_underlyings(env, &token_a, &token_b);
-    let oracle = lp_oracle(env, &pool, &plane, &token_a, &token_b, key_a, key_b);
-    (pool, plane, share, oracle)
+    let oracle = lp_oracle(env, &pool, &token_a, &token_b, key_a, key_b);
+    (pool, share, oracle)
 }
 
 fn lp_of(oracle: &AssetOracle) -> AquariusLpSource {
@@ -508,7 +500,7 @@ fn test_set_oracle_lists_a_constant_product_lp_and_prices_it() {
     let env = Env::default();
     env.ledger().set_timestamp(1_000_000);
     with_contract(&env, || {
-        let (_pool, _plane, share, oracle) = listable_lp(
+        let (_pool, share, oracle) = listable_lp(
             &env,
             "standard",
             10_000_000_000,
@@ -528,13 +520,12 @@ fn test_set_oracle_lists_a_constant_product_lp_and_prices_it() {
 fn stable_lp_oracle(
     env: &Env,
     pool: &Address,
-    plane: &Address,
     token_a: &Address,
     token_b: &Address,
     key_a: PriceKey,
     key_b: PriceKey,
 ) -> AssetOracle {
-    let mut oracle = lp_oracle(env, pool, plane, token_a, token_b, key_a, key_b);
+    let mut oracle = lp_oracle(env, pool, token_a, token_b, key_a, key_b);
     let lp = lp_of(&oracle);
     oracle.sources.set(0, PriceSource::AquariusStableLp(lp));
     oracle
@@ -546,8 +537,8 @@ const BALANCED_STABLE_UNITS: u128 = 10_000_000_000;
 
 const BALANCED_STABLE_SHARES: i128 = 1_000;
 
-fn balanced_stable_lp(env: &Env) -> (Address, Address, Address, AssetOracle) {
-    let (pool, plane, share, token_a, token_b) = lp_fixture(
+fn balanced_stable_lp(env: &Env) -> (Address, Address, AssetOracle) {
+    let (pool, share, token_a, token_b) = lp_fixture(
         env,
         "stable",
         BALANCED_STABLE_UNITS,
@@ -556,8 +547,8 @@ fn balanced_stable_lp(env: &Env) -> (Address, Address, Address, AssetOracle) {
     );
     crate::test_support::MockAquariusPoolClient::new(env, &pool).set_amp(&STABLE_AMP);
     let (key_a, key_b) = dollar_underlyings(env, &token_a, &token_b);
-    let oracle = stable_lp_oracle(env, &pool, &plane, &token_a, &token_b, key_a, key_b);
-    (pool, plane, share, oracle)
+    let oracle = stable_lp_oracle(env, &pool, &token_a, &token_b, key_a, key_b);
+    (pool, share, oracle)
 }
 
 #[test]
@@ -565,7 +556,7 @@ fn test_set_oracle_lists_a_stableswap_lp_and_prices_it() {
     let env = Env::default();
     env.ledger().set_timestamp(1_000_000);
     with_contract(&env, || {
-        let (pool, plane, share, token_a, token_b) = lp_fixture(
+        let (pool, share, token_a, token_b) = lp_fixture(
             &env,
             "stable",
             10_000_000_000,
@@ -574,7 +565,7 @@ fn test_set_oracle_lists_a_stableswap_lp_and_prices_it() {
         );
         crate::test_support::MockAquariusPoolClient::new(&env, &pool).set_amp(&1500);
         let (key_a, key_b) = dollar_underlyings(&env, &token_a, &token_b);
-        let oracle = stable_lp_oracle(&env, &pool, &plane, &token_a, &token_b, key_a, key_b);
+        let oracle = stable_lp_oracle(&env, &pool, &token_a, &token_b, key_a, key_b);
         let key = PriceKey::Token(share);
         set_oracle(&env, key.clone(), oracle);
 
@@ -598,7 +589,7 @@ fn test_stable_lp_rejects_a_constant_product_pool() {
     let env = Env::default();
     env.ledger().set_timestamp(1_000_000);
     with_contract(&env, || {
-        let (pool, plane, share, token_a, token_b) = lp_fixture(
+        let (pool, share, token_a, token_b) = lp_fixture(
             &env,
             "standard",
             10_000_000_000,
@@ -607,7 +598,7 @@ fn test_stable_lp_rejects_a_constant_product_pool() {
         );
         crate::test_support::MockAquariusPoolClient::new(&env, &pool).set_amp(&1500);
         let (key_a, key_b) = dollar_underlyings(&env, &token_a, &token_b);
-        let oracle = stable_lp_oracle(&env, &pool, &plane, &token_a, &token_b, key_a, key_b);
+        let oracle = stable_lp_oracle(&env, &pool, &token_a, &token_b, key_a, key_b);
         set_oracle(&env, PriceKey::Token(share), oracle);
     });
 }
@@ -618,7 +609,7 @@ fn test_set_oracle_rejects_a_reserve_token_mismatch() {
     let env = Env::default();
     env.ledger().set_timestamp(1_000_000);
     with_contract(&env, || {
-        let (_pool, _plane, share, mut oracle) = listable_lp(
+        let (_pool, share, mut oracle) = listable_lp(
             &env,
             "standard",
             10_000_000_000,
@@ -635,30 +626,11 @@ fn test_set_oracle_rejects_a_reserve_token_mismatch() {
 }
 
 #[test]
-#[should_panic]
-fn test_set_oracle_rejects_pool_invariant_that_does_not_match_the_plane() {
+fn test_set_oracle_accepts_a_skewed_constant_product_book() {
     let env = Env::default();
     env.ledger().set_timestamp(1_000_000);
     with_contract(&env, || {
-        let (pool, _plane, share, oracle) = listable_lp(
-            &env,
-            "standard",
-            10_000_000_000,
-            10_000_000_000,
-            10_000_000_000,
-        );
-        crate::test_support::MockAquariusPoolClient::new(&env, &pool)
-            .set_reserves(&20_000_000_000, &10_000_000_000);
-        set_oracle(&env, PriceKey::Token(share), oracle);
-    });
-}
-
-#[test]
-fn test_set_oracle_accepts_reserve_ratio_drift_that_preserves_the_invariant() {
-    let env = Env::default();
-    env.ledger().set_timestamp(1_000_000);
-    with_contract(&env, || {
-        let (pool, _plane, share, oracle) = listable_lp(
+        let (pool, share, oracle) = listable_lp(
             &env,
             "standard",
             10_000_000_000,
@@ -667,7 +639,12 @@ fn test_set_oracle_accepts_reserve_ratio_drift_that_preserves_the_invariant() {
         );
         crate::test_support::MockAquariusPoolClient::new(&env, &pool)
             .set_reserves(&20_000_000_000, &5_000_000_000);
-        set_oracle(&env, PriceKey::Token(share), oracle);
+        let key = PriceKey::Token(share);
+        set_oracle(&env, key.clone(), oracle);
+
+        let mut session = Session::new(&env);
+        let feed = crate::engine::resolve(&mut session, &key, 0);
+        assert_eq!(feed.price_wad, 2 * WAD);
     });
 }
 
@@ -677,7 +654,7 @@ fn test_set_oracle_rejects_insufficient_pool_value() {
     let env = Env::default();
     env.ledger().set_timestamp(1_000_000);
     with_contract(&env, || {
-        let (_pool, _plane, share, mut oracle) = listable_lp(
+        let (_pool, share, mut oracle) = listable_lp(
             &env,
             "standard",
             10_000_000_000,
@@ -690,33 +667,11 @@ fn test_set_oracle_rejects_insufficient_pool_value() {
 }
 
 #[test]
-fn test_lp_read_rejects_pool_plane_drift() {
-    let env = Env::default();
-    env.ledger().set_timestamp(1_000_000);
-    with_contract(&env, || {
-        let (pool, _plane, share, oracle) = listable_lp(
-            &env,
-            "standard",
-            10_000_000_000,
-            10_000_000_000,
-            10_000_000_000,
-        );
-        let key = PriceKey::Token(share);
-        set_oracle(&env, key.clone(), oracle);
-        crate::test_support::MockAquariusPoolClient::new(&env, &pool)
-            .set_plane(&Address::generate(&env));
-
-        let mut session = Session::new(&env);
-        assert!(!crate::engine::resolve_status(&mut session, &key, 0).valid);
-    });
-}
-
-#[test]
 fn test_lp_read_rejects_pool_type_drift() {
     let env = Env::default();
     env.ledger().set_timestamp(1_000_000);
     with_contract(&env, || {
-        let (pool, _plane, share, oracle) = listable_lp(
+        let (pool, share, oracle) = listable_lp(
             &env,
             "standard",
             10_000_000_000,
@@ -738,7 +693,7 @@ fn test_lp_read_rejects_pool_token_drift() {
     let env = Env::default();
     env.ledger().set_timestamp(1_000_000);
     with_contract(&env, || {
-        let (pool, _plane, share, oracle) = listable_lp(
+        let (pool, share, oracle) = listable_lp(
             &env,
             "standard",
             10_000_000_000,
@@ -760,7 +715,7 @@ fn test_lp_read_rejects_share_token_drift() {
     let env = Env::default();
     env.ledger().set_timestamp(1_000_000);
     with_contract(&env, || {
-        let (pool, _plane, share, oracle) = listable_lp(
+        let (pool, share, oracle) = listable_lp(
             &env,
             "standard",
             10_000_000_000,
@@ -782,7 +737,7 @@ fn test_lp_read_rejects_liquidity_below_floor() {
     let env = Env::default();
     env.ledger().set_timestamp(1_000_000);
     with_contract(&env, || {
-        let (_pool, plane, share, mut oracle) = listable_lp(
+        let (pool, share, mut oracle) = listable_lp(
             &env,
             "standard",
             10_000_000_000,
@@ -792,7 +747,7 @@ fn test_lp_read_rejects_liquidity_below_floor() {
         set_lp_min_pool_value(&mut oracle, 1_000 * WAD);
         let key = PriceKey::Token(share);
         set_oracle(&env, key.clone(), oracle);
-        crate::test_support::MockAquariusPlaneClient::new(&env, &plane)
+        crate::test_support::MockAquariusPoolClient::new(&env, &pool)
             .set_reserves(&100_000_000, &100_000_000);
 
         let mut session = Session::new(&env);
@@ -806,7 +761,7 @@ fn test_set_oracle_rejects_a_non_standard_pool() {
     let env = Env::default();
     env.ledger().set_timestamp(1_000_000);
     with_contract(&env, || {
-        let (_pool, _plane, share, oracle) = listable_lp(
+        let (_pool, share, oracle) = listable_lp(
             &env,
             "stable",
             10_000_000_000,
@@ -822,7 +777,7 @@ fn test_lp_oracle_needs_no_tolerance_band() {
     let env = Env::default();
     env.ledger().set_timestamp(1_000_000);
     with_contract(&env, || {
-        let (_pool, _plane, share, mut oracle) = listable_lp(
+        let (_pool, share, mut oracle) = listable_lp(
             &env,
             "standard",
             10_000_000_000,
@@ -850,7 +805,7 @@ fn test_set_tolerance_refuses_an_lp_oracle() {
     let env = Env::default();
     env.ledger().set_timestamp(1_000_000);
     with_contract(&env, || {
-        let (_pool, _plane, share, oracle) = listable_lp(
+        let (_pool, share, oracle) = listable_lp(
             &env,
             "standard",
             10_000_000_000,
@@ -876,7 +831,7 @@ fn test_set_oracle_rejects_a_pool_with_zero_total_shares() {
     let env = Env::default();
     env.ledger().set_timestamp(1_000_000);
     with_contract(&env, || {
-        let (_pool, _plane, share, oracle) =
+        let (_pool, share, oracle) =
             listable_lp(&env, "standard", 10_000_000_000, 10_000_000_000, 0);
         set_oracle(&env, PriceKey::Token(share), oracle);
     });
@@ -888,7 +843,7 @@ fn test_set_oracle_refuses_an_lp_that_cannot_price_at_listing() {
     let env = Env::default();
     env.ledger().set_timestamp(1_000_000);
     with_contract(&env, || {
-        let (_pool, _plane, share, mut oracle) = listable_lp(
+        let (_pool, share, mut oracle) = listable_lp(
             &env,
             "standard",
             10_000_000_000,
@@ -1027,7 +982,7 @@ fn test_set_oracle_rejects_a_pool_reporting_another_token_in_the_first_slot() {
     let env = Env::default();
     env.ledger().set_timestamp(1_000_000);
     with_contract(&env, || {
-        let (pool, _plane, share, oracle) = listable_lp(
+        let (pool, share, oracle) = listable_lp(
             &env,
             "standard",
             10_000_000_000,
@@ -1050,7 +1005,7 @@ fn test_set_oracle_rejects_reserve_decimals_the_token_does_not_report() {
     let env = Env::default();
     env.ledger().set_timestamp(1_000_000);
     with_contract(&env, || {
-        let (_pool, _plane, share, mut oracle) = listable_lp(
+        let (_pool, share, mut oracle) = listable_lp(
             &env,
             "standard",
             10_000_000_000,
@@ -1071,7 +1026,7 @@ fn test_set_oracle_rejects_a_pool_with_one_empty_reserve() {
     let env = Env::default();
     env.ledger().set_timestamp(1_000_000);
     with_contract(&env, || {
-        let (_pool, _plane, share, oracle) =
+        let (_pool, share, oracle) =
             listable_lp(&env, "standard", 0, 10_000_000_000, 10_000_000_000);
         set_oracle(&env, PriceKey::Token(share), oracle);
     });
@@ -1082,7 +1037,7 @@ fn test_set_oracle_accepts_a_pool_worth_exactly_its_liquidity_floor() {
     let env = Env::default();
     env.ledger().set_timestamp(1_000_000);
     with_contract(&env, || {
-        let (_pool, _plane, share, mut oracle) = listable_lp(
+        let (_pool, share, mut oracle) = listable_lp(
             &env,
             "standard",
             10_000_000_000,
@@ -1121,7 +1076,7 @@ fn assert_deepened_leg_exhausts_the_cap(deepen_key_a: bool) {
     let env = Env::default();
     env.ledger().set_timestamp(1_000_000);
     with_contract(&env, || {
-        let (_pool, _plane, share, oracle) = listable_lp(
+        let (_pool, share, oracle) = listable_lp(
             &env,
             "standard",
             10_000_000_000,
@@ -1154,22 +1109,8 @@ fn test_the_second_lp_leg_is_resolved_one_level_below_the_lp() {
     assert_deepened_leg_exhausts_the_cap(false);
 }
 
-#[test]
-#[should_panic(expected = "Error(Contract, #234)")]
-fn test_set_oracle_rejects_a_stable_plane_whose_invariant_drifts_past_the_cap() {
-    let env = Env::default();
-    env.ledger().set_timestamp(1_000_000);
-    with_contract(&env, || {
-        let (_pool, plane, share, oracle) = balanced_stable_lp(&env);
-        crate::test_support::MockAquariusPlaneClient::new(&env, &plane)
-            .set_reserves(&BALANCED_STABLE_UNITS, &(BALANCED_STABLE_UNITS * 101 / 100));
-
-        set_oracle(&env, PriceKey::Token(share), oracle);
-    });
-}
-
 fn priced_stable_lp(env: &Env) -> (PriceKey, AquariusLpSource, i128) {
-    let (_pool, _plane, share, oracle) = balanced_stable_lp(env);
+    let (_pool, share, oracle) = balanced_stable_lp(env);
     let key = PriceKey::Token(share);
     let lp = lp_of(&oracle);
 
@@ -1214,7 +1155,7 @@ fn assert_deepened_stable_leg_exhausts_the_cap(deepen_key_a: bool) {
     let env = Env::default();
     env.ledger().set_timestamp(1_000_000);
     with_contract(&env, || {
-        let (_pool, _plane, share, oracle) = balanced_stable_lp(&env);
+        let (_pool, share, oracle) = balanced_stable_lp(&env);
         let lp = lp_of(&oracle);
         let key = PriceKey::Token(share);
 
