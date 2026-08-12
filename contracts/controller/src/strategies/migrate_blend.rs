@@ -11,11 +11,11 @@ use soroban_sdk::{assert_with_error, panic_with_error, token, Address, Env, Map,
 
 use crate::config;
 use crate::context::Cache;
-use crate::events::{self, BlendMigrationEvent};
+use crate::events::{BlendMigrationEvent, PositionAction};
 use crate::external::blend::{blend_repay_all, blend_sweep_all};
 use crate::positions::{require_can_supply, supply};
 use crate::strategies::{
-    borrow_for_migration, prefetch_strategy_prices, repay_debt_from_controller, strategy_finalize,
+    borrow_into_controller, prefetch_strategy_prices, repay_debt_from_controller, strategy_finalize,
     StrategyRepay,
 };
 use crate::{risk::validation, storage};
@@ -146,7 +146,7 @@ fn execute_migration_debt_leg(
             hub_id,
             asset: debt_asset,
         };
-        borrow_for_migration(env, account, &hub_debt, max, cache);
+        borrow_into_controller(env, account, &hub_debt, max, false, PositionAction::Migrate, cache);
     }
     blend_repay_all(env, blend_pool, caller, debt_caps);
     reconcile_debt_refunds(env, account, cache, caller, hub_id, debt_caps, &before_debt);
@@ -357,7 +357,7 @@ fn reconcile_debt_refunds(
                     debt: &hub_debt,
                     debt_available: refund,
                     debt_pos: &debt_pos,
-                    action: events::PositionAction::Migrate,
+                    action: PositionAction::Migrate,
                 },
             );
         }

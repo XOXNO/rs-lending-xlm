@@ -13,7 +13,7 @@ pub(crate) mod swap;
 pub(crate) mod swap_collateral;
 pub(crate) mod swap_debt;
 
-pub(crate) use crate::positions::borrow::{borrow_for_migration, borrow_for_strategy};
+pub(crate) use crate::positions::borrow::borrow_into_controller;
 pub(crate) use legs::{
     execute_withdraw_all, net_settle_collateral_against_debt, repay_debt_from_controller,
     withdraw_collateral_to_controller, StrategyRepay, StrategyWithdraw,

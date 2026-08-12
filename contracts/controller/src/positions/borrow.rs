@@ -119,80 +119,17 @@ fn apply_borrow_batch(
     });
 }
 
-/// Borrows `amount` of `hub_debt` into `account` on behalf of a multiply strategy, charging the
-/// strategy fee. Returns the amount actually received from the pool.
-pub(crate) fn borrow_for_strategy(
+/// Borrows `amount` of `hub_debt` into `account` via the pool strategy-borrow path with the
+/// controller contract as recipient. When `charge_fee` is set the pool applies its strategy fee.
+/// `action` selects the event tag (`Multiply` or `Migrate`). Returns the amount actually received.
+pub(crate) fn borrow_into_controller(
     env: &Env,
     account: &mut Account,
     hub_debt: &HubAssetKey,
     amount: i128,
+    charge_fee: bool,
+    action: events::PositionAction,
     cache: &mut Cache,
-) -> i128 {
-    borrow_strategy_inner(
-        env,
-        account,
-        hub_debt,
-        amount,
-        cache,
-        StrategyBorrowKind::Multiply,
-    )
-}
-
-/// Borrows `amount` of `hub_debt` into `account` as part of a position migration, without
-/// charging the strategy fee. Returns the amount actually received from the pool.
-pub(crate) fn borrow_for_migration(
-    env: &Env,
-    account: &mut Account,
-    hub_debt: &HubAssetKey,
-    amount: i128,
-    cache: &mut Cache,
-) -> i128 {
-    borrow_strategy_inner(
-        env,
-        account,
-        hub_debt,
-        amount,
-        cache,
-        StrategyBorrowKind::Migration,
-    )
-}
-
-/// Selects strategy-borrow behavior: whether the pool charges a fee and which event action is
-/// recorded.
-#[derive(Clone, Copy)]
-enum StrategyBorrowKind {
-    Multiply,
-
-    Migration,
-}
-
-impl StrategyBorrowKind {
-    /// Returns `true` only for [`StrategyBorrowKind::Multiply`].
-    fn charges_fee(self) -> bool {
-        matches!(self, Self::Multiply)
-    }
-
-    /// Maps to the event action recorded for this borrow kind: [`events::PositionAction::Multiply`]
-    /// for `Multiply`, [`events::PositionAction::Migrate`] for `Migration`.
-    fn event_action(self) -> events::PositionAction {
-        match self {
-            Self::Multiply => events::PositionAction::Multiply,
-            Self::Migration => events::PositionAction::Migrate,
-        }
-    }
-}
-
-/// Shared implementation for [`borrow_for_strategy`] and [`borrow_for_migration`]: validates
-/// entry gates for `amount` of `hub_debt`, calls the pool's strategy-borrow entry point with the
-/// controller contract as recipient, and merges the result into `account`'s debt position.
-/// Returns the amount actually received.
-fn borrow_strategy_inner(
-    env: &Env,
-    account: &mut Account,
-    hub_debt: &HubAssetKey,
-    amount: i128,
-    cache: &mut Cache,
-    kind: StrategyBorrowKind,
 ) -> i128 {
     let hub_debt = hub_debt.clone();
     let payments: AggregatedPayments = vec![env, (hub_debt.clone(), amount)];
@@ -214,13 +151,13 @@ fn borrow_strategy_inner(
         &pool_addr,
         &env.current_contract_address(),
         pool_action,
-        kind.charges_fee(),
+        charge_fee,
     );
     let mutation = PoolPositionMutation::from(&result);
     merge_debt_leg(
         env,
         account,
-        kind.event_action(),
+        action,
         &hub_debt,
         LegDirection::Entry {
             asset_decimals: mutation.asset_decimals,

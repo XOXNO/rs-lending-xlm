@@ -11,8 +11,9 @@ use soroban_sdk::{assert_with_error, panic_with_error, vec, Address, Env};
 
 use crate::context::Cache;
 use crate::positions::require_can_supply;
+use crate::events::PositionAction;
 use crate::strategies::{
-    borrow_for_strategy, prefetch_strategy_prices, strategy_finalize, swap_tokens,
+    borrow_into_controller, prefetch_strategy_prices, strategy_finalize, swap_tokens,
     swap_tokens_or_passthrough,
 };
 use crate::{positions::supply, risk::validation};
@@ -83,7 +84,7 @@ pub(crate) fn process_multiply(env: &Env, caller: &Address, params: MultiplyPara
     );
 
     let amount_received =
-        borrow_for_strategy(env, &mut account, debt, debt_to_flash_loan, &mut cache);
+        borrow_into_controller(env, &mut account, debt, debt_to_flash_loan, true, PositionAction::Multiply, &mut cache);
 
     let swap_amount_in = amount_received
         .checked_add(debt_extra)
