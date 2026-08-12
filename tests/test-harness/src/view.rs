@@ -189,6 +189,7 @@ impl LendingTest {
         i128_to_f64(raw, decimals)
     }
 
+    /// Borrow APR as a unit fraction (`0.05` = 5%).
     pub fn pool_borrow_rate(&self, asset_name: &str) -> f64 {
         let asset = self.resolve_asset(asset_name);
         let raw = self
@@ -197,6 +198,7 @@ impl LendingTest {
         raw as f64 / RAY as f64
     }
 
+    /// Supplier APR as a unit fraction (`0.05` = 5%).
     pub fn pool_supply_rate(&self, asset_name: &str) -> f64 {
         let asset = self.resolve_asset(asset_name);
         let raw = self

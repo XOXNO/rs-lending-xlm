@@ -132,3 +132,101 @@ fn unscale_half_up_exact_half_residue_rounds_away_from_zero() {
     assert_eq!(unscale_supply(&env, scaled_above, Ray::ONE, 0), 2);
     assert_eq!(unscale_borrow(&env, scaled_above, Ray::ONE, 0), 2);
 }
+
+/// 100 tokens + 0.6 stroops at 7 decimals: floor = 1e9, half-up = 1e9 + 1.
+fn seven_dec_supply_with_six_tenth_stroop() -> Ray {
+    Ray::from(100 * RAY + 6 * 10i128.pow(19))
+}
+
+#[test]
+fn resolve_net_settle_closes_both_when_conservative_values_match() {
+    let env = Env::default();
+    let decimals = 7u32;
+    let index = Ray::ONE;
+    let supply = seven_dec_supply_with_six_tenth_stroop();
+    let debt = Ray::from(100 * RAY);
+
+    assert_eq!(
+        unscale_supply_floor(&env, supply, index, decimals),
+        1_000_000_000
+    );
+    assert_eq!(unscale_supply(&env, supply, index, decimals), 1_000_000_001);
+    assert_eq!(
+        unscale_borrow_ceil(&env, debt, index, decimals),
+        1_000_000_000
+    );
+
+    // Old withdraw∘repay path: debt_ceil = 1e9 < half-up 1e9+1 → partial
+    // supply burn, leftover dust shares, even though payable values match.
+    let (burn_s, burn_d, settled) =
+        resolve_net_settle(&env, i128::MAX, supply, debt, index, index, decimals);
+    assert_eq!(settled, 1_000_000_000);
+    assert_eq!(burn_s, supply);
+    assert_eq!(burn_d, debt);
+}
+
+#[test]
+fn resolve_net_settle_does_not_use_half_up_to_close_supply() {
+    let env = Env::default();
+    let decimals = 7u32;
+    let index = Ray::ONE;
+    let supply = seven_dec_supply_with_six_tenth_stroop();
+    // 1 extra RAY unit ceils to one stroop above the supply floor.
+    let debt = Ray::from(100 * RAY + 1);
+
+    assert_eq!(
+        unscale_borrow_ceil(&env, debt, index, decimals),
+        1_000_000_001
+    );
+
+    let (burn_s, burn_d, settled) =
+        resolve_net_settle(&env, i128::MAX, supply, debt, index, index, decimals);
+    assert_eq!(settled, 1_000_000_000);
+    assert_eq!(burn_s, supply, "payable supply is exhausted");
+    assert_eq!(
+        burn_d,
+        calculate_scaled_borrow_floor(&env, settled, decimals, index)
+    );
+    assert!(burn_d < debt, "one stroop of ceiled debt remains unpaid");
+}
+
+#[test]
+fn resolve_net_settle_partial_keeps_directed_rounding() {
+    let env = Env::default();
+    let supply_index = Ray::from(RAY + RAY / 3);
+    let borrow_index = Ray::from(RAY + RAY / 2);
+    let supply = Ray::from(10 * RAY);
+    let debt = Ray::from(10 * RAY);
+    let amount = 3;
+
+    let (burn_s, burn_d, settled) =
+        resolve_net_settle(&env, amount, supply, debt, supply_index, borrow_index, 0);
+    assert_eq!(settled, amount);
+    assert_eq!(
+        burn_s,
+        calculate_scaled_supply_ceil(&env, amount, 0, supply_index)
+    );
+    assert_eq!(
+        burn_d,
+        calculate_scaled_borrow_floor(&env, amount, 0, borrow_index)
+    );
+}
+
+#[test]
+fn resolve_net_settle_zero_overlap_is_noop() {
+    let env = Env::default();
+    let decimals = 7u32;
+    let dust = Ray::from(10i128.pow(19));
+    assert_eq!(unscale_supply_floor(&env, dust, Ray::ONE, decimals), 0);
+
+    let (burn_s, burn_d, settled) = resolve_net_settle(
+        &env,
+        i128::MAX,
+        dust,
+        Ray::from(RAY),
+        Ray::ONE,
+        Ray::ONE,
+        decimals,
+    );
+    assert_eq!((burn_s, burn_d, settled), (Ray::ZERO, Ray::ZERO, 0));
+}

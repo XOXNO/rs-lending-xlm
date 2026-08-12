@@ -157,33 +157,23 @@ fn net_settle_conserves_cash_and_both_scaled_totals(
     let supply_index_ray = Ray::from(supply_index);
     let borrow_index_ray = Ray::from(borrow_index);
 
+    let (expected_supply_burn, expected_debt_burn, expected_gross) =
+        common::rates::resolve_net_settle(
+            &e,
+            requested,
+            supply_position,
+            debt_position,
+            supply_index_ray,
+            borrow_index_ray,
+            asset_decimals,
+        );
     let debt_due = debt_position
         .mul_ceil(&e, borrow_index_ray)
         .to_asset_ceil(asset_decimals);
-    let capped = requested.min(debt_due);
-    let supply_actual = supply_position
-        .mul(&e, supply_index_ray)
-        .to_asset(asset_decimals);
     let supply_floor = supply_position
         .mul_floor(&e, supply_index_ray)
         .to_asset_floor(asset_decimals);
-    let (expected_supply_burn, expected_gross) = if capped >= supply_actual {
-        (supply_position, supply_floor)
-    } else {
-        (
-            Ray::from_asset(capped, asset_decimals).div_ceil(&e, supply_index_ray),
-            capped,
-        )
-    };
-    let (expected_debt_burn, expected_overpayment) = if expected_gross >= debt_due {
-        (debt_position, expected_gross - debt_due)
-    } else {
-        (
-            Ray::from_asset(expected_gross, asset_decimals).div_floor(&e, borrow_index_ray),
-            0,
-        )
-    };
-    cvlr_assert!(expected_overpayment == 0);
+    let capped = requested.min(debt_due).min(supply_floor);
     cvlr_assume!(
         expected_gross == 0 || (expected_supply_burn.raw() > 0 && expected_debt_burn.raw() > 0)
     );
@@ -198,7 +188,7 @@ fn net_settle_conserves_cash_and_both_scaled_totals(
     let post = read_state(&e, &asset);
 
     cvlr_assert!(expected_gross <= capped && capped <= requested);
-    cvlr_assert!(expected_gross <= debt_due && expected_gross <= supply_actual);
+    cvlr_assert!(expected_gross <= debt_due && expected_gross <= supply_floor);
     cvlr_assert!(result.settled_amount == expected_gross);
     cvlr_assert!(
         supply_before - result.supply_position.scaled_amount == expected_supply_burn.raw()

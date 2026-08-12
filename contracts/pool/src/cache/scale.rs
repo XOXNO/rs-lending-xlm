@@ -5,9 +5,9 @@
 
 use common::math::fp::Ray;
 use common::rates::{
-    calculate_scaled_borrow, calculate_scaled_supply, resolve_repay, resolve_withdrawal,
-    scaled_to_original, unscale_borrow, unscale_borrow_ceil, unscale_borrow_ceil_ray,
-    unscale_supply, unscale_supply_floor, utilization,
+    calculate_scaled_borrow, calculate_scaled_supply, resolve_net_settle, resolve_repay,
+    resolve_withdrawal, scaled_to_original, unscale_borrow, unscale_borrow_ceil,
+    unscale_borrow_ceil_ray, unscale_supply, unscale_supply_floor, utilization,
 };
 
 use super::Cache;
@@ -112,6 +112,27 @@ impl Cache {
             &self.env,
             amount,
             pos_scaled,
+            self.borrow_index,
+            self.params.asset_decimals,
+        )
+    }
+
+    /// Resolves a same-asset net-settle into (supply burned, debt burned, tokens).
+    ///
+    /// Uses the conservative overlap of floored supply and ceiled debt. Does
+    /// not inherit withdraw's half-up full-close switch.
+    pub(crate) fn resolve_net_settle(
+        &self,
+        amount: i128,
+        supply_scaled: Ray,
+        debt_scaled: Ray,
+    ) -> (Ray, Ray, i128) {
+        resolve_net_settle(
+            &self.env,
+            amount,
+            supply_scaled,
+            debt_scaled,
+            self.supply_index,
             self.borrow_index,
             self.params.asset_decimals,
         )

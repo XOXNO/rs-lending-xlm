@@ -303,10 +303,10 @@ async fn publish_market_amounts(
         metrics.market_utilization.with_label_values(lref).set(model::ray_to_f64(v));
     }
     if let Some(v) = read_market_scalar(client, metrics, net, pool_id, market, "get_deposit_rate").await {
-        metrics.market_supply_apy.with_label_values(lref).set(model::apy_from_per_ms_ray(v));
+        metrics.market_supply_apy.with_label_values(lref).set(model::apy_from_annual_ray(v));
     }
     if let Some(v) = read_market_scalar(client, metrics, net, pool_id, market, "get_borrow_rate").await {
-        metrics.market_borrow_apy.with_label_values(lref).set(model::apy_from_per_ms_ray(v));
+        metrics.market_borrow_apy.with_label_values(lref).set(model::apy_from_annual_ray(v));
     }
 }
 

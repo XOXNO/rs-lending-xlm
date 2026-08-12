@@ -498,3 +498,41 @@ fn test_cache_resolve_withdrawal_feeds_supply_index_and_decimals() {
         }
     });
 }
+
+#[test]
+fn test_cache_resolve_net_settle_feeds_both_indexes_and_decimals() {
+    let t = TestSetup::new();
+    t.as_contract(|| {
+        let supply_index = 3 * RAY;
+        let borrow_index = 7 * RAY;
+        let supplied = 5 * 10i128.pow(20);
+        let borrowed = 4 * 10i128.pow(20);
+        let cache = cache_with(
+            &t.env,
+            &t.params,
+            supplied,
+            borrowed,
+            0,
+            supply_index,
+            borrow_index,
+        );
+        let supply_scaled = Ray::from(supplied);
+        let debt_scaled = Ray::from(borrowed);
+
+        for amount in [1i128, 2, 100, i128::MAX] {
+            assert_eq!(
+                cache.resolve_net_settle(amount, supply_scaled, debt_scaled),
+                common::rates::resolve_net_settle(
+                    &t.env,
+                    amount,
+                    supply_scaled,
+                    debt_scaled,
+                    Ray::from(supply_index),
+                    Ray::from(borrow_index),
+                    t.params.asset_decimals,
+                ),
+                "wrapper must feed both indexes and market decimals, amount={amount}"
+            );
+        }
+    });
+}

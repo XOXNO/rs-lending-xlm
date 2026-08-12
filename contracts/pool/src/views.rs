@@ -2,9 +2,10 @@
 //!
 //! Views load a [`Cache`] (or raw state for cash) without committing accrual.
 //! Rates and utilization therefore reflect **stored** indexes unless a prior
-//! mutation already wrote an update.
+//! mutation already wrote an update. Rate getters return **annual** RAY APR,
+//! not the per-millisecond rate used by accrual.
 
-use common::rates::{calculate_borrow_rate, calculate_deposit_rate};
+use common::rates::{calculate_annual_borrow_rate, calculate_deposit_rate};
 use common::types::HubAssetKey;
 
 use soroban_sdk::Env;
@@ -22,18 +23,18 @@ pub(crate) fn reserves(env: &Env, hub_asset: &HubAssetKey) -> i128 {
     storage::load_state(env, hub_asset).cash
 }
 
-/// Supplier rate (RAY raw) at current stored utilization and reserve factor.
+/// Supplier APR (annual RAY) at current stored utilization and reserve factor.
 pub(crate) fn deposit_rate(env: &Env, hub_asset: &HubAssetKey) -> i128 {
     let cache = Cache::load(env, hub_asset);
     let util = cache.calculate_utilization();
-    let borrow = calculate_borrow_rate(env, util, cache.params());
+    let borrow = calculate_annual_borrow_rate(env, util, cache.params());
     calculate_deposit_rate(env, util, borrow, cache.params().reserve_factor).raw()
 }
 
-/// Borrow rate (RAY raw) from the piecewise interest model at current util.
+/// Borrow APR (annual RAY) from the piecewise interest model at current util.
 pub(crate) fn borrow_rate(env: &Env, hub_asset: &HubAssetKey) -> i128 {
     let cache = Cache::load(env, hub_asset);
-    calculate_borrow_rate(env, cache.calculate_utilization(), cache.params()).raw()
+    calculate_annual_borrow_rate(env, cache.calculate_utilization(), cache.params()).raw()
 }
 
 /// Protocol revenue in asset units (floored conversion of scaled revenue shares).

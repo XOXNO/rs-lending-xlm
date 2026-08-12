@@ -38,6 +38,9 @@ let actual = half_up(scaled * index / RAY);
 | Partial withdrawal | amount × RAY ÷ supply index | ceil |
 | Borrow | amount × RAY ÷ borrow index | ceil |
 | Partial repayment | amount × RAY ÷ borrow index | floor |
+| Net settle size | min(request, floor(supply), ceil(debt)) | never settle unpayable supply |
+| Net settle supply close | all shares iff overlap equals floor(supply) | no half-up promotion |
+| Net settle debt close | all shares iff overlap equals ceil(debt) | no leftover dust when paid |
 
 These directions favor the pool at the conversion boundary. A positive token
 movement that would change zero shares is rejected.
@@ -58,22 +61,24 @@ selection.
 
 The annual borrow curve has three continuous regions: below the mid point,
 between mid and optimal, and above optimal. Each region begins at the
-cumulative height of the prior regions. The selected annual rate is capped and
-converted to a per-millisecond rate:
+cumulative height of the prior regions. The selected annual rate is capped.
+Pool view getters (`get_borrow_rate`, `get_deposit_rate`) return that annual
+RAY value. Accrual converts it to a per-millisecond rate before compounding:
 
 ```rust
 let rate_per_ms = half_up(annual_rate / milliseconds_per_year);
 ```
 
-The displayed deposit rate is approximately:
+The displayed deposit APR is approximately:
 
 ```rust
-let deposit_rate = half_up(
-    (BPS - reserve_factor) * utilization * borrow_rate / RAY / BPS,
+let deposit_apr = half_up(
+    (BPS - reserve_factor) * utilization * annual_borrow_rate / RAY / BPS,
 );
 ```
 
-It is a view. Realized supplier return also reflects the conservative
+It is a view. Divide the returned RAY by `RAY` for a unit fraction
+(0.05 = 5%). Realized supplier return also reflects the conservative
 rounding remainder retained as protocol revenue.
 
 ## Accrual
@@ -170,5 +175,6 @@ pay more cash than the market holds.
 | Debt valuation | ceil | avoids understating debt |
 | Health factor | floor | avoids overstating health |
 | Bad-debt write-down | floor with floor clamp | keeps loss explicit and domain safe |
+| Net settle overlap | min(request, floor supply, ceil debt) | closes a side only when that side is exhausted |
 | Cap conversion | floor | makes the cap slightly tighter |
 | Partial revenue claim | ceil share burn | avoids overpaying treasury |

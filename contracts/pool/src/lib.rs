@@ -315,8 +315,9 @@ impl LiquidityPoolInterface for LiquidityPool {
 
     /// Net a user's supply against their debt on the same market (no cash move).
     ///
-    /// Burns matched scaled supply and debt up to `entry.amount` (capped by debt
-    /// value). Leaves residual positions in the result.
+    /// Burns matched scaled supply and debt up to `entry.amount`, capped by the
+    /// conservative overlap of floored supply and ceiled debt. Leaves residual
+    /// positions in the result.
     ///
     /// # Authorization
     ///
@@ -354,12 +355,18 @@ impl LiquidityPoolInterface for LiquidityPool {
         views::reserves(&env, &hub_asset)
     }
 
-    /// Current supplier APY-style rate (RAY raw) at the stored utilization.
+    /// Current supplier APR as annual RAY at the stored utilization.
+    ///
+    /// Divide by `RAY` for a unit fraction (0.05 = 5%). Accrual still compounds
+    /// the per-millisecond form of this rate.
     fn get_deposit_rate(env: Env, hub_asset: HubAssetKey) -> i128 {
         views::deposit_rate(&env, &hub_asset)
     }
 
-    /// Current borrow rate (RAY raw) at the stored utilization.
+    /// Current borrow APR as annual RAY at the stored utilization.
+    ///
+    /// Divide by `RAY` for a unit fraction (0.05 = 5%). Accrual still compounds
+    /// the per-millisecond form of this rate.
     fn get_borrow_rate(env: Env, hub_asset: HubAssetKey) -> i128 {
         views::borrow_rate(&env, &hub_asset)
     }
