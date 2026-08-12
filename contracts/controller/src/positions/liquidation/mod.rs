@@ -11,7 +11,7 @@ pub(crate) use plan::execute_liquidation;
 
 use common::errors::CollateralError;
 use common::math::fp::Wad;
-use common::types::{Account, AggregatedPayments, HubPayment};
+use common::types::{Account, AggregatedPayments, HubPayment, SeizeEntry};
 use soroban_sdk::{assert_with_error, Address, Env, Vec};
 
 use self::curve::is_socializable_bad_debt;
@@ -55,12 +55,23 @@ pub(crate) fn process_liquidation(
     // Collateral is sized from the repayment the plan intended to collect. If a
     // debt token delivered less than was sent, shrink the seizure to match, or
     // the liquidator keeps collateral they did not pay for.
-    let seized = math::scale_seizures_to_received(
-        env,
-        &result.seized,
-        received_usd,
-        math::sum_repaid_usd(env, &result.repaid),
-    );
+    let repay_usd = math::sum_repaid_usd(env, &result.repaid);
+    let mut seized = result.seized;
+    if received_usd < repay_usd && repay_usd > Wad::ZERO {
+        let num = received_usd.raw();
+        let den = repay_usd.raw();
+        let mut scaled: Vec<SeizeEntry> = Vec::new(env);
+        for entry in seized.iter() {
+            scaled.push_back(SeizeEntry {
+                amount: common::math::fp_core::mul_div_floor(env, entry.amount, num, den),
+                protocol_fee: common::math::fp_core::mul_div_floor(env, entry.protocol_fee, num, den),
+                hub_asset: entry.hub_asset,
+                feed: entry.feed,
+                market_index: entry.market_index,
+            });
+        }
+        seized = scaled;
+    }
     apply::apply_liquidation_seizures(env, liquidator, &mut account, &seized, &mut cache);
 
     LiquidationEvent {

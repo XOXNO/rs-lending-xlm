@@ -502,7 +502,7 @@ impl ControllerAdmin for Controller {
 
     #[only_owner]
     fn deploy_pool(env: Env, wasm_hash: BytesN<32>) -> Address {
-        markets::deploy_pool(&env, wasm_hash)
+        renew_then!(env, markets::deploy_pool(&env, wasm_hash))
     }
 
     #[only_owner]
@@ -512,42 +512,42 @@ impl ControllerAdmin for Controller {
         asset: Address,
         params: MarketParamsRaw,
     ) -> Address {
-        markets::create_liquidity_pool(&env, hub_id, asset, params)
+        renew_then!(env, markets::create_liquidity_pool(&env, hub_id, asset, params))
     }
 
     #[only_owner]
     fn upgrade_liquidity_pool_params(env: Env, hub_asset: HubAssetKey, params: InterestRateModel) {
-        markets::upgrade_liquidity_pool_params(&env, &hub_asset, &params);
+        renew_then!(env, markets::upgrade_liquidity_pool_params(&env, &hub_asset, &params))
     }
 
     #[only_owner]
     fn upgrade_pool(env: Env, new_wasm_hash: BytesN<32>) {
-        markets::upgrade_pool(&env, new_wasm_hash);
+        renew_then!(env, markets::upgrade_pool(&env, new_wasm_hash))
     }
 
     #[only_owner]
     fn force_socialize_bad_debt(env: Env, account_id: u64) {
-        positions::liquidation::process_force_socialize_bad_debt(&env, account_id);
+        renew_then!(env, positions::liquidation::process_force_socialize_bad_debt(&env, account_id))
     }
 
     #[only_owner]
     fn pause(env: Env) {
-        governance::pause(&env);
+        renew_then!(env, governance::pause(&env))
     }
 
     #[only_owner]
     fn unpause(env: Env) {
-        governance::unpause(&env);
+        renew_then!(env, governance::unpause(&env))
     }
 
     #[only_owner]
     fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
-        governance::upgrade(&env, &new_wasm_hash);
+        renew_then!(env, governance::upgrade(&env, &new_wasm_hash))
     }
 
     #[only_owner]
     fn migrate(env: Env, new_version: u32) {
-        governance::migrate(&env, new_version);
+        renew_then!(env, governance::migrate(&env, new_version))
     }
 
     fn get_app_version(env: Env) -> u32 {
@@ -556,7 +556,7 @@ impl ControllerAdmin for Controller {
 
     #[only_owner]
     fn transfer_ownership(env: Env, new_owner: Address, live_until_ledger: u32) {
-        governance::transfer_ownership(&env, &new_owner, live_until_ledger);
+        renew_then!(env, governance::transfer_ownership(&env, &new_owner, live_until_ledger))
     }
 
     fn accept_ownership(env: Env) {
