@@ -1,7 +1,7 @@
 //! Computes USD-denominated collateral and debt totals, and the resulting
 //! health factor, for an account's supply and borrow positions.
 
-use common::math::fp::{Bps, Ray, Wad};
+use common::math::fp::{Ray, Wad};
 use common::types::{Account, AccountPositionRaw, DebtPositionRaw, HubAssetKey};
 use soroban_sdk::{Address, Env, Map, Vec};
 
@@ -42,37 +42,7 @@ pub(crate) fn account_price_assets(
     assets
 }
 
-/// Applies `threshold` to `value`, rounding down, yielding the portion of
-/// collateral value counted toward the health-factor numerator.
-pub(crate) fn weighted_collateral(env: &Env, value: Wad, threshold: Bps) -> Wad {
-    threshold.apply_to_wad_floor(env, value)
-}
 
-/// Loads market indices for `supply_positions` and sums their USD value at
-/// the current supply index and price, rounding half-up.
-pub(crate) fn sum_supply_usd(
-    env: &Env,
-    cache: &mut Cache,
-    supply_positions: &Map<HubAssetKey, AccountPositionRaw>,
-) -> Wad {
-    cache.load_markets(&supply_positions.keys());
-
-    let mut total = Wad::ZERO;
-    for (hub_asset, position) in iter_typed_positions(supply_positions) {
-        let feed = cache.cached_price(&hub_asset.asset);
-        let market_index = cache.cached_market_index(&hub_asset);
-        total = total.checked_add(
-            env,
-            position_value(
-                env,
-                position.scaled_amount,
-                market_index.supply_index,
-                feed.price,
-            ),
-        );
-    }
-    total
-}
 
 /// Shared debt USD loop. Caller selects valuation (`position_value` half-up or
 /// `position_value_ceil`). Markets must already be loaded in `cache`.
@@ -99,46 +69,7 @@ fn sum_debt_usd_loaded(
     total
 }
 
-/// Loads market indices for `borrow_positions` and sums their USD value at
-/// the current borrow index and price, rounding half-up.
-pub(crate) fn sum_debt_usd(
-    env: &Env,
-    cache: &mut Cache,
-    borrow_positions: &Map<HubAssetKey, DebtPositionRaw>,
-) -> Wad {
-    cache.load_markets(&borrow_positions.keys());
-    sum_debt_usd_loaded(env, cache, borrow_positions, position_value)
-}
 
-/// Loads market indices for `supply_positions` and sums each position's
-/// loan-to-value-weighted USD value, rounding down at both the valuation and
-/// the LTV application step.
-pub(crate) fn calculate_ltv_collateral_wad(
-    env: &Env,
-    cache: &mut Cache,
-    supply_positions: &Map<HubAssetKey, AccountPositionRaw>,
-) -> Wad {
-    cache.load_markets(&supply_positions.keys());
-
-    let mut ltv = Wad::ZERO;
-    for (hub_asset, position) in iter_typed_positions(supply_positions) {
-        let feed = cache.cached_price(&hub_asset.asset);
-        let market_index = cache.cached_market_index(&hub_asset);
-
-        let value = position_value_floor(
-            env,
-            position.scaled_amount,
-            market_index.supply_index,
-            feed.price,
-        );
-
-        // Clamped as the gate clamps it, so the view cannot report more borrowing
-        // power than origination will grant.
-        let effective_ltv = position.loan_to_value.min(position.liquidation_threshold);
-        ltv = ltv.checked_add(env, effective_ltv.apply_to_wad_floor(env, value));
-    }
-    ltv
-}
 
 /// Aggregate USD collateral and debt totals for an account, plus the
 /// resulting health factor.
@@ -224,7 +155,7 @@ fn calculate_account_risk_totals_body(
             ltv_collateral.checked_add(env, effective_ltv.apply_to_wad_floor(env, gate_value));
         weighted_coll = weighted_coll.checked_add(
             env,
-            weighted_collateral(env, gate_value, position.liquidation_threshold),
+            position.liquidation_threshold.apply_to_wad_floor(env, gate_value),
         );
     }
 
