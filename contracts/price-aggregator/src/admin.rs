@@ -52,6 +52,7 @@ fn attest_feed(env: &Env, feed: &FeedSource) {
 ///   outcome (including staleness, deviation, sanity bounds).
 /// - Otherwise: soft probe (`probe`) — panics only on configuration-level
 ///   failures; market-condition failures do not block registration.
+///
 /// Then stores the config, revalidates dependents, and emits the registry event.
 pub(crate) fn set_oracle(env: &Env, key: PriceKey, oracle: AssetOracle) {
     validate_asset_oracle(env, &key, &oracle);

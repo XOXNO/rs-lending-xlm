@@ -1,5 +1,5 @@
 sac_live() {
-    stellar contract invoke --id "$1" --source "$ADMIN" --network "$NETWORK" --send=no \
+    stellar contract invoke --id "$1" --source "$ADMIN" "${NET_ARGS[@]}" --send=no \
         -- decimals >/dev/null 2>&1
 }
 
@@ -18,7 +18,7 @@ issue_sac() {
     local asset="$code:$ADMIN_ADDR"
     local out_f="$LOG_DIR/sac_$code.out" err_f="$LOG_DIR/sac_$code.err"
     local sac hash attempt
-    sac=$(stellar contract id asset --asset "$asset" --network "$NETWORK")
+    sac=$(stellar contract id asset --asset "$asset" "${NET_ARGS[@]}")
     if sac_live "$sac"; then
 
         record "issue_sac_$code" ok "asset_id" "" "" "" "" "" "$sac (pre-existing)"
@@ -27,7 +27,7 @@ issue_sac() {
         for attempt in $(seq 1 "$DEPLOY_MAX_ATTEMPTS"); do
             [ "$attempt" -gt 1 ] && backoff_sleep "$attempt" 3 15
             if stellar contract asset deploy --asset "$asset" --source "$ADMIN" \
-                --network "$NETWORK" >"$out_f" 2>"$err_f"; then
+                "${NET_ARGS[@]}" >"$out_f" 2>"$err_f"; then
                 hash=$(extract_signing_hash "$err_f")
                 break
             fi
@@ -52,7 +52,7 @@ trustline() {
     for attempt in $(seq 1 "$INV_MAX_ATTEMPTS"); do
         [ "$attempt" -gt 1 ] && backoff_sleep "$attempt"
         if stellar tx new change-trust --source-account "$wallet" --line "$code:$issuer" \
-            --network "$NETWORK" >"$LOG_DIR/$label.out" 2>"$err_f"; then
+            "${NET_ARGS[@]}" >"$LOG_DIR/$label.out" 2>"$err_f"; then
             local hash
             hash=$(grep -oE '[0-9a-f]{64}' "$err_f" | tail -1)
             record "$label" ok "change_trust" "$hash" "" "" "" "" "$code"
@@ -84,7 +84,7 @@ mint_to() {
 
 balance() {
     local sac="$1" who="$2"
-    stellar contract invoke --id "$sac" --source "$ADMIN" --network "$NETWORK" --send=no \
+    stellar contract invoke --id "$sac" --source "$ADMIN" "${NET_ARGS[@]}" --send=no \
         -- balance --id "$who" 2>/dev/null | tr -d '"'
 }
 

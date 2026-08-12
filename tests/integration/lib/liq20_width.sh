@@ -24,7 +24,7 @@ liq20_parse_events_reject_note() {
 liq20_liquidate_send() {
     local label="$1" leeway="$2" n="$3" repay_each="${4:-$LIQ20_DEFAULT_REPAY_EACH}"
     local out_f="$LOG_DIR/$label.out" err_f="$LOG_DIR/$label.err"
-    if stellar contract invoke --id "$CONTROLLER" --source "$CAROL" --network "$NETWORK" \
+    if stellar contract invoke --id "$CONTROLLER" --source "$CAROL" "${NET_ARGS[@]}" \
         --instruction-leeway "$leeway" -- liquidate \
         --liquidator "$CAROL_ADDR" --account_id "$ACCT" \
         --debt_payments "$(liq20_pay_vec "$PRIMARY_HUB_ID" "$n" "$repay_each")" \

@@ -8,8 +8,8 @@ new_wallet() {
     fi
     if ! stellar keys address "$alias" >/dev/null 2>&1; then
         log "generating + funding wallet $alias"
-        stellar keys generate "$alias" --network "$NETWORK" --fund >/dev/null 2>&1 \
-            || stellar keys generate "$alias" --network "$NETWORK" >/dev/null
+        stellar keys generate "$alias" "${NET_ARGS[@]}" --fund >/dev/null 2>&1 \
+            || stellar keys generate "$alias" "${NET_ARGS[@]}" >/dev/null
     fi
     local addr
     addr=$(stellar keys address "$alias")

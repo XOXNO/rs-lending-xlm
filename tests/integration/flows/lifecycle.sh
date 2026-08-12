@@ -15,7 +15,7 @@ flow_real_markets() {
 
 classic_line() {
     local sac="$1"
-    stellar contract invoke --id "$sac" --source "$ADMIN" --network "$NETWORK" --send=no \
+    stellar contract invoke --id "$sac" --source "$ADMIN" "${NET_ARGS[@]}" --send=no \
         -- name 2>/dev/null | tr -d '"'
 }
 
@@ -68,16 +68,19 @@ flow_lifecycle() {
     save_state ALICE_ACCT "$acct"
     log "alice account = $acct"
 
+    # balance() sends stderr to /dev/null, so a failed read is an empty string.
+    # Expanding that directly inside $(( )) aborts the whole run with a bash
+    # syntax error, before any report is written.
     local usdc_bal usdc_half
     usdc_bal=$(balance "$USDC_SAC" "$ALICE_ADDR")
-    usdc_half=$(( ${usdc_bal:-0} / 2 ))
-    if [ "$usdc_half" -le 0 ]; then
-        # Funding could not source USDC on this network. Supplying a zero leg
-        # would be rejected and every USDC-dependent step after it would fail
-        # for a reason that is not the protocol's.
-        record supply_bulk environment-blocked supply "" "" "" "" "" \
-            "alice holds no USDC; funding swap produced none"
+    if [[ "$usdc_bal" =~ ^[0-9]+$ ]] && [ "$usdc_bal" -gt 0 ]; then
+        usdc_half=$(( usdc_bal / 2 ))
     else
+        usdc_half=0
+        record supply_bulk FAIL supply "" "" "" "" "" \
+            "alice USDC balance unreadable or zero: '${usdc_bal}'"
+    fi
+    if [ "$usdc_half" -gt 0 ]; then
         inv supply_bulk "$ALICE" "$CONTROLLER" -- supply \
             --caller "$ALICE_ADDR" --account_id "$acct" --spoke_id "$PRIMARY_SPOKE_ID" \
             --assets "$(pay_vec "$PRIMARY_HUB_ID" "$XLM_SAC" 5000000000 "$USDC_SAC" "$usdc_half")" >/dev/null
