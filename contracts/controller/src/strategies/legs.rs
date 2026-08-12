@@ -12,7 +12,7 @@ use crate::events;
 use crate::events::EventContext;
 use crate::external::pool::pool_net_settle_call;
 use crate::payments;
-use crate::positions::repay::{self, RepaymentRequest};
+use crate::positions::{execute_repayment, RepaymentRequest};
 use crate::positions::withdraw::{self, WithdrawalRequest};
 use crate::positions::{
     enforce_spoke_asset_flags, get_debt_position_or_panic, get_supply_position_or_panic,
@@ -62,7 +62,7 @@ pub(crate) fn repay_debt_from_controller(
 
     let controller_balance_before_repay = debt_tok.balance(&env.current_contract_address());
 
-    repay::execute_repayment(
+    execute_repayment(
         env,
         account,
         controller_event_context(env, req.action),

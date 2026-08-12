@@ -1,3 +1,4 @@
+pub(crate) mod debt;
 
 use common::errors::{CollateralError, GenericError, SpokeError};
 use common::math::fp::Ray;
@@ -16,9 +17,8 @@ use crate::risk::{self, validation};
 use crate::spoke::UsageSide;
 use crate::storage;
 
-pub(crate) mod borrow;
 pub(crate) mod liquidation;
-pub(crate) mod repay;
+pub(crate) use debt::{apply_repay_batch, borrow_into_controller, execute_repayment, process_borrow, process_repay, RepaymentRequest};
 pub(crate) mod supply;
 pub(crate) mod withdraw;
 
@@ -318,3 +318,4 @@ pub(crate) fn get_debt_position_or_panic(
 #[cfg(test)]
 #[path = "../../tests/positions/flags.rs"]
 mod tests;
+

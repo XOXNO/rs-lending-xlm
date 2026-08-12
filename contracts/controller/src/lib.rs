@@ -97,7 +97,7 @@ impl ControllerInterface for Controller {
         borrows: Vec<(HubAssetKey, i128)>,
         to: Option<Address>,
     ) {
-        positions::borrow::process_borrow(&env, &caller, account_id, &borrows, to);
+        positions::process_borrow(&env, &caller, account_id, &borrows, to);
     }
 
     fn withdraw(
@@ -111,7 +111,7 @@ impl ControllerInterface for Controller {
     }
 
     fn repay(env: Env, caller: Address, account_id: u64, payments: Vec<(HubAssetKey, i128)>) {
-        positions::repay::process_repay(&env, &caller, account_id, &payments);
+        positions::process_repay(&env, &caller, account_id, &payments);
     }
 
     fn liquidate(

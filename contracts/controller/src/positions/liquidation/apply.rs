@@ -13,7 +13,7 @@ use crate::payments;
 use crate::positions::liquidation::bad_debt;
 use crate::positions::liquidation::curve::is_socializable_bad_debt;
 use crate::positions::{
-    enforce_spoke_asset_flags, make_pool_action, repay, withdraw, FreezePolicy,
+    apply_repay_batch, enforce_spoke_asset_flags, make_pool_action, withdraw, FreezePolicy,
 };
 use common::errors::GenericError;
 
@@ -65,7 +65,7 @@ pub(crate) fn apply_liquidation_repayments(
             (&expect_invariant(env, account.borrow_positions.get(entry.hub_asset.clone()))).into();
         actions.push_back(make_pool_action(&position, received, entry.hub_asset));
     }
-    repay::apply_repay_batch(
+    apply_repay_batch(
         env,
         account,
         liquidator,
