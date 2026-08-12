@@ -58,6 +58,14 @@ use strategies::repay_debt_with_collateral::RepayWithCollateralParams;
 use strategies::swap_collateral::SwapCollateralParams;
 use strategies::swap_debt::SwapDebtParams;
 
+/// Renews the controller instance TTL, then evaluates the body.
+macro_rules! renew_then {
+    ($env:ident, $body:expr) => {{
+        storage::renew_controller_instance(&$env);
+        $body
+    }};
+}
+
 contractmeta!(key = "name", val = "Lending Controller");
 contractmeta!(key = "binver", val = env!("CARGO_PKG_VERSION"));
 contractmeta!(
@@ -538,24 +546,21 @@ impl ControllerAdmin for Controller {
     /// address to `addr`.
     #[only_owner]
     fn set_swap_aggregator(env: Env, addr: Address) {
-        storage::renew_controller_instance(&env);
-        config::registry::set_swap_aggregator(&env, addr);
+        renew_then!(env, config::registry::set_swap_aggregator(&env, addr))
     }
 
     /// Owner-only. Renews the controller instance TTL and sets the price aggregator
     /// address to `addr`.
     #[only_owner]
     fn set_price_aggregator(env: Env, addr: Address) {
-        storage::renew_controller_instance(&env);
-        config::registry::set_price_aggregator(&env, addr);
+        renew_then!(env, config::registry::set_price_aggregator(&env, addr))
     }
 
     /// Owner-only. Renews the controller instance TTL and sets the revenue
     /// accumulator address to `addr`.
     #[only_owner]
     fn set_accumulator(env: Env, addr: Address) {
-        storage::renew_controller_instance(&env);
-        config::registry::set_accumulator(&env, addr);
+        renew_then!(env, config::registry::set_accumulator(&env, addr))
     }
 
     /// Owner-only. Renews the controller instance TTL and sets the maximum number of
@@ -563,8 +568,7 @@ impl ControllerAdmin for Controller {
     /// zero or exceeds the protocol maximum.
     #[only_owner]
     fn set_position_limits(env: Env, limits: PositionLimits) {
-        storage::renew_controller_instance(&env);
-        config::limits::set_position_limits(&env, limits);
+        renew_then!(env, config::limits::set_position_limits(&env, limits))
     }
 
     /// Owner-only. Renews the controller instance TTL and sets the minimum
@@ -572,40 +576,35 @@ impl ControllerAdmin for Controller {
     /// Panics if `floor_wad` is negative.
     #[only_owner]
     fn set_min_borrow_collateral_usd(env: Env, floor_wad: i128) {
-        storage::renew_controller_instance(&env);
-        config::limits::set_min_borrow_collateral_usd(&env, floor_wad);
+        renew_then!(env, config::limits::set_min_borrow_collateral_usd(&env, floor_wad))
     }
 
     /// Owner-only. Renews the controller instance TTL and sets `manager`'s active
     /// status as a position manager.
     #[only_owner]
     fn set_position_manager(env: Env, manager: Address, is_active: bool) {
-        storage::renew_controller_instance(&env);
-        storage::set_position_manager(&env, &manager, &PositionManagerConfig { is_active });
+        renew_then!(env, storage::set_position_manager(&env, &manager, &PositionManagerConfig { is_active }))
     }
 
     /// Owner-only. Renews the controller instance TTL and marks `pool` as an
     /// approved Blend pool.
     #[only_owner]
     fn approve_blend_pool(env: Env, pool: Address) {
-        storage::renew_controller_instance(&env);
-        config::approvals::set_blend_pool_approval(&env, pool, true);
+        renew_then!(env, config::approvals::set_blend_pool_approval(&env, pool, true))
     }
 
     /// Owner-only. Renews the controller instance TTL and revokes `pool`'s Blend
     /// pool approval.
     #[only_owner]
     fn revoke_blend_pool(env: Env, pool: Address) {
-        storage::renew_controller_instance(&env);
-        config::approvals::set_blend_pool_approval(&env, pool, false);
+        renew_then!(env, config::approvals::set_blend_pool_approval(&env, pool, false))
     }
 
     /// Owner-only. Renews the controller instance TTL, allocates a new hub with a
     /// fresh, incrementing ID, and stores it as active. Returns the new hub's ID.
     #[only_owner]
     fn create_hub(env: Env) -> u32 {
-        storage::renew_controller_instance(&env);
-        config::hub::create_hub(&env)
+        renew_then!(env, config::hub::create_hub(&env))
     }
 
     /// Owner-only. Renews the controller instance TTL, allocates a new spoke ID, and
@@ -613,8 +612,7 @@ impl ControllerAdmin for Controller {
     /// the assigned spoke ID.
     #[only_owner]
     fn add_spoke(env: Env) -> u32 {
-        storage::renew_controller_instance(&env);
-        config::spoke::add_spoke(&env)
+        renew_then!(env, config::spoke::add_spoke(&env))
     }
 
     /// Owner-only. Renews the controller instance TTL and marks the spoke identified
@@ -622,8 +620,7 @@ impl ControllerAdmin for Controller {
     /// spoke exists for `id`.
     #[only_owner]
     fn remove_spoke(env: Env, id: u32) {
-        storage::renew_controller_instance(&env);
-        config::spoke::remove_spoke(&env, id);
+        renew_then!(env, config::spoke::remove_spoke(&env, id))
     }
 
     /// Owner-only. Renews the controller instance TTL, then validates and applies a
@@ -638,14 +635,16 @@ impl ControllerAdmin for Controller {
         hf_for_max_bonus_wad: i128,
         liquidation_bonus_factor_bps: u32,
     ) {
-        storage::renew_controller_instance(&env);
-        config::spoke::set_spoke_liquidation_curve(
-            &env,
-            id,
-            target_hf_wad,
-            hf_for_max_bonus_wad,
-            liquidation_bonus_factor_bps,
-        );
+        renew_then!(
+            env,
+            config::spoke::set_spoke_liquidation_curve(
+                &env,
+                id,
+                target_hf_wad,
+                hf_for_max_bonus_wad,
+                liquidation_bonus_factor_bps,
+            )
+        )
     }
 
     /// Owner-only. Renews the controller instance TTL and lists a new asset in a
@@ -653,8 +652,7 @@ impl ControllerAdmin for Controller {
     /// caps. Panics if the spoke is deprecated or the asset is already listed.
     #[only_owner]
     fn add_asset_to_spoke(env: Env, input: SpokeAssetArgs) {
-        storage::renew_controller_instance(&env);
-        config::asset::add_asset_to_spoke(&env, &input);
+        renew_then!(env, config::asset::add_asset_to_spoke(&env, &input))
     }
 
     /// Owner-only. Renews the controller instance TTL and rewrites the full spoke
@@ -663,8 +661,7 @@ impl ControllerAdmin for Controller {
     /// in the spoke.
     #[only_owner]
     fn edit_asset_in_spoke(env: Env, input: SpokeAssetArgs) {
-        storage::renew_controller_instance(&env);
-        config::asset::edit_asset_in_spoke(&env, &input);
+        renew_then!(env, config::asset::edit_asset_in_spoke(&env, &input))
     }
 
     /// Owner-only. Renews the controller instance TTL and sets the `paused` and
@@ -679,8 +676,7 @@ impl ControllerAdmin for Controller {
         paused: bool,
         frozen: bool,
     ) {
-        storage::renew_controller_instance(&env);
-        config::asset::set_spoke_asset_flags(&env, spoke_id, hub_asset, paused, frozen);
+        renew_then!(env, config::asset::set_spoke_asset_flags(&env, spoke_id, hub_asset, paused, frozen))
     }
 
     /// Owner-only. Renews the controller instance TTL and removes the listing for
@@ -688,8 +684,7 @@ impl ControllerAdmin for Controller {
     /// or if it still has a nonzero supplied or borrowed balance.
     #[only_owner]
     fn remove_asset_from_spoke(env: Env, hub_asset: HubAssetKey, spoke_id: u32) {
-        storage::renew_controller_instance(&env);
-        config::asset::remove_asset_from_spoke(&env, hub_asset, spoke_id);
+        renew_then!(env, config::asset::remove_asset_from_spoke(&env, hub_asset, spoke_id))
     }
 
     /// Owner-only. Deploys the liquidity-pool contract under the controller's own
