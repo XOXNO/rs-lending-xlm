@@ -2,7 +2,6 @@
 mod account;
 mod hub;
 mod protocol;
-mod session;
 mod spoke;
 #[cfg(feature = "certora")]
 #[path = "../../../../certora/controller/harness/storage.rs"]
@@ -23,7 +22,7 @@ pub(crate) use protocol::{
     set_position_limits, set_position_manager, set_price_aggregator, set_swap_aggregator,
     try_get_accumulator, try_get_pool,
 };
-pub(crate) use session::{is_flash_loan_ongoing, with_flash_guard};
+pub(crate) use account::{is_flash_loan_ongoing, with_flash_guard};
 pub(crate) use spoke::{
     get_spoke, get_spoke_asset, get_spoke_usage, increment_spoke_id, remove_spoke_asset, set_spoke,
     set_spoke_asset, set_spoke_usage,
@@ -33,7 +32,7 @@ pub(crate) use protocol::{
 };
 
 #[cfg(any(feature = "testing", feature = "certora"))]
-pub(crate) use session::set_flash_loan_ongoing;
+pub(crate) use account::set_flash_loan_ongoing;
 #[cfg(feature = "certora")]
 pub(crate) use spoke::try_get_spoke;
 #[cfg(feature = "certora")]
