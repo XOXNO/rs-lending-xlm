@@ -18,7 +18,7 @@ use self::curve::is_socializable_bad_debt;
 use crate::context::Cache;
 use crate::events::LiquidationEvent;
 use crate::payments;
-use crate::positions::{persist_position_flow, PositionSides};
+use crate::positions::{finalize_position_flow, PositionSides};
 use crate::risk::validation;
 use crate::storage;
 
@@ -78,7 +78,7 @@ pub(crate) fn process_liquidation(
         &account.borrow_positions,
     );
 
-    persist_position_flow(
+    finalize_position_flow(
         env,
         account_id,
         &account,

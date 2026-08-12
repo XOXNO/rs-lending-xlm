@@ -196,7 +196,7 @@ pub(crate) fn persist_account_positions(
     }
 }
 
-pub(crate) fn persist_position_flow(
+pub(crate) fn finalize_position_flow(
     env: &Env,
     account_id: u64,
     account: &Account,
@@ -206,18 +206,23 @@ pub(crate) fn persist_position_flow(
 ) {
     cache.persist_spoke_usage();
     persist_account_positions(env, account_id, account, sides, remove_if_empty);
+    cache.emit_position_batch(account_id, account);
 }
 
-pub(crate) fn finalize_position_flow(
+pub(crate) fn require_can_borrow(
     env: &Env,
-    account_id: u64,
-    account: &Account,
     cache: &mut Cache,
-    sides: PositionSides,
-    remove_if_empty: bool,
+    spoke_id: u32,
+    hub_asset: &HubAssetKey,
 ) {
-    persist_position_flow(env, account_id, account, cache, sides, remove_if_empty);
-    cache.emit_position_batch(account_id, account);
+    cache.require_hub_active(hub_asset.hub_id);
+    let asset_config = cache.require_listed_active_config(spoke_id, hub_asset);
+    enforce_spoke_asset_flags(env, cache, spoke_id, hub_asset, FreezePolicy::BlockOnEntry);
+    assert_with_error!(
+        env,
+        asset_config.can_borrow(),
+        CollateralError::AssetNotBorrowable
+    );
 }
 
 pub(crate) fn require_can_supply(
@@ -253,22 +258,7 @@ pub(crate) fn validate_position_entry_gates(
                 require_can_supply(env, cache, account.spoke_id, &hub_asset);
             }
             AccountPositionType::Borrow => {
-                cache.require_hub_active(hub_asset.hub_id);
-                // Unlisted assets revert `AssetNotInSpoke`.
-                let asset_config = cache.require_listed_active_config(account.spoke_id, &hub_asset);
-                // New entries: frozen blocks; paused blocks every verb.
-                enforce_spoke_asset_flags(
-                    env,
-                    cache,
-                    account.spoke_id,
-                    &hub_asset,
-                    FreezePolicy::BlockOnEntry,
-                );
-                assert_with_error!(
-                    env,
-                    asset_config.can_borrow(),
-                    CollateralError::AssetNotBorrowable
-                );
+                require_can_borrow(env, cache, account.spoke_id, &hub_asset);
             }
         }
     }
