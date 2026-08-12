@@ -70,3 +70,23 @@ pub(crate) fn set_spoke_liquidation_curve(
     }
     .publish(env);
 }
+
+use common::errors::GenericError;
+use common::types::HubConfig;
+
+use crate::events::CreateHubEvent;
+
+pub(crate) fn create_hub(env: &Env) -> u32 {
+    let id = storage::increment_hub_id(env);
+    storage::set_hub(env, id, &HubConfig { is_active: true });
+
+    CreateHubEvent { hub_id: id }.publish(env);
+
+    id
+}
+
+pub(crate) fn require_hub_active(env: &Env, hub_id: u32) {
+    let active = storage::get_hub(env, hub_id).is_some_and(|hub| hub.is_active);
+    assert_with_error!(env, active, GenericError::HubNotActive);
+}
+

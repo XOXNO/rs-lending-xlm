@@ -393,7 +393,7 @@ impl ControllerInterface for Controller {
     }
 
     fn is_blend_pool_approved(env: Env, pool: Address) -> bool {
-        config::approvals::is_blend_pool_approved(&env, pool)
+        config::registry::is_blend_pool_approved(&env, pool)
     }
 }
 
@@ -431,17 +431,17 @@ impl ControllerAdmin for Controller {
 
     #[only_owner]
     fn approve_blend_pool(env: Env, pool: Address) {
-        renew_then!(env, config::approvals::set_blend_pool_approval(&env, pool, true))
+        renew_then!(env, config::registry::set_blend_pool_approval(&env, pool, true))
     }
 
     #[only_owner]
     fn revoke_blend_pool(env: Env, pool: Address) {
-        renew_then!(env, config::approvals::set_blend_pool_approval(&env, pool, false))
+        renew_then!(env, config::registry::set_blend_pool_approval(&env, pool, false))
     }
 
     #[only_owner]
     fn create_hub(env: Env) -> u32 {
-        renew_then!(env, config::hub::create_hub(&env))
+        renew_then!(env, config::spoke::create_hub(&env))
     }
 
     #[only_owner]

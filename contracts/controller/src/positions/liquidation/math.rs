@@ -360,6 +360,7 @@ pub(crate) fn get_account_bonus_params(
 #[path = "../../../tests/positions/liquidation_math.rs"]
 mod tests;
 
+#[cfg(test)]
 pub(crate) fn scale_seizures_to_received(
     env: &Env,
     seized: &Vec<SeizeEntry>,
