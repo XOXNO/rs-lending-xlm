@@ -1,5 +1,3 @@
-//! Per-invocation cache of the pool contract address and per-asset pool
-//! sync data on `Cache`.
 
 use common::types::{HubAssetKey, PoolSyncData};
 use soroban_sdk::Address;
@@ -9,8 +7,6 @@ use crate::external::pool::fetch_pool_sync_data;
 use crate::storage;
 
 impl Cache {
-    /// Returns the pool contract address, reading it from storage and
-    /// caching it on first call.
     pub(crate) fn cached_pool_address(&mut self) -> Address {
         if let Some(addr) = &self.pool_address {
             return addr.clone();
@@ -20,9 +16,6 @@ impl Cache {
         addr
     }
 
-    /// Returns the pool sync data for `hub_asset`. If not cached, fetches
-    /// it from the pool contract (resolving the pool address first if
-    /// needed) and caches the result before returning.
     pub(crate) fn cached_pool_sync_data(&mut self, hub_asset: &HubAssetKey) -> PoolSyncData {
         if let Some(data) = self.pool_sync_data.get(hub_asset.clone()) {
             return data;

@@ -1,5 +1,3 @@
-//! Deploys and upgrades the liquidity-pool contract, and creates or updates
-//! markets on it through cross-contract calls.
 
 use common::errors::GenericError;
 use common::types::{HubAssetKey, InterestRateModel, MarketParamsRaw};
@@ -13,11 +11,8 @@ use crate::external::pool::{
 };
 use crate::storage;
 
-/// Fixed salt used when deploying the liquidity-pool contract instance.
 const POOL_DEPLOY_SALT: [u8; 32] = [0u8; 32];
 
-/// Deploys the liquidity-pool contract under the controller's own address using a
-/// fixed salt, and stores its address. Panics if a pool is already deployed.
 pub(crate) fn deploy_pool(env: &Env, wasm_hash: BytesN<32>) -> Address {
     storage::renew_controller_instance(env);
 
@@ -37,9 +32,6 @@ pub(crate) fn deploy_pool(env: &Env, wasm_hash: BytesN<32>) -> Address {
     pool
 }
 
-/// Registers a new market for `asset` under `hub_id` on the deployed liquidity pool
-/// and publishes a `CreateMarketEvent`. Panics if the hub is not active or if
-/// `params.asset_id` does not match `asset`.
 pub(crate) fn create_liquidity_pool(
     env: &Env,
     hub_id: u32,
@@ -60,9 +52,6 @@ pub(crate) fn create_liquidity_pool(
     pool_address
 }
 
-/// Updates the interest-rate model for the market identified by `hub_asset` on the
-/// pool, first accruing its indexes up to date, and publishes an
-/// `UpdateMarketParamsEvent` with the new parameters.
 pub(crate) fn upgrade_liquidity_pool_params(
     env: &Env,
     hub_asset: &HubAssetKey,
@@ -79,7 +68,6 @@ pub(crate) fn upgrade_liquidity_pool_params(
     UpdateMarketParamsEvent::from((hub_asset.hub_id, hub_asset.asset.clone(), params)).publish(env);
 }
 
-/// Upgrades the deployed liquidity-pool contract to the WASM at `new_wasm_hash`.
 pub(crate) fn upgrade_pool(env: &Env, new_wasm_hash: BytesN<32>) {
     storage::renew_controller_instance(env);
     let pool_addr = storage::get_pool(env);

@@ -1,19 +1,14 @@
-//! Balance snapshotting and reconciliation for swaps executed through an
-//! external router.
 
 use common::errors::{GenericError, StrategyError};
 use soroban_sdk::{assert_with_error, panic_with_error, token, Address, Env};
 
 
-/// Current contract's token-in and token-out balances captured before a
-/// router swap.
 pub(crate) struct SwapBalanceSnapshot {
     pub(crate) token_in: i128,
 
     pub(crate) token_out: i128,
 }
 
-/// Reads the current contract's token-in and token-out balances.
 pub(crate) fn snapshot_swap_balances(
     env: &Env,
     token_in_client: &token::Client,
@@ -25,10 +20,6 @@ pub(crate) fn snapshot_swap_balances(
     }
 }
 
-/// Reconciles token-in spend after a router call. Refunds the unspent
-/// remainder of `amount_in` to `refund_to`. Panics with
-/// `StrategyError::RouterOverspend` if the current contract's token-in
-/// balance increased, or if the router spent more than `amount_in`.
 pub(crate) fn settle_router_input(
     env: &Env,
     token_in_client: &token::Client,
@@ -56,9 +47,6 @@ pub(crate) fn settle_router_input(
     }
 }
 
-/// Returns the increase in the current contract's token-out balance since
-/// `balance_before`. Panics with `StrategyError::NoSwapOutput` if the
-/// balance did not increase.
 pub(crate) fn verify_router_output(
     env: &Env,
     token_out_client: &token::Client,

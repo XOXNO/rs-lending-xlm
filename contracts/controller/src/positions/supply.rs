@@ -1,6 +1,3 @@
-//! Supply-flow logic for the controller: creates or loads accounts, transfers deposited funds
-//! to the pool, applies the pool results to account supply positions, and refreshes each
-//! position's risk parameters before the new balance lands.
 
 use common::errors::GenericError;
 use common::types::{
@@ -21,15 +18,6 @@ use crate::positions::{
 use crate::risk::{refresh_supply_risk_params, RiskRefreshScope};
 use crate::spoke::UsageSide;
 
-/// Executes a deposit of `assets` into spoke `spoke_id` for account `account_id` (or a newly
-/// created account if `account_id` is `0`), crediting `caller` as the depositor. Returns the
-/// account id used.
-///
-/// Requires `caller`'s authorization and reverts if a flash loan is in progress. Loads or
-/// creates the account, then, if `account_id` is nonzero and `caller` is neither the owner nor
-/// an active protocol position manager listed among the account's delegates, requires every
-/// hub asset in `assets` to already have an existing supply position on the account. Validates
-/// entry gates, deposits into the pool, and persists the resulting supply positions.
 pub(crate) fn process_supply(
     env: &Env,
     caller: &Address,
@@ -75,8 +63,6 @@ pub(crate) fn process_supply(
     acct_id
 }
 
-/// Validates entry gates for `aggregated` and settles the deposit against the pool, updating
-/// `account`'s supply positions from the results.
 pub(crate) fn process_deposit(
     env: &Env,
     caller: &Address,
@@ -94,8 +80,6 @@ pub(crate) fn process_deposit(
     settle_supply(env, caller, account, aggregated, cache);
 }
 
-/// Builds pool supply entries for `aggregated`, transferring funds from `caller`, and applies
-/// them against the pool, updating `account`'s supply positions from the results.
 fn settle_supply(
     env: &Env,
     caller: &Address,
@@ -108,9 +92,6 @@ fn settle_supply(
     apply_supply_batch(env, account, &entries, cache);
 }
 
-/// Builds one [`PoolSupplyEntry`] per hub asset in `aggregated`: transfers the measured amount
-/// from `caller` to the pool and records it against the asset's existing or newly created supply
-/// position.
 fn build_supply_entries(
     env: &Env,
     caller: &Address,
@@ -138,8 +119,6 @@ fn build_supply_entries(
     entries
 }
 
-/// Calls the pool to execute `entries` as a supply batch, then merges each leg's result into
-/// `account`'s supply positions.
 fn apply_supply_batch(
     env: &Env,
     account: &mut Account,
@@ -153,9 +132,6 @@ fn apply_supply_batch(
     });
 }
 
-/// Folds one supply-side pool result into `account`: refreshes the position's risk parameters
-/// before applying the new scaled amount, updates spoke usage and the cached market index, and
-/// records the supply position update event.
 fn merge_supply_leg(
     env: &Env,
     account: &mut Account,

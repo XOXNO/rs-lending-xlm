@@ -1,5 +1,3 @@
-//! Flash loan strategy: validates a flash loan request, dispatches it to the
-//! pool, and publishes the resulting event.
 
 use crate::events::FlashLoanEvent;
 use common::types::HubAssetKey;
@@ -11,11 +9,6 @@ use crate::context::Cache;
 use crate::external::pool::pool_flash_loan_call;
 use crate::{risk::validation, storage};
 
-/// Executes a flash loan of `amount` of `hub_asset` to `receiver`, invoking the
-/// pool's flash loan callback with `data`. Requires `caller` authorization,
-/// rejects a nested flash loan call, requires a positive `amount`, requires the
-/// hub to be active, and requires `receiver` to be a WASM contract. Publishes a
-/// `FlashLoanEvent` carrying the fee charged by the pool.
 pub(crate) fn process_flash_loan(
     env: &Env,
     caller: &Address,

@@ -1,8 +1,3 @@
-//! Controller-level strategies: multi-step operations (flash loans, Blend
-//! migration, multiply, collateral/debt swaps, repay-with-collateral) built
-//! on top of the shared position legs in [`legs`], plus common helpers for
-//! prefetching prices, finalizing a position after a strategy runs, and
-//! withdrawing supply into the controller ahead of a swap.
 
 pub(crate) mod flash_loan;
 pub(crate) mod legs;
@@ -28,8 +23,6 @@ use crate::events;
 use crate::positions::{finalize_position_flow, get_supply_position_or_panic, PositionSides};
 use crate::risk::{self, account_price_assets, validation};
 
-/// Fetches and caches oracle prices for every asset held by `account` plus
-/// `extra_assets`.
 pub(crate) fn prefetch_strategy_prices(
     cache: &mut Cache,
     account: &Account,
@@ -39,9 +32,6 @@ pub(crate) fn prefetch_strategy_prices(
     cache.fetch_prices(&account_price_assets(&env, account, extra_assets));
 }
 
-/// Restamps listed-supply LTV, enforces post-pool risk gates, and finalizes
-/// both position sides for `account_id`, persisting the account. Called after
-/// a strategy has applied its position changes.
 pub(crate) fn strategy_finalize(
     env: &Env,
     account_id: u64,
@@ -53,14 +43,6 @@ pub(crate) fn strategy_finalize(
     finalize_position_flow(env, account_id, account, cache, PositionSides::BOTH, true);
 }
 
-/// Withdraws `amount` of `from` out of the account's supply position into the
-/// controller, then swaps the withdrawn amount into `token_out` per `swap`
-/// (or passes it through unswapped). Refunds any unswapped remainder to
-/// `caller`. Returns the resulting `token_out` amount. Does not deposit,
-/// repay, or otherwise update positions with the swap output.
-///
-/// Order is fixed and intentional: the supply position is loaded and validated
-/// first, then withdrawn into the controller, then swapped (or passed through).
 pub(crate) fn withdraw_and_swap_from_supply(
     env: &Env,
     account: &mut Account,

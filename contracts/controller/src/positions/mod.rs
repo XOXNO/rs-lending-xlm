@@ -1,9 +1,3 @@
-//! Shared building blocks for the position-mutation flows implemented in the sibling
-//! `borrow`, `repay`, `supply`, `withdraw`, and `liquidation` modules.
-//!
-//! Provides the caller/auth entry gate, per-leg pool-result merging for debt positions,
-//! entry-gate validation for deposits and borrows, post-pool solvency enforcement, and the
-//! account-state persistence and event-emission tail shared by every verb.
 
 use common::errors::{CollateralError, GenericError, SpokeError};
 use common::math::fp::Ray;
@@ -28,14 +22,9 @@ pub(crate) mod repay;
 pub(crate) mod supply;
 pub(crate) mod withdraw;
 
-/// Reduced pool-call result for one position leg: the fields the merge step consumes,
-/// independent of which pool call produced them.
 pub(crate) struct LegOutcome {
-    /// Post-call scaled shares, as owned by the pool.
     pub new_scaled: Ray,
-    /// Market index snapshot returned by the pool call for this leg's asset.
     pub market_index: MarketIndexRaw,
-    /// Asset-native amount moved, for the event payload.
     pub amount: i128,
 }
 
@@ -49,10 +38,6 @@ impl From<&PoolPositionMutation> for LegOutcome {
     }
 }
 
-/// Walks one pool call's entries against its results, in input order.
-///
-/// # Errors
-/// * [`GenericError::InternalError`] - result count differs from entry count.
 pub(crate) fn for_each_leg<E, R>(
     env: &Env,
     entries: &Vec<E>,
@@ -72,14 +57,11 @@ pub(crate) fn for_each_leg<E, R>(
     }
 }
 
-/// Requires `caller`'s authorization signature and reverts if a flash loan is in progress.
 pub(crate) fn require_position_caller(env: &Env, caller: &Address) {
     caller.require_auth();
     validation::require_not_flash_loaning(env);
 }
 
-/// Restamps live LTV on every listed supply leg, then runs the post-pool risk gates. Returns
-/// whether the supply position map was modified.
 pub(crate) fn enforce_post_pool_solvency(
     env: &Env,
     cache: &mut Cache,
@@ -90,16 +72,12 @@ pub(crate) fn enforce_post_pool_solvency(
     restamped
 }
 
-/// Direction of a position leg. `Entry` increases the position and carries the asset decimals
-/// used for cap enforcement; `Exit` decreases it.
 #[derive(Clone, Copy)]
 pub(crate) enum LegDirection {
     Entry { asset_decimals: u32 },
     Exit,
 }
 
-/// Applies a leg's scaled-share delta to spoke usage: computes `new - old` for `Entry` and
-/// `old - new` for `Exit`, and enforces caps only for `Entry`.
 pub(crate) fn apply_leg_usage(
     env: &Env,
     cache: &mut Cache,
@@ -128,11 +106,6 @@ pub(crate) fn apply_leg_usage(
     }
 }
 
-/// Folds one debt-side pool result into the account, spoke usage, and events. Handles both
-/// borrow (`Entry`) and repay (`Exit`) directions.
-///
-/// Panics with `DebtPositionNotFound` if `direction` is `Exit` and `hub_asset` has no debt
-/// position on `account`.
 pub(crate) fn merge_debt_leg(
     env: &Env,
     account: &mut Account,
@@ -175,16 +148,12 @@ pub(crate) fn merge_debt_leg(
     account::update_or_remove_debt_position(account, hub_asset, &position);
 }
 
-/// Whether a frozen listing blocks the verb.
 #[derive(Clone, Copy, PartialEq)]
 pub(crate) enum FreezePolicy {
-    /// New deposits and borrows: a frozen listing reverts.
     BlockOnEntry,
-    /// Withdraw, repay, and net settle: a frozen listing still permits the exit.
     AllowOnExit,
 }
 
-/// Which account position maps to write on finalize.
 #[derive(Copy, Clone)]
 pub(crate) struct PositionSides {
     pub supply: bool,
@@ -206,9 +175,6 @@ impl PositionSides {
     };
 }
 
-/// Persists `account`'s supply and/or debt position maps according to `sides`, renews the
-/// account's storage TTL if either side is written, and runs empty-account cleanup when
-/// `remove_if_empty` is set.
 pub(crate) fn persist_account_positions(
     env: &Env,
     account_id: u64,
@@ -230,8 +196,6 @@ pub(crate) fn persist_account_positions(
     }
 }
 
-/// Persists buffered spoke usage, then `account`'s supply and/or debt position maps, via
-/// [`persist_account_positions`].
 pub(crate) fn persist_position_flow(
     env: &Env,
     account_id: u64,
@@ -244,10 +208,6 @@ pub(crate) fn persist_position_flow(
     persist_account_positions(env, account_id, account, sides, remove_if_empty);
 }
 
-/// Persists `account`'s position state (via [`persist_position_flow`]) and emits the
-/// position-change events for `account_id`. `remove_if_empty` is `true` for user
-/// withdraw and for strategy finalization (`strategy_finalize`); borrow, repay, and
-/// supply pass `false`, leaving the account in storage even if a side ends up empty.
 pub(crate) fn finalize_position_flow(
     env: &Env,
     account_id: u64,
@@ -260,9 +220,6 @@ pub(crate) fn finalize_position_flow(
     cache.emit_position_batch(account_id, account);
 }
 
-/// Validates hub-active status, spoke listing, pause/freeze flags (via
-/// [`FreezePolicy::BlockOnEntry`]), and `can_supply` for a single asset. Equivalent to the
-/// `Deposit` branch of [`validate_position_entry_gates`] without the bulk position-limit checks.
 pub(crate) fn require_can_supply(
     env: &Env,
     cache: &mut Cache,
@@ -281,8 +238,6 @@ pub(crate) fn require_can_supply(
     );
 }
 
-/// Shared pre-pool entry gates for deposit and borrow batches: hub active,
-/// listing, pause/freeze flags, and side-specific supply/borrow capability.
 pub(crate) fn validate_position_entry_gates(
     env: &Env,
     account: &Account,
@@ -319,9 +274,6 @@ pub(crate) fn validate_position_entry_gates(
     }
 }
 
-/// Enforces per-spoke paused/frozen flags when the asset is listed in the cache. Reverts if
-/// paused, for every verb. Reverts if frozen only under [`FreezePolicy::BlockOnEntry`]. Does
-/// nothing if the asset has no cached spoke listing.
 pub(crate) fn enforce_spoke_asset_flags(
     env: &Env,
     cache: &mut Cache,
@@ -337,7 +289,6 @@ pub(crate) fn enforce_spoke_asset_flags(
     }
 }
 
-/// Builds a [`PoolAction`] from a scaled position, amount, and hub asset.
 pub(crate) fn make_pool_action(
     position: impl Into<ScaledPositionRaw>,
     amount: i128,
@@ -350,8 +301,6 @@ pub(crate) fn make_pool_action(
     }
 }
 
-/// Looks up the supply position for `hub_asset` on `account`. Panics with
-/// `CollateralPositionNotFound` if none exists.
 pub(crate) fn get_supply_position_or_panic(
     env: &Env,
     account: &Account,
@@ -364,8 +313,6 @@ pub(crate) fn get_supply_position_or_panic(
         .into()
 }
 
-/// Looks up the debt position for `hub_asset` on `account`. Panics with `DebtPositionNotFound`
-/// if none exists.
 pub(crate) fn get_debt_position_or_panic(
     env: &Env,
     account: &Account,

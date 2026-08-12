@@ -1,7 +1,3 @@
-//! Borrow-flow logic for the controller: aggregates requested borrow legs, calls the pool
-//! to open or increase debt positions, applies the pool results to account debt state, and
-//! enforces solvency afterward. Also provides the borrow entry points used by strategy
-//! execution (leveraged multiply positions) and position migration.
 
 use common::types::{
     Account, AccountPositionType, HubAssetKey, PoolBorrowEntry, PoolPositionMutation,
@@ -20,15 +16,6 @@ use crate::positions::{
 };
 use crate::storage;
 
-/// Executes a borrow of `borrows` against hub debt positions for `account_id`, crediting the
-/// borrowed funds to `to` (or `caller` if `to` is `None`).
-///
-/// Requires `caller`'s authorization and reverts if a flash loan is in progress, and requires
-/// `caller` to be the account owner or an active protocol position manager listed among the
-/// account's delegates. Aggregates `borrows` into per-hub-asset amounts, validates entry gates
-/// for each asset, and calls the pool to create or increase the corresponding debt positions.
-/// Re-runs solvency checks after the pool call and persists the debt position map, plus the
-/// supply position map if LTV restamping touched it.
 pub(crate) fn process_borrow(
     env: &Env,
     caller: &Address,
@@ -63,8 +50,6 @@ pub(crate) fn process_borrow(
     finalize_position_flow(env, account_id, &account, &mut cache, sides, false);
 }
 
-/// Builds pool borrow entries for `aggregated` and applies them against the pool, updating
-/// `account`'s debt positions from the results.
 fn settle_borrow(
     env: &Env,
     recipient: &Address,
@@ -76,8 +61,6 @@ fn settle_borrow(
     apply_borrow_batch(env, account, recipient, &entries, cache);
 }
 
-/// Builds one [`PoolBorrowEntry`] per hub asset in `aggregated`, using each asset's existing or
-/// newly created debt position.
 fn build_borrow_entries(
     env: &Env,
     account: &Account,
@@ -93,8 +76,6 @@ fn build_borrow_entries(
     entries
 }
 
-/// Calls the pool to execute `entries` as a borrow batch crediting `recipient`, then merges each
-/// leg's result into `account`'s debt positions.
 fn apply_borrow_batch(
     env: &Env,
     account: &mut Account,
@@ -119,9 +100,6 @@ fn apply_borrow_batch(
     });
 }
 
-/// Borrows `amount` of `hub_debt` into `account` via the pool strategy-borrow path with the
-/// controller contract as recipient. When `charge_fee` is set the pool applies its strategy fee.
-/// `action` selects the event tag (`Multiply` or `Migrate`). Returns the amount actually received.
 pub(crate) fn borrow_into_controller(
     env: &Env,
     account: &mut Account,

@@ -1,6 +1,3 @@
-//! Multiply strategy: opens or extends a leveraged position by borrowing a
-//! debt asset, swapping it into the collateral asset, and depositing the
-//! result together with any optional up-front payment.
 
 use crate::account;
 use crate::events::InitialMultiplyPaymentEvent;
@@ -18,12 +15,6 @@ use crate::strategies::{
 };
 use crate::{positions::supply, risk::validation};
 
-/// Inputs to [`process_multiply`]: the target account and spoke, the
-/// collateral and debt hub assets, the amount of debt to borrow, the position
-/// mode, the swap route from debt to collateral, and an optional up-front
-/// payment (with its own conversion route): the debt-side portion is added to
-/// the borrowed amount before the swap, while the collateral-side portion is
-/// combined with the swap output before deposit.
 pub(crate) struct MultiplyParams<'a> {
     pub account_id: u64,
     pub spoke_id: u32,
@@ -36,15 +27,6 @@ pub(crate) struct MultiplyParams<'a> {
     pub convert_swap: Option<StrategySwap>,
 }
 
-/// Opens or extends a multiply position for `caller`. Requires `caller`
-/// authorization, rejects nested flash loans, and validates the collateral/debt
-/// pair against `mode`. For existing accounts requires owner or active
-/// position-manager delegate (new accounts take `caller` as owner). Collects any
-/// optional initial payment, borrows `debt_to_flash_loan` units of debt via the
-/// pool strategy-borrow path (not a flash loan), swaps into collateral, deposits
-/// the total, finalizes the account, and emits an `InitialMultiplyPaymentEvent`
-/// if an initial payment was supplied. Returns the account id. Panics with
-/// `MathOverflow` if combining the borrowed and paid-in amounts overflows.
 pub(crate) fn process_multiply(env: &Env, caller: &Address, params: MultiplyParams<'_>) -> u64 {
     caller.require_auth();
     validation::require_not_flash_loaning(env);
@@ -119,11 +101,6 @@ pub(crate) fn process_multiply(env: &Env, caller: &Address, params: MultiplyPara
     account_id
 }
 
-/// Loads or creates the target account under
-/// `account::AccountGuard::Multiply`, requires that `collateral` can be
-/// supplied on the account's spoke, and prefetches oracle prices for the
-/// account plus the collateral and debt assets. Returns the resolved account
-/// id, the account, and a populated `Cache`.
 fn prepare_multiply_account(
     env: &Env,
     caller: &Address,
@@ -153,11 +130,6 @@ fn prepare_multiply_account(
     (account_id, account, cache)
 }
 
-/// Validates the collateral/debt pair for `mode`: for `Multiply`, requires
-/// the two hub asset keys to differ; for `Long` or `Short`, requires only the
-/// underlying asset addresses to differ. Panics with
-/// `CollateralError::InvalidPositionMode` for any other mode, and requires
-/// `debt_to_flash_loan` to be positive.
 fn validate_multiply_request(
     env: &Env,
     collateral: &HubAssetKey,
@@ -182,12 +154,6 @@ fn validate_multiply_request(
     require_positive_amount(env, debt_to_flash_loan);
 }
 
-/// Returns `(0, 0)` if `initial_payment` is `None`. Otherwise transfers the
-/// payment amount from `caller` to the controller and requires it to be
-/// positive. If the payment asset matches `collateral`, returns it as the
-/// collateral-side amount; if it matches `debt`, returns it as the debt-side
-/// amount; otherwise swaps it into collateral using `convert_swap`, panicking
-/// with `StrategyError::ConvertStepsRequired` if `convert_swap` is `None`.
 fn collect_initial_multiply_payment(
     env: &Env,
     caller: &Address,
@@ -232,8 +198,6 @@ fn collect_initial_multiply_payment(
     }
 }
 
-/// Publishes an `InitialMultiplyPaymentEvent` for `account_id` if
-/// `initial_payment` is `Some`. Does nothing otherwise.
 fn emit_multiply_initial_payment(
     env: &Env,
     account_id: u64,
