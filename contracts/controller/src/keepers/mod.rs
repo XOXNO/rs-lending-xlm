@@ -13,7 +13,6 @@ use crate::context::Cache;
 use crate::external::pool::{
     pool_claim_revenue_call, pool_recapitalize_call, pool_update_indexes_call,
 };
-use crate::external::sac::sac_transfer_call;
 use crate::risk::validation;
 use crate::{account, events, payments, risk, storage};
 
@@ -113,12 +112,12 @@ fn claim_revenue_for_asset_with_cache(
     let amount = result.actual_amount;
 
     if amount > 0 {
-        sac_transfer_call(
+        common::token::sac_transfer(
             env,
             &hub_asset.asset,
             &env.current_contract_address(),
             &accumulator,
-            &amount,
+            amount,
         );
     }
 

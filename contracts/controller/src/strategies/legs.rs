@@ -8,7 +8,7 @@ use common::math::fp::Ray;
 use common::types::{
     Account, AccountPosition, DebtPosition, HubAssetKey, PoolNetSettleEntry, ScaledPositionRaw,
 };
-use soroban_sdk::{token, Address, Env, Vec};
+use soroban_sdk::{panic_with_error, token, Address, Env, Vec};
 
 use crate::constants::WITHDRAW_ALL_SENTINEL;
 use crate::context::Cache;
@@ -16,7 +16,6 @@ use crate::events;
 use crate::events::EventContext;
 use crate::external::pool::pool_net_settle_call;
 use crate::payments as utils;
-use crate::payments::balance_delta;
 use crate::positions::repay::{self, RepaymentRequest};
 use crate::positions::withdraw::{self, WithdrawalRequest};
 use crate::positions::{
@@ -125,7 +124,7 @@ pub(crate) fn withdraw_collateral_to_controller(
         cache,
     );
 
-    balance_delta(env, &token, balance_before)
+    token.balance(&env.current_contract_address()).checked_sub(balance_before).unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError))
 }
 
 /// Withdraws every supply position held by `account` in full, sending each
@@ -247,7 +246,7 @@ fn refund_controller_balance_delta(
 ) {
     let token = token::Client::new(env, asset);
 
-    let excess = balance_delta(env, &token, balance_before);
+    let excess = token.balance(&env.current_contract_address()).checked_sub(balance_before).unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError));
     if excess > 0 {
         token.transfer(&env.current_contract_address(), refund_to, &excess);
     }

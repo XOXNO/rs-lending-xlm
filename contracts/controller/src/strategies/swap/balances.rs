@@ -1,10 +1,9 @@
 //! Balance snapshotting and reconciliation for swaps executed through an
 //! external router.
 
-use common::errors::StrategyError;
-use soroban_sdk::{assert_with_error, token, Address, Env};
+use common::errors::{GenericError, StrategyError};
+use soroban_sdk::{assert_with_error, panic_with_error, token, Address, Env};
 
-use crate::payments::balance_delta;
 
 /// Current contract's token-in and token-out balances captured before a
 /// router swap.
@@ -65,7 +64,7 @@ pub(crate) fn verify_router_output(
     token_out_client: &token::Client,
     balance_before: i128,
 ) -> i128 {
-    let received = balance_delta(env, token_out_client, balance_before);
+    let received = token_out_client.balance(&env.current_contract_address()).checked_sub(balance_before).unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError));
     assert_with_error!(env, received > 0, StrategyError::NoSwapOutput);
     received
 }

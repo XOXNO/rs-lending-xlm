@@ -3,7 +3,6 @@
 //! call, and buffers position-update events for batched publishing.
 
 mod events;
-mod hub;
 mod market_index;
 mod oracle;
 mod pool;
@@ -92,5 +91,14 @@ impl Cache {
         let assets = unique_hub_tokens(&self.env, hub_assets);
         self.fetch_prices(&assets);
         self.fetch_market_indexes(hub_assets);
+    }
+
+    /// Verifies that `hub_id` is active, memoizing the result.
+    pub(crate) fn require_hub_active(&mut self, hub_id: u32) {
+        if self.verified_hubs.contains_key(hub_id) {
+            return;
+        }
+        crate::config::require_hub_active(&self.env, hub_id);
+        self.verified_hubs.set(hub_id, true);
     }
 }

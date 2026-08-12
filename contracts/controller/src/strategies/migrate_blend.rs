@@ -13,7 +13,6 @@ use crate::config;
 use crate::context::Cache;
 use crate::events::{self, BlendMigrationEvent};
 use crate::external::blend::{blend_repay_all, blend_sweep_all};
-use crate::payments::balance_delta;
 use crate::positions::{require_can_supply, supply};
 use crate::strategies::{
     borrow_for_migration, prefetch_strategy_prices, repay_debt_from_controller, strategy_finalize,
@@ -308,7 +307,7 @@ fn deposit_withdrawn(
         let token = token::Client::new(env, &asset);
         let prev = before.get(asset.clone()).unwrap_or(0);
 
-        let received = balance_delta(env, &token, prev);
+        let received = token.balance(&env.current_contract_address()).checked_sub(prev).unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError));
         if received > 0 {
             deposits.push_back((HubAssetKey { hub_id, asset }, received));
         }
@@ -342,7 +341,7 @@ fn reconcile_debt_refunds(
         let token = token::Client::new(env, &debt_asset);
         let prev = before.get(debt_asset.clone()).unwrap_or(0);
 
-        let refund = balance_delta(env, &token, prev);
+        let refund = token.balance(&env.current_contract_address()).checked_sub(prev).unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError));
         if refund > 0 {
             let hub_debt = HubAssetKey {
                 hub_id,
