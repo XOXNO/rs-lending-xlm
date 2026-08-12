@@ -20,11 +20,9 @@ pub(crate) struct RepayOutcome {
     pub(crate) overpayment: i128,
 }
 
-/// Accrue, burn debt, credit net repay, commit, refund overpayment.
-///
-/// # Returns
-///
-/// Mutation with `actual_amount` = net repay (excluding overpayment).
+/// Accrues interest, burns the payer's debt shares, credits the net repay to cash,
+/// commits the market state, and transfers any overpayment back to the payer.
+/// The returned mutation's `actual_amount` is the net repay, excluding overpayment.
 pub(crate) fn apply(
     env: &Env,
     payer: &Address,
@@ -36,9 +34,10 @@ pub(crate) fn apply(
     (outcome.mutation, outcome.snapshot)
 }
 
-/// Run repay accounting without transferring the overpayment refund.
-///
-/// Panics if a positive net repay would burn zero scaled shares.
+/// Accrues interest, resolves the repay amount into burned debt shares and
+/// overpayment, burns the shares, and credits the net repay to cash without
+/// transferring the overpayment refund. Panics if a positive net repay would
+/// burn zero scaled shares.
 pub(crate) fn accounting(env: &Env, action: &PoolAction) -> RepayOutcome {
     let (mut cache, position) = ops::load_leg(env, action);
     let amount = action.amount;

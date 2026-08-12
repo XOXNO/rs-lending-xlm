@@ -56,13 +56,7 @@ fn mixed_pair_key(env: &Env, adapter: &Address, fast: FeedNature, slow: FeedNatu
     registry::store_oracle(
         env,
         &key,
-        &oracle(
-            env,
-            sources(env, &[a, b]),
-            SLOW_LEG_BOUND,
-            WAD / 2,
-            2 * WAD,
-        ),
+        &oracle(env, sources(env, &[a, b]), SLOW_LEG_BOUND, WAD / 2, 2 * WAD),
     );
     key
 }

@@ -46,8 +46,6 @@ pub(crate) fn load_state(env: &Env, hub_asset: &HubAssetKey) -> PoolStateRaw {
 }
 
 /// Load params + state as [`PoolSyncData`] and renew market TTLs.
-///
-/// Used by view entrypoints and hub sync (`get_sync_data`, bulk indexes).
 pub(crate) fn load_sync_data(env: &Env, hub_asset: &HubAssetKey) -> PoolSyncData {
     let params = read_params(env, hub_asset);
     let state = read_state(env, hub_asset);

@@ -1,3 +1,9 @@
+//! Session state used while resolving one or more price keys in a single
+//! call to the aggregator. Holds cycle-detection state, a cache of raw
+//! provider feed payloads, and per-key resolved prices, errors, and
+//! statuses so that shared sub-resolutions are not repeated within the
+//! same call.
+
 use common::errors::OracleError;
 use common::oracle::providers::redstone::RedStonePriceData;
 use common::types::{PriceFeedRaw, PriceKey, PriceStatus};
@@ -6,6 +12,12 @@ use soroban_sdk::{panic_with_error, Address, Env, Map, String, Vec};
 #[cfg(not(feature = "certora"))]
 use common::types::{PriceSource, ProviderRef, MAX_RESOLUTION_DEPTH};
 
+/// Per-invocation resolution state for the price aggregator.
+///
+/// Caches raw provider feed payloads and per-key resolved prices, errors, and
+/// statuses for the duration of a single resolution pass, and tracks which
+/// keys are currently being resolved so that recursive resolution can detect
+/// cycles.
 pub(crate) struct Session {
     env: Env,
     feed_cache: Map<(Address, String), RedStonePriceData>,
@@ -17,6 +29,8 @@ pub(crate) struct Session {
 }
 
 impl Session {
+    /// Creates an empty session, capturing the current ledger timestamp for
+    /// use as the resolution time.
     pub(crate) fn new(env: &Env) -> Self {
         Session {
             env: env.clone(),
@@ -29,14 +43,18 @@ impl Session {
         }
     }
 
+    /// Returns the session's environment handle.
     pub(crate) fn env(&self) -> &Env {
         &self.env
     }
 
+    /// Returns the ledger timestamp captured when the session was created.
     pub(crate) fn now_secs(&self) -> u64 {
         self.now_secs
     }
 
+    /// Returns the cached raw provider payload for the given adapter and
+    /// feed id, if one has already been fetched or warmed in this session.
     pub(crate) fn get_feed(
         &self,
         adapter: &Address,
@@ -45,6 +63,8 @@ impl Session {
         self.feed_cache.get((adapter.clone(), feed_id.clone()))
     }
 
+    /// Caches a raw provider payload for the given adapter and feed id,
+    /// overwriting any existing entry.
     pub(crate) fn set_feed(
         &mut self,
         adapter: &Address,
@@ -55,10 +75,14 @@ impl Session {
             .set((adapter.clone(), feed_id.clone()), data);
     }
 
+    /// Returns whether the given key is currently on the resolution stack.
     pub(crate) fn is_resolving(&self, key: &PriceKey) -> bool {
         self.resolving_keys.iter().any(|k| k == *key)
     }
 
+    /// Pushes a key onto the resolution stack. Panics with
+    /// `OracleError::OracleCycleDetected` if the key is already on the
+    /// stack.
     pub(crate) fn push_key(&mut self, key: &PriceKey) {
         if self.is_resolving(key) {
             panic_with_error!(&self.env, OracleError::OracleCycleDetected);
@@ -66,37 +90,54 @@ impl Session {
         self.resolving_keys.push_back(key.clone());
     }
 
+    /// Pops the most recently pushed key off the resolution stack.
     pub(crate) fn pop_key(&mut self) {
         self.resolving_keys.pop_back();
     }
 
+    /// Returns the resolved price previously stored for the given key in
+    /// this session, if any.
     pub(crate) fn cached_price(&self, key: &PriceKey) -> Option<PriceFeedRaw> {
         self.key_prices.get(key.clone())
     }
 
+    /// Stores the resolved price for the given key in this session.
     pub(crate) fn store_price(&mut self, key: &PriceKey, feed: PriceFeedRaw) {
         self.key_prices.set(key.clone(), feed);
     }
 
+    /// Returns the error previously stored for the given key in this
+    /// session, if any.
     pub(crate) fn cached_error(&self, key: &PriceKey) -> Option<OracleError> {
         self.key_errors.get(key.clone())
     }
 
+    /// Stores an error for the given key in this session.
     pub(crate) fn store_error(&mut self, key: &PriceKey, error: OracleError) {
         self.key_errors.set(key.clone(), error);
     }
 
+    /// Returns the status previously stored for the given key in this
+    /// session, if any.
     pub(crate) fn cached_status(&self, key: &PriceKey) -> Option<PriceStatus> {
         self.key_statuses.get(key.clone())
     }
 
+    /// Stores the status for the given key in this session.
     pub(crate) fn store_status(&mut self, key: &PriceKey, status: PriceStatus) {
         self.key_statuses.set(key.clone(), status);
     }
 
+    /// No-op under the `certora` feature, where bulk warming is disabled.
     #[cfg(feature = "certora")]
     pub(crate) fn warm(&mut self, _keys: &Vec<PriceKey>) {}
 
+    /// Pre-fetches raw provider payloads for the given keys and their
+    /// transitive dependencies, grouping feed ids by adapter and issuing a
+    /// bulk read per adapter that has at least `MIN_BULK_FEEDS` distinct
+    /// feeds. Fetched payloads are stored in the feed cache via `set_feed`.
+    /// Adapters with fewer feeds are skipped, and a failed bulk read for an
+    /// adapter is skipped rather than propagated.
     #[cfg(not(feature = "certora"))]
     pub(crate) fn warm(&mut self, keys: &Vec<PriceKey>) {
         use crate::providers::multi_feed::read_price_data_bulk;
@@ -127,6 +168,11 @@ impl Session {
     }
 }
 
+/// Walks the oracle configuration for `key` and its dependent keys (through
+/// scaled and LP sources), collecting the provider feeds each one touches
+/// into `by_adapter` keyed by adapter address. Stops recursing once a key
+/// has already been visited or `depth` exceeds `MAX_RESOLUTION_DEPTH`, and
+/// returns without collecting anything if the key has no registered oracle.
 #[cfg(not(feature = "certora"))]
 fn collect_key(
     env: &Env,
@@ -160,6 +206,9 @@ fn collect_key(
     }
 }
 
+/// Records the feed id referenced by `provider` under its adapter contract
+/// in `by_adapter`, deduplicating against feeds already recorded for that
+/// adapter. Reflector providers are not bulk-fetchable and are skipped.
 #[cfg(not(feature = "certora"))]
 fn collect_provider(env: &Env, by_adapter: &mut Map<Address, Vec<String>>, provider: &ProviderRef) {
     let multi_feed = match provider {

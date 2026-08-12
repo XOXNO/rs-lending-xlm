@@ -1,9 +1,13 @@
+//! Core price-resolution engine: reads an oracle's configured sources, blends them
+//! into a single price with staleness and deviation flags, and enforces cycle and
+//! depth limits while resolving nested (scaled and Aquarius LP) compositions.
+
 use common::errors::OracleError;
 use common::math::fp::Wad;
 use common::oracle::observation::{is_stale, MAX_LEG_AGE_SPREAD_SECONDS};
 use common::types::{
-    AssetOracle, FeedNature, FeedSource, PriceFeedRaw, PriceKey, PriceSource, PriceStatus, ProviderRef,
-    ScaledSource, MAX_RESOLUTION_DEPTH,
+    AssetOracle, FeedNature, FeedSource, PriceFeedRaw, PriceKey, PriceSource, PriceStatus,
+    ProviderRef, ScaledSource, MAX_RESOLUTION_DEPTH,
 };
 use soroban_sdk::{panic_with_error, Env};
 
@@ -13,6 +17,8 @@ use crate::registry;
 use crate::session::Session;
 use crate::tolerance::{midpoint_price_or_zero, within_tolerance_band};
 
+/// A single source's resolved value: price, observation timestamp, and whether it
+/// is considered stale.
 struct Reading {
     price_wad: i128,
     timestamp: u64,
@@ -20,12 +26,16 @@ struct Reading {
     nature: FeedNature,
 }
 
+/// Identifies which of an oracle's two source legs a `Legs::Partial` reading fills.
 #[derive(Clone, Copy)]
 enum LegSlot {
     Primary,
     Secondary,
 }
 
+/// The set of readings produced by composing an oracle's configured sources: both
+/// legs, a single leg (single-source oracle), only one of two configured legs, or
+/// none.
 enum Legs {
     One(Reading),
     Two { primary: Reading, anchor: Reading },
@@ -33,6 +43,9 @@ enum Legs {
     Empty,
 }
 
+/// The result of resolving an oracle's price: the blended price and timestamp,
+/// each leg's raw value, staleness and deviation flags, and an error when
+/// resolution failed outright.
 pub(crate) struct Outcome {
     pub price_wad: i128,
     pub timestamp: u64,
@@ -44,6 +57,7 @@ pub(crate) struct Outcome {
 }
 
 impl Outcome {
+    /// Constructs a zeroed `Outcome` with no flags set and no error.
     fn blank() -> Self {
         Outcome {
             price_wad: 0,
@@ -56,6 +70,7 @@ impl Outcome {
         }
     }
 
+    /// Constructs an `Outcome` carrying only the given error.
     fn with_err(err: OracleError) -> Self {
         Outcome {
             err: Some(err),
@@ -63,10 +78,14 @@ impl Outcome {
         }
     }
 
+    /// Constructs an `Outcome` for the case where none of an oracle's sources
+    /// produced a reading.
     fn unreadable() -> Self {
         Self::with_err(OracleError::NoLastPrice)
     }
 
+    /// Constructs an `Outcome` from a single reading, used for single-source
+    /// oracles, with both leg values set to that reading's price.
     fn one(r: Reading) -> Self {
         Outcome {
             price_wad: r.price_wad,
@@ -79,6 +98,9 @@ impl Outcome {
         }
     }
 
+    /// Constructs an `Outcome` for a two-source oracle where only one of the two
+    /// legs produced a reading. Leaves the blended price at zero and marks the
+    /// outcome as a deviation.
     fn partial(reading: Reading, slot: LegSlot) -> Self {
         let (first_wad, second_wad) = match slot {
             LegSlot::Primary => (reading.price_wad, 0),
@@ -96,6 +118,10 @@ impl Outcome {
         }
     }
 
+    /// Returns the error that makes this outcome unusable against `oracle`, if
+    /// any. Checks, in order: an error already carried on the outcome, a missing
+    /// oracle, staleness, deviation, a non-positive price, and the oracle's
+    /// sanity price bounds. Returns `None` when none of these apply.
     fn failure(&self, oracle: Option<&AssetOracle>) -> Option<OracleError> {
         if let Some(err) = self.err {
             return Some(err);
@@ -120,6 +146,11 @@ impl Outcome {
         None
     }
 
+    /// Returns the carried error only if it is a configuration-level failure
+    /// (cycle detected, depth exceeded, source count out of range, unsupported
+    /// Aquarius pool, or oracle not configured); returns `None` for any other
+    /// error or for no error, letting market-condition failures (staleness,
+    /// deviation, sanity bounds) pass through as non-fatal.
     fn config_failure(&self) -> Option<OracleError> {
         match self.err {
             Some(
@@ -133,10 +164,13 @@ impl Outcome {
         }
     }
 
+    /// Returns whether this outcome has no applicable failure against `oracle`.
     fn usable(&self, oracle: Option<&AssetOracle>) -> bool {
         self.failure(oracle).is_none()
     }
 
+    /// Converts this outcome's blended price and timestamp into a `PriceFeedRaw`
+    /// tagged with `asset_decimals`.
     fn to_feed(&self, asset_decimals: u32) -> PriceFeedRaw {
         PriceFeedRaw {
             price_wad: self.price_wad,
@@ -146,6 +180,9 @@ impl Outcome {
     }
 }
 
+/// Converts `outcome` into a `PriceFeedRaw`, panicking with the applicable
+/// `OracleError` if the outcome is unusable against `oracle` or `oracle` is
+/// `None`.
 pub(crate) fn force(env: &Env, outcome: &Outcome, oracle: Option<&AssetOracle>) -> PriceFeedRaw {
     if let Some(err) = outcome.failure(oracle) {
         panic_with_error!(env, err);
@@ -156,6 +193,10 @@ pub(crate) fn force(env: &Env, outcome: &Outcome, oracle: Option<&AssetOracle>) 
     outcome.to_feed(oracle.asset_decimals)
 }
 
+/// Converts `outcome` into a `PriceStatus`. Returns an unusable status when the
+/// outcome carries an error; otherwise reports the blended and leg prices,
+/// timestamp, staleness and deviation flags, and whether the outcome is valid
+/// against `oracle`.
 pub(crate) fn to_status(outcome: &Outcome, oracle: Option<&AssetOracle>) -> PriceStatus {
     if outcome.err.is_some() {
         return PriceStatus::unusable();
@@ -171,6 +212,9 @@ pub(crate) fn to_status(outcome: &Outcome, oracle: Option<&AssetOracle>) -> Pric
     }
 }
 
+/// Resolves the price feed for `key`, returning the session-cached value if
+/// present. Otherwise computes it, panicking on any resolution failure, and
+/// caches the result on the session before returning it.
 pub(crate) fn resolve(session: &mut Session, key: &PriceKey, depth: u32) -> PriceFeedRaw {
     if let Some(cached) = session.cached_price(key) {
         return cached;
@@ -180,6 +224,9 @@ pub(crate) fn resolve(session: &mut Session, key: &PriceKey, depth: u32) -> Pric
     feed
 }
 
+/// Resolves the `PriceStatus` for `key`, returning the session-cached status if
+/// present. Otherwise computes it without panicking, caches the result on the
+/// session, and returns it.
 pub(crate) fn resolve_status(session: &mut Session, key: &PriceKey, depth: u32) -> PriceStatus {
     if let Some(cached) = session.cached_status(key) {
         return cached;
@@ -190,12 +237,21 @@ pub(crate) fn resolve_status(session: &mut Session, key: &PriceKey, depth: u32) 
     status
 }
 
+/// Resolves `oracle` for `key` at depth 0 and panics with the applicable
+/// `OracleError` if it produces any unusable outcome, including market-condition
+/// failures such as staleness or sanity-bound violations. Used to confirm an
+/// oracle (typically one with an Aquarius LP source) is fully priceable before
+/// it is stored.
 pub(crate) fn probe_priceable(session: &mut Session, key: &PriceKey, oracle: &AssetOracle) {
     let env = session.env().clone();
     let (outcome, resolved) = resolve_outcome(session, key, 0, Some(oracle));
     let _ = force(&env, &outcome, resolved.as_ref().or(Some(oracle)));
 }
 
+/// Resolves `oracle` for `key` at depth 0 and panics only if the outcome carries
+/// a configuration-level error (cycle, depth, source count, unsupported pool, or
+/// missing oracle). Market-condition failures such as staleness or sanity-bound
+/// violations do not panic here.
 pub(crate) fn probe(session: &mut Session, key: &PriceKey, oracle: &AssetOracle) {
     let env = session.env().clone();
     let (outcome, _) = resolve_outcome(session, key, 0, Some(oracle));
@@ -204,6 +260,8 @@ pub(crate) fn probe(session: &mut Session, key: &PriceKey, oracle: &AssetOracle)
     }
 }
 
+/// Resolves the price feed for `key`, panicking on failure, caches it on the
+/// session, and returns both the feed and the underlying `Outcome`.
 pub(crate) fn resolve_detailed(
     session: &mut Session,
     key: &PriceKey,
@@ -214,6 +272,8 @@ pub(crate) fn resolve_detailed(
     (feed, outcome)
 }
 
+/// Resolves the outcome for `key` and forces it into a `PriceFeedRaw`, panicking
+/// on any failure. Returns both the feed and the outcome it was derived from.
 fn compute_hard(
     session: &mut Session,
     key: &PriceKey,
@@ -226,6 +286,12 @@ fn compute_hard(
     (feed, outcome)
 }
 
+/// Resolves the price feed for `key` during composition of a dependent source
+/// (for example a scaled source's quote leg). Returns the session-cached price
+/// or cached error if present, after validating that the cached path still
+/// respects the depth and cycle-detection limits at `depth`. Otherwise computes
+/// the outcome fresh, caches either the resulting price or the resulting error
+/// on the session, and returns the corresponding `Result`.
 pub(crate) fn resolve_nested(
     session: &mut Session,
     key: &PriceKey,
@@ -250,6 +316,11 @@ pub(crate) fn resolve_nested(
     Ok(feed)
 }
 
+/// Validates that resolving `key` from a session cache hit would still respect
+/// the depth and cycle limits at `depth`, by walking the oracle's configured
+/// sources (recursing into a scaled source's quote and an Aquarius LP source's
+/// paired dependencies) as if resolving them fresh. Returns the first
+/// `OracleError` encountered, if any.
 fn validate_cached_path(
     session: &mut Session,
     key: &PriceKey,
@@ -289,6 +360,12 @@ fn validate_cached_path(
     result
 }
 
+/// Resolves the `Outcome` for `key` at `depth`: enforces the depth and cycle
+/// limits, loads the oracle configuration (`override_oracle` if given, otherwise
+/// from the registry), composes and blends its sources, and tracks `key` on the
+/// session's resolution stack for the duration of the call to detect cycles.
+/// Returns the outcome together with the oracle configuration used, when one was
+/// found.
 fn resolve_outcome(
     session: &mut Session,
     key: &PriceKey,
@@ -326,6 +403,11 @@ fn resolve_outcome(
     (outcome, Some(oracle))
 }
 
+/// Converts composed `Legs` into an `Outcome`. For two readings, marks the
+/// outcome stale if either leg is stale, takes the earlier of the two
+/// timestamps, flags a deviation when the legs fall outside the oracle's
+/// tolerance band, and sets the blended price to the midpoint of the two legs
+/// (zero if the midpoint computation fails).
 fn blend(env: &Env, oracle: &AssetOracle, legs: Legs) -> Outcome {
     match legs {
         Legs::Empty => Outcome::unreadable(),
@@ -361,11 +443,16 @@ fn blend(env: &Env, oracle: &AssetOracle, legs: Legs) -> Outcome {
     }
 }
 
+/// Certora harness entry point: blends an empty leg set for `oracle`, exercising
+/// the same path as an oracle whose sources produced no readings.
 #[cfg(feature = "certora")]
 pub(crate) fn blend_empty(env: &Env, oracle: &AssetOracle) -> Outcome {
     blend(env, oracle, Legs::Empty)
 }
 
+/// Certora harness entry point: blends a single partial reading into a leg slot
+/// for `oracle`, exercising the same path as a two-source oracle where only one
+/// leg produced a reading.
 #[cfg(feature = "certora")]
 pub(crate) fn blend_partial(
     env: &Env,
@@ -395,6 +482,9 @@ pub(crate) fn blend_partial(
     )
 }
 
+/// Reads each of `oracle`'s configured sources (one or two) and assembles the
+/// resulting `Legs` variant based on which sources produced a reading. Returns
+/// `SourceCountOutOfRange` if the oracle has zero or more than two sources.
 fn compose(
     session: &mut Session,
     key: &PriceKey,
@@ -441,6 +531,9 @@ fn compose(
     })
 }
 
+/// Evaluates `source` into a `Reading`, if it produces one. Combines the
+/// source's own component-level staleness with staleness computed against
+/// `oracle.max_price_stale_seconds`.
 fn read_source(
     session: &mut Session,
     key: &PriceKey,
@@ -478,6 +571,9 @@ fn source_nature(source: &PriceSource) -> FeedNature {
     }
 }
 
+/// Dispatches `source` to its evaluation routine (feed, scaled, Aquarius LP, or
+/// Aquarius stable LP), returning the resulting observation and its
+/// component-level staleness flag, if any.
 fn evaluate_source(
     session: &mut Session,
     key: &PriceKey,
@@ -495,6 +591,9 @@ fn evaluate_source(
     }
 }
 
+/// Reads `feed` from its provider (Reflector, RedStone, or Xoxno), returning
+/// `None` if the provider has no observation. Computes staleness against
+/// `feed.max_stale_seconds`.
 fn read_feed(session: &mut Session, feed: &FeedSource) -> Option<(OracleObservation, bool)> {
     let observation = match &feed.provider {
         ProviderRef::Reflector(r) => reflector::read_reflector_source(session, r, feed.decimals),
@@ -510,6 +609,12 @@ fn read_feed(session: &mut Session, feed: &FeedSource) -> Option<(OracleObservat
     Some((observation, stale))
 }
 
+/// Reads a scaled source: reads the factor feed (returning `None` if unread),
+/// checks it falls within `scaled.min_factor_wad`/`max_factor_wad`, resolves the
+/// nested `quote` price at `depth + 1`, and multiplies factor and quote into a
+/// price using the earlier of their two timestamps. Returns
+/// `FactorOutOfBounds` if the factor is out of range and `InvalidPrice` if the
+/// multiplication fails.
 fn read_scaled(
     session: &mut Session,
     scaled: &ScaledSource,

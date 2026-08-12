@@ -1,5 +1,11 @@
+//! Oracle feed reference and price-result types shared across the price aggregator and its
+//! callers: how a feed identifies its underlying asset, the raw and typed forms of a
+//! resolved price, and the detailed status returned for dual-source assets.
+
 use soroban_sdk::{contracttype, Address, Env, String, Symbol};
 
+/// Identifies the underlying asset a price feed reports on, in whichever form the source
+/// provider expects: a Stellar contract address, a symbol, or a string identifier.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum OracleAssetRef {
@@ -10,6 +16,9 @@ pub enum OracleAssetRef {
     String(String),
 }
 
+/// Basis-point band around a reference price within which a second source's reading is
+/// considered non-deviant: `upper_ratio_bps` bounds the allowed excess, `lower_ratio_bps`
+/// the allowed shortfall.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct OracleTolerance {
@@ -18,6 +27,9 @@ pub struct OracleTolerance {
     pub lower_ratio_bps: u32,
 }
 
+/// How a feed is sampled: an instantaneous spot read, or a multi-observation
+/// average over the given number of recorded samples (`Twap` mode name is
+/// historical; Reflector implements equal-weight mean, not duration-weighted).
 #[contracttype]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum OracleReadMode {
@@ -26,6 +38,8 @@ pub enum OracleReadMode {
     Twap(u32),
 }
 
+/// Wire form of a resolved price: WAD-scaled price, the asset's token decimals, and the
+/// timestamp the price was observed at.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct PriceFeedRaw {
@@ -36,6 +50,9 @@ pub struct PriceFeedRaw {
     pub timestamp: u64,
 }
 
+/// Detailed result of resolving an asset's price: the blended final price, the individual
+/// primary and secondary leg prices, the timestamp of the older leg, and flags for
+/// staleness, cross-source deviation, and overall validity.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PriceStatus {
@@ -55,6 +72,7 @@ pub struct PriceStatus {
 }
 
 impl PriceStatus {
+    /// Returns a zeroed, `valid: false` status used when a price could not be resolved.
     pub fn unusable() -> Self {
         Self {
             final_wad: 0,
@@ -68,6 +86,8 @@ impl PriceStatus {
     }
 }
 
+/// Typed, in-memory form of a resolved price: a `Wad` price alongside the asset's token
+/// decimals and observation timestamp.
 #[derive(Clone, Copy, Debug)]
 pub struct PriceFeed {
     pub price: crate::math::fp::Wad,
@@ -76,6 +96,8 @@ pub struct PriceFeed {
 }
 
 impl PriceFeed {
+    /// Converts a raw token amount (scaled by `asset_decimals`) to its WAD-scaled USD value
+    /// at this feed's price.
     pub fn usd_value_wad(self, env: &Env, token_amount: i128) -> crate::math::fp::Wad {
         crate::math::fp::Wad::from_token(token_amount, self.asset_decimals).mul(env, self.price)
     }

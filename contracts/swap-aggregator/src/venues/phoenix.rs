@@ -5,7 +5,10 @@ use soroban_sdk::{panic_with_error, symbol_short, vec, IntoVal, Val, Vec};
 use crate::errors::Error;
 use crate::venues::HopContext;
 
-/// Exact-in swap; pool-reported out must be positive (delta checked upstream).
+/// Executes an exact-in swap against a Phoenix pool: authorizes the pool to pull `amount_in` of
+/// the input token from the router, then invokes the pool's `swap` with its four optional
+/// trailing parameters left unset. Panics with `Error::ZeroOutput` if the pool reports a
+/// non-positive output amount.
 pub(crate) fn swap(ctx: &HopContext<'_>) -> i128 {
     let args: Vec<Val> = vec![
         ctx.env,

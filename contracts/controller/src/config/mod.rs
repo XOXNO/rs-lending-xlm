@@ -1,3 +1,6 @@
+//! Governance-facing configuration logic: Blend pool approvals, hub and spoke
+//! asset listings, hub creation, position limits, and the spoke registry.
+
 pub(crate) mod approvals;
 pub(crate) mod asset;
 pub(crate) mod hub;

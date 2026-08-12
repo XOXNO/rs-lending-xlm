@@ -139,7 +139,10 @@ fn test_require_liquidation_buffer_admits_a_draw_down_to_the_reserve() {
     t.as_contract(|| {
         let cache = cache_with(&t.env, &t.params, 1_000 * RAY, 0, 1_000);
         let reserved = reserved_for(&t.env, &cache);
-        assert!(reserved > 0, "fixture must reserve something to be meaningful");
+        assert!(
+            reserved > 0,
+            "fixture must reserve something to be meaningful"
+        );
         require_liquidation_buffer(&t.env, &cache, 1_000 - reserved);
     });
 }

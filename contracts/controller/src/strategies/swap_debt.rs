@@ -1,3 +1,7 @@
+//! Swap-debt strategy: borrows a new debt asset, swaps the borrowed amount
+//! into the existing debt asset, and uses the proceeds to repay the
+//! existing debt position on the same account.
+
 use common::errors::GenericError;
 use common::types::{HubAssetKey, StrategySwap};
 use common::validation::require_positive_amount;
@@ -14,6 +18,9 @@ use crate::strategies::{
 };
 use crate::{risk::validation, storage};
 
+/// Parameters for [`process_swap_debt`]: the account, the existing debt
+/// being replaced, the new debt asset and the amount of it to borrow, and
+/// the swap route between them.
 pub(crate) struct SwapDebtParams<'a> {
     pub account_id: u64,
     pub existing_debt: &'a HubAssetKey,
@@ -22,6 +29,16 @@ pub(crate) struct SwapDebtParams<'a> {
     pub swap: &'a StrategySwap,
 }
 
+/// Borrows `new_debt_amount` of `new_debt`, swaps the borrowed amount into
+/// `existing_debt`'s asset, and repays the account's `existing_debt`
+/// position with the swap proceeds, refunding any leftover to `caller`, then
+/// re-runs post-transaction risk validation and finalizes the account.
+///
+/// Requires the caller's authorization and that the caller is the account
+/// owner or an active protocol position manager listed among the account's
+/// delegates. Panics if `existing_debt` and `new_debt` are the same asset, if
+/// `existing_debt`'s hub is inactive, if `new_debt_amount` is not positive, or
+/// if the account has no open position in `existing_debt`.
 pub(crate) fn process_swap_debt(env: &Env, caller: &Address, params: SwapDebtParams<'_>) {
     let SwapDebtParams {
         account_id,

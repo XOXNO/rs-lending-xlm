@@ -1,5 +1,11 @@
 #![no_std]
 
+//! Adapter contract that exposes a lending-controller position through the
+//! DeFindex strategy interface. Deposits and withdrawals proxy to the
+//! `controller` contract's `supply`/`withdraw` entry points for a single
+//! configured hub asset, and each vault address is mapped to the controller
+//! account id that holds its collateral.
+
 use common::constants::{TTL_BUMP_USER, TTL_THRESHOLD_USER};
 use common::math::fp::Ray;
 use common::token::authorize_transfer_as_current;
@@ -8,10 +14,12 @@ use common::types::pool::HubAssetKey;
 use controller_interface::ControllerClient;
 
 use soroban_sdk::{
-    contract, contracterror, contractevent, contractimpl, contracttype, panic_with_error,
-    vec, Address, Bytes, Env, TryFromVal, Val, Vec,
+    contract, contracterror, contractevent, contractimpl, contracttype, panic_with_error, vec,
+    Address, Bytes, Env, TryFromVal, Val, Vec,
 };
 
+/// Event published on each `harvest` call, reporting the caller and the
+/// current price per share for the configured hub asset.
 #[contractevent(topics = ["strategy", "harvest"])]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HarvestEvent {
@@ -20,6 +28,7 @@ pub struct HarvestEvent {
     pub price_per_share: i128,
 }
 
+/// Builds and publishes a `HarvestEvent`.
 pub(crate) fn emit_harvest(e: &Env, from: Address, amount: i128, price_per_share: i128) {
     HarvestEvent {
         from,
@@ -32,6 +41,7 @@ pub(crate) fn emit_harvest(e: &Env, from: Address, amount: i128, price_per_share
 /// DeFindex price-per-share is reported with 12 decimals (RAY → 12-dec rescale).
 const PPS_DECIMALS: u32 = 12;
 
+/// Error codes returned by the strategy contract's external entry points.
 #[contracterror]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DeFindexStrategyError {
@@ -46,6 +56,9 @@ pub enum DeFindexStrategyError {
     AccountLookupFailed = 463,
 }
 
+/// Configuration stored once at construction: the hub/spoke ids and asset
+/// this strategy supplies to, plus the controller and pool contract
+/// addresses resolved at that time.
 #[contracttype]
 #[derive(Clone)]
 pub struct Config {
@@ -56,6 +69,9 @@ pub struct Config {
     pub pool: Address,
 }
 
+/// Instance/persistent storage keys. `Config` holds the strategy's
+/// `Config` value; `VaultAccount(Address)` maps a vault address to the
+/// controller account id that holds its collateral.
 #[contracttype]
 pub enum DataKey {
     Config,
@@ -63,15 +79,29 @@ pub enum DataKey {
     VaultAccount(Address),
 }
 
+/// DeFindex vault strategy interface implemented by [`Strategy`].
 pub trait DeFindexStrategyTrait {
+    /// Returns the configured underlying asset address.
     fn asset(env: Env) -> Result<Address, DeFindexStrategyError>;
 
+    /// Transfers `amount` of the underlying asset from `from` into the
+    /// strategy and supplies it to the controller, creating or reusing the
+    /// caller's vault account. Returns the account's resulting collateral
+    /// balance.
     fn deposit(env: Env, amount: i128, from: Address) -> Result<i128, DeFindexStrategyError>;
 
+    /// Emits a `HarvestEvent` carrying the current price per share for the
+    /// configured hub asset. Moves no funds.
     fn harvest(env: Env, from: Address, data: Option<Bytes>) -> Result<(), DeFindexStrategyError>;
 
+    /// Returns the collateral balance of `from`'s vault account, or 0 if it
+    /// has none.
     fn balance(env: Env, from: Address) -> Result<i128, DeFindexStrategyError>;
 
+    /// Withdraws `amount` of collateral from `from`'s vault account to `to`
+    /// via the controller. A withdrawal equal to the full balance clears the
+    /// vault account mapping. Returns the account's remaining collateral
+    /// balance.
     fn withdraw(
         env: Env,
         amount: i128,
@@ -80,9 +110,13 @@ pub trait DeFindexStrategyTrait {
     ) -> Result<i128, DeFindexStrategyError>;
 }
 
+/// The DeFindex strategy contract, implementing [`DeFindexStrategyTrait`].
 #[contract]
 pub struct Strategy;
 
+/// Bundles the loaded [`Config`], a client for the configured controller,
+/// and the strategy's own contract address, for use across a single entry
+/// point invocation.
 struct Ctx<'a> {
     env: &'a Env,
     cfg: Config,
@@ -91,6 +125,8 @@ struct Ctx<'a> {
 }
 
 impl<'a> Ctx<'a> {
+    /// Loads the stored [`Config`] and builds a `Ctx` from it. Returns
+    /// `NotInitialized` if the contract has no stored configuration.
     fn try_load(env: &'a Env) -> Result<Self, DeFindexStrategyError> {
         let cfg = config(env)?;
         Ok(Self {
@@ -101,6 +137,7 @@ impl<'a> Ctx<'a> {
         })
     }
 
+    /// Builds the `HubAssetKey` for the configured hub id and asset.
     fn hub_asset(&self) -> HubAssetKey {
         HubAssetKey {
             hub_id: self.cfg.hub_id,
@@ -108,15 +145,22 @@ impl<'a> Ctx<'a> {
         }
     }
 
+    /// Returns the controller-reported collateral amount for `account_id`
+    /// in the configured hub asset.
     fn collateral(&self, account_id: u64) -> i128 {
         self.controller
             .get_collateral_amount(&account_id, &self.hub_asset())
     }
 
+    /// Resolves `vault`'s stored account id without clearing it if the
+    /// controller no longer recognizes it. Returns 0 if no account is
+    /// stored or the account no longer exists.
     fn reconcile(&self, vault: &Address) -> u64 {
         reconcile_vault_account(self.env, &self.controller, vault)
     }
 
+    /// Returns `vault`'s collateral balance, or 0 if it has no resolvable
+    /// vault account.
     fn vault_balance(&self, vault: &Address) -> i128 {
         let account_id = self.reconcile(vault);
         if account_id == 0 {
@@ -126,6 +170,9 @@ impl<'a> Ctx<'a> {
         self.collateral(account_id)
     }
 
+    /// Computes the current price per share from the controller's supply
+    /// index for the configured hub asset, rescaled from RAY (27 decimals)
+    /// down to `PPS_DECIMALS` with floor rounding.
     fn harvest_price_per_share(&self) -> Result<i128, DeFindexStrategyError> {
         let supply_index = self
             .controller
@@ -136,10 +183,15 @@ impl<'a> Ctx<'a> {
         Ok(Ray::from(supply_index).to_asset_floor(PPS_DECIMALS))
     }
 
+    /// Wraps `amount` in a single-entry payment vector keyed by the
+    /// configured hub asset, as expected by the controller's
+    /// `supply`/`withdraw` entry points.
     fn to_payment(&self, amount: i128) -> Vec<(HubAssetKey, i128)> {
         vec![self.env, (self.hub_asset(), amount)]
     }
 
+    /// Authorizes the pool contract to pull `amount` of the configured
+    /// asset from the strategy's own balance.
     fn authorize_supply_to_pool(&self, amount: i128) {
         authorize_transfer_as_current(
             self.env,
@@ -153,6 +205,11 @@ impl<'a> Ctx<'a> {
 
 #[contractimpl]
 impl Strategy {
+    /// Decodes `init_args` as `(controller: Address, hub_id: u32, spoke_id: u32)`,
+    /// panics with `NotInitialized` if any argument is missing or of the
+    /// wrong type, verifies the hub market index exists for `asset`, and
+    /// stores the resulting `Config` (resolving the pool address from the
+    /// controller) in instance storage.
     pub fn __constructor(env: Env, asset: Address, init_args: Vec<Val>) {
         let controller_val = init_args
             .get(0)
@@ -278,6 +335,8 @@ impl DeFindexStrategyTrait for Strategy {
     }
 }
 
+/// Loads the stored `Config` from instance storage. Returns
+/// `NotInitialized` if the contract has not been constructed.
 fn config(env: &Env) -> Result<Config, DeFindexStrategyError> {
     env.storage()
         .instance()
@@ -285,6 +344,8 @@ fn config(env: &Env) -> Result<Config, DeFindexStrategyError> {
         .ok_or(DeFindexStrategyError::NotInitialized)
 }
 
+/// Stores `vault`'s controller account id in persistent storage and
+/// extends its TTL.
 fn set_vault_account(env: &Env, vault: &Address, account_id: u64) {
     let key = DataKey::VaultAccount(vault.clone());
     let storage = env.storage().persistent();
@@ -292,12 +353,14 @@ fn set_vault_account(env: &Env, vault: &Address, account_id: u64) {
     storage.extend_ttl(&key, TTL_THRESHOLD_USER, TTL_BUMP_USER);
 }
 
+/// Removes `vault`'s stored account id mapping, if any.
 fn clear_vault_account(env: &Env, vault: &Address) {
     env.storage()
         .persistent()
         .remove(&DataKey::VaultAccount(vault.clone()));
 }
 
+/// Extends the TTL of `vault`'s stored account id mapping if it exists.
 fn extend_vault_account_ttl(env: &Env, vault: &Address) {
     let key = DataKey::VaultAccount(vault.clone());
     let storage = env.storage().persistent();
@@ -308,6 +371,10 @@ fn extend_vault_account_ttl(env: &Env, vault: &Address) {
     }
 }
 
+/// Reads `vault`'s stored account id and checks it against the controller.
+/// Returns 0 if none is stored. If the controller confirms the account
+/// still exists, extends the mapping's TTL and returns the id. Otherwise,
+/// clears the stale mapping when `clear_if_gone` is set and returns 0.
 fn resolve_vault_account(
     env: &Env,
     controller: &ControllerClient,
@@ -340,6 +407,8 @@ fn resolve_vault_account(
     }
 }
 
+/// Resolves `vault`'s account id ahead of a supply, clearing the stored
+/// mapping if the controller no longer recognizes it.
 fn prepare_vault_account_for_supply(
     env: &Env,
     controller: &ControllerClient,
@@ -348,6 +417,8 @@ fn prepare_vault_account_for_supply(
     resolve_vault_account(env, controller, vault, true)
 }
 
+/// Resolves `vault`'s account id for a read-only query, leaving a stale
+/// mapping in place.
 fn reconcile_vault_account(env: &Env, controller: &ControllerClient, vault: &Address) -> u64 {
     resolve_vault_account(env, controller, vault, false)
 }

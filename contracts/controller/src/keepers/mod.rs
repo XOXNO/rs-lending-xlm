@@ -1,3 +1,7 @@
+//! Permissionless (caller-auth) operational entrypoints: pool index refresh,
+//! revenue claim/forwarding, recapitalization, and per-account risk-parameter
+//! resync. Intended for keepers/bots but not restricted to a keeper role.
+
 use common::errors::{CollateralError, GenericError, OracleError};
 use common::math::fp::Wad;
 use common::types::{AccountPosition, AssetConfig, HubAssetKey};
@@ -13,6 +17,8 @@ use crate::external::sac::sac_transfer_call;
 use crate::risk::validation;
 use crate::{account, events, payments, risk, storage};
 
+/// Authorizes as `caller`, confirms no flash loan is active, and refreshes the pool's
+/// interest indexes for each hub asset in `assets`.
 pub(crate) fn update_indexes(env: &Env, caller: Address, assets: Vec<HubAssetKey>) {
     caller.require_auth();
     validation::require_not_flash_loaning(env);
@@ -24,6 +30,10 @@ pub(crate) fn update_indexes(env: &Env, caller: Address, assets: Vec<HubAssetKey
     }
 }
 
+/// Authorizes as `caller`, confirms no flash loan is active, and claims accrued revenue
+/// from the pool for each hub asset in `assets`, forwarding any claimed amount to the
+/// revenue accumulator. Returns the claimed amount per asset, in the same order as `assets`.
+/// Panics if the revenue accumulator address is not set.
 pub(crate) fn claim_revenue(env: &Env, caller: Address, assets: Vec<HubAssetKey>) -> Vec<i128> {
     caller.require_auth();
     validation::require_not_flash_loaning(env);
@@ -36,6 +46,10 @@ pub(crate) fn claim_revenue(env: &Env, caller: Address, assets: Vec<HubAssetKey>
     results
 }
 
+/// Authorizes as `payer`, confirms no flash loan is active, and validates `amount` is
+/// positive. Transfers `amount` of the hub asset from `payer` to the pool, measuring the
+/// amount actually received, then recapitalizes the pool with the received amount. Returns
+/// the actual amount the pool applies.
 pub(crate) fn recapitalize(
     env: &Env,
     payer: Address,
@@ -61,6 +75,10 @@ pub(crate) fn recapitalize(
     pool_recapitalize_call(env, &pool_addr, &hub_asset, &payer, received).actual_amount
 }
 
+/// Authorizes as `caller`, confirms no flash loan is active, and resynchronizes
+/// supply risk parameters for each account in `account_ids`. When `has_risks` is
+/// set, refreshes the full liquidation tuple and loads debt only to recompute and
+/// gate health factor.
 pub(crate) fn update_account_threshold(
     env: &Env,
     caller: Address,
@@ -78,6 +96,9 @@ pub(crate) fn update_account_threshold(
     }
 }
 
+/// Claims revenue for `hub_asset` from the pool and, when the claimed amount is greater
+/// than zero, transfers it from this contract to the revenue accumulator. Returns the
+/// claimed amount. Panics if the revenue accumulator address is not set.
 fn claim_revenue_for_asset_with_cache(
     env: &Env,
     hub_asset: &HubAssetKey,
@@ -104,6 +125,14 @@ fn claim_revenue_for_asset_with_cache(
     amount
 }
 
+/// Refreshes supply-position risk parameters against spoke config. Returns without
+/// effect if the account has no stored metadata or no supply positions. Renews the
+/// account's storage entry, then for each supply position refreshes loan-to-value
+/// only, or the full risk parameter tuple when `has_risks` is set, against the
+/// cached spoke asset config, skipping assets whose spoke config is not cached.
+/// Persists the updated supply positions if any changed. When `has_risks` is set,
+/// loads debt only for health-factor computation, asserts HF ≥
+/// `THRESHOLD_UPDATE_MIN_HF_RAW`, and emits the position batch.
 fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &mut Cache) {
     let Some(meta) = storage::try_get_account_meta(env, account_id) else {
         return;

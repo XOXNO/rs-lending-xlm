@@ -1006,7 +1006,11 @@ fn bad_debt_seizure_charges_no_fee_and_does_not_trap() {
 
     let entry = seize_at(&env, 900, 1_000 * WAD);
 
-    assert_eq!(entry.amount, stroops(900), "seizure clamps to the collateral");
+    assert_eq!(
+        entry.amount,
+        stroops(900),
+        "seizure clamps to the collateral"
+    );
     assert_eq!(
         entry.protocol_fee, 0,
         "no realised excess means no fee, got {}",
@@ -1023,7 +1027,11 @@ fn unclamped_seizure_still_charges_the_full_bonus_fee() {
     // $2000 collateral against $1000 repaid: the 9% bonus fits with room spare.
     let entry = seize_at(&env, 2_000, 1_000 * WAD);
 
-    assert_eq!(entry.amount, stroops(1_090), "seizure is repayment plus bonus");
+    assert_eq!(
+        entry.amount,
+        stroops(1_090),
+        "seizure is repayment plus bonus"
+    );
     // 12% of the realised 90-token bonus.
     assert_eq!(
         entry.protocol_fee,

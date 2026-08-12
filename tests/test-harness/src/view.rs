@@ -309,7 +309,9 @@ impl LendingTest {
     /// right up to the bound without hard-coding the ratio.
     pub fn liquidation_buffer_raw(&self, asset_name: &str) -> i128 {
         let asset = self.resolve_asset(asset_name);
-        let supplied = self.pool_client(asset_name).get_supplied_amount(&hub_asset(asset));
+        let supplied = self
+            .pool_client(asset_name)
+            .get_supplied_amount(&hub_asset(asset));
         // Half-up, matching Bps::apply_to in the guard.
         common::math::fp_core::mul_div_half_up(
             &self.env,

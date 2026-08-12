@@ -13,12 +13,12 @@
 //! | Layer | Role |
 //! |-------|------|
 //! | [`LiquidityPool`] / [`LiquidityPoolInterface`] | Public entrypoints, owner gates |
-//! | [`ops`] | Mutation legs (supply, borrow, repay, …) |
-//! | [`cache::Cache`] | In-memory market view + commit |
-//! | [`interest`] | Index accrual and fee socialization |
-//! | [`guards`] | Utilization and solvency checks |
-//! | [`storage`] | Persistent params/state + TTL bumps |
-//! | [`views`] | Read-only rate and balance queries |
+//! | `ops` | Mutation legs (supply, borrow, repay, …) |
+//! | `cache::Cache` | In-memory market view + commit |
+//! | `interest` | Index accrual and fee socialization |
+//! | `guards` | Utilization and solvency checks |
+//! | `storage` | Persistent params/state + TTL bumps |
+//! | `views` | Read-only rate and balance queries |
 //!
 //! ## Accounting model
 //!
@@ -233,7 +233,7 @@ impl LiquidityPoolInterface for LiquidityPool {
 
     /// Inject cash to cover a backing shortfall; refund unused amount to `payer`.
     ///
-    /// Only applies up to [`guards::backing_shortfall`]. Excess is returned via
+    /// Only applies up to `guards::backing_shortfall`. Excess is returned via
     /// token transfer.
     ///
     /// # Returns

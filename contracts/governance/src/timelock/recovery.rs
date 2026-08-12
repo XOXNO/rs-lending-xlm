@@ -1,3 +1,8 @@
+//! Scheduling and execution of the canceller-set recovery operation, a
+//! self-targeting reset of the timelock's canceller list that uses the
+//! `Recovery` delay tier and is marked so it cannot be cancelled through the
+//! normal cancellation path.
+
 use soroban_sdk::{Address, BytesN, Env, Vec};
 
 use stellar_governance::timelock::{schedule_operation, set_execute_operation};
@@ -6,6 +11,9 @@ use crate::access::{self};
 use crate::storage;
 use crate::timelock::*;
 
+/// Schedules a canceller-set reset to `new_cancellers` using the `Recovery` delay
+/// tier, marks the resulting operation as a recovery operation, and returns its
+/// id.
 pub(crate) fn propose_canceller_reset(
     env: &Env,
     new_cancellers: &Vec<Address>,
@@ -18,6 +26,9 @@ pub(crate) fn propose_canceller_reset(
     id
 }
 
+/// Executes a previously scheduled canceller-set reset to `new_cancellers` once
+/// its delay has elapsed and it has not expired, replacing the canceller set and
+/// clearing the operation's scheduled state.
 pub(crate) fn execute_canceller_reset(
     env: &Env,
     executor: Option<Address>,

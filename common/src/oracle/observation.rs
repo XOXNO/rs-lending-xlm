@@ -1,8 +1,15 @@
+//! Shared helpers for validating and converting oracle price observations:
+//! staleness and future-timestamp checks, `U256`-to-`i128` conversion, and
+//! decimal/WAD scaling.
+
 use crate::constants::{MS_PER_SECOND, WAD_DECIMALS};
 use crate::errors::{GenericError, OracleError};
 use crate::math::fp_core::try_mul_div_half_up;
 use soroban_sdk::{assert_with_error, panic_with_error, Env, U256};
 
+/// Maximum number of seconds a feed timestamp may exceed the current time
+/// before [`check_not_future_at`] and [`is_future_at`] treat it as being in
+/// the future.
 pub const MAX_FUTURE_SKEW_SECONDS: u64 = 60;
 
 pub const MAX_TWAP_RECORDS: u32 = 12;
@@ -32,6 +39,9 @@ pub const MAX_LEG_AGE_SPREAD_SECONDS: u64 = 3_600;
 /// — the band fails closed, so an unlistable market is not the safe direction.
 pub const MAX_LP_SANITY_BAND_BPS: i128 = 8_182;
 
+/// Scales a positive price reported with `decimals` precision up to
+/// `WAD_DECIMALS`. Returns `None` if `price` is not positive, `decimals`
+/// exceeds `WAD_DECIMALS`, or the scaling multiplication overflows.
 pub fn try_normalize_positive_price(price: i128, decimals: u32) -> Option<i128> {
     if price <= 0 || decimals > WAD_DECIMALS {
         return None;
@@ -40,10 +50,15 @@ pub fn try_normalize_positive_price(price: i128, decimals: u32) -> Option<i128> 
     price.checked_mul(factor)
 }
 
+/// Returns whether `feed_ts` is older than `max_stale` seconds relative to
+/// `now_secs`. Returns `false` when `feed_ts` is at or after `now_secs`.
 pub fn is_stale(now_secs: u64, feed_ts: u64, max_stale: u64) -> bool {
     now_secs > feed_ts && (now_secs - feed_ts) > max_stale
 }
 
+/// Panics with `OracleError::PriceFeedStale` if `feed_ts` exceeds `now_secs
+/// + MAX_FUTURE_SKEW_SECONDS`. Panics with `GenericError::MathOverflow` if
+/// that addition overflows `u64`.
 pub fn check_not_future_at(env: &Env, now_secs: u64, feed_ts: u64) {
     let max_future_ts = now_secs
         .checked_add(MAX_FUTURE_SKEW_SECONDS)
@@ -51,6 +66,8 @@ pub fn check_not_future_at(env: &Env, now_secs: u64, feed_ts: u64) {
     assert_with_error!(env, feed_ts <= max_future_ts, OracleError::PriceFeedStale);
 }
 
+/// Returns whether `feed_ts` exceeds `now_secs + MAX_FUTURE_SKEW_SECONDS`.
+/// Returns `false` if that addition overflows `u64`.
 pub fn is_future_at(now_secs: u64, feed_ts: u64) -> bool {
     match now_secs.checked_add(MAX_FUTURE_SKEW_SECONDS) {
         Some(max_future_ts) => feed_ts > max_future_ts,
@@ -58,6 +75,8 @@ pub fn is_future_at(now_secs: u64, feed_ts: u64) -> bool {
     }
 }
 
+/// Converts `value` to `i128`. Panics with `GenericError::MathOverflow` if
+/// `value` does not fit in `u128` or exceeds `i128::MAX`.
 pub fn u256_to_i128(env: &Env, value: &U256) -> i128 {
     let Some(raw) = value.to_u128() else {
         panic_with_error!(env, GenericError::MathOverflow);
@@ -66,12 +85,14 @@ pub fn u256_to_i128(env: &Env, value: &U256) -> i128 {
     raw as i128
 }
 
+/// Converts `value` to `i128`. Returns `None` if `value` does not fit in
+/// `u128` or exceeds `i128::MAX`.
 pub fn try_u256_to_i128(value: &U256) -> Option<i128> {
     let raw = value.to_u128()?;
     (raw <= i128::MAX as u128).then_some(raw as i128)
 }
 
-/// Scale a non-negative token amount into WAD (`10^18`) base units.
+/// Scales a non-negative token amount into WAD (`10^18`) base units.
 ///
 /// Fails when `decimals > WAD_DECIMALS` or the product overflows.
 pub fn try_amount_to_wad(env: &Env, amount: i128, decimals: u32) -> Result<i128, OracleError> {
@@ -82,6 +103,7 @@ pub fn try_amount_to_wad(env: &Env, amount: i128, decimals: u32) -> Result<i128,
     try_mul_div_half_up(env, amount, scale, 1).ok_or(OracleError::InvalidPrice)
 }
 
+/// Converts a millisecond timestamp to whole seconds via integer division.
 pub fn millis_to_seconds(timestamp_ms: u64) -> u64 {
     timestamp_ms / MS_PER_SECOND
 }

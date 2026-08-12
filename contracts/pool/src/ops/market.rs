@@ -1,4 +1,4 @@
-//! Market lifecycle: create, update rate model, and force interest accrual.
+//! Market lifecycle: creates markets, updates the rate model, and forces interest accrual.
 
 use common::constants::RAY;
 use common::errors::GenericError;
@@ -9,7 +9,7 @@ use soroban_sdk::{assert_with_error, Env};
 use crate::cache::Cache;
 use crate::{events, interest, storage, time};
 
-/// Create a new market for `(hub_id, params.asset_id)`.
+/// Creates a new market for `(hub_id, params.asset_id)`.
 ///
 /// Validates params, rejects duplicates, writes zeroed state with indexes at
 /// RAY, and emits a market params event.
@@ -46,10 +46,11 @@ pub(crate) fn create(env: &Env, hub_id: u32, params: MarketParamsRaw) {
     events::emit_market_params(env, hub_id, hub_asset.asset, params);
 }
 
-/// Accrue under the old model, then replace interest/flash-loan parameters.
+/// Accrues interest under the old model, commits it, then replaces the
+/// interest and flash-loan parameters.
 ///
-/// Committing after accrual freezes the old curve through the current ledger
-/// before the new model takes effect on subsequent accruals.
+/// Interest accrued up to the call uses the old rate model; interest accrued
+/// after the call uses the new one.
 pub(crate) fn replace_rate_model(env: &Env, hub_asset: HubAssetKey, model: InterestRateModel) {
     crate::ops::renewed_market(env, &hub_asset).commit();
 
@@ -58,10 +59,10 @@ pub(crate) fn replace_rate_model(env: &Env, hub_asset: HubAssetKey, model: Inter
     events::emit_market_params(env, hub_asset.hub_id, hub_asset.asset, params);
 }
 
-/// Accrue interest for a market and emit a state event.
+/// Accrues interest for a market and emits a state event.
 ///
 /// Writes storage only when time has elapsed; otherwise emits a snapshot of
-/// the current loaded state without a redundant write.
+/// the current loaded state.
 pub(crate) fn accrue(env: &Env, hub_asset: HubAssetKey) {
     storage::renew_instance(env);
 

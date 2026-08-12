@@ -33,10 +33,18 @@ struct Ctx<'a> {
     program: &'a Program,
 }
 
-/// Execute a decoded payload; returns delivered `token_out` to `sender`.
+/// Runs the strategy encoded in `payload` for `sender`: pulls `total_in` of the
+/// input token into the router's vault, executes the decoded instruction
+/// stream, and delivers the resulting `token_out` back to `sender`. Requires
+/// `sender`'s authorization. Returns the delivered output amount.
 ///
-/// Fee side: with a referral, fee applies on input unless only the output token
-/// is whitelisted (then on output).
+/// When a referral is active, applies static + referral fees on the input token
+/// unless only the output token is on the fee whitelist, in which case fees are
+/// taken on the output token instead. Accrues any leftover vault balance as
+/// revenue after payout.
+///
+/// Panics if `total_in` or `min_out` is not positive, or if the delivered
+/// output amount falls below `min_out`.
 pub(crate) fn run(env: Env, sender: Address, total_in: i128, payload: StrategyPayload) -> i128 {
     sender.require_auth();
 
@@ -115,7 +123,12 @@ pub(crate) fn run(env: Env, sender: Address, total_in: i128, payload: StrategyPa
     total_out
 }
 
-/// Run one instruction; returns its output for a following [`Mode::Prev`].
+/// Executes one instruction and returns its output token and amount for a
+/// following [`Mode::Prev`], or `None` when the instruction has no single
+/// well-defined output (a burn releases every pool constituent at once).
+///
+/// Panics if a swap's resolved input amount is not positive, or if the venue
+/// dispatch returns a non-positive output amount.
 fn execute_op(
     ctx: &Ctx<'_>,
     vault: &mut Vault,
@@ -177,7 +190,13 @@ fn execute_op(
     }
 }
 
-/// Size an instruction's input from its [`Mode`].
+/// Resolves an instruction's input amount according to `mode`: the vault's
+/// full balance of `token_in`, the previous instruction's output, a fixed
+/// amount from the payload, or a parts-per-million share of the available
+/// balance.
+///
+/// Panics if `mode` is [`Mode::Prev`] and there is no previous output, or its
+/// token does not match `token_in`.
 fn resolve_amount(
     ctx: &Ctx<'_>,
     vault: &Vault,

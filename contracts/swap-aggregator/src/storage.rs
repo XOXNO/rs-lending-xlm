@@ -8,12 +8,12 @@ use crate::errors::Error;
 use crate::math::checked_add;
 use crate::types::{DataKey, ReferralConfig};
 
-/// Extend instance TTL on hot write paths.
+/// Extends the contract instance's storage TTL.
 pub(crate) fn renew_instance(env: &Env) {
     common::ttl::renew_instance(env);
 }
 
-/// Static protocol fee in bps (instance).
+/// Returns the static protocol fee in basis points from instance storage, or 0 if unset.
 pub(crate) fn static_fee_bps(env: &Env) -> u32 {
     env.storage()
         .instance()
@@ -21,14 +21,14 @@ pub(crate) fn static_fee_bps(env: &Env) -> u32 {
         .unwrap_or(0)
 }
 
-/// Persist static protocol fee.
+/// Persists the static protocol fee in basis points to instance storage.
 pub(crate) fn set_static_fee_bps(env: &Env, fee_bps: u32) {
     env.storage()
         .instance()
         .set(&DataKey::StaticFeeBps, &fee_bps);
 }
 
-/// Fee-whitelist tokens, or empty vec if unset.
+/// Returns the fee-whitelisted token list from instance storage, or an empty vector if unset.
 pub(crate) fn load_whitelist(env: &Env) -> Vec<Address> {
     env.storage()
         .instance()
@@ -36,14 +36,14 @@ pub(crate) fn load_whitelist(env: &Env) -> Vec<Address> {
         .unwrap_or_else(|| Vec::new(env))
 }
 
-/// Replace the fee-whitelist list.
+/// Replaces the stored fee-whitelisted token list.
 pub(crate) fn set_whitelist(env: &Env, list: &Vec<Address>) {
     env.storage()
         .instance()
         .set(&DataKey::WhitelistedTokens, list);
 }
 
-/// Highest referral id issued (0 if none).
+/// Returns the highest referral id issued, or 0 if none exist.
 pub(crate) fn referral_counter(env: &Env) -> u64 {
     env.storage()
         .instance()
@@ -51,12 +51,13 @@ pub(crate) fn referral_counter(env: &Env) -> u64 {
         .unwrap_or(0)
 }
 
-/// Persist referral counter.
+/// Persists the referral id counter.
 pub(crate) fn set_referral_counter(env: &Env, id: u64) {
     env.storage().instance().set(&DataKey::ReferralCounter, &id);
 }
 
-/// Load referral or panic [`Error::ReferralNotFound`]. Extends TTL.
+/// Loads the referral config for `id` from persistent storage and extends its TTL. Panics with
+/// [`Error::ReferralNotFound`] if no referral exists for `id`.
 pub(crate) fn load_referral(env: &Env, id: u64) -> ReferralConfig {
     let key = DataKey::Referral(id);
     let v: ReferralConfig = env
@@ -68,7 +69,8 @@ pub(crate) fn load_referral(env: &Env, id: u64) -> ReferralConfig {
     v
 }
 
-/// Load referral if present; extends TTL when found.
+/// Loads the referral config for `id` from persistent storage if present, extending its TTL
+/// when found. Returns `None` if no referral exists for `id`.
 pub(crate) fn try_load_referral(env: &Env, id: u64) -> Option<ReferralConfig> {
     let key = DataKey::Referral(id);
     let v: Option<ReferralConfig> = env.storage().persistent().get(&key);
@@ -78,12 +80,13 @@ pub(crate) fn try_load_referral(env: &Env, id: u64) -> Option<ReferralConfig> {
     v
 }
 
-/// Write referral config under `id`.
+/// Writes the referral config for `id` to persistent storage.
 pub(crate) fn set_referral(env: &Env, id: u64, cfg: &ReferralConfig) {
     env.storage().persistent().set(&DataKey::Referral(id), cfg);
 }
 
-/// Fee bucket balance for `key`; extends TTL when non-zero.
+/// Returns the fee bucket balance stored under `key`, extending its persistent TTL when the
+/// entry is present. Returns 0 if the entry is absent.
 pub(crate) fn fee_balance(env: &Env, key: &DataKey) -> i128 {
     let v: Option<i128> = env.storage().persistent().get(key);
     if v.is_some() {
@@ -92,14 +95,16 @@ pub(crate) fn fee_balance(env: &Env, key: &DataKey) -> i128 {
     v.unwrap_or(0)
 }
 
-/// Add `amount` into fee bucket `key`.
+/// Adds `amount` to the fee bucket balance stored under `key` and persists the result. Panics
+/// with `Error::IntegerOverflow` if the addition overflows `i128`.
 pub(crate) fn accumulate_fee(env: &Env, key: DataKey, amount: i128) {
     let cur: i128 = env.storage().persistent().get(&key).unwrap_or(0);
     let next = checked_add(env, cur, amount);
     env.storage().persistent().set(&key, &next);
 }
 
-/// Read and clear a fee bucket. Returns 0 if empty.
+/// Returns the fee bucket balance stored under `key` and removes the entry from persistent
+/// storage when the balance is greater than zero. Returns 0 if the entry is absent.
 pub(crate) fn take_fee_bucket(env: &Env, key: &DataKey) -> i128 {
     let amount: i128 = env.storage().persistent().get(key).unwrap_or(0);
     if amount > 0 {
@@ -108,7 +113,9 @@ pub(crate) fn take_fee_bucket(env: &Env, key: &DataKey) -> i128 {
     amount
 }
 
-/// Admin + all referral fee buckets for `token` (sweep reserve). Extends TTL on hits.
+/// Returns the total fee balance reserved for `token`: the admin fee bucket plus every
+/// referral fee bucket up to the current referral counter. Extends the persistent TTL of each
+/// non-zero bucket encountered.
 pub(crate) fn reserved_fee_balance(env: &Env, token: &Address) -> i128 {
     let admin_key = DataKey::AdminFee(token.clone());
     let mut total: i128 = env.storage().persistent().get(&admin_key).unwrap_or(0);
@@ -128,6 +135,7 @@ pub(crate) fn reserved_fee_balance(env: &Env, token: &Address) -> i128 {
     total
 }
 
+/// Extends the persistent TTL of `key` using the shared threshold and bump constants.
 fn extend_persistent(env: &Env, key: &DataKey) {
     env.storage()
         .persistent()

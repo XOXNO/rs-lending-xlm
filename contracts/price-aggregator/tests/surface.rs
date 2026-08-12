@@ -1087,9 +1087,7 @@ fn constructor_emits_owner() {
     let owner = Address::generate(&env);
     env.register(PriceAggregator, (owner.clone(),));
 
-    let expected = ScVal::Symbol(ScSymbol(
-        "ownership_transfer_completed".try_into().unwrap(),
-    ));
+    let expected = ScVal::Symbol(ScSymbol("ownership_transfer_completed".try_into().unwrap()));
     let saw_owner = env.events().all().events().iter().any(|event| {
         let ContractEventBody::V0(body) = &event.body;
         body.topics.as_slice().first() == Some(&expected)

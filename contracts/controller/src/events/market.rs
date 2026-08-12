@@ -1,11 +1,14 @@
+//! Defines the contract events emitted when a market is created for a hub
+//! asset and when a market's interest-rate parameters are replaced.
+
 use common::types::{InterestRateModel, MarketParamsRaw};
 use soroban_sdk::{contractevent, Address};
 
-/// Market-create event.
-///
-/// Rate-model fields are **flat** on the wire (not a nested `InterestRateModel`
-/// / `MarketParamsRaw`). Flash-loan flags/fees and asset decimals stay off this
-/// event; indexers that need them must read pool state or pool params events.
+/// Event recording that a market is created for `hub_id` and `base_asset` at
+/// `market_address`. Carries the interest-rate curve fields and reserve
+/// factor as flat, top-level fields rather than a nested
+/// `InterestRateModel`/`MarketParamsRaw`; omits the flash-loan flag, flash-loan
+/// fee, and asset decimals.
 #[contractevent(topics = ["market", "create"])]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CreateMarketEvent {
@@ -24,11 +27,9 @@ pub struct CreateMarketEvent {
 }
 
 impl CreateMarketEvent {
-    /// Flatten create-market inputs onto the wire shape.
-    ///
-    /// Copies the shared interest-curve fields from `params` only; does **not**
-    /// nest `MarketParamsRaw` or emit `is_flashloanable` / `flashloan_fee` /
-    /// `asset_decimals`.
+    /// Builds a `CreateMarketEvent` for `hub_id`/`base_asset`/`market_address`,
+    /// copying the interest-curve fields and reserve factor from `params`.
+    /// Does not copy `is_flashloanable`, `flashloan_fee`, or `asset_decimals`.
     pub fn from_params(
         hub_id: u32,
         base_asset: Address,
@@ -52,10 +53,10 @@ impl CreateMarketEvent {
     }
 }
 
-/// Rate-model replace event.
-///
-/// Rate-model fields are **flat** on the wire (not a nested `InterestRateModel`).
-/// Flash-loan flags/fees are intentionally omitted from this payload.
+/// Event recording that the interest-rate model for `(hub_id, asset)` is
+/// replaced. Carries the interest-rate curve fields and reserve factor as
+/// flat, top-level fields rather than a nested `InterestRateModel`; omits the
+/// flash-loan flag and flash-loan fee.
 #[contractevent(topics = ["market", "params_update"])]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UpdateMarketParamsEvent {
@@ -73,10 +74,9 @@ pub struct UpdateMarketParamsEvent {
 }
 
 impl UpdateMarketParamsEvent {
-    /// Flatten an interest-rate model onto the wire shape for `(hub_id, asset)`.
-    ///
-    /// Copies the shared interest-curve fields only; does **not** nest
-    /// `InterestRateModel` or emit `is_flashloanable` / `flashloan_fee`.
+    /// Builds an `UpdateMarketParamsEvent` for `(hub_id, asset)`, copying the
+    /// interest-curve fields and reserve factor from `model`. Does not copy
+    /// `is_flashloanable` or `flashloan_fee`.
     pub fn from_rate_model(hub_id: u32, asset: Address, model: &InterestRateModel) -> Self {
         Self {
             hub_id,
@@ -94,11 +94,8 @@ impl UpdateMarketParamsEvent {
     }
 }
 
-/// `(hub_id, asset, &InterestRateModel)` → flat event fields.
-///
-/// Pure `From<&InterestRateModel>` is impossible without dropping hub/asset; the
-/// triple form keeps the mapping in one place while the published event stays
-/// field-flat.
+/// Converts a `(hub_id, asset, model)` triple into an `UpdateMarketParamsEvent`
+/// by delegating to [`UpdateMarketParamsEvent::from_rate_model`].
 impl From<(u32, Address, &InterestRateModel)> for UpdateMarketParamsEvent {
     fn from((hub_id, asset, model): (u32, Address, &InterestRateModel)) -> Self {
         Self::from_rate_model(hub_id, asset, model)

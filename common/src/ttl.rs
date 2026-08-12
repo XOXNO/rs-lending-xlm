@@ -1,12 +1,12 @@
+//! Helper for renewing a contract's instance storage TTL using protocol-wide
+//! threshold and bump constants.
+
 use soroban_sdk::Env;
 
 use crate::constants::{TTL_BUMP_INSTANCE, TTL_THRESHOLD_INSTANCE};
 
-/// Extend the current contract's instance storage TTL.
-///
-/// Uses protocol-wide instance thresholds (`TTL_THRESHOLD_INSTANCE` /
-/// `TTL_BUMP_INSTANCE`). All contracts should call this rather than inlining
-/// the same two-constant `extend_ttl`.
+/// Extends the current contract's instance storage TTL using
+/// `TTL_THRESHOLD_INSTANCE` and `TTL_BUMP_INSTANCE`.
 #[inline]
 pub fn renew_instance(env: &Env) {
     env.storage()

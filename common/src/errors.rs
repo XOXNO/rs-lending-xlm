@@ -1,5 +1,9 @@
+//! Contract error enums returned by fallible entry points, grouped by domain.
+
 use soroban_sdk::contracterror;
 
+/// Error codes for general contract, registry, account, timelock, and
+/// role-management failures not covered by a more specific error enum below.
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
@@ -81,6 +85,8 @@ pub enum GenericError {
     RepayRoundsToZeroShares = 52,
 }
 
+/// Error codes for collateral, position, interest-rate-curve, and
+/// liquidation validation failures.
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
@@ -146,6 +152,8 @@ pub enum CollateralError {
     FullCloseRequired = 135,
 }
 
+/// Error codes for oracle configuration, price-feed validation, and
+/// staleness failures.
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
@@ -203,6 +211,8 @@ pub enum OracleError {
     InsufficientAquariusLiquidity = 235,
 }
 
+/// Error codes for spoke registration and per-spoke asset configuration
+/// failures.
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
@@ -232,6 +242,7 @@ pub enum SpokeError {
     SpokeAssetFlagRelaxation = 317,
 }
 
+/// Error codes for flash-loan execution and repayment failures.
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
@@ -247,6 +258,7 @@ pub enum FlashLoanError {
     InvalidFlashloanReceiver = 412,
 }
 
+/// Error codes for strategy conversion and swap-routing failures.
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]

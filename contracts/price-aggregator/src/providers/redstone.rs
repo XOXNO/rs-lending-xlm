@@ -1,3 +1,6 @@
+//! Adapts the RedStone price source to the aggregator's provider interface,
+//! delegating price reads to the shared multi-feed reader.
+
 use common::errors::OracleError;
 use common::oracle::providers::redstone::REDSTONE_DECIMALS;
 use common::types::MultiFeedRef;
@@ -7,6 +10,8 @@ use crate::observation::OracleObservation;
 use crate::providers::multi_feed;
 use crate::session::Session;
 
+/// Panics with `OracleError::InvalidOracleDecimals` unless `decimals`
+/// equals `REDSTONE_DECIMALS`.
 pub(crate) fn attest(env: &Env, decimals: u32) {
     assert_with_error!(
         env,
@@ -15,6 +20,8 @@ pub(crate) fn attest(env: &Env, decimals: u32) {
     );
 }
 
+/// Reads `feed`'s price from RedStone via the shared multi-feed reader,
+/// scaled to `decimals`. Returns `None` if the price cannot be read.
 pub(crate) fn read(
     session: &mut Session,
     feed: &MultiFeedRef,

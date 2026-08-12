@@ -479,7 +479,11 @@ fn lp_sanity_band_admits_every_deployed_band() {
 
     // mainnet XLMUSDC_LP, XLMSolvBTC_LP, XAUMUSDC_LP; testnet XLMUSDC_LP.
     validate_lp_sanity_band(&env, 450_000_000_000_000_000, 2_500_000_000_000_000_000);
-    validate_lp_sanity_band(&env, 25_000_000_000_000_000_000, 250_000_000_000_000_000_000);
+    validate_lp_sanity_band(
+        &env,
+        25_000_000_000_000_000_000,
+        250_000_000_000_000_000_000,
+    );
     validate_lp_sanity_band(&env, 6_000_000_000_000_000_000, 25_000_000_000_000_000_000);
     validate_lp_sanity_band(&env, 400_000_000_000_000_000, 3_000_000_000_000_000_000);
 }

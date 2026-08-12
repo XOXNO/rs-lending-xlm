@@ -1,10 +1,12 @@
-//! Flash-loan flow: payout → receiver callback → pull principal+fee → book fee.
+//! Flash-loan flow: pays out principal, invokes the receiver callback, pulls
+//! back principal plus fee, then books the fee.
 //!
-//! Balance is checked after each transfer so fee-on-transfer or incomplete
-//! repayment cannot leave the pool under-funded relative to expected balances.
+//! Asserts the pool SAC balance after principal payout, again after the
+//! receiver callback (must still equal post-payout), and after principal+fee
+//! collection.
 //!
-//! Pure accounting helpers ([`prepare`], [`terms`], [`book_fee`], [`finalize`])
-//! are the production path used by [`apply`] and the surface Certora proves
+//! [`prepare`], [`terms`], [`book_fee`], and [`finalize`] are the accounting
+//! helpers used by [`apply`]; this same set is the surface Certora verifies
 //! without modeling SAC/callback hosts.
 
 use common::errors::{FlashLoanError, GenericError};
@@ -31,7 +33,7 @@ pub(crate) struct FlashTerms {
     pub(crate) balance_after_repayment: i128,
 }
 
-/// Execute a full flash loan and return the fee charged.
+/// Executes a full flash loan and returns the fee charged.
 ///
 /// Market must have `is_flashloanable`. Receiver must be a WASM contract that
 /// implements `execute_flash_loan`. Fee is booked as protocol revenue and cash.
@@ -74,7 +76,7 @@ pub(crate) fn apply(
     terms.fee
 }
 
-/// Accrue, require flash enabled, and require cash reserves for `amount`.
+/// Accrues interest, requires flash loans enabled, and requires cash reserves for `amount`.
 ///
 /// Production front half of [`apply`] before SAC/callback steps.
 pub(crate) fn prepare(env: &Env, hub_asset: HubAssetKey, amount: i128) -> Cache {
@@ -90,7 +92,8 @@ pub(crate) fn prepare(env: &Env, hub_asset: HubAssetKey, amount: i128) -> Cache 
     cache
 }
 
-/// Gate the market and build repayment terms from a symbolic/pre-loan balance.
+/// Accrues, requires flash loans enabled and cash for `amount`, then builds
+/// repayment terms from a symbolic/pre-loan `pre_balance`.
 ///
 /// Composes [`prepare`] + [`terms`] exactly as [`apply`] does after reading the
 /// live SAC balance. Used by Certora for full successful-path accounting.
@@ -107,7 +110,7 @@ pub(crate) fn prepare_with_balance(
     (cache, t)
 }
 
-/// Compute fee and expected pool balances from the pre-loan token balance.
+/// Computes fee and expected pool balances from the pre-loan token balance.
 pub(crate) fn terms(env: &Env, amount: i128, fee_bps: u32, pre_balance: i128) -> FlashTerms {
     let fee = Bps::from(i128::from(fee_bps)).flash_loan_fee_on(env, amount);
     FlashTerms {
@@ -124,14 +127,14 @@ pub(crate) fn terms(env: &Env, amount: i128, fee_bps: u32, pre_balance: i128) ->
     }
 }
 
-/// Credit cash and mint protocol revenue for the flash-loan fee.
+/// Credits cash and mints protocol revenue for the flash-loan fee.
 pub(crate) fn book_fee(cache: &mut Cache, fee: i128) {
     let protocol_fee = Ray::from_asset(fee, cache.params().asset_decimals);
     interest::add_protocol_revenue(cache, protocol_fee);
     cache.credit_cash(fee);
 }
 
-/// Successful-path tail of [`apply`]: book fee, commit, emit market state.
+/// Successful-path tail of [`apply`]: books the fee, commits the market, and emits market state.
 ///
 /// Called only after SAC balance checks confirm principal+fee returned.
 pub(crate) fn finalize(env: &Env, cache: &mut Cache, fee: i128) {
@@ -139,7 +142,7 @@ pub(crate) fn finalize(env: &Env, cache: &mut Cache, fee: i128) {
     events::emit_market_state(env, cache.commit());
 }
 
-/// Transfer principal to the receiver and assert the post-payout balance.
+/// Transfers principal to the receiver and asserts the post-payout balance.
 fn payout(
     env: &Env,
     asset: &token::Client,
@@ -152,7 +155,7 @@ fn payout(
     require_balance(env, asset, pool, expected_balance);
 }
 
-/// Call `execute_flash_loan` on the receiver with loan parameters and callback data.
+/// Calls `execute_flash_loan` on the receiver with loan parameters and callback data.
 #[allow(clippy::too_many_arguments)]
 fn invoke_receiver(
     env: &Env,
@@ -179,7 +182,7 @@ fn invoke_receiver(
     );
 }
 
-/// Pull principal + fee via `transfer_from` after verifying allowance.
+/// Pulls principal + fee via `transfer_from` after verifying allowance.
 fn collect_repayment(
     env: &Env,
     asset: &token::Client,
@@ -196,7 +199,7 @@ fn collect_repayment(
     require_balance(env, asset, pool, terms.balance_after_repayment);
 }
 
-/// Assert the pool's token balance equals `expected`.
+/// Asserts the pool's token balance equals `expected`.
 fn require_balance(env: &Env, asset: &token::Client, pool: &Address, expected: i128) {
     assert_with_error!(
         env,

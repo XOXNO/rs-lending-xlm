@@ -235,7 +235,8 @@ fn spoke_overrides_asset_params(e: Env, asset: Address) {
     let cfg = spoke_asset.unwrap();
 
     let mut cache = crate::context::Cache::new(&e);
-    let asset_config: common::types::AssetConfig = cache.require_spoke_asset(category_id, &hub_asset);
+    let asset_config: common::types::AssetConfig =
+        cache.require_spoke_asset(category_id, &hub_asset);
 
     cvlr_assert!(asset_config.loan_to_value.raw() == i128::from(cfg.loan_to_value));
     cvlr_assert!(asset_config.liquidation_threshold.raw() == i128::from(cfg.liquidation_threshold));

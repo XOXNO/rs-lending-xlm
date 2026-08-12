@@ -1,3 +1,7 @@
+//! Entry points for the liquidation flow: liquidating an undercollateralized
+//! account against liquidator-supplied payments, and socializing bad debt either
+//! through the standard dust-capped path or a forced insolvency path.
+
 use crate::risk;
 use common::validation::require_non_empty_payments;
 mod apply;
@@ -21,6 +25,11 @@ use crate::positions::{persist_position_flow, PositionSides};
 use crate::risk::validation;
 use crate::storage;
 
+/// Liquidates `account_id` by requiring `liquidator`'s authorization, collecting
+/// `debt_payments` against a liquidation plan, and seizing collateral scaled to the
+/// debt value actually received. Publishes a `LiquidationEvent`, persists the
+/// updated account, and runs dust-capped bad-debt socialization if remaining debt
+/// exceeds collateral and collateral ≤ `BAD_DEBT_USD_THRESHOLD`.
 pub(crate) fn process_liquidation(
     env: &Env,
     liquidator: &Address,
@@ -97,6 +106,9 @@ pub(crate) fn process_liquidation(
     cache.emit_position_batch(account_id, &account);
 }
 
+/// Asserts `aggregated` is non-empty and that `liquidator` is not the account's
+/// owner. Panics with `CollateralError::SelfLiquidationNotAllowed` on
+/// self-liquidation.
 fn validate_liquidation_inputs(
     env: &Env,
     account: &Account,
@@ -112,19 +124,27 @@ fn validate_liquidation_inputs(
     );
 }
 
+/// Cleans up `account_id`'s bad debt after requiring `caller`'s authorization, using
+/// the dust-capped socialization gate.
 pub(crate) fn process_clean_bad_debt(env: &Env, caller: &Address, account_id: u64) {
     caller.require_auth();
     validation::require_not_flash_loaning(env);
     clean_bad_debt_standalone(env, account_id);
 }
 
+/// Gate determining which accounts qualify for bad-debt socialization.
 enum BadDebtGate {
+    /// Admits accounts whose remaining debt is socializable bad debt (see
+    /// `is_socializable_bad_debt`).
     DustCapped,
 
+    /// Admits any account whose total debt exceeds its total collateral.
     Insolvent,
 }
 
 impl BadDebtGate {
+    /// Returns whether `total_debt` and `total_collateral` satisfy this gate's
+    /// condition.
     fn admits(&self, total_debt: Wad, total_collateral: Wad) -> bool {
         match self {
             Self::DustCapped => is_socializable_bad_debt(total_debt, total_collateral),
@@ -133,6 +153,10 @@ impl BadDebtGate {
     }
 }
 
+/// Socializes `account_id`'s bad debt when `gate` admits its current debt and
+/// collateral totals. Panics with `CollateralError::DebtPositionNotFound` if the
+/// account has no borrow positions, or `CollateralError::CannotCleanBadDebt` if
+/// `gate` does not admit the account.
 fn socialize_bad_debt(env: &Env, account_id: u64, gate: BadDebtGate) {
     let mut cache = Cache::new(env);
     let account = storage::get_account(env, account_id);
@@ -166,10 +190,14 @@ fn socialize_bad_debt(env: &Env, account_id: u64, gate: BadDebtGate) {
     );
 }
 
+/// Socializes `account_id`'s bad debt if it qualifies as dust-capped socializable
+/// bad debt.
 pub(crate) fn clean_bad_debt_standalone(env: &Env, account_id: u64) {
     socialize_bad_debt(env, account_id, BadDebtGate::DustCapped);
 }
 
+/// Forces socialization of `account_id`'s bad debt whenever its total debt exceeds
+/// its total collateral, bypassing the dust-cap check.
 pub(crate) fn process_force_socialize_bad_debt(env: &Env, account_id: u64) {
     validation::require_not_flash_loaning(env);
     socialize_bad_debt(env, account_id, BadDebtGate::Insolvent);

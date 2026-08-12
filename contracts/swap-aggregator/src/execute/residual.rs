@@ -8,7 +8,12 @@ use crate::storage;
 use crate::types::DataKey;
 use crate::vault::Vault;
 
-/// Accrue remaining vault balances as admin fee, or panic if above allowance.
+/// Accrues each of the vault's remaining token balances as admin fee, skipping
+/// tokens with a non-positive balance.
+///
+/// Panics with [`Error::ExcessiveResidual`] if a token's leftover balance
+/// exceeds its allowance relative to the amount already credited for that
+/// token.
 pub(crate) fn accrue_residual_as_revenue(env: &Env, vault: &mut Vault) {
     let tokens = vault.tokens();
     let n = tokens.len();

@@ -6,7 +6,10 @@ use crate::errors::Error;
 use crate::venues::aquarius::pool::{find_index, invoke_pool_swap, pool_tokens};
 use crate::venues::HopContext;
 
-/// Swap `amount_in` on the hop pool; returns the pool-reported amount (delta checked upstream).
+/// Executes a single-hop swap of `amount_in` through the hop's pool and returns
+/// the pool-reported output amount. Panics with `ZeroOutput` if the pool reports
+/// zero output, or with `IntegerOverflow` if the reported amount does not fit
+/// in `i128`.
 pub(crate) fn swap(ctx: &HopContext<'_>, cache: &mut Map<Address, Vec<Address>>) -> i128 {
     let tokens = pool_tokens(ctx.env, cache, &ctx.hop.pool);
     let in_idx = find_index(ctx.env, &tokens, &ctx.hop.token_in);

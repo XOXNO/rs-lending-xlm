@@ -1,3 +1,7 @@
+//! Lending Governance contract: a timelocked, role-gated admin contract
+//! that deploys and administers the controller and price aggregator
+//! contracts.
+
 #![no_std]
 
 mod access;
@@ -33,5 +37,8 @@ contractmeta!(
     val = "https://github.com/xoxno/rs-lending-xlm"
 );
 
+/// The governance contract. Owns the controller and price aggregator
+/// contracts and gates their administration behind role-based access
+/// control and a timelock.
 #[contract]
 pub struct Governance;

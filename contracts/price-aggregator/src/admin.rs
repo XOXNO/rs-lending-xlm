@@ -1,3 +1,10 @@
+//! Administrative operations for configuring, revalidating, and updating asset oracles.
+//!
+//! Provides the entry points used by privileged callers to register a new oracle
+//! configuration, attest its price sources, adjust its sanity bounds, or adjust its
+//! tolerance, and cascades revalidation to any other configured oracle whose
+//! composition depends on the changed key.
+
 use common::errors::OracleError;
 use common::types::{AssetOracle, FeedSource, OracleTolerance, PriceKey, PriceSource, ProviderRef};
 use common::validation::{
@@ -12,6 +19,8 @@ use crate::registry;
 use crate::session::Session;
 use crate::validation;
 
+/// Attests every price source configured on `oracle`, dispatching feed, scaled-feed,
+/// and Aquarius LP sources to their respective provider attestation routines.
 fn attest_sources(env: &Env, key: &PriceKey, oracle: &AssetOracle) {
     for source in oracle.sources.iter() {
         match &source {
@@ -24,6 +33,8 @@ fn attest_sources(env: &Env, key: &PriceKey, oracle: &AssetOracle) {
     }
 }
 
+/// Attests a single feed source by dispatching to the provider-specific attestation
+/// routine identified by `feed.provider`.
 fn attest_feed(env: &Env, feed: &FeedSource) {
     match &feed.provider {
         ProviderRef::Reflector(reflector) => {
@@ -36,6 +47,12 @@ fn attest_feed(env: &Env, feed: &FeedSource) {
     }
 }
 
+/// Validates `oracle`, attests its sources, then probes:
+/// - Aquarius LP: hard probe (`probe_priceable`) — panics on any unusable
+///   outcome (including staleness, deviation, sanity bounds).
+/// - Otherwise: soft probe (`probe`) — panics only on configuration-level
+///   failures; market-condition failures do not block registration.
+/// Then stores the config, revalidates dependents, and emits the registry event.
 pub(crate) fn set_oracle(env: &Env, key: PriceKey, oracle: AssetOracle) {
     validate_asset_oracle(env, &key, &oracle);
     attest_sources(env, &key, &oracle);
@@ -51,6 +68,9 @@ pub(crate) fn set_oracle(env: &Env, key: PriceKey, oracle: AssetOracle) {
     registry::emit(env, &key, &oracle);
 }
 
+/// Revalidates and re-probes every oracle registered in the registry whose
+/// composition transitively depends on `changed`, panicking if any of them fails
+/// validation under the new state.
 fn revalidate_dependents(env: &Env, changed: &PriceKey) {
     for candidate in registry::oracle_keys(env).iter() {
         if candidate == *changed || !depends_on(env, &candidate, changed, &mut Vec::new(env)) {
@@ -64,6 +84,9 @@ fn revalidate_dependents(env: &Env, changed: &PriceKey) {
     }
 }
 
+/// Returns whether `root`'s registered oracle composition depends, directly or
+/// transitively, on `target`. Guards against cycles in the dependency graph via
+/// `visiting`, treating a key already on the current path as a non-match.
 fn depends_on(env: &Env, root: &PriceKey, target: &PriceKey, visiting: &mut Vec<PriceKey>) -> bool {
     if visiting.first_index_of(root).is_some() {
         return false;
@@ -83,6 +106,13 @@ fn depends_on(env: &Env, root: &PriceKey, target: &PriceKey, visiting: &mut Vec<
     found
 }
 
+/// Runs the full validation suite for `oracle` under `key`: sanity bounds, the
+/// single-source sanity band cap (waived for Aquarius LP oracles and for
+/// two-source oracles whose sources do not trust each other exactly), asset
+/// decimals, each source's shape, the Aquarius LP source-count restriction,
+/// composition depth, staleness envelope, smoothing (skipped for Aquarius LP
+/// oracles), tolerance (skipped for Aquarius LP oracles), and source independence
+/// when a second source is present. Panics if any check fails.
 pub(crate) fn validate_asset_oracle(env: &Env, key: &PriceKey, oracle: &AssetOracle) {
     let mut session = Session::new(env);
     session.push_key(key);
@@ -141,6 +171,11 @@ pub(crate) fn validate_asset_oracle(env: &Env, key: &PriceKey, oracle: &AssetOra
     }
 }
 
+/// Updates the sanity price bounds of the oracle registered under `key`. Requires
+/// `min_wad` to stay below the current maximum and `max_wad` to stay above the
+/// current minimum, revalidates the updated oracle, re-probes it, and commits the
+/// result to the registry. Panics if the oracle is not configured or the bounds
+/// overlap invalidly.
 pub(crate) fn set_sanity_band(env: &Env, key: PriceKey, min_wad: i128, max_wad: i128) {
     let mut oracle = registry::get_oracle(env, &key)
         .unwrap_or_else(|| panic_with_error!(env, OracleError::OracleNotConfigured));
@@ -159,6 +194,10 @@ pub(crate) fn set_sanity_band(env: &Env, key: PriceKey, min_wad: i128, max_wad: 
     registry::commit(env, &key, &oracle);
 }
 
+/// Updates the tolerance of the oracle registered under `key`. Rejects Aquarius LP
+/// oracles, validates the new tolerance, re-probes the oracle, and commits the
+/// result to the registry. Panics if the oracle is not configured, has an
+/// Aquarius LP source, or the tolerance fails validation.
 pub(crate) fn set_tolerance(env: &Env, key: PriceKey, tolerance: OracleTolerance) {
     let mut oracle = registry::get_oracle(env, &key)
         .unwrap_or_else(|| panic_with_error!(env, OracleError::OracleNotConfigured));

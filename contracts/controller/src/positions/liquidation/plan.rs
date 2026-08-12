@@ -1,3 +1,7 @@
+//! Builds a `LiquidationPlan` for an undercollateralized account: verifies the
+//! account's health factor, sizes the repayment against its liquidation curve, and
+//! computes the collateral to seize.
+
 use super::curve::{LiquidationCurve, LiquidationSnapshot};
 use crate::risk;
 use common::errors::CollateralError;
@@ -9,6 +13,8 @@ use crate::context::Cache;
 use crate::positions::liquidation::math::*;
 use crate::positions::{enforce_spoke_asset_flags, FreezePolicy};
 
+/// Builds a liquidation plan for `account` against `aggregated_debt` and converts it
+/// into a `LiquidationResult`.
 pub(crate) fn execute_liquidation(
     env: &Env,
     account: &Account,
@@ -18,6 +24,11 @@ pub(crate) fn execute_liquidation(
     build_liquidation_plan(env, account, aggregated_debt, cache).into_result()
 }
 
+/// Builds and validates a `LiquidationPlan` for `account` against `aggregated_debt`:
+/// verifies the account is undercollateralized, sizes the repayment against the
+/// account's liquidation curve, and computes the collateral to seize. Panics with
+/// `CollateralError::HealthFactorTooHigh` if the account has no borrow positions or
+/// its health factor is at or above `Wad::ONE`.
 pub(crate) fn build_liquidation_plan(
     env: &Env,
     account: &Account,

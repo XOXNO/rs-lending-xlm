@@ -75,6 +75,12 @@ fn init_emits_owner_and_default_limits() {
     }
 
     assert!(saw_owner, "constructor must publish the initial owner");
-    assert!(saw_limits, "constructor must publish the default position limits");
-    assert!(saw_floor, "constructor must publish the default borrow floor");
+    assert!(
+        saw_limits,
+        "constructor must publish the default position limits"
+    );
+    assert!(
+        saw_floor,
+        "constructor must publish the default borrow floor"
+    );
 }

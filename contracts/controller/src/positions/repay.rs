@@ -1,3 +1,7 @@
+//! Repay-flow logic for the controller: transfers repayment funds from the payer to the pool,
+//! applies the pool results to account debt state, and exposes a single-leg repay entry point
+//! used by liquidation.
+
 use common::errors::GenericError;
 use common::types::{Account, DebtPosition, HubAssetKey, PoolAction, PoolPositionMutation};
 use soroban_sdk::{vec, Address, Env, Vec};
@@ -15,12 +19,20 @@ use crate::positions::{
 use crate::storage;
 use common::validation::expect_invariant;
 
+/// A single debt leg to repay: the hub asset, the current debt position, and the amount to
+/// repay.
 pub(crate) struct RepaymentRequest<'a> {
     pub hub_asset: &'a HubAssetKey,
     pub position: &'a DebtPosition,
     pub amount: i128,
 }
 
+/// Executes a repay of `payments` against `account_id`'s debt positions, pulling the repaid
+/// funds from `caller`.
+///
+/// Requires `caller`'s authorization and reverts if a flash loan is in progress. Aggregates
+/// `payments` into per-hub-asset amounts, transfers each amount from `caller` to the pool, and
+/// applies the pool's repay results to the account's debt position map.
 pub(crate) fn process_repay(
     env: &Env,
     caller: &Address,
@@ -46,6 +58,8 @@ pub(crate) fn process_repay(
     );
 }
 
+/// Builds pool repay actions for `aggregated` and applies them against the pool, updating
+/// `account`'s debt positions from the results.
 fn settle_repay(
     env: &Env,
     caller: &Address,
@@ -64,6 +78,12 @@ fn settle_repay(
     );
 }
 
+/// Builds one [`PoolAction`] per hub asset in `aggregated`: enforces the asset's pause/freeze
+/// flags for an exit, transfers the measured amount from `caller` to the pool, and records the
+/// transferred amount against the asset's existing debt position.
+///
+/// Panics with `DebtPositionNotFound` if a hub asset in `aggregated` has no existing debt
+/// position on `account`.
 fn build_repay_actions(
     env: &Env,
     caller: &Address,
@@ -95,6 +115,9 @@ fn build_repay_actions(
     actions
 }
 
+/// Calls the pool to execute `actions` as a repay batch paid by `payer`, then merges each leg's
+/// result into `account`'s debt positions, recording `action` as the event action. Returns the
+/// pool's per-leg mutation results.
 pub(crate) fn apply_repay_batch(
     env: &Env,
     account: &mut Account,
@@ -119,6 +142,12 @@ pub(crate) fn apply_repay_batch(
     results
 }
 
+/// Repays the single debt leg described by `req` against `account`, using `ctx`'s counterparty
+/// as the payer and `ctx`'s action as the recorded event action.
+///
+/// Enforces the asset's pause/freeze flags for an exit, then applies the repay through
+/// [`apply_repay_batch`]. Panics via `expect_invariant` if the pool returns no result for the
+/// repay action.
 pub(crate) fn execute_repayment(
     env: &Env,
     account: &mut Account,

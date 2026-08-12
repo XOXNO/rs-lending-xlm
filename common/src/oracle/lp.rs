@@ -1,9 +1,15 @@
+//! Fair-value pricing for two-asset constant-product LP tokens, and the
+//! integer square-root helper that computation relies on.
+
 use crate::constants::WAD;
 use crate::errors::OracleError;
 use crate::math::fp_core::try_mul_div_half_up;
 use crate::oracle::observation::{try_amount_to_wad, try_u256_to_i128};
 use soroban_sdk::{Env, U256};
 
+/// Computes `floor(sqrt(a * b))` as a `U256` using Newton's method, seeded
+/// from `(isqrt(a) + 1) * (isqrt(b) + 1)`. Returns `a * b` directly when the
+/// product is 0 or 1.
 pub fn isqrt_of_product(env: &Env, a: u128, b: u128) -> U256 {
     let n = U256::from_u128(env, a).mul(&U256::from_u128(env, b));
     let one = U256::from_u32(env, 1);
@@ -23,6 +29,8 @@ pub fn isqrt_of_product(env: &Env, a: u128, b: u128) -> U256 {
     x
 }
 
+/// Reserve amount, token decimals, and WAD-scaled price for one asset leg of
+/// an LP pool.
 #[derive(Clone, Debug)]
 pub struct LpLeg {
     pub reserve: i128,
@@ -30,12 +38,21 @@ pub struct LpLeg {
     pub price_wad: i128,
 }
 
+/// Total LP share supply and its decimals.
 #[derive(Clone, Debug)]
 pub struct LpSupply {
     pub total_shares: i128,
     pub decimals: u32,
 }
 
+/// Computes the fair-value price of one LP share, in WAD (1e18) scale.
+///
+/// Converts each leg's reserve into a WAD value (`reserve * price_wad /
+/// 10^decimals`), combines the two leg values as `2 * sqrt(value_a *
+/// value_b)`, and divides by the share supply converted to WAD. Returns
+/// `OracleError::InvalidPrice` if any reserve, price, or share amount is not
+/// positive, if a leg's value fails to compute, or if the result does not
+/// fit in `i128`.
 pub fn fair_lp_price_wad(
     env: &Env,
     a: &LpLeg,
@@ -68,6 +85,9 @@ pub fn fair_lp_price_wad(
     try_u256_to_i128(&fair).ok_or(OracleError::InvalidPrice)
 }
 
+/// Converts one leg's reserve into a WAD-scaled value: `reserve * price_wad
+/// / 10^decimals`, rounded half up. Returns `OracleError::InvalidPrice` if
+/// `10^decimals` overflows `i128` or the multiply-divide fails.
 fn reserve_value_wad(env: &Env, leg: &LpLeg) -> Result<i128, OracleError> {
     let denom = 10i128
         .checked_pow(leg.decimals)

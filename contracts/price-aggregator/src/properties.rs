@@ -1,3 +1,7 @@
+//! Computes structural properties of oracle source compositions — trusted
+//! provider contracts, unsmoothed-market-leg presence, loosest staleness bound,
+//! and composition depth — by recursing through a source's dependencies.
+
 use common::errors::OracleError;
 use common::types::{FeedSource, PriceKey, PriceSource};
 use soroban_sdk::{panic_with_error, Address, Env, Vec};
@@ -5,6 +9,10 @@ use soroban_sdk::{panic_with_error, Address, Env, Vec};
 use crate::registry;
 use crate::session::Session;
 
+/// Structural properties of a source or a composition of sources: whether an
+/// unsmoothed market leg is present, the set of trusted provider contracts, the
+/// loosest configured staleness bound, and the maximum composition depth
+/// reached.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct SourceProperties {
     pub has_unsmoothed_market_leg: bool,
@@ -14,6 +22,8 @@ pub(crate) struct SourceProperties {
 }
 
 impl SourceProperties {
+    /// Returns a zero-valued `SourceProperties` with no trusted contracts, no
+    /// unsmoothed leg, zero staleness bound, and zero depth.
     fn empty(env: &Env) -> Self {
         Self {
             has_unsmoothed_market_leg: false,
@@ -23,6 +33,9 @@ impl SourceProperties {
         }
     }
 
+    /// Builds the `SourceProperties` of a single feed source: whether its
+    /// provider counts as an unsmoothed market leg, its provider contract as
+    /// the sole trusted contract, and its configured staleness bound.
     fn of_feed(env: &Env, feed: &FeedSource) -> Self {
         Self {
             has_unsmoothed_market_leg: feed.provider.is_unsmoothed_market_leg(),
@@ -32,6 +45,9 @@ impl SourceProperties {
         }
     }
 
+    /// Merges `self` with `other`: ORs the unsmoothed-market-leg flags, unions
+    /// the trusted-contract sets, and takes the maximum of the staleness bound
+    /// and depth.
     fn join(&self, other: &Self) -> Self {
         let mut trust = self.trust.clone();
         for contract in other.trust.iter() {
@@ -50,11 +66,15 @@ impl SourceProperties {
         }
     }
 
+    /// Returns whether `self` and `other` trust exactly the same set of
+    /// contracts, in either order.
     pub(crate) fn trusts_exactly_as(&self, other: &Self) -> bool {
         let covered = |a: &Vec<Address>, b: &Vec<Address>| a.iter().all(|d| b.contains(&d));
         covered(&self.trust, &other.trust) && covered(&other.trust, &self.trust)
     }
 
+    /// Returns the contracts trusted by both `self` and `other`, without
+    /// duplicates.
     pub(crate) fn shared_contracts_with(&self, env: &Env, other: &Self) -> Vec<Address> {
         let mut shared = Vec::new(env);
         for contract in self.trust.iter() {
@@ -66,11 +86,18 @@ impl SourceProperties {
     }
 }
 
+/// A source's own (non-recursive) properties paired with the `PriceKey`s it
+/// depends on, without resolving those dependencies.
 pub(crate) struct LocalProperties {
     pub local: SourceProperties,
     pub dependencies: Vec<PriceKey>,
 }
 
+/// Computes the local `SourceProperties` and dependency keys of `source`
+/// without recursing into those dependencies: a plain feed has no
+/// dependencies; a scaled source depends on its quote key; an Aquarius LP
+/// source (standard or stable) is marked as an unsmoothed market leg and
+/// depends on both of its paired keys.
 pub(crate) fn local_properties(env: &Env, source: &PriceSource) -> LocalProperties {
     match source {
         PriceSource::Feed(feed) => LocalProperties {
@@ -91,6 +118,10 @@ pub(crate) fn local_properties(env: &Env, source: &PriceSource) -> LocalProperti
     }
 }
 
+/// Computes the full `SourceProperties` of `source`, joining in the properties
+/// of every dependency it references (recursing through their registered
+/// oracles at `depth + 1`). Panics with `OracleDepthExceeded` if `depth`
+/// exceeds the maximum resolution depth.
 pub(crate) fn properties_of_source(
     session: &mut Session,
     source: &PriceSource,
@@ -111,6 +142,11 @@ pub(crate) fn properties_of_source(
     properties
 }
 
+/// Computes the joined `SourceProperties` across every source configured on the
+/// oracle registered for `key`, tracking `key` on the session's resolution
+/// stack while iterating. Panics with `OracleDepthExceeded` if `depth` exceeds
+/// the maximum resolution depth, or with `OracleNotConfigured` if `key` has no
+/// registered oracle.
 pub(crate) fn properties_of_key(
     session: &mut Session,
     key: &PriceKey,
@@ -135,12 +171,16 @@ pub(crate) fn properties_of_key(
     joined
 }
 
+/// The properties of an oracle configuration's first source and, when present,
+/// its second source.
 pub(crate) struct ConfigProperties {
     pub first: SourceProperties,
     pub second: Option<SourceProperties>,
 }
 
 impl ConfigProperties {
+    /// Returns the joined properties of both sources, or just `first`'s
+    /// properties when there is no second source.
     pub fn combined(&self) -> SourceProperties {
         match &self.second {
             Some(second) => self.first.join(second),
@@ -149,6 +189,8 @@ impl ConfigProperties {
     }
 }
 
+/// Validates that `sources` has one or two entries, then computes the
+/// `ConfigProperties` of the first source and, if present, the second.
 pub(crate) fn properties_of_config(
     session: &mut Session,
     sources: &Vec<PriceSource>,
@@ -165,6 +207,8 @@ pub(crate) fn properties_of_config(
     ConfigProperties { first, second }
 }
 
+/// Panics with `OracleDepthExceeded` if `depth` exceeds the maximum resolution
+/// depth.
 fn require_depth(env: &Env, depth: u32) {
     if depth > common::types::MAX_RESOLUTION_DEPTH {
         panic_with_error!(env, OracleError::OracleDepthExceeded);

@@ -1,12 +1,16 @@
+//! Converts a scaled position balance (ray-precision units, e.g. principal
+//! divided by an index) into a USD value expressed in WAD, given the
+//! applicable index and asset price. Each function performs the same
+//! sequence — multiply by the index, rescale from ray to WAD, multiply by
+//! the price — using a different rounding direction at every step.
+
 use soroban_sdk::Env;
 
 use crate::math::fp::{Ray, Wad};
 
-/// Half-up position USD value: `(scaled * index).to_wad() * price`.
-///
-/// Stays in ray space through the index mul, then rescales to WAD before the
-/// price mul — preferred over unscale-to-asset then `PriceFeed::usd_value_wad`
-/// when asset decimals would only be re-upscaled to WAD.
+/// Computes the USD value of a scaled position using half-up rounding at
+/// each step: multiplies `scaled` by `index` in ray precision, rescales the
+/// product to WAD, then multiplies by `price`.
 #[inline]
 pub fn position_value(env: &Env, scaled: Ray, index: Ray, price: Wad) -> Wad {
     let actual = scaled.mul(env, index);
@@ -14,7 +18,9 @@ pub fn position_value(env: &Env, scaled: Ray, index: Ray, price: Wad) -> Wad {
     actual_wad.mul(env, price)
 }
 
-/// Floor position USD value (borrow/LTV gates that must not overstate collateral).
+/// Computes the USD value of a scaled position, rounding down at each step:
+/// multiplies `scaled` by `index`, rescales the product to WAD, then
+/// multiplies by `price`, using floor rounding throughout.
 #[inline]
 pub fn position_value_floor(env: &Env, scaled: Ray, index: Ray, price: Wad) -> Wad {
     let actual = scaled.mul_floor(env, index);
@@ -22,7 +28,9 @@ pub fn position_value_floor(env: &Env, scaled: Ray, index: Ray, price: Wad) -> W
     actual_wad.mul_floor(env, price)
 }
 
-/// Ceil position USD value (debt totals that must not understate liability).
+/// Computes the USD value of a scaled position, rounding up at each step:
+/// multiplies `scaled` by `index`, rescales the product to WAD, then
+/// multiplies by `price`, using ceiling rounding throughout.
 #[inline]
 pub fn position_value_ceil(env: &Env, scaled: Ray, index: Ray, price: Wad) -> Wad {
     let actual = scaled.mul_ceil(env, index);

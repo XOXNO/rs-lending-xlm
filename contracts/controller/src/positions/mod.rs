@@ -1,42 +1,9 @@
-//! Core position money path: supply, borrow, withdraw, repay, liquidation.
+//! Shared building blocks for the position-mutation flows implemented in the sibling
+//! `borrow`, `repay`, `supply`, `withdraw`, and `liquidation` modules.
 //!
-//! Auth and risk gates live on public entrypoints; pool settles shares/cash.
-//!
-//! # The four verbs are a 2×2
-//!
-//! |  | entry (grow) | exit (shrink) |
-//! |---|---|---|
-//! | **supply side** | [`supply`] | [`withdraw`] |
-//! | **debt side** | [`borrow`] | [`repay`] |
-//!
-//! Almost every difference between the four modules follows from those two bits,
-//! so read a module by asking which cell it is in:
-//!
-//! * **side** picks the position map, the [`crate::spoke::UsageSide`], the
-//!   event recorder, and the position type. Only the supply side carries
-//!   controller-owned risk params; debt positions are wholly pool-owned.
-//! * **direction** picks `apply_spoke_entry` (which also enforces caps) versus
-//!   `apply_spoke_exit`, and the sign of the scaled-share delta.
-//! * **tokens move toward the pool** on supply·entry and debt·exit, so exactly
-//!   [`supply`] and [`repay`] pre-transfer before the pool call.
-//! * **the op can worsen health** on debt·entry and supply·exit, so exactly
-//!   [`borrow`] and [`withdraw`] re-run post-pool solvency.
-//!
-//! # Stage ladder
-//!
-//! `process_*` → `settle_*` → build → `apply_*_batch` → merge per leg →
-//! [`finalize_position_flow`]. `apply_*_batch` owns the one cross-contract call;
-//! [`withdraw`] and [`repay`] expose theirs because liquidation and the strategy
-//! legs enter at that depth (see [`withdraw`]'s tier table).
-//!
-//! Shared: [`require_position_caller`], [`for_each_leg`], [`apply_leg_usage`]
-//! (owns the delta's sign), [`merge_debt_leg`] for both debt cells,
-//! [`enforce_post_pool_solvency`], [`finalize_position_flow`].
-//!
-//! Not shared, on purpose: the supply-side merges. [`supply`] stamps risk params
-//! before the new shares land, [`withdraw`] after, so each prices the min-HF gate
-//! against the smaller balance. Merging them would need a flag for where the
-//! stamp goes.
+//! Provides the caller/auth entry gate, per-leg pool-result merging for debt positions,
+//! entry-gate validation for deposits and borrows, post-pool solvency enforcement, and the
+//! account-state persistence and event-emission tail shared by every verb.
 
 use common::errors::{CollateralError, GenericError, SpokeError};
 use common::math::fp::Ray;
@@ -61,15 +28,12 @@ pub(crate) mod repay;
 pub(crate) mod supply;
 pub(crate) mod withdraw;
 
-/// What the pool returned for one position leg, reduced to what the merge step
-/// actually consumes.
-///
-/// Keeps the merges independent of which pool call produced the numbers, so the
-/// batch paths and the net-settle path share one merge per side instead of
-/// hand-rolling their own tail.
+/// Reduced pool-call result for one position leg: the fields the merge step consumes,
+/// independent of which pool call produced them.
 pub(crate) struct LegOutcome {
     /// Post-call scaled shares, as owned by the pool.
     pub new_scaled: Ray,
+    /// Market index snapshot returned by the pool call for this leg's asset.
     pub market_index: MarketIndexRaw,
     /// Asset-native amount moved, for the event payload.
     pub amount: i128,
@@ -86,8 +50,6 @@ impl From<&PoolPositionMutation> for LegOutcome {
 }
 
 /// Walks one pool call's entries against its results, in input order.
-///
-/// One assert beats a per-index `results.get(i)`, which tolerates a long return.
 ///
 /// # Errors
 /// * [`GenericError::InternalError`] - result count differs from entry count.
@@ -110,17 +72,14 @@ pub(crate) fn for_each_leg<E, R>(
     }
 }
 
-/// Entry gate for every public verb: caller signed, not inside a flash loan.
+/// Requires `caller`'s authorization signature and reverts if a flash loan is in progress.
 pub(crate) fn require_position_caller(env: &Env, caller: &Address) {
     caller.require_auth();
     validation::require_not_flash_loaning(env);
 }
 
-/// Restamps live LTV on every listed supply leg, then runs the post-pool gates.
-///
-/// Only the health-reducing cells need it: debt·entry and supply·exit. Covers all
-/// listed legs, not just touched ones, since the gates read live config. Returns
-/// whether the supply map was dirtied, so the caller knows to persist that side.
+/// Restamps live LTV on every listed supply leg, then runs the post-pool risk gates. Returns
+/// whether the supply position map was modified.
 pub(crate) fn enforce_post_pool_solvency(
     env: &Env,
     cache: &mut Cache,
@@ -131,16 +90,16 @@ pub(crate) fn enforce_post_pool_solvency(
     restamped
 }
 
-/// Which half of the 2×2 a leg is on. `Entry` grows and carries the asset
-/// decimals cap enforcement needs; `Exit` shrinks and needs nothing extra.
+/// Direction of a position leg. `Entry` increases the position and carries the asset decimals
+/// used for cap enforcement; `Exit` decreases it.
 #[derive(Clone, Copy)]
 pub(crate) enum LegDirection {
     Entry { asset_decimals: u32 },
     Exit,
 }
 
-/// Applies a leg's scaled-share delta to spoke usage. Owns the sign: entry is
-/// `new - old`, exit is `old - new`. Only entry enforces caps.
+/// Applies a leg's scaled-share delta to spoke usage: computes `new - old` for `Entry` and
+/// `old - new` for `Exit`, and enforces caps only for `Entry`.
 pub(crate) fn apply_leg_usage(
     env: &Env,
     cache: &mut Cache,
@@ -169,10 +128,11 @@ pub(crate) fn apply_leg_usage(
     }
 }
 
-/// Folds one debt-side pool result into the account, spoke usage and events.
+/// Folds one debt-side pool result into the account, spoke usage, and events. Handles both
+/// borrow (`Entry`) and repay (`Exit`) directions.
 ///
-/// Serves borrow (`Entry`) and repay (`Exit`): debt is wholly pool-owned, so there
-/// are no risk params to stamp and both directions share one body.
+/// Panics with `DebtPositionNotFound` if `direction` is `Exit` and `hub_asset` has no debt
+/// position on `account`.
 pub(crate) fn merge_debt_leg(
     env: &Env,
     account: &mut Account,
@@ -215,8 +175,7 @@ pub(crate) fn merge_debt_leg(
     account::update_or_remove_debt_position(account, hub_asset, &position);
 }
 
-/// Whether a frozen listing blocks the verb. Freeze must never block shrinking
-/// an existing position, or governance could trap funds.
+/// Whether a frozen listing blocks the verb.
 #[derive(Clone, Copy, PartialEq)]
 pub(crate) enum FreezePolicy {
     /// New deposits and borrows: a frozen listing reverts.
@@ -247,6 +206,9 @@ impl PositionSides {
     };
 }
 
+/// Persists `account`'s supply and/or debt position maps according to `sides`, renews the
+/// account's storage TTL if either side is written, and runs empty-account cleanup when
+/// `remove_if_empty` is set.
 pub(crate) fn persist_account_positions(
     env: &Env,
     account_id: u64,
@@ -268,12 +230,8 @@ pub(crate) fn persist_account_positions(
     }
 }
 
-/// Persist half of the position-flow tail: buffered spoke usage first, then the
-/// account's position maps.
-///
-/// Split out from [`finalize_position_flow`] so liquidation, which must run its
-/// bad-debt check between persisting and emitting, shares this ordering instead
-/// of open-coding it.
+/// Persists buffered spoke usage, then `account`'s supply and/or debt position maps, via
+/// [`persist_account_positions`].
 pub(crate) fn persist_position_flow(
     env: &Env,
     account_id: u64,
@@ -286,10 +244,10 @@ pub(crate) fn persist_position_flow(
     persist_account_positions(env, account_id, account, sides, remove_if_empty);
 }
 
-/// Standard tail for user position flows: spoke usage, positions, then events.
-///
-/// `remove_if_empty` is true only on full-exit withdraw; supply/borrow/repay
-/// leave the account in place even if one side is empty.
+/// Persists `account`'s position state (via [`persist_position_flow`]) and emits the
+/// position-change events for `account_id`. `remove_if_empty` is `true` for user
+/// withdraw and for strategy finalization (`strategy_finalize`); borrow, repay, and
+/// supply pass `false`, leaving the account in storage even if a side ends up empty.
 pub(crate) fn finalize_position_flow(
     env: &Env,
     account_id: u64,
@@ -302,15 +260,9 @@ pub(crate) fn finalize_position_flow(
     cache.emit_position_batch(account_id, account);
 }
 
-/// Single-asset deposit-entry preflight.
-///
-/// Mirrors the Deposit branch of [`validate_position_entry_gates`] without bulk
-/// position-limit checks: hub active, spoke listing, pause/freeze
-/// ([`FreezePolicy::BlockOnEntry`]), and `can_supply`.
-///
-/// Strategy early preflights (`multiply`, `swap_collateral`, `migrate_blend`)
-/// call this so freeze/pause fail before expensive external legs, not only at
-/// the eventual `process_deposit`.
+/// Validates hub-active status, spoke listing, pause/freeze flags (via
+/// [`FreezePolicy::BlockOnEntry`]), and `can_supply` for a single asset. Equivalent to the
+/// `Deposit` branch of [`validate_position_entry_gates`] without the bulk position-limit checks.
 pub(crate) fn require_can_supply(
     env: &Env,
     cache: &mut Cache,
@@ -367,12 +319,9 @@ pub(crate) fn validate_position_entry_gates(
     }
 }
 
-/// Enforces per-spoke paused/frozen flags when the asset is still listed.
-///
-/// Paused always reverts, for every verb. Frozen reverts only under
-/// [`FreezePolicy::BlockOnEntry`]. Missing listing is a no-op here (callers that
-/// need a listing use `require_listed_active_config` first), so a delisted asset
-/// stays exitable.
+/// Enforces per-spoke paused/frozen flags when the asset is listed in the cache. Reverts if
+/// paused, for every verb. Reverts if frozen only under [`FreezePolicy::BlockOnEntry`]. Does
+/// nothing if the asset has no cached spoke listing.
 pub(crate) fn enforce_spoke_asset_flags(
     env: &Env,
     cache: &mut Cache,
@@ -388,6 +337,7 @@ pub(crate) fn enforce_spoke_asset_flags(
     }
 }
 
+/// Builds a [`PoolAction`] from a scaled position, amount, and hub asset.
 pub(crate) fn make_pool_action(
     position: impl Into<ScaledPositionRaw>,
     amount: i128,
@@ -400,10 +350,8 @@ pub(crate) fn make_pool_action(
     }
 }
 
-/// Supply position lookup for withdraw and related paths.
-///
-/// Panics with `CollateralPositionNotFound` (distinct from liquidation's
-/// `expect_invariant` path so user errors stay stable).
+/// Looks up the supply position for `hub_asset` on `account`. Panics with
+/// `CollateralPositionNotFound` if none exists.
 pub(crate) fn get_supply_position_or_panic(
     env: &Env,
     account: &Account,
@@ -416,9 +364,8 @@ pub(crate) fn get_supply_position_or_panic(
         .into()
 }
 
-/// Debt position lookup for repay and related paths.
-///
-/// Panics with `DebtPositionNotFound`.
+/// Looks up the debt position for `hub_asset` on `account`. Panics with `DebtPositionNotFound`
+/// if none exists.
 pub(crate) fn get_debt_position_or_panic(
     env: &Env,
     account: &Account,

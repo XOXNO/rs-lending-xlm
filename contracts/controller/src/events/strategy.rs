@@ -1,5 +1,9 @@
+//! Events emitted by the controller's strategy operations.
+
 use soroban_sdk::{contractevent, Address};
 
+/// Records the initial payment asset and amount supplied when opening a multiply
+/// position, before it is converted into the position's collateral asset.
 #[contractevent(topics = ["strategy", "initial_payment"])]
 #[derive(Clone, Debug, Eq, PartialEq)]
 
@@ -9,6 +13,9 @@ pub struct InitialMultiplyPaymentEvent {
     pub account_id: u64,
 }
 
+/// Records the result of migrating an account's position from an external Blend
+/// pool into the hub, including the number of collateral, supply, and debt
+/// positions moved.
 #[contractevent(topics = ["strategy", "blend_migration"])]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BlendMigrationEvent {

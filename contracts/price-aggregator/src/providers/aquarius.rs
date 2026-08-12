@@ -1,3 +1,8 @@
+//! Prices Aquarius AMM LP share tokens for both constant-product and stable
+//! pools. Cross-checks pool metadata reported directly by the pool contract
+//! against the values reported by the shared plane contract before deriving a
+//! fair LP price from the reserves and the underlying leg prices.
+
 use common::constants::BPS;
 use common::errors::OracleError;
 use common::math::fp_core::try_mul_div_half_up;
@@ -18,8 +23,19 @@ use crate::engine;
 use crate::observation::OracleObservation;
 use crate::session::Session;
 
+/// Maximum allowed drift, in basis points, between the invariant computed
+/// from a pool's direct reserves and the invariant computed from the plane
+/// contract's reserves.
 const MAX_LISTING_INVARIANT_DRIFT_BPS: i128 = 10;
 
+/// Validates that `lp` describes a constant-product Aquarius pool consistent
+/// with `key` and `oracle`. Checks that the pool's plane, share token, and
+/// token pair match `lp`, that direct and plane-reported reserves agree
+/// within `MAX_LISTING_INVARIANT_DRIFT_BPS`, that the pool reports itself as
+/// constant-product with nonzero total shares, and that on-chain token
+/// decimals match `oracle.asset_decimals` and `lp`. Panics with
+/// `OracleError::InvalidOracleBase`, `OracleError::UnsupportedAquariusPool`,
+/// or `OracleError::InvalidOracleDecimals` if any check fails.
 pub(crate) fn attest(env: &Env, key: &PriceKey, oracle: &AssetOracle, lp: &AquariusLpSource) {
     let tokens = bound_tokens(env, key, lp)
         .unwrap_or_else(|| panic_with_error!(env, OracleError::InvalidOracleBase));
@@ -50,6 +66,15 @@ pub(crate) fn attest(env: &Env, key: &PriceKey, oracle: &AssetOracle, lp: &Aquar
     );
 }
 
+/// Derives the fair price of a constant-product Aquarius LP share for `key`.
+/// Re-validates the pool binding and token decimals, resolves both leg
+/// prices recursively through `engine::resolve_nested`, and computes the LP
+/// price from the plane-reported reserves and total shares. Returns
+/// `Err(OracleError::NoLastPrice)` if the pool binding is invalid, the pool
+/// is not constant-product, decimals mismatch, or reserves/shares cannot be
+/// read. Returns `Err(OracleError::InsufficientAquariusLiquidity)` if the
+/// computed pool value is below `lp.min_pool_value_wad`. On success, returns
+/// the observation with the price and the earlier of the two leg timestamps.
 pub(crate) fn read(
     session: &mut Session,
     key: &PriceKey,
@@ -116,6 +141,14 @@ pub(crate) fn read(
     )))
 }
 
+/// Validates that `lp` describes a stable Aquarius pool consistent with
+/// `key` and `oracle`. Checks that the pool's plane, share token, and token
+/// pair match `lp`, that the direct and plane-reported stable invariants
+/// agree within `MAX_LISTING_INVARIANT_DRIFT_BPS`, that the pool reports
+/// itself as stable with nonzero total shares, and that on-chain token
+/// decimals match `oracle.asset_decimals` and `lp`. Panics with
+/// `OracleError::InvalidOracleBase`, `OracleError::UnsupportedAquariusPool`,
+/// or `OracleError::InvalidOracleDecimals` if any check fails.
 pub(crate) fn attest_stable(
     env: &Env,
     key: &PriceKey,
@@ -153,6 +186,16 @@ pub(crate) fn attest_stable(
     );
 }
 
+/// Derives the fair price of a stable Aquarius LP share for `key`.
+/// Re-validates the pool binding and token decimals, resolves both leg
+/// prices recursively through `engine::resolve_nested`, and computes the LP
+/// price from the plane-reported reserves, total shares, and amplification
+/// coefficient. Returns `Err(OracleError::NoLastPrice)` if the pool binding
+/// is invalid, the pool is not stable, decimals mismatch, or
+/// reserves/shares/amp cannot be read. Returns
+/// `Err(OracleError::InsufficientAquariusLiquidity)` if the computed pool
+/// value is below `lp.min_pool_value_wad`. On success, returns the
+/// observation with the price and the earlier of the two leg timestamps.
 pub(crate) fn read_stable(
     session: &mut Session,
     key: &PriceKey,
@@ -221,6 +264,10 @@ pub(crate) fn read_stable(
     )))
 }
 
+/// Computes the stable-swap invariant D from `direct` and from `plane`
+/// reserves and reports whether the larger value stays within
+/// `MAX_LISTING_INVARIANT_DRIFT_BPS` of the smaller. Returns `false` if D
+/// cannot be computed for either reserve pair.
 fn stable_invariants_match(
     env: &Env,
     direct: (i128, i128),
@@ -243,6 +290,10 @@ fn stable_invariants_match(
         .is_some_and(|ceiling| upper <= ceiling)
 }
 
+/// Confirms that `lp.pool` is registered under `lp.plane` and that its share
+/// token matches `key`, then returns the pool's two underlying token
+/// addresses if they equal `lp.token_a` and `lp.token_b` in order. Returns
+/// `None` if the plane binding, share token, or token pair do not match.
 fn bound_tokens(env: &Env, key: &PriceKey, lp: &AquariusLpSource) -> Option<Vec<Address>> {
     if aquarius_plane_of_pool_call(env, &lp.pool).as_ref() != Some(&lp.plane)
         || aquarius_share_id_call(env, &lp.pool)
@@ -259,6 +310,9 @@ fn bound_tokens(env: &Env, key: &PriceKey, lp: &AquariusLpSource) -> Option<Vec<
     })
 }
 
+/// Reports whether the on-chain decimals of the share token and both
+/// reserve tokens equal `share_decimals` and `lp.reserve_a_decimals` /
+/// `lp.reserve_b_decimals` respectively.
 fn decimals_match(
     env: &Env,
     share: &Address,
@@ -271,6 +325,8 @@ fn decimals_match(
         && token_decimals(env, &tokens.get_unchecked(1)) == Some(lp.reserve_b_decimals)
 }
 
+/// Fetches `token`'s decimals via the token contract's `decimals` entry
+/// point. Returns `None` if the call fails.
 fn token_decimals(env: &Env, token: &Address) -> Option<u32> {
     match TokenClient::new(env, token).try_decimals() {
         Ok(Ok(decimals)) => Some(decimals),
@@ -278,6 +334,11 @@ fn token_decimals(env: &Env, token: &Address) -> Option<u32> {
     }
 }
 
+/// Computes the constant-product invariant (the integer square root of the
+/// reserve product) from `direct` and from `plane` reserves and reports
+/// whether the larger value stays within `MAX_LISTING_INVARIANT_DRIFT_BPS`
+/// of the smaller. Returns `false` if either reserve pair has a
+/// non-positive value or the root cannot be computed.
 fn reserve_invariants_match(env: &Env, direct: (i128, i128), plane: (i128, i128)) -> bool {
     let root = |(a, b): (i128, i128)| {
         if a <= 0 || b <= 0 {
