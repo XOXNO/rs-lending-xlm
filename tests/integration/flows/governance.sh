@@ -9,7 +9,7 @@ GOV_SALT_UNPAUSE="77777777777777777777777777777777777777777777777777777777777777
 GOV_SALT_SELF_SENSITIVE="8888888888888888888888888888888888888888888888888888888888888888"
 
 gov_state() {
-    stellar contract invoke --id "$GOVERNANCE" --source "$ADMIN" --network "$NETWORK" --send=no \
+    stellar contract invoke --id "$GOVERNANCE" --source "$ADMIN" "${NET_ARGS[@]}" --send=no \
         -- get_operation_state --operation_id "$1" 2>/dev/null | tr -d '"[:space:]'
 }
 
@@ -37,7 +37,7 @@ gov_await_ready() {
 gov_scval_args() {
     local fn="$1"; shift
     local txb
-    txb=$(stellar contract invoke --id "$GOV_CONTROLLER" --source "$ADMIN" --network "$NETWORK" \
+    txb=$(stellar contract invoke --id "$GOV_CONTROLLER" --source "$ADMIN" "${NET_ARGS[@]}" \
         --build-only --send=no -- "$fn" "$@" 2>/dev/null) || return 1
     printf '%s' "$txb" | stellar tx decode \
         | jq -c 'first(.. | objects | select(has("invoke_contract")) | .invoke_contract.args)'

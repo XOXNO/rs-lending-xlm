@@ -24,7 +24,7 @@ deploy_dfx_strategy() {
     [ -n "${STRATEGY:-}" ] && return 0
     local out_f="$LOG_DIR/deploy_strategy.out" err_f="$LOG_DIR/deploy_strategy.err"
     stellar contract deploy --wasm "$WASM_DIR/defindex_strategy.wasm" \
-        --source "$ADMIN" --network "$NETWORK" \
+        --source "$ADMIN" "${NET_ARGS[@]}" \
         -- --asset "$SAC_DFX" --init_args "[{\"address\":\"$CONTROLLER\"}]" \
         >"$out_f" 2>"$err_f"
     local strat txh

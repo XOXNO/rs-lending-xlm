@@ -205,7 +205,7 @@ flow_admin_upgrade() {
     phase admin_upgrade
     local ctrl_hash out_f="$LOG_DIR/upload_ctrl.out" err_f="$LOG_DIR/upload_ctrl.err"
     stellar contract upload --wasm "$WASM_DIR/controller.wasm" \
-        --source "$ADMIN" --network "$NETWORK" >"$out_f" 2>"$err_f" || true
+        --source "$ADMIN" "${NET_ARGS[@]}" >"$out_f" 2>"$err_f" || true
     ctrl_hash=$(sanitize_output "$out_f")
     if [ -n "$ctrl_hash" ]; then
         record upload_controller_wasm ok upload \

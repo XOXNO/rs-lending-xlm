@@ -15,7 +15,7 @@ flow_real_markets() {
 
 classic_line() {
     local sac="$1"
-    stellar contract invoke --id "$sac" --source "$ADMIN" --network "$NETWORK" --send=no \
+    stellar contract invoke --id "$sac" --source "$ADMIN" "${NET_ARGS[@]}" --send=no \
         -- name 2>/dev/null | tr -d '"'
 }
 
@@ -68,10 +68,23 @@ flow_lifecycle() {
     save_state ALICE_ACCT "$acct"
     log "alice account = $acct"
 
-    local usdc_half=$(( $(balance "$USDC_SAC" "$ALICE_ADDR") / 2 ))
-    inv supply_bulk "$ALICE" "$CONTROLLER" -- supply \
-        --caller "$ALICE_ADDR" --account_id "$acct" --spoke_id "$PRIMARY_SPOKE_ID" \
-        --assets "$(pay_vec "$PRIMARY_HUB_ID" "$XLM_SAC" 5000000000 "$USDC_SAC" "$usdc_half")" >/dev/null
+    # balance() sends stderr to /dev/null, so a failed read is an empty string.
+    # Expanding that directly inside $(( )) aborts the whole run with a bash
+    # syntax error, before any report is written.
+    local usdc_bal usdc_half
+    usdc_bal=$(balance "$USDC_SAC" "$ALICE_ADDR")
+    if [[ "$usdc_bal" =~ ^[0-9]+$ ]] && [ "$usdc_bal" -gt 0 ]; then
+        usdc_half=$(( usdc_bal / 2 ))
+    else
+        usdc_half=0
+        record supply_bulk FAIL supply "" "" "" "" "" \
+            "alice USDC balance unreadable or zero: '${usdc_bal}'"
+    fi
+    if [ "$usdc_half" -gt 0 ]; then
+        inv supply_bulk "$ALICE" "$CONTROLLER" -- supply \
+            --caller "$ALICE_ADDR" --account_id "$acct" --spoke_id "$PRIMARY_SPOKE_ID" \
+            --assets "$(pay_vec "$PRIMARY_HUB_ID" "$XLM_SAC" 5000000000 "$USDC_SAC" "$usdc_half")" >/dev/null
+    fi
 
     view hf_alice "$CONTROLLER" -- get_health_factor --account_id "$acct" >/dev/null
     view coll_usd_alice "$CONTROLLER" -- get_total_collateral_usd --account_id "$acct" >/dev/null
