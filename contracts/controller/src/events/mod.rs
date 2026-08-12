@@ -3,7 +3,7 @@
 //! attributes, the position-action tag, and the deposit/borrow delta payloads
 //! used by the position-change events defined in the submodules.
 
-use soroban_sdk::{contracttype, Address};
+use soroban_sdk::{contractevent, contracttype, Address};
 
 use common::types::{Account, AccountMeta, AccountPosition, DebtPosition, PositionMode};
 
@@ -154,19 +154,15 @@ impl EventBorrowDelta {
     }
 }
 
-mod account;
 mod config;
 mod debt;
 mod market;
 mod position;
-mod strategy;
 
-pub use account::*;
 pub use config::*;
 pub use debt::*;
 pub use market::*;
 pub use position::*;
-pub use strategy::*;
 
 #[cfg(test)]
 #[path = "../../tests/events.rs"]
@@ -178,3 +174,42 @@ pub(crate) struct EventContext {
     pub counterparty: soroban_sdk::Address,
     pub action: PositionAction,
 }
+
+
+/// Records the initial payment asset and amount supplied when opening a multiply
+/// position, before it is converted into the position's collateral asset.
+#[contractevent(topics = ["strategy", "initial_payment"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+
+pub struct InitialMultiplyPaymentEvent {
+    pub token: Address,
+    pub amount: i128,
+    pub account_id: u64,
+}
+
+/// Records the result of migrating an account's position from an external Blend
+/// pool into the hub, including the number of collateral, supply, and debt
+/// positions moved.
+#[contractevent(topics = ["strategy", "blend_migration"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BlendMigrationEvent {
+    pub account_id: u64,
+    pub blend_pool: Address,
+    pub collateral_count: u32,
+    pub supply_count: u32,
+    pub debt_count: u32,
+}
+
+
+/// Event recording a change in delegate authorization for an account: either
+/// granting or revoking `delegate`'s ability to act on behalf of `owner` for
+/// `account_id`, depending on the `granted` flag.
+#[contractevent(topics = ["account", "delegate"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AccountDelegateEvent {
+    pub account_id: u64,
+    pub owner: Address,
+    pub delegate: Address,
+    pub granted: bool,
+}
+
