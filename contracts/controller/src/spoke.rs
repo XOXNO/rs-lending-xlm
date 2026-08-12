@@ -1,4 +1,8 @@
 
+#[cfg(test)]
+#[path = "../tests/spoke.rs"]
+mod tests;
+
 use common::errors::{GenericError, SpokeError};
 use common::math::fp::Ray;
 use common::rates::calculate_scaled_cap;
@@ -166,3 +170,4 @@ fn enforce_spoke_cap(
     assert_with_error!(env, next_scaled <= cap_scaled, side.cap_error());
     next_scaled
 }
+
