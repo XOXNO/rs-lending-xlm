@@ -1,6 +1,5 @@
 
 pub(crate) mod asset;
-pub(crate) mod limits;
 pub(crate) mod registry;
 pub(crate) mod spoke;
 

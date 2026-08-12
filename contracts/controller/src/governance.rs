@@ -20,7 +20,7 @@ pub(crate) fn init(env: &Env, admin: &Address) {
     ownable::set_owner(env, admin);
     ownable::emit_ownership_transfer_completed(env, admin);
 
-    config::limits::set_position_limits(
+    config::registry::set_position_limits(
         env,
         PositionLimits {
             max_supply_positions: POSITION_LIMIT_MAX,
@@ -28,7 +28,7 @@ pub(crate) fn init(env: &Env, admin: &Address) {
         },
     );
 
-    config::limits::set_min_borrow_collateral_usd(env, DEFAULT_MIN_BORROW_COLLATERAL_USD_WAD);
+    config::registry::set_min_borrow_collateral_usd(env, DEFAULT_MIN_BORROW_COLLATERAL_USD_WAD);
 
     env.storage()
         .instance()

@@ -416,12 +416,12 @@ impl ControllerAdmin for Controller {
 
     #[only_owner]
     fn set_position_limits(env: Env, limits: PositionLimits) {
-        renew_then!(env, config::limits::set_position_limits(&env, limits))
+        renew_then!(env, config::registry::set_position_limits(&env, limits))
     }
 
     #[only_owner]
     fn set_min_borrow_collateral_usd(env: Env, floor_wad: i128) {
-        renew_then!(env, config::limits::set_min_borrow_collateral_usd(&env, floor_wad))
+        renew_then!(env, config::registry::set_min_borrow_collateral_usd(&env, floor_wad))
     }
 
     #[only_owner]
