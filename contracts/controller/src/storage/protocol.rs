@@ -2,10 +2,9 @@
 use common::errors::GenericError;
 use common::types::{ControllerKey, PositionLimits, PositionManagerConfig};
 
-use soroban_sdk::{panic_with_error, Address, Env};
+use soroban_sdk::{panic_with_error, Address, Env, IntoVal, TryFromVal, Val};
 
 use crate::constants;
-use crate::storage::{get_shared, set_shared};
 
 pub(crate) fn is_blend_pool_approved(env: &Env, pool: &Address) -> bool {
     get_shared(env, &ControllerKey::BlendPoolAllowed(pool.clone())).unwrap_or(false)
@@ -123,3 +122,58 @@ pub(crate) fn set_position_manager(env: &Env, addr: &Address, config: &PositionM
 #[cfg(test)]
 #[path = "../../tests/storage/protocol.rs"]
 mod tests;
+
+use crate::constants::{TTL_BUMP_SHARED, TTL_BUMP_USER, TTL_THRESHOLD_SHARED, TTL_THRESHOLD_USER};
+
+fn renew_persistent_key(env: &Env, key: &ControllerKey, threshold: u32, bump: u32) {
+    env.storage().persistent().extend_ttl(key, threshold, bump);
+}
+
+pub(crate) fn renew_user_key(env: &Env, key: &ControllerKey) {
+    renew_persistent_key(env, key, TTL_THRESHOLD_USER, TTL_BUMP_USER);
+}
+
+pub(crate) fn renew_controller_instance(env: &Env) {
+    common::ttl::renew_instance(env);
+}
+
+fn get_persistent<V: TryFromVal<Env, Val>>(
+    env: &Env,
+    key: &ControllerKey,
+    threshold: u32,
+    bump: u32,
+) -> Option<V> {
+    let value: Option<V> = env.storage().persistent().get(key);
+    if value.is_some() {
+        renew_persistent_key(env, key, threshold, bump);
+    }
+    value
+}
+
+fn set_persistent<V: IntoVal<Env, Val>>(
+    env: &Env,
+    key: &ControllerKey,
+    value: &V,
+    threshold: u32,
+    bump: u32,
+) {
+    env.storage().persistent().set(key, value);
+    renew_persistent_key(env, key, threshold, bump);
+}
+
+pub(crate) fn get_shared<V: TryFromVal<Env, Val>>(env: &Env, key: &ControllerKey) -> Option<V> {
+    get_persistent(env, key, TTL_THRESHOLD_SHARED, TTL_BUMP_SHARED)
+}
+
+pub(crate) fn set_shared<V: IntoVal<Env, Val>>(env: &Env, key: &ControllerKey, value: &V) {
+    set_persistent(env, key, value, TTL_THRESHOLD_SHARED, TTL_BUMP_SHARED)
+}
+
+pub(crate) fn get_user<V: TryFromVal<Env, Val>>(env: &Env, key: &ControllerKey) -> Option<V> {
+    get_persistent(env, key, TTL_THRESHOLD_USER, TTL_BUMP_USER)
+}
+
+pub(crate) fn set_user<V: IntoVal<Env, Val>>(env: &Env, key: &ControllerKey, value: &V) {
+    set_persistent(env, key, value, TTL_THRESHOLD_USER, TTL_BUMP_USER)
+}
+

@@ -4,7 +4,6 @@ mod hub;
 mod protocol;
 mod session;
 mod spoke;
-mod ttl;
 #[cfg(feature = "certora")]
 #[path = "../../../../certora/controller/harness/storage.rs"]
 mod verification_storage;
@@ -29,7 +28,7 @@ pub(crate) use spoke::{
     get_spoke, get_spoke_asset, get_spoke_usage, increment_spoke_id, remove_spoke_asset, set_spoke,
     set_spoke_asset, set_spoke_usage,
 };
-pub(crate) use ttl::{
+pub(crate) use protocol::{
     get_shared, get_user, renew_controller_instance, renew_user_key, set_shared, set_user,
 };
 
