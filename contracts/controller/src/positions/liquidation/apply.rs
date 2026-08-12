@@ -13,7 +13,8 @@ use crate::payments;
 use crate::positions::liquidation::bad_debt;
 use crate::positions::liquidation::curve::is_socializable_bad_debt;
 use crate::positions::{
-    apply_repay_batch, enforce_spoke_asset_flags, make_pool_action, withdraw, FreezePolicy,
+    apply_repay_batch, apply_withdraw_batch, enforce_spoke_asset_flags, make_pool_action,
+    FreezePolicy, WithdrawKind,
 };
 use common::errors::GenericError;
 
@@ -100,11 +101,11 @@ pub(crate) fn apply_liquidation_seizures(
             protocol_fee: entry.protocol_fee,
         });
     }
-    withdraw::apply_withdraw_batch(
+    apply_withdraw_batch(
         env,
         account,
         liquidator,
-        withdraw::WithdrawKind::Liquidation,
+        WithdrawKind::Liquidation,
         events::PositionAction::LiqSeize,
         &entries,
         cache,

@@ -86,7 +86,7 @@ impl ControllerInterface for Controller {
         spoke_id: u32,
         assets: Vec<(HubAssetKey, i128)>,
     ) -> u64 {
-        positions::supply::process_supply(&env, &caller, account_id, spoke_id, &assets)
+        positions::process_supply(&env, &caller, account_id, spoke_id, &assets)
     }
 
     #[when_not_paused]
@@ -107,7 +107,7 @@ impl ControllerInterface for Controller {
         withdrawals: Vec<(HubAssetKey, i128)>,
         to: Option<Address>,
     ) -> Vec<(HubAssetKey, i128)> {
-        positions::withdraw::process_withdraw(&env, &caller, account_id, &withdrawals, to)
+        positions::process_withdraw(&env, &caller, account_id, &withdrawals, to)
     }
 
     fn repay(env: Env, caller: Address, account_id: u64, payments: Vec<(HubAssetKey, i128)>) {

@@ -13,7 +13,7 @@ use crate::events::EventContext;
 use crate::external::pool::pool_net_settle_call;
 use crate::payments;
 use crate::positions::{execute_repayment, RepaymentRequest};
-use crate::positions::withdraw::{self, WithdrawalRequest};
+use crate::positions::{execute_withdrawal, WithdrawalRequest};
 use crate::positions::{
     enforce_spoke_asset_flags, get_debt_position_or_panic, get_supply_position_or_panic,
     merge_debt_leg, FreezePolicy, LegDirection, LegOutcome,
@@ -92,7 +92,7 @@ pub(crate) fn withdraw_collateral_to_controller(
 
     let balance_before = token.balance(&env.current_contract_address());
 
-    withdraw::execute_withdrawal(
+    execute_withdrawal(
         env,
         account,
         controller_event_context(env, req.action),
@@ -117,7 +117,7 @@ pub(crate) fn execute_withdraw_all(
     for hub_asset in deposit_keys.iter() {
         if let Some(pos) = account.supply_positions.get(hub_asset.clone()) {
             let pos: AccountPosition = (&pos).into();
-            withdraw::execute_withdrawal(
+            execute_withdrawal(
                 env,
                 account,
                 EventContext {
@@ -173,14 +173,14 @@ pub(crate) fn net_settle_collateral_against_debt(
         amount: result.settled_amount,
     };
 
-    let refresh_spoke = withdraw::spoke_refresh_for_leg(
-        withdraw::WithdrawKind::Normal,
+    let refresh_spoke = crate::positions::spoke_refresh_for_leg(
+        crate::positions::WithdrawKind::Normal,
         cache,
         account,
         hub_asset,
         supply_outcome.new_scaled,
     );
-    withdraw::merge_withdraw_leg(
+    crate::positions::merge_withdraw_leg(
         env,
         account,
         action,

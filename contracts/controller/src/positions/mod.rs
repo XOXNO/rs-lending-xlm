@@ -18,9 +18,9 @@ use crate::spoke::UsageSide;
 use crate::storage;
 
 pub(crate) mod liquidation;
+pub(crate) use supply::{apply_withdraw_batch, execute_withdrawal, merge_withdraw_leg, process_supply, process_withdraw, spoke_refresh_for_leg, WithdrawKind, WithdrawalRequest};
 pub(crate) use debt::{apply_repay_batch, borrow_into_controller, execute_repayment, process_borrow, process_repay, RepaymentRequest};
 pub(crate) mod supply;
-pub(crate) mod withdraw;
 
 pub(crate) struct LegOutcome {
     pub new_scaled: Ray,
