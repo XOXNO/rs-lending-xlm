@@ -8,55 +8,70 @@
       "asset": {
         "tag": "Stellar",
         "value": "CBGV2QFQBBGEQRUKUMCPO3SZOHDDYO6SCP5CH6TW7EALKVHCXTMWDDOF"
-      }
+      },
+      "enabled": false
     },
     {
       "feed_id": "SPIKOUSTBL",
       "asset": {
         "tag": "Stellar",
         "value": "CARUUX2FZNPH6DGJOEUFSIUQWYHNL5AVDV7PMVSHWL7OBYIBFC76F4TO"
-      }
+      },
+      "enabled": false
     },
     {
       "feed_id": "SPIKOUKTBL",
       "asset": {
         "tag": "Stellar",
         "value": "CDT3KU6TQZNOHKNOHNAFFDQZDURVC3MSTL4ML7TUTZGNOPBZCLABP4FR"
-      }
+      },
+      "enabled": false
     },
     {
       "feed_id": "SPIKOSPKCC",
       "asset": {
         "tag": "Stellar",
         "value": "CDS2GCAQTNQINSCJUJIVBJXILKBWP5PU7LOBGHMP3X47QCQBFKPMTCNT"
-      }
+      },
+      "enabled": false
     },
     {
       "feed_id": "SPIKOEURSPKCC",
       "asset": {
         "tag": "Stellar",
         "value": "CDWOB6T7SVSMMQN5V3P2OPTBAXOP7DAZHGVW3PYTZIKHVFKN6TBSXR6A"
-      }
+      },
+      "enabled": false
     },
     {
       "feed_id": "SPIKOSAFO",
       "asset": {
         "tag": "Stellar",
         "value": "CDGSC6BA4TCAOVSFQCUEHDMOIIHYYVNYBT6YEARS4MX3ITAHUINVGQHX"
-      }
+      },
+      "enabled": false
     },
     {
       "feed_id": "SPIKOEURSAFO",
       "asset": {
         "tag": "Stellar",
         "value": "CBOOCGZSVRSZFRE4U2NWR2B4RXYVJWRCBTGOUD2JPI2TDJPWMTJX7FZP"
-      }
+      },
+      "enabled": false
     },
     {
       "feed_id": "SPIKOGBPSAFO",
       "asset": {
         "tag": "Stellar",
         "value": "CAGYRRKPFSWKM6SJOE4QAAVYMOSHMDS5WOQ4T5A2E6XNCU7LZZKUNQKP"
+      },
+      "enabled": false
+    },
+    {
+      "feed_id": "AQUA",
+      "asset": {
+        "tag": "Stellar",
+        "value": "CAUIKL3IYGMERDRUN6YSCLWVAKIFG5Q4YJHUKM4S4NJZQIA3BAS6OJPK"
       }
     }
   ]

@@ -1047,6 +1047,7 @@ _preflight-network-config: _preflight-tools
 	@test -f $(CONFIG_DIR)/$(NETWORK)/markets.json || { echo "Config file not found: $(CONFIG_DIR)/$(NETWORK)/markets.json"; exit 1; }
 	@jq -e '.markets | type == "array" and length > 0' $(CONFIG_DIR)/$(NETWORK)/markets.json >/dev/null || { echo "No configured markets in $(CONFIG_DIR)/$(NETWORK)/markets.json"; exit 1; }
 	@jq -e 'all(.markets[]; (.name // "") != "" and (.asset_address // "") != "")' $(CONFIG_DIR)/$(NETWORK)/markets.json >/dev/null || { echo "Every configured market must have name and asset_address"; exit 1; }
+	@jq -e 'any(.markets[]; .enabled != false)' $(CONFIG_DIR)/$(NETWORK)/markets.json >/dev/null || { echo "All markets have enabled=false in $(CONFIG_DIR)/$(NETWORK)/markets.json; nothing to deploy"; exit 1; }
 	@test -f $(CONFIG_DIR)/$(NETWORK)/spokes.json || { echo "Config file not found: $(CONFIG_DIR)/$(NETWORK)/spokes.json"; exit 1; }
 	@jq -e 'type == "object"' $(CONFIG_DIR)/$(NETWORK)/spokes.json >/dev/null || { echo "Spoke config in $(CONFIG_DIR)/$(NETWORK)/spokes.json is not a JSON object"; exit 1; }
 

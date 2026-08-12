@@ -365,7 +365,8 @@
         "reserve_factor": 2500,
         "is_flashloanable": false,
         "flashloan_fee": 0
-      }
+      },
+      "enabled": false
     },
     {
       "name": "SPIKOUSTBL",
@@ -409,7 +410,8 @@
         "reserve_factor": 2500,
         "is_flashloanable": false,
         "flashloan_fee": 0
-      }
+      },
+      "enabled": false
     },
     {
       "name": "SPIKOUKTBL",
@@ -453,7 +455,8 @@
         "reserve_factor": 2500,
         "is_flashloanable": false,
         "flashloan_fee": 0
-      }
+      },
+      "enabled": false
     },
     {
       "name": "SPIKOSAFO",
@@ -497,7 +500,8 @@
         "reserve_factor": 2500,
         "is_flashloanable": false,
         "flashloan_fee": 0
-      }
+      },
+      "enabled": false
     },
     {
       "name": "SPIKOEURSAFO",
@@ -541,7 +545,8 @@
         "reserve_factor": 2500,
         "is_flashloanable": false,
         "flashloan_fee": 0
-      }
+      },
+      "enabled": false
     },
     {
       "name": "SPIKOGBPSAFO",
@@ -585,7 +590,8 @@
         "reserve_factor": 2500,
         "is_flashloanable": false,
         "flashloan_fee": 0
-      }
+      },
+      "enabled": false
     },
     {
       "name": "DEJTRSY",
@@ -985,6 +991,61 @@
       }
     },
     {
+      "name": "AQUA",
+      "hub_id": 3,
+      "asset_address": "CAUIKL3IYGMERDRUN6YSCLWVAKIFG5Q4YJHUKM4S4NJZQIA3BAS6OJPK",
+      "oracle": {
+        "asset_decimals": 7,
+        "max_price_stale_seconds": 57600,
+        "sources": [
+          {
+            "Scaled": {
+              "factor": {
+                "provider": {
+                  "Reflector": {
+                    "contract": "CALI2BYU2JE6WVRUFYTS6MSBNEHGJ35P4AVCZYF3B6QOE3QKOB2PLE6M",
+                    "asset": {
+                      "Stellar": "CAUIKL3IYGMERDRUN6YSCLWVAKIFG5Q4YJHUKM4S4NJZQIA3BAS6OJPK"
+                    },
+                    "read_mode": {
+                      "Twap": 3
+                    }
+                  }
+                },
+                "decimals": 14,
+                "max_stale_seconds": 7200
+              },
+              "quote": {
+                "Token": "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75"
+              },
+              "min_factor_wad": "65950000000000",
+              "max_factor_wad": "1648750000000000"
+            }
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 11000,
+          "lower_ratio_bps": 9091
+        },
+        "independence": "RequireDisjoint",
+        "min_sanity_price_wad": "65950000000000",
+        "max_sanity_price_wad": "1648750000000000"
+      },
+      "market_params": {
+        "max_borrow_rate": "1750000000000000000000000000",
+        "base_borrow_rate": "20000000000000000000000000",
+        "slope1": "50000000000000000000000000",
+        "slope2": "150000000000000000000000000",
+        "slope3": "1500000000000000000000000000",
+        "mid_utilization": "400000000000000000000000000",
+        "optimal_utilization": "650000000000000000000000000",
+        "max_utilization": "850000000000000000000000000",
+        "reserve_factor": 3000,
+        "is_flashloanable": false,
+        "flashloan_fee": 0
+      }
+    },
+    {
       "name": "XLMUSDC_LP",
       "hub_id": 3,
       "asset_address": "CAVKLYY4RWFQBRA2YI5GTGGXKUKJQI3JLAHDGXMS7L5RDH6X6A47NMOZ",
@@ -1305,6 +1366,102 @@
         "independence": "RequireDisjoint",
         "min_sanity_price_wad": "900000000000000000",
         "max_sanity_price_wad": "1200000000000000000"
+      },
+      "market_params": {
+        "max_borrow_rate": "1750000000000000000000000000",
+        "base_borrow_rate": "10000000000000000000000000",
+        "slope1": "40000000000000000000000000",
+        "slope2": "100000000000000000000000000",
+        "slope3": "1500000000000000000000000000",
+        "mid_utilization": "500000000000000000000000000",
+        "optimal_utilization": "750000000000000000000000000",
+        "max_utilization": "900000000000000000000000000",
+        "reserve_factor": 2000,
+        "is_flashloanable": false,
+        "flashloan_fee": 0
+      }
+    },
+    {
+      "name": "XLMAQUA_LP",
+      "hub_id": 3,
+      "asset_address": "CBOHAVUYKQD4C7FIVXEDJCVLUZYUO6RN3VIKEDOTIJGDDV3QN33Y4T4D",
+      "oracle": {
+        "asset_decimals": 7,
+        "max_price_stale_seconds": 57600,
+        "sources": [
+          {
+            "AquariusLp": {
+              "pool": "CCY2PXGMKNQHO7WNYXEWX76L2C5BH3JUW3RCATGUYKY7QQTRILBZIFWV",
+              "plane": "CCABO2IQYDWRGGQ4DYQ73CV3ZFDBRZTEQNDDJMFT7JZO54CLS4RYJROY",
+              "token_a": "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA",
+              "token_b": "CAUIKL3IYGMERDRUN6YSCLWVAKIFG5Q4YJHUKM4S4NJZQIA3BAS6OJPK",
+              "key_a": {
+                "Token": "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
+              },
+              "key_b": {
+                "Token": "CAUIKL3IYGMERDRUN6YSCLWVAKIFG5Q4YJHUKM4S4NJZQIA3BAS6OJPK"
+              },
+              "reserve_a_decimals": 7,
+              "reserve_b_decimals": 7,
+              "min_pool_value_wad": "500000000000000000000000"
+            }
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 0,
+          "lower_ratio_bps": 0
+        },
+        "independence": "RequireDisjoint",
+        "min_sanity_price_wad": "3000000000000000",
+        "max_sanity_price_wad": "75000000000000000"
+      },
+      "market_params": {
+        "max_borrow_rate": "1750000000000000000000000000",
+        "base_borrow_rate": "10000000000000000000000000",
+        "slope1": "40000000000000000000000000",
+        "slope2": "100000000000000000000000000",
+        "slope3": "1500000000000000000000000000",
+        "mid_utilization": "500000000000000000000000000",
+        "optimal_utilization": "750000000000000000000000000",
+        "max_utilization": "900000000000000000000000000",
+        "reserve_factor": 2000,
+        "is_flashloanable": false,
+        "flashloan_fee": 0
+      }
+    },
+    {
+      "name": "AQUAUSDC_LP",
+      "hub_id": 3,
+      "asset_address": "CDOY7ILRR7PDGLBXZUPSENB6XOET77PR2JY3HXDGQS3TS4T764OYBUGO",
+      "oracle": {
+        "asset_decimals": 7,
+        "max_price_stale_seconds": 57600,
+        "sources": [
+          {
+            "AquariusLp": {
+              "pool": "CA6GAFOJCW4MGQQBUCQUSA3CLIH25G4SNKB2JHYKZCVWZTNW5VXMSC4O",
+              "plane": "CCABO2IQYDWRGGQ4DYQ73CV3ZFDBRZTEQNDDJMFT7JZO54CLS4RYJROY",
+              "token_a": "CAUIKL3IYGMERDRUN6YSCLWVAKIFG5Q4YJHUKM4S4NJZQIA3BAS6OJPK",
+              "token_b": "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75",
+              "key_a": {
+                "Token": "CAUIKL3IYGMERDRUN6YSCLWVAKIFG5Q4YJHUKM4S4NJZQIA3BAS6OJPK"
+              },
+              "key_b": {
+                "Token": "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75"
+              },
+              "reserve_a_decimals": 7,
+              "reserve_b_decimals": 7,
+              "min_pool_value_wad": "200000000000000000000000"
+            }
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 0,
+          "lower_ratio_bps": 0
+        },
+        "independence": "RequireDisjoint",
+        "min_sanity_price_wad": "7800000000000000",
+        "max_sanity_price_wad": "195000000000000000"
       },
       "market_params": {
         "max_borrow_rate": "1750000000000000000000000000",

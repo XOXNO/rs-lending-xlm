@@ -142,7 +142,8 @@
         "liquidation_bonus": 600,
         "supply_cap": "50000000000",
         "borrow_cap": "0",
-        "liquidation_fees": 1200
+        "liquidation_fees": 1200,
+        "enabled": false
       },
       "SPIKOUSTBL": {
         "hub_id": 2,
@@ -153,7 +154,8 @@
         "liquidation_bonus": 600,
         "supply_cap": "50000000000",
         "borrow_cap": "0",
-        "liquidation_fees": 1200
+        "liquidation_fees": 1200,
+        "enabled": false
       },
       "SPIKOUKTBL": {
         "hub_id": 2,
@@ -164,7 +166,8 @@
         "liquidation_bonus": 600,
         "supply_cap": "25000000000",
         "borrow_cap": "0",
-        "liquidation_fees": 1200
+        "liquidation_fees": 1200,
+        "enabled": false
       },
       "SPIKOSAFO": {
         "hub_id": 2,
@@ -175,7 +178,8 @@
         "liquidation_bonus": 600,
         "supply_cap": "50000000000",
         "borrow_cap": "0",
-        "liquidation_fees": 1200
+        "liquidation_fees": 1200,
+        "enabled": false
       },
       "SPIKOEURSAFO": {
         "hub_id": 2,
@@ -186,7 +190,8 @@
         "liquidation_bonus": 600,
         "supply_cap": "50000000000",
         "borrow_cap": "0",
-        "liquidation_fees": 1200
+        "liquidation_fees": 1200,
+        "enabled": false
       },
       "SPIKOGBPSAFO": {
         "hub_id": 2,
@@ -197,7 +202,8 @@
         "liquidation_bonus": 600,
         "supply_cap": "25000000000",
         "borrow_cap": "0",
-        "liquidation_fees": 1200
+        "liquidation_fees": 1200,
+        "enabled": false
       },
       "USDC": {
         "hub_id": 1,
@@ -243,7 +249,8 @@
         "borrow_cap": "18000000000000",
         "liquidation_fees": 1000
       }
-    }
+    },
+    "enabled": false
   },
   "4": {
     "name": "Centrifuge",
@@ -388,7 +395,8 @@
         "liquidation_bonus": 500,
         "supply_cap": "40000000000",
         "borrow_cap": "0",
-        "liquidation_fees": 1000
+        "liquidation_fees": 1000,
+        "enabled": false
       },
       "SPIKOUSTBL": {
         "hub_id": 2,
@@ -399,7 +407,8 @@
         "liquidation_bonus": 500,
         "supply_cap": "40000000000",
         "borrow_cap": "0",
-        "liquidation_fees": 1000
+        "liquidation_fees": 1000,
+        "enabled": false
       },
       "SPIKOUKTBL": {
         "hub_id": 2,
@@ -410,7 +419,8 @@
         "liquidation_bonus": 500,
         "supply_cap": "25000000000",
         "borrow_cap": "0",
-        "liquidation_fees": 1000
+        "liquidation_fees": 1000,
+        "enabled": false
       },
       "SPIKOSAFO": {
         "hub_id": 2,
@@ -421,7 +431,8 @@
         "liquidation_bonus": 500,
         "supply_cap": "40000000000",
         "borrow_cap": "0",
-        "liquidation_fees": 1000
+        "liquidation_fees": 1000,
+        "enabled": false
       },
       "SPIKOEURSAFO": {
         "hub_id": 2,
@@ -432,7 +443,8 @@
         "liquidation_bonus": 500,
         "supply_cap": "40000000000",
         "borrow_cap": "0",
-        "liquidation_fees": 1000
+        "liquidation_fees": 1000,
+        "enabled": false
       },
       "SPIKOGBPSAFO": {
         "hub_id": 2,
@@ -443,7 +455,8 @@
         "liquidation_bonus": 500,
         "supply_cap": "25000000000",
         "borrow_cap": "0",
-        "liquidation_fees": 1000
+        "liquidation_fees": 1000,
+        "enabled": false
       }
     }
   },
@@ -514,6 +527,28 @@
         "liquidation_bonus": 1000,
         "liquidation_fees": 100,
         "supply_cap": "5000000000",
+        "borrow_cap": "0"
+      },
+      "XLMAQUA_LP": {
+        "hub_id": 3,
+        "can_be_collateral": true,
+        "can_be_borrowed": false,
+        "ltv": 5000,
+        "liquidation_threshold": 6000,
+        "liquidation_bonus": 1000,
+        "liquidation_fees": 100,
+        "supply_cap": "50000000000000",
+        "borrow_cap": "0"
+      },
+      "AQUAUSDC_LP": {
+        "hub_id": 3,
+        "can_be_collateral": true,
+        "can_be_borrowed": false,
+        "ltv": 5000,
+        "liquidation_threshold": 6000,
+        "liquidation_bonus": 1000,
+        "liquidation_fees": 100,
+        "supply_cap": "50000000000000",
         "borrow_cap": "0"
       },
       "USDC": {
@@ -700,6 +735,93 @@
         "liquidation_bonus": 500,
         "supply_cap": "98968957930",
         "borrow_cap": "134000000000",
+        "liquidation_fees": 1000
+      }
+    }
+  },
+  "9": {
+    "name": "Aquarius",
+    "liquidation_curve": {
+      "target_hf_wad": "1020000000000000000",
+      "hf_for_max_bonus_wad": "750000000000000000",
+      "liquidation_bonus_factor_bps": 10000
+    },
+    "assets": {
+      "AQUA": {
+        "hub_id": 3,
+        "can_be_collateral": true,
+        "can_be_borrowed": false,
+        "ltv": 6500,
+        "liquidation_threshold": 7000,
+        "liquidation_bonus": 1000,
+        "supply_cap": "5000000000000000",
+        "borrow_cap": "0",
+        "liquidation_fees": 1200
+      },
+      "XLMAQUA_LP": {
+        "hub_id": 3,
+        "can_be_collateral": true,
+        "can_be_borrowed": false,
+        "ltv": 6500,
+        "liquidation_threshold": 7000,
+        "liquidation_bonus": 1000,
+        "liquidation_fees": 1000,
+        "supply_cap": "50000000000000",
+        "borrow_cap": "0"
+      },
+      "AQUAUSDC_LP": {
+        "hub_id": 3,
+        "can_be_collateral": true,
+        "can_be_borrowed": false,
+        "ltv": 6500,
+        "liquidation_threshold": 7000,
+        "liquidation_bonus": 1000,
+        "liquidation_fees": 1000,
+        "supply_cap": "50000000000000",
+        "borrow_cap": "0"
+      },
+      "USDC": {
+        "hub_id": 1,
+        "can_be_collateral": false,
+        "can_be_borrowed": true,
+        "ltv": 7600,
+        "liquidation_threshold": 8000,
+        "liquidation_bonus": 400,
+        "supply_cap": "9973722627737",
+        "borrow_cap": "5000000000000",
+        "liquidation_fees": 1000
+      },
+      "XLM": {
+        "hub_id": 1,
+        "can_be_collateral": false,
+        "can_be_borrowed": true,
+        "ltv": 7500,
+        "liquidation_threshold": 7800,
+        "liquidation_bonus": 900,
+        "supply_cap": "400000000000000",
+        "borrow_cap": "5000000000000",
+        "liquidation_fees": 1200
+      },
+      "EURC": {
+        "hub_id": 1,
+        "can_be_collateral": false,
+        "can_be_borrowed": true,
+        "ltv": 7200,
+        "liquidation_threshold": 7900,
+        "liquidation_bonus": 500,
+        "supply_cap": "650000000000",
+        "borrow_cap": "5000000000000",
+        "liquidation_fees": 1000
+      },
+      "PYUSD": {
+        "hub_id": 1,
+        "can_be_collateral": false,
+        "can_be_borrowed": true,
+        "ltv": 7200,
+        "liquidation_threshold": 7900,
+        "liquidation_bonus": 500,
+        "supply_cap": "98968957930",
+        "borrow_cap": "5000000000000",
         "liquidation_fees": 1000
       }
     }

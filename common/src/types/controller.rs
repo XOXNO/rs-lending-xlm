@@ -90,11 +90,8 @@ pub struct PositionManagerConfig {
 #[derive(Clone, Debug)]
 pub struct SpokeConfig {
     pub is_deprecated: bool,
-
     pub liquidation_target_hf_wad: i128,
-
     pub hf_for_max_bonus_wad: i128,
-
     pub liquidation_bonus_factor_bps: u32,
 }
 
@@ -107,17 +104,11 @@ pub struct SpokeAssetConfig {
     pub is_borrowable: bool,
     pub paused: bool,
     pub frozen: bool,
-
     pub loan_to_value: u32,
-
     pub liquidation_threshold: u32,
-
     pub liquidation_bonus: u32,
-
     pub liquidation_fees: u32,
-
     pub supply_cap: i128,
-
     pub borrow_cap: i128,
 }
 

@@ -65,6 +65,10 @@ require_static_config() {
         echo "ERROR: Every configured market must have name and asset_address in $MARKET_CONFIG_FILE" >&2
         exit 1
     fi
+    if ! jq -e 'any(.markets[]; .enabled != false)' "$MARKET_CONFIG_FILE" >/dev/null; then
+        echo "ERROR: All markets in $MARKET_CONFIG_FILE have enabled=false; nothing to deploy" >&2
+        exit 1
+    fi
     if [ ! -f "$SPOKES_FILE" ]; then
         echo "ERROR: Config file not found: $SPOKES_FILE" >&2
         exit 1
@@ -85,6 +89,62 @@ get_spoke_value() {
     local category_id=$1
     local path=$2
     jq -r ".\"$category_id\"$path" "$SPOKES_FILE"
+}
+
+# Deploy filter: explicit "enabled": false excludes an entry from bulk setupAll* /
+# claim*/view-all helpers. Missing field or true means included (backward compatible).
+# Direct verbs (createMarket, addSpoke, addAssetToSpoke, ...) still accept disabled
+# entries so a later opt-in listing does not require deleting the flag first.
+
+is_market_enabled() {
+    local market=$1
+    jq -e --arg m "$market" '
+        (first(.markets[] | select(.name == $m)) // null) as $mkt |
+        $mkt != null and ($mkt.enabled != false)
+    ' "$MARKET_CONFIG_FILE" >/dev/null
+}
+
+enabled_market_names() {
+    jq -r '.markets[] | select(.enabled != false) | .name' "$MARKET_CONFIG_FILE"
+}
+
+disabled_market_names() {
+    jq -r '[.markets[] | select(.enabled == false) | .name] | join(", ")' "$MARKET_CONFIG_FILE"
+}
+
+is_spoke_enabled() {
+    local category_id=$1
+    jq -e --arg c "$category_id" '
+        (.[$c] // null) as $s |
+        $s != null and ($s.enabled != false)
+    ' "$SPOKES_FILE" >/dev/null
+}
+
+enabled_spoke_ids() {
+    jq -r 'to_entries[] | select(.value.enabled != false) | .key' "$SPOKES_FILE"
+}
+
+disabled_spoke_ids() {
+    jq -r '[to_entries[] | select(.value.enabled == false) | .key] | join(", ")' "$SPOKES_FILE"
+}
+
+is_spoke_asset_enabled() {
+    local category_id=$1
+    local asset_name=$2
+    jq -e --arg c "$category_id" --arg a "$asset_name" '
+        (.[$c] // null) as $s |
+        $s != null and ($s.enabled != false) and
+        (($s.assets[$a] // null) as $asset |
+            $asset != null and ($asset.enabled != false))
+    ' "$SPOKES_FILE" >/dev/null
+}
+
+enabled_spoke_asset_names() {
+    local category_id=$1
+    jq -r --arg c "$category_id" '
+        (.[$c] // empty) | select(.enabled != false) |
+        (.assets // {}) | to_entries[] | select(.value.enabled != false) | .key
+    ' "$SPOKES_FILE"
 }
 
 require_spoke_cap() {
@@ -1380,14 +1440,23 @@ validate_configs() {
         vc_warn "DEX-oracle markets present: each one's USD quote market must appear EARLIER in ${MARKET_CONFIG_FILE} (file order = setup order)"
     fi
 
-    local cat a sj maddr mhub
+    local cat a sj maddr mhub spoke_en asset_en market_en
     for cat in $(jq -r 'keys[]' "$SPOKES_FILE"); do
+        spoke_en=$(jq -r --arg c "$cat" '.[$c].enabled != false' "$SPOKES_FILE")
         for a in $(jq -r --arg c "$cat" '.[$c].assets | keys[]' "$SPOKES_FILE"); do
             sj=$(jq -c --arg c "$cat" --arg a "$a" '.[$c].assets[$a]' "$SPOKES_FILE")
+            asset_en=$(printf '%s' "$sj" | jq -r '.enabled != false')
             maddr=$(get_market_value "$a" "asset_address")
             if [ -z "$maddr" ] || [ "$maddr" = "null" ]; then
                 vc_err "spoke ${cat}: asset '${a}' has no market in ${MARKET_CONFIG_FILE}"
                 continue
+            fi
+            market_en=false
+            if is_market_enabled "$a"; then
+                market_en=true
+            fi
+            if [ "$spoke_en" = "true" ] && [ "$asset_en" = "true" ] && [ "$market_en" != "true" ]; then
+                vc_err "spoke ${cat}/${a}: enabled for deploy but market ${a} has enabled=false (disable the spoke asset, or enable the market)"
             fi
             mhub=$(get_market_value "$a" "hub_id")
             if ! printf '%s' "$sj" | jq -e --argjson mh "${mhub:-null}" '(.hub_id // null) == $mh' >/dev/null; then
@@ -1411,9 +1480,13 @@ validate_configs() {
         done
     done
 
-    for m in $(jq -r '.markets[].name' "$MARKET_CONFIG_FILE"); do
-        if ! jq -e --arg m "$m" '[.[].assets | keys[]] | index($m) != null' "$SPOKES_FILE" >/dev/null; then
-            vc_warn "market ${m} is not referenced by any spoke (deploys pending; unusable until listed)"
+    for m in $(enabled_market_names); do
+        if ! jq -e --arg m "$m" '
+            [to_entries[] | select(.value.enabled != false) |
+             (.value.assets // {}) | to_entries[] |
+             select(.value.enabled != false) | .key] | index($m) != null
+        ' "$SPOKES_FILE" >/dev/null; then
+            vc_warn "market ${m} is not referenced by any enabled spoke asset (deploys pending; unusable until listed)"
         fi
     done
 
@@ -1427,7 +1500,10 @@ validate_configs() {
 list_markets() {
     echo "Available markets (${NETWORK}):"
     if [ -f "$MARKET_CONFIG_FILE" ]; then
-        jq -r '.markets[] | "  \(.name) — \(.asset_address // "no address")"' "$MARKET_CONFIG_FILE"
+        jq -r '
+            .markets[] |
+            "  \(.name) — \(.asset_address // "no address")\(if .enabled == false then " [enabled=false, skipped by setupAll*]" else "" end)"
+        ' "$MARKET_CONFIG_FILE"
     else
         echo "  No config file found: $MARKET_CONFIG_FILE"
     fi
@@ -1440,8 +1516,15 @@ list_spokes() {
             . as $cats |
             ($networks[0][$network].spoke_ids // {}) as $ids |
             $cats | to_entries[] |
-            "  \(.key) -> on-chain \($ids[.key] // "unmapped"): \(.value.name) — assets: \(.value.assets | keys | join(", "))"
+            (
+                (.value.assets // {}) | to_entries |
+                map(
+                    .key + (if .value.enabled == false then "!" else "" end)
+                ) | join(", ")
+            ) as $assets |
+            "  \(.key) -> on-chain \($ids[.key] // "unmapped"): \(.value.name)\(if .value.enabled == false then " [enabled=false, skipped by setupAll*]" else "" end) — assets: \($assets)"
         ' "$SPOKES_FILE"
+        echo "  (asset names ending in ! have enabled=false and are skipped by setupAll*)"
     else
         echo "  No spokes config found: $SPOKES_FILE"
     fi
@@ -1857,8 +1940,14 @@ setup_all_spokes() {
 
     require_spoke_caps_configured
 
+    local disabled_cats
+    disabled_cats=$(disabled_spoke_ids)
+    if [ -n "$disabled_cats" ]; then
+        echo "Skipping disabled spokes (enabled=false): ${disabled_cats}"
+    fi
+
     local categories
-    categories=$(jq -r "keys[]" "$SPOKES_FILE")
+    categories=$(enabled_spoke_ids)
 
     for cat_id in $categories; do
         local onchain_id
@@ -1866,8 +1955,15 @@ setup_all_spokes() {
         onchain_id=$(ensure_spoke "$cat_id")
         onchain_id=$(printf '%s\n' "$onchain_id" | tail -n1)
 
-        local assets
-        assets=$(jq -r ".\"$cat_id\".assets | keys[]" "$SPOKES_FILE")
+        local assets asset_name
+        assets=$(enabled_spoke_asset_names "$cat_id")
+        local skipped
+        skipped=$(jq -r --arg c "$cat_id" '
+            [.[$c].assets | to_entries[] | select(.value.enabled == false) | .key] | join(", ")
+        ' "$SPOKES_FILE")
+        if [ -n "$skipped" ]; then
+            echo "Spoke ${cat_id}: skipping disabled assets (enabled=false): ${skipped}"
+        fi
         for asset_name in $assets; do
             ensure_asset_in_spoke "$onchain_id" "$asset_name" "$cat_id"
         done
@@ -1949,9 +2045,10 @@ ensure_hub() {
 ensure_hubs() {
     echo "=== Ensuring hubs for ${NETWORK} ===" >&2
     local hub_ids
-    hub_ids=$(jq -r '[.markets[].hub_id] | map(select(. != null)) | unique | .[]' "$MARKET_CONFIG_FILE")
+    # Only hubs referenced by enabled markets are created during bulk setup.
+    hub_ids=$(jq -r '[.markets[] | select(.enabled != false) | .hub_id] | map(select(. != null)) | unique | .[]' "$MARKET_CONFIG_FILE")
     if [ -z "$hub_ids" ]; then
-        die "no hub_id found on any market in ${MARKET_CONFIG_FILE}"
+        die "no hub_id found on any enabled market in ${MARKET_CONFIG_FILE}"
     fi
     local h
     for h in $hub_ids; do
@@ -2223,7 +2320,7 @@ configure_spoke_curves() {
     fi
 
     local config_ids
-    config_ids=$(jq -r 'to_entries[] | select(.value.liquidation_curve != null) | .key' "$SPOKES_FILE")
+    config_ids=$(jq -r 'to_entries[] | select(.value.enabled != false and .value.liquidation_curve != null) | .key' "$SPOKES_FILE")
     if [ -z "$config_ids" ]; then
         echo "No liquidation_curve overrides configured for ${NETWORK} in ${SPOKES_FILE}." >&2
         return 0
@@ -2437,8 +2534,9 @@ market_oracle_ref_dependencies() {
 }
 
 all_oracle_ref_dependencies() {
+    # Only Refs required by enabled markets; disabled markets do not drive bulk setup.
     jq -r '
-        [.markets[] | (.oracle.sources // [])[] |
+        [.markets[] | select(.enabled != false) | (.oracle.sources // [])[] |
          (.Scaled.quote.Ref // (.AquariusLp // .AquariusStableLp).key_a.Ref // empty),
          ((.AquariusLp // .AquariusStableLp).key_b.Ref // empty)] | unique | .[]
     ' "$MARKET_CONFIG_FILE"
@@ -2753,11 +2851,20 @@ edit_oracle_tolerance() {
 setup_all_markets() {
     echo "=== Setting up all markets for ${NETWORK} ==="
 
+    local disabled
+    disabled=$(disabled_market_names)
+    if [ -n "$disabled" ]; then
+        echo "Skipping disabled markets (enabled=false): ${disabled}"
+    fi
+
     ensure_hubs
 
     setup_all_reference_oracles
     local markets
-    markets=$(jq -r '.markets[].name' "$MARKET_CONFIG_FILE")
+    markets=$(enabled_market_names)
+    if [ -z "$markets" ]; then
+        die "no enabled markets in ${MARKET_CONFIG_FILE}"
+    fi
 
     for market_name in $markets; do
         create_market "$market_name"
@@ -2779,11 +2886,11 @@ require_market_address() {
 }
 
 all_configured_asset_addresses() {
-    jq -c '[.markets[] | select(.asset_address != null and .asset_address != "") | .asset_address]' "$MARKET_CONFIG_FILE"
+    jq -c '[.markets[] | select(.enabled != false) | select(.asset_address != null and .asset_address != "") | .asset_address]' "$MARKET_CONFIG_FILE"
 }
 
 all_configured_hub_assets() {
-    jq -c '[.markets[] | select(.asset_address != null and .asset_address != "") | {hub_id, asset: .asset_address}]' "$MARKET_CONFIG_FILE"
+    jq -c '[.markets[] | select(.enabled != false) | select(.asset_address != null and .asset_address != "") | {hub_id, asset: .asset_address}]' "$MARKET_CONFIG_FILE"
 }
 
 schedule_upgrade_controller() {
@@ -3233,15 +3340,21 @@ list_hubs() {
     echo "Hubs (${NETWORK}) referenced by ${MARKET_CONFIG_FILE}:"
     echo "  NOTE: the controller has no get_hub view; this reads the LOCAL id map in"
     echo "  networks.json, not the on-chain HubConfig.is_active flag." >&2
-    local h mapped name
+    local h mapped name only_disabled
     for h in $(jq -r '[.markets[].hub_id] | map(select(. != null)) | unique | .[]' "$MARKET_CONFIG_FILE"); do
         name=""
         if [ -f "$HUBS_FILE" ]; then
             name=$(jq -r --arg h "$h" '.[$h].name // empty' "$HUBS_FILE")
         fi
+        only_disabled=$(jq -r --argjson h "$h" '
+            ([.markets[] | select(.hub_id == $h and .enabled != false)] | length) == 0 and
+            ([.markets[] | select(.hub_id == $h)] | length) > 0
+        ' "$MARKET_CONFIG_FILE")
         mapped=$(get_mapped_hub_id "$h")
         if [ -n "$mapped" ] && [ "$mapped" != "null" ]; then
             echo "  hub ${h}${name:+ (${name})} -> on-chain ${mapped}"
+        elif [ "$only_disabled" = "true" ]; then
+            echo "  hub ${h}${name:+ (${name})} -> deferred (only referenced by enabled=false markets)"
         else
             echo "  hub ${h}${name:+ (${name})} -> not created (created on first createMarket/setupAllMarkets)"
         fi
@@ -3251,12 +3364,16 @@ list_hubs() {
 list_oracles() {
     list_references
     echo "=== Configured market oracles (${NETWORK}) ===" >&2
-    local m i n src refs
+    local m i n src refs status
     for m in $(jq -r '.markets[].name' "$MARKET_CONFIG_FILE"); do
         refs=$(market_oracle_ref_dependencies "$m" | tr '\n' ',' | sed 's/,$//')
         [ -z "$refs" ] && refs="-"
-        jq -r --arg m "$m" --arg refs "$refs" 'first(.markets[] | select(.name == $m)) |
-            "\(.name) (hub \(.hub_id // "?")): sources=\((.oracle.sources // [])|length) scaled_refs=\($refs) stale=\(.oracle.max_price_stale_seconds // "?")s tolerance=[\(.oracle.tolerance.upper_ratio_bps // "?")/\(.oracle.tolerance.lower_ratio_bps // "?")] sanity=[\(.oracle.min_sanity_price_wad // "?") .. \(.oracle.max_sanity_price_wad // "?")] independence=\(.oracle.independence // "?")"' \
+        status=$(jq -r --arg m "$m" '
+            first(.markets[] | select(.name == $m)) |
+            if .enabled == false then " [enabled=false]" else "" end
+        ' "$MARKET_CONFIG_FILE")
+        jq -r --arg m "$m" --arg refs "$refs" --arg status "$status" 'first(.markets[] | select(.name == $m)) |
+            "\(.name)\($status) (hub \(.hub_id // "?")): sources=\((.oracle.sources // [])|length) scaled_refs=\($refs) stale=\(.oracle.max_price_stale_seconds // "?")s tolerance=[\(.oracle.tolerance.upper_ratio_bps // "?")/\(.oracle.tolerance.lower_ratio_bps // "?")] sanity=[\(.oracle.min_sanity_price_wad // "?") .. \(.oracle.max_sanity_price_wad // "?")] independence=\(.oracle.independence // "?")"' \
             "$MARKET_CONFIG_FILE" >&2
         n=$(jq -r --arg m "$m" 'first(.markets[] | select(.name == $m)) | (.oracle.sources // []) | length' "$MARKET_CONFIG_FILE")
         i=0
@@ -3296,9 +3413,17 @@ configure_oracle_feeds() {
     [ -f "$ORACLE_FEEDS_FILE" ] || die "Feeds config file not found: $ORACLE_FEEDS_FILE"
 
     echo "=== Configuring oracle feeds on ${NETWORK} (adapter ${adapter}) ===" >&2
-    local count i feed_id tag value asset_json errfile out rc
+    local count i feed_id tag value asset_json errfile out rc feed_enabled skipped
     count=$(jq '.feeds | length' "$ORACLE_FEEDS_FILE")
+    skipped=$(jq -r '[.feeds[] | select(.enabled == false) | .feed_id] | join(", ")' "$ORACLE_FEEDS_FILE")
+    if [ -n "$skipped" ]; then
+        echo "  Skipping disabled feeds (enabled=false): ${skipped}" >&2
+    fi
     for ((i = 0; i < count; i++)); do
+        feed_enabled=$(jq -r ".feeds[$i].enabled != false" "$ORACLE_FEEDS_FILE")
+        if [ "$feed_enabled" != "true" ]; then
+            continue
+        fi
         feed_id=$(jq -r ".feeds[$i].feed_id" "$ORACLE_FEEDS_FILE")
         tag=$(jq -r ".feeds[$i].asset.tag" "$ORACLE_FEEDS_FILE")
         value=$(jq -r ".feeds[$i].asset.value" "$ORACLE_FEEDS_FILE")
@@ -3330,9 +3455,17 @@ reconfigure_oracle_feeds() {
 
     echo "=== Reconfiguring oracle feeds on ${NETWORK} (adapter ${adapter}) ===" >&2
     echo "  Each feed: remove_feed (wipe) then add_feed (mapping + allowlist + FeedOwner)" >&2
-    local count i feed_id tag value asset_json errfile rc
+    local count i feed_id tag value asset_json errfile rc feed_enabled skipped
     count=$(jq '.feeds | length' "$ORACLE_FEEDS_FILE")
+    skipped=$(jq -r '[.feeds[] | select(.enabled == false) | .feed_id] | join(", ")' "$ORACLE_FEEDS_FILE")
+    if [ -n "$skipped" ]; then
+        echo "  Skipping disabled feeds (enabled=false): ${skipped}" >&2
+    fi
     for ((i = 0; i < count; i++)); do
+        feed_enabled=$(jq -r ".feeds[$i].enabled != false" "$ORACLE_FEEDS_FILE")
+        if [ "$feed_enabled" != "true" ]; then
+            continue
+        fi
         feed_id=$(jq -r ".feeds[$i].feed_id" "$ORACLE_FEEDS_FILE")
         tag=$(jq -r ".feeds[$i].asset.tag" "$ORACLE_FEEDS_FILE")
         value=$(jq -r ".feeds[$i].asset.value" "$ORACLE_FEEDS_FILE")
@@ -4649,8 +4782,8 @@ case "$1" in
         echo "  validateConfigs                 Cross-check markets/spokes/networks JSON (runs before setupAll*)"
         echo ""
         echo "Markets (writes):"
-        echo "  listMarkets                     List configured markets"
-        echo "  createMarket <name>             Deploy market from config"
+        echo "  listMarkets                     List configured markets (marks enabled=false)"
+        echo "  createMarket <name>             Deploy market from config (works even if enabled=false)"
         echo "  configureMarketOracle <name>    Configure full market oracle from config"
         echo "                                  (auto-configures oracle Ref dependencies first)"
         echo "  configureReferenceOracle <name> set_oracle(PriceKey::Ref) from .references[]"
@@ -4658,18 +4791,19 @@ case "$1" in
         echo "  listReferences                  Reference oracles from markets.json"
         echo "  editOracleTolerance <m> <tol>   Edit a market's oracle tolerance band (bps)"
         echo "  updateIndexes <name> [...]      Sync indexes for one or more markets"
-        echo "  setupAllMarkets                 Idempotently configure markets; no deploy/unpause"
+        echo "  setupAllMarkets                 Idempotently configure enabled markets only"
+        echo "                                  (skips markets with enabled=false; omit field = enabled)"
         echo ""
         echo "Hubs / Spokes (writes):"
         echo "  listHubs                        Hubs referenced by config + on-chain mapping"
         echo "  createHub <id>                  Ensure hub exists (idempotent; ascending ids)"
-        echo "  listSpokes                      List configured spoke categories"
+        echo "  listSpokes                      List configured spoke categories (marks enabled=false)"
         echo "  addSpoke <id>                   Create spoke category from config"
         echo "  addAssetToSpoke <id> <asset>    Add asset to spoke from config"
         echo "  editAssetInSpoke <id> <asset>   Push updated per-spoke risk params from config"
         echo "  removeAssetFromSpoke <id> <m>   Timelocked remove_asset_from_spoke"
         echo "  removeSpoke <id>                Timelocked remove_spoke (deprecates category)"
-        echo "  setupAllSpokes                  Idempotently configure spokes; no deploy/unpause"
+        echo "  setupAllSpokes                  Idempotently configure enabled spokes/assets only"
         echo ""
         echo "Timelock (admin writes are scheduled then executed after the delay):"
         echo "  Admin verbs (createMarket, configureMarketOracle, spoke,"
@@ -4711,17 +4845,17 @@ case "$1" in
         echo "  setPriceAggregator              Wire controller to the governance-deployed price aggregator"
         echo "  setAccumulator                  Set revenue treasury (networks.json accumulator or ACCUMULATOR_CONTRACT)"
         echo "  Env: AGGREGATOR_CONTRACT, ACCUMULATOR_CONTRACT, AWAIT_MAX_WAIT_SECONDS"
-        echo "  setupAll                        Markets + Spokes only; no deploy/unpause"
+        echo "  setupAll                        Enabled markets + spokes only; no deploy/unpause"
         echo "  claimRevenue <name> [...]       Claim revenue one or more markets"
-        echo "  claimRevenueAll                 Claim revenue for every configured market"
+        echo "  claimRevenueAll                 Claim revenue for every enabled market"
         echo "  whitelistBlendPools | approveBlendPools   Approve Blend V2 pools from configs/${NETWORK}/blend.json (timelocked)"
         echo "  configureSpokeCurves            Apply per-spoke liquidation_curve overrides from configs/${NETWORK}/spokes.json (timelocked)"
         echo ""
         echo "Quick views (reads):"
         echo "  info                            Deployment addresses & signer"
         echo "  listOracles                     Reference + per-market oracle wiring from config"
-        echo "  configureOracleFeeds           Call add_feed on xoxno_oracle_adapter for every entry in \${NETWORK}/oracle_feeds.json"
-        echo "  reconfigureOracleFeeds         remove_feed then add_feed for every entry (wipe + rebuild FeedOwner)"
+        echo "  configureOracleFeeds           add_feed for enabled entries in \${NETWORK}/oracle_feeds.json"
+        echo "  reconfigureOracleFeeds         remove_feed then add_feed for enabled entries (wipe + rebuild FeedOwner)"
         echo "  finalizeOracleAdapterUpgrade   windows + reconfigure feeds + verify (post-Wasm)"
         echo "  verifyOracleAdapterWindows     Print live max_submission_age / max_stale / relative_skew"
         echo "  setOracleRelativeSkew <secs>   Set max_relative_skew_seconds (<= submission age)"
