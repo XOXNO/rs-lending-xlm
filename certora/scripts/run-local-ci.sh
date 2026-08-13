@@ -22,12 +22,15 @@ mkdir -p "$log_dir"
 if [ $# -gt 0 ] && [ -n "$1" ]; then
   read -r -a confs <<< "$1"
 else
+  # Default set trimmed to the confs measured to fit a 2h job window on the
+  # self-hosted runner (2026-08-13 run: 7 confs ≈ 90 min wall, incl. rules
+  # that burn their full 5-min budget). The heavier accounting confs
+  # (rate-accounting, rate-index-accounting) and tolerance-math are opt-in:
+  # pass them explicitly to run them, or on the Certora cloud.
   confs=(
     common/confs/math common/confs/rates common/confs/lp-math
     common/confs/lp-math-stable common/confs/compound-interest
-    common/confs/rate-accounting common/confs/rate-index-accounting
-    common/confs/rate-indexes
-    price-aggregator/confs/scaled-math price-aggregator/confs/tolerance-math
+    common/confs/rate-indexes price-aggregator/confs/scaled-math
   )
 fi
 rules_arg="${2:-}"
