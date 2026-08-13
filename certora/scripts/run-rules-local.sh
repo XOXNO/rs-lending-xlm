@@ -142,16 +142,24 @@ run_one() {
   mkdir -p "$run_dir"
   log="$log_dir/${name%.conf}-$safe_rule.log"
   set +e
+  local timeout_cmd=()
+  if [ -n "${CERTORA_RULE_TIMEOUT:-}" ]; then
+    if command -v timeout >/dev/null 2>&1; then
+      timeout_cmd=(timeout "$CERTORA_RULE_TIMEOUT")
+    else
+      echo "[$r] CERTORA_RULE_TIMEOUT set but 'timeout' binary is missing" >&2
+    fi
+  fi
   if [ -n "$java_home" ]; then
     (cd "$run_dir" && \
       JAVA_HOME="$java_home" \
       PATH="$install_dir:$java_home/bin:$PATH" \
-      "${local_cmd[@]}" "$local_conf" --jar "$install_dir/emv.jar" \
+      "${timeout_cmd[@]}" "${local_cmd[@]}" "$local_conf" --jar "$install_dir/emv.jar" \
         --rule "$r" --java_args "$heap") >"$log" 2>&1
   else
     (cd "$run_dir" && \
       PATH="$install_dir:$PATH" \
-      "${local_cmd[@]}" "$local_conf" --jar "$install_dir/emv.jar" \
+      "${timeout_cmd[@]}" "${local_cmd[@]}" "$local_conf" --jar "$install_dir/emv.jar" \
         --rule "$r" --java_args "$heap") >"$log" 2>&1
   fi
   status=$?

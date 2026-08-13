@@ -1,14 +1,15 @@
 name: Certora Local Prover
 
 # Runs the Certora Sunbeam prover LOCALLY on the self-hosted runner with a
-# hard 5-minute cap per rule (one rule at a time), mirroring the local
-# workflow used on development machines. This is a regression smoke, not a
-# substitute for the hosted prover: it fails on proved VIOLATIONS (the class
-# of bug it is built to catch — e.g. a spec that claims something the
-# contract does not actually guarantee) and on tooling errors, while
-# timeouts are recorded as warnings: a rule that needs more than 5 minutes
-# locally is expected and will still prove on the Certora cloud
-# (certora-verification.yml / certora-fastRules.yml).
+# hard 10-minute cap per rule and parallel rule batches (10 concurrent JVMs,
+# each -Xmx8g, on the 128 GB runner), mirroring the local workflow used on
+# development machines. This is a regression smoke, not a substitute for the
+# hosted prover: it fails on proved VIOLATIONS (the class of bug it is built
+# to catch — e.g. a spec that claims something the contract does not actually
+# guarantee) and on tooling errors, while timeouts are recorded as warnings:
+# a rule that needs more than 10 minutes locally is expected and will still
+# prove on the Certora cloud (certora-verification.yml /
+# certora-fastRules.yml).
 
 on:
   workflow_dispatch:
@@ -89,7 +90,7 @@ jobs:
     name: Prover regression smoke
     needs: build
     runs-on: self-hosted
-    timeout-minutes: 120
+    timeout-minutes: 720
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -134,10 +135,12 @@ jobs:
           fi
           echo "local prover CLI root present: $(du -sh "$ROOT" | cut -f1), emv.jar $(wc -c < "$ROOT/emv.jar") bytes"
 
-      - name: Prove rules locally (5-minute cap per rule, one at a time)
+      - name: Prove rules locally (10-minute cap per rule, parallel)
         env:
           PROVE_CONFS: ${{ inputs.confs }}
           PROVE_RULES: ${{ inputs.rules }}
+          CERTORA_RULE_TIMEOUT: "600"
+          CERTORA_LOCAL_JOBS: "10"
         run: |
           export CERTORA_PYTHON="$(command -v python3)"
           export CERTORA_INSTALL="$HOME/certora-install"
