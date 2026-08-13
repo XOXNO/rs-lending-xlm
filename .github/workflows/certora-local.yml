@@ -90,11 +90,6 @@ jobs:
     needs: build
     runs-on: self-hosted
     timeout-minutes: 120
-    env:
-      # The local prover engine jar. Not shipped by the pip `certora-cli`
-      # package; place the same `emv.jar` used on dev machines at this path
-      # (install once on the runner; the cache step keeps it warm).
-      EMV_JAR_PATH: "${{ runner.temp }}/certora-local/emv.jar"
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -122,36 +117,19 @@ jobs:
       - name: Recheck artifact hashes after transfer
         run: python3 certora/scripts/check_wasm_artifacts.py
 
-      - name: Restore emv.jar from cache
-        id: emv-cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
-        with:
-          path: ${{ env.EMV_JAR_PATH }}
-          key: emv-jar-v0
-
-      - name: Obtain emv.jar (cache miss)
-        if: steps.emv-cache.outputs.cache-hit != 'true'
+      - name: Ensure emv.jar is provisioned
         run: |
-          mkdir -p "$(dirname "$EMV_JAR_PATH")"
-          echo "::warning::emv.jar not cached on this runner. Place it at"
-          echo "::warning::$EMV_JAR_PATH (or copy the file from a dev machine:"
-          echo "::warning::  ~/certora-install/emv.jar) and re-run the 'Restore"
-          echo "::warning::emv.jar from cache' step, or set the EMV_JAR_URL"
-          echo "::warning::repository variable to a private artifact URL and"
-          echo "::warning::use this workflow's prepare step."
-          test -f "$EMV_JAR_PATH" || exit 1
-
-      - name: Prepare local runner
-        run: |
-          python3 - "$EMV_JAR_PATH" <<'PY'
-          import json, pathlib, shutil, sys
-          emv = pathlib.Path(sys.argv[1])
-          runner = pathlib.Path.home() / "certora-install"
-          runner.mkdir(parents=True, exist_ok=True)
-          shutil.copy2(emv, runner / "emv.jar")
-          # certoraSorobanProver.py entry point comes from the pip install;
-          # the local script resolves the CLI via PATH or CERTORA_PYTHON.
-          PY
+          JAR="$HOME/certora-install/emv.jar"
+          if [ ! -f "$JAR" ]; then
+            echo "::error::Local prover engine jar not found at $JAR"
+            echo "::error::Provision it once on this runner (HOME persists between runs), e.g.:"
+            echo "::error::  mkdir -p \"$HOME/certora-install\""
+            echo "::error::  scp dev-machine:~/certora-install/emv.jar \"$JAR\""
+            echo "::error::then re-run this workflow. The pip certora-cli package does not"
+            echo "::error::ship the engine jar."
+            exit 1
+          fi
+          echo "emv.jar present: $(wc -c < "$JAR") bytes"
 
       - name: Prove rules locally (5-minute cap per rule, one at a time)
         env:
