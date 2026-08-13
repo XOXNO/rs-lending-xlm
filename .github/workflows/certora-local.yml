@@ -117,19 +117,22 @@ jobs:
       - name: Recheck artifact hashes after transfer
         run: python3 certora/scripts/check_wasm_artifacts.py
 
-      - name: Ensure emv.jar is provisioned
+      - name: Ensure local prover CLI root is provisioned
         run: |
-          JAR="$HOME/certora-install/emv.jar"
-          if [ ! -f "$JAR" ]; then
-            echo "::error::Local prover engine jar not found at $JAR"
-            echo "::error::Provision it once on this runner (HOME persists between runs), e.g.:"
-            echo "::error::  mkdir -p \"$HOME/certora-install\""
-            echo "::error::  scp dev-machine:~/certora-install/emv.jar \"$JAR\""
-            echo "::error::then re-run this workflow. The pip certora-cli package does not"
-            echo "::error::ship the engine jar."
+          ROOT="$HOME/certora-install"
+          missing=""
+          for f in emv.jar certoraSorobanProver.py certora_jars; do
+            [ -e "$ROOT/$f" ] || missing="$missing $f"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Local prover CLI root incomplete at $ROOT — missing:$missing"
+            echo "::error::Copy the full CLI root from a dev machine once (HOME persists):"
+            echo "::error::  scp -r dev-machine:~/certora-install/. $ROOT/  (minus .venv)"
+            echo "::error::then re-run this workflow. The pip certora-cli package ships"
+            echo "::error::neither the engine jar nor the CLI root scripts."
             exit 1
           fi
-          echo "emv.jar present: $(wc -c < "$JAR") bytes"
+          echo "local prover CLI root present: $(du -sh "$ROOT" | cut -f1), emv.jar $(wc -c < "$ROOT/emv.jar") bytes"
 
       - name: Prove rules locally (5-minute cap per rule, one at a time)
         env:
