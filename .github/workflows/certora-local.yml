@@ -37,10 +37,6 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   STELLAR_VERSION: "27.0.0"
-  # The local prover engine jar. Not shipped by the pip `certora-cli`
-  # package; place the same `emv.jar` used on dev machines at this path
-  # (install once on the runner; GitHub Actions cache keeps it warm).
-  EMV_JAR_PATH: "${{ runner.temp }}/certora-local/emv.jar"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -94,6 +90,11 @@ jobs:
     needs: build
     runs-on: self-hosted
     timeout-minutes: 120
+    env:
+      # The local prover engine jar. Not shipped by the pip `certora-cli`
+      # package; place the same `emv.jar` used on dev machines at this path
+      # (install once on the runner; the cache step keeps it warm).
+      EMV_JAR_PATH: "${{ runner.temp }}/certora-local/emv.jar"
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
