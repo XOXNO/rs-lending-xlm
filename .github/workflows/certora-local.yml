@@ -1,0 +1,162 @@
+name: Certora Local Prover
+
+# Runs the Certora Sunbeam prover LOCALLY on the self-hosted runner with a
+# hard 5-minute cap per rule (one rule at a time), mirroring the local
+# workflow used on development machines. This is a regression smoke, not a
+# substitute for the hosted prover: it fails on proved VIOLATIONS (the class
+# of bug it is built to catch — e.g. a spec that claims something the
+# contract does not actually guarantee) and on tooling errors, while
+# timeouts are recorded as warnings: a rule that needs more than 5 minutes
+# locally is expected and will still prove on the Certora cloud
+# (certora-verification.yml / certora-fastRules.yml).
+
+on:
+  workflow_dispatch:
+    inputs:
+      confs:
+        description: "Confs to prove locally (space-separated basenames); empty = default set"
+        required: false
+        type: string
+        default: ""
+      rules:
+        description: "Optional per-rule override (space-separated); runs each listed rule in each conf"
+        required: false
+        type: string
+        default: ""
+  pull_request:
+    paths:
+      - "certora/**"
+      - "common/src/**"
+      - "contracts/**/src/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  STELLAR_VERSION: "27.0.0"
+  # The local prover engine jar. Not shipped by the pip `certora-cli`
+  # package; place the same `emv.jar` used on dev machines at this path
+  # (install once on the runner; GitHub Actions cache keeps it warm).
+  EMV_JAR_PATH: "${{ runner.temp }}/certora-local/emv.jar"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    name: Build focused WASM artifacts
+    runs-on: self-hosted
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
+        with:
+          toolchain: "1.95"
+          targets: wasm32v1-none
+          components: rustfmt
+
+      - name: Cache cargo registry and build
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-certora-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-certora-
+
+      - name: Install stellar-cli
+        run: bash .github/scripts/install-stellar-cli.sh
+
+      - name: Build fresh Certora WASM artifacts
+        run: make certora-wasm
+
+      - name: Verify WASM hashes and source provenance
+        run: python3 certora/scripts/check_wasm_artifacts.py
+
+      - name: Upload Certora WASM artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: certora-wasm-local-${{ github.sha }}
+          path: artifacts/wasm
+          if-no-files-found: error
+          retention-days: 1
+
+  local-prove:
+    name: Prover regression smoke
+    needs: build
+    runs-on: self-hosted
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Install Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Install Java 21
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Install Certora CLI
+        run: pip install --require-hashes -r certora/requirements-cli.txt
+
+      - name: Download focused WASM artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: certora-wasm-local-${{ github.sha }}
+          path: artifacts/wasm
+
+      - name: Recheck artifact hashes after transfer
+        run: python3 certora/scripts/check_wasm_artifacts.py
+
+      - name: Restore emv.jar from cache
+        id: emv-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: ${{ env.EMV_JAR_PATH }}
+          key: emv-jar-v0
+
+      - name: Obtain emv.jar (cache miss)
+        if: steps.emv-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p "$(dirname "$EMV_JAR_PATH")"
+          echo "::warning::emv.jar not cached on this runner. Place it at"
+          echo "::warning::$EMV_JAR_PATH (or copy the file from a dev machine:"
+          echo "::warning::  ~/certora-install/emv.jar) and re-run the 'Restore"
+          echo "::warning::emv.jar from cache' step, or set the EMV_JAR_URL"
+          echo "::warning::repository variable to a private artifact URL and"
+          echo "::warning::use this workflow's prepare step."
+          test -f "$EMV_JAR_PATH" || exit 1
+
+      - name: Prepare local runner
+        run: |
+          python3 - "$EMV_JAR_PATH" <<'PY'
+          import json, pathlib, shutil, sys
+          emv = pathlib.Path(sys.argv[1])
+          runner = pathlib.Path.home() / "certora-install"
+          runner.mkdir(parents=True, exist_ok=True)
+          shutil.copy2(emv, runner / "emv.jar")
+          # certoraSorobanProver.py entry point comes from the pip install;
+          # the local script resolves the CLI via PATH or CERTORA_PYTHON.
+          PY
+
+      - name: Prove rules locally (5-minute cap per rule, one at a time)
+        env:
+          PROVE_CONFS: ${{ inputs.confs }}
+          PROVE_RULES: ${{ inputs.rules }}
+        run: |
+          export CERTORA_PYTHON="$(command -v python3)"
+          export CERTORA_INSTALL="$HOME/certora-install"
+          bash certora/scripts/run-local-ci.sh "$PROVE_CONFS" "$PROVE_RULES"

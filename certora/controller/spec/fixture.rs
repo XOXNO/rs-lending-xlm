@@ -1,6 +1,6 @@
 use common::types::{
-    AccountMeta, HubAssetKey, HubConfig, PositionLimits, PositionMode, SpokeAssetConfig,
-    SpokeConfig,
+    AccountMeta, AccountPositionRaw, HubAssetKey, HubConfig, PositionLimits, PositionMode,
+    SpokeAssetConfig, SpokeConfig,
 };
 use cvlr_soroban::nondet_address;
 use soroban_sdk::{Address, Env};
@@ -82,4 +82,70 @@ pub fn seed_market(env: &Env, asset: &Address) {
 pub fn seed_live_account(env: &Env, account_id: u64, owner: &Address, asset: &Address) {
     seed_market(env, asset);
     seed_account(env, account_id, owner);
+}
+
+/// Writes a concrete supply position for `asset`. The caller must have already
+/// seeded the account (e.g. `seed_live_account`), so rules can control the
+/// owner/caller relationship; this helper only writes the position map.
+pub fn seed_supply_position(env: &Env, account_id: u64, asset: &Address, scaled_amount: i128) {
+    let mut map = crate::storage::get_supply_positions(env, account_id);
+    map.set(
+        hub_asset(asset),
+        AccountPositionRaw {
+            scaled_amount,
+            liquidation_threshold: 8_000,
+            liquidation_bonus: 500,
+            loan_to_value: 7_500,
+            liquidation_fees: 100,
+        },
+    );
+    crate::storage::set_supply_positions(env, account_id, &map);
+}
+
+/// Writes a concrete debt position for `asset`. The caller must have already
+/// seeded the account (e.g. `seed_live_account`).
+pub fn seed_debt_position(env: &Env, account_id: u64, asset: &Address, scaled_amount: i128) {
+    let mut map = crate::storage::get_debt_positions(env, account_id);
+    map.set(
+        hub_asset(asset),
+        common::types::DebtPositionRaw { scaled_amount },
+    );
+    crate::storage::set_debt_positions(env, account_id, &map);
+}
+
+/// Writes `assets.len()` concrete supply positions, returning the count that
+/// was actually persisted (distinct keys only). Callers must assume the assets
+/// pairwise distinct to reach exactly `assets.len()` entries.
+pub fn seed_supply_positions(env: &Env, account_id: u64, assets: &[Address]) -> u32 {
+    let mut map = crate::storage::get_supply_positions(env, account_id);
+    for asset in assets {
+        map.set(
+            hub_asset(asset),
+            AccountPositionRaw {
+                scaled_amount: 1,
+                liquidation_threshold: 8_000,
+                liquidation_bonus: 500,
+                loan_to_value: 7_500,
+                liquidation_fees: 100,
+            },
+        );
+    }
+    let count = map.len();
+    crate::storage::set_supply_positions(env, account_id, &map);
+    count
+}
+
+/// Writes `assets.len()` concrete debt positions, returning the count that was
+/// actually persisted (distinct keys only).
+pub fn seed_debt_positions(env: &Env, account_id: u64, assets: &[Address]) -> u32 {
+    let mut map = crate::storage::get_debt_positions(env, account_id);
+    for asset in assets {
+        map.set(
+            hub_asset(asset),
+            common::types::DebtPositionRaw { scaled_amount: 1 },
+        );
+    }
+    let count = map.len();
+    crate::storage::set_debt_positions(env, account_id, &map);
+    count
 }

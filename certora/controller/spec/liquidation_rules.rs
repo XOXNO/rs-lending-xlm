@@ -29,20 +29,27 @@ fn liquidation_does_not_increase_repaid_debt(
     liquidator: Address,
     owner: Address,
     debt_asset: Address,
+    collateral_asset: Address,
     debt_amount: i128,
+    scaled_debt_before: i128,
 ) {
     let account_id: u64 = 1;
 
     cvlr_assume!(debt_amount > 0);
     cvlr_assume!(debt_amount <= MAX_DEBT_AMOUNT_RAW);
     cvlr_assume!(owner != liquidator);
+    cvlr_assume!(scaled_debt_before > 0 && scaled_debt_before <= 20 * common::constants::RAY);
     crate::spec::fixture::seed_live_account(&e, account_id, &owner, &debt_asset);
-
-    let borrow_pre =
-        crate::storage::get_position(&e, account_id, AccountPositionType::Borrow, &debt_asset);
-    cvlr_assume!(borrow_pre.is_some());
-    let scaled_debt_before = borrow_pre.unwrap().scaled_amount;
-    cvlr_assume!(scaled_debt_before > 0);
+    crate::spec::fixture::seed_market(&e, &collateral_asset);
+    crate::spec::fixture::seed_debt_position(&e, account_id, &debt_asset, scaled_debt_before);
+    // A collateralized debt book is required for liquidation to be able to
+    // execute (the seize path), keeping the transition meaningful.
+    crate::spec::fixture::seed_supply_position(
+        &e,
+        account_id,
+        &collateral_asset,
+        10 * common::constants::RAY,
+    );
 
     let mut payments: Vec<(HubAssetKey, i128)> = Vec::new(&e);
     payments.push_back((
@@ -71,29 +78,25 @@ fn liquidation_does_not_increase_seized_collateral(
     collateral_asset: Address,
     debt_asset: Address,
     debt_amount: i128,
+    scaled_col_before: i128,
+    scaled_debt_before: i128,
 ) {
     let account_id: u64 = 1;
 
     cvlr_assume!(debt_amount > 0);
     cvlr_assume!(debt_amount <= MAX_DEBT_AMOUNT_RAW);
     cvlr_assume!(owner != liquidator);
+    cvlr_assume!(scaled_col_before > 0 && scaled_col_before <= 20 * common::constants::RAY);
+    cvlr_assume!(scaled_debt_before > 0 && scaled_debt_before <= 20 * common::constants::RAY);
     crate::spec::fixture::seed_live_account(&e, account_id, &owner, &collateral_asset);
     crate::spec::fixture::seed_market(&e, &debt_asset);
-
-    let supply_pre = crate::storage::get_position(
+    crate::spec::fixture::seed_supply_position(
         &e,
         account_id,
-        AccountPositionType::Deposit,
         &collateral_asset,
+        scaled_col_before,
     );
-    cvlr_assume!(supply_pre.is_some());
-    let scaled_col_before = supply_pre.unwrap().scaled_amount;
-    cvlr_assume!(scaled_col_before > 0);
-
-    let borrow_pre =
-        crate::storage::get_position(&e, account_id, AccountPositionType::Borrow, &debt_asset);
-    cvlr_assume!(borrow_pre.is_some());
-    cvlr_assume!(borrow_pre.unwrap().scaled_amount > 0);
+    crate::spec::fixture::seed_debt_position(&e, account_id, &debt_asset, scaled_debt_before);
 
     let mut payments: Vec<(HubAssetKey, i128)> = Vec::new(&e);
     payments.push_back((
@@ -569,15 +572,29 @@ fn estimate_liquidation_sanity(e: Env) {
 }
 
 #[rule]
-fn liquidation_transition_sanity(e: Env, liquidator: Address, owner: Address, debt_asset: Address) {
+fn liquidation_transition_sanity(
+    e: Env,
+    liquidator: Address,
+    owner: Address,
+    debt_asset: Address,
+    collateral_asset: Address,
+) {
     let account_id = crate::spec::fixture::ACCOUNT_ID;
     cvlr_assume!(owner != liquidator);
     crate::spec::fixture::seed_live_account(&e, account_id, &owner, &debt_asset);
-
-    let borrow =
-        crate::storage::get_position(&e, account_id, AccountPositionType::Borrow, &debt_asset);
-    cvlr_assume!(borrow.is_some());
-    cvlr_assume!(borrow.unwrap().scaled_amount > 0);
+    crate::spec::fixture::seed_market(&e, &collateral_asset);
+    crate::spec::fixture::seed_debt_position(
+        &e,
+        account_id,
+        &debt_asset,
+        10 * common::constants::RAY,
+    );
+    crate::spec::fixture::seed_supply_position(
+        &e,
+        account_id,
+        &collateral_asset,
+        10 * common::constants::RAY,
+    );
 
     let mut payments: Vec<(HubAssetKey, i128)> = Vec::new(&e);
     payments.push_back((

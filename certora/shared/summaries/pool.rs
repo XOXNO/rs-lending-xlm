@@ -43,7 +43,13 @@ pub fn supply_summary(
 ) -> PoolPositionMutation {
     let mut new_position = position.clone();
     let new_scaled: i128 = nondet();
-    cvlr_assume!(new_scaled >= position.scaled_amount);
+    // The pool mints shares only when the movement changes the scaled record;
+    // positive supply strictly grows the position (dust reverts inside the pool).
+    if amount > 0 {
+        cvlr_assume!(new_scaled > position.scaled_amount);
+    } else {
+        cvlr_assume!(new_scaled == position.scaled_amount);
+    }
     new_position.scaled_amount = new_scaled;
 
     let market_index = nondet_market_index();
@@ -63,7 +69,13 @@ pub fn borrow_summary(
 ) -> PoolPositionMutation {
     let mut new_position = position.clone();
     let new_scaled: i128 = nondet();
-    cvlr_assume!(new_scaled >= position.scaled_amount);
+    // Borrow mints debt shares only when the movement changes the scaled
+    // record; positive borrow strictly grows the position.
+    if amount > 0 {
+        cvlr_assume!(new_scaled > position.scaled_amount);
+    } else {
+        cvlr_assume!(new_scaled == position.scaled_amount);
+    }
     new_position.scaled_amount = new_scaled;
 
     let market_index = nondet_market_index();
@@ -85,8 +97,14 @@ pub fn withdraw_summary(
 ) -> PoolPositionMutation {
     let mut new_position = position.clone();
     let new_scaled: i128 = nondet();
-    cvlr_assume!(new_scaled >= 0);
-    cvlr_assume!(new_scaled <= position.scaled_amount);
+    // A successful withdraw burns shares: strictly when the position existed,
+    // otherwise it must be a zero-amount no-op (full closes land on zero).
+    if amount > 0 && position.scaled_amount > 0 {
+        cvlr_assume!(new_scaled >= 0);
+        cvlr_assume!(new_scaled < position.scaled_amount);
+    } else {
+        cvlr_assume!(new_scaled == position.scaled_amount);
+    }
     new_position.scaled_amount = new_scaled;
 
     let actual_amount: i128 = nondet();
@@ -110,8 +128,15 @@ pub fn repay_summary(
 ) -> PoolPositionMutation {
     let mut new_position = position.clone();
     let new_scaled: i128 = nondet();
-    cvlr_assume!(new_scaled >= 0);
-    cvlr_assume!(new_scaled <= position.scaled_amount);
+    // A successful repayment burns debt shares: strictly when the position
+    // existed, otherwise it must be a zero-amount no-op (full closes land on
+    // zero, partial repays burn at least one share or revert).
+    if amount > 0 && position.scaled_amount > 0 {
+        cvlr_assume!(new_scaled >= 0);
+        cvlr_assume!(new_scaled < position.scaled_amount);
+    } else {
+        cvlr_assume!(new_scaled == position.scaled_amount);
+    }
     new_position.scaled_amount = new_scaled;
 
     let actual_amount: i128 = nondet();
@@ -139,15 +164,25 @@ pub fn net_settle_summary(
     cvlr_assume!(settled_amount <= amount);
 
     let mut new_supply = supply_position.clone();
+    let mut new_debt = debt_position.clone();
     let new_supply_scaled: i128 = nondet();
+    let new_debt_scaled: i128 = nondet();
     cvlr_assume!(new_supply_scaled >= 0);
     cvlr_assume!(new_supply_scaled <= supply_position.scaled_amount);
-    new_supply.scaled_amount = new_supply_scaled;
-
-    let mut new_debt = debt_position.clone();
-    let new_debt_scaled: i128 = nondet();
     cvlr_assume!(new_debt_scaled >= 0);
     cvlr_assume!(new_debt_scaled <= debt_position.scaled_amount);
+    // Production resolve_net_settle: a positive settlement burns strictly on
+    // both sides (pool enforces burn>0 whenever gross_amount>0); a zero
+    // settlement leaves both positions untouched.
+    if settled_amount > 0 {
+        cvlr_assume!(new_supply_scaled < supply_position.scaled_amount);
+        cvlr_assume!(new_debt_scaled < debt_position.scaled_amount);
+    } else {
+        cvlr_assume!(new_supply_scaled == supply_position.scaled_amount);
+        cvlr_assume!(new_debt_scaled == debt_position.scaled_amount);
+    }
+    new_supply.scaled_amount = new_supply_scaled;
+
     new_debt.scaled_amount = new_debt_scaled;
 
     let market_index = nondet_market_index();
@@ -179,7 +214,11 @@ pub fn flash_loan_summary(
     let fee: i128 = nondet();
     cvlr_assume!(amount > 0);
     cvlr_assume!(fee >= 0);
-    cvlr_assume!(fee <= i128::MAX - amount);
+    // Production flash fee is amount * fee_bps / BPS (half-up) with
+    // fee_bps <= MAX_FLASHLOAN_FEE_BPS (500), so fee <= amount always.
+    // Bound the summary to the production-faithful range: strictly wider
+    // ranges only inflate the SMT search for the flash-loan rules.
+    cvlr_assume!(fee <= amount);
     fee
 }
 

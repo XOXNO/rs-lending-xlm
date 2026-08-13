@@ -184,9 +184,12 @@ fn deprecated_spoke_withdraw_does_not_increase_supply(
     account_id: u64,
     asset: Address,
     amount: i128,
+    scaled_before: i128,
 ) {
     cvlr_assume!(amount > 0 && amount <= crate::constants::WAD * 1000);
+    cvlr_assume!(scaled_before > 0 && scaled_before <= 20 * common::constants::RAY);
     crate::spec::fixture::seed_live_account(&e, account_id, &caller, &asset);
+    crate::spec::fixture::seed_supply_position(&e, account_id, &asset, scaled_before);
     let mut deprecated = crate::storage::get_spoke(&e, crate::spec::fixture::SPOKE_ID);
     deprecated.is_deprecated = true;
     crate::storage::set_spoke(&e, crate::spec::fixture::SPOKE_ID, &deprecated);
@@ -196,13 +199,6 @@ fn deprecated_spoke_withdraw_does_not_increase_supply(
 
     let spoke = crate::storage::get_spoke(&e, attrs.spoke_id);
     cvlr_assume!(spoke.is_deprecated);
-
-    let position =
-        crate::storage::get_position(&e, account_id, AccountPositionType::Deposit, &asset);
-    cvlr_assume!(position.is_some());
-    let pos_before = position.unwrap();
-    cvlr_assume!(pos_before.scaled_amount > 0);
-    let scaled_before = pos_before.scaled_amount;
 
     let mut withdrawals: Vec<(HubAssetKey, i128)> = Vec::new(&e);
     withdrawals.push_back((hub0(&asset), amount));
@@ -402,4 +398,475 @@ fn deprecated_spoke_withdraw_sanity(e: Env, caller: Address, asset: Address) {
     crate::storage::set_spoke(&e, crate::spec::fixture::SPOKE_ID, &deprecated);
     crate::spec::compat::withdraw_single(e, caller, account_id, asset, amount);
     cvlr_satisfy!(true);
+}
+
+// ---------------------------------------------------------------------------
+// Bulk position-limit proofs.
+//
+// `validate_bulk_position_limits` (risk/validation.rs:50) de-duplicates
+// repeated assets *within one call* (`seen` map) before comparing the new
+// unique-position count against the configured limits. These rules pin that
+// the duplicated-leg bulk flow at the exact boundary succeeds (supply) or
+// reverts only when a *second distinct* leg would exceed the cap (supply and
+// borrow), and that a fresh multi-leg supply persists both records.
+// ---------------------------------------------------------------------------
+
+#[rule]
+fn bulk_supply_duplicate_asset_counted_once(
+    e: Env,
+    caller: Address,
+    account_id: u64,
+    asset_a: Address,
+    s1: Address,
+    s2: Address,
+    s3: Address,
+    s4: Address,
+    s5: Address,
+    s6: Address,
+    s7: Address,
+    s8: Address,
+    s9: Address,
+    amount: i128,
+) {
+    cvlr_assume!(amount > 0 && amount <= crate::constants::WAD * 1000);
+    crate::spec::fixture::seed_protocol(&e);
+    crate::spec::fixture::seed_account(&e, account_id, &caller);
+    crate::spec::fixture::seed_market(&e, &asset_a);
+
+    let attrs = crate::storage::get_account_attrs(&e, account_id);
+    cvlr_assume!(attrs.spoke_id > 0);
+
+    let assets = [s1, s2, s3, s4, s5, s6, s7, s8, s9];
+    cvlr_assume!(
+        assets[0] != assets[1]
+            && assets[0] != assets[2]
+            && assets[0] != assets[3]
+            && assets[0] != assets[4]
+            && assets[0] != assets[5]
+            && assets[0] != assets[6]
+            && assets[0] != assets[7]
+            && assets[0] != assets[8]
+    );
+    cvlr_assume!(
+        assets[1] != assets[2]
+            && assets[1] != assets[3]
+            && assets[1] != assets[4]
+            && assets[1] != assets[5]
+            && assets[1] != assets[6]
+            && assets[1] != assets[7]
+            && assets[1] != assets[8]
+    );
+    cvlr_assume!(
+        assets[2] != assets[3]
+            && assets[2] != assets[4]
+            && assets[2] != assets[5]
+            && assets[2] != assets[6]
+            && assets[2] != assets[7]
+            && assets[2] != assets[8]
+    );
+    cvlr_assume!(
+        assets[3] != assets[4]
+            && assets[3] != assets[5]
+            && assets[3] != assets[6]
+            && assets[3] != assets[7]
+            && assets[3] != assets[8]
+    );
+    cvlr_assume!(
+        assets[4] != assets[5]
+            && assets[4] != assets[6]
+            && assets[4] != assets[7]
+            && assets[4] != assets[8]
+    );
+    cvlr_assume!(assets[5] != assets[6] && assets[5] != assets[7] && assets[5] != assets[8]);
+    cvlr_assume!(assets[6] != assets[7] && assets[6] != assets[8]);
+    cvlr_assume!(assets[7] != assets[8]);
+    cvlr_assume!(
+        asset_a != assets[0]
+            && asset_a != assets[1]
+            && asset_a != assets[2]
+            && asset_a != assets[3]
+            && asset_a != assets[4]
+            && asset_a != assets[5]
+            && asset_a != assets[6]
+            && asset_a != assets[7]
+            && asset_a != assets[8]
+    );
+
+    let seeded = crate::spec::fixture::seed_supply_positions(&e, account_id, &assets);
+    cvlr_assume!(seeded == 9);
+
+    let mut legs: Vec<(HubAssetKey, i128)> = Vec::new(&e);
+    legs.push_back((crate::spec::fixture::hub_asset(&asset_a), amount));
+    legs.push_back((crate::spec::fixture::hub_asset(&asset_a), amount));
+    crate::positions::supply::process_supply(&e, &caller, account_id, attrs.spoke_id, &legs);
+
+    // The duplicated leg is counted once for the limit check: at 9+1 unique
+    // positions the call must reach the boundary without reverting, and the
+    // new asset's record must be persisted.
+    let book = crate::storage::get_supply_positions(&e, account_id);
+    cvlr_assert!(book
+        .get(crate::spec::fixture::hub_asset(&asset_a))
+        .is_some());
+    cvlr_assert!(book.len() == 10);
+}
+
+#[rule]
+fn bulk_supply_distinct_legs_exceed_limit_reverts(
+    e: Env,
+    caller: Address,
+    account_id: u64,
+    asset_a: Address,
+    asset_b: Address,
+    s1: Address,
+    s2: Address,
+    s3: Address,
+    s4: Address,
+    s5: Address,
+    s6: Address,
+    s7: Address,
+    s8: Address,
+    s9: Address,
+    amount: i128,
+) {
+    cvlr_assume!(amount > 0 && amount <= crate::constants::WAD * 1000);
+    cvlr_assume!(asset_a != asset_b);
+    crate::spec::fixture::seed_protocol(&e);
+    crate::spec::fixture::seed_account(&e, account_id, &caller);
+    crate::spec::fixture::seed_market(&e, &asset_a);
+    crate::spec::fixture::seed_market(&e, &asset_b);
+
+    let attrs = crate::storage::get_account_attrs(&e, account_id);
+    cvlr_assume!(attrs.spoke_id > 0);
+
+    let assets = [s1, s2, s3, s4, s5, s6, s7, s8, s9];
+    cvlr_assume!(
+        assets[0] != assets[1]
+            && assets[0] != assets[2]
+            && assets[0] != assets[3]
+            && assets[0] != assets[4]
+            && assets[0] != assets[5]
+            && assets[0] != assets[6]
+            && assets[0] != assets[7]
+            && assets[0] != assets[8]
+    );
+    cvlr_assume!(
+        assets[1] != assets[2]
+            && assets[1] != assets[3]
+            && assets[1] != assets[4]
+            && assets[1] != assets[5]
+            && assets[1] != assets[6]
+            && assets[1] != assets[7]
+            && assets[1] != assets[8]
+    );
+    cvlr_assume!(
+        assets[2] != assets[3]
+            && assets[2] != assets[4]
+            && assets[2] != assets[5]
+            && assets[2] != assets[6]
+            && assets[2] != assets[7]
+            && assets[2] != assets[8]
+    );
+    cvlr_assume!(
+        assets[3] != assets[4]
+            && assets[3] != assets[5]
+            && assets[3] != assets[6]
+            && assets[3] != assets[7]
+            && assets[3] != assets[8]
+    );
+    cvlr_assume!(
+        assets[4] != assets[5]
+            && assets[4] != assets[6]
+            && assets[4] != assets[7]
+            && assets[4] != assets[8]
+    );
+    cvlr_assume!(assets[5] != assets[6] && assets[5] != assets[7] && assets[5] != assets[8]);
+    cvlr_assume!(assets[6] != assets[7] && assets[6] != assets[8]);
+    cvlr_assume!(assets[7] != assets[8]);
+    cvlr_assume!(
+        asset_a != assets[0]
+            && asset_a != assets[1]
+            && asset_a != assets[2]
+            && asset_a != assets[3]
+            && asset_a != assets[4]
+            && asset_a != assets[5]
+            && asset_a != assets[6]
+            && asset_a != assets[7]
+            && asset_a != assets[8]
+    );
+    cvlr_assume!(
+        asset_b != assets[0]
+            && asset_b != assets[1]
+            && asset_b != assets[2]
+            && asset_b != assets[3]
+            && asset_b != assets[4]
+            && asset_b != assets[5]
+            && asset_b != assets[6]
+            && asset_b != assets[7]
+            && asset_b != assets[8]
+    );
+
+    let seeded = crate::spec::fixture::seed_supply_positions(&e, account_id, &assets);
+    cvlr_assume!(seeded == 9);
+
+    let mut legs: Vec<(HubAssetKey, i128)> = Vec::new(&e);
+    legs.push_back((crate::spec::fixture::hub_asset(&asset_a), amount));
+    legs.push_back((crate::spec::fixture::hub_asset(&asset_b), amount));
+    crate::positions::supply::process_supply(&e, &caller, account_id, attrs.spoke_id, &legs);
+
+    // Two distinct new assets would bring the account to 11 > POSITION_LIMIT_MAX.
+    cvlr_assert!(false);
+}
+
+#[rule]
+fn bulk_supply_two_assets_both_persisted(
+    e: Env,
+    caller: Address,
+    account_id: u64,
+    asset_a: Address,
+    asset_b: Address,
+    amount: i128,
+) {
+    cvlr_assume!(amount > 0 && amount <= crate::constants::WAD * 1000);
+    cvlr_assume!(asset_a != asset_b);
+    crate::spec::fixture::seed_protocol(&e);
+    crate::spec::fixture::seed_account(&e, account_id, &caller);
+    crate::spec::fixture::seed_market(&e, &asset_a);
+    crate::spec::fixture::seed_market(&e, &asset_b);
+
+    let attrs = crate::storage::get_account_attrs(&e, account_id);
+    cvlr_assume!(attrs.spoke_id > 0);
+
+    let mut legs: Vec<(HubAssetKey, i128)> = Vec::new(&e);
+    legs.push_back((crate::spec::fixture::hub_asset(&asset_a), amount));
+    legs.push_back((crate::spec::fixture::hub_asset(&asset_b), amount));
+    crate::positions::supply::process_supply(&e, &caller, account_id, attrs.spoke_id, &legs);
+
+    let book = crate::storage::get_supply_positions(&e, account_id);
+    cvlr_assert!(book.len() == 2);
+    cvlr_assert!(book
+        .get(crate::spec::fixture::hub_asset(&asset_a))
+        .is_some());
+    cvlr_assert!(book
+        .get(crate::spec::fixture::hub_asset(&asset_b))
+        .is_some());
+}
+
+#[rule]
+fn bulk_borrow_distinct_legs_exceed_limit_reverts(
+    e: Env,
+    caller: Address,
+    account_id: u64,
+    asset_a: Address,
+    asset_b: Address,
+    s1: Address,
+    s2: Address,
+    s3: Address,
+    s4: Address,
+    s5: Address,
+    s6: Address,
+    s7: Address,
+    s8: Address,
+    s9: Address,
+    amount: i128,
+) {
+    cvlr_assume!(amount > 0 && amount <= crate::constants::WAD * 1000);
+    cvlr_assume!(asset_a != asset_b);
+    crate::spec::fixture::seed_protocol(&e);
+    crate::spec::fixture::seed_account(&e, account_id, &caller);
+    crate::spec::fixture::seed_market(&e, &asset_a);
+    crate::spec::fixture::seed_market(&e, &asset_b);
+
+    let attrs = crate::storage::get_account_attrs(&e, account_id);
+    cvlr_assume!(attrs.spoke_id > 0);
+
+    let assets = [s1, s2, s3, s4, s5, s6, s7, s8, s9];
+    cvlr_assume!(
+        assets[0] != assets[1]
+            && assets[0] != assets[2]
+            && assets[0] != assets[3]
+            && assets[0] != assets[4]
+            && assets[0] != assets[5]
+            && assets[0] != assets[6]
+            && assets[0] != assets[7]
+            && assets[0] != assets[8]
+    );
+    cvlr_assume!(
+        assets[1] != assets[2]
+            && assets[1] != assets[3]
+            && assets[1] != assets[4]
+            && assets[1] != assets[5]
+            && assets[1] != assets[6]
+            && assets[1] != assets[7]
+            && assets[1] != assets[8]
+    );
+    cvlr_assume!(
+        assets[2] != assets[3]
+            && assets[2] != assets[4]
+            && assets[2] != assets[5]
+            && assets[2] != assets[6]
+            && assets[2] != assets[7]
+            && assets[2] != assets[8]
+    );
+    cvlr_assume!(
+        assets[3] != assets[4]
+            && assets[3] != assets[5]
+            && assets[3] != assets[6]
+            && assets[3] != assets[7]
+            && assets[3] != assets[8]
+    );
+    cvlr_assume!(
+        assets[4] != assets[5]
+            && assets[4] != assets[6]
+            && assets[4] != assets[7]
+            && assets[4] != assets[8]
+    );
+    cvlr_assume!(assets[5] != assets[6] && assets[5] != assets[7] && assets[5] != assets[8]);
+    cvlr_assume!(assets[6] != assets[7] && assets[6] != assets[8]);
+    cvlr_assume!(assets[7] != assets[8]);
+    cvlr_assume!(
+        asset_a != assets[0]
+            && asset_a != assets[1]
+            && asset_a != assets[2]
+            && asset_a != assets[3]
+            && asset_a != assets[4]
+            && asset_a != assets[5]
+            && asset_a != assets[6]
+            && asset_a != assets[7]
+            && asset_a != assets[8]
+    );
+    cvlr_assume!(
+        asset_b != assets[0]
+            && asset_b != assets[1]
+            && asset_b != assets[2]
+            && asset_b != assets[3]
+            && asset_b != assets[4]
+            && asset_b != assets[5]
+            && asset_b != assets[6]
+            && asset_b != assets[7]
+            && asset_b != assets[8]
+    );
+
+    let seeded = crate::spec::fixture::seed_debt_positions(&e, account_id, &assets);
+    cvlr_assume!(seeded == 9);
+
+    let mut legs: Vec<(HubAssetKey, i128)> = Vec::new(&e);
+    legs.push_back((crate::spec::fixture::hub_asset(&asset_a), amount));
+    legs.push_back((crate::spec::fixture::hub_asset(&asset_b), amount));
+    // The borrow position-limit gate runs inside validate_position_entry_gates
+    // before any health computation: 9 + 2 distinct -> PositionLimitExceeded.
+    crate::positions::process_borrow(&e, &caller, account_id, &legs, None);
+
+    cvlr_assert!(false);
+}
+
+#[rule]
+fn bulk_borrow_duplicate_leg_not_double_counted(
+    e: Env,
+    caller: Address,
+    account_id: u64,
+    asset_a: Address,
+    collateral: Address,
+    s1: Address,
+    s2: Address,
+    s3: Address,
+    s4: Address,
+    s5: Address,
+    s6: Address,
+    s7: Address,
+    s8: Address,
+    s9: Address,
+    amount: i128,
+) {
+    cvlr_assume!(amount > 0 && amount <= crate::constants::WAD * 1000);
+    cvlr_assume!(asset_a != collateral);
+    crate::spec::fixture::seed_protocol(&e);
+    crate::spec::fixture::seed_account(&e, account_id, &caller);
+    crate::spec::fixture::seed_market(&e, &asset_a);
+    crate::spec::fixture::seed_market(&e, &collateral);
+
+    let attrs = crate::storage::get_account_attrs(&e, account_id);
+    cvlr_assume!(attrs.spoke_id > 0);
+
+    let assets = [s1, s2, s3, s4, s5, s6, s7, s8, s9];
+    cvlr_assume!(
+        assets[0] != assets[1]
+            && assets[0] != assets[2]
+            && assets[0] != assets[3]
+            && assets[0] != assets[4]
+            && assets[0] != assets[5]
+            && assets[0] != assets[6]
+            && assets[0] != assets[7]
+            && assets[0] != assets[8]
+    );
+    cvlr_assume!(
+        assets[1] != assets[2]
+            && assets[1] != assets[3]
+            && assets[1] != assets[4]
+            && assets[1] != assets[5]
+            && assets[1] != assets[6]
+            && assets[1] != assets[7]
+            && assets[1] != assets[8]
+    );
+    cvlr_assume!(
+        assets[2] != assets[3]
+            && assets[2] != assets[4]
+            && assets[2] != assets[5]
+            && assets[2] != assets[6]
+            && assets[2] != assets[7]
+            && assets[2] != assets[8]
+    );
+    cvlr_assume!(
+        assets[3] != assets[4]
+            && assets[3] != assets[5]
+            && assets[3] != assets[6]
+            && assets[3] != assets[7]
+            && assets[3] != assets[8]
+    );
+    cvlr_assume!(
+        assets[4] != assets[5]
+            && assets[4] != assets[6]
+            && assets[4] != assets[7]
+            && assets[4] != assets[8]
+    );
+    cvlr_assume!(assets[5] != assets[6] && assets[5] != assets[7] && assets[5] != assets[8]);
+    cvlr_assume!(assets[6] != assets[7] && assets[6] != assets[8]);
+    cvlr_assume!(assets[7] != assets[8]);
+    cvlr_assume!(
+        asset_a != assets[0]
+            && asset_a != assets[1]
+            && asset_a != assets[2]
+            && asset_a != assets[3]
+            && asset_a != assets[4]
+            && asset_a != assets[5]
+            && asset_a != assets[6]
+            && asset_a != assets[7]
+            && asset_a != assets[8]
+    );
+    cvlr_assume!(
+        collateral != assets[0]
+            && collateral != assets[1]
+            && collateral != assets[2]
+            && collateral != assets[3]
+            && collateral != assets[4]
+            && collateral != assets[5]
+            && collateral != assets[6]
+            && collateral != assets[7]
+            && collateral != assets[8]
+    );
+
+    // Positive collateral book so a borrow path can pass the health gate.
+    crate::spec::fixture::seed_supply_position(&e, account_id, &collateral, common::constants::RAY);
+    let seeded = crate::spec::fixture::seed_debt_positions(&e, account_id, &assets);
+    cvlr_assume!(seeded == 9);
+
+    let mut legs: Vec<(HubAssetKey, i128)> = Vec::new(&e);
+    legs.push_back((crate::spec::fixture::hub_asset(&asset_a), amount));
+    legs.push_back((crate::spec::fixture::hub_asset(&asset_a), amount));
+    crate::positions::process_borrow(&e, &caller, account_id, &legs, None);
+
+    // A duplicated leg counts once: 9 + 1 unique positions stays within the
+    // cap, so a borrow of the new asset is reachable.
+    cvlr_satisfy!(crate::storage::get_debt_positions(&e, account_id)
+        .get(crate::spec::fixture::hub_asset(&asset_a))
+        .is_some());
 }

@@ -57,6 +57,7 @@ PURE_POOL_CONFS: set[str] = set()
 PURE_PRICE_AGGREGATOR_CONFS = {
     "freshness.conf",
     "oracle.conf",
+    "scaled-math.conf",
     "tolerance-math.conf",
 }
 

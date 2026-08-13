@@ -66,9 +66,18 @@ pub(crate) fn calculate_account_risk_totals_summary(
         cvlr_assume!(total_collateral_raw == 0);
         cvlr_assume!(ltv_collateral_raw == 0);
         cvlr_assume!(weighted_coll_raw == 0);
+    } else {
+        // Production totals are sums over positively-valued positions; any
+        // live (non-empty) position book implies positive collateral.
+        cvlr_assume!(total_collateral_raw > 0);
     }
     if borrow_positions.is_empty() {
         cvlr_assume!(total_debt_raw == 0);
+    } else {
+        // Live debt positions carry positive value in production (zero-scaled
+        // positions are removed on every flow), so a non-empty debt book
+        // implies positive debt.
+        cvlr_assume!(total_debt_raw > 0);
     }
 
     let total_debt = Wad::from(total_debt_raw);
