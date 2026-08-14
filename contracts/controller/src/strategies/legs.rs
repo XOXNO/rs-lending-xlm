@@ -175,19 +175,12 @@ pub(crate) fn net_settle_collateral_against_debt(
         amount: result.settled_amount,
     };
 
-    let refresh_spoke = crate::positions::spoke_refresh_for_leg(
-        crate::positions::WithdrawKind::Normal,
-        cache,
-        account,
-        hub_asset,
-        supply_outcome.new_scaled,
-    );
     crate::positions::merge_withdraw_leg(
         env,
         account,
         action,
         hub_asset,
-        &refresh_spoke,
+        crate::positions::WithdrawKind::Normal,
         &supply_outcome,
         cache,
     );

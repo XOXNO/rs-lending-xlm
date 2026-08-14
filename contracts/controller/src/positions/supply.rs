@@ -30,7 +30,7 @@ pub(crate) enum WithdrawKind {
     Liquidation,
 }
 
-pub(crate) enum SpokeRefresh {
+enum SpokeRefresh {
     Frozen,
     Refresh,
 }
@@ -266,8 +266,7 @@ pub(crate) fn apply_withdraw_batch(
     for_each_leg(env, entries, &results, |entry, result| {
         let hub_asset = entry.action.hub_asset;
         let outcome = LegOutcome::from(&result);
-        let refresh = spoke_refresh_for_leg(kind, cache, account, &hub_asset, outcome.new_scaled);
-        merge_withdraw_leg(env, account, action, &hub_asset, &refresh, &outcome, cache);
+        merge_withdraw_leg(env, account, action, &hub_asset, kind, &outcome, cache);
     });
     results
 }
@@ -328,10 +327,13 @@ pub(crate) fn merge_withdraw_leg(
     account: &mut Account,
     action: events::PositionAction,
     hub_asset: &HubAssetKey,
-    refresh_spoke: &SpokeRefresh,
+    kind: WithdrawKind,
     outcome: &LegOutcome,
     cache: &mut Cache,
 ) {
+    // The refresh decision is computed here, not by callers: whether a
+    // withdrawal leg re-stamps risk params is this module's policy.
+    let refresh_spoke = spoke_refresh_for_leg(kind, cache, account, hub_asset, outcome.new_scaled);
     let mut position = get_supply_position_or_panic(env, account, hub_asset);
     let old_scaled = position.scaled_amount;
 
@@ -371,7 +373,7 @@ pub(crate) fn merge_withdraw_leg(
     );
 }
 
-pub(crate) fn spoke_refresh_for_leg(
+fn spoke_refresh_for_leg(
     kind: WithdrawKind,
     cache: &mut Cache,
     account: &Account,

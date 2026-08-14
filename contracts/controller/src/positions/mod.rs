@@ -24,7 +24,7 @@ pub(crate) use debt::{
 };
 pub(crate) use supply::{
     apply_withdraw_batch, execute_withdrawal, merge_withdraw_leg, process_supply, process_withdraw,
-    spoke_refresh_for_leg, WithdrawKind, WithdrawalRequest,
+    WithdrawKind, WithdrawalRequest,
 };
 pub(crate) mod supply;
 
