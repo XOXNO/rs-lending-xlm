@@ -1,5 +1,5 @@
+use super::protocol::{get_user, renew_user_key, set_user};
 use crate::constants::MAX_DELEGATES;
-use crate::storage::{get_user, renew_user_key, set_user};
 use common::errors::GenericError;
 use common::types::{
     Account, AccountMeta, AccountPosition, AccountPositionRaw, ControllerKey, DebtPosition,

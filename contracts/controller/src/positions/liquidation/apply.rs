@@ -11,11 +11,11 @@ use crate::events;
 use crate::payments;
 use crate::positions::liquidation::bad_debt;
 use crate::positions::liquidation::curve::is_socializable_bad_debt;
-use crate::risk::AccountRiskTotals;
 use crate::positions::{
     apply_repay_batch, apply_withdraw_batch, enforce_spoke_asset_flags, make_pool_action,
     FreezePolicy, WithdrawKind,
 };
+use crate::risk::AccountRiskTotals;
 use common::errors::GenericError;
 
 pub(crate) fn apply_liquidation_repayments(

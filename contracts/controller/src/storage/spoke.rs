@@ -1,4 +1,4 @@
-use crate::storage::{get_shared, set_shared};
+use super::protocol::{get_shared, set_shared};
 use common::errors::{GenericError, SpokeError};
 use common::types::{ControllerKey, HubAssetKey, SpokeAssetConfig, SpokeConfig, SpokeUsageRaw};
 use soroban_sdk::{panic_with_error, Env};

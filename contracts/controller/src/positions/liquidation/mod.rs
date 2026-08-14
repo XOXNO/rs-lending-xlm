@@ -119,7 +119,9 @@ enum BadDebtGate {
 impl BadDebtGate {
     fn admits(&self, totals: &AccountRiskTotals) -> bool {
         match self {
-            Self::DustCapped => is_socializable_bad_debt(totals.total_debt, totals.total_collateral),
+            Self::DustCapped => {
+                is_socializable_bad_debt(totals.total_debt, totals.total_collateral)
+            }
             Self::Insolvent => totals.total_debt > totals.total_collateral,
         }
     }

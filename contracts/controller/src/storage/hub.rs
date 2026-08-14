@@ -2,7 +2,7 @@ use common::errors::GenericError;
 use common::types::{ControllerKey, HubConfig};
 use soroban_sdk::{panic_with_error, Env};
 
-use crate::storage::{get_shared, set_shared};
+use super::protocol::{get_shared, set_shared};
 
 pub(crate) fn increment_hub_id(env: &Env) -> u32 {
     let key = ControllerKey::LastHubId;

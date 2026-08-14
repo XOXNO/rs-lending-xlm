@@ -128,7 +128,7 @@ fn renew_persistent_key(env: &Env, key: &ControllerKey, threshold: u32, bump: u3
     env.storage().persistent().extend_ttl(key, threshold, bump);
 }
 
-pub(crate) fn renew_user_key(env: &Env, key: &ControllerKey) {
+pub(super) fn renew_user_key(env: &Env, key: &ControllerKey) {
     renew_persistent_key(env, key, TTL_THRESHOLD_USER, TTL_BUMP_USER);
 }
 
@@ -160,18 +160,20 @@ fn set_persistent<V: IntoVal<Env, Val>>(
     renew_persistent_key(env, key, threshold, bump);
 }
 
-pub(crate) fn get_shared<V: TryFromVal<Env, Val>>(env: &Env, key: &ControllerKey) -> Option<V> {
+// Raw key-value access stays inside the storage module: every crate-visible
+// accessor is typed, so a wrongly-typed write under a typed key cannot compile.
+pub(super) fn get_shared<V: TryFromVal<Env, Val>>(env: &Env, key: &ControllerKey) -> Option<V> {
     get_persistent(env, key, TTL_THRESHOLD_SHARED, TTL_BUMP_SHARED)
 }
 
-pub(crate) fn set_shared<V: IntoVal<Env, Val>>(env: &Env, key: &ControllerKey, value: &V) {
+pub(super) fn set_shared<V: IntoVal<Env, Val>>(env: &Env, key: &ControllerKey, value: &V) {
     set_persistent(env, key, value, TTL_THRESHOLD_SHARED, TTL_BUMP_SHARED)
 }
 
-pub(crate) fn get_user<V: TryFromVal<Env, Val>>(env: &Env, key: &ControllerKey) -> Option<V> {
+pub(super) fn get_user<V: TryFromVal<Env, Val>>(env: &Env, key: &ControllerKey) -> Option<V> {
     get_persistent(env, key, TTL_THRESHOLD_USER, TTL_BUMP_USER)
 }
 
-pub(crate) fn set_user<V: IntoVal<Env, Val>>(env: &Env, key: &ControllerKey, value: &V) {
+pub(super) fn set_user<V: IntoVal<Env, Val>>(env: &Env, key: &ControllerKey, value: &V) {
     set_persistent(env, key, value, TTL_THRESHOLD_USER, TTL_BUMP_USER)
 }
