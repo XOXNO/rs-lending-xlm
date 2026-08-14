@@ -140,7 +140,66 @@ fn cancelled_operation_cannot_execute() {
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
     };
 
-    assert_contract_error(mapped, 4002);
+    assert_contract_error(mapped, errors::TIMELOCK_UNEXPECTED_STATE);
+}
+
+/// The property a timelock exists for: a Waiting operation must refuse to
+/// execute, both immediately and one ledger short of the delay, and the very
+/// same call must succeed once the delay elapses.
+#[test]
+fn operation_cannot_execute_before_the_delay_elapses() {
+    let t = LendingTest::new().build();
+    let gov = t.gov_iface_client();
+    let admin = t.admin();
+    let s = salt(&t.env, 9);
+
+    assert_harness_delay(&t);
+
+    let new_limits = limits(4, 3);
+    let id = gov.propose(
+        &admin,
+        &AdminOperation::SetPositionLimits(new_limits.clone()),
+        &s,
+    );
+    assert_eq!(
+        gov.get_operation_state(&id),
+        governance_interface::OperationState::Waiting
+    );
+
+    let try_execute = |t: &LendingTest| {
+        let result = t.gov_iface_client().try_execute(
+            &Some(admin.clone()),
+            &t.controller,
+            &Symbol::new(&t.env, SET_POSITION_LIMITS),
+            &soroban_sdk::vec![&t.env, new_limits.clone().into_val(&t.env)],
+            &salt(&t.env, 0),
+            &s,
+        );
+        match result {
+            Ok(res) => res.map_err(|e| e.into()),
+            Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+        }
+    };
+
+    assert_contract_error(try_execute(&t), errors::TIMELOCK_UNEXPECTED_STATE);
+
+    t.env
+        .ledger()
+        .with_mut(|l| l.sequence_number += TEST_DELAY_LEDGERS - 1);
+    assert_contract_error(try_execute(&t), errors::TIMELOCK_UNEXPECTED_STATE);
+
+    t.env.ledger().with_mut(|l| l.sequence_number += 1);
+    gov.execute(
+        &Some(admin.clone()),
+        &t.controller,
+        &Symbol::new(&t.env, SET_POSITION_LIMITS),
+        &soroban_sdk::vec![&t.env, new_limits.clone().into_val(&t.env)],
+        &salt(&t.env, 0),
+        &s,
+    );
+    let stored = read_controller_position_limits(&t);
+    assert_eq!(stored.max_supply_positions, 4);
+    assert_eq!(stored.max_borrow_positions, 3);
 }
 
 #[test]

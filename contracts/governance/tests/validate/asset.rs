@@ -29,6 +29,30 @@ fn validate_risk_bounds_rejects_threshold_above_bps() {
     validate_risk_bounds(&env, 5_000, 10_001, 100);
 }
 
+// Not panicking IS the assertion in the accept tests below: the reject probes
+// pin the limits from one side only. The gate is two-dimensional:
+// `threshold <= BPS` AND `threshold * (BPS + bonus) <= BPS^2`.
+#[test]
+fn validate_risk_bounds_accepts_threshold_exactly_at_bps_with_zero_bonus() {
+    let env = Env::default();
+    validate_risk_bounds(&env, 5_000, 10_000, 0);
+}
+
+/// `threshold * (BPS + bonus) == BPS^2` is the exact seizure-headroom
+/// boundary: 8_000 bps of threshold leaves room for exactly a 25% bonus.
+#[test]
+fn validate_risk_bounds_accepts_the_exact_bonus_headroom_boundary() {
+    let env = Env::default();
+    validate_risk_bounds(&env, 5_000, 8_000, 2_500);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #113)")]
+fn validate_risk_bounds_rejects_one_bp_past_the_bonus_headroom_boundary() {
+    let env = Env::default();
+    validate_risk_bounds(&env, 5_000, 8_000, 2_501);
+}
+
 #[test]
 #[should_panic(expected = "Error(Contract, #113)")]
 fn validate_liquidation_fees_rejects_above_bps() {
@@ -52,6 +76,21 @@ fn validate_position_limits_rejects_zero() {
         &PositionLimits {
             max_supply_positions: 0,
             max_borrow_positions: 1,
+        },
+    );
+}
+
+// The accept side of the cap, from the constant rather than a literal: this is
+// the test that catches a POSITION_LIMIT_MAX change at the validator instead
+// of via unrelated fixtures downstream.
+#[test]
+fn validate_position_limits_accepts_exactly_the_cap() {
+    let env = Env::default();
+    validate_position_limits(
+        &env,
+        &PositionLimits {
+            max_supply_positions: POSITION_LIMIT_MAX,
+            max_borrow_positions: POSITION_LIMIT_MAX,
         },
     );
 }

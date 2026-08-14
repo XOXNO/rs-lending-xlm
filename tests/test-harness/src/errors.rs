@@ -73,11 +73,16 @@ pub mod codes {
     pub const ROUTER_OVERSPEND: u32 = StrategyError::RouterOverspend as u32;
     pub const NO_SWAP_OUTPUT: u32 = StrategyError::NoSwapOutput as u32;
 
+    // Literals below come from OpenZeppelin stellar libraries, which expose no
+    // error enums to derive from: stellar-contract-utils pausable (1000),
+    // stellar-access ownable (2000, 2200), stellar-governance timelock (4002).
     pub const CONTRACT_PAUSED: u32 = 1000;
 
     pub const UNAUTHORIZED: u32 = 2000;
 
     pub const NO_PENDING_TRANSFER: u32 = 2200;
+
+    pub const TIMELOCK_UNEXPECTED_STATE: u32 = 4002;
 }
 
 pub use codes::*;
