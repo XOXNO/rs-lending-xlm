@@ -138,7 +138,7 @@ fn seed_live_account(env: &Env, contract_id: &Address) -> HubAssetKey {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #16)")]
 fn supply_without_spoke_panics() {
     let (env, id) = setup();
     let caller = Address::generate(&env);
@@ -146,7 +146,7 @@ fn supply_without_spoke_panics() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #24)")]
 fn borrow_missing_account_panics() {
     let (env, id) = setup();
     let caller = Address::generate(&env);
@@ -154,7 +154,7 @@ fn borrow_missing_account_panics() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #24)")]
 fn withdraw_missing_account_panics() {
     let (env, id) = setup();
     let caller = Address::generate(&env);
@@ -162,7 +162,7 @@ fn withdraw_missing_account_panics() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #16)")]
 fn repay_missing_account_panics() {
     let (env, id) = setup();
     let caller = Address::generate(&env);
@@ -170,7 +170,7 @@ fn repay_missing_account_panics() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #24)")]
 fn liquidate_missing_account_panics() {
     let (env, id) = setup();
     let liquidator = Address::generate(&env);
@@ -178,7 +178,7 @@ fn liquidate_missing_account_panics() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #24)")]
 fn clean_bad_debt_missing_account_panics() {
     let (env, id) = setup();
     let caller = Address::generate(&env);
@@ -186,7 +186,7 @@ fn clean_bad_debt_missing_account_panics() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #43)")]
 fn flash_loan_without_hub_panics() {
     let (env, id) = setup();
     let caller = Address::generate(&env);
@@ -200,7 +200,7 @@ fn flash_loan_without_hub_panics() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #7)")]
 fn multiply_same_assets_panics() {
     let (env, id) = setup();
     let caller = Address::generate(&env);
@@ -220,7 +220,7 @@ fn multiply_same_assets_panics() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #43)")]
 fn swap_debt_missing_account_panics() {
     let (env, id) = setup();
     let caller = Address::generate(&env);
@@ -230,7 +230,7 @@ fn swap_debt_missing_account_panics() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #43)")]
 fn swap_collateral_missing_account_panics() {
     let (env, id) = setup();
     let caller = Address::generate(&env);
@@ -240,7 +240,7 @@ fn swap_collateral_missing_account_panics() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #43)")]
 fn repay_debt_with_collateral_missing_account_panics() {
     let (env, id) = setup();
     let caller = Address::generate(&env);
@@ -258,7 +258,7 @@ fn repay_debt_with_collateral_missing_account_panics() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #43)")]
 fn migrate_from_blend_without_spoke_panics() {
     let (env, id) = setup();
     let caller = Address::generate(&env);
@@ -275,7 +275,7 @@ fn migrate_from_blend_without_spoke_panics() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #30)")]
 fn update_indexes_without_pool_panics() {
     let (env, id) = setup();
     let caller = Address::generate(&env);
@@ -285,7 +285,7 @@ fn update_indexes_without_pool_panics() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #211)")]
 fn claim_revenue_without_accumulator_panics() {
     let (env, id) = setup();
     let caller = Address::generate(&env);
@@ -295,7 +295,7 @@ fn claim_revenue_without_accumulator_panics() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #27)")]
 fn update_account_threshold_without_pool_panics() {
     let (env, id) = setup();
     let key = hub(&env);
@@ -347,7 +347,7 @@ fn update_account_threshold_without_pool_panics() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #30)")]
 fn recapitalize_without_pool_panics() {
     let (env, id) = setup();
     let payer = Address::generate(&env);
@@ -355,7 +355,7 @@ fn recapitalize_without_pool_panics() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #13)")]
 fn renew_account_missing_account_panics() {
     let (env, id) = setup();
     let caller = Address::generate(&env);
@@ -363,7 +363,7 @@ fn renew_account_missing_account_panics() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #13)")]
 fn add_delegate_missing_account_panics() {
     let (env, id) = setup();
     let caller = Address::generate(&env);
@@ -371,7 +371,7 @@ fn add_delegate_missing_account_panics() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #13)")]
 fn remove_delegate_missing_account_panics() {
     let (env, id) = setup();
     let caller = Address::generate(&env);
@@ -451,7 +451,7 @@ fn set_spoke_liquidation_curve_persists() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #30)")]
 fn add_asset_to_spoke_without_hub_panics() {
     let (env, id) = setup();
     let c = client(&env, &id);
@@ -474,7 +474,7 @@ fn add_asset_to_spoke_without_hub_panics() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #30)")]
 fn upgrade_liquidity_pool_params_without_pool_panics() {
     let (env, id) = setup();
     client(&env, &id).upgrade_liquidity_pool_params(
@@ -496,14 +496,14 @@ fn upgrade_liquidity_pool_params_without_pool_panics() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #24)")]
 fn force_socialize_missing_account_panics() {
     let (env, id) = setup();
     client(&env, &id).force_socialize_bad_debt(&1u64);
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Storage, MissingValue)")]
 fn deploy_pool_without_wasm_panics() {
     let (env, id) = setup();
     let _ = client(&env, &id).deploy_pool(&BytesN::from_array(&env, &[0u8; 32]));

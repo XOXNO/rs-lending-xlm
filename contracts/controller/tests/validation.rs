@@ -148,7 +148,7 @@ fn require_not_flash_loaning_passes_when_idle() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #27)")]
 fn require_post_pool_risk_gates_with_debt_needs_prices() {
     let env = Env::default();
     let contract = new_controller(&env);

@@ -6,7 +6,7 @@ use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, Env, Vec};
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Storage, MissingValue)")]
 fn blend_sweep_all_requires_a_live_pool() {
     let env = Env::default();
     let admin = Address::generate(&env);
@@ -25,7 +25,7 @@ fn blend_sweep_all_requires_a_live_pool() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Storage, MissingValue)")]
 fn blend_repay_all_requires_a_live_pool() {
     let env = Env::default();
     let admin = Address::generate(&env);

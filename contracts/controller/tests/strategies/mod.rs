@@ -157,7 +157,7 @@ fn process_migrate_blend_rejects_unapproved_pool() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #30)")]
 fn repay_debt_from_controller_without_pool_panics() {
     use crate::events::PositionAction;
     use crate::strategies::legs::{repay_debt_from_controller, StrategyRepay};
@@ -195,7 +195,7 @@ fn repay_debt_from_controller_without_pool_panics() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Storage, MissingValue)")]
 fn withdraw_collateral_to_controller_without_position_panics() {
     use crate::events::PositionAction;
     use crate::strategies::legs::{withdraw_collateral_to_controller, StrategyWithdraw};

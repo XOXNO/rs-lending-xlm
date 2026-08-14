@@ -14,7 +14,7 @@ fn dummy_hub(env: &Env) -> HubAssetKey {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Storage, MissingValue)")]
 fn pool_wrappers_require_a_live_pool() {
     let env = Env::default();
     let admin = Address::generate(&env);
@@ -34,7 +34,7 @@ fn pool_wrappers_require_a_live_pool() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Storage, MissingValue)")]
 fn pool_update_indexes_requires_a_live_pool() {
     let env = Env::default();
     let admin = Address::generate(&env);
@@ -45,7 +45,7 @@ fn pool_update_indexes_requires_a_live_pool() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Storage, MissingValue)")]
 fn pool_upgrade_requires_a_live_pool() {
     let env = Env::default();
     let admin = Address::generate(&env);
@@ -60,7 +60,7 @@ fn pool_upgrade_requires_a_live_pool() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Storage, MissingValue)")]
 fn pool_create_market_requires_a_live_pool() {
     use common::types::MarketParamsRaw;
     let env = Env::default();
@@ -92,7 +92,7 @@ fn pool_create_market_requires_a_live_pool() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Storage, MissingValue)")]
 fn pool_supply_requires_a_live_pool() {
     let env = Env::default();
     let admin = Address::generate(&env);

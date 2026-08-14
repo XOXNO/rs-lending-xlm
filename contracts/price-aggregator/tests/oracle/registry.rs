@@ -604,7 +604,7 @@ fn test_stable_lp_rejects_a_constant_product_pool() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #220)")]
 fn test_set_oracle_rejects_a_reserve_token_mismatch() {
     let env = Env::default();
     env.ledger().set_timestamp(1_000_000);
@@ -649,7 +649,7 @@ fn test_set_oracle_accepts_a_skewed_constant_product_book() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #235)")]
 fn test_set_oracle_rejects_insufficient_pool_value() {
     let env = Env::default();
     env.ledger().set_timestamp(1_000_000);
@@ -756,7 +756,7 @@ fn test_lp_read_rejects_liquidity_below_floor() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #234)")]
 fn test_set_oracle_rejects_a_non_standard_pool() {
     let env = Env::default();
     env.ledger().set_timestamp(1_000_000);
@@ -800,7 +800,7 @@ fn test_lp_oracle_needs_no_tolerance_band() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #231)")]
 fn test_set_tolerance_refuses_an_lp_oracle() {
     let env = Env::default();
     env.ledger().set_timestamp(1_000_000);
@@ -826,7 +826,7 @@ fn test_set_tolerance_refuses_an_lp_oracle() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #234)")]
 fn test_set_oracle_rejects_a_pool_with_zero_total_shares() {
     let env = Env::default();
     env.ledger().set_timestamp(1_000_000);
@@ -838,7 +838,7 @@ fn test_set_oracle_rejects_a_pool_with_zero_total_shares() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #223)")]
 fn test_set_oracle_refuses_an_lp_that_cannot_price_at_listing() {
     let env = Env::default();
     env.ledger().set_timestamp(1_000_000);

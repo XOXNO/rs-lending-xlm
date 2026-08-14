@@ -157,7 +157,7 @@ fn test_market_quote_taints_a_fundamental_factor() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #225)")]
 fn test_a_self_quoting_scaled_source_is_caught_as_a_cycle() {
     let env = Env::default();
     let adapter = Address::generate(&env);
@@ -173,7 +173,7 @@ fn test_a_self_quoting_scaled_source_is_caught_as_a_cycle() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #225)")]
 fn test_a_two_key_cycle_is_caught() {
     let env = Env::default();
     let adapter = Address::generate(&env);
@@ -193,7 +193,7 @@ fn test_a_two_key_cycle_is_caught() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #229)")]
 fn test_depth_past_the_cap_is_rejected() {
     let env = Env::default();
     let reflector = Address::generate(&env);
@@ -315,7 +315,7 @@ fn test_solvbtc_config_validates_with_its_shared_adapter_declared() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #232)")]
 fn test_solvbtc_config_is_rejected_without_the_declaration() {
     let env = Env::default();
     let reflector = Address::generate(&env);
@@ -330,7 +330,7 @@ fn test_solvbtc_config_is_rejected_without_the_declaration() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #218)")]
 fn test_a_ratio_leg_outliving_the_asset_ceiling_is_rejected() {
     let env = Env::default();
     let reflector = Address::generate(&env);
@@ -363,7 +363,7 @@ fn store_single(env: &Env, key: PriceKey, source: PriceSource, asset_decimals: u
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #221)")]
 fn test_feed_decimals_past_the_wad_scale_are_rejected() {
     let env = Env::default();
     let adapter = Address::generate(&env);
@@ -380,7 +380,7 @@ fn test_feed_decimals_past_the_wad_scale_are_rejected() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #219)")]
 fn test_a_zero_sample_twap_is_rejected() {
     let env = Env::default();
     let reflector = Address::generate(&env);
@@ -401,7 +401,7 @@ fn test_a_zero_sample_twap_is_rejected() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #219)")]
 fn test_a_one_sample_twap_does_not_count_as_smoothing() {
     let env = Env::default();
     let reflector = Address::generate(&env);
@@ -451,7 +451,7 @@ fn test_an_lp_source_is_an_unsmoothed_market_leg_naming_both_underlyings() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #216)")]
 fn test_an_lp_source_paired_with_a_clean_one_is_still_refused() {
     let env = Env::default();
     let reflector = Address::generate(&env);
@@ -473,7 +473,7 @@ fn test_an_lp_source_paired_with_a_clean_one_is_still_refused() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #221)")]
 fn test_absurd_asset_decimals_are_rejected_for_a_token() {
     let env = Env::default();
     let reflector = Address::generate(&env);
@@ -488,7 +488,7 @@ fn test_absurd_asset_decimals_are_rejected_for_a_token() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #221)")]
 fn test_a_reference_key_may_not_claim_token_decimals() {
     let env = Env::default();
     let reflector = Address::generate(&env);
@@ -517,7 +517,7 @@ fn test_a_reference_key_with_zero_decimals_is_accepted() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #225)")]
 fn test_a_self_referential_config_is_rejected_at_write_time() {
     let env = Env::default();
     let adapter = Address::generate(&env);

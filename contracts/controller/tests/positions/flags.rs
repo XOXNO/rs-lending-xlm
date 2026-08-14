@@ -315,7 +315,7 @@ fn persist_account_positions_removes_empty_account() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Auth, InvalidAction)")]
 fn require_position_caller_without_auth_panics() {
     let env = Env::default();
     let admin = Address::generate(&env);
