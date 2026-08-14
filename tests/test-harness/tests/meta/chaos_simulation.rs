@@ -121,7 +121,7 @@ fn test_chaos_multi_user_seeded_operation_sequence() {
             if user_state.default_account_id.is_some() {
                 let hf = t.health_factor(user);
 
-                let healthy = hf > 1e18 || hf >= 1.0;
+                let healthy = hf >= 1.0;
                 assert!(healthy, "user {} HF should be >= 1.0, got {}", user, hf);
             }
         }

@@ -3052,18 +3052,6 @@ fn test_floor_wipeout_blocks_supply_until_recap_then_new_deposit_is_safe() {
     let (index, supplied, borrowed, cash, claim, shortfall) = backing_snapshot(&t);
     let (claim_whole, claim_frac) = native_tokens(claim);
     let (short_whole, short_frac) = native_tokens(shortfall);
-    std::println!("=== after seize wipeout ===");
-    std::println!(
-        "  supply_index      = {index}  (RAY/1000 = {})",
-        RAY / 1_000
-    );
-    std::println!("  supplied shares   = {supplied}");
-    std::println!("  borrowed shares   = {borrowed}");
-    std::println!("  cash              = {cash}");
-    std::println!("  floor claim       = {claim} native  ({claim_whole}.{claim_frac:07} tokens)");
-    std::println!(
-        "  backing shortfall = {shortfall} native  ({short_whole}.{short_frac:07} tokens)"
-    );
 
     assert_eq!(index, common::constants::SUPPLY_INDEX_FLOOR_RAW);
     assert_eq!(supplied, alice_shares);
@@ -3074,7 +3062,6 @@ fn test_floor_wipeout_blocks_supply_until_recap_then_new_deposit_is_safe() {
 
     let blocked = flatten_contract_result(client.try_supply(&t.sup(0, 50_000_000)));
     assert_contract_error(blocked, CollateralError::PoolInsolvent as u32);
-    std::println!("  supply(5 tokens)  = PoolInsolvent");
 
     let payer = Address::generate(&t.env);
     let offered = 25_000_000i128;
@@ -3082,20 +3069,6 @@ fn test_floor_wipeout_blocks_supply_until_recap_then_new_deposit_is_safe() {
     token.transfer(&payer, &t.pool, &offered);
     let recap = client.recapitalize(&hub(&t.asset), &payer, &offered);
     let (index2, _, _, cash2, claim2, shortfall2) = backing_snapshot(&t);
-    std::println!("=== after recapitalize(offer=2.5 tokens) ===");
-    std::println!(
-        "  applied           = {} native  ({} tokens)",
-        recap.actual_amount,
-        recap.actual_amount / 10_000_000
-    );
-    std::println!(
-        "  refund            = {} native",
-        offered - recap.actual_amount
-    );
-    std::println!("  supply_index      = {index2}");
-    std::println!("  cash              = {cash2}");
-    std::println!("  floor claim       = {claim2}");
-    std::println!("  backing shortfall = {shortfall2}");
 
     assert_eq!(recap.actual_amount, shortfall);
     assert_eq!(token.balance(&payer), offered - shortfall);
@@ -3106,11 +3079,6 @@ fn test_floor_wipeout_blocks_supply_until_recap_then_new_deposit_is_safe() {
     let bob_deposit = 50_000_000i128;
     let bob = client.supply(&t.sup(0, bob_deposit)).get_unchecked(0);
     let (_, _, _, cash3, claim3, shortfall3) = backing_snapshot(&t);
-    std::println!("=== after bob supplies 5 tokens ===");
-    std::println!("  bob shares        = {}", bob.position.scaled_amount);
-    std::println!("  cash              = {cash3}");
-    std::println!("  total floor claim = {claim3}");
-    std::println!("  backing shortfall = {shortfall3}");
     assert_eq!(bob.actual_amount, bob_deposit);
     assert_eq!(cash3, shortfall + bob_deposit);
     assert_eq!(shortfall3, 0);
@@ -3120,14 +3088,6 @@ fn test_floor_wipeout_blocks_supply_until_recap_then_new_deposit_is_safe() {
         .withdraw(&alice_recv, &false, &t.wdr(alice_shares, i128::MAX, 0))
         .get_unchecked(0);
     let (_, _, _, cash4, claim4, _) = backing_snapshot(&t);
-    std::println!("=== after alice full-withdraws stranded claim ===");
-    std::println!(
-        "  alice actual      = {} native  (mutation reports gross)",
-        alice_out.actual_amount
-    );
-    std::println!("  alice wallet      = {}", token.balance(&alice_recv));
-    std::println!("  cash left         = {cash4}");
-    std::println!("  remaining claim   = {claim4}");
 
     assert_eq!(alice_out.actual_amount, shortfall);
     assert_eq!(token.balance(&alice_recv), shortfall);
@@ -3145,9 +3105,6 @@ fn test_floor_wipeout_blocks_supply_until_recap_then_new_deposit_is_safe() {
             &t.wdr(bob.position.scaled_amount, i128::MAX, 0),
         )
         .get_unchecked(0);
-    std::println!("=== after bob withdraws ===");
-    std::println!("  bob actual        = {}", bob_out.actual_amount);
-    std::println!("  bob wallet        = {}", token.balance(&bob_recv));
     assert_eq!(bob_out.actual_amount, bob_deposit);
     assert_eq!(token.balance(&bob_recv), bob_deposit);
 }

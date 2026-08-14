@@ -106,8 +106,8 @@ fn test_compound_interest_over_multiple_periods() {
     let interest_q1 = debt_q1 - debt_start;
     let interest_q4 = debt_q4 - debt_q3;
     assert!(
-        interest_q4 >= interest_q1 * 0.99,
-        "later quarters should accrue at least as much interest (compound): q1={}, q4={}",
+        interest_q4 > interest_q1,
+        "compounding on a growing base must strictly out-accrue Q1 (simple interest would tie): q1={}, q4={}",
         interest_q1,
         interest_q4
     );

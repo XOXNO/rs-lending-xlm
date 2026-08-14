@@ -32,8 +32,8 @@ fn test_borrow_index_matches_compound_formula() {
 
     let growth = bi_after as f64 / RAY as f64;
     assert!(
-        growth > 1.01 && growth < 1.05,
-        "borrow index should grow ~1.8% at 10% utilization, got {:.6}x",
+        growth > 1.015 && growth < 1.022,
+        "borrow index must land at ~1.8% for this curve at 10% utilization, got {:.6}x",
         growth
     );
 
@@ -129,7 +129,7 @@ fn test_interest_accounting_identity() {
         protocol_revenue
     );
     assert!(
-        (ratio - 1.0).abs() < 0.02,
+        (ratio - 1.0).abs() < 0.002,
         "accounting identity violated: borrower_interest({:.6}) != supplier_interest({:.6}) + protocol_revenue({:.6}), ratio={:.4}",
         borrower_interest, supplier_interest, protocol_revenue, ratio
     );
@@ -163,7 +163,7 @@ fn test_reserve_factor_exact_split() {
 
     let protocol_share = protocol_revenue / borrower_interest;
     assert!(
-        (protocol_share - 0.10).abs() < 0.02,
+        (protocol_share - 0.10).abs() < 0.005,
         "protocol should get ~10% of interest (reserve_factor=1000 BPS), got {:.4} ({:.2}%)",
         protocol_share,
         protocol_share * 100.0
@@ -171,7 +171,7 @@ fn test_reserve_factor_exact_split() {
 
     let supplier_share = supplier_interest / borrower_interest;
     assert!(
-        (supplier_share - 0.90).abs() < 0.02,
+        (supplier_share - 0.90).abs() < 0.005,
         "suppliers should get ~90% of interest, got {:.4} ({:.2}%)",
         supplier_share,
         supplier_share * 100.0
@@ -212,19 +212,20 @@ fn test_scaled_amount_times_index_equals_actual() {
             .scaled_amount
     });
 
-    let actual_in_ray = (scaled_borrow as f64 * borrow_index as f64) / RAY as f64;
-
-    let computed_actual = actual_in_ray / 10f64.powi(20);
-    let reported_actual = actual_borrow as f64;
-
-    let diff = (computed_actual - reported_actual).abs();
-    let one_unit = 10f64.powi(7);
+    // Reconstruct in integer math with the production unscaling (borrow
+    // rounds up); the old f64 path needed a ±2-whole-token band that a 15%
+    // conversion bug would have passed.
+    let computed_actual = common::rates::unscale_borrow_ceil(
+        &t.env,
+        common::math::fp::Ray::from(scaled_borrow),
+        common::math::fp::Ray::from(borrow_index),
+        7,
+    );
+    let diff = (computed_actual - actual_borrow).abs();
     assert!(
-        diff < one_unit * 2.0,
-        "scaled * index / RAY should equal actual: computed={:.0}, reported={:.0}, diff={:.0}",
-        computed_actual,
-        reported_actual,
-        diff
+        diff <= 1,
+        "scaled * index must reconstruct the reported borrow to the stroop: \
+         computed={computed_actual}, reported={actual_borrow}"
     );
 }
 

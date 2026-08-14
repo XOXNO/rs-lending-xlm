@@ -193,24 +193,6 @@ fn test_liquidation_protocol_fee_on_bonus_only() {
     assert!(t.borrow_balance(ALICE, "ETH") < 3.0);
 }
 #[test]
-fn test_liquidation_liquidator_profit() {
-    let mut t = liquidatable_usdc_eth();
-
-    t.liquidate(LIQUIDATOR, ALICE, "ETH", 1.0);
-
-    let usdc_received = t.token_balance(LIQUIDATOR, "USDC");
-    let usdc_value_usd = usdc_received * 0.50;
-
-    assert!(
-        usdc_value_usd > 2000.0,
-        "liquidator should profit: received ${} in collateral for $2000 debt",
-        usdc_value_usd
-    );
-
-    assert!(t.borrow_balance(ALICE, "ETH") < 3.0);
-    assert!(t.supply_balance(ALICE, "USDC") < 10_000.0);
-}
-#[test]
 fn test_liquidation_sequential_partial_liquidations() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())

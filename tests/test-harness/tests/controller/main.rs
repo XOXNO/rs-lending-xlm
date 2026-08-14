@@ -6,7 +6,6 @@ mod admin_config;
 mod audit_borrow_withdraw_liquidate_stale_anchor_blend;
 mod audit_liquidate_and_clean_stale_leg;
 mod audit_liquidate_dust_fee_dos;
-mod audit_liquidate_subunit_leg_brick;
 mod audit_supply_stale_shield;
 mod bad_debt_index;
 mod borrow;

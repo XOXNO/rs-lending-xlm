@@ -497,10 +497,12 @@ fn propose_resolves_all_controller_and_self_variants() {
         );
     };
 
-    propose_and_assert_waiting(AdminOperation::TransferGovOwnership(TransferOwnershipArgs {
-        new_owner: Address::generate(&env),
-        live_until_ledger: u32::MAX,
-    }));
+    propose_and_assert_waiting(AdminOperation::TransferGovOwnership(
+        TransferOwnershipArgs {
+            new_owner: Address::generate(&env),
+            live_until_ledger: u32::MAX,
+        },
+    ));
     propose_and_assert_waiting(AdminOperation::RemoveSpoke(2));
     propose_and_assert_waiting(AdminOperation::RemoveAssetFromSpoke(
         RemoveAssetFromSpokeArgs {
