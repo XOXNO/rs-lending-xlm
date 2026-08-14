@@ -1,4 +1,8 @@
 #![no_std]
+// Crate-wide by necessity, not preference: #[contractimpl] generates Client
+// fns mirroring the >7-arg ABI entry points (multiply is 11) at crate scope,
+// where no impl- or fn-level allow can reach them. Narrowing this attribute
+// re-fires the lint inside the macro expansion under `clippy -D warnings`.
 #![allow(clippy::too_many_arguments)]
 
 pub mod constants;
