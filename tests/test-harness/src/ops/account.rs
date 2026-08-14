@@ -112,17 +112,6 @@ impl LendingTest {
         user_state.default_account_id = user_state.accounts.first().map(|a| a.account_id);
     }
 
-    pub fn remove_account_by_id(&mut self, user: &str, account_id: u64) {
-        self.remove_account_direct(account_id)
-            .expect("remove should succeed");
-
-        let user_state = self.users.get_mut(user).unwrap();
-        user_state.accounts.retain(|a| a.account_id != account_id);
-        if user_state.default_account_id == Some(account_id) {
-            user_state.default_account_id = user_state.accounts.first().map(|a| a.account_id);
-        }
-    }
-
     pub fn try_remove_account(&mut self, user: &str) -> Result<(), soroban_sdk::Error> {
         let account_id = self.try_resolve_account_id(user)?;
         match self.remove_account_direct(account_id) {

@@ -1018,7 +1018,6 @@ dependencies = [
  "anyhow",
  "axum",
  "clap",
- "hex",
  "prometheus",
  "serde",
  "serde_yaml",

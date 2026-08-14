@@ -29,14 +29,6 @@ pub mod soroswap_mock {
                 .set(&SoroswapKey::Reserve1, &reserve1);
         }
 
-        pub fn token_0(env: Env) -> Address {
-            env.storage().instance().get(&SoroswapKey::Token0).unwrap()
-        }
-
-        pub fn token_1(env: Env) -> Address {
-            env.storage().instance().get(&SoroswapKey::Token1).unwrap()
-        }
-
         pub fn get_reserves(env: Env) -> (i128, i128) {
             (
                 env.storage()

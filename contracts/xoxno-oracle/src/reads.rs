@@ -11,8 +11,8 @@ use soroban_sdk::{contractimpl, Env, String, Symbol, Vec};
 
 use crate::aggregation::MAX_HISTORY_LEN;
 use crate::storage::{
-    load_all_assets, load_feed_id, load_max_relative_skew, load_max_stale_seconds,
-    load_max_submission_age, load_resolution, renew_persistent_key, DataKey,
+    load_aggregate, load_all_assets, load_feed_id, load_history, load_max_relative_skew,
+    load_max_stale_seconds, load_max_submission_age, load_resolution, renew_history,
 };
 use crate::{Error, XoxnoOracle, XoxnoOracleArgs, XoxnoOracleClient};
 
@@ -23,14 +23,7 @@ impl XoxnoOracle {
     /// timestamps stored in ms) exceeds `max_stale_seconds`. Package timestamp
     /// is not used for this check.
     pub fn read_price_data_for_feed(env: Env, feed_id: String) -> Result<RedStonePriceData, Error> {
-        let key = DataKey::CurrentAggregate(feed_id.clone());
-        let aggregate: RedStonePriceData = env
-            .storage()
-            .persistent()
-            .get(&key)
-            .ok_or(Error::NoDataForFeed)?;
-
-        renew_persistent_key(&env, &key);
+        let aggregate = load_aggregate(&env, &feed_id).ok_or(Error::NoDataForFeed)?;
 
         let max_stale = load_max_stale_seconds(&env);
 
@@ -68,16 +61,11 @@ impl XoxnoOracle {
     ) -> Result<Vec<RedStonePriceData>, Error> {
         Self::read_price_data_for_feed(env.clone(), feed_id.clone())?;
 
-        let key = DataKey::History(feed_id.clone());
-        let history: Vec<RedStonePriceData> = env
-            .storage()
-            .persistent()
-            .get(&key)
-            .ok_or(Error::NoDataForFeed)?;
+        let history = load_history(&env, &feed_id).ok_or(Error::NoDataForFeed)?;
         if history.is_empty() {
             return Err(Error::NoDataForFeed);
         }
-        renew_persistent_key(&env, &key);
+        renew_history(&env, &feed_id);
 
         let take = core::cmp::min(limit, history.len());
         let mut newest_first = Vec::new(&env);

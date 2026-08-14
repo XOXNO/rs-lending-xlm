@@ -26,8 +26,6 @@ pub(crate) const TWAP_TIGHT_SPACING_SECS: u64 = REFLECTOR_RESOLUTION_SECS as u64
 
 const TWAP_SAMPLES_RAW: [i128; 2] = [REFLECTOR_ONE_RAW, 3 * REFLECTOR_ONE_RAW];
 
-const REFLECTOR_HUGE_RAW: i128 = 10i128.pow(25);
-
 pub(crate) fn in_contract<T>(env: &Env, body: impl FnOnce() -> T) -> T {
     let id = env.register(PriceAggregator, (Address::generate(env),));
     env.as_contract(&id, body)
@@ -65,61 +63,6 @@ impl ReflectorOracle for EmptyReflector {
 }
 
 #[contract]
-pub(crate) struct EmptyWindowReflector;
-
-#[contractimpl]
-impl ReflectorOracle for EmptyWindowReflector {
-    fn base(env: Env) -> ReflectorAsset {
-        ReflectorAsset::Other(Symbol::new(&env, "USD"))
-    }
-
-    fn decimals(_env: Env) -> u32 {
-        REFLECTOR_DECIMALS
-    }
-
-    fn resolution(_env: Env) -> u32 {
-        300
-    }
-
-    fn lastprice(_env: Env, _asset: ReflectorAsset) -> Option<ReflectorPriceData> {
-        None
-    }
-
-    fn prices(env: Env, _asset: ReflectorAsset, _records: u32) -> Option<Vec<ReflectorPriceData>> {
-        Some(Vec::new(&env))
-    }
-}
-
-#[contract]
-pub(crate) struct PricedReflector;
-
-#[contractimpl]
-impl ReflectorOracle for PricedReflector {
-    fn base(env: Env) -> ReflectorAsset {
-        ReflectorAsset::Other(Symbol::new(&env, "USD"))
-    }
-
-    fn decimals(_env: Env) -> u32 {
-        REFLECTOR_DECIMALS
-    }
-
-    fn resolution(_env: Env) -> u32 {
-        300
-    }
-
-    fn lastprice(env: Env, _asset: ReflectorAsset) -> Option<ReflectorPriceData> {
-        Some(ReflectorPriceData {
-            price: REFLECTOR_ONE_RAW,
-            timestamp: env.ledger().timestamp(),
-        })
-    }
-
-    fn prices(_env: Env, _asset: ReflectorAsset, _records: u32) -> Option<Vec<ReflectorPriceData>> {
-        None
-    }
-}
-
-#[contract]
 pub(crate) struct CountingReflector;
 
 #[contractimpl]
@@ -142,35 +85,6 @@ impl ReflectorOracle for CountingReflector {
         env.storage().instance().set(&key, &reads);
         Some(ReflectorPriceData {
             price: reads * REFLECTOR_ONE_RAW,
-            timestamp: env.ledger().timestamp(),
-        })
-    }
-
-    fn prices(_env: Env, _asset: ReflectorAsset, _records: u32) -> Option<Vec<ReflectorPriceData>> {
-        None
-    }
-}
-
-#[contract]
-pub(crate) struct HugeReflector;
-
-#[contractimpl]
-impl ReflectorOracle for HugeReflector {
-    fn base(env: Env) -> ReflectorAsset {
-        ReflectorAsset::Other(Symbol::new(&env, "USD"))
-    }
-
-    fn decimals(_env: Env) -> u32 {
-        REFLECTOR_DECIMALS
-    }
-
-    fn resolution(_env: Env) -> u32 {
-        300
-    }
-
-    fn lastprice(env: Env, _asset: ReflectorAsset) -> Option<ReflectorPriceData> {
-        Some(ReflectorPriceData {
-            price: REFLECTOR_HUGE_RAW,
             timestamp: env.ledger().timestamp(),
         })
     }
@@ -322,32 +236,6 @@ impl ReflectorOracle for NonUsdReflector {
 
     fn prices(env: Env, _asset: ReflectorAsset, _records: u32) -> Option<Vec<ReflectorPriceData>> {
         Some(twap_history(&env))
-    }
-}
-
-#[contract]
-pub(crate) struct RevertingReflector;
-
-#[contractimpl]
-impl ReflectorOracle for RevertingReflector {
-    fn base(env: Env) -> ReflectorAsset {
-        ReflectorAsset::Other(Symbol::new(&env, "USD"))
-    }
-
-    fn decimals(_env: Env) -> u32 {
-        REFLECTOR_DECIMALS
-    }
-
-    fn resolution(_env: Env) -> u32 {
-        300
-    }
-
-    fn lastprice(env: Env, _asset: ReflectorAsset) -> Option<ReflectorPriceData> {
-        panic_with_error!(&env, OracleError::OracleNotConfigured)
-    }
-
-    fn prices(env: Env, _asset: ReflectorAsset, _records: u32) -> Option<Vec<ReflectorPriceData>> {
-        panic_with_error!(&env, OracleError::OracleNotConfigured)
     }
 }
 

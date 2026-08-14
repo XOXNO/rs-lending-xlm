@@ -1,13 +1,7 @@
 use common::errors::GenericError;
 use soroban_sdk::{contract, contractimpl, contracttype, Env, Error, String, Vec, U256};
 
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct RedStonePriceData {
-    pub price: U256,
-    pub package_timestamp: u64,
-    pub write_timestamp: u64,
-}
+pub use common::oracle::providers::redstone::RedStonePriceData;
 
 #[contracttype]
 pub enum MockKey {

@@ -75,13 +75,6 @@ impl FreezableToken {
         let balance = read_balance(&env, &from);
         write_balance(&env, &from, balance - amount);
     }
-
-    pub fn burn_from(env: Env, spender: Address, from: Address, amount: i128) {
-        spender.require_auth();
-        spend_allowance(&env, &from, &spender, amount);
-        let balance = read_balance(&env, &from);
-        write_balance(&env, &from, balance - amount);
-    }
 }
 
 fn do_transfer(env: &Env, from: &Address, to: &Address, amount: i128) {

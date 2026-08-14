@@ -13,7 +13,7 @@ pub(crate) fn renew_oracle_instance(env: &Env) {
 }
 
 /// Extends `key`'s persistent storage TTL using `TTL_THRESHOLD_SHARED` and `TTL_BUMP_SHARED`.
-pub(crate) fn renew_persistent_key(env: &Env, key: &DataKey) {
+pub(in crate::storage) fn renew_persistent_key(env: &Env, key: &DataKey) {
     env.storage()
         .persistent()
         .extend_ttl(key, TTL_THRESHOLD_SHARED, TTL_BUMP_SHARED);

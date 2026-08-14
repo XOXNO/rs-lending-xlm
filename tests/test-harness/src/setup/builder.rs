@@ -19,7 +19,6 @@ pub struct LendingTestBuilder {
     position_limits: Option<(u32, u32)>,
     min_borrow_collateral_usd_wad: Option<i128>,
     budget_enabled: bool,
-    skip_mock_auths: bool,
 }
 
 impl LendingTest {
@@ -31,7 +30,6 @@ impl LendingTest {
             position_limits: None,
             min_borrow_collateral_usd_wad: None,
             budget_enabled: false,
-            skip_mock_auths: false,
         }
     }
 }
@@ -101,11 +99,6 @@ impl LendingTestBuilder {
 
     pub fn with_budget_enabled(mut self) -> Self {
         self.budget_enabled = true;
-        self
-    }
-
-    pub fn without_auto_auth(mut self) -> Self {
-        self.skip_mock_auths = true;
         self
     }
 
@@ -382,10 +375,6 @@ impl LendingTestBuilder {
                     }),
                 );
             }
-        }
-
-        if self.skip_mock_auths {
-            env.set_auths(&[]);
         }
 
         LendingTest {

@@ -1,18 +1,6 @@
 use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, Symbol, Vec};
 
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum Sep40Asset {
-    Stellar(Address),
-    Other(Symbol),
-}
-
-#[contracttype]
-#[derive(Clone)]
-pub struct PriceData {
-    pub price: i128,
-    pub timestamp: u64,
-}
+pub use common::oracle::providers::reflector::{ReflectorAsset, ReflectorPriceData};
 
 #[contracttype]
 pub enum MockKey {
@@ -56,13 +44,13 @@ impl MockReflector {
     pub fn set_base_other(env: Env, symbol: Symbol) {
         env.storage()
             .temporary()
-            .set(&MockKey::Base, &Sep40Asset::Other(symbol));
+            .set(&MockKey::Base, &ReflectorAsset::Other(symbol));
     }
 
     pub fn set_base_stellar(env: Env, asset: Address) {
         env.storage()
             .temporary()
-            .set(&MockKey::Base, &Sep40Asset::Stellar(asset));
+            .set(&MockKey::Base, &ReflectorAsset::Stellar(asset));
     }
 
     pub fn set_decimals(env: Env, decimals: u32) {
@@ -81,11 +69,11 @@ impl MockReflector {
             .set(&MockKey::TwapHistoryMode(asset), &mode);
     }
 
-    pub fn base(env: Env) -> Sep40Asset {
+    pub fn base(env: Env) -> ReflectorAsset {
         env.storage()
             .temporary()
             .get(&MockKey::Base)
-            .unwrap_or_else(|| Sep40Asset::Other(Symbol::new(&env, "USD")))
+            .unwrap_or_else(|| ReflectorAsset::Other(Symbol::new(&env, "USD")))
     }
 
     pub fn decimals(env: Env) -> u32 {
@@ -101,19 +89,23 @@ impl MockReflector {
             .unwrap_or(300)
     }
 
-    pub fn lastprice(env: Env, asset: Sep40Asset) -> Option<PriceData> {
+    pub fn lastprice(env: Env, asset: ReflectorAsset) -> Option<ReflectorPriceData> {
         let addr = match asset {
-            Sep40Asset::Stellar(a) => a,
+            ReflectorAsset::Stellar(a) => a,
             _ => return None,
         };
         let (price, timestamp): (i128, u64) =
             env.storage().temporary().get(&MockKey::Spot(addr))?;
-        Some(PriceData { price, timestamp })
+        Some(ReflectorPriceData { price, timestamp })
     }
 
-    pub fn prices(env: Env, asset: Sep40Asset, records: u32) -> Option<Vec<PriceData>> {
+    pub fn prices(
+        env: Env,
+        asset: ReflectorAsset,
+        records: u32,
+    ) -> Option<Vec<ReflectorPriceData>> {
         let addr = match asset.clone() {
-            Sep40Asset::Stellar(a) => a,
+            ReflectorAsset::Stellar(a) => a,
             _ => return None,
         };
         let mode: u32 = env
@@ -128,7 +120,7 @@ impl MockReflector {
             return Some(Vec::new(&env));
         }
         let twap_pd = match env.storage().temporary().get(&MockKey::Twap(addr)) {
-            Some((price, timestamp)) => PriceData { price, timestamp },
+            Some((price, timestamp)) => ReflectorPriceData { price, timestamp },
             None => Self::lastprice(env.clone(), asset)?,
         };
 

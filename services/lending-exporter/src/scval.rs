@@ -75,13 +75,6 @@ pub fn string_text(value: &ScVal) -> Option<String> {
     }
 }
 
-pub fn as_address(value: &ScVal) -> Option<ScAddress> {
-    match value {
-        ScVal::Address(a) => Some(a.clone()),
-        _ => None,
-    }
-}
-
 pub fn as_contract_id(value: &ScVal) -> Option<[u8; 32]> {
     match value {
         ScVal::Address(ScAddress::Contract(c)) => Some(c.0 .0),

@@ -1,17 +1,24 @@
 //! Storage layer for the oracle contract: instance-level configuration
 //! (signers, threshold, staleness and skew bounds, resolution), persistent
-//! feed and asset registries backed by swap-remove indexed collections, and
-//! TTL renewal helpers. Re-exports the `config`, `index`, `registry`, and
+//! feed and asset registries backed by swap-remove indexed collections,
+//! per-signer submissions with aggregates and history, and TTL renewal
+//! helpers. Re-exports the `config`, `index`, `prices`, `registry`, and
 //! `ttl` submodules' public items, and defines the `DataKey` storage-key
 //! enum and default configuration constants shared across them.
+//!
+//! This module is the only place allowed to construct `DataKey`s or touch
+//! `env.storage()`: every other module goes through the named accessors, so
+//! key encoding and TTL policy cannot silently diverge between call sites.
 
 mod config;
 mod index;
+mod prices;
 mod registry;
 mod ttl;
 
 pub(crate) use config::*;
 pub(crate) use index::*;
+pub(crate) use prices::*;
 pub(crate) use registry::*;
 pub(crate) use ttl::*;
 
@@ -44,7 +51,7 @@ pub(crate) const DEFAULT_MAX_RELATIVE_SKEW_SECONDS: u64 = DEFAULT_MAX_SUBMISSION
 /// `index` submodule.
 #[contracttype]
 #[derive(Clone, Debug)]
-pub(crate) enum DataKey {
+pub(in crate::storage) enum DataKey {
     Signers,
     Threshold,
     MaxStaleSeconds,

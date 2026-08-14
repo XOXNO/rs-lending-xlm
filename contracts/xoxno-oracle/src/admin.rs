@@ -10,10 +10,12 @@ use stellar_macros::only_owner;
 
 use crate::aggregation::recompute_aggregate;
 use crate::storage::{
-    asset_index_insert, asset_index_remove, clear_feed_state, ensure_known_feed,
-    feed_index_contains, load_all_feeds, load_feed_owner, load_max_stale_seconds,
-    load_max_submission_age, load_signer_feeds, load_signers, load_threshold,
-    renew_oracle_instance, renew_persistent_key, DataKey, MIN_SUBMISSION_AGE_SECONDS,
+    asset_index_insert, asset_index_remove, clear_feed_state, clear_signer_feeds,
+    ensure_known_feed, feed_index_contains, has_feed_mapping, load_all_feeds, load_feed_owner,
+    load_max_stale_seconds, load_max_submission_age, load_signer_feeds, load_signers,
+    load_threshold, map_feed, remove_feed_mapping, remove_submission, renew_oracle_instance,
+    store_max_relative_skew, store_max_stale_seconds, store_max_submission_age, store_resolution,
+    store_signers, store_threshold, take_feed_mapping, MIN_SUBMISSION_AGE_SECONDS,
 };
 use crate::{Error, XoxnoOracle, XoxnoOracleArgs, XoxnoOracleClient};
 
@@ -29,7 +31,7 @@ impl XoxnoOracle {
             return Err(Error::SignerAlreadyRegistered);
         }
         signers.push_back(signer);
-        env.storage().instance().set(&DataKey::Signers, &signers);
+        store_signers(&env, &signers);
         Ok(())
     }
 
@@ -53,17 +55,13 @@ impl XoxnoOracle {
         }
 
         signers.remove(index);
-        env.storage().instance().set(&DataKey::Signers, &signers);
+        store_signers(&env, &signers);
 
         for feed_id in load_signer_feeds(&env, &signer).iter() {
-            env.storage()
-                .persistent()
-                .remove(&DataKey::LatestSubmission(feed_id.clone(), signer.clone()));
+            remove_submission(&env, &feed_id, &signer);
             recompute_aggregate(&env, &feed_id);
         }
-        env.storage()
-            .persistent()
-            .remove(&DataKey::SignerFeeds(signer));
+        clear_signer_feeds(&env, &signer);
         Ok(())
     }
 
@@ -78,9 +76,7 @@ impl XoxnoOracle {
         if threshold == 0 || threshold > signers.len() {
             return Err(Error::InvalidThreshold);
         }
-        env.storage()
-            .instance()
-            .set(&DataKey::Threshold, &threshold);
+        store_threshold(&env, threshold);
 
         for feed_id in load_all_feeds(&env).iter() {
             recompute_aggregate(&env, &feed_id);
@@ -97,9 +93,7 @@ impl XoxnoOracle {
         if seconds < load_max_submission_age(&env) {
             return Err(Error::InvalidSubmissionAge);
         }
-        env.storage()
-            .instance()
-            .set(&DataKey::MaxStaleSeconds, &seconds);
+        store_max_stale_seconds(&env, seconds);
         Ok(())
     }
 
@@ -114,9 +108,7 @@ impl XoxnoOracle {
         if seconds < MIN_SUBMISSION_AGE_SECONDS || seconds > load_max_stale_seconds(&env) {
             return Err(Error::InvalidSubmissionAge);
         }
-        env.storage()
-            .instance()
-            .set(&DataKey::MaxSubmissionAgeSeconds, &seconds);
+        store_max_submission_age(&env, seconds);
 
         for feed_id in load_all_feeds(&env).iter() {
             recompute_aggregate(&env, &feed_id);
@@ -137,9 +129,7 @@ impl XoxnoOracle {
         {
             return Err(Error::InvalidRelativeSkew);
         }
-        env.storage()
-            .instance()
-            .set(&DataKey::MaxRelativeSkewSeconds, &seconds);
+        store_max_relative_skew(&env, seconds);
 
         for feed_id in load_all_feeds(&env).iter() {
             recompute_aggregate(&env, &feed_id);
@@ -166,19 +156,13 @@ impl XoxnoOracle {
     #[only_owner]
     pub fn add_feed(env: Env, feed_id: String, asset: ReflectorAsset) -> Result<(), Error> {
         renew_oracle_instance(&env);
-        let key = DataKey::FeedMapping(asset.clone());
-        if env.storage().persistent().has(&key) {
+        if has_feed_mapping(&env, &asset) {
             return Err(Error::FeedAlreadyMapped);
         }
         if load_feed_owner(&env, &feed_id).is_some() {
             return Err(Error::FeedAlreadyMapped);
         }
-        env.storage().persistent().set(&key, &feed_id);
-        renew_persistent_key(&env, &key);
-
-        let owner_key = DataKey::FeedOwner(feed_id.clone());
-        env.storage().persistent().set(&owner_key, &asset);
-        renew_persistent_key(&env, &owner_key);
+        map_feed(&env, &asset, &feed_id);
 
         ensure_known_feed(&env, &feed_id);
         asset_index_insert(&env, asset);
@@ -192,11 +176,9 @@ impl XoxnoOracle {
     #[only_owner]
     pub fn remove_feed(env: Env, asset: ReflectorAsset) -> Result<(), Error> {
         renew_oracle_instance(&env);
-        let key = DataKey::FeedMapping(asset.clone());
-        let Some(feed_id) = env.storage().persistent().get::<DataKey, String>(&key) else {
+        let Some(feed_id) = take_feed_mapping(&env, &asset) else {
             return Err(Error::FeedNotMapped);
         };
-        env.storage().persistent().remove(&key);
         asset_index_remove(&env, &asset);
         clear_feed_state(&env, &feed_id);
         Ok(())
@@ -207,9 +189,7 @@ impl XoxnoOracle {
     #[only_owner]
     pub fn set_resolution(env: Env, resolution: u32) -> Result<(), Error> {
         renew_oracle_instance(&env);
-        env.storage()
-            .instance()
-            .set(&DataKey::Resolution, &resolution);
+        store_resolution(&env, resolution);
         Ok(())
     }
 
@@ -225,8 +205,7 @@ impl XoxnoOracle {
         }
 
         if let Some(asset) = load_feed_owner(&env, &feed_id) {
-            let map_key = DataKey::FeedMapping(asset.clone());
-            env.storage().persistent().remove(&map_key);
+            remove_feed_mapping(&env, &asset);
             asset_index_remove(&env, &asset);
         }
 

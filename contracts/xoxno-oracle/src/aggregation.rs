@@ -10,8 +10,9 @@ use common::oracle::providers::redstone::RedStonePriceData;
 use soroban_sdk::{Address, Env, String, Vec, U256};
 
 use crate::storage::{
-    load_max_relative_skew, load_max_submission_age, load_resolution, load_signers, load_threshold,
-    record_signer_feed, renew_known_feed, renew_persistent_key, DataKey, SignerSubmission,
+    load_history, load_max_relative_skew, load_max_submission_age, load_resolution, load_signers,
+    load_submission, load_threshold, record_signer_feed, remove_aggregate, renew_known_feed,
+    store_aggregate, store_history, store_submission_record,
 };
 use crate::Error;
 
@@ -56,12 +57,7 @@ pub(crate) fn require_monotonic_package(
     signer: &Address,
     package_timestamp: u64,
 ) -> Result<(), Error> {
-    let key = DataKey::LatestSubmission(feed_id.clone(), signer.clone());
-    if let Some(prev) = env
-        .storage()
-        .persistent()
-        .get::<DataKey, SignerSubmission>(&key)
-    {
+    if let Some(prev) = load_submission(env, feed_id, signer) {
         if package_timestamp < prev.package_timestamp {
             return Err(Error::StaleSubmission);
         }
@@ -82,13 +78,7 @@ pub(crate) fn store_submission(
     record_signer_feed(env, signer, feed_id);
 
     renew_known_feed(env, feed_id);
-    let submission = SignerSubmission {
-        price,
-        package_timestamp,
-    };
-    let key = DataKey::LatestSubmission(feed_id.clone(), signer.clone());
-    env.storage().persistent().set(&key, &submission);
-    renew_persistent_key(env, &key);
+    store_submission_record(env, feed_id, signer, price, package_timestamp);
 }
 
 /// Recomputes the current aggregate price for `feed_id` from all signers'
@@ -109,12 +99,7 @@ pub(crate) fn recompute_aggregate(env: &Env, feed_id: &String) {
     let mut kept_ts: Vec<u64> = Vec::new(env);
 
     for signer in signers.iter() {
-        let key = DataKey::LatestSubmission(feed_id.clone(), signer.clone());
-        let Some(submission) = env
-            .storage()
-            .persistent()
-            .get::<DataKey, SignerSubmission>(&key)
-        else {
+        let Some(submission) = load_submission(env, feed_id, &signer) else {
             continue;
         };
 
@@ -164,9 +149,7 @@ pub(crate) fn recompute_aggregate(env: &Env, feed_id: &String) {
         write_timestamp,
     };
 
-    let aggregate_key = DataKey::CurrentAggregate(feed_id.clone());
-    env.storage().persistent().set(&aggregate_key, &aggregate);
-    renew_persistent_key(env, &aggregate_key);
+    store_aggregate(env, feed_id, &aggregate);
     push_history(env, feed_id, aggregate);
 }
 
@@ -174,9 +157,7 @@ pub(crate) fn recompute_aggregate(env: &Env, feed_id: &String) {
 fn clear_aggregate_and_history(env: &Env, feed_id: &String) {
     // Only the live aggregate is cleared: a transient quorum miss must not
     // destroy accumulated history that consumers age off themselves.
-    env.storage()
-        .persistent()
-        .remove(&DataKey::CurrentAggregate(feed_id.clone()));
+    remove_aggregate(env, feed_id);
 }
 
 /// Returns an ascending-sorted copy of `prices`, computed with an in-place
@@ -212,12 +193,8 @@ fn median_of(prices: &Vec<i128>) -> i128 {
 /// if its write timestamp falls within one resolution period of the previous
 /// entry. Evicts the oldest entry when the history reaches `MAX_HISTORY_LEN`.
 fn push_history(env: &Env, feed_id: &String, aggregate: RedStonePriceData) {
-    let key = DataKey::History(feed_id.clone());
-    let mut history: Vec<RedStonePriceData> = env
-        .storage()
-        .persistent()
-        .get(&key)
-        .unwrap_or_else(|| Vec::new(env));
+    let mut history: Vec<RedStonePriceData> =
+        load_history(env, feed_id).unwrap_or_else(|| Vec::new(env));
 
     let resolution_ms = u64::from(load_resolution(env)) * MS_PER_SECOND;
     let len = history.len();
@@ -234,8 +211,7 @@ fn push_history(env: &Env, feed_id: &String, aggregate: RedStonePriceData) {
         }
         history.push_back(aggregate);
     }
-    env.storage().persistent().set(&key, &history);
-    renew_persistent_key(env, &key);
+    store_history(env, feed_id, &history);
 }
 
 #[cfg(test)]

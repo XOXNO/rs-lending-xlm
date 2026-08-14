@@ -26,10 +26,8 @@ path = "src/lib.rs"
 tokio = { version = "1.50", features = ["macros", "rt-multi-thread", "signal", "sync", "time"] }
 tokio-util = { version = "0.7", features = ["rt"] }
 anyhow = "1"
-thiserror = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
-futures = "0.3"
 
 serde = { version = "1", features = ["derive"] }
 serde_yaml = "0.9"
@@ -48,10 +46,7 @@ hex = "0.4"
 mx-keyvault = { version = "0.1.0", default-features = false, features = ["keyvault"] }
 
 axum = { version = "0.7", default-features = false, features = ["http1", "tokio"] }
-hyper = { version = "1", features = ["server", "http1"] }
 prometheus = { version = "0.13", default-features = false }
-
-num-bigint = "0.4"
 
 [dev-dependencies]
 tokio = { version = "1.50", features = ["macros", "rt-multi-thread", "test-util"] }

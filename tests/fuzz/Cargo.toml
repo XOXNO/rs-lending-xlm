@@ -12,7 +12,7 @@ cargo-fuzz = true
 [features]
 
 default = []
-seed-corpus = ["dep:serde", "dep:serde_json", "dep:sha2"]
+seed-corpus = ["dep:serde_json", "dep:sha2"]
 
 [dependencies]
 libfuzzer-sys = "0.4"
@@ -25,7 +25,6 @@ price-aggregator = { path = "../../contracts/price-aggregator", features = ["tes
 mock-redstone = { path = "../../mock/mock-redstone" }
 test-harness = { path = "../test-harness", features = ["testing"] }
 
-serde = { version = "1", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true }
 sha2 = { version = "0.10", optional = true }
 

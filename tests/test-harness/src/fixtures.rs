@@ -21,10 +21,6 @@ impl LendingTestBuilder {
             .with_market(wbtc_preset())
     }
 
-    pub fn three_asset_usdc_eth_wbtc_with_budget(self) -> Self {
-        self.three_asset_usdc_eth_wbtc().with_budget_enabled()
-    }
-
     pub fn dual_source_two_asset(self) -> LendingTest {
         let t = self.standard_two_asset_dust_disabled();
         configure_dual_source_oracle(&t);
