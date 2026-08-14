@@ -5,7 +5,7 @@ use crate::context::Cache;
 use crate::events::CleanBadDebtEvent;
 use crate::external::pool::pool_seize_positions_call;
 use crate::risk::AccountRiskTotals;
-use crate::spoke::UsageSide;
+use crate::spoke_usage::UsageSide;
 use crate::storage::{self, iter_debt_positions, iter_typed_positions};
 
 pub(crate) fn execute_bad_debt_cleanup(

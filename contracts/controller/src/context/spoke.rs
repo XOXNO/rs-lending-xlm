@@ -4,7 +4,7 @@ use common::types::{AssetConfig, HubAssetKey, MarketIndexRaw, SpokeAssetConfig, 
 use soroban_sdk::{assert_with_error, panic_with_error, Map};
 
 use crate::context::Cache;
-use crate::spoke::{SpokeUsageContext, UsageSide};
+use crate::spoke_usage::{SpokeUsageContext, UsageSide};
 use crate::storage;
 
 impl Cache {

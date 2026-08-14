@@ -21,7 +21,7 @@ mod payments;
 mod positions;
 mod risk;
 mod spec_hooks;
-mod spoke;
+mod spoke_usage;
 mod storage;
 mod strategies;
 mod views;

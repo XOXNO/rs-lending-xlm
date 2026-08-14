@@ -11,7 +11,7 @@ use common::types::{
 };
 use soroban_sdk::{Address, Env, Map, Vec};
 
-use crate::spoke::SpokeUsageContext;
+use crate::spoke_usage::SpokeUsageContext;
 use crate::storage;
 
 pub(crate) struct Cache {
