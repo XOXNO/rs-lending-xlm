@@ -122,18 +122,19 @@ jobs:
         run: |
           ROOT="$HOME/certora-install"
           missing=""
-          for f in emv.jar certoraSorobanProver.py certora_jars; do
+          for f in emv.jar certoraSorobanProver.py certora_jars z3; do
             [ -e "$ROOT/$f" ] || missing="$missing $f"
           done
           if [ -n "$missing" ]; then
             echo "::error::Local prover CLI root incomplete at $ROOT — missing:$missing"
             echo "::error::Copy the full CLI root from a dev machine once (HOME persists):"
             echo "::error::  scp -r dev-machine:~/certora-install/. $ROOT/  (minus .venv)"
-            echo "::error::then re-run this workflow. The pip certora-cli package ships"
-            echo "::error::neither the engine jar nor the CLI root scripts."
+            echo "::error::and add the engine's z3 SMT-solver binary as $ROOT/z3"
+            echo "::error::(the EMV engine spawns 'z3' via PATH; without it every rule"
+            echo "::error::fails with 'Cannot run program z3')."
             exit 1
           fi
-          echo "local prover CLI root present: $(du -sh "$ROOT" | cut -f1), emv.jar $(wc -c < "$ROOT/emv.jar") bytes"
+          echo "local prover CLI root present: $(du -sh "$ROOT" | cut -f1), emv.jar $(wc -c < "$ROOT/emv.jar") bytes, z3 $("$ROOT/z3" -version 2>/dev/null | head -1)"
 
       - name: Prove rules locally (10-minute cap per rule, parallel)
         env:
