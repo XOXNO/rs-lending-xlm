@@ -204,8 +204,8 @@ fn forwarding_passes_controller_owner_auth_via_invoker() {
     });
 
     let limits = PositionLimits {
-        max_supply_positions: 7,
-        max_borrow_positions: 6,
+        max_supply_positions: 4,
+        max_borrow_positions: 3,
     };
     let op = AdminOperation::SetPositionLimits(limits);
     env.mock_auths(&[MockAuth {
@@ -224,8 +224,8 @@ fn forwarding_passes_controller_owner_auth_via_invoker() {
     gov.execute_immediate(&admin, &op);
 
     let stored = read_controller_position_limits(&env, &controller_id);
-    assert_eq!(stored.max_supply_positions, 7);
-    assert_eq!(stored.max_borrow_positions, 6);
+    assert_eq!(stored.max_supply_positions, 4);
+    assert_eq!(stored.max_borrow_positions, 3);
 }
 
 #[test]

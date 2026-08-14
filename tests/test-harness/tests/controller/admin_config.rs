@@ -63,11 +63,11 @@ fn test_edit_asset_config() {
 fn test_set_position_limits() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
 
-    t.set_position_limits(8, 6);
+    t.set_position_limits(4, 3);
 
     let limits = t.get_position_limits();
-    assert_eq!(limits.max_supply_positions, 8);
-    assert_eq!(limits.max_borrow_positions, 6);
+    assert_eq!(limits.max_supply_positions, 4);
+    assert_eq!(limits.max_borrow_positions, 3);
 }
 
 #[test]
