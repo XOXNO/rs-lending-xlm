@@ -62,10 +62,6 @@ impl LendingTest {
         self.price_agg_client().seed_oracle(&key, &oracle);
     }
 
-    pub fn set_price_raw(&mut self, asset_name: &str, price_wad: i128) {
-        self.set_price(asset_name, price_wad);
-    }
-
     pub fn set_prices(&mut self, pairs: &[(&str, i128)]) {
         for (asset_name, price_wad) in pairs {
             self.set_price(asset_name, *price_wad);

@@ -1,6 +1,4 @@
 use flash_loan_receiver::FlashLoanTestReceiver;
-use flash_loan_receiver::{FlashLoanMode, FlashLoanRequest};
-use soroban_sdk::xdr::ToXdr;
 use soroban_sdk::{Address, Bytes};
 
 use crate::context::LendingTest;
@@ -82,10 +80,6 @@ impl LendingTest {
             Ok(Err(_)) => panic!("flash loan output conversion failed"),
             Err(e) => Err(e.expect("expected contract error, got InvokeError")),
         }
-    }
-
-    pub fn flash_loan_receiver_data(&self, mode: FlashLoanMode) -> Bytes {
-        FlashLoanRequest { mode }.to_xdr(&self.env)
     }
 
     pub fn set_flash_loan_ongoing(&self, ongoing: bool) {

@@ -89,27 +89,4 @@ impl LendingTest {
         let ctrl = self.ctrl_client();
         ctrl.borrow(&addr, &account_id, &soroban_borrows, &None);
     }
-
-    pub fn try_borrow_bulk(
-        &mut self,
-        user: &str,
-        assets: &[(&str, f64)],
-    ) -> Result<(), soroban_sdk::Error> {
-        let account_id = self.try_resolve_account_id(user)?;
-        let addr = self.users.get(user).unwrap().address.clone();
-
-        let mut soroban_borrows: Vec<(HubAssetKey, i128)> = Vec::new(&self.env);
-        for (asset_name, amount) in assets {
-            let market = self.resolve_market(asset_name);
-            let raw = f64_to_i128(*amount, market.decimals);
-            soroban_borrows.push_back((hub_asset(market.asset.clone()), raw));
-        }
-
-        let ctrl = self.ctrl_client();
-        match ctrl.try_borrow(&addr, &account_id, &soroban_borrows, &None) {
-            Ok(Ok(())) => Ok(()),
-            Ok(Err(err)) => Err(err.into()),
-            Err(e) => Err(e.expect("expected contract error, got InvokeError")),
-        }
-    }
 }

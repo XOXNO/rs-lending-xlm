@@ -60,29 +60,6 @@ impl LendingTest {
         );
     }
 
-    pub fn assert_healthy_for(&self, user: &str, account_id: u64) {
-        let hf = self.health_factor_for_raw(user, account_id);
-        assert!(
-            hf >= WAD,
-            "'{}' account {} should be healthy but HF = {}",
-            user,
-            account_id,
-            hf as f64 / WAD as f64
-        );
-    }
-
-    pub fn assert_health_factor_near(&self, user: &str, expected: f64, tolerance: f64) {
-        let actual = self.health_factor(user);
-        assert!(
-            (actual - expected).abs() <= tolerance,
-            "'{}' HF expected ~{} (+-{}) but got {}",
-            user,
-            expected,
-            tolerance,
-            actual
-        );
-    }
-
     pub fn assert_position_exists(&self, user: &str, asset_name: &str, pos_type: PositionType) {
         let account_id = self.resolve_account_id(user);
         self.assert_position_exists_for(user, account_id, asset_name, pos_type);
@@ -183,18 +160,6 @@ impl LendingTest {
         );
     }
 
-    pub fn assert_balance_gt(&self, user: &str, asset_name: &str, threshold: f64) {
-        let actual = self.token_balance(user, asset_name);
-        assert!(
-            actual > threshold,
-            "'{}' balance of '{}' should be > {} but got {}",
-            user,
-            asset_name,
-            threshold,
-            actual
-        );
-    }
-
     pub fn assert_supply_near(&self, user: &str, asset_name: &str, expected: f64, tolerance: f64) {
         let actual = self.supply_balance(user, asset_name);
         assert!(
@@ -218,16 +183,6 @@ impl LendingTest {
             expected,
             tolerance,
             actual
-        );
-    }
-
-    pub fn assert_pool_has_liquidity(&self, asset_name: &str) {
-        let reserves = self.pool_reserves(asset_name);
-        assert!(
-            reserves > 0.0,
-            "pool '{}' should have liquidity but reserves = {}",
-            asset_name,
-            reserves
         );
     }
 
