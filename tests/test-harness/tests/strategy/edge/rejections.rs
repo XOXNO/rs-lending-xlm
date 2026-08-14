@@ -249,7 +249,7 @@ fn test_swap_collateral_rejects_new_asset_when_supply_limit_reached() {
         .with_market(wbtc_preset())
         .with_market(usdt_stable_preset())
         .with_market(dai_preset())
-        .with_position_limits(4, 10)
+        .with_position_limits(4, 4)
         .build();
 
     let account_id = t.create_account(ALICE);
@@ -272,7 +272,7 @@ fn test_swap_collateral_full_close_frees_slot_at_max_positions() {
         .with_market(wbtc_preset())
         .with_market(usdt_stable_preset())
         .with_market(dai_preset())
-        .with_position_limits(4, 10)
+        .with_position_limits(4, 4)
         .build();
 
     let account_id = t.create_account(ALICE);
