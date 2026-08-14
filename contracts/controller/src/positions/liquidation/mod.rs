@@ -10,13 +10,12 @@ pub(crate) use plan::execute_liquidation;
 
 use common::errors::CollateralError;
 use common::math::fp::Wad;
-use common::types::{Account, AggregatedPayments, HubPayment};
+use common::types::{Account, HubPayment};
 use soroban_sdk::{assert_with_error, Address, Env, Vec};
 
 use self::curve::is_socializable_bad_debt;
 use crate::context::Cache;
 use crate::events::LiquidationEvent;
-use crate::payments;
 use crate::positions::{finalize_position_flow, PositionSides};
 use crate::risk::validation;
 use crate::storage;
@@ -31,13 +30,14 @@ pub(crate) fn process_liquidation(
     validation::require_not_flash_loaning(env);
 
     let mut account = storage::get_account(env, account_id);
-    let aggregated = payments::aggregate_positive_payments(env, debt_payments);
 
     let mut cache = Cache::new(env);
 
-    validate_liquidation_inputs(env, &account, liquidator, &aggregated);
+    validate_liquidation_inputs(env, &account, liquidator, debt_payments);
 
-    let liquidation_plan = plan::build_liquidation_plan(env, &account, &aggregated, &mut cache);
+    // The plan is the single normalization point: it merges and positivity-checks
+    // the raw payments, so the estimate view and this entry point share one path.
+    let liquidation_plan = plan::build_liquidation_plan(env, &account, debt_payments, &mut cache);
 
     let result = liquidation_plan.into_result();
 
@@ -73,8 +73,10 @@ pub(crate) fn process_liquidation(
         &account.borrow_positions,
     );
 
-    // Emits UpdatePositionBatchEvent here. If cleanup runs, CleanBadDebtEvent
-    // follows. Main persisted first and emitted the batch after cleanup.
+    // Event order is a contract: finalize persists both sides and publishes
+    // UpdatePositionBatchEvent with the post-liquidation positions; bad-debt
+    // cleanup afterwards records no position deltas — it only publishes
+    // CleanBadDebtEvent and removes the account entry.
     finalize_position_flow(
         env,
         account_id,
@@ -92,16 +94,15 @@ pub(crate) fn process_liquidation(
         post_totals.total_collateral,
         post_totals.total_debt,
     );
-    cache.emit_position_batch(account_id, &account);
 }
 
 fn validate_liquidation_inputs(
     env: &Env,
     account: &Account,
     liquidator: &Address,
-    aggregated: &AggregatedPayments,
+    raw_payments: &Vec<HubPayment>,
 ) {
-    require_non_empty_payments(env, aggregated);
+    require_non_empty_payments(env, raw_payments);
 
     assert_with_error!(
         env,

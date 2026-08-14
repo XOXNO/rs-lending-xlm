@@ -12,23 +12,23 @@ use crate::positions::{enforce_spoke_asset_flags, FreezePolicy};
 pub(crate) fn execute_liquidation(
     env: &Env,
     account: &Account,
-    aggregated_debt: &Vec<HubPayment>,
+    raw_payments: &Vec<HubPayment>,
     cache: &mut Cache,
 ) -> LiquidationResult {
-    build_liquidation_plan(env, account, aggregated_debt, cache).into_result()
+    build_liquidation_plan(env, account, raw_payments, cache).into_result()
 }
 
 pub(crate) fn build_liquidation_plan(
     env: &Env,
     account: &Account,
-    aggregated_debt: &Vec<HubPayment>,
+    raw_payments: &Vec<HubPayment>,
     cache: &mut Cache,
 ) -> LiquidationPlan {
     if account.borrow_positions.is_empty() {
         panic_with_error!(env, CollateralError::HealthFactorTooHigh);
     }
 
-    for (hub_asset, _) in aggregated_debt.iter() {
+    for (hub_asset, _) in raw_payments.iter() {
         enforce_spoke_asset_flags(
             env,
             cache,
@@ -70,7 +70,7 @@ pub(crate) fn build_liquidation_plan(
     let repayment = normalize_repayment_plan(
         env,
         account,
-        aggregated_debt,
+        raw_payments,
         &snap,
         bonus_bounds,
         &curve,
