@@ -7,7 +7,7 @@ use soroban_sdk::{contractclient, contracttype, Address, Env, Error, String, Vec
 /// contract: the price value together with the package and write timestamps
 /// attached to it.
 #[contracttype]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RedStonePriceData {
     pub price: U256,
     pub package_timestamp: u64,

@@ -1,20 +1,8 @@
 #![no_std]
 
-use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, Symbol, Vec};
+use soroban_sdk::{contract, contractimpl, contracttype, Env, Symbol, Vec};
 
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ReflectorAsset {
-    Stellar(Address),
-    Other(Symbol),
-}
-
-#[contracttype]
-#[derive(Clone)]
-pub struct PriceData {
-    pub price: i128,
-    pub timestamp: u64,
-}
+pub use common::oracle::providers::reflector::{ReflectorAsset, ReflectorPriceData};
 
 #[contracttype]
 pub enum MockKey {
@@ -74,22 +62,26 @@ impl MockReflectorOracle {
         env.storage().instance().get(&MockKey::Resolution).unwrap()
     }
 
-    pub fn lastprice(env: Env, asset: ReflectorAsset) -> Option<PriceData> {
+    pub fn lastprice(env: Env, asset: ReflectorAsset) -> Option<ReflectorPriceData> {
         let price: i128 = env
             .storage()
             .persistent()
             .get(&MockKey::Price(asset.clone()))?;
         let timestamp: u64 = env.storage().persistent().get(&MockKey::Ts(asset))?;
-        Some(PriceData { price, timestamp })
+        Some(ReflectorPriceData { price, timestamp })
     }
 
-    pub fn prices(env: Env, asset: ReflectorAsset, records: u32) -> Option<Vec<PriceData>> {
+    pub fn prices(
+        env: Env,
+        asset: ReflectorAsset,
+        records: u32,
+    ) -> Option<Vec<ReflectorPriceData>> {
         let entry = Self::lastprice(env.clone(), asset)?;
         let resolution = u64::from(Self::resolution(env.clone()));
         let mut out = Vec::new(&env);
         for slot in 0..records {
             let timestamp = entry.timestamp.saturating_sub(u64::from(slot) * resolution);
-            out.push_back(PriceData {
+            out.push_back(ReflectorPriceData {
                 price: entry.price,
                 timestamp,
             });

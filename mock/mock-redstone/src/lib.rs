@@ -4,6 +4,8 @@ use soroban_sdk::{
     assert_with_error, contract, contracterror, contractimpl, contracttype, Env, String, Vec, U256,
 };
 
+pub use common::oracle::providers::redstone::RedStonePriceData;
+
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[repr(u32)]
@@ -11,14 +13,6 @@ pub enum MockRedStoneError {
     FeedNotSet = 1,
     InvalidPrice = 2,
     TimestampOverflow = 3,
-}
-
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct RedStonePriceData {
-    pub price: U256,
-    pub package_timestamp: u64,
-    pub write_timestamp: u64,
 }
 
 #[contracttype]
