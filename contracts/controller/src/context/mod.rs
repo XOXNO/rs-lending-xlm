@@ -46,7 +46,7 @@ impl Cache {
         Self::build(env)
     }
 
-    pub(crate) fn build(env: &Env) -> Self {
+    fn build(env: &Env) -> Self {
         Cache {
             env: env.clone(),
             token_prices: Map::new(env),

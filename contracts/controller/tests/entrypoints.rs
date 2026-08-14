@@ -405,11 +405,10 @@ fn admin_setters_persist_and_are_readable() {
     env.as_contract(&id, || {
         assert_eq!(storage::get_swap_aggregator(&env), swap);
         assert_eq!(storage::try_get_accumulator(&env), Some(acc));
-        assert_eq!(
+        assert!(
             storage::get_position_manager(&env, &manager)
                 .expect("manager")
-                .is_active,
-            true
+                .is_active
         );
         let limits = storage::get_position_limits(&env);
         assert_eq!(limits.max_supply_positions, 4);
