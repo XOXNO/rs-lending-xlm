@@ -72,6 +72,10 @@ fn test_pool_borrow_rate_increases_with_borrows() {
         .with_market(eth_preset())
         .build();
 
+    // Real ETH supply first: with only builder-seeded cash, utilization (and
+    // therefore the rate) provably cannot move and the test would be green by
+    // construction.
+    t.supply(test_harness::BOB, "ETH", 100.0);
     let rate_before = t.pool_borrow_rate("ETH");
 
     t.supply(ALICE, "USDC", 500_000.0);
@@ -79,10 +83,8 @@ fn test_pool_borrow_rate_increases_with_borrows() {
 
     let rate_after = t.pool_borrow_rate("ETH");
     assert!(
-        rate_after >= rate_before,
-        "borrow rate should not decrease after borrow: before={}, after={}",
-        rate_before,
-        rate_after
+        rate_after > rate_before,
+        "borrow rate must strictly rise with utilization: before={rate_before}, after={rate_after}"
     );
 }
 #[test]

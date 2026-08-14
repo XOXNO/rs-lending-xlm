@@ -166,16 +166,24 @@ fn test_advance_time_without_sync_stale() {
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 1.0);
 
+    let hf_before = t.health_factor(ALICE);
+    let debt_before = t.borrow_balance(ALICE, "ETH");
+
     t.advance_time(days(30));
 
+    // The two views deliberately differ without a sync: balance reads report
+    // the stored (stale) index, while the risk view simulates accrual so
+    // liquidation eligibility is always current.
+    let debt = t.borrow_balance(ALICE, "ETH");
+    assert_eq!(
+        debt, debt_before,
+        "unsynced borrow balance must report the stale pre-advance value"
+    );
     let hf = t.health_factor(ALICE);
     assert!(
-        hf > 0.0,
-        "health factor should be calculable even without sync"
+        hf < hf_before,
+        "the risk view must accrue debt without a sync: hf {hf_before:.6} -> {hf:.6}"
     );
-
-    let debt = t.borrow_balance(ALICE, "ETH");
-    assert!(debt > 0.0, "borrow balance should be readable");
 }
 #[test]
 fn test_advance_and_sync_specific_markets() {

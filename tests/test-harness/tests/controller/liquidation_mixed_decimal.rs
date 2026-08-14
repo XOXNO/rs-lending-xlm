@@ -265,6 +265,15 @@ fn test_bad_debt_cleanup_mixed_decimals() {
     assert!(hf < 0.01, "HF should be deeply underwater, got {}", hf);
 
     t.liquidate(LIQUIDATOR, ALICE, "DAI18", 10.0);
+
+    // Sub-threshold collateral against real debt: bad-debt cleanup must fire,
+    // clearing every position and removing the account entry.
+    t.assert_no_positions(ALICE);
+    assert_eq!(
+        t.get_active_accounts(ALICE).len(),
+        0,
+        "bad-debt cleanup must remove the account across mixed decimals"
+    );
 }
 
 #[test]

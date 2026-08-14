@@ -231,13 +231,17 @@ fn test_liquidation_sequential_partial_liquidations() {
         "1st liquidation must reduce debt"
     );
 
-    if t.can_be_liquidated(ALICE) {
-        t.liquidate(LIQUIDATOR, ALICE, "ETH", 0.3);
-        assert!(
-            t.borrow_balance(ALICE, "ETH") < debt_after_first,
-            "2nd liquidation must reduce debt further"
-        );
-    }
+    // At 30c collateral the account stays deeply insolvent after a 0.5 ETH
+    // repay; assert it so the second round can never silently not run.
+    assert!(
+        t.can_be_liquidated(ALICE),
+        "fixture must remain liquidatable after the first partial round"
+    );
+    t.liquidate(LIQUIDATOR, ALICE, "ETH", 0.3);
+    assert!(
+        t.borrow_balance(ALICE, "ETH") < debt_after_first,
+        "2nd liquidation must reduce debt further"
+    );
 
     let liq_usdc = t.token_balance(LIQUIDATOR, "USDC");
     assert!(

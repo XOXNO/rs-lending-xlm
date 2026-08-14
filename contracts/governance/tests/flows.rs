@@ -484,42 +484,39 @@ fn propose_resolves_all_controller_and_self_variants() {
 
     let asset = Address::generate(&env);
     let mut n: u8 = 0;
-    let mut salt = || {
+    // Each variant must not merely survive propose: it must land as a real
+    // timelocked operation in the Waiting state.
+    let mut propose_and_assert_waiting = |op: AdminOperation| {
         n += 1;
-        BytesN::<32>::from_array(&env, &[n; 32])
+        let salt = BytesN::<32>::from_array(&env, &[n; 32]);
+        let id = gov.propose(&admin, &op, &salt);
+        assert_eq!(
+            gov.get_operation_state(&id),
+            crate::OperationState::Waiting,
+            "variant #{n} must be registered as Waiting"
+        );
     };
 
-    gov.propose(
-        &admin,
-        &AdminOperation::TransferGovOwnership(TransferOwnershipArgs {
-            new_owner: Address::generate(&env),
-            live_until_ledger: u32::MAX,
-        }),
-        &salt(),
-    );
-    gov.propose(&admin, &AdminOperation::RemoveSpoke(2), &salt());
-    gov.propose(
-        &admin,
-        &AdminOperation::RemoveAssetFromSpoke(RemoveAssetFromSpokeArgs {
+    propose_and_assert_waiting(AdminOperation::TransferGovOwnership(TransferOwnershipArgs {
+        new_owner: Address::generate(&env),
+        live_until_ledger: u32::MAX,
+    }));
+    propose_and_assert_waiting(AdminOperation::RemoveSpoke(2));
+    propose_and_assert_waiting(AdminOperation::RemoveAssetFromSpoke(
+        RemoveAssetFromSpokeArgs {
             hub_asset: HubAssetKey {
                 hub_id: 0,
                 asset: asset.clone(),
             },
             spoke_id: 1,
-        }),
-        &salt(),
-    );
-    gov.propose(
-        &admin,
-        &AdminOperation::RevokeBlendPool(controller.clone()),
-        &salt(),
-    );
-    gov.propose(
-        &admin,
-        &AdminOperation::SetPositionManager(Address::generate(&env), true),
-        &salt(),
-    );
-    gov.propose(&admin, &AdminOperation::MigrateController(3), &salt());
+        },
+    ));
+    propose_and_assert_waiting(AdminOperation::RevokeBlendPool(controller.clone()));
+    propose_and_assert_waiting(AdminOperation::SetPositionManager(
+        Address::generate(&env),
+        true,
+    ));
+    propose_and_assert_waiting(AdminOperation::MigrateController(3));
 }
 
 #[test]

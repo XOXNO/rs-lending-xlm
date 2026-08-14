@@ -150,30 +150,34 @@ fn test_liquidation_does_not_increase_debt() {
     let hf_before = t.health_factor(ALICE);
     assert!(hf_before < 1.0, "should be liquidatable");
 
+    let debt_before = t.total_debt(ALICE);
+    let collateral_before = t.total_collateral(ALICE);
+
     t.liquidate(LIQUIDATOR, ALICE, "ETH", 1.0);
 
-    let _hf_after = t.health_factor(ALICE);
-
-    let debt_before = t.total_debt(ALICE);
+    // Repaying 1 ETH at $2000 with no time advance must reduce the debt by
+    // exactly the repayment value (no interest accrues between the reads).
     let debt_after = t.total_debt(ALICE);
     assert!(
-        debt_after <= debt_before,
-        "debt must not increase: before={:.4}, after={:.4}",
+        debt_after < debt_before,
+        "liquidation must strictly reduce debt: before={:.4}, after={:.4}",
+        debt_before,
+        debt_after
+    );
+    assert!(
+        (debt_before - debt_after - 2000.0).abs() < 1.0,
+        "debt must drop by the $2000 repaid: before={:.4}, after={:.4}",
         debt_before,
         debt_after
     );
 
     let collateral_after = t.total_collateral(ALICE);
-    let debt_remaining = t.total_debt(ALICE);
-    if debt_remaining > 0.01 {
-        let ratio = collateral_after / debt_remaining;
-
-        assert!(
-            ratio > 0.0,
-            "collateral/debt ratio should be positive after liquidation: {:.4}",
-            ratio
-        );
-    }
+    assert!(
+        collateral_after < collateral_before,
+        "seizure must reduce collateral: before={:.4}, after={:.4}",
+        collateral_before,
+        collateral_after
+    );
 }
 
 #[test]
