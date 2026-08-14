@@ -1,4 +1,3 @@
-
 use common::types::{
     HubAssetKey, InterestRateModel, MarketIndexRaw, MarketParamsRaw, PoolAction,
     PoolAmountMutation, PoolBorrowEntry, PoolNetSettleEntry, PoolNetSettleResult,

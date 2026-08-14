@@ -1,4 +1,3 @@
-
 use common::collections::collect_uncached_keys;
 use common::errors::OracleError;
 use common::types::PriceFeed;

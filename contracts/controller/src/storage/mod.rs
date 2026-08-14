@@ -1,4 +1,3 @@
-
 mod account;
 mod hub;
 mod protocol;
@@ -14,6 +13,7 @@ pub(crate) use account::{
     set_account_meta, set_debt_positions, set_supply_positions, try_get_account,
     try_get_account_meta, try_get_debt_position, try_get_supply_position,
 };
+pub(crate) use account::{is_flash_loan_ongoing, with_flash_guard};
 pub(crate) use hub::{get_hub, increment_hub_id, set_hub};
 pub(crate) use protocol::{
     get_min_borrow_collateral_usd_wad, get_pool, get_position_limits, get_position_manager,
@@ -22,13 +22,12 @@ pub(crate) use protocol::{
     set_position_limits, set_position_manager, set_price_aggregator, set_swap_aggregator,
     try_get_accumulator, try_get_pool,
 };
-pub(crate) use account::{is_flash_loan_ongoing, with_flash_guard};
+pub(crate) use protocol::{
+    get_shared, get_user, renew_controller_instance, renew_user_key, set_shared, set_user,
+};
 pub(crate) use spoke::{
     get_spoke, get_spoke_asset, get_spoke_usage, increment_spoke_id, remove_spoke_asset, set_spoke,
     set_spoke_asset, set_spoke_usage,
-};
-pub(crate) use protocol::{
-    get_shared, get_user, renew_controller_instance, renew_user_key, set_shared, set_user,
 };
 
 #[cfg(any(test, feature = "testing", feature = "certora"))]

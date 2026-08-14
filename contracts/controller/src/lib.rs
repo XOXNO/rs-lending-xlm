@@ -425,22 +425,34 @@ impl ControllerAdmin for Controller {
 
     #[only_owner]
     fn set_min_borrow_collateral_usd(env: Env, floor_wad: i128) {
-        renew_then!(env, config::registry::set_min_borrow_collateral_usd(&env, floor_wad))
+        renew_then!(
+            env,
+            config::registry::set_min_borrow_collateral_usd(&env, floor_wad)
+        )
     }
 
     #[only_owner]
     fn set_position_manager(env: Env, manager: Address, is_active: bool) {
-        renew_then!(env, storage::set_position_manager(&env, &manager, &PositionManagerConfig { is_active }))
+        renew_then!(
+            env,
+            storage::set_position_manager(&env, &manager, &PositionManagerConfig { is_active })
+        )
     }
 
     #[only_owner]
     fn approve_blend_pool(env: Env, pool: Address) {
-        renew_then!(env, config::registry::set_blend_pool_approval(&env, pool, true))
+        renew_then!(
+            env,
+            config::registry::set_blend_pool_approval(&env, pool, true)
+        )
     }
 
     #[only_owner]
     fn revoke_blend_pool(env: Env, pool: Address) {
-        renew_then!(env, config::registry::set_blend_pool_approval(&env, pool, false))
+        renew_then!(
+            env,
+            config::registry::set_blend_pool_approval(&env, pool, false)
+        )
     }
 
     #[only_owner]
@@ -496,12 +508,18 @@ impl ControllerAdmin for Controller {
         paused: bool,
         frozen: bool,
     ) {
-        renew_then!(env, config::asset::set_spoke_asset_flags(&env, spoke_id, hub_asset, paused, frozen))
+        renew_then!(
+            env,
+            config::asset::set_spoke_asset_flags(&env, spoke_id, hub_asset, paused, frozen)
+        )
     }
 
     #[only_owner]
     fn remove_asset_from_spoke(env: Env, hub_asset: HubAssetKey, spoke_id: u32) {
-        renew_then!(env, config::asset::remove_asset_from_spoke(&env, hub_asset, spoke_id))
+        renew_then!(
+            env,
+            config::asset::remove_asset_from_spoke(&env, hub_asset, spoke_id)
+        )
     }
 
     #[only_owner]
@@ -516,12 +534,18 @@ impl ControllerAdmin for Controller {
         asset: Address,
         params: MarketParamsRaw,
     ) -> Address {
-        renew_then!(env, markets::create_liquidity_pool(&env, hub_id, asset, params))
+        renew_then!(
+            env,
+            markets::create_liquidity_pool(&env, hub_id, asset, params)
+        )
     }
 
     #[only_owner]
     fn upgrade_liquidity_pool_params(env: Env, hub_asset: HubAssetKey, params: InterestRateModel) {
-        renew_then!(env, markets::upgrade_liquidity_pool_params(&env, &hub_asset, &params))
+        renew_then!(
+            env,
+            markets::upgrade_liquidity_pool_params(&env, &hub_asset, &params)
+        )
     }
 
     #[only_owner]
@@ -531,7 +555,10 @@ impl ControllerAdmin for Controller {
 
     #[only_owner]
     fn force_socialize_bad_debt(env: Env, account_id: u64) {
-        renew_then!(env, positions::liquidation::process_force_socialize_bad_debt(&env, account_id))
+        renew_then!(
+            env,
+            positions::liquidation::process_force_socialize_bad_debt(&env, account_id)
+        )
     }
 
     #[only_owner]
@@ -560,7 +587,10 @@ impl ControllerAdmin for Controller {
 
     #[only_owner]
     fn transfer_ownership(env: Env, new_owner: Address, live_until_ledger: u32) {
-        renew_then!(env, governance::transfer_ownership(&env, &new_owner, live_until_ledger))
+        renew_then!(
+            env,
+            governance::transfer_ownership(&env, &new_owner, live_until_ledger)
+        )
     }
 
     fn accept_ownership(env: Env) {
