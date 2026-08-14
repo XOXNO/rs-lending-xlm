@@ -75,8 +75,8 @@ risk-increasing operation as applicable.
 
 ## Controller events that differ from earlier main
 
-Two observer-facing shapes changed in the controller flattening branch.
-On-chain account and pool state are unchanged.
+Three observer-facing shapes changed. On-chain account and pool state are
+unchanged by the first two.
 
 - `swap_debt` records the new-debt borrow as `SwDebtR`. Earlier main reused the
   `Multiply` action tag for that borrow through `borrow_for_strategy`. The repay
@@ -85,9 +85,121 @@ On-chain account and pool state are unchanged.
   is published before `CleanBadDebtEvent`. Earlier main published
   `CleanBadDebtEvent` first, then the position batch. The batch payload is the
   same. Cleanup still deletes the account after the batch.
+- A liquidation using `SeizeMode::Credit` publishes **two**
+  `UpdatePositionBatchEvent`s rather than one: the liquidated account's batch
+  first, then the receiving account's. `SeizeMode::Transfer` still publishes
+  exactly one. Both batches precede any `CleanBadDebtEvent`.
 
-Indexers should key swap-debt opens on `SwDebtR` as well as `Multiply`, and
-should not assume bad-debt cleanup precedes the position batch.
+Indexers should key swap-debt opens on `SwDebtR` as well as `Multiply`, should
+not assume bad-debt cleanup precedes the position batch, and must not assume one
+liquidation produces one position batch.
+
+### `LiqSeize` is gross, `LiqCredit` is net
+
+A share-credit liquidation moves collateral out of one account and into another,
+and the two legs carry **different amounts** — the protocol fee is taken in
+between. They therefore carry different action tags:
+
+| Tag | Batch | Amount |
+|---|---|---|
+| `LiqSeize` | liquidated account | **gross** — protocol fee still inside |
+| `LiqCredit` | share-credit receiver | **net** — fee already removed |
+
+Measured on a representative fixture: gross `999_833_197_057`, fee
+`59_982_992_641`, credited `939_850_204_416`. Summing both tags as if they were
+the same quantity double-counts; reading the gross figure as liquidator proceeds
+overstates them by **6.0%**.
+
+`SeizeMode::Transfer` emits only `LiqSeize`, also gross — the fee is withheld
+from the outbound transfer rather than from a second leg.
+
+An earlier revision emitted `LiqSeize` for both legs. It was split precisely
+because one tag cannot carry two senses without an indexer having to know which
+account a batch belongs to in order to interpret its numbers.
+
+Two further shapes on the receiver's batch:
+
+- It is **supply-side only** (`PositionSides::SUPPLY`), so do not expect debt legs.
+- It **omits any leg whose net credit is zero**, which is reachable when the fee
+  consumes a one-share seizure whole.
+
+### A `Credit(0)` account has no creation event
+
+When the liquidator passes `Credit(0)`, the new account is announced only through
+the second batch's `account_attributes`. There is no dedicated account-creation
+event, so an indexer that discovers accounts from a creation event alone will
+never see it. `liquidate` also returns the id to the caller.
+
+### `LiquidationEvent.repaid_usd_wad` is the delivered repayment
+
+It carries the repayment the pool actually received, valued after the tokens
+moved: net of any overpayment refunded to the liquidator, and net of any
+shortfall from a debt token that delivers less than it is sent. It therefore
+agrees with the debt actually retired, which is also visible as the `LiqRepay`
+deltas in the accompanying position batch.
+
+An earlier revision emitted the *planned* repayment here, which over-reported
+whenever an under-delivering token was involved — a case the protocol explicitly
+supports, since the seizure is already scaled down to match the measured
+receipt.
+
+`LiquidationEvent` carries no seizure or protocol-fee figure at all; those are
+the batch's `LiqSeize` and `LiqCredit` legs.
+
+## Share-credit liquidation
+
+Decision record: [ADR-0019](../explanation/decisions/0019-share-credit-liquidation.md).
+
+`liquidate` takes a `SeizeMode`. `Transfer` is the classical path: the pool burns
+the seized supply shares, debits cash, and pays the liquidator in underlying.
+`Credit(account_id)` instead moves the seized shares to a controller account,
+so the only token movement in the whole call is the liquidator's own repayment.
+`Credit(0)` creates that account, owned by the liquidator and bound to the
+liquidated account's spoke; `liquidate` returns the receiving account id, or `0`
+in transfer mode.
+
+The point is liveness. A seizure that must be paid in underlying can fail purely
+because the market has no spare cash, exactly when liquidations matter most.
+Moving shares needs none.
+
+The pool barely participates. It tracks market totals, never per-account
+positions, so moving supply shares between two controller accounts changes no
+pool state: `supplied` and `cash` are untouched. The only pool interaction is the
+protocol fee, booked through the existing deposit-side seize primitive, which
+*reclassifies* existing shares into `revenue`. It deliberately does not use the
+mint-based withdraw fee path — that path is correct only because cash equal to
+the fee was withheld from an outbound transfer, and in credit mode nothing is
+withheld, so minting would create supplier claims with no assets behind them.
+
+Because scaled amounts are index-independent, a share credit is immune to index
+drift between planning and application, which the transfer path is not.
+
+`get_liquidation_estimate` takes the same parameter and reports the units the
+chosen mode moves: asset units for `Transfer`, RAY-scaled supply shares for
+`Credit`.
+
+## What a liquidator must handle
+
+The bonus is a function of the account's live health factor, so it is not fixed
+at submission time. If another liquidator lands first and improves the account,
+the bonus on arrival is lower than the estimate the transaction was built from.
+The protocol guarantees only the account's base bonus as a floor; anything above
+it depends on how unhealthy the position still is when the call executes.
+
+Liquidators are therefore expected to enforce their own profitability and
+slippage bounds — size against the base bonus as the worst case, and revert
+rather than execute if the realised bonus is below expectation. Aave V4 reached
+the same conclusion and documented it as the liquidator's responsibility.
+
+Two further effects are worth pricing in:
+
+- Rounding runs against the liquidator on the collateral leg, so very small
+  positions can cost more in rounding than the bonus pays. The unprofitability
+  threshold and the margin the minimum-collateral floor gives are derived in
+  [numeric-bounds.md](numeric-bounds.md).
+- A repayment small enough that its pro-rata seizure floors to zero asset units
+  settles the debt and seizes nothing. Size the repayment against the seizure it
+  is expected to produce, not just against the debt.
 
 ## External calls
 

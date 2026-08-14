@@ -20,6 +20,7 @@ fn sample_spoke_asset() -> SpokeAssetConfig {
         is_borrowable: true,
         paused: false,
         frozen: false,
+        no_seize: false,
         loan_to_value: 9_000,
         liquidation_threshold: 9_300,
         liquidation_bonus: 300,

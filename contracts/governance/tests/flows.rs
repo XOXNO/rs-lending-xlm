@@ -423,6 +423,7 @@ fn edit_asset_in_spoke_rejects_bad_risk_bounds_before_any_cross_call() {
         can_borrow: true,
         paused: false,
         frozen: false,
+        no_seize: false,
         ltv: 9_000,
 
         threshold: 8_000,
@@ -637,6 +638,7 @@ fn set_spoke_asset_flags_requires_guardian_role() {
         },
         &true,
         &true,
+        &true,
     );
 }
 
@@ -659,6 +661,7 @@ fn guardian_set_spoke_asset_flags_reaches_controller_listing_check() {
             hub_id: 0,
             asset: Address::generate(&env),
         },
+        &true,
         &true,
         &true,
     );

@@ -17,6 +17,7 @@ fn freeze_asset(t: &LendingTest, asset_name: &str) {
         can_borrow: config.is_borrowable,
         paused: false,
         frozen: true,
+        no_seize: false,
         ltv: config.loan_to_value,
         threshold: config.liquidation_threshold,
         bonus: config.liquidation_bonus,

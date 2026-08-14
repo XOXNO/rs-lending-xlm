@@ -6,19 +6,24 @@
 
 use crate::risk;
 use common::validation::require_non_empty_payments;
-mod apply;
-mod bad_debt;
+// `apply` and `bad_debt` are crate-visible so the Certora spec layer can drive
+// the real seizure and cleanup entry points. When they were private the rules
+// could only reach one level below what actually runs.
+pub(crate) mod apply;
+pub(crate) mod bad_debt;
 pub(crate) mod curve;
 pub(crate) mod math;
 mod plan;
 
+pub(crate) use math::split_seized_shares;
 pub(crate) use plan::execute_liquidation;
 
-use common::errors::CollateralError;
-use common::types::{Account, HubPayment};
+use common::errors::{CollateralError, GenericError, SpokeError};
+use common::types::{Account, HubPayment, PositionMode, SeizeMode};
 use soroban_sdk::{assert_with_error, Address, Env, Vec};
 
 use self::curve::is_socializable_bad_debt;
+use crate::account;
 use crate::context::Cache;
 use crate::events::LiquidationEvent;
 use crate::positions::{finalize_position_flow, PositionSides};
@@ -30,12 +35,19 @@ use crate::storage;
 /// applies the repayments, then seizes collateral scaled down to match whatever was actually
 /// received. Requires `liquidator` to authorize the call, rejects self-liquidation, and
 /// socializes any bad debt left on the account once seizure completes.
+///
+/// `seize_mode` decides how the liquidator takes delivery. `Transfer` pays them in underlying
+/// out of pool cash. `Credit` instead moves the seized supply shares to a controller account,
+/// so the only token movement in the whole call is the liquidator's own repayment — which is
+/// what lets a liquidation clear a market with no spare cash. Returns the receiving account id
+/// in credit mode, `0` in transfer mode.
 pub(crate) fn process_liquidation(
     env: &Env,
     liquidator: &Address,
     account_id: u64,
     debt_payments: &Vec<HubPayment>,
-) {
+    seize_mode: SeizeMode,
+) -> u64 {
     liquidator.require_auth();
     validation::require_not_flash_loaning(env);
 
@@ -44,6 +56,11 @@ pub(crate) fn process_liquidation(
     let mut cache = Cache::new(env);
 
     validate_liquidation_inputs(env, &account, liquidator, debt_payments);
+
+    // Resolved up front so an unusable receiving account fails before any token moves.
+    let mut receiver = resolve_seize_receiver(
+        env, liquidator, account_id, &account, seize_mode, &mut cache,
+    );
 
     // The plan is the single normalization point: it merges and positivity-checks
     // the raw payments, so the estimate view and this entry point share one path.
@@ -66,12 +83,29 @@ pub(crate) fn process_liquidation(
     // the liquidator keeps collateral they did not pay for.
     let repay_usd = math::sum_repaid_usd(env, &result.repaid);
     let seized = math::scale_seizures_to_received(env, &result.seized, received_usd, repay_usd);
-    apply::apply_liquidation_seizures(env, liquidator, &mut account, &seized, &mut cache);
+    match &mut receiver {
+        None => {
+            apply::apply_liquidation_seizures(env, liquidator, &mut account, &seized, &mut cache)
+        }
+        Some((_, receiving_account)) => {
+            apply::require_credit_position_limit(env, receiving_account, &seized);
+            apply::apply_liquidation_share_credit(
+                env,
+                &mut account,
+                receiving_account,
+                &seized,
+                &mut cache,
+            );
+        }
+    }
 
+    // Report what the pool actually received, not what the plan intended to
+    // collect. An under-delivering debt token makes the two differ, and the
+    // planned figure would overstate the debt retired.
     LiquidationEvent {
         liquidator: liquidator.clone(),
         account_id,
-        repaid_usd_wad: result.max_debt_usd,
+        repaid_usd_wad: received_usd.raw(),
         bonus_bps: result.bonus_bps,
     }
     .publish(env);
@@ -96,7 +130,86 @@ pub(crate) fn process_liquidation(
         false,
     );
 
+    // Credit mode writes two accounts, so it publishes a second position batch. Emitted here,
+    // between the liquidated account's batch and any bad-debt cleanup, so the ordering an
+    // indexer sees stays fully determined.
+    if let Some((receiver_id, receiving_account)) = &receiver {
+        apply::record_share_credit_updates(env, receiving_account, &seized, &mut cache);
+        finalize_position_flow(
+            env,
+            *receiver_id,
+            receiving_account,
+            &mut cache,
+            PositionSides::SUPPLY,
+            false,
+        );
+    }
+
     apply::check_bad_debt_after_liquidation(env, &mut cache, account_id, &account, &post_totals);
+
+    receiver.map_or(0, |(id, _)| id)
+}
+
+#[cfg(test)]
+#[path = "../../../tests/positions/liquidation_zero_threshold.rs"]
+mod zero_threshold_tests;
+
+/// Resolves where seized collateral is delivered.
+///
+/// `Transfer` yields `None`: the pool pays the liquidator in underlying. `Credit(0)` creates a
+/// fresh account owned by the liquidator; `Credit(id)` uses an existing one, which must belong
+/// to the liquidator (directly or through an active delegate), sit in the liquidated account's
+/// spoke, be in `PositionMode::Normal`, and not be the liquidated account itself.
+///
+/// The spoke must match because the credited shares are that spoke's supply and an account's
+/// spoke binding is what supplies the risk configuration for every position it holds; letting
+/// them diverge would move collateral into a different risk regime. The mode must be `Normal`
+/// because strategy modes carry invariants this path does not establish.
+fn resolve_seize_receiver(
+    env: &Env,
+    liquidator: &Address,
+    account_id: u64,
+    account: &Account,
+    seize_mode: SeizeMode,
+    cache: &mut Cache,
+) -> Option<(u64, Account)> {
+    let requested = match seize_mode {
+        SeizeMode::Transfer => return None,
+        SeizeMode::Credit(id) => id,
+    };
+
+    if requested == 0 {
+        return Some(account::create_account(
+            env,
+            liquidator,
+            account.spoke_id,
+            PositionMode::Normal,
+            cache,
+        ));
+    }
+
+    // Crediting the liquidated account would hand its own collateral straight back and undo
+    // the seizure.
+    assert_with_error!(
+        env,
+        requested != account_id,
+        CollateralError::SelfLiquidationNotAllowed
+    );
+
+    let receiver = storage::get_account(env, requested);
+    account::require_owner_or_delegate(env, requested, liquidator, &receiver.owner);
+    assert_with_error!(
+        env,
+        receiver.spoke_id == account.spoke_id,
+        SpokeError::SpokeMismatch
+    );
+    assert_with_error!(
+        env,
+        receiver.mode == PositionMode::Normal,
+        GenericError::AccountModeMismatch
+    );
+
+    Some((requested, receiver))
 }
 
 /// Rejects empty `raw_payments` and self-liquidation, where `liquidator` is the account's own

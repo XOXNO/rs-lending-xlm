@@ -59,6 +59,7 @@ fn flash_loan_guard_blocks_liquidation_entrypoint(
         liquidator,
         crate::spec::fixture::ACCOUNT_ID,
         payments,
+        crate::types::SeizeMode::Transfer,
     );
 
     cvlr_assert!(false);

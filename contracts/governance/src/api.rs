@@ -122,7 +122,7 @@ impl GovernanceInterface for Governance {
         immediate::pause(&env, &caller)
     }
 
-    /// Sets the paused and frozen flags for `hub_asset` in spoke
+    /// Sets the paused, frozen, and no-seize flags for `hub_asset` in spoke
     /// `spoke_id`. Requires the caller to hold the guardian role.
     fn set_spoke_asset_flags(
         env: Env,
@@ -131,8 +131,11 @@ impl GovernanceInterface for Governance {
         hub_asset: HubAssetKey,
         paused: bool,
         frozen: bool,
+        no_seize: bool,
     ) {
-        immediate::set_spoke_asset_flags(&env, &caller, spoke_id, &hub_asset, paused, frozen)
+        immediate::set_spoke_asset_flags(
+            &env, &caller, spoke_id, &hub_asset, paused, frozen, no_seize,
+        )
     }
 
     /// Sets the sanity-check price band for `key` on the price aggregator.

@@ -1,9 +1,10 @@
-/// Marks the solvency check as having run, for the Certora harness's ghost
-/// state; a no-op unless built with the `certora` feature.
+/// Marks the solvency check as having run and snapshots the position book it
+/// valued, for the Certora harness's ghost state; a no-op unless built with
+/// the `certora` feature.
 #[inline]
-pub(crate) fn solvency_gate_checked() {
+pub(crate) fn solvency_gate_checked(_account: &common::types::Account) {
     #[cfg(feature = "certora")]
-    crate::spec::health_ghost::set_checked();
+    crate::spec::health_ghost::record_gate(_account);
 }
 
 #[cfg(feature = "certora")]

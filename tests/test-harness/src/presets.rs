@@ -176,6 +176,7 @@ impl AssetConfigPreset {
             can_borrow: self.is_borrowable,
             paused: false,
             frozen: false,
+            no_seize: false,
             ltv: self.loan_to_value,
             threshold: self.liquidation_threshold,
             bonus: self.liquidation_bonus,

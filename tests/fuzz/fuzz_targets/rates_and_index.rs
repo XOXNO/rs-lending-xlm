@@ -7,7 +7,8 @@ use common::constants::{
 use common::math::fp::Ray;
 use common::rates::{
     calculate_borrow_rate, calculate_deposit_rate, calculate_supplier_rewards, compound_interest,
-    simulate_update_indexes, supply_index_reward_shortfall, update_supply_index,
+    protocol_fee_shares, scaled_to_original, simulate_update_indexes,
+    supply_index_reward_shortfall, update_borrow_index, update_supply_index, utilization,
     MAX_COMPOUND_DELTA_MS,
 };
 use common::types::{MarketParams, MarketParamsRaw, PoolStateRaw, PoolSyncData};
@@ -53,7 +54,21 @@ struct In {
     dust_old_index_units: u64,
     dust_reward_hi: u64,
     dust_reward_lo: u64,
+
+    /// How many chunks the accrual span is split into (see `PARTITION_MAX`).
+    partition_count: u8,
+    /// Relative chunk widths; only the first `n` entries are used.
+    partition_weights: [u16; PARTITION_MAX],
 }
+
+/// Upper bound on partition chunks. Each chunk costs one full compounding step
+/// (plus one per `MAX_COMPOUND_DELTA_MS` it spans), so this bounds per-iteration
+/// cost while still covering uneven splits.
+const PARTITION_MAX: usize = 8;
+
+/// Longest span used by the partition property. Two years keeps every chunk to
+/// at most two internal compounding steps.
+const PARTITION_SPAN_MAX_MS: u64 = 2 * MS_PER_YEAR;
 
 fn make_params(env: &Env, i: &In) -> MarketParamsRaw {
     let cap = MAX_BORROW_RATE_RAY;
@@ -249,6 +264,276 @@ fn assert_no_dust_inflation(env: &Env, supplied: Ray, old_index: Ray, rewards: R
     );
 }
 
+/// Everything one accrual run carries forward. `simulate_update_indexes`
+/// returns only the two indexes, so it cannot be composed chunk-by-chunk:
+/// `supplied` grows as protocol-revenue shares are minted, and the next chunk's
+/// utilization and index growth both depend on it.
+#[derive(Clone, Copy)]
+struct AccrualState {
+    borrow_index: Ray,
+    supply_index: Ray,
+    supplied: Ray,
+}
+
+/// Mirrors `simulate_update_indexes_body` using only public `common::rates`
+/// helpers, so a span can be accrued in pieces.
+///
+/// `assert_partition_invariants` pins this against the production entry point
+/// on the single-chunk case before using it, so it cannot silently drift.
+fn accrue_span(
+    env: &Env,
+    params: &MarketParams,
+    borrowed: Ray,
+    state: AccrualState,
+    span_ms: u64,
+) -> AccrualState {
+    let mut st = state;
+    let mut remaining = span_ms;
+    while remaining > 0 {
+        let chunk = core::cmp::min(remaining, MAX_COMPOUND_DELTA_MS);
+
+        let borrowed_original = scaled_to_original(env, borrowed, st.borrow_index);
+        let supplied_original = scaled_to_original(env, st.supplied, st.supply_index);
+        let util = utilization(env, borrowed_original, supplied_original);
+        let borrow_rate = calculate_borrow_rate(env, util, params);
+        let interest_factor = compound_interest(env, borrow_rate, chunk);
+
+        let new_borrow_index = update_borrow_index(env, st.borrow_index, interest_factor);
+        let (supplier_rewards, protocol_fee) =
+            calculate_supplier_rewards(env, params, borrowed, new_borrow_index, st.borrow_index);
+
+        let old_supply_index = st.supply_index;
+        st.supply_index = update_supply_index(env, st.supplied, old_supply_index, supplier_rewards);
+        let shortfall = supply_index_reward_shortfall(
+            env,
+            st.supplied,
+            old_supply_index,
+            st.supply_index,
+            supplier_rewards,
+        );
+        st.borrow_index = new_borrow_index;
+
+        let protocol_reward = protocol_fee.checked_add(env, shortfall);
+        if protocol_reward != Ray::ZERO {
+            let fee_scaled =
+                protocol_fee_shares(env, protocol_reward, st.supply_index, st.supplied);
+            st.supplied = st.supplied.checked_add(env, fee_scaled);
+        }
+
+        remaining -= chunk;
+    }
+    st
+}
+
+/// Upper bound on the borrow index after `chunks`: the same compounding walk
+/// driven by `params.max_borrow_rate` instead of the curve. `calculate_borrow_rate`
+/// is capped at that rate and both `compound_interest` and `update_borrow_index`
+/// are monotone in their inputs, so this dominates any real run exactly.
+fn max_borrow_index_after(
+    env: &Env,
+    params: &MarketParams,
+    start_index: Ray,
+    chunks: &[u64],
+) -> Ray {
+    let max_rate = params.max_borrow_rate.div_by_int(MS_PER_YEAR as i128);
+    let mut index = start_index;
+    for &chunk in chunks {
+        let mut remaining = chunk;
+        while remaining > 0 {
+            let step = core::cmp::min(remaining, MAX_COMPOUND_DELTA_MS);
+            index = update_borrow_index(env, index, compound_interest(env, max_rate, step));
+            remaining -= step;
+        }
+    }
+    index
+}
+
+/// Splits `total_ms` into `n` chunks whose widths follow `weights`. The chunks
+/// sum to exactly `total_ms`; individual chunks may be zero.
+fn partition(
+    total_ms: u64,
+    weights: &[u16; PARTITION_MAX],
+    n: usize,
+) -> ([u64; PARTITION_MAX], usize) {
+    let mut chunks = [0u64; PARTITION_MAX];
+    let total_weight: u128 = weights[..n].iter().map(|w| *w as u128 + 1).sum();
+
+    let mut acc_weight: u128 = 0;
+    let mut assigned: u64 = 0;
+    for k in 0..n {
+        acc_weight += weights[k] as u128 + 1;
+        let cut = (total_ms as u128 * acc_weight / total_weight) as u64;
+        chunks[k] = cut - assigned;
+        assigned = cut;
+    }
+    debug_assert_eq!(assigned, total_ms);
+    (chunks, n)
+}
+
+/// `update_indexes` is permissionless, so the caller chooses how a span is
+/// partitioned into accruals. CS-AAVE4-004 is exactly a partition that strands
+/// value: Aave V4 floored the fee to zero once accrual ran every second, so the
+/// interest borrowers paid stopped reaching anyone.
+///
+/// The property asserted here is therefore **per path**: whatever the partition,
+/// the value credited to suppliers plus treasury must equal the interest charged
+/// to borrowers, up to a bounded per-compounding-step rounding residual, and must
+/// never exceed it.
+///
+/// Deliberately NOT asserted: that a partitioned run leaves suppliers (or
+/// suppliers plus treasury) with at least as much as a single terminal accrual.
+/// That cross-path comparison is false in this target's parameter domain and the
+/// counterexamples are not leaks:
+///
+/// * Protocol fee shares minted by an early chunk compound for the rest of the
+///   span, so a partitioned run shifts value from suppliers to the treasury.
+///   With a 90%+ reserve factor and a ~200% APR left un-accrued for two years,
+///   the original suppliers can end with ~21% of the single-accrual claim while
+///   suppliers+treasury still *grows*. Deferring the mint is what over-credits
+///   suppliers; frequent accrual is the economically correct side.
+/// * A partitioned run re-evaluates utilization more often and can therefore
+///   settle on a *lower* rate trajectory, charging borrowers less interest and
+///   so booking less value in total. Charging less is not destroying value.
+///
+/// `contracts/pool/tests/interest.rs` asserts the cross-path directional
+/// property unconditionally for realistic markets (a ~$1M book at ~10% APR,
+/// 10% reserve factor), where it holds with a positive margin at every cadence
+/// down to one accrual per second.
+fn assert_partition_invariants(
+    env: &Env,
+    params_raw: &MarketParamsRaw,
+    params: &MarketParams,
+    borrowed: Ray,
+    start: AccrualState,
+    total_ms: u64,
+    input: &In,
+) {
+    let single = accrue_span(env, params, borrowed, start, total_ms);
+
+    // Pin the local model to the production read path.
+    let sync = PoolSyncData {
+        params: params_raw.clone(),
+        state: PoolStateRaw {
+            supplied: start.supplied.raw(),
+            borrowed: borrowed.raw(),
+            revenue: 0,
+            cash: 0,
+            borrow_index: start.borrow_index.raw(),
+            supply_index: start.supply_index.raw(),
+            last_timestamp: 0,
+        },
+    };
+    let production = simulate_update_indexes(env, total_ms, &sync);
+    assert_eq!(
+        single.borrow_index.raw(),
+        production.borrow_index.raw(),
+        "model drift: borrow index {} != production {} (dt={})",
+        single.borrow_index.raw(),
+        production.borrow_index.raw(),
+        total_ms
+    );
+    assert_eq!(
+        single.supply_index.raw(),
+        production.supply_index.raw(),
+        "model drift: supply index {} != production {} (dt={})",
+        single.supply_index.raw(),
+        production.supply_index.raw(),
+        total_ms
+    );
+
+    let n = (input.partition_count as usize % (PARTITION_MAX - 1)) + 2;
+    let (chunks, n) = partition(total_ms, &input.partition_weights, n);
+
+    let mut part = start;
+    let mut part_steps: i128 = 0;
+    for &chunk in &chunks[..n] {
+        part = accrue_span(env, params, borrowed, part, chunk);
+        part_steps += compounding_steps(chunk);
+    }
+
+    // The rate curve is capped at `max_borrow_rate`, so neither path can compound
+    // past the ceiling that rate would produce over the same chunk boundaries.
+    let part_ceiling = max_borrow_index_after(env, params, start.borrow_index, &chunks[..n]);
+    assert!(
+        part.borrow_index.raw() <= part_ceiling.raw(),
+        "partitioned borrow index above the max-rate ceiling: part={} ceiling={} n={} dt={}",
+        part.borrow_index.raw(),
+        part_ceiling.raw(),
+        n,
+        total_ms
+    );
+    let single_ceiling = max_borrow_index_after(env, params, start.borrow_index, &[total_ms]);
+    assert!(
+        single.borrow_index.raw() <= single_ceiling.raw(),
+        "single-shot borrow index above the max-rate ceiling: single={} ceiling={} dt={}",
+        single.borrow_index.raw(),
+        single_ceiling.raw(),
+        total_ms
+    );
+
+    for (label, st, steps) in [
+        ("single", &single, compounding_steps(total_ms)),
+        ("partitioned", &part, part_steps),
+    ] {
+        assert_interest_reaches_someone(env, borrowed, start, st, steps, label, total_ms);
+    }
+}
+
+/// Number of `MAX_COMPOUND_DELTA_MS` compounding steps `accrue_span` performs
+/// for a span of `span_ms`. Zero for a zero-length span.
+fn compounding_steps(span_ms: u64) -> i128 {
+    span_ms.div_ceil(MAX_COMPOUND_DELTA_MS) as i128
+}
+
+/// The no-leak invariant: interest charged to borrowers must land with suppliers
+/// or the treasury, never be minted out of nothing and never be stranded beyond a
+/// bounded per-step rounding residual.
+///
+/// Both sides are floor-rounded so the comparison is not skewed by mixing
+/// rounding directions. Per compounding step the accrual can strand at most:
+///
+/// * under one ray of supply index (`update_supply_index` floors), worth
+///   `supplied / RAY` in value; that part is re-booked to the treasury by
+///   `supply_index_reward_shortfall`, so it is normally not stranded at all; and
+/// * under one scaled share of protocol fee (`protocol_fee_shares` floors),
+///   worth `supply_index / RAY` in value.
+///
+/// The supply index never decreases during accrual, so the terminal index bounds
+/// every step's contribution.
+fn assert_interest_reaches_someone(
+    env: &Env,
+    borrowed: Ray,
+    start: AccrualState,
+    end: &AccrualState,
+    steps: i128,
+    label: &str,
+    total_ms: u64,
+) {
+    let charged = borrowed.mul_floor(env, end.borrow_index).raw()
+        - borrowed.mul_floor(env, start.borrow_index).raw();
+    let credited = end.supplied.mul_floor(env, end.supply_index).raw()
+        - start.supplied.mul_floor(env, start.supply_index).raw();
+    let residual = charged - credited;
+
+    // One ray of slack absorbs the two independent floors above.
+    assert!(
+        residual >= -1,
+        "[{label}] credited {} more than borrowers were charged: charged={charged} \
+         credited={credited} dt={total_ms}",
+        -residual
+    );
+
+    let bound = steps.saturating_mul(end.supply_index.raw() / RAY + start.supplied.raw() / RAY + 4);
+    assert!(
+        residual <= bound,
+        "[{label}] stranded {residual} ray of interest over {steps} compounding steps \
+         (bound {bound}): charged={charged} credited={credited} dt={total_ms} \
+         supplied={} supply_index={}",
+        start.supplied.raw(),
+        end.supply_index.raw()
+    );
+}
+
 fuzz_target!(|i: In| {
     let env = Env::default();
 
@@ -303,7 +588,7 @@ fuzz_target!(|i: In| {
     let start_supply_index = si_floor + i.supply_index_units as i128 * si_scale;
 
     let sync = PoolSyncData {
-        params: params_raw,
+        params: params_raw.clone(),
         state: PoolStateRaw {
             supplied: supplied_raw,
             borrowed: borrowed_raw,
@@ -335,6 +620,20 @@ fuzz_target!(|i: In| {
         assert_eq!(new_idx.borrow_index.raw(), start_borrow_index);
         assert_eq!(new_idx.supply_index.raw(), start_supply_index);
     }
+
+    assert_partition_invariants(
+        &env,
+        &params_raw,
+        &params,
+        Ray::from(borrowed_raw),
+        AccrualState {
+            borrow_index: Ray::from(start_borrow_index),
+            supply_index: Ray::from(start_supply_index),
+            supplied: Ray::from(supplied_raw),
+        },
+        total_delta_ms.min(PARTITION_SPAN_MAX_MS),
+        &i,
+    );
 
     let dust_supplied = Ray::from(1 + (i.dust_supplied_units as i128 % SWEEP_SUPPLIED_MAX));
     let dust_old_index =

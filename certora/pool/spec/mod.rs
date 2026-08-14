@@ -17,6 +17,11 @@ pub mod fee_strategy_accounting_rules;
 pub mod flash_loan_accounting_rules;
 #[cfg(any(not(feature = "certora-focused"), feature = "certora-guard-rules"))]
 pub mod guard_rules;
+#[cfg(any(
+    not(feature = "certora-focused"),
+    feature = "certora-isomorphism-rules"
+))]
+pub mod isomorphism_rules;
 #[cfg(any(not(feature = "certora-focused"), feature = "certora-lifecycle-rules"))]
 pub mod lifecycle_rules;
 #[cfg(any(

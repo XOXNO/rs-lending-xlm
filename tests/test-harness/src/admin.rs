@@ -40,6 +40,7 @@ impl LendingTest {
             can_borrow: config.is_borrowable,
             paused: false,
             frozen: false,
+            no_seize: false,
             ltv: config.loan_to_value,
             threshold: config.liquidation_threshold,
             bonus: config.liquidation_bonus,
@@ -74,6 +75,7 @@ impl LendingTest {
             can_borrow: config.is_borrowable,
             paused,
             frozen: false,
+            no_seize: false,
             ltv: config.loan_to_value,
             threshold: config.liquidation_threshold,
             bonus: config.liquidation_bonus,
@@ -81,6 +83,25 @@ impl LendingTest {
             supply_cap: config.supply_cap,
             borrow_cap: config.borrow_cap,
         });
+    }
+
+    /// Sets the listing's halt flags directly, so a test can exercise one flag without the
+    /// others. Goes through the guardian ratchet path, which only tightens.
+    pub fn set_spoke_asset_flags(
+        &self,
+        asset_name: &str,
+        paused: bool,
+        frozen: bool,
+        no_seize: bool,
+    ) {
+        let asset = self.resolve_asset(asset_name);
+        self.ctrl_client().set_spoke_asset_flags(
+            &HARNESS_SPOKE,
+            &hub_asset(asset),
+            &paused,
+            &frozen,
+            &no_seize,
+        );
     }
 
     pub fn set_position_limits(&self, max_supply: u32, max_borrow: u32) {
@@ -122,6 +143,7 @@ impl LendingTest {
             can_borrow,
             paused: false,
             frozen: false,
+            no_seize: false,
             ltv,
             threshold,
             bonus,
@@ -152,6 +174,7 @@ impl LendingTest {
             can_borrow,
             paused: false,
             frozen: false,
+            no_seize: false,
             ltv,
             threshold,
             bonus,
@@ -189,6 +212,7 @@ impl LendingTest {
             can_borrow,
             paused: false,
             frozen: false,
+            no_seize: false,
             ltv,
             threshold,
             bonus,

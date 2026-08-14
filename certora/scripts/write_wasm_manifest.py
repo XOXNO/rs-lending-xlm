@@ -145,6 +145,44 @@ def section(
         files[wasm.name] = entry
     return files
 
+def artifact_staleness_errors(artifact: str) -> list[str]:
+    """Report why `artifact` must not be proven against.
+
+    A stale artifact is worse than a missing one: an absent rule fails loudly
+    with "invalid entry point", but a rule that still exists verifies happily
+    against code that no longer matches the tree, and reports green.
+    """
+    errors: list[str] = []
+    if not MANIFEST.exists():
+        return [f"{artifact}: no {MANIFEST.name}; run `make certora-wasm`"]
+    manifest = json.loads(MANIFEST.read_text())
+    entry = manifest.get("certora", {}).get(artifact)
+    if not isinstance(entry, dict):
+        return [f"{artifact}: not recorded in the manifest; run `make certora-wasm`"]
+
+    path = ROOT / str(entry.get("path", ""))
+    if not path.is_file():
+        errors.append(f"{artifact}: recorded artifact {path} is missing")
+    elif sha256(path) != entry.get("sha256"):
+        errors.append(
+            f"{artifact}: on-disk wasm does not match the manifest "
+            "(rebuilt without updating it, or hand-copied)"
+        )
+
+    inputs = CERTORA_INPUTS.get(artifact)
+    if inputs is None:
+        errors.append(f"{artifact}: unknown focused target")
+    else:
+        digest, count = input_fingerprint(inputs)
+        build = entry.get("build", {})
+        if digest != build.get("source_input_sha256"):
+            errors.append(
+                f"{artifact}: sources changed since it was built "
+                f"({count} input files); run `make certora-wasm`"
+            )
+    return errors
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--deploy", action="store_true")
@@ -152,7 +190,22 @@ def main() -> int:
     parser.add_argument("--write-input-snapshot", type=Path)
     parser.add_argument("--check-input-snapshot", type=Path)
     parser.add_argument("--input-snapshot", type=Path)
+    parser.add_argument(
+        "--verify-artifact",
+        metavar="NAME.wasm",
+        help="fail unless the named certora artifact matches the current sources",
+    )
     args = parser.parse_args()
+
+    if args.verify_artifact is not None:
+        errors = artifact_staleness_errors(args.verify_artifact)
+        if errors:
+            print("Refusing to prove against a stale artifact:", file=sys.stderr)
+            for error in errors:
+                print(f"  {error}", file=sys.stderr)
+            return 1
+        print(f"{args.verify_artifact} is current")
+        return 0
 
     if args.write_input_snapshot is not None:
         args.write_input_snapshot.write_text(json.dumps(input_snapshot(), indent=2) + "\n")

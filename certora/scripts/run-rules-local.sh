@@ -76,6 +76,29 @@ with open(target, "w") as handle:
     handle.write("\n")
 PY
 
+# Fail closed on a stale artifact. A missing rule errors loudly ("invalid entry
+# point"), but a rule that still exists will verify green against code that no
+# longer matches the tree — a false pass is the worst outcome this script has.
+if [ -z "${CERTORA_SKIP_ARTIFACT_CHECK:-}" ]; then
+  conf_artifacts=$(python3 -c "
+import json, os, sys
+data = json.load(open(sys.argv[1]))
+files = data['files']
+if isinstance(files, str):
+    files = [files]
+for entry in files:
+    print(os.path.basename(entry))
+" "$conf")
+  for artifact in $conf_artifacts; do
+    if ! python3 "$repo_root/certora/scripts/write_wasm_manifest.py" \
+        --verify-artifact "$artifact"; then
+      echo "Rebuild with 'make certora-wasm', or set CERTORA_SKIP_ARTIFACT_CHECK=1" >&2
+      echo "to override — results are then not evidence about the current tree." >&2
+      exit 3
+    fi
+  done
+fi
+
 active_pids=()
 
 terminate_tree() {
@@ -89,10 +112,13 @@ terminate_tree() {
 
 stop_children() {
   local pid
-  for pid in "${active_pids[@]}"; do
+  # bash 3.2 (macOS system bash) treats "${arr[@]}" on an empty array as an
+  # unbound variable under `set -u`, so every expansion below uses the
+  # ${arr[@]+"${arr[@]}"} guard. Reached with no children on an early Ctrl-C.
+  for pid in "${active_pids[@]+"${active_pids[@]}"}"; do
     terminate_tree "$pid"
   done
-  for pid in "${active_pids[@]}"; do
+  for pid in "${active_pids[@]+"${active_pids[@]}"}"; do
     wait "$pid" 2>/dev/null || true
   done
   active_pids=()
@@ -154,12 +180,12 @@ run_one() {
     (cd "$run_dir" && \
       JAVA_HOME="$java_home" \
       PATH="$install_dir:$java_home/bin:$PATH" \
-      "${timeout_cmd[@]}" "${local_cmd[@]}" "$local_conf" --jar "$install_dir/emv.jar" \
+      "${timeout_cmd[@]+"${timeout_cmd[@]}"}" "${local_cmd[@]}" "$local_conf" --jar "$install_dir/emv.jar" \
         --rule "$r" --java_args "$heap") >"$log" 2>&1
   else
     (cd "$run_dir" && \
       PATH="$install_dir:$PATH" \
-      "${timeout_cmd[@]}" "${local_cmd[@]}" "$local_conf" --jar "$install_dir/emv.jar" \
+      "${timeout_cmd[@]+"${timeout_cmd[@]}"}" "${local_cmd[@]}" "$local_conf" --jar "$install_dir/emv.jar" \
         --rule "$r" --java_args "$heap") >"$log" 2>&1
   fi
   status=$?
@@ -177,7 +203,7 @@ run_one() {
 
 overall=0
 if [ "$jobs" -le 1 ]; then
-  for r in "${rules[@]}"; do
+  for r in "${rules[@]+"${rules[@]}"}"; do
     echo "=== $name --rule $r"
     run_one "$r" &
     active_pids=("$!")
@@ -185,7 +211,7 @@ if [ "$jobs" -le 1 ]; then
     active_pids=()
   done
 else
-  for r in "${rules[@]}"; do
+  for r in "${rules[@]+"${rules[@]}"}"; do
     if [ "${#active_pids[@]}" -ge "$jobs" ]; then
       wait "${active_pids[0]}" || overall=1
       active_pids=("${active_pids[@]:1}")
@@ -194,7 +220,7 @@ else
     run_one "$r" &
     active_pids+=("$!")
   done
-  for pid in "${active_pids[@]}"; do wait "$pid" || overall=1; done
+  for pid in "${active_pids[@]+"${active_pids[@]}"}"; do wait "$pid" || overall=1; done
   active_pids=()
 fi
 

@@ -47,14 +47,24 @@ pub(crate) struct LiquidationPlan {
 }
 
 impl LiquidationPlan {
-    /// Validates the repayment leg totals and asserts every seizure entry has a positive amount
-    /// and a protocol fee between zero and the seized amount, panicking with
-    /// `GenericError::InternalError` otherwise.
+    /// Validates the repayment leg totals and asserts every seizure entry is internally
+    /// consistent, panicking with `GenericError::InternalError` otherwise: a positive asset
+    /// amount with a protocol fee between zero and that amount (the `Transfer` representation),
+    /// and a positive scaled amount whose bonus base does not exceed it (the `Credit`
+    /// representation). The `Credit` split itself is re-derived and re-checked by
+    /// [`split_seized_shares`] at every use site.
     pub(crate) fn validate(&self, env: &Env) {
         self.repayment.validate(env);
 
         for entry in self.seized.iter() {
             if entry.amount <= 0 || entry.protocol_fee < 0 || entry.protocol_fee > entry.amount {
+                panic_with_error!(env, GenericError::InternalError);
+            }
+            if entry.scaled_amount <= 0
+                || entry.bonus_scaled < 0
+                || entry.bonus_scaled > entry.scaled_amount
+                || i128::from(entry.liquidation_fees) >= common::constants::BPS
+            {
                 panic_with_error!(env, GenericError::InternalError);
             }
         }
@@ -293,6 +303,24 @@ pub(crate) fn calculate_seized_collateral(
         };
         let protocol_fee_ray = position.liquidation_fees.apply_to_ray(env, bonus_ray);
 
+        // Credit mode moves supply shares, so the seizure is converted to scaled units once,
+        // here, with no asset-unit round trip. A full close is exactly the whole scaled
+        // position: re-deriving it from the asset value would let a rounding step strand or
+        // invent a share.
+        let seized_scaled = if capped_ray == actual_ray {
+            position.scaled_amount
+        } else {
+            capped_ray.div_floor(env, market_index.supply_index)
+        };
+        // The fee base in share terms. Clamped because the two conversions round
+        // independently; `split_seized_shares` relies on `bonus <= seized`.
+        let bonus_scaled = bonus_ray
+            .div_floor(env, market_index.supply_index)
+            .min(seized_scaled);
+        if seized_scaled <= Ray::ZERO {
+            continue;
+        }
+
         let capped_amount = if capped_ray == actual_ray {
             capped_ray.to_asset(feed.asset_decimals)
         } else {
@@ -321,12 +349,57 @@ pub(crate) fn calculate_seized_collateral(
             hub_asset,
             amount: capped_amount,
             protocol_fee,
+            scaled_amount: seized_scaled.raw(),
+            bonus_scaled: bonus_scaled.raw(),
+            liquidation_fees: position.liquidation_fees.raw() as u32,
             feed: (&feed).into(),
             market_index: (&market_index).into(),
         });
     }
 
     seized
+}
+
+/// Splits a scaled seizure into the protocol's share and the liquidator's share, for
+/// `SeizeMode::Credit`.
+///
+/// `fee = ceil(liquidation_fees × bonus_scaled)` rounds **up**, in the protocol's favour, and
+/// the liquidator takes the exact remainder, so `seized_scaled == fee + liquidator` holds with
+/// no share created or destroyed. That conservation identity is the whole point of credit mode
+/// — a share invented here is an unbacked supplier claim — so it is asserted here rather than
+/// only in tests. Panics with `GenericError::InternalError` if any bound or the identity fails.
+pub(crate) fn split_seized_shares(
+    env: &Env,
+    seized_scaled: Ray,
+    bonus_scaled: Ray,
+    liquidation_fees_bps: u32,
+) -> (Ray, Ray) {
+    let fees = i128::from(liquidation_fees_bps);
+    if seized_scaled < Ray::ZERO
+        || bonus_scaled < Ray::ZERO
+        || bonus_scaled > seized_scaled
+        || fees >= common::constants::BPS
+    {
+        panic_with_error!(env, GenericError::InternalError);
+    }
+
+    let fee_scaled = Ray::from(common::math::fp_core::mul_div_ceil(
+        env,
+        bonus_scaled.raw(),
+        fees,
+        common::constants::BPS,
+    ));
+    // `fees < BPS` already bounds the fee by `bonus_scaled`; re-check anyway, because the rate
+    // is read from a stamped position rather than from live configuration.
+    if fee_scaled > seized_scaled {
+        panic_with_error!(env, GenericError::InternalError);
+    }
+
+    let liquidator_scaled = seized_scaled.checked_sub(env, fee_scaled);
+    if fee_scaled.checked_add(env, liquidator_scaled) != seized_scaled {
+        panic_with_error!(env, GenericError::InternalError);
+    }
+    (fee_scaled, liquidator_scaled)
 }
 
 /// Computes the account's bonus bounds: `max` from `max_bonus_for_threshold`, and `base` as the
@@ -378,9 +451,16 @@ pub(crate) fn get_account_bonus_params(
 #[path = "../../../tests/positions/liquidation_math.rs"]
 mod tests;
 
-/// Scales every seized entry's amount and protocol fee down by `received_usd / planned_usd`
-/// (floor-rounded) when the liquidator's repayment delivered less value than planned. Returns
-/// `seized` unchanged when nothing was planned or the full amount was received.
+/// Scales every seized entry down by `received_usd / planned_usd` (floor-rounded) when the
+/// liquidator's repayment delivered less value than planned. Returns `seized` unchanged when
+/// nothing was planned or the full amount was received.
+///
+/// Both representations are scaled: the asset-unit pair consumed by `SeizeMode::Transfer` and
+/// the share-denominated pair consumed by `SeizeMode::Credit`. Only the seizure total and the
+/// fee *base* are scaled — the credit-mode fee itself is re-derived from the scaled base at the
+/// use site, so the conservation identity holds exactly after scaling instead of being carried
+/// across it. Flooring both share fields by the same ratio preserves
+/// `bonus_scaled <= scaled_amount`.
 pub(crate) fn scale_seizures_to_received(
     env: &Env,
     seized: &Vec<SeizeEntry>,
@@ -398,6 +478,9 @@ pub(crate) fn scale_seizures_to_received(
         scaled.push_back(SeizeEntry {
             amount: common::math::fp_core::mul_div_floor(env, entry.amount, num, den),
             protocol_fee: common::math::fp_core::mul_div_floor(env, entry.protocol_fee, num, den),
+            scaled_amount: common::math::fp_core::mul_div_floor(env, entry.scaled_amount, num, den),
+            bonus_scaled: common::math::fp_core::mul_div_floor(env, entry.bonus_scaled, num, den),
+            liquidation_fees: entry.liquidation_fees,
             hub_asset: entry.hub_asset,
             feed: entry.feed,
             market_index: entry.market_index,

@@ -21,6 +21,7 @@ mod liquidation_extreme;
 mod liquidation_math;
 mod liquidation_mixed_decimal;
 mod liquidation_ratchet;
+mod liquidation_seize_modes;
 mod max_utilization;
 mod min_borrow_collateral;
 mod multi_hub;

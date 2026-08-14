@@ -174,7 +174,12 @@ fn repay_missing_account_panics() {
 fn liquidate_missing_account_panics() {
     let (env, id) = setup();
     let liquidator = Address::generate(&env);
-    client(&env, &id).liquidate(&liquidator, &1u64, &Vec::new(&env));
+    client(&env, &id).liquidate(
+        &liquidator,
+        &1u64,
+        &Vec::new(&env),
+        &common::types::SeizeMode::Transfer,
+    );
 }
 
 #[test]
@@ -331,6 +336,7 @@ fn update_account_threshold_without_pool_panics() {
                 is_borrowable: true,
                 paused: false,
                 frozen: false,
+                no_seize: false,
                 loan_to_value: 7_500,
                 liquidation_threshold: 8_000,
                 liquidation_bonus: 500,
@@ -464,6 +470,7 @@ fn add_asset_to_spoke_without_hub_panics() {
         can_borrow: true,
         paused: false,
         frozen: false,
+        no_seize: false,
         ltv: 7_500,
         threshold: 8_000,
         bonus: 500,

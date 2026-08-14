@@ -1,9 +1,9 @@
-use common::types::HubAssetKey;
+use common::types::{HubAssetKey, SeizeMode};
 use soroban_sdk::Vec;
 
 use crate::context::LendingTest;
 use crate::helpers::hub_asset;
-use crate::ops::internal::{amount_raw, asset_payment_vec, burn_prefund, map_try_ok_unit};
+use crate::ops::internal::{amount_raw, asset_payment_vec, burn_prefund, map_try_ok_value};
 
 impl LendingTest {
     pub fn liquidate(
@@ -13,6 +13,25 @@ impl LendingTest {
         debt_asset: &str,
         amount: f64,
     ) {
+        self.liquidate_with_mode(
+            liquidator,
+            target_user,
+            debt_asset,
+            amount,
+            SeizeMode::Transfer,
+        );
+    }
+
+    /// `liquidate` with an explicit seize mode. Returns the receiving account id, which is `0`
+    /// for `SeizeMode::Transfer`.
+    pub fn liquidate_with_mode(
+        &mut self,
+        liquidator: &str,
+        target_user: &str,
+        debt_asset: &str,
+        amount: f64,
+        seize_mode: SeizeMode,
+    ) -> u64 {
         let decimals = self.resolve_market(debt_asset).decimals;
         let raw_amount = amount_raw(amount, decimals);
         let asset_addr = self.resolve_asset(debt_asset);
@@ -26,7 +45,7 @@ impl LendingTest {
 
         let ctrl = self.ctrl_client();
         let payments = asset_payment_vec(&self.env, asset_addr, raw_amount);
-        ctrl.liquidate(&liquidator_addr, &account_id, &payments);
+        ctrl.liquidate(&liquidator_addr, &account_id, &payments, &seize_mode)
     }
 
     pub fn liquidate_on_hub(
@@ -57,7 +76,12 @@ impl LendingTest {
             },
             raw_amount,
         ));
-        ctrl.liquidate(&liquidator_addr, &account_id, &payments);
+        ctrl.liquidate(
+            &liquidator_addr,
+            &account_id,
+            &payments,
+            &SeizeMode::Transfer,
+        );
     }
 
     pub fn try_liquidate(
@@ -67,6 +91,27 @@ impl LendingTest {
         debt_asset: &str,
         amount: f64,
     ) -> Result<(), soroban_sdk::Error> {
+        self.try_liquidate_with_mode(
+            liquidator,
+            target_user,
+            debt_asset,
+            amount,
+            SeizeMode::Transfer,
+        )
+        .map(|_| ())
+    }
+
+    /// `try_liquidate` with an explicit seize mode. On success returns the receiving account
+    /// id (`0` for `SeizeMode::Transfer`); on failure the liquidator's pre-funded balance is
+    /// burned again so the harness's token books stay comparable across attempts.
+    pub fn try_liquidate_with_mode(
+        &mut self,
+        liquidator: &str,
+        target_user: &str,
+        debt_asset: &str,
+        amount: f64,
+        seize_mode: SeizeMode,
+    ) -> Result<u64, soroban_sdk::Error> {
         let decimals = self.resolve_market(debt_asset).decimals;
         let raw_amount = amount_raw(amount, decimals);
         let asset_addr = self.resolve_asset(debt_asset);
@@ -80,7 +125,12 @@ impl LendingTest {
 
         let ctrl = self.ctrl_client();
         let payments = asset_payment_vec(&self.env, asset_addr.clone(), raw_amount);
-        let res = map_try_ok_unit(ctrl.try_liquidate(&liquidator_addr, &account_id, &payments));
+        let res = map_try_ok_value(ctrl.try_liquidate(
+            &liquidator_addr,
+            &account_id,
+            &payments,
+            &seize_mode,
+        ));
         if res.is_err() {
             burn_prefund(&self.env, &asset_addr, &liquidator_addr, raw_amount);
         }
@@ -100,6 +150,11 @@ impl LendingTest {
         }
 
         let ctrl = self.ctrl_client();
-        ctrl.liquidate(&liquidator_addr, &account_id, &payments);
+        ctrl.liquidate(
+            &liquidator_addr,
+            &account_id,
+            &payments,
+            &SeizeMode::Transfer,
+        );
     }
 }

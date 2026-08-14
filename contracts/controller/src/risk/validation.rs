@@ -39,7 +39,7 @@ pub(crate) fn require_post_pool_risk_gates(env: &Env, cache: &mut Cache, account
         CollateralError::InsufficientCollateral
     );
 
-    spec_hooks::solvency_gate_checked();
+    spec_hooks::solvency_gate_checked(account);
 
     assert_with_error!(
         env,

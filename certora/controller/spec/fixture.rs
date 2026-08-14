@@ -1,6 +1,6 @@
 use common::types::{
     AccountMeta, AccountPositionRaw, HubAssetKey, HubConfig, PositionLimits, PositionMode,
-    SpokeAssetConfig, SpokeConfig,
+    SpokeAssetConfig, SpokeConfig, SpokeUsageRaw,
 };
 use cvlr_soroban::nondet_address;
 use soroban_sdk::{Address, Env};
@@ -69,6 +69,7 @@ pub fn seed_market(env: &Env, asset: &Address) {
             is_borrowable: true,
             paused: false,
             frozen: false,
+            no_seize: false,
             loan_to_value: 7_500,
             liquidation_threshold: 8_000,
             liquidation_bonus: 500,
@@ -133,6 +134,39 @@ pub fn seed_supply_positions(env: &Env, account_id: u64, assets: &[Address]) -> 
     let count = map.len();
     crate::storage::set_supply_positions(env, account_id, &map);
     count
+}
+
+/// Reads spoke `spoke_id`'s stored `SpokeUsage` row for `hub_asset`, falling
+/// back to the zero row when storage has none.
+///
+/// `SpokeUsageContext::apply_exit` treats a missing row as "nothing to
+/// decrement" rather than as a zero row it may take negative, so the absent
+/// and zero cases are *not* interchangeable for exits. Rules that exercise an
+/// exit leg must therefore seed a row with `seed_spoke_usage` first; see
+/// `usage_exit_without_usage_row_is_a_noop` in `spoke_rules.rs`, which pins
+/// that carve-out instead of hiding it.
+pub fn spoke_usage(env: &Env, spoke_id: u32, hub_asset: &HubAssetKey) -> SpokeUsageRaw {
+    crate::storage::get_spoke_usage(env, spoke_id, hub_asset).unwrap_or_default()
+}
+
+/// Writes a concrete `SpokeUsage` row for `asset` on `SPOKE_ID`. Callers pass
+/// values at or above the account-level scaled amounts they seeded, since the
+/// stored row is the sum over every account bound to the spoke.
+pub fn seed_spoke_usage(
+    env: &Env,
+    asset: &Address,
+    supplied_scaled_ray: i128,
+    borrowed_scaled_ray: i128,
+) {
+    crate::storage::set_spoke_usage(
+        env,
+        SPOKE_ID,
+        &hub_asset(asset),
+        &SpokeUsageRaw {
+            supplied_scaled_ray,
+            borrowed_scaled_ray,
+        },
+    );
 }
 
 /// Writes `assets.len()` concrete debt positions, returning the count that was

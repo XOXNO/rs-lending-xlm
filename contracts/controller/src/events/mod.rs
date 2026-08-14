@@ -75,6 +75,13 @@ pub enum PositionAction {
     CloseWd = 12,
     Migrate = 13,
     RpColNet = 14,
+    /// Collateral credited to a share-credit liquidator's receiving account.
+    ///
+    /// Distinct from [`PositionAction::LiqSeize`] on purpose: the seizure leg
+    /// is **gross** of the protocol fee and the credit leg is **net** of it, so
+    /// one tag carrying both senses would silently overstate a liquidator's
+    /// proceeds by the fee.
+    LiqCredit = 15,
 }
 
 /// Tuple of `(action, hub_id, asset, scaled_amount, index_ray, amount,
@@ -82,6 +89,20 @@ pub enum PositionAction {
 /// liquidation_fees)` describing a change to a supply position for inclusion
 /// in event payloads. The last four fields are the position's risk
 /// parameters, truncated to `u32`.
+///
+/// `amount` is always this account's own movement, never a counterparty's
+/// receipt. For liquidation the two sides of that movement carry different
+/// tags, because the protocol fee is taken between them:
+///
+/// - [`PositionAction::LiqSeize`] — the liquidated account's debit, **gross**
+///   of the protocol fee, in both seize modes.
+/// - [`PositionAction::LiqCredit`] — a share-credit receiver's credit, **net**
+///   of that fee.
+///
+/// So the fee is `LiqSeize.amount - LiqCredit.amount` in credit mode, and in
+/// transfer mode it is withheld from the outbound token transfer instead of
+/// appearing as a second leg. Reading a `LiqSeize` amount as the liquidator's
+/// proceeds overstates them by the fee.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct EventDepositDelta(

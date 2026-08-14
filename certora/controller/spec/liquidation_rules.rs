@@ -60,7 +60,13 @@ fn liquidation_does_not_increase_repaid_debt(
         debt_amount,
     ));
 
-    crate::positions::liquidation::process_liquidation(&e, &liquidator, account_id, &payments);
+    crate::positions::liquidation::process_liquidation(
+        &e,
+        &liquidator,
+        account_id,
+        &payments,
+        crate::types::SeizeMode::Transfer,
+    );
 
     let borrow_post =
         crate::storage::get_position(&e, account_id, AccountPositionType::Borrow, &debt_asset);
@@ -107,7 +113,13 @@ fn liquidation_does_not_increase_seized_collateral(
         debt_amount,
     ));
 
-    crate::positions::liquidation::process_liquidation(&e, &liquidator, account_id, &payments);
+    crate::positions::liquidation::process_liquidation(
+        &e,
+        &liquidator,
+        account_id,
+        &payments,
+        crate::types::SeizeMode::Transfer,
+    );
 
     let supply_post = crate::storage::get_position(
         &e,
@@ -135,7 +147,13 @@ fn self_liquidation_reverts(e: Env, owner: Address, debt_asset: Address) {
         WAD,
     ));
 
-    crate::positions::liquidation::process_liquidation(&e, &owner, account_id, &payments);
+    crate::positions::liquidation::process_liquidation(
+        &e,
+        &owner,
+        account_id,
+        &payments,
+        crate::types::SeizeMode::Transfer,
+    );
     cvlr_assert!(false);
 }
 
@@ -604,6 +622,243 @@ fn liquidation_transition_sanity(
         },
         WAD,
     ));
-    crate::positions::liquidation::process_liquidation(&e, &liquidator, account_id, &payments);
+    crate::positions::liquidation::process_liquidation(
+        &e,
+        &liquidator,
+        account_id,
+        &payments,
+        crate::types::SeizeMode::Transfer,
+    );
     cvlr_satisfy!(true);
+}
+
+// --- V-6: splitting a close into partials is never more profitable ---------
+//
+// CS-AAVE4-009 against Aave: when `proportion_seized * (1 + bonus) > HF`, every
+// partial liquidation lowers the health factor, the bonus curve pays more at
+// the lower health factor, and N slices extract more collateral than one close
+// of the summed repayment. Aave forbade the configuration off-chain. We clamp
+// at runtime: `max_hf_preserving_bonus_bps` caps the bonus at
+// `HF / proportion_seized - 1`, the exact rate that leaves the health factor
+// unchanged, so the next slice can never be priced better than this one.
+//
+// These rules work at the plan-math level, on the same
+// `estimate_liquidation_amount` the plan calls, with prices and indexes held
+// fixed. Two steps suffice: `split_liq_bonus_never_ratchets_up_across_a_partial`
+// is the induction step, and with it the N-step chain telescopes onto the
+// first step's rate.
+
+/// An account's liquidation-relevant totals, all WAD except the bonus.
+#[derive(Clone, Copy)]
+struct SplitBook {
+    debt: i128,
+    collateral: i128,
+    weighted: i128,
+    /// The USD-weighted average of the collateral legs' configured bonuses,
+    /// before `get_account_bonus_params` clamps it to the derived max.
+    base_bps: i128,
+}
+
+/// What one plan-math step quotes for `book`.
+#[derive(Clone, Copy)]
+struct SplitQuote {
+    ideal: i128,
+    bonus_bps: i128,
+    hf_wad: i128,
+}
+
+/// Runs `estimate_liquidation_amount` over `book` exactly as
+/// `build_liquidation_plan` does: `proportion_seized` from the weighted share of
+/// collateral, the health factor floored, the max bonus derived from the
+/// proportion, and the base bonus clamped to it.
+///
+/// Assumes the book is liquidatable. `build_liquidation_plan` rejects a health
+/// factor at or above one WAD before the curve is ever consulted, so a step on
+/// such a book does not exist.
+fn split_liq_quote(e: &Env, book: SplitBook) -> SplitQuote {
+    cvlr_assume!(book.debt > 0 && book.debt <= 1_000_000 * WAD);
+    cvlr_assume!(book.collateral > 0 && book.collateral <= 1_000_000 * WAD);
+    cvlr_assume!(book.weighted > 0 && book.weighted <= book.collateral);
+
+    let proportion_wad = mul_div_half_up(e, book.weighted, WAD, book.collateral);
+    cvlr_assume!(proportion_wad > 0 && proportion_wad <= WAD);
+    let hf_wad = Wad::from(book.weighted)
+        .div_floor(e, Wad::from(book.debt))
+        .raw();
+    cvlr_assume!(hf_wad > 0 && hf_wad < WAD);
+
+    let snap = crate::positions::liquidation::curve::LiquidationSnapshot {
+        total_debt: Wad::from(book.debt),
+        total_collateral: Wad::from(book.collateral),
+        weighted_coll: Wad::from(book.weighted),
+        proportion_seized: Wad::from(proportion_wad),
+        hf: Wad::from(hf_wad),
+    };
+    let max =
+        crate::positions::liquidation::curve::max_bonus_for_threshold(e, Wad::from(proportion_wad));
+    // `get_account_bonus_params` clamps the weighted average to the derived max.
+    let base = Bps::from(if book.base_bps <= max.raw() {
+        book.base_bps
+    } else {
+        max.raw()
+    });
+    let bounds = crate::positions::liquidation::curve::BonusBounds { base, max };
+    let (ideal, bonus) = crate::positions::liquidation::curve::estimate_liquidation_amount(
+        e,
+        &snap,
+        bounds,
+        &default_curve(),
+    );
+
+    SplitQuote {
+        ideal: ideal.raw(),
+        bonus_bps: bonus.raw(),
+        hf_wad,
+    }
+}
+
+/// Collateral value seized for `repay` at `bonus_bps`, floored — the plan sizes
+/// the seizure as `repay_usd * (1 + bonus)`.
+fn split_liq_seizure(e: &Env, repay: i128, bonus_bps: i128) -> i128 {
+    mul_div_floor(e, repay, BPS + bonus_bps, BPS)
+}
+
+/// The book left behind after repaying `repay` at `bonus_bps`.
+///
+/// Seizure is pro-rata by USD value, so it removes the same fraction of every
+/// collateral leg: the weighted collateral falls by `seize * weighted /
+/// collateral`, and the asset mix — hence the derived max bonus and the
+/// weighted-average base — is preserved.
+///
+/// Assumes the step leaves both a book and something to liquidate next: a
+/// seizure that consumes the collateral, or a repayment that clears the debt,
+/// ends the chain rather than continuing it.
+fn split_liq_apply(e: &Env, book: SplitBook, repay: i128, bonus_bps: i128) -> (SplitBook, i128) {
+    let seize = split_liq_seizure(e, repay, bonus_bps);
+    cvlr_assume!(seize > 0 && seize < book.collateral);
+    cvlr_assume!(repay > 0 && repay < book.debt);
+
+    let weighted_out = mul_div_floor(e, seize, book.weighted, book.collateral);
+    cvlr_assume!(weighted_out < book.weighted);
+
+    let next = SplitBook {
+        debt: book.debt - repay,
+        collateral: book.collateral - seize,
+        weighted: book.weighted - weighted_out,
+        base_bps: book.base_bps,
+    };
+    (next, seize)
+}
+
+/// Two sequential partial liquidations never seize more collateral value than
+/// one liquidation repaying their sum.
+///
+/// Both slices are assumed to fit inside their own step's ideal amount, which
+/// is what `normalize_repayment_plan` accepts whole; anything above it is capped
+/// or refunded, which only lowers the seizure.
+#[rule]
+fn split_liq_two_partials_never_out_seize_one_close(
+    e: Env,
+    total_debt_wad: i128,
+    total_collateral_wad: i128,
+    weighted_collateral_wad: i128,
+    base_bonus_bps: i128,
+    repay_1: i128,
+    repay_2: i128,
+) {
+    cvlr_assume!(base_bonus_bps > 0 && base_bonus_bps <= 500);
+    let book_0 = SplitBook {
+        debt: total_debt_wad,
+        collateral: total_collateral_wad,
+        weighted: weighted_collateral_wad,
+        base_bps: base_bonus_bps,
+    };
+    let quote_0 = split_liq_quote(&e, book_0);
+
+    cvlr_assume!(repay_1 > 0);
+    cvlr_assume!(repay_2 > 0);
+    cvlr_assume!(repay_1 + repay_2 <= quote_0.ideal);
+
+    let (book_1, seize_1) = split_liq_apply(&e, book_0, repay_1, quote_0.bonus_bps);
+    let quote_1 = split_liq_quote(&e, book_1);
+    cvlr_assume!(repay_2 <= quote_1.ideal);
+    let seize_2 = split_liq_seizure(&e, repay_2, quote_1.bonus_bps);
+
+    let one_close = split_liq_seizure(&e, repay_1 + repay_2, quote_0.bonus_bps);
+
+    cvlr_assert!(seize_1 + seize_2 <= one_close);
+}
+
+/// The induction step: a partial liquidation never leaves the account priced at
+/// a better bonus than it was priced at going in.
+///
+/// This is what makes the two-step bound generalize to N. Without the clamp the
+/// seizure outruns the health factor, the curve pays more at the lower health
+/// factor, and this fails on the second step.
+#[rule]
+fn split_liq_bonus_never_ratchets_up_across_a_partial(
+    e: Env,
+    total_debt_wad: i128,
+    total_collateral_wad: i128,
+    weighted_collateral_wad: i128,
+    base_bonus_bps: i128,
+    repay_1: i128,
+) {
+    cvlr_assume!(base_bonus_bps > 0 && base_bonus_bps <= 500);
+    let book_0 = SplitBook {
+        debt: total_debt_wad,
+        collateral: total_collateral_wad,
+        weighted: weighted_collateral_wad,
+        base_bps: base_bonus_bps,
+    };
+    let quote_0 = split_liq_quote(&e, book_0);
+    cvlr_assume!(repay_1 > 0 && repay_1 <= quote_0.ideal);
+
+    let (book_1, _seize_1) = split_liq_apply(&e, book_0, repay_1, quote_0.bonus_bps);
+    let quote_1 = split_liq_quote(&e, book_1);
+
+    cvlr_assert!(quote_1.bonus_bps <= quote_0.bonus_bps);
+}
+
+/// The never-recovering path: the same bound, restricted to chains whose health
+/// factor is strictly worse after the first slice.
+///
+/// That branch is only reachable where the health-factor-preserving ceiling is
+/// already negative — an insolvent book, where the plan pays the base bonus and
+/// `normalize_repayment_plan` still admits a partial. The base bonus is a
+/// constant of the collateral mix, which pro-rata seizure preserves, so the
+/// chain stays exactly additive even while the health factor erodes.
+#[rule]
+fn split_liq_chain_bound_holds_when_health_never_recovers(
+    e: Env,
+    total_debt_wad: i128,
+    total_collateral_wad: i128,
+    weighted_collateral_wad: i128,
+    base_bonus_bps: i128,
+    repay_1: i128,
+    repay_2: i128,
+) {
+    cvlr_assume!(base_bonus_bps > 0 && base_bonus_bps <= 500);
+    let book_0 = SplitBook {
+        debt: total_debt_wad,
+        collateral: total_collateral_wad,
+        weighted: weighted_collateral_wad,
+        base_bps: base_bonus_bps,
+    };
+    let quote_0 = split_liq_quote(&e, book_0);
+
+    cvlr_assume!(repay_1 > 0);
+    cvlr_assume!(repay_2 > 0);
+    cvlr_assume!(repay_1 + repay_2 <= quote_0.ideal);
+
+    let (book_1, seize_1) = split_liq_apply(&e, book_0, repay_1, quote_0.bonus_bps);
+    let quote_1 = split_liq_quote(&e, book_1);
+    // The eroding branch: this is the shape CS-AAVE4-009 exploited.
+    cvlr_assume!(quote_1.hf_wad < quote_0.hf_wad);
+    cvlr_assume!(repay_2 <= quote_1.ideal);
+    let seize_2 = split_liq_seizure(&e, repay_2, quote_1.bonus_bps);
+
+    let one_close = split_liq_seizure(&e, repay_1 + repay_2, quote_0.bonus_bps);
+
+    cvlr_assert!(seize_1 + seize_2 <= one_close);
 }

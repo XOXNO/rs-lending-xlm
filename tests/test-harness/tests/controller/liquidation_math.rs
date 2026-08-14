@@ -1,3 +1,4 @@
+use common::types::SeizeMode;
 use controller::constants::{RAY, WAD};
 use test_harness::{
     eth_preset, hub_asset, usd_cents, usdc_preset, LendingTest, ALICE, BOB, LIQUIDATOR,
@@ -71,9 +72,9 @@ fn test_bonus_formula_at_specific_hf_levels() {
     let account_id = t.resolve_account_id(ALICE);
     let payments =
         soroban_sdk::Vec::from_array(&t.env, [(hub_asset(t.resolve_asset("ETH")), 3_0000000)]);
-    let estimate = t
-        .ctrl_client()
-        .get_liquidation_estimate(&account_id, &payments);
+    let estimate =
+        t.ctrl_client()
+            .get_liquidation_estimate(&account_id, &payments, &SeizeMode::Transfer);
     let hf = t.ctrl_client().get_health_factor(&account_id);
 
     let hf_f64 = hf as f64 / WAD as f64;
@@ -104,9 +105,9 @@ fn test_deep_underwater_higher_bonus() {
     let id_alice = t.resolve_account_id(ALICE);
     let payments =
         soroban_sdk::Vec::from_array(&t.env, [(hub_asset(t.resolve_asset("ETH")), 3_0000000)]);
-    let light = t
-        .ctrl_client()
-        .get_liquidation_estimate(&id_alice, &payments);
+    let light =
+        t.ctrl_client()
+            .get_liquidation_estimate(&id_alice, &payments, &SeizeMode::Transfer);
     let hf_light = t.ctrl_client().get_health_factor(&id_alice);
     let hf_light_f64 = hf_light as f64 / WAD as f64;
     assert!(
@@ -118,7 +119,7 @@ fn test_deep_underwater_higher_bonus() {
     t.set_price("USDC", usd_cents(68));
     let deep = t
         .ctrl_client()
-        .get_liquidation_estimate(&id_alice, &payments);
+        .get_liquidation_estimate(&id_alice, &payments, &SeizeMode::Transfer);
     let hf_deep = t.ctrl_client().get_health_factor(&id_alice);
     let hf_deep_f64 = hf_deep as f64 / WAD as f64;
     assert!(

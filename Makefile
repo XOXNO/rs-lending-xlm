@@ -44,6 +44,7 @@ SHELL := /bin/bash
         miri-common miri-pool miri-controller miri-all \
         coverage coverage-controller coverage-pool coverage-price-aggregator coverage-merged \
         fmt fmt-check clippy clippy-contracts clippy-fuzz scout scout-host scout-strict \
+        access-control-check \
         wasm-size-check wasm-testing-abi-check clean install-stellar-cli \
         cbm-reindex cbm-index \
         _mutants-check _mutants-harness-prepare \
@@ -339,10 +340,17 @@ test-verbose:
 
 
 test-one:
+	@[ -n "$(strip $(FILE))" ] || { \
+	  echo "test-one requires FILE=<integration test file, without .rs>"; \
+	  exit 2; }
 	cargo test -p test-harness --test $(FILE) -- $(TEST_THREAD_FLAG)
 
 
 test-match:
+	@[ -n "$(strip $(PATTERN))" ] || { \
+	  echo "test-match requires PATTERN=<substring>."; \
+	  echo "MATCH= is NOT recognised and silently runs the entire suite."; \
+	  exit 2; }
 	cargo test -p test-harness $(PATTERN) -- $(TEST_THREAD_FLAG)
 
 
@@ -496,6 +504,14 @@ scout-host: scout
 
 scout-strict:
 	SCOUT_STRICT=1 .github/scripts/run_scout.sh
+
+
+# Fail the build if any `#[contractimpl]` entrypoint can change state without
+# being owner-gated, role-gated, or timelocked, unless it is declared -- with a
+# justification -- in scripts/permissionless_entrypoints.txt. Source-only and
+# deterministic: no build, no network, runs in about a second.
+access-control-check:
+	@python3 scripts/check_access_control.py
 
 
 
@@ -1024,6 +1040,10 @@ proptest:
 
 
 proptest-one:
+	@[ -n "$(strip $(TEST))" ] || { \
+	  echo "proptest-one requires TEST=<substring>; omitting it runs the whole fuzz suite."; \
+	  echo "Use 'make proptest' if that is what you want."; \
+	  exit 2; }
 	@$(PROPTEST_ENV) cargo test --release -p test-harness --test fuzz $(TEST) -- --test-threads=1
 
 

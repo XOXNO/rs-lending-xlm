@@ -42,7 +42,7 @@ use common::errors::SpokeError;
 use common::types::{
     AccountAttributes, AccountPositionRaw, DebtPositionRaw, HubAssetKey, InterestRateModel,
     LiquidationEstimate, MarketIndexRaw, MarketIndexView, MarketParamsRaw, PositionLimits,
-    PositionManagerConfig, PositionMode, SpokeAssetArgs, SpokeAssetConfig, SpokeConfig,
+    PositionManagerConfig, PositionMode, SeizeMode, SpokeAssetArgs, SpokeAssetConfig, SpokeConfig,
     SpokeUsageRaw,
 };
 
@@ -142,13 +142,27 @@ impl ControllerInterface for Controller {
     /// and seizing collateral at a bonus scaled by the account's health
     /// factor; liquidators cannot liquidate their own account. Triggers
     /// bad-debt socialization if the account remains insolvent afterward.
+    ///
+    /// `seize_mode` selects delivery. `Transfer` pays the seized collateral
+    /// out of pool cash. `Credit(account_id)` instead credits the seized
+    /// supply shares to a controller account bound to the liquidated
+    /// account's spoke, moving no tokens at all, so the liquidation can clear
+    /// even when the market has no free liquidity; `Credit(0)` creates that
+    /// account. Returns the receiving account id, or `0` in transfer mode.
     fn liquidate(
         env: Env,
         liquidator: Address,
         account_id: u64,
         debt_payments: Vec<(HubAssetKey, i128)>,
-    ) {
-        positions::liquidation::process_liquidation(&env, &liquidator, account_id, &debt_payments);
+        seize_mode: SeizeMode,
+    ) -> u64 {
+        positions::liquidation::process_liquidation(
+            &env,
+            &liquidator,
+            account_id,
+            &debt_payments,
+            seize_mode,
+        )
     }
 
     /// Socializes `account_id`'s debt into the supply index and removes the
@@ -429,16 +443,20 @@ impl ControllerInterface for Controller {
         views::account_exists(&env, account_id)
     }
 
-    /// Simulates liquidating `account_id` with `debt_payments` without
-    /// changing state. Returns the collateral that would be seized, the
-    /// protocol fees, any refunds, the maximum payable debt (WAD), and the
-    /// applicable bonus rate (BPS).
+    /// Simulates liquidating `account_id` with `debt_payments` under
+    /// `seize_mode` without changing state. Returns the collateral that would
+    /// be seized, the protocol fees, any refunds, the maximum payable debt
+    /// (WAD), and the applicable bonus rate (BPS).
+    ///
+    /// Seized and fee amounts are reported in the units the chosen mode moves:
+    /// asset units for `Transfer`, RAY-scaled supply shares for `Credit`.
     fn get_liquidation_estimate(
         env: Env,
         account_id: u64,
         debt_payments: Vec<(HubAssetKey, i128)>,
+        seize_mode: SeizeMode,
     ) -> LiquidationEstimate {
-        views::liquidation_estimations_detailed(&env, account_id, &debt_payments)
+        views::liquidation_estimations_detailed(&env, account_id, &debt_payments, seize_mode)
     }
 
     /// Returns `account_id`'s liquidation-threshold-weighted collateral value
@@ -639,9 +657,9 @@ impl ControllerAdmin for Controller {
         renew_then!(env, config::asset::edit_asset_in_spoke(&env, &input))
     }
 
-    /// Sets the paused and frozen flags for `hub_asset` within spoke
-    /// `spoke_id`. Restricted to the owner. Flags can only be tightened to
-    /// true, not relaxed, through this function.
+    /// Sets the paused, frozen, and no-seize flags for `hub_asset` within
+    /// spoke `spoke_id`. Restricted to the owner. Flags can only be tightened
+    /// to true, not relaxed, through this function.
     #[only_owner]
     fn set_spoke_asset_flags(
         env: Env,
@@ -649,10 +667,13 @@ impl ControllerAdmin for Controller {
         hub_asset: HubAssetKey,
         paused: bool,
         frozen: bool,
+        no_seize: bool,
     ) {
         renew_then!(
             env,
-            config::asset::set_spoke_asset_flags(&env, spoke_id, hub_asset, paused, frozen)
+            config::asset::set_spoke_asset_flags(
+                &env, spoke_id, hub_asset, paused, frozen, no_seize
+            )
         )
     }
 

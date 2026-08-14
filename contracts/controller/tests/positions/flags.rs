@@ -7,12 +7,13 @@ use soroban_sdk::{Address, Env};
 const SPOKE_ID: u32 = 1;
 const HUB_ID: u32 = 1;
 
-fn spoke_asset(paused: bool, frozen: bool) -> SpokeAssetConfig {
+fn spoke_asset(paused: bool, frozen: bool, no_seize: bool) -> SpokeAssetConfig {
     SpokeAssetConfig {
         is_collateralizable: true,
         is_borrowable: true,
         paused,
         frozen,
+        no_seize,
         loan_to_value: 9_000,
         liquidation_threshold: 9_300,
         liquidation_bonus: 300,
@@ -23,6 +24,10 @@ fn spoke_asset(paused: bool, frozen: bool) -> SpokeAssetConfig {
 }
 
 fn run_gate(paused: bool, frozen: bool, freeze: FreezePolicy) {
+    run_gate_with_no_seize(paused, frozen, false, freeze);
+}
+
+fn run_gate_with_no_seize(paused: bool, frozen: bool, no_seize: bool, freeze: FreezePolicy) {
     let env = Env::default();
     let admin = Address::generate(&env);
     let contract_id = env.register(Controller, (admin,));
@@ -31,7 +36,12 @@ fn run_gate(paused: bool, frozen: bool, freeze: FreezePolicy) {
             hub_id: 0,
             asset: Address::generate(&env),
         };
-        storage::set_spoke_asset(&env, SPOKE_ID, &hub_asset, &spoke_asset(paused, frozen));
+        storage::set_spoke_asset(
+            &env,
+            SPOKE_ID,
+            &hub_asset,
+            &spoke_asset(paused, frozen, no_seize),
+        );
         let mut cache = Cache::new_view(&env);
         enforce_spoke_asset_flags(&env, &mut cache, SPOKE_ID, &hub_asset, freeze);
     });
@@ -64,6 +74,56 @@ fn frozen_allows_withdraw_repay() {
 fn clean_asset_allows_all_verbs() {
     run_gate(false, false, FreezePolicy::BlockOnEntry);
     run_gate(false, false, FreezePolicy::AllowOnExit);
+    run_gate(false, false, FreezePolicy::SeizureLeg);
+}
+
+// Seizure is pro-rata over an account's whole collateral set, so gating it on
+// `paused` would make one paused listing block liquidation of every account
+// holding it. `SeizureLeg` therefore reads only `no_seize`.
+
+#[test]
+fn paused_does_not_block_seizure() {
+    run_gate_with_no_seize(true, false, false, FreezePolicy::SeizureLeg);
+}
+
+#[test]
+fn frozen_does_not_block_seizure() {
+    run_gate_with_no_seize(false, true, false, FreezePolicy::SeizureLeg);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #318)")]
+fn no_seize_blocks_seizure() {
+    run_gate_with_no_seize(false, false, true, FreezePolicy::SeizureLeg);
+}
+
+#[test]
+fn no_seize_does_not_block_entry_or_exit() {
+    run_gate_with_no_seize(false, false, true, FreezePolicy::BlockOnEntry);
+    run_gate_with_no_seize(false, false, true, FreezePolicy::AllowOnExit);
+}
+
+#[test]
+fn missing_spoke_asset_is_noop_for_seizure() {
+    let env = Env::default();
+    let admin = Address::generate(&env);
+    let contract_id = env.register(Controller, (admin,));
+    env.as_contract(&contract_id, || {
+        let hub_asset = HubAssetKey {
+            hub_id: 0,
+            asset: Address::generate(&env),
+        };
+        let mut cache = Cache::new_view(&env);
+        // A delisted asset must stay seizable, or its holders become
+        // unliquidatable.
+        enforce_spoke_asset_flags(
+            &env,
+            &mut cache,
+            SPOKE_ID,
+            &hub_asset,
+            FreezePolicy::SeizureLeg,
+        );
+    });
 }
 
 #[test]
@@ -115,6 +175,7 @@ fn seed_supplyable_listing(
             is_borrowable: true,
             paused,
             frozen,
+            no_seize: false,
             loan_to_value: 9_000,
             liquidation_threshold: 9_300,
             liquidation_bonus: 300,
@@ -184,6 +245,7 @@ fn seed_borrowable_listing(env: &Env, hub_asset: &HubAssetKey, borrowable: bool)
             is_borrowable: borrowable,
             paused: false,
             frozen: false,
+            no_seize: false,
             loan_to_value: 9_000,
             liquidation_threshold: 9_300,
             liquidation_bonus: 300,
@@ -347,7 +409,12 @@ fn require_can_supply_blocks_inactive_hub() {
                 liquidation_bonus_factor_bps: 0,
             },
         );
-        storage::set_spoke_asset(&env, SPOKE_ID, &hub_asset, &spoke_asset(false, false));
+        storage::set_spoke_asset(
+            &env,
+            SPOKE_ID,
+            &hub_asset,
+            &spoke_asset(false, false, false),
+        );
         let mut cache = Cache::new_view(&env);
         require_can_supply(&env, &mut cache, SPOKE_ID, &hub_asset);
     });

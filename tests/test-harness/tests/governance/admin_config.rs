@@ -25,6 +25,7 @@ fn test_edit_asset_in_spoke_rejects_threshold_lte_ltv() {
         can_borrow: config.is_borrowable,
         paused: false,
         frozen: false,
+        no_seize: false,
         ltv: 8000,
         threshold: 8000,
         bonus: config.liquidation_bonus,

@@ -1,3 +1,4 @@
+use common::types::SeizeMode;
 use controller::constants::{RAY, WAD};
 use test_harness::{
     eth_preset, hub_asset, usd_cents, usdc_preset, usdt_stable_preset, wbtc_preset, LendingTest,
@@ -270,7 +271,7 @@ fn test_liquidation_estimations_basic() {
     let ctrl = t.ctrl_client();
     let payments =
         soroban_sdk::Vec::from_array(&t.env, [(hub_asset(t.resolve_asset("ETH")), 3_0000000)]);
-    let estimate = ctrl.get_liquidation_estimate(&account_id, &payments);
+    let estimate = ctrl.get_liquidation_estimate(&account_id, &payments, &SeizeMode::Transfer);
     let hf = ctrl.get_health_factor(&account_id);
 
     let wad = WAD;

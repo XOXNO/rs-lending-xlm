@@ -97,6 +97,12 @@ pub struct SpokeConfig {
 
 /// Stored per-spoke risk and cap configuration for one asset, with basis-point rates as raw
 /// `u32` values.
+///
+/// The three halt flags are independent and gate different legs: `paused` blocks every user
+/// verb, `frozen` blocks entry but allows exit, and `no_seize` blocks only the liquidation
+/// seizure leg. Seizure is deliberately *not* gated by `paused`, because seizure is pro-rata
+/// across an account's whole collateral set: pausing one collateral would otherwise halt
+/// liquidation of every account holding it. See ADR-0008.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct SpokeAssetConfig {
@@ -104,6 +110,8 @@ pub struct SpokeAssetConfig {
     pub is_borrowable: bool,
     pub paused: bool,
     pub frozen: bool,
+
+    pub no_seize: bool,
     pub loan_to_value: u32,
     pub liquidation_threshold: u32,
     pub liquidation_bonus: u32,
@@ -123,6 +131,8 @@ pub struct SpokeAssetArgs {
     pub can_borrow: bool,
     pub paused: bool,
     pub frozen: bool,
+
+    pub no_seize: bool,
 
     pub ltv: u32,
 
@@ -191,6 +201,10 @@ pub struct PaymentTuple {
 /// View-only projection of a simulated liquidation outcome: seized collateral and protocol
 /// fees per asset, any refunded payments, the maximum USD-equivalent debt repayable, and the
 /// applied bonus rate.
+///
+/// `seized_collaterals` is gross of `protocol_fees`: the liquidator ends up with
+/// `seized_collaterals - protocol_fees`. Both are reported in the units the requested
+/// `SeizeMode` moves — asset units for `Transfer`, RAY-scaled supply shares for `Credit`.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct LiquidationEstimate {
@@ -205,8 +219,44 @@ pub struct LiquidationEstimate {
     pub bonus_rate_bps: i128,
 }
 
-/// One collateral asset seized during a liquidation: total amount seized, the portion routed
-/// to protocol fees, and the price feed and market index used to value it.
+/// How a liquidator takes delivery of the collateral seized from the liquidated account.
+///
+/// One mode governs the whole call rather than one mode per asset: seizure is pro-rata across
+/// every collateral the account holds, so a per-asset choice would have no meaning.
+#[contracttype]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SeizeMode {
+    /// The pool transfers the underlying tokens to the liquidator, withholding the protocol
+    /// fee from the outbound amount.
+    Transfer,
+
+    /// The seized supply shares are credited to a controller account instead of being
+    /// withdrawn. `0` creates a fresh account owned by the liquidator and bound to the
+    /// liquidated account's spoke; any other id must already exist, be owned by (or delegated
+    /// to) the liquidator, sit in the liquidated account's spoke, and be in
+    /// `PositionMode::Normal`.
+    Credit(u64),
+}
+
+/// One collateral asset seized during a liquidation.
+///
+/// Two parallel representations of the same seizure are carried, because the two seize modes
+/// consume different ones:
+///
+/// - `amount` / `protocol_fee` are asset units and drive `SeizeMode::Transfer`, which routes
+///   through the pool's withdraw leg. `amount` is **gross**: the whole seizure the liquidated
+///   account gives up, with `protocol_fee` still inside it. The liquidator is paid
+///   `amount - protocol_fee`, the pool withholding the fee from the outbound transfer and
+///   booking it as revenue. Reading `amount` as the liquidator's proceeds over-counts by the
+///   fee.
+/// - `scaled_amount` / `bonus_scaled` / `liquidation_fees` are the RAY-scaled supply shares and
+///   the fee rate that drive `SeizeMode::Credit`, which moves shares between accounts without
+///   touching pool cash. `scaled_amount` is gross on the same footing — the receiving account is
+///   credited `scaled_amount` minus the fee share `split_seized_shares` derives.
+///   `bonus_scaled` is the share-denominated bonus portion the protocol fee
+///   is charged on; `liquidation_fees` is the seized position's own stamped fee rate in basis
+///   points. Carrying the rate on the entry keeps the credit-mode split derivable from the
+///   entry alone, so every site that recomputes it gets an identical answer.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct SeizeEntry {
@@ -215,6 +265,12 @@ pub struct SeizeEntry {
     pub amount: i128,
 
     pub protocol_fee: i128,
+
+    pub scaled_amount: i128,
+
+    pub bonus_scaled: i128,
+
+    pub liquidation_fees: u32,
     pub feed: PriceFeedRaw,
     pub market_index: crate::types::pool::MarketIndexRaw,
 }
@@ -338,6 +394,7 @@ mod tests {
             is_borrowable: true,
             paused: false,
             frozen: false,
+            no_seize: false,
             loan_to_value: 7_500,
             liquidation_threshold: 8_000,
             liquidation_bonus: 500,
@@ -384,6 +441,7 @@ mod tests {
             is_borrowable: true,
             paused: false,
             frozen: false,
+            no_seize: false,
             loan_to_value: 9_000,
             liquidation_threshold: 9_300,
             liquidation_bonus: 300,

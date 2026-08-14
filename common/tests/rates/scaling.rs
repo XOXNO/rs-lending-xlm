@@ -212,6 +212,68 @@ fn resolve_net_settle_partial_keeps_directed_rounding() {
     );
 }
 
+// --- what the supply-index floor buys (docs/reference/numeric-bounds.md §4) --
+//
+// `SUPPLY_INDEX_FLOOR_RAW` (RAY / 1_000) is the value
+// `apply_bad_debt_to_supply_index` clamps to. It keeps the share conversions
+// well defined — `calculate_scaled_supply` divides by the index — and bounds
+// share inflation to 1_000x, which in turn costs three decades of deposit
+// headroom in a fully written-down market.
+
+#[test]
+fn supply_index_floor_bounds_share_inflation_to_one_thousand_x() {
+    use crate::constants::SUPPLY_INDEX_FLOOR_RAW;
+
+    let env = Env::default();
+    let floor = Ray::from(SUPPLY_INDEX_FLOOR_RAW);
+    let decimals = 7u32;
+    // 1,000 whole tokens at 7 decimals.
+    let amount = 10_000_000_000i128;
+
+    let at_one = calculate_scaled_supply(&env, amount, decimals, Ray::ONE);
+    let at_floor = calculate_scaled_supply(&env, amount, decimals, floor);
+
+    assert_eq!(at_floor.raw(), at_one.raw() * 1_000);
+    // The value the shares represent is unchanged; only the share count moved.
+    assert_eq!(unscale_supply(&env, at_floor, floor, decimals), amount);
+}
+
+#[test]
+fn supply_index_floor_costs_three_decades_of_deposit_headroom() {
+    use crate::constants::SUPPLY_INDEX_FLOOR_RAW;
+    use crate::validation::max_cap_for_decimals;
+
+    let env = Env::default();
+    let floor = Ray::from(SUPPLY_INDEX_FLOOR_RAW);
+    let decimals = 7u32;
+
+    // At index 1.0 the ceiling is the balance ceiling itself.
+    let ceiling = max_cap_for_decimals(decimals);
+    assert!(calculate_scaled_supply(&env, ceiling, decimals, Ray::ONE).raw() > 0);
+
+    // At the floor the scaled form is 1_000x larger, so the largest deposit a
+    // written-down market can still take is the ceiling divided by 1_000.
+    let at_floor_ceiling = ceiling / 1_000;
+    assert!(calculate_scaled_supply(&env, at_floor_ceiling, decimals, floor).raw() > 0);
+    assert_eq!(at_floor_ceiling / 10i128.pow(decimals), 170_141_183);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #33)")]
+fn supply_index_floor_makes_a_ceiling_deposit_overflow_its_scaled_form() {
+    use crate::constants::SUPPLY_INDEX_FLOOR_RAW;
+    use crate::validation::max_cap_for_decimals;
+
+    let env = Env::default();
+
+    let _ = calculate_scaled_supply(
+        &env,
+        max_cap_for_decimals(7),
+        7,
+        Ray::from(SUPPLY_INDEX_FLOOR_RAW),
+    );
+}
+
 #[test]
 fn resolve_net_settle_zero_overlap_is_noop() {
     let env = Env::default();

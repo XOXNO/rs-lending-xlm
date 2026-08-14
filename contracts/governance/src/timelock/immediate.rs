@@ -16,8 +16,8 @@ pub(crate) fn pause(env: &Env, caller: &Address) {
     controller_client(env).pause();
 }
 
-/// Sets the paused and frozen flags for `hub_asset` in the given spoke. Requires
-/// the caller to hold `GUARDIAN_ROLE`.
+/// Sets the paused, frozen, and no-seize flags for `hub_asset` in the given spoke.
+/// Requires the caller to hold `GUARDIAN_ROLE`.
 pub(crate) fn set_spoke_asset_flags(
     env: &Env,
     caller: &Address,
@@ -25,9 +25,10 @@ pub(crate) fn set_spoke_asset_flags(
     hub_asset: &HubAssetKey,
     paused: bool,
     frozen: bool,
+    no_seize: bool,
 ) {
     begin_immediate(env, caller, GUARDIAN_ROLE);
-    controller_client(env).set_spoke_asset_flags(&spoke_id, hub_asset, &paused, &frozen);
+    controller_client(env).set_spoke_asset_flags(&spoke_id, hub_asset, &paused, &frozen, &no_seize);
 }
 
 /// Sets the sanity-check price band (min/max, WAD-scaled) for `key` on the price

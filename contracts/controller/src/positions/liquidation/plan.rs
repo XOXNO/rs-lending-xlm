@@ -87,13 +87,16 @@ pub(crate) fn build_liquidation_plan(
     let seized_collaterals =
         calculate_seized_collateral(env, account, totals.total_collateral, &repayment, cache);
 
+    // Seizure legs are gated by `no_seize` alone. `paused` must not reach here: seizure is
+    // pro-rata over every collateral the account holds, so pausing one listing would block
+    // liquidation of every account that touches it. See ADR-0008.
     for entry in seized_collaterals.iter() {
         enforce_spoke_asset_flags(
             env,
             cache,
             account.spoke_id,
             &entry.hub_asset,
-            FreezePolicy::AllowOnExit,
+            FreezePolicy::SeizureLeg,
         );
     }
 

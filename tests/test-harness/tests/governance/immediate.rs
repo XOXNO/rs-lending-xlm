@@ -32,6 +32,7 @@ fn guardian_sets_spoke_asset_flags_immediately() {
         &hub_asset(usdc.clone()),
         &true,
         &false,
+        &false,
     );
 
     let after = t
@@ -54,12 +55,14 @@ fn guardian_sets_spoke_asset_flags_immediately() {
         &hub_asset(usdc.clone()),
         &true,
         &true,
+        &false,
     );
 
     let relax = t.gov_iface_client().try_set_spoke_asset_flags(
         &admin,
         &HARNESS_SPOKE,
         &hub_asset(usdc.clone()),
+        &false,
         &false,
         &false,
     );
@@ -70,6 +73,7 @@ fn guardian_sets_spoke_asset_flags_immediately() {
         &HARNESS_SPOKE,
         &hub_asset(usdc.clone()),
         &true,
+        &false,
         &false,
     );
     assert_contract_error(flatten(relax_frozen), errors::SPOKE_ASSET_FLAG_RELAXATION);
@@ -91,6 +95,7 @@ fn guardian_sets_spoke_asset_flags_immediately() {
             can_borrow: cfg.is_borrowable,
             paused: false,
             frozen: false,
+            no_seize: false,
             ltv: cfg.loan_to_value,
             threshold: cfg.liquidation_threshold,
             bonus: cfg.liquidation_bonus,
@@ -112,8 +117,14 @@ fn non_guardian_flags_rejected() {
     let stranger = Address::generate(&t.env);
     let usdc = t.resolve_asset("USDC");
 
-    let result =
-        gov.try_set_spoke_asset_flags(&stranger, &HARNESS_SPOKE, &hub_asset(usdc), &true, &false);
+    let result = gov.try_set_spoke_asset_flags(
+        &stranger,
+        &HARNESS_SPOKE,
+        &hub_asset(usdc),
+        &true,
+        &false,
+        &false,
+    );
     assert_contract_error(flatten(result), errors::UNAUTHORIZED);
 }
 
@@ -277,8 +288,14 @@ fn owner_revokes_role_immediately() {
     gov.revoke_role_immediate(&holder, &guardian_role);
     assert!(!gov.has_role(&holder, &guardian_role));
 
-    let result =
-        gov.try_set_spoke_asset_flags(&holder, &HARNESS_SPOKE, &hub_asset(usdc), &true, &false);
+    let result = gov.try_set_spoke_asset_flags(
+        &holder,
+        &HARNESS_SPOKE,
+        &hub_asset(usdc),
+        &true,
+        &false,
+        &false,
+    );
     assert_contract_error(flatten(result), errors::UNAUTHORIZED);
 
     let result = gov.try_revoke_role_immediate(&admin, &guardian_role);

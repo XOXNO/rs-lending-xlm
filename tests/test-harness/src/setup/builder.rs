@@ -366,6 +366,7 @@ impl LendingTestBuilder {
                         can_borrow: *can_borrow,
                         paused: false,
                         frozen: false,
+                        no_seize: false,
                         ltv: spoke.preset.ltv,
                         threshold: spoke.preset.threshold,
                         bonus: spoke.preset.bonus,

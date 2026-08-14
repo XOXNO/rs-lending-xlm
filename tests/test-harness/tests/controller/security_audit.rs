@@ -347,8 +347,14 @@ fn poc_paused_debt_blocks_liquidation_repay() {
     assert_contract_error(result, errors::SPOKE_ASSET_PAUSED);
 }
 
+/// Pausing a collateral listing must NOT block liquidation of the accounts holding it.
+///
+/// This test previously pinned the opposite. Seizure is pro-rata across an account's whole
+/// collateral set, so gating it on `paused` turned a per-listing halt into a protocol-wide
+/// liquidation halt for every account touching that asset. Seizure now has its own flag,
+/// `no_seize`; see ADR-0008.
 #[test]
-fn poc_paused_collateral_blocks_liquidation_seizure() {
+fn poc_paused_collateral_does_not_block_liquidation_seizure() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
@@ -362,17 +368,20 @@ fn poc_paused_collateral_blocks_liquidation_seizure() {
     t.set_spoke_asset_paused("USDC", true);
 
     let result = t.try_liquidate(LIQUIDATOR, ALICE, "ETH", 1.0);
-    assert_contract_error(result, errors::SPOKE_ASSET_PAUSED);
-
-    t.set_spoke_asset_paused("USDC", false);
-    let result = t.try_liquidate(LIQUIDATOR, ALICE, "ETH", 1.0);
     assert!(
         result.is_ok(),
-        "unpaused collateral must be seizable again; got {result:?}"
+        "a paused collateral must still be seizable; got {result:?}"
     );
     assert!(
         t.token_balance(LIQUIDATOR, "USDC") > 0.0,
-        "liquidator must receive seized USDC after unpause"
+        "liquidator must receive the seized USDC"
+    );
+
+    // The halt that does apply to the seizure leg is `no_seize`, and only that one.
+    t.set_spoke_asset_flags("USDC", true, false, true);
+    assert_contract_error(
+        t.try_liquidate(LIQUIDATOR, ALICE, "ETH", 1.0),
+        errors::SPOKE_ASSET_SEIZURE_HALTED,
     );
 }
 
@@ -398,6 +407,7 @@ fn poc_frozen_collateral_still_backs_new_borrows() {
             can_borrow: config.is_borrowable,
             paused: false,
             frozen: true,
+            no_seize: false,
             ltv: config.loan_to_value,
             threshold: config.liquidation_threshold,
             bonus: config.liquidation_bonus,

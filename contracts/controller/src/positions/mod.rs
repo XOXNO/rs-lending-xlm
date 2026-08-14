@@ -180,10 +180,20 @@ pub(crate) fn merge_debt_leg(
     account::update_or_remove_debt_position(account, hub_asset, &position);
 }
 
+/// Which listing halt flags a given leg honours.
+///
+/// The three policies are disjoint on purpose. `paused` is a *user-activity* halt and does not
+/// reach the seizure leg, because seizure is pro-rata over an account's entire collateral set:
+/// gating it on `paused` turns a per-listing halt into a protocol-wide liquidation halt for
+/// every account holding that collateral. Seizure has its own flag instead. See ADR-0008.
 #[derive(Clone, Copy, PartialEq)]
 pub(crate) enum FreezePolicy {
+    /// New exposure: rejects `paused` and `frozen`.
     BlockOnEntry,
+    /// User-initiated exit: rejects `paused`, tolerates `frozen`.
     AllowOnExit,
+    /// Liquidation seizure: rejects `no_seize` only, tolerates `paused` and `frozen`.
+    SeizureLeg,
 }
 
 #[derive(Copy, Clone)]
@@ -311,9 +321,10 @@ pub(crate) fn validate_position_entry_gates(
     }
 }
 
-/// Asserts the spoke asset isn't paused, and — when `freeze` is
-/// `BlockOnEntry` — also isn't frozen. No-op if the asset has no cached spoke
-/// config.
+/// Asserts the spoke asset's halt flags permit this leg, per `freeze`.
+///
+/// No-op if the asset has no cached spoke config: a delisted asset must stay exitable and
+/// seizable, or its holders would be stranded and unliquidatable.
 pub(crate) fn enforce_spoke_asset_flags(
     env: &Env,
     cache: &mut Cache,
@@ -322,9 +333,17 @@ pub(crate) fn enforce_spoke_asset_flags(
     freeze: FreezePolicy,
 ) {
     if let Some(sa) = cache.cached_spoke_asset(spoke_id, hub_asset) {
-        assert_with_error!(env, !sa.paused, SpokeError::SpokeAssetPaused);
-        if freeze == FreezePolicy::BlockOnEntry {
-            assert_with_error!(env, !sa.frozen, SpokeError::SpokeAssetFrozen);
+        match freeze {
+            FreezePolicy::BlockOnEntry => {
+                assert_with_error!(env, !sa.paused, SpokeError::SpokeAssetPaused);
+                assert_with_error!(env, !sa.frozen, SpokeError::SpokeAssetFrozen);
+            }
+            FreezePolicy::AllowOnExit => {
+                assert_with_error!(env, !sa.paused, SpokeError::SpokeAssetPaused);
+            }
+            FreezePolicy::SeizureLeg => {
+                assert_with_error!(env, !sa.no_seize, SpokeError::SpokeAssetSeizureHalted);
+            }
         }
     }
 }

@@ -4,14 +4,15 @@ use common::collections::unique_hub_tokens;
 
 use crate::risk;
 use common::errors::GenericError;
+use common::math::fp::Ray;
 use common::rates::{unscale_borrow, unscale_supply};
 use common::types::{
     AccountAttributes, AccountPositionRaw, DebtPositionRaw, HubAssetKey, HubPayment,
-    LiquidationEstimate, MarketIndexView, PaymentTuple, PriceStatus,
+    LiquidationEstimate, MarketIndexView, PaymentTuple, PriceStatus, SeizeMode,
 };
 use soroban_sdk::{assert_with_error, Address, Env, Map, Vec};
 
-use crate::positions::liquidation::execute_liquidation;
+use crate::positions::liquidation::{execute_liquidation, split_seized_shares};
 use crate::storage;
 
 /// Panics unless `values` has at most `MAX_VIEW_INPUTS` entries.
@@ -188,13 +189,20 @@ pub(crate) fn get_all_market_indexes_detailed(
     result
 }
 
-/// Simulates liquidating the account with `debt_payments` and returns the
-/// resulting seized collateral, protocol fees, refunds, and bonus rate,
-/// without persisting any state changes.
+/// Simulates liquidating the account with `debt_payments` under `seize_mode` and returns the
+/// resulting seized collateral, protocol fees, refunds, and bonus rate, without persisting any
+/// state changes.
+///
+/// The reported units follow the mode, so the estimate describes what execution would actually
+/// move: `Transfer` reports asset units (what the pool would pay out and withhold), `Credit`
+/// reports RAY-scaled supply shares (what would leave the liquidated account and what would be
+/// reclassified as revenue). In credit mode the liquidator receives
+/// `seized_collaterals - protocol_fees` shares.
 pub(crate) fn liquidation_estimations_detailed(
     env: &Env,
     account_id: u64,
     debt_payments: &Vec<HubPayment>,
+    seize_mode: SeizeMode,
 ) -> LiquidationEstimate {
     require_view_inputs_bound(env, debt_payments);
     let mut cache = Cache::new_view(env);
@@ -205,13 +213,25 @@ pub(crate) fn liquidation_estimations_detailed(
     let mut seized_collaterals = Vec::new(env);
     let mut protocol_fees = Vec::new(env);
     for entry in result.seized {
+        let (seized_amount, fee_amount) = match seize_mode {
+            SeizeMode::Transfer => (entry.amount, entry.protocol_fee),
+            SeizeMode::Credit(_) => {
+                let (fee_scaled, _) = split_seized_shares(
+                    env,
+                    Ray::from(entry.scaled_amount),
+                    Ray::from(entry.bonus_scaled),
+                    entry.liquidation_fees,
+                );
+                (entry.scaled_amount, fee_scaled.raw())
+            }
+        };
         seized_collaterals.push_back(PaymentTuple {
             asset: entry.hub_asset.asset.clone(),
-            amount: entry.amount,
+            amount: seized_amount,
         });
         protocol_fees.push_back(PaymentTuple {
             asset: entry.hub_asset.asset,
-            amount: entry.protocol_fee,
+            amount: fee_amount,
         });
     }
 
