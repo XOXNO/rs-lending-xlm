@@ -1700,7 +1700,6 @@ dependencies = [
  "mock-redstone",
  "pool",
  "price-aggregator",
- "serde",
  "serde_json",
  "sha2",
  "soroban-sdk",

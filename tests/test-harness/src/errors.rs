@@ -5,26 +5,17 @@ pub use common::errors::{
 pub mod codes {
     use super::*;
 
-    pub const ASSET_NOT_SUPPORTED: u32 = GenericError::AssetNotSupported as u32;
-    pub const ASSET_ALREADY_SUPPORTED: u32 = GenericError::AssetAlreadySupported as u32;
-    pub const INVALID_TICKER: u32 = GenericError::InvalidTicker as u32;
     pub const INVALID_ASSET: u32 = GenericError::InvalidAsset as u32;
     pub const ASSETS_ARE_THE_SAME: u32 = GenericError::AssetsAreTheSame as u32;
-    pub const WRONG_TOKEN: u32 = GenericError::WrongToken as u32;
-    pub const PAIR_NOT_ACTIVE: u32 = GenericError::PairNotActive as u32;
     pub const ACCOUNT_NOT_IN_MARKET: u32 = GenericError::AccountNotInMarket as u32;
     pub const AMOUNT_MUST_BE_POSITIVE: u32 = GenericError::AmountMustBePositive as u32;
     pub const INVALID_PAYMENTS: u32 = GenericError::InvalidPayments as u32;
     pub const ACCOUNT_MODE_MISMATCH: u32 = GenericError::AccountModeMismatch as u32;
-    pub const INTERNAL_ERROR: u32 = GenericError::InternalError as u32;
     pub const INVALID_POSITION_LIMITS: u32 = GenericError::InvalidPositionLimits as u32;
     pub const NOT_SMART_CONTRACT: u32 = GenericError::NotSmartContract as u32;
-    pub const TIMELOCK_OPERATION_EXPIRED: u32 = GenericError::TimelockOperationExpired as u32;
     pub const INVALID_ROLE: u32 = GenericError::InvalidRole as u32;
     pub const BLEND_POOL_NOT_APPROVED: u32 = GenericError::BlendPoolNotApproved as u32;
     pub const NOT_AUTHORIZED: u32 = GenericError::NotAuthorized as u32;
-    pub const REGISTRY_CAP_REACHED: u32 = GenericError::RegistryCapReached as u32;
-    pub const BORROW_ROUNDS_TO_ZERO_SHARES: u32 = GenericError::BorrowRoundsToZeroShares as u32;
 
     pub const INSUFFICIENT_COLLATERAL: u32 = CollateralError::InsufficientCollateral as u32;
     pub const HEALTH_FACTOR_TOO_HIGH: u32 = CollateralError::HealthFactorTooHigh as u32;
@@ -50,24 +41,15 @@ pub mod codes {
     pub const MIN_BORROW_COLLATERAL_NOT_MET: u32 =
         CollateralError::MinBorrowCollateralNotMet as u32;
     pub const UTILIZATION_ABOVE_MAX: u32 = CollateralError::UtilizationAboveMax as u32;
-    pub const BASE_RATE_NEGATIVE: u32 = CollateralError::BaseRateNegative as u32;
-    pub const SLOPE_NON_MONOTONIC: u32 = CollateralError::SlopeNonMonotonic as u32;
-    pub const MAX_RATE_BELOW_BASE: u32 = CollateralError::MaxRateBelowBase as u32;
     pub const MAX_BORROW_RATE_TOO_HIGH: u32 = CollateralError::MaxBorrowRateTooHigh as u32;
-    pub const ASSET_DECIMALS_TOO_HIGH: u32 = CollateralError::AssetDecimalsTooHigh as u32;
     pub const SELF_LIQUIDATION_NOT_ALLOWED: u32 = CollateralError::SelfLiquidationNotAllowed as u32;
     pub const INVALID_LIQUIDATION_CURVE: u32 = CollateralError::InvalidLiquidationCurve as u32;
 
-    pub const INVALID_PRICE: u32 = OracleError::InvalidPrice as u32;
     pub const UNSAFE_PRICE: u32 = OracleError::UnsafePriceNotAllowed as u32;
     pub const PRICE_FEED_STALE: u32 = OracleError::PriceFeedStale as u32;
     pub const NO_LAST_PRICE: u32 = OracleError::NoLastPrice as u32;
     pub const BAD_LAST_TOLERANCE: u32 = OracleError::BadLastTolerance as u32;
-    pub const REFLECTOR_HISTORY_EMPTY: u32 = OracleError::ReflectorHistoryEmpty as u32;
-    pub const TWAP_INSUFFICIENT_OBSERVATIONS: u32 =
-        OracleError::TwapInsufficientObservations as u32;
     pub const ORACLE_NOT_CONFIGURED: u32 = OracleError::OracleNotConfigured as u32;
-    pub const INVALID_ORACLE_BASE: u32 = OracleError::InvalidOracleBase as u32;
     pub const SANITY_BOUND_VIOLATED: u32 = OracleError::SanityBoundViolated as u32;
     pub const INVALID_SANITY_BOUNDS: u32 = OracleError::InvalidSanityBounds as u32;
 
@@ -96,11 +78,6 @@ pub mod codes {
     pub const UNAUTHORIZED: u32 = 2000;
 
     pub const NO_PENDING_TRANSFER: u32 = 2200;
-
-    pub const REFLECTOR_NOT_CONFIGURED: u32 = 215;
-    pub const SWAP_DEBT_NOT_SUPPORTED: u32 = 406;
-    pub const NO_DEBT_PAYMENTS: u32 = 407;
-    pub const MULTIPLY_EXTRA_STEPS: u32 = 408;
 }
 
 pub use codes::*;

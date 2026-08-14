@@ -127,14 +127,13 @@ use fixtures::{seed_liquidatable_usdc_eth, LendingTest, ALICE};
 | `LendingTest::new().standard_two_asset_dust_disabled().build()` | Two-asset book with dust floors off |
 | `LendingTest::new().dual_source_two_asset()` | Built book with dual-source safe prices on USDC/ETH |
 | `LendingTest::new().three_asset_usdc_eth_wbtc()` | USDC + ETH + WBTC |
-| `LendingTest::new().three_asset_usdc_eth_wbtc_with_budget()` | Three-asset book with Soroban budget limits on |
 | `liquidatable_usdc_eth()` | Built USDC/ETH market with liquidatable Alice position |
 | `seed_liquidatable_usdc_eth(t)` | Alice: 10k USDC, 3 ETH debt, USDC at $0.50 |
 | `seed_fuzz_conservation_book(t)` | Two-user seed for accounting conservation properties |
 | `seed_standard_liquidity(t)` | Alice USDC supply, Bob ETH supply |
 | `seed_liquidator_usdc(t, amount)` | Fund liquidator wallet |
 
-Builder knobs: `with_min_borrow_collateral_disabled()` (instance LTV-collateral floor = 0), `with_max_utilization_disabled_all_markets()`, `without_auto_auth()`, `with_budget_enabled()`, `with_market(preset)`, `with_market_config`, `with_position_limits`.
+Builder knobs: `with_min_borrow_collateral_disabled()` (instance LTV-collateral floor = 0), `with_max_utilization_disabled_all_markets()`, `with_budget_enabled()`, `with_market(preset)`, `with_market_config`, `with_position_limits`.
 
 Example:
 

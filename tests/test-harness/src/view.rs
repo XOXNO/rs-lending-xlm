@@ -174,14 +174,6 @@ impl LendingTest {
             .unwrap_or(0)
     }
 
-    pub fn pool_utilization(&self, asset_name: &str) -> f64 {
-        let asset = self.resolve_asset(asset_name);
-        let raw = self
-            .pool_client(asset_name)
-            .get_utilisation(&hub_asset(asset));
-        raw as f64 / RAY as f64
-    }
-
     pub fn pool_reserves(&self, asset_name: &str) -> f64 {
         let decimals = self.resolve_market(asset_name).decimals;
         let asset = self.resolve_asset(asset_name);
@@ -194,14 +186,6 @@ impl LendingTest {
         let raw = self
             .pool_client(asset_name)
             .get_borrow_rate(&hub_asset(asset));
-        raw as f64 / RAY as f64
-    }
-
-    pub fn pool_supply_rate(&self, asset_name: &str) -> f64 {
-        let asset = self.resolve_asset(asset_name);
-        let raw = self
-            .pool_client(asset_name)
-            .get_deposit_rate(&hub_asset(asset));
         raw as f64 / RAY as f64
     }
 

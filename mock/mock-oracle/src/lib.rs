@@ -44,12 +44,6 @@ impl MockReflectorOracle {
             .set(&MockKey::Ts(asset), &timestamp);
     }
 
-    pub fn set_ts(env: Env, asset: ReflectorAsset, timestamp: u64) {
-        env.storage()
-            .persistent()
-            .set(&MockKey::Ts(asset), &timestamp);
-    }
-
     pub fn base(env: Env) -> ReflectorAsset {
         env.storage().instance().get(&MockKey::Base).unwrap()
     }

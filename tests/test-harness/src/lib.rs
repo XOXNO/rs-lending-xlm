@@ -2,7 +2,6 @@ extern crate std;
 
 mod admin;
 pub mod assert;
-pub mod auth;
 mod context;
 mod core;
 pub mod errors;

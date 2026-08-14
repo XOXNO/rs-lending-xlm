@@ -189,10 +189,6 @@ pub fn decode_redstone_price(value: &ScVal) -> Result<PriceObservation> {
     })
 }
 
-pub fn is_nonempty_vec(value: &ScVal) -> bool {
-    vec_items(value).map(|v| !v.is_empty()).unwrap_or(false)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
