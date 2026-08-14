@@ -1,7 +1,7 @@
-//! Reads instance-storage configuration values for the oracle: the signer
-//! set, submission threshold, staleness and skew bounds, and price
-//! resolution. Every accessor falls back to a default when the underlying
-//! key is absent from instance storage.
+//! Reads and writes instance-storage configuration values for the oracle:
+//! the signer set, submission threshold, staleness and skew bounds, and
+//! price resolution. Every read accessor falls back to a default when the
+//! underlying key is absent from instance storage.
 
 use soroban_sdk::{Address, Env, Vec};
 
@@ -16,6 +16,49 @@ pub(crate) fn load_signers(env: &Env) -> Vec<Address> {
         .instance()
         .get(&DataKey::Signers)
         .unwrap_or_else(|| Vec::new(env))
+}
+
+/// Overwrites the configured signer addresses.
+pub(crate) fn store_signers(env: &Env, signers: &Vec<Address>) {
+    env.storage().instance().set(&DataKey::Signers, signers);
+}
+
+/// Overwrites the minimum number of signer submissions required to accept a price.
+pub(crate) fn store_threshold(env: &Env, threshold: u32) {
+    env.storage()
+        .instance()
+        .set(&DataKey::Threshold, &threshold);
+}
+
+/// Overwrites the maximum age, in seconds, a stored price can reach before it is
+/// considered stale.
+pub(crate) fn store_max_stale_seconds(env: &Env, seconds: u64) {
+    env.storage()
+        .instance()
+        .set(&DataKey::MaxStaleSeconds, &seconds);
+}
+
+/// Overwrites the maximum age, in seconds, a signer's submission timestamp can have
+/// relative to the ledger time to be accepted.
+pub(crate) fn store_max_submission_age(env: &Env, seconds: u64) {
+    env.storage()
+        .instance()
+        .set(&DataKey::MaxSubmissionAgeSeconds, &seconds);
+}
+
+/// Overwrites the maximum allowed timestamp skew, in seconds, between signer
+/// submissions for the same price update.
+pub(crate) fn store_max_relative_skew(env: &Env, seconds: u64) {
+    env.storage()
+        .instance()
+        .set(&DataKey::MaxRelativeSkewSeconds, &seconds);
+}
+
+/// Overwrites the configured price resolution.
+pub(crate) fn store_resolution(env: &Env, resolution: u32) {
+    env.storage()
+        .instance()
+        .set(&DataKey::Resolution, &resolution);
 }
 
 /// Loads the minimum number of signer submissions required to accept a price. Returns 0 if unset.

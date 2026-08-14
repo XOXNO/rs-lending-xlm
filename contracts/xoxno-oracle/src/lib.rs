@@ -84,22 +84,12 @@ impl XoxnoOracle {
 
         ownable::set_owner(&env, &admin);
 
-        let store = env.storage().instance();
-        store.set(&storage::DataKey::Signers, &signers);
-        store.set(&storage::DataKey::Threshold, &threshold);
-        store.set(
-            &storage::DataKey::MaxStaleSeconds,
-            &storage::DEFAULT_MAX_STALE_SECONDS,
-        );
-        store.set(
-            &storage::DataKey::MaxSubmissionAgeSeconds,
-            &storage::DEFAULT_MAX_SUBMISSION_AGE_SECONDS,
-        );
-        store.set(
-            &storage::DataKey::MaxRelativeSkewSeconds,
-            &storage::DEFAULT_MAX_RELATIVE_SKEW_SECONDS,
-        );
-        store.set(&storage::DataKey::Resolution, &resolution);
+        storage::store_signers(&env, &signers);
+        storage::store_threshold(&env, threshold);
+        storage::store_max_stale_seconds(&env, storage::DEFAULT_MAX_STALE_SECONDS);
+        storage::store_max_submission_age(&env, storage::DEFAULT_MAX_SUBMISSION_AGE_SECONDS);
+        storage::store_max_relative_skew(&env, storage::DEFAULT_MAX_RELATIVE_SKEW_SECONDS);
+        storage::store_resolution(&env, resolution);
         Ok(())
     }
 
