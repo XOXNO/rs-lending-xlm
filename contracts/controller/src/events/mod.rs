@@ -178,4 +178,3 @@ pub(crate) struct EventContext {
     pub counterparty: soroban_sdk::Address,
     pub action: PositionAction,
 }
-

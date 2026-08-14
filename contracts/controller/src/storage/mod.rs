@@ -1,3 +1,8 @@
+//! Typed storage accessors, split by key family (account, hub, protocol,
+//! spoke). Import via `storage::` — raw key-value access is private to this
+//! module, so every crate-visible accessor carries its value type. Under the
+//! certora feature the harness swaps in via `verification_storage`.
+
 mod account;
 mod hub;
 mod protocol;

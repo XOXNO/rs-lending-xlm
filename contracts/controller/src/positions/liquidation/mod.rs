@@ -1,3 +1,9 @@
+//! Liquidation pipeline, one phase per file: `plan` builds a validated
+//! `LiquidationPlan` (shared with the estimate view), `apply` executes
+//! repayments and seizures, `math` and `curve` hold the pure arithmetic
+//! (`curve` is certora-pinned), `bad_debt` socializes and removes insolvent
+//! accounts.
+
 use crate::risk;
 use common::validation::require_non_empty_payments;
 mod apply;

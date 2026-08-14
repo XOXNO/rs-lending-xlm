@@ -1,3 +1,10 @@
+//! Shared position-accounting toolkit for the verb modules (supply, debt,
+//! liquidation) and the strategies: the "leg" vocabulary (`LegOutcome`,
+//! `merge_debt_leg`/`merge_withdraw_leg`, `apply_leg_usage`), the entry gates
+//! (`require_can_supply`/`require_can_borrow`), and the persistence tail
+//! (`finalize_position_flow`: persist spoke usage and positions, then emit
+//! the position batch).
+
 pub(crate) mod debt;
 
 use common::errors::{CollateralError, GenericError, SpokeError};

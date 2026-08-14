@@ -1,3 +1,10 @@
+//! One file per strategy entry point. Shared pieces: the helpers here
+//! (`require_strategy_caller`, `prefetch_strategy_prices`,
+//! `strategy_finalize`), `legs.rs` for controller-custody position primitives
+//! (repay, withdraw, withdraw-all, net-settle through the controller's own
+//! balance), and `swap/` for the router trust boundary. Every strategy ends
+//! in `strategy_finalize`: restamp LTV, post-pool risk gates, finalize.
+
 #[cfg(test)]
 #[path = "../../tests/strategies/mod.rs"]
 mod tests;

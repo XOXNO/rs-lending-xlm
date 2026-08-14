@@ -1,3 +1,10 @@
+//! Per-invocation `Cache`: memoizes reads (prices, market indexes, spoke
+//! config and assets, hub checks) and buffers writes (spoke usage deltas and
+//! the position-event queue drained by `emit_position_batch`). `new` renews
+//! the instance TTL; `new_view` serves read-only entry points. The impl spans
+//! the sibling files, one cache concern each; under the certora feature,
+//! `spec_hooks.rs` overrides index fetching.
+
 mod events;
 mod market_index;
 mod oracle;
