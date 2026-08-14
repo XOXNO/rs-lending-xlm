@@ -47,7 +47,7 @@ fn operation_state_transitions_unset_waiting_ready_unset() {
 
     assert_harness_delay(&t);
 
-    let new_limits = limits(9, 7);
+    let new_limits = limits(4, 3);
 
     let pre_id = gov.hash_operation(
         &t.controller,
@@ -93,8 +93,8 @@ fn operation_state_transitions_unset_waiting_ready_unset() {
     );
 
     let stored = read_controller_position_limits(&t);
-    assert_eq!(stored.max_supply_positions, 9);
-    assert_eq!(stored.max_borrow_positions, 7);
+    assert_eq!(stored.max_supply_positions, 4);
+    assert_eq!(stored.max_borrow_positions, 3);
 }
 
 #[test]
@@ -106,7 +106,7 @@ fn cancelled_operation_cannot_execute() {
 
     assert_harness_delay(&t);
 
-    let new_limits = limits(8, 6);
+    let new_limits = limits(4, 2);
     let id = gov.propose(
         &admin,
         &AdminOperation::SetPositionLimits(new_limits.clone()),

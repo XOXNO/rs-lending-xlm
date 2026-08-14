@@ -3021,10 +3021,6 @@ fn backing_snapshot(t: &TestSetup) -> (i128, i128, i128, i128, i128, i128) {
     })
 }
 
-fn native_tokens(amount: i128) -> (i128, i128) {
-    (amount / 10_000_000, amount % 10_000_000)
-}
-
 #[test]
 fn test_floor_wipeout_blocks_supply_until_recap_then_new_deposit_is_safe() {
     let t = TestSetup::new();
@@ -3050,8 +3046,6 @@ fn test_floor_wipeout_blocks_supply_until_recap_then_new_deposit_is_safe() {
     ));
 
     let (index, supplied, borrowed, cash, claim, shortfall) = backing_snapshot(&t);
-    let (claim_whole, claim_frac) = native_tokens(claim);
-    let (short_whole, short_frac) = native_tokens(shortfall);
 
     assert_eq!(index, common::constants::SUPPLY_INDEX_FLOOR_RAW);
     assert_eq!(supplied, alice_shares);
@@ -3068,7 +3062,7 @@ fn test_floor_wipeout_blocks_supply_until_recap_then_new_deposit_is_safe() {
     token_admin.mint(&payer, &offered);
     token.transfer(&payer, &t.pool, &offered);
     let recap = client.recapitalize(&hub(&t.asset), &payer, &offered);
-    let (index2, _, _, cash2, claim2, shortfall2) = backing_snapshot(&t);
+    let (index2, _, _, cash2, _claim2, shortfall2) = backing_snapshot(&t);
 
     assert_eq!(recap.actual_amount, shortfall);
     assert_eq!(token.balance(&payer), offered - shortfall);
@@ -3078,7 +3072,7 @@ fn test_floor_wipeout_blocks_supply_until_recap_then_new_deposit_is_safe() {
 
     let bob_deposit = 50_000_000i128;
     let bob = client.supply(&t.sup(0, bob_deposit)).get_unchecked(0);
-    let (_, _, _, cash3, claim3, shortfall3) = backing_snapshot(&t);
+    let (_, _, _, cash3, _claim3, shortfall3) = backing_snapshot(&t);
     assert_eq!(bob.actual_amount, bob_deposit);
     assert_eq!(cash3, shortfall + bob_deposit);
     assert_eq!(shortfall3, 0);
