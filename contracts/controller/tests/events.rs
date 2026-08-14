@@ -100,6 +100,18 @@ fn every_event_helper_publishes_exactly_one_event() {
         let asset = dummy_address(&env);
         let caller = dummy_address(&env);
 
+        // Asserting after every publish pins each helper to exactly one event;
+        // a single total could hide one helper emitting two and another zero.
+        let mut published = 0usize;
+        let assert_one_more = |published: &mut usize, label: &str| {
+            *published += 1;
+            assert_eq!(
+                env.events().all().events().len(),
+                *published,
+                "{label} must publish exactly one event"
+            );
+        };
+
         CreateMarketEvent::from_params(
             1,
             asset.clone(),
@@ -107,8 +119,10 @@ fn every_event_helper_publishes_exactly_one_event() {
             &sample_market_params(&asset),
         )
         .publish(&env);
+        assert_one_more(&mut published, "CreateMarketEvent");
 
         UpdateMarketParamsEvent::from((1u32, asset.clone(), &sample_rate_model())).publish(&env);
+        assert_one_more(&mut published, "UpdateMarketParamsEvent");
 
         let mut deposits = Vec::new(&env);
         deposits.push_back(EventDepositDelta(
@@ -130,6 +144,7 @@ fn every_event_helper_publishes_exactly_one_event() {
             borrows: Vec::new(&env),
         }
         .publish(&env);
+        assert_one_more(&mut published, "UpdatePositionBatchEvent");
 
         FlashLoanEvent {
             hub_id: 1,
@@ -140,6 +155,7 @@ fn every_event_helper_publishes_exactly_one_event() {
             fee: 0,
         }
         .publish(&env);
+        assert_one_more(&mut published, "FlashLoanEvent");
 
         LiquidationEvent {
             liquidator: caller.clone(),
@@ -148,6 +164,7 @@ fn every_event_helper_publishes_exactly_one_event() {
             bonus_bps: 0,
         }
         .publish(&env);
+        assert_one_more(&mut published, "LiquidationEvent");
 
         UpdateSpokeEvent {
             spoke: EventSpoke {
@@ -159,6 +176,7 @@ fn every_event_helper_publishes_exactly_one_event() {
             },
         }
         .publish(&env);
+        assert_one_more(&mut published, "UpdateSpokeEvent");
 
         UpdateSpokeAssetEvent {
             asset: asset.clone(),
@@ -178,6 +196,7 @@ fn every_event_helper_publishes_exactly_one_event() {
             hub_id: 1,
         }
         .publish(&env);
+        assert_one_more(&mut published, "UpdateSpokeAssetEvent");
 
         RemoveSpokeAssetEvent {
             asset: asset.clone(),
@@ -185,6 +204,7 @@ fn every_event_helper_publishes_exactly_one_event() {
             hub_id: 1,
         }
         .publish(&env);
+        assert_one_more(&mut published, "RemoveSpokeAssetEvent");
 
         CleanBadDebtEvent {
             account_id: 1,
@@ -192,6 +212,7 @@ fn every_event_helper_publishes_exactly_one_event() {
             total_collateral_usd_wad: 0,
         }
         .publish(&env);
+        assert_one_more(&mut published, "CleanBadDebtEvent");
 
         InitialMultiplyPaymentEvent {
             token: asset.clone(),
@@ -199,13 +220,13 @@ fn every_event_helper_publishes_exactly_one_event() {
             account_id: 1,
         }
         .publish(&env);
-    });
+        assert_one_more(&mut published, "InitialMultiplyPaymentEvent");
 
-    assert_eq!(
-        env.events().all().events().len(),
-        PUBLISHED_EVENT_COUNT,
-        "expected one event per helper; a mismatch means a helper emitted zero or two"
-    );
+        assert_eq!(
+            published, PUBLISHED_EVENT_COUNT,
+            "helper coverage drifted: update the exercised list and the count together"
+        );
+    });
 }
 
 #[test]
@@ -256,101 +277,4 @@ fn update_market_params_event_from_rate_model_is_flat() {
     assert_eq!(via_ctor.reserve_factor, model.reserve_factor);
     // is_flashloanable / flashloan_fee exist on the model but have no event
     // fields — mapping must drop them rather than nest the whole model.
-}
-
-#[test]
-fn create_market_event_carries_hub_id() {
-    let env = Env::default();
-    let asset = dummy_address(&env);
-    let ev = CreateMarketEvent::from_params(
-        2,
-        asset.clone(),
-        asset.clone(),
-        &sample_market_params(&asset),
-    );
-    assert_eq!(ev.hub_id, 2);
-}
-
-#[test]
-fn position_deltas_carry_hub_id_and_liquidation_fees() {
-    let env = Env::default();
-    let asset = dummy_address(&env);
-    let dep = EventDepositDelta(
-        PositionAction::Supply,
-        4,
-        asset.clone(),
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        150,
-    );
-    let bor = EventBorrowDelta(PositionAction::Repay, 9, asset.clone(), 0, 0, 0);
-    assert_eq!(dep.1, 4);
-    assert_eq!(dep.9, 150);
-    assert_eq!(bor.1, 9);
-}
-
-#[test]
-fn flash_loan_event_carries_hub_id() {
-    let env = Env::default();
-    let asset = dummy_address(&env);
-    let caller = dummy_address(&env);
-    let ev = FlashLoanEvent {
-        hub_id: 7,
-        asset: asset.clone(),
-        receiver: caller.clone(),
-        caller,
-        amount: 0,
-        fee: 0,
-    };
-    assert_eq!(ev.hub_id, 7);
-}
-
-#[test]
-fn liquidation_event_carries_liquidator_and_account() {
-    let env = Env::default();
-    let liquidator = dummy_address(&env);
-    let ev = LiquidationEvent {
-        liquidator: liquidator.clone(),
-        account_id: 42,
-        repaid_usd_wad: 1_500_000,
-        bonus_bps: 500,
-    };
-    assert_eq!(ev.liquidator, liquidator);
-    assert_eq!(ev.account_id, 42);
-    assert_eq!(ev.repaid_usd_wad, 1_500_000);
-    assert_eq!(ev.bonus_bps, 500);
-}
-
-#[test]
-fn spoke_asset_events_carry_hub_id() {
-    let env = Env::default();
-    let asset = dummy_address(&env);
-    let upd = UpdateSpokeAssetEvent {
-        asset: asset.clone(),
-        config: SpokeAssetConfig {
-            is_collateralizable: true,
-            is_borrowable: true,
-            paused: false,
-            frozen: false,
-            loan_to_value: 9000,
-            liquidation_threshold: 9500,
-            liquidation_bonus: 200,
-            liquidation_fees: 0,
-            supply_cap: 0,
-            borrow_cap: 0,
-        },
-        spoke_id: 1,
-        hub_id: 3,
-    };
-    let rem = RemoveSpokeAssetEvent {
-        asset,
-        spoke_id: 1,
-        hub_id: 3,
-    };
-    assert_eq!(upd.hub_id, 3);
-    assert_eq!(rem.hub_id, 3);
 }
