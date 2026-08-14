@@ -11,6 +11,7 @@ use crate::events;
 use crate::payments;
 use crate::positions::liquidation::bad_debt;
 use crate::positions::liquidation::curve::is_socializable_bad_debt;
+use crate::risk::AccountRiskTotals;
 use crate::positions::{
     apply_repay_batch, apply_withdraw_batch, enforce_spoke_asset_flags, make_pool_action,
     FreezePolicy, WithdrawKind,
@@ -116,22 +117,14 @@ pub(crate) fn check_bad_debt_after_liquidation(
     cache: &mut Cache,
     account_id: u64,
     account: &Account,
-    total_collateral_usd: Wad,
-    total_debt_usd: Wad,
+    totals: &AccountRiskTotals,
 ) {
     if account.borrow_positions.is_empty() {
         account::cleanup_account_if_empty(env, account, account_id);
         return;
     }
 
-    if is_socializable_bad_debt(total_debt_usd, total_collateral_usd) {
-        bad_debt::execute_bad_debt_cleanup(
-            env,
-            cache,
-            account_id,
-            account,
-            total_debt_usd.raw(),
-            total_collateral_usd.raw(),
-        );
+    if is_socializable_bad_debt(totals.total_debt, totals.total_collateral) {
+        bad_debt::execute_bad_debt_cleanup(env, cache, account_id, account, totals);
     }
 }

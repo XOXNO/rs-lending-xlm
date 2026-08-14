@@ -9,7 +9,6 @@ mod plan;
 pub(crate) use plan::execute_liquidation;
 
 use common::errors::CollateralError;
-use common::math::fp::Wad;
 use common::types::{Account, HubPayment};
 use soroban_sdk::{assert_with_error, Address, Env, Vec};
 
@@ -18,6 +17,7 @@ use crate::context::Cache;
 use crate::events::LiquidationEvent;
 use crate::positions::{finalize_position_flow, PositionSides};
 use crate::risk::validation;
+use crate::risk::AccountRiskTotals;
 use crate::storage;
 
 pub(crate) fn process_liquidation(
@@ -86,14 +86,7 @@ pub(crate) fn process_liquidation(
         false,
     );
 
-    apply::check_bad_debt_after_liquidation(
-        env,
-        &mut cache,
-        account_id,
-        &account,
-        post_totals.total_collateral,
-        post_totals.total_debt,
-    );
+    apply::check_bad_debt_after_liquidation(env, &mut cache, account_id, &account, &post_totals);
 }
 
 fn validate_liquidation_inputs(
@@ -124,10 +117,10 @@ enum BadDebtGate {
 }
 
 impl BadDebtGate {
-    fn admits(&self, total_debt: Wad, total_collateral: Wad) -> bool {
+    fn admits(&self, totals: &AccountRiskTotals) -> bool {
         match self {
-            Self::DustCapped => is_socializable_bad_debt(total_debt, total_collateral),
-            Self::Insolvent => total_debt > total_collateral,
+            Self::DustCapped => is_socializable_bad_debt(totals.total_debt, totals.total_collateral),
+            Self::Insolvent => totals.total_debt > totals.total_collateral,
         }
     }
 }
@@ -151,18 +144,11 @@ fn socialize_bad_debt(env: &Env, account_id: u64, gate: BadDebtGate) {
 
     assert_with_error!(
         env,
-        gate.admits(totals.total_debt, totals.total_collateral),
+        gate.admits(&totals),
         CollateralError::CannotCleanBadDebt
     );
 
-    bad_debt::execute_bad_debt_cleanup(
-        env,
-        &mut cache,
-        account_id,
-        &account,
-        totals.total_debt.raw(),
-        totals.total_collateral.raw(),
-    );
+    bad_debt::execute_bad_debt_cleanup(env, &mut cache, account_id, &account, &totals);
 }
 
 pub(crate) fn clean_bad_debt_standalone(env: &Env, account_id: u64) {

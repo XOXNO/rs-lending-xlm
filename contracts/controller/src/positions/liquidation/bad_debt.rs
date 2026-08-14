@@ -4,6 +4,7 @@ use soroban_sdk::{Env, Vec};
 use crate::context::Cache;
 use crate::events::CleanBadDebtEvent;
 use crate::external::pool::pool_seize_positions_call;
+use crate::risk::AccountRiskTotals;
 use crate::spoke::UsageSide;
 use crate::storage::{self, iter_debt_positions, iter_typed_positions};
 
@@ -12,8 +13,7 @@ pub(crate) fn execute_bad_debt_cleanup(
     cache: &mut Cache,
     account_id: u64,
     account: &Account,
-    total_debt_usd: i128,
-    total_collateral_usd: i128,
+    totals: &AccountRiskTotals,
 ) {
     let mut entries: Vec<PoolSeizeEntry> = Vec::new(env);
     for (hub_asset, position) in iter_typed_positions(&account.supply_positions) {
@@ -49,8 +49,8 @@ pub(crate) fn execute_bad_debt_cleanup(
 
     CleanBadDebtEvent {
         account_id,
-        total_borrow_usd_wad: total_debt_usd,
-        total_collateral_usd_wad: total_collateral_usd,
+        total_borrow_usd_wad: totals.total_debt.raw(),
+        total_collateral_usd_wad: totals.total_collateral.raw(),
     }
     .publish(env);
 
