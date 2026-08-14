@@ -1,0 +1,23 @@
+[files]
+extend-exclude = [
+    "configs/*/markets.json",
+    "configs/*/accounts.json",
+    "Cargo.lock",
+    "*.wasm",
+]
+
+[default]
+# Stellar addresses and hex/base32 blobs
+extend-ignore-re = [
+    "\\b[GC][A-Z2-7]{55}\\b",
+]
+
+[default.extend-words]
+# domain terms and intentional identifiers
+strat = "strat"
+numer = "numer"
+archiv = "archiv"
+thr = "thr"
+nformation = "nformation"
+mis = "mis"
+ba = "ba"
