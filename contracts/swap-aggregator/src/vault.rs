@@ -16,7 +16,7 @@ pub(crate) struct Vault<'a> {
 }
 
 impl<'a> Vault<'a> {
-    /// Empty vault bound to `env`.
+    /// Creates an empty vault bound to `env`.
     pub fn new(env: &'a Env) -> Self {
         Self {
             env,
@@ -25,17 +25,17 @@ impl<'a> Vault<'a> {
         }
     }
 
-    /// Current tracked balance for `token`.
+    /// Returns the current tracked balance for `token`.
     pub fn balance_of(&self, token: &Address) -> i128 {
         self.balances.get(token.clone()).unwrap_or(0)
     }
 
-    /// Tokens with a balance entry.
+    /// Returns the tokens with a tracked balance entry; the balance itself may be zero.
     pub fn tokens(&self) -> Vec<Address> {
         self.balances.keys()
     }
 
-    /// Lifetime credited amount for `token` (deposits only).
+    /// Returns the lifetime credited amount for `token` (deposits only).
     pub fn credited_of(&self, token: &Address) -> i128 {
         self.credited.get(token.clone()).unwrap_or(0)
     }

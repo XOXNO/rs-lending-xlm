@@ -20,11 +20,9 @@ pub(crate) struct RecapitalizationOutcome {
     pub(crate) refund: i128,
 }
 
-/// Applies up to the backing shortfall, refunds excess, and emits market state.
-///
-/// # Returns
-///
-/// Mutation with `actual_amount` equal to cash credited (not including refund).
+/// Applies up to the backing shortfall, refunds the excess to the payer,
+/// and emits market state. Returns a mutation whose `actual_amount` is the
+/// cash credited, excluding the refund.
 pub(crate) fn apply(
     env: &Env,
     hub_asset: HubAssetKey,

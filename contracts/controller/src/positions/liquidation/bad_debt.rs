@@ -8,6 +8,9 @@ use crate::risk::AccountRiskTotals;
 use crate::spoke_usage::UsageSide;
 use crate::storage::{self, iter_debt_positions, iter_typed_positions};
 
+/// Seizes every remaining supply and debt position on `account_id` through the pool, records
+/// the spoke usage exits, publishes a `CleanBadDebtEvent` with the pre-cleanup debt and
+/// collateral totals, and removes the account entry.
 pub(crate) fn execute_bad_debt_cleanup(
     env: &Env,
     cache: &mut Cache,

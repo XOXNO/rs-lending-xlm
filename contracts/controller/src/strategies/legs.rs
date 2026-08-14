@@ -32,6 +32,8 @@ pub(crate) struct StrategyWithdraw<'a> {
     pub action: events::PositionAction,
 }
 
+/// Builds an `EventContext` whose counterparty is the controller contract
+/// itself, for legs that settle through controller custody.
 fn controller_event_context(env: &Env, action: events::PositionAction) -> EventContext {
     EventContext {
         counterparty: env.current_contract_address(),
@@ -39,6 +41,10 @@ fn controller_event_context(env: &Env, action: events::PositionAction) -> EventC
     }
 }
 
+/// Transfers `req.debt_available` of the debt asset from the controller to
+/// the pool, measuring what the pool actually received, and applies that
+/// measured amount to `account`'s debt position. Forwards any resulting
+/// increase in the controller's asset balance to `caller`.
 pub(crate) fn repay_debt_from_controller(
     env: &Env,
     account: &mut Account,
@@ -81,6 +87,9 @@ pub(crate) fn repay_debt_from_controller(
     );
 }
 
+/// Withdraws `req.amount` of `req.hub_asset` from `account`'s supply
+/// position into the controller's own balance and returns the amount
+/// actually received, measured as the balance delta.
 pub(crate) fn withdraw_collateral_to_controller(
     env: &Env,
     account: &mut Account,
@@ -109,6 +118,8 @@ pub(crate) fn withdraw_collateral_to_controller(
         .unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError))
 }
 
+/// Withdraws all of `account`'s supply positions to `destination`, closing
+/// each position and emitting a `CloseWd` event per asset.
 pub(crate) fn execute_withdraw_all(
     env: &Env,
     account: &mut Account,
@@ -137,6 +148,10 @@ pub(crate) fn execute_withdraw_all(
     }
 }
 
+/// Nets `account`'s supply against its debt for the same `hub_asset` on the
+/// pool, burning matched scaled supply and debt up to `amount` without
+/// moving tokens. Updates both position legs from the pool's result and
+/// returns the amount actually settled.
 pub(crate) fn net_settle_collateral_against_debt(
     env: &Env,
     account: &mut Account,
@@ -203,6 +218,8 @@ pub(crate) fn net_settle_collateral_against_debt(
     result.settled_amount
 }
 
+/// Transfers any increase in the controller's `asset` balance since
+/// `balance_before` to `refund_to`; no-op if the balance did not increase.
 fn refund_controller_balance_delta(
     env: &Env,
     asset: &Address,

@@ -22,6 +22,12 @@ pub(crate) struct SwapDebtParams<'a> {
     pub swap: &'a StrategySwap,
 }
 
+/// Refinances `existing_debt` into `new_debt`: borrows `new_debt_amount` of the
+/// new asset into the controller, swaps (or passes through) the proceeds into
+/// `existing_debt`'s asset, and repays the existing debt position with the
+/// result. Requires the caller to be the account owner or a delegate,
+/// `existing_debt` and `new_debt` to differ, and `existing_debt`'s hub to be
+/// active.
 pub(crate) fn process_swap_debt(env: &Env, caller: &Address, params: SwapDebtParams<'_>) {
     let SwapDebtParams {
         account_id,
@@ -49,7 +55,7 @@ pub(crate) fn process_swap_debt(env: &Env, caller: &Address, params: SwapDebtPar
     let extra_assets = vec![env, existing_debt.asset.clone(), new_debt.asset.clone()];
     prefetch_strategy_prices(&mut cache, &account, &extra_assets);
 
-    // Borrow-leg action is SwDebtR. Earlier main reused Multiply via borrow_for_strategy.
+    // Borrow-leg action is SwDebtR.
     let amount_received = borrow_into_controller(
         env,
         &mut account,

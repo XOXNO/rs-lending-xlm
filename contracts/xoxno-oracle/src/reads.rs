@@ -52,8 +52,8 @@ impl XoxnoOracle {
     }
 
     /// Returns up to `limit` history entries for `feed_id`, newest first.
-    /// Fails with `NoDataForFeed` if the feed has no current aggregate, is
-    /// stale, or has an empty history.
+    /// Fails with `NoDataForFeed` if the feed has no current aggregate or an
+    /// empty history, and with `StaleData` if the current aggregate is stale.
     pub fn read_price_history(
         env: Env,
         feed_id: String,
@@ -170,8 +170,9 @@ impl XoxnoOracle {
     }
 }
 
-/// Converts a `RedStonePriceData` entry into `ReflectorPriceData`, scaling
-/// the U256 price to i128 and the millisecond package timestamp to seconds.
+/// Converts a `RedStonePriceData` entry into `ReflectorPriceData`, narrowing
+/// the U256 price to i128 and scaling the millisecond package timestamp
+/// down to seconds.
 fn to_reflector_price_data(env: &Env, data: &RedStonePriceData) -> ReflectorPriceData {
     let price = u256_to_i128(env, &data.price);
     let timestamp = millis_to_seconds(data.package_timestamp);

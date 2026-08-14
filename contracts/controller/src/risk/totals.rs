@@ -9,6 +9,8 @@ use crate::storage::{iter_debt_positions, iter_typed_positions};
 
 pub(crate) use common::rates::{position_value, position_value_ceil, position_value_floor};
 
+/// Appends `borrow_keys` onto `supply_keys` and returns the combined list of
+/// hub-asset keys.
 pub(crate) fn portfolio_hub_keys(
     mut supply_keys: Vec<HubAssetKey>,
     borrow_keys: &Vec<HubAssetKey>,
@@ -17,6 +19,8 @@ pub(crate) fn portfolio_hub_keys(
     supply_keys
 }
 
+/// Returns the deduplicated underlying asset addresses referenced by
+/// `account`'s supply positions, borrow positions, and `extras`.
 pub(crate) fn account_price_assets(
     env: &Env,
     account: &Account,
@@ -35,6 +39,8 @@ pub(crate) fn account_price_assets(
     assets
 }
 
+/// Loads market data for `supply_positions` into `cache`, then sums their
+/// USD value (WAD) using half-up rounding.
 pub(crate) fn sum_supply_usd(
     env: &Env,
     cache: &mut Cache,
@@ -59,6 +65,8 @@ pub(crate) fn sum_supply_usd(
     total
 }
 
+/// Sums `borrow_positions`' USD value (WAD) using `value` as the per-position
+/// valuation function, assuming market data is already cached.
 fn sum_debt_usd_loaded(
     env: &Env,
     cache: &mut Cache,
@@ -82,6 +90,8 @@ fn sum_debt_usd_loaded(
     total
 }
 
+/// Loads market data for `borrow_positions` into `cache`, then sums their
+/// USD value (WAD) using half-up rounding.
 pub(crate) fn sum_debt_usd(
     env: &Env,
     cache: &mut Cache,
@@ -91,6 +101,9 @@ pub(crate) fn sum_debt_usd(
     sum_debt_usd_loaded(env, cache, borrow_positions, position_value)
 }
 
+/// Loads market data for `supply_positions` into `cache`, then sums each
+/// position's floor-valued collateral, floor-scaled by the lesser of its
+/// loan-to-value and liquidation threshold (WAD).
 pub(crate) fn calculate_ltv_collateral_wad(
     env: &Env,
     cache: &mut Cache,
@@ -124,6 +137,8 @@ pub(crate) struct AccountRiskTotals {
     pub health_factor: Wad,
 }
 
+/// Computes an account's aggregate risk totals (collateral, debt, and
+/// health factor, all WAD) for `supply_positions` and `borrow_positions`.
 #[cfg(not(feature = "certora"))]
 pub(crate) fn calculate_account_risk_totals(
     env: &Env,
@@ -137,6 +152,8 @@ pub(crate) fn calculate_account_risk_totals(
 #[cfg(feature = "certora")]
 cvlr_soroban_macros::apply_summary!(
     crate::spec::summaries::calculate_account_risk_totals_summary,
+    /// Computes an account's aggregate risk totals (collateral, debt, and
+    /// health factor, all WAD) for `supply_positions` and `borrow_positions`.
     pub(crate) fn calculate_account_risk_totals(
         env: &Env,
         cache: &mut Cache,
@@ -147,6 +164,14 @@ cvlr_soroban_macros::apply_summary!(
     }
 );
 
+/// Loads market data for `supply_positions` and `borrow_positions` into
+/// `cache`, then computes total collateral, LTV-gated collateral,
+/// liquidation-threshold-weighted collateral, total debt, and health factor
+/// (all WAD). Debt is valued with ceiling rounding and the collateral
+/// feeding the LTV and weighted sums is floored. Health factor is
+/// `i128::MAX` when there is no debt, otherwise weighted collateral divided
+/// by total debt, floored and saturating at `i128::MAX` instead of
+/// overflowing.
 fn calculate_account_risk_totals_body(
     env: &Env,
     cache: &mut Cache,

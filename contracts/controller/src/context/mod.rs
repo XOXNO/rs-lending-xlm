@@ -44,15 +44,18 @@ pub(crate) struct Cache {
 }
 
 impl Cache {
+    /// Renews the controller's instance storage TTL and returns a fresh, empty cache for a state-changing entrypoint.
     pub(crate) fn new(env: &Env) -> Self {
         storage::renew_controller_instance(env);
         Self::build(env)
     }
 
+    /// Returns a fresh, empty cache for a read-only entrypoint, without renewing the instance storage TTL.
     pub(crate) fn new_view(env: &Env) -> Self {
         Self::build(env)
     }
 
+    /// Constructs an empty `Cache` with all memoization maps and update buffers initialized but unpopulated.
     fn build(env: &Env) -> Self {
         Cache {
             env: env.clone(),
@@ -69,16 +72,19 @@ impl Cache {
         }
     }
 
+    /// Returns the cached `Env` handle.
     pub(crate) fn env(&self) -> &Env {
         &self.env
     }
 
+    /// Deduplicates the token addresses referenced by `hub_assets`, then fetches and caches any of their prices and market indexes not already cached.
     pub(crate) fn load_markets(&mut self, hub_assets: &Vec<HubAssetKey>) {
         let assets = unique_hub_tokens(&self.env, hub_assets);
         self.fetch_prices(&assets);
         self.fetch_market_indexes(hub_assets);
     }
 
+    /// Verifies hub `hub_id` is active, panicking otherwise, and memoizes the result so repeated calls for the same hub skip the check.
     pub(crate) fn require_hub_active(&mut self, hub_id: u32) {
         if self.verified_hubs.contains_key(hub_id) {
             return;

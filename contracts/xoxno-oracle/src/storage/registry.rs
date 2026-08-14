@@ -70,7 +70,7 @@ pub(crate) fn remove_feed_mapping(env: &Env, asset: &ReflectorAsset) {
 }
 
 /// Returns every registered asset, reading each from its indexed slot and renewing its TTL.
-/// Skips any slot that has expired or was never populated.
+/// Skips any slot without a stored value.
 pub(crate) fn load_all_assets(env: &Env) -> Vec<ReflectorAsset> {
     let count = asset_count(env);
     let mut out = Vec::new(env);
@@ -85,7 +85,7 @@ pub(crate) fn load_all_assets(env: &Env) -> Vec<ReflectorAsset> {
 }
 
 /// Returns every registered feed id, reading each from its indexed slot and renewing its TTL.
-/// Skips any slot that has expired or was never populated.
+/// Skips any slot without a stored value.
 pub(crate) fn load_all_feeds(env: &Env) -> Vec<String> {
     let count = feed_count(env);
     let mut out = Vec::new(env);

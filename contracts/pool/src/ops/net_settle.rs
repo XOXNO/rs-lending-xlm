@@ -14,16 +14,12 @@ use soroban_sdk::{assert_with_error, Env};
 
 use crate::{guards, ops};
 
-/// Settles up to `entry.amount` of debt using the user's supply position.
-///
-/// Burns are sized from the conservative overlap of floored supply and ceiled
-/// debt. A side is fully closed only when that overlap exhausts that side.
-/// A positive settle that would burn zero shares on either side panics.
-///
-/// # Returns
-///
-/// Updated residual positions, market indexes, and settled asset amount, plus
-/// a snapshot for the caller to emit.
+/// Settles up to `entry.amount` of debt against the user's supply position
+/// on the same market. Burns are sized from the conservative overlap of
+/// floored supply and ceiled debt, so a side closes fully only when that
+/// overlap exhausts it; a positive settle that would burn zero shares on
+/// either side panics. Returns the residual positions, market indexes, and
+/// settled asset amount, plus a snapshot for the caller to emit.
 pub(crate) fn apply(
     env: &Env,
     entry: &PoolNetSettleEntry,

@@ -21,7 +21,8 @@ pub(crate) fn get_operation_state(env: &Env, operation_id: &BytesN<32>) -> Opera
 }
 
 /// Returns the ledger sequence at which the operation identified by
-/// `operation_id` becomes ready for execution.
+/// `operation_id` becomes ready for execution, or 0 if it was never scheduled
+/// or 1 if it has already been executed.
 pub(crate) fn get_operation_ledger(env: &Env, operation_id: &BytesN<32>) -> u32 {
     gov_timelock::get_operation_ledger(env, operation_id)
 }

@@ -28,7 +28,7 @@ impl FeeBucket {
     }
 }
 
-/// Persist static fee; panics if above [`FEE_CAP`].
+/// Persists the static fee in basis points; panics if it exceeds [`FEE_CAP`].
 pub(crate) fn set_static_fee(env: &Env, fee_bps: u32) {
     if fee_bps > FEE_CAP {
         panic_with_error!(env, Error::FeeTooHigh);
@@ -36,10 +36,11 @@ pub(crate) fn set_static_fee(env: &Env, fee_bps: u32) {
     storage::set_static_fee_bps(env, fee_bps);
 }
 
-/// Debit vault and accrue static + referral fees for an active referral.
+/// Debits the vault and accrues static + referral fees for an active referral.
 ///
-/// No-op when `referral_id == 0`, referral missing/inactive, or combined bps is 0.
-/// Panics if combined bps exceeds [`FEE_CAP`].
+/// No-op when `referral_id == 0`, the referral is missing/inactive, the token balance is
+/// non-positive, the combined bps is 0, or the computed fee rounds down to zero. Panics if
+/// the combined bps exceeds [`FEE_CAP`].
 pub(crate) fn apply_fees_on_token(env: &Env, vault: &mut Vault, token: &Address, referral_id: u64) {
     if referral_id == 0 {
         return;

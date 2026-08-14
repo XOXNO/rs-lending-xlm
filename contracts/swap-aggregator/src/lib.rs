@@ -58,7 +58,7 @@ pub struct Router;
 
 #[contractimpl]
 impl Router {
-    /// Set `admin` as Ownable owner and zero fee config.
+    /// Set `admin` as Ownable owner and zero the fee and referral state.
     pub fn __constructor(env: Env, admin: Address) {
         ownable::set_owner(&env, &admin);
         let storage = env.storage().instance();
@@ -194,42 +194,42 @@ impl SwapAggregatorInterface for Router {
         }
     }
 
-    /// Current Ownable owner.
+    /// Returns the current Ownable owner; panics with `Error::NotAdmin` if unset.
     fn admin(env: Env) -> Address {
         ownable::get_owner(&env).unwrap_or_else(|| panic_with_error!(&env, Error::NotAdmin))
     }
 
-    /// Protocol static fee in basis points.
+    /// Returns the protocol static fee in basis points.
     fn static_fee_bps(env: Env) -> u32 {
         storage::static_fee_bps(&env)
     }
 
-    /// Referral config if `id` exists.
+    /// Returns the referral config for `id`, or `None` if it does not exist.
     fn referral(env: Env, id: u64) -> Option<ReferralConfig> {
         storage::try_load_referral(&env, id)
     }
 
-    /// Highest referral id issued so far.
+    /// Returns the highest referral id issued so far.
     fn referral_counter(env: Env) -> u64 {
         storage::referral_counter(&env)
     }
 
-    /// Whether `token` is on the fee whitelist.
+    /// Returns whether `token` is on the fee whitelist.
     fn is_whitelisted(env: Env, token: Address) -> bool {
         storage::load_whitelist(&env).contains(&token)
     }
 
-    /// Full fee-whitelist token list.
+    /// Returns the full fee-whitelist token list.
     fn whitelisted_tokens(env: Env) -> Vec<Address> {
         storage::load_whitelist(&env)
     }
 
-    /// Accrued admin fee balance for `token`.
+    /// Returns the accrued admin fee balance for `token`.
     fn admin_fee_balance(env: Env, token: Address) -> i128 {
         storage::fee_balance(&env, &types::DataKey::AdminFee(token))
     }
 
-    /// Accrued referral fee balance for `(id, token)`.
+    /// Returns the accrued referral fee balance for `(id, token)`.
     fn referral_fee_balance(env: Env, id: u64, token: Address) -> i128 {
         storage::fee_balance(&env, &types::DataKey::ReferralFee(id, token))
     }
@@ -248,7 +248,7 @@ impl SwapAggregatorInterface for Router {
 
 #[contractimpl]
 impl Ownable for Router {
-    /// Current owner, or `None` if ownership has been renounced or was never set.
+    /// Returns the current owner, or `None` if ownership has been renounced or was never set.
     fn get_owner(e: &Env) -> Option<Address> {
         ownable::get_owner(e)
     }

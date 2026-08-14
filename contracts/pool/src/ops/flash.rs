@@ -33,10 +33,10 @@ pub(crate) struct FlashTerms {
     pub(crate) balance_after_repayment: i128,
 }
 
-/// Executes a full flash loan and returns the fee charged.
-///
-/// Market must have `is_flashloanable`. Receiver must be a WASM contract that
-/// implements `execute_flash_loan`. Fee is booked as protocol revenue and cash.
+/// Executes a full flash loan of `amount` to `receiver` and returns the fee
+/// charged. Requires the market to have `is_flashloanable` set and the
+/// receiver to be a WASM contract implementing `execute_flash_loan`. Books
+/// the fee as protocol revenue and cash.
 pub(crate) fn apply(
     env: &Env,
     hub_asset: HubAssetKey,

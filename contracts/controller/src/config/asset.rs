@@ -12,6 +12,9 @@ use crate::{
     storage,
 };
 
+/// Registers a new asset market in a spoke after validating risk bounds,
+/// liquidation fees, and caps against the pool. Panics if the spoke is
+/// deprecated or the asset is already registered in it.
 pub(crate) fn add_asset_to_spoke(env: &Env, args: &SpokeAssetArgs) {
     let hub_asset = validate_spoke_asset_args(env, args);
     let spoke = storage::get_spoke(env, args.spoke_id);
@@ -27,6 +30,9 @@ pub(crate) fn add_asset_to_spoke(env: &Env, args: &SpokeAssetArgs) {
     store_spoke_asset(env, args, &hub_asset, config);
 }
 
+/// Updates an existing spoke asset's configuration after validating risk
+/// bounds, liquidation fees, and caps against the pool. Panics if the spoke
+/// does not exist or the asset is not registered in it.
 pub(crate) fn edit_asset_in_spoke(env: &Env, args: &SpokeAssetArgs) {
     let hub_asset = validate_spoke_asset_args(env, args);
     storage::get_spoke(env, args.spoke_id);
@@ -41,6 +47,8 @@ pub(crate) fn edit_asset_in_spoke(env: &Env, args: &SpokeAssetArgs) {
     store_spoke_asset(env, args, &hub_asset, config);
 }
 
+/// Validates the risk bounds, liquidation fees, and non-negative caps in
+/// `args`, returning the resulting hub asset key. Panics if any check fails.
 fn validate_spoke_asset_args(env: &Env, args: &SpokeAssetArgs) -> HubAssetKey {
     common_validate_risk_bounds(env, args.ltv, args.threshold, args.bonus);
     common_validate_liquidation_fees(env, args.liquidation_fees);
@@ -56,6 +64,10 @@ fn validate_spoke_asset_args(env: &Env, args: &SpokeAssetArgs) -> HubAssetKey {
     }
 }
 
+/// Fetches the pool's market data for `hub_asset` and validates that the
+/// supply and borrow caps in `args` fit the asset's decimal domain,
+/// returning the fetched data. Panics if either cap would overflow at the
+/// asset's decimals.
 fn load_market_and_validate_caps(
     env: &Env,
     args: &SpokeAssetArgs,
@@ -68,6 +80,8 @@ fn load_market_and_validate_caps(
     market
 }
 
+/// Converts `args` into the `SpokeAssetConfig` representation stored for
+/// the asset.
 fn build_spoke_asset_config(args: &SpokeAssetArgs) -> SpokeAssetConfig {
     SpokeAssetConfig {
         is_collateralizable: args.can_collateral,
@@ -83,6 +97,8 @@ fn build_spoke_asset_config(args: &SpokeAssetArgs) -> SpokeAssetConfig {
     }
 }
 
+/// Writes `config` as the spoke asset entry for `hub_asset` and publishes an
+/// `UpdateSpokeAssetEvent`.
 fn store_spoke_asset(
     env: &Env,
     args: &SpokeAssetArgs,
@@ -100,6 +116,10 @@ fn store_spoke_asset(
     .publish(env);
 }
 
+/// Updates the paused and frozen flags on an existing spoke asset and
+/// publishes an `UpdateSpokeAssetEvent`. Panics if the asset is not
+/// registered in the spoke, or if either flag would be relaxed from true to
+/// false.
 pub(crate) fn set_spoke_asset_flags(
     env: &Env,
     spoke_id: u32,
@@ -123,6 +143,8 @@ pub(crate) fn set_spoke_asset_flags(
     .publish(env);
 }
 
+/// Asserts that `paused` and `frozen` only move from false to true relative
+/// to `config`, panicking if either flag would be relaxed.
 fn require_flag_ratchet(env: &Env, config: &SpokeAssetConfig, paused: bool, frozen: bool) {
     assert_with_error!(
         env,
@@ -131,6 +153,9 @@ fn require_flag_ratchet(env: &Env, config: &SpokeAssetConfig, paused: bool, froz
     );
 }
 
+/// Removes an asset from a spoke's registry and publishes a
+/// `RemoveSpokeAssetEvent`. Panics if the asset is not registered in the
+/// spoke or still has nonzero supplied or borrowed usage.
 pub(crate) fn remove_asset_from_spoke(env: &Env, hub_asset: HubAssetKey, spoke_id: u32) {
     assert_with_error!(
         env,

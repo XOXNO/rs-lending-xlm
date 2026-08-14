@@ -7,6 +7,8 @@ pub(crate) struct SwapBalanceSnapshot {
     pub(crate) token_out: i128,
 }
 
+/// Reads this contract's current `token_in` and `token_out` balances into a
+/// snapshot for later before/after comparison.
 pub(crate) fn snapshot_swap_balances(
     env: &Env,
     token_in_client: &token::Client,
@@ -18,6 +20,9 @@ pub(crate) fn snapshot_swap_balances(
     }
 }
 
+/// Verifies the router spent no more than `amount_in` of `token_in` from this
+/// contract's balance, panicking with `RouterOverspend` if it spent more or the
+/// balance increased. Refunds any unspent leftover to `refund_to`.
 pub(crate) fn settle_router_input(
     env: &Env,
     token_in_client: &token::Client,
@@ -45,6 +50,9 @@ pub(crate) fn settle_router_input(
     }
 }
 
+/// Computes the increase in this contract's `token_out` balance since
+/// `balance_before` and returns it, panicking with `NoSwapOutput` if no output
+/// was received.
 pub(crate) fn verify_router_output(
     env: &Env,
     token_out_client: &token::Client,

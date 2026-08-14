@@ -18,13 +18,11 @@ use crate::engine;
 use crate::observation::OracleObservation;
 use crate::session::Session;
 
-/// Validates that `lp` describes a constant-product Aquarius pool consistent
-/// with `key` and `oracle`. Checks that the share token and token pair match
-/// `lp`, that the pool reports itself as constant-product with readable
-/// reserves and nonzero total shares, and that on-chain token decimals match
-/// `oracle.asset_decimals` and `lp`. Panics with
-/// `OracleError::InvalidOracleBase`, `OracleError::UnsupportedAquariusPool`,
-/// or `OracleError::InvalidOracleDecimals` if any check fails.
+/// Validates that `lp` describes a constant-product Aquarius pool matching
+/// `key` and `oracle`: the share token and token pair bind to `lp`, the pool
+/// reports itself as constant-product with positive reserves and total
+/// shares, and token decimals match `oracle.asset_decimals` and `lp`. Panics
+/// if any check fails.
 pub(crate) fn attest(env: &Env, key: &PriceKey, oracle: &AssetOracle, lp: &AquariusLpSource) {
     let tokens = bound_tokens(env, key, lp)
         .unwrap_or_else(|| panic_with_error!(env, OracleError::InvalidOracleBase));
@@ -50,15 +48,13 @@ pub(crate) fn attest(env: &Env, key: &PriceKey, oracle: &AssetOracle, lp: &Aquar
     );
 }
 
-/// Derives the fair price of a constant-product Aquarius LP share for `key`.
-/// Re-validates the pool binding and token decimals, resolves both leg
-/// prices recursively through `engine::resolve_nested`, and computes the LP
-/// price from the pool's reserves and total shares. Returns
-/// `Err(OracleError::NoLastPrice)` if the pool binding is invalid, the pool
-/// is not constant-product, decimals mismatch, or reserves/shares cannot be
-/// read. Returns `Err(OracleError::InsufficientAquariusLiquidity)` if the
-/// computed pool value is below `lp.min_pool_value_wad`. On success, returns
-/// the observation with the price and the earlier of the two leg timestamps.
+/// Derives the fair price of a constant-product Aquarius LP share for `key`
+/// by re-validating the pool binding and decimals, resolving both leg
+/// prices through `engine::resolve_nested`, and computing the price from the
+/// pool's reserves and total shares. Returns an error if validation fails,
+/// the pool cannot be read, or the pool's value falls below
+/// `lp.min_pool_value_wad`. On success, the observation carries the earlier
+/// of the two leg timestamps.
 pub(crate) fn read(
     session: &mut Session,
     key: &PriceKey,
@@ -119,14 +115,11 @@ pub(crate) fn read(
     )))
 }
 
-/// Validates that `lp` describes a stable Aquarius pool consistent with
-/// `key` and `oracle`. Checks that the share token and token pair match
-/// `lp`, that the pool reports itself as stable with a positive
-/// amplification coefficient, readable reserves, and nonzero total shares,
-/// and that on-chain token decimals match `oracle.asset_decimals` and `lp`.
-/// Panics with `OracleError::InvalidOracleBase`,
-/// `OracleError::UnsupportedAquariusPool`, or
-/// `OracleError::InvalidOracleDecimals` if any check fails.
+/// Validates that `lp` describes a stable Aquarius pool matching `key` and
+/// `oracle`: the share token and token pair bind to `lp`, the pool reports
+/// itself as stable with a positive amplification coefficient, positive
+/// reserves, and nonzero total shares, and token decimals match
+/// `oracle.asset_decimals` and `lp`. Panics if any check fails.
 pub(crate) fn attest_stable(
     env: &Env,
     key: &PriceKey,
@@ -158,16 +151,13 @@ pub(crate) fn attest_stable(
     );
 }
 
-/// Derives the fair price of a stable Aquarius LP share for `key`.
-/// Re-validates the pool binding and token decimals, resolves both leg
-/// prices recursively through `engine::resolve_nested`, and computes the LP
-/// price from the pool's reserves, total shares, and amplification
-/// coefficient. Returns `Err(OracleError::NoLastPrice)` if the pool binding
-/// is invalid, the pool is not stable, decimals mismatch, or
-/// reserves/shares/amp cannot be read. Returns
-/// `Err(OracleError::InsufficientAquariusLiquidity)` if the computed pool
-/// value is below `lp.min_pool_value_wad`. On success, returns the
-/// observation with the price and the earlier of the two leg timestamps.
+/// Derives the fair price of a stable Aquarius LP share for `key` by
+/// re-validating the pool binding and decimals, resolving both leg prices
+/// through `engine::resolve_nested`, and computing the price from the
+/// pool's reserves, total shares, and amplification coefficient. Returns an
+/// error if validation fails, the pool cannot be read, or the pool's value
+/// falls below `lp.min_pool_value_wad`. On success, the observation carries
+/// the earlier of the two leg timestamps.
 pub(crate) fn read_stable(
     session: &mut Session,
     key: &PriceKey,

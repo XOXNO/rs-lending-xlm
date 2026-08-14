@@ -15,6 +15,7 @@ impl Cache {
         self.token_prices = prices;
     }
 
+    /// Fetches and caches prices for the entries of `assets` not already cached, via a single call to the price aggregator contract.
     pub(crate) fn fetch_prices(&mut self, assets: &Vec<Address>) {
         let missing = collect_uncached_keys(&self.env, assets, &self.token_prices);
         if missing.is_empty() {
@@ -26,6 +27,7 @@ impl Cache {
         }
     }
 
+    /// Returns the price feed cached for `asset`, panicking if none has been fetched into the cache.
     pub(crate) fn cached_price(&mut self, asset: &Address) -> PriceFeed {
         let raw = self
             .token_prices

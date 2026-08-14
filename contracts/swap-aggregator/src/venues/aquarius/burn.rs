@@ -11,6 +11,12 @@ use crate::venues::auth::authorize_as_current;
 ///
 /// Floors are read from `amounts[min_start .. min_start + n]`, in the pool's own
 /// token order, where `n` is the pool's constituent count.
+///
+/// Panics with `MinAmountsNotMet` if the amounts registry lacks a full floor run
+/// for the pool's constituent count, or if a constituent's received amount falls
+/// below its floor; with `InvalidAmount` if the vault holds no shares of
+/// `lp_token`, or the pool does not burn exactly that many; and with
+/// `ZeroOutput` if the total received amount is not positive.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn remove_liquidity(
     env: &Env,

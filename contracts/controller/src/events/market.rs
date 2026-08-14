@@ -29,7 +29,8 @@ pub struct CreateMarketEvent {
 impl CreateMarketEvent {
     /// Builds a `CreateMarketEvent` for `hub_id`/`base_asset`/`market_address`,
     /// copying the interest-curve fields and reserve factor from `params`.
-    /// Does not copy `is_flashloanable`, `flashloan_fee`, or `asset_decimals`.
+    /// Does not copy `is_flashloanable`, `flashloan_fee`, `asset_id`, or
+    /// `asset_decimals`.
     pub fn from_params(
         hub_id: u32,
         base_asset: Address,
@@ -97,6 +98,8 @@ impl UpdateMarketParamsEvent {
 /// Converts a `(hub_id, asset, model)` triple into an `UpdateMarketParamsEvent`
 /// by delegating to [`UpdateMarketParamsEvent::from_rate_model`].
 impl From<(u32, Address, &InterestRateModel)> for UpdateMarketParamsEvent {
+    /// Builds the event from the tuple's hub id, asset, and model by
+    /// delegating to [`UpdateMarketParamsEvent::from_rate_model`].
     fn from((hub_id, asset, model): (u32, Address, &InterestRateModel)) -> Self {
         Self::from_rate_model(hub_id, asset, model)
     }

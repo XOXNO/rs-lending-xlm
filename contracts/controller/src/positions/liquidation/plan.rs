@@ -9,6 +9,8 @@ use crate::context::Cache;
 use crate::positions::liquidation::math::*;
 use crate::positions::{enforce_spoke_asset_flags, FreezePolicy};
 
+/// Computes what liquidating `account` with `raw_payments` would produce, without persisting
+/// anything: builds a `LiquidationPlan` and converts it into the returned `LiquidationResult`.
 pub(crate) fn execute_liquidation(
     env: &Env,
     account: &Account,
@@ -18,6 +20,11 @@ pub(crate) fn execute_liquidation(
     build_liquidation_plan(env, account, raw_payments, cache).into_result()
 }
 
+/// Builds and validates a `LiquidationPlan` for `account` from `raw_payments`: computes risk
+/// totals, sizes the repayment against the liquidation curve's ideal close amount, and derives
+/// the pro-rata collateral seizure. Panics with `CollateralError::HealthFactorTooHigh` when the
+/// account has no debt or its health factor is at least one WAD, and enforces spoke pause/freeze
+/// flags on every payment and seizure asset.
 pub(crate) fn build_liquidation_plan(
     env: &Env,
     account: &Account,

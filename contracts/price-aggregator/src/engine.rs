@@ -404,10 +404,12 @@ fn resolve_outcome(
 }
 
 /// Converts composed `Legs` into an `Outcome`. For two readings, marks the
-/// outcome stale if either leg is stale, takes the earlier of the two
-/// timestamps, flags a deviation when the legs fall outside the oracle's
-/// tolerance band, and sets the blended price to the midpoint of the two legs
-/// (zero if the midpoint computation fails).
+/// outcome stale when either leg is individually stale, or when both legs
+/// are market-nature feeds whose timestamps differ by more than the maximum
+/// allowed leg-age spread. Takes the earlier of the two timestamps, flags a
+/// deviation when the legs fall outside the oracle's tolerance band, and
+/// sets the blended price to the midpoint of the two legs (zero if the
+/// midpoint computation fails).
 fn blend(env: &Env, oracle: &AssetOracle, legs: Legs) -> Outcome {
     match legs {
         Legs::Empty => Outcome::unreadable(),
@@ -561,8 +563,10 @@ fn read_source(
     }))
 }
 
-/// A source is fundamental only if every feed it reads is: a fundamental factor
-/// scaled by a market quote still moves with the market.
+/// Returns the feed nature of `source`: the provider's nature for a plain
+/// feed, the factor feed's provider nature for a scaled source (the quote
+/// leg's nature is not considered), and always `Market` for an Aquarius LP
+/// or Aquarius stable-LP source.
 fn source_nature(source: &PriceSource) -> FeedNature {
     match source {
         PriceSource::Feed(feed) => feed.provider.nature(),

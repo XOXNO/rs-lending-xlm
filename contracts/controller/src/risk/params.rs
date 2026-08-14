@@ -14,6 +14,9 @@ pub(crate) enum RiskRefreshScope {
     FullTuple,
 }
 
+/// Updates `position`'s loan-to-value from `effective_config`, and, when
+/// `scope` is `FullTuple`, its gated liquidation parameters as well. Returns
+/// whether the position changed.
 pub(crate) fn refresh_supply_risk_params(
     env: &Env,
     cache: &mut Cache,
@@ -31,6 +34,9 @@ pub(crate) fn refresh_supply_risk_params(
     *position != before
 }
 
+/// Restamps the loan-to-value of every still-listed supply position in
+/// `account` to match its current spoke asset config, skipping positions
+/// whose asset is no longer listed. Returns whether any position changed.
 pub(crate) fn restamp_listed_supply_ltv(cache: &mut Cache, account: &mut Account) -> bool {
     let mut changed = false;
     let keys = account.supply_positions.keys();
@@ -53,6 +59,10 @@ pub(crate) fn restamp_listed_supply_ltv(cache: &mut Cache, account: &mut Account
     changed
 }
 
+/// Applies `effective_config`'s liquidation threshold, bonus, and fees to
+/// `position`. Skips the update when the change favors the liquidator and
+/// the account carries debt, unless the account's hypothetical health
+/// factor would still clear 1.05 WAD with the new threshold applied.
 pub(crate) fn apply_gated_liquidation_params(
     env: &Env,
     cache: &mut Cache,
@@ -80,12 +90,17 @@ pub(crate) fn apply_gated_liquidation_params(
     position.liquidation_fees = effective_config.liquidation_fees;
 }
 
+/// Reports whether `effective_config` gives a liquidator better terms than
+/// `position`'s current liquidation threshold, bonus, or fees.
 fn favors_liquidator(position: &AccountPosition, effective_config: &AssetConfig) -> bool {
     effective_config.liquidation_threshold.raw() < position.liquidation_threshold.raw()
         || effective_config.liquidation_bonus.raw() > position.liquidation_bonus.raw()
         || effective_config.liquidation_fees.raw() < position.liquidation_fees.raw()
 }
 
+/// Recomputes the account's health factor with `position`'s liquidation
+/// threshold hypothetically replaced by `new_lt`, and returns whether it
+/// stays at or above 1.05 WAD.
 fn clears_min_hf(
     env: &Env,
     cache: &mut Cache,
@@ -101,6 +116,8 @@ fn clears_min_hf(
     hf >= Wad::from(THRESHOLD_UPDATE_MIN_HF_RAW)
 }
 
+/// Returns a copy of `account`'s supply positions with `hub_asset`'s
+/// liquidation threshold replaced by `new_lt`.
 fn supply_positions_with(
     account: &Account,
     hub_asset: &HubAssetKey,

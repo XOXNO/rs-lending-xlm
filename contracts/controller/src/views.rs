@@ -14,6 +14,7 @@ use soroban_sdk::{assert_with_error, Address, Env, Map, Vec};
 use crate::positions::liquidation::execute_liquidation;
 use crate::storage;
 
+/// Panics unless `values` has at most `MAX_VIEW_INPUTS` entries.
 fn require_view_inputs_bound<T>(env: &Env, values: &Vec<T>) {
     assert_with_error!(
         env,
@@ -22,6 +23,8 @@ fn require_view_inputs_bound<T>(env: &Env, values: &Vec<T>) {
     );
 }
 
+/// Returns the account's health factor in WAD, or `i128::MAX` if it has no
+/// debt or does not exist.
 pub(crate) fn health_factor(env: &Env, account_id: u64) -> i128 {
     let mut cache = Cache::new_view(env);
     match storage::try_get_account(env, account_id) {
@@ -37,10 +40,14 @@ pub(crate) fn health_factor(env: &Env, account_id: u64) -> i128 {
     }
 }
 
+/// Returns whether the account's health factor is below 1.0 (WAD), making it
+/// eligible for liquidation.
 pub(crate) fn can_be_liquidated(env: &Env, account_id: u64) -> bool {
     health_factor(env, account_id) < WAD
 }
 
+/// Returns the account's current supply position amount for `hub_asset` in
+/// asset units, or 0 if it holds no such position.
 pub(crate) fn collateral_amount_for_hub_asset(
     env: &Env,
     account_id: u64,
@@ -63,6 +70,8 @@ pub(crate) fn collateral_amount_for_hub_asset(
     )
 }
 
+/// Returns the account's current debt position amount for `hub_asset` in
+/// asset units, or 0 if it holds no such position.
 pub(crate) fn borrow_amount_for_hub_asset(
     env: &Env,
     account_id: u64,
@@ -86,10 +95,13 @@ pub(crate) fn borrow_amount_for_hub_asset(
     )
 }
 
+/// Returns whether an account with `account_id` has stored metadata.
 pub(crate) fn account_exists(env: &Env, account_id: u64) -> bool {
     storage::try_get_account_meta(env, account_id).is_some()
 }
 
+/// Returns the account's raw supply and debt position maps, or two empty
+/// maps if the account does not exist.
 pub(crate) fn get_account_positions(
     env: &Env,
     account_id: u64,
@@ -107,11 +119,14 @@ pub(crate) fn get_account_positions(
     )
 }
 
+/// Returns the account's spoke id and position mode from its stored metadata.
 pub(crate) fn get_account_attributes(env: &Env, account_id: u64) -> AccountAttributes {
     let meta = storage::get_account_meta(env, account_id);
     AccountAttributes::from(&meta)
 }
 
+/// Returns the account's liquidation-threshold-weighted collateral value in
+/// USD (WAD), or 0 if the account does not exist.
 pub(crate) fn liquidation_collateral_available(env: &Env, account_id: u64) -> i128 {
     let Some(account) = storage::try_get_account(env, account_id) else {
         return 0;
@@ -128,10 +143,13 @@ pub(crate) fn liquidation_collateral_available(env: &Env, account_id: u64) -> i1
     .raw()
 }
 
+/// Returns the address of the pool contract registered with the controller.
 pub(crate) fn get_pool_address(env: &Env) -> Address {
     storage::get_pool(env)
 }
 
+/// Returns the supply/borrow index and price status for each of
+/// `hub_assets`, refreshing market indexes and current price statuses first.
 pub(crate) fn get_all_market_indexes_detailed(
     env: &Env,
     hub_assets: &Vec<HubAssetKey>,
@@ -170,6 +188,9 @@ pub(crate) fn get_all_market_indexes_detailed(
     result
 }
 
+/// Simulates liquidating the account with `debt_payments` and returns the
+/// resulting seized collateral, protocol fees, refunds, and bonus rate,
+/// without persisting any state changes.
 pub(crate) fn liquidation_estimations_detailed(
     env: &Env,
     account_id: u64,
@@ -207,6 +228,8 @@ pub(crate) fn liquidation_estimations_detailed(
 #[path = "../tests/views/mod.rs"]
 mod tests;
 
+/// Returns the account's total supply position value in USD (WAD), or 0 if
+/// it has no metadata or no supply positions.
 pub(crate) fn total_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
     if storage::try_get_account_meta(env, account_id).is_none() {
         return 0;
@@ -220,6 +243,8 @@ pub(crate) fn total_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
     risk::sum_supply_usd(env, &mut cache, &supply).raw()
 }
 
+/// Returns the account's total debt position value in USD (WAD), or 0 if it
+/// has no metadata or no debt positions.
 pub(crate) fn total_borrow_in_usd(env: &Env, account_id: u64) -> i128 {
     if storage::try_get_account_meta(env, account_id).is_none() {
         return 0;
@@ -233,6 +258,9 @@ pub(crate) fn total_borrow_in_usd(env: &Env, account_id: u64) -> i128 {
     risk::sum_debt_usd(env, &mut cache, &borrow).raw()
 }
 
+/// Returns the account's LTV-weighted collateral value in USD (WAD), first
+/// refreshing supply position LTVs to the currently listed spoke asset
+/// configuration.
 pub(crate) fn ltv_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
     let Some(mut account) = storage::try_get_account(env, account_id) else {
         return 0;

@@ -26,6 +26,10 @@ use crate::risk::validation;
 use crate::risk::AccountRiskTotals;
 use crate::storage;
 
+/// Liquidates `account_id`'s undercollateralized debt: builds a plan from `debt_payments`,
+/// applies the repayments, then seizes collateral scaled down to match whatever was actually
+/// received. Requires `liquidator` to authorize the call, rejects self-liquidation, and
+/// socializes any bad debt left on the account once seizure completes.
 pub(crate) fn process_liquidation(
     env: &Env,
     liquidator: &Address,
@@ -95,6 +99,8 @@ pub(crate) fn process_liquidation(
     apply::check_bad_debt_after_liquidation(env, &mut cache, account_id, &account, &post_totals);
 }
 
+/// Rejects empty `raw_payments` and self-liquidation, where `liquidator` is the account's own
+/// owner.
 fn validate_liquidation_inputs(
     env: &Env,
     account: &Account,
@@ -110,6 +116,8 @@ fn validate_liquidation_inputs(
     );
 }
 
+/// Socializes `account_id`'s bad debt under the dust-threshold gate; requires `caller` to
+/// authorize the call and reverts while a flash loan is in progress.
 pub(crate) fn process_clean_bad_debt(env: &Env, caller: &Address, account_id: u64) {
     caller.require_auth();
     validation::require_not_flash_loaning(env);
@@ -123,6 +131,9 @@ enum BadDebtGate {
 }
 
 impl BadDebtGate {
+    /// Returns whether `totals` satisfies this gate's bad-debt condition: `DustCapped` also
+    /// requires collateral at or below the dust threshold, `Insolvent` only requires debt
+    /// exceeding collateral.
     fn admits(&self, totals: &AccountRiskTotals) -> bool {
         match self {
             Self::DustCapped => {
@@ -133,6 +144,8 @@ impl BadDebtGate {
     }
 }
 
+/// Loads `account_id`, asserts it has open debt and that its risk totals satisfy `gate`, then
+/// runs bad-debt cleanup to seize its remaining positions and remove the account entry.
 fn socialize_bad_debt(env: &Env, account_id: u64, gate: BadDebtGate) {
     let mut cache = Cache::new(env);
     let account = storage::get_account(env, account_id);
@@ -159,10 +172,13 @@ fn socialize_bad_debt(env: &Env, account_id: u64, gate: BadDebtGate) {
     bad_debt::execute_bad_debt_cleanup(env, &mut cache, account_id, &account, &totals);
 }
 
+/// Applies the dust-threshold bad-debt gate to `account_id`.
 pub(crate) fn clean_bad_debt_standalone(env: &Env, account_id: u64) {
     socialize_bad_debt(env, account_id, BadDebtGate::DustCapped);
 }
 
+/// Applies the insolvency bad-debt gate to `account_id` — total debt exceeding total collateral,
+/// without the dust-threshold cap — and reverts while a flash loan is in progress.
 pub(crate) fn process_force_socialize_bad_debt(env: &Env, account_id: u64) {
     validation::require_not_flash_loaning(env);
     socialize_bad_debt(env, account_id, BadDebtGate::Insolvent);

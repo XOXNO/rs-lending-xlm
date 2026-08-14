@@ -7,6 +7,7 @@ use common::types::{
 };
 use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, Map, Vec};
 
+/// Assembles an `Account` from separately stored metadata and raw supply/borrow position maps.
 pub(crate) fn account_from_parts(
     meta: AccountMeta,
     supply_positions: Map<HubAssetKey, AccountPositionRaw>,
@@ -21,19 +22,23 @@ pub(crate) fn account_from_parts(
     }
 }
 
+/// Reads an account's metadata (owner, spoke, position mode) from persistent user storage, or `None` if the account does not exist.
 pub(crate) fn try_get_account_meta(env: &Env, account_id: u64) -> Option<AccountMeta> {
     get_user(env, &ControllerKey::AccountMeta(account_id))
 }
 
+/// Reads an account's metadata, panicking with `AccountNotInMarket` if it has not been created.
 pub(crate) fn get_account_meta(env: &Env, account_id: u64) -> AccountMeta {
     try_get_account_meta(env, account_id)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::AccountNotInMarket))
 }
 
+/// Writes an account's metadata to persistent user storage.
 pub(crate) fn set_account_meta(env: &Env, account_id: u64, meta: &AccountMeta) {
     set_user(env, &ControllerKey::AccountMeta(account_id), meta);
 }
 
+/// Reads an account's raw supply positions map from persistent user storage, or an empty map if none is stored.
 pub(crate) fn get_supply_positions(
     env: &Env,
     account_id: u64,
@@ -41,10 +46,12 @@ pub(crate) fn get_supply_positions(
     get_user(env, &ControllerKey::SupplyPositions(account_id)).unwrap_or_else(|| Map::new(env))
 }
 
+/// Reads an account's raw borrow positions map from persistent user storage, or an empty map if none is stored.
 pub(crate) fn get_debt_positions(env: &Env, account_id: u64) -> Map<HubAssetKey, DebtPositionRaw> {
     get_user(env, &ControllerKey::BorrowPositions(account_id)).unwrap_or_else(|| Map::new(env))
 }
 
+/// Writes an account's supply positions map to persistent storage, removing the entry entirely when the map is empty.
 pub(crate) fn set_supply_positions(
     env: &Env,
     account_id: u64,
@@ -53,6 +60,7 @@ pub(crate) fn set_supply_positions(
     write_side_map(env, &ControllerKey::SupplyPositions(account_id), map);
 }
 
+/// Writes an account's borrow positions map to persistent storage, removing the entry entirely when the map is empty.
 pub(crate) fn set_debt_positions(
     env: &Env,
     account_id: u64,
@@ -61,6 +69,7 @@ pub(crate) fn set_debt_positions(
     write_side_map(env, &ControllerKey::BorrowPositions(account_id), map);
 }
 
+/// Writes `map` to persistent storage under `key`, or removes the entry if `map` is empty.
 fn write_side_map<
     V: soroban_sdk::TryFromVal<Env, soroban_sdk::Val> + soroban_sdk::IntoVal<Env, soroban_sdk::Val>,
 >(
@@ -76,6 +85,7 @@ fn write_side_map<
     }
 }
 
+/// Reads and type-converts a single supply position for `hub_asset` from the account's supply map, or `None` if not present.
 pub(crate) fn try_get_supply_position(
     env: &Env,
     account_id: u64,
@@ -86,6 +96,7 @@ pub(crate) fn try_get_supply_position(
         .map(|raw| AccountPosition::from(&raw))
 }
 
+/// Reads and type-converts a single debt position for `hub_asset` from the account's borrow map, or `None` if not present.
 pub(crate) fn try_get_debt_position(
     env: &Env,
     account_id: u64,
@@ -96,6 +107,7 @@ pub(crate) fn try_get_debt_position(
         .map(|raw| DebtPosition::from(&raw))
 }
 
+/// Converts a raw supply positions map into an iterator of typed `(HubAssetKey, AccountPosition)` pairs.
 pub(crate) fn iter_typed_positions(
     map: &Map<HubAssetKey, AccountPositionRaw>,
 ) -> impl Iterator<Item = (HubAssetKey, AccountPosition)> + '_ {
@@ -103,17 +115,20 @@ pub(crate) fn iter_typed_positions(
         .map(|(key, raw)| (key, AccountPosition::from(&raw)))
 }
 
+/// Converts a raw borrow positions map into an iterator of typed `(HubAssetKey, DebtPosition)` pairs.
 pub(crate) fn iter_debt_positions(
     map: &Map<HubAssetKey, DebtPositionRaw>,
 ) -> impl Iterator<Item = (HubAssetKey, DebtPosition)> + '_ {
     map.iter().map(|(key, raw)| (key, DebtPosition::from(&raw)))
 }
 
+/// Assembles an account's full state (metadata, supply positions, debt positions), panicking with `AccountNotFound` if its metadata does not exist.
 pub(crate) fn get_account(env: &Env, account_id: u64) -> Account {
     try_get_account(env, account_id)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::AccountNotFound))
 }
 
+/// Assembles an account's full state (metadata, supply positions, debt positions), or `None` if its metadata does not exist.
 pub(crate) fn try_get_account(env: &Env, account_id: u64) -> Option<Account> {
     try_get_account_meta(env, account_id).map(|meta| {
         account_from_parts(
@@ -124,16 +139,19 @@ pub(crate) fn try_get_account(env: &Env, account_id: u64) -> Option<Account> {
     })
 }
 
+/// Assembles an account from its metadata and debt positions with an empty supply-positions map; panics with `AccountNotInMarket` if the account's metadata does not exist.
 pub(crate) fn get_account_borrow_only(env: &Env, account_id: u64) -> Account {
     let meta = get_account_meta(env, account_id);
     let borrow_positions = get_debt_positions(env, account_id);
     account_from_parts(meta, Map::new(env), borrow_positions)
 }
 
+/// Reads the list of addresses delegated to act on `account_id`, or an empty vector if none are stored.
 pub(crate) fn get_delegates(env: &Env, account_id: u64) -> Vec<Address> {
     get_user(env, &ControllerKey::Delegates(account_id)).unwrap_or_else(|| Vec::new(env))
 }
 
+/// Writes an account's delegate list to persistent storage, removing the entry entirely when the list is empty.
 pub(crate) fn set_delegates(env: &Env, account_id: u64, delegates: &Vec<Address>) {
     let key = ControllerKey::Delegates(account_id);
     if delegates.is_empty() {
@@ -143,6 +161,7 @@ pub(crate) fn set_delegates(env: &Env, account_id: u64, delegates: &Vec<Address>
     }
 }
 
+/// Adds `delegate` to the account's delegate list, returning `false` if it is already present. Panics with `RegistryCapReached` if the list is already at `MAX_DELEGATES`.
 pub(crate) fn add_delegate(env: &Env, account_id: u64, delegate: &Address) -> bool {
     let mut delegates = get_delegates(env, account_id);
     if delegates.contains(delegate) {
@@ -158,6 +177,7 @@ pub(crate) fn add_delegate(env: &Env, account_id: u64, delegate: &Address) -> bo
     true
 }
 
+/// Removes `delegate` from the account's delegate list if present, returning whether it was found and removed.
 pub(crate) fn remove_delegate(env: &Env, account_id: u64, delegate: &Address) -> bool {
     let mut delegates = get_delegates(env, account_id);
     let Some(index) = delegates.first_index_of(delegate) else {
@@ -168,6 +188,7 @@ pub(crate) fn remove_delegate(env: &Env, account_id: u64, delegate: &Address) ->
     true
 }
 
+/// Deletes an account's metadata, supply positions, borrow positions, and delegate list from persistent storage.
 pub(crate) fn remove_account_entry(env: &Env, account_id: u64) {
     let persistent = env.storage().persistent();
     persistent.remove(&ControllerKey::AccountMeta(account_id));
@@ -176,6 +197,7 @@ pub(crate) fn remove_account_entry(env: &Env, account_id: u64) {
     persistent.remove(&ControllerKey::Delegates(account_id));
 }
 
+/// Extends the TTL of each of an account's persistent storage entries (metadata, supply positions, borrow positions, delegates) that currently exists.
 pub(crate) fn renew_user_account(env: &Env, account_id: u64) {
     let persistent = env.storage().persistent();
     let keys = [
@@ -203,6 +225,7 @@ enum SessionKey {
     FlashLoanOngoing,
 }
 
+/// Reads whether a flash loan is currently in progress from temporary storage, defaulting to `false` if unset.
 pub(crate) fn is_flash_loan_ongoing(env: &Env) -> bool {
     env.storage()
         .temporary()
@@ -210,6 +233,7 @@ pub(crate) fn is_flash_loan_ongoing(env: &Env) -> bool {
         .unwrap_or(false)
 }
 
+/// Sets or clears the temporary-storage flag marking a flash loan in progress; clearing removes the entry rather than storing `false`.
 pub(crate) fn set_flash_loan_ongoing(env: &Env, ongoing: bool) {
     if ongoing {
         env.storage()
@@ -222,6 +246,7 @@ pub(crate) fn set_flash_loan_ongoing(env: &Env, ongoing: bool) {
     }
 }
 
+/// Runs `f` with the flash-loan flag set, clearing the flag afterward only if it was not already set before the call.
 pub(crate) fn with_flash_guard<T>(env: &Env, f: impl FnOnce() -> T) -> T {
     let prev = is_flash_loan_ongoing(env);
     set_flash_loan_ongoing(env, true);

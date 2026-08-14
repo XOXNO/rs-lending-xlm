@@ -12,6 +12,7 @@ pub(crate) enum ZeroLeg {
     MeansAll,
 }
 
+/// Sums `payments` into per-asset totals, rejecting any zero-amount leg.
 pub(crate) fn aggregate_positive_payments(
     env: &Env,
     payments: &Vec<HubPayment>,
@@ -19,6 +20,12 @@ pub(crate) fn aggregate_positive_payments(
     aggregate_payments(env, payments, ZeroLeg::Rejected)
 }
 
+/// Sums `payments` into per-asset totals, preserving the order in which
+/// assets first appear. Panics if `payments` is empty, if any amount is
+/// negative, or if a total would overflow. A zero amount is rejected under
+/// `ZeroLeg::Rejected`; under `ZeroLeg::MeansAll` it zeroes that asset's
+/// running total as a withdraw-all sentinel, and further amounts for that
+/// asset stay at zero.
 pub(crate) fn aggregate_payments(
     env: &Env,
     payments: &Vec<HubPayment>,
@@ -47,6 +54,9 @@ pub(crate) fn aggregate_payments(
     result
 }
 
+/// Folds `amount` into `previous`'s running total for one asset, applying
+/// `zero_leg`'s zero-amount rules. Panics if `amount` is negative or the
+/// addition would overflow.
 fn aggregate_payment_amount(
     env: &Env,
     previous: Option<i128>,

@@ -18,6 +18,9 @@ use crate::positions::{
 use crate::risk::AccountRiskTotals;
 use common::errors::GenericError;
 
+/// Pulls each `repaid` leg's tokens from `liquidator` into the pool and applies them as
+/// repayments, floor-scaling a leg's USD value down when the pool received less than the
+/// planned amount. Returns the total USD actually received.
 pub(crate) fn apply_liquidation_repayments(
     env: &Env,
     liquidator: &Address,
@@ -77,6 +80,8 @@ pub(crate) fn apply_liquidation_repayments(
     received_usd
 }
 
+/// Withdraws each `seized` collateral leg to `liquidator` as a liquidation seizure, carrying
+/// along its protocol fee share.
 pub(crate) fn apply_liquidation_seizures(
     env: &Env,
     liquidator: &Address,
@@ -112,6 +117,9 @@ pub(crate) fn apply_liquidation_seizures(
     );
 }
 
+/// After a liquidation, removes `account_id`'s entry if it has no debt left and no supply
+/// positions either; if debt remains and exceeds the leftover collateral, with that collateral at
+/// or below the dust threshold, socializes it as bad debt.
 pub(crate) fn check_bad_debt_after_liquidation(
     env: &Env,
     cache: &mut Cache,

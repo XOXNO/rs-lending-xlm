@@ -27,9 +27,9 @@ pub(crate) fn require_utilization_below_max(env: &Env, cache: &Cache) {
     );
 }
 
-/// Panic if an ordinary draw would leave less cash than the liquidation buffer.
+/// Panic if drawing `draw` from cash would leave less than the reserved liquidation buffer.
 ///
-/// Liquidation withdrawals skip this: the buffer exists for them.
+/// Only enforced on ordinary borrow draws; the buffer keeps cash available for seizures.
 pub(crate) fn require_liquidation_buffer(env: &Env, cache: &Cache, draw: i128) {
     let supplied = cache.unscale_supply_floor(cache.supplied());
     let reserved = common::math::fp::Bps::from(common::constants::LIQUIDATION_BUFFER_BPS)

@@ -10,6 +10,10 @@ use crate::storage;
 use route::validate_strategy_swap;
 use swap_aggregator_interface::SwapAggregatorClient;
 
+/// Executes a swap of `amount_in` of `token_in` into `token_out` through the
+/// configured aggregator router under the flash-loan reentrancy guard. Refunds
+/// any unspent `token_in` to `refund_to` and returns the amount of `token_out`
+/// actually received.
 pub(crate) fn swap_tokens(
     env: &Env,
     refund_to: &Address,
@@ -42,6 +46,9 @@ pub(crate) fn swap_tokens(
     balances::verify_router_output(env, &token_out_client, balance_before.token_out)
 }
 
+/// Returns `amount_in` unchanged if `token_in` and `token_out` are the same
+/// asset, requiring `swap` to be empty in that case; otherwise routes the
+/// amount through [`swap_tokens`].
 pub(crate) fn swap_tokens_or_passthrough(
     env: &Env,
     refund_to: &Address,

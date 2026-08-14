@@ -18,6 +18,7 @@ use crate::storage::iter_typed_positions;
 use common::validation::expect_invariant;
 
 impl LiquidationCurve {
+    /// Builds a `LiquidationCurve` from spoke `spoke_id`'s configuration.
     pub(crate) fn resolve(cache: &mut Cache, spoke_id: u32) -> Self {
         Self::from_config(&cache.spoke_config(spoke_id))
     }
@@ -31,6 +32,8 @@ pub(crate) struct NormalizedRepaymentPlan {
 }
 
 impl NormalizedRepaymentPlan {
+    /// Panics with `GenericError::InternalError` if the summed USD value of `repaid` entries
+    /// does not match `repay_usd`.
     fn validate(&self, env: &Env) {
         if sum_repaid_usd(env, &self.repaid) != self.repay_usd {
             panic_with_error!(env, GenericError::InternalError);
@@ -44,6 +47,9 @@ pub(crate) struct LiquidationPlan {
 }
 
 impl LiquidationPlan {
+    /// Validates the repayment leg totals and asserts every seizure entry has a positive amount
+    /// and a protocol fee between zero and the seized amount, panicking with
+    /// `GenericError::InternalError` otherwise.
     pub(crate) fn validate(&self, env: &Env) {
         self.repayment.validate(env);
 
@@ -54,6 +60,9 @@ impl LiquidationPlan {
         }
     }
 
+    /// Converts this plan into the `LiquidationResult` returned to callers, carrying the seized,
+    /// repaid, and refund entries plus the total USD repaid and the applied bonus in basis
+    /// points.
     pub(crate) fn into_result(self) -> LiquidationResult {
         LiquidationResult {
             seized: self.seized,
@@ -64,6 +73,9 @@ impl LiquidationPlan {
         }
     }
 }
+/// Computes the liquidation-threshold-weighted share of collateral being seized
+/// (`weighted_coll / total_collateral`, zero when there is no collateral) and the account's
+/// base/max bonus bounds derived from it.
 pub(crate) fn calculate_seizure_proportions(
     env: &Env,
     account: &Account,
@@ -88,6 +100,10 @@ pub(crate) fn calculate_seizure_proportions(
     (proportion_seized, bounds)
 }
 
+/// Merges `raw_payments` per asset (panicking with `CollateralError::DebtPositionNotFound` if a
+/// payment targets an asset without a debt position) and caps each leg at that debt's
+/// outstanding, ceiling-rounded balance, refunding any excess into `refunds`. Returns the total
+/// USD value actually repaid and the per-asset `RepayEntry` list.
 pub(crate) fn calculate_repayment_amounts(
     env: &Env,
     raw_payments: &Vec<HubPayment>,
@@ -142,6 +158,12 @@ pub(crate) fn calculate_repayment_amounts(
     (total_repaid_usd, repaid_tokens)
 }
 
+/// Combines the liquidator's `raw_payments` with `estimate_liquidation_amount`'s ideal repayment
+/// and bonus: caps the accepted repayment at the ideal USD amount, refunding any excess back
+/// through `refunds`. Panics with `CollateralError::FullCloseRequired` when the payment falls
+/// short of the ideal amount, `max_hf_preserving_bonus_bps` returns a non-negative cap below the
+/// base bonus, and the shortfall persists after ceiling-rounding the payment — forcing the
+/// liquidator to close the full debt instead of partially repaying.
 pub(crate) fn normalize_repayment_plan(
     env: &Env,
     account: &Account,
@@ -186,6 +208,7 @@ pub(crate) fn normalize_repayment_plan(
     repayment
 }
 
+/// Sums the WAD USD value recorded on each `repaid_tokens` entry.
 pub(crate) fn sum_repaid_usd(env: &Env, repaid_tokens: &Vec<RepayEntry>) -> Wad {
     let mut total = Wad::ZERO;
     for entry in repaid_tokens.iter() {
@@ -194,6 +217,8 @@ pub(crate) fn sum_repaid_usd(env: &Env, repaid_tokens: &Vec<RepayEntry>) -> Wad 
     total
 }
 
+/// Recomputes and sums each `repaid_tokens` entry's USD value from its token amount and price,
+/// rounding up instead of trusting the entry's stored `usd_wad`.
 fn sum_repaid_usd_ceil(env: &Env, repaid_tokens: &Vec<RepayEntry>) -> Wad {
     let mut total = Wad::ZERO;
     for entry in repaid_tokens.iter() {
@@ -204,6 +229,14 @@ fn sum_repaid_usd_ceil(env: &Env, repaid_tokens: &Vec<RepayEntry>) -> Wad {
     total
 }
 
+/// Splits `repayment.repay_usd * (1 + bonus)` pro-rata by USD value across supply positions,
+/// capping each leg at the position's held balance (floor-rounded for a partial position,
+/// half-up for a full one). The capped amount is split into a principal portion — the pre-cap
+/// seizure value at `1 / (1 + bonus)`, floor-rounded — and a bonus portion equal to the
+/// remainder, which is zero once the cap has consumed the pre-cap value; the position's protocol
+/// fee rate applies only to the bonus portion. The resulting protocol fee is floor-rounded to
+/// asset units, bumped up to one unit when a positive fee would otherwise round to zero, and
+/// capped at the pool's gross withdrawal for that leg.
 pub(crate) fn calculate_seized_collateral(
     env: &Env,
     account: &Account,
@@ -296,6 +329,9 @@ pub(crate) fn calculate_seized_collateral(
     seized
 }
 
+/// Computes the account's bonus bounds: `max` from `max_bonus_for_threshold`, and `base` as the
+/// USD-value-weighted average of each supply position's configured liquidation bonus, clamped
+/// to not exceed `max`. Returns a zero `base` when the account has no collateral.
 pub(crate) fn get_account_bonus_params(
     env: &Env,
     cache: &mut Cache,
@@ -342,6 +378,9 @@ pub(crate) fn get_account_bonus_params(
 #[path = "../../../tests/positions/liquidation_math.rs"]
 mod tests;
 
+/// Scales every seized entry's amount and protocol fee down by `received_usd / planned_usd`
+/// (floor-rounded) when the liquidator's repayment delivered less value than planned. Returns
+/// `seized` unchanged when nothing was planned or the full amount was received.
 pub(crate) fn scale_seizures_to_received(
     env: &Env,
     seized: &Vec<SeizeEntry>,
@@ -377,6 +416,9 @@ fn debt_close_amount(
     unscale_borrow_ceil(env, position.scaled_amount, borrow_index, asset_decimals)
 }
 
+/// Refunds `excess_usd` out of `repaid_tokens` in place, working backward from the last entry:
+/// fully refunds and removes entries until the remaining excess fits within one entry, then
+/// partially refunds that entry using a floor-rounded ratio. Appends each refund to `refunds`.
 fn process_excess_payment(
     env: &Env,
     repaid_tokens: &mut Vec<RepayEntry>,

@@ -106,7 +106,8 @@ impl Cache {
 
     /// Resolves a repay request into (shares burned, overpayment in asset units).
     ///
-    /// Overpayment is returned to the payer by the repay op.
+    /// Overpayment is zero except when `amount` exceeds the position's full
+    /// ceiling-rounded debt value.
     pub(crate) fn resolve_repay(&self, amount: i128, pos_scaled: Ray) -> (Ray, i128) {
         resolve_repay(
             &self.env,

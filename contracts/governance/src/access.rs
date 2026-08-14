@@ -113,10 +113,11 @@ pub(crate) fn apply_upgrade(env: &Env, new_wasm_hash: &BytesN<32>) {
     stellar_contract_utils::upgradeable::upgrade(env, new_wasm_hash);
 }
 
-/// Renews the governance instance's storage TTL, records `new_owner` as the
-/// pending owner until `live_until_ledger`, emits an ownership-transfer
-/// event, and mirrors the pending transfer onto the access-control admin
-/// role.
+/// Renews the governance instance's storage TTL, updates the pending-owner
+/// entry for `new_owner` (recording it as pending until `live_until_ledger`,
+/// or clearing an existing pending transfer to it when `live_until_ledger`
+/// is zero), emits an ownership-transfer event, and mirrors the pending
+/// transfer onto the access-control admin role.
 pub(crate) fn apply_transfer_ownership(env: &Env, new_owner: &Address, live_until_ledger: u32) {
     storage::renew_governance_instance(env);
     let current_owner = owner_or_panic(env);

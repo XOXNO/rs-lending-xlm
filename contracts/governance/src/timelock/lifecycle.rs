@@ -17,10 +17,10 @@ use crate::op::apply_self_op;
 use crate::storage;
 use crate::timelock::*;
 
-/// Schedules `op` for later execution and returns its operation id. Requires the
+/// Schedules `op` for later execution and returns its operation id; requires the
 /// caller to hold `PROPOSER_ROLE`. For a `RevokeGovRole` operation, rejects the
-/// proposer targeting themselves or the owner, and records the target account so
-/// it cannot later cancel its own revocation. For `TransferGovOwnership`, requires
+/// proposer targeting themselves or the owner and records the target account so
+/// it cannot later cancel its own revocation; for `TransferGovOwnership`, requires
 /// the proposer to be the current owner. The operation's delay is derived from the
 /// resolved operation's delay tier.
 pub(crate) fn propose(
@@ -109,10 +109,10 @@ pub(crate) fn execute_self(
     finish_execute(env, &operation_id);
 }
 
-/// Cancels a pending operation. Requires the caller to hold `CANCELLER_ROLE`.
-/// Rejects cancelling a recovery operation, and rejects a canceller cancelling a
-/// role-revocation operation that targets themselves. Clears the operation's
-/// sidecar state on success.
+/// Cancels a pending operation; requires the caller to hold `CANCELLER_ROLE`.
+/// Rejects cancelling a recovery operation or a role-revocation operation whose
+/// target account is the canceller. Clears the operation's sidecar state on
+/// success.
 pub(crate) fn cancel(env: &Env, canceller: &Address, operation_id: &BytesN<32>) {
     storage::renew_governance_instance(env);
     canceller.require_auth();

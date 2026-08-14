@@ -26,6 +26,13 @@ pub(crate) struct MultiplyParams<'a> {
     pub convert_swap: Option<StrategySwap>,
 }
 
+/// Opens or extends a leveraged position for `caller`: borrows
+/// `debt_to_flash_loan` of `debt` into the controller, swaps it (plus any
+/// debt-denominated initial payment) into `collateral`, and deposits the
+/// result as a new supply position. An optional `initial_payment` in the
+/// collateral, debt, or a third asset converted via `convert_swap` is folded
+/// into the deposit before the standard solvency finalize, and returns the
+/// account id.
 pub(crate) fn process_multiply(env: &Env, caller: &Address, params: MultiplyParams<'_>) -> u64 {
     crate::strategies::require_strategy_caller(env, caller);
 
@@ -106,6 +113,10 @@ pub(crate) fn process_multiply(env: &Env, caller: &Address, params: MultiplyPara
     account_id
 }
 
+/// Loads or creates `account_id`'s account under the multiply guard
+/// (owner/delegate, spoke, and mode checks), confirms `collateral` is
+/// supplyable, and prefetches prices for the collateral, debt, and optional
+/// initial-payment assets.
 fn prepare_multiply_account(
     env: &Env,
     caller: &Address,
@@ -135,6 +146,10 @@ fn prepare_multiply_account(
     (account_id, account, cache)
 }
 
+/// Validates that `collateral` and `debt` are distinct for `mode` (the full
+/// `HubAssetKey` for `Multiply`, the underlying asset only for `Long`/
+/// `Short`) and that `debt_to_flash_loan` is positive. Panics with
+/// `InvalidPositionMode` for any other mode.
 fn validate_multiply_request(
     env: &Env,
     collateral: &HubAssetKey,
@@ -159,6 +174,12 @@ fn validate_multiply_request(
     require_positive_amount(env, debt_to_flash_loan);
 }
 
+/// Pulls `initial_payment`'s amount of its asset from `caller`, returning it
+/// as collateral or debt when the payment asset matches one of them, or
+/// converting it into collateral via `convert_swap` for a third asset.
+/// Returns `(0, 0)` when no payment is given, and panics with
+/// `ConvertStepsRequired` if the payment asset differs from both and no
+/// `convert_swap` is supplied.
 fn collect_initial_multiply_payment(
     env: &Env,
     caller: &Address,
@@ -203,6 +224,8 @@ fn collect_initial_multiply_payment(
     }
 }
 
+/// Publishes an `InitialMultiplyPaymentEvent` for `account_id` when
+/// `initial_payment` was supplied; no-op otherwise.
 fn emit_multiply_initial_payment(
     env: &Env,
     account_id: u64,

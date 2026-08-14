@@ -5,6 +5,8 @@ use soroban_sdk::{panic_with_error, Address, Env, Map, Vec};
 
 use crate::storage;
 
+/// Wraps each address in `assets` as a `PriceKey::Token` for the price aggregator's
+/// key-based query methods.
 fn token_keys(env: &Env, assets: &Vec<Address>) -> Vec<PriceKey> {
     let mut keys = Vec::new(env);
     for asset in assets.iter() {
@@ -13,6 +15,8 @@ fn token_keys(env: &Env, assets: &Vec<Address>) -> Vec<PriceKey> {
     keys
 }
 
+/// Fetches resolved WAD prices for `assets` from the price aggregator, panicking with
+/// `OracleNotConfigured` if any asset has no price entry in the response.
 pub(crate) fn fetch_prices(env: &Env, assets: &Vec<Address>) -> Map<Address, PriceFeedRaw> {
     let aggregator = storage::get_price_aggregator(env);
     let keyed = PriceAggregatorClient::new(env, &aggregator).prices(&token_keys(env, assets));
@@ -26,6 +30,8 @@ pub(crate) fn fetch_prices(env: &Env, assets: &Vec<Address>) -> Map<Address, Pri
     out
 }
 
+/// Fetches detailed price status for `assets` from the price aggregator, substituting an
+/// unusable, `valid: false` status for any asset the aggregator returns no quote for.
 pub(crate) fn fetch_prices_status(env: &Env, assets: &Vec<Address>) -> Map<Address, PriceStatus> {
     let aggregator = storage::get_price_aggregator(env);
     let keyed = PriceAggregatorClient::new(env, &aggregator).quotes(&token_keys(env, assets));

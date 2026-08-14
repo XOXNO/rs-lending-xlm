@@ -33,18 +33,16 @@ struct Ctx<'a> {
     program: &'a Program,
 }
 
-/// Runs the strategy encoded in `payload` for `sender`: pulls `total_in` of the
-/// input token into the router's vault, executes the decoded instruction
-/// stream, and delivers the resulting `token_out` back to `sender`. Requires
-/// `sender`'s authorization. Returns the delivered output amount.
+/// Runs the strategy encoded in `payload` for `sender`: pulls `total_in` of the input token,
+/// executes the decoded instruction stream, applies static and referral fees, and delivers
+/// `token_out` back to `sender`, returning the amount delivered.
 ///
-/// When a referral is active, applies static + referral fees on the input token
-/// unless only the output token is on the fee whitelist, in which case fees are
-/// taken on the output token instead. Accrues any leftover vault balance as
+/// Fees are taken on the input token unless only the output token is fee-whitelisted, in which
+/// case they are taken on the output instead, and any leftover vault balance is accrued as fee
 /// revenue after payout.
 ///
-/// Panics if `total_in` or `min_out` is not positive, or if the delivered
-/// output amount falls below `min_out`.
+/// Requires `sender`'s authorization, and panics if `total_in` or the declared minimum output is
+/// not positive, or if the delivered output falls below the minimum.
 pub(crate) fn run(env: Env, sender: Address, total_in: i128, payload: StrategyPayload) -> i128 {
     sender.require_auth();
 

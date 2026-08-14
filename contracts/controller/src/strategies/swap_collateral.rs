@@ -21,6 +21,11 @@ pub(crate) struct SwapCollateralParams<'a> {
     pub swap: &'a StrategySwap,
 }
 
+/// Converts `from_amount` of the account's `current` collateral into `new`
+/// collateral: withdraws and swaps the existing supply position, deposits the
+/// resulting output as `new` collateral, and finalizes the account. Requires
+/// the caller to be the account owner or a delegate, `current` and `new` to
+/// differ, and `current`'s hub to be active.
 pub(crate) fn process_swap_collateral(
     env: &Env,
     caller: &Address,
@@ -72,6 +77,8 @@ pub(crate) fn process_swap_collateral(
     strategy_finalize(env, account_id, &mut account, &mut cache);
 }
 
+/// Checks that `new` can be supplied into the account's spoke before the
+/// collateral swap proceeds.
 pub(crate) fn validate_swap_new_collateral_preflight(
     env: &Env,
     cache: &mut Cache,

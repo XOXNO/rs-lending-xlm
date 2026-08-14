@@ -24,6 +24,11 @@ pub(crate) struct RepaymentRequest<'a> {
     pub amount: i128,
 }
 
+/// Authorizes the caller as the account's owner or delegate, validates the
+/// borrow entry gates, and pulls the aggregated amounts from the pool to
+/// `to` (or the caller). Re-checks post-pool solvency afterward and persists
+/// both supply and debt positions if that check restamped any supply LTV,
+/// otherwise persists debt only.
 pub(crate) fn process_borrow(
     env: &Env,
     caller: &Address,
@@ -66,6 +71,9 @@ pub(crate) fn process_borrow(
     finalize_position_flow(env, account_id, &account, &mut cache, sides, false);
 }
 
+/// Authorizes the caller, aggregates the payments, and transfers them into
+/// the pool against the account's debt positions. Loads only the account's
+/// debt side from storage and persists only the debt side afterward.
 pub(crate) fn process_repay(
     env: &Env,
     caller: &Address,
@@ -109,6 +117,10 @@ enum DebtFlowKind<'a> {
     },
 }
 
+/// Settles a borrow or repay flow against the pool for every aggregated hub
+/// asset. Borrow entries are pulled from the pool to `recipient` and merged
+/// as new debt; repay entries are transferred from `payer` into the pool and
+/// applied via `apply_repay_batch`.
 fn settle_debt(
     env: &Env,
     account: &mut Account,
@@ -168,6 +180,9 @@ fn settle_debt(
     }
 }
 
+/// Submits a batch of repayment actions to the pool and merges each
+/// resulting leg into `account`'s debt positions. Returns the raw pool
+/// mutation results.
 pub(crate) fn apply_repay_batch(
     env: &Env,
     account: &mut Account,
@@ -192,6 +207,9 @@ pub(crate) fn apply_repay_batch(
     results
 }
 
+/// Enforces the spoke asset's exit flags and repays a single
+/// already-resolved debt position against the pool, merging the result into
+/// `account`. Returns the resulting pool position mutation.
 pub(crate) fn execute_repayment(
     env: &Env,
     account: &mut Account,
@@ -219,6 +237,10 @@ pub(crate) fn execute_repayment(
     expect_invariant(env, results.get(0))
 }
 
+/// Borrows `amount` of `hub_debt` from the pool directly into this contract
+/// (rather than to a user), validating the borrow entry gates first and
+/// merging the resulting debt into `account`. Returns the amount actually
+/// received by the controller, net of the flash fee when `charge_fee` is set.
 pub(crate) fn borrow_into_controller(
     env: &Env,
     account: &mut Account,

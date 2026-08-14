@@ -12,6 +12,9 @@ use crate::storage;
 
 const POOL_DEPLOY_SALT: [u8; 32] = [0u8; 32];
 
+/// Deploys the pool contract from `wasm_hash` at a fixed deployment salt,
+/// records its address, and returns it. Panics if a pool has already been
+/// deployed.
 pub(crate) fn deploy_pool(env: &Env, wasm_hash: BytesN<32>) -> Address {
     storage::renew_controller_instance(env);
 
@@ -31,6 +34,10 @@ pub(crate) fn deploy_pool(env: &Env, wasm_hash: BytesN<32>) -> Address {
     pool
 }
 
+/// Creates a new market for `asset` under hub `hub_id` on the pool contract
+/// and publishes a `CreateMarketEvent`, returning the pool's address.
+/// Panics if the hub is not active or if `params.asset_id` does not match
+/// `asset`.
 pub(crate) fn create_liquidity_pool(
     env: &Env,
     hub_id: u32,
@@ -51,6 +58,9 @@ pub(crate) fn create_liquidity_pool(
     pool_address
 }
 
+/// Accrues `hub_asset`'s indexes on the pool under the current rate model,
+/// then applies the new interest-rate model `params` and publishes an
+/// `UpdateMarketParamsEvent`.
 pub(crate) fn upgrade_liquidity_pool_params(
     env: &Env,
     hub_asset: &HubAssetKey,
@@ -67,6 +77,8 @@ pub(crate) fn upgrade_liquidity_pool_params(
     UpdateMarketParamsEvent::from((hub_asset.hub_id, hub_asset.asset.clone(), params)).publish(env);
 }
 
+/// Renews the controller's storage TTL and upgrades the pool contract's
+/// Wasm bytecode to `new_wasm_hash`.
 pub(crate) fn upgrade_pool(env: &Env, new_wasm_hash: BytesN<32>) {
     storage::renew_controller_instance(env);
     let pool_addr = storage::get_pool(env);

@@ -8,6 +8,12 @@ use crate::context::Cache;
 use crate::external::pool::pool_flash_loan_call;
 use crate::{risk::validation, storage};
 
+/// Initiates a flash loan of `amount` of `hub_asset` through the pool: the
+/// pool sends the funds to `receiver`, invokes its callback with `data`, and
+/// pulls back principal plus fee before this call returns. Requires
+/// `receiver` to be a WASM contract and marks flash-loan state for the
+/// duration of the pool call, blocking nested strategy calls. Emits
+/// `FlashLoanEvent` with the fee charged.
 pub(crate) fn process_flash_loan(
     env: &Env,
     caller: &Address,

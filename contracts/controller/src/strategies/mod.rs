@@ -33,11 +33,15 @@ use crate::events;
 use crate::positions::{finalize_position_flow, get_supply_position_or_panic, PositionSides};
 use crate::risk::{self, account_price_assets, validation};
 
+/// Requires `caller` to authorize the call and panics if a flash loan is
+/// currently in progress.
 pub(crate) fn require_strategy_caller(env: &Env, caller: &Address) {
     caller.require_auth();
     validation::require_not_flash_loaning(env);
 }
 
+/// Fetches oracle prices into `cache` for every asset in `account`'s supply
+/// and borrow positions plus `extra_assets`.
 pub(crate) fn prefetch_strategy_prices(
     cache: &mut Cache,
     account: &Account,
@@ -47,6 +51,9 @@ pub(crate) fn prefetch_strategy_prices(
     cache.fetch_prices(&account_price_assets(&env, account, extra_assets));
 }
 
+/// Restamps `account`'s listed collateral LTV, enforces post-trade solvency
+/// and health-factor gates, and persists positions and spoke usage, emitting
+/// the position batch event.
 pub(crate) fn strategy_finalize(
     env: &Env,
     account_id: u64,
@@ -58,6 +65,9 @@ pub(crate) fn strategy_finalize(
     finalize_position_flow(env, account_id, account, cache, PositionSides::BOTH, true);
 }
 
+/// Withdraws `amount` of `from` collateral to the controller and swaps the
+/// proceeds into `token_out`, passing through unswapped when `from.asset`
+/// already equals `token_out`. Returns the amount of `token_out` received.
 pub(crate) fn withdraw_and_swap_from_supply(
     env: &Env,
     account: &mut Account,

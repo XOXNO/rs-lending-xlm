@@ -81,14 +81,14 @@ pub(crate) fn store_submission(
     store_submission_record(env, feed_id, signer, price, package_timestamp);
 }
 
-/// Recomputes the current aggregate price for `feed_id` from all signers'
-/// latest submissions. Discards submissions older than the maximum
-/// submission age, then keeps only those within `max_relative_skew` of the
-/// newest surviving timestamp. If fewer than `threshold` submissions survive
-/// either filter, clears the feed's aggregate and history. Otherwise takes
-/// the median of the clustered prices, writes it as the new aggregate with
-/// the oldest clustered timestamp as its package timestamp, and appends it
-/// to the feed's history.
+/// Recomputes the current aggregate for `feed_id` from all signers' latest
+/// submissions: discards submissions older than the maximum submission age,
+/// then keeps only those within `max_relative_skew` of the newest surviving
+/// timestamp. Clears the feed's aggregate if fewer than `threshold`
+/// submissions survive either filter. Otherwise writes the median of the
+/// clustered prices as the new aggregate, using the oldest clustered
+/// timestamp as its package timestamp, and appends it to the feed's
+/// history.
 pub(crate) fn recompute_aggregate(env: &Env, feed_id: &String) {
     let signers = load_signers(env);
     let max_submission_age = load_max_submission_age(env);
@@ -153,7 +153,7 @@ pub(crate) fn recompute_aggregate(env: &Env, feed_id: &String) {
     push_history(env, feed_id, aggregate);
 }
 
-/// Removes the current aggregate and history entries for `feed_id`.
+/// Removes the current aggregate for `feed_id`, leaving its price history intact.
 fn clear_aggregate_and_history(env: &Env, feed_id: &String) {
     // Only the live aggregate is cleared: a transient quorum miss must not
     // destroy accumulated history that consumers age off themselves.

@@ -23,6 +23,12 @@ pub(crate) struct RepayWithCollateralParams<'a> {
     pub close_position: bool,
 }
 
+/// Repays `debt` using `collateral` for `caller`'s account: nets supply
+/// directly against debt on the pool when they are the same market,
+/// otherwise withdraws `collateral_amount` of collateral, swaps it into the
+/// debt asset, and repays with the proceeds. When `close_position` is set
+/// and no debt remains afterward, also withdraws all remaining collateral to
+/// `caller` before the standard solvency finalize.
 pub(crate) fn process_repay_debt_with_collateral(
     env: &Env,
     caller: &Address,
@@ -77,6 +83,9 @@ pub(crate) fn process_repay_debt_with_collateral(
     strategy_finalize(env, account_id, &mut account, &mut cache);
 }
 
+/// Nets `amount` of `hub_asset` supply directly against its debt on the pool
+/// without moving tokens. Panics with `InvalidPayments` if `swap` is
+/// non-empty, since no conversion is needed for a same-asset repay.
 fn repay_same_asset_net(
     env: &Env,
     account: &mut Account,
@@ -96,6 +105,10 @@ fn repay_same_asset_net(
     );
 }
 
+/// Withdraws `collateral_amount` of `collateral` to the controller, swaps it
+/// into `debt`'s asset, and repays that amount against `account`'s existing
+/// debt position. Requires `account` to already hold a debt position in
+/// `debt`, checked before any collateral is withdrawn.
 fn repay_via_collateral_swap(
     env: &Env,
     caller: &Address,
@@ -135,6 +148,9 @@ fn repay_via_collateral_swap(
     );
 }
 
+/// Withdraws all of `account`'s remaining supply positions to `caller` when
+/// `close_position` is set; no-op otherwise. Panics with
+/// `CannotCloseWithRemainingDebt` if any debt remains.
 fn close_remaining_collateral_if_requested(
     env: &Env,
     account: &mut Account,

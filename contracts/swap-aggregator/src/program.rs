@@ -174,11 +174,13 @@ pub(crate) struct Program {
 }
 
 impl Program {
-    /// Copy, parse, and structurally validate `ops` against the registry sizes.
+    /// Copies, parses, and structurally validates `ops` against the registry sizes, returning
+    /// the decoded program.
     ///
-    /// Panics with [`Error::InvalidRouteXdr`] on any malformed field: bad
-    /// version, length mismatch, unknown opcode, out-of-range index, or a
-    /// weight outside `1..=PPM_DENOMINATOR`. Touches no external contract.
+    /// Panics with [`Error::InvalidRouteXdr`] on a malformed header, version, length, opcode, or
+    /// index, and with a more specific error for other structural violations (empty/oversized
+    /// batch, same-token swap, broken `Prev` chain, out-of-range split weight). Touches no
+    /// external contract.
     pub(crate) fn decode(env: &Env, ops: &Bytes, assets_len: u32, amounts_len: u32) -> Self {
         if assets_len == 0 || assets_len > MAX_ASSETS || amounts_len > MAX_AMOUNTS {
             panic_with_error!(env, Error::InvalidRouteXdr);
@@ -233,7 +235,8 @@ impl Program {
         program
     }
 
-    /// Range-check every instruction field before execution begins.
+    /// Validates every instruction's opcode, mode, and indices before execution begins,
+    /// including the `Prev` chain, same-token swaps, and split-weight bounds.
     fn validate(&self, env: &Env, assets_len: u32, amounts_len: u32, weight_count: u32) {
         for i in 0..self.op_count {
             let record = self.raw(i);
@@ -313,18 +316,18 @@ impl Program {
         }
     }
 
-    /// Raw 5 bytes of instruction `i`.
+    /// Returns the raw 5 bytes of instruction `i`.
     fn raw(&self, i: u32) -> &[u8] {
         let at = (HEADER_LEN + OP_LEN * i) as usize;
         &self.buf[at..at + OP_LEN as usize]
     }
 
-    /// Number of instructions.
+    /// Returns the number of instructions.
     pub(crate) fn len(&self) -> u32 {
         self.op_count
     }
 
-    /// Instruction `i`. Callers must respect [`Program::len`].
+    /// Returns instruction `i`; callers must respect [`Program::len`].
     ///
     /// Re-decodes and re-checks the opcode byte, panicking with
     /// [`Error::InvalidRouteXdr`] if it is unrecognized, even though `validate`
@@ -341,7 +344,7 @@ impl Program {
         }
     }
 
-    /// Split weight `i` in parts-per-million.
+    /// Returns split weight `i` in parts-per-million.
     pub(crate) fn weight(&self, i: u32) -> u32 {
         let at = (self.weights_at + WEIGHT_LEN * i) as usize;
         u32::from_be_bytes([0, self.buf[at], self.buf[at + 1], self.buf[at + 2]])

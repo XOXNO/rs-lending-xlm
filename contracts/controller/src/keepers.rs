@@ -12,6 +12,9 @@ use crate::external::pool::{
 use crate::risk::validation;
 use crate::{account, events, payments, risk, storage};
 
+/// Accrues borrow and supply indexes on the pool for each hub asset in
+/// `assets`. Requires `caller`'s authorization and reverts while a flash
+/// loan is in progress.
 pub(crate) fn update_indexes(env: &Env, caller: Address, assets: Vec<HubAssetKey>) {
     caller.require_auth();
     validation::require_not_flash_loaning(env);
@@ -23,6 +26,10 @@ pub(crate) fn update_indexes(env: &Env, caller: Address, assets: Vec<HubAssetKey
     }
 }
 
+/// Claims accrued protocol revenue from the pool for each asset in `assets`
+/// and forwards it to the configured accumulator, returning the claimed
+/// amounts in the same order. Requires `caller`'s authorization and reverts
+/// while a flash loan is in progress.
 pub(crate) fn claim_revenue(env: &Env, caller: Address, assets: Vec<HubAssetKey>) -> Vec<i128> {
     caller.require_auth();
     validation::require_not_flash_loaning(env);
@@ -35,6 +42,11 @@ pub(crate) fn claim_revenue(env: &Env, caller: Address, assets: Vec<HubAssetKey>
     results
 }
 
+/// Transfers up to `amount` of `hub_asset` from `payer` to the pool,
+/// crediting only the amount actually delivered. Injects the received
+/// amount into the pool's reserve for that market to cover a backing
+/// shortfall; any unused amount is refunded. Requires `payer`'s
+/// authorization, a positive `amount`, and no flash loan in progress.
 pub(crate) fn recapitalize(
     env: &Env,
     payer: Address,
@@ -60,6 +72,10 @@ pub(crate) fn recapitalize(
     pool_recapitalize_call(env, &pool_addr, &hub_asset, &payer, received).actual_amount
 }
 
+/// Refreshes the loan-to-value snapshot for each account in `account_ids`,
+/// also refreshing liquidation-threshold parameters when `has_risks` is
+/// true. Requires `caller`'s authorization and reverts while a flash loan
+/// is in progress.
 pub(crate) fn update_account_threshold(
     env: &Env,
     caller: Address,
@@ -77,6 +93,10 @@ pub(crate) fn update_account_threshold(
     }
 }
 
+/// Claims `hub_asset`'s accrued protocol revenue from the pool and, if the
+/// claimed amount is positive, transfers it from the controller to the
+/// configured accumulator address. Returns the claimed amount. Panics if no
+/// accumulator has been configured.
 fn claim_revenue_for_asset_with_cache(
     env: &Env,
     hub_asset: &HubAssetKey,
@@ -103,6 +123,12 @@ fn claim_revenue_for_asset_with_cache(
     amount
 }
 
+/// Recomputes each of `account_id`'s supply positions' risk parameters
+/// against current spoke asset config, refreshing loan-to-value always and
+/// liquidation-threshold parameters only when `has_risks` is true. Skips
+/// accounts with no stored metadata or no supply positions. When `has_risks`
+/// is true, panics if the account's health factor falls below the minimum
+/// threshold-update level after the changes are applied.
 fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &mut Cache) {
     let Some(meta) = storage::try_get_account_meta(env, account_id) else {
         return;

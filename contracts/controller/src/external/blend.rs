@@ -26,6 +26,8 @@ pub struct BlendPositions {
 #[allow(dead_code)]
 #[contractclient(name = "BlendPoolClient")]
 pub trait BlendPool {
+    /// Submits a batch of withdraw, withdraw-collateral, or repay requests against `from`'s
+    /// Blend position, pulling repay funds through `spender` and sending withdrawals to `to`.
     fn submit(
         env: Env,
         from: Address,
@@ -35,6 +37,8 @@ pub trait BlendPool {
     ) -> BlendPositions;
 }
 
+/// Withdraws all of `from`'s collateral and supply positions from `blend_pool` into the
+/// controller, using `i128::MAX` amounts to request a full withdrawal of each asset.
 pub(crate) fn blend_sweep_all(
     env: &Env,
     blend_pool: &Address,
@@ -60,6 +64,8 @@ pub(crate) fn blend_sweep_all(
     guarded_submit(env, blend_pool, from, &requests);
 }
 
+/// Repays each of `from`'s debts on `blend_pool` up to its cap in `debt_caps`, pre-authorizing
+/// the controller's token transfers before submitting the repay requests.
 pub(crate) fn blend_repay_all(
     env: &Env,
     blend_pool: &Address,
@@ -78,6 +84,9 @@ pub(crate) fn blend_repay_all(
     guarded_submit(env, blend_pool, from, &requests);
 }
 
+/// Submits `requests` to `blend_pool` on `from`'s behalf, with the controller as both spender
+/// and recipient, while the flash-loan guard is held so reentrant controller calls are blocked
+/// for the duration of the cross-contract call.
 fn guarded_submit(env: &Env, blend_pool: &Address, from: &Address, requests: &Vec<BlendRequest>) {
     storage::with_flash_guard(env, || {
         let controller = env.current_contract_address();
@@ -86,6 +95,9 @@ fn guarded_submit(env: &Env, blend_pool: &Address, from: &Address, requests: &Ve
     });
 }
 
+/// Pre-authorizes a controller-initiated `transfer` of up to each cap in `debt_caps` from the
+/// controller to `blend_pool`, so Blend's repay requests can pull the funds during the nested
+/// `submit` call. No-op when `debt_caps` is empty.
 fn authorize_repay_pulls(env: &Env, blend_pool: &Address, debt_caps: &Vec<(Address, i128)>) {
     if debt_caps.is_empty() {
         return;

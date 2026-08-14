@@ -7,6 +7,7 @@ use soroban_sdk::{assert_with_error, panic_with_error, Env, Map};
 
 use crate::{context::Cache, storage};
 
+/// Panics with `FlashLoanOngoing` if a flash loan is currently in progress.
 pub(crate) fn require_not_flash_loaning(env: &Env) {
     assert_with_error!(
         env,
@@ -15,6 +16,11 @@ pub(crate) fn require_not_flash_loaning(env: &Env) {
     );
 }
 
+/// Validates solvency after a pool-mutating operation; a no-op if the
+/// account carries no debt. Panics with `InsufficientCollateral` if
+/// LTV-gated collateral is below total debt or the health factor falls
+/// below 1 WAD. Panics with `MinBorrowCollateralNotMet` if LTV-gated
+/// collateral is below the configured floor, when one is set.
 pub(crate) fn require_post_pool_risk_gates(env: &Env, cache: &mut Cache, account: &Account) {
     if account.debt_free() {
         return;
@@ -47,6 +53,10 @@ pub(crate) fn require_post_pool_risk_gates(env: &Env, cache: &mut Cache, account
     }
 }
 
+/// Panics with `PositionLimitExceeded` if adding `aggregated`'s new
+/// positions to `account` would exceed the configured max position count
+/// for `position_type`. Counts only hub assets not already present in the
+/// account, deduplicated within `aggregated`.
 pub(crate) fn validate_bulk_position_limits(
     env: &Env,
     account: &Account,

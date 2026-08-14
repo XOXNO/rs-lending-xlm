@@ -20,6 +20,7 @@ pub enum EventPositionMode {
 }
 
 impl From<PositionMode> for EventPositionMode {
+    /// Maps `PositionMode::Normal` to `None` and the other variants 1:1.
     fn from(value: PositionMode) -> Self {
         match value {
             PositionMode::Normal => Self::None,
@@ -38,12 +39,16 @@ impl From<PositionMode> for EventPositionMode {
 pub struct EventAccountAttributes(pub Address, pub u32, pub EventPositionMode);
 
 impl From<&Account> for EventAccountAttributes {
+    /// Builds an `EventAccountAttributes` from the account's owner, spoke id,
+    /// and position mode.
     fn from(value: &Account) -> Self {
         Self(value.owner.clone(), value.spoke_id, value.mode.into())
     }
 }
 
 impl From<&AccountMeta> for EventAccountAttributes {
+    /// Builds an `EventAccountAttributes` from the account meta's owner,
+    /// spoke id, and position mode.
     fn from(value: &AccountMeta) -> Self {
         Self(value.owner.clone(), value.spoke_id, value.mode.into())
     }

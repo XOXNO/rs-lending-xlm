@@ -41,6 +41,11 @@ pub(crate) struct WithdrawalRequest<'a> {
     pub position: &'a AccountPosition,
 }
 
+/// Authorizes the caller, aggregates the payments, loads or creates the
+/// account, and processes a collateral deposit. A caller who is neither the
+/// account's owner nor a delegate may only add to hub assets the account
+/// already holds a supply position in. Returns the account id (freshly
+/// created if `account_id` was 0).
 pub(crate) fn process_supply(
     env: &Env,
     caller: &Address,
@@ -85,6 +90,8 @@ pub(crate) fn process_supply(
     acct_id
 }
 
+/// Runs the supply entry gates for `aggregated`, then settles the deposit
+/// into the pool and merges the resulting positions into `account`.
 pub(crate) fn process_deposit(
     env: &Env,
     caller: &Address,
@@ -102,6 +109,9 @@ pub(crate) fn process_deposit(
     settle_supply(env, caller, account, aggregated, cache);
 }
 
+/// Transfers each aggregated payment from `caller` into the pool, submits a
+/// batched pool supply call, and merges each resulting leg into the
+/// corresponding supply position.
 fn settle_supply(
     env: &Env,
     caller: &Address,
@@ -133,6 +143,10 @@ fn settle_supply(
     });
 }
 
+/// Authorizes the caller as the account's owner or delegate, aggregates the
+/// requested withdrawals (a zero amount means withdraw all of that asset),
+/// settles them against the pool, and re-checks post-pool solvency. Returns
+/// the amounts actually paid out per hub asset.
 pub(crate) fn process_withdraw(
     env: &Env,
     caller: &Address,
@@ -163,6 +177,9 @@ pub(crate) fn process_withdraw(
     paid
 }
 
+/// For each aggregated withdrawal, enforces the spoke asset's freeze/pause
+/// flags, resolves a zero amount to a full withdrawal, and submits the batch
+/// to the pool. Returns the hub asset and actual amount paid for each leg.
 fn settle_withdraw(
     env: &Env,
     account: &mut Account,
@@ -206,6 +223,8 @@ fn settle_withdraw(
     paid
 }
 
+/// Maps a zero withdrawal amount to the withdraw-all sentinel; other amounts
+/// pass through unchanged.
 fn resolve_withdraw_amount(amount: i128) -> i128 {
     if amount == 0 {
         WITHDRAW_ALL_SENTINEL
@@ -214,6 +233,9 @@ fn resolve_withdraw_amount(amount: i128) -> i128 {
     }
 }
 
+/// Enforces the spoke asset's exit flags and withdraws a single
+/// already-resolved position from the pool, merging the result into
+/// `account`. Returns the resulting pool position mutation.
 pub(crate) fn execute_withdrawal(
     env: &Env,
     account: &mut Account,
@@ -251,6 +273,9 @@ pub(crate) fn execute_withdrawal(
     expect_invariant(env, results.get(0))
 }
 
+/// Submits a batch of withdraw entries to the pool (as a liquidation
+/// withdrawal when `kind` is `Liquidation`) and merges each resulting leg
+/// into `account`'s supply positions. Returns the raw pool mutation results.
 pub(crate) fn apply_withdraw_batch(
     env: &Env,
     account: &mut Account,
@@ -271,6 +296,11 @@ pub(crate) fn apply_withdraw_batch(
     results
 }
 
+/// Merges a pool supply mutation into `account`'s position for `hub_asset`.
+/// Refreshes the position's risk parameters against the current asset
+/// config, applies the new scaled amount, updates spoke usage and the cached
+/// market index, then records the position-update event and stores the
+/// position.
 pub(crate) fn merge_supply_leg(
     env: &Env,
     account: &mut Account,
@@ -322,6 +352,12 @@ pub(crate) fn merge_supply_leg(
     update_or_remove_supply_position(account, hub_asset, &position);
 }
 
+/// Merges a withdrawal leg's pool outcome into `account`'s supply position
+/// for `hub_asset`, updating spoke usage and the cached market index.
+/// Refreshes the position's risk parameters afterward unless the withdrawal
+/// is a liquidation, the spoke asset is no longer listed, or the position is
+/// now fully withdrawn, then stores or removes the position and records the
+/// update event.
 pub(crate) fn merge_withdraw_leg(
     env: &Env,
     account: &mut Account,
@@ -373,6 +409,9 @@ pub(crate) fn merge_withdraw_leg(
     );
 }
 
+/// Decides whether a withdrawal leg should re-stamp the position's risk
+/// parameters: liquidation withdrawals, unlisted spoke assets, and full
+/// withdrawals (`new_scaled` zero) are frozen; all other withdrawals refresh.
 fn spoke_refresh_for_leg(
     kind: WithdrawKind,
     cache: &mut Cache,

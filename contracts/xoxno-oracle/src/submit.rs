@@ -54,14 +54,13 @@ impl XoxnoOracle {
     }
 
     /// Submits `prices` for `feed_ids` on behalf of `signer`, requiring
-    /// `signer`'s authorization, using the same `package_timestamp`
-    /// (milliseconds) for every entry. Fails with `LengthMismatch` if
-    /// `feed_ids` and `prices` differ in length. Validates that `signer` is
-    /// registered, the timestamp is not in the future or stale (age vs max
-    /// submission age in seconds), each feed is known and monotonic for
-    /// `signer`, and each price is within bounds, before storing any
-    /// submission. Stores each submission and recomputes each feed's
-    /// aggregate.
+    /// `signer`'s authorization and using the same `package_timestamp`
+    /// (milliseconds) for every entry; fails with `LengthMismatch` if the two
+    /// lists differ in length. Validates that `signer` is registered, the
+    /// timestamp is not in the future or stale (age vs max submission age in
+    /// seconds), and each feed is known, monotonic for `signer`, and its
+    /// price within bounds, before storing any submission. Stores each
+    /// submission and recomputes each feed's aggregate.
     pub fn submit_prices(
         env: Env,
         signer: Address,

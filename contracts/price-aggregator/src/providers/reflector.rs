@@ -18,13 +18,11 @@ use crate::observation::OracleObservation;
 use crate::session::Session;
 
 /// Validates that `feed` is configured consistently with `decimals` and
-/// `max_stale`. Checks that the feed's quote base is the "USD" symbol, that
-/// its reported decimals equal `decimals`, and that its resolution is at
-/// least `MIN_ORACLE_RESOLUTION_SECONDS` and at most `max_stale`. For a TWAP
-/// read mode, also checks that the span covered by the requested record
-/// count does not exceed `max_stale`. Panics with
-/// `OracleError::InvalidOracleBase`, `OracleError::InvalidOracleDecimals`,
-/// or `OracleError::InvalidOracleResolution` if any check fails.
+/// `max_stale`: the quote base is USD, reported decimals match `decimals`,
+/// and the resolution is at least `MIN_ORACLE_RESOLUTION_SECONDS` and at
+/// most `max_stale`. For TWAP mode, also checks that the span covered by
+/// the requested record count does not exceed `max_stale`. Panics if any
+/// check fails.
 pub(crate) fn attest(env: &Env, feed: &ReflectorFeedRef, decimals: u32, max_stale: u64) {
     match reflector_base(env, &feed.contract) {
         ReflectorAsset::Other(symbol) if symbol == Symbol::new(env, "USD") => {}
@@ -106,20 +104,14 @@ fn read_spot(
     OracleObservation::from_reflector(now_secs, &price_data, decimals)
 }
 
-/// Computes an equal-weight arithmetic mean of up to `records` historical
-/// Reflector observations (despite the `Twap` mode name). Validates that the
-/// history is non-empty, meets the minimum observation count for `records`,
-/// does not exceed `records + 1` entries, has no timestamp beyond
-/// `now + MAX_FUTURE_SKEW_SECONDS`, and has consecutive timestamps spaced at
-/// least one resolution period apart. Returns the mean price with the oldest
-/// observation's timestamp.
-/// Returns `Err(OracleError::ReflectorHistoryEmpty)` if the history cannot
-/// be read or is empty, `Err(OracleError::TwapInsufficientObservations)` if
-/// the count or spacing checks fail, `Err(OracleError::PriceFeedStale)` if
-/// an observation is too far in the future, and
-/// `Err(OracleError::InvalidOracleResolution)` or
-/// `Err(OracleError::InvalidPrice)` if the resolution or the resulting
-/// price cannot be derived.
+/// Computes an arithmetic mean of up to `records` historical Reflector
+/// observations, despite the `Twap` mode name implying a time-weighted
+/// average. Validates that the history is non-empty, has between the
+/// minimum observation count and `records + 1` entries, has no timestamp
+/// beyond `now + MAX_FUTURE_SKEW_SECONDS`, and has consecutive timestamps
+/// spaced at least one resolution period apart. Returns the mean price
+/// paired with the oldest observation's timestamp, or an error if
+/// validation or computation fails.
 fn read_twap(
     session: &Session,
     feed: &ReflectorFeedRef,
