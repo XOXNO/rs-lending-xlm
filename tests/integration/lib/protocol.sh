@@ -13,6 +13,25 @@ deploy_protocol() {
         save_state POOL_HASH "$hash"
         record upload_pool_wasm ok upload "$txh" "" "" "" "" "$hash"
     fi
+    # Governance's `deploy_price_aggregator` takes a wasm hash, not a wasm, so
+    # the price-aggregator code has to be on-ledger by hash as well as deployed
+    # directly. Non-fatal: only the governance-owned aggregator coverage needs
+    # it, and the harness's own $PRICE_AGGREGATOR is deployed from the file.
+    if [ -z "${PA_HASH:-}" ] && [ -f "$WASM_DIR/price_aggregator.wasm" ]; then
+        local pa_out="$LOG_DIR/upload_price_agg.out" pa_err="$LOG_DIR/upload_price_agg.err"
+        run_deploy "$pa_out" "$pa_err" -- stellar contract upload \
+            --wasm "$WASM_DIR/price_aggregator.wasm" \
+            --source "$ADMIN" "${NET_ARGS[@]}"
+        local pa_hash pa_txh
+        pa_hash=$(sanitize_output "$pa_out")
+        pa_txh=$(extract_signing_hash "$pa_err")
+        if is_wasm_hash "$pa_hash"; then
+            save_state PA_HASH "$pa_hash"
+            record upload_price_agg_wasm ok upload "$pa_txh" "" "" "" "" "$pa_hash"
+        else
+            log "price-aggregator wasm upload produced no hash; governance aggregator coverage will skip"
+        fi
+    fi
     if [ -z "${CONTROLLER:-}" ]; then
         local out_f="$LOG_DIR/deploy_controller.out" err_f="$LOG_DIR/deploy_controller.err"
         run_deploy "$out_f" "$err_f" -- stellar contract deploy --wasm "$WASM_DIR/controller.wasm" \

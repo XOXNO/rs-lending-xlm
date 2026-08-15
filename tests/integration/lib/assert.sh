@@ -70,6 +70,16 @@ assert_int_view_eq() {
     || _assert_fail "$label" "got '$actual', want '$expected'"
 }
 
+# Non-negative integer view against an arbitrary contract.
+assert_int_view_at_nonneg() {
+  local label="$1" contract="$2"
+  shift 2
+  local v
+  local VIEW_AT="$contract"
+  v=$(_view_at_int "$label" "$@")
+  [[ "$v" =~ ^[0-9]+$ ]] || _assert_fail "$label" "got '$v' want non-negative int"
+}
+
 # `assert_int_view_eq` against an arbitrary contract. Compares as strings, so it
 # serves bool views too.
 assert_view_eq_at() {

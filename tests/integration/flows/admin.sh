@@ -38,6 +38,8 @@ flow_admin() {
     xfail oracle_tol_owner_guard 'Missing signing key' "$ALICE" "$PRICE_AGGREGATOR" -- set_tolerance \
         --key "$eurc_key" --tolerance "$tol_bands"
 
+    flow_price_aggregator_extra "$eurc_key"
+
     inv update_indexes "$ADMIN" "$CONTROLLER" -- update_indexes \
         --caller "$ADMIN_ADDR" --assets "$(hub_vec "$PRIMARY_HUB_ID" "$XLM_SAC" "$USDC_SAC" "$EURC_SAC")" >/dev/null
     inv update_indexes "$ALICE" "$CONTROLLER" -- update_indexes \
@@ -58,6 +60,18 @@ flow_admin() {
         --caller "$ALICE_ADDR" --assets "$(hub_vec "$PRIMARY_HUB_ID" "$USDC_SAC")" >/dev/null
     view pool_rates_view "$POOL" -- get_borrow_rate --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")" >/dev/null
     view pool_util_view "$POOL" -- get_utilisation --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")" >/dev/null
+
+    # The remaining pool read surface. These back the accounting the controller
+    # reports, so a non-negative, well-formed answer for a live market is the
+    # property worth pinning — a panicking or absent getter would break every
+    # consumer reading pool state.
+    local usdc_hub
+    usdc_hub=$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")
+    assert_int_view_at_nonneg pool_reserves_view "$POOL" get_reserves --hub_asset "$usdc_hub"
+    assert_int_view_at_nonneg pool_supplied_view "$POOL" get_supplied_amount --hub_asset "$usdc_hub"
+    assert_int_view_at_nonneg pool_borrowed_view "$POOL" get_borrowed_amount --hub_asset "$usdc_hub"
+    assert_int_view_at_nonneg pool_deposit_rate_view "$POOL" get_deposit_rate --hub_asset "$usdc_hub"
+    assert_int_view_at_nonneg pool_delta_time_view "$POOL" get_delta_time --hub_asset "$usdc_hub"
 
     local tmp_cat
     tmp_cat=$(inv spoke_tmp_add "$ADMIN" "$CONTROLLER" -- add_spoke | tr -d '"')
@@ -233,4 +247,34 @@ flow_admin_upgrade() {
     inv ownership_transfer_back "$CAROL" "$CONTROLLER" -- transfer_ownership \
         --new_owner "$ADMIN_ADDR" --live_until_ledger $((ledger + 1000)) >/dev/null
     inv ownership_accept_back "$ADMIN" "$CONTROLLER" -- accept_ownership >/dev/null
+}
+
+# The two price-aggregator entry points the tolerance work above never reached.
+#
+# `seed_oracle` and `remove_oracle` are deliberately NOT covered: they sit
+# behind #[cfg(any(test, feature = "testing"))] and are absent from the wasm the
+# harness deploys, since integration-wasm builds without the `testing` feature.
+# Calling them on testnet would fail because they do not exist there.
+flow_price_aggregator_extra() {
+    local key="${1:-}"
+    [ -n "$key" ] || return 0
+
+    # price_spread returns the (low, high) pair behind a resolved price. It is
+    # what a caller inspects to see how far the two legs disagree, so a
+    # well-formed two-element response is the property under test.
+    local spread
+    spread=$(view pa_price_spread "$PRICE_AGGREGATOR" -- price_spread --key "$key")
+    if [ "$(jq -r 'if type == "array" then length else 0 end' <<<"$spread" 2>/dev/null)" = "2" ]; then
+        record pa_price_spread_shape ok price_spread "" "" "" "" "" "$(jq -c . <<<"$spread")"
+    else
+        _assert_fail pa_price_spread_shape "price_spread did not return a 2-tuple: $spread"
+    fi
+
+    # The sanity band is the outer bound on any price the protocol will accept,
+    # so it is owner-only and a non-owner must not be able to widen it.
+    inv pa_set_sanity_band "$ADMIN" "$PRICE_AGGREGATOR" -- set_sanity_band \
+        --key "$key" --min_wad $((WAD / 1000)) --max_wad $((WAD * 1000)) >/dev/null
+
+    xfail pa_set_sanity_band_owner_guard 'Missing signing key' "$ALICE" "$PRICE_AGGREGATOR" -- set_sanity_band \
+        --key "$key" --min_wad $((WAD / 1000)) --max_wad $((WAD * 1000))
 }

@@ -7,6 +7,7 @@ GOV_SALT_SELF_DELAY="55555555555555555555555555555555555555555555555555555555555
 GOV_SALT_BADCURVE="6666666666666666666666666666666666666666666666666666666666666666"
 GOV_SALT_UNPAUSE="7777777777777777777777777777777777777777777777777777777777777777"
 GOV_SALT_SELF_SENSITIVE="8888888888888888888888888888888888888888888888888888888888888888"
+GOV_SALT_CANCELLER_RESET="9999999999999999999999999999999999999999999999999999999999999999"
 
 gov_state() {
     stellar contract invoke --id "$GOVERNANCE" --source "$ADMIN" "${NET_ARGS[@]}" --send=no \
@@ -164,5 +165,77 @@ xfail gov_execute_immediate_absent 'execute_immediate|unknown|not found|No such'
 xfail gov_set_controller_absent 'set_controller|unknown|not found|No such' \
 "$ADMIN" "$GOVERNANCE" -- set_controller --addr "$CONTROLLER"
 
+    flow_gov_recovery_and_roles
+
     inv gov_pause "$ADMIN" "$GOVERNANCE" -- pause --caller "$ADMIN_ADDR" >/dev/null
+}
+
+# The governance surface the main flow never reached: its own price aggregator,
+# the oracle-gated sanity band, immediate role revocation, and the Recovery-tier
+# canceller reset.
+#
+# ADMIN holds every default operational role from the constructor, so it is both
+# owner and ORACLE/GUARDIAN here.
+flow_gov_recovery_and_roles() {
+    # `set_sanity_band` forwards to `price_aggregator_client`, so governance
+    # needs its own aggregator before the band can be set. That is also the only
+    # way to reach `deploy_price_aggregator` / `price_aggregator`.
+    local gov_pa=""
+    if [ -n "${PA_HASH:-}" ]; then
+        gov_pa=$(inv gov_deploy_price_agg "$ADMIN" "$GOVERNANCE" -- deploy_price_aggregator \
+            --wasm_hash "$PA_HASH" | tr -d '"[:space:]')
+    fi
+    if [ -z "$gov_pa" ] || ! is_contract_id "$gov_pa"; then
+        log "gov_recovery: no governance price aggregator (PA_HASH=${PA_HASH:-unset}); skipping sanity band"
+    else
+        record gov_price_aggregator_deployed ok deploy_price_aggregator "" "" "" "" "" "$gov_pa"
+        view gov_price_aggregator_getter "$GOVERNANCE" -- price_aggregator >/dev/null
+
+        # Deploying a second one must be refused, or the registered aggregator
+        # could be swapped out from under the controller.
+        xfail gov_deploy_price_agg_twice 'Error\(Contract' "$ADMIN" "$GOVERNANCE" -- deploy_price_aggregator \
+            --wasm_hash "$PA_HASH"
+
+        inv gov_set_sanity_band "$ADMIN" "$GOVERNANCE" -- set_sanity_band \
+            --caller "$ADMIN_ADDR" --key "$(price_key_token "$SAC_LIQA")" \
+            --min_wad $((WAD / 100)) --max_wad $((WAD * 100)) >/dev/null
+
+        # Without the oracle role the band must not move: it is the bound that
+        # decides which prices the protocol will accept at all.
+        xfail gov_set_sanity_band_no_role 'Error\(Contract' "$ALICE" "$GOVERNANCE" -- set_sanity_band \
+            --caller "$ALICE_ADDR" --key "$(price_key_token "$SAC_LIQA")" \
+            --min_wad $((WAD / 100)) --max_wad $((WAD * 100))
+    fi
+
+    # --- immediate role revocation (owner only, guardian/oracle only) ---
+    view gov_has_guardian_pre "$GOVERNANCE" -- has_role \
+        --account "$ADMIN_ADDR" --role GUARDIAN >/dev/null
+    inv gov_revoke_guardian "$ADMIN" "$GOVERNANCE" -- revoke_role_immediate \
+        --account "$ADMIN_ADDR" --role GUARDIAN >/dev/null
+    # Revoked for real: a guardian-gated call must now fail.
+    xfail gov_guardian_gone 'Error\(Contract' "$ADMIN" "$GOVERNANCE" -- create_hub \
+        --caller "$ADMIN_ADDR"
+
+    # Only guardian and oracle are revocable this way; EXECUTOR must not be.
+    xfail gov_revoke_executor_rejected 'Error\(Contract' "$ADMIN" "$GOVERNANCE" -- revoke_role_immediate \
+        --account "$ADMIN_ADDR" --role EXECUTOR
+
+    # --- canceller reset (Recovery tier) ---
+    # TIMELOCK_RECOVERY_MIN_DELAY_LEDGERS is 518_400 (~30 days at 5s/ledger), so
+    # the execute half is unreachable inside a run. What is reachable — and what
+    # actually matters — is that it schedules, and that executing early is
+    # refused rather than silently applied.
+    local cancellers op_reset
+    cancellers=$(jq -nc --arg a "$DAVE_ADDR" '[$a]')
+    op_reset=$(inv gov_propose_canceller_reset "$ADMIN" "$GOVERNANCE" -- propose_canceller_reset \
+        --new_cancellers "$cancellers" --salt "$GOV_SALT_CANCELLER_RESET" | tr -d '"[:space:]')
+    if [ -n "$op_reset" ]; then
+        record gov_canceller_reset_scheduled ok propose_canceller_reset "" "" "" "" "" "op=$op_reset"
+        gov_assert_state gov_canceller_reset_waiting "$op_reset" Waiting
+    else
+        _assert_fail gov_canceller_reset_scheduled "propose_canceller_reset returned no operation id"
+    fi
+
+    xfail gov_execute_canceller_reset_early 'Error\(Contract' "$ADMIN" "$GOVERNANCE" -- execute_canceller_reset \
+        --executor null --new_cancellers "$cancellers" --salt "$GOV_SALT_CANCELLER_RESET"
 }
