@@ -16,6 +16,12 @@ flow_swap_aggregator_admin() {
     fi
     local agg="$OWNED_AGGREGATOR"
 
+    # Ownership gates every setter below, so pin the identity up front. `admin`
+    # and `get_owner` must agree — `admin` panics with NotAdmin when unset,
+    # which is why it is worth reading both rather than either alone.
+    assert_view_eq_at "$agg" sa_owner_initial "$ADMIN_ADDR" get_owner
+    assert_view_eq_at "$agg" sa_admin_initial "$ADMIN_ADDR" admin
+
     # --- static fee ---
     assert_view_eq_at "$agg" sa_fee_initial 0 static_fee_bps
     inv sa_set_fee "$ADMIN" "$agg" -- set_static_fee --fee_bps 50 >/dev/null
@@ -130,6 +136,11 @@ flow_swap_aggregator_admin() {
 
     # --- ownership, last: irreversible ---
     inv sa_renounce "$ADMIN" "$agg" -- renounce_ownership >/dev/null
+    # Renouncing must actually clear the owner, not just return successfully.
+    # get_owner is Option<Address>, so an unset owner renders as `null`.
+    assert_view_eq_at "$agg" sa_owner_after_renounce null get_owner
+    # And `admin` must now panic rather than report a stale owner.
+    xfail sa_admin_after_renounce 'Error\(Contract, #20\)|Error\(Contract' "$ADMIN" "$agg" -- admin
     # With no owner left, the owner-only surface must be permanently closed.
     xfail sa_owner_only_after_renounce 'Missing signing key|Error\(Contract' "$ADMIN" "$agg" -- set_static_fee --fee_bps 10
 }

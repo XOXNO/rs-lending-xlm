@@ -76,6 +76,7 @@ fi
 
 if want admin; then
     flow_admin
+    flow_pool_surface
     flow_swap_aggregator_admin
 fi
 

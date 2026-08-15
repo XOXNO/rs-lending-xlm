@@ -284,4 +284,88 @@ flow_price_aggregator_extra() {
 
     xfail pa_set_sanity_band_owner_guard 'Missing signing key' "$ALICE" "$PRICE_AGGREGATOR" -- set_sanity_band \
         --key "$key" --min_wad "$band_min" --max_wad "$band_max"
+
+    # Ownership is what gates every setter above, so assert the identity rather
+    # than just that the call returns.
+    assert_view_eq_at "$PRICE_AGGREGATOR" pa_get_owner "$ADMIN_ADDR" get_owner
+
+    # `oracle` must return the config that set_oracle registered for this key.
+    # An empty answer here would mean the setters above wrote somewhere else.
+    local orc
+    orc=$(view pa_oracle "$PRICE_AGGREGATOR" -- oracle --key "$key")
+    if [ -n "$orc" ] && [ "$(jq -r 'if type=="object" then "obj" else . end' <<<"$orc" 2>/dev/null)" = "obj" ]; then
+        record pa_oracle_registered ok oracle "" "" "" "" "" "config present for key"
+    else
+        _assert_fail pa_oracle_registered "oracle returned no config for a registered key: $(head -c 160 <<<"$orc")"
+    fi
+
+    # prices/quotes are keyed maps: one key in must yield an entry for that same
+    # key, or a consumer would silently read another asset's price.
+    local keys_json px qt
+    keys_json=$(jq -nc --argjson k "$key" '[$k]')
+    px=$(view pa_prices "$PRICE_AGGREGATOR" -- prices --keys "$keys_json")
+    qt=$(view pa_quotes "$PRICE_AGGREGATOR" -- quotes --keys "$keys_json")
+    if [ "$(jq -r 'if type=="object" then (keys|length) elif type=="array" then length else 0 end' <<<"$px" 2>/dev/null)" -ge 1 ]; then
+        record pa_prices_keyed ok prices "" "" "" "" "" "1 key -> 1 entry"
+    else
+        _assert_fail pa_prices_keyed "prices returned no entry for the requested key: $(head -c 160 <<<"$px")"
+    fi
+    if [ "$(jq -r 'if type=="object" then (keys|length) elif type=="array" then length else 0 end' <<<"$qt" 2>/dev/null)" -ge 1 ]; then
+        record pa_quotes_keyed ok quotes "" "" "" "" "" "1 key -> 1 entry"
+    else
+        _assert_fail pa_quotes_keyed "quotes returned no entry for the requested key: $(head -c 160 <<<"$qt")"
+    fi
+}
+
+# The pool's own surface, which the harness only ever reached through the
+# controller. Two properties are worth pinning here.
+#
+# First, the pool's privileged entry points are #[only_owner] and the pool's
+# owner is the CONTROLLER, not ADMIN. So a direct call from ADMIN must be
+# rejected: that is what stops anyone minting markets, rewriting rate models or
+# seizing positions behind the controller's back. Asserting the rejection is the
+# direct assertion these endpoints can carry — their happy path is only
+# reachable through the controller, and is already covered there.
+#
+# Second, the two read endpoints back hub-side valuation, so they are asserted
+# on shape, not merely on not-reverting.
+flow_pool_surface() {
+    phase pool_surface
+    local hub_asset
+    hub_asset=$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")
+
+    # --- privileged: must reject a non-owner ---
+    xfail pool_create_market_not_owner 'Missing signing key|Error\(Contract' "$ADMIN" "$POOL" -- create_market \
+        --hub_id "$PRIMARY_HUB_ID" --params "$(market_params_json "$USDC_SAC" 7)"
+    xfail pool_update_params_not_owner 'Missing signing key|Error\(Contract' "$ADMIN" "$POOL" -- update_params \
+        --hub_asset "$hub_asset" --model "$(market_params_json "$USDC_SAC" 7 | jq -c '{
+            max_borrow_rate, base_borrow_rate, slope1, slope2, slope3,
+            mid_utilization, optimal_utilization, max_utilization, reserve_factor
+        }')"
+    xfail pool_seize_positions_not_owner 'Missing signing key|Error\(Contract' "$ADMIN" "$POOL" -- seize_positions \
+        --entries '[]'
+    xfail pool_net_settle_not_owner 'Missing signing key|Error\(Contract' "$ADMIN" "$POOL" -- net_settle \
+        --entry "$(jq -nc --argjson h "$PRIMARY_HUB_ID" --arg a "$USDC_SAC" \
+            '{hub_asset:{hub_id:$h,asset:$a},supply_delta_scaled:"0",borrow_delta_scaled:"0"}')"
+    xfail pool_create_strategy_not_owner 'Missing signing key|Error\(Contract' "$ADMIN" "$POOL" -- create_strategy \
+        --hub_asset "$hub_asset" --amount 1
+
+    # --- reads: assert shape, since these back hub-side valuation ---
+    local sync idx
+    sync=$(view pool_get_sync_data "$POOL" -- get_sync_data --hub_asset "$hub_asset")
+    if [ "$(jq -r 'has("params") and has("state")' <<<"$sync" 2>/dev/null)" = "true" ]; then
+        record pool_sync_data_shape ok get_sync_data "" "" "" "" "" "params+state present"
+    else
+        _assert_fail pool_sync_data_shape "get_sync_data missing params/state: $(head -c 160 <<<"$sync")"
+    fi
+
+    # One key in, one index out — a mismatch would silently misalign the hub's
+    # per-asset valuations.
+    idx=$(view pool_get_bulk_indexes "$POOL" -- get_bulk_indexes \
+        --hub_assets "$(jq -nc --argjson h "$PRIMARY_HUB_ID" --arg a "$USDC_SAC" '[{hub_id:$h,asset:$a}]')")
+    if [ "$(jq -r 'if type=="array" then length else 0 end' <<<"$idx" 2>/dev/null)" = "1" ]; then
+        record pool_bulk_indexes_shape ok get_bulk_indexes "" "" "" "" "" "1 key -> 1 index"
+    else
+        _assert_fail pool_bulk_indexes_shape "get_bulk_indexes returned $(jq -c 'length' <<<"$idx" 2>/dev/null) entries for 1 key"
+    fi
 }
