@@ -1,0 +1,132 @@
+name: E2E Integration
+
+# Standalone end-to-end integration run, deliberately decoupled from
+# release.yml. The `testnet-e2e` job there is gated behind `needs: build` and
+# only fires on a published release (or a dispatch that demands a release tag),
+# so there is no way to exercise the full protocol on an arbitrary branch
+# without cutting a release. This workflow closes that gap: dispatch it on any
+# ref, pick the lane you care about, get the same combined report.
+#
+# It builds nothing for distribution, uploads nothing to a release, and holds
+# no write permission — running it can never publish an artifact.
+
+on:
+  workflow_dispatch:
+    inputs:
+      lanes:
+        description: "Which lane(s) to run"
+        type: choice
+        options:
+          - all
+          - agg
+          - liq
+          - stress
+        default: all
+      lane_timeout:
+        description: "Per-lane wall-clock cap (e.g. 95m, 45m)"
+        required: false
+        default: "95m"
+
+permissions:
+  contents: read
+
+env:
+  STELLAR_VERSION: "27.0.0"
+  # Hard-pinned, and deliberately not a workflow input. The harness deploys
+  # contracts and moves funds for real; `configs/networks.json` also defines
+  # `mainnet`, so an input here would put a one-click mainnet deploy behind a
+  # dropdown. Anyone who genuinely needs another network can set NETWORK when
+  # running the scripts locally.
+  NETWORK: testnet
+
+concurrency:
+  # Shares release.yml's `testnet-e2e` group on purpose. This is mutual
+  # exclusion, not a dependency: both workflows drive the same testnet, the
+  # same friendbot, and the same aggregator API, so overlapping runs would
+  # contend and produce failures that look like protocol bugs. Queue, never
+  # cancel — a half-finished e2e leaves funded wallets and deployed contracts
+  # behind.
+  group: testnet-e2e
+  cancel-in-progress: false
+
+jobs:
+  e2e:
+    name: Testnet e2e (${{ inputs.lanes }})
+    runs-on: self-hosted
+    # Above the 95m default lane cap, leaving room for the WASM build ahead of
+    # it. Queue time is not counted against this.
+    timeout-minutes: 150
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.95"
+          targets: wasm32v1-none
+
+      - name: Cache cargo
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-e2e-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-e2e-
+
+      - name: Install stellar-cli
+        run: bash .github/scripts/install-stellar-cli.sh
+
+      - name: Install harness tools
+        run: |
+          if command -v jq >/dev/null 2>&1 && command -v xxd >/dev/null 2>&1; then
+            echo "jq + xxd already present"; exit 0
+          fi
+          sudo apt-get update -q && sudo apt-get install -y -q jq xxd
+
+      - name: Build integration WASM
+        run: make integration-wasm
+
+      - name: Run testnet e2e
+        env:
+          RUN_TS: e2e-${{ github.run_id }}
+          E2E_LANES: ${{ inputs.lanes == 'all' && 'agg liq stress' || inputs.lanes }}
+          LANE_TIMEOUT: ${{ inputs.lane_timeout }}
+        run: bash tests/integration/scenarios/parallel_e2e.sh
+
+      - name: Publish combined report to job summary
+        if: always()
+        env:
+          RUN_TS: e2e-${{ github.run_id }}
+        run: |
+          combined="tests/integration/runs/${RUN_TS}-combined.md"
+          if [ -f "$combined" ]; then
+            cat "$combined" >> "$GITHUB_STEP_SUMMARY"
+          else
+            # No combined report means the orchestrator never reached its
+            # write — surface that rather than leaving an empty summary that
+            # reads like a clean run.
+            {
+              echo "# E2E Integration — ${RUN_TS}"
+              echo
+              echo "**No combined report produced.** The run failed before the"
+              echo "orchestrator wrote one; see the uploaded lane logs."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload e2e reports
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: e2e-report-${{ inputs.lanes }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            tests/integration/runs/e2e-${{ github.run_id }}-combined.md
+            tests/integration/runs/e2e-${{ github.run_id }}-*/report.md
+            tests/integration/runs/e2e-${{ github.run_id }}-*/actions.tsv
+            tests/integration/runs/e2e-${{ github.run_id }}-*/logs/**
+            tests/integration/runs/e2e-${{ github.run_id }}-*.log
+          # A failure before any lane produced output is itself worth seeing in
+          # the job log, but it must not mask the real error by failing here.
+          if-no-files-found: warn
