@@ -101,3 +101,41 @@ fn submit_price_renews_known_feed_allowlist_ttl() {
         "submit must re-arm the paired FeedAt slot"
     );
 }
+
+/// History is only written on submission, so a feed that is read far more often
+/// than it is updated would let its history expire while still serving reads.
+/// The read path has to re-arm it.
+#[test]
+fn read_price_history_renews_history_ttl() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, signers) = setup(&env, 1, 1);
+    let feed = feed_id(&env);
+
+    client.submit_price(&signers[0], &feed, &100i128, &1_000u64);
+
+    // Advance by sequence, not timestamp: this ages the TTL without making the
+    // aggregate stale, which would make read_price_history fail before it ever
+    // reaches the renewal.
+    let decay: u32 = TTL_BUMP_SHARED - 20_000;
+    advance_ledger_sequence(&env, decay);
+
+    let history_key = MirrorKey::History(feed.clone());
+    let before = env.as_contract(&client.address, || {
+        env.storage().persistent().get_ttl(&history_key)
+    });
+    assert!(
+        before < TTL_THRESHOLD_SHARED,
+        "precondition: aged history TTL ({before}) must sit below the renewal threshold"
+    );
+
+    client.read_price_history(&feed, &10u32);
+
+    let after = env.as_contract(&client.address, || {
+        env.storage().persistent().get_ttl(&history_key)
+    });
+    assert_eq!(
+        after, TTL_BUMP_SHARED,
+        "reading history must re-arm its shared bump"
+    );
+}

@@ -11,6 +11,7 @@ use soroban_sdk::{contracttype, Address, ConversionError, Env, InvokeError, Stri
 pub enum MirrorKey {
     LatestSubmission(String, Address),
     SignerFeeds(Address),
+    History(String),
     FeedIndex(String),
     FeedAt(u32),
 }
