@@ -67,8 +67,8 @@ pub(crate) fn smoothing(env: &Env, first: &SourceProperties, second: Option<&Sou
 /// Checks the contracts shared between `first` and `second` against
 /// `policy`, panicking with `OracleError::IndependenceNotDeclared` if
 /// `policy` requires disjoint sources and any contract is shared, or if
-/// `policy` allows a declared shared set that does not exactly match the
-/// contracts actually shared between the two.
+/// `policy` declares an allowed-shared set that is empty or does not
+/// exactly match the contracts actually shared between the two.
 pub(crate) fn independence(
     env: &Env,
     first: &SourceProperties,

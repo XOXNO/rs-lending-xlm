@@ -92,6 +92,14 @@ fn repay_only_changes_target_account_debt(e: Env, caller: Address, asset: Addres
     cvlr_assert!(scaled_borrow_at(&e, other_account, &asset) == other_borrow_before);
 }
 
+/// A liquidation writes at most the two accounts it names.
+///
+/// Share-credit liquidation deliberately writes a second account: the receiver the liquidator
+/// declares through `SeizeMode::Credit`. The rule therefore names both principals — the
+/// liquidated account and the declared receiver — and still forbids any *third* account from
+/// moving. The declared receiver is the strongest form available: it is chosen in the call
+/// itself, so the rule holds a liquidation to exactly the accounts its arguments identify, and
+/// a liquidation that touched an undeclared account would still be caught.
 #[rule]
 fn liquidation_does_not_change_other_account_positions(
     e: Env,
@@ -101,10 +109,13 @@ fn liquidation_does_not_change_other_account_positions(
     debt_amount: i128,
 ) {
     let target_account: u64 = 1;
-    let other_account: u64 = 2;
+    let receiver_account: u64 = 2;
+    let other_account: u64 = 3;
     cvlr_assume!(debt_amount > 0 && debt_amount <= WAD * 1000);
     cvlr_assume!(owner != liquidator);
     crate::spec::fixture::seed_live_account(&e, target_account, &owner, &debt_asset);
+    // The receiver is the liquidator's own account, which is what `Credit(id)` requires.
+    crate::spec::fixture::seed_account(&e, receiver_account, &liquidator);
     crate::spec::fixture::seed_account(&e, other_account, &owner);
 
     let other_supply_before = scaled_supply_at(&e, other_account, &debt_asset);
@@ -112,7 +123,13 @@ fn liquidation_does_not_change_other_account_positions(
 
     let mut payments: soroban_sdk::Vec<Payment> = soroban_sdk::Vec::new(&e);
     payments.push_back((debt_asset.clone(), debt_amount));
-    crate::spec::compat::liquidate(e.clone(), liquidator, target_account, payments);
+    crate::spec::compat::liquidate_with_mode(
+        e.clone(),
+        liquidator,
+        target_account,
+        payments,
+        crate::types::SeizeMode::Credit(receiver_account),
+    );
 
     cvlr_assert!(scaled_supply_at(&e, other_account, &debt_asset) == other_supply_before);
     cvlr_assert!(scaled_borrow_at(&e, other_account, &debt_asset) == other_borrow_before);

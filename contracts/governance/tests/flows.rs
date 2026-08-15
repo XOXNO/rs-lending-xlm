@@ -204,8 +204,8 @@ fn forwarding_passes_controller_owner_auth_via_invoker() {
     });
 
     let limits = PositionLimits {
-        max_supply_positions: 7,
-        max_borrow_positions: 6,
+        max_supply_positions: 4,
+        max_borrow_positions: 3,
     };
     let op = AdminOperation::SetPositionLimits(limits);
     env.mock_auths(&[MockAuth {
@@ -224,8 +224,8 @@ fn forwarding_passes_controller_owner_auth_via_invoker() {
     gov.execute_immediate(&admin, &op);
 
     let stored = read_controller_position_limits(&env, &controller_id);
-    assert_eq!(stored.max_supply_positions, 7);
-    assert_eq!(stored.max_borrow_positions, 6);
+    assert_eq!(stored.max_supply_positions, 4);
+    assert_eq!(stored.max_borrow_positions, 3);
 }
 
 #[test]
@@ -423,6 +423,7 @@ fn edit_asset_in_spoke_rejects_bad_risk_bounds_before_any_cross_call() {
         can_borrow: true,
         paused: false,
         frozen: false,
+        no_seize: false,
         ltv: 9_000,
 
         threshold: 8_000,
@@ -484,42 +485,41 @@ fn propose_resolves_all_controller_and_self_variants() {
 
     let asset = Address::generate(&env);
     let mut n: u8 = 0;
-    let mut salt = || {
+    // Each variant must not merely survive propose: it must land as a real
+    // timelocked operation in the Waiting state.
+    let mut propose_and_assert_waiting = |op: AdminOperation| {
         n += 1;
-        BytesN::<32>::from_array(&env, &[n; 32])
+        let salt = BytesN::<32>::from_array(&env, &[n; 32]);
+        let id = gov.propose(&admin, &op, &salt);
+        assert_eq!(
+            gov.get_operation_state(&id),
+            crate::OperationState::Waiting,
+            "variant #{n} must be registered as Waiting"
+        );
     };
 
-    gov.propose(
-        &admin,
-        &AdminOperation::TransferGovOwnership(TransferOwnershipArgs {
+    propose_and_assert_waiting(AdminOperation::TransferGovOwnership(
+        TransferOwnershipArgs {
             new_owner: Address::generate(&env),
             live_until_ledger: u32::MAX,
-        }),
-        &salt(),
-    );
-    gov.propose(&admin, &AdminOperation::RemoveSpoke(2), &salt());
-    gov.propose(
-        &admin,
-        &AdminOperation::RemoveAssetFromSpoke(RemoveAssetFromSpokeArgs {
+        },
+    ));
+    propose_and_assert_waiting(AdminOperation::RemoveSpoke(2));
+    propose_and_assert_waiting(AdminOperation::RemoveAssetFromSpoke(
+        RemoveAssetFromSpokeArgs {
             hub_asset: HubAssetKey {
                 hub_id: 0,
                 asset: asset.clone(),
             },
             spoke_id: 1,
-        }),
-        &salt(),
-    );
-    gov.propose(
-        &admin,
-        &AdminOperation::RevokeBlendPool(controller.clone()),
-        &salt(),
-    );
-    gov.propose(
-        &admin,
-        &AdminOperation::SetPositionManager(Address::generate(&env), true),
-        &salt(),
-    );
-    gov.propose(&admin, &AdminOperation::MigrateController(3), &salt());
+        },
+    ));
+    propose_and_assert_waiting(AdminOperation::RevokeBlendPool(controller.clone()));
+    propose_and_assert_waiting(AdminOperation::SetPositionManager(
+        Address::generate(&env),
+        true,
+    ));
+    propose_and_assert_waiting(AdminOperation::MigrateController(3));
 }
 
 #[test]
@@ -638,6 +638,7 @@ fn set_spoke_asset_flags_requires_guardian_role() {
         },
         &true,
         &true,
+        &true,
     );
 }
 
@@ -660,6 +661,7 @@ fn guardian_set_spoke_asset_flags_reaches_controller_listing_check() {
             hub_id: 0,
             asset: Address::generate(&env),
         },
+        &true,
         &true,
         &true,
     );

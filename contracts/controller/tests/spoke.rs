@@ -17,6 +17,7 @@ fn spoke_asset_config(ltv_bps: u32) -> SpokeAssetConfig {
         is_borrowable: true,
         paused: false,
         frozen: false,
+        no_seize: false,
         loan_to_value: ltv_bps,
         liquidation_threshold: ltv_bps + 500,
         liquidation_bonus: 300,
@@ -446,6 +447,32 @@ fn exit_sees_entry_cached_row_in_same_context() {
         assert_eq!(stored.supplied_scaled_ray, 6);
         assert_eq!(stored.borrowed_scaled_ray, 0);
     });
+}
+
+#[test]
+fn usage_side_cap_reads_matching_field() {
+    let cfg = SpokeAssetConfig {
+        is_collateralizable: true,
+        is_borrowable: true,
+        paused: false,
+        frozen: false,
+        no_seize: false,
+        loan_to_value: 9_000,
+        liquidation_threshold: 9_300,
+        liquidation_bonus: 300,
+        liquidation_fees: 0,
+        supply_cap: 10,
+        borrow_cap: 20,
+    };
+    assert_eq!(UsageSide::Supply.cap(&cfg), 10);
+    assert_eq!(UsageSide::Borrow.cap(&cfg), 20);
+}
+
+#[test]
+fn spoke_usage_context_preserves_spoke_id() {
+    let env = Env::default();
+    let ctx = SpokeUsageContext::new(&env, 7);
+    assert_eq!(ctx.spoke_id(), 7);
 }
 
 /// Full exit of an entry-created row prunes storage via set_spoke_usage zeros.

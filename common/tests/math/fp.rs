@@ -731,3 +731,63 @@ fn test_wad_add_checked() {
     let sum = Wad::from(WAD).checked_add(&env, Wad::from(WAD / 2));
     assert_eq!(sum.raw(), WAD + WAD / 2);
 }
+
+// --- largest representable balance (docs/reference/numeric-bounds.md §3) --
+//
+// Every token amount enters the accounting through `Ray::from_asset`, which
+// upscales by 10^(27 - decimals). That single multiplication is the ceiling on
+// any balance the protocol can hold, and it is the same ceiling
+// `common::validation::max_cap_for_decimals` computes for caps.
+
+/// The largest asset-unit amount whose ray form still fits `i128`.
+fn max_representable_units(decimals: u32) -> i128 {
+    i128::MAX / 10i128.pow(RAY_DECIMALS - decimals)
+}
+
+#[test]
+fn test_ray_from_asset_ceiling_holds_across_the_listable_decimal_range() {
+    // MIN_ASSET_DECIMALS ..= MAX_ASSET_DECIMALS is 3 ..= 18.
+    for decimals in 3u32..=18 {
+        let ceiling = max_representable_units(decimals);
+        let ray = Ray::from_asset(ceiling, decimals);
+
+        assert!(
+            ray.raw() > 0,
+            "ceiling must be representable at {decimals} decimals"
+        );
+        // One more asset unit would not fit: the residue below i128::MAX is
+        // strictly smaller than one unit's worth of ray.
+        let unit_in_ray = 10i128.pow(RAY_DECIMALS - decimals);
+        assert!(
+            i128::MAX - ray.raw() < unit_in_ray,
+            "ceiling is not tight at {decimals} decimals",
+        );
+        assert_eq!(ray.to_asset(decimals), ceiling, "roundtrip at the ceiling");
+    }
+}
+
+#[test]
+fn test_balance_ceiling_is_the_same_whole_token_count_at_every_decimals() {
+    // i128::MAX / RAY = 170_141_183_460.469…, so the ceiling is ~170.14 billion
+    // whole tokens regardless of the asset's decimals. Tokens whose total supply
+    // exceeds that (memecoin-scale, 1e14+ units) cannot be listed whole.
+    for decimals in 3u32..=18 {
+        let whole_tokens = max_representable_units(decimals) / 10i128.pow(decimals);
+        assert_eq!(
+            whole_tokens, 170_141_183_460,
+            "whole-token ceiling drifted at {decimals} decimals",
+        );
+    }
+}
+
+#[test]
+#[should_panic(expected = "rescale_half_up upscale overflow")]
+fn test_ray_from_asset_one_unit_above_the_ceiling_overflows_at_min_decimals() {
+    let _ = Ray::from_asset(max_representable_units(3) + 1, 3);
+}
+
+#[test]
+#[should_panic(expected = "rescale_half_up upscale overflow")]
+fn test_ray_from_asset_one_unit_above_the_ceiling_overflows_at_max_decimals() {
+    let _ = Ray::from_asset(max_representable_units(18) + 1, 18);
+}

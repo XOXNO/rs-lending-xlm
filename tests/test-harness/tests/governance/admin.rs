@@ -103,6 +103,7 @@ fn test_edit_asset_in_spoke_rejects_threshold_above_bps() {
         can_borrow: cfg.is_borrowable,
         paused: false,
         frozen: false,
+        no_seize: false,
         ltv: 5_000,
         threshold: 10_001,
         bonus: 0,

@@ -102,22 +102,20 @@ fn swap_debt_preserves_directional_bounds(
     existing_debt_token: Address,
     new_debt_amount: i128,
     new_debt_token: Address,
+    old_scaled_before: i128,
 ) {
     let steps = nonempty_strategy_swap();
     cvlr_assume!(new_debt_amount > 0);
     cvlr_assume!(existing_debt_token != new_debt_token);
+    cvlr_assume!(old_scaled_before > 0 && old_scaled_before <= 20 * common::constants::RAY);
     crate::spec::fixture::seed_live_account(&e, account_id, &caller, &existing_debt_token);
     crate::spec::fixture::seed_market(&e, &new_debt_token);
-
-    let old_pos_before = crate::storage::get_position(
+    crate::spec::fixture::seed_debt_position(
         &e,
         account_id,
-        AccountPositionType::Borrow,
         &existing_debt_token,
+        old_scaled_before,
     );
-    cvlr_assume!(old_pos_before.is_some());
-    let old_scaled_before = old_pos_before.unwrap().scaled_amount;
-    cvlr_assume!(old_scaled_before > 0);
     let new_scaled_before =
         crate::storage::get_position(&e, account_id, AccountPositionType::Borrow, &new_debt_token)
             .map(|position| position.scaled_amount)
@@ -185,22 +183,20 @@ fn swap_collateral_preserves_directional_bounds(
     current_collateral: Address,
     from_amount: i128,
     new_collateral: Address,
+    old_scaled_before: i128,
 ) {
     let steps = nonempty_strategy_swap();
     cvlr_assume!(from_amount > 0);
     cvlr_assume!(current_collateral != new_collateral);
+    cvlr_assume!(old_scaled_before > 0 && old_scaled_before <= 20 * common::constants::RAY);
     crate::spec::fixture::seed_live_account(&e, account_id, &caller, &current_collateral);
     crate::spec::fixture::seed_market(&e, &new_collateral);
-
-    let old_pos_before = crate::storage::get_position(
+    crate::spec::fixture::seed_supply_position(
         &e,
         account_id,
-        AccountPositionType::Deposit,
         &current_collateral,
+        old_scaled_before,
     );
-    cvlr_assume!(old_pos_before.is_some());
-    let old_scaled_before = old_pos_before.unwrap().scaled_amount;
-    cvlr_assume!(old_scaled_before > 0);
     let new_scaled_before = crate::storage::get_position(
         &e,
         account_id,
@@ -276,28 +272,25 @@ fn repay_with_collateral_never_increases_positions(
     collateral_token: Address,
     collateral_amount: i128,
     debt_token: Address,
+    collateral_scaled_before: i128,
+    debt_scaled_before: i128,
 ) {
     let steps = nonempty_strategy_swap();
     cvlr_assume!(collateral_amount > 0);
     cvlr_assume!(collateral_token != debt_token);
+    cvlr_assume!(
+        collateral_scaled_before > 0 && collateral_scaled_before <= 20 * common::constants::RAY
+    );
+    cvlr_assume!(debt_scaled_before > 0 && debt_scaled_before <= 20 * common::constants::RAY);
     crate::spec::fixture::seed_live_account(&e, account_id, &caller, &collateral_token);
     crate::spec::fixture::seed_market(&e, &debt_token);
-
-    let collateral_before = crate::storage::get_position(
+    crate::spec::fixture::seed_supply_position(
         &e,
         account_id,
-        AccountPositionType::Deposit,
         &collateral_token,
+        collateral_scaled_before,
     );
-    cvlr_assume!(collateral_before.is_some());
-    let collateral_scaled_before = collateral_before.unwrap().scaled_amount;
-    cvlr_assume!(collateral_scaled_before > 0);
-
-    let debt_before =
-        crate::storage::get_position(&e, account_id, AccountPositionType::Borrow, &debt_token);
-    cvlr_assume!(debt_before.is_some());
-    let debt_scaled_before = debt_before.unwrap().scaled_amount;
-    cvlr_assume!(debt_scaled_before > 0);
+    crate::spec::fixture::seed_debt_position(&e, account_id, &debt_token, debt_scaled_before);
 
     crate::spec::compat::repay_debt_with_collateral_minimal(
         e.clone(),
@@ -336,26 +329,25 @@ fn repay_with_collateral_full_close_clears_debt(
     collateral_token: Address,
     collateral_amount: i128,
     debt_token: Address,
+    collateral_scaled_before: i128,
+    debt_scaled_before: i128,
 ) {
     let steps = nonempty_strategy_swap();
     cvlr_assume!(collateral_amount > 0);
     cvlr_assume!(collateral_token != debt_token);
+    cvlr_assume!(
+        collateral_scaled_before > 0 && collateral_scaled_before <= 20 * common::constants::RAY
+    );
+    cvlr_assume!(debt_scaled_before > 0 && debt_scaled_before <= 20 * common::constants::RAY);
     crate::spec::fixture::seed_live_account(&e, account_id, &caller, &collateral_token);
     crate::spec::fixture::seed_market(&e, &debt_token);
-
-    let collateral_before = crate::storage::get_position(
+    crate::spec::fixture::seed_supply_position(
         &e,
         account_id,
-        AccountPositionType::Deposit,
         &collateral_token,
+        collateral_scaled_before,
     );
-    cvlr_assume!(collateral_before.is_some());
-    cvlr_assume!(collateral_before.unwrap().scaled_amount > 0);
-
-    let debt_before =
-        crate::storage::get_position(&e, account_id, AccountPositionType::Borrow, &debt_token);
-    cvlr_assume!(debt_before.is_some());
-    cvlr_assume!(debt_before.unwrap().scaled_amount > 0);
+    crate::spec::fixture::seed_debt_position(&e, account_id, &debt_token, debt_scaled_before);
 
     crate::spec::compat::repay_debt_with_collateral_close(
         e.clone(),
@@ -405,11 +397,10 @@ fn repay_with_collateral_sanity(
 #[rule]
 fn clean_bad_debt_zeros_positions(e: Env, account_id: u64) {
     let owner = cvlr_soroban::nondet_address();
+    let debt_asset = cvlr_soroban::nondet_address();
     crate::spec::fixture::seed_protocol(&e);
     crate::spec::fixture::seed_account(&e, account_id, &owner);
-    let borrow_list_pre =
-        crate::storage::get_position_list(&e, account_id, AccountPositionType::Borrow);
-    cvlr_assume!(!borrow_list_pre.is_empty());
+    crate::spec::fixture::seed_debt_position(&e, account_id, &debt_asset, 1);
 
     crate::positions::liquidation::clean_bad_debt_standalone(&e, account_id);
 
@@ -524,4 +515,44 @@ fn clean_bad_debt_sanity(e: Env) {
     crate::spec::fixture::seed_account(&e, account_id, &owner);
     crate::positions::liquidation::clean_bad_debt_standalone(&e, account_id);
     cvlr_satisfy!(true);
+}
+
+#[rule]
+fn net_settle_pivot_never_leaves_zero_scaled_records(
+    e: Env,
+    caller: Address,
+    account_id: u64,
+    asset: Address,
+    repay_amount: i128,
+    collateral_amount: i128,
+) {
+    cvlr_assume!(repay_amount > 0 && repay_amount <= crate::constants::WAD * 1000);
+    cvlr_assume!(collateral_amount > 0 && collateral_amount <= crate::constants::WAD * 1000);
+    let steps = nonempty_strategy_swap();
+    crate::spec::fixture::seed_live_account(&e, account_id, &caller, &asset);
+    crate::spec::fixture::seed_supply_position(&e, account_id, &asset, 20 * common::constants::RAY);
+    crate::spec::fixture::seed_debt_position(&e, account_id, &asset, 10 * common::constants::RAY);
+
+    crate::spec::compat::repay_debt_with_collateral_minimal(
+        e.clone(),
+        caller,
+        account_id,
+        asset.clone(),
+        collateral_amount,
+        asset.clone(),
+        steps,
+    );
+
+    // Same-asset repay flows through net_settle_collateral_against_debt
+    // (strategies/legs.rs). The pool outcome is merged verbatim, and
+    // production removes a record when the merged scaled value is zero
+    // (account.rs update_or_remove_*_position), so any surviving record is
+    // strictly positive — no orphan zero-scaled debt or supply can persist
+    // after the pivot.
+    let supply = crate::storage::get_supply_positions(&e, account_id)
+        .get(crate::spec::fixture::hub_asset(&asset));
+    let debt = crate::storage::get_debt_positions(&e, account_id)
+        .get(crate::spec::fixture::hub_asset(&asset));
+    cvlr_assert!(supply.map_or(true, |p| p.scaled_amount > 0));
+    cvlr_assert!(debt.map_or(true, |p| p.scaled_amount > 0));
 }

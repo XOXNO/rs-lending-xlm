@@ -30,9 +30,13 @@ fn test_tolerance_config_rejects_non_reciprocal_lower() {
             lower_ratio_bps: 9_500,
         },
     );
-    assert!(
-        result.is_err(),
-        "non-reciprocal tolerance must fail BadLastTolerance"
+    let err = result
+        .expect_err("non-reciprocal tolerance must be rejected")
+        .expect("must be a contract error, not a conversion failure");
+    assert_eq!(
+        err,
+        soroban_sdk::Error::from_contract_error(test_harness::errors::BAD_LAST_TOLERANCE),
+        "the rejection must fire BadLastTolerance, not an unrelated gate"
     );
 }
 
@@ -45,8 +49,14 @@ fn test_dual_source_prices_and_risk_gates_still_resolve() {
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 10.0);
 
-    let hf = t.health_factor(ALICE);
-    assert!(hf > 0.0, "dual-source portfolio must still hard-price");
+    t.assert_healthy(ALICE);
+    // Both sources sit at the default $1, so the midpoint valuation must be
+    // the full $100k — anything else means a source was dropped or skewed.
+    let collateral = t.total_collateral(ALICE);
+    assert!(
+        (collateral - 100_000.0).abs() < 100.0,
+        "dual-source valuation must resolve to ~$100k, got ${collateral:.0}"
+    );
 }
 
 #[test]

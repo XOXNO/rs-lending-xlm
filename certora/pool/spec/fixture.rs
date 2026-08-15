@@ -80,6 +80,15 @@ pub fn seed(
     state: PoolStateRaw,
 ) {
     crate::LiquidityPool::__constructor(env.clone(), admin);
+    write_market(env, asset, params, state);
+}
+
+/// Overwrites a market's params and state without re-running the constructor.
+///
+/// Lets one rule replay the same starting market twice — once for a split
+/// sequence, once for the equivalent single call — inside a single proof,
+/// without a second `set_owner`.
+pub fn write_market(env: &Env, asset: Address, params: MarketParamsRaw, state: PoolStateRaw) {
     let key = hub(asset);
     env.storage()
         .persistent()

@@ -53,8 +53,17 @@ fn count_topic(events: &ContractEvents, first: &str, second: &str) -> usize {
 fn test_supply_emits_events() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
     t.supply(ALICE, "USDC", 10_000.0);
-    let count = t.env.events().all().events().len();
-    assert!(count > 0, "supply should emit events, got {}", count);
+    let events = t.env.events().all();
+    assert_eq!(
+        count_topic(&events, "position", "batch_update"),
+        1,
+        "supply must emit exactly one position batch"
+    );
+    assert_eq!(
+        count_topic(&events, "market", "batch_state_update"),
+        1,
+        "supply must emit exactly one market batch"
+    );
 }
 
 #[test]
@@ -199,8 +208,12 @@ fn test_borrow_emits_events() {
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 1.0);
 
-    let count = t.env.events().all().events().len();
-    assert!(count > 0, "borrow should emit events, got {}", count);
+    let events = t.env.events().all();
+    assert_eq!(
+        count_topic(&events, "position", "batch_update"),
+        1,
+        "borrow must emit exactly one position batch"
+    );
 }
 
 #[test]
@@ -208,8 +221,12 @@ fn test_withdraw_emits_events() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
     t.supply(ALICE, "USDC", 10_000.0);
     t.withdraw(ALICE, "USDC", 1_000.0);
-    let count = t.env.events().all().events().len();
-    assert!(count > 0, "withdraw should emit events, got {}", count);
+    let events = t.env.events().all();
+    assert_eq!(
+        count_topic(&events, "position", "batch_update"),
+        1,
+        "withdraw must emit exactly one position batch"
+    );
 }
 
 #[test]
@@ -221,8 +238,12 @@ fn test_repay_emits_events() {
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 1.0);
     t.repay(ALICE, "ETH", 0.5);
-    let count = t.env.events().all().events().len();
-    assert!(count > 0, "repay should emit events, got {}", count);
+    let events = t.env.events().all();
+    assert_eq!(
+        count_topic(&events, "position", "batch_update"),
+        1,
+        "repay must emit exactly one position batch"
+    );
 }
 
 #[test]
@@ -236,11 +257,16 @@ fn test_liquidation_emits_many_events() {
     t.set_price("USDC", usd_cents(50));
     t.liquidate(LIQUIDATOR, ALICE, "ETH", 1.0);
 
-    let count = t.env.events().all().events().len();
-    assert!(
-        count >= 3,
-        "liquidation should emit >= 3 events, got {}",
-        count
+    let events = t.env.events().all();
+    assert_eq!(
+        count_topic(&events, "position", "batch_update"),
+        1,
+        "liquidation must emit exactly one position batch"
+    );
+    assert_eq!(
+        count_topic(&events, "position", "liquidation"),
+        1,
+        "liquidation must emit exactly one liquidation event"
     );
 }
 
@@ -248,8 +274,12 @@ fn test_liquidation_emits_many_events() {
 fn test_add_spoke_emits_events() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     t.ctrl_client().add_spoke();
-    let count = t.env.events().all().events().len();
-    assert!(count > 0, "add_spoke should emit events, got {}", count);
+    let events = t.env.events().all();
+    assert_eq!(
+        count_topic(&events, "config", "spoke"),
+        1,
+        "add_spoke must emit exactly one config:spoke event"
+    );
 }
 
 #[test]
@@ -261,6 +291,10 @@ fn test_index_sync_emits_events() {
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 1.0);
     t.advance_and_sync(days(1));
-    let count = t.env.events().all().events().len();
-    assert!(count > 0, "sync should emit events, got {}", count);
+    let events = t.env.events().all();
+    assert_eq!(
+        count_topic(&events, "market", "batch_state_update"),
+        2,
+        "syncing both markets must emit one market batch per pool sync call"
+    );
 }

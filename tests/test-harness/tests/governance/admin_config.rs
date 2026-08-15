@@ -25,6 +25,7 @@ fn test_edit_asset_in_spoke_rejects_threshold_lte_ltv() {
         can_borrow: config.is_borrowable,
         paused: false,
         frozen: false,
+        no_seize: false,
         ltv: 8000,
         threshold: 8000,
         bonus: config.liquidation_bonus,
@@ -46,16 +47,19 @@ fn test_set_position_limits_rejects_above_cap() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let admin = t.admin();
 
+    // Derived from the constant so a cap change is caught here, not by
+    // unrelated fixtures downstream.
+    let cap = common::constants::POSITION_LIMIT_MAX;
     t.gov_client().execute_immediate(
         &admin,
         &AdminOperation::SetPositionLimits(controller::types::PositionLimits {
-            max_supply_positions: 10,
-            max_borrow_positions: 10,
+            max_supply_positions: cap,
+            max_borrow_positions: cap,
         }),
     );
 
-    assert_invalid_position_limits(&t, 11, 10);
-    assert_invalid_position_limits(&t, 10, 11);
+    assert_invalid_position_limits(&t, cap + 1, cap);
+    assert_invalid_position_limits(&t, cap, cap + 1);
 
     assert_invalid_position_limits(&t, 32, 32);
     assert_invalid_position_limits(&t, 0, 5);

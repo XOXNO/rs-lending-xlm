@@ -1,32 +1,23 @@
-//! Reusable position "legs" shared by higher-level strategies: repaying debt
-//! and withdrawing collateral through the controller's own balance, closing
-//! out all supply positions, and netting a supply position directly against a
-//! debt position via the pool's net-settle call.
-
 use common::errors::GenericError;
 use common::math::fp::Ray;
 use common::types::{
     Account, AccountPosition, DebtPosition, HubAssetKey, PoolNetSettleEntry, ScaledPositionRaw,
 };
-use soroban_sdk::{token, Address, Env, Vec};
+use soroban_sdk::{panic_with_error, token, Address, Env, Vec};
 
 use crate::constants::WITHDRAW_ALL_SENTINEL;
 use crate::context::Cache;
 use crate::events;
 use crate::events::EventContext;
 use crate::external::pool::pool_net_settle_call;
-use crate::payments as utils;
-use crate::payments::balance_delta;
-use crate::positions::repay::{self, RepaymentRequest};
-use crate::positions::withdraw::{self, WithdrawalRequest};
+use crate::payments;
 use crate::positions::{
     enforce_spoke_asset_flags, get_debt_position_or_panic, get_supply_position_or_panic,
     merge_debt_leg, FreezePolicy, LegDirection, LegOutcome,
 };
+use crate::positions::{execute_repayment, RepaymentRequest};
+use crate::positions::{execute_withdrawal, WithdrawalRequest};
 
-/// Parameters for [`repay_debt_from_controller`]: the debt to repay, the
-/// amount available for repayment, the debt position being reduced, and the
-/// event action to record.
 pub(crate) struct StrategyRepay<'a> {
     pub debt: &'a HubAssetKey,
     pub debt_available: i128,
@@ -34,9 +25,6 @@ pub(crate) struct StrategyRepay<'a> {
     pub action: events::PositionAction,
 }
 
-/// Parameters for [`withdraw_collateral_to_controller`]: the asset and amount
-/// to withdraw, the supply position being reduced, and the event action to
-/// record.
 pub(crate) struct StrategyWithdraw<'a> {
     pub hub_asset: &'a HubAssetKey,
     pub amount: i128,
@@ -45,7 +33,7 @@ pub(crate) struct StrategyWithdraw<'a> {
 }
 
 /// Builds an `EventContext` whose counterparty is the controller contract
-/// itself, for legs that route funds through the controller's own balance.
+/// itself, for legs that settle through controller custody.
 fn controller_event_context(env: &Env, action: events::PositionAction) -> EventContext {
     EventContext {
         counterparty: env.current_contract_address(),
@@ -54,10 +42,9 @@ fn controller_event_context(env: &Env, action: events::PositionAction) -> EventC
 }
 
 /// Transfers `req.debt_available` of the debt asset from the controller to
-/// the pool, measures the amount the pool actually received, and repays the
-/// account's debt position by that received amount. Any leftover controller
-/// balance of the debt asset created by the repayment is refunded to
-/// `caller`.
+/// the pool, measuring what the pool actually received, and applies that
+/// measured amount to `account`'s debt position. Forwards any resulting
+/// increase in the controller's asset balance to `caller`.
 pub(crate) fn repay_debt_from_controller(
     env: &Env,
     account: &mut Account,
@@ -69,7 +56,7 @@ pub(crate) fn repay_debt_from_controller(
     let debt_tok = token::Client::new(env, &req.debt.asset);
 
     // Measure pool receipt so strategy debt burn matches tokens that arrived.
-    let received = utils::transfer_amount_measured(
+    let received = payments::transfer_amount_measured(
         env,
         &req.debt.asset,
         &env.current_contract_address(),
@@ -80,7 +67,7 @@ pub(crate) fn repay_debt_from_controller(
 
     let controller_balance_before_repay = debt_tok.balance(&env.current_contract_address());
 
-    repay::execute_repayment(
+    execute_repayment(
         env,
         account,
         controller_event_context(env, req.action),
@@ -100,9 +87,9 @@ pub(crate) fn repay_debt_from_controller(
     );
 }
 
-/// Withdraws `req.amount` of `req.hub_asset` from the account's supply
-/// position into the controller's own balance and returns the resulting
-/// increase in the controller's token balance.
+/// Withdraws `req.amount` of `req.hub_asset` from `account`'s supply
+/// position into the controller's own balance and returns the amount
+/// actually received, measured as the balance delta.
 pub(crate) fn withdraw_collateral_to_controller(
     env: &Env,
     account: &mut Account,
@@ -113,7 +100,7 @@ pub(crate) fn withdraw_collateral_to_controller(
 
     let balance_before = token.balance(&env.current_contract_address());
 
-    withdraw::execute_withdrawal(
+    execute_withdrawal(
         env,
         account,
         controller_event_context(env, req.action),
@@ -125,11 +112,14 @@ pub(crate) fn withdraw_collateral_to_controller(
         cache,
     );
 
-    balance_delta(env, &token, balance_before)
+    token
+        .balance(&env.current_contract_address())
+        .checked_sub(balance_before)
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError))
 }
 
-/// Withdraws every supply position held by `account` in full, sending each
-/// asset to `destination` and recording each as a `CloseWd` position action.
+/// Withdraws all of `account`'s supply positions to `destination`, closing
+/// each position and emitting a `CloseWd` event per asset.
 pub(crate) fn execute_withdraw_all(
     env: &Env,
     account: &mut Account,
@@ -140,7 +130,7 @@ pub(crate) fn execute_withdraw_all(
     for hub_asset in deposit_keys.iter() {
         if let Some(pos) = account.supply_positions.get(hub_asset.clone()) {
             let pos: AccountPosition = (&pos).into();
-            withdraw::execute_withdrawal(
+            execute_withdrawal(
                 env,
                 account,
                 EventContext {
@@ -158,11 +148,10 @@ pub(crate) fn execute_withdraw_all(
     }
 }
 
-/// Nets `amount` of `hub_asset` between the account's supply and debt
-/// positions in a single pool call, enforcing spoke freeze policy for the
-/// exiting collateral first. Applies the pool's settlement result to both the
-/// supply leg (via a spoke refresh) and the debt leg, then returns the amount
-/// actually settled.
+/// Nets `account`'s supply against its debt for the same `hub_asset` on the
+/// pool, burning matched scaled supply and debt up to `amount` without
+/// moving tokens. Updates both position legs from the pool's result and
+/// returns the amount actually settled.
 pub(crate) fn net_settle_collateral_against_debt(
     env: &Env,
     account: &mut Account,
@@ -201,19 +190,12 @@ pub(crate) fn net_settle_collateral_against_debt(
         amount: result.settled_amount,
     };
 
-    let refresh_spoke = withdraw::spoke_refresh_for_leg(
-        withdraw::WithdrawKind::Normal,
-        cache,
-        account,
-        hub_asset,
-        supply_outcome.new_scaled,
-    );
-    withdraw::merge_withdraw_leg(
+    crate::positions::merge_withdraw_leg(
         env,
         account,
         action,
         hub_asset,
-        &refresh_spoke,
+        crate::positions::WithdrawKind::Normal,
         &supply_outcome,
         cache,
     );
@@ -236,9 +218,8 @@ pub(crate) fn net_settle_collateral_against_debt(
     result.settled_amount
 }
 
-/// Transfers any increase in the controller's balance of `asset` since
-/// `balance_before` to `refund_to`. Does nothing if the balance has not
-/// increased.
+/// Transfers any increase in the controller's `asset` balance since
+/// `balance_before` to `refund_to`; no-op if the balance did not increase.
 fn refund_controller_balance_delta(
     env: &Env,
     asset: &Address,
@@ -247,7 +228,10 @@ fn refund_controller_balance_delta(
 ) {
     let token = token::Client::new(env, asset);
 
-    let excess = balance_delta(env, &token, balance_before);
+    let excess = token
+        .balance(&env.current_contract_address())
+        .checked_sub(balance_before)
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError));
     if excess > 0 {
         token.transfer(&env.current_contract_address(), refund_to, &excess);
     }

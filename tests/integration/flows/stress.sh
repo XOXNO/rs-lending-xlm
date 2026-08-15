@@ -32,10 +32,15 @@ flow_stress_setup() {
     save_state STRESS_SETUP_DONE 1
 }
 
+# Probes exist to find the CPU/budget frontier: `sim-exceeded` is the expected
+# terminal state and is not a failure. A *contract* error is recorded as
+# `sim-error` and does count, so every probe has to stay inside
+# POSITION_LIMIT_MAX (5) — past it the probe trips #109 PositionLimitExceeded
+# and measures the validator instead of the budget.
 flow_stress_supply_frontier() {
     phase stress_supply_frontier
     local k args i
-    for k in 2 4 6 8 10; do
+    for k in 1 2 3 4 5; do
         args=""
         for i in $(seq 0 $((k - 1))); do args+=" $(stress_sac $i) $((10000 * STRESS_UNIT))"; done
         sim_probe "probe_supply_${k}assets" "$DAVE" "$CONTROLLER" -- supply \
@@ -48,7 +53,11 @@ flow_stress_supply_frontier() {
 flow_stress_borrow_frontier() {
     local mode="${1:-single}" colls acct_var
     phase stress_borrow_frontier
-    if [ "$mode" = dual ]; then colls=4; acct_var=DAVE_DUAL_ACCT; else colls=10; acct_var=DAVE_ACCT; fi
+    # Single mode is the worst case, so it sits at the limit itself (5). It used
+    # to be 10, which needed a second supply into the same account — that second
+    # call is what failed with #109 once the limit dropped. At 5 the `colls > 5`
+    # branch below is dead and the account is built in one call.
+    if [ "$mode" = dual ]; then colls=4; acct_var=DAVE_DUAL_ACCT; else colls=5; acct_var=DAVE_ACCT; fi
     local args="" i acct
     if [ -z "${!acct_var:-}" ]; then
         for i in $(seq 0 $(( colls > 5 ? 4 : colls - 1 ))); do args+=" $(stress_sac $i) $((100000 * STRESS_UNIT))"; done
@@ -66,7 +75,8 @@ flow_stress_borrow_frontier() {
     fi
     acct="${!acct_var}"
     local k best_k=0
-    for k in $(seq 1 10); do
+    # Borrow positions are capped at 5 independently of the supply side.
+    for k in $(seq 1 5); do
         args=""
         for i in $(seq 10 $((9 + k))); do args+=" $(stress_sac $i) $((1000 * STRESS_UNIT))"; done
         sim_probe "probe_borrow_${mode}_$((colls + k))feeds" "$DAVE" "$CONTROLLER" -- borrow \
@@ -132,8 +142,8 @@ flow_stress_dualify() {
 
 flow_stress_liq_frontier() {
     phase stress_liq_frontier
-local k i args acct var debt_args repay_args full_args
-    for k in 3 4 5 6 8; do
+local k i args acct var debt_args repay_args
+    for k in 3 4 5; do
         var="LIQF_ACCT_$k"
         if [ -z "${!var:-}" ]; then
             args=""
@@ -147,42 +157,33 @@ local k i args acct var debt_args repay_args full_args
             save_state "$var" "$acct"
         fi
     done
-    if [ -z "${LIQF_ACCT_8C8D:-}" ]; then
+    # One maximal account instead of the old 8C8D and 10C10D pair: at a limit of
+    # 5 both collapse to the same shape, and 5 collateral against 5 debts IS the
+    # worst case a liquidation has to clear.
+    if [ -z "${LIQF_ACCT_MAX:-}" ]; then
         args=""
-        for i in $(seq 0 7); do args+=" $(stress_sac $i) $((1000 * STRESS_UNIT))"; done
-        acct=$(inv_create liqf_supply_8coll_8debt "$DAVE" "$CONTROLLER" -- supply \
+        for i in $(seq 0 4); do args+=" $(stress_sac $i) $((1000 * STRESS_UNIT))"; done
+        acct=$(inv_create liqf_supply_5coll_5debt "$DAVE" "$CONTROLLER" -- supply \
             --caller "$DAVE_ADDR" --account_id 0 --spoke_id "$PRIMARY_SPOKE_ID" \
             --assets "$(pay_vec "$PRIMARY_HUB_ID" $args)" | tr -d '"') || return 1
         debt_args=""
-        for i in $(seq 10 17); do debt_args+=" $(stress_sac $i) $((600 * STRESS_UNIT))"; done
-        inv liqf_borrow_8coll_8debt "$DAVE" "$CONTROLLER" -- borrow \
+        for i in $(seq 10 14); do debt_args+=" $(stress_sac $i) $((600 * STRESS_UNIT))"; done
+        inv liqf_borrow_5coll_5debt "$DAVE" "$CONTROLLER" -- borrow \
             --caller "$DAVE_ADDR" --account_id "$acct" \
             --borrows "$(pay_vec "$PRIMARY_HUB_ID" $debt_args)" --to null >/dev/null || return 1
-save_state LIQF_ACCT_8C8D "$acct"
-fi
-if [ -z "${LIQF_ACCT_10C10D:-}" ]; then
-args=""
-for i in $(seq 0 9); do args+=" $(stress_sac $i) $((1000 * STRESS_UNIT))"; done
-acct=$(inv_create liqf_supply_10coll_10debt "$DAVE" "$CONTROLLER" -- supply \
---caller "$DAVE_ADDR" --account_id 0 --spoke_id "$PRIMARY_SPOKE_ID" \
---assets "$(pay_vec "$PRIMARY_HUB_ID" $args)" | tr -d '"') || return 1
-debt_args=""
-for i in $(seq 10 19); do debt_args+=" $(stress_sac $i) $((600 * STRESS_UNIT))"; done
-inv liqf_borrow_10coll_10debt "$DAVE" "$CONTROLLER" -- borrow \
---caller "$DAVE_ADDR" --account_id "$acct" \
---borrows "$(pay_vec "$PRIMARY_HUB_ID" $debt_args)" --to null >/dev/null || return 1
-save_state LIQF_ACCT_10C10D "$acct"
-fi
+        save_state LIQF_ACCT_MAX "$acct"
+    fi
 
-    for i in $(seq 0 9); do
+    # Only collateral 0-4 is in play now, so there is no reason to move 5-9.
+    for i in $(seq 0 4); do
         dual_px "$(stress_sac $i)" "$(stress_code $i)" $((WAD / 10 * 6)) "crash_$(stress_code $i)"
     done
     local best_k=0
-    for k in 3 4 5 6 8; do
+    for k in 3 4 5; do
         var="LIQF_ACCT_$k"
         acct="${!var:-}"
         [ -z "$acct" ] && continue
-        sim_probe "probe_liquidate_${k}coll" "$CAROL" "$CONTROLLER" -- liquidate \
+        sim_probe "probe_liquidate_${k}coll" "$CAROL" "$CONTROLLER" -- liquidate --seize_mode "$(seize_transfer)" \
             --liquidator "$CAROL_ADDR" --account_id "$acct" \
             --debt_payments "$(pay_vec "$PRIMARY_HUB_ID" "$(stress_sac 19)" $((100 * STRESS_UNIT)))"
         [ "$PROBE_STATUS" = ok ] && best_k=$k
@@ -191,46 +192,41 @@ fi
 
     if [ "$best_k" -gt 0 ]; then
         var="LIQF_ACCT_$best_k"
-        inv "stress_liquidate_proof_${best_k}coll" "$CAROL" "$CONTROLLER" -- liquidate \
+        inv "stress_liquidate_proof_${best_k}coll" "$CAROL" "$CONTROLLER" -- liquidate --seize_mode "$(seize_transfer)" \
             --liquidator "$CAROL_ADDR" --account_id "${!var}" \
             --debt_payments "$(pay_vec "$PRIMARY_HUB_ID" "$(stress_sac 19)" $((100 * STRESS_UNIT)))" >/dev/null
     fi
+    # Worst case, all five debts repaid at once against five collaterals.
     repay_args=""
-    for i in $(seq 10 17); do repay_args+=" $(stress_sac $i) $((100 * STRESS_UNIT))"; done
-    sim_probe probe_liquidate_8coll_8debt "$CAROL" "$CONTROLLER" -- liquidate \
-        --liquidator "$CAROL_ADDR" --account_id "$LIQF_ACCT_8C8D" \
+    for i in $(seq 10 14); do repay_args+=" $(stress_sac $i) $((100 * STRESS_UNIT))"; done
+    sim_probe probe_liquidate_5coll_5debt_full "$CAROL" "$CONTROLLER" -- liquidate --seize_mode "$(seize_transfer)" \
+        --liquidator "$CAROL_ADDR" --account_id "$LIQF_ACCT_MAX" \
         --debt_payments "$(pay_vec "$PRIMARY_HUB_ID" $repay_args)"
-    save_state LIQ_FRONTIER_8C8D "$PROBE_STATUS"
-if [ "$PROBE_STATUS" = ok ]; then
-inv stress_liquidate_proof_8coll_8debt "$CAROL" "$CONTROLLER" -- liquidate \
---liquidator "$CAROL_ADDR" --account_id "$LIQF_ACCT_8C8D" \
---debt_payments "$(pay_vec "$PRIMARY_HUB_ID" $repay_args)" >/dev/null
-fi
-full_args=""
-for i in $(seq 10 19); do full_args+=" $(stress_sac $i) $((700 * STRESS_UNIT))"; done
-sim_probe probe_liquidate_10coll_10debt_full "$CAROL" "$CONTROLLER" -- liquidate \
---liquidator "$CAROL_ADDR" --account_id "$LIQF_ACCT_10C10D" \
---debt_payments "$(pay_vec "$PRIMARY_HUB_ID" $full_args)"
-save_state LIQ_FRONTIER_10C10D_FULL "$PROBE_STATUS"
-if [ "$PROBE_STATUS" = ok ]; then
-if INV_FAIL_STATUS=research inv stress_liquidate_proof_10coll_10debt_full "$CAROL" "$CONTROLLER" -- liquidate \
---liquidator "$CAROL_ADDR" --account_id "$LIQF_ACCT_10C10D" \
---debt_payments "$(pay_vec "$PRIMARY_HUB_ID" $full_args)" >/dev/null; then
-save_state LIQ_FRONTIER_10C10D_FULL_LIVE ok
-else
-save_state LIQ_FRONTIER_10C10D_FULL_LIVE research
-fi
-fi
-if [ "${LIQ_FRONTIER_10C10D_FULL_LIVE:-}" != ok ]; then
-repay_args="$(stress_sac 19) $((100 * STRESS_UNIT))"
-sim_probe probe_liquidate_10coll_10debt_one_debt "$CAROL" "$CONTROLLER" -- liquidate \
---liquidator "$CAROL_ADDR" --account_id "$LIQF_ACCT_10C10D" \
---debt_payments "$(pay_vec "$PRIMARY_HUB_ID" $repay_args)"
-save_state LIQ_FRONTIER_10C10D_ONE_DEBT "$PROBE_STATUS"
-if [ "$PROBE_STATUS" = ok ]; then
-inv stress_liquidate_proof_10coll_10debt_one_debt "$CAROL" "$CONTROLLER" -- liquidate \
---liquidator "$CAROL_ADDR" --account_id "$LIQF_ACCT_10C10D" \
---debt_payments "$(pay_vec "$PRIMARY_HUB_ID" $repay_args)" >/dev/null
-fi
-fi
+    save_state LIQ_FRONTIER_MAX_FULL "$PROBE_STATUS"
+    if [ "$PROBE_STATUS" = ok ]; then
+        # `research` rather than a hard failure: a simulation that fits can still
+        # miss live, and that gap is the measurement, not a regression.
+        if INV_FAIL_STATUS=research inv stress_liquidate_proof_5coll_5debt_full "$CAROL" "$CONTROLLER" -- liquidate --seize_mode "$(seize_transfer)" \
+            --liquidator "$CAROL_ADDR" --account_id "$LIQF_ACCT_MAX" \
+            --debt_payments "$(pay_vec "$PRIMARY_HUB_ID" $repay_args)" >/dev/null; then
+            save_state LIQ_FRONTIER_MAX_FULL_LIVE ok
+        else
+            save_state LIQ_FRONTIER_MAX_FULL_LIVE research
+        fi
+    fi
+
+    # If the full sweep does not land, fall back to the single-debt leg so the
+    # lane still records where the boundary actually sits.
+    if [ "${LIQ_FRONTIER_MAX_FULL_LIVE:-}" != ok ]; then
+        repay_args="$(stress_sac 14) $((100 * STRESS_UNIT))"
+        sim_probe probe_liquidate_5coll_one_debt "$CAROL" "$CONTROLLER" -- liquidate --seize_mode "$(seize_transfer)" \
+            --liquidator "$CAROL_ADDR" --account_id "$LIQF_ACCT_MAX" \
+            --debt_payments "$(pay_vec "$PRIMARY_HUB_ID" $repay_args)"
+        save_state LIQ_FRONTIER_MAX_ONE_DEBT "$PROBE_STATUS"
+        if [ "$PROBE_STATUS" = ok ]; then
+            inv stress_liquidate_proof_5coll_one_debt "$CAROL" "$CONTROLLER" -- liquidate --seize_mode "$(seize_transfer)" \
+                --liquidator "$CAROL_ADDR" --account_id "$LIQF_ACCT_MAX" \
+                --debt_payments "$(pay_vec "$PRIMARY_HUB_ID" $repay_args)" >/dev/null
+        fi
+    fi
 }

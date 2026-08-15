@@ -6,6 +6,15 @@ _view_pool_int() {
   view "$1" "$POOL" -- "${@:2}" | tr -d '"' | tr -d '[:space:]'
 }
 
+# Reads a scalar view from whichever contract `VIEW_AT` names, for surfaces that
+# are neither the controller nor the central pool (an owned swap-aggregator, a
+# second price-aggregator). Kept to the `_view_int` argument shape so it can be
+# passed to `_retry_until`; the contract travels via the caller's `local
+# VIEW_AT`, which dynamic scoping makes visible here.
+_view_at_int() {
+  view "$1" "${VIEW_AT:-$CONTROLLER}" -- "${@:2}" | tr -d '"' | tr -d '[:space:]'
+}
+
 _assert_fail() {
   local label="$1" msg="$2"
   log "ASSERT FAIL [$label]: $msg"
@@ -58,6 +67,27 @@ assert_int_view_eq() {
   shift 2
   local actual
   actual=$(_retry_until _view_int _str_eq "$expected" "$label" "$@") \
+    || _assert_fail "$label" "got '$actual', want '$expected'"
+}
+
+# Non-negative integer view against an arbitrary contract.
+assert_int_view_at_nonneg() {
+  local label="$1" contract="$2"
+  shift 2
+  local v
+  local VIEW_AT="$contract"
+  v=$(_view_at_int "$label" "$@")
+  [[ "$v" =~ ^[0-9]+$ ]] || _assert_fail "$label" "got '$v' want non-negative int"
+}
+
+# `assert_int_view_eq` against an arbitrary contract. Compares as strings, so it
+# serves bool views too.
+assert_view_eq_at() {
+  local contract="$1" label="$2" expected="$3"
+  shift 3
+  local actual
+  local VIEW_AT="$contract"
+  actual=$(_retry_until _view_at_int _str_eq "$expected" "$label" "$@") \
     || _assert_fail "$label" "got '$actual', want '$expected'"
 }
 

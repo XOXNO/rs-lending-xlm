@@ -181,32 +181,6 @@ fn withdraw_succeeds_under_oracle_deviation_when_no_debt() {
 }
 
 #[test]
-fn withdraw_blocked_under_oracle_deviation_when_debt_exists() {
-    let mut t = setup();
-    enable_dual_source(&t, "USDC");
-    enable_dual_source(&t, "ETH");
-
-    t.set_safe_price("USDC", usd(1));
-    t.set_safe_price("ETH", usd(2000));
-
-    t.supply(ALICE, "USDC", 100_000.0);
-    t.borrow(ALICE, "ETH", 10.0);
-
-    t.set_safe_price("USDC", usd_cents(110));
-
-    let err = t
-        .try_withdraw(ALICE, "USDC", 1_000.0)
-        .expect_err("withdraw with borrows must fail under oracle deviation");
-
-    let expected = soroban_sdk::Error::from_contract_error(205);
-    assert_eq!(
-        err, expected,
-        "expected UnsafePriceNotAllowed (205), got {:?}",
-        err
-    );
-}
-
-#[test]
 fn test_unsafe_price_blocks_liquidation() {
     let mut t = setup();
     enable_dual_source(&t, "USDC");

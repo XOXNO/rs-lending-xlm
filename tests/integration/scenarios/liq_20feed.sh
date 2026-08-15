@@ -79,14 +79,14 @@ phase liq20_liquidate
 
 REPAY=$((10000 * STRESS_UNIT))
 [ -n "${LIQ20_CRASH_WAD:-}" ] && [ "$LIQ20_CRASH_WAD" = "$((WAD / 10 * 4))" ] && REPAY=$((100 * STRESS_UNIT))
-sim_probe probe_liquidate_10coll_10debt "$CAROL" "$CONTROLLER" -- liquidate \
+sim_probe probe_liquidate_10coll_10debt "$CAROL" "$CONTROLLER" -- liquidate --seize_mode "$(seize_transfer)" \
     --liquidator "$CAROL_ADDR" --account_id "$ACCT" \
     --debt_payments "$(pay_vec "$PRIMARY_HUB_ID" "$(stress_sac 19)" "$REPAY")"
 if [ "$PROBE_STATUS" = ok ]; then
 
 liq20_debt_pre=$(_view_int liq20_debt_pre get_borrow_amount \
 --account_id "$ACCT" --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$(stress_sac 19)")")
-    if inv liq20_liquidate_proof "$CAROL" "$CONTROLLER" -- liquidate \
+    if inv liq20_liquidate_proof "$CAROL" "$CONTROLLER" -- liquidate --seize_mode "$(seize_transfer)" \
         --liquidator "$CAROL_ADDR" --account_id "$ACCT" \
         --debt_payments "$(pay_vec "$PRIMARY_HUB_ID" "$(stress_sac 19)" "$REPAY")" >/dev/null; then
         log "20-feed liquidation LANDED on-chain (10 colls seized, 1 of 10 debts repaid)"

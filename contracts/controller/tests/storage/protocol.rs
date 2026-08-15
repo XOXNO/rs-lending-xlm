@@ -46,6 +46,32 @@ fn blend_pool_allowlist_approve_then_revoke() {
 }
 
 #[test]
+fn pool_and_aggregator_addresses_round_trip() {
+    let env = Env::default();
+    let admin = Address::generate(&env);
+    let contract_id = env.register(Controller, (admin,));
+    env.as_contract(&contract_id, || {
+        assert!(try_get_pool(&env).is_none());
+        assert!(try_get_accumulator(&env).is_none());
+
+        let pool = Address::generate(&env);
+        let swap = Address::generate(&env);
+        let prices = Address::generate(&env);
+        let acc = Address::generate(&env);
+        set_pool(&env, &pool);
+        set_swap_aggregator(&env, &swap);
+        set_price_aggregator(&env, &prices);
+        set_accumulator(&env, &acc);
+
+        assert_eq!(get_pool(&env), pool);
+        assert_eq!(try_get_pool(&env), Some(pool));
+        assert_eq!(get_swap_aggregator(&env), swap);
+        assert_eq!(get_price_aggregator(&env), prices);
+        assert_eq!(try_get_accumulator(&env), Some(acc));
+    });
+}
+
+#[test]
 fn renew_controller_instance_re_extends_instance_ttl() {
     use crate::constants::{TTL_BUMP_INSTANCE, TTL_THRESHOLD_INSTANCE};
     use soroban_sdk::testutils::storage::Instance as _;

@@ -89,8 +89,8 @@ positive, and within sanity — usable for solvency-style decisions. `stale` /
 
 ```rust
 fn get_utilisation(hub_asset: HubAssetKey) -> i128;
-fn get_deposit_rate(hub_asset: HubAssetKey) -> i128;   // RAY, per MILLISECOND
-fn get_borrow_rate(hub_asset: HubAssetKey) -> i128;    // RAY, per MILLISECOND
+fn get_deposit_rate(hub_asset: HubAssetKey) -> i128;   // RAY, annual APR
+fn get_borrow_rate(hub_asset: HubAssetKey) -> i128;    // RAY, annual APR
 fn get_supplied_amount(hub_asset: HubAssetKey) -> i128;
 fn get_borrowed_amount(hub_asset: HubAssetKey) -> i128;
 fn get_reserves(hub_asset: HubAssetKey) -> i128; // accounted cash, donation-proof
@@ -102,9 +102,10 @@ fn get_sync_data(hub_asset: HubAssetKey) -> PoolSyncData; // raw params + accoun
 `PoolSyncData` / market params include the rate curve plus flash-loan config:
 `is_flashloanable` (bool) and `flashloan_fee` (bps, ≤ 500).
 
-Rates are per-millisecond RAY values. Annualize with
-`MILLISECONDS_PER_YEAR = 31_556_926_000` (simple APR = rate × ms-per-year;
-compound for APY).
+Rates are annual RAY values, the same units as `base_borrow_rate` /
+`max_borrow_rate`. Simple APR = `rate / RAY`. Compound APY ≈ `e^(rate/RAY) - 1`.
+Accrual still divides by `MILLISECONDS_PER_YEAR = 31_556_926_000` before
+compounding; that conversion is not the caller's problem.
 
 ## Scaled positions → underlying
 
@@ -121,7 +122,8 @@ underlying = rescale(scaled * index / RAY, 27 -> asset_decimals)  // half-up
 
 - **Treating `scaled * index / RAY` as final** — that value is in the
   27-decimal RAY domain; it still needs rescaling to asset decimals.
-- **Treating rates as annual** — pool rates are per millisecond.
+- **Treating view rates as per-millisecond** — `get_borrow_rate` /
+  `get_deposit_rate` are annual RAY. Accrual still uses the per-ms form.
 - **Reading rates from the controller** — they live on the pool.
 - **Polling per-asset indexes N times** — use `get_bulk_indexes` /
   `get_market_indexes_detailed`.

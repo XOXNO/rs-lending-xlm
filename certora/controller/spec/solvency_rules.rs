@@ -108,64 +108,94 @@ fn repay_rejects_zero_amount(e: Env, caller: Address) {
 }
 
 #[rule]
-fn supply_position_limit_enforced(e: Env, caller: Address, new_asset: Address, amount: i128) {
+#[allow(clippy::too_many_arguments)]
+fn supply_position_limit_enforced(
+    e: Env,
+    caller: Address,
+    new_asset: Address,
+    amount: i128,
+    a1: Address,
+    a2: Address,
+    a3: Address,
+    a4: Address,
+    a5: Address,
+    a6: Address,
+    a7: Address,
+    a8: Address,
+    a9: Address,
+    a10: Address,
+) {
     let account_id: u64 = 1;
     cvlr_assume!(amount > 0 && amount <= WAD * 1000);
     crate::spec::fixture::seed_live_account(&e, account_id, &caller, &new_asset);
 
     let limits = crate::storage::get_position_limits(&e);
-    let current_list = crate::storage::get_position_list(
-        &e,
-        account_id,
-        crate::types::AccountPositionType::Deposit,
-    );
-    cvlr_assume!(current_list.len() == limits.max_supply_positions);
-    cvlr_assume!(limits.max_supply_positions <= 10);
+    cvlr_assume!(limits.max_supply_positions == common::constants::POSITION_LIMIT_MAX);
 
-    cvlr_assume!(crate::storage::get_position(
-        &e,
-        account_id,
-        crate::types::AccountPositionType::Deposit,
-        &new_asset
-    )
-    .is_none());
+    // Concrete pre-existing position book at the configured limit. The assets
+    // are symbolic; pairwise distinctness is required for the map to hold
+    // exactly POSITION_LIMIT_MAX entries and for the new asset to be a fresh
+    // key (this is what the production de-duplicating counter relies on).
+    let assets = [a1, a2, a3, a4, a5, a6, a7, a8, a9, a10];
+    for i in 0..assets.len() {
+        cvlr_assume!(assets[i] != new_asset);
+        for j in (i + 1)..assets.len() {
+            cvlr_assume!(assets[i] != assets[j]);
+        }
+    }
+    let seeded = crate::spec::fixture::seed_supply_positions(&e, account_id, &assets);
+    cvlr_assume!(seeded == limits.max_supply_positions);
 
-    let mut assets = Vec::new(&e);
-    assets.push_back((hub0(new_asset), amount));
+    let mut assets_vec = Vec::new(&e);
+    assets_vec.push_back((hub0(new_asset), amount));
 
     crate::Controller::supply(
         e.clone(),
         caller,
         account_id,
         crate::spec::fixture::SPOKE_ID,
-        assets,
+        assets_vec,
     );
 
     cvlr_assert!(false);
 }
 
 #[rule]
-fn borrow_position_limit_enforced(e: Env, caller: Address, new_asset: Address, amount: i128) {
+#[allow(clippy::too_many_arguments)]
+fn borrow_position_limit_enforced(
+    e: Env,
+    caller: Address,
+    new_asset: Address,
+    amount: i128,
+    a1: Address,
+    a2: Address,
+    a3: Address,
+    a4: Address,
+    a5: Address,
+    a6: Address,
+    a7: Address,
+    a8: Address,
+    a9: Address,
+    a10: Address,
+) {
     let account_id: u64 = 1;
     cvlr_assume!(amount > 0 && amount <= WAD * 1000);
     crate::spec::fixture::seed_live_account(&e, account_id, &caller, &new_asset);
 
     let limits = crate::storage::get_position_limits(&e);
-    let current_list = crate::storage::get_position_list(
-        &e,
-        account_id,
-        crate::types::AccountPositionType::Borrow,
-    );
-    cvlr_assume!(current_list.len() == limits.max_borrow_positions);
-    cvlr_assume!(limits.max_borrow_positions <= 10);
+    cvlr_assume!(limits.max_borrow_positions == common::constants::POSITION_LIMIT_MAX);
 
-    cvlr_assume!(crate::storage::get_position(
-        &e,
-        account_id,
-        crate::types::AccountPositionType::Borrow,
-        &new_asset
-    )
-    .is_none());
+    // Concrete pre-existing debt book at the configured limit (see
+    // supply_position_limit_enforced for the distinctness rationale).
+    let assets = [a1, a2, a3, a4, a5, a6, a7, a8, a9, a10];
+    for i in 0..assets.len() {
+        cvlr_assume!(assets[i] != new_asset);
+        for j in (i + 1)..assets.len() {
+            cvlr_assume!(assets[i] != assets[j]);
+        }
+    }
+    let seeded = crate::spec::fixture::seed_debt_positions(&e, account_id, &assets);
+    cvlr_assume!(seeded == limits.max_borrow_positions);
 
     let mut borrows = Vec::new(&e);
     borrows.push_back((hub0(new_asset), amount));

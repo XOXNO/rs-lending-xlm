@@ -19,3 +19,7 @@ pub trait XoxnoOracleAdapter {
 pub fn max_submission_age(env: &Env, contract: &Address) -> u64 {
     XoxnoOracleAdapterClient::new(env, contract).max_submission_age_seconds()
 }
+
+#[cfg(test)]
+#[path = "../../../tests/oracle/providers/xoxno.rs"]
+mod tests;

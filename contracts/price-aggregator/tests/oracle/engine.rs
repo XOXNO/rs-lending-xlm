@@ -95,7 +95,7 @@ fn test_two_market_legs_exactly_at_the_spread_bound_still_price() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #206)")]
 fn test_two_market_legs_still_cannot_straddle_the_spread_bound() {
     let env = Env::default();
     at_now(&env);
@@ -181,7 +181,7 @@ fn test_single_feed_source_resolves() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #206)")]
 fn test_a_feed_past_its_own_bound_reverts() {
     let env = Env::default();
     at_now(&env);
@@ -196,7 +196,7 @@ fn test_a_feed_past_its_own_bound_reverts() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #223)")]
 fn test_a_price_outside_the_sanity_band_reverts() {
     let env = Env::default();
     at_now(&env);
@@ -259,7 +259,7 @@ fn test_source_order_changes_neither_price_nor_outcome() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #205)")]
 fn test_two_disagreeing_sources_revert() {
     let env = Env::default();
     at_now(&env);
@@ -496,7 +496,7 @@ fn test_cached_nested_quote_still_enforces_depth_backstop() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #230)")]
 fn test_a_ratio_outside_its_bounds_reverts() {
     let env = Env::default();
     at_now(&env);
@@ -564,7 +564,7 @@ fn test_scaled_product_overflow_is_typed_invalid_price_not_host_trap() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #206)")]
 fn test_a_frozen_slow_leg_cannot_ride_under_a_live_fast_one() {
     let env = Env::default();
     at_now(&env);
@@ -610,7 +610,7 @@ fn test_a_composite_reports_the_freshness_of_its_weaker_leg() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #216)")]
 fn test_an_unconfigured_key_reverts_rather_than_pricing_zero() {
     let env = Env::default();
     at_now(&env);
@@ -621,7 +621,7 @@ fn test_an_unconfigured_key_reverts_rather_than_pricing_zero() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #210)")]
 fn test_lp_reverts_when_underlyings_missing() {
     let env = Env::default();
     at_now(&env);
@@ -636,7 +636,6 @@ fn test_lp_reverts_when_underlyings_missing() {
                     &env,
                     &[PriceSource::AquariusLp(AquariusLpSource {
                         pool: Address::generate(&env),
-                        plane: Address::generate(&env),
                         token_a: Address::generate(&env),
                         token_b: Address::generate(&env),
                         key_a: PriceKey::Ref(Symbol::new(&env, "A")),
@@ -657,7 +656,7 @@ fn test_lp_reverts_when_underlyings_missing() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #210)")]
 fn test_a_scaled_cycle_reverts_at_read_time_too() {
     let env = Env::default();
     at_now(&env);
@@ -814,7 +813,6 @@ fn test_cached_lp_price_still_checks_both_dependency_depths() {
                     &env,
                     &[PriceSource::AquariusLp(AquariusLpSource {
                         pool: Address::generate(&env),
-                        plane: Address::generate(&env),
                         token_a: Address::generate(&env),
                         token_b: Address::generate(&env),
                         key_a: PriceKey::Ref(Symbol::new(&env, "A")),

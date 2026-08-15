@@ -196,7 +196,7 @@ fn execute_after_delay_applies_to_controller() {
     let (admin, controller, gov) = register_with_controller(&env, delay);
 
     let limits = PositionLimits {
-        max_supply_positions: 6,
+        max_supply_positions: 4,
         max_borrow_positions: 3,
     };
     let salt = zero_salt(&env);
@@ -221,7 +221,7 @@ fn execute_after_delay_applies_to_controller() {
 
     assert_eq!(gov.get_operation_state(&id), OperationState::Unset);
     let stored = read_position_limits(&env, &controller);
-    assert_eq!(stored.max_supply_positions, 6);
+    assert_eq!(stored.max_supply_positions, 4);
     assert_eq!(stored.max_borrow_positions, 3);
 }
 
@@ -234,7 +234,7 @@ fn execute_after_grace_period_reverts() {
     let (admin, controller, gov) = register_with_controller(&env, delay);
 
     let limits = PositionLimits {
-        max_supply_positions: 6,
+        max_supply_positions: 4,
         max_borrow_positions: 3,
     };
     let salt = zero_salt(&env);

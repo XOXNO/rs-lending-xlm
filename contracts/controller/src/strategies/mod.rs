@@ -1,8 +1,13 @@
-//! Controller-level strategies: multi-step operations (flash loans, Blend
-//! migration, multiply, collateral/debt swaps, repay-with-collateral) built
-//! on top of the shared position legs in [`legs`], plus common helpers for
-//! prefetching prices, finalizing a position after a strategy runs, and
-//! withdrawing supply into the controller ahead of a swap.
+//! One file per strategy entry point. Shared pieces: the helpers here
+//! (`require_strategy_caller`, `prefetch_strategy_prices`,
+//! `strategy_finalize`), `legs.rs` for controller-custody position primitives
+//! (repay, withdraw, withdraw-all, net-settle through the controller's own
+//! balance), and `swap/` for the router trust boundary. Every strategy ends
+//! in `strategy_finalize`: restamp LTV, post-pool risk gates, finalize.
+
+#[cfg(test)]
+#[path = "../../tests/strategies/mod.rs"]
+mod tests;
 
 pub(crate) mod flash_loan;
 pub(crate) mod legs;
@@ -13,7 +18,7 @@ pub(crate) mod swap;
 pub(crate) mod swap_collateral;
 pub(crate) mod swap_debt;
 
-pub(crate) use crate::positions::borrow::{borrow_for_migration, borrow_for_strategy};
+pub(crate) use crate::positions::borrow_into_controller;
 pub(crate) use legs::{
     execute_withdraw_all, net_settle_collateral_against_debt, repay_debt_from_controller,
     withdraw_collateral_to_controller, StrategyRepay, StrategyWithdraw,
@@ -28,8 +33,15 @@ use crate::events;
 use crate::positions::{finalize_position_flow, get_supply_position_or_panic, PositionSides};
 use crate::risk::{self, account_price_assets, validation};
 
-/// Fetches and caches oracle prices for every asset held by `account` plus
-/// `extra_assets`.
+/// Requires `caller` to authorize the call and panics if a flash loan is
+/// currently in progress.
+pub(crate) fn require_strategy_caller(env: &Env, caller: &Address) {
+    caller.require_auth();
+    validation::require_not_flash_loaning(env);
+}
+
+/// Fetches oracle prices into `cache` for every asset in `account`'s supply
+/// and borrow positions plus `extra_assets`.
 pub(crate) fn prefetch_strategy_prices(
     cache: &mut Cache,
     account: &Account,
@@ -39,9 +51,9 @@ pub(crate) fn prefetch_strategy_prices(
     cache.fetch_prices(&account_price_assets(&env, account, extra_assets));
 }
 
-/// Restamps listed-supply LTV, enforces post-pool risk gates, and finalizes
-/// both position sides for `account_id`, persisting the account. Called after
-/// a strategy has applied its position changes.
+/// Restamps `account`'s listed collateral LTV, enforces post-trade solvency
+/// and health-factor gates, and persists positions and spoke usage, emitting
+/// the position batch event.
 pub(crate) fn strategy_finalize(
     env: &Env,
     account_id: u64,
@@ -53,14 +65,9 @@ pub(crate) fn strategy_finalize(
     finalize_position_flow(env, account_id, account, cache, PositionSides::BOTH, true);
 }
 
-/// Withdraws `amount` of `from` out of the account's supply position into the
-/// controller, then swaps the withdrawn amount into `token_out` per `swap`
-/// (or passes it through unswapped). Refunds any unswapped remainder to
-/// `caller`. Returns the resulting `token_out` amount. Does not deposit,
-/// repay, or otherwise update positions with the swap output.
-///
-/// Order is fixed and intentional: the supply position is loaded and validated
-/// first, then withdrawn into the controller, then swapped (or passed through).
+/// Withdraws `amount` of `from` collateral to the controller and swaps the
+/// proceeds into `token_out`, passing through unswapped when `from.asset`
+/// already equals `token_out`. Returns the amount of `token_out` received.
 pub(crate) fn withdraw_and_swap_from_supply(
     env: &Env,
     account: &mut Account,

@@ -1,18 +1,12 @@
-//! Governance-facing configuration logic: Blend pool approvals, hub and spoke
-//! asset listings, hub creation, position limits, and the spoke registry.
-
-pub(crate) mod approvals;
 pub(crate) mod asset;
-pub(crate) mod hub;
-pub(crate) mod limits;
 pub(crate) mod registry;
 pub(crate) mod spoke;
 
 #[cfg(feature = "certora")]
 pub(crate) use asset::{add_asset_to_spoke, edit_asset_in_spoke};
-pub(crate) use hub::require_hub_active;
 #[cfg(feature = "certora")]
 pub(crate) use spoke::remove_spoke;
+pub(crate) use spoke::require_hub_active;
 
 #[cfg(test)]
 use common::types::HubConfig;

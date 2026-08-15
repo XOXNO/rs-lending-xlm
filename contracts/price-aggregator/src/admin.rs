@@ -20,7 +20,8 @@ use crate::session::Session;
 use crate::validation;
 
 /// Attests every price source configured on `oracle`, dispatching feed, scaled-feed,
-/// and Aquarius LP sources to their respective provider attestation routines.
+/// Aquarius LP, and Aquarius stable-LP sources to their respective provider
+/// attestation routines.
 fn attest_sources(env: &Env, key: &PriceKey, oracle: &AssetOracle) {
     for source in oracle.sources.iter() {
         match &source {
@@ -47,13 +48,10 @@ fn attest_feed(env: &Env, feed: &FeedSource) {
     }
 }
 
-/// Validates `oracle`, attests its sources, then probes:
-/// - Aquarius LP: hard probe (`probe_priceable`) — panics on any unusable
-///   outcome (including staleness, deviation, sanity bounds).
-/// - Otherwise: soft probe (`probe`) — panics only on configuration-level
-///   failures; market-condition failures do not block registration.
-///
-/// Then stores the config, revalidates dependents, and emits the registry event.
+/// Validates `oracle` and attests its sources, then probes it: a hard probe
+/// for Aquarius LP oracles that panics on any unusable outcome, or a soft
+/// probe otherwise that panics only on configuration-level failures. Stores
+/// the oracle, revalidates dependents, and emits the registry event.
 pub(crate) fn set_oracle(env: &Env, key: PriceKey, oracle: AssetOracle) {
     validate_asset_oracle(env, &key, &oracle);
     attest_sources(env, &key, &oracle);
@@ -107,13 +105,11 @@ fn depends_on(env: &Env, root: &PriceKey, target: &PriceKey, visiting: &mut Vec<
     found
 }
 
-/// Runs the full validation suite for `oracle` under `key`: sanity bounds, the
-/// single-source sanity band cap (waived for Aquarius LP oracles and for
-/// two-source oracles whose sources do not trust each other exactly), asset
-/// decimals, each source's shape, the Aquarius LP source-count restriction,
-/// composition depth, staleness envelope, smoothing (skipped for Aquarius LP
-/// oracles), tolerance (skipped for Aquarius LP oracles), and source independence
-/// when a second source is present. Panics if any check fails.
+/// Runs the full validation suite for `oracle` under `key`, covering sanity
+/// bounds, source shape and count, asset decimals, composition depth,
+/// staleness, smoothing, tolerance, and source independence, with the
+/// smoothing and tolerance checks waived for Aquarius LP oracles. Panics if
+/// any check fails.
 pub(crate) fn validate_asset_oracle(env: &Env, key: &PriceKey, oracle: &AssetOracle) {
     let mut session = Session::new(env);
     session.push_key(key);
@@ -172,11 +168,11 @@ pub(crate) fn validate_asset_oracle(env: &Env, key: &PriceKey, oracle: &AssetOra
     }
 }
 
-/// Updates the sanity price bounds of the oracle registered under `key`. Requires
-/// `min_wad` to stay below the current maximum and `max_wad` to stay above the
-/// current minimum, revalidates the updated oracle, re-probes it, and commits the
-/// result to the registry. Panics if the oracle is not configured or the bounds
-/// overlap invalidly.
+/// Updates the sanity price bounds of the oracle registered under `key`,
+/// requiring `min_wad` to stay below the current maximum and `max_wad` to
+/// stay above the current minimum. Revalidates and re-probes the updated
+/// oracle, then commits it to the registry. Panics if the oracle is not
+/// configured or the bounds overlap invalidly.
 pub(crate) fn set_sanity_band(env: &Env, key: PriceKey, min_wad: i128, max_wad: i128) {
     let mut oracle = registry::get_oracle(env, &key)
         .unwrap_or_else(|| panic_with_error!(env, OracleError::OracleNotConfigured));

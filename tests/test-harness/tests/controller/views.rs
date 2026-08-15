@@ -1,3 +1,4 @@
+use common::types::SeizeMode;
 use controller::constants::{RAY, WAD};
 use test_harness::{
     eth_preset, hub_asset, usd_cents, usdc_preset, usdt_stable_preset, wbtc_preset, LendingTest,
@@ -226,26 +227,27 @@ fn test_get_position_limits_default() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
 
     let limits = t.get_position_limits();
+    let cap = common::constants::POSITION_LIMIT_MAX;
     assert_eq!(
-        limits.max_supply_positions, 10,
-        "default max supply should be 10"
+        limits.max_supply_positions, cap,
+        "default max supply must equal POSITION_LIMIT_MAX"
     );
     assert_eq!(
-        limits.max_borrow_positions, 10,
-        "default max borrow should be 10"
+        limits.max_borrow_positions, cap,
+        "default max borrow must equal POSITION_LIMIT_MAX"
     );
 }
 #[test]
 fn test_get_position_limits_custom() {
     let t = LendingTest::new()
         .with_market(usdc_preset())
-        .with_position_limits(6, 3)
+        .with_position_limits(4, 3)
         .build();
 
     let limits = t.get_position_limits();
     assert_eq!(
-        limits.max_supply_positions, 6,
-        "custom max supply should be 6"
+        limits.max_supply_positions, 4,
+        "custom max supply should be 4"
     );
     assert_eq!(
         limits.max_borrow_positions, 3,
@@ -269,7 +271,7 @@ fn test_liquidation_estimations_basic() {
     let ctrl = t.ctrl_client();
     let payments =
         soroban_sdk::Vec::from_array(&t.env, [(hub_asset(t.resolve_asset("ETH")), 3_0000000)]);
-    let estimate = ctrl.get_liquidation_estimate(&account_id, &payments);
+    let estimate = ctrl.get_liquidation_estimate(&account_id, &payments, &SeizeMode::Transfer);
     let hf = ctrl.get_health_factor(&account_id);
 
     let wad = WAD;

@@ -1,6 +1,3 @@
-//! Buffers per-account supply and debt position deltas on `Cache` and
-//! publishes them as a single batched event.
-
 use common::types::{Account, AccountPosition, DebtPosition, HubAssetKey};
 use soroban_sdk::Vec;
 
@@ -10,8 +7,7 @@ use crate::events::{
 };
 
 impl Cache {
-    /// Appends a supply-position delta for `hub_asset` to the pending
-    /// supply-update queue.
+    /// Buffers a supply position delta as an `EventDepositDelta` for the next position-batch emission.
     pub(crate) fn record_supply_position_update(
         &mut self,
         action: PositionAction,
@@ -30,8 +26,7 @@ impl Cache {
         ));
     }
 
-    /// Appends a debt-position delta for `hub_asset` to the pending
-    /// debt-update queue.
+    /// Buffers a debt position delta as an `EventBorrowDelta` for the next position-batch emission.
     pub(crate) fn record_debt_position_update(
         &mut self,
         action: PositionAction,
@@ -50,9 +45,7 @@ impl Cache {
         ));
     }
 
-    /// Publishes the queued supply and debt updates for `account_id` as one
-    /// `UpdatePositionBatchEvent`, then clears both queues. Does nothing if
-    /// both queues are empty.
+    /// Publishes the buffered supply and debt updates as one `UpdatePositionBatchEvent` for `account_id`, then clears both buffers; no-op if both are empty.
     pub(crate) fn emit_position_batch(&mut self, account_id: u64, account: &Account) {
         if self.supply_updates.is_empty() && self.debt_updates.is_empty() {
             return;

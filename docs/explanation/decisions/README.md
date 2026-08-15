@@ -25,3 +25,4 @@ and [threat model](../threat-model.md).
 | [0016](0016-per-millisecond-rates-chunked-accrual.md) | Bounded interest accrual |
 | [0017](0017-testing-surfaces-behind-features.md) | Release-safe testing surfaces |
 | [0018](0018-compact-instruction-payload-registry-indices.md) | Compact route payloads |
+| [0019](0019-share-credit-liquidation.md) | Share-credit liquidation |

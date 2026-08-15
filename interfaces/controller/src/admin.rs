@@ -45,6 +45,7 @@ pub trait ControllerAdmin {
         hub_asset: HubAssetKey,
         paused: bool,
         frozen: bool,
+        no_seize: bool,
     );
 
     fn remove_asset_from_spoke(env: Env, hub_asset: HubAssetKey, spoke_id: u32);

@@ -93,17 +93,18 @@ impl<'a> HopContext<'a> {
         );
     }
 
-    /// Router balance of hop input token.
+    /// Returns the router's balance of the hop's input token.
     pub fn input_balance(&self) -> i128 {
         token::Client::new(self.env, &self.hop.token_in).balance(self.router)
     }
 
-    /// Router balance of hop output token.
+    /// Returns the router's balance of the hop's output token.
     pub fn output_balance(&self) -> i128 {
         token::Client::new(self.env, &self.hop.token_out).balance(self.router)
     }
 
-    /// True if swapping token0→token1; false for the reverse. Panics on mismatch.
+    /// Returns `true` when the hop swaps `token0` into `token1`, `false` for the reverse
+    /// pairing. Panics with `Error::BrokenTokenChain` if the hop's tokens match neither pairing.
     pub fn direction_for_pair(&self, token0: &Address, token1: &Address) -> bool {
         if self.hop.token_in == *token0 && self.hop.token_out == *token1 {
             true

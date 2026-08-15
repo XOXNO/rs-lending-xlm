@@ -44,10 +44,9 @@ impl Cache {
         }
     }
 
-    /// Builds a supply/borrow position mutation for a batch leg result.
-    ///
-    /// * `scaled` — user's remaining scaled position after the leg
-    /// * `actual_amount` — asset units applied (minted, repaid, withdrawn, …)
+    /// Builds a supply/borrow position mutation for a batch leg result,
+    /// pairing the caller's remaining scaled position with the actual asset
+    /// amount applied.
     pub(crate) fn position_mutation(
         &self,
         scaled: Ray,

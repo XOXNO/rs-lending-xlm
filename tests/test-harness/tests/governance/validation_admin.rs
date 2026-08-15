@@ -128,6 +128,7 @@ fn test_edit_asset_in_spoke_rejects_excessive_liq_bonus() {
         can_borrow: cfg.is_borrowable,
         paused: false,
         frozen: false,
+        no_seize: false,
 
         ltv: 8000,
         threshold: 9500,
@@ -156,6 +157,7 @@ fn test_edit_asset_in_spoke_accepts_high_bonus_low_threshold() {
         can_borrow: cfg.is_borrowable,
         paused: false,
         frozen: false,
+        no_seize: false,
         ltv: 4000,
         threshold: 5000,
         bonus: 5000,

@@ -35,6 +35,7 @@ MIN_HOST_STATE_LOOP_ITER = 28
 
 OPTIMISTIC_LOOP_CONFS = {"lp-math-stable.conf"}
 PURE_CONTROLLER_CONFS = {
+    "boundary-bad-debt-sanity.conf",
     "boundary-compound-sanity.conf",
     "boundary-math-sanity.conf",
     "boundary-math.conf",
@@ -43,7 +44,6 @@ PURE_CONTROLLER_CONFS = {
     "compound-output.conf",
     "hf-lemmas-sanity.conf",
     "hf-lemmas.conf",
-    "indexes.conf",
     "interest-compound.conf",
     "interest-index.conf",
     "interest.conf",
@@ -57,6 +57,7 @@ PURE_POOL_CONFS: set[str] = set()
 PURE_PRICE_AGGREGATOR_CONFS = {
     "freshness.conf",
     "oracle.conf",
+    "scaled-math.conf",
     "tolerance-math.conf",
 }
 
@@ -78,6 +79,10 @@ def read_rule_kinds(spec_dir: Path) -> dict[str, str]:
         for index, match in enumerate(matches):
             end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
             body = text[match.start() : end]
+            # Classify on code only: a doc comment naming cvlr_satisfy!/
+            # cvlr_assert! must not change a rule's kind.
+            body = re.sub(r"/\*.*?\*/", "", body, flags=re.S)
+            body = re.sub(r"//[^\n]*", "", body)
             has_assert = "cvlr_assert!" in body
             has_satisfy = "cvlr_satisfy!" in body
             if has_assert and has_satisfy:
@@ -244,12 +249,13 @@ def main() -> int:
         print("Profile errors:")
         for error in profile_errors:
             print(f"  {error}")
-        return 1
 
     if config_errors:
         print("Soroban conf integrity errors:")
         for error in config_errors:
             print(f"  {error}")
+
+    if profile_errors or config_errors:
         return 1
 
     print(

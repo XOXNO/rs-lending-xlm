@@ -120,6 +120,46 @@ pub fn resolve_withdrawal(
     )
 }
 
+/// Offsets same-asset supply against debt in conservative token units.
+///
+/// Settle amount is the overlap
+/// `min(requested, floor(supply), ceil(debt))`. A side is fully closed only
+/// when that overlap exhausts that side's conservative value — never because
+/// a half-up display rounded up by one native unit. Partial burns stay
+/// directed (`ceil` supply, `floor` debt) and are capped at the position.
+///
+/// Returns `(burned_supply, burned_debt, settled_tokens)`. A non-positive
+/// overlap is a no-op.
+pub fn resolve_net_settle(
+    env: &Env,
+    amount: i128,
+    supply_scaled: Ray,
+    debt_scaled: Ray,
+    supply_index: Ray,
+    borrow_index: Ray,
+    decimals: u32,
+) -> (Ray, Ray, i128) {
+    let supply_floor = unscale_supply_floor(env, supply_scaled, supply_index, decimals);
+    let debt_ceil = unscale_borrow_ceil(env, debt_scaled, borrow_index, decimals);
+    let settle = amount.min(supply_floor).min(debt_ceil);
+    if settle <= 0 {
+        return (Ray::ZERO, Ray::ZERO, 0);
+    }
+
+    let burned_supply = if settle == supply_floor {
+        supply_scaled
+    } else {
+        calculate_scaled_supply_ceil(env, settle, decimals, supply_index).min(supply_scaled)
+    };
+    let burned_debt = if settle == debt_ceil {
+        debt_scaled
+    } else {
+        calculate_scaled_borrow_floor(env, settle, decimals, borrow_index).min(debt_scaled)
+    };
+
+    (burned_supply, burned_debt, settle)
+}
+
 /// Determines the scaled debt to **burn** and any excess repayment when a
 /// caller repays `amount` asset units against `pos_scaled`.
 ///

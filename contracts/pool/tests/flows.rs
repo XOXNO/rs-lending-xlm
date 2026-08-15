@@ -791,6 +791,38 @@ fn test_net_settle_uses_directed_rounding_and_rejects_zero_debt_burn() {
 }
 
 #[test]
+fn test_net_settle_closes_both_when_floor_supply_matches_ceil_debt() {
+    let t = TestSetup::new();
+    // 100 tokens + 0.6 stroops: half-up is one stroop above the floor.
+    let supply_pos = 100 * RAY + 6 * 10i128.pow(19);
+    let debt_pos = 100 * RAY;
+    t.edit_state(|s| {
+        s.supplied = supply_pos;
+        s.borrowed = debt_pos;
+        s.supply_index = RAY;
+        s.borrow_index = RAY;
+    });
+
+    let result = t.client().net_settle(&PoolNetSettleEntry {
+        hub_asset: hub(&t.asset),
+        amount: i128::MAX,
+        supply_position: ScaledPositionRaw {
+            scaled_amount: supply_pos,
+        },
+        debt_position: ScaledPositionRaw {
+            scaled_amount: debt_pos,
+        },
+    });
+
+    assert_eq!(result.settled_amount, 1_000_000_000);
+    assert_eq!(result.supply_position.scaled_amount, 0);
+    assert_eq!(result.debt_position.scaled_amount, 0);
+    let state = t.state_snapshot();
+    assert_eq!(state.supplied, 0);
+    assert_eq!(state.borrowed, 0);
+}
+
+#[test]
 fn test_withdraw_rejects_fee_greater_than_withdrawn_amount() {
     let t = TestSetup::new();
     let client = t.client();
@@ -2972,4 +3004,101 @@ fn test_bad_debt_wipeout_leaves_market_usable_at_realistic_scale() {
 
     let opened = client.supply(&t.sup(0, 10_000_000_000_000i128));
     assert!(opened.get(0).unwrap().position.scaled_amount > 0);
+}
+
+/// Live seize wipeout → index floor → blocked supply → recap → new supply is safe.
+fn backing_snapshot(t: &TestSetup) -> (i128, i128, i128, i128, i128, i128) {
+    t.env.as_contract(&t.pool, || {
+        let cache = Cache::load(&t.env, &hub(&t.asset));
+        (
+            cache.supply_index().raw(),
+            cache.supplied().raw(),
+            cache.borrowed().raw(),
+            cache.cash(),
+            cache.unscale_supply_floor(cache.supplied()),
+            crate::guards::backing_shortfall(&cache),
+        )
+    })
+}
+
+#[test]
+fn test_floor_wipeout_blocks_supply_until_recap_then_new_deposit_is_safe() {
+    let t = TestSetup::new();
+    let client = t.client();
+    let token_admin = token::StellarAssetClient::new(&t.env, &t.asset);
+    let token = token::Client::new(&t.env, &t.asset);
+
+    let alice_shares = 1_000 * RAY;
+    t.edit_state(|state| {
+        state.supplied = alice_shares;
+        state.borrowed = alice_shares;
+        state.revenue = 0;
+        state.supply_index = RAY;
+        state.borrow_index = RAY;
+        state.cash = 0;
+    });
+
+    client.seize_positions(&t.sez(
+        AccountPositionType::Borrow,
+        &ScaledPositionRaw {
+            scaled_amount: alice_shares,
+        },
+    ));
+
+    let (index, supplied, borrowed, cash, claim, shortfall) = backing_snapshot(&t);
+
+    assert_eq!(index, common::constants::SUPPLY_INDEX_FLOOR_RAW);
+    assert_eq!(supplied, alice_shares);
+    assert_eq!(borrowed, 0);
+    assert_eq!(cash, 0);
+    assert_eq!(claim, 10_000_000, "1000 tokens at index 0.001 → 1 token");
+    assert_eq!(shortfall, claim);
+
+    let blocked = flatten_contract_result(client.try_supply(&t.sup(0, 50_000_000)));
+    assert_contract_error(blocked, CollateralError::PoolInsolvent as u32);
+
+    let payer = Address::generate(&t.env);
+    let offered = 25_000_000i128;
+    token_admin.mint(&payer, &offered);
+    token.transfer(&payer, &t.pool, &offered);
+    let recap = client.recapitalize(&hub(&t.asset), &payer, &offered);
+    let (index2, _, _, cash2, _claim2, shortfall2) = backing_snapshot(&t);
+
+    assert_eq!(recap.actual_amount, shortfall);
+    assert_eq!(token.balance(&payer), offered - shortfall);
+    assert_eq!(cash2, shortfall);
+    assert_eq!(shortfall2, 0);
+    assert_eq!(index2, common::constants::SUPPLY_INDEX_FLOOR_RAW);
+
+    let bob_deposit = 50_000_000i128;
+    let bob = client.supply(&t.sup(0, bob_deposit)).get_unchecked(0);
+    let (_, _, _, cash3, _claim3, shortfall3) = backing_snapshot(&t);
+    assert_eq!(bob.actual_amount, bob_deposit);
+    assert_eq!(cash3, shortfall + bob_deposit);
+    assert_eq!(shortfall3, 0);
+
+    let alice_recv = Address::generate(&t.env);
+    let alice_out = client
+        .withdraw(&alice_recv, &false, &t.wdr(alice_shares, i128::MAX, 0))
+        .get_unchecked(0);
+    let (_, _, _, cash4, claim4, _) = backing_snapshot(&t);
+
+    assert_eq!(alice_out.actual_amount, shortfall);
+    assert_eq!(token.balance(&alice_recv), shortfall);
+    assert_eq!(
+        cash4, bob_deposit,
+        "alice can take the recap, not bob's fresh deposit"
+    );
+    assert_eq!(claim4, bob_deposit);
+
+    let bob_recv = Address::generate(&t.env);
+    let bob_out = client
+        .withdraw(
+            &bob_recv,
+            &false,
+            &t.wdr(bob.position.scaled_amount, i128::MAX, 0),
+        )
+        .get_unchecked(0);
+    assert_eq!(bob_out.actual_amount, bob_deposit);
+    assert_eq!(token.balance(&bob_recv), bob_deposit);
 }

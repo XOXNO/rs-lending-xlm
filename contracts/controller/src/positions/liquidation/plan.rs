@@ -1,7 +1,3 @@
-//! Builds a `LiquidationPlan` for an undercollateralized account: verifies the
-//! account's health factor, sizes the repayment against its liquidation curve, and
-//! computes the collateral to seize.
-
 use super::curve::{LiquidationCurve, LiquidationSnapshot};
 use crate::risk;
 use common::errors::CollateralError;
@@ -13,33 +9,33 @@ use crate::context::Cache;
 use crate::positions::liquidation::math::*;
 use crate::positions::{enforce_spoke_asset_flags, FreezePolicy};
 
-/// Builds a liquidation plan for `account` against `aggregated_debt` and converts it
-/// into a `LiquidationResult`.
+/// Computes what liquidating `account` with `raw_payments` would produce, without persisting
+/// anything: builds a `LiquidationPlan` and converts it into the returned `LiquidationResult`.
 pub(crate) fn execute_liquidation(
     env: &Env,
     account: &Account,
-    aggregated_debt: &Vec<HubPayment>,
+    raw_payments: &Vec<HubPayment>,
     cache: &mut Cache,
 ) -> LiquidationResult {
-    build_liquidation_plan(env, account, aggregated_debt, cache).into_result()
+    build_liquidation_plan(env, account, raw_payments, cache).into_result()
 }
 
-/// Builds and validates a `LiquidationPlan` for `account` against `aggregated_debt`:
-/// verifies the account is undercollateralized, sizes the repayment against the
-/// account's liquidation curve, and computes the collateral to seize. Panics with
-/// `CollateralError::HealthFactorTooHigh` if the account has no borrow positions or
-/// its health factor is at or above `Wad::ONE`.
+/// Builds and validates a `LiquidationPlan` for `account` from `raw_payments`: computes risk
+/// totals, sizes the repayment against the liquidation curve's ideal close amount, and derives
+/// the pro-rata collateral seizure. Panics with `CollateralError::HealthFactorTooHigh` when the
+/// account has no debt or its health factor is at least one WAD, and enforces spoke pause/freeze
+/// flags on every payment and seizure asset.
 pub(crate) fn build_liquidation_plan(
     env: &Env,
     account: &Account,
-    aggregated_debt: &Vec<HubPayment>,
+    raw_payments: &Vec<HubPayment>,
     cache: &mut Cache,
 ) -> LiquidationPlan {
     if account.borrow_positions.is_empty() {
         panic_with_error!(env, CollateralError::HealthFactorTooHigh);
     }
 
-    for (hub_asset, _) in aggregated_debt.iter() {
+    for (hub_asset, _) in raw_payments.iter() {
         enforce_spoke_asset_flags(
             env,
             cache,
@@ -81,7 +77,7 @@ pub(crate) fn build_liquidation_plan(
     let repayment = normalize_repayment_plan(
         env,
         account,
-        aggregated_debt,
+        raw_payments,
         &snap,
         bonus_bounds,
         &curve,
@@ -91,13 +87,16 @@ pub(crate) fn build_liquidation_plan(
     let seized_collaterals =
         calculate_seized_collateral(env, account, totals.total_collateral, &repayment, cache);
 
+    // Seizure legs are gated by `no_seize` alone. `paused` must not reach here: seizure is
+    // pro-rata over every collateral the account holds, so pausing one listing would block
+    // liquidation of every account that touches it. See ADR-0008.
     for entry in seized_collaterals.iter() {
         enforce_spoke_asset_flags(
             env,
             cache,
             account.spoke_id,
             &entry.hub_asset,
-            FreezePolicy::AllowOnExit,
+            FreezePolicy::SeizureLeg,
         );
     }
 

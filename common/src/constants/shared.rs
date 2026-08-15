@@ -39,7 +39,7 @@ pub const DEFAULT_MIN_BORROW_COLLATERAL_USD_WAD: i128 = 5 * WAD;
 pub const MAX_FLASHLOAN_FEE_BPS: i128 = 500;
 
 /// Upper bound accepted for the maximum number of supply or borrow positions an account may hold.
-pub const POSITION_LIMIT_MAX: u32 = 10;
+pub const POSITION_LIMIT_MAX: u32 = 5;
 
 /// Lower bound accepted for an oracle tolerance value, in basis points.
 pub const MIN_TOLERANCE: u32 = 150;

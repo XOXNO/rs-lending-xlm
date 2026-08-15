@@ -1,7 +1,3 @@
-//! Client functions for the external price aggregator oracle contract.
-//! Converts asset addresses into `PriceKey::Token` keys and batches price and
-//! status lookups through the configured aggregator address in storage.
-
 use common::errors::OracleError;
 use common::types::{PriceFeedRaw, PriceKey, PriceStatus};
 use price_aggregator_interface::PriceAggregatorClient;
@@ -9,8 +5,8 @@ use soroban_sdk::{panic_with_error, Address, Env, Map, Vec};
 
 use crate::storage;
 
-/// Converts each address in `assets` into a `PriceKey::Token` key, preserving
-/// order.
+/// Wraps each address in `assets` as a `PriceKey::Token` for the price aggregator's
+/// key-based query methods.
 fn token_keys(env: &Env, assets: &Vec<Address>) -> Vec<PriceKey> {
     let mut keys = Vec::new(env);
     for asset in assets.iter() {
@@ -19,10 +15,8 @@ fn token_keys(env: &Env, assets: &Vec<Address>) -> Vec<PriceKey> {
     keys
 }
 
-/// Fetches raw price feeds for `assets` from the configured price
-/// aggregator, keyed by asset address. Panics with
-/// `OracleError::OracleNotConfigured` if the aggregator has no feed for one
-/// of the requested assets.
+/// Fetches resolved WAD prices for `assets` from the price aggregator, panicking with
+/// `OracleNotConfigured` if any asset has no price entry in the response.
 pub(crate) fn fetch_prices(env: &Env, assets: &Vec<Address>) -> Map<Address, PriceFeedRaw> {
     let aggregator = storage::get_price_aggregator(env);
     let keyed = PriceAggregatorClient::new(env, &aggregator).prices(&token_keys(env, assets));
@@ -36,9 +30,8 @@ pub(crate) fn fetch_prices(env: &Env, assets: &Vec<Address>) -> Map<Address, Pri
     out
 }
 
-/// Fetches price status quotes for `assets` from the configured price
-/// aggregator, keyed by asset address. Assets the aggregator has no quote for
-/// are set to `PriceStatus::unusable()` instead of causing a failure.
+/// Fetches detailed price status for `assets` from the price aggregator, substituting an
+/// unusable, `valid: false` status for any asset the aggregator returns no quote for.
 pub(crate) fn fetch_prices_status(env: &Env, assets: &Vec<Address>) -> Map<Address, PriceStatus> {
     let aggregator = storage::get_price_aggregator(env);
     let keyed = PriceAggregatorClient::new(env, &aggregator).quotes(&token_keys(env, assets));

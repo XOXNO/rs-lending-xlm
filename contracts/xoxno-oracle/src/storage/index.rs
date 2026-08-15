@@ -50,11 +50,11 @@ pub(crate) fn asset_index_insert(env: &Env, asset: ReflectorAsset) {
     renew_persistent_key(env, &count_key);
 }
 
-/// Removes `asset` from the asset collection. If `asset` is not indexed, this is a no-op.
-/// Otherwise moves the asset from the last occupied slot into the removed slot to keep slots
-/// contiguous, updates the moved asset's reverse-index entry, clears the vacated last slot, and
-/// decrements the asset count. Renews the TTL of every key it writes. Panics if the asset count
-/// is 0 while the asset is still indexed.
+/// Removes `asset` from the asset collection, or does nothing if it is not indexed. Otherwise
+/// moves the asset from the last occupied slot into the removed slot to keep slots contiguous,
+/// updates the moved asset's reverse-index entry, clears the vacated last slot, decrements the
+/// asset count, and renews the TTL of every key it writes. Panics if the asset count is 0 while
+/// the asset is still indexed.
 pub(crate) fn asset_index_remove(env: &Env, asset: &ReflectorAsset) {
     let index_key = DataKey::AssetIndex(asset.clone());
     let Some(removed_at): Option<u32> = env.storage().persistent().get(&index_key) else {
@@ -111,11 +111,11 @@ pub(in crate::storage) fn feed_index_insert(env: &Env, feed_id: String) {
     renew_persistent_key(env, &count_key);
 }
 
-/// Removes `feed_id` from the feed collection. If `feed_id` is not indexed, this is a no-op.
-/// Otherwise moves the feed id from the last occupied slot into the removed slot to keep slots
-/// contiguous, updates the moved feed id's reverse-index entry, clears the vacated last slot,
-/// and decrements the feed count. Renews the TTL of every key it writes. Panics if the feed
-/// count is 0 while the feed id is still indexed.
+/// Removes `feed_id` from the feed collection, or does nothing if it is not indexed. Otherwise
+/// moves the feed id from the last occupied slot into the removed slot to keep slots contiguous,
+/// updates the moved feed id's reverse-index entry, clears the vacated last slot, decrements the
+/// feed count, and renews the TTL of every key it writes. Panics if the feed count is 0 while the
+/// feed id is still indexed.
 pub(crate) fn feed_index_remove(env: &Env, feed_id: &String) {
     let index_key = DataKey::FeedIndex(feed_id.clone());
     let Some(removed_at): Option<u32> = env.storage().persistent().get(&index_key) else {

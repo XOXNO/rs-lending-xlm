@@ -14,6 +14,7 @@ on:
       - "Cargo.lock"
       - "rust-toolchain.toml"
       - "Makefile"
+      - "scripts/**"
       - ".github/workflows/**"
   workflow_dispatch:
 
@@ -28,6 +29,24 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  access-control:
+    name: Access Control Gate
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          clean: false
+
+      - name: Reset workspace, preserve target/ build cache
+        run: |
+          git reset --hard
+          git clean -ffdx -e target
+
+      # Source-only and deterministic: no toolchain, no build, no network. Runs
+      # in about a second, so it gates the PR long before the Rust jobs finish.
+      - name: Every state-changing entrypoint is gated or declared
+        run: make access-control-check
+
   security-scan:
     name: Security Scan (OpenZeppelin)
     runs-on: self-hosted

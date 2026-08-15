@@ -1,20 +1,14 @@
-//! Per-invocation memoization of spoke config, spoke asset config, and
-//! spoke usage state on `Cache`.
-
 use common::errors::{GenericError, SpokeError};
 use common::math::fp::Ray;
 use common::types::{AssetConfig, HubAssetKey, MarketIndexRaw, SpokeAssetConfig, SpokeConfig};
 use soroban_sdk::{assert_with_error, panic_with_error, Map};
 
 use crate::context::Cache;
-use crate::spoke::{SpokeUsageContext, UsageSide};
+use crate::spoke_usage::{SpokeUsageContext, UsageSide};
 use crate::storage;
 
 impl Cache {
-    /// Ensures a [`SpokeUsageContext`] for `spoke_id` exists on the cache,
-    /// creating one if absent. Panics with `SpokeError::SpokeMismatch` if a
-    /// context for a different spoke is already cached, since a single
-    /// `Cache` only tracks usage for one spoke per invocation.
+    /// Ensures a spoke-usage context is loaded for `spoke_id`, creating it on first call and panicking if a different spoke was already loaded this invocation.
     pub(crate) fn ensure_spoke_context(&mut self, spoke_id: u32) {
         if let Some(ctx) = &self.spoke_usage {
             assert_with_error!(
@@ -27,18 +21,14 @@ impl Cache {
         self.spoke_usage = Some(SpokeUsageContext::new(&self.env, spoke_id));
     }
 
-    /// Clears the cached spoke usage context, spoke config, and spoke asset
-    /// configs, so the next access reloads them from storage.
+    /// Clears the cached spoke-usage context, spoke config, and spoke asset configs, so a subsequent call can load a different spoke.
     pub(crate) fn reset_spoke_context(&mut self) {
         self.spoke_usage = None;
         self.spoke_config = None;
         self.spoke_assets = Map::new(&self.env);
     }
 
-    /// Ensures the spoke usage context for `spoke_id` is cached, then
-    /// returns a mutable reference to it. Panics with
-    /// `GenericError::InternalError` if the context is unexpectedly absent
-    /// after `ensure_spoke_context` runs.
+    /// Returns a mutable reference to the spoke-usage context for `spoke_id`, loading it first if needed.
     pub(crate) fn require_spoke_usage_context(&mut self, spoke_id: u32) -> &mut SpokeUsageContext {
         self.ensure_spoke_context(spoke_id);
         self.spoke_usage
@@ -46,9 +36,7 @@ impl Cache {
             .unwrap_or_else(|| panic_with_error!(&self.env, GenericError::InternalError))
     }
 
-    /// Returns the cached `SpokeAssetConfig` for `hub_asset` in `spoke_id`,
-    /// loading it from storage and caching it on a miss. Returns `None` if
-    /// the asset is not listed in the spoke.
+    /// Returns `hub_asset`'s spoke config if it is listed in spoke `spoke_id`, loading and caching it from storage on first access.
     pub(crate) fn cached_spoke_asset(
         &mut self,
         spoke_id: u32,
@@ -63,10 +51,7 @@ impl Cache {
         Some(loaded)
     }
 
-    /// Returns the `AssetConfig` for `hub_asset` in `spoke_id`, converted
-    /// from the spoke's `SpokeAssetConfig`. Panics with
-    /// `SpokeError::AssetNotInSpoke` if the asset is not listed in the
-    /// spoke.
+    /// Returns the risk-parameter subset of `hub_asset`'s spoke config, panicking if the asset is not listed in spoke `spoke_id`.
     pub(crate) fn require_spoke_asset(
         &mut self,
         spoke_id: u32,
@@ -77,9 +62,7 @@ impl Cache {
         (&asset).into()
     }
 
-    /// Returns the `SpokeAssetConfig` for `hub_asset` in `spoke_id`. Panics
-    /// with `SpokeError::AssetNotInSpoke` if the asset is not listed in the
-    /// spoke.
+    /// Returns `hub_asset`'s full spoke config, panicking if the asset is not listed in spoke `spoke_id`.
     pub(crate) fn require_spoke_asset_config(
         &mut self,
         spoke_id: u32,
@@ -89,11 +72,7 @@ impl Cache {
             .unwrap_or_else(|| panic_with_error!(&self.env, SpokeError::AssetNotInSpoke))
     }
 
-    /// Returns the `AssetConfig` for `hub_asset` in `spoke_id`, first
-    /// asserting that `spoke_id` is active. Panics with
-    /// `SpokeError::SpokeDeprecated` if the spoke is deprecated, or
-    /// `SpokeError::AssetNotInSpoke` if the asset is not listed in the
-    /// spoke.
+    /// Returns the risk-parameter subset of `hub_asset`'s spoke config after verifying spoke `spoke_id` is not deprecated.
     pub(crate) fn require_listed_active_config(
         &mut self,
         spoke_id: u32,
@@ -103,8 +82,7 @@ impl Cache {
         self.require_spoke_asset(spoke_id, hub_asset)
     }
 
-    /// Returns the cached `SpokeConfig` for `spoke_id`, loading it from
-    /// storage and caching it on a miss.
+    /// Returns spoke `spoke_id`'s config, loading and caching it from storage on first access.
     pub(crate) fn spoke_config(&mut self, spoke_id: u32) -> SpokeConfig {
         self.ensure_spoke_context(spoke_id);
         if let Some(spoke) = &self.spoke_config {
@@ -115,20 +93,14 @@ impl Cache {
         spoke
     }
 
-    /// Returns the `SpokeConfig` for `spoke_id` after asserting it is not
-    /// deprecated. Panics with `SpokeError::SpokeDeprecated` if the spoke is
-    /// deprecated.
+    /// Returns spoke `spoke_id`'s config, panicking if the spoke is deprecated.
     pub(crate) fn active_spoke(&mut self, spoke_id: u32) -> SpokeConfig {
         let spoke = self.spoke_config(spoke_id);
         assert_with_error!(&self.env, !spoke.is_deprecated, SpokeError::SpokeDeprecated);
         spoke
     }
 
-    /// Increases the cached spoke usage for `hub_asset` on `side` by
-    /// `delta_scaled`, enforcing the spoke's supply or borrow cap (per
-    /// `side`) against the corresponding market index and asset decimals.
-    /// Panics with the side's cap error if the resulting usage exceeds the
-    /// cap, or with `GenericError::MathOverflow` on overflow.
+    /// Adds `delta_scaled` to the spoke's buffered supply or borrow usage for `hub_asset`, panicking if it would exceed the asset's supply or borrow cap.
     pub(crate) fn apply_spoke_entry(
         &mut self,
         spoke_id: u32,
@@ -152,11 +124,7 @@ impl Cache {
         );
     }
 
-    /// Decreases the cached spoke usage for `hub_asset` on `side` by
-    /// `delta_scaled`. Is a no-op if `delta_scaled` is zero or if no usage
-    /// row exists yet for `hub_asset`. Panics with
-    /// `GenericError::MathOverflow` on subtraction overflow, or
-    /// `GenericError::InternalError` if the result would go negative.
+    /// Subtracts `delta_scaled` from the spoke's buffered supply or borrow usage for `hub_asset`; no-op if no usage is recorded for the asset yet.
     pub(crate) fn apply_spoke_exit(
         &mut self,
         spoke_id: u32,
@@ -169,8 +137,7 @@ impl Cache {
             .apply_exit(&env, side, hub_asset, delta_scaled);
     }
 
-    /// Writes all cached spoke usage rows to persistent storage. Is a no-op
-    /// if no spoke usage context is cached.
+    /// Writes the buffered spoke-usage updates to storage, if a spoke-usage context was loaded this invocation.
     pub(crate) fn persist_spoke_usage(&self) {
         if let Some(ctx) = &self.spoke_usage {
             ctx.persist(&self.env);

@@ -167,6 +167,7 @@ pub trait GovernanceInterface {
         hub_asset: HubAssetKey,
         paused: bool,
         frozen: bool,
+        no_seize: bool,
     );
 
     fn set_sanity_band(env: Env, caller: Address, key: PriceKey, min_wad: i128, max_wad: i128);

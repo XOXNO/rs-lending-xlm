@@ -1,12 +1,9 @@
-//! Events emitted by the controller's strategy operations.
-
 use soroban_sdk::{contractevent, Address};
 
 /// Records the initial payment asset and amount supplied when opening a multiply
 /// position, before it is converted into the position's collateral asset.
 #[contractevent(topics = ["strategy", "initial_payment"])]
 #[derive(Clone, Debug, Eq, PartialEq)]
-
 pub struct InitialMultiplyPaymentEvent {
     pub token: Address,
     pub amount: i128,

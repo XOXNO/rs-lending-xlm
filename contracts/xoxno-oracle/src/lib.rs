@@ -68,9 +68,9 @@ pub struct XoxnoOracle;
 impl XoxnoOracle {
     /// Initializes the contract: sets `admin` as owner and stores the
     /// initial signer set, submission threshold, price resolution, and
-    /// default staleness and skew bounds. Fails with `InvalidThreshold` if
-    /// `threshold` is zero, exceeds the number of signers, or `signers`
-    /// contains a duplicate address.
+    /// default staleness, submission-age, and skew bounds. Fails with
+    /// `InvalidThreshold` if `threshold` is zero, exceeds the number of
+    /// signers, or `signers` contains a duplicate address.
     pub fn __constructor(
         env: Env,
         admin: Address,

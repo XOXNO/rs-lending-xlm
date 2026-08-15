@@ -119,8 +119,8 @@ impl XoxnoOracle {
     /// Sets the maximum allowed timestamp skew, in seconds, between clustered
     /// signer submissions for the same aggregate. Fails with
     /// `InvalidRelativeSkew` if `seconds` exceeds the configured maximum
-    /// submission age. Recomputes the aggregate for every known feed under
-    /// the new bound.
+    /// submission age or is not greater than `MAX_FUTURE_SKEW_SECONDS`.
+    /// Recomputes the aggregate for every known feed under the new bound.
     #[only_owner]
     pub fn set_max_relative_skew_seconds(env: Env, seconds: u64) -> Result<(), Error> {
         renew_oracle_instance(&env);
@@ -150,9 +150,10 @@ impl XoxnoOracle {
         Ok(())
     }
 
-    /// Maps `asset` to `feed_id` in both directions and registers `feed_id`
-    /// as known. Fails with `FeedAlreadyMapped` if `asset` already has a feed
-    /// mapping or `feed_id` already has an owning asset.
+    /// Maps `asset` to `feed_id` in both directions, registers `feed_id` as
+    /// known, and adds `asset` to the asset registry. Fails with
+    /// `FeedAlreadyMapped` if `asset` already has a feed mapping or
+    /// `feed_id` already has an owning asset.
     #[only_owner]
     pub fn add_feed(env: Env, feed_id: String, asset: ReflectorAsset) -> Result<(), Error> {
         renew_oracle_instance(&env);
@@ -169,10 +170,10 @@ impl XoxnoOracle {
         Ok(())
     }
 
-    /// Removes the feed mapping owned by `asset` and clears all stored state
-    /// for the underlying feed (aggregate, history, per-signer submissions,
-    /// and feed index entry). Fails with `FeedNotMapped` if `asset` has no
-    /// feed mapping.
+    /// Removes the feed mapping owned by `asset`, removes `asset` from the
+    /// asset registry, and clears all stored state for the underlying feed
+    /// (aggregate, history, per-signer submissions, and feed index entry).
+    /// Fails with `FeedNotMapped` if `asset` has no feed mapping.
     #[only_owner]
     pub fn remove_feed(env: Env, asset: ReflectorAsset) -> Result<(), Error> {
         renew_oracle_instance(&env);
@@ -194,8 +195,8 @@ impl XoxnoOracle {
     }
 
     /// Removes `feed_id` and all its stored state, including its asset
-    /// mapping if one exists. Fails with `FeedNotKnown` if the feed is not
-    /// registered.
+    /// mapping and asset-registry entry if one exists. Fails with
+    /// `FeedNotKnown` if the feed is not registered.
     #[only_owner]
     pub fn purge_feed(env: Env, feed_id: String) -> Result<(), Error> {
         renew_oracle_instance(&env);

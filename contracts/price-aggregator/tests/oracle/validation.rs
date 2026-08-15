@@ -39,7 +39,6 @@ fn lp(
 ) -> AquariusLpSource {
     AquariusLpSource {
         pool: Address::generate(env),
-        plane: Address::generate(env),
         token_a,
         token_b,
         key_a,

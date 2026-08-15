@@ -991,6 +991,74 @@
       }
     },
     {
+      "name": "xSolvBTC",
+      "hub_id": 1,
+      "asset_address": "CAUP7NFABXE5TJRL3FKTPMWRLC7IAXYDCTHQRFSCLR5TMGKHOOQO772J",
+      "oracle": {
+        "asset_decimals": 8,
+        "max_price_stale_seconds": 57600,
+        "sources": [
+          {
+            "Scaled": {
+              "factor": {
+                "provider": {
+                  "RedStone": {
+                    "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
+                    "feed_id": "SolvBTC.BBN_FUNDAMENTAL",
+                    "nature": "Fundamental"
+                  }
+                },
+                "decimals": 8,
+                "max_stale_seconds": 57600
+              },
+              "quote": {
+                "Token": "CBIJBDNZNF4X35BJ4FFZWCDBSCKOP5NB4PLG4SNENRMLAPYG4P5FM6VN"
+              },
+              "min_factor_wad": "1000000000000000000",
+              "max_factor_wad": "1050000000000000000"
+            }
+          },
+          {
+            "Feed": {
+              "provider": {
+                "RedStone": {
+                  "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
+                  "feed_id": "SolvBTC.BBN_FUNDAMENTAL/USD",
+                  "nature": "Fundamental"
+                }
+              },
+              "decimals": 8,
+              "max_stale_seconds": 57600
+            }
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 10500,
+          "lower_ratio_bps": 9524
+        },
+        "independence": {
+          "AllowShared": [
+            "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG"
+          ]
+        },
+        "min_sanity_price_wad": "40000000000000000000000",
+        "max_sanity_price_wad": "120000000000000000000000"
+      },
+      "market_params": {
+        "max_borrow_rate": "1750000000000000000000000000",
+        "base_borrow_rate": "10000000000000000000000000",
+        "slope1": "40000000000000000000000000",
+        "slope2": "100000000000000000000000000",
+        "slope3": "1500000000000000000000000000",
+        "mid_utilization": "500000000000000000000000000",
+        "optimal_utilization": "750000000000000000000000000",
+        "max_utilization": "900000000000000000000000000",
+        "reserve_factor": 2000,
+        "is_flashloanable": false,
+        "flashloan_fee": 0
+      }
+    },
+    {
       "name": "AQUA",
       "hub_id": 3,
       "asset_address": "CAUIKL3IYGMERDRUN6YSCLWVAKIFG5Q4YJHUKM4S4NJZQIA3BAS6OJPK",
@@ -1056,7 +1124,6 @@
           {
             "AquariusLp": {
               "pool": "CA6PUJLBYKZKUEKLZJMKBZLEKP2OTHANDEOWSFF44FTSYLKQPIICCJBE",
-              "plane": "CCABO2IQYDWRGGQ4DYQ73CV3ZFDBRZTEQNDDJMFT7JZO54CLS4RYJROY",
               "token_a": "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA",
               "token_b": "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75",
               "key_a": {
@@ -1104,7 +1171,6 @@
           {
             "AquariusLp": {
               "pool": "CD2O2B6PWKXDVFXMHXHQMF25C4TWOSQAENA7DNFR5G27F5CHJ7AJP5F6",
-              "plane": "CCABO2IQYDWRGGQ4DYQ73CV3ZFDBRZTEQNDDJMFT7JZO54CLS4RYJROY",
               "token_a": "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA",
               "token_b": "CBIJBDNZNF4X35BJ4FFZWCDBSCKOP5NB4PLG4SNENRMLAPYG4P5FM6VN",
               "key_a": {
@@ -1142,6 +1208,53 @@
       }
     },
     {
+      "name": "xSolvBTCSolvBTC_LP",
+      "hub_id": 3,
+      "asset_address": "CDZ4QRNY63YKJY7FLBTJUVPX3Z3U56JY5KHNHQEYI5F5MYLMC5YNRIXE",
+      "oracle": {
+        "asset_decimals": 7,
+        "max_price_stale_seconds": 57600,
+        "sources": [
+          {
+            "AquariusStableLp": {
+              "pool": "CCNXGPE4AQCSNEBZO3XJDKKDI3CRLYMVS6UWBBTVDLALLWMJEXBORQ2A",
+              "token_a": "CAUP7NFABXE5TJRL3FKTPMWRLC7IAXYDCTHQRFSCLR5TMGKHOOQO772J",
+              "token_b": "CBIJBDNZNF4X35BJ4FFZWCDBSCKOP5NB4PLG4SNENRMLAPYG4P5FM6VN",
+              "key_a": {
+                "Token": "CAUP7NFABXE5TJRL3FKTPMWRLC7IAXYDCTHQRFSCLR5TMGKHOOQO772J"
+              },
+              "key_b": {
+                "Token": "CBIJBDNZNF4X35BJ4FFZWCDBSCKOP5NB4PLG4SNENRMLAPYG4P5FM6VN"
+              },
+              "reserve_a_decimals": 8,
+              "reserve_b_decimals": 8,
+              "min_pool_value_wad": "1000000000000000000000000"
+            }
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 0,
+          "lower_ratio_bps": 0
+        },
+        "independence": "RequireDisjoint",
+        "min_sanity_price_wad": "4000000000000000000000",
+        "max_sanity_price_wad": "12000000000000000000000"
+      },
+      "market_params": {
+        "max_borrow_rate": "1750000000000000000000000000",
+        "base_borrow_rate": "10000000000000000000000000",
+        "slope1": "40000000000000000000000000",
+        "slope2": "100000000000000000000000000",
+        "slope3": "1500000000000000000000000000",
+        "mid_utilization": "500000000000000000000000000",
+        "optimal_utilization": "750000000000000000000000000",
+        "max_utilization": "900000000000000000000000000",
+        "reserve_factor": 2000,
+        "is_flashloanable": false,
+        "flashloan_fee": 0
+      }
+    },
+    {
       "name": "CETESUSDC_LP",
       "hub_id": 3,
       "asset_address": "CB2WUVUP2SKZVFZFNU33EZCISH65DKHQP4WBEHJ4WE3BF7QOABYGCQMS",
@@ -1152,7 +1265,6 @@
           {
             "AquariusLp": {
               "pool": "CCKGQSQG5JLZBMYMB4HT6M4H7FUC3NK5C75MIHN6627LRAY5B2SYL2AD",
-              "plane": "CCABO2IQYDWRGGQ4DYQ73CV3ZFDBRZTEQNDDJMFT7JZO54CLS4RYJROY",
               "token_a": "CAL6ER2TI6CTRAY6BFXWNWA7WTYXUXTQCHUBCIBU5O6KM3HJFG6Z6VXV",
               "token_b": "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75",
               "key_a": {
@@ -1200,7 +1312,6 @@
           {
             "AquariusLp": {
               "pool": "CCX2TYR4AQTPPMTZOIMP3YIBHAYLLSTXVP47PAGTL753PCQFSKV32MIA",
-              "plane": "CCABO2IQYDWRGGQ4DYQ73CV3ZFDBRZTEQNDDJMFT7JZO54CLS4RYJROY",
               "token_a": "CBLV4ATSIWU67CFSQU2NVRKINQIKUZ2ODSZBUJTJ43VJVRSBTZYOPNUR",
               "token_b": "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75",
               "key_a": {
@@ -1248,7 +1359,6 @@
           {
             "AquariusLp": {
               "pool": "CAFHLHGZXOVNCGFJ7DOXL7JDNMBCEZKDI3LS5NRQH3GXC7CSIMQZHUSM",
-              "plane": "CCABO2IQYDWRGGQ4DYQ73CV3ZFDBRZTEQNDDJMFT7JZO54CLS4RYJROY",
               "token_a": "CB3YA656OYIHU57657I5KGSBRHE5I3OZU4VFC22PYAOANFZHEWNYGAGP",
               "token_b": "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75",
               "key_a": {
@@ -1296,7 +1406,6 @@
           {
             "AquariusLp": {
               "pool": "CAXYSVTPAU6JLPI7V6XJWLFWIYMFIHHFF7D7QCFH2YB2Z4BSI3BCGGH4",
-              "plane": "CCABO2IQYDWRGGQ4DYQ73CV3ZFDBRZTEQNDDJMFT7JZO54CLS4RYJROY",
               "token_a": "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75",
               "token_b": "CC2RBGYNCFBCVENIDL5BFBWPH4OUZM2UA3OD2K2N54GLMWCC4KWPVAGO",
               "key_a": {
@@ -1344,7 +1453,6 @@
           {
             "AquariusStableLp": {
               "pool": "CDMH535JSD224YXPET3B4SJOLXTQQ24GRSCWACGYBKSH2DKFJYWI7SUW",
-              "plane": "CCABO2IQYDWRGGQ4DYQ73CV3ZFDBRZTEQNDDJMFT7JZO54CLS4RYJROY",
               "token_a": "CCCRWH6Q3FNP3I2I57BDLM5AFAT7O6OF6GKQOC6SSJNDAVRZ57SPHGU2",
               "token_b": "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75",
               "key_a": {
@@ -1392,7 +1500,6 @@
           {
             "AquariusLp": {
               "pool": "CCY2PXGMKNQHO7WNYXEWX76L2C5BH3JUW3RCATGUYKY7QQTRILBZIFWV",
-              "plane": "CCABO2IQYDWRGGQ4DYQ73CV3ZFDBRZTEQNDDJMFT7JZO54CLS4RYJROY",
               "token_a": "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA",
               "token_b": "CAUIKL3IYGMERDRUN6YSCLWVAKIFG5Q4YJHUKM4S4NJZQIA3BAS6OJPK",
               "key_a": {
@@ -1440,7 +1547,6 @@
           {
             "AquariusLp": {
               "pool": "CA6GAFOJCW4MGQQBUCQUSA3CLIH25G4SNKB2JHYKZCVWZTNW5VXMSC4O",
-              "plane": "CCABO2IQYDWRGGQ4DYQ73CV3ZFDBRZTEQNDDJMFT7JZO54CLS4RYJROY",
               "token_a": "CAUIKL3IYGMERDRUN6YSCLWVAKIFG5Q4YJHUKM4S4NJZQIA3BAS6OJPK",
               "token_b": "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75",
               "key_a": {

@@ -457,6 +457,50 @@ fn an_under_routed_split_leaves_funds_behind_and_reverts() {
     );
 }
 
+/// The residual guard's boundary, driven through the real enforcement path:
+/// an unrouted remainder of exactly the allowance is accepted, one raw unit
+/// more is rejected. An input of 1_000_000 puts the trade in the dust-floor
+/// regime (allowance = 1_000 whatever the venue credits), and makes one
+/// weight-ppm equal one raw unit, so the boundary is exact.
+#[test]
+fn a_residual_of_exactly_the_allowance_passes_and_one_unit_more_reverts() {
+    let run = |weight_ppm| {
+        let env = Env::default();
+        env.mock_all_auths();
+        let router_addr = env.register(Router, (Address::generate(&env),));
+        let client = RouterClient::new(&env, &router_addr);
+        let sender = Address::generate(&env);
+        let admin = Address::generate(&env);
+        let (token_a, sac_a) = new_asset(&env, &admin);
+        let (token_b, sac_b) = new_asset(&env, &admin);
+        let pool = env.register(aquarius_mock::AqPool, ());
+        aquarius_mock::AqPoolClient::new(&env, &pool).init(&token_a, &token_b);
+        sac_a.mint(&sender, &1_000_000);
+        sac_b.mint(&pool, &1_000_000_000);
+
+        let path = alloc::vec![one_hop_path(
+            &env,
+            SwapVenue::Aquarius,
+            pool,
+            token_a.clone(),
+            token_b.clone(),
+            weight_ppm,
+        )];
+        let xdr = strategy_xdr(&env, token_a, token_b, 1, path);
+        client.try_execute_strategy(&sender, &1_000_000, &xdr)
+    };
+
+    assert!(
+        run(999_000).is_ok(),
+        "an unrouted residual of exactly the allowance (1_000) must pass"
+    );
+    assert_eq!(
+        run(998_999).unwrap_err().unwrap(),
+        Error::ExcessiveResidual.into(),
+        "one raw unit past the allowance must revert"
+    );
+}
+
 /// A leg that ends somewhere other than `token_out` strands its output, which
 /// the residual guard rejects for any material amount.
 #[test]

@@ -1,3 +1,4 @@
+use common::types::SeizeMode;
 use controller::constants::{RAY, WAD};
 use test_harness::{
     eth_preset, hub_asset, usd_cents, usdc_preset, LendingTest, ALICE, BOB, LIQUIDATOR,
@@ -71,9 +72,9 @@ fn test_bonus_formula_at_specific_hf_levels() {
     let account_id = t.resolve_account_id(ALICE);
     let payments =
         soroban_sdk::Vec::from_array(&t.env, [(hub_asset(t.resolve_asset("ETH")), 3_0000000)]);
-    let estimate = t
-        .ctrl_client()
-        .get_liquidation_estimate(&account_id, &payments);
+    let estimate =
+        t.ctrl_client()
+            .get_liquidation_estimate(&account_id, &payments, &SeizeMode::Transfer);
     let hf = t.ctrl_client().get_health_factor(&account_id);
 
     let hf_f64 = hf as f64 / WAD as f64;
@@ -104,9 +105,9 @@ fn test_deep_underwater_higher_bonus() {
     let id_alice = t.resolve_account_id(ALICE);
     let payments =
         soroban_sdk::Vec::from_array(&t.env, [(hub_asset(t.resolve_asset("ETH")), 3_0000000)]);
-    let light = t
-        .ctrl_client()
-        .get_liquidation_estimate(&id_alice, &payments);
+    let light =
+        t.ctrl_client()
+            .get_liquidation_estimate(&id_alice, &payments, &SeizeMode::Transfer);
     let hf_light = t.ctrl_client().get_health_factor(&id_alice);
     let hf_light_f64 = hf_light as f64 / WAD as f64;
     assert!(
@@ -118,7 +119,7 @@ fn test_deep_underwater_higher_bonus() {
     t.set_price("USDC", usd_cents(68));
     let deep = t
         .ctrl_client()
-        .get_liquidation_estimate(&id_alice, &payments);
+        .get_liquidation_estimate(&id_alice, &payments, &SeizeMode::Transfer);
     let hf_deep = t.ctrl_client().get_health_factor(&id_alice);
     let hf_deep_f64 = hf_deep as f64 / WAD as f64;
     assert!(
@@ -150,30 +151,34 @@ fn test_liquidation_does_not_increase_debt() {
     let hf_before = t.health_factor(ALICE);
     assert!(hf_before < 1.0, "should be liquidatable");
 
+    let debt_before = t.total_debt(ALICE);
+    let collateral_before = t.total_collateral(ALICE);
+
     t.liquidate(LIQUIDATOR, ALICE, "ETH", 1.0);
 
-    let _hf_after = t.health_factor(ALICE);
-
-    let debt_before = t.total_debt(ALICE);
+    // Repaying 1 ETH at $2000 with no time advance must reduce the debt by
+    // exactly the repayment value (no interest accrues between the reads).
     let debt_after = t.total_debt(ALICE);
     assert!(
-        debt_after <= debt_before,
-        "debt must not increase: before={:.4}, after={:.4}",
+        debt_after < debt_before,
+        "liquidation must strictly reduce debt: before={:.4}, after={:.4}",
+        debt_before,
+        debt_after
+    );
+    assert!(
+        (debt_before - debt_after - 2000.0).abs() < 1.0,
+        "debt must drop by the $2000 repaid: before={:.4}, after={:.4}",
         debt_before,
         debt_after
     );
 
     let collateral_after = t.total_collateral(ALICE);
-    let debt_remaining = t.total_debt(ALICE);
-    if debt_remaining > 0.01 {
-        let ratio = collateral_after / debt_remaining;
-
-        assert!(
-            ratio > 0.0,
-            "collateral/debt ratio should be positive after liquidation: {:.4}",
-            ratio
-        );
-    }
+    assert!(
+        collateral_after < collateral_before,
+        "seizure must reduce collateral: before={:.4}, after={:.4}",
+        collateral_before,
+        collateral_after
+    );
 }
 
 #[test]

@@ -25,7 +25,7 @@ liq20_liquidate_send() {
     local label="$1" leeway="$2" n="$3" repay_each="${4:-$LIQ20_DEFAULT_REPAY_EACH}"
     local out_f="$LOG_DIR/$label.out" err_f="$LOG_DIR/$label.err"
     if stellar contract invoke --id "$CONTROLLER" --source "$CAROL" "${NET_ARGS[@]}" \
-        --instruction-leeway "$leeway" -- liquidate \
+        --instruction-leeway "$leeway" -- liquidate --seize_mode "$(seize_transfer)" \
         --liquidator "$CAROL_ADDR" --account_id "$ACCT" \
         --debt_payments "$(liq20_pay_vec "$PRIMARY_HUB_ID" "$n" "$repay_each")" \
         >"$out_f" 2>"$err_f"; then
@@ -62,7 +62,7 @@ liq20_v2_walk_widths() {
     local n repay_each headroom leeway label
     for n in "$@"; do
         repay_each="${LIQ20_DEFAULT_REPAY_EACH}"
-        sim_probe "v2_probe_${n}debt_10coll" "$CAROL" "$CONTROLLER" -- liquidate \
+        sim_probe "v2_probe_${n}debt_10coll" "$CAROL" "$CONTROLLER" -- liquidate --seize_mode "$(seize_transfer)" \
             --liquidator "$CAROL_ADDR" --account_id "$ACCT" \
             --debt_payments "$(liq20_pay_vec "$PRIMARY_HUB_ID" "$n" "$repay_each")"
         if [ "$PROBE_STATUS" != ok ] || [ -z "$RES_INSTR" ]; then
@@ -94,12 +94,12 @@ liq20_bisect_widths() {
     local n repay_each
     for n in "$@"; do
         repay_each="${LIQ20_DEFAULT_REPAY_EACH}"
-        sim_probe "probe_liq_${n}debt_10coll" "$CAROL" "$CONTROLLER" -- liquidate \
+        sim_probe "probe_liq_${n}debt_10coll" "$CAROL" "$CONTROLLER" -- liquidate --seize_mode "$(seize_transfer)" \
             --liquidator "$CAROL_ADDR" --account_id "$ACCT" \
             --debt_payments "$(liq20_pay_vec "$PRIMARY_HUB_ID" "$n" "$repay_each")"
         if [ "$PROBE_STATUS" = ok ] && [ -n "$RES_INSTR" ] && [ "$RES_INSTR" -le "$LIQ20_TX_CAP" ]; then
             log "width $n fits: declared $RES_INSTR insns <= $LIQ20_TX_CAP"
-            inv "liq20_bisect_proof_${n}debt" "$CAROL" "$CONTROLLER" -- liquidate \
+            inv "liq20_bisect_proof_${n}debt" "$CAROL" "$CONTROLLER" -- liquidate --seize_mode "$(seize_transfer)" \
                 --liquidator "$CAROL_ADDR" --account_id "$ACCT" \
                 --debt_payments "$(liq20_pay_vec "$PRIMARY_HUB_ID" "$n" "$repay_each")" >/dev/null \
                 && log "liquidation LANDED: $n debt repays + 10-coll seize ($RES_INSTR insns)"
@@ -116,14 +116,14 @@ liq20_fullrepay_probe() {
     local best_n=0 n repay_each
     for n in "$@"; do
         repay_each="${LIQ20_DEFAULT_REPAY_EACH}"
-        sim_probe "probe_liq_${n}debt_10coll" "$CAROL" "$CONTROLLER" -- liquidate \
+        sim_probe "probe_liq_${n}debt_10coll" "$CAROL" "$CONTROLLER" -- liquidate --seize_mode "$(seize_transfer)" \
             --liquidator "$CAROL_ADDR" --account_id "$ACCT" \
             --debt_payments "$(liq20_pay_vec "$PRIMARY_HUB_ID" "$n" "$repay_each")"
         if [ "$PROBE_STATUS" = ok ]; then best_n=$n; break; fi
         log "liquidation with $n debt repays + 10-coll seize: $PROBE_STATUS"
     done
     if [ "$best_n" -gt 0 ]; then
-        inv "liq20_fullrepay_proof_${best_n}debt" "$CAROL" "$CONTROLLER" -- liquidate \
+        inv "liq20_fullrepay_proof_${best_n}debt" "$CAROL" "$CONTROLLER" -- liquidate --seize_mode "$(seize_transfer)" \
             --liquidator "$CAROL_ADDR" --account_id "$ACCT" \
             --debt_payments "$(liq20_pay_vec "$PRIMARY_HUB_ID" "$best_n" "$repay_each")" >/dev/null \
             && log "liquidation LANDED: $best_n debt repays + 10-coll seize in one tx"

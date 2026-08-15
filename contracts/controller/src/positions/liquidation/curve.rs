@@ -1,45 +1,31 @@
-//! Liquidation bonus curve and target-health-factor math: derives the bonus applied
-//! to a liquidation from an account's health factor, and solves for the debt amount
-//! that brings an account back to its spoke's target health factor.
-
 use crate::constants::{BAD_DEBT_USD_THRESHOLD, BPS, WAD};
 use common::errors::GenericError;
 use common::math::fp::{Bps, Wad};
 use common::types::SpokeConfig;
 use soroban_sdk::{panic_with_error, Env};
 
-/// Snapshot of an account's liquidation-relevant state, used as input to the
-/// liquidation curve and bonus calculations.
 #[derive(Clone, Copy)]
 pub(crate) struct LiquidationSnapshot {
     pub total_debt: Wad,
     pub total_collateral: Wad,
-    /// Collateral value weighted by liquidation threshold.
     pub weighted_coll: Wad,
-    /// Weighted collateral value consumed per unit of debt repaid, before the
-    /// liquidation bonus is applied.
     pub proportion_seized: Wad,
-    /// Current health factor.
     pub hf: Wad,
 }
 
-/// Lower and upper bounds, in basis points, for the liquidation bonus applied across
-/// the curve.
 #[derive(Clone, Copy)]
 pub(crate) struct BonusBounds {
-    /// Bonus applied when the health factor is at or above the target.
     pub base: Bps,
-    /// Bonus applied at the health factor associated with the maximum bonus.
     pub max: Bps,
 }
 
-/// Returns true when total debt exceeds total collateral and total collateral is at
-/// or below the bad-debt USD threshold.
+/// Returns whether an account's residual position is eligible for dust-threshold bad-debt
+/// socialization: debt exceeds collateral and collateral is at or below
+/// `BAD_DEBT_USD_THRESHOLD`.
 pub(crate) fn is_socializable_bad_debt(total_debt: Wad, total_collateral: Wad) -> bool {
     total_debt > total_collateral && total_collateral <= Wad::from(BAD_DEBT_USD_THRESHOLD)
 }
 
-/// Liquidation bonus curve parameters derived from a spoke's configuration.
 pub(crate) struct LiquidationCurve {
     pub(super) target_hf: Wad,
     hf_for_max_bonus: Wad,
@@ -47,8 +33,8 @@ pub(crate) struct LiquidationCurve {
 }
 
 impl LiquidationCurve {
-    /// Builds a `LiquidationCurve` from the spoke's configured target health factor,
-    /// health factor for maximum bonus, and liquidation bonus factor.
+    /// Builds a `LiquidationCurve` from a spoke's target health factor, max-bonus health-factor
+    /// threshold, and bonus factor.
     pub(crate) fn from_config(cfg: &SpokeConfig) -> Self {
         Self {
             target_hf: Wad::from(cfg.liquidation_target_hf_wad),
@@ -57,9 +43,9 @@ impl LiquidationCurve {
         }
     }
 
-    /// Computes how far `hf` has fallen below `target` relative to
-    /// `hf_for_max_bonus`, as a value in `[0, Wad::ONE]`. Returns `Wad::ONE` when
-    /// `target` is at or below `hf_for_max_bonus`.
+    /// Returns the fraction (0 to 1 WAD) of the bonus range to apply for `hf`, ramping linearly
+    /// from 0 at `target` to 1 at `hf_for_max_bonus` and staying at 1 below that threshold;
+    /// returns 1 outright when `target` is at or below `hf_for_max_bonus`.
     fn bonus_scale(&self, env: &Env, hf: Wad, target: Wad) -> Wad {
         let gap = target.checked_sub(env, hf);
         if target <= self.hf_for_max_bonus {
@@ -70,8 +56,8 @@ impl LiquidationCurve {
         }
     }
 
-    /// Scales `increment` by the curve's bonus factor, or returns it unchanged when
-    /// the factor is `Bps::ONE`.
+    /// Applies the curve's configured bonus factor to `increment`, returning it unchanged when
+    /// the factor is exactly one (100%).
     fn apply_bonus_factor(&self, env: &Env, increment: i128) -> i128 {
         if self.bonus_factor == Bps::ONE {
             increment
@@ -81,10 +67,10 @@ impl LiquidationCurve {
     }
 }
 
-/// Linearly interpolates the liquidation bonus between `base` and `max` based on how
-/// far `hf` has fallen below `target`, then scales the result by the curve's bonus
-/// factor. Returns `base` when `hf` is at or above `target`. Panics if the resulting
-/// bonus overflows.
+/// Scales the liquidation bonus above `base` toward `max` as `hf` falls from `target` to the
+/// curve's max-bonus threshold (capped once `hf` reaches that threshold), then applies the
+/// curve's bonus factor to the resulting increment. Returns `base` unchanged once `hf` is at or
+/// above `target`.
 pub(crate) fn calculate_linear_bonus_with_target(
     env: &Env,
     hf: Wad,
@@ -108,9 +94,10 @@ pub(crate) fn calculate_linear_bonus_with_target(
     )
 }
 
-/// Computes the highest bonus, in basis points, for which
-/// `proportion_seized * (1 + bonus)` does not exceed `hf`. Returns `None` when
-/// `proportion_seized` is non-positive or `hf` is already at or above `Wad::ONE`.
+/// Computes the bonus ceiling, in basis points, implied by
+/// `1 + bonus <= health_factor / proportion_seized` — the largest bonus the account's current
+/// health factor can support before the seizure math becomes infeasible. Returns `None` when
+/// nothing is being seized or the account is already at or above one WAD health factor.
 pub(super) fn max_hf_preserving_bonus_bps(snap: &LiquidationSnapshot) -> Option<i128> {
     let proportion = snap.proportion_seized.raw();
     if proportion <= 0 || snap.hf.raw() >= WAD {
@@ -120,12 +107,12 @@ pub(super) fn max_hf_preserving_bonus_bps(snap: &LiquidationSnapshot) -> Option<
     Some(snap.hf.raw() * BPS / proportion - BPS)
 }
 
-/// Determines the debt amount to repay and the bonus to apply for a liquidation that
-/// brings the account's health factor toward `curve.target_hf`. Caps the bonus so the
-/// liquidation formula stays solvable. Liquidates the full debt at the base bonus when
-/// the HF-preserving cap falls below the base bonus; liquidates the full debt at the
-/// resolved (possibly capped) bonus when a partial repay would leave remaining debt
-/// below the bad-debt USD threshold.
+/// Computes the ideal debt-repayment amount and bonus for closing `snap` toward
+/// `curve.target_hf`. Starts from the linear bonus curve, clamps it to the ceiling from
+/// `max_hf_preserving_bonus_bps` — falling back to a full-debt close at the base bonus if even
+/// that rate would breach the ceiling — then solves the target-health-factor equation via
+/// `try_liquidation_at_target`. Promotes the result to a full close when the leftover debt after
+/// a partial repayment would fall below the bad-debt dust threshold.
 pub(crate) fn estimate_liquidation_amount(
     env: &Env,
     snap: &LiquidationSnapshot,
@@ -165,9 +152,6 @@ pub(crate) fn estimate_liquidation_amount(
 }
 
 #[cfg(test)]
-/// Test helper that computes the account's health factor after repaying
-/// `debt_to_repay` at the given `bonus`. Returns `Wad::from(i128::MAX)` when the
-/// repayment clears all debt.
 pub(super) fn calculate_post_liquidation_hf(
     env: &Env,
     snap: &LiquidationSnapshot,
@@ -193,10 +177,11 @@ pub(super) fn calculate_post_liquidation_hf(
     new_weighted.div(env, new_debt)
 }
 
-/// Solves for the debt amount that brings the account's health factor to
-/// `target_hf` given `bonus`, capped by the collateral available and the account's
-/// total debt. Returns `None` when the target is unreachable because the
-/// seized-collateral term would meet or exceed `target_hf`.
+/// Solves for the debt repayment that would bring `snap`'s post-liquidation health factor to
+/// exactly `target_hf` at the given `bonus`, using the linear relationship between debt,
+/// weighted collateral, and seized value. Returns `None` when `target_hf` is at or below the
+/// seizure's weighted rate (`proportion_seized * (1 + bonus)`), and otherwise caps the result at
+/// both the collateral-backed maximum and `snap.total_debt`.
 fn try_liquidation_at_target(
     env: &Env,
     snap: &LiquidationSnapshot,
@@ -224,10 +209,10 @@ fn try_liquidation_at_target(
     Some(d_ideal.min(d_max).min(snap.total_debt))
 }
 
-/// Computes the maximum bonus, in basis points, for which seizing
-/// `proportion_seized` of collateral per unit of debt does not exceed the total
-/// collateral available. Returns zero when `proportion_seized` is non-positive.
-/// Panics on overflow while computing the numerator.
+/// Computes the basis-point bonus solving `(1 + bonus) * proportion_seized = 1` — the same
+/// ceiling `max_hf_preserving_bonus_bps` would produce at a health factor of exactly one WAD —
+/// from `proportion_seized` expressed in basis points (ceil-rounded, clamped to `[1, BPS]`).
+/// Returns zero when nothing is being seized.
 pub(crate) fn max_bonus_for_threshold(env: &Env, proportion_seized: Wad) -> Bps {
     if proportion_seized <= Wad::ZERO {
         return Bps::from(0);

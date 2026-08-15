@@ -528,7 +528,7 @@ fn test_multiply_respects_borrow_position_limit() {
         &steps,
     );
 
-    t.set_position_limits(8, 1);
+    t.set_position_limits(5, 1);
 
     t.fund_router("USDC", 10.0);
     let steps2 = build_aggregator_swap(

@@ -225,8 +225,14 @@ immutable after creation.
 `gross − protocol_fee`. The fee is re-minted as protocol shares and the cash
 stays. Do not read `actual_amount` as tokens received.
 
-**`net_settle`** moves no tokens and cannot raise utilization in a healthy
-market:
+**`net_settle`** moves no tokens. It does not compose withdraw+repay. The
+settle size is the conservative overlap
+`min(requested, floor(supply), ceil(debt))`. A side is fully closed only when
+that overlap exhausts that side — a half-up display that is one native unit
+above the floor cannot wipe supply and leave a stroop of debt, and matching
+conservative values close both books.
+
+In exact arithmetic it cannot raise utilization in a healthy market:
 
 ```text
 (B−x)/(S−x) − B/S  =  x·(B−S) / [S·(S−x)]
@@ -234,7 +240,8 @@ market:
 
 The denominator is positive, so the sign follows `(B−S)`. With `B < S`
 (utilization below 1) settling strictly lowers it; it rises only when `B > S`,
-a market already past every cap. Hence no utilization gate here.
+a market already past every cap. Directed rounding can still move one share
+at the token boundary. Hence no utilization gate here.
 
 **`create_strategy`** computes its fee before minting debt, so `amount == 0`
 fails with `StrategyFeeExceeds` rather than `AmountMustBePositive`.
@@ -258,6 +265,10 @@ The scalar getters — `get_utilisation`, `get_reserves`, `get_deposit_rate`,
 `get_delta_time` — are consumed by no controller code. They return checkpoint
 values as of `last_timestamp` and lag by the accrual gap. For live figures use
 `get_sync_data` plus `simulate_update_indexes`.
+
+`get_borrow_rate` and `get_deposit_rate` return **annual** RAY (the capped
+curve APR). Divide by `RAY` for a unit fraction. Accrual still compounds the
+per-millisecond form internally.
 
 **Views are not read-only** — each renews market TTL, so on-chain polling incurs
 write cost.

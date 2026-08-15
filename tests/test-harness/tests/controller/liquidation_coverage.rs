@@ -1,3 +1,4 @@
+use common::types::SeizeMode;
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, Vec};
 use test_harness::{
@@ -15,9 +16,14 @@ fn try_liquidate_payments(
     let account_id = t.resolve_account_id(target_user);
     let ctrl = t.ctrl_client();
 
-    match ctrl.try_liquidate(&liquidator_addr, &account_id, &payments) {
-        Ok(Ok(())) => Ok(()),
-        Ok(Err(err)) => Err(err.into()),
+    match ctrl.try_liquidate(
+        &liquidator_addr,
+        &account_id,
+        &payments,
+        &SeizeMode::Transfer,
+    ) {
+        Ok(Ok(_)) => Ok(()),
+        Ok(Err(err)) => Err(err),
         Err(e) => Err(e.expect("expected contract error, got InvokeError")),
     }
 }

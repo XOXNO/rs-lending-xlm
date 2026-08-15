@@ -16,6 +16,7 @@ pub mod codes {
     pub const INVALID_ROLE: u32 = GenericError::InvalidRole as u32;
     pub const BLEND_POOL_NOT_APPROVED: u32 = GenericError::BlendPoolNotApproved as u32;
     pub const NOT_AUTHORIZED: u32 = GenericError::NotAuthorized as u32;
+    pub const ACCOUNT_NOT_FOUND: u32 = GenericError::AccountNotFound as u32;
 
     pub const INSUFFICIENT_COLLATERAL: u32 = CollateralError::InsufficientCollateral as u32;
     pub const HEALTH_FACTOR_TOO_HIGH: u32 = CollateralError::HealthFactorTooHigh as u32;
@@ -62,6 +63,7 @@ pub mod codes {
     pub const SPOKE_ASSET_PAUSED: u32 = SpokeError::SpokeAssetPaused as u32;
     pub const SPOKE_ASSET_FROZEN: u32 = SpokeError::SpokeAssetFrozen as u32;
     pub const SPOKE_ASSET_FLAG_RELAXATION: u32 = SpokeError::SpokeAssetFlagRelaxation as u32;
+    pub const SPOKE_ASSET_SEIZURE_HALTED: u32 = SpokeError::SpokeAssetSeizureHalted as u32;
     pub const SPOKE_ASSET_IN_USE: u32 = SpokeError::SpokeAssetInUse as u32;
 
     pub const FLASH_LOAN_ONGOING: u32 = FlashLoanError::FlashLoanOngoing as u32;
@@ -73,11 +75,16 @@ pub mod codes {
     pub const ROUTER_OVERSPEND: u32 = StrategyError::RouterOverspend as u32;
     pub const NO_SWAP_OUTPUT: u32 = StrategyError::NoSwapOutput as u32;
 
+    // Literals below come from OpenZeppelin stellar libraries, which expose no
+    // error enums to derive from: stellar-contract-utils pausable (1000),
+    // stellar-access ownable (2000, 2200), stellar-governance timelock (4002).
     pub const CONTRACT_PAUSED: u32 = 1000;
 
     pub const UNAUTHORIZED: u32 = 2000;
 
     pub const NO_PENDING_TRANSFER: u32 = 2200;
+
+    pub const TIMELOCK_UNEXPECTED_STATE: u32 = 4002;
 }
 
 pub use codes::*;

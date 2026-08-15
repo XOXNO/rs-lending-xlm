@@ -7,7 +7,7 @@ source "$HERE/../env.sh"
 for f in core invoke assert wallet assets aggregator oracle protocol report; do
     source "$INTEG_DIR/lib/$f.sh"
 done
-for f in lifecycle strategies liquidation defindex admin governance stress; do
+for f in lifecycle strategies liquidation defindex admin governance stress swap_aggregator; do
     source "$INTEG_DIR/flows/$f.sh"
 done
 
@@ -58,7 +58,15 @@ if want liquidation; then
     flow_liq_single
     flow_liq_bulk
     flow_liq_spoke
+    flow_liq_credit
+    flow_liq_credit_rejections
     flow_clean_bad_debt
+    # After clean_bad_debt: the owner-override socialization path is only
+    # meaningful once the permissionless one has run on its own account.
+    flow_force_socialize_and_recap
+    # Last in the phase: halting LIQG's seizure leg is irreversible, so nothing
+    # that needs to seize LIQG may run after it.
+    flow_spoke_flags_and_curve
     unset INV_TRANSIENT_CONTRACT_RE
 fi
 
@@ -68,6 +76,8 @@ fi
 
 if want admin; then
     flow_admin
+    flow_pool_surface
+    flow_swap_aggregator_admin
 fi
 
 if want governance; then

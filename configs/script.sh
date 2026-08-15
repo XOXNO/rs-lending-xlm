@@ -1321,7 +1321,7 @@ validate_configs() {
             elif printf '%s' "$sjson" | jq -e 'has("AquariusLp") or has("AquariusStableLp")' >/dev/null; then
                 if ! printf '%s' "$sjson" | jq -e '
                     (.AquariusLp // .AquariusStableLp) as $lp |
-                    $lp.pool and $lp.plane and
+                    $lp.pool and
                     ($lp.token_a | type == "string") and
                     ($lp.token_b | type == "string") and
                     ($lp.token_a != $lp.token_b) and

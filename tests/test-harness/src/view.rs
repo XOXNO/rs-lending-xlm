@@ -18,6 +18,7 @@ pub struct AssetConfigView {
     pub liquidation_fees: u32,
     pub is_collateralizable: bool,
     pub is_borrowable: bool,
+    pub no_seize: bool,
     pub is_flashloanable: bool,
     pub flashloan_fee: u32,
     pub asset_decimals: u32,
@@ -181,6 +182,7 @@ impl LendingTest {
         i128_to_f64(raw, decimals)
     }
 
+    /// Borrow APR as a unit fraction (`0.05` = 5%).
     pub fn pool_borrow_rate(&self, asset_name: &str) -> f64 {
         let asset = self.resolve_asset(asset_name);
         let raw = self
@@ -237,6 +239,7 @@ impl LendingTest {
             liquidation_fees: spoke.liquidation_fees,
             is_collateralizable: spoke.is_collateralizable,
             is_borrowable: spoke.is_borrowable,
+            no_seize: spoke.no_seize,
             is_flashloanable: params.is_flashloanable,
             flashloan_fee: params.flashloan_fee,
             asset_decimals: params.asset_decimals,

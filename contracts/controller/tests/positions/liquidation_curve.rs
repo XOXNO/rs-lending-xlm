@@ -1060,8 +1060,20 @@ fn hf_neutral_bonus_leaves_health_factor_invariant() {
     assert!(checked > 0, "grid never reached the neutral-rate arm");
 }
 
+/// NOT anti-splitting coverage — do not rely on it as such.
+///
+/// This drives a hand-rolled arithmetic model off `max_hf_preserving_bonus_bps`
+/// directly. It never calls `estimate_liquidation_amount`, so it does not
+/// exercise the runtime bonus clamp and stays green even when that clamp is
+/// deleted (verified by mutation). It pins the *arithmetic* of the neutral rate
+/// only.
+///
+/// The real anti-splitting guarantee is pinned by
+/// `a_chain_of_partial_liquidations_never_out_extracts_one_summed_close` and
+/// `a_never_recovering_position_holds_its_health_factor_across_a_long_chain`
+/// in `liquidation_math.rs`, which do go red without the clamp.
 #[test]
-fn slicing_at_the_neutral_rate_seizes_the_same_total_as_one_full_close() {
+fn neutral_rate_slicing_arithmetic_is_additive_model_only_not_the_clamp() {
     let env = Env::default();
     let start = snap(
         90 * WAD,
@@ -1103,6 +1115,162 @@ fn slicing_at_the_neutral_rate_seizes_the_same_total_as_one_full_close() {
         );
     }
     let _ = env;
+}
+
+// --- zero liquidation threshold ------------------------------------------
+//
+// Certora's Spoke M-01 against Aave V4: moving a collateral factor from non-zero to
+// zero made positions unliquidatable, because the liquidation call validated that the
+// seized collateral carried a non-zero factor. Seizure here is pro-rata over the whole
+// collateral set and reads no per-asset factor, so a zeroed threshold reaches the curve
+// only as `proportion_seized == 0` and `weighted_coll == 0`. Everything below pins that
+// the curve prices that account at a zero bonus and stays solvable, rather than
+// dividing by zero, panicking, or returning nothing to close.
+//
+// The end-to-end counterpart is `liquidation_zero_threshold.rs`.
+
+/// A wholly zero-threshold account: nothing is weighted, so the health factor is zero and
+/// the seized proportion is zero.
+fn zero_threshold_snap(debt: i128, collateral: i128) -> LiquidationSnapshot {
+    snap(debt, collateral, 0, 0, 0)
+}
+
+#[test]
+fn zero_liquidation_threshold_yields_a_zero_bonus_ceiling() {
+    let env = Env::default();
+    assert_eq!(
+        max_bonus_for_threshold(&env, Wad::ZERO).raw(),
+        0,
+        "nothing weighted means no bonus is affordable"
+    );
+
+    // `get_account_bonus_params` clamps `base` to `max`, so the whole band collapses to
+    // zero. Confirm the ramp cannot reintroduce a bonus anywhere along it, including under
+    // an over-unity bonus factor, which is the one input that can push past `max`.
+    let zero = Bps::from(0i128);
+    for cfg in [
+        default_spoke_config(),
+        SpokeConfig {
+            liquidation_bonus_factor_bps: 20_000,
+            ..default_spoke_config()
+        },
+    ] {
+        let curve = LiquidationCurve::from_config(&cfg);
+        let target = Wad::from(cfg.liquidation_target_hf_wad);
+        for hf_pct in (0..=120).step_by(5) {
+            let hf = Wad::from(WAD * hf_pct as i128 / 100);
+            let got = calculate_linear_bonus_with_target(&env, hf, zero, zero, &curve, target);
+            assert_eq!(got.raw(), 0, "a zero band produced a bonus at hf={hf_pct}%");
+        }
+    }
+}
+
+#[test]
+fn zero_liquidation_threshold_keeps_the_target_solver_solvable() {
+    let env = Env::default();
+    let target = Wad::from(DEFAULT_LIQUIDATION_TARGET_HF_WAD);
+
+    // Solvent, exactly covered, and insolvent, plus the degenerate one-wad-unit position.
+    for (debt, collateral) in [
+        (90 * WAD, 100 * WAD),
+        (100 * WAD, 100 * WAD),
+        (200 * WAD, 100 * WAD),
+        (1i128, 1i128),
+        (i128::from(u32::MAX) * WAD, WAD),
+    ] {
+        let s = zero_threshold_snap(debt, collateral);
+        let got = try_liquidation_at_target(&env, &s, Bps::from(0i128), target)
+            .expect("a zero seized proportion can never reach the target's denominator floor");
+        assert_eq!(
+            got.raw(),
+            debt.min(collateral),
+            "the solver must return the collateral-backed close at debt={debt} \
+             collateral={collateral}"
+        );
+    }
+}
+
+#[test]
+fn zero_liquidation_threshold_never_arms_the_full_close_gate() {
+    // `normalize_repayment_plan` only reaches `FullCloseRequired` inside
+    // `if let Some(cap) = max_hf_preserving_bonus_bps(..)`. At a zero proportion the cap is
+    // `None`, so an underfunded partial cannot be rejected — which is exactly the lock-out
+    // shape the Aave finding had.
+    for (debt, collateral) in [(90 * WAD, 100 * WAD), (200 * WAD, 100 * WAD), (1, 1)] {
+        assert_eq!(
+            max_hf_preserving_bonus_bps(&zero_threshold_snap(debt, collateral)),
+            None,
+            "a zero seized proportion must yield no cap at debt={debt}"
+        );
+    }
+}
+
+#[test]
+fn zero_liquidation_threshold_plans_a_zero_bonus_close_rather_than_locking() {
+    let env = Env::default();
+    let curve = LiquidationCurve::from_config(&default_spoke_config());
+    // `get_account_bonus_params` derives both bounds from the same zero proportion.
+    let bounds = BonusBounds {
+        base: Bps::from(0i128),
+        max: max_bonus_for_threshold(&env, Wad::ZERO),
+    };
+    let mut dust_escalations = 0;
+
+    for (debt, collateral) in [
+        (90 * WAD, 100 * WAD),
+        (100 * WAD, 100 * WAD),
+        (103 * WAD, 100 * WAD),
+        (200 * WAD, 100 * WAD),
+        (10 * WAD, 3 * WAD),
+        (1, 1),
+    ] {
+        let s = zero_threshold_snap(debt, collateral);
+        let (ideal, bonus) = estimate_liquidation_amount(&env, &s, bounds, &curve);
+
+        assert_eq!(bonus.raw(), 0, "a zero-threshold account pays no bonus");
+        assert!(
+            ideal.raw() > 0,
+            "the plan closed nothing at debt={debt} collateral={collateral} — the account \
+             would be unliquidatable"
+        );
+
+        let backed = s.total_collateral.min(s.total_debt);
+        let remainder = s.total_debt.checked_sub(&env, backed);
+        let expected = if remainder > Wad::ZERO && remainder < Wad::from(BAD_DEBT_USD_THRESHOLD) {
+            dust_escalations += 1;
+            s.total_debt
+        } else {
+            backed
+        };
+        assert_eq!(
+            ideal.raw(),
+            expected.raw(),
+            "at a zero bonus the close is the collateral-backed debt at debt={debt} \
+             collateral={collateral}"
+        );
+    }
+
+    assert!(
+        dust_escalations > 0,
+        "the sweep never exercised the sub-dust full-close escalation"
+    );
+}
+
+#[test]
+fn zero_liquidation_threshold_partials_never_reduce_the_health_factor() {
+    let env = Env::default();
+    let s = zero_threshold_snap(90 * WAD, 100 * WAD);
+
+    for num in [1i128, 2, 3, 4] {
+        let repay = Wad::from(s.total_debt.raw() * num / 4);
+        let post = calculate_post_liquidation_hf(&env, &s, repay, Bps::from(0i128));
+        assert!(
+            post >= s.hf,
+            "a zero-bonus partial lowered the health factor: {} -> {}",
+            s.hf.raw(),
+            post.raw()
+        );
+    }
 }
 
 #[test]

@@ -5,7 +5,8 @@ use soroban_sdk::{panic_with_error, symbol_short, Address, Env, IntoVal, Map, Sy
 use crate::errors::Error;
 use crate::venues::auth::authorize_token_transfer;
 
-/// Authorize transfer and call pool `swap`; returns reported out amount.
+/// Authorize transfer and call pool `swap`; returns reported out amount. Panics
+/// with `IntegerOverflow` if `amount_in` is negative.
 pub(super) fn invoke_pool_swap(
     env: &Env,
     router: &Address,

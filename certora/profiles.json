@@ -84,6 +84,18 @@
       },
       {
         "conf": "certora/price-aggregator/confs/price-sanity.conf"
+      },
+      {
+        "conf": "certora/controller/confs/spoke-usage-sanity.conf"
+      },
+      {
+        "conf": "certora/controller/confs/health-post-gate-sanity.conf"
+      },
+      {
+        "conf": "certora/controller/confs/boundary-bad-debt-sanity.conf"
+      },
+      {
+        "conf": "certora/controller/confs/spoke-usage-liq-sanity.conf"
       }
     ],
     "fast": [
@@ -149,6 +161,9 @@
       },
       {
         "conf": "certora/price-aggregator/confs/tolerance-math.conf"
+      },
+      {
+        "conf": "certora/price-aggregator/confs/scaled-math.conf"
       }
     ],
     "core": [
@@ -207,6 +222,9 @@
         "conf": "certora/controller/confs/spoke.conf"
       },
       {
+        "conf": "certora/controller/confs/bulk-borrow-duplicate-leg.conf"
+      },
+      {
         "conf": "certora/controller/confs/strategy-bad-debt.conf"
       },
       {
@@ -256,6 +274,24 @@
       },
       {
         "conf": "certora/pool/confs/pool-state-invariant.conf"
+      },
+      {
+        "conf": "certora/controller/confs/spoke-usage.conf"
+      },
+      {
+        "conf": "certora/controller/confs/health-post-gate.conf"
+      },
+      {
+        "conf": "certora/pool/confs/pool-isomorphism.conf"
+      },
+      {
+        "conf": "certora/pool/confs/pool-lifecycle-revert.conf"
+      },
+      {
+        "conf": "certora/controller/confs/liquidation-additivity.conf"
+      },
+      {
+        "conf": "certora/controller/confs/spoke-usage-liquidation.conf"
       }
     ],
     "heavy": [

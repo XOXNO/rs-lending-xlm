@@ -1,6 +1,3 @@
-//! Per-invocation cache of token price feeds on `Cache`, backed by the
-//! price aggregator contract.
-
 use common::collections::collect_uncached_keys;
 use common::errors::OracleError;
 use common::types::PriceFeed;
@@ -13,15 +10,12 @@ use soroban_sdk::{panic_with_error, Address, Vec};
 use crate::context::Cache;
 
 impl Cache {
-    /// Replaces the entire cached price map with `prices`. Test-only.
     #[cfg(test)]
     pub(crate) fn set_prices(&mut self, prices: Map<Address, PriceFeedRaw>) {
         self.token_prices = prices;
     }
 
-    /// Fetches and caches price feeds for every entry in `assets` that is
-    /// not already cached, via a single call to the price aggregator
-    /// contract. Does nothing if all entries are already cached.
+    /// Fetches and caches prices for the entries of `assets` not already cached, via a single call to the price aggregator contract.
     pub(crate) fn fetch_prices(&mut self, assets: &Vec<Address>) {
         let missing = collect_uncached_keys(&self.env, assets, &self.token_prices);
         if missing.is_empty() {
@@ -33,9 +27,7 @@ impl Cache {
         }
     }
 
-    /// Returns the cached price feed for `asset`, converted from its raw
-    /// form. Panics with `OracleError::OracleNotConfigured` if `asset` has
-    /// no cached price.
+    /// Returns the price feed cached for `asset`, panicking if none has been fetched into the cache.
     pub(crate) fn cached_price(&mut self, asset: &Address) -> PriceFeed {
         let raw = self
             .token_prices
@@ -44,3 +36,7 @@ impl Cache {
         (&raw).into()
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/context/oracle.rs"]
+mod tests;

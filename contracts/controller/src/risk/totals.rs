@@ -1,7 +1,4 @@
-//! Computes USD-denominated collateral and debt totals, and the resulting
-//! health factor, for an account's supply and borrow positions.
-
-use common::math::fp::{Bps, Ray, Wad};
+use common::math::fp::{Ray, Wad};
 use common::types::{Account, AccountPositionRaw, DebtPositionRaw, HubAssetKey};
 use soroban_sdk::{Address, Env, Map, Vec};
 
@@ -12,8 +9,8 @@ use crate::storage::{iter_debt_positions, iter_typed_positions};
 
 pub(crate) use common::rates::{position_value, position_value_ceil, position_value_floor};
 
-/// Appends `borrow_keys` to `supply_keys` and returns the combined vector,
-/// covering every hub asset in the account's portfolio.
+/// Appends `borrow_keys` onto `supply_keys` and returns the combined list of
+/// hub-asset keys.
 pub(crate) fn portfolio_hub_keys(
     mut supply_keys: Vec<HubAssetKey>,
     borrow_keys: &Vec<HubAssetKey>,
@@ -22,8 +19,8 @@ pub(crate) fn portfolio_hub_keys(
     supply_keys
 }
 
-/// Collects the distinct asset addresses referenced by `account`'s supply
-/// and borrow positions, plus `extras`, deduplicated.
+/// Returns the deduplicated underlying asset addresses referenced by
+/// `account`'s supply positions, borrow positions, and `extras`.
 pub(crate) fn account_price_assets(
     env: &Env,
     account: &Account,
@@ -42,14 +39,8 @@ pub(crate) fn account_price_assets(
     assets
 }
 
-/// Applies `threshold` to `value`, rounding down, yielding the portion of
-/// collateral value counted toward the health-factor numerator.
-pub(crate) fn weighted_collateral(env: &Env, value: Wad, threshold: Bps) -> Wad {
-    threshold.apply_to_wad_floor(env, value)
-}
-
-/// Loads market indices for `supply_positions` and sums their USD value at
-/// the current supply index and price, rounding half-up.
+/// Loads market data for `supply_positions` into `cache`, then sums their
+/// USD value (WAD) using half-up rounding.
 pub(crate) fn sum_supply_usd(
     env: &Env,
     cache: &mut Cache,
@@ -74,8 +65,8 @@ pub(crate) fn sum_supply_usd(
     total
 }
 
-/// Shared debt USD loop. Caller selects valuation (`position_value` half-up or
-/// `position_value_ceil`). Markets must already be loaded in `cache`.
+/// Sums `borrow_positions`' USD value (WAD) using `value` as the per-position
+/// valuation function, assuming market data is already cached.
 fn sum_debt_usd_loaded(
     env: &Env,
     cache: &mut Cache,
@@ -99,8 +90,8 @@ fn sum_debt_usd_loaded(
     total
 }
 
-/// Loads market indices for `borrow_positions` and sums their USD value at
-/// the current borrow index and price, rounding half-up.
+/// Loads market data for `borrow_positions` into `cache`, then sums their
+/// USD value (WAD) using half-up rounding.
 pub(crate) fn sum_debt_usd(
     env: &Env,
     cache: &mut Cache,
@@ -110,9 +101,9 @@ pub(crate) fn sum_debt_usd(
     sum_debt_usd_loaded(env, cache, borrow_positions, position_value)
 }
 
-/// Loads market indices for `supply_positions` and sums each position's
-/// loan-to-value-weighted USD value, rounding down at both the valuation and
-/// the LTV application step.
+/// Loads market data for `supply_positions` into `cache`, then sums each
+/// position's floor-valued collateral, floor-scaled by the lesser of its
+/// loan-to-value and liquidation threshold (WAD).
 pub(crate) fn calculate_ltv_collateral_wad(
     env: &Env,
     cache: &mut Cache,
@@ -132,16 +123,12 @@ pub(crate) fn calculate_ltv_collateral_wad(
             feed.price,
         );
 
-        // Clamped as the gate clamps it, so the view cannot report more borrowing
-        // power than origination will grant.
         let effective_ltv = position.loan_to_value.min(position.liquidation_threshold);
         ltv = ltv.checked_add(env, effective_ltv.apply_to_wad_floor(env, value));
     }
     ltv
 }
 
-/// Aggregate USD collateral and debt totals for an account, plus the
-/// resulting health factor.
 pub(crate) struct AccountRiskTotals {
     pub total_collateral: Wad,
     pub ltv_collateral: Wad,
@@ -150,9 +137,8 @@ pub(crate) struct AccountRiskTotals {
     pub health_factor: Wad,
 }
 
-/// Computes an account's total collateral, LTV-weighted collateral,
-/// liquidation-threshold-weighted collateral, total debt, and health
-/// factor from its raw supply and borrow positions.
+/// Computes an account's aggregate risk totals (collateral, debt, and
+/// health factor, all WAD) for `supply_positions` and `borrow_positions`.
 #[cfg(not(feature = "certora"))]
 pub(crate) fn calculate_account_risk_totals(
     env: &Env,
@@ -166,9 +152,8 @@ pub(crate) fn calculate_account_risk_totals(
 #[cfg(feature = "certora")]
 cvlr_soroban_macros::apply_summary!(
     crate::spec::summaries::calculate_account_risk_totals_summary,
-    /// Computes an account's total collateral, LTV-weighted collateral,
-    /// liquidation-threshold-weighted collateral, total debt, and health
-    /// factor from its raw supply and borrow positions.
+    /// Computes an account's aggregate risk totals (collateral, debt, and
+    /// health factor, all WAD) for `supply_positions` and `borrow_positions`.
     pub(crate) fn calculate_account_risk_totals(
         env: &Env,
         cache: &mut Cache,
@@ -179,12 +164,14 @@ cvlr_soroban_macros::apply_summary!(
     }
 );
 
-/// Loads market indices for the account's full portfolio, then computes
-/// total collateral (rounded half-up), LTV-weighted and liquidation-
-/// threshold-weighted collateral (both rounded down), and total debt
-/// (rounded up). The health factor is `i128::MAX` when debt is zero,
-/// otherwise weighted collateral divided by total debt, saturating and
-/// rounded down.
+/// Loads market data for `supply_positions` and `borrow_positions` into
+/// `cache`, then computes total collateral, LTV-gated collateral,
+/// liquidation-threshold-weighted collateral, total debt, and health factor
+/// (all WAD). Debt is valued with ceiling rounding and the collateral
+/// feeding the LTV and weighted sums is floored. Health factor is
+/// `i128::MAX` when there is no debt, otherwise weighted collateral divided
+/// by total debt, floored and saturating at `i128::MAX` instead of
+/// overflowing.
 fn calculate_account_risk_totals_body(
     env: &Env,
     cache: &mut Cache,
@@ -224,7 +211,9 @@ fn calculate_account_risk_totals_body(
             ltv_collateral.checked_add(env, effective_ltv.apply_to_wad_floor(env, gate_value));
         weighted_coll = weighted_coll.checked_add(
             env,
-            weighted_collateral(env, gate_value, position.liquidation_threshold),
+            position
+                .liquidation_threshold
+                .apply_to_wad_floor(env, gate_value),
         );
     }
 

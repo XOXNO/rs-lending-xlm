@@ -44,6 +44,7 @@ SHELL := /bin/bash
         miri-common miri-pool miri-controller miri-all \
         coverage coverage-controller coverage-pool coverage-price-aggregator coverage-merged \
         fmt fmt-check clippy clippy-contracts clippy-fuzz scout scout-host scout-strict \
+        access-control-check \
         wasm-size-check wasm-testing-abi-check clean install-stellar-cli \
         cbm-reindex cbm-index \
         _mutants-check _mutants-harness-prepare \
@@ -235,7 +236,7 @@ integration-wasm: deploy-artifacts
 	@for wasm in controller pool governance flash_loan_receiver defindex_strategy price_aggregator; do \
 		cp "$(DEPLOY_DIR)/$$wasm.wasm" "$(OPTIMIZED_DIR)/$$wasm.wasm"; \
 	done
-	@for pkg in mock_oracle mock_redstone; do \
+	@for pkg in mock_oracle mock_redstone swap_aggregator; do \
 		echo "Optimizing $$pkg for integration..."; \
 		if command -v stellar &>/dev/null; then \
 			stellar contract optimize \
@@ -339,10 +340,17 @@ test-verbose:
 
 
 test-one:
+	@[ -n "$(strip $(FILE))" ] || { \
+	  echo "test-one requires FILE=<integration test file, without .rs>"; \
+	  exit 2; }
 	cargo test -p test-harness --test $(FILE) -- $(TEST_THREAD_FLAG)
 
 
 test-match:
+	@[ -n "$(strip $(PATTERN))" ] || { \
+	  echo "test-match requires PATTERN=<substring>."; \
+	  echo "MATCH= is NOT recognised and silently runs the entire suite."; \
+	  exit 2; }
 	cargo test -p test-harness $(PATTERN) -- $(TEST_THREAD_FLAG)
 
 
@@ -496,6 +504,14 @@ scout-host: scout
 
 scout-strict:
 	SCOUT_STRICT=1 .github/scripts/run_scout.sh
+
+
+# Fail the build if any `#[contractimpl]` entrypoint can change state without
+# being owner-gated, role-gated, or timelocked, unless it is declared -- with a
+# justification -- in scripts/permissionless_entrypoints.txt. Source-only and
+# deterministic: no build, no network, runs in about a second.
+access-control-check:
+	@python3 scripts/check_access_control.py
 
 
 
@@ -698,8 +714,12 @@ define run_mutants_two_pass
 			--minimum-test-timeout $(MUTANTS_TIMEOUT) $(MUTANTS_RUN_ARGS) \
 			|| status=$$?; \
 		case $$status in 0|2|3) ;; *) exit $$status;; esac
-	$(MUTANTS_ENV) cargo mutants $(MUTANTS_RUN_MODE) --iterate $(1) $(3) \
-		--minimum-test-timeout $(MUTANTS_TIMEOUT) $(MUTANTS_RUN_ARGS_ITERATE)
+	@if [ -s mutants.out/missed.txt ] || [ -s mutants.out/timeout.txt ]; then \
+		$(MUTANTS_ENV) cargo mutants $(MUTANTS_RUN_MODE) --iterate $(1) $(3) \
+			--minimum-test-timeout $(MUTANTS_TIMEOUT) $(MUTANTS_RUN_ARGS_ITERATE); \
+	else \
+		echo "Full-suite pass skipped: package tests resolved every mutant"; \
+	fi
 endef
 
 
@@ -833,7 +853,7 @@ mutants-controller-core: _mutants-harness-prepare
 		--exclude 'contracts/controller/src/context/oracle.rs' \
 		--exclude 'contracts/controller/src/positions/**' \
 		--exclude 'contracts/controller/src/strategies/**' \
-		--exclude 'contracts/controller/src/views/**',\
+		--exclude 'contracts/controller/src/views.rs',\
 		$(CONTROLLER_FAST_TESTS),$(CONTROLLER_FULL_TESTS))
 
 mutants-controller-oracle: _mutants-harness-prepare
@@ -849,7 +869,7 @@ mutants-controller-strategies: _mutants-harness-prepare
 		$(CONTROLLER_FAST_TESTS),$(CONTROLLER_FULL_TESTS))
 
 mutants-controller-views: _mutants-harness-prepare
-	$(call run_mutants_two_pass,--package controller --file 'contracts/controller/src/views/**',\
+	$(call run_mutants_two_pass,--package controller --file 'contracts/controller/src/views.rs',\
 		$(CONTROLLER_FAST_TESTS),$(CONTROLLER_FULL_TESTS))
 
 
@@ -1020,6 +1040,10 @@ proptest:
 
 
 proptest-one:
+	@[ -n "$(strip $(TEST))" ] || { \
+	  echo "proptest-one requires TEST=<substring>; omitting it runs the whole fuzz suite."; \
+	  echo "Use 'make proptest' if that is what you want."; \
+	  exit 2; }
 	@$(PROPTEST_ENV) cargo test --release -p test-harness --test fuzz $(TEST) -- --test-threads=1
 
 

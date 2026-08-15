@@ -12,7 +12,8 @@ pub(crate) const RESIDUAL_PPM: i128 = 1_000_000;
 /// Max static + referral fee combined, in basis points (10%).
 pub(crate) const FEE_CAP: u32 = 1_000;
 
-/// Max leftover vault amount for a token after settlement, given how much was credited.
+/// Returns the residual allowance for a token given `credited`: `credited / RESIDUAL_PPM`,
+/// floored at [`RESIDUAL_DUST_FLOOR`].
 pub(crate) fn residual_allowance(credited: i128) -> i128 {
     let proportional = credited / RESIDUAL_PPM;
     if proportional > RESIDUAL_DUST_FLOOR {

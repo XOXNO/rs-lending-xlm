@@ -80,10 +80,9 @@ pub(crate) fn authorize_executor(env: &Env, executor: Option<&Address>) {
     }
 }
 
-/// Panics with `GenericError::TimelockOperationExpired` if `operation_id` was
-/// scheduled and its grace-period deadline has passed. An operation with a
-/// ready-ledger of 0 or 1 is treated as not yet scheduled or not tracked, and
-/// always passes.
+/// Panics with `GenericError::TimelockOperationExpired` if `operation_id`'s
+/// grace-period deadline has passed. A ready-ledger of 0 (never scheduled) or 1
+/// (already executed) skips the check and always passes.
 pub(crate) fn require_operation_not_expired(env: &Env, operation_id: &BytesN<32>) {
     let ready_ledger = get_operation_ledger(env, operation_id);
     if ready_ledger <= 1 {

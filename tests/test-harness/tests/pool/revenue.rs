@@ -107,7 +107,15 @@ fn test_claim_revenue_after_liquidation() {
     t.set_price("USDC", usd_cents(50));
     t.assert_liquidatable(ALICE);
 
+    let usdc_revenue_before = t.snapshot_revenue("USDC");
     t.liquidate(LIQUIDATOR, ALICE, "ETH", 1.0);
+
+    // Isolated from interest: the seizure's protocol fee must credit the
+    // collateral pool's revenue immediately, before any accrual runs.
+    assert!(
+        t.snapshot_revenue("USDC") > usdc_revenue_before,
+        "the liquidation protocol fee alone must lift USDC revenue"
+    );
 
     t.advance_and_sync(days(30));
 

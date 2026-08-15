@@ -50,7 +50,7 @@ pub(crate) fn apply(
     outcome.mutation
 }
 
-/// Mints debt for `action.amount`, computes the fee, and debits cash for the
+/// Computes the fee, mints debt for `action.amount`, and debits cash for the
 /// net send amount.
 ///
 /// The cash debit equals `amount - fee`; the fee remains in the pool and is

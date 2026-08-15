@@ -7,6 +7,8 @@ GOV_SALT_SELF_DELAY="55555555555555555555555555555555555555555555555555555555555
 GOV_SALT_BADCURVE="6666666666666666666666666666666666666666666666666666666666666666"
 GOV_SALT_UNPAUSE="7777777777777777777777777777777777777777777777777777777777777777"
 GOV_SALT_SELF_SENSITIVE="8888888888888888888888888888888888888888888888888888888888888888"
+GOV_SALT_CANCELLER_RESET="9999999999999999999999999999999999999999999999999999999999999999"
+GOV_SALT_GRANT_GUARDIAN="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
 gov_state() {
     stellar contract invoke --id "$GOVERNANCE" --source "$ADMIN" "${NET_ARGS[@]}" --send=no \
@@ -77,7 +79,7 @@ view gov_resolve_tol "$GOVERNANCE" -- resolve_oracle_tolerance \
     local op_cancel
     op_cancel=$(inv gov_propose_cancel "$ADMIN" "$GOVERNANCE" -- propose \
         --proposer "$ADMIN_ADDR" \
-        --op '{"SetPositionLimits":{"max_supply_positions":6,"max_borrow_positions":6}}' \
+        --op '{"SetPositionLimits":{"max_supply_positions":3,"max_borrow_positions":3}}' \
         --salt "$GOV_SALT_CANCEL" | tr -d '"[:space:]')
     gov_assert_state gov_state_waiting "$op_cancel" Waiting
     inv gov_cancel "$ADMIN" "$GOVERNANCE" -- cancel \
@@ -87,7 +89,7 @@ view gov_resolve_tol "$GOVERNANCE" -- resolve_oracle_tolerance \
     local op_exec st args_f
     op_exec=$(inv gov_propose_exec "$ADMIN" "$GOVERNANCE" -- propose \
         --proposer "$ADMIN_ADDR" \
-        --op '{"SetPositionLimits":{"max_supply_positions":8,"max_borrow_positions":8}}' \
+        --op '{"SetPositionLimits":{"max_supply_positions":4,"max_borrow_positions":4}}' \
         --salt "$GOV_SALT_EXEC" | tr -d '"[:space:]')
     st=$(gov_await_ready "$op_exec")
     if [ "$st" != "Ready" ] && [ "$st" != "Done" ]; then
@@ -95,7 +97,7 @@ view gov_resolve_tol "$GOVERNANCE" -- resolve_oracle_tolerance \
     fi
 args_f="$LOG_DIR/gov_exec_args.json"
 gov_scval_args set_position_limits \
---limits '{"max_supply_positions":8,"max_borrow_positions":8}' > "$args_f"
+--limits '{"max_supply_positions":4,"max_borrow_positions":4}' > "$args_f"
 view gov_hash_exec "$GOVERNANCE" -- hash_operation \
 --target "$GOV_CONTROLLER" --function set_position_limits \
 --args-file-path "$args_f" --predecessor "$GOV_ZERO32" --salt "$GOV_SALT_EXEC" >/dev/null
@@ -164,5 +166,120 @@ xfail gov_execute_immediate_absent 'execute_immediate|unknown|not found|No such'
 xfail gov_set_controller_absent 'set_controller|unknown|not found|No such' \
 "$ADMIN" "$GOVERNANCE" -- set_controller --addr "$CONTROLLER"
 
+    flow_gov_recovery_and_roles
+
     inv gov_pause "$ADMIN" "$GOVERNANCE" -- pause --caller "$ADMIN_ADDR" >/dev/null
+    # governance `pause` is a guardian action that pauses the CONTROLLER, not
+    # governance itself — proposals keep working, which is why an earlier
+    # assertion that propose should fail here came back UNEXPECTED-OK. The
+    # property to assert is that the controller it governs actually halted.
+    xfail gov_pause_halts_controller 'Error\(Contract, #1000\)' "$ALICE" "$GOV_CONTROLLER" -- supply \
+        --caller "$ALICE_ADDR" --account_id 0 --spoke_id 1 \
+        --assets "$(pay_vec "$PRIMARY_HUB_ID" "$XLM_SAC" 1000000)"
+}
+
+# The governance surface the main flow never reached: its own price aggregator,
+# the oracle-gated sanity band, immediate role revocation, and the Recovery-tier
+# canceller reset.
+#
+# ADMIN holds every default operational role from the constructor, so it is both
+# owner and ORACLE/GUARDIAN here.
+flow_gov_recovery_and_roles() {
+    # `set_sanity_band` forwards to `price_aggregator_client`, so governance
+    # needs its own aggregator before the band can be set. That is also the only
+    # way to reach `deploy_price_aggregator` / `price_aggregator`.
+    local gov_pa=""
+    if [ -n "${PA_HASH:-}" ]; then
+        gov_pa=$(inv gov_deploy_price_agg "$ADMIN" "$GOVERNANCE" -- deploy_price_aggregator \
+            --wasm_hash "$PA_HASH" | tr -d '"[:space:]')
+    fi
+    if [ -z "$gov_pa" ] || ! is_contract_id "$gov_pa"; then
+        log "gov_recovery: no governance price aggregator (PA_HASH=${PA_HASH:-unset}); skipping sanity band"
+    else
+        record gov_price_aggregator_deployed ok deploy_price_aggregator "" "" "" "" "" "$gov_pa"
+        view gov_price_aggregator_getter "$GOVERNANCE" -- price_aggregator >/dev/null
+
+        # Deploying a second one must be refused, or the registered aggregator
+        # could be swapped out from under the controller.
+        xfail gov_deploy_price_agg_twice 'Error\(Contract' "$ADMIN" "$GOVERNANCE" -- deploy_price_aggregator \
+            --wasm_hash "$PA_HASH"
+
+        # XLM_SAC, not SAC_LIQA: the LIQ* assets only exist in the `liq` lane,
+        # and an empty --key here aborted the call before it reached the
+        # contract at all.
+        local band_key band_min band_max
+        band_key=$(price_key_token "$XLM_SAC")
+        band_min=$((WAD / 100 * 92))
+        band_max=$((WAD / 100 * 108))
+
+        # Both calls are expected to fail, for *different* reasons, and that is
+        # the test: the governance aggregator was just deployed and has no
+        # oracle registered for any key, so ADMIN clears the ORACLE_ROLE gate
+        # and only then fails on the missing oracle, while ALICE is stopped at
+        # the gate. Distinct outcomes prove the role check runs first.
+        xfail gov_set_sanity_band_no_role 'Missing signing key|Error\(Contract' "$ALICE" "$GOVERNANCE" -- set_sanity_band \
+            --caller "$ALICE_ADDR" --key "$band_key" \
+            --min_wad "$band_min" --max_wad "$band_max"
+
+        xfail gov_set_sanity_band_no_oracle 'Error\(Contract' "$ADMIN" "$GOVERNANCE" -- set_sanity_band \
+            --caller "$ADMIN_ADDR" --key "$band_key" \
+            --min_wad "$band_min" --max_wad "$band_max"
+    fi
+
+    # --- immediate role revocation (owner only, guardian/oracle only) ---
+    view gov_has_guardian_pre "$GOVERNANCE" -- has_role \
+        --account "$ADMIN_ADDR" --role GUARDIAN >/dev/null
+    # The owner's own roles are protected: apply_revoke_role asserts
+    # `account != owner` with NotAuthorized (#44). ADMIN is the owner, so
+    # revoking its GUARDIAN is refused — the owner cannot be disarmed this way.
+    xfail gov_revoke_owner_role_rejected 'Error\(Contract, #44\)' "$ADMIN" "$GOVERNANCE" -- revoke_role_immediate \
+        --account "$ADMIN_ADDR" --role GUARDIAN
+
+    # Only guardian and oracle are revocable this way; EXECUTOR must not be.
+    xfail gov_revoke_executor_rejected 'Error\(Contract' "$ADMIN" "$GOVERNANCE" -- revoke_role_immediate \
+        --account "$ADMIN_ADDR" --role EXECUTOR
+
+    # The happy path therefore needs a non-owner holder: grant GUARDIAN to DAVE
+    # through the timelock, then revoke it.
+    local op_grant grant_st grant_op
+    grant_op='{"GrantGovRole":{"account":"'"$DAVE_ADDR"'","role":"GUARDIAN"}}'
+    op_grant=$(inv gov_propose_grant_guardian "$ADMIN" "$GOVERNANCE" -- propose \
+        --proposer "$ADMIN_ADDR" --op "$grant_op" \
+        --salt "$GOV_SALT_GRANT_GUARDIAN" | tr -d '"[:space:]')
+    grant_st=$(gov_await_ready "$op_grant")
+    if [ "$grant_st" = "Ready" ] || [ "$grant_st" = "Done" ]; then
+        inv gov_execute_grant_guardian "$ADMIN" "$GOVERNANCE" -- execute_self \
+            --executor null --op "$grant_op" \
+            --salt "$GOV_SALT_GRANT_GUARDIAN" >/dev/null
+        view gov_dave_has_guardian "$GOVERNANCE" -- has_role \
+            --account "$DAVE_ADDR" --role GUARDIAN >/dev/null
+
+        inv gov_revoke_guardian_dave "$ADMIN" "$GOVERNANCE" -- revoke_role_immediate \
+            --account "$DAVE_ADDR" --role GUARDIAN >/dev/null
+        # Proof it actually took: a second revoke finds no role to remove rather
+        # than silently succeeding.
+        xfail gov_revoke_guardian_twice 'Error\(Contract' "$ADMIN" "$GOVERNANCE" -- revoke_role_immediate \
+            --account "$DAVE_ADDR" --role GUARDIAN
+    else
+        log "gov_recovery: grant op $op_grant never reached Ready ($grant_st); skipping revoke happy path"
+    fi
+
+    # --- canceller reset (Recovery tier) ---
+    # TIMELOCK_RECOVERY_MIN_DELAY_LEDGERS is 518_400 (~30 days at 5s/ledger), so
+    # the execute half is unreachable inside a run. What is reachable — and what
+    # actually matters — is that it schedules, and that executing early is
+    # refused rather than silently applied.
+    local cancellers op_reset
+    cancellers=$(jq -nc --arg a "$DAVE_ADDR" '[$a]')
+    op_reset=$(inv gov_propose_canceller_reset "$ADMIN" "$GOVERNANCE" -- propose_canceller_reset \
+        --new_cancellers "$cancellers" --salt "$GOV_SALT_CANCELLER_RESET" | tr -d '"[:space:]')
+    if [ -n "$op_reset" ]; then
+        record gov_canceller_reset_scheduled ok propose_canceller_reset "" "" "" "" "" "op=$op_reset"
+        gov_assert_state gov_canceller_reset_waiting "$op_reset" Waiting
+    else
+        _assert_fail gov_canceller_reset_scheduled "propose_canceller_reset returned no operation id"
+    fi
+
+    xfail gov_execute_canceller_reset_early 'Error\(Contract' "$ADMIN" "$GOVERNANCE" -- execute_canceller_reset \
+        --executor null --new_cancellers "$cancellers" --salt "$GOV_SALT_CANCELLER_RESET"
 }

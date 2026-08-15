@@ -2,6 +2,8 @@ use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume};
 use soroban_sdk::{Address, Env};
 
+use stellar_access::ownable;
+
 use common::constants::{MAX_BORROW_INDEX_RAY, MAX_SUPPLY_INDEX_RAY, RAY, SUPPLY_INDEX_FLOOR_RAW};
 use common::math::fp::Ray;
 use common::types::{PoolBorrowEntry, PoolNetSettleEntry, PoolWithdrawEntry};
@@ -327,4 +329,174 @@ fn claim_revenue_leaves_no_orphan_debt(
     cvlr_assert!(!(post.supplied == 0 && post.borrowed != 0));
     cvlr_assert!(post.revenue <= post.supplied);
     cvlr_assert!(post.cash >= 0);
+}
+
+// --- Token-authority guards (Certora Hub L-02 analogue) -------------------
+//
+// Aave's Hub called `transferFrom` with a caller-supplied `from`, so anyone who
+// had approved the Hub could be drained. Our pool has no such pull: the
+// controller moves tokens in and reports the measured receipt, and every pool
+// payout is a `transfer_out` from the pool's own balance, sized by the pool's
+// own cash book. The single `transfer_from` in the pool (`ops/flash.rs:198`)
+// names the flash receiver the pool just funded, for exactly principal + fee —
+// pinned by `flash_repayment_terms_recover_principal_and_fee`, not here.
+//
+// The rules below pin the accounting half of that claim on the three paths not
+// already covered elsewhere in the pool suite:
+//
+//   * repay      — inbound leg with a refund, the only path that returns value
+//                  to a payer address without debiting the cash book;
+//   * borrow     — payout to a controller-named receiver;
+//   * revenue    — the one payout whose recipient the *pool* picks, not the
+//                  controller (it is the Ownable owner).
+//
+// Each also asserts the Ownable owner is unchanged: `#[only_owner]` gates every
+// mutator on that stored value, so no operation may widen the authorized set.
+
+/// Repay never pays out pool funds: the refund handed back to the payer is
+/// bounded by the amount that payer just sent in, and the cash book only ever
+/// rises on this path (by exactly the net repay).
+#[rule]
+#[allow(clippy::too_many_arguments)]
+fn pool_trust_repay_refunds_only_payer_surplus(
+    e: Env,
+    admin: Address,
+    asset: Address,
+    amount: i128,
+    position_before: i128,
+    borrowed: i128,
+    borrow_index: i128,
+    cash_before: i128,
+) {
+    cvlr_assume!(amount >= 0 && amount <= MAX_FLOW_AMOUNT);
+    cvlr_assume!(position_before >= 0 && position_before <= 20 * RAY);
+    cvlr_assume!(borrowed >= position_before && borrowed <= 100 * RAY);
+    cvlr_assume!(borrow_index >= RAY && borrow_index <= MAX_BORROW_INDEX_RAY);
+    cvlr_assume!(cash_before >= 0 && cash_before <= 1_000 * ONE_TOKEN);
+
+    seed(
+        &e,
+        admin.clone(),
+        asset.clone(),
+        params(asset.clone(), 0, false),
+        state(
+            100 * RAY,
+            borrowed,
+            0,
+            borrow_index,
+            RAY,
+            cash_before,
+            e.ledger().timestamp(),
+        ),
+    );
+
+    let pre = read_state(&e, &asset);
+    let outcome =
+        crate::ops::repay::accounting(&e, &action(asset.clone(), position_before, amount));
+    let post = read_state(&e, &asset);
+
+    // `apply` transfers exactly `overpayment` back to the payer; it can never
+    // exceed what the payer supplied, so no third party's funds are reachable.
+    cvlr_assert!(outcome.overpayment >= 0 && outcome.overpayment <= amount);
+    cvlr_assert!(outcome.mutation.actual_amount == amount - outcome.overpayment);
+    // The refund is paid out of the payer's own inbound amount, never the book.
+    cvlr_assert!(post.cash - pre.cash == outcome.mutation.actual_amount);
+    cvlr_assert!(post.cash >= pre.cash);
+    cvlr_assert!(ownable::get_owner(&e) == Some(admin));
+}
+
+/// A borrow payout to the controller-named receiver is fully backed by the
+/// pool's own cash: the amount sent never exceeds pre-call cash, is debited
+/// exactly once, and cannot drive the book negative.
+#[rule]
+#[allow(clippy::too_many_arguments)]
+fn pool_trust_borrow_payout_is_backed_by_pool_cash(
+    e: Env,
+    admin: Address,
+    asset: Address,
+    amount: i128,
+    position_before: i128,
+    borrowed: i128,
+    cash_before: i128,
+) {
+    cvlr_assume!(amount > 0 && amount <= MAX_FLOW_AMOUNT);
+    cvlr_assume!(position_before >= 0 && position_before <= 20 * RAY);
+    cvlr_assume!(borrowed >= 0 && borrowed <= 50 * RAY);
+    cvlr_assume!(cash_before >= 0 && cash_before <= 1_000 * ONE_TOKEN);
+
+    seed(
+        &e,
+        admin.clone(),
+        asset.clone(),
+        params(asset.clone(), 0, false),
+        state(
+            100 * RAY,
+            borrowed,
+            0,
+            RAY,
+            RAY,
+            cash_before,
+            e.ledger().timestamp(),
+        ),
+    );
+
+    let pre = read_state(&e, &asset);
+    let entry = PoolBorrowEntry {
+        action: action(asset.clone(), position_before, amount),
+    };
+    let outcome = crate::ops::borrow::accounting(&e, &entry);
+    let post = read_state(&e, &asset);
+
+    // `apply` transfers `mutation.actual_amount` out of the pool's own balance.
+    cvlr_assert!(outcome.mutation.actual_amount == amount);
+    cvlr_assert!(outcome.mutation.actual_amount <= pre.cash);
+    cvlr_assert!(pre.cash - post.cash == outcome.mutation.actual_amount);
+    cvlr_assert!(post.cash >= 0);
+    cvlr_assert!(ownable::get_owner(&e) == Some(admin));
+}
+
+/// The revenue claim is the only payout whose recipient the pool chooses. It
+/// pays the Ownable owner set at construction — which the claim path itself
+/// cannot change — and never more than the pool's own cash.
+#[rule]
+#[allow(clippy::too_many_arguments)]
+fn pool_trust_revenue_claim_pays_owner_from_pool_cash(
+    e: Env,
+    admin: Address,
+    asset: Address,
+    revenue_before: i128,
+    cash_before: i128,
+    supply_index: i128,
+) {
+    cvlr_assume!(revenue_before >= 0 && revenue_before <= 20 * RAY);
+    cvlr_assume!(cash_before >= 0 && cash_before <= 1_000 * ONE_TOKEN);
+    cvlr_assume!(supply_index >= SUPPLY_INDEX_FLOOR_RAW && supply_index <= MAX_SUPPLY_INDEX_RAY);
+
+    seed(
+        &e,
+        admin.clone(),
+        asset.clone(),
+        params(asset.clone(), 0, false),
+        state(
+            100 * RAY,
+            20 * RAY,
+            revenue_before,
+            RAY,
+            supply_index,
+            cash_before,
+            e.ledger().timestamp(),
+        ),
+    );
+
+    let pre = read_state(&e, &asset);
+    let claimed = crate::ops::revenue::accounting(&e, hub(asset.clone()))
+        .mutation
+        .actual_amount;
+    let post = read_state(&e, &asset);
+
+    cvlr_assert!(claimed >= 0 && claimed <= pre.cash);
+    cvlr_assert!(pre.cash - post.cash == claimed);
+    cvlr_assert!(post.cash >= 0);
+    // `apply` sends `claimed` to `ownable::get_owner`, still the constructor owner.
+    cvlr_assert!(ownable::get_owner(&e) == Some(admin));
 }

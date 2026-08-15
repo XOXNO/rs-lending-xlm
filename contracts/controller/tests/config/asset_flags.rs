@@ -13,12 +13,13 @@ fn hub(asset: &Address) -> HubAssetKey {
     }
 }
 
-fn listing(paused: bool, frozen: bool) -> SpokeAssetConfig {
+fn listing(paused: bool, frozen: bool, no_seize: bool) -> SpokeAssetConfig {
     SpokeAssetConfig {
         is_collateralizable: true,
         is_borrowable: true,
         paused,
         frozen,
+        no_seize,
         loan_to_value: 8_000,
         liquidation_threshold: 8_500,
         liquidation_bonus: 500,
@@ -28,8 +29,20 @@ fn listing(paused: bool, frozen: bool) -> SpokeAssetConfig {
     }
 }
 
-fn seed_listing(env: &Env, spoke_id: u32, asset: &Address, paused: bool, frozen: bool) {
-    storage::set_spoke_asset(env, spoke_id, &hub(asset), &listing(paused, frozen));
+fn seed_listing(
+    env: &Env,
+    spoke_id: u32,
+    asset: &Address,
+    paused: bool,
+    frozen: bool,
+    no_seize: bool,
+) {
+    storage::set_spoke_asset(
+        env,
+        spoke_id,
+        &hub(asset),
+        &listing(paused, frozen, no_seize),
+    );
 }
 
 #[test]
@@ -39,14 +52,14 @@ fn set_spoke_asset_flags_tightens_pause_and_freeze() {
     let asset = Address::generate(&env);
 
     env.as_contract(&contract, || {
-        seed_listing(&env, 1, &asset, false, false);
+        seed_listing(&env, 1, &asset, false, false, false);
 
-        set_spoke_asset_flags(&env, 1, hub(&asset), true, false);
+        set_spoke_asset_flags(&env, 1, hub(&asset), true, false, false);
         let after_pause = storage::get_spoke_asset(&env, 1, &hub(&asset)).unwrap();
         assert!(after_pause.paused);
         assert!(!after_pause.frozen);
 
-        set_spoke_asset_flags(&env, 1, hub(&asset), true, true);
+        set_spoke_asset_flags(&env, 1, hub(&asset), true, true, false);
         let after_both = storage::get_spoke_asset(&env, 1, &hub(&asset)).unwrap();
         assert!(after_both.paused);
         assert!(after_both.frozen);
@@ -64,8 +77,8 @@ fn set_spoke_asset_flags_rejects_unpause() {
     let asset = Address::generate(&env);
 
     env.as_contract(&contract, || {
-        seed_listing(&env, 1, &asset, true, false);
-        set_spoke_asset_flags(&env, 1, hub(&asset), false, false);
+        seed_listing(&env, 1, &asset, true, false, false);
+        set_spoke_asset_flags(&env, 1, hub(&asset), false, false, false);
     });
 }
 
@@ -77,9 +90,9 @@ fn set_spoke_asset_flags_rejects_unfreeze() {
     let asset = Address::generate(&env);
 
     env.as_contract(&contract, || {
-        seed_listing(&env, 1, &asset, true, true);
+        seed_listing(&env, 1, &asset, true, true, false);
         // Keep pause; clear freeze only — still a relaxation.
-        set_spoke_asset_flags(&env, 1, hub(&asset), true, false);
+        set_spoke_asset_flags(&env, 1, hub(&asset), true, false, false);
     });
 }
 
@@ -91,7 +104,41 @@ fn set_spoke_asset_flags_rejects_unknown_listing() {
     let asset = Address::generate(&env);
 
     env.as_contract(&contract, || {
-        set_spoke_asset_flags(&env, 1, hub(&asset), true, false);
+        set_spoke_asset_flags(&env, 1, hub(&asset), true, false, false);
+    });
+}
+
+#[test]
+fn set_spoke_asset_flags_tightens_no_seize_independently() {
+    let env = Env::default();
+    let contract = env.register(Controller, (Address::generate(&env),));
+    let asset = Address::generate(&env);
+
+    env.as_contract(&contract, || {
+        seed_listing(&env, 1, &asset, false, false, false);
+
+        set_spoke_asset_flags(&env, 1, hub(&asset), false, false, true);
+        let after = storage::get_spoke_asset(&env, 1, &hub(&asset)).unwrap();
+        assert!(after.no_seize, "guardian must be able to halt seizure");
+        assert!(
+            !after.paused && !after.frozen,
+            "halting seizure must not pause or freeze the listing"
+        );
+    });
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #317)")]
+fn set_spoke_asset_flags_rejects_clearing_no_seize() {
+    let env = Env::default();
+    let contract = env.register(Controller, (Address::generate(&env),));
+    let asset = Address::generate(&env);
+
+    env.as_contract(&contract, || {
+        seed_listing(&env, 1, &asset, false, false, true);
+        // The guardian ratchet is one-way for every flag, `no_seize` included:
+        // reopening seizure stays timelocked through `edit_asset_in_spoke`.
+        set_spoke_asset_flags(&env, 1, hub(&asset), false, false, false);
     });
 }
 
@@ -102,9 +149,9 @@ fn flag_ratchet_allows_idempotent_tighten() {
     let asset = Address::generate(&env);
 
     env.as_contract(&contract, || {
-        seed_listing(&env, 1, &asset, true, true);
+        seed_listing(&env, 1, &asset, true, true, false);
         // Re-asserting the same flags is not a relaxation.
-        set_spoke_asset_flags(&env, 1, hub(&asset), true, true);
+        set_spoke_asset_flags(&env, 1, hub(&asset), true, true, false);
         let cfg = storage::get_spoke_asset(&env, 1, &hub(&asset)).unwrap();
         assert!(cfg.paused && cfg.frozen);
     });

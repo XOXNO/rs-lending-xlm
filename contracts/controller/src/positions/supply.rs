@@ -1,35 +1,51 @@
-//! Supply-flow logic for the controller: creates or loads accounts, transfers deposited funds
-//! to the pool, applies the pool results to account supply positions, and refreshes each
-//! position's risk parameters before the new balance lands.
-
 use common::errors::GenericError;
+use common::math::fp::Ray;
 use common::types::{
-    Account, AccountPositionType, AssetConfig, PoolPositionMutation, PoolSupplyEntry, PositionMode,
+    Account, AccountPosition, AccountPositionType, AssetConfig, HubAssetKey, HubPayment,
+    PoolPositionMutation, PoolSupplyEntry, PoolWithdrawEntry, PositionMode,
 };
-use soroban_sdk::{assert_with_error, Address, Env, Vec};
+use soroban_sdk::{assert_with_error, vec, Address, Env, Vec};
 
-use crate::account::{self, update_or_remove_supply_position};
+use crate::account::{self, require_owner_or_delegate, update_or_remove_supply_position};
+use crate::constants::WITHDRAW_ALL_SENTINEL;
 use crate::context::Cache;
 use crate::events;
-use crate::external::pool::pool_supply_call;
+use crate::events::EventContext;
+use crate::external::pool::{pool_supply_call, pool_withdraw_call};
 use crate::payments;
 use crate::positions::{
-    apply_leg_usage, finalize_position_flow, for_each_leg, make_pool_action,
-    require_position_caller, validate_position_entry_gates, AggregatedPayments, HubPayment,
-    LegDirection, LegOutcome, PositionSides,
+    apply_leg_usage, enforce_post_pool_solvency, enforce_spoke_asset_flags, finalize_position_flow,
+    for_each_leg, get_supply_position_or_panic, make_pool_action, require_position_caller,
+    validate_position_entry_gates, AggregatedPayments, FreezePolicy, LegDirection, LegOutcome,
+    PositionSides,
 };
 use crate::risk::{refresh_supply_risk_params, RiskRefreshScope};
-use crate::spoke::UsageSide;
+use crate::spoke_usage::UsageSide;
+use crate::storage;
+use common::validation::expect_invariant;
 
-/// Executes a deposit of `assets` into spoke `spoke_id` for account `account_id` (or a newly
-/// created account if `account_id` is `0`), crediting `caller` as the depositor. Returns the
-/// account id used.
-///
-/// Requires `caller`'s authorization and reverts if a flash loan is in progress. Loads or
-/// creates the account, then, if `account_id` is nonzero and `caller` is neither the owner nor
-/// an active protocol position manager listed among the account's delegates, requires every
-/// hub asset in `assets` to already have an existing supply position on the account. Validates
-/// entry gates, deposits into the pool, and persists the resulting supply positions.
+#[derive(Clone, Copy, PartialEq)]
+pub(crate) enum WithdrawKind {
+    Normal,
+    Liquidation,
+}
+
+enum SpokeRefresh {
+    Frozen,
+    Refresh,
+}
+
+pub(crate) struct WithdrawalRequest<'a> {
+    pub hub_asset: &'a HubAssetKey,
+    pub amount: i128,
+    pub position: &'a AccountPosition,
+}
+
+/// Authorizes the caller, aggregates the payments, loads or creates the
+/// account, and processes a collateral deposit. A caller who is neither the
+/// account's owner nor a delegate may only add to hub assets the account
+/// already holds a supply position in. Returns the account id (freshly
+/// created if `account_id` was 0).
 pub(crate) fn process_supply(
     env: &Env,
     caller: &Address,
@@ -71,12 +87,11 @@ pub(crate) fn process_supply(
         PositionSides::SUPPLY,
         false,
     );
-
     acct_id
 }
 
-/// Validates entry gates for `aggregated` and settles the deposit against the pool, updating
-/// `account`'s supply positions from the results.
+/// Runs the supply entry gates for `aggregated`, then settles the deposit
+/// into the pool and merges the resulting positions into `account`.
 pub(crate) fn process_deposit(
     env: &Env,
     caller: &Address,
@@ -94,8 +109,9 @@ pub(crate) fn process_deposit(
     settle_supply(env, caller, account, aggregated, cache);
 }
 
-/// Builds pool supply entries for `aggregated`, transferring funds from `caller`, and applies
-/// them against the pool, updating `account`'s supply positions from the results.
+/// Transfers each aggregated payment from `caller` into the pool, submits a
+/// batched pool supply call, and merges each resulting leg into the
+/// corresponding supply position.
 fn settle_supply(
     env: &Env,
     caller: &Address,
@@ -104,29 +120,14 @@ fn settle_supply(
     cache: &mut Cache,
 ) {
     let pool_addr = cache.cached_pool_address();
-    let entries = build_supply_entries(env, caller, account, aggregated, cache, &pool_addr);
-    apply_supply_batch(env, account, &entries, cache);
-}
-
-/// Builds one [`PoolSupplyEntry`] per hub asset in `aggregated`: transfers the measured amount
-/// from `caller` to the pool and records it against the asset's existing or newly created supply
-/// position.
-fn build_supply_entries(
-    env: &Env,
-    caller: &Address,
-    account: &Account,
-    aggregated: &AggregatedPayments,
-    cache: &mut Cache,
-    pool_addr: &Address,
-) -> Vec<PoolSupplyEntry> {
     let mut entries: Vec<PoolSupplyEntry> = Vec::new(env);
-    for (hub_asset, amount_in) in aggregated {
+    for (hub_asset, amount_in) in aggregated.iter() {
         let asset_config: AssetConfig = cache.require_spoke_asset(account.spoke_id, &hub_asset);
         let received = payments::transfer_amount_measured(
             env,
             &hub_asset.asset,
             caller,
-            pool_addr,
+            &pool_addr,
             amount_in,
             GenericError::AmountMustBePositive,
         );
@@ -135,35 +136,179 @@ fn build_supply_entries(
             action: make_pool_action(&position, received, hub_asset.clone()),
         });
     }
-    entries
-}
 
-/// Calls the pool to execute `entries` as a supply batch, then merges each leg's result into
-/// `account`'s supply positions.
-fn apply_supply_batch(
-    env: &Env,
-    account: &mut Account,
-    entries: &Vec<PoolSupplyEntry>,
-    cache: &mut Cache,
-) {
-    let pool_addr = cache.cached_pool_address();
-    let results = pool_supply_call(env, &pool_addr, entries);
-    for_each_leg(env, entries, &results, |entry, result| {
-        merge_supply_leg(env, account, &entry, &result, cache);
+    let results = pool_supply_call(env, &pool_addr, &entries);
+    for_each_leg(env, &entries, &results, |entry, result| {
+        merge_supply_leg(env, account, &entry.action, &result, cache);
     });
 }
 
-/// Folds one supply-side pool result into `account`: refreshes the position's risk parameters
-/// before applying the new scaled amount, updates spoke usage and the cached market index, and
-/// records the supply position update event.
-fn merge_supply_leg(
+/// Authorizes the caller as the account's owner or delegate, aggregates the
+/// requested withdrawals (a zero amount means withdraw all of that asset),
+/// settles them against the pool, and re-checks post-pool solvency. Returns
+/// the amounts actually paid out per hub asset.
+pub(crate) fn process_withdraw(
+    env: &Env,
+    caller: &Address,
+    account_id: u64,
+    withdrawals: &Vec<HubPayment>,
+    to: Option<Address>,
+) -> Vec<HubPayment> {
+    require_position_caller(env, caller);
+
+    let mut account = storage::get_account(env, account_id);
+    require_owner_or_delegate(env, account_id, caller, &account.owner);
+
+    let recipient = to.unwrap_or_else(|| caller.clone());
+    let mut cache = Cache::new(env);
+    let aggregated = payments::aggregate_payments(env, withdrawals, payments::ZeroLeg::MeansAll);
+
+    let paid = settle_withdraw(env, &mut account, &recipient, &aggregated, &mut cache);
+    let _ = enforce_post_pool_solvency(env, &mut cache, &mut account);
+
+    finalize_position_flow(
+        env,
+        account_id,
+        &account,
+        &mut cache,
+        PositionSides::SUPPLY,
+        true,
+    );
+    paid
+}
+
+/// For each aggregated withdrawal, enforces the spoke asset's freeze/pause
+/// flags, resolves a zero amount to a full withdrawal, and submits the batch
+/// to the pool. Returns the hub asset and actual amount paid for each leg.
+fn settle_withdraw(
     env: &Env,
     account: &mut Account,
-    entry: &PoolSupplyEntry,
+    recipient: &Address,
+    aggregated: &AggregatedPayments,
+    cache: &mut Cache,
+) -> Vec<HubPayment> {
+    let mut entries: Vec<PoolWithdrawEntry> = Vec::new(env);
+    for (hub_asset, amount) in aggregated.iter() {
+        enforce_spoke_asset_flags(
+            env,
+            cache,
+            account.spoke_id,
+            &hub_asset,
+            FreezePolicy::AllowOnExit,
+        );
+        let position = get_supply_position_or_panic(env, account, &hub_asset);
+        entries.push_back(PoolWithdrawEntry {
+            action: make_pool_action(
+                &position,
+                resolve_withdraw_amount(amount),
+                hub_asset.clone(),
+            ),
+            protocol_fee: 0,
+        });
+    }
+
+    let results = apply_withdraw_batch(
+        env,
+        account,
+        recipient,
+        WithdrawKind::Normal,
+        events::PositionAction::Withdraw,
+        &entries,
+        cache,
+    );
+    let mut paid: Vec<HubPayment> = Vec::new(env);
+    for_each_leg(env, &entries, &results, |entry, result| {
+        paid.push_back((entry.action.hub_asset, result.actual_amount));
+    });
+    paid
+}
+
+/// Maps a zero withdrawal amount to the withdraw-all sentinel; other amounts
+/// pass through unchanged.
+fn resolve_withdraw_amount(amount: i128) -> i128 {
+    if amount == 0 {
+        WITHDRAW_ALL_SENTINEL
+    } else {
+        amount
+    }
+}
+
+/// Enforces the spoke asset's exit flags and withdraws a single
+/// already-resolved position from the pool, merging the result into
+/// `account`. Returns the resulting pool position mutation.
+pub(crate) fn execute_withdrawal(
+    env: &Env,
+    account: &mut Account,
+    ctx: EventContext,
+    req: WithdrawalRequest<'_>,
+    cache: &mut Cache,
+) -> PoolPositionMutation {
+    let EventContext {
+        counterparty,
+        action,
+    } = ctx;
+    enforce_spoke_asset_flags(
+        env,
+        cache,
+        account.spoke_id,
+        req.hub_asset,
+        FreezePolicy::AllowOnExit,
+    );
+    let entries = vec![
+        env,
+        PoolWithdrawEntry {
+            action: make_pool_action(req.position, req.amount, req.hub_asset.clone()),
+            protocol_fee: 0,
+        },
+    ];
+    let results = apply_withdraw_batch(
+        env,
+        account,
+        &counterparty,
+        WithdrawKind::Normal,
+        action,
+        &entries,
+        cache,
+    );
+    expect_invariant(env, results.get(0))
+}
+
+/// Submits a batch of withdraw entries to the pool (as a liquidation
+/// withdrawal when `kind` is `Liquidation`) and merges each resulting leg
+/// into `account`'s supply positions. Returns the raw pool mutation results.
+pub(crate) fn apply_withdraw_batch(
+    env: &Env,
+    account: &mut Account,
+    recipient: &Address,
+    kind: WithdrawKind,
+    action: events::PositionAction,
+    entries: &Vec<PoolWithdrawEntry>,
+    cache: &mut Cache,
+) -> Vec<PoolPositionMutation> {
+    let is_liquidation = kind == WithdrawKind::Liquidation;
+    let pool_addr = cache.cached_pool_address();
+    let results = pool_withdraw_call(env, &pool_addr, recipient, is_liquidation, entries);
+    for_each_leg(env, entries, &results, |entry, result| {
+        let hub_asset = entry.action.hub_asset;
+        let outcome = LegOutcome::from(&result);
+        merge_withdraw_leg(env, account, action, &hub_asset, kind, &outcome, cache);
+    });
+    results
+}
+
+/// Merges a pool supply mutation into `account`'s position for `hub_asset`.
+/// Refreshes the position's risk parameters against the current asset
+/// config, applies the new scaled amount, updates spoke usage and the cached
+/// market index, then records the position-update event and stores the
+/// position.
+pub(crate) fn merge_supply_leg(
+    env: &Env,
+    account: &mut Account,
+    action: &common::types::PoolAction,
     result: &PoolPositionMutation,
     cache: &mut Cache,
 ) {
-    let hub_asset = &entry.action.hub_asset;
+    let hub_asset = &action.hub_asset;
     let asset_config: AssetConfig = cache.require_spoke_asset(account.spoke_id, hub_asset);
 
     let mut position = account.get_or_create_supply_position(hub_asset, &asset_config);
@@ -200,9 +345,91 @@ fn merge_supply_leg(
         events::PositionAction::Supply,
         hub_asset,
         outcome.market_index.supply_index,
-        entry.action.amount,
+        action.amount,
         &position,
     );
 
     update_or_remove_supply_position(account, hub_asset, &position);
+}
+
+/// Merges a withdrawal leg's pool outcome into `account`'s supply position
+/// for `hub_asset`, updating spoke usage and the cached market index.
+/// Refreshes the position's risk parameters afterward unless the withdrawal
+/// is a liquidation, the spoke asset is no longer listed, or the position is
+/// now fully withdrawn, then stores or removes the position and records the
+/// update event.
+pub(crate) fn merge_withdraw_leg(
+    env: &Env,
+    account: &mut Account,
+    action: events::PositionAction,
+    hub_asset: &HubAssetKey,
+    kind: WithdrawKind,
+    outcome: &LegOutcome,
+    cache: &mut Cache,
+) {
+    // The refresh decision is computed here, not by callers: whether a
+    // withdrawal leg re-stamps risk params is this module's policy.
+    let refresh_spoke = spoke_refresh_for_leg(kind, cache, account, hub_asset, outcome.new_scaled);
+    let mut position = get_supply_position_or_panic(env, account, hub_asset);
+    let old_scaled = position.scaled_amount;
+
+    position.scaled_amount = outcome.new_scaled;
+    cache.put_market_index(hub_asset, &outcome.market_index);
+    apply_leg_usage(
+        env,
+        cache,
+        account.spoke_id,
+        UsageSide::Supply,
+        hub_asset,
+        LegDirection::Exit,
+        old_scaled,
+        outcome,
+    );
+
+    if matches!(refresh_spoke, SpokeRefresh::Refresh) && position.scaled_amount != Ray::ZERO {
+        let config: AssetConfig = cache.require_spoke_asset(account.spoke_id, hub_asset);
+        refresh_supply_risk_params(
+            env,
+            cache,
+            account,
+            hub_asset,
+            &mut position,
+            &config,
+            RiskRefreshScope::FullTuple,
+        );
+    }
+
+    update_or_remove_supply_position(account, hub_asset, &position);
+    cache.record_supply_position_update(
+        action,
+        hub_asset,
+        outcome.market_index.supply_index,
+        outcome.amount,
+        &position,
+    );
+}
+
+/// Decides whether a withdrawal leg should re-stamp the position's risk
+/// parameters: liquidation withdrawals, unlisted spoke assets, and full
+/// withdrawals (`new_scaled` zero) are frozen; all other withdrawals refresh.
+fn spoke_refresh_for_leg(
+    kind: WithdrawKind,
+    cache: &mut Cache,
+    account: &Account,
+    hub_asset: &HubAssetKey,
+    new_scaled: Ray,
+) -> SpokeRefresh {
+    if kind == WithdrawKind::Liquidation {
+        return SpokeRefresh::Frozen;
+    }
+    if cache
+        .cached_spoke_asset(account.spoke_id, hub_asset)
+        .is_none()
+    {
+        return SpokeRefresh::Frozen;
+    }
+    if new_scaled == Ray::ZERO {
+        return SpokeRefresh::Frozen;
+    }
+    SpokeRefresh::Refresh
 }

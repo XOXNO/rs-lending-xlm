@@ -6,7 +6,7 @@ use crate::test_support::{hub, init_ledger};
 use crate::{LiquidityPool, LiquidityPoolClient};
 use common::constants::RAY;
 use common::math::fp::Ray;
-use common::rates::{calculate_borrow_rate, calculate_deposit_rate};
+use common::rates::{calculate_annual_borrow_rate, calculate_deposit_rate};
 use common::types::{MarketParams, MarketParamsRaw, PoolKey, PoolStateRaw};
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{token, Address};
@@ -101,12 +101,16 @@ fn test_views_load_and_compute_expected_values() {
 
         let util = Ray::from(utilization(&t.env, &hub(&t.asset)));
         let params: MarketParams = (&t.params).into();
-        let expected_borrow = calculate_borrow_rate(&t.env, util, &params);
+        let expected_borrow = calculate_annual_borrow_rate(&t.env, util, &params);
         let expected_deposit =
             calculate_deposit_rate(&t.env, util, expected_borrow, params.reserve_factor);
 
         assert_eq!(borrow_rate(&t.env, &hub(&t.asset)), expected_borrow.raw());
         assert_eq!(deposit_rate(&t.env, &hub(&t.asset)), expected_deposit.raw());
+        assert!(
+            expected_borrow.raw() > RAY / 100,
+            "view borrow APR must be the annual curve rate, not the per-ms accrual rate"
+        );
     });
 }
 

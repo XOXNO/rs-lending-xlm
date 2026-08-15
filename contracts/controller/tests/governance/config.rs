@@ -13,8 +13,8 @@ fn create_hub_assigns_increasing_ids_and_marks_active() {
     let env = Env::default();
     let contract = new_controller(&env);
     env.as_contract(&contract, || {
-        let first = hub::create_hub(&env);
-        let second = hub::create_hub(&env);
+        let first = spoke::create_hub(&env);
+        let second = spoke::create_hub(&env);
         assert_eq!(first, 1);
         assert_eq!(second, 2);
         assert!(storage::get_hub(&env, first).is_some_and(|hub| hub.is_active));
@@ -29,7 +29,7 @@ fn require_hub_active_rejects_unseeded_hub_zero() {
     let contract = new_controller(&env);
     env.as_contract(&contract, || {
         assert!(storage::get_hub(&env, 0).is_none());
-        hub::require_hub_active(&env, 0);
+        spoke::require_hub_active(&env, 0);
     });
 }
 
@@ -38,8 +38,8 @@ fn require_hub_active_passes_for_created_hub() {
     let env = Env::default();
     let contract = new_controller(&env);
     env.as_contract(&contract, || {
-        let id = hub::create_hub(&env);
-        hub::require_hub_active(&env, id);
+        let id = spoke::create_hub(&env);
+        spoke::require_hub_active(&env, id);
     });
 }
 
@@ -49,7 +49,7 @@ fn require_hub_active_rejects_unknown_hub() {
     let env = Env::default();
     let contract = new_controller(&env);
     env.as_contract(&contract, || {
-        hub::require_hub_active(&env, 999);
+        spoke::require_hub_active(&env, 999);
     });
 }
 
@@ -59,9 +59,9 @@ fn require_hub_active_rejects_deactivated_hub() {
     let env = Env::default();
     let contract = new_controller(&env);
     env.as_contract(&contract, || {
-        let id = hub::create_hub(&env);
+        let id = spoke::create_hub(&env);
         storage::set_hub(&env, id, &HubConfig { is_active: false });
-        hub::require_hub_active(&env, id);
+        spoke::require_hub_active(&env, id);
     });
 }
 
@@ -264,10 +264,10 @@ fn blend_pool_approval_helper_reflects_storage() {
     env.as_contract(&contract, || {
         let pool = Address::generate(&env);
         assert!(
-            !approvals::is_blend_pool_approved(&env, pool.clone()),
+            !registry::is_blend_pool_approved(&env, pool.clone()),
             "an unwritten pool must read as not approved"
         );
-        approvals::set_blend_pool_approval(&env, pool.clone(), true);
-        assert!(approvals::is_blend_pool_approved(&env, pool));
+        registry::set_blend_pool_approval(&env, pool.clone(), true);
+        assert!(registry::is_blend_pool_approved(&env, pool));
     });
 }

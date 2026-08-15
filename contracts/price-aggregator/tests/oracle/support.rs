@@ -365,7 +365,6 @@ pub(crate) const XOXNO_SUBMISSION_WINDOW_SECS: u64 = 1_800;
 
 #[contracttype]
 enum AquaKey {
-    Plane,
     Share,
     TokenA,
     TokenB,
@@ -383,14 +382,12 @@ pub(crate) struct MockAquariusPool;
 impl MockAquariusPool {
     pub fn __constructor(
         env: Env,
-        plane: Address,
         share: Address,
         token_a: Address,
         token_b: Address,
         total_shares: u128,
     ) {
         let store = env.storage().instance();
-        store.set(&AquaKey::Plane, &plane);
         store.set(&AquaKey::Share, &share);
         store.set(&AquaKey::TokenA, &token_a);
         store.set(&AquaKey::TokenB, &token_b);
@@ -400,10 +397,6 @@ impl MockAquariusPool {
 
     pub fn get_total_shares(env: Env) -> u128 {
         env.storage().instance().get(&AquaKey::Shares).unwrap()
-    }
-
-    pub fn get_pools_plane(env: Env) -> Address {
-        env.storage().instance().get(&AquaKey::Plane).unwrap()
     }
 
     pub fn get_reserves(env: Env) -> Vec<u128> {
@@ -432,10 +425,6 @@ impl MockAquariusPool {
         Vec::from_array(&env, [a, b])
     }
 
-    pub fn set_plane(env: Env, plane: Address) {
-        env.storage().instance().set(&AquaKey::Plane, &plane);
-    }
-
     pub fn set_share(env: Env, share: Address) {
         env.storage().instance().set(&AquaKey::Share, &share);
     }
@@ -462,41 +451,6 @@ impl MockAquariusPool {
 
     pub fn set_amp(env: Env, amp: u128) {
         env.storage().instance().set(&AquaKey::Amp, &amp);
-    }
-}
-
-#[contract]
-pub(crate) struct MockAquariusPlane;
-
-#[contractimpl]
-impl MockAquariusPlane {
-    pub fn __constructor(env: Env, kind: Symbol, reserve_a: u128, reserve_b: u128) {
-        let store = env.storage().instance();
-        store.set(&AquaKey::Kind, &kind);
-        store.set(&AquaKey::ReserveA, &reserve_a);
-        store.set(&AquaKey::ReserveB, &reserve_b);
-    }
-
-    pub fn get(env: Env, pools: Vec<Address>) -> Vec<(Symbol, Vec<u128>, Vec<u128>)> {
-        let store = env.storage().instance();
-        let kind: Symbol = store.get(&AquaKey::Kind).unwrap();
-        let a: u128 = store.get(&AquaKey::ReserveA).unwrap();
-        let b: u128 = store.get(&AquaKey::ReserveB).unwrap();
-        let mut out = Vec::new(&env);
-        for _ in pools.iter() {
-            out.push_back((
-                kind.clone(),
-                Vec::from_array(&env, [30u128]),
-                Vec::from_array(&env, [a, b]),
-            ));
-        }
-        out
-    }
-
-    pub fn set_reserves(env: Env, reserve_a: u128, reserve_b: u128) {
-        let store = env.storage().instance();
-        store.set(&AquaKey::ReserveA, &reserve_a);
-        store.set(&AquaKey::ReserveB, &reserve_b);
     }
 }
 

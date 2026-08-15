@@ -1,7 +1,3 @@
-//! Builds and validates a liquidation's repayment and seizure plan: sizing the debt
-//! to repay, the collateral to seize, and the applied bonus, given the liquidator's
-//! payments and the account's liquidation snapshot.
-
 use common::errors::{CollateralError, GenericError};
 use common::math::fp::{Bps, Ray, Wad};
 use common::rates::{resolve_withdrawal, unscale_borrow_ceil};
@@ -22,16 +18,12 @@ use crate::storage::iter_typed_positions;
 use common::validation::expect_invariant;
 
 impl LiquidationCurve {
-    /// Builds a `LiquidationCurve` from the spoke configuration for `spoke_id`,
-    /// loaded through `cache`.
+    /// Builds a `LiquidationCurve` from spoke `spoke_id`'s configuration.
     pub(crate) fn resolve(cache: &mut Cache, spoke_id: u32) -> Self {
         Self::from_config(&cache.spoke_config(spoke_id))
     }
 }
 
-/// A resolved liquidation repayment: the token amounts collected from the
-/// liquidator, any refunds for excess payment, the total USD value repaid, and the
-/// applied bonus.
 pub(crate) struct NormalizedRepaymentPlan {
     pub repaid: Vec<RepayEntry>,
     pub refunds: Vec<PaymentTuple>,
@@ -40,7 +32,8 @@ pub(crate) struct NormalizedRepaymentPlan {
 }
 
 impl NormalizedRepaymentPlan {
-    /// Panics if the summed USD value of `repaid` does not equal `repay_usd`.
+    /// Panics with `GenericError::InternalError` if the summed USD value of `repaid` entries
+    /// does not match `repay_usd`.
     fn validate(&self, env: &Env) {
         if sum_repaid_usd(env, &self.repaid) != self.repay_usd {
             panic_with_error!(env, GenericError::InternalError);
@@ -48,15 +41,18 @@ impl NormalizedRepaymentPlan {
     }
 }
 
-/// A liquidation's resolved repayment and seizure plan.
 pub(crate) struct LiquidationPlan {
     pub repayment: NormalizedRepaymentPlan,
     pub seized: Vec<SeizeEntry>,
 }
 
 impl LiquidationPlan {
-    /// Validates the repayment plan and panics if any seized entry has a
-    /// non-positive amount or a protocol fee outside `[0, amount]`.
+    /// Validates the repayment leg totals and asserts every seizure entry is internally
+    /// consistent, panicking with `GenericError::InternalError` otherwise: a positive asset
+    /// amount with a protocol fee between zero and that amount (the `Transfer` representation),
+    /// and a positive scaled amount whose bonus base does not exceed it (the `Credit`
+    /// representation). The `Credit` split itself is re-derived and re-checked by
+    /// [`split_seized_shares`] at every use site.
     pub(crate) fn validate(&self, env: &Env) {
         self.repayment.validate(env);
 
@@ -64,11 +60,19 @@ impl LiquidationPlan {
             if entry.amount <= 0 || entry.protocol_fee < 0 || entry.protocol_fee > entry.amount {
                 panic_with_error!(env, GenericError::InternalError);
             }
+            if entry.scaled_amount <= 0
+                || entry.bonus_scaled < 0
+                || entry.bonus_scaled > entry.scaled_amount
+                || i128::from(entry.liquidation_fees) >= common::constants::BPS
+            {
+                panic_with_error!(env, GenericError::InternalError);
+            }
         }
     }
 
-    /// Converts the plan into a `LiquidationResult`, using `repay_usd` as
-    /// `max_debt_usd` and `bonus` as `bonus_bps`.
+    /// Converts this plan into the `LiquidationResult` returned to callers, carrying the seized,
+    /// repaid, and refund entries plus the total USD repaid and the applied bonus in basis
+    /// points.
     pub(crate) fn into_result(self) -> LiquidationResult {
         LiquidationResult {
             seized: self.seized,
@@ -79,9 +83,9 @@ impl LiquidationPlan {
         }
     }
 }
-/// Computes the proportion of weighted collateral to seize — a unitless ratio
-/// `weighted_coll / total_collateral` — and the account's liquidation bonus
-/// bounds, both derived from its supply positions.
+/// Computes the liquidation-threshold-weighted share of collateral being seized
+/// (`weighted_coll / total_collateral`, zero when there is no collateral) and the account's
+/// base/max bonus bounds derived from it.
 pub(crate) fn calculate_seizure_proportions(
     env: &Env,
     account: &Account,
@@ -106,12 +110,10 @@ pub(crate) fn calculate_seizure_proportions(
     (proportion_seized, bounds)
 }
 
-/// Aggregates `raw_payments` per asset and matches each against the account's
-/// outstanding debt, capping each leg at that position's full outstanding debt
-/// (ceil-unscaled; not a protocol close-factor fraction) and pushing any excess
-/// to `refunds`. Returns the total USD value applied and the resulting repay
-/// entries. Panics if a payment references an asset the account has no debt
-/// position for.
+/// Merges `raw_payments` per asset (panicking with `CollateralError::DebtPositionNotFound` if a
+/// payment targets an asset without a debt position) and caps each leg at that debt's
+/// outstanding, ceiling-rounded balance, refunding any excess into `refunds`. Returns the total
+/// USD value actually repaid and the per-asset `RepayEntry` list.
 pub(crate) fn calculate_repayment_amounts(
     env: &Env,
     raw_payments: &Vec<HubPayment>,
@@ -134,9 +136,9 @@ pub(crate) fn calculate_repayment_amounts(
             .unwrap_or_else(|| panic_with_error!(env, CollateralError::DebtPositionNotFound)))
             .into();
 
-        let actual_debt = debt_close_amount(
+        let actual_debt = unscale_borrow_ceil(
             env,
-            &position,
+            position.scaled_amount,
             market_index.borrow_index,
             feed.asset_decimals,
         );
@@ -166,11 +168,12 @@ pub(crate) fn calculate_repayment_amounts(
     (total_repaid_usd, repaid_tokens)
 }
 
-/// Builds a validated repayment plan from `raw_payments`, sized to at most the ideal
-/// repayment from `estimate_liquidation_amount`, trimming any excess into refunds.
-/// Panics with `CollateralError::FullCloseRequired` if the payment falls short of
-/// the ideal amount while only a full liquidation would keep the bonus curve
-/// solvable.
+/// Combines the liquidator's `raw_payments` with `estimate_liquidation_amount`'s ideal repayment
+/// and bonus: caps the accepted repayment at the ideal USD amount, refunding any excess back
+/// through `refunds`. Panics with `CollateralError::FullCloseRequired` when the payment falls
+/// short of the ideal amount, `max_hf_preserving_bonus_bps` returns a non-negative cap below the
+/// base bonus, and the shortfall persists after ceiling-rounding the payment — forcing the
+/// liquidator to close the full debt instead of partially repaying.
 pub(crate) fn normalize_repayment_plan(
     env: &Env,
     account: &Account,
@@ -215,18 +218,7 @@ pub(crate) fn normalize_repayment_plan(
     repayment
 }
 
-/// Returns the token amount required to close `position`'s debt, rounded up, given
-/// the current borrow index.
-fn debt_close_amount(
-    env: &Env,
-    position: &DebtPosition,
-    borrow_index: Ray,
-    asset_decimals: u32,
-) -> i128 {
-    unscale_borrow_ceil(env, position.scaled_amount, borrow_index, asset_decimals)
-}
-
-/// Sums the USD value of `repaid_tokens`.
+/// Sums the WAD USD value recorded on each `repaid_tokens` entry.
 pub(crate) fn sum_repaid_usd(env: &Env, repaid_tokens: &Vec<RepayEntry>) -> Wad {
     let mut total = Wad::ZERO;
     for entry in repaid_tokens.iter() {
@@ -235,8 +227,8 @@ pub(crate) fn sum_repaid_usd(env: &Env, repaid_tokens: &Vec<RepayEntry>) -> Wad 
     total
 }
 
-/// Sums the USD value of `repaid_tokens`, recomputed from each entry's token amount
-/// and price with ceiling rounding.
+/// Recomputes and sums each `repaid_tokens` entry's USD value from its token amount and price,
+/// rounding up instead of trusting the entry's stored `usd_wad`.
 fn sum_repaid_usd_ceil(env: &Env, repaid_tokens: &Vec<RepayEntry>) -> Wad {
     let mut total = Wad::ZERO;
     for entry in repaid_tokens.iter() {
@@ -247,42 +239,14 @@ fn sum_repaid_usd_ceil(env: &Env, repaid_tokens: &Vec<RepayEntry>) -> Wad {
     total
 }
 
-/// Scales each entry's `amount` and `protocol_fee` in `seized` by
-/// `received_usd / planned_usd`, using floor rounding. Returns `seized` unchanged
-/// when `planned_usd` is not positive or `received_usd` is at or above
-/// `planned_usd`.
-pub(crate) fn scale_seizures_to_received(
-    env: &Env,
-    seized: &Vec<SeizeEntry>,
-    received_usd: Wad,
-    planned_usd: Wad,
-) -> Vec<SeizeEntry> {
-    if planned_usd <= Wad::ZERO || received_usd >= planned_usd {
-        return seized.clone();
-    }
-
-    let num = received_usd.raw();
-    let den = planned_usd.raw();
-    let mut scaled: Vec<SeizeEntry> = Vec::new(env);
-    for entry in seized.iter() {
-        scaled.push_back(SeizeEntry {
-            amount: common::math::fp_core::mul_div_floor(env, entry.amount, num, den),
-            protocol_fee: common::math::fp_core::mul_div_floor(env, entry.protocol_fee, num, den),
-            hub_asset: entry.hub_asset,
-            feed: entry.feed,
-            market_index: entry.market_index,
-        });
-    }
-    scaled
-}
-
-/// Computes the collateral to seize from each of the account's supply positions,
-/// proportional to each asset's share of `total_collateral`, scaled up by the
-/// repayment's bonus. Caps each seizure at the position's actual balance, splits the
-/// bonus portion into a protocol fee via the position's configured fee rate, and
-/// rounds a positive fee up to at least one asset unit, capped at the pool's gross
-/// withdrawal amount. Returns an empty vector when `total_collateral` is not
-/// positive.
+/// Splits `repayment.repay_usd * (1 + bonus)` pro-rata by USD value across supply positions,
+/// capping each leg at the position's held balance (floor-rounded for a partial position,
+/// half-up for a full one). The capped amount is split into a principal portion — the pre-cap
+/// seizure value at `1 / (1 + bonus)`, floor-rounded — and a bonus portion equal to the
+/// remainder, which is zero once the cap has consumed the pre-cap value; the position's protocol
+/// fee rate applies only to the bonus portion. The resulting protocol fee is floor-rounded to
+/// asset units, bumped up to one unit when a positive fee would otherwise round to zero, and
+/// capped at the pool's gross withdrawal for that leg.
 pub(crate) fn calculate_seized_collateral(
     env: &Env,
     account: &Account,
@@ -339,6 +303,24 @@ pub(crate) fn calculate_seized_collateral(
         };
         let protocol_fee_ray = position.liquidation_fees.apply_to_ray(env, bonus_ray);
 
+        // Credit mode moves supply shares, so the seizure is converted to scaled units once,
+        // here, with no asset-unit round trip. A full close is exactly the whole scaled
+        // position: re-deriving it from the asset value would let a rounding step strand or
+        // invent a share.
+        let seized_scaled = if capped_ray == actual_ray {
+            position.scaled_amount
+        } else {
+            capped_ray.div_floor(env, market_index.supply_index)
+        };
+        // The fee base in share terms. Clamped because the two conversions round
+        // independently; `split_seized_shares` relies on `bonus <= seized`.
+        let bonus_scaled = bonus_ray
+            .div_floor(env, market_index.supply_index)
+            .min(seized_scaled);
+        if seized_scaled <= Ray::ZERO {
+            continue;
+        }
+
         let capped_amount = if capped_ray == actual_ray {
             capped_ray.to_asset(feed.asset_decimals)
         } else {
@@ -367,6 +349,9 @@ pub(crate) fn calculate_seized_collateral(
             hub_asset,
             amount: capped_amount,
             protocol_fee,
+            scaled_amount: seized_scaled.raw(),
+            bonus_scaled: bonus_scaled.raw(),
+            liquidation_fees: position.liquidation_fees.raw() as u32,
             feed: (&feed).into(),
             market_index: (&market_index).into(),
         });
@@ -375,71 +360,51 @@ pub(crate) fn calculate_seized_collateral(
     seized
 }
 
-/// Reduces `repaid_tokens` by `excess_usd`, working backward from the last entry:
-/// partially reduces an entry to absorb the remaining excess, or removes it entirely
-/// and continues to the next, pushing each removed or reduced amount to `refunds`.
-pub(crate) fn process_excess_payment(
+/// Splits a scaled seizure into the protocol's share and the liquidator's share, for
+/// `SeizeMode::Credit`.
+///
+/// `fee = ceil(liquidation_fees × bonus_scaled)` rounds **up**, in the protocol's favour, and
+/// the liquidator takes the exact remainder, so `seized_scaled == fee + liquidator` holds with
+/// no share created or destroyed. That conservation identity is the whole point of credit mode
+/// — a share invented here is an unbacked supplier claim — so it is asserted here rather than
+/// only in tests. Panics with `GenericError::InternalError` if any bound or the identity fails.
+pub(crate) fn split_seized_shares(
     env: &Env,
-    repaid_tokens: &mut Vec<RepayEntry>,
-    refunds: &mut Vec<PaymentTuple>,
-    excess_usd: Wad,
-) {
-    let mut remaining_excess_usd = excess_usd;
-
-    let mut current_index = repaid_tokens.len();
-    while remaining_excess_usd > Wad::ZERO && current_index > 0 {
-        current_index -= 1;
-        let entry = expect_invariant(env, repaid_tokens.get(current_index));
-        if entry.amount <= 0 {
-            continue;
-        }
-
-        let usd = Wad::from(entry.usd_wad);
-        if usd == Wad::ZERO {
-            continue;
-        }
-
-        if usd > remaining_excess_usd {
-            let ratio = remaining_excess_usd.div_floor(env, usd);
-            let refund_amount = Wad::from_token(entry.amount, entry.feed.asset_decimals)
-                .mul_floor(env, ratio)
-                .to_token_floor(entry.feed.asset_decimals);
-
-            let new_amount = entry.amount - refund_amount;
-
-            let new_amount_wad = Wad::from_token(new_amount, entry.feed.asset_decimals);
-            let new_usd = new_amount_wad.mul(env, Wad::from(entry.feed.price_wad));
-
-            refunds.push_back(PaymentTuple {
-                asset: entry.hub_asset.asset.clone(),
-                amount: refund_amount,
-            });
-            repaid_tokens.set(
-                current_index,
-                RepayEntry {
-                    hub_asset: entry.hub_asset,
-                    amount: new_amount,
-                    usd_wad: new_usd.raw(),
-                    feed: entry.feed,
-                    market_index: entry.market_index,
-                },
-            );
-            remaining_excess_usd = Wad::ZERO;
-        } else {
-            refunds.push_back(PaymentTuple {
-                asset: entry.hub_asset.asset.clone(),
-                amount: entry.amount,
-            });
-            repaid_tokens.remove(current_index);
-            remaining_excess_usd = remaining_excess_usd.checked_sub(env, usd);
-        }
+    seized_scaled: Ray,
+    bonus_scaled: Ray,
+    liquidation_fees_bps: u32,
+) -> (Ray, Ray) {
+    let fees = i128::from(liquidation_fees_bps);
+    if seized_scaled < Ray::ZERO
+        || bonus_scaled < Ray::ZERO
+        || bonus_scaled > seized_scaled
+        || fees >= common::constants::BPS
+    {
+        panic_with_error!(env, GenericError::InternalError);
     }
+
+    let fee_scaled = Ray::from(common::math::fp_core::mul_div_ceil(
+        env,
+        bonus_scaled.raw(),
+        fees,
+        common::constants::BPS,
+    ));
+    // `fees < BPS` already bounds the fee by `bonus_scaled`; re-check anyway, because the rate
+    // is read from a stamped position rather than from live configuration.
+    if fee_scaled > seized_scaled {
+        panic_with_error!(env, GenericError::InternalError);
+    }
+
+    let liquidator_scaled = seized_scaled.checked_sub(env, fee_scaled);
+    if fee_scaled.checked_add(env, liquidator_scaled) != seized_scaled {
+        panic_with_error!(env, GenericError::InternalError);
+    }
+    (fee_scaled, liquidator_scaled)
 }
 
-/// Computes the account's liquidation bonus bounds: `max` from `proportion_seized`,
-/// and `base` as the value-weighted average of each supply position's configured
-/// liquidation bonus, capped at `max`. Returns `base = 0` when `total_collateral` is
-/// zero. Panics on overflow while accumulating the weighted sum.
+/// Computes the account's bonus bounds: `max` from `max_bonus_for_threshold`, and `base` as the
+/// USD-value-weighted average of each supply position's configured liquidation bonus, clamped
+/// to not exceed `max`. Returns a zero `base` when the account has no collateral.
 pub(crate) fn get_account_bonus_params(
     env: &Env,
     cache: &mut Cache,
@@ -485,3 +450,106 @@ pub(crate) fn get_account_bonus_params(
 #[cfg(test)]
 #[path = "../../../tests/positions/liquidation_math.rs"]
 mod tests;
+
+/// Scales every seized entry down by `received_usd / planned_usd` (floor-rounded) when the
+/// liquidator's repayment delivered less value than planned. Returns `seized` unchanged when
+/// nothing was planned or the full amount was received.
+///
+/// Both representations are scaled: the asset-unit pair consumed by `SeizeMode::Transfer` and
+/// the share-denominated pair consumed by `SeizeMode::Credit`. Only the seizure total and the
+/// fee *base* are scaled — the credit-mode fee itself is re-derived from the scaled base at the
+/// use site, so the conservation identity holds exactly after scaling instead of being carried
+/// across it. Flooring both share fields by the same ratio preserves
+/// `bonus_scaled <= scaled_amount`.
+pub(crate) fn scale_seizures_to_received(
+    env: &Env,
+    seized: &Vec<SeizeEntry>,
+    received_usd: Wad,
+    planned_usd: Wad,
+) -> Vec<SeizeEntry> {
+    if planned_usd <= Wad::ZERO || received_usd >= planned_usd {
+        return seized.clone();
+    }
+
+    let num = received_usd.raw();
+    let den = planned_usd.raw();
+    let mut scaled: Vec<SeizeEntry> = Vec::new(env);
+    for entry in seized.iter() {
+        scaled.push_back(SeizeEntry {
+            amount: common::math::fp_core::mul_div_floor(env, entry.amount, num, den),
+            protocol_fee: common::math::fp_core::mul_div_floor(env, entry.protocol_fee, num, den),
+            scaled_amount: common::math::fp_core::mul_div_floor(env, entry.scaled_amount, num, den),
+            bonus_scaled: common::math::fp_core::mul_div_floor(env, entry.bonus_scaled, num, den),
+            liquidation_fees: entry.liquidation_fees,
+            hub_asset: entry.hub_asset,
+            feed: entry.feed,
+            market_index: entry.market_index,
+        });
+    }
+    scaled
+}
+
+#[cfg(test)]
+fn debt_close_amount(
+    env: &Env,
+    position: &DebtPosition,
+    borrow_index: Ray,
+    asset_decimals: u32,
+) -> i128 {
+    unscale_borrow_ceil(env, position.scaled_amount, borrow_index, asset_decimals)
+}
+
+/// Refunds `excess_usd` out of `repaid_tokens` in place, working backward from the last entry:
+/// fully refunds and removes entries until the remaining excess fits within one entry, then
+/// partially refunds that entry using a floor-rounded ratio. Appends each refund to `refunds`.
+fn process_excess_payment(
+    env: &Env,
+    repaid_tokens: &mut Vec<RepayEntry>,
+    refunds: &mut Vec<PaymentTuple>,
+    excess_usd: Wad,
+) {
+    let mut remaining_excess_usd = excess_usd;
+    let mut current_index = repaid_tokens.len();
+    while remaining_excess_usd > Wad::ZERO && current_index > 0 {
+        current_index -= 1;
+        let entry = expect_invariant(env, repaid_tokens.get(current_index));
+        if entry.amount <= 0 {
+            continue;
+        }
+        let usd = Wad::from(entry.usd_wad);
+        if usd == Wad::ZERO {
+            continue;
+        }
+        if usd > remaining_excess_usd {
+            let ratio = remaining_excess_usd.div_floor(env, usd);
+            let refund_amount = Wad::from_token(entry.amount, entry.feed.asset_decimals)
+                .mul_floor(env, ratio)
+                .to_token_floor(entry.feed.asset_decimals);
+            let new_amount = entry.amount - refund_amount;
+            let new_usd = Wad::from_token(new_amount, entry.feed.asset_decimals)
+                .mul(env, Wad::from(entry.feed.price_wad));
+            refunds.push_back(PaymentTuple {
+                asset: entry.hub_asset.asset.clone(),
+                amount: refund_amount,
+            });
+            repaid_tokens.set(
+                current_index,
+                RepayEntry {
+                    hub_asset: entry.hub_asset,
+                    amount: new_amount,
+                    usd_wad: new_usd.raw(),
+                    feed: entry.feed,
+                    market_index: entry.market_index,
+                },
+            );
+            remaining_excess_usd = Wad::ZERO;
+        } else {
+            refunds.push_back(PaymentTuple {
+                asset: entry.hub_asset.asset.clone(),
+                amount: entry.amount,
+            });
+            repaid_tokens.remove(current_index);
+            remaining_excess_usd = remaining_excess_usd.checked_sub(env, usd);
+        }
+    }
+}

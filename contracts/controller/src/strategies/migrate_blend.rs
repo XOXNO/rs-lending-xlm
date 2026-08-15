@@ -1,8 +1,3 @@
-//! Migrates a caller's position out of an approved Blend pool into this
-//! protocol: repays Blend debt by borrowing the equivalent hub debt, sweeps
-//! Blend collateral and supply balances into the controller, and deposits the
-//! swept amounts as hub supply positions.
-
 use crate::account;
 use common::errors::GenericError;
 use common::types::{Account, DebtPosition, HubAssetKey, PositionMode};
@@ -11,20 +6,15 @@ use soroban_sdk::{assert_with_error, panic_with_error, token, Address, Env, Map,
 
 use crate::config;
 use crate::context::Cache;
-use crate::events::{self, BlendMigrationEvent};
+use crate::events::{BlendMigrationEvent, PositionAction};
 use crate::external::blend::{blend_repay_all, blend_sweep_all};
-use crate::payments::balance_delta;
 use crate::positions::{require_can_supply, supply};
 use crate::strategies::{
-    borrow_for_migration, prefetch_strategy_prices, repay_debt_from_controller, strategy_finalize,
-    StrategyRepay,
+    borrow_into_controller, prefetch_strategy_prices, repay_debt_from_controller,
+    strategy_finalize, StrategyRepay,
 };
 use crate::{risk::validation, storage};
 
-/// Inputs to [`process_migrate_blend`]: the target account and spoke, the hub
-/// whose assets the migrated position lands in, the source Blend pool, the
-/// Blend collateral and supply asset lists to sweep, and the per-asset debt
-/// caps to repay via new borrows.
 pub(crate) struct MigrateBlendParams {
     pub account_id: u64,
     pub spoke_id: u32,
@@ -36,14 +26,13 @@ pub(crate) struct MigrateBlendParams {
     pub debt_caps: Vec<(Address, i128)>,
 }
 
-/// Migrates `caller`'s Blend position into the hub identified by
-/// `params.hub_id`. Requires `caller` authorization, rejects nested flash loans,
-/// requires the hub to be active, and validates the migration request. For
-/// existing accounts requires owner or active position-manager delegate (new
-/// accounts take `caller` as owner). Loads or creates the target account,
-/// borrows the hub debt needed to repay Blend debt, sweeps Blend collateral and
-/// supply into the controller and deposits them as hub supply, finalizes the
-/// account, and publishes a `BlendMigrationEvent`. Returns the account id.
+/// Migrates a position out of an approved Blend pool into this hub for
+/// `caller`: borrows `debt_caps` amounts into the controller to repay the
+/// equivalent Blend debt, then sweeps `collateral_assets` and
+/// `supply_assets` out of Blend and deposits what arrives as new hub supply
+/// positions. Panics if `blend_pool` is not approved or the request carries
+/// no assets. Finalizes with the standard solvency checks and returns the
+/// account id.
 pub(crate) fn process_migrate_blend(
     env: &Env,
     caller: &Address,
@@ -123,10 +112,11 @@ pub(crate) fn process_migrate_blend(
     account_id
 }
 
-/// Borrows the hub debt asset for each `(asset, max)` pair in `debt_caps` up
-/// to the requested cap, uses the borrowed funds to repay the corresponding
-/// debt on `blend_pool`, and repays any leftover controller balance back onto
-/// the account's hub debt position. Does nothing if `debt_caps` is empty.
+/// For each `(debt_asset, max)` in `debt_caps`, borrows `max` from the hub
+/// into the controller as new debt for `account`, then repays that asset's
+/// Blend debt. Any borrowed amount Blend did not consume is repaid straight
+/// back against the new hub debt so `account` ends up owing only what Blend
+/// actually needed. No-op when `debt_caps` is empty.
 fn execute_migration_debt_leg(
     env: &Env,
     caller: &Address,
@@ -147,16 +137,23 @@ fn execute_migration_debt_leg(
             hub_id,
             asset: debt_asset,
         };
-        borrow_for_migration(env, account, &hub_debt, max, cache);
+        borrow_into_controller(
+            env,
+            account,
+            &hub_debt,
+            max,
+            false,
+            PositionAction::Migrate,
+            cache,
+        );
     }
     blend_repay_all(env, blend_pool, caller, debt_caps);
     reconcile_debt_refunds(env, account, cache, caller, hub_id, debt_caps, &before_debt);
 }
 
-/// Loads or creates the target account under `account::AccountGuard::Migrate`
-/// and computes the deduplicated withdraw-asset list and combined asset list
-/// needed for the migration. Returns the resolved account id, the account, a
-/// fresh `Cache`, the withdraw assets, and all assets involved.
+/// Loads or creates `account_id`'s account under the migrate guard
+/// (owner/delegate and spoke checks) and builds the deduplicated
+/// withdraw-asset list and combined asset list used for price prefetching.
 fn prepare_migration_account(
     env: &Env,
     caller: &Address,
@@ -181,8 +178,8 @@ fn prepare_migration_account(
     (account_id, account, cache, withdraw_assets, all_assets)
 }
 
-/// Panics unless every asset in `withdraw_assets` can currently be supplied
-/// to the given hub on `spoke_id`.
+/// Panics if any `withdraw_assets` is not listed and active as collateral in
+/// `spoke_id`/`hub_id`, checked before any Blend funds are moved.
 fn require_withdraw_assets_supplyable(
     env: &Env,
     cache: &mut Cache,
@@ -196,9 +193,8 @@ fn require_withdraw_assets_supplyable(
     }
 }
 
-/// Panics with `InvalidPayments` if `collateral_assets`, `supply_assets`, and
-/// `debt_caps` are all empty, and panics with `BlendPoolNotApproved` if
-/// `blend_pool` is not on the approved Blend pool list.
+/// Panics if the request carries no collateral, supply, or debt assets, or
+/// if `blend_pool` is not on the approved list.
 fn validate_migration_request(
     env: &Env,
     blend_pool: &Address,
@@ -219,10 +215,9 @@ fn validate_migration_request(
     );
 }
 
-/// Panics if `debt_caps` contains a duplicate asset. Returns the deduplicated
-/// union of `collateral_assets` and `supply_assets` as the withdraw-asset
-/// list, and that list extended with each debt asset as the combined
-/// asset list.
+/// Validates that `debt_caps` has no duplicate assets and returns the
+/// deduplicated withdraw-asset list (`collateral_assets` union
+/// `supply_assets`) alongside that list extended with the debt assets.
 fn prepare_migration_assets(
     env: &Env,
     collateral_assets: &Vec<Address>,
@@ -238,7 +233,7 @@ fn prepare_migration_assets(
     (withdraw_assets, all_assets)
 }
 
-/// Panics with `AssetsAreTheSame` if `debt_caps` contains the same asset more
+/// Panics with `AssetsAreTheSame` if `debt_caps` lists the same asset more
 /// than once.
 fn require_unique_debt_assets(env: &Env, debt_caps: &Vec<(Address, i128)>) {
     let mut seen: Map<Address, bool> = Map::new(env);
@@ -252,7 +247,8 @@ fn require_unique_debt_assets(env: &Env, debt_caps: &Vec<(Address, i128)>) {
     }
 }
 
-/// Extracts the asset address from each `(asset, max)` pair in `debt_caps`.
+/// Extracts the asset addresses from `debt_caps`, dropping the per-asset
+/// caps.
 fn debt_asset_list(env: &Env, debt_caps: &Vec<(Address, i128)>) -> Vec<Address> {
     let mut out: Vec<Address> = Vec::new(env);
     for (asset, _) in debt_caps.iter() {
@@ -261,8 +257,8 @@ fn debt_asset_list(env: &Env, debt_caps: &Vec<(Address, i128)>) -> Vec<Address> 
     out
 }
 
-/// Returns the deduplicated union of `collateral_assets` and `supply_assets`,
-/// preserving first-seen order.
+/// Returns the deduplicated union of `collateral_assets` and
+/// `supply_assets`, preserving first-seen order.
 fn unique_withdraw_assets(
     env: &Env,
     collateral_assets: &Vec<Address>,
@@ -279,8 +275,8 @@ fn unique_withdraw_assets(
     out
 }
 
-/// Returns the controller's current token balance for each asset in
-/// `assets`, keyed by asset address.
+/// Records the controller's current balance for each of `assets`, keyed by
+/// asset address.
 fn snapshot_balances(env: &Env, assets: &Vec<Address>) -> Map<Address, i128> {
     let controller = env.current_contract_address();
     let mut before: Map<Address, i128> = Map::new(env);
@@ -291,10 +287,9 @@ fn snapshot_balances(env: &Env, assets: &Vec<Address>) -> Map<Address, i128> {
     before
 }
 
-/// For each asset in `withdraw_assets`, computes the increase in the
-/// controller's balance since the corresponding entry in `before` and, if
-/// positive, deposits that amount as a hub supply position for `hub_id`. Does
-/// nothing if no asset received a positive balance increase.
+/// Deposits into `account`'s hub supply positions whatever balance of each
+/// `withdraw_assets` arrived at the controller since the `before` snapshot;
+/// no-op for assets with no increase.
 fn deposit_withdrawn(
     env: &Env,
     account: &mut Account,
@@ -308,7 +303,10 @@ fn deposit_withdrawn(
         let token = token::Client::new(env, &asset);
         let prev = before.get(asset.clone()).unwrap_or(0);
 
-        let received = balance_delta(env, &token, prev);
+        let received = token
+            .balance(&env.current_contract_address())
+            .checked_sub(prev)
+            .unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError));
         if received > 0 {
             deposits.push_back((HubAssetKey { hub_id, asset }, received));
         }
@@ -324,11 +322,10 @@ fn deposit_withdrawn(
     }
 }
 
-/// For each debt asset in `debt_caps`, computes the increase in the
-/// controller's balance since the corresponding entry in `before` — the
-/// portion borrowed but not consumed by the Blend repayment — and, if
-/// positive, repays that amount onto the account's hub debt position for that
-/// asset.
+/// Repays back into `account`'s hub debt position whatever balance of each
+/// `debt_caps` asset accumulated at the controller since the `before`
+/// snapshot, refunding the portion of the borrowed amount Blend did not
+/// consume; no-op for assets with no increase.
 fn reconcile_debt_refunds(
     env: &Env,
     account: &mut Account,
@@ -342,7 +339,10 @@ fn reconcile_debt_refunds(
         let token = token::Client::new(env, &debt_asset);
         let prev = before.get(debt_asset.clone()).unwrap_or(0);
 
-        let refund = balance_delta(env, &token, prev);
+        let refund = token
+            .balance(&env.current_contract_address())
+            .checked_sub(prev)
+            .unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError));
         if refund > 0 {
             let hub_debt = HubAssetKey {
                 hub_id,
@@ -358,15 +358,15 @@ fn reconcile_debt_refunds(
                     debt: &hub_debt,
                     debt_available: refund,
                     debt_pos: &debt_pos,
-                    action: events::PositionAction::Migrate,
+                    action: PositionAction::Migrate,
                 },
             );
         }
     }
 }
 
-/// Loads `account`'s debt position for `hub_debt`. Panics with
-/// `InternalError` if the account has no such debt position.
+/// Returns `account`'s debt position for `hub_debt`, panicking with
+/// `InternalError` if none exists.
 fn load_debt_position(env: &Env, account: &Account, hub_debt: &HubAssetKey) -> DebtPosition {
     let raw = account
         .borrow_positions

@@ -1,0 +1,86 @@
+# Permissionless and caller-authorized entrypoints -- the declared exception list
+# for scripts/check_access_control.py.
+#
+# WHAT THIS FILE IS
+#
+# The complete inventory of contract entrypoints that ANY address may invoke:
+# everything that is neither owner-gated, role-gated, timelocked, a constructor,
+# a read-only view, nor confined to a test cfg. Read top to bottom and you have
+# seen the protocol's entire unprivileged mutation surface.
+#
+# The checker fails if an entrypoint in one of the declarable categories is
+# missing here, if a line here names an entrypoint that no longer exists, or if
+# a declared category no longer matches what the classifier detects. Adding a
+# line is a deliberate security decision, not paperwork: it asserts that letting
+# an arbitrary caller reach this code is intended and bounded.
+#
+# FORMAT
+#
+#   <contract>::<function> | <category> | <invariants> | <justification>
+#
+# category      caller-auth      the body requires `Address::require_auth` on an
+#                                address the caller supplies. Anyone may invoke
+#                                it; the auth only proves control of that
+#                                address. Any further restriction (account
+#                                owner, delegate, payer) is enforced inside the
+#                                body and is stated in the justification.
+#               UNGATED-MUTATOR  no authorization primitive is reachable at all.
+#
+# invariants    comma-separated INV-XXX-NN ids from docs/reference/invariants.md.
+#               INV-AUTH-02 = risk-reducing authority is explicit (owner or an
+#               active, listed delegate). INV-AUTH-03 = permissionless actions
+#               do not create foreign risk.
+#
+# justification one line, present tense, naming who may call it and what bounds
+#               the damage.
+#
+# ---------------------------------------------------------------------------
+# controller -- account owner or active delegate (INV-AUTH-02)
+#
+# Every line below reaches `account::require_owner_or_delegate` or
+# `account::require_account_owner` after `caller.require_auth()`. The entrypoint
+# is open to any address; the account binding is what keeps a stranger from
+# moving someone else's collateral.
+# ---------------------------------------------------------------------------
+controller::borrow | caller-auth | INV-AUTH-02, INV-RISK-01 | Any address may call, but the funds are drawn against account_id, which require_owner_or_delegate pins to its owner or an active listed delegate, and post-pool solvency is re-proven.
+controller::withdraw | caller-auth | INV-AUTH-02, INV-RISK-01 | Any address may call, but require_owner_or_delegate pins account_id to its owner or an active listed delegate before any collateral leaves, and solvency is re-proven afterward.
+controller::multiply | caller-auth | INV-AUTH-02, INV-STRAT-02 | Leverage entry on account_id; the Multiply account guard requires the owner or an active listed delegate and asserts the account's position mode matches.
+controller::swap_debt | caller-auth | INV-AUTH-02, INV-STRAT-02 | Replaces one debt position with another on account_id; require_owner_or_delegate pins the account before the borrow-and-repay legs run.
+controller::swap_collateral | caller-auth | INV-AUTH-02, INV-STRAT-02 | Swaps one collateral position for another on account_id; require_owner_or_delegate pins the account before the withdraw-and-deposit legs run.
+controller::repay_debt_with_collateral | caller-auth | INV-AUTH-02, INV-STRAT-02 | Nets or swaps account_id's own collateral into a repayment; require_owner_or_delegate pins the account, so a stranger cannot force-close a position.
+controller::migrate_from_blend | caller-auth | INV-AUTH-02, INV-STRAT-02 | Sweeps the caller's Blend position into account_id from a governance-approved pool only; the Migrate account guard requires the owner or an active listed delegate.
+controller::add_delegate | caller-auth | INV-AUTH-02 | Grants delegate authority on account_id; require_account_owner admits the owner alone, and the delegate must already be an active governance-approved position manager, so a delegate cannot extend its own reach.
+controller::remove_delegate | caller-auth | INV-AUTH-02 | Revokes delegate authority on account_id; require_account_owner admits the owner alone. Revocation only narrows authority.
+controller::renew_account | caller-auth | INV-AUTH-02, INV-STOR-01 | Extends account_id's storage TTL; require_account_owner admits the owner alone. Writes no accounting state, only TTLs.
+#
+# ---------------------------------------------------------------------------
+# controller -- genuinely permissionless (INV-AUTH-03)
+#
+# Third parties may pay in, wind down bad positions, and run maintenance. None
+# of these can increase another account's risk.
+# ---------------------------------------------------------------------------
+controller::supply | caller-auth | INV-AUTH-03, INV-ACCT-03 | Anyone may top up an account they do not own, but only for hub assets it already holds a supply position in; a non-owner cannot open a new position slot, and account_id 0 creates an account owned by the caller.
+controller::repay | caller-auth | INV-AUTH-03, INV-ACCT-03 | Anyone may repay any account's debt. Funds are pulled from the caller's own balance and credited from the measured receipt; the target's liabilities can only fall.
+controller::liquidate | caller-auth | INV-AUTH-03, INV-LIQ-01, INV-LIQ-02 | Anyone may liquidate an account whose health factor is below one; self-liquidation is rejected, and seizure stays coupled to the debt actually repaid.
+controller::clean_bad_debt | caller-auth | INV-AUTH-03, INV-LIQ-04 | Anyone may socialize an insolvent account's residual debt, but only once its remaining collateral is at or below the dust threshold; the unrestricted form is the owner-gated force_socialize_bad_debt.
+controller::recapitalize | caller-auth | INV-AUTH-03, INV-ACCT-02, INV-ACCT-03 | Anyone may donate their own funds to cover a market's backing shortfall; only the measured receipt up to the shortfall is applied and the excess is refunded to the payer.
+controller::update_indexes | caller-auth | INV-AUTH-03, INV-IDX-04 | Keeper maintenance: accrues interest to the current ledger. Accrual is time-consistent, so calling it early, often, or never changes no one's balance.
+controller::claim_revenue | caller-auth | INV-AUTH-03, INV-ACCT-06 | Keeper maintenance: sweeps accrued protocol revenue to the governance-configured accumulator. The caller picks the timing, never the recipient.
+controller::update_account_threshold | caller-auth | INV-AUTH-03, INV-RISK-01 | Keeper maintenance: restamps cached risk parameters to their currently listed values. With has_risks set it reverts unless the account clears the update health-factor floor, so it cannot be used to push an account into liquidation.
+controller::flash_loan | caller-auth | INV-AUTH-03, INV-FLASH-01, INV-FLASH-02 | Anyone may borrow within a single call; the pool verifies principal plus fee is back before returning, and the flash-loan flag blocks monetary reentrancy into position flows.
+#
+# ---------------------------------------------------------------------------
+# swap-aggregator
+# ---------------------------------------------------------------------------
+swap-aggregator::execute_strategy | caller-auth | INV-STRAT-01 | Anyone may route their own swap; sender.require_auth authorizes the pull, and the router only ever moves the sender's own funds under the declared minimum output.
+swap-aggregator::claim_referral_fees | UNGATED-MUTATOR | INV-AUTH-03 | Deliberately unauthenticated: the payout recipient is the referral's stored owner, not a caller argument, so an arbitrary caller can only choose when a referral is paid, never who is paid.
+#
+# ---------------------------------------------------------------------------
+# defindex-strategy
+#
+# The strategy holds one controller account per vault address, keyed by `from`.
+# ---------------------------------------------------------------------------
+defindex-strategy::deposit | caller-auth | INV-AUTH-03, INV-ACCT-03 | Anyone may deposit their own funds; from.require_auth authorizes the pull and the credit lands in the controller account keyed by that same address.
+defindex-strategy::withdraw | caller-auth | INV-AUTH-02 | from.require_auth authorizes the withdrawal and the balance is read from the vault account mapped to that address, so a caller can only drain their own position.
+defindex-strategy::harvest | caller-auth | INV-AUTH-03 | from.require_auth authorizes a caller-triggered HarvestEvent carrying the current price per share. Moves no funds and writes no accounting state.
+defindex-strategy::balance | UNGATED-MUTATOR | INV-AUTH-03, INV-STOR-01 | Read-only balance query, conservatively classified: the only storage write the checker can reach is the stale-pointer cleanup in resolve_vault_account, which this path enters with clear_if_gone = false. Reachable by anyone; discloses only the queried address's own balance.

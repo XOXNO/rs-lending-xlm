@@ -1,5 +1,6 @@
 use super::*;
-use crate::constants::{RAY, SUPPLY_INDEX_FLOOR_RAW};
+use crate::constants::{MAX_BORROW_RATE_RAY, MILLISECONDS_PER_YEAR, RAY, SUPPLY_INDEX_FLOOR_RAW};
+use crate::rates::compound::{compound_interest, MAX_COMPOUND_DELTA_MS};
 use crate::rates::test_support::*;
 use soroban_sdk::Env;
 
@@ -403,4 +404,104 @@ fn test_one_whole_token_normalizes_to_one_ray_at_every_decimals() {
             "one whole token must be exactly RAY of value at {decimals} decimals",
         );
     }
+}
+
+// --- index ceiling reachability (docs/reference/numeric-bounds.md §2) -----
+//
+// `MAX_BORROW_INDEX_RAY` is a clamp, not an overflow guard: at the ceiling the
+// borrow index stops moving and debt stops accruing, silently. The tests below
+// pin how far away that is, so a rate-cap or chunking change that brings it
+// closer has to move a number here.
+
+/// Fastest possible growth: every chunk is the largest `global_sync` will take
+/// (`MAX_COMPOUND_DELTA_MS`, one year) at a pinned 100% utilization, so the
+/// borrow rate sits at `annual_rate_ray` for the whole span.
+fn max_chunk_growth_factor(env: &Env, annual_rate_ray: i128) -> Ray {
+    let rate_per_ms = Ray::from(annual_rate_ray).div_by_int(MILLISECONDS_PER_YEAR as i128);
+    compound_interest(env, rate_per_ms, MAX_COMPOUND_DELTA_MS)
+}
+
+/// Number of maximum-size compound chunks needed to drive the borrow index from
+/// its `create_market` value of one RAY to `MAX_BORROW_INDEX_RAY`.
+fn max_chunks_to_borrow_index_ceiling(env: &Env, annual_rate_ray: i128) -> u32 {
+    let factor = max_chunk_growth_factor(env, annual_rate_ray);
+    assert!(
+        factor > Ray::ONE,
+        "a non-growing factor would never reach the ceiling"
+    );
+
+    let mut index = Ray::ONE;
+    let mut chunks = 0u32;
+    while index.raw() < MAX_BORROW_INDEX_RAY {
+        index = update_borrow_index(env, index, factor);
+        chunks += 1;
+        assert!(chunks < 10_000, "growth stalled below the ceiling");
+    }
+    chunks
+}
+
+#[test]
+fn test_borrow_index_ceiling_is_eleven_years_away_at_the_protocol_rate_cap() {
+    let env = Env::default();
+    env.cost_estimate().budget().reset_unlimited();
+
+    // MAX_BORROW_RATE_RAY is 200% APR, the highest `MarketParamsRaw::validate`
+    // will accept for `max_borrow_rate`.
+    assert_eq!(
+        max_chunks_to_borrow_index_ceiling(&env, MAX_BORROW_RATE_RAY),
+        11,
+        "the borrow index ceiling must stay more than a decade out at the rate cap",
+    );
+}
+
+#[test]
+fn test_borrow_index_ceiling_years_at_configured_and_realistic_rates() {
+    let env = Env::default();
+    env.cost_estimate().budget().reset_unlimited();
+
+    // 175% and 125% are the two `max_borrow_rate` values in configs/mainnet.
+    assert_eq!(
+        max_chunks_to_borrow_index_ceiling(&env, RAY * 175 / 100),
+        12
+    );
+    assert_eq!(
+        max_chunks_to_borrow_index_ceiling(&env, RAY * 125 / 100),
+        17
+    );
+    // ChainSecurity's own worked example for Aave's uint120 `drawnIndex`.
+    assert_eq!(max_chunks_to_borrow_index_ceiling(&env, RAY * 30 / 100), 70);
+    assert_eq!(max_chunks_to_borrow_index_ceiling(&env, RAY / 10), 208);
+}
+
+#[test]
+fn test_borrow_index_at_the_ceiling_multiplies_without_overflow() {
+    let env = Env::default();
+
+    // `update_borrow_index` multiplies before it clamps, so the pre-clamp
+    // product at the ceiling times the largest reachable chunk factor is the
+    // real overflow site. It must stay inside i128 with room to spare.
+    let factor = max_chunk_growth_factor(&env, MAX_BORROW_RATE_RAY);
+    let at_ceiling = Ray::from(MAX_BORROW_INDEX_RAY);
+
+    let product = at_ceiling.mul(&env, factor);
+    assert!(product.raw() > MAX_BORROW_INDEX_RAY);
+    assert!(
+        product.raw() < i128::MAX / 20,
+        "pre-clamp headroom above the ceiling fell below 20x: {}",
+        product.raw()
+    );
+
+    assert_eq!(
+        update_borrow_index(&env, at_ceiling, factor).raw(),
+        MAX_BORROW_INDEX_RAY,
+    );
+}
+
+#[test]
+fn test_supply_index_shares_the_borrow_index_ceiling() {
+    assert_eq!(MAX_SUPPLY_INDEX_RAY, MAX_BORROW_INDEX_RAY);
+    // Both indexes start at one RAY, so the ceiling is a 1e9x growth budget.
+    assert_eq!(MAX_BORROW_INDEX_RAY / RAY, 1_000_000_000);
+    // And the floor is 1e-3, so the supply index spans twelve decades.
+    assert_eq!(RAY / SUPPLY_INDEX_FLOOR_RAW, 1_000);
 }

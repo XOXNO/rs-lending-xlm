@@ -1,6 +1,3 @@
-//! Defines the contract event emitted when an account owner grants or revokes
-//! delegate authority over an account.
-
 use soroban_sdk::{contractevent, Address};
 
 /// Event recording a change in delegate authorization for an account: either

@@ -1,4 +1,4 @@
-use crate::types::{HubAssetKey, Payment, PositionMode, StrategySwap};
+use crate::types::{HubAssetKey, Payment, PositionMode, SeizeMode, StrategySwap};
 use controller_interface::ControllerInterface;
 use cvlr::nondet::nondet;
 use cvlr_soroban::nondet_address;
@@ -191,9 +191,26 @@ pub fn repay_debt_with_collateral_close(
 }
 
 pub fn liquidate(env: Env, liquidator: Address, account_id: u64, debt_payments: Vec<Payment>) {
+    liquidate_with_mode(
+        env,
+        liquidator,
+        account_id,
+        debt_payments,
+        SeizeMode::Transfer,
+    );
+}
+
+/// `liquidate` with an explicit seize mode, returning the receiving account id.
+pub fn liquidate_with_mode(
+    env: Env,
+    liquidator: Address,
+    account_id: u64,
+    debt_payments: Vec<Payment>,
+    seize_mode: SeizeMode,
+) -> u64 {
     let mut hub_payments: Vec<(HubAssetKey, i128)> = Vec::new(&env);
     for (asset, amount) in debt_payments.iter() {
         hub_payments.push_back((primary_hub(asset), amount));
     }
-    crate::Controller::liquidate(env, liquidator, account_id, hub_payments);
+    crate::Controller::liquidate(env, liquidator, account_id, hub_payments, seize_mode)
 }

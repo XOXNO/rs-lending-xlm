@@ -25,6 +25,20 @@ pub fn map_try_ok_unit(
     }
 }
 
+/// `map_try_ok_unit` for entry points that return a value rather than unit.
+pub fn map_try_ok_value<T>(
+    result: Result<
+        Result<T, soroban_sdk::Error>,
+        Result<soroban_sdk::Error, soroban_sdk::InvokeError>,
+    >,
+) -> Result<T, soroban_sdk::Error> {
+    match result {
+        Ok(Ok(value)) => Ok(value),
+        Ok(Err(err)) => Err(err),
+        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+    }
+}
+
 pub fn burn_prefund(env: &Env, asset: &Address, addr: &Address, raw_amount: i128) {
     if raw_amount > 0 {
         soroban_sdk::token::TokenClient::new(env, asset).burn(addr, &raw_amount);

@@ -11,15 +11,10 @@ fn allowance_is_the_floor_until_proportional_overtakes_it() {
     assert_eq!(residual_allowance(10_000_000_000), 10_000);
 }
 
-#[test]
-fn residual_is_allowed_up_to_and_including_the_allowance() {
-    let credited = 10_000_000_000i128;
-    let allowance = residual_allowance(credited);
-    assert_eq!(allowance, 10_000);
-    assert!(9_999 <= allowance, "just under must be allowed");
-    assert!(10_000 <= allowance, "exactly the allowance must be allowed");
-    assert!(10_001 > allowance, "one past it must not be");
-}
+// The accept/reject boundary of the residual guard is exercised through the
+// real enforcement path in
+// `execute_strategy::a_residual_of_exactly_the_allowance_passes_and_one_unit_more_reverts`;
+// comparing integer literals against the allowance here proved nothing.
 
 #[test]
 fn small_trades_are_judged_against_the_floor_not_a_ratio() {

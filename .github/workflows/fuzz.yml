@@ -49,7 +49,10 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  pr-smoke:
+  # Fuzz and proptest used to share one job, so the property suite waited
+  # behind ~5.5 min of libFuzzer wall time (3×30s + 4×60s) on every PR.
+  # They only share the pool WASM; compile graphs and toolchains differ.
+  pr-fuzz:
     if: github.event_name == 'pull_request'
     name: Fuzz smoke (PR)
     runs-on: self-hosted
@@ -94,18 +97,55 @@ jobs:
           key: ${{ runner.os }}-fuzz-v2-${{ hashFiles('Cargo.lock', 'tests/fuzz/Cargo.lock') }}
 
       - name: Install stellar-cli
-
         run: bash .github/scripts/install-stellar-cli.sh
 
-      - name: Build pool WASM (required by test-harness)
+      - name: Build pool WASM (required by contract-flow targets)
         run: stellar contract build
+
+      # One cargo-fuzz invocation compiles every target. The timed runs then
+      # only pay incremental linking instead of a cold build per binary.
+      - name: Prebuild libFuzzer targets
+        run: make fuzz-build
 
       - name: Function-level fuzz (30s each)
         run: make fuzz FUZZ_TIME=30
 
       - name: Contract-level fuzz smoke (60s each)
-
         run: make fuzz-contract FUZZ_TIME=60
+
+  pr-proptest:
+    if: github.event_name == 'pull_request'
+    name: Proptest smoke (PR)
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Isolate rustup toolchain dir
+        run: |
+          rm -rf "$RUNNER_TEMP/rustup"
+          echo "RUSTUP_HOME=$RUNNER_TEMP/rustup" >> "$GITHUB_ENV"
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.95"
+          targets: wasm32v1-none
+
+      - name: Cache cargo build artifacts
+        uses: actions/cache@v6
+        with:
+          path: |
+            target
+          key: ${{ runner.os }}-proptest-v2-pr-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-proptest-v2-pr-
+            ${{ runner.os }}-proptest-v2-
+
+      - name: Install stellar-cli
+        run: bash .github/scripts/install-stellar-cli.sh
+
+      - name: Build pool WASM (required by test-harness)
+        run: stellar contract build
 
       - name: Contract-level property suite
         run: make proptest
@@ -295,11 +335,10 @@ jobs:
           overwrite: true
 
   wasm-fixtures:
-    if: >-
-      (github.event_name == 'schedule' &&
-      startsWith(github.event.schedule, '0 2 ')) ||
-      (github.event_name == 'workflow_dispatch' &&
-      (inputs.suite == 'mutants' || inputs.suite == 'all'))
+    # Mutants (02:00), fuzz+proptest (14:00), and any dispatch suite all
+    # consume pool.wasm. Building it once keeps the matrix cells from each
+    # paying a stellar contract build while they queue for the same runners.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     name: Prepare wasm fixtures
     runs-on: self-hosted
     needs: stellar-tool
@@ -363,7 +402,7 @@ jobs:
       (inputs.suite == 'fuzz' || inputs.suite == 'all'))
     name: Fuzz long (${{ matrix.target }})
     runs-on: self-hosted
-    needs: stellar-tool
+    needs: [stellar-tool, wasm-fixtures]
     timeout-minutes: 1440
     strategy:
       fail-fast: false
@@ -420,22 +459,16 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-fuzz-v2-
 
-      - name: Download stellar-cli
+      - name: Download pool WASM fixture
         if: matrix.kind == 'contract'
         uses: actions/download-artifact@v8.0.1
         with:
-          name: stellar-cli-${{ github.run_id }}
-          path: .github/tools
+          name: wasm-fixtures-${{ github.run_id }}
+          path: target/wasm32v1-none/release
 
-      - name: Add stellar-cli to PATH
+      - name: Verify pool WASM fixture
         if: matrix.kind == 'contract'
-        run: |
-          chmod +x .github/tools/stellar
-          echo "$PWD/.github/tools" >> "$GITHUB_PATH"
-
-      - name: Build pool WASM
-        if: matrix.kind == 'contract'
-        run: stellar contract build
+        run: test -s target/wasm32v1-none/release/pool.wasm
 
       - name: Run fuzz target
         env:
@@ -459,7 +492,7 @@ jobs:
       (inputs.suite == 'proptest' || inputs.suite == 'all'))
     name: Proptest (${{ matrix.test }})
     runs-on: self-hosted
-    needs: stellar-tool
+    needs: [stellar-tool, wasm-fixtures]
     timeout-minutes: 1440
     strategy:
       fail-fast: false
@@ -496,19 +529,14 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-proptest-v2-
 
-      - name: Download stellar-cli
+      - name: Download pool WASM fixture
         uses: actions/download-artifact@v8.0.1
         with:
-          name: stellar-cli-${{ github.run_id }}
-          path: .github/tools
+          name: wasm-fixtures-${{ github.run_id }}
+          path: target/wasm32v1-none/release
 
-      - name: Add stellar-cli to PATH
-        run: |
-          chmod +x .github/tools/stellar
-          echo "$PWD/.github/tools" >> "$GITHUB_PATH"
-
-      - name: Build pool WASM
-        run: stellar contract build
+      - name: Verify pool WASM fixture
+        run: test -s target/wasm32v1-none/release/pool.wasm
 
       - name: Run proptest property
         env:

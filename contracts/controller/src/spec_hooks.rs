@@ -1,22 +1,17 @@
-//! Hooks used only when building for Certora formal verification (`certora`
-//! feature). Marks a checkpoint in the solvency-gate code path for the formal spec,
-//! and, under `certora`, replaces the pool-backed market-index fetch with a no-op
-//! stub so the harness does not perform live pool calls.
-
-/// Marks the solvency gate as checked. A no-op unless the `certora` feature is
-/// enabled, in which case it records the checkpoint via
-/// `crate::spec::health_ghost::set_checked` (the `spec` module only exists
-/// under the `certora` feature).
+/// Marks the solvency check as having run and snapshots the position book it
+/// valued, for the Certora harness's ghost state; a no-op unless built with
+/// the `certora` feature.
 #[inline]
-pub(crate) fn solvency_gate_checked() {
+pub(crate) fn solvency_gate_checked(_account: &common::types::Account) {
     #[cfg(feature = "certora")]
-    crate::spec::health_ghost::set_checked();
+    crate::spec::health_ghost::record_gate(_account);
 }
 
 #[cfg(feature = "certora")]
 impl crate::context::Cache {
-    /// Certora-only stub for [`crate::context::Cache::fetch_market_indexes`]. Does
-    /// nothing; replaces the pool-backed implementation compiled in normal builds.
+    /// No-op stand-in for the normal market-index fetch, compiled in under
+    /// the `certora` feature so the formal-verification harness does not
+    /// model the pool's cross-contract index call.
     pub(crate) fn fetch_market_indexes(
         &mut self,
         _hub_assets: &soroban_sdk::Vec<crate::types::HubAssetKey>,

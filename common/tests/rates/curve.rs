@@ -120,6 +120,36 @@ fn test_calculate_borrow_rate_optimal_utilization_boundary_exact() {
 }
 
 #[test]
+fn test_annual_borrow_rate_matches_curve_before_year_conversion() {
+    let env = Env::default();
+    let params = make_test_params(&env);
+
+    assert_eq!(
+        calculate_annual_borrow_rate(&env, Ray::ZERO, &params).raw(),
+        RAY / 100
+    );
+
+    let util_50 = Ray::from(RAY * 50 / 100);
+    assert_eq!(
+        calculate_annual_borrow_rate(&env, util_50, &params).raw(),
+        RAY * 5 / 100
+    );
+}
+
+#[test]
+fn test_borrow_rate_is_annual_divided_by_milliseconds_per_year() {
+    let env = Env::default();
+    let params = make_test_params(&env);
+    let util = Ray::from(RAY * 65 / 100);
+    let annual = calculate_annual_borrow_rate(&env, util, &params);
+    let per_ms = calculate_borrow_rate(&env, util, &params);
+    assert_eq!(
+        per_ms.raw(),
+        annual.div_by_int(MILLISECONDS_PER_YEAR as i128).raw()
+    );
+}
+
+#[test]
 fn test_deposit_rate() {
     let env = Env::default();
     let util_80 = Ray::from(RAY * 80 / 100);

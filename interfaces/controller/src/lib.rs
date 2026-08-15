@@ -5,7 +5,8 @@ pub mod admin;
 pub use admin::{ControllerAdmin, ControllerAdminClient};
 use common::types::{
     AccountAttributes, AccountPositionRaw, DebtPositionRaw, HubAssetKey, LiquidationEstimate,
-    MarketIndexRaw, MarketIndexView, PositionMode, SpokeAssetConfig, SpokeConfig, SpokeUsageRaw,
+    MarketIndexRaw, MarketIndexView, PositionMode, SeizeMode, SpokeAssetConfig, SpokeConfig,
+    SpokeUsageRaw,
 };
 use soroban_sdk::{contractclient, Address, Bytes, Env, Map, Vec};
 
@@ -42,7 +43,8 @@ pub trait ControllerInterface {
         liquidator: Address,
         account_id: u64,
         debt_payments: Vec<(HubAssetKey, i128)>,
-    );
+        seize_mode: SeizeMode,
+    ) -> u64;
 
     fn clean_bad_debt(env: Env, caller: Address, account_id: u64);
 
@@ -154,6 +156,7 @@ pub trait ControllerInterface {
         env: Env,
         account_id: u64,
         debt_payments: Vec<(HubAssetKey, i128)>,
+        seize_mode: SeizeMode,
     ) -> LiquidationEstimate;
 
     fn get_liquidation_collateral(env: Env, account_id: u64) -> i128;

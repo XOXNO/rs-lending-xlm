@@ -86,8 +86,14 @@ flow_lifecycle() {
             --assets "$(pay_vec "$PRIMARY_HUB_ID" "$XLM_SAC" 5000000000 "$USDC_SAC" "$usdc_half")" >/dev/null
     fi
 
-    view hf_alice "$CONTROLLER" -- get_health_factor --account_id "$acct" >/dev/null
-    view coll_usd_alice "$CONTROLLER" -- get_total_collateral_usd --account_id "$acct" >/dev/null
+    # Supplying must have produced real collateral. Nothing is borrowed yet, so
+    # the account is unambiguously healthy and its collateral must price above
+    # zero — a supply that moved tokens without registering collateral would
+    # otherwise show up only much later, as an unexplained borrow failure.
+    assert_hf_at_least hf_alice "$acct" "$WAD"
+    assert_int_view_positive coll_usd_alice get_total_collateral_usd --account_id "$acct"
+    assert_int_view_positive coll_xlm_alice_supplied get_collateral_amount \
+        --account_id "$acct" --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$XLM_SAC")"
     view ltv_usd_alice "$CONTROLLER" -- get_ltv_collateral_usd --account_id "$acct" >/dev/null
     view attrs_alice "$CONTROLLER" -- get_account_attributes --account_id "$acct" >/dev/null
 view positions_alice "$CONTROLLER" -- get_account_positions --account_id "$acct" >/dev/null
@@ -210,4 +216,12 @@ usdc_coll=$(view coll_usdc_alice "$CONTROLLER" -- get_collateral_amount \
             --withdrawals "$(pay_vec "$PRIMARY_HUB_ID" "$XLM_SAC" 0 "$USDC_SAC" 0)" --to null >/dev/null
     }
     retry_leg leg_withdraw_full_bulk
+
+    # Amount 0 means "withdraw everything", so both legs must end at zero. A
+    # partial withdraw that reported success would leave collateral stranded in
+    # an account the user believes they have emptied.
+    assert_int_view_eq withdraw_xlm_drained 0 get_collateral_amount \
+        --account_id "$acct" --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$XLM_SAC")"
+    assert_int_view_eq withdraw_usdc_drained 0 get_collateral_amount \
+        --account_id "$acct" --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")"
 }

@@ -14,15 +14,12 @@ use soroban_sdk::{assert_with_error, Env};
 
 use crate::{guards, ops};
 
-/// Settles up to `entry.amount` of debt using the user's supply position.
-///
-/// Cap is the ceiled debt value. Withdrawal and repay resolvers determine shares
-/// burned; any gross that does not burn positive shares on both sides panics.
-///
-/// # Returns
-///
-/// Updated residual positions, market indexes, and settled asset amount, plus
-/// a snapshot for the caller to emit.
+/// Settles up to `entry.amount` of debt against the user's supply position
+/// on the same market. Burns are sized from the conservative overlap of
+/// floored supply and ceiled debt, so a side closes fully only when that
+/// overlap exhausts it; a positive settle that would burn zero shares on
+/// either side panics. Returns the residual positions, market indexes, and
+/// settled asset amount, plus a snapshot for the caller to emit.
 pub(crate) fn apply(
     env: &Env,
     entry: &PoolNetSettleEntry,
@@ -36,12 +33,8 @@ pub(crate) fn apply(
     let supply_position = Ray::from(entry.supply_position.scaled_amount);
     let debt_position = Ray::from(entry.debt_position.scaled_amount);
 
-    let max_debt = cache.unscale_borrow_ceil(debt_position);
-    let capped_amount = entry.amount.min(max_debt);
-
-    let (burned_supply, gross_amount) = cache.resolve_withdrawal(capped_amount, supply_position);
-    let (burned_debt, overpayment) = cache.resolve_repay(gross_amount, debt_position);
-    assert_with_error!(env, overpayment == 0, GenericError::InternalError);
+    let (burned_supply, burned_debt, gross_amount) =
+        cache.resolve_net_settle(entry.amount, supply_position, debt_position);
     assert_with_error!(
         env,
         gross_amount == 0 || (burned_supply.raw() > 0 && burned_debt.raw() > 0),

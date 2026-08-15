@@ -15,6 +15,22 @@ fn validate_and_calculate_tolerances_rejects_above_max() {
 }
 
 #[test]
+fn validate_and_calculate_tolerances_accepts_exactly_the_min() {
+    let env = Env::default();
+    let bands = validate_and_calculate_tolerances(&env, MIN_TOLERANCE);
+    assert_eq!(bands.upper_ratio_bps, 10_000 + MIN_TOLERANCE);
+    assert_eq!(bands.lower_ratio_bps, 9_852);
+}
+
+#[test]
+fn validate_and_calculate_tolerances_accepts_exactly_the_max() {
+    let env = Env::default();
+    let bands = validate_and_calculate_tolerances(&env, MAX_TOLERANCE);
+    assert_eq!(bands.upper_ratio_bps, 10_000 + MAX_TOLERANCE);
+    assert_eq!(bands.lower_ratio_bps, 8_000);
+}
+
+#[test]
 fn validate_and_calculate_tolerances_returns_expected_band() {
     let env = Env::default();
     let tolerance = (MIN_TOLERANCE + MAX_TOLERANCE) / 2;

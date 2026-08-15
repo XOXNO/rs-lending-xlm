@@ -24,6 +24,7 @@ certora-focused = ["common/certora-focused"]
 certora-freshness-rules = ["certora", "certora-focused"]
 certora-oracle-rules = ["certora", "certora-focused"]
 certora-tolerance-math-rules = ["certora", "certora-focused"]
+certora-scaled-math-rules = ["certora", "certora-focused"]
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }

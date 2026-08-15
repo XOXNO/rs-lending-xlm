@@ -7,16 +7,18 @@ use crate::constants::{BPS, MILLISECONDS_PER_YEAR};
 use crate::math::fp::{Bps, Ray};
 use crate::types::MarketParams;
 
-/// Computes the per-millisecond borrow rate for `utilization` under the
+/// Computes the annual borrow APR (RAY) for `utilization` under the
 /// three-segment piecewise-linear curve defined by `params`.
 ///
 /// Clamps `utilization` to at most `Ray::ONE`. Below `params.mid_utilization`
 /// the annual rate ramps from `params.base_borrow_rate` by `params.slope1`;
 /// between `mid_utilization` and `params.optimal_utilization` it ramps
 /// further by `params.slope2`; above `optimal_utilization` it ramps by
-/// `params.slope3`. Caps the resulting annual rate at `params.max_borrow_rate`
-/// before converting it to a per-millisecond rate.
-pub fn calculate_borrow_rate(env: &Env, utilization: Ray, params: &MarketParams) -> Ray {
+/// `params.slope3`. Caps the result at `params.max_borrow_rate`.
+///
+/// This is the value pool view getters return. Accrual still converts it to
+/// a per-millisecond rate via [`calculate_borrow_rate`].
+pub fn calculate_annual_borrow_rate(env: &Env, utilization: Ray, params: &MarketParams) -> Ray {
     let utilization = if utilization > Ray::ONE {
         Ray::ONE
     } else {
@@ -49,17 +51,27 @@ pub fn calculate_borrow_rate(env: &Env, utilization: Ray, params: &MarketParams)
         base_rate.checked_add(env, contribution)
     };
 
-    let capped = if annual_rate > params.max_borrow_rate {
+    if annual_rate > params.max_borrow_rate {
         params.max_borrow_rate
     } else {
         annual_rate
-    };
-    capped.div_by_int(MILLISECONDS_PER_YEAR as i128)
+    }
 }
 
-/// Computes the per-millisecond deposit rate suppliers earn from
-/// `borrow_rate` at the given `utilization`, after deducting
-/// `reserve_factor`.
+/// Computes the per-millisecond borrow rate for `utilization`.
+///
+/// Divides [`calculate_annual_borrow_rate`] by [`MILLISECONDS_PER_YEAR`] so
+/// [`compound_interest`] can scale by elapsed milliseconds.
+pub fn calculate_borrow_rate(env: &Env, utilization: Ray, params: &MarketParams) -> Ray {
+    calculate_annual_borrow_rate(env, utilization, params).div_by_int(MILLISECONDS_PER_YEAR as i128)
+}
+
+/// Computes the deposit rate suppliers earn from `borrow_rate` at the given
+/// `utilization`, after deducting `reserve_factor`.
+///
+/// The result keeps the same time unit as `borrow_rate`: annual RAY when the
+/// input is an annual APR, per-millisecond RAY when the input is the accrual
+/// rate.
 ///
 /// Returns `Ray::ZERO` if `utilization` is zero or if `reserve_factor` is not
 /// in the range `0..BPS`.

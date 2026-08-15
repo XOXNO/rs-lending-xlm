@@ -13,6 +13,25 @@ deploy_protocol() {
         save_state POOL_HASH "$hash"
         record upload_pool_wasm ok upload "$txh" "" "" "" "" "$hash"
     fi
+    # Governance's `deploy_price_aggregator` takes a wasm hash, not a wasm, so
+    # the price-aggregator code has to be on-ledger by hash as well as deployed
+    # directly. Non-fatal: only the governance-owned aggregator coverage needs
+    # it, and the harness's own $PRICE_AGGREGATOR is deployed from the file.
+    if [ -z "${PA_HASH:-}" ] && [ -f "$WASM_DIR/price_aggregator.wasm" ]; then
+        local pa_out="$LOG_DIR/upload_price_agg.out" pa_err="$LOG_DIR/upload_price_agg.err"
+        run_deploy "$pa_out" "$pa_err" -- stellar contract upload \
+            --wasm "$WASM_DIR/price_aggregator.wasm" \
+            --source "$ADMIN" "${NET_ARGS[@]}"
+        local pa_hash pa_txh
+        pa_hash=$(sanitize_output "$pa_out")
+        pa_txh=$(extract_signing_hash "$pa_err")
+        if is_wasm_hash "$pa_hash"; then
+            save_state PA_HASH "$pa_hash"
+            record upload_price_agg_wasm ok upload "$pa_txh" "" "" "" "" "$pa_hash"
+        else
+            log "price-aggregator wasm upload produced no hash; governance aggregator coverage will skip"
+        fi
+    fi
     if [ -z "${CONTROLLER:-}" ]; then
         local out_f="$LOG_DIR/deploy_controller.out" err_f="$LOG_DIR/deploy_controller.err"
         run_deploy "$out_f" "$err_f" -- stellar contract deploy --wasm "$WASM_DIR/controller.wasm" \
@@ -50,11 +69,41 @@ deploy_protocol() {
         record deploy_price_aggregator ok deploy "$txh" "" "" "" "" "$pa"
         log "price-aggregator = $pa"
     fi
+    # A second, throwaway swap-aggregator owned by this run's ADMIN. The
+    # `$AGGREGATOR` from configs/networks.json is a shared testnet deployment
+    # whose owner we are not, so its owner-only surface (fees, whitelist,
+    # referrals, sweeps) is untestable there — and renounce_ownership would be
+    # destructive on a contract other runs depend on. Swaps keep using the
+    # shared one; only the admin surface is exercised here.
+    if [ -z "${OWNED_AGGREGATOR:-}" ] && [ -f "$WASM_DIR/swap_aggregator.wasm" ]; then
+        local sa_out="$LOG_DIR/deploy_owned_agg.out" sa_err="$LOG_DIR/deploy_owned_agg.err"
+        run_deploy "$sa_out" "$sa_err" -- stellar contract deploy \
+            --wasm "$WASM_DIR/swap_aggregator.wasm" \
+            --source "$ADMIN" "${NET_ARGS[@]}" -- --admin "$ADMIN_ADDR"
+        local sa sa_tx
+        sa=$(sanitize_output "$sa_out")
+        sa_tx=$(extract_signing_hash "$sa_err")
+        if is_contract_id "$sa"; then
+            save_state OWNED_AGGREGATOR "$sa"
+            record deploy_owned_aggregator ok deploy "$sa_tx" "" "" "" "" "$sa"
+            log "owned swap-aggregator = $sa"
+        else
+            log "owned swap-aggregator deploy failed; admin-surface coverage will skip: $(tail_err_note "$sa_err")"
+        fi
+    fi
+
     if [ -z "${WIRED:-}" ]; then
         inv set_swap_aggregator "$ADMIN" "$CONTROLLER" -- set_swap_aggregator --addr "$AGGREGATOR" >/dev/null
 
         inv set_accumulator "$ADMIN" "$CONTROLLER" -- set_accumulator --addr "$ADMIN_ADDR" >/dev/null
         inv set_price_aggregator "$ADMIN" "$CONTROLLER" -- set_price_aggregator --addr "$PRICE_AGGREGATOR" >/dev/null
+        # Read back: every price the protocol acts on comes through whichever
+        # aggregator this points at, so a setter that silently kept the old one
+        # would route the whole run's valuations to the wrong contract.
+        # set_swap_aggregator and set_accumulator have no getter on the
+        # controller, so they can only be asserted through their effects — the
+        # strategies phase exercises the swap path.
+        assert_view_eq_at "$CONTROLLER" wired_price_aggregator "$PRICE_AGGREGATOR" price_aggregator
         save_state WIRED 1
     fi
     if [ -z "${PRIMARY_HUB_ID:-}" ]; then
@@ -188,10 +237,15 @@ asset_config_json() {
     }' | jq -c "$overrides"
 }
 
+# Builds the `SpokeAssetArgs` map. Every key the Rust struct declares must be
+# present: the CLI rejects the call outright ("Missing key <k> in map") rather
+# than defaulting, so a field added to common/src/types/controller.rs has to be
+# mirrored here or every add_asset_to_spoke in the suite fails.
 spoke_args() {
     jq -nc --argjson hub "$1" --arg asset "$2" --argjson spoke "$3" --argjson cc "$4" --argjson cb "$5" \
         --argjson ltv "$6" --argjson thr "$7" --argjson bonus "$8" \
-        --arg sc "${9:-1000000000000000000}" --arg bc "${10:-1000000000000000000}" '{
+        --arg sc "${9:-1000000000000000000}" --arg bc "${10:-1000000000000000000}" \
+        --argjson ns "${11:-false}" '{
         hub_id: $hub,
         asset: $asset,
         spoke_id: $spoke,
@@ -199,6 +253,7 @@ spoke_args() {
         can_borrow: $cb,
         paused: false,
         frozen: false,
+        no_seize: $ns,
         ltv: $ltv,
         threshold: $thr,
         bonus: $bonus,
@@ -206,6 +261,20 @@ spoke_args() {
         supply_cap: $sc,
         borrow_cap: $bc
     }'
+}
+
+# `SeizeMode` on the wire, following the same convention the oracle configs use
+# for `read_mode`: a unit variant is a bare JSON string, a data variant is
+# {Variant: value}. Emitted as JSON rather than a bare word so the CLI parses it
+# as a value instead of falling back to string coercion.
+seize_transfer() {
+    jq -nc '"Transfer"'
+}
+
+# `Credit(0)` opens a fresh account owned by the liquidator; any other id must
+# already exist and satisfy the binding rules in ADR-0019.
+seize_credit() {
+    jq -nc --argjson id "${1:-0}" '{Credit: $id}'
 }
 
 price_key_token() {

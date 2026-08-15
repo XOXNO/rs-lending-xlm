@@ -84,10 +84,9 @@ fn test_partial_liquidation_chain_converges() {
     }
 
     assert!(
-        iters <= max_iters,
-        "partial-liquidation chain must converge within {} iters; took {}",
-        max_iters,
-        iters
+        iters < max_iters,
+        "partial-liquidation chain must exit by convergence (healthy or dust), \
+         not by exhausting the {max_iters}-iteration budget",
     );
 
     let final_hf_safe = !t.can_be_liquidated(ALICE);

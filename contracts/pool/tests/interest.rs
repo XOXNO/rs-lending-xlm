@@ -18,6 +18,10 @@ struct TestSetup {
 
 impl TestSetup {
     fn new() -> Self {
+        Self::with_decimals(7)
+    }
+
+    fn with_decimals(asset_decimals: u32) -> Self {
         let env = Env::default();
         env.mock_all_auths();
         init_ledger(&env);
@@ -37,7 +41,7 @@ impl TestSetup {
             is_flashloanable: false,
             flashloan_fee: 0,
             asset_id: asset.clone(),
-            asset_decimals: 7,
+            asset_decimals,
         };
         let contract = env.register(LiquidityPool, (admin.clone(),));
         LiquidityPoolClient::new(&env, &contract).create_market(&0u32, &params);
@@ -955,4 +959,495 @@ fn test_year_daily_vs_single_sync_dust_comparison() {
             "dust should stay under 2% of interest on both cadences"
         );
     });
+}
+
+// ---------------------------------------------------------------------------
+// Accrual-cadence value leakage (CS-AAVE4-004 analogue)
+//
+// ChainSecurity found that Aave V4 lost the whole protocol fee when `accrue()`
+// ran every second: the fee was floored to zero before the reserve factor was
+// applied. `update_indexes` here is permissionless, so an attacker picks the
+// cadence. These tests run the SAME elapsed span three ways (one accrual at the
+// end / one per ~5s ledger / one per second) and measure where the value lands.
+// ---------------------------------------------------------------------------
+
+/// Print the cadence tables (only visible under `cargo test -- --nocapture`).
+const VERBOSE_CADENCE: bool = true;
+
+const SECOND_MS: u64 = 1_000;
+
+/// Stellar closes a ledger roughly every 5 seconds.
+const LEDGER_MS: u64 = 5_000;
+
+const YEAR_MS: i128 = common::constants::MILLISECONDS_PER_YEAR as i128;
+
+/// Span measured by the cadence harness. One day keeps the per-second path at
+/// 86_400 accruals, which is the finest cadence a caller can reach on-chain and
+/// still fits a unit test; results are annualized for reporting.
+const CADENCE_SPAN_MS: u64 = DAY_MS;
+
+/// A market sized to mirror ChainSecurity's scenario: ~$1M of borrowed
+/// principal at ~10% APR (utilization 45% on this repo's default curve:
+/// base 1% + slope1 10% ramped over mid_utilization 50%).
+struct CadenceMarket {
+    label: &'static str,
+    /// Pool supports `0..=WAD_DECIMALS` (18); 7 is the Stellar native scale.
+    decimals: u32,
+    supplied_units: i128,
+    borrowed_units: i128,
+    /// Reporting only: USD per whole token, so magnitudes are comparable to
+    /// ChainSecurity's "$30k/yr on a $1M book".
+    usd_per_token: i128,
+}
+
+/// 45% utilization => 10% APR on the `TestSetup` curve.
+const CADENCE_MARKETS: [CadenceMarket; 2] = [
+    CadenceMarket {
+        label: "7dp stablecoin: 1_000_000 borrowed / 2_222_222 supplied (~$1M @ ~10% APR)",
+        decimals: 7,
+        supplied_units: 22_222_222_222_222,
+        borrowed_units: 10_000_000_000_000,
+        usd_per_token: 1,
+    },
+    CadenceMarket {
+        label: "8dp WBTC-like: 10 borrowed / 22.22222222 supplied (~$1M @ ~10% APR)",
+        decimals: 8,
+        supplied_units: 2_222_222_222,
+        borrowed_units: 1_000_000_000,
+        usd_per_token: 100_000,
+    },
+];
+
+impl CadenceMarket {
+    fn state(&self) -> PoolStateRaw {
+        PoolStateRaw {
+            supplied: Ray::from_asset(self.supplied_units, self.decimals).raw(),
+            borrowed: Ray::from_asset(self.borrowed_units, self.decimals).raw(),
+            revenue: 0,
+            borrow_index: RAY,
+            supply_index: RAY,
+            last_timestamp: 0,
+            cash: self.supplied_units - self.borrowed_units,
+        }
+    }
+}
+
+/// Terminal state of one accrual cadence over a fixed span.
+struct CadenceResult {
+    label: &'static str,
+    steps: u64,
+    borrow_index: i128,
+    supply_index: i128,
+    revenue_scaled: i128,
+    /// Suppliers' shares = total supply shares minus protocol revenue shares.
+    supplier_scaled: i128,
+    /// Withdrawable supplier claim, floor-rounded to asset units.
+    supplier_claim_units: i128,
+    /// Claimable protocol revenue, floor-rounded to asset units.
+    revenue_claim_units: i128,
+    /// Outstanding borrower debt, ceil-rounded to asset units.
+    debt_units: i128,
+    /// Same three quantities at full RAY precision, to expose sub-unit drift.
+    supplier_claim_ray: i128,
+    revenue_claim_ray: i128,
+    debt_ray: i128,
+    /// Interest the borrowers owe over the span, in ray.
+    interest_ray: i128,
+    /// Interest that landed somewhere claimable (suppliers + treasury), in ray.
+    attributed_ray: i128,
+}
+
+impl CadenceResult {
+    /// Interest that borrowers owe but nobody can claim — the rounding residual
+    /// left behind by this cadence. Positive means the books are conservative
+    /// (claims under-count debt); negative would mean claims were inflated
+    /// beyond the interest actually charged.
+    fn unattributed_ray(&self) -> i128 {
+        self.interest_ray - self.attributed_ray
+    }
+}
+
+impl CadenceResult {
+    /// Everything the pool owes out: suppliers plus unclaimed protocol revenue.
+    fn booked_units(&self) -> i128 {
+        self.supplier_claim_units + self.revenue_claim_units
+    }
+
+    fn booked_ray(&self) -> i128 {
+        self.supplier_claim_ray + self.revenue_claim_ray
+    }
+}
+
+/// Accrues `total_ms` in `step_ms` slices through the real mutating path
+/// (`global_sync`) and reports the terminal split.
+///
+/// Only the initial `Cache::load` touches storage, so it is the only part that
+/// runs inside a contract invocation frame; the accrual loop is pure math on
+/// the cache. Keeping the loop outside the frame avoids tripping the SDK's
+/// per-invocation mainnet resource limits, which a real caller would never hit
+/// because each on-chain `update_indexes` is its own transaction.
+fn run_cadence(
+    t: &TestSetup,
+    market: &CadenceMarket,
+    label: &'static str,
+    total_ms: u64,
+    step_ms: u64,
+) -> CadenceResult {
+    t.env.cost_estimate().budget().reset_unlimited();
+
+    let start = market.state();
+    // Both indexes start at RAY and revenue at zero, so the scaled figures are
+    // already the opening claim and debt in ray.
+    assert_eq!(start.supply_index, RAY);
+    assert_eq!(start.borrow_index, RAY);
+    assert_eq!(start.revenue, 0);
+    let (start_supplier_ray, start_debt_ray) = (start.supplied, start.borrowed);
+
+    let mut cache = t.as_contract(|| t.fresh_cache(start));
+    cache.set_current_timestamp(0);
+
+    let mut steps = 0u64;
+    let mut elapsed = 0u64;
+    while elapsed < total_ms {
+        elapsed = elapsed.saturating_add(step_ms).min(total_ms);
+        cache.set_current_timestamp(elapsed);
+        global_sync(&t.env, &mut cache);
+        steps += 1;
+    }
+
+    let supplier_scaled = cache.supplied().checked_sub(&t.env, cache.revenue());
+    let supplier_claim_ray = supplier_scaled
+        .mul_floor(&t.env, cache.supply_index())
+        .raw();
+    let revenue_claim_ray = cache
+        .revenue()
+        .mul_floor(&t.env, cache.supply_index())
+        .raw();
+    let debt_ray = cache
+        .borrowed()
+        .mul_ceil(&t.env, cache.borrow_index())
+        .raw();
+
+    CadenceResult {
+        label,
+        steps,
+        borrow_index: cache.borrow_index().raw(),
+        supply_index: cache.supply_index().raw(),
+        revenue_scaled: cache.revenue().raw(),
+        supplier_scaled: supplier_scaled.raw(),
+        supplier_claim_units: cache.unscale_supply_floor(supplier_scaled),
+        revenue_claim_units: cache.unscale_supply_floor(cache.revenue()),
+        debt_units: cache.unscale_borrow_ceil(cache.borrowed()),
+        supplier_claim_ray,
+        revenue_claim_ray,
+        debt_ray,
+        interest_ray: debt_ray - start_debt_ray,
+        attributed_ray: (supplier_claim_ray - start_supplier_ray) + revenue_claim_ray,
+    }
+}
+
+/// Formats a native-unit amount as a decimal string at `decimals` precision.
+fn fmt_units(value: i128, decimals: u32) -> std::string::String {
+    let scale = 10_i128.pow(decimals);
+    let sign = if value < 0 { "-" } else { "" };
+    let magnitude = value.unsigned_abs();
+    let whole = magnitude / (scale as u128);
+    let frac = magnitude % (scale as u128);
+    std::format!("{sign}{whole}.{frac:0width$}", width = decimals as usize)
+}
+
+/// Scales a delta measured over `span_ms` up to a full year.
+fn annualize(delta_units: i128, span_ms: u64) -> i128 {
+    delta_units.saturating_mul(YEAR_MS) / (span_ms as i128)
+}
+
+fn print_cadence_table(market: &CadenceMarket, span_ms: u64, results: &[CadenceResult]) {
+    if !VERBOSE_CADENCE {
+        return;
+    }
+    let d = market.decimals;
+    std::println!(
+        "\n=== accrual cadence over {} ms ({} h) | {} ===",
+        span_ms,
+        span_ms / 3_600_000,
+        market.label
+    );
+    std::println!(
+        "{:<26} {:>8} {:>34} {:>34} {:>20} {:>20} {:>20}",
+        "cadence",
+        "accruals",
+        "borrow_index (RAY)",
+        "supply_index (RAY)",
+        "revenue_scaled",
+        "supplier claim",
+        "debt"
+    );
+    for r in results {
+        std::println!(
+            "{:<26} {:>8} {:>34} {:>34} {:>20} {:>20} {:>20}",
+            r.label,
+            r.steps,
+            r.borrow_index,
+            r.supply_index,
+            r.revenue_scaled,
+            fmt_units(r.supplier_claim_units, d),
+            fmt_units(r.debt_units, d)
+        );
+        // 1 ray = 1e-27 of a token, so the residual below is far under any
+        // representable asset unit at 0..=18 decimals.
+        std::println!(
+            "    conservation: interest={} ray, attributed={} ray, unattributed residual={} ray \
+             ({} ray per 1000 accruals; 1 ray stranded per {} ray of interest)",
+            r.interest_ray,
+            r.attributed_ray,
+            r.unattributed_ray(),
+            r.unattributed_ray().saturating_mul(1_000) / (r.steps as i128),
+            if r.unattributed_ray() > 0 {
+                r.interest_ray / r.unattributed_ray()
+            } else {
+                i128::MAX
+            },
+        );
+    }
+
+    let base = &results[0];
+    std::println!(
+        "  baseline ({}): supplier={} revenue={} booked={} debt={} supplier_scaled={}",
+        base.label,
+        fmt_units(base.supplier_claim_units, d),
+        fmt_units(base.revenue_claim_units, d),
+        fmt_units(base.booked_units(), d),
+        fmt_units(base.debt_units, d),
+        base.supplier_scaled
+    );
+    for r in results.iter().skip(1) {
+        let d_supplier = r.supplier_claim_units - base.supplier_claim_units;
+        let d_revenue = r.revenue_claim_units - base.revenue_claim_units;
+        let d_booked = r.booked_units() - base.booked_units();
+        let d_debt = r.debt_units - base.debt_units;
+        let usd = |units: i128| {
+            let scale = 10_i128.pow(d);
+            let cents = units
+                .saturating_mul(market.usd_per_token)
+                .saturating_mul(100)
+                / scale;
+            std::format!("${}.{:02}", cents / 100, (cents % 100).abs())
+        };
+        std::println!(
+            "  delta vs baseline [{}]: supplier={} revenue={} booked={} debt={}",
+            r.label,
+            fmt_units(d_supplier, d),
+            fmt_units(d_revenue, d),
+            fmt_units(d_booked, d),
+            fmt_units(d_debt, d)
+        );
+        let per_year = |v: i128| annualize(v, span_ms);
+        std::println!(
+            "    annualized: supplier={} ({}) revenue={} ({}) booked={} ({}) debt={} ({})",
+            fmt_units(per_year(d_supplier), d),
+            usd(per_year(d_supplier)),
+            fmt_units(per_year(d_revenue), d),
+            usd(per_year(d_revenue)),
+            fmt_units(per_year(d_booked), d),
+            usd(per_year(d_booked)),
+            fmt_units(per_year(d_debt), d),
+            usd(per_year(d_debt))
+        );
+        std::println!(
+            "    RAY-precision deltas: supplier={} revenue={} booked={} debt={}",
+            r.supplier_claim_ray - base.supplier_claim_ray,
+            r.revenue_claim_ray - base.revenue_claim_ray,
+            r.booked_ray() - base.booked_ray(),
+            r.debt_ray - base.debt_ray
+        );
+    }
+}
+
+/// Runs every cadence in `cadences` over the same `span_ms`, prints the table,
+/// and asserts the security property against `cadences[0]` (the single
+/// terminal accrual).
+fn assert_cadence_never_leaks(
+    market: &CadenceMarket,
+    span_ms: u64,
+    cadences: &[(&'static str, u64)],
+) {
+    let t = TestSetup::with_decimals(market.decimals);
+
+    let mut results = std::vec::Vec::with_capacity(cadences.len());
+    for (label, step_ms) in cadences {
+        results.push(run_cadence(&t, market, label, span_ms, *step_ms));
+    }
+    print_cadence_table(market, span_ms, &results);
+
+    let base = &results[0];
+    assert_eq!(
+        base.steps, 1,
+        "{}: baseline must be one accrual",
+        market.label
+    );
+
+    for r in results.iter().skip(1) {
+        assert!(
+            r.supplier_claim_units >= base.supplier_claim_units,
+            "{}: cadence '{}' ({} accruals over {} ms) left suppliers SHORT by {} units \
+             vs a single accrual ({} < {}) — accrual frequency drains suppliers",
+            market.label,
+            r.label,
+            r.steps,
+            span_ms,
+            base.supplier_claim_units - r.supplier_claim_units,
+            r.supplier_claim_units,
+            base.supplier_claim_units,
+        );
+        assert!(
+            r.booked_units() >= base.booked_units(),
+            "{}: cadence '{}' ({} accruals over {} ms) booked {} fewer units in total \
+             (suppliers + treasury) than a single accrual ({} < {}) — value vanished",
+            market.label,
+            r.label,
+            r.steps,
+            span_ms,
+            base.booked_units() - r.booked_units(),
+            r.booked_units(),
+            base.booked_units(),
+        );
+
+        // Same direction at full RAY precision, so a sub-unit drain cannot hide
+        // under the asset-decimal floor.
+        assert!(
+            r.supplier_claim_ray >= base.supplier_claim_ray,
+            "{}: cadence '{}' left suppliers short by {} ray",
+            market.label,
+            r.label,
+            base.supplier_claim_ray - r.supplier_claim_ray,
+        );
+        assert!(
+            r.booked_ray() >= base.booked_ray(),
+            "{}: cadence '{}' booked {} fewer ray in total",
+            market.label,
+            r.label,
+            base.booked_ray() - r.booked_ray(),
+        );
+    }
+
+    // Residual: interest charged to borrowers that nobody can claim. It must
+    // never go negative (that would mean claims outran the interest actually
+    // charged, i.e. the pool minted value) and must stay negligible.
+    for r in results.iter() {
+        let residual = r.unattributed_ray();
+        assert!(
+            residual >= 0,
+            "{}: cadence '{}' attributed {} ray more than borrowers were charged — \
+             claims inflated beyond interest",
+            market.label,
+            r.label,
+            -residual,
+        );
+        // The residual is bounded by the number of accruals, not by the size of
+        // the book: each accrual strands at most ~0.5 ray (1e-27 of a token),
+        // regardless of a $1M or $1B position. Measured: 43_208 ray over 86_400
+        // per-second accruals on a $1M book.
+        assert!(
+            residual <= (r.steps as i128) + 8,
+            "{}: cadence '{}' stranded {} ray over {} accruals — more than ~1 ray per accrual, \
+             so the residual is scaling with something other than accrual count",
+            market.label,
+            r.label,
+            residual,
+            r.steps,
+        );
+    }
+}
+
+/// The security property: no accrual cadence may leave suppliers — or the
+/// suppliers-plus-treasury total — worse off than a single terminal accrual.
+///
+/// This is the inverse of CS-AAVE4-004: there, sub-second accrual floored the
+/// protocol fee to zero. Here the per-step fee stays non-zero because the split
+/// happens in RAY (27dp) space, and every rounding residual that cannot lift the
+/// supply index is re-booked as protocol revenue by
+/// `supply_index_reward_shortfall`.
+///
+/// One-day horizon, down to the finest cadence a caller can reach (1 s).
+#[test]
+fn test_accrual_cadence_never_leaks_supplier_or_total_value() {
+    let cadences = [
+        ("single (terminal)", DAY_MS),
+        ("per ledger (~5s)", LEDGER_MS),
+        ("per second", SECOND_MS),
+    ];
+    for market in &CADENCE_MARKETS {
+        assert_cadence_never_leaks(market, CADENCE_SPAN_MS, &cadences);
+    }
+}
+
+/// Same property over a full year, where utilization drift and repeated
+/// compounding have time to accumulate. `MAX_COMPOUND_DELTA_MS` is one year, so
+/// the baseline here is still a single compounding chunk. Per-second cadence is
+/// not runnable at this horizon (31.5M accruals), so this covers hourly and
+/// daily; the one-day test covers the sub-minute end.
+#[test]
+fn test_year_horizon_accrual_cadence_never_leaks_supplier_or_total_value() {
+    let year_ms = YEAR_MS as u64;
+    let cadences = [
+        ("single (terminal)", year_ms),
+        ("daily", DAY_MS),
+        ("hourly", 3_600_000),
+    ];
+    for market in &CADENCE_MARKETS {
+        assert_cadence_never_leaks(market, year_ms, &cadences);
+    }
+}
+
+/// CS-AAVE4-004's actual failure mode: the protocol fee rounding to zero under
+/// a fast cadence. Measures the treasury's capture rate at each cadence and
+/// requires it to stay near the 10% reserve factor.
+#[test]
+fn test_frequent_accrual_does_not_round_protocol_fee_to_zero() {
+    for market in &CADENCE_MARKETS {
+        let t = TestSetup::with_decimals(market.decimals);
+
+        // Indexes start at RAY, so the scaled debt is the debt in ray units.
+        let start_debt = market.state().borrowed;
+
+        let cadences: [(&'static str, u64); 3] = [
+            ("single (terminal)", DAY_MS),
+            ("per ledger (~5s)", LEDGER_MS),
+            ("per second", SECOND_MS),
+        ];
+
+        for (label, step_ms) in cadences {
+            let r = run_cadence(&t, market, label, CADENCE_SPAN_MS, step_ms);
+            let interest = r.debt_ray - start_debt;
+            assert!(
+                interest > 0,
+                "{}: {label} accrued no interest",
+                market.label
+            );
+
+            let capture_bps = r.revenue_claim_ray.saturating_mul(10_000) / interest;
+            if VERBOSE_CADENCE {
+                std::println!(
+                    "  fee capture [{}] {label}: revenue_ray={} interest_ray={} => {} bps \
+                     (reserve factor = 1000 bps)",
+                    market.label,
+                    r.revenue_claim_ray,
+                    interest,
+                    capture_bps
+                );
+            }
+
+            assert!(
+                r.revenue_scaled > 0,
+                "{}: {label} minted zero protocol revenue shares — CS-AAVE4-004 repeat",
+                market.label
+            );
+            assert!(
+                (990..=1_010).contains(&capture_bps),
+                "{}: {label} treasury captured {capture_bps} bps of interest, \
+                 expected ~1000 bps (reserve factor)",
+                market.label
+            );
+        }
+    }
 }

@@ -388,14 +388,14 @@ fn test_keeper_index_freshness_matters() {
     );
 
     assert!(
-        debt_b >= debt_a,
-        "Daily-sync debt should be >= single-sync: A={}, B={}",
+        debt_b > debt_a,
+        "Daily syncing must compound to strictly more debt than one sync: A={}, B={}",
         debt_a,
         debt_b
     );
     assert!(
-        revenue_b >= revenue_a,
-        "Daily-sync revenue should be >= single-sync: A={}, B={}",
+        revenue_b > revenue_a,
+        "Daily syncing must compound to strictly more revenue than one sync: A={}, B={}",
         revenue_a,
         revenue_b
     );

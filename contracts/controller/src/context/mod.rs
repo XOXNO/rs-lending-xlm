@@ -1,9 +1,11 @@
-//! Per-invocation cache that memoizes prices, market indexes, pool and
-//! spoke configuration, and hub-active checks read during a controller
-//! call, and buffers position-update events for batched publishing.
+//! Per-invocation `Cache`: memoizes reads (prices, market indexes, spoke
+//! config and assets, hub checks) and buffers writes (spoke usage deltas and
+//! the position-event queue drained by `emit_position_batch`). `new` renews
+//! the instance TTL; `new_view` serves read-only entry points. The impl spans
+//! the sibling files, one cache concern each; under the certora feature,
+//! `spec_hooks.rs` overrides index fetching.
 
 mod events;
-mod hub;
 mod market_index;
 mod oracle;
 mod pool;
@@ -16,14 +18,9 @@ use common::types::{
 };
 use soroban_sdk::{Address, Env, Map, Vec};
 
-use crate::spoke::SpokeUsageContext;
+use crate::spoke_usage::SpokeUsageContext;
 use crate::storage;
 
-/// Per-invocation cache of controller state: token prices, market indexes,
-/// pool address and sync data, spoke usage and configuration, verified hub
-/// ids, and pending position-update events. Populated lazily as accessor
-/// methods on `Cache` (defined in the sibling modules) are called, and
-/// discarded at the end of the invocation.
 pub(crate) struct Cache {
     env: Env,
 
@@ -39,7 +36,6 @@ pub(crate) struct Cache {
 
     spoke_assets: Map<HubAssetKey, SpokeAssetConfig>,
 
-    /// Hub ids already proven active this invocation; see [`Cache::require_hub_active`].
     verified_hubs: Map<u32, bool>,
 
     supply_updates: Vec<EventDepositDelta>,
@@ -48,22 +44,19 @@ pub(crate) struct Cache {
 }
 
 impl Cache {
-    /// Renews the controller instance's storage TTL, then builds a fresh,
-    /// empty `Cache`. Use for state-mutating invocations.
+    /// Renews the controller's instance storage TTL and returns a fresh, empty cache for a state-changing entrypoint.
     pub(crate) fn new(env: &Env) -> Self {
         storage::renew_controller_instance(env);
         Self::build(env)
     }
 
-    /// Builds a fresh, empty `Cache` without renewing the controller
-    /// instance's storage TTL. Use for read-only invocations.
+    /// Returns a fresh, empty cache for a read-only entrypoint, without renewing the instance storage TTL.
     pub(crate) fn new_view(env: &Env) -> Self {
         Self::build(env)
     }
 
-    /// Constructs a `Cache` with all maps and buffers empty and no cached
-    /// pool address, spoke usage, or spoke configuration.
-    pub(crate) fn build(env: &Env) -> Self {
+    /// Constructs an empty `Cache` with all memoization maps and update buffers initialized but unpopulated.
+    fn build(env: &Env) -> Self {
         Cache {
             env: env.clone(),
             token_prices: Map::new(env),
@@ -79,18 +72,24 @@ impl Cache {
         }
     }
 
-    /// Returns the cached `Env`.
+    /// Returns the cached `Env` handle.
     pub(crate) fn env(&self) -> &Env {
         &self.env
     }
 
-    /// Loads and caches the price and market index data needed for
-    /// `hub_assets`. Derives the set of unique underlying tokens from
-    /// `hub_assets` and fetches their prices, then fetches market indexes
-    /// for `hub_assets` directly.
+    /// Deduplicates the token addresses referenced by `hub_assets`, then fetches and caches any of their prices and market indexes not already cached.
     pub(crate) fn load_markets(&mut self, hub_assets: &Vec<HubAssetKey>) {
         let assets = unique_hub_tokens(&self.env, hub_assets);
         self.fetch_prices(&assets);
         self.fetch_market_indexes(hub_assets);
+    }
+
+    /// Verifies hub `hub_id` is active, panicking otherwise, and memoizes the result so repeated calls for the same hub skip the check.
+    pub(crate) fn require_hub_active(&mut self, hub_id: u32) {
+        if self.verified_hubs.contains_key(hub_id) {
+            return;
+        }
+        crate::config::require_hub_active(&self.env, hub_id);
+        self.verified_hubs.set(hub_id, true);
     }
 }

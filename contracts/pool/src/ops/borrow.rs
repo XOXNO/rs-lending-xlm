@@ -20,11 +20,8 @@ pub(crate) struct BorrowOutcome {
 }
 
 /// Accrues interest, mints debt, debits cash, commits the market, then
-/// transfers the borrowed assets to `receiver`.
-///
-/// # Returns
-///
-/// The position mutation and the post-commit market snapshot for the batch event.
+/// transfers the borrowed assets to `receiver`. Returns the position
+/// mutation and the post-commit market snapshot for the batch event.
 pub(crate) fn apply(
     env: &Env,
     receiver: &Address,
@@ -60,8 +57,9 @@ pub(crate) fn accounting(env: &Env, entry: &PoolBorrowEntry) -> BorrowOutcome {
 
 /// Mints scaled debt for `amount` of underlying and enforces max utilization.
 ///
-/// Requires positive amount and sufficient cash reserves. Panics if the scaled
-/// mint rounds to zero shares.
+/// Requires positive amount, sufficient cash reserves, and that the draw
+/// leaves the liquidation buffer intact. Panics if the scaled mint rounds to
+/// zero shares.
 pub(crate) fn mint_debt(env: &Env, cache: &mut Cache, position: &mut Ray, amount: i128) {
     require_positive_amount(env, amount);
     cache.require_reserves(amount);

@@ -4,6 +4,7 @@ pub const BPS_F64: f64 = 1e4;
 
 pub const MS_PER_DAY: f64 = 86_400_000.0;
 pub const DAYS_PER_YEAR: i32 = 365;
+pub const MS_PER_YEAR: f64 = 31_556_926_000.0;
 
 pub fn ray_to_f64(value: i128) -> f64 {
     value as f64 / RAY_F64
@@ -25,8 +26,9 @@ pub fn token_usd(base_units: i128, decimals: u32, price_wad: i128) -> f64 {
     token_to_f64(base_units, decimals) * wad_to_f64(price_wad)
 }
 
-pub fn apy_from_per_ms_ray(rate_per_ms_ray: i128) -> f64 {
-    let daily = (rate_per_ms_ray as f64 / RAY_F64) * MS_PER_DAY;
+pub fn apy_from_annual_ray(annual_rate_ray: i128) -> f64 {
+    let apr = annual_rate_ray as f64 / RAY_F64;
+    let daily = apr * MS_PER_DAY / MS_PER_YEAR;
     (1.0 + daily).powi(DAYS_PER_YEAR) - 1.0
 }
 
@@ -97,14 +99,13 @@ mod tests {
 
     #[test]
     fn apy_from_zero_rate_is_zero() {
-        assert_eq!(apy_from_per_ms_ray(0), 0.0);
+        assert_eq!(apy_from_annual_ray(0), 0.0);
     }
 
     #[test]
     fn apy_is_positive_and_reasonable_for_a_small_rate() {
-        let ms_per_year = 31_556_926_000.0_f64;
-        let rate_per_ms_ray = ((0.05 / ms_per_year) * RAY_F64) as i128;
-        let apy = apy_from_per_ms_ray(rate_per_ms_ray);
+        let annual_ray = (0.05 * RAY_F64) as i128;
+        let apy = apy_from_annual_ray(annual_ray);
         assert!(apy > 0.049 && apy < 0.052, "apy={apy}");
     }
 
@@ -123,7 +124,6 @@ mod tests {
 
     #[test]
     fn cap_utilization_is_undefined_for_a_closed_market() {
-
         assert_eq!(cap_utilization(5.0, 0, 7), None);
         assert_eq!(cap_utilization(0.0, 0, 7), None);
         assert_eq!(cap_utilization(5.0, 100_000_000, 7), Some(0.5));
@@ -150,7 +150,6 @@ mod tests {
 
     #[test]
     fn closed_market_is_exactly_the_case_cap_utilization_drops() {
-
         for dec in 3..=18u32 {
             for cap in [i128::MIN, -1, 0, 1, 100_000_000, i128::MAX] {
                 let closed = market_closed_at(cap, dec) == 1.0;

@@ -63,11 +63,11 @@ fn test_edit_asset_config() {
 fn test_set_position_limits() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
 
-    t.set_position_limits(8, 6);
+    t.set_position_limits(4, 3);
 
     let limits = t.get_position_limits();
-    assert_eq!(limits.max_supply_positions, 8);
-    assert_eq!(limits.max_borrow_positions, 6);
+    assert_eq!(limits.max_supply_positions, 4);
+    assert_eq!(limits.max_borrow_positions, 3);
 }
 
 #[test]
@@ -225,10 +225,13 @@ fn test_upgrade_pool_params_accepts_max_borrow_rate_at_cap() {
         },
     );
 
+    let _ = rate_before;
+    // The at-cap model must be accepted AND stored: at zero utilization the
+    // borrow rate equals the new base rate (RAY/100 = 1%).
     let rate_after = t.pool_borrow_rate("USDC");
     assert!(
-        rate_after != rate_before || rate_after >= 0.0,
-        "borrow rate must remain readable after boundary upgrade",
+        (rate_after - 0.01).abs() < 1e-9,
+        "stored curve must serve the new 1% base at zero utilization, got {rate_after}",
     );
 }
 
