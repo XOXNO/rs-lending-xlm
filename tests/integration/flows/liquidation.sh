@@ -241,6 +241,88 @@ flow_liq_credit_rejections() {
     fi
 }
 
+# `set_spoke_asset_flags`, `set_spoke_liquidation_curve` and `get_spoke_usage`.
+#
+# Ordering is load-bearing. `set_spoke_asset_flags` can only tighten a flag, so
+# halting LIQG's seizure leg is irreversible for the rest of the run — it has to
+# come after flow_liq_credit is finished with LIQG. The curve change is applied
+# to the secondary spoke so it cannot perturb the primary spoke's liquidations.
+flow_spoke_flags_and_curve() {
+    phase spoke_flags
+    [ -n "${LIQCR_ACCT:-}" ] || { log "spoke_flags: no LIQCR_ACCT, skipping"; return 0; }
+
+    local liqg_key
+    liqg_key=$(hub_key "$PRIMARY_HUB_ID" "$SAC_LIQG")
+
+    # Spoke usage is the only place per-spoke cap consumption is tracked, so it
+    # is worth reading after the credit flow has moved supply around. Returns a
+    # SpokeUsageRaw struct, so this is a field check rather than an int view.
+    local usage supplied_ray
+    usage=$(view sf_usage "$CONTROLLER" -- get_spoke_usage \
+        --spoke_id "$PRIMARY_SPOKE_ID" --hub_asset "$liqg_key")
+    supplied_ray=$(jq -r '.supplied // .supplied_ray // empty' <<<"$usage" 2>/dev/null)
+    if [ -n "$supplied_ray" ] && [ "$supplied_ray" != "null" ]; then
+        record sf_usage_supplied ok get_spoke_usage "" "" "" "" "" "supplied=$supplied_ray"
+    else
+        _assert_fail sf_usage_supplied "get_spoke_usage returned no supplied field: $usage"
+    fi
+
+    if [ -n "${SPOKE_ID:-}" ]; then
+        inv sf_set_curve "$ADMIN" "$CONTROLLER" -- set_spoke_liquidation_curve \
+            --id "$SPOKE_ID" --target_hf_wad $((WAD / 100 * 105)) \
+            --hf_for_max_bonus_wad $((WAD / 100 * 85)) \
+            --liquidation_bonus_factor_bps 9000 >/dev/null
+        view sf_spoke_after_curve "$CONTROLLER" -- get_spoke --spoke_id "$SPOKE_ID" >/dev/null
+    fi
+
+    # Keep the account liquidatable so the rejection below can only be the
+    # seizure halt, never a health-factor refusal.
+    dual_px "$SAC_LIQG" LIQG $((WAD / 100 * 50)) sf_crash
+    assert_can_liquidated sf_can_liq "$LIQCR_ACCT" true
+
+    inv sf_set_no_seize "$ADMIN" "$CONTROLLER" -- set_spoke_asset_flags \
+        --spoke_id "$PRIMARY_SPOKE_ID" --hub_asset "$liqg_key" \
+        --paused false --frozen false --no_seize true >/dev/null
+    assert_market_field sf_no_seize_set "$SAC_LIQG" no_seize true
+
+    # The whole point of the flag: a liquidatable account whose only collateral
+    # is halted cannot have that collateral seized.
+    xfail sf_seizure_halted 'Error\(Contract, #318\)' "$CAROL" "$CONTROLLER" -- liquidate \
+        --seize_mode "$(seize_transfer)" \
+        --liquidator "$CAROL_ADDR" --account_id "$LIQCR_ACCT" \
+        --debt_payments "$(pay_vec "$PRIMARY_HUB_ID" "$SAC_LIQB" $((10 * LIQ_UNIT)))"
+}
+
+# `force_socialize_bad_debt` (owner-only) and `recapitalize` (permissionless).
+#
+# Runs after flow_clean_bad_debt so the permissionless cleanup path has already
+# been exercised on its own account; this one builds a separate position and
+# socializes it through the owner override instead.
+flow_force_socialize_and_recap() {
+    phase force_socialize
+    local acct
+    acct=$(inv_create fs_supply "$BOB" "$CONTROLLER" -- supply \
+        --caller "$BOB_ADDR" --account_id 0 --spoke_id "$PRIMARY_SPOKE_ID" \
+        --assets "$(pay_vec "$PRIMARY_HUB_ID" "$SAC_LIQC" $((30 * LIQ_UNIT)))" | tr -d '"') || return 0
+    inv fs_borrow "$BOB" "$CONTROLLER" -- borrow \
+        --caller "$BOB_ADDR" --account_id "$acct" \
+        --borrows "$(pay_vec "$PRIMARY_HUB_ID" "$SAC_LIQD" $((12 * LIQ_UNIT)))" --to null >/dev/null
+
+    dual_px "$SAC_LIQC" LIQC $((WAD / 100 * 10)) fs_crash
+
+    inv fs_force_socialize "$ADMIN" "$CONTROLLER" -- force_socialize_bad_debt \
+        --account_id "$acct" >/dev/null
+    assert_borrow_at_most fs_debt_cleared "$acct" "$SAC_LIQD" 0
+
+    # Socialized bad debt leaves the pool short of its backing. recapitalize
+    # applies only up to that shortfall and refunds the rest, so an oversized
+    # payment probes how much shortfall exists without risking an overpay.
+    # Invoked for real, not simulated: it moves tokens from the payer.
+    inv fs_recapitalize "$CAROL" "$CONTROLLER" -- recapitalize \
+        --payer "$CAROL_ADDR" --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$SAC_LIQD")" \
+        --amount $((100 * LIQ_UNIT)) >/dev/null
+}
+
 flow_clean_bad_debt() {
     phase clean_bad_debt
     xfail cbd_healthy 'Error\(Contract, #114\)' "$ADMIN" "$CONTROLLER" -- clean_bad_debt \
