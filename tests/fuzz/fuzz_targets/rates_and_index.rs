@@ -489,8 +489,7 @@ fn compounding_steps(span_ms: u64) -> i128 {
 /// or the treasury, never be minted out of nothing and never be stranded beyond a
 /// bounded per-step rounding residual.
 ///
-/// Both sides are floor-rounded so the comparison is not skewed by mixing
-/// rounding directions. Per compounding step the accrual can strand at most:
+/// Per compounding step the accrual can strand at most:
 ///
 /// * under one ray of supply index (`update_supply_index` floors), worth
 ///   `supplied / RAY` in value; that part is re-booked to the treasury by
@@ -500,6 +499,16 @@ fn compounding_steps(span_ms: u64) -> i128 {
 ///
 /// The supply index never decreases during accrual, so the terminal index bounds
 /// every step's contribution.
+///
+/// Both directions have to scale with `steps`. Measuring both sides with
+/// `mul_floor` does NOT make the comparison rounding-neutral, which is what an
+/// earlier flat `-1` lower bound assumed: production accrues with `Ray::mul`
+/// (`mul_div_half_up`, see common/src/math/fp.rs), so each step's half-up
+/// rounding is already baked into the indexes these floors are applied to. A
+/// step can therefore push `credited` a unit past the floor-measured `charged`
+/// without any interest being minted, and over enough steps that accumulates
+/// past any constant. Run 31856319201 hit exactly this on the partitioned path
+/// (charged=4 credited=6 over a ~2 year span).
 fn assert_interest_reaches_someone(
     env: &Env,
     borrowed: Ray,
@@ -515,12 +524,21 @@ fn assert_interest_reaches_someone(
         - start.supplied.mul_floor(env, start.supply_index).raw();
     let residual = charged - credited;
 
-    // One ray of slack absorbs the two independent floors above.
+    // One unit per compounding step for production's half-up rounding, plus one
+    // for the terminal pair of measurement floors. Deliberately far tighter than
+    // the stranding bound below, which carries a `supplied / RAY` term: minting
+    // is the dangerous direction, and reusing that term here would let a real
+    // over-credit of nearly any size pass. If fuzzing ever exceeds this, treat it
+    // as a finding rather than a bound to widen.
+    let mint_slack = steps.saturating_add(1);
     assert!(
-        residual >= -1,
-        "[{label}] credited {} more than borrowers were charged: charged={charged} \
-         credited={credited} dt={total_ms}",
-        -residual
+        residual >= -mint_slack,
+        "[{label}] credited {} more than borrowers were charged over {steps} \
+         compounding steps (slack {mint_slack}): charged={charged} \
+         credited={credited} dt={total_ms} supplied={} supply_index={}",
+        -residual,
+        start.supplied.raw(),
+        end.supply_index.raw()
     );
 
     let bound = steps.saturating_mul(end.supply_index.raw() / RAY + start.supplied.raw() / RAY + 4);
