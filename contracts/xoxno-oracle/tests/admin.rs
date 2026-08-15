@@ -7,7 +7,7 @@ use common::*;
 use xoxno_oracle::{Error, XoxnoOracle, XoxnoOracleClient};
 
 use soroban_sdk::testutils::{Address as _, MockAuth, MockAuthInvoke};
-use soroban_sdk::{vec, Address, BytesN, Env, IntoVal};
+use soroban_sdk::{vec, Address, BytesN, Env, IntoVal, String};
 
 #[test]
 #[should_panic(expected = "Error(Contract, #3)")]
@@ -131,6 +131,131 @@ fn remove_signer_succeeds_above_threshold() {
 
     let result = client.try_remove_signer(&signers[1]);
     assert_eq!(result, Err(Ok(Error::CannotRemoveBelowThreshold)));
+}
+
+/// `remove_signer_succeeds_above_threshold` never has the signer submit, so the
+/// cleanup half of `remove_signer` is unobservable there: with no recorded
+/// feeds the loop body never runs and there is no feed list to clear. Submit
+/// first, so a de-authorized signer's price and feed list are proven gone.
+#[test]
+fn remove_signer_clears_its_submission_and_feed_list() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, signers) = setup(&env, 3, 2);
+    let feed = feed_id(&env);
+
+    client.submit_price(&signers[0], &feed, &100i128, &1_000u64);
+
+    let submission_key = MirrorKey::LatestSubmission(feed.clone(), signers[0].clone());
+    let feeds_key = MirrorKey::SignerFeeds(signers[0].clone());
+    let (had_submission, had_feeds) = env.as_contract(&client.address, || {
+        (
+            env.storage().persistent().has(&submission_key),
+            env.storage().persistent().has(&feeds_key),
+        )
+    });
+    assert!(
+        had_submission && had_feeds,
+        "precondition: submitting must record both the submission and the signer's feed list"
+    );
+
+    client.remove_signer(&signers[0]);
+
+    let (submission_left, feeds_left) = env.as_contract(&client.address, || {
+        (
+            env.storage().persistent().has(&submission_key),
+            env.storage().persistent().has(&feeds_key),
+        )
+    });
+    assert!(
+        !submission_left,
+        "a de-authorized signer's price must not stay behind to feed future aggregates"
+    );
+    assert!(
+        !feeds_left,
+        "a de-authorized signer's feed list must be dropped, not left to accumulate"
+    );
+}
+
+/// An asset already bound to a feed must not be silently repointed at another
+/// one. The second feed id is deliberately different, so `load_feed_owner`
+/// cannot be what rejects the call — only the asset-side mapping check can.
+#[test]
+fn add_feed_rejects_remapping_an_asset_to_a_second_feed() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, _signers) = setup(&env, 1, 1);
+
+    let asset = xlm_asset(&env);
+    let first = feed_id(&env);
+    let second = String::from_str(&env, "XLM/USD-ALT");
+
+    client.add_feed(&first, &asset);
+
+    let result = client.try_add_feed(&second, &asset);
+    assert_eq!(result, Err(Ok(Error::FeedAlreadyMapped)));
+
+    assert_eq!(
+        client.assets(),
+        vec![&env, asset],
+        "a rejected add_feed must not leave a duplicate asset registry entry"
+    );
+}
+
+/// Purging a feed must release the asset that owned it, otherwise the asset is
+/// stranded: its feed is gone but it can never be mapped to a replacement.
+#[test]
+fn purge_feed_frees_the_asset_for_remapping() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, _signers) = setup(&env, 1, 1);
+
+    let asset = xlm_asset(&env);
+    let first = feed_id(&env);
+    let second = String::from_str(&env, "XLM/USD-ALT");
+
+    client.add_feed(&first, &asset);
+    client.purge_feed(&first);
+
+    // Fails with FeedAlreadyMapped if the asset->feed mapping outlived the purge.
+    client.add_feed(&second, &asset);
+
+    assert_eq!(
+        client.assets(),
+        vec![&env, asset],
+        "remapping after a purge must leave exactly one registry entry"
+    );
+}
+
+/// Purging must drop the feed's price history too. Left behind, it would
+/// resurface under a feed id that was re-registered later.
+#[test]
+fn purge_feed_drops_stored_history() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, signers) = setup(&env, 1, 1);
+    let feed = feed_id(&env);
+
+    client.submit_price(&signers[0], &feed, &100i128, &1_000u64);
+
+    let history_key = MirrorKey::History(feed.clone());
+    let had_history = env.as_contract(&client.address, || {
+        env.storage().persistent().has(&history_key)
+    });
+    assert!(
+        had_history,
+        "precondition: a submission at threshold must write a history entry"
+    );
+
+    client.purge_feed(&feed);
+
+    let history_left = env.as_contract(&client.address, || {
+        env.storage().persistent().has(&history_key)
+    });
+    assert!(
+        !history_left,
+        "purged feed history must not survive to be served under a re-registered feed id"
+    );
 }
 
 #[test]
