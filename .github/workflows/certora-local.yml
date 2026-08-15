@@ -1,7 +1,7 @@
 name: Certora Local Prover
 
 # Runs the Certora Sunbeam prover LOCALLY on the self-hosted runner with a
-# hard 10-minute cap per rule and parallel rule batches (10 concurrent JVMs,
+# per-rule cap (10 minutes by default, raisable on dispatch) and parallel rule batches (10 concurrent JVMs,
 # each -Xmx8g, on the 128 GB runner), mirroring the local workflow used on
 # development machines. This is a regression smoke, not a substitute for the
 # hosted prover: it fails on proved VIOLATIONS (the class of bug it is built
@@ -24,6 +24,16 @@ on:
         required: false
         type: string
         default: ""
+      rule_timeout:
+        description: "Seconds per rule (default 600 = the 10-minute smoke cap)"
+        required: false
+        type: string
+        default: "600"
+      job_timeout_minutes:
+        description: "Job wall-clock cap in minutes (default 720 = 12h; 10080 = 7 days)"
+        required: false
+        type: string
+        default: "720"
   pull_request:
     paths:
       - "certora/**"
@@ -90,7 +100,8 @@ jobs:
     name: Prover regression smoke
     needs: build
     runs-on: self-hosted
-    timeout-minutes: 720
+    # Dispatch can raise this; PR runs keep the 12h smoke window.
+    timeout-minutes: ${{ fromJSON(inputs.job_timeout_minutes || '720') }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -136,11 +147,11 @@ jobs:
           fi
           echo "local prover CLI root present: $(du -sh "$ROOT" | cut -f1), emv.jar $(wc -c < "$ROOT/emv.jar") bytes, z3 $("$ROOT/z3" -version 2>/dev/null | head -1)"
 
-      - name: Prove rules locally (10-minute cap per rule, parallel)
+      - name: Prove rules locally (parallel, cap from input)
         env:
           PROVE_CONFS: ${{ inputs.confs }}
           PROVE_RULES: ${{ inputs.rules }}
-          CERTORA_RULE_TIMEOUT: "600"
+          CERTORA_RULE_TIMEOUT: ${{ inputs.rule_timeout || '600' }}
           CERTORA_LOCAL_JOBS: "10"
         run: |
           export CERTORA_PYTHON="$(command -v python3)"

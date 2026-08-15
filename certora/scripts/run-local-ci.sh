@@ -28,7 +28,14 @@ mkdir -p "$log_dir"
 jobs="${CERTORA_LOCAL_JOBS:-10}"
 rule_timeout="${CERTORA_RULE_TIMEOUT:-600}"
 
-if [ $# -gt 0 ] && [ -n "$1" ]; then
+if [ $# -gt 0 ] && [ "$1" = "all" ]; then
+  # Every conf in the tree. Only sensible with a raised CERTORA_RULE_TIMEOUT and
+  # a job window to match — the default set below exists precisely because the
+  # full sweep does not fit a short one.
+  mapfile -t confs < <(cd "$repo_root/certora" && find . -name '*.conf' \
+    | sed 's|^\./||; s|\.conf$||' | sort)
+  echo "=== conf set: ALL (${#confs[@]} confs)"
+elif [ $# -gt 0 ] && [ -n "$1" ]; then
   read -r -a confs <<< "$1"
 else
   # Default set trimmed to the confs measured to fit a 2h job window on the
