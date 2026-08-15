@@ -925,3 +925,86 @@ fn test_a_scaled_factor_outside_its_band_is_rejected() {
         assert!(!resolve_status(&mut cache, &token, 0).valid);
     });
 }
+
+/// `to_status` is what `PriceAggregator::quotes` returns, and it had no test —
+/// found by sweeping the 84 common/price-aggregator Certora rules for
+/// production functions with no Rust coverage. Two rules reference it; nothing
+/// else did.
+///
+/// The security-relevant half is the first branch: an outcome carrying an error
+/// must collapse to `unusable()` and nothing else. A consumer reads `valid` to
+/// decide whether to act on a price, so an errored resolution leaking a
+/// non-zero price with `valid: true` is the failure that matters.
+#[test]
+fn to_status_collapses_an_errored_outcome_to_unusable() {
+    let mut outcome = Outcome::blank();
+    // Populate every field, so a wrong branch would visibly leak one of them.
+    outcome.price_wad = 123 * WAD;
+    outcome.first_wad = 111 * WAD;
+    outcome.second_wad = 222 * WAD;
+    outcome.timestamp = 1_700_000_000;
+    outcome.stale = true;
+    outcome.deviation = true;
+    outcome.err = Some(OracleError::NoLastPrice);
+
+    let status = to_status(&outcome, None);
+    assert_eq!(
+        status,
+        PriceStatus::unusable(),
+        "errored outcome must not leak any field"
+    );
+    assert!(!status.valid, "errored outcome reported valid");
+    assert_eq!(status.final_wad, 0);
+    assert_eq!(status.primary_wad, 0);
+    assert_eq!(status.secondary_wad, 0);
+}
+
+/// The other branch: a clean outcome must map straight through, each field to
+/// its counterpart. Primary and secondary are distinct values here so a swapped
+/// mapping cannot pass — that is the mistake this shape is chosen to catch.
+#[test]
+fn to_status_maps_a_clean_outcome_field_for_field() {
+    let mut outcome = Outcome::blank();
+    outcome.price_wad = 150 * WAD;
+    outcome.first_wad = 149 * WAD;
+    outcome.second_wad = 151 * WAD;
+    outcome.timestamp = 1_700_000_500;
+    outcome.stale = false;
+    outcome.deviation = false;
+    outcome.err = None;
+
+    let status = to_status(&outcome, None);
+    assert_eq!(status.final_wad, 150 * WAD);
+    assert_eq!(
+        status.primary_wad,
+        149 * WAD,
+        "primary/secondary mapped the wrong way round"
+    );
+    assert_eq!(
+        status.secondary_wad,
+        151 * WAD,
+        "primary/secondary mapped the wrong way round"
+    );
+    assert_eq!(status.price_timestamp, 1_700_000_500);
+    assert!(!status.stale);
+    assert!(!status.deviation);
+}
+
+/// Flags must survive the mapping even when the outcome carries no error: a
+/// stale or deviating reading is still reported, and it is the consumer's job
+/// to weigh them. Silently clearing either would hide exactly the condition
+/// they exist to signal.
+#[test]
+fn to_status_preserves_stale_and_deviation_flags_without_an_error() {
+    let mut outcome = Outcome::blank();
+    outcome.price_wad = WAD;
+    outcome.timestamp = 42;
+    outcome.stale = true;
+    outcome.deviation = true;
+    outcome.err = None;
+
+    let status = to_status(&outcome, None);
+    assert!(status.stale, "stale flag dropped");
+    assert!(status.deviation, "deviation flag dropped");
+    assert_eq!(status.final_wad, WAD);
+}
