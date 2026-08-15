@@ -127,12 +127,17 @@ inv manager_deactivate_alice "$ADMIN" "$CONTROLLER" -- set_position_manager \
 local blend_pool
 blend_pool=$(jq -r '.pools[0].address // empty' "$REPO_ROOT/configs/$NETWORK/blend.json")
 if [ -n "$blend_pool" ] && [ "$blend_pool" != "null" ]; then
+# The allowlist decides which external pools this protocol will migrate
+# positions from, so each transition is asserted rather than read and
+# discarded: an approve or revoke that returned successfully without moving the
+# flag would have been invisible here.
 view blend_pool_initial "$CONTROLLER" -- is_blend_pool_approved --pool "$blend_pool" >/dev/null
 inv blend_pool_approve "$ADMIN" "$CONTROLLER" -- approve_blend_pool --pool "$blend_pool" >/dev/null
-view blend_pool_true "$CONTROLLER" -- is_blend_pool_approved --pool "$blend_pool" >/dev/null
+assert_bool_view blend_pool_true true is_blend_pool_approved --pool "$blend_pool"
 inv blend_pool_revoke "$ADMIN" "$CONTROLLER" -- revoke_blend_pool --pool "$blend_pool" >/dev/null
-view blend_pool_false "$CONTROLLER" -- is_blend_pool_approved --pool "$blend_pool" >/dev/null
+assert_bool_view blend_pool_false false is_blend_pool_approved --pool "$blend_pool"
 inv blend_pool_reapprove "$ADMIN" "$CONTROLLER" -- approve_blend_pool --pool "$blend_pool" >/dev/null
+assert_bool_view blend_pool_reapproved true is_blend_pool_approved --pool "$blend_pool"
 if [ "${BLEND_MIGRATION_LIVE:-0}" = "1" ]; then
 
 local coll_amt supply_amt debt_amt debt_cap seed_requests coll_json supply_json debt_json migrate_acct
@@ -241,12 +246,25 @@ flow_admin_upgrade() {
     local ledger
     ledger=$(curl -s -m 30 -X POST "$RPC_URL" -H 'Content-Type: application/json' \
         -d '{"jsonrpc":"2.0","id":1,"method":"getLatestLedger"}' | jq -r '.result.sequence')
+    # Ownership is the root of every #[only_owner] gate on the controller, so
+    # each leg asserts who actually holds it. A transfer that succeeded without
+    # moving ownership — or an accept that left the old owner in place — would
+    # otherwise pass unnoticed.
+    assert_view_eq_at "$CONTROLLER" ownership_owner_before "$ADMIN_ADDR" get_owner
     inv ownership_transfer "$ADMIN" "$CONTROLLER" -- transfer_ownership \
         --new_owner "$CAROL_ADDR" --live_until_ledger $((ledger + 1000)) >/dev/null
+    # Still ADMIN until CAROL accepts: a pending transfer must not hand over
+    # control on its own.
+    assert_view_eq_at "$CONTROLLER" ownership_owner_pending "$ADMIN_ADDR" get_owner
     inv ownership_accept "$CAROL" "$CONTROLLER" -- accept_ownership >/dev/null
+    assert_view_eq_at "$CONTROLLER" ownership_owner_after_accept "$CAROL_ADDR" get_owner
+
     inv ownership_transfer_back "$CAROL" "$CONTROLLER" -- transfer_ownership \
         --new_owner "$ADMIN_ADDR" --live_until_ledger $((ledger + 1000)) >/dev/null
     inv ownership_accept_back "$ADMIN" "$CONTROLLER" -- accept_ownership >/dev/null
+    # Restored, or every later owner-gated step in the suite would be testing
+    # the wrong signer.
+    assert_view_eq_at "$CONTROLLER" ownership_owner_restored "$ADMIN_ADDR" get_owner
 }
 
 # The two price-aggregator entry points the tolerance work above never reached.

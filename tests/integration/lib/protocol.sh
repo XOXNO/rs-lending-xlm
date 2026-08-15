@@ -97,6 +97,13 @@ deploy_protocol() {
 
         inv set_accumulator "$ADMIN" "$CONTROLLER" -- set_accumulator --addr "$ADMIN_ADDR" >/dev/null
         inv set_price_aggregator "$ADMIN" "$CONTROLLER" -- set_price_aggregator --addr "$PRICE_AGGREGATOR" >/dev/null
+        # Read back: every price the protocol acts on comes through whichever
+        # aggregator this points at, so a setter that silently kept the old one
+        # would route the whole run's valuations to the wrong contract.
+        # set_swap_aggregator and set_accumulator have no getter on the
+        # controller, so they can only be asserted through their effects — the
+        # strategies phase exercises the swap path.
+        assert_view_eq_at "$CONTROLLER" wired_price_aggregator "$PRICE_AGGREGATOR" price_aggregator
         save_state WIRED 1
     fi
     if [ -z "${PRIMARY_HUB_ID:-}" ]; then
