@@ -97,7 +97,18 @@ combined="$INTEG_DIR/runs/${BASE}-combined.md"
 {
     echo "# Parallel testnet e2e — $BASE"
     echo
-    [ "$overall" -eq 0 ] && echo "**Result: GREEN (all lanes)**" || echo "**Result: FAILED (one or more lanes)**"
+    # Name the lanes rather than saying "all lanes": lane selection means a
+    # single-lane run would otherwise report "GREEN (all lanes)" and read as
+    # full-suite coverage it never had.
+    if [ "$overall" -eq 0 ]; then
+        echo "**Result: GREEN (lanes run: ${LANES[*]})**"
+    else
+        echo "**Result: FAILED (lanes run: ${LANES[*]})**"
+    fi
+    if [ "${#LANES[@]}" -lt 3 ]; then
+        echo
+        echo "> Partial run — only ${#LANES[@]} of 3 lanes. Phases not covered here were not executed."
+    fi
     echo
     for lane in "${LANES[@]}"; do
         echo "## Lane: $lane  (RUN_TS=${BASE}-${lane}, phases: $(phases_for "$lane"))"
