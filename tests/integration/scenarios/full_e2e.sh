@@ -58,6 +58,8 @@ if want liquidation; then
     flow_liq_single
     flow_liq_bulk
     flow_liq_spoke
+    flow_liq_credit
+    flow_liq_credit_rejections
     flow_clean_bad_debt
     unset INV_TRANSIENT_CONTRACT_RE
 fi

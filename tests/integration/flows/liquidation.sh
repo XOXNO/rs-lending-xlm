@@ -137,6 +137,110 @@ flow_liq_spoke() {
     save_state LIQ3_ACCT "$acct"
 }
 
+# Share-credit liquidation (`SeizeMode::Credit`), covering both admission paths
+# and every binding rule from ADR-0019. `liquidate` returns the receiving
+# account id — 0 for Transfer, the new id for Credit(0), the same id back for
+# Credit(<existing>) — which is what makes these assertions possible.
+#
+# Runs after flow_liq_spoke so SPOKE_ID exists: the spoke-mismatch rejection
+# needs a liquidator-owned account sitting in a *different* spoke.
+flow_liq_credit() {
+    phase liq_credit
+
+    local acct
+    acct=$(inv_create liqcr_supply "$BOB" "$CONTROLLER" -- supply \
+        --caller "$BOB_ADDR" --account_id 0 --spoke_id "$PRIMARY_SPOKE_ID" \
+        --assets "$(pay_vec "$PRIMARY_HUB_ID" "$SAC_LIQG" $((1000 * LIQ_UNIT)))" | tr -d '"') || return 1
+    inv liqcr_borrow "$BOB" "$CONTROLLER" -- borrow \
+        --caller "$BOB_ADDR" --account_id "$acct" \
+        --borrows "$(pay_vec "$PRIMARY_HUB_ID" "$SAC_LIQB" $((600 * LIQ_UNIT)))" --to null >/dev/null
+
+    dual_px "$SAC_LIQG" LIQG $((WAD / 10 * 7)) liqcr_crash
+    assert_hf_below_wad liqcr_hf "$acct"
+
+    # --- Credit(0): mints a fresh receiving account owned by the liquidator ---
+    local recv
+    recv=$(inv liqcr_liquidate_new "$CAROL" "$CONTROLLER" -- liquidate --seize_mode "$(seize_credit 0)" \
+        --liquidator "$CAROL_ADDR" --account_id "$acct" \
+        --debt_payments "$(pay_vec "$PRIMARY_HUB_ID" "$SAC_LIQB" $((100 * LIQ_UNIT)))" | tr -d '"')
+
+    if [ -z "$recv" ] || [ "$recv" = "0" ] || [ "$recv" = "$acct" ]; then
+        _assert_fail liqcr_new_account_id "Credit(0) returned '$recv'; want a fresh id != 0 and != $acct"
+    else
+        record liqcr_new_account_id ok liquidate "" "" "" "" "" "receiver=$recv"
+    fi
+
+    assert_bool_view liqcr_new_account_exists true account_exists --account_id "$recv"
+    # Net of the protocol fee, so only positivity is asserted here; the exact
+    # net-vs-gross split is what the LiqSeize/LiqCredit event pair carries.
+    assert_int_view_positive liqcr_new_credited get_collateral_amount \
+        --account_id "$recv" --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$SAC_LIQG")"
+    assert_borrow_decreased liqcr_debt_post_new "$acct" "$SAC_LIQB" $((600 * LIQ_UNIT))
+
+    # --- Credit(<existing>): credits the same account a second time ---
+    local credited_pre recv2
+    credited_pre=$(_view_int liqcr_credited_pre get_collateral_amount \
+        --account_id "$recv" --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$SAC_LIQG")")
+
+    recv2=$(inv liqcr_liquidate_existing "$CAROL" "$CONTROLLER" -- liquidate --seize_mode "$(seize_credit "$recv")" \
+        --liquidator "$CAROL_ADDR" --account_id "$acct" \
+        --debt_payments "$(pay_vec "$PRIMARY_HUB_ID" "$SAC_LIQB" $((50 * LIQ_UNIT)))" | tr -d '"')
+
+    if [ "$recv2" != "$recv" ]; then
+        _assert_fail liqcr_existing_account_id "Credit($recv) returned '$recv2'; want the same id back"
+    else
+        record liqcr_existing_account_id ok liquidate "" "" "" "" "" "receiver=$recv2"
+    fi
+
+    local credited_post
+    credited_post=$(_view_int liqcr_credited_post get_collateral_amount \
+        --account_id "$recv" --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$SAC_LIQG")")
+    if [ "$credited_post" -gt "$credited_pre" ]; then
+        record liqcr_credit_accumulates ok liquidate "" "" "" "" "" "$credited_pre -> $credited_post"
+    else
+        _assert_fail liqcr_credit_accumulates "collateral $credited_pre -> $credited_post; want an increase"
+    fi
+
+    save_state LIQCR_ACCT "$acct"
+    save_state LIQCR_RECV "$recv"
+}
+
+# The binding rules that make share-credit safe. Each must reject, or a
+# liquidator could move seized collateral into an account the protocol never
+# vetted — a different owner, a different risk regime, or back to the victim.
+flow_liq_credit_rejections() {
+    phase liq_credit_reject
+    [ -n "${LIQCR_ACCT:-}" ] || { log "liq_credit_reject: no LIQCR_ACCT, skipping"; return 0; }
+
+    # Crediting the liquidated account itself would hand the collateral straight back.
+    xfail liqcr_reject_self 'Error\(Contract, #133\)' "$CAROL" "$CONTROLLER" -- liquidate \
+        --seize_mode "$(seize_credit "$LIQCR_ACCT")" \
+        --liquidator "$CAROL_ADDR" --account_id "$LIQCR_ACCT" \
+        --debt_payments "$(pay_vec "$PRIMARY_HUB_ID" "$SAC_LIQB" $((10 * LIQ_UNIT)))"
+
+    # An account the liquidator neither owns nor is delegated on.
+    if [ -n "${LIQ1_ACCT:-}" ] && [ "${LIQ1_ACCT}" != "${LIQCR_ACCT}" ]; then
+        xfail liqcr_reject_not_owner 'Error\(Contract, #44\)' "$CAROL" "$CONTROLLER" -- liquidate \
+            --seize_mode "$(seize_credit "$LIQ1_ACCT")" \
+            --liquidator "$CAROL_ADDR" --account_id "$LIQCR_ACCT" \
+            --debt_payments "$(pay_vec "$PRIMARY_HUB_ID" "$SAC_LIQB" $((10 * LIQ_UNIT)))"
+    fi
+
+    # A liquidator-owned account bound to a different spoke: the credited shares
+    # are the liquidated spoke's supply, and an account's spoke is what supplies
+    # the risk configuration for everything it holds.
+    if [ -n "${SPOKE_ID:-}" ]; then
+        local carol_other
+        carol_other=$(inv_create liqcr_carol_other_spoke "$CAROL" "$CONTROLLER" -- supply \
+            --caller "$CAROL_ADDR" --account_id 0 --spoke_id "$SPOKE_ID" \
+            --assets "$(pay_vec "$PRIMARY_HUB_ID" "$SAC_LIQE" $((10 * LIQ_UNIT)))" | tr -d '"') || return 0
+        xfail liqcr_reject_spoke_mismatch 'Error\(Contract, #310\)' "$CAROL" "$CONTROLLER" -- liquidate \
+            --seize_mode "$(seize_credit "$carol_other")" \
+            --liquidator "$CAROL_ADDR" --account_id "$LIQCR_ACCT" \
+            --debt_payments "$(pay_vec "$PRIMARY_HUB_ID" "$SAC_LIQB" $((10 * LIQ_UNIT)))"
+    fi
+}
+
 flow_clean_bad_debt() {
     phase clean_bad_debt
     xfail cbd_healthy 'Error\(Contract, #114\)' "$ADMIN" "$CONTROLLER" -- clean_bad_debt \
