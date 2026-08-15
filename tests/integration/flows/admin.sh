@@ -268,21 +268,33 @@ flow_admin_upgrade() {
     # each leg asserts who actually holds it. A transfer that succeeded without
     # moving ownership — or an accept that left the old owner in place — would
     # otherwise pass unnoticed.
-    assert_view_eq_at "$CONTROLLER" ownership_owner_before "$ADMIN_ADDR" get_owner
+    # The controller exposes no get_owner, so ownership is asserted through its
+    # effect: who can still drive an #[only_owner] entry point. set_position_limits
+    # is the probe, always re-set to the same valid value so the probe itself
+    # changes nothing.
+    local limits='{"max_supply_positions":5,"max_borrow_positions":5}'
+
     inv ownership_transfer "$ADMIN" "$CONTROLLER" -- transfer_ownership \
         --new_owner "$CAROL_ADDR" --live_until_ledger $((ledger + 1000)) >/dev/null
-    # Still ADMIN until CAROL accepts: a pending transfer must not hand over
-    # control on its own.
-    assert_view_eq_at "$CONTROLLER" ownership_owner_pending "$ADMIN_ADDR" get_owner
+    # A pending transfer must not hand over control on its own — ADMIN still owns
+    # it until CAROL accepts.
+    inv ownership_admin_still_owner "$ADMIN" "$CONTROLLER" -- set_position_limits \
+        --limits "$limits" >/dev/null
+
     inv ownership_accept "$CAROL" "$CONTROLLER" -- accept_ownership >/dev/null
-    assert_view_eq_at "$CONTROLLER" ownership_owner_after_accept "$CAROL_ADDR" get_owner
+    # Ownership really moved: ADMIN is now locked out, CAROL is in.
+    xfail ownership_admin_locked_out 'Missing signing key|Error\(Contract' "$ADMIN" "$CONTROLLER" -- set_position_limits \
+        --limits "$limits"
+    inv ownership_carol_now_owner "$CAROL" "$CONTROLLER" -- set_position_limits \
+        --limits "$limits" >/dev/null
 
     inv ownership_transfer_back "$CAROL" "$CONTROLLER" -- transfer_ownership \
         --new_owner "$ADMIN_ADDR" --live_until_ledger $((ledger + 1000)) >/dev/null
     inv ownership_accept_back "$ADMIN" "$CONTROLLER" -- accept_ownership >/dev/null
-    # Restored, or every later owner-gated step in the suite would be testing
-    # the wrong signer.
-    assert_view_eq_at "$CONTROLLER" ownership_owner_restored "$ADMIN_ADDR" get_owner
+    # Restored, or every later owner-gated step in the suite would be testing the
+    # wrong signer.
+    inv ownership_admin_restored "$ADMIN" "$CONTROLLER" -- set_position_limits \
+        --limits "$limits" >/dev/null
 }
 
 # The two price-aggregator entry points the tolerance work above never reached.
@@ -295,9 +307,13 @@ flow_price_aggregator_extra() {
     local key="${1:-}"
     [ -n "$key" ] || return 0
 
-    # price_spread returns the (low, high) pair behind a resolved price. It is
-    # what a caller inspects to see how far the two legs disagree, so a
-    # well-formed two-element response is the property under test.
+    # Reads first, band last. Narrowing the sanity band changes what these reads
+    # are allowed to return, so setting it up front made every later read of the
+    # same key fail with #223 SanityBoundViolated — the band test breaking the
+    # data it was set on.
+
+    # price_spread returns the (low, high) pair behind a resolved price: what a
+    # caller inspects to see how far the two legs disagree.
     local spread
     spread=$(view pa_price_spread "$PRICE_AGGREGATOR" -- price_spread --key "$key")
     if [ "$(jq -r 'if type == "array" then length else 0 end' <<<"$spread" 2>/dev/null)" = "2" ]; then
@@ -306,27 +322,11 @@ flow_price_aggregator_extra() {
         _assert_fail pa_price_spread_shape "price_spread did not return a 2-tuple: $spread"
     fi
 
-    # The sanity band is the outer bound on any price the protocol will accept,
-    # so it is owner-only and a non-owner must not be able to widen it.
-    # Band width is capped for a single-source feed:
-    # ceil((max-min)*10000/(max+min)) must be <= MAX_SINGLE_SOURCE_SANITY_BAND_BPS
-    # (1000). 0.92..1.08 WAD is 800 bps and clears it; the earlier 0.001..1000
-    # WAD was rejected with #226 SanityBandTooWideForSingleSource.
-    local band_min band_max
-    band_min=$((WAD / 100 * 92))
-    band_max=$((WAD / 100 * 108))
-    inv pa_set_sanity_band "$ADMIN" "$PRICE_AGGREGATOR" -- set_sanity_band \
-        --key "$key" --min_wad "$band_min" --max_wad "$band_max" >/dev/null
-
-    xfail pa_set_sanity_band_owner_guard 'Missing signing key' "$ALICE" "$PRICE_AGGREGATOR" -- set_sanity_band \
-        --key "$key" --min_wad "$band_min" --max_wad "$band_max"
-
-    # Ownership is what gates every setter above, so assert the identity rather
-    # than just that the call returns.
+    # Ownership gates every setter below, so assert the identity.
     assert_view_eq_at "$PRICE_AGGREGATOR" pa_get_owner "$ADMIN_ADDR" get_owner
 
-    # `oracle` must return the config that set_oracle registered for this key.
-    # An empty answer here would mean the setters above wrote somewhere else.
+    # `oracle` must return the config set_oracle registered for this key. An
+    # empty answer would mean the setters wrote somewhere else.
     local orc
     orc=$(view pa_oracle "$PRICE_AGGREGATOR" -- oracle --key "$key")
     if [ -n "$orc" ] && [ "$(jq -r 'if type=="object" then "obj" else . end' <<<"$orc" 2>/dev/null)" = "obj" ]; then
@@ -336,7 +336,7 @@ flow_price_aggregator_extra() {
     fi
 
     # prices/quotes are keyed maps: one key in must yield an entry for that same
-    # key, or a consumer would silently read another asset's price.
+    # key, or a consumer silently reads another asset's price.
     local keys_json px qt
     keys_json=$(jq -nc --argjson k "$key" '[$k]')
     px=$(view pa_prices "$PRICE_AGGREGATOR" -- prices --keys "$keys_json")
@@ -351,6 +351,22 @@ flow_price_aggregator_extra() {
     else
         _assert_fail pa_quotes_keyed "quotes returned no entry for the requested key: $(head -c 160 <<<"$qt")"
     fi
+
+    # The sanity band is the outer bound on any price the protocol will accept,
+    # so it is owner-only. Width is capped for a single-source feed:
+    # ceil((max-min)*10000/(max+min)) <= MAX_SINGLE_SOURCE_SANITY_BAND_BPS
+    # (1000); +/-8% is 800 bps. Centred on the asset's *current* price rather
+    # than on parity, so the band contains the price it is guarding.
+    local band_min band_max band_px
+    band_px=$(jq -r '[.. | objects | select(has("price")) | .price] | first // empty' <<<"$px" 2>/dev/null)
+    [[ "$band_px" =~ ^[0-9]+$ ]] || band_px="$WAD"
+    band_min=$((band_px / 100 * 92))
+    band_max=$((band_px / 100 * 108))
+    inv pa_set_sanity_band "$ADMIN" "$PRICE_AGGREGATOR" -- set_sanity_band \
+        --key "$key" --min_wad "$band_min" --max_wad "$band_max" >/dev/null
+
+    xfail pa_set_sanity_band_owner_guard 'Missing signing key' "$ALICE" "$PRICE_AGGREGATOR" -- set_sanity_band \
+        --key "$key" --min_wad "$band_min" --max_wad "$band_max"
 }
 
 # The pool's own surface, which the harness only ever reached through the
@@ -373,18 +389,25 @@ flow_pool_surface() {
     # --- privileged: must reject a non-owner ---
     xfail pool_create_market_not_owner 'Missing signing key|Error\(Contract' "$ADMIN" "$POOL" -- create_market \
         --hub_id "$PRIMARY_HUB_ID" --params "$(market_params_json "$USDC_SAC" 7)"
+    # InterestRateModel carries is_flashloanable and flashloan_fee too; omitting
+    # them makes the CLI reject the argument before auth is ever checked, which
+    # would pass the xfail for the wrong reason.
     xfail pool_update_params_not_owner 'Missing signing key|Error\(Contract' "$ADMIN" "$POOL" -- update_params \
         --hub_asset "$hub_asset" --model "$(market_params_json "$USDC_SAC" 7 | jq -c '{
             max_borrow_rate, base_borrow_rate, slope1, slope2, slope3,
-            mid_utilization, optimal_utilization, max_utilization, reserve_factor
+            mid_utilization, optimal_utilization, max_utilization,
+            reserve_factor, is_flashloanable, flashloan_fee
         }')"
     xfail pool_seize_positions_not_owner 'Missing signing key|Error\(Contract' "$ADMIN" "$POOL" -- seize_positions \
         --entries '[]'
     xfail pool_net_settle_not_owner 'Missing signing key|Error\(Contract' "$ADMIN" "$POOL" -- net_settle \
         --entry "$(jq -nc --argjson h "$PRIMARY_HUB_ID" --arg a "$USDC_SAC" \
-            '{hub_asset:{hub_id:$h,asset:$a},supply_delta_scaled:"0",borrow_delta_scaled:"0"}')"
+            '{hub_asset:{hub_id:$h,asset:$a},amount:"0",
+              supply_position:{scaled_amount:"0"},debt_position:{scaled_amount:"0"}}')"
     xfail pool_create_strategy_not_owner 'Missing signing key|Error\(Contract' "$ADMIN" "$POOL" -- create_strategy \
-        --hub_asset "$hub_asset" --amount 1
+        --receiver "$ADMIN_ADDR" --charge_fee false \
+        --action "$(jq -nc --argjson h "$PRIMARY_HUB_ID" --arg a "$USDC_SAC" \
+            '{position:{scaled_amount:"0"},amount:"0",hub_asset:{hub_id:$h,asset:$a}}')"
 
     # --- reads: assert shape, since these back hub-side valuation ---
     local sync idx

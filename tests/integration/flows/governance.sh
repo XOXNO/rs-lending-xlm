@@ -9,7 +9,6 @@ GOV_SALT_UNPAUSE="77777777777777777777777777777777777777777777777777777777777777
 GOV_SALT_SELF_SENSITIVE="8888888888888888888888888888888888888888888888888888888888888888"
 GOV_SALT_CANCELLER_RESET="9999999999999999999999999999999999999999999999999999999999999999"
 GOV_SALT_GRANT_GUARDIAN="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-GOV_SALT_PAUSED="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 
 gov_state() {
     stellar contract invoke --id "$GOVERNANCE" --source "$ADMIN" "${NET_ARGS[@]}" --send=no \
@@ -170,13 +169,13 @@ xfail gov_set_controller_absent 'set_controller|unknown|not found|No such' \
     flow_gov_recovery_and_roles
 
     inv gov_pause "$ADMIN" "$GOVERNANCE" -- pause --caller "$ADMIN_ADDR" >/dev/null
-    # Pausing has to actually stop governance, not merely return. If a proposal
-    # still went through while paused, the pause would be decorative on the one
-    # contract where it matters most.
-    xfail gov_propose_while_paused 'Error\(Contract' "$ADMIN" "$GOVERNANCE" -- propose \
-        --proposer "$ADMIN_ADDR" \
-        --op '{"SetPositionLimits":{"max_supply_positions":2,"max_borrow_positions":2}}' \
-        --salt "$GOV_SALT_PAUSED"
+    # governance `pause` is a guardian action that pauses the CONTROLLER, not
+    # governance itself — proposals keep working, which is why an earlier
+    # assertion that propose should fail here came back UNEXPECTED-OK. The
+    # property to assert is that the controller it governs actually halted.
+    xfail gov_pause_halts_controller 'Error\(Contract, #1000\)' "$ALICE" "$GOV_CONTROLLER" -- supply \
+        --caller "$ALICE_ADDR" --account_id 0 --spoke_id 1 \
+        --assets "$(pay_vec "$PRIMARY_HUB_ID" "$XLM_SAC" 1000000)"
 }
 
 # The governance surface the main flow never reached: its own price aggregator,
