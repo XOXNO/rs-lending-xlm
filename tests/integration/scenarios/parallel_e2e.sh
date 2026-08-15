@@ -7,7 +7,16 @@ source "$HERE/../env.sh"
 
 BASE="$RUN_TS"
 LANE_TIMEOUT="${LANE_TIMEOUT:-95m}"
-LANES=(agg liq stress)
+
+# Lane selection is env-overridable so a caller can run just the lane it
+# affects (e.g. only `liq` after a liquidation change) instead of paying for
+# all three. Unset behaviour is unchanged: all three lanes.
+#
+# `-` and not `:-` on purpose. With `:-`, an explicitly empty E2E_LANES (a
+# caller whose lane variable came back blank) would silently expand to the
+# full default and run every lane against the network. Empty must reach the
+# zero-lane check below and abort instead.
+read -r -a LANES <<<"${E2E_LANES-agg liq stress}"
 
 phases_for() {
     case "$1" in
@@ -22,6 +31,18 @@ command -v timeout  >/dev/null 2>&1 && timeout_bin="timeout $LANE_TIMEOUT"
 command -v gtimeout >/dev/null 2>&1 && timeout_bin="gtimeout $LANE_TIMEOUT"
 
 log_orch() { printf '[%s] [orchestrator] %s\n' "$(date +%H:%M:%S)" "$*" >&2; }
+
+# Reject an unknown lane up front. `phases_for` returns empty for one, and an
+# empty PHASES is indistinguishable from unset to full_e2e.sh's `${PHASES:-...}`
+# default — so a typo would quietly run every phase and report it under the
+# wrong lane name.
+[ "${#LANES[@]}" -gt 0 ] || { log_orch "E2E_LANES resolved to no lanes"; exit 2; }
+for lane in "${LANES[@]}"; do
+    if [ -z "$(phases_for "$lane")" ]; then
+        log_orch "unknown lane '$lane' (known: agg liq stress)"
+        exit 2
+    fi
+done
 
 mkdir -p "$INTEG_DIR/runs"
 
