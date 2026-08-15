@@ -45,7 +45,7 @@ flow_liq_single() {
         --borrows "$(pay_vec "$PRIMARY_HUB_ID" "$SAC_LIQB" $((600 * LIQ_UNIT)))" --to null >/dev/null
 
     assert_can_liquidated liq1_can_liq_pre "$acct" false
-    xfail liq1_liquidate_healthy 'Error\(Contract, #101\)' "$CAROL" "$CONTROLLER" -- liquidate \
+    xfail liq1_liquidate_healthy 'Error\(Contract, #101\)' "$CAROL" "$CONTROLLER" -- liquidate --seize_mode "$(seize_transfer)" \
         --liquidator "$CAROL_ADDR" --account_id "$acct" \
         --debt_payments "$(pay_vec "$PRIMARY_HUB_ID" "$SAC_LIQB" $((100 * LIQ_UNIT)))"
 
@@ -57,7 +57,7 @@ flow_liq_single() {
     view liq1_avail "$CONTROLLER" -- get_liquidation_collateral --account_id "$acct" >/dev/null
 
     local liq1_debt_pre_partial=$((600 * LIQ_UNIT))
-    inv liq1_liquidate_partial "$CAROL" "$CONTROLLER" -- liquidate \
+    inv liq1_liquidate_partial "$CAROL" "$CONTROLLER" -- liquidate --seize_mode "$(seize_transfer)" \
         --liquidator "$CAROL_ADDR" --account_id "$acct" \
         --debt_payments "$(pay_vec "$PRIMARY_HUB_ID" "$SAC_LIQB" $((100 * LIQ_UNIT)))" >/dev/null
     assert_borrow_decreased liq1_debt_post_partial "$acct" "$SAC_LIQB" "$liq1_debt_pre_partial"
@@ -70,7 +70,7 @@ flow_liq_single() {
     refund=$(jq -r '[.refunds[]?.amount | tonumber] | add // 0' <<<"$est")
     close=$(( 600 * LIQ_UNIT - refund ))
     leg_liq1_full() {
-        inv liq1_liquidate_full "$CAROL" "$CONTROLLER" -- liquidate \
+        inv liq1_liquidate_full "$CAROL" "$CONTROLLER" -- liquidate --seize_mode "$(seize_transfer)" \
             --liquidator "$CAROL_ADDR" --account_id "$acct" \
             --debt_payments "$(pay_vec "$PRIMARY_HUB_ID" "$SAC_LIQB" $(( close * 998 / 1000 )))" >/dev/null
     }
@@ -97,7 +97,7 @@ flow_liq_bulk() {
     local liq2_debt_b_pre liq2_debt_d_pre
 liq2_debt_b_pre=$(_view_int liq2_debt_b_pre get_borrow_amount --account_id "$acct" --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$SAC_LIQB")")
 liq2_debt_d_pre=$(_view_int liq2_debt_d_pre get_borrow_amount --account_id "$acct" --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$SAC_LIQD")")
-    inv liq2_liquidate_bulk "$CAROL" "$CONTROLLER" -- liquidate \
+    inv liq2_liquidate_bulk "$CAROL" "$CONTROLLER" -- liquidate --seize_mode "$(seize_transfer)" \
         --liquidator "$CAROL_ADDR" --account_id "$acct" \
         --debt_payments "$(pay_vec "$PRIMARY_HUB_ID" "$SAC_LIQB" $((150 * LIQ_UNIT)) "$SAC_LIQD" $((150 * LIQ_UNIT)))" >/dev/null
     assert_borrow_decreased liq2_debt_b_post "$acct" "$SAC_LIQB" "$liq2_debt_b_pre"
@@ -130,7 +130,7 @@ flow_liq_spoke() {
     dual_px "$SAC_LIQE" LIQE $((WAD / 100 * 94)) liq3_crash
     assert_hf_below_wad liq3_hf "$acct"
     local liq3_debt_pre=$((920 * LIQ_UNIT))
-    inv liq3_liquidate_spoke "$CAROL" "$CONTROLLER" -- liquidate \
+    inv liq3_liquidate_spoke "$CAROL" "$CONTROLLER" -- liquidate --seize_mode "$(seize_transfer)" \
         --liquidator "$CAROL_ADDR" --account_id "$acct" \
         --debt_payments "$(pay_vec "$PRIMARY_HUB_ID" "$SAC_LIQF" $((400 * LIQ_UNIT)))" >/dev/null
     assert_borrow_decreased liq3_debt_post "$acct" "$SAC_LIQF" "$liq3_debt_pre"

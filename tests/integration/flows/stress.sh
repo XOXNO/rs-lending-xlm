@@ -182,7 +182,7 @@ fi
         var="LIQF_ACCT_$k"
         acct="${!var:-}"
         [ -z "$acct" ] && continue
-        sim_probe "probe_liquidate_${k}coll" "$CAROL" "$CONTROLLER" -- liquidate \
+        sim_probe "probe_liquidate_${k}coll" "$CAROL" "$CONTROLLER" -- liquidate --seize_mode "$(seize_transfer)" \
             --liquidator "$CAROL_ADDR" --account_id "$acct" \
             --debt_payments "$(pay_vec "$PRIMARY_HUB_ID" "$(stress_sac 19)" $((100 * STRESS_UNIT)))"
         [ "$PROBE_STATUS" = ok ] && best_k=$k
@@ -191,29 +191,29 @@ fi
 
     if [ "$best_k" -gt 0 ]; then
         var="LIQF_ACCT_$best_k"
-        inv "stress_liquidate_proof_${best_k}coll" "$CAROL" "$CONTROLLER" -- liquidate \
+        inv "stress_liquidate_proof_${best_k}coll" "$CAROL" "$CONTROLLER" -- liquidate --seize_mode "$(seize_transfer)" \
             --liquidator "$CAROL_ADDR" --account_id "${!var}" \
             --debt_payments "$(pay_vec "$PRIMARY_HUB_ID" "$(stress_sac 19)" $((100 * STRESS_UNIT)))" >/dev/null
     fi
     repay_args=""
     for i in $(seq 10 17); do repay_args+=" $(stress_sac $i) $((100 * STRESS_UNIT))"; done
-    sim_probe probe_liquidate_8coll_8debt "$CAROL" "$CONTROLLER" -- liquidate \
+    sim_probe probe_liquidate_8coll_8debt "$CAROL" "$CONTROLLER" -- liquidate --seize_mode "$(seize_transfer)" \
         --liquidator "$CAROL_ADDR" --account_id "$LIQF_ACCT_8C8D" \
         --debt_payments "$(pay_vec "$PRIMARY_HUB_ID" $repay_args)"
     save_state LIQ_FRONTIER_8C8D "$PROBE_STATUS"
 if [ "$PROBE_STATUS" = ok ]; then
-inv stress_liquidate_proof_8coll_8debt "$CAROL" "$CONTROLLER" -- liquidate \
+inv stress_liquidate_proof_8coll_8debt "$CAROL" "$CONTROLLER" -- liquidate --seize_mode "$(seize_transfer)" \
 --liquidator "$CAROL_ADDR" --account_id "$LIQF_ACCT_8C8D" \
 --debt_payments "$(pay_vec "$PRIMARY_HUB_ID" $repay_args)" >/dev/null
 fi
 full_args=""
 for i in $(seq 10 19); do full_args+=" $(stress_sac $i) $((700 * STRESS_UNIT))"; done
-sim_probe probe_liquidate_10coll_10debt_full "$CAROL" "$CONTROLLER" -- liquidate \
+sim_probe probe_liquidate_10coll_10debt_full "$CAROL" "$CONTROLLER" -- liquidate --seize_mode "$(seize_transfer)" \
 --liquidator "$CAROL_ADDR" --account_id "$LIQF_ACCT_10C10D" \
 --debt_payments "$(pay_vec "$PRIMARY_HUB_ID" $full_args)"
 save_state LIQ_FRONTIER_10C10D_FULL "$PROBE_STATUS"
 if [ "$PROBE_STATUS" = ok ]; then
-if INV_FAIL_STATUS=research inv stress_liquidate_proof_10coll_10debt_full "$CAROL" "$CONTROLLER" -- liquidate \
+if INV_FAIL_STATUS=research inv stress_liquidate_proof_10coll_10debt_full "$CAROL" "$CONTROLLER" -- liquidate --seize_mode "$(seize_transfer)" \
 --liquidator "$CAROL_ADDR" --account_id "$LIQF_ACCT_10C10D" \
 --debt_payments "$(pay_vec "$PRIMARY_HUB_ID" $full_args)" >/dev/null; then
 save_state LIQ_FRONTIER_10C10D_FULL_LIVE ok
@@ -223,12 +223,12 @@ fi
 fi
 if [ "${LIQ_FRONTIER_10C10D_FULL_LIVE:-}" != ok ]; then
 repay_args="$(stress_sac 19) $((100 * STRESS_UNIT))"
-sim_probe probe_liquidate_10coll_10debt_one_debt "$CAROL" "$CONTROLLER" -- liquidate \
+sim_probe probe_liquidate_10coll_10debt_one_debt "$CAROL" "$CONTROLLER" -- liquidate --seize_mode "$(seize_transfer)" \
 --liquidator "$CAROL_ADDR" --account_id "$LIQF_ACCT_10C10D" \
 --debt_payments "$(pay_vec "$PRIMARY_HUB_ID" $repay_args)"
 save_state LIQ_FRONTIER_10C10D_ONE_DEBT "$PROBE_STATUS"
 if [ "$PROBE_STATUS" = ok ]; then
-inv stress_liquidate_proof_10coll_10debt_one_debt "$CAROL" "$CONTROLLER" -- liquidate \
+inv stress_liquidate_proof_10coll_10debt_one_debt "$CAROL" "$CONTROLLER" -- liquidate --seize_mode "$(seize_transfer)" \
 --liquidator "$CAROL_ADDR" --account_id "$LIQF_ACCT_10C10D" \
 --debt_payments "$(pay_vec "$PRIMARY_HUB_ID" $repay_args)" >/dev/null
 fi

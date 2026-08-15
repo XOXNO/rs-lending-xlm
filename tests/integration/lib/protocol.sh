@@ -188,10 +188,15 @@ asset_config_json() {
     }' | jq -c "$overrides"
 }
 
+# Builds the `SpokeAssetArgs` map. Every key the Rust struct declares must be
+# present: the CLI rejects the call outright ("Missing key <k> in map") rather
+# than defaulting, so a field added to common/src/types/controller.rs has to be
+# mirrored here or every add_asset_to_spoke in the suite fails.
 spoke_args() {
     jq -nc --argjson hub "$1" --arg asset "$2" --argjson spoke "$3" --argjson cc "$4" --argjson cb "$5" \
         --argjson ltv "$6" --argjson thr "$7" --argjson bonus "$8" \
-        --arg sc "${9:-1000000000000000000}" --arg bc "${10:-1000000000000000000}" '{
+        --arg sc "${9:-1000000000000000000}" --arg bc "${10:-1000000000000000000}" \
+        --argjson ns "${11:-false}" '{
         hub_id: $hub,
         asset: $asset,
         spoke_id: $spoke,
@@ -199,6 +204,7 @@ spoke_args() {
         can_borrow: $cb,
         paused: false,
         frozen: false,
+        no_seize: $ns,
         ltv: $ltv,
         threshold: $thr,
         bonus: $bonus,
@@ -206,6 +212,20 @@ spoke_args() {
         supply_cap: $sc,
         borrow_cap: $bc
     }'
+}
+
+# `SeizeMode` on the wire, following the same convention the oracle configs use
+# for `read_mode`: a unit variant is a bare JSON string, a data variant is
+# {Variant: value}. Emitted as JSON rather than a bare word so the CLI parses it
+# as a value instead of falling back to string coercion.
+seize_transfer() {
+    jq -nc '"Transfer"'
+}
+
+# `Credit(0)` opens a fresh account owned by the liquidator; any other id must
+# already exist and satisfy the binding rules in ADR-0019.
+seize_credit() {
+    jq -nc --argjson id "${1:-0}" '{Credit: $id}'
 }
 
 price_key_token() {
