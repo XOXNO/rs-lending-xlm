@@ -299,3 +299,50 @@ fn test_rescale_ceil_downscale_to_nonzero_decimals() {
     assert_eq!(rescale_ceil(1_000_000_001, 9, 6), 1_000_001);
     assert_eq!(rescale_ceil(1_000_000_000, 9, 6), 1_000_000);
 }
+
+/// `mul_div_floor_saturating` is the only mul_div variant that does NOT panic on
+/// overflow — it returns `i128::MAX`. Every panicking sibling has an overflow
+/// test; this one had none, in either the unit tests or the fuzzer, despite
+/// being the variant used for interest index growth
+/// (`common/src/rates/index.rs:41`) and fee-to-share conversion (`:95`).
+///
+/// The contrast is the point: identical inputs, one aborts and one silently
+/// saturates. A silent `i128::MAX` in index growth would be a catastrophic
+/// state rather than a rejected transaction, so the behaviour deserves to be
+/// pinned rather than left implicit.
+#[test]
+fn mul_div_floor_saturating_saturates_where_the_panicking_variant_aborts() {
+    let env = Env::default();
+    // mul_div_floor panics on exactly these inputs (see
+    // test_mul_div_floor_overflow_panics); the saturating variant must not.
+    assert_eq!(
+        mul_div_floor_saturating(&env, i128::MAX, i128::MAX, 1),
+        i128::MAX
+    );
+}
+
+/// Below the saturation point it must agree exactly with the panicking floor
+/// variant, or the two would disagree on ordinary values and the choice of
+/// variant would silently change results.
+#[test]
+fn mul_div_floor_saturating_matches_floor_below_saturation() {
+    let env = Env::default();
+    for (x, y, d) in [
+        (0i128, 5i128, 3i128),
+        (1, 1, 1),
+        (7, 3, 2),
+        (WAD, WAD, WAD),
+        (RAY, 3, 7),
+        (i128::MAX, 1, 1),
+        // Exact division: no rounding either way.
+        (100, 10, 5),
+        // Inexact: floor must truncate, not round.
+        (99, 10, 7),
+    ] {
+        assert_eq!(
+            mul_div_floor_saturating(&env, x, y, d),
+            mul_div_floor(&env, x, y, d),
+            "saturating and panicking floor disagree at ({x}, {y}, {d})"
+        );
+    }
+}

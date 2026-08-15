@@ -916,3 +916,62 @@ fn upscale_factors_are_exact_powers_of_ten() {
         "RAY factor from 0 decimals"
     );
 }
+
+/// `Ray::mul_ratio_ceil` was the only public fp method with no unit test and no
+/// fuzz coverage, and it is not decorative: `burn_claimable_revenue`
+/// (`contracts/pool/src/cache/shares.rs`) uses it to burn a pro-rata *ceiling*
+/// of treasury revenue shares on a partial claim.
+///
+/// The ceiling direction is what keeps that safe. Burning at least the
+/// pro-rata share means the treasury can never take cash while giving up fewer
+/// shares than it owes; flooring would let repeated partial claims withdraw
+/// value the treasury no longer has shares to back.
+#[test]
+fn mul_ratio_ceil_rounds_up_and_never_below_the_exact_ratio() {
+    let env = Env::default();
+    // Exact division: ceiling must not inflate an already-exact result.
+    assert_eq!(
+        Ray::from(100i128).mul_ratio_ceil(&env, 1, 2).raw(),
+        50,
+        "exact ratio must not be rounded up"
+    );
+    // Inexact: must round up, not truncate.
+    assert_eq!(Ray::from(100i128).mul_ratio_ceil(&env, 1, 3).raw(), 34);
+    assert_eq!(Ray::from(10i128).mul_ratio_ceil(&env, 1, 4).raw(), 3);
+    // The smallest non-zero result: a positive numerator can never round to
+    // zero, which is what `burn_claimable_revenue`'s non-zero assert relies on.
+    assert_eq!(Ray::from(1i128).mul_ratio_ceil(&env, 1, i128::MAX).raw(), 1);
+}
+
+/// The invariant the call site depends on: burning `revenue * amount /
+/// treasury_actual` must never exceed `revenue` itself when `amount <=
+/// treasury_actual`. If it could, `burn_claimable_revenue` would subtract more
+/// shares than the treasury holds and underflow the revenue balance.
+#[test]
+fn mul_ratio_ceil_never_exceeds_the_base_when_ratio_is_at_most_one() {
+    let env = Env::default();
+    for revenue in [1i128, 2, 7, 1_000, 1_000_000, RAY, RAY * 1_000] {
+        for (amount, actual) in [
+            (1i128, 1i128),
+            (1, 2),
+            (1, 3),
+            (2, 3),
+            (999, 1_000),
+            (1, 1_000_000),
+            // amount == actual: the ratio is exactly one, the tightest case.
+            (1_000_000, 1_000_000),
+        ] {
+            let burned = Ray::from(revenue)
+                .mul_ratio_ceil(&env, amount, actual)
+                .raw();
+            assert!(
+                burned <= revenue,
+                "burned {burned} exceeds revenue {revenue} at ratio {amount}/{actual}"
+            );
+            assert!(
+                burned > 0,
+                "burned zero shares for a positive claim at ratio {amount}/{actual}"
+            );
+        }
+    }
+}
