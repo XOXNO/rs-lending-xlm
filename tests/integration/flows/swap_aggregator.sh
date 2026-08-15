@@ -93,8 +93,10 @@ flow_swap_aggregator_admin() {
     inv sa_ref_set_fee "$ADMIN" "$agg" -- set_referral_fee --id "$ref_id" --fee_bps 40 >/dev/null
     inv sa_ref_deactivate "$ADMIN" "$agg" -- set_referral_active --id "$ref_id" --active false >/dev/null
     ref=$(view sa_ref_after_updates "$agg" -- referral --id "$ref_id")
+    # `.active` is read without `// empty`: jq's `//` treats `false` as absent,
+    # so `.active // empty` yields nothing for exactly the value under test.
     if [ "$(jq -r '.fee_bps // empty' <<<"$ref")" = "40" ] \
-        && [ "$(jq -r '.active // empty' <<<"$ref")" = "false" ]; then
+        && [ "$(jq -r '.active' <<<"$ref")" = "false" ]; then
         record sa_ref_updates_applied ok referral "" "" "" "" "" "fee=40 active=false"
     else
         _assert_fail sa_ref_updates_applied "referral not updated: $ref"
