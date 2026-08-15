@@ -9,9 +9,22 @@ flow_flash_loans() {
 
     sac_transfer "$ALICE" "$USDC_SAC" "$ALICE_ADDR" "$FLASH_RECEIVER" 50000000 fund_flash_receiver
 
+    # The flash-loan fee is the protocol's whole economic interest in this path,
+    # so assert it landed. A loan that returned successfully while booking no
+    # fee would be a free borrow, invisible to a success-only check.
+    local flash_rev_pre flash_rev_post
+    flash_rev_pre=$(_view_pool_int flash_revenue_pre get_revenue \
+        --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")")
     inv flash_loan_success "$ALICE" "$CONTROLLER" -- flash_loan \
         --caller "$ALICE_ADDR" --asset "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")" --amount 100000000 \
         --receiver "$FLASH_RECEIVER" --data "$(flash_data_hex 0)" >/dev/null
+    flash_rev_post=$(_view_pool_int flash_revenue_post get_revenue \
+        --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")")
+    if _uint_ge "$flash_rev_post" "${flash_rev_pre:-0}" && [ "$flash_rev_post" != "${flash_rev_pre:-0}" ]; then
+        record flash_loan_fee_booked ok flash_loan "" "" "" "" "" "$flash_rev_pre -> $flash_rev_post"
+    else
+        _assert_fail flash_loan_fee_booked "pool revenue $flash_rev_pre -> $flash_rev_post; want an increase from the flash-loan fee"
+    fi
 
     local mode name pattern
     for mode in 1 2 3 4 5; do

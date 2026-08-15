@@ -56,8 +56,19 @@ flow_admin() {
     inv claim_revenue "$ADMIN" "$CONTROLLER" -- claim_revenue \
         --caller "$ADMIN_ADDR" --assets "$(hub_vec "$PRIMARY_HUB_ID" "$USDC_SAC")" >/dev/null
     assert_pool_revenue_decreased pool_revenue_post "$USDC_SAC" "${pool_rev_before:-0}"
+    # claim_revenue is permissionless — anyone may trigger the sweep — but it
+    # must pay out to the configured accumulator, not the caller. ALICE calling
+    # it right after ADMIN's sweep must therefore move nothing.
+    local rev_before_alice rev_after_alice
+    rev_before_alice=$(_view_pool_int pool_revenue_pre_alice get_revenue --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")")
     inv claim_revenue "$ALICE" "$CONTROLLER" -- claim_revenue \
         --caller "$ALICE_ADDR" --assets "$(hub_vec "$PRIMARY_HUB_ID" "$USDC_SAC")" >/dev/null
+    rev_after_alice=$(_view_pool_int pool_revenue_post_alice get_revenue --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")")
+    if _uint_le "$rev_after_alice" "${rev_before_alice:-0}"; then
+        record claim_revenue_permissionless_safe ok claim_revenue "" "" "" "" "" "$rev_before_alice -> $rev_after_alice"
+    else
+        _assert_fail claim_revenue_permissionless_safe "revenue rose $rev_before_alice -> $rev_after_alice on a non-admin claim"
+    fi
     view pool_rates_view "$POOL" -- get_borrow_rate --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")" >/dev/null
     view pool_util_view "$POOL" -- get_utilisation --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")" >/dev/null
 
@@ -124,7 +135,7 @@ xfail delegated_borrow_removed 'Error\(Contract' "$ALICE" "$CONTROLLER" -- borro
 inv manager_deactivate_alice "$ADMIN" "$CONTROLLER" -- set_position_manager \
 --manager "$ALICE_ADDR" --is_active false >/dev/null
 
-local blend_pool
+local blend_pool blend_seeded
 blend_pool=$(jq -r '.pools[0].address // empty' "$REPO_ROOT/configs/$NETWORK/blend.json")
 if [ -n "$blend_pool" ] && [ "$blend_pool" != "null" ]; then
 # The allowlist decides which external pools this protocol will migrate
@@ -164,7 +175,14 @@ fi
 inv blend_seed_xlm_positions "$ALICE" "$blend_pool" -- submit \
     --from "$ALICE_ADDR" --spender "$ALICE_ADDR" --to "$ALICE_ADDR" \
     --requests "$seed_requests" >/dev/null
-view blend_position_seeded "$blend_pool" -- get_positions --address "$ALICE_ADDR" >/dev/null
+# The migration below reads from this position, so an empty seed would make the
+# whole migration test vacuously pass against nothing.
+blend_seeded=$(view blend_position_seeded "$blend_pool" -- get_positions --address "$ALICE_ADDR")
+if [ -n "$blend_seeded" ] && [ "$blend_seeded" != "null" ] && [ "$blend_seeded" != "{}" ]; then
+record blend_position_nonempty ok get_positions "" "" "" "" "" "seeded"
+else
+_assert_fail blend_position_nonempty "blend position empty after seeding; migration would test nothing: $(head -c 120 <<<"$blend_seeded")"
+fi
 
 coll_json="${BLEND_MIGRATE_COLLATERAL_ASSETS_JSON:-[\"$XLM_SAC\"]}"
 if [ -n "${BLEND_MIGRATE_SUPPLY_ASSETS_JSON:-}" ]; then
