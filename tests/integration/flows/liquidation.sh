@@ -52,7 +52,7 @@ flow_liq_single() {
     dual_px "$SAC_LIQA" LIQA $((WAD / 10 * 7)) liq1_crash
     assert_hf_below_wad liq1_hf "$acct"
     assert_can_liquidated liq1_can_liq "$acct" true
-    view liq1_estimate "$CONTROLLER" -- get_liquidation_estimate \
+    view liq1_estimate "$CONTROLLER" -- get_liquidation_estimate --seize_mode "$(seize_transfer)" \
         --account_id "$acct" --debt_payments "$(pay_vec "$PRIMARY_HUB_ID" "$SAC_LIQB" $((100 * LIQ_UNIT)))" >/dev/null
     view liq1_avail "$CONTROLLER" -- get_liquidation_collateral --account_id "$acct" >/dev/null
 
@@ -65,7 +65,7 @@ flow_liq_single() {
     assert_borrow_at_most liq1_debt_cap_partial "$acct" "$SAC_LIQB" $(( 501 * LIQ_UNIT ))
 
     local est refund close
-    est=$(view liq1_estimate_close "$CONTROLLER" -- get_liquidation_estimate \
+    est=$(view liq1_estimate_close "$CONTROLLER" -- get_liquidation_estimate --seize_mode "$(seize_transfer)" \
         --account_id "$acct" --debt_payments "$(pay_vec "$PRIMARY_HUB_ID" "$SAC_LIQB" $((600 * LIQ_UNIT)))")
     refund=$(jq -r '[.refunds[]?.amount | tonumber] | add // 0' <<<"$est")
     close=$(( 600 * LIQ_UNIT - refund ))
