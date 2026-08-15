@@ -9,7 +9,7 @@ flow_admin() {
     xfail unpause_when_live 'Error\(Contract, #1001\)' "$ADMIN" "$CONTROLLER" -- unpause
 
     inv set_position_limits "$ADMIN" "$CONTROLLER" -- set_position_limits \
-        --limits '{"max_supply_positions":10,"max_borrow_positions":10}' >/dev/null
+        --limits '{"max_supply_positions":5,"max_borrow_positions":5}' >/dev/null
 
     inv update_pool_params "$ADMIN" "$CONTROLLER" -- upgrade_liquidity_pool_params \
         --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$EURC_SAC")" \
@@ -272,9 +272,16 @@ flow_price_aggregator_extra() {
 
     # The sanity band is the outer bound on any price the protocol will accept,
     # so it is owner-only and a non-owner must not be able to widen it.
+    # Band width is capped for a single-source feed:
+    # ceil((max-min)*10000/(max+min)) must be <= MAX_SINGLE_SOURCE_SANITY_BAND_BPS
+    # (1000). 0.92..1.08 WAD is 800 bps and clears it; the earlier 0.001..1000
+    # WAD was rejected with #226 SanityBandTooWideForSingleSource.
+    local band_min band_max
+    band_min=$((WAD / 100 * 92))
+    band_max=$((WAD / 100 * 108))
     inv pa_set_sanity_band "$ADMIN" "$PRICE_AGGREGATOR" -- set_sanity_band \
-        --key "$key" --min_wad $((WAD / 1000)) --max_wad $((WAD * 1000)) >/dev/null
+        --key "$key" --min_wad "$band_min" --max_wad "$band_max" >/dev/null
 
     xfail pa_set_sanity_band_owner_guard 'Missing signing key' "$ALICE" "$PRICE_AGGREGATOR" -- set_sanity_band \
-        --key "$key" --min_wad $((WAD / 1000)) --max_wad $((WAD * 1000))
+        --key "$key" --min_wad "$band_min" --max_wad "$band_max"
 }

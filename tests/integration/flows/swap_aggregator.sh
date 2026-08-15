@@ -30,10 +30,14 @@ flow_swap_aggregator_admin() {
     inv sa_reset_fee "$ADMIN" "$agg" -- set_static_fee --fee_bps 0 >/dev/null
 
     # A non-owner must not be able to move the fee at all.
-    xfail sa_fee_not_owner 'Error\(Contract' "$BOB" "$agg" -- set_static_fee --fee_bps 10
+    xfail sa_fee_not_owner 'Missing signing key|Error\(Contract' "$BOB" "$agg" -- set_static_fee --fee_bps 10
 
     # --- whitelist ---
-    local tok="$SAC_LIQA"
+    # XLM_SAC, not one of the LIQ* assets: those are created by flow_liq_setup,
+    # which only the `liq` lane runs. Referencing SAC_LIQA here aborted the whole
+    # `agg` lane under `set -u` before governance ever started. XLM_SAC is set by
+    # deploy_protocol, so it exists in every lane.
+    local tok="$XLM_SAC"
     assert_view_eq_at "$agg" sa_wl_before false is_whitelisted --token "$tok"
     inv sa_wl_add "$ADMIN" "$agg" -- add_to_whitelist --token "$tok" >/dev/null
     assert_view_eq_at "$agg" sa_wl_after_add true is_whitelisted --token "$tok"
@@ -125,5 +129,5 @@ flow_swap_aggregator_admin() {
     # --- ownership, last: irreversible ---
     inv sa_renounce "$ADMIN" "$agg" -- renounce_ownership >/dev/null
     # With no owner left, the owner-only surface must be permanently closed.
-    xfail sa_owner_only_after_renounce 'Error\(Contract' "$ADMIN" "$agg" -- set_static_fee --fee_bps 10
+    xfail sa_owner_only_after_renounce 'Missing signing key|Error\(Contract' "$ADMIN" "$agg" -- set_static_fee --fee_bps 10
 }

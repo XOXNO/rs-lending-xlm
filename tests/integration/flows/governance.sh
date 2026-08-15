@@ -78,7 +78,7 @@ view gov_resolve_tol "$GOVERNANCE" -- resolve_oracle_tolerance \
     local op_cancel
     op_cancel=$(inv gov_propose_cancel "$ADMIN" "$GOVERNANCE" -- propose \
         --proposer "$ADMIN_ADDR" \
-        --op '{"SetPositionLimits":{"max_supply_positions":6,"max_borrow_positions":6}}' \
+        --op '{"SetPositionLimits":{"max_supply_positions":3,"max_borrow_positions":3}}' \
         --salt "$GOV_SALT_CANCEL" | tr -d '"[:space:]')
     gov_assert_state gov_state_waiting "$op_cancel" Waiting
     inv gov_cancel "$ADMIN" "$GOVERNANCE" -- cancel \
@@ -88,7 +88,7 @@ view gov_resolve_tol "$GOVERNANCE" -- resolve_oracle_tolerance \
     local op_exec st args_f
     op_exec=$(inv gov_propose_exec "$ADMIN" "$GOVERNANCE" -- propose \
         --proposer "$ADMIN_ADDR" \
-        --op '{"SetPositionLimits":{"max_supply_positions":8,"max_borrow_positions":8}}' \
+        --op '{"SetPositionLimits":{"max_supply_positions":4,"max_borrow_positions":4}}' \
         --salt "$GOV_SALT_EXEC" | tr -d '"[:space:]')
     st=$(gov_await_ready "$op_exec")
     if [ "$st" != "Ready" ] && [ "$st" != "Done" ]; then
@@ -96,7 +96,7 @@ view gov_resolve_tol "$GOVERNANCE" -- resolve_oracle_tolerance \
     fi
 args_f="$LOG_DIR/gov_exec_args.json"
 gov_scval_args set_position_limits \
---limits '{"max_supply_positions":8,"max_borrow_positions":8}' > "$args_f"
+--limits '{"max_supply_positions":4,"max_borrow_positions":4}' > "$args_f"
 view gov_hash_exec "$GOVERNANCE" -- hash_operation \
 --target "$GOV_CONTROLLER" --function set_position_limits \
 --args-file-path "$args_f" --predecessor "$GOV_ZERO32" --salt "$GOV_SALT_EXEC" >/dev/null

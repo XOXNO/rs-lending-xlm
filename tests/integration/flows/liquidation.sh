@@ -260,7 +260,7 @@ flow_spoke_flags_and_curve() {
     local usage supplied_ray
     usage=$(view sf_usage "$CONTROLLER" -- get_spoke_usage \
         --spoke_id "$PRIMARY_SPOKE_ID" --hub_asset "$liqg_key")
-    supplied_ray=$(jq -r '.supplied // .supplied_ray // empty' <<<"$usage" 2>/dev/null)
+    supplied_ray=$(jq -r '.supplied_scaled_ray // empty' <<<"$usage" 2>/dev/null)
     if [ -n "$supplied_ray" ] && [ "$supplied_ray" != "null" ]; then
         record sf_usage_supplied ok get_spoke_usage "" "" "" "" "" "supplied=$supplied_ray"
     else
@@ -300,6 +300,12 @@ flow_spoke_flags_and_curve() {
 # socializes it through the owner override instead.
 flow_force_socialize_and_recap() {
     phase force_socialize
+    # flow_clean_bad_debt leaves LIQC crashed to 15%, so a fresh position built
+    # on it would be underwater before it is borrowed against — the borrow below
+    # failed with #100 InsufficientCollateral. Restore the price first so this
+    # flow controls its own setup regardless of what ran before it.
+    dual_px "$SAC_LIQC" LIQC "$WAD" fs_restore
+
     local acct
     acct=$(inv_create fs_supply "$BOB" "$CONTROLLER" -- supply \
         --caller "$BOB_ADDR" --account_id 0 --spoke_id "$PRIMARY_SPOKE_ID" \
