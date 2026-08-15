@@ -50,6 +50,29 @@ deploy_protocol() {
         record deploy_price_aggregator ok deploy "$txh" "" "" "" "" "$pa"
         log "price-aggregator = $pa"
     fi
+    # A second, throwaway swap-aggregator owned by this run's ADMIN. The
+    # `$AGGREGATOR` from configs/networks.json is a shared testnet deployment
+    # whose owner we are not, so its owner-only surface (fees, whitelist,
+    # referrals, sweeps) is untestable there — and renounce_ownership would be
+    # destructive on a contract other runs depend on. Swaps keep using the
+    # shared one; only the admin surface is exercised here.
+    if [ -z "${OWNED_AGGREGATOR:-}" ] && [ -f "$WASM_DIR/swap_aggregator.wasm" ]; then
+        local sa_out="$LOG_DIR/deploy_owned_agg.out" sa_err="$LOG_DIR/deploy_owned_agg.err"
+        run_deploy "$sa_out" "$sa_err" -- stellar contract deploy \
+            --wasm "$WASM_DIR/swap_aggregator.wasm" \
+            --source "$ADMIN" "${NET_ARGS[@]}" -- --admin "$ADMIN_ADDR"
+        local sa sa_tx
+        sa=$(sanitize_output "$sa_out")
+        sa_tx=$(extract_signing_hash "$sa_err")
+        if is_contract_id "$sa"; then
+            save_state OWNED_AGGREGATOR "$sa"
+            record deploy_owned_aggregator ok deploy "$sa_tx" "" "" "" "" "$sa"
+            log "owned swap-aggregator = $sa"
+        else
+            log "owned swap-aggregator deploy failed; admin-surface coverage will skip: $(tail_err_note "$sa_err")"
+        fi
+    fi
+
     if [ -z "${WIRED:-}" ]; then
         inv set_swap_aggregator "$ADMIN" "$CONTROLLER" -- set_swap_aggregator --addr "$AGGREGATOR" >/dev/null
 
