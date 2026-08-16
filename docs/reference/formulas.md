@@ -137,8 +137,10 @@ If received repayment is less than planned, every related seizure is reduced
 proportionally with floor rounding. A seizure never exceeds the current
 position. Excess repayment is refunded.
 
-Tiny residual positions can be promoted to a full close where partial
-arithmetic would otherwise leave unusable dust.
+Tiny residual *debt* after the computed ideal can raise that ideal to a full
+close, so a liquidator *may* finish a dust stub. The offer is still capped at
+the ideal; leftover collateral at or below the dust threshold is socialized
+separately after the call.
 
 ## Bad debt
 

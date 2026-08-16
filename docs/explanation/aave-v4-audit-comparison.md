@@ -181,8 +181,8 @@ The residual: an attacker *can* hold `total_collateral` just above
 `force_socialize_bad_debt` ([`lib.rs:715`](contracts/controller/src/lib.rs:715)),
 owner-gated with the looser `Insolvent` gate (`debt > collateral`, no dust cap).
 So the liveness dependency is on governance rather than on liquidator economics —
-strictly better than Aave's "liquidate at a loss" answer, but it is a dependency
-and belongs in the operations runbook.
+strictly better than Aave's "liquidate at a loss" answer, but it is a dependency.
+Operator steps: [force-socialize runbook](../reference/runbooks/force-socialize-bad-debt.md).
 
 The genuine cost of direct socialization: the loss lands on whoever is supplying
 at that instant, with no insurance layer in between. Aave's deficit sits on the

@@ -78,3 +78,36 @@ Model each verb against global pause, frozen, paused, `no_seize`, delisted, and
 liquidation entry and exit legs. Liveness consequences are security-relevant, in
 both directions: a halt that is too broad strands solvent liquidations, and one
 that is too narrow leaves an unsafe asset reachable.
+
+## Proposed amendment (2026-08-16) — not shipped
+
+**Status:** Draft. No production change in this revision.
+
+`no_seize` does not block supply (`require_can_supply` uses `BlockOnEntry`:
+`paused` and `frozen` only). Seizure is pro-rata and every surviving seize
+leg is gated by `SeizureLeg`. So after the guardian sets `no_seize` on listing
+X, any account that *then supplies* X cannot be liquidated — including its
+other collateral. Existing holders of a just-flagged X are already stuck.
+A planned seize that floors to zero units is dropped *before* the flag check,
+so a tiny no-seize position neither shields nor is protected.
+
+This ADR's guarantees only claim that *pausing* a collateral listing never
+makes holders unliquidatable. The `no_seize` shield is therefore in-scope for
+the flag as written, and is a governance footgun rather than an accidental
+bypass.
+
+### Options (do not land A or B as a silent patch)
+
+| Option | Change | Why not (or when) |
+|---|---|---|
+| **A** — `require_can_supply` rejects `no_seize` | Stops *new* shields | Contradicts “`no_seize` blocks the seizure leg, **and nothing else**” and `no_seize_does_not_block_entry_or_exit`. Needs this ADR rewritten. Does not unstick existing holders. |
+| **B** — skip `no_seize` legs and seize the rest | Existing holders stay liquidatable | Breaks `proportion_seized = weighted / total`, which is the scalar `max_hf_preserving_bonus_bps` uses. Re-allocate or under-seize both invalidate V-6 / CS-AAVE4-009. Not a small change. |
+| **C — recommended** — couple at the setter: `no_seize` implies `frozen` | `require_flag_ratchet` / `set_spoke_asset_flags` require `frozen` whenever `no_seize` is set. Frozen already blocks new supply. | One assert. No seizure-math change. Existing holders still need `force_socialize_bad_debt` (owner). Rewrite `set_spoke_asset_flags_tightens_no_seize_independently`. |
+
+**Open question this amendment must answer before any code:** is `no_seize` a
+*live* flag on a book with active borrowers, or a *wind-down* flag that must
+travel with `frozen`? Option C is the wind-down reading.
+
+Until that is decided, `force_socialize_bad_debt` is the hatch for insolvent
+accounts that `no_seize` has made unliquidatable. See
+[force-socialize-bad-debt](../../reference/runbooks/force-socialize-bad-debt.md).

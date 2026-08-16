@@ -355,9 +355,12 @@ liquidator's favour, which the bound permits.
   `weighted_collateral >= ltv_collateral >= floor` at that moment, and `HF < 1`
   means `total_debt > weighted_collateral`. **Inferred:** an account that becomes
   liquidatable without an intervening price move owes more than the floor.
-- `estimate_liquidation_amount` promotes to a **full close** whenever the leftover
-  debt after a partial would fall below `BAD_DEBT_USD_THRESHOLD`, so small
-  positions are never left as unprofitable stubs.
+- `estimate_liquidation_amount` raises **`ideal`** (the accepted-repay *cap*)
+  to a full close whenever leftover debt after that ideal would fall below
+  `BAD_DEBT_USD_THRESHOLD`. That lets a liquidator finish a dust stub; it does
+  not require them to. Accepted repay is still `min(offered, ideal)` except
+  the `FullCloseRequired` branch. Leftover collateral at or below the same
+  $5, with debt still exceeding it, is auto-socialized after the call.
 - Below the floor, `is_socializable_bad_debt` opens the permissionless
   `clean_bad_debt` path, which needs no profitable liquidator at all.
 
