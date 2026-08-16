@@ -33,8 +33,10 @@ use crate::storage;
 
 /// Liquidates `account_id`'s undercollateralized debt: builds a plan from `debt_payments`,
 /// applies the repayments, then seizes collateral scaled down to match whatever was actually
-/// received. Requires `liquidator` to authorize the call, rejects self-liquidation, and
-/// socializes any bad debt left on the account once seizure completes.
+/// received. Requires `liquidator` to authorize the call and socializes any bad debt left on
+/// the account once seizure completes. Owners may liquidate their own account; only crediting
+/// seized collateral back to the account being liquidated is rejected (see
+/// `resolve_seize_receiver`).
 ///
 /// `seize_mode` decides how the liquidator takes delivery. `Transfer` pays them in underlying
 /// out of pool cash. `Credit` instead moves the seized supply shares to a controller account,
@@ -55,7 +57,7 @@ pub(crate) fn process_liquidation(
 
     let mut cache = Cache::new(env);
 
-    validate_liquidation_inputs(env, &account, liquidator, debt_payments);
+    validate_liquidation_inputs(env, debt_payments);
 
     // Resolved up front so an unusable receiving account fails before any token moves.
     let mut receiver = resolve_seize_receiver(
@@ -212,21 +214,9 @@ fn resolve_seize_receiver(
     Some((requested, receiver))
 }
 
-/// Rejects empty `raw_payments` and self-liquidation, where `liquidator` is the account's own
-/// owner.
-fn validate_liquidation_inputs(
-    env: &Env,
-    account: &Account,
-    liquidator: &Address,
-    raw_payments: &Vec<HubPayment>,
-) {
+/// Rejects empty `raw_payments`.
+fn validate_liquidation_inputs(env: &Env, raw_payments: &Vec<HubPayment>) {
     require_non_empty_payments(env, raw_payments);
-
-    assert_with_error!(
-        env,
-        account.owner != *liquidator,
-        CollateralError::SelfLiquidationNotAllowed
-    );
 }
 
 /// Socializes `account_id`'s bad debt under the dust-threshold gate; requires `caller` to

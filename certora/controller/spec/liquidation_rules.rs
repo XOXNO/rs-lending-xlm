@@ -134,30 +134,6 @@ fn liquidation_does_not_increase_seized_collateral(
 }
 
 #[rule]
-fn self_liquidation_reverts(e: Env, owner: Address, debt_asset: Address) {
-    let account_id = crate::spec::fixture::ACCOUNT_ID;
-    crate::spec::fixture::seed_live_account(&e, account_id, &owner, &debt_asset);
-
-    let mut payments: Vec<(HubAssetKey, i128)> = Vec::new(&e);
-    payments.push_back((
-        HubAssetKey {
-            hub_id: crate::spec::fixture::HUB_ID,
-            asset: debt_asset,
-        },
-        WAD,
-    ));
-
-    crate::positions::liquidation::process_liquidation(
-        &e,
-        &owner,
-        account_id,
-        &payments,
-        crate::types::SeizeMode::Transfer,
-    );
-    cvlr_assert!(false);
-}
-
-#[rule]
 fn bonus_bounded(
     e: Env,
     hf_wad: i128,
