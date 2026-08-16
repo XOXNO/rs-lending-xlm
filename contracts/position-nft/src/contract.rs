@@ -41,6 +41,23 @@ impl PositionNft {
         controller(e).require_auth();
         Enumerable::sequential_mint(e, &to)
     }
+
+    /// Burns `token_id` without the holder's authorization. Controller-only.
+    ///
+    /// Deliberately NOT the OZ `Burnable` extension: `Base::burn` calls
+    /// `from.require_auth()`, but the controller must burn when an account
+    /// empties through liquidation, where the owner never signed. This
+    /// replicates `Enumerable::burn` (v0.7.2) minus that auth:
+    /// `Base::update` clears owner/balance/approval, then the enumeration
+    /// helper maintains owner enumeration, total supply, and global
+    /// enumeration.
+    pub fn burn(e: &Env, token_id: u32) {
+        controller(e).require_auth();
+        let owner = Base::owner_of(e, token_id);
+        Base::update(e, Some(&owner), None, token_id);
+        stellar_tokens::non_fungible::burnable::emit_burn(e, &owner, token_id);
+        Enumerable::remove_from_enumerations(e, &owner, token_id);
+    }
 }
 
 #[contractimpl(contracttrait)]

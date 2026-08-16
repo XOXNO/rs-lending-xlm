@@ -50,3 +50,69 @@ fn metadata_is_set() {
     let (_controller, client) = setup(&env);
     assert_eq!(client.symbol(), String::from_str(&env, "XLP"));
 }
+
+#[test]
+fn mint_requires_controller_auth() {
+    let env = Env::default();
+    // No auth mocking: the controller's require_auth must fail.
+    let (_controller, client) = setup(&env);
+    let user = Address::generate(&env);
+    assert!(client.try_mint(&user).is_err());
+}
+
+#[test]
+fn burn_requires_controller_auth() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_controller, client) = setup(&env);
+    let user = Address::generate(&env);
+    let token_id = client.mint(&user);
+
+    // Fresh env auth state: stop mocking, so the controller's require_auth fails.
+    env.set_auths(&[]);
+    assert!(client.try_burn(&token_id).is_err());
+}
+
+#[test]
+fn burn_does_not_need_owner_auth() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_controller, client) = setup(&env);
+    let user = Address::generate(&env);
+    let token_id = client.mint(&user);
+
+    // mock_all_auths satisfies the controller; the owner never signs anything —
+    // there is no `from` parameter at all.
+    client.burn(&token_id);
+    assert!(client.try_owner_of(&token_id).is_err());
+    assert_eq!(client.balance(&user), 0u32);
+    assert_eq!(client.total_supply(), 0u32);
+}
+
+#[test]
+fn burned_token_cannot_be_transferred() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_controller, client) = setup(&env);
+    let seller = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let token_id = client.mint(&seller);
+    client.burn(&token_id);
+    assert!(client.try_transfer(&seller, &buyer, &token_id).is_err());
+}
+
+#[test]
+fn transfer_moves_ownership_and_enumeration() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_controller, client) = setup(&env);
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+    let token_id = client.mint(&alice);
+
+    client.transfer(&alice, &bob, &token_id);
+    assert_eq!(client.owner_of(&token_id), bob);
+    assert_eq!(client.balance(&alice), 0u32);
+    assert_eq!(client.balance(&bob), 1u32);
+    assert_eq!(client.get_owner_token_id(&bob, &0u32), token_id);
+}
