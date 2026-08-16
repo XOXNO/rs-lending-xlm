@@ -129,8 +129,13 @@ cannot consume more collateral than the protocol permits.
 
 ### INV-LIQ-01 — Only unhealthy debt can be liquidated
 
-Liquidation requires live debt and health factor below one. A user cannot
-liquidate its own account.
+Liquidation requires live debt and health factor below one; it is
+permissionless, and an account owner may liquidate its own account. The one
+remaining identity guard is receiver-side, not caller-side: in `Credit` seize
+mode, the receiving account cannot be the liquidated account itself
+(`requested != account_id`, `SelfLiquidationNotAllowed` = error #133) — crediting
+seized collateral back to the account it was seized from would undo the
+seizure.
 
 ### INV-LIQ-02 — Repayment and seizure stay coupled
 

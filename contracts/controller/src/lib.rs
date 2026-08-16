@@ -141,8 +141,9 @@ impl ControllerInterface for Controller {
 
     /// Liquidates `account_id` by having `liquidator` repay `debt_payments`
     /// and seizing collateral at a bonus scaled by the account's health
-    /// factor; liquidators cannot liquidate their own account. Triggers
-    /// bad-debt socialization if the account remains insolvent afterward.
+    /// factor. Permissionless — the account owner may liquidate its own
+    /// account. Triggers bad-debt socialization if the account remains
+    /// insolvent afterward.
     ///
     /// `seize_mode` selects delivery. `Transfer` pays the seized collateral
     /// out of pool cash. `Credit(account_id)` instead credits the seized
