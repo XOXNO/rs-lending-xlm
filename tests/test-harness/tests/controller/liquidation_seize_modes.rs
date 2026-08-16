@@ -814,3 +814,74 @@ fn transfer_and_credit_agree_on_values_that_do_not_divide_evenly() {
          value; a difference here is a real over- or under-seize, not rounding"
     );
 }
+
+/// Does a liquidator who immediately withdraws the credited shares end up with
+/// the same tokens as one who took `Transfer`?
+///
+/// This is the question an integrator actually cares about, and the answer is
+/// not obviously yes: the credit path already took the protocol fee in shares,
+/// but the withdraw applies its own share->asset conversion on top, so there are
+/// two roundings in one flow versus one in the other.
+///
+/// Withdraw-all is requested with the `0` sentinel so the exit is not itself
+/// quantised by a caller-supplied amount.
+#[test]
+fn withdrawing_the_credit_in_the_same_ledger_matches_the_transfer_payout() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    t.supply(ALICE, "USDC", 7_333.37);
+    t.borrow(ALICE, "ETH", 2.19);
+    t.supply(CAROL, "USDC", 7_333.37);
+    t.borrow(CAROL, "ETH", 2.19);
+    t.set_price("USDC", usd_cents(51));
+    t.assert_liquidatable(ALICE);
+    t.assert_liquidatable(CAROL);
+
+    // Register the liquidator before reading balances: the harness creates users
+    // lazily, and the first read would otherwise precede their existence.
+    let liquidator_addr = t.get_or_create_user(LIQUIDATOR);
+
+    // Leg 1: Transfer pays the liquidator in underlying immediately.
+    let before_transfer = t.token_balance_raw(LIQUIDATOR, "USDC");
+    t.liquidate_with_mode(LIQUIDATOR, ALICE, "ETH", 0.73, SeizeMode::Transfer);
+    let transfer_payout = t.token_balance_raw(LIQUIDATOR, "USDC") - before_transfer;
+
+    // Leg 2: Credit, then drain the receiving account in the same ledger.
+    let before_credit = t.token_balance_raw(LIQUIDATOR, "USDC");
+    let receiver = t.liquidate_with_mode(LIQUIDATOR, CAROL, "ETH", 0.73, SeizeMode::Credit(0));
+
+    let usdc = t.resolve_asset("USDC");
+    let withdrawals = soroban_sdk::vec![&t.env, (hub_asset(usdc), 0i128)]; // 0 = withdraw all
+    t.ctrl_client()
+        .withdraw(&liquidator_addr, &receiver, &withdrawals, &None);
+    let credit_payout = t.token_balance_raw(LIQUIDATOR, "USDC") - before_credit;
+
+    assert!(
+        transfer_payout > 0 && credit_payout > 0,
+        "both flows must pay the liquidator something"
+    );
+    // Measured: credit-then-withdraw pays exactly one stroop less. The credit
+    // flow floors twice — value->shares at liquidation, then shares->asset units
+    // at withdraw — where transfer converts once. Each floor can shed at most one
+    // unit of the smallest denomination.
+    //
+    // The direction is the security-relevant half. Credit paying MORE than
+    // transfer would mean the two modes disagree in the liquidator's favour,
+    // which is value appearing from rounding; paying less leaves the dust in the
+    // pool. Assert the bound and the direction separately so a sign flip fails
+    // even if the magnitude stays within tolerance.
+    assert!(
+        credit_payout <= transfer_payout,
+        "credit-then-withdraw paid MORE than transfer ({credit_payout} vs \
+         {transfer_payout}); rounding must never favour the liquidator"
+    );
+    assert!(
+        transfer_payout - credit_payout <= 1,
+        "credit-then-withdraw lost {} units versus transfer; the two flows differ \
+         by at most one floor step",
+        transfer_payout - credit_payout
+    );
+}
