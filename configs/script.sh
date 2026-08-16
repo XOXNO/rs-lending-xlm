@@ -2964,6 +2964,53 @@ schedule_transfer_gov_ownership() {
     echo "Governance ownership transfer scheduled to ${new_owner}."
 }
 
+# One-shot governance deploy of the position NFT — the account-ownership
+# authority. Mirrors schedule_deploy_pool: standard-tier timelock op, `never`
+# reapply (the controller asserts PositionNftAlreadyDeployed), and the returned
+# address must be captured on first execution.
+schedule_deploy_position_nft() {
+    local hash=$1
+    if [ -z "$hash" ]; then
+        echo "Usage: $0 deployPositionNft <wasm_hash_hex>" >&2
+        exit 1
+    fi
+    local uri=${POSITION_NFT_URI:-"https://xoxno.com/nft/lending/"}
+    local name=${POSITION_NFT_NAME:-"XOXNO Lending Position"}
+    local symbol=${POSITION_NFT_SYMBOL:-"XLP"}
+    local args_json
+    args_json=$(jq -nc --arg h "$hash" --arg u "$uri" --arg n "$name" --arg s "$symbol" \
+        '[{bytes:$h},{string:$u},{string:$n},{string:$s}]')
+    local salt
+    salt=$(gen_salt "deploy_position_nft" "$args_json")
+
+    local op_id
+    op_id=$(schedule_via_proposer \
+        deploy_position_nft "$(admin_op DeployPositionNft \
+            "$(jq -nc --arg h "$hash" --arg u "$uri" --arg n "$name" --arg s "$symbol" \
+                '{wasm_hash:$h, uri:$u, name:$n, symbol:$s}')")" \
+        "$args_json" true "$salt" never)
+    if [ "${AUTO_EXECUTE:-1}" != "1" ]; then
+        echo "Scheduled deploy_position_nft as op ${op_id} (AUTO_EXECUTE=0)." >&2
+        echo "$op_id"
+        return 0
+    fi
+    if [ "$(op_state "$op_id")" = "Done" ]; then
+        die "deploy_position_nft op ${op_id} already executed; its returned address cannot be re-read. Record the position_nft address in ${NETWORKS_FILE} manually."
+    fi
+    await_op_ready "$op_id"
+    local result errf
+    errf=$(mktemp)
+    result=$(execute_op "$op_id" 2>"$errf") || { cat "$errf" >&2; rm -f "$errf"; die "execute of deploy_position_nft op ${op_id} failed"; }
+    rm -f "$errf"
+    local nft
+    nft=$(printf '%s' "$result" | tail -n1 | tr -d '"' | tr -d '[:space:]')
+    if [ -z "$nft" ]; then
+        echo "ERROR: deploy_position_nft execute returned no address (result: $result)" >&2
+        exit 1
+    fi
+    echo "$nft"
+}
+
 schedule_deploy_pool() {
     local hash=$1
     if [ -z "$hash" ]; then
@@ -4586,6 +4633,9 @@ case "$1" in
         ;;
     "deployPool")
         schedule_deploy_pool "$2"
+        ;;
+    "deployPositionNft")
+        schedule_deploy_position_nft "$2"
         ;;
 "grantGovRole")
         if [ -z "$2" ] || [ -z "$3" ]; then
