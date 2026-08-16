@@ -13,13 +13,14 @@ fn setup(env: &Env) -> (Address, PositionNftClient<'_>) {
 
 fn setup_with_id(env: &Env) -> (Address, Address, PositionNftClient<'_>) {
     let controller = Address::generate(env);
+    // Mirrors the Makefile deploy defaults (POSITION_NFT_URI/NAME/SYMBOL).
     let id = env.register(
         PositionNft,
         (
             controller.clone(),
-            String::from_str(env, "https://xoxno.com/nft/"),
+            String::from_str(env, "https://api.xoxno.com/user/lending/image/"),
             String::from_str(env, "XOXNO Lending Position"),
-            String::from_str(env, "XLP"),
+            String::from_str(env, "XLEND"),
         ),
     );
     (id.clone(), controller, PositionNftClient::new(env, &id))
@@ -56,12 +57,12 @@ fn token_id_zero_is_never_minted() {
 fn metadata_is_set() {
     let env = Env::default();
     let (_controller, client) = setup(&env);
-    // Symbol is compiled in (XLEND overrides the constructor arg); the name
-    // still comes from constructor metadata.
+    // All three come from constructor metadata (storage is the sole source).
     assert_eq!(
         client.name(),
         String::from_str(&env, "XOXNO Lending Position")
     );
+    assert_eq!(client.symbol(), String::from_str(&env, "XLEND"));
 }
 
 #[test]
@@ -278,9 +279,6 @@ fn token_uri_composes_nonce_with_query_suffix() {
     let env = Env::default();
     env.mock_all_auths();
     let (_controller, client) = setup(&env);
-    // The fixture constructs with the legacy base; the canonical base comes
-    // from the permissionless repair path, exactly like the live instance.
-    client.sync_metadata();
     let user = Address::generate(&env);
     let token_id = client.mint(&user);
     assert_eq!(token_id, 1);
@@ -310,23 +308,4 @@ fn token_uri_of_missing_token_fails() {
     env.mock_all_auths();
     let (_controller, client) = setup(&env);
     assert!(client.try_token_uri(&7u32).is_err());
-}
-
-#[test]
-fn sync_metadata_repairs_stored_values() {
-    let env = Env::default();
-    let (_controller, client) = setup(&env);
-    // Constructed with legacy values...
-    assert_eq!(client.symbol(), String::from_str(&env, "XLP"));
-    // ...permissionless repair rewrites storage to the canonical constants,
-    // so raw-storage readers and getters agree.
-    client.sync_metadata();
-    assert_eq!(client.symbol(), String::from_str(&env, "XLEND"));
-    assert_eq!(
-        client.name(),
-        String::from_str(&env, "XOXNO Lending Position")
-    );
-    // Idempotent.
-    client.sync_metadata();
-    assert_eq!(client.symbol(), String::from_str(&env, "XLEND"));
 }

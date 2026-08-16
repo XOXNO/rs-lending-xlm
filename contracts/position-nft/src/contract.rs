@@ -110,32 +110,14 @@ impl PositionNft {
         renew_instance(e);
         upgradeable::upgrade(e, &new_wasm_hash);
     }
-
-    /// Rewrites the stored collection metadata to the canonical compile-time
-    /// values below. Deliberately permissionless: it is idempotent and can
-    /// only write constants baked into the (governance-upgraded) code, so any
-    /// caller merely repairs an instance constructed with older arguments —
-    /// raw-storage readers (explorers, indexers) then agree with the getters.
-    pub fn sync_metadata(e: &Env) {
-        renew_instance(e);
-        Base::set_metadata(
-            e,
-            String::from_str(e, CANONICAL_BASE_URI),
-            String::from_str(e, CANONICAL_NAME),
-            String::from_str(e, CANONICAL_SYMBOL),
-        );
-    }
 }
 
-/// Canonical collection metadata. The constructor stores its deploy-time
-/// arguments; `sync_metadata` repairs older instances to these values. The
-/// query suffix rides AFTER the token id, which the stock OZ base-and-append
-/// composition cannot produce — hence the `token_uri` override below, which
-/// reads the STORED base_uri so raw storage stays the single source of truth.
-const CANONICAL_BASE_URI: &str = "https://api.xoxno.com/user/lending/image/";
+/// The query suffix rides AFTER the token id, which the stock OZ
+/// base-and-append composition cannot produce — hence the `token_uri`
+/// override below. The base itself is the STORED `base_uri` (set at
+/// construction), so raw storage stays the single source of truth and
+/// metadata changes are constructor- or upgrade-driven only.
 const TOKEN_URI_SUFFIX: &str = "?isStatic=true&chain=STELLAR";
-const CANONICAL_NAME: &str = "XOXNO Lending Position";
-const CANONICAL_SYMBOL: &str = "XLEND";
 
 #[contractimpl(contracttrait)]
 impl NonFungibleToken for PositionNft {
