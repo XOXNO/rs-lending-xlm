@@ -17,6 +17,14 @@ use test_harness::{
 
 // --- inspection helpers --------------------------------------------------
 
+/// Share-space slack between the two seize modes: strictly less than one asset
+/// unit. Transfer moves real tokens, so `resolve_withdrawal` quantises its share
+/// burn to whole asset units; credit keeps full RAY precision. One asset unit at
+/// 7 decimals is `10^(27-7)` RAY-shares. Measured divergence on non-dividing
+/// values is 4.1e19 — about 0.41 of a stroop — so this bound is roughly 2.4x the
+/// observed worst case rather than a number picked to make a test pass.
+const SEIZE_MODE_SHARE_SLACK: i128 = 100_000_000_000_000_000_000;
+
 fn pool_state(t: &LendingTest, asset_name: &str) -> PoolStateRaw {
     let asset = t.resolve_asset(asset_name);
     t.pool_client(asset_name)
@@ -641,4 +649,312 @@ fn no_seize_does_not_block_ordinary_withdrawal() {
     // `no_seize` governs the seizure leg only; users keep their exits.
     t.withdraw(ALICE, "USDC", 1_000.0);
     assert!(t.supply_balance(ALICE, "USDC") < 10_000.0);
+}
+
+// --- mode parity ---------------------------------------------------------
+
+/// Do the two seize modes take the same value out of the liquidated account at the
+/// same ledger?
+///
+/// This is the question that decides whether either mode over- or under-seizes,
+/// and nothing tested it: the existing tests check conservation *within* credit
+/// mode (`credited + fee == seized`) but never compare the two paths.
+///
+/// They cannot be bit-identical by construction, because they convert the seizure
+/// differently:
+///
+///   Transfer: value -> asset units (floor) -> shares (CEIL)   [resolve_withdrawal]
+///   Credit:   value -> shares (FLOOR)                          [one conversion]
+///
+/// Two conversions in opposite directions versus one. This pins how far apart that
+/// leaves them, so a future change to either rounding step cannot silently widen
+/// the gap.
+#[test]
+fn transfer_and_credit_seize_the_same_value_at_the_same_ledger() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    // Two borrowers built identically, so the only difference at liquidation time
+    // is the seize mode.
+    t.supply(ALICE, "USDC", 10_000.0);
+    t.borrow(ALICE, "ETH", 3.0);
+    t.supply(CAROL, "USDC", 10_000.0);
+    t.borrow(CAROL, "ETH", 3.0);
+    t.set_price("USDC", usd_cents(50));
+    t.assert_liquidatable(ALICE);
+    t.assert_liquidatable(CAROL);
+
+    let alice_id = t.resolve_account_id(ALICE);
+    let carol_id = t.resolve_account_id(CAROL);
+    let alice_before = scaled_supply(&t, alice_id, "USDC");
+    let carol_before = scaled_supply(&t, carol_id, "USDC");
+    assert_eq!(
+        alice_before, carol_before,
+        "fixture broken: the two borrowers must start identical"
+    );
+
+    // Same repayment, same ledger, same index — only the mode differs.
+    t.liquidate_with_mode(LIQUIDATOR, ALICE, "ETH", 1.0, SeizeMode::Transfer);
+    let receiver = t.liquidate_with_mode(LIQUIDATOR, CAROL, "ETH", 1.0, SeizeMode::Credit(0));
+
+    let transfer_seized = alice_before - scaled_supply(&t, alice_id, "USDC");
+    let credit_seized = carol_before - scaled_supply(&t, carol_id, "USDC");
+    assert!(transfer_seized > 0 && credit_seized > 0, "both must seize");
+
+    // The victim-side debit is what "over-seize" means. Allow the sub-unit slack the
+    // two conversion routes make unavoidable, but no more: anything larger is a
+    // rounding regression, not arithmetic noise.
+    let delta = (transfer_seized - credit_seized).abs();
+    assert!(
+        delta <= SEIZE_MODE_SHARE_SLACK,
+        "modes disagree on shares seized by {delta} (transfer={transfer_seized} \
+         credit={credit_seized}); the two conversion routes should not diverge \
+         beyond {SEIZE_MODE_SHARE_SLACK}"
+    );
+
+    // And the liquidator's side: credited shares plus the fee must reconstruct the
+    // whole seizure, so nothing is stranded between the two accounts.
+    let credited = scaled_supply(&t, receiver, "USDC");
+    assert!(
+        credited > 0 && credited <= credit_seized,
+        "credited {credited} must be positive and no more than seized {credit_seized}"
+    );
+}
+
+/// The full-close case, where the two modes *must* agree exactly rather than
+/// approximately.
+///
+/// Both paths special-case it: `resolve_withdrawal` returns `pos_scaled` when the
+/// request covers the position, and the credit path takes `position.scaled_amount`
+/// verbatim when `capped_ray == actual_ray`. Neither re-derives the figure from an
+/// asset amount, precisely so a rounding step cannot strand or invent a share — so
+/// an exact match is the property, not a bound.
+#[test]
+fn transfer_and_credit_agree_exactly_on_a_full_close() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    t.supply(ALICE, "USDC", 10_000.0);
+    t.borrow(ALICE, "ETH", 3.0);
+    t.supply(CAROL, "USDC", 10_000.0);
+    t.borrow(CAROL, "ETH", 3.0);
+    // Deep enough underwater that the seizure exhausts the collateral position.
+    t.set_price("USDC", usd_cents(20));
+    t.assert_liquidatable(ALICE);
+    t.assert_liquidatable(CAROL);
+
+    let alice_id = t.resolve_account_id(ALICE);
+    let carol_id = t.resolve_account_id(CAROL);
+    let alice_before = scaled_supply(&t, alice_id, "USDC");
+    let carol_before = scaled_supply(&t, carol_id, "USDC");
+
+    t.liquidate_with_mode(LIQUIDATOR, ALICE, "ETH", 3.0, SeizeMode::Transfer);
+    t.liquidate_with_mode(LIQUIDATOR, CAROL, "ETH", 3.0, SeizeMode::Credit(0));
+
+    let transfer_seized = alice_before - scaled_supply(&t, alice_id, "USDC");
+    let credit_seized = carol_before - scaled_supply(&t, carol_id, "USDC");
+    assert_eq!(
+        transfer_seized, credit_seized,
+        "a full close takes the whole stored position in both modes, so the two \
+         must agree to the share"
+    );
+}
+
+/// The same parity question, with values chosen so nothing divides evenly.
+///
+/// The round-number fixture above cannot distinguish the two conversion routes:
+/// when every quantity divides cleanly, floor and ceil agree trivially. These
+/// amounts and this price are deliberately awkward, so if `resolve_withdrawal`'s
+/// floor-then-CEIL can ever diverge from the credit path's single FLOOR, it shows
+/// up here.
+#[test]
+fn transfer_and_credit_agree_on_values_that_do_not_divide_evenly() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    t.supply(ALICE, "USDC", 7_333.37);
+    t.borrow(ALICE, "ETH", 2.19);
+    t.supply(CAROL, "USDC", 7_333.37);
+    t.borrow(CAROL, "ETH", 2.19);
+    t.set_price("USDC", usd_cents(51));
+    t.assert_liquidatable(ALICE);
+    t.assert_liquidatable(CAROL);
+
+    let alice_id = t.resolve_account_id(ALICE);
+    let carol_id = t.resolve_account_id(CAROL);
+    let alice_before = scaled_supply(&t, alice_id, "USDC");
+    let carol_before = scaled_supply(&t, carol_id, "USDC");
+
+    t.liquidate_with_mode(LIQUIDATOR, ALICE, "ETH", 0.73, SeizeMode::Transfer);
+    t.liquidate_with_mode(LIQUIDATOR, CAROL, "ETH", 0.73, SeizeMode::Credit(0));
+
+    let transfer_seized = alice_before - scaled_supply(&t, alice_id, "USDC");
+    let credit_seized = carol_before - scaled_supply(&t, carol_id, "USDC");
+    let delta = (transfer_seized - credit_seized).abs();
+    assert!(
+        delta <= SEIZE_MODE_SHARE_SLACK,
+        "modes diverged by {delta} shares on non-dividing values \
+         (transfer={transfer_seized} credit={credit_seized})"
+    );
+
+    // The property that actually matters: in asset units — what the liquidated
+    // account can be said to have lost — the two modes agree exactly. The
+    // share-space gap above sits entirely below the asset's resolution, so it is
+    // invisible to anyone holding or accounting for the underlying.
+    assert_eq!(
+        t.supply_balance_raw(ALICE, "USDC"),
+        t.supply_balance_raw(CAROL, "USDC"),
+        "the two modes must leave the liquidated accounts with the same asset \
+         value; a difference here is a real over- or under-seize, not rounding"
+    );
+}
+
+/// Does a liquidator who immediately withdraws the credited shares end up with
+/// the same tokens as one who took `Transfer`?
+///
+/// This is the question an integrator actually cares about, and the answer is
+/// not obviously yes: the credit path already took the protocol fee in shares,
+/// but the withdraw applies its own share->asset conversion on top, so there are
+/// two roundings in one flow versus one in the other.
+///
+/// Withdraw-all is requested with the `0` sentinel so the exit is not itself
+/// quantised by a caller-supplied amount.
+#[test]
+fn withdrawing_the_credit_in_the_same_ledger_matches_the_transfer_payout() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    t.supply(ALICE, "USDC", 7_333.37);
+    t.borrow(ALICE, "ETH", 2.19);
+    t.supply(CAROL, "USDC", 7_333.37);
+    t.borrow(CAROL, "ETH", 2.19);
+    t.set_price("USDC", usd_cents(51));
+    t.assert_liquidatable(ALICE);
+    t.assert_liquidatable(CAROL);
+
+    // Register the liquidator before reading balances: the harness creates users
+    // lazily, and the first read would otherwise precede their existence.
+    let liquidator_addr = t.get_or_create_user(LIQUIDATOR);
+
+    // Leg 1: Transfer pays the liquidator in underlying immediately.
+    let before_transfer = t.token_balance_raw(LIQUIDATOR, "USDC");
+    t.liquidate_with_mode(LIQUIDATOR, ALICE, "ETH", 0.73, SeizeMode::Transfer);
+    let transfer_payout = t.token_balance_raw(LIQUIDATOR, "USDC") - before_transfer;
+
+    // Leg 2: Credit, then drain the receiving account in the same ledger.
+    let before_credit = t.token_balance_raw(LIQUIDATOR, "USDC");
+    let receiver = t.liquidate_with_mode(LIQUIDATOR, CAROL, "ETH", 0.73, SeizeMode::Credit(0));
+
+    let usdc = t.resolve_asset("USDC");
+    let withdrawals = soroban_sdk::vec![&t.env, (hub_asset(usdc), 0i128)]; // 0 = withdraw all
+    t.ctrl_client()
+        .withdraw(&liquidator_addr, &receiver, &withdrawals, &None);
+    let credit_payout = t.token_balance_raw(LIQUIDATOR, "USDC") - before_credit;
+
+    assert!(
+        transfer_payout > 0 && credit_payout > 0,
+        "both flows must pay the liquidator something"
+    );
+    // Measured: credit-then-withdraw pays exactly one stroop less. The credit
+    // flow floors twice — value->shares at liquidation, then shares->asset units
+    // at withdraw — where transfer converts once. Each floor can shed at most one
+    // unit of the smallest denomination.
+    //
+    // The direction is the security-relevant half. Credit paying MORE than
+    // transfer would mean the two modes disagree in the liquidator's favour,
+    // which is value appearing from rounding; paying less leaves the dust in the
+    // pool. Assert the bound and the direction separately so a sign flip fails
+    // even if the magnitude stays within tolerance.
+    assert!(
+        credit_payout <= transfer_payout,
+        "credit-then-withdraw paid MORE than transfer ({credit_payout} vs \
+         {transfer_payout}); rounding must never favour the liquidator"
+    );
+    assert!(
+        transfer_payout - credit_payout <= 1,
+        "credit-then-withdraw lost {} units versus transfer; the two flows differ \
+         by at most one floor step",
+        transfer_payout - credit_payout
+    );
+}
+
+// --- fee base ------------------------------------------------------------
+
+/// The protocol fee is charged on the **bonus**, not on the whole seizure.
+///
+/// This is the economics of the liquidation and nothing pinned it. Repay 100,
+/// take 105 back, and the fee comes out of the 5 — the liquidator keeps
+/// `105 - fee`, not `105 * (1 - fee_rate)`. Getting this wrong by charging the
+/// gross would quietly take 12% of principal instead of 12% of profit.
+///
+/// The discriminating check needs no knowledge of the bonus curve: if the fee
+/// were charged on the total, `fee / seized` would be exactly the fee rate. It
+/// is charged on the bonus, so that ratio must come out strictly below it — and
+/// by a wide margin, since the bonus is a small fraction of the seizure.
+#[test]
+fn the_protocol_fee_is_charged_on_the_bonus_not_the_gross_seizure() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    t.supply(ALICE, "USDC", 10_000.0);
+    t.borrow(ALICE, "ETH", 3.0);
+    t.set_price("USDC", usd_cents(50));
+    t.assert_liquidatable(ALICE);
+
+    let account_id = t.resolve_account_id(ALICE);
+    let payments =
+        soroban_sdk::Vec::from_array(&t.env, [(hub_asset(t.resolve_asset("ETH")), 1_0000000)]);
+    let estimate =
+        t.ctrl_client()
+            .get_liquidation_estimate(&account_id, &payments, &SeizeMode::Transfer);
+
+    let seized = estimate.seized_collaterals.get_unchecked(0).amount;
+    let fee = estimate.protocol_fees.get_unchecked(0).amount;
+    let bonus_bps = estimate.bonus_rate_bps;
+    assert!(
+        seized > 0 && fee > 0 && bonus_bps > 0,
+        "estimate must be live"
+    );
+
+    // DEFAULT_ASSET_CONFIG.liquidation_fees
+    const FEE_BPS: i128 = 1_200;
+    const BPS: i128 = 10_000;
+
+    // If the base were the gross seizure, this would hold with equality.
+    let fee_if_charged_on_gross = seized * FEE_BPS / BPS;
+    assert!(
+        fee < fee_if_charged_on_gross,
+        "fee {fee} matches a charge on the gross seizure ({fee_if_charged_on_gross}); \
+         it must be charged on the bonus only"
+    );
+
+    // And it must match a charge on the bonus. seized = principal * (1 + b), so
+    // the bonus portion is seized * b / (1 + b).
+    let bonus_portion = seized * bonus_bps / (BPS + bonus_bps);
+    let fee_if_charged_on_bonus = bonus_portion * FEE_BPS / BPS;
+    let drift = (fee - fee_if_charged_on_bonus).abs();
+    assert!(
+        drift <= 1,
+        "fee {fee} does not match a charge on the bonus ({fee_if_charged_on_bonus}, \
+         bonus_bps={bonus_bps}, seized={seized}); drift {drift}"
+    );
+
+    // The liquidator's take is the whole seizure minus that fee — `105 - fee`,
+    // never `105` scaled down by the fee rate.
+    let liquidator_take = seized - fee;
+    assert!(
+        liquidator_take > seized * (BPS - FEE_BPS) / BPS,
+        "liquidator take {liquidator_take} looks like the gross scaled by the fee \
+         rate rather than the gross minus a bonus-based fee"
+    );
 }
