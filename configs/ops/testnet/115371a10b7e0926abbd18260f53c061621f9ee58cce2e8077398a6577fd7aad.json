@@ -1,0 +1,16 @@
+{
+  "kind": "controller",
+  "op_id": "115371a10b7e0926abbd18260f53c061621f9ee58cce2e8077398a6577fd7aad",
+  "network": "testnet",
+  "target": "CCXRWJ6SIU2WPFEGLFGJVITPL57QAYIMIO6OAM2NBGNDQSSCK2FFV3F3",
+  "function": "upgrade_position_nft",
+  "args": [
+    {
+      "bytes": "6155cbf388c2d69e68ff3e0a8ffe0df72aa8dc463211c3fc875430f9e459fce2"
+    }
+  ],
+  "predecessor": "0000000000000000000000000000000000000000000000000000000000000000",
+  "salt": "ddaaa93a8c56092e53cacb4e12323dfa8151bae078ed73db232a7e5e087ec7a0",
+  "cli_executable": true,
+  "executed": true
+}
