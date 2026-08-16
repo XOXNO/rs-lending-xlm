@@ -215,3 +215,58 @@ fn burn_extends_instance_ttl() {
         );
     });
 }
+
+#[test]
+fn renew_extends_owner_entry_ttl_to_user_window() {
+    use soroban_sdk::testutils::storage::Persistent as _;
+    use stellar_tokens::non_fungible::NFTStorageKey;
+
+    let env = Env::default();
+    env.mock_all_auths();
+    let (id, _controller, client) = setup_with_id(&env);
+    let user = Address::generate(&env);
+    let token_id = client.mint(&user);
+
+    // Age the ledger past the OZ 30-day owner-entry bump so the entry is
+    // measurably older than the user window renew() must restore.
+    env.ledger()
+        .with_mut(|l| l.sequence_number += common::constants::TTL_THRESHOLD_USER / 2);
+    env.as_contract(&id, || {
+        assert!(
+            env.storage()
+                .persistent()
+                .get_ttl(&NFTStorageKey::Owner(token_id))
+                < common::constants::TTL_BUMP_USER
+        );
+    });
+
+    // Permissionless: no auth mocked beyond the mint above, caller is anyone.
+    client.renew(&token_id);
+
+    env.as_contract(&id, || {
+        assert_eq!(
+            env.storage()
+                .persistent()
+                .get_ttl(&NFTStorageKey::Owner(token_id)),
+            common::constants::TTL_BUMP_USER
+        );
+    });
+}
+
+#[test]
+fn renew_nonexistent_token_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_controller, client) = setup(&env);
+    assert!(client.try_renew(&7u32).is_err());
+}
+
+#[test]
+fn upgrade_requires_controller_auth() {
+    let env = Env::default();
+    // No auth mocking: the controller's require_auth must fail before any
+    // wasm validation happens.
+    let (_controller, client) = setup(&env);
+    let fake_hash = soroban_sdk::BytesN::from_array(&env, &[7u8; 32]);
+    assert!(client.try_upgrade(&fake_hash).is_err());
+}

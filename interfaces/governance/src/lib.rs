@@ -103,6 +103,8 @@ pub enum AdminOperation {
     DeployPool(BytesN<32>),
     DeployPositionNft(DeployPositionNftArgs),
     UpgradePool(BytesN<32>),
+
+    UpgradePositionNft(BytesN<32>),
     SetPositionManager(Address, bool),
     UpgradeController(BytesN<32>),
     MigrateController(u32),

@@ -34,3 +34,23 @@ pub(crate) fn nft_try_owner_of_call(env: &Env, _nft: &Address, account_id: u64) 
         .persistent()
         .get(&GhostNftKey::Owner(account_id))
 }
+
+/// TTL extension has no accounting effect. Mirrors the real contract's one
+/// observable behavior: renew on a burned/never-minted token reverts.
+pub(crate) fn nft_renew_call(env: &Env, _nft: &Address, account_id: u64) {
+    if !env
+        .storage()
+        .persistent()
+        .has(&GhostNftKey::Owner(account_id))
+    {
+        panic!("nonexistent token");
+    }
+}
+
+/// Upgrades are outside the verified state space; the summary is a no-op.
+pub(crate) fn nft_upgrade_call(
+    _env: &Env,
+    _nft: &Address,
+    _new_wasm_hash: &soroban_sdk::BytesN<32>,
+) {
+}

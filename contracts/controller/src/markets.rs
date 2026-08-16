@@ -114,3 +114,12 @@ pub(crate) fn upgrade_pool(env: &Env, new_wasm_hash: BytesN<32>) {
     let pool_addr = storage::get_pool(env);
     pool_upgrade_call(env, &pool_addr, &new_wasm_hash);
 }
+
+/// Renews the controller's storage TTL and upgrades the position-NFT
+/// contract's Wasm bytecode to `new_wasm_hash`. Panics with
+/// `PositionNftNotSet` when the NFT has not been deployed.
+pub(crate) fn upgrade_position_nft(env: &Env, new_wasm_hash: BytesN<32>) {
+    storage::renew_controller_instance(env);
+    let nft_addr = storage::get_position_nft(env);
+    crate::external::position_nft::nft_upgrade_call(env, &nft_addr, &new_wasm_hash);
+}

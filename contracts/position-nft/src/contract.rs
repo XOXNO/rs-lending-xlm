@@ -3,10 +3,10 @@
 //! is the stock OpenZeppelin non-fungible interface so external indexers and
 //! marketplaces can track positions without protocol-specific tooling.
 
-use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, String};
+use soroban_sdk::{contract, contractimpl, contracttype, Address, BytesN, Env, String};
 use stellar_tokens::non_fungible::{
     enumerable::{Enumerable, NonFungibleEnumerable},
-    sequential, Base, NonFungibleToken,
+    sequential, Base, NFTStorageKey, NonFungibleToken,
 };
 
 #[contracttype]
@@ -70,6 +70,41 @@ impl PositionNft {
         Base::update(e, Some(&owner), None, token_id);
         stellar_tokens::non_fungible::burnable::emit_burn(e, &owner, token_id);
         Enumerable::remove_from_enumerations(e, &owner, token_id);
+    }
+
+    /// Extends the TTL of `token_id`'s persistent `Owner` entry to the
+    /// protocol's per-user renewal window, plus the instance TTL.
+    /// Permissionless: extending a TTL is pure rent charity — it cannot move,
+    /// approve, or reassign the token, and it cannot shorten a lifetime.
+    ///
+    /// This closes the renewal asymmetry with OZ's `owner_of`, which extends
+    /// the `Owner` entry by only its own 30-day default: the controller calls
+    /// this from `renew_account`, so an account renewal keeps the ownership
+    /// leg alive for the same 120-day window as the controller's own entries
+    /// (INV-STOR-02).
+    ///
+    /// Panics with the OZ `NonExistentToken` error when the token was never
+    /// minted or was burned.
+    pub fn renew(e: &Env, token_id: u32) {
+        // Existence check first: extend_ttl on a missing key would trap with
+        // a storage error; owner_of gives the standard token error instead.
+        let _owner = Base::owner_of(e, token_id);
+        e.storage().persistent().extend_ttl(
+            &NFTStorageKey::Owner(token_id),
+            common::constants::TTL_THRESHOLD_USER,
+            common::constants::TTL_BUMP_USER,
+        );
+        common::ttl::renew_instance(e);
+    }
+
+    /// Upgrades the contract WASM to `new_wasm_hash`, extending the instance
+    /// TTL first. Controller-only — reachable on mainnet solely through the
+    /// controller's `upgrade_position_nft`, which sits behind the same
+    /// governance ownership and timelock as every other upgrade.
+    pub fn upgrade(e: &Env, new_wasm_hash: BytesN<32>) {
+        controller(e).require_auth();
+        common::ttl::renew_instance(e);
+        stellar_contract_utils::upgradeable::upgrade(e, &new_wasm_hash);
     }
 }
 

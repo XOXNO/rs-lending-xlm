@@ -747,6 +747,13 @@ impl ControllerAdmin for Controller {
         renew_then!(env, markets::upgrade_pool(&env, new_wasm_hash))
     }
 
+    /// Upgrades the position-NFT contract's Wasm bytecode to
+    /// `new_wasm_hash`. Restricted to the owner.
+    #[only_owner]
+    fn upgrade_position_nft(env: Env, new_wasm_hash: BytesN<32>) {
+        renew_then!(env, markets::upgrade_position_nft(&env, new_wasm_hash))
+    }
+
     /// Force-socializes `account_id`'s debt into the supply index when the
     /// account is insolvent. Restricted to the owner. Bypasses the
     /// dust-collateral cap that gates the permissionless cleanup.

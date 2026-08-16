@@ -102,10 +102,18 @@ on read (OZ default), while the controller's own account entries renew to
 that touches the controller, which is what drives `owner_of` reads) can end
 up with a live controller account but an **archived** NFT owner entry. Any
 controller op against that account — including `liquidate` — will fail until
-the entry is restored. If `liquidate` (or any account op) fails in a way that
-looks like a missing ledger entry rather than a normal contract error, submit
-a `RestoreFootprint` operation for the position-NFT contract's `Owner(token_id)`
-key before retrying. See `docs/reference/invariants.md` (INV-STOR-02).
+the entry is restored. Two mitigations, in preference order:
+
+1. **Proactive:** `position-nft::renew(token_id)` is permissionless and
+   extends the `Owner` entry to the protocol's 120-day window. Call it on
+   positions you monitor (e.g. whenever a watched account's health factor
+   drops below your alert threshold) and the archival case never arises.
+2. **Reactive:** if `liquidate` (or any account op) fails in a way that
+   looks like a missing ledger entry rather than a normal contract error,
+   submit a `RestoreFootprint` operation for the position-NFT contract's
+   `Owner(token_id)` key before retrying.
+
+See `docs/reference/invariants.md` (INV-STOR-02).
 
 ## Common mistakes
 

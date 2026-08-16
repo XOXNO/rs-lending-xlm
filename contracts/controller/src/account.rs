@@ -159,7 +159,10 @@ pub(crate) fn update_or_remove_debt_position(
 }
 
 /// Extends the TTL of the controller instance, then, after requiring `caller`'s
-/// authorization and ownership of `account_id`, extends the TTL of the account's stored entries.
+/// authorization and ownership of `account_id`, extends the TTL of the
+/// account's stored entries and of the account's NFT `Owner` entry — the
+/// latter to the same per-user window, closing the 30d/120d renewal
+/// asymmetry with OZ's `owner_of` (INV-STOR-02).
 pub(crate) fn renew_account(env: &Env, caller: Address, account_id: u64) {
     storage::renew_controller_instance(env);
 
@@ -167,6 +170,8 @@ pub(crate) fn renew_account(env: &Env, caller: Address, account_id: u64) {
     require_account_owner(env, account_id, &caller);
 
     storage::renew_user_account(env, account_id);
+    let nft = storage::get_position_nft(env);
+    crate::external::position_nft::nft_renew_call(env, &nft, account_id);
 }
 
 /// Extends the controller instance's TTL and grants `delegate` authorization to act on

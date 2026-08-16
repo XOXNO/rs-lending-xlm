@@ -1,6 +1,6 @@
 use common::errors::GenericError;
 use position_nft_interface::PositionNftClient;
-use soroban_sdk::{panic_with_error, Address, Env};
+use soroban_sdk::{panic_with_error, Address, BytesN, Env};
 
 /// Mints a position NFT to `to`, widening the sequential `u32` token id into
 /// the controller's `u64` account-id domain. Infallible widening.
@@ -25,4 +25,18 @@ pub(crate) fn nft_try_owner_of_call(env: &Env, nft: &Address, account_id: u64) -
         Ok(Ok(owner)) => Some(owner),
         _ => None,
     }
+}
+
+/// Extends the TTL of `account_id`'s NFT `Owner` entry to the protocol's
+/// per-user renewal window. Ids above `u32::MAX` can never have been minted.
+pub(crate) fn nft_renew_call(env: &Env, nft: &Address, account_id: u64) {
+    let token_id = u32::try_from(account_id)
+        .unwrap_or_else(|_| panic_with_error!(env, GenericError::AccountNotFound));
+    PositionNftClient::new(env, nft).renew(&token_id);
+}
+
+/// Upgrades the position-NFT contract's WASM. Reached only from the
+/// owner-gated `upgrade_position_nft` admin entrypoint.
+pub(crate) fn nft_upgrade_call(env: &Env, nft: &Address, new_wasm_hash: &BytesN<32>) {
+    PositionNftClient::new(env, nft).upgrade(new_wasm_hash);
 }
