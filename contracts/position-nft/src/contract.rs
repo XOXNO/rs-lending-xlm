@@ -39,8 +39,15 @@ impl PositionNft {
     }
 
     /// Mints the next sequential position token to `to`. Controller-only.
+    ///
+    /// Renews the instance TTL: the instance holds the controller address,
+    /// collection metadata, and the sequential id counter, and `mint` runs on
+    /// every controller account creation, so this is the natural cadence to
+    /// keep it alive. See `docs/reference/invariants.md` (INV-STOR-02) for
+    /// the resulting TTL asymmetry with the per-token `Owner` entry.
     pub fn mint(e: &Env, to: Address) -> u32 {
         controller(e).require_auth();
+        common::ttl::renew_instance(e);
         Enumerable::sequential_mint(e, &to)
     }
 
@@ -53,8 +60,12 @@ impl PositionNft {
     /// `Base::update` clears owner/balance/approval, then the enumeration
     /// helper maintains owner enumeration, total supply, and global
     /// enumeration.
+    ///
+    /// Renews the instance TTL for the same reason as `mint` — this runs on
+    /// every controller account deletion (e.g. liquidation cleanup).
     pub fn burn(e: &Env, token_id: u32) {
         controller(e).require_auth();
+        common::ttl::renew_instance(e);
         let owner = Base::owner_of(e, token_id);
         Base::update(e, Some(&owner), None, token_id);
         stellar_tokens::non_fungible::burnable::emit_burn(e, &owner, token_id);

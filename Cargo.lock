@@ -1403,6 +1403,7 @@ dependencies = [
 name = "position-nft"
 version = "0.1.0"
 dependencies = [
+ "common",
  "soroban-sdk",
  "stellar-tokens",
 ]
