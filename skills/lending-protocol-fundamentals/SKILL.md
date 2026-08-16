@@ -39,8 +39,13 @@ isolation.
 ## Accounts, spokes, delegates
 
 - Positions belong to a `u64` **account id**, not an address. `supply` with
-  `account_id == 0` creates an account and returns the id. One address can
-  own many accounts.
+  `account_id == 0` creates an account and returns the id. Creation mints a
+  **position NFT** (`contracts/position-nft`, token id == account id) to the
+  creator; the account's owner is whoever holds that NFT. The controller
+  resolves ownership live via `owner_of` on every account access (never
+  cached), and transfer is a standard NFT operation the controller does not
+  gate — account authority moves with the token, immediately. One address
+  can own many accounts.
 - Each account binds at creation to a **spoke** (`spoke_id: u32`) — its risk
   configuration (LTV, liquidation thresholds/bonuses, caps, and per-asset
   pause/freeze flags). The spoke is immutable after creation. **Spoke ids start
@@ -66,7 +71,9 @@ isolation.
   exception: repay leg on a paused debt listing reverts — "tainted debt").
 - The owner can `add_delegate` / `remove_delegate`: a delegate may act on
   owner-gated verbs, but only while also registered as an active position
-  manager by governance.
+  manager by governance **and** while the granting owner still holds the
+  account's position NFT — transferring the NFT lazily revokes every
+  delegate the prior owner granted, with no revocation call needed.
 
 ## Units
 
