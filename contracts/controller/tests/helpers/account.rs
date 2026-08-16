@@ -1,7 +1,7 @@
 use super::*;
 use crate::constants::RAY;
 use crate::Controller;
-use common::types::PositionManagerConfig;
+use common::types::{PositionManagerConfig, SpokeConfig};
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::String as SdkString;
 
@@ -470,4 +470,33 @@ fn cleanup_empty_account_burns_nft() {
     assert!(position_nft::PositionNftClient::new(&env, &nft)
         .try_owner_of(&u32::try_from(account_id).unwrap())
         .is_err());
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #53)")]
+fn account_creation_before_nft_deploy_fails_closed() {
+    // The PositionNft key is deliberately left unset (no `setup_position_nft`
+    // call): governance has activated a spoke but never deployed the NFT.
+    // `create_account` must fail closed with `PositionNftNotSet` (#53) rather
+    // than skip minting or fall back to some default authority.
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let contract_id = env.register(Controller, (admin,));
+    let owner = Address::generate(&env);
+
+    env.as_contract(&contract_id, || {
+        crate::storage::set_spoke(
+            &env,
+            1,
+            &SpokeConfig {
+                is_deprecated: false,
+                liquidation_target_hf_wad: 0,
+                hf_for_max_bonus_wad: 0,
+                liquidation_bonus_factor_bps: 0,
+            },
+        );
+        let mut cache = crate::context::Cache::new(&env);
+        create_account(&env, &owner, 1, PositionMode::Normal, &mut cache);
+    });
 }

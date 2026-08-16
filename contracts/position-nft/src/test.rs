@@ -1,9 +1,14 @@
-use soroban_sdk::testutils::Address as _;
+use soroban_sdk::testutils::{Address as _, Ledger};
 use soroban_sdk::{Address, Env, String};
 
 use crate::{PositionNft, PositionNftClient};
 
 fn setup(env: &Env) -> (Address, PositionNftClient<'_>) {
+    let (_id, controller, client) = setup_with_id(env);
+    (controller, client)
+}
+
+fn setup_with_id(env: &Env) -> (Address, Address, PositionNftClient<'_>) {
     let controller = Address::generate(env);
     let id = env.register(
         PositionNft,
@@ -14,7 +19,7 @@ fn setup(env: &Env) -> (Address, PositionNftClient<'_>) {
             String::from_str(env, "XLP"),
         ),
     );
-    (controller, PositionNftClient::new(env, &id))
+    (id.clone(), controller, PositionNftClient::new(env, &id))
 }
 
 #[test]
@@ -115,4 +120,98 @@ fn transfer_moves_ownership_and_enumeration() {
     assert_eq!(client.balance(&alice), 0u32);
     assert_eq!(client.balance(&bob), 1u32);
     assert_eq!(client.get_owner_token_id(&bob, &0u32), token_id);
+}
+
+#[test]
+fn approved_operator_can_transfer_and_approval_is_cleared() {
+    // Pins stock OZ approval semantics (approve / transfer_from), since
+    // `NonFungibleToken`/`NonFungibleEnumerable` are otherwise untested here.
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_controller, client) = setup(&env);
+    let owner = Address::generate(&env);
+    let operator = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let token_id = client.mint(&owner);
+
+    let live_until = env.ledger().sequence() + 1_000;
+    client.approve(&owner, &operator, &token_id, &live_until);
+    assert_eq!(client.get_approved(&token_id), Some(operator.clone()));
+
+    // The approved operator, not the owner, authorizes the transfer.
+    client.transfer_from(&operator, &owner, &recipient, &token_id);
+
+    assert_eq!(client.owner_of(&token_id), recipient);
+    assert_eq!(client.balance(&owner), 0u32);
+    assert_eq!(client.balance(&recipient), 1u32);
+    // Approval does not carry over to the new owner.
+    assert_eq!(client.get_approved(&token_id), None);
+}
+
+#[test]
+fn unapproved_caller_cannot_transfer_from() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_controller, client) = setup(&env);
+    let owner = Address::generate(&env);
+    let stranger = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let token_id = client.mint(&owner);
+
+    assert!(client
+        .try_transfer_from(&stranger, &owner, &recipient, &token_id)
+        .is_err());
+}
+
+#[test]
+fn mint_extends_instance_ttl() {
+    use soroban_sdk::testutils::storage::Instance as _;
+
+    let env = Env::default();
+    env.mock_all_auths();
+    let (id, _controller, client) = setup_with_id(&env);
+    let user = Address::generate(&env);
+
+    // Age the instance below the renewal threshold.
+    env.ledger()
+        .with_mut(|l| l.sequence_number += common::constants::TTL_BUMP_INSTANCE);
+    env.as_contract(&id, || {
+        assert!(env.storage().instance().get_ttl() < common::constants::TTL_THRESHOLD_INSTANCE);
+    });
+
+    client.mint(&user);
+
+    env.as_contract(&id, || {
+        assert_eq!(
+            env.storage().instance().get_ttl(),
+            common::constants::TTL_BUMP_INSTANCE
+        );
+    });
+}
+
+#[test]
+fn burn_extends_instance_ttl() {
+    use soroban_sdk::testutils::storage::Instance as _;
+
+    let env = Env::default();
+    env.mock_all_auths();
+    let (id, _controller, client) = setup_with_id(&env);
+    let user = Address::generate(&env);
+    let token_id = client.mint(&user);
+
+    // Age the instance below the renewal threshold.
+    env.ledger()
+        .with_mut(|l| l.sequence_number += common::constants::TTL_BUMP_INSTANCE);
+    env.as_contract(&id, || {
+        assert!(env.storage().instance().get_ttl() < common::constants::TTL_THRESHOLD_INSTANCE);
+    });
+
+    client.burn(&token_id);
+
+    env.as_contract(&id, || {
+        assert_eq!(
+            env.storage().instance().get_ttl(),
+            common::constants::TTL_BUMP_INSTANCE
+        );
+    });
 }
