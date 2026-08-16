@@ -174,6 +174,61 @@ fn delegates_of_previous_owner_read_as_empty() {
     });
 }
 
+/// A grant stamped by a previous owner must not resurrect if the NFT ever returns to
+/// them: the new owner's `remove_delegate` purges the stale entry outright (even though
+/// the requested delegate was never live for them and the call returns `false`), so a
+/// later transfer back to the original owner finds no grant to re-arm.
+#[test]
+fn remove_delegate_purges_stale_grant_preventing_resurrection() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let contract_id = env.register(Controller, (admin,));
+    let nft = setup_position_nft(&env, &contract_id);
+
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+    let delegate = Address::generate(&env);
+    let account_id = u64::from(position_nft::PositionNftClient::new(&env, &nft).mint(&alice));
+
+    env.as_contract(&contract_id, || {
+        assert!(add_delegate(&env, account_id, &alice, &delegate));
+        assert_eq!(get_delegates(&env, account_id, &alice).len(), 1);
+    });
+
+    position_nft::PositionNftClient::new(&env, &nft).transfer(
+        &alice,
+        &bob,
+        &u32::try_from(account_id).unwrap(),
+    );
+
+    env.as_contract(&contract_id, || {
+        // Bob never granted `delegate` (or anyone), so removal reports nothing found —
+        // but the stale entry stamped by alice must still be purged as a side effect.
+        assert!(!remove_delegate(&env, account_id, &bob, &delegate));
+        assert!(
+            !env.storage()
+                .persistent()
+                .has(&ControllerKey::Delegates(account_id)),
+            "stale grant must be purged from storage, not merely read as empty"
+        );
+    });
+
+    position_nft::PositionNftClient::new(&env, &nft).transfer(
+        &bob,
+        &alice,
+        &u32::try_from(account_id).unwrap(),
+    );
+
+    env.as_contract(&contract_id, || {
+        assert_eq!(
+            get_delegates(&env, account_id, &alice).len(),
+            0,
+            "the purged grant must not resurrect when the NFT returns to its original owner"
+        );
+    });
+}
+
 fn sample_supply_map(env: &Env) -> Map<HubAssetKey, AccountPositionRaw> {
     let mut map = Map::new(env);
     map.set(

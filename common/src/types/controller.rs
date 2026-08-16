@@ -71,8 +71,11 @@ pub struct AccountMeta {
 }
 
 /// A delegate list stamped with the owner who granted it. The grant is live only while
-/// `granted_by` still owns the account's NFT: transferring the NFT silently invalidates
-/// every prior owner's grant with no cleanup call.
+/// `granted_by` still owns the account's NFT: transferring the NFT deactivates the prior
+/// owner's grant immediately (`get_delegates` reads it as empty for anyone else). The stale
+/// entry is purged from storage the next time the new owner writes a delegate (`add_delegate`
+/// or `remove_delegate`) — no explicit cleanup call is required. A grant re-arms with its
+/// original delegate list only if the NFT returns to `granted_by` before any such write.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DelegateGrant {

@@ -133,16 +133,18 @@ fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &
     let Some(meta) = storage::try_get_account_meta(env, account_id) else {
         return;
     };
-    // Fail closed: an id whose NFT owner cannot be resolved (never minted, burned, or the
-    // NFT unconfigured) is skipped rather than treated as ownerless.
-    let Some(owner) = storage::try_account_owner(env, account_id) else {
-        return;
-    };
 
     let supply_positions = storage::get_supply_positions(env, account_id);
     if supply_positions.is_empty() {
         return;
     }
+
+    // Fail closed: an id whose NFT owner cannot be resolved (never minted, burned, or the
+    // NFT unconfigured) is skipped rather than treated as ownerless. Resolved after the
+    // empty-positions check so a skip on that path doesn't spend a cross-contract call.
+    let Some(owner) = storage::try_account_owner(env, account_id) else {
+        return;
+    };
 
     let borrow_positions = if has_risks {
         storage::get_debt_positions(env, account_id)

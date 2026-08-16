@@ -194,16 +194,19 @@ fn health_factor_debt_free_account_skips_pricing() {
     use common::types::{AccountMeta, AccountPositionRaw, PositionMode};
     use soroban_sdk::Map;
     let env = Env::default();
+    env.mock_all_auths();
     let admin = Address::generate(&env);
     let contract_id = env.register(Controller, (admin,));
+    let nft = setup_position_nft(&env, &contract_id);
+    let owner = Address::generate(&env);
+    let account_id = u64::from(position_nft::PositionNftClient::new(&env, &nft).mint(&owner));
     env.as_contract(&contract_id, || {
-        // No position NFT is registered here. `health_factor` matches on
-        // `try_get_account`, but for a debt-free account both the `Some(account) if
-        // !account.debt_free()` and `None` arms fall through to the same
-        // `i128::MAX` result, so the missing owner does not change the outcome.
+        // A minted, debt-free account: `try_get_account` resolves `Some(account)`,
+        // so `health_factor` reaches `i128::MAX` via the `!account.debt_free()`
+        // guard failing on a live account, not via the `None` (missing-owner) arm.
         storage::set_account_meta(
             &env,
-            1,
+            account_id,
             &AccountMeta {
                 spoke_id: 0,
                 mode: PositionMode::Normal,
@@ -225,10 +228,10 @@ fn health_factor_debt_free_account_skips_pricing() {
                 liquidation_fees: 100,
             },
         );
-        storage::set_supply_positions(&env, 1, &supplies);
+        storage::set_supply_positions(&env, account_id, &supplies);
 
-        assert_eq!(health_factor(&env, 1), i128::MAX);
-        assert!(!can_be_liquidated(&env, 1));
+        assert_eq!(health_factor(&env, account_id), i128::MAX);
+        assert!(!can_be_liquidated(&env, account_id));
     });
 }
 

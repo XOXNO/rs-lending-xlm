@@ -215,14 +215,26 @@ pub(crate) fn add_delegate(
     true
 }
 
-/// Removes `delegate` from the account's delegate list if present, returning whether it was found and removed.
+/// Removes `delegate` from the account's delegate list if present, returning whether it was
+/// found and removed. If the stored grant belongs to a previous owner (stale — the current
+/// `owner` never wrote it), it is purged from storage unconditionally so it cannot silently
+/// re-arm if the NFT ever returns to the address that granted it; the return value is still
+/// `false` in that case, since the requested delegate was never live for `owner`.
 pub(crate) fn remove_delegate(
     env: &Env,
     account_id: u64,
     owner: &Address,
     delegate: &Address,
 ) -> bool {
-    let mut delegates = get_delegates(env, account_id, owner);
+    let key = ControllerKey::Delegates(account_id);
+    let Some(grant) = get_user::<DelegateGrant>(env, &key) else {
+        return false;
+    };
+    if grant.granted_by != *owner {
+        env.storage().persistent().remove(&key);
+        return false;
+    }
+    let mut delegates = grant.delegates;
     let Some(index) = delegates.first_index_of(delegate) else {
         return false;
     };

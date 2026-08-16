@@ -164,7 +164,7 @@ pub(crate) fn renew_account(env: &Env, caller: Address, account_id: u64) {
     storage::renew_controller_instance(env);
 
     caller.require_auth();
-    let _meta = require_account_owner(env, account_id, &caller);
+    require_account_owner(env, account_id, &caller);
 
     storage::renew_user_account(env, account_id);
 }
