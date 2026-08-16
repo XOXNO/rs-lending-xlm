@@ -33,6 +33,7 @@ controller and the price system; prices fail closed.
 | XOXNO oracle | `contracts/xoxno-oracle` | First-party M-of-N signer median oracle with a Reflector-compatible read interface |
 | Swap aggregator | `contracts/swap-aggregator` | Untrusted route executor: compact instruction payloads over registries, multi-venue hops, fee accounting |
 | DeFindex strategy | `contracts/defindex-strategy` | Adapter that lets external DeFindex vaults hold supply-only lending positions through ordinary controller rules |
+| Position NFT | `contracts/position-nft` | Account-ownership authority: one sequential-id, OZ-enumerable token per controller account (token id == account id); mint/burn require the controller's authorization, `owner_of` is a public read, transfer is ordinary holder-authorized NFT semantics the controller does not gate |
 
 Shared arithmetic, types, and validation live in `common/`; public client
 interfaces live in `interfaces/`. Mock contracts and the test harness are out
@@ -64,9 +65,9 @@ of scope for deployment but in scope for the release-artifact leakage threat
 | **CANCELLER** | Timelocked `GrantGovRole`; recoverable via canceller reset | Cancels scheduled operations before execution; cannot cancel recovery operations or its own revocation; cannot simultaneously hold EXECUTOR (`contracts/governance/src/access.rs:101`) |
 | **GUARDIAN** | Timelocked `GrantGovRole`; owner may revoke immediately | Immediate protocol pause, immediate tightening of spoke asset flags, hub/spoke creation. Cannot unpause or relax flags |
 | **ORACLE role** | Timelocked `GrantGovRole`; owner may revoke immediately | Immediate sanity-band updates on the price aggregator |
-| **Account owner** | Account creation (first supply) | Full authority over its account: borrow, withdraw, delegate management, renewal |
-| **Delegate** | Account owner (`add_delegate`) **and** governance (`set_position_manager`) | Owner-equivalent position authority, only while both listed on the account and globally active as a position manager (`contracts/controller/src/account/mod.rs:76`) |
-| **Liquidator** | Anyone (not the account owner) | Repays unhealthy debt for discounted collateral |
+| **Account owner** | Position-NFT `owner_of(account_id)` (`contracts/position-nft`) — minted to the creator at account creation; thereafter whoever holds the token, since transfer is a standard OZ NFT operation the controller does not gate | Full authority over its account: borrow, withdraw, delegate management, renewal |
+| **Delegate** | Account owner (`add_delegate`) **and** governance (`set_position_manager`) | Owner-equivalent position authority, only while both listed on the account, globally active as a position manager, and the account's position NFT is still held by the address that granted the delegation (`contracts/controller/src/account.rs:76`) |
+| **Liquidator** | Anyone, including the account owner | Repays unhealthy debt for discounted collateral |
 | **Keeper** | Anyone | Permissionless maintenance: index accrual, revenue claim to treasury path, threshold refresh, recapitalization, account renewal |
 | **Oracle signer** | XOXNO oracle owner (`add_signer`/`remove_signer`) | Submits signed price observations; median of the freshest M-of-N submissions becomes the feed value |
 | **XOXNO oracle owner** | Oracle `__constructor`; two-step Ownable transfer | Manages signers, threshold, feeds, freshness windows, resolution; can upgrade the oracle Wasm immediately |
@@ -113,6 +114,14 @@ of scope for deployment but in scope for the release-artifact leakage threat
 12. **Stored state ↔ Runtime** — persistent entries follow a renewal
     lifecycle; instance state is renewed on privileged calls; account renewal
     is available to the owner (INV-STOR-01).
+13. **Controller ↔ Position NFT** — the position NFT (`contracts/position-nft`)
+    is the account-ownership authority: `mint` and `burn` require the
+    controller's authorization, but `owner_of` is a public read and standard
+    OZ `transfer` is holder-authorized, entirely outside the controller's
+    control. The controller never caches ownership — `storage::account_owner`
+    calls `owner_of` live on every account access — so a transfer takes effect
+    immediately and lazily revokes the prior owner's delegate grants
+    (`DelegateGrant.granted_by`, `contracts/controller/src/storage/account.rs:171`).
 
 ### High-level dataflow
 
@@ -164,7 +173,7 @@ callable while paused (safe-exit or emergency path).
 | I2 | Owner/delegate → `borrow` | Yes | `require_auth` + owner-or-delegate + post-op risk gates | P | User ↔ Controller, Controller ↔ Pool/Token |
 | I3 | Owner/delegate → `withdraw` | Yes | `require_auth` + owner-or-delegate + post-op risk gates | – | User ↔ Controller, Controller ↔ Pool/Token |
 | I4 | Anyone → `repay` | Yes | `require_auth(caller)` (permissionless third-party repay) | – | User ↔ Controller, Controller ↔ Token/Pool |
-| I5 | Liquidator → `liquidate` | Yes | `require_auth` + health < 1 + self-liquidation ban | – | Liquidator ↔ Controller, Controller ↔ Pool/Token |
+| I5 | Liquidator → `liquidate` | Yes | `require_auth` + health < 1 (permissionless, owner included) + seize-receiver ≠ liquidated account | – | Liquidator ↔ Controller, Controller ↔ Pool/Token |
 | I6 | Anyone → `clean_bad_debt` | Yes | `require_auth(caller)` + bad-debt gates | – | Keeper ↔ Controller, Controller ↔ Pool |
 | I7 | Anyone → `flash_loan` | Yes | `require_auth` + Wasm receiver + reentrancy guard | P | Controller/Pool ↔ Flash receiver, Pool ↔ Token |
 | I8 | Owner/delegate → strategies (`multiply`, `swap_debt`, `swap_collateral`, `repay_debt_with_collateral`) | Yes | `require_auth` + owner-or-delegate + reentrancy gate + final solvency gate | P | Controller ↔ Router/Venues/Token/Pool |
@@ -214,7 +223,7 @@ callable while paused (safe-exit or emergency path).
 |---|---|
 | **Spoofing** | **Spoof.1** — A compromised privileged key (governance owner, PROPOSER/EXECUTOR/CANCELLER/GUARDIAN/ORACLE, router owner, XOXNO oracle owner, oracle signer) acts as its role. Interactions: I15–I23, I27–I29, I31, I32. |
 | | **Spoof.2** — Deployment-time identity confusion: a wrong `admin` constructor argument or a deployment that skips the governance deploy path yields a mis-owned contract. All contracts take their owner in `__constructor` (atomic with deploy), and governance deploys the controller/price aggregator itself with `deploy_v2` (`contracts/governance/src/deploy.rs:16`), so there is no separate `initialize()` to front-run; the residual risk is purely configuration of standalone deploys (pool via controller is wired automatically; router/oracle/adapter are manual). Interaction: I23. |
-| | **Spoof.3** — A former or unlisted delegate acts on an account. Delegation requires both account listing and a globally active position manager; either side can kill it (`contracts/controller/src/account/mod.rs:76`). Interactions: I2, I3, I8. |
+| | **Spoof.3** — A former or unlisted delegate acts on an account. Delegation requires both account listing and a globally active position manager; either side can kill it (`contracts/controller/src/account.rs:76`). A third, implicit kill switch: a `DelegateGrant` is live only while its `granted_by` address still holds the account's position NFT, so transferring the NFT lazily revokes every delegate the prior owner had granted, with no separate revocation call needed. Interactions: I2, I3, I8. |
 | | **Spoof.4** — A flash "receiver" that is a classic account rather than code, enabling repayment games. `require_wasm_receiver` rejects non-contract receivers (`contracts/controller/src/strategies/flash_loan.rs:25`). Interaction: I7. |
 | | **Spoof.5** — A caller poses as a DeFindex vault to reach another vault's account. The adapter keys accounts by the authenticated caller address; authority never crosses vault boundaries. Interaction: I30. |
 | **Tampering** | **Tamper.1** — Manipulated, stale, or partially failed external price source moves valuations. Per-leg staleness and validity checks, dual-source tolerance bands with midpoint blending (`contracts/price-aggregator/src/engine.rs:328`), governed sanity bands, and fail-closed consumption bound the damage (INV-ORACLE-01/02, ADR-0004/0005/0014). Interactions: I25, I20. |
@@ -259,7 +268,7 @@ Status legend: ✅ enforced in code · ⚙ operational/deployment control · ◻
 |---|---|
 | **Spoof.1** | **R.1 ⚙** Key custody: governance owner should be a multisig-controlled identity; PROPOSER/EXECUTOR/CANCELLER/GUARDIAN/ORACLE keys segregated per function; oracle signers on independent infrastructure. **R.2 ✅** Compromise of a single non-owner role is bounded by design: proposals still wait out the delay, cancellers can veto, guardians can only tighten, oracle signers are outvoted by the median. **R.3 ✅** Owner-held immediate revocation for the two hot roles (GUARDIAN, ORACLE) shortens the exposure window (`revoke_role_immediate`). |
 | **Spoof.2** | **R.1 ✅** No `initialize()` pattern exists; every contract takes its owner in `__constructor`, atomic with deployment. **R.2 ✅** Governance deploys the controller and price aggregator itself with deterministic salts and wires ownership pointers in the same transaction (`contracts/governance/src/deploy.rs`); the controller deploys the pool. **R.3 ⚙** Deployment scripts must verify the owner argument of the standalone deploys (router, XOXNO oracle, DeFindex adapter) against the intended addresses before use; audit priority 1 in [threat-model.md](docs/explanation/threat-model.md). |
-| **Spoof.3** | **R.1 ✅** Double gate: account-listed and globally active position manager, checked at every risk-increasing use (INV-AUTH-02). **R.2 ✅** `remove_delegate` works while paused; `set_position_manager(false)` gives governance a global kill switch. |
+| **Spoof.3** | **R.1 ✅** Triple gate: account-listed, globally active position manager, and the grant's stamped owner must still hold the position NFT — checked at every risk-increasing use (INV-AUTH-02). **R.2 ✅** `remove_delegate` works while paused; `set_position_manager(false)` gives governance a global kill switch; transferring the position NFT is a third, automatic kill switch requiring no explicit revocation call. |
 | **Spoof.4** | **R.1 ✅** `require_wasm_receiver` plus allowance-based repayment: a receiver cannot fake repayment by pushing tokens, and pool balance assertions catch shortfalls (INV-FLASH-01). |
 | **Spoof.5** | **R.1 ✅** Adapter accounts are keyed by the authenticated caller; stale bindings are reconciled against `account_exists` before reuse (`contracts/defindex-strategy/src/lib.rs:301`). |
 | **Tamper.1** | **R.1 ✅** Per-leg validation (staleness, validity, decimals normalization), dual-source tolerance + midpoint blending, sanity bands, fail-closed consumption; one warmed session yields one coherent snapshot per invocation (INV-ORACLE-01..03). **R.2 ✅** Source admission and tolerance edits go through the timelock (`ConfigureAssetOracle`, `EditOracleTolerance`); only sanity-band tightening is immediate (ORACLE role). **R.3 ⚙** Operate monitoring on source disagreement and staleness; treat sustained deviation alarms as incident triggers. |
@@ -329,6 +338,11 @@ Status legend: ✅ enforced in code · ⚙ operational/deployment control · ◻
 - **Testing surfaces**: `testing`/`certora` feature gates expose seed/set
   helpers that must never ship; the release pipeline checks the built
   artifact's exported ABI (ADR-0017).
+- **Account ownership is NFT-anchored, not cached**: `storage::account_owner`
+  calls the position-NFT's `owner_of` on every account access rather than
+  storing ownership in controller state, so a transfer changes account
+  authority mid-session with no controller-side lag; an unresolvable owner
+  (never minted, or burned) fails closed with `AccountNotFound`.
 
 ---
 
