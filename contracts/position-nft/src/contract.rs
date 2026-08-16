@@ -31,7 +31,9 @@ impl PositionNft {
     /// token id 0 so the first position is id 1 — the controller ABI reserves
     /// account id 0 as the "create new account" sentinel.
     pub fn __constructor(e: &Env, controller: Address, uri: String, name: String, symbol: String) {
-        e.storage().instance().set(&DataKey::Controller, &controller);
+        e.storage()
+            .instance()
+            .set(&DataKey::Controller, &controller);
         Base::set_metadata(e, uri, name, symbol);
         sequential::increment_token_id(e, 1);
     }

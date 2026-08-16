@@ -17,18 +17,20 @@ pub(crate) fn nft_mint_call(env: &Env, _nft: &Address, to: &Address) -> u64 {
         .unwrap_or(0u64)
         + 1;
     env.storage().persistent().set(&GhostNftKey::NextId, &next);
-    env.storage().persistent().set(&GhostNftKey::Owner(next), to);
+    env.storage()
+        .persistent()
+        .set(&GhostNftKey::Owner(next), to);
     next
 }
 
 pub(crate) fn nft_burn_call(env: &Env, _nft: &Address, account_id: u64) {
-    env.storage().persistent().remove(&GhostNftKey::Owner(account_id));
+    env.storage()
+        .persistent()
+        .remove(&GhostNftKey::Owner(account_id));
 }
 
-pub(crate) fn nft_try_owner_of_call(
-    env: &Env,
-    _nft: &Address,
-    account_id: u64,
-) -> Option<Address> {
-    env.storage().persistent().get(&GhostNftKey::Owner(account_id))
+pub(crate) fn nft_try_owner_of_call(env: &Env, _nft: &Address, account_id: u64) -> Option<Address> {
+    env.storage()
+        .persistent()
+        .get(&GhostNftKey::Owner(account_id))
 }

@@ -19,11 +19,7 @@ pub(crate) fn nft_burn_call(env: &Env, nft: &Address, account_id: u64) {
 /// Resolves the current NFT owner of `account_id`. `None` when the id is
 /// outside the mintable domain or the token does not exist (never minted, or
 /// burned when the account emptied). Fail closed: absence is never an owner.
-pub(crate) fn nft_try_owner_of_call(
-    env: &Env,
-    nft: &Address,
-    account_id: u64,
-) -> Option<Address> {
+pub(crate) fn nft_try_owner_of_call(env: &Env, nft: &Address, account_id: u64) -> Option<Address> {
     let token_id = u32::try_from(account_id).ok()?;
     match PositionNftClient::new(env, nft).try_owner_of(&token_id) {
         Ok(Ok(owner)) => Some(owner),
