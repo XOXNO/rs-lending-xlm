@@ -6,6 +6,8 @@ use common::types::{
 use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, Map};
 
 use crate::context::Cache;
+use crate::events::AccountDelegateEvent;
+use crate::external::position_nft::{nft_burn_call, nft_mint_call, nft_renew_call};
 use crate::storage;
 
 /// Creates a new account owned by `owner` in `spoke_id`, assigning it a fresh account id
@@ -21,7 +23,7 @@ pub(crate) fn create_account(
     cache.active_spoke(spoke_id);
 
     let nft = storage::get_position_nft(env);
-    let account_id = crate::external::position_nft::nft_mint_call(env, &nft, owner);
+    let account_id = nft_mint_call(env, &nft, owner);
     let account = Account {
         owner: owner.clone(),
         spoke_id,
@@ -122,7 +124,7 @@ pub(crate) fn cleanup_account_if_empty(env: &Env, account: &Account, account_id:
     if account.is_empty() {
         storage::remove_account_entry(env, account_id);
         let nft = storage::get_position_nft(env);
-        crate::external::position_nft::nft_burn_call(env, &nft, account_id);
+        nft_burn_call(env, &nft, account_id);
     }
 }
 
@@ -171,7 +173,7 @@ pub(crate) fn renew_account(env: &Env, caller: Address, account_id: u64) {
 
     storage::renew_user_account(env, account_id);
     let nft = storage::get_position_nft(env);
-    crate::external::position_nft::nft_renew_call(env, &nft, account_id);
+    nft_renew_call(env, &nft, account_id);
 }
 
 /// Extends the controller instance's TTL and grants `delegate` authorization to act on
@@ -199,7 +201,7 @@ fn set_account_delegate(
     add: bool,
 ) {
     caller.require_auth();
-    let _meta = require_account_owner(env, account_id, caller);
+    require_account_owner(env, account_id, caller);
     if add {
         // Grant and activation must be contemporaneous: a dormant grant to an
         // address governance has not yet approved would arm on activation.
@@ -218,7 +220,7 @@ fn set_account_delegate(
     };
 
     if changed {
-        crate::events::AccountDelegateEvent {
+        AccountDelegateEvent {
             account_id,
             owner: caller.clone(),
             delegate: delegate.clone(),

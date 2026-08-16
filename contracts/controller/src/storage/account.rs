@@ -1,5 +1,6 @@
 use super::protocol::{get_user, renew_user_key, set_user};
 use crate::constants::MAX_DELEGATES;
+use crate::external::position_nft::nft_try_owner_of_call;
 use common::errors::GenericError;
 use common::types::{
     Account, AccountMeta, AccountPosition, AccountPositionRaw, ControllerKey, DebtPosition,
@@ -28,7 +29,7 @@ pub(crate) fn account_from_parts(
 /// never minted or its token was burned. Fail closed.
 pub(crate) fn try_account_owner(env: &Env, account_id: u64) -> Option<Address> {
     let nft = super::protocol::try_get_position_nft(env)?;
-    crate::external::position_nft::nft_try_owner_of_call(env, &nft, account_id)
+    nft_try_owner_of_call(env, &nft, account_id)
 }
 
 /// Resolves the account's current owner, panicking with `AccountNotFound` when it cannot be

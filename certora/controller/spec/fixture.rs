@@ -1,3 +1,4 @@
+use crate::external::position_nft::GhostNftKey;
 use common::types::{
     AccountMeta, AccountPositionRaw, HubAssetKey, HubConfig, PositionLimits, PositionMode,
     SpokeAssetConfig, SpokeConfig, SpokeUsageRaw,
@@ -47,10 +48,9 @@ pub fn seed_protocol(env: &Env) {
 }
 
 pub fn seed_account(env: &Env, account_id: u64, owner: &Address) {
-    env.storage().persistent().set(
-        &crate::external::position_nft::GhostNftKey::Owner(account_id),
-        owner,
-    );
+    env.storage()
+        .persistent()
+        .set(&GhostNftKey::Owner(account_id), owner);
     crate::storage::set_account_meta(
         env,
         account_id,

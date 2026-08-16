@@ -1,4 +1,5 @@
 use common::errors::GenericError;
+use common::ttl::renew_instance as renew_common_instance;
 use common::types::{ControllerKey, PositionLimits, PositionManagerConfig};
 
 use soroban_sdk::{panic_with_error, Address, Env, IntoVal, TryFromVal, Val};
@@ -159,7 +160,7 @@ pub(super) fn renew_user_key(env: &Env, key: &ControllerKey) {
 
 /// Extends the controller contract's instance storage TTL using the protocol-wide instance threshold and bump constants.
 pub(crate) fn renew_controller_instance(env: &Env) {
-    common::ttl::renew_instance(env);
+    renew_common_instance(env);
 }
 
 /// Reads a value from persistent storage under `key`, extending its TTL with `threshold`/`bump` only when a value is present.

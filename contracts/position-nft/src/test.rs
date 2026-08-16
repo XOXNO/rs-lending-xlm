@@ -1,5 +1,8 @@
+use common::constants::{
+    TTL_BUMP_INSTANCE, TTL_BUMP_USER, TTL_THRESHOLD_INSTANCE, TTL_THRESHOLD_USER,
+};
 use soroban_sdk::testutils::{Address as _, Ledger};
-use soroban_sdk::{Address, Env, String};
+use soroban_sdk::{Address, BytesN, Env, String};
 
 use crate::{PositionNft, PositionNftClient};
 
@@ -174,18 +177,15 @@ fn mint_extends_instance_ttl() {
 
     // Age the instance below the renewal threshold.
     env.ledger()
-        .with_mut(|l| l.sequence_number += common::constants::TTL_BUMP_INSTANCE);
+        .with_mut(|l| l.sequence_number += TTL_BUMP_INSTANCE);
     env.as_contract(&id, || {
-        assert!(env.storage().instance().get_ttl() < common::constants::TTL_THRESHOLD_INSTANCE);
+        assert!(env.storage().instance().get_ttl() < TTL_THRESHOLD_INSTANCE);
     });
 
     client.mint(&user);
 
     env.as_contract(&id, || {
-        assert_eq!(
-            env.storage().instance().get_ttl(),
-            common::constants::TTL_BUMP_INSTANCE
-        );
+        assert_eq!(env.storage().instance().get_ttl(), TTL_BUMP_INSTANCE);
     });
 }
 
@@ -201,18 +201,15 @@ fn burn_extends_instance_ttl() {
 
     // Age the instance below the renewal threshold.
     env.ledger()
-        .with_mut(|l| l.sequence_number += common::constants::TTL_BUMP_INSTANCE);
+        .with_mut(|l| l.sequence_number += TTL_BUMP_INSTANCE);
     env.as_contract(&id, || {
-        assert!(env.storage().instance().get_ttl() < common::constants::TTL_THRESHOLD_INSTANCE);
+        assert!(env.storage().instance().get_ttl() < TTL_THRESHOLD_INSTANCE);
     });
 
     client.burn(&token_id);
 
     env.as_contract(&id, || {
-        assert_eq!(
-            env.storage().instance().get_ttl(),
-            common::constants::TTL_BUMP_INSTANCE
-        );
+        assert_eq!(env.storage().instance().get_ttl(), TTL_BUMP_INSTANCE);
     });
 }
 
@@ -230,13 +227,13 @@ fn renew_extends_owner_entry_ttl_to_user_window() {
     // Age the ledger past the OZ 30-day owner-entry bump so the entry is
     // measurably older than the user window renew() must restore.
     env.ledger()
-        .with_mut(|l| l.sequence_number += common::constants::TTL_THRESHOLD_USER / 2);
+        .with_mut(|l| l.sequence_number += TTL_THRESHOLD_USER / 2);
     env.as_contract(&id, || {
         assert!(
             env.storage()
                 .persistent()
                 .get_ttl(&NFTStorageKey::Owner(token_id))
-                < common::constants::TTL_BUMP_USER
+                < TTL_BUMP_USER
         );
     });
 
@@ -248,7 +245,7 @@ fn renew_extends_owner_entry_ttl_to_user_window() {
             env.storage()
                 .persistent()
                 .get_ttl(&NFTStorageKey::Owner(token_id)),
-            common::constants::TTL_BUMP_USER
+            TTL_BUMP_USER
         );
     });
 }
@@ -267,6 +264,6 @@ fn upgrade_requires_controller_auth() {
     // No auth mocking: the controller's require_auth must fail before any
     // wasm validation happens.
     let (_controller, client) = setup(&env);
-    let fake_hash = soroban_sdk::BytesN::from_array(&env, &[7u8; 32]);
+    let fake_hash = BytesN::from_array(&env, &[7u8; 32]);
     assert!(client.try_upgrade(&fake_hash).is_err());
 }

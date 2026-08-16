@@ -57,7 +57,7 @@ pub(crate) fn process_liquidation(
 
     let mut cache = Cache::new(env);
 
-    validate_liquidation_inputs(env, debt_payments);
+    require_non_empty_payments(env, debt_payments);
 
     // Resolved up front so an unusable receiving account fails before any token moves.
     let mut receiver = resolve_seize_receiver(
@@ -212,11 +212,6 @@ fn resolve_seize_receiver(
     );
 
     Some((requested, receiver))
-}
-
-/// Rejects empty `raw_payments`.
-fn validate_liquidation_inputs(env: &Env, raw_payments: &Vec<HubPayment>) {
-    require_non_empty_payments(env, raw_payments);
 }
 
 /// Socializes `account_id`'s bad debt under the dust-threshold gate; requires `caller` to

@@ -1,6 +1,6 @@
 use common::errors::GenericError;
 use common::types::{HubAssetKey, InterestRateModel, MarketParamsRaw};
-use soroban_sdk::{assert_with_error, Address, BytesN, Env};
+use soroban_sdk::{assert_with_error, Address, BytesN, Env, String};
 
 use crate::config;
 use crate::context::Cache;
@@ -8,6 +8,7 @@ use crate::events::{CreateMarketEvent, UpdateMarketParamsEvent};
 use crate::external::pool::{
     pool_create_market_call, pool_update_indexes_call, pool_update_params_call, pool_upgrade_call,
 };
+use crate::external::position_nft::nft_upgrade_call;
 use crate::storage;
 
 const POOL_DEPLOY_SALT: [u8; 32] = [0u8; 32];
@@ -42,9 +43,9 @@ pub(crate) fn deploy_pool(env: &Env, wasm_hash: BytesN<32>) -> Address {
 pub(crate) fn deploy_position_nft(
     env: &Env,
     wasm_hash: BytesN<32>,
-    uri: soroban_sdk::String,
-    name: soroban_sdk::String,
-    symbol: soroban_sdk::String,
+    uri: String,
+    name: String,
+    symbol: String,
 ) -> Address {
     storage::renew_controller_instance(env);
 
@@ -121,5 +122,5 @@ pub(crate) fn upgrade_pool(env: &Env, new_wasm_hash: BytesN<32>) {
 pub(crate) fn upgrade_position_nft(env: &Env, new_wasm_hash: BytesN<32>) {
     storage::renew_controller_instance(env);
     let nft_addr = storage::get_position_nft(env);
-    crate::external::position_nft::nft_upgrade_call(env, &nft_addr, &new_wasm_hash);
+    nft_upgrade_call(env, &nft_addr, &new_wasm_hash);
 }

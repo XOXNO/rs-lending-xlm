@@ -3,7 +3,11 @@
 //! is the stock OpenZeppelin non-fungible interface so external indexers and
 //! marketplaces can track positions without protocol-specific tooling.
 
+use common::constants::{TTL_BUMP_USER, TTL_THRESHOLD_USER};
+use common::ttl::renew_instance;
 use soroban_sdk::{contract, contractimpl, contracttype, Address, BytesN, Env, String};
+use stellar_contract_utils::upgradeable;
+use stellar_tokens::non_fungible::burnable::emit_burn;
 use stellar_tokens::non_fungible::{
     enumerable::{Enumerable, NonFungibleEnumerable},
     sequential, Base, NFTStorageKey, NonFungibleToken,
@@ -47,7 +51,7 @@ impl PositionNft {
     /// the resulting TTL asymmetry with the per-token `Owner` entry.
     pub fn mint(e: &Env, to: Address) -> u32 {
         controller(e).require_auth();
-        common::ttl::renew_instance(e);
+        renew_instance(e);
         Enumerable::sequential_mint(e, &to)
     }
 
@@ -65,10 +69,10 @@ impl PositionNft {
     /// every controller account deletion (e.g. liquidation cleanup).
     pub fn burn(e: &Env, token_id: u32) {
         controller(e).require_auth();
-        common::ttl::renew_instance(e);
+        renew_instance(e);
         let owner = Base::owner_of(e, token_id);
         Base::update(e, Some(&owner), None, token_id);
-        stellar_tokens::non_fungible::burnable::emit_burn(e, &owner, token_id);
+        emit_burn(e, &owner, token_id);
         Enumerable::remove_from_enumerations(e, &owner, token_id);
     }
 
@@ -91,10 +95,10 @@ impl PositionNft {
         let _owner = Base::owner_of(e, token_id);
         e.storage().persistent().extend_ttl(
             &NFTStorageKey::Owner(token_id),
-            common::constants::TTL_THRESHOLD_USER,
-            common::constants::TTL_BUMP_USER,
+            TTL_THRESHOLD_USER,
+            TTL_BUMP_USER,
         );
-        common::ttl::renew_instance(e);
+        renew_instance(e);
     }
 
     /// Upgrades the contract WASM to `new_wasm_hash`, extending the instance
@@ -103,8 +107,8 @@ impl PositionNft {
     /// governance ownership and timelock as every other upgrade.
     pub fn upgrade(e: &Env, new_wasm_hash: BytesN<32>) {
         controller(e).require_auth();
-        common::ttl::renew_instance(e);
-        stellar_contract_utils::upgradeable::upgrade(e, &new_wasm_hash);
+        renew_instance(e);
+        upgradeable::upgrade(e, &new_wasm_hash);
     }
 }
 
