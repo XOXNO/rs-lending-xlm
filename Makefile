@@ -97,7 +97,7 @@ FUZZ_DIR := tests/fuzz
 CONTRACTS := pool controller governance
 
 
-WASM_SIZE_CONTRACTS := pool controller governance common flash_loan_receiver defindex_strategy price_aggregator
+WASM_SIZE_CONTRACTS := pool controller governance common flash_loan_receiver defindex_strategy price_aggregator position_nft
 
 
 

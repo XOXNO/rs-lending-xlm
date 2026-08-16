@@ -10,3 +10,4 @@ defindex_strategy.wasm 45000
 
 governance.wasm 58000
 price_aggregator.wasm 46000
+position_nft.wasm 24000
