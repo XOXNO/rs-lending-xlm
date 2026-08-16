@@ -67,15 +67,7 @@ pub(crate) fn process_supply(
         &mut cache,
     );
 
-    if account_id != 0 && !account::is_owner_or_delegate(env, acct_id, caller, &account.owner) {
-        for (hub_asset, _) in aggregated.iter() {
-            assert_with_error!(
-                env,
-                account.supply_positions.contains_key(hub_asset.clone()),
-                GenericError::NotAuthorized
-            );
-        }
-    }
+    require_third_party_existing_supply(env, account_id, acct_id, caller, &account, &aggregated);
 
     process_deposit(env, caller, &mut account, &aggregated, &mut cache);
 
@@ -88,6 +80,30 @@ pub(crate) fn process_supply(
         false,
     );
     acct_id
+}
+
+/// A caller who is neither the account's owner nor a delegate may only add to
+/// hub assets the account already holds a supply position in. New accounts
+/// (`account_id` 0) skip this check because the caller becomes the owner.
+fn require_third_party_existing_supply(
+    env: &Env,
+    account_id: u64,
+    resolved_account_id: u64,
+    caller: &Address,
+    account: &Account,
+    aggregated: &AggregatedPayments,
+) {
+    if account_id != 0
+        && !account::is_owner_or_delegate(env, resolved_account_id, caller, &account.owner)
+    {
+        for (hub_asset, _) in aggregated.iter() {
+            assert_with_error!(
+                env,
+                account.supply_positions.contains_key(hub_asset.clone()),
+                GenericError::NotAuthorized
+            );
+        }
+    }
 }
 
 /// Runs the supply entry gates for `aggregated`, then settles the deposit
