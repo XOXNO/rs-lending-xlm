@@ -49,7 +49,8 @@ use common::types::{
 use controller_interface::{ControllerAdmin, ControllerInterface};
 
 use soroban_sdk::{
-    contract, contractimpl, contractmeta, panic_with_error, Address, Bytes, BytesN, Env, Map, Vec,
+    contract, contractimpl, contractmeta, panic_with_error, Address, Bytes, BytesN, Env, Map,
+    String, Vec,
 };
 
 use stellar_macros::{only_owner, when_not_paused};
@@ -694,6 +695,22 @@ impl ControllerAdmin for Controller {
     #[only_owner]
     fn deploy_pool(env: Env, wasm_hash: BytesN<32>) -> Address {
         renew_then!(env, markets::deploy_pool(&env, wasm_hash))
+    }
+
+    /// Deploys the position-NFT contract that anchors account ownership.
+    /// One-shot; restricted to the owner.
+    #[only_owner]
+    fn deploy_position_nft(
+        env: Env,
+        wasm_hash: BytesN<32>,
+        uri: String,
+        name: String,
+        symbol: String,
+    ) -> Address {
+        renew_then!(
+            env,
+            markets::deploy_position_nft(&env, wasm_hash, uri, name, symbol)
+        )
     }
 
     /// Creates a new market for `asset` under hub `hub_id` on the pool

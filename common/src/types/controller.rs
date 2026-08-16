@@ -640,6 +640,7 @@ pub enum ControllerKey {
     SwapAggregator,
 
     PriceAggregator,
+    PositionNft,
     Accumulator,
     AccountNonce,
     PositionLimits,

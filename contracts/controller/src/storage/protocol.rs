@@ -122,6 +122,25 @@ pub(crate) fn set_min_borrow_collateral_usd_wad(env: &Env, floor_wad: i128) {
         .set(&ControllerKey::MinBorrowCollateralUsd, &floor_wad);
 }
 
+/// Reads the position-NFT contract address from instance storage, panicking
+/// with `PositionNftNotSet` if the NFT has not been deployed.
+pub(crate) fn get_position_nft(env: &Env) -> Address {
+    try_get_position_nft(env)
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::PositionNftNotSet))
+}
+
+/// Reads the position-NFT contract address from instance storage, or `None` if unset.
+pub(crate) fn try_get_position_nft(env: &Env) -> Option<Address> {
+    env.storage().instance().get(&ControllerKey::PositionNft)
+}
+
+/// Writes the position-NFT contract address to instance storage.
+pub(crate) fn set_position_nft(env: &Env, addr: &Address) {
+    env.storage()
+        .instance()
+        .set(&ControllerKey::PositionNft, addr);
+}
+
 /// Reads a position manager's configuration from shared persistent storage keyed by its address, or `None` if not registered.
 pub(crate) fn get_position_manager(env: &Env, addr: &Address) -> Option<PositionManagerConfig> {
     get_shared(env, &ControllerKey::PositionManager(addr.clone()))

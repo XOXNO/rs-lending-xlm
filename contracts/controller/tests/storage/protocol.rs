@@ -139,3 +139,16 @@ fn get_account_nonce_absent_returns_zero_without_creating_entry() {
         );
     });
 }
+
+#[test]
+fn position_nft_accessor_roundtrip() {
+    let env = Env::default();
+    let admin = Address::generate(&env);
+    let contract_id = env.register(Controller, (admin,));
+    env.as_contract(&contract_id, || {
+        assert!(try_get_position_nft(&env).is_none());
+        let nft = Address::generate(&env);
+        set_position_nft(&env, &nft);
+        assert_eq!(get_position_nft(&env), nft);
+    });
+}

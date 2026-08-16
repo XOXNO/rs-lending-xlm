@@ -1,7 +1,7 @@
 use common::types::{
     HubAssetKey, InterestRateModel, MarketParamsRaw, PositionLimits, SpokeAssetArgs,
 };
-use soroban_sdk::{contractclient, Address, BytesN, Env};
+use soroban_sdk::{contractclient, Address, BytesN, Env, String};
 
 #[contractclient(name = "ControllerAdminClient")]
 pub trait ControllerAdmin {
@@ -51,6 +51,14 @@ pub trait ControllerAdmin {
     fn remove_asset_from_spoke(env: Env, hub_asset: HubAssetKey, spoke_id: u32);
 
     fn deploy_pool(env: Env, wasm_hash: BytesN<32>) -> Address;
+
+    fn deploy_position_nft(
+        env: Env,
+        wasm_hash: BytesN<32>,
+        uri: String,
+        name: String,
+        symbol: String,
+    ) -> Address;
 
     fn create_liquidity_pool(
         env: Env,

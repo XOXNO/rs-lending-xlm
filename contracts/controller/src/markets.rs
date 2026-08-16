@@ -11,6 +11,7 @@ use crate::external::pool::{
 use crate::storage;
 
 const POOL_DEPLOY_SALT: [u8; 32] = [0u8; 32];
+const POSITION_NFT_DEPLOY_SALT: [u8; 32] = [1u8; 32];
 
 /// Deploys the pool contract from `wasm_hash` at a fixed deployment salt,
 /// records its address, and returns it. Panics if a pool has already been
@@ -32,6 +33,35 @@ pub(crate) fn deploy_pool(env: &Env, wasm_hash: BytesN<32>) -> Address {
 
     storage::set_pool(env, &pool);
     pool
+}
+
+/// Deploys the position-NFT contract from `wasm_hash` at a fixed salt distinct
+/// from the pool's, passing the controller itself as the NFT's authorized
+/// minter/burner, records the address, and returns it. Panics if already
+/// deployed.
+pub(crate) fn deploy_position_nft(
+    env: &Env,
+    wasm_hash: BytesN<32>,
+    uri: soroban_sdk::String,
+    name: soroban_sdk::String,
+    symbol: soroban_sdk::String,
+) -> Address {
+    storage::renew_controller_instance(env);
+
+    assert_with_error!(
+        env,
+        storage::try_get_position_nft(env).is_none(),
+        GenericError::PositionNftAlreadyDeployed
+    );
+
+    let salt = BytesN::from_array(env, &POSITION_NFT_DEPLOY_SALT);
+    let nft = env.deployer().with_current_contract(salt).deploy_v2(
+        wasm_hash,
+        (env.current_contract_address(), uri, name, symbol),
+    );
+
+    storage::set_position_nft(env, &nft);
+    nft
 }
 
 /// Creates a new market for `asset` under hub `hub_id` on the pool contract

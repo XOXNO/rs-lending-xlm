@@ -7,7 +7,7 @@ pub use common::types::{
 };
 use common::types::{HubAssetKey, PositionLimits};
 use common::types::{InterestRateModel, MarketParamsRaw};
-use soroban_sdk::{contractclient, contracttype, Address, BytesN, Env, Symbol, Val, Vec};
+use soroban_sdk::{contractclient, contracttype, Address, BytesN, Env, String, Symbol, Val, Vec};
 pub use stellar_governance::timelock::OperationState;
 
 pub use common::types::SpokeAssetArgs;
@@ -32,6 +32,15 @@ pub struct CreatePoolArgs {
 pub struct UpgradePoolParamsArgs {
     pub hub_asset: HubAssetKey,
     pub params: InterestRateModel,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DeployPositionNftArgs {
+    pub wasm_hash: BytesN<32>,
+    pub uri: String,
+    pub name: String,
+    pub symbol: String,
 }
 
 #[contracttype]
@@ -92,6 +101,7 @@ pub enum AdminOperation {
     CreateLiquidityPool(CreatePoolArgs),
     UpgradeLiquidityPoolParams(UpgradePoolParamsArgs),
     DeployPool(BytesN<32>),
+    DeployPositionNft(DeployPositionNftArgs),
     UpgradePool(BytesN<32>),
     SetPositionManager(Address, bool),
     UpgradeController(BytesN<32>),
