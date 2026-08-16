@@ -17,6 +17,14 @@ use test_harness::{
 
 // --- inspection helpers --------------------------------------------------
 
+/// Share-space slack between the two seize modes: strictly less than one asset
+/// unit. Transfer moves real tokens, so `resolve_withdrawal` quantises its share
+/// burn to whole asset units; credit keeps full RAY precision. One asset unit at
+/// 7 decimals is `10^(27-7)` RAY-shares. Measured divergence on non-dividing
+/// values is 4.1e19 — about 0.41 of a stroop — so this bound is roughly 2.4x the
+/// observed worst case rather than a number picked to make a test pass.
+const SEIZE_MODE_SHARE_SLACK: i128 = 100_000_000_000_000_000_000;
+
 fn pool_state(t: &LendingTest, asset_name: &str) -> PoolStateRaw {
     let asset = t.resolve_asset(asset_name);
     t.pool_client(asset_name)
@@ -641,4 +649,168 @@ fn no_seize_does_not_block_ordinary_withdrawal() {
     // `no_seize` governs the seizure leg only; users keep their exits.
     t.withdraw(ALICE, "USDC", 1_000.0);
     assert!(t.supply_balance(ALICE, "USDC") < 10_000.0);
+}
+
+// --- mode parity ---------------------------------------------------------
+
+/// Do the two seize modes take the same value out of the liquidated account at the
+/// same ledger?
+///
+/// This is the question that decides whether either mode over- or under-seizes,
+/// and nothing tested it: the existing tests check conservation *within* credit
+/// mode (`credited + fee == seized`) but never compare the two paths.
+///
+/// They cannot be bit-identical by construction, because they convert the seizure
+/// differently:
+///
+///   Transfer: value -> asset units (floor) -> shares (CEIL)   [resolve_withdrawal]
+///   Credit:   value -> shares (FLOOR)                          [one conversion]
+///
+/// Two conversions in opposite directions versus one. This pins how far apart that
+/// leaves them, so a future change to either rounding step cannot silently widen
+/// the gap.
+#[test]
+fn transfer_and_credit_seize_the_same_value_at_the_same_ledger() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    // Two borrowers built identically, so the only difference at liquidation time
+    // is the seize mode.
+    t.supply(ALICE, "USDC", 10_000.0);
+    t.borrow(ALICE, "ETH", 3.0);
+    t.supply(CAROL, "USDC", 10_000.0);
+    t.borrow(CAROL, "ETH", 3.0);
+    t.set_price("USDC", usd_cents(50));
+    t.assert_liquidatable(ALICE);
+    t.assert_liquidatable(CAROL);
+
+    let alice_id = t.resolve_account_id(ALICE);
+    let carol_id = t.resolve_account_id(CAROL);
+    let alice_before = scaled_supply(&t, alice_id, "USDC");
+    let carol_before = scaled_supply(&t, carol_id, "USDC");
+    assert_eq!(
+        alice_before, carol_before,
+        "fixture broken: the two borrowers must start identical"
+    );
+
+    // Same repayment, same ledger, same index — only the mode differs.
+    t.liquidate_with_mode(LIQUIDATOR, ALICE, "ETH", 1.0, SeizeMode::Transfer);
+    let receiver = t.liquidate_with_mode(LIQUIDATOR, CAROL, "ETH", 1.0, SeizeMode::Credit(0));
+
+    let transfer_seized = alice_before - scaled_supply(&t, alice_id, "USDC");
+    let credit_seized = carol_before - scaled_supply(&t, carol_id, "USDC");
+    assert!(transfer_seized > 0 && credit_seized > 0, "both must seize");
+
+    // The victim-side debit is what "over-seize" means. Allow the sub-unit slack the
+    // two conversion routes make unavoidable, but no more: anything larger is a
+    // rounding regression, not arithmetic noise.
+    let delta = (transfer_seized - credit_seized).abs();
+    assert!(
+        delta <= SEIZE_MODE_SHARE_SLACK,
+        "modes disagree on shares seized by {delta} (transfer={transfer_seized} \
+         credit={credit_seized}); the two conversion routes should not diverge \
+         beyond {SEIZE_MODE_SHARE_SLACK}"
+    );
+
+    // And the liquidator's side: credited shares plus the fee must reconstruct the
+    // whole seizure, so nothing is stranded between the two accounts.
+    let credited = scaled_supply(&t, receiver, "USDC");
+    assert!(
+        credited > 0 && credited <= credit_seized,
+        "credited {credited} must be positive and no more than seized {credit_seized}"
+    );
+}
+
+/// The full-close case, where the two modes *must* agree exactly rather than
+/// approximately.
+///
+/// Both paths special-case it: `resolve_withdrawal` returns `pos_scaled` when the
+/// request covers the position, and the credit path takes `position.scaled_amount`
+/// verbatim when `capped_ray == actual_ray`. Neither re-derives the figure from an
+/// asset amount, precisely so a rounding step cannot strand or invent a share — so
+/// an exact match is the property, not a bound.
+#[test]
+fn transfer_and_credit_agree_exactly_on_a_full_close() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    t.supply(ALICE, "USDC", 10_000.0);
+    t.borrow(ALICE, "ETH", 3.0);
+    t.supply(CAROL, "USDC", 10_000.0);
+    t.borrow(CAROL, "ETH", 3.0);
+    // Deep enough underwater that the seizure exhausts the collateral position.
+    t.set_price("USDC", usd_cents(20));
+    t.assert_liquidatable(ALICE);
+    t.assert_liquidatable(CAROL);
+
+    let alice_id = t.resolve_account_id(ALICE);
+    let carol_id = t.resolve_account_id(CAROL);
+    let alice_before = scaled_supply(&t, alice_id, "USDC");
+    let carol_before = scaled_supply(&t, carol_id, "USDC");
+
+    t.liquidate_with_mode(LIQUIDATOR, ALICE, "ETH", 3.0, SeizeMode::Transfer);
+    t.liquidate_with_mode(LIQUIDATOR, CAROL, "ETH", 3.0, SeizeMode::Credit(0));
+
+    let transfer_seized = alice_before - scaled_supply(&t, alice_id, "USDC");
+    let credit_seized = carol_before - scaled_supply(&t, carol_id, "USDC");
+    assert_eq!(
+        transfer_seized, credit_seized,
+        "a full close takes the whole stored position in both modes, so the two \
+         must agree to the share"
+    );
+}
+
+/// The same parity question, with values chosen so nothing divides evenly.
+///
+/// The round-number fixture above cannot distinguish the two conversion routes:
+/// when every quantity divides cleanly, floor and ceil agree trivially. These
+/// amounts and this price are deliberately awkward, so if `resolve_withdrawal`'s
+/// floor-then-CEIL can ever diverge from the credit path's single FLOOR, it shows
+/// up here.
+#[test]
+fn transfer_and_credit_agree_on_values_that_do_not_divide_evenly() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    t.supply(ALICE, "USDC", 7_333.37);
+    t.borrow(ALICE, "ETH", 2.19);
+    t.supply(CAROL, "USDC", 7_333.37);
+    t.borrow(CAROL, "ETH", 2.19);
+    t.set_price("USDC", usd_cents(51));
+    t.assert_liquidatable(ALICE);
+    t.assert_liquidatable(CAROL);
+
+    let alice_id = t.resolve_account_id(ALICE);
+    let carol_id = t.resolve_account_id(CAROL);
+    let alice_before = scaled_supply(&t, alice_id, "USDC");
+    let carol_before = scaled_supply(&t, carol_id, "USDC");
+
+    t.liquidate_with_mode(LIQUIDATOR, ALICE, "ETH", 0.73, SeizeMode::Transfer);
+    t.liquidate_with_mode(LIQUIDATOR, CAROL, "ETH", 0.73, SeizeMode::Credit(0));
+
+    let transfer_seized = alice_before - scaled_supply(&t, alice_id, "USDC");
+    let credit_seized = carol_before - scaled_supply(&t, carol_id, "USDC");
+    let delta = (transfer_seized - credit_seized).abs();
+    assert!(
+        delta <= SEIZE_MODE_SHARE_SLACK,
+        "modes diverged by {delta} shares on non-dividing values \
+         (transfer={transfer_seized} credit={credit_seized})"
+    );
+
+    // The property that actually matters: in asset units — what the liquidated
+    // account can be said to have lost — the two modes agree exactly. The
+    // share-space gap above sits entirely below the asset's resolution, so it is
+    // invisible to anyone holding or accounting for the underlying.
+    assert_eq!(
+        t.supply_balance_raw(ALICE, "USDC"),
+        t.supply_balance_raw(CAROL, "USDC"),
+        "the two modes must leave the liquidated accounts with the same asset \
+         value; a difference here is a real over- or under-seize, not rounding"
+    );
 }
