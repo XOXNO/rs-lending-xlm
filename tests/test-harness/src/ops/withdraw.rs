@@ -22,6 +22,26 @@ impl LendingTest {
         ctrl.withdraw(&addr, &account_id, &withdrawals, &None);
     }
 
+    pub fn try_withdraw_raw(
+        &mut self,
+        user: &str,
+        asset_name: &str,
+        amount: i128,
+    ) -> Result<(), soroban_sdk::Error> {
+        let account_id = self.try_resolve_account_id(user)?;
+        let addr = self.users.get(user).unwrap().address.clone();
+        let asset_addr = self.resolve_asset(asset_name);
+
+        let ctrl = self.ctrl_client();
+        let withdrawals: Vec<(HubAssetKey, i128)> =
+            vec![&self.env, (hub_asset(asset_addr), amount)];
+        match ctrl.try_withdraw(&addr, &account_id, &withdrawals, &None) {
+            Ok(Ok(_)) => Ok(()),
+            Ok(Err(err)) => Err(err.into()),
+            Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+        }
+    }
+
     pub fn withdraw_to_raw(
         &mut self,
         user: &str,

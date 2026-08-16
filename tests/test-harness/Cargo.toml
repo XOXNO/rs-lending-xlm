@@ -21,6 +21,7 @@ governance = { path = "../../contracts/governance", features = ["testing"] }
 governance-interface = { path = "../../interfaces/governance" }
 price-aggregator = { path = "../../contracts/price-aggregator", features = ["testing"] }
 pool = { path = "../../contracts/pool" }
+position-nft = { path = "../../contracts/position-nft" }
 flash-loan-receiver = { path = "../../mock/flash-loan-receiver" }
 xoxno-oracle = { path = "../../contracts/xoxno-oracle" }
 

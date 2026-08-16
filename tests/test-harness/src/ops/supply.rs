@@ -45,6 +45,35 @@ impl LendingTest {
         ctrl.supply(&addr, &account_id, &spoke, &assets);
     }
 
+    pub fn try_supply_to(
+        &mut self,
+        user: &str,
+        account_id: u64,
+        asset_name: &str,
+        amount: f64,
+    ) -> Result<u64, soroban_sdk::Error> {
+        let decimals = self.resolve_market(asset_name).decimals;
+        let raw_amount = f64_to_i128(amount, decimals);
+        let addr = self.get_or_create_user(user);
+        let market = self.resolve_market(asset_name);
+        let asset_addr = market.asset.clone();
+        market.token_admin.mint(&addr, &raw_amount);
+
+        let spoke = self.account_spoke_or_default(account_id);
+        let ctrl = self.ctrl_client();
+        let assets: Vec<(HubAssetKey, i128)> =
+            vec![&self.env, (hub_asset(asset_addr.clone()), raw_amount)];
+        let res = match ctrl.try_supply(&addr, &account_id, &spoke, &assets) {
+            Ok(Ok(id)) => Ok(id),
+            Ok(Err(err)) => Err(err),
+            Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+        };
+        if res.is_err() {
+            crate::ops::internal::burn_prefund(&self.env, &asset_addr, &addr, raw_amount);
+        }
+        res
+    }
+
     pub fn try_supply(
         &mut self,
         user: &str,
