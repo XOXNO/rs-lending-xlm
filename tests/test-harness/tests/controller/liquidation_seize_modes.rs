@@ -885,3 +885,76 @@ fn withdrawing_the_credit_in_the_same_ledger_matches_the_transfer_payout() {
         transfer_payout - credit_payout
     );
 }
+
+// --- fee base ------------------------------------------------------------
+
+/// The protocol fee is charged on the **bonus**, not on the whole seizure.
+///
+/// This is the economics of the liquidation and nothing pinned it. Repay 100,
+/// take 105 back, and the fee comes out of the 5 — the liquidator keeps
+/// `105 - fee`, not `105 * (1 - fee_rate)`. Getting this wrong by charging the
+/// gross would quietly take 12% of principal instead of 12% of profit.
+///
+/// The discriminating check needs no knowledge of the bonus curve: if the fee
+/// were charged on the total, `fee / seized` would be exactly the fee rate. It
+/// is charged on the bonus, so that ratio must come out strictly below it — and
+/// by a wide margin, since the bonus is a small fraction of the seizure.
+#[test]
+fn the_protocol_fee_is_charged_on_the_bonus_not_the_gross_seizure() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    t.supply(ALICE, "USDC", 10_000.0);
+    t.borrow(ALICE, "ETH", 3.0);
+    t.set_price("USDC", usd_cents(50));
+    t.assert_liquidatable(ALICE);
+
+    let account_id = t.resolve_account_id(ALICE);
+    let payments =
+        soroban_sdk::Vec::from_array(&t.env, [(hub_asset(t.resolve_asset("ETH")), 1_0000000)]);
+    let estimate =
+        t.ctrl_client()
+            .get_liquidation_estimate(&account_id, &payments, &SeizeMode::Transfer);
+
+    let seized = estimate.seized_collaterals.get_unchecked(0).amount;
+    let fee = estimate.protocol_fees.get_unchecked(0).amount;
+    let bonus_bps = estimate.bonus_rate_bps;
+    assert!(
+        seized > 0 && fee > 0 && bonus_bps > 0,
+        "estimate must be live"
+    );
+
+    // DEFAULT_ASSET_CONFIG.liquidation_fees
+    const FEE_BPS: i128 = 1_200;
+    const BPS: i128 = 10_000;
+
+    // If the base were the gross seizure, this would hold with equality.
+    let fee_if_charged_on_gross = seized * FEE_BPS / BPS;
+    assert!(
+        fee < fee_if_charged_on_gross,
+        "fee {fee} matches a charge on the gross seizure ({fee_if_charged_on_gross}); \
+         it must be charged on the bonus only"
+    );
+
+    // And it must match a charge on the bonus. seized = principal * (1 + b), so
+    // the bonus portion is seized * b / (1 + b).
+    let bonus_portion = seized * bonus_bps / (BPS + bonus_bps);
+    let fee_if_charged_on_bonus = bonus_portion * FEE_BPS / BPS;
+    let drift = (fee - fee_if_charged_on_bonus).abs();
+    assert!(
+        drift <= 1,
+        "fee {fee} does not match a charge on the bonus ({fee_if_charged_on_bonus}, \
+         bonus_bps={bonus_bps}, seized={seized}); drift {drift}"
+    );
+
+    // The liquidator's take is the whole seizure minus that fee — `105 - fee`,
+    // never `105` scaled down by the fee rate.
+    let liquidator_take = seized - fee;
+    assert!(
+        liquidator_take > seized * (BPS - FEE_BPS) / BPS,
+        "liquidator take {liquidator_take} looks like the gross scaled by the fee \
+         rate rather than the gross minus a bonus-based fee"
+    );
+}
