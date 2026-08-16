@@ -128,9 +128,9 @@ POOL_UPGRADE_WASM_HASH_FILE ?= target/pool_upgrade_wasm_hash.txt
 CONTROLLER_WASM_HASH_FILE ?= target/controller_wasm_hash.txt
 PRICE_AGGREGATOR_WASM_HASH_FILE ?= target/price_aggregator_wasm_hash.txt
 POSITION_NFT_WASM_HASH_FILE ?= target/position_nft_wasm_hash.txt
-POSITION_NFT_URI ?= https://xoxno.com/nft/lending/
+POSITION_NFT_URI ?= https://api.xoxno.com/user/lending/image/
 POSITION_NFT_NAME ?= XOXNO Lending Position
-POSITION_NFT_SYMBOL ?= XLP
+POSITION_NFT_SYMBOL ?= XLEND
 GOVERNANCE_WASM_HASH_FILE ?= target/governance_wasm_hash.txt
 SIGNER_ADDRESS = $$(stellar keys public-key $(SIGNER) 2>/dev/null || stellar keys address $(SIGNER) 2>/dev/null || echo $(SIGNER))
 
@@ -1187,6 +1187,19 @@ upgrade-controller: _preflight-controller _preflight-governance deploy-artifacts
 		$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json
 
 
+upgrade-position-nft: _preflight-controller _preflight-governance deploy-artifacts
+	@echo "=== Upgrading position NFT on $(NETWORK) ==="
+	@echo "Signer: $(SIGNER)"
+	@stellar contract upload \
+		--wasm $(DEPLOY_DIR)/position_nft.wasm \
+		$(SOURCE_FLAG) \
+		--network $(NETWORK) > $(POSITION_NFT_WASM_HASH_FILE); \
+	HASH=$$(cat $(POSITION_NFT_WASM_HASH_FILE)); \
+	echo "New position NFT WASM hash: $$HASH"
+	@HASH=$$(cat $(POSITION_NFT_WASM_HASH_FILE)); \
+	NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh upgradePositionNftHash $$HASH
+
+
 upgrade-governance: _preflight-governance deploy-artifacts
 	@echo "=== Upgrading governance on $(NETWORK) ==="
 	@echo "Signer: $(SIGNER)"
@@ -1814,7 +1827,7 @@ VARARG_ACTIONS := updateIndexes claimRevenue supply borrow withdraw getLiquidati
 
 
 
-MAKEFILE_ACTIONS := deploy upgradeController upgradeGovernance upgradePool upgradeAll \
+MAKEFILE_ACTIONS := deploy upgradeController upgradeGovernance upgradePool upgradePositionNft upgradeAll \
                     deployFlashReceiver fundFlashReceiver testFlashReceiver deployAggregator deployOracleAdapter prepayRent setup resume \
                     upgradeAggregator upgradeOracleAdapter upgradeOracleAdapterFull
 
@@ -1847,6 +1860,7 @@ define NETWORK_DISPATCH
 				upgradeController)  $(MAKE) --no-print-directory upgrade-controller NETWORK=$(1) SIGNER=$(SIGNER) ;; \
 				upgradeGovernance)  $(MAKE) --no-print-directory upgrade-governance NETWORK=$(1) SIGNER=$(SIGNER) ;; \
 				upgradePool)       $(MAKE) --no-print-directory upgrade-pool NETWORK=$(1) SIGNER=$(SIGNER) ;; \
+		upgradePositionNft) $(MAKE) --no-print-directory upgrade-position-nft NETWORK=$(1) SIGNER=$(SIGNER) ;; \
 				upgradeAll)         $(MAKE) --no-print-directory upgrade-all NETWORK=$(1) SIGNER=$(SIGNER) ;; \
 				deployFlashReceiver) $(MAKE) --no-print-directory deploy-flash-loan-receiver NETWORK=$(1) SIGNER=$(SIGNER) ;; \
 				fundFlashReceiver)  $(MAKE) --no-print-directory fund-flash-loan-receiver NETWORK=$(1) SIGNER=$(SIGNER) FLASH_MARKET=$(FLASH_MARKET) FLASH_RECEIVER_FUND=$(FLASH_RECEIVER_FUND) ;; \

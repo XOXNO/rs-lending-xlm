@@ -112,9 +112,60 @@ impl PositionNft {
     }
 }
 
+/// Base of the per-token metadata URL; the token id is spliced between this
+/// and [`TOKEN_URI_SUFFIX`]. Compiled in (not read from storage) because the
+/// URL shape carries a query string AFTER the id, which the stock OZ
+/// base-and-append composition cannot produce. Changing it is a contract
+/// upgrade — governance-gated via the controller, like every upgrade.
+const TOKEN_URI_BASE: &str = "https://api.xoxno.com/user/lending/image/";
+const TOKEN_URI_SUFFIX: &str = "?isStatic=true&chain=STELLAR";
+
+/// Collection symbol, compiled in for the same reason as [`TOKEN_URI_BASE`].
+const TOKEN_SYMBOL: &str = "XLEND";
+
 #[contractimpl(contracttrait)]
 impl NonFungibleToken for PositionNft {
     type ContractType = Enumerable;
+
+    /// `https://api.xoxno.com/user/lending/image/{token_id}?isStatic=true&chain=STELLAR`
+    ///
+    /// Panics with the OZ `NonExistentToken` error for burned or never-minted
+    /// ids, matching the stock behavior.
+    fn token_uri(e: &Env, token_id: u32) -> String {
+        let _owner = Base::owner_of(e, token_id);
+
+        // 41 base + 10 digits (u32 max) + 28 suffix = 79 bytes max.
+        let mut buf = [0u8; 96];
+        let mut len = 0usize;
+        for b in TOKEN_URI_BASE.bytes() {
+            buf[len] = b;
+            len += 1;
+        }
+        // Decimal digits, most significant first. token_id >= 1 always
+        // (id 0 is consumed at construction), so no zero special-case.
+        let mut digits = [0u8; 10];
+        let mut n = token_id;
+        let mut count = 0usize;
+        while n > 0 {
+            digits[count] = b'0' + (n % 10) as u8;
+            n /= 10;
+            count += 1;
+        }
+        while count > 0 {
+            count -= 1;
+            buf[len] = digits[count];
+            len += 1;
+        }
+        for b in TOKEN_URI_SUFFIX.bytes() {
+            buf[len] = b;
+            len += 1;
+        }
+        String::from_bytes(e, &buf[..len])
+    }
+
+    fn symbol(e: &Env) -> String {
+        String::from_str(e, TOKEN_SYMBOL)
+    }
 }
 
 #[contractimpl(contracttrait)]

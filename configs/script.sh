@@ -3078,6 +3078,25 @@ schedule_upgrade_pool() {
     echo "Pool upgrade scheduled (hash ${hash})."
 }
 
+schedule_upgrade_position_nft() {
+    local hash=$1
+    if [ -z "$hash" ]; then
+        echo "Usage: $0 upgradePositionNftHash <wasm_hash_hex>" >&2
+        exit 1
+    fi
+
+    local args_json
+    args_json=$(jq -nc --arg h "$hash" '[{bytes:$h}]')
+    local salt
+    salt=$(gen_salt "upgrade_position_nft" "$args_json")
+    local op_id
+    op_id=$(schedule_via_proposer \
+        upgrade_position_nft "$(admin_op UpgradePositionNft "$(jq -nc --arg h "$hash" '$h')")" \
+        "$args_json" true "$salt")
+    schedule_and_maybe_execute "$op_id"
+    echo "Position NFT upgrade scheduled (hash ${hash})."
+}
+
 pause_protocol() {
     local gov caller
     gov=$(get_governance)
@@ -4637,6 +4656,9 @@ case "$1" in
         ;;
     "upgradePoolHash")
         schedule_upgrade_pool "$2"
+        ;;
+    "upgradePositionNftHash")
+        schedule_upgrade_position_nft "$2"
         ;;
     "deployPool")
         schedule_deploy_pool "$2"

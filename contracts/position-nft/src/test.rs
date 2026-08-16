@@ -56,7 +56,12 @@ fn token_id_zero_is_never_minted() {
 fn metadata_is_set() {
     let env = Env::default();
     let (_controller, client) = setup(&env);
-    assert_eq!(client.symbol(), String::from_str(&env, "XLP"));
+    // Symbol is compiled in (XLEND overrides the constructor arg); the name
+    // still comes from constructor metadata.
+    assert_eq!(
+        client.name(),
+        String::from_str(&env, "XOXNO Lending Position")
+    );
 }
 
 #[test]
@@ -266,4 +271,47 @@ fn upgrade_requires_controller_auth() {
     let (_controller, client) = setup(&env);
     let fake_hash = BytesN::from_array(&env, &[7u8; 32]);
     assert!(client.try_upgrade(&fake_hash).is_err());
+}
+
+#[test]
+fn token_uri_composes_nonce_with_query_suffix() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_controller, client) = setup(&env);
+    let user = Address::generate(&env);
+    let token_id = client.mint(&user);
+    assert_eq!(token_id, 1);
+    assert_eq!(
+        client.token_uri(&token_id),
+        String::from_str(
+            &env,
+            "https://api.xoxno.com/user/lending/image/1?isStatic=true&chain=STELLAR"
+        )
+    );
+    // Multi-digit ids keep digit order.
+    for _ in 0..11 {
+        client.mint(&user);
+    }
+    assert_eq!(
+        client.token_uri(&12u32),
+        String::from_str(
+            &env,
+            "https://api.xoxno.com/user/lending/image/12?isStatic=true&chain=STELLAR"
+        )
+    );
+}
+
+#[test]
+fn token_uri_of_missing_token_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_controller, client) = setup(&env);
+    assert!(client.try_token_uri(&7u32).is_err());
+}
+
+#[test]
+fn symbol_is_xlend() {
+    let env = Env::default();
+    let (_controller, client) = setup(&env);
+    assert_eq!(client.symbol(), String::from_str(&env, "XLEND"));
 }
