@@ -340,6 +340,8 @@ dependencies = [
  "cvlr-soroban-derive",
  "cvlr-soroban-macros",
  "pool-interface",
+ "position-nft",
+ "position-nft-interface",
  "price-aggregator-interface",
  "soroban-sdk",
  "stellar-access",
@@ -1403,6 +1405,13 @@ version = "0.1.0"
 dependencies = [
  "soroban-sdk",
  "stellar-tokens",
+]
+
+[[package]]
+name = "position-nft-interface"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk",
 ]
 
 [[package]]

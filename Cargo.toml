@@ -6,6 +6,7 @@ members = [
     "interfaces/governance",
     "interfaces/price-aggregator",
     "interfaces/swap-aggregator",
+    "interfaces/position-nft",
     "contracts/pool",
     "contracts/controller",
     "contracts/governance",
