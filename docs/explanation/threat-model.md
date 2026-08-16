@@ -56,6 +56,18 @@ immediately. Transfer is a standard, controller-independent NFT operation —
 the controller does not gate it and cannot prevent it — and lazily revokes
 any delegate grant the prior owner had made.
 
+**`approve`/`approve_for_all` hand over the entire position, not a token.**
+Because the NFT is the account's ownership authority, approving an address to
+transfer the token grants that address the ability to take over full control
+of the underlying lending position — collateral, debt, and withdraw rights —
+the moment it calls `transfer_from`. This is a materially larger blast radius
+than an ordinary collectible approval: a phishing signature that looks like
+"approve this marketplace" is, for this NFT, "hand over my entire loan
+account." There is no protocol-level mitigation for this beyond user
+education — wallets and front ends integrating position NFTs must present
+approval prompts with this risk stated explicitly, not with generic NFT
+marketplace copy.
+
 ### Controller to router and tokens
 
 The router is untrusted. Token behavior is not assumed to match a requested

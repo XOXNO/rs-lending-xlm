@@ -122,6 +122,13 @@ of scope for deployment but in scope for the release-artifact leakage threat
     calls `owner_of` live on every account access — so a transfer takes effect
     immediately and lazily revokes the prior owner's delegate grants
     (`DelegateGrant.granted_by`, `contracts/controller/src/storage/account.rs:171`).
+    Because ownership of the token *is* ownership of the account, standard OZ
+    `approve`/`approve_for_all` are not scoped to "move this collectible" —
+    they hand the approved address the ability to take the entire lending
+    position (collateral, debt, withdraw rights) via `transfer_from`. The
+    accepted mitigation is loud, explicit warning at every wallet/front-end
+    approval surface, not an on-chain restriction (`docs/explanation/threat-model.md`,
+    Controller ↔ Position NFT boundary).
 
 ### High-level dataflow
 

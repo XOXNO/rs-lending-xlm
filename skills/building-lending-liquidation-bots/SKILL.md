@@ -94,6 +94,19 @@ a constant.
    `position:batch_update` legs whose action discriminant is `LiqRepay` (4) /
    `LiqSeize` (5).
 
+## Handling an archived position-NFT owner entry
+
+The position NFT's per-token `Owner(token_id)` entry renews to only 30 days
+on read (OZ default), while the controller's own account entries renew to
+120 days. A dormant account (30–120 days without any owner/delegate action
+that touches the controller, which is what drives `owner_of` reads) can end
+up with a live controller account but an **archived** NFT owner entry. Any
+controller op against that account — including `liquidate` — will fail until
+the entry is restored. If `liquidate` (or any account op) fails in a way that
+looks like a missing ledger entry rather than a normal contract error, submit
+a `RestoreFootprint` operation for the position-NFT contract's `Owner(token_id)`
+key before retrying. See `docs/reference/invariants.md` (INV-STOR-02).
+
 ## Common mistakes
 
 - **Assuming a fixed bonus** — it is HF-, position-, and spoke-dependent;

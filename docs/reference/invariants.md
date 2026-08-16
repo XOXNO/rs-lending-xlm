@@ -175,6 +175,22 @@ Account and market records use their intended persistence lifetime, renew when
 read or written, and remove empty account state without leaving reachable
 orphaned authority.
 
+### INV-STOR-02 — NFT TTL renewal is asymmetric with account renewal
+
+The position NFT's own instance (controller address, collection metadata, the
+sequential id counter) renews to the protocol's instance TTL on every `mint`
+and `burn` — i.e. on every controller account create/delete. But OZ's
+`owner_of` renews only the per-token persistent `Owner(token_id)` entry, to
+OZ's own default TTL, not the controller's 120-day per-user renewal window.
+An account that goes 30–120 days without a controller op that reads
+`owner_of` (any user or delegate action) can therefore let its NFT `Owner`
+entry archive even while the controller's own account state is still live —
+requiring a `RestoreFootprint` on the NFT contract's owner entry before any
+controller op, including liquidation, can proceed against that account. See
+`docs/explanation/threat-model.md` (Controller ↔ Position NFT boundary) and
+the `building-lending-liquidation-bots` skill for the operational
+implication.
+
 ## Flash loans and strategies
 
 ### INV-FLASH-01 — Flash repayment is exact
