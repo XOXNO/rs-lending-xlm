@@ -169,6 +169,12 @@ impl LendingTest {
     /// account the NFT was just transferred to. Does not touch on-chain
     /// state -- the NFT transfer itself (via `nft_transfer`) is the source of
     /// truth for ownership.
+    ///
+    /// Also prunes `account_id` from every *other* user's bookkeeping --
+    /// mirroring what `remove_account` does for the id it removes -- so a
+    /// stale entry doesn't linger in the old owner's `accounts`/
+    /// `default_account_id` and cause harness verbs invoked as the old owner
+    /// to keep resolving an account they no longer own.
     pub fn adopt_account(
         &mut self,
         user: &str,
@@ -177,6 +183,17 @@ impl LendingTest {
         mode: PositionMode,
     ) {
         let _ = self.get_or_create_user(user);
+        for (name, state) in self.users.iter_mut() {
+            if name.as_str() == user {
+                continue;
+            }
+            let had_it = state.accounts.iter().any(|a| a.account_id == account_id);
+            if !had_it {
+                continue;
+            }
+            state.accounts.retain(|a| a.account_id != account_id);
+            state.default_account_id = state.accounts.first().map(|a| a.account_id);
+        }
         self.register_account(user, account_id, spoke_id, mode);
     }
 }
