@@ -77,21 +77,6 @@ pub(crate) fn set_accumulator(env: &Env, addr: &Address) {
         .set(&ControllerKey::Accumulator, addr);
 }
 
-/// Reads the current account-creation nonce from shared persistent storage, defaulting to 0 if unset.
-pub(crate) fn get_account_nonce(env: &Env) -> u64 {
-    get_shared(env, &ControllerKey::AccountNonce).unwrap_or(0u64)
-}
-
-/// Reads the account-creation nonce, increments it by one, stores the new value, and returns it. Panics with `MathOverflow` on overflow.
-pub(crate) fn increment_account_nonce(env: &Env) -> u64 {
-    let current = get_account_nonce(env);
-    let next = current
-        .checked_add(1)
-        .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
-    set_shared(env, &ControllerKey::AccountNonce, &next);
-    next
-}
-
 /// Reads the configured maximum supply/borrow position counts from instance storage, panicking with `PositionLimitsNotSet` if unset.
 pub(crate) fn get_position_limits(env: &Env) -> PositionLimits {
     env.storage()

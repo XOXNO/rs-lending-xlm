@@ -5,6 +5,25 @@ use common::types::{AccountPositionRaw, DebtPositionRaw, HubAssetKey, PositionMo
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, Env, Map};
 
+/// Registers a native position-nft owned by `controller` and records it in the controller's
+/// instance storage. Returns the NFT contract address. Duplicated from
+/// `tests/helpers/account.rs`: pinned test modules cannot import each other.
+fn setup_position_nft(env: &Env, controller: &Address) -> Address {
+    let nft = env.register(
+        position_nft::PositionNft,
+        (
+            controller.clone(),
+            soroban_sdk::String::from_str(env, "uri"),
+            soroban_sdk::String::from_str(env, "Position"),
+            soroban_sdk::String::from_str(env, "POS"),
+        ),
+    );
+    env.as_contract(controller, || {
+        crate::storage::set_position_nft(env, &nft);
+    });
+    nft
+}
+
 #[test]
 fn add_delegate_is_idempotent() {
     let env = Env::default();
@@ -12,12 +31,13 @@ fn add_delegate_is_idempotent() {
     let contract_id = env.register(Controller, (admin,));
     env.as_contract(&contract_id, || {
         let account_id = 7u64;
+        let owner = Address::generate(&env);
         let delegate = Address::generate(&env);
 
-        add_delegate(&env, account_id, &delegate);
-        add_delegate(&env, account_id, &delegate);
+        add_delegate(&env, account_id, &owner, &delegate);
+        add_delegate(&env, account_id, &owner, &delegate);
 
-        let delegates = get_delegates(&env, account_id);
+        let delegates = get_delegates(&env, account_id, &owner);
         assert_eq!(delegates.len(), 1);
         assert!(delegates.contains(delegate.clone()));
     });
@@ -30,14 +50,15 @@ fn remove_delegate_revokes_access() {
     let contract_id = env.register(Controller, (admin,));
     env.as_contract(&contract_id, || {
         let account_id = 9u64;
+        let owner = Address::generate(&env);
         let keep = Address::generate(&env);
         let drop = Address::generate(&env);
 
-        add_delegate(&env, account_id, &keep);
-        add_delegate(&env, account_id, &drop);
-        remove_delegate(&env, account_id, &drop);
+        add_delegate(&env, account_id, &owner, &keep);
+        add_delegate(&env, account_id, &owner, &drop);
+        remove_delegate(&env, account_id, &owner, &drop);
 
-        let delegates = get_delegates(&env, account_id);
+        let delegates = get_delegates(&env, account_id, &owner);
         assert_eq!(delegates.len(), 1);
         assert!(delegates.contains(keep));
         assert!(!delegates.contains(drop));
@@ -51,8 +72,9 @@ fn remove_absent_delegate_is_noop() {
     let contract_id = env.register(Controller, (admin,));
     env.as_contract(&contract_id, || {
         let account_id = 11u64;
-        remove_delegate(&env, account_id, &Address::generate(&env));
-        assert_eq!(get_delegates(&env, account_id).len(), 0);
+        let owner = Address::generate(&env);
+        remove_delegate(&env, account_id, &owner, &Address::generate(&env));
+        assert_eq!(get_delegates(&env, account_id, &owner).len(), 0);
     });
 }
 
@@ -63,10 +85,11 @@ fn add_delegate_accepts_exactly_max_delegates() {
     let contract_id = env.register(Controller, (admin,));
     env.as_contract(&contract_id, || {
         let account_id = 13u64;
+        let owner = Address::generate(&env);
         for _ in 0..MAX_DELEGATES {
-            add_delegate(&env, account_id, &Address::generate(&env));
+            add_delegate(&env, account_id, &owner, &Address::generate(&env));
         }
-        assert_eq!(get_delegates(&env, account_id).len(), MAX_DELEGATES);
+        assert_eq!(get_delegates(&env, account_id, &owner).len(), MAX_DELEGATES);
     });
 }
 
@@ -78,10 +101,11 @@ fn add_delegate_rejects_delegate_past_the_cap() {
     let contract_id = env.register(Controller, (admin,));
     env.as_contract(&contract_id, || {
         let account_id = 13u64;
+        let owner = Address::generate(&env);
         for _ in 0..MAX_DELEGATES {
-            add_delegate(&env, account_id, &Address::generate(&env));
+            add_delegate(&env, account_id, &owner, &Address::generate(&env));
         }
-        add_delegate(&env, account_id, &Address::generate(&env));
+        add_delegate(&env, account_id, &owner, &Address::generate(&env));
     });
 }
 
@@ -95,7 +119,8 @@ fn renew_user_account_renews_delegates_ttl() {
     let contract_id = env.register(Controller, (admin,));
     env.as_contract(&contract_id, || {
         let account_id = 7u64;
-        add_delegate(&env, account_id, &Address::generate(&env));
+        let owner = Address::generate(&env);
+        add_delegate(&env, account_id, &owner, &Address::generate(&env));
 
         env.ledger()
             .with_mut(|l| l.sequence_number += TTL_BUMP_USER - 1_000);
@@ -109,6 +134,43 @@ fn renew_user_account_renews_delegates_ttl() {
             renewed > aged,
             "Delegates TTL must be renewed: renewed={renewed}, aged={aged}"
         );
+    });
+}
+
+/// A stale grant from a previous owner reads as empty once the NFT transfers, and gets
+/// overwritten wholesale — not merged with — the new owner's next write.
+#[test]
+fn delegates_of_previous_owner_read_as_empty() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let contract_id = env.register(Controller, (admin,));
+    let nft = setup_position_nft(&env, &contract_id);
+
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+    let delegate = Address::generate(&env);
+    let account_id = u64::from(position_nft::PositionNftClient::new(&env, &nft).mint(&alice));
+
+    env.as_contract(&contract_id, || {
+        assert!(add_delegate(&env, account_id, &alice, &delegate));
+        assert_eq!(get_delegates(&env, account_id, &alice).len(), 1);
+    });
+
+    position_nft::PositionNftClient::new(&env, &nft).transfer(
+        &alice,
+        &bob,
+        &u32::try_from(account_id).unwrap(),
+    );
+
+    env.as_contract(&contract_id, || {
+        assert_eq!(
+            get_delegates(&env, account_id, &bob).len(),
+            0,
+            "a grant stamped by the previous owner must read as empty for the new owner"
+        );
+        assert!(add_delegate(&env, account_id, &bob, &delegate));
+        assert_eq!(get_delegates(&env, account_id, &bob).len(), 1);
     });
 }
 
@@ -195,17 +257,17 @@ fn set_supply_positions_does_not_renew_sibling_ttls() {
     let contract_id = env.register(Controller, (admin,));
     env.as_contract(&contract_id, || {
         let account_id = 23u64;
+        let owner = Address::generate(&env);
         set_account_meta(
             &env,
             account_id,
             &AccountMeta {
-                owner: Address::generate(&env),
                 spoke_id: 0,
                 mode: PositionMode::Normal,
             },
         );
         set_debt_positions(&env, account_id, &sample_debt_map(&env));
-        add_delegate(&env, account_id, &Address::generate(&env));
+        add_delegate(&env, account_id, &owner, &Address::generate(&env));
         // Establish live supply so subsequent set is an update.
         set_supply_positions(&env, account_id, &sample_supply_map(&env));
         renew_user_account(&env, account_id);
@@ -251,18 +313,18 @@ fn renew_user_account_co_renews_all_live_siblings() {
     let contract_id = env.register(Controller, (admin,));
     env.as_contract(&contract_id, || {
         let account_id = 24u64;
+        let owner = Address::generate(&env);
         set_account_meta(
             &env,
             account_id,
             &AccountMeta {
-                owner: Address::generate(&env),
                 spoke_id: 0,
                 mode: PositionMode::Normal,
             },
         );
         set_supply_positions(&env, account_id, &sample_supply_map(&env));
         set_debt_positions(&env, account_id, &sample_debt_map(&env));
-        add_delegate(&env, account_id, &Address::generate(&env));
+        add_delegate(&env, account_id, &owner, &Address::generate(&env));
         renew_user_account(&env, account_id);
 
         env.ledger()

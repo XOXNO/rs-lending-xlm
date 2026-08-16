@@ -85,6 +85,25 @@ fn register_view_deps(env: &Env, contract_id: &Address) {
     });
 }
 
+/// Registers a native position-nft owned by `controller` and records it in the controller's
+/// instance storage. Returns the NFT contract address. Duplicated from
+/// `tests/helpers/account.rs`: pinned test modules cannot import each other.
+fn setup_position_nft(env: &Env, controller: &Address) -> Address {
+    let nft = env.register(
+        position_nft::PositionNft,
+        (
+            controller.clone(),
+            soroban_sdk::String::from_str(env, "uri"),
+            soroban_sdk::String::from_str(env, "Position"),
+            soroban_sdk::String::from_str(env, "POS"),
+        ),
+    );
+    env.as_contract(controller, || {
+        storage::set_position_nft(env, &nft);
+    });
+    nft
+}
+
 fn one_ray_position() -> AccountPositionRaw {
     AccountPositionRaw {
         scaled_amount: RAY,
@@ -95,32 +114,40 @@ fn one_ray_position() -> AccountPositionRaw {
     }
 }
 
+/// Mints a position NFT to a fresh owner and writes matching account metadata (and, if given,
+/// supply/debt positions). Returns the minted account id, which callers must use in place of a
+/// hardcoded id since ownership now resolves through the NFT.
 fn seed_account(
     env: &Env,
-    account_id: u64,
+    contract_id: &Address,
+    nft: &Address,
     spoke_id: u32,
     supply: Option<(HubAssetKey, AccountPositionRaw)>,
     debt: Option<(HubAssetKey, DebtPositionRaw)>,
-) {
-    storage::set_account_meta(
-        env,
-        account_id,
-        &AccountMeta {
-            owner: Address::generate(env),
-            spoke_id,
-            mode: PositionMode::Normal,
-        },
-    );
-    if let Some((key, pos)) = supply {
-        let mut map = Map::new(env);
-        map.set(key, pos);
-        storage::set_supply_positions(env, account_id, &map);
-    }
-    if let Some((key, pos)) = debt {
-        let mut map = Map::new(env);
-        map.set(key, pos);
-        storage::set_debt_positions(env, account_id, &map);
-    }
+) -> u64 {
+    let owner = Address::generate(env);
+    let account_id = u64::from(position_nft::PositionNftClient::new(env, nft).mint(&owner));
+    env.as_contract(contract_id, || {
+        storage::set_account_meta(
+            env,
+            account_id,
+            &AccountMeta {
+                spoke_id,
+                mode: PositionMode::Normal,
+            },
+        );
+        if let Some((key, pos)) = supply {
+            let mut map = Map::new(env);
+            map.set(key, pos);
+            storage::set_supply_positions(env, account_id, &map);
+        }
+        if let Some((key, pos)) = debt {
+            let mut map = Map::new(env);
+            map.set(key, pos);
+            storage::set_debt_positions(env, account_id, &map);
+        }
+    });
+    account_id
 }
 
 #[test]
@@ -147,12 +174,12 @@ fn aggregate_views_return_zero_for_missing_or_empty_account() {
         assert_eq!(total_borrow_in_usd(&env, 1), 0);
         assert_eq!(ltv_collateral_in_usd(&env, 1), 0);
 
-        let owner = Address::generate(&env);
+        // No position NFT is registered here: `total_collateral_in_usd` only ever
+        // consults account metadata, never the owner, so this stays meta-only.
         storage::set_account_meta(
             &env,
             1,
             &AccountMeta {
-                owner,
                 spoke_id: 0,
                 mode: PositionMode::Normal,
             },
@@ -170,12 +197,14 @@ fn health_factor_debt_free_account_skips_pricing() {
     let admin = Address::generate(&env);
     let contract_id = env.register(Controller, (admin,));
     env.as_contract(&contract_id, || {
-        let owner = Address::generate(&env);
+        // No position NFT is registered here. `health_factor` matches on
+        // `try_get_account`, but for a debt-free account both the `Some(account) if
+        // !account.debt_free()` and `None` arms fall through to the same
+        // `i128::MAX` result, so the missing owner does not change the outcome.
         storage::set_account_meta(
             &env,
             1,
             &AccountMeta {
-                owner,
                 spoke_id: 0,
                 mode: PositionMode::Normal,
             },
@@ -254,8 +283,10 @@ fn collateral_and_borrow_amount_return_zero_for_missing_position() {
 fn account_exists_and_positions_distinguish_missing_from_seeded() {
     use crate::Controller;
     let env = Env::default();
+    env.mock_all_auths();
     let admin = Address::generate(&env);
     let contract_id = env.register(Controller, (admin,));
+    let nft = setup_position_nft(&env, &contract_id);
     let hub = HubAssetKey {
         hub_id: 0,
         asset: Address::generate(&env),
@@ -265,16 +296,19 @@ fn account_exists_and_positions_distinguish_missing_from_seeded() {
         let (empty_s, empty_d) = get_account_positions(&env, 1);
         assert!(empty_s.is_empty());
         assert!(empty_d.is_empty());
+    });
 
-        seed_account(
-            &env,
-            1,
-            0,
-            Some((hub.clone(), one_ray_position())),
-            Some((hub.clone(), DebtPositionRaw { scaled_amount: RAY })),
-        );
-        assert!(account_exists(&env, 1));
-        let (supplies, borrows) = get_account_positions(&env, 1);
+    let account_id = seed_account(
+        &env,
+        &contract_id,
+        &nft,
+        0,
+        Some((hub.clone(), one_ray_position())),
+        Some((hub.clone(), DebtPositionRaw { scaled_amount: RAY })),
+    );
+    env.as_contract(&contract_id, || {
+        assert!(account_exists(&env, account_id));
+        let (supplies, borrows) = get_account_positions(&env, account_id);
         assert_eq!(supplies.get(hub.clone()).unwrap().scaled_amount, RAY);
         assert_eq!(borrows.get(hub).unwrap().scaled_amount, RAY);
     });
@@ -288,25 +322,27 @@ fn live_amounts_and_usd_views_are_nonzero() {
     let admin = Address::generate(&env);
     let contract_id = env.register(Controller, (admin,));
     register_view_deps(&env, &contract_id);
+    let nft = setup_position_nft(&env, &contract_id);
     let hub = HubAssetKey {
         hub_id: 0,
         asset: Address::generate(&env),
     };
+    let account_id = seed_account(
+        &env,
+        &contract_id,
+        &nft,
+        0,
+        Some((hub.clone(), one_ray_position())),
+        Some((hub.clone(), DebtPositionRaw { scaled_amount: RAY })),
+    );
     env.as_contract(&contract_id, || {
-        seed_account(
-            &env,
-            1,
-            0,
-            Some((hub.clone(), one_ray_position())),
-            Some((hub.clone(), DebtPositionRaw { scaled_amount: RAY })),
-        );
-        assert_eq!(collateral_amount_for_hub_asset(&env, 1, &hub), 1);
-        assert_eq!(borrow_amount_for_hub_asset(&env, 1, &hub), 1);
-        assert_eq!(total_collateral_in_usd(&env, 1), WAD);
-        assert_eq!(total_borrow_in_usd(&env, 1), WAD);
-        let ltv = ltv_collateral_in_usd(&env, 1);
+        assert_eq!(collateral_amount_for_hub_asset(&env, account_id, &hub), 1);
+        assert_eq!(borrow_amount_for_hub_asset(&env, account_id, &hub), 1);
+        assert_eq!(total_collateral_in_usd(&env, account_id), WAD);
+        assert_eq!(total_borrow_in_usd(&env, account_id), WAD);
+        let ltv = ltv_collateral_in_usd(&env, account_id);
         assert!(ltv > 1, "ltv={ltv}");
-        let weighted = liquidation_collateral_available(&env, 1);
+        let weighted = liquidation_collateral_available(&env, account_id);
         assert!(weighted > 1, "weighted={weighted}");
     });
 }
@@ -319,22 +355,24 @@ fn health_factor_with_debt_is_computed_and_can_be_liquidated() {
     let admin = Address::generate(&env);
     let contract_id = env.register(Controller, (admin,));
     register_view_deps(&env, &contract_id);
+    let nft = setup_position_nft(&env, &contract_id);
     let hub = HubAssetKey {
         hub_id: 0,
         asset: Address::generate(&env),
     };
+    let account_id = seed_account(
+        &env,
+        &contract_id,
+        &nft,
+        0,
+        Some((hub.clone(), one_ray_position())),
+        Some((hub.clone(), DebtPositionRaw { scaled_amount: RAY })),
+    );
     env.as_contract(&contract_id, || {
-        seed_account(
-            &env,
-            1,
-            0,
-            Some((hub.clone(), one_ray_position())),
-            Some((hub.clone(), DebtPositionRaw { scaled_amount: RAY })),
-        );
-        let hf = health_factor(&env, 1);
+        let hf = health_factor(&env, account_id);
         assert_ne!(hf, i128::MAX);
         assert!(hf < WAD, "hf={hf}");
-        assert!(can_be_liquidated(&env, 1));
+        assert!(can_be_liquidated(&env, account_id));
     });
 }
 
@@ -346,21 +384,23 @@ fn healthy_at_one_wad_is_not_liquidatable() {
     let admin = Address::generate(&env);
     let contract_id = env.register(Controller, (admin,));
     register_view_deps(&env, &contract_id);
+    let nft = setup_position_nft(&env, &contract_id);
     let hub = HubAssetKey {
         hub_id: 0,
         asset: Address::generate(&env),
     };
+    let mut pos = one_ray_position();
+    pos.liquidation_threshold = 10_000;
+    let account_id = seed_account(
+        &env,
+        &contract_id,
+        &nft,
+        0,
+        Some((hub.clone(), pos)),
+        Some((hub, DebtPositionRaw { scaled_amount: RAY })),
+    );
     env.as_contract(&contract_id, || {
-        let mut pos = one_ray_position();
-        pos.liquidation_threshold = 10_000;
-        seed_account(
-            &env,
-            1,
-            0,
-            Some((hub.clone(), pos)),
-            Some((hub, DebtPositionRaw { scaled_amount: RAY })),
-        );
-        assert_eq!(health_factor(&env, 1), WAD);
-        assert!(!can_be_liquidated(&env, 1));
+        assert_eq!(health_factor(&env, account_id), WAD);
+        assert!(!can_be_liquidated(&env, account_id));
     });
 }

@@ -253,7 +253,26 @@ fn seed(zeroed_scaled: i128, normal_scaled: i128, debt_scaled: i128) -> Fixture 
     // Funds the repayment leg; the seizure legs move no tokens through this stub pool.
     token::StellarAssetClient::new(&env, &debt.asset).mint(&liquidator, &(1_000 * ONE_TOKEN));
 
+    let nft = env.register(
+        position_nft::PositionNft,
+        (
+            controller.clone(),
+            soroban_sdk::String::from_str(&env, "uri"),
+            soroban_sdk::String::from_str(&env, "Position"),
+            soroban_sdk::String::from_str(&env, "POS"),
+        ),
+    );
+    // Minting the victim's own token first (before any `Credit(0)` receiver can be
+    // minted) is what keeps a fresh receiver account from colliding with VICTIM's id;
+    // no manual nonce bookkeeping is needed once ownership is real NFT ownership.
+    let victim_id = u64::from(position_nft::PositionNftClient::new(&env, &nft).mint(&owner));
+    assert_eq!(
+        victim_id, VICTIM,
+        "sanity: the victim is the first token minted"
+    );
+
     env.as_contract(&controller, || {
+        storage::set_position_nft(&env, &nft);
         storage::set_pool(&env, &pool);
         storage::set_price_aggregator(&env, &oracle);
         storage::set_position_limits(
@@ -283,7 +302,6 @@ fn seed(zeroed_scaled: i128, normal_scaled: i128, debt_scaled: i128) -> Fixture 
             &env,
             VICTIM,
             &AccountMeta {
-                owner: owner.clone(),
                 spoke_id: SPOKE,
                 mode: PositionMode::Normal,
             },
@@ -302,10 +320,6 @@ fn seed(zeroed_scaled: i128, normal_scaled: i128, debt_scaled: i128) -> Fixture 
             },
         );
         storage::set_debt_positions(&env, VICTIM, &debts);
-
-        // The victim was seeded at id 1 without touching the nonce; advance it so a
-        // `Credit(0)` receiver cannot be handed the victim's own id.
-        storage::increment_account_nonce(&env);
     });
 
     Fixture {

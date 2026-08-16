@@ -111,28 +111,51 @@ fn one_ray_position() -> AccountPositionRaw {
     }
 }
 
+/// Registers a native position-nft owned by `controller` and records it in the controller's
+/// instance storage. Returns the NFT contract address. Duplicated from
+/// `tests/helpers/account.rs`: pinned test modules cannot import each other.
+fn setup_position_nft(env: &Env, controller: &Address) -> Address {
+    let nft = env.register(
+        position_nft::PositionNft,
+        (
+            controller.clone(),
+            soroban_sdk::String::from_str(env, "uri"),
+            soroban_sdk::String::from_str(env, "Position"),
+            soroban_sdk::String::from_str(env, "POS"),
+        ),
+    );
+    env.as_contract(controller, || {
+        storage::set_position_nft(env, &nft);
+    });
+    nft
+}
+
+/// Mints the position NFT to a fresh owner (yielding account id 1, the first mint against a
+/// fresh NFT), then seeds live supply/debt positions for it.
 fn seed_live_account(env: &Env, contract_id: &Address) -> HubAssetKey {
     let pool = env.register(ViewPool, ());
     let aggregator = env.register(ViewAggregator, ());
+    let nft = setup_position_nft(env, contract_id);
+    let owner = Address::generate(env);
+    let account_id = u64::from(position_nft::PositionNftClient::new(env, &nft).mint(&owner));
     let key = hub(env);
     env.as_contract(contract_id, || {
         storage::set_pool(env, &pool);
         storage::set_price_aggregator(env, &aggregator);
         storage::set_account_meta(
             env,
-            1,
+            account_id,
             &AccountMeta {
-                owner: Address::generate(env),
                 spoke_id: 1,
                 mode: PositionMode::Normal,
             },
         );
         let mut supply = Map::new(env);
         supply.set(key.clone(), one_ray_position());
-        storage::set_supply_positions(env, 1, &supply);
+        storage::set_supply_positions(env, account_id, &supply);
         let mut debt = Map::new(env);
         debt.set(key.clone(), DebtPositionRaw { scaled_amount: RAY });
-        storage::set_debt_positions(env, 1, &debt);
+        storage::set_debt_positions(env, account_id, &debt);
     });
     key
 }
@@ -304,12 +327,18 @@ fn claim_revenue_without_accumulator_panics() {
 fn update_account_threshold_without_pool_panics() {
     let (env, id) = setup();
     let key = hub(&env);
+    let nft = setup_position_nft(&env, &id);
+    let owner = Address::generate(&env);
+    let account_id = u64::from(position_nft::PositionNftClient::new(&env, &nft).mint(&owner));
+    assert_eq!(
+        account_id, 1,
+        "sanity: first mint against a fresh NFT is id 1"
+    );
     env.as_contract(&id, || {
         storage::set_account_meta(
             &env,
             1,
             &AccountMeta {
-                owner: Address::generate(&env),
                 spoke_id: 1,
                 mode: PositionMode::Normal,
             },

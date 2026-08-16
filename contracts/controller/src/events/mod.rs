@@ -5,7 +5,7 @@
 
 use soroban_sdk::{contracttype, Address};
 
-use common::types::{Account, AccountMeta, AccountPosition, DebtPosition, PositionMode};
+use common::types::{Account, AccountPosition, DebtPosition, PositionMode};
 
 /// Wire representation of [`PositionMode`] used in event payloads.
 /// `PositionMode::Normal` maps to `None`; the other variants map 1:1.
@@ -42,14 +42,6 @@ impl From<&Account> for EventAccountAttributes {
     /// Builds an `EventAccountAttributes` from the account's owner, spoke id,
     /// and position mode.
     fn from(value: &Account) -> Self {
-        Self(value.owner.clone(), value.spoke_id, value.mode.into())
-    }
-}
-
-impl From<&AccountMeta> for EventAccountAttributes {
-    /// Builds an `EventAccountAttributes` from the account meta's owner,
-    /// spoke id, and position mode.
-    fn from(value: &AccountMeta) -> Self {
         Self(value.owner.clone(), value.spoke_id, value.mode.into())
     }
 }

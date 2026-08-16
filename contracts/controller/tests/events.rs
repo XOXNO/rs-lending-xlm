@@ -75,15 +75,21 @@ fn event_position_mode_eq_and_from() {
 }
 
 #[test]
-fn event_account_attributes_from_account_meta_spoke() {
+fn event_account_attributes_from_account_owner_spoke_mode() {
+    // `From<&AccountMeta>` is gone: `AccountMeta` no longer carries an owner, since
+    // ownership now resolves through the position NFT. `From<&Account>` is the
+    // surviving source of `EventAccountAttributes` and pins the same tuple shape
+    // this test originally pinned against `AccountMeta`.
     let env = Env::default();
     let owner = dummy_address(&env);
-    let meta = AccountMeta {
+    let account = Account {
         owner: owner.clone(),
         spoke_id: 3,
         mode: PositionMode::Long,
+        supply_positions: soroban_sdk::Map::new(&env),
+        borrow_positions: soroban_sdk::Map::new(&env),
     };
-    let attrs = EventAccountAttributes::from(&meta);
+    let attrs = EventAccountAttributes::from(&account);
     assert_eq!(attrs.0, owner);
     assert_eq!(attrs.1, 3);
     assert_eq!(attrs.2, EventPositionMode::Long);
@@ -558,7 +564,19 @@ fn unhealthy_account() -> Liquidation {
     MockTokenClient::new(&env, &debt).mint(&liquidator, &(DEBT_TOKENS * UNIT));
     MockTokenClient::new(&env, &collateral).mint(&pool, &(COLLATERAL_TOKENS * UNIT));
 
-    let account_id = env.as_contract(&controller, || {
+    let nft = env.register(
+        position_nft::PositionNft,
+        (
+            controller.clone(),
+            soroban_sdk::String::from_str(&env, "uri"),
+            soroban_sdk::String::from_str(&env, "Position"),
+            soroban_sdk::String::from_str(&env, "POS"),
+        ),
+    );
+    let account_id = u64::from(position_nft::PositionNftClient::new(&env, &nft).mint(&owner));
+
+    env.as_contract(&controller, || {
+        crate::storage::set_position_nft(&env, &nft);
         crate::storage::set_pool(&env, &pool);
         crate::storage::set_price_aggregator(&env, &oracle);
         crate::storage::set_hub(&env, 1, &HubConfig { is_active: true });
@@ -575,12 +593,10 @@ fn unhealthy_account() -> Liquidation {
         crate::storage::set_spoke_asset(&env, 1, &collateral_key, &collateral_config());
         crate::storage::set_spoke_asset(&env, 1, &debt_key, &collateral_config());
 
-        let account_id = crate::storage::increment_account_nonce(&env);
         crate::storage::set_account_meta(
             &env,
             account_id,
             &AccountMeta {
-                owner: owner.clone(),
                 spoke_id: 1,
                 mode: PositionMode::Normal,
             },

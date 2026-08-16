@@ -47,11 +47,14 @@ pub fn seed_protocol(env: &Env) {
 }
 
 pub fn seed_account(env: &Env, account_id: u64, owner: &Address) {
+    env.storage().persistent().set(
+        &crate::external::position_nft::GhostNftKey::Owner(account_id),
+        owner,
+    );
     crate::storage::set_account_meta(
         env,
         account_id,
         &AccountMeta {
-            owner: owner.clone(),
             spoke_id: SPOKE_ID,
             mode: PositionMode::Normal,
         },
