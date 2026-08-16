@@ -1398,6 +1398,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "position-nft"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk",
+ "stellar-tokens",
+]
+
+[[package]]
 name = "powerfmt"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2105,6 +2113,17 @@ dependencies = [
  "crate-git-revision",
  "data-encoding",
  "heapless",
+]
+
+[[package]]
+name = "stellar-tokens"
+version = "0.7.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "14c69421f52f418e0ebd343a6046aea3a3d1a4b0544debdf88780173d88c9d9b"
+dependencies = [
+ "soroban-sdk",
+ "stellar-contract-utils",
+ "stellar-governance",
 ]
 
 [[package]]
