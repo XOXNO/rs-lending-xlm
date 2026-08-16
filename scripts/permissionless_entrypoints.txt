@@ -84,3 +84,14 @@ defindex-strategy::deposit | caller-auth | INV-AUTH-03, INV-ACCT-03 | Anyone may
 defindex-strategy::withdraw | caller-auth | INV-AUTH-02 | from.require_auth authorizes the withdrawal and the balance is read from the vault account mapped to that address, so a caller can only drain their own position.
 defindex-strategy::harvest | caller-auth | INV-AUTH-03 | from.require_auth authorizes a caller-triggered HarvestEvent carrying the current price per share. Moves no funds and writes no accounting state.
 defindex-strategy::balance | UNGATED-MUTATOR | INV-AUTH-03, INV-STOR-01 | Read-only balance query, conservatively classified: the only storage write the checker can reach is the stale-pointer cleanup in resolve_vault_account, which this path enters with clear_if_gone = false. Reachable by anyone; discloses only the queried address's own balance.
+#
+# ---------------------------------------------------------------------------
+# position-nft
+#
+# Both entrypoints require_auth the controller address stored at construction
+# (set once, no setter). The checker classifies them caller-auth because it
+# cannot prove which address the stored value names; in practice only the
+# controller's own cross-contract invocation ever satisfies the auth.
+# ---------------------------------------------------------------------------
+position-nft::mint | caller-auth | INV-AUTH-01 | Any address may invoke, but require_auth on the construction-time controller address means only the controller's own invocation passes; a third party cannot mint, so token supply moves only with controller account creation.
+position-nft::burn | caller-auth | INV-AUTH-01, INV-STOR-01 | Any address may invoke, but require_auth on the construction-time controller address means only the controller's own invocation passes; a third party cannot burn, and the controller burns only after removing the account's emptied state.
