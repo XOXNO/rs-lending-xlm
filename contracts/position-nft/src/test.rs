@@ -278,6 +278,9 @@ fn token_uri_composes_nonce_with_query_suffix() {
     let env = Env::default();
     env.mock_all_auths();
     let (_controller, client) = setup(&env);
+    // The fixture constructs with the legacy base; the canonical base comes
+    // from the permissionless repair path, exactly like the live instance.
+    client.sync_metadata();
     let user = Address::generate(&env);
     let token_id = client.mint(&user);
     assert_eq!(token_id, 1);
@@ -310,8 +313,20 @@ fn token_uri_of_missing_token_fails() {
 }
 
 #[test]
-fn symbol_is_xlend() {
+fn sync_metadata_repairs_stored_values() {
     let env = Env::default();
     let (_controller, client) = setup(&env);
+    // Constructed with legacy values...
+    assert_eq!(client.symbol(), String::from_str(&env, "XLP"));
+    // ...permissionless repair rewrites storage to the canonical constants,
+    // so raw-storage readers and getters agree.
+    client.sync_metadata();
+    assert_eq!(client.symbol(), String::from_str(&env, "XLEND"));
+    assert_eq!(
+        client.name(),
+        String::from_str(&env, "XOXNO Lending Position")
+    );
+    // Idempotent.
+    client.sync_metadata();
     assert_eq!(client.symbol(), String::from_str(&env, "XLEND"));
 }

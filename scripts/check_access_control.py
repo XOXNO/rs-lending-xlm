@@ -173,6 +173,8 @@ OTHER_WRITE_PATTERNS = (
     re.compile(r"\benv\s*\.\s*deployer\s*\(\s*\)"),
     re.compile(r"\bupdate_current_contract_wasm\s*\("),
     re.compile(r"\bupgradeable::upgrade\s*\("),
+    # OZ token metadata setter: writes the collection Metadata instance entry.
+    re.compile(r"\bBase::set_metadata\s*\("),
     re.compile(r"\bownable::set_owner\s*\("),
     re.compile(r"\bownable::transfer_ownership\s*\("),
     re.compile(r"\bownable::accept_ownership\s*\("),

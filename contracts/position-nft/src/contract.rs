@@ -110,37 +110,51 @@ impl PositionNft {
         renew_instance(e);
         upgradeable::upgrade(e, &new_wasm_hash);
     }
+
+    /// Rewrites the stored collection metadata to the canonical compile-time
+    /// values below. Deliberately permissionless: it is idempotent and can
+    /// only write constants baked into the (governance-upgraded) code, so any
+    /// caller merely repairs an instance constructed with older arguments —
+    /// raw-storage readers (explorers, indexers) then agree with the getters.
+    pub fn sync_metadata(e: &Env) {
+        renew_instance(e);
+        Base::set_metadata(
+            e,
+            String::from_str(e, CANONICAL_BASE_URI),
+            String::from_str(e, CANONICAL_NAME),
+            String::from_str(e, CANONICAL_SYMBOL),
+        );
+    }
 }
 
-/// Base of the per-token metadata URL; the token id is spliced between this
-/// and [`TOKEN_URI_SUFFIX`]. Compiled in (not read from storage) because the
-/// URL shape carries a query string AFTER the id, which the stock OZ
-/// base-and-append composition cannot produce. Changing it is a contract
-/// upgrade — governance-gated via the controller, like every upgrade.
-const TOKEN_URI_BASE: &str = "https://api.xoxno.com/user/lending/image/";
+/// Canonical collection metadata. The constructor stores its deploy-time
+/// arguments; `sync_metadata` repairs older instances to these values. The
+/// query suffix rides AFTER the token id, which the stock OZ base-and-append
+/// composition cannot produce — hence the `token_uri` override below, which
+/// reads the STORED base_uri so raw storage stays the single source of truth.
+const CANONICAL_BASE_URI: &str = "https://api.xoxno.com/user/lending/image/";
 const TOKEN_URI_SUFFIX: &str = "?isStatic=true&chain=STELLAR";
-
-/// Collection symbol, compiled in for the same reason as [`TOKEN_URI_BASE`].
-const TOKEN_SYMBOL: &str = "XLEND";
+const CANONICAL_NAME: &str = "XOXNO Lending Position";
+const CANONICAL_SYMBOL: &str = "XLEND";
 
 #[contractimpl(contracttrait)]
 impl NonFungibleToken for PositionNft {
     type ContractType = Enumerable;
 
-    /// `https://api.xoxno.com/user/lending/image/{token_id}?isStatic=true&chain=STELLAR`
+    /// `{stored base_uri}{token_id}?isStatic=true&chain=STELLAR`
     ///
     /// Panics with the OZ `NonExistentToken` error for burned or never-minted
     /// ids, matching the stock behavior.
     fn token_uri(e: &Env, token_id: u32) -> String {
         let _owner = Base::owner_of(e, token_id);
 
-        // 41 base + 10 digits (u32 max) + 28 suffix = 79 bytes max.
-        let mut buf = [0u8; 96];
-        let mut len = 0usize;
-        for b in TOKEN_URI_BASE.bytes() {
-            buf[len] = b;
-            len += 1;
-        }
+        let base = Base::base_uri(e);
+        let base_len = base.len() as usize;
+        // Stored base + 10 digits (u32 max) + suffix; 256 leaves headroom
+        // for any plausible future base_uri.
+        let mut buf = [0u8; 256];
+        base.copy_into_slice(&mut buf[..base_len]);
+        let mut len = base_len;
         // Decimal digits, most significant first. token_id >= 1 always
         // (id 0 is consumed at construction), so no zero special-case.
         let mut digits = [0u8; 10];
@@ -161,10 +175,6 @@ impl NonFungibleToken for PositionNft {
             len += 1;
         }
         String::from_bytes(e, &buf[..len])
-    }
-
-    fn symbol(e: &Env) -> String {
-        String::from_str(e, TOKEN_SYMBOL)
     }
 }
 
