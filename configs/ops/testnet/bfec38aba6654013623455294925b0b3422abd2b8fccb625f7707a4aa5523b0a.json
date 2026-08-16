@@ -1,0 +1,25 @@
+{
+  "kind": "controller",
+  "op_id": "bfec38aba6654013623455294925b0b3422abd2b8fccb625f7707a4aa5523b0a",
+  "network": "testnet",
+  "target": "CCXRWJ6SIU2WPFEGLFGJVITPL57QAYIMIO6OAM2NBGNDQSSCK2FFV3F3",
+  "function": "deploy_position_nft",
+  "args": [
+    {
+      "bytes": "60d853fd04a3040f7f40787745d3bc01c06f1d65458d31805274f84149ccc4a6"
+    },
+    {
+      "string": "https://xoxno.com/nft/lending/"
+    },
+    {
+      "string": "XOXNO Lending Position"
+    },
+    {
+      "string": "XLP"
+    }
+  ],
+  "predecessor": "0000000000000000000000000000000000000000000000000000000000000000",
+  "salt": "fde57413f91159c00f2d3f838b39358b7716085f0349dfee8b5d89d650e51b6b",
+  "cli_executable": true,
+  "executed": true
+}

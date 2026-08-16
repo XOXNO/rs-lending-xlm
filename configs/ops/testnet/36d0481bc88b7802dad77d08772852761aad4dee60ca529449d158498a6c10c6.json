@@ -1,0 +1,12 @@
+{
+  "kind": "controller",
+  "op_id": "36d0481bc88b7802dad77d08772852761aad4dee60ca529449d158498a6c10c6",
+  "network": "testnet",
+  "target": "CCXRWJ6SIU2WPFEGLFGJVITPL57QAYIMIO6OAM2NBGNDQSSCK2FFV3F3",
+  "function": "create_hub",
+  "args": [],
+  "predecessor": "0000000000000000000000000000000000000000000000000000000000000000",
+  "salt": "521c0b582033e44bf29d0a8582b2da0ccca27d3bef7a0b8ed733cca0d9220b1c",
+  "cli_executable": true,
+  "executed": true
+}
