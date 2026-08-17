@@ -16,7 +16,7 @@ use crate::positions::{
     AggregatedPayments, FreezePolicy, HubPayment, LegDirection, LegOutcome, PositionSides,
 };
 use crate::storage;
-use common::validation::expect_invariant;
+use common::validation::{expect_invariant, require_positive_amount};
 
 pub(crate) struct RepaymentRequest<'a> {
     pub hub_asset: &'a HubAssetKey,
@@ -250,9 +250,8 @@ pub(crate) fn borrow_into_controller(
     action: events::PositionAction,
     cache: &mut Cache,
 ) -> i128 {
-    let hub_debt = hub_debt.clone();
-    let payments: AggregatedPayments = vec![env, (hub_debt.clone(), amount)];
-    let aggregated = payments::aggregate_positive_payments(env, &payments);
+    require_positive_amount(env, amount);
+    let aggregated = vec![env, (hub_debt.clone(), amount)];
     validate_position_entry_gates(
         env,
         account,
@@ -261,7 +260,7 @@ pub(crate) fn borrow_into_controller(
         AccountPositionType::Borrow,
     );
 
-    let position = account.get_or_create_debt_position(&hub_debt);
+    let position = account.get_or_create_debt_position(hub_debt);
     let pool_addr = cache.cached_pool_address();
     let pool_action = make_pool_action(&position, amount, hub_debt.clone());
     let result = pool_create_strategy_call(
@@ -276,7 +275,7 @@ pub(crate) fn borrow_into_controller(
         env,
         account,
         action,
-        &hub_debt,
+        hub_debt,
         LegDirection::Entry {
             asset_decimals: mutation.asset_decimals,
         },

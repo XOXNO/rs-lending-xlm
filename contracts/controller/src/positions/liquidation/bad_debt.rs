@@ -1,16 +1,17 @@
 use common::types::{Account, AccountPositionType, PoolSeizeEntry};
 use soroban_sdk::{Env, Vec};
 
+use crate::account::remove_account_and_burn_nft;
 use crate::context::Cache;
 use crate::events::CleanBadDebtEvent;
 use crate::external::pool::pool_seize_positions_call;
 use crate::risk::AccountRiskTotals;
 use crate::spoke_usage::UsageSide;
-use crate::storage::{self, iter_debt_positions, iter_typed_positions};
+use crate::storage::{iter_debt_positions, iter_typed_positions};
 
 /// Seizes every remaining supply and debt position on `account_id` through the pool, records
 /// the spoke usage exits, publishes a `CleanBadDebtEvent` with the pre-cleanup debt and
-/// collateral totals, and removes the account entry.
+/// collateral totals, and removes the account entry, burning its position NFT.
 pub(crate) fn execute_bad_debt_cleanup(
     env: &Env,
     cache: &mut Cache,
@@ -57,5 +58,5 @@ pub(crate) fn execute_bad_debt_cleanup(
     }
     .publish(env);
 
-    storage::remove_account_entry(env, account_id);
+    remove_account_and_burn_nft(env, account_id);
 }

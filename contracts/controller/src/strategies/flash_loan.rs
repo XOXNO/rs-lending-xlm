@@ -3,10 +3,11 @@ use common::types::HubAssetKey;
 use common::validation::{require_positive_amount, require_wasm_receiver};
 use soroban_sdk::{Address, Bytes, Env};
 
+use super::require_strategy_caller;
 use crate::config;
 use crate::context::Cache;
 use crate::external::pool::pool_flash_loan_call;
-use crate::{risk::validation, storage};
+use crate::storage;
 
 /// Initiates a flash loan of `amount` of `hub_asset` through the pool: the
 /// pool sends the funds to `receiver`, invokes its callback with `data`, and
@@ -22,9 +23,7 @@ pub(crate) fn process_flash_loan(
     receiver: &Address,
     data: &Bytes,
 ) {
-    caller.require_auth();
-
-    validation::require_not_flash_loaning(env);
+    require_strategy_caller(env, caller);
     require_positive_amount(env, amount);
     config::require_hub_active(env, hub_asset.hub_id);
 

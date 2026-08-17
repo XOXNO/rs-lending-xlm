@@ -10,8 +10,8 @@ pub(crate) mod debt;
 use common::errors::{CollateralError, GenericError, SpokeError};
 use common::math::fp::Ray;
 use common::types::{
-    Account, AccountPosition, AccountPositionType, AggregatedPayments, DebtPosition, HubAssetKey,
-    HubPayment, MarketIndexRaw, PoolAction, PoolPositionMutation, ScaledPositionRaw,
+    Account, AccountPosition, AccountPositionType, AggregatedPayments, AssetConfig, DebtPosition,
+    HubAssetKey, HubPayment, MarketIndexRaw, PoolAction, PoolPositionMutation, ScaledPositionRaw,
 };
 use soroban_sdk::{
     assert_with_error, panic_with_error, Address, Env, IntoVal, TryFromVal, Val, Vec,
@@ -78,8 +78,7 @@ pub(crate) fn for_each_leg<E, R>(
 /// Requires `caller` to authorize the call and asserts no flash loan is
 /// currently in progress on this contract.
 pub(crate) fn require_position_caller(env: &Env, caller: &Address) {
-    caller.require_auth();
-    validation::require_not_flash_loaning(env);
+    validation::require_authorized_caller(env, caller);
 }
 
 /// Restamps supply position LTVs to their current listed values, then
@@ -258,6 +257,23 @@ pub(crate) fn finalize_position_flow(
     cache.emit_position_batch(account_id, account);
 }
 
+/// Asserts the hub is active, the asset is listed on an active spoke
+/// (unlisted assets revert `AssetNotInSpoke`), and the spoke asset is neither
+/// paused nor frozen (new entries: frozen blocks; paused blocks every verb).
+/// Returns the asset config so the caller can apply its verb-specific
+/// permission check.
+fn require_listed_unhalted_config(
+    env: &Env,
+    cache: &mut Cache,
+    spoke_id: u32,
+    hub_asset: &HubAssetKey,
+) -> AssetConfig {
+    cache.require_hub_active(hub_asset.hub_id);
+    let asset_config = cache.require_listed_active_config(spoke_id, hub_asset);
+    enforce_spoke_asset_flags(env, cache, spoke_id, hub_asset, FreezePolicy::BlockOnEntry);
+    asset_config
+}
+
 /// Asserts the hub is active, the asset is listed on an active spoke, the
 /// spoke asset is neither paused nor frozen, and the asset config permits
 /// borrowing.
@@ -267,9 +283,7 @@ pub(crate) fn require_can_borrow(
     spoke_id: u32,
     hub_asset: &HubAssetKey,
 ) {
-    cache.require_hub_active(hub_asset.hub_id);
-    let asset_config = cache.require_listed_active_config(spoke_id, hub_asset);
-    enforce_spoke_asset_flags(env, cache, spoke_id, hub_asset, FreezePolicy::BlockOnEntry);
+    let asset_config = require_listed_unhalted_config(env, cache, spoke_id, hub_asset);
     assert_with_error!(
         env,
         asset_config.can_borrow(),
@@ -286,11 +300,7 @@ pub(crate) fn require_can_supply(
     spoke_id: u32,
     hub_asset: &HubAssetKey,
 ) {
-    cache.require_hub_active(hub_asset.hub_id);
-    // Unlisted assets revert `AssetNotInSpoke`.
-    let asset_config = cache.require_listed_active_config(spoke_id, hub_asset);
-    // New entries: frozen blocks; paused blocks every verb.
-    enforce_spoke_asset_flags(env, cache, spoke_id, hub_asset, FreezePolicy::BlockOnEntry);
+    let asset_config = require_listed_unhalted_config(env, cache, spoke_id, hub_asset);
     assert_with_error!(
         env,
         asset_config.can_supply(),

@@ -3,7 +3,9 @@ use common::math::fp::Ray;
 use common::types::{
     Account, AccountMeta, AccountPosition, DebtPosition, HubAssetKey, PositionMode,
 };
-use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, Map};
+use soroban_sdk::{
+    assert_with_error, panic_with_error, Address, Env, IntoVal, Map, TryFromVal, Val,
+};
 
 use crate::context::Cache;
 use crate::events::AccountDelegateEvent;
@@ -118,13 +120,37 @@ fn require_spoke_match(env: &Env, account: &Account, spoke_id: u32) {
     }
 }
 
+/// Removes the account's stored entry and burns its position NFT. Every account
+/// deletion must go through here so the NFT⟺account existence pairing cannot
+/// drift: an id whose entry is gone must never keep a live token.
+pub(crate) fn remove_account_and_burn_nft(env: &Env, account_id: u64) {
+    storage::remove_account_entry(env, account_id);
+    let nft = storage::get_position_nft(env);
+    nft_burn_call(env, &nft, account_id);
+}
+
 /// Removes the account's stored entry and burns its position NFT if it has no supply or
 /// borrow positions left.
 pub(crate) fn cleanup_account_if_empty(env: &Env, account: &Account, account_id: u64) {
     if account.is_empty() {
-        storage::remove_account_entry(env, account_id);
-        let nft = storage::get_position_nft(env);
-        nft_burn_call(env, &nft, account_id);
+        remove_account_and_burn_nft(env, account_id);
+    }
+}
+
+fn upsert_or_remove_position<V>(
+    map: &mut Map<HubAssetKey, V>,
+    hub_asset: &HubAssetKey,
+    value: Option<V>,
+) where
+    V: IntoVal<Env, Val> + TryFromVal<Env, Val>,
+{
+    match value {
+        None => {
+            map.remove(hub_asset.clone());
+        }
+        Some(value) => {
+            map.set(hub_asset.clone(), value);
+        }
     }
 }
 
@@ -135,13 +161,11 @@ pub(crate) fn update_or_remove_supply_position(
     hub_asset: &HubAssetKey,
     position: &AccountPosition,
 ) {
-    if position.scaled_amount == Ray::ZERO {
-        account.supply_positions.remove(hub_asset.clone());
-    } else {
-        account
-            .supply_positions
-            .set(hub_asset.clone(), position.into());
-    }
+    upsert_or_remove_position(
+        &mut account.supply_positions,
+        hub_asset,
+        (position.scaled_amount != Ray::ZERO).then(|| position.into()),
+    );
 }
 
 /// Sets `account`'s debt position for `hub_asset` to `position` in memory, removing the
@@ -151,13 +175,11 @@ pub(crate) fn update_or_remove_debt_position(
     hub_asset: &HubAssetKey,
     position: &DebtPosition,
 ) {
-    if position.scaled_amount == Ray::ZERO {
-        account.borrow_positions.remove(hub_asset.clone());
-    } else {
-        account
-            .borrow_positions
-            .set(hub_asset.clone(), position.into());
-    }
+    upsert_or_remove_position(
+        &mut account.borrow_positions,
+        hub_asset,
+        (position.scaled_amount != Ray::ZERO).then(|| position.into()),
+    );
 }
 
 /// Extends the TTL of the controller instance, then, after requiring `caller`'s

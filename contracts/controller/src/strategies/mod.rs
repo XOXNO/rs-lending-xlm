@@ -36,8 +36,7 @@ use crate::risk::{self, account_price_assets, validation};
 /// Requires `caller` to authorize the call and panics if a flash loan is
 /// currently in progress.
 pub(crate) fn require_strategy_caller(env: &Env, caller: &Address) {
-    caller.require_auth();
-    validation::require_not_flash_loaning(env);
+    validation::require_authorized_caller(env, caller);
 }
 
 /// Fetches oracle prices into `cache` for every asset in `account`'s supply
@@ -47,8 +46,8 @@ pub(crate) fn prefetch_strategy_prices(
     account: &Account,
     extra_assets: &Vec<Address>,
 ) {
-    let env = cache.env().clone();
-    cache.fetch_prices(&account_price_assets(&env, account, extra_assets));
+    let assets = account_price_assets(cache.env(), account, extra_assets);
+    cache.fetch_prices(&assets);
 }
 
 /// Restamps `account`'s listed collateral LTV, enforces post-trade solvency

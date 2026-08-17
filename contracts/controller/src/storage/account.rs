@@ -6,7 +6,7 @@ use common::types::{
     Account, AccountMeta, AccountPosition, AccountPositionRaw, ControllerKey, DebtPosition,
     DebtPositionRaw, DelegateGrant, HubAssetKey,
 };
-use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, Map, Vec};
+use soroban_sdk::{assert_with_error, contracttype, panic_with_error, Address, Env, Map, Vec};
 
 /// Assembles an `Account` from its owner, separately stored metadata, and raw supply/borrow
 /// position maps.
@@ -272,8 +272,6 @@ pub(crate) fn renew_user_account(env: &Env, account_id: u64) {
 #[cfg(test)]
 #[path = "../../tests/storage/account.rs"]
 mod tests;
-
-use soroban_sdk::contracttype;
 
 #[contracttype]
 #[derive(Clone, Debug)]

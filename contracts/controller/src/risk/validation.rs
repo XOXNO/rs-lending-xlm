@@ -3,9 +3,16 @@ use crate::spec_hooks;
 use common::errors::*;
 use common::math::fp::Wad;
 use common::types::{Account, AccountPositionType, AggregatedPayments, HubAssetKey};
-use soroban_sdk::{assert_with_error, panic_with_error, Env, Map};
+use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, Map};
 
 use crate::{context::Cache, storage};
+
+/// Requires `caller` to authorize the invocation and panics if a flash loan
+/// is already in progress.
+pub(crate) fn require_authorized_caller(env: &Env, caller: &Address) {
+    caller.require_auth();
+    require_not_flash_loaning(env);
+}
 
 /// Panics with `FlashLoanOngoing` if a flash loan is currently in progress.
 pub(crate) fn require_not_flash_loaning(env: &Env) {

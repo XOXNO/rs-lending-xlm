@@ -4,7 +4,9 @@ use common::types::{ControllerKey, PositionLimits, PositionManagerConfig};
 
 use soroban_sdk::{panic_with_error, Address, Env, IntoVal, TryFromVal, Val};
 
-use crate::constants;
+use crate::constants::{
+    self, TTL_BUMP_SHARED, TTL_BUMP_USER, TTL_THRESHOLD_SHARED, TTL_THRESHOLD_USER,
+};
 
 /// Reads whether `pool` is an approved Blend pool from shared persistent storage, defaulting to `false` if unset.
 pub(crate) fn is_blend_pool_approved(env: &Env, pool: &Address) -> bool {
@@ -145,8 +147,6 @@ pub(crate) fn set_position_manager(env: &Env, addr: &Address, config: &PositionM
 #[cfg(test)]
 #[path = "../../tests/storage/protocol.rs"]
 mod tests;
-
-use crate::constants::{TTL_BUMP_SHARED, TTL_BUMP_USER, TTL_THRESHOLD_SHARED, TTL_THRESHOLD_USER};
 
 /// Extends a persistent storage key's TTL using the given threshold and bump ledger counts.
 fn renew_persistent_key(env: &Env, key: &ControllerKey, threshold: u32, bump: u32) {

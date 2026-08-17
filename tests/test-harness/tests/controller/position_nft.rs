@@ -270,3 +270,84 @@ fn renew_account_follows_current_owner() {
 
     t.ctrl_client().renew_account(&bob, &account_id); // succeeds
 }
+
+// --- bad-debt socialization burns the NFT ---------------------------------
+//
+// Every account-deletion path must burn the position NFT, or a live,
+// transferable token survives its account forever (ids are never reused and
+// burn is controller-only). The emptied-account path is pinned above; these
+// three pin the bad-debt socialization paths.
+
+#[test]
+fn liquidation_dust_socialization_burns_nft() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    t.supply(BOB, "ETH", 100.0);
+    t.supply(ALICE, "USDC", 100.0);
+    t.borrow(ALICE, "ETH", 0.03);
+    let account_id = t.account_id(ALICE);
+
+    t.set_price("USDC", usd_cents(1));
+    t.liquidate(LIQUIDATOR, ALICE, "ETH", 0.001);
+
+    t.assert_no_positions(ALICE);
+    assert!(
+        !t.try_nft_owner_of(account_id),
+        "in-liquidation dust socialization must burn the position NFT"
+    );
+    assert!(!t.account_exists(account_id));
+}
+
+#[test]
+fn clean_bad_debt_burns_nft() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    t.supply(BOB, "ETH", 100.0);
+    t.supply(ALICE, "USDC", 8.0);
+    t.borrow(ALICE, "ETH", 0.002);
+    let account_id = t.account_id(ALICE);
+
+    t.set_price("USDC", usd_cents(5));
+    t.clean_bad_debt_by_id(account_id);
+
+    t.assert_no_positions(ALICE);
+    assert!(
+        !t.try_nft_owner_of(account_id),
+        "permissionless clean_bad_debt must burn the position NFT"
+    );
+    assert!(!t.account_exists(account_id));
+}
+
+#[test]
+fn force_socialize_bad_debt_burns_nft() {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    t.supply(BOB, "ETH", 100.0);
+    t.supply(ALICE, "USDC", 100.0);
+    t.borrow(ALICE, "ETH", 0.02);
+    let account_id = t.account_id(ALICE);
+
+    // Above the $5 dust gate: clean refuses, only the owner path socializes.
+    t.set_price("USDC", usd_cents(30));
+    assert_contract_error(
+        t.try_clean_bad_debt_by_id(account_id),
+        errors::CANNOT_CLEAN_BAD_DEBT,
+    );
+    t.force_socialize_bad_debt_by_id(account_id);
+
+    t.assert_no_positions(ALICE);
+    assert!(
+        !t.try_nft_owner_of(account_id),
+        "force_socialize_bad_debt must burn the position NFT"
+    );
+    assert!(!t.account_exists(account_id));
+}
