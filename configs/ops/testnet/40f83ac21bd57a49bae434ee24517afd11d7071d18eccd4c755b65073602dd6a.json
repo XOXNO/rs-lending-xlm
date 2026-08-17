@@ -1,0 +1,12 @@
+{
+  "kind": "controller",
+  "op_id": "40f83ac21bd57a49bae434ee24517afd11d7071d18eccd4c755b65073602dd6a",
+  "network": "testnet",
+  "target": "CCXRWJ6SIU2WPFEGLFGJVITPL57QAYIMIO6OAM2NBGNDQSSCK2FFV3F3",
+  "function": "add_spoke",
+  "args": [],
+  "predecessor": "0000000000000000000000000000000000000000000000000000000000000000",
+  "salt": "1955efe5d4f3fed4cf275286d7a267c86a3c4b0fc2ba6d6e7ec433c0061bdfa1",
+  "cli_executable": true,
+  "executed": true
+}

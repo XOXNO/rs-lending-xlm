@@ -132,7 +132,7 @@ fn usage_supply_decrement_below_zero_panics() {
             },
         );
         let mut ctx = SpokeUsageContext::new(&env, 1);
-        ctx.apply_exit(&env, UsageSide::Supply, &hub(&asset), Ray::from(10));
+        ctx.apply_exit(UsageSide::Supply, &hub(&asset), Ray::from(10));
     });
 }
 
@@ -153,7 +153,7 @@ fn usage_borrow_decrement_below_zero_panics() {
             },
         );
         let mut ctx = SpokeUsageContext::new(&env, 1);
-        ctx.apply_exit(&env, UsageSide::Borrow, &hub(&asset), Ray::from(10));
+        ctx.apply_exit(UsageSide::Borrow, &hub(&asset), Ray::from(10));
     });
 }
 
@@ -166,7 +166,6 @@ fn zero_supply_cap_rejects_entry() {
     env.as_contract(&contract, || {
         let mut ctx = SpokeUsageContext::new(&env, 1);
         ctx.apply_entry(
-            &env,
             UsageSide::Supply,
             &hub(&asset),
             Ray::from(RAY),
@@ -186,7 +185,6 @@ fn zero_borrow_cap_rejects_entry() {
     env.as_contract(&contract, || {
         let mut ctx = SpokeUsageContext::new(&env, 1);
         ctx.apply_entry(
-            &env,
             UsageSide::Borrow,
             &hub(&asset),
             Ray::from(RAY),
@@ -220,7 +218,6 @@ fn apply_entry_stores_single_add_not_dual_add() {
         );
         let mut ctx = SpokeUsageContext::new(&env, 1);
         ctx.apply_entry(
-            &env,
             UsageSide::Supply,
             &key,
             Ray::from(delta),
@@ -228,7 +225,7 @@ fn apply_entry_stores_single_add_not_dual_add() {
             Ray::from(RAY),
             7,
         );
-        ctx.persist(&env);
+        ctx.persist();
 
         let stored = storage::get_spoke_usage(&env, 1, &key).expect("usage row");
         assert_eq!(
@@ -252,7 +249,6 @@ fn apply_entry_at_exact_cap_succeeds() {
     env.as_contract(&contract, || {
         let mut ctx = SpokeUsageContext::new(&env, 1);
         ctx.apply_entry(
-            &env,
             UsageSide::Supply,
             &key,
             Ray::from(delta),
@@ -260,7 +256,7 @@ fn apply_entry_at_exact_cap_succeeds() {
             Ray::from(RAY),
             7,
         );
-        ctx.persist(&env);
+        ctx.persist();
         let stored = storage::get_spoke_usage(&env, 1, &key).expect("usage row");
         assert_eq!(stored.supplied_scaled_ray, delta);
     });
@@ -276,7 +272,6 @@ fn apply_entry_one_over_cap_reverts_with_supply_cap() {
         let mut ctx = SpokeUsageContext::new(&env, 1);
         // Cap 1 asset unit; attempt 1 asset unit + 1 scaled ray dust.
         ctx.apply_entry(
-            &env,
             UsageSide::Supply,
             &hub(&asset),
             Ray::from(RAY + 1),
@@ -307,7 +302,6 @@ fn apply_entry_overflow_on_usage_plus_delta_panics() {
         let mut ctx = SpokeUsageContext::new(&env, 1);
         // Cap is domain ceiling so the overflow path is hit before (or instead of) cap breach.
         ctx.apply_entry(
-            &env,
             UsageSide::Supply,
             &key,
             Ray::from(1),
@@ -326,7 +320,6 @@ fn ceiling_cap_saturates_instead_of_panicking_at_the_index_floor() {
     env.as_contract(&contract, || {
         let mut ctx = SpokeUsageContext::new(&env, 1);
         ctx.apply_entry(
-            &env,
             UsageSide::Supply,
             &hub(&asset),
             Ray::from(RAY),
@@ -381,9 +374,9 @@ fn exit_without_usage_row_is_noop_and_does_not_persist() {
         assert!(storage::get_spoke_usage(&env, 1, &hub_asset).is_none());
 
         let mut ctx = SpokeUsageContext::new(&env, 1);
-        ctx.apply_exit(&env, UsageSide::Supply, &hub_asset, Ray::from(RAY));
-        ctx.apply_exit(&env, UsageSide::Borrow, &hub_asset, Ray::from(RAY));
-        ctx.persist(&env);
+        ctx.apply_exit(UsageSide::Supply, &hub_asset, Ray::from(RAY));
+        ctx.apply_exit(UsageSide::Borrow, &hub_asset, Ray::from(RAY));
+        ctx.persist();
 
         assert!(
             storage::get_spoke_usage(&env, 1, &hub_asset).is_none(),
@@ -404,7 +397,6 @@ fn entry_without_usage_row_default_inserts_and_persists() {
 
         let mut ctx = SpokeUsageContext::new(&env, 1);
         ctx.apply_entry(
-            &env,
             UsageSide::Supply,
             &hub_asset,
             Ray::from(RAY),
@@ -412,7 +404,7 @@ fn entry_without_usage_row_default_inserts_and_persists() {
             Ray::from(RAY),
             7,
         );
-        ctx.persist(&env);
+        ctx.persist();
 
         let stored = storage::get_spoke_usage(&env, 1, &hub_asset).expect("entry must write usage");
         assert_eq!(stored.supplied_scaled_ray, RAY);
@@ -431,7 +423,6 @@ fn exit_sees_entry_cached_row_in_same_context() {
         let hub_asset = hub(&asset);
         let mut ctx = SpokeUsageContext::new(&env, 1);
         ctx.apply_entry(
-            &env,
             UsageSide::Supply,
             &hub_asset,
             Ray::from(10),
@@ -440,8 +431,8 @@ fn exit_sees_entry_cached_row_in_same_context() {
             7,
         );
         // No intermediate persist: exit must hit the in-memory map.
-        ctx.apply_exit(&env, UsageSide::Supply, &hub_asset, Ray::from(4));
-        ctx.persist(&env);
+        ctx.apply_exit(UsageSide::Supply, &hub_asset, Ray::from(4));
+        ctx.persist();
 
         let stored = storage::get_spoke_usage(&env, 1, &hub_asset).expect("residual usage");
         assert_eq!(stored.supplied_scaled_ray, 6);
@@ -485,7 +476,6 @@ fn full_exit_after_entry_prunes_storage() {
         let hub_asset = hub(&asset);
         let mut ctx = SpokeUsageContext::new(&env, 1);
         ctx.apply_entry(
-            &env,
             UsageSide::Borrow,
             &hub_asset,
             Ray::from(7),
@@ -493,8 +483,8 @@ fn full_exit_after_entry_prunes_storage() {
             Ray::from(RAY),
             7,
         );
-        ctx.apply_exit(&env, UsageSide::Borrow, &hub_asset, Ray::from(7));
-        ctx.persist(&env);
+        ctx.apply_exit(UsageSide::Borrow, &hub_asset, Ray::from(7));
+        ctx.persist();
 
         assert!(
             storage::get_spoke_usage(&env, 1, &hub_asset).is_none(),

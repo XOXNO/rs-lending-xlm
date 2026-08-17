@@ -1,0 +1,129 @@
+{
+  "kind": "controller",
+  "op_id": "0ef4077617111ed80338bcdfe3f58da90aecd10ccdf1246037939793352d2a11",
+  "network": "testnet",
+  "target": "CCXRWJ6SIU2WPFEGLFGJVITPL57QAYIMIO6OAM2NBGNDQSSCK2FFV3F3",
+  "function": "add_asset_to_spoke",
+  "args": [
+    {
+      "map": [
+        {
+          "key": {
+            "symbol": "asset"
+          },
+          "val": {
+            "address": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA"
+          }
+        },
+        {
+          "key": {
+            "symbol": "bonus"
+          },
+          "val": {
+            "u32": 200
+          }
+        },
+        {
+          "key": {
+            "symbol": "borrow_cap"
+          },
+          "val": {
+            "i128": "100000000000"
+          }
+        },
+        {
+          "key": {
+            "symbol": "can_borrow"
+          },
+          "val": {
+            "bool": true
+          }
+        },
+        {
+          "key": {
+            "symbol": "can_collateral"
+          },
+          "val": {
+            "bool": true
+          }
+        },
+        {
+          "key": {
+            "symbol": "frozen"
+          },
+          "val": {
+            "bool": false
+          }
+        },
+        {
+          "key": {
+            "symbol": "hub_id"
+          },
+          "val": {
+            "u32": 1
+          }
+        },
+        {
+          "key": {
+            "symbol": "liquidation_fees"
+          },
+          "val": {
+            "u32": 100
+          }
+        },
+        {
+          "key": {
+            "symbol": "ltv"
+          },
+          "val": {
+            "u32": 9701
+          }
+        },
+        {
+          "key": {
+            "symbol": "no_seize"
+          },
+          "val": {
+            "bool": false
+          }
+        },
+        {
+          "key": {
+            "symbol": "paused"
+          },
+          "val": {
+            "bool": false
+          }
+        },
+        {
+          "key": {
+            "symbol": "spoke_id"
+          },
+          "val": {
+            "u32": 1
+          }
+        },
+        {
+          "key": {
+            "symbol": "supply_cap"
+          },
+          "val": {
+            "i128": "100000000000"
+          }
+        },
+        {
+          "key": {
+            "symbol": "threshold"
+          },
+          "val": {
+            "u32": 9800
+          }
+        }
+      ]
+    }
+  ],
+  "predecessor": "0000000000000000000000000000000000000000000000000000000000000000",
+  "salt": "1de37056cccd6870477b621798b1ee086147aa61a472eef96e72d17c19c35c7a",
+  "cli_executable": true,
+  "executed": true
+}

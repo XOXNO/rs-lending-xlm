@@ -61,13 +61,26 @@ pub struct AccountAttributes {
 }
 
 /// Per-account metadata stored independently of the account's supply and borrow position
-/// maps: owner address, spoke membership, and position mode.
+/// maps: spoke membership and position mode. Ownership lives in the position-NFT contract
+/// (`owner_of(account_id)`), not here.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AccountMeta {
-    pub owner: Address,
     pub spoke_id: u32,
     pub mode: PositionMode,
+}
+
+/// A delegate list stamped with the owner who granted it. The grant is live only while
+/// `granted_by` still owns the account's NFT: transferring the NFT deactivates the prior
+/// owner's grant immediately (`get_delegates` reads it as empty for anyone else). The stale
+/// entry is purged from storage the next time the new owner writes a delegate (`add_delegate`
+/// or `remove_delegate`) — no explicit cleanup call is required. A grant re-arms with its
+/// original delegate list only if the NFT returns to `granted_by` before any such write.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DelegateGrant {
+    pub granted_by: Address,
+    pub delegates: Vec<Address>,
 }
 
 /// Stored configuration for a hub: whether it currently accepts activity.
@@ -462,9 +475,8 @@ mod tests {
         assert_eq!(asset.loan_to_value, 9_000);
     }
 
-    fn account_meta(env: &Env, spoke_id: u32) -> AccountMeta {
+    fn account_meta(_env: &Env, spoke_id: u32) -> AccountMeta {
         AccountMeta {
-            owner: Address::generate(env),
             spoke_id,
             mode: PositionMode::Normal,
         }
@@ -472,7 +484,7 @@ mod tests {
 
     fn empty_account(env: &Env, meta: AccountMeta) -> Account {
         Account {
-            owner: meta.owner,
+            owner: Address::generate(env),
             spoke_id: meta.spoke_id,
             mode: meta.mode,
             supply_positions: Map::new(env),
@@ -640,8 +652,8 @@ pub enum ControllerKey {
     SwapAggregator,
 
     PriceAggregator,
+    PositionNft,
     Accumulator,
-    AccountNonce,
     PositionLimits,
     AppVersion,
 

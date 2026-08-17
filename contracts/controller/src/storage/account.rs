@@ -1,20 +1,23 @@
 use super::protocol::{get_user, renew_user_key, set_user};
 use crate::constants::MAX_DELEGATES;
+use crate::external::position_nft::nft_try_owner_of_call;
 use common::errors::GenericError;
 use common::types::{
     Account, AccountMeta, AccountPosition, AccountPositionRaw, ControllerKey, DebtPosition,
-    DebtPositionRaw, HubAssetKey,
+    DebtPositionRaw, DelegateGrant, HubAssetKey,
 };
-use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, Map, Vec};
+use soroban_sdk::{assert_with_error, contracttype, panic_with_error, Address, Env, Map, Vec};
 
-/// Assembles an `Account` from separately stored metadata and raw supply/borrow position maps.
+/// Assembles an `Account` from its owner, separately stored metadata, and raw supply/borrow
+/// position maps.
 pub(crate) fn account_from_parts(
+    owner: Address,
     meta: AccountMeta,
     supply_positions: Map<HubAssetKey, AccountPositionRaw>,
     borrow_positions: Map<HubAssetKey, DebtPositionRaw>,
 ) -> Account {
     Account {
-        owner: meta.owner,
+        owner,
         spoke_id: meta.spoke_id,
         mode: meta.mode,
         supply_positions,
@@ -22,7 +25,21 @@ pub(crate) fn account_from_parts(
     }
 }
 
-/// Reads an account's metadata (owner, spoke, position mode) from persistent user storage, or `None` if the account does not exist.
+/// Resolves the account's current owner from the position NFT, or `None` when the id was
+/// never minted or its token was burned. Fail closed.
+pub(crate) fn try_account_owner(env: &Env, account_id: u64) -> Option<Address> {
+    let nft = super::protocol::try_get_position_nft(env)?;
+    nft_try_owner_of_call(env, &nft, account_id)
+}
+
+/// Resolves the account's current owner, panicking with `AccountNotFound` when it cannot be
+/// established.
+pub(crate) fn account_owner(env: &Env, account_id: u64) -> Address {
+    try_account_owner(env, account_id)
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::AccountNotFound))
+}
+
+/// Reads an account's metadata (spoke, position mode) from persistent user storage, or `None` if the account does not exist.
 pub(crate) fn try_get_account_meta(env: &Env, account_id: u64) -> Option<AccountMeta> {
     get_user(env, &ControllerKey::AccountMeta(account_id))
 }
@@ -128,42 +145,64 @@ pub(crate) fn get_account(env: &Env, account_id: u64) -> Account {
         .unwrap_or_else(|| panic_with_error!(env, GenericError::AccountNotFound))
 }
 
-/// Assembles an account's full state (metadata, supply positions, debt positions), or `None` if its metadata does not exist.
+/// Assembles an account's full state (metadata, supply positions, debt positions), or `None` if its metadata or owner does not exist.
 pub(crate) fn try_get_account(env: &Env, account_id: u64) -> Option<Account> {
-    try_get_account_meta(env, account_id).map(|meta| {
-        account_from_parts(
-            meta,
-            get_supply_positions(env, account_id),
-            get_debt_positions(env, account_id),
-        )
-    })
+    let meta = try_get_account_meta(env, account_id)?;
+    let owner = try_account_owner(env, account_id)?;
+    Some(account_from_parts(
+        owner,
+        meta,
+        get_supply_positions(env, account_id),
+        get_debt_positions(env, account_id),
+    ))
 }
 
-/// Assembles an account from its metadata and debt positions with an empty supply-positions map; panics with `AccountNotInMarket` if the account's metadata does not exist.
+/// Assembles an account from its owner, metadata, and debt positions with an empty
+/// supply-positions map; panics with `AccountNotInMarket` if the account's metadata does not
+/// exist, or with `AccountNotFound` if its owner cannot be resolved.
 pub(crate) fn get_account_borrow_only(env: &Env, account_id: u64) -> Account {
     let meta = get_account_meta(env, account_id);
+    let owner = account_owner(env, account_id);
     let borrow_positions = get_debt_positions(env, account_id);
-    account_from_parts(meta, Map::new(env), borrow_positions)
+    account_from_parts(owner, meta, Map::new(env), borrow_positions)
 }
 
-/// Reads the list of addresses delegated to act on `account_id`, or an empty vector if none are stored.
-pub(crate) fn get_delegates(env: &Env, account_id: u64) -> Vec<Address> {
-    get_user(env, &ControllerKey::Delegates(account_id)).unwrap_or_else(|| Vec::new(env))
+/// Reads the delegate list for `account_id`, treating any grant stamped by a previous owner
+/// as empty. NFT transfer therefore revokes delegates lazily.
+pub(crate) fn get_delegates(env: &Env, account_id: u64, owner: &Address) -> Vec<Address> {
+    get_user::<DelegateGrant>(env, &ControllerKey::Delegates(account_id))
+        .filter(|grant| grant.granted_by == *owner)
+        .map(|grant| grant.delegates)
+        .unwrap_or_else(|| Vec::new(env))
 }
 
-/// Writes an account's delegate list to persistent storage, removing the entry entirely when the list is empty.
-pub(crate) fn set_delegates(env: &Env, account_id: u64, delegates: &Vec<Address>) {
+/// Writes an account's delegate list to persistent storage, stamped with the granting `owner`;
+/// removes the entry entirely when the list is empty.
+pub(crate) fn set_delegates(env: &Env, account_id: u64, owner: &Address, delegates: &Vec<Address>) {
     let key = ControllerKey::Delegates(account_id);
     if delegates.is_empty() {
         env.storage().persistent().remove(&key);
     } else {
-        set_user(env, &key, delegates);
+        set_user(
+            env,
+            &key,
+            &DelegateGrant {
+                granted_by: owner.clone(),
+                delegates: delegates.clone(),
+            },
+        );
     }
 }
 
-/// Adds `delegate` to the account's delegate list, returning `false` if it is already present. Panics with `RegistryCapReached` if the list is already at `MAX_DELEGATES`.
-pub(crate) fn add_delegate(env: &Env, account_id: u64, delegate: &Address) -> bool {
-    let mut delegates = get_delegates(env, account_id);
+/// Adds `delegate` to the account's delegate list, returning `false` if it is already present. Panics with `RegistryCapReached` if the list is already at `MAX_DELEGATES`. A stale grant from a
+/// previous owner reads as empty and is overwritten wholesale, stamped with `owner`.
+pub(crate) fn add_delegate(
+    env: &Env,
+    account_id: u64,
+    owner: &Address,
+    delegate: &Address,
+) -> bool {
+    let mut delegates = get_delegates(env, account_id, owner);
     if delegates.contains(delegate) {
         return false;
     }
@@ -173,18 +212,35 @@ pub(crate) fn add_delegate(env: &Env, account_id: u64, delegate: &Address) -> bo
         GenericError::RegistryCapReached
     );
     delegates.push_back(delegate.clone());
-    set_delegates(env, account_id, &delegates);
+    set_delegates(env, account_id, owner, &delegates);
     true
 }
 
-/// Removes `delegate` from the account's delegate list if present, returning whether it was found and removed.
-pub(crate) fn remove_delegate(env: &Env, account_id: u64, delegate: &Address) -> bool {
-    let mut delegates = get_delegates(env, account_id);
+/// Removes `delegate` from the account's delegate list if present, returning whether it was
+/// found and removed. If the stored grant belongs to a previous owner (stale — the current
+/// `owner` never wrote it), it is purged from storage unconditionally so it cannot silently
+/// re-arm if the NFT ever returns to the address that granted it; the return value is still
+/// `false` in that case, since the requested delegate was never live for `owner`.
+pub(crate) fn remove_delegate(
+    env: &Env,
+    account_id: u64,
+    owner: &Address,
+    delegate: &Address,
+) -> bool {
+    let key = ControllerKey::Delegates(account_id);
+    let Some(grant) = get_user::<DelegateGrant>(env, &key) else {
+        return false;
+    };
+    if grant.granted_by != *owner {
+        env.storage().persistent().remove(&key);
+        return false;
+    }
+    let mut delegates = grant.delegates;
     let Some(index) = delegates.first_index_of(delegate) else {
         return false;
     };
     delegates.remove(index);
-    set_delegates(env, account_id, &delegates);
+    set_delegates(env, account_id, owner, &delegates);
     true
 }
 
@@ -216,8 +272,6 @@ pub(crate) fn renew_user_account(env: &Env, account_id: u64) {
 #[cfg(test)]
 #[path = "../../tests/storage/account.rs"]
 mod tests;
-
-use soroban_sdk::contracttype;
 
 #[contracttype]
 #[derive(Clone, Debug)]

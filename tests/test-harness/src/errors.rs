@@ -17,6 +17,7 @@ pub mod codes {
     pub const BLEND_POOL_NOT_APPROVED: u32 = GenericError::BlendPoolNotApproved as u32;
     pub const NOT_AUTHORIZED: u32 = GenericError::NotAuthorized as u32;
     pub const ACCOUNT_NOT_FOUND: u32 = GenericError::AccountNotFound as u32;
+    pub const POSITION_NFT_ALREADY_DEPLOYED: u32 = GenericError::PositionNftAlreadyDeployed as u32;
 
     pub const INSUFFICIENT_COLLATERAL: u32 = CollateralError::InsufficientCollateral as u32;
     pub const HEALTH_FACTOR_TOO_HIGH: u32 = CollateralError::HealthFactorTooHigh as u32;

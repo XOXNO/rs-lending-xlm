@@ -32,6 +32,14 @@ impl LendingTest {
             })
     }
 
+    /// A user's registered account id, i.e. the position-NFT token id
+    /// `create_account`/`supply` minted for them. Panics if the user has no
+    /// live account -- same contract as `resolve_account_id`, under the name
+    /// callers reach for when they just want "this user's account id".
+    pub fn account_id(&self, name: &str) -> u64 {
+        self.resolve_account_id(name)
+    }
+
     pub fn resolve_account_id(&self, name: &str) -> u64 {
         match self.find_account_id(name) {
             Some(id) => id,

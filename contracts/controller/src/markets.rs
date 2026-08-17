@@ -1,6 +1,6 @@
 use common::errors::GenericError;
 use common::types::{HubAssetKey, InterestRateModel, MarketParamsRaw};
-use soroban_sdk::{assert_with_error, Address, BytesN, Env};
+use soroban_sdk::{assert_with_error, Address, BytesN, Env, String};
 
 use crate::config;
 use crate::context::Cache;
@@ -8,9 +8,11 @@ use crate::events::{CreateMarketEvent, UpdateMarketParamsEvent};
 use crate::external::pool::{
     pool_create_market_call, pool_update_indexes_call, pool_update_params_call, pool_upgrade_call,
 };
+use crate::external::position_nft::nft_upgrade_call;
 use crate::storage;
 
 const POOL_DEPLOY_SALT: [u8; 32] = [0u8; 32];
+const POSITION_NFT_DEPLOY_SALT: [u8; 32] = [1u8; 32];
 
 /// Deploys the pool contract from `wasm_hash` at a fixed deployment salt,
 /// records its address, and returns it. Panics if a pool has already been
@@ -32,6 +34,35 @@ pub(crate) fn deploy_pool(env: &Env, wasm_hash: BytesN<32>) -> Address {
 
     storage::set_pool(env, &pool);
     pool
+}
+
+/// Deploys the position-NFT contract from `wasm_hash` at a fixed salt distinct
+/// from the pool's, passing the controller itself as the NFT's authorized
+/// minter/burner, records the address, and returns it. Panics if already
+/// deployed.
+pub(crate) fn deploy_position_nft(
+    env: &Env,
+    wasm_hash: BytesN<32>,
+    uri: String,
+    name: String,
+    symbol: String,
+) -> Address {
+    storage::renew_controller_instance(env);
+
+    assert_with_error!(
+        env,
+        storage::try_get_position_nft(env).is_none(),
+        GenericError::PositionNftAlreadyDeployed
+    );
+
+    let salt = BytesN::from_array(env, &POSITION_NFT_DEPLOY_SALT);
+    let nft = env.deployer().with_current_contract(salt).deploy_v2(
+        wasm_hash,
+        (env.current_contract_address(), uri, name, symbol),
+    );
+
+    storage::set_position_nft(env, &nft);
+    nft
 }
 
 /// Creates a new market for `asset` under hub `hub_id` on the pool contract
@@ -83,4 +114,13 @@ pub(crate) fn upgrade_pool(env: &Env, new_wasm_hash: BytesN<32>) {
     storage::renew_controller_instance(env);
     let pool_addr = storage::get_pool(env);
     pool_upgrade_call(env, &pool_addr, &new_wasm_hash);
+}
+
+/// Renews the controller's storage TTL and upgrades the position-NFT
+/// contract's Wasm bytecode to `new_wasm_hash`. Panics with
+/// `PositionNftNotSet` when the NFT has not been deployed.
+pub(crate) fn upgrade_position_nft(env: &Env, new_wasm_hash: BytesN<32>) {
+    storage::renew_controller_instance(env);
+    let nft_addr = storage::get_position_nft(env);
+    nft_upgrade_call(env, &nft_addr, &new_wasm_hash);
 }

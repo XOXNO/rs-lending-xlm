@@ -9,11 +9,11 @@ use crate::context::Cache;
 use crate::events::{BlendMigrationEvent, PositionAction};
 use crate::external::blend::{blend_repay_all, blend_sweep_all};
 use crate::positions::{require_can_supply, supply};
+use crate::storage;
 use crate::strategies::{
     borrow_into_controller, prefetch_strategy_prices, repay_debt_from_controller,
-    strategy_finalize, StrategyRepay,
+    require_strategy_caller, strategy_finalize, StrategyRepay,
 };
-use crate::{risk::validation, storage};
 
 pub(crate) struct MigrateBlendParams {
     pub account_id: u64,
@@ -38,8 +38,7 @@ pub(crate) fn process_migrate_blend(
     caller: &Address,
     params: MigrateBlendParams,
 ) -> u64 {
-    caller.require_auth();
-    validation::require_not_flash_loaning(env);
+    require_strategy_caller(env, caller);
 
     let MigrateBlendParams {
         account_id,
@@ -60,16 +59,21 @@ pub(crate) fn process_migrate_blend(
         &debt_caps,
     );
 
-    let (account_id, mut account, mut cache, withdraw_assets, all_assets) =
-        prepare_migration_account(
-            env,
-            caller,
-            account_id,
-            spoke_id,
-            &collateral_assets,
-            &supply_assets,
-            &debt_caps,
-        );
+    let PreparedMigration {
+        account_id,
+        mut account,
+        mut cache,
+        withdraw_assets,
+        all_assets,
+    } = prepare_migration_account(
+        env,
+        caller,
+        account_id,
+        spoke_id,
+        &collateral_assets,
+        &supply_assets,
+        &debt_caps,
+    );
 
     prefetch_strategy_prices(&mut cache, &account, &all_assets);
 
@@ -151,6 +155,14 @@ fn execute_migration_debt_leg(
     reconcile_debt_refunds(env, account, cache, caller, hub_id, debt_caps, &before_debt);
 }
 
+struct PreparedMigration {
+    account_id: u64,
+    account: Account,
+    cache: Cache,
+    withdraw_assets: Vec<Address>,
+    all_assets: Vec<Address>,
+}
+
 /// Loads or creates `account_id`'s account under the migrate guard
 /// (owner/delegate and spoke checks) and builds the deduplicated
 /// withdraw-asset list and combined asset list used for price prefetching.
@@ -162,7 +174,7 @@ fn prepare_migration_account(
     collateral_assets: &Vec<Address>,
     supply_assets: &Vec<Address>,
     debt_caps: &Vec<(Address, i128)>,
-) -> (u64, Account, Cache, Vec<Address>, Vec<Address>) {
+) -> PreparedMigration {
     let mut cache = Cache::new(env);
     let (account_id, account) = account::load_or_create_account(
         env,
@@ -175,7 +187,13 @@ fn prepare_migration_account(
     );
     let (withdraw_assets, all_assets) =
         prepare_migration_assets(env, collateral_assets, supply_assets, debt_caps);
-    (account_id, account, cache, withdraw_assets, all_assets)
+    PreparedMigration {
+        account_id,
+        account,
+        cache,
+        withdraw_assets,
+        all_assets,
+    }
 }
 
 /// Panics if any `withdraw_assets` is not listed and active as collateral in

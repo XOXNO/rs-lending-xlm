@@ -69,6 +69,8 @@ pub struct LendingTest {
     pub aggregator: Address,
     pub price_aggregator: Address,
     pub keeper: Address,
+    pub position_nft: Address,
+    pub position_nft_wasm_hash: soroban_sdk::BytesN<32>,
     pub users: HashMap<String, UserState>,
     pub markets: HashMap<String, MarketState>,
 }

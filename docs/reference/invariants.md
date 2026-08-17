@@ -129,8 +129,13 @@ cannot consume more collateral than the protocol permits.
 
 ### INV-LIQ-01 — Only unhealthy debt can be liquidated
 
-Liquidation requires live debt and health factor below one. A user cannot
-liquidate its own account.
+Liquidation requires live debt and health factor below one; it is
+permissionless, and an account owner may liquidate its own account. The one
+remaining identity guard is receiver-side, not caller-side: in `Credit` seize
+mode, the receiving account cannot be the liquidated account itself
+(`requested != account_id`, `SelfLiquidationNotAllowed` = error #133) — crediting
+seized collateral back to the account it was seized from would undo the
+seizure.
 
 ### INV-LIQ-02 — Repayment and seizure stay coupled
 
@@ -169,6 +174,33 @@ not consume a cap or underflow its usage.
 Account and market records use their intended persistence lifetime, renew when
 read or written, and remove empty account state without leaving reachable
 orphaned authority.
+
+### INV-STOR-02 — NFT TTL renewal is asymmetric with account renewal
+
+The position NFT's own instance (controller address, collection metadata, the
+sequential id counter) renews to the protocol's instance TTL on every `mint`
+and `burn` — i.e. on every controller account create/delete. But OZ's
+`owner_of` renews only the per-token persistent `Owner(token_id)` entry by
+OZ's own 30-day default, not the controller's 120-day per-user renewal
+window.
+
+Two renewal paths close the gap: `renew_account` on the controller extends
+the account's NFT `Owner` entry to the same 120-day window as the
+controller's own entries (via the NFT's `renew` entrypoint), and
+`position-nft::renew(token_id)` itself is permissionless — anyone, including
+a keeper or liquidation bot, may extend any live token's `Owner` entry at
+any time (a TTL extension moves no state and cannot shorten a lifetime).
+
+The residual asymmetry: an account whose owner only *passively* touches
+`owner_of` (ordinary user actions, no `renew_account`) refreshes the entry
+by 30 days per touch, so a position idle for 30–120 days can still let its
+`Owner` entry archive while controller state is live — requiring a
+`RestoreFootprint` on the NFT contract's owner entry before any controller
+op, including liquidation, proceeds. Bots should prefer calling
+`position-nft::renew` proactively on positions they monitor and must handle
+restore-then-liquidate as the fallback. See
+`docs/explanation/threat-model.md` (Controller ↔ Position NFT boundary) and
+the `building-lending-liquidation-bots` skill.
 
 ## Flash loans and strategies
 

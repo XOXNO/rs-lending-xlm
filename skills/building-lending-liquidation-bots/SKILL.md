@@ -10,19 +10,27 @@ description: Use when building a liquidation bot, keeper, or risk monitor for XO
 ## Overview
 
 An account is liquidatable when its health factor drops below 1 WAD. Any
-address **except the account owner** may liquidate (self-liquidation reverts
-`SelfLiquidationNotAllowed`; registered delegates and active position managers
-are deliberately allowed per governance). Liquidations survive global pause and
-frozen; a paused debt listing blocks only the repay leg (tainted-debt). All
-through the controller.
+address — **including the account owner** — may liquidate an undercollateralized
+account. `SelfLiquidationNotAllowed` now guards only one thing: in `Credit`
+seize mode the receiver account must not be the liquidated account itself
+(crediting the seized collateral back would undo the seizure). Liquidations
+survive global pause and frozen; a paused debt listing blocks only the repay
+leg (tainted-debt). All through the controller.
 
 ```rust
 fn is_liquidatable(account_id: u64) -> bool;         // HF < 1 WAD
 fn get_health_factor(account_id: u64) -> i128;       // WAD
 
 fn liquidate(liquidator: Address, account_id: u64,
-             debt_payments: Vec<(HubAssetKey, i128)>);
+             debt_payments: Vec<(HubAssetKey, i128)>,
+             seize_mode: SeizeMode) -> u64;          // receiving account id, 0 in Transfer mode
 ```
+
+`seize_mode` selects how you receive collateral: `Transfer` pays underlying
+tokens out of pool cash; `Credit(id)` credits supply shares to one of your
+controller accounts on the same spoke (moving no tokens, so it clears even
+when the market has no free liquidity), with `Credit(0)` creating that
+account.
 
 `debt_payments` pairs each debt market with the amount you offer, in native
 asset decimals. The controller caps what it accepts (close amount) and pulls
@@ -85,6 +93,27 @@ a constant.
 5. Confirm via the `position:liquidation` event plus the
    `position:batch_update` legs whose action discriminant is `LiqRepay` (4) /
    `LiqSeize` (5).
+
+## Handling an archived position-NFT owner entry
+
+The position NFT's per-token `Owner(token_id)` entry renews to only 30 days
+on read (OZ default), while the controller's own account entries renew to
+120 days. A dormant account (30–120 days without any owner/delegate action
+that touches the controller, which is what drives `owner_of` reads) can end
+up with a live controller account but an **archived** NFT owner entry. Any
+controller op against that account — including `liquidate` — will fail until
+the entry is restored. Two mitigations, in preference order:
+
+1. **Proactive:** `position-nft::renew(token_id)` is permissionless and
+   extends the `Owner` entry to the protocol's 120-day window. Call it on
+   positions you monitor (e.g. whenever a watched account's health factor
+   drops below your alert threshold) and the archival case never arises.
+2. **Reactive:** if `liquidate` (or any account op) fails in a way that
+   looks like a missing ledger entry rather than a normal contract error,
+   submit a `RestoreFootprint` operation for the position-NFT contract's
+   `Owner(token_id)` key before retrying.
+
+See `docs/reference/invariants.md` (INV-STOR-02).
 
 ## Common mistakes
 

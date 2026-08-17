@@ -18,9 +18,9 @@ use crate::timelock::{apply_update_delay, validate_delay_update, DelayTier};
 use crate::{storage, validate};
 
 pub use governance_interface::{
-    AdminOperation, ConfigureAssetOracleArgs, CreatePoolArgs, EditToleranceArgs,
-    RemoveAssetFromSpokeArgs, RoleArgs, SpokeAssetArgs, SpokeLiquidationCurveArgs,
-    TransferOwnershipArgs, UpgradePoolParamsArgs,
+    AdminOperation, ConfigureAssetOracleArgs, CreatePoolArgs, DeployPositionNftArgs,
+    EditToleranceArgs, RemoveAssetFromSpokeArgs, RoleArgs, SpokeAssetArgs,
+    SpokeLiquidationCurveArgs, TransferOwnershipArgs, UpgradePoolParamsArgs,
 };
 
 /// Validates risk bounds, liquidation fees, and supply/borrow caps for a
@@ -283,11 +283,33 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
             validate::require_nonzero_wasm_hash(env, hash);
             controller_operation(env, "deploy_pool", vec![env, hash.clone().into_val(env)])
         }
+        AdminOperation::DeployPositionNft(args) => {
+            validate::require_nonzero_wasm_hash(env, &args.wasm_hash);
+            controller_operation(
+                env,
+                "deploy_position_nft",
+                vec![
+                    env,
+                    args.wasm_hash.clone().into_val(env),
+                    args.uri.clone().into_val(env),
+                    args.name.clone().into_val(env),
+                    args.symbol.clone().into_val(env),
+                ],
+            )
+        }
         AdminOperation::UpgradePool(hash) => {
             validate::require_nonzero_wasm_hash(env, hash);
             sensitive_controller_operation(
                 env,
                 "upgrade_pool",
+                vec![env, hash.clone().into_val(env)],
+            )
+        }
+        AdminOperation::UpgradePositionNft(hash) => {
+            validate::require_nonzero_wasm_hash(env, hash);
+            sensitive_controller_operation(
+                env,
+                "upgrade_position_nft",
                 vec![env, hash.clone().into_val(env)],
             )
         }
@@ -406,7 +428,9 @@ pub(crate) fn apply_self_op(env: &Env, op: &AdminOperation) {
         | AdminOperation::CreateLiquidityPool(_)
         | AdminOperation::UpgradeLiquidityPoolParams(_)
         | AdminOperation::DeployPool(_)
+        | AdminOperation::DeployPositionNft(_)
         | AdminOperation::UpgradePool(_)
+        | AdminOperation::UpgradePositionNft(_)
         | AdminOperation::SetPositionManager(_, _)
         | AdminOperation::UpgradeController(_)
         | AdminOperation::MigrateController(_)

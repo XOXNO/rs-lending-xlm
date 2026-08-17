@@ -396,7 +396,7 @@ fn test_liquidation_rejects_zero_amount() {
 }
 
 #[test]
-fn test_self_liquidation_rejects() {
+fn test_self_liquidation_allowed() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
@@ -407,12 +407,16 @@ fn test_self_liquidation_rejects() {
     t.set_price("USDC", usd_cents(50));
     t.assert_liquidatable(ALICE);
 
-    let result = t.try_liquidate(ALICE, ALICE, "ETH", 0.5);
-    assert_contract_error(result, errors::SELF_LIQUIDATION_NOT_ALLOWED);
+    t.liquidate(ALICE, ALICE, "ETH", 0.5);
+
+    assert!(
+        t.borrow_balance(ALICE, "ETH") < 3.0,
+        "self-liquidation must reduce the account's own debt"
+    );
 }
 
 #[test]
-fn test_third_party_supply_does_not_enable_self_liquidation() {
+fn test_third_party_supply_self_liquidation_allowed() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
@@ -423,11 +427,15 @@ fn test_third_party_supply_does_not_enable_self_liquidation() {
     t.set_price("USDC", usd_cents(50));
     t.assert_liquidatable(ALICE);
 
-    t.try_supply_to_account(BOB, ALICE, "USDC", 2_000.0)
+    t.try_supply_to_account(BOB, ALICE, "USDC", 1_000.0)
         .expect("Bob may supply to Alice");
 
-    let result = t.try_liquidate(ALICE, ALICE, "ETH", 0.5);
-    assert_contract_error(result, errors::SELF_LIQUIDATION_NOT_ALLOWED);
+    t.liquidate(ALICE, ALICE, "ETH", 0.5);
+
+    assert!(
+        t.borrow_balance(ALICE, "ETH") < 3.0,
+        "self-liquidation must reduce the account's own debt after third-party supply"
+    );
 }
 
 #[test]

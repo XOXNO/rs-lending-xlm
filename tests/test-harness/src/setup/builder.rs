@@ -199,6 +199,29 @@ impl LendingTestBuilder {
         let global_pool_val = gov.execute_immediate(&admin, &AdminOperation::DeployPool(pool_hash));
         let global_pool: Address = Address::try_from_val(&env, &global_pool_val).unwrap();
 
+        let nft_wasm_path = std::env::var("POSITION_NFT_WASM_PATH")
+            .unwrap_or_else(|_| "target/wasm32v1-none/release/position_nft.wasm".to_string());
+        let mut nft_bytes = std::fs::read(&nft_wasm_path);
+        if nft_bytes.is_err() {
+            nft_bytes = std::fs::read(format!("../{}", nft_wasm_path));
+        }
+        if nft_bytes.is_err() {
+            nft_bytes = std::fs::read(format!("../../{}", nft_wasm_path));
+        }
+        let nft_hash = match nft_bytes {
+            Ok(b) => env
+                .deployer()
+                .upload_contract_wasm(soroban_sdk::Bytes::from_slice(&env, &b)),
+            Err(_) => panic!("position-nft WASM not found. Run 'make build' first."),
+        };
+        let ctrl = controller::ControllerClient::new(&env, &controller_address);
+        let position_nft = ctrl.deploy_position_nft(
+            &nft_hash,
+            &soroban_sdk::String::from_str(&env, "https://test/nft/"),
+            &soroban_sdk::String::from_str(&env, "Test Position"),
+            &soroban_sdk::String::from_str(&env, "TPOS"),
+        );
+
         gov.execute_immediate(
             &admin,
             &AdminOperation::SetSwapAggregator(aggregator_address.clone()),
@@ -387,6 +410,8 @@ impl LendingTestBuilder {
             aggregator: aggregator_address,
             price_aggregator: price_aggregator_address,
             keeper,
+            position_nft,
+            position_nft_wasm_hash: nft_hash,
             users: HashMap::new(),
             markets,
         }

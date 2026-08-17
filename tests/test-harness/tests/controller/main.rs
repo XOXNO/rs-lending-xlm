@@ -26,6 +26,7 @@ mod max_utilization;
 mod min_borrow_collateral;
 mod multi_hub;
 mod ownership;
+mod position_nft;
 mod repay;
 mod spoke;
 mod spoke_caps;

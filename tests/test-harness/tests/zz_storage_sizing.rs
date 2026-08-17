@@ -74,12 +74,10 @@ fn print_storage_sizes() {
     println!("\n================ ACCOUNT STORAGE ENTRY SIZES (XDR bytes) ================");
 
     let meta = AccountMeta {
-        owner: Address::generate(&env),
         spoke_id: 0,
         mode: PositionMode::Normal,
     };
     let meta_spoke = AccountMeta {
-        owner: Address::generate(&env),
         spoke_id: 3,
         mode: PositionMode::Long,
     };

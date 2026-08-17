@@ -10,3 +10,9 @@ pub(crate) mod price_aggregator;
 #[cfg(feature = "certora")]
 #[path = "../../../../certora/controller/harness/external/price_aggregator.rs"]
 pub(crate) mod price_aggregator;
+
+#[cfg(not(feature = "certora"))]
+pub(crate) mod position_nft;
+#[cfg(feature = "certora")]
+#[path = "../../../../certora/controller/harness/external/position_nft.rs"]
+pub(crate) mod position_nft;

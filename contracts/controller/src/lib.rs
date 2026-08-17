@@ -49,7 +49,8 @@ use common::types::{
 use controller_interface::{ControllerAdmin, ControllerInterface};
 
 use soroban_sdk::{
-    contract, contractimpl, contractmeta, panic_with_error, Address, Bytes, BytesN, Env, Map, Vec,
+    contract, contractimpl, contractmeta, panic_with_error, Address, Bytes, BytesN, Env, Map,
+    String, Vec,
 };
 
 use stellar_macros::{only_owner, when_not_paused};
@@ -140,8 +141,9 @@ impl ControllerInterface for Controller {
 
     /// Liquidates `account_id` by having `liquidator` repay `debt_payments`
     /// and seizing collateral at a bonus scaled by the account's health
-    /// factor; liquidators cannot liquidate their own account. Triggers
-    /// bad-debt socialization if the account remains insolvent afterward.
+    /// factor. Permissionless — the account owner may liquidate its own
+    /// account. Triggers bad-debt socialization if the account remains
+    /// insolvent afterward.
     ///
     /// `seize_mode` selects delivery. `Transfer` pays the seized collateral
     /// out of pool cash. `Credit(account_id)` instead credits the seized
@@ -696,6 +698,22 @@ impl ControllerAdmin for Controller {
         renew_then!(env, markets::deploy_pool(&env, wasm_hash))
     }
 
+    /// Deploys the position-NFT contract that anchors account ownership.
+    /// One-shot; restricted to the owner.
+    #[only_owner]
+    fn deploy_position_nft(
+        env: Env,
+        wasm_hash: BytesN<32>,
+        uri: String,
+        name: String,
+        symbol: String,
+    ) -> Address {
+        renew_then!(
+            env,
+            markets::deploy_position_nft(&env, wasm_hash, uri, name, symbol)
+        )
+    }
+
     /// Creates a new market for `asset` under hub `hub_id` on the pool
     /// using `params`. Restricted to the owner. Reverts if the hub is
     /// inactive or `params.asset_id` does not match `asset`.
@@ -727,6 +745,13 @@ impl ControllerAdmin for Controller {
     #[only_owner]
     fn upgrade_pool(env: Env, new_wasm_hash: BytesN<32>) {
         renew_then!(env, markets::upgrade_pool(&env, new_wasm_hash))
+    }
+
+    /// Upgrades the position-NFT contract's Wasm bytecode to
+    /// `new_wasm_hash`. Restricted to the owner.
+    #[only_owner]
+    fn upgrade_position_nft(env: Env, new_wasm_hash: BytesN<32>) {
+        renew_then!(env, markets::upgrade_position_nft(&env, new_wasm_hash))
     }
 
     /// Force-socializes `account_id`'s debt into the supply index when the

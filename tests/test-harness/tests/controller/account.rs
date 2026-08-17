@@ -163,6 +163,56 @@ fn test_renew_account_requires_owner() {
 }
 
 #[test]
+fn test_adopt_account_prunes_old_owner_bookkeeping() {
+    let mut t = LendingTest::new().with_market(usdc_preset()).build();
+
+    let account_id = t.create_account(ALICE);
+    assert_eq!(t.resolve_account_id(ALICE), account_id);
+
+    let attrs = t.get_account_attributes(ALICE);
+
+    t.nft_transfer(ALICE, BOB, account_id);
+    t.adopt_account(BOB, account_id, attrs.spoke_id, attrs.mode);
+
+    // The new owner's bookkeeping resolves the transferred account.
+    assert_eq!(t.resolve_account_id(BOB), account_id);
+
+    // The old owner's bookkeeping no longer references it at all.
+    assert_eq!(
+        t.find_account_id(ALICE),
+        None,
+        "old owner must have no account left after the transferred id is pruned"
+    );
+
+    // The real regression this covers: a harness verb invoked as the old
+    // owner must not keep resolving the account they no longer hold. A
+    // fresh create_account for ALICE must mint a brand-new id rather than
+    // the bookkeeping silently handing back the transferred one.
+    let alice_new_account_id = t.create_account(ALICE);
+    assert_ne!(
+        alice_new_account_id, account_id,
+        "old owner's next create_account must mint a fresh id, not resolve the transferred one"
+    );
+    assert_eq!(t.resolve_account_id(ALICE), alice_new_account_id);
+
+    // Same check via the everyday `supply` verb, which resolves the
+    // caller's default account id through the same bookkeeping.
+    t.supply(ALICE, "USDC", 100.0);
+    assert_eq!(
+        t.resolve_account_id(ALICE),
+        alice_new_account_id,
+        "supply as the old owner must land on their fresh account, not the transferred one"
+    );
+    assert!(
+        t.supply_balance_for(ALICE, alice_new_account_id, "USDC") > 99.0,
+        "supply must have landed on ALICE's fresh account"
+    );
+
+    // BOB's adopted account is unaffected by ALICE's new account.
+    assert_eq!(t.resolve_account_id(BOB), account_id);
+}
+
+#[test]
 fn test_renew_account_owner_succeeds() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
     t.supply(ALICE, "USDC", 1_000.0);

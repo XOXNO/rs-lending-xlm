@@ -1,7 +1,7 @@
 use common::types::{
     HubAssetKey, InterestRateModel, MarketParamsRaw, PositionLimits, SpokeAssetArgs,
 };
-use soroban_sdk::{contractclient, Address, BytesN, Env};
+use soroban_sdk::{contractclient, Address, BytesN, Env, String};
 
 #[contractclient(name = "ControllerAdminClient")]
 pub trait ControllerAdmin {
@@ -52,6 +52,14 @@ pub trait ControllerAdmin {
 
     fn deploy_pool(env: Env, wasm_hash: BytesN<32>) -> Address;
 
+    fn deploy_position_nft(
+        env: Env,
+        wasm_hash: BytesN<32>,
+        uri: String,
+        name: String,
+        symbol: String,
+    ) -> Address;
+
     fn create_liquidity_pool(
         env: Env,
         hub_id: u32,
@@ -62,6 +70,8 @@ pub trait ControllerAdmin {
     fn upgrade_liquidity_pool_params(env: Env, hub_asset: HubAssetKey, params: InterestRateModel);
 
     fn upgrade_pool(env: Env, new_wasm_hash: BytesN<32>);
+
+    fn upgrade_position_nft(env: Env, new_wasm_hash: BytesN<32>);
 
     fn force_socialize_bad_debt(env: Env, account_id: u64);
 

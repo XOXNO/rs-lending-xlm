@@ -259,7 +259,7 @@ fn refutation_flash_guard_blocks_clean_bad_debt() {
 }
 
 #[test]
-fn refutation_owner_cannot_self_liquidate() {
+fn refutation_owner_can_self_liquidate() {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
         .with_market(eth_preset())
@@ -271,9 +271,14 @@ fn refutation_owner_cannot_self_liquidate() {
     t.set_price("USDC", test_harness::usd_cents(40));
     assert!(t.can_be_liquidated(ALICE));
 
-    assert_contract_error(
-        t.try_liquidate(ALICE, ALICE, "ETH", 0.5),
-        errors::SELF_LIQUIDATION_NOT_ALLOWED,
+    let result = t.try_liquidate(ALICE, ALICE, "ETH", 0.5);
+    assert!(
+        result.is_ok(),
+        "owners must be able to self-liquidate; got {result:?}"
+    );
+    assert!(
+        t.borrow_balance(ALICE, "ETH") < 3.0,
+        "self-liquidation must reduce the account's own debt"
     );
 }
 

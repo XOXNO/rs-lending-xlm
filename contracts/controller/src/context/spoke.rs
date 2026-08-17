@@ -112,14 +112,13 @@ impl Cache {
     ) {
         let spoke_config = self.require_spoke_asset_config(spoke_id, hub_asset);
         let cap = side.cap(&spoke_config);
-        let env = self.env.clone();
+        let index = side.index(market_index);
         self.require_spoke_usage_context(spoke_id).apply_entry(
-            &env,
             side,
             hub_asset,
             delta_scaled,
             cap,
-            side.index(market_index),
+            index,
             decimals,
         );
     }
@@ -132,15 +131,14 @@ impl Cache {
         hub_asset: &HubAssetKey,
         delta_scaled: Ray,
     ) {
-        let env = self.env.clone();
         self.require_spoke_usage_context(spoke_id)
-            .apply_exit(&env, side, hub_asset, delta_scaled);
+            .apply_exit(side, hub_asset, delta_scaled);
     }
 
     /// Writes the buffered spoke-usage updates to storage, if a spoke-usage context was loaded this invocation.
     pub(crate) fn persist_spoke_usage(&self) {
         if let Some(ctx) = &self.spoke_usage {
-            ctx.persist(&self.env);
+            ctx.persist();
         }
     }
 }

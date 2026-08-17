@@ -46,6 +46,28 @@ The controller is the pool’s sole mutator. This prevents direct state changes
 from skipping risk checks, but makes controller correctness and ownership
 configuration critical.
 
+### Controller to position NFT
+
+The position NFT is the account-ownership authority (one token per account,
+token id == account id). Mint and burn require the controller's
+authorization; `owner_of` is a public read the controller consults live on
+every account access rather than caching, so ownership changes take effect
+immediately. Transfer is a standard, controller-independent NFT operation —
+the controller does not gate it and cannot prevent it — and lazily revokes
+any delegate grant the prior owner had made.
+
+**`approve`/`approve_for_all` hand over the entire position, not a token.**
+Because the NFT is the account's ownership authority, approving an address to
+transfer the token grants that address the ability to take over full control
+of the underlying lending position — collateral, debt, and withdraw rights —
+the moment it calls `transfer_from`. This is a materially larger blast radius
+than an ordinary collectible approval: a phishing signature that looks like
+"approve this marketplace" is, for this NFT, "hand over my entire loan
+account." There is no protocol-level mitigation for this beyond user
+education — wallets and front ends integrating position NFTs must present
+approval prompts with this risk stated explicitly, not with generic NFT
+marketplace copy.
+
 ### Controller to router and tokens
 
 The router is untrusted. Token behavior is not assumed to match a requested
@@ -69,11 +91,15 @@ not reopen.
 
 Attempted theft: borrow against or withdraw another account.
 
-Controls: owner-or-delegate authorization, double-gated delegation, immutable
-spoke binding, post-operation risk gates, and limits on third-party supply.
+Controls: owner-or-delegate authorization (ownership resolved live from the
+position NFT's `owner_of`, never cached), double/triple-gated delegation (a
+grant also lapses the instant its granting owner no longer holds the NFT),
+immutable spoke binding, post-operation risk gates, and limits on
+third-party supply.
 
 Review: test every account verb with owner, delegate, former delegate,
-unrelated caller, and permissionless caller.
+unrelated caller, permissionless caller, and an account whose position NFT
+was transferred mid-session.
 
 ### Accounting and non-standard tokens
 
@@ -101,8 +127,11 @@ large deviation, and assets with tiny positions that still require a price.
 Attempted theft: liquidate a healthy account, over-seize collateral, or exploit
 under-delivered repayment.
 
-Controls: health gate, self-liquidation ban, close bound, bonus and fee limits,
-measured repayment, proportional seizure scaling, and explicit bad-debt gates.
+Controls: health gate, close bound, bonus and fee limits, measured repayment,
+proportional seizure scaling, and explicit bad-debt gates. Liquidation is
+permissionless — owners may liquidate their own account; the one remaining
+self guard rejects crediting seized collateral back into the liquidated
+account.
 
 Review: test close boundaries, dust, partial token delivery, paused debt,
 unpriceable collateral, and residual debt.

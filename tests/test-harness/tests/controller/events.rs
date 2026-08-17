@@ -76,6 +76,15 @@ fn test_bulk_supply_emits_single_position_and_market_batch() {
         .with_market(xlm_preset())
         .build();
 
+    // Pre-create ALICE's account as its own top-level call so the
+    // position-NFT `mint` event it emits lands outside the window
+    // `events().all()` inspects below (that helper returns only events
+    // from the *last* contract invocation). Otherwise a fresh account_id=0
+    // supply_bulk would fold account creation's mint event into the count
+    // this test is actually about: how many events supply_bulk itself
+    // emits.
+    t.create_account(ALICE);
+
     t.supply_bulk(
         ALICE,
         &[

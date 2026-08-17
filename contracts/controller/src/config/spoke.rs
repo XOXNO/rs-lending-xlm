@@ -1,5 +1,5 @@
-use common::errors::SpokeError;
-use common::types::SpokeConfig;
+use common::errors::{GenericError, SpokeError};
+use common::types::{HubConfig, SpokeConfig};
 use common::validation::validate_liquidation_curve;
 use soroban_sdk::{assert_with_error, Env};
 
@@ -8,7 +8,7 @@ use crate::{
         DEFAULT_HF_FOR_MAX_BONUS_WAD, DEFAULT_LIQUIDATION_BONUS_FACTOR_BPS,
         DEFAULT_LIQUIDATION_TARGET_HF_WAD,
     },
-    events::{EventSpoke, UpdateSpokeEvent},
+    events::{CreateHubEvent, EventSpoke, UpdateSpokeEvent},
     storage,
 };
 
@@ -77,11 +77,6 @@ pub(crate) fn set_spoke_liquidation_curve(
     }
     .publish(env);
 }
-
-use common::errors::GenericError;
-use common::types::HubConfig;
-
-use crate::events::CreateHubEvent;
 
 /// Creates a new active hub and publishes a `CreateHubEvent`. Returns the
 /// new hub's id.

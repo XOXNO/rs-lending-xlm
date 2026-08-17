@@ -305,7 +305,6 @@ fn persist_account_positions_writes_both_sides() {
             &env,
             1,
             &AccountMeta {
-                owner: Address::generate(&env),
                 spoke_id: SPOKE_ID,
                 mode: PositionMode::Normal,
             },
@@ -352,27 +351,41 @@ fn persist_account_positions_writes_both_sides() {
 fn persist_account_positions_removes_empty_account() {
     use common::types::{Account, AccountMeta, PositionMode};
     let env = Env::default();
+    env.mock_all_auths();
     let admin = Address::generate(&env);
     let contract_id = env.register(Controller, (admin,));
+    // `cleanup_if_empty` burns the account's position NFT, so a real one must be
+    // registered and minted first.
+    let nft = env.register(
+        position_nft::PositionNft,
+        (
+            contract_id.clone(),
+            soroban_sdk::String::from_str(&env, "uri"),
+            soroban_sdk::String::from_str(&env, "Position"),
+            soroban_sdk::String::from_str(&env, "POS"),
+        ),
+    );
+    let owner = Address::generate(&env);
+    let account_id = u64::from(position_nft::PositionNftClient::new(&env, &nft).mint(&owner));
     env.as_contract(&contract_id, || {
+        storage::set_position_nft(&env, &nft);
         storage::set_account_meta(
             &env,
-            1,
+            account_id,
             &AccountMeta {
-                owner: Address::generate(&env),
                 spoke_id: SPOKE_ID,
                 mode: PositionMode::Normal,
             },
         );
         let account = Account {
-            owner: Address::generate(&env),
+            owner,
             spoke_id: SPOKE_ID,
             mode: PositionMode::Normal,
             supply_positions: soroban_sdk::Map::new(&env),
             borrow_positions: soroban_sdk::Map::new(&env),
         };
-        persist_account_positions(&env, 1, &account, PositionSides::BOTH, true);
-        assert!(storage::try_get_account_meta(&env, 1).is_none());
+        persist_account_positions(&env, account_id, &account, PositionSides::BOTH, true);
+        assert!(storage::try_get_account_meta(&env, account_id).is_none());
     });
 }
 

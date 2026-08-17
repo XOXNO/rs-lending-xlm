@@ -1,6 +1,7 @@
+use common::types::SeizeMode;
 use test_harness::{
-    eth_preset, usd_cents, usdc_preset, usdt_stable_preset, LendingTest, ALICE, LIQUIDATOR,
-    STABLECOIN_SPOKE,
+    eth_preset, hub_asset, usd_cents, usdc_preset, usdt_stable_preset, LendingTest, ALICE,
+    LIQUIDATOR, STABLECOIN_SPOKE,
 };
 
 fn liquidate_once(
@@ -205,4 +206,81 @@ fn test_solvent_toxic_rejects_partial_and_accepts_full_close() {
         seized_usdt > 9_900.0,
         "full close seizes ~all 10k USDT collateral, got {seized_usdt}"
     );
+}
+
+/// Victim scaled-supply remaining after a liquidation. `process_liquidation`
+/// (fees, measured repay, `scale_seizures_to_received`) is live here — not the
+/// plan-only `liquidate_slice` helper.
+fn scaled_supply(t: &LendingTest, user: &str, asset: &str) -> i128 {
+    let Some(account_id) = t.find_account_id(user) else {
+        return 0;
+    };
+    t.ctrl_client()
+        .get_account_positions(&account_id)
+        .0
+        .get(hub_asset(t.resolve_asset(asset)))
+        .map(|p| p.scaled_amount)
+        .unwrap_or(0)
+}
+
+fn additivity_book() -> LendingTest {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+    t.get_or_create_user(LIQUIDATOR);
+    t.supply(ALICE, "USDC", 10_000.0);
+    t.borrow(ALICE, "ETH", 3.0);
+    t.set_price("USDC", usd_cents(69));
+    t.assert_liquidatable(ALICE);
+    t
+}
+
+fn execute_n_vs_one(mode: SeizeMode, slices: i128, slice: f64) {
+    let offer_sum = slice * slices as f64;
+
+    let mut single = additivity_book();
+    let single_coll_0 = scaled_supply(&single, ALICE, "USDC");
+    let single_debt_0 = single.borrow_balance_raw(ALICE, "ETH");
+    single.liquidate_with_mode(LIQUIDATOR, ALICE, "ETH", offer_sum, mode);
+    let single_seized = single_coll_0 - scaled_supply(&single, ALICE, "USDC");
+    let single_repaid = single_debt_0 - single.borrow_balance_raw(ALICE, "ETH");
+
+    let mut chain = additivity_book();
+    let chain_coll_0 = scaled_supply(&chain, ALICE, "USDC");
+    let chain_debt_0 = chain.borrow_balance_raw(ALICE, "ETH");
+    for _ in 0..slices {
+        assert!(
+            chain.can_be_liquidated(ALICE),
+            "chain must stay liquidatable for every slice so the comparison is a real split"
+        );
+        chain.liquidate_with_mode(LIQUIDATOR, ALICE, "ETH", slice, mode);
+    }
+    let chain_seized = chain_coll_0 - scaled_supply(&chain, ALICE, "USDC");
+    let chain_repaid = chain_debt_0 - chain.borrow_balance_raw(ALICE, "ETH");
+
+    assert_eq!(
+        chain_repaid, single_repaid,
+        "both paths must retire the same debt or the seize comparison is meaningless"
+    );
+    assert!(single_repaid > 0, "the close must actually repay");
+    assert!(single_seized > 0, "the close must actually seize");
+
+    // One scaled unit of floor slack per slice, matching the plan-level chain test.
+    let tolerance = slices;
+    assert!(
+        chain_seized <= single_seized + tolerance,
+        "N execute partials out-seized one close of the sum: chain={chain_seized} \
+         single={single_seized} mode={mode:?}"
+    );
+}
+
+#[test]
+fn execute_n_partials_do_not_out_seize_one_close_of_the_sum_transfer() {
+    execute_n_vs_one(SeizeMode::Transfer, 4, 0.1);
+}
+
+#[test]
+fn execute_n_partials_do_not_out_seize_one_close_of_the_sum_credit() {
+    execute_n_vs_one(SeizeMode::Credit(0), 4, 0.1);
 }

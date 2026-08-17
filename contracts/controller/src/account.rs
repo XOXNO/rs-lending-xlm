@@ -3,9 +3,13 @@ use common::math::fp::Ray;
 use common::types::{
     Account, AccountMeta, AccountPosition, DebtPosition, HubAssetKey, PositionMode,
 };
-use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, Map};
+use soroban_sdk::{
+    assert_with_error, panic_with_error, Address, Env, IntoVal, Map, TryFromVal, Val,
+};
 
 use crate::context::Cache;
+use crate::events::AccountDelegateEvent;
+use crate::external::position_nft::{nft_burn_call, nft_mint_call, nft_renew_call};
 use crate::storage;
 
 /// Creates a new account owned by `owner` in `spoke_id`, assigning it a fresh account id
@@ -20,7 +24,8 @@ pub(crate) fn create_account(
     assert_with_error!(env, spoke_id >= 1, SpokeError::SpokeNotFound);
     cache.active_spoke(spoke_id);
 
-    let account_id = storage::increment_account_nonce(env);
+    let nft = storage::get_position_nft(env);
+    let account_id = nft_mint_call(env, &nft, owner);
     let account = Account {
         owner: owner.clone(),
         spoke_id,
@@ -28,15 +33,7 @@ pub(crate) fn create_account(
         supply_positions: Map::new(env),
         borrow_positions: Map::new(env),
     };
-    storage::set_account_meta(
-        env,
-        account_id,
-        &AccountMeta {
-            owner: owner.clone(),
-            spoke_id,
-            mode,
-        },
-    );
+    storage::set_account_meta(env, account_id, &AccountMeta { spoke_id, mode });
 
     (account_id, account)
 }
@@ -91,7 +88,7 @@ pub(crate) fn is_owner_or_delegate(
     }
     let active_manager =
         storage::get_position_manager(env, caller).is_some_and(|config| config.is_active);
-    active_manager && storage::get_delegates(env, account_id).contains(caller)
+    active_manager && storage::get_delegates(env, account_id, owner).contains(caller)
 }
 
 /// Panics unless `caller` is `owner` or an active delegate on `account_id`.
@@ -107,10 +104,12 @@ pub(crate) fn require_owner_or_delegate(
     panic_with_error!(env, GenericError::NotAuthorized);
 }
 
-/// Returns the account's stored metadata, panicking unless `caller` is its owner.
+/// Returns the account's stored metadata, panicking unless `caller` currently owns the
+/// account's position NFT.
 pub(crate) fn require_account_owner(env: &Env, account_id: u64, caller: &Address) -> AccountMeta {
     let meta = storage::get_account_meta(env, account_id);
-    assert_with_error!(env, meta.owner == *caller, GenericError::AccountNotInMarket);
+    let owner = storage::account_owner(env, account_id);
+    assert_with_error!(env, owner == *caller, GenericError::AccountNotInMarket);
     meta
 }
 
@@ -121,10 +120,37 @@ fn require_spoke_match(env: &Env, account: &Account, spoke_id: u32) {
     }
 }
 
-/// Removes the account's stored entry if it has no supply or borrow positions left.
+/// Removes the account's stored entry and burns its position NFT. Every account
+/// deletion must go through here so the NFT⟺account existence pairing cannot
+/// drift: an id whose entry is gone must never keep a live token.
+pub(crate) fn remove_account_and_burn_nft(env: &Env, account_id: u64) {
+    storage::remove_account_entry(env, account_id);
+    let nft = storage::get_position_nft(env);
+    nft_burn_call(env, &nft, account_id);
+}
+
+/// Removes the account's stored entry and burns its position NFT if it has no supply or
+/// borrow positions left.
 pub(crate) fn cleanup_account_if_empty(env: &Env, account: &Account, account_id: u64) {
     if account.is_empty() {
-        storage::remove_account_entry(env, account_id);
+        remove_account_and_burn_nft(env, account_id);
+    }
+}
+
+fn upsert_or_remove_position<V>(
+    map: &mut Map<HubAssetKey, V>,
+    hub_asset: &HubAssetKey,
+    value: Option<V>,
+) where
+    V: IntoVal<Env, Val> + TryFromVal<Env, Val>,
+{
+    match value {
+        None => {
+            map.remove(hub_asset.clone());
+        }
+        Some(value) => {
+            map.set(hub_asset.clone(), value);
+        }
     }
 }
 
@@ -135,13 +161,11 @@ pub(crate) fn update_or_remove_supply_position(
     hub_asset: &HubAssetKey,
     position: &AccountPosition,
 ) {
-    if position.scaled_amount == Ray::ZERO {
-        account.supply_positions.remove(hub_asset.clone());
-    } else {
-        account
-            .supply_positions
-            .set(hub_asset.clone(), position.into());
-    }
+    upsert_or_remove_position(
+        &mut account.supply_positions,
+        hub_asset,
+        (position.scaled_amount != Ray::ZERO).then(|| position.into()),
+    );
 }
 
 /// Sets `account`'s debt position for `hub_asset` to `position` in memory, removing the
@@ -151,24 +175,27 @@ pub(crate) fn update_or_remove_debt_position(
     hub_asset: &HubAssetKey,
     position: &DebtPosition,
 ) {
-    if position.scaled_amount == Ray::ZERO {
-        account.borrow_positions.remove(hub_asset.clone());
-    } else {
-        account
-            .borrow_positions
-            .set(hub_asset.clone(), position.into());
-    }
+    upsert_or_remove_position(
+        &mut account.borrow_positions,
+        hub_asset,
+        (position.scaled_amount != Ray::ZERO).then(|| position.into()),
+    );
 }
 
 /// Extends the TTL of the controller instance, then, after requiring `caller`'s
-/// authorization and ownership of `account_id`, extends the TTL of the account's stored entries.
+/// authorization and ownership of `account_id`, extends the TTL of the
+/// account's stored entries and of the account's NFT `Owner` entry — the
+/// latter to the same per-user window, closing the 30d/120d renewal
+/// asymmetry with OZ's `owner_of` (INV-STOR-02).
 pub(crate) fn renew_account(env: &Env, caller: Address, account_id: u64) {
     storage::renew_controller_instance(env);
 
     caller.require_auth();
-    let _meta = require_account_owner(env, account_id, &caller);
+    require_account_owner(env, account_id, &caller);
 
     storage::renew_user_account(env, account_id);
+    let nft = storage::get_position_nft(env);
+    nft_renew_call(env, &nft, account_id);
 }
 
 /// Extends the controller instance's TTL and grants `delegate` authorization to act on
@@ -196,7 +223,7 @@ fn set_account_delegate(
     add: bool,
 ) {
     caller.require_auth();
-    let meta = require_account_owner(env, account_id, caller);
+    require_account_owner(env, account_id, caller);
     if add {
         // Grant and activation must be contemporaneous: a dormant grant to an
         // address governance has not yet approved would arm on activation.
@@ -207,16 +234,17 @@ fn set_account_delegate(
         );
     }
 
+    // `require_account_owner` already established `caller` as the current owner.
     let changed = if add {
-        storage::add_delegate(env, account_id, delegate)
+        storage::add_delegate(env, account_id, caller, delegate)
     } else {
-        storage::remove_delegate(env, account_id, delegate)
+        storage::remove_delegate(env, account_id, caller, delegate)
     };
 
     if changed {
-        crate::events::AccountDelegateEvent {
+        AccountDelegateEvent {
             account_id,
-            owner: meta.owner,
+            owner: caller.clone(),
             delegate: delegate.clone(),
             granted: add,
         }

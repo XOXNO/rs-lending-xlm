@@ -1,7 +1,11 @@
-use soroban_sdk::{Address, Env};
+use common::constants::POSITION_LIMIT_MAX;
+use common::errors::{CollateralError, GenericError};
+use common::types::PositionLimits;
+use soroban_sdk::{assert_with_error, Address, Env};
 
 use crate::events::{
-    UpdateAccumulatorEvent, UpdatePriceAggregatorEvent, UpdateSwapAggregatorEvent,
+    ApproveBlendPoolEvent, UpdateAccumulatorEvent, UpdateMinBorrowCollateralEvent,
+    UpdatePositionLimitsEvent, UpdatePriceAggregatorEvent, UpdateSwapAggregatorEvent,
 };
 use crate::storage;
 
@@ -31,8 +35,6 @@ pub(crate) fn set_accumulator(env: &Env, addr: Address) {
     UpdateAccumulatorEvent { accumulator: addr }.publish(env);
 }
 
-use crate::events::ApproveBlendPoolEvent;
-
 /// Returns whether `pool` is on the Blend pool allowlist, defaulting to
 /// `false` if unset.
 pub(crate) fn is_blend_pool_approved(env: &Env, pool: Address) -> bool {
@@ -45,13 +47,6 @@ pub(crate) fn set_blend_pool_approval(env: &Env, pool: Address, approved: bool) 
     storage::set_blend_pool_approved(env, &pool, approved);
     ApproveBlendPoolEvent { pool, approved }.publish(env);
 }
-
-use common::constants::POSITION_LIMIT_MAX;
-use common::errors::{CollateralError, GenericError};
-use common::types::PositionLimits;
-use soroban_sdk::assert_with_error;
-
-use crate::events::{UpdateMinBorrowCollateralEvent, UpdatePositionLimitsEvent};
 
 /// Sets the maximum supply and borrow position counts and publishes an
 /// `UpdatePositionLimitsEvent`. Panics if either limit is zero or exceeds

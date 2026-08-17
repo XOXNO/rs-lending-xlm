@@ -1,9 +1,12 @@
 use common::errors::GenericError;
+use common::ttl::renew_instance as renew_common_instance;
 use common::types::{ControllerKey, PositionLimits, PositionManagerConfig};
 
 use soroban_sdk::{panic_with_error, Address, Env, IntoVal, TryFromVal, Val};
 
-use crate::constants;
+use crate::constants::{
+    self, TTL_BUMP_SHARED, TTL_BUMP_USER, TTL_THRESHOLD_SHARED, TTL_THRESHOLD_USER,
+};
 
 /// Reads whether `pool` is an approved Blend pool from shared persistent storage, defaulting to `false` if unset.
 pub(crate) fn is_blend_pool_approved(env: &Env, pool: &Address) -> bool {
@@ -77,21 +80,6 @@ pub(crate) fn set_accumulator(env: &Env, addr: &Address) {
         .set(&ControllerKey::Accumulator, addr);
 }
 
-/// Reads the current account-creation nonce from shared persistent storage, defaulting to 0 if unset.
-pub(crate) fn get_account_nonce(env: &Env) -> u64 {
-    get_shared(env, &ControllerKey::AccountNonce).unwrap_or(0u64)
-}
-
-/// Reads the account-creation nonce, increments it by one, stores the new value, and returns it. Panics with `MathOverflow` on overflow.
-pub(crate) fn increment_account_nonce(env: &Env) -> u64 {
-    let current = get_account_nonce(env);
-    let next = current
-        .checked_add(1)
-        .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
-    set_shared(env, &ControllerKey::AccountNonce, &next);
-    next
-}
-
 /// Reads the configured maximum supply/borrow position counts from instance storage, panicking with `PositionLimitsNotSet` if unset.
 pub(crate) fn get_position_limits(env: &Env) -> PositionLimits {
     env.storage()
@@ -122,6 +110,25 @@ pub(crate) fn set_min_borrow_collateral_usd_wad(env: &Env, floor_wad: i128) {
         .set(&ControllerKey::MinBorrowCollateralUsd, &floor_wad);
 }
 
+/// Reads the position-NFT contract address from instance storage, panicking
+/// with `PositionNftNotSet` if the NFT has not been deployed.
+pub(crate) fn get_position_nft(env: &Env) -> Address {
+    try_get_position_nft(env)
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::PositionNftNotSet))
+}
+
+/// Reads the position-NFT contract address from instance storage, or `None` if unset.
+pub(crate) fn try_get_position_nft(env: &Env) -> Option<Address> {
+    env.storage().instance().get(&ControllerKey::PositionNft)
+}
+
+/// Writes the position-NFT contract address to instance storage.
+pub(crate) fn set_position_nft(env: &Env, addr: &Address) {
+    env.storage()
+        .instance()
+        .set(&ControllerKey::PositionNft, addr);
+}
+
 /// Reads a position manager's configuration from shared persistent storage keyed by its address, or `None` if not registered.
 pub(crate) fn get_position_manager(env: &Env, addr: &Address) -> Option<PositionManagerConfig> {
     get_shared(env, &ControllerKey::PositionManager(addr.clone()))
@@ -141,8 +148,6 @@ pub(crate) fn set_position_manager(env: &Env, addr: &Address, config: &PositionM
 #[path = "../../tests/storage/protocol.rs"]
 mod tests;
 
-use crate::constants::{TTL_BUMP_SHARED, TTL_BUMP_USER, TTL_THRESHOLD_SHARED, TTL_THRESHOLD_USER};
-
 /// Extends a persistent storage key's TTL using the given threshold and bump ledger counts.
 fn renew_persistent_key(env: &Env, key: &ControllerKey, threshold: u32, bump: u32) {
     env.storage().persistent().extend_ttl(key, threshold, bump);
@@ -155,7 +160,7 @@ pub(super) fn renew_user_key(env: &Env, key: &ControllerKey) {
 
 /// Extends the controller contract's instance storage TTL using the protocol-wide instance threshold and bump constants.
 pub(crate) fn renew_controller_instance(env: &Env) {
-    common::ttl::renew_instance(env);
+    renew_common_instance(env);
 }
 
 /// Reads a value from persistent storage under `key`, extending its TTL with `threshold`/`bump` only when a value is present.

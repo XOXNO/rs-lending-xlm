@@ -53,6 +53,31 @@ impl LendingTest {
         ctrl.borrow(&caller_addr, &account_id, &borrows, &Some(to_addr));
     }
 
+    pub fn try_borrow_as_to(
+        &mut self,
+        caller: &str,
+        account_id: u64,
+        asset_name: &str,
+        amount: f64,
+        to: &str,
+    ) -> Result<(), soroban_sdk::Error> {
+        let decimals = self.resolve_market(asset_name).decimals;
+        let raw_amount = f64_to_i128(amount, decimals);
+        let caller_addr = self.users.get(caller).unwrap().address.clone();
+        let to_addr = self.users.get(to).unwrap().address.clone();
+        let asset_addr = self.resolve_asset(asset_name);
+
+        let ctrl = self.ctrl_client();
+        let borrows: Vec<(HubAssetKey, i128)> =
+            vec![&self.env, (hub_asset(asset_addr), raw_amount)];
+        crate::ops::internal::map_try_ok_unit(ctrl.try_borrow(
+            &caller_addr,
+            &account_id,
+            &borrows,
+            &Some(to_addr),
+        ))
+    }
+
     pub fn try_borrow(
         &mut self,
         user: &str,

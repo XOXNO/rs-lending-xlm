@@ -18,6 +18,7 @@ controller-interface = { path = "../../interfaces/controller" }
 pool-interface = { path = "../../interfaces/pool" }
 price-aggregator-interface = { path = "../../interfaces/price-aggregator" }
 swap-aggregator-interface = { path = "../../interfaces/swap-aggregator" }
+position-nft-interface = { path = "../../interfaces/position-nft" }
 cvlr = { workspace = true, optional = true }
 cvlr-soroban = { workspace = true, optional = true }
 cvlr-soroban-macros = { workspace = true, optional = true }
@@ -45,3 +46,4 @@ testing = []
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
+position-nft = { path = "../position-nft" }

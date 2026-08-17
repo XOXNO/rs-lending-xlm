@@ -340,6 +340,8 @@ dependencies = [
  "cvlr-soroban-derive",
  "cvlr-soroban-macros",
  "pool-interface",
+ "position-nft",
+ "position-nft-interface",
  "price-aggregator-interface",
  "soroban-sdk",
  "stellar-access",
@@ -1398,6 +1400,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "position-nft"
+version = "0.1.0"
+dependencies = [
+ "common",
+ "soroban-sdk",
+ "stellar-contract-utils",
+ "stellar-tokens",
+]
+
+[[package]]
+name = "position-nft-interface"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk",
+]
+
+[[package]]
 name = "powerfmt"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2108,6 +2127,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "stellar-tokens"
+version = "0.7.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "14c69421f52f418e0ebd343a6046aea3a3d1a4b0544debdf88780173d88c9d9b"
+dependencies = [
+ "soroban-sdk",
+ "stellar-contract-utils",
+ "stellar-governance",
+]
+
+[[package]]
 name = "stellar-xdr"
 version = "26.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2194,6 +2224,7 @@ dependencies = [
  "num-rational",
  "num-traits",
  "pool",
+ "position-nft",
  "price-aggregator",
  "proptest",
  "soroban-sdk",

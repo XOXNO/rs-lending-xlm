@@ -1,0 +1,62 @@
+{
+  "kind": "price_aggregator",
+  "op_id": "1b7e36fdf926db8d1743c29894c654f849253a04f738200bf6a7ed4565f48e2e",
+  "network": "testnet",
+  "target": "CAALOOTIDXCX7D7FMQIBSSAJLPKOM3GMXS4UUSTDIG42JCRRJHOPUHOP",
+  "function": "set_oracle",
+  "predecessor": "0000000000000000000000000000000000000000000000000000000000000000",
+  "salt": "f72ca1a00d35cfee23d8a82b28d4b9a4fdfc2d8013893ed4e196452b063a7684",
+  "cli_executable": true,
+  "executed": true,
+  "resolve": {
+    "view_fn": "resolve_asset_oracle",
+    "args": {
+      "key": {
+        "Token": "CBK3FNAM3C54674OSOCQLDNW4EXMNUY6ZO3C3ZI5S5DGBIIPX4GJ7WHW"
+      },
+      "oracle": {
+        "asset_decimals": 7,
+        "max_price_stale_seconds": 86400,
+        "sources": [
+          {
+            "Feed": {
+              "provider": {
+                "Reflector": {
+                  "contract": "CCYOZJCOPG34LLQQ7N24YXBM7LL62R7ONMZ3G6WZAAYPB5OYKOMJRN63",
+                  "asset": {
+                    "Symbol": "BTC"
+                  },
+                  "read_mode": {
+                    "Twap": 3
+                  }
+                }
+              },
+              "decimals": 14,
+              "max_stale_seconds": 3600
+            }
+          },
+          {
+            "Feed": {
+              "provider": {
+                "RedStone": {
+                  "contract": "CBIHT4HVRIT5OMVLSXZ44J2ZAXYBDDGOSCN3LTN2DOC6SWHDS5IP6BK3",
+                  "feed_id": "BTC",
+                  "nature": "Fundamental"
+                }
+              },
+              "decimals": 8,
+              "max_stale_seconds": 86400
+            }
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 11000,
+          "lower_ratio_bps": 9091
+        },
+        "independence": "RequireDisjoint",
+        "min_sanity_price_wad": "27000000000000000000000",
+        "max_sanity_price_wad": "93000000000000000000000"
+      }
+    }
+  }
+}

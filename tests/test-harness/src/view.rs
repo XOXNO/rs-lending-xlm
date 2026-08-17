@@ -277,15 +277,11 @@ impl LendingTest {
         })
     }
 
+    /// Account ownership lives in the position-NFT contract, not in
+    /// `AccountMeta` (which carries only spoke/mode). This resolves it
+    /// through `owner_of`, the same path the controller itself uses.
     pub fn get_account_owner(&self, account_id: u64) -> soroban_sdk::Address {
-        self.env.as_contract(&self.controller, || {
-            self.env
-                .storage()
-                .persistent()
-                .get::<_, controller::types::AccountMeta>(&ControllerKey::AccountMeta(account_id))
-                .expect("account must exist")
-                .owner
-        })
+        self.nft_owner_of(account_id)
     }
 }
 

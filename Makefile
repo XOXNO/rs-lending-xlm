@@ -97,7 +97,7 @@ FUZZ_DIR := tests/fuzz
 CONTRACTS := pool controller governance
 
 
-WASM_SIZE_CONTRACTS := pool controller governance common flash_loan_receiver defindex_strategy price_aggregator
+WASM_SIZE_CONTRACTS := pool controller governance common flash_loan_receiver defindex_strategy price_aggregator position_nft
 
 
 
@@ -127,6 +127,10 @@ POOL_WASM_HASH_FILE ?= target/pool_wasm_hash.txt
 POOL_UPGRADE_WASM_HASH_FILE ?= target/pool_upgrade_wasm_hash.txt
 CONTROLLER_WASM_HASH_FILE ?= target/controller_wasm_hash.txt
 PRICE_AGGREGATOR_WASM_HASH_FILE ?= target/price_aggregator_wasm_hash.txt
+POSITION_NFT_WASM_HASH_FILE ?= target/position_nft_wasm_hash.txt
+POSITION_NFT_URI ?= https://api.xoxno.com/user/lending/image/
+POSITION_NFT_NAME ?= XOXNO Lending Position
+POSITION_NFT_SYMBOL ?= XLEND
 GOVERNANCE_WASM_HASH_FILE ?= target/governance_wasm_hash.txt
 SIGNER_ADDRESS = $$(stellar keys public-key $(SIGNER) 2>/dev/null || stellar keys address $(SIGNER) 2>/dev/null || echo $(SIGNER))
 
@@ -1183,6 +1187,19 @@ upgrade-controller: _preflight-controller _preflight-governance deploy-artifacts
 		$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json
 
 
+upgrade-position-nft: _preflight-controller _preflight-governance deploy-artifacts
+	@echo "=== Upgrading position NFT on $(NETWORK) ==="
+	@echo "Signer: $(SIGNER)"
+	@stellar contract upload \
+		--wasm $(DEPLOY_DIR)/position_nft.wasm \
+		$(SOURCE_FLAG) \
+		--network $(NETWORK) > $(POSITION_NFT_WASM_HASH_FILE); \
+	HASH=$$(cat $(POSITION_NFT_WASM_HASH_FILE)); \
+	echo "New position NFT WASM hash: $$HASH"
+	@HASH=$$(cat $(POSITION_NFT_WASM_HASH_FILE)); \
+	NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh upgradePositionNftHash $$HASH
+
+
 upgrade-governance: _preflight-governance deploy-artifacts
 	@echo "=== Upgrading governance on $(NETWORK) ==="
 	@echo "Signer: $(SIGNER)"
@@ -1561,7 +1578,7 @@ _deploy: deploy-artifacts
 	@echo "=== Deploying to $(NETWORK) ==="
 	@echo "Signer: $(SIGNER)"
 	@echo ""
-	@echo "1/7 Checking Swap Aggregator..."
+	@echo "1/8 Checking Swap Aggregator..."
 	@AGGREGATOR=$$(jq -r ".\"$(NETWORK)\".aggregator // empty" $(CONFIG_DIR)/networks.json 2>/dev/null); \
 	if [ -n "$${AGGREGATOR_CONTRACT:-}" ]; then AGGREGATOR="$$AGGREGATOR_CONTRACT"; fi; \
 	if [ -n "$$AGGREGATOR" ] && [ "$$AGGREGATOR" != "null" ]; then \
@@ -1572,7 +1589,7 @@ _deploy: deploy-artifacts
 	fi
 	@echo ""
 	@
-	@echo "2/7 Uploading pool WASM..."
+	@echo "2/8 Uploading pool WASM..."
 	@stellar contract upload \
 		--wasm $(DEPLOY_DIR)/pool.wasm \
 		$(SOURCE_FLAG) \
@@ -1584,7 +1601,7 @@ _deploy: deploy-artifacts
 		$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json
 	@echo ""
 	@
-	@echo "3/7 Uploading Controller WASM..."
+	@echo "3/8 Uploading Controller WASM..."
 	@stellar contract upload \
 		--wasm $(DEPLOY_DIR)/controller.wasm \
 		$(SOURCE_FLAG) \
@@ -1596,7 +1613,7 @@ _deploy: deploy-artifacts
 		$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json
 	@echo ""
 	@
-	@echo "4/7 Deploying Governance..."
+	@echo "4/8 Deploying Governance..."
 	@MIN_DELAY=$$(jq -r '.["$(NETWORK)"].timelock_min_delay_ledgers // empty' $(CONFIG_DIR)/networks.json); \
 	if [ -n "$$DEPLOY_MIN_DELAY" ]; then \
 		MIN_DELAY="$$DEPLOY_MIN_DELAY"; \
@@ -1621,7 +1638,7 @@ _deploy: deploy-artifacts
 	@echo ""
 	@
 	@
-	@echo "5/7 Deploying Controller via governance..."
+	@echo "5/8 Deploying Controller via governance..."
 	@GOV_ID=$$(stellar contract alias show governance --network $(NETWORK) | tail -n1); \
 	CTRL_ID=$$(stellar contract invoke --id $$GOV_ID $(SOURCE_FLAG) --network $(NETWORK) \
 		-- deploy_controller --wasm_hash $$(cat $(CONTROLLER_WASM_HASH_FILE)) | tail -n1 | tr -d '"'); \
@@ -1634,7 +1651,7 @@ _deploy: deploy-artifacts
 	@echo ""
 	@
 	@
-	@echo "6/7 Deploying Price Aggregator via governance..."
+	@echo "6/8 Deploying Price Aggregator via governance..."
 	@stellar contract upload \
 		--wasm $(DEPLOY_DIR)/price_aggregator.wasm \
 		$(SOURCE_FLAG) \
@@ -1652,7 +1669,7 @@ _deploy: deploy-artifacts
 	@echo ""
 	@
 	@
-	@echo "7/7 Deploying central pool via governance timelock..."
+	@echo "7/8 Deploying central pool via governance timelock..."
 	@POOL=$$(NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh deployPool $$(cat $(POOL_WASM_HASH_FILE)) | tail -n1 | tr -d '"'); \
 	if [ -z "$$POOL" ]; then echo "deployPool returned no address"; exit 1; fi; \
 	echo "Central pool: $$POOL"; \
@@ -1660,11 +1677,30 @@ _deploy: deploy-artifacts
 	jq '.["$(NETWORK)"].pool = "'$$POOL'"' \
 		$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json
 	@echo ""
+	@echo "8/8 Deploying position NFT via governance timelock..."
+	@stellar contract upload \
+		--wasm $(DEPLOY_DIR)/position_nft.wasm \
+		$(SOURCE_FLAG) \
+		--network $(NETWORK) > $(POSITION_NFT_WASM_HASH_FILE)
+	@echo "Position NFT WASM hash: $$(cat $(POSITION_NFT_WASM_HASH_FILE))"
+	@NFT=$$(NETWORK=$(NETWORK) SIGNER=$(SIGNER) \
+		POSITION_NFT_URI="$(POSITION_NFT_URI)" \
+		POSITION_NFT_NAME="$(POSITION_NFT_NAME)" \
+		POSITION_NFT_SYMBOL="$(POSITION_NFT_SYMBOL)" \
+		bash $(CONFIG_DIR)/script.sh deployPositionNft $$(cat $(POSITION_NFT_WASM_HASH_FILE)) | tail -n1 | tr -d '"'); \
+	if [ -z "$$NFT" ]; then echo "deployPositionNft returned no address"; exit 1; fi; \
+	echo "Position NFT: $$NFT"; \
+	stellar contract alias add position_nft --id $$NFT --network $(NETWORK) --overwrite; \
+	TMP_JSON=$$(mktemp); \
+	jq '.["$(NETWORK)"].position_nft = "'$$NFT'"' \
+		$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json
+	@echo ""
 	@echo "=== Deployment complete ==="
 	@echo "Aggregator:     $$(stellar contract alias show aggregator --network $(NETWORK) 2>/dev/null || echo 'check aliases')"
 	@echo "Governance:     $$(stellar contract alias show governance --network $(NETWORK) 2>/dev/null || echo 'check aliases')"
 	@echo "Controller:     $$(stellar contract alias show controller --network $(NETWORK) 2>/dev/null || echo 'check aliases')"
 	@echo "Pool:           $$(jq -r '.["$(NETWORK)"].pool // empty' $(CONFIG_DIR)/networks.json)"
+	@echo "Position NFT:   $$(jq -r '.["$(NETWORK)"].position_nft // empty' $(CONFIG_DIR)/networks.json)"
 	@echo "Pool WASM Hash: $$(cat $(POOL_WASM_HASH_FILE))"
 	@echo "Controller WASM Hash: $$(cat $(CONTROLLER_WASM_HASH_FILE))"
 
@@ -1760,7 +1796,7 @@ SIMPLE_ACTIONS := listMarkets listSpokes listHubs listOracles listReferences lis
 	whitelistBlendPools approveBlendPools configureSpokeCurves \
 	setAggregator setAccumulator pause unpause info \
 	getAllMarkets getAllIndexes getMinBorrowCollateralUsd getBulkIndexes \
-	claimRevenueAll deployPool updateDelay \
+	claimRevenueAll deployPool deployPositionNft updateDelay \
 	acceptAggregatorOwnership acceptOracleAdapterOwnership
 POSITIONAL_MARKET_ACTIONS := createMarket updateMarketParams \
 	configureMarketOracle \
@@ -1791,7 +1827,7 @@ VARARG_ACTIONS := updateIndexes claimRevenue supply borrow withdraw getLiquidati
 
 
 
-MAKEFILE_ACTIONS := deploy upgradeController upgradeGovernance upgradePool upgradeAll \
+MAKEFILE_ACTIONS := deploy upgradeController upgradeGovernance upgradePool upgradePositionNft upgradeAll \
                     deployFlashReceiver fundFlashReceiver testFlashReceiver deployAggregator deployOracleAdapter prepayRent setup resume \
                     upgradeAggregator upgradeOracleAdapter upgradeOracleAdapterFull
 
@@ -1824,6 +1860,7 @@ define NETWORK_DISPATCH
 				upgradeController)  $(MAKE) --no-print-directory upgrade-controller NETWORK=$(1) SIGNER=$(SIGNER) ;; \
 				upgradeGovernance)  $(MAKE) --no-print-directory upgrade-governance NETWORK=$(1) SIGNER=$(SIGNER) ;; \
 				upgradePool)       $(MAKE) --no-print-directory upgrade-pool NETWORK=$(1) SIGNER=$(SIGNER) ;; \
+		upgradePositionNft) $(MAKE) --no-print-directory upgrade-position-nft NETWORK=$(1) SIGNER=$(SIGNER) ;; \
 				upgradeAll)         $(MAKE) --no-print-directory upgrade-all NETWORK=$(1) SIGNER=$(SIGNER) ;; \
 				deployFlashReceiver) $(MAKE) --no-print-directory deploy-flash-loan-receiver NETWORK=$(1) SIGNER=$(SIGNER) ;; \
 				fundFlashReceiver)  $(MAKE) --no-print-directory fund-flash-loan-receiver NETWORK=$(1) SIGNER=$(SIGNER) FLASH_MARKET=$(FLASH_MARKET) FLASH_RECEIVER_FUND=$(FLASH_RECEIVER_FUND) ;; \

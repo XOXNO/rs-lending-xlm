@@ -1,5 +1,5 @@
 use common::errors::{CollateralError, SpokeError};
-use common::types::{HubAssetKey, PoolSyncData, SpokeAssetArgs, SpokeAssetConfig};
+use common::types::{HubAssetKey, SpokeAssetArgs, SpokeAssetConfig};
 use common::validation::{
     require_cap_within_asset_domain, validate_liquidation_fees as common_validate_liquidation_fees,
     validate_risk_bounds as common_validate_risk_bounds,
@@ -12,39 +12,49 @@ use crate::{
     storage,
 };
 
+enum SpokeAssetMutation {
+    Add,
+    Edit,
+}
+
 /// Registers a new asset market in a spoke after validating risk bounds,
 /// liquidation fees, and caps against the pool. Panics if the spoke is
 /// deprecated or the asset is already registered in it.
 pub(crate) fn add_asset_to_spoke(env: &Env, args: &SpokeAssetArgs) {
-    let hub_asset = validate_spoke_asset_args(env, args);
-    let spoke = storage::get_spoke(env, args.spoke_id);
-    assert_with_error!(env, !spoke.is_deprecated, SpokeError::SpokeDeprecated);
-    assert_with_error!(
-        env,
-        storage::get_spoke_asset(env, args.spoke_id, &hub_asset).is_none(),
-        SpokeError::AssetAlreadyInSpoke
-    );
-
-    load_market_and_validate_caps(env, args, &hub_asset);
-    let config = build_spoke_asset_config(args);
-    store_spoke_asset(env, args, &hub_asset, config);
+    upsert_spoke_asset(env, args, SpokeAssetMutation::Add);
 }
 
 /// Updates an existing spoke asset's configuration after validating risk
 /// bounds, liquidation fees, and caps against the pool. Panics if the spoke
 /// does not exist or the asset is not registered in it.
 pub(crate) fn edit_asset_in_spoke(env: &Env, args: &SpokeAssetArgs) {
+    upsert_spoke_asset(env, args, SpokeAssetMutation::Edit);
+}
+
+fn upsert_spoke_asset(env: &Env, args: &SpokeAssetArgs, mutation: SpokeAssetMutation) {
     let hub_asset = validate_spoke_asset_args(env, args);
-    storage::get_spoke(env, args.spoke_id);
-    assert_with_error!(
-        env,
-        storage::get_spoke_asset(env, args.spoke_id, &hub_asset).is_some(),
-        SpokeError::AssetNotInSpoke
-    );
+    match mutation {
+        SpokeAssetMutation::Add => {
+            let spoke = storage::get_spoke(env, args.spoke_id);
+            assert_with_error!(env, !spoke.is_deprecated, SpokeError::SpokeDeprecated);
+            assert_with_error!(
+                env,
+                storage::get_spoke_asset(env, args.spoke_id, &hub_asset).is_none(),
+                SpokeError::AssetAlreadyInSpoke
+            );
+        }
+        SpokeAssetMutation::Edit => {
+            storage::get_spoke(env, args.spoke_id);
+            assert_with_error!(
+                env,
+                storage::get_spoke_asset(env, args.spoke_id, &hub_asset).is_some(),
+                SpokeError::AssetNotInSpoke
+            );
+        }
+    }
 
     load_market_and_validate_caps(env, args, &hub_asset);
-    let config = build_spoke_asset_config(args);
-    store_spoke_asset(env, args, &hub_asset, config);
+    store_spoke_asset(env, args, &hub_asset, build_spoke_asset_config(args));
 }
 
 /// Validates the risk bounds, liquidation fees, and non-negative caps in
@@ -68,16 +78,11 @@ fn validate_spoke_asset_args(env: &Env, args: &SpokeAssetArgs) -> HubAssetKey {
 /// supply and borrow caps in `args` fit the asset's decimal domain,
 /// returning the fetched data. Panics if either cap would overflow at the
 /// asset's decimals.
-fn load_market_and_validate_caps(
-    env: &Env,
-    args: &SpokeAssetArgs,
-    hub_asset: &HubAssetKey,
-) -> PoolSyncData {
+fn load_market_and_validate_caps(env: &Env, args: &SpokeAssetArgs, hub_asset: &HubAssetKey) {
     let market = fetch_pool_sync_data(env, &storage::get_pool(env), hub_asset);
 
     require_cap_within_asset_domain(env, args.supply_cap, market.params.asset_decimals);
     require_cap_within_asset_domain(env, args.borrow_cap, market.params.asset_decimals);
-    market
 }
 
 /// Converts `args` into the `SpokeAssetConfig` representation stored for

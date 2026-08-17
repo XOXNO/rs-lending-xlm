@@ -83,6 +83,10 @@ pub enum GenericError {
     SupplyRoundsToZeroShares = 51,
 
     RepayRoundsToZeroShares = 52,
+
+    PositionNftNotSet = 53,
+
+    PositionNftAlreadyDeployed = 54,
 }
 
 /// Error codes for collateral, position, interest-rate-curve, and

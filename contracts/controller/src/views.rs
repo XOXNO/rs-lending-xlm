@@ -244,10 +244,6 @@ pub(crate) fn liquidation_estimations_detailed(
     }
 }
 
-#[cfg(test)]
-#[path = "../tests/views/mod.rs"]
-mod tests;
-
 /// Returns the account's total supply position value in USD (WAD), or 0 if
 /// it has no metadata or no supply positions.
 pub(crate) fn total_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
@@ -289,3 +285,7 @@ pub(crate) fn ltv_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
     let _ = risk::restamp_listed_supply_ltv(&mut cache, &mut account);
     risk::calculate_ltv_collateral_wad(env, &mut cache, &account.supply_positions).raw()
 }
+
+#[cfg(test)]
+#[path = "../tests/views/mod.rs"]
+mod tests;

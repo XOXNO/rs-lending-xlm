@@ -45,29 +45,20 @@ impl LendingTest {
                 .get::<_, SpokeConfig>(&ControllerKey::Spoke(spoke_id))
                 .expect("spoke must exist");
             assert!(!spoke.is_deprecated, "spoke is deprecated");
+        });
 
-            let current = self
-                .env
-                .storage()
-                .persistent()
-                .get::<_, u64>(&ControllerKey::AccountNonce)
-                .unwrap_or(0);
-            let next = current + 1;
-            self.env
-                .storage()
-                .persistent()
-                .set(&ControllerKey::AccountNonce, &next);
+        let token_id =
+            position_nft::PositionNftClient::new(&self.env, &self.position_nft).mint(&owner);
+        let account_id = u64::from(token_id);
 
+        self.env.as_contract(&self.controller, || {
             self.env.storage().persistent().set(
-                &ControllerKey::AccountMeta(next),
-                &AccountMeta {
-                    owner,
-                    spoke_id,
-                    mode,
-                },
+                &ControllerKey::AccountMeta(account_id),
+                &AccountMeta { spoke_id, mode },
             );
-            next
-        })
+        });
+
+        account_id
     }
 
     pub(crate) fn register_account(
@@ -144,6 +135,65 @@ impl LendingTest {
 
             persistent.remove(&ControllerKey::AccountMeta(account_id));
             Ok(())
-        })
+        })?;
+
+        position_nft::PositionNftClient::new(&self.env, &self.position_nft)
+            .burn(&u32::try_from(account_id).expect("test account ids fit u32"));
+        Ok(())
+    }
+
+    pub fn nft_owner_of(&self, account_id: u64) -> soroban_sdk::Address {
+        position_nft::PositionNftClient::new(&self.env, &self.position_nft)
+            .owner_of(&u32::try_from(account_id).expect("test account ids fit u32"))
+    }
+
+    pub fn try_nft_owner_of(&self, account_id: u64) -> bool {
+        position_nft::PositionNftClient::new(&self.env, &self.position_nft)
+            .try_owner_of(&u32::try_from(account_id).expect("test account ids fit u32"))
+            .is_ok()
+    }
+
+    pub fn nft_transfer(&mut self, from: &str, to: &str, account_id: u64) {
+        let from_addr = self.get_or_create_user(from);
+        let to_addr = self.get_or_create_user(to);
+        position_nft::PositionNftClient::new(&self.env, &self.position_nft).transfer(
+            &from_addr,
+            &to_addr,
+            &u32::try_from(account_id).expect("test account ids fit u32"),
+        );
+    }
+
+    /// Post-transfer bookkeeping: registers `account_id` against `user` in the
+    /// harness's local user index so subsequent harness verbs keyed by user
+    /// name (`supply`, `borrow`, `resolve_account_id`, ...) resolve to the
+    /// account the NFT was just transferred to. Does not touch on-chain
+    /// state -- the NFT transfer itself (via `nft_transfer`) is the source of
+    /// truth for ownership.
+    ///
+    /// Also prunes `account_id` from every *other* user's bookkeeping --
+    /// mirroring what `remove_account` does for the id it removes -- so a
+    /// stale entry doesn't linger in the old owner's `accounts`/
+    /// `default_account_id` and cause harness verbs invoked as the old owner
+    /// to keep resolving an account they no longer own.
+    pub fn adopt_account(
+        &mut self,
+        user: &str,
+        account_id: u64,
+        spoke_id: u32,
+        mode: PositionMode,
+    ) {
+        let _ = self.get_or_create_user(user);
+        for (name, state) in self.users.iter_mut() {
+            if name.as_str() == user {
+                continue;
+            }
+            let had_it = state.accounts.iter().any(|a| a.account_id == account_id);
+            if !had_it {
+                continue;
+            }
+            state.accounts.retain(|a| a.account_id != account_id);
+            state.default_account_id = state.accounts.first().map(|a| a.account_id);
+        }
+        self.register_account(user, account_id, spoke_id, mode);
     }
 }

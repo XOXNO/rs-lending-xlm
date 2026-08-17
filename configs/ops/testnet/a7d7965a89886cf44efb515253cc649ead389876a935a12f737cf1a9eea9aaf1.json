@@ -1,0 +1,16 @@
+{
+  "kind": "controller",
+  "op_id": "a7d7965a89886cf44efb515253cc649ead389876a935a12f737cf1a9eea9aaf1",
+  "network": "testnet",
+  "target": "CCXRWJ6SIU2WPFEGLFGJVITPL57QAYIMIO6OAM2NBGNDQSSCK2FFV3F3",
+  "function": "set_accumulator",
+  "args": [
+    {
+      "address": "GDBBOILYIJBSUQKC3Z3USAW3DGPFHIGVKYA5T4ZUZBO56HBUPHJEN3FV"
+    }
+  ],
+  "predecessor": "0000000000000000000000000000000000000000000000000000000000000000",
+  "salt": "eb602518fbe2ab5ae9e837105ae97578ead3c91b20cf42ce1887883c14fb0957",
+  "cli_executable": true,
+  "executed": true
+}

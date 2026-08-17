@@ -1,7 +1,5 @@
 use super::*;
-use crate::constants::{TTL_BUMP_SHARED, TTL_THRESHOLD_SHARED};
 use crate::Controller;
-use soroban_sdk::testutils::storage::Persistent as _;
 use soroban_sdk::testutils::{Address as _, Ledger};
 use soroban_sdk::Env;
 
@@ -96,46 +94,14 @@ fn renew_controller_instance_re_extends_instance_ttl() {
 }
 
 #[test]
-fn get_account_nonce_renews_shared_ttl_on_read() {
+fn position_nft_accessor_roundtrip() {
     let env = Env::default();
     let admin = Address::generate(&env);
     let contract_id = env.register(Controller, (admin,));
-
     env.as_contract(&contract_id, || {
-        let key = ControllerKey::AccountNonce;
-        // Seed via the write path (persistent + shared TTL), mirroring create_account.
-        let _ = increment_account_nonce(&env);
-
-        let ttl_after_set = env.storage().persistent().get_ttl(&key);
-        let burn = ttl_after_set - TTL_THRESHOLD_SHARED + 1;
-        env.ledger().with_mut(|li| li.sequence_number += burn);
-        assert!(env.storage().persistent().get_ttl(&key) < TTL_THRESHOLD_SHARED);
-
-        assert_eq!(get_account_nonce(&env), 1);
-
-        assert_eq!(
-            env.storage().persistent().get_ttl(&key),
-            TTL_BUMP_SHARED,
-            "read must re-arm the shared bump without changing storage tier"
-        );
-        // Absent-key default must remain zero-compatible for first account creation.
-        assert!(env.storage().persistent().has(&key));
-    });
-}
-
-#[test]
-fn get_account_nonce_absent_returns_zero_without_creating_entry() {
-    let env = Env::default();
-    let admin = Address::generate(&env);
-    let contract_id = env.register(Controller, (admin,));
-
-    env.as_contract(&contract_id, || {
-        let key = ControllerKey::AccountNonce;
-        assert!(!env.storage().persistent().has(&key));
-        assert_eq!(get_account_nonce(&env), 0);
-        assert!(
-            !env.storage().persistent().has(&key),
-            "read of missing AccountNonce must not materialize storage"
-        );
+        assert!(try_get_position_nft(&env).is_none());
+        let nft = Address::generate(&env);
+        set_position_nft(&env, &nft);
+        assert_eq!(get_position_nft(&env), nft);
     });
 }

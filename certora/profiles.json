@@ -192,9 +192,6 @@
         "conf": "certora/controller/confs/liquidation-estimation.conf"
       },
       {
-        "conf": "certora/controller/confs/liquidation-caller.conf"
-      },
-      {
         "conf": "certora/controller/confs/liquidation.conf"
       },
       {

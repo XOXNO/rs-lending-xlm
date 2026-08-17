@@ -1,3 +1,4 @@
+use controller::constants::WAD;
 use test_harness::{
     assert_contract_error, days, errors, hub_asset, usd, usd_cents, LendingTest, ALICE, BOB, CAROL,
     DAVE, LIQUIDATOR,
@@ -156,6 +157,17 @@ fn test_force_socialize_bad_debt_above_dust_threshold() {
 
     t.set_price("USDC", usd_cents(30));
     let account_id = t.resolve_account_id(ALICE);
+
+    let collateral = t.total_collateral_raw(ALICE);
+    let debt = t.total_debt_raw(ALICE);
+    assert!(
+        collateral > 5 * WAD,
+        "fixture must sit strictly above the $5 dust gate: collateral_wad={collateral}"
+    );
+    assert!(
+        debt > collateral,
+        "fixture must be insolvent: debt_wad={debt} collateral_wad={collateral}"
+    );
 
     let refused = t.try_clean_bad_debt_by_id(account_id);
     assert_contract_error(refused, errors::CANNOT_CLEAN_BAD_DEBT);
