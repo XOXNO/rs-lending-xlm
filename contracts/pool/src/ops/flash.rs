@@ -98,6 +98,7 @@ pub(crate) fn prepare(env: &Env, hub_asset: HubAssetKey, amount: i128) -> Cache 
 /// Composes [`prepare`] + [`terms`] exactly as [`apply`] does after reading the
 /// live SAC balance. Used by Certora for full successful-path accounting.
 // Certora (and optional unit tests) compose prepare+terms without SAC reads.
+// TODO: Check if we should add feature cfg flags for certora/tests only and remove dead code
 #[allow(dead_code)]
 pub(crate) fn prepare_with_balance(
     env: &Env,

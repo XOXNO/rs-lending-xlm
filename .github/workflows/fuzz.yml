@@ -379,7 +379,7 @@ jobs:
           src=target-mutants/wasm32v1-none/release
           dst="$RUNNER_TEMP/wasm-fixtures"
           mkdir -p "$dst"
-          for w in pool controller price_aggregator; do
+          for w in pool controller price_aggregator position_nft; do
             cp "$src/$w.wasm" "$dst/$w.wasm"
           done
           grep -aq set_swap_aggregator "$dst/controller.wasm" \

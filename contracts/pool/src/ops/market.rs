@@ -4,10 +4,10 @@ use common::constants::RAY;
 use common::errors::GenericError;
 use common::types::{HubAssetKey, InterestRateModel, MarketParamsRaw, PoolStateRaw};
 
-use soroban_sdk::{assert_with_error, Env};
-
 use crate::cache::Cache;
+use crate::ops;
 use crate::{events, interest, storage, time};
+use soroban_sdk::{assert_with_error, Env};
 
 /// Creates a new market for `(hub_id, params.asset_id)`.
 ///
@@ -52,7 +52,7 @@ pub(crate) fn create(env: &Env, hub_id: u32, params: MarketParamsRaw) {
 /// Interest accrued up to the call uses the old rate model; interest accrued
 /// after the call uses the new one.
 pub(crate) fn replace_rate_model(env: &Env, hub_asset: HubAssetKey, model: InterestRateModel) {
-    crate::ops::renewed_market(env, &hub_asset).commit();
+    ops::renewed_market(env, &hub_asset).commit();
 
     model.verify(env);
     let params = storage::write_rate_model(env, &hub_asset, &model);

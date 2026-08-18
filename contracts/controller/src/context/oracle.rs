@@ -8,6 +8,7 @@ use soroban_sdk::Map;
 use soroban_sdk::{panic_with_error, Address, Vec};
 
 use crate::context::Cache;
+use crate::external;
 
 impl Cache {
     #[cfg(test)]
@@ -21,7 +22,7 @@ impl Cache {
         if missing.is_empty() {
             return;
         }
-        let fetched = crate::external::price_aggregator::fetch_prices(&self.env, &missing);
+        let fetched = external::price_aggregator::fetch_prices(&self.env, &missing);
         for (asset, feed) in fetched.iter() {
             self.token_prices.set(asset, feed);
         }

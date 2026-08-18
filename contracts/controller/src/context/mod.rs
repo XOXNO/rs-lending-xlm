@@ -23,23 +23,15 @@ use crate::storage;
 
 pub(crate) struct Cache {
     env: Env,
-
     token_prices: Map<Address, PriceFeedRaw>,
-
     market_indexes: Map<HubAssetKey, MarketIndexRaw>,
     pool_address: Option<Address>,
     pool_sync_data: Map<HubAssetKey, PoolSyncData>,
-
     spoke_usage: Option<SpokeUsageContext>,
-
     spoke_config: Option<SpokeConfig>,
-
     spoke_assets: Map<HubAssetKey, SpokeAssetConfig>,
-
     verified_hubs: Map<u32, bool>,
-
     supply_updates: Vec<EventDepositDelta>,
-
     debt_updates: Vec<EventBorrowDelta>,
 }
 
