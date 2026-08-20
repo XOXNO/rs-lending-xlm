@@ -58,7 +58,6 @@ pub fn contract_id_from_strkey(c_strkey: &str) -> Result<[u8; 32]> {
 }
 
 pub fn contract_strkey(contract_id: &[u8; 32]) -> String {
-
     format!("{}", stellar_strkey::Contract(*contract_id))
 }
 

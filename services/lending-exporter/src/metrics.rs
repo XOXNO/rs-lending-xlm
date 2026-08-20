@@ -14,7 +14,9 @@ const ORACLE_LABELS: &[&str] = &["network", "asset", "symbol"];
 
 const SPOKE_LABELS: &[&str] = &["network", "spoke_id", "spoke"];
 
-const SPOKE_ASSET_LABELS: &[&str] = &["network", "spoke_id", "spoke", "hub_id", "hub", "asset", "symbol"];
+const SPOKE_ASSET_LABELS: &[&str] = &[
+    "network", "spoke_id", "spoke", "hub_id", "hub", "asset", "symbol",
+];
 
 pub struct Metrics {
     pub registry: Registry,
@@ -113,7 +115,12 @@ fn register_gauge_vec(reg: &Registry, name: &str, help: &str, labels: &[&str]) -
     Ok(g)
 }
 
-fn register_counter_vec(reg: &Registry, name: &str, help: &str, labels: &[&str]) -> Result<IntCounterVec> {
+fn register_counter_vec(
+    reg: &Registry,
+    name: &str,
+    help: &str,
+    labels: &[&str],
+) -> Result<IntCounterVec> {
     let c = IntCounterVec::new(Opts::new(name, help), labels)?;
     reg.register(Box::new(c.clone()))?;
     Ok(c)
@@ -207,23 +214,47 @@ impl Metrics {
         [
             ("lending_spoke_paused", &self.spoke_paused),
             ("lending_spoke_frozen", &self.spoke_frozen),
-            ("lending_spoke_collateral_enabled", &self.spoke_collateral_enabled),
+            (
+                "lending_spoke_collateral_enabled",
+                &self.spoke_collateral_enabled,
+            ),
             ("lending_spoke_borrow_enabled", &self.spoke_borrow_enabled),
             ("lending_spoke_deprecated", &self.spoke_deprecated),
             ("lending_spoke_ltv_bps", &self.spoke_ltv_bps),
-            ("lending_spoke_liquidation_threshold_bps", &self.spoke_liq_threshold_bps),
-            ("lending_spoke_liquidation_bonus_bps", &self.spoke_liq_bonus_bps),
-            ("lending_spoke_liquidation_fees_bps", &self.spoke_liq_fees_bps),
+            (
+                "lending_spoke_liquidation_threshold_bps",
+                &self.spoke_liq_threshold_bps,
+            ),
+            (
+                "lending_spoke_liquidation_bonus_bps",
+                &self.spoke_liq_bonus_bps,
+            ),
+            (
+                "lending_spoke_liquidation_fees_bps",
+                &self.spoke_liq_fees_bps,
+            ),
             ("lending_spoke_supply_cap", &self.spoke_supply_cap),
             ("lending_spoke_borrow_cap", &self.spoke_borrow_cap),
             ("lending_spoke_supply_closed", &self.spoke_supply_closed),
             ("lending_spoke_borrow_closed", &self.spoke_borrow_closed),
             ("lending_spoke_supply_usage", &self.spoke_supply_usage),
-            ("lending_spoke_supply_usage_usd", &self.spoke_supply_usage_usd),
+            (
+                "lending_spoke_supply_usage_usd",
+                &self.spoke_supply_usage_usd,
+            ),
             ("lending_spoke_borrow_usage", &self.spoke_borrow_usage),
-            ("lending_spoke_borrow_usage_usd", &self.spoke_borrow_usage_usd),
-            ("lending_spoke_supply_cap_utilization", &self.spoke_supply_cap_utilization),
-            ("lending_spoke_borrow_cap_utilization", &self.spoke_borrow_cap_utilization),
+            (
+                "lending_spoke_borrow_usage_usd",
+                &self.spoke_borrow_usage_usd,
+            ),
+            (
+                "lending_spoke_supply_cap_utilization",
+                &self.spoke_supply_cap_utilization,
+            ),
+            (
+                "lending_spoke_borrow_cap_utilization",
+                &self.spoke_borrow_cap_utilization,
+            ),
         ]
     }
 
@@ -261,7 +292,10 @@ impl Metrics {
             .encode(&self.registry.gather(), &mut buf)
             .context("encode metrics snapshot")?;
         let rendered = String::from_utf8(buf).context("metrics snapshot is not utf-8")?;
-        *self.rendered.write().expect("metrics snapshot lock poisoned") = rendered;
+        *self
+            .rendered
+            .write()
+            .expect("metrics snapshot lock poisoned") = rendered;
         Ok(())
     }
 
@@ -281,7 +315,11 @@ pub fn spoke_asset_label_key(values: &[&str; 7]) -> BTreeMap<String, String> {
         .collect()
 }
 
-pub async fn serve(bind: SocketAddr, metrics: Arc<Metrics>, cancel: CancellationToken) -> Result<()> {
+pub async fn serve(
+    bind: SocketAddr,
+    metrics: Arc<Metrics>,
+    cancel: CancellationToken,
+) -> Result<()> {
     let app = Router::new()
         .route("/health", get(health))
         .route("/metrics", get(scrape))
@@ -312,7 +350,8 @@ async fn scrape(State(metrics): State<Arc<Metrics>>) -> Result<String, StatusCod
 mod tests {
     use super::*;
 
-    const SAMPLE_SPOKE_ASSET: [&str; 7] = ["testnet", "1", "Main", "2", "Core", "CDEADBEEF", "USDC"];
+    const SAMPLE_SPOKE_ASSET: [&str; 7] =
+        ["testnet", "1", "Main", "2", "Core", "CDEADBEEF", "USDC"];
 
     #[test]
     fn every_family_registers_without_a_name_collision() {
@@ -322,11 +361,17 @@ mod tests {
     #[test]
     fn rendered_snapshot_changes_only_when_published() {
         let metrics = Metrics::new().unwrap();
-        metrics.protocol_tvl_usd.with_label_values(&["testnet"]).set(1.0);
+        metrics
+            .protocol_tvl_usd
+            .with_label_values(&["testnet"])
+            .set(1.0);
         metrics.publish_snapshot().unwrap();
         let published = metrics.rendered_snapshot();
 
-        metrics.protocol_tvl_usd.with_label_values(&["testnet"]).set(2.0);
+        metrics
+            .protocol_tvl_usd
+            .with_label_values(&["testnet"])
+            .set(2.0);
 
         assert!(published.contains(" 1\n"));
         assert_eq!(metrics.rendered_snapshot(), published);
@@ -336,10 +381,18 @@ mod tests {
     fn cap_families_document_zero_as_closed_not_uncapped() {
         let m = Metrics::new().unwrap();
 
-        m.spoke_supply_cap.with_label_values(&SAMPLE_SPOKE_ASSET).set(0.0);
-        m.spoke_borrow_cap.with_label_values(&SAMPLE_SPOKE_ASSET).set(0.0);
-        m.spoke_supply_closed.with_label_values(&SAMPLE_SPOKE_ASSET).set(1.0);
-        m.spoke_borrow_closed.with_label_values(&SAMPLE_SPOKE_ASSET).set(1.0);
+        m.spoke_supply_cap
+            .with_label_values(&SAMPLE_SPOKE_ASSET)
+            .set(0.0);
+        m.spoke_borrow_cap
+            .with_label_values(&SAMPLE_SPOKE_ASSET)
+            .set(0.0);
+        m.spoke_supply_closed
+            .with_label_values(&SAMPLE_SPOKE_ASSET)
+            .set(1.0);
+        m.spoke_borrow_closed
+            .with_label_values(&SAMPLE_SPOKE_ASSET)
+            .set(1.0);
 
         let families = m.registry.gather();
         let help = |name: &str| {
@@ -353,7 +406,10 @@ mod tests {
 
         for name in ["lending_spoke_supply_cap", "lending_spoke_borrow_cap"] {
             let h = help(name);
-            assert!(h.contains("0 = closed"), "{name} must call 0 a closed market: {h}");
+            assert!(
+                h.contains("0 = closed"),
+                "{name} must call 0 a closed market: {h}"
+            );
         }
         assert!(help("lending_spoke_supply_closed").contains("supply cap is 0"));
         assert!(help("lending_spoke_borrow_closed").contains("borrow cap is 0"));
@@ -380,8 +436,12 @@ mod prune_tests {
     #[test]
     fn prune_removes_only_series_not_attempted_this_cycle() {
         let m = Metrics::new().unwrap();
-        m.spoke_supply_closed.with_label_values(&labels("KEEP")).set(1.0);
-        m.spoke_supply_closed.with_label_values(&labels("GONE")).set(1.0);
+        m.spoke_supply_closed
+            .with_label_values(&labels("KEEP"))
+            .set(1.0);
+        m.spoke_supply_closed
+            .with_label_values(&labels("GONE"))
+            .set(1.0);
 
         let mut attempted = BTreeSet::new();
         attempted.insert(spoke_asset_label_key(&labels("KEEP")));
@@ -406,8 +466,12 @@ mod prune_tests {
     fn every_prunable_family_name_is_actually_registered() {
         let m = Metrics::new().unwrap();
         m.spoke_paused.with_label_values(&labels("SEED")).set(1.0);
-        let registered: Vec<String> =
-            m.registry.gather().iter().map(|f| f.get_name().to_string()).collect();
+        let registered: Vec<String> = m
+            .registry
+            .gather()
+            .iter()
+            .map(|f| f.get_name().to_string())
+            .collect();
 
         for (name, gauge) in m.spoke_asset_families() {
             gauge.with_label_values(&labels("SEED")).set(1.0);
@@ -423,7 +487,9 @@ mod prune_tests {
     #[test]
     fn prune_is_a_noop_when_nothing_was_attempted() {
         let m = Metrics::new().unwrap();
-        m.spoke_supply_closed.with_label_values(&labels("KEEP")).set(1.0);
+        m.spoke_supply_closed
+            .with_label_values(&labels("KEEP"))
+            .set(1.0);
 
         m.prune_spoke_assets(&BTreeSet::new());
 
