@@ -9,6 +9,11 @@ flow_flash_loans() {
 
     sac_transfer "$ALICE" "$USDC_SAC" "$ALICE_ADDR" "$FLASH_RECEIVER" 50000000 fund_flash_receiver
 
+    inv flash_loan_set_plan "$ALICE" "$FLASH_RECEIVER" -- set_plan \
+        --controller "$CONTROLLER" --hub_id "$PRIMARY_HUB_ID" \
+        --spoke_id "$PRIMARY_SPOKE_ID" --account_id 0 >/dev/null \
+        || die flash_loan_set_plan "set_plan must succeed so reentry hits this controller"
+
     # The flash-loan fee is the protocol's whole economic interest in this path,
     # so assert it landed. A loan that returned successfully while booking no
     # fee would be a free borrow, invisible to a success-only check.
@@ -26,14 +31,31 @@ flow_flash_loans() {
         _assert_fail flash_loan_fee_booked "pool revenue $flash_rev_pre -> $flash_rev_post; want an increase from the flash-loan fee"
     fi
 
+    inv flash_loan_over_repay "$ALICE" "$CONTROLLER" -- flash_loan \
+        --caller "$ALICE_ADDR" --asset "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")" --amount 100000000 \
+        --receiver "$FLASH_RECEIVER" --data "$(flash_data_hex 6)" >/dev/null
+
     local mode name pattern
-    for mode in 1 2 3 4 5; do
+    local re_pattern='Error\(Contract, #400\)|InvalidAction|re-entry|Error\(Contract, #40[0-9]\)'
+    for mode in 1 2 3 4 5 7 8 9 10 11 12 13 14 15 16 17 18; do
         case $mode in
             1) name=no_repay; pattern='Error\(Contract, #402\)' ;;
             2) name=under_repay; pattern='Error\(Contract, #402\)' ;;
-            3) name=reenter_pool; pattern='InvalidAction|re-entry|Error\(Contract, #40[0-9]\)' ;;
+            3) name=reenter_pool; pattern="$re_pattern" ;;
             4) name=panic; pattern='Error\(Contract, #3\)|Trapped|Error\(Contract, #40[0-9]\)' ;;
-            5) name=reenter_supply; pattern='Error\(Contract, #40[0-9]\)|InvalidAction|re-entry' ;;
+            5) name=reenter_supply; pattern="$re_pattern" ;;
+            7) name=push_to_pool; pattern='Error\(Contract, #402\)' ;;
+            8) name=reenter_borrow; pattern="$re_pattern" ;;
+            9) name=reenter_withdraw; pattern="$re_pattern" ;;
+            10) name=reenter_repay; pattern="$re_pattern" ;;
+            11) name=reenter_flash_loan; pattern="$re_pattern" ;;
+            12) name=reenter_flash_position; pattern="$re_pattern" ;;
+            13) name=reenter_multiply; pattern="$re_pattern" ;;
+            14) name=reenter_swap_debt; pattern="$re_pattern" ;;
+            15) name=reenter_swap_collateral; pattern="$re_pattern" ;;
+            16) name=reenter_rdwc; pattern="$re_pattern" ;;
+            17) name=reenter_liquidate; pattern="$re_pattern" ;;
+            18) name=reenter_migrate; pattern="$re_pattern" ;;
         esac
         xfail "flash_loan_$name" "$pattern" "$ALICE" "$CONTROLLER" -- flash_loan \
             --caller "$ALICE_ADDR" --asset "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")" --amount 100000000 \

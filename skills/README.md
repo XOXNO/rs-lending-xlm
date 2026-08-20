@@ -18,6 +18,7 @@ Source of truth: contracts, interfaces, and tests (formulas doc must match).
 | Shared | [lending-protocol-fundamentals](./lending-protocol-fundamentals/SKILL.md) | Hubs/spokes/accounts, units, HF, address discipline |
 | On-chain (Rust) | [integrating-lending-from-soroban-contracts](./integrating-lending-from-soroban-contracts/SKILL.md) | Cross-contract supply/borrow/withdraw/repay |
 | On-chain (Rust) | [writing-flash-loan-receivers](./writing-flash-loan-receivers/SKILL.md) | `execute_flash_loan` receivers |
+| On-chain (Rust) | [writing-flash-position-receivers](./writing-flash-position-receivers/SKILL.md) | `execute_flash_position` receivers |
 | Views | [reading-lending-protocol-state](./reading-lending-protocol-state/SKILL.md) | HF, positions, rates, indexes, caps |
 | Off-chain (TS) | [using-lending-sdk](./using-lending-sdk/SKILL.md) | Tx builders, strategies, REST reads |
 | Off-chain (TS) | [building-lending-liquidation-bots](./building-lending-liquidation-bots/SKILL.md) | Detection, estimation, execution, bonus curve |

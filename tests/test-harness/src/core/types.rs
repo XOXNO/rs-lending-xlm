@@ -36,6 +36,9 @@ pub(crate) struct PendingMarket {
     pub configure_oracle: bool,
 
     pub freezable: bool,
+    pub shortfall_bps: i128,
+    pub extra_bps: i128,
+    pub transfer_hook: bool,
 }
 
 impl PendingMarket {
@@ -49,6 +52,9 @@ impl PendingMarket {
             params: preset.params,
             configure_oracle: true,
             freezable: false,
+            shortfall_bps: 0,
+            extra_bps: 0,
+            transfer_hook: false,
         }
     }
 }
@@ -73,4 +79,7 @@ pub struct LendingTest {
     pub position_nft_wasm_hash: soroban_sdk::BytesN<32>,
     pub users: HashMap<String, UserState>,
     pub markets: HashMap<String, MarketState>,
+    /// Approved MockBlend pool for `migrate_from_blend` fuzz/unit helpers.
+    /// `None` until `ensure_approved_blend` registers one.
+    pub blend_pool: Option<Address>,
 }

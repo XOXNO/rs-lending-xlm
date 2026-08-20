@@ -96,7 +96,7 @@ fn event_account_attributes_from_account_owner_spoke_mode() {
     assert_eq!(attrs.2, EventPositionMode::Long);
 }
 
-const PUBLISHED_EVENT_COUNT: usize = 10;
+const PUBLISHED_EVENT_COUNT: usize = 11;
 
 #[test]
 fn every_event_helper_publishes_exactly_one_event() {
@@ -163,6 +163,19 @@ fn every_event_helper_publishes_exactly_one_event() {
         }
         .publish(&env);
         assert_one_more(&mut published, "FlashLoanEvent");
+
+        FlashPositionEvent {
+            account_id: 1,
+            hub_id: 1,
+            asset: asset.clone(),
+            receiver: caller.clone(),
+            caller: caller.clone(),
+            amount: 0,
+            amount_received: 0,
+            fee: 0,
+        }
+        .publish(&env);
+        assert_one_more(&mut published, "FlashPositionEvent");
 
         LiquidationEvent {
             liquidator: caller.clone(),

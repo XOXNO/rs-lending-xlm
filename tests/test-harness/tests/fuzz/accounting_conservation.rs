@@ -1,16 +1,83 @@
 use crate::config::config;
 use crate::ops::{capture_indexes, execute_op, op_strategy, LendingOp, ASSETS, USERS};
+use crate::strategy_helpers::{flash_guard_cleared, router_allowance};
 use proptest::prelude::*;
+use soroban_sdk::token;
 use test_harness::{hub_asset, seed_fuzz_conservation_book, LendingTest};
 
 const TOLERANCE_UNITS: i128 = 4;
 
 fn sum_supply(t: &test_harness::LendingTest, asset: &str) -> i128 {
-    USERS.iter().map(|u| t.supply_balance_raw(u, asset)).sum()
+    USERS
+        .iter()
+        .map(|u| sum_user_side(t, u, asset, false))
+        .sum()
 }
 
 fn sum_borrow(t: &test_harness::LendingTest, asset: &str) -> i128 {
-    USERS.iter().map(|u| t.borrow_balance_raw(u, asset)).sum()
+    USERS.iter().map(|u| sum_user_side(t, u, asset, true)).sum()
+}
+
+fn sum_user_side(t: &test_harness::LendingTest, user: &str, asset: &str, borrow: bool) -> i128 {
+    let Some(state) = t.users.get(user) else {
+        return 0;
+    };
+    if state.accounts.is_empty() {
+        return if borrow {
+            t.borrow_balance_raw(user, asset)
+        } else {
+            t.supply_balance_raw(user, asset)
+        };
+    }
+    state
+        .accounts
+        .iter()
+        .map(|entry| {
+            if borrow {
+                t.borrow_balance_raw_for(entry.account_id, asset)
+            } else {
+                t.supply_balance_raw_for(entry.account_id, asset)
+            }
+        })
+        .sum()
+}
+
+fn controller_balance(t: &LendingTest, asset: &str) -> i128 {
+    let market = t.resolve_market(asset);
+    token::Client::new(&t.env, &market.asset).balance(&t.controller)
+}
+
+fn assert_strategy_hygiene(
+    step: usize,
+    op: &LendingOp,
+    t: &LendingTest,
+) -> Result<(), TestCaseError> {
+    prop_assert!(
+        flash_guard_cleared(t),
+        "step {} {:?}: flash guard still set",
+        step,
+        op
+    );
+    for asset in &ASSETS {
+        prop_assert_eq!(
+            router_allowance(t, asset),
+            0,
+            "step {} {:?}: {} router allowance leaked",
+            step,
+            op,
+            asset
+        );
+        let leftover = controller_balance(t, asset);
+        prop_assert!(
+            leftover.abs() <= TOLERANCE_UNITS,
+            "step {} {:?}: controller leftover {} of {}",
+            step,
+            op,
+            leftover,
+            asset
+        );
+    }
+    Ok(())
 }
 
 struct PoolSnapshot {
@@ -97,6 +164,7 @@ proptest! {
 
         for (i, op) in ops.iter().enumerate() {
             execute_op(&mut t, op);
+            assert_strategy_hygiene(i, op, &t)?;
 
             for asset in &ASSETS {
                 assert_accounting_laws(i, op, asset, &pool_snapshot(&t, asset))?;

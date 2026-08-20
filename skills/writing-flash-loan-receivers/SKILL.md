@@ -7,6 +7,10 @@ description: Use when writing a Soroban flash-loan receiver contract for XOXNO L
 
 **REQUIRED BACKGROUND:** the `lending-protocol-fundamentals` skill.
 
+This skill is the **cash** flash loan (`execute_flash_loan`, repay principal
+plus fee). For leaving debt on a healthy account after an external swap, use
+`writing-flash-position-receivers` — do not reuse this callback.
+
 ## Overview
 
 Flash loans start at the controller and execute in the pool: the pool
@@ -81,16 +85,20 @@ token::Client::new(&env, &asset)
     .approve(&env.current_contract_address(), &pool, &total, &expiration);
 ```
 
-A reference implementation exercising all success/failure modes lives at
-`mock/flash-loan-receiver/src/lib.rs` in the protocol repo.
+A reference implementation exercising success, repay-shortfall, direct-push,
+and nested controller/strategy reentry lives at
+`mock/flash-loan-receiver/src/lib.rs` in the protocol repo. Harness tests that
+must actually hit the deployed controller call `set_plan` first.
 
 ## Security requirements for production receivers
 
 - **Gate the caller.** The reference receiver (`mock/flash-loan-receiver/`) is test-only/adversarial harness (multi-mode XDR for smoke/fuzz); a
   production receiver MUST verify the invoker is the trusted pool (or
   controller) before acting on `data`.
-- **Reentrancy is blocked protocol-side** (shared `FlashLoanOngoing` guard with strategies) — re-entering `flash_loan` or
-  controller verbs from the callback reverts — but treat `data` as untrusted
+- **Reentrancy is blocked protocol-side** (shared `FlashLoanOngoing` guard with strategies) — re-entering `flash_loan`,
+  `flash_position`, `multiply` / `swap_*` / `repay_debt_with_collateral` /
+  `migrate_from_blend`, or the basic `supply` / `borrow` / `withdraw` / `repay` /
+  `liquidate` verbs from the callback reverts — but treat `data` as untrusted
   input regardless.
 - **Approve exactly `amount + fee`** with a short expiration ledger; a
   standing unlimited allowance is a drain vector if the pool address in your

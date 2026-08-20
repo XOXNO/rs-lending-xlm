@@ -15,6 +15,8 @@ pub mod oracle;
 pub mod prelude;
 pub mod presets;
 pub mod receivers;
+
+pub use receivers::flash_position::{FlashPositionMode, FlashPositionRequest};
 mod revenue;
 mod setup;
 mod strategy;
@@ -45,6 +47,7 @@ pub mod mock_blend;
 pub mod mock_redstone;
 pub mod mock_reflector;
 pub mod mock_sac;
+pub mod weird_token;
 
 #[cfg(feature = "reference-math")]
 pub mod reference;

@@ -1,4 +1,4 @@
-RPC_TRANSIENT_RE='rejected .?50[0-9]|status_code: 50[0-9]|No status yet|Transport\(Rejected|error sending request|timed out|timeout|connection (reset|refused|closed)|tcp connect error|temporarily unavailable|TxBadSeq|tx_bad_seq|not present in the snapshot'
+RPC_TRANSIENT_RE='rejected .?50[0-9]|status_code: 50[0-9]|No status yet|Transport\(Rejected|error sending request|SendRequest|client error|timed out|timeout|connection (reset|refused|closed)|tcp connect error|temporarily unavailable|TxBadSeq|tx_bad_seq|not present in the snapshot'
 
 DEPLOY_PROPAGATION_RE='Contract not found|non-existing value for contract instance'
 

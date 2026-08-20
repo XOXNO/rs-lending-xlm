@@ -41,6 +41,7 @@ decodes.
 | `position:batch_update` | account position deltas (the workhorse — see actions below) |
 | `position:liquidation` | liquidation summary for an account |
 | `position:flash_loan` | flash loan executed |
+| `position:flash_position` | `FlashPositionEvent`: debt mint summary (`amount`, `amount_received`, `fee` always 0). Collateral is **not** in this payload. |
 | `debt:bad_debt` | bad debt cleaned/socialized |
 | `strategy:initial_payment` / `strategy:fee` | strategy verb legs |
 | `market:create` / `market:params_update` | market lifecycle |
@@ -91,12 +92,16 @@ The discriminants, in contract order:
 | 13 | `Migrate` |
 | 14 | `RpColNet` |
 | 15 | `LiqCredit` |
+| 16 | `FlashPos` |
 
-The SDK maps 0–12 to a frozen legacy string table (`supply`, `borrow`,
+The SDK maps 0-12 to a frozen legacy string table (`supply`, `borrow`,
 `withdraw`, `repay`, `liq_repay`, `liq_seize`, `multiply`, `param_upd`,
 `sw_debt_r`, `sw_col_wd`, `rp_col_wd`, `rp_col_r`, `close_wd`) and surfaces
-the newer ones as raw discriminant strings, so don't treat unknown action
-strings as errors.
+the newer ones as raw discriminant strings (`'13'`, `'16'`, ...), so don't
+treat unknown action strings as errors.
+
+`FlashPos` (16) is the **debt mint** of `flash_position`. Callback collateral
+in the same batch is still `Supply`.
 
 ### `LiqSeize` (5) versus `LiqCredit` (15)
 

@@ -75,6 +75,11 @@ impl LendingTest {
         tok.balance(&user_state.address)
     }
 
+    pub fn controller_token_balance_raw(&self, asset_name: &str) -> i128 {
+        let market = self.resolve_market(asset_name);
+        token::Client::new(&self.env, &market.asset).balance(&self.controller)
+    }
+
     pub fn supply_balance(&self, user: &str, asset_name: &str) -> f64 {
         let decimals = self.resolve_market(asset_name).decimals;
         i128_to_f64(self.supply_balance_raw(user, asset_name), decimals)
@@ -87,6 +92,11 @@ impl LendingTest {
                 self.position_balance_raw(account_id, &asset, AccountPositionType::Deposit)
             })
             .unwrap_or(0)
+    }
+
+    pub fn supply_balance_raw_for(&self, account_id: u64, asset_name: &str) -> i128 {
+        let asset = self.resolve_asset(asset_name);
+        self.position_balance_raw(account_id, &asset, AccountPositionType::Deposit)
     }
 
     pub fn supply_balance_for(&self, _user: &str, account_id: u64, asset_name: &str) -> f64 {
@@ -110,6 +120,11 @@ impl LendingTest {
                 self.position_balance_raw(account_id, &asset, AccountPositionType::Borrow)
             })
             .unwrap_or(0)
+    }
+
+    pub fn borrow_balance_raw_for(&self, account_id: u64, asset_name: &str) -> i128 {
+        let asset = self.resolve_asset(asset_name);
+        self.position_balance_raw(account_id, &asset, AccountPositionType::Borrow)
     }
 
     pub fn borrow_balance_for(&self, _user: &str, account_id: u64, asset_name: &str) -> f64 {

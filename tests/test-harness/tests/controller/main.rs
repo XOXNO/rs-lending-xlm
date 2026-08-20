@@ -13,6 +13,7 @@ mod bulk_indexes;
 mod decimal_diversity;
 mod events;
 mod flash_loan;
+mod flash_loan_adversarial;
 mod keeper;
 mod liquidation;
 mod liquidation_boundary;

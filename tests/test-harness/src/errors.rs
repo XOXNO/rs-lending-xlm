@@ -16,6 +16,7 @@ pub mod codes {
     pub const INVALID_ROLE: u32 = GenericError::InvalidRole as u32;
     pub const BLEND_POOL_NOT_APPROVED: u32 = GenericError::BlendPoolNotApproved as u32;
     pub const NOT_AUTHORIZED: u32 = GenericError::NotAuthorized as u32;
+    pub const INTERNAL_ERROR: u32 = GenericError::InternalError as u32;
     pub const ACCOUNT_NOT_FOUND: u32 = GenericError::AccountNotFound as u32;
     pub const POSITION_NFT_ALREADY_DEPLOYED: u32 = GenericError::PositionNftAlreadyDeployed as u32;
 
@@ -75,6 +76,9 @@ pub mod codes {
     pub const CONVERT_STEPS_REQUIRED: u32 = StrategyError::ConvertStepsRequired as u32;
     pub const ROUTER_OVERSPEND: u32 = StrategyError::RouterOverspend as u32;
     pub const NO_SWAP_OUTPUT: u32 = StrategyError::NoSwapOutput as u32;
+    pub const COLLATERAL_REQUIRED: u32 = StrategyError::CollateralRequired as u32;
+    pub const COLLATERAL_MINIMUM_NOT_MET: u32 = StrategyError::CollateralMinimumNotMet as u32;
+    pub const FLASH_POSITION_CLOSED: u32 = StrategyError::FlashPositionClosed as u32;
 
     // Literals below come from OpenZeppelin stellar libraries, which expose no
     // error enums to derive from: stellar-contract-utils pausable (1000),

@@ -23,6 +23,16 @@ RUN_TS=$(date +%Y%m%d-%H%M%S) bash tests/integration/scenarios/parallel_e2e.sh
 # Single serial world (debugging / resume): every flow against one deploy:
 RUN_TS=$(date +%Y%m%d-%H%M%S) bash tests/integration/scenarios/full_e2e.sh
 
+# Focused live `flash_position` only (fresh controller wasm + mock receiver):
+make integration-flash-position
+# or:
+RUN_TS=$(date +%Y%m%d-%H%M%S) bash tests/integration/scenarios/flash_position.sh
+
+# Focused live `migrate_from_blend` against the real Blend TestnetV2 pool:
+make integration-blend
+# or:
+RUN_TS=$(date +%Y%m%d-%H%M%S) bash tests/integration/scenarios/blend.sh
+
 # Subset of phases, resuming an existing run's contracts/wallets:
 PHASES="liquidation stress" RUN_TS=<existing> bash tests/integration/scenarios/full_e2e.sh
 
@@ -140,6 +150,8 @@ from `stellar-access`.
 |---|---|
 | `lifecycle.sh` | real markets (XLM/USDC/EURC on Reflector), aggregator funding, supply/borrow/repay/withdraw single + bulk, cross-account repay, views, guard reverts (`#14 AmountMustBePositive` on zero, `#100 InsufficientCollateral` over LTV) |
 | `strategies.sh` | flash loan success + all 5 failure modes, multiply long/short, swap_debt, swap_collateral, repay_debt_with_collateral (all via aggregator routes) |
+| `flash_position.sh` | live `flash_position`: account_id=0 and existing, same-asset, min-borrow floor, caps/util/liquidity, spoke 0/unknown/deprecated, frozen, is_flashloanable=false |
+| `blend.sh` | live `migrate_from_blend` vs Blend TestnetV2: allowlist, empty/dup/unapproved/unlisted/auth/spoke/hub/pause/frozen/not-collateral/not-borrowable rejects, coll/supply/debt migrates, zero-liability refund, existing merge, delegate, remigrate-empty, cap/min-borrow/unhealthy |
 | `liquidation.sh` | partial / full / bulk multi-debt liquidation, spoke liquidation, clean_bad_debt socialization, healthy-account guards (`#101 HealthFactorTooHigh`) |
 | `defindex.sh` | DeFindex strategy vault lifecycle over its own mock collateral (runs in the `liq` lane) |
 | `admin.sh` | pause gates (`#1000 EnforcedPause` / `#1001 ExpectedPause`), position limits, param/config edits with read-back (`#113 InvalidLiqThreshold` bounds), oracle tolerance (resolve→set, owner-auth guard) and the sanity band (`#223 SanityBoundViolated`), `set_min_borrow_collateral_usd` (set/read/`#126 MinBorrowCollateralNotMet` effect/reset/`#116 InvalidBorrowParams`), permissionless keeper/revenue paths, spoke admin lifecycle (`#301 SpokeDeprecated`), upgrade (pauses by design) + migrate + 2-step ownership round-trip |

@@ -618,3 +618,16 @@ reverts `BlendPoolNotApproved`.
 `contracts/controller/src/storage/protocol.rs` (`is_blend_pool_approved`).
 VERIFIED — `tests/test-harness/tests/strategy/migrate_blend.rs`
 (`test_migrate_unapproved_blend_pool_reverts`).
+
+### INV-STRAT-04 — Flash position cannot round-trip to a closed account
+
+`flash_position` mints strategy debt with no flash fee and never repays that
+debt in the same call. The receiver's only protocol-side settlement is a
+measured collateral deposit onto the same account, followed by ordinary
+solvency gates. After a successful call the account must still hold that
+debt **and** at least one supply position (`FlashPositionClosed` otherwise).
+It must not become a free cash flash loan.
+
+**Status:** ENFORCED — `contracts/controller/src/strategies/flash_position.rs`
+(`FlashPositionClosed`, `common/src/errors.rs` 505) and the shared
+`strategy_finalize` gate in `contracts/controller/src/strategies/mod.rs`.

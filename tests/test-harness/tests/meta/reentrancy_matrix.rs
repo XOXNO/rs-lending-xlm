@@ -77,6 +77,24 @@ fn test_all_state_changing_entries_reject_under_flash_loan_ongoing() {
         errors::FLASH_LOAN_ONGOING,
     );
 
+    let flash_pos_receiver = t.deploy_flash_position_receiver();
+    let mut mins = soroban_sdk::Vec::new(&t.env);
+    mins.push_back((test_harness::hub_asset(t.resolve_asset("USDC")), 1i128));
+    assert_contract_error(
+        t.try_flash_position(
+            BOB,
+            0,
+            PositionMode::Multiply,
+            "ETH",
+            1.0,
+            &flash_pos_receiver,
+            &Bytes::new(&t.env),
+            &mins,
+            &soroban_sdk::Vec::new(&t.env),
+        ),
+        errors::FLASH_LOAN_ONGOING,
+    );
+
     t.set_flash_loan_ongoing(false);
 
     t.fund_router("USDC", 3_000.0);

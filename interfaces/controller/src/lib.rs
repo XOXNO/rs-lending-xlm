@@ -57,6 +57,20 @@ pub trait ControllerInterface {
         data: Bytes,
     );
 
+    fn flash_position(
+        env: Env,
+        caller: Address,
+        account_id: u64,
+        spoke_id: u32,
+        mode: PositionMode,
+        debt: HubAssetKey,
+        amount: i128,
+        receiver: Address,
+        data: Bytes,
+        collaterals: Vec<(HubAssetKey, i128)>,
+        refund_assets: Vec<Address>,
+    ) -> u64;
+
     fn multiply(
         env: Env,
         caller: Address,

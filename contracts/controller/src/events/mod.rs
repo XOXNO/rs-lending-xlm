@@ -74,6 +74,8 @@ pub enum PositionAction {
     /// one tag carrying both senses would silently overstate a liquidator's
     /// proceeds by the fee.
     LiqCredit = 15,
+    /// Strategy-debt mint for `flash_position`.
+    FlashPos = 16,
 }
 
 /// Tuple of `(action, hub_id, asset, scaled_amount, index_ray, amount,

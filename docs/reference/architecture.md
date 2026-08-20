@@ -69,9 +69,12 @@ transfers the position. See
    The controller uses a complete price snapshot and rechecks solvency.
 3. Interest updates indexes. Shares retain their quantity while their asset
    value changes with the relevant index.
-4. A healthy user can repay or withdraw subject to authorization and risk
+4. `flash_position` mints strategy debt with no flash fee, lets a Wasm
+   receiver swap externally, and deposits measured collateral onto the same
+   account if solvency still holds.
+5. A healthy user can repay or withdraw subject to authorization and risk
    gates. A third party can repay.
-5. If health falls below one, a liquidator repays debt and receives discounted
+6. If health falls below one, a liquidator repays debt and receives discounted
    collateral. Any residual eligible bad debt can be socialized within that
    market’s supplier index.
 
@@ -103,6 +106,13 @@ or pool state.
 Indexers key swap-debt opens on `SwDebtR`, must not assume bad-debt cleanup
 precedes the position batch, and must not assume one liquidation produces one
 position batch.
+
+`flash_position` adds a fourth observer-facing shape. The summary event is
+`position:flash_position` (`FlashPositionEvent`: account, debt asset, receiver,
+gross `amount`, measured `amount_received`, `fee` always 0). In the position
+batch, the strategy-debt mint is `FlashPos` (16). Collateral deposited from
+the callback is tagged `Supply`, the same as an ordinary deposit — do not
+read `FlashPos` as the collateral leg.
 
 ### `LiqSeize` is gross, `LiqCredit` is net
 

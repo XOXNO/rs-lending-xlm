@@ -1,4 +1,20 @@
-use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, Env, Map, Vec};
+use common::types::HubAssetKey;
+use soroban_sdk::{
+    contract, contractclient, contracterror, contractimpl, contracttype, Address, Env, Map, Vec,
+};
+
+use crate::helpers::{HARNESS_HUB, HARNESS_SPOKE};
+
+#[contractclient(name = "BlendHookControllerClient")]
+pub trait BlendHookController {
+    fn supply(
+        env: Env,
+        caller: Address,
+        account_id: u64,
+        spoke_id: u32,
+        assets: Vec<(HubAssetKey, i128)>,
+    ) -> u64;
+}
 
 const REQ_WITHDRAW: u32 = 1;
 const REQ_WITHDRAW_COLLATERAL: u32 = 3;
@@ -39,6 +55,7 @@ enum Key {
     Liability(Address, Address),
 
     LiabAssets(Address),
+    Hook,
 }
 
 #[contract]
@@ -47,6 +64,12 @@ pub struct MockBlend;
 #[contractimpl]
 impl MockBlend {
     pub fn __constructor(_env: Env) {}
+
+    /// After `submit` starts, try to `supply` 1 unit onto the controller.
+    /// Used to prove `guarded_submit` holds the flash-loan flag.
+    pub fn set_hook(env: Env, controller: Address) {
+        env.storage().instance().set(&Key::Hook, &controller);
+    }
 
     pub fn seed(env: Env, user: Address, asset: Address, kind: u32, amount: i128) {
         env.storage()
@@ -74,6 +97,28 @@ impl MockBlend {
         spender.require_auth();
         if from != spender {
             from.require_auth();
+        }
+
+        if let Some(controller) = env.storage().instance().get::<Key, Address>(&Key::Hook) {
+            let hook_asset = if requests.is_empty() {
+                from.clone()
+            } else {
+                requests.get(0).unwrap().address
+            };
+            let mut assets: Vec<(HubAssetKey, i128)> = Vec::new(&env);
+            assets.push_back((
+                HubAssetKey {
+                    hub_id: HARNESS_HUB,
+                    asset: hook_asset,
+                },
+                1i128,
+            ));
+            BlendHookControllerClient::new(&env, &controller).supply(
+                &env.current_contract_address(),
+                &0u64,
+                &HARNESS_SPOKE,
+                &assets,
+            );
         }
 
         let pool = env.current_contract_address();

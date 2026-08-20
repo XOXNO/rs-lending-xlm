@@ -556,3 +556,297 @@ fn net_settle_pivot_never_leaves_zero_scaled_records(
     cvlr_assert!(supply.map_or(true, |p| p.scaled_amount > 0));
     cvlr_assert!(debt.map_or(true, |p| p.scaled_amount > 0));
 }
+
+#[rule]
+fn flash_position_rejects_empty_collaterals(
+    e: Env,
+    caller: Address,
+    receiver: Address,
+    debt_token: Address,
+    amount: i128,
+) {
+    cvlr_assume!(amount > 0);
+    crate::spec::fixture::seed_market(&e, &debt_token);
+
+    crate::Controller::flash_position(
+        e.clone(),
+        caller,
+        0,
+        crate::spec::fixture::SPOKE_ID,
+        crate::types::PositionMode::Multiply,
+        hub0(debt_token),
+        amount,
+        receiver,
+        soroban_sdk::Bytes::new(&e),
+        soroban_sdk::Vec::new(&e),
+        soroban_sdk::Vec::new(&e),
+    );
+
+    cvlr_assert!(false);
+}
+
+#[rule]
+fn flash_position_rejects_zero_amount(
+    e: Env,
+    caller: Address,
+    receiver: Address,
+    debt_token: Address,
+    collateral_token: Address,
+) {
+    crate::spec::fixture::seed_market(&e, &debt_token);
+    crate::spec::fixture::seed_market(&e, &collateral_token);
+
+    crate::spec::compat::flash_position_minimal(
+        e,
+        caller,
+        0,
+        crate::spec::fixture::SPOKE_ID,
+        1,
+        debt_token,
+        0,
+        receiver,
+        collateral_token,
+        crate::constants::WAD,
+    );
+
+    cvlr_assert!(false);
+}
+
+#[rule]
+fn flash_position_rejects_all_zero_mins(
+    e: Env,
+    caller: Address,
+    receiver: Address,
+    debt_token: Address,
+    collateral_token: Address,
+    amount: i128,
+) {
+    cvlr_assume!(amount > 0);
+    crate::spec::fixture::seed_market(&e, &debt_token);
+    crate::spec::fixture::seed_market(&e, &collateral_token);
+
+    crate::spec::compat::flash_position_minimal(
+        e,
+        caller,
+        0,
+        crate::spec::fixture::SPOKE_ID,
+        1,
+        debt_token,
+        amount,
+        receiver,
+        collateral_token,
+        0,
+    );
+
+    cvlr_assert!(false);
+}
+
+#[rule]
+fn flash_position_rejects_duplicate_collateral_asset(
+    e: Env,
+    caller: Address,
+    receiver: Address,
+    debt_token: Address,
+    collateral_token: Address,
+    amount: i128,
+) {
+    cvlr_assume!(amount > 0);
+    crate::spec::fixture::seed_market(&e, &debt_token);
+    crate::spec::fixture::seed_market(&e, &collateral_token);
+
+    let mut collaterals = soroban_sdk::Vec::new(&e);
+    let key = hub0(collateral_token);
+    collaterals.push_back((key.clone(), crate::constants::WAD));
+    collaterals.push_back((key, crate::constants::WAD));
+
+    crate::Controller::flash_position(
+        e.clone(),
+        caller,
+        0,
+        crate::spec::fixture::SPOKE_ID,
+        crate::types::PositionMode::Multiply,
+        hub0(debt_token),
+        amount,
+        receiver,
+        soroban_sdk::Bytes::new(&e),
+        collaterals,
+        soroban_sdk::Vec::new(&e),
+    );
+
+    cvlr_assert!(false);
+}
+
+#[rule]
+fn flash_position_guard_blocks_entrypoint(
+    e: Env,
+    caller: Address,
+    receiver: Address,
+    debt_token: Address,
+    collateral_token: Address,
+    amount: i128,
+) {
+    cvlr_assume!(amount > 0);
+    crate::storage::set_flash_loan_ongoing(&e, true);
+    crate::spec::fixture::seed_market(&e, &debt_token);
+    crate::spec::fixture::seed_market(&e, &collateral_token);
+
+    crate::spec::compat::flash_position_minimal(
+        e,
+        caller,
+        0,
+        crate::spec::fixture::SPOKE_ID,
+        1,
+        debt_token,
+        amount,
+        receiver,
+        collateral_token,
+        crate::constants::WAD,
+    );
+
+    cvlr_assert!(false);
+}
+
+#[rule]
+fn flash_position_open_rejects_empty_account(e: Env, debt_token: Address) {
+    let account = crate::types::Account {
+        owner: cvlr_soroban::nondet_address(),
+        spoke_id: crate::spec::fixture::SPOKE_ID,
+        mode: crate::types::PositionMode::Multiply,
+        supply_positions: soroban_sdk::Map::new(&e),
+        borrow_positions: soroban_sdk::Map::new(&e),
+    };
+    crate::strategies::flash_position::require_flash_position_still_open(
+        &e,
+        &account,
+        &hub0(debt_token),
+    );
+    cvlr_assert!(false);
+}
+
+#[rule]
+fn flash_position_open_rejects_debt_free(e: Env, debt_token: Address, collateral_token: Address) {
+    crate::spec::fixture::seed_market(&e, &collateral_token);
+    let mut supply = soroban_sdk::Map::new(&e);
+    supply.set(
+        hub0(collateral_token),
+        crate::types::AccountPositionRaw {
+            scaled_amount: crate::constants::RAY,
+            liquidation_threshold: 8_000,
+            liquidation_bonus: 500,
+            loan_to_value: 7_500,
+            liquidation_fees: 100,
+        },
+    );
+    let account = crate::types::Account {
+        owner: cvlr_soroban::nondet_address(),
+        spoke_id: crate::spec::fixture::SPOKE_ID,
+        mode: crate::types::PositionMode::Multiply,
+        supply_positions: supply,
+        borrow_positions: soroban_sdk::Map::new(&e),
+    };
+    crate::strategies::flash_position::require_flash_position_still_open(
+        &e,
+        &account,
+        &hub0(debt_token),
+    );
+    cvlr_assert!(false);
+}
+
+#[rule]
+fn flash_position_success_leaves_debt_and_supply(
+    e: Env,
+    caller: Address,
+    receiver: Address,
+    debt_token: Address,
+    collateral_token: Address,
+) {
+    let amount = crate::constants::WAD;
+    cvlr_assume!(debt_token != collateral_token);
+    crate::spec::fixture::seed_market(&e, &debt_token);
+    crate::spec::fixture::seed_market(&e, &collateral_token);
+
+    let account_id = crate::spec::compat::flash_position_minimal(
+        e.clone(),
+        caller,
+        0,
+        crate::spec::fixture::SPOKE_ID,
+        1,
+        debt_token.clone(),
+        amount,
+        receiver,
+        collateral_token.clone(),
+        amount,
+    );
+
+    let account = crate::storage::get_account(&e, account_id);
+    cvlr_assert!(!account.debt_free());
+    cvlr_assert!(!account.supply_positions.is_empty());
+    let debt = account.borrow_positions.get(hub0(debt_token));
+    cvlr_assert!(debt.is_some());
+    cvlr_assert!(debt.unwrap().scaled_amount > 0);
+}
+
+#[rule]
+fn flash_position_does_not_change_other_account(
+    e: Env,
+    caller: Address,
+    receiver: Address,
+    debt_token: Address,
+    collateral_token: Address,
+) {
+    let amount = crate::constants::WAD;
+    let other_account: u64 = 2;
+    cvlr_assume!(debt_token != collateral_token);
+    crate::spec::fixture::seed_market(&e, &debt_token);
+    crate::spec::fixture::seed_market(&e, &collateral_token);
+    crate::spec::fixture::seed_account(&e, other_account, &caller);
+
+    let other_supply_before = crate::storage::get_supply_positions(&e, other_account).len();
+    let other_debt_before = crate::storage::get_debt_positions(&e, other_account).len();
+
+    let _ = crate::spec::compat::flash_position_minimal(
+        e.clone(),
+        caller,
+        0,
+        crate::spec::fixture::SPOKE_ID,
+        1,
+        debt_token,
+        amount,
+        receiver,
+        collateral_token,
+        amount,
+    );
+
+    cvlr_assert!(
+        crate::storage::get_supply_positions(&e, other_account).len() == other_supply_before
+    );
+    cvlr_assert!(crate::storage::get_debt_positions(&e, other_account).len() == other_debt_before);
+}
+
+#[rule]
+fn flash_position_sanity(
+    e: Env,
+    caller: Address,
+    receiver: Address,
+    debt_token: Address,
+    collateral_token: Address,
+) {
+    cvlr_assume!(debt_token != collateral_token);
+    crate::spec::fixture::seed_market(&e, &debt_token);
+    crate::spec::fixture::seed_market(&e, &collateral_token);
+
+    let account_id = crate::spec::compat::flash_position_minimal(
+        e,
+        caller,
+        0,
+        crate::spec::fixture::SPOKE_ID,
+        1,
+        debt_token,
+        crate::constants::WAD,
+        receiver,
+        collateral_token,
+        crate::constants::WAD,
+    );
+    let _ = account_id;
+    cvlr_satisfy!(true);
+}

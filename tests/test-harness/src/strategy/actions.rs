@@ -1,4 +1,5 @@
 use controller::types::{PositionMode, StrategySwap};
+use soroban_sdk::{Address, Bytes, Vec};
 
 use crate::core::{AccountEntry, LendingTest};
 use crate::helpers::{f64_to_i128, hub_asset, HARNESS_SPOKE};
@@ -287,6 +288,84 @@ impl LendingTest {
         ) {
             Ok(Ok(())) => Ok(()),
             Ok(Err(err)) => Err(err.into()),
+            Err(e) => Err(e.expect("expected contract error, got InvokeError")),
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn flash_position(
+        &mut self,
+        user: &str,
+        account_id: u64,
+        mode: PositionMode,
+        debt_asset: &str,
+        debt_amount: f64,
+        receiver: &Address,
+        data: &Bytes,
+        collaterals: &Vec<(controller::types::HubAssetKey, i128)>,
+        refund_assets: &Vec<Address>,
+    ) -> u64 {
+        self.try_flash_position(
+            user,
+            account_id,
+            mode,
+            debt_asset,
+            debt_amount,
+            receiver,
+            data,
+            collaterals,
+            refund_assets,
+        )
+        .expect("flash_position")
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn try_flash_position(
+        &mut self,
+        user: &str,
+        account_id: u64,
+        mode: PositionMode,
+        debt_asset: &str,
+        debt_amount: f64,
+        receiver: &Address,
+        data: &Bytes,
+        collaterals: &Vec<(controller::types::HubAssetKey, i128)>,
+        refund_assets: &Vec<Address>,
+    ) -> Result<u64, soroban_sdk::Error> {
+        let decimals = self.resolve_market(debt_asset).decimals;
+        let raw_debt = f64_to_i128(debt_amount, decimals);
+        let caller_addr = self.get_or_create_user(user);
+        let debt = hub_asset(self.resolve_asset(debt_asset));
+        let ctrl = self.ctrl_client();
+
+        match ctrl.try_flash_position(
+            &caller_addr,
+            &account_id,
+            &HARNESS_SPOKE,
+            &mode,
+            &debt,
+            &raw_debt,
+            receiver,
+            data,
+            collaterals,
+            refund_assets,
+        ) {
+            Ok(Ok(id)) => {
+                if account_id == 0 {
+                    let attrs = ctrl.get_account_attributes(&id);
+                    let user_state = self.users.get_mut(user).expect("user exists");
+                    user_state.accounts.push(AccountEntry {
+                        account_id: id,
+                        spoke_id: attrs.spoke_id,
+                        mode: attrs.mode,
+                    });
+                    if user_state.default_account_id.is_none() {
+                        user_state.default_account_id = Some(id);
+                    }
+                }
+                Ok(id)
+            }
+            Ok(Err(err)) => Err(err),
             Err(e) => Err(e.expect("expected contract error, got InvokeError")),
         }
     }

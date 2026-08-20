@@ -148,6 +148,44 @@ pub fn multiply_minimal(
     )
 }
 
+pub fn flash_position_minimal(
+    env: Env,
+    caller: Address,
+    account_id: u64,
+    spoke_id: u32,
+    mode: u32,
+    debt_token: Address,
+    amount: i128,
+    receiver: Address,
+    collateral_token: Address,
+    min_amount: i128,
+) -> u64 {
+    let mode = match mode {
+        0 => PositionMode::Normal,
+        1 => PositionMode::Multiply,
+        2 => PositionMode::Long,
+        3 => PositionMode::Short,
+        _ => panic!("invalid strategy mode for certora compat"),
+    };
+    let mut collaterals: Vec<(HubAssetKey, i128)> = Vec::new(&env);
+    collaterals.push_back((primary_hub(collateral_token), min_amount));
+    let data = soroban_sdk::Bytes::new(&env);
+    let refunds = Vec::new(&env);
+    crate::Controller::flash_position(
+        env,
+        caller,
+        account_id,
+        spoke_id,
+        mode,
+        primary_hub(debt_token),
+        amount,
+        receiver,
+        data,
+        collaterals,
+        refunds,
+    )
+}
+
 pub fn repay_debt_with_collateral_minimal(
     env: Env,
     caller: Address,

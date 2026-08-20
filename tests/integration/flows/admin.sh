@@ -150,6 +150,9 @@ assert_bool_view blend_pool_false false is_blend_pool_approved --pool "$blend_po
 inv blend_pool_reapprove "$ADMIN" "$CONTROLLER" -- approve_blend_pool --pool "$blend_pool" >/dev/null
 assert_bool_view blend_pool_reapproved true is_blend_pool_approved --pool "$blend_pool"
 if [ "${BLEND_MIGRATION_LIVE:-0}" = "1" ]; then
+# Full live edge coverage lives in tests/integration/scenarios/blend.sh
+# (make integration-blend). This flag keeps a single happy-path migrate in
+# the admin lane for CI that opts in.
 
 local coll_amt supply_amt debt_amt debt_cap seed_requests coll_json supply_json debt_json migrate_acct
 coll_amt="${BLEND_XLM_COLLATERAL_AMOUNT:-${BLEND_XLM_AMOUNT:-2000000000}}"

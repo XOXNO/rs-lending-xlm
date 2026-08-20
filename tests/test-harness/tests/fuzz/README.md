@@ -30,6 +30,7 @@ harness suite runs at libtest's default of one thread per core.
 | `ops.rs` | Shared `LendingOp` alphabet and index capture for conservation |
 | `strategy_helpers.rs` | Router allowance and flash-loan guard checks |
 | `accounting_conservation.rs` | Pool accounting laws + index monotonicity |
+| `migrate_blend.rs` | MockBlend `migrate_from_blend` reconciliation + generated rejects |
 | `privileged_auth_rejects.rs` | Deterministic owner and role auth matrices |
 | `strategy_multiply_budget.rs` | `multiply` under Soroban budget limits |
 | `strategy_router_invariants.rs` | HF, allowance, swap payload guards |
@@ -39,7 +40,9 @@ harness suite runs at libtest's default of one thread per core.
 
 | Property | Asserts | Catches |
 |----------|---------|---------|
-| `prop_accounting_conservation` | After random supply/borrow/repay/withdraw/advance/claim sequences: solvency inequality, supply/borrow/revenue conservation (±4 units), non-negative reserves, monotonic supply/borrow indexes (scaled balances; supply-index floor on bad debt) | Accounting drift, revenue skim, index regression |
+| `prop_accounting_conservation` | After random supply/borrow/repay/withdraw/advance/claim/liquidate/flash/strategy sequences: solvency inequality, supply/borrow/revenue conservation (±4 units), non-negative reserves, monotonic indexes, cleared flash guard, zero router allowance, no controller leftover | Accounting drift, revenue skim, index regression, strategy residue, guard leak |
+| `prop_migrate_blend_reconciles_same_asset` | Random USDC coll/supply/debt + cap buffer, new or existing hub account: Blend slots empty, hub debt equals Blend liability not the cap, HF ≥ 1, controller leftover ≤ 4, flash guard cleared | Refund/cap confusion, leftover dust, unregistered new account |
+| `prop_migrate_blend_cap_too_low_reverts` | Cap below Blend liability reverts (mock health `#1`) with no hub leftover and Blend position intact | Partial-repay-then-sweep hole |
 | `owner_only_endpoints_reject_unauthed_before_validation` | One exhaustive call matrix rejects every privileged controller endpoint before argument validation | Missing `only_owner` / caller auth gates (governance owns controller) |
 | `governance_endpoints_reject_unauthed_before_validation` | Representative governance proposer and immediate-admin calls reject without auth (including GUARDIAN immediate paths) | Missing proposer or owner gates |
 | `prop_valid_multiply_fits_default_budget` | A valid multiply succeeds within a fresh default Soroban budget, remains healthy, and clears transient state (flash guard + router delta) | Strategy budget regression, vacuous invalid-mode coverage |
@@ -62,5 +65,9 @@ Weighted random sequences over two users (Alice, Bob) and three assets (USDC, ET
 - **Liquidate** — fraction of the target's ETH or WBTC debt (bps), after forcing
   the USDC price down to half a WAD
 - **SwapDebt** — rotate a user's USDC debt into ETH through the mock router
+- **FlashLoan** — cash flash loan to the good receiver
+- **FlashPosition** — callback-multiply onto a new Multiply account
+- **Multiply / SwapCollateral / Rdwc** — strategy legs through the mock router
+- **MigrateBlend** — healthy same-asset USDC MockBlend position merged into the user's already-tracked default account (coll-only or coll+debt with a 20% cap buffer)
 
 Properties execute ops via `try_*` and assert invariants after every step regardless of success or failure. The seed book starts with live debt on both sides so repay, revenue, liquidation, and debt-swap operations do not depend on a lucky earlier borrow.
