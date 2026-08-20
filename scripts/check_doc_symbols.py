@@ -14,7 +14,6 @@ dependencies whose internals the docs describe.
 Usage: python3 scripts/check_doc_symbols.py [--quiet]
 Exit status is 1 when unknown symbols remain, so CI can gate on it.
 """
-import os
 import re
 import subprocess
 import sys
@@ -29,12 +28,32 @@ EXTRA_GLOBS = ("*.toml", "*.json", "*.sh", "*.py", "*.yml", "*.yaml",
                "Makefile", "Dockerfile")
 
 # Dependencies whose internal items the docs name directly. Their sources are
-# not in this repo, so the checker reads them from the Cargo registry:
-# stellar-* are the OpenZeppelin Stellar contracts the protocol builds on
-# (OZ token/timelock constants and entrypoints), mx-keyvault is the keeper's
-# Azure credential loader (env-var contract documented in its README).
-REGISTRY_CRATES = ("stellar-tokens", "stellar-governance", "stellar-access",
-                   "stellar-contract-utils", "mx-keyvault")
+# not in this repo. They are listed explicitly rather than read out of
+# ~/.cargo/registry, so the check gives the same answer on a cold checkout as on
+# a warm one: depending on unpacked crate sources made `make docs-check` pass or
+# fail according to whether Cargo happened to have fetched them.
+#
+# Adding a name here asserts that some dependency defines it. Keep each grouped
+# under its crate so the claim stays checkable by hand.
+EXTERNAL_SYMBOLS = {
+    # stellar-tokens (OpenZeppelin non-fungible token): TTL constants, the
+    # approval surface, and the enumerable/sequential helpers the position-NFT
+    # docs describe.
+    "OWNER_EXTEND_AMOUNT", "OWNER_TTL_THRESHOLD", "TOKEN_EXTEND_AMOUNT",
+    "TOKEN_TTL_THRESHOLD", "approve_for_all", "is_approved_for_all",
+    "ApproveForAll", "get_token_id", "get_owner_token_id", "total_supply",
+    "NonFungibleTokenError", "NFTSequentialStorageKey", "TokenIdCounter",
+    "next_token_id", "increment_token_id",
+    # stellar-governance (OpenZeppelin timelock): storage keys and predicates
+    # the keeper README describes.
+    "DONE_LEDGER", "MinDelay", "is_operation_done", "UnexecutedPredecessor",
+    # stellar-contract-utils / stellar-access: error codes the test docs map.
+    "EnforcedPause", "ExpectedPause",
+    # mx-keyvault: the Azure credential env-var contract the keeper README
+    # documents.
+    "AZURE_TENANT_ID", "AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET",
+    "AZURE_IDENTITY_DISABLE_MANAGED_IDENTITY_CREDENTIAL",
+}
 
 # Words that look like symbols but are prose, tooling, or external API names.
 ALLOW = {
@@ -82,17 +101,6 @@ def in_skipped_dir(rel: str) -> bool:
     return any(rel.startswith(d) or f"/{d}" in rel for d in SKIP_DIRS)
 
 
-def registry_roots():
-    """Source dirs of the dependencies whose internals the docs cite."""
-    cargo_home = Path(os.environ.get("CARGO_HOME", Path.home() / ".cargo"))
-    for crate in REGISTRY_CRATES:
-        # Version-agnostic: any checked-out version defines the same names.
-        found = sorted((cargo_home / "registry" / "src").glob(f"*/{crate}-*"))
-        if not found:
-            print(f"warning: {crate} sources not found under {cargo_home}; "
-                  "its names may be reported as unknown", file=sys.stderr)
-        yield from found
-
 
 def sources() -> str:
     parts = []
@@ -108,10 +116,10 @@ def sources() -> str:
             if in_skipped_dir(str(p.relative_to(ROOT))):
                 continue
             parts.append(p.read_text(errors="replace"))
-    for root in registry_roots():
-        for p in root.rglob("*.rs"):
-            parts.append(p.read_text(errors="replace"))
     parts.append(" ".join(stems))
+    # Names owned by dependencies, asserted rather than scanned so the result
+    # does not depend on whether Cargo has unpacked the crate sources.
+    parts.append(" ".join(EXTERNAL_SYMBOLS))
     return "\n".join(parts)
 
 
