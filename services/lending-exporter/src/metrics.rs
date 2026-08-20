@@ -211,9 +211,9 @@ impl Metrics {
             ("lending_spoke_borrow_enabled", &self.spoke_borrow_enabled),
             ("lending_spoke_deprecated", &self.spoke_deprecated),
             ("lending_spoke_ltv_bps", &self.spoke_ltv_bps),
-            ("lending_spoke_liq_threshold_bps", &self.spoke_liq_threshold_bps),
-            ("lending_spoke_liq_bonus_bps", &self.spoke_liq_bonus_bps),
-            ("lending_spoke_liq_fees_bps", &self.spoke_liq_fees_bps),
+            ("lending_spoke_liquidation_threshold_bps", &self.spoke_liq_threshold_bps),
+            ("lending_spoke_liquidation_bonus_bps", &self.spoke_liq_bonus_bps),
+            ("lending_spoke_liquidation_fees_bps", &self.spoke_liq_fees_bps),
             ("lending_spoke_supply_cap", &self.spoke_supply_cap),
             ("lending_spoke_borrow_cap", &self.spoke_borrow_cap),
             ("lending_spoke_supply_closed", &self.spoke_supply_closed),
@@ -400,6 +400,24 @@ mod prune_tests {
 
         assert!(names.contains(&"KEEP".to_string()));
         assert!(!names.contains(&"GONE".to_string()));
+    }
+
+    #[test]
+    fn every_prunable_family_name_is_actually_registered() {
+        let m = Metrics::new().unwrap();
+        m.spoke_paused.with_label_values(&labels("SEED")).set(1.0);
+        let registered: Vec<String> =
+            m.registry.gather().iter().map(|f| f.get_name().to_string()).collect();
+
+        for (name, gauge) in m.spoke_asset_families() {
+            gauge.with_label_values(&labels("SEED")).set(1.0);
+            assert!(
+                m.registry.gather().iter().any(|f| f.get_name() == name),
+                "prune list names `{name}`, which no registered family matches, so that \
+                 family is never pruned and delisted spoke-assets leak stale series. \
+                 Registered: {registered:?}"
+            );
+        }
     }
 
     #[test]
