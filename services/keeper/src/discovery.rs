@@ -273,13 +273,17 @@ pub async fn snapshot(
         }
     }
 
-    let mut instance_keys = Vec::with_capacity(3);
-    instance_keys.push(contract_instance_key(&controller_id));
-    if let Some(pool) = &pool_id {
-        instance_keys.push(contract_instance_key(pool));
-    }
-
-    instance_keys.push(contract_instance_key(&ids.flash_receiver));
+    let InstancePlan {
+        keys: instance_keys,
+        pool_row,
+        flash_row,
+        nft_row,
+    } = plan_instance_keys(
+        &controller_id,
+        pool_id.as_ref(),
+        &ids.flash_receiver,
+        position_nft_id.as_ref(),
+    );
     let mut instance_entries = client.get_ledger_entries(&instance_keys).await?;
 
     let mut wasm_keys: Vec<LedgerKey> = vec![contract_code_key(&ids.pool_wasm_hash)];
@@ -289,21 +293,25 @@ pub async fn snapshot(
         warn!(target: "keeper.discovery", "controller wasm hash unresolved — extending pool wasm only");
     }
 
-    if pool_id.is_some() {
-        if let Some(live_pool_hash) = instance_entries
-            .get(1)
-            .and_then(wasm_hash_from_instance_row)
-        {
-            if live_pool_hash != ids.pool_wasm_hash {
-                wasm_keys.push(contract_code_key(&live_pool_hash));
-            }
+    if let Some(live_pool_hash) = pool_row
+        .and_then(|i| instance_entries.get(i))
+        .and_then(wasm_hash_from_instance_row)
+    {
+        if live_pool_hash != ids.pool_wasm_hash {
+            wasm_keys.push(contract_code_key(&live_pool_hash));
         }
     }
     if let Some(flash_hash) = instance_entries
-        .last()
+        .get(flash_row)
         .and_then(wasm_hash_from_instance_row)
     {
         wasm_keys.push(contract_code_key(&flash_hash));
+    }
+    if let Some(nft_hash) = nft_row
+        .and_then(|i| instance_entries.get(i))
+        .and_then(wasm_hash_from_instance_row)
+    {
+        wasm_keys.push(contract_code_key(&nft_hash));
     }
 
     if let Some(adapter_hash) = adapter_instance
@@ -730,6 +738,50 @@ fn row_belongs_to(row: &LedgerEntryQuery, contract_id: Option<&[u8; 32]>) -> boo
     }
 }
 
+/// Which contract instances this tick keeps alive, and where each one's row
+/// lands in the reply.
+///
+/// `get_ledger_entries` returns one row per input key in input order, so a row
+/// is addressed by the index recorded when its key was pushed. The indices are
+/// returned rather than recomputed at the call site, so adding a contract here
+/// cannot silently repoint an existing lookup.
+struct InstancePlan {
+    keys: Vec<LedgerKey>,
+    pool_row: Option<usize>,
+    flash_row: usize,
+    nft_row: Option<usize>,
+}
+
+/// Builds the instance-key plan. The position NFT is included because it holds
+/// account ownership: its instance and code must outlive the `Owner` rows this
+/// snapshot renews, since an archived NFT contract fails every controller
+/// ownership check even while the `Owner` entries are still live.
+fn plan_instance_keys(
+    controller_id: &[u8; 32],
+    pool_id: Option<&[u8; 32]>,
+    flash_receiver: &[u8; 32],
+    position_nft_id: Option<&[u8; 32]>,
+) -> InstancePlan {
+    let mut keys = Vec::with_capacity(4);
+    keys.push(contract_instance_key(controller_id));
+    let pool_row = pool_id.map(|pool| {
+        keys.push(contract_instance_key(pool));
+        keys.len() - 1
+    });
+    keys.push(contract_instance_key(flash_receiver));
+    let flash_row = keys.len() - 1;
+    let nft_row = position_nft_id.map(|nft| {
+        keys.push(contract_instance_key(nft));
+        keys.len() - 1
+    });
+    InstancePlan {
+        keys,
+        pool_row,
+        flash_row,
+        nft_row,
+    }
+}
+
 fn wasm_hash_from_executable(executable: &ContractExecutable) -> Option<[u8; 32]> {
     match executable {
         ContractExecutable::Wasm(Hash(bytes)) => Some(*bytes),
@@ -869,6 +921,46 @@ mod tests {
             executable: stellar_xdr::curr::ContractExecutable::Wasm(Hash([0u8; 32])),
             storage: Some(stellar_xdr::curr::ScMap(vec![entry].try_into().unwrap())),
         }
+    }
+
+    #[test]
+    fn the_position_nft_instance_is_kept_alive() {
+        let ctrl = [1u8; 32];
+        let pool = [2u8; 32];
+        let flash = [3u8; 32];
+        let nft = [4u8; 32];
+        let plan = plan_instance_keys(&ctrl, Some(&pool), &flash, Some(&nft));
+        assert!(
+            plan.keys.contains(&contract_instance_key(&nft)),
+            "the NFT holds account ownership; if its instance can archive, \
+             renewing the Owner rows alone does not keep accounts usable"
+        );
+        // Each tracked row must address its own contract, not a neighbour's.
+        assert_eq!(plan.keys[0], contract_instance_key(&ctrl));
+        assert_eq!(
+            plan.keys[plan.pool_row.unwrap()],
+            contract_instance_key(&pool)
+        );
+        assert_eq!(plan.keys[plan.flash_row], contract_instance_key(&flash));
+        assert_eq!(
+            plan.keys[plan.nft_row.unwrap()],
+            contract_instance_key(&nft)
+        );
+    }
+
+    #[test]
+    fn instance_rows_stay_addressable_when_optional_contracts_are_absent() {
+        let ctrl = [1u8; 32];
+        let flash = [3u8; 32];
+        let plan = plan_instance_keys(&ctrl, None, &flash, None);
+        assert_eq!(plan.pool_row, None);
+        assert_eq!(plan.nft_row, None);
+        assert_eq!(
+            plan.keys[plan.flash_row],
+            contract_instance_key(&flash),
+            "dropping the pool must not shift the flash-receiver row"
+        );
+        assert_eq!(plan.keys.len(), 2);
     }
 
     #[test]
