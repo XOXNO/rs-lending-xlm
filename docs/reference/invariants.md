@@ -223,3 +223,12 @@ trusted.
 
 Swaps must produce measured output, return residue to the rightful caller, and
 finish behind the same risk gates as ordinary account operations.
+
+### INV-STRAT-03 — Flash position cannot round-trip to a closed account
+
+`flash_position` mints strategy debt with no flash fee and never repays that
+debt in the same call. The receiver's only protocol-side settlement is a
+measured collateral deposit onto the same account, followed by ordinary
+solvency gates. After a successful call the account must still hold that
+debt **and** at least one supply position (`FlashPositionClosed` otherwise).
+It must not become a free cash flash loan.

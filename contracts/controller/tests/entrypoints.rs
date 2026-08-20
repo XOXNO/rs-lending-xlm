@@ -228,6 +228,25 @@ fn flash_loan_without_hub_panics() {
 }
 
 #[test]
+#[should_panic(expected = "Error(Contract, #43)")]
+fn flash_position_without_hub_panics() {
+    let (env, id) = setup();
+    let caller = Address::generate(&env);
+    let _ = client(&env, &id).flash_position(
+        &caller,
+        &0u64,
+        &1u32,
+        &PositionMode::Multiply,
+        &hub(&env),
+        &1i128,
+        &Address::generate(&env),
+        &Bytes::new(&env),
+        &Vec::new(&env),
+        &Vec::new(&env),
+    );
+}
+
+#[test]
 #[should_panic(expected = "Error(Contract, #7)")]
 fn multiply_same_assets_panics() {
     let (env, id) = setup();

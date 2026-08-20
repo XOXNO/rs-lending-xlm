@@ -148,6 +148,21 @@ reentrancy protection.
 Review: use receivers that underpay, push rather than approve, reenter every
 public path, revert late, or alter token balances.
 
+### Flash position
+
+Attempted theft: treat zero-fee strategy debt as a cash flash loan (return
+the borrowed token and close the account in the same call), credit the wrong
+account, or skip solvency after the callback.
+
+Controls: no repay/net-settle in `flash_position`, declared collateral with a
+strictly positive minimum, measured controller deltas, Wasm receiver that is
+neither the controller nor the pool, shared reentrancy guard, and
+`strategy_finalize` (INV-STRAT-03, ADR-0020).
+
+Review: return the debt token after meeting mins and assert debt remains;
+empty/all-zero mins; duplicate underlyings; pool/controller as receiver;
+dust collateral that fails HF.
+
 ### Strategies and route execution
 
 Attempted theft: router overspend, retain input, claim output dishonestly, or

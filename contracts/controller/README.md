@@ -6,7 +6,7 @@ flash loans. Prices via price-aggregator; liquidity via the pool it owns.
 | Area | Entrypoints (selection) |
 | --- | --- |
 | Positions | `supply`, `borrow`, `withdraw`, `repay`, `liquidate`, `clean_bad_debt` |
-| Strategies | `multiply`, `swap_debt`, `swap_collateral`, `repay_debt_with_collateral`, `migrate_from_blend`, `flash_loan` |
+| Strategies | `multiply`, `flash_position`, `swap_debt`, `swap_collateral`, `repay_debt_with_collateral`, `migrate_from_blend`, `flash_loan` |
 | Account | `add_delegate`, `remove_delegate`, `renew_account` |
 | Views | HF, totals, positions, spoke config/usage, market indexes, liq estimates |
 | Admin | hubs/spokes/assets, pool deploy/upgrade, pause, aggregators, limits |

@@ -58,3 +58,19 @@ pub struct FlashLoanEvent {
     pub amount: i128,
     pub fee: i128,
 }
+
+/// Event recording that `caller` opened a zero-fee flash position of
+/// `amount` of `asset` in hub `hub_id` on `account_id`, forwarding
+/// `amount_received` to `receiver`. `fee` is always 0.
+#[contractevent(topics = ["position", "flash_position"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FlashPositionEvent {
+    pub account_id: u64,
+    pub hub_id: u32,
+    pub asset: Address,
+    pub receiver: Address,
+    pub caller: Address,
+    pub amount: i128,
+    pub amount_received: i128,
+    pub fee: i128,
+}

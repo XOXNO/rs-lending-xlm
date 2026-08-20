@@ -48,6 +48,27 @@ impl LendingTestBuilder {
         self
     }
 
+    pub fn with_fee_on_transfer_market(mut self, preset: MarketPreset, bps: i128) -> Self {
+        let mut pending = PendingMarket::from_preset(preset);
+        pending.shortfall_bps = bps;
+        self.pending_markets.push(pending);
+        self
+    }
+
+    pub fn with_extra_credit_market(mut self, preset: MarketPreset, bps: i128) -> Self {
+        let mut pending = PendingMarket::from_preset(preset);
+        pending.extra_bps = bps;
+        self.pending_markets.push(pending);
+        self
+    }
+
+    pub fn with_transfer_hook_market(mut self, preset: MarketPreset) -> Self {
+        let mut pending = PendingMarket::from_preset(preset);
+        pending.transfer_hook = true;
+        self.pending_markets.push(pending);
+        self
+    }
+
     pub fn with_market_config(
         mut self,
         name: &str,
@@ -267,8 +288,26 @@ impl LendingTestBuilder {
         let mut markets = HashMap::new();
 
         for pm in &self.pending_markets {
-            let needs_mock_token = pm.freezable || pm.decimals != 7;
-            let asset_address = if needs_mock_token {
+            let needs_mock_token = pm.freezable
+                || pm.decimals != 7
+                || pm.shortfall_bps != 0
+                || pm.extra_bps != 0
+                || pm.transfer_hook;
+            let asset_address = if pm.shortfall_bps != 0 || pm.extra_bps != 0 || pm.transfer_hook {
+                let addr = env.register(crate::weird_token::WeirdToken, ());
+                let client = crate::weird_token::WeirdTokenClient::new(&env, &addr);
+                client.set_decimals(&pm.decimals);
+                if pm.shortfall_bps != 0 {
+                    client.set_shortfall_bps(&pm.shortfall_bps);
+                }
+                if pm.extra_bps != 0 {
+                    client.set_extra_bps(&pm.extra_bps);
+                }
+                if pm.transfer_hook {
+                    client.set_hook(&controller_address);
+                }
+                addr
+            } else if needs_mock_token {
                 let addr = env.register(crate::freezable_token::FreezableToken, ());
                 crate::freezable_token::FreezableTokenClient::new(&env, &addr)
                     .set_decimals(&pm.decimals);
@@ -336,7 +375,12 @@ impl LendingTestBuilder {
             }
 
             let liquidity_amount = f64_to_i128(pm.initial_liquidity, market_decimals);
-            token_admin.mint(&pool_address, &liquidity_amount);
+            if pm.shortfall_bps != 0 || pm.extra_bps != 0 || pm.transfer_hook {
+                crate::weird_token::WeirdTokenClient::new(&env, &asset_address)
+                    .mint(&pool_address, &liquidity_amount);
+            } else {
+                token_admin.mint(&pool_address, &liquidity_amount);
+            }
 
             env.as_contract(&pool_address, || {
                 let key = controller::types::PoolKey::State(hub_asset(asset_address.clone()));
@@ -414,6 +458,7 @@ impl LendingTestBuilder {
             position_nft_wasm_hash: nft_hash,
             users: HashMap::new(),
             markets,
+            blend_pool: None,
         }
     }
 }

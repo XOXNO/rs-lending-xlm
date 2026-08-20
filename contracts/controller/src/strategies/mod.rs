@@ -10,6 +10,7 @@
 mod tests;
 
 pub(crate) mod flash_loan;
+pub(crate) mod flash_position;
 pub(crate) mod legs;
 pub(crate) mod migrate_blend;
 pub(crate) mod multiply;

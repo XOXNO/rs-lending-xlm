@@ -17,6 +17,7 @@ use crate::positions::{
 };
 use crate::positions::{execute_repayment, RepaymentRequest};
 use crate::positions::{execute_withdrawal, WithdrawalRequest};
+use crate::storage;
 
 pub(crate) struct StrategyRepay<'a> {
     pub debt: &'a HubAssetKey,
@@ -100,17 +101,19 @@ pub(crate) fn withdraw_collateral_to_controller(
 
     let balance_before = token.balance(&env.current_contract_address());
 
-    execute_withdrawal(
-        env,
-        account,
-        controller_event_context(env, req.action),
-        WithdrawalRequest {
-            hub_asset: req.hub_asset,
-            amount: req.amount,
-            position: req.position,
-        },
-        cache,
-    );
+    storage::with_flash_guard(env, || {
+        execute_withdrawal(
+            env,
+            account,
+            controller_event_context(env, req.action),
+            WithdrawalRequest {
+                hub_asset: req.hub_asset,
+                amount: req.amount,
+                position: req.position,
+            },
+            cache,
+        );
+    });
 
     token
         .balance(&env.current_contract_address())
@@ -220,7 +223,7 @@ pub(crate) fn net_settle_collateral_against_debt(
 
 /// Transfers any increase in the controller's `asset` balance since
 /// `balance_before` to `refund_to`; no-op if the balance did not increase.
-fn refund_controller_balance_delta(
+pub(crate) fn refund_controller_balance_delta(
     env: &Env,
     asset: &Address,
     balance_before: i128,

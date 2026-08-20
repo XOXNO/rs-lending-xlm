@@ -4,8 +4,8 @@ use super::*;
 use crate::cache::Cache;
 use crate::test_support::hub;
 use common::constants::{
-    BPS, MS_PER_SECOND, RAY, TTL_BUMP_INSTANCE, TTL_BUMP_SHARED, TTL_THRESHOLD_INSTANCE,
-    TTL_THRESHOLD_SHARED,
+    BPS, MILLISECONDS_PER_YEAR, MS_PER_SECOND, RAY, TTL_BUMP_INSTANCE, TTL_BUMP_SHARED,
+    TTL_THRESHOLD_INSTANCE, TTL_THRESHOLD_SHARED,
 };
 use common::errors::{CollateralError, FlashLoanError, GenericError};
 use common::math::fp::Ray;
@@ -391,6 +391,36 @@ fn flatten_contract_result<T, E: core::fmt::Debug>(
         Ok(Ok(value)) => Ok(value),
         Ok(Err(err)) => panic!("contract call succeeded but output conversion failed: {err:?}"),
         Err(invoke) => Err(invoke.expect("expected contract error, got host-level InvokeError")),
+    }
+}
+
+/// Per-millisecond form of a 200% APR — larger than any accrual rate the curve
+/// can emit. View getters must return annual RAY, so a miswired per-ms value
+/// cannot pass this bound.
+fn assert_rate_is_annual_apr(rate: i128, label: &str) {
+    let max_per_ms = (2 * RAY) / (MILLISECONDS_PER_YEAR as i128);
+    assert!(
+        rate > max_per_ms,
+        "{label} view must be annual RAY APR, got {rate} (200% per-ms is {max_per_ms})"
+    );
+}
+
+fn assert_annual_apr_views(
+    client: &LiquidityPoolClient<'_>,
+    asset: &Address,
+    expected_util: i128,
+    expected_borrow_apr: i128,
+    expected_deposit_apr: i128,
+) {
+    let key = hub(asset);
+    assert_eq!(client.get_utilisation(&key), expected_util, "utilization");
+    let borrow = client.get_borrow_rate(&key);
+    let deposit = client.get_deposit_rate(&key);
+    assert_eq!(borrow, expected_borrow_apr, "borrow APR");
+    assert_eq!(deposit, expected_deposit_apr, "deposit APR");
+    assert_rate_is_annual_apr(borrow, "borrow");
+    if expected_deposit_apr > 0 {
+        assert_rate_is_annual_apr(deposit, "deposit");
     }
 }
 
@@ -1895,20 +1925,20 @@ fn test_views() {
     );
 
     let util_after = client.get_utilisation(&hub(&t.asset));
-    assert!(
-        util_after > 0,
-        "utilization should be positive after borrow"
+    assert_eq!(
+        util_after,
+        RAY / 10,
+        "1e9 borrowed against 1e10 supplied is 10% utilization"
     );
 
-    let deposit_rate = client.get_deposit_rate(&hub(&t.asset));
-    let borrow_rate = client.get_borrow_rate(&hub(&t.asset));
-    assert!(
-        deposit_rate > 1,
-        "active suppliers should earn a nonzero rate"
-    );
-    assert!(
-        borrow_rate > deposit_rate,
-        "borrow rate should exceed the supplier rate after reserve retention"
+    // Region 1: 1% + (10%/50%)*4% = 1.8% borrow APR.
+    // Deposit APR = 10% * 1.8% * 90% = 0.162%.
+    assert_annual_apr_views(
+        &client,
+        &t.asset,
+        RAY / 10,
+        RAY * 18 / 1_000,
+        RAY * 162 / 100_000,
     );
     assert!(
         client.get_revenue(&hub(&t.asset)) >= 0,
@@ -1919,6 +1949,80 @@ fn test_views() {
         client.get_delta_time(&hub(&t.asset)),
         60_000,
         "delta time should report elapsed milliseconds"
+    );
+}
+
+#[test]
+fn test_rate_views_match_annual_apr_from_utilization() {
+    // market_params: base 1%, slope1 4% to 50% mid, slope2 10% to 80% opt,
+    // slope3 80% to 100%, cap 100%, reserve factor 10%.
+    let t = TestSetup::new();
+    let client = t.client();
+    let borrower = Address::generate(&t.env);
+
+    assert_annual_apr_views(&client, &t.asset, 0, RAY / 100, 0);
+
+    client.supply(&t.sup(0, 10_000_000_000i128));
+    assert_annual_apr_views(&client, &t.asset, 0, RAY / 100, 0);
+
+    // 10% util, region 1: 1% + (10/50)*4% = 1.8%. Deposit = 10%*1.8%*90% = 0.162%.
+    client.borrow(&borrower, &t.bor(0, 1_000_000_000i128));
+    assert_annual_apr_views(
+        &client,
+        &t.asset,
+        RAY / 10,
+        RAY * 18 / 1_000,
+        RAY * 162 / 100_000,
+    );
+
+    // 25% util, region 1: 1% + (25/50)*4% = 3%. Deposit = 25%*3%*90% = 0.675%.
+    client.borrow(&borrower, &t.bor(0, 1_500_000_000i128));
+    assert_annual_apr_views(
+        &client,
+        &t.asset,
+        RAY * 25 / 100,
+        RAY * 3 / 100,
+        RAY * 675 / 100_000,
+    );
+
+    // 50% util, kink: base+slope1 = 5%. Deposit = 50%*5%*90% = 2.25%.
+    client.borrow(&borrower, &t.bor(0, 2_500_000_000i128));
+    assert_annual_apr_views(
+        &client,
+        &t.asset,
+        RAY * 50 / 100,
+        RAY * 5 / 100,
+        RAY * 225 / 10_000,
+    );
+
+    // 65% util, region 2: 5% + (15/30)*10% = 10%. Deposit = 65%*10%*90% = 5.85%.
+    client.borrow(&borrower, &t.bor(0, 1_500_000_000i128));
+    assert_annual_apr_views(
+        &client,
+        &t.asset,
+        RAY * 65 / 100,
+        RAY / 10,
+        RAY * 585 / 10_000,
+    );
+
+    // 80% util, kink: base+slope1+slope2 = 15%. Deposit = 80%*15%*90% = 10.8%.
+    client.borrow(&borrower, &t.bor(0, 1_500_000_000i128));
+    assert_annual_apr_views(
+        &client,
+        &t.asset,
+        RAY * 80 / 100,
+        RAY * 15 / 100,
+        RAY * 108 / 1_000,
+    );
+
+    // 90% util, region 3: 15% + (10/20)*80% = 55%. Deposit = 90%*55%*90% = 44.55%.
+    client.borrow(&borrower, &t.bor(0, 1_000_000_000i128));
+    assert_annual_apr_views(
+        &client,
+        &t.asset,
+        RAY * 90 / 100,
+        RAY * 55 / 100,
+        RAY * 4_455 / 10_000,
     );
 }
 

@@ -3,7 +3,7 @@ use common::types::{
     Account, AccountPositionType, DebtPosition, HubAssetKey, PoolAction, PoolBorrowEntry,
     PoolPositionMutation,
 };
-use soroban_sdk::{vec, Address, Env, Vec};
+use soroban_sdk::{assert_with_error, panic_with_error, token, vec, Address, Env, Vec};
 
 use crate::context::Cache;
 use crate::events;
@@ -263,13 +263,25 @@ pub(crate) fn borrow_into_controller(
     let position = account.get_or_create_debt_position(hub_debt);
     let pool_addr = cache.cached_pool_address();
     let pool_action = make_pool_action(&position, amount, hub_debt.clone());
-    let result = pool_create_strategy_call(
+    let controller = env.current_contract_address();
+    let tok = token::Client::new(env, &hub_debt.asset);
+    let before = tok.balance(&controller);
+    // Hold the flash-loan flag across the pool transfer so a listed token's
+    // transfer hook cannot reenter controller verbs before the strategy swap
+    // guard is taken.
+    let result = storage::with_flash_guard(env, || {
+        pool_create_strategy_call(env, &pool_addr, &controller, pool_action, charge_fee)
+    });
+    let measured = tok
+        .balance(&controller)
+        .checked_sub(before)
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError));
+    assert_with_error!(
         env,
-        &pool_addr,
-        &env.current_contract_address(),
-        pool_action,
-        charge_fee,
+        measured == result.amount_received,
+        GenericError::InternalError
     );
+    assert_with_error!(env, measured > 0, GenericError::AmountMustBePositive);
     let mutation = PoolPositionMutation::from(&result);
     merge_debt_leg(
         env,
@@ -282,5 +294,5 @@ pub(crate) fn borrow_into_controller(
         &LegOutcome::from(&mutation),
         cache,
     );
-    result.amount_received
+    measured
 }

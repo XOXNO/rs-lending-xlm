@@ -3,6 +3,7 @@ extern crate std;
 mod accounting_conservation;
 mod config;
 mod liquidation_vs_reference;
+mod migrate_blend;
 mod ops;
 mod privileged_auth_rejects;
 mod strategy_helpers;

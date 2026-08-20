@@ -55,6 +55,7 @@ use soroban_sdk::{
 
 use stellar_macros::{only_owner, when_not_paused};
 
+use strategies::flash_position::FlashPositionParams;
 use strategies::migrate_blend::MigrateBlendParams;
 use strategies::multiply::MultiplyParams;
 use strategies::repay_debt_with_collateral::RepayWithCollateralParams;
@@ -187,6 +188,41 @@ impl ControllerInterface for Controller {
         data: Bytes,
     ) {
         strategies::flash_loan::process_flash_loan(&env, &caller, &asset, amount, &receiver, &data);
+    }
+
+    /// Mints `amount` of `debt` onto `account_id` with no flash fee, forwards
+    /// the measured tokens to `receiver`, invokes `execute_flash_position`,
+    /// and deposits measured controller-balance increases of `collaterals`.
+    /// The account must be solvent after the callback. Returns the account id.
+    #[when_not_paused]
+    fn flash_position(
+        env: Env,
+        caller: Address,
+        account_id: u64,
+        spoke_id: u32,
+        mode: PositionMode,
+        debt: HubAssetKey,
+        amount: i128,
+        receiver: Address,
+        data: Bytes,
+        collaterals: Vec<(HubAssetKey, i128)>,
+        refund_assets: Vec<Address>,
+    ) -> u64 {
+        strategies::flash_position::process_flash_position(
+            &env,
+            &caller,
+            FlashPositionParams {
+                account_id,
+                spoke_id,
+                mode,
+                debt: &debt,
+                amount,
+                receiver: &receiver,
+                data: &data,
+                collaterals: &collaterals,
+                refund_assets: &refund_assets,
+            },
+        )
     }
 
     /// Opens or extends a leveraged position on `account_id`: borrows

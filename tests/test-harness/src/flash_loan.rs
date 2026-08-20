@@ -1,9 +1,10 @@
-use flash_loan_receiver::FlashLoanTestReceiver;
+use flash_loan_receiver::{FlashLoanTestReceiver, FlashLoanTestReceiverClient};
 use soroban_sdk::{Address, Bytes};
 
 use crate::context::LendingTest;
-use crate::helpers::{f64_to_i128, hub_asset};
+use crate::helpers::{f64_to_i128, hub_asset, HARNESS_HUB, HARNESS_SPOKE};
 use crate::receivers::bad_receiver::BadFlashLoanReceiver;
+use crate::receivers::flash_position::FlashPositionTestReceiver;
 use crate::receivers::good_receiver::GoodFlashLoanReceiver;
 
 impl LendingTest {
@@ -16,7 +17,22 @@ impl LendingTest {
     }
 
     pub fn deploy_adversarial_flash_loan_receiver(&self) -> Address {
-        self.env.register(FlashLoanTestReceiver, ())
+        let receiver = self.env.register(FlashLoanTestReceiver, ());
+        self.set_flash_loan_receiver_plan(&receiver, HARNESS_SPOKE, 0);
+        receiver
+    }
+
+    pub fn set_flash_loan_receiver_plan(&self, receiver: &Address, spoke_id: u32, account_id: u64) {
+        FlashLoanTestReceiverClient::new(&self.env, receiver).set_plan(
+            &self.controller,
+            &HARNESS_HUB,
+            &spoke_id,
+            &account_id,
+        );
+    }
+
+    pub fn deploy_flash_position_receiver(&self) -> Address {
+        self.env.register(FlashPositionTestReceiver, ())
     }
 
     pub fn flash_loan(&mut self, caller: &str, asset_name: &str, amount: f64, receiver: &Address) {

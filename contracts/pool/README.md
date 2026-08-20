@@ -45,7 +45,7 @@ already guaranteed upstream:
 | `asset_decimals` matches the token's real `decimals()`, in `[3,18]` | `governance/validate/asset.rs::validate_market_creation` |
 | Asset contract is live (`try_decimals` + `try_symbol`) | `governance/validate/asset.rs` |
 | Rate-model params are timelocked before reaching the pool | `governance/op.rs` |
-| Flash-loan reentrancy | `controller/storage/session.rs::with_flash_guard` |
+| Flash-loan reentrancy | `controller/storage/account.rs::with_flash_guard` |
 | `scaled_amount` maps to a real position | controller position ledger |
 | Tokens arrived before any cash-crediting call | controller payment path |
 

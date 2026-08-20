@@ -41,6 +41,7 @@ decodes.
 | `position:batch_update` | account position deltas (the workhorse — see actions below) |
 | `position:liquidation` | liquidation summary for an account |
 | `position:flash_loan` | flash loan executed |
+| `position:flash_position` | `FlashPositionEvent`: debt mint summary (`amount`, `amount_received`, `fee` always 0). Collateral is **not** in this payload. |
 | `debt:bad_debt` | bad debt cleaned/socialized |
 | `strategy:initial_payment` / `strategy:fee` | strategy verb legs |
 | `market:create` / `market:params_update` | market lifecycle |
@@ -55,9 +56,11 @@ discriminant**; the SDK maps it to a frozen legacy string table:
 `supply`, `borrow`, `withdraw`, `repay`, `liq_repay` (4), `liq_seize` (5),
 `multiply`, `param_upd`, `sw_debt_r` (debt swap), `sw_col_wd` (collateral
 swap), `rp_col_wd` / `rp_col_r` (repay-with-collateral legs), `close_wd`
-(close-out withdraw), plus `Migrate` (13) and `RpColNet` (14) — the SDK
-currently surfaces those last two as the raw discriminant strings `'13'` /
-`'14'`, so don't treat unknown action strings as errors.
+(close-out withdraw), plus `Migrate` (13), `RpColNet` (14), `LiqCredit` (15),
+and `FlashPos` (16). `FlashPos` is the **debt mint** of `flash_position`.
+Callback collateral in the same batch is still `supply`. The SDK may surface
+newer discriminants as raw strings (`'13'`, `'16'`, …); don't treat unknown
+action strings as errors.
 
 ## Pipeline design notes
 

@@ -1596,7 +1596,8 @@ enum UsageCoverage {
 /// `Supply` supply.rs:345, `Borrow` debt.rs:147, `Withdraw` supply.rs:215,
 /// `Repay` debt.rs:96, `LiqRepay`/`LiqSeize` liquidation/apply.rs:78,116,
 /// `LiqCredit` liquidation/apply.rs:294 (credit-mode receiver leg),
-/// `Multiply` multiply.rs:79 (`borrow_into_controller`), `ParamUpd`
+/// `Multiply` multiply.rs:79 (`borrow_into_controller`), `FlashPos`
+/// flash_position.rs (`borrow_into_controller`), `ParamUpd`
 /// keepers.rs:186 (risk-parameter restamp only), `SwDebtR` swap_debt.rs:65,87,
 /// `SwColWd` swap_collateral.rs:65, `RpColWd`/`RpColR`/`RpColNet`
 /// repay_debt_with_collateral.rs:134,146,104, `CloseWd` legs.rs:138,
@@ -1625,6 +1626,7 @@ fn usage_coverage_class(action: PositionAction) -> UsageCoverage {
         // balances when summed over both accounts.
         PositionAction::LiqCredit => UsageCoverage::CrossAccount,
         PositionAction::Multiply => UsageCoverage::Wave0(Wave0Legs::DEBT_ENTRY),
+        PositionAction::FlashPos => UsageCoverage::Wave0(Wave0Legs::DEBT_ENTRY),
         PositionAction::ParamUpd => UsageCoverage::NoScaledMove,
         PositionAction::SwDebtR => UsageCoverage::Wave0(Wave0Legs::DEBT_BOTH),
         PositionAction::SwColWd => UsageCoverage::Wave0(Wave0Legs::SUPPLY_EXIT),
@@ -1654,6 +1656,7 @@ fn nondet_position_action(sel: u32) -> PositionAction {
         12 => PositionAction::CloseWd,
         13 => PositionAction::Migrate,
         14 => PositionAction::RpColNet,
+        16 => PositionAction::FlashPos,
         _ => PositionAction::LiqCredit,
     }
 }

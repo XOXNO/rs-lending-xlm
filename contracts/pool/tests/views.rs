@@ -4,10 +4,9 @@ use super::*;
 use crate::storage::{load_state, read_params as load_params};
 use crate::test_support::{hub, init_ledger};
 use crate::{LiquidityPool, LiquidityPoolClient};
-use common::constants::RAY;
-use common::math::fp::Ray;
-use common::rates::{calculate_annual_borrow_rate, calculate_deposit_rate};
-use common::types::{MarketParams, MarketParamsRaw, PoolKey, PoolStateRaw};
+use common::constants::{MILLISECONDS_PER_YEAR, RAY};
+use common::math::fp_core::mul_div_half_up;
+use common::types::{MarketParamsRaw, PoolKey, PoolStateRaw};
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{token, Address};
 
@@ -15,7 +14,6 @@ struct TestSetup {
     env: Env,
     contract: Address,
     asset: Address,
-    params: MarketParamsRaw,
     state: PoolStateRaw,
 }
 
@@ -70,7 +68,6 @@ impl TestSetup {
             env,
             contract,
             asset,
-            params,
             state,
         }
     }
@@ -78,6 +75,17 @@ impl TestSetup {
     fn as_contract<T>(&self, f: impl FnOnce() -> T) -> T {
         self.env.as_contract(&self.contract, f)
     }
+}
+
+/// Per-millisecond form of a 200% APR — larger than any accrual rate the curve
+/// can emit. View getters must return annual RAY, so a miswired per-ms value
+/// cannot pass this bound.
+fn assert_annual_apr(rate: i128, label: &str) {
+    let max_per_ms = (2 * RAY) / (MILLISECONDS_PER_YEAR as i128);
+    assert!(
+        rate > max_per_ms,
+        "{label} view must be annual RAY APR, got {rate} (200% per-ms is {max_per_ms})"
+    );
 }
 
 #[test]
@@ -99,19 +107,26 @@ fn test_views_load_and_compute_expected_values() {
         assert_eq!(utilization(&t.env, &hub(&t.asset)), (15 * RAY) / 20);
         assert_eq!(delta_time(&t.env, &hub(&t.asset)), 50_000);
 
-        let util = Ray::from(utilization(&t.env, &hub(&t.asset)));
-        let params: MarketParams = (&t.params).into();
-        let expected_borrow = calculate_annual_borrow_rate(&t.env, util, &params);
-        let expected_deposit =
-            calculate_deposit_rate(&t.env, util, expected_borrow, params.reserve_factor);
-
-        assert_eq!(borrow_rate(&t.env, &hub(&t.asset)), expected_borrow.raw());
-        assert_eq!(deposit_rate(&t.env, &hub(&t.asset)), expected_deposit.raw());
-        assert!(
-            expected_borrow.raw() > RAY / 100,
-            "view borrow APR must be the annual curve rate, not the per-ms accrual rate"
-        );
+        // Value utilization is 75% (15/20 after indexes). Share ratio is 50%.
+        // Region 2: 1% + 10% + (25/30)*20% = 83/300 APR, half-up.
+        // Deposit APR = 75% * (83/300) * 90% = 18.675%.
+        let expected_borrow_apr = mul_div_half_up(&t.env, 83, RAY, 300);
+        let expected_deposit_apr = RAY * 18_675 / 100_000;
+        assert_eq!(borrow_rate(&t.env, &hub(&t.asset)), expected_borrow_apr);
+        assert_eq!(deposit_rate(&t.env, &hub(&t.asset)), expected_deposit_apr);
+        assert_annual_apr(expected_borrow_apr, "borrow");
+        assert_annual_apr(expected_deposit_apr, "deposit");
     });
+
+    let client = LiquidityPoolClient::new(&t.env, &t.contract);
+    let key = hub(&t.asset);
+    let borrow = client.get_borrow_rate(&key);
+    let deposit = client.get_deposit_rate(&key);
+    assert_eq!(client.get_utilisation(&key), (15 * RAY) / 20);
+    assert_eq!(borrow, mul_div_half_up(&t.env, 83, RAY, 300));
+    assert_eq!(deposit, RAY * 18_675 / 100_000);
+    assert_annual_apr(borrow, "borrow");
+    assert_annual_apr(deposit, "deposit");
 }
 
 #[test]

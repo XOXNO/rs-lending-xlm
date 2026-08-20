@@ -157,4 +157,6 @@ client.repay(&me, &account_id, &vec![env, (hub_asset, amount)]);
   27-decimals-to-asset-decimals rescale.
 - **Strategy verbs on-chain** — `multiply`/`swap_*` need aggregator swap
   bytes produced by the off-chain quote server; they are not composable from
-  pure on-chain code (see `using-lending-sdk`).
+  pure on-chain code (see `using-lending-sdk`). For a custom swap venue, use
+  `flash_position` with an `execute_flash_position` receiver (see
+  `writing-flash-position-receivers`).

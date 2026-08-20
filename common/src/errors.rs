@@ -276,4 +276,14 @@ pub enum StrategyError {
     RouterOverspend = 501,
 
     NoSwapOutput = 502,
+
+    /// Declared collateral list is empty or every minimum is zero.
+    CollateralRequired = 503,
+
+    /// Measured collateral push is below the caller-declared minimum.
+    CollateralMinimumNotMet = 504,
+
+    /// `flash_position` finished debt-free or without supply — a round-trip
+    /// close that would be a free cash flash loan.
+    FlashPositionClosed = 505,
 }

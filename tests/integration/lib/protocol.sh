@@ -13,6 +13,19 @@ deploy_protocol() {
         save_state POOL_HASH "$hash"
         record upload_pool_wasm ok upload "$txh" "" "" "" "" "$hash"
     fi
+    if [ -z "${NFT_HASH:-}" ]; then
+        local nft_wasm="$WASM_DIR/position_nft.wasm"
+        [ -f "$nft_wasm" ] || die upload_position_nft_wasm "position_nft.wasm missing under $WASM_DIR (run make integration-wasm)"
+        local out_f="$LOG_DIR/upload_position_nft.out" err_f="$LOG_DIR/upload_position_nft.err"
+        run_deploy "$out_f" "$err_f" -- stellar contract upload --wasm "$nft_wasm" \
+            --source "$ADMIN" "${NET_ARGS[@]}"
+        local hash txh
+        hash=$(sanitize_output "$out_f")
+        txh=$(extract_signing_hash "$err_f")
+        is_wasm_hash "$hash" || die upload_position_nft_wasm "position nft wasm upload produced no hash after $DEPLOY_MAX_ATTEMPTS attempts: $(tail_err_note "$err_f")"
+        save_state NFT_HASH "$hash"
+        record upload_position_nft_wasm ok upload "$txh" "" "" "" "" "$hash"
+    fi
     # Governance's `deploy_price_aggregator` takes a wasm hash, not a wasm, so
     # the price-aggregator code has to be on-ledger by hash as well as deployed
     # directly. Non-fatal: only the governance-owned aggregator coverage needs
@@ -50,6 +63,20 @@ deploy_protocol() {
         is_contract_id "$pool" || die deploy_pool "central pool deploy produced no id after $INV_MAX_ATTEMPTS attempts"
         save_state POOL "$pool"
         log "central pool = $pool"
+    fi
+    # Account creation mints a position NFT and fail-closes with #53 if this
+    # was skipped. Integration deploys are EOA-owned, so this is immediate
+    # rather than the production timelock path in configs/script.sh.
+    if [ -z "${POSITION_NFT:-}" ]; then
+        local nft
+        nft=$(inv deploy_position_nft "$ADMIN" "$CONTROLLER" -- deploy_position_nft \
+            --wasm_hash "$NFT_HASH" \
+            --uri "https://api.xoxno.com/user/lending/image/" \
+            --name "XOXNO Lending Position" \
+            --symbol "XLEND" | tr -d '"\n')
+        is_contract_id "$nft" || die deploy_position_nft "position nft deploy produced no id after $INV_MAX_ATTEMPTS attempts"
+        save_state POSITION_NFT "$nft"
+        log "position nft = $nft"
     fi
 
     if [ -z "${PRICE_AGGREGATOR:-}" ]; then
@@ -128,6 +155,21 @@ deploy_protocol() {
         is_contract_id "$recv" || die deploy_flash_receiver "flash receiver deploy produced no id after $DEPLOY_MAX_ATTEMPTS attempts: $(tail_err_note "$err_f")"
         save_state FLASH_RECEIVER "$recv"
         record deploy_flash_receiver ok deploy "$txh" "" "" "" "" "$recv"
+    fi
+    if [ -z "${FLASH_POSITION_RECEIVER:-}" ] && [ -f "$WASM_DIR/flash_position_receiver.wasm" ]; then
+        local out_f="$LOG_DIR/deploy_flashposrecv.out" err_f="$LOG_DIR/deploy_flashposrecv.err"
+        run_deploy "$out_f" "$err_f" -- stellar contract deploy --wasm "$WASM_DIR/flash_position_receiver.wasm" \
+            --source "$ADMIN" "${NET_ARGS[@]}"
+        local recv txh
+        recv=$(sanitize_output "$out_f")
+        txh=$(extract_signing_hash "$err_f")
+        if is_contract_id "$recv"; then
+            save_state FLASH_POSITION_RECEIVER "$recv"
+            record deploy_flash_position_receiver ok deploy "$txh" "" "" "" "" "$recv"
+            log "flash_position receiver = $recv"
+        else
+            log "flash_position receiver deploy failed; live flash_position coverage will skip: $(tail_err_note "$err_f")"
+        fi
     fi
     if [ -z "${UNPAUSED:-}" ]; then
         inv unpause "$ADMIN" "$CONTROLLER" -- unpause >/dev/null

@@ -59,6 +59,9 @@ SHELL := /bin/bash
         _preflight-tools _preflight-network-config _preflight-validate-configs _preflight-setup _preflight-controller _preflight-governance _preflight-pool-hash \
         _preflight-configure-controller _preflight-upgrade-pool _post-setup-status \
         build-flash-loan-receiver deploy-flash-loan-receiver fund-flash-loan-receiver test-flash-loan-receiver \
+        integration-flash-position \
+        integration-strategies \
+        integration-blend \
         build-aggregator deploy-aggregator prepay-rent \
         build-oracle-adapter deploy-oracle-adapter upgrade-oracle-adapter upgrade-oracle-adapter-full \
         configure-controller setup-testnet setup-mainnet _setup-markets _unpause-after-setup \
@@ -237,10 +240,10 @@ certora-wasm:
 
 integration-wasm: deploy-artifacts
 	@mkdir -p $(OPTIMIZED_DIR)
-	@for wasm in controller pool governance flash_loan_receiver defindex_strategy price_aggregator; do \
+	@for wasm in controller pool governance flash_loan_receiver defindex_strategy price_aggregator position_nft; do \
 		cp "$(DEPLOY_DIR)/$$wasm.wasm" "$(OPTIMIZED_DIR)/$$wasm.wasm"; \
 	done
-	@for pkg in mock_oracle mock_redstone swap_aggregator; do \
+	@for pkg in mock_oracle mock_redstone swap_aggregator flash_position_receiver; do \
 		echo "Optimizing $$pkg for integration..."; \
 		if command -v stellar &>/dev/null; then \
 			stellar contract optimize \
@@ -253,7 +256,7 @@ integration-wasm: deploy-artifacts
 	done
 	@echo ""
 	@echo "Integration WASM ($(OPTIMIZED_DIR)):"
-	@ls -lh $(OPTIMIZED_DIR)/{controller,pool,flash_loan_receiver,defindex_strategy,price_aggregator,mock_oracle,mock_redstone}.wasm 2>/dev/null
+	@ls -lh $(OPTIMIZED_DIR)/{controller,pool,flash_loan_receiver,flash_position_receiver,defindex_strategy,price_aggregator,position_nft,mock_oracle,mock_redstone}.wasm 2>/dev/null
 
 
 
@@ -272,7 +275,17 @@ integration-appendix:
 	@echo "Wrote tests/integration/appendix.md (update with real numbers from harness when budgets change)."
 
 
-.PHONY: integration-preflight integration-validate integration-shellcheck
+.PHONY: integration-preflight integration-validate integration-shellcheck integration-flash-position integration-strategies integration-blend
+
+integration-flash-position: integration-wasm
+	RUN_TS=$$(date +%Y%m%d-%H%M%S) bash tests/integration/scenarios/flash_position.sh
+
+integration-strategies: integration-wasm
+	RUN_TS=$$(date +%Y%m%d-%H%M%S) bash tests/integration/scenarios/strategies.sh
+
+integration-blend: integration-wasm
+	RUN_TS=$$(date +%Y%m%d-%H%M%S) bash tests/integration/scenarios/blend.sh
+
 
 integration-preflight: integration-wasm
 	@echo "Running integration harness preflight..."
@@ -285,7 +298,8 @@ integration-preflight: integration-wasm
 integration-validate:
 	@echo "Validating harness sources (sourcing + basic guards)..."
 	@bash -c 'set -u; \
-	  for f in tests/integration/env.sh tests/integration/lib/core.sh tests/integration/lib/invoke.sh; do \
+	  for f in tests/integration/env.sh tests/integration/lib/core.sh tests/integration/lib/invoke.sh \
+	           tests/integration/flows/flash_position.sh tests/integration/scenarios/flash_position.sh; do \
 	    echo "  sourcing $$f"; bash -n "$$f" || exit 1; \
 	  done; \
 	  echo "Basic syntax + source validation passed."'
@@ -2024,6 +2038,9 @@ help-build:
 	$(call ROW,make deploy-artifacts,mainnet WASM -> $(DEPLOY_DIR))
 	$(call ROW,make wasm-size-check,deploy artifacts + size budget)
 	$(call ROW,make integration-wasm,deploy-sized WASM + harness mocks)
+	$(call ROW,make integration-flash-position,live testnet flash_position only)
+	$(call ROW,make integration-strategies,live testnet flash_loan + strategies)
+	$(call ROW,make integration-blend,live testnet Blend migrate_from_blend)
 	$(call ROW,make certora-wasm,Certora-feature WASM)
 	$(call ROW,make wasm-artifacts,deploy + certora -> $(WASM_ARTIFACTS_DIR))
 	$(call BLANK)
