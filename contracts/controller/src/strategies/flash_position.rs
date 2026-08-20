@@ -86,7 +86,14 @@ pub(crate) fn process_flash_position(
     );
 
     let collaterals = validate_collaterals(env, &mut cache, &account, collaterals);
-    validate_refund_assets(env, &collaterals, refund_assets);
+    validate_refund_assets(
+        env,
+        &mut cache,
+        account.spoke_id,
+        debt.hub_id,
+        &collaterals,
+        refund_assets,
+    );
 
     let mut extra_assets = vec![env, debt.asset.clone()];
     for (hub_asset, _) in collaterals.iter() {
@@ -192,6 +199,9 @@ fn validate_collaterals(
 
 fn validate_refund_assets(
     env: &Env,
+    cache: &mut Cache,
+    spoke_id: u32,
+    hub_id: u32,
     collaterals: &Vec<(HubAssetKey, i128)>,
     refund_assets: &Vec<Address>,
 ) {
@@ -210,6 +220,16 @@ fn validate_refund_assets(
             GenericError::InvalidPayments
         );
         seen.set(asset.clone(), true);
+        // The refund leg hands this address to `token::Client` after the flash
+        // guard has closed. Requiring it to be listed keeps that call on a
+        // governance-approved contract instead of one the caller chose.
+        cache.require_listed_active_config(
+            spoke_id,
+            &HubAssetKey {
+                hub_id,
+                asset: asset.clone(),
+            },
+        );
         for (collateral, _) in collaterals.iter() {
             assert_with_error!(
                 env,
