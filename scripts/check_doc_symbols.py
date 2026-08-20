@@ -24,8 +24,8 @@ SKIP_DIRS = ("target/", "vendor/", ".git/")
 
 # Non-Rust files that legitimately define names the docs cite: env vars live in
 # Dockerfiles and Compose files, Prometheus alert names in ops/alerts.yml.
-EXTRA_GLOBS = ("*.toml", "*.json", "*.sh", "*.py", "*.yml", "*.yaml",
-               "Makefile", "Dockerfile")
+EXTRA_SUFFIXES = (".toml", ".json", ".sh", ".py", ".yml", ".yaml")
+EXTRA_NAMES = ("Makefile", "Dockerfile")
 
 # Dependencies whose internal items the docs name directly. Their sources are
 # not in this repo. They are listed explicitly rather than read out of
@@ -44,6 +44,8 @@ EXTERNAL_SYMBOLS = {
     "ApproveForAll", "get_token_id", "get_owner_token_id", "total_supply",
     "NonFungibleTokenError", "NFTSequentialStorageKey", "TokenIdCounter",
     "next_token_id", "increment_token_id",
+    "NFTEnumerableStorageKey", "OwnerTokens", "OwnerTokensIndex",
+    "GlobalTokens", "GlobalTokensIndex",
     # stellar-governance (OpenZeppelin timelock): storage keys and predicates
     # the keeper README describes.
     "DONE_LEDGER", "MinDelay", "is_operation_done", "UnexecutedPredecessor",
@@ -102,19 +104,29 @@ def in_skipped_dir(rel: str) -> bool:
 
 
 
+def tracked_files() -> list[Path]:
+    """Files git tracks. Generated and ignored files are excluded on purpose:
+    a check whose answer depends on whether the test suite has been run yet is
+    not reproducible. `tests/**/test_snapshots/*.json` in particular are
+    gitignored and only exist after `make test`."""
+    out = subprocess.run(
+        ["git", "ls-files"], cwd=ROOT, capture_output=True, text=True, check=True
+    )
+    return [ROOT / line for line in out.stdout.split("\n") if line.strip()]
+
+
 def sources() -> str:
     parts = []
     stems = []
-    for p in ROOT.rglob("*.rs"):
-        if in_skipped_dir(str(p.relative_to(ROOT))):
+    for p in tracked_files():
+        rel = str(p.relative_to(ROOT))
+        if in_skipped_dir(rel) or not p.is_file():
             continue
-        parts.append(p.read_text(errors="replace"))
-        # File stems name test binaries and modules (`smoke_test`, `curve`).
-        stems.append(p.stem)
-    for pat in EXTRA_GLOBS:
-        for p in ROOT.rglob(pat):
-            if in_skipped_dir(str(p.relative_to(ROOT))):
-                continue
+        if p.suffix == ".rs":
+            parts.append(p.read_text(errors="replace"))
+            # File stems name test binaries and modules (`smoke_test`, `curve`).
+            stems.append(p.stem)
+        elif p.suffix in EXTRA_SUFFIXES or p.name in EXTRA_NAMES:
             parts.append(p.read_text(errors="replace"))
     parts.append(" ".join(stems))
     # Names owned by dependencies, asserted rather than scanned so the result

@@ -127,14 +127,37 @@ pub async fn snapshot(
     )?;
     let max_account_id = match position_nft_id {
         Some(nft_id) => {
-            let nft_instance = client.get_contract_instance(&nft_id).await?;
-            let next_token_id = lookup_instance_scalar(
-                &nft_instance,
-                PositionNftInstanceKey::TokenIdCounter.variant_name(),
-                scval_u32,
-            )?
-            .unwrap_or(0);
-            max_account_id_from_counter(next_token_id)
+            // Read through the ledger-entry path, not get_contract_instance:
+            // an archived NFT instance is exactly the state this tick has to
+            // repair, and a hard error here would abort discovery before
+            // plan_restores ever sees the row, so the contract could never be
+            // restored. A missing instance yields no counter, which stops the
+            // user scan for this tick while the restore is planned below.
+            let rows = client
+                .get_ledger_entries(&[contract_instance_key(&nft_id)])
+                .await?;
+            let next_token_id = rows
+                .first()
+                .and_then(instance_from_row)
+                .map(|inst| {
+                    lookup_instance_scalar(
+                        inst,
+                        PositionNftInstanceKey::TokenIdCounter.variant_name(),
+                        scval_u32,
+                    )
+                })
+                .transpose()?
+                .flatten();
+            match next_token_id {
+                Some(counter) => max_account_id_from_counter(counter),
+                None => {
+                    warn!(
+                        target: "keeper.discovery",
+                        "position-NFT instance or its token counter is unreadable (archived?) — user account keys skipped this tick; a restore is planned if the instance is archived"
+                    );
+                    0
+                }
+            }
         }
         None => {
             warn!(
@@ -789,6 +812,18 @@ fn wasm_hash_from_executable(executable: &ContractExecutable) -> Option<[u8; 32]
     }
 }
 
+/// Borrows the contract instance out of a ledger-entry row, or `None` when the
+/// entry is absent or archived.
+fn instance_from_row(row: &LedgerEntryQuery) -> Option<&ScContractInstance> {
+    let LedgerEntryData::ContractData(cd) = row.value.as_ref()? else {
+        return None;
+    };
+    match &cd.val {
+        ScVal::ContractInstance(inst) => Some(inst),
+        _ => None,
+    }
+}
+
 fn wasm_hash_from_instance_row(row: &LedgerEntryQuery) -> Option<[u8; 32]> {
     let LedgerEntryData::ContractData(cd) = row.value.as_ref()? else {
         return None;
@@ -921,6 +956,21 @@ mod tests {
             executable: stellar_xdr::curr::ContractExecutable::Wasm(Hash([0u8; 32])),
             storage: Some(stellar_xdr::curr::ScMap(vec![entry].try_into().unwrap())),
         }
+    }
+
+    /// An absent or archived row must not resolve to a counter. The tick has to
+    /// survive it: aborting here would stop discovery before a restore for the
+    /// NFT instance could be planned, so the contract could never come back.
+    #[test]
+    fn an_archived_nft_instance_yields_no_counter() {
+        let absent = LedgerEntryQuery {
+            key: contract_instance_key(&[4u8; 32]),
+            value: None,
+            live_until_ledger: None,
+        };
+        assert!(instance_from_row(&absent).is_none());
+        // The snapshot maps that to "no accounts scanned this tick", not a panic.
+        assert_eq!(max_account_id_from_counter(0), 0);
     }
 
     #[test]
