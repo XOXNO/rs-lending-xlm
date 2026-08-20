@@ -4,8 +4,7 @@ Where the arithmetic stops. Every number below is derived from a constant or a
 guard that exists in the repository today; the derivation is shown so a change
 to any of those constants can be re-run against it. This is the analogue of
 ChainSecurity's note 8.5 (type bounds) and note 8.4 (small-position liquidation
-profitability) from the Aave V4 audit corpus — see
-`docs/explanation/aave-v4-audit-comparison.md`, classes L and H.
+profitability) from the Aave V4 audit corpus.
 
 Evidence labels: **Observed** = read from source. **Verified** = reproduced by a
 named test. **Inferred** = follows from the above, not directly reproduced.
@@ -14,7 +13,7 @@ named test. **Inferred** = follows from the above, not directly reproduced.
 
 | Quantity | Type | Scale | Source |
 |---|---|---|---|
-| Interest indexes, scaled shares, rates | `i128` | RAY = 10^27 | [`common/src/math/fp.rs`](../../common/src/math/fp.rs) |
+| Interest indexes, scaled shares, utilization, rates | `i128` | RAY = 10^27 | types in [`common/src/math/fp.rs`](../../common/src/math/fp.rs), scales in [`common/src/constants/shared.rs`](../../common/src/constants/shared.rs) |
 | USD values, health factor | `i128` | WAD = 10^18 | same |
 | Risk ratios, fees | `i128` | BPS = 10^4 | same |
 | Token amounts | `i128` | asset decimals, 3..=18 | `MIN_ASSET_DECIMALS` / `MAX_ASSET_DECIMALS` |
@@ -53,9 +52,10 @@ The growth rate is bounded twice: `MarketParamsRaw::validate` rejects
 `max_borrow_rate > MAX_BORROW_RATE_RAY = 2 * RAY` (200% APR)
 ([`common/src/types/pool.rs`](../../common/src/types/pool.rs)), and
 `calculate_annual_borrow_rate` caps the curve output at that parameter.
-`global_sync` splits elapsed time into chunks of at most
-`MAX_COMPOUND_DELTA_MS = MILLISECONDS_PER_YEAR`
-([`contracts/pool/src/interest.rs`](../../contracts/pool/src/interest.rs)).
+`global_sync`
+([`contracts/pool/src/interest.rs`](../../contracts/pool/src/interest.rs)) splits
+elapsed time into chunks of at most `MAX_COMPOUND_DELTA_MS = MILLISECONDS_PER_YEAR`
+([`common/src/rates/compound.rs`](../../common/src/rates/compound.rs)).
 
 Chunking barely moves the answer. `compound_interest` is a Taylor series
 truncated at the eighth term, so a single one-year chunk at 200% APR yields
@@ -135,9 +135,9 @@ divides out the decimal count. This is our analogue of ChainSecurity's note that
 Aave's `int200` `premiumOffset` leaves ~106 bits for balances and therefore
 constrains high-supply tokens: a token whose *supply* exceeds ~170.14 billion
 whole units — memecoin-scale, 1e14 supply — cannot have its whole supply
-represented here either, at any decimal count. No listed market is within six
-orders of magnitude of this. The tightest configured headroom is XLM's supply cap
-of `5e14` units (50 million XLM at 7 decimals), still ~3,400x below the d=7
+represented here either, at any decimal count. No listed market is within two
+orders of magnitude of this. The tightest configured headroom is AQUA's supply
+cap of `5e15` units (500 million AQUA at 7 decimals), still ~340x below the d=7
 ceiling of `1.7014e18` units.
 
 The bound applies to three distinct things, all at the same number:
@@ -161,7 +161,8 @@ exactly one place: the last line of `apply_bad_debt_to_supply_index`
 ([`contracts/pool/src/interest.rs`](../../contracts/pool/src/interest.rs)), which
 is the only path that moves the supply index down.
 
-It protects three conversions, all of which divide by the supply index:
+It protects one conversion — the division by the supply index in
+`calculate_scaled_supply` — against three distinct failure modes:
 
 - **Division by zero.** `calculate_scaled_supply` is
   `Ray::from_asset(amount, d).div_floor(supply_index)`. A fully socialized market
@@ -214,9 +215,9 @@ Two properties worth stating explicitly:
   `max_cap_for_decimals` returns `0` above `RAY_DECIMALS`, so without the
   explicit check every positive cap would be rejected with the wrong error.
   **Verified** by `cap_ceiling_collapses_to_zero_above_ray_decimals`.
-- Compared with Aave's `uint40` caps (~1.1e12 whole units), ours are ~170 billion
-  whole tokens — two orders of magnitude larger, and uniform in decimals where
-  Aave's is uniform in raw units.
+- Compared with Aave's `uint40` caps (~1.1e12 whole units), ours are ~1.7e11
+  whole tokens — about 6.5x smaller in raw count, but uniform in decimals where
+  Aave's is uniform in raw units. Neither is close to any listed supply.
 
 ## 6. Small-position liquidation profitability
 
@@ -282,7 +283,7 @@ not accumulate in either direction.
    precisely in the small-position regime this section is about. Already recorded
    as a known defect by `the_dust_fee_bump_charges_more_than_the_realised_excess`.
 
-So:
+So the both-legs sum reduces to the collateral term alone:
 
 ```
 L_round = 2 * unit_value(collateral)     per seized collateral position
@@ -311,11 +312,11 @@ configures. Floor for comparison:
 |---|---|---|---|---|---|---|---|
 | SolvBTC / xSolvBTC | 8 | $120,000 | $1.2e-3 | $2.4e-3 | **$0.0303** | **$0.1515** | 33x |
 | xSolvBTCSolvBTC_LP | 7 | $12,000 | $1.2e-3 | $2.4e-3 | $0.0242 | $0.1212 | 41x |
-| SPIKOUKTBL (worst SPIKO) | 5 | $1.4804 | $1.48e-5 | $2.96e-5 | $5.6e-4 | $2.8e-3 | 1,783x |
+| SPIKOUKTBL (spoke 3) | 5 | $1.4804 | $1.48e-5 | $2.96e-5 | $5.6e-4 | $2.8e-3 | 1,783x |
 | XAUM | 9 | $6,000 | $6.0e-6 | $1.2e-5 | $1.67e-4 | $8.3e-4 | 6,000x |
 | USDC (200 bps spoke) | 7 | $1.05 | $1.05e-7 | $2.1e-7 | $1.17e-5 | $5.8e-5 | 85,714x |
 | XLM | 7 | $1.00 | $1.0e-7 | $2.0e-7 | $2.53e-6 | $1.26e-5 | 396,000x |
-| USST / DEJTRSY / DEJAAA | 18 | ~$1.09 | $1e-18 (1 wad) | $2e-18 | $4.5e-17 | $2.2e-16 | ~2e16x |
+| USST / DEJTRSY / DEJAAA | 18 | ~$1.09 | $1.09e-18 | $2.2e-18 | $4.8e-17 | $2.4e-16 | ~2e16x |
 
 **Verified** by
 `the_min_borrow_collateral_floor_clears_the_unprofitability_threshold_for_every_listed_pair`,
@@ -364,7 +365,12 @@ liquidator's favour, which the bound permits.
 - Below the floor, `is_socializable_bad_debt` opens the permissionless
   `clean_bad_debt` path, which needs no profitable liquidator at all.
 
-The three constants are the same $5 and are meant to be read together.
+The two constants are the same $5 and are meant to be read together. The floor
+actually enforced is `MinBorrowCollateralUsd` in instance storage
+([`contracts/controller/src/storage/protocol.rs`](../../contracts/controller/src/storage/protocol.rs)),
+which defaults to `DEFAULT_MIN_BORROW_COLLATERAL_USD_WAD` but is
+governance-settable and disables the gate entirely at `0`. Every margin in §6.2
+is contingent on it.
 
 ### 6.4 Finding: nothing bounds an asset's *unit* value
 
@@ -391,26 +397,30 @@ little past it — turning negative at **$237** — because the seizure floor
 typically costs well under a full unit. **Verified** by
 `the_profitability_boundary_at_three_decimals_sits_between_198_and_237_dollars`.
 
-This is a **listing-admission constraint, not a code defect**: no configured
-asset is within four orders of magnitude of it, and reaching it requires
-governance to list a 3-decimal asset worth hundreds of dollars a token. The
-condition to check before listing a collateral is
+This is a **listing-admission constraint, not a code defect**: the largest
+configured unit value ($1.2e-3, SolvBTC) is 165x below the $0.198 boundary unit
+value, and reaching it requires governance to list a 3-decimal asset worth
+hundreds of dollars a token. The condition to check before listing a collateral
+is
 
 ```
 price / 10^decimals  <=  MinBorrowCollateralUsd * b * (1 - f) / (2 * N)
 ```
 
 with `N = POSITION_LIMIT_MAX`. At the current floor and the least generous
-listed curve (b = 400 bps, f = 1,200 bps, N = 5) that is `unit_value <= $0.0176`,
-i.e. a maximum sanity price of:
+listed curve (b = 200 bps, f = 1,000 bps, N = 5 — USDC on spoke 5) that is
+`unit_value <= $0.0090`, i.e. a maximum sanity price of:
 
 | Decimals | Max admissible price per whole token |
 |---|---|
-| 3 | $17.60 |
-| 5 | $1,760 |
-| 7 | $176,000 |
-| 8 | $1,760,000 |
-| 18 | $1.76e16 |
+| 3 | $9.00 |
+| 5 | $900 |
+| 7 | $90,000 |
+| 8 | $900,000 |
+| 18 | $9.0e15 |
+
+Every listed asset clears this: the largest configured unit value is SolvBTC's
+$1.2e-3, 7.5x under the $0.0090 bound.
 
 Recommended follow-ups, in order of cost:
 

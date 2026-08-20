@@ -2,6 +2,8 @@
 
 **Status:** Accepted
 
+**Implemented by:** contracts/swap-aggregator/src/program.rs (`Program::decode`, `Opcode`, `Mode`), contracts/swap-aggregator/src/types.rs (`StrategyPayload`), contracts/swap-aggregator/src/execute/mod.rs (`run`), contracts/swap-aggregator/src/execute/residual.rs (`accrue_residual_as_revenue`), contracts/swap-aggregator/src/math.rs (`checked_add`, `checked_mul`), contracts/swap-aggregator/src/venues/.
+
 ## Decision
 
 The swap aggregator accepts a compact instruction stream over address and

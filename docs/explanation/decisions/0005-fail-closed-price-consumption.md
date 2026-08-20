@@ -2,6 +2,8 @@
 
 **Status:** Accepted
 
+**Implemented by:** contracts/controller/src/context/oracle.rs (`fetch_prices`, `cached_price`, `OracleNotConfigured`), contracts/controller/src/external/price_aggregator.rs, contracts/controller/src/risk/totals.rs (`calculate_account_risk_totals`), contracts/controller/src/keepers.rs.
+
 ## Decision
 
 Every state-changing flow that depends on valuation obtains a complete,

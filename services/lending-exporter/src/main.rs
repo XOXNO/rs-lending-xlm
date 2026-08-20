@@ -15,10 +15,16 @@ use lending_exporter::metrics::{self, Metrics};
 use lending_exporter::stellar::RpcClient;
 
 #[derive(Debug, Parser)]
-#[command(name = "lending-exporter", about = "Read-only Prometheus exporter for XOXNO Lending")]
+#[command(
+    name = "lending-exporter",
+    about = "Read-only Prometheus exporter for XOXNO Lending"
+)]
 struct Args {
-
-    #[arg(long, env = "EXPORTER_CONFIG", default_value = "/etc/lending-exporter/testnet.yaml")]
+    #[arg(
+        long,
+        env = "EXPORTER_CONFIG",
+        default_value = "/etc/lending-exporter/testnet.yaml"
+    )]
     config: PathBuf,
 }
 
@@ -36,7 +42,11 @@ async fn main() -> Result<()> {
     let metrics = Arc::new(Metrics::new().context("build metrics registry")?);
     let cancel = CancellationToken::new();
 
-    let metrics_task = tokio::spawn(metrics::serve(cfg.metrics.bind, metrics.clone(), cancel.clone()));
+    let metrics_task = tokio::spawn(metrics::serve(
+        cfg.metrics.bind,
+        metrics.clone(),
+        cancel.clone(),
+    ));
 
     let scrape_task = {
         let client = client.clone();

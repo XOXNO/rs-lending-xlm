@@ -39,15 +39,27 @@ received; outbound transfers are controlled by pool accounting.
 
 ## Markets and accounts
 
-One pool contains many isolated markets. A market is keyed by hub asset and
-has independent supply and debt indexes, cash, revenue, rate parameters, and
-reserves. The same token may appear in distinct markets without combining
-their accounting.
+One pool contains many isolated markets. A market is keyed by hub asset and has
+independent supply and debt indexes, supply and debt share totals, cash,
+accrued revenue, and rate parameters. `get_reserves` reports that same cash
+figure; reserves are not a separate quantity. The same token may appear in
+distinct markets without combining their accounting.
 
 An account is bound to one spoke at creation. The spoke supplies the risk
 configuration used for every position in that account: collateral eligibility,
 borrow eligibility, caps, LTV, threshold, liquidation terms, and halt flags.
 The binding never changes.
+
+### The account is an NFT
+
+Each lending account is one token in the position-NFT collection. The
+`account_id` is the NFT `token_id`, and the NFT holder is the account owner.
+The controller mints the token when it creates an account (`create_account` in
+`contracts/controller/src/account.rs`) and burns it when the account is
+removed. The controller stores no owner address: it asks the NFT contract who
+owns `account_id` every time it checks authority, so transferring the token
+transfers the position. See
+[position-nft/README.md](../../contracts/position-nft/README.md).
 
 ## Typical lifecycle
 
@@ -76,26 +88,24 @@ The controller evaluates collateral conservatively and debt conservatively,
 then requires sufficient LTV and health factor after a risk-reducing or
 risk-increasing operation as applicable.
 
-## Controller events that differ from earlier main
+## Controller event shapes an indexer must handle
 
-Observer-facing shapes that differ from earlier main. On-chain account and
-pool state are unchanged by the first two.
+These event shapes are easy to misread. None of them affects on-chain account
+or pool state.
 
-- `swap_debt` records the new-debt borrow as `SwDebtR`. Earlier main reused the
-  `Multiply` action tag for that borrow through `borrow_for_strategy`. The repay
-  leg was already `SwDebtR`.
-- After a liquidation that also socializes dust bad debt, `UpdatePositionBatchEvent`
-  is published before `CleanBadDebtEvent`. Earlier main published
-  `CleanBadDebtEvent` first, then the position batch. The batch payload is the
-  same. Cleanup still deletes the account after the batch.
+- Both legs of `swap_debt` carry `SwDebtR`: the borrow of the new debt and the
+  repay of the old debt.
+- When a liquidation also socializes dust bad debt, every
+  `UpdatePositionBatchEvent` is published before `CleanBadDebtEvent`. Cleanup
+  deletes the account after the batch.
 - A liquidation using `SeizeMode::Credit` publishes **two**
-  `UpdatePositionBatchEvent`s rather than one: the liquidated account's batch
-  first, then the receiving account's. `SeizeMode::Transfer` still publishes
-  exactly one. Both batches precede any `CleanBadDebtEvent`.
+  `UpdatePositionBatchEvent`s: the liquidated account's batch first, then the
+  receiving account's. `SeizeMode::Transfer` publishes exactly one. Both
+  batches precede any `CleanBadDebtEvent`.
 
-Indexers should key swap-debt opens on `SwDebtR` as well as `Multiply`, should
-not assume bad-debt cleanup precedes the position batch, and must not assume one
-liquidation produces one position batch.
+Indexers key swap-debt opens on `SwDebtR`, must not assume bad-debt cleanup
+precedes the position batch, and must not assume one liquidation produces one
+position batch.
 
 `flash_position` adds a fourth observer-facing shape. The summary event is
 `position:flash_position` (`FlashPositionEvent`: account, debt asset, receiver,
@@ -117,15 +127,16 @@ between. They therefore carry different action tags:
 
 Measured on a representative fixture: gross `999_833_197_057`, fee
 `59_982_992_641`, credited `939_850_204_416`. Summing both tags as if they were
-the same quantity double-counts; reading the gross figure as liquidator proceeds
-overstates them by **6.0%**.
+the same quantity double-counts. The fee is **6.0% of the gross**, so reading
+the gross figure as the liquidator's proceeds overstates those proceeds by
+**6.4%**.
 
 `SeizeMode::Transfer` emits only `LiqSeize`, also gross — the fee is withheld
 from the outbound transfer rather than from a second leg.
 
-An earlier revision emitted `LiqSeize` for both legs. It was split precisely
-because one tag cannot carry two senses without an indexer having to know which
-account a batch belongs to in order to interpret its numbers.
+One tag cannot carry two senses: an indexer would have to know which account a
+batch belongs to before it could read the numbers. That is why the receiver's
+leg has its own tag.
 
 Two further shapes on the receiver's batch:
 
@@ -148,10 +159,9 @@ shortfall from a debt token that delivers less than it is sent. It therefore
 agrees with the debt actually retired, which is also visible as the `LiqRepay`
 deltas in the accompanying position batch.
 
-An earlier revision emitted the *planned* repayment here, which over-reported
-whenever an under-delivering token was involved — a case the protocol explicitly
-supports, since the seizure is already scaled down to match the measured
-receipt.
+The protocol explicitly supports a debt token that delivers less than it is
+sent: the seizure is scaled down to match the measured receipt, and
+`repaid_usd_wad` reports that same measured figure, never the planned one.
 
 `LiquidationEvent` carries no seizure or protocol-fee figure at all; those are
 the batch's `LiqSeize` and `LiqCredit` legs.

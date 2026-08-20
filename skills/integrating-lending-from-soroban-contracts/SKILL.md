@@ -16,10 +16,20 @@ returned `u64` account id, and manages TTL. The reference implementation is
 `contracts/defindex-strategy/src/lib.rs` in the protocol repo — a vault
 adapter doing exactly this.
 
+**Ownership is a position NFT.** Account creation mints one
+([`contracts/position-nft`](../../contracts/position-nft/README.md), token id
+== account id) to your contract. That token *is* the ownership authority: the
+controller resolves the owner live via `owner_of` on every account access, so
+whoever holds the token owns the account. If the token ever leaves your
+contract, the account leaves with it, and every delegate the previous owner
+granted is lazily revoked. Your contract cannot gate the transfer — never let
+untrusted code move the token. Deleting an account burns it.
+
 ## Dependencies
 
-Add the client-only ABI crates from the protocol repo (git dependency or
-vendored path); they compile to `rlib`, not WASM:
+Add the ABI crates from the protocol repo (git dependency or vendored path).
+`controller-interface` is `rlib`-only; `common` builds `cdylib` + `rlib`. You
+link the rlib in both cases — depending on them produces no contract wasm:
 
 ```toml
 [dependencies]
@@ -104,9 +114,9 @@ let paid = client.withdraw(&me, &account_id,
 client.borrow(&me, &account_id, &vec![env, (hub_asset.clone(), amount)], &None);
 
 // repay pulls tokens from caller -> pool: same authorize_as_current_contract
-// pattern as supply, immediately before the call. Also requires account-owner
-// auth (not owner-or-delegate); when `me` owns the account that co-auth is
-// automatic as the direct invoker.
+// pattern as supply, immediately before the call. Repay is permissionless —
+// only the caller's own auth is required, no owner or delegate check. Your
+// contract can repay any account's debt, and anyone can repay yours.
 client.repay(&me, &account_id, &vec![env, (hub_asset, amount)]);
 ```
 
@@ -121,25 +131,33 @@ client.repay(&me, &account_id, &vec![env, (hub_asset, amount)]);
   yourself from `get_spoke_asset` caps and `get_spoke_usage`. `supply_cap` /
   `borrow_cap` are always-enforced ceilings in asset units with no unlimited
   sentinel: `0` closes that side entirely (`SpokeSupplyCapReached` #311 /
-  `SpokeBorrowCapReached` #312) while exits stay uncapped. Entries also fail
-  while paused (global or per-spoke) or on frozen listings (3-layer matrix:
-  global blocks risk-increasing; per-spoke paused blocks exits; frozen only
-  new entries).
+  `SpokeBorrowCapReached` #312) while exits stay uncapped. Halt flags are a
+  separate layer: global pause blocks risk-increasing verbs only (supply,
+  borrow, strategies, flash loans) and leaves withdraw, repay, liquidate,
+  and renew_account open; per-spoke-asset `paused` blocks both entries and
+  exits for that listing (#315); `frozen` blocks new entries only (#316);
+  `no_seize` blocks only the liquidation seizure leg (#318) and is the only
+  flag that gates seizure. Full matrix: `lending-protocol-fundamentals`.
 - `account_exists(account_id)` — reconcile your stored id; clear it if the
   account is gone.
 - Full view surface: `reading-lending-protocol-state` skill.
 
 ## TTL management
 
-- `renew_account(caller, account_id)` extends the account's controller
-  storage — it is **owner-only** (owner = your contract), so expose an
-  entrypoint that forwards to it. Account loads/mutations (supply, withdraw,
-  …) renew the same storage, so actively used accounts mostly self-maintain;
-  renew explicitly during idle stretches.
+- `renew_account(caller, account_id)` is **owner-only**, and the owner is
+  whoever currently holds the account's position NFT — your contract, as long
+  as it still holds the token. It renews both the controller account entries
+  and the NFT `Owner` entry, so expose an entrypoint that forwards to it.
+  Account loads/mutations (supply, withdraw, …) renew the same storage, so
+  actively used accounts mostly self-maintain; renew explicitly during idle
+  stretches.
 - Renewal extends live entries only; an archived entry needs a Soroban
   `RestoreFootprint`, not an extend — do not let long-idle accounts lapse.
 - Extend your own storage key holding the account id with its own TTL
-  discipline (the reference vault uses ~30-day threshold / ~180-day extend).
+  discipline. The reference vault uses the same user tier as the controller
+  account it points at — 30-day threshold / 120-day extend
+  (`TTL_THRESHOLD_USER` / `TTL_BUMP_USER`) — so the pointer cannot outlive
+  its target.
 
 ## Common mistakes
 

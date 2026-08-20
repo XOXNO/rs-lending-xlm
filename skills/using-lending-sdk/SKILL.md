@@ -8,6 +8,13 @@ description: Use when building off-chain TypeScript/JavaScript against XOXNO Len
 Read `lending-protocol-fundamentals` first. It defines hubs, spokes, account
 ids, asset units, and the health-factor constraints this SDK cannot bypass.
 
+**Where the truth lives.** The protocol semantics in this skill are verified
+against the contracts. The TypeScript surface — import paths, builder names,
+argument-object field names, env-var names, and REST read methods — lives in
+the separate `sdk-js` repository and is not verifiable from the protocol
+repository. Check every symbol against the installed `@xoxno/sdk-js` version
+before use.
+
 ## When to use
 
 - Build a wallet-facing XDR for a lending action with `@xoxno/sdk-js`.
@@ -49,8 +56,9 @@ mix it with addresses, RPC servers, or signatures for another network.
 ## Transaction lifecycle (all builders)
 
 Controller-backed lending builders return an **unsigned** XDR built from a
-synthetic source account. Single-asset supply, borrow, withdraw, and repay
-helpers wrap their batch controller entrypoints. Fetch the sequence immediately
+synthetic source account. The controller has one vector-shaped entrypoint per
+verb; the single-asset supply, borrow, withdraw, and repay helpers just wrap a
+one-element vector. Fetch the sequence immediately
 before building, then prepare the exact returned XDR before signing:
 
 ```ts
@@ -72,7 +80,9 @@ must come from the same package instance.
 
 - `amount` values are i128 decimal strings in native asset decimals.
 - `accountNonce` is the controller account id (the legacy SDK field name);
-  `0` opens a new account.
+  `0` opens a new account. An account id is also a position-NFT token id, and
+  the account's owner is the current NFT holder — a wallet that transferred
+  the NFT can no longer sign owner-gated verbs.
 - **Always pass `spokeId` explicitly when creating an account.** Spoke ids
   start at 1; the builder defaults an omitted `spokeId` to `0`, which reverts
   `SpokeNotFound` on account creation.
@@ -92,8 +102,15 @@ buildStellarWithdrawBatchTx(opts,{ accountNonce, withdrawals: [...], to? })
 buildStellarRepayBatchTx(opts,   { accountNonce, payments: [...] })
 ```
 
-Also: `buildStellarLiquidateTx(opts, { accountNonce, debtPayments })` (see
-`building-lending-liquidation-bots`) and
+Also: `buildStellarLiquidateTx(opts, { accountNonce, debtPayments, seizeMode })`
+(see `building-lending-liquidation-bots`). The on-chain `liquidate` takes four
+arguments — `liquidator, account_id, debt_payments, seize_mode` — so the seize
+mode must reach the call: `Transfer` pays the seized collateral out of pool
+cash to the liquidator, while `Credit(accountId)` credits the seized supply
+shares to a controller account and moves no tokens (`Credit(0)` creates the
+receiving account). If your SDK version omits the field, it hardcodes
+`Transfer`; confirm which before relying on it. `get_liquidation_estimate`
+takes the same `seize_mode`. Also:
 `buildStellarFlashLoanTx(opts, { hubId, asset, amount, receiver, data })`
 (receiver side: `writing-flash-loan-receivers`).
 
@@ -151,8 +168,9 @@ borrow path; each `debtCaps` value must be positive and slightly exceed the
 live Blend debt so Blend can refund any excess on-chain.
 
 Strategy verbs are atomic — the post-state must pass the same LTV/HF gates as
-a manual borrow or everything reverts; the router credits measured balance
-deltas, so venues cannot fake output. Re-quote close to submission.
+a manual borrow or everything reverts; the controller measures its own balance
+delta around the router call and credits only that, so venues cannot fake
+output (it reverts `RouterOverspend` otherwise). Re-quote close to submission.
 
 ## Read surface
 

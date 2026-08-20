@@ -27,10 +27,11 @@ fn liquidate(liquidator: Address, account_id: u64,
 ```
 
 `seize_mode` selects how you receive collateral: `Transfer` pays underlying
-tokens out of pool cash; `Credit(id)` credits supply shares to one of your
-controller accounts on the same spoke (moving no tokens, so it clears even
-when the market has no free liquidity), with `Credit(0)` creating that
-account.
+tokens out of pool cash; `Credit(id)` credits supply shares to a
+controller account (moving no tokens, so it clears even when the market has no
+free liquidity). That account must be owned by you or delegated to you, sit in
+the liquidated account's spoke, be in `PositionMode::Normal`, and not be the
+liquidated account itself. `Credit(0)` creates a fresh one for you.
 
 `debt_payments` pairs each debt market with the amount you offer, in native
 asset decimals. The controller caps what it accepts (close amount) and pulls
@@ -41,11 +42,14 @@ is safe because the excess is never transferred.
 
 ```rust
 fn get_liquidation_estimate(account_id: u64,
-    debt_payments: Vec<(HubAssetKey, i128)>) -> LiquidationEstimate;
+    debt_payments: Vec<(HubAssetKey, i128)>,
+    seize_mode: SeizeMode) -> LiquidationEstimate;
 
 pub struct LiquidationEstimate {
-    pub seized_collaterals: Vec<PaymentTuple>, // asset-native units
-    pub protocol_fees: Vec<PaymentTuple>,      // fee cut from seized collateral
+    // Gross of protocol_fees. Asset units in Transfer mode, RAY-scaled supply
+    // shares in Credit mode.
+    pub seized_collaterals: Vec<PaymentTuple>,
+    pub protocol_fees: Vec<PaymentTuple>,      // protocol's cut, same units
     pub refunds: Vec<PaymentTuple>,            // informational: the part of your offer that will NOT be taken
     pub max_payment_wad: i128,                 // max accepted debt payment, USD WAD
     pub bonus_rate_bps: i128,                  // bonus used for this estimate
@@ -54,9 +58,20 @@ pub struct LiquidationEstimate {
 fn get_liquidation_collateral(account_id: u64) -> i128; // seizable value, USD WAD
 ```
 
+Pass the **same `seize_mode` you will pass to `liquidate`**. The mode changes
+the units of the answer: `Transfer` reports asset units, `Credit` reports
+RAY-scaled supply shares. Multiply shares by the supply index and rescale to
+asset decimals before comparing them against the debt you pay.
+
+`seized_collaterals` is gross of `protocol_fees` in **both** modes. Your
+proceeds are `seized_collaterals - protocol_fees`. In `Transfer` mode the pool
+withholds the fee from the outbound transfer; in `Credit` mode the receiving
+account is credited the net shares. Reading `seized_collaterals` as proceeds
+over-counts by the fee.
+
 Simulate the estimate, check profitability
-(`seized - protocol_fees` vs accepted debt paid + fees/gas), then submit
-`liquidate` with the same payments.
+(`seized_collaterals - protocol_fees` vs accepted debt paid + fees/gas), then
+submit `liquidate` with the same payments and the same mode.
 
 ## Bonus and close-amount model
 
@@ -79,6 +94,16 @@ The bonus is a curve, not a flat rate:
 Always read the effective bonus from `get_liquidation_estimate`; never assume
 a constant.
 
+## The `no_seize` flag
+
+The seizure leg is gated by the listing's `no_seize` flag alone. `paused` and
+`frozen` do not block seizure, but any collateral the account holds that is
+listed with `no_seize = true` traps with `SpokeAssetSeizureHalted` (#318) and
+reverts the whole liquidation — seizure is pro-rata over the account's entire
+collateral set, so a single halted listing is enough. Check
+`get_spoke_asset(spoke_id, hub_asset).no_seize` for every collateral the
+account holds before submitting.
+
 ## Bot loop shape
 
 1. Discover candidates from `position:batch_update` events (see
@@ -92,7 +117,11 @@ a constant.
    raw RPC.
 5. Confirm via the `position:liquidation` event plus the
    `position:batch_update` legs whose action discriminant is `LiqRepay` (4) /
-   `LiqSeize` (5).
+   `LiqSeize` (5). In `Credit` mode the controller publishes a **second**
+   `position:batch_update`, on the receiving account, whose legs are
+   `LiqCredit` (15). `LiqSeize` is gross of the protocol fee and `LiqCredit`
+   is net of it, so summing `LiqSeize` as your proceeds over-counts by the
+   fee.
 
 ## Handling an archived position-NFT owner entry
 
@@ -123,8 +152,12 @@ See `docs/reference/invariants.md` (INV-STOR-02).
   accepted amounts; `refunds` only reports the untaken part of your offer.
 - **Trying to repay 100% of debt** — the close amount is capped to restore
   the target HF.
-- **Ignoring `protocol_fees`** — a slice of seized collateral goes to the
-  protocol; profit math without it overstates margin.
+- **Ignoring `protocol_fees`** — `seized_collaterals` is gross of it in both
+  modes; profit math without it overstates margin.
+- **Calling `get_liquidation_estimate` with two arguments** — it takes three;
+  the third is `seize_mode`.
+- **Comparing `Credit`-mode figures against asset amounts** — they are
+  RAY-scaled shares; convert with the supply index first.
 - **Trusting `get_health_factor == i128::MAX` as "healthy"** — it also means
   missing account or saturated dust-debt; combine with `account_exists` and
   debt views.

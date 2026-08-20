@@ -5,6 +5,10 @@ Each skill is a how-to an agent loads on demand, grounded in contract ABIs and
 `@xoxno/sdk-js`. Addresses and RPC endpoints come from configuration — never
 from these docs.
 
+Contract claims are verified against this repository. SDK claims are verified
+against the separate `sdk-js` repository, not this one — re-check them there
+after any SDK release.
+
 Shared model: [lending-protocol-fundamentals](./lending-protocol-fundamentals/SKILL.md).
 Equations: [docs/reference/formulas.md](../docs/reference/formulas.md).
 Source of truth: contracts, interfaces, and tests (formulas doc must match).

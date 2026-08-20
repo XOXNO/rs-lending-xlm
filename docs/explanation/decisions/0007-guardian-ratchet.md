@@ -2,6 +2,8 @@
 
 **Status:** Accepted
 
+**Implemented by:** contracts/controller/src/config/asset.rs (`set_spoke_asset_flags`, `require_flag_ratchet`, `edit_asset_in_spoke`), contracts/governance/src/timelock/immediate.rs (`GUARDIAN_ROLE`), contracts/controller/src/governance.rs (`pause`, `unpause`).
+
 ## Decision
 
 The guardian may immediately pause the protocol and set restrictive listing

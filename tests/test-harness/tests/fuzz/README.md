@@ -15,7 +15,12 @@ PROPTEST_CASES=10000 cargo test --release -p test-harness --test fuzz -- --test-
 cargo test -p test-harness --test fuzz prop_liquidation_matches_bigrational_reference -- --test-threads=1
 ```
 
-`PROPTEST_CASES` overrides per-module defaults (see `config.rs`). Always use `--test-threads=1`.
+`PROPTEST_CASES` overrides the per-module defaults of the randomized properties
+(see `config.rs`); the two auth matrices are deterministic `#[test]` functions
+and ignore it.
+
+Run this suite serially. `make proptest` pins `--test-threads=1`; the rest of the
+harness suite runs at libtest's default of one thread per core.
 
 ## Modules
 
@@ -57,6 +62,9 @@ Weighted random sequences over two users (Alice, Bob) and three assets (USDC, ET
 - **Repay / Withdraw** — fraction of current balance (bps)
 - **Advance** — time jump + keeper index sync
 - **ClaimRevenue** — admin revenue claim per asset
+- **Liquidate** — fraction of the target's ETH or WBTC debt (bps), after forcing
+  the USDC price down to half a WAD
+- **SwapDebt** — rotate a user's USDC debt into ETH through the mock router
 - **FlashLoan** — cash flash loan to the good receiver
 - **FlashPosition** — callback-multiply onto a new Multiply account
 - **Multiply / SwapCollateral / Rdwc** — strategy legs through the mock router

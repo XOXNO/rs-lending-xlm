@@ -13,7 +13,7 @@ pub struct Metrics {
     pub sim_failures: IntCounterVec,
     pub jobs_planned: IntCounterVec,
     pub tick_failed: IntCounterVec,
-    pub account_nonce: IntGauge,
+    pub max_account_id: IntGauge,
     pub entries_archived: IntGauge,
 }
 
@@ -43,9 +43,9 @@ impl Metrics {
             prometheus::Opts::new("keeper_tick_failed_total", "Tick failures per loop"),
             &["loop"],
         )?;
-        let account_nonce = IntGauge::with_opts(prometheus::Opts::new(
-            "keeper_account_nonce",
-            "Last observed AccountNonce on the controller",
+        let max_account_id = IntGauge::with_opts(prometheus::Opts::new(
+            "keeper_max_account_id",
+            "Highest position-NFT token id minted, i.e. the largest existing account id",
         ))?;
         let entries_archived = IntGauge::with_opts(prometheus::Opts::new(
             "keeper_entries_archived",
@@ -56,7 +56,7 @@ impl Metrics {
         registry.register(Box::new(sim_failures.clone()))?;
         registry.register(Box::new(jobs_planned.clone()))?;
         registry.register(Box::new(tick_failed.clone()))?;
-        registry.register(Box::new(account_nonce.clone()))?;
+        registry.register(Box::new(max_account_id.clone()))?;
         registry.register(Box::new(entries_archived.clone()))?;
 
         Ok(Self {
@@ -65,7 +65,7 @@ impl Metrics {
             sim_failures,
             jobs_planned,
             tick_failed,
-            account_nonce,
+            max_account_id,
             entries_archived,
         })
     }

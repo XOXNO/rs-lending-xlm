@@ -26,7 +26,7 @@ Do **not** raise the dust threshold to paper over a straddle.
 
 - `is_liquidatable(account_id)` is true, or collateral has already been
   stripped and debt still exceeds collateral.
-- `clean_bad_debt` reverts `#` `CannotCleanBadDebt`.
+- `clean_bad_debt` reverts with `CannotCleanBadDebt` (error 114).
 - `get_total_collateral_usd > 5e18` and
   `get_total_borrow_usd > get_total_collateral_usd`.
 - Typical causes: post-liquidation leftover above $5; `no_seize` making the

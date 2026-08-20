@@ -7,8 +7,10 @@ time. RedStone-style reads fail closed; SEP-40 reads soft-fail with `None`.
 | | |
 | --- | --- |
 | Owner | OZ `Ownable` |
-| Provider kind | `OracleProviderKind::XoxnoPriceFeed` |
-| Consumer | price-aggregator (`OracleSourceConfig::Xoxno`) |
+| Provider reference | `ProviderRef::Xoxno(MultiFeedRef)` (`common/src/types/composable_oracle.rs`) |
+| Feed reference fields | `MultiFeedRef { contract, feed_id, nature }` |
+| Smoothing | Never smoothed: `ProviderRef::is_smoothed` returns false for `Xoxno` |
+| Consumer | price-aggregator, through a `FeedSource` holding that `ProviderRef` |
 
 ## Surface
 

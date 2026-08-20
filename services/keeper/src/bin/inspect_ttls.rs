@@ -16,7 +16,6 @@ use stellar_xdr::curr::{ContractId, Hash, LedgerKey, ScAddress, ScMapEntry, ScSy
     about = "Read-only TTL inspector for the XOXNO Lending keeper set"
 )]
 struct Args {
-
     #[arg(
         short,
         long,
@@ -50,7 +49,7 @@ async fn main() -> Result<()> {
         cfg.schedule.ttl_safety_margin_days
     );
     println!("configured market assets: {}", snap.assets.len());
-    println!("account nonce      : {}", snap.account_nonce);
+    println!("max account id     : {}", snap.max_account_id);
     println!("scan users         : {}", cfg.schedule.scan_users);
     println!();
 

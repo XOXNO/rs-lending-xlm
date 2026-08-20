@@ -155,8 +155,8 @@ fn div_by_zero_sanity(e: Env) {
 }
 
 // ---------------------------------------------------------------------------
-// Anti-splitting bounds for the fixed-point primitives — Aave Hub `*Additivity`
-// analogue, docs `explanation/aave-v4-audit-comparison.md` §5 V-6.
+// Anti-splitting bounds for the fixed-point primitives — the analogue of Aave
+// Hub's `*Additivity` rules.
 //
 // The roundtrip rules above bound the error of converting a value out and back.
 // These bound the error of *splitting* one conversion into two, which is the

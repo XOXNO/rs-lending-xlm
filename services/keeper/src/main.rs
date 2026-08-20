@@ -22,7 +22,6 @@ use tracing_subscriber::EnvFilter;
     about = "XOXNO Lending off-chain TTL keeper"
 )]
 struct Args {
-
     #[arg(
         short,
         long,
@@ -160,8 +159,25 @@ async fn resolve_signer(args: &Args, cfg: &KeeperConfig) -> Result<Ed25519Signer
     load_signer(&cfg.keyvault, &cfg.signer).await
 }
 
+const DEFAULT_LOG_FILTER: &str = "info,keeper=debug";
+
+/// Chooses the log filter directive. `RUST_LOG` wins when it is set and valid,
+/// so an operator can raise the level on a running container without editing
+/// the mounted config; otherwise `config.log.level` applies. An unusable value
+/// on either side falls back to the default rather than failing startup.
+fn log_filter_directive(rust_log: Option<&str>, level: &str) -> String {
+    for candidate in [rust_log.unwrap_or("").trim(), level.trim()] {
+        if !candidate.is_empty() && EnvFilter::try_new(candidate).is_ok() {
+            return candidate.to_string();
+        }
+    }
+    DEFAULT_LOG_FILTER.to_string()
+}
+
 fn init_tracing(level: &str, format: &str) -> Result<()> {
-    let filter = EnvFilter::try_new(level).unwrap_or_else(|_| EnvFilter::new("info,keeper=debug"));
+    let directive = log_filter_directive(std::env::var("RUST_LOG").ok().as_deref(), level);
+    let filter =
+        EnvFilter::try_new(&directive).unwrap_or_else(|_| EnvFilter::new(DEFAULT_LOG_FILTER));
     let builder = tracing_subscriber::fmt().with_env_filter(filter);
     match format {
         "json" => {
@@ -172,4 +188,33 @@ fn init_tracing(level: &str, format: &str) -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rust_log_overrides_the_config_level() {
+        assert_eq!(log_filter_directive(Some("warn"), "info"), "warn");
+    }
+
+    #[test]
+    fn config_level_applies_when_rust_log_is_absent_or_blank() {
+        assert_eq!(log_filter_directive(None, "debug"), "debug");
+        assert_eq!(log_filter_directive(Some("   "), "debug"), "debug");
+    }
+
+    #[test]
+    fn unusable_values_fall_back_instead_of_failing_startup() {
+        // A malformed RUST_LOG must not shadow a good config level.
+        assert_eq!(
+            log_filter_directive(Some("!!not a filter!!"), "info"),
+            "info"
+        );
+        assert_eq!(
+            log_filter_directive(Some("!!bad!!"), "!!also bad!!"),
+            DEFAULT_LOG_FILTER
+        );
+    }
 }

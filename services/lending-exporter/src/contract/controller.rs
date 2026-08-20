@@ -57,7 +57,8 @@ fn decode_market_index_row(value: &ScVal) -> Result<MarketIndexView> {
             .ok_or_else(|| anyhow!("supply_index missing"))?,
         borrow_index_ray: field_i128(value, "borrow_index")
             .ok_or_else(|| anyhow!("borrow_index missing"))?,
-        final_price_wad: field_i128(value, "price_wad").ok_or_else(|| anyhow!("price_wad missing"))?,
+        final_price_wad: field_i128(value, "price_wad")
+            .ok_or_else(|| anyhow!("price_wad missing"))?,
         primary_price_wad: field_i128(value, "primary_price_wad")
             .ok_or_else(|| anyhow!("primary_price_wad missing"))?,
         anchor_price_wad: field_i128(value, "anchor_price_wad")
@@ -95,7 +96,6 @@ pub fn decode_spoke_asset(value: &ScVal) -> Result<SpokeAssetConfig> {
 }
 
 pub fn decode_spoke_usage(value: &ScVal) -> Result<SpokeUsage> {
-
     if !matches!(value, ScVal::Map(_)) {
         return Err(anyhow!("expected SpokeUsageRaw map"));
     }
@@ -114,13 +114,19 @@ mod tests {
         ScVal::Symbol(crate::keys::symbol(t).unwrap())
     }
     fn i128v(v: i128) -> ScVal {
-        ScVal::I128(Int128Parts { hi: (v >> 64) as i64, lo: v as u64 })
+        ScVal::I128(Int128Parts {
+            hi: (v >> 64) as i64,
+            lo: v as u64,
+        })
     }
     fn map(entries: Vec<(&str, ScVal)>) -> ScVal {
         ScVal::Map(Some(ScMap(
             entries
                 .into_iter()
-                .map(|(k, v)| ScMapEntry { key: sym(k), val: v })
+                .map(|(k, v)| ScMapEntry {
+                    key: sym(k),
+                    val: v,
+                })
                 .collect::<Vec<_>>()
                 .try_into()
                 .unwrap(),
@@ -157,7 +163,10 @@ mod tests {
     fn decodes_spoke_liquidation_curve() {
         let m = map(vec![
             ("is_deprecated", ScVal::Bool(false)),
-            ("liquidation_target_hf_wad", i128v(1_050_000_000_000_000_000)),
+            (
+                "liquidation_target_hf_wad",
+                i128v(1_050_000_000_000_000_000),
+            ),
             ("hf_for_max_bonus_wad", i128v(950_000_000_000_000_000)),
             ("liquidation_bonus_factor_bps", ScVal::U32(5000)),
         ]);

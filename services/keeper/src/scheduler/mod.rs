@@ -143,7 +143,6 @@ async fn run_ttl_tick(
     drive_jobs(&ctx, metrics, restore_jobs, dry_run, "ttl", &mut budget).await?;
     let mut extends = extend_jobs;
     if dry_run {
-
         if !post_restore_extends.is_empty() {
             info!(
                 target: "keeper.scheduler",
@@ -198,7 +197,7 @@ fn tx_context<'a>(
 }
 
 fn record_snapshot_metrics(metrics: &Metrics, snap: &crate::discovery::DiscoverySnapshot) {
-    metrics.account_nonce.set(snap.account_nonce as i64);
+    metrics.max_account_id.set(snap.max_account_id as i64);
 }
 
 async fn drive_jobs(
