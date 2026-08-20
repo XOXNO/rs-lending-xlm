@@ -198,7 +198,7 @@ fn tx_context<'a>(
 }
 
 fn record_snapshot_metrics(metrics: &Metrics, snap: &crate::discovery::DiscoverySnapshot) {
-    metrics.account_nonce.set(snap.account_nonce as i64);
+    metrics.max_account_id.set(snap.max_account_id as i64);
 }
 
 async fn drive_jobs(

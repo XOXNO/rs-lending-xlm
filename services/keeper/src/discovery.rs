@@ -10,7 +10,7 @@ use crate::config::{ContractsConfig, ScheduleConfig};
 use crate::keys::{
     contract_code_key, contract_instance_key, AccessControlPersistentKey, ControllerInstanceKey,
     ControllerPersistentKey, ControllerUserKey, HubAssetKey, OracleAdapterKey, PoolPersistentKey,
-    PriceAggregatorPersistentKey,
+    PositionNftInstanceKey, PositionNftUserKey, PriceAggregatorPersistentKey,
 };
 use crate::stellar::client::{
     contract_id_from_strkey, hash32_from_hex, LedgerEntryQuery, RpcClient,
@@ -85,7 +85,9 @@ pub struct DiscoverySnapshot {
 
     pub wasm_code_entries: Vec<LedgerEntryQuery>,
 
-    pub account_nonce: u64,
+    /// Highest position-NFT token id minted so far, i.e. the largest account id
+    /// that can exist. Zero when the NFT address or counter cannot be read.
+    pub max_account_id: u64,
 }
 
 pub async fn snapshot(
@@ -114,21 +116,41 @@ pub async fn snapshot(
     let last_hub_id =
         lookup_scalar(&instance, ControllerInstanceKey::LastHubId, scval_u32)?.unwrap_or(0);
 
-    let nonce_key = ControllerPersistentKey::AccountNonce.to_ledger_key(&controller_id)?;
-    let nonce_rows = client.get_ledger_entries(&[nonce_key]).await?;
-    let account_nonce = nonce_rows
-        .first()
-        .and_then(|row| match row.value.as_ref()? {
-            LedgerEntryData::ContractData(cd) => scval_u64(&cd.val),
-            _ => None,
-        })
-        .unwrap_or(0);
+    // Account ids are position-NFT token ids. The controller keeps no counter of
+    // its own, so the id ceiling comes from the NFT's sequential counter, which
+    // holds the NEXT free id. Ids are never reused, so scanning 1..=max_account_id
+    // covers every account that has ever existed.
+    let position_nft_id = lookup_scalar(
+        &instance,
+        ControllerInstanceKey::PositionNft,
+        scval_contract_id,
+    )?;
+    let max_account_id = match position_nft_id {
+        Some(nft_id) => {
+            let nft_instance = client.get_contract_instance(&nft_id).await?;
+            let next_token_id = lookup_instance_scalar(
+                &nft_instance,
+                PositionNftInstanceKey::TokenIdCounter.variant_name(),
+                scval_u32,
+            )?
+            .unwrap_or(0);
+            max_account_id_from_counter(next_token_id)
+        }
+        None => {
+            warn!(
+                target: "keeper.discovery",
+                "position-NFT address missing from controller instance — user account keys skipped this tick"
+            );
+            0
+        }
+    };
     debug!(
         target: "keeper.discovery",
-        account_nonce,
+        max_account_id,
         last_spoke_id,
         last_hub_id,
         pool_resolved = pool_id.is_some(),
+        position_nft_resolved = position_nft_id.is_some(),
         "instance read"
     );
 
@@ -190,16 +212,15 @@ pub async fn snapshot(
         }
     }
 
-    persistent_entries.extend(nonce_rows);
-
     persistent_entries.extend(discover_role_keys(client, &controller_id, chunk_size).await?);
 
-    if schedule.scan_users && account_nonce > 0 {
+    if schedule.scan_users && max_account_id > 0 {
         persistent_entries.extend(
             discover_user_keys(
                 client,
                 &controller_id,
-                account_nonce,
+                position_nft_id,
+                max_account_id,
                 schedule.max_accounts_scan,
                 chunk_size,
             )
@@ -318,7 +339,7 @@ pub async fn snapshot(
         persistent_entries,
         instance_entries,
         wasm_code_entries,
-        account_nonce,
+        max_account_id,
     })
 }
 
@@ -598,14 +619,15 @@ static USER_SCAN_CURSOR: AtomicU64 = AtomicU64::new(1);
 async fn discover_user_keys(
     client: &RpcClient,
     controller_id: &[u8; 32],
-    account_nonce: u64,
+    position_nft_id: Option<[u8; 32]>,
+    max_account_id: u64,
     max_accounts_scan: u64,
     chunk_size: usize,
 ) -> Result<Vec<LedgerEntryQuery>> {
-    let window = max_accounts_scan.max(1).min(account_nonce);
+    let window = max_accounts_scan.max(1).min(max_account_id);
     let start = {
         let cursor = USER_SCAN_CURSOR.load(Ordering::Relaxed);
-        if cursor < 1 || cursor > account_nonce {
+        if cursor < 1 || cursor > max_account_id {
             1
         } else {
             cursor
@@ -613,20 +635,20 @@ async fn discover_user_keys(
     };
     // Wrap so successive ticks cover every id in ceil(nonce / window) rounds.
     let ids: Vec<u64> = (0..window)
-        .map(|offset| (start - 1 + offset) % account_nonce + 1)
+        .map(|offset| (start - 1 + offset) % max_account_id + 1)
         .collect();
-    let next = (start - 1 + window) % account_nonce + 1;
+    let next = (start - 1 + window) % max_account_id + 1;
     USER_SCAN_CURSOR.store(next, Ordering::Relaxed);
 
-    if account_nonce > window {
+    if max_account_id > window {
         info!(
             target: "keeper.discovery",
-            account_nonce,
+            max_account_id,
             max_accounts_scan,
             scanned_from = start,
             next_tick_from = next,
             "per-user scan window rotating; full coverage every {} ticks",
-            account_nonce.div_ceil(window)
+            max_account_id.div_ceil(window)
         );
     }
 
@@ -634,12 +656,17 @@ async fn discover_user_keys(
     let chunk = chunk_size.max(1);
 
     for id_chunk in ids.chunks(chunk) {
-        let mut keys = Vec::with_capacity(id_chunk.len() * 4);
+        let mut keys = Vec::with_capacity(id_chunk.len() * 5);
         for &id in id_chunk {
             keys.push(ControllerUserKey::AccountMeta(id).to_ledger_key(controller_id)?);
             keys.push(ControllerUserKey::SupplyPositions(id).to_ledger_key(controller_id)?);
             keys.push(ControllerUserKey::BorrowPositions(id).to_ledger_key(controller_id)?);
             keys.push(ControllerUserKey::Delegates(id).to_ledger_key(controller_id)?);
+            // The NFT `Owner` entry carries a shorter TTL than the controller's
+            // account keys, so it archives first unless it is renewed too.
+            if let (Some(nft_id), Ok(token_id)) = (position_nft_id.as_ref(), u32::try_from(id)) {
+                keys.push(PositionNftUserKey::Owner(token_id).to_ledger_key(nft_id)?);
+            }
         }
         rows.extend(client.get_ledger_entries(&keys).await?);
     }
@@ -720,11 +747,15 @@ fn wasm_hash_from_instance_row(row: &LedgerEntryQuery) -> Option<[u8; 32]> {
     wasm_hash_from_executable(&inst.executable)
 }
 
-fn scval_u64(val: &ScVal) -> Option<u64> {
-    match val {
-        ScVal::U64(v) => Some(*v),
-        _ => None,
-    }
+/// Converts the position-NFT sequential counter into the largest account id
+/// that can exist.
+///
+/// The counter holds the NEXT free token id, and the NFT constructor consumes
+/// id 0 as the controller's "new account" sentinel, so the largest usable id is
+/// one below the counter. Saturates so an unset counter reports no accounts
+/// rather than underflowing.
+fn max_account_id_from_counter(next_token_id: u32) -> u64 {
+    u64::from(next_token_id.saturating_sub(1))
 }
 
 fn scval_u32(val: &ScVal) -> Option<u32> {
@@ -746,7 +777,16 @@ fn lookup_scalar<T>(
     key: ControllerInstanceKey,
     extract: impl Fn(&ScVal) -> Option<T>,
 ) -> Result<Option<T>> {
-    let needle = needle_for(key)?;
+    lookup_instance_scalar(instance, key.variant_name(), extract)
+}
+
+/// Reads a unit-variant instance-storage entry by its variant name.
+fn lookup_instance_scalar<T>(
+    instance: &ScContractInstance,
+    variant_name: &str,
+    extract: impl Fn(&ScVal) -> Option<T>,
+) -> Result<Option<T>> {
+    let needle = needle_for(variant_name)?;
     let Some(storage) = &instance.storage else {
         return Ok(None);
     };
@@ -758,10 +798,9 @@ fn lookup_scalar<T>(
     Ok(None)
 }
 
-fn needle_for(key: ControllerInstanceKey) -> Result<ScVal> {
-    let symbol = ScSymbol(
-        StringM::<32>::try_from(key.variant_name()).map_err(|_| anyhow!("symbol too long"))?,
-    );
+fn needle_for(variant_name: &str) -> Result<ScVal> {
+    let symbol =
+        ScSymbol(StringM::<32>::try_from(variant_name).map_err(|_| anyhow!("symbol too long"))?);
     Ok(ScVal::Vec(Some(stellar_xdr::curr::ScVec(
         vec![ScVal::Symbol(symbol)]
             .try_into()
@@ -804,6 +843,99 @@ const SIM_FEE_STROOPS: u32 = 100;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use stellar_xdr::curr::ContractDataDurability;
+
+    /// Independently reconstructs the `#[contracttype]` encoding of a
+    /// single-argument enum variant, so the test does not just re-run the
+    /// production encoder.
+    fn sc_enum_for_test(variant: &str, arg: u32) -> ScVal {
+        ScVal::Vec(Some(stellar_xdr::curr::ScVec(
+            vec![
+                ScVal::Symbol(ScSymbol(StringM::<32>::try_from(variant).unwrap())),
+                ScVal::U32(arg),
+            ]
+            .try_into()
+            .unwrap(),
+        )))
+    }
+
+    /// Builds a contract instance whose storage holds one unit-variant key.
+    fn instance_with(variant: &str, val: ScVal) -> ScContractInstance {
+        let entry = ScMapEntry {
+            key: needle_for(variant).unwrap(),
+            val,
+        };
+        ScContractInstance {
+            executable: stellar_xdr::curr::ContractExecutable::Wasm(Hash([0u8; 32])),
+            storage: Some(stellar_xdr::curr::ScMap(vec![entry].try_into().unwrap())),
+        }
+    }
+
+    #[test]
+    fn nft_owner_key_targets_the_nft_contract_not_the_controller() {
+        let nft_id = [7u8; 32];
+        let controller_id = [9u8; 32];
+        let key = PositionNftUserKey::Owner(3).to_ledger_key(&nft_id).unwrap();
+        let LedgerKey::ContractData(cd) = &key else {
+            panic!("expected contract data key");
+        };
+        assert_eq!(
+            cd.contract,
+            ScAddress::Contract(ContractId(Hash(nft_id))),
+            "Owner lives in the NFT contract; renewing it against the controller is a no-op"
+        );
+        assert_ne!(
+            cd.contract,
+            ScAddress::Contract(ContractId(Hash(controller_id)))
+        );
+        assert_eq!(cd.durability, ContractDataDurability::Persistent);
+        assert_eq!(cd.key, sc_enum_for_test("Owner", 3));
+    }
+
+    #[test]
+    fn reads_the_position_nft_sequential_counter() {
+        let instance = instance_with("TokenIdCounter", ScVal::U32(7));
+        let got = lookup_instance_scalar(
+            &instance,
+            PositionNftInstanceKey::TokenIdCounter.variant_name(),
+            scval_u32,
+        )
+        .unwrap();
+        assert_eq!(got, Some(7));
+    }
+
+    #[test]
+    fn counter_miss_does_not_resolve_to_another_key() {
+        let instance = instance_with("LastHubId", ScVal::U32(7));
+        let got = lookup_instance_scalar(
+            &instance,
+            PositionNftInstanceKey::TokenIdCounter.variant_name(),
+            scval_u32,
+        )
+        .unwrap();
+        assert_eq!(
+            got, None,
+            "a different variant must not satisfy the counter lookup"
+        );
+    }
+
+    /// The sequential counter holds the NEXT free token id, and the NFT
+    /// constructor consumes id 0 as the controller's "new account" sentinel.
+    /// So the largest usable account id is `counter - 1`, and a protocol with
+    /// no accounts yet reports 0 rather than underflowing.
+    #[test]
+    fn max_account_id_is_one_below_the_next_free_token_id() {
+        let max = max_account_id_from_counter;
+        assert_eq!(max(0), 0, "unset counter must not underflow");
+        assert_eq!(
+            max(1),
+            0,
+            "only the burned sentinel exists: no accounts yet"
+        );
+        assert_eq!(max(2), 1, "one account minted, id 1");
+        assert_eq!(max(7), 6);
+        assert_eq!(max(u32::MAX), u64::from(u32::MAX - 1));
+    }
 
     #[test]
     fn resolve_accepts_testnet_governance_address() {

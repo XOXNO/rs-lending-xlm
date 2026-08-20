@@ -50,7 +50,7 @@ async fn main() -> Result<()> {
         cfg.schedule.ttl_safety_margin_days
     );
     println!("configured market assets: {}", snap.assets.len());
-    println!("account nonce      : {}", snap.account_nonce);
+    println!("max account id     : {}", snap.max_account_id);
     println!("scan users         : {}", cfg.schedule.scan_users);
     println!();
 

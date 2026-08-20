@@ -6,7 +6,6 @@ use stellar_xdr::curr::{
 
 #[derive(Debug, Clone)]
 pub enum ControllerPersistentKey {
-    AccountNonce,
     Hub(u32),
     Spoke(u32),
 }
@@ -14,7 +13,6 @@ pub enum ControllerPersistentKey {
 impl ControllerPersistentKey {
     pub fn to_sc_val(&self) -> Result<ScVal> {
         Ok(match self {
-            Self::AccountNonce => sc_enum("AccountNonce", &[])?,
             Self::Hub(id) => sc_enum("Hub", &[ScVal::U32(*id)])?,
             Self::Spoke(id) => sc_enum("Spoke", &[ScVal::U32(*id)])?,
         })
@@ -203,6 +201,7 @@ impl OracleAdapterKey {
 #[derive(Debug, Clone, Copy)]
 pub enum ControllerInstanceKey {
     Pool,
+    PositionNft,
     LastHubId,
     LastSpokeId,
 }
@@ -211,8 +210,56 @@ impl ControllerInstanceKey {
     pub fn variant_name(&self) -> &'static str {
         match self {
             Self::Pool => "Pool",
+            Self::PositionNft => "PositionNft",
             Self::LastHubId => "LastHubId",
             Self::LastSpokeId => "LastSpokeId",
+        }
+    }
+}
+
+/// Persistent keys owned by the position-NFT contract.
+///
+/// `Owner` is the entry that records who holds an account. OpenZeppelin extends
+/// it by 30 days on read, while the controller extends its own account keys by
+/// 120 days, so `Owner` is the shorter-lived of the two and archives first if
+/// nothing renews it. An archived `Owner` makes the account unusable until the
+/// entry is restored.
+#[derive(Debug, Clone, Copy)]
+pub enum PositionNftUserKey {
+    Owner(u32),
+}
+
+impl PositionNftUserKey {
+    pub fn to_sc_val(&self) -> Result<ScVal> {
+        Ok(match self {
+            Self::Owner(token_id) => sc_enum("Owner", &[ScVal::U32(*token_id)])?,
+        })
+    }
+
+    pub fn to_ledger_key(&self, position_nft_id: &[u8; 32]) -> Result<LedgerKey> {
+        Ok(contract_data_key(
+            position_nft_id,
+            self.to_sc_val()?,
+            ContractDataDurability::Persistent,
+        ))
+    }
+}
+
+/// Instance-storage keys read from the position-NFT contract.
+///
+/// Account ids are position-NFT token ids, so the controller no longer keeps a
+/// counter of its own. `TokenIdCounter` is the OpenZeppelin sequential
+/// counter (`NFTSequentialStorageKey::TokenIdCounter` in `stellar-tokens`)
+/// and holds the NEXT free token id, not the highest minted one.
+#[derive(Debug, Clone, Copy)]
+pub enum PositionNftInstanceKey {
+    TokenIdCounter,
+}
+
+impl PositionNftInstanceKey {
+    pub fn variant_name(&self) -> &'static str {
+        match self {
+            Self::TokenIdCounter => "TokenIdCounter",
         }
     }
 }
