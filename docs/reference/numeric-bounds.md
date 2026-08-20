@@ -4,8 +4,7 @@ Where the arithmetic stops. Every number below is derived from a constant or a
 guard that exists in the repository today; the derivation is shown so a change
 to any of those constants can be re-run against it. This is the analogue of
 ChainSecurity's note 8.5 (type bounds) and note 8.4 (small-position liquidation
-profitability) from the Aave V4 audit corpus — see
-`docs/explanation/aave-v4-audit-comparison.md`, classes L and H.
+profitability) from the Aave V4 audit corpus.
 
 Evidence labels: **Observed** = read from source. **Verified** = reproduced by a
 named test. **Inferred** = follows from the above, not directly reproduced.

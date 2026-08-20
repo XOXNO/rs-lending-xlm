@@ -52,13 +52,6 @@ ALLOW = {
 # Per-file allowances. Each entry is a name the file cites deliberately even
 # though no such item exists in any source we can see; the comment says why.
 FILE_ALLOW = {
-    # Aave V4's own constants, quoted in the "Aave" column of the comparison
-    # to contrast with our mechanisms. They belong to another codebase.
-    "docs/explanation/aave-v4-audit-comparison.md": {
-        "DUST_LIQUIDATION_THRESHOLD",
-        "MAX_USER_RESERVES_LIMIT",
-        "MAX_ALLOWED_SPOKE_CAP",
-    },
     # Symbolic variable names the formula prose defines for itself right next
     # to the pseudo-code that uses them; they are math notation, not items.
     # (Skipping fenced blocks would not help: these are flagged in the prose
