@@ -11,7 +11,6 @@ const MIN_SCRAPE_INTERVAL_SECONDS: u64 = 5;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct ExporterConfig {
-
     pub network: String,
     pub rpc: RpcConfig,
     pub contracts: ContractsConfig,
@@ -43,7 +42,6 @@ pub struct RpcConfig {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct ContractsConfig {
-
     pub controller: String,
 
     #[serde(default)]
@@ -161,10 +159,15 @@ impl ExporterConfig {
             }
         }
         for market in &self.markets {
-            contract_id_from_strkey(&market.asset)
-                .with_context(|| format!("market asset {} is not a valid C... address", market.asset))?;
+            contract_id_from_strkey(&market.asset).with_context(|| {
+                format!("market asset {} is not a valid C... address", market.asset)
+            })?;
             if market.symbol.trim().is_empty() {
-                bail!("market {} (hub {}) has an empty symbol", market.asset, market.hub_id);
+                bail!(
+                    "market {} (hub {}) has an empty symbol",
+                    market.asset,
+                    market.hub_id
+                );
             }
         }
         if self.scrape_interval_seconds < MIN_SCRAPE_INTERVAL_SECONDS {

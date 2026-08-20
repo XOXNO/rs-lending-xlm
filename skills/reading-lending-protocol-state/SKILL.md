@@ -32,6 +32,21 @@ fn get_account_attributes(account_id: u64) -> AccountAttributes; // mode + spoke
 fn account_exists(account_id: u64) -> bool;
 ```
 
+## Reading an account's owner
+
+The controller stores no owner address. `AccountAttributes` carries only
+`spoke_id` and `mode`. Ownership is a position NFT: the account id **is** the
+token id, and the NFT contract answers the ownership question.
+
+```rust
+// position-nft contract
+fn owner_of(token_id: u32) -> Address; // token_id == account_id, narrowed to u32
+```
+
+Positions are ordinary transferable NFTs, so an owner can change without any
+controller call. Re-read `owner_of` instead of caching it. See
+`contracts/position-nft/README.md`.
+
 ## Action sizing
 
 There are **no** `max_supply` / `max_borrow` / `max_withdraw` views — they
@@ -69,10 +84,11 @@ enabled side is a deliberate soft wind-down, not a misconfiguration.
 // Pool indexes + soft oracle status (does not trap on stale/deviation):
 // price_wad / primary_price_wad / anchor_price_wad,
 // price_timestamp, stale, deviation, valid.
+// Reverts with InvalidPayments if hub_assets holds more than 256 entries.
 fn get_market_indexes_detailed(hub_assets: Vec<HubAssetKey>) -> Vec<MarketIndexView>;
 fn get_market_index(hub_asset: HubAssetKey) -> MarketIndexRaw; // accrued to now, reads NO oracle
 fn get_spoke(spoke_id: u32) -> SpokeConfig;
-fn get_spoke_asset(spoke_id: u32, hub_asset: HubAssetKey) -> SpokeAssetConfig; // panics AssetNotSupported if unlisted
+fn get_spoke_asset(spoke_id: u32, hub_asset: HubAssetKey) -> SpokeAssetConfig; // panics AssetNotInSpoke (#307) if unlisted
 fn get_pool_address() -> Address;
 ```
 
@@ -82,8 +98,12 @@ positive, and within sanity — usable for solvency-style decisions. `stale` /
 
 `SpokeAssetConfig`: `loan_to_value`, `liquidation_threshold`,
 `liquidation_bonus`, `liquidation_fees` (bps), `supply_cap`, `borrow_cap`
-(asset units), `is_collateralizable`, `is_borrowable`, `paused`, `frozen`
-(frozen = no new entries, exits still allowed).
+(asset units), `is_collateralizable`, `is_borrowable`, `paused`, `frozen`, `no_seize`.
+
+The three halt flags are independent. `paused` blocks every user verb.
+`frozen` blocks entry and allows exit. `no_seize` blocks only the liquidation
+seizure leg: seizing a collateral listed with `no_seize = true` traps with
+`SpokeAssetSeizureHalted` (#318), which reverts the whole liquidation.
 
 ## Pool views (per market)
 
@@ -125,8 +145,11 @@ underlying = rescale(scaled * index / RAY, 27 -> asset_decimals)  // half-up
 - **Treating view rates as per-millisecond** — `get_borrow_rate` /
   `get_deposit_rate` are annual RAY. Accrual still uses the per-ms form.
 - **Reading rates from the controller** — they live on the pool.
-- **Polling per-asset indexes N times** — use `get_bulk_indexes` /
-  `get_market_indexes_detailed`.
+- **Polling per-asset indexes N times** — use `get_bulk_indexes` (pool) /
+  `get_market_indexes_detailed` (controller), and keep each batch at 256
+  assets or fewer.
+- **Caching an account owner** — the position NFT is transferable; read
+  `owner_of` again.
 - **Reading a cap of `0` as "unlimited"** — `0` is a literal ceiling: that
   side of the market accepts nothing. Headroom is `cap - usage`, never
   infinite.

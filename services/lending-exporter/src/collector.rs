@@ -7,7 +7,9 @@ use tracing::{debug, warn};
 
 use crate::config::{ExporterConfig, ResolvedContracts, ResolvedMarket};
 use crate::contract::{controller, oracle, pool};
-use crate::keys::{asset_oracle_ledger_key, hub_asset_key_sc_val, hub_asset_vec_sc_val, HubAssetKey};
+use crate::keys::{
+    asset_oracle_ledger_key, hub_asset_key_sc_val, hub_asset_vec_sc_val, HubAssetKey,
+};
 use crate::metrics::Metrics;
 use crate::model;
 use crate::scval;
@@ -17,7 +19,8 @@ pub async fn resolve_pool_id(client: &RpcClient, controller: &[u8; 32]) -> Resul
     let scv = simulate_view(client, controller, "get_pool_address", vec![])
         .await
         .map_err(|e| anyhow!("get_pool_address: {e}"))?;
-    scval::as_contract_id(&scv).ok_or_else(|| anyhow!("get_pool_address did not return a contract address"))
+    scval::as_contract_id(&scv)
+        .ok_or_else(|| anyhow!("get_pool_address did not return a contract address"))
 }
 
 pub async fn resolve_price_aggregator(
@@ -55,7 +58,10 @@ pub async fn scrape_once(
         Ok(p) => Some(p),
         Err(e) => {
             warn!(target: "exporter.collector", error = %e, "pool address unresolved; skipping pool getters this cycle");
-            metrics.rpc_errors.with_label_values(&[net, "get_pool_address"]).inc();
+            metrics
+                .rpc_errors
+                .with_label_values(&[net, "get_pool_address"])
+                .inc();
             None
         }
     };
@@ -93,34 +99,85 @@ pub async fn scrape_once(
                     .market_last_accrual_timestamp
                     .with_label_values(&lref)
                     .set(sync.last_timestamp as f64 / 1000.0);
-                publish_market_amounts(client, metrics, net, pool, market, &lref, dec, price_wad, &mut agg).await;
-                if let Some(delta_ms) = read_market_scalar_u64(client, metrics, net, pool, market, "get_delta_time").await {
-                    metrics.market_delta_time_seconds.with_label_values(&lref).set(delta_ms as f64 / 1000.0);
+                publish_market_amounts(
+                    client, metrics, net, pool, market, &lref, dec, price_wad, &mut agg,
+                )
+                .await;
+                if let Some(delta_ms) =
+                    read_market_scalar_u64(client, metrics, net, pool, market, "get_delta_time")
+                        .await
+                {
+                    metrics
+                        .market_delta_time_seconds
+                        .with_label_values(&lref)
+                        .set(delta_ms as f64 / 1000.0);
                 }
             }
         }
 
         if let Some(agg_id) = &aggregator_id {
-            publish_oracle_config_and_freshness(client, metrics, net, market, now_secs, agg_id).await;
+            publish_oracle_config_and_freshness(client, metrics, net, market, now_secs, agg_id)
+                .await;
         }
     }
 
-    if let Some(v) = read_view_i128(client, metrics, net, "get_min_borrow_collateral_usd", "*", &contracts.controller, "get_min_borrow_collateral_usd", vec![]).await {
-        metrics.min_borrow_collateral_usd.with_label_values(&[net]).set(model::wad_to_f64(v));
+    if let Some(v) = read_view_i128(
+        client,
+        metrics,
+        net,
+        "get_min_borrow_collateral_usd",
+        "*",
+        &contracts.controller,
+        "get_min_borrow_collateral_usd",
+        vec![],
+    )
+    .await
+    {
+        metrics
+            .min_borrow_collateral_usd
+            .with_label_values(&[net])
+            .set(model::wad_to_f64(v));
     }
 
     publish_spokes(client, metrics, net, cfg, contracts, &index_rows, &decimals).await;
 
-    metrics.protocol_tvl_usd.with_label_values(&[net]).set(agg.supplied_usd);
-    metrics.protocol_borrowed_usd.with_label_values(&[net]).set(agg.borrowed_usd);
-    metrics.protocol_liquidity_usd.with_label_values(&[net]).set(agg.liquidity_usd);
-    metrics.protocol_revenue_usd.with_label_values(&[net]).set(agg.revenue_usd);
-    metrics.protocol_markets.with_label_values(&[net]).set(contracts.markets.len() as f64);
-    metrics.protocol_spokes.with_label_values(&[net]).set(cfg.spokes.len() as f64);
-    metrics.build_info.with_label_values(&[net, env!("CARGO_PKG_VERSION")]).set(1.0);
+    metrics
+        .protocol_tvl_usd
+        .with_label_values(&[net])
+        .set(agg.supplied_usd);
+    metrics
+        .protocol_borrowed_usd
+        .with_label_values(&[net])
+        .set(agg.borrowed_usd);
+    metrics
+        .protocol_liquidity_usd
+        .with_label_values(&[net])
+        .set(agg.liquidity_usd);
+    metrics
+        .protocol_revenue_usd
+        .with_label_values(&[net])
+        .set(agg.revenue_usd);
+    metrics
+        .protocol_markets
+        .with_label_values(&[net])
+        .set(contracts.markets.len() as f64);
+    metrics
+        .protocol_spokes
+        .with_label_values(&[net])
+        .set(cfg.spokes.len() as f64);
+    metrics
+        .build_info
+        .with_label_values(&[net, env!("CARGO_PKG_VERSION")])
+        .set(1.0);
 
-    metrics.scrape_duration_seconds.with_label_values(&[net]).set(started.elapsed().as_secs_f64());
-    metrics.last_success_timestamp.with_label_values(&[net]).set(wall_clock_secs() as f64);
+    metrics
+        .scrape_duration_seconds
+        .with_label_values(&[net])
+        .set(started.elapsed().as_secs_f64());
+    metrics
+        .last_success_timestamp
+        .with_label_values(&[net])
+        .set(wall_clock_secs() as f64);
 }
 
 #[derive(Default)]
@@ -144,18 +201,33 @@ fn market_labels(net: &str, market: &ResolvedMarket, hub_name: &str) -> [String;
 async fn read_ledger_now(client: &RpcClient, metrics: &Metrics, net: &str) -> i64 {
     let wall = wall_clock_secs();
     if let Ok(seq) = client.latest_ledger().await {
-        metrics.ledger_sequence.with_label_values(&[net]).set(seq as f64);
+        metrics
+            .ledger_sequence
+            .with_label_values(&[net])
+            .set(seq as f64);
     }
     match client.latest_close_time().await {
         Ok(close) => {
-            metrics.ledger_timestamp.with_label_values(&[net]).set(close as f64);
-            metrics.ledger_skew_seconds.with_label_values(&[net]).set((close - wall) as f64);
+            metrics
+                .ledger_timestamp
+                .with_label_values(&[net])
+                .set(close as f64);
+            metrics
+                .ledger_skew_seconds
+                .with_label_values(&[net])
+                .set((close - wall) as f64);
             close
         }
         Err(e) => {
             warn!(target: "exporter.collector", error = %e, "ledger close-time read failed; using wall clock");
-            metrics.rpc_errors.with_label_values(&[net, "latest_close_time"]).inc();
-            metrics.ledger_timestamp.with_label_values(&[net]).set(wall as f64);
+            metrics
+                .rpc_errors
+                .with_label_values(&[net, "latest_close_time"])
+                .inc();
+            metrics
+                .ledger_timestamp
+                .with_label_values(&[net])
+                .set(wall as f64);
             wall
         }
     }
@@ -170,7 +242,10 @@ async fn read_market_indexes(
     let keys: Vec<HubAssetKey> = contracts
         .markets
         .iter()
-        .map(|m| HubAssetKey { hub_id: m.hub_id, asset: m.asset_id })
+        .map(|m| HubAssetKey {
+            hub_id: m.hub_id,
+            asset: m.asset_id,
+        })
         .collect();
     if keys.is_empty() {
         return Vec::new();
@@ -184,13 +259,19 @@ async fn read_market_indexes(
 
     let mut out = Vec::with_capacity(keys.len());
     for (market, key) in contracts.markets.iter().zip(keys.iter()) {
-        let single = try_index_batch(client, &contracts.controller, std::slice::from_ref(key)).await;
+        let single =
+            try_index_batch(client, &contracts.controller, std::slice::from_ref(key)).await;
         match single.and_then(|mut v| v.pop()) {
             Some(row) => out.push(Some(row)),
             None => {
                 metrics
                     .view_failures
-                    .with_label_values(&[net, "get_market_indexes_detailed", &market.asset_strkey, "batch_key"])
+                    .with_label_values(&[
+                        net,
+                        "get_market_indexes_detailed",
+                        &market.asset_strkey,
+                        "batch_key",
+                    ])
                     .inc();
                 out.push(None);
             }
@@ -222,23 +303,56 @@ fn publish_market_index_view(
     let b = |v: bool| if v { 1.0 } else { 0.0 };
     match row {
         Some(r) => {
-            metrics.market_supply_index_ray.with_label_values(lref).set(model::ray_to_f64(r.supply_index_ray));
-            metrics.market_borrow_index_ray.with_label_values(lref).set(model::ray_to_f64(r.borrow_index_ray));
-            metrics.oracle_price_usd.with_label_values(&olabels).set(model::wad_to_f64(r.final_price_wad));
-            metrics.oracle_primary_price_usd.with_label_values(&olabels).set(model::wad_to_f64(r.primary_price_wad));
-            metrics.oracle_anchor_price_usd.with_label_values(&olabels).set(model::wad_to_f64(r.anchor_price_wad));
+            metrics
+                .market_supply_index_ray
+                .with_label_values(lref)
+                .set(model::ray_to_f64(r.supply_index_ray));
+            metrics
+                .market_borrow_index_ray
+                .with_label_values(lref)
+                .set(model::ray_to_f64(r.borrow_index_ray));
+            metrics
+                .oracle_price_usd
+                .with_label_values(&olabels)
+                .set(model::wad_to_f64(r.final_price_wad));
+            metrics
+                .oracle_primary_price_usd
+                .with_label_values(&olabels)
+                .set(model::wad_to_f64(r.primary_price_wad));
+            metrics
+                .oracle_anchor_price_usd
+                .with_label_values(&olabels)
+                .set(model::wad_to_f64(r.anchor_price_wad));
             if let Some(dev) = model::deviation_bps(r.primary_price_wad, r.anchor_price_wad) {
-                metrics.oracle_deviation_bps.with_label_values(&olabels).set(dev);
+                metrics
+                    .oracle_deviation_bps
+                    .with_label_values(&olabels)
+                    .set(dev);
             }
-            metrics.oracle_status_timestamp.with_label_values(&olabels).set(r.price_timestamp as f64);
-            metrics.oracle_stale.with_label_values(&olabels).set(b(r.stale));
-            metrics.oracle_deviation_flag.with_label_values(&olabels).set(b(r.deviation));
-            metrics.oracle_healthy.with_label_values(&olabels).set(b(r.valid));
+            metrics
+                .oracle_status_timestamp
+                .with_label_values(&olabels)
+                .set(r.price_timestamp as f64);
+            metrics
+                .oracle_stale
+                .with_label_values(&olabels)
+                .set(b(r.stale));
+            metrics
+                .oracle_deviation_flag
+                .with_label_values(&olabels)
+                .set(b(r.deviation));
+            metrics
+                .oracle_healthy
+                .with_label_values(&olabels)
+                .set(b(r.valid));
         }
         None => {
             metrics.oracle_healthy.with_label_values(&olabels).set(0.0);
             metrics.oracle_stale.with_label_values(&olabels).set(0.0);
-            metrics.oracle_deviation_flag.with_label_values(&olabels).set(0.0);
+            metrics
+                .oracle_deviation_flag
+                .with_label_values(&olabels)
+                .set(0.0);
         }
     }
 }
@@ -250,17 +364,32 @@ fn publish_market_params(metrics: &Metrics, lref: &[&str], sync: &pool::MarketSy
         labels.push(param);
         metrics.market_param.with_label_values(&labels).set(value);
     };
-    set("base_borrow_rate", model::ray_to_f64(p.base_borrow_rate_ray));
+    set(
+        "base_borrow_rate",
+        model::ray_to_f64(p.base_borrow_rate_ray),
+    );
     set("max_borrow_rate", model::ray_to_f64(p.max_borrow_rate_ray));
     set("slope1", model::ray_to_f64(p.slope1_ray));
     set("slope2", model::ray_to_f64(p.slope2_ray));
     set("slope3", model::ray_to_f64(p.slope3_ray));
     set("mid_utilization", model::ray_to_f64(p.mid_utilization_ray));
-    set("optimal_utilization", model::ray_to_f64(p.optimal_utilization_ray));
+    set(
+        "optimal_utilization",
+        model::ray_to_f64(p.optimal_utilization_ray),
+    );
     set("max_utilization", model::ray_to_f64(p.max_utilization_ray));
-    set("reserve_factor_bps", model::bps_to_ratio(p.reserve_factor_bps));
-    set("flashloan_fee_bps", model::bps_to_ratio(p.flashloan_fee_bps));
-    set("is_flashloanable", if p.is_flashloanable { 1.0 } else { 0.0 });
+    set(
+        "reserve_factor_bps",
+        model::bps_to_ratio(p.reserve_factor_bps),
+    );
+    set(
+        "flashloan_fee_bps",
+        model::bps_to_ratio(p.flashloan_fee_bps),
+    );
+    set(
+        "is_flashloanable",
+        if p.is_flashloanable { 1.0 } else { 0.0 },
+    );
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -275,38 +404,74 @@ async fn publish_market_amounts(
     price_wad: i128,
     agg: &mut Aggregates,
 ) {
-    if let Some(v) = read_market_scalar(client, metrics, net, pool_id, market, "get_supplied_amount").await {
+    if let Some(v) =
+        read_market_scalar(client, metrics, net, pool_id, market, "get_supplied_amount").await
+    {
         let usd = model::token_usd(v, dec, price_wad);
-        metrics.market_supplied.with_label_values(lref).set(model::token_to_f64(v, dec));
+        metrics
+            .market_supplied
+            .with_label_values(lref)
+            .set(model::token_to_f64(v, dec));
         metrics.market_supplied_usd.with_label_values(lref).set(usd);
         agg.supplied_usd += usd;
     }
-    if let Some(v) = read_market_scalar(client, metrics, net, pool_id, market, "get_borrowed_amount").await {
+    if let Some(v) =
+        read_market_scalar(client, metrics, net, pool_id, market, "get_borrowed_amount").await
+    {
         let usd = model::token_usd(v, dec, price_wad);
-        metrics.market_borrowed.with_label_values(lref).set(model::token_to_f64(v, dec));
+        metrics
+            .market_borrowed
+            .with_label_values(lref)
+            .set(model::token_to_f64(v, dec));
         metrics.market_borrowed_usd.with_label_values(lref).set(usd);
         agg.borrowed_usd += usd;
     }
-    if let Some(v) = read_market_scalar(client, metrics, net, pool_id, market, "get_reserves").await {
+    if let Some(v) = read_market_scalar(client, metrics, net, pool_id, market, "get_reserves").await
+    {
         let usd = model::token_usd(v, dec, price_wad);
-        metrics.market_liquidity.with_label_values(lref).set(model::token_to_f64(v, dec));
-        metrics.market_liquidity_usd.with_label_values(lref).set(usd);
+        metrics
+            .market_liquidity
+            .with_label_values(lref)
+            .set(model::token_to_f64(v, dec));
+        metrics
+            .market_liquidity_usd
+            .with_label_values(lref)
+            .set(usd);
         agg.liquidity_usd += usd;
     }
-    if let Some(v) = read_market_scalar(client, metrics, net, pool_id, market, "get_revenue").await {
+    if let Some(v) = read_market_scalar(client, metrics, net, pool_id, market, "get_revenue").await
+    {
         let usd = model::token_usd(v, dec, price_wad);
-        metrics.market_revenue.with_label_values(lref).set(model::token_to_f64(v, dec));
+        metrics
+            .market_revenue
+            .with_label_values(lref)
+            .set(model::token_to_f64(v, dec));
         metrics.market_revenue_usd.with_label_values(lref).set(usd);
         agg.revenue_usd += usd;
     }
-    if let Some(v) = read_market_scalar(client, metrics, net, pool_id, market, "get_utilisation").await {
-        metrics.market_utilization.with_label_values(lref).set(model::ray_to_f64(v));
+    if let Some(v) =
+        read_market_scalar(client, metrics, net, pool_id, market, "get_utilisation").await
+    {
+        metrics
+            .market_utilization
+            .with_label_values(lref)
+            .set(model::ray_to_f64(v));
     }
-    if let Some(v) = read_market_scalar(client, metrics, net, pool_id, market, "get_deposit_rate").await {
-        metrics.market_supply_apy.with_label_values(lref).set(model::apy_from_annual_ray(v));
+    if let Some(v) =
+        read_market_scalar(client, metrics, net, pool_id, market, "get_deposit_rate").await
+    {
+        metrics
+            .market_supply_apy
+            .with_label_values(lref)
+            .set(model::apy_from_annual_ray(v));
     }
-    if let Some(v) = read_market_scalar(client, metrics, net, pool_id, market, "get_borrow_rate").await {
-        metrics.market_borrow_apy.with_label_values(lref).set(model::apy_from_annual_ray(v));
+    if let Some(v) =
+        read_market_scalar(client, metrics, net, pool_id, market, "get_borrow_rate").await
+    {
+        metrics
+            .market_borrow_apy
+            .with_label_values(lref)
+            .set(model::apy_from_annual_ray(v));
     }
 }
 
@@ -317,9 +482,23 @@ async fn read_sync_data(
     pool_id: &[u8; 32],
     market: &ResolvedMarket,
 ) -> Option<pool::MarketSync> {
-    let key = HubAssetKey { hub_id: market.hub_id, asset: market.asset_id };
+    let key = HubAssetKey {
+        hub_id: market.hub_id,
+        asset: market.asset_id,
+    };
     let arg = hub_asset_key_sc_val(&key).ok()?;
-    let scv = read_view(client, metrics, net, "get_sync_data", &market.asset_strkey, pool_id, "get_sync_data", vec![arg], true).await?;
+    let scv = read_view(
+        client,
+        metrics,
+        net,
+        "get_sync_data",
+        &market.asset_strkey,
+        pool_id,
+        "get_sync_data",
+        vec![arg],
+        true,
+    )
+    .await?;
     pool::decode_sync_data(&scv)
         .map_err(|e| debug!(target: "exporter.collector", asset = %market.asset_strkey, error = %e, "decode sync_data failed"))
         .ok()
@@ -333,9 +512,22 @@ async fn read_market_scalar(
     market: &ResolvedMarket,
     function: &str,
 ) -> Option<i128> {
-    let key = HubAssetKey { hub_id: market.hub_id, asset: market.asset_id };
+    let key = HubAssetKey {
+        hub_id: market.hub_id,
+        asset: market.asset_id,
+    };
     let arg = hub_asset_key_sc_val(&key).ok()?;
-    read_view_i128(client, metrics, net, function, &market.asset_strkey, pool_id, function, vec![arg]).await
+    read_view_i128(
+        client,
+        metrics,
+        net,
+        function,
+        &market.asset_strkey,
+        pool_id,
+        function,
+        vec![arg],
+    )
+    .await
 }
 
 async fn read_market_scalar_u64(
@@ -346,9 +538,23 @@ async fn read_market_scalar_u64(
     market: &ResolvedMarket,
     function: &str,
 ) -> Option<u64> {
-    let key = HubAssetKey { hub_id: market.hub_id, asset: market.asset_id };
+    let key = HubAssetKey {
+        hub_id: market.hub_id,
+        asset: market.asset_id,
+    };
     let arg = hub_asset_key_sc_val(&key).ok()?;
-    let scv = read_view(client, metrics, net, function, &market.asset_strkey, pool_id, function, vec![arg], true).await?;
+    let scv = read_view(
+        client,
+        metrics,
+        net,
+        function,
+        &market.asset_strkey,
+        pool_id,
+        function,
+        vec![arg],
+        true,
+    )
+    .await?;
     scval::as_u64(&scv)
 }
 
@@ -363,7 +569,18 @@ async fn read_view_i128(
     function: &str,
     args: Vec<ScVal>,
 ) -> Option<i128> {
-    let scv = read_view(client, metrics, net, view_label, asset_label, contract, function, args, true).await?;
+    let scv = read_view(
+        client,
+        metrics,
+        net,
+        view_label,
+        asset_label,
+        contract,
+        function,
+        args,
+        true,
+    )
+    .await?;
     pool::decode_i128(&scv).ok()
 }
 
@@ -384,13 +601,19 @@ async fn read_view(
         Err(ViewError::Reverted(msg)) => {
             if count_reverts {
                 let code = bucket_error_code(&msg);
-                metrics.view_failures.with_label_values(&[net, view_label, asset_label, &code]).inc();
+                metrics
+                    .view_failures
+                    .with_label_values(&[net, view_label, asset_label, &code])
+                    .inc();
                 debug!(target: "exporter.collector", view = view_label, asset = asset_label, error = %msg, "view reverted");
             }
             None
         }
         Err(ViewError::NoResult) => {
-            metrics.view_failures.with_label_values(&[net, view_label, asset_label, "no_result"]).inc();
+            metrics
+                .view_failures
+                .with_label_values(&[net, view_label, asset_label, "no_result"])
+                .inc();
             None
         }
         Err(ViewError::Rpc(e)) => {
@@ -414,12 +637,30 @@ async fn publish_oracle_config_and_freshness(
         return;
     };
 
-    metrics.oracle_max_stale_seconds.with_label_values(&olabels).set(config.max_price_stale_seconds as f64);
-    metrics.oracle_tolerance_upper_bps.with_label_values(&olabels).set(config.tolerance_upper_bps as f64);
-    metrics.oracle_tolerance_lower_bps.with_label_values(&olabels).set(config.tolerance_lower_bps as f64);
-    metrics.oracle_sanity_min_usd.with_label_values(&olabels).set(model::wad_to_f64(config.min_sanity_price_wad));
-    metrics.oracle_sanity_max_usd.with_label_values(&olabels).set(model::wad_to_f64(config.max_sanity_price_wad));
-    metrics.oracle_strategy.with_label_values(&olabels).set(config.source_count.saturating_sub(1) as f64);
+    metrics
+        .oracle_max_stale_seconds
+        .with_label_values(&olabels)
+        .set(config.max_price_stale_seconds as f64);
+    metrics
+        .oracle_tolerance_upper_bps
+        .with_label_values(&olabels)
+        .set(config.tolerance_upper_bps as f64);
+    metrics
+        .oracle_tolerance_lower_bps
+        .with_label_values(&olabels)
+        .set(config.tolerance_lower_bps as f64);
+    metrics
+        .oracle_sanity_min_usd
+        .with_label_values(&olabels)
+        .set(model::wad_to_f64(config.min_sanity_price_wad));
+    metrics
+        .oracle_sanity_max_usd
+        .with_label_values(&olabels)
+        .set(model::wad_to_f64(config.max_sanity_price_wad));
+    metrics
+        .oracle_strategy
+        .with_label_values(&olabels)
+        .set(config.source_count.saturating_sub(1) as f64);
 
     let mut worst: Option<(f64, u64, u64)> = None;
     for source in &config.sources {
@@ -431,9 +672,18 @@ async fn publish_oracle_config_and_freshness(
         }
     }
     if let Some((sut, feed_ts, effective_max)) = worst {
-        metrics.oracle_price_timestamp.with_label_values(&olabels).set(feed_ts as f64);
-        metrics.oracle_seconds_until_stale.with_label_values(&olabels).set(sut);
-        metrics.oracle_effective_max_stale_seconds.with_label_values(&olabels).set(effective_max as f64);
+        metrics
+            .oracle_price_timestamp
+            .with_label_values(&olabels)
+            .set(feed_ts as f64);
+        metrics
+            .oracle_seconds_until_stale
+            .with_label_values(&olabels)
+            .set(sut);
+        metrics
+            .oracle_effective_max_stale_seconds
+            .with_label_values(&olabels)
+            .set(effective_max as f64);
     }
 }
 
@@ -448,7 +698,10 @@ async fn read_oracle_config(
     let entries = match client.get_ledger_entries(std::slice::from_ref(&key)).await {
         Ok(e) => e,
         Err(e) => {
-            metrics.rpc_errors.with_label_values(&[net, "get_ledger_entries"]).inc();
+            metrics
+                .rpc_errors
+                .with_label_values(&[net, "get_ledger_entries"])
+                .inc();
             debug!(target: "exporter.collector", asset = %market.asset_strkey, error = %e, "oracle config read failed");
             return None;
         }
@@ -474,14 +727,41 @@ async fn read_feed_timestamp(
         oracle::OracleKind::Reflector => {
             let asset_ref = source.asset_ref.as_ref()?;
             let arg = oracle::oracle_asset_ref_to_reflector_arg(asset_ref).ok()?;
-            let scv = read_view(client, metrics, net, "lastprice", &market.asset_strkey, &contract, "lastprice", vec![arg], true).await?;
-            oracle::decode_reflector_price(&scv).ok().flatten().map(|o| o.feed_ts_secs)
+            let scv = read_view(
+                client,
+                metrics,
+                net,
+                "lastprice",
+                &market.asset_strkey,
+                &contract,
+                "lastprice",
+                vec![arg],
+                true,
+            )
+            .await?;
+            oracle::decode_reflector_price(&scv)
+                .ok()
+                .flatten()
+                .map(|o| o.feed_ts_secs)
         }
         oracle::OracleKind::RedStone | oracle::OracleKind::Xoxno => {
             let feed = source.feed_id.as_ref()?;
             let arg = oracle::feed_id_arg(feed).ok()?;
-            let scv = read_view(client, metrics, net, "read_price_data_for_feed", &market.asset_strkey, &contract, "read_price_data_for_feed", vec![arg], true).await?;
-            oracle::decode_redstone_price(&scv).ok().map(|o| o.feed_ts_secs)
+            let scv = read_view(
+                client,
+                metrics,
+                net,
+                "read_price_data_for_feed",
+                &market.asset_strkey,
+                &contract,
+                "read_price_data_for_feed",
+                vec![arg],
+                true,
+            )
+            .await?;
+            oracle::decode_redstone_price(&scv)
+                .ok()
+                .map(|o| o.feed_ts_secs)
         }
     }
 }
@@ -504,9 +784,18 @@ async fn publish_spokes(
         if let Some(c) = &spoke_cfg {
             let s = spoke_id.to_string();
             let slabels = [net, s.as_str(), spoke_name.as_str()];
-            metrics.spoke_liquidation_target_hf.with_label_values(&slabels).set(model::wad_to_f64(c.liquidation_target_hf_wad));
-            metrics.spoke_hf_for_max_bonus.with_label_values(&slabels).set(model::wad_to_f64(c.hf_for_max_bonus_wad));
-            metrics.spoke_liquidation_bonus_factor_bps.with_label_values(&slabels).set(c.liquidation_bonus_factor_bps as f64);
+            metrics
+                .spoke_liquidation_target_hf
+                .with_label_values(&slabels)
+                .set(model::wad_to_f64(c.liquidation_target_hf_wad));
+            metrics
+                .spoke_hf_for_max_bonus
+                .with_label_values(&slabels)
+                .set(model::wad_to_f64(c.hf_for_max_bonus_wad));
+            metrics
+                .spoke_liquidation_bonus_factor_bps
+                .with_label_values(&slabels)
+                .set(c.liquidation_bonus_factor_bps as f64);
         }
         for (i, (market, row)) in contracts.markets.iter().zip(index_rows.iter()).enumerate() {
             let dec = decimals.get(i).copied().flatten();
@@ -522,7 +811,20 @@ async fn publish_spokes(
                 market.asset_strkey.as_str(),
                 market.symbol.as_str(),
             ]));
-            publish_spoke_asset(client, metrics, net, contracts, spoke_id, &spoke_name, &hub_name, market, row, dec, deprecated).await;
+            publish_spoke_asset(
+                client,
+                metrics,
+                net,
+                contracts,
+                spoke_id,
+                &spoke_name,
+                &hub_name,
+                market,
+                row,
+                dec,
+                deprecated,
+            )
+            .await;
         }
     }
     metrics.prune_spoke_assets(&attempted);
@@ -535,9 +837,19 @@ async fn read_spoke_config(
     contracts: &ResolvedContracts,
     spoke_id: u32,
 ) -> Option<controller::SpokeConfig> {
-    read_view(client, metrics, net, "get_spoke", "*", &contracts.controller, "get_spoke", vec![ScVal::U32(spoke_id)], true)
-        .await
-        .and_then(|s| controller::decode_spoke(&s).ok())
+    read_view(
+        client,
+        metrics,
+        net,
+        "get_spoke",
+        "*",
+        &contracts.controller,
+        "get_spoke",
+        vec![ScVal::U32(spoke_id)],
+        true,
+    )
+    .await
+    .and_then(|s| controller::decode_spoke(&s).ok())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -554,12 +866,22 @@ async fn publish_spoke_asset(
     decimals: Option<u32>,
     deprecated: bool,
 ) {
-    let key = HubAssetKey { hub_id: market.hub_id, asset: market.asset_id };
+    let key = HubAssetKey {
+        hub_id: market.hub_id,
+        asset: market.asset_id,
+    };
     let Ok(hub_arg) = hub_asset_key_sc_val(&key) else {
         return;
     };
 
-    let cfg_scv = match simulate_view(client, &contracts.controller, "get_spoke_asset", vec![ScVal::U32(spoke_id), hub_arg.clone()]).await {
+    let cfg_scv = match simulate_view(
+        client,
+        &contracts.controller,
+        "get_spoke_asset",
+        vec![ScVal::U32(spoke_id), hub_arg.clone()],
+    )
+    .await
+    {
         Ok(s) => s,
         Err(_) => return,
     };
@@ -578,47 +900,127 @@ async fn publish_spoke_asset(
 
     let s = spoke_id.to_string();
     let hub = market.hub_id.to_string();
-    let labels = [net, s.as_str(), spoke_name, hub.as_str(), hub_name, market.asset_strkey.as_str(), market.symbol.as_str()];
+    let labels = [
+        net,
+        s.as_str(),
+        spoke_name,
+        hub.as_str(),
+        hub_name,
+        market.asset_strkey.as_str(),
+        market.symbol.as_str(),
+    ];
     let b = |v: bool| if v { 1.0 } else { 0.0 };
-    metrics.spoke_paused.with_label_values(&labels).set(b(cfg.paused));
-    metrics.spoke_frozen.with_label_values(&labels).set(b(cfg.frozen));
-    metrics.spoke_collateral_enabled.with_label_values(&labels).set(b(cfg.is_collateralizable));
-    metrics.spoke_borrow_enabled.with_label_values(&labels).set(b(cfg.is_borrowable));
-    metrics.spoke_deprecated.with_label_values(&labels).set(b(deprecated));
+    metrics
+        .spoke_paused
+        .with_label_values(&labels)
+        .set(b(cfg.paused));
+    metrics
+        .spoke_frozen
+        .with_label_values(&labels)
+        .set(b(cfg.frozen));
+    metrics
+        .spoke_collateral_enabled
+        .with_label_values(&labels)
+        .set(b(cfg.is_collateralizable));
+    metrics
+        .spoke_borrow_enabled
+        .with_label_values(&labels)
+        .set(b(cfg.is_borrowable));
+    metrics
+        .spoke_deprecated
+        .with_label_values(&labels)
+        .set(b(deprecated));
 
-    metrics.spoke_supply_closed.with_label_values(&labels).set(model::market_closed(cfg.supply_cap));
-    metrics.spoke_borrow_closed.with_label_values(&labels).set(model::market_closed(cfg.borrow_cap));
-    metrics.spoke_ltv_bps.with_label_values(&labels).set(cfg.loan_to_value_bps as f64);
-    metrics.spoke_liq_threshold_bps.with_label_values(&labels).set(cfg.liquidation_threshold_bps as f64);
-    metrics.spoke_liq_bonus_bps.with_label_values(&labels).set(cfg.liquidation_bonus_bps as f64);
-    metrics.spoke_liq_fees_bps.with_label_values(&labels).set(cfg.liquidation_fees_bps as f64);
+    metrics
+        .spoke_supply_closed
+        .with_label_values(&labels)
+        .set(model::market_closed(cfg.supply_cap));
+    metrics
+        .spoke_borrow_closed
+        .with_label_values(&labels)
+        .set(model::market_closed(cfg.borrow_cap));
+    metrics
+        .spoke_ltv_bps
+        .with_label_values(&labels)
+        .set(cfg.loan_to_value_bps as f64);
+    metrics
+        .spoke_liq_threshold_bps
+        .with_label_values(&labels)
+        .set(cfg.liquidation_threshold_bps as f64);
+    metrics
+        .spoke_liq_bonus_bps
+        .with_label_values(&labels)
+        .set(cfg.liquidation_bonus_bps as f64);
+    metrics
+        .spoke_liq_fees_bps
+        .with_label_values(&labels)
+        .set(cfg.liquidation_fees_bps as f64);
 
     let Some(dec) = decimals else {
         return;
     };
-    metrics.spoke_supply_cap.with_label_values(&labels).set(model::token_to_f64(cfg.supply_cap, dec));
-    metrics.spoke_borrow_cap.with_label_values(&labels).set(model::token_to_f64(cfg.borrow_cap, dec));
-    metrics.spoke_supply_closed.with_label_values(&labels).set(model::market_closed_at(cfg.supply_cap, dec));
-    metrics.spoke_borrow_closed.with_label_values(&labels).set(model::market_closed_at(cfg.borrow_cap, dec));
+    metrics
+        .spoke_supply_cap
+        .with_label_values(&labels)
+        .set(model::token_to_f64(cfg.supply_cap, dec));
+    metrics
+        .spoke_borrow_cap
+        .with_label_values(&labels)
+        .set(model::token_to_f64(cfg.borrow_cap, dec));
+    metrics
+        .spoke_supply_closed
+        .with_label_values(&labels)
+        .set(model::market_closed_at(cfg.supply_cap, dec));
+    metrics
+        .spoke_borrow_closed
+        .with_label_values(&labels)
+        .set(model::market_closed_at(cfg.borrow_cap, dec));
 
     let (supply_index, borrow_index, price_wad) = match row {
         Some(r) => (r.supply_index_ray, r.borrow_index_ray, r.final_price_wad),
         None => return,
     };
-    if let Ok(usage_scv) = simulate_view(client, &contracts.controller, "get_spoke_usage", vec![ScVal::U32(spoke_id), hub_arg]).await {
+    if let Ok(usage_scv) = simulate_view(
+        client,
+        &contracts.controller,
+        "get_spoke_usage",
+        vec![ScVal::U32(spoke_id), hub_arg],
+    )
+    .await
+    {
         if let Ok(usage) = controller::decode_spoke_usage(&usage_scv) {
-            let supply_tokens = model::scaled_usage_to_token(usage.supplied_scaled_ray, supply_index);
-            let borrow_tokens = model::scaled_usage_to_token(usage.borrowed_scaled_ray, borrow_index);
+            let supply_tokens =
+                model::scaled_usage_to_token(usage.supplied_scaled_ray, supply_index);
+            let borrow_tokens =
+                model::scaled_usage_to_token(usage.borrowed_scaled_ray, borrow_index);
             let price = model::wad_to_f64(price_wad);
-            metrics.spoke_supply_usage.with_label_values(&labels).set(supply_tokens);
-            metrics.spoke_supply_usage_usd.with_label_values(&labels).set(supply_tokens * price);
-            metrics.spoke_borrow_usage.with_label_values(&labels).set(borrow_tokens);
-            metrics.spoke_borrow_usage_usd.with_label_values(&labels).set(borrow_tokens * price);
+            metrics
+                .spoke_supply_usage
+                .with_label_values(&labels)
+                .set(supply_tokens);
+            metrics
+                .spoke_supply_usage_usd
+                .with_label_values(&labels)
+                .set(supply_tokens * price);
+            metrics
+                .spoke_borrow_usage
+                .with_label_values(&labels)
+                .set(borrow_tokens);
+            metrics
+                .spoke_borrow_usage_usd
+                .with_label_values(&labels)
+                .set(borrow_tokens * price);
             if let Some(u) = model::cap_utilization(supply_tokens, cfg.supply_cap, dec) {
-                metrics.spoke_supply_cap_utilization.with_label_values(&labels).set(u);
+                metrics
+                    .spoke_supply_cap_utilization
+                    .with_label_values(&labels)
+                    .set(u);
             }
             if let Some(u) = model::cap_utilization(borrow_tokens, cfg.borrow_cap, dec) {
-                metrics.spoke_borrow_cap_utilization.with_label_values(&labels).set(u);
+                metrics
+                    .spoke_borrow_cap_utilization
+                    .with_label_values(&labels)
+                    .set(u);
             }
         }
     }
@@ -626,7 +1028,10 @@ async fn publish_spoke_asset(
 
 fn bucket_error_code(msg: &str) -> String {
     if let Some(pos) = msg.find('#') {
-        let digits: String = msg[pos + 1..].chars().take_while(|c| c.is_ascii_digit()).collect();
+        let digits: String = msg[pos + 1..]
+            .chars()
+            .take_while(|c| c.is_ascii_digit())
+            .collect();
         if !digits.is_empty() {
             return digits;
         }

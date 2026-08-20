@@ -1,11 +1,17 @@
 # 0008. Halt flags gate liquidation legs
 
-**Status:** Accepted
+**Status:** Accepted for the shipped decision below. The
+"Proposed amendment (2026-08-16)" section at the end of this document is
+**Draft**: it records an open question and describes no shipped behaviour.
+
+**Implemented by:** contracts/controller/src/positions/mod.rs (`FreezePolicy`, `enforce_spoke_asset_flags`, `require_can_supply`, `BlockOnEntry`, `AllowOnExit`, `SeizureLeg`), contracts/controller/src/positions/liquidation/plan.rs, contracts/controller/src/positions/liquidation/apply.rs, contracts/controller/src/config/asset.rs (`set_spoke_asset_flags`, `require_flag_ratchet`); tests contracts/controller/tests/positions/flags.rs (`no_seize_blocks_seizure`), contracts/controller/tests/config/asset_flags.rs (`set_spoke_asset_flags_tightens_no_seize_independently`).
 
 ## Decision
 
 A global pause blocks risk-increasing activity while preserving exits where
-possible. At listing level there are three independent flags:
+possible. At listing level there are three flags, and the setter keeps them
+independent: `require_flag_ratchet` asserts only that each flag moves false to
+true on its own, with no cross-flag implication. The three are:
 
 - `frozen` blocks new exposure but permits exits.
 - `paused` blocks every *user* verb on the listing, including the debt leg of a
@@ -69,6 +75,9 @@ Operator guidance:
 - A paused debt asset cannot be repaid or liquidated until governance resolves
   the condition.
 - Pausing a collateral listing never makes its holders unliquidatable.
+  `no_seize` does: seizure is pro-rata over the account's whole collateral
+  set, so one halted leg reverts the entire liquidation. See the draft
+  amendment below.
 - A delisted asset (no listing config at all) remains both exitable and seizable.
 - The distinction is visible and testable rather than an implicit convention.
 
@@ -106,7 +115,9 @@ bypass.
 
 **Open question this amendment must answer before any code:** is `no_seize` a
 *live* flag on a book with active borrowers, or a *wind-down* flag that must
-travel with `frozen`? Option C is the wind-down reading.
+travel with `frozen`? Option C is the wind-down reading. None of the three
+options is implemented; the shipped setter has no coupling term, and
+`require_can_supply` still uses `BlockOnEntry`.
 
 Until that is decided, `force_socialize_bad_debt` is the hatch for insolvent
 accounts that `no_seize` has made unliquidatable. See

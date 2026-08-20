@@ -83,9 +83,10 @@ pub fn as_contract_id(value: &ScVal) -> Option<[u8; 32]> {
 }
 
 pub fn address_strkey(value: &ScVal) -> Option<String> {
-
     match value {
-        ScVal::Address(ScAddress::Contract(c)) => Some(format!("{}", stellar_strkey::Contract(c.0 .0))),
+        ScVal::Address(ScAddress::Contract(c)) => {
+            Some(format!("{}", stellar_strkey::Contract(c.0 .0)))
+        }
         ScVal::Address(ScAddress::Account(a)) => {
             let stellar_xdr::curr::PublicKey::PublicKeyTypeEd25519(k) = &a.0;
             Some(format!("{}", stellar_strkey::ed25519::PublicKey(k.0)))
@@ -129,7 +130,10 @@ mod tests {
     #[test]
     fn decodes_i128_roundtrip_including_negative() {
         assert_eq!(as_i128(&i128_val(0)), Some(0));
-        assert_eq!(as_i128(&i128_val(1_000_000_000_000_000_000)), Some(1e18 as i128));
+        assert_eq!(
+            as_i128(&i128_val(1_000_000_000_000_000_000)),
+            Some(1e18 as i128)
+        );
         assert_eq!(as_i128(&i128_val(-42)), Some(-42));
         assert_eq!(as_i128(&i128_val(i128::MAX)), Some(i128::MAX));
     }

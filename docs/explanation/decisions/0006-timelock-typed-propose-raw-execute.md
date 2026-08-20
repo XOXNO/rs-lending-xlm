@@ -2,6 +2,8 @@
 
 **Status:** Accepted
 
+**Implemented by:** contracts/governance/src/timelock/lifecycle.rs (`propose`, `execute`, `execute_self`, `cancel`), contracts/governance/src/op.rs (`AdminOperation`, `resolve_op`, `DelayTier`), contracts/governance/src/timelock/recovery.rs, contracts/governance/src/timelock/immediate.rs.
+
 ## Decision
 
 Governance validates a typed administrative operation when it is proposed,

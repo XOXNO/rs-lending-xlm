@@ -30,8 +30,10 @@ pub fn decode_i128(value: &ScVal) -> Result<i128> {
 }
 
 pub fn decode_sync_data(value: &ScVal) -> Result<MarketSync> {
-    let params_val = map_field(value, "params").ok_or_else(|| anyhow!("PoolSyncData.params missing"))?;
-    let state_val = map_field(value, "state").ok_or_else(|| anyhow!("PoolSyncData.state missing"))?;
+    let params_val =
+        map_field(value, "params").ok_or_else(|| anyhow!("PoolSyncData.params missing"))?;
+    let state_val =
+        map_field(value, "state").ok_or_else(|| anyhow!("PoolSyncData.state missing"))?;
 
     let params = MarketParams {
         asset_decimals: field_u32(params_val, "asset_decimals")
@@ -50,7 +52,10 @@ pub fn decode_sync_data(value: &ScVal) -> Result<MarketSync> {
         max_utilization_ray: field_i128(params_val, "max_utilization").unwrap_or(0),
     };
     let last_timestamp = field_u64(state_val, "last_timestamp").unwrap_or(0);
-    Ok(MarketSync { params, last_timestamp })
+    Ok(MarketSync {
+        params,
+        last_timestamp,
+    })
 }
 
 #[cfg(test)]
@@ -62,13 +67,19 @@ mod tests {
         ScVal::Symbol(crate::keys::symbol(t).unwrap())
     }
     fn i128v(v: i128) -> ScVal {
-        ScVal::I128(Int128Parts { hi: (v >> 64) as i64, lo: v as u64 })
+        ScVal::I128(Int128Parts {
+            hi: (v >> 64) as i64,
+            lo: v as u64,
+        })
     }
     fn map(entries: Vec<(&str, ScVal)>) -> ScVal {
         ScVal::Map(Some(ScMap(
             entries
                 .into_iter()
-                .map(|(k, v)| ScMapEntry { key: sym(k), val: v })
+                .map(|(k, v)| ScMapEntry {
+                    key: sym(k),
+                    val: v,
+                })
                 .collect::<Vec<_>>()
                 .try_into()
                 .unwrap(),

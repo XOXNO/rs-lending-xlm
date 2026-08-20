@@ -18,7 +18,6 @@ use std::path::PathBuf;
     about = "Extend every protocol storage entry by the keeper bump, once"
 )]
 struct Args {
-
     #[arg(short, long, env = "KEEPER_CONFIG")]
     config: PathBuf,
 
@@ -88,7 +87,6 @@ async fn main() -> Result<()> {
             SubmitOutcome::Retriable(reason) | SubmitOutcome::Failed(reason) => {
                 failed += 1;
                 println!("FAILED: {reason}");
-
             }
         }
     }

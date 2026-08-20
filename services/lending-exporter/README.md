@@ -17,8 +17,10 @@ container, one instance per network.
 | **Price-aggregator** | live `price_aggregator` view, else YAML fallback | `AssetOracle` config + provider feed freshness probes |
 
 Soft oracle status is the authority for solvency monitoring: the controller bulk
-view calls price-aggregator `prices_status` (no fail-closed revert). Provider
-probes are early-warning only.
+view calls the price-aggregator `quotes` entrypoint, which returns a
+`PriceStatus` per key and never reverts fail-closed. (`prices_status` is not an
+entrypoint; `fetch_prices_status` is the controller-internal helper that wraps
+`quotes`.) Provider probes are early-warning only.
 
 ## What it publishes
 
@@ -55,12 +57,27 @@ Per hub-asset (market labels include `hub_id` / `hub`):
 
 ### Spokes (controller)
 
-- per listing: paused/frozen/collateral/borrow, LTV/threshold/bonus/fees, caps, usage, cap util
-- per spoke: deprecation (on asset series), liquidation target HF, HF for max bonus, bonus factor bps
+Per listing (`network`, `spoke_id`, `spoke`, `hub_id`, `hub`, `asset`, `symbol`):
+
+- `lending_spoke_paused`, `lending_spoke_frozen`,
+  `lending_spoke_collateral_enabled`, `lending_spoke_borrow_enabled`,
+  `lending_spoke_deprecated`
+- `lending_spoke_ltv_bps`, `lending_spoke_liquidation_threshold_bps`,
+  `lending_spoke_liquidation_bonus_bps`, `lending_spoke_liquidation_fees_bps`
+- `lending_spoke_supply_cap`, `lending_spoke_borrow_cap`
+- `lending_spoke_supply_usage`, `lending_spoke_supply_usage_usd`,
+  `lending_spoke_borrow_usage`, `lending_spoke_borrow_usage_usd`
+- `lending_spoke_supply_cap_utilization`,
+  `lending_spoke_borrow_cap_utilization`
+
+Per spoke (`network`, `spoke_id`, `spoke`): `lending_spoke_liquidation_target_hf`,
+`lending_spoke_hf_for_max_bonus`, `lending_spoke_liquidation_bonus_factor_bps`.
+`lending_spoke_deprecated` carries the spoke's deprecation flag on the
+per-listing series.
 
 A cap is **always** an enforced ceiling in asset units — there is no "unlimited"
 sentinel. `0` means that side accepts nothing: the market is **closed**. Because
-caps are orthogonal to the `can_be_collateral` / `can_be_borrowed` flags by
+caps are orthogonal to the `is_collateralizable` / `is_borrowable` flags by
 design, `cap = 0` on a side that is still flagged enabled is a legitimate soft
 wind-down, and nothing else on the board distinguishes it from a live listing:
 
@@ -71,13 +88,19 @@ wind-down, and nothing else on the board distinguishes it from a live listing:
 
 Cap utilization is 0/0 while closed and so is **not published** — read the gauge
 above, not the gap, or a closed market is indistinguishable from a failed scrape.
-`LendingSpoke{Supply,Borrow}Closed*` in `ops/alerts.yml` fires on the closed-but-
-enabled combination.
+`LendingSpokeSupplyClosedWhileCollateralEnabled` and
+`LendingSpokeBorrowClosedWhileBorrowEnabled` in `ops/alerts.yml` fire on the
+closed-but-enabled combination.
 
 ### Protocol + exporter health
 
 - TVL / borrowed / liquidity / revenue aggregates, market/spoke counts, min borrow collateral
-- scrape duration, last success, ledger time/sequence/skew, RPC errors, view failures
+- `lending_exporter_scrape_duration_seconds`,
+  `lending_exporter_last_success_timestamp`,
+  `lending_exporter_ledger_skew_seconds`, `lending_ledger_timestamp_seconds`,
+  `lending_ledger_sequence`, `lending_exporter_rpc_errors_total`,
+  `lending_exporter_view_failures_total`
+- `lending_exporter_build_info` — always `1`; labels `network` and `version`
 
 Only aggregate / market / oracle / spoke-config data is exposed — **no per-user
 account data** goes on the public dashboard.
@@ -90,7 +113,25 @@ cargo run -- --config config/testnet.yaml
 curl -s localhost:9110/metrics | grep lending_
 ```
 
-`EXPORTER_CONFIG` env var is an alternative to `--config`.
+### Environment
+
+`--config` is the only CLI flag. Environment values override the loaded YAML
+before validation (`src/main.rs:21`, `src/config.rs:114-125`).
+
+| Env var | Meaning | Default | Required |
+| --- | --- | --- | --- |
+| `EXPORTER_CONFIG` | Path to the YAML config; alternative to `--config` | `/etc/lending-exporter/testnet.yaml` | no |
+| `EXPORTER_RPC_URL` | Overrides `rpc.url`. An empty value is ignored. | none | no |
+| `EXPORTER_CONTROLLER` | Overrides `contracts.controller`. An empty value is ignored. | none | no |
+| `EXPORTER_PRICE_AGGREGATOR` | Overrides `contracts.price_aggregator`. An empty value clears it back to the live controller lookup. | none | no |
+| `EXPORTER_XOXNO_ORACLE_ADAPTER` | Overrides `contracts.xoxno_oracle_adapter`. An empty value clears it. | none | no |
+| `RUST_LOG` | `tracing` filter. When set it replaces `log.level` from the YAML (`src/main.rs:90`). | unset; falls back to `log.level` | no |
+
+`MAINNET_LENDING_CONTROLLER` is **not** read by the binary. It is a Compose-level
+variable that the example Compose file pipes into `EXPORTER_CONTROLLER`
+(`docker-compose.example.yaml:27`).
+
+Unlike the sibling `keeper`, this service does honour `RUST_LOG`.
 
 ## Config
 
@@ -99,13 +140,22 @@ controller and `(hub_id, asset, symbol)` markets + `spokes` to scan.
 
 - **Pool** and **price-aggregator** are resolved each scrape from the controller
   (`get_pool_address`, `price_aggregator`). YAML `price_aggregator` is a fallback.
-- Addresses in `config/*.yaml` mirror `configs/networks.json` when present.
+- Addresses in `config/*.yaml` are meant to track `configs/networks.json`.
+  **They currently diverge on testnet.** `config/testnet.yaml` uses controller
+  `CBY6ZCBOMH47…`, price-aggregator `CDD4CFSYS53S…` and oracle adapter
+  `CC7DJH3IZBXO…`, while `configs/networks.json` lists `CCXRWJ6SIU2W…`,
+  `CAALOOTIDXCX…` and `CDYX4ZEO556Y…`. Re-sync them before trusting the testnet
+  dashboard.
 - Markets / hubs / spokes labels mirror `configs/{network}/{markets,hubs,spokes}.json`.
 - `symbol`, `hubs`, `spoke_names` are display labels only.
+- `scrape_interval_seconds` defaults to `30`. Values below `5` fail startup.
+- `rpc.timeout_seconds` is parsed but **has no effect**: `RpcClient::new`
+  (`src/stellar/client.rs:14-18`) never applies it.
 
 `config/mainnet.yaml` lists the canonical mainnet market set (including the LP
-and XAUM listings), hubs (`Core` / `RWA` / `Aquarius`), and spokes (`Main` /
-`Etherfuse` / `Spiko` / `Centrifuge` / `Forex`). The controller is deliberately
+and XAUM listings), hubs (`Core` / `RWA` / `Aquarius`), and eight spokes
+(`Main` / `Etherfuse` / `Spiko` / `Centrifuge` / `Forex` / `LP Tokens` / `Ondo` /
+`Commodities`). The controller is deliberately
 empty in `configs/networks.json` because it is not deployed yet. At deployment,
 set `EXPORTER_CONTROLLER` to the deployed `C…` address; it overrides only the
 container's configuration and is validated before the exporter starts.

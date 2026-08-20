@@ -2,9 +2,8 @@ use anyhow::{anyhow, Context};
 use stellar_xdr::curr::{
     ContractId, Hash, HostFunction, InvokeContractArgs, InvokeHostFunctionOp, LedgerFootprint,
     Memo, MuxedAccount, Operation, OperationBody, Preconditions, ScAddress, ScSymbol, ScVal,
-    SequenceNumber, SorobanResources, SorobanTransactionData, SorobanTransactionDataExt,
-    StringM, Transaction, TransactionEnvelope, TransactionExt, TransactionV1Envelope, Uint256,
-    VecM,
+    SequenceNumber, SorobanResources, SorobanTransactionData, SorobanTransactionDataExt, StringM,
+    Transaction, TransactionEnvelope, TransactionExt, TransactionV1Envelope, Uint256, VecM,
 };
 use thiserror::Error;
 
@@ -12,7 +11,6 @@ use crate::stellar::client::RpcClient;
 
 #[derive(Debug, Error)]
 pub enum ViewError {
-
     #[error("contract reverted: {0}")]
     Reverted(String),
     #[error("rpc error: {0}")]
@@ -47,7 +45,11 @@ pub async fn simulate_view(
     Ok(first.xdr)
 }
 
-fn invoke_op(contract_id: &[u8; 32], function: &str, args: Vec<ScVal>) -> Result<Operation, ViewError> {
+fn invoke_op(
+    contract_id: &[u8; 32],
+    function: &str,
+    args: Vec<ScVal>,
+) -> Result<Operation, ViewError> {
     let function_name = ScSymbol(
         StringM::<32>::try_from(function)
             .map_err(|_| ViewError::Rpc(anyhow!("function name {function} > 32 bytes")))?,

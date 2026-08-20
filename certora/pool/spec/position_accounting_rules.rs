@@ -321,8 +321,7 @@ fn full_repay_refunds_overpayment(
 }
 
 // ---------------------------------------------------------------------------
-// Anti-splitting / additivity — Aave Hub `*Additivity` analogue, docs
-// `explanation/aave-v4-audit-comparison.md` §5 V-6.
+// Anti-splitting / additivity — the analogue of Aave Hub's `*Additivity` rules.
 //
 // Shape of every rule below: run one operation as two sequential calls, then
 // replay the *byte-identical* starting market and run one call for the summed

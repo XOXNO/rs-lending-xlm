@@ -46,7 +46,8 @@ cargo +nightly fuzz run flow_e2e --sanitizer=thread -Zbuild-std -- -max_total_ti
 | Layer | Location | Purpose |
 |---|---|---|
 | Function fuzzing | `tests/fuzz/fuzz_targets/fp_math.rs`, `rates_and_index.rs`, `fp_ops.rs` | Pure math, rounding, overflow, rates, and index transitions (scaled balances, supply-index floor on bad debt). Fast and cheap. |
-| Native pool fuzzing | `tests/fuzz/fuzz_targets/pool_native.rs` | Pool constructor, index update, rewards, views, and reserve invariants (cash excludes donations, revenue ≤ supplied). |
+| Native pool fuzzing | `tests/fuzz/fuzz_targets/pool_native.rs` | Pool constructor, index update, views, and reserve invariants (cash excludes donations, revenue ≤ supplied). |
+| Oracle fuzzing | `tests/fuzz/fuzz_targets/aggregator.rs` | Price-aggregator resolution against arbitrary prices, ages, tolerances and sanity bands, on both single- and dual-source configurations. |
 | Protocol flow fuzzing | `tests/fuzz/fuzz_targets/flow_e2e.rs`, `flow_strategy.rs` | Fixed-width byte op streams for multi-asset user flows, liquidations (per-spoke curves, tainted debt), flash-loan failure paths, strategy routes (balance-delta), router allowance cleanup, and rollback behavior. |
 | Property tests | `tests/test-harness/tests/fuzz/` | Deterministic proptest suites for accounting conservation, auth, strategy invariants, budget metering, and liquidation differentials vs reference. |
 | Miri | `common/src/math/fp_core.rs` tests | Undefined-behavior checks for pure i128 fixed-point helpers. |
@@ -68,6 +69,7 @@ cargo +nightly fuzz run flow_e2e --sanitizer=thread -Zbuild-std -- -max_total_ti
 | `flow_e2e` | Supply, borrow, withdraw, repay, liquidation, flash-loan failure/success paths, oracle jitter, index sync, revenue claim, bad-debt cleanup. |
 | `flow_strategy` | `multiply`, `swap_debt`, `swap_collateral`, `repay_debt_with_collateral`, and router allowance cleanup. |
 | `pool_native` | Native pool state transitions and view invariants. |
+| `aggregator` | Price-aggregator gates on single and dual sources: staleness against the per-feed ceiling, tolerance disagreement, and the sanity band. |
 
 `make proptest` runs:
 
@@ -81,8 +83,8 @@ cargo +nightly fuzz run flow_e2e --sanitizer=thread -Zbuild-std -- -max_total_ti
 
 ## Corpus And Regressions
 
-Each target starts from one small committed, structurally accepted input under
-`tests/fuzz/seeds/`. This prevents short CI campaigns from spending their
+Each target starts from one or two small committed, structurally accepted
+inputs under `tests/fuzz/seeds/` (`rates_and_index` has two; the rest have one). This prevents short CI campaigns from spending their
 budget merely growing inputs to the target's minimum useful length. New
 coverage inputs are written to the local, ignored corpus:
 
@@ -140,9 +142,10 @@ comes from `pool_native`, not `flow_e2e` or `flow_strategy`.
 
 `.github/workflows/fuzz.yml` runs:
 
-- PR smoke: short function fuzzing plus property tests.
-- Nightly/manual: longer function fuzzing, protocol flow fuzzing, and property
-  tests.
+- PR smoke: `make fuzz FUZZ_TIME=30`, `make fuzz-contract FUZZ_TIME=60`,
+  `make proptest`, `make miri-all`, and a `make mutants-diff` shard matrix.
+- Nightly/manual: longer function fuzzing (`fuzz-long`) and property tests
+  (`proptest-long`) over per-target and per-property matrices.
 - Miri on the pure fixed-point math subset.
 
 The workflow uploads `tests/fuzz/artifacts/` and proptest regression

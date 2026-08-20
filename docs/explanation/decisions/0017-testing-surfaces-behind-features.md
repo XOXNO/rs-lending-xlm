@@ -2,6 +2,8 @@
 
 **Status:** Accepted
 
+**Implemented by:** Makefile (`wasm-testing-abi-check`, `wasm-size-check`), .github/workflows/release.yml, contracts/governance/src/timelock/testing.rs, contracts/controller/src/spec_hooks.rs, certora/.
+
 ## Decision
 
 Testing and verification helpers are feature-gated. Release builds include an

@@ -2,6 +2,8 @@
 
 **Status:** Accepted
 
+**Implemented by:** common/src/math/fp.rs (`Ray`, `mul_floor`, `div_floor`), common/src/math/fp_core.rs (`mul_div_floor`, `mul_div_ceil`), common/src/rates/scaling.rs (`calculate_scaled_supply`, `calculate_scaled_supply_ceil`, `calculate_scaled_borrow`, `calculate_scaled_borrow_floor`, `unscale_supply_floor`, `unscale_borrow_ceil`, `resolve_withdrawal`, `resolve_repay`), contracts/pool/src/ops/supply.rs (`SupplyRoundsToZeroShares`), contracts/pool/src/ops/borrow.rs (`BorrowRoundsToZeroShares`).
+
 ## Decision
 
 Supply and debt positions are stored as RAY-scaled shares. Their asset value is

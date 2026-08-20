@@ -2,6 +2,8 @@
 
 **Status:** Accepted
 
+**Implemented by:** contracts/controller/src/account.rs (`create_account` binds `spoke_id` once; there is no rebinding setter), contracts/controller/src/positions/liquidation/mod.rs (`resolve_seize_receiver`, `SpokeMismatch`), contracts/controller/src/positions/liquidation/apply.rs, common/src/types/controller.rs.
+
 ## Decision
 
 Each account binds to one spoke when it is created. A spoke defines the

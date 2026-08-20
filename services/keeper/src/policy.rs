@@ -1,6 +1,5 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Decision {
-
     Extend,
 
     Restore,
@@ -47,7 +46,6 @@ mod tests {
 
     #[test]
     fn entry_exactly_at_safety_boundary_skips() {
-
         assert_eq!(
             classify(Some(NOW + SAFETY), true, NOW, SAFETY),
             Decision::Skip
@@ -64,7 +62,6 @@ mod tests {
 
     #[test]
     fn live_until_equal_to_current_is_still_live_and_extends() {
-
         assert_eq!(classify(Some(NOW), true, NOW, SAFETY), Decision::Extend);
     }
 
@@ -79,7 +76,6 @@ mod tests {
 
     #[test]
     fn absent_entry_skips_even_when_expired_looking() {
-
         assert_eq!(classify(Some(0), false, NOW, SAFETY), Decision::Skip);
         assert_eq!(classify(None, false, NOW, SAFETY), Decision::Skip);
     }
