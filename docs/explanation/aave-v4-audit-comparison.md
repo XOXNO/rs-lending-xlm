@@ -1,9 +1,17 @@
 # Aave V4 audit corpus vs. XOXNO Lending
 
 **Date:** 2026-08-14
-**Sources:** all 10 PDFs in `aave/aave-v4/audits` (Blackthorn ×2, Trail of Bits,
-ChainSecurity ×3, Certora ×4), read in full.
-**Our commit:** branch `controller-crazy-optimal`, `634dc8f8`.
+**Sources:** 10 Aave V4 reports (Blackthorn ×2, Trail of Bits, ChainSecurity ×3,
+Certora ×4), read in full.
+**Our commit:** `634dc8f8` (2026-08-14), now merged into `main`.
+
+**Provenance of the Aave attributions.** Three of the ten reports are checked out
+locally at `~/GitHub/aave-v4/audits` (Blackthorn 2026-02-05, Trail of Bits
+2026-02-10, ChainSecurity 2026-02-19); the other seven — the four Certora reports,
+the second Blackthorn report, and the two later ChainSecurity reports — are not in
+any local tree. Claims that name a finding id, severity, quote or remediation from
+those seven are reproduced from the reports as read and cannot be re-checked from
+this repository. Aave *source* claims are checkable against `~/GitHub/aave-v4/src`.
 
 Evidence labels used throughout: **Observed** = read directly from Aave's report
 text or our source; **Inferred** = follows from that evidence but not reproduced;
@@ -29,8 +37,9 @@ properties. The mediums cluster into exactly three root causes:
 3. **Liquidation liveness** (CS-AAVE4-002/021, Certora Spoke M-01) — an
    unrelated paused or zero-CF reserve making a position unliquidatable.
 
-We are **structurally immune to (1) and (2)** and **exposed to a wider-blast-radius
-version of (3)**.
+We are **structurally immune to (1) and (2)**. We were **exposed to a
+wider-blast-radius version of (3)** until the seizure leg was given its own halt
+flag; see §5b.
 
 **Headline results:**
 
@@ -38,19 +47,19 @@ version of (3)**.
 |---|---|---|
 | Not applicable — design difference removes the class | 24 | Premium debt, vault share math, malicious-spoke trust, EIP-712 gateway |
 | Applicable — same shape, we already mitigate | 9 | Several where our mitigation is stronger than Aave's fix |
-| **Applicable — needs work** | **6** | Detailed in §4; two are genuinely ours-only |
+| **Applicable — needs work** | **6** | Detailed in §4; two are genuinely ours-only. A-1 has since been closed in code; A-5/A-6 have rules written but no solver verdict |
 | Informational / integration hygiene | ~9 | Event and view-surface sweep |
 
 **The six that need work**, in priority order:
 
 | # | Issue | Aave analogue | Status |
 |---|---|---|---|
-| A-1 | Paused collateral blocks liquidation of *every* account holding it | CS-AAVE4-002 (Med, fixed) | Widened by our pro-rata seizure |
+| A-1 | Paused collateral blocks liquidation of *every* account holding it | CS-AAVE4-002 (Med, fixed) | **Closed** — seizure now has its own `no_seize` flag (§5b) |
 | A-2 | `SpokeUsage` is a second accumulator that can drift from pool totals | *(no analogue — ours only)* | No reconciliation proof exists |
 | A-3 | Permissionless `update_indexes` + chunked accrual → fee/index path dependence | CS-AAVE4-004 (Low, partially fixed) | Reachable, unproven |
 | A-4 | Soroban CPU budget at max `PositionLimits` with dual-source oracle | CS note 8.1 (gas > reward) | Harder than EVM: no "pay more" escape |
-| A-5 | No additivity ("anti-splitting") proofs | Certora Hub P-07 | Gap vs. their proven set |
-| A-6 | No view/accrue isomorphism proofs | Certora Hub P-09/P-10 | Root cause of Blackthorn L-6 |
+| A-5 | Additivity ("anti-splitting") rules | Certora Hub P-07 | Written, unproven — six pool rules plus one liquidation rule (§5b) |
+| A-6 | View/accrue isomorphism rules | Certora Hub P-09/P-10 | Written, unproven — pool and controller families (§5b) |
 
 ---
 
@@ -70,13 +79,13 @@ not perform any solvency checks on Spokes or users… Only trusted Spokes should
 given access to the Hub's liquidity.")
 
 **Ours.** The pool is a custody + per-market accounting contract with exactly one
-owner, the controller ([contracts/pool/src/lib.rs:88](contracts/pool/src/lib.rs:88),
+owner, the controller ([contracts/pool/src/lib.rs:88](../../contracts/pool/src/lib.rs#L88),
 every mutator `#[only_owner]`). A "hub" is a `hub_id` namespace inside the market
 key `HubAssetKey { hub_id, asset }`. A "spoke" is a `spoke_id` **configuration
 record inside the controller** — `ControllerKey::Spoke(u32)`,
 `ControllerKey::SpokeAsset(u32, HubAssetKey)`,
 `ControllerKey::SpokeUsage(u32, HubAssetKey)`
-([common/src/types/controller.rs:579](common/src/types/controller.rs:579)). An
+([common/src/types/controller.rs:664](../../common/src/types/controller.rs#L664)). An
 account binds to one `spoke_id` at creation and never changes it (ADR-0009).
 
 **Consequence:** our spokes are *data*, Aave's are *code*. There is no path by
@@ -88,22 +97,22 @@ Spoke must not only trust the Hub but also all other Spokes connected to that Hu
 
 | Dimension | Aave V4 | Ours | Same? |
 |---|---|---|---|
-| Supply accounting | Share-price vault: `totalAssets/totalShares`, virtual 1e6 assets + 1e6 shares | Index model: RAY supply index, scaled shares ([`cache/scale.rs`](contracts/pool/src/cache/scale.rs)) | **Different** |
+| Supply accounting | Share-price vault: `totalAssets/totalShares`, virtual 1e6 assets + 1e6 shares | Index model: RAY supply index, scaled shares ([`cache/scale.rs`](../../contracts/pool/src/cache/scale.rs)) | **Different** |
 | Debt accounting | `drawnShares` × `drawnIndex` (RAY) | `scaled_amount` × borrow index (RAY) | Same |
-| Interest accrual | Linear per-call, compounding by frequency | Compound, chunked at `MAX_COMPOUND_DELTA_MS` ([`interest.rs:23`](contracts/pool/src/interest.rs:23)) | Different |
-| Protocol fee | `realizedFees` stashed in assets, minted via permissioned `mintFeeShares` | Minted immediately as revenue shares; index shortfall routed to protocol ([`interest.rs:63`](contracts/pool/src/interest.rs:63)) | Different |
+| Interest accrual | Linear per-call, compounding by frequency | Compound, chunked at `MAX_COMPOUND_DELTA_MS` (chunk loop [`interest.rs:30`](../../contracts/pool/src/interest.rs#L30); constant [`common/src/rates/compound.rs`](../../common/src/rates/compound.rs#L13)) | Different |
+| Protocol fee | `realizedFees` stashed in assets, minted via permissioned `mintFeeShares` | Minted immediately as revenue shares; index shortfall routed to protocol ([`interest.rs:63`](../../contracts/pool/src/interest.rs#L63)) | Different |
 | Risk premium | Premium shares, offsets, `collateralRisk` sorting, `riskPremiumThreshold` | **None** | **Different** |
-| Cap location | Hub, per `(assetId, spoke)`, whole asset units, `uint40` | Controller, per `(spoke_id, hub_asset)`, asset units → scaled at live index ([`spoke_usage.rs:178`](contracts/controller/src/spoke_usage.rs:178)) | **Different** |
+| Cap location | Hub, per `(assetId, spoke)`, whole asset units, `uint40` | Controller, per `(spoke_id, hub_asset)`, asset units → scaled at live index (`calculate_scaled_cap`, [`spoke_usage.rs:186`](../../contracts/controller/src/spoke_usage.rs#L186)) | **Different** |
 | Spoke whitelist | Hub `addSpoke` + `spoke.active`; spokes fully trusted | No spoke ACL at the pool; pool trusts only the controller | **Different** |
-| Bad debt | `deficit` counted **into** `totalAssets` so share price never falls; `eliminateDeficit` burns a whitelisted spoke's shares | **Direct socialization into the supply index**, floored ([`interest.rs:96`](contracts/pool/src/interest.rs:96)); `recapitalize` fills backing shortfall | **Different** |
-| Liquidation target | Liquidator picks one `(collateral, debt)` pair | Multi-asset debt vector; **pro-rata seizure across all collateral** ([`math.rs:240`](contracts/controller/src/positions/liquidation/math.rs:240)) | **Different** |
-| Bonus curve | `maxLiquidationBonus` per reserve, `healthFactorForMaxBonus` + `liquidationBonusFactor` per spoke, linear ramp | Same three parameters, same linear ramp ([`curve.rs:74`](contracts/controller/src/positions/liquidation/curve.rs:74)) | **Nearly identical** |
-| Close sizing | `targetHealthFactor` + `DUST_LIQUIDATION_THRESHOLD` ($1000) | `liquidation_target_hf_wad` + `BAD_DEBT_USD_THRESHOLD` promotion to full close ([`curve.rs:147`](contracts/controller/src/positions/liquidation/curve.rs:147)) | Same idea |
-| Dynamic risk config | `configKey` per position → mapping of dynamic configs | Risk tuple stored **inline** on the position; restamped on risk-increasing actions ([`risk/params.rs`](contracts/controller/src/risk/params.rs)) | Different mechanism, same goal |
+| Bad debt | `deficit` counted **into** `totalAssets` so share price never falls; `eliminateDeficit` burns a whitelisted spoke's shares | **Direct socialization into the supply index**, floored ([`interest.rs:96`](../../contracts/pool/src/interest.rs#L96)); `recapitalize` fills backing shortfall | **Different** |
+| Liquidation target | Liquidator picks one `(collateral, debt)` pair | Multi-asset debt vector; **pro-rata seizure across all collateral** (`calculate_seized_collateral`, [`math.rs:250`](../../contracts/controller/src/positions/liquidation/math.rs#L250)) | **Different** |
+| Bonus curve | `maxLiquidationBonus` per reserve, `healthFactorForMaxBonus` + `liquidationBonusFactor` per spoke, linear ramp | Same three parameters, same linear ramp ([`curve.rs:74`](../../contracts/controller/src/positions/liquidation/curve.rs#L74)) | **Nearly identical** |
+| Close sizing | `targetHealthFactor` + `DUST_LIQUIDATION_THRESHOLD` ($1000) | `liquidation_target_hf_wad` + `BAD_DEBT_USD_THRESHOLD` promotion to full close ([`curve.rs:147`](../../contracts/controller/src/positions/liquidation/curve.rs#L147)) | Same idea |
+| Dynamic risk config | `configKey` per position → mapping of dynamic configs | Risk tuple stored **inline** on the position; restamped on risk-increasing actions ([`risk/params.rs`](../../contracts/controller/src/risk/params.rs)) | Different mechanism, same goal |
 | Oracle | Chainlink `latestRoundData`, **only `answer` used, timestamp not validated** | Dual-source primary+anchor, staleness + deviation + validity, fail-closed (ADR-0004/0005) | **Different** |
 | Reentrancy | No guards; CEI violated in liquidation; hook tokens unsupported | Flash-loan flag gates monetary flows; measured balance deltas (ADR-0011/0013) | **Different** |
 | Non-standard tokens | Assumed standard ERC20 | Credit = measured receipt everywhere (INV-ACCT-03) | **Different** |
-| Per-user position cap | `MAX_USER_RESERVES_LIMIT`, added in v7 *after* the audits | `PositionLimits`, enforced on entry ([`validation.rs:60`](contracts/controller/src/risk/validation.rs:60)) | Same mechanism |
+| Per-user position cap | `MAX_USER_RESERVES_LIMIT`, added in v7 *after* the audits | `PositionLimits`, enforced on entry (`validate_bulk_position_limits`, [`validation.rs:67`](../../contracts/controller/src/risk/validation.rs#L67)) | Same mechanism |
 | Storage lifetime | N/A | Soroban TTL: persistence class + renewal (INV-STOR-01) | **Ours only** |
 
 ---
@@ -125,7 +134,8 @@ findings across four firms are consequences of that one design choice:
 - **Blackthorn M-2** *(acknowledged, won't fix)* — with `VIRTUAL_ASSETS = VIRTUAL_SHARES = 1e6` and 5-decimal high-value assets, up to **90% of yield** is permanently stranded on dead shares.
 
 Our supply index is not derived from a balance ratio. It is advanced by
-`update_supply_index(supplied, old_index, supplier_rewards)` and moved down only
+`update_supply_index(env, supplied, old_index, rewards_increase)`
+([`common/src/rates/index.rs`](../../common/src/rates/index.rs#L29)) and moved down only
 by explicit socialization. **Inferred:** this makes us immune to the entire class
 — there is no first-depositor inflation attack because donating tokens to the pool
 does not move the index (INV-ACCT-02: "Donations do not create lendable cash"),
@@ -135,8 +145,9 @@ The cost of our choice is that **the supply index is not monotone** (ADR-0012,
 INV-IDX-03). Aave deliberately preserved monotonicity by parking bad debt in
 `deficit` inside `totalAssets`. That is a real integration advantage for them:
 ERC-4626 wrappers and external accounting systems can assume a non-decreasing
-share price. We cannot offer that guarantee, and `docs/reference/architecture.md`
-correctly warns consumers.
+share price. We cannot offer that guarantee, and INV-IDX-03
+([`docs/reference/invariants.md`](../reference/invariants.md)) states it plainly:
+"Supplier value is not monotone."
 
 **Judgement:** ours is better on correctness and attack surface; theirs is better
 for naive integrators. Given that we have no tokenized spoke and no ERC-4626
@@ -170,15 +181,17 @@ pub(crate) fn is_socializable_bad_debt(total_debt: Wad, total_collateral: Wad) -
 recommended ("treat collateral below a protocol dust threshold as inactive") and
 Aave declined — we already ship it.
 
-We are also immune to CS-AAVE4-008's consequence: `total_collateral` is
-`sum_supply_usd`, the *unweighted* USD value
-([`risk/totals.rs:44`](contracts/controller/src/risk/totals.rs:44)), so setting a
-liquidation threshold to zero cannot hide collateral from the bad-debt gate the
-way a zero collateral factor hid it from Aave's `activeCollateralCount`.
+We are also immune to CS-AAVE4-008's consequence: `total_collateral` is the
+*unweighted* USD sum accumulated in `calculate_account_risk_totals`
+([`risk/totals.rs`](../../contracts/controller/src/risk/totals.rs#L186)) — liquidation
+thresholds feed only `weighted_coll` — so setting a liquidation threshold to zero
+cannot hide collateral from the bad-debt gate the way a zero collateral factor hid
+it from Aave's `activeCollateralCount`. (`sum_supply_usd` in the same file is a
+view-only helper and is not what the gate reads.)
 
 The residual: an attacker *can* hold `total_collateral` just above
 `BAD_DEBT_USD_THRESHOLD` to block the dust-gated path. Our escape hatch is
-`force_socialize_bad_debt` ([`lib.rs:715`](contracts/controller/src/lib.rs:715)),
+`force_socialize_bad_debt` ([`lib.rs:761`](../../contracts/controller/src/lib.rs#L761)),
 owner-gated with the looser `Insolvent` gate (`debt > collateral`, no dust cap).
 So the liveness dependency is on governance rather than on liquidator economics —
 strictly better than Aave's "liquidate at a loss" answer, but it is a dependency.
@@ -206,7 +219,7 @@ accounting.
 Our pool has one owner and no spoke concept, so:
 
 - Blackthorn L-5 / Certora Hub L-02: **not applicable.** No external party can invoke pool mutators; `transfer_amount_measured` always pulls from the authorized caller.
-- Certora Hub M-03: our analogue is guarded — `add_asset_to_spoke` asserts the asset is not already in the spoke ([`config/asset.rs:22`](contracts/controller/src/config/asset.rs:22)) and `create_market` panics on a duplicate hub-asset pair.
+- Certora Hub M-03: our analogue is guarded — `add_asset_to_spoke` asserts the asset is not already in the spoke, via `upsert_spoke_asset` ([`config/asset.rs:23`](../../contracts/controller/src/config/asset.rs#L23)) and `create_market` panics on a duplicate hub-asset pair.
 
 Two additional wins from putting caps at the controller:
 
@@ -261,7 +274,7 @@ Our analogue is `enforce_post_pool_solvency`, which restamps first and validates
 second — the correct order:
 
 ```rust
-// contracts/controller/src/positions/mod.rs:89
+// contracts/controller/src/positions/mod.rs:88
 pub(crate) fn enforce_post_pool_solvency(...) -> bool {
     let restamped = risk::restamp_listed_supply_ltv(cache, account);
     validation::require_post_pool_risk_gates(env, cache, account);
@@ -273,14 +286,16 @@ pub(crate) fn enforce_post_pool_solvency(...) -> bool {
 mutates a value-bearing field after the gate. Needs a formal rule (§5, V-1).
 
 Separately, our `update_account_threshold` keeper
-([`keepers.rs:79`](contracts/controller/src/keepers.rs:79)) is the function most
+([`keepers.rs:79`](../../contracts/controller/src/keepers.rs#L79)) is the function most
 analogous to `updateUserRiskPremium` — a third party can restamp another account's
 risk tuple. We gate it correctly and *more* strictly than Aave: liquidation
 parameters only tighten if the account still clears **HF ≥ 1.05** afterwards
 (`apply_gated_liquidation_params` → `clears_min_hf`,
-[`risk/params.rs:66`](contracts/controller/src/risk/params.rs:66)), and the whole
-call reverts if the post-update HF is below 1.05. Aave has no such gate; this is
-one of the clearest places where our design is ahead of their post-fix state.
+[`risk/params.rs:66`](../../contracts/controller/src/risk/params.rs#L66)). If the
+post-update HF would fall below 1.05 the tightening is **skipped**, not reverted:
+the function returns early, the position keeps its stamped parameters, and the rest
+of the keeper call proceeds. Aave has no such gate; this is one of the clearest
+places where our design is ahead of their post-fix state.
 
 ### Class B — Vault share-price accounting (7 findings): **not applicable, one analogue survives**
 
@@ -290,7 +305,7 @@ M-02, L-03, plus CS Mar-2026 note 8.3.
 Reasoning in §3.1. **One analogue does survive:** CS-AAVE4-004's "accrue often to
 round fees to zero" shape is reachable against us. `update_indexes` is
 permissionless (`caller.require_auth()` only,
-[`keepers.rs:18`](contracts/controller/src/keepers.rs:18)), and our accrual is
+[`keepers.rs:18`](../../contracts/controller/src/keepers.rs#L18)), and our accrual is
 *chunked* at `MAX_COMPOUND_DELTA_MS`, so the number and size of chunks is
 caller-influenced. Our rounding residual goes the opposite way to Aave's — the
 part of supplier rewards that cannot lift the index is captured as protocol
@@ -304,61 +319,70 @@ Residual: the `BAD_DEBT_USD_THRESHOLD` boundary can be straddled; escape hatch i
 owner-gated. Existing coverage: `bad_debt_socialization_threshold_boundary` in
 `certora/controller/spec/`. Add the adversarial straddle case (§5, V-7).
 
-### Class D — Liquidation liveness under pause (2 findings): **applicable, wider blast radius — finding A-1**
+### Class D — Liquidation liveness under pause (2 findings): **was finding A-1, now closed**
 
 CS-AAVE4-002 was a Medium: a user borrows 1 wei of every reserve, one asset is
 later paused in the Hub, and `refreshPremium` reverts, so *all* liquidations of
 that user revert. CS-AAVE4-021 was the same shape via `reportDeficit`. Aave fixed
 both by allowing those two calls through on paused spokes.
 
-Ours is the same *shape* with a **larger blast radius**, and the reason is our
-pro-rata seizure. `build_liquidation_plan` enforces pause flags on every payment
-asset *and* on every seized collateral asset:
+Ours was the same *shape* with a **larger blast radius**, and the reason is our
+pro-rata seizure: `build_liquidation_plan` used to gate every seized collateral
+asset on the same `paused` flag it applies to user exits. Because seizure is
+pro-rata across *all* collateral rather than a single liquidator-chosen asset,
+pausing one asset made **every account holding a material amount of it**
+unliquidatable — not just accounts the liquidator would have targeted there.
+
+The seizure leg now has its own flag:
 
 ```rust
 // contracts/controller/src/positions/liquidation/plan.rs
 for entry in seized_collaterals.iter() {
     enforce_spoke_asset_flags(env, cache, account.spoke_id,
-                              &entry.hub_asset, FreezePolicy::AllowOnExit);
+                              &entry.hub_asset, FreezePolicy::SeizureLeg);
 }
 ```
 
-`FreezePolicy::AllowOnExit` still asserts `!paused`
-([`positions/mod.rs:317`](contracts/controller/src/positions/mod.rs:317)). Because
-seizure is pro-rata across *all* collateral rather than a single liquidator-chosen
-asset, pausing one asset makes **every account holding a material amount of it**
-unliquidatable — not just accounts the liquidator would have targeted there.
+`FreezePolicy::SeizureLeg` asserts `!no_seize` and tolerates `paused` and `frozen`
+([`positions/mod.rs:355`](../../contracts/controller/src/positions/mod.rs#L355)); both
+seizure call sites use it
+([`liquidation/plan.rs:99`](../../contracts/controller/src/positions/liquidation/plan.rs#L99),
+[`liquidation/apply.rs:106`](../../contracts/controller/src/positions/liquidation/apply.rs#L106)
+and the credit-mode site at
+[`apply.rs:158`](../../contracts/controller/src/positions/liquidation/apply.rs#L158)).
+Pausing a listing therefore halts user verbs and the liquidator-chosen debt leg,
+never the seizure leg.
 
-ADR-0008 states this is intentional: "A paused debt asset cannot be repaid or
-liquidated until governance resolves the condition." That is a defensible policy
-for a *debt* asset whose price is untrustworthy. It is much harder to defend for a
-*collateral* asset that merely happens to be in the account, and Aave's audit
-history is direct evidence that the pattern is severe enough to fix.
+The debt side keeps the `paused` gate, and that is correct: the repayment loop
+iterates only the payments the liquidator chose
+([`liquidation/plan.rs:44`](../../contracts/controller/src/positions/liquidation/plan.rs#L44)),
+so a paused debt asset is opt-in and cannot block a liquidation the liquidator
+wants to perform. ADR-0008 records this split and its reasoning.
 
-Options, with trade-offs:
+Of the three options originally weighed, **(3) split the flag** is what shipped —
+the same shape as Aave's fix, which was precisely to let the liquidation-critical
+calls through. Option (2), skipping paused collateral inside the plan, was
+correctly not attempted: dropping a position changes `total_collateral` and
+therefore `proportion_seized`, `weighted_coll`, the bonus bounds and the HF math,
+and the seizure would over-concentrate on unpaused assets. Option (1), an
+operations runbook for the pause case, was never written; `docs/reference/runbooks/`
+holds only the force-socialize runbook.
 
-1. **Keep and document.** Add an operations runbook entry: pausing a widely held
-   collateral halts liquidation protocol-wide for holders. Cheapest, honest,
-   leaves the exposure.
-2. **Skip paused collateral instead of reverting.** Non-trivial: dropping a
-   position changes `total_collateral` and therefore `proportion_seized`,
-   `weighted_coll`, the bonus bounds, and the HF math. Would need the whole
-   snapshot recomputed over the eligible subset, and the seizure would then
-   over-concentrate on unpaused assets. Do not do this without a full re-derivation.
-3. **Split the flag.** Distinguish "paused as debt" (blocks repay legs) from
-   "paused as collateral" (blocks entry but permits seizure). Closest to Aave's
-   fix, which was precisely to let the liquidation-critical calls through.
-
-**Recommendation:** (1) now, evaluate (3) next. Do not attempt (2) casually.
+The residual is the governance lever itself: setting `no_seize` on a widely held
+collateral still halts liquidation for every holder. That is the intended
+semantics of the flag, not an accident of the pause plumbing.
 
 Note also that `enforce_spoke_asset_flags` is a no-op when the asset has no cached
-spoke config — a *delisted* asset does not block exits. That is deliberate and
-exit-safe, and worth an explicit test so it is not "fixed" later by accident.
+spoke config — a *delisted* asset blocks neither exits nor seizure. That is
+deliberate: its holders would otherwise be stranded and unliquidatable. Both cases
+are pinned by name in `contracts/controller/tests/positions/flags.rs`
+(`missing_spoke_asset_is_noop`, `missing_spoke_asset_is_noop_for_seizure`) so the
+behaviour is not "fixed" later by accident.
 
 ### Class E — Liquidation under liquidity crunch (3 findings): **partly ahead, one gap**
 
-- **Blackthorn L-9** recommended repaying debt *before* seizing collateral so a same-asset liquidation can use the freed liquidity. Aave **declined**, arguing repay-first bumps the supply share price via rounding donations, adding friction for liquidators. **We already repay first** — `process_liquidation` runs `apply_liquidation_repayments` then `apply_liquidation_seizures` ([`liquidation/mod.rs:56`](contracts/controller/src/positions/liquidation/mod.rs:56)) — **and Aave's objection does not transfer to us**, because in an index model a repayment does not move the supply index at all. We get the benefit they declined, without the cost they cited. **(Inferred; worth a same-asset regression test.)**
-- **CS-AAVE4-005 / Blackthorn L-8**: Aave added `receiveShares` so a liquidator can take collateral shares when the Hub is cash-short. We have no equivalent. We do have a *preventive* measure Aave lacks: `require_liquidation_buffer` reserves `LIQUIDATION_BUFFER_BPS` of supplied value against ordinary borrow draws ([`guards.rs:33`](contracts/pool/src/guards.rs:33)). **Inferred:** the buffer covers the common case (utilization-driven crunch) but not a crunch caused by large withdrawals or by seizing more than the buffer. Evaluate a share-receipt path; low priority while the buffer holds.
+- **Blackthorn L-9** recommended repaying debt *before* seizing collateral so a same-asset liquidation can use the freed liquidity. Aave **declined**, arguing repay-first bumps the supply share price via rounding donations, adding friction for liquidators. **We already repay first** — `process_liquidation` runs `apply_liquidation_repayments` then `apply_liquidation_seizures` ([`liquidation/mod.rs:75`](../../contracts/controller/src/positions/liquidation/mod.rs#L75)) — **and Aave's objection does not transfer to us**, because in an index model a repayment does not move the supply index at all. We get the benefit they declined, without the cost they cited. **(Inferred; worth a same-asset regression test.)**
+- **CS-AAVE4-005 / Blackthorn L-8**: Aave added `receiveShares` so a liquidator can take collateral shares when the Hub is cash-short. We now have the equivalent — `SeizeMode::Credit` credits the seized supply shares to a controller account instead of withdrawing them (ADR-0019); see §5b. We also have a *preventive* measure Aave lacks: `require_liquidation_buffer` reserves `LIQUIDATION_BUFFER_BPS` of supplied value against ordinary borrow draws ([`guards.rs:33`](../../contracts/pool/src/guards.rs#L33)). **Inferred:** the buffer covers the common case (utilization-driven crunch) but not a crunch caused by large withdrawals or by seizing more than the buffer. The share-receipt path closes the remaining gap.
 - **CS-AAVE4-010** (bonus slippage between submit and execution): applies to us identically — our bonus is also a function of live HF. Liquidator-side concern; document it, as Aave did.
 
 ### Class F — Malicious-spoke trust (4 findings): **not applicable**
@@ -397,7 +421,7 @@ is not expected to be long-lasting; the Spoke owner can update the interest rate
 to mitigate"). Adopt the same operational guidance — we have the same lever via
 `upgrade_liquidity_pool_params`.
 
-Our `set_spoke_asset_flags` ratchet ([`config/asset.rs:148`](contracts/controller/src/config/asset.rs:148))
+Our `set_spoke_asset_flags` ratchet (`require_flag_ratchet`, [`config/asset.rs:158`](../../contracts/controller/src/config/asset.rs#L158))
 is stronger than Aave's equivalent: flags can only tighten, and relaxation requires
 timelocked governance (ADR-0007). Blackthorn L-7 (freezing an asset does not
 freeze *future* spokes) has no analogue because our flags live on the
@@ -450,10 +474,16 @@ rounding-direction mismatch.
 
 ## 5. Verification plan
 
-We already have a strong base: `certora/` with ~150 rules across controller, pool
-and price-aggregator; `tests/fuzz` with 7 targets; `cargo-mutants` split into 14
-scoped targets; miri; per-crate coverage. The plan below is expressed as
-*additions to existing files*, ordered by the risk each retires.
+We already have a strong base: `certora/` with 343 rules across common, controller,
+pool and price-aggregator; `tests/fuzz` with 7 targets; `cargo-mutants` split into
+17 scoped targets; miri; per-crate coverage.[^counts] The plan below is expressed
+as *additions to existing files*, ordered by the risk each retires.
+
+[^counts]: Reproduce the three counts with
+`grep -rho '#\[rule\]' certora/ --include='*.rs' | wc -l` (343: common 45,
+controller 206, pool 64, price-aggregator 28),
+`ls tests/fuzz/fuzz_targets/ | wc -l` (7), and
+`grep -E '^mutants[a-z-]*:' Makefile | sed 's/:.*//' | sort -u | wc -l` (17).
 
 ### Priority 1 — retire findings A-1 through A-4
 
@@ -464,12 +494,12 @@ scoped targets; miri; per-crate coverage. The plan below is expressed as
 observed. This is the rule that would have caught ToB-AAVE-7 and it generalizes
 past the premium mechanism that caused it.
 
-**V-2 — Liquidation liveness under pause** *(quantifies A-1)*
-`contracts/controller/tests/positions/` integration test. Construct an unhealthy
-account with N collaterals; pause one; assert the current behavior (whole
-liquidation reverts) and pin it with an explicit named test so the policy is
-visible rather than emergent. Add the delisted-asset counterpart asserting exits
-still work. Then decide between options (1)/(3) in §4-D with the test as evidence.
+**V-2 — Liquidation liveness under pause** *(pins the A-1 fix)* — **done.**
+`contracts/controller/tests/positions/flags.rs` pins the flag matrix per leg:
+`paused_does_not_block_seizure`, `frozen_does_not_block_seizure`,
+`no_seize_blocks_seizure`, `no_seize_does_not_block_entry_or_exit`, and the
+delisted-asset counterparts `missing_spoke_asset_is_noop_for_seizure` /
+`missing_spoke_asset_is_noop`. The policy is now asserted rather than emergent.
 
 **V-3 — Accrual path independence** *(retires A-3, the CS-AAVE4-004 analogue)*
 `certora/pool/spec/` + a fuzz target in `tests/fuzz/fuzz_targets/rates_and_index.rs`.
@@ -492,7 +522,7 @@ worst-case accounts unliquidatable.
 (`sumOfSpokeSupplyShares` et al.), and it is *more* necessary for us than for
 Aave: their per-spoke shares are the Hub's own record, whereas our `SpokeUsage` is
 a **second accumulator maintained by a separate code path**
-([`spoke_usage.rs`](contracts/controller/src/spoke_usage.rs)). Any verb that
+([`spoke_usage.rs`](../../contracts/controller/src/spoke_usage.rs)). Any verb that
 mutates a position but misses its `apply_leg_usage` call silently corrupts cap
 enforcement, in either direction: under-count lets a spoke exceed its cap,
 over-count locks out legitimate supply. Property: for every
@@ -508,10 +538,14 @@ this is a class we invented and must therefore prove ourselves.
 `certora/controller/spec/math_rules.rs` and `certora/pool/spec/`. Aave proved
 `addAdditivity`, `drawAdditivity`, `restoreAdditivity`, `reportDeficitAdditivity`:
 doing an operation in two steps is never more beneficial to the caller than doing
-it in one. We have roundtrip-error rules but no splitting rules. Two targets:
+it in one. **Both targets below are now written** in
+`certora/pool/spec/position_accounting_rules.rs` (six `additivity_*` rules) and
+`certora/controller/spec/liquidation_rules.rs`
+(`split_liq_two_partials_never_out_seize_one_close`); no solver verdict exists yet,
+so they sit in the "written but not proven" queue in §5b.
 
 - Pool level: supply, withdraw, borrow, repay, net-settle.
-- **Liquidation level — the important one.** CS-AAVE4-009 is a splitting attack: when `f · LB > HF_pre`, each partial liquidation *worsens* HF and earns a larger bonus next time. Aave fixed it by a *configuration constraint* (`f · maxLB ≤ HF_maxBonus`) enforced off-chain by risk governance. **We fix it at runtime instead**: `max_hf_preserving_bonus_bps` clamps the bonus to `HF/proportion_seized − 1`, and `normalize_repayment_plan` raises `FullCloseRequired` when a partial repayment cannot preserve HF ([`math.rs:182`](contracts/controller/src/positions/liquidation/math.rs:182)). Ours is the stronger construction — it does not depend on governance parameter discipline — but it is currently justified by tests, not by a proof. Add: *N sequential partial liquidations never extract more collateral than one liquidation of the summed amount.*
+- **Liquidation level — the important one.** CS-AAVE4-009 is a splitting attack: when `f · LB > HF_pre`, each partial liquidation *worsens* HF and earns a larger bonus next time. Aave fixed it by a *configuration constraint* (`f · maxLB ≤ HF_maxBonus`) enforced off-chain by risk governance. **We fix it at runtime instead**: `max_hf_preserving_bonus_bps` clamps the bonus to `HF/proportion_seized − 1` ([`curve.rs:101`](../../contracts/controller/src/positions/liquidation/curve.rs#L101)), and `normalize_repayment_plan` raises `FullCloseRequired` when a partial repayment cannot preserve HF ([`math.rs:198`](../../contracts/controller/src/positions/liquidation/math.rs#L198)). Ours is the stronger construction — it does not depend on governance parameter discipline. It is justified by tests and by a written-but-unproven rule: *two sequential partial liquidations never seize more collateral value than one liquidation repaying their sum* (`split_liq_two_partials_never_out_seize_one_close`, [`liquidation_rules.rs:729`](../../certora/controller/spec/liquidation_rules.rs#L729)).
 
 **V-7 — Bad-debt gate adversarial boundary** *(strengthens class C)*
 Extend `bad_debt_socialization_threshold_boundary`: an attacker who tops
@@ -524,11 +558,13 @@ address other than the controller-authorized payer (Certora Hub L-02 analogue);
 `create_market` on an existing key reverts and `add_asset_to_spoke` on an existing
 asset reverts (Certora Hub M-03 analogue).
 
-**V-9 — View/accrue isomorphism** *(Certora Hub P-09/P-10; retires A-6)*
-`certora/controller/spec/index_rules.rs` and `certora/pool/spec/`. Two families:
+**V-9 — View/accrue isomorphism** *(Certora Hub P-09/P-10; retires A-6)* — **written,
+unproven.** Two families, both now in-tree:
 
-- **Isomorphism:** every view returns the same value whether or not `update_indexes` ran first, and reverts under the same conditions. Directly targets Blackthorn L-6 / Certora Hub L-03. Applies to `get_health_factor`, `is_liquidatable`, `get_liquidation_estimate`, `get_market_index`.
-- **Time monotonicity without accrual:** Aave proved 10 such rules. Ours: `get_market_index` and `get_liquidation_estimate` must be monotone in time when no accrual is invoked, so a keeper cannot change a user's apparent risk merely by choosing when to call.
+- **Isomorphism:** every view returns the same value whether or not `update_indexes` ran first, and reverts under the same conditions. Directly targets Blackthorn L-6 / Certora Hub L-03. Controller side: `iso_market_index_invariant_across_accrual`, `iso_health_factor_invariant_across_accrual`, `iso_update_indexes_writes_no_controller_state` ([`index_rules.rs`](../../certora/controller/spec/index_rules.rs#L217)). Pool side: four rules in [`isomorphism_rules.rs`](../../certora/pool/spec/isomorphism_rules.rs#L182).
+- **Time monotonicity without accrual:** Aave proved 10 such rules. Ours: `time_mono_market_index_non_decreasing` and `time_mono_liquidation_estimate_valuation_non_decreasing` ([`index_rules.rs:380`](../../certora/controller/spec/index_rules.rs#L380)), so a keeper cannot change a user's apparent risk merely by choosing when to call.
+
+No solver verdict exists for either family; see §5b.
 
 ### Priority 3 — hygiene
 
@@ -537,12 +573,13 @@ Audit every liquidation and bad-debt event against its doc comment, focusing on
 gross-vs-net semantics of `SeizeEntry.amount` relative to `protocol_fee`. Extend
 `contracts/controller/tests/events.rs`.
 
-**V-11 — Zero-parameter liquidation regression** *(Certora Spoke M-01 analogue)*
-Assert a position whose collateral has `liquidation_threshold == 0` is still
-liquidatable at zero bonus and still socializable. **Inferred** from
-`max_bonus_for_threshold` returning 0 and `try_liquidation_at_target` remaining
-solvable when `proportion_seized == 0`; needs to be a test, since this is the
-exact shape Certora found in Aave's Spoke.
+**V-11 — Zero-parameter liquidation regression** *(Certora Spoke M-01 analogue)* —
+**done.** `contracts/controller/tests/positions/liquidation_zero_threshold.rs`
+asserts that a position whose collateral has `liquidation_threshold == 0` is
+liquidatable rather than locked, closes end-to-end in both `Transfer` and `Credit`
+seize modes, is seized pro-rata beside a normal collateral, is still socializable
+as bad debt, and that configuration cannot stamp a zero threshold in the first
+place.
 
 **V-12 — Type-bound write-up** *(CS note 8.5 analogue)*
 Document max reachable borrow index given the rate cap and chunking, and the
@@ -571,7 +608,10 @@ Instantiate `V < L_round / (b·(1−f))` for our supported decimal range; confir
 | Share-credit liquidation | `SeizeMode::{Transfer, Credit(u64)}`. Verified: a cash-starved market reverts `Transfer` and clears the identical liquidation under `Credit`. Pool source untouched — the existing deposit-side seize primitive sufficed. |
 | A-3 accrual leak | **Measured, property holds.** Frequent accrual never leaves suppliers worse off; deltas are +$5.55/yr supplier, +$1.23/yr treasury on a $1M 7dp book, funded by borrowers. Aave's equivalent was −$30,000/yr. Fee capture stays at exactly 1000 bps at every cadence; theirs collapsed to 0. Residual ≈0.5 ray per accrual, decimals-invariant. |
 | V-12 / V-13 | `docs/reference/numeric-bounds.md`: index ceiling 11 y at 200% APR / 70 y at 30%; balance ceiling ~170.14 bn whole tokens, decimal-independent; dust-liquidation threshold cleared by ≥33× for every listed pair. |
-| Item 18 access-control CI | `scripts/check_access_control.py` + declared-permissionless file, wired into `make` and CI. 196 entrypoints, **zero genuine gaps**; failure path tested 10/10. |
+| Item 18 access-control CI | `scripts/check_access_control.py` + declared-permissionless file, wired into `make` and CI. 203 entrypoints, **zero genuine gaps**; failure path tested 10/10. |
+| V-2 liquidation-liveness tests | `contracts/controller/tests/positions/flags.rs` pins the per-leg flag matrix, including `paused_does_not_block_seizure` and `no_seize_blocks_seizure`, plus the delisted-asset no-op cases. Retires A-1. |
+| V-11 zero-threshold liquidation | `contracts/controller/tests/positions/liquidation_zero_threshold.rs`: liquidatable not locked, closes in both seize modes, seized pro-rata beside a normal collateral, still socializable, and configuration cannot stamp a zero threshold. |
+| V-6 / V-9 rules written | Six `additivity_*` rules (`certora/pool/spec/position_accounting_rules.rs`), the sequential-liquidation rule (`certora/controller/spec/liquidation_rules.rs`), four pool isomorphism rules (`certora/pool/spec/isomorphism_rules.rs`) and the controller isomorphism / time-monotonicity family (`certora/controller/spec/index_rules.rs`). **Written, not proven** — see the next section. |
 | V-7 bad-debt straddle | **Proven**, including a negative control against vacuity. |
 | Item 17 | Verified not applicable — no ERC-4626 surface exists. Dropped. |
 
@@ -649,12 +689,18 @@ the choice we did not make. Two of our mitigations (value-based bad-debt gating,
 runtime bonus clamping) are the fixes auditors recommended and Aave declined or
 pushed into governance policy.
 
-The exposure runs the other way in exactly two places. Pro-rata seizure, which
-buys us immunity from the dust-collateral griefing that Aave accepted as a
-Medium, costs us a wider halt radius when a collateral asset is paused (A-1).
-And `SpokeUsage` as a second accumulator is a consistency obligation Aave simply
-does not have (A-2) — it is the price of moving caps out of the custody contract,
-and it is currently unproven.
+The exposure ran the other way in two places. Pro-rata seizure, which buys us
+immunity from the dust-collateral griefing that Aave accepted as a Medium, once
+cost us a wider halt radius when a collateral asset was paused (A-1). That is
+closed: the seizure leg is gated by a dedicated `no_seize` flag
+(`FreezePolicy::SeizureLeg`), so pausing a listing halts user verbs only. The
+residual is the governance lever itself — setting `no_seize` on a widely held
+collateral still halts liquidation for every holder, by design (ADR-0008).
 
-Neither is a vulnerability today. Both are properties we are relying on without
-having proved, which is precisely the gap the verification plan closes.
+What remains is `SpokeUsage` as a second accumulator, a consistency obligation
+Aave simply does not have (A-2). It is the price of moving caps out of the custody
+contract, and it is currently unproven: the rules are written, the solver has not
+run.
+
+That is not a vulnerability today. It is a property we rely on without having
+proved it, which is precisely the gap the verification plan closes.

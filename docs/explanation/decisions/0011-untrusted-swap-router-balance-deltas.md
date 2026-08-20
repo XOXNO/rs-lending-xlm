@@ -2,6 +2,8 @@
 
 **Status:** Accepted
 
+**Implemented by:** contracts/controller/src/strategies/swap/mod.rs, contracts/controller/src/strategies/swap/balances.rs (`snapshot_swap_balances`, `settle_router_input`, `verify_router_output`, `RouterOverspend`, `NoSwapOutput`), contracts/controller/src/strategies/swap/auth.rs, contracts/controller/src/strategies/swap/route.rs, contracts/controller/src/risk/validation.rs.
+
 ## Decision
 
 Swap routes may be constructed off-chain and are treated as opaque by the

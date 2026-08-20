@@ -4,10 +4,14 @@ Market engine for the lending protocol: interest accrual, scaled-share
 accounting, and tracked cash per `(hub_id, asset)`. The controller owns risk and
 policy; this contract owns arithmetic and liquidity.
 
-Nothing here is callable by users — every mutator is `#[only_owner]` and the
-owner is the controller. Integrators go through
-[`contracts/controller`](../controller); this file is for auditors and for
-anyone reading the accounting.
+Fourteen entrypoints are `#[only_owner]`: `create_market`, `update_params`,
+`upgrade`, `supply`, `borrow`, `withdraw`, `repay`, `update_indexes`,
+`recapitalize`, `flash_loan`, `create_strategy`, `seize_positions`,
+`net_settle` and `claim_revenue`. The owner is the controller, so users never
+call one directly. Everything else is a public view: the ten `get_*` functions
+carry no auth check and anyone may call them. Integrators go through
+[`contracts/controller`](../controller); this file is for auditors, for anyone
+reading the accounting, and for anyone reading the ABI.
 
 ## Model
 
@@ -45,14 +49,17 @@ already guaranteed upstream:
 | `asset_decimals` matches the token's real `decimals()`, in `[3,18]` | `governance/validate/asset.rs::validate_market_creation` |
 | Asset contract is live (`try_decimals` + `try_symbol`) | `governance/validate/asset.rs` |
 | Rate-model params are timelocked before reaching the pool | `governance/op.rs` |
-| Flash-loan reentrancy | `controller/storage/session.rs::with_flash_guard` |
+| Flash-loan reentrancy | `controller/storage/account.rs::with_flash_guard`, checked by `controller/risk/validation.rs::require_not_flash_loaning` |
 | `scaled_amount` maps to a real position | controller position ledger |
 | Tokens arrived before any cash-crediting call | controller payment path |
 
-The flash guard covers six strategy entrypoints. The last row is the
-load-bearing one: `supply`, `repay`, `recapitalize` and `add_rewards` all
-credit `cash` on the controller's word, without verifying the transfer. `cash`
-is a bookkeeping number. The only reconciliation against a real
+The flash guard wraps every external-router call, so it covers six controller
+entrypoints: `flash_loan`, `migrate_from_blend`, and the swap-routed
+`multiply`, `swap_debt`, `swap_collateral` and
+`repay_debt_with_collateral`. The last row is the load-bearing one: `supply`,
+`repay` and `recapitalize` all credit `cash` on the controller's word, without
+verifying the transfer. `cash` is a bookkeeping number.
+The only reconciliation against a real
 `token.balance()` is in `flash_loan`, which checks it three times with strict
 equality.
 
@@ -69,7 +76,6 @@ equality.
 | `repay` | Burn debt shares, credit net, refund overpayment | in/out |
 | `net_settle` | Offset a user's own supply against their own debt | — |
 | `seize_positions` | Bad-debt write-down, or deposit → revenue | — |
-| `add_rewards` | Raise supply index, credit cash | in |
 | `claim_revenue` | Burn revenue shares, transfer to owner | out |
 | `recapitalize` | Credit cash up to the backing shortfall, refund excess | in/out |
 | `flash_loan` | Payout → callback → collect principal + fee | out/in |
@@ -81,6 +87,75 @@ call and the pool only credits `cash`; `out` means the pool transfers. `in/out`
 is an inbound amount with an outbound refund leg — `repay` returns
 overpayment, `recapitalize` returns whatever exceeded the shortfall.
 `flash_loan` is `out/in`: principal leaves, then principal plus fee returns.
+
+## Signatures
+
+Copied from the `LiquidityPoolInterface` trait in
+[`interfaces/pool/src/lib.rs`](../../interfaces/pool/src/lib.rs), plus
+`__constructor` from `contracts/pool/src/lib.rs`. The trait's `env: Env` is not
+part of the wire ABI — a `LiquidityPoolClient` call passes the remaining
+arguments only. "Owner" means the address set at construction, normally the
+controller.
+
+| Entrypoint | Signature | Who may call | What it does |
+| --- | --- | --- | --- |
+| `__constructor` | `fn __constructor(env: Env, admin: Address)` | deployer, once | Sets `admin` as the Ownable owner. |
+| `create_market` | `fn create_market(env: Env, hub_id: u32, params: MarketParamsRaw)` | owner | Creates the market for `(hub_id, params.asset_id)` with both indexes at `RAY`. |
+| `update_params` | `fn update_params(env: Env, hub_asset: HubAssetKey, model: InterestRateModel)` | owner | Accrues on the old curve, then writes the new rate model. |
+| `update_indexes` | `fn update_indexes(env: Env, hub_asset: HubAssetKey)` | owner | Accrues one market to now, and writes only if time elapsed. |
+| `supply` | `fn supply(env: Env, entries: Vec<PoolSupplyEntry>) -> Vec<PoolPositionMutation>` | owner | Mints supply shares and credits cash, one mutation returned per entry. |
+| `borrow` | `fn borrow(env: Env, receiver: Address, entries: Vec<PoolBorrowEntry>) -> Vec<PoolPositionMutation>` | owner | Mints debt shares, debits cash, and transfers the asset to `receiver`. |
+| `withdraw` | `fn withdraw(env: Env, receiver: Address, is_liquidation: bool, entries: Vec<PoolWithdrawEntry>) -> Vec<PoolPositionMutation>` | owner | Burns supply shares and transfers the net amount to `receiver`. |
+| `repay` | `fn repay(env: Env, payer: Address, actions: Vec<PoolAction>) -> Vec<PoolPositionMutation>` | owner | Burns debt shares, credits the net repay, and refunds overpayment to `payer`. |
+| `net_settle` | `fn net_settle(env: Env, entry: PoolNetSettleEntry) -> PoolNetSettleResult` | owner | Offsets one user's supply against their own debt. Takes one entry, not a batch. |
+| `seize_positions` | `fn seize_positions(env: Env, entries: Vec<PoolSeizeEntry>)` | owner | Writes off bad debt on the borrow side, or books a seized deposit as revenue. Returns nothing. |
+| `flash_loan` | `fn flash_loan(env: Env, hub_asset: HubAssetKey, initiator: Address, receiver: Address, amount: i128, data: Bytes) -> i128` | owner | Pays out, calls `execute_flash_loan` on `receiver`, pulls principal plus fee back. Returns the fee. |
+| `create_strategy` | `fn create_strategy(env: Env, receiver: Address, action: PoolAction, charge_fee: bool) -> PoolStrategyMutation` | owner | Mints debt, books the optional fee as revenue, and sends `amount - fee` to `receiver`. |
+| `recapitalize` | `fn recapitalize(env: Env, hub_asset: HubAssetKey, payer: Address, amount: i128) -> PoolAmountMutation` | owner | Credits cash up to the backing shortfall and refunds the excess to `payer`. |
+| `claim_revenue` | `fn claim_revenue(env: Env, hub_asset: HubAssetKey) -> PoolAmountMutation` | owner | Burns revenue shares and transfers the proceeds to the owner. |
+| `upgrade` | `fn upgrade(env: Env, new_wasm_hash: BytesN<32>)` | owner | Replaces the contract Wasm. |
+| `get_utilisation` | `fn get_utilisation(env: Env, hub_asset: HubAssetKey) -> i128` | anyone | Utilization at the last accrual, as raw `RAY`. |
+| `get_reserves` | `fn get_reserves(env: Env, hub_asset: HubAssetKey) -> i128` | anyone | Tracked `cash`, in asset units. |
+| `get_deposit_rate` | `fn get_deposit_rate(env: Env, hub_asset: HubAssetKey) -> i128` | anyone | Supplier rate as annual `RAY`. |
+| `get_borrow_rate` | `fn get_borrow_rate(env: Env, hub_asset: HubAssetKey) -> i128` | anyone | Borrow rate as annual `RAY`. |
+| `get_revenue` | `fn get_revenue(env: Env, hub_asset: HubAssetKey) -> i128` | anyone | Protocol revenue in asset units, floored. |
+| `get_supplied_amount` | `fn get_supplied_amount(env: Env, hub_asset: HubAssetKey) -> i128` | anyone | Total supplied underlying in asset units. |
+| `get_borrowed_amount` | `fn get_borrowed_amount(env: Env, hub_asset: HubAssetKey) -> i128` | anyone | Total borrowed underlying in asset units. |
+| `get_delta_time` | `fn get_delta_time(env: Env, hub_asset: HubAssetKey) -> u64` | anyone | Milliseconds since the market's last accrual. |
+| `get_sync_data` | `fn get_sync_data(env: Env, hub_asset: HubAssetKey) -> PoolSyncData` | anyone | Full params plus state for one market. |
+| `get_bulk_indexes` | `fn get_bulk_indexes(env: Env, hub_assets: Vec<HubAssetKey>) -> Vec<MarketIndexRaw>` | anyone | Forward-simulated indexes for many markets. Note the plural argument. |
+
+The owner is fixed at construction. There is no `transfer_ownership` and no
+`accept_ownership` on this contract, so the only way to change the code behind
+the address is `upgrade`.
+
+## Errors
+
+Every `#[only_owner]` entrypoint first panics with the Ownable unauthorized
+error if the caller is not the owner. Beyond that, each entrypoint panics with
+the codes below. Numbers are the raw contract error codes from
+`common/src/errors.rs`.
+
+| Entrypoint | Errors |
+| --- | --- |
+| `create_market` | `AssetAlreadySupported` (2) for a duplicate `(hub_id, asset)`; whatever `MarketParamsRaw::verify` rejects |
+| `update_params` | `PoolNotInitialized` (30); whatever `InterestRateModel::verify` rejects |
+| `update_indexes`, every `get_*` view | `PoolNotInitialized` (30) |
+| `supply` | `AmountMustBePositive` (14) on a negative amount, `PoolInsolvent` (123) when the market is under-backed, `SupplyRoundsToZeroShares` (51) |
+| `borrow` | `AmountMustBePositive` (14) — zero is rejected here, `InsufficientLiquidity` (112) from cash or the liquidation buffer, `BorrowRoundsToZeroShares` (47), `UtilizationAboveMax` (127) |
+| `withdraw` | `AmountMustBePositive` (14) on a negative amount or fee, `WithdrawRoundsToZeroShares` (49), `WithdrawLessThanFee` (115), `InsufficientLiquidity` (112), `UtilizationAboveMax` (127) on non-liquidation calls, `PoolInsolvent` (123) |
+| `repay` | `AmountMustBePositive` (14), `RepayRoundsToZeroShares` (52), `MathOverflow` (33) |
+| `net_settle` | `AmountMustBePositive` (14), `NetSettleRoundsToZeroShares` (50), `PoolInsolvent` (123) |
+| `seize_positions` | `AmountMustBePositive` (14) |
+| `flash_loan` | `AmountMustBePositive` (14), `FlashloanNotEnabled` (401), `InsufficientLiquidity` (112), `InvalidFlashloanReceiver` (412) for a non-Wasm receiver, `InvalidFlashloanRepay` (402) for a short allowance or a balance mismatch |
+| `create_strategy` | `AmountMustBePositive` (14) on a negative amount, `StrategyFeeExceeds` (409), plus the whole `borrow` set — it mints debt through the same path |
+| `recapitalize` | `AmountMustBePositive` (14) on a negative amount, `MathOverflow` (33) |
+| `claim_revenue` | `UtilizationAboveMax` (127), `PoolInsolvent` (123), `OwnerNotSet` (32), `InternalError` (34) |
+| `upgrade` | none beyond the owner check |
+
+Every market entrypoint also panics with `PoolNotInitialized` (30) when the
+market does not exist, and with `MathOverflow` (33) on a checked-arithmetic
+overflow.
 
 ## Flow
 
@@ -190,12 +265,26 @@ it means suppressing all activity on a 200%-APR market for a year.
 
 ## Guards
 
-| Guard | Fires on | Not on |
-| --- | --- | --- |
-| `require_backed_market` | `supply` | everything else |
-| `require_utilization_below_max` | `borrow`, `create_strategy`, `withdraw` (non-liq), `claim_revenue` | `net_settle`, `seize`, liquidation |
-| `require_solvent_withdraw_state` | `withdraw`, `net_settle`, `claim_revenue` | — |
-| `require_reserves` | `borrow`, `withdraw`, `flash_loan` | — |
+Four guards live in `guards.rs`; `require_reserves` is a `Cache` method in
+`cache/cash.rs`. `create_strategy` mints debt through `borrow::mint_debt`, so it
+inherits every guard that `borrow` runs.
+
+| Guard | Fires on | Not on | Error |
+| --- | --- | --- | --- |
+| `require_backed_market` | `supply` | everything else | `PoolInsolvent` (123) |
+| `require_reserves` | `borrow`, `create_strategy`, `withdraw`, `flash_loan` | — | `InsufficientLiquidity` (112) |
+| `require_liquidation_buffer` | `borrow`, `create_strategy` | `withdraw`, `flash_loan` | `InsufficientLiquidity` (112) |
+| `require_utilization_below_max` | `borrow`, `create_strategy`, `withdraw` (non-liq), `claim_revenue` | `net_settle`, `seize`, liquidation | `UtilizationAboveMax` (127) |
+| `require_solvent_withdraw_state` | `withdraw`, `net_settle`, `claim_revenue` | — | `PoolInsolvent` (123) |
+
+`require_liquidation_buffer` reserves a flat `LIQUIDATION_BUFFER_BPS` of the
+floored supplied amount, 200 bps (2%), from
+`common/src/constants/pool.rs`. It requires `cash - draw >= reserved`. The rate
+is flat: it does not read `max_utilization` and no market parameter changes it.
+Integrators should expect this: a borrow can fail with `InsufficientLiquidity`
+even though the pool holds more cash than the borrow asks for, because the last
+2% of supply is held back for seizures. `require_reserves` runs first and checks
+only `cash >= draw`, so both checks return the same error code.
 
 Two asymmetries are policy, not oversight:
 
@@ -249,6 +338,16 @@ fails with `StrategyFeeExceeds` rather than `AmountMustBePositive`.
 **`repay`** and **`recapitalize`** refund from pool cash without debiting it,
 correct only because the controller transferred the full amount in first.
 
+**`claim_revenue`** is capped by cash. `Cache::burn_claimable_revenue` claims
+`min(cash, floor(revenue_value))`, so a fully lent-out market pays out less than
+`get_revenue` reports, and pays out zero when `cash` is zero. A partial claim
+burns revenue shares with `mul_ratio_ceil`, which burns slightly more shares
+than the proportional amount. Nothing is lost: the unclaimed remainder stays as
+revenue shares and keeps earning. When nothing is claimable the call still
+succeeds, returns `actual_amount = 0`, moves no tokens, and still emits a market
+state snapshot. Always read `actual_amount` from the returned
+`PoolAmountMutation`; never assume the full revenue was paid.
+
 ## Views
 
 | View | Consumer | Interest-synced |
@@ -300,7 +399,12 @@ mutator. `TTL_THRESHOLD_SHARED` is 5 days, `TTL_BUMP_SHARED` 180 days.
 
 Events are batched: `PoolMarketStateBatchEvent` on state change,
 `PoolMarketParamsBatchEvent` on create and rate-model replace, and
-`StrategyFeeEvent` only when a strategy fee is non-zero.
+`StrategyFeeEvent` only when a strategy fee is non-zero. Topics, payload shapes
+and field order are in
+[`docs/reference/events.md`](../../docs/reference/events.md) under "Pool
+events". Read it before writing a decoder: the two batch events use
+single-value data, `PoolMarketStateEvent` rows are 9-entry vectors in a fixed
+order, and `PoolMarketParamsEvent` rows are maps.
 
 ## Verification
 
@@ -309,14 +413,51 @@ cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 
-make test-pool        # pool unit tests
-make test             # full harness (serialized)
-make certora-wasm     # then the profiles below
-make miri-common      # for changes under common/src/math or rates
+make test-pool        # cargo test -p pool, the pool unit tests
+make test             # cargo test -p test-harness, the full harness
+make miri-common      # for changes under common/src/math or common/src/rates
 ```
 
-Certora profiles: `certora-position-accounting-rules`,
-`certora-seize-settle-accounting-rules`,
-`certora-fee-strategy-accounting-rules`,
-`certora-flash-loan-accounting-rules`, `certora-core-sanity-rules`,
-`certora-guard-rules`, `certora-lifecycle-rules`.
+`make test` runs in parallel. `TEST_THREADS` is empty by default, so libtest
+uses one thread per core. Only `make test-verbose` pins `TEST_THREADS := 1`.
+Pass `TEST_THREADS=1 make test` to serialize by hand.
+
+Formal verification runs profiles, not features. Do not confuse the two.
+
+A **profile** is a named list of `.conf` files in
+[`certora/profiles.json`](../../certora/profiles.json). It is what you pass to
+`make certora`. There are six:
+
+```bash
+make certora-wasm                          # build the Certora Wasm first
+make certora CERTORA_PROFILE=sanity        # the default when unset
+make certora CERTORA_PROFILE=core
+make certora CERTORA_PROFILE=fast
+make certora CERTORA_PROFILE=heavy
+make certora CERTORA_PROFILE=manual
+make certora CERTORA_PROFILE=all
+make certora-list                          # print the confs in each profile
+```
+
+`make certora` needs `CERTORAKEY` in the environment and `certoraSorobanProver`
+on `PATH`.
+
+A **feature** is a Cargo feature in `contracts/pool/Cargo.toml`. `certora-wasm`
+selects one to compile a rule set into the verification Wasm; you never pass one
+to `CERTORA_PROFILE`. The pool declares eleven:
+
+```text
+certora                                  # base: pulls in the cvlr crates
+certora-focused                          # narrows common/ to the focused build
+certora-position-accounting-rules
+certora-seize-settle-accounting-rules
+certora-fee-strategy-accounting-rules
+certora-flash-loan-accounting-rules
+certora-core-sanity-rules
+certora-guard-rules
+certora-isomorphism-rules
+certora-lifecycle-rules
+certora-state-invariant-rules
+```
+
+Each of the nine rule-set features implies `certora` and `certora-focused`.

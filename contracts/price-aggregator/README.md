@@ -19,15 +19,29 @@ prices(keys) / quotes(keys)
 
 ## Surface
 
-| Call | Role |
-| --- | --- |
-| `price` / `prices` | Fail-closed (`PriceKey` / `Vec<PriceKey>`) |
-| `quote` / `quotes` | Soft diagnostics |
-| `oracle` / `set_oracle` | Config read / owner write |
-| `set_sanity_band` / `set_tolerance` | Live band edits (both live-probe before commit) |
-| `price_spread` | `(low, high)` after gates |
+All reads are bulk: there is no single-key `price` or `quote` call. Pass a
+`Vec<PriceKey>` even for one key.
 
-Controller lifts `Address → PriceKey::Token` before calling.
+| Entrypoint | Signature | Who may call | What it does |
+| --- | --- | --- | --- |
+| `get_owner` | `get_owner(env: Env) -> Option<Address>` | anyone | Returns the configured owner, or `None` when unset. |
+| `prices` | `prices(env: Env, keys: Vec<PriceKey>) -> Map<PriceKey, PriceFeedRaw>` | anyone | Fail-closed read. Panics when a key fails any gate. |
+| `quotes` | `quotes(env: Env, keys: Vec<PriceKey>) -> Map<PriceKey, PriceStatus>` | anyone | Soft read. Never panics; returns `PriceStatus { valid: false }` for a failing key. |
+| `price_spread` | `price_spread(env: Env, key: PriceKey) -> (i128, i128)` | anyone | Returns `(low, high)` after the gates. Fail-closed. |
+| `oracle` | `oracle(env: Env, key: PriceKey) -> Option<AssetOracle>` | anyone | Reads the registered configuration for one key. |
+| `set_oracle` | `set_oracle(env: Env, key: PriceKey, oracle: AssetOracle)` | owner | Registers a configuration after validation and attestation. |
+| `set_sanity_band` | `set_sanity_band(env: Env, key: PriceKey, min_wad: i128, max_wad: i128)` | owner | Sets the accepted USD range. Live-probes before committing. |
+| `set_tolerance` | `set_tolerance(env: Env, key: PriceKey, tolerance: OracleTolerance)` | owner | Sets the dual-source disagreement tolerance. Live-probes before committing. |
+
+`set_sanity_band` applies no ratchet: the owner can widen the band as well as
+tighten it, and the change takes effect immediately.
+
+Two further entrypoints, `seed_oracle` and `remove_oracle`, are compiled only
+under `cfg(test)` or the `testing` feature. They write the registry directly,
+skipping owner authorization, validation and attestation, so they are absent
+from a release build.
+
+The controller lifts `Address` to `PriceKey::Token` before calling.
 
 ## Layout
 

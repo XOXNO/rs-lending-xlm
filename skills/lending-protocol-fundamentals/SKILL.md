@@ -40,7 +40,8 @@ isolation.
 
 - Positions belong to a `u64` **account id**, not an address. `supply` with
   `account_id == 0` creates an account and returns the id. Creation mints a
-  **position NFT** (`contracts/position-nft`, token id == account id) to the
+  **position NFT** ([`contracts/position-nft`](../../contracts/position-nft/README.md),
+  token id == account id) to the
   creator; the account's owner is whoever holds that NFT. The controller
   resolves ownership live via `owner_of` on every account access (never
   cached), and transfer is a standard NFT operation the controller does not
@@ -54,15 +55,22 @@ isolation.
 
   Halt controls are layered:
   - Global controller pause (immediate): blocks risk-increasing actions
-    (supply, borrow, strategies, flash loans, keepers, add/remove delegate,
-    etc.) but leaves withdraw, repay, liquidate, clean_bad_debt, and
-    renew_account open. Recovery: timelocked `Unpause`.
+    (supply, borrow, strategies, flash loans, the index/revenue/threshold
+    keeper verbs, and `add_delegate`) but leaves withdraw, repay, liquidate,
+    clean_bad_debt, renew_account, `remove_delegate`, and `recapitalize`
+    open. Revoking authority and injecting cash are never blocked.
+    Recovery: timelocked `Unpause`.
   - Per-spoke-asset `paused`: blocks supply/borrow/withdraw/repay for that
-    listing (including exits). Immediate GUARDIAN may only set (not clear)
-    via `set_spoke_asset_flags`; clearing is timelocked `EditAssetInSpoke`.
+    listing (both entries and exits). Immediate GUARDIAN may only set (not
+    clear) via `set_spoke_asset_flags`; clearing is timelocked
+    `EditAssetInSpoke`.
   - Per-spoke-asset `frozen`: blocks only new supply/borrow; exits remain
     possible. Same dual path as `paused` (ratchet on immediate flags API;
     clear only via timelocked edit).
+  - Per-spoke-asset `no_seize`: blocks only the liquidation seizure leg
+    (`SpokeAssetSeizureHalted` #318). It is the only flag that gates
+    seizure; `paused` and `frozen` do not, because seizure is pro-rata over
+    the whole collateral set.
   - Per-spoke-asset `supply_cap` / `borrow_cap`: always-enforced ceilings in
     asset units, orthogonal to the flags above. There is no unlimited
     sentinel — `0` means that side accepts nothing, and exits stay uncapped,
@@ -81,12 +89,15 @@ isolation.
 |---|---|
 | Token amounts | native asset decimals, `i128` |
 | Health factor, USD values | WAD = 1e18 |
-| Interest indexes, rates | RAY = 1e27 (rates are per **millisecond**) |
+| Interest indexes | RAY = 1e27 |
+| Interest rates | RAY = 1e27. `get_borrow_rate` / `get_deposit_rate` return an **annual** APR; accrual internally compounds the per-millisecond form (`annual / MILLISECONDS_PER_YEAR`) |
 | Risk ratios (LTV, thresholds, bonuses, fees) | basis points (10_000 = 100%) |
 
-**Scaled balances**: Positions store scaled shares (not token amounts). Actual
-balance = `scaled * current_index / RAY`. Indexes only increase on normal
-accrual (supply index has a floor during bad-debt socialization).
+**Scaled balances**: Positions store scaled shares (not token amounts).
+`scaled * current_index / RAY` is still in the 27-decimal RAY domain; rescale
+27 → asset decimals to get token units, or you are off by `10^(27-decimals)`.
+Indexes only increase on normal accrual (supply index has a floor during
+bad-debt socialization).
 
 Health factor < 1 WAD means liquidatable. `get_health_factor` returns
 `i128::MAX` for debt-free accounts, missing accounts, and dust-debt accounts

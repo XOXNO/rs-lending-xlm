@@ -9,12 +9,16 @@ Build contract WASM first: `make build` from the repo root.
 | Piece | Location | Role |
 |-------|----------|------|
 | **Library** | `src/` | `LendingTest`, builders, user ops, mocks, assertions, optional `BigRational` liquidation reference |
-| **Integration tests** | `tests/` | Domain-grouped scenario binaries (controller, pool, oracle, strategy, fuzz, meta) |
+| **Integration tests** | `tests/` | Domain-grouped scenario binaries (controller, governance, oracle, pool, strategy, fuzz, meta) |
 | **Smoke gate** | `tests/smoke_test.rs` | Fast end-to-end sanity check |
 
 Default runs disable Soroban budget metering. Opt in with `LendingTest::new().with_budget_enabled()` when testing resource limits.
 
 ## Library layout
+
+Main entry points. `src/` also holds smaller helper modules (`admin.rs`,
+`assert.rs`, `errors.rs`, `flash_loan.rs`, `multi_hub.rs`, `presets.rs`,
+`revenue.rs`, `time.rs`, `view.rs`, `helpers/`, `receivers/`).
 
 ```text
 src/
@@ -72,11 +76,11 @@ Makefile shortcuts: `make test`, `make test-one FILE=controller`, `make test-mat
 
 Integration test layout, module inventory, naming rules, and fixtures: [`tests/README.md`](tests/README.md).
 
-Property-based fuzz properties: [`tests/fuzz/README.md`](tests/fuzz/README.md).
+Proptest properties: [`tests/fuzz/README.md`](tests/fuzz/README.md) (this crate's `tests/fuzz/`, not the repo-root libFuzzer crate).
 
 ## Related verification
 
 | Path | Role |
 |------|------|
-| `tests/fuzz/` | libFuzzer targets (math + protocol byte-mutation campaigns) |
-| `certora/` | Formal verification specs (see `certora/README.md`) |
+| [`../fuzz/`](../fuzz/README.md) (repo root `tests/fuzz/`) | libFuzzer targets (math + protocol byte-mutation campaigns) |
+| [`../../certora/`](../../certora/README.md) | Formal verification specs |

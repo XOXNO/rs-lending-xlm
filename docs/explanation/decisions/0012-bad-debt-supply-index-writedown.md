@@ -2,6 +2,8 @@
 
 **Status:** Accepted
 
+**Implemented by:** contracts/pool/src/interest.rs (`apply_bad_debt_to_supply_index`), common/src/constants/pool.rs (`SUPPLY_INDEX_FLOOR_RAW`), contracts/controller/src/positions/liquidation/bad_debt.rs (`execute_bad_debt_cleanup`), contracts/controller/src/positions/liquidation/curve.rs (`is_socializable_bad_debt`), contracts/controller/src/lib.rs (`recapitalize`, `force_socialize_bad_debt`).
+
 ## Decision
 
 When liquidation cannot clear an account's debt and strict eligibility gates

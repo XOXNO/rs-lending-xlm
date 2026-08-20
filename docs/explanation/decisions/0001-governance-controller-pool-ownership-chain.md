@@ -2,6 +2,8 @@
 
 **Status:** Accepted
 
+**Implemented by:** contracts/pool/src/lib.rs (`__constructor` sets the owner; every mutator carries `#[only_owner]`), contracts/controller/src/lib.rs (the `#[only_owner]` admin surface), contracts/governance/src/op.rs (`AdminOperation`, `resolve_op`, `apply_self_op`), contracts/controller/src/markets.rs (`deploy_pool`).
+
 ## Decision
 
 Governance owns the controller. The controller owns the pool. Users interact

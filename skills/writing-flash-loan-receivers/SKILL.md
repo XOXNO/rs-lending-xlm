@@ -47,11 +47,36 @@ executes `transfer_from`. Do not `transfer` tokens back directly — the pool
 verifies its own balance is unchanged by the callback and reverts on any
 direct push.
 
+Your contract is the invoker of that `approve`, and nothing else signs for
+it, so you must authorize the sub-invocation yourself with
+`env.authorize_as_current_contract`. Omit that step and the `approve` fails at
+runtime.
+
 ```rust
 // inside execute_flash_loan
 let total = amount.checked_add(fee)
     .unwrap_or_else(|| panic_with_error!(&env, MyError::Overflow));
-let expiration = env.ledger().sequence() + 1;
+let expiration = env.ledger().sequence().checked_add(1)
+    .unwrap_or_else(|| panic_with_error!(&env, MyError::Overflow));
+
+// Pre-authorize the approve sub-invocation. Arg order is the SEP-41 one:
+// from, spender, amount, expiration_ledger.
+let entry = InvokerContractAuthEntry::Contract(SubContractInvocation {
+    context: ContractContext {
+        contract: asset.clone(),
+        fn_name: symbol_short!("approve"),
+        args: (
+            env.current_contract_address(),
+            pool.clone(),
+            total,
+            expiration,
+        )
+            .into_val(&env),
+    },
+    sub_invocations: Vec::new(&env),
+});
+env.authorize_as_current_contract(vec![&env, entry]);
+
 token::Client::new(&env, &asset)
     .approve(&env.current_contract_address(), &pool, &total, &expiration);
 ```
@@ -86,6 +111,8 @@ A reference implementation exercising all success/failure modes lives at
 - **Repaying by `transfer` instead of `approve`** — the pool's balance
   bracket check reverts the whole transaction.
 - **Approving only `amount`** — the fee is owed too; approve `amount + fee`.
+- **Skipping `authorize_as_current_contract`** — the `approve` sub-invocation
+  is unauthorized and the callback reverts.
 - **Using a G-address or undeployed contract as receiver** — rejected with
   `InvalidFlashloanReceiver`.
 - **Calling the pool's `flash_loan` directly** — it is controller-only;

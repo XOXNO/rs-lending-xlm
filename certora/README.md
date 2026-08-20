@@ -63,7 +63,7 @@ ordinary WASM validation.
 
 | Profile | Use |
 |---|---|
-| sanity | Reachability and non-vacuity checks; used by CI |
+| sanity | Reachability and non-vacuity checks |
 | fast | Stable math, rate, integrity, and light controller properties |
 | core | Main audit set: solvency, liquidation, strategies, pool accounting, and oracle rules |
 | heavy | Expensive targeted proofs |
@@ -73,9 +73,39 @@ ordinary WASM validation.
 Start with sanity. Run fast or core for a relevant change. Use heavy only for
 the targeted surface or an intentional full verification run.
 
+The repository holds 343 rules across 103 conf files and 6 profiles. Reproduce
+those numbers with:
+
+    grep -rh '#\[rule\]' certora --include='*.rs' | wc -l
+    find certora -name '*.conf' | wc -l
+
+`certora/scripts/check_orphans.py` confirms that confs, rules and profiles stay
+in sync. It reports every rule that no conf runs and every conf that names a
+rule which no longer exists:
+
+    python3 certora/scripts/check_orphans.py
+
 Extra prover flags follow a double dash:
 
-    ./certora/scripts/run_profile.py fast -- --rule borrow_rate_capped
+    ./certora/scripts/run_profile.py fast -- --dry-run
+
+`run_profile.py` passes those flags to every conf in the profile and stops at
+the first non-zero exit. To prove one rule, run its own conf directly rather
+than a whole profile, because the rule exists in only some confs:
+
+    certoraSorobanProver interest.conf --rule borrow_rate_capped
+      # from certora/controller/confs/
+
+## What runs on a pull request
+
+`certora-local.yml` runs on pull requests that touch `certora/**` or
+`common/src/**`. It invokes the local prover over a fixed set of confs with a
+per-rule time cap, and treats proved violations and tooling errors as failures
+while recording timeouts as warnings.
+
+`certora-verification.yml` and `certora-fastRules.yml` submit hosted jobs and
+run only on manual dispatch. No profile runs automatically on every pull
+request.
 
 ## Local and hosted execution
 
