@@ -43,7 +43,7 @@ SHELL := /bin/bash
         test test-verbose test-one test-match test-pool \
         miri-common miri-pool miri-controller miri-all \
         coverage coverage-controller coverage-pool coverage-price-aggregator coverage-merged \
-        fmt fmt-check clippy clippy-contracts clippy-fuzz scout scout-host scout-strict \
+        docs-check fmt fmt-check clippy clippy-contracts clippy-fuzz scout scout-host scout-strict \
         access-control-check \
         wasm-size-check wasm-testing-abi-check clean install-stellar-cli \
         cbm-reindex cbm-index \
@@ -257,19 +257,24 @@ integration-wasm: deploy-artifacts
 
 
 
+# tests/integration/appendix.md is hand-maintained: it points at the meta tests
+# that print budgets rather than holding numbers. This target only creates it
+# when missing, so it never overwrites the checked-in text.
 integration-appendix:
-	@echo "Generating tests/integration/appendix.md from test-harness budget data..."
 	@mkdir -p tests/integration
-	@( \
-	  echo "# Memory & resource budgets (auto-generated from test-harness)"; \
-	  echo; \
-	  echo "_Regenerate with: make integration-appendix (or run specific meta tests)._"; \
-	  echo; \
-	  echo "See tests/test-harness/tests/meta/budget_breakdown.rs and footprint_test.rs."; \
-	  echo "Run e.g.:"; \
-	  echo '  cargo test -p test-harness --test meta budget_breakdown -- --nocapture 2>&1 | tail -100'; \
-	) > tests/integration/appendix.md
-	@echo "Wrote tests/integration/appendix.md (update with real numbers from harness when budgets change)."
+	@if [ -f tests/integration/appendix.md ]; then \
+	  echo "tests/integration/appendix.md exists; leaving it unchanged."; \
+	else \
+	  printf '%s\n' \
+	    '# Memory and resource budgets - where to get them' '' \
+	    'This file is a pointer, not a snapshot. It carries no budget numbers.' '' \
+	    'Per-call CPU, memory, and ledger-entry costs:' '' \
+	    '    cargo test -p test-harness --test meta budget_breakdown -- --nocapture' '' \
+	    'Ledger footprint sizes against the mainnet limits:' '' \
+	    '    cargo test -p test-harness --test meta footprints_fit_mainnet_limits -- --nocapture' \
+	    > tests/integration/appendix.md; \
+	  echo "Created tests/integration/appendix.md."; \
+	fi
 
 
 .PHONY: integration-preflight integration-validate integration-shellcheck
@@ -477,6 +482,11 @@ coverage-merged:
 
 
 
+
+
+docs-check:
+	python3 scripts/check_doc_links.py
+	python3 scripts/check_doc_symbols.py
 
 
 fmt:
