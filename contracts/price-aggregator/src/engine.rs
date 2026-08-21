@@ -447,7 +447,15 @@ fn blend(env: &Env, oracle: &AssetOracle, legs: Legs) -> Outcome {
 
 /// Certora harness entry point: blends an empty leg set for `oracle`, exercising
 /// the same path as an oracle whose sources produced no readings.
-#[cfg(feature = "certora")]
+// Gated to exactly the configurations where its only caller exists: the
+// spec module compiles `oracle_rules` only when the build is unfocused or
+// targets that rule set, so under any other focused build these have no
+// caller. Matching the caller's cfg is what keeps that from warning --
+// `#[allow(dead_code)]` would hide it instead of describing it.
+#[cfg(all(
+    feature = "certora",
+    any(not(feature = "certora-focused"), feature = "certora-oracle-rules")
+))]
 pub(crate) fn blend_empty(env: &Env, oracle: &AssetOracle) -> Outcome {
     blend(env, oracle, Legs::Empty)
 }
@@ -455,7 +463,15 @@ pub(crate) fn blend_empty(env: &Env, oracle: &AssetOracle) -> Outcome {
 /// Certora harness entry point: blends a single partial reading into a leg slot
 /// for `oracle`, exercising the same path as a two-source oracle where only one
 /// leg produced a reading.
-#[cfg(feature = "certora")]
+// Gated to exactly the configurations where its only caller exists: the
+// spec module compiles `oracle_rules` only when the build is unfocused or
+// targets that rule set, so under any other focused build these have no
+// caller. Matching the caller's cfg is what keeps that from warning --
+// `#[allow(dead_code)]` would hide it instead of describing it.
+#[cfg(all(
+    feature = "certora",
+    any(not(feature = "certora-focused"), feature = "certora-oracle-rules")
+))]
 pub(crate) fn blend_partial(
     env: &Env,
     oracle: &AssetOracle,
