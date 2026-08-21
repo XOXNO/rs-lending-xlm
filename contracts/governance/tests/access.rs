@@ -166,3 +166,80 @@ fn constructor_emits_owner_and_admin() {
     assert!(saw_owner, "constructor must publish the initial owner");
     assert!(saw_admin, "constructor must publish the initial admin");
 }
+
+/// `live_until_ledger == 0` is the cancel form of a transfer, and governance
+/// clears the mirrored PendingAdmin entry with a bare `remove` rather than
+/// routing the zero through `role_transfer::transfer_role` as the non-zero case
+/// does. That is not a redundant branch: `transfer_role` panics with
+/// NoPendingTransfer when nothing is pending and InvalidPendingAccount when the
+/// address does not match the pending one, so the explicit arm is deliberately
+/// the more tolerant of the two. A cancel that panicked on an already-absent
+/// mirror would strand the pending owner, since the two entries are temporary
+/// and can archive independently of each other.
+///
+/// Both probes call the mirror directly. Through `apply_transfer_ownership` the
+/// ownable leg runs first and would panic before this arm is reached, which is
+/// why the arm was dead.
+#[test]
+fn cancelling_the_admin_mirror_tolerates_an_entry_that_is_already_gone() {
+    use stellar_access::access_control::AccessControlStorageKey;
+
+    let env = Env::default();
+    env.mock_all_auths();
+    let owner = Address::generate(&env);
+    let stranger = Address::generate(&env);
+    let id = env.register(
+        Governance,
+        (owner.clone(), constants::TIMELOCK_MIN_DELAY_LEDGERS),
+    );
+
+    env.as_contract(&id, || {
+        assert!(
+            !env.storage()
+                .temporary()
+                .has(&AccessControlStorageKey::PendingAdmin),
+            "nothing pending to begin with"
+        );
+        // transfer_role would panic NoPendingTransfer here.
+        sync_pending_admin_transfer(&env, &stranger, 0);
+        assert!(!env
+            .storage()
+            .temporary()
+            .has(&AccessControlStorageKey::PendingAdmin));
+    });
+}
+
+#[test]
+fn cancelling_the_admin_mirror_clears_it_whoever_is_named() {
+    use stellar_access::access_control::AccessControlStorageKey;
+
+    let env = Env::default();
+    env.mock_all_auths();
+    let owner = Address::generate(&env);
+    let nominee = Address::generate(&env);
+    let stranger = Address::generate(&env);
+    let id = env.register(
+        Governance,
+        (owner.clone(), constants::TIMELOCK_MIN_DELAY_LEDGERS),
+    );
+
+    env.as_contract(&id, || {
+        sync_pending_admin_transfer(&env, &nominee, 1_000);
+        assert!(
+            env.storage()
+                .temporary()
+                .has(&AccessControlStorageKey::PendingAdmin),
+            "the mirror must be armed first"
+        );
+
+        // A different address than the pending one: transfer_role would panic
+        // InvalidPendingAccount, the explicit arm clears regardless.
+        sync_pending_admin_transfer(&env, &stranger, 0);
+        assert!(
+            !env.storage()
+                .temporary()
+                .has(&AccessControlStorageKey::PendingAdmin),
+            "cancelling must clear the mirror"
+        );
+    });
+}
