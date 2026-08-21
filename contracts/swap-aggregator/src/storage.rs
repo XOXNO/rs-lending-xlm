@@ -173,41 +173,6 @@ pub(crate) fn reserved_fee_balance(env: &Env, token: &Address) -> i128 {
     total
 }
 
-/// Rebuilds `token`'s reserved total by summing the buckets themselves: the admin bucket plus
-/// every referral bucket up to the current referral counter.
-///
-/// This is the `1..=referral_counter()` walk that [`reserved_fee_balance`] used to perform on
-/// every read, and it survives for exactly one purpose. An instance upgraded from a build that
-/// predates [`DataKey::ReservedTotal`] has funded buckets and no counter, so `sweep_balance`
-/// would read the missing counter as zero and transfer the fee backing away — after which every
-/// claim would panic, because [`release`] refuses to drive the counter negative.
-///
-/// Idempotent: it *sets* the total rather than adding to it, so calling it twice, or calling it
-/// on an instance that never needed it, is a no-op beyond the storage write.
-pub(crate) fn rebuild_reserved_total(env: &Env, token: &Address) {
-    let admin_key = DataKey::AdminFee(token.clone());
-    let mut total: i128 = env.storage().persistent().get(&admin_key).unwrap_or(0);
-
-    let counter = referral_counter(env);
-    for id in 1..=counter {
-        let key = DataKey::ReferralFee(id, token.clone());
-        let amount: i128 = env.storage().persistent().get(&key).unwrap_or(0);
-        total = checked_add(env, total, amount);
-    }
-
-    let key = DataKey::ReservedTotal(token.clone());
-    if total == 0 {
-        // Nothing is reserved, so no entry should exist — matching `reserve`,
-        // which declines to create one, and `release`, which removes it at zero.
-        if env.storage().persistent().has(&key) {
-            env.storage().persistent().remove(&key);
-        }
-        return;
-    }
-    env.storage().persistent().set(&key, &total);
-    extend_persistent(env, &key);
-}
-
 /// Returns the token a fee bucket is denominated in.
 ///
 /// Inverse of `fees::FeeBucket::key`, which maps a bucket kind to its `DataKey`: the two encode
@@ -247,9 +212,9 @@ fn reserve(env: &Env, token: &Address, amount: i128) {
 /// Subtracts `amount` from `token`'s reserved total, removing the entry once it reaches zero.
 ///
 /// Panics with [`Error::InternalInvariant`] if the total would go negative. Only
-/// [`accumulate_fee`], [`accumulate_swap_fees`], [`take_fee_bucket`] and
-/// [`rebuild_reserved_total`] move both a bucket and this counter, so a shortfall would mean a
-/// bucket was written behind their backs and the counter can no longer be trusted.
+/// [`accumulate_fee`], [`accumulate_swap_fees`] and [`take_fee_bucket`] move both a bucket and
+/// this counter, so a shortfall would mean a bucket was written behind their backs and the
+/// counter can no longer be trusted.
 ///
 /// Callers pass `amount > 0` (a bucket balance that was just removed), so once `current >= amount`
 /// the subtraction lands in `0..=current` and cannot overflow.

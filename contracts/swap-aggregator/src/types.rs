@@ -66,8 +66,7 @@ pub enum DataKey {
     ReferralFee(u64, Address),
     /// Sum of every fee bucket denominated in this token: the admin bucket plus
     /// each referral bucket. Only `storage::accumulate_fee`,
-    /// `storage::accumulate_swap_fees`, `storage::take_fee_bucket` and
-    /// `storage::rebuild_reserved_total` maintain this counter, so
-    /// `sweep_balance` never has to walk the referral space.
+    /// `storage::accumulate_swap_fees` and `storage::take_fee_bucket` maintain
+    /// this counter, so `sweep_balance` never has to walk the referral space.
     ReservedTotal(Address),
 }

@@ -68,28 +68,6 @@ impl Router {
         ownable::set_owner(&env, &admin);
         storage::renew_instance(&env);
     }
-
-    /// Rebuild the `ReservedTotal` counter for each of `tokens` from its fee buckets. Owner only.
-    ///
-    /// One-shot upgrade step for an instance that was deployed before the counter existed. Such
-    /// an instance carries funded `AdminFee` / `ReferralFee` buckets and no counter, so
-    /// [`SwapAggregatorInterface::sweep_balance`] would read the reserve as zero and transfer the
-    /// fee backing out — and every later claim would then fail closed, because the counter cannot
-    /// be driven negative. Run this once per fee-bearing token immediately after `upgrade`,
-    /// before any sweep.
-    ///
-    /// Idempotent: each counter is *set* to the bucket sum, never added to, so calling it twice
-    /// (or on a fresh instance that never needed it) changes nothing. Tokens that were never
-    /// charged a fee may be included harmlessly; they simply have no buckets to sum.
-    #[only_owner]
-    pub fn migrate_reserved_totals(env: Env, tokens: Vec<Address>) {
-        storage::renew_instance(&env);
-        let n = tokens.len();
-        for i in 0..n {
-            // `i < n == tokens.len()`, so the index is in range by construction.
-            storage::rebuild_reserved_total(&env, &tokens.get_unchecked(i));
-        }
-    }
 }
 
 #[contractimpl]
