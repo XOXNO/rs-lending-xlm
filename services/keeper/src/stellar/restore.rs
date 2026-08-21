@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Result};
-use stellar_xdr::curr::{
+use stellar_xdr::{
     ExtensionPoint, LedgerKey, Operation, OperationBody, RestoreFootprintOp,
     SorobanTransactionData, VecM,
 };
@@ -38,7 +38,7 @@ fn build_restore_soroban_data(read_write_keys: &[LedgerKey]) -> Result<SorobanTr
 mod tests {
     use crate::stellar::restore::restore_footprint;
     use crate::stellar::tx::TxKind;
-    use stellar_xdr::curr::{
+    use stellar_xdr::{
         ContractDataDurability, ContractId, Hash, LedgerKey, LedgerKeyContractData, OperationBody,
         ScAddress, ScVal,
     };

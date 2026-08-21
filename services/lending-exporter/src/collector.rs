@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{anyhow, Result};
-use stellar_xdr::curr::{LedgerEntryData, ScVal};
+use stellar_xdr::{LedgerEntryData, ScVal};
 use tracing::{debug, warn};
 
 use crate::config::{ExporterConfig, ResolvedContracts, ResolvedMarket};

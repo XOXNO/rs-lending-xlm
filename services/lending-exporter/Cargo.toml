@@ -30,8 +30,8 @@ serde = { version = "1", features = ["derive"] }
 serde_yaml = "0.9"
 clap = { version = "4", features = ["derive", "env"] }
 
-stellar-rpc-client = "=26.0.0"
-stellar-xdr = { version = "=26.0.1", features = ["curr", "std", "base64", "serde"] }
+stellar-rpc-client = { git = "https://github.com/stellar/rs-stellar-rpc-client", rev = "a44c2b6a71d42868d7048b2a504bc4ee6c0d3fb8" }
+stellar-xdr = { version = "=28.0.0", features = ["std", "base64", "serde"] }
 stellar-strkey = "0.0.16"
 
 axum = { version = "0.7", default-features = false, features = ["http1", "tokio"] }

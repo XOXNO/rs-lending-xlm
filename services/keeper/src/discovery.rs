@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Context, Result};
 use std::sync::atomic::{AtomicU64, Ordering};
-use stellar_xdr::curr::{
+use stellar_xdr::{
     ContractExecutable, ContractId, Hash, LedgerEntryData, LedgerKey, ScAddress,
     ScContractInstance, ScMapEntry, ScSymbol, ScVal, StringM,
 };
@@ -638,7 +638,7 @@ fn signers_from_instance(instance: &LedgerEntryQuery) -> Vec<ScAddress> {
 fn signers_needle() -> Option<ScVal> {
     let symbol = ScSymbol(StringM::<32>::try_from("Signers").ok()?);
     let vec = vec![ScVal::Symbol(symbol)].try_into().ok()?;
-    Some(ScVal::Vec(Some(stellar_xdr::curr::ScVec(vec))))
+    Some(ScVal::Vec(Some(stellar_xdr::ScVec(vec))))
 }
 
 /// Rotating start of the per-user scan window, carried across ticks.
@@ -805,10 +805,29 @@ fn plan_instance_keys(
     }
 }
 
+/// Maps an instance's executable to the Wasm hash whose `ContractCode` entry the
+/// keeper must keep alive.
+///
+/// A `StellarAsset` executable has no code entry, so `None` is simply correct. A
+/// CAP-83 `ExternalRef` has no code hash either — the executable hangs off
+/// `executable_owner` rather than a hash-keyed entry — but unlike a SAC it means a
+/// contract we are responsible for now uses a TTL model this keeper does not cover.
+/// Return `None` so the remaining entries still get extended, and warn so an
+/// operator learns about it before the entry expires rather than after.
 fn wasm_hash_from_executable(executable: &ContractExecutable) -> Option<[u8; 32]> {
     match executable {
         ContractExecutable::Wasm(Hash(bytes)) => Some(*bytes),
         ContractExecutable::StellarAsset => None,
+        ContractExecutable::ExternalRef(external) => {
+            warn!(
+                target: "keeper.discovery",
+                owner = ?external.executable_owner,
+                tag = ?external.tag,
+                "contract executable is a CAP-83 external ref: no ContractCode entry \
+                 exists to extend, so this contract's code TTL is outside keeper coverage"
+            );
+            None
+        }
     }
 }
 
@@ -888,7 +907,7 @@ fn lookup_instance_scalar<T>(
 fn needle_for(variant_name: &str) -> Result<ScVal> {
     let symbol =
         ScSymbol(StringM::<32>::try_from(variant_name).map_err(|_| anyhow!("symbol too long"))?);
-    Ok(ScVal::Vec(Some(stellar_xdr::curr::ScVec(
+    Ok(ScVal::Vec(Some(stellar_xdr::ScVec(
         vec![ScVal::Symbol(symbol)]
             .try_into()
             .map_err(|_| anyhow!("vec convert"))?,
@@ -930,13 +949,13 @@ const SIM_FEE_STROOPS: u32 = 100;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use stellar_xdr::curr::ContractDataDurability;
+    use stellar_xdr::ContractDataDurability;
 
     /// Independently reconstructs the `#[contracttype]` encoding of a
     /// single-argument enum variant, so the test does not just re-run the
     /// production encoder.
     fn sc_enum_for_test(variant: &str, arg: u32) -> ScVal {
-        ScVal::Vec(Some(stellar_xdr::curr::ScVec(
+        ScVal::Vec(Some(stellar_xdr::ScVec(
             vec![
                 ScVal::Symbol(ScSymbol(StringM::<32>::try_from(variant).unwrap())),
                 ScVal::U32(arg),
@@ -953,8 +972,8 @@ mod tests {
             val,
         };
         ScContractInstance {
-            executable: stellar_xdr::curr::ContractExecutable::Wasm(Hash([0u8; 32])),
-            storage: Some(stellar_xdr::curr::ScMap(vec![entry].try_into().unwrap())),
+            executable: stellar_xdr::ContractExecutable::Wasm(Hash([0u8; 32])),
+            storage: Some(stellar_xdr::ScMap(vec![entry].try_into().unwrap())),
         }
     }
 

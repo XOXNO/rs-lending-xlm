@@ -1,4 +1,4 @@
-use stellar_xdr::curr::{ScAddress, ScVal};
+use stellar_xdr::{ScAddress, ScVal};
 
 pub fn map_field<'a>(value: &'a ScVal, name: &str) -> Option<&'a ScVal> {
     let ScVal::Map(Some(map)) = value else {
@@ -88,7 +88,7 @@ pub fn address_strkey(value: &ScVal) -> Option<String> {
             Some(format!("{}", stellar_strkey::Contract(c.0 .0)))
         }
         ScVal::Address(ScAddress::Account(a)) => {
-            let stellar_xdr::curr::PublicKey::PublicKeyTypeEd25519(k) = &a.0;
+            let stellar_xdr::PublicKey::PublicKeyTypeEd25519(k) = &a.0;
             Some(format!("{}", stellar_strkey::ed25519::PublicKey(k.0)))
         }
         _ => None,
@@ -114,7 +114,7 @@ pub fn vec_items(value: &ScVal) -> Option<&[ScVal]> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use stellar_xdr::curr::{Int128Parts, ScMap, ScMapEntry, ScVec};
+    use stellar_xdr::{Int128Parts, ScMap, ScMapEntry, ScVec};
 
     fn sym(text: &str) -> ScVal {
         ScVal::Symbol(crate::keys::symbol(text).unwrap())
