@@ -1,0 +1,32 @@
+[package]
+name = "cvlr-soroban-derive"
+description = "Proc-macros for cvlr-soroban" 
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+categories.workspace = true
+keywords.workspace = true
+authors.workspace = true
+documentation.workspace = true
+readme.workspace = true
+homepage.workspace = true
+repository.workspace = true
+
+
+[lib]
+proc-macro = true
+
+[features]
+default = []
+
+[dependencies]
+uuid = { version = "1.10", features = [ "v4" ] }
+quote = { workspace = true }
+syn = { workspace = true }
+proc-macro2 = { workspace = true }
+darling = { version = "0.20" }
+
+[dev-dependencies]
+macrotest = { workspace = true }
+trybuild = { workspace = true }
+soroban-sdk = { workspace = true }

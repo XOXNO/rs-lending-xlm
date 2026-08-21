@@ -10,6 +10,15 @@ pub const EVE: &str = "eve";
 pub const LIQUIDATOR: &str = "liquidator";
 pub const KEEPER_USER: &str = "keeper";
 
+/// Protocol version the simulated ledger reports to the host.
+///
+/// The host refuses to run when the ledger reports a protocol older than the one
+/// `soroban-sdk` was built for -- it raises `Error(Context, InternalError)` with
+/// "ledger protocol version too old for host", which surfaces as every test in the
+/// suite failing at once rather than as anything that names a version. Keep this in
+/// step with the workspace `soroban-sdk` pin whenever the SDK major moves.
+pub const LEDGER_PROTOCOL_VERSION: u32 = 27;
+
 pub const UNCONSTRAINED_TEST_CAP: i128 = unconstrained_test_cap(7);
 
 pub const fn unconstrained_test_cap(decimals: u32) -> i128 {
