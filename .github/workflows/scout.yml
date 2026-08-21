@@ -60,12 +60,19 @@ jobs:
 
         uses: mihaieremia/scout-audit@26779da2e72880ba77ab796ee7f71a785ba315f3
         with:
+          # Every deployable contract in the workspace. Mocks are test
+          # doubles and are deliberately not audited. Keep in sync with the
+          # `contracts` array in .github/scripts/run_scout.sh and the
+          # `contracts/*` members of the root Cargo.toml.
           contracts: |
             contracts/pool
             contracts/controller
             contracts/governance
             contracts/price-aggregator
             contracts/defindex-strategy
+            contracts/position-nft
+            contracts/swap-aggregator
+            contracts/xoxno-oracle
           exclude: dos-unexpected-revert-with-storage
           output-format: json
           output-dir: target/scout-audit
