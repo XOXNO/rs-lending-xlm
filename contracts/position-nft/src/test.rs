@@ -309,3 +309,55 @@ fn token_uri_of_missing_token_fails() {
     let (_controller, client) = setup(&env);
     assert!(client.try_token_uri(&7u32).is_err());
 }
+
+/// `token_uri` builds its result in a fixed 256-byte buffer: base + up to 10
+/// digits of a u32 id + the 28-byte suffix. The buffer is only safe because
+/// OpenZeppelin's `set_metadata` caps `base_uri` at MAX_BASE_URI_LEN (200),
+/// leaving 238 worst-case bytes. These two tests pin that upstream bound so a
+/// longer suffix or a raised OZ cap fails here rather than corrupting memory.
+#[test]
+#[should_panic(expected = "Error(Contract, #211)")]
+fn constructor_rejects_a_base_uri_over_the_oz_maximum() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let controller = Address::generate(&env);
+
+    let oversized = [b'a'; 201];
+    let oversized = core::str::from_utf8(&oversized).unwrap();
+
+    env.register(
+        PositionNft,
+        (
+            controller,
+            String::from_str(&env, oversized),
+            String::from_str(&env, "XOXNO Lending Position"),
+            String::from_str(&env, "XLEND"),
+        ),
+    );
+}
+
+#[test]
+fn longest_accepted_base_uri_still_renders_token_uri() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let controller = Address::generate(&env);
+
+    let max_base = [b'a'; 200];
+    let max_base = core::str::from_utf8(&max_base).unwrap();
+
+    let id = env.register(
+        PositionNft,
+        (
+            controller.clone(),
+            String::from_str(&env, max_base),
+            String::from_str(&env, "XOXNO Lending Position"),
+            String::from_str(&env, "XLEND"),
+        ),
+    );
+    let client = PositionNftClient::new(&env, &id);
+    let user = Address::generate(&env);
+    let token_id = client.mint(&user);
+
+    // 200 base + 1 digit + 28 suffix = 229 bytes, inside the 256-byte buffer.
+    assert_eq!(client.token_uri(&token_id).len(), 200 + 1 + 28);
+}
