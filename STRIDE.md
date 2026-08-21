@@ -88,47 +88,47 @@ of scope for deployment but in scope for the release-artifact leakage threat
 
 ### Trust boundaries
 
-1. **User ↔ Controller** — every user entrypoint takes an explicit caller
+1. **TB1 — User ↔ Controller** — every user entrypoint takes an explicit caller
    address (`caller`, `liquidator`, `payer`, or `from`) and requires its
    authorization; risk-increasing account actions
    additionally require owner-or-delegate authority (INV-AUTH-02).
-2. **Controller ↔ Pool** — the pool's mutating interface is entirely
+2. **TB2 — Controller ↔ Pool** — the pool's mutating interface is entirely
    `#[only_owner]` and the owner is the controller (`__constructor` and the
    `LiquidityPoolInterface` impl in `contracts/pool/src/lib.rs`, ADR-0001). The
    controller is the sole path from user intent to custody.
-3. **Controller ↔ Price aggregator** — the controller consumes complete,
+3. **TB3 — Controller ↔ Price aggregator** — the controller consumes complete,
    validated snapshots; any missing, stale, out-of-band, or disagreeing
    required price reverts the mutation (INV-ORACLE-01..03, ADR-0005).
-4. **Price aggregator ↔ External sources** — Reflector, RedStone-style
+4. **TB4 — Price aggregator ↔ External sources** — Reflector, RedStone-style
    adapters, Aquarius, and the XOXNO oracle are availability and integrity
    boundaries; admission is governed (ADR-0014).
-5. **Signers ↔ XOXNO oracle** — individually authenticated submissions,
+5. **TB5 — Signers ↔ XOXNO oracle** — individually authenticated submissions,
    aggregated by median at a configured threshold with monotonic package
    timestamps and skew/freshness bounds (`contracts/xoxno-oracle/src/submit.rs`).
-6. **Controller ↔ Swap router and venues** — the router is untrusted: pull
+6. **TB6 — Controller ↔ Swap router and venues** — the router is untrusted: pull
    authority is scoped to the stated input, return values are ignored, and
    settlement uses measured balance deltas (INV-STRAT-01/02, ADR-0011).
    Inside the router, venues are equally untrusted and the payload registries
    are attacker-supplied (ADR-0018).
-7. **Controller ↔ Token contracts** — transfers are credited by measured
+7. **TB7 — Controller ↔ Token contracts** — transfers are credited by measured
    receipt, never by requested amount (INV-ACCT-03, ADR-0013).
-8. **Controller/Pool ↔ Flash receiver** — cash `flash_loan` requires deployed
+8. **TB8 — Controller/Pool ↔ Flash receiver** — cash `flash_loan` requires deployed
    Wasm, allowance-pulled principal plus fee, and exact pool balance
    assertions (INV-FLASH-01/02, ADR-0010). `flash_position` shares the Wasm
    and reentrancy wall but **does not repay**: it mints strategy debt, credits
    measured collateral, and requires solvency (INV-STRAT-04, ADR-0020).
-9. **DeFindex vault ↔ Strategy adapter ↔ Controller** — the adapter is an
+9. **TB9 — DeFindex vault ↔ Strategy adapter ↔ Controller** — the adapter is an
    ordinary controller caller; a vault's authority is limited to the single
    account the adapter binds to that vault address.
-10. **Governance ↔ Controller / Price aggregator** — ordinary administration
+10. **TB10 — Governance ↔ Controller / Price aggregator** — ordinary administration
     is typed, validated at proposal, delayed, and bound to its payload;
     emergency power can only tighten (ADR-0006, ADR-0007).
-11. **Blend pool ↔ Controller** — position migration only against
+11. **TB11 — Blend pool ↔ Controller** — position migration only against
     governance-approved Blend pools (`approve_blend_pool`).
-12. **Stored state ↔ Runtime** — persistent entries follow a renewal
+12. **TB12 — Stored state ↔ Runtime** — persistent entries follow a renewal
     lifecycle; instance state is renewed on privileged calls; account renewal
     is available to the owner (INV-STOR-01).
-13. **Controller ↔ Position NFT** — the position NFT (`contracts/position-nft`)
+13. **TB13 — Controller ↔ Position NFT** — the position NFT (`contracts/position-nft`)
     is the account-ownership authority: `mint` and `burn` require the
     controller's authorization, but `owner_of` is a public read and standard
     OZ `transfer` is holder-authorized, entirely outside the controller's
@@ -147,41 +147,106 @@ of scope for deployment but in scope for the release-artifact leakage threat
 
 ### High-level dataflow
 
+```mermaid
+flowchart TB
+  subgraph ACTORS[External actors]
+    U["Users / Delegates"]
+    LQ["Liquidators"]
+    KP["Keepers (permissionless)"]
+    SG["Oracle signers (M-of-N)"]
+  end
+
+  subgraph GOV["Governance — TB10"]
+    G["Timelock: propose / execute / cancel<br/>PROPOSER · EXECUTOR · CANCELLER"]
+    GR["Immediate paths<br/>GUARDIAN · ORACLE roles"]
+  end
+
+  subgraph CORE["Core protocol"]
+    C["Controller<br/>auth · risk gates · liquidation<br/>reentrancy guard"]
+    P["Pool<br/>custody · cash book · shares · indexes"]
+  end
+
+  subgraph PRICE["Price system"]
+    PA["Price aggregator<br/>(immutable Wasm)"]
+    XO["XOXNO oracle<br/>median of M-of-N"]
+  end
+
+  RF["Reflector"]:::ext --> PA
+  RS["RedStone adapters"]:::ext --> PA
+  AQ["Aquarius pools"]:::ext --> PA
+  SG -- "submit_price · require_auth(signer) · TB5" --> XO
+  XO -- "Reflector/RedStone-shaped reads" --> PA
+
+  U -- "require_auth + owner-or-delegate · TB1" --> C
+  LQ -- "require_auth + health < 1 gate · TB1" --> C
+  KP -- "require_auth · TB1" --> C
+
+  G -- "timelocked only_owner admin" --> C
+  G -- "timelocked set_oracle / set_tolerance" --> PA
+  GR -- "pause · tighten flags (ratchet)" --> C
+  GR -- "set_sanity_band (immediate)" --> PA
+
+  C -- "only_owner mutations · TB2" --> P
+  C -- "prices() · fail-closed · TB3" --> PA
+  C -- "scoped allowance pull · TB6" --> SW["Swap router (untrusted)"]:::ext
+  SW --> V["Venues (untrusted)"]:::ext
+  P -- "flash funds + balance assert · TB8" --> FR["Flash receivers (Wasm only)"]:::ext
+  C <-- "measured transfers · TB7" --> TK["SEP-41 tokens"]:::ext
+  BL["Blend pools (approved list) · TB11"]:::ext <--> C
+
+  DF["DeFindex vaults"]:::ext -- "from.require_auth() · TB9" --> DS["Strategy adapter"]
+  DS -- "ordinary controller caller" --> C
+
+  classDef ext fill:#f6f6f6,stroke:#999,stroke-dasharray: 3 3;
 ```
-                                   Oracle signers (M-of-N)
-                                          │ submit_price(s)
-                                          ▼
-   Reflector ─┐                    ┌──────────────┐
-   RedStone ──┤   read (adapters)  │ XOXNO Oracle │
-   Aquarius ──┤◄──────────────┐    └──────┬───────┘
-              │               │           │ Reflector-compatible reads
-              ▼               │           ▼
-       ┌────────────────────────────────────────┐
-       │            PRICE AGGREGATOR            │  per-leg validation,
-       │  staleness · sanity band · dual-source │  tolerance + midpoint,
-       │  tolerance · midpoint · fail-closed    │  in-memory session cache
-       └───────────────────┬────────────────────┘
-                           │ prices() (read-only, fail-closed)
-                           ▼
-┌───────────┐     ┌─────────────────────────────┐      ┌──────────────────┐
-│ GOVERNANCE│owns │         CONTROLLER          │ owns │       POOL       │
-│ timelock  ├────►│  auth · accounts · risk ·   ├─────►│ custody · cash · │
-│ roles     │     │  liquidation · strategies   │ only │ shares · indexes │
-│ guardian  │     │  · reentrancy guard         │owner │ · flash transfer │
-└─────┬─────┘     └──┬────────┬────────┬────────┘      └────────┬─────────┘
-      │              │        │        │                        │
-      │ immediate:   │        │        │ scoped pull /          │ balance
-      │ pause,       │        │        │ measured deltas        │ asserts +
-      │ tighten flags│        │        ▼                        ▼ allowance
-      │              │        │  ┌────────────┐          ┌──────────────┐
-      │              │        │  │ SWAP ROUTER│─►venues  │FLASH RECEIVER│
-      │              │        │  │ (untrusted)│ (untrust)│ (wasm, any)  │
-      │              │        │  └────────────┘          └──────────────┘
-      │              │        └────────► SEP-41 tokens (measured receipt)
-      ▼              ▼
- Users · Delegates · Liquidators · Keepers          DeFindex vault
-      (require_auth + role/owner gates)      ──► defindex-strategy adapter
-                                                  (ordinary controller caller)
+
+Off-chain services (keeper bots, lending exporter, oracle submitter infrastructure, deployment tooling) are out of scope and appear only as the external actors above.
+
+### Key flows in sequence
+
+**Liquidation (I5)** — the boundary crossings a reviewer must trace:
+
+```mermaid
+sequenceDiagram
+  actor L as Liquidator
+  participant C as Controller
+  participant PA as Price aggregator
+  participant T as Debt token
+  participant P as Pool
+  L->>C: liquidate(liquidator, account_id, debt_payments)
+  Note over C: require_auth(liquidator) · reentrancy gate<br/>self-liquidation ban (INV-LIQ-01)
+  C->>PA: prices(all account assets)
+  PA-->>C: complete snapshot — or revert (INV-ORACLE-01..03)
+  Note over C: health factor < 1 required (INV-LIQ-01)
+  C->>T: transfer(liquidator → protocol, repay amount)
+  Note over C: credit = measured receipt only (INV-ACCT-03)
+  C->>P: repay debt + seize_positions
+  Note over P: close-bound repay, excess refunded (INV-LIQ-02)<br/>seizure scales down with under-delivery (INV-LIQ-03)
+  P-->>L: discounted collateral out
+  Note over C: residual bad debt only via explicit gates (INV-LIQ-04)
+```
+
+**Flash-loan-backed strategy (`multiply`, I7 + I8)** — the guard window and
+untrusted-router settlement:
+
+```mermaid
+sequenceDiagram
+  actor A as Owner / delegate
+  participant C as Controller
+  participant P as Pool
+  participant R as Swap router
+  A->>C: multiply(..., swap payload)
+  Note over C: require_auth + owner-or-delegate<br/>reentrancy guard SET (INV-FLASH-02)
+  C->>P: flash-borrow debt asset
+  P-->>C: funds out (pool balance snapshotted)
+  C->>R: execute_strategy — pull pre-authorized for exact input (INV-STRAT-01)
+  Note over R: venue hops — untrusted code,<br/>return values ignored
+  R-->>C: output tokens
+  Note over C: settle by measured balance deltas only,<br/>positive output required (INV-STRAT-02)
+  C->>P: supply collateral, record debt
+  Note over P: flash repayment allowance-pulled,<br/>exact balance assert (INV-FLASH-01)
+  Note over C: guard CLEARED · final solvency gate (INV-RISK-01)
+  C-->>A: account/position result
 ```
 
 ### Interaction inventory
@@ -239,46 +304,73 @@ callable while paused (safe-exit or emergency path).
 | **D**enial of Service | Degrading availability | Can someone stop supply, exit, or liquidation? |
 | **E**levation of Privilege | Gaining powers beyond those granted | Can a role reach beyond its intended boundary? |
 
+### Severity rubric
+
+Ratings are derived, not asserted. Likelihood and impact use these definitions;
+severity is read off the matrix. **Inherent** assumes the code-enforced
+controls do not exist; **Residual** assumes they do, plus the documented
+operational controls (residuals that lean on an operational control say so).
+
+| Likelihood | Definition |
+|---|---|
+| High | Reachable by any unprivileged actor under normal market conditions |
+| Medium | Needs one attainable precondition: a single dependency failure, a single misconfiguration, or a thin-liquidity market state |
+| Low | Needs privileged-key compromise (hardened custody assumed), multi-party collusion, or an engineered extreme state |
+
+| Impact | Definition |
+|---|---|
+| High | Protocol-wide fund loss, insolvency, or irreversible authority loss |
+| Medium | Single-market loss, or temporary protocol-wide liveness failure |
+| Low | Bounded, account-local, or fully recoverable |
+
+| | Impact Low | Impact Medium | Impact High |
+|---|---|---|---|
+| **Likelihood High** | Medium | High | Critical |
+| **Likelihood Medium** | Low | Medium | High |
+| **Likelihood Low** | Low | Low | Medium |
+
+Status tags: ✅ code-enforced · ⚙ operational · ◻ accepted.
+
 ### Threat table
 
 | Threat | Issues |
 |---|---|
-| **Spoofing** | **Spoof.1** — A compromised privileged key (governance owner, PROPOSER/EXECUTOR/CANCELLER/GUARDIAN/ORACLE, router owner, XOXNO oracle owner, oracle signer) acts as its role. Interactions: I15–I23, I27–I29, I31, I32. |
-| | **Spoof.2** — Deployment-time identity confusion: a wrong `admin` constructor argument or a deployment that skips the governance deploy path yields a mis-owned contract. Every contract sets its authority in `__constructor` (atomic with deploy) — an owner for governance, controller, pool, aggregators, and oracle; the controller address for the position NFT; no owner at all for the DeFindex adapter, whose authority is the authenticated caller. Governance deploys the controller and price aggregator itself with `deploy_v2` (`contracts/governance/src/deploy.rs:42` and `:75`), so there is no separate `initialize()` to front-run; the residual risk is purely configuration of standalone deploys (pool via controller is wired automatically; router/oracle/adapter are manual). Interaction: I23. |
-| | **Spoof.3** — A former or unlisted delegate acts on an account. Delegation requires both account listing and a globally active position manager; either side can kill it (`is_owner_or_delegate` in `contracts/controller/src/account.rs`). A third, implicit kill switch: a `DelegateGrant` is live only while its `granted_by` address still holds the account's position NFT, so transferring the NFT lazily revokes every delegate the prior owner had granted, with no separate revocation call needed. Interactions: I2, I3, I8. |
-| | **Spoof.4** — A flash "receiver" that is a classic account rather than code, enabling repayment games. `require_wasm_receiver` rejects non-contract receivers; it is defined in `common/src/validation.rs` and called by the controller on both `flash_loan` (`contracts/controller/src/strategies/flash_loan.rs`) and `flash_position` (`contracts/controller/src/strategies/flash_position.rs`), and by the pool (`contracts/pool/src/ops/flash.rs`). Allowance-repayment games apply only to I7; I8 `flash_position` cannot impersonate repayment because it never pulls principal back. Interactions: I7, I8. |
-| | **Spoof.5** — A caller poses as a DeFindex vault to reach another vault's account. The adapter keys accounts by the authenticated caller address; authority never crosses vault boundaries. Interaction: I30. |
-| **Tampering** | **Tamper.1** — Manipulated, stale, or partially failed external price source moves valuations. Per-leg staleness and validity checks, dual-source tolerance bands with midpoint blending (`blend` in `contracts/price-aggregator/src/engine.rs`), governed sanity bands, and fail-closed consumption bound the damage (INV-ORACLE-01/02, ADR-0004/0005/0014). Interactions: I25, I20. |
-| | **Tamper.2** — A subset of XOXNO oracle signers submits bad prices. Aggregation takes the median of fresh submissions at a configured threshold; submissions must be signer-authenticated, non-future, fresh, and per-signer monotonic (`submit_price` in `contracts/xoxno-oracle/src/submit.rs`). Below-threshold participation produces no aggregate rather than a thin one. Interaction: I27. |
-| | **Tamper.3** — Fee-on-transfer, rebasing, or otherwise non-standard tokens deliver less than requested; donations attempt to rewrite accounting. Credit uses measured receipt only, and liquidity checks use the internal cash book, not token balances (INV-ACCT-02/03, ADR-0013). Interactions: I1, I4, I5, I11. |
-| | **Tamper.4** — A malicious router or venue overspends input, retains funds, or lies about output. Pull authority is pre-authorized for the exact stated input, return values are ignored, settlement is by balance deltas, residue is returned, and output must be positive and meet minimums (INV-STRAT-01/02, ADR-0011/0018). Interactions: I8, I26. |
-| | **Tamper.5** — A flash-loan callback, flash-position callback, or router callback re-enters monetary paths to observe or mutate intermediate state. A temporary-storage guard (`with_flash_guard` in `contracts/controller/src/storage/account.rs`) is set around the callback and checked at every monetary entrypoint. Eight literal `require_not_flash_loaning` call sites cover 18 entrypoints: 4 position verbs and 7 strategy paths through the shared `require_authorized_caller` wrapper (`contracts/controller/src/risk/validation.rs`), plus 3 liquidation and bad-debt entrypoints and 4 keeper paths that call the guard directly. Interactions: I7, I8. |
-| | **Tamper.6** — Interest-index manipulation through time gaps or extreme rates. Accrual is chunked and monotone with bounded indexes (INV-IDX-01..05, ADR-0016). Interaction: I10. |
-| | **Tamper.7** — Malicious or accidental Wasm upgrade changes protocol behavior. Controller, pool, governance, and position-NFT upgrades are timelocked Sensitive operations; a controller upgrade forcibly re-enters the paused state (`upgrade` in `contracts/controller/src/governance.rs`). The Sensitive floor is currently 12 ledgers (about one minute), so the delay brake is nominal until 120_960 is restored. The price aggregator is immutable (no upgrade entrypoint; replacement only via timelocked `SetPriceAggregator` repoint). Router and XOXNO oracle upgrades are owner-immediate — see Elevation.6/7. Interaction: I32. |
-| | **Tamper.8** — Blend migration executes against a hostile external pool. Only governance-approved Blend pools are accepted, flows are measured, and the final solvency gate applies. Interaction: I9. |
-| **Repudiation** | **Repudiate.1** — Operators deny configuration or emergency actions. All config/admin paths emit typed events (`contracts/controller/src/events/`), and constructors explicitly emit ownership-transfer events so replay-from-genesis indexers learn initial authority (`init` in `contracts/controller/src/governance.rs`, `__constructor` in `contracts/governance/src/access.rs`). Interactions: I15–I23, I31, I32. |
-| | **Repudiate.2** — Users or liquidators deny position actions. Every mutation requires the actor's signature and emits position/liquidation/strategy events keyed by account; oracle submissions are stored per-signer. A share-credit liquidation writes two accounts, so it emits two position batches (liquidated first, receiver second) and tags their collateral legs distinctly: `LiqSeize` is the debit **gross** of the protocol fee, `LiqCredit` the receiver's credit **net** of it (ADR-0019). One tag carrying both senses would let an observer overstate liquidator proceeds by the fee; `LiquidationEvent.repaid_usd_wad` likewise reports the **measured** receipt, not the planned repayment, so an under-delivering debt token cannot inflate the recorded repayment. Interactions: I1–I11, I27. |
-| **Information Disclosure** | **Info.1** — All state, prices, and pending governance operations are public. Accepted: expected on-chain transparency; no confidentiality assumptions exist. All interactions. |
-| | **Info.2** — Public health factors and positions enable liquidation front-running and MEV extraction. Accepted with mitigation: the liquidation curve bounds the bonus and couples repayment to seizure, so racing liquidators compete on speed, not on extractable excess (INV-LIQ-02). Interactions: I5, I14. |
-| | **Info.3** — Scheduled timelock operations disclose upcoming parameter changes, enabling positioning ahead of execution. Accepted: the observation window is the point of the timelock. Interactions: I15–I17. |
-| **Denial of Service** | **DoS.1** — Price-source outage or one unusable dual-source leg halts valuation-dependent actions **including liquidation** (fail-closed by design). A prolonged outage can delay liquidations and grow bad debt. Interactions: I2, I3, I5, I25. |
-| | **DoS.2** — A paused debt listing blocks its liquidation leg (ADR-0008); a stuck flag can trap a liquidation path until governance acts. The debt side is opt-in — the pause check iterates only the payments the liquidator named, so a paused debt asset blocks only a liquidation that tries to repay it. Seizure is governed separately by `no_seize`, because seizure is pro-rata over every collateral the account holds: gating it on `paused` would turn one listing-level halt into a protocol-wide liquidation halt for every holder. Interactions: I5, I19. |
-| | **DoS.3** — Guardian pause plus timelocked unpause means recovery from a false-alarm pause takes at least the configured delay. Intentional ratchet cost (ADR-0007). Interactions: I16, I19. |
-| | **DoS.4** — Governance deadlock through lost keys. Mitigations: the last PROPOSER cannot be revoked, execution can be permissionless when no executor is named, the owner can immediately revoke GUARDIAN/ORACLE, and a non-cancellable Recovery-tier canceller reset (~30-day floor, `TIMELOCK_RECOVERY_MIN_DELAY_LEDGERS = 518_400` in `contracts/governance/src/constants.rs`) restores cancellation capability. Interactions: I15–I18, I21, I22. |
-| | **DoS.5** — Resource exhaustion: unbounded iteration or oversized payloads. Position counts are capped (`POSITION_LIMIT_MAX` in `common/src/constants/shared.rs`, applied by the controller constructor: 5 supply / 5 borrow), route payloads are parsed with bounds and continuity checks, accrual is chunked, and batch entrypoints iterate only caller-supplied vectors. Interactions: I1–I11. |
-| | **DoS.6** — Persistent-entry TTL expiry archives account or market state. Storage lifecycle renews entries on read/write, instance TTL is renewed on privileged calls, and `renew_account` gives owners an explicit renewal path (INV-STOR-01). Interaction: I12. |
-| | **DoS.7** — XOXNO oracle signer liveness: fewer than `threshold` fresh submissions means the feed goes stale and dependent markets fail closed (a safety choice that becomes an availability incident). Interactions: I27, I25. |
-| | **DoS.8** — Utilization and cash limits block borrows or withdrawals when liquidity is thin; caps admit nothing when set to zero (INV-HALT-03, ADR-0015). Accepted, monitorable. Interactions: I2, I3. |
-| | **DoS.9** — Dust griefing: zero-share conversions revert (INV-ACCT-05) and a minimum borrow-collateral floor blocks uneconomic accounts that would be unprofitable to liquidate. Interactions: I1, I2, I5. |
-| **Elevation of Privilege** | **Elevation.1** — Governance-owner compromise grants, after the delay, full control: upgrades, oracle configuration, role edits, unpause. The timelock is the only brake; delay tiers are **floors**, and the constructor only requires a nonzero `min_delay` (`require_nonzero_delay` in `contracts/governance/src/timelock/mod.rs`, called from `__constructor` in `contracts/governance/src/access.rs`). A deployment with a small `min_delay` has effectively immediate governance. The shipped Sensitive floor of 12 ledgers means the highest tier is also about one minute today. Interactions: I15–I17, I23, I31, I32. |
-| | **Elevation.2** — Guardian tries to relax protection (unpause, clear flags). The controller enforces the ratchet at the callee: `require_flag_ratchet` rejects any flag relaxation on the guardian's immediate path (`set_spoke_asset_flags` in `contracts/controller/src/config/asset.rs`), and no immediate unpause path exists — `Unpause` is a timelocked operation. The ratchet guards that path only: the timelocked full rewrite `edit_asset_in_spoke` rebuilds the whole listing config from caller arguments and can clear a flag. Interaction: I19. |
-| | **Elevation.3** — Role-boundary erosion inside governance: an EXECUTOR+CANCELLER combination could both push and shield operations. Grants enforce executor/canceller separation; proposers cannot propose revoking themselves or the owner; revocation targets cannot cancel their own revocation; only the owner can propose governance ownership transfer (`require_executor_canceller_separation` in `contracts/governance/src/access.rs`; `propose` and `cancel` in `contracts/governance/src/timelock/lifecycle.rs`). Interactions: I15, I16, I18. |
-| | **Elevation.4** — Delegate escalation: a delegate adding delegates or outliving its mandate. Delegate management is owner-only, and governance can globally deactivate a position manager, instantly disabling all of its delegations. Interactions: I8, I13. |
-| | **Elevation.5** — Permissionless paths creating foreign risk: supplying into someone else's account only tops it up — `require_third_party_existing_supply` (`contracts/controller/src/positions/supply.rs`) limits a non-owner, non-delegate caller to hub assets the account already holds, and the supply guard pins the account's spoke. A caller who passes `account_id = 0` opens a fresh account, but that account is owned by the caller, so no foreign slot is created (INV-AUTH-03); repay/recapitalize/liquidate only reduce risk or restore backing. Interactions: I1, I4, I5, I11. |
-| | **Elevation.6** — Router-owner powers: fees up to `FEE_CAP`, fee-whitelist edits, sweeping non-fee balances, and **immediate Wasm upgrade**. The controller's balance-delta settlement bounds what a malicious router build can steal from a strategy to the stated input of in-flight calls, but an upgraded router is a live trust downgrade for every route executed after it. Interactions: I26, I29, I32. |
-| | **Elevation.7** — XOXNO-oracle-owner powers: signer-set/threshold rotation and immediate Wasm upgrade let the owner fabricate feed values for its feeds. The price aggregator bounds the blast radius: dual-source tolerance disagreement, sanity bands, and staleness checks reject a lying leg where a second independent source is configured (ADR-0004/0014). Feeds configured single-source get no cross-source check at all; their only bound is the sanity band, whose width is capped at admission by `validate_single_source_sanity_band` (`common/src/validation.rs`). That band is editable at will by the ORACLE role (I20), so a single-source feed trusts the oracle owner and the ORACLE role together. Interactions: I27, I28, I25. |
-| | **Elevation.8** — Test-only entrypoints reaching a release artifact would bypass all governance. Two contracts declare them: the price aggregator exposes `seed_oracle` and `remove_oracle` (`contracts/price-aggregator/src/lib.rs`), and governance exposes `set_controller`, `set_price_aggregator`, and `execute_immediate` (`contracts/governance/src/deploy.rs`, `contracts/governance/src/timelock/testing.rs`). `execute_immediate` is the most dangerous of the set: it applies any `AdminOperation` with zero delay. They are feature-gated, and the release process greps the built artifact's exported ABI rather than trusting feature selection (ADR-0017). The gate covers only `governance.wasm` and `price_aggregator.wasm` (`wasm-testing-abi-check` in `Makefile`) — the other six artifacts are never grepped, so a test-only entrypoint added to another contract would ship unchecked. Interaction: I32. |
-| | **Elevation.9** — The DeFindex adapter holds owner authority over vault-bound accounts. A compromised or malicious vault is confined to its own adapter account (supply-only positions); it cannot reach other vaults' accounts or borrow. Interaction: I30. |
+| **Spoofing** | **Spoof.1** — A compromised privileged key (governance owner, PROPOSER/EXECUTOR/CANCELLER/GUARDIAN/ORACLE, router owner, XOXNO oracle owner, oracle signer) acts as its role. *Inherent: M×H = High. Residual: Medium (⚙).* Interactions: I15–I23, I27–I29, I31, I32. |
+| | **Spoof.2** — Deployment-time identity confusion: a wrong `admin` constructor argument or a deployment that skips the governance deploy path yields a mis-owned contract. Every contract sets its authority in `__constructor` (atomic with deploy) — an owner for governance, controller, pool, aggregators, and oracle; the controller address for the position NFT; no owner at all for the DeFindex adapter, whose authority is the authenticated caller. Governance deploys the controller and price aggregator itself with `deploy_v2` (`contracts/governance/src/deploy.rs:42` and `:75`), so there is no separate `initialize()` to front-run; the residual risk is purely configuration of standalone deploys (pool via controller is wired automatically; router/oracle/adapter are manual). *Inherent: M×H = High. Residual: Low (✅ + ⚙).* Interaction: I23. |
+| | **Spoof.3** — A former or unlisted delegate acts on an account. Delegation requires both account listing and a globally active position manager; either side can kill it (`is_owner_or_delegate` in `contracts/controller/src/account.rs`). A third, implicit kill switch: a `DelegateGrant` is live only while its `granted_by` address still holds the account's position NFT, so transferring the NFT lazily revokes every delegate the prior owner had granted, with no separate revocation call needed. *Inherent: M×H = High. Residual: Low (✅ + ⚙).* Interactions: I2, I3, I8. |
+| | **Spoof.4** — A flash "receiver" that is a classic account rather than code, enabling repayment games. `require_wasm_receiver` rejects non-contract receivers; it is defined in `common/src/validation.rs` and called by the controller on both `flash_loan` (`contracts/controller/src/strategies/flash_loan.rs`) and `flash_position` (`contracts/controller/src/strategies/flash_position.rs`), and by the pool (`contracts/pool/src/ops/flash.rs`). Allowance-repayment games apply only to I7; I8 `flash_position` cannot impersonate repayment because it never pulls principal back. *Inherent: H×M = High. Residual: Low (✅).* Interactions: I7, I8. |
+| | **Spoof.5** — A caller poses as a DeFindex vault to reach another vault's account. The adapter keys accounts by the authenticated caller address; authority never crosses vault boundaries. *Inherent: H×L = Medium. Residual: Low (✅).* Interaction: I30. |
+| **Tampering** | **Tamper.1** — Manipulated, stale, or partially failed external price source moves valuations. Per-leg staleness and validity checks, dual-source tolerance bands with midpoint blending (`blend` in `contracts/price-aggregator/src/engine.rs`), governed sanity bands, and fail-closed consumption bound the damage (INV-ORACLE-01/02, ADR-0004/0005/0014). *Inherent: H×L = Medium. Residual: Low (✅).* Interactions: I25, I20. |
+| | **Tamper.2** — A subset of XOXNO oracle signers submits bad prices. Aggregation takes the median of fresh submissions at a configured threshold; submissions must be signer-authenticated, non-future, fresh, and per-signer monotonic (`submit_price` in `contracts/xoxno-oracle/src/submit.rs`). Below-threshold participation produces no aggregate rather than a thin one. *Inherent: M×H = High. Residual: Low (✅, ⚙ threshold > n/2).* Interaction: I27. |
+| | **Tamper.3** — Fee-on-transfer, rebasing, or otherwise non-standard tokens deliver less than requested; donations attempt to rewrite accounting. Credit uses measured receipt only, and liquidity checks use the internal cash book, not token balances (INV-ACCT-02/03, ADR-0013). *Inherent: M×H = High. Residual: Low (✅, ⚙ threshold > n/2).* Interactions: I1, I4, I5, I11. |
+| | **Tamper.4** — A malicious router or venue overspends input, retains funds, or lies about output. Pull authority is pre-authorized for the exact stated input, return values are ignored, settlement is by balance deltas, residue is returned, and output must be positive and meet minimums (INV-STRAT-01/02, ADR-0011/0018). *Inherent: H×H = Critical. Residual: Low (✅, route quality residual ◻).* Interactions: I8, I26. |
+| | **Tamper.5** — A flash-loan callback, flash-position callback, or router callback re-enters monetary paths to observe or mutate intermediate state. A temporary-storage guard (`with_flash_guard` in `contracts/controller/src/storage/account.rs`) is set around the callback and checked at every monetary entrypoint. Eight literal `require_not_flash_loaning` call sites cover 18 entrypoints: 4 position verbs and 7 strategy paths through the shared `require_authorized_caller` wrapper (`contracts/controller/src/risk/validation.rs`), plus 3 liquidation and bad-debt entrypoints and 4 keeper paths that call the guard directly. *Inherent: H×H = Critical. Residual: Low (✅).* Interactions: I7, I8. |
+| | **Tamper.6** — Interest-index manipulation through time gaps or extreme rates. Accrual is chunked and monotone with bounded indexes (INV-IDX-01..05, ADR-0016). *Inherent: M×M = Medium. Residual: Low (✅).* Interaction: I10. |
+| | **Tamper.7** — Malicious or accidental Wasm upgrade changes protocol behavior. Controller, pool, governance, and position-NFT upgrades are timelocked Sensitive operations; a controller upgrade forcibly re-enters the paused state (`upgrade` in `contracts/controller/src/governance.rs`). The Sensitive floor is currently 12 ledgers (about one minute), so the delay brake is nominal until 120_960 is restored. The price aggregator is immutable (no upgrade entrypoint; replacement only via timelocked `SetPriceAggregator` repoint). Router and XOXNO oracle upgrades are owner-immediate — see Elevation.6/7. *Inherent: M×H = High. Residual: Medium (✅ + ⚙).* Interaction: I32. |
+| | **Tamper.8** — Blend migration executes against a hostile external pool. Only governance-approved Blend pools are accepted, flows are measured, and the final solvency gate applies. *Inherent: M×M = Medium. Residual: Low (✅).* Interaction: I9. **Tamper.9** — The `FeedNature::Market **Tamper.10** — Admission attestation is point-in-time: `set_oracle` checks the XOXNO oracle's `max_submission_age_seconds()` against the asset's staleness window (`contracts/price-aggregator/src/providers/xoxno.rs`), but nothing re-attests if the oracle owner later raises that window — the admission invariant silently degrades. *Inherent: M×M = Medium. Residual: Medium (⚙).* Interactions: I25, I28. |Fundamental` tag on RedStone/XOXNO feeds is operator-asserted configuration, not verified on-chain. Tagging a spot market feed `Fundamental` defeats the anti-spot-only smoothing rule (`contracts/price-aggregator/src/validation.rs`), admitting an unsmoothed, manipulable market leg. *Inherent: M×M = Medium. Residual: Medium (⚙).* Interactions: I16, I25. |
+| **Repudiation** | **Repudiate.1** — Operators deny configuration or emergency actions. All config/admin paths emit typed events (`contracts/controller/src/events/`), and constructors explicitly emit ownership-transfer events so replay-from-genesis indexers learn initial authority (`init` in `contracts/controller/src/governance.rs`, `__constructor` in `contracts/governance/src/access.rs`). *Inherent: M×M = Medium. Residual: Low (✅).* Interactions: I15–I23, I31, I32. |
+| | **Repudiate.2** — Users or liquidators deny position actions. Every mutation requires the actor's signature and emits position/liquidation/strategy events keyed by account; oracle submissions are stored per-signer. A share-credit liquidation writes two accounts, so it emits two position batches (liquidated first, receiver second) and tags their collateral legs distinctly: `LiqSeize` is the debit **gross** of the protocol fee, `LiqCredit` the receiver's credit **net** of it (ADR-0019). One tag carrying both senses would let an observer overstate liquidator proceeds by the fee; `LiquidationEvent.repaid_usd_wad` likewise reports the **measured** receipt, not the planned repayment, so an under-delivering debt token cannot inflate the recorded repayment. *Inherent: M×L = Low. Residual: Low (✅).* Interactions: I1–I11, I27. **Repudiate.3** — The XOXNO oracle emits no events at all (verified: no `contractevent`/`publish` in the crate). Signer rotations, threshold changes, feed remaps, staleness-window edits, upgrades, and every submission are invisible to event-sourced indexers; a signer-set compromise in progress produces no on-chain signal short of polling storage. *Inherent: M×M = Medium. Residual: Medium (⚙ + ◻).* Interactions: I27, I28, I32. |
+| **Information Disclosure** | **Info.1** — All state, prices, and pending governance operations are public. Accepted: expected on-chain transparency; no confidentiality assumptions exist. *Inherent: L×L = Low. Residual: Low (◻).* All interactions. |
+| | **Info.2** — Public health factors and positions enable liquidation front-running and MEV extraction. Accepted with mitigation: the liquidation curve bounds the bonus and couples repayment to seizure, so racing liquidators compete on speed, not on extractable excess (INV-LIQ-02). *Inherent: L×L = Low. Residual: Low (◻).* Interactions: I5, I14. |
+| | **Info.3** — Scheduled timelock operations disclose upcoming parameter changes, enabling positioning ahead of execution. Accepted: the observation window is the point of the timelock. *Inherent: L×L = Low. Residual: Low (◻).* Interactions: I15–I17. **Info.4** — `quotes()` returns the blended midpoint in its payload even when `valid:false` (deviation case). The controller gates on `valid` (`contracts/controller/src/external/price_aggregator.rs`), but an off-chain consumer reading the price field without the flag uses an out-of-tolerance price. *Inherent: M×M = Medium. Residual: Low (◻).* Interactions: I14, I25. |
+| **Denial of Service** | **DoS.1** — Price-source outage or one unusable dual-source leg halts valuation-dependent actions **including liquidation** (fail-closed by design). A prolonged outage can delay liquidations and grow bad debt. *Inherent: M×M = Medium. Residual: Medium (◻ + ⚙).* Interactions: I2, I3, I5, I25. |
+| | **DoS.2** — A paused debt listing blocks its liquidation leg (ADR-0008); a stuck flag can trap a liquidation path until governance acts. The debt side is opt-in — the pause check iterates only the payments the liquidator named, so a paused debt asset blocks only a liquidation that tries to repay it. Seizure is governed separately by `no_seize`, because seizure is pro-rata over every collateral the account holds: gating it on `paused` would turn one listing-level halt into a protocol-wide liquidation halt for every holder. *Inherent: M×M = Medium. Residual: Medium (◻).* Interactions: I5, I19. |
+| | **DoS.3** — Guardian pause plus timelocked unpause means recovery from a false-alarm pause takes at least the configured delay. Intentional ratchet cost (ADR-0007). *Inherent: M×M = Medium. Residual: Low (◻ + ⚙).* Interactions: I16, I19. |
+| | **DoS.4** — Governance deadlock through lost keys. Mitigations: the last PROPOSER cannot be revoked, execution can be permissionless when no executor is named, the owner can immediately revoke GUARDIAN/ORACLE, and a non-cancellable Recovery-tier canceller reset (~30-day floor, `TIMELOCK_RECOVERY_MIN_DELAY_LEDGERS = 518_400` in `contracts/governance/src/constants.rs`) restores cancellation capability. *Inherent: M×H = High. Residual: Low (✅).* Interactions: I15–I18, I21, I22. |
+| | **DoS.5** — Resource exhaustion: unbounded iteration or oversized payloads. Position counts are capped (`POSITION_LIMIT_MAX` in `common/src/constants/shared.rs`, applied by the controller constructor: 5 supply / 5 borrow), route payloads are parsed with bounds and continuity checks, accrual is chunked, and batch entrypoints iterate only caller-supplied vectors. *Inherent: M×M = Medium. Residual: Low (✅).* Interactions: I1–I11. |
+| | **DoS.6** — Persistent-entry TTL expiry archives account or market state. Storage lifecycle renews entries on read/write, instance TTL is renewed on privileged calls, and `renew_account` gives owners an explicit renewal path (INV-STOR-01). *Inherent: M×M = Medium. Residual: Low (✅ + ⚙).* Interaction: I12. |
+| | **DoS.7** — XOXNO oracle signer liveness: fewer than `threshold` fresh submissions means the feed goes stale and dependent markets fail closed (a safety choice that becomes an availability incident). *Inherent: M×M = Medium. Residual: Low (✅ + ⚙).* Interactions: I27, I25. |
+| | **DoS.8** — Utilization and cash limits block borrows or withdrawals when liquidity is thin; caps admit nothing when set to zero (INV-HALT-03, ADR-0015). Accepted, monitorable. *Inherent: L×L = Low. Residual: Low (◻).* Interactions: I2, I3. |
+| | **DoS.9** — Dust griefing: zero-share conversions revert (INV-ACCT-05) and a minimum borrow-collateral floor blocks uneconomic accounts that would be unprofitable to liquidate. *Inherent: H×L = Medium. Residual: Low (✅).* Interactions: I1, I2, I5. **DoS.10** — `renounce_ownership` is exposed on the router (`contracts/swap-aggregator/src/lib.rs`) and the XOXNO oracle (`contracts/xoxno-oracle/src/lib.rs`). A mistaken or coerced renounce permanently freezes signer rotation, feed/staleness configuration, fee configuration, and upgrades for that contract; for the oracle this eventually starves every feed it backs into fail-closed staleness. *Inherent: M×H = High. Residual: Medium (⚙).* Interactions: I28, I29, I31. |
+| **Elevation of Privilege** | **Elevation.1** — Governance-owner compromise grants, after the delay, full control: upgrades, oracle configuration, role edits, unpause. The timelock is the only brake; delay tiers are **floors**, and the constructor only requires a nonzero `min_delay` (`require_nonzero_delay` in `contracts/governance/src/timelock/mod.rs`, called from `__constructor` in `contracts/governance/src/access.rs`). A deployment with a small `min_delay` has effectively immediate governance. The shipped Sensitive floor of 12 ledgers means the highest tier is also about one minute today. *Inherent: M×H = High. Residual: Medium (⚙).* Interactions: I15–I17, I23, I31, I32. |
+| | **Elevation.2** — Guardian tries to relax protection (unpause, clear flags). The controller enforces the ratchet at the callee: `require_flag_ratchet` rejects any flag relaxation on the guardian's immediate path (`set_spoke_asset_flags` in `contracts/controller/src/config/asset.rs`), and no immediate unpause path exists — `Unpause` is a timelocked operation. The ratchet guards that path only: the timelocked full rewrite `edit_asset_in_spoke` rebuilds the whole listing config from caller arguments and can clear a flag. *Inherent: M×M = Medium. Residual: Low (✅).* Interaction: I19. |
+| | **Elevation.3** — Role-boundary erosion inside governance: an EXECUTOR+CANCELLER combination could both push and shield operations. Grants enforce executor/canceller separation; proposers cannot propose revoking themselves or the owner; revocation targets cannot cancel their own revocation; only the owner can propose governance ownership transfer (`require_executor_canceller_separation` in `contracts/governance/src/access.rs`; `propose` and `cancel` in `contracts/governance/src/timelock/lifecycle.rs`). *Inherent: M×M = Medium. Residual: Low (✅).* Interactions: I15, I16, I18. |
+| | **Elevation.4** — Delegate escalation: a delegate adding delegates or outliving its mandate. Delegate management is owner-only, and governance can globally deactivate a position manager, instantly disabling all of its delegations. *Inherent: M×M = Medium. Residual: Low (✅).* Interactions: I8, I13. |
+| | **Elevation.5** — Permissionless paths creating foreign risk: supplying into someone else's account only tops it up — `require_third_party_existing_supply` (`contracts/controller/src/positions/supply.rs`) limits a non-owner, non-delegate caller to hub assets the account already holds, and the supply guard pins the account's spoke. A caller who passes `account_id = 0` opens a fresh account, but that account is owned by the caller, so no foreign slot is created (INV-AUTH-03); repay/recapitalize/liquidate only reduce risk or restore backing. *Inherent: H×M = High. Residual: Low (✅).* Interactions: I1, I4, I5, I11. |
+| | **Elevation.6** — Router-owner powers: fees up to `FEE_CAP`, fee-whitelist edits, sweeping non-fee balances, and **immediate Wasm upgrade**. The controller's balance-delta settlement bounds what a malicious router build can steal from a strategy to the stated input of in-flight calls, but an upgraded router is a live trust downgrade for every route executed after it. *Inherent: M×H = High. Residual: Medium (⚙).* Interactions: I26, I29, I32. |
+| | **Elevation.7** — XOXNO-oracle-owner powers: signer-set/threshold rotation and immediate Wasm upgrade let the owner fabricate feed values for its feeds. The price aggregator bounds the blast radius: dual-source tolerance disagreement, sanity bands, and staleness checks reject a lying leg where a second independent source is configured (ADR-0004/0014). Feeds configured single-source get no cross-source check at all; their only bound is the sanity band, whose width is capped at admission by `validate_single_source_sanity_band` (`common/src/validation.rs`). That band is editable at will by the ORACLE role (I20), so a single-source feed trusts the oracle owner and the ORACLE role together. *Inherent: M×H = High. Residual: Medium (⚙).* Interactions: I27, I28, I25. |
+| | **Elevation.8** — Test-only entrypoints reaching a release artifact would bypass all governance. Two contracts declare them: the price aggregator exposes `seed_oracle` and `remove_oracle` (`contracts/price-aggregator/src/lib.rs`), and governance exposes `set_controller`, `set_price_aggregator`, and `execute_immediate` (`contracts/governance/src/deploy.rs`, `contracts/governance/src/timelock/testing.rs`). `execute_immediate` is the most dangerous of the set: it applies any `AdminOperation` with zero delay. They are feature-gated, and the release process greps the built artifact's exported ABI rather than trusting feature selection (ADR-0017). The gate covers only `governance.wasm` and `price_aggregator.wasm` (`wasm-testing-abi-check` in `Makefile`) — the other six artifacts are never grepped, so a test-only entrypoint added to another contract would ship unchecked. *Inherent: M×H = High. Residual: Low (✅ + ⚙).* Interaction: I32. |
+| | **Elevation.9** — The DeFindex adapter holds owner authority over vault-bound accounts. A compromised or malicious vault is confined to its own adapter account (supply-only positions); it cannot reach other vaults' accounts or borrow. *Inherent: M×M = Medium. Residual: Low (✅).* Interaction: I30. **Elevation.10** — `set_sanity_band` is the only immediate (non-timelocked) privileged path into price behavior (ORACLE role, `contracts/governance/src/timelock/immediate.rs`). A band excluding the current price fails the asset closed at read — an undeclared per-asset kill switch: valuable for emergencies, abusable as instant per-market DoS by a compromised ORACLE key. *Inherent: M×M = Medium. Residual: Medium (⚙, fail-closed bound ✅).* Interactions: I20, I25. |
 
 ---
 
@@ -376,15 +468,15 @@ Status legend: ✅ enforced in code · ⚙ operational/deployment control · ◻
   - Yes — every threat maps to interactions I1–I32, and the remediation table
     references the same identifiers.
 - [x] Did the STRIDE model uncover new design issues or concerns?
-  - The exercise confirmed the standing controls and sharpened three
-    deployment-facing items:
-    - **Elevation.1**: delay tiers are floors; the deployed `min_delay` is the
-      real control and is only checked for non-zero at the constructor.
-    - **Tamper.7 / Elevation.6 / Elevation.7**: router and XOXNO oracle
-      owners hold *immediate* upgrade power outside the timelock — a
-      deliberate asymmetry that must be reflected in key custody.
-    - **DoS.7**: signer-liveness failure converts the oracle's safety posture
-      into a protocol-wide availability incident; monitoring is the control.
+  - The exercise confirmed the standing controls and surfaced seven
+    design and operational findings:
+    - Price-aggregator immutability correction: no upgrade entrypoint and replacement only via timelocked repoint.
+    - Oracle event blackout (Repudiate.3): XOXNO oracle emits no events; indexers must poll for signer/threshold/feed changes.
+    - Renounce freeze (DoS.10): `renounce_ownership` on router and XOXNO oracle permanently freezes configuration; procedurally prohibited.
+    - Sanity-band kill switch (Elevation.10): `set_sanity_band` is the only immediate privileged path into price behavior; an undeclared per-asset DoS.
+    - Attestation drift (Tamper.10): admission attestation is point-in-time; oracle config changes after `set_oracle` silently degrade the invariant.
+    - FeedNature smoothing-tag gap (Tamper.9): `FeedNature::Fundamental` tags defeat anti-spot-only smoothing; tagging is operator-asserted, not verified.
+    - Quotes() integrator footgun (Info.4): `quotes()` returns the blended midpoint even when `valid:false`; off-chain consumers MUST gate on `valid`.
 - [x] Did the treatments adequately address the issues identified?
   - Code-enforced controls (✅) were verified by direct source inspection at
     the cited locations. Operational controls (⚙) require deployment-time
@@ -395,21 +487,16 @@ Status legend: ✅ enforced in code · ⚙ operational/deployment control · ◻
 
 ### Severity summary
 
-Severity reflects realistic impact **given the code-enforced controls**;
-items marked ⚙ depend on deployment configuration and operations.
+Residual ratings from the rubric above; the four buckets partition all 42 threats.
 
-| Severity | Count | Items |
+| Residual severity | Count | Items |
 |---|---|---|
-| **High (operational)** | 4 | Spoof.1 (privileged key custody), Elevation.1 (deployed `min_delay` is the only brake on governance compromise), Elevation.6 and Elevation.7 (owner-immediate upgrades of router and XOXNO oracle) |
-| **Medium (accepted, monitored)** | 5 | DoS.1 (fail-closed pricing can delay liquidation), DoS.2 (paused debt leg blocks liquidation), DoS.7 (oracle signer liveness), Tamper.4 residual (route quality not optimized on-chain), Tamper.7 ⚙ (Wasm upgrades are timelocked Sensitive operations, but the shipped Sensitive floor of 12 ledgers makes that delay nominal) |
-| **Medium (mitigated in code)** | 7 | Tamper.1 (oracle manipulation), Tamper.2 (signer subset), Tamper.4 (router theft), Tamper.5 (callback reentry), Elevation.2 (guardian relaxation — callee-side ratchet), Elevation.3 (governance role erosion), DoS.4 (governance deadlock — recovery paths) |
-| **Low (mitigated in code)** | 14 | Spoof.3, Spoof.4, Spoof.5, Tamper.3, Tamper.6, Tamper.8, Elevation.4, Elevation.5, Elevation.9, DoS.5, DoS.6, DoS.9, Repudiate.1, Repudiate.2 |
-| **Low (accepted)** | 5 | Info.1, Info.2, Info.3, DoS.3, DoS.8 |
-| **Process-guarded** | 2 | Spoof.2 (constructor admin verification), Elevation.8 (release-artifact ABI check) |
+| **Medium (operational)** | 9 | Spoof.1, Tamper.1*, Tamper.7, Tamper.9, Tamper.10, DoS.10, Elevation.1, Elevation.6, Elevation.7 |
+| **Medium (accepted / monitored)** | 5 | DoS.1, DoS.2, DoS.7, Repudiate.3, Elevation.10 |
+| **Low (code-enforced)** | 23 | Spoof.2, Spoof.3, Spoof.4, Spoof.5, Tamper.2, Tamper.3, Tamper.4, Tamper.5, Tamper.6, Tamper.8, Repudiate.1, Repudiate.2, Info.2, DoS.4, DoS.5, DoS.6, DoS.9, Elevation.2, Elevation.3, Elevation.4, Elevation.5, Elevation.8, Elevation.9 |
+| **Low (accepted)** | 5 | Info.1, Info.3, Info.4, DoS.3, DoS.8 |
 
-All 36 threat identifiers from the threat table appear above. The rows list 37
-entries because Tamper.4 appears twice: its theft vector is mitigated in code,
-while its route-quality residual is accepted.
+*The dual-source tolerance, sanity bands, and staleness controls carry this threat most of the way; the Medium residual reflects that source independence is deployment configuration.
 
 ### Review cadence
 
