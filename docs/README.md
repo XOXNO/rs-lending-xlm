@@ -15,6 +15,7 @@ codebase; these documents are the map for understanding it.
 | How do values and risk calculations work? | [Formulas](reference/formulas.md) |
 | Why was a design chosen? | [Decision records](explanation/decisions/README.md) |
 | Insolvent leftover above $5? | [Force-socialize runbook](reference/runbooks/force-socialize-bad-debt.md) |
+| What can I call, and who may call it? | [Endpoint reference](reference/endpoints.md) |
 | What does this error code mean? | [Error code reference](reference/errors.md) |
 | How do I decode an event? | [Event reference](reference/events.md) |
 | What are the numeric limits? | [Numeric bounds](reference/numeric-bounds.md) |
@@ -27,9 +28,9 @@ codebase; these documents are the map for understanding it.
 4. Formulas: unit conventions, rounding, interest, health, and liquidation.
 5. Decision records: the rationale behind consequential choices.
 
-The error and event references are lookup tables rather than reading material.
-Consult them when you need to map an on-chain error code to its cause, or to
-decode an event payload.
+The endpoint, error, and event references are lookup tables rather than reading
+material. Consult them when you need the callable surface of a contract, to map
+an on-chain error code to its cause, or to decode an event payload.
 
 ## Documentation conventions
 
