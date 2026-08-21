@@ -209,3 +209,7 @@ pub(crate) fn set_tolerance(env: &Env, key: PriceKey, tolerance: OracleTolerance
     engine::probe(&mut session, &key, &oracle);
     registry::commit(env, &key, &oracle);
 }
+
+#[cfg(test)]
+#[path = "../tests/oracle/admin.rs"]
+mod tests;
