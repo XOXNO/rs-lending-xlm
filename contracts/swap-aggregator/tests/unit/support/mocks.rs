@@ -164,6 +164,11 @@ pub mod aquarius_lp_mock {
         Share,
         TotalShares,
         Stable,
+        /// Units withheld from constituent 0 on withdraw, and a signal to skip
+        /// the pool's own min_amounts assertion. Models a venue that does not
+        /// honour the minimums it was handed. Absent by default, so every
+        /// existing test sees the honest pool.
+        Shortfall,
     }
 
     #[contractimpl]
@@ -188,6 +193,10 @@ pub mod aquarius_lp_mock {
         pub fn get_total_shares(env: Env) -> u128 {
             let total: i128 = env.storage().instance().get(&LpKey::TotalShares).unwrap();
             total as u128
+        }
+
+        pub fn set_shortfall(env: Env, amount: i128) {
+            env.storage().instance().set(&LpKey::Shortfall, &amount);
         }
 
         pub fn set_stable(env: Env) {
@@ -320,16 +329,19 @@ pub mod aquarius_lp_mock {
 
             let r0 = token::Client::new(&env, &tokens.get(0).unwrap()).balance(&pool);
             let r1 = token::Client::new(&env, &tokens.get(1).unwrap()).balance(&pool);
-            let out0 = r0 * amount / total;
+            let shortfall: i128 = env.storage().instance().get(&LpKey::Shortfall).unwrap_or(0);
+            let out0 = r0 * amount / total - shortfall;
             let out1 = r1 * amount / total;
-            assert!(
-                out0 as u128 >= min_amounts.get(0).unwrap(),
-                "min_amounts[0]"
-            );
-            assert!(
-                out1 as u128 >= min_amounts.get(1).unwrap(),
-                "min_amounts[1]"
-            );
+            if shortfall == 0 {
+                assert!(
+                    out0 as u128 >= min_amounts.get(0).unwrap(),
+                    "min_amounts[0]"
+                );
+                assert!(
+                    out1 as u128 >= min_amounts.get(1).unwrap(),
+                    "min_amounts[1]"
+                );
+            }
 
             token::Client::new(&env, &share).burn(&user, &amount);
             token::Client::new(&env, &tokens.get(0).unwrap()).transfer(&pool, &user, &out0);

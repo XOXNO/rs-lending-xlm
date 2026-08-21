@@ -1219,3 +1219,69 @@ fn referral_zap_in_with_fixed_pre_swap_reverts() {
         0
     );
 }
+
+/// The router re-checks each constituent's minimum after the burn instead of
+/// trusting the pool to have honoured the `min_amounts` it was handed.
+///
+/// `burn_honours_per_constituent_minimums` above looks like it covers this, but
+/// it does not: the mock pool asserts its own minimums, so that test fails
+/// inside the venue and never reaches the router's check. Region analysis
+/// confirmed the arm was dead. A venue is not a trusted counterparty -- a pool
+/// that silently under-delivers is exactly the case the router's own comparison
+/// exists for, and nothing was pinning it.
+#[test]
+fn burn_rejects_a_pool_that_under_delivers_against_the_minimums_it_accepted() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let router_addr = env.register(Router, (Address::generate(&env),));
+    let sender = Address::generate(&env);
+    let admin = Address::generate(&env);
+    let (pool, share, (token_a, sac_a), (token_b, sac_b)) = lp_pool(&env, &admin, 1_000_000);
+
+    sac_a.mint(&sender, &1_000);
+    sac_b.mint(&sender, &1_000);
+    let lp_client = aquarius_lp_mock::AqLpPoolClient::new(&env, &pool);
+    lp_client.deposit(&sender, &vec![&env, 1_000u128, 1_000u128], &0u128);
+
+    // The pool now returns one unit less than its share of constituent 0 and
+    // skips its own min_amounts assertion, so the only thing standing between
+    // the caller and a short payout is the router's post-burn comparison.
+    lp_client.set_shortfall(&1i128);
+
+    let swap_pool = env.register(aquarius_mock::AqPool, ());
+    aquarius_mock::AqPoolClient::new(&env, &swap_pool).init(&token_a, &token_b);
+    sac_a.mint(&swap_pool, &1_000_000);
+
+    let xdr = lp_strategy_xdr(
+        &env,
+        share.clone(),
+        token_a.clone(),
+        1,
+        alloc::vec![one_hop_path(
+            &env,
+            SwapVenue::Aquarius,
+            swap_pool,
+            token_b.clone(),
+            token_a.clone(),
+            1_000_000,
+        ),],
+        Some(pool),
+        // Ask for exactly what an honest pool would return for constituent 0.
+        // The shortfall of 1 puts the actual delivery one unit under it.
+        alloc::vec![1_000i128, 0i128],
+        None,
+        0,
+        0,
+        false,
+    );
+
+    let err = RouterClient::new(&env, &router_addr)
+        .try_execute_strategy(&sender, &1_000, &xdr)
+        .expect_err("a short delivery must not settle");
+    assert_eq!(
+        err,
+        Ok(soroban_sdk::Error::from_contract_error(28)),
+        "expected MinAmountsNotMet from the router's own re-check"
+    );
+}
