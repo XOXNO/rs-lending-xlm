@@ -40,7 +40,7 @@ SHELL := /bin/bash
 .PHONY: \
         build build-one optimize deploy-artifacts integration-wasm integration-preflight integration-validate integration-shellcheck integration-appendix certora-wasm wasm-artifacts \
         certora certora-list \
-        test test-verbose test-one test-match test-pool \
+        test test-harness test-verbose test-one test-match test-pool \
         miri-common miri-pool miri-controller miri-all \
         coverage coverage-controller coverage-pool coverage-price-aggregator coverage-merged \
         docs-check fmt fmt-check clippy clippy-contracts clippy-fuzz scout scout-host scout-strict \
@@ -352,7 +352,25 @@ TEST_THREADS ?=
 TEST_THREAD_FLAG = $(if $(strip $(TEST_THREADS)),--test-threads=$(TEST_THREADS),)
 
 
+# Kept identical to the `Run tests` step in .github/workflows/tests.yml. If the two
+# drift, `make test` stops predicting CI, which is the only reason to run it first.
+TEST_FEATURES ?= price-aggregator/testing
+
+
+# Whole workspace: the shared integration suite in tests/test-harness plus every
+# contract's own tests. The per-contract suites are not reachable from
+# `-p test-harness` -- controller, governance, pool and common set
+# `autotests = false` and pull their test files in through `#[path]`, while
+# price-aggregator, position-nft, swap-aggregator, xoxno-oracle and
+# defindex-strategy carry auto-discovered `tests/` targets. Running only the
+# harness silently skips all of them.
 test:
+	cargo test --workspace --features $(TEST_FEATURES) -- $(TEST_THREAD_FLAG)
+
+
+# The harness alone: the fast inner loop while iterating on integration tests.
+# Use `make test` before pushing -- this target does not cover the contract suites.
+test-harness:
 	cargo test -p test-harness -- $(TEST_THREAD_FLAG)
 
 
