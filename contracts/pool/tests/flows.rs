@@ -2,6 +2,7 @@ extern crate std;
 
 use super::*;
 use crate::cache::Cache;
+use crate::ops::flash;
 use crate::test_support::{hub, LEDGER_PROTOCOL_VERSION};
 use common::constants::{
     BPS, MILLISECONDS_PER_YEAR, MS_PER_SECOND, RAY, TTL_BUMP_INSTANCE, TTL_BUMP_SHARED,
@@ -3205,4 +3206,82 @@ fn test_floor_wipeout_blocks_supply_until_recap_then_new_deposit_is_safe() {
         .get_unchecked(0);
     assert_eq!(bob_out.actual_amount, bob_deposit);
     assert_eq!(token.balance(&bob_recv), bob_deposit);
+}
+
+/// `prepare_with_balance` is not in the deployed contract -- it is compiled only
+/// under `cfg(any(test, feature = "certora"))`, for the Certora specs that drive
+/// flash-loan accounting symbolically and for these tests. The specs prove
+/// properties over whatever it returns, so if its composition ever drifted from
+/// what `apply` does after reading the live SAC balance, those proofs would be
+/// proving something the contract does not do. That is what these pin.
+fn flash_terms_setup() -> (TestSetup, i128, i128) {
+    let t = TestSetup::new();
+    enable_flashloan(&t);
+    t.client().supply(&t.sup(0, 10_000_000_000i128));
+    // enable_flashloan sets flashloan_fee to 100 bps.
+    (t, 100_0000000i128, 500_0000000i128)
+}
+
+#[test]
+fn prepare_with_balance_derives_terms_from_the_supplied_balance() {
+    let (t, amount, pre_balance) = flash_terms_setup();
+
+    t.env.as_contract(&t.pool, || {
+        let (cache, got) = flash::prepare_with_balance(&t.env, hub(&t.asset), amount, pre_balance);
+
+        assert_eq!(
+            cache.params().flashloan_fee,
+            100,
+            "fee_bps read from market"
+        );
+        // Computed independently of the implementation rather than by calling
+        // `terms` again, which would only prove the function calls itself.
+        assert_eq!(got.fee, amount / 100, "100 bps of principal");
+        assert_eq!(got.total_repayment, amount + amount / 100);
+        assert_eq!(
+            got.balance_after_payout,
+            pre_balance - amount,
+            "the payout leaves the pool short by exactly the principal"
+        );
+        assert_eq!(
+            got.balance_after_repayment,
+            pre_balance + amount / 100,
+            "the round trip leaves the pool up by exactly the fee"
+        );
+    });
+}
+
+#[test]
+fn prepare_with_balance_agrees_with_the_terms_apply_would_build() {
+    let (t, amount, pre_balance) = flash_terms_setup();
+
+    t.env.as_contract(&t.pool, || {
+        let (cache, composed) =
+            flash::prepare_with_balance(&t.env, hub(&t.asset), amount, pre_balance);
+        // The same two calls `apply` makes, in the same order, against the same
+        // market state. Any divergence means the Certora specs and the
+        // production path have drifted apart.
+        let direct = flash::terms(&t.env, amount, cache.params().flashloan_fee, pre_balance);
+
+        assert_eq!(composed.fee, direct.fee);
+        assert_eq!(composed.total_repayment, direct.total_repayment);
+        assert_eq!(composed.balance_after_payout, direct.balance_after_payout);
+        assert_eq!(
+            composed.balance_after_repayment,
+            direct.balance_after_repayment
+        );
+    });
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #401)")]
+fn prepare_with_balance_still_runs_the_flashloan_gate() {
+    let t = TestSetup::new();
+    // Deliberately not enabling flash loans: the symbolic entry point must not
+    // be a way around the gate `apply` enforces.
+    t.client().supply(&t.sup(0, 10_000_000_000i128));
+
+    t.env.as_contract(&t.pool, || {
+        flash::prepare_with_balance(&t.env, hub(&t.asset), 100_0000000i128, 500_0000000i128);
+    });
 }

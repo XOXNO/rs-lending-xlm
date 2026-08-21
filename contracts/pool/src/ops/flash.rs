@@ -96,10 +96,12 @@ pub(crate) fn prepare(env: &Env, hub_asset: HubAssetKey, amount: i128) -> Cache 
 /// repayment terms from a symbolic/pre-loan `pre_balance`.
 ///
 /// Composes [`prepare`] + [`terms`] exactly as [`apply`] does after reading the
-/// live SAC balance. Used by Certora for full successful-path accounting.
-// Certora (and optional unit tests) compose prepare+terms without SAC reads.
-// TODO: Check if we should add feature cfg flags for certora/tests only and remove dead code
-#[allow(dead_code)]
+/// live SAC balance, letting a caller supply that balance instead of reading a
+/// SAC. Nothing in the production path needs that -- [`apply`] reads the live
+/// balance itself -- so this is compiled only for the Certora specs that drive
+/// full successful-path accounting symbolically, and for the unit tests that
+/// pin the composition. It is deliberately not part of the deployed contract.
+#[cfg(any(test, feature = "certora"))]
 pub(crate) fn prepare_with_balance(
     env: &Env,
     hub_asset: HubAssetKey,
