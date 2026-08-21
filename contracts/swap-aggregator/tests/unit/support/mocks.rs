@@ -5,6 +5,13 @@ use soroban_sdk::{
 pub mod soroswap_mock {
     use super::*;
 
+    /// Widens one side of the constant-product comparison. A negative value
+    /// would mean the pair was drained past its own reserves, so clamp it to
+    /// zero and let the invariant assertion fail rather than wrap.
+    fn k_term(env: &Env, value: i128) -> U256 {
+        U256::from_u128(env, value.max(0) as u128)
+    }
+
     #[contract]
     pub struct SoroswapPair;
 
@@ -73,10 +80,15 @@ pub mod soroswap_mock {
 
             let balance0_adjusted = balance0 * 1000 - amount0_in * 3;
             let balance1_adjusted = balance1 * 1000 - amount1_in * 3;
-            assert!(
-                balance0_adjusted * balance1_adjusted >= reserve0 * reserve1 * 1_000_000,
-                "soroswap k-invariant violated"
-            );
+            // An 18-decimal pair holds reserves around 1e24, and the scaled
+            // product of two of those is ~1e55 -- far past `i128`. Compare the
+            // invariant in 256-bit space so the mock stays usable at the scales
+            // the adapter has to quote.
+            let k_after = k_term(&env, balance0_adjusted).mul(&k_term(&env, balance1_adjusted));
+            let k_before = k_term(&env, reserve0)
+                .mul(&k_term(&env, reserve1))
+                .mul(&U256::from_u32(&env, 1_000_000));
+            assert!(k_after >= k_before, "soroswap k-invariant violated");
 
             env.storage()
                 .instance()

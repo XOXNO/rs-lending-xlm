@@ -58,13 +58,37 @@ pub struct Router;
 
 #[contractimpl]
 impl Router {
-    /// Set `admin` as Ownable owner and zero the fee and referral state.
+    /// Set `admin` as Ownable owner.
+    ///
+    /// The static fee and referral counter are deliberately left unwritten:
+    /// `storage::static_fee_bps` and `storage::referral_counter` both default to
+    /// zero on a missing key, so writing zeros here only bought two instance
+    /// entries' worth of rent.
     pub fn __constructor(env: Env, admin: Address) {
         ownable::set_owner(&env, &admin);
-        let storage = env.storage().instance();
-        storage.set(&types::DataKey::StaticFeeBps, &0u32);
-        storage.set(&types::DataKey::ReferralCounter, &0u64);
         storage::renew_instance(&env);
+    }
+
+    /// Rebuild the `ReservedTotal` counter for each of `tokens` from its fee buckets. Owner only.
+    ///
+    /// One-shot upgrade step for an instance that was deployed before the counter existed. Such
+    /// an instance carries funded `AdminFee` / `ReferralFee` buckets and no counter, so
+    /// [`SwapAggregatorInterface::sweep_balance`] would read the reserve as zero and transfer the
+    /// fee backing out — and every later claim would then fail closed, because the counter cannot
+    /// be driven negative. Run this once per fee-bearing token immediately after `upgrade`,
+    /// before any sweep.
+    ///
+    /// Idempotent: each counter is *set* to the bucket sum, never added to, so calling it twice
+    /// (or on a fresh instance that never needed it) changes nothing. Tokens that were never
+    /// charged a fee may be included harmlessly; they simply have no buckets to sum.
+    #[only_owner]
+    pub fn migrate_reserved_totals(env: Env, tokens: Vec<Address>) {
+        storage::renew_instance(&env);
+        let n = tokens.len();
+        for i in 0..n {
+            // `i < n == tokens.len()`, so the index is in range by construction.
+            storage::rebuild_reserved_total(&env, &tokens.get_unchecked(i));
+        }
     }
 }
 
@@ -182,9 +206,8 @@ impl SwapAggregatorInterface for Router {
         let router = env.current_contract_address();
         let n = tokens.len();
         for i in 0..n {
-            let token = tokens
-                .get(i)
-                .unwrap_or_else(|| panic_with_error!(&env, Error::InvalidAmount));
+            // `i < n == tokens.len()`, so the index is in range by construction.
+            let token = tokens.get_unchecked(i);
             let client = token::Client::new(&env, &token);
             let balance = client.balance(&router);
             let reserved = storage::reserved_fee_balance(&env, &token);
@@ -195,6 +218,9 @@ impl SwapAggregatorInterface for Router {
     }
 
     /// Returns the current Ownable owner; panics with `Error::NotAdmin` if unset.
+    ///
+    /// A convenience wrapper over [`Ownable::get_owner`] for callers that want a hard failure
+    /// rather than an `Option`; both read the same Ownable slot.
     fn admin(env: Env) -> Address {
         ownable::get_owner(&env).unwrap_or_else(|| panic_with_error!(&env, Error::NotAdmin))
     }

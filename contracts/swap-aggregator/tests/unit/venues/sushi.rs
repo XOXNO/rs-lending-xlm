@@ -159,20 +159,17 @@ fn sushi_direction_requires_exact_pair_match() {
 /// delta *that* hop produced.
 ///
 /// `dispatch_hop` measures every venue's output as
-/// `output_balance() - before_out` and discards whatever the venue function
-/// returns. Every other Sushi test routes one 100% path, so `before_out` is
-/// always zero and the subtraction is indistinguishable from an addition.
-/// Splitting across two Sushi pools makes the second hop start with the first
-/// hop's proceeds already sitting in the router.
+/// `output_balance() - before_out`, and venue adapters return nothing at all --
+/// this is the router's single source of truth for a fill. Every other Sushi
+/// test routes one 100% path, so `before_out` is always zero and the
+/// subtraction is indistinguishable from an addition. Splitting across two
+/// Sushi pools makes the second hop start with the first hop's proceeds already
+/// sitting in the router.
 ///
 /// Break this catches: `checked_sub` becoming `checked_add` in
 /// `venues::dispatch_hop`. The second hop would credit 450 instead of 150 and
 /// the vault would try to pay out 600 against a 300 balance. Verified: this is
 /// the only Sushi test that fails under that mutation.
-///
-/// Note the venue-level `amount_out` in `venues::sushi::swap` is dead -- its
-/// value is dropped by the dispatcher -- so the `- -> +` mutant recorded for
-/// that line in `.cargo/mutants.toml` is a genuine equivalent mutant.
 #[test]
 fn sushi_split_credits_only_the_delta_of_each_hop() {
     let env = Env::default();

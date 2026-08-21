@@ -1,4 +1,8 @@
 //! Contract error codes returned via `panic_with_error!`.
+//!
+//! The numbering is not contiguous (2, 6, 8, 10, 14-19, 23, 24 are unused).
+//! Whatever the reason for any individual gap, codes are part of the contract's
+//! observable interface: never backfill one, always append.
 
 use soroban_sdk::contracterror;
 
@@ -40,4 +44,11 @@ pub enum Error {
     MinAmountsNotMet = 28,
     /// Leftover vault balance exceeds residual allowance.
     ExcessiveResidual = 29,
+    /// A contract-internal invariant no longer holds; the call fails closed
+    /// rather than acting on state it can no longer trust. One occurrence is
+    /// expected: fee claims on an instance upgraded from a build that
+    /// predates `ReservedTotal` fail with this code until
+    /// [`crate::Router::migrate_reserved_totals`] runs for the token. Any
+    /// other sighting is a bug.
+    InternalInvariant = 30,
 }

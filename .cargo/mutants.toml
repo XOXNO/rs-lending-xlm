@@ -78,14 +78,18 @@ exclude_re = [
     # input.
     "replace \\|\\| with && in update_supply_index",
 
-    # --- EQUIVALENT: return value is discarded by the caller ------------------
-    # `venues::dispatch_hop` drops whatever a venue's `swap` returns and
-    # recomputes the fill itself as `output_balance() - before_out`. The
-    # venue-level delta is therefore dead, and mutating it is unobservable.
-    # The dispatcher's own subtraction IS covered -- see
-    # `sushi_split_credits_only_the_delta_of_each_hop`, which is the only test
-    # that fails when it becomes `checked_add`.
-    "sushi.rs:[0-9]+:43: replace - with \\+ in swap",
+    # --- EQUIVALENT: comparison the surrounding logic already decided ---------
+    # Column 42 is `ctx.hop.token_in < ctx.hop.token_out`, which picks the pair's
+    # reserve orientation. `HopContext::new` panics with `SameToken` before the
+    # adapter runs, so the two operands are never equal and `<` and `<=` agree on
+    # every reachable input.
+    #
+    # The sibling entry for `sushi.rs` column 43 was pruned: venue adapters now
+    # return `()`, so the `output_balance() - balance_before` line it named no
+    # longer exists. The fill is measured once, in `venues::dispatch_hop`, and
+    # that subtraction IS covered -- see
+    # `sushi_split_credits_only_the_delta_of_each_hop`, the only test that fails
+    # when it becomes `checked_add`.
     "soroswap.rs:[0-9]+:42: replace < with <= in swap",
 
     # --- EQUIVALENT: unobservable against a Stellar Asset Contract ------------

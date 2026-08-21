@@ -5,8 +5,12 @@ use soroban_sdk::{panic_with_error, symbol_short, Address, Env, IntoVal, Map, Sy
 use crate::errors::Error;
 use crate::venues::auth::authorize_token_transfer;
 
-/// Authorize transfer and call pool `swap`; returns reported out amount. Panics
-/// with `IntegerOverflow` if `amount_in` is negative.
+/// Authorize transfer and call pool `swap`. Panics with `IntegerOverflow` if
+/// `amount_in` is negative.
+///
+/// The pool's reported fill is decoded — so a pool returning the wrong type
+/// still fails — and then discarded: `crate::venues::dispatch_hop` measures the
+/// router's balance delta and that measurement is the only authority.
 pub(super) fn invoke_pool_swap(
     env: &Env,
     router: &Address,
@@ -15,7 +19,7 @@ pub(super) fn invoke_pool_swap(
     in_idx: u32,
     out_idx: u32,
     amount_in: i128,
-) -> u128 {
+) {
     authorize_token_transfer(env, token_in, router, pool, amount_in);
     let args: Vec<Val> = soroban_sdk::vec![
         env,
@@ -25,7 +29,7 @@ pub(super) fn invoke_pool_swap(
         to_u128(env, amount_in).into_val(env),
         0_u128.into_val(env),
     ];
-    env.invoke_contract(pool, &symbol_short!("swap"), args)
+    let _: u128 = env.invoke_contract(pool, &symbol_short!("swap"), args);
 }
 
 /// Returns the pool's constituent tokens, cached per invocation in `cache`.

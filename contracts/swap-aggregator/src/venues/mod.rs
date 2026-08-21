@@ -18,6 +18,10 @@ use crate::types::{SwapHop, SwapVenue};
 /// the router's `token_out` balance. Panics with `Error::ZeroOutput` if the output balance does
 /// not strictly increase, and with `Error::InvalidAmount` if the router's `token_in` balance does
 /// not decrease by exactly `amount_in`.
+///
+/// Venue adapters return nothing on purpose: this measured delta is the only fill the router ever
+/// credits, so an adapter that also reported one would create a second, unused number that could
+/// drift from the truth.
 pub(crate) fn dispatch_hop(
     env: &Env,
     router: &Address,

@@ -49,6 +49,12 @@ pub struct StrategyPayload {
 pub use swap_aggregator_interface::ReferralConfig;
 
 /// Instance and persistent storage keys.
+///
+/// A `#[contracttype]` enum with data-carrying variants is encoded as
+/// `ScVal::Vec([Symbol("<variant name>"), ..fields])`, so a key's on-ledger
+/// bytes depend on the variant *name*, never on its position. New variants may
+/// therefore be appended without disturbing any existing entry — but a rename
+/// silently orphans every entry already written under the old name.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub enum DataKey {
@@ -58,4 +64,10 @@ pub enum DataKey {
     WhitelistedTokens,
     AdminFee(Address),
     ReferralFee(u64, Address),
+    /// Sum of every fee bucket denominated in this token: the admin bucket plus
+    /// each referral bucket. Only `storage::accumulate_fee`,
+    /// `storage::accumulate_swap_fees`, `storage::take_fee_bucket` and
+    /// `storage::rebuild_reserved_total` maintain this counter, so
+    /// `sweep_balance` never has to walk the referral space.
+    ReservedTotal(Address),
 }

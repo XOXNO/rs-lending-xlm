@@ -16,8 +16,13 @@ off-chain and passed as XDR. Used by controller strategies
 execute_strategy(sender, total_in, swap_xdr) -> i128
 ```
 
-`swap_xdr` → `StrategyPayload`: `token_in` / `token_out`, split `paths`,
-`total_min_out`, optional `referral_id`.
+`swap_xdr` → `StrategyPayload` with three fields: `amounts` (the amount
+registry — `total_min_out`, fixed inputs, burn floors, mint min-shares),
+`assets` (the address registry — tokens, pools, LP share tokens), and `ops`
+(the packed instruction stream: a 10-byte header carrying `token_in`,
+`token_out`, `min_out`, `referral_id`, then one 5-byte record per instruction,
+then the u24 split weights). Instructions reference the two registries by `u8`
+index. The byte layout lives in `src/program.rs`.
 
 1. Auth `sender`, pull `total_in`.
 2. Optional fees (input or output side).
@@ -26,7 +31,25 @@ execute_strategy(sender, total_in, swap_xdr) -> i128
 5. Send `token_out` to `sender`.
 
 Nothing from venues or payload amount fields is truth — only real balance
-changes count.
+changes count. Venue adapters return nothing: the dispatcher measures the
+router's own balance delta for every hop.
+
+## Fees
+
+The static protocol fee rides with the referral flow and is charged nowhere
+else. A swap with `referral_id == 0`, or one naming a referral that does not
+exist or has been deactivated, pays **zero** protocol fee — by design, matching
+how the off-chain quote model prices routes. The fee is taken on the input
+token, unless only the output token is fee-whitelisted, in which case it is
+taken on the output. Leftover dust after settlement accrues to the admin bucket
+regardless of referral.
+
+`sweep_balance` recovers only what is *not* fee backing. It reads a per-token
+`ReservedTotal` counter that fee accrual and claims keep in step, rather than
+walking every referral id. An instance upgraded from a build that predates that
+counter must run `migrate_reserved_totals` once, for each fee-bearing token,
+**before** the next sweep — otherwise the reserve reads zero and the sweep
+carries the fee backing away.
 
 ## Admin
 
@@ -35,7 +58,7 @@ changes count.
 | Fees | `set_static_fee`, `claim_admin_fees`, `sweep_balance` |
 | Whitelist | `add_to_whitelist`, `remove_from_whitelist` |
 | Referrals | `add_referral`, `set_referral_*`, `claim_referral_fees` |
-| Upgrade | `upgrade` |
+| Upgrade | `upgrade`, `migrate_reserved_totals` |
 
 Fee cap: 1000 bps (static and referral).
 
@@ -44,7 +67,8 @@ Fee cap: 1000 bps (static and referral).
 ```text
 src/
   lib.rs          Thin public API (Router + Ownable)
-  execute/        Strategy orchestration, paths, validate, residual
+  execute/        Strategy orchestration (mod.rs) + residual accrual
+  program.rs      Packed instruction stream: byte layout, decode, validation
   fees.rs         Static + referral fee apply/claim
   storage.rs      Keys, TTL, fee buckets, whitelist, referrals
   constants.rs    Fee cap, PPM, residual policy
@@ -56,8 +80,10 @@ src/
   errors.rs       Error codes
 tests/unit/       Unit tests (wired via `#[path]` from lib.rs)
   support/        Shared helpers + mock pools/tokens
-  venues/         Per-venue adapter cases
-  execute_strategy.rs · splits.rs · admin.rs · fees.rs · sweep.rs · vault.rs
+  venues/         Per-venue adapter cases (incl. Aquarius LP + math)
+  admin.rs · chained_hops.rs · execute_strategy.rs · fee_buckets.rs ·
+  fees.rs · payload_wire_format.rs · program_decode.rs · splits.rs ·
+  sweep.rs · vault.rs
 ```
 
 ## Entrypoints
@@ -68,7 +94,8 @@ the signature shows.
 
 | Entrypoint | Signature | Notes | What it does |
 | --- | --- | --- | --- |
-| `__constructor` | `pub fn __constructor(env: Env, admin: Address)` | — | Set `admin` as Ownable owner and zero the fee and referral state. |
+| `__constructor` | `pub fn __constructor(env: Env, admin: Address)` | — | Set `admin` as Ownable owner. |
+| `migrate_reserved_totals` | `pub fn migrate_reserved_totals(env: Env, tokens: Vec<Address>)` | owner-only | Rebuild the `ReservedTotal` counter for each of `tokens` from its fee buckets. One-shot upgrade step; idempotent. |
 | `set_static_fee` | `fn set_static_fee(env: Env, fee_bps: u32)` | owner-only | Set the protocol static fee in bps (`<= FEE_CAP`). |
 | `add_to_whitelist` | `fn add_to_whitelist(env: Env, token: Address)` | owner-only | Mark `token` as fee-whitelisted (affects input-side fee selection). |
 | `remove_from_whitelist` | `fn remove_from_whitelist(env: Env, token: Address)` | owner-only | Remove `token` from the fee whitelist. |
@@ -80,7 +107,7 @@ the signature shows.
 | `claim_admin_fees` | `fn claim_admin_fees(env: Env, recipient: Address, tokens: Vec<Address>)` | owner-only | Pay out accrued admin fee balances for `tokens`. |
 | `claim_referral_fees` | `fn claim_referral_fees(env: Env, id: u64, tokens: Vec<Address>)` | — | Pay out accrued fees for referral `id` to its configured owner. |
 | `sweep_balance` | `fn sweep_balance(env: Env, recipient: Address, tokens: Vec<Address>)` | owner-only | Recover non-fee token balances to `recipient`. |
-| `admin` | `fn admin(env: Env) -> Address` | — | Returns the current Ownable owner; panics with `Error::NotAdmin` if unset. |
+| `admin` | `fn admin(env: Env) -> Address` | — | Returns the current Ownable owner; panics with `Error::NotAdmin` if unset. Convenience wrapper over `get_owner` for callers that want a hard failure instead of `None`. |
 | `static_fee_bps` | `fn static_fee_bps(env: Env) -> u32` | — | Returns the protocol static fee in basis points. |
 | `referral` | `fn referral(env: Env, id: u64) -> Option<ReferralConfig>` | — | Returns the referral config for `id`, or `None` if it does not exist. |
 | `referral_counter` | `fn referral_counter(env: Env) -> u64` | — | Returns the highest referral id issued so far. |
