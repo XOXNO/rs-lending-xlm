@@ -1008,3 +1008,66 @@ fn to_status_preserves_stale_and_deviation_flags_without_an_error() {
     assert!(status.deviation, "deviation flag dropped");
     assert_eq!(status.final_wad, WAD);
 }
+
+/// Both cycle guards, driven directly.
+///
+/// `test_a_scaled_cycle_reverts_at_read_time_too` above builds a self-quoting
+/// oracle but discards the result -- `let _ = resolve(..)` -- so it asserts
+/// nothing, and region analysis shows neither `is_resolving` arm was reached by
+/// the suite. These push the key onto the resolution stack first, which is the
+/// state a re-entrant source produces, and check that each entry point refuses
+/// rather than recursing.
+///
+/// The stack is the only thing bounding recursion through a composed oracle
+/// graph: `MAX_RESOLUTION_DEPTH` bounds a chain, but a cycle short enough to sit
+/// inside the depth cap would spin without this.
+#[test]
+fn resolve_outcome_refuses_a_key_already_on_the_resolution_stack() {
+    let env = Env::default();
+    at_now(&env);
+    let (adapter, client) = register_redstone_feed(&env);
+    publish(&client, &env, "BTC", 100 * WAD, 0);
+
+    in_contract(&env, || {
+        let key = single_feed_key(&env, &adapter, "BTC", ASSET_CEILING);
+        let mut session = Session::new(&env);
+
+        // Resolves normally while the stack is clear.
+        assert!(resolve_outcome(&mut session, &key, 0, None).0.err.is_none());
+
+        session.push_key(&key);
+        let (outcome, oracle) = resolve_outcome(&mut session, &key, 0, None);
+        assert_eq!(
+            outcome.err,
+            Some(OracleError::OracleCycleDetected),
+            "a key already being resolved must not be resolved again"
+        );
+        assert!(
+            oracle.is_none(),
+            "a refused cycle must not report an oracle configuration"
+        );
+    });
+}
+
+#[test]
+fn validate_cached_path_refuses_a_key_already_on_the_resolution_stack() {
+    let env = Env::default();
+    at_now(&env);
+    let (adapter, client) = register_redstone_feed(&env);
+    publish(&client, &env, "BTC", 100 * WAD, 0);
+
+    in_contract(&env, || {
+        let key = single_feed_key(&env, &adapter, "BTC", ASSET_CEILING);
+        let mut session = Session::new(&env);
+
+        assert_eq!(validate_cached_path(&mut session, &key, 0), Ok(()));
+
+        // A cache hit must not be trusted to skip the cycle check: the cached
+        // value was computed in some other resolution context.
+        session.push_key(&key);
+        assert_eq!(
+            validate_cached_path(&mut session, &key, 0),
+            Err(OracleError::OracleCycleDetected)
+        );
+    });
+}
