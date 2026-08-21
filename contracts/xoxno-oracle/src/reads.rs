@@ -11,9 +11,8 @@ use soroban_sdk::{contractimpl, Env, String, Symbol, Vec};
 
 use crate::aggregation::MAX_HISTORY_LEN;
 use crate::storage::{
-    load_aggregate, load_all_assets, load_all_feeds, load_feed_id, load_history,
-    load_max_relative_skew, load_max_stale_seconds, load_max_submission_age, load_resolution,
-    renew_history,
+    load_aggregate, load_all_assets, load_feed_id, load_history, load_max_relative_skew,
+    load_max_stale_seconds, load_max_submission_age, load_resolution, renew_history,
 };
 use crate::{Error, XoxnoOracle, XoxnoOracleArgs, XoxnoOracleClient};
 
@@ -115,13 +114,6 @@ impl XoxnoOracle {
     /// Returns every `ReflectorAsset` currently mapped to a feed.
     pub fn assets(env: Env) -> Vec<ReflectorAsset> {
         load_all_assets(&env)
-    }
-
-    /// Returns every registered feed id, including feeds with no asset
-    /// mapping. Use this to enumerate the ids to pass to `recompute_feeds`
-    /// after a configuration change.
-    pub fn feeds(env: Env) -> Vec<String> {
-        load_all_feeds(&env)
     }
 
     /// Returns the latest price for `asset`, converted to `ReflectorPriceData`.
