@@ -3,7 +3,7 @@ use std::time::Duration;
 use anyhow::{anyhow, bail, Context, Result};
 use sha2::{Digest, Sha256};
 use stellar_rpc_client::{Client as RpcInner, GetTransactionResponse};
-use stellar_xdr::curr::{
+use stellar_xdr::{
     DecoratedSignature, Memo, Operation, Preconditions, SequenceNumber, Signature, SignatureHint,
     SorobanAuthorizationEntry, SorobanCredentials, SorobanResources, SorobanTransactionData,
     Transaction, TransactionEnvelope, TransactionExt, TransactionV1Envelope, VecM,
@@ -289,7 +289,7 @@ fn finalize_envelope(
 }
 
 pub(crate) fn empty_soroban_data() -> SorobanTransactionData {
-    use stellar_xdr::curr::{LedgerFootprint, SorobanTransactionDataExt};
+    use stellar_xdr::{LedgerFootprint, SorobanTransactionDataExt};
     SorobanTransactionData {
         ext: SorobanTransactionDataExt::V0,
         resources: SorobanResources {

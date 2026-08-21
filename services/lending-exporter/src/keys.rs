@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Result};
-use stellar_xdr::curr::{
+use stellar_xdr::{
     ContractDataDurability, ContractId, Hash, LedgerKey, LedgerKeyContractData, ScAddress, ScMap,
     ScMapEntry, ScSymbol, ScVal, ScVec, StringM, VecM,
 };

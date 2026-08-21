@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use anyhow::{Context, Result};
 use stellar_rpc_client::{Client as InnerClient, LedgerStart};
-use stellar_xdr::curr::{LedgerEntryData, LedgerKey};
+use stellar_xdr::{LedgerEntryData, LedgerKey};
 
 use crate::config::RpcConfig;
 

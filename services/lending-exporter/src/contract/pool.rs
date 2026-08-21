@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Result};
-use stellar_xdr::curr::ScVal;
+use stellar_xdr::ScVal;
 
 use crate::scval::{field_bool, field_i128, field_u32, field_u64, map_field};
 
@@ -61,7 +61,7 @@ pub fn decode_sync_data(value: &ScVal) -> Result<MarketSync> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use stellar_xdr::curr::{Int128Parts, ScMap, ScMapEntry};
+    use stellar_xdr::{Int128Parts, ScMap, ScMapEntry};
 
     fn sym(t: &str) -> ScVal {
         ScVal::Symbol(crate::keys::symbol(t).unwrap())

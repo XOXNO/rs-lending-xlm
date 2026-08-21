@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Context, Result};
 use std::collections::{HashMap, HashSet};
 use stellar_rpc_client::Client as InnerClient;
-use stellar_xdr::curr::{
+use stellar_xdr::{
     AccountId, LedgerEntryData, LedgerKey, MuxedAccount, PublicKey, ScContractInstance, Uint256,
 };
 

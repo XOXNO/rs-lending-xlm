@@ -46,10 +46,8 @@ regardless of referral.
 
 `sweep_balance` recovers only what is *not* fee backing. It reads a per-token
 `ReservedTotal` counter that fee accrual and claims keep in step, rather than
-walking every referral id. An instance upgraded from a build that predates that
-counter must run `migrate_reserved_totals` once, for each fee-bearing token,
-**before** the next sweep — otherwise the reserve reads zero and the sweep
-carries the fee backing away.
+walking every referral id. Instances are always deployed fresh from this
+build; upgrading a build that predates the counter in place is unsupported.
 
 ## Admin
 
@@ -58,7 +56,7 @@ carries the fee backing away.
 | Fees | `set_static_fee`, `claim_admin_fees`, `sweep_balance` |
 | Whitelist | `add_to_whitelist`, `remove_from_whitelist` |
 | Referrals | `add_referral`, `set_referral_*`, `claim_referral_fees` |
-| Upgrade | `upgrade`, `migrate_reserved_totals` |
+| Upgrade | `upgrade` |
 
 Fee cap: 1000 bps (static and referral).
 
@@ -95,7 +93,6 @@ the signature shows.
 | Entrypoint | Signature | Notes | What it does |
 | --- | --- | --- | --- |
 | `__constructor` | `pub fn __constructor(env: Env, admin: Address)` | — | Set `admin` as Ownable owner. |
-| `migrate_reserved_totals` | `pub fn migrate_reserved_totals(env: Env, tokens: Vec<Address>)` | owner-only | Rebuild the `ReservedTotal` counter for each of `tokens` from its fee buckets. One-shot upgrade step; idempotent. |
 | `set_static_fee` | `fn set_static_fee(env: Env, fee_bps: u32)` | owner-only | Set the protocol static fee in bps (`<= FEE_CAP`). |
 | `add_to_whitelist` | `fn add_to_whitelist(env: Env, token: Address)` | owner-only | Mark `token` as fee-whitelisted (affects input-side fee selection). |
 | `remove_from_whitelist` | `fn remove_from_whitelist(env: Env, token: Address)` | owner-only | Remove `token` from the fee whitelist. |

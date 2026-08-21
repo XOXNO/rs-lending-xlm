@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Context};
-use stellar_xdr::curr::{
+use stellar_xdr::{
     ContractId, Hash, HostFunction, InvokeContractArgs, InvokeHostFunctionOp, LedgerFootprint,
     Memo, MuxedAccount, Operation, OperationBody, Preconditions, ScAddress, ScSymbol, ScVal,
     SequenceNumber, SorobanResources, SorobanTransactionData, SorobanTransactionDataExt, StringM,

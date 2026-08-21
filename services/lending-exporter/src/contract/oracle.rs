@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Result};
-use stellar_xdr::curr::{ScString, ScVal, StringM};
+use stellar_xdr::{ScString, ScVal, StringM};
 
 use crate::scval::{
     address_strkey, enum_variant, field_i128, field_u32, field_u64, map_field, string_text,
@@ -156,7 +156,7 @@ pub fn oracle_asset_ref_to_reflector_arg(asset_ref: &ScVal) -> Result<ScVal> {
 }
 
 fn retag_enum(variant: &str, payload: ScVal) -> Result<ScVal> {
-    use stellar_xdr::curr::{ScVec, VecM};
+    use stellar_xdr::{ScVec, VecM};
     let items: VecM<ScVal> = vec![ScVal::Symbol(crate::keys::symbol(variant)?), payload]
         .try_into()
         .map_err(|_| anyhow!("retag vec"))?;
@@ -192,7 +192,7 @@ pub fn decode_redstone_price(value: &ScVal) -> Result<PriceObservation> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use stellar_xdr::curr::{Int128Parts, ScMap, ScMapEntry, ScVec, VecM};
+    use stellar_xdr::{Int128Parts, ScMap, ScMapEntry, ScVec, VecM};
 
     fn sym(t: &str) -> ScVal {
         ScVal::Symbol(crate::keys::symbol(t).unwrap())

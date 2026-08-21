@@ -45,10 +45,10 @@ pub enum Error {
     /// Leftover vault balance exceeds residual allowance.
     ExcessiveResidual = 29,
     /// A contract-internal invariant no longer holds; the call fails closed
-    /// rather than acting on state it can no longer trust. One occurrence is
-    /// expected: fee claims on an instance upgraded from a build that
-    /// predates `ReservedTotal` fail with this code until
-    /// [`crate::Router::migrate_reserved_totals`] runs for the token. Any
-    /// other sighting is a bug.
+    /// rather than acting on state it can no longer trust. Not reachable
+    /// through any documented sequence of calls on a fresh deployment — if
+    /// you see it, report it. (Instances must always be deployed fresh from
+    /// this build; upgrading a pre-`ReservedTotal` build in place is
+    /// unsupported and would surface this code on fee claims.)
     InternalInvariant = 30,
 }

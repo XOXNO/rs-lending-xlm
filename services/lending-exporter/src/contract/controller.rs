@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Result};
-use stellar_xdr::curr::ScVal;
+use stellar_xdr::ScVal;
 
 use crate::scval::{field_bool, field_i128, field_u32, field_u64, vec_items};
 
@@ -108,7 +108,7 @@ pub fn decode_spoke_usage(value: &ScVal) -> Result<SpokeUsage> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use stellar_xdr::curr::{Int128Parts, ScMap, ScMapEntry, ScVec};
+    use stellar_xdr::{Int128Parts, ScMap, ScMapEntry, ScVec};
 
     fn sym(t: &str) -> ScVal {
         ScVal::Symbol(crate::keys::symbol(t).unwrap())

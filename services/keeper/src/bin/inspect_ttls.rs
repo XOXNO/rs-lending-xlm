@@ -8,7 +8,7 @@ use keeper_bot::{
 };
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use stellar_xdr::curr::{ContractId, Hash, LedgerKey, ScAddress, ScMapEntry, ScSymbol, ScVal};
+use stellar_xdr::{ContractId, Hash, LedgerKey, ScAddress, ScMapEntry, ScSymbol, ScVal};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -258,8 +258,8 @@ fn label_scval_arg(v: &ScVal) -> String {
             format!("{}", stellar_strkey::Contract(*b))
         }
         ScVal::Address(ScAddress::Account(acc)) => {
-            let stellar_xdr::curr::AccountId(stellar_xdr::curr::PublicKey::PublicKeyTypeEd25519(
-                stellar_xdr::curr::Uint256(b),
+            let stellar_xdr::AccountId(stellar_xdr::PublicKey::PublicKeyTypeEd25519(
+                stellar_xdr::Uint256(b),
             )) = acc;
             format!("{}", stellar_strkey::ed25519::PublicKey(*b))
         }

@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Result};
-use stellar_xdr::curr::{
+use stellar_xdr::{
     ContractId, Hash, HostFunction, InvokeContractArgs, InvokeHostFunctionOp, Operation,
     OperationBody, ScAddress, ScSymbol, ScVal, ScVec, StringM, VecM,
 };

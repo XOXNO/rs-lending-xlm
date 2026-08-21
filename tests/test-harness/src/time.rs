@@ -5,6 +5,7 @@ use common::types::HubAssetKey;
 
 use crate::context::LendingTest;
 use crate::helpers::hub_asset;
+use crate::presets::LEDGER_PROTOCOL_VERSION;
 
 impl LendingTest {
     pub fn advance_time(&mut self, duration_secs: u64) {
@@ -15,7 +16,7 @@ impl LendingTest {
 
         self.env.ledger().set(LedgerInfo {
             timestamp: new_timestamp,
-            protocol_version: 26,
+            protocol_version: LEDGER_PROTOCOL_VERSION,
             sequence_number: new_seq,
             network_id: Default::default(),
             base_reserve: 10,
@@ -35,7 +36,7 @@ impl LendingTest {
 
         self.env.ledger().set(LedgerInfo {
             timestamp: new_timestamp,
-            protocol_version: 26,
+            protocol_version: LEDGER_PROTOCOL_VERSION,
             sequence_number: new_seq,
             network_id: Default::default(),
             base_reserve: 10,

@@ -10,7 +10,7 @@ use crate::core::types::{LendingTest, MarketState, PendingMarket, PendingSpoke};
 use crate::helpers::{f64_to_i128, hub_asset, HARNESS_HUB, HARNESS_SPOKE};
 use crate::presets::{
     unconstrained_test_cap, AssetConfigPreset, MarketParamsPreset, MarketPreset, SpokePreset,
-    DEFAULT_TOLERANCE,
+    DEFAULT_TOLERANCE, LEDGER_PROTOCOL_VERSION,
 };
 
 pub struct LendingTestBuilder {
@@ -163,7 +163,7 @@ impl LendingTestBuilder {
 
         env.ledger().set(LedgerInfo {
             timestamp: 1000,
-            protocol_version: 26,
+            protocol_version: LEDGER_PROTOCOL_VERSION,
             sequence_number: 100,
             network_id: Default::default(),
             base_reserve: 10,

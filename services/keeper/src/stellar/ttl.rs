@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Result};
-use stellar_xdr::curr::{
+use stellar_xdr::{
     ExtendFootprintTtlOp, ExtensionPoint, LedgerKey, Operation, OperationBody,
     SorobanTransactionData, VecM,
 };

@@ -1,5 +1,5 @@
 use anyhow::Result;
-use stellar_xdr::curr::LedgerKey;
+use stellar_xdr::LedgerKey;
 use tracing::debug;
 
 use crate::discovery::DiscoverySnapshot;
@@ -158,7 +158,7 @@ mod tests {
     use crate::config::LEDGERS_PER_DAY;
     use crate::discovery::DiscoverySnapshot;
     use crate::stellar::tx::TxKind;
-    use stellar_xdr::curr::{
+    use stellar_xdr::{
         ContractDataDurability, ContractDataEntry, ContractId, ExtensionPoint, Hash,
         LedgerEntryData, LedgerKey, LedgerKeyContractData, ScAddress, ScVal,
     };

@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Result};
-use stellar_xdr::curr::{
+use stellar_xdr::{
     ContractDataDurability, ContractId, Hash, LedgerKey, LedgerKeyContractData, ScAddress, ScMap,
     ScMapEntry, ScSymbol, ScVal, ScVec, StringM, VecM,
 };
@@ -270,7 +270,7 @@ pub fn contract_instance_key(contract_id: &[u8; 32]) -> LedgerKey {
 }
 
 pub fn contract_code_key(wasm_hash: &[u8; 32]) -> LedgerKey {
-    LedgerKey::ContractCode(stellar_xdr::curr::LedgerKeyContractCode {
+    LedgerKey::ContractCode(stellar_xdr::LedgerKeyContractCode {
         hash: Hash(*wasm_hash),
     })
 }
@@ -349,7 +349,7 @@ fn sc_address_contract(contract: &[u8; 32]) -> ScVal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use stellar_xdr::curr::{AccountId, PublicKey, Uint256};
+    use stellar_xdr::{AccountId, PublicKey, Uint256};
 
     #[test]
     fn tuple_variant_carries_args_in_order() {
@@ -601,9 +601,7 @@ mod tests {
 
     #[test]
     fn oracle_adapter_latest_submission_is_feed_then_signer() {
-        let feed = ScVal::String(stellar_xdr::curr::ScString(
-            StringM::try_from("BTC").unwrap(),
-        ));
+        let feed = ScVal::String(stellar_xdr::ScString(StringM::try_from("BTC").unwrap()));
         let signer = ScAddress::Account(AccountId(PublicKey::PublicKeyTypeEd25519(Uint256(
             [1u8; 32],
         ))));
