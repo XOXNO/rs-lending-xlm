@@ -40,3 +40,7 @@ pub(crate) fn nft_renew_call(env: &Env, nft: &Address, account_id: u64) {
 pub(crate) fn nft_upgrade_call(env: &Env, nft: &Address, new_wasm_hash: &BytesN<32>) {
     PositionNftClient::new(env, nft).upgrade(new_wasm_hash);
 }
+
+#[cfg(test)]
+#[path = "../../tests/external/position_nft.rs"]
+mod tests;
