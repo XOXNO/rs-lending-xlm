@@ -397,3 +397,7 @@ fn refund_listed_assets(
         refund_controller_balance_delta(env, &asset, baseline, caller);
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/strategies/flash_position.rs"]
+mod flash_position_tests;
