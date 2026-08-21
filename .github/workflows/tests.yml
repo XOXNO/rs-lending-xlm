@@ -1,19 +1,43 @@
 name: Tests
 
 on:
+  # `mock/**` holds four workspace members that are dev-dependencies of
+  # test-harness and price-aggregator, and `vendor/**` holds the patched cvlr
+  # crates the certora feature builds against. Both can break the build, so
+  # both must trigger it. `.github/scripts/**` installs the stellar-cli this
+  # workflow runs on.
+  push:
+    branches: [main]
+    paths:
+      - "contracts/**"
+      - "common/**"
+      - "interfaces/**"
+      - "mock/**"
+      - "tests/**"
+      - "certora/**"
+      - "vendor/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - "Makefile"
+      - ".github/workflows/**"
+      - ".github/scripts/**"
   pull_request:
     branches: [master, main, feat/*, rc/*]
     paths:
       - "contracts/**"
       - "common/**"
       - "interfaces/**"
+      - "mock/**"
       - "tests/**"
       - "certora/**"
+      - "vendor/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - "rust-toolchain.toml"
       - "Makefile"
       - ".github/workflows/**"
+      - ".github/scripts/**"
   workflow_dispatch:
 
 permissions:
@@ -28,6 +52,40 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Source-only gates: no contract build, no stellar-cli, no test run. They
+  # finish in seconds, so they fail a PR long before Build & Test does. All
+  # three were Makefile targets that no workflow called -- `cargo fmt` was
+  # only a tick-box in .github/pull_request_template.md, and a syntax error
+  # in the tests/integration/ shell harness surfaced only when somebody
+  # dispatched e2e.yml by hand.
+  static-gates:
+    name: Static Gates
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          clean: false
+
+      - name: Reset workspace, preserve target/ build cache
+        run: |
+          git reset --hard
+          git clean -ffdx -e target
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.95"
+          components: rustfmt
+
+      - name: Formatting
+        run: make fmt-check
+
+      - name: Doc links and symbol references resolve
+        run: make docs-check
+
+      - name: Integration shell harness parses
+        run: make integration-validate
+
   build-and-test:
     name: Build & Test
     runs-on: self-hosted

@@ -3,13 +3,21 @@ name: Fuzz
 on:
   pull_request:
     branches: [master, main, feat/*, rc/*]
+    # Deliberately the whole code surface, not just the crates the fuzz and
+    # proptest suites reach. `mutants-diff` mutates the PR diff itself, so it
+    # has to follow the diff everywhere -- scoping this to pool/controller/
+    # governance/common silently skipped mutation testing on every PR that
+    # touched swap-aggregator, price-aggregator, xoxno-oracle, position-nft,
+    # defindex-strategy, the interfaces, or Cargo.lock.
     paths:
       - "common/**"
-      - "contracts/pool/**"
-      - "contracts/controller/**"
-      - "contracts/governance/**"
+      - "contracts/**"
+      - "interfaces/**"
+      - "mock/**"
       - "tests/test-harness/**"
       - "tests/fuzz/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
   schedule:
     - cron: "0 2 * * 1-6"
     - cron: "0 2 * * 0"
@@ -421,6 +429,8 @@ jobs:
             kind: contract
           - target: pool_native
             kind: contract
+          - target: aggregator
+            kind: contract
     steps:
       - uses: actions/checkout@v7
 
@@ -504,6 +514,8 @@ jobs:
           - prop_valid_multiply_fits_default_budget
           - prop_multiply_succeeds_with_safe_hf_and_clean_router
           - prop_swap_collateral_conserves_position_delta
+          - prop_migrate_blend_reconciles_same_asset
+          - prop_migrate_blend_cap_too_low_reverts
     steps:
       - uses: actions/checkout@v7
 
@@ -635,6 +647,7 @@ jobs:
           - target: mutants-governance
           - target: mutants-controller-oracle
           - target: mutants-defindex-strategy
+          - target: mutants-position-nft
     steps:
       - uses: actions/checkout@v7
 

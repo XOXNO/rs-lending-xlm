@@ -52,6 +52,8 @@ SHELL := /bin/bash
         mutants-governance mutants-governance-oracle-probe mutants-diff \
         mutants-controller-core mutants-controller-oracle mutants-controller-positions \
         mutants-controller-strategies mutants-controller-views \
+        mutants-aggregator mutants-oracle-adapter mutants-swap-aggregator \
+        mutants-defindex-strategy mutants-position-nft \
         fuzz fuzz-contract fuzz-one fuzz-build fuzz-seed-corpus \
         fuzz-coverage fuzz-coverage-all fuzz-coverage-one fuzz-coverage-clean \
         proptest proptest-one proptest-build \
@@ -490,14 +492,26 @@ coverage-price-aggregator:
 	@echo "  $(COV_DIR)/price-aggregator-report.md"
 	@echo "  lcov.info  (IDE default; copy of $(COV_DIR)/price-aggregator.lcov.info)"
 
+# Every deployable contract, not a subset. governance, swap-aggregator,
+# xoxno-oracle, position-nft and defindex-strategy were all missing here: their
+# tests ran under `cargo test --workspace`, but no percentage was ever
+# attributed to them, so a coverage regression in any of the five was invisible.
+# Keep the package list and MODE_PATHS["merged"] in scripts/coverage_report.py
+# in step -- a package added here that is not matched there is measured and then
+# silently dropped from the report.
 coverage-merged:
-	@echo "Running merged coverage (common + controller + pool + price-aggregator + test-harness)..."
+	@echo "Running merged coverage (all deployable contracts + common + test-harness)..."
 	@mkdir -p $(COV_DIR)
 	@cargo llvm-cov clean --workspace
 	@set -o pipefail; cargo llvm-cov test -p common --lib --no-report --no-fail-fast $(COV_IGNORE) 2>&1 | tail -5
 	@set -o pipefail; cargo llvm-cov test -p pool --no-report --no-fail-fast $(COV_IGNORE) 2>&1 | tail -5
 	@set -o pipefail; cargo llvm-cov test -p price-aggregator --features testing --no-report --no-fail-fast $(COV_IGNORE) 2>&1 | tail -5
 	@set -o pipefail; cargo llvm-cov test -p controller --lib --no-report --no-fail-fast $(COV_IGNORE) 2>&1 | tail -5
+	@set -o pipefail; cargo llvm-cov test -p governance --no-report --no-fail-fast $(COV_IGNORE) 2>&1 | tail -5
+	@set -o pipefail; cargo llvm-cov test -p swap-aggregator --no-report --no-fail-fast $(COV_IGNORE) 2>&1 | tail -5
+	@set -o pipefail; cargo llvm-cov test -p xoxno-oracle --no-report --no-fail-fast $(COV_IGNORE) 2>&1 | tail -5
+	@set -o pipefail; cargo llvm-cov test -p position-nft --no-report --no-fail-fast $(COV_IGNORE) 2>&1 | tail -5
+	@set -o pipefail; cargo llvm-cov test -p defindex-strategy --no-report --no-fail-fast $(COV_IGNORE) 2>&1 | tail -5
 	@-$(COV_RUN_HARNESS); harness_status=$$?; \
 	cargo llvm-cov report --lcov --output-path $(COV_DIR)/merged.lcov.info $(COV_IGNORE) >/dev/null; \
 	python3 scripts/coverage_report.py \
@@ -854,7 +868,7 @@ mutants: mutants-common mutants-pool mutants-governance \
          mutants-controller-oracle mutants-controller-positions \
          mutants-controller-strategies mutants-controller-views \
          mutants-aggregator mutants-oracle-adapter mutants-defindex-strategy \
-         mutants-swap-aggregator
+         mutants-swap-aggregator mutants-position-nft
 
 
 mutants-math: _mutants-check
@@ -954,6 +968,9 @@ mutants-swap-aggregator: _mutants-check
 
 mutants-defindex-strategy: _mutants-harness-prepare
 	$(call run_mutants,--package defindex-strategy --test-package defindex-strategy)
+
+mutants-position-nft: _mutants-check
+	$(call run_mutants,--package position-nft --test-package position-nft)
 
 
 

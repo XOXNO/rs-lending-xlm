@@ -11,10 +11,18 @@ MODE_PATHS: dict[str, tuple[str, ...]] = {
     "controller": ("/contracts/controller/", "/common/"),
     "pool": ("/contracts/pool/",),
     "price-aggregator": ("/contracts/price-aggregator/", "/common/"),
+    # Every deployable contract under contracts/, plus common. Keep in step with
+    # the package list in the Makefile's `coverage-merged` target: a package
+    # measured there but not matched here is silently dropped from the report.
     "merged": (
         "/contracts/controller/",
         "/contracts/pool/",
         "/contracts/price-aggregator/",
+        "/contracts/governance/",
+        "/contracts/swap-aggregator/",
+        "/contracts/xoxno-oracle/",
+        "/contracts/position-nft/",
+        "/contracts/defindex-strategy/",
         "/common/",
     ),
 }
