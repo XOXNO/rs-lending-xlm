@@ -261,3 +261,7 @@ fn token_decimals(env: &Env, token: &Address) -> Option<u32> {
         _ => None,
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/oracle/aquarius_provider.rs"]
+mod tests;
