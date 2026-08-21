@@ -2,7 +2,7 @@ extern crate std;
 
 use super::*;
 use crate::cache::Cache;
-use crate::test_support::hub;
+use crate::test_support::{hub, LEDGER_PROTOCOL_VERSION};
 use common::constants::{
     BPS, MILLISECONDS_PER_YEAR, MS_PER_SECOND, RAY, TTL_BUMP_INSTANCE, TTL_BUMP_SHARED,
     TTL_THRESHOLD_INSTANCE, TTL_THRESHOLD_SHARED,
@@ -341,7 +341,7 @@ impl TestSetup {
     fn advance_time(&self, seconds: u64) {
         self.env.ledger().set(LedgerInfo {
             timestamp: 1000 + seconds,
-            protocol_version: 26,
+            protocol_version: LEDGER_PROTOCOL_VERSION,
             sequence_number: 200,
             network_id: Default::default(),
             base_reserve: 10,

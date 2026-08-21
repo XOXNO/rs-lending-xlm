@@ -6,6 +6,14 @@ use common::oracle::providers::reflector::ReflectorAsset;
 use soroban_sdk::testutils::{Address as _, Ledger, LedgerInfo};
 use soroban_sdk::{contracttype, Address, ConversionError, Env, InvokeError, String, Symbol};
 
+/// Protocol version the simulated ledger reports to the host.
+///
+/// The host rejects a ledger older than the protocol `soroban-sdk` was built
+/// for, raising `Error(Context, InternalError)` with "ledger protocol version
+/// too old for host" -- which reads as an unexplained mass failure rather than
+/// a version mismatch. Keep in step with the workspace `soroban-sdk` pin.
+pub const LEDGER_PROTOCOL_VERSION: u32 = 27;
+
 #[allow(dead_code)]
 #[contracttype]
 pub enum MirrorKey {
@@ -64,7 +72,7 @@ pub fn advance_ledger_seconds(env: &Env, seconds: u64) {
     let sequence_number = env.ledger().sequence();
     env.ledger().set(LedgerInfo {
         timestamp: current + seconds,
-        protocol_version: 26,
+        protocol_version: LEDGER_PROTOCOL_VERSION,
         sequence_number,
         network_id: Default::default(),
         base_reserve: 10,
@@ -80,7 +88,7 @@ pub fn advance_ledger_sequence(env: &Env, ledgers: u32) {
     let sequence_number = env.ledger().sequence() + ledgers;
     env.ledger().set(LedgerInfo {
         timestamp,
-        protocol_version: 26,
+        protocol_version: LEDGER_PROTOCOL_VERSION,
         sequence_number,
         network_id: Default::default(),
         base_reserve: 10,
