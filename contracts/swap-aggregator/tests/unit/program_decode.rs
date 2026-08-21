@@ -631,3 +631,123 @@ fn validate_rejects_a_split_weight_one_part_over_the_denominator() {
         Error::SplitPpmMismatch.into()
     );
 }
+
+// --- header self-consistency ------------------------------------------------
+
+/// A payload built for a different wire version must be refused outright rather
+/// than reinterpreted under the current field layout. Every offset in `head`
+/// and `field` is version-specific, so decoding v-other bytes as v-current
+/// silently reassigns pool and token indices.
+#[test]
+fn decode_rejects_a_payload_from_another_wire_version() {
+    let env = Env::default();
+    let good = one_swap(&env);
+
+    let mut raw = [0u8; MAX_PROGRAM_BYTES as usize];
+    let len = good.len();
+    good.copy_into_slice(&mut raw[..len as usize]);
+    raw[0] = VERSION.wrapping_add(1); // head::VERSION
+    let bumped = Bytes::from_slice(&env, &raw[..len as usize]);
+
+    assert_eq!(
+        decode_error(&env, &bumped, 3, 1),
+        Error::InvalidRouteXdr.into()
+    );
+}
+
+/// `op_count` and `weight_count` in the header must account for every byte:
+/// the decoder computes where the weight run starts from them and requires the
+/// payload to end exactly there. Trailing bytes mean the header and the body
+/// disagree about the program's shape, and the surplus would sit unread just
+/// past the last weight the caller believes it declared.
+#[test]
+fn decode_rejects_a_payload_with_bytes_past_its_declared_weight_run() {
+    let env = Env::default();
+    let mut padded = one_swap(&env);
+    padded.push_back(0);
+
+    assert_eq!(
+        decode_error(&env, &padded, 3, 1),
+        Error::InvalidRouteXdr.into()
+    );
+}
+
+/// The counterpart: a header that claims a weight run the payload is too short
+/// to contain.
+#[test]
+fn decode_rejects_a_header_claiming_more_weights_than_the_payload_carries() {
+    let env = Env::default();
+    let good = one_swap(&env);
+
+    let mut raw = [0u8; MAX_PROGRAM_BYTES as usize];
+    let len = good.len();
+    good.copy_into_slice(&mut raw[..len as usize]);
+    raw[9] = 2; // head::WEIGHT_COUNT, with no weight bytes appended
+    let lying = Bytes::from_slice(&env, &raw[..len as usize]);
+
+    assert_eq!(
+        decode_error(&env, &lying, 3, 1),
+        Error::InvalidRouteXdr.into()
+    );
+}
+
+// --- liquidity legs are whole-balance only ----------------------------------
+
+/// Burn and Mint consume everything the vault holds, so a sized mode on them is
+/// not a smaller operation -- it is a mode the executor ignores. Accepting it
+/// would let a caller believe they had bounded the leg when they had not.
+#[test]
+fn decode_rejects_a_sized_mode_on_a_liquidity_leg() {
+    let env = Env::default();
+    for opcode in [OP_BURN, OP_MINT] {
+        let sized = encode::program(
+            &env,
+            1,
+            2,
+            0,
+            0,
+            &alloc::vec![RawOp {
+                opcode,
+                mode: encode::fixed(0),
+                idx_a: 0,
+                idx_b: 1,
+                idx_c: 0,
+            }],
+            &[],
+        );
+        assert_eq!(
+            decode_error(&env, &sized, 3, 1),
+            Error::InvalidRouteXdr.into(),
+            "opcode {opcode} must reject a sized mode"
+        );
+    }
+}
+
+/// A liquidity leg's `idx_c` addresses the amount registry, so it has to be
+/// inside it. Out of range would read a slot the caller never supplied.
+#[test]
+fn decode_rejects_a_liquidity_leg_addressing_a_missing_amount_slot() {
+    let env = Env::default();
+    for opcode in [OP_BURN, OP_MINT] {
+        let out_of_range = encode::program(
+            &env,
+            1,
+            2,
+            0,
+            0,
+            &alloc::vec![RawOp {
+                opcode,
+                mode: encode::ALL,
+                idx_a: 0,
+                idx_b: 1,
+                idx_c: 4,
+            }],
+            &[],
+        );
+        assert_eq!(
+            decode_error(&env, &out_of_range, 3, 2),
+            Error::InvalidRouteXdr.into(),
+            "opcode {opcode} must reject idx_c past the amount registry"
+        );
+    }
+}
