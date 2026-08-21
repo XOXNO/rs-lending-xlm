@@ -449,7 +449,21 @@ fn raising_threshold_invalidates_below_quorum_aggregate() {
         Some(100u128)
     );
 
+    // The setter stores the threshold and nothing else: sweeping every feed in
+    // the same transaction grows the footprint with the feed count and would
+    // eventually make the setter permanently uncallable. So the aggregate formed
+    // under the old threshold is still served here -- the window the batched
+    // sweep trades for a bounded footprint.
     client.set_threshold(&2u32);
+    assert_eq!(
+        client.read_price_data_for_feed(&feed).price.to_u128(),
+        Some(100u128)
+    );
+
+    // Once the sweep runs, the single submission is below the new quorum and the
+    // feed must stop serving a price rather than serve one the threshold no
+    // longer justifies.
+    client.recompute_feeds(&vec![&env, feed.clone()]);
     assert_eq!(
         expect_error(client.try_read_price_data_for_feed(&feed)),
         Error::NoDataForFeed
