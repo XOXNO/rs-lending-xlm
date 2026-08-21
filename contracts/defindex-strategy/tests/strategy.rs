@@ -1,6 +1,6 @@
 extern crate std;
 
-use defindex_strategy::{DataKey, DeFindexStrategyError, Strategy, StrategyClient};
+use defindex_strategy::{Config, DataKey, DeFindexStrategyError, Strategy, StrategyClient};
 use soroban_sdk::testutils::storage::Persistent as _;
 use soroban_sdk::testutils::{Address as _, Events, MockAuth, MockAuthInvoke};
 use soroban_sdk::xdr::{ContractEventBody, ContractEventV0, ScVal};
@@ -567,4 +567,211 @@ fn test_supply_reopens_when_the_mapping_points_at_a_missing_account() {
     assert!(reopened != NEVER_CREATED, "stale pointer must not survive");
     assert!(reopened != 0, "a fresh account must be opened");
     assert!(s.client().balance(&s.vault) > 499 * UNIT);
+}
+
+// ---------------------------------------------------------------------------
+// Construction and failure paths.
+//
+// `__constructor` decodes `init_args` positionally and every arity or type
+// error collapses to `NotInitialized`, so a caller that passes the arguments in
+// the wrong order gets the same error as one that passes none. Each position is
+// probed from both sides -- absent, and present with the wrong type -- because
+// a `get(n)` that drifts to `get(n+1)` still panics on one input and silently
+// reads the neighbouring argument on the other.
+//
+// None of these reach the controller: the panic fires before
+// `get_market_index`, so they need no lending harness.
+// ---------------------------------------------------------------------------
+
+const NOT_INITIALIZED: u32 = 401;
+const ACCOUNT_LOOKUP_FAILED: u32 = 463;
+
+fn ctor_env() -> (Env, Address, Address) {
+    let env = Env::default();
+    let asset = Address::generate(&env);
+    let controller = Address::generate(&env);
+    (env, asset, controller)
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #401)")]
+fn constructor_rejects_missing_controller_argument() {
+    let (env, asset, _controller) = ctor_env();
+    let args: Vec<Val> = vec![&env];
+    env.register(Strategy, (asset, args));
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #401)")]
+fn constructor_rejects_controller_argument_of_the_wrong_type() {
+    let (env, asset, _controller) = ctor_env();
+    let args: Vec<Val> = vec![&env, 7u32.into_val(&env)];
+    env.register(Strategy, (asset, args));
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #401)")]
+fn constructor_rejects_missing_hub_id_argument() {
+    let (env, asset, controller) = ctor_env();
+    let args: Vec<Val> = vec![&env, controller.into_val(&env)];
+    env.register(Strategy, (asset, args));
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #401)")]
+fn constructor_rejects_hub_id_argument_of_the_wrong_type() {
+    let (env, asset, controller) = ctor_env();
+    // An Address where a u32 is expected -- the shape a caller gets by passing
+    // (controller, controller, spoke) instead of (controller, hub, spoke).
+    let args: Vec<Val> = vec![
+        &env,
+        controller.clone().into_val(&env),
+        controller.into_val(&env),
+    ];
+    env.register(Strategy, (asset, args));
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #401)")]
+fn constructor_rejects_missing_spoke_id_argument() {
+    let (env, asset, controller) = ctor_env();
+    let args: Vec<Val> = vec![&env, controller.into_val(&env), HARNESS_HUB.into_val(&env)];
+    env.register(Strategy, (asset, args));
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #401)")]
+fn constructor_rejects_spoke_id_argument_of_the_wrong_type() {
+    let (env, asset, controller) = ctor_env();
+    let args: Vec<Val> = vec![
+        &env,
+        controller.clone().into_val(&env),
+        HARNESS_HUB.into_val(&env),
+        controller.into_val(&env),
+    ];
+    env.register(Strategy, (asset, args));
+}
+
+// ---------------------------------------------------------------------------
+// Every entry point fails closed once the instance `Config` is gone.
+//
+// The constructor always writes `Config`, so the `NotInitialized` arm of
+// `config()` is unreachable through the front door. It is reachable through
+// instance-storage archival: if the instance entry expires and is not restored,
+// a live strategy holding vault collateral wakes up with no configuration. What
+// must not happen then is an entry point reading a default and continuing, so
+// each one is checked to return `NotInitialized` rather than a value.
+// ---------------------------------------------------------------------------
+
+/// `try_*` methods whose success type converts infallibly surface the inner
+/// error as `ConversionError` rather than `Error`, so the shared
+/// `flatten_strategy_result` does not fit them. Only the outer contract error
+/// matters here, which is the same for every entry point.
+fn assert_not_initialized<T: core::fmt::Debug, E: core::fmt::Debug>(
+    result: Result<Result<T, E>, Result<DeFindexStrategyError, InvokeError>>,
+) {
+    match result {
+        Err(Ok(err)) => assert_eq!(
+            Error::from(&err),
+            Error::from_contract_error(NOT_INITIALIZED),
+            "expected NotInitialized"
+        ),
+        other => panic!("expected NotInitialized, got {other:?}"),
+    }
+}
+
+fn strategy_with_config_erased() -> StrategyTest {
+    let s = StrategyTest::new();
+    s.t.env.mock_all_auths();
+    s.t.env.as_contract(&s.client_address, || {
+        s.t.env.storage().instance().remove(&DataKey::Config);
+    });
+    s
+}
+
+#[test]
+fn asset_reports_not_initialized_when_the_config_is_gone() {
+    let s = strategy_with_config_erased();
+    assert_not_initialized(s.client().try_asset());
+}
+
+#[test]
+fn deposit_reports_not_initialized_when_the_config_is_gone() {
+    let s = strategy_with_config_erased();
+    let vault = s.vault.clone();
+    // Positive amount on purpose: a non-positive one short-circuits on
+    // AmountNotPositive and never reaches the config load.
+    assert_not_initialized(s.client().try_deposit(&UNIT, &vault));
+}
+
+#[test]
+fn withdraw_reports_not_initialized_when_the_config_is_gone() {
+    let s = strategy_with_config_erased();
+    let vault = s.vault.clone();
+    assert_not_initialized(s.client().try_withdraw(&UNIT, &vault, &vault));
+}
+
+#[test]
+fn harvest_reports_not_initialized_when_the_config_is_gone() {
+    let s = strategy_with_config_erased();
+    let vault = s.vault.clone();
+    assert_not_initialized(s.client().try_harvest(&vault, &None));
+}
+
+#[test]
+fn balance_reports_not_initialized_when_the_config_is_gone() {
+    let s = strategy_with_config_erased();
+    let vault = s.vault.clone();
+    assert_not_initialized(s.client().try_balance(&vault));
+}
+
+// ---------------------------------------------------------------------------
+// A controller that cannot answer `account_exists` must not be read as "gone".
+//
+// resolve_vault_account clears the vault -> account mapping only on an explicit
+// `Ok(false)`. The mapping is the sole route back to the collateral it points
+// at, so a lookup that merely failed has to abort rather than clear. This
+// points the stored config at a contract with no `account_exists` export, which
+// is the shape of a controller that was upgraded out from under the strategy.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_failed_controller_lookup_aborts_instead_of_clearing_the_vault_mapping() {
+    let s = StrategyTest::new();
+    s.t.env.mock_all_auths();
+    let vault = s.vault.clone();
+
+    // Give the vault a stored account id so the lookup is actually attempted;
+    // a stored 0 returns early and never calls the controller.
+    s.t.env.as_contract(&s.client_address, || {
+        s.t.env
+            .storage()
+            .persistent()
+            .set(&DataKey::VaultAccount(vault.clone()), &7u64);
+        let cfg: Config = s.t.env.storage().instance().get(&DataKey::Config).unwrap();
+        s.t.env.storage().instance().set(
+            &DataKey::Config,
+            &Config {
+                // The strategy itself: a real contract that has no
+                // `account_exists` entry point, so the call errors rather than
+                // returning a boolean.
+                controller: s.client_address.clone(),
+                ..cfg
+            },
+        );
+    });
+
+    assert_strategy_error(
+        flatten_strategy_result(s.client().try_balance(&vault)),
+        ACCOUNT_LOOKUP_FAILED,
+    );
+
+    // The mapping survives: an unanswerable lookup is not evidence of absence.
+    let still_there = s.t.env.as_contract(&s.client_address, || {
+        s.t.env
+            .storage()
+            .persistent()
+            .get::<_, u64>(&DataKey::VaultAccount(vault.clone()))
+    });
+    assert_eq!(still_there, Some(7u64));
 }
