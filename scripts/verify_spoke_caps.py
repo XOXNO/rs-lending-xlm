@@ -23,6 +23,14 @@ Checks, per spoke asset, against live on-chain state:
      collateral/borrow flags and the checked-in JSON            (review item)
 Plus: any divergence between live state and `configs/<network>/spokes.json`.
 
+Config spoke ids are NOT on-chain spoke ids. `add_spoke` takes no id argument --
+it auto-increments -- so any spoke the deploy skips (`"enabled": false`) shifts
+every later spoke down by one. The deploy script records the translation in
+`configs/networks.json.<network>.spoke_ids`, and this tool queries through it:
+config keys select the expected config, mapped on-chain ids address the
+contract. With no map recorded the two are assumed to coincide, which is what a
+deployment that never skipped a spoke produces.
+
 Everything here is a simulated read (`--send=no`). No transaction is built,
 signed, or submitted, and no signing identity is touched.
 
@@ -161,9 +169,28 @@ def load_spokes(network):
             continue
         spokes[int(spoke_id)] = {
             "name": spoke.get("name", ""),
+            "enabled": spoke.get("enabled", True) is not False,
             "assets": spoke.get("assets", {}) or {},
         }
     return spokes
+
+
+def load_spoke_id_map(network):
+    """config spoke id (int) -> on-chain spoke id (int), from networks.json.
+
+    `add_spoke` takes no id: it auto-increments, so on-chain ids are assigned
+    purely by deploy call order. Any spoke the deploy loop skips (`"enabled":
+    false`) permanently shifts every later spoke down, and the deploy script
+    records the resulting translation in `networks.json.<network>.spoke_ids`.
+    Reading a config key as an on-chain id is therefore only correct when
+    nothing was ever skipped.
+
+    An empty or absent map means the deploy has not written one yet; callers
+    fall back to identity, which is what a never-skipped deployment produces.
+    """
+    networks = load_json(os.path.join(CONFIGS, "networks.json"))
+    raw = (networks.get(network) or {}).get("spoke_ids") or {}
+    return {int(config_id): int(onchain_id) for config_id, onchain_id in raw.items()}
 
 def cfg_cap(asset_cfg, key):
     """Checked-in cap as int, or None when the key is absent entirely.
@@ -184,12 +211,22 @@ class Auditor:
             self.net = dict(self.net, rpc_url=rpc_url)
         if controller:
             self.controller = controller
+        self.divergences = []
         self.markets = load_markets(network)
         self.spokes = load_spokes(network)
+        self.spoke_ids = load_spoke_id_map(network)
+        # No recorded map: the deploy never skipped a spoke, so config ids and
+        # on-chain ids coincide. Probing config ids directly is correct here.
+        self.identity_ids = not self.spoke_ids
+        self.config_by_onchain = {v: k for k, v in self.spoke_ids.items()}
+        if len(self.config_by_onchain) != len(self.spoke_ids):
+            self.divergences.append(
+                f"configs/networks.json {network}.spoke_ids maps two config ids to the "
+                "same on-chain id; the map is corrupt and this audit cannot be trusted"
+            )
         self.pool = None
         self.decimals_cache = {}
         self.rows = []
-        self.divergences = []
         self.query_failures = []
 
     def log(self, message):
@@ -214,29 +251,59 @@ class Auditor:
         self.decimals_cache[key] = value
         return value
 
+    def config_for(self, onchain_id):
+        """Config spoke id that `onchain_id` belongs to, or None if unmapped."""
+        if self.identity_ids:
+            return onchain_id if onchain_id in self.spokes else None
+        return self.config_by_onchain.get(onchain_id)
+
+    def label(self, config_id, onchain_id):
+        """`spoke N` when the ids coincide, `spoke N (on-chain M)` when they do not."""
+        if config_id is None:
+            return f"on-chain spoke {onchain_id}"
+        if config_id == onchain_id:
+            return f"spoke {config_id}"
+        return f"spoke {config_id} (on-chain {onchain_id})"
+
     def discover_spokes(self):
-        """Live spoke ids: every configured id plus a margin, probed on-chain."""
-        configured = sorted(self.spokes)
-        highest = max(configured) if configured else 0
-        candidates = sorted(set(configured) | set(range(1, highest + SPOKE_PROBE_MARGIN + 1)))
+        """Live spokes as (config_id, onchain_id) pairs, probed on-chain.
+
+        Probes ON-CHAIN ids, never config keys: with a recorded `spoke_ids` map
+        the two differ for every spoke after the first skipped one. The margin
+        beyond the highest known id is what surfaces a spoke that exists
+        on-chain but was never written back to the repo.
+        """
+        known_onchain = set(self.spoke_ids.values()) or set(self.spokes)
+        highest = max(known_onchain) if known_onchain else 0
+        candidates = sorted(known_onchain | set(range(1, highest + SPOKE_PROBE_MARGIN + 1)))
 
         live = []
-        for spoke_id in candidates:
+        for onchain_id in candidates:
             try:
-                data, err = self.call(self.controller, "get_spoke", {"spoke_id": str(spoke_id)})
+                data, err = self.call(self.controller, "get_spoke", {"spoke_id": str(onchain_id)})
             except QueryError as exc:
-                self.query_failures.append(f"get_spoke({spoke_id}): {exc}")
+                self.query_failures.append(f"get_spoke({onchain_id}): {exc}")
                 continue
             if err == ERR_SPOKE_NOT_FOUND:
                 continue
             if err is not None:
-                self.query_failures.append(f"get_spoke({spoke_id}): contract error #{err}")
+                self.query_failures.append(f"get_spoke({onchain_id}): contract error #{err}")
                 continue
-            live.append(spoke_id)
-            if spoke_id not in self.spokes:
+
+            config_id = self.config_for(onchain_id)
+            live.append((config_id, onchain_id))
+            if config_id is None:
                 self.divergences.append(
-                    f"spoke {spoke_id} exists on-chain but is absent from "
-                    f"configs/{self.network}/spokes.json (live config: {json.dumps(data)})"
+                    f"on-chain spoke {onchain_id} is not mapped to any spoke in "
+                    f"configs/{self.network}/spokes.json"
+                    + ("" if self.identity_ids else
+                       f" by configs/networks.json {self.network}.spoke_ids")
+                    + f" (live config: {json.dumps(data)})"
+                )
+            elif not self.spokes.get(config_id, {}).get("enabled", True):
+                self.divergences.append(
+                    f"{self.label(config_id, onchain_id)}: deployed on-chain but marked "
+                    f'"enabled": false in configs/{self.network}/spokes.json'
                 )
         return live
 
@@ -260,13 +327,36 @@ class Auditor:
         self.log(f"controller {self.controller}")
         self.log(f"pool       {self.pool}")
 
-        for spoke_id in self.discover_spokes():
-            self.audit_spoke(spoke_id)
+        if self.identity_ids:
+            self.log(
+                f"spoke id map: none recorded in configs/networks.json for '{self.network}'; "
+                "assuming config ids == on-chain ids"
+            )
+        else:
+            self.log(
+                "spoke id map: "
+                + ", ".join(f"{c}->{o}" for c, o in sorted(self.spoke_ids.items()))
+            )
+
+        for config_id, onchain_id in self.discover_spokes():
+            self.audit_spoke(config_id, onchain_id)
 
         live_ids = {row["spoke_id"] for row in self.rows}
-        for spoke_id in self.spokes:
+        for spoke_id, spoke in self.spokes.items():
+            if not spoke.get("enabled", True):
+                # Deliberately not deployed: it has no on-chain id to diverge from.
+                self.log(f"spoke {spoke_id} ({spoke['name']}): enabled=false, not deployed")
+                continue
+            probe_id = self.spoke_ids.get(spoke_id, spoke_id if self.identity_ids else None)
+            if probe_id is None:
+                self.divergences.append(
+                    f"spoke {spoke_id} is enabled in configs/{self.network}/spokes.json but "
+                    f"configs/networks.json {self.network}.spoke_ids has no on-chain id for "
+                    "it -- it was never deployed, or the map was not written back"
+                )
+                continue
             if spoke_id not in live_ids and not any(
-                f"get_spoke({spoke_id})" in failure for failure in self.query_failures
+                f"get_spoke({probe_id})" in failure for failure in self.query_failures
             ):
                 self.divergences.append(
                     f"spoke {spoke_id} is in configs/{self.network}/spokes.json but has no "
@@ -274,13 +364,18 @@ class Auditor:
                 )
         return True
 
-    def audit_spoke(self, spoke_id):
+    def audit_spoke(self, config_id, onchain_id):
         """Probe EVERY known market against this spoke, not just configured ones.
 
         An asset added on-chain but never written back to spokes.json is exactly
         the drift this gate exists to surface.
+
+        `onchain_id` addresses the contract; `config_id` selects the checked-in
+        config to compare against. They differ whenever a skipped spoke shifted
+        the auto-incremented ids.
         """
-        cfg_assets = self.spokes.get(spoke_id, {}).get("assets", {})
+        cfg_assets = self.spokes.get(config_id, {}).get("assets", {})
+        where = self.label(config_id, onchain_id)
         seen = set()
 
         for name, market in self.markets.items():
@@ -289,43 +384,45 @@ class Auditor:
                     self.controller,
                     "get_spoke_asset",
                     {
-                        "spoke_id": str(spoke_id),
+                        "spoke_id": str(onchain_id),
                         "hub_asset": self.hub_asset_arg(market["hub_id"], market["address"]),
                     },
                 )
             except QueryError as exc:
-                self.query_failures.append(f"get_spoke_asset({spoke_id}, {name}): {exc}")
+                self.query_failures.append(f"get_spoke_asset({onchain_id}, {name}): {exc}")
                 continue
 
             if err == ERR_ASSET_NOT_IN_SPOKE:
                 if name in cfg_assets:
                     self.divergences.append(
-                        f"spoke {spoke_id} / {name}: present in configs/{self.network}/"
+                        f"{where} / {name}: present in configs/{self.network}/"
                         "spokes.json but NOT on-chain"
                     )
                 continue
             if err is not None:
                 self.query_failures.append(
-                    f"get_spoke_asset({spoke_id}, {name}): contract error #{err}"
+                    f"get_spoke_asset({onchain_id}, {name}): contract error #{err}"
                 )
                 continue
 
             seen.add(name)
             if name not in cfg_assets:
                 self.divergences.append(
-                    f"spoke {spoke_id} / {name}: live on-chain but NOT in "
+                    f"{where} / {name}: live on-chain but NOT in "
                     f"configs/{self.network}/spokes.json"
                 )
-            self.rows.append(self.evaluate(spoke_id, name, market, live, cfg_assets.get(name, {})))
+            self.rows.append(
+                self.evaluate(config_id, onchain_id, name, market, live, cfg_assets.get(name, {}))
+            )
 
         for name in cfg_assets:
             if name not in seen and name not in self.markets:
                 self.divergences.append(
-                    f"spoke {spoke_id} / {name}: in spokes.json but has no entry in "
+                    f"{where} / {name}: in spokes.json but has no entry in "
                     f"configs/{self.network}/markets.json -- cannot resolve an address"
                 )
 
-    def evaluate(self, spoke_id, name, market, live, cfg):
+    def evaluate(self, config_id, onchain_id, name, market, live, cfg):
         decimals = self.live_decimals(market["hub_id"], market["address"])
         decimals_source = "live"
         if decimals is None:
@@ -341,8 +438,9 @@ class Auditor:
         ceiling = cap_ceiling(decimals) if decimals is not None else None
 
         row = {
-            "spoke_id": spoke_id,
-            "spoke_name": self.spokes.get(spoke_id, {}).get("name", ""),
+            "spoke_id": config_id,
+            "onchain_spoke_id": onchain_id,
+            "spoke_name": self.spokes.get(config_id, {}).get("name", ""),
             "asset": name,
             "hub_id": market["hub_id"],
             "address": market["address"],
@@ -389,10 +487,10 @@ class Auditor:
             if cap < 0:
                 row["blockers"].append(f"{side}_cap is negative ({cap})")
 
-        self.compare_config(row, cfg, spoke_id, name)
+        self.compare_config(row, cfg, config_id, onchain_id, name)
         return row
 
-    def compare_config(self, row, cfg, spoke_id, name):
+    def compare_config(self, row, cfg, config_id, onchain_id, name):
         if not cfg:
             return
         for side, key in (("supply", "supply_cap"), ("borrow", "borrow_cap")):
@@ -400,12 +498,13 @@ class Auditor:
             live = row[f"{side}_cap"]
             if expected is None:
                 self.divergences.append(
-                    f"spoke {spoke_id} / {name}: configs/{self.network}/spokes.json omits "
-                    f"'{key}' entirely; live value is {live}"
+                    f"{self.label(config_id, onchain_id)} / {name}: configs/{self.network}/"
+                    f"spokes.json omits '{key}' entirely; live value is {live}"
                 )
             elif expected != live:
                 self.divergences.append(
-                    f"spoke {spoke_id} / {name}: {key} live={live} config={expected}"
+                    f"{self.label(config_id, onchain_id)} / {name}: {key} "
+                    f"live={live} config={expected}"
                 )
         for flag, key in (
             ("is_collateralizable", "can_be_collateral"),
@@ -413,7 +512,8 @@ class Auditor:
         ):
             if key in cfg and bool(cfg[key]) != bool(row[flag]):
                 self.divergences.append(
-                    f"spoke {spoke_id} / {name}: {flag} live={row[flag]} config={cfg[key]}"
+                    f"{self.label(config_id, onchain_id)} / {name}: {flag} "
+                    f"live={row[flag]} config={cfg[key]}"
                 )
 
 def scan_config_events(auditor, lookback=119000):
@@ -539,26 +639,38 @@ def config_audit(network):
     print(f"{network} config audit: {'PASS' if ok else 'FAIL'} (config only, not live)")
     return ok
 
+def row_label(row):
+    """`spoke N`, or `spoke N (on-chain M)` when a skipped spoke shifted the ids."""
+    config_id, onchain_id = row["spoke_id"], row["onchain_spoke_id"]
+    if config_id is None:
+        return f"on-chain spoke {onchain_id}"
+    if config_id == onchain_id:
+        return f"spoke {config_id}"
+    return f"spoke {config_id} (on-chain {onchain_id})"
+
 def render(auditor):
     print(f"\n=== {auditor.network} ===")
     if not auditor.rows:
         print("no live spoke assets read")
     else:
         header = (
-            f"{'spoke':>5} {'asset':<14} {'hub':>3} {'dec':>3} "
+            f"{'spoke':>5} {'chain':>5} {'asset':<14} {'hub':>3} {'dec':>3} "
             f"{'supply_cap':>26} {'borrow_cap':>26} {'coll':>5} {'borr':>5}  verdict"
         )
         print(header)
         print("-" * len(header))
-        for row in sorted(auditor.rows, key=lambda r: (r["spoke_id"], r["asset"])):
+        # Sort by the on-chain id: the config id is None for an unmapped spoke.
+        for row in sorted(auditor.rows, key=lambda r: (r["onchain_spoke_id"], r["asset"])):
             if row["blockers"]:
                 verdict = "FAIL"
             elif any("ENABLED" in w for w in row["warnings"]):
                 verdict = "PASS (dead market)"
             else:
                 verdict = "PASS"
+            config_id = "-" if row["spoke_id"] is None else row["spoke_id"]
             print(
-                f"{row['spoke_id']:>5} {row['asset']:<14} {row['hub_id']:>3} "
+                f"{config_id:>5} {row['onchain_spoke_id']:>5} {row['asset']:<14} "
+                f"{row['hub_id']:>3} "
                 f"{str(row['decimals']):>3} {row['supply_cap']:>26} {row['borrow_cap']:>26} "
                 f"{str(row['is_collateralizable']):>5} {str(row['is_borrowable']):>5}  {verdict}"
             )
@@ -571,12 +683,12 @@ def render(auditor):
     if blockers:
         print("\nDEPLOY BLOCKERS:")
         for row, msg in blockers:
-            print(f"  - spoke {row['spoke_id']} / {row['asset']}: {msg}")
+            print(f"  - {row_label(row)} / {row['asset']}: {msg}")
 
     if dead:
         print("\nZERO CAP ON AN ENABLED SIDE (legal, but the market accepts nothing):")
         for row, msg in dead:
-            print(f"  - spoke {row['spoke_id']} / {row['asset']}: {msg}")
+            print(f"  - {row_label(row)} / {row['asset']}: {msg}")
 
     if auditor.divergences:
         print("\nLIVE vs CHECKED-IN CONFIG DIVERGENCE:")
