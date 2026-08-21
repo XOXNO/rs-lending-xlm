@@ -2,15 +2,18 @@
 
 set -euo pipefail
 
+# Every deployable contract in the workspace. Mocks are test doubles and are
+# deliberately not audited. Keep this list in sync with the `contracts/*`
+# members of the root Cargo.toml.
 contracts=(
   contracts/pool/Cargo.toml
   contracts/controller/Cargo.toml
   contracts/governance/Cargo.toml
   contracts/price-aggregator/Cargo.toml
   contracts/defindex-strategy/Cargo.toml
-  mock/flash-loan-receiver/Cargo.toml
-  mock/mock-oracle/Cargo.toml
-  mock/mock-redstone/Cargo.toml
+  contracts/position-nft/Cargo.toml
+  contracts/swap-aggregator/Cargo.toml
+  contracts/xoxno-oracle/Cargo.toml
 )
 
 format="${SCOUT_OUTPUT_FORMAT:-md}"
@@ -27,18 +30,29 @@ case "$out_dir_abs" in
 esac
 
 work_dir="$(mktemp -d)"
-trap 'rm -rf "$work_dir"' EXIT
+file_list="$(mktemp)"
+trap 'rm -rf "$work_dir"; rm -f "$file_list"' EXIT
 rm -rf "$out_dir_abs"
 mkdir -p "$out_dir_abs" "$HOME/.scout-audit/telemetry"
 printf DONOTTRACK >"$HOME/.scout-audit/telemetry/user_id.txt"
 export SOROBAN_SDK_BUILD_SYSTEM_SUPPORTS_SPEC_SHAKING_V2=1
 
-tar \
-  --exclude './.git' \
-  --exclude './.claude' \
-  --exclude './.certora_internal' \
-  --exclude '*/target' \
-  -cf - . | (cd "$work_dir" && tar -xf -)
+# Stage a source-only copy of the repository. The file list comes from git
+# (tracked + untracked, minus .gitignore), so build outputs -- target/,
+# target-verify/, .worktrees/, test_snapshots/, mutants.out/ -- are excluded by
+# the same rules the repository already declares, and uncommitted working-tree
+# changes are still audited.
+#
+# Do NOT go back to `tar --exclude` here: bsdtar/libarchive strips the leading
+# './' from each stored path before matching, so '*/target' matches
+# 'sub/target' but NOT the top-level 'target'. That silently staged the entire
+# 38 GB build cache and exhausted the disk on macOS.
+git ls-files -z --cached --others --exclude-standard >"$file_list"
+if [ ! -s "$file_list" ]; then
+  echo "Refusing to run: git produced an empty source file list" >&2
+  exit 1
+fi
+tar --null -T "$file_list" -cf - | (cd "$work_dir" && tar -xf -)
 
 find "$work_dir/contracts" "$work_dir/common" -name Cargo.toml -print0 |
   xargs -0 perl -0pi -e 's/crate-type = \["cdylib", "rlib"\]/crate-type = ["rlib"]/g'
