@@ -4,18 +4,19 @@
 
 use common::oracle::providers::reflector::ReflectorAsset;
 
-use soroban_sdk::{contractimpl, Address, Env, String};
+use soroban_sdk::{contractimpl, Address, Env, String, Vec};
 
 use stellar_macros::only_owner;
 
 use crate::aggregation::recompute_aggregate;
 use crate::storage::{
     asset_index_insert, asset_index_remove, clear_feed_state, clear_signer_feeds,
-    ensure_known_feed, feed_index_contains, has_feed_mapping, load_all_feeds, load_feed_owner,
+    ensure_known_feed, feed_index_contains, has_feed_mapping, load_feed_owner,
     load_max_stale_seconds, load_max_submission_age, load_signer_feeds, load_signers,
     load_threshold, map_feed, remove_feed_mapping, remove_submission, renew_oracle_instance,
-    store_max_relative_skew, store_max_stale_seconds, store_max_submission_age, store_resolution,
-    store_signers, store_threshold, take_feed_mapping, MIN_SUBMISSION_AGE_SECONDS,
+    require_known_feed, store_max_relative_skew, store_max_stale_seconds, store_max_submission_age,
+    store_resolution, store_signers, store_threshold, take_feed_mapping,
+    MIN_SUBMISSION_AGE_SECONDS,
 };
 use crate::{Error, XoxnoOracle, XoxnoOracleArgs, XoxnoOracleClient};
 
@@ -67,8 +68,9 @@ impl XoxnoOracle {
 
     /// Sets the minimum number of signer submissions required to accept a
     /// price for a feed. Fails with `InvalidThreshold` if `threshold` is zero
-    /// or exceeds the current signer count. Recomputes the aggregate for
-    /// every known feed under the new threshold.
+    /// or exceeds the current signer count. Does not re-derive existing
+    /// aggregates: call `recompute_feeds` afterwards to apply the new
+    /// threshold to feeds that already hold one.
     #[only_owner]
     pub fn set_threshold(env: Env, threshold: u32) -> Result<(), Error> {
         renew_oracle_instance(&env);
@@ -78,9 +80,6 @@ impl XoxnoOracle {
         }
         store_threshold(&env, threshold);
 
-        for feed_id in load_all_feeds(&env).iter() {
-            recompute_aggregate(&env, &feed_id);
-        }
         Ok(())
     }
 
@@ -100,8 +99,9 @@ impl XoxnoOracle {
     /// Sets the maximum age, in seconds, a signer's submission timestamp can
     /// have relative to ledger time to be accepted. Fails with
     /// `InvalidSubmissionAge` if `seconds` is below `MIN_SUBMISSION_AGE_SECONDS`
-    /// or above the configured maximum stale age. Recomputes the aggregate
-    /// for every known feed under the new bound.
+    /// or above the configured maximum stale age. Does not re-derive
+    /// existing aggregates: call `recompute_feeds` afterwards to apply the
+    /// new bound to feeds that already hold one.
     #[only_owner]
     pub fn set_max_submission_age_seconds(env: Env, seconds: u64) -> Result<(), Error> {
         renew_oracle_instance(&env);
@@ -110,9 +110,6 @@ impl XoxnoOracle {
         }
         store_max_submission_age(&env, seconds);
 
-        for feed_id in load_all_feeds(&env).iter() {
-            recompute_aggregate(&env, &feed_id);
-        }
         Ok(())
     }
 
@@ -120,7 +117,8 @@ impl XoxnoOracle {
     /// signer submissions for the same aggregate. Fails with
     /// `InvalidRelativeSkew` if `seconds` exceeds the configured maximum
     /// submission age or is not greater than `MAX_FUTURE_SKEW_SECONDS`.
-    /// Recomputes the aggregate for every known feed under the new bound.
+    /// Does not re-derive existing aggregates: call `recompute_feeds`
+    /// afterwards to apply the new bound to feeds that already hold one.
     #[only_owner]
     pub fn set_max_relative_skew_seconds(env: Env, seconds: u64) -> Result<(), Error> {
         renew_oracle_instance(&env);
@@ -131,7 +129,30 @@ impl XoxnoOracle {
         }
         store_max_relative_skew(&env, seconds);
 
-        for feed_id in load_all_feeds(&env).iter() {
+        Ok(())
+    }
+
+    /// Re-derives the stored aggregate for each feed in `feed_ids` under the
+    /// current threshold, submission-age, and skew configuration.
+    ///
+    /// The configuration setters deliberately do not sweep every registered
+    /// feed. That cost grows with the feed count and eventually crosses the
+    /// transaction footprint limit, which would leave those settings
+    /// permanently unchangeable -- exactly when a signer outage requires
+    /// lowering the threshold. Call this after a configuration change, in
+    /// batches small enough to stay inside the limit: each feed costs about
+    /// one ledger entry per signer plus three. Use `feeds()` to enumerate the
+    /// registered ids.
+    ///
+    /// Fails with `FeedNotKnown` if any id is not registered, in which case
+    /// no aggregate is recomputed.
+    #[only_owner]
+    pub fn recompute_feeds(env: Env, feed_ids: Vec<String>) -> Result<(), Error> {
+        renew_oracle_instance(&env);
+        for feed_id in feed_ids.iter() {
+            require_known_feed(&env, &feed_id)?;
+        }
+        for feed_id in feed_ids.iter() {
             recompute_aggregate(&env, &feed_id);
         }
         Ok(())
