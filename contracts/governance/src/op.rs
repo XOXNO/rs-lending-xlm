@@ -446,3 +446,7 @@ pub(crate) fn apply_self_op(env: &Env, op: &AdminOperation) {
 #[cfg(test)]
 #[path = "../tests/op.rs"]
 mod xdr_parity;
+
+#[cfg(test)]
+#[path = "../tests/resolve_op.rs"]
+mod resolve_op_tests;
