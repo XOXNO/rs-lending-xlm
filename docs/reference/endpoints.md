@@ -616,11 +616,20 @@ skew bounds.
 
 Reads are open and Reflector-compatible: `lastprice`, `price`, `prices`,
 `read_price_data`, `read_price_data_for_feed`, `read_price_history`, `assets`,
-`base`, `decimals`, `resolution`, `max_stale_seconds`,
+`feeds`, `base`, `decimals`, `resolution`, `max_stale_seconds`,
 `max_submission_age_seconds`, `max_relative_skew_seconds`.
 
 Signer set, threshold, feed registration, and the staleness bounds are
 governance-routed.
+
+`set_threshold`, `set_max_submission_age_seconds`, and
+`set_max_relative_skew_seconds` store the new bound only; they do not re-derive
+aggregates that already exist. Follow a change with `recompute_feeds(feed_ids)`
+to apply it to feeds that already hold an aggregate, in batches small enough to
+stay inside the transaction footprint limit (about one ledger entry per signer
+plus three, per feed). `feeds()` enumerates the registered ids. Sweeping every
+feed inside the setter would make its footprint grow with the feed count and
+eventually make those settings permanently unchangeable.
 
 ---
 
