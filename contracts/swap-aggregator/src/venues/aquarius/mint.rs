@@ -66,10 +66,9 @@ pub(crate) fn add_liquidity(
         panic_with_error!(env, Error::InvalidAmount);
     }
 
-    let pulled = held.clone();
     let mut auth: Vec<InvokerContractAuthEntry> = Vec::new(env);
     for i in 0..n {
-        let amount = pulled.get_unchecked(i);
+        let amount = held.get_unchecked(i);
 
         if amount > 0 {
             auth.push_back(auth_entry(

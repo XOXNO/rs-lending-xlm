@@ -5,7 +5,7 @@ use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{token, vec, Address, Env};
 
 use super::super::support::{
-    aquarius_lp_mock, aquarius_mock, lp_strategy_xdr, new_asset, one_hop_path,
+    aquarius_lp_mock, aquarius_mock, lp_strategy_xdr, new_asset, one_hop_path, Builder, PreSwap,
 };
 
 fn lp_pool<'a>(
@@ -1056,4 +1056,166 @@ fn an_empty_mint_pool_still_takes_a_first_deposit_without_a_pre_swap() {
 
     let shares = RouterClient::new(&env, &router_addr).execute_strategy(&sender, &1_000, &xdr);
     assert!(shares > 0, "first deposit into an empty pool must mint");
+}
+
+/// A 1:1 constant-product pool, a 1_000_000-unit input, and an active referral
+/// charging 100 bps on top of the 100 bps protocol fee.
+///
+/// Both fees land on the input token before the instruction stream runs, so the
+/// zap's balancing swap sees 980_000, not the 1_000_000 the caller sent.
+struct ReferralZap {
+    router: Address,
+    sender: Address,
+    pool: Address,
+    share: Address,
+    token_a: Address,
+    token_b: Address,
+    referral_id: u64,
+}
+
+const ZAP_INPUT: i128 = 1_000_000;
+/// `s* = gross / (2 - fee)` for a 30 bps constant-product pool, as ppm:
+/// `round(1e6 / 1.997)`. The same figure in absolute terms against the gross
+/// input is `1_000_000 / 1.997 = 500_751`.
+const ZAP_PPM: u32 = 500_751;
+const ZAP_FIXED_ON_GROSS: i128 = 500_751;
+
+fn referral_zap(env: &Env) -> ReferralZap {
+    let admin = Address::generate(env);
+    let router_addr = env.register(Router, (admin,));
+    let router = RouterClient::new(env, &router_addr);
+    let sender = Address::generate(env);
+    let referral_owner = Address::generate(env);
+    let asset_admin = Address::generate(env);
+    let (pool, share, (token_a, sac_a), (token_b, _sac_b)) =
+        lp_pool(env, &asset_admin, 1_000_000_000);
+
+    router.set_static_fee(&100);
+    let referral_id = router.add_referral(&referral_owner, &100);
+    sac_a.mint(&sender, &ZAP_INPUT);
+
+    ReferralZap {
+        router: router_addr,
+        sender,
+        pool,
+        share,
+        token_a,
+        token_b,
+        referral_id,
+    }
+}
+
+/// A zap-in under an active referral: the pre-swap has to be sized against the
+/// live vault balance, and `Mode::Ppm` is what makes that true.
+///
+/// The fee is debited before any instruction runs, so the balancing swap sees
+/// 980_000 of the 1_000_000 the caller sent. A ppm weight re-derives its size
+/// from that balance and still lands on the constant-product optimum, leaving
+/// only dust for the residual guard to absorb.
+#[test]
+fn referral_zap_in_with_ppm_pre_swap_succeeds() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let zap = referral_zap(&env);
+    let router = RouterClient::new(&env, &zap.router);
+
+    let xdr = Builder::new(
+        &env,
+        zap.token_a.clone(),
+        zap.share.clone(),
+        1,
+        zap.referral_id,
+    )
+    .mint(
+        zap.pool.clone(),
+        zap.share.clone(),
+        1,
+        PreSwap::Ppm(ZAP_PPM),
+        true,
+    )
+    .build();
+
+    let shares = router.execute_strategy(&zap.sender, &ZAP_INPUT, &xdr);
+
+    // 980_000 net; 490_735 swapped at the mock's 30 bps constant-product rate.
+    assert_eq!(shares, 489_024);
+    assert_eq!(
+        token::Client::new(&env, &zap.share).balance(&zap.sender),
+        shares
+    );
+
+    // 100 bps protocol + 100 bps referral, both charged on the input token.
+    assert_eq!(router.admin_fee_balance(&zap.token_a), 10_000);
+    assert_eq!(
+        router.referral_fee_balance(&zap.referral_id, &zap.token_a),
+        10_000
+    );
+
+    // Whatever the deposit refused is dust inside the residual allowance
+    // (`max(credited / 1e6, 1_000)`); anything larger would have reverted.
+    let residual = router.admin_fee_balance(&zap.token_b);
+    assert!(
+        (0..=1_000).contains(&residual),
+        "residual must stay dust, got {residual}"
+    );
+    assert_eq!(
+        token::Client::new(&env, &zap.token_a).balance(&zap.sender),
+        0
+    );
+    assert_eq!(
+        token::Client::new(&env, &zap.token_b).balance(&zap.sender),
+        0
+    );
+}
+
+/// The same zap with the pre-swap pinned as an absolute amount reverts.
+///
+/// `Mode::Fixed` names `amounts[idx]`, an amount the off-chain solver computed
+/// against the *gross* 1_000_000 input. The referral fee is debited first, so
+/// the swap over-sells the input side against a vault holding only 980_000: the
+/// deposit then refuses the excess `token_b`, ~20_000 of it is stranded in the
+/// vault, and `accrue_residual_as_revenue` rejects it as far past the residual
+/// allowance rather than quietly booking it as protocol revenue.
+///
+/// This is why the off-chain zap builder lowers the pre-swap as `Mode::Ppm`.
+#[test]
+fn referral_zap_in_with_fixed_pre_swap_reverts() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let zap = referral_zap(&env);
+    let router = RouterClient::new(&env, &zap.router);
+
+    let xdr = Builder::new(
+        &env,
+        zap.token_a.clone(),
+        zap.share.clone(),
+        1,
+        zap.referral_id,
+    )
+    .mint(
+        zap.pool.clone(),
+        zap.share.clone(),
+        1,
+        PreSwap::Fixed(ZAP_FIXED_ON_GROSS),
+        true,
+    )
+    .build();
+
+    assert_eq!(
+        router
+            .try_execute_strategy(&zap.sender, &ZAP_INPUT, &xdr)
+            .unwrap_err()
+            .unwrap(),
+        Error::ExcessiveResidual.into()
+    );
+    // Nothing settled: the caller keeps the whole input and no fee accrued.
+    assert_eq!(
+        token::Client::new(&env, &zap.token_a).balance(&zap.sender),
+        ZAP_INPUT
+    );
+    assert_eq!(router.admin_fee_balance(&zap.token_a), 0);
+    assert_eq!(
+        router.referral_fee_balance(&zap.referral_id, &zap.token_a),
+        0
+    );
 }

@@ -13,6 +13,16 @@ Run BEFORE listing any AquariusStableLp pool:
     python3 scripts/verify_aquarius_stableswap.py <POOL_ID> [--network mainnet]
 
 Exit 0 = our math matches the deployed pool within tolerance; non-zero = drift.
+
+SCOPE — fee convention. `our_estimate_swap` below subtracts the swap fee from
+the output amount (`dy - dy*fee/10000`). That is the legacy public-mirror
+convention, and it is kept here on purpose: this tool exists to bound the
+LP-oracle's tolerance, where a 30 bps difference in which side the fee lands on
+is inside the noise it is measuring. It MUST NOT be used to settle fee-side
+parity. Live probes against deployed Aquarius pools on 2026-08-21 matched
+fee-on-INPUT integer-exactly, so any code that has to agree with a pool on exact
+amounts -- routing, quoting, zap solving, settlement -- must model fee-on-input
+and must not cite this script as evidence.
 """
 import argparse
 import json
@@ -80,7 +90,12 @@ def get_y(i, j, x, xp, amp, ann_factor):
     raise RuntimeError("y did not converge")
 
 def our_estimate_swap(i, j, dx, xp, amp, fee, ann_factor):
-    """Reproduce Aquarius estimate_swap: dy on the invariant, minus the swap fee."""
+    """Reproduce Aquarius estimate_swap: dy on the invariant, minus the swap fee.
+
+    Fee-on-OUTPUT, the legacy public-mirror convention. See the module docstring:
+    good enough for the LP-oracle tolerance bound this tool reports, not evidence
+    about which side a deployed pool charges.
+    """
     x = xp[i] + dx
     y = get_y(i, j, x, xp, amp, ann_factor)
     dy = xp[j] - y - 1
@@ -92,8 +107,11 @@ def main():
     ap.add_argument("--rpc-url", default=os.environ.get("STELLAR_RPC_URL", DEFAULT_RPC))
     ap.add_argument("--network-passphrase",
                     default=os.environ.get("STELLAR_NETWORK_PASSPHRASE", DEFAULT_PASSPHRASE))
+    # argparse %-formats help strings, so a literal percent sign must be
+    # doubled. Python 3.14 validates this at add_argument() time, which turned
+    # the unescaped form into a hard crash on every invocation, not just --help.
     ap.add_argument("--tol-bps", type=float, default=0.5,
-                    help="max allowed relative drift, in bps (default 0.5 = 0.005%)")
+                    help="max allowed relative drift, in bps (default 0.5 = 0.005%%)")
     args = ap.parse_args()
 
     def call(fn, *a):

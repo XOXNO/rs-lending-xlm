@@ -34,6 +34,22 @@ pub(crate) struct SwapPath {
     pub split_ppm: u32,
 }
 
+/// How the mint-balancing pre-swap sizes its input.
+///
+/// [`PreSwap::Fixed`] pins an absolute amount the off-chain solver computed for
+/// the *gross* input. [`PreSwap::Ppm`] states the same solve as a fraction of
+/// whatever the vault actually holds when the instruction runs, which is what
+/// the zap builder emits: a referral fee debited before the pre-swap shrinks the
+/// balance, and a fraction survives that where an absolute amount does not.
+pub(crate) enum PreSwap {
+    /// Deposit straight into the pool with no balancing swap.
+    None,
+    /// `amounts[idx]` — an absolute amount.
+    Fixed(i128),
+    /// `weights[idx]` parts-per-million of the vault balance of the input token.
+    Ppm(u32),
+}
+
 pub(crate) fn new_asset<'a>(
     env: &'a Env,
     admin: &Address,
@@ -115,13 +131,12 @@ pub(crate) fn lp_strategy_xdr(
     }
     builder = builder.paths(paths);
     if let Some(pool) = mint_pool {
-        builder = builder.mint(
-            pool,
-            token_out,
-            mint_min_shares,
-            pre_swap_amount,
-            pre_swap_from_a,
-        );
+        let pre_swap = if pre_swap_amount > 0 {
+            PreSwap::Fixed(pre_swap_amount)
+        } else {
+            PreSwap::None
+        };
+        builder = builder.mint(pool, token_out, mint_min_shares, pre_swap, pre_swap_from_a);
     }
     builder.build()
 }
@@ -137,7 +152,7 @@ pub(crate) struct Builder<'a> {
     token_out: u8,
     referral_id: u32,
     /// Deferred mint leg, emitted after the path instructions.
-    pending_mint: Option<(Address, Address, i128, i128, bool)>,
+    pending_mint: Option<(Address, Address, i128, PreSwap, bool)>,
 }
 
 impl<'a> Builder<'a> {
@@ -215,10 +230,10 @@ impl<'a> Builder<'a> {
         pool: Address,
         lp_token: Address,
         min_shares: i128,
-        pre_swap_amount: i128,
+        pre_swap: PreSwap,
         pre_swap_from_a: bool,
     ) -> Self {
-        self.pending_mint = Some((pool, lp_token, min_shares, pre_swap_amount, pre_swap_from_a));
+        self.pending_mint = Some((pool, lp_token, min_shares, pre_swap, pre_swap_from_a));
         self
     }
 
@@ -285,12 +300,10 @@ impl<'a> Builder<'a> {
 
     /// Serialize registries and program into `execute_strategy` bytes.
     pub(crate) fn build(mut self) -> Bytes {
-        if let Some((pool, lp_token, min_shares, pre_swap_amount, pre_swap_from_a)) =
+        if let Some((pool, lp_token, min_shares, pre_swap, pre_swap_from_a)) =
             self.pending_mint.take()
         {
-            if pre_swap_amount > 0 {
-                self.emit_pre_swap(&pool, pre_swap_amount, pre_swap_from_a);
-            }
+            self.emit_pre_swap(&pool, &pre_swap, pre_swap_from_a);
             let idx_a = self.asset(&pool);
             let idx_b = self.asset(&lp_token);
             let idx_c = self.amount(min_shares);
@@ -331,7 +344,18 @@ impl<'a> Builder<'a> {
     }
 
     /// Emit the mint-balancing swap against the pool's own book.
-    fn emit_pre_swap(&mut self, pool: &Address, amount: i128, from_a: bool) {
+    fn emit_pre_swap(&mut self, pool: &Address, pre_swap: &PreSwap, from_a: bool) {
+        let mode = match *pre_swap {
+            PreSwap::None => return,
+            PreSwap::Fixed(amount) => {
+                let idx = self.amount(amount);
+                encode::fixed(idx)
+            }
+            PreSwap::Ppm(ppm) => {
+                let idx = self.weight(ppm);
+                encode::ppm(idx)
+            }
+        };
         let tokens: Vec<Address> = self.env.invoke_contract(
             pool,
             &soroban_sdk::Symbol::new(self.env, "get_tokens"),
@@ -345,10 +369,9 @@ impl<'a> Builder<'a> {
         let idx_a = self.asset(pool);
         let idx_b = self.asset(&token_in);
         let idx_c = self.asset(&token_out);
-        let amount_idx = self.amount(amount);
         self.ops.push(RawOp {
             opcode: venue_opcode(SwapVenue::Aquarius),
-            mode: encode::fixed(amount_idx),
+            mode,
             idx_a,
             idx_b,
             idx_c,

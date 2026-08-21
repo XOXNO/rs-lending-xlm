@@ -12,6 +12,9 @@ use crate::types::DataKey;
 use crate::vault::Vault;
 
 /// Which fee ledger to claim from.
+///
+/// [`FeeBucket::key`] and `storage::bucket_token` encode the same key set inverted — kind to
+/// `DataKey` here, `DataKey` back to token there — so adding a bucket kind means extending both.
 #[derive(Clone, Copy)]
 pub(crate) enum FeeBucket {
     Admin,
@@ -41,6 +44,13 @@ pub(crate) fn set_static_fee(env: &Env, fee_bps: u32) {
 /// No-op when `referral_id == 0`, the referral is missing/inactive, the token balance is
 /// non-positive, the combined bps is 0, or the computed fee rounds down to zero. Panics if
 /// the combined bps exceeds [`FEE_CAP`].
+///
+/// The static protocol fee is deliberately coupled to the referral flow: it rides along with a
+/// referral and is charged nowhere else, so a swap with no referral (or with an unknown or
+/// deactivated one) pays zero protocol fee. This is the intended policy, not a missed branch —
+/// the off-chain quote model prices swaps the same way, and decoupling the two would silently
+/// start charging every existing integration that quotes without a referral id. Residual dust
+/// still accrues to the admin bucket after settlement, independently of this path.
 pub(crate) fn apply_fees_on_token(env: &Env, vault: &mut Vault, token: &Address, referral_id: u64) {
     if referral_id == 0 {
         return;
@@ -80,16 +90,9 @@ pub(crate) fn apply_fees_on_token(env: &Env, vault: &mut Vault, token: &Address,
 
     vault.withdraw(token, total);
 
-    if static_fee > 0 {
-        storage::accumulate_fee(env, DataKey::AdminFee(token.clone()), static_fee);
-    }
-    if referral_fee > 0 {
-        storage::accumulate_fee(
-            env,
-            DataKey::ReferralFee(referral_id, token.clone()),
-            referral_fee,
-        );
-    }
+    // Both buckets in one call: they share `token`'s reserved total, and crediting them
+    // separately would read-modify-write that entry twice for a single swap.
+    storage::accumulate_swap_fees(env, token, referral_id, static_fee, referral_fee);
 }
 
 /// Transfer each positive bucket balance for `tokens` to `recipient`.
@@ -102,9 +105,8 @@ pub(crate) fn claim_fee_bucket(
 ) {
     let n = tokens.len();
     for i in 0..n {
-        let token = tokens
-            .get(i)
-            .unwrap_or_else(|| panic_with_error!(env, Error::InvalidAmount));
+        // `i < n == tokens.len()`, so the index is in range by construction.
+        let token = tokens.get_unchecked(i);
         let key = bucket.key(token.clone());
         let amount = storage::take_fee_bucket(env, &key);
         if amount > 0 {

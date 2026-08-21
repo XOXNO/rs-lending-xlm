@@ -1,8 +1,7 @@
 //! Sushi V3-style hop: `swap` with sqrt-price limit and oracle hints.
 
-use soroban_sdk::{panic_with_error, vec, Address, Bytes, Env, IntoVal, Symbol, Val, Vec, U256};
+use soroban_sdk::{vec, Address, Bytes, Env, IntoVal, Symbol, Val, Vec, U256};
 
-use crate::errors::Error;
 use crate::venues::HopContext;
 
 const MIN_SQRT_RATIO_PLUS_ONE: u128 = 4_295_128_740;
@@ -14,9 +13,9 @@ const MAX_SQRT_RATIO_MINUS_ONE: [u8; 32] = [
 /// Executes an exact-in swap against a Sushi V3-style concentrated-liquidity pool: determines the
 /// swap direction from the pool's `token0`/`token1`, computes an extreme sqrt-price limit,
 /// forwards the pool's oracle hints, authorizes the pool to pull the input token from the router,
-/// then invokes the pool's `swap` and returns the router's measured increase in `token_out`
-/// balance. Panics with `Error::ZeroOutput` if the balance does not strictly increase.
-pub(crate) fn swap(ctx: &HopContext<'_>) -> i128 {
+/// then invokes the pool's `swap`. The fill is measured by
+/// [`crate::venues::dispatch_hop`], which also enforces that it is positive.
+pub(crate) fn swap(ctx: &HopContext<'_>) {
     let no_args: Vec<Val> = vec![ctx.env];
     let token0: Address = ctx.env.invoke_contract(
         &ctx.hop.pool,
@@ -35,7 +34,6 @@ pub(crate) fn swap(ctx: &HopContext<'_>) -> i128 {
         vec![ctx.env],
     );
 
-    let balance_before = ctx.output_balance();
     ctx.authorize_pool_pull();
 
     let args: Vec<Val> = vec![
@@ -50,12 +48,6 @@ pub(crate) fn swap(ctx: &HopContext<'_>) -> i128 {
     let _: Val = ctx
         .env
         .invoke_contract(&ctx.hop.pool, &Symbol::new(ctx.env, "swap"), args);
-
-    let amount_out = ctx.output_balance() - balance_before;
-    if amount_out <= 0 {
-        panic_with_error!(ctx.env, Error::ZeroOutput);
-    }
-    amount_out
 }
 
 /// Returns an extreme sqrt-price limit, near the protocol minimum or maximum depending on swap

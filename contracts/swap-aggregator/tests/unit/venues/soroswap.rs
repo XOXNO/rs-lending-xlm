@@ -167,6 +167,67 @@ fn soroswap_zero_output_rejected() {
     );
 }
 
+/// An 18-decimal pair is inside Soroswap's real parameter space, and the quote
+/// for it must not depend on `i128` headroom.
+///
+/// With 5e24 reserves on both sides, a 1e18 (one whole token) swap makes
+/// `in_less * reserve_out` about 5e42 -- four orders of magnitude past
+/// `i128::MAX`. The raw multiply in `soroswap_amount_out` traps there, and
+/// `overflow-checks = true` in the release profile means it traps on-chain too:
+/// the pair becomes unroutable rather than merely imprecise.
+#[test]
+fn large_reserve_pair_does_not_trap() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let router_addr = env.register(Router, (Address::generate(&env),));
+    let sender = Address::generate(&env);
+    let admin = Address::generate(&env);
+    let (asset_x, sac_x) = new_asset(&env, &admin);
+    let (asset_y, sac_y) = new_asset(&env, &admin);
+    let ((token_in, sac_in), (token_out, sac_out)) = if asset_x < asset_y {
+        ((asset_x, sac_x), (asset_y, sac_y))
+    } else {
+        ((asset_y, sac_y), (asset_x, sac_x))
+    };
+
+    // 5,000,000 units of an 18-decimal token on each side.
+    let reserve: i128 = 5_000_000 * 1_000_000_000_000_000_000;
+    let amount_in: i128 = 1_000_000_000_000_000_000;
+    let pool = env.register(soroswap_mock::SoroswapPair, ());
+    soroswap_mock::SoroswapPairClient::new(&env, &pool)
+        .init(&token_in, &token_out, &reserve, &reserve);
+
+    sac_in.mint(&pool, &reserve);
+    sac_out.mint(&pool, &reserve);
+    sac_in.mint(&sender, &amount_in);
+
+    let swap_xdr = strategy_xdr(
+        &env,
+        token_in.clone(),
+        token_out.clone(),
+        1,
+        alloc::vec![one_hop_path(
+            &env,
+            SwapVenue::Soroswap,
+            pool,
+            token_in.clone(),
+            token_out.clone(),
+            1_000_000,
+        ),],
+    );
+
+    // in_less = 997e15; 997e15 * 5e24 / (5e24 + 997e15), floored.
+    let expected: i128 = 996_999_801_198_239_641;
+    let out =
+        RouterClient::new(&env, &router_addr).execute_strategy(&sender, &amount_in, &swap_xdr);
+    assert_eq!(out, expected);
+    assert_eq!(
+        token::Client::new(&env, &token_out).balance(&sender),
+        expected
+    );
+}
+
 #[test]
 fn soroswap_zero_input_reserve_rejected() {
     let env = Env::default();
