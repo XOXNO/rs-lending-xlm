@@ -362,3 +362,70 @@ fn sweep_balance_skips_transfer_when_balance_equals_reserved() {
     router.sweep_balance(&Address::generate(&env), &vec![&env, token.clone()]);
     assert_eq!(router.admin_fee_balance(&token), 20);
 }
+
+/// The mutation `total > 0` -> `total < 0` in `reserved_fee_balance` survived
+/// the suite, and `fee_accrual_and_reserve_reads_re_arm_their_ttls` above is why:
+/// it accrues first, and `accumulate_fee` already re-arms `ReservedTotal` on the
+/// write path, so the entry sits at `TTL_BUMP_SHARED` before the read happens.
+/// The assertion then holds whether or not the read extends anything.
+///
+/// These two probe the guard from an aged entry, where only the read itself can
+/// raise the TTL. That matters beyond the mutant: the reserved counter is what
+/// withholds fee backing from `sweep_balance`, so if it archives, the sweep pays
+/// out money that is already owed to referrers and the admin.
+#[test]
+fn reading_a_funded_reserve_re_arms_an_aged_counter() {
+    use common::constants::{TTL_BUMP_SHARED, TTL_THRESHOLD_SHARED};
+    use soroban_sdk::testutils::storage::Persistent as _;
+
+    let env = Env::default();
+    let router_addr = env.register(Router, (Address::generate(&env),));
+    let token = Address::generate(&env);
+
+    env.as_contract(&router_addr, || {
+        let total_key = DataKey::ReservedTotal(token.clone());
+        // Written directly rather than through accumulate_fee, which would
+        // re-arm the TTL on the way in and mask what the read does.
+        env.storage().persistent().set(&total_key, &17i128);
+        let aged = env.storage().persistent().get_ttl(&total_key);
+        assert!(
+            aged < TTL_THRESHOLD_SHARED,
+            "entry must start below the renewal threshold for this to prove anything"
+        );
+
+        assert_eq!(reserved_fee_balance(&env, &token), 17);
+
+        assert_eq!(
+            env.storage().persistent().get_ttl(&total_key),
+            TTL_BUMP_SHARED,
+            "a funded ReservedTotal must be re-armed by the read: aged={aged}"
+        );
+    });
+}
+
+#[test]
+fn reading_an_empty_reserve_does_not_pay_rent_to_keep_it_alive() {
+    use common::constants::TTL_THRESHOLD_SHARED;
+    use soroban_sdk::testutils::storage::Persistent as _;
+
+    let env = Env::default();
+    let router_addr = env.register(Router, (Address::generate(&env),));
+    let token = Address::generate(&env);
+
+    env.as_contract(&router_addr, || {
+        let total_key = DataKey::ReservedTotal(token.clone());
+        env.storage().persistent().set(&total_key, &0i128);
+        let aged = env.storage().persistent().get_ttl(&total_key);
+
+        assert_eq!(reserved_fee_balance(&env, &token), 0);
+
+        // A zero counter withholds nothing, so extending it would burn rent to
+        // keep an entry that reads the same when absent.
+        assert_eq!(
+            env.storage().persistent().get_ttl(&total_key),
+            aged,
+            "an empty ReservedTotal must not be re-armed"
+        );
+        assert!(aged < TTL_THRESHOLD_SHARED);
+    });
+}
