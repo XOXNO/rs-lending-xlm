@@ -210,7 +210,8 @@ impl LendingTest {
             hub_id,
             asset: market.asset.clone(),
         };
-        pool::LiquidityPoolClient::new(&self.env, &pool).update_indexes(&hub_asset);
+        pool::LiquidityPoolClient::new(&self.env, &pool)
+            .update_indexes(&vec![&self.env, hub_asset]);
     }
 
     pub fn update_indexes_on_hub(&self, hub_id: u32, asset_names: &[&str]) {

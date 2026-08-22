@@ -8,7 +8,7 @@ use common::types::{HubAssetKey, InterestRateModel, MarketParamsRaw, PoolStateRa
 use crate::cache::Cache;
 use crate::ops;
 use crate::{events, interest, storage, time};
-use soroban_sdk::{assert_with_error, Env};
+use soroban_sdk::{assert_with_error, Env, Vec};
 
 /// Creates a new market for `(hub_id, params.asset_id)`.
 ///
@@ -60,21 +60,24 @@ pub(crate) fn replace_rate_model(env: &Env, hub_asset: HubAssetKey, model: Inter
     events::emit_market_params(env, hub_asset.hub_id, hub_asset.asset, params);
 }
 
-/// Accrues interest for a market and emits a state event.
+/// Accrues interest for each market in `hub_assets` and emits one state event
+/// per market.
 ///
-/// Writes storage only when time has elapsed; otherwise emits a snapshot of
-/// the current loaded state.
-pub(crate) fn accrue(env: &Env, hub_asset: HubAssetKey) {
+/// Writes storage only for markets where time has elapsed; otherwise emits a
+/// snapshot of the currently loaded state.
+pub(crate) fn accrue(env: &Env, hub_assets: Vec<HubAssetKey>) {
     renew_instance(env);
 
-    let mut cache = Cache::load(env, &hub_asset);
-    let had_elapsed_time = cache.needs_accrual();
-    interest::global_sync(env, &mut cache);
+    for hub_asset in hub_assets.iter() {
+        let mut cache = Cache::load(env, &hub_asset);
+        let had_elapsed_time = cache.needs_accrual();
+        interest::global_sync(env, &mut cache);
 
-    let snapshot = if had_elapsed_time {
-        cache.commit()
-    } else {
-        cache.snapshot()
-    };
-    events::emit_market_state(env, snapshot);
+        let snapshot = if had_elapsed_time {
+            cache.commit()
+        } else {
+            cache.snapshot()
+        };
+        events::emit_market_state(env, snapshot);
+    }
 }

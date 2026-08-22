@@ -111,10 +111,14 @@ pub(crate) fn pool_flash_loan_call(
         .flash_loan(hub_asset, initiator, receiver, &amount, data)
 }
 
-/// Accrues interest for `hub_asset`'s market on the pool contract through the current ledger
-/// time.
-pub(crate) fn pool_update_indexes_call(env: &Env, pool_addr: &Address, hub_asset: &HubAssetKey) {
-    LiquidityPoolClient::new(env, pool_addr).update_indexes(hub_asset)
+/// Accrues interest for each market in `hub_assets` on the pool contract through the current
+/// ledger time.
+pub(crate) fn pool_update_indexes_call(
+    env: &Env,
+    pool_addr: &Address,
+    hub_assets: &Vec<HubAssetKey>,
+) {
+    LiquidityPoolClient::new(env, pool_addr).update_indexes(hub_assets)
 }
 
 /// Claims `hub_asset`'s accrued protocol revenue from the pool contract and returns the amount

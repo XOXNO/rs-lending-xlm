@@ -4,7 +4,7 @@ use super::*;
 use crate::Controller;
 use common::types::HubAssetKey;
 use soroban_sdk::testutils::Address as _;
-use soroban_sdk::{Address, Bytes, BytesN, Env, Vec};
+use soroban_sdk::{vec, Address, Bytes, BytesN, Env, Vec};
 
 fn dummy_hub(env: &Env) -> HubAssetKey {
     HubAssetKey {
@@ -40,7 +40,7 @@ fn pool_update_indexes_requires_a_live_pool() {
     let admin = Address::generate(&env);
     let id = env.register(Controller, (admin,));
     env.as_contract(&id, || {
-        pool_update_indexes_call(&env, &Address::generate(&env), &dummy_hub(&env));
+        pool_update_indexes_call(&env, &Address::generate(&env), &vec![&env, dummy_hub(&env)]);
     });
 }
 

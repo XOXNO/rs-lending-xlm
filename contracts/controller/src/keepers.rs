@@ -21,9 +21,7 @@ pub(crate) fn update_indexes(env: &Env, caller: Address, assets: Vec<HubAssetKey
 
     let mut cache = Cache::new(env);
     let pool_addr = cache.cached_pool_address();
-    for hub_asset in assets {
-        pool_update_indexes_call(env, &pool_addr, &hub_asset);
-    }
+    pool_update_indexes_call(env, &pool_addr, &assets);
 }
 
 /// Claims accrued protocol revenue from the pool for each asset in `assets`

@@ -1,6 +1,6 @@
 use common::errors::GenericError;
 use common::types::{HubAssetKey, InterestRateModel, MarketParamsRaw};
-use soroban_sdk::{assert_with_error, Address, BytesN, Env, String};
+use soroban_sdk::{assert_with_error, vec, Address, BytesN, Env, String};
 
 use crate::config;
 use crate::context::Cache;
@@ -96,7 +96,7 @@ pub(crate) fn upgrade_liquidity_pool_params(
 
     let pool_addr = cache.cached_pool_address();
 
-    pool_update_indexes_call(env, &pool_addr, hub_asset);
+    pool_update_indexes_call(env, &pool_addr, &vec![env, hub_asset.clone()]);
 
     pool_update_params_call(env, &pool_addr, hub_asset, params);
 
