@@ -91,7 +91,7 @@ pub(crate) fn independence(
 
 /// Returns whether `left` and `right` contain exactly the same addresses,
 /// irrespective of order or duplicates.
-fn same_address_set(left: &Vec<Address>, right: &Vec<Address>) -> bool {
+pub(crate) fn same_address_set(left: &Vec<Address>, right: &Vec<Address>) -> bool {
     left.iter().all(|address| right.contains(&address))
         && right.iter().all(|address| left.contains(&address))
 }

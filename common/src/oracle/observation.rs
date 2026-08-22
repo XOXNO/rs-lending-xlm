@@ -78,11 +78,7 @@ pub fn is_future_at(now_secs: u64, feed_ts: u64) -> bool {
 /// Converts `value` to `i128`. Panics with `GenericError::MathOverflow` if
 /// `value` does not fit in `u128` or exceeds `i128::MAX`.
 pub fn u256_to_i128(env: &Env, value: &U256) -> i128 {
-    let Some(raw) = value.to_u128() else {
-        panic_with_error!(env, GenericError::MathOverflow);
-    };
-    assert_with_error!(env, raw <= i128::MAX as u128, GenericError::MathOverflow);
-    raw as i128
+    try_u256_to_i128(value).unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow))
 }
 
 /// Converts `value` to `i128`. Returns `None` if `value` does not fit in
@@ -95,7 +91,11 @@ pub fn try_u256_to_i128(value: &U256) -> Option<i128> {
 /// Scales a non-negative token amount into WAD (`10^18`) base units.
 ///
 /// Fails when `decimals > WAD_DECIMALS` or the product overflows.
-pub fn try_amount_to_wad(env: &Env, amount: i128, decimals: u32) -> Result<i128, OracleError> {
+pub(crate) fn try_amount_to_wad(
+    env: &Env,
+    amount: i128,
+    decimals: u32,
+) -> Result<i128, OracleError> {
     let scale = WAD_DECIMALS
         .checked_sub(decimals)
         .and_then(|exp| 10i128.checked_pow(exp))

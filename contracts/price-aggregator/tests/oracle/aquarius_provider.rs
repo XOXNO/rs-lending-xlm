@@ -88,7 +88,7 @@ fn in_pa<T>(env: &Env, body: impl FnOnce() -> T) -> T {
     env.as_contract(&id, body)
 }
 
-// --- attest_stable ---------------------------------------------------------
+// --- attest(stable) --------------------------------------------------------
 
 #[test]
 #[should_panic(expected = "Error(Contract, #234)")]
@@ -98,7 +98,7 @@ fn attest_stable_rejects_a_pool_that_does_not_report_itself_stable() {
     let lp = lp_source(&p);
     let key = PriceKey::Token(p.share.clone());
     in_pa(&env, || {
-        attest_stable(&env, &key, &lp_oracle(&env, &lp, 7), &lp)
+        attest(&env, &key, &lp_oracle(&env, &lp, 7), &lp, true)
     });
 }
 
@@ -132,7 +132,7 @@ fn attest_stable_rejects_a_pool_with_no_shares_outstanding() {
     let lp = lp_source(&p);
     let key = PriceKey::Token(share);
     in_pa(&env, || {
-        attest_stable(&env, &key, &lp_oracle(&env, &lp, 7), &lp)
+        attest(&env, &key, &lp_oracle(&env, &lp, 7), &lp, true)
     });
 }
 
@@ -146,7 +146,7 @@ fn attest_stable_rejects_a_share_decimals_claim_the_token_does_not_back() {
     // The SAC reports 7; the oracle claims 6. Believing the claim would scale
     // every share price by 10x.
     in_pa(&env, || {
-        attest_stable(&env, &key, &lp_oracle(&env, &lp, 6), &lp)
+        attest(&env, &key, &lp_oracle(&env, &lp, 6), &lp, true)
     });
 }
 
@@ -159,11 +159,11 @@ fn attest_stable_rejects_a_key_that_is_not_the_pools_share_token() {
     // A different token entirely: bound_tokens refuses to bind it to the pool.
     let stranger = PriceKey::Token(p.token_a.clone());
     in_pa(&env, || {
-        attest_stable(&env, &stranger, &lp_oracle(&env, &lp, 7), &lp)
+        attest(&env, &stranger, &lp_oracle(&env, &lp, 7), &lp, true)
     });
 }
 
-// --- read / read_stable re-checks ------------------------------------------
+// --- read re-checks, both pool kinds ---------------------------------------
 
 #[test]
 fn read_refuses_a_pool_that_stopped_reporting_constant_product() {
@@ -176,7 +176,7 @@ fn read_refuses_a_pool_that_stopped_reporting_constant_product() {
         // Attested as constant-product, now answering "stable": the read must
         // not fall through to the constant-product maths.
         assert_eq!(
-            read(&mut session, &key, &lp, 7, 0).unwrap_err(),
+            read(&mut session, &key, &lp, 7, 0, false).unwrap_err(),
             OracleError::NoLastPrice
         );
     });
@@ -191,7 +191,7 @@ fn read_stable_refuses_a_pool_that_stopped_reporting_stable() {
     in_pa(&env, || {
         let mut session = Session::new(&env);
         assert_eq!(
-            read_stable(&mut session, &key, &lp, 7, 0).unwrap_err(),
+            read(&mut session, &key, &lp, 7, 0, true).unwrap_err(),
             OracleError::NoLastPrice
         );
     });
@@ -206,7 +206,7 @@ fn read_refuses_a_share_decimals_claim_the_token_does_not_back() {
     in_pa(&env, || {
         let mut session = Session::new(&env);
         assert_eq!(
-            read(&mut session, &key, &lp, 6, 0).unwrap_err(),
+            read(&mut session, &key, &lp, 6, 0, false).unwrap_err(),
             OracleError::NoLastPrice
         );
     });
@@ -221,7 +221,7 @@ fn read_refuses_a_key_that_is_not_the_pools_share_token() {
     in_pa(&env, || {
         let mut session = Session::new(&env);
         assert_eq!(
-            read(&mut session, &stranger, &lp, 7, 0).unwrap_err(),
+            read(&mut session, &stranger, &lp, 7, 0, false).unwrap_err(),
             OracleError::NoLastPrice
         );
     });
@@ -306,7 +306,7 @@ fn read_refuses_a_pool_that_stopped_answering_for_its_reserves() {
         // Both legs price fine; it is the pool itself that has gone quiet, and
         // a share price cannot be derived without reserves.
         assert_eq!(
-            read(&mut session, &key, &lp, 7, 0).unwrap_err(),
+            read(&mut session, &key, &lp, 7, 0, false).unwrap_err(),
             OracleError::NoLastPrice
         );
     });
@@ -322,7 +322,7 @@ fn read_stable_refuses_a_pool_that_stopped_answering_for_its_reserves() {
         price_both_legs(&env, &p);
         let mut session = Session::new(&env);
         assert_eq!(
-            read_stable(&mut session, &key, &lp, 7, 0).unwrap_err(),
+            read(&mut session, &key, &lp, 7, 0, true).unwrap_err(),
             OracleError::NoLastPrice
         );
     });
@@ -337,7 +337,7 @@ fn read_stable_refuses_a_share_decimals_claim_the_token_does_not_back() {
     in_pa(&env, || {
         let mut session = Session::new(&env);
         assert_eq!(
-            read_stable(&mut session, &key, &lp, 6, 0).unwrap_err(),
+            read(&mut session, &key, &lp, 6, 0, true).unwrap_err(),
             OracleError::NoLastPrice
         );
     });
@@ -352,7 +352,7 @@ fn read_stable_refuses_a_key_that_is_not_the_pools_share_token() {
     in_pa(&env, || {
         let mut session = Session::new(&env);
         assert_eq!(
-            read_stable(&mut session, &stranger, &lp, 7, 0).unwrap_err(),
+            read(&mut session, &stranger, &lp, 7, 0, true).unwrap_err(),
             OracleError::NoLastPrice
         );
     });

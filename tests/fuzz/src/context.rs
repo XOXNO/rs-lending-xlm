@@ -1,16 +1,8 @@
-pub use test_harness::{eth_preset, usdc_preset, xlm_preset, LendingTest};
-
-pub fn build_min_context() -> LendingTest {
-    LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build()
-}
+pub use test_harness::{xlm_preset, LendingTest};
 
 pub fn build_wide_context() -> LendingTest {
     LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
+        .standard_two_asset()
         .with_market(xlm_preset())
         .build()
 }

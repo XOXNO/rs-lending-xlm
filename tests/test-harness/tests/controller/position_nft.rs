@@ -1,8 +1,8 @@
 use common::types::SeizeMode;
 
 use test_harness::{
-    assert_contract_error, asset_payment_vec, errors, eth_preset, f64_to_i128, usd_cents,
-    usdc_preset, LendingTest, ALICE, BOB, HARNESS_SPOKE, LIQUIDATOR,
+    assert_contract_error, asset_payment_vec, errors, f64_to_i128, map_try_ok_unit,
+    map_try_ok_value, usd_cents, usdc_preset, LendingTest, ALICE, BOB, HARNESS_SPOKE, LIQUIDATOR,
 };
 
 // --- identity & lifecycle -------------------------------------------------
@@ -148,14 +148,12 @@ fn unknown_and_unmintable_account_ids_are_account_not_found() {
 
     for bad_id in [9_999u64, u64::from(u32::MAX) + 1, u64::MAX] {
         let assets = asset_payment_vec(&t.env, asset_addr.clone(), 10_000_000i128);
-        let result = match t
-            .ctrl_client()
-            .try_supply(&alice_addr, &bad_id, &HARNESS_SPOKE, &assets)
-        {
-            Ok(Ok(id)) => Ok(id),
-            Ok(Err(err)) => Err(err),
-            Err(e) => Err(e.expect("expected contract error, got InvokeError")),
-        };
+        let result = map_try_ok_value(t.ctrl_client().try_supply(
+            &alice_addr,
+            &bad_id,
+            &HARNESS_SPOKE,
+            &assets,
+        ));
         assert_contract_error(result, errors::ACCOUNT_NOT_FOUND);
     }
 }
@@ -165,10 +163,7 @@ fn self_liquidation_is_allowed() {
     // NFT-angle variant of liquidation.rs's `test_self_liquidation_allowed`
     // (Task 5): the same unhealthy-position setup, but the account is
     // transferred to BOB before he liquidates himself as its new owner.
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.0);
@@ -194,10 +189,7 @@ fn underwater_position_transfers_freely_and_stays_liquidatable() {
     // transferred but never adopted into a harness user's bookkeeping, then
     // a third party liquidates it keyed directly by account_id -- owner
     // identity is irrelevant to solvency machinery.
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.0);
@@ -262,10 +254,7 @@ fn renew_account_follows_current_owner() {
     let bob = t.get_or_create_user(BOB);
 
     let result = t.ctrl_client().try_renew_account(&alice, &account_id);
-    let mapped: Result<(), soroban_sdk::Error> = match result {
-        Ok(res) => res.map_err(|e| e.into()),
-        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
-    };
+    let mapped: Result<(), soroban_sdk::Error> = map_try_ok_unit(result);
     assert_contract_error(mapped, errors::ACCOUNT_NOT_IN_MARKET);
 
     t.ctrl_client().renew_account(&bob, &account_id); // succeeds
@@ -280,10 +269,7 @@ fn renew_account_follows_current_owner() {
 
 #[test]
 fn liquidation_dust_socialization_burns_nft() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(BOB, "ETH", 100.0);
     t.supply(ALICE, "USDC", 100.0);
@@ -303,10 +289,7 @@ fn liquidation_dust_socialization_burns_nft() {
 
 #[test]
 fn clean_bad_debt_burns_nft() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(BOB, "ETH", 100.0);
     t.supply(ALICE, "USDC", 8.0);
@@ -326,10 +309,7 @@ fn clean_bad_debt_burns_nft() {
 
 #[test]
 fn force_socialize_bad_debt_burns_nft() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(BOB, "ETH", 100.0);
     t.supply(ALICE, "USDC", 100.0);

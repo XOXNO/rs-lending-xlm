@@ -6,8 +6,8 @@
 use common::math::fp::Ray;
 use common::rates::{
     calculate_scaled_borrow, calculate_scaled_supply, resolve_net_settle, resolve_repay,
-    resolve_withdrawal, scaled_to_original, unscale_borrow, unscale_borrow_ceil,
-    unscale_borrow_ceil_ray, unscale_supply, unscale_supply_floor, utilization,
+    resolve_withdrawal, scaled_to_original, unscale_borrow, unscale_borrow_ceil, unscale_supply,
+    unscale_supply_floor, utilization,
 };
 
 use super::Cache;
@@ -88,7 +88,7 @@ impl Cache {
 
     /// Unscales debt shares to a RAY asset amount, rounding up.
     pub(crate) fn unscale_borrow_ceil_ray(&self, scaled: Ray) -> Ray {
-        unscale_borrow_ceil_ray(&self.env, scaled, self.borrow_index)
+        scaled.mul_ceil(&self.env, self.borrow_index)
     }
 
     /// Resolves a withdrawal request into (shares burned, gross asset amount).

@@ -1,15 +1,9 @@
 use common::types::SeizeMode;
 use controller::constants::{RAY, WAD};
-use test_harness::{
-    eth_preset, hub_asset, usd_cents, usdc_preset, usdt_stable_preset, wbtc_preset, LendingTest,
-    ALICE, STABLECOIN_SPOKE,
-};
+use test_harness::{hub_asset, usd_cents, usdc_preset, LendingTest, ALICE};
 #[test]
 fn test_total_collateral_usd_multi_asset() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.supply(ALICE, "ETH", 1.0);
@@ -24,11 +18,7 @@ fn test_total_collateral_usd_multi_asset() {
 }
 #[test]
 fn test_total_borrow_usd_multi_asset() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_market(wbtc_preset())
-        .build();
+    let mut t = LendingTest::new().three_asset_usdc_eth_wbtc().build();
 
     t.supply(ALICE, "USDC", 500_000.0);
 
@@ -45,10 +35,7 @@ fn test_total_borrow_usd_multi_asset() {
 }
 #[test]
 fn test_collateral_amount_for_missing_token() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
 
@@ -57,10 +44,7 @@ fn test_collateral_amount_for_missing_token() {
 }
 #[test]
 fn test_borrow_amount_for_missing_token() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 1.0);
@@ -70,10 +54,7 @@ fn test_borrow_amount_for_missing_token() {
 }
 #[test]
 fn test_can_be_liquidated_returns_false_for_healthy() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
 
@@ -87,10 +68,7 @@ fn test_can_be_liquidated_returns_false_for_healthy() {
 }
 #[test]
 fn test_can_be_liquidated_when_unhealthy() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.0);
@@ -105,11 +83,7 @@ fn test_can_be_liquidated_when_unhealthy() {
 }
 #[test]
 fn test_get_all_markets_multiple() {
-    let t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_market(wbtc_preset())
-        .build();
+    let t = LendingTest::new().three_asset_usdc_eth_wbtc().build();
 
     let ctrl = t.ctrl_client();
     let assets = soroban_sdk::Vec::from_array(
@@ -155,10 +129,7 @@ fn test_get_all_markets_single() {
 
 #[test]
 fn test_get_pool_address_is_global() {
-    let t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let t = LendingTest::new().standard_two_asset().build();
 
     let ctrl = t.ctrl_client();
     let pool = ctrl.get_pool_address();
@@ -203,13 +174,7 @@ fn test_get_account_owner_correct() {
 }
 #[test]
 fn test_get_spoke_category_view() {
-    let t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(usdt_stable_preset())
-        .with_spoke(2, STABLECOIN_SPOKE)
-        .with_spoke_asset(2, "USDC", true, true)
-        .with_spoke_asset(2, "USDT", true, true)
-        .build();
+    let t = LendingTest::new().stablecoin_spoke_two_asset().build();
 
     let ctrl = t.ctrl_client();
     let usdc = t.resolve_asset("USDC");
@@ -256,10 +221,7 @@ fn test_get_position_limits_custom() {
 }
 #[test]
 fn test_liquidation_estimations_basic() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.0);
@@ -363,10 +325,7 @@ fn test_pool_address_view() {
 }
 #[test]
 fn test_collateral_amount_for_token_happy() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
 
@@ -386,10 +345,7 @@ fn test_collateral_amount_for_token_happy() {
 }
 #[test]
 fn test_borrow_amount_for_token_happy() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 2.0);
@@ -410,10 +366,7 @@ fn test_borrow_amount_for_token_happy() {
 }
 #[test]
 fn test_liquidation_collateral_available_happy() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.supply(ALICE, "ETH", 1.0);
@@ -433,10 +386,7 @@ fn test_liquidation_collateral_available_happy() {
 }
 #[test]
 fn test_ltv_collateral_in_usd_happy() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.supply(ALICE, "ETH", 1.0);

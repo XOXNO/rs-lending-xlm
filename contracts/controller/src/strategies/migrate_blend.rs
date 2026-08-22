@@ -9,10 +9,11 @@ use crate::context::Cache;
 use crate::events::{BlendMigrationEvent, PositionAction};
 use crate::external::blend::{blend_repay_all, blend_sweep_all};
 use crate::positions::{require_can_supply, supply};
+use crate::risk::validation::require_authorized_caller;
 use crate::storage;
 use crate::strategies::{
     borrow_into_controller, prefetch_strategy_prices, repay_debt_from_controller,
-    require_strategy_caller, strategy_finalize, StrategyRepay,
+    snapshot_balances, strategy_finalize, StrategyRepay,
 };
 
 pub(crate) struct MigrateBlendParams {
@@ -38,7 +39,7 @@ pub(crate) fn process_migrate_blend(
     caller: &Address,
     params: MigrateBlendParams,
 ) -> u64 {
-    require_strategy_caller(env, caller);
+    require_authorized_caller(env, caller);
 
     let MigrateBlendParams {
         account_id,
@@ -59,21 +60,16 @@ pub(crate) fn process_migrate_blend(
         &debt_caps,
     );
 
-    let PreparedMigration {
-        account_id,
-        mut account,
-        mut cache,
-        withdraw_assets,
-        all_assets,
-    } = prepare_migration_account(
-        env,
-        caller,
-        account_id,
-        spoke_id,
-        &collateral_assets,
-        &supply_assets,
-        &debt_caps,
-    );
+    let (account_id, mut account, mut cache, withdraw_assets, all_assets) =
+        prepare_migration_account(
+            env,
+            caller,
+            account_id,
+            spoke_id,
+            &collateral_assets,
+            &supply_assets,
+            &debt_caps,
+        );
 
     prefetch_strategy_prices(&mut cache, &account, &all_assets);
 
@@ -90,7 +86,8 @@ pub(crate) fn process_migrate_blend(
     );
 
     if !withdraw_assets.is_empty() {
-        let before_withdraw = snapshot_balances(env, &withdraw_assets);
+        let before_withdraw =
+            snapshot_balances(env, &env.current_contract_address(), withdraw_assets.iter());
         blend_sweep_all(env, &blend_pool, caller, &collateral_assets, &supply_assets);
         deposit_withdrawn(
             env,
@@ -134,7 +131,11 @@ fn execute_migration_debt_leg(
         return;
     }
 
-    let before_debt = snapshot_balances(env, &debt_asset_list(env, debt_caps));
+    let before_debt = snapshot_balances(
+        env,
+        &env.current_contract_address(),
+        debt_caps.iter().map(|(asset, _)| asset),
+    );
     for (debt_asset, max) in debt_caps.iter() {
         require_positive_amount(env, max);
         let hub_debt = HubAssetKey {
@@ -155,17 +156,10 @@ fn execute_migration_debt_leg(
     reconcile_debt_refunds(env, account, cache, caller, hub_id, debt_caps, &before_debt);
 }
 
-struct PreparedMigration {
-    account_id: u64,
-    account: Account,
-    cache: Cache,
-    withdraw_assets: Vec<Address>,
-    all_assets: Vec<Address>,
-}
-
 /// Loads or creates `account_id`'s account under the migrate guard
 /// (owner/delegate and spoke checks) and builds the deduplicated
 /// withdraw-asset list and combined asset list used for price prefetching.
+/// Returns `(account_id, account, cache, withdraw_assets, all_assets)`.
 fn prepare_migration_account(
     env: &Env,
     caller: &Address,
@@ -174,7 +168,7 @@ fn prepare_migration_account(
     collateral_assets: &Vec<Address>,
     supply_assets: &Vec<Address>,
     debt_caps: &Vec<(Address, i128)>,
-) -> PreparedMigration {
+) -> (u64, Account, Cache, Vec<Address>, Vec<Address>) {
     let mut cache = Cache::new(env);
     let (account_id, account) = account::load_or_create_account(
         env,
@@ -187,13 +181,7 @@ fn prepare_migration_account(
     );
     let (withdraw_assets, all_assets) =
         prepare_migration_assets(env, collateral_assets, supply_assets, debt_caps);
-    PreparedMigration {
-        account_id,
-        account,
-        cache,
-        withdraw_assets,
-        all_assets,
-    }
+    (account_id, account, cache, withdraw_assets, all_assets)
 }
 
 /// Panics if any `withdraw_assets` is not listed and active as collateral in
@@ -265,16 +253,6 @@ fn require_unique_debt_assets(env: &Env, debt_caps: &Vec<(Address, i128)>) {
     }
 }
 
-/// Extracts the asset addresses from `debt_caps`, dropping the per-asset
-/// caps.
-fn debt_asset_list(env: &Env, debt_caps: &Vec<(Address, i128)>) -> Vec<Address> {
-    let mut out: Vec<Address> = Vec::new(env);
-    for (asset, _) in debt_caps.iter() {
-        out.push_back(asset);
-    }
-    out
-}
-
 /// Returns the deduplicated union of `collateral_assets` and
 /// `supply_assets`, preserving first-seen order.
 fn unique_withdraw_assets(
@@ -291,18 +269,6 @@ fn unique_withdraw_assets(
         }
     }
     out
-}
-
-/// Records the controller's current balance for each of `assets`, keyed by
-/// asset address.
-fn snapshot_balances(env: &Env, assets: &Vec<Address>) -> Map<Address, i128> {
-    let controller = env.current_contract_address();
-    let mut before: Map<Address, i128> = Map::new(env);
-    for asset in assets.iter() {
-        let bal = token::Client::new(env, &asset).balance(&controller);
-        before.set(asset, bal);
-    }
-    before
 }
 
 /// Deposits into `account`'s hub supply positions whatever balance of each

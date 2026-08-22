@@ -94,11 +94,6 @@ pub(crate) fn write_rate_model(
     params
 }
 
-/// Extend instance storage TTL using protocol instance thresholds.
-pub(crate) fn renew_instance(env: &Env) {
-    common::ttl::renew_instance(env);
-}
-
 /// Extend persistent TTL for both params and state of a market.
 pub(crate) fn renew_market(env: &Env, hub_asset: &HubAssetKey) {
     let storage = env.storage().persistent();

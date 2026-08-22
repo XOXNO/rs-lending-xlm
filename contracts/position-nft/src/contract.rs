@@ -26,6 +26,24 @@ fn controller(e: &Env) -> Address {
         .expect("controller set at construction")
 }
 
+/// Extends the reachable persistent entries — `Owner(token_id)` and
+/// `Balance(owner)` — to the user window. The OZ enumeration keys cannot be
+/// extended from outside `stellar-tokens` (their key types are unexported) and
+/// rely on protocol-23 auto-restore; see F-11 / INV-STOR-02d.
+fn extend_user_persistent_ttl(e: &Env, owner: &Address, token_id: u32) {
+    let p = e.storage().persistent();
+    p.extend_ttl(
+        &NFTStorageKey::Owner(token_id),
+        TTL_THRESHOLD_USER,
+        TTL_BUMP_USER,
+    );
+    p.extend_ttl(
+        &NFTStorageKey::Balance(owner.clone()),
+        TTL_THRESHOLD_USER,
+        TTL_BUMP_USER,
+    );
+}
+
 #[contract]
 pub struct PositionNft;
 
@@ -52,7 +70,11 @@ impl PositionNft {
     pub fn mint(e: &Env, to: Address) -> u32 {
         controller(e).require_auth();
         renew_instance(e);
-        Enumerable::sequential_mint(e, &to)
+        let token_id = Enumerable::sequential_mint(e, &to);
+        // sequential_mint writes Owner/Balance at the network minimum; lift them
+        // to the user window so a fresh position does not archive early (F-7).
+        extend_user_persistent_ttl(e, &to, token_id);
+        token_id
     }
 
     /// Burns `token_id` without the holder's authorization. Controller-only.
@@ -92,12 +114,8 @@ impl PositionNft {
     pub fn renew(e: &Env, token_id: u32) {
         // Existence check first: extend_ttl on a missing key would trap with
         // a storage error; owner_of gives the standard token error instead.
-        let _owner = Base::owner_of(e, token_id);
-        e.storage().persistent().extend_ttl(
-            &NFTStorageKey::Owner(token_id),
-            TTL_THRESHOLD_USER,
-            TTL_BUMP_USER,
-        );
+        let owner = Base::owner_of(e, token_id);
+        extend_user_persistent_ttl(e, &owner, token_id);
         renew_instance(e);
     }
 

@@ -1,15 +1,12 @@
 use soroban_sdk::testutils::{MockAuth, MockAuthInvoke};
 use soroban_sdk::IntoVal;
 use test_harness::{
-    assert_contract_error, errors, eth_preset, hub_asset, usdc_preset, wbtc_preset, HubAssetKey,
+    assert_contract_error, errors, eth_preset, hub_asset, map_try_ok_unit, HubAssetKey,
     LendingTest, PositionType, ALICE, BOB,
 };
 #[test]
 fn test_repay_partial() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 2.0);
@@ -26,10 +23,7 @@ fn test_repay_partial() {
 }
 #[test]
 fn test_repay_full_clears_position() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 1.0);
@@ -57,10 +51,7 @@ fn test_repay_full_clears_position() {
 }
 #[test]
 fn test_repay_overpayment_refunded() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 1.0);
@@ -83,10 +74,7 @@ fn test_repay_overpayment_refunded() {
 }
 #[test]
 fn test_repay_allowed_when_paused() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 1.0);
@@ -100,10 +88,7 @@ fn test_repay_allowed_when_paused() {
 
 #[test]
 fn test_repay_by_third_party() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 1.0);
@@ -143,10 +128,7 @@ fn test_repay_by_third_party() {
 
 #[test]
 fn test_repay_permissionless_payer_auth_only() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 1.0);
@@ -206,11 +188,7 @@ fn test_repay_permissionless_payer_auth_only() {
 }
 #[test]
 fn test_repay_multiple_assets() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_market(wbtc_preset())
-        .build();
+    let mut t = LendingTest::new().three_asset_usdc_eth_wbtc().build();
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 1.0);
@@ -268,10 +246,7 @@ fn test_repay_multiple_assets() {
 }
 #[test]
 fn test_repay_rejects_zero_amount() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 1.0);
@@ -287,20 +262,14 @@ fn test_repay_rejects_empty_payment_vector() {
 
     let caller = t.get_or_create_user(ALICE);
     let payments: soroban_sdk::Vec<(HubAssetKey, i128)> = soroban_sdk::vec![&t.env];
-    let result = match t.ctrl_client().try_repay(&caller, &999_999u64, &payments) {
-        Ok(res) => res.map_err(|e| e.into()),
-        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
-    };
+    let result = map_try_ok_unit(t.ctrl_client().try_repay(&caller, &999_999u64, &payments));
 
     assert_contract_error(result, errors::INVALID_PAYMENTS);
 }
 
 #[test]
 fn test_repay_rejects_negative_raw_amount() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 1.0);
@@ -309,20 +278,14 @@ fn test_repay_rejects_negative_raw_amount() {
     let account_id = t.resolve_account_id(ALICE);
     let eth = t.resolve_asset("ETH");
     let payments = soroban_sdk::vec![&t.env, (hub_asset(eth), -1i128)];
-    let result = match t.ctrl_client().try_repay(&caller, &account_id, &payments) {
-        Ok(res) => res.map_err(|e| e.into()),
-        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
-    };
+    let result = map_try_ok_unit(t.ctrl_client().try_repay(&caller, &account_id, &payments));
 
     assert_contract_error(result, errors::AMOUNT_MUST_BE_POSITIVE);
 }
 
 #[test]
 fn test_repay_duplicate_asset_payments_aggregate() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 1.0);
@@ -356,19 +319,13 @@ fn test_repay_rejects_nonexistent_account_id() {
     let caller = t.get_or_create_user(ALICE);
     let eth = t.resolve_asset("ETH");
     let payments = soroban_sdk::vec![&t.env, (hub_asset(eth), 1i128)];
-    let result = match t.ctrl_client().try_repay(&caller, &999_999u64, &payments) {
-        Ok(res) => res.map_err(|e| e.into()),
-        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
-    };
+    let result = map_try_ok_unit(t.ctrl_client().try_repay(&caller, &999_999u64, &payments));
 
     assert_contract_error(result, errors::ACCOUNT_NOT_IN_MARKET);
 }
 #[test]
 fn test_repay_rejects_position_not_found() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
 
@@ -377,10 +334,7 @@ fn test_repay_rejects_position_not_found() {
 }
 #[test]
 fn test_repay_rejects_during_flash_loan() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 1.0);
@@ -391,10 +345,7 @@ fn test_repay_rejects_during_flash_loan() {
 }
 #[test]
 fn test_repay_cleans_up_empty_account() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 1.0);

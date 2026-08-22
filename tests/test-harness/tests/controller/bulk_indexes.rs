@@ -3,15 +3,12 @@ use controller::constants::MS_PER_SECOND;
 use controller::types::MarketIndexRaw;
 use soroban_sdk::testutils::Address as _;
 use test_harness::{
-    assert_contract_error, errors, eth_preset, hub_asset, usdc_preset, LendingTest, ALICE, BOB,
+    assert_contract_error, errors, hub_asset, usdc_preset, LendingTest, ALICE, BOB,
 };
 
 #[test]
 fn test_detailed_indexes_view_matches_pool_simulation() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(BOB, "ETH", 100.0);
     t.supply(ALICE, "USDC", 100_000.0);

@@ -2,7 +2,7 @@
 #![allow(clippy::too_many_arguments)]
 
 use common::errors::GenericError;
-use common::types::{HubAssetKey, PositionMode, SeizeMode};
+use common::types::{HubAssetKey, InterestRateModel, PositionMode, SeizeMode};
 use soroban_sdk::auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation};
 use soroban_sdk::{
     assert_with_error, contract, contractclient, contracterror, contractimpl, contracttype,
@@ -68,6 +68,8 @@ pub trait Controller {
         receiver: Address,
         data: Bytes,
     );
+
+    fn upgrade_liquidity_pool_params(env: Env, hub_asset: HubAssetKey, params: InterestRateModel);
 
     fn flash_position(
         env: Env,
@@ -164,6 +166,9 @@ pub enum FlashLoanMode {
     ReenterControllerRdwc = 16,
     ReenterControllerLiquidate = 17,
     ReenterMigrateBlend = 18,
+    /// V3 audit: reach the ONLY unguarded controller->pool state mutation
+    /// (`markets.rs:104` `pool_update_indexes_call`) from inside the callback.
+    ReenterControllerUpgradePoolParams = 19,
 }
 
 #[contracttype]
@@ -289,6 +294,10 @@ impl FlashLoanTestReceiver {
             }
             FlashLoanMode::ReenterControllerLiquidate => {
                 reenter_controller_liquidate(&env, &asset);
+                approve_repayment(&env, &asset, &pool, total);
+            }
+            FlashLoanMode::ReenterControllerUpgradePoolParams => {
+                reenter_controller_upgrade_pool_params(&env, &asset);
                 approve_repayment(&env, &asset, &pool, total);
             }
             FlashLoanMode::ReenterMigrateBlend => {
@@ -590,5 +599,33 @@ fn reenter_migrate_blend(env: &Env, asset: &Address) {
         &collateral_assets,
         &Vec::new(env),
         &Vec::new(env),
+    );
+}
+
+/// Calls the controller's `#[only_owner]` `upgrade_liquidity_pool_params` from
+/// inside the flash callback. That path runs `pool_update_indexes_call` with no
+/// flash guard, so it commits accrual to `PoolKey::State` while `flash::apply`
+/// still holds an uncommitted `Cache`.
+fn reenter_controller_upgrade_pool_params(env: &Env, asset: &Address) {
+    let plan = resolve_plan(env);
+    let model = InterestRateModel {
+        max_borrow_rate: 2_000_000_000_000_000_000_000_000_000,
+        base_borrow_rate: 30_000_000_000_000_000_000_000_000,
+        slope1: 40_000_000_000_000_000_000_000_000,
+        slope2: 100_000_000_000_000_000_000_000_000,
+        slope3: 1_500_000_000_000_000_000_000_000_000,
+        mid_utilization: 500_000_000_000_000_000_000_000_000,
+        optimal_utilization: 800_000_000_000_000_000_000_000_000,
+        max_utilization: 950_000_000_000_000_000_000_000_000,
+        reserve_factor: 1000,
+        is_flashloanable: true,
+        flashloan_fee: 9,
+    };
+    ControllerClient::new(env, &plan.controller).upgrade_liquidity_pool_params(
+        &HubAssetKey {
+            hub_id: plan.hub_id,
+            asset: asset.clone(),
+        },
+        &model,
     );
 }

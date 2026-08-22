@@ -12,7 +12,7 @@ use common::types::{
 };
 use soroban_sdk::{assert_with_error, Address, Env, Map, Vec};
 
-use crate::positions::liquidation::{execute_liquidation, split_seized_shares};
+use crate::positions::liquidation::{build_liquidation_plan, split_seized_shares};
 use crate::storage;
 
 /// Panics unless `values` has at most `MAX_VIEW_INPUTS` entries.
@@ -208,7 +208,7 @@ pub(crate) fn liquidation_estimations_detailed(
     let mut cache = Cache::new_view(env);
     let account = storage::get_account(env, account_id);
 
-    let result = execute_liquidation(env, &account, debt_payments, &mut cache);
+    let result = build_liquidation_plan(env, &account, debt_payments, &mut cache).into_result();
 
     let mut seized_collaterals = Vec::new(env);
     let mut protocol_fees = Vec::new(env);

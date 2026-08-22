@@ -1,13 +1,10 @@
 use test_harness::{
-    assert_contract_error, errors, eth_preset, usdc_preset, usdt_stable_preset, wbtc_preset,
-    xlm_preset, LendingTest, PositionType, ALICE, BOB, STABLECOIN_SPOKE,
+    assert_contract_error, errors, usdc_preset, usdt_stable_preset, xlm_preset, LendingTest,
+    PositionType, ALICE, BOB,
 };
 #[test]
 fn test_borrow_basic() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 1.0);
@@ -45,11 +42,7 @@ fn test_borrow_same_asset_xlm() {
 }
 #[test]
 fn test_borrow_multiple_assets_bulk() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_market(wbtc_preset())
-        .build();
+    let mut t = LendingTest::new().three_asset_usdc_eth_wbtc().build();
 
     t.supply(ALICE, "USDC", 100_000.0);
 
@@ -76,10 +69,7 @@ fn test_borrow_multiple_assets_bulk() {
 
 #[test]
 fn test_borrow_duplicate_asset_bulk_accumulates_single_position() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow_bulk(ALICE, &[("ETH", 0.5), ("ETH", 0.75)]);
@@ -96,10 +86,7 @@ fn test_borrow_duplicate_asset_bulk_accumulates_single_position() {
 }
 #[test]
 fn test_borrow_rejects_exceeding_ltv() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
 
@@ -108,10 +95,7 @@ fn test_borrow_rejects_exceeding_ltv() {
 }
 #[test]
 fn test_borrow_rejects_zero_amount() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
 
@@ -122,8 +106,7 @@ fn test_borrow_rejects_zero_amount() {
 #[test]
 fn test_borrow_rejects_non_borrowable() {
     let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
+        .standard_two_asset()
         .with_market_config("ETH", |cfg| {
             cfg.is_borrowable = false;
         })
@@ -136,10 +119,7 @@ fn test_borrow_rejects_non_borrowable() {
 }
 #[test]
 fn test_borrow_rejects_during_flash_loan() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.set_flash_loan_ongoing(true);
@@ -149,10 +129,7 @@ fn test_borrow_rejects_during_flash_loan() {
 }
 #[test]
 fn test_borrow_rejects_when_paused() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.pause();
@@ -163,9 +140,7 @@ fn test_borrow_rejects_when_paused() {
 #[test]
 fn test_borrow_position_limit_exceeded() {
     let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_market(wbtc_preset())
+        .three_asset_usdc_eth_wbtc()
         .with_position_limits(4, 1)
         .build();
 
@@ -177,13 +152,7 @@ fn test_borrow_position_limit_exceeded() {
 }
 #[test]
 fn test_borrow_spoke_enhanced_ltv() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(usdt_stable_preset())
-        .with_spoke(2, STABLECOIN_SPOKE)
-        .with_spoke_asset(2, "USDC", true, true)
-        .with_spoke_asset(2, "USDT", true, true)
-        .build();
+    let mut t = LendingTest::new().stablecoin_spoke_two_asset().build();
 
     t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 10_000.0);
@@ -229,11 +198,7 @@ fn test_borrow_at_ltv_limit_stays_healthy() {
 }
 #[test]
 fn test_borrow_bulk_passes_cumulative_hf_check() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_market(wbtc_preset())
-        .build();
+    let mut t = LendingTest::new().three_asset_usdc_eth_wbtc().build();
 
     t.supply(ALICE, "USDC", 100_000.0);
 
@@ -255,10 +220,7 @@ fn test_borrow_bulk_passes_cumulative_hf_check() {
 }
 #[test]
 fn test_delegated_borrow_routes_funds_to_owner() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     let account_id = t.resolve_account_id(ALICE);
@@ -289,10 +251,7 @@ fn test_delegated_borrow_routes_funds_to_owner() {
 }
 #[test]
 fn test_delegated_borrow_to_none_routes_to_caller() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     let account_id = t.resolve_account_id(ALICE);

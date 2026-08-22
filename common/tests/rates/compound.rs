@@ -51,3 +51,55 @@ fn test_compound_interest_high_x_pins_all_taylor_terms() {
         expected
     );
 }
+
+/// Pins the Taylor-term loop against the hand-unrolled `x^2..x^8` form it replaced: same
+/// operation order, same rounding, bit-identical results across the supported rate and
+/// elapsed-time domain.
+#[test]
+fn test_compound_interest_matches_the_unrolled_taylor_expansion() {
+    fn unrolled(env: &Env, x: Ray) -> Ray {
+        let x_sq = x.mul(env, x);
+        let x_cub = x_sq.mul(env, x);
+        let x_pow4 = x_cub.mul(env, x);
+        let x_pow5 = x_pow4.mul(env, x);
+        let x_pow6 = x_pow5.mul(env, x);
+        let x_pow7 = x_pow6.mul(env, x);
+        let x_pow8 = x_pow7.mul(env, x);
+
+        let terms = [
+            x,
+            x_sq.div_by_int(2),
+            x_cub.div_by_int(6),
+            x_pow4.div_by_int(24),
+            x_pow5.div_by_int(120),
+            x_pow6.div_by_int(720),
+            x_pow7.div_by_int(5_040),
+            x_pow8.div_by_int(40_320),
+        ];
+        let mut sum = Ray::ONE;
+        for term in terms {
+            sum = sum.checked_add(env, term);
+        }
+        sum
+    }
+
+    let env = Env::default();
+    for rate_bps in [0i128, 1, 7, 250, 1_000, 5_000, 10_000, 100_000] {
+        let rate = Ray::from(RAY * rate_bps / 10_000 / MILLISECONDS_PER_YEAR as i128);
+        for delta_ms in [
+            1u64,
+            1_000,
+            60_000,
+            86_400_000,
+            MILLISECONDS_PER_YEAR / 12,
+            MILLISECONDS_PER_YEAR,
+        ] {
+            let x = Ray::from(rate.raw() * delta_ms as i128);
+            assert_eq!(
+                compound_interest(&env, rate, delta_ms),
+                unrolled(&env, x),
+                "rate_bps={rate_bps} delta_ms={delta_ms}"
+            );
+        }
+    }
+}

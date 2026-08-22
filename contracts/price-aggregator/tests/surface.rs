@@ -605,10 +605,15 @@ fn shared_trust_dual_cannot_gain_a_wide_band_through_update() {
         &redstone_dual(&env, &feed, "PRIMARY", "ANCHOR", 900, 10_500, 9_524),
     );
 
+    // Since F-3 the immediate path refuses ANY widening, so the attempt is
+    // stopped by the ratchet before the single-source width cap is consulted.
+    // The property under test is unchanged and now enforced more strictly: a
+    // shared-trust dual source cannot acquire a wide band through this path at
+    // all. The width cap still guards the timelocked widening path.
     assert_eq!(
         client.try_set_sanity_band(&PriceKey::Token(asset), &(WAD / 2), &(WAD * 3 / 2),),
         Err(Ok(soroban_sdk::Error::from_contract_error(
-            Error::SanityBandTooWideForSingleSource as u32,
+            Error::SanityBandMustTighten as u32,
         )))
     );
 }

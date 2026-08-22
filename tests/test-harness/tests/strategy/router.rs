@@ -5,11 +5,11 @@ use soroban_sdk::xdr::{ContractEventBody, ScVal};
 use soroban_sdk::{Address, IntoVal, Val};
 use test_harness::mock_aggregator::{BadAggregator, BadMode};
 use test_harness::{
-    apply_flash_fee, assert_contract_error, build_aggregator_swap, errors, eth_preset, hub_asset,
-    usd, usdc_preset, wbtc_preset, LendingTest, ALICE, BOB,
+    apply_flash_fee, assert_contract_error, build_aggregator_swap, errors, hub_asset,
+    map_try_ok_value, usd, LendingTest, ALICE, BOB,
 };
 
-use crate::helpers::build_swap_steps;
+use crate::helpers::AliceOps;
 
 const SWAP_REQUESTED_ETH: i128 = 10_000_000;
 const SWAP_MIN_OUT_USDC: i128 = 30_000_000_000;
@@ -72,16 +72,6 @@ fn assert_overpull_rejected(result: Result<u64, soroban_sdk::Error>) {
     }
 }
 
-fn flatten<T>(
-    r: Result<Result<T, soroban_sdk::Error>, Result<soroban_sdk::Error, soroban_sdk::InvokeError>>,
-) -> Result<T, soroban_sdk::Error> {
-    match r {
-        Ok(Ok(v)) => Ok(v),
-        Ok(Err(e)) => Err(e),
-        Err(invoke) => Err(invoke.expect("expected contract error, got host-level InvokeError")),
-    }
-}
-
 fn set_sanity_bounds(t: &LendingTest, asset_name: &str, min_wad: i128, max_wad: i128) {
     let asset = t.resolve_asset(asset_name);
     let mut oracle = t
@@ -96,10 +86,7 @@ fn set_sanity_bounds(t: &LendingTest, asset_name: &str, min_wad: i128, max_wad: 
 
 #[test]
 fn test_swap_tokens_panics_when_router_refunds_token_in() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     let bad = install_bad_router(&t, BadMode::Refund);
 
@@ -114,24 +101,14 @@ fn test_swap_tokens_panics_when_router_refunds_token_in() {
         apply_flash_fee(SWAP_REQUESTED_ETH),
         SWAP_MIN_OUT_USDC,
     );
-    let result = t.try_multiply(
-        ALICE,
-        "USDC",
-        1.0,
-        "ETH",
-        controller::types::PositionMode::Multiply,
-        &steps,
-    );
+    let result = t.try_alice_multiply(&steps);
 
     assert_contract_error(result, errors::ROUTER_OVERSPEND);
 }
 
 #[test]
 fn test_swap_tokens_rejects_router_pulling_more_than_allowance() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     let bad = install_bad_router(&t, BadMode::OverPull);
     mint_to(&t, "USDC", &bad, 300_000_000_000);
@@ -143,24 +120,14 @@ fn test_swap_tokens_rejects_router_pulling_more_than_allowance() {
         apply_flash_fee(SWAP_REQUESTED_ETH),
         SWAP_MIN_OUT_USDC,
     );
-    let result = t.try_multiply(
-        ALICE,
-        "USDC",
-        1.0,
-        "ETH",
-        controller::types::PositionMode::Multiply,
-        &steps,
-    );
+    let result = t.try_alice_multiply(&steps);
 
     assert_overpull_rejected(result);
 }
 
 #[test]
 fn test_swap_tokens_refunds_router_underspend() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     let bad = install_bad_router(&t, BadMode::UnderPull);
     mint_to(&t, "USDC", &bad, SWAP_MIN_OUT_USDC);
@@ -175,15 +142,8 @@ fn test_swap_tokens_refunds_router_underspend() {
         SWAP_MIN_OUT_USDC,
     );
 
-    t.try_multiply(
-        ALICE,
-        "USDC",
-        1.0,
-        "ETH",
-        controller::types::PositionMode::Multiply,
-        &steps,
-    )
-    .expect("underspend should be refunded, not rejected");
+    t.try_alice_multiply(&steps)
+        .expect("underspend should be refunded, not rejected");
 
     let eth_after = token::Client::new(&t.env, &t.resolve_asset("ETH")).balance(&alice);
     assert!(
@@ -194,10 +154,7 @@ fn test_swap_tokens_refunds_router_underspend() {
 
 #[test]
 fn test_swap_collateral_refunds_router_underspend_to_caller() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     let bad = install_bad_router(&t, BadMode::UnderPull);
     mint_to(&t, "ETH", &bad, 50_000_000);
@@ -227,10 +184,7 @@ fn test_swap_collateral_refunds_router_underspend_to_caller() {
 
 #[test]
 fn test_repay_debt_with_collateral_refunds_router_underspend_to_caller() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     let bad = install_bad_router(&t, BadMode::UnderPull);
     mint_to(&t, "ETH", &bad, 5_000_000);
@@ -263,10 +217,7 @@ fn test_repay_debt_with_collateral_refunds_router_underspend_to_caller() {
 
 #[test]
 fn test_repay_without_excess_skips_zero_value_refund() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 1.0);
@@ -285,10 +236,7 @@ fn test_repay_without_excess_skips_zero_value_refund() {
 
 #[test]
 fn test_router_pull_uses_controller_self_authorization() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
     let caller = t.get_or_create_user(ALICE);
     t.supply(ALICE, "USDC", 100_000.0);
     t.fund_router("ETH", 5.0);
@@ -332,10 +280,7 @@ fn test_router_pull_uses_controller_self_authorization() {
 
 #[test]
 fn test_swap_tokens_handles_zero_output_from_router() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     install_bad_router(&t, BadMode::OutputShortfall);
 
@@ -346,25 +291,14 @@ fn test_swap_tokens_handles_zero_output_from_router() {
         apply_flash_fee(SWAP_REQUESTED_ETH),
         SWAP_MIN_OUT_USDC,
     );
-    let result = t.try_multiply(
-        ALICE,
-        "USDC",
-        1.0,
-        "ETH",
-        controller::types::PositionMode::Multiply,
-        &steps,
-    );
+    let result = t.try_alice_multiply(&steps);
 
     assert_contract_error(result, errors::NO_SWAP_OUTPUT);
 }
 
 #[test]
 fn test_multiply_third_token_payment_without_convert_steps_rejects() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_market(wbtc_preset())
-        .build();
+    let mut t = LendingTest::new().three_asset_usdc_eth_wbtc().build();
 
     let alice = t.get_or_create_user(ALICE);
 
@@ -377,7 +311,7 @@ fn test_multiply_third_token_payment_without_convert_steps_rejects() {
     let wbtc = t.resolve_asset("WBTC");
 
     t.fund_router("USDC", 3_000.0);
-    let steps = build_swap_steps(&t, "ETH", "USDC", 30_000_000_000);
+    let steps = build_aggregator_swap(&t, "ETH", "USDC", 0, 30_000_000_000);
 
     let ctrl = t.ctrl_client();
 
@@ -393,21 +327,18 @@ fn test_multiply_third_token_payment_without_convert_steps_rejects() {
         &Some((hub_asset(wbtc), 100_000i128)),
         &None,
     );
-    assert_contract_error(flatten(result), errors::CONVERT_STEPS_REQUIRED);
+    assert_contract_error(map_try_ok_value(result), errors::CONVERT_STEPS_REQUIRED);
 }
 
 #[test]
 fn test_multiply_existing_account_mode_mismatch_rejects() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     let account_id = t.create_account_full(ALICE, 1, controller::types::PositionMode::Multiply);
     t.supply_to(ALICE, account_id, "USDC", 1_000.0);
 
     t.fund_router("USDC", 3_000.0);
-    let steps = build_swap_steps(&t, "ETH", "USDC", 30_000_000_000);
+    let steps = build_aggregator_swap(&t, "ETH", "USDC", 0, 30_000_000_000);
     let alice = t.get_or_create_user(ALICE);
     let usdc = t.resolve_asset("USDC");
     let eth = t.resolve_asset("ETH");
@@ -425,16 +356,12 @@ fn test_multiply_existing_account_mode_mismatch_rejects() {
         &None,
         &None,
     );
-    assert_contract_error(flatten(result), errors::ACCOUNT_MODE_MISMATCH);
+    assert_contract_error(map_try_ok_value(result), errors::ACCOUNT_MODE_MISMATCH);
 }
 
 #[test]
 fn test_swap_debt_existing_position_missing_rejects() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_market(wbtc_preset())
-        .build();
+    let mut t = LendingTest::new().three_asset_usdc_eth_wbtc().build();
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "WBTC", 0.01);
@@ -449,58 +376,43 @@ fn test_swap_debt_existing_position_missing_rejects() {
 
 #[test]
 fn test_swap_collateral_position_missing_rejects() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_market(wbtc_preset())
-        .build();
+    let mut t = LendingTest::new().three_asset_usdc_eth_wbtc().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
 
-    let steps = build_swap_steps(&t, "WBTC", "ETH", 5_0000000);
+    let steps = build_aggregator_swap(&t, "WBTC", "ETH", 0, 5_0000000);
     let result = t.try_swap_collateral(ALICE, "WBTC", 0.01, "ETH", &steps);
     assert_contract_error(result, errors::COLLATERAL_POSITION_NOT_FOUND);
 }
 
 #[test]
 fn test_repay_debt_with_collateral_missing_collateral_rejects() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_market(wbtc_preset())
-        .build();
+    let mut t = LendingTest::new().three_asset_usdc_eth_wbtc().build();
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 1.0);
 
-    let steps = build_swap_steps(&t, "WBTC", "ETH", 1_0000000);
+    let steps = build_aggregator_swap(&t, "WBTC", "ETH", 0, 1_0000000);
     let result = t.try_repay_debt_with_collateral(ALICE, "WBTC", 0.01, "ETH", &steps, false);
     assert_contract_error(result, errors::COLLATERAL_POSITION_NOT_FOUND);
 }
 
 #[test]
 fn test_repay_debt_with_collateral_missing_debt_rejects() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_market(wbtc_preset())
-        .build();
+    let mut t = LendingTest::new().three_asset_usdc_eth_wbtc().build();
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 1.0);
 
     t.fund_router("WBTC", 0.01);
-    let steps = build_swap_steps(&t, "USDC", "WBTC", 1_000_000);
+    let steps = build_aggregator_swap(&t, "USDC", "WBTC", 0, 1_000_000);
     let result = t.try_repay_debt_with_collateral(ALICE, "USDC", 1_000.0, "WBTC", &steps, false);
     assert_contract_error(result, errors::DEBT_POSITION_NOT_FOUND);
 }
 
 #[test]
 fn test_repay_debt_with_collateral_close_with_remaining_debt_rejects() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 5.0);
@@ -515,10 +427,7 @@ fn test_repay_debt_with_collateral_close_with_remaining_debt_rejects() {
 
 #[test]
 fn test_multiply_with_collateral_token_initial_payment() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     let alice = t.get_or_create_user(ALICE);
     let usdc_market = t.resolve_market("USDC");
@@ -583,11 +492,7 @@ fn test_multiply_with_collateral_token_initial_payment() {
 
 #[test]
 fn test_multiply_with_third_token_initial_payment_swaps_via_convert_steps() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_market(wbtc_preset())
-        .build();
+    let mut t = LendingTest::new().three_asset_usdc_eth_wbtc().build();
 
     let alice = t.get_or_create_user(ALICE);
     let usdc = t.resolve_asset("USDC");
@@ -643,10 +548,7 @@ fn test_multiply_with_third_token_initial_payment_swaps_via_convert_steps() {
 
 #[test]
 fn test_swap_tokens_allowance_remains_zero_after_overpull_rejection() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     let admin = t.admin.clone();
     let bad = t.env.register(BadAggregator, (admin, BadMode::OverPull));
@@ -659,15 +561,8 @@ fn test_swap_tokens_allowance_remains_zero_after_overpull_rejection() {
         .token_admin
         .mint(&bad, &100_000_000_i128);
 
-    let steps = build_swap_steps(&t, "ETH", "USDC", 30_000_000_000);
-    let result = t.try_multiply(
-        ALICE,
-        "USDC",
-        1.0,
-        "ETH",
-        controller::types::PositionMode::Multiply,
-        &steps,
-    );
+    let steps = build_aggregator_swap(&t, "ETH", "USDC", 0, 30_000_000_000);
+    let result = t.try_alice_multiply(&steps);
     assert_overpull_rejected(result);
 
     let eth = t.resolve_asset("ETH");
@@ -682,10 +577,7 @@ fn test_swap_tokens_allowance_remains_zero_after_overpull_rejection() {
 
 #[test]
 fn test_swap_tokens_allowance_zero_after_successful_multiply() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.fund_router("USDC", 3_000.0);
 
@@ -696,14 +588,7 @@ fn test_swap_tokens_allowance_zero_after_successful_multiply() {
         apply_flash_fee(10_000_000),
         30_000_000_000,
     );
-    let _account_id = t.multiply(
-        ALICE,
-        "USDC",
-        1.0,
-        "ETH",
-        controller::types::PositionMode::Multiply,
-        &steps,
-    );
+    let _account_id = t.try_alice_multiply(&steps).expect("multiply");
 
     let eth = t.resolve_asset("ETH");
     let eth_tok = token::Client::new(&t.env, &eth);
@@ -717,10 +602,7 @@ fn test_swap_tokens_allowance_zero_after_successful_multiply() {
 
 #[test]
 fn test_multiply_reusing_account_wrong_owner_rejects() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.fund_router("USDC", 3_000.0);
     let steps = build_aggregator_swap(
@@ -730,17 +612,10 @@ fn test_multiply_reusing_account_wrong_owner_rejects() {
         apply_flash_fee(10_000_000),
         30_000_000_000,
     );
-    let alice_account = t.multiply(
-        ALICE,
-        "USDC",
-        1.0,
-        "ETH",
-        controller::types::PositionMode::Multiply,
-        &steps,
-    );
+    let alice_account = t.try_alice_multiply(&steps).expect("multiply");
 
     t.fund_router("USDC", 3_000.0);
-    let steps2 = build_swap_steps(&t, "ETH", "USDC", 30_000_000_000);
+    let steps2 = build_aggregator_swap(&t, "ETH", "USDC", 0, 30_000_000_000);
     let bob = t.get_or_create_user(BOB);
     let usdc = t.resolve_asset("USDC");
     let eth = t.resolve_asset("ETH");
@@ -757,15 +632,12 @@ fn test_multiply_reusing_account_wrong_owner_rejects() {
         &None,
         &None,
     );
-    assert_contract_error(flatten(result), errors::NOT_AUTHORIZED);
+    assert_contract_error(map_try_ok_value(result), errors::NOT_AUTHORIZED);
 }
 
 #[test]
 fn test_sanity_bound_ceiling_exact_accept_then_one_over_reject() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     set_sanity_bounds(&t, "ETH", usd(100), usd(2_000));
     t.supply(ALICE, "USDC", 10_000.0);
@@ -778,10 +650,7 @@ fn test_sanity_bound_ceiling_exact_accept_then_one_over_reject() {
 
 #[test]
 fn test_sanity_bound_floor_exact_accept_then_one_under_reject() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     set_sanity_bounds(&t, "ETH", usd(2_000), usd(10_000));
     t.supply(ALICE, "USDC", 10_000.0);
@@ -795,8 +664,7 @@ fn test_sanity_bound_floor_exact_accept_then_one_under_reject() {
 #[test]
 fn test_borrow_at_cap_then_step_over_rejected() {
     let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
+        .standard_two_asset()
         .with_market_params("USDC", |p| {
             p.max_utilization = controller::constants::RAY * 85 / 100;
         })
@@ -814,8 +682,7 @@ fn test_borrow_at_cap_then_step_over_rejected() {
 #[test]
 fn test_multiply_at_utilization_cap_then_step_over_rejected() {
     let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
+        .standard_two_asset()
         .with_market_params("ETH", |p| {
             p.max_utilization = RAY * 85 / 100;
         })
@@ -834,22 +701,14 @@ fn test_multiply_at_utilization_cap_then_step_over_rejected() {
         apply_flash_fee(10_000_000),
         30_000_000_000,
     );
-    let result = t.try_multiply(
-        ALICE,
-        "USDC",
-        1.0,
-        "ETH",
-        controller::types::PositionMode::Multiply,
-        &steps,
-    );
+    let result = t.try_alice_multiply(&steps);
     assert_contract_error(result, errors::UTILIZATION_ABOVE_MAX);
 }
 
 #[test]
 fn test_strategy_multiply_unsupported_category() {
     let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
+        .standard_two_asset()
         .with_dust_disabled_all_markets()
         .with_max_utilization_disabled_all_markets()
         .build();

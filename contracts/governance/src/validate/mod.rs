@@ -1,9 +1,8 @@
-//! Shared validation helpers used by the `asset`, `spoke`, and `tolerance`
+//! Shared validation helpers used by the `asset` and `tolerance`
 //! submodules: contract-address existence/executability checks and wasm-hash
 //! zero checks used across governance validation.
 
 pub(crate) mod asset;
-pub(crate) mod spoke;
 pub(crate) mod tolerance;
 
 use common::errors::GenericError;
@@ -31,3 +30,7 @@ pub(crate) fn require_nonzero_wasm_hash(env: &Env, hash: &BytesN<32>) {
         GenericError::InvalidWasmHash
     );
 }
+
+#[cfg(test)]
+#[path = "../../tests/validate/spoke.rs"]
+mod spoke_tests;

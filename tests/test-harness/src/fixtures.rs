@@ -2,7 +2,12 @@ use controller::constants::WAD;
 
 use crate::context::{LendingTest, LendingTestBuilder};
 use crate::helpers::usd_cents;
-use crate::presets::{eth_preset, usdc_preset, wbtc_preset, ALICE, BOB, LIQUIDATOR};
+use crate::presets::{
+    eth_preset, usdc_preset, usdt_stable_preset, wbtc_preset, ALICE, BOB, STABLECOIN_SPOKE,
+};
+
+/// Spoke id the harness builder assigns to the first extra spoke.
+const STABLECOIN_SPOKE_ID: u32 = 2;
 
 impl LendingTestBuilder {
     pub fn standard_two_asset(self) -> Self {
@@ -19,6 +24,16 @@ impl LendingTestBuilder {
         self.with_market(usdc_preset())
             .with_market(eth_preset())
             .with_market(wbtc_preset())
+    }
+
+    /// USDC + USDT listed on the stablecoin spoke (id 2), both collateral and
+    /// borrowable. Chain `.build()`, or add markets first.
+    pub fn stablecoin_spoke_two_asset(self) -> Self {
+        self.with_market(usdc_preset())
+            .with_market(usdt_stable_preset())
+            .with_spoke(STABLECOIN_SPOKE_ID, STABLECOIN_SPOKE)
+            .with_spoke_asset(STABLECOIN_SPOKE_ID, "USDC", true, true)
+            .with_spoke_asset(STABLECOIN_SPOKE_ID, "USDT", true, true)
     }
 
     pub fn dual_source_two_asset(self) -> LendingTest {
@@ -50,15 +65,6 @@ pub fn seed_fuzz_conservation_book(t: &mut LendingTest) {
 
     t.borrow(ALICE, "ETH", 5.0);
     t.borrow(BOB, "USDC", 5_000.0);
-}
-
-pub fn seed_standard_liquidity(t: &mut LendingTest) {
-    t.supply(ALICE, "USDC", 100_000.0);
-    t.supply(BOB, "ETH", 50.0);
-}
-
-pub fn seed_liquidator_usdc(t: &mut LendingTest, amount: f64) {
-    t.supply(LIQUIDATOR, "USDC", amount);
 }
 
 fn configure_dual_source_oracle(t: &LendingTest) {

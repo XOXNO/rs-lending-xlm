@@ -16,6 +16,34 @@ impl LendingTest {
     }
 
     pub fn list_market_on_hub(&mut self, hub_id: u32, asset_name: &str, initial_liquidity: f64) {
+        self.list_hub_market(hub_id, asset_name, initial_liquidity, None);
+    }
+
+    pub fn list_market_on_hub_with_fees(
+        &mut self,
+        hub_id: u32,
+        asset_name: &str,
+        initial_liquidity: f64,
+        liquidation_fees: u32,
+    ) {
+        self.list_hub_market(
+            hub_id,
+            asset_name,
+            initial_liquidity,
+            Some(liquidation_fees),
+        );
+    }
+
+    /// Clones the base-hub listing of `asset_name` onto `hub_id` and seeds it
+    /// with `initial_liquidity`. `liquidation_fees` of `None` keeps the base
+    /// listing's own fee.
+    fn list_hub_market(
+        &mut self,
+        hub_id: u32,
+        asset_name: &str,
+        initial_liquidity: f64,
+        liquidation_fees: Option<u32>,
+    ) {
         let market = self.resolve_market(asset_name);
         let asset = market.asset.clone();
         let pool = market.pool.clone();
@@ -45,61 +73,9 @@ impl LendingTest {
             hub_id,
             &asset,
             &base_cfg,
-            base_cfg.liquidation_fees,
+            liquidation_fees.unwrap_or(base_cfg.liquidation_fees),
             decimals,
         );
-
-        let liquidity = f64_to_i128(initial_liquidity, decimals);
-        token::StellarAssetClient::new(&self.env, &asset).mint(&pool, &liquidity);
-        self.env.as_contract(&pool, || {
-            let key = PoolKey::State(HubAssetKey {
-                hub_id,
-                asset: asset.clone(),
-            });
-            let mut state: PoolStateRaw = self
-                .env
-                .storage()
-                .persistent()
-                .get(&key)
-                .expect("hub market state exists after create_market");
-            state.cash += liquidity;
-            self.env.storage().persistent().set(&key, &state);
-        });
-    }
-
-    pub fn list_market_on_hub_with_fees(
-        &mut self,
-        hub_id: u32,
-        asset_name: &str,
-        initial_liquidity: f64,
-        liquidation_fees: u32,
-    ) {
-        let market = self.resolve_market(asset_name);
-        let asset = market.asset.clone();
-        let pool = market.pool.clone();
-        let decimals = market.decimals;
-
-        let params: MarketParamsRaw = self.env.as_contract(&pool, || {
-            self.env
-                .storage()
-                .persistent()
-                .get(&PoolKey::Params(hub_asset(asset.clone())))
-                .expect("base hub params must exist")
-        });
-        let base_cfg: SpokeAssetConfig = self
-            .ctrl_client()
-            .get_spoke_asset(&HARNESS_SPOKE, &hub_asset(asset.clone()));
-
-        let gov = self.gov_client();
-        gov.execute_immediate(
-            &self.admin,
-            &AdminOperation::CreateLiquidityPool(CreatePoolArgs {
-                hub_id,
-                asset: asset.clone(),
-                params,
-            }),
-        );
-        self.list_hub_asset_on_base_spoke(hub_id, &asset, &base_cfg, liquidation_fees, decimals);
 
         let liquidity = f64_to_i128(initial_liquidity, decimals);
         token::StellarAssetClient::new(&self.env, &asset).mint(&pool, &liquidity);
@@ -187,28 +163,8 @@ impl LendingTest {
         asset_name: &str,
         amount: f64,
     ) {
-        let decimals = self.resolve_market(asset_name).decimals;
-        let raw_amount = f64_to_i128(amount, decimals);
-        let addr = self
-            .users
-            .get(user)
-            .expect("user must exist")
-            .address
-            .clone();
-        let asset_addr = self.resolve_asset(asset_name);
-
-        let ctrl = self.ctrl_client();
-        let borrows: Vec<(HubAssetKey, i128)> = vec![
-            &self.env,
-            (
-                HubAssetKey {
-                    hub_id,
-                    asset: asset_addr,
-                },
-                raw_amount,
-            ),
-        ];
-        ctrl.borrow(&addr, &account_id, &borrows, &None);
+        self.try_borrow_on_hub(hub_id, user, account_id, asset_name, amount)
+            .expect("borrow_on_hub");
     }
 
     pub fn try_borrow_on_hub(

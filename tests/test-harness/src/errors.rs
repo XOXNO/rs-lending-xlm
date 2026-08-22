@@ -55,6 +55,7 @@ pub mod codes {
     pub const ORACLE_NOT_CONFIGURED: u32 = OracleError::OracleNotConfigured as u32;
     pub const SANITY_BOUND_VIOLATED: u32 = OracleError::SanityBoundViolated as u32;
     pub const INVALID_SANITY_BOUNDS: u32 = OracleError::InvalidSanityBounds as u32;
+    pub const SANITY_BAND_MUST_TIGHTEN: u32 = OracleError::SanityBandMustTighten as u32;
 
     pub const SPOKE_NOT_FOUND: u32 = SpokeError::SpokeNotFound as u32;
     pub const SPOKE_DEPRECATED: u32 = SpokeError::SpokeDeprecated as u32;
@@ -78,7 +79,6 @@ pub mod codes {
     pub const NO_SWAP_OUTPUT: u32 = StrategyError::NoSwapOutput as u32;
     pub const COLLATERAL_REQUIRED: u32 = StrategyError::CollateralRequired as u32;
     pub const COLLATERAL_MINIMUM_NOT_MET: u32 = StrategyError::CollateralMinimumNotMet as u32;
-    pub const FLASH_POSITION_CLOSED: u32 = StrategyError::FlashPositionClosed as u32;
 
     // Literals below come from OpenZeppelin stellar libraries, which expose no
     // error enums to derive from: stellar-contract-utils pausable (1000),

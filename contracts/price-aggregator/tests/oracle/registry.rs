@@ -281,7 +281,12 @@ fn test_revalidation_touches_only_the_keys_that_actually_depend_on_the_change() 
     });
 }
 
-const REBAND_DELTA_WAD: i128 = TWAP_MEAN_WAD * 7 / 100;
+/// A reband that TIGHTENS `reflector_oracle`'s +/-5% band. Since F-3 the
+/// immediate `set_sanity_band` path may only narrow, so a 7% delta — what this
+/// was before the ratchet — is now refused with `SanityBandMustTighten` before
+/// the code under test is reached. 3% keeps the band 300 bps wide, comfortably
+/// above `MIN_SANITY_BAND_BPS`.
+const REBAND_DELTA_WAD: i128 = TWAP_MEAN_WAD * 3 / 100;
 
 #[test]
 fn test_sanity_band_is_editable_while_the_price_is_unreadable() {
@@ -581,7 +586,7 @@ fn test_set_oracle_lists_a_stableswap_lp_and_prices_it() {
 }
 
 /// Attestation rejects it, not the pricing probe: the specific error pins which
-/// gate fired, so removing `attest_stable` is caught rather than masked by the
+/// gate fired, so removing the stable-pool attestation is caught rather than masked by the
 /// probe failing later for its own reasons.
 #[test]
 #[should_panic(expected = "Error(Contract, #234)")]
@@ -1092,8 +1097,15 @@ fn assert_deepened_leg_exhausts_the_cap(deepen_key_a: bool) {
 
         let mut session = Session::new(&env);
         assert_eq!(
-            crate::providers::aquarius::read(&mut session, &key, &lp, 7, MAX_RESOLUTION_DEPTH - 1)
-                .err(),
+            crate::providers::aquarius::read(
+                &mut session,
+                &key,
+                &lp,
+                7,
+                MAX_RESOLUTION_DEPTH - 1,
+                false
+            )
+            .err(),
             Some(OracleError::OracleDepthExceeded)
         );
     });
@@ -1115,7 +1127,7 @@ fn priced_stable_lp(env: &Env) -> (PriceKey, AquariusLpSource, i128) {
     let lp = lp_of(&oracle);
 
     let mut session = Session::new(env);
-    let (observation, _) = crate::providers::aquarius::read_stable(&mut session, &key, &lp, 7, 0)
+    let (observation, _) = crate::providers::aquarius::read(&mut session, &key, &lp, 7, 0, true)
         .expect("a balanced stable pool must price")
         .expect("a balanced stable pool must report an observation");
     let pool_value_wad = observation.price_wad * BALANCED_STABLE_SHARES;
@@ -1131,7 +1143,7 @@ fn test_a_stable_pool_worth_exactly_its_liquidity_floor_still_prices() {
         lp.min_pool_value_wad = pool_value_wad;
 
         let mut session = Session::new(&env);
-        assert!(crate::providers::aquarius::read_stable(&mut session, &key, &lp, 7, 0).is_ok());
+        assert!(crate::providers::aquarius::read(&mut session, &key, &lp, 7, 0, true).is_ok());
     });
 }
 
@@ -1145,7 +1157,7 @@ fn test_a_stable_pool_one_wei_under_its_liquidity_floor_is_refused() {
 
         let mut session = Session::new(&env);
         assert_eq!(
-            crate::providers::aquarius::read_stable(&mut session, &key, &lp, 7, 0).err(),
+            crate::providers::aquarius::read(&mut session, &key, &lp, 7, 0, true).err(),
             Some(OracleError::InsufficientAquariusLiquidity)
         );
     });
@@ -1164,12 +1176,13 @@ fn assert_deepened_stable_leg_exhausts_the_cap(deepen_key_a: bool) {
 
         let mut session = Session::new(&env);
         assert_eq!(
-            crate::providers::aquarius::read_stable(
+            crate::providers::aquarius::read(
                 &mut session,
                 &key,
                 &lp,
                 7,
-                MAX_RESOLUTION_DEPTH - 1
+                MAX_RESOLUTION_DEPTH - 1,
+                true
             )
             .err(),
             Some(OracleError::OracleDepthExceeded)

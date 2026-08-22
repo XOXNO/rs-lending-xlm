@@ -2,7 +2,7 @@
 
 **Status:** Accepted
 
-**Implemented by:** contracts/controller/src/spoke_usage.rs (`apply_entry`, `apply_exit`, `enforce_spoke_cap`, `SpokeSupplyCapReached`), common/src/rates/scaling.rs (`calculate_scaled_cap`), contracts/controller/src/config/asset.rs (`load_market_and_validate_caps`, `remove_asset_from_spoke`), contracts/controller/src/positions/liquidation/apply.rs (`assert_credit_usage_is_neutral`).
+**Implemented by:** contracts/controller/src/spoke_usage.rs (`apply_entry`, `apply_exit`, `enforce_spoke_cap`, `SpokeSupplyCapReached`), common/src/rates/scaling.rs (`calculate_scaled_cap`), contracts/controller/src/config/asset.rs (`upsert_spoke_asset`, `remove_asset_from_spoke`), contracts/controller/src/positions/liquidation/apply.rs (`apply_liquidation_share_credit`).
 
 ## Decision
 
@@ -25,8 +25,8 @@ no exit underflows it.
 
 Liquidation's share credit is the one exemption. It moves shares between two
 accounts of the same spoke, so it calls neither `apply_entry` nor `apply_exit`
-for the account-to-account half; `assert_credit_usage_is_neutral` asserts that
-the debit and the credit cancel instead. Only the protocol fee books a real
+for the account-to-account half; `apply_liquidation_share_credit` asserts
+inline that the debit and the credit cancel instead. Only the protocol fee books a real
 `apply_exit`. The credit is deliberately outside the cap check so that a spoke
 sitting at its supply cap still stays liquidatable. See
 [ADR-0019](0019-share-credit-liquidation.md).

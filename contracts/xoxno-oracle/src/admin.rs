@@ -8,15 +8,16 @@ use soroban_sdk::{contractimpl, Address, Env, String, Vec};
 
 use stellar_macros::only_owner;
 
+use common::ttl::renew_instance;
+
 use crate::aggregation::recompute_aggregate;
 use crate::storage::{
     asset_index_insert, asset_index_remove, clear_feed_state, clear_signer_feeds,
-    ensure_known_feed, feed_index_contains, has_feed_mapping, load_feed_owner,
+    ensure_known_feed, feed_index_contains, has_feed_mapping, load_feed_id, load_feed_owner,
     load_max_stale_seconds, load_max_submission_age, load_signer_feeds, load_signers,
-    load_threshold, map_feed, remove_feed_mapping, remove_submission, renew_oracle_instance,
-    require_known_feed, store_max_relative_skew, store_max_stale_seconds, store_max_submission_age,
-    store_resolution, store_signers, store_threshold, take_feed_mapping,
-    MIN_SUBMISSION_AGE_SECONDS,
+    load_threshold, map_feed, remove_feed_mapping, remove_submission, require_known_feed,
+    store_max_relative_skew, store_max_stale_seconds, store_max_submission_age, store_resolution,
+    store_signers, store_threshold, MIN_SUBMISSION_AGE_SECONDS,
 };
 use crate::{Error, XoxnoOracle, XoxnoOracleArgs, XoxnoOracleClient};
 
@@ -26,7 +27,7 @@ impl XoxnoOracle {
     /// Fails with `SignerAlreadyRegistered` if the address is already present.
     #[only_owner]
     pub fn add_signer(env: Env, signer: Address) -> Result<(), Error> {
-        renew_oracle_instance(&env);
+        renew_instance(&env);
         let mut signers = load_signers(&env);
         if signers.contains(&signer) {
             return Err(Error::SignerAlreadyRegistered);
@@ -44,7 +45,7 @@ impl XoxnoOracle {
     /// of those feeds, and clears the signer's feed list.
     #[only_owner]
     pub fn remove_signer(env: Env, signer: Address) -> Result<(), Error> {
-        renew_oracle_instance(&env);
+        renew_instance(&env);
         let mut signers = load_signers(&env);
         let Some(index) = signers.first_index_of(&signer) else {
             return Err(Error::SignerNotRegistered);
@@ -73,7 +74,7 @@ impl XoxnoOracle {
     /// threshold to feeds that already hold one.
     #[only_owner]
     pub fn set_threshold(env: Env, threshold: u32) -> Result<(), Error> {
-        renew_oracle_instance(&env);
+        renew_instance(&env);
         let signers = load_signers(&env);
         if threshold == 0 || threshold > signers.len() {
             return Err(Error::InvalidThreshold);
@@ -88,7 +89,7 @@ impl XoxnoOracle {
     /// is smaller than the configured maximum submission age.
     #[only_owner]
     pub fn set_max_stale_seconds(env: Env, seconds: u64) -> Result<(), Error> {
-        renew_oracle_instance(&env);
+        renew_instance(&env);
         if seconds < load_max_submission_age(&env) {
             return Err(Error::InvalidSubmissionAge);
         }
@@ -104,7 +105,7 @@ impl XoxnoOracle {
     /// new bound to feeds that already hold one.
     #[only_owner]
     pub fn set_max_submission_age_seconds(env: Env, seconds: u64) -> Result<(), Error> {
-        renew_oracle_instance(&env);
+        renew_instance(&env);
         if seconds < MIN_SUBMISSION_AGE_SECONDS || seconds > load_max_stale_seconds(&env) {
             return Err(Error::InvalidSubmissionAge);
         }
@@ -121,7 +122,7 @@ impl XoxnoOracle {
     /// afterwards to apply the new bound to feeds that already hold one.
     #[only_owner]
     pub fn set_max_relative_skew_seconds(env: Env, seconds: u64) -> Result<(), Error> {
-        renew_oracle_instance(&env);
+        renew_instance(&env);
         if seconds > load_max_submission_age(&env)
             || seconds <= common::oracle::observation::MAX_FUTURE_SKEW_SECONDS
         {
@@ -148,7 +149,7 @@ impl XoxnoOracle {
     /// no aggregate is recomputed.
     #[only_owner]
     pub fn recompute_feeds(env: Env, feed_ids: Vec<String>) -> Result<(), Error> {
-        renew_oracle_instance(&env);
+        renew_instance(&env);
         for feed_id in feed_ids.iter() {
             require_known_feed(&env, &feed_id)?;
         }
@@ -163,7 +164,7 @@ impl XoxnoOracle {
     /// already known.
     #[only_owner]
     pub fn register_feed(env: Env, feed_id: String) -> Result<(), Error> {
-        renew_oracle_instance(&env);
+        renew_instance(&env);
         if feed_index_contains(&env, &feed_id) {
             return Err(Error::FeedAlreadyRegistered);
         }
@@ -177,7 +178,7 @@ impl XoxnoOracle {
     /// `feed_id` already has an owning asset.
     #[only_owner]
     pub fn add_feed(env: Env, feed_id: String, asset: ReflectorAsset) -> Result<(), Error> {
-        renew_oracle_instance(&env);
+        renew_instance(&env);
         if has_feed_mapping(&env, &asset) {
             return Err(Error::FeedAlreadyMapped);
         }
@@ -197,12 +198,11 @@ impl XoxnoOracle {
     /// Fails with `FeedNotMapped` if `asset` has no feed mapping.
     #[only_owner]
     pub fn remove_feed(env: Env, asset: ReflectorAsset) -> Result<(), Error> {
-        renew_oracle_instance(&env);
-        let Some(feed_id) = take_feed_mapping(&env, &asset) else {
+        renew_instance(&env);
+        let Some(feed_id) = load_feed_id(&env, &asset) else {
             return Err(Error::FeedNotMapped);
         };
-        asset_index_remove(&env, &asset);
-        clear_feed_state(&env, &feed_id);
+        clear_asset_and_feed(&env, &asset, &feed_id);
         Ok(())
     }
 
@@ -210,7 +210,7 @@ impl XoxnoOracle {
     /// aggregate replaces or appends to the last history entry.
     #[only_owner]
     pub fn set_resolution(env: Env, resolution: u32) -> Result<(), Error> {
-        renew_oracle_instance(&env);
+        renew_instance(&env);
         store_resolution(&env, resolution);
         Ok(())
     }
@@ -220,18 +220,26 @@ impl XoxnoOracle {
     /// `FeedNotKnown` if the feed is not registered.
     #[only_owner]
     pub fn purge_feed(env: Env, feed_id: String) -> Result<(), Error> {
-        renew_oracle_instance(&env);
+        renew_instance(&env);
 
         if !feed_index_contains(&env, &feed_id) {
             return Err(Error::FeedNotKnown);
         }
 
-        if let Some(asset) = load_feed_owner(&env, &feed_id) {
-            remove_feed_mapping(&env, &asset);
-            asset_index_remove(&env, &asset);
+        match load_feed_owner(&env, &feed_id) {
+            Some(asset) => clear_asset_and_feed(&env, &asset, &feed_id),
+            None => clear_feed_state(&env, &feed_id),
         }
-
-        clear_feed_state(&env, &feed_id);
         Ok(())
     }
+}
+
+/// Unregisters `asset` — dropping its feed mapping and its asset-registry slot —
+/// and clears every piece of state stored for the `feed_id` it owned. Shared
+/// tail of `remove_feed` and `purge_feed`, which reach it from opposite ends of
+/// the bidirectional asset/feed mapping.
+fn clear_asset_and_feed(env: &Env, asset: &ReflectorAsset, feed_id: &String) {
+    remove_feed_mapping(env, asset);
+    asset_index_remove(env, asset);
+    clear_feed_state(env, feed_id);
 }

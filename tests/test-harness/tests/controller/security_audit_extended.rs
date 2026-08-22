@@ -1,8 +1,8 @@
 use controller::types::{ControllerKey, SpokeAssetArgs};
 use soroban_sdk::testutils::Ledger as _;
 use test_harness::{
-    assert_contract_error, errors, eth_preset, hub_asset, usdc_preset, wbtc_preset, HubAssetKey,
-    LendingTest, PositionType, ALICE, BOB, HARNESS_HUB, HARNESS_SPOKE, LIQUIDATOR,
+    assert_contract_error, errors, hub_asset, HubAssetKey, LendingTest, PositionType, ALICE, BOB,
+    HARNESS_HUB, HARNESS_SPOKE, LIQUIDATOR,
 };
 
 fn supply_ltv_and_lt(t: &LendingTest, account_id: u64, asset_name: &str) -> (u32, u32) {
@@ -65,11 +65,7 @@ fn set_can_collateral(t: &LendingTest, asset_name: &str, can_collateral: bool) {
 
 #[test]
 fn poc_global_pause_blocks_risk_increasing_allows_exit_and_liq() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_dust_disabled_all_markets()
-        .build();
+    let mut t = LendingTest::new().standard_two_asset_dust_disabled();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.0);
@@ -113,11 +109,7 @@ fn poc_global_pause_blocks_risk_increasing_allows_exit_and_liq() {
 
 #[test]
 fn refutation_global_pause_withdraw_still_enforces_hf() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_dust_disabled_all_markets()
-        .build();
+    let mut t = LendingTest::new().standard_two_asset_dust_disabled();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.0);
@@ -130,9 +122,7 @@ fn refutation_global_pause_withdraw_still_enforces_hf() {
 #[test]
 fn regression_borrow_restamps_all_listed_ltv_multi_coll() {
     let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_market(wbtc_preset())
+        .three_asset_usdc_eth_wbtc()
         .with_dust_disabled_all_markets()
         .build();
 
@@ -174,10 +164,7 @@ fn regression_borrow_restamps_all_listed_ltv_multi_coll() {
 
 #[test]
 fn poc_delisted_collateral_flag_still_backs_new_borrows() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     set_can_collateral(&t, "USDC", false);
@@ -196,11 +183,7 @@ fn poc_delisted_collateral_flag_still_backs_new_borrows() {
 
 #[test]
 fn poc_liquidation_seizes_frozen_collateral() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_dust_disabled_all_markets()
-        .build();
+    let mut t = LendingTest::new().standard_two_asset_dust_disabled();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.0);
@@ -223,10 +206,7 @@ fn poc_liquidation_seizes_frozen_collateral() {
 
 #[test]
 fn poc_frozen_debt_still_repayable_paused_debt_blocked() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 1.0);
@@ -244,10 +224,7 @@ fn poc_frozen_debt_still_repayable_paused_debt_blocked() {
 
 #[test]
 fn refutation_flash_guard_blocks_clean_bad_debt() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 1.0);
@@ -260,11 +237,7 @@ fn refutation_flash_guard_blocks_clean_bad_debt() {
 
 #[test]
 fn refutation_owner_can_self_liquidate() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_dust_disabled_all_markets()
-        .build();
+    let mut t = LendingTest::new().standard_two_asset_dust_disabled();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.0);
@@ -284,10 +257,7 @@ fn refutation_owner_can_self_liquidate() {
 
 #[test]
 fn refutation_liquidate_healthy_and_empty_payments() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 1.0);
@@ -301,10 +271,7 @@ fn refutation_liquidate_healthy_and_empty_payments() {
 
 #[test]
 fn refutation_clean_bad_debt_rejects_non_residual() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 1.0);
@@ -318,10 +285,7 @@ fn refutation_clean_bad_debt_rejects_non_residual() {
 
 #[test]
 fn poc_stale_oracle_blocks_borrow_write_path() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
 
@@ -332,10 +296,7 @@ fn poc_stale_oracle_blocks_borrow_write_path() {
 
 #[test]
 fn poc_spoke_pause_blocks_withdraw_freeze_allows() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 1_000.0);
 
@@ -355,10 +316,7 @@ fn poc_spoke_pause_blocks_withdraw_freeze_allows() {
 
 #[test]
 fn revalidation_third_party_can_top_up_only_existing_leg() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 100.0);
     assert_contract_error(
@@ -374,11 +332,7 @@ fn revalidation_third_party_can_top_up_only_existing_leg() {
 fn poc_dual_in_band_midpoint_used_on_borrow_path() {
     use test_harness::{usd, usd_cents};
 
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_dust_disabled_all_markets()
-        .build();
+    let mut t = LendingTest::new().standard_two_asset_dust_disabled();
 
     t.set_oracle_primary_anchor("USDC");
     t.set_oracle_primary_anchor("ETH");
@@ -402,10 +356,7 @@ fn poc_dual_in_band_midpoint_used_on_borrow_path() {
 
 #[test]
 fn refutation_third_party_cannot_borrow_on_victim() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     let alice_id = t.resolve_account_id(ALICE);

@@ -781,13 +781,13 @@ fn test_balance_ceiling_is_the_same_whole_token_count_at_every_decimals() {
 }
 
 #[test]
-#[should_panic(expected = "rescale_half_up upscale overflow")]
+#[should_panic(expected = "rescale upscale overflow")]
 fn test_ray_from_asset_one_unit_above_the_ceiling_overflows_at_min_decimals() {
     let _ = Ray::from_asset(max_representable_units(3) + 1, 3);
 }
 
 #[test]
-#[should_panic(expected = "rescale_half_up upscale overflow")]
+#[should_panic(expected = "rescale upscale overflow")]
 fn test_ray_from_asset_one_unit_above_the_ceiling_overflows_at_max_decimals() {
     let _ = Ray::from_asset(max_representable_units(18) + 1, 18);
 }

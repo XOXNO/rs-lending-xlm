@@ -2,6 +2,7 @@
 
 use common::constants::RAY;
 use common::errors::GenericError;
+use common::ttl::renew_instance;
 use common::types::{HubAssetKey, InterestRateModel, MarketParamsRaw, PoolStateRaw};
 
 use crate::cache::Cache;
@@ -14,7 +15,7 @@ use soroban_sdk::{assert_with_error, Env};
 /// Validates params, rejects duplicates, writes zeroed state with indexes at
 /// RAY, and emits a market params event.
 pub(crate) fn create(env: &Env, hub_id: u32, params: MarketParamsRaw) {
-    storage::renew_instance(env);
+    renew_instance(env);
     params.verify(env);
 
     let hub_asset = HubAssetKey {
@@ -64,7 +65,7 @@ pub(crate) fn replace_rate_model(env: &Env, hub_asset: HubAssetKey, model: Inter
 /// Writes storage only when time has elapsed; otherwise emits a snapshot of
 /// the current loaded state.
 pub(crate) fn accrue(env: &Env, hub_asset: HubAssetKey) {
-    storage::renew_instance(env);
+    renew_instance(env);
 
     let mut cache = Cache::load(env, &hub_asset);
     let had_elapsed_time = cache.needs_accrual();

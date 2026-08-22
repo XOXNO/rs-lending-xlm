@@ -1,7 +1,7 @@
 use soroban_sdk::{vec, Vec};
 use test_harness::{
-    assert_contract_error, errors, eth_preset, hub_asset, usdc_preset, HubAssetKey, LendingTest,
-    PositionType, ALICE,
+    assert_contract_error, errors, hub_asset, usdc_preset, HubAssetKey, LendingTest, PositionType,
+    ALICE,
 };
 
 fn try_withdraw_payments(
@@ -65,11 +65,7 @@ fn test_withdraw_full_with_zero_amount() {
 }
 #[test]
 fn test_withdraw_multiple_assets() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_dust_disabled_all_markets()
-        .build();
+    let mut t = LendingTest::new().standard_two_asset_dust_disabled();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.supply(ALICE, "ETH", 5.0);
@@ -84,11 +80,7 @@ fn test_withdraw_multiple_assets() {
 }
 #[test]
 fn test_withdraw_rejects_position_not_found() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_dust_disabled_all_markets()
-        .build();
+    let mut t = LendingTest::new().standard_two_asset_dust_disabled();
 
     t.supply(ALICE, "USDC", 10_000.0);
 
@@ -97,11 +89,7 @@ fn test_withdraw_rejects_position_not_found() {
 }
 #[test]
 fn test_withdraw_rejects_exceeding_hf() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_dust_disabled_all_markets()
-        .build();
+    let mut t = LendingTest::new().standard_two_asset_dust_disabled();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 1.75);
@@ -157,11 +145,7 @@ fn test_withdraw_allowed_when_paused() {
 }
 #[test]
 fn test_withdraw_removes_position_when_empty() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_dust_disabled_all_markets()
-        .build();
+    let mut t = LendingTest::new().standard_two_asset_dust_disabled();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.supply(ALICE, "ETH", 1.0);
@@ -232,11 +216,7 @@ fn test_withdraw_raw_precision() {
 
 #[test]
 fn test_withdraw_rejects_when_above_ltv_but_hf_ok() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_dust_disabled_all_markets()
-        .build();
+    let mut t = LendingTest::new().standard_two_asset_dust_disabled();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.75);
@@ -254,11 +234,7 @@ fn test_withdraw_rejects_when_above_ltv_but_hf_ok() {
 
 #[test]
 fn test_withdraw_allowed_with_ltv_headroom() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_dust_disabled_all_markets()
-        .build();
+    let mut t = LendingTest::new().standard_two_asset_dust_disabled();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 1.0);
@@ -336,11 +312,7 @@ fn test_withdraw_full_exit_works_with_broken_oracle() {
 
 #[test]
 fn test_withdraw_with_debt_still_requires_oracle() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_dust_disabled_all_markets()
-        .build();
+    let mut t = LendingTest::new().standard_two_asset_dust_disabled();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 0.5);

@@ -5,7 +5,7 @@ use controller::types::{
 };
 use soroban_sdk::{Address, Env, String, Vec};
 
-pub const DEFAULT_REDSTONE_MAX_STALE_SECONDS: u64 = 900;
+const DEFAULT_REDSTONE_MAX_STALE_SECONDS: u64 = 900;
 pub const DEFAULT_MIN_SANITY_PRICE_WAD: i128 = 1;
 pub const DEFAULT_MAX_SANITY_PRICE_WAD: i128 = controller::constants::MAX_REASONABLE_PRICE_WAD;
 
@@ -15,11 +15,7 @@ const MULTI_FEED_DECIMALS: u32 = 8;
 
 const DEFAULT_MAX_PRICE_STALE_SECONDS: u64 = 900;
 
-pub fn reflector_source(
-    oracle: &Address,
-    asset: &Address,
-    read_mode: OracleReadMode,
-) -> PriceSource {
+fn reflector_source(oracle: &Address, asset: &Address, read_mode: OracleReadMode) -> PriceSource {
     PriceSource::Feed(FeedSource {
         provider: ProviderRef::Reflector(ReflectorFeedRef {
             contract: oracle.clone(),
@@ -46,15 +42,7 @@ pub fn redstone_source_with_max_stale(
     )
 }
 
-pub fn xoxno_source(contract: &Address, feed_id: &String) -> PriceSource {
-    xoxno_source_with_decimals(contract, feed_id, MULTI_FEED_DECIMALS)
-}
-
-pub fn xoxno_source_with_decimals(
-    contract: &Address,
-    feed_id: &String,
-    decimals: u32,
-) -> PriceSource {
+fn xoxno_source_with_decimals(contract: &Address, feed_id: &String, decimals: u32) -> PriceSource {
     let mut source = multi_feed_source(
         ProviderRef::Xoxno(multi_feed_ref(contract, feed_id)),
         DEFAULT_REDSTONE_MAX_STALE_SECONDS,
@@ -91,7 +79,7 @@ pub fn tolerance_band(env: &Env, tolerance_bps: u32) -> OracleTolerance {
     }
 }
 
-pub fn scaled_reflector_source(
+fn scaled_reflector_source(
     oracle: &Address,
     asset: &Address,
     quote: PriceKey,
@@ -329,7 +317,7 @@ pub fn reflector_primary_xoxno_anchor_config(
         env,
         &[
             reflector_source(reflector_oracle, asset, OracleReadMode::Twap(3)),
-            xoxno_source(xoxno_contract, feed_id),
+            xoxno_source_with_decimals(xoxno_contract, feed_id, MULTI_FEED_DECIMALS),
         ],
         tolerance_bps,
         DEFAULT_MIN_SANITY_PRICE_WAD,

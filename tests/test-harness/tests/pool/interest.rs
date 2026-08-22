@@ -1,10 +1,7 @@
-use test_harness::{days, eth_preset, usdc_preset, LendingTest, ALICE, BOB};
+use test_harness::{days, usdc_preset, LendingTest, ALICE, BOB};
 #[test]
 fn test_interest_accrues_on_borrow() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 1.0);
@@ -30,10 +27,7 @@ fn test_interest_accrues_on_borrow() {
 }
 #[test]
 fn test_interest_accrues_on_supply() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.supply(BOB, "ETH", 100.0);
@@ -53,10 +47,7 @@ fn test_interest_accrues_on_supply() {
 }
 #[test]
 fn test_interest_rate_increases_with_utilization() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "ETH", 100.0);
     t.supply(BOB, "USDC", 500_000.0);
@@ -76,10 +67,7 @@ fn test_interest_rate_increases_with_utilization() {
 }
 #[test]
 fn test_compound_interest_over_multiple_periods() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 5.0);
@@ -135,10 +123,7 @@ fn test_interest_zero_when_no_borrows() {
 }
 #[test]
 fn test_reserve_factor_splits_interest() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(BOB, "ETH", 50.0);
     t.supply(ALICE, "USDC", 100_000.0);
@@ -158,10 +143,7 @@ fn test_reserve_factor_splits_interest() {
 }
 #[test]
 fn test_advance_time_without_sync_stale() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 1.0);
@@ -187,10 +169,7 @@ fn test_advance_time_without_sync_stale() {
 }
 #[test]
 fn test_advance_and_sync_specific_markets() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 1.0);

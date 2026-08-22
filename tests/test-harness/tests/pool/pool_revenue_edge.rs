@@ -1,13 +1,9 @@
-use test_harness::{
-    assert_contract_error, errors, eth_preset, hub_asset, usdc_preset, LendingTest, ALICE, BOB,
-    CAROL,
-};
+use test_harness::{assert_contract_error, errors, hub_asset, LendingTest, ALICE, BOB, CAROL};
 
 #[test]
 fn test_claim_revenue_else_branch_when_reserves_fully_drained() {
     let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
+        .standard_two_asset()
         .with_dust_disabled_all_markets()
         .with_max_utilization_disabled_all_markets()
         .build();
@@ -79,8 +75,7 @@ fn test_claim_revenue_else_branch_when_reserves_fully_drained() {
 #[test]
 fn test_claim_revenue_blocked_when_post_state_insolvent() {
     let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
+        .standard_two_asset()
         .with_dust_disabled_all_markets()
         .with_max_utilization_disabled_all_markets()
         .build();

@@ -1,4 +1,3 @@
-use crate::errors::Error;
 use crate::vault::Vault;
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, Env};
@@ -20,32 +19,29 @@ fn vault_accounting_unit() {
 }
 
 #[test]
-fn vault_deposit_negative_returns_invalid_amount() {
+#[should_panic(expected = "Error(Contract, #3)")]
+fn vault_deposit_negative_panics_invalid_amount() {
     let env = Env::default();
     let token = Address::generate(&env);
-    assert_eq!(
-        Vault::new(&env).try_deposit(&token, -1),
-        Err(Error::InvalidAmount)
-    );
+    Vault::new(&env).deposit(&token, -1);
 }
 
 #[test]
-fn vault_withdraw_negative_returns_invalid_amount() {
+#[should_panic(expected = "Error(Contract, #3)")]
+fn vault_withdraw_negative_panics_invalid_amount() {
     let env = Env::default();
     let token = Address::generate(&env);
-    assert_eq!(
-        Vault::new(&env).try_withdraw(&token, -1),
-        Err(Error::InvalidAmount)
-    );
+    Vault::new(&env).withdraw(&token, -1);
 }
 
 #[test]
-fn vault_withdraw_overdraw_returns_invalid_amount() {
+#[should_panic(expected = "Error(Contract, #3)")]
+fn vault_withdraw_overdraw_panics_invalid_amount() {
     let env = Env::default();
     let token = Address::generate(&env);
     let mut v = Vault::new(&env);
     v.deposit(&token, 10);
-    assert_eq!(v.try_withdraw(&token, 20), Err(Error::InvalidAmount));
+    v.withdraw(&token, 20);
 }
 
 #[test]

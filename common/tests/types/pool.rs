@@ -326,11 +326,11 @@ fn test_rate_model_max_util_eq_ray_does_not_panic() {
 
 #[test]
 #[should_panic(expected = "#129")]
-fn test_market_params_verify_rate_model_delegates() {
+fn test_market_params_verify_rejects_a_bad_rate_model() {
     let env = Env::default();
     let mut raw = sample_raw_params(&env);
     raw.slope2 = raw.slope1 - 1;
-    raw.verify_rate_model(&env);
+    raw.verify(&env);
 }
 
 #[test]

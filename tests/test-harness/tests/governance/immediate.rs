@@ -129,7 +129,7 @@ fn non_guardian_flags_rejected() {
 }
 
 #[test]
-fn oracle_role_moves_sanity_band_containing_price() {
+fn oracle_role_tightens_sanity_band_containing_price() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let gov = t.gov_iface_client();
     let admin = t.admin();
@@ -137,8 +137,11 @@ fn oracle_role_moves_sanity_band_containing_price() {
 
     let before = t.market_oracle_config(&usdc);
 
-    let min = usd(1) * 95 / 100;
-    let max = usd(1) * 105 / 100;
+    // The market starts on `tight_single_source_band` = [0.99, 1.01]. F-3
+    // restricts the immediate ORACLE_ROLE path to tightening, so the new band
+    // must sit inside the old one; widening now needs the timelock.
+    let min = usd(1) * 995 / 1000;
+    let max = usd(1) * 1005 / 1000;
     gov.set_sanity_band(
         &admin,
         &controller::types::PriceKey::Token(usdc.clone()),
@@ -158,6 +161,9 @@ fn oracle_role_moves_sanity_band_containing_price() {
 
 #[test]
 fn sanity_band_not_containing_price_fails_closed_at_read() {
+    // Both bands exclude the live price of usd(1). Each is a tightening of the
+    // seeded [0.95, 1.05] start below, so F-3's ratchet admits the write and
+    // the failure has to surface at read time rather than at the write.
     for (min_wad, max_wad) in [
         (usd(1) * 1005 / 1000, usd(1) * 105 / 100),
         (usd(1) * 95 / 100, usd(1) * 995 / 1000),
@@ -166,6 +172,10 @@ fn sanity_band_not_containing_price_fails_closed_at_read() {
         let gov = t.gov_iface_client();
         let admin = t.admin();
         let usdc = t.resolve_asset("USDC");
+
+        // The market defaults to a 1%-wide band; widen it out of band before
+        // the governed call, which may only narrow.
+        t.seed_sanity_band("USDC", usd(1) * 95 / 100, usd(1) * 105 / 100);
 
         flatten(gov.try_set_sanity_band(
             &admin,
@@ -188,14 +198,16 @@ fn sanity_band_not_containing_price_fails_closed_at_read() {
 }
 
 #[test]
-fn sanity_band_disjoint_from_old_band_rejected() {
+fn sanity_band_may_only_tighten_on_the_immediate_path() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let gov = t.gov_iface_client();
     let admin = t.admin();
     let usdc = t.resolve_asset("USDC");
 
-    let narrow_min = usd(1) * 97 / 100;
-    let narrow_max = usd(1) * 103 / 100;
+    // Starting band is [0.99, 1.01] (100 bps). Tighten to 75 bps, leaving room
+    // for a second tighten above MIN_SANITY_BAND_BPS (50).
+    let narrow_min = usd(1) * 9925 / 10000;
+    let narrow_max = usd(1) * 10075 / 10000;
     gov.set_sanity_band(
         &admin,
         &controller::types::PriceKey::Token(usdc.clone()),
@@ -209,19 +221,38 @@ fn sanity_band_disjoint_from_old_band_rejected() {
         &(usd(1) * 110 / 100),
         &(usd(1) * 115 / 100),
     );
-    assert_contract_error(flatten(result), errors::INVALID_SANITY_BOUNDS);
+    assert_contract_error(flatten(result), errors::SANITY_BAND_MUST_TIGHTEN);
 
+    // F-3: widening is refused on this path too, even when the new band still
+    // contains the live price and overlaps the old one. Only the timelock may
+    // widen. Before the ratchet this call succeeded and walked the band.
     let wide_min = usd(1) * 94 / 100;
     let wide_max = usd(1) * 106 / 100;
-    gov.set_sanity_band(
+    let widened = gov.try_set_sanity_band(
         &admin,
         &controller::types::PriceKey::Token(usdc.clone()),
         &wide_min,
         &wide_max,
     );
+    assert_contract_error(flatten(widened), errors::SANITY_BAND_MUST_TIGHTEN);
+
+    // The band the failed calls tried to replace is untouched, and a further
+    // tightening still goes through.
+    let held = t.market_oracle_config(&usdc);
+    assert_eq!(held.min_sanity_price_wad, narrow_min);
+    assert_eq!(held.max_sanity_price_wad, narrow_max);
+
+    let tighter_min = usd(1) * 995 / 1000;
+    let tighter_max = usd(1) * 1005 / 1000;
+    gov.set_sanity_band(
+        &admin,
+        &controller::types::PriceKey::Token(usdc.clone()),
+        &tighter_min,
+        &tighter_max,
+    );
     let after = t.market_oracle_config(&usdc);
-    assert_eq!(after.min_sanity_price_wad, wide_min);
-    assert_eq!(after.max_sanity_price_wad, wide_max);
+    assert_eq!(after.min_sanity_price_wad, tighter_min);
+    assert_eq!(after.max_sanity_price_wad, tighter_max);
 }
 
 #[test]

@@ -1,6 +1,6 @@
 use test_harness::{
-    assert_contract_error, errors, eth_preset, liquidatable_usdc_eth, usd_cents, usdc_preset,
-    LendingTest, ALICE, BOB, LIQUIDATOR,
+    assert_contract_error, errors, liquidatable_usdc_eth, usd_cents, LendingTest, ALICE, BOB,
+    LIQUIDATOR,
 };
 #[test]
 fn test_liquidation_basic_proportional() {
@@ -35,10 +35,7 @@ fn test_liquidation_basic_proportional() {
 }
 #[test]
 fn test_liquidation_targeted_single_collateral() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.0);
@@ -63,10 +60,7 @@ fn test_liquidation_targeted_single_collateral() {
 }
 #[test]
 fn test_liquidation_rejects_healthy_account() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 1.0);
@@ -136,10 +130,7 @@ fn test_liquidation_dynamic_bonus_moderate() {
 }
 #[test]
 fn test_liquidation_dynamic_bonus_deep_underwater() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.0);
@@ -166,10 +157,7 @@ fn test_liquidation_dynamic_bonus_deep_underwater() {
 }
 #[test]
 fn test_liquidation_protocol_fee_on_bonus_only() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.0);
@@ -194,10 +182,7 @@ fn test_liquidation_protocol_fee_on_bonus_only() {
 }
 #[test]
 fn test_liquidation_sequential_partial_liquidations() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.0);
@@ -264,10 +249,7 @@ fn test_liquidation_caps_at_actual_debt() {
 }
 #[test]
 fn test_liquidation_improves_health_factor() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.0);
@@ -289,10 +271,7 @@ fn test_liquidation_improves_health_factor() {
 }
 #[test]
 fn test_liquidation_caps_at_max_bonus() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.0);
@@ -319,10 +298,7 @@ fn test_liquidation_caps_at_max_bonus() {
 }
 #[test]
 fn test_liquidation_bad_debt_cleanup_auto() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 100.0);
     t.borrow(ALICE, "ETH", 0.03);
@@ -349,10 +325,7 @@ fn test_liquidation_bad_debt_cleanup_auto() {
 }
 #[test]
 fn test_liquidation_bad_debt_socializes_loss() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(test_harness::BOB, "ETH", 100.0);
 
@@ -397,10 +370,7 @@ fn test_liquidation_rejects_zero_amount() {
 
 #[test]
 fn test_self_liquidation_allowed() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.0);
@@ -417,10 +387,7 @@ fn test_self_liquidation_allowed() {
 
 #[test]
 fn test_third_party_supply_self_liquidation_allowed() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.0);
@@ -440,10 +407,7 @@ fn test_third_party_supply_self_liquidation_allowed() {
 
 #[test]
 fn test_third_party_supply_leaves_external_liquidation_available() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.0);

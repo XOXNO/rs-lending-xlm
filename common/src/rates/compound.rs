@@ -31,25 +31,11 @@ pub fn compound_interest(env: &Env, rate: Ray, delta_ms: u64) -> Ray {
             .unwrap_or_else(|| panic_with_error!(env, crate::errors::GenericError::MathOverflow))
     });
 
-    let x_sq = x.mul(env, x);
-    let x_cub = x_sq.mul(env, x);
-    let x_pow4 = x_cub.mul(env, x);
-    let x_pow5 = x_pow4.mul(env, x);
-    let x_pow6 = x_pow5.mul(env, x);
-    let x_pow7 = x_pow6.mul(env, x);
-    let x_pow8 = x_pow7.mul(env, x);
-
-    let term2 = x_sq.div_by_int(2);
-    let term3 = x_cub.div_by_int(6);
-    let term4 = x_pow4.div_by_int(24);
-    let term5 = x_pow5.div_by_int(120);
-    let term6 = x_pow6.div_by_int(720);
-    let term7 = x_pow7.div_by_int(5_040);
-    let term8 = x_pow8.div_by_int(40_320);
-
-    let mut sum = Ray::ONE;
-    for term in [x, term2, term3, term4, term5, term6, term7, term8] {
-        sum = sum.checked_add(env, term);
+    let mut sum = Ray::ONE.checked_add(env, x);
+    let mut pow = x;
+    for divisor in [2, 6, 24, 120, 720, 5_040, 40_320] {
+        pow = pow.mul(env, x);
+        sum = sum.checked_add(env, pow.div_by_int(divisor));
     }
     sum
 }

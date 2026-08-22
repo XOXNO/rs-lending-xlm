@@ -1,7 +1,7 @@
 use governance::op::{AdminOperation, SpokeAssetArgs};
 use soroban_sdk::TryFromVal;
 use test_harness::{
-    assert_contract_error, errors, eth_preset, hub_asset, usdc_preset, LendingTest, HARNESS_HUB,
+    assert_contract_error, errors, hub_asset, usdc_preset, LendingTest, HARNESS_HUB,
 };
 
 fn add_category(t: &LendingTest) -> u32 {
@@ -73,10 +73,7 @@ fn test_spoke_accepts_valid_asset_bounds() {
 
 #[test]
 fn test_spoke_add_asset_via_gov_forwarder() {
-    let t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let t = LendingTest::new().standard_two_asset().build();
     let id = add_category(&t);
     let usdc = t.resolve_asset("USDC");
     let admin = t.admin();

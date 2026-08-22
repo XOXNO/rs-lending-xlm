@@ -1,8 +1,8 @@
 extern crate std;
 
 use test_harness::{
-    apply_flash_fee, build_aggregator_swap, days, eth_preset, usd_cents, usdc_preset,
-    usdt_stable_preset, LendingTest, PositionType, ALICE, BOB, LIQUIDATOR, STABLECOIN_SPOKE,
+    apply_flash_fee, build_aggregator_swap, days, usd_cents, usdc_preset, LendingTest,
+    PositionType, ALICE, BOB, LIQUIDATOR,
 };
 #[test]
 fn test_supply_creates_position() {
@@ -118,13 +118,7 @@ fn test_withdraw_and_repay() {
 
 #[test]
 fn test_spoke_higher_ltv() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(usdt_stable_preset())
-        .with_spoke(2, STABLECOIN_SPOKE)
-        .with_spoke_asset(2, "USDC", true, true)
-        .with_spoke_asset(2, "USDT", true, true)
-        .build();
+    let mut t = LendingTest::new().stablecoin_spoke_two_asset().build();
 
     t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 10_000.0);
@@ -166,10 +160,7 @@ fn test_revenue_accrues_over_time() {
 
 #[test]
 fn test_multiply_smoke_creates_leveraged_position() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.fund_router("USDC", 3_000.0);
     let steps = build_aggregator_swap(

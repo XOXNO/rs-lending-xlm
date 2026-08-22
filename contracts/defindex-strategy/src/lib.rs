@@ -28,16 +28,6 @@ pub struct HarvestEvent {
     pub price_per_share: i128,
 }
 
-/// Builds and publishes a `HarvestEvent`.
-pub(crate) fn emit_harvest(e: &Env, from: Address, amount: i128, price_per_share: i128) {
-    HarvestEvent {
-        from,
-        amount,
-        price_per_share,
-    }
-    .publish(e);
-}
-
 /// DeFindex price-per-share is reported with 12 decimals (RAY → 12-dec rescale).
 const PPS_DECIMALS: u32 = 12;
 
@@ -161,17 +151,10 @@ impl<'a> Ctx<'a> {
             .get_collateral_amount(&account_id, &self.hub_asset())
     }
 
-    /// Resolves `vault`'s stored account id without clearing it if the
-    /// controller no longer recognizes it. Returns 0 if no account is
-    /// stored or the account no longer exists.
-    fn reconcile(&self, vault: &Address) -> u64 {
-        reconcile_vault_account(self.env, &self.controller, vault)
-    }
-
     /// Returns `vault`'s collateral balance, or 0 if it has no resolvable
     /// vault account.
     fn vault_balance(&self, vault: &Address) -> i128 {
-        let account_id = self.reconcile(vault);
+        let account_id = resolve_vault_account(self.env, &self.controller, vault, false);
         if account_id == 0 {
             return 0;
         }
@@ -258,18 +241,10 @@ impl Strategy {
 
 #[contractimpl]
 impl DeFindexStrategyTrait for Strategy {
-    /// Returns the configured underlying asset address, or `NotInitialized`
-    /// if the contract has not been constructed.
     fn asset(env: Env) -> Result<Address, DeFindexStrategyError> {
         Ok(config(&env)?.asset)
     }
 
-    /// Transfers `amount` of the underlying asset from `from` into the
-    /// strategy and supplies it to the controller, creating or reusing
-    /// `from`'s vault account. Requires `from`'s authorization and returns
-    /// `AmountNotPositive` if `amount` is not positive or `NotInitialized`
-    /// if the contract has not been constructed. Returns the account's
-    /// resulting collateral balance.
     fn deposit(env: Env, amount: i128, from: Address) -> Result<i128, DeFindexStrategyError> {
         if amount <= 0 {
             return Err(DeFindexStrategyError::AmountNotPositive);
@@ -287,7 +262,7 @@ impl DeFindexStrategyTrait for Strategy {
             common::errors::GenericError::AmountMustBePositive,
         );
 
-        let stored_id = prepare_vault_account_for_supply(ctx.env, &ctx.controller, &from);
+        let stored_id = resolve_vault_account(ctx.env, &ctx.controller, &from, true);
         ctx.authorize_supply_to_pool(received);
 
         let new_or_existing_id = ctx.controller.supply(
@@ -301,31 +276,23 @@ impl DeFindexStrategyTrait for Strategy {
         Ok(ctx.collateral(new_or_existing_id))
     }
 
-    /// Emits a `HarvestEvent` carrying the current price per share for the
-    /// configured hub asset. Requires `from`'s authorization and returns
-    /// `NotInitialized` if the contract has not been constructed. Moves no
-    /// funds.
     fn harvest(env: Env, from: Address, _data: Option<Bytes>) -> Result<(), DeFindexStrategyError> {
         from.require_auth();
         let ctx = Ctx::try_load(&env)?;
-        emit_harvest(&env, from, 0, ctx.harvest_price_per_share()?);
+        HarvestEvent {
+            from,
+            // `harvest` moves no funds.
+            amount: 0,
+            price_per_share: ctx.harvest_price_per_share()?,
+        }
+        .publish(&env);
         Ok(())
     }
 
-    /// Returns the collateral balance of `from`'s vault account, or 0 if it
-    /// has none. Returns `NotInitialized` if the contract has not been
-    /// constructed.
     fn balance(env: Env, from: Address) -> Result<i128, DeFindexStrategyError> {
         Ok(Ctx::try_load(&env)?.vault_balance(&from))
     }
 
-    /// Withdraws `amount` of collateral from `from`'s vault account to `to`
-    /// via the controller. Requires `from`'s authorization and returns
-    /// `AmountNotPositive`, `InsufficientBalance`, or `NotInitialized` if
-    /// `amount` is not positive, `from` has no vault account or an amount
-    /// exceeding its balance, or the contract has not been constructed. A
-    /// withdrawal equal to the full balance clears the vault account
-    /// mapping and returns the account's remaining collateral balance.
     fn withdraw(
         env: Env,
         amount: i128,
@@ -338,7 +305,7 @@ impl DeFindexStrategyTrait for Strategy {
         from.require_auth();
 
         let ctx = Ctx::try_load(&env)?;
-        let account_id = ctx.reconcile(&from);
+        let account_id = resolve_vault_account(&env, &ctx.controller, &from, false);
         if account_id == 0 {
             return Err(DeFindexStrategyError::InsufficientBalance);
         }
@@ -437,20 +404,4 @@ fn resolve_vault_account(
         }
         _ => panic_with_error!(env, DeFindexStrategyError::AccountLookupFailed),
     }
-}
-
-/// Resolves `vault`'s account id ahead of a supply, clearing the stored
-/// mapping if the controller no longer recognizes it.
-fn prepare_vault_account_for_supply(
-    env: &Env,
-    controller: &ControllerClient,
-    vault: &Address,
-) -> u64 {
-    resolve_vault_account(env, controller, vault, true)
-}
-
-/// Resolves `vault`'s account id for a read-only query, leaving a stale
-/// mapping in place.
-fn reconcile_vault_account(env: &Env, controller: &ControllerClient, vault: &Address) -> u64 {
-    resolve_vault_account(env, controller, vault, false)
 }

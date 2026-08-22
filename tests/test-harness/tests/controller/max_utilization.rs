@@ -1,14 +1,13 @@
 use controller::constants::RAY;
 use test_harness::{
-    assert_contract_error, errors, eth_preset, hub_asset, usdc_preset, HubAssetKey, LendingTest,
-    ALICE, BOB,
+    assert_contract_error, errors, hub_asset, map_try_ok_unit, usdc_preset, HubAssetKey,
+    LendingTest, ALICE, BOB,
 };
 
 #[test]
 fn test_borrow_above_max_utilization_rejected() {
     let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
+        .standard_two_asset()
         .with_market_params("USDC", |p| {
             p.max_utilization = RAY * 85 / 100;
         })
@@ -26,8 +25,7 @@ fn test_borrow_above_max_utilization_rejected() {
 #[test]
 fn test_borrow_at_max_utilization_succeeds() {
     let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
+        .standard_two_asset()
         .with_market_params("USDC", |p| {
             p.max_utilization = RAY * 85 / 100;
         })
@@ -45,8 +43,7 @@ fn test_borrow_at_max_utilization_succeeds() {
 #[test]
 fn test_max_utilization_uses_index_aware_ratio() {
     let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
+        .standard_two_asset()
         .with_market_params("USDC", |p| {
             p.max_utilization = RAY * 85 / 100;
         })
@@ -66,8 +63,7 @@ fn test_max_utilization_uses_index_aware_ratio() {
 #[test]
 fn test_withdraw_pushing_above_max_utilization_rejected() {
     let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
+        .standard_two_asset()
         .with_market_params("USDC", |p| {
             p.max_utilization = RAY * 85 / 100;
         })
@@ -85,10 +81,7 @@ fn test_withdraw_pushing_above_max_utilization_rejected() {
 fn test_zero_supply_with_outstanding_borrow_rejected() {
     use test_harness::helpers;
 
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 1_000.0);
     t.supply(BOB, "ETH", 10.0);
@@ -135,10 +128,7 @@ fn test_update_params_rejects_max_below_optimal() {
     let result = t
         .ctrl_client()
         .try_upgrade_liquidity_pool_params(&hub_asset(asset), &model);
-    let mapped = match result {
-        Ok(res) => res.map_err(|e| e.into()),
-        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
-    };
+    let mapped = map_try_ok_unit(result);
     assert_contract_error(mapped, errors::INVALID_UTIL_RANGE);
 }
 
@@ -162,9 +152,6 @@ fn test_update_params_rejects_max_above_one() {
     let result = t
         .ctrl_client()
         .try_upgrade_liquidity_pool_params(&hub_asset(asset), &model);
-    let mapped = match result {
-        Ok(res) => res.map_err(|e| e.into()),
-        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
-    };
+    let mapped = map_try_ok_unit(result);
     assert_contract_error(mapped, errors::INVALID_UTIL_RANGE);
 }

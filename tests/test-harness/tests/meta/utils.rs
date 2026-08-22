@@ -1,12 +1,9 @@
 use test_harness::{
-    assert_contract_error, errors, eth_preset, usd, usd_cents, usdc_preset, LendingTest, ALICE,
+    assert_contract_error, errors, usd, usd_cents, usdc_preset, LendingTest, ALICE,
 };
 #[test]
 fn test_validate_healthy_passes() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 1.0);
@@ -17,10 +14,7 @@ fn test_validate_healthy_passes() {
 }
 #[test]
 fn test_validate_healthy_fails() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.0);
@@ -45,10 +39,7 @@ fn test_health_factor_no_debt_is_max() {
 }
 #[test]
 fn test_health_factor_changes_with_price() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 2.0);
@@ -67,10 +58,7 @@ fn test_health_factor_changes_with_price() {
 }
 #[test]
 fn test_pool_borrow_rate_increases_with_borrows() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     // Real ETH supply first: with only builder-seeded cash, utilization (and
     // therefore the rate) provably cannot move and the test would be green by
@@ -89,10 +77,7 @@ fn test_pool_borrow_rate_increases_with_borrows() {
 }
 #[test]
 fn test_borrow_exceeds_ltv_fails() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
 
@@ -101,10 +86,7 @@ fn test_borrow_exceeds_ltv_fails() {
 }
 #[test]
 fn test_total_debt_zero_after_full_repay() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 1.0);

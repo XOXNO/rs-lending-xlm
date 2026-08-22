@@ -1,15 +1,8 @@
-use test_harness::{
-    days, eth_preset, usd, usdc_preset, wbtc_preset, LendingTest, ALICE, BOB, CAROL, DAVE, EVE,
-    LIQUIDATOR,
-};
+use test_harness::{days, usd, LendingTest, ALICE, BOB, CAROL, DAVE, EVE, LIQUIDATOR};
 
 #[test]
 fn test_multi_user_lending_cycle() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_market(wbtc_preset())
-        .build();
+    let mut t = LendingTest::new().three_asset_usdc_eth_wbtc().build();
 
     t.supply(ALICE, "USDC", 50_000.0);
     t.supply(BOB, "ETH", 10.0);
@@ -92,10 +85,7 @@ fn test_multi_user_lending_cycle() {
 
 #[test]
 fn test_full_exit_solvency() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.supply(BOB, "USDC", 50_000.0);
@@ -163,10 +153,7 @@ fn test_full_exit_solvency() {
 
 #[test]
 fn test_cascading_liquidations_stability() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "ETH", 10.0);
     t.borrow(ALICE, "USDC", 14_500.0);
@@ -245,10 +232,7 @@ fn test_cascading_liquidations_stability() {
 
 #[test]
 fn test_interest_accrual_consistency() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.supply(BOB, "ETH", 100.0);
@@ -305,9 +289,7 @@ fn test_interest_accrual_consistency() {
 #[test]
 fn test_position_limit_exactly_at_cap() {
     let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_market(wbtc_preset())
+        .three_asset_usdc_eth_wbtc()
         .with_position_limits(3, 3)
         .build();
 
@@ -335,10 +317,7 @@ fn test_position_limit_exactly_at_cap() {
 
 #[test]
 fn test_keeper_index_freshness_matters() {
-    let mut t_a = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t_a = LendingTest::new().standard_two_asset().build();
 
     t_a.supply(BOB, "ETH", 50.0);
     t_a.supply(ALICE, "USDC", 100_000.0);
@@ -349,10 +328,7 @@ fn test_keeper_index_freshness_matters() {
     let debt_a = t_a.borrow_balance(ALICE, "ETH");
     let revenue_a = t_a.snapshot_revenue("ETH");
 
-    let mut t_b = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t_b = LendingTest::new().standard_two_asset().build();
 
     t_b.supply(BOB, "ETH", 50.0);
     t_b.supply(ALICE, "USDC", 100_000.0);

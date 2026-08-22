@@ -1,20 +1,20 @@
 //! Timelock support shared by the governance contract: delay-tier selection,
 //! operation construction, expiry checks, and the clients and helpers used by the
-//! `immediate`, `lifecycle`, `recovery`, and `views` submodules.
+//! `immediate`, `lifecycle`, and `recovery` submodules.
 
 pub(crate) mod immediate;
 pub(crate) mod lifecycle;
 pub(crate) mod recovery;
 #[cfg(any(test, feature = "testing"))]
 mod testing;
-pub(crate) mod views;
 
 use common::errors::GenericError;
+use common::ttl::renew_instance;
 
 use controller_interface::ControllerAdminClient;
 use price_aggregator_interface::PriceAggregatorClient;
 
-use soroban_sdk::{assert_with_error, vec, Address, BytesN, Env, IntoVal, Symbol, Vec};
+use soroban_sdk::{assert_with_error, vec, Address, BytesN, Env, IntoVal, Symbol, Val, Vec};
 
 use stellar_access::access_control;
 use stellar_governance::timelock::{
@@ -97,6 +97,28 @@ pub(crate) fn require_operation_not_expired(env: &Env, operation_id: &BytesN<32>
     );
 }
 
+/// Computes the operation id that would result from scheduling an operation
+/// with the given target, function, args, predecessor, and salt.
+pub(crate) fn hash_operation_parts(
+    env: &Env,
+    target: Address,
+    function: Symbol,
+    args: Vec<Val>,
+    predecessor: BytesN<32>,
+    salt: BytesN<32>,
+) -> BytesN<32> {
+    hash_operation(
+        env,
+        &Operation {
+            target,
+            function,
+            args,
+            predecessor,
+            salt,
+        },
+    )
+}
+
 /// Resolves `op` into a timelock `Operation` (target, function, args, zero
 /// predecessor, and `salt`) together with its delay tier.
 fn operation_for_admin_op(
@@ -148,7 +170,7 @@ fn price_aggregator_client(env: &Env) -> PriceAggregatorClient<'_> {
 /// Renews the governance instance's storage TTL, requires `caller`'s
 /// authorization, and requires `caller` to hold `role`.
 fn begin_immediate(env: &Env, caller: &Address, role: &str) {
-    storage::renew_governance_instance(env);
+    renew_instance(env);
     caller.require_auth();
     access_control::ensure_role(env, &Symbol::new(env, role), caller);
 }
@@ -157,7 +179,7 @@ fn begin_immediate(env: &Env, caller: &Address, role: &str) {
 /// present, computes `operation`'s id, and checks that the operation has not
 /// expired. Returns the operation id.
 fn prepare_execute(env: &Env, executor: Option<&Address>, operation: &Operation) -> BytesN<32> {
-    storage::renew_governance_instance(env);
+    renew_instance(env);
     authorize_executor(env, executor);
     let operation_id = hash_operation(env, operation);
     require_operation_not_expired(env, &operation_id);

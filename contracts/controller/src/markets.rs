@@ -10,6 +10,7 @@ use crate::external::pool::{
 };
 use crate::external::position_nft::nft_upgrade_call;
 use crate::storage;
+use swap_aggregator_interface::SwapAggregatorClient;
 
 const POOL_DEPLOY_SALT: [u8; 32] = [0u8; 32];
 const POSITION_NFT_DEPLOY_SALT: [u8; 32] = [1u8; 32];
@@ -105,7 +106,8 @@ pub(crate) fn upgrade_liquidity_pool_params(
 
     pool_update_params_call(env, &pool_addr, hub_asset, params);
 
-    UpdateMarketParamsEvent::from((hub_asset.hub_id, hub_asset.asset.clone(), params)).publish(env);
+    UpdateMarketParamsEvent::from_rate_model(hub_asset.hub_id, hub_asset.asset.clone(), params)
+        .publish(env);
 }
 
 /// Renews the controller's storage TTL and upgrades the pool contract's
@@ -123,4 +125,13 @@ pub(crate) fn upgrade_position_nft(env: &Env, new_wasm_hash: BytesN<32>) {
     storage::renew_controller_instance(env);
     let nft_addr = storage::get_position_nft(env);
     nft_upgrade_call(env, &nft_addr, &new_wasm_hash);
+}
+
+/// Renews the controller TTL and upgrades the swap-aggregator router. Requires
+/// the controller to be the router's owner (set at deploy). Reached only from
+/// the owner-gated `upgrade_swap_aggregator` entrypoint (B-2).
+pub(crate) fn upgrade_swap_aggregator(env: &Env, new_wasm_hash: BytesN<32>) {
+    storage::renew_controller_instance(env);
+    let router = storage::get_swap_aggregator(env);
+    SwapAggregatorClient::new(env, &router).upgrade(&new_wasm_hash);
 }

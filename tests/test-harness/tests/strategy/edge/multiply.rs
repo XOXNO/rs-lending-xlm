@@ -2,10 +2,7 @@ use super::*;
 
 #[test]
 fn test_multiply_with_debt_token_initial_payment() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     let alice = t.get_or_create_user(ALICE);
     let usdc = t.resolve_asset("USDC");
@@ -62,10 +59,7 @@ fn test_multiply_with_debt_token_initial_payment() {
 
 #[test]
 fn test_multiply_rejects_unlisted_third_token_payment_before_transfer() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     let alice = t.get_or_create_user(ALICE);
     let usdc = t.resolve_asset("USDC");
@@ -75,7 +69,7 @@ fn test_multiply_rejects_unlisted_third_token_payment_before_transfer() {
     token::StellarAssetClient::new(&t.env, &unlisted).mint(&alice, &1_0000000i128);
     let balance_before = token::TokenClient::new(&t.env, &unlisted).balance(&alice);
 
-    let steps = build_swap_steps(&t, "ETH", "USDC", 1000_0000000);
+    let steps = build_aggregator_swap(&t, "ETH", "USDC", 0, 1000_0000000);
     let result = t.ctrl_client().try_multiply(
         &alice,
         &0u64,
@@ -111,8 +105,7 @@ fn test_multiply_rejects_unlisted_third_token_payment_before_transfer() {
 fn test_multiply_rejects_third_token_payment_without_convert() {
     use test_harness::xlm_preset;
     let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
+        .standard_two_asset()
         .with_market(xlm_preset())
         .build();
 
@@ -124,7 +117,7 @@ fn test_multiply_rejects_third_token_payment_without_convert() {
         .token_admin
         .mint(&alice, &10_0000000i128);
 
-    let steps = build_swap_steps(&t, "ETH", "USDC", 1000_0000000);
+    let steps = build_aggregator_swap(&t, "ETH", "USDC", 0, 1000_0000000);
     let result = t.ctrl_client().try_multiply(
         &alice,
         &0u64,
@@ -150,14 +143,11 @@ fn test_multiply_rejects_third_token_payment_without_convert() {
 
 #[test]
 fn test_multiply_rejects_when_paused() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.pause();
 
-    let steps = build_swap_steps(&t, "ETH", "USDC", 1000_0000000);
+    let steps = build_aggregator_swap(&t, "ETH", "USDC", 0, 1000_0000000);
     let result = t.try_multiply(
         ALICE,
         "USDC",
@@ -171,10 +161,7 @@ fn test_multiply_rejects_when_paused() {
 
 #[test]
 fn test_multiply_preserves_existing_collateral_balance() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     let account_id = t.create_account_full(ALICE, 1, controller::types::PositionMode::Multiply);
     t.supply_to(ALICE, account_id, "USDC", 1_000.0);
@@ -230,13 +217,7 @@ fn test_multiply_preserves_existing_collateral_balance() {
 
 #[test]
 fn test_multiply_reuses_spoke_account_with_zero_category() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(usdt_stable_preset())
-        .with_spoke(2, STABLECOIN_SPOKE)
-        .with_spoke_asset(2, "USDC", true, true)
-        .with_spoke_asset(2, "USDT", true, true)
-        .build();
+    let mut t = LendingTest::new().stablecoin_spoke_two_asset().build();
 
     let account_id = t.create_account_full(ALICE, 2, controller::types::PositionMode::Multiply);
     let caller = t.get_or_create_user(ALICE);
@@ -283,15 +264,12 @@ fn test_multiply_reuses_spoke_account_with_zero_category() {
 
 #[test]
 fn test_multiply_missing_owner_auth_rejects_before_validation() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     let caller = t.get_or_create_user(ALICE);
     let usdc = t.resolve_asset("USDC");
     let eth = t.resolve_asset("ETH");
-    let steps = build_swap_steps(&t, "ETH", "USDC", 1000_0000000);
+    let steps = build_aggregator_swap(&t, "ETH", "USDC", 0, 1000_0000000);
     let no_auths: [soroban_sdk::xdr::SorobanAuthorizationEntry; 0] = [];
 
     expect_host_auth_rejection(
@@ -313,15 +291,12 @@ fn test_multiply_missing_owner_auth_rejects_before_validation() {
 
 #[test]
 fn test_multiply_existing_account_not_found() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     let caller = t.get_or_create_user(ALICE);
     let usdc = t.resolve_asset("USDC");
     let eth = t.resolve_asset("ETH");
-    let steps = build_swap_steps(&t, "ETH", "USDC", 1000_0000000);
+    let steps = build_aggregator_swap(&t, "ETH", "USDC", 0, 1000_0000000);
     let missing_account_id = 999u64;
 
     let result = t.ctrl_client().try_multiply(
@@ -338,7 +313,7 @@ fn test_multiply_existing_account_not_found() {
     );
 
     assert_contract_error(
-        flatten(result),
+        map_try_ok_value(result),
         errors::GenericError::AccountNotFound as u32,
     );
 }
@@ -357,7 +332,7 @@ fn test_multiply_spoke_wrong_category_debt() {
     let caller = t.get_or_create_user(ALICE);
     let collateral_addr = t.resolve_asset("USDC");
     let debt_addr = t.resolve_asset("ETH");
-    let steps = build_swap_steps(&t, "ETH", "USDC", 1000_0000000);
+    let steps = build_aggregator_swap(&t, "ETH", "USDC", 0, 1000_0000000);
 
     let ctrl = t.ctrl_client();
     let result = ctrl.try_multiply(
@@ -373,7 +348,7 @@ fn test_multiply_spoke_wrong_category_debt() {
         &None,
     );
 
-    assert_contract_error(flatten(result), errors::ASSET_NOT_IN_SPOKE);
+    assert_contract_error(map_try_ok_value(result), errors::ASSET_NOT_IN_SPOKE);
 }
 
 #[test]
@@ -415,16 +390,13 @@ fn test_multiply_spoke_wrong_category_collateral() {
         &None,
     );
 
-    assert_contract_error(flatten(result), errors::ASSET_NOT_IN_SPOKE);
+    assert_contract_error(map_try_ok_value(result), errors::ASSET_NOT_IN_SPOKE);
 }
 #[test]
 fn test_multiply_rejects_normal_mode() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
-    let steps = build_swap_steps(&t, "ETH", "USDC", 1000_0000000);
+    let steps = build_aggregator_swap(&t, "ETH", "USDC", 0, 1000_0000000);
 
     let result = t.try_multiply(
         ALICE,
@@ -440,9 +412,7 @@ fn test_multiply_rejects_normal_mode() {
 #[test]
 fn test_multiply_rejects_new_collateral_when_supply_limit_reached() {
     let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_market(wbtc_preset())
+        .three_asset_usdc_eth_wbtc()
         .with_position_limits(1, 4)
         .build();
 
@@ -471,15 +441,12 @@ fn test_multiply_rejects_new_collateral_when_supply_limit_reached() {
         &None,
     );
 
-    assert_contract_error(flatten(result), errors::POSITION_LIMIT_EXCEEDED);
+    assert_contract_error(map_try_ok_value(result), errors::POSITION_LIMIT_EXCEEDED);
 }
 
 #[test]
 fn test_multiply_existing_account_wrong_owner() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     let account_id = t.create_account_full(ALICE, 1, controller::types::PositionMode::Multiply);
     let bob = t.get_or_create_user(BOB);
@@ -487,7 +454,7 @@ fn test_multiply_existing_account_wrong_owner() {
     let eth = t.resolve_asset("ETH");
 
     t.fund_router("USDC", 3_000.0);
-    let steps = build_swap_steps(&t, "ETH", "USDC", 3000_0000000);
+    let steps = build_aggregator_swap(&t, "ETH", "USDC", 0, 3000_0000000);
 
     let result = t.ctrl_client().try_multiply(
         &bob,
@@ -502,7 +469,7 @@ fn test_multiply_existing_account_wrong_owner() {
         &None,
     );
 
-    assert_contract_error(flatten(result), errors::NOT_AUTHORIZED);
+    assert_contract_error(map_try_ok_value(result), errors::NOT_AUTHORIZED);
 }
 
 #[test]
@@ -510,8 +477,7 @@ fn test_multiply_respects_borrow_position_limit() {
     use test_harness::xlm_preset;
 
     let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
+        .standard_two_asset()
         .with_market(xlm_preset())
         .build();
 
@@ -541,7 +507,7 @@ fn test_multiply_respects_borrow_position_limit() {
     let alice = t.get_or_create_user(ALICE);
     let usdc = t.resolve_asset("USDC");
     let xlm = t.resolve_asset("XLM");
-    let result = match t.ctrl_client().try_multiply(
+    let result = map_try_ok_value(t.ctrl_client().try_multiply(
         &alice,
         &account_id,
         &1u32,
@@ -552,10 +518,6 @@ fn test_multiply_respects_borrow_position_limit() {
         &steps2,
         &None,
         &None,
-    ) {
-        Ok(Ok(id)) => Ok(id),
-        Ok(Err(err)) => Err(err),
-        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
-    };
+    ));
     assert_contract_error(result, errors::POSITION_LIMIT_EXCEEDED);
 }

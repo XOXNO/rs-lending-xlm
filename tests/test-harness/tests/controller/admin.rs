@@ -3,8 +3,8 @@ use controller::types::{ControllerKey, SpokeConfig};
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, BytesN};
 use test_harness::{
-    assert_contract_error, hub_asset, usdc_preset, HubAssetKey, LendingTest, ALICE,
-    STABLECOIN_SPOKE,
+    assert_contract_error, hub_asset, map_try_ok_value, usdc_preset, HubAssetKey, LendingTest,
+    ALICE, STABLECOIN_SPOKE,
 };
 
 fn upload_pool_wasm(env: &soroban_sdk::Env) -> BytesN<32> {
@@ -111,10 +111,6 @@ fn test_supply_panics_on_deprecated_spoke_category() {
     let payments: soroban_sdk::Vec<(HubAssetKey, i128)> =
         soroban_sdk::vec![&t.env, (hub_asset(asset_addr), amount)];
     let ctrl = t.ctrl_client();
-    let result = match ctrl.try_supply(&alice_addr, &account_id, &2u32, &payments) {
-        Ok(Ok(id)) => Ok(id),
-        Ok(Err(err)) => Err(err),
-        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
-    };
+    let result = map_try_ok_value(ctrl.try_supply(&alice_addr, &account_id, &2u32, &payments));
     assert_contract_error(result, SpokeError::SpokeDeprecated as u32);
 }

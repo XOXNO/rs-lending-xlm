@@ -8,11 +8,10 @@ use soroban_sdk::token;
 use soroban_sdk::Bytes;
 use test_harness::{
     apply_flash_fee, assert_contract_error, build_aggregator_swap, errors, eth_preset, hub_asset,
-    usd, usdc_preset, usdt_stable_preset, wbtc_preset, HubAssetKey, LendingTest, MarketPreset,
-    ALICE, BOB, DEFAULT_ASSET_CONFIG, DEFAULT_MARKET_PARAMS, STABLECOIN_SPOKE,
+    map_try_ok_unit, map_try_ok_value, usd, usdc_preset, usdt_stable_preset, HubAssetKey,
+    LendingTest, MarketPreset, ALICE, BOB, DEFAULT_ASSET_CONFIG, DEFAULT_MARKET_PARAMS,
+    STABLECOIN_SPOKE,
 };
-
-use super::helpers::build_swap_steps;
 
 fn dai_preset() -> MarketPreset {
     MarketPreset {
@@ -22,16 +21,6 @@ fn dai_preset() -> MarketPreset {
         initial_liquidity: 1_000_000.0,
         config: DEFAULT_ASSET_CONFIG,
         params: DEFAULT_MARKET_PARAMS,
-    }
-}
-
-fn flatten<T>(
-    r: Result<Result<T, soroban_sdk::Error>, Result<soroban_sdk::Error, soroban_sdk::InvokeError>>,
-) -> Result<T, soroban_sdk::Error> {
-    match r {
-        Ok(Ok(v)) => Ok(v),
-        Ok(Err(e)) => Err(e),
-        Err(invoke) => Err(invoke.expect("expected contract error, got host-level InvokeError")),
     }
 }
 

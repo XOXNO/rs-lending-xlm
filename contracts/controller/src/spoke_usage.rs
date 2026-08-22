@@ -119,11 +119,6 @@ impl SpokeUsageContext {
         }
     }
 
-    /// Caches `usage` for `hub_asset` in this context without persisting it to storage.
-    fn set_usage(&mut self, hub_asset: &HubAssetKey, usage: SpokeUsageRaw) {
-        self.usage.set(hub_asset.clone(), usage);
-    }
-
     /// Increases `side`'s scaled usage for `hub_asset` by `delta_scaled`, panicking with
     /// this side's cap error if the result would exceed `cap`.
     pub(crate) fn apply_entry(
@@ -142,7 +137,7 @@ impl SpokeUsageContext {
             .unwrap_or_default();
         let next = enforce_spoke_cap(&self.env, side, &usage, delta_scaled, cap, index, decimals);
         side.set_scaled(&mut usage, next.raw());
-        self.set_usage(hub_asset, usage);
+        self.usage.set(hub_asset.clone(), usage);
     }
 
     /// Decreases `side`'s scaled usage for `hub_asset` by `delta_scaled`. No-op if
@@ -167,7 +162,7 @@ impl SpokeUsageContext {
 
         assert_with_error!(&self.env, next >= 0, GenericError::InternalError);
         side.set_scaled(&mut usage, next);
-        self.set_usage(hub_asset, usage);
+        self.usage.set(hub_asset.clone(), usage);
     }
 }
 

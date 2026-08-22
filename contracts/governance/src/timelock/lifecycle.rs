@@ -4,6 +4,7 @@
 //! itself), and cancelling a pending operation.
 
 use common::errors::GenericError;
+use common::ttl::renew_instance;
 
 use soroban_sdk::{assert_with_error, Address, BytesN, Env, Symbol, Val, Vec};
 
@@ -114,7 +115,7 @@ pub(crate) fn execute_self(
 /// target account is the canceller. Clears the operation's sidecar state on
 /// success.
 pub(crate) fn cancel(env: &Env, canceller: &Address, operation_id: &BytesN<32>) {
-    storage::renew_governance_instance(env);
+    renew_instance(env);
     canceller.require_auth();
     access_control::ensure_role(env, &Symbol::new(env, CANCELLER_ROLE), canceller);
     assert_with_error!(

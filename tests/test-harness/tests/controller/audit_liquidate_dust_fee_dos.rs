@@ -1,7 +1,7 @@
 use common::math::fp::Ray;
 use controller::constants::RAY;
 use soroban_sdk::Vec;
-use test_harness::{errors, eth_preset, hub_asset, usdc_preset, xlm_preset, LendingTest};
+use test_harness::{errors, hub_asset, xlm_preset, LendingTest};
 use test_harness::{ALICE, BOB, CAROL, LIQUIDATOR};
 
 fn xlm_supply_index(t: &LendingTest) -> i128 {
@@ -27,8 +27,7 @@ fn alice_xlm_scaled(t: &LendingTest) -> i128 {
 #[test]
 fn audit_liquidate_contracts_dust_fee_full_close_dos() {
     let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
+        .standard_two_asset()
         .with_market(xlm_preset())
         .with_dust_disabled_all_markets()
         .with_max_utilization_disabled_all_markets()

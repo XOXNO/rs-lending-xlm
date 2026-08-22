@@ -26,18 +26,6 @@ pub struct AssetConfig {
     pub is_borrowable: bool,
 }
 
-impl AssetConfig {
-    /// Returns true if the asset currently accepts new supply as collateral.
-    pub fn can_supply(&self) -> bool {
-        self.is_collateralizable
-    }
-
-    /// Returns true if the asset currently accepts new borrows.
-    pub fn can_borrow(&self) -> bool {
-        self.is_borrowable
-    }
-}
-
 impl From<&SpokeAssetConfig> for AssetConfig {
     fn from(c: &SpokeAssetConfig) -> Self {
         Self {
@@ -332,11 +320,6 @@ pub struct Account {
 }
 
 impl Account {
-    /// Projects this account down to its `AccountAttributes` (spoke and mode).
-    pub fn attributes(&self) -> AccountAttributes {
-        AccountAttributes::from(self)
-    }
-
     /// Returns the account's existing supply position for `hub_asset`, or a freshly seeded
     /// zero-amount position carrying `config`'s risk parameters if none exists yet.
     pub fn get_or_create_supply_position(
@@ -375,15 +358,6 @@ impl Account {
     /// Returns true if the account holds no borrow positions.
     pub fn debt_free(&self) -> bool {
         self.borrow_positions.is_empty()
-    }
-}
-
-impl From<&Account> for AccountAttributes {
-    fn from(account: &Account) -> Self {
-        AccountAttributes {
-            spoke_id: account.spoke_id,
-            mode: account.mode,
-        }
     }
 }
 
@@ -430,13 +404,6 @@ mod tests {
         assert_eq!(cfg.liquidation_fees.raw() as u32, spoke.liquidation_fees);
         assert_eq!(cfg.is_collateralizable, spoke.is_collateralizable);
         assert_eq!(cfg.is_borrowable, spoke.is_borrowable);
-    }
-
-    #[test]
-    fn test_asset_config_accessors_collateralizable_borrowable() {
-        let cfg = AssetConfig::from(&sample_spoke_asset_config());
-        assert!(cfg.can_supply());
-        assert!(cfg.can_borrow());
     }
 
     fn spoke_config() -> SpokeConfig {
@@ -509,17 +476,6 @@ mod tests {
             .set(hub, DebtPositionRaw { scaled_amount: 1 });
         assert!(!account.debt_free());
         assert!(!account.is_empty());
-    }
-
-    #[test]
-    fn test_account_attributes_from_account_and_meta_match() {
-        let env = Env::default();
-        let meta = account_meta(&env, 4);
-        let from_meta = AccountAttributes::from(&meta);
-        let account = empty_account(&env, meta);
-        let from_account = AccountAttributes::from(&account);
-        assert_eq!(from_meta, from_account);
-        assert_eq!(from_account.spoke_id, 4);
     }
 
     #[test]
@@ -604,40 +560,6 @@ mod tests {
 
         let fresh = account.get_or_create_debt_position(&hub_asset);
         assert_eq!(fresh.scaled_amount, Ray::ZERO);
-    }
-
-    fn asset_config(is_collateralizable: bool, is_borrowable: bool) -> AssetConfig {
-        AssetConfig {
-            loan_to_value: Bps::from(8_000i128),
-            liquidation_threshold: Bps::from(8_500i128),
-            liquidation_bonus: Bps::from(500i128),
-            liquidation_fees: Bps::from(100i128),
-            is_collateralizable,
-            is_borrowable,
-        }
-    }
-
-    #[test]
-    fn can_supply_tracks_is_collateralizable() {
-        assert!(asset_config(true, false).can_supply());
-        assert!(!asset_config(false, false).can_supply());
-        assert!(!asset_config(false, true).can_supply());
-    }
-
-    #[test]
-    fn can_borrow_tracks_is_borrowable() {
-        assert!(asset_config(false, true).can_borrow());
-        assert!(!asset_config(false, false).can_borrow());
-        assert!(!asset_config(true, false).can_borrow());
-    }
-
-    #[test]
-    fn supply_and_borrow_permissions_are_independent() {
-        let supply_only = asset_config(true, false);
-        assert!(supply_only.can_supply() && !supply_only.can_borrow());
-
-        let borrow_only = asset_config(false, true);
-        assert!(!borrow_only.can_supply() && borrow_only.can_borrow());
     }
 }
 

@@ -3,10 +3,7 @@ use test_harness::{liquidatable_usdc_eth, LIQUIDATOR};
 
 #[test]
 fn test_swap_collateral_paused_collateral_reverts() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.fund_router("ETH", 5.0);
@@ -24,10 +21,7 @@ fn test_swap_collateral_paused_collateral_reverts() {
 
 #[test]
 fn test_repay_debt_with_collateral_paused_debt_reverts() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 1.0);
@@ -43,11 +37,7 @@ fn test_repay_debt_with_collateral_paused_debt_reverts() {
 
 #[test]
 fn test_close_position_paused_residual_collateral_reverts() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_market(wbtc_preset())
-        .build();
+    let mut t = LendingTest::new().three_asset_usdc_eth_wbtc().build();
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.supply(ALICE, "WBTC", 0.1);

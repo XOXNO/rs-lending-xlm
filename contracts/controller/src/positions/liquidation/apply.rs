@@ -165,13 +165,21 @@ pub(crate) fn apply_liquidation_share_credit(
             Ray::from(entry.bonus_scaled),
             entry.liquidation_fees,
         );
-        assert_credit_usage_is_neutral(
+        // The account-to-account half of the credit moves no spoke usage. Both accounts are
+        // bound to the same spoke and hold the same hub asset, so the debit and the credit
+        // cancel: `-S + (S - fee) = -fee`, leaving the protocol fee as the only usage delta.
+        // Written as an asserted identity rather than an exit/entry pair on purpose — routing
+        // the credit through `apply_spoke_entry` would put liquidation behind the spoke's
+        // supply cap, and an account in a spoke sitting at its cap must stay liquidatable.
+        assert_with_error!(
             env,
-            account,
-            receiver,
-            seized_scaled,
-            fee_scaled,
-            liquidator_scaled,
+            receiver.spoke_id == account.spoke_id,
+            SpokeError::SpokeMismatch
+        );
+        assert_with_error!(
+            env,
+            seized_scaled.checked_sub(env, liquidator_scaled) == fee_scaled,
+            GenericError::InternalError
         );
 
         // Debit the liquidated account by the whole seizure. `checked_sub` traps on a negative
@@ -214,33 +222,6 @@ pub(crate) fn apply_liquidation_share_credit(
         let pool_addr = cache.cached_pool_address();
         pool_seize_positions_call(env, &pool_addr, &fee_entries);
     }
-}
-
-/// Asserts that the account-to-account half of a share credit moves no spoke usage.
-///
-/// Both accounts are bound to the same spoke and hold the same hub asset, so the debit and the
-/// credit cancel: `-S + (S - fee) = -fee`, leaving the protocol fee as the only usage delta.
-/// Written as an asserted identity rather than an exit/entry pair on purpose — routing the
-/// credit through `apply_spoke_entry` would put liquidation behind the spoke's supply cap, and
-/// an account in a spoke sitting at its cap must stay liquidatable.
-fn assert_credit_usage_is_neutral(
-    env: &Env,
-    account: &Account,
-    receiver: &Account,
-    seized_scaled: Ray,
-    fee_scaled: Ray,
-    liquidator_scaled: Ray,
-) {
-    assert_with_error!(
-        env,
-        receiver.spoke_id == account.spoke_id,
-        SpokeError::SpokeMismatch
-    );
-    assert_with_error!(
-        env,
-        seized_scaled.checked_sub(env, liquidator_scaled) == fee_scaled,
-        GenericError::InternalError
-    );
 }
 
 /// Adds `scaled` supply shares of `hub_asset` to `receiver`.

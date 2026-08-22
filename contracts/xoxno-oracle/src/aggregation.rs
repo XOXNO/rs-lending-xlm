@@ -114,7 +114,9 @@ pub(crate) fn recompute_aggregate(env: &Env, feed_id: &String) {
 
     let threshold = load_threshold(env);
     if kept_prices.len() < threshold {
-        clear_aggregate_and_history(env, feed_id);
+        // Only the live aggregate is cleared: a transient quorum miss must not
+        // destroy accumulated history that consumers age off themselves.
+        remove_aggregate(env, feed_id);
         return;
     }
 
@@ -123,6 +125,9 @@ pub(crate) fn recompute_aggregate(env: &Env, feed_id: &String) {
         let ts = kept_ts.get_unchecked(i);
         newest_ts = newest_ts.max(ts);
     }
+    // Clamp the anchor to ledger time: `package_timestamp` is attacker-chosen,
+    // so a future-dated submission must not drag the skew window forward (F-2).
+    let newest_ts = newest_ts.min(now.saturating_mul(MS_PER_SECOND));
     let skew_ms = max_relative_skew.saturating_mul(MS_PER_SECOND);
 
     let mut clustered_prices: Vec<i128> = Vec::new(env);
@@ -137,7 +142,7 @@ pub(crate) fn recompute_aggregate(env: &Env, feed_id: &String) {
     }
 
     if clustered_prices.len() < threshold {
-        clear_aggregate_and_history(env, feed_id);
+        remove_aggregate(env, feed_id);
         return;
     }
 
@@ -151,13 +156,6 @@ pub(crate) fn recompute_aggregate(env: &Env, feed_id: &String) {
 
     store_aggregate(env, feed_id, &aggregate);
     push_history(env, feed_id, aggregate);
-}
-
-/// Removes the current aggregate for `feed_id`, leaving its price history intact.
-fn clear_aggregate_and_history(env: &Env, feed_id: &String) {
-    // Only the live aggregate is cleared: a transient quorum miss must not
-    // destroy accumulated history that consumers age off themselves.
-    remove_aggregate(env, feed_id);
 }
 
 /// Returns an ascending-sorted copy of `prices`, computed with an in-place

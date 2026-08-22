@@ -790,6 +790,13 @@ impl ControllerAdmin for Controller {
         renew_then!(env, markets::upgrade_position_nft(&env, new_wasm_hash))
     }
 
+    /// Upgrades the swap-aggregator router's Wasm. Owner-only (governance), via
+    /// `AdminOperation::UpgradeSwapAggregator` at the Sensitive tier (B-2).
+    #[only_owner]
+    fn upgrade_swap_aggregator(env: Env, new_wasm_hash: BytesN<32>) {
+        renew_then!(env, markets::upgrade_swap_aggregator(&env, new_wasm_hash))
+    }
+
     /// Force-socializes `account_id`'s debt into the supply index when the
     /// account is insolvent. Restricted to the owner. Bypasses the
     /// dust-collateral cap that gates the permissionless cleanup.

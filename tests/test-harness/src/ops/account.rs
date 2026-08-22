@@ -5,17 +5,11 @@ use crate::helpers::HARNESS_SPOKE;
 
 impl LendingTest {
     pub fn create_account(&mut self, user: &str) -> u64 {
-        let _ = self.get_or_create_user(user);
-        let account_id = self.create_account_direct(user, HARNESS_SPOKE, PositionMode::Normal);
-        self.register_account(user, account_id, HARNESS_SPOKE, PositionMode::Normal);
-        account_id
+        self.create_account_full(user, HARNESS_SPOKE, PositionMode::Normal)
     }
 
     pub fn create_spoke_account(&mut self, user: &str, category_id: u32) -> u64 {
-        let _ = self.get_or_create_user(user);
-        let account_id = self.create_account_direct(user, category_id, PositionMode::Normal);
-        self.register_account(user, account_id, category_id, PositionMode::Normal);
-        account_id
+        self.create_account_full(user, category_id, PositionMode::Normal)
     }
 
     pub fn create_account_full(&mut self, user: &str, spoke_id: u32, mode: PositionMode) -> u64 {

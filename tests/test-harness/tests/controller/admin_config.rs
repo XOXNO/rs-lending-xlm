@@ -6,8 +6,8 @@ use controller::types::{
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::Address;
 use test_harness::{
-    assert_contract_error, errors, eth_preset, hub_asset, usdc_preset, LendingTest, ALICE, BOB,
-    DEFAULT_TOLERANCE, HARNESS_HUB,
+    assert_contract_error, errors, hub_asset, map_try_ok_unit, usdc_preset, LendingTest, ALICE,
+    BOB, DEFAULT_TOLERANCE, HARNESS_HUB,
 };
 
 fn resolved_reflector_dual_source_config(
@@ -90,20 +90,14 @@ fn test_set_position_limits_rejects_out_of_range() {
         },
     ] {
         let result = ctrl.try_set_position_limits(&limits);
-        let mapped = match result {
-            Ok(res) => res.map_err(|e| e.into()),
-            Err(e) => Err(e.expect("expected contract error, got InvokeError")),
-        };
+        let mapped = map_try_ok_unit(result);
         assert_contract_error(mapped, errors::GenericError::InvalidPositionLimits as u32);
     }
 }
 
 #[test]
 fn test_pause_blocks_operations() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
 
@@ -117,10 +111,7 @@ fn test_pause_blocks_operations() {
 }
 #[test]
 fn test_unpause_restores_operations() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
 
@@ -301,10 +292,7 @@ fn test_set_oracle_rejects_a_degenerate_tolerance() {
         &controller::types::PriceKey::Token(asset.clone()),
         &oracle_cfg,
     );
-    let mapped = match result {
-        Ok(res) => res.map_err(|e| e.into()),
-        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
-    };
+    let mapped = map_try_ok_unit(result);
     assert_contract_error(mapped, errors::BAD_LAST_TOLERANCE);
     assert!(!t.market_is_active(&asset), "market must stay inactive");
 }
@@ -365,10 +353,7 @@ fn test_set_tolerance_rejects_unknown_asset() {
         &controller::types::PriceKey::Token(unknown.clone()),
         &tolerance,
     );
-    let mapped = match result {
-        Ok(res) => res.map_err(|e| e.into()),
-        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
-    };
+    let mapped = map_try_ok_unit(result);
 
     assert_contract_error(mapped, errors::ORACLE_NOT_CONFIGURED);
 }
@@ -385,10 +370,7 @@ fn test_set_tolerance_rejects_degenerate_band() {
     let result = t
         .price_agg_client()
         .try_set_tolerance(&controller::types::PriceKey::Token(asset.clone()), &bad);
-    let mapped = match result {
-        Ok(res) => res.map_err(|e| e.into()),
-        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
-    };
+    let mapped = map_try_ok_unit(result);
     assert_contract_error(mapped, errors::BAD_LAST_TOLERANCE);
 }
 
@@ -404,10 +386,7 @@ fn test_set_tolerance_rejects_loose_lower_band() {
     let result = t
         .price_agg_client()
         .try_set_tolerance(&controller::types::PriceKey::Token(asset.clone()), &loose);
-    let mapped = match result {
-        Ok(res) => res.map_err(|e| e.into()),
-        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
-    };
+    let mapped = map_try_ok_unit(result);
     assert_contract_error(mapped, errors::BAD_LAST_TOLERANCE);
 }
 #[test]
@@ -539,10 +518,7 @@ fn test_claim_revenue_zero_accrual_skips_transfer() {
 
 #[test]
 fn test_min_borrow_floor_is_inclusive_at_exact_boundary() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     let floor: i128 = 7_500 * 1_000_000_000_000_000_000;
     t.ctrl_client().set_min_borrow_collateral_usd(&floor);

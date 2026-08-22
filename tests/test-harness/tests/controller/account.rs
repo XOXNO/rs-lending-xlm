@@ -1,6 +1,5 @@
 use test_harness::{
-    assert_contract_error, errors, eth_preset, hub_asset, usdc_preset, usdt_stable_preset,
-    LendingTest, ALICE, BOB, STABLECOIN_SPOKE,
+    assert_contract_error, errors, hub_asset, map_try_ok_unit, usdc_preset, LendingTest, ALICE, BOB,
 };
 
 #[test]
@@ -17,13 +16,7 @@ fn test_create_normal_account() {
 
 #[test]
 fn test_create_spoke_account() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(usdt_stable_preset())
-        .with_spoke(2, STABLECOIN_SPOKE)
-        .with_spoke_asset(2, "USDC", true, true)
-        .with_spoke_asset(2, "USDT", true, true)
-        .build();
+    let mut t = LendingTest::new().stablecoin_spoke_two_asset().build();
 
     let account_id = t.create_spoke_account(ALICE, 2);
     assert!(account_id > 0);
@@ -71,10 +64,7 @@ fn test_remove_rejects_with_positions() {
 
 #[test]
 fn test_multiple_accounts_per_user() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     let id1 = t.create_account(ALICE);
     let id2 = t.create_account_full(ALICE, 1, controller::types::PositionMode::Normal);
@@ -94,10 +84,7 @@ fn test_multiple_accounts_per_user() {
 
 #[test]
 fn test_account_auto_removed_after_full_repay_withdraw() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 1.0);
@@ -154,10 +141,7 @@ fn test_renew_account_requires_owner() {
 
     let bob = t.get_or_create_user(BOB);
     let result = t.ctrl_client().try_renew_account(&bob, &account_id);
-    let mapped: Result<(), soroban_sdk::Error> = match result {
-        Ok(res) => res.map_err(|e| e.into()),
-        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
-    };
+    let mapped: Result<(), soroban_sdk::Error> = map_try_ok_unit(result);
 
     assert_contract_error(mapped, errors::ACCOUNT_NOT_IN_MARKET);
 }

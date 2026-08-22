@@ -2,11 +2,7 @@ use super::*;
 
 #[test]
 fn test_swap_debt_refund_only_uses_strategy_excess() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_market(wbtc_preset())
-        .build();
+    let mut t = LendingTest::new().three_asset_usdc_eth_wbtc().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 0.5);
@@ -40,11 +36,7 @@ fn test_swap_debt_refund_only_uses_strategy_excess() {
 
 #[test]
 fn test_swap_debt_health_factor_guard_after_swap() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_market(wbtc_preset())
-        .build();
+    let mut t = LendingTest::new().three_asset_usdc_eth_wbtc().build();
 
     let usdc = t.resolve_asset("USDC");
     t.env.as_contract(&t.controller_address(), || {
@@ -73,11 +65,7 @@ fn test_swap_debt_health_factor_guard_after_swap() {
 
 #[test]
 fn test_swap_debt_empty_swap_payload_rolls_back_new_debt() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_market(wbtc_preset())
-        .build();
+    let mut t = LendingTest::new().three_asset_usdc_eth_wbtc().build();
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 1.0);
@@ -103,11 +91,7 @@ fn test_swap_debt_empty_swap_payload_rolls_back_new_debt() {
 
 #[test]
 fn test_swap_debt_closes_existing_debt_even_if_existing_asset_disabled() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_market(wbtc_preset())
-        .build();
+    let mut t = LendingTest::new().three_asset_usdc_eth_wbtc().build();
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 1.0);
@@ -142,49 +126,35 @@ fn test_swap_debt_closes_existing_debt_even_if_existing_asset_disabled() {
 
 #[test]
 fn test_swap_debt_rejects_when_paused() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_market(wbtc_preset())
-        .build();
+    let mut t = LendingTest::new().three_asset_usdc_eth_wbtc().build();
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 1.0);
 
     t.pause();
 
-    let steps = build_swap_steps(&t, "WBTC", "ETH", 1_0000000);
+    let steps = build_aggregator_swap(&t, "WBTC", "ETH", 0, 1_0000000);
     let result = t.try_swap_debt(ALICE, "ETH", 1.0, "WBTC", &steps);
     assert_contract_error(result, errors::CONTRACT_PAUSED);
 }
 
 #[test]
 fn test_swap_debt_rejects_during_flash_loan() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_market(wbtc_preset())
-        .build();
+    let mut t = LendingTest::new().three_asset_usdc_eth_wbtc().build();
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 1.0);
 
     t.set_flash_loan_ongoing(true);
 
-    let steps = build_swap_steps(&t, "WBTC", "ETH", 1_0000000);
+    let steps = build_aggregator_swap(&t, "WBTC", "ETH", 0, 1_0000000);
     let result = t.try_swap_debt(ALICE, "ETH", 1.0, "WBTC", &steps);
     assert_contract_error(result, errors::FLASH_LOAN_ONGOING);
 }
 
 #[test]
 fn test_swap_collateral_applies_spoke_params_to_destination_position() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(usdt_stable_preset())
-        .with_spoke(2, STABLECOIN_SPOKE)
-        .with_spoke_asset(2, "USDC", true, true)
-        .with_spoke_asset(2, "USDT", true, true)
-        .build();
+    let mut t = LendingTest::new().stablecoin_spoke_two_asset().build();
 
     let account_id = t.create_spoke_account(ALICE, 2);
     t.supply_to(ALICE, account_id, "USDC", 5_000.0);
@@ -204,10 +174,7 @@ fn test_swap_collateral_applies_spoke_params_to_destination_position() {
 
 #[test]
 fn test_swap_collateral_merges_existing_destination_and_removes_source() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 1_000.0);
     t.supply(ALICE, "ETH", 2.0);
@@ -233,9 +200,7 @@ fn test_swap_collateral_merges_existing_destination_and_removes_source() {
 #[test]
 fn test_swap_debt_non_borrowable_new_debt() {
     let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_market(wbtc_preset())
+        .three_asset_usdc_eth_wbtc()
         .with_market_config("WBTC", |c| {
             c.is_borrowable = false;
         })
@@ -244,7 +209,7 @@ fn test_swap_debt_non_borrowable_new_debt() {
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 1.0);
 
-    let steps = build_swap_steps(&t, "WBTC", "ETH", 1_0000000);
+    let steps = build_aggregator_swap(&t, "WBTC", "ETH", 0, 1_0000000);
     let result = t.try_swap_debt(ALICE, "ETH", 1.0, "WBTC", &steps);
     assert_contract_error(result, errors::ASSET_NOT_BORROWABLE);
 }
@@ -264,41 +229,35 @@ fn test_swap_debt_spoke_wrong_category() {
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "USDT", 5_000.0);
 
-    let steps = build_swap_steps(&t, "ETH", "USDT", 5000_0000000);
+    let steps = build_aggregator_swap(&t, "ETH", "USDT", 0, 5000_0000000);
     let result = t.try_swap_debt(ALICE, "USDT", 5_000.0, "ETH", &steps);
     assert_contract_error(result, errors::ASSET_NOT_IN_SPOKE);
 }
 
 #[test]
 fn test_swap_collateral_rejects_when_paused() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 1.0);
 
     t.pause();
 
-    let steps = build_swap_steps(&t, "USDC", "ETH", 5_0000000);
+    let steps = build_aggregator_swap(&t, "USDC", "ETH", 0, 5_0000000);
     let result = t.try_swap_collateral(ALICE, "USDC", 1000.0, "ETH", &steps);
     assert_contract_error(result, errors::CONTRACT_PAUSED);
 }
 
 #[test]
 fn test_swap_collateral_rejects_during_flash_loan() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 1.0);
 
     t.set_flash_loan_ongoing(true);
 
-    let steps = build_swap_steps(&t, "USDC", "ETH", 5_0000000);
+    let steps = build_aggregator_swap(&t, "USDC", "ETH", 0, 5_0000000);
     let result = t.try_swap_collateral(ALICE, "USDC", 1000.0, "ETH", &steps);
     assert_contract_error(result, errors::FLASH_LOAN_ONGOING);
 }
@@ -306,9 +265,7 @@ fn test_swap_collateral_rejects_during_flash_loan() {
 #[test]
 fn test_swap_collateral_non_collateralizable() {
     let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_market(wbtc_preset())
+        .three_asset_usdc_eth_wbtc()
         .with_market_config("WBTC", |c| {
             c.is_collateralizable = false;
         })
@@ -317,18 +274,14 @@ fn test_swap_collateral_non_collateralizable() {
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 1.0);
 
-    let steps = build_swap_steps(&t, "USDC", "WBTC", 1_00000000);
+    let steps = build_aggregator_swap(&t, "USDC", "WBTC", 0, 1_00000000);
     let result = t.try_swap_collateral(ALICE, "USDC", 1000.0, "WBTC", &steps);
     assert_contract_error(result, errors::NOT_COLLATERAL);
 }
 
 #[test]
 fn test_swap_collateral_rejects_frozen_destination() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_market(wbtc_preset())
-        .build();
+    let mut t = LendingTest::new().three_asset_usdc_eth_wbtc().build();
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 1.0);
@@ -346,7 +299,7 @@ fn test_swap_collateral_rejects_frozen_destination() {
         t.env.storage().persistent().set(&key, &config);
     });
 
-    let steps = build_swap_steps(&t, "USDC", "WBTC", 1_00000000);
+    let steps = build_aggregator_swap(&t, "USDC", "WBTC", 0, 1_00000000);
     let result = t.try_swap_collateral(ALICE, "USDC", 1000.0, "WBTC", &steps);
     assert_contract_error(result, errors::SPOKE_ASSET_FROZEN);
 }

@@ -2,6 +2,7 @@
 //! from this contract, using deterministic per-contract deploy salts.
 
 use common::errors::GenericError;
+use common::ttl::renew_instance;
 
 use soroban_sdk::{assert_with_error, vec, Address, BytesN, Env, IntoVal, Symbol, Val};
 
@@ -27,7 +28,7 @@ const PRICE_AGGREGATOR_DEPLOY_SALT: [u8; 32] = [1u8; 32];
 /// `wasm_hash` is all zero, and with `GenericError::PoolAlreadyDeployed` if
 /// a controller is already deployed.
 pub(crate) fn deploy_controller(env: &Env, wasm_hash: BytesN<32>) -> Address {
-    storage::renew_governance_instance(env);
+    renew_instance(env);
     validate::require_nonzero_wasm_hash(env, &wasm_hash);
     assert_with_error!(
         env,
@@ -60,7 +61,7 @@ pub(crate) fn deploy_controller(env: &Env, wasm_hash: BytesN<32>) -> Address {
 /// if `wasm_hash` is all zero, and with `GenericError::PoolAlreadyDeployed`
 /// if a price aggregator is already deployed.
 pub(crate) fn deploy_price_aggregator(env: &Env, wasm_hash: BytesN<32>) -> Address {
-    storage::renew_governance_instance(env);
+    renew_instance(env);
     validate::require_nonzero_wasm_hash(env, &wasm_hash);
     assert_with_error!(
         env,

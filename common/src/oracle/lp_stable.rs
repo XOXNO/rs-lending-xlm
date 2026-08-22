@@ -114,25 +114,6 @@ pub fn fair_stable_lp_price_wad(
     try_u256_to_i128(&fair).ok_or(OracleError::InvalidPrice)
 }
 
-/// Converts `reserve_a` and `reserve_b` to WAD using their respective
-/// decimals, solves the invariant `D` via [`solve_stable_d`], and returns
-/// `D` converted to `i128`. Returns `OracleError::InvalidPrice` if either
-/// amount conversion fails, `D` fails to solve, or `D` does not fit in
-/// `i128`.
-pub fn stable_invariant_d_wad(
-    env: &Env,
-    reserve_a: i128,
-    decimals_a: u32,
-    reserve_b: i128,
-    decimals_b: u32,
-    amp: u128,
-) -> Result<i128, OracleError> {
-    let xa = try_amount_to_wad(env, reserve_a, decimals_a)?;
-    let xb = try_amount_to_wad(env, reserve_b, decimals_b)?;
-    let d = solve_stable_d(env, xa, xb, amp)?;
-    try_u256_to_i128(&d).ok_or(OracleError::InvalidPrice)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -292,17 +273,6 @@ mod tests {
             .unwrap_err(),
             OracleError::InvalidPrice
         );
-    }
-
-    #[test]
-    fn stable_invariant_d_wad_is_live_and_near_sum_of_reserves() {
-        let env = Env::default();
-        let d = stable_invariant_d_wad(&env, 1_000_000_000, 7, 1_000_000_000, 7, 1500).unwrap();
-        assert_ne!(d, 0);
-        assert_ne!(d, 1);
-        let expected = 200 * WAD;
-        let drift = (d - expected).abs();
-        assert!(drift < expected / 100, "d={d}");
     }
 
     #[test]

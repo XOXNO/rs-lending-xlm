@@ -8,6 +8,7 @@ use crate::config;
 use crate::context::Cache;
 use crate::events;
 use crate::positions::get_debt_position_or_panic;
+use crate::risk::validation::require_authorized_caller;
 use crate::storage;
 use crate::strategies::{
     execute_withdraw_all, net_settle_collateral_against_debt, prefetch_strategy_prices,
@@ -43,7 +44,7 @@ pub(crate) fn process_repay_debt_with_collateral(
         close_position,
     } = params;
 
-    crate::strategies::require_strategy_caller(env, caller);
+    require_authorized_caller(env, caller);
 
     require_positive_amount(env, collateral_amount);
     config::require_hub_active(env, collateral.hub_id);

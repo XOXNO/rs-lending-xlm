@@ -1,5 +1,5 @@
 use common::errors::GenericError;
-use common::types::{Account, HubAssetKey, StrategySwap};
+use common::types::{HubAssetKey, StrategySwap};
 use common::validation::require_positive_amount;
 use soroban_sdk::{assert_with_error, vec, Address, Env};
 
@@ -8,6 +8,7 @@ use crate::config;
 use crate::context::Cache;
 use crate::events;
 use crate::positions::require_can_supply;
+use crate::risk::validation::require_authorized_caller;
 use crate::strategies::{
     prefetch_strategy_prices, strategy_finalize, withdraw_and_swap_from_supply,
 };
@@ -39,7 +40,7 @@ pub(crate) fn process_swap_collateral(
         swap,
     } = params;
 
-    crate::strategies::require_strategy_caller(env, caller);
+    require_authorized_caller(env, caller);
 
     assert_with_error!(env, current != new, GenericError::AssetsAreTheSame);
     config::require_hub_active(env, current.hub_id);
@@ -48,7 +49,8 @@ pub(crate) fn process_swap_collateral(
     let mut account = storage::get_account(env, account_id);
     account::require_owner_or_delegate(env, account_id, caller, &account.owner);
     let mut cache = Cache::new(env);
-    validate_swap_new_collateral_preflight(env, &mut cache, &account, new);
+    // Preflight: `new` must be suppliable into the account's spoke.
+    require_can_supply(env, &mut cache, account.spoke_id, new);
 
     let extra_assets = vec![env, current.asset.clone(), new.asset.clone()];
     prefetch_strategy_prices(&mut cache, &account, &extra_assets);
@@ -75,15 +77,4 @@ pub(crate) fn process_swap_collateral(
     );
 
     strategy_finalize(env, account_id, &mut account, &mut cache);
-}
-
-/// Checks that `new` can be supplied into the account's spoke before the
-/// collateral swap proceeds.
-pub(crate) fn validate_swap_new_collateral_preflight(
-    env: &Env,
-    cache: &mut Cache,
-    account: &Account,
-    new: &HubAssetKey,
-) {
-    require_can_supply(env, cache, account.spoke_id, new);
 }

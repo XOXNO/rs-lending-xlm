@@ -1,10 +1,9 @@
 use controller::types::SpokeAssetArgs;
 use test_harness::{
-    assert_contract_error, errors, eth_preset, usdc_preset, LendingTest, ALICE, HARNESS_HUB,
-    HARNESS_SPOKE,
+    assert_contract_error, build_aggregator_swap, errors, LendingTest, HARNESS_HUB, HARNESS_SPOKE,
 };
 
-use crate::helpers::build_swap_steps;
+use crate::helpers::AliceOps;
 
 fn freeze_asset(t: &LendingTest, asset_name: &str) {
     let asset = t.resolve_asset(asset_name);
@@ -30,85 +29,49 @@ fn freeze_asset(t: &LendingTest, asset_name: &str) {
 #[test]
 fn test_multiply_rejects_non_borrowable_debt() {
     let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
+        .standard_two_asset()
         .with_market_config("ETH", |c| {
             c.is_borrowable = false;
         })
         .build();
 
-    let steps = build_swap_steps(&t, "ETH", "USDC", 1_0000000);
-    let result = t.try_multiply(
-        ALICE,
-        "USDC",
-        1.0,
-        "ETH",
-        controller::types::PositionMode::Multiply,
-        &steps,
-    );
+    let steps = build_aggregator_swap(&t, "ETH", "USDC", 0, 1_0000000);
+    let result = t.try_alice_multiply(&steps);
     assert_contract_error(result, errors::ASSET_NOT_BORROWABLE);
 }
 
 #[test]
 fn test_multiply_rejects_non_collateralizable() {
     let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
+        .standard_two_asset()
         .with_market_config("USDC", |c| {
             c.is_collateralizable = false;
         })
         .build();
 
-    let steps = build_swap_steps(&t, "ETH", "USDC", 1000_0000000);
-    let result = t.try_multiply(
-        ALICE,
-        "USDC",
-        1.0,
-        "ETH",
-        controller::types::PositionMode::Multiply,
-        &steps,
-    );
+    let steps = build_aggregator_swap(&t, "ETH", "USDC", 0, 1000_0000000);
+    let result = t.try_alice_multiply(&steps);
     assert_contract_error(result, errors::NOT_COLLATERAL);
 }
 
 #[test]
 fn test_multiply_rejects_frozen_collateral() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     freeze_asset(&t, "USDC");
 
-    let steps = build_swap_steps(&t, "ETH", "USDC", 1000_0000000);
-    let result = t.try_multiply(
-        ALICE,
-        "USDC",
-        1.0,
-        "ETH",
-        controller::types::PositionMode::Multiply,
-        &steps,
-    );
+    let steps = build_aggregator_swap(&t, "ETH", "USDC", 0, 1000_0000000);
+    let result = t.try_alice_multiply(&steps);
     assert_contract_error(result, errors::SPOKE_ASSET_FROZEN);
 }
 
 #[test]
 fn test_multiply_rejects_during_flash_loan() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.set_flash_loan_ongoing(true);
 
-    let steps = build_swap_steps(&t, "ETH", "USDC", 1000_0000000);
-    let result = t.try_multiply(
-        ALICE,
-        "USDC",
-        1.0,
-        "ETH",
-        controller::types::PositionMode::Multiply,
-        &steps,
-    );
+    let steps = build_aggregator_swap(&t, "ETH", "USDC", 0, 1000_0000000);
+    let result = t.try_alice_multiply(&steps);
     assert_contract_error(result, errors::FLASH_LOAN_ONGOING);
 }

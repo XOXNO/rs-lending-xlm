@@ -1,13 +1,9 @@
-use test_harness::{
-    errors, eth_preset, usd, usd_cents, usdc_preset, wbtc_preset, LendingTest, LIQUIDATOR,
-};
+use test_harness::{errors, usd, usd_cents, LendingTest, LIQUIDATOR};
 
 #[test]
 fn audit_liquidate_and_clean_bricked_by_unpriceable_dust_leg() {
     let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_market(wbtc_preset())
+        .three_asset_usdc_eth_wbtc()
         .with_dust_disabled_all_markets()
         .build();
 

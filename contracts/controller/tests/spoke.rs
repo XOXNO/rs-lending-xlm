@@ -49,8 +49,8 @@ fn require_spoke_asset_converts_listed_risk_config() {
         let mut cache = Cache::new_view(&env);
         let cfg: AssetConfig = cache.require_spoke_asset(1, &hub(&asset));
         assert_eq!(cfg.loan_to_value.raw() as u32, 9_000);
-        assert!(cfg.can_supply());
-        assert!(cfg.can_borrow());
+        assert!(cfg.is_collateralizable);
+        assert!(cfg.is_borrowable);
     });
 }
 

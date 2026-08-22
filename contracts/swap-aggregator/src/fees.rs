@@ -115,16 +115,6 @@ pub(crate) fn claim_fee_bucket(
     }
 }
 
-/// Claim admin fee buckets for `tokens`.
-pub(crate) fn claim_admin_fees(
-    env: &Env,
-    router: &Address,
-    recipient: &Address,
-    tokens: Vec<Address>,
-) {
-    claim_fee_bucket(env, router, recipient, tokens, FeeBucket::Admin);
-}
-
 /// Claim referral `id` fee buckets to the referral owner.
 pub(crate) fn claim_referral_fees(env: &Env, router: &Address, id: u64, tokens: Vec<Address>) {
     let cfg = storage::load_referral(env, id);

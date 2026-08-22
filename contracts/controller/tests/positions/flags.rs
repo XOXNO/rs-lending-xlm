@@ -391,12 +391,12 @@ fn persist_account_positions_removes_empty_account() {
 
 #[test]
 #[should_panic(expected = "Error(Auth, InvalidAction)")]
-fn require_position_caller_without_auth_panics() {
+fn require_authorized_caller_without_auth_panics() {
     let env = Env::default();
     let admin = Address::generate(&env);
     let contract_id = env.register(Controller, (admin,));
     env.as_contract(&contract_id, || {
-        require_position_caller(&env, &Address::generate(&env));
+        validation::require_authorized_caller(&env, &Address::generate(&env));
     });
 }
 

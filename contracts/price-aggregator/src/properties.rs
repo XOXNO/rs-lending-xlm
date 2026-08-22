@@ -66,13 +66,6 @@ impl SourceProperties {
         }
     }
 
-    /// Returns whether `self` and `other` trust exactly the same set of
-    /// contracts, in either order.
-    pub(crate) fn trusts_exactly_as(&self, other: &Self) -> bool {
-        let covered = |a: &Vec<Address>, b: &Vec<Address>| a.iter().all(|d| b.contains(&d));
-        covered(&self.trust, &other.trust) && covered(&other.trust, &self.trust)
-    }
-
     /// Returns the contracts trusted by both `self` and `other`, without
     /// duplicates.
     pub(crate) fn shared_contracts_with(&self, env: &Env, other: &Self) -> Vec<Address> {

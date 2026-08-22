@@ -75,24 +75,16 @@ fn walk_dir(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-fn parse_i128_str(s: &str) -> Option<i128> {
-    s.parse::<i128>().ok()
-}
-
-fn parse_u64_str(s: &str) -> Option<u64> {
-    s.parse::<u64>().ok()
-}
-
 fn extract_i128(val: &Value) -> Option<i128> {
     let inner = val.get("i128")?;
     match inner {
-        Value::String(s) => parse_i128_str(s),
+        Value::String(s) => s.parse::<i128>().ok(),
         Value::Number(n) => n.as_i64().map(|i| i as i128),
         Value::Object(map) => {
             let lo = map.get("lo")?;
             let hi = map.get("hi")?;
             let lo_u64 = match lo {
-                Value::String(s) => parse_u64_str(s)?,
+                Value::String(s) => s.parse::<u64>().ok()?,
                 Value::Number(n) => n.as_u64()?,
                 _ => return None,
             };
@@ -110,7 +102,7 @@ fn extract_i128(val: &Value) -> Option<i128> {
 fn extract_u64(val: &Value) -> Option<u64> {
     let inner = val.get("u64")?;
     match inner {
-        Value::String(s) => parse_u64_str(s),
+        Value::String(s) => s.parse::<u64>().ok(),
         Value::Number(n) => n.as_u64(),
         _ => None,
     }
@@ -287,34 +279,14 @@ fn extract_snapshot(path: &Path) -> Option<ExtractedFields> {
     Some(fields)
 }
 
-fn push_i128_le(buf: &mut Vec<u8>, v: i128) {
-    buf.extend_from_slice(&v.to_le_bytes());
-}
-
-fn push_u64_le(buf: &mut Vec<u8>, v: u64) {
-    buf.extend_from_slice(&v.to_le_bytes());
-}
-
-fn push_u16_le(buf: &mut Vec<u8>, v: u16) {
-    buf.extend_from_slice(&v.to_le_bytes());
-}
-
-fn push_u32_le(buf: &mut Vec<u8>, v: u32) {
-    buf.extend_from_slice(&v.to_le_bytes());
-}
-
-fn push_i64_le(buf: &mut Vec<u8>, v: i64) {
-    buf.extend_from_slice(&v.to_le_bytes());
-}
-
 fn pack_fp_math(f: &ExtractedFields) -> Vec<Vec<u8>> {
     let mut out = Vec::new();
 
     let push = |out: &mut Vec<Vec<u8>>, kind: u8, a: i128, b: i128, choice: u8, extra: u8| {
         let mut buf = Vec::with_capacity(35);
         buf.push(kind);
-        push_i128_le(&mut buf, a);
-        push_i128_le(&mut buf, b);
+        buf.extend_from_slice(&a.to_le_bytes());
+        buf.extend_from_slice(&b.to_le_bytes());
         buf.push(choice);
         buf.push(extra);
         out.push(buf);
@@ -383,13 +355,13 @@ fn pack_fp_ops(f: &ExtractedFields) -> Vec<Vec<u8>> {
             for bps in [0u16, 1, 5_000, 10_000, 15_000] {
                 for decimals in [0u8, 6, 7, 18, 27] {
                     let mut buf = Vec::with_capacity(29);
-                    push_u64_le(&mut buf, a);
+                    buf.extend_from_slice(&a.to_le_bytes());
                     buf.push((idx & 1) as u8);
-                    push_u64_le(&mut buf, b);
+                    buf.extend_from_slice(&b.to_le_bytes());
                     buf.push(((idx + 1) & 1) as u8);
-                    push_u16_le(&mut buf, bps);
+                    buf.extend_from_slice(&bps.to_le_bytes());
                     buf.push(decimals);
-                    push_i64_le(&mut buf, (a.min(i64::MAX as u64) as i64) / 10);
+                    buf.extend_from_slice(&((a.min(i64::MAX as u64) as i64) / 10).to_le_bytes());
                     out.push(buf);
                 }
             }
@@ -492,23 +464,23 @@ fn pack_rates_and_index(f: &ExtractedFields) -> Vec<Vec<u8>> {
                 for &delta_ms in &delta_samples {
                     for &borrowed_units in &borrowed_samples {
                         let mut buf = Vec::with_capacity(61);
-                        push_u16_le(&mut buf, util);
+                        buf.extend_from_slice(&util.to_le_bytes());
                         buf.push(base_pct);
                         buf.push(s1_pct);
                         buf.push(s2_pct);
-                        push_u16_le(&mut buf, s3_pct);
+                        buf.extend_from_slice(&s3_pct.to_le_bytes());
                         buf.push(mid_pct);
                         buf.push(opt_pct);
-                        push_u16_le(&mut buf, max_pct);
+                        buf.extend_from_slice(&max_pct.to_le_bytes());
                         buf.push(max_util_pct);
                         buf.push(reserve_pct);
-                        push_u64_le(&mut buf, delta_ms);
-                        push_u64_le(&mut buf, borrowed_units);
+                        buf.extend_from_slice(&delta_ms.to_le_bytes());
+                        buf.extend_from_slice(&borrowed_units.to_le_bytes());
 
-                        push_u64_le(&mut buf, borrowed_units);
-                        push_u64_le(&mut buf, delta_ms);
-                        push_u64_le(&mut buf, 0);
-                        push_u64_le(&mut buf, u64::MAX);
+                        buf.extend_from_slice(&borrowed_units.to_le_bytes());
+                        buf.extend_from_slice(&delta_ms.to_le_bytes());
+                        buf.extend_from_slice(&0u64.to_le_bytes());
+                        buf.extend_from_slice(&u64::MAX.to_le_bytes());
                         out.push(buf);
                     }
                 }
@@ -597,14 +569,14 @@ fn pack_pool_native(f: &ExtractedFields) -> Vec<Vec<u8>> {
             buf.push(base);
             buf.push(s1);
             buf.push(s2);
-            push_u16_le(&mut buf, s3);
+            buf.extend_from_slice(&s3.to_le_bytes());
             buf.push(mid);
             buf.push(opt);
-            push_u16_le(&mut buf, max);
+            buf.extend_from_slice(&max.to_le_bytes());
             buf.push(reserve);
             for (price, dt, kind) in ops {
-                push_u32_le(&mut buf, price);
-                push_u32_le(&mut buf, dt);
+                buf.extend_from_slice(&price.to_le_bytes());
+                buf.extend_from_slice(&dt.to_le_bytes());
                 buf.push(kind);
             }
             out.push(buf);

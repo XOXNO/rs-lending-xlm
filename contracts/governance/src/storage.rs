@@ -18,11 +18,6 @@ enum GovernanceKey {
     RecoveryOp(BytesN<32>),
 }
 
-/// Extends the TTL of the contract's instance storage.
-pub(crate) fn renew_governance_instance(env: &Env) {
-    common::ttl::renew_instance(env);
-}
-
 /// Records `account` as the role-revocation target for `operation_id` in
 /// persistent storage and extends the entry's TTL.
 pub(crate) fn mark_role_revocation_target(env: &Env, operation_id: &BytesN<32>, account: &Address) {

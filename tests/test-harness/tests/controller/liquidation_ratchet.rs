@@ -1,7 +1,6 @@
 use common::types::SeizeMode;
 use test_harness::{
-    eth_preset, hub_asset, usd_cents, usdc_preset, usdt_stable_preset, LendingTest, ALICE,
-    LIQUIDATOR, STABLECOIN_SPOKE,
+    eth_preset, hub_asset, usd_cents, usdt_stable_preset, LendingTest, ALICE, LIQUIDATOR,
 };
 
 fn liquidate_once(
@@ -26,10 +25,7 @@ fn liquidate_once(
 #[test]
 fn test_partial_chain_does_not_out_extract_single_recoverable() {
     let build = || {
-        let mut t = LendingTest::new()
-            .with_market(usdc_preset())
-            .with_market(eth_preset())
-            .build();
+        let mut t = LendingTest::new().standard_two_asset().build();
         t.get_or_create_user(LIQUIDATOR);
         t.supply(ALICE, "USDC", 10_000.0);
         t.borrow(ALICE, "ETH", 3.0);
@@ -73,11 +69,7 @@ fn test_partial_chain_does_not_out_extract_single_recoverable() {
 #[test]
 fn test_partial_chain_deep_does_not_ratchet() {
     let build = || {
-        let mut t = LendingTest::new()
-            .with_market(usdc_preset())
-            .with_market(eth_preset())
-            .with_dust_disabled_all_markets()
-            .build();
+        let mut t = LendingTest::new().standard_two_asset_dust_disabled();
         t.get_or_create_user(LIQUIDATOR);
         t.supply(ALICE, "USDC", 10_000.0);
         t.borrow(ALICE, "ETH", 3.0);
@@ -128,11 +120,7 @@ fn test_partial_chain_deep_does_not_ratchet() {
 fn test_partial_chain_no_ratchet_spoke() {
     let build = || {
         let mut t = LendingTest::new()
-            .with_market(usdc_preset())
-            .with_market(usdt_stable_preset())
-            .with_spoke(2, STABLECOIN_SPOKE)
-            .with_spoke_asset(2, "USDC", true, true)
-            .with_spoke_asset(2, "USDT", true, true)
+            .stablecoin_spoke_two_asset()
             .with_dust_disabled_all_markets()
             .build();
         t.get_or_create_user(LIQUIDATOR);
@@ -224,10 +212,7 @@ fn scaled_supply(t: &LendingTest, user: &str, asset: &str) -> i128 {
 }
 
 fn additivity_book() -> LendingTest {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
     t.get_or_create_user(LIQUIDATOR);
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.0);

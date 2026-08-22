@@ -39,16 +39,12 @@ impl Cache {
     /// Renews the controller's instance storage TTL and returns a fresh, empty cache for a state-changing entrypoint.
     pub(crate) fn new(env: &Env) -> Self {
         storage::renew_controller_instance(env);
-        Self::build(env)
+        Self::new_view(env)
     }
 
-    /// Returns a fresh, empty cache for a read-only entrypoint, without renewing the instance storage TTL.
+    /// Returns a fresh, empty cache for a read-only entrypoint, without renewing the instance
+    /// storage TTL: all memoization maps and update buffers initialized but unpopulated.
     pub(crate) fn new_view(env: &Env) -> Self {
-        Self::build(env)
-    }
-
-    /// Constructs an empty `Cache` with all memoization maps and update buffers initialized but unpopulated.
-    fn build(env: &Env) -> Self {
         Cache {
             env: env.clone(),
             token_prices: Map::new(env),

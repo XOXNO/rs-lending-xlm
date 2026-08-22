@@ -50,6 +50,7 @@ use swap_aggregator_interface::SwapAggregatorInterface;
 
 use crate::constants::FEE_CAP;
 use crate::errors::Error;
+use crate::fees::FeeBucket;
 use crate::types::{ReferralConfig, StrategyPayload};
 
 /// Deployed swap router instance.
@@ -167,7 +168,7 @@ impl SwapAggregatorInterface for Router {
     fn claim_admin_fees(env: Env, recipient: Address, tokens: Vec<Address>) {
         storage::renew_instance(&env);
         let router = env.current_contract_address();
-        fees::claim_admin_fees(&env, &router, &recipient, tokens);
+        fees::claim_fee_bucket(&env, &router, &recipient, tokens, FeeBucket::Admin);
     }
 
     /// Pay out accrued fees for referral `id` to its configured owner.

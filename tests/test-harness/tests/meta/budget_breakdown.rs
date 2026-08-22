@@ -61,8 +61,7 @@ fn budget_withdraw_one_asset_no_debt() {
 #[test]
 fn budget_withdraw_with_debt_hf_check() {
     let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
+        .standard_two_asset()
         .with_budget_enabled()
         .build();
 
@@ -131,8 +130,7 @@ fn budget_supply_baseline() {
 #[test]
 fn budget_borrow_baseline() {
     let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
+        .standard_two_asset()
         .with_budget_enabled()
         .build();
 
@@ -150,8 +148,7 @@ fn budget_borrow_baseline() {
 #[test]
 fn budget_swap_collateral_full() {
     let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
+        .standard_two_asset()
         .with_budget_enabled()
         .build();
 

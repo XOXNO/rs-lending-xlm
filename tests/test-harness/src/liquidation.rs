@@ -1,8 +1,8 @@
 use common::types::{HubAssetKey, SeizeMode};
-use soroban_sdk::Vec;
+use soroban_sdk::{vec, Vec};
 
 use crate::context::LendingTest;
-use crate::helpers::hub_asset;
+use crate::helpers::{hub_asset, HARNESS_HUB};
 use crate::ops::internal::{amount_raw, asset_payment_vec, burn_prefund, map_try_ok_value};
 
 impl LendingTest {
@@ -32,20 +32,14 @@ impl LendingTest {
         amount: f64,
         seize_mode: SeizeMode,
     ) -> u64 {
-        let decimals = self.resolve_market(debt_asset).decimals;
-        let raw_amount = amount_raw(amount, decimals);
-        let asset_addr = self.resolve_asset(debt_asset);
-
-        let liquidator_addr = self.get_or_create_user(liquidator);
-        let account_id = self.resolve_account_id(target_user);
-
-        self.resolve_market(debt_asset)
-            .token_admin
-            .mint(&liquidator_addr, &raw_amount);
-
-        let ctrl = self.ctrl_client();
-        let payments = asset_payment_vec(&self.env, asset_addr, raw_amount);
-        ctrl.liquidate(&liquidator_addr, &account_id, &payments, &seize_mode)
+        self.liquidate_core(
+            liquidator,
+            target_user,
+            debt_asset,
+            amount,
+            HARNESS_HUB,
+            seize_mode,
+        )
     }
 
     pub fn liquidate_on_hub(
@@ -56,6 +50,27 @@ impl LendingTest {
         debt_asset: &str,
         amount: f64,
     ) {
+        self.liquidate_core(
+            liquidator,
+            target_user,
+            debt_asset,
+            amount,
+            hub_id,
+            SeizeMode::Transfer,
+        );
+    }
+
+    /// Pre-funds the liquidator and repays `amount` of `debt_asset` on
+    /// `hub_id`. Returns the receiving account id, `0` for `Transfer`.
+    fn liquidate_core(
+        &mut self,
+        liquidator: &str,
+        target_user: &str,
+        debt_asset: &str,
+        amount: f64,
+        hub_id: u32,
+        seize_mode: SeizeMode,
+    ) -> u64 {
         let decimals = self.resolve_market(debt_asset).decimals;
         let raw_amount = amount_raw(amount, decimals);
         let asset_addr = self.resolve_asset(debt_asset);
@@ -68,20 +83,17 @@ impl LendingTest {
             .mint(&liquidator_addr, &raw_amount);
 
         let ctrl = self.ctrl_client();
-        let mut payments: Vec<(HubAssetKey, i128)> = Vec::new(&self.env);
-        payments.push_back((
-            HubAssetKey {
-                hub_id,
-                asset: asset_addr,
-            },
-            raw_amount,
-        ));
-        ctrl.liquidate(
-            &liquidator_addr,
-            &account_id,
-            &payments,
-            &SeizeMode::Transfer,
-        );
+        let payments: Vec<(HubAssetKey, i128)> = vec![
+            &self.env,
+            (
+                HubAssetKey {
+                    hub_id,
+                    asset: asset_addr,
+                },
+                raw_amount,
+            ),
+        ];
+        ctrl.liquidate(&liquidator_addr, &account_id, &payments, &seize_mode)
     }
 
     pub fn try_liquidate(

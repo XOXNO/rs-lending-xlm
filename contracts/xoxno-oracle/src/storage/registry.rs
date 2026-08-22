@@ -51,17 +51,6 @@ pub(crate) fn map_feed(env: &Env, asset: &ReflectorAsset, feed_id: &String) {
     renew_persistent_key(env, &owner_key);
 }
 
-/// Removes `asset`'s feed mapping and returns the feed id it mapped to, without
-/// renewing any TTL. Returns `None` and removes nothing if `asset` has no mapping.
-pub(crate) fn take_feed_mapping(env: &Env, asset: &ReflectorAsset) -> Option<String> {
-    let key = DataKey::FeedMapping(asset.clone());
-    let feed_id: Option<String> = env.storage().persistent().get(&key);
-    if feed_id.is_some() {
-        env.storage().persistent().remove(&key);
-    }
-    feed_id
-}
-
 /// Removes `asset`'s feed mapping, if any, discarding the mapped feed id.
 pub(crate) fn remove_feed_mapping(env: &Env, asset: &ReflectorAsset) {
     env.storage()

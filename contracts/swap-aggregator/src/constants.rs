@@ -15,10 +15,5 @@ pub(crate) const FEE_CAP: u32 = 1_000;
 /// Returns the residual allowance for a token given `credited`: `credited / RESIDUAL_PPM`,
 /// floored at [`RESIDUAL_DUST_FLOOR`].
 pub(crate) fn residual_allowance(credited: i128) -> i128 {
-    let proportional = credited / RESIDUAL_PPM;
-    if proportional > RESIDUAL_DUST_FLOOR {
-        proportional
-    } else {
-        RESIDUAL_DUST_FLOOR
-    }
+    (credited / RESIDUAL_PPM).max(RESIDUAL_DUST_FLOOR)
 }

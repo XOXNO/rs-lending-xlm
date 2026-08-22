@@ -1300,3 +1300,86 @@ fn bonus_above_the_neutral_rate_ratchets_coverage_down() {
         coverage = next;
     }
 }
+
+/// Pins which side of exactly `BAD_DEBT_USD_THRESHOLD` the residual-debt
+/// promotion at `curve.rs:147` falls on.
+///
+/// The operator is only partly pinned elsewhere, and the gap is the boundary.
+/// `estimate_leaves_exactly_five_dollar_remainder_unescalated` (this file) does
+/// assert an exact remainder, so it constrains the comparison at that one point.
+/// But `liquidation_rules::estimate_liquidation_*` asserts
+/// `remaining == 0 || remaining >= BAD_DEBT_USD_THRESHOLD`, which holds under
+/// both `<` and `<=`, and the sweep in
+/// `zero_liquidation_threshold_plans_a_zero_bonus_close_rather_than_locking`
+/// re-derives the same expression, making it a tautology with respect to the
+/// comparison. What was missing is the three-point boundary — THRESHOLD-1,
+/// THRESHOLD, THRESHOLD+1 — which is what decides which borrowers get
+/// force-closed.
+///
+/// At a zero seized proportion the plan closes `min(collateral, debt)`, so
+/// `remaining` is exactly `debt - collateral` and can be placed on the
+/// boundary directly.
+#[test]
+fn residual_debt_promotion_is_exclusive_at_exactly_the_dust_threshold() {
+    let env = Env::default();
+    let curve = LiquidationCurve::from_config(&default_spoke_config());
+    let bounds = BonusBounds {
+        base: Bps::from(0i128),
+        max: max_bonus_for_threshold(&env, Wad::ZERO),
+    };
+    let collateral = 100 * WAD;
+
+    for (remaining, promoted, label) in [
+        (BAD_DEBT_USD_THRESHOLD - 1, true, "one wad-wei below"),
+        (BAD_DEBT_USD_THRESHOLD, false, "exactly at"),
+        (BAD_DEBT_USD_THRESHOLD + 1, false, "one wad-wei above"),
+    ] {
+        let debt = collateral + remaining;
+        let s = zero_threshold_snap(debt, collateral);
+        let (ideal, _) = estimate_liquidation_amount(&env, &s, bounds, &curve);
+
+        let expected = if promoted { debt } else { collateral };
+        assert_eq!(
+            ideal.raw(),
+            expected,
+            "residual {label} the dust threshold: expected ideal={expected} \
+             (promoted={promoted}), got {}",
+            ideal.raw()
+        );
+    }
+}
+
+/// The bound on what the promotion can cost a borrower. Promotion replaces a
+/// partial close of `ideal` with a full close of `total_debt`, so the extra
+/// collateral seized is `remaining * (1 + bonus)` — and `remaining` is capped
+/// below `BAD_DEBT_USD_THRESHOLD` by the gate itself. The overshoot is
+/// therefore bounded by a constant, independent of position size, which is
+/// what makes a price-driven flip of this gate uninteresting to an attacker.
+#[test]
+fn residual_debt_promotion_overshoot_is_bounded_by_the_threshold() {
+    let env = Env::default();
+    let curve = LiquidationCurve::from_config(&default_spoke_config());
+    let bounds = BonusBounds {
+        base: Bps::from(0i128),
+        max: max_bonus_for_threshold(&env, Wad::ZERO),
+    };
+
+    for collateral in [10 * WAD, 1_000 * WAD, 1_000_000 * WAD] {
+        for remaining in [1i128, WAD, BAD_DEBT_USD_THRESHOLD - 1] {
+            let debt = collateral + remaining;
+            let s = zero_threshold_snap(debt, collateral);
+            let (ideal, _) = estimate_liquidation_amount(&env, &s, bounds, &curve);
+
+            let overshoot = ideal.raw() - collateral;
+            assert_eq!(
+                overshoot, remaining,
+                "promotion at collateral={collateral} must close exactly the \
+                 sub-threshold residual, not more"
+            );
+            assert!(
+                overshoot < BAD_DEBT_USD_THRESHOLD,
+                "overshoot {overshoot} reached the threshold at collateral={collateral}"
+            );
+        }
+    }
+}

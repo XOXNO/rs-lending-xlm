@@ -5,8 +5,8 @@ use governance_interface::{
 use soroban_sdk::testutils::{Address as _, Ledger as _};
 use soroban_sdk::{Address, BytesN, IntoVal, Symbol};
 use test_harness::{
-    assert_contract_error, errors, reflector_primary_anchor_config, usd, usdc_preset, LendingTest,
-    DEFAULT_TOLERANCE,
+    assert_contract_error, errors, map_try_ok_unit, reflector_primary_anchor_config, usd,
+    usdc_preset, LendingTest, DEFAULT_TOLERANCE,
 };
 
 const SET_POSITION_LIMITS: &str = "set_position_limits";
@@ -290,11 +290,7 @@ fn non_canceller_cancel_rejected() {
 
     let id = gov.propose(&admin, &AdminOperation::SetPositionLimits(limits(5, 4)), &s);
 
-    let result = gov.try_cancel(&stranger, &id);
-    let mapped = match result {
-        Ok(res) => res.map_err(|e| e.into()),
-        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
-    };
+    let mapped = map_try_ok_unit(gov.try_cancel(&stranger, &id));
     assert_contract_error(mapped, errors::UNAUTHORIZED);
 
     assert_eq!(

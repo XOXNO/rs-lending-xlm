@@ -1,8 +1,7 @@
 use controller::types::{ControllerKey, SpokeAssetArgs};
 use test_harness::{
-    assert_contract_error, errors, eth_preset, hub_asset, usd_cents, usdc_preset,
-    usdt_stable_preset, LendingTest, PositionType, ALICE, HARNESS_HUB, HARNESS_SPOKE, LIQUIDATOR,
-    STABLECOIN_SPOKE,
+    assert_contract_error, errors, hub_asset, usd_cents, usdc_preset, usdt_stable_preset,
+    LendingTest, PositionType, ALICE, HARNESS_HUB, HARNESS_SPOKE, LIQUIDATOR, STABLECOIN_SPOKE,
 };
 #[test]
 fn test_spoke_category_creation() {
@@ -20,13 +19,7 @@ fn test_spoke_category_creation() {
 }
 #[test]
 fn test_spoke_enhanced_ltv_and_threshold() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(usdt_stable_preset())
-        .with_spoke(2, STABLECOIN_SPOKE)
-        .with_spoke_asset(2, "USDC", true, true)
-        .with_spoke_asset(2, "USDT", true, true)
-        .build();
+    let mut t = LendingTest::new().stablecoin_spoke_two_asset().build();
 
     t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 10_000.0);
@@ -60,13 +53,7 @@ fn test_spoke_supply_with_category_asset() {
 }
 #[test]
 fn test_spoke_borrow_with_category_asset() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(usdt_stable_preset())
-        .with_spoke(2, STABLECOIN_SPOKE)
-        .with_spoke_asset(2, "USDC", true, true)
-        .with_spoke_asset(2, "USDT", true, true)
-        .build();
+    let mut t = LendingTest::new().stablecoin_spoke_two_asset().build();
 
     t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 10_000.0);
@@ -85,8 +72,7 @@ fn test_spoke_borrow_with_category_asset() {
 #[test]
 fn test_spoke_rejects_non_category_supply() {
     let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
+        .standard_two_asset()
         .with_spoke(2, STABLECOIN_SPOKE)
         .with_spoke_asset(2, "USDC", true, true)
         .build();
@@ -99,8 +85,7 @@ fn test_spoke_rejects_non_category_supply() {
 #[test]
 fn test_spoke_rejects_non_category_borrow() {
     let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
+        .standard_two_asset()
         .with_spoke(2, STABLECOIN_SPOKE)
         .with_spoke_asset(2, "USDC", true, true)
         .build();
@@ -113,13 +98,7 @@ fn test_spoke_rejects_non_category_borrow() {
 }
 #[test]
 fn test_spoke_edit_asset_params() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(usdt_stable_preset())
-        .with_spoke(2, STABLECOIN_SPOKE)
-        .with_spoke_asset(2, "USDC", true, true)
-        .with_spoke_asset(2, "USDT", true, true)
-        .build();
+    let mut t = LendingTest::new().stablecoin_spoke_two_asset().build();
 
     t.edit_asset_in_spoke("USDC", 2, true, true, 8000, 8500, 300);
 
@@ -184,13 +163,7 @@ fn test_spoke_add_asset_to_category() {
 }
 #[test]
 fn test_spoke_remove_asset_from_category() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(usdt_stable_preset())
-        .with_spoke(2, STABLECOIN_SPOKE)
-        .with_spoke_asset(2, "USDC", true, true)
-        .with_spoke_asset(2, "USDT", true, true)
-        .build();
+    let mut t = LendingTest::new().stablecoin_spoke_two_asset().build();
 
     t.remove_asset_from_spoke("USDT", 2);
 
@@ -202,13 +175,7 @@ fn test_spoke_remove_asset_from_category() {
 }
 #[test]
 fn test_spoke_liquidation_uses_spoke_bonus() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(usdt_stable_preset())
-        .with_spoke(2, STABLECOIN_SPOKE)
-        .with_spoke_asset(2, "USDC", true, true)
-        .with_spoke_asset(2, "USDT", true, true)
-        .build();
+    let mut t = LendingTest::new().stablecoin_spoke_two_asset().build();
 
     t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 10_000.0);
@@ -245,13 +212,7 @@ fn test_spoke_liquidation_uses_spoke_bonus() {
 }
 #[test]
 fn test_spoke_two_assets_same_category() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(usdt_stable_preset())
-        .with_spoke(2, STABLECOIN_SPOKE)
-        .with_spoke_asset(2, "USDC", true, true)
-        .with_spoke_asset(2, "USDT", true, true)
-        .build();
+    let mut t = LendingTest::new().stablecoin_spoke_two_asset().build();
 
     t.create_spoke_account(ALICE, 2);
 
@@ -421,13 +382,7 @@ fn test_deprecated_spoke_debt_free_account_can_partially_withdraw_collateral() {
 
 #[test]
 fn test_deprecated_spoke_repay_allowed_but_new_borrow_blocked() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(usdt_stable_preset())
-        .with_spoke(2, STABLECOIN_SPOKE)
-        .with_spoke_asset(2, "USDC", true, true)
-        .with_spoke_asset(2, "USDT", true, true)
-        .build();
+    let mut t = LendingTest::new().stablecoin_spoke_two_asset().build();
 
     t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 10_000.0);
@@ -451,13 +406,7 @@ fn test_deprecated_spoke_repay_allowed_but_new_borrow_blocked() {
 
 #[test]
 fn test_deprecated_spoke_with_debt_keeps_stored_params_on_withdraw() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(usdt_stable_preset())
-        .with_spoke(2, STABLECOIN_SPOKE)
-        .with_spoke_asset(2, "USDC", true, true)
-        .with_spoke_asset(2, "USDT", true, true)
-        .build();
+    let mut t = LendingTest::new().stablecoin_spoke_two_asset().build();
 
     t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 10_000.0);
@@ -474,13 +423,7 @@ fn test_deprecated_spoke_with_debt_keeps_stored_params_on_withdraw() {
 
 #[test]
 fn test_deprecated_spoke_with_debt_withdraw_still_enforces_stored_spoke_ltv() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(usdt_stable_preset())
-        .with_spoke(2, STABLECOIN_SPOKE)
-        .with_spoke_asset(2, "USDC", true, true)
-        .with_spoke_asset(2, "USDT", true, true)
-        .build();
+    let mut t = LendingTest::new().stablecoin_spoke_two_asset().build();
 
     t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 10_000.0);
@@ -493,13 +436,7 @@ fn test_deprecated_spoke_with_debt_withdraw_still_enforces_stored_spoke_ltv() {
 
 #[test]
 fn test_deprecated_spoke_category_still_allows_liquidation() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(usdt_stable_preset())
-        .with_spoke(2, STABLECOIN_SPOKE)
-        .with_spoke_asset(2, "USDC", true, true)
-        .with_spoke_asset(2, "USDT", true, true)
-        .build();
+    let mut t = LendingTest::new().stablecoin_spoke_two_asset().build();
 
     t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 10_000.0);
@@ -522,13 +459,7 @@ fn test_deprecated_spoke_category_still_allows_liquidation() {
 
 #[test]
 fn test_deprecated_spoke_blocks_new_borrow_but_preserves_exit() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(usdt_stable_preset())
-        .with_spoke(2, STABLECOIN_SPOKE)
-        .with_spoke_asset(2, "USDC", true, true)
-        .with_spoke_asset(2, "USDT", true, true)
-        .build();
+    let mut t = LendingTest::new().stablecoin_spoke_two_asset().build();
 
     t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 10_000.0);
@@ -553,13 +484,7 @@ fn force_delist(t: &LendingTest, asset_name: &str, spoke_id: u32) {
 
 #[test]
 fn test_removed_spoke_collateral_asset_blocks_new_supply_but_existing_withdraw_works() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(usdt_stable_preset())
-        .with_spoke(2, STABLECOIN_SPOKE)
-        .with_spoke_asset(2, "USDC", true, true)
-        .with_spoke_asset(2, "USDT", true, true)
-        .build();
+    let mut t = LendingTest::new().stablecoin_spoke_two_asset().build();
 
     t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 10_000.0);
@@ -579,13 +504,7 @@ fn test_removed_spoke_collateral_asset_blocks_new_supply_but_existing_withdraw_w
 
 #[test]
 fn test_removed_spoke_debt_asset_blocks_new_borrow_but_existing_repay_works() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(usdt_stable_preset())
-        .with_spoke(2, STABLECOIN_SPOKE)
-        .with_spoke_asset(2, "USDC", true, true)
-        .with_spoke_asset(2, "USDT", true, true)
-        .build();
+    let mut t = LendingTest::new().stablecoin_spoke_two_asset().build();
 
     t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 10_000.0);
@@ -606,13 +525,7 @@ fn test_removed_spoke_debt_asset_blocks_new_borrow_but_existing_repay_works() {
 
 #[test]
 fn test_removed_spoke_collateral_asset_stays_liquidatable() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(usdt_stable_preset())
-        .with_spoke(2, STABLECOIN_SPOKE)
-        .with_spoke_asset(2, "USDC", true, true)
-        .with_spoke_asset(2, "USDT", true, true)
-        .build();
+    let mut t = LendingTest::new().stablecoin_spoke_two_asset().build();
 
     t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 10_000.0);
@@ -658,13 +571,7 @@ fn test_spoke_collateral_flag_update_blocks_new_supply_but_existing_withdraw_wor
 
 #[test]
 fn test_spoke_borrow_flag_update_blocks_new_borrow_but_existing_repay_works() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(usdt_stable_preset())
-        .with_spoke(2, STABLECOIN_SPOKE)
-        .with_spoke_asset(2, "USDC", true, true)
-        .with_spoke_asset(2, "USDT", true, true)
-        .build();
+    let mut t = LendingTest::new().stablecoin_spoke_two_asset().build();
 
     t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 10_000.0);
@@ -793,23 +700,7 @@ fn test_spoke_supply_cap_enforced() {
         .with_spoke_asset(2, "USDC", true, true)
         .build();
 
-    let usdc = t.resolve_asset("USDC");
-    t.ctrl_client().edit_asset_in_spoke(&SpokeAssetArgs {
-        liquidation_fees: 0,
-        hub_id: HARNESS_HUB,
-        asset: usdc.clone(),
-        spoke_id: 2,
-        can_collateral: true,
-        can_borrow: true,
-        paused: false,
-        frozen: false,
-        no_seize: false,
-        ltv: 9_700,
-        threshold: 9_800,
-        bonus: 200,
-        supply_cap: spoke_cap,
-        borrow_cap: 0,
-    });
+    t.edit_asset_in_spoke_caps("USDC", 2, true, true, 9_700, 9_800, 200, spoke_cap, 0);
 
     t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 500.0);
@@ -822,31 +713,19 @@ fn test_spoke_supply_cap_enforced() {
 fn test_spoke_borrow_cap_enforced() {
     let spoke_borrow_cap = 500 * UNIT;
 
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(usdt_stable_preset())
-        .with_spoke(2, STABLECOIN_SPOKE)
-        .with_spoke_asset(2, "USDC", true, true)
-        .with_spoke_asset(2, "USDT", true, true)
-        .build();
+    let mut t = LendingTest::new().stablecoin_spoke_two_asset().build();
 
-    let usdt = t.resolve_asset("USDT");
-    t.ctrl_client().edit_asset_in_spoke(&SpokeAssetArgs {
-        liquidation_fees: 0,
-        hub_id: HARNESS_HUB,
-        asset: usdt.clone(),
-        spoke_id: 2,
-        can_collateral: true,
-        can_borrow: true,
-        paused: false,
-        frozen: false,
-        no_seize: false,
-        ltv: 9_700,
-        threshold: 9_800,
-        bonus: 200,
-        supply_cap: 0,
-        borrow_cap: spoke_borrow_cap,
-    });
+    t.edit_asset_in_spoke_caps(
+        "USDT",
+        2,
+        true,
+        true,
+        9_700,
+        9_800,
+        200,
+        0,
+        spoke_borrow_cap,
+    );
 
     t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 10_000.0);
@@ -914,13 +793,7 @@ fn test_removed_spoke_asset_withdraw_decrements_usage() {
 
 #[test]
 fn test_deprecated_spoke_repay_decrements_usage() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(usdt_stable_preset())
-        .with_spoke(2, STABLECOIN_SPOKE)
-        .with_spoke_asset(2, "USDC", true, true)
-        .with_spoke_asset(2, "USDT", true, true)
-        .build();
+    let mut t = LendingTest::new().stablecoin_spoke_two_asset().build();
 
     t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 10_000.0);
@@ -952,43 +825,12 @@ fn test_edit_spoke_supply_cap_below_usage_ratchets_down() {
         .with_spoke_asset(2, "USDC", true, true)
         .build();
 
-    let usdc = t.resolve_asset("USDC");
-    t.ctrl_client().edit_asset_in_spoke(&SpokeAssetArgs {
-        liquidation_fees: 0,
-        hub_id: HARNESS_HUB,
-        asset: usdc.clone(),
-        spoke_id: 2,
-        can_collateral: true,
-        can_borrow: true,
-        paused: false,
-        frozen: false,
-        no_seize: false,
-        ltv: 9_700,
-        threshold: 9_800,
-        bonus: 200,
-        supply_cap: spoke_cap,
-        borrow_cap: 0,
-    });
+    t.edit_asset_in_spoke_caps("USDC", 2, true, true, 9_700, 9_800, 200, spoke_cap, 0);
 
     t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 500.0);
 
-    t.ctrl_client().edit_asset_in_spoke(&SpokeAssetArgs {
-        liquidation_fees: 0,
-        hub_id: HARNESS_HUB,
-        asset: usdc.clone(),
-        spoke_id: 2,
-        can_collateral: true,
-        can_borrow: true,
-        paused: false,
-        frozen: false,
-        no_seize: false,
-        ltv: 9_700,
-        threshold: 9_800,
-        bonus: 200,
-        supply_cap: 100 * UNIT,
-        borrow_cap: 0,
-    });
+    t.edit_asset_in_spoke_caps("USDC", 2, true, true, 9_700, 9_800, 200, 100 * UNIT, 0);
 
     assert_contract_error(
         t.try_supply(ALICE, "USDC", 1.0),
@@ -1011,23 +853,7 @@ fn test_spoke_supply_cap_bounds_cumulative_supply() {
         .with_spoke_asset(2, "USDC", true, true)
         .build();
 
-    let usdc = t.resolve_asset("USDC");
-    t.ctrl_client().edit_asset_in_spoke(&SpokeAssetArgs {
-        liquidation_fees: 0,
-        hub_id: HARNESS_HUB,
-        asset: usdc.clone(),
-        spoke_id: 2,
-        can_collateral: true,
-        can_borrow: true,
-        paused: false,
-        frozen: false,
-        no_seize: false,
-        ltv: 9_700,
-        threshold: 9_800,
-        bonus: 200,
-        supply_cap: spoke_cap,
-        borrow_cap: 0,
-    });
+    t.edit_asset_in_spoke_caps("USDC", 2, true, true, 9_700, 9_800, 200, spoke_cap, 0);
 
     t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 500.0);
@@ -1043,52 +869,15 @@ fn test_spoke_supply_cap_bounds_cumulative_supply() {
 #[test]
 fn test_edit_spoke_borrow_cap_below_usage_ratchets_down() {
     let spoke_cap = 1_000 * UNIT;
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(usdt_stable_preset())
-        .with_spoke(2, STABLECOIN_SPOKE)
-        .with_spoke_asset(2, "USDC", true, true)
-        .with_spoke_asset(2, "USDT", true, true)
-        .build();
+    let mut t = LendingTest::new().stablecoin_spoke_two_asset().build();
 
-    let usdt = t.resolve_asset("USDT");
-    t.ctrl_client().edit_asset_in_spoke(&SpokeAssetArgs {
-        liquidation_fees: 0,
-        hub_id: HARNESS_HUB,
-        asset: usdt.clone(),
-        spoke_id: 2,
-        can_collateral: true,
-        can_borrow: true,
-        paused: false,
-        frozen: false,
-        no_seize: false,
-        ltv: 9_700,
-        threshold: 9_800,
-        bonus: 200,
-        supply_cap: 0,
-        borrow_cap: spoke_cap,
-    });
+    t.edit_asset_in_spoke_caps("USDT", 2, true, true, 9_700, 9_800, 200, 0, spoke_cap);
 
     t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "USDT", 500.0);
 
-    t.ctrl_client().edit_asset_in_spoke(&SpokeAssetArgs {
-        liquidation_fees: 0,
-        hub_id: HARNESS_HUB,
-        asset: usdt.clone(),
-        spoke_id: 2,
-        can_collateral: true,
-        can_borrow: true,
-        paused: false,
-        frozen: false,
-        no_seize: false,
-        ltv: 9_700,
-        threshold: 9_800,
-        bonus: 200,
-        supply_cap: 0,
-        borrow_cap: 100 * UNIT,
-    });
+    t.edit_asset_in_spoke_caps("USDT", 2, true, true, 9_700, 9_800, 200, 0, 100 * UNIT);
 
     assert_contract_error(
         t.try_borrow(ALICE, "USDT", 1.0),
@@ -1144,23 +933,7 @@ fn test_spoke_spoke_supply_cap_headroom_restored_after_withdraw() {
         .with_spoke_asset(2, "USDC", true, true)
         .build();
 
-    let usdc = t.resolve_asset("USDC");
-    t.ctrl_client().edit_asset_in_spoke(&SpokeAssetArgs {
-        liquidation_fees: 0,
-        hub_id: HARNESS_HUB,
-        asset: usdc.clone(),
-        spoke_id: 2,
-        can_collateral: true,
-        can_borrow: true,
-        paused: false,
-        frozen: false,
-        no_seize: false,
-        ltv: 9_700,
-        threshold: 9_800,
-        bonus: 200,
-        supply_cap: spoke_cap,
-        borrow_cap: 0,
-    });
+    t.edit_asset_in_spoke_caps("USDC", 2, true, true, 9_700, 9_800, 200, spoke_cap, 0);
 
     t.create_spoke_account(ALICE, 2);
 
@@ -1181,31 +954,9 @@ fn test_spoke_spoke_supply_cap_headroom_restored_after_withdraw() {
 #[test]
 fn test_spoke_spoke_borrow_cap_tightens_as_interest_accrues() {
     let spoke_cap = 1_000 * UNIT;
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(usdt_stable_preset())
-        .with_spoke(2, STABLECOIN_SPOKE)
-        .with_spoke_asset(2, "USDC", true, true)
-        .with_spoke_asset(2, "USDT", true, true)
-        .build();
+    let mut t = LendingTest::new().stablecoin_spoke_two_asset().build();
 
-    let usdt = t.resolve_asset("USDT");
-    t.ctrl_client().edit_asset_in_spoke(&SpokeAssetArgs {
-        liquidation_fees: 0,
-        hub_id: HARNESS_HUB,
-        asset: usdt.clone(),
-        spoke_id: 2,
-        can_collateral: true,
-        can_borrow: true,
-        paused: false,
-        frozen: false,
-        no_seize: false,
-        ltv: 9_700,
-        threshold: 9_800,
-        bonus: 200,
-        supply_cap: 0,
-        borrow_cap: spoke_cap,
-    });
+    t.edit_asset_in_spoke_caps("USDT", 2, true, true, 9_700, 9_800, 200, 0, spoke_cap);
 
     t.supply(LIQUIDATOR, "USDT", 5_000.0);
 
@@ -1350,13 +1101,7 @@ fn test_frozen_spoke_asset_blocks_entries_but_allows_exit() {
 
 #[test]
 fn test_remove_asset_with_live_supply_usage_reverts_until_drained() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(usdt_stable_preset())
-        .with_spoke(2, STABLECOIN_SPOKE)
-        .with_spoke_asset(2, "USDC", true, true)
-        .with_spoke_asset(2, "USDT", true, true)
-        .build();
+    let mut t = LendingTest::new().stablecoin_spoke_two_asset().build();
 
     t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDT", 1_000.0);
@@ -1378,13 +1123,7 @@ fn test_remove_asset_with_live_supply_usage_reverts_until_drained() {
 
 #[test]
 fn test_remove_asset_with_live_borrow_usage_reverts() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(usdt_stable_preset())
-        .with_spoke(2, STABLECOIN_SPOKE)
-        .with_spoke_asset(2, "USDC", true, true)
-        .with_spoke_asset(2, "USDT", true, true)
-        .build();
+    let mut t = LendingTest::new().stablecoin_spoke_two_asset().build();
 
     t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 10_000.0);
@@ -1404,13 +1143,7 @@ fn test_remove_asset_with_live_borrow_usage_reverts() {
 
 #[test]
 fn test_update_account_threshold_skips_force_delisted_asset() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(usdt_stable_preset())
-        .with_spoke(2, STABLECOIN_SPOKE)
-        .with_spoke_asset(2, "USDC", true, true)
-        .with_spoke_asset(2, "USDT", true, true)
-        .build();
+    let mut t = LendingTest::new().stablecoin_spoke_two_asset().build();
 
     t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 5_000.0);

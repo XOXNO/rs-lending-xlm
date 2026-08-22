@@ -1,9 +1,9 @@
 use controller::constants::WAD;
 use soroban_sdk::Bytes;
 use test_harness::{
-    apply_flash_fee, build_aggregator_swap, eth_preset, hub_asset, usd, usdc_preset,
-    usdt_stable_preset, wbtc_preset, LendingTest, MarketPreset, ALICE, BOB, DEFAULT_ASSET_CONFIG,
-    DEFAULT_MARKET_PARAMS, HARNESS_HUB, HARNESS_SPOKE, STABLECOIN_SPOKE,
+    apply_flash_fee, build_aggregator_swap, eth_preset, hub_asset, usd, usdc_preset, wbtc_preset,
+    LendingTest, MarketPreset, ALICE, BOB, DEFAULT_ASSET_CONFIG, DEFAULT_MARKET_PARAMS,
+    HARNESS_HUB, HARNESS_SPOKE,
 };
 
 fn usdc_zero_seed() -> MarketPreset {
@@ -19,10 +19,7 @@ fn usdc_zero_seed() -> MarketPreset {
 
 #[test]
 fn test_multiply_creates_leveraged_position() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.fund_router("USDC", 3000.0);
 
@@ -59,10 +56,7 @@ fn test_multiply_creates_leveraged_position() {
 
 #[test]
 fn test_multiply_mode_long() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.fund_router("USDC", 3000.0);
 
@@ -104,10 +98,7 @@ fn test_multiply_mode_long() {
 
 #[test]
 fn test_multiply_mode_short() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.fund_router("USDC", 3000.0);
 
@@ -186,11 +177,7 @@ fn test_multiply_wbtc_collateral() {
 
 #[test]
 fn test_swap_debt_replaces_borrow() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_market(wbtc_preset())
-        .build();
+    let mut t = LendingTest::new().three_asset_usdc_eth_wbtc().build();
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 1.0);
@@ -216,11 +203,7 @@ fn test_swap_debt_replaces_borrow() {
 
 #[test]
 fn test_swap_debt_partial() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_market(wbtc_preset())
-        .build();
+    let mut t = LendingTest::new().three_asset_usdc_eth_wbtc().build();
 
     t.supply(ALICE, "USDC", 200_000.0);
     t.borrow(ALICE, "ETH", 2.0);
@@ -250,10 +233,7 @@ fn test_swap_debt_partial() {
 
 #[test]
 fn test_swap_collateral_replaces_supply() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 1.0);
@@ -291,10 +271,7 @@ fn test_swap_collateral_replaces_supply() {
 
 #[test]
 fn test_swap_collateral_no_borrows() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 50_000.0);
 
@@ -320,10 +297,7 @@ fn test_swap_collateral_no_borrows() {
 
 #[test]
 fn test_repay_debt_with_collateral_reduces_positions() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 1.0);
@@ -411,10 +385,7 @@ fn test_repay_debt_with_collateral_same_token_succeeds_at_zero_cash() {
 
 #[test]
 fn test_repay_debt_with_collateral_same_token_leaves_excess_as_supply() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.supply(ALICE, "ETH", 20.0);
@@ -444,10 +415,7 @@ fn test_repay_debt_with_collateral_same_token_leaves_excess_as_supply() {
 fn test_same_token_net_settle_reduces_both_position_sides() {
     const UNIT: i128 = 10_000_000;
 
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.supply(ALICE, "ETH", 20.0);
@@ -486,10 +454,7 @@ fn test_same_token_net_settle_reduces_both_position_sides() {
 
 #[test]
 fn test_repay_debt_with_collateral_same_token_refreshes_risk_params() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.supply(ALICE, "ETH", 20.0);
@@ -530,13 +495,7 @@ fn test_repay_debt_with_collateral_same_token_refreshes_risk_params() {
 
 #[test]
 fn test_multiply_spoke_stablecoin() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(usdt_stable_preset())
-        .with_spoke(2, STABLECOIN_SPOKE)
-        .with_spoke_asset(2, "USDC", true, true)
-        .with_spoke_asset(2, "USDT", true, true)
-        .build();
+    let mut t = LendingTest::new().stablecoin_spoke_two_asset().build();
 
     let caller = t.get_or_create_user(ALICE);
     let collateral_addr = t.resolve_asset("USDC");
@@ -580,10 +539,7 @@ fn test_multiply_spoke_stablecoin() {
 
 #[test]
 fn test_multiply_large_amounts() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.fund_router("USDC", 300_000.0);
 
@@ -623,10 +579,7 @@ fn test_multiply_large_amounts() {
 
 #[test]
 fn test_multiply_two_users() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply("liquidity_provider", "ETH", 10.0);
 
@@ -700,11 +653,7 @@ fn test_multiply_two_users() {
 
 #[test]
 fn test_swap_debt_to_costlier_debt_preserves_minimum_hf() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_market(wbtc_preset())
-        .build();
+    let mut t = LendingTest::new().three_asset_usdc_eth_wbtc().build();
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 10.0);

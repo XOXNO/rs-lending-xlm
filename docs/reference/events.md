@@ -353,7 +353,7 @@ Built from an `InterestRateModel` by `UpdateMarketParamsEvent::from_rate_model` 
 - **Topics:** `["config", "spoke_asset"]`
 - **Data format:** `map` (default)
 - **Defined at:** `contracts/controller/src/events/config.rs:46`
-- **Emitted by:** `add_asset_to_spoke` and `edit_asset_in_spoke` (both via `store_spoke_asset`, `contracts/controller/src/config/asset.rs:116`), and `set_spoke_asset_flags` (`contracts/controller/src/config/asset.rs:145`)
+- **Emitted by:** `add_asset_to_spoke` and `edit_asset_in_spoke` (both via `upsert_spoke_asset`, `contracts/controller/src/config/asset.rs:38`), and `set_spoke_asset_flags` (`contracts/controller/src/config/asset.rs:103`)
 
 | Field | Type | Scale/unit | Meaning |
 | --- | --- | --- | --- |
@@ -463,7 +463,7 @@ The pool defines **3** events, in `contracts/pool/src/events.rs`.
 - **Topics:** `["market", "batch_state_update"]`
 - **Data format:** `single-value` — the struct has one field, `updates`, so the payload **is** the vector of rows. There is no wrapping map and no `updates` key.
 - **Defined at:** `contracts/pool/src/events.rs:48`
-- **Emitted by:** `supply`, `borrow`, `withdraw`, `repay`, and `seize_positions` (batched, via `run_batch`/`run_batch_without_result` at `contracts/pool/src/ops/mod.rs:70` and `:89`); `update_indexes` (`contracts/pool/src/ops/market.rs:78`); `claim_revenue` (`contracts/pool/src/ops/revenue.rs:27` and `:37`); `flash_loan` (`contracts/pool/src/ops/flash.rs:143`); `recapitalize` (`contracts/pool/src/ops/recapitalize.rs:36`); `create_strategy` (`contracts/pool/src/ops/strategy.rs:49`); and `net_settle` (`contracts/pool/src/lib.rs:250`). Not published when the snapshot list is empty (`contracts/pool/src/events.rs:84`).
+- **Emitted by:** `supply`, `borrow`, `withdraw`, `repay`, and `seize_positions` (batched, via `run_batch` at `contracts/pool/src/ops/mod.rs:52`); `update_indexes` (`contracts/pool/src/ops/market.rs:78`); `claim_revenue` (`contracts/pool/src/ops/revenue.rs:27` and `:37`); `flash_loan` (`contracts/pool/src/ops/flash.rs:143`); `recapitalize` (`contracts/pool/src/ops/recapitalize.rs:36`); `create_strategy` (`contracts/pool/src/ops/strategy.rs:49`); and `net_settle` (`contracts/pool/src/lib.rs:250`). Not published when the snapshot list is empty (`contracts/pool/src/events.rs:84`).
 
 | Field | Type | Scale/unit | Meaning |
 | --- | --- | --- | --- |
@@ -570,13 +570,13 @@ The DeFindex strategy adapter defines **1** event.
 - **Topics:** `["strategy", "harvest"]`
 - **Data format:** `map` (default)
 - **Defined at:** `contracts/defindex-strategy/src/lib.rs:25`
-- **Emitted by:** `harvest`, via `emit_harvest` at `contracts/defindex-strategy/src/lib.rs:311`
+- **Emitted by:** `harvest` at `contracts/defindex-strategy/src/lib.rs:282`
 
 | Field | Type | Scale/unit | Meaning |
 | --- | --- | --- | --- |
 | from | `Address` | — | The caller that invoked `harvest`. |
-| amount | `i128` | raw asset units | Always `0`. `harvest` moves no funds; the call site passes a literal zero (`contracts/defindex-strategy/src/lib.rs:311`). |
-| price_per_share | `i128` | 12 decimals (1e12) | Current price per share for the configured hub asset. Computed by floor-rescaling the RAY supply index down to `PPS_DECIMALS = 12` (`contracts/defindex-strategy/src/lib.rs:42` and `:192`). |
+| amount | `i128` | raw asset units | Always `0`. `harvest` moves no funds; the call site passes a literal zero (`contracts/defindex-strategy/src/lib.rs:285`). |
+| price_per_share | `i128` | 12 decimals (1e12) | Current price per share for the configured hub asset. Computed by floor-rescaling the RAY supply index down to `PPS_DECIMALS = 12` (`contracts/defindex-strategy/src/lib.rs:32` and `:175`). |
 
 ## Contracts that emit no events
 

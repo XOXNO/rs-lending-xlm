@@ -17,13 +17,7 @@ fn test_spoke_threshold_supersedes_asset_threshold() {
     standard.set_price("USDC", usd_cents(93));
     standard.assert_liquidatable(ALICE);
 
-    let mut spoke = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(usdt_stable_preset())
-        .with_spoke(2, STABLECOIN_SPOKE)
-        .with_spoke_asset(2, "USDC", true, true)
-        .with_spoke_asset(2, "USDT", true, true)
-        .build();
+    let mut spoke = LendingTest::new().stablecoin_spoke_two_asset().build();
     spoke.create_spoke_account(ALICE, 2);
     spoke.supply(ALICE, "USDC", 10_000.0);
     spoke.borrow(ALICE, "USDT", 7_500.0);
@@ -34,11 +28,7 @@ fn test_spoke_threshold_supersedes_asset_threshold() {
 #[test]
 fn test_spoke_bonus_bounded_by_category_bonus() {
     let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(usdt_stable_preset())
-        .with_spoke(2, STABLECOIN_SPOKE)
-        .with_spoke_asset(2, "USDC", true, true)
-        .with_spoke_asset(2, "USDT", true, true)
+        .stablecoin_spoke_two_asset()
         .with_dust_disabled_all_markets()
         .build();
 
@@ -73,11 +63,7 @@ fn test_spoke_bonus_bounded_by_category_bonus() {
 #[test]
 fn test_spoke_liquidation_with_split_collateral() {
     let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(usdt_stable_preset())
-        .with_spoke(2, STABLECOIN_SPOKE)
-        .with_spoke_asset(2, "USDC", true, true)
-        .with_spoke_asset(2, "USDT", true, true)
+        .stablecoin_spoke_two_asset()
         .with_dust_disabled_all_markets()
         .build();
 

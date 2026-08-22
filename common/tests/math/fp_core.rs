@@ -96,7 +96,7 @@ fn test_rescale_downscale_negative_rounds_away_from_zero() {
 }
 
 #[test]
-#[should_panic(expected = "rescale_half_up upscale overflow")]
+#[should_panic(expected = "rescale upscale overflow")]
 fn test_rescale_upscale_overflow_panics_explicitly() {
     let huge = 10i128.pow(20);
     rescale_half_up(huge, 0, 27);
@@ -194,7 +194,7 @@ fn test_rescale_same_decimals_returns_input() {
 }
 
 #[test]
-#[should_panic(expected = "downscale factor overflow")]
+#[should_panic(expected = "rescale factor overflow")]
 fn test_rescale_downscale_factor_overflow_panics() {
     let _ = rescale_half_up(0, 50, 11);
 }
@@ -239,13 +239,13 @@ fn test_rescale_floor_downscale_truncates_toward_zero() {
 }
 
 #[test]
-#[should_panic(expected = "rescale_floor upscale factor overflow")]
+#[should_panic(expected = "rescale factor overflow")]
 fn test_rescale_floor_upscale_factor_overflow_panics() {
     let _ = rescale_floor(1, 0, 39);
 }
 
 #[test]
-#[should_panic(expected = "rescale_floor upscale overflow")]
+#[should_panic(expected = "rescale upscale overflow")]
 fn test_rescale_floor_upscale_value_overflow_panics() {
     let _ = rescale_floor(i128::MAX, 0, 1);
 }
@@ -277,13 +277,13 @@ fn test_rescale_ceil_downscale_negative_truncates_toward_zero() {
 }
 
 #[test]
-#[should_panic(expected = "rescale_ceil upscale factor overflow")]
+#[should_panic(expected = "rescale factor overflow")]
 fn test_rescale_ceil_upscale_factor_overflow_panics() {
     let _ = rescale_ceil(1, 0, 39);
 }
 
 #[test]
-#[should_panic(expected = "rescale_ceil upscale overflow")]
+#[should_panic(expected = "rescale upscale overflow")]
 fn test_rescale_ceil_upscale_value_overflow_panics() {
     let _ = rescale_ceil(i128::MAX, 0, 1);
 }
@@ -344,5 +344,104 @@ fn mul_div_floor_saturating_matches_floor_below_saturation() {
             mul_div_floor(&env, x, y, d),
             "saturating and panicking floor disagree at ({x}, {y}, {d})"
         );
+    }
+}
+
+/// Pins the collapsed [`rescale`] against the three hand-written bodies it replaced, across
+/// negative, zero, exact-multiple and half-boundary inputs in both directions.
+#[test]
+fn test_rescale_variants_match_their_pre_refactor_bodies() {
+    fn ref_half_up(a: i128, from: u32, to: u32) -> i128 {
+        if from == to {
+            return a;
+        }
+        if to > from {
+            return a * 10i128.pow(to - from);
+        }
+        let factor = 10i128.pow(from - to);
+        let half = factor / 2;
+        if a >= 0 {
+            let q = a / factor;
+            if a % factor >= half {
+                q + 1
+            } else {
+                q
+            }
+        } else {
+            (a - half) / factor
+        }
+    }
+    fn ref_floor(a: i128, from: u32, to: u32) -> i128 {
+        if from == to {
+            return a;
+        }
+        if to > from {
+            return a * 10i128.pow(to - from);
+        }
+        a / 10i128.pow(from - to)
+    }
+    fn ref_ceil(a: i128, from: u32, to: u32) -> i128 {
+        if from == to {
+            return a;
+        }
+        if to > from {
+            return a * 10i128.pow(to - from);
+        }
+        let factor = 10i128.pow(from - to);
+        let quotient = a / factor;
+        let remainder = a % factor;
+        if a >= 0 && remainder != 0 {
+            quotient + 1
+        } else {
+            quotient
+        }
+    }
+
+    for &(from, to) in &[
+        (7u32, 7u32),
+        (6, 18),
+        (0, 7),
+        (18, 7),
+        (18, 0),
+        (27, 18),
+        (1, 0),
+    ] {
+        for a in [
+            0i128,
+            1,
+            -1,
+            5,
+            -5,
+            50,
+            -50,
+            499_999,
+            500_000,
+            500_001,
+            -499_999,
+            -500_000,
+            -500_001,
+            1_000_000,
+            -1_000_000,
+            1_999_999,
+            -1_999_999,
+            123_456_789,
+            -123_456_789,
+        ] {
+            assert_eq!(
+                rescale_half_up(a, from, to),
+                ref_half_up(a, from, to),
+                "half_up {a} {from}->{to}"
+            );
+            assert_eq!(
+                rescale_floor(a, from, to),
+                ref_floor(a, from, to),
+                "floor {a} {from}->{to}"
+            );
+            assert_eq!(
+                rescale_ceil(a, from, to),
+                ref_ceil(a, from, to),
+                "ceil {a} {from}->{to}"
+            );
+        }
     }
 }

@@ -12,9 +12,10 @@ use crate::external::pool::{pool_borrow_call, pool_create_strategy_call, pool_re
 use crate::payments;
 use crate::positions::{
     enforce_spoke_asset_flags, finalize_position_flow, for_each_leg, get_debt_position_or_panic,
-    make_pool_action, merge_debt_leg, require_position_caller, validate_position_entry_gates,
-    AggregatedPayments, FreezePolicy, HubPayment, LegDirection, LegOutcome, PositionSides,
+    make_pool_action, merge_debt_leg, validate_position_entry_gates, AggregatedPayments,
+    FreezePolicy, HubPayment, LegDirection, LegOutcome, PositionSides,
 };
+use crate::risk::validation;
 use crate::storage;
 use common::validation::{expect_invariant, require_positive_amount};
 
@@ -36,7 +37,7 @@ pub(crate) fn process_borrow(
     borrows: &Vec<HubPayment>,
     to: Option<Address>,
 ) {
-    require_position_caller(env, caller);
+    validation::require_authorized_caller(env, caller);
 
     let mut account = storage::get_account(env, account_id);
     crate::account::require_owner_or_delegate(env, account_id, caller, &account.owner);
@@ -80,7 +81,7 @@ pub(crate) fn process_repay(
     account_id: u64,
     payments_in: &Vec<HubPayment>,
 ) {
-    require_position_caller(env, caller);
+    validation::require_authorized_caller(env, caller);
 
     let aggregated = payments::aggregate_positive_payments(env, payments_in);
     let mut account = storage::get_account_borrow_only(env, account_id);

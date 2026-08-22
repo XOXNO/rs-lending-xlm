@@ -17,13 +17,6 @@ use crate::risk;
 use crate::storage::iter_typed_positions;
 use common::validation::expect_invariant;
 
-impl LiquidationCurve {
-    /// Builds a `LiquidationCurve` from spoke `spoke_id`'s configuration.
-    pub(crate) fn resolve(cache: &mut Cache, spoke_id: u32) -> Self {
-        Self::from_config(&cache.spoke_config(spoke_id))
-    }
-}
-
 pub(crate) struct NormalizedRepaymentPlan {
     pub repaid: Vec<RepayEntry>,
     pub refunds: Vec<PaymentTuple>,
@@ -487,16 +480,6 @@ pub(crate) fn scale_seizures_to_received(
         });
     }
     scaled
-}
-
-#[cfg(test)]
-fn debt_close_amount(
-    env: &Env,
-    position: &DebtPosition,
-    borrow_index: Ray,
-    asset_decimals: u32,
-) -> i128 {
-    unscale_borrow_ceil(env, position.scaled_amount, borrow_index, asset_decimals)
 }
 
 /// Refunds `excess_usd` out of `repaid_tokens` in place, working backward from the last entry:

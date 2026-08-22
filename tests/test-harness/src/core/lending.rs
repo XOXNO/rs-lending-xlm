@@ -114,7 +114,6 @@ impl LendingTest {
         }
     }
 
-    #[allow(dead_code)]
     pub fn pool_client(&self, asset_name: &str) -> pool::LiquidityPoolClient<'_> {
         let market = self.resolve_market(asset_name);
         pool::LiquidityPoolClient::new(&self.env, &market.pool)

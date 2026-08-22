@@ -13,9 +13,7 @@ use common::types::{
     Account, AccountPosition, AccountPositionType, AggregatedPayments, AssetConfig, DebtPosition,
     HubAssetKey, HubPayment, MarketIndexRaw, PoolAction, PoolPositionMutation, ScaledPositionRaw,
 };
-use soroban_sdk::{
-    assert_with_error, panic_with_error, Address, Env, IntoVal, TryFromVal, Val, Vec,
-};
+use soroban_sdk::{assert_with_error, panic_with_error, Env, IntoVal, TryFromVal, Val, Vec};
 
 use crate::account;
 use crate::context::Cache;
@@ -73,12 +71,6 @@ pub(crate) fn for_each_leg<E, R>(
     for (entry, result) in entries.iter().zip(results.iter()) {
         f(entry, result);
     }
-}
-
-/// Requires `caller` to authorize the call and asserts no flash loan is
-/// currently in progress on this contract.
-pub(crate) fn require_position_caller(env: &Env, caller: &Address) {
-    validation::require_authorized_caller(env, caller);
 }
 
 /// Restamps supply position LTVs to their current listed values, then
@@ -286,7 +278,7 @@ pub(crate) fn require_can_borrow(
     let asset_config = require_listed_unhalted_config(env, cache, spoke_id, hub_asset);
     assert_with_error!(
         env,
-        asset_config.can_borrow(),
+        asset_config.is_borrowable,
         CollateralError::AssetNotBorrowable
     );
 }
@@ -303,7 +295,7 @@ pub(crate) fn require_can_supply(
     let asset_config = require_listed_unhalted_config(env, cache, spoke_id, hub_asset);
     assert_with_error!(
         env,
-        asset_config.can_supply(),
+        asset_config.is_collateralizable,
         CollateralError::NotCollateral
     );
 }

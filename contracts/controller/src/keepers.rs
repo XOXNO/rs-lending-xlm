@@ -2,7 +2,7 @@ use common::errors::{CollateralError, GenericError, OracleError};
 use common::math::fp::Wad;
 use common::types::{AccountPosition, AssetConfig, HubAssetKey};
 use common::validation::{expect_invariant, require_positive_amount};
-use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, Vec};
+use soroban_sdk::{assert_with_error, panic_with_error, token, Address, Env, Vec};
 
 use crate::constants::THRESHOLD_UPDATE_MIN_HF_RAW;
 use crate::context::Cache;
@@ -107,20 +107,32 @@ fn claim_revenue_for_asset_with_cache(
 
     let pool_addr = cache.cached_pool_address();
 
-    let result = pool_claim_revenue_call(env, &pool_addr, hub_asset);
-    let amount = result.actual_amount;
+    // Forward the measured balance delta, not the pool's reported figure, so an
+    // inexact-delivery token sends exactly what arrived (F-8, INV-ACCT-03).
+    let controller = env.current_contract_address();
+    let asset = &hub_asset.asset;
+    let token_client = token::Client::new(env, asset);
+    let before = token_client.balance(&controller);
 
-    if amount > 0 {
-        common::token::sac_transfer(
+    let _ = pool_claim_revenue_call(env, &pool_addr, hub_asset);
+
+    let received = token_client
+        .balance(&controller)
+        .checked_sub(before)
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::AmountMustBePositive));
+
+    if received > 0 {
+        payments::transfer_amount_measured(
             env,
-            &hub_asset.asset,
-            &env.current_contract_address(),
+            asset,
+            &controller,
             &accumulator,
-            amount,
+            received,
+            GenericError::AmountMustBePositive,
         );
     }
 
-    amount
+    received
 }
 
 /// Recomputes each of `account_id`'s supply positions' risk parameters

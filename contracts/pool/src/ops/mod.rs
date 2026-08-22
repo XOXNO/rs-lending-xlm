@@ -17,13 +17,14 @@ pub(crate) mod supply;
 pub(crate) mod withdraw;
 
 use common::math::fp::Ray;
+use common::ttl::renew_instance;
 use common::types::{HubAssetKey, MarketStateSnapshot, PoolAction};
 use common::validation::require_nonneg_amount;
 
 use soroban_sdk::{Env, IntoVal, TryFromVal, Val, Vec};
 
 use crate::cache::Cache;
-use crate::{events, interest, storage};
+use crate::{events, interest};
 
 /// Loads a market cache and accrues interest through the current ledger time.
 pub(crate) fn synced_market(env: &Env, hub_asset: &HubAssetKey) -> Cache {
@@ -34,7 +35,7 @@ pub(crate) fn synced_market(env: &Env, hub_asset: &HubAssetKey) -> Cache {
 
 /// Renews instance TTL, then loads and accrues the market.
 pub(crate) fn renewed_market(env: &Env, hub_asset: &HubAssetKey) -> Cache {
-    storage::renew_instance(env);
+    renew_instance(env);
     synced_market(env, hub_asset)
 }
 
@@ -57,7 +58,7 @@ where
     E: IntoVal<Env, Val> + TryFromVal<Env, Val> + Clone,
     R: IntoVal<Env, Val> + TryFromVal<Env, Val> + Clone,
 {
-    storage::renew_instance(env);
+    renew_instance(env);
 
     let mut results = Vec::new(env);
     let mut snapshots = Vec::new(env);
@@ -69,22 +70,4 @@ where
 
     events::emit_market_state_batch(env, snapshots);
     results
-}
-
-/// Like [`run_batch`] but legs only produce snapshots (e.g. seize).
-pub(crate) fn run_batch_without_result<E>(
-    env: &Env,
-    entries: Vec<E>,
-    mut leg: impl FnMut(&Env, &E) -> MarketStateSnapshot,
-) where
-    E: IntoVal<Env, Val> + TryFromVal<Env, Val> + Clone,
-{
-    storage::renew_instance(env);
-
-    let mut snapshots = Vec::new(env);
-    for entry in entries.iter() {
-        snapshots.push_back(leg(env, &entry));
-    }
-
-    events::emit_market_state_batch(env, snapshots);
 }
