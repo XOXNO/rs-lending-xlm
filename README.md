@@ -1,6 +1,15 @@
 # XOXNO Lending
 
 [![CI](https://img.shields.io/github/actions/workflow/status/XOXNO/rs-lending-xlm/tests.yml?label=CI&style=flat-square)](https://github.com/XOXNO/rs-lending-xlm/actions/workflows/tests.yml)
+[![Coverage](https://img.shields.io/badge/coverage-97.2%25-brightgreen?style=flat-square)](https://github.com/XOXNO/rs-lending-xlm/actions/workflows/coverage.yml)
+
+Coverage is merged line coverage over every deployable contract plus `common`
+(13086/13466 lines). Regenerate with `make coverage-merged`, which writes
+`target/coverage/merged-report.md` and refreshes `lcov.info`. The badge is a
+static figure — CI recomputes the real number on every push and reports the
+per-PR delta, so treat the [Coverage
+workflow](https://github.com/XOXNO/rs-lending-xlm/actions/workflows/coverage.yml)
+as authoritative.
 
 XOXNO Lending is an over-collateralized money market built on Stellar Soroban.
 Suppliers provide liquidity and earn interest. Borrowers use accepted
