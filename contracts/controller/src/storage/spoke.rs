@@ -1,17 +1,11 @@
-use super::protocol::{get_shared, set_shared};
-use common::errors::{GenericError, SpokeError};
+use super::protocol::{get_shared, increment_counter, set_shared};
+use common::errors::SpokeError;
 use common::types::{ControllerKey, HubAssetKey, SpokeAssetConfig, SpokeConfig, SpokeUsageRaw};
 use soroban_sdk::{panic_with_error, Env};
 
 /// Reads the last-issued spoke ID from instance storage, increments it by one, stores the new value, and returns it. Panics with `MathOverflow` on overflow.
 pub(crate) fn increment_spoke_id(env: &Env) -> u32 {
-    let key = ControllerKey::LastSpokeId;
-    let current: u32 = env.storage().instance().get(&key).unwrap_or(0);
-    let next = current
-        .checked_add(1)
-        .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
-    env.storage().instance().set(&key, &next);
-    next
+    increment_counter(env, &ControllerKey::LastSpokeId)
 }
 
 /// Reads a spoke's configuration, panicking with `SpokeError::SpokeNotFound` if it has not been set.

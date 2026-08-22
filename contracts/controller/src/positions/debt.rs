@@ -5,15 +5,16 @@ use common::types::{
 };
 use soroban_sdk::{assert_with_error, panic_with_error, token, vec, Address, Env, Vec};
 
+use crate::account::require_owner_or_delegate;
 use crate::context::Cache;
 use crate::events;
 use crate::events::EventContext;
 use crate::external::pool::{pool_borrow_call, pool_create_strategy_call, pool_repay_call};
 use crate::payments;
 use crate::positions::{
-    enforce_spoke_asset_flags, finalize_position_flow, for_each_leg, get_debt_position_or_panic,
-    make_pool_action, merge_debt_leg, validate_position_entry_gates, AggregatedPayments,
-    FreezePolicy, HubPayment, LegDirection, LegOutcome, PositionSides,
+    enforce_post_pool_solvency, enforce_spoke_asset_flags, finalize_position_flow, for_each_leg,
+    get_debt_position_or_panic, make_pool_action, merge_debt_leg, validate_position_entry_gates,
+    AggregatedPayments, FreezePolicy, HubPayment, LegDirection, LegOutcome, PositionSides,
 };
 use crate::risk::validation;
 use crate::storage;
@@ -40,7 +41,7 @@ pub(crate) fn process_borrow(
     validation::require_authorized_caller(env, caller);
 
     let mut account = storage::get_account(env, account_id);
-    crate::account::require_owner_or_delegate(env, account_id, caller, &account.owner);
+    require_owner_or_delegate(env, account_id, caller, &account.owner);
 
     let recipient = to.unwrap_or_else(|| caller.clone());
     let mut cache = Cache::new(env);
@@ -63,11 +64,11 @@ pub(crate) fn process_borrow(
         },
     );
 
-    let restamped = crate::positions::enforce_post_pool_solvency(env, &mut cache, &mut account);
+    let restamped = enforce_post_pool_solvency(env, &mut cache, &mut account);
     let sides = if restamped {
-        PositionSides::BOTH
+        PositionSides::Both
     } else {
-        PositionSides::DEBT
+        PositionSides::Debt
     };
     finalize_position_flow(env, account_id, &account, &mut cache, sides, false);
 }
@@ -103,7 +104,7 @@ pub(crate) fn process_repay(
         account_id,
         &account,
         &mut cache,
-        PositionSides::DEBT,
+        PositionSides::Debt,
         false,
     );
 }

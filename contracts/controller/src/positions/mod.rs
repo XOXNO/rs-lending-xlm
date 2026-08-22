@@ -187,31 +187,18 @@ pub(crate) enum FreezePolicy {
     SeizureLeg,
 }
 
-#[derive(Copy, Clone)]
-pub(crate) struct PositionSides {
-    pub supply: bool,
-    pub debt: bool,
-}
-
-impl PositionSides {
-    pub const SUPPLY: Self = Self {
-        supply: true,
-        debt: false,
-    };
-    pub const DEBT: Self = Self {
-        supply: false,
-        debt: true,
-    };
-    pub const BOTH: Self = Self {
-        supply: true,
-        debt: true,
-    };
+/// Which position maps a flow writes back to storage.
+#[derive(Copy, Clone, PartialEq)]
+pub(crate) enum PositionSides {
+    Supply,
+    Debt,
+    Both,
 }
 
 /// Writes the account's supply and/or debt position maps to storage as
-/// selected by `sides`, renews the account's storage TTL if either was
-/// written, and removes the account entry if `remove_if_empty` is set and the
-/// account now holds no positions.
+/// selected by `sides`, renews the account's storage TTL, and removes the
+/// account entry if `remove_if_empty` is set and the account now holds no
+/// positions.
 pub(crate) fn persist_account_positions(
     env: &Env,
     account_id: u64,
@@ -219,15 +206,14 @@ pub(crate) fn persist_account_positions(
     sides: PositionSides,
     remove_if_empty: bool,
 ) {
-    if sides.supply {
+    if sides != PositionSides::Debt {
         storage::set_supply_positions(env, account_id, &account.supply_positions);
     }
-    if sides.debt {
+    if sides != PositionSides::Supply {
         storage::set_debt_positions(env, account_id, &account.borrow_positions);
     }
-    if sides.supply || sides.debt {
-        storage::renew_user_account(env, account_id);
-    }
+    // Every variant writes at least one side.
+    storage::renew_user_account(env, account_id);
     if remove_if_empty {
         account::cleanup_account_if_empty(env, account, account_id);
     }

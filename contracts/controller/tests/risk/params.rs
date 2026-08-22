@@ -4,7 +4,7 @@ use common::constants::RAY;
 use common::math::fp::Ray;
 use common::types::{DebtPositionRaw, MarketIndexRaw, PositionMode, PriceFeedRaw};
 use soroban_sdk::testutils::Address as _;
-use soroban_sdk::Address;
+use soroban_sdk::{Address, Map};
 
 const STAMPED_LT: i128 = 8_000;
 const STAMPED_LTV: i128 = 7_500;

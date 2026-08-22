@@ -264,10 +264,10 @@ fn blend_pool_approval_helper_reflects_storage() {
     env.as_contract(&contract, || {
         let pool = Address::generate(&env);
         assert!(
-            !registry::is_blend_pool_approved(&env, pool.clone()),
+            !storage::is_blend_pool_approved(&env, &pool),
             "an unwritten pool must read as not approved"
         );
         registry::set_blend_pool_approval(&env, pool.clone(), true);
-        assert!(registry::is_blend_pool_approved(&env, pool));
+        assert!(storage::is_blend_pool_approved(&env, &pool));
     });
 }

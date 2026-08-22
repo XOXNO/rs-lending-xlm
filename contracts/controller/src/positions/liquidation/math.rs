@@ -1,5 +1,7 @@
+use common::constants::BPS;
 use common::errors::{CollateralError, GenericError};
 use common::math::fp::{Bps, Ray, Wad};
+use common::math::fp_core::{mul_div_ceil, mul_div_floor};
 use common::rates::{resolve_withdrawal, unscale_borrow_ceil};
 use common::types::{
     Account, AccountPositionRaw, DebtPosition, HubAssetKey, HubPayment, LiquidationResult,
@@ -56,7 +58,7 @@ impl LiquidationPlan {
             if entry.scaled_amount <= 0
                 || entry.bonus_scaled < 0
                 || entry.bonus_scaled > entry.scaled_amount
-                || i128::from(entry.liquidation_fees) >= common::constants::BPS
+                || i128::from(entry.liquidation_fees) >= BPS
             {
                 panic_with_error!(env, GenericError::InternalError);
             }
@@ -201,14 +203,15 @@ pub(crate) fn normalize_repayment_plan(
         process_excess_payment(env, &mut final_repayment_tokens, &mut refunds, excess_usd);
     }
 
-    let repayment = NormalizedRepaymentPlan {
+    // Field order is load-bearing: `repay_usd` reads `final_repayment_tokens`
+    // before `repaid` moves it. The sum/`repay_usd` agreement this establishes
+    // is asserted by `LiquidationPlan::validate` at the one construction site.
+    NormalizedRepaymentPlan {
         repay_usd: sum_repaid_usd(env, &final_repayment_tokens),
         repaid: final_repayment_tokens,
         refunds,
         bonus,
-    };
-    repayment.validate(env);
-    repayment
+    }
 }
 
 /// Sums the WAD USD value recorded on each `repaid_tokens` entry.
@@ -371,17 +374,12 @@ pub(crate) fn split_seized_shares(
     if seized_scaled < Ray::ZERO
         || bonus_scaled < Ray::ZERO
         || bonus_scaled > seized_scaled
-        || fees >= common::constants::BPS
+        || fees >= BPS
     {
         panic_with_error!(env, GenericError::InternalError);
     }
 
-    let fee_scaled = Ray::from(common::math::fp_core::mul_div_ceil(
-        env,
-        bonus_scaled.raw(),
-        fees,
-        common::constants::BPS,
-    ));
+    let fee_scaled = Ray::from(mul_div_ceil(env, bonus_scaled.raw(), fees, BPS));
     // `fees < BPS` already bounds the fee by `bonus_scaled`; re-check anyway, because the rate
     // is read from a stamped position rather than from live configuration.
     if fee_scaled > seized_scaled {
@@ -469,10 +467,10 @@ pub(crate) fn scale_seizures_to_received(
     let mut scaled: Vec<SeizeEntry> = Vec::new(env);
     for entry in seized.iter() {
         scaled.push_back(SeizeEntry {
-            amount: common::math::fp_core::mul_div_floor(env, entry.amount, num, den),
-            protocol_fee: common::math::fp_core::mul_div_floor(env, entry.protocol_fee, num, den),
-            scaled_amount: common::math::fp_core::mul_div_floor(env, entry.scaled_amount, num, den),
-            bonus_scaled: common::math::fp_core::mul_div_floor(env, entry.bonus_scaled, num, den),
+            amount: mul_div_floor(env, entry.amount, num, den),
+            protocol_fee: mul_div_floor(env, entry.protocol_fee, num, den),
+            scaled_amount: mul_div_floor(env, entry.scaled_amount, num, den),
+            bonus_scaled: mul_div_floor(env, entry.bonus_scaled, num, den),
             liquidation_fees: entry.liquidation_fees,
             hub_asset: entry.hub_asset,
             feed: entry.feed,

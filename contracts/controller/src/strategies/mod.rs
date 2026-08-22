@@ -74,7 +74,7 @@ pub(crate) fn strategy_finalize(
 ) {
     let _ = risk::restamp_listed_supply_ltv(cache, account);
     validation::require_post_pool_risk_gates(env, cache, account);
-    finalize_position_flow(env, account_id, account, cache, PositionSides::BOTH, true);
+    finalize_position_flow(env, account_id, account, cache, PositionSides::Both, true);
 }
 
 /// Withdraws `amount` of `from` collateral to the controller and swaps the

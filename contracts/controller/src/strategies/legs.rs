@@ -13,7 +13,7 @@ use crate::external::pool::pool_net_settle_call;
 use crate::payments;
 use crate::positions::{
     enforce_spoke_asset_flags, get_debt_position_or_panic, get_supply_position_or_panic,
-    merge_debt_leg, FreezePolicy, LegDirection, LegOutcome,
+    merge_debt_leg, merge_withdraw_leg, FreezePolicy, LegDirection, LegOutcome, WithdrawKind,
 };
 use crate::positions::{execute_repayment, RepaymentRequest};
 use crate::positions::{execute_withdrawal, WithdrawalRequest};
@@ -193,12 +193,12 @@ pub(crate) fn net_settle_collateral_against_debt(
         amount: result.settled_amount,
     };
 
-    crate::positions::merge_withdraw_leg(
+    merge_withdraw_leg(
         env,
         account,
         action,
         hub_asset,
-        crate::positions::WithdrawKind::Normal,
+        WithdrawKind::Normal,
         &supply_outcome,
         cache,
     );

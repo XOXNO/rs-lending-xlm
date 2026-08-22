@@ -18,6 +18,7 @@ use common::types::{
 };
 use soroban_sdk::{Address, Env, Map, Vec};
 
+use crate::config::require_hub_active;
 use crate::spoke_usage::SpokeUsageContext;
 use crate::storage;
 
@@ -77,7 +78,7 @@ impl Cache {
         if self.verified_hubs.contains_key(hub_id) {
             return;
         }
-        crate::config::require_hub_active(&self.env, hub_id);
+        require_hub_active(&self.env, hub_id);
         self.verified_hubs.set(hub_id, true);
     }
 }

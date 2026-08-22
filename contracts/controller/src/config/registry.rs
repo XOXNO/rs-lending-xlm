@@ -35,12 +35,6 @@ pub(crate) fn set_accumulator(env: &Env, addr: Address) {
     UpdateAccumulatorEvent { accumulator: addr }.publish(env);
 }
 
-/// Returns whether `pool` is on the Blend pool allowlist, defaulting to
-/// `false` if unset.
-pub(crate) fn is_blend_pool_approved(env: &Env, pool: Address) -> bool {
-    storage::is_blend_pool_approved(env, &pool)
-}
-
 /// Adds or removes `pool` from the Blend pool allowlist and publishes an
 /// `ApproveBlendPoolEvent`.
 pub(crate) fn set_blend_pool_approval(env: &Env, pool: Address, approved: bool) {

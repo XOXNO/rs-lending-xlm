@@ -110,7 +110,13 @@ pub(crate) fn set_spoke_asset_flags(
 ) {
     let mut config = storage::get_spoke_asset(env, spoke_id, &hub_asset)
         .unwrap_or_else(|| panic_with_error!(env, SpokeError::AssetNotInSpoke));
-    require_flag_ratchet(env, &config, paused, frozen, no_seize);
+    // Guardian may only tighten; clearing a flag stays timelocked through
+    // `edit_asset_in_spoke` (ADR-0007).
+    assert_with_error!(
+        env,
+        (paused || !config.paused) && (frozen || !config.frozen) && (no_seize || !config.no_seize),
+        SpokeError::SpokeAssetFlagRelaxation
+    );
     config.paused = paused;
     config.frozen = frozen;
     config.no_seize = no_seize;
@@ -123,24 +129,6 @@ pub(crate) fn set_spoke_asset_flags(
         hub_id: hub_asset.hub_id,
     }
     .publish(env);
-}
-
-/// Asserts that `paused`, `frozen`, and `no_seize` only move from false to
-/// true relative to `config`, panicking if any flag would be relaxed. The
-/// guardian may only tighten; clearing a flag stays timelocked through
-/// `edit_asset_in_spoke` (ADR-0007).
-fn require_flag_ratchet(
-    env: &Env,
-    config: &SpokeAssetConfig,
-    paused: bool,
-    frozen: bool,
-    no_seize: bool,
-) {
-    assert_with_error!(
-        env,
-        (paused || !config.paused) && (frozen || !config.frozen) && (no_seize || !config.no_seize),
-        SpokeError::SpokeAssetFlagRelaxation
-    );
 }
 
 /// Removes an asset from a spoke's registry and publishes a

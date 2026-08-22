@@ -12,6 +12,7 @@ use crate::account;
 use crate::config;
 use crate::context::Cache;
 use crate::events::{FlashPositionEvent, PositionAction};
+use crate::payments::transfer_amount_measured;
 use crate::positions::supply::process_deposit;
 use crate::positions::{require_can_supply, validate_position_entry_gates};
 use crate::risk::validation::require_authorized_caller;
@@ -109,8 +110,11 @@ pub(crate) fn process_flash_position(
         storage::with_flash_guard(env, || {
             let amount_received =
                 mint_and_forward(env, &mut account, debt, amount, receiver, &mut cache);
-            let collateral_before =
-                snapshot_balances(env, &controller, collateral_assets(collaterals));
+            let collateral_before = snapshot_balances(
+                env,
+                &controller,
+                collaterals.iter().map(|(hub_asset, _)| hub_asset.asset),
+            );
             let refund_before = snapshot_balances(env, &controller, refund_assets.iter());
             invoke_receiver(
                 env,
@@ -277,7 +281,7 @@ fn mint_and_forward(
     assert_with_error!(env, measured == reported, GenericError::InternalError);
     assert_with_error!(env, measured > 0, GenericError::AmountMustBePositive);
 
-    let forwarded = common::token::transfer_amount_measured(
+    let forwarded = transfer_amount_measured(
         env,
         &debt.asset,
         &controller,
@@ -315,10 +319,6 @@ fn invoke_receiver(
         )
             .into_val(env),
     );
-}
-
-fn collateral_assets(collaterals: &Vec<(HubAssetKey, i128)>) -> impl Iterator<Item = Address> + '_ {
-    collaterals.iter().map(|(hub_asset, _)| hub_asset.asset)
 }
 
 fn collect_collateral_deposits(

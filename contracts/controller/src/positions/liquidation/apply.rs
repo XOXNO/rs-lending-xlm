@@ -1,5 +1,6 @@
 use crate::account;
 use common::math::fp::{Ray, Wad};
+use common::math::fp_core::mul_div_floor;
 use common::types::{
     Account, AccountPosition, AccountPositionType, AggregatedPayments, DebtPosition, HubAssetKey,
     PoolAction, PoolSeizeEntry, PoolWithdrawEntry, RepayEntry, ScaledPositionRaw, SeizeEntry,
@@ -62,12 +63,7 @@ pub(crate) fn apply_liquidation_repayments(
         let leg_usd = if received >= entry.amount {
             Wad::from(entry.usd_wad)
         } else {
-            Wad::from(common::math::fp_core::mul_div_floor(
-                env,
-                entry.usd_wad,
-                received,
-                entry.amount,
-            ))
+            Wad::from(mul_div_floor(env, entry.usd_wad, received, entry.amount))
         };
         received_usd = received_usd.checked_add(env, leg_usd);
 

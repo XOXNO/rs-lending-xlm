@@ -2,7 +2,7 @@ use common::errors::GenericError;
 use common::math::fp::Ray;
 use common::types::{
     Account, AccountPosition, AccountPositionType, AssetConfig, HubAssetKey, HubPayment,
-    PoolPositionMutation, PoolSupplyEntry, PoolWithdrawEntry, PositionMode,
+    PoolAction, PoolPositionMutation, PoolSupplyEntry, PoolWithdrawEntry, PositionMode,
 };
 use soroban_sdk::{assert_with_error, vec, Address, Env, Vec};
 
@@ -70,7 +70,7 @@ pub(crate) fn process_supply(
         acct_id,
         &account,
         &mut cache,
-        PositionSides::SUPPLY,
+        PositionSides::Supply,
         false,
     );
     acct_id
@@ -181,7 +181,7 @@ pub(crate) fn process_withdraw(
         account_id,
         &account,
         &mut cache,
-        PositionSides::SUPPLY,
+        PositionSides::Supply,
         true,
     );
     paid
@@ -306,7 +306,7 @@ pub(crate) fn apply_withdraw_batch(
 pub(crate) fn merge_supply_leg(
     env: &Env,
     account: &mut Account,
-    action: &common::types::PoolAction,
+    action: &PoolAction,
     result: &PoolPositionMutation,
     cache: &mut Cache,
 ) {

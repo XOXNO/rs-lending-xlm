@@ -19,8 +19,6 @@ const POSITION_NFT_DEPLOY_SALT: [u8; 32] = [1u8; 32];
 /// records its address, and returns it. Panics if a pool has already been
 /// deployed.
 pub(crate) fn deploy_pool(env: &Env, wasm_hash: BytesN<32>) -> Address {
-    storage::renew_controller_instance(env);
-
     assert_with_error!(
         env,
         storage::try_get_pool(env).is_none(),
@@ -48,8 +46,6 @@ pub(crate) fn deploy_position_nft(
     name: String,
     symbol: String,
 ) -> Address {
-    storage::renew_controller_instance(env);
-
     assert_with_error!(
         env,
         storage::try_get_position_nft(env).is_none(),
@@ -83,8 +79,6 @@ pub(crate) fn create_liquidity_pool(
     let pool_address = storage::get_pool(env);
     pool_create_market_call(env, &pool_address, hub_id, &params);
 
-    storage::renew_controller_instance(env);
-
     CreateMarketEvent::from_params(hub_id, asset, pool_address.clone(), &params).publish(env);
 
     pool_address
@@ -110,28 +104,23 @@ pub(crate) fn upgrade_liquidity_pool_params(
         .publish(env);
 }
 
-/// Renews the controller's storage TTL and upgrades the pool contract's
-/// Wasm bytecode to `new_wasm_hash`.
+/// Upgrades the pool contract's Wasm bytecode to `new_wasm_hash`.
 pub(crate) fn upgrade_pool(env: &Env, new_wasm_hash: BytesN<32>) {
-    storage::renew_controller_instance(env);
     let pool_addr = storage::get_pool(env);
     pool_upgrade_call(env, &pool_addr, &new_wasm_hash);
 }
 
-/// Renews the controller's storage TTL and upgrades the position-NFT
-/// contract's Wasm bytecode to `new_wasm_hash`. Panics with
-/// `PositionNftNotSet` when the NFT has not been deployed.
+/// Upgrades the position-NFT contract's Wasm bytecode to `new_wasm_hash`.
+/// Panics with `PositionNftNotSet` when the NFT has not been deployed.
 pub(crate) fn upgrade_position_nft(env: &Env, new_wasm_hash: BytesN<32>) {
-    storage::renew_controller_instance(env);
     let nft_addr = storage::get_position_nft(env);
     nft_upgrade_call(env, &nft_addr, &new_wasm_hash);
 }
 
-/// Renews the controller TTL and upgrades the swap-aggregator router. Requires
-/// the controller to be the router's owner (set at deploy). Reached only from
-/// the owner-gated `upgrade_swap_aggregator` entrypoint (B-2).
+/// Upgrades the swap-aggregator router. Requires the controller to be the
+/// router's owner (set at deploy). Reached only from the owner-gated
+/// `upgrade_swap_aggregator` entrypoint (B-2).
 pub(crate) fn upgrade_swap_aggregator(env: &Env, new_wasm_hash: BytesN<32>) {
-    storage::renew_controller_instance(env);
     let router = storage::get_swap_aggregator(env);
     SwapAggregatorClient::new(env, &router).upgrade(&new_wasm_hash);
 }

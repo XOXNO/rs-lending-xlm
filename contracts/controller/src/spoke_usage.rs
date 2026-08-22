@@ -58,12 +58,6 @@ impl UsageSide {
     }
 }
 
-#[derive(Clone, Copy)]
-enum MissingUsage {
-    InsertDefault,
-    Absent,
-}
-
 pub(crate) struct SpokeUsageContext {
     env: Env,
     spoke_id: u32,
@@ -93,30 +87,14 @@ impl SpokeUsageContext {
     }
 
     /// Returns the cached usage row for `hub_asset`, loading it from storage into the
-    /// cache on first access. If storage has no row, either caches and returns a
-    /// zero-valued default row or returns `None`, depending on `missing`.
-    fn load_usage_row(
-        &mut self,
-        hub_asset: &HubAssetKey,
-        missing: MissingUsage,
-    ) -> Option<SpokeUsageRaw> {
+    /// cache on first access, or `None` when storage has no row for it.
+    fn load_usage_row(&mut self, hub_asset: &HubAssetKey) -> Option<SpokeUsageRaw> {
         if let Some(usage) = self.usage.get(hub_asset.clone()) {
             return Some(usage);
         }
-        match storage::get_spoke_usage(&self.env, self.spoke_id, hub_asset) {
-            Some(loaded) => {
-                self.usage.set(hub_asset.clone(), loaded.clone());
-                Some(loaded)
-            }
-            None => match missing {
-                MissingUsage::InsertDefault => {
-                    let loaded = SpokeUsageRaw::default();
-                    self.usage.set(hub_asset.clone(), loaded.clone());
-                    Some(loaded)
-                }
-                MissingUsage::Absent => None,
-            },
-        }
+        let loaded = storage::get_spoke_usage(&self.env, self.spoke_id, hub_asset)?;
+        self.usage.set(hub_asset.clone(), loaded.clone());
+        Some(loaded)
     }
 
     /// Increases `side`'s scaled usage for `hub_asset` by `delta_scaled`, panicking with
@@ -130,11 +108,8 @@ impl SpokeUsageContext {
         index: Ray,
         decimals: u32,
     ) {
-        // InsertDefault always yields Some; unwrap_or_default preserves the
-        // zero-row entry semantics if that invariant is ever broken.
-        let mut usage = self
-            .load_usage_row(hub_asset, MissingUsage::InsertDefault)
-            .unwrap_or_default();
+        // An absent row starts at zero; the row is written back unconditionally below.
+        let mut usage = self.load_usage_row(hub_asset).unwrap_or_default();
         let next = enforce_spoke_cap(&self.env, side, &usage, delta_scaled, cap, index, decimals);
         side.set_scaled(&mut usage, next.raw());
         self.usage.set(hub_asset.clone(), usage);
@@ -152,7 +127,7 @@ impl SpokeUsageContext {
         if delta_scaled == Ray::ZERO {
             return;
         }
-        let Some(mut usage) = self.load_usage_row(hub_asset, MissingUsage::Absent) else {
+        let Some(mut usage) = self.load_usage_row(hub_asset) else {
             return;
         };
         let next = side

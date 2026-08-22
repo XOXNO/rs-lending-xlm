@@ -1,6 +1,9 @@
 use common::errors::GenericError;
-use common::ttl::renew_instance as renew_common_instance;
 use common::types::{ControllerKey, PositionLimits, PositionManagerConfig};
+
+/// Extends the controller contract's instance storage TTL using the
+/// protocol-wide instance threshold and bump constants.
+pub(crate) use common::ttl::renew_instance as renew_controller_instance;
 
 use soroban_sdk::{panic_with_error, Address, Env, IntoVal, TryFromVal, Val};
 
@@ -158,55 +161,45 @@ pub(super) fn renew_user_key(env: &Env, key: &ControllerKey) {
     renew_persistent_key(env, key, TTL_THRESHOLD_USER, TTL_BUMP_USER);
 }
 
-/// Extends the controller contract's instance storage TTL using the protocol-wide instance threshold and bump constants.
-pub(crate) fn renew_controller_instance(env: &Env) {
-    renew_common_instance(env);
-}
-
-/// Reads a value from persistent storage under `key`, extending its TTL with `threshold`/`bump` only when a value is present.
-fn get_persistent<V: TryFromVal<Env, Val>>(
-    env: &Env,
-    key: &ControllerKey,
-    threshold: u32,
-    bump: u32,
-) -> Option<V> {
-    let value: Option<V> = env.storage().persistent().get(key);
-    if value.is_some() {
-        renew_persistent_key(env, key, threshold, bump);
-    }
-    value
-}
-
-/// Writes `value` to persistent storage under `key` and extends its TTL with `threshold`/`bump`.
-fn set_persistent<V: IntoVal<Env, Val>>(
-    env: &Env,
-    key: &ControllerKey,
-    value: &V,
-    threshold: u32,
-    bump: u32,
-) {
-    env.storage().persistent().set(key, value);
-    renew_persistent_key(env, key, threshold, bump);
+/// Reads and returns the counter at `key`, incremented by one and stored back.
+/// Panics with `MathOverflow` on overflow.
+pub(super) fn increment_counter(env: &Env, key: &ControllerKey) -> u32 {
+    let current: u32 = env.storage().instance().get(key).unwrap_or(0);
+    let next = current
+        .checked_add(1)
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
+    env.storage().instance().set(key, &next);
+    next
 }
 
 // Raw key-value access stays inside the storage module: every crate-visible
 // accessor is typed, so a wrongly-typed write under a typed key cannot compile.
-/// Reads a persistent value under `key` using the shared (protocol/hub/spoke-wide) TTL thresholds.
+/// Reads a persistent value under `key` using the shared (protocol/hub/spoke-wide) TTL thresholds, extending its TTL only when a value is present.
 pub(super) fn get_shared<V: TryFromVal<Env, Val>>(env: &Env, key: &ControllerKey) -> Option<V> {
-    get_persistent(env, key, TTL_THRESHOLD_SHARED, TTL_BUMP_SHARED)
+    let value: Option<V> = env.storage().persistent().get(key);
+    if value.is_some() {
+        renew_persistent_key(env, key, TTL_THRESHOLD_SHARED, TTL_BUMP_SHARED);
+    }
+    value
 }
 
 /// Writes a persistent value under `key` using the shared (protocol/hub/spoke-wide) TTL thresholds.
 pub(super) fn set_shared<V: IntoVal<Env, Val>>(env: &Env, key: &ControllerKey, value: &V) {
-    set_persistent(env, key, value, TTL_THRESHOLD_SHARED, TTL_BUMP_SHARED)
+    env.storage().persistent().set(key, value);
+    renew_persistent_key(env, key, TTL_THRESHOLD_SHARED, TTL_BUMP_SHARED);
 }
 
-/// Reads a persistent value under `key` using the per-account (user) TTL thresholds.
+/// Reads a persistent value under `key` using the per-account (user) TTL thresholds, extending its TTL only when a value is present.
 pub(super) fn get_user<V: TryFromVal<Env, Val>>(env: &Env, key: &ControllerKey) -> Option<V> {
-    get_persistent(env, key, TTL_THRESHOLD_USER, TTL_BUMP_USER)
+    let value: Option<V> = env.storage().persistent().get(key);
+    if value.is_some() {
+        renew_persistent_key(env, key, TTL_THRESHOLD_USER, TTL_BUMP_USER);
+    }
+    value
 }
 
 /// Writes a persistent value under `key` using the per-account (user) TTL thresholds.
 pub(super) fn set_user<V: IntoVal<Env, Val>>(env: &Env, key: &ControllerKey, value: &V) {
-    set_persistent(env, key, value, TTL_THRESHOLD_USER, TTL_BUMP_USER)
+    env.storage().persistent().set(key, value);
+    renew_persistent_key(env, key, TTL_THRESHOLD_USER, TTL_BUMP_USER);
 }

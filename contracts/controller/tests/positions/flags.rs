@@ -329,7 +329,7 @@ fn persist_account_positions_writes_both_sides() {
             supply_positions: supply,
             borrow_positions: debt,
         };
-        persist_account_positions(&env, 1, &account, PositionSides::BOTH, false);
+        persist_account_positions(&env, 1, &account, PositionSides::Both, false);
         assert_eq!(
             storage::get_supply_positions(&env, 1)
                 .get(hub_asset.clone())
@@ -384,7 +384,7 @@ fn persist_account_positions_removes_empty_account() {
             supply_positions: soroban_sdk::Map::new(&env),
             borrow_positions: soroban_sdk::Map::new(&env),
         };
-        persist_account_positions(&env, account_id, &account, PositionSides::BOTH, true);
+        persist_account_positions(&env, account_id, &account, PositionSides::Both, true);
         assert!(storage::try_get_account_meta(&env, account_id).is_none());
     });
 }

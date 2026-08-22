@@ -558,7 +558,7 @@ impl ControllerInterface for Controller {
 
     /// Returns whether `pool` is approved as a Blend migration source.
     fn is_blend_pool_approved(env: Env, pool: Address) -> bool {
-        config::registry::is_blend_pool_approved(&env, pool)
+        storage::is_blend_pool_approved(&env, &pool)
     }
 }
 

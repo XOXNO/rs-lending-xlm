@@ -12,6 +12,7 @@ use common::types::{
 };
 use soroban_sdk::{assert_with_error, Address, Env, Map, Vec};
 
+use crate::external::price_aggregator::fetch_prices_status;
 use crate::positions::liquidation::{build_liquidation_plan, split_seized_shares};
 use crate::storage;
 
@@ -162,7 +163,7 @@ pub(crate) fn get_all_market_indexes_detailed(
     let statuses = if assets.is_empty() {
         Map::new(env)
     } else {
-        crate::external::price_aggregator::fetch_prices_status(env, &assets)
+        fetch_prices_status(env, &assets)
     };
     let mut result = Vec::new(env);
 
@@ -256,7 +257,12 @@ pub(crate) fn total_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
     }
 
     let mut cache = Cache::new_view(env);
-    risk::sum_supply_usd(env, &mut cache, &supply).raw()
+    // Empty borrow map on purpose: it keeps the market load to the supply keys,
+    // so this costs the same cross-contract fetches the supply-only sum did and
+    // only adds per-position arithmetic that is discarded.
+    risk::calculate_account_risk_totals(env, &mut cache, &supply, &Map::new(env))
+        .total_collateral
+        .raw()
 }
 
 /// Returns the account's total debt position value in USD (WAD), or 0 if it

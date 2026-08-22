@@ -127,7 +127,7 @@ pub(crate) fn process_liquidation(
         account_id,
         &account,
         &mut cache,
-        PositionSides::BOTH,
+        PositionSides::Both,
         false,
     );
 
@@ -141,7 +141,7 @@ pub(crate) fn process_liquidation(
             *receiver_id,
             receiving_account,
             &mut cache,
-            PositionSides::SUPPLY,
+            PositionSides::Supply,
             false,
         );
     }

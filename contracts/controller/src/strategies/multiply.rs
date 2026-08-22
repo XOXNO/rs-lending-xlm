@@ -7,6 +7,7 @@ use soroban_sdk::{assert_with_error, panic_with_error, vec, Address, Env};
 
 use crate::context::Cache;
 use crate::events::PositionAction;
+use crate::payments::transfer_amount_measured;
 use crate::positions::require_can_supply;
 use crate::positions::supply;
 use crate::risk::validation::require_authorized_caller;
@@ -195,7 +196,7 @@ fn collect_initial_multiply_payment(
 
     require_positive_amount(env, *payment_amount);
 
-    let received = common::token::transfer_amount_measured(
+    let received = transfer_amount_measured(
         env,
         &payment.asset,
         caller,
