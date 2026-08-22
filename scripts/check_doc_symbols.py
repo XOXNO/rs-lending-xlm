@@ -91,6 +91,10 @@ FILE_ALLOW = {
         "liq_repay", "liq_seize", "param_upd", "sw_debt_r", "sw_col_wd",
         "rp_col_wd", "rp_col_r", "close_wd",
     },
+    # Edge and node types of the codebase-memory MCP graph, named while
+    # explaining what that graph does and does not model. They are labels in an
+    # external index, not items in this source tree.
+    "CLAUDE.md": {"CALLS"},
     # Fragments used to illustrate the test-naming convention
     # (test_<entry>_<condition>_<expected>), not whole test names.
     "tests/test-harness/tests/README.md": {

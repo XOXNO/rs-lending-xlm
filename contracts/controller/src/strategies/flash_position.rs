@@ -135,6 +135,9 @@ pub(crate) fn process_flash_position(
 
     refund_listed_assets(env, caller, refund_assets, &refund_before);
 
+    // Checked on both sides of finalize, not redundantly: `strategy_finalize`
+    // restamps LTV, which can drop a zero-scaled supply position, and finalizes
+    // with `remove_if_empty`. Emptiness is therefore re-decidable across it.
     require_flash_position_still_open(env, &account, debt);
     strategy_finalize(env, account_id, &mut account, &mut cache);
     require_flash_position_still_open(env, &account, debt);

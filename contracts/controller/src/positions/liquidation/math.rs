@@ -79,17 +79,17 @@ impl LiquidationPlan {
     }
 }
 /// Computes the liquidation-threshold-weighted share of collateral being seized
-/// (`weighted_coll / total_collateral`, zero when there is no collateral) and the account's
+/// (`weighted_collateral / total_collateral`, zero when there is no collateral) and the account's
 /// base/max bonus bounds derived from it.
 pub(crate) fn calculate_seizure_proportions(
     env: &Env,
     account: &Account,
     total_collateral: Wad,
-    weighted_coll: Wad,
+    weighted_collateral: Wad,
     cache: &mut Cache,
 ) -> (Wad, BonusBounds) {
     let proportion_seized = if total_collateral > Wad::ZERO {
-        weighted_coll.div(env, total_collateral)
+        weighted_collateral.div(env, total_collateral)
     } else {
         Wad::ZERO
     };
@@ -184,15 +184,17 @@ pub(crate) fn normalize_repayment_plan(
 
     let (ideal_repayment_usd, bonus) = estimate_liquidation_amount(env, snap, bonus_bounds, curve);
 
-    if total_debt_payment_usd < ideal_repayment_usd {
-        if let Some(cap) = max_hf_preserving_bonus_bps(snap) {
-            if cap >= 0
-                && cap < bonus_bounds.base.raw()
-                && sum_repaid_usd_ceil(env, &repaid_tokens) < ideal_repayment_usd
-            {
-                panic_with_error!(env, CollateralError::FullCloseRequired);
-            }
-        }
+    // A ceiling below the account's own base bonus means no partial close is priceable, so a
+    // payment short of the ideal must close the whole debt. The ceil re-sum is the tolerance: a
+    // payment that falls short only by rounding still counts as full. It is evaluated last so
+    // the extra pass only runs on the path that can actually revert.
+    let cap_forces_full_close = max_hf_preserving_bonus_bps(snap)
+        .is_some_and(|cap| (0..bonus_bounds.base.raw()).contains(&cap));
+    if total_debt_payment_usd < ideal_repayment_usd
+        && cap_forces_full_close
+        && sum_repaid_usd_ceil(env, &repaid_tokens) < ideal_repayment_usd
+    {
+        panic_with_error!(env, CollateralError::FullCloseRequired);
     }
 
     let max_debt_to_repay_usd = total_debt_payment_usd.min(ideal_repayment_usd);
@@ -259,6 +261,10 @@ pub(crate) fn calculate_seized_collateral(
 
     let total_seizure_usd = repayment.repay_usd.mul(env, one_plus_bonus);
 
+    // Three unit spaces run through this loop and must not be mixed:
+    //   *_ray      RAY-scaled asset *value* (shares x index), what the USD math produces
+    //   *_scaled   RAY-scaled *shares*, what credit mode moves and the pool books
+    //   *_amount / *_asset / *_fee   asset units at the feed's decimals
     for (hub_asset, position) in iter_typed_positions(&account.supply_positions) {
         let feed = cache.cached_price(&hub_asset.asset);
         let market_index = cache.cached_market_index(&hub_asset);
@@ -285,6 +291,9 @@ pub(crate) fn calculate_seized_collateral(
         if capped_ray <= Ray::ZERO {
             continue;
         }
+        // Computed once: the two conversions below must agree on whether this
+        // leg closes the position outright.
+        let is_full_close = capped_ray == actual_ray;
 
         // The base is the leg's own repayment share, not the clamped seizure
         // divided back out: once the seizure clamps there is no bonus to take a
@@ -303,7 +312,7 @@ pub(crate) fn calculate_seized_collateral(
         // here, with no asset-unit round trip. A full close is exactly the whole scaled
         // position: re-deriving it from the asset value would let a rounding step strand or
         // invent a share.
-        let seized_scaled = if capped_ray == actual_ray {
+        let seized_scaled = if is_full_close {
             position.scaled_amount
         } else {
             capped_ray.div_floor(env, market_index.supply_index)
@@ -317,7 +326,7 @@ pub(crate) fn calculate_seized_collateral(
             continue;
         }
 
-        let capped_amount = if capped_ray == actual_ray {
+        let capped_amount = if is_full_close {
             capped_ray.to_asset(feed.asset_decimals)
         } else {
             capped_ray.to_asset_floor(feed.asset_decimals)

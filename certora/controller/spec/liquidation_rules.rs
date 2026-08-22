@@ -385,7 +385,7 @@ fn ideal_repayment_targets_curve_hf(
     let snap = crate::positions::liquidation::curve::LiquidationSnapshot {
         total_debt: Wad::from(total_debt_wad),
         total_collateral: Wad::from(total_collateral_wad),
-        weighted_coll: Wad::from(weighted_collateral_wad),
+        weighted_collateral: Wad::from(weighted_collateral_wad),
         proportion_seized: Wad::from(proportion_seized_wad),
         hf: Wad::from(hf_wad),
     };
@@ -524,7 +524,7 @@ fn estimate_leaves_no_sub_threshold_dust(
     let snap = crate::positions::liquidation::curve::LiquidationSnapshot {
         total_debt: Wad::from(total_debt_wad),
         total_collateral: Wad::from(total_debt_wad),
-        weighted_coll: Wad::from(weighted_collateral_wad),
+        weighted_collateral: Wad::from(weighted_collateral_wad),
         proportion_seized: Wad::from(proportion_seized_wad),
         hf: Wad::from(hf_wad),
     };
@@ -550,7 +550,7 @@ fn estimate_liquidation_sanity(e: Env) {
     let snap = crate::positions::liquidation::curve::LiquidationSnapshot {
         total_debt: Wad::from(total_debt),
         total_collateral: Wad::from(total_debt),
-        weighted_coll: Wad::from(weighted_col),
+        weighted_collateral: Wad::from(weighted_col),
         proportion_seized: Wad::from(WAD / 2),
         hf: Wad::from(hf),
     };
@@ -666,7 +666,7 @@ fn split_liq_quote(e: &Env, book: SplitBook) -> SplitQuote {
     let snap = crate::positions::liquidation::curve::LiquidationSnapshot {
         total_debt: Wad::from(book.debt),
         total_collateral: Wad::from(book.collateral),
-        weighted_coll: Wad::from(book.weighted),
+        weighted_collateral: Wad::from(book.weighted),
         proportion_seized: Wad::from(proportion_wad),
         hf: Wad::from(hf_wad),
     };

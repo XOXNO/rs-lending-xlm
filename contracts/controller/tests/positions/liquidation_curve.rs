@@ -27,7 +27,7 @@ fn snap(
     LiquidationSnapshot {
         total_debt: Wad::from(debt),
         total_collateral: Wad::from(collateral),
-        weighted_coll: Wad::from(weighted),
+        weighted_collateral: Wad::from(weighted),
         proportion_seized: Wad::from(proportion),
         hf: Wad::from(hf),
     }
@@ -452,7 +452,7 @@ fn estimate_target_reachable_returns_interpolated_partial() {
 
     let target = Wad::from(DEFAULT_LIQUIDATION_TARGET_HF_WAD);
     let target_debt = target.mul(&env, s.total_debt);
-    let numerator = target_debt.checked_sub(&env, s.weighted_coll);
+    let numerator = target_debt.checked_sub(&env, s.weighted_collateral);
     let denominator = target.checked_sub(&env, s.proportion_seized);
     let expected = numerator
         .div(&env, denominator)
@@ -972,7 +972,7 @@ fn apply_liquidation(s: &LiquidationSnapshot, repay: i128, bonus_bps: i128) -> L
     let (v, d, w) = (
         s.total_collateral.raw(),
         s.total_debt.raw(),
-        s.weighted_coll.raw(),
+        s.weighted_collateral.raw(),
     );
     let seized = (repay * (10_000 + bonus_bps) / 10_000).min(v);
     let p = s.proportion_seized.raw();
@@ -1123,7 +1123,7 @@ fn neutral_rate_slicing_arithmetic_is_additive_model_only_not_the_clamp() {
 // zero made positions unliquidatable, because the liquidation call validated that the
 // seized collateral carried a non-zero factor. Seizure here is pro-rata over the whole
 // collateral set and reads no per-asset factor, so a zeroed threshold reaches the curve
-// only as `proportion_seized == 0` and `weighted_coll == 0`. Everything below pins that
+// only as `proportion_seized == 0` and `weighted_collateral == 0`. Everything below pins that
 // the curve prices that account at a zero bonus and stays solvable, rather than
 // dividing by zero, panicking, or returning nothing to close.
 //
@@ -1179,8 +1179,9 @@ fn zero_liquidation_threshold_keeps_the_target_solver_solvable() {
         (i128::from(u32::MAX) * WAD, WAD),
     ] {
         let s = zero_threshold_snap(debt, collateral);
-        let got = try_liquidation_at_target(&env, &s, Bps::from(0i128), target)
-            .expect("a zero seized proportion can never reach the target's denominator floor");
+        // A zero seized proportion can never reach the target's denominator floor, so the
+        // solver must take its collateral-backed exit rather than the linear solve.
+        let got = liquidation_at_target(&env, &s, Bps::from(0i128), target);
         assert_eq!(
             got.raw(),
             debt.min(collateral),

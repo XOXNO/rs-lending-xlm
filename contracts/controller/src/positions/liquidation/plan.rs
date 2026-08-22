@@ -57,7 +57,7 @@ pub(crate) fn build_liquidation_plan(
     let snap = LiquidationSnapshot {
         total_debt: totals.total_debt,
         total_collateral: totals.total_collateral,
-        weighted_coll: totals.weighted_collateral,
+        weighted_collateral: totals.weighted_collateral,
         proportion_seized,
         hf: totals.health_factor,
     };

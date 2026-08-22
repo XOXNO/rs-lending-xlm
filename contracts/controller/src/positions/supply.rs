@@ -371,7 +371,10 @@ pub(crate) fn merge_withdraw_leg(
 ) {
     // The refresh decision is computed here, not by callers: whether a
     // withdrawal leg re-stamps risk params is this module's policy.
-    let refresh_spoke = spoke_refresh_for_leg(kind, cache, account, hub_asset, outcome.new_scaled);
+    // Decided before the position is mutated: the check reads the pre-mutation
+    // account and needs `&mut cache`, which the borrow below would conflict with.
+    let may_restamp =
+        leg_may_restamp_risk_params(kind, cache, account, hub_asset, outcome.new_scaled);
     let mut position = get_supply_position_or_panic(env, account, hub_asset);
     let old_scaled = position.scaled_amount;
 
@@ -388,7 +391,7 @@ pub(crate) fn merge_withdraw_leg(
         outcome,
     );
 
-    if refresh_spoke && position.scaled_amount != Ray::ZERO {
+    if may_restamp && position.scaled_amount != Ray::ZERO {
         let config: AssetConfig = cache.require_spoke_asset(account.spoke_id, hub_asset);
         refresh_supply_risk_params(
             env,
@@ -411,10 +414,11 @@ pub(crate) fn merge_withdraw_leg(
     );
 }
 
-/// Returns whether a withdrawal leg should re-stamp the position's risk
-/// parameters: liquidation withdrawals, unlisted spoke assets, and full
-/// withdrawals (`new_scaled` zero) are frozen; all other withdrawals refresh.
-fn spoke_refresh_for_leg(
+/// Returns `true` when this withdrawal leg may re-stamp the position's risk
+/// parameters from the current listing. Three cases freeze the stamped tuple
+/// instead: liquidation withdrawals, assets no longer listed on the spoke, and
+/// full withdrawals (`new_scaled` zero, so there is no position left to stamp).
+fn leg_may_restamp_risk_params(
     kind: WithdrawKind,
     cache: &mut Cache,
     account: &Account,

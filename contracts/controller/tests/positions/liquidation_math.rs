@@ -185,7 +185,7 @@ fn snap(
     LiquidationSnapshot {
         total_debt: Wad::from(debt),
         total_collateral: Wad::from(collateral),
-        weighted_coll: Wad::from(weighted),
+        weighted_collateral: Wad::from(weighted),
         proportion_seized: Wad::from(proportion),
         hf: Wad::from(hf),
     }
@@ -2145,7 +2145,7 @@ fn liquidate_slice(
         let s = LiquidationSnapshot {
             total_debt: totals.total_debt,
             total_collateral: totals.total_collateral,
-            weighted_coll: totals.weighted_collateral,
+            weighted_collateral: totals.weighted_collateral,
             proportion_seized,
             hf: totals.health_factor,
         };

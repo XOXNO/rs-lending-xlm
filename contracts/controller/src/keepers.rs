@@ -83,11 +83,18 @@ pub(crate) fn update_account_threshold(
     caller.require_auth();
     validation::require_not_flash_loaning(env);
 
+    // The ABI carries a bool; everything below it carries the scope it selects.
+    let scope = if has_risks {
+        risk::RiskRefreshScope::FullTuple
+    } else {
+        risk::RiskRefreshScope::LtvOnly
+    };
+
     let mut cache = Cache::new(env);
 
     for account_id in account_ids {
         cache.reset_spoke_context();
-        sync_account_thresholds(env, account_id, has_risks, &mut cache);
+        sync_account_thresholds(env, account_id, scope, &mut cache);
     }
 }
 
@@ -133,13 +140,17 @@ fn claim_revenue_for_asset_with_cache(
     received
 }
 
-/// Recomputes each of `account_id`'s supply positions' risk parameters
-/// against current spoke asset config, refreshing loan-to-value always and
-/// liquidation-threshold parameters only when `has_risks` is true. Skips
-/// accounts with no stored metadata or no supply positions. When `has_risks`
-/// is true, panics if the account's health factor falls below the minimum
-/// threshold-update level after the changes are applied.
-fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &mut Cache) {
+/// Recomputes each of `account_id`'s supply positions' risk parameters against
+/// the current spoke asset config, to the depth `scope` selects. Skips accounts
+/// with no stored metadata or no supply positions. Under `FullTuple`, loads the
+/// debt side too and panics if the account's health factor falls below the
+/// minimum threshold-update level after the changes are applied.
+fn sync_account_thresholds(
+    env: &Env,
+    account_id: u64,
+    scope: risk::RiskRefreshScope,
+    cache: &mut Cache,
+) {
     let Some(meta) = storage::try_get_account_meta(env, account_id) else {
         return;
     };
@@ -156,7 +167,8 @@ fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &
         return;
     };
 
-    let borrow_positions = if has_risks {
+    let full_tuple = scope == risk::RiskRefreshScope::FullTuple;
+    let borrow_positions = if full_tuple {
         storage::get_debt_positions(env, account_id)
     } else {
         soroban_sdk::Map::new(env)
@@ -166,11 +178,6 @@ fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &
 
     let mut account = storage::account_from_parts(owner, meta, supply_positions, borrow_positions);
     let assets = account.supply_positions.keys();
-    let scope = if has_risks {
-        risk::RiskRefreshScope::FullTuple
-    } else {
-        risk::RiskRefreshScope::LtvOnly
-    };
 
     let mut any_changed = false;
     for hub_asset in assets.iter() {
@@ -212,7 +219,7 @@ fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &
         storage::set_supply_positions(env, account_id, &account.supply_positions);
     }
 
-    if has_risks {
+    if full_tuple {
         let hf = risk::calculate_account_risk_totals(
             env,
             cache,
