@@ -570,18 +570,49 @@ balance. VERIFIED — rules `flash_repayment_terms_recover_principal_and_fee`,
 
 ### INV-FLASH-02 — Monetary reentrancy is blocked
 
-The flash callback, router call, and external strategy paths share protection
-against entering protected monetary flows recursively.
+The flash callback, router call, pool-transfer legs, and external strategy paths
+share protection against entering protected monetary flows recursively.
+
+Every window that hands control to an untrusted contract — a receiver callback,
+a router, a Blend pool, or a listed token whose `transfer` may run a hook — is
+wrapped in `with_flash_guard`. All six production setters:
+
+- `strategies/flash_loan.rs:35` (`process_flash_loan`) — the flash-loan callback.
+- `strategies/flash_position.rs:108` (`process_flash_position`) — the debt-token
+  forward *and* the `execute_flash_position` receiver callback.
+- `strategies/swap/route.rs:26` (`call_router_with_reentrancy_guard`) — the
+  swap-aggregator router call.
+- `strategies/legs.rs:104` (`withdraw_collateral_to_controller`) — the pool
+  withdraw leg that moves collateral into the controller.
+- `positions/debt.rs:272` (`borrow_into_controller`) — the pool transfer to the
+  controller, held so a listed token's transfer hook cannot reenter before the
+  strategy swap guard is taken.
+- `external/blend.rs:91` (`guarded_submit`) — the Blend cross-contract submit.
+
+The guard nests: `with_flash_guard` records the previous flag and only clears it
+when it was not already set (`storage/account.rs:304-312`), so an inner window
+inside an outer one (for example `borrow_into_controller` reached from
+`process_flash_position`) cannot clear the flag early.
 
 **Status:** ENFORCED — `contracts/controller/src/storage/account.rs`
-(`with_flash_guard`), set by `strategies/flash_loan.rs`,
-`strategies/swap/route.rs`, and `external/blend.rs`; checked by
+(`with_flash_guard`), set by the six sites listed above; checked by
 `contracts/controller/src/risk/validation.rs` (`require_not_flash_loaning`).
 VERIFIED — rules `flash_loan_guard_blocks_callers`,
 `flash_loan_guard_blocks_supply_entrypoint`,
 `flash_loan_guard_blocks_liquidation_entrypoint`,
-`flash_loan_guard_cleared_after_summarized_pool_return`;
-`tests/test-harness/tests/poc_multiply_reentrancy.rs`.
+`flash_loan_guard_cleared_after_summarized_pool_return`.
+Per-window tests: `tests/test-harness/tests/poc_multiply_reentrancy.rs` covers
+the `multiply`/router window;
+`tests/test-harness/tests/strategy/flash_position_adversarial.rs` covers the
+`flash_position` callback window; `tests/test-harness/tests/meta/reentrancy_matrix.rs`
+sweeps entry points against held guards.
+
+When adding a `with_flash_guard` call site, add it to this list — the setter set
+is the invariant's enforcement surface, and an unlisted window is an unreviewed
+one. Check with:
+`grep -rn "with_flash_guard" --include='*.rs' contracts/ | grep -v tests/`
+(expect the six sites above, plus the definition in `storage/account.rs` and the
+re-export in `storage/mod.rs`).
 
 ### INV-STRAT-01 — Router authority is narrowly scoped
 
