@@ -351,3 +351,72 @@ fn force_socialize_bad_debt_burns_nft() {
     );
     assert!(!t.account_exists(account_id));
 }
+
+// --- upgrade --------------------------------------------------------------
+
+/// The owner-gated upgrade path, end to end:
+/// `Controller::upgrade_position_nft` -> `markets::upgrade_position_nft` ->
+/// `nft_upgrade_call` -> the NFT's own `upgrade`. None of it had a test in
+/// either suite. The controller-side unit tests cannot reach it, because an
+/// upgrade needs a real wasm hash on-ledger and they load no fixtures; here the
+/// harness already uploads position_nft.wasm to deploy the NFT in the first
+/// place.
+///
+/// What has to survive is ownership. The NFT is the authority record for an
+/// account -- `owner_of` is what the controller resolves a position's owner
+/// through -- so an upgrade that dropped or re-pointed its storage would
+/// silently orphan every live position.
+#[test]
+fn upgrading_the_position_nft_preserves_live_ownership() {
+    let mut t = LendingTest::new().with_market(usdc_preset()).build();
+    t.supply(ALICE, "USDC", 1_000.0);
+    t.supply(BOB, "USDC", 500.0);
+
+    let alice_id = t.account_id(ALICE);
+    let bob_id = t.account_id(BOB);
+    let alice_owner = t.nft_owner_of(alice_id);
+    let bob_owner = t.nft_owner_of(bob_id);
+    assert_ne!(alice_id, bob_id);
+
+    // The same bytecode the harness deployed: a no-op upgrade still exercises
+    // the full call chain and the NFT's own upgrade guard, without needing a
+    // second contract to be built.
+    let hash = t.position_nft_wasm_hash.clone();
+    t.ctrl_client().upgrade_position_nft(&hash);
+
+    assert_eq!(
+        t.nft_owner_of(alice_id),
+        alice_owner,
+        "an upgrade must not move ownership"
+    );
+    assert_eq!(t.nft_owner_of(bob_id), bob_owner);
+
+    // And the account keeps working through the controller afterwards.
+    t.supply(ALICE, "USDC", 250.0);
+    assert_eq!(t.account_id(ALICE), alice_id, "no fresh account was minted");
+    assert_eq!(t.nft_owner_of(alice_id), alice_owner);
+}
+
+/// The preservation test above cannot, on its own, prove the call chain runs:
+/// upgrading to the bytecode already deployed is observationally identical to
+/// not upgrading at all, so it still passes with `nft_upgrade_call` deleted.
+/// Verified that, rather than assumed it.
+///
+/// A hash that was never uploaded is the observable case. Only the NFT can
+/// reject it, so a revert here proves the controller really did reach it.
+#[test]
+fn upgrading_the_position_nft_to_an_unknown_hash_reverts() {
+    let mut t = LendingTest::new().with_market(usdc_preset()).build();
+    t.supply(ALICE, "USDC", 1_000.0);
+    let account_id = t.account_id(ALICE);
+    let owner = t.nft_owner_of(account_id);
+
+    let bogus = soroban_sdk::BytesN::from_array(&t.env, &[0x5a; 32]);
+    assert!(
+        t.ctrl_client().try_upgrade_position_nft(&bogus).is_err(),
+        "an unuploaded wasm hash must not be accepted"
+    );
+
+    // The failed upgrade left the NFT intact rather than half-applied.
+    assert_eq!(t.nft_owner_of(account_id), owner);
+}
