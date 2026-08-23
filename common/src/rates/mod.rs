@@ -26,7 +26,7 @@ pub use scaling::{
     resolve_withdrawal, scaled_to_original, unscale_borrow, unscale_borrow_ceil, unscale_supply,
     unscale_supply_floor,
 };
-pub use simulate::simulate_update_indexes;
+pub use simulate::{accrue_step, simulate_update_indexes, AccrualStep};
 pub use value::{position_value, position_value_ceil, position_value_floor};
 
 #[cfg(feature = "certora")]

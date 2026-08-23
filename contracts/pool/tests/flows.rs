@@ -25,8 +25,6 @@ use soroban_sdk::{
 
 const WAD_PER_RAW: i128 = 100_000_000_000_000_000_000;
 
-const VERBOSE_CLAIM_DUST: bool = false;
-
 fn count_topic(events: &ContractEvents, first: &str, second: &str) -> usize {
     events
         .events()
@@ -2998,18 +2996,9 @@ fn test_claims_never_outpay_burned_shares_where_half_up_would() {
 
         total_paid += paid;
         total_half_up_would_pay += half_up;
-
-        if VERBOSE_CLAIM_DUST {
-            std::println!(
-                "claim {second}: half_up_would_pay={half_up} paid={paid} burned_ray={burned_ray}"
-            );
-        }
     }
 
     assert!(total_half_up_would_pay > total_paid);
-    if VERBOSE_CLAIM_DUST {
-        std::println!("TOTAL half_up={total_half_up_would_pay} floor={total_paid}");
-    }
 }
 
 #[test]
@@ -3078,15 +3067,6 @@ fn test_load_sync_data_renews_market_keys_once() {
         sync_cpu + redundant / 2 < double_renew_cpu,
         "load_sync_data should renew once, not twice; sync_cpu={sync_cpu} double_renew_cpu={double_renew_cpu} redundant={redundant}"
     );
-
-    if VERBOSE_CLAIM_DUST {
-        std::println!(
-            "renew_market cpu={} load_sync_data cpu={} read+read+renew+renew cpu={}",
-            one_renewal,
-            sync_cpu,
-            double_renew_cpu
-        );
-    }
 }
 
 #[test]

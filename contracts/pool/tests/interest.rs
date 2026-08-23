@@ -4,11 +4,15 @@ use super::*;
 use crate::test_support::{hub, init_ledger};
 use crate::{LiquidityPool, LiquidityPoolClient};
 use common::constants::RAY;
+// The step primitives are no longer imported by `src/interest.rs` (it calls the
+// shared `accrue_step`), but these tests rebuild the step by hand to check it.
+use common::rates::{
+    calculate_borrow_rate, calculate_supplier_rewards, compound_interest,
+    supply_index_reward_shortfall, update_borrow_index, update_supply_index,
+};
 use common::types::{MarketParamsRaw, PoolKey, PoolStateRaw};
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, Env};
-
-const VERBOSE_YEAR_ACCRUAL: bool = false;
 
 struct TestSetup {
     env: Env,
@@ -183,47 +187,67 @@ fn test_simulate_matches_global_sync_over_multi_year_delta() {
     use common::rates::simulate_update_indexes;
     use common::types::PoolSyncData;
 
-    let t = TestSetup::new();
-    t.as_contract(|| {
-        let state = PoolStateRaw {
-            supplied: 100 * RAY,
-            borrowed: 60 * RAY,
-            revenue: 0,
-            borrow_index: RAY,
-            supply_index: RAY,
-            last_timestamp: 0,
-            cash: 40_000_000,
-        };
-        let params: MarketParamsRaw = t
-            .env
-            .storage()
-            .persistent()
-            .get(&PoolKey::Params(hub(&t.asset)))
-            .unwrap();
-        let sync = PoolSyncData {
-            params,
-            state: state.clone(),
-        };
+    // Both accrual paths run the shared `accrue_step`, so they must agree on
+    // indexes. They differ only in where the step's revenue shares land: the
+    // pool books them on revenue *and* total supply, the simulator folds them
+    // into supply alone. A starting revenue balance keeps that split honest.
+    for (label, revenue) in [("no prior revenue", 0), ("prior revenue", 7 * RAY)] {
+        let t = TestSetup::new();
+        t.as_contract(|| {
+            let state = PoolStateRaw {
+                supplied: 100 * RAY,
+                borrowed: 60 * RAY,
+                revenue,
+                borrow_index: RAY,
+                supply_index: RAY,
+                last_timestamp: 0,
+                cash: 40_000_000,
+            };
+            let params: MarketParamsRaw = t
+                .env
+                .storage()
+                .persistent()
+                .get(&PoolKey::Params(hub(&t.asset)))
+                .unwrap();
+            let sync = PoolSyncData {
+                params,
+                state: state.clone(),
+            };
 
-        let mut cache = t.fresh_cache(state);
+            let mut cache = t.fresh_cache(state.clone());
 
-        let delta_ms = 2 * MAX_COMPOUND_DELTA_MS + MAX_COMPOUND_DELTA_MS / 2;
-        cache.set_current_timestamp(cache.last_timestamp() + delta_ms);
-        let simulated = simulate_update_indexes(&t.env, cache.current_timestamp(), &sync);
+            let delta_ms = 2 * MAX_COMPOUND_DELTA_MS + MAX_COMPOUND_DELTA_MS / 2;
+            cache.set_current_timestamp(cache.last_timestamp() + delta_ms);
+            let simulated = simulate_update_indexes(&t.env, cache.current_timestamp(), &sync);
 
-        global_sync(&t.env, &mut cache);
+            global_sync(&t.env, &mut cache);
 
-        assert_eq!(
-            cache.borrow_index().raw(),
-            simulated.borrow_index.raw(),
-            "read-path borrow index must equal mutating accrual"
-        );
-        assert_eq!(
-            cache.supply_index().raw(),
-            simulated.supply_index.raw(),
-            "read-path supply index must equal mutating accrual"
-        );
-    });
+            assert_eq!(
+                cache.borrow_index().raw(),
+                simulated.borrow_index.raw(),
+                "{label}: read-path borrow index must equal mutating accrual"
+            );
+            assert_eq!(
+                cache.supply_index().raw(),
+                simulated.supply_index.raw(),
+                "{label}: read-path supply index must equal mutating accrual"
+            );
+
+            // Accrual grows total supply only by minting revenue shares, so the
+            // two deltas must match exactly. A plumbing slip in either caller
+            // (double-crediting supply, or crediting revenue without supply)
+            // shows up here even though the indexes still agree.
+            assert_eq!(
+                cache.supplied().raw() - state.supplied,
+                cache.revenue().raw() - state.revenue,
+                "{label}: supply growth from accrual must equal revenue minted"
+            );
+            assert!(
+                cache.revenue().raw() > state.revenue,
+                "{label}: a 2.5-year accrual at 60% utilization must mint revenue"
+            );
+        });
+    }
 }
 
 #[test]
@@ -565,10 +589,6 @@ struct AccrualSnapshot {
     user_claim: i128,
 
     revenue_claim: i128,
-    borrow_index: i128,
-    supply_index: i128,
-    supplied_scaled: i128,
-    revenue_scaled: i128,
 }
 
 fn claim_ray(env: &Env, scaled: Ray, index: Ray) -> i128 {
@@ -581,16 +601,10 @@ fn snapshot(env: &Env, cache: &Cache, user_scaled: Ray) -> AccrualSnapshot {
         total_supply_claim: claim_ray(env, cache.supplied(), cache.supply_index()),
         user_claim: claim_ray(env, user_scaled, cache.supply_index()),
         revenue_claim: claim_ray(env, cache.revenue(), cache.supply_index()),
-        borrow_index: cache.borrow_index().raw(),
-        supply_index: cache.supply_index().raw(),
-        supplied_scaled: cache.supplied().raw(),
-        revenue_scaled: cache.revenue().raw(),
     }
 }
 
 struct YearDustReport {
-    label: &'static str,
-    util_bps: i128,
     interest: i128,
     claims_growth: i128,
     user_growth: i128,
@@ -598,8 +612,6 @@ struct YearDustReport {
     dust: i128,
     debt_start: i128,
     debt_end: i128,
-    user_claim_start: i128,
-    user_claim_end: i128,
 }
 
 fn run_daily_year(
@@ -624,8 +636,6 @@ fn run_daily_year(
     let dust = interest - claims_growth;
 
     let report = YearDustReport {
-        label: "",
-        util_bps: 0,
         interest,
         claims_growth,
         user_growth,
@@ -633,64 +643,8 @@ fn run_daily_year(
         dust,
         debt_start: start.debt,
         debt_end: end.debt,
-        user_claim_start: start.user_claim,
-        user_claim_end: end.user_claim,
     };
     (start, end, report)
-}
-
-fn print_year_report(label: &str, util_bps: i128, r: &YearDustReport, end: &AccrualSnapshot) {
-    if !VERBOSE_YEAR_ACCRUAL {
-        return;
-    }
-    let dust_bps = if r.interest > 0 {
-        r.dust.saturating_mul(10_000) / r.interest
-    } else {
-        0
-    };
-
-    let to_milli = |v: i128| v / 1_000_000_000_000_000_000_000_000;
-
-    std::println!("=== {label} (util ~{util_bps} bps, {DAYS_PER_YEAR} daily updates) ===");
-    std::println!(
-        "  debt:     start={} end={}  interest={}  (milli-tokens: {} → {} , +{})",
-        r.debt_start,
-        r.debt_end,
-        r.interest,
-        to_milli(r.debt_start),
-        to_milli(r.debt_end),
-        to_milli(r.interest)
-    );
-    std::println!(
-        "  user claim (fixed scaled): {} → {}  growth={}",
-        r.user_claim_start,
-        r.user_claim_end,
-        r.user_growth
-    );
-    std::println!(
-        "  revenue claim: {}  (scaled_rev={} supply_index={})",
-        r.revenue_claim,
-        end.revenue_scaled,
-        end.supply_index
-    );
-    std::println!(
-        "  total supply claim growth: {}  (supplied_scaled end={})",
-        r.claims_growth,
-        end.supplied_scaled
-    );
-    std::println!(
-        "  DUST (interest - claims_growth): {}  (~{} bps of interest)  milli-tokens={}",
-        r.dust,
-        dust_bps,
-        to_milli(r.dust)
-    );
-    std::println!(
-        "  indexes: borrow {} → {}  supply {} → {}",
-        RAY,
-        end.borrow_index,
-        RAY,
-        end.supply_index
-    );
 }
 
 fn market_state(supplied_tokens: i128, util_bps: i128, cash_tokens: i128) -> PoolStateRaw {
@@ -718,10 +672,7 @@ fn test_year_daily_accrual_deep_market_dust_is_tiny() {
         let user_scaled = Ray::from(state.supplied);
         let mut cache = t.fresh_cache(state);
 
-        let (_s, end, mut r) = run_daily_year(&t.env, &mut cache, user_scaled, DAYS_PER_YEAR);
-        r.label = "deep 1e6 @ 50%";
-        r.util_bps = util_bps;
-        print_year_report(r.label, util_bps, &r, &end);
+        let (_s, _end, r) = run_daily_year(&t.env, &mut cache, user_scaled, DAYS_PER_YEAR);
 
         assert!(r.interest > 0, "borrowers must pay interest over a year");
         assert!(r.debt_end > r.debt_start);
@@ -760,10 +711,7 @@ fn test_year_daily_accrual_medium_market_reports_dust() {
         let user_scaled = Ray::from(state.supplied);
         let mut cache = t.fresh_cache(state);
 
-        let (_s, end, mut r) = run_daily_year(&t.env, &mut cache, user_scaled, DAYS_PER_YEAR);
-        r.label = "medium 1e4 @ 80%";
-        r.util_bps = util_bps;
-        print_year_report(r.label, util_bps, &r, &end);
+        let (_s, _end, r) = run_daily_year(&t.env, &mut cache, user_scaled, DAYS_PER_YEAR);
 
         assert!(r.interest > 0);
         assert!(r.revenue_claim > 0);
@@ -797,20 +745,13 @@ fn test_year_daily_accrual_thin_market_higher_relative_dust() {
         let user_scaled = Ray::from(state.supplied);
         let mut cache = t.fresh_cache(state);
 
-        let (_s, end, mut r) = run_daily_year(&t.env, &mut cache, user_scaled, DAYS_PER_YEAR);
-        r.label = "thin 100 @ 80%";
-        r.util_bps = util_bps;
-        print_year_report(r.label, util_bps, &r, &end);
+        let (_s, _end, r) = run_daily_year(&t.env, &mut cache, user_scaled, DAYS_PER_YEAR);
 
         assert!(r.interest > 0);
         assert!(r.user_growth > 0);
         assert!(r.revenue_claim > 0);
 
         let dust_bps = r.dust.saturating_mul(10_000) / r.interest;
-        if VERBOSE_YEAR_ACCRUAL {
-            std::println!("  thin-market dust_bps={dust_bps}");
-        }
-
         assert!(
             dust_bps < 200,
             "thin-market dust should stay under 2% of interest, got {dust_bps} bps"
@@ -826,7 +767,6 @@ fn test_year_daily_accrual_thin_market_higher_relative_dust() {
 fn test_year_daily_accrual_usdc_millions_scale() {
     let t = TestSetup::new();
     t.as_contract(|| {
-
         let cases: [(&str, i128, i128); 3] = [
             ("USDC 5M supply / 50% util", 5_000_000, 5_000),
             ("USDC 20M supply / 80% util", 20_000_000, 8_000),
@@ -838,32 +778,7 @@ fn test_year_daily_accrual_usdc_millions_scale() {
             let state = market_state(supplied_tokens, util_bps, free);
             let user_scaled = Ray::from(state.supplied);
             let mut cache = t.fresh_cache(state);
-            let (_s, end, mut r) = run_daily_year(&t.env, &mut cache, user_scaled, DAYS_PER_YEAR);
-            r.label = label;
-            r.util_bps = util_bps;
-            print_year_report(label, util_bps, &r, &end);
-
-            let whole = |v: i128| v / RAY;
-            let micro = |v: i128| {
-
-                let rem = v % RAY;
-                rem * 1_000_000 / RAY
-            };
-            if VERBOSE_YEAR_ACCRUAL {
-                std::println!(
-                    "  [USDC whole.micro] debt {} → {}  interest={}.{:06}  user_growth={}.{:06}  revenue={}.{:06}  DUST={}.{:06} USDC",
-                    whole(r.debt_start),
-                    whole(r.debt_end),
-                    whole(r.interest),
-                    micro(r.interest),
-                    whole(r.user_growth),
-                    micro(r.user_growth),
-                    whole(r.revenue_claim),
-                    micro(r.revenue_claim),
-                    whole(r.dust),
-                    micro(r.dust.abs())
-                );
-            }
+            let (_s, _end, r) = run_daily_year(&t.env, &mut cache, user_scaled, DAYS_PER_YEAR);
 
             assert!(r.interest > 0);
             assert!(r.user_growth > 0);
@@ -916,36 +831,6 @@ fn test_year_daily_vs_single_sync_dust_comparison() {
         let claims_o = end_o.total_supply_claim - start_o.total_supply_claim;
         let dust_o = interest_o - claims_o;
 
-        if VERBOSE_YEAR_ACCRUAL {
-            std::println!("=== daily vs single-shot (100k @ 60%, 365d) ===");
-            std::println!(
-                "  daily:  interest={} claims_growth={} dust={} debt_end={}",
-                interest_d,
-                claims_d,
-                dust_d,
-                end_d.debt
-            );
-            std::println!(
-                "  once:   interest={} claims_growth={} dust={} debt_end={}",
-                interest_o,
-                claims_o,
-                dust_o,
-                end_o.debt
-            );
-            std::println!(
-                "  user daily {} → {} | once {} → {}",
-                start_d.user_claim,
-                end_d.user_claim,
-                start_o.user_claim,
-                end_o.user_claim
-            );
-            std::println!(
-                "  revenue daily={} once={}",
-                end_d.revenue_claim,
-                end_o.revenue_claim
-            );
-        }
-
         assert!(interest_d > 0 && interest_o > 0);
 
         assert!(end_d.revenue_claim > 0 && end_o.revenue_claim > 0);
@@ -971,9 +856,6 @@ fn test_year_daily_vs_single_sync_dust_comparison() {
 // end / one per ~5s ledger / one per second) and measure where the value lands.
 // ---------------------------------------------------------------------------
 
-/// Print the cadence tables (only visible under `cargo test -- --nocapture`).
-const VERBOSE_CADENCE: bool = true;
-
 const SECOND_MS: u64 = 1_000;
 
 /// Stellar closes a ledger roughly every 5 seconds.
@@ -995,9 +877,6 @@ struct CadenceMarket {
     decimals: u32,
     supplied_units: i128,
     borrowed_units: i128,
-    /// Reporting only: USD per whole token, so magnitudes are comparable to
-    /// ChainSecurity's "$30k/yr on a $1M book".
-    usd_per_token: i128,
 }
 
 /// 45% utilization => 10% APR on the `TestSetup` curve.
@@ -1007,14 +886,12 @@ const CADENCE_MARKETS: [CadenceMarket; 2] = [
         decimals: 7,
         supplied_units: 22_222_222_222_222,
         borrowed_units: 10_000_000_000_000,
-        usd_per_token: 1,
     },
     CadenceMarket {
         label: "8dp WBTC-like: 10 borrowed / 22.22222222 supplied (~$1M @ ~10% APR)",
         decimals: 8,
         supplied_units: 2_222_222_222,
         borrowed_units: 1_000_000_000,
-        usd_per_token: 100_000,
     },
 ];
 
@@ -1036,17 +913,11 @@ impl CadenceMarket {
 struct CadenceResult {
     label: &'static str,
     steps: u64,
-    borrow_index: i128,
-    supply_index: i128,
     revenue_scaled: i128,
-    /// Suppliers' shares = total supply shares minus protocol revenue shares.
-    supplier_scaled: i128,
     /// Withdrawable supplier claim, floor-rounded to asset units.
     supplier_claim_units: i128,
     /// Claimable protocol revenue, floor-rounded to asset units.
     revenue_claim_units: i128,
-    /// Outstanding borrower debt, ceil-rounded to asset units.
-    debt_units: i128,
     /// Same three quantities at full RAY precision, to expose sub-unit drift.
     supplier_claim_ray: i128,
     revenue_claim_ray: i128,
@@ -1131,13 +1002,9 @@ fn run_cadence(
     CadenceResult {
         label,
         steps,
-        borrow_index: cache.borrow_index().raw(),
-        supply_index: cache.supply_index().raw(),
         revenue_scaled: cache.revenue().raw(),
-        supplier_scaled: supplier_scaled.raw(),
         supplier_claim_units: cache.unscale_supply_floor(supplier_scaled),
         revenue_claim_units: cache.unscale_supply_floor(cache.revenue()),
-        debt_units: cache.unscale_borrow_ceil(cache.borrowed()),
         supplier_claim_ray,
         revenue_claim_ray,
         debt_ray,
@@ -1146,126 +1013,8 @@ fn run_cadence(
     }
 }
 
-/// Formats a native-unit amount as a decimal string at `decimals` precision.
-fn fmt_units(value: i128, decimals: u32) -> std::string::String {
-    let scale = 10_i128.pow(decimals);
-    let sign = if value < 0 { "-" } else { "" };
-    let magnitude = value.unsigned_abs();
-    let whole = magnitude / (scale as u128);
-    let frac = magnitude % (scale as u128);
-    std::format!("{sign}{whole}.{frac:0width$}", width = decimals as usize)
-}
-
-/// Scales a delta measured over `span_ms` up to a full year.
-fn annualize(delta_units: i128, span_ms: u64) -> i128 {
-    delta_units.saturating_mul(YEAR_MS) / (span_ms as i128)
-}
-
-fn print_cadence_table(market: &CadenceMarket, span_ms: u64, results: &[CadenceResult]) {
-    if !VERBOSE_CADENCE {
-        return;
-    }
-    let d = market.decimals;
-    std::println!(
-        "\n=== accrual cadence over {} ms ({} h) | {} ===",
-        span_ms,
-        span_ms / 3_600_000,
-        market.label
-    );
-    std::println!(
-        "{:<26} {:>8} {:>34} {:>34} {:>20} {:>20} {:>20}",
-        "cadence",
-        "accruals",
-        "borrow_index (RAY)",
-        "supply_index (RAY)",
-        "revenue_scaled",
-        "supplier claim",
-        "debt"
-    );
-    for r in results {
-        std::println!(
-            "{:<26} {:>8} {:>34} {:>34} {:>20} {:>20} {:>20}",
-            r.label,
-            r.steps,
-            r.borrow_index,
-            r.supply_index,
-            r.revenue_scaled,
-            fmt_units(r.supplier_claim_units, d),
-            fmt_units(r.debt_units, d)
-        );
-        // 1 ray = 1e-27 of a token, so the residual below is far under any
-        // representable asset unit at 0..=18 decimals.
-        std::println!(
-            "    conservation: interest={} ray, attributed={} ray, unattributed residual={} ray \
-             ({} ray per 1000 accruals; 1 ray stranded per {} ray of interest)",
-            r.interest_ray,
-            r.attributed_ray,
-            r.unattributed_ray(),
-            r.unattributed_ray().saturating_mul(1_000) / (r.steps as i128),
-            if r.unattributed_ray() > 0 {
-                r.interest_ray / r.unattributed_ray()
-            } else {
-                i128::MAX
-            },
-        );
-    }
-
-    let base = &results[0];
-    std::println!(
-        "  baseline ({}): supplier={} revenue={} booked={} debt={} supplier_scaled={}",
-        base.label,
-        fmt_units(base.supplier_claim_units, d),
-        fmt_units(base.revenue_claim_units, d),
-        fmt_units(base.booked_units(), d),
-        fmt_units(base.debt_units, d),
-        base.supplier_scaled
-    );
-    for r in results.iter().skip(1) {
-        let d_supplier = r.supplier_claim_units - base.supplier_claim_units;
-        let d_revenue = r.revenue_claim_units - base.revenue_claim_units;
-        let d_booked = r.booked_units() - base.booked_units();
-        let d_debt = r.debt_units - base.debt_units;
-        let usd = |units: i128| {
-            let scale = 10_i128.pow(d);
-            let cents = units
-                .saturating_mul(market.usd_per_token)
-                .saturating_mul(100)
-                / scale;
-            std::format!("${}.{:02}", cents / 100, (cents % 100).abs())
-        };
-        std::println!(
-            "  delta vs baseline [{}]: supplier={} revenue={} booked={} debt={}",
-            r.label,
-            fmt_units(d_supplier, d),
-            fmt_units(d_revenue, d),
-            fmt_units(d_booked, d),
-            fmt_units(d_debt, d)
-        );
-        let per_year = |v: i128| annualize(v, span_ms);
-        std::println!(
-            "    annualized: supplier={} ({}) revenue={} ({}) booked={} ({}) debt={} ({})",
-            fmt_units(per_year(d_supplier), d),
-            usd(per_year(d_supplier)),
-            fmt_units(per_year(d_revenue), d),
-            usd(per_year(d_revenue)),
-            fmt_units(per_year(d_booked), d),
-            usd(per_year(d_booked)),
-            fmt_units(per_year(d_debt), d),
-            usd(per_year(d_debt))
-        );
-        std::println!(
-            "    RAY-precision deltas: supplier={} revenue={} booked={} debt={}",
-            r.supplier_claim_ray - base.supplier_claim_ray,
-            r.revenue_claim_ray - base.revenue_claim_ray,
-            r.booked_ray() - base.booked_ray(),
-            r.debt_ray - base.debt_ray
-        );
-    }
-}
-
-/// Runs every cadence in `cadences` over the same `span_ms`, prints the table,
-/// and asserts the security property against `cadences[0]` (the single
-/// terminal accrual).
+/// Runs every cadence in `cadences` over the same `span_ms` and asserts the
+/// security property against `cadences[0]` (the single terminal accrual).
 fn assert_cadence_never_leaks(
     market: &CadenceMarket,
     span_ms: u64,
@@ -1277,8 +1026,6 @@ fn assert_cadence_never_leaks(
     for (label, step_ms) in cadences {
         results.push(run_cadence(&t, market, label, span_ms, *step_ms));
     }
-    print_cadence_table(market, span_ms, &results);
-
     let base = &results[0];
     assert_eq!(
         base.steps, 1,
@@ -1426,17 +1173,6 @@ fn test_frequent_accrual_does_not_round_protocol_fee_to_zero() {
             );
 
             let capture_bps = r.revenue_claim_ray.saturating_mul(10_000) / interest;
-            if VERBOSE_CADENCE {
-                std::println!(
-                    "  fee capture [{}] {label}: revenue_ray={} interest_ray={} => {} bps \
-                     (reserve factor = 1000 bps)",
-                    market.label,
-                    r.revenue_claim_ray,
-                    interest,
-                    capture_bps
-                );
-            }
-
             assert!(
                 r.revenue_scaled > 0,
                 "{}: {label} minted zero protocol revenue shares — CS-AAVE4-004 repeat",
