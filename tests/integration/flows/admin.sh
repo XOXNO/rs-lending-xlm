@@ -360,11 +360,21 @@ flow_price_aggregator_extra() {
     # ceil((max-min)*10000/(max+min)) <= MAX_SINGLE_SOURCE_SANITY_BAND_BPS
     # (1000); +/-8% is 800 bps. Centred on the asset's *current* price rather
     # than on parity, so the band contains the price it is guarding.
-    local band_min band_max band_px
+    local band_min band_max band_px cur_min cur_max
     band_px=$(jq -r '[.. | objects | select(has("price")) | .price] | first // empty' <<<"$px" 2>/dev/null)
     [[ "$band_px" =~ ^[0-9]+$ ]] || band_px="$WAD"
     band_min=$((band_px / 100 * 92))
     band_max=$((band_px / 100 * 108))
+    # set_sanity_band is a one-way ratchet: the new band must sit inside the
+    # registered one or it reverts with SanityBandMustTighten (#227). A live
+    # feed drifts between registration and here, so clamp into the registered
+    # band -- the call must narrow, never widen. Clamping keeps the live price
+    # inside the result (any healthy oracle already has reg_min <= px <= reg_max)
+    # and can only lower the width in bps, so both band-width bounds still hold.
+    cur_min=$(jq -r '.min_sanity_price_wad // empty' <<<"$orc" 2>/dev/null)
+    cur_max=$(jq -r '.max_sanity_price_wad // empty' <<<"$orc" 2>/dev/null)
+    if [[ "$cur_min" =~ ^[0-9]+$ ]] && [ "$cur_min" -gt "$band_min" ]; then band_min="$cur_min"; fi
+    if [[ "$cur_max" =~ ^[0-9]+$ ]] && [ "$cur_max" -lt "$band_max" ]; then band_max="$cur_max"; fi
     inv pa_set_sanity_band "$ADMIN" "$PRICE_AGGREGATOR" -- set_sanity_band \
         --key "$key" --min_wad "$band_min" --max_wad "$band_max" >/dev/null
 
