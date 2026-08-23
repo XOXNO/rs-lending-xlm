@@ -1,6 +1,6 @@
 use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume};
-use soroban_sdk::{Address, Env};
+use soroban_sdk::{vec, Address, Env};
 
 use common::constants::{
     MAX_BORROW_INDEX_RAY, MAX_SUPPLY_INDEX_RAY, MILLISECONDS_PER_YEAR, RAY, RAY_DECIMALS,
@@ -543,7 +543,7 @@ fn invariant_preserved_by_one_chunk_accrual(
         initial_state,
     );
 
-    crate::ops::market::accrue(&e, hub(asset.clone()));
+    crate::ops::market::accrue(&e, vec![&e, hub(asset.clone())]);
 
     assert_invariant(&read_state(&e, &asset));
 }

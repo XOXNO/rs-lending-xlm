@@ -21,7 +21,7 @@
 
 use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume};
-use soroban_sdk::{Address, Env};
+use soroban_sdk::{vec, Address, Env};
 
 use common::constants::{MAX_BORROW_INDEX_RAY, MAX_SUPPLY_INDEX_RAY, RAY, SUPPLY_INDEX_FLOOR_RAW};
 use common::rates::MAX_COMPOUND_DELTA_MS;
@@ -206,7 +206,7 @@ fn iso_pool_views_unchanged_by_zero_time_accrue(
     let pre = read_views(&e, &key);
     let pre_rates = read_rate_views(&e, &key);
 
-    crate::ops::market::accrue(&e, key.clone());
+    crate::ops::market::accrue(&e, vec![&e, key.clone()]);
 
     let post = read_views(&e, &key);
     let post_rates = read_rate_views(&e, &key);
@@ -260,10 +260,10 @@ fn iso_pool_views_fixed_point_after_accrue(
         elapsed_ms,
     );
 
-    crate::ops::market::accrue(&e, key.clone());
+    crate::ops::market::accrue(&e, vec![&e, key.clone()]);
     let pre = read_views(&e, &key);
 
-    crate::ops::market::accrue(&e, key.clone());
+    crate::ops::market::accrue(&e, vec![&e, key.clone()]);
     let post = read_views(&e, &key);
 
     assert_same_views(&pre, &post);
@@ -309,7 +309,7 @@ fn iso_accrue_preserves_cash_and_params(
     );
 
     let pre = read_views(&e, &key);
-    crate::ops::market::accrue(&e, key.clone());
+    crate::ops::market::accrue(&e, vec![&e, key.clone()]);
     let post = read_views(&e, &key);
 
     cvlr_assert!(post.state_cash == pre.state_cash);
@@ -360,7 +360,7 @@ fn iso_unaccrued_views_lag_accrued_values(
     );
 
     let pre = read_views(&e, &key);
-    crate::ops::market::accrue(&e, key.clone());
+    crate::ops::market::accrue(&e, vec![&e, key.clone()]);
     let post = read_views(&e, &key);
 
     cvlr_assert!(pre.delta_time == elapsed_ms);
