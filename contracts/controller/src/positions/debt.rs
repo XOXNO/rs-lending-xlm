@@ -3,7 +3,7 @@ use common::types::{
     Account, AccountPositionType, DebtPosition, HubAssetKey, PoolAction, PoolBorrowEntry,
     PoolPositionMutation,
 };
-use soroban_sdk::{assert_with_error, panic_with_error, token, vec, Address, Env, Vec};
+use soroban_sdk::{assert_with_error, token, vec, Address, Env, Vec};
 
 use crate::account::require_owner_or_delegate;
 use crate::context::Cache;
@@ -266,18 +266,14 @@ pub(crate) fn borrow_into_controller(
     let pool_addr = cache.cached_pool_address();
     let pool_action = make_pool_action(&position, amount, hub_debt.clone());
     let controller = env.current_contract_address();
-    let tok = token::Client::new(env, &hub_debt.asset);
-    let before = tok.balance(&controller);
+    let before = token::Client::new(env, &hub_debt.asset).balance(&controller);
     // Hold the flash-loan flag across the pool transfer so a listed token's
     // transfer hook cannot reenter controller verbs before the strategy swap
     // guard is taken.
     let result = storage::with_flash_guard(env, || {
         pool_create_strategy_call(env, &pool_addr, &controller, pool_action, charge_fee)
     });
-    let measured = tok
-        .balance(&controller)
-        .checked_sub(before)
-        .unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError));
+    let measured = payments::balance_delta_since(env, &hub_debt.asset, &controller, before);
     assert_with_error!(
         env,
         measured == result.amount_received,

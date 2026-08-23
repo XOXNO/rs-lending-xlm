@@ -2,9 +2,10 @@ use common::errors::{GenericError, StrategyError};
 use common::token::authorize_transfer_as_current;
 use common::types::StrategySwap;
 use common::validation::require_positive_amount;
-use soroban_sdk::{assert_with_error, panic_with_error, token, Address, Env};
+use soroban_sdk::{assert_with_error, token, Address, Env};
 use swap_aggregator_interface::SwapAggregatorClient;
 
+use crate::payments::balance_delta_since;
 use crate::storage;
 
 /// Executes a swap of `amount_in` of `token_in` into `token_out` through the
@@ -26,13 +27,12 @@ pub(crate) fn swap_tokens(
     let router_addr = storage::get_swap_aggregator(env);
     let router = SwapAggregatorClient::new(env, &router_addr);
     let token_in_client = token::Client::new(env, token_in);
-    let token_out_client = token::Client::new(env, token_out);
 
     // Both sides are snapshotted before anything external runs: the input
     // balance bounds what the router may spend, and the output balance is the
     // baseline `verify_router_output` measures against after the call.
     let in_before = token_in_client.balance(&controller);
-    let out_before = token_out_client.balance(&controller);
+    let out_before = token::Client::new(env, token_out).balance(&controller);
 
     // Exact-amount pull authorization, scoped to this router and this amount,
     // so the router can take the input without a further signature.
@@ -55,7 +55,7 @@ pub(crate) fn swap_tokens(
         token_in_client.transfer(&controller, refund_to, &leftover);
     }
 
-    verify_router_output(env, &token_out_client, out_before)
+    verify_router_output(env, token_out, out_before)
 }
 
 /// Returns `amount_in` unchanged if `token_in` and `token_out` are the same
@@ -95,11 +95,13 @@ fn call_router_with_reentrancy_guard(
 /// Computes the increase in this contract's `token_out` balance since
 /// `balance_before` and returns it, panicking with `NoSwapOutput` if no output
 /// was received.
-fn verify_router_output(env: &Env, token_out_client: &token::Client, balance_before: i128) -> i128 {
-    let received = token_out_client
-        .balance(&env.current_contract_address())
-        .checked_sub(balance_before)
-        .unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError));
+fn verify_router_output(env: &Env, token_out: &Address, balance_before: i128) -> i128 {
+    let received = balance_delta_since(
+        env,
+        token_out,
+        &env.current_contract_address(),
+        balance_before,
+    );
     assert_with_error!(env, received > 0, StrategyError::NoSwapOutput);
     received
 }

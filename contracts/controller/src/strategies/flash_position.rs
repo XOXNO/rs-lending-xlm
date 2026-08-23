@@ -12,7 +12,7 @@ use crate::account;
 use crate::config;
 use crate::context::Cache;
 use crate::events::{FlashPositionEvent, PositionAction};
-use crate::payments::transfer_amount_measured;
+use crate::payments::{balance_delta_since, transfer_amount_measured};
 use crate::positions::supply::process_deposit;
 use crate::positions::{require_can_supply, validate_position_entry_gates};
 use crate::risk::validation::require_authorized_caller;
@@ -264,8 +264,7 @@ fn mint_and_forward(
     cache: &mut Cache,
 ) -> i128 {
     let controller = env.current_contract_address();
-    let tok = token::Client::new(env, &debt.asset);
-    let before = tok.balance(&controller);
+    let before = token::Client::new(env, &debt.asset).balance(&controller);
 
     let reported = borrow_into_controller(
         env,
@@ -277,10 +276,7 @@ fn mint_and_forward(
         cache,
     );
 
-    let measured = tok
-        .balance(&controller)
-        .checked_sub(before)
-        .unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError));
+    let measured = balance_delta_since(env, &debt.asset, &controller, before);
     assert_with_error!(env, measured == reported, GenericError::InternalError);
     assert_with_error!(env, measured > 0, GenericError::AmountMustBePositive);
 
@@ -335,10 +331,7 @@ fn collect_collateral_deposits(
         let baseline = before
             .get(hub_asset.asset.clone())
             .unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError));
-        let current = token::Client::new(env, &hub_asset.asset).balance(controller);
-        let delta = current
-            .checked_sub(baseline)
-            .unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError));
+        let delta = balance_delta_since(env, &hub_asset.asset, controller, baseline);
         assert_with_error!(
             env,
             delta >= min_amount,

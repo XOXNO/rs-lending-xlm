@@ -3,12 +3,13 @@ use common::collections::push_unique_address;
 use common::errors::GenericError;
 use common::types::{Account, DebtPosition, HubAssetKey, PositionMode};
 use common::validation::{expect_invariant, require_positive_amount};
-use soroban_sdk::{assert_with_error, panic_with_error, token, Address, Env, Map, Vec};
+use soroban_sdk::{assert_with_error, Address, Env, Map, Vec};
 
 use crate::config;
 use crate::context::Cache;
 use crate::events::{BlendMigrationEvent, PositionAction};
 use crate::external::blend::{blend_repay_all, blend_sweep_all};
+use crate::payments::balance_delta_since;
 use crate::positions::{require_can_supply, supply};
 use crate::risk::validation::require_authorized_caller;
 use crate::storage;
@@ -222,14 +223,11 @@ fn deposit_withdrawn(
     before: &Map<Address, i128>,
 ) {
     let mut deposits: Vec<(HubAssetKey, i128)> = Vec::new(env);
+    let controller = env.current_contract_address();
     for asset in withdraw_assets.iter() {
-        let token = token::Client::new(env, &asset);
         let prev = before.get(asset.clone()).unwrap_or(0);
 
-        let received = token
-            .balance(&env.current_contract_address())
-            .checked_sub(prev)
-            .unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError));
+        let received = balance_delta_since(env, &asset, &controller, prev);
         if received > 0 {
             deposits.push_back((HubAssetKey { hub_id, asset }, received));
         }
@@ -258,14 +256,11 @@ fn reconcile_debt_refunds(
     debt_caps: &Vec<(Address, i128)>,
     before: &Map<Address, i128>,
 ) {
+    let controller = env.current_contract_address();
     for (debt_asset, _max) in debt_caps.iter() {
-        let token = token::Client::new(env, &debt_asset);
         let prev = before.get(debt_asset.clone()).unwrap_or(0);
 
-        let refund = token
-            .balance(&env.current_contract_address())
-            .checked_sub(prev)
-            .unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError));
+        let refund = balance_delta_since(env, &debt_asset, &controller, prev);
         if refund > 0 {
             let hub_debt = HubAssetKey {
                 hub_id,

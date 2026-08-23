@@ -48,23 +48,20 @@ impl LiquidationCurve {
     /// from 0 at `target` to 1 at `hf_for_max_bonus` and staying at 1 below that threshold;
     /// returns 1 outright when `target` is at or below `hf_for_max_bonus`.
     fn bonus_scale(&self, env: &Env, hf: Wad, target: Wad) -> Wad {
-        let gap = target.checked_sub(env, hf);
         if target <= self.hf_for_max_bonus {
             Wad::ONE
         } else {
-            gap.div(env, target.checked_sub(env, self.hf_for_max_bonus))
+            target
+                .checked_sub(env, hf)
+                .div(env, target.checked_sub(env, self.hf_for_max_bonus))
                 .min(Wad::ONE)
         }
     }
 
-    /// Applies the curve's configured bonus factor to `increment`, returning it unchanged when
-    /// the factor is exactly one (100%).
+    /// Applies the curve's configured bonus factor to `increment`. `Bps::ONE`
+    /// applies as the identity, so the default 100% factor needs no special case.
     fn apply_bonus_factor(&self, env: &Env, increment: i128) -> i128 {
-        if self.bonus_factor == Bps::ONE {
-            increment
-        } else {
-            self.bonus_factor.apply_to(env, increment)
-        }
+        self.bonus_factor.apply_to(env, increment)
     }
 }
 

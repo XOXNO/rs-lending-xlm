@@ -9,6 +9,7 @@ use crate::context::Cache;
 use crate::external::pool::{
     pool_claim_revenue_call, pool_recapitalize_call, pool_update_indexes_call,
 };
+use crate::payments::balance_delta_since;
 use crate::risk::validation;
 use crate::{account, events, payments, risk, storage};
 
@@ -34,7 +35,7 @@ pub(crate) fn claim_revenue(env: &Env, caller: Address, assets: Vec<HubAssetKey>
     let mut results = Vec::new(env);
     let mut cache = Cache::new(env);
     for hub_asset in assets {
-        let amount = claim_revenue_for_asset_with_cache(env, &hub_asset, &mut cache);
+        let amount = claim_revenue_for_asset(env, &hub_asset, &mut cache);
         results.push_back(amount);
     }
     results
@@ -102,11 +103,7 @@ pub(crate) fn update_account_threshold(
 /// claimed amount is positive, transfers it from the controller to the
 /// configured accumulator address. Returns the claimed amount. Panics if no
 /// accumulator has been configured.
-fn claim_revenue_for_asset_with_cache(
-    env: &Env,
-    hub_asset: &HubAssetKey,
-    cache: &mut Cache,
-) -> i128 {
+fn claim_revenue_for_asset(env: &Env, hub_asset: &HubAssetKey, cache: &mut Cache) -> i128 {
     let accumulator = storage::try_get_accumulator(env)
         .unwrap_or_else(|| panic_with_error!(env, OracleError::NoAccumulator));
 
@@ -116,15 +113,11 @@ fn claim_revenue_for_asset_with_cache(
     // inexact-delivery token sends exactly what arrived (F-8, INV-ACCT-03).
     let controller = env.current_contract_address();
     let asset = &hub_asset.asset;
-    let token_client = token::Client::new(env, asset);
-    let before = token_client.balance(&controller);
+    let before = token::Client::new(env, asset).balance(&controller);
 
     let _ = pool_claim_revenue_call(env, &pool_addr, hub_asset);
 
-    let received = token_client
-        .balance(&controller)
-        .checked_sub(before)
-        .unwrap_or_else(|| panic_with_error!(env, GenericError::AmountMustBePositive));
+    let received = balance_delta_since(env, asset, &controller, before);
 
     if received > 0 {
         payments::transfer_amount_measured(
