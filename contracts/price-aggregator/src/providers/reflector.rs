@@ -6,9 +6,9 @@
 use common::errors::OracleError;
 use common::oracle::observation::{is_future_at, MIN_ORACLE_RESOLUTION_SECONDS};
 use common::oracle::providers::reflector::{
-    min_twap_observations, reflector_base, reflector_decimals, reflector_last_price,
-    reflector_prices, reflector_resolution, to_reflector_asset, try_reflector_resolution,
-    try_twap_mean_price, ReflectorAsset,
+    reflector_base, reflector_decimals, reflector_last_price, reflector_prices,
+    reflector_resolution, to_reflector_asset, try_reflector_resolution, try_twap_mean_price,
+    ReflectorAsset,
 };
 use common::types::{OracleReadMode, ReflectorFeedRef};
 use common::validation::validate_twap_records;
@@ -130,7 +130,8 @@ fn read_twap(
     if history.is_empty() {
         return Err(OracleError::ReflectorHistoryEmpty);
     }
-    if history.len() < min_twap_observations(records) {
+    // A TWAP must use its full configured window.
+    if history.len() < records {
         return Err(OracleError::TwapInsufficientObservations);
     }
     if history.len() > records.saturating_add(1) {

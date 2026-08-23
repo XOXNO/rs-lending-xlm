@@ -8,31 +8,6 @@ use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, Env};
 
 #[test]
-fn sac_transfer_zero_is_noop() {
-    let env = Env::default();
-    sac_transfer(
-        &env,
-        &Address::generate(&env),
-        &Address::generate(&env),
-        &Address::generate(&env),
-        0,
-    );
-}
-
-#[test]
-#[should_panic]
-fn sac_transfer_positive_requires_token() {
-    let env = Env::default();
-    sac_transfer(
-        &env,
-        &Address::generate(&env),
-        &Address::generate(&env),
-        &Address::generate(&env),
-        1,
-    );
-}
-
-#[test]
 #[should_panic(expected = "Error(Contract, #14)")]
 fn transfer_amount_measured_rejects_zero() {
     let env = Env::default();

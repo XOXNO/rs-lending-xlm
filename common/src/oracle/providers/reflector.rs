@@ -106,13 +106,6 @@ pub fn to_reflector_asset(env: &Env, asset: &OracleAssetRef) -> ReflectorAsset {
     }
 }
 
-/// Returns the minimum number of observations required for a TWAP window of
-/// `records` records. A TWAP must use its full configured window, so this
-/// equals `records`.
-pub fn min_twap_observations(records: u32) -> u32 {
-    records
-}
-
 /// Computes the arithmetic mean price over `history`. Returns `None` if any
 /// price is not positive, the running sum overflows i128, or `history` is empty.
 pub fn try_twap_mean_price(history: &Vec<ReflectorPriceData>) -> Option<i128> {

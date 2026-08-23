@@ -27,12 +27,7 @@ const MAX_NORMALIZED_RESERVE_WAD: u128 = 10u128.pow(34);
 /// positive, `amp` is outside `[MIN_AMP, MAX_AMP]`, either reserve exceeds
 /// `MAX_NORMALIZED_RESERVE_WAD`, or the iteration does not converge within
 /// `MAX_D_ITERATIONS` steps.
-pub fn solve_stable_d(
-    env: &Env,
-    xa_wad: i128,
-    xb_wad: i128,
-    amp: u128,
-) -> Result<U256, OracleError> {
+fn solve_stable_d(env: &Env, xa_wad: i128, xb_wad: i128, amp: u128) -> Result<U256, OracleError> {
     if xa_wad <= 0
         || xb_wad <= 0
         || !(MIN_AMP..=MAX_AMP).contains(&amp)

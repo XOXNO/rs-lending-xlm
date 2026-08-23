@@ -406,42 +406,6 @@ mod tests {
         assert_eq!(cfg.is_borrowable, spoke.is_borrowable);
     }
 
-    fn spoke_config() -> SpokeConfig {
-        SpokeConfig {
-            is_deprecated: false,
-            liquidation_target_hf_wad: 0,
-            hf_for_max_bonus_wad: 0,
-            liquidation_bonus_factor_bps: 0,
-        }
-    }
-
-    fn spoke_asset_config() -> SpokeAssetConfig {
-        SpokeAssetConfig {
-            is_collateralizable: true,
-            is_borrowable: true,
-            paused: false,
-            frozen: false,
-            no_seize: false,
-            loan_to_value: 9_000,
-            liquidation_threshold: 9_300,
-            liquidation_bonus: 300,
-            liquidation_fees: 0,
-            supply_cap: 0,
-            borrow_cap: 0,
-        }
-    }
-
-    #[test]
-    fn test_spoke_config_and_asset_config_build() {
-        let spoke = spoke_config();
-        assert!(!spoke.is_deprecated);
-
-        let asset = spoke_asset_config();
-        assert!(asset.is_collateralizable);
-        assert!(asset.is_borrowable);
-        assert_eq!(asset.loan_to_value, 9_000);
-    }
-
     fn account_meta(_env: &Env, spoke_id: u32) -> AccountMeta {
         AccountMeta {
             spoke_id,

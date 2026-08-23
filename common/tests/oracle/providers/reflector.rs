@@ -22,14 +22,6 @@ fn test_to_reflector_asset_string_panics() {
     let _ = to_reflector_asset(&env, &asset);
 }
 
-#[test]
-fn test_min_twap_observations_requires_the_full_window() {
-    // A partial window is not smoothing: every requested record must be present.
-    assert_eq!(min_twap_observations(4), 4);
-    assert_eq!(min_twap_observations(5), 5);
-    assert_eq!(min_twap_observations(12), 12);
-}
-
 fn pd(env: &soroban_sdk::Env, price: i128) -> ReflectorPriceData {
     let _ = env;
     ReflectorPriceData {

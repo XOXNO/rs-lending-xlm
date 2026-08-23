@@ -127,7 +127,9 @@ impl MockReflector {
         let mut out = Vec::new(&env);
         let len = match mode {
             3 => records.saturating_sub(2).max(1),
-            6 => common::oracle::providers::reflector::min_twap_observations(records),
+            // Exact-minimum window: a TWAP must use its full configured window, so
+            // `records` observations is the smallest history that is accepted.
+            6 => records,
             _ => records,
         };
         for i in 0..len {
