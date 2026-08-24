@@ -45,11 +45,6 @@ pub trait ReflectorOracle {
     fn prices(env: Env, asset: ReflectorAsset, records: u32) -> Option<Vec<ReflectorPriceData>>;
 }
 
-/// Calls `oracle`'s `base` function directly and returns the result.
-pub fn reflector_base(env: &Env, oracle: &Address) -> ReflectorAsset {
-    ReflectorClient::new(env, oracle).base()
-}
-
 /// Returns the most recent price data for `asset` from `oracle` via
 /// `try_lastprice`. Returns `None` if the call fails or no price is available.
 pub fn reflector_last_price(
@@ -75,16 +70,6 @@ pub fn reflector_prices(
         Ok(Ok(data)) => data,
         _ => None,
     }
-}
-
-/// Calls `oracle`'s `decimals` function directly and returns the result.
-pub fn reflector_decimals(env: &Env, oracle: &Address) -> u32 {
-    ReflectorClient::new(env, oracle).decimals()
-}
-
-/// Calls `oracle`'s `resolution` function directly and returns the result.
-pub fn reflector_resolution(env: &Env, oracle: &Address) -> u32 {
-    ReflectorClient::new(env, oracle).resolution()
 }
 
 /// Returns `oracle`'s resolution via `try_resolution`, or `None` if the call fails.

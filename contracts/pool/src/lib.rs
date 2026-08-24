@@ -116,7 +116,7 @@ impl LiquidityPoolInterface for LiquidityPool {
     #[only_owner]
     fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
         renew_instance(&env);
-        stellar_contract_utils::upgradeable::upgrade(&env, &new_wasm_hash);
+        env.deployer().update_current_contract_wasm(new_wasm_hash);
     }
 
     /// Batch-supplies assets into one or more markets: accrues interest,

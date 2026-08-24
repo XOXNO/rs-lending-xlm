@@ -63,14 +63,6 @@ struct StubReflector;
 
 #[contractimpl]
 impl StubReflector {
-    pub fn base(env: Env) -> ReflectorAsset {
-        ReflectorAsset::Other(soroban_sdk::Symbol::new(&env, "USD"))
-    }
-
-    pub fn decimals(_env: Env) -> u32 {
-        14
-    }
-
     pub fn resolution(_env: Env) -> u32 {
         300_000
     }
@@ -112,23 +104,10 @@ fn missing_oracle_try_helpers_fail_open() {
 }
 
 #[test]
-#[should_panic]
-fn missing_oracle_decimals_panics() {
-    let env = Env::default();
-    let _ = reflector_decimals(&env, &Address::generate(&env));
-}
-
-#[test]
 fn live_oracle_returns_non_default_values() {
     let env = Env::default();
     let oracle = env.register(StubReflector, ());
     let asset = ReflectorAsset::Other(soroban_sdk::Symbol::new(&env, "USD"));
-    match reflector_base(&env, &oracle) {
-        ReflectorAsset::Other(s) => assert_eq!(s, soroban_sdk::Symbol::new(&env, "USD")),
-        _ => panic!("expected USD base"),
-    }
-    assert_eq!(reflector_decimals(&env, &oracle), 14);
-    assert_eq!(reflector_resolution(&env, &oracle), 300_000);
     assert_eq!(try_reflector_resolution(&env, &oracle), Some(300_000));
     let last = reflector_last_price(&env, &oracle, &asset).expect("last");
     assert_eq!(last.price, 12);

@@ -111,7 +111,8 @@ pub(crate) fn owner_or_panic(env: &Env) -> Address {
 /// to `new_wasm_hash`.
 pub(crate) fn apply_upgrade(env: &Env, new_wasm_hash: &BytesN<32>) {
     renew_instance(env);
-    stellar_contract_utils::upgradeable::upgrade(env, new_wasm_hash);
+    env.deployer()
+        .update_current_contract_wasm(new_wasm_hash.clone());
 }
 
 /// Renews the governance instance's storage TTL, updates the pending-owner

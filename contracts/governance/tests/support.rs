@@ -3,6 +3,8 @@ extern crate std;
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, Bytes, BytesN, Env};
 
+use common::types::{ControllerKey, PositionLimits};
+
 use crate::constants::TIMELOCK_MIN_DELAY_LEDGERS;
 use crate::{Governance, GovernanceClient};
 
@@ -36,6 +38,15 @@ pub fn register_with_controller(
 pub fn fresh_governance(env: &Env) -> Address {
     let (_admin, gov_id, _gov) = register_governance(env);
     gov_id
+}
+
+pub fn read_controller_position_limits(env: &Env, controller_id: &Address) -> PositionLimits {
+    env.as_contract(controller_id, || {
+        env.storage()
+            .instance()
+            .get(&ControllerKey::PositionLimits)
+            .expect("position limits set")
+    })
 }
 
 pub fn upload_controller_wasm(env: &Env) -> BytesN<32> {

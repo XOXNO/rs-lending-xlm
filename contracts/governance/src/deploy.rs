@@ -3,8 +3,9 @@
 
 use common::errors::GenericError;
 use common::ttl::renew_instance;
+use controller_interface::ControllerAdminClient;
 
-use soroban_sdk::{assert_with_error, vec, Address, BytesN, Env, IntoVal, Symbol, Val};
+use soroban_sdk::{assert_with_error, Address, BytesN, Env};
 
 use crate::events::{DeployControllerEvent, DeployPriceAggregatorEvent};
 use crate::storage;
@@ -78,11 +79,8 @@ pub(crate) fn deploy_price_aggregator(env: &Env, wasm_hash: BytesN<32>) -> Addre
     storage::set_price_aggregator(env, &price_aggregator);
 
     if storage::has_controller(env) {
-        env.invoke_contract::<Val>(
-            &storage::get_controller(env),
-            &Symbol::new(env, "set_price_aggregator"),
-            vec![env, price_aggregator.clone().into_val(env)],
-        );
+        ControllerAdminClient::new(env, &storage::get_controller(env))
+            .set_price_aggregator(&price_aggregator);
     }
 
     DeployPriceAggregatorEvent {

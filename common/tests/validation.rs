@@ -10,6 +10,28 @@ fn risk_bounds_accepts_valid_triple() {
 }
 
 #[test]
+fn risk_bounds_accepts_threshold_at_bps_with_zero_bonus() {
+    let env = Env::default();
+
+    validate_risk_bounds(&env, 9_999, 10_000, 0);
+}
+
+#[test]
+fn risk_bounds_accepts_exact_seizure_headroom() {
+    let env = Env::default();
+
+    validate_risk_bounds(&env, 5_000, 8_000, 2_500);
+}
+
+#[test]
+#[should_panic(expected = "#113")]
+fn risk_bounds_rejects_one_bp_past_seizure_headroom() {
+    let env = Env::default();
+
+    validate_risk_bounds(&env, 5_000, 8_000, 2_501);
+}
+
+#[test]
 #[should_panic(expected = "#113")]
 fn risk_bounds_rejects_ltv_at_or_above_threshold() {
     let env = Env::default();

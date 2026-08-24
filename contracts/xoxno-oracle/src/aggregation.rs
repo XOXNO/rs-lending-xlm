@@ -12,7 +12,7 @@ use soroban_sdk::{Address, Env, String, Vec, U256};
 use crate::storage::{
     load_history, load_max_relative_skew, load_max_submission_age, load_resolution, load_signers,
     load_submission, load_threshold, record_signer_feed, remove_aggregate, renew_known_feed,
-    store_aggregate, store_history, store_submission_record,
+    store_aggregate, store_history, store_submission_record, SignerSubmission,
 };
 use crate::Error;
 
@@ -95,8 +95,8 @@ pub(crate) fn recompute_aggregate(env: &Env, feed_id: &String) {
     let max_relative_skew = load_max_relative_skew(env);
     let now = env.ledger().timestamp();
 
-    let mut kept_prices: Vec<i128> = Vec::new(env);
-    let mut kept_ts: Vec<u64> = Vec::new(env);
+    let mut kept_submissions: Vec<SignerSubmission> = Vec::new(env);
+    let mut newest_ts: u64 = 0;
 
     for signer in signers.iter() {
         let Some(submission) = load_submission(env, feed_id, &signer) else {
@@ -108,23 +108,18 @@ pub(crate) fn recompute_aggregate(env: &Env, feed_id: &String) {
             continue;
         }
 
-        kept_prices.push_back(submission.price);
-        kept_ts.push_back(submission.package_timestamp);
+        newest_ts = newest_ts.max(submission.package_timestamp);
+        kept_submissions.push_back(submission);
     }
 
     let threshold = load_threshold(env);
-    if kept_prices.len() < threshold {
+    if kept_submissions.len() < threshold {
         // Only the live aggregate is cleared: a transient quorum miss must not
         // destroy accumulated history that consumers age off themselves.
         remove_aggregate(env, feed_id);
         return;
     }
 
-    let mut newest_ts: u64 = 0;
-    for i in 0..kept_ts.len() {
-        let ts = kept_ts.get_unchecked(i);
-        newest_ts = newest_ts.max(ts);
-    }
     // Clamp the anchor to ledger time: `package_timestamp` is attacker-chosen,
     // so a future-dated submission must not drag the skew window forward (F-2).
     let newest_ts = newest_ts.min(now.saturating_mul(MS_PER_SECOND));
@@ -132,12 +127,12 @@ pub(crate) fn recompute_aggregate(env: &Env, feed_id: &String) {
 
     let mut clustered_prices: Vec<i128> = Vec::new(env);
     let mut oldest_package_timestamp: u64 = u64::MAX;
-    for i in 0..kept_ts.len() {
-        let ts = kept_ts.get_unchecked(i);
+    for submission in kept_submissions.iter() {
+        let ts = submission.package_timestamp;
         if newest_ts.saturating_sub(ts) > skew_ms {
             continue;
         }
-        clustered_prices.push_back(kept_prices.get_unchecked(i));
+        clustered_prices.push_back(submission.price);
         oldest_package_timestamp = oldest_package_timestamp.min(ts);
     }
 

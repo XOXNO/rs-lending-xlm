@@ -6,6 +6,9 @@
 //! composition depends on the changed key.
 
 use common::errors::OracleError;
+use common::oracle::providers::redstone::REDSTONE_DECIMALS;
+use common::oracle::providers::reflector::ReflectorClient;
+use common::oracle::providers::xoxno::XoxnoOracleAdapterClient;
 use common::types::{AssetOracle, FeedSource, OracleTolerance, PriceKey, PriceSource, ProviderRef};
 use common::validation::{
     validate_oracle_tolerance, validate_sanity_bounds, validate_single_source_sanity_band,
@@ -14,7 +17,7 @@ use soroban_sdk::{assert_with_error, panic_with_error, Env, Vec};
 
 use crate::engine;
 use crate::properties;
-use crate::providers::{aquarius, redstone, reflector, xoxno};
+use crate::providers::{aquarius, reflector};
 use crate::registry;
 use crate::session::Session;
 use crate::validation;
@@ -41,9 +44,24 @@ fn attest_feed(env: &Env, feed: &FeedSource) {
         ProviderRef::Reflector(reflector) => {
             reflector::attest(env, reflector, feed.decimals, feed.max_stale_seconds)
         }
-        ProviderRef::RedStone(_) => redstone::attest(env, feed.decimals),
+        ProviderRef::RedStone(_) => assert_with_error!(
+            env,
+            feed.decimals == REDSTONE_DECIMALS,
+            OracleError::InvalidOracleDecimals
+        ),
         ProviderRef::Xoxno(xoxno_feed) => {
-            xoxno::attest(env, xoxno_feed, feed.decimals, feed.max_stale_seconds)
+            assert_with_error!(
+                env,
+                ReflectorClient::new(env, &xoxno_feed.contract).decimals() == feed.decimals,
+                OracleError::InvalidOracleDecimals
+            );
+            assert_with_error!(
+                env,
+                feed.max_stale_seconds
+                    >= XoxnoOracleAdapterClient::new(env, &xoxno_feed.contract)
+                        .max_submission_age_seconds(),
+                OracleError::InvalidStalenessConfig
+            );
         }
     }
 }

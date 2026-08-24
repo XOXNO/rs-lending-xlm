@@ -9,11 +9,6 @@ use common::constants::{DEFAULT_MIN_BORROW_COLLATERAL_USD_WAD, POSITION_LIMIT_MA
 use stellar_access::*;
 use stellar_contract_utils::*;
 
-/// Returns the current owner, panicking if ownership has not been set.
-fn owner_or_panic(env: &Env) -> Address {
-    ownable::get_owner(env).unwrap_or_else(|| panic_with_error!(env, GenericError::OwnerNotSet))
-}
-
 /// Initializes the controller: sets `admin` as owner, sets position limits
 /// to their maximum and minimum borrow collateral to its default value, and
 /// records the initial app version. Leaves the contract paused.
@@ -44,7 +39,8 @@ pub(crate) fn upgrade(env: &Env, new_wasm_hash: &BytesN<32>) {
     if !pausable::paused(env) {
         pausable::pause(env);
     }
-    upgradeable::upgrade(env, new_wasm_hash);
+    env.deployer()
+        .update_current_contract_wasm(new_wasm_hash.clone());
 }
 
 /// Records `new_version` as the app version. Panics unless it is strictly
@@ -88,7 +84,8 @@ pub(crate) fn unpause(env: &Env) {
 /// ledger `live_until_ledger`.
 pub(crate) fn transfer_ownership(env: &Env, new_owner: &Address, live_until_ledger: u32) {
     // #[only_owner] already authenticated; low-level role_transfer does not re-auth.
-    let current_owner = owner_or_panic(env);
+    let current_owner = ownable::get_owner(env)
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::OwnerNotSet));
 
     role_transfer::transfer_role(
         env,

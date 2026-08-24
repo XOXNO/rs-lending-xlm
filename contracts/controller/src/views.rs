@@ -10,7 +10,7 @@ use common::types::{
     AccountAttributes, AccountPositionRaw, DebtPositionRaw, HubAssetKey, HubPayment,
     LiquidationEstimate, MarketIndexView, PaymentTuple, PriceStatus, SeizeMode,
 };
-use soroban_sdk::{assert_with_error, Address, Env, Map, Vec};
+use soroban_sdk::{assert_with_error, Env, Map, Vec};
 
 use crate::external::price_aggregator::fetch_prices_status;
 use crate::positions::liquidation::{build_liquidation_plan, split_seized_shares};
@@ -143,11 +143,6 @@ pub(crate) fn liquidation_collateral_available(env: &Env, account_id: u64) -> i1
     )
     .weighted_collateral
     .raw()
-}
-
-/// Returns the address of the pool contract registered with the controller.
-pub(crate) fn get_pool_address(env: &Env) -> Address {
-    storage::get_pool(env)
 }
 
 /// Returns the supply/borrow index and price status for each of

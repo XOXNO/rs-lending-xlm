@@ -30,7 +30,3 @@ pub(crate) fn require_nonzero_wasm_hash(env: &Env, hash: &BytesN<32>) {
         GenericError::InvalidWasmHash
     );
 }
-
-#[cfg(test)]
-#[path = "../../tests/validate/spoke.rs"]
-mod spoke_tests;

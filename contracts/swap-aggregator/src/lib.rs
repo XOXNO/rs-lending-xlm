@@ -36,9 +36,11 @@ extern crate alloc;
 mod test;
 
 #[cfg(test)]
+pub(crate) use common::ttl::renew_instance;
+#[cfg(test)]
 pub(crate) use constants::residual_allowance;
 #[cfg(test)]
-pub(crate) use storage::{renew_instance, reserved_fee_balance};
+pub(crate) use storage::reserved_fee_balance;
 
 use soroban_sdk::{
     contract, contractimpl, panic_with_error, token, xdr::FromXdr, Address, Bytes, BytesN, Env, Vec,
@@ -67,7 +69,7 @@ impl Router {
     /// entries' worth of rent.
     pub fn __constructor(env: Env, admin: Address) {
         ownable::set_owner(&env, &admin);
-        storage::renew_instance(&env);
+        common::ttl::renew_instance(&env);
     }
 }
 
@@ -76,14 +78,14 @@ impl SwapAggregatorInterface for Router {
     /// Set the protocol static fee in bps (`<= FEE_CAP`). Owner only.
     #[only_owner]
     fn set_static_fee(env: Env, fee_bps: u32) {
-        storage::renew_instance(&env);
+        common::ttl::renew_instance(&env);
         fees::set_static_fee(&env, fee_bps);
     }
 
     /// Mark `token` as fee-whitelisted (affects input-side fee selection). Owner only.
     #[only_owner]
     fn add_to_whitelist(env: Env, token: Address) {
-        storage::renew_instance(&env);
+        common::ttl::renew_instance(&env);
         let mut list = storage::load_whitelist(&env);
         if !list.contains(&token) {
             list.push_back(token);
@@ -94,7 +96,7 @@ impl SwapAggregatorInterface for Router {
     /// Remove `token` from the fee whitelist. Owner only.
     #[only_owner]
     fn remove_from_whitelist(env: Env, token: Address) {
-        storage::renew_instance(&env);
+        common::ttl::renew_instance(&env);
         let mut list = storage::load_whitelist(&env);
         if let Some(idx) = list.first_index_of(&token) {
             list.remove(idx);
@@ -105,14 +107,14 @@ impl SwapAggregatorInterface for Router {
     /// Upgrade contract WASM. Owner only.
     #[only_owner]
     fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
-        storage::renew_instance(&env);
-        stellar_contract_utils::upgradeable::upgrade(&env, &new_wasm_hash);
+        common::ttl::renew_instance(&env);
+        env.deployer().update_current_contract_wasm(new_wasm_hash);
     }
 
     /// Create a referral; returns the new id. Owner only.
     #[only_owner]
     fn add_referral(env: Env, owner: Address, fee_bps: u32) -> u64 {
-        storage::renew_instance(&env);
+        common::ttl::renew_instance(&env);
         if fee_bps > FEE_CAP {
             panic_with_error!(&env, Error::FeeTooHigh);
         }
@@ -136,7 +138,7 @@ impl SwapAggregatorInterface for Router {
     /// Update a referral's fee bps. Owner only.
     #[only_owner]
     fn set_referral_fee(env: Env, id: u64, fee_bps: u32) {
-        storage::renew_instance(&env);
+        common::ttl::renew_instance(&env);
         if fee_bps > FEE_CAP {
             panic_with_error!(&env, Error::FeeTooHigh);
         }
@@ -148,7 +150,7 @@ impl SwapAggregatorInterface for Router {
     /// Activate or deactivate a referral. Owner only.
     #[only_owner]
     fn set_referral_active(env: Env, id: u64, active: bool) {
-        storage::renew_instance(&env);
+        common::ttl::renew_instance(&env);
         let mut cfg = storage::load_referral(&env, id);
         cfg.active = active;
         storage::set_referral(&env, id, &cfg);
@@ -157,7 +159,7 @@ impl SwapAggregatorInterface for Router {
     /// Transfer claim rights for a referral. Owner only.
     #[only_owner]
     fn set_referral_owner(env: Env, id: u64, new_owner: Address) {
-        storage::renew_instance(&env);
+        common::ttl::renew_instance(&env);
         let mut cfg = storage::load_referral(&env, id);
         cfg.owner = new_owner;
         storage::set_referral(&env, id, &cfg);
@@ -166,14 +168,14 @@ impl SwapAggregatorInterface for Router {
     /// Pay out accrued admin fee balances for `tokens`. Owner only.
     #[only_owner]
     fn claim_admin_fees(env: Env, recipient: Address, tokens: Vec<Address>) {
-        storage::renew_instance(&env);
+        common::ttl::renew_instance(&env);
         let router = env.current_contract_address();
         fees::claim_fee_bucket(&env, &router, &recipient, tokens, FeeBucket::Admin);
     }
 
     /// Pay out accrued fees for referral `id` to its configured owner.
     fn claim_referral_fees(env: Env, id: u64, tokens: Vec<Address>) {
-        storage::renew_instance(&env);
+        common::ttl::renew_instance(&env);
         let router = env.current_contract_address();
         fees::claim_referral_fees(&env, &router, id, tokens);
     }
@@ -181,7 +183,7 @@ impl SwapAggregatorInterface for Router {
     /// Recover non-fee token balances to `recipient`. Leaves fee buckets intact. Owner only.
     #[only_owner]
     fn sweep_balance(env: Env, recipient: Address, tokens: Vec<Address>) {
-        storage::renew_instance(&env);
+        common::ttl::renew_instance(&env);
         let router = env.current_contract_address();
         let n = tokens.len();
         for i in 0..n {
@@ -244,7 +246,7 @@ impl SwapAggregatorInterface for Router {
     /// Pulls `total_in` from `sender`, runs optional LP burn/paths/mint, applies
     /// fees, enforces `total_min_out`, and returns delivered output.
     fn execute_strategy(env: Env, sender: Address, total_in: i128, swap_xdr: Bytes) -> i128 {
-        storage::renew_instance(&env);
+        common::ttl::renew_instance(&env);
         let payload = StrategyPayload::from_xdr(&env, &swap_xdr)
             .unwrap_or_else(|_| panic_with_error!(&env, Error::InvalidRouteXdr));
         execute::run(env, sender, total_in, payload)

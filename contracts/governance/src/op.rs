@@ -8,6 +8,7 @@ use common::types::{AssetOracle, PriceKey};
 use common::validation::{
     validate_liquidation_curve, validate_liquidation_fees, validate_risk_bounds,
 };
+use controller_interface::ControllerAdminClient;
 
 use soroban_sdk::{
     assert_with_error, panic_with_error, vec, Address, Env, IntoVal, Symbol, Val, Vec,
@@ -413,11 +414,8 @@ pub(crate) fn apply_self_op(env: &Env, op: &AdminOperation) {
         AdminOperation::SetPriceAggregator(addr) => {
             validate::require_contract_address(env, addr, OracleError::InvalidAggregator);
             storage::set_price_aggregator(env, addr);
-            env.invoke_contract::<Val>(
-                &storage::get_controller(env),
-                &Symbol::new(env, "set_price_aggregator"),
-                vec![env, addr.clone().into_val(env)],
-            );
+            ControllerAdminClient::new(env, &storage::get_controller(env))
+                .set_price_aggregator(addr);
         }
         AdminOperation::SetSwapAggregator(_)
         | AdminOperation::SetAccumulator(_)

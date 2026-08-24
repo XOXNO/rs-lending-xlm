@@ -1,6 +1,5 @@
 use super::*;
-use common::constants::{BPS, MAX_ASSET_DECIMALS, RAY};
-use common::validation::{validate_liquidation_fees, validate_risk_bounds};
+use common::constants::{MAX_ASSET_DECIMALS, RAY};
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::Env;
 
@@ -20,44 +19,6 @@ fn sample_market_params(asset: &Address, decimals: u32) -> MarketParamsRaw {
         asset_id: asset.clone(),
         asset_decimals: decimals,
     }
-}
-
-#[test]
-#[should_panic(expected = "Error(Contract, #113)")]
-fn validate_risk_bounds_rejects_threshold_above_bps() {
-    let env = Env::default();
-    validate_risk_bounds(&env, 5_000, 10_001, 100);
-}
-
-// Not panicking IS the assertion in the accept tests below: the reject probes
-// pin the limits from one side only. The gate is two-dimensional:
-// `threshold <= BPS` AND `threshold * (BPS + bonus) <= BPS^2`.
-#[test]
-fn validate_risk_bounds_accepts_threshold_exactly_at_bps_with_zero_bonus() {
-    let env = Env::default();
-    validate_risk_bounds(&env, 5_000, 10_000, 0);
-}
-
-/// `threshold * (BPS + bonus) == BPS^2` is the exact seizure-headroom
-/// boundary: 8_000 bps of threshold leaves room for exactly a 25% bonus.
-#[test]
-fn validate_risk_bounds_accepts_the_exact_bonus_headroom_boundary() {
-    let env = Env::default();
-    validate_risk_bounds(&env, 5_000, 8_000, 2_500);
-}
-
-#[test]
-#[should_panic(expected = "Error(Contract, #113)")]
-fn validate_risk_bounds_rejects_one_bp_past_the_bonus_headroom_boundary() {
-    let env = Env::default();
-    validate_risk_bounds(&env, 5_000, 8_000, 2_501);
-}
-
-#[test]
-#[should_panic(expected = "Error(Contract, #113)")]
-fn validate_liquidation_fees_rejects_above_bps() {
-    let env = Env::default();
-    validate_liquidation_fees(&env, BPS as u32 + 1);
 }
 
 #[test]

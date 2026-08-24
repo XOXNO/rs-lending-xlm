@@ -99,7 +99,7 @@ impl XoxnoOracle {
     #[only_owner]
     pub fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
         renew_instance(&env);
-        stellar_contract_utils::upgradeable::upgrade(&env, &new_wasm_hash);
+        env.deployer().update_current_contract_wasm(new_wasm_hash);
     }
 }
 

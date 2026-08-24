@@ -6,9 +6,8 @@
 use common::errors::OracleError;
 use common::oracle::observation::{is_future_at, MIN_ORACLE_RESOLUTION_SECONDS};
 use common::oracle::providers::reflector::{
-    reflector_base, reflector_decimals, reflector_last_price, reflector_prices,
-    reflector_resolution, to_reflector_asset, try_reflector_resolution, try_twap_mean_price,
-    ReflectorAsset,
+    reflector_last_price, reflector_prices, to_reflector_asset, try_reflector_resolution,
+    try_twap_mean_price, ReflectorAsset, ReflectorClient,
 };
 use common::types::{OracleReadMode, ReflectorFeedRef};
 use common::validation::validate_twap_records;
@@ -24,16 +23,17 @@ use crate::session::Session;
 /// the requested record count does not exceed `max_stale`. Panics if any
 /// check fails.
 pub(crate) fn attest(env: &Env, feed: &ReflectorFeedRef, decimals: u32, max_stale: u64) {
-    match reflector_base(env, &feed.contract) {
+    let client = ReflectorClient::new(env, &feed.contract);
+    match client.base() {
         ReflectorAsset::Other(symbol) if symbol == Symbol::new(env, "USD") => {}
         _ => panic_with_error!(env, OracleError::InvalidOracleBase),
     }
     assert_with_error!(
         env,
-        reflector_decimals(env, &feed.contract) == decimals,
+        client.decimals() == decimals,
         OracleError::InvalidOracleDecimals
     );
-    let resolution = reflector_resolution(env, &feed.contract);
+    let resolution = client.resolution();
     assert_with_error!(
         env,
         resolution >= MIN_ORACLE_RESOLUTION_SECONDS && u64::from(resolution) <= max_stale,

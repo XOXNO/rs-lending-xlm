@@ -511,7 +511,7 @@ impl ControllerInterface for Controller {
 
     /// Returns the address of the deployed liquidity pool contract.
     fn get_pool_address(env: Env) -> Address {
-        views::get_pool_address(&env)
+        storage::get_pool(&env)
     }
 
     /// Returns the current supply and borrow indexes (RAY) for `hub_asset`.

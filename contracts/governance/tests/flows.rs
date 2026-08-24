@@ -16,7 +16,8 @@ use stellar_access::ownable;
 
 use crate::access::EXECUTOR_ROLE;
 use crate::test_support::{
-    register_governance, upload_controller_wasm, upload_price_aggregator_wasm,
+    read_controller_position_limits, register_governance, upload_controller_wasm,
+    upload_price_aggregator_wasm,
 };
 use crate::{constants, storage, GovernanceClient};
 
@@ -50,15 +51,6 @@ fn sample_asset_oracle(env: &Env) -> AssetOracle {
         min_sanity_price_wad: 1,
         max_sanity_price_wad: MAX_REASONABLE_PRICE_WAD,
     }
-}
-
-fn read_controller_position_limits(env: &Env, controller_id: &Address) -> PositionLimits {
-    env.as_contract(controller_id, || {
-        env.storage()
-            .instance()
-            .get(&ControllerKey::PositionLimits)
-            .expect("position limits set")
-    })
 }
 
 #[test]

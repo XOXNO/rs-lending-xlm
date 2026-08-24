@@ -72,11 +72,7 @@ pub(super) fn to_u128(env: &Env, amount: i128) -> u128 {
 /// Returns the index of `target` in `tokens`. Panics with `BrokenTokenChain`
 /// if `target` is not present.
 pub(super) fn find_index(env: &Env, tokens: &Vec<Address>, target: &Address) -> u32 {
-    let n = tokens.len();
-    for i in 0..n {
-        if tokens.get(i).as_ref() == Some(target) {
-            return i;
-        }
-    }
-    panic_with_error!(env, Error::BrokenTokenChain);
+    tokens
+        .first_index_of(target)
+        .unwrap_or_else(|| panic_with_error!(env, Error::BrokenTokenChain))
 }
