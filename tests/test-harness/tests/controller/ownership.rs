@@ -1,4 +1,6 @@
-use test_harness::{assert_contract_error, errors, usdc_preset, LendingTest, ALICE, BOB};
+use test_harness::{
+    assert_contract_error, errors, map_try_ok_unit, usdc_preset, LendingTest, ALICE, BOB,
+};
 
 fn fresh() -> LendingTest {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
@@ -35,10 +37,7 @@ fn test_transfer_ownership_with_zero_ttl_cancels_pending() {
 
     ctrl.transfer_ownership(&candidate, &0u32);
 
-    let result = match ctrl.try_accept_ownership() {
-        Ok(res) => res.map_err(|e| e.into()),
-        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
-    };
+    let result = map_try_ok_unit(ctrl.try_accept_ownership());
     assert_contract_error(result, errors::NO_PENDING_TRANSFER);
 }
 

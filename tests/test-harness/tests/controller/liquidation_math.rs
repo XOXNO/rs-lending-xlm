@@ -1,23 +1,11 @@
+use crate::shared::get_indexes;
 use common::types::SeizeMode;
 use controller::constants::{RAY, WAD};
-use test_harness::{
-    eth_preset, hub_asset, usd_cents, usdc_preset, LendingTest, ALICE, BOB, LIQUIDATOR,
-};
-
-fn get_indexes(t: &LendingTest, asset: &str) -> (i128, i128) {
-    let asset_addr = t.resolve_asset(asset);
-    let ctrl = t.ctrl_client();
-    let assets = soroban_sdk::Vec::from_array(&t.env, [hub_asset(asset_addr)]);
-    let idx = ctrl.get_market_indexes_detailed(&assets).get(0).unwrap();
-    (idx.supply_index, idx.borrow_index)
-}
+use test_harness::{hub_asset, usd_cents, LendingTest, ALICE, BOB, LIQUIDATOR};
 
 #[test]
 fn test_seizure_equals_debt_times_one_plus_bonus() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.0);
@@ -60,10 +48,7 @@ fn test_seizure_equals_debt_times_one_plus_bonus() {
 
 #[test]
 fn test_bonus_formula_at_specific_hf_levels() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.0);
@@ -93,10 +78,7 @@ fn test_bonus_formula_at_specific_hf_levels() {
 
 #[test]
 fn test_deep_underwater_higher_bonus() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.0);
@@ -138,10 +120,7 @@ fn test_deep_underwater_higher_bonus() {
 
 #[test]
 fn test_liquidation_does_not_increase_debt() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.0);
@@ -183,10 +162,7 @@ fn test_liquidation_does_not_increase_debt() {
 
 #[test]
 fn test_protocol_fee_on_bonus_only_quantitative() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.0);
@@ -223,11 +199,7 @@ fn test_protocol_fee_on_bonus_only_quantitative() {
 
 #[test]
 fn test_bad_debt_index_decrease_exact() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_dust_disabled_all_markets()
-        .build();
+    let mut t = LendingTest::new().standard_two_asset_dust_disabled();
 
     t.supply(BOB, "ETH", 1000.0);
 
@@ -268,10 +240,7 @@ fn test_bad_debt_index_decrease_exact() {
 
 #[test]
 fn test_multiple_partial_liquidations_incremental_hf() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.0);
@@ -323,10 +292,7 @@ fn test_multiple_partial_liquidations_incremental_hf() {
 
 #[test]
 fn test_liquidation_bounded_by_available_collateral() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 1_000.0);
     t.borrow(ALICE, "ETH", 0.3);

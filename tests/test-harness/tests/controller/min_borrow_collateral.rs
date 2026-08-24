@@ -1,5 +1,5 @@
 use test_harness::{
-    assert_contract_error, errors, eth_preset, usdc_preset, usdt_stable_preset, LendingTest, ALICE,
+    assert_contract_error, errors, usdc_preset, usdt_stable_preset, LendingTest, ALICE,
 };
 
 #[test]
@@ -11,10 +11,7 @@ fn test_small_supply_succeeds_when_debt_free() {
 
 #[test]
 fn test_borrow_rejected_when_ltv_collateral_below_instance_floor() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 4.0);
     let res = t.try_borrow(ALICE, "ETH", 0.0015);
@@ -23,10 +20,7 @@ fn test_borrow_rejected_when_ltv_collateral_below_instance_floor() {
 
 #[test]
 fn test_borrow_succeeds_when_ltv_collateral_meets_instance_floor() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 100.0);
     t.borrow(ALICE, "ETH", 0.01);
@@ -36,10 +30,7 @@ fn test_borrow_succeeds_when_ltv_collateral_meets_instance_floor() {
 
 #[test]
 fn test_withdraw_while_in_debt_rejected_when_ltv_collateral_falls_below_floor() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 12.0);
     t.borrow(ALICE, "ETH", 0.001);
@@ -57,10 +48,7 @@ fn test_withdraw_while_debt_free_allows_small_residue() {
 
 #[test]
 fn test_partial_repay_leaving_small_debt_succeeds() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 0.025);
@@ -70,11 +58,7 @@ fn test_partial_repay_leaving_small_debt_succeeds() {
 
 #[test]
 fn test_min_borrow_collateral_gate_disabled_when_floor_zero() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_dust_disabled_all_markets()
-        .build();
+    let mut t = LendingTest::new().standard_two_asset_dust_disabled();
 
     t.supply(ALICE, "USDC", 4.0);
     t.borrow(ALICE, "ETH", 0.0015);
@@ -85,8 +69,7 @@ fn test_min_borrow_collateral_gate_disabled_when_floor_zero() {
 #[test]
 fn test_borrow_not_blocked_by_unrelated_supply_price_crash() {
     let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
+        .standard_two_asset()
         .with_market(usdt_stable_preset())
         .build();
 

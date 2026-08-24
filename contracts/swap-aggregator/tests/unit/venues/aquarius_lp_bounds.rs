@@ -16,7 +16,7 @@ use crate::errors::Error;
 use crate::program::encode::{self, RawOp};
 use crate::types::StrategyPayload;
 use crate::vault::Vault;
-use crate::venues::aquarius::{add_liquidity, MintLiquidity};
+use crate::venues::aquarius::add_liquidity;
 use crate::{Router, RouterClient};
 
 use super::super::support::{aquarius_lp_mock, aquarius_mock, new_asset};
@@ -192,15 +192,7 @@ impl MintProbe {
 
         let mut cache: Map<Address, Vec<Address>> = Map::new(&env);
         let shares = add_liquidity(
-            &env,
-            &router,
-            &mut vault,
-            MintLiquidity {
-                pool: &pool,
-                lp_token: &lp_token,
-                min_shares,
-            },
-            &mut cache,
+            &env, &router, &mut vault, &pool, &lp_token, min_shares, &mut cache,
         );
 
         let mut report = Vec::new(&env);

@@ -8,11 +8,6 @@ use crate::errors::Error;
 use crate::math::checked_add;
 use crate::types::{DataKey, ReferralConfig};
 
-/// Extends the contract instance's storage TTL.
-pub(crate) fn renew_instance(env: &Env) {
-    common::ttl::renew_instance(env);
-}
-
 /// Returns the static protocol fee in basis points from instance storage, or 0 if unset.
 pub(crate) fn static_fee_bps(env: &Env) -> u32 {
     env.storage()

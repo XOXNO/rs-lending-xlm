@@ -12,12 +12,14 @@ use crate::account;
 use crate::config;
 use crate::context::Cache;
 use crate::events::{FlashPositionEvent, PositionAction};
+use crate::payments::{balance_delta_since, transfer_amount_measured};
 use crate::positions::supply::process_deposit;
 use crate::positions::{require_can_supply, validate_position_entry_gates};
+use crate::risk::validation::require_authorized_caller;
 use crate::storage;
 use crate::strategies::{
     borrow_into_controller, legs::refund_controller_balance_delta, prefetch_strategy_prices,
-    strategy_finalize,
+    snapshot_balances, strategy_finalize,
 };
 
 pub(crate) struct FlashPositionParams<'a> {
@@ -42,7 +44,7 @@ pub(crate) fn process_flash_position(
     caller: &Address,
     params: FlashPositionParams<'_>,
 ) -> u64 {
-    crate::strategies::require_strategy_caller(env, caller);
+    require_authorized_caller(env, caller);
 
     let FlashPositionParams {
         account_id,
@@ -85,13 +87,13 @@ pub(crate) fn process_flash_position(
         &mut cache,
     );
 
-    let collaterals = validate_collaterals(env, &mut cache, &account, collaterals);
+    validate_collaterals(env, &mut cache, &account, collaterals);
     validate_refund_assets(
         env,
         &mut cache,
         account.spoke_id,
         debt.hub_id,
-        &collaterals,
+        collaterals,
         refund_assets,
     );
 
@@ -108,8 +110,11 @@ pub(crate) fn process_flash_position(
         storage::with_flash_guard(env, || {
             let amount_received =
                 mint_and_forward(env, &mut account, debt, amount, receiver, &mut cache);
-            let collateral_before =
-                snapshot_balances(env, &controller, collateral_assets(&collaterals));
+            let collateral_before = snapshot_balances(
+                env,
+                &controller,
+                collaterals.iter().map(|(hub_asset, _)| hub_asset.asset),
+            );
             let refund_before = snapshot_balances(env, &controller, refund_assets.iter());
             invoke_receiver(
                 env,
@@ -125,11 +130,14 @@ pub(crate) fn process_flash_position(
             (amount_received, collateral_before, refund_before)
         });
 
-    let deposits = collect_collateral_deposits(env, &controller, &collaterals, &collateral_before);
+    let deposits = collect_collateral_deposits(env, &controller, collaterals, &collateral_before);
     process_deposit(env, &controller, &mut account, &deposits, &mut cache);
 
     refund_listed_assets(env, caller, refund_assets, &refund_before);
 
+    // Checked on both sides of finalize, not redundantly: `strategy_finalize`
+    // restamps LTV, which can drop a zero-scaled supply position, and finalizes
+    // with `remove_if_empty`. Emptiness is therefore re-decidable across it.
     require_flash_position_still_open(env, &account, debt);
     strategy_finalize(env, account_id, &mut account, &mut cache);
     require_flash_position_still_open(env, &account, debt);
@@ -149,12 +157,21 @@ pub(crate) fn process_flash_position(
     account_id
 }
 
+/// Panics unless `collaterals` is non-empty, within the supply-position limit,
+/// free of repeated assets, made of non-negative minimums with at least one
+/// positive, supplyable into `account`'s spoke, and past the deposit entry
+/// gates.
+///
+/// Uniqueness is enforced on the underlying asset rather than the whole
+/// `HubAssetKey`: two distinct keys may share an asset (they differ only by
+/// `hub_id`), so the asset check is the strictly stronger of the two and a
+/// repeated key cannot slip past it.
 fn validate_collaterals(
     env: &Env,
     cache: &mut Cache,
     account: &Account,
     collaterals: &Vec<(HubAssetKey, i128)>,
-) -> Vec<(HubAssetKey, i128)> {
+) {
     require_non_empty_payments(env, collaterals);
 
     let limits = storage::get_position_limits(env);
@@ -164,18 +181,11 @@ fn validate_collaterals(
         GenericError::InvalidPayments
     );
 
-    let mut seen_keys: Map<HubAssetKey, i128> = Map::new(env);
     let mut seen_assets: Map<Address, bool> = Map::new(env);
     let mut has_positive_min = false;
-    let mut unique: Vec<(HubAssetKey, i128)> = Vec::new(env);
 
     for (hub_asset, min_amount) in collaterals.iter() {
         require_nonneg_amount(env, min_amount);
-        assert_with_error!(
-            env,
-            !seen_keys.contains_key(hub_asset.clone()),
-            GenericError::InvalidPayments
-        );
         assert_with_error!(
             env,
             !seen_assets.contains_key(hub_asset.asset.clone()),
@@ -185,16 +195,18 @@ fn validate_collaterals(
             has_positive_min = true;
         }
         require_can_supply(env, cache, account.spoke_id, &hub_asset);
-        seen_keys.set(hub_asset.clone(), min_amount);
         seen_assets.set(hub_asset.asset.clone(), true);
-        unique.push_back((hub_asset, min_amount));
     }
 
     assert_with_error!(env, has_positive_min, StrategyError::CollateralRequired);
 
-    validate_position_entry_gates(env, account, &unique, cache, AccountPositionType::Deposit);
-
-    unique
+    validate_position_entry_gates(
+        env,
+        account,
+        collaterals,
+        cache,
+        AccountPositionType::Deposit,
+    );
 }
 
 fn validate_refund_assets(
@@ -252,8 +264,7 @@ fn mint_and_forward(
     cache: &mut Cache,
 ) -> i128 {
     let controller = env.current_contract_address();
-    let tok = token::Client::new(env, &debt.asset);
-    let before = tok.balance(&controller);
+    let before = token::Client::new(env, &debt.asset).balance(&controller);
 
     let reported = borrow_into_controller(
         env,
@@ -265,14 +276,11 @@ fn mint_and_forward(
         cache,
     );
 
-    let measured = tok
-        .balance(&controller)
-        .checked_sub(before)
-        .unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError));
+    let measured = balance_delta_since(env, &debt.asset, &controller, before);
     assert_with_error!(env, measured == reported, GenericError::InternalError);
     assert_with_error!(env, measured > 0, GenericError::AmountMustBePositive);
 
-    let forwarded = common::token::transfer_amount_measured(
+    let forwarded = transfer_amount_measured(
         env,
         &debt.asset,
         &controller,
@@ -312,26 +320,6 @@ fn invoke_receiver(
     );
 }
 
-fn collateral_assets(collaterals: &Vec<(HubAssetKey, i128)>) -> impl Iterator<Item = Address> + '_ {
-    collaterals.iter().map(|(hub_asset, _)| hub_asset.asset)
-}
-
-fn snapshot_balances(
-    env: &Env,
-    holder: &Address,
-    assets: impl IntoIterator<Item = Address>,
-) -> Map<Address, i128> {
-    let mut snapshot = Map::new(env);
-    for asset in assets {
-        if snapshot.contains_key(asset.clone()) {
-            continue;
-        }
-        let balance = token::Client::new(env, &asset).balance(holder);
-        snapshot.set(asset, balance);
-    }
-    snapshot
-}
-
 fn collect_collateral_deposits(
     env: &Env,
     controller: &Address,
@@ -343,10 +331,7 @@ fn collect_collateral_deposits(
         let baseline = before
             .get(hub_asset.asset.clone())
             .unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError));
-        let current = token::Client::new(env, &hub_asset.asset).balance(controller);
-        let delta = current
-            .checked_sub(baseline)
-            .unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError));
+        let delta = balance_delta_since(env, &hub_asset.asset, controller, baseline);
         assert_with_error!(
             env,
             delta >= min_amount,

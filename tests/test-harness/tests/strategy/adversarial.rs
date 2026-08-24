@@ -1,13 +1,13 @@
 use controller::types::PositionMode;
 use soroban_sdk::{Address, Bytes};
 use test_harness::mock_aggregator::{ReenterMode, ReenteringAggregator};
-use test_harness::mock_blend::{MockBlend, MockBlendClient, KIND_COLLATERAL, KIND_LIABILITY};
+use test_harness::mock_blend::{MockBlendClient, KIND_COLLATERAL, KIND_LIABILITY};
 use test_harness::{
     apply_flash_fee, assert_contract_error, build_aggregator_swap, errors, eth_preset,
     helpers::f64_to_i128, hub_asset, usdc_preset, LendingTest, ALICE, BOB, HARNESS_HUB,
 };
 
-use crate::helpers::build_swap_steps;
+use crate::helpers::register_approved_blend;
 
 fn flash_guard_cleared(t: &LendingTest) -> bool {
     t.env.as_contract(&t.controller, || {
@@ -65,10 +65,7 @@ fn try_multiply_any(
 }
 
 fn assert_router_reentry_rejects_multiply(mode: ReenterMode) {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
     let router = install_reentering_router(&t, mode);
     fund_router_at(&t, &router, "USDC", 3_000.0);
     let steps = multiply_steps(&t);
@@ -171,10 +168,7 @@ fn try_rdwc_any(t: &mut LendingTest, steps: &Bytes) -> Result<(), std::string::S
 
 #[test]
 fn test_swap_debt_router_reenter_supply_rejects() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
     seed_swap_debt_position(&mut t);
     let router = install_reentering_router(&t, ReenterMode::Supply);
     fund_router_at(&t, &router, "ETH", 1.0);
@@ -189,10 +183,7 @@ fn test_swap_debt_router_reenter_supply_rejects() {
 
 #[test]
 fn test_swap_collateral_router_reenter_supply_rejects() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
     t.supply(ALICE, "USDC", 100_000.0);
     let router = install_reentering_router(&t, ReenterMode::Supply);
     fund_router_at(&t, &router, "ETH", 5.0);
@@ -207,10 +198,7 @@ fn test_swap_collateral_router_reenter_supply_rejects() {
 
 #[test]
 fn test_rdwc_router_reenter_supply_rejects() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
     seed_swap_debt_position(&mut t);
     let router = install_reentering_router(&t, ReenterMode::Supply);
     fund_router_at(&t, &router, "ETH", 1.0);
@@ -328,10 +316,7 @@ fn test_swap_collateral_transfer_hook_cannot_reenter() {
 
 #[test]
 fn test_swap_debt_empty_payload_still_rejects_under_reentering_router() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
     seed_swap_debt_position(&mut t);
     let _ = install_reentering_router(&t, ReenterMode::Supply);
     let empty = Bytes::new(&t.env);
@@ -340,22 +325,9 @@ fn test_swap_debt_empty_payload_still_rejects_under_reentering_router() {
     assert!(flash_guard_cleared(&t));
 }
 
-fn register_approved_blend(t: &LendingTest) -> Address {
-    let addr = t.env.register(MockBlend, ());
-    let admin = t.admin();
-    t.gov_client().execute_immediate(
-        &admin,
-        &governance_interface::AdminOperation::ApproveBlendPool(addr.clone()),
-    );
-    addr
-}
-
 #[test]
 fn test_migrate_blend_submit_hook_cannot_reenter() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
     let caller = t.get_or_create_user(ALICE);
     let blend_addr = register_approved_blend(&t);
     let blend = MockBlendClient::new(&t.env, &blend_addr);
@@ -392,10 +364,7 @@ fn test_migrate_blend_submit_hook_cannot_reenter() {
 
 #[test]
 fn test_strategy_entries_still_blocked_by_flag() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 1.0);
     t.set_flash_loan_ongoing(true);
@@ -421,10 +390,7 @@ fn test_strategy_entries_still_blocked_by_flag() {
 
 #[test]
 fn test_multiply_wrong_owner_cannot_use_reentering_router() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
     t.supply(ALICE, "USDC", 10_000.0);
     let alice_id = t.resolve_account_id(ALICE);
     let router = install_reentering_router(&t, ReenterMode::Supply);
@@ -453,12 +419,9 @@ fn test_multiply_wrong_owner_cannot_use_reentering_router() {
 
 #[test]
 fn test_swap_debt_same_asset_rejected_before_router() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
     seed_swap_debt_position(&mut t);
-    let steps = build_swap_steps(&t, "ETH", "ETH", 1);
+    let steps = build_aggregator_swap(&t, "ETH", "ETH", 0, 1);
     let result = t.try_swap_debt(ALICE, "ETH", 0.1, "ETH", &steps);
     assert_contract_error(result, errors::ASSETS_ARE_THE_SAME);
 }

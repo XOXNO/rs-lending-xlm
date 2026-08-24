@@ -10,9 +10,10 @@ use common::types::{
     AccountAttributes, AccountPositionRaw, DebtPositionRaw, HubAssetKey, HubPayment,
     LiquidationEstimate, MarketIndexView, PaymentTuple, PriceStatus, SeizeMode,
 };
-use soroban_sdk::{assert_with_error, Address, Env, Map, Vec};
+use soroban_sdk::{assert_with_error, Env, Map, Vec};
 
-use crate::positions::liquidation::{execute_liquidation, split_seized_shares};
+use crate::external::price_aggregator::fetch_prices_status;
+use crate::positions::liquidation::{build_liquidation_plan, split_seized_shares};
 use crate::storage;
 
 /// Panics unless `values` has at most `MAX_VIEW_INPUTS` entries.
@@ -144,11 +145,6 @@ pub(crate) fn liquidation_collateral_available(env: &Env, account_id: u64) -> i1
     .raw()
 }
 
-/// Returns the address of the pool contract registered with the controller.
-pub(crate) fn get_pool_address(env: &Env) -> Address {
-    storage::get_pool(env)
-}
-
 /// Returns the supply/borrow index and price status for each of
 /// `hub_assets`, refreshing market indexes and current price statuses first.
 pub(crate) fn get_all_market_indexes_detailed(
@@ -162,7 +158,7 @@ pub(crate) fn get_all_market_indexes_detailed(
     let statuses = if assets.is_empty() {
         Map::new(env)
     } else {
-        crate::external::price_aggregator::fetch_prices_status(env, &assets)
+        fetch_prices_status(env, &assets)
     };
     let mut result = Vec::new(env);
 
@@ -208,7 +204,7 @@ pub(crate) fn liquidation_estimations_detailed(
     let mut cache = Cache::new_view(env);
     let account = storage::get_account(env, account_id);
 
-    let result = execute_liquidation(env, &account, debt_payments, &mut cache);
+    let result = build_liquidation_plan(env, &account, debt_payments, &mut cache).into_result();
 
     let mut seized_collaterals = Vec::new(env);
     let mut protocol_fees = Vec::new(env);
@@ -256,7 +252,12 @@ pub(crate) fn total_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
     }
 
     let mut cache = Cache::new_view(env);
-    risk::sum_supply_usd(env, &mut cache, &supply).raw()
+    // Empty borrow map on purpose: it keeps the market load to the supply keys,
+    // so this costs the same cross-contract fetches the supply-only sum did and
+    // only adds per-position arithmetic that is discarded.
+    risk::calculate_account_risk_totals(env, &mut cache, &supply, &Map::new(env))
+        .total_collateral
+        .raw()
 }
 
 /// Returns the account's total debt position value in USD (WAD), or 0 if it

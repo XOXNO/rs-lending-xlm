@@ -57,14 +57,8 @@ pub(crate) fn apply(
         asset.balance(&pool),
     );
 
-    payout(
-        env,
-        &asset,
-        &pool,
-        &receiver,
-        amount,
-        terms.balance_after_payout,
-    );
+    asset.transfer(&pool, &receiver, &amount);
+    require_balance(env, &asset, &pool, terms.balance_after_payout);
     invoke_receiver(
         env, &cache, &receiver, initiator, amount, terms.fee, &pool, data,
     );
@@ -143,19 +137,6 @@ pub(crate) fn book_fee(cache: &mut Cache, fee: i128) {
 pub(crate) fn finalize(env: &Env, cache: &mut Cache, fee: i128) {
     book_fee(cache, fee);
     events::emit_market_state(env, cache.commit());
-}
-
-/// Transfers principal to the receiver and asserts the post-payout balance.
-fn payout(
-    env: &Env,
-    asset: &token::Client,
-    pool: &Address,
-    receiver: &Address,
-    amount: i128,
-    expected_balance: i128,
-) {
-    asset.transfer(pool, receiver, &amount);
-    require_balance(env, asset, pool, expected_balance);
 }
 
 /// Calls `execute_flash_loan` on the receiver with loan parameters and callback data.

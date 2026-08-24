@@ -1,7 +1,11 @@
 flow_real_markets() {
     phase real_markets
-    local xlm_band
+    local xlm_band eurc_band
     xlm_band=$(reflector_band XLM) || { log "XLM live price unavailable; cannot calibrate sanity band"; return 1; }
+    # EURC is a EUR stablecoin quoted in USD, so its price tracks a floating FX
+    # rate and a hardcoded band goes stale. Calibrate it like XLM. USDC below
+    # keeps its fixed band: it is quoted in its own unit and sits on parity.
+    eurc_band=$(reflector_band EURC) || { log "EURC live price unavailable; cannot calibrate sanity band"; return 1; }
     create_market XLM "$PRIMARY_HUB_ID" "$XLM_SAC" 7 \
         "$(oracle_cfg_reflector XLM $xlm_band)" \
         "$(asset_config_json 7000 7500 1000)"
@@ -9,7 +13,7 @@ flow_real_markets() {
         "$(oracle_cfg_reflector USDC 900000000000000000 1100000000000000000)" \
         "$(asset_config_json 7500 8000 500)"
     create_market EURC "$PRIMARY_HUB_ID" "$EURC_SAC" 7 \
-        "$(oracle_cfg_reflector EURC 980000000000000000 1180000000000000000)" \
+        "$(oracle_cfg_reflector EURC $eurc_band)" \
         "$(asset_config_json 7500 8000 500)"
 }
 

@@ -1,53 +1,10 @@
-use soroban_sdk::{
-    testutils::{ContractEvents, Events},
-    xdr::{ContractEventBody, ScVal},
-};
+use crate::shared::{as_vec, count_topic, data_for_topic};
+use soroban_sdk::{testutils::Events, xdr::ScVal};
 
 use test_harness::{
     days, eth_preset, usd_cents, usdc_preset, usdt_stable_preset, wbtc_preset, xlm_preset,
     LendingTest, ALICE, LIQUIDATOR,
 };
-
-fn data_for_topic(events: &ContractEvents, first: &str, second: &str) -> std::vec::Vec<ScVal> {
-    events
-        .events()
-        .iter()
-        .filter_map(|event| {
-            let ContractEventBody::V0(body) = &event.body;
-            match (body.topics.first(), body.topics.get(1)) {
-                (Some(ScVal::Symbol(a)), Some(ScVal::Symbol(b)))
-                    if a.0.to_string() == first && b.0.to_string() == second =>
-                {
-                    Some(body.data.clone())
-                }
-                _ => None,
-            }
-        })
-        .collect()
-}
-
-fn as_vec(v: &ScVal) -> &soroban_sdk::xdr::VecM<ScVal> {
-    match v {
-        ScVal::Vec(Some(entries)) => &entries.0,
-        other => panic!("expected ScVal::Vec, got {:?}", other),
-    }
-}
-
-fn count_topic(events: &ContractEvents, first: &str, second: &str) -> usize {
-    events
-        .events()
-        .iter()
-        .filter(|event| {
-            let ContractEventBody::V0(body) = &event.body;
-            match (body.topics.first(), body.topics.get(1)) {
-                (Some(ScVal::Symbol(a)), Some(ScVal::Symbol(b))) => {
-                    a.0.to_string() == first && b.0.to_string() == second
-                }
-                _ => false,
-            }
-        })
-        .count()
-}
 
 #[test]
 fn test_supply_emits_events() {
@@ -147,10 +104,7 @@ fn test_supply_position_event_restores_risk_fields() {
 
 #[test]
 fn test_position_and_market_batch_v2_wire_shape() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.0);
     t.set_price("USDC", usd_cents(50));
@@ -210,10 +164,7 @@ fn test_position_and_market_batch_v2_wire_shape() {
 
 #[test]
 fn test_borrow_emits_events() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 1.0);
 
@@ -240,10 +191,7 @@ fn test_withdraw_emits_events() {
 
 #[test]
 fn test_repay_emits_events() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 1.0);
     t.repay(ALICE, "ETH", 0.5);
@@ -257,10 +205,7 @@ fn test_repay_emits_events() {
 
 #[test]
 fn test_liquidation_emits_many_events() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.0);
     t.set_price("USDC", usd_cents(50));
@@ -293,10 +238,7 @@ fn test_add_spoke_emits_events() {
 
 #[test]
 fn test_index_sync_emits_events() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 1.0);
     t.advance_and_sync(days(1));

@@ -314,8 +314,10 @@ fn set_max_submission_age_enforces_floor_and_ttl_ceiling() {
     env.mock_all_auths();
     let (client, _admin, _signers) = setup(&env, 1, 1);
 
+    // Floor is MAX_FUTURE_SKEW_SECONDS + 1 = 61 (F-2 defence-in-depth): 60, the
+    // future-skew bound itself, is now rejected, and 61 is the smallest accepted.
     assert_eq!(
-        client.try_set_max_submission_age_seconds(&59u64),
+        client.try_set_max_submission_age_seconds(&60u64),
         Err(Ok(Error::InvalidSubmissionAge))
     );
 
@@ -324,7 +326,7 @@ fn set_max_submission_age_enforces_floor_and_ttl_ceiling() {
         Err(Ok(Error::InvalidSubmissionAge))
     );
 
-    client.set_max_submission_age_seconds(&60u64);
+    client.set_max_submission_age_seconds(&61u64);
     client.set_max_submission_age_seconds(&86_400u64);
 }
 

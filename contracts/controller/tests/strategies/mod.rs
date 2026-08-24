@@ -2,7 +2,7 @@
 //! still need the iterate suite; these catch `replace fn with ()` on the gates.
 extern crate std;
 
-use super::*;
+use crate::risk::validation::require_authorized_caller;
 use crate::strategies::multiply::{process_multiply, MultiplyParams};
 use crate::Controller;
 use common::types::{HubAssetKey, PositionMode};
@@ -18,23 +18,23 @@ fn hub(env: &Env) -> HubAssetKey {
 
 #[test]
 #[should_panic(expected = "Auth")]
-fn require_strategy_caller_without_auth_panics() {
+fn strategy_caller_without_auth_panics() {
     let env = Env::default();
     let admin = Address::generate(&env);
     let id = env.register(Controller, (admin,));
     env.as_contract(&id, || {
-        require_strategy_caller(&env, &Address::generate(&env));
+        require_authorized_caller(&env, &Address::generate(&env));
     });
 }
 
 #[test]
-fn require_strategy_caller_with_auth_passes() {
+fn strategy_caller_with_auth_passes() {
     let env = Env::default();
     env.mock_all_auths();
     let admin = Address::generate(&env);
     let id = env.register(Controller, (admin,));
     env.as_contract(&id, || {
-        require_strategy_caller(&env, &Address::generate(&env));
+        require_authorized_caller(&env, &Address::generate(&env));
     });
 }
 

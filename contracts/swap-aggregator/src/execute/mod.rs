@@ -8,6 +8,9 @@ mod residual;
 
 use soroban_sdk::{panic_with_error, token, Address, Env, Map, Vec};
 
+use common::errors::GenericError;
+use common::token::transfer_amount_measured;
+
 use crate::constants::PPM_DENOMINATOR;
 use crate::errors::Error;
 use crate::fees;
@@ -68,8 +71,17 @@ pub(crate) fn run(env: Env, sender: Address, total_in: i128, payload: StrategyPa
     let mut vault = Vault::new(&env);
     let mut tokens_cache: Map<Address, Vec<Address>> = Map::new(&env);
 
-    token::Client::new(&env, &input_token).transfer(&sender, &router, &total_in);
-    vault.deposit(&input_token, total_in);
+    // Credit the measured delta, not declared `total_in`: a fee-on-transfer
+    // input would otherwise draw the shortfall from the fee reserve (F-1).
+    let credited_in = transfer_amount_measured(
+        &env,
+        &input_token,
+        &sender,
+        &router,
+        total_in,
+        GenericError::AmountMustBePositive,
+    );
+    vault.deposit(&input_token, credited_in);
 
     let referral_id = program.referral_id;
     let fee_on_input = if referral_id != 0 {
@@ -176,11 +188,9 @@ fn execute_op(
                 ctx.env,
                 ctx.router,
                 vault,
-                venues::aquarius::MintLiquidity {
-                    pool: &ctx.assets.get_unchecked(op.idx_a),
-                    lp_token: &lp_token,
-                    min_shares: ctx.amounts.get_unchecked(op.idx_c),
-                },
+                &ctx.assets.get_unchecked(op.idx_a),
+                &lp_token,
+                ctx.amounts.get_unchecked(op.idx_c),
                 tokens_cache,
             );
             Some((lp_token, shares))

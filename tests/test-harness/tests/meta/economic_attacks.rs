@@ -1,13 +1,8 @@
-use test_harness::{
-    eth_preset, helpers, usd_cents, usdc_preset, LendingTest, ALICE, BOB, LIQUIDATOR,
-};
+use test_harness::{helpers, usd_cents, LendingTest, ALICE, BOB, LIQUIDATOR};
 
 #[test]
 fn test_donation_attack_does_not_inflate_share_price() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 11.0);
     let alice_supply_before = t.supply_balance(ALICE, "USDC");
@@ -36,10 +31,7 @@ fn test_donation_attack_does_not_inflate_share_price() {
 
 #[test]
 fn test_first_supplier_cannot_dilute_followers() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 11.0);
     let alice_after = t.supply_balance(ALICE, "USDC");
@@ -61,11 +53,7 @@ fn test_first_supplier_cannot_dilute_followers() {
 
 #[test]
 fn test_partial_liquidation_chain_converges() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_dust_disabled_all_markets()
-        .build();
+    let mut t = LendingTest::new().standard_two_asset_dust_disabled();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.0);

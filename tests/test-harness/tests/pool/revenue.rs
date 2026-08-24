@@ -1,6 +1,4 @@
-use test_harness::{
-    days, eth_preset, hub_asset, usd_cents, usdc_preset, LendingTest, ALICE, BOB, LIQUIDATOR,
-};
+use test_harness::{days, hub_asset, usd_cents, usdc_preset, LendingTest, ALICE, BOB, LIQUIDATOR};
 
 fn setup_accumulator(t: &LendingTest) {
     let acc = t
@@ -10,10 +8,7 @@ fn setup_accumulator(t: &LendingTest) {
 }
 #[test]
 fn test_claim_revenue_after_interest() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(BOB, "ETH", 100.0);
 
@@ -43,10 +38,7 @@ fn test_claim_revenue_after_interest() {
 
 #[test]
 fn test_claim_revenue_routes_through_controller_to_accumulator() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(BOB, "ETH", 100.0);
 
@@ -92,10 +84,7 @@ fn test_claim_revenue_routes_through_controller_to_accumulator() {
 }
 #[test]
 fn test_claim_revenue_after_liquidation() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(BOB, "ETH", 100.0);
 

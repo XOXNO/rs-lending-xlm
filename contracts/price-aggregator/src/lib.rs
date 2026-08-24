@@ -29,14 +29,10 @@ use soroban_sdk::{contract, contractimpl, Address, Env, Map, Vec};
 use stellar_access::ownable;
 use stellar_macros::only_owner;
 
+use common::ttl::renew_instance;
 use common::types::{AssetOracle, OracleTolerance, PriceFeedRaw, PriceKey, PriceStatus};
 
 pub use common::errors::OracleError as Error;
-
-/// Renews the contract instance's storage TTL.
-fn renew_instance(env: &Env) {
-    common::ttl::renew_instance(env);
-}
 
 /// Renews the contract instance and returns a new `Session` pre-warmed with
 /// `keys`, so repeated lookups of the same keys within a call reuse cached

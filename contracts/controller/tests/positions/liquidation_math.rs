@@ -185,21 +185,24 @@ fn snap(
     LiquidationSnapshot {
         total_debt: Wad::from(debt),
         total_collateral: Wad::from(collateral),
-        weighted_coll: Wad::from(weighted),
+        weighted_collateral: Wad::from(weighted),
         proportion_seized: Wad::from(proportion),
         hf: Wad::from(hf),
     }
 }
 
 #[test]
-fn debt_close_amount_uses_pool_full_close_ceiling() {
+fn unscale_borrow_ceil_uses_pool_full_close_ceiling() {
     let env = Env::default();
     let position = DebtPosition {
         scaled_amount: Ray::from(RAY + RAY * 4 / 10),
     };
 
     assert_eq!(position.scaled_amount.mul(&env, Ray::ONE).to_asset(0), 1);
-    assert_eq!(debt_close_amount(&env, &position, Ray::ONE, 0), 2);
+    assert_eq!(
+        unscale_borrow_ceil(&env, position.scaled_amount, Ray::ONE, 0),
+        2
+    );
 }
 
 #[test]
@@ -2142,7 +2145,7 @@ fn liquidate_slice(
         let s = LiquidationSnapshot {
             total_debt: totals.total_debt,
             total_collateral: totals.total_collateral,
-            weighted_coll: totals.weighted_collateral,
+            weighted_collateral: totals.weighted_collateral,
             proportion_seized,
             hf: totals.health_factor,
         };

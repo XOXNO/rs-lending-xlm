@@ -1,6 +1,6 @@
 use common::math::fp::{Bps, Wad};
-use common::types::{Account, AccountPosition, AccountPositionRaw, AssetConfig, HubAssetKey};
-use soroban_sdk::{Env, Map};
+use common::types::{Account, AccountPosition, AssetConfig, HubAssetKey};
+use soroban_sdk::Env;
 
 use crate::account::update_or_remove_supply_position;
 use crate::constants::THRESHOLD_UPDATE_MIN_HF_RAW;
@@ -109,26 +109,14 @@ fn clears_min_hf(
     position: &AccountPosition,
     new_lt: Bps,
 ) -> bool {
-    let supply_positions = supply_positions_with(account, hub_asset, position, new_lt);
+    let mut hypothetical = *position;
+    hypothetical.liquidation_threshold = new_lt;
+    let mut supply_positions = account.supply_positions.clone();
+    supply_positions.set(hub_asset.clone(), (&hypothetical).into());
     let hf =
         calculate_account_risk_totals(env, cache, &supply_positions, &account.borrow_positions)
             .health_factor;
     hf >= Wad::from(THRESHOLD_UPDATE_MIN_HF_RAW)
-}
-
-/// Returns a copy of `account`'s supply positions with `hub_asset`'s
-/// liquidation threshold replaced by `new_lt`.
-fn supply_positions_with(
-    account: &Account,
-    hub_asset: &HubAssetKey,
-    position: &AccountPosition,
-    new_lt: Bps,
-) -> Map<HubAssetKey, AccountPositionRaw> {
-    let mut supply_positions = account.supply_positions.clone();
-    let mut hypothetical = *position;
-    hypothetical.liquidation_threshold = new_lt;
-    supply_positions.set(hub_asset.clone(), (&hypothetical).into());
-    supply_positions
 }
 
 #[cfg(test)]

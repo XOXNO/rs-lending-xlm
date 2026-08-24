@@ -47,16 +47,21 @@ self-contained worlds (own controller / pool / governance / wallets / markets,
 keyed by `RUN_TS=<base>-<lane>`) and runs them concurrently — wall-clock ≈
 slowest lane instead of the sum. The split is along the **aggregator boundary**:
 
-| Lane | Phases | Oracle / venue |
+| Lane | Phases / scenario | Oracle / venue |
 |------|--------|----------------|
-| `agg` | lifecycle + strategies + admin + governance | live Reflector + XOXNO aggregator (serial *within* the lane) |
-| `liq` | liquidation + defindex | mock oracles, venue-free |
-| `stress` | stress | mock oracles, venue-free |
+| `agg` | lifecycle + strategies + admin + governance + teardown | live Reflector + XOXNO aggregator (serial *within* the lane) |
+| `liq` | liquidation + defindex + teardown | mock oracles, venue-free |
+| `stress` | stress + xoxno-oracle + teardown | mock oracles, venue-free |
+| `flash` | `scenarios/flash_position.sh` (full live `flash_position` matrix + malicious receiver) | live Reflector + one funding swap |
+| `blend` | `scenarios/blend.sh` (live `migrate_from_blend` vs Blend TestnetV2, XLM coll/supply/debt) | live Reflector + real Blend pool, aggregator-free |
 
-Each lane is gated independently; the run is green only if all three are. The
+Each lane is gated independently; the run is green only if all five are. The
 mock lanes share no state with `agg` or each other. `admin` uses the idle real
 EURC market, not liquidation's mocks. The DeFindex strategy flow runs in the
-`liq` lane with its own mock collateral.
+`liq` lane with its own mock collateral. The `flash` and `blend` lanes reuse
+the standalone scenario scripts verbatim — own wallets, own deploy, own inner
+green gate — so `E2E_LANES="flash"` and `make integration-flash-position`
+exercise the identical code path.
 
 ### CI vs research scenarios
 
@@ -154,10 +159,12 @@ from `stellar-access`.
 | `blend.sh` | live `migrate_from_blend` vs Blend TestnetV2: allowlist, empty/dup/unapproved/unlisted/auth/spoke/hub/pause/frozen/not-collateral/not-borrowable rejects, coll/supply/debt migrates, zero-liability refund, existing merge, delegate, remigrate-empty, cap/min-borrow/unhealthy |
 | `liquidation.sh` | partial / full / bulk multi-debt liquidation, spoke liquidation, clean_bad_debt socialization, healthy-account guards (`#101 HealthFactorTooHigh`) |
 | `defindex.sh` | DeFindex strategy vault lifecycle over its own mock collateral (runs in the `liq` lane) |
-| `admin.sh` | pause gates (`#1000 EnforcedPause` / `#1001 ExpectedPause`), position limits, param/config edits with read-back (`#113 InvalidLiqThreshold` bounds), oracle tolerance (resolve→set, owner-auth guard) and the sanity band (`#223 SanityBoundViolated`), `set_min_borrow_collateral_usd` (set/read/`#126 MinBorrowCollateralNotMet` effect/reset/`#116 InvalidBorrowParams`), permissionless keeper/revenue paths, spoke admin lifecycle (`#301 SpokeDeprecated`), upgrade (pauses by design) + migrate + 2-step ownership round-trip |
+| `admin.sh` | pause gates (`#1000 EnforcedPause` / `#1001 ExpectedPause`), position limits, param/config edits with read-back (`#113 InvalidLiqThreshold` bounds), oracle tolerance (resolve→set, owner-auth guard) and the sanity band (`#223 SanityBoundViolated`), `set_min_borrow_collateral_usd` (set/read/`#126 MinBorrowCollateralNotMet` effect/reset/`#116 InvalidBorrowParams`), permissionless keeper/revenue paths, spoke admin lifecycle (`#301 SpokeDeprecated`), upgrade (pauses by design) + migrate + satellite upgrades (`upgrade_position_nft` with owner_of read-back, `upgrade_swap_aggregator` via a controller-owned router) + permissionless NFT `renew` (live + never-minted revert) + 2-step ownership round-trip |
 | `governance.sh` | governance timelock e2e on the governance-owned controller: `deploy_controller` ownership (+`#5 PoolAlreadyDeployed` redeploy), resolver views, propose→cancel (Waiting→Unset), propose→await→`execute` (open executor) lifecycle (Waiting→Ready→Unset), non-PROPOSER guard (`#2000 Unauthorized`), proposal validation (`#36 InvalidPositionLimits`, `#134 InvalidLiquidationCurve`), immediate role revocation refusing the owner's own role (`#44 NotAuthorized`), owner pause + timelocked unpause forwarding |
 | `stress.sh` | 20 mock markets; bulk-supply frontier, distinct-feed borrow frontier (single- then dual-source), withdraw probe, repay-1 liquidation seize frontier — all via fee-less simulation probes plus one on-chain proof tx per frontier |
 | `swap_aggregator.sh` | Swap-aggregator admin lifecycle |
+| `xoxno_oracle.sh` | live xoxno-oracle: deploy with run-wallet signers, full admin surface with read-backs (threshold/signers/staleness/skew/resolution/feed registry), threshold-gated median aggregation through real multi-signer submissions, every designed revert, Reflector-compat reads, same-hash upgrade with state preserved (runs in the `stress` lane) |
+| `teardown.sh` | zero-state teardown, last in every lane: repay every live account (mock-minted on shortfall), withdraw everything, drain the DeFindex strategy, claim all revenue, then prove NFT `total_supply == 0`, per-market borrowed/supplied/revenue all 0, pool + controller balances at dust — and record the per-market storage residue |
 
 ## Encoding gotchas
 

@@ -27,12 +27,7 @@ const MAX_NORMALIZED_RESERVE_WAD: u128 = 10u128.pow(34);
 /// positive, `amp` is outside `[MIN_AMP, MAX_AMP]`, either reserve exceeds
 /// `MAX_NORMALIZED_RESERVE_WAD`, or the iteration does not converge within
 /// `MAX_D_ITERATIONS` steps.
-pub fn solve_stable_d(
-    env: &Env,
-    xa_wad: i128,
-    xb_wad: i128,
-    amp: u128,
-) -> Result<U256, OracleError> {
+fn solve_stable_d(env: &Env, xa_wad: i128, xb_wad: i128, amp: u128) -> Result<U256, OracleError> {
     if xa_wad <= 0
         || xb_wad <= 0
         || !(MIN_AMP..=MAX_AMP).contains(&amp)
@@ -112,25 +107,6 @@ pub fn fair_stable_lp_price_wad(
         .mul(&U256::from_u128(env, min_price as u128))
         .div(&U256::from_u128(env, share_supply_wad as u128));
     try_u256_to_i128(&fair).ok_or(OracleError::InvalidPrice)
-}
-
-/// Converts `reserve_a` and `reserve_b` to WAD using their respective
-/// decimals, solves the invariant `D` via [`solve_stable_d`], and returns
-/// `D` converted to `i128`. Returns `OracleError::InvalidPrice` if either
-/// amount conversion fails, `D` fails to solve, or `D` does not fit in
-/// `i128`.
-pub fn stable_invariant_d_wad(
-    env: &Env,
-    reserve_a: i128,
-    decimals_a: u32,
-    reserve_b: i128,
-    decimals_b: u32,
-    amp: u128,
-) -> Result<i128, OracleError> {
-    let xa = try_amount_to_wad(env, reserve_a, decimals_a)?;
-    let xb = try_amount_to_wad(env, reserve_b, decimals_b)?;
-    let d = solve_stable_d(env, xa, xb, amp)?;
-    try_u256_to_i128(&d).ok_or(OracleError::InvalidPrice)
 }
 
 #[cfg(test)]
@@ -292,17 +268,6 @@ mod tests {
             .unwrap_err(),
             OracleError::InvalidPrice
         );
-    }
-
-    #[test]
-    fn stable_invariant_d_wad_is_live_and_near_sum_of_reserves() {
-        let env = Env::default();
-        let d = stable_invariant_d_wad(&env, 1_000_000_000, 7, 1_000_000_000, 7, 1500).unwrap();
-        assert_ne!(d, 0);
-        assert_ne!(d, 1);
-        let expected = 200 * WAD;
-        let drift = (d - expected).abs();
-        assert!(drift < expected / 100, "d={d}");
     }
 
     #[test]

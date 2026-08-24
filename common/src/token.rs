@@ -9,15 +9,6 @@ use soroban_sdk::{
 
 use crate::errors::GenericError;
 
-/// No-op when `amount == 0`; otherwise SAC `transfer(from, to, amount)`.
-#[inline]
-pub fn sac_transfer(env: &Env, token_addr: &Address, from: &Address, to: &Address, amount: i128) {
-    if amount == 0 {
-        return;
-    }
-    token::Client::new(env, token_addr).transfer(from, to, &amount);
-}
-
 /// Transfers `amount` from `from` to `to` and returns the observed balance
 /// delta at `to`.
 ///
@@ -36,7 +27,7 @@ pub fn transfer_amount_measured(
     assert_with_error!(env, amount > 0, non_positive_error);
     let tok = token::Client::new(env, asset);
     let pre = tok.balance(to);
-    sac_transfer(env, asset, from, to, amount);
+    tok.transfer(from, to, &amount);
     let post = tok.balance(to);
     post.checked_sub(pre)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::AmountMustBePositive))

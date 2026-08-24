@@ -2,8 +2,8 @@ use controller::constants::RAY_DECIMALS;
 use controller::types::{ControllerKey, SpokeAssetArgs, SpokeUsageRaw};
 use soroban_sdk::{vec, Vec};
 use test_harness::{
-    assert_contract_error, errors, eth_preset, hub_asset, usd_cents, usdc_preset,
-    usdt_stable_preset, HubAssetKey, LendingTest, ALICE, HARNESS_HUB, HARNESS_SPOKE,
+    assert_contract_error, errors, hub_asset, map_try_ok_unit, map_try_ok_value, usd_cents,
+    usdc_preset, usdt_stable_preset, HubAssetKey, LendingTest, ALICE, HARNESS_HUB, HARNESS_SPOKE,
     STABLECOIN_SPOKE, UNCONSTRAINED_TEST_CAP,
 };
 
@@ -58,10 +58,7 @@ fn try_set_spoke_caps(
     borrow_cap: i128,
 ) -> Result<(), soroban_sdk::Error> {
     let args = spoke_cap_args(t, spoke_id, asset_name, supply_cap, borrow_cap);
-    match t.ctrl_client().try_edit_asset_in_spoke(&args) {
-        Ok(res) => res.map_err(|e| e.into()),
-        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
-    }
+    map_try_ok_unit(t.ctrl_client().try_edit_asset_in_spoke(&args))
 }
 
 fn spoke_usage(t: &LendingTest, spoke_id: u32, asset_name: &str) -> SpokeUsageRaw {
@@ -90,14 +87,10 @@ fn try_supply_raw(
     let spoke_id = t.ctrl_client().get_account_attributes(&account_id).spoke_id;
 
     let assets: Vec<(HubAssetKey, i128)> = vec![&t.env, (hub_asset(asset_addr), amount)];
-    match t
-        .ctrl_client()
-        .try_supply(&addr, &account_id, &spoke_id, &assets)
-    {
-        Ok(Ok(id)) => Ok(id),
-        Ok(Err(err)) => Err(err),
-        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
-    }
+    map_try_ok_value(
+        t.ctrl_client()
+            .try_supply(&addr, &account_id, &spoke_id, &assets),
+    )
 }
 
 fn try_borrow_raw(
@@ -111,14 +104,10 @@ fn try_borrow_raw(
     let asset_addr = t.resolve_asset(asset_name);
 
     let borrows: Vec<(HubAssetKey, i128)> = vec![&t.env, (hub_asset(asset_addr), amount)];
-    match t
-        .ctrl_client()
-        .try_borrow(&addr, &account_id, &borrows, &None)
-    {
-        Ok(Ok(())) => Ok(()),
-        Ok(Err(err)) => Err(err.into()),
-        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
-    }
+    map_try_ok_unit(
+        t.ctrl_client()
+            .try_borrow(&addr, &account_id, &borrows, &None),
+    )
 }
 
 fn usdc_spoke_market() -> LendingTest {
@@ -130,13 +119,7 @@ fn usdc_spoke_market() -> LendingTest {
 }
 
 fn usdc_usdt_spoke_market() -> LendingTest {
-    LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(usdt_stable_preset())
-        .with_spoke(2, STABLECOIN_SPOKE)
-        .with_spoke_asset(2, "USDC", true, true)
-        .with_spoke_asset(2, "USDT", true, true)
-        .build()
+    LendingTest::new().stablecoin_spoke_two_asset().build()
 }
 
 #[test]
@@ -231,11 +214,7 @@ fn test_closed_market_still_allows_full_repay_and_withdraw() {
 
 #[test]
 fn test_closed_market_still_allows_bad_debt_cleanup() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_dust_disabled_all_markets()
-        .build();
+    let mut t = LendingTest::new().standard_two_asset_dust_disabled();
 
     t.supply(ALICE, "USDC", 10.0);
     t.borrow(ALICE, "ETH", 0.003);
@@ -351,10 +330,7 @@ fn test_add_asset_to_spoke_rejects_i128_max_cap() {
         supply_cap: i128::MAX,
         borrow_cap: UNCONSTRAINED_TEST_CAP,
     };
-    let result = match t.ctrl_client().try_add_asset_to_spoke(&args) {
-        Ok(res) => res.map_err(|e| e.into()),
-        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
-    };
+    let result = map_try_ok_unit(t.ctrl_client().try_add_asset_to_spoke(&args));
     assert_contract_error(result, errors::INVALID_BORROW_PARAMS);
 }
 

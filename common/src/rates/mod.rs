@@ -23,10 +23,10 @@ pub use index::{
 pub use scaling::{
     calculate_scaled_borrow, calculate_scaled_borrow_floor, calculate_scaled_cap,
     calculate_scaled_supply, calculate_scaled_supply_ceil, resolve_net_settle, resolve_repay,
-    resolve_withdrawal, scaled_to_original, unscale_borrow, unscale_borrow_ceil,
-    unscale_borrow_ceil_ray, unscale_supply, unscale_supply_floor,
+    resolve_withdrawal, scaled_to_original, unscale_borrow, unscale_borrow_ceil, unscale_supply,
+    unscale_supply_floor,
 };
-pub use simulate::simulate_update_indexes;
+pub use simulate::{accrue_step, simulate_update_indexes, AccrualStep};
 pub use value::{position_value, position_value_ceil, position_value_floor};
 
 #[cfg(feature = "certora")]

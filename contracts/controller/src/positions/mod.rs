@@ -13,9 +13,7 @@ use common::types::{
     Account, AccountPosition, AccountPositionType, AggregatedPayments, AssetConfig, DebtPosition,
     HubAssetKey, HubPayment, MarketIndexRaw, PoolAction, PoolPositionMutation, ScaledPositionRaw,
 };
-use soroban_sdk::{
-    assert_with_error, panic_with_error, Address, Env, IntoVal, TryFromVal, Val, Vec,
-};
+use soroban_sdk::{assert_with_error, panic_with_error, Env, IntoVal, TryFromVal, Val, Vec};
 
 use crate::account;
 use crate::context::Cache;
@@ -73,12 +71,6 @@ pub(crate) fn for_each_leg<E, R>(
     for (entry, result) in entries.iter().zip(results.iter()) {
         f(entry, result);
     }
-}
-
-/// Requires `caller` to authorize the call and asserts no flash loan is
-/// currently in progress on this contract.
-pub(crate) fn require_position_caller(env: &Env, caller: &Address) {
-    validation::require_authorized_caller(env, caller);
 }
 
 /// Restamps supply position LTVs to their current listed values, then
@@ -195,31 +187,18 @@ pub(crate) enum FreezePolicy {
     SeizureLeg,
 }
 
-#[derive(Copy, Clone)]
-pub(crate) struct PositionSides {
-    pub supply: bool,
-    pub debt: bool,
-}
-
-impl PositionSides {
-    pub const SUPPLY: Self = Self {
-        supply: true,
-        debt: false,
-    };
-    pub const DEBT: Self = Self {
-        supply: false,
-        debt: true,
-    };
-    pub const BOTH: Self = Self {
-        supply: true,
-        debt: true,
-    };
+/// Which position maps a flow writes back to storage.
+#[derive(Copy, Clone, PartialEq)]
+pub(crate) enum PositionSides {
+    Supply,
+    Debt,
+    Both,
 }
 
 /// Writes the account's supply and/or debt position maps to storage as
-/// selected by `sides`, renews the account's storage TTL if either was
-/// written, and removes the account entry if `remove_if_empty` is set and the
-/// account now holds no positions.
+/// selected by `sides`, renews the account's storage TTL, and removes the
+/// account entry if `remove_if_empty` is set and the account now holds no
+/// positions.
 pub(crate) fn persist_account_positions(
     env: &Env,
     account_id: u64,
@@ -227,15 +206,14 @@ pub(crate) fn persist_account_positions(
     sides: PositionSides,
     remove_if_empty: bool,
 ) {
-    if sides.supply {
+    if sides != PositionSides::Debt {
         storage::set_supply_positions(env, account_id, &account.supply_positions);
     }
-    if sides.debt {
+    if sides != PositionSides::Supply {
         storage::set_debt_positions(env, account_id, &account.borrow_positions);
     }
-    if sides.supply || sides.debt {
-        storage::renew_user_account(env, account_id);
-    }
+    // Every variant writes at least one side.
+    storage::renew_user_account(env, account_id);
     if remove_if_empty {
         account::cleanup_account_if_empty(env, account, account_id);
     }
@@ -286,7 +264,7 @@ pub(crate) fn require_can_borrow(
     let asset_config = require_listed_unhalted_config(env, cache, spoke_id, hub_asset);
     assert_with_error!(
         env,
-        asset_config.can_borrow(),
+        asset_config.is_borrowable,
         CollateralError::AssetNotBorrowable
     );
 }
@@ -303,7 +281,7 @@ pub(crate) fn require_can_supply(
     let asset_config = require_listed_unhalted_config(env, cache, spoke_id, hub_asset);
     assert_with_error!(
         env,
-        asset_config.can_supply(),
+        asset_config.is_collateralizable,
         CollateralError::NotCollateral
     );
 }

@@ -23,16 +23,13 @@ pub(crate) struct RevenueOutcome {
 pub(crate) fn apply(env: &Env, hub_asset: HubAssetKey) -> PoolAmountMutation {
     let outcome = accounting(env, hub_asset);
 
-    if outcome.mutation.actual_amount == 0 {
-        events::emit_market_state(env, outcome.cache.snapshot());
-        return outcome.mutation;
+    if outcome.mutation.actual_amount != 0 {
+        let owner = ownable::get_owner(env)
+            .unwrap_or_else(|| panic_with_error!(env, GenericError::OwnerNotSet));
+        outcome
+            .cache
+            .transfer_out(&owner, outcome.mutation.actual_amount);
     }
-
-    let owner = ownable::get_owner(env)
-        .unwrap_or_else(|| panic_with_error!(env, GenericError::OwnerNotSet));
-    outcome
-        .cache
-        .transfer_out(&owner, outcome.mutation.actual_amount);
 
     events::emit_market_state(env, outcome.cache.snapshot());
     outcome.mutation

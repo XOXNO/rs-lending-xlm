@@ -105,6 +105,7 @@ pub enum AdminOperation {
     UpgradePool(BytesN<32>),
 
     UpgradePositionNft(BytesN<32>),
+    UpgradeSwapAggregator(BytesN<32>),
     SetPositionManager(Address, bool),
     UpgradeController(BytesN<32>),
     MigrateController(u32),

@@ -71,7 +71,6 @@ pub struct LendingTest {
     pub governance: Address,
     pub controller: Address,
     pub mock_reflector: Address,
-    #[allow(dead_code)]
     pub aggregator: Address,
     pub price_aggregator: Address,
     pub keeper: Address,

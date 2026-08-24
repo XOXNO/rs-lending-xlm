@@ -65,7 +65,7 @@ impl LendingTest {
         self.assert_position_exists_for(user, account_id, asset_name, pos_type);
     }
 
-    pub fn assert_position_exists_for(
+    fn assert_position_exists_for(
         &self,
         user: &str,
         account_id: u64,

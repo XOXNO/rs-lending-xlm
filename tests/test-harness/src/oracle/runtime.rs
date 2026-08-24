@@ -11,17 +11,17 @@ use soroban_sdk::{Address, Vec};
 
 impl LendingTest {
     pub fn set_price(&mut self, asset_name: &str, price_wad: i128) {
-        let market = self
-            .markets
-            .get_mut(asset_name)
-            .unwrap_or_else(|| panic!("market '{}' not found", asset_name));
-        let asset = market.asset.clone();
-        market.price_wad = price_wad;
-        self.push_oracle_prices(&asset, price_wad);
+        let asset = self.record_price(asset_name, price_wad);
         self.sync_sanity_band_for_test_price(&asset, price_wad);
     }
 
     pub fn set_price_keeping_sanity_band(&mut self, asset_name: &str, price_wad: i128) {
+        self.record_price(asset_name, price_wad);
+    }
+
+    /// Records `price_wad` as the market's price and pushes it to the mock
+    /// feeds. Returns the market's asset address.
+    fn record_price(&mut self, asset_name: &str, price_wad: i128) -> Address {
         let market = self
             .markets
             .get_mut(asset_name)
@@ -29,6 +29,7 @@ impl LendingTest {
         let asset = market.asset.clone();
         market.price_wad = price_wad;
         self.push_oracle_prices(&asset, price_wad);
+        asset
     }
 
     pub fn refresh_oracle_prices(&self) {
@@ -95,6 +96,20 @@ impl LendingTest {
         let asset = self.resolve_market(asset_name).asset.clone();
         self.mock_reflector_client()
             .set_twap_price(&asset, &price_wad);
+    }
+
+    /// Seeds the sanity band directly, bypassing governance.
+    ///
+    /// Setup only. Since F-3 the governed `set_sanity_band` may only tighten,
+    /// so a test that needs to *start* from a band wider than the market's
+    /// `tight_single_source_band` default cannot get there through the
+    /// governed path.
+    pub fn seed_sanity_band(&self, asset_name: &str, min_wad: i128, max_wad: i128) {
+        let key = PriceKey::Token(self.resolve_asset(asset_name));
+        let mut oracle = self.price_agg_client().oracle(&key).unwrap();
+        oracle.min_sanity_price_wad = min_wad;
+        oracle.max_sanity_price_wad = max_wad;
+        self.price_agg_client().seed_oracle(&key, &oracle);
     }
 
     pub fn set_oracle_single_spot(&self, asset_name: &str) {

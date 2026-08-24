@@ -5,13 +5,14 @@ use test_harness::mock_blend::{
     KIND_LIABILITY, KIND_SUPPLY,
 };
 use test_harness::{
-    assert_contract_error, errors, eth_preset, helpers::f64_to_i128, usdc_preset, LendingTest,
-    ALICE, HARNESS_HUB,
+    assert_contract_error, errors, helpers::f64_to_i128, usdc_preset, LendingTest, ALICE,
+    HARNESS_HUB,
 };
+
+use crate::helpers::register_approved_blend;
 
 fn seed_position(
     t: &LendingTest,
-    blend: &MockBlendClient,
     blend_addr: &Address,
     user: &Address,
     asset_name: &str,
@@ -21,7 +22,7 @@ fn seed_position(
     let market = t.resolve_market(asset_name);
     let raw = f64_to_i128(amount, market.decimals);
     let asset = t.resolve_asset(asset_name);
-    blend.seed(user, &asset, &kind, &raw);
+    MockBlendClient::new(&t.env, blend_addr).seed(user, &asset, &kind, &raw);
     if kind != KIND_LIABILITY {
         market.token_admin.mint(blend_addr, &raw);
     }
@@ -33,16 +34,6 @@ fn empty_assets(t: &LendingTest) -> SorobanVec<Address> {
 
 fn empty_debt(t: &LendingTest) -> SorobanVec<(Address, i128)> {
     SorobanVec::new(&t.env)
-}
-
-fn register_approved_blend(t: &LendingTest) -> Address {
-    let addr = t.env.register(MockBlend, ());
-    let admin = t.admin();
-    t.gov_client().execute_immediate(
-        &admin,
-        &governance_interface::AdminOperation::ApproveBlendPool(addr.clone()),
-    );
-    addr
 }
 
 macro_rules! revert_result {
@@ -61,15 +52,7 @@ fn test_migrate_collateral_only() {
     let caller = t.get_or_create_user(ALICE);
     let blend_addr = register_approved_blend(&t);
     let blend = MockBlendClient::new(&t.env, &blend_addr);
-    seed_position(
-        &t,
-        &blend,
-        &blend_addr,
-        &caller,
-        "USDC",
-        KIND_COLLATERAL,
-        1000.0,
-    );
+    seed_position(&t, &blend_addr, &caller, "USDC", KIND_COLLATERAL, 1000.0);
 
     let usdc = t.resolve_asset("USDC");
     let account_id = t.ctrl_client().migrate_from_blend(
@@ -103,7 +86,7 @@ fn test_migrate_supply_only() {
     let caller = t.get_or_create_user(ALICE);
     let blend_addr = register_approved_blend(&t);
     let blend = MockBlendClient::new(&t.env, &blend_addr);
-    seed_position(&t, &blend, &blend_addr, &caller, "USDC", KIND_SUPPLY, 500.0);
+    seed_position(&t, &blend_addr, &caller, "USDC", KIND_SUPPLY, 500.0);
 
     let usdc = t.resolve_asset("USDC");
     let account_id = t.ctrl_client().migrate_from_blend(
@@ -150,23 +133,12 @@ fn test_migrate_ignores_listed_asset_with_zero_blend_balance() {
 
 #[test]
 fn test_migrate_debt_and_collateral() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
     let caller = t.get_or_create_user(ALICE);
     let blend_addr = register_approved_blend(&t);
     let blend = MockBlendClient::new(&t.env, &blend_addr);
-    seed_position(
-        &t,
-        &blend,
-        &blend_addr,
-        &caller,
-        "USDC",
-        KIND_COLLATERAL,
-        2000.0,
-    );
-    seed_position(&t, &blend, &blend_addr, &caller, "ETH", KIND_LIABILITY, 0.5);
+    seed_position(&t, &blend_addr, &caller, "USDC", KIND_COLLATERAL, 2000.0);
+    seed_position(&t, &blend_addr, &caller, "ETH", KIND_LIABILITY, 0.5);
 
     let usdc = t.resolve_asset("USDC");
     let eth = t.resolve_asset("ETH");
@@ -272,24 +244,8 @@ fn test_migrate_same_asset_loop() {
     let caller = t.get_or_create_user(ALICE);
     let blend_addr = register_approved_blend(&t);
     let blend = MockBlendClient::new(&t.env, &blend_addr);
-    seed_position(
-        &t,
-        &blend,
-        &blend_addr,
-        &caller,
-        "USDC",
-        KIND_COLLATERAL,
-        1000.0,
-    );
-    seed_position(
-        &t,
-        &blend,
-        &blend_addr,
-        &caller,
-        "USDC",
-        KIND_LIABILITY,
-        400.0,
-    );
+    seed_position(&t, &blend_addr, &caller, "USDC", KIND_COLLATERAL, 1000.0);
+    seed_position(&t, &blend_addr, &caller, "USDC", KIND_LIABILITY, 400.0);
 
     let usdc = t.resolve_asset("USDC");
 
@@ -337,16 +293,7 @@ fn test_migrate_into_existing_account() {
     t.supply(ALICE, "USDC", 100.0);
     let caller = t.get_or_create_user(ALICE);
     let blend_addr = register_approved_blend(&t);
-    let blend = MockBlendClient::new(&t.env, &blend_addr);
-    seed_position(
-        &t,
-        &blend,
-        &blend_addr,
-        &caller,
-        "USDC",
-        KIND_COLLATERAL,
-        500.0,
-    );
+    seed_position(&t, &blend_addr, &caller, "USDC", KIND_COLLATERAL, 500.0);
 
     let usdc = t.resolve_asset("USDC");
     let returned_id = t.ctrl_client().migrate_from_blend(
@@ -390,23 +337,12 @@ fn test_migrate_empty_params_rejected() {
 
 #[test]
 fn test_migrate_debt_cap_exact_no_refund() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
     let caller = t.get_or_create_user(ALICE);
     let blend_addr = register_approved_blend(&t);
     let blend = MockBlendClient::new(&t.env, &blend_addr);
-    seed_position(
-        &t,
-        &blend,
-        &blend_addr,
-        &caller,
-        "USDC",
-        KIND_COLLATERAL,
-        2000.0,
-    );
-    seed_position(&t, &blend, &blend_addr, &caller, "ETH", KIND_LIABILITY, 0.5);
+    seed_position(&t, &blend_addr, &caller, "USDC", KIND_COLLATERAL, 2000.0);
+    seed_position(&t, &blend_addr, &caller, "ETH", KIND_LIABILITY, 0.5);
 
     let usdc = t.resolve_asset("USDC");
     let eth = t.resolve_asset("ETH");
@@ -440,22 +376,11 @@ fn test_migrate_debt_cap_exact_no_refund() {
 
 #[test]
 fn test_migrate_zero_blend_liability_cap_nets_zero_debt() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
     let caller = t.get_or_create_user(ALICE);
     let blend_addr = register_approved_blend(&t);
     let blend = MockBlendClient::new(&t.env, &blend_addr);
-    seed_position(
-        &t,
-        &blend,
-        &blend_addr,
-        &caller,
-        "USDC",
-        KIND_COLLATERAL,
-        2000.0,
-    );
+    seed_position(&t, &blend_addr, &caller, "USDC", KIND_COLLATERAL, 2000.0);
 
     let usdc = t.resolve_asset("USDC");
     let eth = t.resolve_asset("ETH");
@@ -487,32 +412,13 @@ fn test_migrate_zero_blend_liability_cap_nets_zero_debt() {
 
 #[test]
 fn test_migrate_multi_debt_refund_reconciles_each() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
     let caller = t.get_or_create_user(ALICE);
     let blend_addr = register_approved_blend(&t);
     let blend = MockBlendClient::new(&t.env, &blend_addr);
-    seed_position(
-        &t,
-        &blend,
-        &blend_addr,
-        &caller,
-        "USDC",
-        KIND_COLLATERAL,
-        5000.0,
-    );
-    seed_position(&t, &blend, &blend_addr, &caller, "ETH", KIND_LIABILITY, 0.5);
-    seed_position(
-        &t,
-        &blend,
-        &blend_addr,
-        &caller,
-        "USDC",
-        KIND_LIABILITY,
-        200.0,
-    );
+    seed_position(&t, &blend_addr, &caller, "USDC", KIND_COLLATERAL, 5000.0);
+    seed_position(&t, &blend_addr, &caller, "ETH", KIND_LIABILITY, 0.5);
+    seed_position(&t, &blend_addr, &caller, "USDC", KIND_LIABILITY, 200.0);
 
     let usdc = t.resolve_asset("USDC");
     let eth = t.resolve_asset("ETH");
@@ -547,23 +453,11 @@ fn test_migrate_multi_debt_refund_reconciles_each() {
 
 #[test]
 fn test_migrate_refund_ignores_preexisting_controller_balance() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
     let caller = t.get_or_create_user(ALICE);
     let blend_addr = register_approved_blend(&t);
-    let blend = MockBlendClient::new(&t.env, &blend_addr);
-    seed_position(
-        &t,
-        &blend,
-        &blend_addr,
-        &caller,
-        "USDC",
-        KIND_COLLATERAL,
-        2000.0,
-    );
-    seed_position(&t, &blend, &blend_addr, &caller, "ETH", KIND_LIABILITY, 0.5);
+    seed_position(&t, &blend_addr, &caller, "USDC", KIND_COLLATERAL, 2000.0);
+    seed_position(&t, &blend_addr, &caller, "ETH", KIND_LIABILITY, 0.5);
 
     let usdc = t.resolve_asset("USDC");
     let eth = t.resolve_asset("ETH");
@@ -644,23 +538,11 @@ fn test_migrate_unlisted_withdraw_asset_rejected_before_token_call() {
 
 #[test]
 fn test_migrate_debt_cap_too_low_reverts() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
     let caller = t.get_or_create_user(ALICE);
     let blend_addr = register_approved_blend(&t);
-    let blend = MockBlendClient::new(&t.env, &blend_addr);
-    seed_position(
-        &t,
-        &blend,
-        &blend_addr,
-        &caller,
-        "USDC",
-        KIND_COLLATERAL,
-        2000.0,
-    );
-    seed_position(&t, &blend, &blend_addr, &caller, "ETH", KIND_LIABILITY, 0.5);
+    seed_position(&t, &blend_addr, &caller, "USDC", KIND_COLLATERAL, 2000.0);
+    seed_position(&t, &blend_addr, &caller, "ETH", KIND_LIABILITY, 0.5);
 
     let usdc = t.resolve_asset("USDC");
     let eth = t.resolve_asset("ETH");
@@ -682,10 +564,7 @@ fn test_migrate_debt_cap_too_low_reverts() {
 
 #[test]
 fn test_migrate_rejects_priced_but_unlisted_withdraw_asset_before_blend() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
     let caller = t.get_or_create_user(ALICE);
     let blend_addr = register_approved_blend(&t);
 
@@ -722,24 +601,12 @@ fn test_migrate_rejects_priced_but_unlisted_withdraw_asset_before_blend() {
 
 #[test]
 fn test_migrate_unhealthy_end_state_reverts() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
     let caller = t.get_or_create_user(ALICE);
     let blend_addr = register_approved_blend(&t);
-    let blend = MockBlendClient::new(&t.env, &blend_addr);
 
-    seed_position(
-        &t,
-        &blend,
-        &blend_addr,
-        &caller,
-        "USDC",
-        KIND_COLLATERAL,
-        100.0,
-    );
-    seed_position(&t, &blend, &blend_addr, &caller, "ETH", KIND_LIABILITY, 0.5);
+    seed_position(&t, &blend_addr, &caller, "USDC", KIND_COLLATERAL, 100.0);
+    seed_position(&t, &blend_addr, &caller, "ETH", KIND_LIABILITY, 0.5);
 
     let usdc = t.resolve_asset("USDC");
     let eth = t.resolve_asset("ETH");
@@ -765,16 +632,7 @@ fn test_migrate_unapproved_blend_pool_reverts() {
     let caller = t.get_or_create_user(ALICE);
 
     let blend_addr = t.env.register(MockBlend, ());
-    let blend = MockBlendClient::new(&t.env, &blend_addr);
-    seed_position(
-        &t,
-        &blend,
-        &blend_addr,
-        &caller,
-        "USDC",
-        KIND_COLLATERAL,
-        1000.0,
-    );
+    seed_position(&t, &blend_addr, &caller, "USDC", KIND_COLLATERAL, 1000.0);
 
     let usdc = t.resolve_asset("USDC");
     let result: Result<u64, soroban_sdk::Error> =

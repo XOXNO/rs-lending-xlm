@@ -4,6 +4,7 @@
 //! grant/revoke application, and the contract constructor.
 
 use common::errors::GenericError;
+use common::ttl::renew_instance;
 
 use soroban_sdk::{
     assert_with_error, contractimpl, panic_with_error, Address, BytesN, Env, Symbol,
@@ -11,7 +12,7 @@ use soroban_sdk::{
 
 use stellar_access::{access_control, ownable, role_transfer};
 
-use crate::{storage, timelock, Governance, GovernanceArgs, GovernanceClient};
+use crate::{timelock, Governance, GovernanceArgs, GovernanceClient};
 
 /// Identifier for the oracle operational role.
 pub(crate) const ORACLE_ROLE: &str = "ORACLE";
@@ -109,8 +110,9 @@ pub(crate) fn owner_or_panic(env: &Env) -> Address {
 /// Renews the governance instance's storage TTL and upgrades the contract
 /// to `new_wasm_hash`.
 pub(crate) fn apply_upgrade(env: &Env, new_wasm_hash: &BytesN<32>) {
-    storage::renew_governance_instance(env);
-    stellar_contract_utils::upgradeable::upgrade(env, new_wasm_hash);
+    renew_instance(env);
+    env.deployer()
+        .update_current_contract_wasm(new_wasm_hash.clone());
 }
 
 /// Renews the governance instance's storage TTL, updates the pending-owner
@@ -119,7 +121,7 @@ pub(crate) fn apply_upgrade(env: &Env, new_wasm_hash: &BytesN<32>) {
 /// is zero), emits an ownership-transfer event, and mirrors the pending
 /// transfer onto the access-control admin role.
 pub(crate) fn apply_transfer_ownership(env: &Env, new_owner: &Address, live_until_ledger: u32) {
-    storage::renew_governance_instance(env);
+    renew_instance(env);
     let current_owner = owner_or_panic(env);
 
     role_transfer::transfer_role(
@@ -164,7 +166,7 @@ fn require_executor_canceller_separation(
 /// `account`, after checking that the grant does not give `account` both
 /// the executor and canceller roles.
 pub(crate) fn apply_grant_role(env: &Env, account: &Address, role: &Symbol) {
-    storage::renew_governance_instance(env);
+    renew_instance(env);
     let owner = owner_or_panic(env);
     require_executor_canceller_separation(env, &owner, account, role);
     access_control::grant_role_no_auth(env, account, role, &owner);
@@ -176,7 +178,7 @@ pub(crate) fn apply_grant_role(env: &Env, account: &Address, role: &Symbol) {
 /// `owner` and enforcing the executor/canceller separation on each new
 /// grant.
 pub(crate) fn apply_canceller_reset(env: &Env, new_cancellers: &soroban_sdk::Vec<Address>) {
-    storage::renew_governance_instance(env);
+    renew_instance(env);
     let owner = owner_or_panic(env);
     let role = Symbol::new(env, CANCELLER_ROLE);
     let mut count = access_control::get_role_member_count(env, &role);
@@ -201,7 +203,7 @@ pub(crate) fn apply_canceller_reset(env: &Env, new_cancellers: &soroban_sdk::Vec
 /// owner, and with `GenericError::CannotRemoveLastProposer` if this would
 /// remove the last remaining holder of the proposer role.
 pub(crate) fn apply_revoke_role(env: &Env, account: &Address, role: &Symbol) {
-    storage::renew_governance_instance(env);
+    renew_instance(env);
     assert_with_error!(
         env,
         access_control::has_role(env, account, role).is_some(),
@@ -224,16 +226,11 @@ pub(crate) fn apply_revoke_role(env: &Env, account: &Address, role: &Symbol) {
 /// admin and operational-role holders from the previous owner to the new
 /// owner.
 pub(crate) fn accept_ownership(env: &Env) {
-    storage::renew_governance_instance(env);
+    renew_instance(env);
     let previous_owner = owner_or_panic(env);
     ownable::accept_ownership(env);
     let new_owner = owner_or_panic(env);
     sync_owner_access_control(env, &previous_owner, &new_owner);
-}
-
-/// Returns whether `account` currently holds `role`.
-pub(crate) fn has_role(env: &Env, account: &Address, role: &Symbol) -> bool {
-    access_control::has_role(env, account, role).is_some()
 }
 
 #[contractimpl]

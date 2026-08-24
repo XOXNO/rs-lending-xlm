@@ -25,22 +25,9 @@ mod view;
 
 mod ops;
 
-pub use assert::assert_contract_error;
+// `prelude` is the single re-export surface -- add new names there, not here.
 pub use common::types::HubAssetKey;
-pub use context::{LendingTest, LendingTestBuilder};
-pub use fixtures::{
-    liquidatable_usdc_eth, seed_liquidatable_usdc_eth, seed_liquidator_usdc,
-    seed_standard_liquidity,
-};
-pub use helpers::*;
-pub use ops::internal::{amount_raw, asset_payment_vec};
 pub use prelude::*;
-
-pub use strategy::{
-    apply_flash_fee, build_aggregator_swap, mock_swap_payload_xdr, MockSwapPayload,
-    DEFAULT_FLASHLOAN_FEE_BPS,
-};
-pub use view::PositionType;
 pub mod freezable_token;
 pub mod mock_aggregator;
 pub mod mock_blend;

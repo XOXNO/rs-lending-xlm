@@ -329,7 +329,7 @@ fn persist_account_positions_writes_both_sides() {
             supply_positions: supply,
             borrow_positions: debt,
         };
-        persist_account_positions(&env, 1, &account, PositionSides::BOTH, false);
+        persist_account_positions(&env, 1, &account, PositionSides::Both, false);
         assert_eq!(
             storage::get_supply_positions(&env, 1)
                 .get(hub_asset.clone())
@@ -384,19 +384,19 @@ fn persist_account_positions_removes_empty_account() {
             supply_positions: soroban_sdk::Map::new(&env),
             borrow_positions: soroban_sdk::Map::new(&env),
         };
-        persist_account_positions(&env, account_id, &account, PositionSides::BOTH, true);
+        persist_account_positions(&env, account_id, &account, PositionSides::Both, true);
         assert!(storage::try_get_account_meta(&env, account_id).is_none());
     });
 }
 
 #[test]
 #[should_panic(expected = "Error(Auth, InvalidAction)")]
-fn require_position_caller_without_auth_panics() {
+fn require_authorized_caller_without_auth_panics() {
     let env = Env::default();
     let admin = Address::generate(&env);
     let contract_id = env.register(Controller, (admin,));
     env.as_contract(&contract_id, || {
-        require_position_caller(&env, &Address::generate(&env));
+        validation::require_authorized_caller(&env, &Address::generate(&env));
     });
 }
 

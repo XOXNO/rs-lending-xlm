@@ -1,9 +1,27 @@
 use common::errors::GenericError;
 use common::types::{HubAssetKey, HubPayment};
-use soroban_sdk::{panic_with_error, Env, Map, Vec};
+use soroban_sdk::{panic_with_error, token, Address, Env, Map, Vec};
 
 pub(crate) use common::token::transfer_amount_measured;
 use common::validation::{expect_invariant, require_non_empty_payments, require_nonneg_amount};
+
+/// Returns `holder`'s current `asset` balance minus `before`: the amount that
+/// arrived since that snapshot was taken. Negative when the balance fell.
+///
+/// Every controller leg that settles through the contract's own custody
+/// measures what actually moved rather than trusting a reported figure, so
+/// the subtraction lives here once instead of at each call site.
+pub(crate) fn balance_delta_since(
+    env: &Env,
+    asset: &Address,
+    holder: &Address,
+    before: i128,
+) -> i128 {
+    token::Client::new(env, asset)
+        .balance(holder)
+        .checked_sub(before)
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError))
+}
 
 #[derive(Clone, Copy, PartialEq)]
 pub(crate) enum ZeroLeg {

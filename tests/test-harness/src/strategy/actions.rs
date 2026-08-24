@@ -3,7 +3,7 @@ use soroban_sdk::{Address, Bytes, Vec};
 
 use crate::core::{AccountEntry, LendingTest};
 use crate::helpers::{f64_to_i128, hub_asset, HARNESS_SPOKE};
-use crate::strategy::swap::mock_swap_payload_xdr;
+use crate::strategy::swap::build_aggregator_swap;
 
 impl LendingTest {
     pub fn fund_router(&self, asset_name: &str, amount: f64) {
@@ -19,16 +19,11 @@ impl LendingTest {
 
     pub fn mock_swap_steps(
         &self,
-        _token_in: &str,
-        _token_out: &str,
+        token_in: &str,
+        token_out: &str,
         _price_wad: i128,
     ) -> StrategySwap {
-        mock_swap_payload_xdr(
-            &self.env,
-            self.resolve_asset(_token_in),
-            self.resolve_asset(_token_out),
-            1,
-        )
+        build_aggregator_swap(self, token_in, token_out, 0, 1)
     }
 
     pub fn multiply(
@@ -40,38 +35,8 @@ impl LendingTest {
         mode: PositionMode,
         steps: &StrategySwap,
     ) -> u64 {
-        let debt_decimals = self.resolve_market(debt_asset).decimals;
-        let raw_debt = f64_to_i128(debt_amount, debt_decimals);
-        let caller_addr = self.get_or_create_user(user);
-        let collateral = hub_asset(self.resolve_asset(collateral_asset));
-        let debt = hub_asset(self.resolve_asset(debt_asset));
-
-        let ctrl = self.ctrl_client();
-        let account_id = ctrl.multiply(
-            &caller_addr,
-            &0u64,
-            &HARNESS_SPOKE,
-            &collateral,
-            &raw_debt,
-            &debt,
-            &mode,
-            steps,
-            &None,
-            &None,
-        );
-        let attrs = ctrl.get_account_attributes(&account_id);
-
-        let user_state = self.users.get_mut(user).expect("user exists");
-        user_state.accounts.push(AccountEntry {
-            account_id,
-            spoke_id: attrs.spoke_id,
-            mode: attrs.mode,
-        });
-        if user_state.default_account_id.is_none() {
-            user_state.default_account_id = Some(account_id);
-        }
-
-        account_id
+        self.try_multiply(user, collateral_asset, debt_amount, debt_asset, mode, steps)
+            .expect("multiply")
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -150,15 +115,8 @@ impl LendingTest {
         new_debt: &str,
         steps: &StrategySwap,
     ) {
-        let account_id = self.resolve_account_id(user);
-        let addr = self.users.get(user).unwrap().address.clone();
-        let existing = hub_asset(self.resolve_asset(existing_debt));
-        let new = hub_asset(self.resolve_asset(new_debt));
-        let decimals = self.resolve_market(new_debt).decimals;
-        let raw = f64_to_i128(new_amount, decimals);
-
-        self.ctrl_client()
-            .swap_debt(&addr, &account_id, &existing, &raw, &new, steps);
+        self.try_swap_debt(user, existing_debt, new_amount, new_debt, steps)
+            .expect("swap_debt");
     }
 
     pub fn try_swap_debt(
@@ -194,15 +152,8 @@ impl LendingTest {
         new_collateral: &str,
         steps: &StrategySwap,
     ) {
-        let account_id = self.resolve_account_id(user);
-        let addr = self.users.get(user).unwrap().address.clone();
-        let current = hub_asset(self.resolve_asset(current_collateral));
-        let new = hub_asset(self.resolve_asset(new_collateral));
-        let decimals = self.resolve_market(current_collateral).decimals;
-        let raw = f64_to_i128(amount, decimals);
-
-        self.ctrl_client()
-            .swap_collateral(&addr, &account_id, &current, &raw, &new, steps);
+        self.try_swap_collateral(user, current_collateral, amount, new_collateral, steps)
+            .expect("swap_collateral");
     }
 
     pub fn try_swap_collateral(
@@ -243,22 +194,15 @@ impl LendingTest {
         steps: &StrategySwap,
         close_position: bool,
     ) {
-        let account_id = self.resolve_account_id(user);
-        let addr = self.users.get(user).unwrap().address.clone();
-        let collateral = hub_asset(self.resolve_asset(collateral_asset));
-        let debt = hub_asset(self.resolve_asset(debt_asset));
-        let decimals = self.resolve_market(collateral_asset).decimals;
-        let raw = f64_to_i128(collateral_amount, decimals);
-
-        self.ctrl_client().repay_debt_with_collateral(
-            &addr,
-            &account_id,
-            &collateral,
-            &raw,
-            &debt,
+        self.try_repay_debt_with_collateral(
+            user,
+            collateral_asset,
+            collateral_amount,
+            debt_asset,
             steps,
-            &close_position,
-        );
+            close_position,
+        )
+        .expect("repay_debt_with_collateral");
     }
 
     pub fn try_repay_debt_with_collateral(

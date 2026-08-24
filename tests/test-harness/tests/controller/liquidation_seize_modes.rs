@@ -5,6 +5,7 @@
 //! `contracts/controller/tests/positions/liquidation_seize_modes.rs`; everything here needs a
 //! real pool, so it lives against the full harness.
 
+use crate::shared::count_topic;
 use common::types::{
     AccountPositionRaw, ControllerKey, PoolStateRaw, PositionMode, SeizeMode, SpokeUsageRaw,
 };
@@ -56,21 +57,6 @@ fn spoke_supply_usage(t: &LendingTest, asset_name: &str) -> i128 {
     })
 }
 
-fn count_topic(events: &ContractEvents, first: &str, second: &str) -> usize {
-    events
-        .events()
-        .iter()
-        .filter(|event| {
-            let ContractEventBody::V0(body) = &event.body;
-            matches!(
-                (body.topics.first(), body.topics.get(1)),
-                (Some(ScVal::Symbol(a)), Some(ScVal::Symbol(b)))
-                    if a.0.to_string() == first && b.0.to_string() == second
-            )
-        })
-        .count()
-}
-
 // --- scenarios -----------------------------------------------------------
 
 /// USDC market with no seeded free cash, so the only USDC the pool holds is what suppliers put
@@ -107,10 +93,7 @@ fn cash_starved_usdc() -> LendingTest {
 /// Alice is liquidatable in a market with plenty of cash, so both modes are available and can
 /// be compared.
 fn liquid_usdc() -> LendingTest {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.0);
@@ -216,10 +199,7 @@ fn credit_mode_moves_spoke_usage_by_exactly_the_protocol_fee() {
 
 #[test]
 fn credit_zero_creates_a_usable_account_owned_by_the_liquidator_in_the_right_spoke() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     // Two identical borrowers, both opened while USDC is still worth a dollar.
     t.supply(ALICE, "USDC", 10_000.0);
@@ -254,8 +234,7 @@ fn credit_to_an_account_in_another_spoke_reverts() {
     // A second spoke listing the same asset, so only the binding differs between the two
     // candidate receivers.
     let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
+        .standard_two_asset()
         .with_spoke(2, STABLECOIN_SPOKE)
         .with_spoke_asset(2, "USDC", true, true)
         .build();
@@ -418,8 +397,7 @@ fn a_spoke_at_its_supply_cap_can_still_be_credited() {
 #[test]
 fn a_receiver_at_the_supply_position_limit_reverts() {
     let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
+        .standard_two_asset()
         .with_position_limits(1, 4)
         .build();
 
@@ -617,10 +595,7 @@ fn no_seize_blocks_the_seizure_leg_in_both_modes() {
 
 #[test]
 fn a_paused_debt_asset_is_opt_in_and_only_blocks_when_named() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     // Two debts; only one of them gets paused.
     t.supply(ALICE, "USDC", 10_000.0);
@@ -638,10 +613,7 @@ fn a_paused_debt_asset_is_opt_in_and_only_blocks_when_named() {
 
 #[test]
 fn no_seize_does_not_block_ordinary_withdrawal() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.set_spoke_asset_flags("USDC", false, false, true);
@@ -671,10 +643,7 @@ fn no_seize_does_not_block_ordinary_withdrawal() {
 /// the gap.
 #[test]
 fn transfer_and_credit_seize_the_same_value_at_the_same_ledger() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     // Two borrowers built identically, so the only difference at liquidation time
     // is the seize mode.
@@ -733,10 +702,7 @@ fn transfer_and_credit_seize_the_same_value_at_the_same_ledger() {
 /// an exact match is the property, not a bound.
 #[test]
 fn transfer_and_credit_agree_exactly_on_a_full_close() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.0);
@@ -773,10 +739,7 @@ fn transfer_and_credit_agree_exactly_on_a_full_close() {
 /// up here.
 #[test]
 fn transfer_and_credit_agree_on_values_that_do_not_divide_evenly() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 7_333.37);
     t.borrow(ALICE, "ETH", 2.19);
@@ -827,10 +790,7 @@ fn transfer_and_credit_agree_on_values_that_do_not_divide_evenly() {
 /// quantised by a caller-supplied amount.
 #[test]
 fn withdrawing_the_credit_in_the_same_ledger_matches_the_transfer_payout() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 7_333.37);
     t.borrow(ALICE, "ETH", 2.19);
@@ -901,10 +861,7 @@ fn withdrawing_the_credit_in_the_same_ledger_matches_the_transfer_payout() {
 /// by a wide margin, since the bonus is a small fraction of the seizure.
 #[test]
 fn the_protocol_fee_is_charged_on_the_bonus_not_the_gross_seizure() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.0);

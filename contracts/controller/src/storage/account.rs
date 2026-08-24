@@ -178,7 +178,7 @@ pub(crate) fn get_delegates(env: &Env, account_id: u64, owner: &Address) -> Vec<
 
 /// Writes an account's delegate list to persistent storage, stamped with the granting `owner`;
 /// removes the entry entirely when the list is empty.
-pub(crate) fn set_delegates(env: &Env, account_id: u64, owner: &Address, delegates: &Vec<Address>) {
+fn set_delegates(env: &Env, account_id: u64, owner: &Address, delegates: &Vec<Address>) {
     let key = ControllerKey::Delegates(account_id);
     if delegates.is_empty() {
         env.storage().persistent().remove(&key);

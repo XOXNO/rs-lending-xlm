@@ -8,7 +8,7 @@ use common::types::{
 };
 use libfuzzer_sys::fuzz_target;
 use pool::{LiquidityPool, LiquidityPoolClient};
-use soroban_sdk::{testutils::Address as _, testutils::Ledger as _, token, Address, Env};
+use soroban_sdk::{testutils::Address as _, testutils::Ledger as _, token, vec, Address, Env};
 
 const ACCOUNTING_TOLERANCE_UNITS: i128 = 4;
 
@@ -436,7 +436,7 @@ fuzz_target!(|i: In| {
                 }
             }
             4 => {
-                let result = flatten_contract_result(pool.try_update_indexes(&market));
+                let result = flatten_contract_result(pool.try_update_indexes(&vec![&env, market.clone()]));
                 match result {
                     Ok(_) => {
                         let after = pool_state(&pool, &market);
@@ -461,7 +461,7 @@ fuzz_target!(|i: In| {
                 }
             }
             6 => {
-                if flatten_contract_result(pool.try_update_indexes(&market)).is_err() {
+                if flatten_contract_result(pool.try_update_indexes(&vec![&env, market.clone()])).is_err() {
                     assert_pool_invariants(&env, &pool, &pool_addr, &asset, &market);
                     continue;
                 }
@@ -495,7 +495,7 @@ fuzz_target!(|i: In| {
                     }
                 };
 
-                if flatten_contract_result(pool.try_update_indexes(&market)).is_err() {
+                if flatten_contract_result(pool.try_update_indexes(&vec![&env, market.clone()])).is_err() {
                     assert_pool_invariants(&env, &pool, &pool_addr, &asset, &market);
                     continue;
                 }

@@ -45,11 +45,6 @@ pub trait ReflectorOracle {
     fn prices(env: Env, asset: ReflectorAsset, records: u32) -> Option<Vec<ReflectorPriceData>>;
 }
 
-/// Calls `oracle`'s `base` function directly and returns the result.
-pub fn reflector_base(env: &Env, oracle: &Address) -> ReflectorAsset {
-    ReflectorClient::new(env, oracle).base()
-}
-
 /// Returns the most recent price data for `asset` from `oracle` via
 /// `try_lastprice`. Returns `None` if the call fails or no price is available.
 pub fn reflector_last_price(
@@ -77,16 +72,6 @@ pub fn reflector_prices(
     }
 }
 
-/// Calls `oracle`'s `decimals` function directly and returns the result.
-pub fn reflector_decimals(env: &Env, oracle: &Address) -> u32 {
-    ReflectorClient::new(env, oracle).decimals()
-}
-
-/// Calls `oracle`'s `resolution` function directly and returns the result.
-pub fn reflector_resolution(env: &Env, oracle: &Address) -> u32 {
-    ReflectorClient::new(env, oracle).resolution()
-}
-
 /// Returns `oracle`'s resolution via `try_resolution`, or `None` if the call fails.
 pub fn try_reflector_resolution(env: &Env, oracle: &Address) -> Option<u32> {
     match ReflectorClient::new(env, oracle).try_resolution() {
@@ -104,13 +89,6 @@ pub fn to_reflector_asset(env: &Env, asset: &OracleAssetRef) -> ReflectorAsset {
         OracleAssetRef::Symbol(symbol) => ReflectorAsset::Other(symbol.clone()),
         OracleAssetRef::String(_) => panic_with_error!(env, OracleError::InvalidOracleTokenType),
     }
-}
-
-/// Returns the minimum number of observations required for a TWAP window of
-/// `records` records. A TWAP must use its full configured window, so this
-/// equals `records`.
-pub fn min_twap_observations(records: u32) -> u32 {
-    records
 }
 
 /// Computes the arithmetic mean price over `history`. Returns `None` if any

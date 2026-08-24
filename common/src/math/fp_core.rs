@@ -70,12 +70,29 @@ pub fn mul_div_floor_saturating(env: &Env, x: i128, y: i128, d: i128) -> i128 {
     x256.mul(&y256).div(&d256).to_i128().unwrap_or(i128::MAX)
 }
 
-/// Multiplies `a` by `10^diff`, using `factor_msg` and `value_msg` as the panic messages for
-/// power and multiplication overflow respectively.
-fn rescale_upscale(a: i128, diff: u32, factor_msg: &str, value_msg: &str) -> i128 {
-    let factor = 10i128.checked_pow(diff).expect(factor_msg);
+/// Rescales `a` from `from_decimals` to `to_decimals`, applying `round_down` when the
+/// conversion drops digits. Upscaling multiplies by the exact power-of-ten factor and never
+/// consults `round_down`; downscaling calls `round_down(a, factor)` with the power of ten
+/// being divided out. Returns `a` unchanged when the decimal counts are equal. Panics if the
+/// power-of-ten factor or the upscaled value overflows `i128`.
+fn rescale(
+    a: i128,
+    from_decimals: u32,
+    to_decimals: u32,
+    round_down: impl Fn(i128, i128) -> i128,
+) -> i128 {
+    if from_decimals == to_decimals {
+        return a;
+    }
+    let factor = 10i128
+        .checked_pow(to_decimals.abs_diff(from_decimals))
+        .expect("rescale factor overflow");
 
-    a.checked_mul(factor).expect(value_msg)
+    if to_decimals > from_decimals {
+        a.checked_mul(factor).expect("rescale upscale overflow")
+    } else {
+        round_down(a, factor)
+    }
 }
 
 /// Rescales `a` from `from_decimals` to `to_decimals`. Upscaling multiplies by the exact
@@ -83,23 +100,8 @@ fn rescale_upscale(a: i128, diff: u32, factor_msg: &str, value_msg: &str) -> i12
 /// halves rounding away from zero. Returns `a` unchanged when the decimal counts are equal.
 /// Panics if the power-of-ten factor or the upscaled value overflows `i128`.
 pub fn rescale_half_up(a: i128, from_decimals: u32, to_decimals: u32) -> i128 {
-    if from_decimals == to_decimals {
-        return a;
-    }
-    if to_decimals > from_decimals {
-        rescale_upscale(
-            a,
-            to_decimals - from_decimals,
-            "rescale_half_up upscale factor overflow",
-            "rescale_half_up upscale overflow",
-        )
-    } else {
-        let diff = from_decimals - to_decimals;
-        let factor = 10i128
-            .checked_pow(diff)
-            .expect("rescale_half_up downscale factor overflow");
+    rescale(a, from_decimals, to_decimals, |a, factor| {
         let half = factor / 2;
-
         if a >= 0 {
             let q = a / factor;
             if a % factor >= half {
@@ -110,32 +112,15 @@ pub fn rescale_half_up(a: i128, from_decimals: u32, to_decimals: u32) -> i128 {
         } else {
             (a - half) / factor
         }
-    }
+    })
 }
 
 /// Rescales `a` from `from_decimals` to `to_decimals`. Upscaling multiplies by the exact
 /// power-of-ten factor; downscaling truncates the quotient toward zero. Returns `a` unchanged
 /// when the decimal counts are equal. Panics if the power-of-ten factor or the upscaled value
 /// overflows `i128`.
-pub fn rescale_floor(a: i128, from_decimals: u32, to_decimals: u32) -> i128 {
-    if from_decimals == to_decimals {
-        return a;
-    }
-    if to_decimals > from_decimals {
-        rescale_upscale(
-            a,
-            to_decimals - from_decimals,
-            "rescale_floor upscale factor overflow",
-            "rescale_floor upscale overflow",
-        )
-    } else {
-        let diff = from_decimals - to_decimals;
-        let factor = 10i128
-            .checked_pow(diff)
-            .expect("rescale_floor downscale factor overflow");
-
-        a / factor
-    }
+pub(crate) fn rescale_floor(a: i128, from_decimals: u32, to_decimals: u32) -> i128 {
+    rescale(a, from_decimals, to_decimals, |a, factor| a / factor)
 }
 
 /// Rescales `a` from `from_decimals` to `to_decimals`. Upscaling multiplies by the exact
@@ -143,31 +128,15 @@ pub fn rescale_floor(a: i128, from_decimals: u32, to_decimals: u32) -> i128 {
 /// `a` with a nonzero remainder, adds 1 to round up; a negative `a` is truncated toward zero
 /// without rounding up. Returns `a` unchanged when the decimal counts are equal. Panics if the
 /// power-of-ten factor or the upscaled value overflows `i128`.
-pub fn rescale_ceil(a: i128, from_decimals: u32, to_decimals: u32) -> i128 {
-    if from_decimals == to_decimals {
-        return a;
-    }
-    if to_decimals > from_decimals {
-        rescale_upscale(
-            a,
-            to_decimals - from_decimals,
-            "rescale_ceil upscale factor overflow",
-            "rescale_ceil upscale overflow",
-        )
-    } else {
-        let diff = from_decimals - to_decimals;
-        let factor = 10i128
-            .checked_pow(diff)
-            .expect("rescale_ceil downscale factor overflow");
+pub(crate) fn rescale_ceil(a: i128, from_decimals: u32, to_decimals: u32) -> i128 {
+    rescale(a, from_decimals, to_decimals, |a, factor| {
         let quotient = a / factor;
-        let remainder = a % factor;
-
-        if a >= 0 && remainder != 0 {
+        if a >= 0 && a % factor != 0 {
             quotient + 1
         } else {
             quotient
         }
-    }
+    })
 }
 
 /// Divides `a` by the positive integer `b`, rounding to the nearest result with exact halves

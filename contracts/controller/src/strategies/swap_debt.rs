@@ -8,6 +8,7 @@ use crate::config;
 use crate::context::Cache;
 use crate::events::PositionAction;
 use crate::positions::get_debt_position_or_panic;
+use crate::risk::validation::require_authorized_caller;
 use crate::storage;
 use crate::strategies::{
     borrow_into_controller, prefetch_strategy_prices, repay_debt_from_controller,
@@ -37,7 +38,7 @@ pub(crate) fn process_swap_debt(env: &Env, caller: &Address, params: SwapDebtPar
         swap,
     } = params;
 
-    crate::strategies::require_strategy_caller(env, caller);
+    require_authorized_caller(env, caller);
 
     assert_with_error!(
         env,

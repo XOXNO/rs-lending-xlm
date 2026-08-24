@@ -9,35 +9,23 @@ use crate::presets::LEDGER_PROTOCOL_VERSION;
 
 impl LendingTest {
     pub fn advance_time(&mut self, duration_secs: u64) {
-        let current = self.env.ledger().timestamp();
-        let current_seq = self.env.ledger().sequence();
-        let new_timestamp = current + duration_secs;
-        let new_seq = current_seq + (duration_secs / 5) as u32;
-
-        self.env.ledger().set(LedgerInfo {
-            timestamp: new_timestamp,
-            protocol_version: LEDGER_PROTOCOL_VERSION,
-            sequence_number: new_seq,
-            network_id: Default::default(),
-            base_reserve: 10,
-            min_temp_entry_ttl: 10,
-            min_persistent_entry_ttl: 10,
-            max_entry_ttl: 3_110_400,
-        });
-
+        self.advance_ledger(duration_secs);
         self.refresh_oracle_prices();
     }
 
     pub fn advance_time_no_refresh(&self, duration_secs: u64) {
+        self.advance_ledger(duration_secs);
+    }
+
+    /// Moves the ledger forward by `duration_secs`, at 5 seconds per ledger.
+    fn advance_ledger(&self, duration_secs: u64) {
         let current = self.env.ledger().timestamp();
         let current_seq = self.env.ledger().sequence();
-        let new_timestamp = current + duration_secs;
-        let new_seq = current_seq + (duration_secs / 5) as u32;
 
         self.env.ledger().set(LedgerInfo {
-            timestamp: new_timestamp,
+            timestamp: current + duration_secs,
             protocol_version: LEDGER_PROTOCOL_VERSION,
-            sequence_number: new_seq,
+            sequence_number: current_seq + (duration_secs / 5) as u32,
             network_id: Default::default(),
             base_reserve: 10,
             min_temp_entry_ttl: 10,

@@ -1,6 +1,7 @@
 use crate::constants::{BAD_DEBT_USD_THRESHOLD, BPS, WAD};
 use common::errors::GenericError;
 use common::math::fp::{Bps, Wad};
+use common::math::fp_core::mul_div_ceil;
 use common::types::SpokeConfig;
 use soroban_sdk::{panic_with_error, Env};
 
@@ -8,7 +9,7 @@ use soroban_sdk::{panic_with_error, Env};
 pub(crate) struct LiquidationSnapshot {
     pub total_debt: Wad,
     pub total_collateral: Wad,
-    pub weighted_coll: Wad,
+    pub weighted_collateral: Wad,
     pub proportion_seized: Wad,
     pub hf: Wad,
 }
@@ -47,23 +48,20 @@ impl LiquidationCurve {
     /// from 0 at `target` to 1 at `hf_for_max_bonus` and staying at 1 below that threshold;
     /// returns 1 outright when `target` is at or below `hf_for_max_bonus`.
     fn bonus_scale(&self, env: &Env, hf: Wad, target: Wad) -> Wad {
-        let gap = target.checked_sub(env, hf);
         if target <= self.hf_for_max_bonus {
             Wad::ONE
         } else {
-            gap.div(env, target.checked_sub(env, self.hf_for_max_bonus))
+            target
+                .checked_sub(env, hf)
+                .div(env, target.checked_sub(env, self.hf_for_max_bonus))
                 .min(Wad::ONE)
         }
     }
 
-    /// Applies the curve's configured bonus factor to `increment`, returning it unchanged when
-    /// the factor is exactly one (100%).
+    /// Applies the curve's configured bonus factor to `increment`. `Bps::ONE`
+    /// applies as the identity, so the default 100% factor needs no special case.
     fn apply_bonus_factor(&self, env: &Env, increment: i128) -> i128 {
-        if self.bonus_factor == Bps::ONE {
-            increment
-        } else {
-            self.bonus_factor.apply_to(env, increment)
-        }
+        self.bonus_factor.apply_to(env, increment)
     }
 }
 
@@ -104,6 +102,9 @@ pub(super) fn max_hf_preserving_bonus_bps(snap: &LiquidationSnapshot) -> Option<
         return None;
     }
 
+    // Unchecked, unlike the rest of this module, and safe by the guard above: `hf < WAD` (1e18)
+    // bounds `hf * BPS` at ~1e22 against an i128 ceiling of ~1.7e38, and `proportion > 0` rules
+    // out the division.
     Some(snap.hf.raw() * BPS / proportion - BPS)
 }
 
@@ -128,20 +129,17 @@ pub(crate) fn estimate_liquidation_amount(
         curve.target_hf,
     );
 
+    // A ceiling below the account's own base bonus means no partial close is priceable at any
+    // rate we would offer, so close the whole debt at the base bonus.
+    // `calculate_linear_bonus_with_target` never returns below `base`, so the clamp can only
+    // lower `scaled_bonus` — never raise it past what the account's own tuple allows.
     let bonus = match max_hf_preserving_bonus_bps(snap) {
         None => scaled_bonus,
-        Some(cap) if scaled_bonus.raw() <= cap => scaled_bonus,
-
-        Some(cap) if cap >= bounds.base.raw() => Bps::from(cap),
-
-        Some(_) => return (snap.total_debt, bounds.base),
+        Some(cap) if cap < bounds.base.raw() => return (snap.total_debt, bounds.base),
+        Some(cap) => Bps::from(scaled_bonus.raw().min(cap)),
     };
 
-    let ideal = try_liquidation_at_target(env, snap, bonus, curve.target_hf).unwrap_or_else(|| {
-        snap.total_collateral
-            .div(env, Wad::ONE.checked_add(env, bonus.to_wad(env)))
-            .min(snap.total_debt)
-    });
+    let ideal = liquidation_at_target(env, snap, bonus, curve.target_hf);
 
     let remaining_debt = snap.total_debt.checked_sub(env, ideal);
     if remaining_debt > Wad::ZERO && remaining_debt < Wad::from(BAD_DEBT_USD_THRESHOLD) {
@@ -162,9 +160,9 @@ pub(super) fn calculate_post_liquidation_hf(
 
     let seized_proportion = snap.proportion_seized.mul(env, debt_to_repay);
     let seized_weighted_raw = one_plus_bonus.apply_to(env, seized_proportion.raw());
-    let seized_weighted = Wad::from(seized_weighted_raw).min(snap.weighted_coll);
+    let seized_weighted = Wad::from(seized_weighted_raw).min(snap.weighted_collateral);
 
-    let new_weighted = snap.weighted_coll.checked_sub(env, seized_weighted);
+    let new_weighted = snap.weighted_collateral.checked_sub(env, seized_weighted);
     let new_debt = if debt_to_repay >= snap.total_debt {
         Wad::ZERO
     } else {
@@ -177,36 +175,32 @@ pub(super) fn calculate_post_liquidation_hf(
     new_weighted.div(env, new_debt)
 }
 
-/// Solves for the debt repayment that would bring `snap`'s post-liquidation health factor to
-/// exactly `target_hf` at the given `bonus`, using the linear relationship between debt,
-/// weighted collateral, and seized value. Returns `None` when `target_hf` is at or below the
-/// seizure's weighted rate (`proportion_seized * (1 + bonus)`), and otherwise caps the result at
-/// both the collateral-backed maximum and `snap.total_debt`.
-fn try_liquidation_at_target(
-    env: &Env,
-    snap: &LiquidationSnapshot,
-    bonus: Bps,
-    target_hf: Wad,
-) -> Option<Wad> {
-    let bonus_wad = bonus.to_wad(env);
-    let one_plus_bonus = Wad::ONE.checked_add(env, bonus_wad);
-
+/// Solves for the debt repayment that brings `snap`'s post-liquidation health factor to exactly
+/// `target_hf` at the given `bonus`, from the linear relationship between debt, weighted
+/// collateral, and seized value. The result is always capped at both the collateral-backed
+/// maximum `d_max` and `snap.total_debt`.
+///
+/// Two cases short-circuit to `d_max` instead of solving: the target is unreachable because the
+/// seizure's own weighted rate (`proportion_seized * (1 + bonus)`) already meets it, or weighted
+/// collateral already covers the target debt. Both answer `d_max`, so they share one exit rather
+/// than one returning a sentinel the caller has to re-derive the same formula from.
+fn liquidation_at_target(env: &Env, snap: &LiquidationSnapshot, bonus: Bps, target_hf: Wad) -> Wad {
+    let one_plus_bonus = Wad::ONE.checked_add(env, bonus.to_wad(env));
     let d_max = snap.total_collateral.div(env, one_plus_bonus);
-
     let denom_term = snap.proportion_seized.mul(env, one_plus_bonus);
-    if target_hf <= denom_term {
-        return None;
-    }
-    let denominator = target_hf.checked_sub(env, denom_term);
-
     let target_debt = target_hf.mul(env, snap.total_debt);
-    if target_debt <= snap.weighted_coll {
-        return Some(d_max.min(snap.total_debt));
-    }
-    let numerator = target_debt.checked_sub(env, snap.weighted_coll);
-    let d_ideal = numerator.div(env, denominator);
 
-    Some(d_ideal.min(d_max).min(snap.total_debt))
+    if target_hf <= denom_term || target_debt <= snap.weighted_collateral {
+        return d_max.min(snap.total_debt);
+    }
+
+    // Both subtractions are positive by the branch above.
+    let numerator = target_debt.checked_sub(env, snap.weighted_collateral);
+    let denominator = target_hf.checked_sub(env, denom_term);
+    numerator
+        .div(env, denominator)
+        .min(d_max)
+        .min(snap.total_debt)
 }
 
 /// Computes the basis-point bonus solving `(1 + bonus) * proportion_seized = 1` — the same
@@ -219,8 +213,7 @@ pub(crate) fn max_bonus_for_threshold(env: &Env, proportion_seized: Wad) -> Bps 
     }
 
     // Ceil(proportion * BPS / WAD), clamped into [1, BPS].
-    let eff_thr_bps =
-        common::math::fp_core::mul_div_ceil(env, proportion_seized.raw(), BPS, WAD).clamp(1, BPS);
+    let eff_thr_bps = mul_div_ceil(env, proportion_seized.raw(), BPS, WAD).clamp(1, BPS);
     let numerator = BPS
         .checked_mul(BPS - eff_thr_bps)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));

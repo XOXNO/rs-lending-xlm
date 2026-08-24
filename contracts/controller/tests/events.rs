@@ -128,7 +128,8 @@ fn every_event_helper_publishes_exactly_one_event() {
         .publish(&env);
         assert_one_more(&mut published, "CreateMarketEvent");
 
-        UpdateMarketParamsEvent::from((1u32, asset.clone(), &sample_rate_model())).publish(&env);
+        UpdateMarketParamsEvent::from_rate_model(1, asset.clone(), &sample_rate_model())
+            .publish(&env);
         assert_one_more(&mut published, "UpdateMarketParamsEvent");
 
         let mut deposits = Vec::new(&env);
@@ -282,9 +283,7 @@ fn update_market_params_event_from_rate_model_is_flat() {
     let model = sample_rate_model();
 
     let via_ctor = UpdateMarketParamsEvent::from_rate_model(7, asset.clone(), &model);
-    let via_from = UpdateMarketParamsEvent::from((7u32, asset.clone(), &model));
 
-    assert_eq!(via_ctor, via_from);
     assert_eq!(via_ctor.hub_id, 7);
     assert_eq!(via_ctor.asset, asset);
     assert_eq!(via_ctor.max_borrow_rate, model.max_borrow_rate);

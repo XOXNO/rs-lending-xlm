@@ -1,14 +1,11 @@
 use controller::constants::WAD;
 use test_harness::{
-    assert_contract_error, days, errors, eth_preset, usdc_preset, usdt_stable_preset, wbtc_preset,
-    LendingTest, PositionType, ALICE, BOB, LIQUIDATOR,
+    assert_contract_error, days, errors, usdt_stable_preset, LendingTest, PositionType, ALICE, BOB,
+    LIQUIDATOR,
 };
 #[test]
 fn test_hf_above_one_after_every_borrow() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 100_000.0);
 
@@ -25,10 +22,7 @@ fn test_hf_above_one_after_every_borrow() {
 }
 #[test]
 fn test_hf_above_one_after_every_withdraw() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 5.0);
@@ -46,10 +40,7 @@ fn test_hf_above_one_after_every_withdraw() {
 }
 #[test]
 fn test_hf_below_one_required_for_liquidation() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 10.0);
@@ -60,11 +51,7 @@ fn test_hf_below_one_required_for_liquidation() {
 }
 #[test]
 fn test_ltv_less_than_threshold_always() {
-    let t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_market(wbtc_preset())
-        .build();
+    let t = LendingTest::new().three_asset_usdc_eth_wbtc().build();
 
     for market in &["USDC", "ETH", "WBTC"] {
         let config = t.get_asset_config(market);
@@ -79,10 +66,7 @@ fn test_ltv_less_than_threshold_always() {
 }
 #[test]
 fn test_supply_index_monotonically_increasing() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.supply(BOB, "ETH", 100.0);
@@ -113,10 +97,7 @@ fn test_supply_index_monotonically_increasing() {
 }
 #[test]
 fn test_borrow_index_monotonically_increasing() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 10.0);
@@ -147,9 +128,7 @@ fn test_borrow_index_monotonically_increasing() {
 #[test]
 fn test_position_limits_enforced() {
     let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_market(wbtc_preset())
+        .three_asset_usdc_eth_wbtc()
         .with_market(usdt_stable_preset())
         .with_position_limits(2, 2)
         .build();
@@ -162,10 +141,7 @@ fn test_position_limits_enforced() {
 }
 #[test]
 fn test_total_supply_matches_pool_balance() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 50_000.0);
     t.supply(BOB, "USDC", 30_000.0);
@@ -190,10 +166,7 @@ fn test_total_supply_matches_pool_balance() {
 }
 #[test]
 fn test_full_lifecycle_supply_borrow_repay_withdraw() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.assert_position_exists(ALICE, "USDC", PositionType::Supply);

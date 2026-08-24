@@ -1,5 +1,5 @@
 use super::{enable_dual_source, setup};
-use test_harness::{eth_preset, usdc_preset, LendingTest, ALICE, HARNESS_HUB};
+use test_harness::{LendingTest, ALICE, HARNESS_HUB};
 
 #[test]
 fn test_tolerance_config_valid_update() {
@@ -83,8 +83,7 @@ fn test_set_accumulator() {
 #[test]
 fn test_edit_asset_in_spoke_category() {
     let t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
+        .standard_two_asset()
         .with_spoke(2, test_harness::STABLECOIN_SPOKE)
         .with_spoke_asset(2, "USDC", true, true)
         .with_dust_disabled_all_markets()

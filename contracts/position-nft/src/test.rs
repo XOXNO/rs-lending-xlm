@@ -158,6 +158,44 @@ fn approved_operator_can_transfer_and_approval_is_cleared() {
 }
 
 #[test]
+fn operator_for_all_can_move_every_token_and_grant_is_per_owner_and_revocable() {
+    // F-9: `approve_for_all` is the protocol's broadest authority grant
+    // (account_id == token_id, so moving a token moves the position).
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_controller, client) = setup(&env);
+    let owner_a = Address::generate(&env);
+    let owner_b = Address::generate(&env);
+    let operator = Address::generate(&env);
+    let recipient = Address::generate(&env);
+
+    // owner_a holds two positions; owner_b holds one.
+    let a1 = client.mint(&owner_a);
+    let a2 = client.mint(&owner_a);
+    let b1 = client.mint(&owner_b);
+
+    let live_until = env.ledger().sequence() + 1_000;
+    client.approve_for_all(&owner_a, &operator, &live_until);
+    assert!(client.is_approved_for_all(&owner_a, &operator));
+
+    // Blanket approval moves EVERY owner_a token, with no per-token approval.
+    client.transfer_from(&operator, &owner_a, &recipient, &a1);
+    client.transfer_from(&operator, &owner_a, &recipient, &a2);
+    assert_eq!(client.owner_of(&a1), recipient);
+    assert_eq!(client.owner_of(&a2), recipient);
+
+    // The grant is per-owner: it gives no authority over owner_b's token.
+    assert!(!client.is_approved_for_all(&owner_b, &operator));
+    assert!(client
+        .try_transfer_from(&operator, &owner_b, &recipient, &b1)
+        .is_err());
+
+    // Revocation is immediate.
+    client.approve_for_all(&owner_a, &operator, &0u32);
+    assert!(!client.is_approved_for_all(&owner_a, &operator));
+}
+
+#[test]
 fn unapproved_caller_cannot_transfer_from() {
     let env = Env::default();
     env.mock_all_auths();
@@ -230,10 +268,11 @@ fn renew_extends_owner_entry_ttl_to_user_window() {
     let user = Address::generate(&env);
     let token_id = client.mint(&user);
 
-    // Age the ledger past the OZ 30-day owner-entry bump so the entry is
-    // measurably older than the user window renew() must restore.
+    // mint now sets the Owner entry to the full user window (F-7), so age the
+    // ledger until its remaining TTL drops below renew's threshold, where renew
+    // must restore it.
     env.ledger()
-        .with_mut(|l| l.sequence_number += TTL_THRESHOLD_USER / 2);
+        .with_mut(|l| l.sequence_number += TTL_BUMP_USER - TTL_THRESHOLD_USER / 2);
     env.as_contract(&id, || {
         assert!(
             env.storage()

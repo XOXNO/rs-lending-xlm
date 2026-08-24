@@ -2,8 +2,8 @@ use common::types::SeizeMode;
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, Vec};
 use test_harness::{
-    assert_contract_error, errors, eth_preset, hub_asset, liquidatable_usdc_eth, usd_cents,
-    usdc_preset, HubAssetKey, LendingTest, ALICE, LIQUIDATOR,
+    assert_contract_error, errors, hub_asset, liquidatable_usdc_eth, usd_cents, HubAssetKey,
+    LendingTest, ALICE, LIQUIDATOR,
 };
 
 fn try_liquidate_payments(
@@ -30,10 +30,7 @@ fn try_liquidate_payments(
 
 #[test]
 fn test_liquidation_aggregates_duplicate_debt_payments() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.set_oracle_single_spot("USDC");
     t.set_oracle_single_spot("ETH");
@@ -59,10 +56,7 @@ fn test_liquidation_aggregates_duplicate_debt_payments() {
 #[test]
 #[should_panic(expected = "Error(Contract, #210)")]
 fn test_oracle_rejects_zero_price_before_liquidation_check() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     let alice = "alice_zero";
 
@@ -78,8 +72,7 @@ fn test_oracle_rejects_zero_price_before_liquidation_check() {
 #[test]
 fn test_liquidation_seize_proportional_subunit_collateral() {
     let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
+        .standard_two_asset()
         .with_dust_disabled_all_markets()
         .with_max_utilization_disabled_all_markets()
         .build();
@@ -121,10 +114,7 @@ fn test_liquidation_seize_proportional_subunit_collateral() {
 
 #[test]
 fn test_liquidation_rejects_if_no_debt_repaid() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.set_oracle_single_spot("USDC");
     t.set_oracle_single_spot("ETH");
@@ -139,10 +129,7 @@ fn test_liquidation_rejects_if_no_debt_repaid() {
 
 #[test]
 fn test_liquidation_multi_debt_capped() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.set_oracle_single_spot("USDC");
     t.set_oracle_single_spot("ETH");

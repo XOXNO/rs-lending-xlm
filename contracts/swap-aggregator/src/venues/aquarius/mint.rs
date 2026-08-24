@@ -10,13 +10,6 @@ use crate::vault::Vault;
 use crate::venues::aquarius::pool::{assert_share_token, pool_tokens, to_u128};
 use crate::venues::auth::auth_entry;
 
-/// Mint parameters; router plumbing (`env` / vault / cache) is passed separately.
-pub(crate) struct MintLiquidity<'a> {
-    pub pool: &'a Address,
-    pub lp_token: &'a Address,
-    pub min_shares: i128,
-}
-
 /// Deposits the vault's full balance of each pool constituent token into the pool
 /// and credits the vault with the measured LP shares received. Returns the minted
 /// share amount.
@@ -27,15 +20,11 @@ pub(crate) fn add_liquidity(
     env: &Env,
     router: &Address,
     vault: &mut Vault,
-    mint: MintLiquidity<'_>,
+    pool: &Address,
+    lp_token: &Address,
+    min_shares: i128,
     cache: &mut Map<Address, Vec<Address>>,
 ) -> i128 {
-    let MintLiquidity {
-        pool,
-        lp_token,
-        min_shares,
-    } = mint;
-
     let tokens = pool_tokens(env, cache, pool);
     assert_share_token(env, pool, lp_token);
     if min_shares <= 0 {

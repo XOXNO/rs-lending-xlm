@@ -18,6 +18,7 @@ use common::types::{
 };
 use soroban_sdk::{Address, Env, Map, Vec};
 
+use crate::config::require_hub_active;
 use crate::spoke_usage::SpokeUsageContext;
 use crate::storage;
 
@@ -39,16 +40,12 @@ impl Cache {
     /// Renews the controller's instance storage TTL and returns a fresh, empty cache for a state-changing entrypoint.
     pub(crate) fn new(env: &Env) -> Self {
         storage::renew_controller_instance(env);
-        Self::build(env)
+        Self::new_view(env)
     }
 
-    /// Returns a fresh, empty cache for a read-only entrypoint, without renewing the instance storage TTL.
+    /// Returns a fresh, empty cache for a read-only entrypoint, without renewing the instance
+    /// storage TTL: all memoization maps and update buffers initialized but unpopulated.
     pub(crate) fn new_view(env: &Env) -> Self {
-        Self::build(env)
-    }
-
-    /// Constructs an empty `Cache` with all memoization maps and update buffers initialized but unpopulated.
-    fn build(env: &Env) -> Self {
         Cache {
             env: env.clone(),
             token_prices: Map::new(env),
@@ -81,7 +78,7 @@ impl Cache {
         if self.verified_hubs.contains_key(hub_id) {
             return;
         }
-        crate::config::require_hub_active(&self.env, hub_id);
+        require_hub_active(&self.env, hub_id);
         self.verified_hubs.set(hub_id, true);
     }
 }

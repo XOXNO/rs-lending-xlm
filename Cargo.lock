@@ -1402,7 +1402,6 @@ dependencies = [
  "pool-interface",
  "soroban-sdk",
  "stellar-access",
- "stellar-contract-utils",
  "stellar-macros",
 ]
 
@@ -2195,7 +2194,6 @@ dependencies = [
  "common",
  "soroban-sdk",
  "stellar-access",
- "stellar-contract-utils",
  "stellar-macros",
  "swap-aggregator-interface",
 ]
@@ -2681,7 +2679,6 @@ dependencies = [
  "common",
  "soroban-sdk",
  "stellar-access",
- "stellar-contract-utils",
  "stellar-macros",
 ]
 

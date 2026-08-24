@@ -13,6 +13,7 @@ for f in core invoke assert wallet assets aggregator oracle protocol report; do
 done
 source "$INTEG_DIR/flows/lifecycle.sh"
 source "$INTEG_DIR/flows/flash_position.sh"
+source "$INTEG_DIR/flows/teardown.sh"
 
 init_run
 if [ -f "$INTEG_DIR/appendix.md" ]; then
@@ -52,6 +53,7 @@ else
 fi
 flow_flash_position_gaps || die flash_position_gaps "flash_position gap coverage failed"
 flow_flash_position_malicious || die flash_position_malicious "malicious receiver coverage failed"
+flow_teardown || die teardown "zero-state teardown failed"
 
 phase done
 log "run complete"

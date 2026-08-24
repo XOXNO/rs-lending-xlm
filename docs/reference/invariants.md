@@ -319,7 +319,7 @@ Collateral is rounded down, debt is rounded up, and health factor is rounded
 down.
 
 **Status:** ENFORCED — `contracts/controller/src/risk/totals.rs`
-(`sum_supply_usd`, `sum_debt_usd`, `calculate_ltv_collateral_wad`), mirrored by
+(`calculate_account_risk_totals`, `sum_debt_usd`, `calculate_ltv_collateral_wad`), mirrored by
 `unscale_supply_floor` / `unscale_borrow_ceil` in `contracts/pool/src/guards.rs`.
 VERIFIED — rules `hf_division_rounds_against_borrower`,
 `position_value_ceil_ge_floor`, `scaled_to_actual_matches_floor_with_rounding`.

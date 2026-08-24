@@ -88,12 +88,6 @@ pub fn unscale_borrow_ceil(env: &Env, scaled: Ray, borrow_index: Ray, decimals: 
     scaled.mul_ceil(env, borrow_index).to_asset_ceil(decimals)
 }
 
-/// Converts a scaled borrow `Ray` to its original value using ceiling
-/// rounding, without rescaling to asset-unit decimals.
-pub fn unscale_borrow_ceil_ray(env: &Env, scaled: Ray, borrow_index: Ray) -> Ray {
-    scaled.mul_ceil(env, borrow_index)
-}
-
 /// Determines the scaled and unscaled amounts to withdraw from `pos_scaled`
 /// when a caller requests `amount` asset units.
 ///

@@ -76,7 +76,7 @@ impl ProviderRef {
     /// rather than a spot price. Reflector references are smoothed when their
     /// read mode is `Twap` (equal-weight mean of records); RedStone and Xoxno
     /// references are never smoothed.
-    pub fn is_smoothed(&self) -> bool {
+    fn is_smoothed(&self) -> bool {
         match self {
             ProviderRef::Reflector(r) => matches!(r.read_mode, OracleReadMode::Twap(_)),
             ProviderRef::RedStone(_) | ProviderRef::Xoxno(_) => false,

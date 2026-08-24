@@ -2,9 +2,9 @@
 //! (signers, threshold, staleness and skew bounds, resolution), persistent
 //! feed and asset registries backed by swap-remove indexed collections,
 //! per-signer submissions with aggregates and history, and TTL renewal
-//! helpers. Re-exports the `config`, `index`, `prices`, `registry`, and
-//! `ttl` submodules' public items, and defines the `DataKey` storage-key
-//! enum and default configuration constants shared across them.
+//! helpers. Re-exports the `config`, `index`, `prices`, and `registry`
+//! submodules' public items, and defines the `DataKey` storage-key enum and
+//! default configuration constants shared across them.
 //!
 //! This module is the only place allowed to construct `DataKey`s or touch
 //! `env.storage()`: every other module goes through the named accessors, so
@@ -20,7 +20,6 @@ pub(crate) use config::*;
 pub(crate) use index::*;
 pub(crate) use prices::*;
 pub(crate) use registry::*;
-pub(crate) use ttl::*;
 
 use common::oracle::providers::reflector::ReflectorAsset;
 
@@ -33,8 +32,11 @@ pub(crate) const DEFAULT_MAX_STALE_SECONDS: u64 = 86_400;
 /// ledger time to be accepted.
 pub(crate) const DEFAULT_MAX_SUBMISSION_AGE_SECONDS: u64 = 900;
 
-/// Minimum allowed value, in seconds, for the configured maximum submission age.
-pub(crate) const MIN_SUBMISSION_AGE_SECONDS: u64 = 60;
+/// Minimum configurable maximum submission age. Held one second above
+/// `MAX_FUTURE_SKEW_SECONDS` so the age cannot be pinned to the skew bound and
+/// collapse the effective eviction window (F-2, defence-in-depth).
+pub(crate) const MIN_SUBMISSION_AGE_SECONDS: u64 =
+    common::oracle::observation::MAX_FUTURE_SKEW_SECONDS + 1;
 
 /// Default maximum allowed timestamp skew, in seconds, between signer submissions for the same
 /// price update.

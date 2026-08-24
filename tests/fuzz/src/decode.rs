@@ -1,11 +1,4 @@
 #[inline]
-pub fn arb_amount(raw: u32, lo: f64, hi: f64) -> f64 {
-    debug_assert!(hi > lo);
-    let span = (hi - lo).max(1.0);
-    lo + (raw as f64 % span)
-}
-
-#[inline]
 pub fn scaled_amount(raw: u8, lo: f64, hi: f64) -> f64 {
     debug_assert!(hi >= lo);
     lo + (hi - lo) * (raw as f64 / u8::MAX as f64)

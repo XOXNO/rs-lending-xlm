@@ -11,11 +11,13 @@ use governance_interface::{AdminOperation, GovernanceInterface};
 
 use soroban_sdk::{contractimpl, Address, BytesN, Env, Symbol, Val, Vec};
 
-use stellar_governance::timelock::OperationState;
+use stellar_access::access_control;
+use stellar_governance::timelock::{self as gov_timelock, OperationState};
 use stellar_macros::only_owner;
 
-use crate::timelock::{immediate, lifecycle, recovery, views};
-use crate::{access, deploy, storage, Governance, GovernanceArgs, GovernanceClient};
+use crate::timelock::{immediate, lifecycle, recovery};
+use crate::validate::tolerance::validate_and_calculate_tolerances;
+use crate::{access, deploy, op, storage, timelock, Governance, GovernanceArgs, GovernanceClient};
 
 #[contractimpl]
 impl GovernanceInterface for Governance {
@@ -70,19 +72,19 @@ impl GovernanceInterface for Governance {
 
     /// Returns the timelock's configured minimum delay, in ledgers.
     fn get_min_delay(env: Env) -> u32 {
-        views::get_min_delay(&env)
+        gov_timelock::get_min_delay(&env)
     }
 
     /// Returns the current state of the operation identified by
     /// `operation_id`.
     fn get_operation_state(env: Env, operation_id: BytesN<32>) -> OperationState {
-        views::get_operation_state(&env, &operation_id)
+        gov_timelock::get_operation_state(&env, &operation_id)
     }
 
     /// Returns the ledger at which the operation becomes ready (delay elapsed).
     /// Execution also requires the grace window and auth rules.
     fn get_operation_ledger(env: Env, operation_id: BytesN<32>) -> u32 {
-        views::get_operation_ledger(&env, &operation_id)
+        gov_timelock::get_operation_ledger(&env, &operation_id)
     }
 
     /// Computes the operation id for the given target, function, arguments,
@@ -95,19 +97,19 @@ impl GovernanceInterface for Governance {
         predecessor: BytesN<32>,
         salt: BytesN<32>,
     ) -> BytesN<32> {
-        views::hash_operation(&env, target, function, args, predecessor, salt)
+        timelock::hash_operation_parts(&env, target, function, args, predecessor, salt)
     }
 
     /// Validates `tolerance` and returns the resolved oracle tolerance
     /// bounds.
     fn resolve_oracle_tolerance(env: Env, tolerance: u32) -> OracleTolerance {
-        views::resolve_oracle_tolerance(&env, tolerance)
+        validate_and_calculate_tolerances(&env, tolerance)
     }
 
     /// Resolves `oracle` for `key`, filling in `asset_decimals` from the
     /// token contract for a `PriceKey::Token` key or `0` for `PriceKey::Ref`.
     fn resolve_asset_oracle(env: Env, key: PriceKey, oracle: AssetOracle) -> AssetOracle {
-        views::resolve_asset_oracle(&env, &key, &oracle)
+        op::resolve_oracle(&env, &key, &oracle)
     }
 
     /// Schedules `op` for later execution and returns its operation id.
@@ -200,6 +202,6 @@ impl GovernanceInterface for Governance {
 
     /// Returns whether `account` currently holds `role`.
     fn has_role(env: Env, account: Address, role: Symbol) -> bool {
-        access::has_role(&env, &account, &role)
+        access_control::has_role(&env, &account, &role).is_some()
     }
 }

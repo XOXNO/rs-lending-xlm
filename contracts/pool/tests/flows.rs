@@ -25,8 +25,6 @@ use soroban_sdk::{
 
 const WAD_PER_RAW: i128 = 100_000_000_000_000_000_000;
 
-const VERBOSE_CLAIM_DUST: bool = false;
-
 fn count_topic(events: &ContractEvents, first: &str, second: &str) -> usize {
     events
         .events()
@@ -476,7 +474,7 @@ fn test_market_mutations_emit_indexer_events() {
         "last invocation (supply) should retain one state batch event"
     );
 
-    client.update_indexes(&hub(&t.asset));
+    client.update_indexes(&vec![&t.env, hub(&t.asset)]);
     assert_eq!(
         count_topic(&t.env.events().all(), "market", "batch_state_update"),
         1,
@@ -1004,12 +1002,12 @@ fn test_interest_accrual() {
     let borrower = Address::generate(&t.env);
     client.borrow(&borrower, &t.bor(0, 10_000_000_000i128));
 
-    client.update_indexes(&hub(&t.asset));
+    client.update_indexes(&vec![&t.env, hub(&t.asset)]);
     let initial_indexes = client.get_sync_data(&hub(&t.asset)).state;
 
     t.advance_time(31_556_926);
 
-    client.update_indexes(&hub(&t.asset));
+    client.update_indexes(&vec![&t.env, hub(&t.asset)]);
     let new_indexes = client.get_sync_data(&hub(&t.asset)).state;
 
     assert!(
@@ -1376,12 +1374,12 @@ fn test_seize_positions_bad_debt() {
         .borrow(&borrower, &t.bor(0, 100_0000000i128))
         .get_unchecked(0);
 
-    client.update_indexes(&hub(&t.asset));
+    client.update_indexes(&vec![&t.env, hub(&t.asset)]);
     let idx_before = client.get_sync_data(&hub(&t.asset)).state;
 
     client.seize_positions(&t.sez(AccountPositionType::Borrow, &updated_borrow.position));
 
-    client.update_indexes(&hub(&t.asset));
+    client.update_indexes(&vec![&t.env, hub(&t.asset)]);
     let idx_after = client.get_sync_data(&hub(&t.asset)).state;
     assert_eq!(
         idx_after.borrowed, 0,
@@ -1630,7 +1628,7 @@ fn test_claim_revenue() {
 
     t.advance_time(31_556_926);
 
-    client.update_indexes(&hub(&t.asset));
+    client.update_indexes(&vec![&t.env, hub(&t.asset)]);
 
     let revenue = client.get_revenue(&hub(&t.asset));
     assert!(
@@ -2412,7 +2410,7 @@ fn test_update_params_accrues_under_old_curve_after_time_advance() {
     let later_ms = t.env.ledger().timestamp() * MS_PER_SECOND;
     let expected_new_window =
         MarketIndexRaw::from(&simulate_update_indexes(&t.env, later_ms, &after));
-    client.update_indexes(&hub(&t.asset));
+    client.update_indexes(&vec![&t.env, hub(&t.asset)]);
     let final_state = client.get_sync_data(&hub(&t.asset));
     assert_eq!(
         final_state.state.borrow_index, expected_new_window.borrow_index,
@@ -2942,7 +2940,7 @@ fn test_revenue_conversion_floor_never_exceeds_entitlement_but_half_up_does() {
     client.supply(&t.sup(0, 10_000_000_000i128));
     client.borrow(&borrower, &t.bor(0, 4_000_000_000i128));
     t.advance_time(1);
-    client.update_indexes(&hub(&t.asset));
+    client.update_indexes(&vec![&t.env, hub(&t.asset)]);
 
     let state = t.state_snapshot();
     let entitlement_ray =
@@ -2976,7 +2974,7 @@ fn test_claims_never_outpay_burned_shares_where_half_up_would() {
     for second in 1..=10u64 {
         t.advance_time(second);
 
-        client.update_indexes(&hub(&t.asset));
+        client.update_indexes(&vec![&t.env, hub(&t.asset)]);
 
         let half_up = t.env.as_contract(&t.pool, || {
             let cache = Cache::load(&t.env, &hub(&t.asset));
@@ -2998,18 +2996,9 @@ fn test_claims_never_outpay_burned_shares_where_half_up_would() {
 
         total_paid += paid;
         total_half_up_would_pay += half_up;
-
-        if VERBOSE_CLAIM_DUST {
-            std::println!(
-                "claim {second}: half_up_would_pay={half_up} paid={paid} burned_ray={burned_ray}"
-            );
-        }
     }
 
     assert!(total_half_up_would_pay > total_paid);
-    if VERBOSE_CLAIM_DUST {
-        std::println!("TOTAL half_up={total_half_up_would_pay} floor={total_paid}");
-    }
 }
 
 #[test]
@@ -3021,7 +3010,7 @@ fn test_revenue_claim_pays_out_once_entitlement_clears_one_raw_unit() {
     client.supply(&t.sup(0, 10_000_000_000i128));
     client.borrow(&borrower, &t.bor(0, 4_000_000_000i128));
     t.advance_time(86_400);
-    client.update_indexes(&hub(&t.asset));
+    client.update_indexes(&vec![&t.env, hub(&t.asset)]);
 
     let before = t.state_snapshot();
     let owed_ray =
@@ -3078,15 +3067,6 @@ fn test_load_sync_data_renews_market_keys_once() {
         sync_cpu + redundant / 2 < double_renew_cpu,
         "load_sync_data should renew once, not twice; sync_cpu={sync_cpu} double_renew_cpu={double_renew_cpu} redundant={redundant}"
     );
-
-    if VERBOSE_CLAIM_DUST {
-        std::println!(
-            "renew_market cpu={} load_sync_data cpu={} read+read+renew+renew cpu={}",
-            one_renewal,
-            sync_cpu,
-            double_renew_cpu
-        );
-    }
 }
 
 #[test]

@@ -1,9 +1,13 @@
 //! Shared scalar and tuple types used across the lending protocol crates:
-//! payment tuples, account position classification, and position modes.
+//! payment tuples, the encoded swap-router payload, account position classification, and
+//! position modes.
 
-use soroban_sdk::{contracttype, Address, Vec};
+use soroban_sdk::{contracttype, Address, Bytes, Vec};
 
 use crate::types::pool::HubAssetKey;
+
+/// Encoded swap route passed to the aggregator router's `execute_strategy` entry point.
+pub type StrategySwap = Bytes;
 
 /// A token amount paired with the address of the underlying asset contract.
 pub type Payment = (Address, i128);

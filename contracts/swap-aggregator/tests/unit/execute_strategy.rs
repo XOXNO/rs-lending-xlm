@@ -549,3 +549,83 @@ fn a_path_ending_off_target_reverts() {
         Error::ExcessiveResidual.into()
     );
 }
+
+/// A fee-on-transfer input token makes the router credit its vault with the
+/// *declared* `total_in` while receiving less, and the shortfall is paid out of
+/// the accrued fee buckets held in that same token.
+///
+/// `execute::run` does `transfer(sender, router, total_in)` immediately
+/// followed by `vault.deposit(&input_token, total_in)`: the deposit is the
+/// declared argument, never a measured balance delta. Every other inbound leg
+/// in this workspace measures (`common::token::transfer_amount_measured`,
+/// `venues::dispatch_hop`); this one does not.
+#[test]
+fn fee_on_transfer_input_is_credited_at_measured_amount_and_leaves_the_fee_reserve_intact() {
+    use super::support::fee_on_transfer_token_mock;
+    use crate::reserved_fee_balance;
+    use crate::storage::accumulate_fee;
+    use crate::types::DataKey;
+
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let router_addr = env.register(Router, (Address::generate(&env),));
+    let router = RouterClient::new(&env, &router_addr);
+    let sender = Address::generate(&env);
+    let admin = Address::generate(&env);
+
+    // 1% fee-on-transfer input token.
+    let fot = env.register(fee_on_transfer_token_mock::FotToken, ());
+    let fot_client = fee_on_transfer_token_mock::FotTokenClient::new(&env, &fot);
+    fot_client.init(&100);
+    fot_client.mint(&sender, &1_000);
+
+    let (token_b, sac_b) = new_asset(&env, &admin);
+    let pool = env.register(aquarius_mock::AqPool, ());
+    aquarius_mock::AqPoolClient::new(&env, &pool).init(&fot, &token_b);
+    sac_b.mint(&pool, &10_000);
+
+    // The router already custodies 100 units of FOT backing an accrued admin
+    // fee bucket. Balance and reserve agree before the swap.
+    fot_client.mint(&router_addr, &100);
+    env.as_contract(&router_addr, || {
+        accumulate_fee(&env, DataKey::AdminFee(fot.clone()), 100_i128);
+    });
+    assert_eq!(fot_client.balance(&router_addr), 100);
+    assert_eq!(
+        env.as_contract(&router_addr, || reserved_fee_balance(&env, &fot)),
+        100
+    );
+
+    let swap_xdr = strategy_xdr(
+        &env,
+        fot.clone(),
+        token_b.clone(),
+        1,
+        alloc::vec![one_hop_path(
+            &env,
+            SwapVenue::Aquarius,
+            pool,
+            fot.clone(),
+            token_b.clone(),
+            1_000_000,
+        )],
+    );
+
+    router.execute_strategy(&sender, &1_000, &swap_xdr);
+
+    let reserved = env.as_contract(&router_addr, || reserved_fee_balance(&env, &fot));
+    let real = fot_client.balance(&router_addr);
+
+    // F-1 fixed: the vault is credited the MEASURED 990, not the declared 1000,
+    // so the hop routes only what arrived and the accrued fee bucket is never
+    // touched. The reserve stays fully backed.
+    assert_eq!(reserved, 100, "the fee bucket still claims 100");
+    assert_eq!(real, 100, "and its 100 tokens of backing are intact");
+    assert!(
+        real >= reserved,
+        "accrued fees remain fully backed: balance {} >= reserved {}",
+        real,
+        reserved
+    );
+}

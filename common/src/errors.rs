@@ -8,6 +8,9 @@ use soroban_sdk::contracterror;
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum GenericError {
+    // Reserved: retired codes kept declared so their numbers can never be
+    // reused and existing error codes never shift. See docs/reference/errors.md.
+    // Not dead code — do not delete.
     AssetNotSupported = 1,
 
     AssetAlreadySupported = 2,
@@ -24,8 +27,10 @@ pub enum GenericError {
 
     InvalidWasmHash = 10,
 
+    // Reserved: see the note on `AssetNotSupported` above.
     InvalidExchangeSrc = 11,
 
+    // Reserved: see the note on `AssetNotSupported` above.
     PairNotActive = 12,
 
     AccountNotInMarket = 13,
@@ -199,6 +204,11 @@ pub enum OracleError {
     OracleCycleDetected = 225,
 
     SanityBandTooWideForSingleSource = 226,
+
+    /// The immediate `set_sanity_band` path may only tighten a band. Widening
+    /// (a lower min or higher max) must go through the timelocked
+    /// `ConfigureAssetOracle` path so it has a reaction window (INV-AUTH-04).
+    SanityBandMustTighten = 227,
 
     TwapRecordsOutOfRange = 228,
 

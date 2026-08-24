@@ -691,3 +691,95 @@ pub mod sticky_allowance_token_mock {
         }
     }
 }
+
+/// A token whose `transfer` delivers `amount` minus a basis-point haircut to
+/// the recipient while debiting the sender the full `amount`.
+///
+/// Models the fee-on-transfer / burn-on-transfer contracts that satisfy the
+/// SEP-41 interface but break the assumption that a declared transfer amount
+/// equals the amount received. Not a SAC.
+pub mod fee_on_transfer_token_mock {
+    use super::*;
+
+    #[contract]
+    pub struct FotToken;
+
+    #[contracttype]
+    enum FotKey {
+        Balance(Address),
+        Allowance(Address, Address),
+        FeeBps,
+    }
+
+    #[contractimpl]
+    impl FotToken {
+        /// Sets the transfer haircut in basis points.
+        pub fn init(env: Env, fee_bps: i128) {
+            env.storage().instance().set(&FotKey::FeeBps, &fee_bps);
+        }
+
+        pub fn mint(env: Env, to: Address, amount: i128) {
+            let balance = Self::balance(env.clone(), to.clone());
+            env.storage()
+                .instance()
+                .set(&FotKey::Balance(to), &(balance + amount));
+        }
+
+        pub fn balance(env: Env, id: Address) -> i128 {
+            env.storage()
+                .instance()
+                .get(&FotKey::Balance(id))
+                .unwrap_or(0)
+        }
+
+        pub fn decimals(_env: Env) -> u32 {
+            7
+        }
+
+        /// Debits `from` by `amount`, credits `to` with `amount - fee`. The
+        /// difference is burned.
+        pub fn transfer(env: Env, from: Address, to: Address, amount: i128) {
+            from.require_auth();
+            let fee_bps: i128 = env.storage().instance().get(&FotKey::FeeBps).unwrap_or(0);
+            let fee = amount * fee_bps / 10_000;
+            let from_balance = Self::balance(env.clone(), from.clone());
+            assert!(from_balance >= amount, "fot: insufficient balance");
+            let to_balance = Self::balance(env.clone(), to.clone());
+            env.storage()
+                .instance()
+                .set(&FotKey::Balance(from), &(from_balance - amount));
+            env.storage()
+                .instance()
+                .set(&FotKey::Balance(to), &(to_balance + amount - fee));
+        }
+
+        pub fn approve(
+            env: Env,
+            from: Address,
+            spender: Address,
+            amount: i128,
+            _expiration_ledger: u32,
+        ) {
+            env.storage()
+                .instance()
+                .set(&FotKey::Allowance(from, spender), &amount);
+        }
+
+        pub fn allowance(env: Env, from: Address, spender: Address) -> i128 {
+            env.storage()
+                .instance()
+                .get(&FotKey::Allowance(from, spender))
+                .unwrap_or(0)
+        }
+
+        pub fn transfer_from(
+            env: Env,
+            _spender: Address,
+            from: Address,
+            to: Address,
+            amount: i128,
+        ) {
+            Self::transfer(env, from, to, amount);
+        }
+    }
+}

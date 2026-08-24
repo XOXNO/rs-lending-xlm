@@ -1,9 +1,9 @@
 //! One file per strategy entry point. Shared pieces: the helpers here
-//! (`require_strategy_caller`, `prefetch_strategy_prices`,
-//! `strategy_finalize`), `legs.rs` for controller-custody position primitives
-//! (repay, withdraw, withdraw-all, net-settle through the controller's own
-//! balance), and `swap/` for the router trust boundary. Every strategy ends
-//! in `strategy_finalize`: restamp LTV, post-pool risk gates, finalize.
+//! (`prefetch_strategy_prices`, `snapshot_balances`, `strategy_finalize`),
+//! `legs.rs` for controller-custody position primitives (repay, withdraw,
+//! withdraw-all, net-settle through the controller's own balance), and
+//! `swap.rs` for the router trust boundary. Every strategy ends in
+//! `strategy_finalize`: restamp LTV, post-pool risk gates, finalize.
 
 #[cfg(test)]
 #[path = "../../tests/strategies/mod.rs"]
@@ -27,17 +27,29 @@ pub(crate) use legs::{
 pub(crate) use swap::{swap_tokens, swap_tokens_or_passthrough};
 
 use common::types::{Account, HubAssetKey, StrategySwap};
-use soroban_sdk::{Address, Env, Vec};
+use soroban_sdk::{token, Address, Env, Map, Vec};
 
 use crate::context::Cache;
 use crate::events;
 use crate::positions::{finalize_position_flow, get_supply_position_or_panic, PositionSides};
 use crate::risk::{self, account_price_assets, validation};
 
-/// Requires `caller` to authorize the call and panics if a flash loan is
-/// currently in progress.
-pub(crate) fn require_strategy_caller(env: &Env, caller: &Address) {
-    validation::require_authorized_caller(env, caller);
+/// Records `holder`'s current balance for each of `assets`, keyed by asset
+/// address. Each distinct asset is read once; repeats in `assets` are skipped.
+pub(crate) fn snapshot_balances(
+    env: &Env,
+    holder: &Address,
+    assets: impl IntoIterator<Item = Address>,
+) -> Map<Address, i128> {
+    let mut snapshot = Map::new(env);
+    for asset in assets {
+        if snapshot.contains_key(asset.clone()) {
+            continue;
+        }
+        let balance = token::Client::new(env, &asset).balance(holder);
+        snapshot.set(asset, balance);
+    }
+    snapshot
 }
 
 /// Fetches oracle prices into `cache` for every asset in `account`'s supply
@@ -62,7 +74,7 @@ pub(crate) fn strategy_finalize(
 ) {
     let _ = risk::restamp_listed_supply_ltv(cache, account);
     validation::require_post_pool_risk_gates(env, cache, account);
-    finalize_position_flow(env, account_id, account, cache, PositionSides::BOTH, true);
+    finalize_position_flow(env, account_id, account, cache, PositionSides::Both, true);
 }
 
 /// Withdraws `amount` of `from` collateral to the controller and swaps the

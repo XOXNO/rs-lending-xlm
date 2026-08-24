@@ -1,13 +1,10 @@
 use controller::types::ControllerKey;
 use soroban_sdk::testutils::storage::Persistent as _;
-use test_harness::{eth_preset, usdc_preset, LendingTest, ALICE};
+use test_harness::{LendingTest, ALICE};
 
 #[test]
 fn test_one_sided_activity_renews_both_side_ttls() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 1_000.0);
     t.borrow(ALICE, "ETH", 0.1);

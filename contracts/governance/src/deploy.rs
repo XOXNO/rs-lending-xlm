@@ -2,8 +2,10 @@
 //! from this contract, using deterministic per-contract deploy salts.
 
 use common::errors::GenericError;
+use common::ttl::renew_instance;
+use controller_interface::ControllerAdminClient;
 
-use soroban_sdk::{assert_with_error, vec, Address, BytesN, Env, IntoVal, Symbol, Val};
+use soroban_sdk::{assert_with_error, Address, BytesN, Env};
 
 use crate::events::{DeployControllerEvent, DeployPriceAggregatorEvent};
 use crate::storage;
@@ -27,7 +29,7 @@ const PRICE_AGGREGATOR_DEPLOY_SALT: [u8; 32] = [1u8; 32];
 /// `wasm_hash` is all zero, and with `GenericError::PoolAlreadyDeployed` if
 /// a controller is already deployed.
 pub(crate) fn deploy_controller(env: &Env, wasm_hash: BytesN<32>) -> Address {
-    storage::renew_governance_instance(env);
+    renew_instance(env);
     validate::require_nonzero_wasm_hash(env, &wasm_hash);
     assert_with_error!(
         env,
@@ -60,7 +62,7 @@ pub(crate) fn deploy_controller(env: &Env, wasm_hash: BytesN<32>) -> Address {
 /// if `wasm_hash` is all zero, and with `GenericError::PoolAlreadyDeployed`
 /// if a price aggregator is already deployed.
 pub(crate) fn deploy_price_aggregator(env: &Env, wasm_hash: BytesN<32>) -> Address {
-    storage::renew_governance_instance(env);
+    renew_instance(env);
     validate::require_nonzero_wasm_hash(env, &wasm_hash);
     assert_with_error!(
         env,
@@ -77,11 +79,8 @@ pub(crate) fn deploy_price_aggregator(env: &Env, wasm_hash: BytesN<32>) -> Addre
     storage::set_price_aggregator(env, &price_aggregator);
 
     if storage::has_controller(env) {
-        env.invoke_contract::<Val>(
-            &storage::get_controller(env),
-            &Symbol::new(env, "set_price_aggregator"),
-            vec![env, price_aggregator.clone().into_val(env)],
-        );
+        ControllerAdminClient::new(env, &storage::get_controller(env))
+            .set_price_aggregator(&price_aggregator);
     }
 
     DeployPriceAggregatorEvent {

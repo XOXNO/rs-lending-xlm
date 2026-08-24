@@ -1903,9 +1903,9 @@ fn usage_param_refresh_moves_neither(
     cvlr_assert!(usage_after.borrowed_scaled_ray == usage_before.borrowed_scaled_ray);
 }
 
-/// Pins the one asymmetry in `SpokeUsageContext`: `apply_entry` inserts a zero
-/// row when storage has none (spoke_usage.rs:141), but `apply_exit` returns
-/// without writing anything (`MissingUsage::Absent`, spoke_usage.rs:161). On a
+/// Pins the one asymmetry in `SpokeUsageContext`: `apply_entry` writes a row
+/// unconditionally, so an absent row becomes a zero row (spoke_usage.rs:115),
+/// but `apply_exit` returns without writing anything (spoke_usage.rs:130). On a
 /// cell whose usage row is absent, an exit therefore leaves usage at the zero
 /// row instead of tracking the position down — the delta identity above holds
 /// *given a row*, which is exactly the precondition every exit rule seeds.

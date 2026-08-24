@@ -2,13 +2,15 @@
 //! and batched, with the validation chain that gates each submission before
 //! it is stored and the feed's aggregate is recomputed.
 
+use common::ttl::renew_instance;
+
 use soroban_sdk::{contractimpl, Address, Env, String, Vec};
 
 use crate::aggregation::{
     recompute_aggregate, require_fresh_submission, require_monotonic_package, require_not_future,
     store_submission, MAX_SUBMITTED_PRICE,
 };
-use crate::storage::{renew_oracle_instance, require_known_feed, require_registered_signer};
+use crate::storage::{require_known_feed, require_registered_signer};
 use crate::{Error, XoxnoOracle, XoxnoOracleArgs, XoxnoOracleClient};
 
 /// Rejects `price` if it is not strictly positive or exceeds
@@ -39,7 +41,7 @@ impl XoxnoOracle {
         price: i128,
         package_timestamp: u64,
     ) -> Result<(), Error> {
-        renew_oracle_instance(&env);
+        renew_instance(&env);
         signer.require_auth();
         require_registered_signer(&env, &signer)?;
         require_known_feed(&env, &feed_id)?;
@@ -61,6 +63,12 @@ impl XoxnoOracle {
     /// seconds), and each feed is known, monotonic for `signer`, and its
     /// price within bounds, before storing any submission. Stores each
     /// submission and recomputes each feed's aggregate.
+    ///
+    /// Faults are reported in that chain's order — unregistered signer,
+    /// length mismatch, future timestamp, stale timestamp, unknown feed,
+    /// non-monotonic timestamp, then price — so a batch carrying two
+    /// different faults reports whichever comes first in that list, not the
+    /// one in the earliest entry.
     pub fn submit_prices(
         env: Env,
         signer: Address,
@@ -68,7 +76,7 @@ impl XoxnoOracle {
         prices: Vec<i128>,
         package_timestamp: u64,
     ) -> Result<(), Error> {
-        renew_oracle_instance(&env);
+        renew_instance(&env);
         signer.require_auth();
         require_registered_signer(&env, &signer)?;
         if feed_ids.len() != prices.len() {

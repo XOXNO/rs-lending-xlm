@@ -122,8 +122,10 @@ impl LendingTest {
         self.ctrl_client().remove_spoke(&category_id);
     }
 
+    /// One `SpokeAssetArgs` for the add/edit listing verbs. `caps` of `None`
+    /// means "unconstrained for this market's decimals".
     #[allow(clippy::too_many_arguments)]
-    pub fn add_asset_to_spoke(
+    fn spoke_asset_args(
         &self,
         asset_name: &str,
         category_id: u32,
@@ -132,10 +134,14 @@ impl LendingTest {
         ltv: u32,
         threshold: u32,
         bonus: u32,
-    ) {
+        caps: Option<(i128, i128)>,
+    ) -> SpokeAssetArgs {
         let asset = self.resolve_asset(asset_name);
-        let cap = unconstrained_test_cap(self.resolve_market(asset_name).decimals);
-        self.ctrl_client().add_asset_to_spoke(&SpokeAssetArgs {
+        let (supply_cap, borrow_cap) = caps.unwrap_or_else(|| {
+            let cap = unconstrained_test_cap(self.resolve_market(asset_name).decimals);
+            (cap, cap)
+        });
+        SpokeAssetArgs {
             hub_id: HARNESS_HUB,
             asset,
             spoke_id: category_id,
@@ -148,9 +154,33 @@ impl LendingTest {
             threshold,
             bonus,
             liquidation_fees: 0,
-            supply_cap: cap,
-            borrow_cap: cap,
-        });
+            supply_cap,
+            borrow_cap,
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn add_asset_to_spoke(
+        &self,
+        asset_name: &str,
+        category_id: u32,
+        can_collateral: bool,
+        can_borrow: bool,
+        ltv: u32,
+        threshold: u32,
+        bonus: u32,
+    ) {
+        self.ctrl_client()
+            .add_asset_to_spoke(&self.spoke_asset_args(
+                asset_name,
+                category_id,
+                can_collateral,
+                can_borrow,
+                ltv,
+                threshold,
+                bonus,
+                None,
+            ));
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -164,24 +194,17 @@ impl LendingTest {
         threshold: u32,
         bonus: u32,
     ) {
-        let asset = self.resolve_asset(asset_name);
-        let cap = unconstrained_test_cap(self.resolve_market(asset_name).decimals);
-        self.ctrl_client().edit_asset_in_spoke(&SpokeAssetArgs {
-            hub_id: HARNESS_HUB,
-            asset,
-            spoke_id: category_id,
-            can_collateral,
-            can_borrow,
-            paused: false,
-            frozen: false,
-            no_seize: false,
-            ltv,
-            threshold,
-            bonus,
-            liquidation_fees: 0,
-            supply_cap: cap,
-            borrow_cap: cap,
-        });
+        self.ctrl_client()
+            .edit_asset_in_spoke(&self.spoke_asset_args(
+                asset_name,
+                category_id,
+                can_collateral,
+                can_borrow,
+                ltv,
+                threshold,
+                bonus,
+                None,
+            ));
     }
 
     pub fn remove_asset_from_spoke(&self, asset_name: &str, category_id: u32) {
@@ -203,22 +226,16 @@ impl LendingTest {
         supply_cap: i128,
         borrow_cap: i128,
     ) {
-        let asset = self.resolve_asset(asset_name);
-        self.ctrl_client().edit_asset_in_spoke(&SpokeAssetArgs {
-            hub_id: HARNESS_HUB,
-            asset,
-            spoke_id: category_id,
-            can_collateral,
-            can_borrow,
-            paused: false,
-            frozen: false,
-            no_seize: false,
-            ltv,
-            threshold,
-            bonus,
-            liquidation_fees: 0,
-            supply_cap,
-            borrow_cap,
-        });
+        self.ctrl_client()
+            .edit_asset_in_spoke(&self.spoke_asset_args(
+                asset_name,
+                category_id,
+                can_collateral,
+                can_borrow,
+                ltv,
+                threshold,
+                bonus,
+                Some((supply_cap, borrow_cap)),
+            ));
     }
 }

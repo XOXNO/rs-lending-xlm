@@ -1,8 +1,5 @@
 use controller::constants::RAY;
-use test_harness::{
-    days, eth_preset, hub_asset, usd, usdc_preset, wbtc_preset, LendingTest, ALICE, BOB, CAROL,
-    DAVE, EVE, LIQUIDATOR,
-};
+use test_harness::{days, hub_asset, usd, LendingTest, ALICE, BOB, CAROL, DAVE, EVE, LIQUIDATOR};
 
 struct Rng(u64);
 
@@ -31,11 +28,7 @@ impl Rng {
 
 #[test]
 fn test_chaos_multi_user_seeded_operation_sequence() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_market(wbtc_preset())
-        .build();
+    let mut t = LendingTest::new().three_asset_usdc_eth_wbtc().build();
 
     let users = [
         "u01", "u02", "u03", "u04", "u05", "u06", "u07", "u08", "u09", "u10", "u11", "u12", "u13",
@@ -152,10 +145,7 @@ fn test_chaos_multi_user_seeded_operation_sequence() {
 
 #[test]
 fn test_chaos_bank_run_full_exit() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     let suppliers = [ALICE, BOB, CAROL, DAVE, EVE];
     let _borrowers = [ALICE, BOB, CAROL];
@@ -237,10 +227,7 @@ fn test_chaos_bank_run_full_exit() {
 
 #[test]
 fn test_chaos_sustained_high_utilization() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.supply(BOB, "ETH", 100.0);
@@ -295,10 +282,7 @@ fn test_chaos_sustained_high_utilization() {
 
 #[test]
 fn test_chaos_price_oscillation_no_wrongful_liquidation() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 10.0);
@@ -325,11 +309,7 @@ fn test_chaos_price_oscillation_no_wrongful_liquidation() {
 
 #[test]
 fn test_chaos_multi_market_accounting() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_market(wbtc_preset())
-        .build();
+    let mut t = LendingTest::new().three_asset_usdc_eth_wbtc().build();
 
     t.supply(ALICE, "USDC", 200_000.0);
     t.supply(ALICE, "ETH", 10.0);
@@ -386,10 +366,7 @@ fn test_chaos_multi_market_accounting() {
 
 #[test]
 fn test_chaos_keeper_revenue_lifecycle() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.supply(BOB, "ETH", 50.0);

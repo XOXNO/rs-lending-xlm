@@ -182,7 +182,7 @@ the account, burning its NFT.
 
 ## Controller — leverage and strategies
 
-Every entry point here calls `require_strategy_caller` (auth plus the
+Every entry point here calls `require_authorized_caller` (auth plus the
 flash-loan-reentrancy guard) and ends in `strategy_finalize`: restamp listed
 collateral LTV, apply post-pool risk gates, persist, emit the position batch
 (`contracts/controller/src/strategies/mod.rs`). All are pause-gated.

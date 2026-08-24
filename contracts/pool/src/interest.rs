@@ -7,10 +7,7 @@ use core::num::NonZeroU64;
 
 use common::constants::SUPPLY_INDEX_FLOOR_RAW;
 use common::math::fp::Ray;
-use common::rates::{
-    calculate_borrow_rate, calculate_supplier_rewards, compound_interest, protocol_fee_shares,
-    supply_index_reward_shortfall, update_borrow_index, update_supply_index, MAX_COMPOUND_DELTA_MS,
-};
+use common::rates::{accrue_step, protocol_fee_shares, MAX_COMPOUND_DELTA_MS};
 
 use soroban_sdk::Env;
 
@@ -37,42 +34,24 @@ pub(crate) fn global_sync(env: &Env, cache: &mut Cache) {
 
 /// Apply one compound step of `delta_ms` to indexes and protocol revenue.
 ///
-/// 1. Borrow rate from current utilization and params.
-/// 2. Compound borrow index.
-/// 3. Split interest into supplier rewards vs protocol fee (reserve factor).
-/// 4. Grow supply index; residual that cannot raise the index becomes protocol fee.
-/// 5. Book protocol fee as scaled revenue shares via [`add_protocol_revenue`].
+/// The arithmetic lives in [`accrue_step`], shared with the read-only
+/// `simulate_update_indexes` so the view and the mutator cannot drift. This
+/// function only lands the result on the cache: indexes, then the step's
+/// revenue shares onto both the revenue book and total supply.
 fn accrue_chunk(env: &Env, cache: &mut Cache, delta_ms: u64) {
-    let util = cache.calculate_utilization();
-    let borrow_rate = calculate_borrow_rate(env, util, cache.params());
-    let interest_factor = compound_interest(env, borrow_rate, delta_ms);
-
-    let new_borrow_index = update_borrow_index(env, cache.borrow_index(), interest_factor);
-
-    let (supplier_rewards, protocol_fee) = calculate_supplier_rewards(
+    let step = accrue_step(
         env,
         cache.params(),
         cache.borrowed(),
-        new_borrow_index,
-        cache.borrow_index(),
-    );
-
-    let old_supply_index = cache.supply_index();
-    let new_supply_index =
-        update_supply_index(env, cache.supplied(), old_supply_index, supplier_rewards);
-    let supplier_shortfall = supply_index_reward_shortfall(
-        env,
         cache.supplied(),
-        old_supply_index,
-        new_supply_index,
-        supplier_rewards,
+        cache.borrow_index(),
+        cache.supply_index(),
+        delta_ms,
     );
 
-    cache.set_borrow_index(new_borrow_index);
-    cache.set_supply_index(new_supply_index);
-
-    let protocol_reward = protocol_fee.checked_add(env, supplier_shortfall);
-    add_protocol_revenue(cache, protocol_reward);
+    cache.set_borrow_index(step.borrow_index);
+    cache.set_supply_index(step.supply_index);
+    cache.accrue_revenue(step.revenue_shares);
 }
 
 /// Convert a RAY-denominated fee into scaled supply shares and mint them as revenue.

@@ -1,15 +1,9 @@
 use controller::constants::WAD;
-use test_harness::{
-    assert_contract_error, errors, eth_preset, usd, usd_cents, usdc_preset, LendingTest, ALICE,
-    LIQUIDATOR,
-};
+use test_harness::{assert_contract_error, errors, usd, usd_cents, LendingTest, ALICE, LIQUIDATOR};
 
 #[test]
 fn test_hf_exactly_one_is_healthy() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.5);
@@ -32,10 +26,7 @@ fn test_hf_exactly_one_is_healthy() {
 
 #[test]
 fn test_is_liquidatable_flips_strictly_below_hf_one() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.set_price("ETH", usd(1_000));
@@ -57,10 +48,7 @@ fn test_is_liquidatable_flips_strictly_below_hf_one() {
 
 #[test]
 fn test_hf_just_below_one_is_liquidatable() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.5);
@@ -79,11 +67,7 @@ fn test_hf_just_below_one_is_liquidatable() {
 
 #[test]
 fn test_liquidation_strictly_improves_hf() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_dust_disabled_all_markets()
-        .build();
+    let mut t = LendingTest::new().standard_two_asset_dust_disabled();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.0);
@@ -108,11 +92,7 @@ fn test_liquidation_bonus_monotone_in_mild_underwater_band() {
     let mut bonuses: std::vec::Vec<(u32, f64, f64, f64)> = std::vec::Vec::new();
 
     for cents_per_dollar in [73u32, 71, 69, 67] {
-        let mut t = LendingTest::new()
-            .with_market(usdc_preset())
-            .with_market(eth_preset())
-            .with_dust_disabled_all_markets()
-            .build();
+        let mut t = LendingTest::new().standard_two_asset_dust_disabled();
 
         t.supply(ALICE, "USDC", 10_000.0);
         t.borrow(ALICE, "ETH", 3.0);
@@ -175,11 +155,7 @@ fn test_liquidation_bonus_monotone_in_mild_underwater_band() {
 
 #[test]
 fn test_liquidation_bonus_clamped_at_max() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_dust_disabled_all_markets()
-        .build();
+    let mut t = LendingTest::new().standard_two_asset_dust_disabled();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.5);
@@ -204,11 +180,7 @@ fn test_liquidation_bonus_clamped_at_max() {
 
 #[test]
 fn test_bad_debt_socialization_triggers_under_threshold() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_dust_disabled_all_markets()
-        .build();
+    let mut t = LendingTest::new().standard_two_asset_dust_disabled();
 
     t.supply(ALICE, "USDC", 30.0);
     t.borrow(ALICE, "ETH", 0.011);

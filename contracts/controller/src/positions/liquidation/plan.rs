@@ -2,23 +2,12 @@ use super::curve::{LiquidationCurve, LiquidationSnapshot};
 use crate::risk;
 use common::errors::CollateralError;
 use common::math::fp::Wad;
-use common::types::{Account, HubPayment, LiquidationResult};
+use common::types::{Account, HubPayment};
 use soroban_sdk::{assert_with_error, panic_with_error, Env, Vec};
 
 use crate::context::Cache;
 use crate::positions::liquidation::math::*;
 use crate::positions::{enforce_spoke_asset_flags, FreezePolicy};
-
-/// Computes what liquidating `account` with `raw_payments` would produce, without persisting
-/// anything: builds a `LiquidationPlan` and converts it into the returned `LiquidationResult`.
-pub(crate) fn execute_liquidation(
-    env: &Env,
-    account: &Account,
-    raw_payments: &Vec<HubPayment>,
-    cache: &mut Cache,
-) -> LiquidationResult {
-    build_liquidation_plan(env, account, raw_payments, cache).into_result()
-}
 
 /// Builds and validates a `LiquidationPlan` for `account` from `raw_payments`: computes risk
 /// totals, sizes the repayment against the liquidation curve's ideal close amount, and derives
@@ -68,12 +57,12 @@ pub(crate) fn build_liquidation_plan(
     let snap = LiquidationSnapshot {
         total_debt: totals.total_debt,
         total_collateral: totals.total_collateral,
-        weighted_coll: totals.weighted_collateral,
+        weighted_collateral: totals.weighted_collateral,
         proportion_seized,
         hf: totals.health_factor,
     };
 
-    let curve = LiquidationCurve::resolve(cache, account.spoke_id);
+    let curve = LiquidationCurve::from_config(&cache.spoke_config(account.spoke_id));
     let repayment = normalize_repayment_plan(
         env,
         account,

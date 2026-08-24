@@ -19,7 +19,7 @@ pub(crate) fn within_tolerance_band(
 ) -> bool {
     let high = anchor.max(primary);
     let low = anchor.min(primary);
-    let Some(upper_ratio_bps) = ratio_bps(env, high, low) else {
+    let Some(upper_ratio_bps) = fp_core::try_mul_div_half_up(env, high, BPS, low) else {
         return false;
     };
 
@@ -33,13 +33,6 @@ pub(crate) fn midpoint_price_or_zero(anchor_price: i128, primary_price: i128) ->
         .checked_add(primary_price)
         .map(|sum| sum / 2)
         .unwrap_or(0)
-}
-
-/// Computes `numerator / denominator` expressed in basis points, rounded
-/// half up. Returns `None` if `numerator` is negative, `denominator` is
-/// non-positive, or the result does not fit in `i128`.
-fn ratio_bps(env: &Env, numerator: i128, denominator: i128) -> Option<i128> {
-    fp_core::try_mul_div_half_up(env, numerator, BPS, denominator)
 }
 
 #[cfg(test)]

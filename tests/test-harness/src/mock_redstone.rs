@@ -10,7 +10,6 @@ pub enum MockKey {
     BulkCalls,
     TruncateBulk,
     Decimals,
-    MaxSubmissionAge,
 }
 
 const DEFAULT_DECIMALS: u32 = 8;
@@ -76,17 +75,10 @@ impl MockRedStonePriceFeed {
             .unwrap_or(DEFAULT_DECIMALS)
     }
 
-    pub fn set_max_submission_age_seconds(env: Env, seconds: u64) {
-        env.storage()
-            .temporary()
-            .set(&MockKey::MaxSubmissionAge, &seconds);
-    }
-
-    pub fn max_submission_age_seconds(env: Env) -> u64 {
-        env.storage()
-            .temporary()
-            .get(&MockKey::MaxSubmissionAge)
-            .unwrap_or(DEFAULT_MAX_SUBMISSION_AGE)
+    /// Read cross-contract by the price aggregator when a Xoxno source points
+    /// at this mock. Fixed: no test tunes the submission window.
+    pub fn max_submission_age_seconds(_env: Env) -> u64 {
+        DEFAULT_MAX_SUBMISSION_AGE
     }
 
     pub fn read_price_data_for_feed(env: Env, feed_id: String) -> Result<RedStonePriceData, Error> {
@@ -112,18 +104,6 @@ impl MockRedStonePriceFeed {
             let _ = values.pop_back();
         }
         Ok(values)
-    }
-
-    pub fn read_prices(env: Env, feed_ids: Vec<String>) -> Result<Vec<U256>, Error> {
-        let mut prices = Vec::new(&env);
-        for feed_id in feed_ids.iter() {
-            prices.push_back(Self::get_feed(&env, feed_id)?.price);
-        }
-        Ok(prices)
-    }
-
-    pub fn read_timestamp(env: Env, feed_id: String) -> Result<u64, Error> {
-        Ok(Self::get_feed(&env, feed_id)?.package_timestamp)
     }
 
     pub fn single_calls(env: Env) -> u32 {

@@ -2,11 +2,13 @@
 //! admin operation immediately, bypassing the timelock's scheduling and delay
 //! machinery entirely.
 
+use common::ttl::renew_instance;
+
 use soroban_sdk::{contractimpl, Address, BytesN, Env, IntoVal, Symbol, Val};
 
 use crate::op::apply_self_op;
 use crate::timelock::*;
-use crate::{storage, Governance, GovernanceArgs, GovernanceClient};
+use crate::{Governance, GovernanceArgs, GovernanceClient};
 
 #[cfg(any(test, feature = "testing"))]
 #[contractimpl]
@@ -20,7 +22,7 @@ impl Governance {
     /// and returns `()`; otherwise invokes the resolved target contract directly
     /// and returns its result.
     pub fn execute_immediate(env: Env, caller: Address, op: crate::op::AdminOperation) -> Val {
-        storage::renew_governance_instance(&env);
+        renew_instance(&env);
         caller.require_auth();
         match &op {
             crate::op::AdminOperation::ConfigureAssetOracle(_)

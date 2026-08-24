@@ -3,18 +3,20 @@ use common::types::{
     Account, AccountPositionType, DebtPosition, HubAssetKey, PoolAction, PoolBorrowEntry,
     PoolPositionMutation,
 };
-use soroban_sdk::{assert_with_error, panic_with_error, token, vec, Address, Env, Vec};
+use soroban_sdk::{assert_with_error, token, vec, Address, Env, Vec};
 
+use crate::account::require_owner_or_delegate;
 use crate::context::Cache;
 use crate::events;
 use crate::events::EventContext;
 use crate::external::pool::{pool_borrow_call, pool_create_strategy_call, pool_repay_call};
 use crate::payments;
 use crate::positions::{
-    enforce_spoke_asset_flags, finalize_position_flow, for_each_leg, get_debt_position_or_panic,
-    make_pool_action, merge_debt_leg, require_position_caller, validate_position_entry_gates,
+    enforce_post_pool_solvency, enforce_spoke_asset_flags, finalize_position_flow, for_each_leg,
+    get_debt_position_or_panic, make_pool_action, merge_debt_leg, validate_position_entry_gates,
     AggregatedPayments, FreezePolicy, HubPayment, LegDirection, LegOutcome, PositionSides,
 };
+use crate::risk::validation;
 use crate::storage;
 use common::validation::{expect_invariant, require_positive_amount};
 
@@ -36,10 +38,10 @@ pub(crate) fn process_borrow(
     borrows: &Vec<HubPayment>,
     to: Option<Address>,
 ) {
-    require_position_caller(env, caller);
+    validation::require_authorized_caller(env, caller);
 
     let mut account = storage::get_account(env, account_id);
-    crate::account::require_owner_or_delegate(env, account_id, caller, &account.owner);
+    require_owner_or_delegate(env, account_id, caller, &account.owner);
 
     let recipient = to.unwrap_or_else(|| caller.clone());
     let mut cache = Cache::new(env);
@@ -62,11 +64,11 @@ pub(crate) fn process_borrow(
         },
     );
 
-    let restamped = crate::positions::enforce_post_pool_solvency(env, &mut cache, &mut account);
+    let restamped = enforce_post_pool_solvency(env, &mut cache, &mut account);
     let sides = if restamped {
-        PositionSides::BOTH
+        PositionSides::Both
     } else {
-        PositionSides::DEBT
+        PositionSides::Debt
     };
     finalize_position_flow(env, account_id, &account, &mut cache, sides, false);
 }
@@ -80,7 +82,7 @@ pub(crate) fn process_repay(
     account_id: u64,
     payments_in: &Vec<HubPayment>,
 ) {
-    require_position_caller(env, caller);
+    validation::require_authorized_caller(env, caller);
 
     let aggregated = payments::aggregate_positive_payments(env, payments_in);
     let mut account = storage::get_account_borrow_only(env, account_id);
@@ -102,7 +104,7 @@ pub(crate) fn process_repay(
         account_id,
         &account,
         &mut cache,
-        PositionSides::DEBT,
+        PositionSides::Debt,
         false,
     );
 }
@@ -264,18 +266,14 @@ pub(crate) fn borrow_into_controller(
     let pool_addr = cache.cached_pool_address();
     let pool_action = make_pool_action(&position, amount, hub_debt.clone());
     let controller = env.current_contract_address();
-    let tok = token::Client::new(env, &hub_debt.asset);
-    let before = tok.balance(&controller);
+    let before = token::Client::new(env, &hub_debt.asset).balance(&controller);
     // Hold the flash-loan flag across the pool transfer so a listed token's
     // transfer hook cannot reenter controller verbs before the strategy swap
     // guard is taken.
     let result = storage::with_flash_guard(env, || {
         pool_create_strategy_call(env, &pool_addr, &controller, pool_action, charge_fee)
     });
-    let measured = tok
-        .balance(&controller)
-        .checked_sub(before)
-        .unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError));
+    let measured = payments::balance_delta_since(env, &hub_debt.asset, &controller, before);
     assert_with_error!(
         env,
         measured == result.amount_received,

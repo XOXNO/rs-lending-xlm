@@ -15,7 +15,7 @@ pub trait LiquidityPoolInterface {
 
     fn update_params(env: Env, hub_asset: HubAssetKey, model: InterestRateModel);
 
-    fn update_indexes(env: Env, hub_asset: HubAssetKey);
+    fn update_indexes(env: Env, hub_assets: Vec<HubAssetKey>);
 
     fn supply(env: Env, entries: Vec<PoolSupplyEntry>) -> Vec<PoolPositionMutation>;
 

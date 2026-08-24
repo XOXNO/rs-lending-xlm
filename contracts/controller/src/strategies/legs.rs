@@ -3,17 +3,17 @@ use common::math::fp::Ray;
 use common::types::{
     Account, AccountPosition, DebtPosition, HubAssetKey, PoolNetSettleEntry, ScaledPositionRaw,
 };
-use soroban_sdk::{panic_with_error, token, Address, Env, Vec};
+use soroban_sdk::{token, Address, Env, Vec};
 
 use crate::constants::WITHDRAW_ALL_SENTINEL;
 use crate::context::Cache;
 use crate::events;
 use crate::events::EventContext;
 use crate::external::pool::pool_net_settle_call;
-use crate::payments;
+use crate::payments::{self, balance_delta_since};
 use crate::positions::{
     enforce_spoke_asset_flags, get_debt_position_or_panic, get_supply_position_or_panic,
-    merge_debt_leg, FreezePolicy, LegDirection, LegOutcome,
+    merge_debt_leg, merge_withdraw_leg, FreezePolicy, LegDirection, LegOutcome, WithdrawKind,
 };
 use crate::positions::{execute_repayment, RepaymentRequest};
 use crate::positions::{execute_withdrawal, WithdrawalRequest};
@@ -97,9 +97,8 @@ pub(crate) fn withdraw_collateral_to_controller(
     cache: &mut Cache,
     req: StrategyWithdraw<'_>,
 ) -> i128 {
-    let token = token::Client::new(env, &req.hub_asset.asset);
-
-    let balance_before = token.balance(&env.current_contract_address());
+    let controller = env.current_contract_address();
+    let balance_before = token::Client::new(env, &req.hub_asset.asset).balance(&controller);
 
     storage::with_flash_guard(env, || {
         execute_withdrawal(
@@ -115,10 +114,7 @@ pub(crate) fn withdraw_collateral_to_controller(
         );
     });
 
-    token
-        .balance(&env.current_contract_address())
-        .checked_sub(balance_before)
-        .unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError))
+    balance_delta_since(env, &req.hub_asset.asset, &controller, balance_before)
 }
 
 /// Withdraws all of `account`'s supply positions to `destination`, closing
@@ -193,12 +189,12 @@ pub(crate) fn net_settle_collateral_against_debt(
         amount: result.settled_amount,
     };
 
-    crate::positions::merge_withdraw_leg(
+    merge_withdraw_leg(
         env,
         account,
         action,
         hub_asset,
-        crate::positions::WithdrawKind::Normal,
+        WithdrawKind::Normal,
         &supply_outcome,
         cache,
     );
@@ -229,13 +225,9 @@ pub(crate) fn refund_controller_balance_delta(
     balance_before: i128,
     refund_to: &Address,
 ) {
-    let token = token::Client::new(env, asset);
-
-    let excess = token
-        .balance(&env.current_contract_address())
-        .checked_sub(balance_before)
-        .unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError));
+    let controller = env.current_contract_address();
+    let excess = balance_delta_since(env, asset, &controller, balance_before);
     if excess > 0 {
-        token.transfer(&env.current_contract_address(), refund_to, &excess);
+        token::Client::new(env, asset).transfer(&controller, refund_to, &excess);
     }
 }

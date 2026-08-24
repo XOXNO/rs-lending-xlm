@@ -2,7 +2,7 @@ use common::errors::GenericError;
 use common::math::fp::Ray;
 use common::types::{
     Account, AccountPosition, AccountPositionType, AssetConfig, HubAssetKey, HubPayment,
-    PoolPositionMutation, PoolSupplyEntry, PoolWithdrawEntry, PositionMode,
+    PoolAction, PoolPositionMutation, PoolSupplyEntry, PoolWithdrawEntry, PositionMode,
 };
 use soroban_sdk::{assert_with_error, vec, Address, Env, Vec};
 
@@ -15,11 +15,10 @@ use crate::external::pool::{pool_supply_call, pool_withdraw_call};
 use crate::payments;
 use crate::positions::{
     apply_leg_usage, enforce_post_pool_solvency, enforce_spoke_asset_flags, finalize_position_flow,
-    for_each_leg, get_supply_position_or_panic, make_pool_action, require_position_caller,
-    validate_position_entry_gates, AggregatedPayments, FreezePolicy, LegDirection, LegOutcome,
-    PositionSides,
+    for_each_leg, get_supply_position_or_panic, make_pool_action, validate_position_entry_gates,
+    AggregatedPayments, FreezePolicy, LegDirection, LegOutcome, PositionSides,
 };
-use crate::risk::{refresh_supply_risk_params, RiskRefreshScope};
+use crate::risk::{refresh_supply_risk_params, validation, RiskRefreshScope};
 use crate::spoke_usage::UsageSide;
 use crate::storage;
 use common::validation::expect_invariant;
@@ -28,11 +27,6 @@ use common::validation::expect_invariant;
 pub(crate) enum WithdrawKind {
     Normal,
     Liquidation,
-}
-
-enum SpokeRefresh {
-    Frozen,
-    Refresh,
 }
 
 pub(crate) struct WithdrawalRequest<'a> {
@@ -53,7 +47,7 @@ pub(crate) fn process_supply(
     spoke_id: u32,
     assets: &Vec<HubPayment>,
 ) -> u64 {
-    require_position_caller(env, caller);
+    validation::require_authorized_caller(env, caller);
     let aggregated = payments::aggregate_positive_payments(env, assets);
     let mut cache = Cache::new(env);
 
@@ -76,7 +70,7 @@ pub(crate) fn process_supply(
         acct_id,
         &account,
         &mut cache,
-        PositionSides::SUPPLY,
+        PositionSides::Supply,
         false,
     );
     acct_id
@@ -170,7 +164,7 @@ pub(crate) fn process_withdraw(
     withdrawals: &Vec<HubPayment>,
     to: Option<Address>,
 ) -> Vec<HubPayment> {
-    require_position_caller(env, caller);
+    validation::require_authorized_caller(env, caller);
 
     let mut account = storage::get_account(env, account_id);
     require_owner_or_delegate(env, account_id, caller, &account.owner);
@@ -187,7 +181,7 @@ pub(crate) fn process_withdraw(
         account_id,
         &account,
         &mut cache,
-        PositionSides::SUPPLY,
+        PositionSides::Supply,
         true,
     );
     paid
@@ -213,12 +207,14 @@ fn settle_withdraw(
             FreezePolicy::AllowOnExit,
         );
         let position = get_supply_position_or_panic(env, account, &hub_asset);
+        // A zero amount means "withdraw all"; other amounts pass through unchanged.
+        let requested = if amount == 0 {
+            WITHDRAW_ALL_SENTINEL
+        } else {
+            amount
+        };
         entries.push_back(PoolWithdrawEntry {
-            action: make_pool_action(
-                &position,
-                resolve_withdraw_amount(amount),
-                hub_asset.clone(),
-            ),
+            action: make_pool_action(&position, requested, hub_asset.clone()),
             protocol_fee: 0,
         });
     }
@@ -237,16 +233,6 @@ fn settle_withdraw(
         paid.push_back((entry.action.hub_asset, result.actual_amount));
     });
     paid
-}
-
-/// Maps a zero withdrawal amount to the withdraw-all sentinel; other amounts
-/// pass through unchanged.
-fn resolve_withdraw_amount(amount: i128) -> i128 {
-    if amount == 0 {
-        WITHDRAW_ALL_SENTINEL
-    } else {
-        amount
-    }
 }
 
 /// Enforces the spoke asset's exit flags and withdraws a single
@@ -320,7 +306,7 @@ pub(crate) fn apply_withdraw_batch(
 pub(crate) fn merge_supply_leg(
     env: &Env,
     account: &mut Account,
-    action: &common::types::PoolAction,
+    action: &PoolAction,
     result: &PoolPositionMutation,
     cache: &mut Cache,
 ) {
@@ -385,7 +371,10 @@ pub(crate) fn merge_withdraw_leg(
 ) {
     // The refresh decision is computed here, not by callers: whether a
     // withdrawal leg re-stamps risk params is this module's policy.
-    let refresh_spoke = spoke_refresh_for_leg(kind, cache, account, hub_asset, outcome.new_scaled);
+    // Decided before the position is mutated: the check reads the pre-mutation
+    // account and needs `&mut cache`, which the borrow below would conflict with.
+    let may_restamp =
+        leg_may_restamp_risk_params(kind, cache, account, hub_asset, outcome.new_scaled);
     let mut position = get_supply_position_or_panic(env, account, hub_asset);
     let old_scaled = position.scaled_amount;
 
@@ -402,7 +391,7 @@ pub(crate) fn merge_withdraw_leg(
         outcome,
     );
 
-    if matches!(refresh_spoke, SpokeRefresh::Refresh) && position.scaled_amount != Ray::ZERO {
+    if may_restamp && position.scaled_amount != Ray::ZERO {
         let config: AssetConfig = cache.require_spoke_asset(account.spoke_id, hub_asset);
         refresh_supply_risk_params(
             env,
@@ -425,27 +414,20 @@ pub(crate) fn merge_withdraw_leg(
     );
 }
 
-/// Decides whether a withdrawal leg should re-stamp the position's risk
-/// parameters: liquidation withdrawals, unlisted spoke assets, and full
-/// withdrawals (`new_scaled` zero) are frozen; all other withdrawals refresh.
-fn spoke_refresh_for_leg(
+/// Returns `true` when this withdrawal leg may re-stamp the position's risk
+/// parameters from the current listing. Three cases freeze the stamped tuple
+/// instead: liquidation withdrawals, assets no longer listed on the spoke, and
+/// full withdrawals (`new_scaled` zero, so there is no position left to stamp).
+fn leg_may_restamp_risk_params(
     kind: WithdrawKind,
     cache: &mut Cache,
     account: &Account,
     hub_asset: &HubAssetKey,
     new_scaled: Ray,
-) -> SpokeRefresh {
-    if kind == WithdrawKind::Liquidation {
-        return SpokeRefresh::Frozen;
-    }
-    if cache
-        .cached_spoke_asset(account.spoke_id, hub_asset)
-        .is_none()
-    {
-        return SpokeRefresh::Frozen;
-    }
-    if new_scaled == Ray::ZERO {
-        return SpokeRefresh::Frozen;
-    }
-    SpokeRefresh::Refresh
+) -> bool {
+    kind != WithdrawKind::Liquidation
+        && cache
+            .cached_spoke_asset(account.spoke_id, hub_asset)
+            .is_some()
+        && new_scaled != Ray::ZERO
 }

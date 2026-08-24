@@ -39,32 +39,6 @@ pub(crate) fn account_price_assets(
     assets
 }
 
-/// Loads market data for `supply_positions` into `cache`, then sums their
-/// USD value (WAD) using half-up rounding.
-pub(crate) fn sum_supply_usd(
-    env: &Env,
-    cache: &mut Cache,
-    supply_positions: &Map<HubAssetKey, AccountPositionRaw>,
-) -> Wad {
-    cache.load_markets(&supply_positions.keys());
-
-    let mut total = Wad::ZERO;
-    for (hub_asset, position) in iter_typed_positions(supply_positions) {
-        let feed = cache.cached_price(&hub_asset.asset);
-        let market_index = cache.cached_market_index(&hub_asset);
-        total = total.checked_add(
-            env,
-            position_value(
-                env,
-                position.scaled_amount,
-                market_index.supply_index,
-                feed.price,
-            ),
-        );
-    }
-    total
-}
-
 /// Sums `borrow_positions`' USD value (WAD) using `value` as the per-position
 /// valuation function, assuming market data is already cached.
 fn sum_debt_usd_loaded(
@@ -185,7 +159,7 @@ fn calculate_account_risk_totals_body(
 
     let mut total_collateral = Wad::ZERO;
     let mut ltv_collateral = Wad::ZERO;
-    let mut weighted_coll = Wad::ZERO;
+    let mut weighted_collateral = Wad::ZERO;
     for (hub_asset, position) in iter_typed_positions(supply_positions) {
         let feed = cache.cached_price(&hub_asset.asset);
         let market_index = cache.cached_market_index(&hub_asset);
@@ -209,7 +183,7 @@ fn calculate_account_risk_totals_body(
         let effective_ltv = position.loan_to_value.min(position.liquidation_threshold);
         ltv_collateral =
             ltv_collateral.checked_add(env, effective_ltv.apply_to_wad_floor(env, gate_value));
-        weighted_coll = weighted_coll.checked_add(
+        weighted_collateral = weighted_collateral.checked_add(
             env,
             position
                 .liquidation_threshold
@@ -222,13 +196,13 @@ fn calculate_account_risk_totals_body(
     let health_factor = if total_debt == Wad::ZERO {
         Wad::from(i128::MAX)
     } else {
-        weighted_coll.div_floor_saturating(env, total_debt)
+        weighted_collateral.div_floor_saturating(env, total_debt)
     };
 
     AccountRiskTotals {
         total_collateral,
         ltv_collateral,
-        weighted_collateral: weighted_coll,
+        weighted_collateral,
         total_debt,
         health_factor,
     }

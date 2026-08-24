@@ -41,55 +41,43 @@ impl<'a> Vault<'a> {
     }
 
     /// Credits `amount` to `token`, updating both the tracked balance and the lifetime
-    /// credited total. A zero amount is a no-op. Returns `Err(Error::InvalidAmount)` for a
-    /// negative amount and `Err(Error::IntegerOverflow)` if either total would overflow.
-    pub fn try_deposit(&mut self, token: &Address, amount: i128) -> Result<(), Error> {
+    /// credited total. A zero amount is a no-op. Panics with `Error::InvalidAmount` for a
+    /// negative amount and `Error::IntegerOverflow` if either total would overflow.
+    pub fn deposit(&mut self, token: &Address, amount: i128) {
         if amount == 0 {
-            return Ok(());
+            return;
         }
+        let env = self.env;
         if amount < 0 {
-            return Err(Error::InvalidAmount);
+            panic_with_error!(env, Error::InvalidAmount);
         }
         let current = self.balance_of(token);
-        let new = current.checked_add(amount).ok_or(Error::IntegerOverflow)?;
+        let new = current
+            .checked_add(amount)
+            .unwrap_or_else(|| panic_with_error!(env, Error::IntegerOverflow));
         self.balances.set(token.clone(), new);
         let credited = self
             .credited_of(token)
             .checked_add(amount)
-            .ok_or(Error::IntegerOverflow)?;
+            .unwrap_or_else(|| panic_with_error!(env, Error::IntegerOverflow));
         self.credited.set(token.clone(), credited);
-        Ok(())
     }
 
-    /// Calls [`try_deposit`](Self::try_deposit) and panics with the returned error on failure.
-    pub fn deposit(&mut self, token: &Address, amount: i128) {
-        if let Err(err) = self.try_deposit(token, amount) {
-            panic_with_error!(self.env, err);
-        }
-    }
-
-    /// Debits `amount` from `token`'s tracked balance. A zero amount is a no-op. Returns
-    /// `Err(Error::InvalidAmount)` for a negative amount or if `amount` exceeds the current
+    /// Debits `amount` from `token`'s tracked balance. A zero amount is a no-op. Panics with
+    /// `Error::InvalidAmount` for a negative amount or if `amount` exceeds the current
     /// balance.
-    pub fn try_withdraw(&mut self, token: &Address, amount: i128) -> Result<(), Error> {
+    pub fn withdraw(&mut self, token: &Address, amount: i128) {
         if amount == 0 {
-            return Ok(());
+            return;
         }
+        let env = self.env;
         if amount < 0 {
-            return Err(Error::InvalidAmount);
+            panic_with_error!(env, Error::InvalidAmount);
         }
         let current = self.balance_of(token);
         if current < amount {
-            return Err(Error::InvalidAmount);
+            panic_with_error!(env, Error::InvalidAmount);
         }
         self.balances.set(token.clone(), current - amount);
-        Ok(())
-    }
-
-    /// Calls [`try_withdraw`](Self::try_withdraw) and panics with the returned error on failure.
-    pub fn withdraw(&mut self, token: &Address, amount: i128) {
-        if let Err(err) = self.try_withdraw(token, amount) {
-            panic_with_error!(self.env, err);
-        }
     }
 }

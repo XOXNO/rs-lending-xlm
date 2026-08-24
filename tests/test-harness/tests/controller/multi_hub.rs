@@ -5,7 +5,7 @@ use test_harness::{
     amount_raw, assert_contract_error, errors, hub_asset, usd, usd_cents, HubAssetKey, LendingTest,
     MarketPreset, DEFAULT_ASSET_CONFIG, DEFAULT_MARKET_PARAMS, HARNESS_HUB, HARNESS_SPOKE,
 };
-use test_harness::{eth_preset, usdc_preset, ALICE, BOB, CAROL, LIQUIDATOR};
+use test_harness::{eth_preset, ALICE, BOB, CAROL, LIQUIDATOR};
 
 const SECONDS_PER_YEAR: u64 = 365 * 24 * 60 * 60;
 
@@ -250,10 +250,7 @@ fn swap_debt_refinances_debt_across_hubs() {
 
 #[test]
 fn liquidation_repays_and_seizes_on_hub_one() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     let hub2 = t.create_hub();
 
@@ -324,10 +321,7 @@ fn liquidation_repays_and_seizes_on_hub_one() {
 
 #[test]
 fn liquidation_seizes_hub_one_collateral_without_hub_zero_listing() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     let hub2 = t.create_hub();
 
@@ -368,8 +362,7 @@ fn liquidation_seizes_hub_one_collateral_without_hub_zero_listing() {
 #[test]
 fn liquidation_charges_seized_collateral_hub_fee() {
     let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
+        .standard_two_asset()
         .with_market_config("USDC", |c| c.liquidation_fees = 0)
         .build();
 

@@ -2,7 +2,7 @@ use soroban_sdk::testutils::{Address as _, Ledger as _};
 use soroban_sdk::{vec, Address, BytesN, Env, IntoVal, Symbol};
 use stellar_governance::timelock::OperationState;
 
-use common::types::{ControllerKey, PositionLimits};
+use common::types::PositionLimits;
 
 use crate::access::{CANCELLER_ROLE, EXECUTOR_ROLE, GUARDIAN_ROLE, PROPOSER_ROLE};
 use crate::constants::{
@@ -10,18 +10,11 @@ use crate::constants::{
     TIMELOCK_RECOVERY_MIN_DELAY_LEDGERS, TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS,
 };
 use crate::op::{AdminOperation, RoleArgs, TransferOwnershipArgs};
-use crate::test_support::{register, register_with_controller, zero_salt};
+use crate::test_support::{
+    read_controller_position_limits, register, register_with_controller, zero_salt,
+};
 use crate::timelock::{operation_delay, validate_delay_update, DelayTier};
 use crate::{Governance, GovernanceClient};
-
-fn read_position_limits(env: &Env, controller_id: &Address) -> PositionLimits {
-    env.as_contract(controller_id, || {
-        env.storage()
-            .instance()
-            .get(&ControllerKey::PositionLimits)
-            .expect("position limits set")
-    })
-}
 
 fn grant_role_via_timelock(
     env: &Env,
@@ -220,7 +213,7 @@ fn execute_after_delay_applies_to_controller() {
     );
 
     assert_eq!(gov.get_operation_state(&id), OperationState::Unset);
-    let stored = read_position_limits(&env, &controller);
+    let stored = read_controller_position_limits(&env, &controller);
     assert_eq!(stored.max_supply_positions, 4);
     assert_eq!(stored.max_borrow_positions, 3);
 }

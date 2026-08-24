@@ -91,12 +91,12 @@ impl Ray {
     }
 
     /// Converts to a `Wad`, truncating toward zero from 27 to 18 decimals.
-    pub fn to_wad_floor(self) -> Wad {
+    pub(crate) fn to_wad_floor(self) -> Wad {
         Wad(fp_core::rescale_floor(self.0, RAY_DECIMALS, WAD_DECIMALS))
     }
 
     /// Converts to a `Wad`, rounding up from 27 to 18 decimals.
-    pub fn to_wad_ceil(self) -> Wad {
+    pub(crate) fn to_wad_ceil(self) -> Wad {
         Wad(fp_core::rescale_ceil(self.0, RAY_DECIMALS, WAD_DECIMALS))
     }
 
@@ -217,24 +217,6 @@ impl Wad {
     /// Converts to a `Ray`, rescaling half up from 18 to 27 decimals.
     pub fn to_ray(self) -> Ray {
         Ray(fp_core::rescale_half_up(self.0, WAD_DECIMALS, RAY_DECIMALS))
-    }
-
-    /// Returns the smaller of the two values.
-    pub fn min(self, other: Wad) -> Wad {
-        if self.0 < other.0 {
-            self
-        } else {
-            other
-        }
-    }
-
-    /// Returns the larger of the two values.
-    pub fn max(self, other: Wad) -> Wad {
-        if self.0 > other.0 {
-            self
-        } else {
-            other
-        }
     }
 
     /// Adds `rhs` to this value. Panics on overflow.

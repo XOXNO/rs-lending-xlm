@@ -1,15 +1,12 @@
 use controller::types::PositionMode;
 use soroban_sdk::testutils::Address as _;
-use soroban_sdk::xdr::ToXdr;
-use soroban_sdk::{Address, Bytes, Vec};
+use soroban_sdk::{Address, Vec};
 use test_harness::{
-    assert_contract_error, errors, eth_preset, f64_to_i128, hub_asset, usdc_preset,
-    FlashPositionMode, FlashPositionRequest, HubAssetKey, LendingTest, ALICE, BOB, HARNESS_SPOKE,
+    assert_contract_error, errors, f64_to_i128, hub_asset, map_try_ok_value, FlashPositionMode,
+    FlashPositionRequest, LendingTest, ALICE, BOB, HARNESS_SPOKE,
 };
 
-fn usdc_raw(t: &LendingTest, amount: f64) -> i128 {
-    f64_to_i128(amount, t.resolve_market("USDC").decimals)
-}
+use crate::helpers::{collaterals, data, usdc_raw, AliceOps};
 
 fn request(
     t: &LendingTest,
@@ -27,27 +24,8 @@ fn request(
     }
 }
 
-fn data(t: &LendingTest, req: FlashPositionRequest) -> Bytes {
-    req.to_xdr(&t.env)
-}
-
-fn collaterals(t: &LendingTest, pairs: &[(&str, f64)]) -> Vec<(HubAssetKey, i128)> {
-    let mut out = Vec::new(&t.env);
-    for (name, min) in pairs {
-        let decimals = t.resolve_market(name).decimals;
-        out.push_back((
-            hub_asset(t.resolve_asset(name)),
-            f64_to_i128(*min, decimals),
-        ));
-    }
-    out
-}
-
 fn setup() -> LendingTest {
-    LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build()
+    LendingTest::new().standard_two_asset().build()
 }
 
 #[test]
@@ -141,25 +119,14 @@ fn test_flash_position_same_asset_loop() {
 #[test]
 fn test_flash_position_works_when_flash_loans_disabled() {
     let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
+        .standard_two_asset()
         .with_market_config("ETH", |c| c.is_flashloanable = false)
         .build();
     let receiver = t.deploy_flash_position_receiver();
     let payload = data(&t, request(&t, FlashPositionMode::Success, 4_000.0));
     let mins = collaterals(&t, &[("USDC", 4_000.0)]);
     let account_id = t
-        .try_flash_position(
-            ALICE,
-            0,
-            PositionMode::Multiply,
-            "ETH",
-            1.0,
-            &receiver,
-            &payload,
-            &mins,
-            &Vec::new(&t.env),
-        )
+        .try_alice_eth_flash(&receiver, &payload, &mins, &Vec::new(&t.env))
         .expect("zero-fee flash_position must not require is_flashloanable");
     assert!(account_id > 0);
 }
@@ -169,17 +136,7 @@ fn test_flash_position_rejects_empty_collaterals() {
     let mut t = setup();
     let receiver = t.deploy_flash_position_receiver();
     let payload = data(&t, request(&t, FlashPositionMode::KeepFunds, 0.0));
-    let result = t.try_flash_position(
-        ALICE,
-        0,
-        PositionMode::Multiply,
-        "ETH",
-        1.0,
-        &receiver,
-        &payload,
-        &Vec::new(&t.env),
-        &Vec::new(&t.env),
-    );
+    let result = t.try_alice_eth_flash(&receiver, &payload, &Vec::new(&t.env), &Vec::new(&t.env));
     assert_contract_error(result, errors::INVALID_PAYMENTS);
 }
 
@@ -189,17 +146,7 @@ fn test_flash_position_rejects_all_zero_mins() {
     let receiver = t.deploy_flash_position_receiver();
     let payload = data(&t, request(&t, FlashPositionMode::Success, 4_000.0));
     let mins = collaterals(&t, &[("USDC", 0.0)]);
-    let result = t.try_flash_position(
-        ALICE,
-        0,
-        PositionMode::Multiply,
-        "ETH",
-        1.0,
-        &receiver,
-        &payload,
-        &mins,
-        &Vec::new(&t.env),
-    );
+    let result = t.try_alice_eth_flash(&receiver, &payload, &mins, &Vec::new(&t.env));
     assert_contract_error(result, errors::COLLATERAL_REQUIRED);
 }
 
@@ -209,17 +156,7 @@ fn test_flash_position_rejects_below_minimum() {
     let receiver = t.deploy_flash_position_receiver();
     let payload = data(&t, request(&t, FlashPositionMode::BelowMin, 4_000.0));
     let mins = collaterals(&t, &[("USDC", 4_000.0)]);
-    let result = t.try_flash_position(
-        ALICE,
-        0,
-        PositionMode::Multiply,
-        "ETH",
-        1.0,
-        &receiver,
-        &payload,
-        &mins,
-        &Vec::new(&t.env),
-    );
+    let result = t.try_alice_eth_flash(&receiver, &payload, &mins, &Vec::new(&t.env));
     assert_contract_error(result, errors::COLLATERAL_MINIMUM_NOT_MET);
 }
 
@@ -229,17 +166,7 @@ fn test_flash_position_rejects_keep_funds() {
     let receiver = t.deploy_flash_position_receiver();
     let payload = data(&t, request(&t, FlashPositionMode::KeepFunds, 4_000.0));
     let mins = collaterals(&t, &[("USDC", 4_000.0)]);
-    let result = t.try_flash_position(
-        ALICE,
-        0,
-        PositionMode::Multiply,
-        "ETH",
-        1.0,
-        &receiver,
-        &payload,
-        &mins,
-        &Vec::new(&t.env),
-    );
+    let result = t.try_alice_eth_flash(&receiver, &payload, &mins, &Vec::new(&t.env));
     assert_contract_error(result, errors::COLLATERAL_MINIMUM_NOT_MET);
 }
 
@@ -249,17 +176,7 @@ fn test_flash_position_rejects_non_contract_receiver() {
     let eoa = Address::generate(&t.env);
     let payload = data(&t, request(&t, FlashPositionMode::Success, 4_000.0));
     let mins = collaterals(&t, &[("USDC", 4_000.0)]);
-    let result = t.try_flash_position(
-        ALICE,
-        0,
-        PositionMode::Multiply,
-        "ETH",
-        1.0,
-        &eoa,
-        &payload,
-        &mins,
-        &Vec::new(&t.env),
-    );
+    let result = t.try_alice_eth_flash(&eoa, &payload, &mins, &Vec::new(&t.env));
     assert_contract_error(result, errors::INVALID_FLASHLOAN_RECEIVER);
 }
 
@@ -269,17 +186,7 @@ fn test_flash_position_rejects_controller_receiver() {
     let controller = t.controller.clone();
     let payload = data(&t, request(&t, FlashPositionMode::Success, 4_000.0));
     let mins = collaterals(&t, &[("USDC", 4_000.0)]);
-    let result = t.try_flash_position(
-        ALICE,
-        0,
-        PositionMode::Multiply,
-        "ETH",
-        1.0,
-        &controller,
-        &payload,
-        &mins,
-        &Vec::new(&t.env),
-    );
+    let result = t.try_alice_eth_flash(&controller, &payload, &mins, &Vec::new(&t.env));
     assert_contract_error(result, errors::INVALID_FLASHLOAN_RECEIVER);
 }
 
@@ -289,17 +196,7 @@ fn test_flash_position_reenter_supply_rejects() {
     let receiver = t.deploy_flash_position_receiver();
     let payload = data(&t, request(&t, FlashPositionMode::ReenterSupply, 4_000.0));
     let mins = collaterals(&t, &[("USDC", 4_000.0)]);
-    let result = t.try_flash_position(
-        ALICE,
-        0,
-        PositionMode::Multiply,
-        "ETH",
-        1.0,
-        &receiver,
-        &payload,
-        &mins,
-        &Vec::new(&t.env),
-    );
+    let result = t.try_alice_eth_flash(&receiver, &payload, &mins, &Vec::new(&t.env));
     // Nested controller entry from the callback must fail. The host may surface
     // InvalidAction for same-contract reentry; FLASH_LOAN_ONGOING is pinned by
     // `test_flash_position_rejects_during_flash_loan`.
@@ -323,17 +220,7 @@ fn test_flash_position_rejects_when_paused() {
     let receiver = t.deploy_flash_position_receiver();
     let payload = data(&t, request(&t, FlashPositionMode::Success, 4_000.0));
     let mins = collaterals(&t, &[("USDC", 4_000.0)]);
-    let result = t.try_flash_position(
-        ALICE,
-        0,
-        PositionMode::Multiply,
-        "ETH",
-        1.0,
-        &receiver,
-        &payload,
-        &mins,
-        &Vec::new(&t.env),
-    );
+    let result = t.try_alice_eth_flash(&receiver, &payload, &mins, &Vec::new(&t.env));
     assert_contract_error(result, errors::CONTRACT_PAUSED);
 }
 
@@ -344,17 +231,7 @@ fn test_flash_position_rejects_during_flash_loan() {
     let receiver = t.deploy_flash_position_receiver();
     let payload = data(&t, request(&t, FlashPositionMode::Success, 4_000.0));
     let mins = collaterals(&t, &[("USDC", 4_000.0)]);
-    let result = t.try_flash_position(
-        ALICE,
-        0,
-        PositionMode::Multiply,
-        "ETH",
-        1.0,
-        &receiver,
-        &payload,
-        &mins,
-        &Vec::new(&t.env),
-    );
+    let result = t.try_alice_eth_flash(&receiver, &payload, &mins, &Vec::new(&t.env));
     assert_contract_error(result, errors::FLASH_LOAN_ONGOING);
 }
 
@@ -379,12 +256,7 @@ fn test_flash_position_refunds_undeclared_push() {
     let eth_before = soroban_sdk::token::Client::new(&t.env, &extra).balance(&caller);
 
     let account_id = t
-        .try_flash_position(
-            ALICE,
-            0,
-            PositionMode::Multiply,
-            "ETH",
-            1.0,
+        .try_alice_eth_flash(
             &receiver,
             &data(&t, req),
             &collaterals(&t, &[("USDC", 4_000.0)]),
@@ -431,17 +303,7 @@ fn test_flash_position_rejects_paused_collateral_before_callback() {
     let receiver = t.deploy_flash_position_receiver();
     let payload = data(&t, request(&t, FlashPositionMode::Success, 4_000.0));
     let mins = collaterals(&t, &[("USDC", 4_000.0)]);
-    let result = t.try_flash_position(
-        ALICE,
-        0,
-        PositionMode::Multiply,
-        "ETH",
-        1.0,
-        &receiver,
-        &payload,
-        &mins,
-        &Vec::new(&t.env),
-    );
+    let result = t.try_alice_eth_flash(&receiver, &payload, &mins, &Vec::new(&t.env));
     assert_contract_error(result, errors::SPOKE_ASSET_PAUSED);
 }
 
@@ -485,17 +347,7 @@ fn test_flash_position_returning_debt_token_does_not_repay() {
     let minted = f64_to_i128(1.0, t.resolve_market("ETH").decimals);
 
     let account_id = t
-        .try_flash_position(
-            ALICE,
-            0,
-            PositionMode::Multiply,
-            "ETH",
-            1.0,
-            &receiver,
-            &payload,
-            &mins,
-            &refunds,
-        )
+        .try_alice_eth_flash(&receiver, &payload, &mins, &refunds)
         .expect("mins met plus returned debt must still leave the position open");
 
     let debt = t
@@ -514,17 +366,7 @@ fn test_flash_position_dust_collateral_fails_solvency() {
     let payload = data(&t, request(&t, FlashPositionMode::Success, 0.0000001));
     let mut mins = Vec::new(&t.env);
     mins.push_back((hub_asset(t.resolve_asset("USDC")), 1i128));
-    let result = t.try_flash_position(
-        ALICE,
-        0,
-        PositionMode::Multiply,
-        "ETH",
-        1.0,
-        &receiver,
-        &payload,
-        &mins,
-        &Vec::new(&t.env),
-    );
+    let result = t.try_alice_eth_flash(&receiver, &payload, &mins, &Vec::new(&t.env));
     assert_contract_error(result, errors::INSUFFICIENT_COLLATERAL);
 }
 
@@ -538,17 +380,7 @@ fn test_flash_position_rejects_duplicate_collateral() {
     let mut mins = Vec::new(&t.env);
     mins.push_back((usdc.clone(), min));
     mins.push_back((usdc, min));
-    let result = t.try_flash_position(
-        ALICE,
-        0,
-        PositionMode::Multiply,
-        "ETH",
-        1.0,
-        &receiver,
-        &payload,
-        &mins,
-        &Vec::new(&t.env),
-    );
+    let result = t.try_alice_eth_flash(&receiver, &payload, &mins, &Vec::new(&t.env));
     assert_contract_error(result, errors::INVALID_PAYMENTS);
 }
 
@@ -560,17 +392,7 @@ fn test_flash_position_rejects_refund_overlap() {
     let mins = collaterals(&t, &[("USDC", 4_000.0)]);
     let mut refunds = Vec::new(&t.env);
     refunds.push_back(t.resolve_asset("USDC"));
-    let result = t.try_flash_position(
-        ALICE,
-        0,
-        PositionMode::Multiply,
-        "ETH",
-        1.0,
-        &receiver,
-        &payload,
-        &mins,
-        &refunds,
-    );
+    let result = t.try_alice_eth_flash(&receiver, &payload, &mins, &refunds);
     assert_contract_error(result, errors::INVALID_PAYMENTS);
 }
 
@@ -580,17 +402,7 @@ fn test_flash_position_rejects_pool_receiver() {
     let pool = t.markets.get("ETH").expect("ETH market").pool.clone();
     let payload = data(&t, request(&t, FlashPositionMode::Success, 4_000.0));
     let mins = collaterals(&t, &[("USDC", 4_000.0)]);
-    let result = t.try_flash_position(
-        ALICE,
-        0,
-        PositionMode::Multiply,
-        "ETH",
-        1.0,
-        &pool,
-        &payload,
-        &mins,
-        &Vec::new(&t.env),
-    );
+    let result = t.try_alice_eth_flash(&pool, &payload, &mins, &Vec::new(&t.env));
     assert_contract_error(result, errors::INVALID_FLASHLOAN_RECEIVER);
 }
 
@@ -623,17 +435,7 @@ fn test_flash_position_rejects_frozen_collateral() {
     let receiver = t.deploy_flash_position_receiver();
     let payload = data(&t, request(&t, FlashPositionMode::Success, 4_000.0));
     let mins = collaterals(&t, &[("USDC", 4_000.0)]);
-    let result = t.try_flash_position(
-        ALICE,
-        0,
-        PositionMode::Multiply,
-        "ETH",
-        1.0,
-        &receiver,
-        &payload,
-        &mins,
-        &Vec::new(&t.env),
-    );
+    let result = t.try_alice_eth_flash(&receiver, &payload, &mins, &Vec::new(&t.env));
     assert_contract_error(result, errors::SPOKE_ASSET_FROZEN);
 }
 
@@ -664,65 +466,33 @@ fn test_flash_position_rejects_paused_debt() {
     let receiver = t.deploy_flash_position_receiver();
     let payload = data(&t, request(&t, FlashPositionMode::Success, 4_000.0));
     let mins = collaterals(&t, &[("USDC", 4_000.0)]);
-    let result = t.try_flash_position(
-        ALICE,
-        0,
-        PositionMode::Multiply,
-        "ETH",
-        1.0,
-        &receiver,
-        &payload,
-        &mins,
-        &Vec::new(&t.env),
-    );
+    let result = t.try_alice_eth_flash(&receiver, &payload, &mins, &Vec::new(&t.env));
     assert_contract_error(result, errors::SPOKE_ASSET_PAUSED);
 }
 
 #[test]
 fn test_flash_position_rejects_non_borrowable_debt() {
     let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
+        .standard_two_asset()
         .with_market_config("ETH", |c| c.is_borrowable = false)
         .build();
     let receiver = t.deploy_flash_position_receiver();
     let payload = data(&t, request(&t, FlashPositionMode::Success, 4_000.0));
     let mins = collaterals(&t, &[("USDC", 4_000.0)]);
-    let result = t.try_flash_position(
-        ALICE,
-        0,
-        PositionMode::Multiply,
-        "ETH",
-        1.0,
-        &receiver,
-        &payload,
-        &mins,
-        &Vec::new(&t.env),
-    );
+    let result = t.try_alice_eth_flash(&receiver, &payload, &mins, &Vec::new(&t.env));
     assert_contract_error(result, errors::ASSET_NOT_BORROWABLE);
 }
 
 #[test]
 fn test_flash_position_rejects_non_collateralizable() {
     let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
+        .standard_two_asset()
         .with_market_config("USDC", |c| c.is_collateralizable = false)
         .build();
     let receiver = t.deploy_flash_position_receiver();
     let payload = data(&t, request(&t, FlashPositionMode::Success, 4_000.0));
     let mins = collaterals(&t, &[("USDC", 4_000.0)]);
-    let result = t.try_flash_position(
-        ALICE,
-        0,
-        PositionMode::Multiply,
-        "ETH",
-        1.0,
-        &receiver,
-        &payload,
-        &mins,
-        &Vec::new(&t.env),
-    );
+    let result = t.try_alice_eth_flash(&receiver, &payload, &mins, &Vec::new(&t.env));
     assert_contract_error(result, errors::NOT_COLLATERAL);
 }
 
@@ -736,7 +506,7 @@ fn test_flash_position_rejects_spoke_mismatch() {
     let mins = collaterals(&t, &[("USDC", 4_000.0)]);
     let caller = t.get_or_create_user(ALICE);
     let debt = hub_asset(t.resolve_asset("ETH"));
-    let result = match t.ctrl_client().try_flash_position(
+    let result = map_try_ok_value(t.ctrl_client().try_flash_position(
         &caller,
         &alice_id,
         &99u32,
@@ -747,11 +517,7 @@ fn test_flash_position_rejects_spoke_mismatch() {
         &payload,
         &mins,
         &Vec::new(&t.env),
-    ) {
-        Ok(Ok(id)) => Ok(id),
-        Ok(Err(err)) => Err(err),
-        Err(e) => Err(e.expect("expected contract error")),
-    };
+    ));
     assert_contract_error(result, errors::SPOKE_MISMATCH);
 }
 
@@ -765,17 +531,7 @@ fn test_flash_position_rejects_duplicate_refund_assets() {
     let mut refunds = Vec::new(&t.env);
     refunds.push_back(eth.clone());
     refunds.push_back(eth);
-    let result = t.try_flash_position(
-        ALICE,
-        0,
-        PositionMode::Multiply,
-        "ETH",
-        1.0,
-        &receiver,
-        &payload,
-        &mins,
-        &refunds,
-    );
+    let result = t.try_alice_eth_flash(&receiver, &payload, &mins, &refunds);
     assert_contract_error(result, errors::INVALID_PAYMENTS);
 }
 
@@ -786,17 +542,7 @@ fn test_flash_position_callback_panic_rolls_back() {
     let payload = data(&t, request(&t, FlashPositionMode::Panic, 4_000.0));
     let mins = collaterals(&t, &[("USDC", 4_000.0)]);
     let revenue_before = t.snapshot_revenue("ETH");
-    let result = t.try_flash_position(
-        ALICE,
-        0,
-        PositionMode::Multiply,
-        "ETH",
-        1.0,
-        &receiver,
-        &payload,
-        &mins,
-        &Vec::new(&t.env),
-    );
+    let result = t.try_alice_eth_flash(&receiver, &payload, &mins, &Vec::new(&t.env));
     assert!(result.is_err(), "panic callback must revert: {result:?}");
     t.env.as_contract(&t.controller, || {
         assert!(!controller::test_support::is_flash_loan_ongoing(&t.env));
@@ -813,17 +559,7 @@ fn test_flash_position_mixed_zero_and_positive_min_succeeds() {
     mins.push_back((hub_asset(t.resolve_asset("ETH")), 0i128));
     mins.push_back((hub_asset(t.resolve_asset("USDC")), usdc_raw(&t, 4_000.0)));
     let account_id = t
-        .try_flash_position(
-            ALICE,
-            0,
-            PositionMode::Multiply,
-            "ETH",
-            1.0,
-            &receiver,
-            &payload,
-            &mins,
-            &Vec::new(&t.env),
-        )
+        .try_alice_eth_flash(&receiver, &payload, &mins, &Vec::new(&t.env))
         .expect("zero min on unused asset plus positive USDC min");
     let minted = f64_to_i128(1.0, t.resolve_market("ETH").decimals);
     let debt = t

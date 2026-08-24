@@ -1,6 +1,7 @@
 extern crate std;
 
 mod account_ttl_regression;
+mod admin_instance_ttl_regression;
 mod bench_liquidate_max_positions;
 mod budget_breakdown;
 mod chaos_simulation;

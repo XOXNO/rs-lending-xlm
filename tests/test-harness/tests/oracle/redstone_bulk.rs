@@ -4,17 +4,13 @@ use test_harness::oracle::redstone::{
     register_redstone_adapter,
 };
 use test_harness::{
-    apply_flash_fee, assert_contract_error, build_aggregator_swap, errors, eth_preset,
-    redstone_single_config, usd, usdc_preset, wbtc_preset, xlm_preset, LendingTest, ALICE, BOB,
-    DEFAULT_TOLERANCE,
+    apply_flash_fee, assert_contract_error, build_aggregator_swap, errors, redstone_single_config,
+    usd, usdc_preset, xlm_preset, LendingTest, ALICE, BOB, DEFAULT_TOLERANCE,
 };
 
 #[test]
 fn test_borrow_tx_fires_one_bulk_redstone_call() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     let redstone = register_redstone_adapter(&t, &[("USDC", usd(1)), ("ETH", usd(2000))]);
 
@@ -46,10 +42,7 @@ fn test_borrow_tx_fires_one_bulk_redstone_call() {
 
 #[test]
 fn test_multi_asset_supply_fires_zero_redstone_calls() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     let redstone = register_redstone_adapter(&t, &[("USDC", usd(1)), ("ETH", usd(2000))]);
     anchor_market_with_redstone(&t, &redstone, "USDC");
@@ -76,10 +69,7 @@ fn test_multi_asset_supply_fires_zero_redstone_calls() {
 
 #[test]
 fn test_bulk_failure_falls_back_to_per_feed_reads() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     let redstone = register_redstone_adapter(&t, &[("USDC", usd(1)), ("ETH", usd(2000))]);
     anchor_market_with_redstone(&t, &redstone, "USDC");
@@ -117,10 +107,7 @@ fn test_bulk_failure_falls_back_to_per_feed_reads() {
 
 #[test]
 fn test_bulk_length_mismatch_falls_back_to_per_feed_reads() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
     let redstone = register_redstone_adapter(&t, &[("USDC", usd(1)), ("ETH", usd(2000))]);
     anchor_market_with_redstone(&t, &redstone, "USDC");
     anchor_market_with_redstone(&t, &redstone, "ETH");
@@ -141,10 +128,7 @@ fn test_bulk_length_mismatch_falls_back_to_per_feed_reads() {
 
 #[test]
 fn test_prefetched_prices_resolve_to_expected_values() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     let redstone = register_redstone_adapter(&t, &[("USDC", usd(1)), ("ETH", usd(2000))]);
     anchor_market_with_redstone(&t, &redstone, "USDC");
@@ -173,10 +157,7 @@ fn test_prefetched_prices_resolve_to_expected_values() {
 
 #[test]
 fn test_withdraw_with_debt_uses_one_bulk_redstone_call() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     let redstone = register_redstone_adapter(&t, &[("USDC", usd(1)), ("ETH", usd(2000))]);
 
@@ -209,11 +190,7 @@ fn test_withdraw_with_debt_uses_one_bulk_redstone_call() {
 
 #[test]
 fn test_full_repay_fires_zero_redstone_calls() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_market(wbtc_preset())
-        .build();
+    let mut t = LendingTest::new().three_asset_usdc_eth_wbtc().build();
 
     let redstone = register_redstone_adapter(
         &t,
@@ -251,10 +228,7 @@ fn test_full_repay_fires_zero_redstone_calls() {
 
 #[test]
 fn test_no_debt_withdraw_fires_zero_redstone_calls() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     let redstone = register_redstone_adapter(&t, &[("USDC", usd(1)), ("ETH", usd(2000))]);
     anchor_market_with_redstone(&t, &redstone, "USDC");
@@ -284,10 +258,7 @@ fn test_no_debt_withdraw_fires_zero_redstone_calls() {
 
 #[test]
 fn test_no_debt_bulk_full_close_fires_zero_redstone_calls() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     let redstone = register_redstone_adapter(&t, &[("USDC", usd(1)), ("ETH", usd(2000))]);
     anchor_market_with_redstone(&t, &redstone, "USDC");
@@ -319,9 +290,7 @@ fn test_no_debt_bulk_full_close_fires_zero_redstone_calls() {
 #[test]
 fn test_two_adapters_bulk_once_each() {
     let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_market(wbtc_preset())
+        .three_asset_usdc_eth_wbtc()
         .with_market(xlm_preset())
         .build();
 
@@ -378,10 +347,7 @@ fn test_two_adapters_bulk_once_each() {
 
 #[test]
 fn test_prefetch_skips_unlisted_asset_without_panic() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     let redstone = register_redstone_adapter(&t, &[("USDC", usd(1)), ("ETH", usd(2000))]);
 
@@ -396,10 +362,7 @@ fn test_prefetch_skips_unlisted_asset_without_panic() {
 
 #[test]
 fn test_shared_feed_two_assets_single_redstone_call() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     let redstone = register_redstone_adapter(&t, &[("SHARED", usd(1))]);
     let feed_id = String::from_str(&t.env, "SHARED");
@@ -445,10 +408,7 @@ fn test_shared_feed_two_assets_single_redstone_call() {
 
 #[test]
 fn test_liquidation_fires_one_bulk_redstone_call() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     let redstone = register_redstone_adapter(&t, &[("USDC", usd(1)), ("ETH", usd(2000))]);
     anchor_market_with_redstone(&t, &redstone, "USDC");
@@ -486,10 +446,7 @@ fn test_liquidation_fires_one_bulk_redstone_call() {
 
 #[test]
 fn test_redstone_primary_markets_fire_one_bulk() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     let redstone = register_redstone_adapter(&t, &[("USDC", usd(1)), ("ETH", usd(2000))]);
     let usdc_feed = String::from_str(&t.env, "USDC");
@@ -578,11 +535,7 @@ fn test_same_asset_supplied_and_borrowed_one_call() {
 
 #[test]
 fn test_mixed_adapter_groups() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_market(wbtc_preset())
-        .build();
+    let mut t = LendingTest::new().three_asset_usdc_eth_wbtc().build();
 
     let adapter_a = register_redstone_adapter(&t, &[("USDC", usd(1)), ("ETH", usd(2000))]);
     let adapter_b = register_redstone_adapter(&t, &[("WBTC", usd(60_000))]);
@@ -635,10 +588,7 @@ fn test_mixed_adapter_groups() {
 #[test]
 #[should_panic(expected = "Error(Contract, #3)")]
 fn test_committed_bulk_failure_reverts_on_missing_anchor() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     let redstone = register_redstone_adapter(&t, &[("USDC", usd(1)), ("ETH", usd(2000))]);
     anchor_market_with_redstone(&t, &redstone, "USDC");
@@ -656,10 +606,7 @@ fn test_committed_bulk_failure_reverts_on_missing_anchor() {
 
 #[test]
 fn test_stale_payload_through_bulk_is_still_rejected() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     let redstone = register_redstone_adapter(&t, &[("USDC", usd(1)), ("ETH", usd(2000))]);
     anchor_market_with_redstone(&t, &redstone, "USDC");
@@ -683,10 +630,7 @@ fn test_stale_payload_through_bulk_is_still_rejected() {
 
 #[test]
 fn test_disabled_market_panics_same_through_prefetch() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     let redstone = register_redstone_adapter(&t, &[("USDC", usd(1)), ("ETH", usd(2000))]);
     anchor_market_with_redstone(&t, &redstone, "USDC");
@@ -705,10 +649,7 @@ fn test_disabled_market_panics_same_through_prefetch() {
 
 #[test]
 fn test_multiply_fires_one_bulk_redstone_call() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     let redstone = register_redstone_adapter(&t, &[("USDC", usd(1)), ("ETH", usd(2000))]);
     anchor_market_with_redstone(&t, &redstone, "USDC");
@@ -751,11 +692,7 @@ fn test_multiply_fires_one_bulk_redstone_call() {
 
 #[test]
 fn test_aggregate_views_fire_one_bulk_redstone_call() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_market(wbtc_preset())
-        .build();
+    let mut t = LendingTest::new().three_asset_usdc_eth_wbtc().build();
 
     let redstone = register_redstone_adapter(
         &t,

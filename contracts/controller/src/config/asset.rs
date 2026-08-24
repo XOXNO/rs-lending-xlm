@@ -31,8 +31,23 @@ pub(crate) fn edit_asset_in_spoke(env: &Env, args: &SpokeAssetArgs) {
     upsert_spoke_asset(env, args, SpokeAssetMutation::Edit);
 }
 
+/// Validates `args`, checks the spoke/asset registration precondition for
+/// `mutation`, validates the caps against the pool's asset decimals, then
+/// writes the spoke asset entry and publishes an `UpdateSpokeAssetEvent`.
+/// Every validation runs before the storage write.
 fn upsert_spoke_asset(env: &Env, args: &SpokeAssetArgs, mutation: SpokeAssetMutation) {
-    let hub_asset = validate_spoke_asset_args(env, args);
+    common_validate_risk_bounds(env, args.ltv, args.threshold, args.bonus);
+    common_validate_liquidation_fees(env, args.liquidation_fees);
+    assert_with_error!(
+        env,
+        args.supply_cap >= 0 && args.borrow_cap >= 0,
+        CollateralError::InvalidBorrowParams
+    );
+
+    let hub_asset = HubAssetKey {
+        hub_id: args.hub_id,
+        asset: args.asset.clone(),
+    };
     match mutation {
         SpokeAssetMutation::Add => {
             let spoke = storage::get_spoke(env, args.spoke_id);
@@ -53,42 +68,11 @@ fn upsert_spoke_asset(env: &Env, args: &SpokeAssetArgs, mutation: SpokeAssetMuta
         }
     }
 
-    load_market_and_validate_caps(env, args, &hub_asset);
-    store_spoke_asset(env, args, &hub_asset, build_spoke_asset_config(args));
-}
-
-/// Validates the risk bounds, liquidation fees, and non-negative caps in
-/// `args`, returning the resulting hub asset key. Panics if any check fails.
-fn validate_spoke_asset_args(env: &Env, args: &SpokeAssetArgs) -> HubAssetKey {
-    common_validate_risk_bounds(env, args.ltv, args.threshold, args.bonus);
-    common_validate_liquidation_fees(env, args.liquidation_fees);
-    assert_with_error!(
-        env,
-        args.supply_cap >= 0 && args.borrow_cap >= 0,
-        CollateralError::InvalidBorrowParams
-    );
-
-    HubAssetKey {
-        hub_id: args.hub_id,
-        asset: args.asset.clone(),
-    }
-}
-
-/// Fetches the pool's market data for `hub_asset` and validates that the
-/// supply and borrow caps in `args` fit the asset's decimal domain,
-/// returning the fetched data. Panics if either cap would overflow at the
-/// asset's decimals.
-fn load_market_and_validate_caps(env: &Env, args: &SpokeAssetArgs, hub_asset: &HubAssetKey) {
-    let market = fetch_pool_sync_data(env, &storage::get_pool(env), hub_asset);
-
+    let market = fetch_pool_sync_data(env, &storage::get_pool(env), &hub_asset);
     require_cap_within_asset_domain(env, args.supply_cap, market.params.asset_decimals);
     require_cap_within_asset_domain(env, args.borrow_cap, market.params.asset_decimals);
-}
 
-/// Converts `args` into the `SpokeAssetConfig` representation stored for
-/// the asset.
-fn build_spoke_asset_config(args: &SpokeAssetArgs) -> SpokeAssetConfig {
-    SpokeAssetConfig {
+    let config = SpokeAssetConfig {
         is_collateralizable: args.can_collateral,
         is_borrowable: args.can_borrow,
         paused: args.paused,
@@ -100,18 +84,8 @@ fn build_spoke_asset_config(args: &SpokeAssetArgs) -> SpokeAssetConfig {
         liquidation_fees: args.liquidation_fees,
         supply_cap: args.supply_cap,
         borrow_cap: args.borrow_cap,
-    }
-}
-
-/// Writes `config` as the spoke asset entry for `hub_asset` and publishes an
-/// `UpdateSpokeAssetEvent`.
-fn store_spoke_asset(
-    env: &Env,
-    args: &SpokeAssetArgs,
-    hub_asset: &HubAssetKey,
-    config: SpokeAssetConfig,
-) {
-    storage::set_spoke_asset(env, args.spoke_id, hub_asset, &config);
+    };
+    storage::set_spoke_asset(env, args.spoke_id, &hub_asset, &config);
 
     UpdateSpokeAssetEvent {
         asset: args.asset.clone(),
@@ -155,6 +129,11 @@ pub(crate) fn set_spoke_asset_flags(
 /// true relative to `config`, panicking if any flag would be relaxed. The
 /// guardian may only tighten; clearing a flag stays timelocked through
 /// `edit_asset_in_spoke` (ADR-0007).
+///
+/// Kept as a named function rather than inlined into its single caller: it is
+/// the control that ADR-0007, ADR-0008, STRIDE, the threat model, and
+/// INV-CONF's ENFORCED status all cite by name. The name is the interface to
+/// that documentation, so it outranks the line it would save.
 fn require_flag_ratchet(
     env: &Env,
     config: &SpokeAssetConfig,

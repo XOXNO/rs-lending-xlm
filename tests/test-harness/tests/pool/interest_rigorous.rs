@@ -1,7 +1,6 @@
 use controller::constants::RAY;
 use test_harness::{
-    days, eth_preset, hub_asset, usdc_preset, wbtc_preset, HubAssetKey, LendingTest, ALICE, BOB,
-    CAROL,
+    days, eth_preset, hub_asset, usdc_preset, HubAssetKey, LendingTest, ALICE, BOB, CAROL,
 };
 
 fn get_indexes(t: &LendingTest, asset: &str) -> (i128, i128) {
@@ -14,10 +13,7 @@ fn get_indexes(t: &LendingTest, asset: &str) -> (i128, i128) {
 
 #[test]
 fn test_borrow_index_matches_compound_formula() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.supply(BOB, "ETH", 100.0);
@@ -42,10 +38,7 @@ fn test_borrow_index_matches_compound_formula() {
 
 #[test]
 fn test_supply_index_reflects_interest_minus_reserve_factor() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(BOB, "ETH", 100.0);
     t.supply(ALICE, "USDC", 500_000.0);
@@ -81,10 +74,7 @@ fn test_supply_index_reflects_interest_minus_reserve_factor() {
 
 #[test]
 fn test_interest_accounting_identity() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "ETH", 100.0);
     t.supply(BOB, "USDC", 500_000.0);
@@ -180,10 +170,7 @@ fn test_reserve_factor_exact_split() {
 
 #[test]
 fn test_scaled_amount_times_index_equals_actual() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.supply(BOB, "ETH", 50.0);
@@ -292,20 +279,14 @@ fn test_rate_curve_three_regions() {
 
 #[test]
 fn test_single_vs_multi_sync_taylor_accuracy() {
-    let mut t_single = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t_single = LendingTest::new().standard_two_asset().build();
     t_single.supply(ALICE, "USDC", 100_000.0);
     t_single.supply(BOB, "ETH", 100.0);
     t_single.borrow(ALICE, "ETH", 10.0);
     t_single.advance_and_sync(days(365));
     let debt_single = t_single.borrow_balance(ALICE, "ETH");
 
-    let mut t_multi = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t_multi = LendingTest::new().standard_two_asset().build();
     t_multi.supply(ALICE, "USDC", 100_000.0);
     t_multi.supply(BOB, "ETH", 100.0);
     t_multi.borrow(ALICE, "ETH", 10.0);
@@ -353,10 +334,7 @@ fn test_supply_index_unchanged_without_borrows() {
 
 #[test]
 fn test_multiple_suppliers_share_proportionally() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "ETH", 75.0);
     t.supply(BOB, "ETH", 25.0);
@@ -384,10 +362,7 @@ fn test_multiple_suppliers_share_proportionally() {
 
 #[test]
 fn test_interest_grows_with_time_checkpoints() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 5.0);
@@ -437,10 +412,7 @@ fn test_interest_grows_with_time_checkpoints() {
 
 #[test]
 fn test_pool_solvency_invariant() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "ETH", 100.0);
     t.supply(BOB, "USDC", 500_000.0);
@@ -482,11 +454,7 @@ fn test_pool_solvency_invariant() {
 
 #[test]
 fn test_index_values_accessible_and_rational() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_market(wbtc_preset())
-        .build();
+    let mut t = LendingTest::new().three_asset_usdc_eth_wbtc().build();
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.supply(ALICE, "ETH", 100.0);

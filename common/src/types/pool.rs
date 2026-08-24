@@ -58,11 +58,6 @@ impl MarketParamsRaw {
         }
     }
 
-    /// Validates the rate-model fields via `InterestRateModel::verify`.
-    pub fn verify_rate_model(&self, env: &Env) {
-        self.rate_model_view().verify(env);
-    }
-
     /// Validates `asset_decimals` and the rate model. Panics if `asset_decimals` exceeds
     /// `WAD_DECIMALS`, or if the rate model fails its own checks.
     pub fn verify(&self, env: &Env) {
@@ -72,7 +67,7 @@ impl MarketParamsRaw {
             CollateralError::AssetDecimalsTooHigh
         );
 
-        self.verify_rate_model(env);
+        self.rate_model_view().verify(env);
     }
 }
 

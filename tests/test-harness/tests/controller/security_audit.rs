@@ -37,10 +37,7 @@ fn age_oracle_observations(t: &LendingTest) {
 
 #[test]
 fn regression_withdraw_restamps_sibling_ltv_after_governance_cut() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 5_000.0);
     t.supply(ALICE, "ETH", 5.0);
@@ -67,10 +64,7 @@ fn regression_withdraw_restamps_sibling_ltv_after_governance_cut() {
 
 #[test]
 fn regression_borrow_restamps_ltv_after_governance_cut() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.assert_healthy(ALICE);
@@ -102,10 +96,7 @@ fn regression_borrow_restamps_ltv_after_governance_cut() {
 
 #[test]
 fn regression_borrow_restamps_ltv_only() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     let id = t.resolve_account_id(ALICE);
@@ -131,11 +122,7 @@ fn regression_borrow_restamps_ltv_only() {
 }
 
 fn account_just_below_restamp_floor() -> (LendingTest, u64) {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_dust_disabled_all_markets()
-        .build();
+    let mut t = LendingTest::new().standard_two_asset_dust_disabled();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.7);
@@ -200,10 +187,7 @@ fn regression_supply_skips_fees_only_cut_below_min_hf() {
 fn regression_ltv_collateral_view_uses_live_listing_ltv() {
     use controller::constants::WAD;
 
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     let id = t.resolve_account_id(ALICE);
@@ -231,10 +215,7 @@ fn regression_ltv_collateral_view_uses_live_listing_ltv() {
 fn regression_strategy_finalize_restamps_safe_params() {
     use test_harness::build_aggregator_swap;
 
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     let id = t.resolve_account_id(ALICE);
@@ -269,10 +250,7 @@ fn regression_strategy_finalize_restamps_safe_params() {
 
 #[test]
 fn poc_stale_lt_stamp_blocks_liquidation_after_threshold_cut() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.5);
@@ -305,9 +283,7 @@ fn poc_stale_lt_stamp_blocks_liquidation_after_threshold_cut() {
 #[test]
 fn regression_third_party_cannot_open_new_supply_slots() {
     let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_market(wbtc_preset())
+        .three_asset_usdc_eth_wbtc()
         .with_position_limits(2, 4)
         .build();
 
@@ -331,10 +307,7 @@ fn regression_third_party_cannot_open_new_supply_slots() {
 
 #[test]
 fn poc_paused_debt_blocks_liquidation_repay() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.0);
@@ -355,10 +328,7 @@ fn poc_paused_debt_blocks_liquidation_repay() {
 /// `no_seize`; see ADR-0008.
 #[test]
 fn poc_paused_collateral_does_not_block_liquidation_seizure() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.0);
@@ -387,10 +357,7 @@ fn poc_paused_collateral_does_not_block_liquidation_seizure() {
 
 #[test]
 fn poc_frozen_collateral_still_backs_new_borrows() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
 
@@ -433,10 +400,7 @@ fn poc_frozen_collateral_still_backs_new_borrows() {
 
 #[test]
 fn poc_flash_loan_ongoing_blocks_risk_increasing_and_exit_paths() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 1.0);
@@ -484,11 +448,7 @@ fn poc_permissionless_repay_any_caller() {
 
 #[test]
 fn poc_stale_oracle_blocks_liquidation() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_dust_disabled_all_markets()
-        .build();
+    let mut t = LendingTest::new().standard_two_asset_dust_disabled();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.0);
@@ -507,11 +467,7 @@ fn poc_stale_oracle_blocks_liquidation() {
 
 #[test]
 fn poc_lt_cut_stays_sticky_when_hf_below_min() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_dust_disabled_all_markets()
-        .build();
+    let mut t = LendingTest::new().standard_two_asset_dust_disabled();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.0);
@@ -552,11 +508,7 @@ fn poc_lt_cut_stays_sticky_when_hf_below_min() {
 
 #[test]
 fn poc_third_party_top_up_force_restamps_ltv() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_dust_disabled_all_markets()
-        .build();
+    let mut t = LendingTest::new().standard_two_asset_dust_disabled();
 
     t.supply(ALICE, "USDC", 10_000.0);
     let id = t.resolve_account_id(ALICE);
@@ -652,11 +604,7 @@ fn poc_untransferable_collateral_leg_bricks_whole_liquidation() {
 
 #[test]
 fn regression_third_party_supply_cannot_force_adverse_tuple_below_min_hf() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_dust_disabled_all_markets()
-        .build();
+    let mut t = LendingTest::new().standard_two_asset_dust_disabled();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.0);
@@ -689,11 +637,7 @@ fn regression_third_party_supply_cannot_force_adverse_tuple_below_min_hf() {
 
 #[test]
 fn regression_supply_propagates_bonus_raise_to_healthy_account() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_dust_disabled_all_markets()
-        .build();
+    let mut t = LendingTest::new().standard_two_asset_dust_disabled();
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 1.0);

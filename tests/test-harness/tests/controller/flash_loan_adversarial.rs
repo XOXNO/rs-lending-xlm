@@ -1,35 +1,14 @@
-use common::math::fp::Bps;
-use flash_loan_receiver::{FlashLoanMode, FlashLoanRequest};
-use soroban_sdk::testutils::{Address as _, MockAuth, MockAuthInvoke};
-use soroban_sdk::xdr::ToXdr;
-use soroban_sdk::{token, Address, Bytes, IntoVal, Val, Vec};
+use crate::shared::{flash_fee, flash_guard_cleared, raw_units, receiver_data, strict_flash_loan};
+use flash_loan_receiver::FlashLoanMode;
+use soroban_sdk::testutils::Address as _;
+use soroban_sdk::{token, Address};
 use test_harness::{
-    assert_contract_error, errors, eth_preset, hub_asset, usdc_preset, HubAssetKey, LendingTest,
-    ALICE, BOB, HARNESS_SPOKE,
+    assert_contract_error, errors, hub_asset, usdc_preset, LendingTest, ALICE, BOB, HARNESS_SPOKE,
 };
-
-fn raw_units(t: &LendingTest, asset_name: &str, units: i128) -> i128 {
-    units * 10i128.pow(t.resolve_market(asset_name).decimals)
-}
-
-fn flash_fee(t: &LendingTest, asset_name: &str, amount: i128) -> i128 {
-    let config = t.get_asset_config(asset_name);
-    Bps::from(config.flashloan_fee).flash_loan_fee_on(&t.env, amount)
-}
-
-fn flash_guard_cleared(t: &LendingTest) -> bool {
-    t.env.as_contract(&t.controller, || {
-        !controller::test_support::is_flash_loan_ongoing(&t.env)
-    })
-}
 
 fn pool_reserves_raw(t: &LendingTest, asset_name: &str) -> i128 {
     let asset = t.resolve_asset(asset_name);
     t.pool_client(asset_name).get_reserves(&hub_asset(asset))
-}
-
-fn receiver_data(t: &LendingTest, mode: FlashLoanMode) -> Bytes {
-    FlashLoanRequest { mode }.to_xdr(&t.env)
 }
 
 fn prefund_receiver_fee(t: &LendingTest, receiver: &Address, asset: &Address, fee: i128) {
@@ -43,45 +22,6 @@ fn mint_weird(t: &LendingTest, asset_name: &str, to: &Address, amount: i128) {
     test_harness::weird_token::WeirdTokenClient::new(&t.env, &asset).mint(to, &amount);
 }
 
-fn flash_loan_outcome(
-    t: &LendingTest,
-    caller: &Address,
-    asset: &HubAssetKey,
-    amount: i128,
-    receiver: &Address,
-    data: &Bytes,
-) -> Result<(), std::string::String> {
-    let args: Vec<Val> = (
-        caller.clone(),
-        asset.clone(),
-        amount,
-        receiver.clone(),
-        data.clone(),
-    )
-        .into_val(&t.env);
-    let invoke = MockAuthInvoke {
-        contract: &t.controller,
-        fn_name: "flash_loan",
-        args,
-        sub_invokes: &[],
-    };
-    let auths = [MockAuth {
-        address: caller,
-        invoke: &invoke,
-    }];
-
-    match t
-        .ctrl_client()
-        .mock_auths(&auths)
-        .try_flash_loan(caller, asset, &amount, receiver, data)
-    {
-        Ok(Ok(())) => Ok(()),
-        Ok(Err(conv)) => Err(std::format!("conversion error: {conv:?}")),
-        Err(Ok(contract_err)) => Err(std::format!("{contract_err:?}")),
-        Err(Err(invoke)) => Err(std::format!("invoke error: {invoke:?}")),
-    }
-}
-
 fn assert_reentry_fails(t: &mut LendingTest, mode: FlashLoanMode) {
     t.supply(ALICE, "USDC", 100_000.0);
     let receiver = t.deploy_adversarial_flash_loan_receiver();
@@ -93,7 +33,7 @@ fn assert_reentry_fails(t: &mut LendingTest, mode: FlashLoanMode) {
     let reserves_before = pool_reserves_raw(t, "USDC");
     let caller = t.get_or_create_user(BOB);
     t.env.set_auths(&[]);
-    let result = flash_loan_outcome(
+    let result = strict_flash_loan(
         t,
         &caller,
         &hub_asset(asset.clone()),
@@ -291,7 +231,7 @@ fn test_flash_loan_fee_on_transfer_fails_closed() {
     let reserves_before = pool_reserves_raw(&t, "USDC");
     let caller = t.get_or_create_user(BOB);
     t.env.set_auths(&[]);
-    let result = flash_loan_outcome(&t, &caller, &hub_asset(asset), amount, &receiver, &data);
+    let result = strict_flash_loan(&t, &caller, &hub_asset(asset), amount, &receiver, &data);
     assert!(
         result.is_err(),
         "fee-on-transfer flash loan must fail closed: {result:?}"
@@ -315,7 +255,7 @@ fn test_flash_loan_extra_credit_is_not_pool_theft() {
     let reserves_before = pool_reserves_raw(&t, "USDC");
     let caller = t.get_or_create_user(BOB);
     t.env.set_auths(&[]);
-    let result = flash_loan_outcome(
+    let result = strict_flash_loan(
         &t,
         &caller,
         &hub_asset(asset.clone()),
@@ -353,7 +293,7 @@ fn test_flash_loan_transfer_hook_cannot_reenter() {
     let reserves_before = pool_reserves_raw(&t, "USDC");
     let caller = t.get_or_create_user(BOB);
     t.env.set_auths(&[]);
-    let result = flash_loan_outcome(&t, &caller, &hub_asset(asset), amount, &receiver, &data);
+    let result = strict_flash_loan(&t, &caller, &hub_asset(asset), amount, &receiver, &data);
     assert!(
         result.is_err(),
         "token transfer hook must not reenter: {result:?}"
@@ -376,10 +316,7 @@ fn test_flash_loan_eoa_receiver_still_rejected() {
 
 #[test]
 fn test_flash_loan_plan_targets_existing_account() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 1.0);
     let alice_id = t.resolve_account_id(ALICE);

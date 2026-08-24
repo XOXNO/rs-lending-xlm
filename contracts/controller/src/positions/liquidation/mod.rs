@@ -16,7 +16,7 @@ pub(crate) mod math;
 mod plan;
 
 pub(crate) use math::split_seized_shares;
-pub(crate) use plan::execute_liquidation;
+pub(crate) use plan::build_liquidation_plan;
 
 use common::errors::{CollateralError, GenericError, SpokeError};
 use common::types::{Account, HubPayment, PositionMode, SeizeMode};
@@ -28,7 +28,6 @@ use crate::context::Cache;
 use crate::events::LiquidationEvent;
 use crate::positions::{finalize_position_flow, PositionSides};
 use crate::risk::validation;
-use crate::risk::AccountRiskTotals;
 use crate::storage;
 
 /// Liquidates `account_id`'s undercollateralized debt: builds a plan from `debt_payments`,
@@ -128,7 +127,7 @@ pub(crate) fn process_liquidation(
         account_id,
         &account,
         &mut cache,
-        PositionSides::BOTH,
+        PositionSides::Both,
         false,
     );
 
@@ -142,7 +141,7 @@ pub(crate) fn process_liquidation(
             *receiver_id,
             receiving_account,
             &mut cache,
-            PositionSides::SUPPLY,
+            PositionSides::Supply,
             false,
         );
     }
@@ -222,28 +221,18 @@ pub(crate) fn process_clean_bad_debt(env: &Env, caller: &Address, account_id: u6
     clean_bad_debt_standalone(env, account_id);
 }
 
+/// Which condition admits socializing an account's bad debt.
+#[derive(Clone, Copy, PartialEq)]
 enum BadDebtGate {
+    /// Permissionless: insolvent *and* collateral at or below the dust threshold.
     DustCapped,
-
-    Insolvent,
+    /// Owner-only: insolvent alone, with no cap on the collateral left behind.
+    InsolventOnly,
 }
 
-impl BadDebtGate {
-    /// Returns whether `totals` satisfies this gate's bad-debt condition: `DustCapped` also
-    /// requires collateral at or below the dust threshold, `Insolvent` only requires debt
-    /// exceeding collateral.
-    fn admits(&self, totals: &AccountRiskTotals) -> bool {
-        match self {
-            Self::DustCapped => {
-                is_socializable_bad_debt(totals.total_debt, totals.total_collateral)
-            }
-            Self::Insolvent => totals.total_debt > totals.total_collateral,
-        }
-    }
-}
-
-/// Loads `account_id`, asserts it has open debt and that its risk totals satisfy `gate`, then
-/// runs bad-debt cleanup to seize its remaining positions and remove the account entry.
+/// Loads `account_id`, asserts it has open debt and that its risk totals admit socialization
+/// under `gate`, then runs bad-debt cleanup to seize its remaining positions and remove the
+/// account entry.
 fn socialize_bad_debt(env: &Env, account_id: u64, gate: BadDebtGate) {
     let mut cache = Cache::new(env);
     let account = storage::get_account(env, account_id);
@@ -261,11 +250,13 @@ fn socialize_bad_debt(env: &Env, account_id: u64, gate: BadDebtGate) {
         &account.borrow_positions,
     );
 
-    assert_with_error!(
-        env,
-        gate.admits(&totals),
-        CollateralError::CannotCleanBadDebt
-    );
+    let admits = match gate {
+        BadDebtGate::DustCapped => {
+            is_socializable_bad_debt(totals.total_debt, totals.total_collateral)
+        }
+        BadDebtGate::InsolventOnly => totals.total_debt > totals.total_collateral,
+    };
+    assert_with_error!(env, admits, CollateralError::CannotCleanBadDebt);
 
     bad_debt::execute_bad_debt_cleanup(env, &mut cache, account_id, &account, &totals);
 }
@@ -279,5 +270,5 @@ pub(crate) fn clean_bad_debt_standalone(env: &Env, account_id: u64) {
 /// without the dust-threshold cap — and reverts while a flash loan is in progress.
 pub(crate) fn process_force_socialize_bad_debt(env: &Env, account_id: u64) {
     validation::require_not_flash_loaning(env);
-    socialize_bad_debt(env, account_id, BadDebtGate::Insolvent);
+    socialize_bad_debt(env, account_id, BadDebtGate::InsolventOnly);
 }

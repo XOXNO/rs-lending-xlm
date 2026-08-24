@@ -511,7 +511,7 @@ impl ControllerInterface for Controller {
 
     /// Returns the address of the deployed liquidity pool contract.
     fn get_pool_address(env: Env) -> Address {
-        views::get_pool_address(&env)
+        storage::get_pool(&env)
     }
 
     /// Returns the current supply and borrow indexes (RAY) for `hub_asset`.
@@ -558,7 +558,7 @@ impl ControllerInterface for Controller {
 
     /// Returns whether `pool` is approved as a Blend migration source.
     fn is_blend_pool_approved(env: Env, pool: Address) -> bool {
-        config::registry::is_blend_pool_approved(&env, pool)
+        storage::is_blend_pool_approved(&env, &pool)
     }
 }
 
@@ -788,6 +788,13 @@ impl ControllerAdmin for Controller {
     #[only_owner]
     fn upgrade_position_nft(env: Env, new_wasm_hash: BytesN<32>) {
         renew_then!(env, markets::upgrade_position_nft(&env, new_wasm_hash))
+    }
+
+    /// Upgrades the swap-aggregator router's Wasm. Owner-only (governance), via
+    /// `AdminOperation::UpgradeSwapAggregator` at the Sensitive tier (B-2).
+    #[only_owner]
+    fn upgrade_swap_aggregator(env: Env, new_wasm_hash: BytesN<32>) {
+        renew_then!(env, markets::upgrade_swap_aggregator(&env, new_wasm_hash))
     }
 
     /// Force-socializes `account_id`'s debt into the supply index when the

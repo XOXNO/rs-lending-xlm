@@ -2,13 +2,14 @@ use common::errors::{CollateralError, GenericError, OracleError};
 use common::math::fp::Wad;
 use common::types::{AccountPosition, AssetConfig, HubAssetKey};
 use common::validation::{expect_invariant, require_positive_amount};
-use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, Vec};
+use soroban_sdk::{assert_with_error, panic_with_error, token, Address, Env, Vec};
 
 use crate::constants::THRESHOLD_UPDATE_MIN_HF_RAW;
 use crate::context::Cache;
 use crate::external::pool::{
     pool_claim_revenue_call, pool_recapitalize_call, pool_update_indexes_call,
 };
+use crate::payments::balance_delta_since;
 use crate::risk::validation;
 use crate::{account, events, payments, risk, storage};
 
@@ -21,9 +22,7 @@ pub(crate) fn update_indexes(env: &Env, caller: Address, assets: Vec<HubAssetKey
 
     let mut cache = Cache::new(env);
     let pool_addr = cache.cached_pool_address();
-    for hub_asset in assets {
-        pool_update_indexes_call(env, &pool_addr, &hub_asset);
-    }
+    pool_update_indexes_call(env, &pool_addr, &assets);
 }
 
 /// Claims accrued protocol revenue from the pool for each asset in `assets`
@@ -36,7 +35,7 @@ pub(crate) fn claim_revenue(env: &Env, caller: Address, assets: Vec<HubAssetKey>
     let mut results = Vec::new(env);
     let mut cache = Cache::new(env);
     for hub_asset in assets {
-        let amount = claim_revenue_for_asset_with_cache(env, &hub_asset, &mut cache);
+        let amount = claim_revenue_for_asset(env, &hub_asset, &mut cache);
         results.push_back(amount);
     }
     results
@@ -85,11 +84,18 @@ pub(crate) fn update_account_threshold(
     caller.require_auth();
     validation::require_not_flash_loaning(env);
 
+    // The ABI carries a bool; everything below it carries the scope it selects.
+    let scope = if has_risks {
+        risk::RiskRefreshScope::FullTuple
+    } else {
+        risk::RiskRefreshScope::LtvOnly
+    };
+
     let mut cache = Cache::new(env);
 
     for account_id in account_ids {
         cache.reset_spoke_context();
-        sync_account_thresholds(env, account_id, has_risks, &mut cache);
+        sync_account_thresholds(env, account_id, scope, &mut cache);
     }
 }
 
@@ -97,39 +103,47 @@ pub(crate) fn update_account_threshold(
 /// claimed amount is positive, transfers it from the controller to the
 /// configured accumulator address. Returns the claimed amount. Panics if no
 /// accumulator has been configured.
-fn claim_revenue_for_asset_with_cache(
-    env: &Env,
-    hub_asset: &HubAssetKey,
-    cache: &mut Cache,
-) -> i128 {
+fn claim_revenue_for_asset(env: &Env, hub_asset: &HubAssetKey, cache: &mut Cache) -> i128 {
     let accumulator = storage::try_get_accumulator(env)
         .unwrap_or_else(|| panic_with_error!(env, OracleError::NoAccumulator));
 
     let pool_addr = cache.cached_pool_address();
 
-    let result = pool_claim_revenue_call(env, &pool_addr, hub_asset);
-    let amount = result.actual_amount;
+    // Forward the measured balance delta, not the pool's reported figure, so an
+    // inexact-delivery token sends exactly what arrived (F-8, INV-ACCT-03).
+    let controller = env.current_contract_address();
+    let asset = &hub_asset.asset;
+    let before = token::Client::new(env, asset).balance(&controller);
 
-    if amount > 0 {
-        common::token::sac_transfer(
+    let _ = pool_claim_revenue_call(env, &pool_addr, hub_asset);
+
+    let received = balance_delta_since(env, asset, &controller, before);
+
+    if received > 0 {
+        payments::transfer_amount_measured(
             env,
-            &hub_asset.asset,
-            &env.current_contract_address(),
+            asset,
+            &controller,
             &accumulator,
-            amount,
+            received,
+            GenericError::AmountMustBePositive,
         );
     }
 
-    amount
+    received
 }
 
-/// Recomputes each of `account_id`'s supply positions' risk parameters
-/// against current spoke asset config, refreshing loan-to-value always and
-/// liquidation-threshold parameters only when `has_risks` is true. Skips
-/// accounts with no stored metadata or no supply positions. When `has_risks`
-/// is true, panics if the account's health factor falls below the minimum
-/// threshold-update level after the changes are applied.
-fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &mut Cache) {
+/// Recomputes each of `account_id`'s supply positions' risk parameters against
+/// the current spoke asset config, to the depth `scope` selects. Skips accounts
+/// with no stored metadata or no supply positions. Under `FullTuple`, loads the
+/// debt side too and panics if the account's health factor falls below the
+/// minimum threshold-update level after the changes are applied.
+fn sync_account_thresholds(
+    env: &Env,
+    account_id: u64,
+    scope: risk::RiskRefreshScope,
+    cache: &mut Cache,
+) {
     let Some(meta) = storage::try_get_account_meta(env, account_id) else {
         return;
     };
@@ -146,7 +160,8 @@ fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &
         return;
     };
 
-    let borrow_positions = if has_risks {
+    let full_tuple = scope == risk::RiskRefreshScope::FullTuple;
+    let borrow_positions = if full_tuple {
         storage::get_debt_positions(env, account_id)
     } else {
         soroban_sdk::Map::new(env)
@@ -156,11 +171,6 @@ fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &
 
     let mut account = storage::account_from_parts(owner, meta, supply_positions, borrow_positions);
     let assets = account.supply_positions.keys();
-    let scope = if has_risks {
-        risk::RiskRefreshScope::FullTuple
-    } else {
-        risk::RiskRefreshScope::LtvOnly
-    };
 
     let mut any_changed = false;
     for hub_asset in assets.iter() {
@@ -202,7 +212,7 @@ fn sync_account_thresholds(env: &Env, account_id: u64, has_risks: bool, cache: &
         storage::set_supply_positions(env, account_id, &account.supply_positions);
     }
 
-    if has_risks {
+    if full_tuple {
         let hf = risk::calculate_account_risk_totals(
             env,
             cache,

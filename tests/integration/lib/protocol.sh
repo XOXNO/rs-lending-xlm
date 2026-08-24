@@ -497,6 +497,12 @@ create_market() {
         --input "$(spoke_args "$hub_id" "$sac" "$PRIMARY_SPOKE_ID" true true "$ltv" "$thr" "$bonus")" >/dev/null || return 1
     market_wait_listed "$hub_id" "$sac" \
         || die "confirm_market_$name" "market $name primary spoke listing not active after create -> oracle -> activate (read replica lag exhausted)"
+    # Registry of every market this run listed, consumed by flow_teardown to
+    # sweep and zero-check the whole world. Idempotent across resumes.
+    case " ${MARKETS:-} " in
+        *" ${hub_id}:${sac} "*) ;;
+        *) save_state MARKETS "${MARKETS:+$MARKETS }${hub_id}:${sac}" ;;
+    esac
     save_state "$done_var" 1
 }
 

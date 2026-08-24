@@ -1,6 +1,6 @@
 use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume};
-use soroban_sdk::{Address, Env};
+use soroban_sdk::{vec, Address, Env};
 
 use common::constants::{
     MAX_BORROW_INDEX_RAY, MAX_SUPPLY_INDEX_RAY, RAY, RAY_DECIMALS, SUPPLY_INDEX_FLOOR_RAW,
@@ -116,7 +116,7 @@ fn accrue_is_noop_when_no_time_elapsed(
     );
 
     let pre = read_state(&e, &asset);
-    crate::ops::market::accrue(&e, hub(asset.clone()));
+    crate::ops::market::accrue(&e, vec![&e, hub(asset.clone())]);
     let post = read_state(&e, &asset);
 
     cvlr_assert!(post.supplied == pre.supplied && post.borrowed == pre.borrowed);

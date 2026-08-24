@@ -9,11 +9,6 @@ use common::constants::{DEFAULT_MIN_BORROW_COLLATERAL_USD_WAD, POSITION_LIMIT_MA
 use stellar_access::*;
 use stellar_contract_utils::*;
 
-/// Returns the current owner, panicking if ownership has not been set.
-fn owner_or_panic(env: &Env) -> Address {
-    ownable::get_owner(env).unwrap_or_else(|| panic_with_error!(env, GenericError::OwnerNotSet))
-}
-
 /// Initializes the controller: sets `admin` as owner, sets position limits
 /// to their maximum and minimum borrow collateral to its default value, and
 /// records the initial app version. Leaves the contract paused.
@@ -38,22 +33,19 @@ pub(crate) fn init(env: &Env, admin: &Address) {
     pausable::pause(env);
 }
 
-/// Renews the controller's storage TTL, pauses the contract if it is not
-/// already paused, and replaces its Wasm bytecode with `new_wasm_hash`.
+/// Pauses the contract if it is not already paused, then replaces its Wasm
+/// bytecode with `new_wasm_hash`.
 pub(crate) fn upgrade(env: &Env, new_wasm_hash: &BytesN<32>) {
-    storage::renew_controller_instance(env);
-
     if !pausable::paused(env) {
         pausable::pause(env);
     }
-    upgradeable::upgrade(env, new_wasm_hash);
+    env.deployer()
+        .update_current_contract_wasm(new_wasm_hash.clone());
 }
 
-/// Renews the controller's storage TTL and records `new_version` as the app
-/// version. Panics unless `new_version` is strictly greater than the current
-/// version.
+/// Records `new_version` as the app version. Panics unless it is strictly
+/// greater than the current version.
 pub(crate) fn migrate(env: &Env, new_version: u32) {
-    storage::renew_controller_instance(env);
     let current_version: u32 = env
         .storage()
         .instance()
@@ -78,28 +70,24 @@ pub(crate) fn get_app_version(env: &Env) -> u32 {
         .unwrap_or(INITIAL_APP_VERSION)
 }
 
-/// Renews the controller's storage TTL and pauses the contract. Panics if
-/// the contract is already paused.
+/// Pauses the contract. Panics if the contract is already paused.
 pub(crate) fn pause(env: &Env) {
-    storage::renew_controller_instance(env);
-    stellar_contract_utils::pausable::pause(env);
+    pausable::pause(env);
 }
 
-/// Renews the controller's storage TTL and unpauses the contract. Panics if
-/// the contract is not currently paused.
+/// Unpauses the contract. Panics if the contract is not currently paused.
 pub(crate) fn unpause(env: &Env) {
-    storage::renew_controller_instance(env);
-    stellar_contract_utils::pausable::unpause(env);
+    pausable::unpause(env);
 }
 
-/// Renews the controller's storage TTL and starts a two-step ownership
-/// transfer to `new_owner`, acceptable until ledger `live_until_ledger`.
+/// Starts a two-step ownership transfer to `new_owner`, acceptable until
+/// ledger `live_until_ledger`.
 pub(crate) fn transfer_ownership(env: &Env, new_owner: &Address, live_until_ledger: u32) {
-    storage::renew_controller_instance(env);
     // #[only_owner] already authenticated; low-level role_transfer does not re-auth.
-    let current_owner = owner_or_panic(env);
+    let current_owner = ownable::get_owner(env)
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::OwnerNotSet));
 
-    stellar_access::role_transfer::transfer_role(
+    role_transfer::transfer_role(
         env,
         new_owner,
         &ownable::OwnableStorageKey::PendingOwner,

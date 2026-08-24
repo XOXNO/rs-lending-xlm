@@ -1,7 +1,7 @@
 use soroban_sdk::vec;
 use test_harness::{
-    assert_contract_error, errors, eth_preset, hub_asset, usdc_preset, usdt_stable_preset,
-    wbtc_preset, HubAssetKey, LendingTest, PositionType, ALICE, BOB, STABLECOIN_SPOKE,
+    assert_contract_error, errors, hub_asset, map_try_ok_value, usdc_preset, HubAssetKey,
+    LendingTest, PositionType, ALICE, BOB,
 };
 #[test]
 fn test_supply_single_asset() {
@@ -51,10 +51,7 @@ fn test_supply_to_existing_account() {
 }
 #[test]
 fn test_supply_multiple_assets_bulk() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply_bulk(ALICE, &[("USDC", 10_000.0), ("ETH", 1.0)]);
 
@@ -107,13 +104,7 @@ fn test_supply_creates_account_on_first_call() {
 }
 #[test]
 fn test_supply_with_spoke_category() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(usdt_stable_preset())
-        .with_spoke(2, STABLECOIN_SPOKE)
-        .with_spoke_asset(2, "USDC", true, true)
-        .with_spoke_asset(2, "USDT", true, true)
-        .build();
+    let mut t = LendingTest::new().stablecoin_spoke_two_asset().build();
 
     t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 10_000.0);
@@ -143,10 +134,7 @@ fn test_supply_rejects_empty_asset_vector() {
 
     let caller = t.get_or_create_user(ALICE);
     let assets: soroban_sdk::Vec<(HubAssetKey, i128)> = vec![&t.env];
-    let result = match t.ctrl_client().try_supply(&caller, &0u64, &1u32, &assets) {
-        Ok(res) => res,
-        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
-    };
+    let result = map_try_ok_value(t.ctrl_client().try_supply(&caller, &0u64, &1u32, &assets));
 
     assert_contract_error(result, errors::INVALID_PAYMENTS);
 }
@@ -158,10 +146,7 @@ fn test_supply_rejects_negative_raw_amount() {
     let caller = t.get_or_create_user(ALICE);
     let usdc = t.resolve_asset("USDC");
     let assets = vec![&t.env, (hub_asset(usdc), -1i128)];
-    let result = match t.ctrl_client().try_supply(&caller, &0u64, &1u32, &assets) {
-        Ok(res) => res,
-        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
-    };
+    let result = map_try_ok_value(t.ctrl_client().try_supply(&caller, &0u64, &1u32, &assets));
 
     assert_contract_error(result, errors::AMOUNT_MUST_BE_POSITIVE);
 }
@@ -177,10 +162,7 @@ fn test_supply_duplicate_raw_amount_overflow_reverts() {
         (hub_asset(usdc.clone()), i128::MAX),
         (hub_asset(usdc), 1i128),
     ];
-    let result = match t.ctrl_client().try_supply(&caller, &0u64, &1u32, &assets) {
-        Ok(res) => res,
-        Err(e) => Err(e.expect("expected contract error, got InvokeError")),
-    };
+    let result = map_try_ok_value(t.ctrl_client().try_supply(&caller, &0u64, &1u32, &assets));
 
     assert_contract_error(result, errors::GenericError::MathOverflow as u32);
 }
@@ -218,9 +200,7 @@ fn test_supply_rejects_when_paused() {
 #[test]
 fn test_supply_position_limit_exceeded() {
     let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_market(wbtc_preset())
+        .three_asset_usdc_eth_wbtc()
         .with_position_limits(2, 2)
         .build();
 
@@ -281,11 +261,7 @@ fn test_third_party_supply_to_existing_account_succeeds() {
 
 #[test]
 fn test_third_party_supply_cannot_force_low_threshold_update() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_dust_disabled_all_markets()
-        .build();
+    let mut t = LendingTest::new().standard_two_asset_dust_disabled();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.0);
@@ -313,8 +289,7 @@ fn test_third_party_supply_cannot_force_low_threshold_update() {
 #[test]
 fn test_bulk_supply_duplicate_asset_counts_once() {
     let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
+        .standard_two_asset()
         .with_position_limits(1, 2)
         .build();
 
@@ -368,10 +343,7 @@ fn poc_single_actor_spams_unbounded_dust_accounts() {
 
 #[test]
 fn regression_non_owner_cannot_open_new_supply_slot_on_victim() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .build();
+    let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 1_000.0);
     let alice_id = t.resolve_account_id(ALICE);

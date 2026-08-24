@@ -144,8 +144,14 @@ pub(crate) fn pool_flash_loan_call(
     flash_loan_summary(env, &hub_asset.asset, initiator, receiver, amount, data)
 }
 
-pub(crate) fn pool_update_indexes_call(env: &Env, _pool_addr: &Address, hub_asset: &HubAssetKey) {
-    update_indexes_summary(env, &hub_asset.asset)
+pub(crate) fn pool_update_indexes_call(
+    env: &Env,
+    _pool_addr: &Address,
+    hub_assets: &Vec<HubAssetKey>,
+) {
+    for hub_asset in hub_assets.iter() {
+        update_indexes_summary(env, &hub_asset.asset);
+    }
 }
 
 pub(crate) fn pool_claim_revenue_call(

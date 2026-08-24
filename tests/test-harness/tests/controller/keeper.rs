@@ -1,11 +1,9 @@
+use crate::shared::{as_vec, count_topic, data_for_topic};
 use controller::types::ControllerKey;
-use soroban_sdk::{
-    testutils::{ContractEvents, Events},
-    xdr::{ContractEventBody, ScVal},
-};
+use soroban_sdk::{testutils::Events, xdr::ScVal};
 use test_harness::{
-    assert_contract_error, days, errors, eth_preset, hub_asset, usd_cents, usdc_preset,
-    HubAssetKey, LendingTest, ALICE, BOB, STABLECOIN_SPOKE,
+    assert_contract_error, days, errors, hub_asset, usd_cents, usdc_preset, HubAssetKey,
+    LendingTest, ALICE, BOB, STABLECOIN_SPOKE,
 };
 
 fn supply_threshold_bps(t: &LendingTest, account_id: u64, asset_name: &str) -> u32 {
@@ -58,47 +56,6 @@ fn supply_risk_fields(t: &LendingTest, account_id: u64, asset_name: &str) -> (u3
     })
 }
 
-fn count_topic(events: &ContractEvents, first: &str, second: &str) -> usize {
-    events
-        .events()
-        .iter()
-        .filter(|event| {
-            let ContractEventBody::V0(body) = &event.body;
-            match (body.topics.first(), body.topics.get(1)) {
-                (Some(ScVal::Symbol(a)), Some(ScVal::Symbol(b))) => {
-                    a.0.to_string() == first && b.0.to_string() == second
-                }
-                _ => false,
-            }
-        })
-        .count()
-}
-
-fn data_for_topic(events: &ContractEvents, first: &str, second: &str) -> std::vec::Vec<ScVal> {
-    events
-        .events()
-        .iter()
-        .filter_map(|event| {
-            let ContractEventBody::V0(body) = &event.body;
-            match (body.topics.first(), body.topics.get(1)) {
-                (Some(ScVal::Symbol(a)), Some(ScVal::Symbol(b)))
-                    if a.0.to_string() == first && b.0.to_string() == second =>
-                {
-                    Some(body.data.clone())
-                }
-                _ => None,
-            }
-        })
-        .collect()
-}
-
-fn as_vec(v: &ScVal) -> &soroban_sdk::xdr::VecM<ScVal> {
-    match v {
-        ScVal::Vec(Some(entries)) => &entries.0,
-        other => panic!("expected ScVal::Vec, got {:?}", other),
-    }
-}
-
 #[test]
 fn test_supply_roundtrip_preserves_risk_fields() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
@@ -123,11 +80,7 @@ fn test_supply_roundtrip_preserves_risk_fields() {
 }
 #[test]
 fn test_update_indexes_refreshes_rates() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_dust_disabled_all_markets()
-        .build();
+    let mut t = LendingTest::new().standard_two_asset_dust_disabled();
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 10.0);
@@ -146,11 +99,7 @@ fn test_update_indexes_refreshes_rates() {
 }
 #[test]
 fn test_clean_bad_debt_removes_positions() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_dust_disabled_all_markets()
-        .build();
+    let mut t = LendingTest::new().standard_two_asset_dust_disabled();
 
     t.supply(ALICE, "USDC", 10.0);
     t.borrow(ALICE, "ETH", 0.003);
@@ -165,11 +114,7 @@ fn test_clean_bad_debt_removes_positions() {
 }
 #[test]
 fn test_clean_bad_debt_rejects_healthy() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_dust_disabled_all_markets()
-        .build();
+    let mut t = LendingTest::new().standard_two_asset_dust_disabled();
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 1.0);
@@ -181,11 +126,7 @@ fn test_clean_bad_debt_rejects_healthy() {
 }
 #[test]
 fn test_clean_bad_debt_rejects_above_threshold() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_dust_disabled_all_markets()
-        .build();
+    let mut t = LendingTest::new().standard_two_asset_dust_disabled();
 
     t.supply(ALICE, "USDC", 1000.0);
     t.borrow(ALICE, "ETH", 0.3);
@@ -201,11 +142,7 @@ fn test_clean_bad_debt_rejects_above_threshold() {
 
 #[test]
 fn test_bad_debt_gap_band_resolved_by_liquidation() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_dust_disabled_all_markets()
-        .build();
+    let mut t = LendingTest::new().standard_two_asset_dust_disabled();
 
     t.supply(ALICE, "USDC", 1000.0);
     t.borrow(ALICE, "ETH", 0.3);
@@ -230,11 +167,7 @@ fn test_bad_debt_gap_band_resolved_by_liquidation() {
 fn test_clean_bad_debt_rejected_under_oracle_deviation() {
     use test_harness::TIGHT_TOLERANCE;
 
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_dust_disabled_all_markets()
-        .build();
+    let mut t = LendingTest::new().standard_two_asset_dust_disabled();
 
     t.enable_dual_source_oracle("USDC");
 
@@ -253,11 +186,7 @@ fn test_clean_bad_debt_rejected_under_oracle_deviation() {
 }
 #[test]
 fn test_update_account_threshold_safe() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_dust_disabled_all_markets()
-        .build();
+    let mut t = LendingTest::new().standard_two_asset_dust_disabled();
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 1.0);
@@ -300,11 +229,7 @@ fn test_update_account_threshold_safe() {
 }
 #[test]
 fn test_update_account_threshold_risky() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_dust_disabled_all_markets()
-        .build();
+    let mut t = LendingTest::new().standard_two_asset_dust_disabled();
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 1.0);
@@ -327,11 +252,7 @@ fn test_update_account_threshold_risky() {
 
 #[test]
 fn test_update_account_threshold_rejects_low_hf() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_dust_disabled_all_markets()
-        .build();
+    let mut t = LendingTest::new().standard_two_asset_dust_disabled();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.0);
@@ -346,11 +267,7 @@ fn test_update_account_threshold_rejects_low_hf() {
 
 #[test]
 fn test_update_account_threshold_propagates_adverse_tuple_to_healthy_account() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_dust_disabled_all_markets()
-        .build();
+    let mut t = LendingTest::new().standard_two_asset_dust_disabled();
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 1.0);
@@ -383,11 +300,7 @@ fn test_update_account_threshold_propagates_adverse_tuple_to_healthy_account() {
 
 #[test]
 fn regression_third_party_keeper_cannot_force_adverse_tuple_below_min_hf() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_dust_disabled_all_markets()
-        .build();
+    let mut t = LendingTest::new().standard_two_asset_dust_disabled();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.0);
@@ -452,11 +365,7 @@ fn test_update_account_threshold_deprecated_spoke_retains_spoke_params() {
 
 #[test]
 fn test_update_account_threshold_syncs_all_supply_assets() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_dust_disabled_all_markets()
-        .build();
+    let mut t = LendingTest::new().standard_two_asset_dust_disabled();
 
     t.supply(ALICE, "USDC", 50_000.0);
     t.supply(ALICE, "ETH", 10.0);
@@ -538,11 +447,7 @@ fn test_update_account_threshold_mixed_spokes_batch() {
 
 #[test]
 fn test_update_account_threshold_rejects_bonus_raise_below_min_hf() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_dust_disabled_all_markets()
-        .build();
+    let mut t = LendingTest::new().standard_two_asset_dust_disabled();
 
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.0);
@@ -564,11 +469,7 @@ fn test_update_account_threshold_rejects_bonus_raise_below_min_hf() {
 
 #[test]
 fn test_update_account_threshold_skips_param_upd_when_stamps_unchanged() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_dust_disabled_all_markets()
-        .build();
+    let mut t = LendingTest::new().standard_two_asset_dust_disabled();
 
     t.supply(ALICE, "USDC", 100_000.0);
     t.borrow(ALICE, "ETH", 1.0);
@@ -592,11 +493,7 @@ fn test_update_account_threshold_skips_param_upd_when_stamps_unchanged() {
 
 #[test]
 fn test_update_account_threshold_emits_param_upd_only_for_changed_assets() {
-    let mut t = LendingTest::new()
-        .with_market(usdc_preset())
-        .with_market(eth_preset())
-        .with_dust_disabled_all_markets()
-        .build();
+    let mut t = LendingTest::new().standard_two_asset_dust_disabled();
 
     t.supply(ALICE, "USDC", 50_000.0);
     t.supply(ALICE, "ETH", 10.0);

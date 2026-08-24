@@ -12,7 +12,7 @@ use common::types::{
 use soroban_sdk::{panic_with_error, Env};
 
 use crate::observation::OracleObservation;
-use crate::providers::{aquarius, redstone, reflector, xoxno};
+use crate::providers::{aquarius, multi_feed, reflector};
 use crate::registry;
 use crate::session::Session;
 use crate::tolerance::{midpoint_price_or_zero, within_tolerance_band};
@@ -445,13 +445,13 @@ fn blend(env: &Env, oracle: &AssetOracle, legs: Legs) -> Outcome {
     }
 }
 
-/// Certora harness entry point: blends an empty leg set for `oracle`, exercising
-/// the same path as an oracle whose sources produced no readings.
 // Gated to exactly the configurations where its only caller exists: the
 // spec module compiles `oracle_rules` only when the build is unfocused or
 // targets that rule set, so under any other focused build these have no
 // caller. Matching the caller's cfg is what keeps that from warning --
 // `#[allow(dead_code)]` would hide it instead of describing it.
+/// Certora harness entry point: blends an empty leg set for `oracle`, exercising
+/// the same path as an oracle whose sources produced no readings.
 #[cfg(all(
     feature = "certora",
     any(not(feature = "certora-focused"), feature = "certora-oracle-rules")
@@ -463,11 +463,6 @@ pub(crate) fn blend_empty(env: &Env, oracle: &AssetOracle) -> Outcome {
 /// Certora harness entry point: blends a single partial reading into a leg slot
 /// for `oracle`, exercising the same path as a two-source oracle where only one
 /// leg produced a reading.
-// Gated to exactly the configurations where its only caller exists: the
-// spec module compiles `oracle_rules` only when the build is unfocused or
-// targets that rule set, so under any other focused build these have no
-// caller. Matching the caller's cfg is what keeps that from warning --
-// `#[allow(dead_code)]` would hide it instead of describing it.
 #[cfg(all(
     feature = "certora",
     any(not(feature = "certora-focused"), feature = "certora-oracle-rules")
@@ -604,9 +599,11 @@ fn evaluate_source(
     match source {
         PriceSource::Feed(feed) => Ok(read_feed(session, feed)),
         PriceSource::Scaled(scaled) => read_scaled(session, scaled, depth),
-        PriceSource::AquariusLp(lp) => aquarius::read(session, key, lp, asset_decimals, depth),
+        PriceSource::AquariusLp(lp) => {
+            aquarius::read(session, key, lp, asset_decimals, depth, false)
+        }
         PriceSource::AquariusStableLp(lp) => {
-            aquarius::read_stable(session, key, lp, asset_decimals, depth)
+            aquarius::read(session, key, lp, asset_decimals, depth, true)
         }
     }
 }
@@ -617,8 +614,8 @@ fn evaluate_source(
 fn read_feed(session: &mut Session, feed: &FeedSource) -> Option<(OracleObservation, bool)> {
     let observation = match &feed.provider {
         ProviderRef::Reflector(r) => reflector::read_reflector_source(session, r, feed.decimals),
-        ProviderRef::RedStone(r) => redstone::read(session, r, feed.decimals),
-        ProviderRef::Xoxno(x) => xoxno::read(session, x, feed.decimals),
+        ProviderRef::RedStone(r) => multi_feed::read_multi_feed_source(session, r, feed.decimals),
+        ProviderRef::Xoxno(x) => multi_feed::read_multi_feed_source(session, x, feed.decimals),
     }?;
 
     let stale = is_stale(

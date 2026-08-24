@@ -7,8 +7,10 @@ use soroban_sdk::{assert_with_error, panic_with_error, vec, Address, Env};
 
 use crate::context::Cache;
 use crate::events::PositionAction;
+use crate::payments::transfer_amount_measured;
 use crate::positions::require_can_supply;
 use crate::positions::supply;
+use crate::risk::validation::require_authorized_caller;
 use crate::strategies::{
     borrow_into_controller, prefetch_strategy_prices, strategy_finalize, swap_tokens,
     swap_tokens_or_passthrough,
@@ -34,7 +36,7 @@ pub(crate) struct MultiplyParams<'a> {
 /// into the deposit before the standard solvency finalize, and returns the
 /// account id.
 pub(crate) fn process_multiply(env: &Env, caller: &Address, params: MultiplyParams<'_>) -> u64 {
-    crate::strategies::require_strategy_caller(env, caller);
+    require_authorized_caller(env, caller);
 
     let MultiplyParams {
         account_id,
@@ -194,7 +196,7 @@ fn collect_initial_multiply_payment(
 
     require_positive_amount(env, *payment_amount);
 
-    let received = common::token::transfer_amount_measured(
+    let received = transfer_amount_measured(
         env,
         &payment.asset,
         caller,

@@ -52,6 +52,7 @@ mod test_support;
 pub mod spec;
 
 use common::rates::simulate_update_indexes;
+use common::ttl::renew_instance;
 use common::types::{
     HubAssetKey, InterestRateModel, MarketIndexRaw, MarketParamsRaw, PoolAction,
     PoolAmountMutation, PoolBorrowEntry, PoolNetSettleEntry, PoolNetSettleResult,
@@ -114,8 +115,8 @@ impl LiquidityPoolInterface for LiquidityPool {
     /// first. Restricted to the owner.
     #[only_owner]
     fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
-        storage::renew_instance(&env);
-        stellar_contract_utils::upgradeable::upgrade(&env, &new_wasm_hash);
+        renew_instance(&env);
+        env.deployer().update_current_contract_wasm(new_wasm_hash);
     }
 
     /// Batch-supplies assets into one or more markets: accrues interest,
@@ -173,12 +174,12 @@ impl LiquidityPoolInterface for LiquidityPool {
         })
     }
 
-    /// Accrues interest for a single market through the current ledger
-    /// time. No-op write when no time has elapsed, but still emits a market
-    /// state event. Restricted to the owner.
+    /// Accrues interest for each market in `hub_assets` through the current
+    /// ledger time. No-op write for a market with no elapsed time, but still
+    /// emits its market state event. Restricted to the owner.
     #[only_owner]
-    fn update_indexes(env: Env, hub_asset: HubAssetKey) {
-        ops::market::accrue(&env, hub_asset);
+    fn update_indexes(env: Env, hub_assets: Vec<HubAssetKey>) {
+        ops::market::accrue(&env, hub_assets);
     }
 
     /// Injects cash to cover a market's backing shortfall and refunds any
@@ -235,7 +236,7 @@ impl LiquidityPoolInterface for LiquidityPool {
     /// Restricted to the owner.
     #[only_owner]
     fn seize_positions(env: Env, entries: Vec<PoolSeizeEntry>) {
-        ops::run_batch_without_result(&env, entries, ops::seize::apply);
+        ops::run_batch(&env, entries, |e, entry| ((), ops::seize::apply(e, entry)));
     }
 
     /// Nets a user's supply against their debt on the same market with no
@@ -245,7 +246,7 @@ impl LiquidityPoolInterface for LiquidityPool {
     /// the owner.
     #[only_owner]
     fn net_settle(env: Env, entry: PoolNetSettleEntry) -> PoolNetSettleResult {
-        storage::renew_instance(&env);
+        renew_instance(&env);
         let (result, snapshot) = ops::net_settle::apply(&env, &entry);
         events::emit_market_state(&env, snapshot);
         result
