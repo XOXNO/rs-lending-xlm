@@ -264,6 +264,54 @@ flow_admin_upgrade() {
         inv unpause_after_upgrade "$ADMIN" "$CONTROLLER" -- unpause >/dev/null
     fi
 
+    # Satellite upgrades, same-hash like the pool/controller legs above: the
+    # position NFT is controller-owned from deploy, so this proves the
+    # owner-gated controller entrypoint plus the NFT's controller-only upgrade
+    # auth without changing behavior. Token ids are account ids, so the owner
+    # read-back doubles as the post-upgrade liveness check.
+    inv nft_upgrade_via_controller "$ADMIN" "$CONTROLLER" -- upgrade_position_nft \
+        --new_wasm_hash "$NFT_HASH" >/dev/null
+    assert_view_eq_at "$POSITION_NFT" nft_owner_after_upgrade "$ADMIN_ADDR" \
+        owner_of --token_id "${ADMIN_ACCT:-1}"
+
+    # Permissionless TTL renew on a live token, then the designed failure on a
+    # token that was never minted.
+    inv nft_renew "$ALICE" "$POSITION_NFT" -- renew --token_id "${ADMIN_ACCT:-1}" >/dev/null
+    xfail nft_renew_missing 'Error\(Contract' "$ALICE" "$POSITION_NFT" -- renew --token_id 4000000000
+
+    # upgrade_swap_aggregator requires the controller to OWN the router, and
+    # the shared testnet aggregator is not ours. Deploy a throwaway router with
+    # the controller as owner, point the controller at it, upgrade, then
+    # restore the shared router so any later swap keeps working on resume.
+    local sa_hash sa_out="$LOG_DIR/upload_swap_agg.out" sa_err="$LOG_DIR/upload_swap_agg.err"
+    run_deploy "$sa_out" "$sa_err" -- stellar contract upload \
+        --wasm "$WASM_DIR/swap_aggregator.wasm" --source "$ADMIN" "${NET_ARGS[@]}"
+    sa_hash=$(sanitize_output "$sa_out")
+    if is_wasm_hash "$sa_hash"; then
+        record upload_swap_agg_wasm ok upload "$(extract_signing_hash "$sa_err")" "" "" "" "" "$sa_hash"
+        local ctrl_router cr_out="$LOG_DIR/deploy_ctrl_router.out" cr_err="$LOG_DIR/deploy_ctrl_router.err"
+        run_deploy "$cr_out" "$cr_err" -- stellar contract deploy \
+            --wasm "$WASM_DIR/swap_aggregator.wasm" --source "$ADMIN" "${NET_ARGS[@]}" \
+            -- --admin "$CONTROLLER"
+        ctrl_router=$(sanitize_output "$cr_out")
+        if is_contract_id "$ctrl_router"; then
+            record deploy_ctrl_owned_router ok deploy "$(extract_signing_hash "$cr_err")" "" "" "" "" "$ctrl_router"
+            assert_view_eq_at "$ctrl_router" ctrl_router_owner "$CONTROLLER" get_owner
+            inv set_swap_agg_ctrl_owned "$ADMIN" "$CONTROLLER" -- set_swap_aggregator \
+                --addr "$ctrl_router" >/dev/null
+            inv swap_agg_upgrade_via_controller "$ADMIN" "$CONTROLLER" -- upgrade_swap_aggregator \
+                --new_wasm_hash "$sa_hash" >/dev/null
+            # The router must still answer owner reads on the new code.
+            assert_view_eq_at "$ctrl_router" ctrl_router_owner_post "$CONTROLLER" get_owner
+            inv set_swap_agg_restore "$ADMIN" "$CONTROLLER" -- set_swap_aggregator \
+                --addr "$AGGREGATOR" >/dev/null
+        else
+            _assert_fail deploy_ctrl_owned_router "controller-owned router deploy failed: $(tail_err_note "$cr_err")"
+        fi
+    else
+        _assert_fail upload_swap_agg_wasm "swap_aggregator wasm upload failed: $(tail_err_note "$sa_err")"
+    fi
+
     local ledger
     ledger=$(curl -s -m 30 -X POST "$RPC_URL" -H 'Content-Type: application/json' \
         -d '{"jsonrpc":"2.0","id":1,"method":"getLatestLedger"}' | jq -r '.result.sequence')
