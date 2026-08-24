@@ -22,7 +22,7 @@ phases_for() {
     case "$1" in
         agg)    echo "deploy lifecycle strategies admin governance teardown" ;;
         liq)    echo "deploy liquidation defindex teardown" ;;
-        stress) echo "deploy stress teardown" ;;
+        stress) echo "deploy stress oracle teardown" ;;
     esac
 }
 

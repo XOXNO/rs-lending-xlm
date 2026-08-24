@@ -7,7 +7,7 @@ source "$HERE/../env.sh"
 for f in core invoke assert wallet assets aggregator oracle protocol report; do
     source "$INTEG_DIR/lib/$f.sh"
 done
-for f in lifecycle strategies liquidation defindex admin governance stress swap_aggregator flash_position teardown; do
+for f in lifecycle strategies liquidation defindex admin governance stress swap_aggregator flash_position xoxno_oracle teardown; do
     source "$INTEG_DIR/flows/$f.sh"
 done
 
@@ -99,6 +99,10 @@ fi
 
 if want admin; then
     flow_admin_upgrade
+fi
+
+if want oracle; then
+    flow_xoxno_oracle
 fi
 
 # Last on purpose: zeroing the world ends the lane, so nothing that needs a

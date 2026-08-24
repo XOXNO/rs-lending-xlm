@@ -51,7 +51,7 @@ slowest lane instead of the sum. The split is along the **aggregator boundary**:
 |------|--------|----------------|
 | `agg` | lifecycle + strategies + admin + governance + teardown | live Reflector + XOXNO aggregator (serial *within* the lane) |
 | `liq` | liquidation + defindex + teardown | mock oracles, venue-free |
-| `stress` | stress + teardown | mock oracles, venue-free |
+| `stress` | stress + xoxno-oracle + teardown | mock oracles, venue-free |
 | `flash` | `scenarios/flash_position.sh` (full live `flash_position` matrix + malicious receiver) | live Reflector + one funding swap |
 | `blend` | `scenarios/blend.sh` (live `migrate_from_blend` vs Blend TestnetV2, XLM coll/supply/debt) | live Reflector + real Blend pool, aggregator-free |
 
@@ -163,6 +163,7 @@ from `stellar-access`.
 | `governance.sh` | governance timelock e2e on the governance-owned controller: `deploy_controller` ownership (+`#5 PoolAlreadyDeployed` redeploy), resolver views, propose→cancel (Waiting→Unset), propose→await→`execute` (open executor) lifecycle (Waiting→Ready→Unset), non-PROPOSER guard (`#2000 Unauthorized`), proposal validation (`#36 InvalidPositionLimits`, `#134 InvalidLiquidationCurve`), immediate role revocation refusing the owner's own role (`#44 NotAuthorized`), owner pause + timelocked unpause forwarding |
 | `stress.sh` | 20 mock markets; bulk-supply frontier, distinct-feed borrow frontier (single- then dual-source), withdraw probe, repay-1 liquidation seize frontier — all via fee-less simulation probes plus one on-chain proof tx per frontier |
 | `swap_aggregator.sh` | Swap-aggregator admin lifecycle |
+| `xoxno_oracle.sh` | live xoxno-oracle: deploy with run-wallet signers, full admin surface with read-backs (threshold/signers/staleness/skew/resolution/feed registry), threshold-gated median aggregation through real multi-signer submissions, every designed revert, Reflector-compat reads, same-hash upgrade with state preserved (runs in the `stress` lane) |
 | `teardown.sh` | zero-state teardown, last in every lane: repay every live account (mock-minted on shortfall), withdraw everything, drain the DeFindex strategy, claim all revenue, then prove NFT `total_supply == 0`, per-market borrowed/supplied/revenue all 0, pool + controller balances at dust — and record the per-market storage residue |
 
 ## Encoding gotchas

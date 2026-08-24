@@ -245,7 +245,7 @@ integration-wasm: deploy-artifacts
 	@for wasm in controller pool governance flash_loan_receiver defindex_strategy price_aggregator position_nft; do \
 		cp "$(DEPLOY_DIR)/$$wasm.wasm" "$(OPTIMIZED_DIR)/$$wasm.wasm"; \
 	done
-	@for pkg in mock_oracle mock_redstone swap_aggregator flash_position_receiver; do \
+	@for pkg in mock_oracle mock_redstone swap_aggregator flash_position_receiver xoxno_oracle; do \
 		echo "Optimizing $$pkg for integration..."; \
 		if command -v stellar &>/dev/null; then \
 			stellar contract optimize \
