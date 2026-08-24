@@ -50,8 +50,12 @@ flow_xoxno_oracle() {
     assert_view_eq_at "$XO" xo_stale_read 3600 max_stale_seconds
     inv xo_set_sub_age "$ADMIN" "$XO" -- set_max_submission_age_seconds --seconds 900 >/dev/null
     assert_view_eq_at "$XO" xo_sub_age_read 900 max_submission_age_seconds
-    inv xo_set_skew "$ADMIN" "$XO" -- set_max_relative_skew_seconds --seconds 60 >/dev/null
-    assert_view_eq_at "$XO" xo_skew_read 60 max_relative_skew_seconds
+    # Skew must sit strictly above MAX_FUTURE_SKEW_SECONDS (60) and at or
+    # below the submission age — both designed rejects covered here.
+    xfail xo_skew_too_low 'Error\(Contract, #18\)' "$ADMIN" "$XO" -- set_max_relative_skew_seconds --seconds 60
+    xfail xo_skew_over_age 'Error\(Contract, #18\)' "$ADMIN" "$XO" -- set_max_relative_skew_seconds --seconds 1000
+    inv xo_set_skew "$ADMIN" "$XO" -- set_max_relative_skew_seconds --seconds 120 >/dev/null
+    assert_view_eq_at "$XO" xo_skew_read 120 max_relative_skew_seconds
     inv xo_set_resolution "$ADMIN" "$XO" -- set_resolution --resolution 60 >/dev/null
     assert_view_eq_at "$XO" xo_resolution_reread 60 resolution
 

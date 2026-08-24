@@ -47,10 +47,21 @@ _td_ensure_funds() {
         return 0
     fi
     [ "$sac" = "$XLM_SAC" ] && return 0
+    local need=$((pay - bal + 1000))
+    local line
+    line=$(classic_line "$sac")
+    # ADMIN may itself be dry (receiver funding drains it in the flash lane):
+    # buy the asset with XLM through the aggregator before handing it on.
+    local admin_bal
+    admin_bal=$(balance "$sac" "$ADMIN_ADDR"); [[ "$admin_bal" =~ ^[0-9]+$ ]] || admin_bal=0
+    if ! _uint_ge "$admin_bal" "$need"; then
+        trustline "$ADMIN" "${line%%:*}" "${line##*:}"
+        swap_xlm_to "$ADMIN" "$ADMIN_ADDR" "$sac" "${TEARDOWN_SWAP_XLM:-20000000000}" \
+            "td_swap_${id}_${sac:0:6}" || true
+    fi
     if [ "$owner" != "$ADMIN_ADDR" ]; then
-        line=$(classic_line "$sac")
         trustline "$alias" "${line%%:*}" "${line##*:}"
-        sac_transfer "$ADMIN" "$sac" "$ADMIN_ADDR" "$owner" $((pay - bal + 1000)) \
+        sac_transfer "$ADMIN" "$sac" "$ADMIN_ADDR" "$owner" "$need" \
             "td_topup_${id}_${sac:0:6}"
     fi
 }
