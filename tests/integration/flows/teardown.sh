@@ -33,6 +33,28 @@ _td_mock_code_for() {
     return 1
 }
 
+# Makes sure `owner` can pay `pay` of `sac`: mock assets are minted by ADMIN,
+# real classic assets are topped up from ADMIN's balance (trustline first) —
+# borrowers whose proceeds went to a receiver or a swap never held the debt
+# asset, so the SAC would otherwise reject the repay's transfer.
+_td_ensure_funds() {
+    local id="$1" alias="$2" owner="$3" sac="$4" pay="$5"
+    local bal code line
+    bal=$(balance "$sac" "$owner"); [[ "$bal" =~ ^[0-9]+$ ]] || bal=0
+    _uint_ge "$bal" "$pay" && return 0
+    if code=$(_td_mock_code_for "$sac"); then
+        mint_to "$sac" "$code" "$owner" "$pay"
+        return 0
+    fi
+    [ "$sac" = "$XLM_SAC" ] && return 0
+    if [ "$owner" != "$ADMIN_ADDR" ]; then
+        line=$(classic_line "$sac")
+        trustline "$alias" "${line%%:*}" "${line##*:}"
+        sac_transfer "$ADMIN" "$sac" "$ADMIN_ADDR" "$owner" $((pay - bal + 1000)) \
+            "td_topup_${id}_${sac:0:6}"
+    fi
+}
+
 # Pass 1: repay every debt of `id`. Debts must clear before any withdrawals so
 # pool cash is whole and no lender's exit gets blocked by open utilization.
 _td_repay_account() {
@@ -60,9 +82,7 @@ _td_repay_account() {
         # Interest accrues between the read and the transaction; overpay is
         # capped at the live debt by the controller, so the buffer is free.
         pay=$((debt + debt / 50 + 100))
-        if code=$(_td_mock_code_for "$sac"); then
-            mint_to "$sac" "$code" "$owner" "$pay"
-        fi
+        _td_ensure_funds "$id" "$alias" "$owner" "$sac" "$pay"
         inv "td_repay_${id}_${sac:0:6}" "$alias" "$CONTROLLER" -- repay \
             --caller "$owner" --account_id "$id" \
             --payments "$(pay_vec "$hub" "$sac" "$pay")" >/dev/null
