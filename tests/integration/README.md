@@ -49,9 +49,9 @@ slowest lane instead of the sum. The split is along the **aggregator boundary**:
 
 | Lane | Phases / scenario | Oracle / venue |
 |------|--------|----------------|
-| `agg` | lifecycle + strategies + admin + governance | live Reflector + XOXNO aggregator (serial *within* the lane) |
-| `liq` | liquidation + defindex | mock oracles, venue-free |
-| `stress` | stress | mock oracles, venue-free |
+| `agg` | lifecycle + strategies + admin + governance + teardown | live Reflector + XOXNO aggregator (serial *within* the lane) |
+| `liq` | liquidation + defindex + teardown | mock oracles, venue-free |
+| `stress` | stress + teardown | mock oracles, venue-free |
 | `flash` | `scenarios/flash_position.sh` (full live `flash_position` matrix + malicious receiver) | live Reflector + one funding swap |
 | `blend` | `scenarios/blend.sh` (live `migrate_from_blend` vs Blend TestnetV2, XLM coll/supply/debt) | live Reflector + real Blend pool, aggregator-free |
 
@@ -163,6 +163,7 @@ from `stellar-access`.
 | `governance.sh` | governance timelock e2e on the governance-owned controller: `deploy_controller` ownership (+`#5 PoolAlreadyDeployed` redeploy), resolver views, propose→cancel (Waiting→Unset), propose→await→`execute` (open executor) lifecycle (Waiting→Ready→Unset), non-PROPOSER guard (`#2000 Unauthorized`), proposal validation (`#36 InvalidPositionLimits`, `#134 InvalidLiquidationCurve`), immediate role revocation refusing the owner's own role (`#44 NotAuthorized`), owner pause + timelocked unpause forwarding |
 | `stress.sh` | 20 mock markets; bulk-supply frontier, distinct-feed borrow frontier (single- then dual-source), withdraw probe, repay-1 liquidation seize frontier — all via fee-less simulation probes plus one on-chain proof tx per frontier |
 | `swap_aggregator.sh` | Swap-aggregator admin lifecycle |
+| `teardown.sh` | zero-state teardown, last in every lane: repay every live account (mock-minted on shortfall), withdraw everything, drain the DeFindex strategy, claim all revenue, then prove NFT `total_supply == 0`, per-market borrowed/supplied/revenue all 0, pool + controller balances at dust — and record the per-market storage residue |
 
 ## Encoding gotchas
 

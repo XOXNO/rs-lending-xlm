@@ -15,6 +15,7 @@ for f in core invoke assert wallet assets aggregator oracle protocol report; do
 done
 source "$INTEG_DIR/flows/lifecycle.sh"
 source "$INTEG_DIR/flows/blend.sh"
+source "$INTEG_DIR/flows/teardown.sh"
 
 init_run
 if [ -f "$INTEG_DIR/appendix.md" ]; then
@@ -49,6 +50,7 @@ flow_blend_hub_liquidity || die seed "XLM hub seed failed"
 flow_blend_allowlist || die blend_allowlist "Blend allowlist failed"
 flow_blend_rejects || die blend_rejects "Blend reject coverage failed"
 flow_blend_migrate || die blend_migrate "Blend migrate coverage failed"
+flow_teardown || die teardown "zero-state teardown failed"
 
 phase done
 log "run complete"

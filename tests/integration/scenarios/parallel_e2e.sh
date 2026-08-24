@@ -20,9 +20,9 @@ read -r -a LANES <<<"${E2E_LANES-agg liq stress flash blend}"
 
 phases_for() {
     case "$1" in
-        agg)    echo "deploy lifecycle strategies admin governance" ;;
-        liq)    echo "deploy liquidation defindex" ;;
-        stress) echo "deploy stress" ;;
+        agg)    echo "deploy lifecycle strategies admin governance teardown" ;;
+        liq)    echo "deploy liquidation defindex teardown" ;;
+        stress) echo "deploy stress teardown" ;;
     esac
 }
 

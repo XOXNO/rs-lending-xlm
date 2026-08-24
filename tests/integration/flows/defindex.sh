@@ -23,14 +23,20 @@ assert_dfx_uint_lt() {
 deploy_dfx_strategy() {
     [ -n "${STRATEGY:-}" ] && return 0
     local out_f="$LOG_DIR/deploy_strategy.out" err_f="$LOG_DIR/deploy_strategy.err"
+    # init_args is [controller, hub_id, spoke_id]; the constructor validates
+    # the (hub, asset) market exists, so the DFX market must be listed first.
     stellar contract deploy --wasm "$WASM_DIR/defindex_strategy.wasm" \
         --source "$ADMIN" "${NET_ARGS[@]}" \
-        -- --asset "$SAC_DFX" --init_args "[{\"address\":\"$CONTROLLER\"}]" \
+        -- --asset "$SAC_DFX" \
+        --init_args "[{\"address\":\"$CONTROLLER\"},{\"u32\":$PRIMARY_HUB_ID},{\"u32\":$PRIMARY_SPOKE_ID}]" \
         >"$out_f" 2>"$err_f"
     local strat txh
     strat=$(sanitize_output "$out_f")
     txh=$(extract_signing_hash "$err_f")
-    [ -z "$strat" ] && { log "strategy deploy failed: $(tail_err_note "$err_f" 200)"; return 1; }
+    # A FAIL row, not just a log line: this deploy is raw CLI, so nothing else
+    # records the failure and the lane would gate green with the entire
+    # strategy surface silently skipped (which is exactly what happened once).
+    [ -z "$strat" ] && { _assert_fail deploy_defindex_strategy "strategy deploy failed: $(tail_err_note "$err_f" 200)"; return 1; }
     save_state STRATEGY "$strat"
     record deploy_defindex_strategy ok deploy "$txh" "" "" "" "" "$strat"
     log "defindex strategy = $strat"
