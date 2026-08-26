@@ -292,4 +292,39 @@ mod tests {
             Some("CADAPTER")
         );
     }
+
+    /// The shipped configs are what actually runs, but nothing parsed them, so
+    /// drift shipped silently: mainnet.yaml had lost five live markets, still
+    /// listed six deferred ones, and had no name for spoke 9 — which renders as
+    /// a bare "Spoke 9" in the graph via the `spoke_name` fallback.
+    ///
+    /// Parses without `validate()`, which requires a deployed controller address
+    /// that mainnet does not have yet.
+    #[test]
+    fn shipped_configs_parse_and_label_every_hub_and_spoke() {
+        for name in ["mainnet", "testnet"] {
+            let path = format!("{}/config/{name}.yaml", env!("CARGO_MANIFEST_DIR"));
+            let raw = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {path}: {e}"));
+            let cfg: ExporterConfig =
+                serde_yaml::from_str(&raw).unwrap_or_else(|e| panic!("parse {path}: {e}"));
+
+            for market in &cfg.markets {
+                contract_id_from_strkey(&market.asset)
+                    .unwrap_or_else(|e| panic!("{name}: market {} - {e}", market.symbol));
+                assert!(
+                    cfg.hubs.contains_key(&market.hub_id),
+                    "{name}: market {} sits in hub {} which has no name",
+                    market.symbol,
+                    market.hub_id
+                );
+            }
+            for spoke in &cfg.spokes {
+                assert!(
+                    cfg.spoke_names.contains_key(spoke),
+                    "{name}: spoke {spoke} is scraped but has no name, so it \
+                     renders as \"Spoke {spoke}\""
+                );
+            }
+        }
+    }
 }

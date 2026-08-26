@@ -1,6 +1,6 @@
 {
   "1": {
-    "name": "Main",
+    "name": "Blue Chip",
     "assets": {
       "XLM": {
         "hub_id": 1,
@@ -71,7 +71,7 @@
     }
   },
   "2": {
-    "name": "Etherfuse",
+    "name": "Etherfuse RWA",
     "assets": {
       "USTRY": {
         "hub_id": 2,
@@ -142,7 +142,7 @@
     }
   },
   "3": {
-    "name": "Spiko",
+    "name": "Spiko RWA",
     "assets": {
       "SPIKOEUTBL": {
         "hub_id": 2,
@@ -264,7 +264,7 @@
     "enabled": false
   },
   "4": {
-    "name": "Centrifuge",
+    "name": "Centrifuge RWA",
     "assets": {
       "DEJTRSY": {
         "hub_id": 2,
@@ -335,7 +335,7 @@
     }
   },
   "5": {
-    "name": "Forex",
+    "name": "Stables & FX",
     "liquidation_curve": {
       "target_hf_wad": "1020000000000000000",
       "hf_for_max_bonus_wad": "800000000000000000",
@@ -348,7 +348,7 @@
         "can_be_borrowed": true,
         "ltv": 8800,
         "liquidation_threshold": 9200,
-        "liquidation_bonus": 200,
+        "liquidation_bonus": 400,
         "supply_cap": "149600000000000",
         "borrow_cap": "112200000000000",
         "liquidation_fees": 1000
@@ -472,7 +472,7 @@
     }
   },
   "6": {
-    "name": "LP Tokens",
+    "name": "AMM Collateral",
     "assets": {
       "XLMUSDC_LP": {
         "hub_id": 3,
@@ -481,7 +481,7 @@
         "ltv": 5000,
         "liquidation_threshold": 6000,
         "liquidation_bonus": 1000,
-        "liquidation_fees": 100,
+        "liquidation_fees": 1000,
         "supply_cap": "5000000000",
         "borrow_cap": "0"
       },
@@ -492,7 +492,7 @@
         "ltv": 5000,
         "liquidation_threshold": 6000,
         "liquidation_bonus": 1000,
-        "liquidation_fees": 100,
+        "liquidation_fees": 1000,
         "supply_cap": "5000000000",
         "borrow_cap": "0"
       },
@@ -503,7 +503,7 @@
         "ltv": 5000,
         "liquidation_threshold": 6000,
         "liquidation_bonus": 1000,
-        "liquidation_fees": 100,
+        "liquidation_fees": 1000,
         "supply_cap": "2000000000",
         "borrow_cap": "0"
       },
@@ -514,7 +514,7 @@
         "ltv": 5000,
         "liquidation_threshold": 6000,
         "liquidation_bonus": 1000,
-        "liquidation_fees": 100,
+        "liquidation_fees": 1000,
         "supply_cap": "5000000000",
         "borrow_cap": "0"
       },
@@ -525,7 +525,7 @@
         "ltv": 5000,
         "liquidation_threshold": 6000,
         "liquidation_bonus": 1000,
-        "liquidation_fees": 100,
+        "liquidation_fees": 1000,
         "supply_cap": "5000000000",
         "borrow_cap": "0"
       },
@@ -536,7 +536,7 @@
         "ltv": 5000,
         "liquidation_threshold": 6000,
         "liquidation_bonus": 1000,
-        "liquidation_fees": 100,
+        "liquidation_fees": 1000,
         "supply_cap": "5000000000",
         "borrow_cap": "0"
       },
@@ -547,7 +547,7 @@
         "ltv": 5000,
         "liquidation_threshold": 6000,
         "liquidation_bonus": 1000,
-        "liquidation_fees": 100,
+        "liquidation_fees": 1000,
         "supply_cap": "5000000000",
         "borrow_cap": "0"
       },
@@ -558,7 +558,7 @@
         "ltv": 5000,
         "liquidation_threshold": 6000,
         "liquidation_bonus": 1000,
-        "liquidation_fees": 100,
+        "liquidation_fees": 1000,
         "supply_cap": "50000000000000",
         "borrow_cap": "0"
       },
@@ -569,7 +569,7 @@
         "ltv": 5000,
         "liquidation_threshold": 6000,
         "liquidation_bonus": 1000,
-        "liquidation_fees": 100,
+        "liquidation_fees": 1000,
         "supply_cap": "50000000000000",
         "borrow_cap": "0"
       },
@@ -620,7 +620,7 @@
     }
   },
   "7": {
-    "name": "Ondo",
+    "name": "Ondo RWA",
     "assets": {
       "USDY": {
         "hub_id": 2,
@@ -640,7 +640,7 @@
         "ltv": 5000,
         "liquidation_threshold": 6000,
         "liquidation_bonus": 1000,
-        "liquidation_fees": 100,
+        "liquidation_fees": 1000,
         "supply_cap": "1000000000000",
         "borrow_cap": "0"
       },
@@ -711,7 +711,7 @@
         "ltv": 5000,
         "liquidation_threshold": 6000,
         "liquidation_bonus": 1000,
-        "liquidation_fees": 100,
+        "liquidation_fees": 1000,
         "supply_cap": "5000000000",
         "borrow_cap": "0"
       },
@@ -762,19 +762,14 @@
     }
   },
   "9": {
-    "name": "Aquarius",
-    "liquidation_curve": {
-      "target_hf_wad": "1020000000000000000",
-      "hf_for_max_bonus_wad": "750000000000000000",
-      "liquidation_bonus_factor_bps": 10000
-    },
+    "name": "Aquarius Ecosystem",
     "assets": {
       "AQUA": {
         "hub_id": 3,
         "can_be_collateral": true,
         "can_be_borrowed": false,
-        "ltv": 6500,
-        "liquidation_threshold": 7000,
+        "ltv": 5500,
+        "liquidation_threshold": 6000,
         "liquidation_bonus": 1000,
         "supply_cap": "5000000000000000",
         "borrow_cap": "0",
@@ -784,8 +779,8 @@
         "hub_id": 3,
         "can_be_collateral": true,
         "can_be_borrowed": false,
-        "ltv": 6500,
-        "liquidation_threshold": 7000,
+        "ltv": 5000,
+        "liquidation_threshold": 6000,
         "liquidation_bonus": 1000,
         "liquidation_fees": 1000,
         "supply_cap": "50000000000000",
@@ -795,8 +790,8 @@
         "hub_id": 3,
         "can_be_collateral": true,
         "can_be_borrowed": false,
-        "ltv": 6500,
-        "liquidation_threshold": 7000,
+        "ltv": 5000,
+        "liquidation_threshold": 6000,
         "liquidation_bonus": 1000,
         "liquidation_fees": 1000,
         "supply_cap": "50000000000000",
