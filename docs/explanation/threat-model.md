@@ -216,17 +216,26 @@ defect. Nothing here is a theoretical concern.
 These must close before real value is at stake. They are ownership decisions,
 not code defects.
 
-**The swap-aggregator owner is a trust root outside governance unless the
-controller owns it.** The router's own `upgrade` is a bare `#[only_owner]` with
-no timelock. Governance can reach it only when the controller is the router's
-owner: `AdminOperation::UpgradeSwapAggregator` is a Sensitive-tier operation
-that calls the controller's `#[only_owner] upgrade_swap_aggregator`, which
-invokes the router's `upgrade` (`contracts/governance/src/op.rs:315`,
-`contracts/controller/src/markets.rs:123`). `make deploy-aggregator` defaults
-the router admin to the deploying signer, so verify the deployed owner: with a
-standalone key that timelocked path is unreachable and the router stays a trust
-root outside governance. The other owner powers below have no governance path
-at all.
+**The swap-aggregator owner is a trust root outside governance, by design.**
+The router is a utility contract, operated by a multisig Ledger wallet rather
+than by the timelock. Every one of its ten owner powers — `upgrade`,
+`sweep_balance`, `claim_admin_fees`, `set_static_fee`, the four referral
+setters, and the two whitelist setters — is a bare `#[only_owner]` reachable
+only by that key, and none has a governance path.
+
+This is a deliberate trade. Referral and fee administration are routine
+operational actions; routing them through a timelock would make them
+impractical, and giving the controller ownership so governance could reach
+`upgrade` would strand the other nine, since the controller exposes only what
+governance can ask for. A single Ownable owner cannot serve both, so the config
+picks operations. `make deploy-aggregator` sets the router admin to the
+deploying signer (override with `AGGREGATOR_ADMIN`); confirm after deploy that
+it is the intended multisig.
+
+The consequence to accept: a compromised router owner can upgrade the router's
+Wasm immediately, with no delay and no governance review. The controller's
+exposure is bounded by what it routes through the router — strategy swaps —
+and by the slippage checks on those paths, not by the router being trusted.
 
 The router owner is more powerful than the fee cap suggests. Three further
 powers are immediate and uncapped:

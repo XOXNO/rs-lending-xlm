@@ -155,7 +155,6 @@ than the signature shows.
 | `upgrade_liquidity_pool_params` | `fn upgrade_liquidity_pool_params(env: Env, hub_asset: HubAssetKey, params: InterestRateModel)` | owner-only | Accrues `hub_asset`'s indexes, then updates its interest rate model to `params` on the pool. |
 | `upgrade_pool` | `fn upgrade_pool(env: Env, new_wasm_hash: BytesN<32>)` | owner-only | Upgrades the liquidity pool contract to `new_wasm_hash`. |
 | `upgrade_position_nft` | `fn upgrade_position_nft(env: Env, new_wasm_hash: BytesN<32>)` | owner-only | Upgrades the position-NFT contract's Wasm bytecode to `new_wasm_hash`. |
-| `upgrade_swap_aggregator` | `fn upgrade_swap_aggregator(env: Env, new_wasm_hash: BytesN<32>)` | owner-only | Upgrades the swap-aggregator router's Wasm to `new_wasm_hash`. |
 | `force_socialize_bad_debt` | `fn force_socialize_bad_debt(env: Env, account_id: u64)` | owner-only | Force-socializes `account_id`'s debt into the supply index when the account is insolvent. |
 | `pause` | `fn pause(env: Env)` | owner-only | Pauses the contract. |
 | `unpause` | `fn unpause(env: Env)` | owner-only | Unpauses the contract. |

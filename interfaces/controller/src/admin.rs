@@ -73,8 +73,6 @@ pub trait ControllerAdmin {
 
     fn upgrade_position_nft(env: Env, new_wasm_hash: BytesN<32>);
 
-    fn upgrade_swap_aggregator(env: Env, new_wasm_hash: BytesN<32>);
-
     fn force_socialize_bad_debt(env: Env, account_id: u64);
 
     fn pause(env: Env);

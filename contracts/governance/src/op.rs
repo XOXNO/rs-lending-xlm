@@ -312,14 +312,6 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
                 vec![env, hash.clone().into_val(env)],
             )
         }
-        AdminOperation::UpgradeSwapAggregator(hash) => {
-            validate::require_nonzero_wasm_hash(env, hash);
-            sensitive_controller_operation(
-                env,
-                "upgrade_swap_aggregator",
-                vec![env, hash.clone().into_val(env)],
-            )
-        }
         AdminOperation::SetPositionManager(manager, is_active) => sensitive_controller_operation(
             env,
             "set_position_manager",
@@ -435,7 +427,6 @@ pub(crate) fn apply_self_op(env: &Env, op: &AdminOperation) {
         | AdminOperation::DeployPositionNft(_)
         | AdminOperation::UpgradePool(_)
         | AdminOperation::UpgradePositionNft(_)
-        | AdminOperation::UpgradeSwapAggregator(_)
         | AdminOperation::SetPositionManager(_, _)
         | AdminOperation::UpgradeController(_)
         | AdminOperation::MigrateController(_)

@@ -10,7 +10,6 @@ use crate::external::pool::{
 };
 use crate::external::position_nft::nft_upgrade_call;
 use crate::storage;
-use swap_aggregator_interface::SwapAggregatorClient;
 
 const POOL_DEPLOY_SALT: [u8; 32] = [0u8; 32];
 const POSITION_NFT_DEPLOY_SALT: [u8; 32] = [1u8; 32];
@@ -115,12 +114,4 @@ pub(crate) fn upgrade_pool(env: &Env, new_wasm_hash: BytesN<32>) {
 pub(crate) fn upgrade_position_nft(env: &Env, new_wasm_hash: BytesN<32>) {
     let nft_addr = storage::get_position_nft(env);
     nft_upgrade_call(env, &nft_addr, &new_wasm_hash);
-}
-
-/// Upgrades the swap-aggregator router. Requires the controller to be the
-/// router's owner (set at deploy). Reached only from the owner-gated
-/// `upgrade_swap_aggregator` entrypoint (B-2).
-pub(crate) fn upgrade_swap_aggregator(env: &Env, new_wasm_hash: BytesN<32>) {
-    let router = storage::get_swap_aggregator(env);
-    SwapAggregatorClient::new(env, &router).upgrade(&new_wasm_hash);
 }
