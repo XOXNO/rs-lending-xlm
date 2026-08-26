@@ -49,6 +49,42 @@
         "min_sanity_price_wad": "40000000000000000000000",
         "max_sanity_price_wad": "120000000000000000000000"
       }
+    },
+    {
+      "name": "USDCQUOTE",
+      "key": {
+        "Ref": "USDCQUOTE"
+      },
+      "oracle": {
+        "asset_decimals": 0,
+        "max_price_stale_seconds": 3600,
+        "sources": [
+          {
+            "Feed": {
+              "provider": {
+                "Reflector": {
+                  "contract": "CAFJZQWSED6YAWZU3GWRTOCNPPCGBN32L7QV43XX5LZLFTK6JLN34DLN",
+                  "asset": {
+                    "Symbol": "USDC"
+                  },
+                  "read_mode": {
+                    "Twap": 3
+                  }
+                }
+              },
+              "decimals": 14,
+              "max_stale_seconds": 3600
+            }
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 10500,
+          "lower_ratio_bps": 9524
+        },
+        "independence": "RequireDisjoint",
+        "min_sanity_price_wad": "950000000000000000",
+        "max_sanity_price_wad": "1050000000000000000"
+      }
     }
   ],
   "markets": [
@@ -1084,7 +1120,7 @@
                 "max_stale_seconds": 7200
               },
               "quote": {
-                "Token": "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75"
+                "Ref": "USDCQUOTE"
               },
               "min_factor_wad": "65950000000000",
               "max_factor_wad": "1648750000000000"
@@ -1096,11 +1132,11 @@
                 "Xoxno": {
                   "contract": "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM",
                   "feed_id": "AQUA",
-                  "nature": "Market"
+                  "nature": "Fundamental"
                 }
               },
               "decimals": 8,
-              "max_stale_seconds": 3600
+              "max_stale_seconds": 28800
             }
           }
         ],
