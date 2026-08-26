@@ -15,7 +15,13 @@ pub const MAX_FUTURE_SKEW_SECONDS: u64 = 60;
 pub const MAX_TWAP_RECORDS: u32 = 12;
 
 pub const MIN_PRICE_STALE_SECONDS: u64 = 60;
-pub const MAX_PRICE_STALE_SECONDS: u64 = 86_400;
+// 26h. Sized to clear the slowest upstream heartbeat we consume rather than to
+// sit on a round number: RedStone moved its static FUNDAMENTAL ratio feeds to a
+// 24h heartbeat, and a feed that never deviates publishes at exactly that
+// interval, so a 24h ceiling would leave zero margin and fail intermittently.
+// This only raises what an oracle MAY declare; every asset still carries its own
+// budget, and only SolvBTC's ratio leg goes past 24h.
+pub const MAX_PRICE_STALE_SECONDS: u64 = 93_600;
 
 pub const MIN_ORACLE_RESOLUTION_SECONDS: u32 = 60;
 

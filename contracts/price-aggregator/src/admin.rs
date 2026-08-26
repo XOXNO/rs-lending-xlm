@@ -28,8 +28,8 @@ use crate::validation;
 fn attest_sources(env: &Env, key: &PriceKey, oracle: &AssetOracle) {
     for source in oracle.sources.iter() {
         match &source {
-            PriceSource::Feed(feed) => attest_feed(env, feed),
-            PriceSource::Scaled(scaled) => attest_feed(env, &scaled.factor),
+            PriceSource::Feed(feed) => attest_feed(env, feed, None),
+            PriceSource::Scaled(scaled) => attest_feed(env, &scaled.factor, Some(&scaled.quote)),
 
             PriceSource::AquariusLp(lp) => aquarius::attest(env, key, oracle, lp, false),
             PriceSource::AquariusStableLp(lp) => aquarius::attest(env, key, oracle, lp, true),
@@ -39,10 +39,10 @@ fn attest_sources(env: &Env, key: &PriceKey, oracle: &AssetOracle) {
 
 /// Attests a single feed source by dispatching to the provider-specific attestation
 /// routine identified by `feed.provider`.
-fn attest_feed(env: &Env, feed: &FeedSource) {
+fn attest_feed(env: &Env, feed: &FeedSource, quote: Option<&PriceKey>) {
     match &feed.provider {
         ProviderRef::Reflector(reflector) => {
-            reflector::attest(env, reflector, feed.decimals, feed.max_stale_seconds)
+            reflector::attest(env, reflector, feed.decimals, feed.max_stale_seconds, quote)
         }
         ProviderRef::RedStone(_) => assert_with_error!(
             env,

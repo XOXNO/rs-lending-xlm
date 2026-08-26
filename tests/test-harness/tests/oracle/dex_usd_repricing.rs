@@ -5,11 +5,16 @@ use test_harness::{
     usdc_preset, xlm_preset, LendingTest, ALICE, DEFAULT_TOLERANCE,
 };
 
-fn register_ratio_oracle(t: &LendingTest) -> Address {
+/// A DEX oracle quotes in the pool's counter asset rather than in USD — that
+/// is the whole reason these prices go through a `Scaled` source, whose quote
+/// key re-denominates them. `attest` requires the contract's base and that
+/// quote key to name the same asset, so the mock has to carry a real base.
+fn register_ratio_oracle(t: &LendingTest, quote_base: &Address) -> Address {
     let dex = t
         .env
         .register(test_harness::mock_reflector::MockReflector, ());
     let client = test_harness::mock_reflector::MockReflectorClient::new(&t.env, &dex);
+    client.set_base_stellar(quote_base);
     client.set_decimals(&14);
     client.set_resolution(&300);
     dex
@@ -35,7 +40,7 @@ fn test_scaled_source_repriced_through_its_quote_key() {
     let usdc = t.resolve_asset("USDC");
     let xlm = t.resolve_asset("XLM");
 
-    let dex = register_ratio_oracle(&t);
+    let dex = register_ratio_oracle(&t, &usdc);
     let dex_client = test_harness::mock_reflector::MockReflectorClient::new(&t.env, &dex);
     dex_client.set_price(&xlm, &usd(2));
     dex_client.set_twap_price(&xlm, &usd(2));
@@ -64,7 +69,7 @@ fn test_scaled_market_priced_within_default_budget() {
     let usdc = t.resolve_asset("USDC");
     let xlm = t.resolve_asset("XLM");
 
-    let dex = register_ratio_oracle(&t);
+    let dex = register_ratio_oracle(&t, &usdc);
     let dex_client = test_harness::mock_reflector::MockReflectorClient::new(&t.env, &dex);
     dex_client.set_price(&xlm, &usd(2));
     dex_client.set_twap_price(&xlm, &usd(2));
@@ -101,7 +106,7 @@ fn test_scaled_read_fails_closed_when_quote_key_loses_its_oracle() {
     let usdc = t.resolve_asset("USDC");
     let xlm = t.resolve_asset("XLM");
 
-    let dex = register_ratio_oracle(&t);
+    let dex = register_ratio_oracle(&t, &usdc);
     let dex_client = test_harness::mock_reflector::MockReflectorClient::new(&t.env, &dex);
     dex_client.set_price(&xlm, &usd(2));
     dex_client.set_twap_price(&xlm, &usd(2));
@@ -149,7 +154,7 @@ fn test_scaled_config_write_rejects_quote_key_broken_during_delay() {
     let usdc = t.resolve_asset("USDC");
     let xlm = t.resolve_asset("XLM");
 
-    let dex = register_ratio_oracle(&t);
+    let dex = register_ratio_oracle(&t, &usdc);
     let dex_client = test_harness::mock_reflector::MockReflectorClient::new(&t.env, &dex);
     dex_client.set_price(&xlm, &usd(2));
     dex_client.set_twap_price(&xlm, &usd(2));
@@ -184,7 +189,7 @@ fn test_scaled_config_write_accepts_a_healthy_quote_key() {
     let usdc = t.resolve_asset("USDC");
     let xlm = t.resolve_asset("XLM");
 
-    let dex = register_ratio_oracle(&t);
+    let dex = register_ratio_oracle(&t, &usdc);
     let dex_client = test_harness::mock_reflector::MockReflectorClient::new(&t.env, &dex);
     dex_client.set_price(&xlm, &usd(2));
     dex_client.set_twap_price(&xlm, &usd(2));
@@ -222,7 +227,7 @@ fn test_scaled_primary_and_usd_anchor_tolerance_evaluated_after_conversion() {
 
     t.set_price("USDC", usd(1));
 
-    let dex = register_ratio_oracle(&t);
+    let dex = register_ratio_oracle(&t, &usdc);
     let dex_client = test_harness::mock_reflector::MockReflectorClient::new(&t.env, &dex);
     dex_client.set_price(&xlm, &usd(2));
     dex_client.set_twap_price(&xlm, &usd(2));

@@ -9,7 +9,7 @@ use common::oracle::providers::reflector::{
     reflector_last_price, reflector_prices, to_reflector_asset, try_reflector_resolution,
     try_twap_mean_price, ReflectorAsset, ReflectorClient,
 };
-use common::types::{OracleReadMode, ReflectorFeedRef};
+use common::types::{OracleReadMode, PriceKey, ReflectorFeedRef};
 use common::validation::validate_twap_records;
 use soroban_sdk::{assert_with_error, panic_with_error, Env, Symbol};
 
@@ -17,17 +17,25 @@ use crate::observation::OracleObservation;
 use crate::session::Session;
 
 /// Validates that `feed` is configured consistently with `decimals` and
-/// `max_stale`: the quote base is USD, reported decimals match `decimals`,
-/// and the resolution is at least `MIN_ORACLE_RESOLUTION_SECONDS` and at
-/// most `max_stale`. For TWAP mode, also checks that the span covered by
-/// the requested record count does not exceed `max_stale`. Panics if any
-/// check fails.
-pub(crate) fn attest(env: &Env, feed: &ReflectorFeedRef, decimals: u32, max_stale: u64) {
+/// `max_stale`: the quote base is denominated as `quote` requires, reported
+/// decimals match `decimals`, and the resolution is at least
+/// `MIN_ORACLE_RESOLUTION_SECONDS` and at most `max_stale`. For TWAP mode,
+/// also checks that the span covered by the requested record count does not
+/// exceed `max_stale`. Panics if any check fails.
+///
+/// `quote` is `None` for a bare feed, whose price is consumed as USD
+/// directly, and `Some` for the factor leg of a `Scaled` source, whose price
+/// is re-denominated by multiplying against the price resolved for that key.
+/// See [`attest_base`] for the rule each case enforces.
+pub(crate) fn attest(
+    env: &Env,
+    feed: &ReflectorFeedRef,
+    decimals: u32,
+    max_stale: u64,
+    quote: Option<&PriceKey>,
+) {
     let client = ReflectorClient::new(env, &feed.contract);
-    match client.base() {
-        ReflectorAsset::Other(symbol) if symbol == Symbol::new(env, "USD") => {}
-        _ => panic_with_error!(env, OracleError::InvalidOracleBase),
-    }
+    attest_base(env, &client.base(), quote);
     assert_with_error!(
         env,
         client.decimals() == decimals,
@@ -47,6 +55,37 @@ pub(crate) fn attest(env: &Env, feed: &ReflectorFeedRef, decimals: u32, max_stal
             required_span <= max_stale,
             OracleError::InvalidOracleResolution
         );
+    }
+}
+
+/// Enforces that a Reflector contract's quote base matches how its price is
+/// about to be consumed.
+///
+/// A bare feed (`quote` is `None`) is read as a USD price directly, so the
+/// contract must quote in USD.
+///
+/// A `Scaled` factor is re-denominated by multiplying against the price
+/// resolved for `quote`, so the only sound pairing is the one where the
+/// factor's own quote currency is exactly the asset that key prices: a
+/// contract quoting in token `X` may only be scaled by `Token(X)`. Anything
+/// else silently multiplies a price denominated in one currency by the price
+/// of another — two near-1.0 stablecoins would produce a plausible, wrong
+/// number that no sanity band would catch.
+///
+/// A `Ref` quote is rejected outright: a `Ref` names a synthetic reference
+/// with no on-chain asset identity, so there is no way to prove it prices the
+/// contract's base. A USD-quoting contract is likewise rejected as a factor,
+/// because no `Token` key prices USD and scaling it would double-count.
+fn attest_base(env: &Env, base: &ReflectorAsset, quote: Option<&PriceKey>) {
+    let ok = match (base, quote) {
+        (ReflectorAsset::Other(symbol), None) => *symbol == Symbol::new(env, "USD"),
+        (ReflectorAsset::Stellar(base_asset), Some(PriceKey::Token(quote_asset))) => {
+            base_asset == quote_asset
+        }
+        _ => false,
+    };
+    if !ok {
+        panic_with_error!(env, OracleError::InvalidOracleBase);
     }
 }
 

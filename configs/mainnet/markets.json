@@ -49,42 +49,6 @@
         "min_sanity_price_wad": "40000000000000000000000",
         "max_sanity_price_wad": "120000000000000000000000"
       }
-    },
-    {
-      "name": "USDCQUOTE",
-      "key": {
-        "Ref": "USDCQUOTE"
-      },
-      "oracle": {
-        "asset_decimals": 0,
-        "max_price_stale_seconds": 3600,
-        "sources": [
-          {
-            "Feed": {
-              "provider": {
-                "Reflector": {
-                  "contract": "CAFJZQWSED6YAWZU3GWRTOCNPPCGBN32L7QV43XX5LZLFTK6JLN34DLN",
-                  "asset": {
-                    "Symbol": "USDC"
-                  },
-                  "read_mode": {
-                    "Twap": 3
-                  }
-                }
-              },
-              "decimals": 14,
-              "max_stale_seconds": 3600
-            }
-          }
-        ],
-        "tolerance": {
-          "upper_ratio_bps": 10500,
-          "lower_ratio_bps": 9524
-        },
-        "independence": "RequireDisjoint",
-        "min_sanity_price_wad": "950000000000000000",
-        "max_sanity_price_wad": "1050000000000000000"
-      }
     }
   ],
   "markets": [
@@ -964,7 +928,7 @@
       "asset_address": "CBIJBDNZNF4X35BJ4FFZWCDBSCKOP5NB4PLG4SNENRMLAPYG4P5FM6VN",
       "oracle": {
         "asset_decimals": 8,
-        "max_price_stale_seconds": 57600,
+        "max_price_stale_seconds": 93600,
         "sources": [
           {
             "Scaled": {
@@ -977,7 +941,7 @@
                   }
                 },
                 "decimals": 8,
-                "max_stale_seconds": 57600
+                "max_stale_seconds": 93600
               },
               "quote": {
                 "Ref": "BTC"
@@ -1032,7 +996,7 @@
       "asset_address": "CAUP7NFABXE5TJRL3FKTPMWRLC7IAXYDCTHQRFSCLR5TMGKHOOQO772J",
       "oracle": {
         "asset_decimals": 8,
-        "max_price_stale_seconds": 57600,
+        "max_price_stale_seconds": 93600,
         "sources": [
           {
             "Scaled": {
@@ -1120,7 +1084,7 @@
                 "max_stale_seconds": 7200
               },
               "quote": {
-                "Ref": "USDCQUOTE"
+                "Token": "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75"
               },
               "min_factor_wad": "65950000000000",
               "max_factor_wad": "1648750000000000"
@@ -1215,7 +1179,7 @@
       "asset_address": "CAPPL34NF6X7M3EQFIPDXZHQX2PT3EOE2LYCDORH3PF2LTRDSFGWV6NL",
       "oracle": {
         "asset_decimals": 7,
-        "max_price_stale_seconds": 57600,
+        "max_price_stale_seconds": 93600,
         "sources": [
           {
             "AquariusLp": {
@@ -1262,7 +1226,7 @@
       "asset_address": "CDZ4QRNY63YKJY7FLBTJUVPX3Z3U56JY5KHNHQEYI5F5MYLMC5YNRIXE",
       "oracle": {
         "asset_decimals": 7,
-        "max_price_stale_seconds": 57600,
+        "max_price_stale_seconds": 93600,
         "sources": [
           {
             "AquariusStableLp": {

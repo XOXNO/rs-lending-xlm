@@ -12,7 +12,8 @@ use soroban_sdk::testutils::{Address as _, Ledger as _};
 use soroban_sdk::{Address, String, Symbol, Vec};
 
 use crate::test_support::{
-    EmptyReflector, NonUsdReflector, StubXoxnoAdapter, TwapReflector, XOXNO_SUBMISSION_WINDOW_SECS,
+    EmptyReflector, NonUsdReflector, QuotedReflector, QuotedReflectorClient, StubXoxnoAdapter,
+    TwapReflector, XOXNO_SUBMISSION_WINDOW_SECS,
 };
 use crate::PriceAggregator;
 use common::constants::WAD;
@@ -187,8 +188,13 @@ fn test_set_oracle_attests_the_factor_leg_of_a_scaled_source() {
     let env = Env::default();
     env.ledger().set_timestamp(1_000_000);
     with_contract(&env, || {
-        let reflector = env.register(TwapReflector, ());
-        let quote = PriceKey::Ref(Symbol::new(&env, "BTC"));
+        // The factor's own quote currency has to match the key it is scaled by,
+        // so this pairs a token-quoting oracle with that token — clearing the
+        // base check and leaving the decimals mismatch as the failure under test.
+        let quote_asset = Address::generate(&env);
+        let reflector = env.register(QuotedReflector, ());
+        QuotedReflectorClient::new(&env, &reflector).set_base(&quote_asset);
+        let quote = PriceKey::Token(quote_asset);
         store_oracle(&env, &quote, &reflector_oracle(&env, &reflector, 14));
 
         let mut sources = Vec::new(&env);

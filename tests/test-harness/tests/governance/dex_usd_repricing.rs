@@ -131,3 +131,172 @@ fn scaled_config(t: &LendingTest, adapter: &Address, quote: PriceKey) -> AssetOr
         max_sanity_price_wad: usd(2) + usd(2) / 100,
     }
 }
+
+// --- Scaled factors: base must name exactly what the quote key prices -------
+//
+// `attest_sources` runs the same `attest_feed` on a `Scaled` factor as on a
+// bare `Feed`, so wrapping in `Scaled` never bypassed the base check. What it
+// now does instead is retarget it: a contract quoting in token X may only be
+// scaled by `Token(X)`. These four cases pin the whole rule. Every other
+// `Scaled` test in this file uses a RedStone factor, which has no base to
+// check, which is why the Reflector-factor path went uncovered.
+
+/// Registers a `Ref` oracle priced from a USD-quoting mock, so a `Ref` quote
+/// key resolves during validation. There is no harness helper for non-`Token`
+/// keys, so this drives the governance op directly.
+fn register_ref_oracle(t: &LendingTest, key: &PriceKey, asset: &Address) {
+    use governance::op::{AdminOperation, ConfigureAssetOracleArgs};
+
+    let oracle_addr = t
+        .env
+        .register(test_harness::mock_reflector::MockReflector, ());
+    let client = test_harness::mock_reflector::MockReflectorClient::new(&t.env, &oracle_addr);
+    client.set_decimals(&14);
+    client.set_resolution(&300);
+    client.set_price(asset, &usd(1));
+
+    let mut oracle = test_harness::reflector_primary_anchor_config(
+        &t.env,
+        &oracle_addr,
+        asset,
+        usd(1),
+        DEFAULT_TOLERANCE.tolerance_bps,
+    );
+    oracle.asset_decimals = 0; // PriceKey::Ref must declare 0
+
+    t.gov_client().execute_immediate(
+        &t.admin,
+        &AdminOperation::ConfigureAssetOracle(ConfigureAssetOracleArgs {
+            key: key.clone(),
+            oracle,
+        }),
+    );
+}
+
+fn reflector_scaled_config(
+    t: &LendingTest,
+    oracle: &Address,
+    asset: &Address,
+    quote: PriceKey,
+) -> AssetOracle {
+    let factor = FeedSource {
+        provider: ProviderRef::Reflector(controller::types::ReflectorFeedRef {
+            contract: oracle.clone(),
+            asset: controller::types::OracleAssetRef::Stellar(asset.clone()),
+            read_mode: controller::types::OracleReadMode::Twap(3),
+        }),
+        decimals: 14,
+        max_stale_seconds: 900,
+    };
+    AssetOracle {
+        asset_decimals: 7,
+        max_price_stale_seconds: 900,
+        sources: Vec::from_array(
+            &t.env,
+            [PriceSource::Scaled(ScaledSource {
+                factor,
+                quote,
+                min_factor_wad: 1,
+                max_factor_wad: usd(1_000_000),
+            })],
+        ),
+        tolerance: test_harness::tolerance_band(&t.env, DEFAULT_TOLERANCE.tolerance_bps),
+        independence: IndependencePolicy::RequireDisjoint,
+        min_sanity_price_wad: usd(2) - usd(2) / 100,
+        max_sanity_price_wad: usd(2) + usd(2) / 100,
+    }
+}
+
+// The mainnet AQUA/USTRY/CETES shape: the DEX oracle quotes in USDC and is
+// scaled by Token(USDC), so the product is honestly USD-denominated.
+#[test]
+fn test_quoted_reflector_accepted_as_scaled_factor_matching_its_base() {
+    let t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(xlm_preset())
+        .build();
+    let usdc = t.resolve_asset("USDC");
+    let xlm = t.resolve_asset("XLM");
+
+    let dex_usdc = register_dex_oracle(&t, &usdc);
+    test_harness::mock_reflector::MockReflectorClient::new(&t.env, &dex_usdc)
+        .set_price(&xlm, &usd(2));
+
+    let cfg = reflector_scaled_config(&t, &dex_usdc, &xlm, PriceKey::Token(usdc.clone()));
+    t.configure_market_oracle(&xlm, &cfg);
+}
+
+// The dangerous case the rule exists for: a factor denominated in one asset
+// multiplied by the price of another. With two near-1.0 stablecoins the result
+// is plausible and wrong, and no sanity band would catch it.
+#[test]
+#[should_panic(expected = "Error(Contract, #220)")]
+fn test_scaled_factor_rejected_when_quote_is_not_the_factor_base() {
+    let t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(xlm_preset())
+        .build();
+    let usdc = t.resolve_asset("USDC");
+    let xlm = t.resolve_asset("XLM");
+
+    // Quote by a market that is registered and is not the key being configured,
+    // so the config clears `validate_asset_oracle` and actually reaches attest:
+    // the oracle quotes in XLM while the factor is scaled by USDC's price.
+    let dex_xlm = register_dex_oracle(&t, &xlm);
+    test_harness::mock_reflector::MockReflectorClient::new(&t.env, &dex_xlm)
+        .set_price(&xlm, &usd(2));
+
+    let cfg = reflector_scaled_config(&t, &dex_xlm, &xlm, PriceKey::Token(usdc.clone()));
+    t.configure_market_oracle(&xlm, &cfg);
+}
+
+// A Ref names a synthetic reference with no on-chain asset identity, so the
+// pairing cannot be proven either way.
+#[test]
+#[should_panic(expected = "Error(Contract, #220)")]
+fn test_scaled_factor_rejected_when_quote_is_a_ref() {
+    let t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(xlm_preset())
+        .build();
+    let usdc = t.resolve_asset("USDC");
+    let xlm = t.resolve_asset("XLM");
+
+    let dex_usdc = register_dex_oracle(&t, &usdc);
+    test_harness::mock_reflector::MockReflectorClient::new(&t.env, &dex_usdc)
+        .set_price(&xlm, &usd(2));
+
+    // Register the Ref first so the config clears `validate_asset_oracle`, which
+    // would otherwise reject an unknown quote key with #216 before attest runs.
+    // The Ref genuinely prices USDC here — attest still rejects it, because a
+    // Ref carries no asset identity it could be checked against.
+    let quote = PriceKey::Ref(Symbol::new(&t.env, "USDCQUOTE"));
+    register_ref_oracle(&t, &quote, &usdc);
+
+    let cfg = reflector_scaled_config(&t, &dex_usdc, &xlm, quote);
+    t.configure_market_oracle(&xlm, &cfg);
+}
+
+// A USD-quoted contract needs no re-denomination; scaling it by a token price
+// would double-count. No Token key prices USD, so this is unrepresentable.
+#[test]
+#[should_panic(expected = "Error(Contract, #220)")]
+fn test_usd_quoted_reflector_rejected_as_scaled_factor() {
+    let t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(xlm_preset())
+        .build();
+    let usdc = t.resolve_asset("USDC");
+    let xlm = t.resolve_asset("XLM");
+
+    let usd_oracle = t
+        .env
+        .register(test_harness::mock_reflector::MockReflector, ());
+    let client = test_harness::mock_reflector::MockReflectorClient::new(&t.env, &usd_oracle);
+    client.set_decimals(&14);
+    client.set_resolution(&300);
+    client.set_price(&xlm, &usd(2));
+
+    let cfg = reflector_scaled_config(&t, &usd_oracle, &xlm, PriceKey::Token(usdc.clone()));
+    t.configure_market_oracle(&xlm, &cfg);
+}

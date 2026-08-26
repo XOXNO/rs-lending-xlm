@@ -1359,7 +1359,19 @@ validate_configs() {
                     esac
                     if [ -n "$dex" ] && [ "$pcontract" = "$dex" ] &&
                        printf '%s' "$sjson" | jq -e 'has("Feed")' >/dev/null; then
-                        vc_err "market ${m}: sources[$i] reads the Reflector DEX oracle as a bare Feed; its base is USDC, not USD, so attest rejects it — wrap it in Scaled with quote Token(USDC)"
+                        vc_err "market ${m}: sources[$i] reads the Reflector DEX oracle as a bare Feed; its base is USDC, not USD, so attest rejects it — wrap it in Scaled whose quote is Token(<the contract's base asset>), i.e. Token(USDC)"
+                    fi
+                    # attest pairs a Scaled factor's own quote currency against the
+                    # key it is multiplied by, so only a Token quote naming that
+                    # exact asset is provable on-chain.
+                    if printf '%s' "$sjson" | jq -e 'has("Scaled")' >/dev/null; then
+                        if printf '%s' "$sjson" | jq -e '.Scaled.quote | has("Ref")' >/dev/null; then
+                            vc_err "market ${m}: sources[$i] scales a Reflector factor by a Ref quote; a Ref has no on-chain asset identity so attest cannot prove it prices the contract's base — use Token(<base asset>)"
+                        fi
+                        if { [ -n "$cex" ] && [ "$pcontract" = "$cex" ]; } ||
+                           { [ -n "$fx" ] && [ "$pcontract" = "$fx" ]; }; then
+                            vc_err "market ${m}: sources[$i] wraps a USD-quoted Reflector oracle in Scaled; no Token key prices USD, and scaling one that is already USD-denominated would double-count — read it as a bare Feed"
+                        fi
                     fi
                     ;;
                 RedStone)

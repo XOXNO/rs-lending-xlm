@@ -489,3 +489,42 @@ impl ReflectorOracle for PlusOneReflector {
         Some(out)
     }
 }
+
+/// A Reflector oracle quoting in a Stellar token rather than in USD, the shape
+/// a DEX oracle has. Its base is set after registration so a test can pair it
+/// with the matching `PriceKey::Token` quote, which is what `attest` requires
+/// of a `Scaled` source's factor leg.
+#[contract]
+pub(crate) struct QuotedReflector;
+
+const QUOTED_BASE: Symbol = soroban_sdk::symbol_short!("qbase");
+
+#[contractimpl]
+impl QuotedReflector {
+    pub fn set_base(env: Env, asset: Address) {
+        env.storage().instance().set(&QUOTED_BASE, &asset);
+    }
+}
+
+#[contractimpl]
+impl ReflectorOracle for QuotedReflector {
+    fn base(env: Env) -> ReflectorAsset {
+        ReflectorAsset::Stellar(env.storage().instance().get(&QUOTED_BASE).unwrap())
+    }
+
+    fn decimals(_env: Env) -> u32 {
+        REFLECTOR_DECIMALS
+    }
+
+    fn resolution(_env: Env) -> u32 {
+        REFLECTOR_RESOLUTION_SECS
+    }
+
+    fn lastprice(_env: Env, _asset: ReflectorAsset) -> Option<ReflectorPriceData> {
+        None
+    }
+
+    fn prices(env: Env, _asset: ReflectorAsset, _records: u32) -> Option<Vec<ReflectorPriceData>> {
+        Some(twap_history(&env))
+    }
+}

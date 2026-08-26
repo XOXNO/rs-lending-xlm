@@ -209,7 +209,10 @@ fn test_configure_market_oracle_rejects_low_staleness() {
 fn test_configure_market_oracle_rejects_high_staleness() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let mut cfg = base_oracle_config(&t);
-    cfg.max_price_stale_seconds = 86_401;
+    // Tracks the constant rather than restating it, so raising the ceiling
+    // cannot silently turn this into a test of a now-legal value.
+    cfg.max_price_stale_seconds =
+        common::oracle::observation::MAX_PRICE_STALE_SECONDS.saturating_add(1);
     configure_usdc(&t, &cfg);
 }
 
