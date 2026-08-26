@@ -423,7 +423,7 @@ impl MockPool {
         let mut out = Vec::new(&env);
         for action in actions.iter() {
             let position = Ray::from(action.position.scaled_amount);
-            let burned = Ray::from_asset(action.amount, DECIMALS).min(position);
+            let burned = Ray::from_asset(&env, action.amount, DECIMALS).min(position);
             out.push_back(PoolPositionMutation {
                 position: ScaledPositionRaw {
                     scaled_amount: position.checked_sub(&env, burned).raw(),
@@ -858,6 +858,7 @@ fn transfer_mode_seizure_delta_is_gross_of_the_protocol_fee() {
 
 #[test]
 fn transfer_mode_seizure_delta_matches_the_share_burn_it_reports() {
+    let env = Env::default();
     let t = unhealthy_account();
     let before_scaled = COLLATERAL_TOKENS * RAY;
     let (_, emitted) = t.liquidate(SeizeMode::Transfer);
@@ -880,7 +881,7 @@ fn transfer_mode_seizure_delta_matches_the_share_burn_it_reports() {
     assert_eq!(burned, expected_burn.raw(), "shares burned cover the gross");
     assert_eq!(expected_gross, gross);
     assert!(
-        Ray::from(burned).to_asset_floor(DECIMALS) >= fee,
+        Ray::from(burned).to_asset_floor(&env, DECIMALS) >= fee,
         "the fee is carved out of shares the liquidated account gave up"
     );
 }
@@ -889,6 +890,7 @@ fn transfer_mode_seizure_delta_matches_the_share_burn_it_reports() {
 
 #[test]
 fn credit_mode_debits_the_victim_gross_and_credits_the_receiver_net() {
+    let env = Env::default();
     let t = unhealthy_account();
     let before = t.collateral_balance(&t.liquidator);
 
@@ -947,7 +949,7 @@ fn credit_mode_debits_the_victim_gross_and_credits_the_receiver_net() {
     );
     assert_eq!(
         victim.5 - receiver.5,
-        Ray::from(fee_shares).to_asset_floor(DECIMALS),
+        Ray::from(fee_shares).to_asset_floor(&env, DECIMALS),
         "the gap between the two batches is exactly the protocol fee"
     );
 }

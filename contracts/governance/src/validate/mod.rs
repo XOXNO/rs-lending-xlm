@@ -1,6 +1,7 @@
-//! Shared validation helpers used by the `asset` and `tolerance`
-//! submodules: contract-address existence/executability checks and wasm-hash
-//! zero checks used across governance validation.
+//! Shared validation helpers for governance: contract-address
+//! existence/executability checks and wasm-hash zero checks, used by `deploy`
+//! and `op`. The `asset` and `tolerance` submodules hold the asset-onboarding
+//! and oracle-tolerance validators.
 
 pub(crate) mod asset;
 pub(crate) mod tolerance;

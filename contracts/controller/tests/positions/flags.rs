@@ -354,7 +354,7 @@ fn persist_account_positions_removes_empty_account() {
     env.mock_all_auths();
     let admin = Address::generate(&env);
     let contract_id = env.register(Controller, (admin,));
-    // `cleanup_if_empty` burns the account's position NFT, so a real one must be
+    // `cleanup_account_if_empty` burns the account's position NFT, so a real one must be
     // registered and minted first.
     let nft = env.register(
         position_nft::PositionNft,

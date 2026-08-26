@@ -25,24 +25,24 @@ fn ray_div_floor_never_exceeds_half_up(e: Env, amount: i128, divisor: i128) {
 }
 
 #[rule]
-fn ray_asset_roundtrip_preserves_7_decimal_amount(amount: i128) {
+fn ray_asset_roundtrip_preserves_7_decimal_amount(e: Env, amount: i128) {
     cvlr_assume!((0..=1_000_000_000_000_000i128).contains(&amount));
 
-    let ray = Ray::from_asset(amount, 7);
-    cvlr_assert!(ray.to_asset(7) == amount);
+    let ray = Ray::from_asset(&e, amount, 7);
+    cvlr_assert!(ray.to_asset(&e, 7) == amount);
 }
 
 #[rule]
-fn wad_token_roundtrip_preserves_7_decimal_amount(amount: i128) {
+fn wad_token_roundtrip_preserves_7_decimal_amount(e: Env, amount: i128) {
     cvlr_assume!((0..=1_000_000_000_000_000i128).contains(&amount));
 
-    let wad = Wad::from_token(amount, 7);
-    cvlr_assert!(wad.to_token(7) == amount);
+    let wad = Wad::from_token(&e, amount, 7);
+    cvlr_assert!(wad.to_token(&e, 7) == amount);
 }
 
 #[rule]
-fn wad_to_ray_preserves_one() {
-    cvlr_assert!(Wad::ONE.to_ray().raw() == RAY);
+fn wad_to_ray_preserves_one(e: Env) {
+    cvlr_assert!(Wad::ONE.to_ray(&e).raw() == RAY);
 }
 
 #[rule]

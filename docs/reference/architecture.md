@@ -140,7 +140,7 @@ leg has its own tag.
 
 Two further shapes on the receiver's batch:
 
-- It is **supply-side only** (`PositionSides::SUPPLY`), so do not expect debt legs.
+- It is **supply-side only** (`PositionSides::Supply`), so do not expect debt legs.
 - It **omits any leg whose net credit is zero**, which is reachable when the fee
   consumes a one-share seizure whole.
 

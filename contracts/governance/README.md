@@ -9,7 +9,9 @@ delays, and Recovery reset are documented on the rustdoc entrypoints.
 | Roles | `PROPOSER`, `EXECUTOR`, `CANCELLER`, `GUARDIAN`, `ORACLE` |
 | Interface | `interfaces/governance` |
 
-Pending ops only keep `OperationLedger` storage; execute and cancel remove it.
+Pending ops keep `OperationLedger` storage plus a per-op sidecar entry for
+`RevokeGovRole` (`RoleRevocationTarget`) and canceller reset (`RecoveryOp`);
+execute and cancel remove the ledger entry and clear the sidecars.
 `salt` uniquifies re-proposes; `predecessor` is always `0`.
 
 ## Entrypoints

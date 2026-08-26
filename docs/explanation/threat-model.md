@@ -64,7 +64,7 @@ These paths commit immediately. A delay cannot absorb a key compromise here.
 | `pause` | GUARDIAN | Tightens only. Unpause is timelocked |
 | `set_spoke_asset_flags` | GUARDIAN | `require_flag_ratchet`. Flags move false to true only |
 | `create_hub`, `add_spoke` | GUARDIAN | Creates empty structures. It does not move value |
-| `set_sanity_band` | ORACLE role | **Not a ratchet.** See [Known gaps](#known-gaps) |
+| `set_sanity_band` | ORACLE role | Tighten-only ratchet. Widening is timelocked |
 | `revoke_role_immediate` | Governance owner | GUARDIAN and ORACLE roles only |
 | `upgrade` on the XOXNO oracle | Oracle owner | Nothing |
 | `upgrade`, `sweep_balance`, `set_referral_owner` on the swap aggregator | Router owner | Nothing |
@@ -87,7 +87,7 @@ delay is the same one that is currently set to about one minute. See
 | PROPOSER | Schedules typed timelocked operations |
 | EXECUTOR | Optional execution gate. Execution is permissionless when no executor is named |
 | CANCELLER | Cancels pending operations, except recovery operations |
-| ORACLE role | Writes sanity bands immediately |
+| ORACLE role | Narrows sanity bands immediately. Widening is timelocked |
 | Oracle signer | Submits signed price observations |
 | Keeper | Calls permissionless maintenance |
 | Token contract | May transfer an amount other than the requested one |
@@ -96,7 +96,7 @@ delay is the same one that is currently set to about one minute. See
 | External vault | May report arbitrary caller identity and NAV |
 
 The unprivileged mutation surface is declared, not implied.
-`make access-control-check` reports 206 entrypoints and 29 declared
+`make access-control-check` reports 207 entrypoints and 29 declared
 permissionless lines. `scripts/permissionless_entrypoints.txt` carries the
 justification and the `INV-*` identifier for each one.
 
@@ -216,10 +216,17 @@ defect. Nothing here is a theoretical concern.
 These must close before real value is at stake. They are ownership decisions,
 not code defects.
 
-**The swap-aggregator owner is a trust root outside governance.** `upgrade` is
-a bare `#[only_owner]` with no timelock. No `AdminOperation` can upgrade the
-router. Move that owner under governance, or accept a single-key dependency
-with no reaction window.
+**The swap-aggregator owner is a trust root outside governance unless the
+controller owns it.** The router's own `upgrade` is a bare `#[only_owner]` with
+no timelock. Governance can reach it only when the controller is the router's
+owner: `AdminOperation::UpgradeSwapAggregator` is a Sensitive-tier operation
+that calls the controller's `#[only_owner] upgrade_swap_aggregator`, which
+invokes the router's `upgrade` (`contracts/governance/src/op.rs:315`,
+`contracts/controller/src/markets.rs:123`). `make deploy-aggregator` defaults
+the router admin to the deploying signer, so verify the deployed owner: with a
+standalone key that timelocked path is unreachable and the router stays a trust
+root outside governance. The other owner powers below have no governance path
+at all.
 
 The router owner is more powerful than the fee cap suggests. Three further
 powers are immediate and uncapped:
@@ -279,20 +286,20 @@ position manager, the check is re-read at use time, and an NFT transfer revokes
 the grant. But the power granted is complete. User-facing documentation must
 state this plainly. "Drawn against the account" is not an adequate description.
 
-### The sanity band is not a ratchet
+### The sanity band tightens only
 
-`set_sanity_band` requires only that the new band intersect the old one.
-Repeated calls therefore walk the band anywhere. Three facts make this
-important:
+`set_sanity_band` rejects any widening: the new band must satisfy
+`min_wad >= stored min` and `max_wad <= stored max`, otherwise it panics with
+`SanityBandMustTighten` (`contracts/price-aggregator/src/admin.rs:197`). A
+compromised ORACLE key can therefore only narrow a band — still an instant,
+per-asset fail-closed kill switch — and restoring a wider band requires the
+timelocked `ConfigureAssetOracle`.
 
-1. The band is the only backstop for single-source and LP feeds.
-2. `validate_single_source_sanity_band` is a no-op for dual sources.
-3. It is the only pricing control with no reaction window. Every sibling
-   operation — `ConfigureAssetOracle`, `EditOracleTolerance`,
-   `SetPriceAggregator` — is timelocked.
-
-This works against the spirit of INV-AUTH-04. Treat the ORACLE key as
-price-critical custody.
+The residual risk is availability, not mispricing. The band is the only
+backstop for single-source and LP feeds, and narrowing it is the one pricing
+control with no reaction window; every sibling operation —
+`ConfigureAssetOracle`, `EditOracleTolerance`, `SetPriceAggregator` — is
+timelocked. Treat the ORACLE key as price-critical custody.
 
 ### Liquidation has no post-condition check
 
@@ -310,33 +317,29 @@ close, and seizure scaling can turn it into a partial close when a debt token
 under-delivers. A post-condition assertion would close the class rather than
 the case.
 
-### The router input pull is unmeasured
+### The router input pull is measured (closed)
 
-The swap aggregator credits its vault the **declared** input amount, not a
-measured balance delta. This is the only unmeasured inbound transfer in the
-protocol. `transfer_amount_measured` exists and is used correctly everywhere
-else.
+Previously listed here as an open gap. Closed in commit 9da53261: no residual
+risk remains on this path.
 
-With a fee-on-transfer input token, the router credits itself more than it
-received. The shortfall comes silently out of the accrued fee backing, after
-which referral and admin fee claims revert. The router has no token allowlist
-by design, so containment depends on measurement.
+`execute::run` credits its vault the `transfer_amount_measured` delta, not the
+declared `total_in` (`contracts/swap-aggregator/src/execute/mod.rs:81`), so a
+fee-on-transfer input token cannot draw the shortfall out of the accrued fee
+backing. The router has no token allowlist by design, so that measurement is
+the containment.
 
-### The oracle skew anchor is not clamped to ledger time
+### The oracle skew anchor is clamped to ledger time
 
-The submission cluster anchor is the maximum of **submitted** timestamps, with
-no clamp to ledger time, and the timestamp is a free argument that a signer
-chooses. A signer that submits at the future bound can raise the anchor and
-evict honest submissions from the cluster.
+`recompute_aggregate` takes the maximum of submitted package timestamps and
+then clamps it with `newest_ts.min(now * MS_PER_SECOND)`
+(`contracts/xoxno-oracle/src/aggregation.rs:125`), so a signer submitting at
+the future bound cannot raise the anchor and evict honest submissions from the
+cluster.
 
-The impact fails closed. The feed clears rather than being re-priced, so this
-is denial of service and not theft. It still matters, because a feed outage
-blocks **liquidation** as well as borrowing, and a feed kill during a price
-move converts positions into bad debt.
-
-The severe forms need a configuration choice, specifically a small
-`set_max_relative_skew_seconds` value or a minimum submission age. Treat this
-as a configuration hazard as well as a code defect.
+`set_max_relative_skew_seconds` remains a configuration lever worth reviewing.
+A skew window that is too narrow still clusters honest submissions apart and
+clears the feed, and a feed outage blocks **liquidation** as well as borrowing.
+Treat the window width as a configuration hazard.
 
 ### The dust gate and the configured floor can drift apart
 

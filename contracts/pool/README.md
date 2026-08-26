@@ -53,9 +53,10 @@ already guaranteed upstream:
 | `scaled_amount` maps to a real position | controller position ledger |
 | Tokens arrived before any cash-crediting call | controller payment path |
 
-The flash guard wraps every external-router call, so it covers six controller
-entrypoints: `flash_loan`, `migrate_from_blend`, and the swap-routed
-`multiply`, `swap_debt`, `swap_collateral` and
+The flash guard wraps every external-router and external-receiver call, so it
+covers seven controller entrypoints: `flash_loan`, `flash_position`,
+`migrate_from_blend`, and the swap-routed `multiply`, `swap_debt`,
+`swap_collateral` and
 `repay_debt_with_collateral`. The last row is the load-bearing one: `supply`,
 `repay` and `recapitalize` all credit `cash` on the controller's word, without
 verifying the transfer. `cash` is a bookkeeping number.
@@ -69,7 +70,7 @@ equality.
 | --- | --- | --- |
 | `create_market` | Verify params, write state, indexes at `RAY` | — |
 | `update_params` | Accrue on the **old** curve, then replace the rate model | — |
-| `update_indexes` | Accrue to now; commit only if time elapsed | — |
+| `update_indexes` | Accrue each market in the vec; commit only if time elapsed | — |
 | `supply` | Mint supply shares, credit cash | in |
 | `borrow` | Mint debt shares, debit cash, transfer | out |
 | `withdraw` | Burn supply shares, withhold liquidation fee, transfer net | out |
@@ -102,7 +103,7 @@ controller.
 | `__constructor` | `fn __constructor(env: Env, admin: Address)` | deployer, once | Sets `admin` as the Ownable owner. |
 | `create_market` | `fn create_market(env: Env, hub_id: u32, params: MarketParamsRaw)` | owner | Creates the market for `(hub_id, params.asset_id)` with both indexes at `RAY`. |
 | `update_params` | `fn update_params(env: Env, hub_asset: HubAssetKey, model: InterestRateModel)` | owner | Accrues on the old curve, then writes the new rate model. |
-| `update_indexes` | `fn update_indexes(env: Env, hub_asset: HubAssetKey)` | owner | Accrues one market to now, and writes only if time elapsed. |
+| `update_indexes` | `fn update_indexes(env: Env, hub_assets: Vec<HubAssetKey>)` | owner | Accrues each market to now, and writes only if time elapsed. |
 | `supply` | `fn supply(env: Env, entries: Vec<PoolSupplyEntry>) -> Vec<PoolPositionMutation>` | owner | Mints supply shares and credits cash, one mutation returned per entry. |
 | `borrow` | `fn borrow(env: Env, receiver: Address, entries: Vec<PoolBorrowEntry>) -> Vec<PoolPositionMutation>` | owner | Mints debt shares, debits cash, and transfers the asset to `receiver`. |
 | `withdraw` | `fn withdraw(env: Env, receiver: Address, is_liquidation: bool, entries: Vec<PoolWithdrawEntry>) -> Vec<PoolPositionMutation>` | owner | Burns supply shares and transfers the net amount to `receiver`. |
@@ -252,16 +253,12 @@ util → borrow rate (curve) → e^x (compound) → borrow index
 Bounds: `MAX_BORROW_INDEX_RAY` and `MAX_SUPPLY_INDEX_RAY` at `1e36`;
 `SUPPLY_INDEX_FLOOR_RAW` at `RAY/1000` floors bad-debt write-down.
 
-**`compound_interest` is an unrolled 8-term series, deliberately.**
-Straight-line code with no data-dependent branch is what Certora's SMT backend
-needs; an
-early-exit loop would be cheaper per call but multiplies paths and forces a loop
-bound or hand-written invariant. Gas is also constant regardless of staleness.
-The cost is a bounded one-directional truncation: at `x = 2` (`max_borrow_rate`
-at its `2 × RAY` cap, a full untouched year) the series gives `7.387302` against
-`e² = 7.389056` — a **0.024% under-estimate**, never an over-estimate. Reaching
-it means suppressing all activity on a 200%-APR market for a year.
-**Do not refactor this into a loop.**
+**`compound_interest` is a fixed 8th-order Taylor series** (`1 + x + x²/2! + … +
+x⁸/8!`, nine terms) in `common/src/rates/compound.rs`. The divisors are a constant list;
+there is no early-exit. At `x = 2` (`max_borrow_rate` at its `2 × RAY` cap, a
+full untouched year) the series gives `7.387302` against `e² = 7.389056` — a
+**0.024% under-estimate**, never an over-estimate. Reaching it means suppressing
+all activity on a 200%-APR market for a year.
 
 ## Guards
 
@@ -297,9 +294,9 @@ Two asymmetries are policy, not oversight:
 Exit is *not* unconditionally available. `require_utilization_below_max` still
 applies to non-liquidation withdrawals, and it is an absolute post-state test —
 burning supply shares raises utilization, so once utilization reaches the cap no
-withdrawal of any size passes, and interest accrual alone pushes it there. The
-reserved amount is the `1 - max_utilization` liquidation buffer; it is released
-by repayment, or consumed by liquidation, which bypasses the guard.
+withdrawal of any size passes, and interest accrual alone pushes it there. That
+cap leftover (`1 - max_utilization`) is not the 2% cash buffer above. It is
+released by repayment, or consumed by liquidation, which bypasses the guard.
 
 `require_utilization_below_max` early-returns when `max_utilization >= RAY`, so
 setting it to exactly `RAY` disables the cap for that market.
@@ -332,8 +329,9 @@ The denominator is positive, so the sign follows `(B−S)`. With `B < S`
 a market already past every cap. Directed rounding can still move one share
 at the token boundary. Hence no utilization gate here.
 
-**`create_strategy`** computes its fee before minting debt, so `amount == 0`
-fails with `StrategyFeeExceeds` rather than `AmountMustBePositive`.
+**`create_strategy`** computes its fee before minting debt. `amount == 0` with
+`charge_fee` and a positive `flashloan_fee` fails `StrategyFeeExceeds` (min fee
+is 1). Otherwise `mint_debt` rejects zero with `AmountMustBePositive`.
 
 **`repay`** and **`recapitalize`** refund from pool cash without debiting it,
 correct only because the controller transferred the full amount in first.
@@ -382,7 +380,7 @@ cache/        # Cache: load a market, mutate by named transition, commit
   shares.rs   #   mint/burn supply and debt, revenue mechanics
   cash.rs     #   credit/debit, require_reserves, transfer_out
   report.rs   #   index setters, snapshot, controller-facing mutations
-interest.rs   # every index movement: accrual, revenue, rewards, bad debt
+interest.rs   # lands accrual (via common::rates::accrue_step), revenue, bad debt
 guards.rs     # utilization, backing, solvency
 storage.rs    # the only place PoolKey is built, read, written, renewed
 views.rs      # checkpoint reads behind the view ABI
@@ -391,7 +389,8 @@ time.rs       # ledger clock in milliseconds
 ```
 
 Shared math lives in [`common`](../../common): `math/fp.rs` (`Ray`, `Wad`,
-`Bps`), `math/fp_core.rs` (`I256`-backed mul-div), `rates/` (curve, compound,
+`Bps`), `math/fp_core.rs` (`i128` mul-div, widening to `I256` only on overflow),
+`rates/` (curve, compound,
 index, scaling, simulate), `types/pool.rs` (ABI types and `verify`).
 
 Persistent entries renew on every read; the instance renews at the top of each
@@ -426,7 +425,7 @@ Formal verification runs profiles, not features. Do not confuse the two.
 
 A **profile** is a named list of `.conf` files in
 [`certora/profiles.json`](../../certora/profiles.json). It is what you pass to
-`make certora`. There are six:
+`make certora`. There are seven:
 
 ```bash
 make certora-wasm                          # build the Certora Wasm first
@@ -434,6 +433,7 @@ make certora CERTORA_PROFILE=sanity        # the default when unset
 make certora CERTORA_PROFILE=core
 make certora CERTORA_PROFILE=fast
 make certora CERTORA_PROFILE=heavy
+make certora CERTORA_PROFILE=flash-position
 make certora CERTORA_PROFILE=manual
 make certora CERTORA_PROFILE=all
 make certora-list                          # print the confs in each profile

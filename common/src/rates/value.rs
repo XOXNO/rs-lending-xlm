@@ -14,7 +14,7 @@ use crate::math::fp::{Ray, Wad};
 #[inline]
 pub fn position_value(env: &Env, scaled: Ray, index: Ray, price: Wad) -> Wad {
     let actual = scaled.mul(env, index);
-    let actual_wad = actual.to_wad();
+    let actual_wad = actual.to_wad(env);
     actual_wad.mul(env, price)
 }
 
@@ -24,7 +24,7 @@ pub fn position_value(env: &Env, scaled: Ray, index: Ray, price: Wad) -> Wad {
 #[inline]
 pub fn position_value_floor(env: &Env, scaled: Ray, index: Ray, price: Wad) -> Wad {
     let actual = scaled.mul_floor(env, index);
-    let actual_wad = actual.to_wad_floor();
+    let actual_wad = actual.to_wad_floor(env);
     actual_wad.mul_floor(env, price)
 }
 
@@ -34,7 +34,7 @@ pub fn position_value_floor(env: &Env, scaled: Ray, index: Ray, price: Wad) -> W
 #[inline]
 pub fn position_value_ceil(env: &Env, scaled: Ray, index: Ray, price: Wad) -> Wad {
     let actual = scaled.mul_ceil(env, index);
-    let actual_wad = actual.to_wad_ceil();
+    let actual_wad = actual.to_wad_ceil(env);
     actual_wad.mul_ceil(env, price)
 }
 

@@ -202,7 +202,7 @@ fn apply_entry_stores_single_add_not_dual_add() {
     let asset = Address::generate(&env);
     let key = hub(&asset);
     // decimals=7: 1 asset unit as ray = 10^(27-7). Cap is asset units; usage is scaled ray.
-    let unit = Ray::from_asset(1, 7).raw();
+    let unit = Ray::from_asset(&env, 1, 7).raw();
     let prior = 3 * unit;
     let delta = 2 * unit;
     let cap_asset = 10;
@@ -243,9 +243,9 @@ fn apply_entry_at_exact_cap_succeeds() {
     let contract = new_controller(&env);
     let asset = Address::generate(&env);
     let key = hub(&asset);
-    // Cap 5 asset units at index RAY → scaled = from_asset(5, 7).
+    // Cap 5 asset units at index RAY → scaled = from_asset(env, 5, 7).
     let cap_asset = 5;
-    let delta = Ray::from_asset(5, 7).raw();
+    let delta = Ray::from_asset(&env, 5, 7).raw();
     env.as_contract(&contract, || {
         let mut ctx = SpokeUsageContext::new(&env, 1);
         ctx.apply_entry(

@@ -34,4 +34,4 @@ src/
 - Full withdraw clears `VaultAccount` immediately so a later deposit opens a
   fresh account (no stale mapping).
 - Two vaults never share a lending account.
-- TTL: extend vault mapping when below ~30d, up to ~180d.
+- TTL: extend vault mapping when below ~30d, up to ~120d.

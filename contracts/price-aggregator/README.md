@@ -33,8 +33,11 @@ All reads are bulk: there is no single-key `price` or `quote` call. Pass a
 | `set_sanity_band` | `set_sanity_band(env: Env, key: PriceKey, min_wad: i128, max_wad: i128)` | owner | Sets the accepted USD range. Live-probes before committing. |
 | `set_tolerance` | `set_tolerance(env: Env, key: PriceKey, tolerance: OracleTolerance)` | owner | Sets the dual-source disagreement tolerance. Live-probes before committing. |
 
-`set_sanity_band` applies no ratchet: the owner can widen the band as well as
-tighten it, and the change takes effect immediately.
+`set_sanity_band` applies a one-way ratchet on the immediate (no-timelock)
+path: the owner may only narrow the band (`min_wad` >= the current min and
+`max_wad` <= the current max), never widen it — a widening call panics with
+`SanityBandMustTighten`. Widening must go through the timelocked
+`ConfigureAssetOracle` path.
 
 Two further entrypoints, `seed_oracle` and `remove_oracle`, are compiled only
 under `cfg(test)` or the `testing` feature. They write the registry directly,
@@ -49,9 +52,13 @@ The controller lifts `Address` to `PriceKey::Token` before calling.
 lib.rs          # contract entrypoints + session orchestration
 session.rs      # clock, stack, multi-feed warm, memos
 engine.rs       # resolve → Outcome → force | to_status
-admin.rs        # storage, attest, validate, set_*, events
+admin.rs        # set_oracle / set_sanity_band / set_tolerance, attest, cascade
+registry.rs     # persistent oracle storage, key index, config event
+validation.rs   # write-time config checks (sources, depth, staleness, decimals)
+tolerance.rs    # dual-source disagreement bounds
+observation.rs  # provider payload → normalized WAD observation
 properties.rs   # write-time dependency walk
-providers/      # multi_feed (bulk) + reflector
+providers/      # aquarius (LP) + multi_feed (bulk) + reflector
 interfaces/…    # client ABI mirror
 ```
 

@@ -2,8 +2,10 @@
 //! (`prefetch_strategy_prices`, `snapshot_balances`, `strategy_finalize`),
 //! `legs.rs` for controller-custody position primitives (repay, withdraw,
 //! withdraw-all, net-settle through the controller's own balance), and
-//! `swap.rs` for the router trust boundary. Every strategy ends in
-//! `strategy_finalize`: restamp LTV, post-pool risk gates, finalize.
+//! `swap.rs` for the router trust boundary. Every account-touching strategy
+//! ends in `strategy_finalize`: restamp LTV, post-pool risk gates, finalize.
+//! `flash_loan.rs` is the exception: it settles entirely inside the pool call
+//! and never opens or mutates an account.
 
 #[cfg(test)]
 #[path = "../../tests/strategies/mod.rs"]

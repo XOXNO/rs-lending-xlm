@@ -36,16 +36,21 @@ struct Ctx<'a> {
     program: &'a Program,
 }
 
-/// Runs the strategy encoded in `payload` for `sender`: pulls `total_in` of the input token,
+/// Runs the strategy encoded in `payload` for `sender`: pulls up to `total_in` of the input
+/// token and credits the vault the measured delta rather than the declared amount (F-1),
 /// executes the decoded instruction stream, applies static and referral fees, and delivers
 /// `token_out` back to `sender`, returning the amount delivered.
 ///
-/// Fees are taken on the input token unless only the output token is fee-whitelisted, in which
-/// case they are taken on the output instead, and any leftover vault balance is accrued as fee
-/// revenue after payout.
+/// Fees are charged only when the payload carries an active referral id. In that case they are
+/// taken on the input token unless only the output token is fee-whitelisted, in which case they
+/// are taken on the output instead; with `referral_id == 0`, or an unknown or deactivated
+/// referral, no static or referral fee is charged on either token (see
+/// [`fees::apply_fees_on_token`]). Leftover vault balance is accrued as admin fee revenue after
+/// payout, independently of that path, but only up to `residual_allowance(credited)` per token.
 ///
 /// Requires `sender`'s authorization, and panics if `total_in` or the declared minimum output is
-/// not positive, or if the delivered output falls below the minimum.
+/// not positive, if the delivered output falls below the minimum, or if a token's leftover
+/// balance exceeds its residual allowance ([`Error::ExcessiveResidual`]).
 pub(crate) fn run(env: Env, sender: Address, total_in: i128, payload: StrategyPayload) -> i128 {
     sender.require_auth();
 

@@ -226,9 +226,13 @@ impl ControllerInterface for Controller {
     }
 
     /// Opens or extends a leveraged position on `account_id`: borrows
-    /// `debt_to_flash_loan` of `debt`, swaps it (plus any optional initial
-    /// payment) into `collateral` via `swap`, and deposits the result as
-    /// collateral. Returns the account id.
+    /// `debt_to_flash_loan` of `debt`, swaps it into `collateral` via `swap`,
+    /// and deposits the result as collateral. An optional `initial_payment` is
+    /// pulled from the caller and folded in by asset: a collateral-denominated
+    /// payment is added straight to the deposit, a debt-denominated payment
+    /// joins the `swap` leg, and any other asset is converted into `collateral`
+    /// via `convert_swap`, which must be supplied for that case or the call
+    /// reverts with `ConvertStepsRequired`. Returns the account id.
     #[when_not_paused]
     fn multiply(
         env: Env,
@@ -313,9 +317,11 @@ impl ControllerInterface for Controller {
     }
 
     /// Repays `account_id`'s `debt` position using `collateral_amount` of
-    /// `collateral`, netting them directly when the two assets match or
-    /// swapping via `swap` otherwise. Withdraws all remaining collateral if
-    /// `close_position` is set and no debt remains afterward.
+    /// `collateral`, netting them directly when the two assets match (in which
+    /// case `swap` must be empty) or swapping via `swap` otherwise. When
+    /// `close_position` is set, withdraws all remaining collateral to the
+    /// caller, and reverts with `CannotCloseWithRemainingDebt` if any debt is
+    /// still open after the repayment.
     #[when_not_paused]
     fn repay_debt_with_collateral(
         env: Env,

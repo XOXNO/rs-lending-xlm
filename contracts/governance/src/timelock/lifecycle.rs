@@ -21,8 +21,8 @@ use crate::timelock::*;
 /// Schedules `op` for later execution and returns its operation id; requires the
 /// caller to hold `PROPOSER_ROLE`. For a `RevokeGovRole` operation, rejects the
 /// proposer targeting themselves or the owner and records the target account so
-/// it cannot later cancel its own revocation; for `TransferGovOwnership`, requires
-/// the proposer to be the current owner. The operation's delay is derived from the
+/// it cannot later cancel its own revocation; for `TransferGovOwnership` and
+/// `TransferCtrlOwnership`, requires the proposer to be the current owner. The operation's delay is derived from the
 /// resolved operation's delay tier.
 pub(crate) fn propose(
     env: &Env,
@@ -40,7 +40,8 @@ pub(crate) fn propose(
                 GenericError::NotAuthorized
             );
         }
-        crate::op::AdminOperation::TransferGovOwnership(_) => {
+        crate::op::AdminOperation::TransferGovOwnership(_)
+        | crate::op::AdminOperation::TransferCtrlOwnership(_) => {
             assert_with_error!(
                 env,
                 proposer == &access::owner_or_panic(env),

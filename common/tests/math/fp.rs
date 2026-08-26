@@ -31,14 +31,16 @@ fn test_ray_add_overflow_panics() {
 
 #[test]
 fn test_ray_div_by_int() {
+    let env = Env::default();
     let x = Ray::from(7);
-    assert_eq!(x.div_by_int(2).raw(), 4);
+    assert_eq!(x.div_by_int(&env, 2).raw(), 4);
 }
 
 #[test]
 fn test_ray_to_wad() {
+    let env = Env::default();
     let r = Ray::from(RAY);
-    let w = r.to_wad();
+    let w = r.to_wad(&env);
     assert_eq!(w.raw(), WAD);
 }
 
@@ -66,21 +68,24 @@ fn test_ray_div_ceil() {
 
 #[test]
 fn test_ray_from_asset() {
-    let r = Ray::from_asset(10_000_000, 7);
+    let env = Env::default();
+    let r = Ray::from_asset(&env, 10_000_000, 7);
     assert_eq!(r.raw(), RAY);
 }
 
 #[test]
 fn test_ray_to_asset() {
+    let env = Env::default();
     let r = Ray::from(RAY);
-    assert_eq!(r.to_asset(7), 10_000_000);
+    assert_eq!(r.to_asset(&env, 7), 10_000_000);
 }
 
 #[test]
 fn test_ray_asset_roundtrip() {
+    let env = Env::default();
     let original = 12_345_678;
-    let ray = Ray::from_asset(original, 7);
-    assert_eq!(ray.to_asset(7), original);
+    let ray = Ray::from_asset(&env, original, 7);
+    assert_eq!(ray.to_asset(&env, 7), original);
 }
 
 #[test]
@@ -128,21 +133,24 @@ fn test_wad_div_floor_saturating() {
 
 #[test]
 fn test_wad_from_token() {
-    let w = Wad::from_token(1_000_000, 6);
+    let env = Env::default();
+    let w = Wad::from_token(&env, 1_000_000, 6);
     assert_eq!(w.raw(), 1_000_000_000_000_000_000);
 }
 
 #[test]
 fn test_wad_to_token() {
+    let env = Env::default();
     let w = Wad::from(WAD);
-    assert_eq!(w.to_token(6), 1_000_000);
-    assert_eq!(w.to_token(7), 10_000_000);
+    assert_eq!(w.to_token(&env, 6), 1_000_000);
+    assert_eq!(w.to_token(&env, 7), 10_000_000);
 }
 
 #[test]
 fn test_wad_to_ray() {
+    let env = Env::default();
     let w = Wad::from(WAD);
-    assert_eq!(w.to_ray().raw(), RAY);
+    assert_eq!(w.to_ray(&env).raw(), RAY);
 }
 
 #[test]
@@ -273,7 +281,8 @@ fn test_ray_checked_sub_chain() {
 
 #[test]
 fn test_ray_from_asset_high_decimals() {
-    let r = Ray::from_asset(1, 0);
+    let env = Env::default();
+    let r = Ray::from_asset(&env, 1, 0);
     assert_eq!(r.raw(), RAY);
 }
 
@@ -370,7 +379,8 @@ fn test_ray_checked_sub_equal_returns_zero() {
 
 #[test]
 fn test_ray_from_asset_at_ray_decimals_is_identity() {
-    let r = Ray::from_asset(12345, 27);
+    let env = Env::default();
+    let r = Ray::from_asset(&env, 12345, 27);
     assert_eq!(r.raw(), 12345);
 }
 
@@ -501,14 +511,16 @@ fn test_bps_checked_sub_underflow_panics() {
 
 #[test]
 fn test_wad_from_token_at_wad_decimals_is_identity() {
-    let w = Wad::from_token(98765, 18);
+    let env = Env::default();
+    let w = Wad::from_token(&env, 98765, 18);
     assert_eq!(w.raw(), 98765);
 }
 
 #[test]
 fn test_wad_to_token_half_unit_rounds_up() {
+    let env = Env::default();
     let half = Wad::from(1_500_000_000_000i128);
-    assert_eq!(half.to_token(6), 2);
+    assert_eq!(half.to_token(&env, 6), 2);
 }
 
 #[test]
@@ -537,8 +549,9 @@ fn test_bps_to_wad_above_one_does_not_panic() {
 
 #[test]
 fn test_ray_div_by_int_negative_rounds_away_from_zero() {
+    let env = Env::default();
     let x = Ray::from(-7);
-    assert_eq!(x.div_by_int(2).raw(), -4);
+    assert_eq!(x.div_by_int(&env, 2).raw(), -4);
 }
 
 #[test]
@@ -634,19 +647,21 @@ fn test_wad_checked_sub_returns_difference() {
 
 #[test]
 fn test_ray_to_asset_floor_pins_concrete_output() {
+    let env = Env::default();
     let r = Ray::from(RAY + RAY / 2);
-    assert_eq!(r.to_asset_floor(7), 15_000_000);
+    assert_eq!(r.to_asset_floor(&env, 7), 15_000_000);
 
     let r2 = Ray::from(RAY + RAY * 999_999 / 1_000_000);
-    assert_eq!(r2.to_asset_floor(0), 1);
+    assert_eq!(r2.to_asset_floor(&env, 0), 1);
 }
 
 #[test]
 fn test_ray_to_asset_ceil_pins_concrete_output() {
+    let env = Env::default();
     let r = Ray::from(RAY + RAY / 2);
-    assert_eq!(r.to_asset_ceil(0), 2);
+    assert_eq!(r.to_asset_ceil(&env, 0), 2);
 
-    assert_eq!(Ray::ONE.to_asset_ceil(7), 10_000_000);
+    assert_eq!(Ray::ONE.to_asset_ceil(&env, 7), 10_000_000);
 }
 
 #[test]
@@ -667,12 +682,13 @@ fn test_ray_mul_ceil_vs_floor_brackets_half_up() {
 
 #[test]
 fn test_ray_to_wad_floor_and_ceil() {
+    let env = Env::default();
     let r = Ray::from(RAY + 1);
-    assert_eq!(r.to_wad_floor().raw(), WAD);
-    assert_eq!(r.to_wad_ceil().raw(), WAD + 1);
+    assert_eq!(r.to_wad_floor(&env).raw(), WAD);
+    assert_eq!(r.to_wad_ceil(&env).raw(), WAD + 1);
 
-    assert_eq!(Ray::ONE.to_wad_floor().raw(), WAD);
-    assert_eq!(Ray::ONE.to_wad_ceil().raw(), WAD);
+    assert_eq!(Ray::ONE.to_wad_floor(&env).raw(), WAD);
+    assert_eq!(Ray::ONE.to_wad_ceil(&env).raw(), WAD);
 }
 
 #[test]
@@ -694,11 +710,12 @@ fn test_wad_mul_floor_and_ceil_bracket_half_up() {
 
 #[test]
 fn test_wad_to_token_floor_rounds_down() {
+    let env = Env::default();
     let w = Wad::from(1_999_999_500_000_000_000i128);
-    assert_eq!(w.to_token(6), 2_000_000);
-    assert_eq!(w.to_token_floor(6), 1_999_999);
+    assert_eq!(w.to_token(&env, 6), 2_000_000);
+    assert_eq!(w.to_token_floor(&env, 6), 1_999_999);
 
-    assert_eq!(Wad::ONE.to_token_floor(6), 1_000_000);
+    assert_eq!(Wad::ONE.to_token_floor(&env, 6), 1_000_000);
 }
 
 #[test]
@@ -746,10 +763,11 @@ fn max_representable_units(decimals: u32) -> i128 {
 
 #[test]
 fn test_ray_from_asset_ceiling_holds_across_the_listable_decimal_range() {
+    let env = Env::default();
     // MIN_ASSET_DECIMALS ..= MAX_ASSET_DECIMALS is 3 ..= 18.
     for decimals in 3u32..=18 {
         let ceiling = max_representable_units(decimals);
-        let ray = Ray::from_asset(ceiling, decimals);
+        let ray = Ray::from_asset(&env, ceiling, decimals);
 
         assert!(
             ray.raw() > 0,
@@ -762,7 +780,11 @@ fn test_ray_from_asset_ceiling_holds_across_the_listable_decimal_range() {
             i128::MAX - ray.raw() < unit_in_ray,
             "ceiling is not tight at {decimals} decimals",
         );
-        assert_eq!(ray.to_asset(decimals), ceiling, "roundtrip at the ceiling");
+        assert_eq!(
+            ray.to_asset(&env, decimals),
+            ceiling,
+            "roundtrip at the ceiling"
+        );
     }
 }
 
@@ -781,15 +803,17 @@ fn test_balance_ceiling_is_the_same_whole_token_count_at_every_decimals() {
 }
 
 #[test]
-#[should_panic(expected = "rescale upscale overflow")]
+#[should_panic(expected = "Error(Contract, #33)")]
 fn test_ray_from_asset_one_unit_above_the_ceiling_overflows_at_min_decimals() {
-    let _ = Ray::from_asset(max_representable_units(3) + 1, 3);
+    let env = Env::default();
+    let _ = Ray::from_asset(&env, max_representable_units(3) + 1, 3);
 }
 
 #[test]
-#[should_panic(expected = "rescale upscale overflow")]
+#[should_panic(expected = "Error(Contract, #33)")]
 fn test_ray_from_asset_one_unit_above_the_ceiling_overflows_at_max_decimals() {
-    let _ = Ray::from_asset(max_representable_units(18) + 1, 18);
+    let env = Env::default();
+    let _ = Ray::from_asset(&env, max_representable_units(18) + 1, 18);
 }
 
 /// The exact-roundtrip property `certora/common/spec/math_rules.rs` asserts in
@@ -804,10 +828,11 @@ fn test_ray_from_asset_one_unit_above_the_ceiling_overflows_at_max_decimals() {
 /// the half-up branch is never taken; `1e15 * 1e20 = 1e35` is well inside i128.
 #[test]
 fn ray_asset_roundtrip_is_exact_over_the_certora_range() {
+    let env = Env::default();
     const MAX: i128 = 1_000_000_000_000_000; // the rule's cvlr_assume upper bound
 
     let check = |amount: i128| {
-        let back = Ray::from_asset(amount, 7).to_asset(7);
+        let back = Ray::from_asset(&env, amount, 7).to_asset(&env, 7);
         assert_eq!(
             back, amount,
             "Ray asset roundtrip lost value: {amount} -> {back}"
@@ -846,10 +871,11 @@ fn ray_asset_roundtrip_is_exact_over_the_certora_range() {
 /// exponent (10^11).
 #[test]
 fn wad_token_roundtrip_is_exact_over_the_certora_range() {
+    let env = Env::default();
     const MAX: i128 = 1_000_000_000_000_000;
 
     let check = |amount: i128| {
-        let back = Wad::from_token(amount, 7).to_token(7);
+        let back = Wad::from_token(&env, amount, 7).to_token(&env, 7);
         assert_eq!(
             back, amount,
             "Wad token roundtrip lost value: {amount} -> {back}"
@@ -877,13 +903,14 @@ fn wad_token_roundtrip_is_exact_over_the_certora_range() {
 /// scaled per-`d` rather than assuming one bound fits all.
 #[test]
 fn ray_asset_roundtrip_is_exact_across_decimals() {
+    let env = Env::default();
     for decimals in 0u32..=18 {
         let headroom = 27u32 - decimals.min(27);
         // Keep amount * 10^headroom inside i128 (~1.7e38), with a decade spare.
         let exp = 37u32.saturating_sub(headroom).min(30);
         let max = 10i128.pow(exp);
         for amount in [0i128, 1, 7, max / 3, max - 1, max] {
-            let back = Ray::from_asset(amount, decimals).to_asset(decimals);
+            let back = Ray::from_asset(&env, amount, decimals).to_asset(&env, decimals);
             assert_eq!(
                 back, amount,
                 "Ray asset roundtrip lost value at {decimals} decimals: {amount} -> {back}"

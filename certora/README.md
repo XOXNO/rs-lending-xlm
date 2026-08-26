@@ -67,17 +67,21 @@ ordinary WASM validation.
 | fast | Stable math, rate, integrity, and light controller properties |
 | core | Main audit set: solvency, liquidation, strategies, pool accounting, and oracle rules |
 | heavy | Expensive targeted proofs |
+| flash-position | Focused flash-position strategy rules: its sanity conf plus its full conf |
 | manual | Core plus heavy |
 | all | Sanity, fast, core, and heavy |
 
 Start with sanity. Run fast or core for a relevant change. Use heavy only for
 the targeted surface or an intentional full verification run.
 
-The repository holds 343 rules across 103 conf files and 6 profiles. Reproduce
+The repository holds 353 rules across 105 conf files and 7 profiles. Reproduce
 those numbers with:
 
     grep -rh '#\[rule\]' certora --include='*.rs' | wc -l
-    find certora -name '*.conf' | wc -l
+    find certora -name '*.conf' -not -path '*/.certora_internal/*' | wc -l
+
+The `-not -path` filter skips the gitignored `.certora_internal/` prover build
+directory, which holds copies of confs that are not part of the suite.
 
 `certora/scripts/check_orphans.py` confirms that confs, rules and profiles stay
 in sync. It reports every rule that no conf runs and every conf that names a

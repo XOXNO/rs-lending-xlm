@@ -65,10 +65,14 @@ impl XoxnoOracle {
     /// submission and recomputes each feed's aggregate.
     ///
     /// Faults are reported in that chain's order — unregistered signer,
-    /// length mismatch, future timestamp, stale timestamp, unknown feed,
-    /// non-monotonic timestamp, then price — so a batch carrying two
-    /// different faults reports whichever comes first in that list, not the
-    /// one in the earliest entry.
+    /// length mismatch, future timestamp, stale timestamp, then the per-feed
+    /// pass (unknown feed / non-monotonic timestamp), then price — so a batch
+    /// carrying two different faults reports whichever comes first in that
+    /// list, not the one in the earliest entry. The unknown-feed and
+    /// non-monotonic checks are the exception: they run interleaved per
+    /// entry, so between those two the earlier entry decides. Example:
+    /// `[known-but-non-monotonic, unknown]` reports `StaleSubmission`, not
+    /// `FeedNotKnown`.
     pub fn submit_prices(
         env: Env,
         signer: Address,

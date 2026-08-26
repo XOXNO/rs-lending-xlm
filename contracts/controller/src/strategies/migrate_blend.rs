@@ -132,9 +132,10 @@ pub(crate) fn process_migrate_blend(
     account_id
 }
 
-/// For each `(debt_asset, max)` in `debt_caps`, borrows `max` from the hub
-/// into the controller as new debt for `account`, then repays that asset's
-/// Blend debt. Any borrowed amount Blend did not consume is repaid straight
+/// Borrows `max` from the hub into the controller as new debt for `account`
+/// for every `(debt_asset, max)` in `debt_caps`, then repays the Blend debt
+/// for all of them in one `blend_repay_all` call. Any borrowed amount Blend
+/// did not consume is repaid straight
 /// back against the new hub debt so `account` ends up owing only what Blend
 /// actually needed. No-op when `debt_caps` is empty.
 fn execute_migration_debt_leg(

@@ -348,6 +348,7 @@ fn cap_domain_rejects_i128_max_at_max_listable_decimals() {
 /// See docs/reference/numeric-bounds.md §3-§5.
 #[test]
 fn cap_ceiling_is_exactly_the_largest_representable_balance() {
+    let env = Env::default();
     use crate::math::fp::Ray;
 
     for decimals in crate::constants::MIN_ASSET_DECIMALS..=crate::constants::MAX_ASSET_DECIMALS {
@@ -355,7 +356,7 @@ fn cap_ceiling_is_exactly_the_largest_representable_balance() {
 
         // Representable at the ceiling …
         assert_eq!(
-            Ray::from_asset(ceiling, decimals).to_asset(decimals),
+            Ray::from_asset(&env, ceiling, decimals).to_asset(&env, decimals),
             ceiling
         );
 
@@ -406,7 +407,7 @@ fn cap_at_domain_ceiling_saturates_under_a_floored_supply_index() {
 
     let scaled = mul_div_floor_saturating(
         &env,
-        Ray::from_asset(ceiling, 7).raw(),
+        Ray::from_asset(&env, ceiling, 7).raw(),
         crate::constants::RAY,
         SUPPLY_INDEX_FLOOR_RAW,
     );

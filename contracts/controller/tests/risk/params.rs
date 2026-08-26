@@ -153,7 +153,7 @@ fn refresh_writes_ltv_but_holds_tuple_when_gate_rejects() {
         borrow_positions.set(
             hub.clone(),
             DebtPositionRaw {
-                scaled_amount: Ray::from_asset(100_0000000, 7).raw(),
+                scaled_amount: Ray::from_asset(&env, 100_0000000, 7).raw(),
             },
         );
         let account = Account {
@@ -331,7 +331,7 @@ fn refresh_returns_false_when_gate_holds_and_ltv_already_matches() {
         borrow_positions.set(
             hub.clone(),
             DebtPositionRaw {
-                scaled_amount: Ray::from_asset(100_0000000, 7).raw(),
+                scaled_amount: Ray::from_asset(&env, 100_0000000, 7).raw(),
             },
         );
         let account = Account {

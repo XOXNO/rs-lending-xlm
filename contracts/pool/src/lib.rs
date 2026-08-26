@@ -290,7 +290,14 @@ impl LiquidityPoolInterface for LiquidityPool {
         views::borrow_rate(&env, &hub_asset)
     }
 
-    /// Claimable protocol revenue in asset units (floored unscale of revenue shares).
+    /// Protocol revenue in asset units at the **stored** supply index (floored
+    /// unscale of revenue shares). This view does not accrue interest first.
+    ///
+    /// `claim_revenue` syncs the market before paying, so it pays
+    /// `min(cash, revenue)` computed on post-accrual state. The amount actually
+    /// paid can therefore be higher than this value (accrual pending since the
+    /// last market write mints further revenue shares) or lower (the cash cap
+    /// binds when the market is heavily utilized).
     fn get_revenue(env: Env, hub_asset: HubAssetKey) -> i128 {
         views::protocol_revenue(&env, &hub_asset)
     }

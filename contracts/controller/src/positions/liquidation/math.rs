@@ -45,7 +45,8 @@ impl LiquidationPlan {
     /// Validates the repayment leg totals and asserts every seizure entry is internally
     /// consistent, panicking with `GenericError::InternalError` otherwise: a positive asset
     /// amount with a protocol fee between zero and that amount (the `Transfer` representation),
-    /// and a positive scaled amount whose bonus base does not exceed it (the `Credit`
+    /// a positive scaled amount whose bonus base does not exceed it, and a stamped
+    /// `liquidation_fees` rate strictly below `BPS` (the `Credit`
     /// representation). The `Credit` split itself is re-derived and re-checked by
     /// [`split_seized_shares`] at every use site.
     pub(crate) fn validate(&self, env: &Env) {
@@ -230,7 +231,7 @@ pub(crate) fn sum_repaid_usd(env: &Env, repaid_tokens: &Vec<RepayEntry>) -> Wad 
 fn sum_repaid_usd_ceil(env: &Env, repaid_tokens: &Vec<RepayEntry>) -> Wad {
     let mut total = Wad::ZERO;
     for entry in repaid_tokens.iter() {
-        let value = Wad::from_token(entry.amount, entry.feed.asset_decimals)
+        let value = Wad::from_token(env, entry.amount, entry.feed.asset_decimals)
             .mul_ceil(env, Wad::from(entry.feed.price_wad));
         total = total.checked_add(env, value);
     }
@@ -281,7 +282,7 @@ pub(crate) fn calculate_seized_collateral(
         let seizure_for_asset_usd = total_seizure_usd.mul(env, share);
 
         let seizure_amount_wad = seizure_for_asset_usd.div(env, feed.price);
-        let seizure_ray = seizure_amount_wad.to_ray();
+        let seizure_ray = seizure_amount_wad.to_ray(env);
 
         if seizure_ray <= Ray::ZERO {
             continue;
@@ -298,7 +299,7 @@ pub(crate) fn calculate_seized_collateral(
         // The base is the leg's own repayment share, not the clamped seizure
         // divided back out: once the seizure clamps there is no bonus to take a
         // cut of, and dividing the clamp by (1 + bonus) invents one.
-        let base_ray = seizure_ray.div_floor(env, one_plus_bonus.to_ray());
+        let base_ray = seizure_ray.div_floor(env, one_plus_bonus.to_ray(env));
         // A seizure clamped below the repayment share is a bad-debt close with no
         // excess at all. Ray::checked_sub traps on a negative result, so guard.
         let bonus_ray = if capped_ray > base_ray {
@@ -327,9 +328,9 @@ pub(crate) fn calculate_seized_collateral(
         }
 
         let capped_amount = if is_full_close {
-            capped_ray.to_asset(feed.asset_decimals)
+            capped_ray.to_asset(env, feed.asset_decimals)
         } else {
-            capped_ray.to_asset_floor(feed.asset_decimals)
+            capped_ray.to_asset_floor(env, feed.asset_decimals)
         };
         if capped_amount <= 0 {
             continue;
@@ -342,7 +343,7 @@ pub(crate) fn calculate_seized_collateral(
             market_index.supply_index,
             feed.asset_decimals,
         );
-        let fee_asset = protocol_fee_ray.to_asset_floor(feed.asset_decimals);
+        let fee_asset = protocol_fee_ray.to_asset_floor(env, feed.asset_decimals);
         let bumped_fee = if protocol_fee_ray > Ray::ZERO && fee_asset == 0 {
             1
         } else {
@@ -512,11 +513,11 @@ fn process_excess_payment(
         }
         if usd > remaining_excess_usd {
             let ratio = remaining_excess_usd.div_floor(env, usd);
-            let refund_amount = Wad::from_token(entry.amount, entry.feed.asset_decimals)
+            let refund_amount = Wad::from_token(env, entry.amount, entry.feed.asset_decimals)
                 .mul_floor(env, ratio)
-                .to_token_floor(entry.feed.asset_decimals);
+                .to_token_floor(env, entry.feed.asset_decimals);
             let new_amount = entry.amount - refund_amount;
-            let new_usd = Wad::from_token(new_amount, entry.feed.asset_decimals)
+            let new_usd = Wad::from_token(env, new_amount, entry.feed.asset_decimals)
                 .mul(env, Wad::from(entry.feed.price_wad));
             refunds.push_back(PaymentTuple {
                 asset: entry.hub_asset.asset.clone(),

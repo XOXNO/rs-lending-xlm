@@ -14,7 +14,7 @@ fn test_compound_interest_accuracy() {
     let env = Env::default();
 
     let annual_rate = Ray::from(RAY / 10);
-    let rate_per_ms = annual_rate.div_by_int(MILLISECONDS_PER_YEAR as i128);
+    let rate_per_ms = annual_rate.div_by_int(&env, MILLISECONDS_PER_YEAR as i128);
     let factor = compound_interest(&env, rate_per_ms, MILLISECONDS_PER_YEAR);
 
     let expected_e_010 = 1_105_170_918_075_647_624_811_707_826_i128;
@@ -68,13 +68,13 @@ fn test_compound_interest_matches_the_unrolled_taylor_expansion() {
 
         let terms = [
             x,
-            x_sq.div_by_int(2),
-            x_cub.div_by_int(6),
-            x_pow4.div_by_int(24),
-            x_pow5.div_by_int(120),
-            x_pow6.div_by_int(720),
-            x_pow7.div_by_int(5_040),
-            x_pow8.div_by_int(40_320),
+            x_sq.div_by_int(env, 2),
+            x_cub.div_by_int(env, 6),
+            x_pow4.div_by_int(env, 24),
+            x_pow5.div_by_int(env, 120),
+            x_pow6.div_by_int(env, 720),
+            x_pow7.div_by_int(env, 5_040),
+            x_pow8.div_by_int(env, 40_320),
         ];
         let mut sum = Ray::ONE;
         for term in terms {

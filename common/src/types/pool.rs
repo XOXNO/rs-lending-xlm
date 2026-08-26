@@ -158,9 +158,10 @@ pub struct InterestRateModel {
 impl InterestRateModel {
     /// Validates that the rate curve is well-formed: a non-negative base rate, non-decreasing
     /// slopes up through the max borrow rate, a max rate within bounds and above the base
-    /// rate, an increasing and in-range utilization breakpoint sequence, a reserve factor
-    /// below 100%, and a flashloan fee within the configured maximum. Panics if any of these
-    /// checks fails.
+    /// rate, a utilization breakpoint sequence that is strictly increasing through
+    /// `optimal_utilization` and non-decreasing to `max_utilization`
+    /// (`0 < mid < optimal < RAY`, `optimal <= max <= RAY`), a reserve factor below 100%, and
+    /// a flashloan fee within the configured maximum. Panics if any of these checks fails.
     pub fn verify(&self, env: &Env) {
         assert_with_error!(
             env,
@@ -215,8 +216,11 @@ impl InterestRateModel {
     }
 }
 
-/// Wire form of a supply position: ray-scaled amount plus the risk parameters it was seeded
-/// with at open (basis points as raw `u32`).
+/// Wire form of a supply position: ray-scaled amount plus the risk parameters stamped on the
+/// position (basis points as raw `u32`). The stamp is seeded when the position is opened and
+/// re-synced against the current spoke asset config on later supply legs and by the restamp
+/// keeper; changes that favour the liquidator are gated for accounts carrying debt (see
+/// `apply_gated_liquidation_params`).
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AccountPositionRaw {

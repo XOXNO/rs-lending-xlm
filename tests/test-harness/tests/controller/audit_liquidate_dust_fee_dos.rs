@@ -61,8 +61,8 @@ fn audit_liquidate_contracts_dust_fee_full_close_dos() {
 
     let scaled = alice_xlm_scaled(&t);
     let value_ray = Ray::from(scaled).mul(&t.env, Ray::from(xlm_supply_index(&t)));
-    let half_up = value_ray.to_asset(7);
-    let floor = value_ray.to_asset_floor(7);
+    let half_up = value_ray.to_asset(&t.env, 7);
+    let floor = value_ray.to_asset_floor(&t.env, 7);
     std::println!("residual XLM leg: half_up={half_up} floor={floor} (scaled={scaled})");
     assert_eq!(half_up, 1, "residual must round half-up to 1 raw unit");
     assert_eq!(floor, 0, "residual must floor to 0 raw units");

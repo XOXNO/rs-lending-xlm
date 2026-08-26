@@ -75,44 +75,54 @@ fn try_mul_div_half_up_rejects_non_positive_divisor_or_negatives() {
 
 #[test]
 fn test_rescale_upscale() {
-    assert_eq!(rescale_half_up(1_000_000, 6, 18), 1_000_000_000_000_000_000);
+    let env = Env::default();
+    assert_eq!(
+        rescale_half_up(&env, 1_000_000, 6, 18),
+        1_000_000_000_000_000_000
+    );
 }
 
 #[test]
 fn test_rescale_downscale() {
-    assert_eq!(rescale_half_up(WAD, 18, 6), 1_000_000);
+    let env = Env::default();
+    assert_eq!(rescale_half_up(&env, WAD, 18, 6), 1_000_000);
 }
 
 #[test]
 fn test_rescale_downscale_rounding() {
-    assert_eq!(rescale_half_up(1_500_000_000_000, 18, 6), 2);
+    let env = Env::default();
+    assert_eq!(rescale_half_up(&env, 1_500_000_000_000, 18, 6), 2);
 }
 
 #[test]
 fn test_rescale_downscale_negative_rounds_away_from_zero() {
-    assert_eq!(rescale_half_up(-1_500_000_000_000, 18, 6), -2);
+    let env = Env::default();
+    assert_eq!(rescale_half_up(&env, -1_500_000_000_000, 18, 6), -2);
 
-    assert_eq!(rescale_half_up(-100_000_000_000, 18, 6), 0);
+    assert_eq!(rescale_half_up(&env, -100_000_000_000, 18, 6), 0);
 }
 
 #[test]
-#[should_panic(expected = "rescale upscale overflow")]
+#[should_panic(expected = "Error(Contract, #33)")]
 fn test_rescale_upscale_overflow_panics_explicitly() {
+    let env = Env::default();
     let huge = 10i128.pow(20);
-    rescale_half_up(huge, 0, 27);
+    rescale_half_up(&env, huge, 0, 27);
 }
 
 #[test]
 fn test_div_by_int_half_up() {
-    assert_eq!(div_by_int_half_up(7, 2), 4);
-    assert_eq!(div_by_int_half_up(6, 4), 2);
+    let env = Env::default();
+    assert_eq!(div_by_int_half_up(&env, 7, 2), 4);
+    assert_eq!(div_by_int_half_up(&env, 6, 4), 2);
 }
 
 #[test]
 fn test_div_by_int_half_up_negative_rounds_away_from_zero() {
-    assert_eq!(div_by_int_half_up(-7, 2), -4);
-    assert_eq!(div_by_int_half_up(-6, 4), -2);
-    assert_eq!(div_by_int_half_up(-5, 4), -1);
+    let env = Env::default();
+    assert_eq!(div_by_int_half_up(&env, -7, 2), -4);
+    assert_eq!(div_by_int_half_up(&env, -6, 4), -2);
+    assert_eq!(div_by_int_half_up(&env, -5, 4), -1);
 }
 
 #[test]
@@ -133,14 +143,76 @@ fn test_mul_div_half_up_overflow_panics() {
 }
 
 #[test]
-fn test_mul_div_floor_negative_truncates_toward_zero() {
+fn test_mul_div_floor_rounds_toward_negative_infinity() {
     let env = Env::default();
 
-    assert_eq!(mul_div_floor(&env, -7, 1, 3), -2);
+    // -7/3 = -2.33 -> floor is -3, not the -2 that truncation would give.
+    assert_eq!(mul_div_floor(&env, -7, 1, 3), -3);
 
+    // Exact quotients are unaffected by the rounding direction.
     assert_eq!(mul_div_floor(&env, -6, 1, 3), -2);
 
     assert_eq!(mul_div_floor(&env, 7, 1, 3), 2);
+
+    // A negative divisor puts the quotient on the same side.
+    assert_eq!(mul_div_floor(&env, 7, 1, -3), -3);
+    assert_eq!(mul_div_floor(&env, -7, 1, -3), 2);
+}
+
+#[test]
+fn test_mul_div_ceil_rounds_toward_positive_infinity() {
+    let env = Env::default();
+
+    assert_eq!(mul_div_ceil(&env, 7, 1, 3), 3);
+
+    // -7/3 = -2.33 -> ceil is -2; the pre-fix body returned -1 here.
+    assert_eq!(mul_div_ceil(&env, -7, 1, 3), -2);
+
+    assert_eq!(mul_div_ceil(&env, -6, 1, 3), -2);
+
+    assert_eq!(mul_div_ceil(&env, 7, 1, -3), -2);
+    assert_eq!(mul_div_ceil(&env, -7, 1, -3), 3);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #55)")]
+fn test_mul_div_floor_zero_divisor_is_typed_division_by_zero() {
+    let env = Env::default();
+    let _ = mul_div_floor(&env, 1, 1, 0);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #55)")]
+fn test_mul_div_ceil_zero_divisor_is_typed_division_by_zero() {
+    let env = Env::default();
+    let _ = mul_div_ceil(&env, 1, 1, 0);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #55)")]
+fn test_mul_div_floor_saturating_zero_divisor_is_typed_division_by_zero() {
+    let env = Env::default();
+    let _ = mul_div_floor_saturating(&env, 1, 1, 0);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #55)")]
+fn test_div_by_int_half_up_zero_divisor_is_typed_division_by_zero() {
+    let env = Env::default();
+    let _ = div_by_int_half_up(&env, 1, 0);
+}
+
+#[test]
+fn test_mul_div_floor_saturating_saturates_toward_the_sign_of_the_quotient() {
+    let env = Env::default();
+    assert_eq!(
+        mul_div_floor_saturating(&env, i128::MAX, i128::MAX, 1),
+        i128::MAX
+    );
+    assert_eq!(
+        mul_div_floor_saturating(&env, i128::MAX, i128::MAX, -1),
+        i128::MIN
+    );
 }
 
 #[test]
@@ -174,130 +246,160 @@ fn test_mul_div_ceil_overflow_panics() {
 
 #[test]
 fn test_rescale_downscale_exact_half_rounds_up() {
-    assert_eq!(rescale_half_up(5, 1, 0), 1);
+    let env = Env::default();
+    assert_eq!(rescale_half_up(&env, 5, 1, 0), 1);
 
-    assert_eq!(rescale_half_up(50, 2, 0), 1);
+    assert_eq!(rescale_half_up(&env, 50, 2, 0), 1);
 }
 
 #[test]
 fn test_rescale_downscale_negative_exact_half() {
-    assert_eq!(rescale_half_up(-5, 1, 0), -1);
-    assert_eq!(rescale_half_up(-50, 2, 0), -1);
+    let env = Env::default();
+    assert_eq!(rescale_half_up(&env, -5, 1, 0), -1);
+    assert_eq!(rescale_half_up(&env, -50, 2, 0), -1);
 }
 
 #[test]
 fn test_rescale_same_decimals_returns_input() {
-    assert_eq!(rescale_half_up(42, 18, 18), 42);
-    assert_eq!(rescale_half_up(i128::MAX, 18, 18), i128::MAX);
-    assert_eq!(rescale_half_up(i128::MIN, 7, 7), i128::MIN);
-    assert_eq!(rescale_half_up(0, 0, 0), 0);
+    let env = Env::default();
+    assert_eq!(rescale_half_up(&env, 42, 18, 18), 42);
+    assert_eq!(rescale_half_up(&env, i128::MAX, 18, 18), i128::MAX);
+    assert_eq!(rescale_half_up(&env, i128::MIN, 7, 7), i128::MIN);
+    assert_eq!(rescale_half_up(&env, 0, 0, 0), 0);
 }
 
 #[test]
-#[should_panic(expected = "rescale factor overflow")]
-fn test_rescale_downscale_factor_overflow_panics() {
-    let _ = rescale_half_up(0, 50, 11);
+fn test_rescale_downscale_factor_larger_than_i128_saturates_to_zero() {
+    let env = Env::default();
+    // 10^39 does not fit i128, so it exceeds every representable `a`: the
+    // quotient is 0 for floor and half-up, and 1 for ceil on a positive `a`.
+    assert_eq!(rescale_half_up(&env, 0, 50, 11), 0);
+    assert_eq!(rescale_half_up(&env, i128::MAX, 50, 11), 0);
+    assert_eq!(rescale_half_up(&env, i128::MIN, 50, 11), 0);
+    assert_eq!(rescale_floor(&env, i128::MAX, 50, 11), 0);
+    assert_eq!(rescale_ceil(&env, i128::MAX, 50, 11), 1);
+    assert_eq!(rescale_ceil(&env, 0, 50, 11), 0);
+    assert_eq!(rescale_ceil(&env, i128::MIN, 50, 11), 0);
 }
 
 #[test]
 fn test_rescale_downscale_near_max_does_not_overflow() {
+    let env = Env::default();
     let expected = i128::MAX / 10 + if i128::MAX % 10 >= 5 { 1 } else { 0 };
-    assert_eq!(rescale_half_up(i128::MAX, 1, 0), expected);
+    assert_eq!(rescale_half_up(&env, i128::MAX, 1, 0), expected);
 }
 
 #[test]
-#[should_panic(expected = "div_by_int_half_up rounding overflow")]
+#[should_panic(expected = "Error(Contract, #33)")]
 fn test_div_by_int_half_up_addition_overflow_panics() {
-    let _ = div_by_int_half_up(i128::MAX, 2);
+    let env = Env::default();
+    let _ = div_by_int_half_up(&env, i128::MAX, 2);
 }
 
 #[test]
 fn test_div_by_int_half_up_negative_exact_half() {
-    assert_eq!(div_by_int_half_up(-1, 2), -1);
-    assert_eq!(div_by_int_half_up(-3, 2), -2);
+    let env = Env::default();
+    assert_eq!(div_by_int_half_up(&env, -1, 2), -1);
+    assert_eq!(div_by_int_half_up(&env, -3, 2), -2);
 }
 
 #[test]
 fn test_rescale_floor_identity_returns_input() {
-    assert_eq!(rescale_floor(123_456_789, 7, 7), 123_456_789);
-    assert_eq!(rescale_floor(i128::MAX, 18, 18), i128::MAX);
-    assert_eq!(rescale_floor(0, 27, 27), 0);
+    let env = Env::default();
+    assert_eq!(rescale_floor(&env, 123_456_789, 7, 7), 123_456_789);
+    assert_eq!(rescale_floor(&env, i128::MAX, 18, 18), i128::MAX);
+    assert_eq!(rescale_floor(&env, 0, 27, 27), 0);
 }
 
 #[test]
 fn test_rescale_floor_upscale_is_exact() {
-    assert_eq!(rescale_floor(1, 6, 18), 1_000_000_000_000);
+    let env = Env::default();
+    assert_eq!(rescale_floor(&env, 1, 6, 18), 1_000_000_000_000);
 
-    assert_eq!(rescale_floor(7, 0, 7), 70_000_000);
+    assert_eq!(rescale_floor(&env, 7, 0, 7), 70_000_000);
 }
 
 #[test]
 fn test_rescale_floor_downscale_truncates_toward_zero() {
-    assert_eq!(rescale_floor(19, 1, 0), 1);
+    let env = Env::default();
+    assert_eq!(rescale_floor(&env, 19, 1, 0), 1);
 
-    assert_eq!(rescale_floor(1_999_999, 6, 0), 1);
+    assert_eq!(rescale_floor(&env, 1_999_999, 6, 0), 1);
 }
 
 #[test]
-#[should_panic(expected = "rescale factor overflow")]
+#[should_panic(expected = "Error(Contract, #33)")]
 fn test_rescale_floor_upscale_factor_overflow_panics() {
-    let _ = rescale_floor(1, 0, 39);
+    let env = Env::default();
+    let _ = rescale_floor(&env, 1, 0, 39);
 }
 
 #[test]
-#[should_panic(expected = "rescale upscale overflow")]
+#[should_panic(expected = "Error(Contract, #33)")]
 fn test_rescale_floor_upscale_value_overflow_panics() {
-    let _ = rescale_floor(i128::MAX, 0, 1);
+    let env = Env::default();
+    let _ = rescale_floor(&env, i128::MAX, 0, 1);
 }
 
 #[test]
 fn test_rescale_ceil_identity_returns_input() {
-    assert_eq!(rescale_ceil(987_654, 5, 5), 987_654);
-    assert_eq!(rescale_ceil(0, 0, 0), 0);
+    let env = Env::default();
+    assert_eq!(rescale_ceil(&env, 987_654, 5, 5), 987_654);
+    assert_eq!(rescale_ceil(&env, 0, 0, 0), 0);
 }
 
 #[test]
 fn test_rescale_ceil_upscale_is_exact() {
-    assert_eq!(rescale_ceil(3, 0, 6), 3_000_000);
-    assert_eq!(rescale_ceil(1, 6, 18), 1_000_000_000_000);
+    let env = Env::default();
+    assert_eq!(rescale_ceil(&env, 3, 0, 6), 3_000_000);
+    assert_eq!(rescale_ceil(&env, 1, 6, 18), 1_000_000_000_000);
 }
 
 #[test]
 fn test_rescale_ceil_downscale_rounds_up_on_remainder() {
-    assert_eq!(rescale_ceil(11, 1, 0), 2);
+    let env = Env::default();
+    assert_eq!(rescale_ceil(&env, 11, 1, 0), 2);
 
-    assert_eq!(rescale_ceil(10, 1, 0), 1);
+    assert_eq!(rescale_ceil(&env, 10, 1, 0), 1);
 
-    assert_eq!(rescale_ceil(1_999_999, 6, 0), 2);
+    assert_eq!(rescale_ceil(&env, 1_999_999, 6, 0), 2);
 }
 
 #[test]
 fn test_rescale_ceil_downscale_negative_truncates_toward_zero() {
-    assert_eq!(rescale_ceil(-11, 1, 0), -1);
+    let env = Env::default();
+    assert_eq!(rescale_ceil(&env, -11, 1, 0), -1);
 }
 
 #[test]
-#[should_panic(expected = "rescale factor overflow")]
+#[should_panic(expected = "Error(Contract, #33)")]
 fn test_rescale_ceil_upscale_factor_overflow_panics() {
-    let _ = rescale_ceil(1, 0, 39);
+    let env = Env::default();
+    let _ = rescale_ceil(&env, 1, 0, 39);
 }
 
 #[test]
-#[should_panic(expected = "rescale upscale overflow")]
+#[should_panic(expected = "Error(Contract, #33)")]
 fn test_rescale_ceil_upscale_value_overflow_panics() {
-    let _ = rescale_ceil(i128::MAX, 0, 1);
+    let env = Env::default();
+    let _ = rescale_ceil(&env, i128::MAX, 0, 1);
 }
 
 #[test]
 fn test_rescale_floor_downscale_to_nonzero_decimals() {
-    assert_eq!(rescale_floor(1_999_999_999, 9, 6), 1_999_999);
-    assert_eq!(rescale_floor(5_000_000_000_000_000_000, 18, 6), 5_000_000);
+    let env = Env::default();
+    assert_eq!(rescale_floor(&env, 1_999_999_999, 9, 6), 1_999_999);
+    assert_eq!(
+        rescale_floor(&env, 5_000_000_000_000_000_000, 18, 6),
+        5_000_000
+    );
 }
 
 #[test]
 fn test_rescale_ceil_downscale_to_nonzero_decimals() {
-    assert_eq!(rescale_ceil(1_000_000_001, 9, 6), 1_000_001);
-    assert_eq!(rescale_ceil(1_000_000_000, 9, 6), 1_000_000);
+    let env = Env::default();
+    assert_eq!(rescale_ceil(&env, 1_000_000_001, 9, 6), 1_000_001);
+    assert_eq!(rescale_ceil(&env, 1_000_000_000, 9, 6), 1_000_000);
 }
 
 /// `mul_div_floor_saturating` is the only mul_div variant that does NOT panic on
@@ -351,6 +453,7 @@ fn mul_div_floor_saturating_matches_floor_below_saturation() {
 /// negative, zero, exact-multiple and half-boundary inputs in both directions.
 #[test]
 fn test_rescale_variants_match_their_pre_refactor_bodies() {
+    let env = Env::default();
     fn ref_half_up(a: i128, from: u32, to: u32) -> i128 {
         if from == to {
             return a;
@@ -428,17 +531,17 @@ fn test_rescale_variants_match_their_pre_refactor_bodies() {
             -123_456_789,
         ] {
             assert_eq!(
-                rescale_half_up(a, from, to),
+                rescale_half_up(&env, a, from, to),
                 ref_half_up(a, from, to),
                 "half_up {a} {from}->{to}"
             );
             assert_eq!(
-                rescale_floor(a, from, to),
+                rescale_floor(&env, a, from, to),
                 ref_floor(a, from, to),
                 "floor {a} {from}->{to}"
             );
             assert_eq!(
-                rescale_ceil(a, from, to),
+                rescale_ceil(&env, a, from, to),
                 ref_ceil(a, from, to),
                 "ceil {a} {from}->{to}"
             );

@@ -17,8 +17,8 @@ Three core contracts (strict ownership chain: Governance owns Controller owns Po
 - **Governance** — owns the controller; timelocks admin changes. GUARDIAN can
   **pause** immediately; **unpause is timelocked** (`AdminOperation::Unpause`).
   Same shape for per-listing halt flags: GUARDIAN `set_spoke_asset_flags`
-  **ratchets** (may only tighten `paused`/`frozen`); clearing those flags is
-  timelocked via `AdminOperation::EditAssetInSpoke`.
+  **ratchets** (may only tighten `paused`, `frozen`, and `no_seize`); clearing
+  any of the three is timelocked via `AdminOperation::EditAssetInSpoke`.
 - **Controller** — the only user-facing contract: accounts, risk checks,
   oracle validation, liquidations, flash loans, and strategies. It is the
   sole caller of the pool for all mutations.

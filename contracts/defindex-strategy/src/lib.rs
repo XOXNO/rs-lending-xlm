@@ -172,7 +172,7 @@ impl<'a> Ctx<'a> {
             .supply_index;
 
         // Floor rescale RAY (27 dec) → PPS (12 dec); matches prior `index / (RAY/1e12)`.
-        Ok(Ray::from(supply_index).to_asset_floor(PPS_DECIMALS))
+        Ok(Ray::from(supply_index).to_asset_floor(self.env, PPS_DECIMALS))
     }
 
     /// Wraps `amount` in a single-entry payment vector keyed by the

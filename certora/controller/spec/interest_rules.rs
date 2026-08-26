@@ -71,7 +71,7 @@ fn borrow_rate_zero_utilization(e: Env) {
     } else {
         params.base_borrow_rate.raw()
     };
-    let expected = div_by_int_half_up(annual, MILLISECONDS_PER_YEAR as i128);
+    let expected = div_by_int_half_up(&e, annual, MILLISECONDS_PER_YEAR as i128);
 
     cvlr_assert!(rate.raw() == expected);
 }
@@ -101,7 +101,11 @@ fn borrow_rate_capped(e: Env) {
     cvlr_assume!((0..=RAY).contains(&utilization));
 
     let rate = calculate_borrow_rate(&e, Ray::from(utilization), &params);
-    let cap = div_by_int_half_up(params.max_borrow_rate.raw(), MILLISECONDS_PER_YEAR as i128);
+    let cap = div_by_int_half_up(
+        &e,
+        params.max_borrow_rate.raw(),
+        MILLISECONDS_PER_YEAR as i128,
+    );
 
     cvlr_assert!(rate.raw() <= cap + 1);
     cvlr_assert!(rate.raw() >= 0);
@@ -189,7 +193,7 @@ fn compound_interest_monotonic_in_time(e: Env) {
     let t2: u64 = cvlr::nondet::nondet();
 
     cvlr_assume!(rate >= 0);
-    cvlr_assume!(rate <= div_by_int_half_up(RAY, MILLISECONDS_PER_YEAR as i128));
+    cvlr_assume!(rate <= div_by_int_half_up(&e, RAY, MILLISECONDS_PER_YEAR as i128));
     cvlr_assume!(t1 > 0);
     cvlr_assume!(t1 < t2);
     cvlr_assume!(t2 <= MILLISECONDS_PER_YEAR);
@@ -208,7 +212,7 @@ fn compound_interest_monotonic_in_rate(e: Env) {
 
     cvlr_assume!(r1 > 0);
     cvlr_assume!(r1 < r2);
-    cvlr_assume!(r2 <= div_by_int_half_up(RAY, MILLISECONDS_PER_YEAR as i128));
+    cvlr_assume!(r2 <= div_by_int_half_up(&e, RAY, MILLISECONDS_PER_YEAR as i128));
     cvlr_assume!(t > 0 && t <= MILLISECONDS_PER_YEAR);
 
     let factor1 = compound_interest(&e, Ray::from(r1), t);
@@ -222,7 +226,7 @@ fn compound_interest_ge_simple(e: Env) {
     let rate: i128 = cvlr::nondet::nondet();
     let t: u64 = cvlr::nondet::nondet();
 
-    let max_rate = div_by_int_half_up(RAY, MILLISECONDS_PER_YEAR as i128);
+    let max_rate = div_by_int_half_up(&e, RAY, MILLISECONDS_PER_YEAR as i128);
     cvlr_assume!(rate >= 0 && rate <= max_rate);
     cvlr_assume!(t > 0 && t <= MILLISECONDS_PER_YEAR);
 

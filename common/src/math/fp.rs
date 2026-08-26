@@ -33,7 +33,10 @@ impl Ray {
     pub const ONE: Ray = Ray(RAY);
     pub const ZERO: Ray = Ray(0);
 
-    /// Wraps a raw ray-scaled integer.
+    /// Wraps a raw ray-scaled integer. Does not validate the value: the
+    /// non-negative domain is a call-site obligation, not an enforced
+    /// invariant, because checking every construction would cost more than the
+    /// arithmetic it guards.
     #[inline]
     pub fn from(v: impl Into<i128>) -> Self {
         Ray(v.into())
@@ -66,8 +69,8 @@ impl Ray {
     }
 
     /// Divides this value by the plain integer `n`, rounding half up.
-    pub fn div_by_int(self, n: i128) -> Ray {
-        Ray(fp_core::div_by_int_half_up(self.0, n))
+    pub fn div_by_int(self, env: &Env, n: i128) -> Ray {
+        Ray(fp_core::div_by_int_half_up(env, self.0, n))
     }
 
     /// Multiplies two ray values, truncating the result toward zero.
@@ -86,33 +89,48 @@ impl Ray {
     }
 
     /// Converts to a `Wad`, rounding half up from 27 to 18 decimals.
-    pub fn to_wad(self) -> Wad {
-        Wad(fp_core::rescale_half_up(self.0, RAY_DECIMALS, WAD_DECIMALS))
+    pub fn to_wad(self, env: &Env) -> Wad {
+        Wad(fp_core::rescale_half_up(
+            env,
+            self.0,
+            RAY_DECIMALS,
+            WAD_DECIMALS,
+        ))
     }
 
     /// Converts to a `Wad`, truncating toward zero from 27 to 18 decimals.
-    pub(crate) fn to_wad_floor(self) -> Wad {
-        Wad(fp_core::rescale_floor(self.0, RAY_DECIMALS, WAD_DECIMALS))
+    pub(crate) fn to_wad_floor(self, env: &Env) -> Wad {
+        Wad(fp_core::rescale_floor(
+            env,
+            self.0,
+            RAY_DECIMALS,
+            WAD_DECIMALS,
+        ))
     }
 
     /// Converts to a `Wad`, rounding up from 27 to 18 decimals.
-    pub(crate) fn to_wad_ceil(self) -> Wad {
-        Wad(fp_core::rescale_ceil(self.0, RAY_DECIMALS, WAD_DECIMALS))
+    pub(crate) fn to_wad_ceil(self, env: &Env) -> Wad {
+        Wad(fp_core::rescale_ceil(
+            env,
+            self.0,
+            RAY_DECIMALS,
+            WAD_DECIMALS,
+        ))
     }
 
     /// Rescales from 27 decimals to `asset_decimals`, rounding half up.
-    pub fn to_asset(self, asset_decimals: u32) -> i128 {
-        fp_core::rescale_half_up(self.0, RAY_DECIMALS, asset_decimals)
+    pub fn to_asset(self, env: &Env, asset_decimals: u32) -> i128 {
+        fp_core::rescale_half_up(env, self.0, RAY_DECIMALS, asset_decimals)
     }
 
     /// Rescales from 27 decimals to `asset_decimals`, truncating toward zero.
-    pub fn to_asset_floor(self, asset_decimals: u32) -> i128 {
-        fp_core::rescale_floor(self.0, RAY_DECIMALS, asset_decimals)
+    pub fn to_asset_floor(self, env: &Env, asset_decimals: u32) -> i128 {
+        fp_core::rescale_floor(env, self.0, RAY_DECIMALS, asset_decimals)
     }
 
     /// Rescales from 27 decimals to `asset_decimals`, rounding up.
-    pub fn to_asset_ceil(self, asset_decimals: u32) -> i128 {
-        fp_core::rescale_ceil(self.0, RAY_DECIMALS, asset_decimals)
+    pub fn to_asset_ceil(self, env: &Env, asset_decimals: u32) -> i128 {
+        fp_core::rescale_ceil(env, self.0, RAY_DECIMALS, asset_decimals)
     }
 
     /// Builds a `Ray` from `numerator / denominator`, rounding the result half up.
@@ -121,8 +139,9 @@ impl Ray {
     }
 
     /// Builds a `Ray` from a token amount at `asset_decimals`, rescaling half up to 27 decimals.
-    pub fn from_asset(amount: i128, asset_decimals: u32) -> Ray {
+    pub fn from_asset(env: &Env, amount: i128, asset_decimals: u32) -> Ray {
         Ray(fp_core::rescale_half_up(
+            env,
             amount,
             asset_decimals,
             RAY_DECIMALS,
@@ -150,7 +169,10 @@ impl Wad {
     pub const ONE: Wad = Wad(WAD);
     pub const ZERO: Wad = Wad(0);
 
-    /// Wraps a raw wad-scaled integer.
+    /// Wraps a raw wad-scaled integer. Does not validate the value: the
+    /// non-negative domain is a call-site obligation, not an enforced
+    /// invariant. `Wad::from(i128::MAX)` is used deliberately as the
+    /// no-debt health-factor sentinel.
     #[inline]
     pub fn from(v: impl Into<i128>) -> Self {
         Wad(v.into())
@@ -200,23 +222,33 @@ impl Wad {
     }
 
     /// Builds a `Wad` from a token amount at `decimals`, rescaling half up to 18 decimals.
-    pub fn from_token(amount: i128, decimals: u32) -> Self {
-        Wad(fp_core::rescale_half_up(amount, decimals, WAD_DECIMALS))
+    pub fn from_token(env: &Env, amount: i128, decimals: u32) -> Self {
+        Wad(fp_core::rescale_half_up(
+            env,
+            amount,
+            decimals,
+            WAD_DECIMALS,
+        ))
     }
 
     /// Rescales from 18 decimals to `decimals`, rounding half up.
-    pub fn to_token(self, decimals: u32) -> i128 {
-        fp_core::rescale_half_up(self.0, WAD_DECIMALS, decimals)
+    pub fn to_token(self, env: &Env, decimals: u32) -> i128 {
+        fp_core::rescale_half_up(env, self.0, WAD_DECIMALS, decimals)
     }
 
     /// Rescales from 18 decimals to `decimals`, truncating toward zero.
-    pub fn to_token_floor(self, decimals: u32) -> i128 {
-        fp_core::rescale_floor(self.0, WAD_DECIMALS, decimals)
+    pub fn to_token_floor(self, env: &Env, decimals: u32) -> i128 {
+        fp_core::rescale_floor(env, self.0, WAD_DECIMALS, decimals)
     }
 
     /// Converts to a `Ray`, rescaling half up from 18 to 27 decimals.
-    pub fn to_ray(self) -> Ray {
-        Ray(fp_core::rescale_half_up(self.0, WAD_DECIMALS, RAY_DECIMALS))
+    pub fn to_ray(self, env: &Env) -> Ray {
+        Ray(fp_core::rescale_half_up(
+            env,
+            self.0,
+            WAD_DECIMALS,
+            RAY_DECIMALS,
+        ))
     }
 
     /// Adds `rhs` to this value. Panics on overflow.
@@ -239,7 +271,9 @@ pub struct Bps(i128);
 impl Bps {
     pub const ONE: Bps = Bps(BPS);
 
-    /// Wraps a raw basis-point integer.
+    /// Wraps a raw basis-point integer. Does not validate the value: the
+    /// non-negative domain is a call-site obligation, not an enforced
+    /// invariant.
     #[inline]
     pub fn from(v: impl Into<i128>) -> Self {
         Bps(v.into())

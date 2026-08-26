@@ -18,7 +18,7 @@ fn calculate_scaled_cap_floors_and_saturates() {
     let index = Ray::from(RAY + RAY / 2);
     let cap = 10i128;
     let scaled = calculate_scaled_cap(&env, cap, 0, index);
-    let expected = Ray::from_asset(cap, 0).div_floor(&env, index);
+    let expected = Ray::from_asset(&env, cap, 0).div_floor(&env, index);
     assert_eq!(scaled, expected);
 
     // Overflow path: ray form fits i128, but × RAY / 1 saturates instead of panicking.
@@ -39,7 +39,7 @@ fn test_resolve_withdrawal_partial_uses_ceil_burn() {
     let expected_burn = calculate_scaled_supply_ceil(&env, amount, 0, index);
     assert_eq!(burn, expected_burn);
     assert_eq!(gross, amount);
-    assert_eq!(burn, Ray::from_asset(amount, 0).div_ceil(&env, index));
+    assert_eq!(burn, Ray::from_asset(&env, amount, 0).div_ceil(&env, index));
 }
 
 #[test]
@@ -62,9 +62,9 @@ fn test_calculate_scaled_borrow_ceils() {
     let index = Ray::from(RAY + RAY / 2);
     let amount = 1;
     let ceil = calculate_scaled_borrow(&env, amount, 0, index);
-    let half_up = Ray::from_asset(amount, 0).div(&env, index);
+    let half_up = Ray::from_asset(&env, amount, 0).div(&env, index);
     assert!(ceil >= half_up);
-    assert_eq!(ceil, Ray::from_asset(amount, 0).div_ceil(&env, index));
+    assert_eq!(ceil, Ray::from_asset(&env, amount, 0).div_ceil(&env, index));
 }
 
 #[test]
@@ -78,7 +78,7 @@ fn test_unscale_borrow_ceil_matches_pool_semantics() {
 
 /// Pins the controller-view / pool-view amount path: half-up mul then half-up
 /// asset rescale. This is the exact expansion of `unscale_supply` /
-/// `unscale_borrow` and must stay identical to inline `mul().to_asset()`.
+/// `unscale_borrow` and must stay identical to inline `mul().to_asset(&env, )`.
 #[test]
 fn unscale_supply_and_borrow_match_inline_half_up_mul_to_asset() {
     let env = Env::default();
@@ -93,7 +93,7 @@ fn unscale_supply_and_borrow_match_inline_half_up_mul_to_asset() {
     ];
 
     for (scaled, index) in cases {
-        let inline = scaled.mul(&env, index).to_asset(decimals);
+        let inline = scaled.mul(&env, index).to_asset(&env, decimals);
         assert_eq!(
             unscale_supply(&env, scaled, index, decimals),
             inline,

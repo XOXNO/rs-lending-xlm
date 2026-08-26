@@ -10,13 +10,13 @@ fn test_borrow_rate_region1() {
     let params = make_test_params(&env);
 
     let rate = calculate_borrow_rate(&env, Ray::ZERO, &params);
-    let expected = div_by_int_half_up(RAY / 100, MILLISECONDS_PER_YEAR as i128);
+    let expected = div_by_int_half_up(&env, RAY / 100, MILLISECONDS_PER_YEAR as i128);
     assert_eq!(rate.raw(), expected);
 
     let util_25 = Ray::from(RAY * 25 / 100);
     let rate = calculate_borrow_rate(&env, util_25, &params);
     let expected_annual = RAY * 3 / 100;
-    let expected_per_ms = div_by_int_half_up(expected_annual, MILLISECONDS_PER_YEAR as i128);
+    let expected_per_ms = div_by_int_half_up(&env, expected_annual, MILLISECONDS_PER_YEAR as i128);
     assert!((rate.raw() - expected_per_ms).abs() <= 1);
 }
 
@@ -28,13 +28,13 @@ fn test_borrow_rate_region2() {
     let util_50 = Ray::from(RAY * 50 / 100);
     let rate = calculate_borrow_rate(&env, util_50, &params);
     let expected_annual = RAY * 5 / 100;
-    let expected_per_ms = div_by_int_half_up(expected_annual, MILLISECONDS_PER_YEAR as i128);
+    let expected_per_ms = div_by_int_half_up(&env, expected_annual, MILLISECONDS_PER_YEAR as i128);
     assert!((rate.raw() - expected_per_ms).abs() <= 1);
 
     let util_65 = Ray::from(RAY * 65 / 100);
     let rate = calculate_borrow_rate(&env, util_65, &params);
     let expected_annual = RAY * 10 / 100;
-    let expected_per_ms = div_by_int_half_up(expected_annual, MILLISECONDS_PER_YEAR as i128);
+    let expected_per_ms = div_by_int_half_up(&env, expected_annual, MILLISECONDS_PER_YEAR as i128);
     assert!((rate.raw() - expected_per_ms).abs() <= 1);
 }
 
@@ -46,13 +46,13 @@ fn test_borrow_rate_region3() {
     let util_80 = Ray::from(RAY * 80 / 100);
     let rate = calculate_borrow_rate(&env, util_80, &params);
     let expected_annual = RAY * 15 / 100;
-    let expected_per_ms = div_by_int_half_up(expected_annual, MILLISECONDS_PER_YEAR as i128);
+    let expected_per_ms = div_by_int_half_up(&env, expected_annual, MILLISECONDS_PER_YEAR as i128);
     assert!((rate.raw() - expected_per_ms).abs() <= 1);
 
     let util_90 = Ray::from(RAY * 90 / 100);
     let rate = calculate_borrow_rate(&env, util_90, &params);
     let expected_annual = RAY;
-    let expected_per_ms = div_by_int_half_up(expected_annual, MILLISECONDS_PER_YEAR as i128);
+    let expected_per_ms = div_by_int_half_up(&env, expected_annual, MILLISECONDS_PER_YEAR as i128);
     assert!((rate.raw() - expected_per_ms).abs() <= 1);
 }
 
@@ -62,7 +62,11 @@ fn test_borrow_rate_capped() {
     let params = make_test_params(&env);
 
     let rate = calculate_borrow_rate(&env, Ray::ONE, &params);
-    let expected = div_by_int_half_up(params.max_borrow_rate.raw(), MILLISECONDS_PER_YEAR as i128);
+    let expected = div_by_int_half_up(
+        &env,
+        params.max_borrow_rate.raw(),
+        MILLISECONDS_PER_YEAR as i128,
+    );
     assert!((rate.raw() - expected).abs() <= 1);
 }
 
@@ -76,7 +80,11 @@ fn test_borrow_rate_clamps_utilization_above_one() {
     let params = MarketParams::from(&raw);
 
     let rate = calculate_borrow_rate(&env, Ray::from(RAY * 2), &params);
-    let expected = div_by_int_half_up(params.max_borrow_rate.raw(), MILLISECONDS_PER_YEAR as i128);
+    let expected = div_by_int_half_up(
+        &env,
+        params.max_borrow_rate.raw(),
+        MILLISECONDS_PER_YEAR as i128,
+    );
     assert!(rate.raw() > 0);
     assert!(
         rate.raw() <= expected + 1,
@@ -145,7 +153,7 @@ fn test_borrow_rate_is_annual_divided_by_milliseconds_per_year() {
     let per_ms = calculate_borrow_rate(&env, util, &params);
     assert_eq!(
         per_ms.raw(),
-        annual.div_by_int(MILLISECONDS_PER_YEAR as i128).raw()
+        annual.div_by_int(&env, MILLISECONDS_PER_YEAR as i128).raw()
     );
 }
 

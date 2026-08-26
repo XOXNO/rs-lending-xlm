@@ -53,24 +53,24 @@ fuzz_target!(|i: In| {
         "Bps add/sub roundtrip"
     );
 
-    let ray_one_as_wad = Ray::ONE.to_wad();
+    let ray_one_as_wad = Ray::ONE.to_wad(&env);
     assert_eq!(
         ray_one_as_wad.raw(),
         WAD,
-        "Ray::ONE.to_wad() != Wad::ONE ({})",
+        "Ray::ONE.to_wad(&env) != Wad::ONE ({})",
         ray_one_as_wad.raw()
     );
 
     let ray_small = Ray::from(a / 2);
     let ray_big = Ray::from(a);
     assert!(
-        ray_big.to_wad().raw() + 1 >= ray_small.to_wad().raw(),
+        ray_big.to_wad(&env).raw() + 1 >= ray_small.to_wad(&env).raw(),
         "Ray::to_wad not monotonic"
     );
 
     if a <= 10i128.pow(18) && decimals <= 18 {
-        let asset = ray_a.to_asset(decimals);
-        let back = Ray::from_asset(asset, decimals);
+        let asset = ray_a.to_asset(&env, decimals);
+        let back = Ray::from_asset(&env, asset, decimals);
         let err = (back.raw() - ray_a.raw()).abs();
 
         let tol = 10i128.pow(27 - decimals.min(27));
@@ -140,8 +140,8 @@ fuzz_target!(|i: In| {
     );
 
     let token_amount = i.token_amount as i128;
-    let w = Wad::from_token(token_amount, decimals);
-    let back = w.to_token(decimals);
+    let w = Wad::from_token(&env, token_amount, decimals);
+    let back = w.to_token(&env, decimals);
     if decimals <= 18 {
         assert_eq!(
             back, token_amount,
@@ -177,9 +177,17 @@ fuzz_target!(|i: In| {
     }
 
     let full_bps = Bps::from(BPS);
-    assert_eq!(full_bps.to_wad(&env).raw(), WAD, "Bps(BPS).to_wad() != WAD");
+    assert_eq!(
+        full_bps.to_wad(&env).raw(),
+        WAD,
+        "Bps(BPS).to_wad(&env) != WAD"
+    );
 
-    assert_eq!(Bps::from(0).to_wad(&env).raw(), 0, "Bps(0).to_wad() != 0");
+    assert_eq!(
+        Bps::from(0).to_wad(&env).raw(),
+        0,
+        "Bps(0).to_wad(&env) != 0"
+    );
 
     if bps.raw() <= BPS && a <= 10i128.pow(15) {
         let via_wad = bps.apply_to_wad(&env, wad_a);

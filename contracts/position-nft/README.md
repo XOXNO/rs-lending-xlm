@@ -10,7 +10,7 @@ protocol-specific tooling.
 
 | | |
 | --- | --- |
-| Base standard | OpenZeppelin `stellar-tokens` `=0.7.2`, non-fungible |
+| Base standard | OpenZeppelin `stellar-tokens` 0.7.1 (git rev `fbfde388`), non-fungible |
 | Extension | `Enumerable` (`type ContractType = Enumerable;`) with sequential ids |
 | Not used | `Consecutive`, `Burnable` |
 | Interface | [`interfaces/position-nft`](../../interfaces/position-nft) |
@@ -108,10 +108,14 @@ Per-token `Owner` entries renew on two different schedules. Any read through
 authorization from anyone: extending a lifetime moves no state, cannot shorten
 a lifetime, and cannot move or approve a token.
 
-If `Owner(token_id)` archives, `owner_of` no longer resolves, so every
-controller operation on that account fails — including liquidation — until a
-`RestoreFootprint` operation restores the entry. This asymmetry is recorded as
-INV-STOR-02 in
+If `Owner(token_id)` archives, `owner_of` no longer resolves until the entry is
+restored. A caller that simulates the transaction and then submits it is not
+blocked — the simulation returns the archived entry ids and the submitted
+operation restores them in line, at the cost of restore rent. Liquidation
+therefore still succeeds against a lapsed `Owner` entry. Only a caller that
+hand-builds a footprint without simulating needs an explicit `RestoreFootprint`;
+the permissionless `renew(token_id)` above avoids the situation entirely. This
+asymmetry is recorded as INV-STOR-02 in
 [`docs/reference/invariants.md`](../../docs/reference/invariants.md).
 
 ## Events

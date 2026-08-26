@@ -86,12 +86,13 @@ fn test_withhold_liquidation_fee_noop_when_not_liquidation_or_zero_fee() {
 
 #[test]
 fn test_withhold_liquidation_fee_accrues_to_revenue_and_reduces_net() {
+    let env = Env::default();
     let t = TestSetup::new();
     t.as_contract(|| {
         let mut cache = t.cache(100 * RAY, 50_000_000);
         let fee_raw = 2_000_000i128;
 
-        let expected_revenue = Ray::from_asset(fee_raw, t.params.asset_decimals);
+        let expected_revenue = Ray::from_asset(&env, fee_raw, t.params.asset_decimals);
         let net = withhold_liquidation_fee(&t.env, &mut cache, 10_000_000, true, fee_raw);
         assert_eq!(net, 8_000_000);
         assert_eq!(cache.revenue(), expected_revenue);

@@ -166,8 +166,11 @@ pub enum FlashLoanMode {
     ReenterControllerRdwc = 16,
     ReenterControllerLiquidate = 17,
     ReenterMigrateBlend = 18,
-    /// V3 audit: reach the ONLY unguarded controller->pool state mutation
-    /// (`markets.rs:104` `pool_update_indexes_call`) from inside the callback.
+    /// V3 audit: reach an unguarded controller->pool state mutation
+    /// (`markets.rs:99` `pool_update_indexes_call`) from inside the callback.
+    /// `markets.rs` has no flash-guard site at all; the other unguarded pool
+    /// mutations there are `pool_create_market_call` (:80),
+    /// `pool_update_params_call` (:101) and `pool_upgrade_call` (:110).
     ReenterControllerUpgradePoolParams = 19,
 }
 

@@ -897,9 +897,10 @@ const CADENCE_MARKETS: [CadenceMarket; 2] = [
 
 impl CadenceMarket {
     fn state(&self) -> PoolStateRaw {
+        let env = Env::default();
         PoolStateRaw {
-            supplied: Ray::from_asset(self.supplied_units, self.decimals).raw(),
-            borrowed: Ray::from_asset(self.borrowed_units, self.decimals).raw(),
+            supplied: Ray::from_asset(&env, self.supplied_units, self.decimals).raw(),
+            borrowed: Ray::from_asset(&env, self.borrowed_units, self.decimals).raw(),
             revenue: 0,
             borrow_index: RAY,
             supply_index: RAY,

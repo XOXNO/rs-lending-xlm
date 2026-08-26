@@ -91,7 +91,7 @@ fn borrow_rate_monotonic_across_utilization(
         upper.raw()
             <= params
                 .max_borrow_rate
-                .div_by_int(MILLISECONDS_PER_YEAR as i128)
+                .div_by_int(&e, MILLISECONDS_PER_YEAR as i128)
                 .raw()
     );
 }
@@ -118,13 +118,13 @@ fn borrow_rate_kinks_match_configured_curve(
     let at_mid = calculate_borrow_rate(&e, Ray::from(mid), &params);
     let at_optimal = calculate_borrow_rate(&e, Ray::from(optimal), &params);
     let at_full = calculate_borrow_rate(&e, Ray::ONE, &params);
-    let expected_zero = Ray::from(base.min(max_rate)).div_by_int(MILLISECONDS_PER_YEAR as i128);
+    let expected_zero = Ray::from(base.min(max_rate)).div_by_int(&e, MILLISECONDS_PER_YEAR as i128);
     let expected_mid =
-        Ray::from((base + slope1).min(max_rate)).div_by_int(MILLISECONDS_PER_YEAR as i128);
-    let expected_optimal =
-        Ray::from((base + slope1 + slope2).min(max_rate)).div_by_int(MILLISECONDS_PER_YEAR as i128);
+        Ray::from((base + slope1).min(max_rate)).div_by_int(&e, MILLISECONDS_PER_YEAR as i128);
+    let expected_optimal = Ray::from((base + slope1 + slope2).min(max_rate))
+        .div_by_int(&e, MILLISECONDS_PER_YEAR as i128);
     let expected_full = Ray::from((base + slope1 + slope2 + slope3).min(max_rate))
-        .div_by_int(MILLISECONDS_PER_YEAR as i128);
+        .div_by_int(&e, MILLISECONDS_PER_YEAR as i128);
 
     cvlr_assert!(at_zero.raw() == expected_zero.raw());
     cvlr_assert!(at_mid.raw() == expected_mid.raw());
@@ -135,7 +135,7 @@ fn borrow_rate_kinks_match_configured_curve(
 #[rule]
 fn compound_factor_never_below_one(e: Env, rate_per_ms: i128, delta_ms: u64) {
     let max_per_ms = Ray::from(MAX_BORROW_RATE_RAY)
-        .div_by_int(MILLISECONDS_PER_YEAR as i128)
+        .div_by_int(&e, MILLISECONDS_PER_YEAR as i128)
         .raw();
     cvlr_assume!(rate_per_ms >= 0 && rate_per_ms <= max_per_ms);
     cvlr_assume!(delta_ms <= MILLISECONDS_PER_YEAR);

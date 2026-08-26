@@ -16,6 +16,12 @@ which sources may be configured together and rejects a set whose legs are all
 unsmoothed market feeds. It never transforms a served price, so it does not
 compose with the midpoint blend (ADR-0004).
 
+Aquarius LP oracles are exempt from the smoothing check (and from the tolerance
+check): an LP source is always flagged as an unsmoothed market leg and is
+sole-source by construction, so the smoothing rule would reject every LP
+configuration. For those oracles the sanity band is the backstop instead,
+tightened by `validate_lp_sanity_band`.
+
 The policy separates source availability from price validity: a readable source
 may still be rejected for staleness, bounds, or disagreement.
 

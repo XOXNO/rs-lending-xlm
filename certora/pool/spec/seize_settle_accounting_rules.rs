@@ -169,10 +169,10 @@ fn net_settle_conserves_cash_and_both_scaled_totals(
         );
     let debt_due = debt_position
         .mul_ceil(&e, borrow_index_ray)
-        .to_asset_ceil(asset_decimals);
+        .to_asset_ceil(&e, asset_decimals);
     let supply_floor = supply_position
         .mul_floor(&e, supply_index_ray)
-        .to_asset_floor(asset_decimals);
+        .to_asset_floor(&e, asset_decimals);
     let capped = requested.min(debt_due).min(supply_floor);
     cvlr_assume!(
         expected_gross == 0 || (expected_supply_burn.raw() > 0 && expected_debt_burn.raw() > 0)

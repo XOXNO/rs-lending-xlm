@@ -2,7 +2,7 @@
 
 **Status:** Accepted
 
-**Implemented by:** common/src/token.rs (`transfer_amount_measured`), contracts/controller/src/payments.rs, contracts/controller/src/positions/liquidation/mod.rs (`scale_seizures_to_received`), contracts/controller/src/positions/liquidation/apply.rs, contracts/pool/src/ops/withdraw.rs, contracts/pool/src/guards.rs.
+**Implemented by:** common/src/token.rs (`transfer_amount_measured`), contracts/controller/src/payments.rs, contracts/controller/src/positions/liquidation/math.rs (`scale_seizures_to_received`), contracts/controller/src/positions/liquidation/apply.rs, contracts/pool/src/ops/withdraw.rs, contracts/pool/src/guards.rs.
 
 ## Decision
 

@@ -14,11 +14,14 @@ detail.
 | Token amounts | native token base units |
 | Time | milliseconds |
 
-Multiply-divide widens the intermediate product to 256 bits before dividing.
-Decimal rescaling and divide-by-integer stay in 128 bits and revert on overflow.
-Inputs are expected to be non-negative: the half-up path rejects negatives, the
-floor and ceiling paths assume them. Results outside the supported
-signed-integer domain revert unless a formula explicitly uses a saturating cap.
+Multiply-divide first attempts the whole computation in 128 bits and widens the
+operands to 256 bits only when the intermediate product does not fit; both paths
+return the same value, so the fast path is a cost optimisation, not a different
+rounding. Decimal rescaling and divide-by-integer stay in 128 bits and revert on
+overflow. Inputs are expected to be non-negative: the half-up path rejects
+negatives, the floor and ceiling paths assume them. Results outside the supported
+signed-integer domain revert unless a formula explicitly uses a saturating cap,
+and a zero denominator reverts with `DivisionByZero`.
 
 Implemented by: `common/src/math/fp.rs`, `common/src/math/fp_core.rs`.
 
@@ -187,7 +190,10 @@ bonus portion.
 
 If received repayment is less than planned, every related seizure is reduced
 proportionally with floor rounding. A seizure never exceeds the current
-position. Excess repayment is refunded.
+position. Repayment above the ideal close amount is never pulled: the plan trims
+each `RepayEntry` (and drops whole legs) before transfer, so the liquidator
+simply keeps the excess. The trimmed amounts are reported by the
+`liquidation_estimations_detailed` view as `refunds`; no refund transfer occurs.
 
 Tiny residual *debt* after the computed ideal can raise that ideal to a full
 close, so a liquidator *may* finish a dust stub. The offer is still capped at

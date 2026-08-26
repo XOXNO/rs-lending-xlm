@@ -276,7 +276,7 @@ pub(crate) fn record_share_credit_updates(
             entry.market_index.supply_index,
             liquidator_scaled
                 .mul(env, supply_index)
-                .to_asset_floor(entry.feed.asset_decimals),
+                .to_asset_floor(env, entry.feed.asset_decimals),
             &position,
         );
     }

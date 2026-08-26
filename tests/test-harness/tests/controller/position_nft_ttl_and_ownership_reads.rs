@@ -236,7 +236,7 @@ fn renew_account_and_permissionless_renew_close_the_ttl_gap() {
 ///
 /// `liquidate` does resolve NFT ownership on its hot path. The first statement
 /// of `process_liquidation` after the auth check is `storage::get_account`
-/// (`contracts/controller/src/positions/liquidation/mod.rs:56`), which reaches
+/// (`contracts/controller/src/positions/liquidation/mod.rs:55`), which reaches
 /// `try_account_owner` (`contracts/controller/src/storage/account.rs:30`) and
 /// cross-calls `owner_of`. An unreadable `Owner` entry would block it. The
 /// same is true of `clean_bad_debt` and `force_socialize_bad_debt`, both of
@@ -328,7 +328,7 @@ fn liquidation_resolves_nft_ownership_and_succeeds_after_auto_restore() {
 /// Method: the test `Env` cannot archive an entry, but it can make the same
 /// entry unreadable in the one way it does model — burn it — while leaving
 /// every controller-side account entry intact. If liquidation resolves the
-/// owner, it must now fail `AccountNotFound` (`common/src/errors.rs:39`)
+/// owner, it must now fail `AccountNotFound` (`common/src/errors.rs:44`)
 /// *before* touching any balance. If it does not resolve the owner, a partial
 /// liquidation must still succeed.
 #[test]

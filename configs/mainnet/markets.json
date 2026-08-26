@@ -83,11 +83,11 @@
                 "RedStone": {
                   "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
                   "feed_id": "XLM",
-                  "nature": "Fundamental"
+                  "nature": "Market"
                 }
               },
               "decimals": 8,
-              "max_stale_seconds": 57600
+              "max_stale_seconds": 3600
             }
           }
         ],
@@ -1088,6 +1088,19 @@
               },
               "min_factor_wad": "65950000000000",
               "max_factor_wad": "1648750000000000"
+            }
+          },
+          {
+            "Feed": {
+              "provider": {
+                "Xoxno": {
+                  "contract": "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM",
+                  "feed_id": "AQUA",
+                  "nature": "Market"
+                }
+              },
+              "decimals": 8,
+              "max_stale_seconds": 3600
             }
           }
         ],

@@ -84,8 +84,10 @@ pub(crate) fn store_submission(
 /// Recomputes the current aggregate for `feed_id` from all signers' latest
 /// submissions: discards submissions older than the maximum submission age,
 /// then keeps only those within `max_relative_skew` of the newest surviving
-/// timestamp. Clears the feed's aggregate if fewer than `threshold`
-/// submissions survive either filter. Otherwise writes the median of the
+/// timestamp, clamped to ledger time so an attacker-chosen future-dated
+/// submission cannot drag the cluster window forward. Clears the feed's
+/// aggregate if fewer than `threshold` submissions survive either filter.
+/// Otherwise writes the median of the
 /// clustered prices as the new aggregate, using the oldest clustered
 /// timestamp as its package timestamp, and appends it to the feed's
 /// history.

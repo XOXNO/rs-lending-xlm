@@ -2,7 +2,7 @@
 
 **Status:** Accepted
 
-**Implemented by:** contracts/price-aggregator/src/engine.rs (`compose`, `blend`, `failure`), contracts/price-aggregator/src/tolerance.rs (`within_tolerance_band`, `midpoint_price_or_zero`), common/src/validation.rs (`validate_oracle_tolerance`), common/src/oracle/observation.rs (`is_stale`, `check_not_future_at`).
+**Implemented by:** contracts/price-aggregator/src/engine.rs (`compose`, `blend`, `failure`), contracts/price-aggregator/src/tolerance.rs (`within_tolerance_band`, `midpoint_price_or_zero`), common/src/validation.rs (`validate_oracle_tolerance`), common/src/oracle/observation.rs (`is_stale`, `is_future_at`).
 
 ## Decision
 
@@ -18,8 +18,13 @@ so `lower_ratio_bps` is never consulted on a price read.
 
 Smoothing (ADR-0014) is an admission-time gate on which sources may be
 configured, not a post-blend transform. The sanity band is likewise a pass/fail
-check on the already-blended value, never a clamp. A usable price is therefore
-exactly the midpoint of the two accepted legs, or the read fails.
+check on the already-blended value, never a clamp. A usable two-source price is
+therefore exactly the midpoint of the two accepted legs, or the read fails.
+
+A single-source oracle is a separate, admission-gated configuration (ADR-0014):
+its one leg is served directly and is still subject to the staleness,
+positivity, and sanity-band checks in `Outcome::failure`, with a tighter sanity
+band required by `validate_single_source_sanity_band`.
 
 One readable leg is not a fallback price. It is an incomplete observation and
 is treated as unusable. Source count is intentionally limited so the policy is

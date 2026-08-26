@@ -17,8 +17,11 @@ pub enum OracleAssetRef {
 }
 
 /// Basis-point band around a reference price within which a second source's reading is
-/// considered non-deviant: `upper_ratio_bps` bounds the allowed excess, `lower_ratio_bps`
-/// the allowed shortfall.
+/// considered non-deviant. Only `upper_ratio_bps` is read at price time: the deviation check
+/// divides the larger leg by the smaller and compares that ratio, so the band is already
+/// direction-symmetric. `lower_ratio_bps` is the stored reciprocal half, validated at
+/// configuration time to equal `BPS * BPS / upper_ratio_bps` (half up) and never consulted on
+/// a read.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct OracleTolerance {
@@ -99,7 +102,8 @@ impl PriceFeed {
     /// Converts a raw token amount (scaled by `asset_decimals`) to its WAD-scaled USD value
     /// at this feed's price.
     pub fn usd_value_wad(self, env: &Env, token_amount: i128) -> crate::math::fp::Wad {
-        crate::math::fp::Wad::from_token(token_amount, self.asset_decimals).mul(env, self.price)
+        crate::math::fp::Wad::from_token(env, token_amount, self.asset_decimals)
+            .mul(env, self.price)
     }
 }
 

@@ -49,7 +49,8 @@ pub struct LpSupply {
 ///
 /// Converts each leg's reserve into a WAD value (`reserve * price_wad /
 /// 10^decimals`), combines the two leg values as `2 * sqrt(value_a *
-/// value_b)`, and divides by the share supply converted to WAD. Returns
+/// value_b)`, then scales by `WAD` and divides by the share supply
+/// converted to WAD (`total_value * WAD / share_supply_wad`). Returns
 /// `OracleError::InvalidPrice` if any reserve, price, or share amount is not
 /// positive, if a leg's value fails to compute, or if the result does not
 /// fit in `i128`.

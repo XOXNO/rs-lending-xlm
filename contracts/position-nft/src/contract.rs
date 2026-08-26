@@ -27,9 +27,11 @@ fn controller(e: &Env) -> Address {
 }
 
 /// Extends the reachable persistent entries — `Owner(token_id)` and
-/// `Balance(owner)` — to the user window. The OZ enumeration keys cannot be
-/// extended from outside `stellar-tokens` (their key types are unexported) and
-/// rely on protocol-23 auto-restore; see F-11 / INV-STOR-02d.
+/// `Balance(owner)` — to the user window. The OZ enumeration entries
+/// (`NFTEnumerableStorageKey::*`) are deliberately left on their default
+/// windows and rely on protocol-23 auto-restore: renewing them would need
+/// extra index reads per token for no accounting-critical state; see
+/// F-11 / INV-STOR-02d.
 fn extend_user_persistent_ttl(e: &Env, owner: &Address, token_id: u32) {
     let p = e.storage().persistent();
     p.extend_ttl(
@@ -82,7 +84,7 @@ impl PositionNft {
     /// Deliberately NOT the OZ `Burnable` extension: `Base::burn` calls
     /// `from.require_auth()`, but the controller must burn when an account
     /// empties through liquidation, where the owner never signed. This
-    /// replicates `Enumerable::burn` (v0.7.2) minus that auth:
+    /// replicates `Enumerable::burn` (v0.7.1) minus that auth:
     /// `Base::update` clears owner/balance/approval, then the enumeration
     /// helper maintains owner enumeration, total supply, and global
     /// enumeration.
@@ -98,8 +100,9 @@ impl PositionNft {
         Enumerable::remove_from_enumerations(e, &owner, token_id);
     }
 
-    /// Extends the TTL of `token_id`'s persistent `Owner` entry to the
-    /// protocol's per-user renewal window, plus the instance TTL.
+    /// Extends the TTL of `token_id`'s persistent `Owner` entry and its owner's
+    /// `Balance` entry to the protocol's per-user renewal window, plus the
+    /// instance TTL.
     /// Permissionless: extending a TTL is pure rent charity — it cannot move,
     /// approve, or reassign the token, and it cannot shorten a lifetime.
     ///

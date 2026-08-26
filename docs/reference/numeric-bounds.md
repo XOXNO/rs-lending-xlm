@@ -20,12 +20,16 @@ named test. **Inferred** = follows from the above, not directly reproduced.
 
 `i128::MAX = 170_141_183_460_469_231_731_687_303_715_884_105_727`.
 
-Every `x * y / d` widens to `I256` before dividing
-([`fp_core.rs`](../../common/src/math/fp_core.rs)), so an intermediate product
-never overflows; only the *result* has to fit `i128`, and it panics with
-`GenericError::MathOverflow` (#33) when it does not. Decimal rescaling
-(`rescale_half_up` and friends) is the exception: it multiplies in `i128` and
-panics with a plain message on overflow.
+Every `x * y / d` first attempts the whole computation in `i128` and widens the
+operands to `I256` only when the intermediate product does not fit
+([`fp_core.rs`](../../common/src/math/fp_core.rs)). Both paths are exact and
+return the same value, so an intermediate product never *fails*; only the
+*result* has to fit `i128`, and it panics with `GenericError::MathOverflow`
+(#33) when it does not. A zero denominator panics with
+`GenericError::DivisionByZero` (#55). Decimal rescaling (`rescale_half_up` and
+friends) never widens — it multiplies in `i128` throughout — but it raises the
+same typed `GenericError::MathOverflow` when the factor or the upscaled value
+overflows.
 
 Unlike Aave, we do not pack these into narrower integers. There is no `uint120`
 `drawnIndex`, no `int200` `premiumOffset`, no `uint40` cap. What we have instead
@@ -48,7 +52,8 @@ a **single protocol-wide compile-time constant**, identical for every market and
 for both indexes, and not settable by governance. Nothing else in the codebase
 bounds an index. The invariant text should be read as "the constant maximum".
 
-The growth rate is bounded twice: `MarketParamsRaw::validate` rejects
+The growth rate is bounded twice: `InterestRateModel::verify` — reached from
+`MarketParamsRaw::verify` — rejects
 `max_borrow_rate > MAX_BORROW_RATE_RAY = 2 * RAY` (200% APR)
 ([`common/src/types/pool.rs`](../../common/src/types/pool.rs)), and
 `calculate_annual_borrow_rate` caps the curve output at that parameter.
@@ -62,7 +67,11 @@ truncated at the eighth term, so a single one-year chunk at 200% APR yields
 `7.387301587…` where continuous compounding would give `e^2 = 7.389056…` — the
 truncation *under*-shoots by 0.024%, which means many small chunks (the
 liquidator- or keeper-chosen partition) grow the index marginally faster than one
-big chunk. Either way:
+big chunk. Every dropped term is positive, so the bias is always in the same
+direction — interest is under-accrued, never over-accrued, favouring the
+borrower — and it collapses as the rate falls: the relative shortfall is
+`2.37e-4` at 200% APR, `1.13e-6` at 100%, `1.18e-12` at 20%, and `2.11e-16` at
+5%. Either way:
 
 ```
 years_to_ceiling = ln(1e9) / annual_rate = 20.7233 / r
@@ -442,7 +451,7 @@ Recommended follow-ups, in order of cost:
 | Borrow / supply index ceiling | 1e9x initial (`1e36` raw) | `update_borrow_index`, `update_supply_index` | 11 years at 200% APR; 70 at 30% |
 | Supply index floor | 1e-3 (`1e24` raw) | `apply_bad_debt_to_supply_index` | total socialization of a market |
 | Balance / cap ceiling | ~170.14e9 whole tokens | `Ray::from_asset`, `require_cap_within_asset_domain` | token supply above ~1.7e11 |
-| Max borrow rate | 200% APR (`2 * RAY`) | `MarketParamsRaw::validate` | configuration |
+| Max borrow rate | 200% APR (`2 * RAY`) | `InterestRateModel::verify` | configuration |
 | Max oracle price | $1e9 / whole token | `validate_sanity_bounds` | configuration |
 | Asset decimals | 3..=18 | `validate_market_creation` | configuration |
 | Liquidation profitability floor | $0.15 worst listed pair vs a $5 floor | not enforced; see §6.4 | governance listing an expensive low-decimal asset |

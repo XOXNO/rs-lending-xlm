@@ -124,9 +124,11 @@ services/keeper/
 │   └── mainnet.yaml
 └── src/
     ├── main.rs
+    ├── lib.rs
     ├── config.rs
     ├── discovery.rs
     ├── keys.rs
+    ├── policy.rs
     ├── scheduler/
     ├── signer/
     ├── stellar/
@@ -138,8 +140,8 @@ services/keeper/
 
 | Crate | Version |
 | --- | --- |
-| `stellar-rpc-client` | `=26.0.0` |
-| `stellar-xdr` | `=26.0.1` |
+| `stellar-rpc-client` | git rev `a44c2b6a` (resolves to 27.0.0) |
+| `stellar-xdr` | `=28.0.0` |
 | `stellar-strkey` | `^0.0.16` |
 | `ed25519-dalek` | `^2` |
 | `bip39` | `^2.2` |
@@ -180,7 +182,7 @@ read-only audit.
 
 ## CLI Flags and Environment
 
-Every `keeper-bot` flag has an environment fallback (`src/main.rs:26-41`).
+Every `keeper-bot` flag has an environment fallback (`src/main.rs:24-41`).
 
 | Flag | Env var | Default | Required |
 | --- | --- | --- | --- |

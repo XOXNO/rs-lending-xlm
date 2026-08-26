@@ -212,7 +212,7 @@ fn liquidation_withdraw_books_protocol_fee(
     cvlr_assume!(supply_index >= SUPPLY_INDEX_FLOOR_RAW && supply_index <= MAX_SUPPLY_INDEX_RAY);
     let current_actual = Ray::from(position_before)
         .mul(&e, Ray::from(supply_index))
-        .to_asset(ASSET_DECIMALS);
+        .to_asset(&e, ASSET_DECIMALS);
     cvlr_assume!(gross_amount < current_actual);
     seed(
         &e,
@@ -233,7 +233,7 @@ fn liquidation_withdraw_books_protocol_fee(
     let pre = read_state(&e, &asset);
     let expected_fee_shares = expected_protocol_fee_shares(
         &e,
-        Ray::from_asset(protocol_fee, ASSET_DECIMALS),
+        Ray::from_asset(&e, protocol_fee, ASSET_DECIMALS),
         Ray::from(supply_index),
         Ray::from(pre.supplied),
     );
@@ -241,10 +241,10 @@ fn liquidation_withdraw_books_protocol_fee(
         expected_fee_shares
             .mul_floor(&e, Ray::from(supply_index))
             .raw()
-            <= Ray::from_asset(protocol_fee, ASSET_DECIMALS).raw()
+            <= Ray::from_asset(&e, protocol_fee, ASSET_DECIMALS).raw()
     );
     let expected_burn =
-        Ray::from_asset(gross_amount, ASSET_DECIMALS).div_ceil(&e, Ray::from(supply_index));
+        Ray::from_asset(&e, gross_amount, ASSET_DECIMALS).div_ceil(&e, Ray::from(supply_index));
     let entry = PoolWithdrawEntry {
         action: action(asset.clone(), position_before, gross_amount),
         protocol_fee,
@@ -306,7 +306,7 @@ fn create_strategy_accounts_debt_cash_and_fee(
     let expected_fee = if charge_fee { configured_fee } else { 0 };
     let expected_fee_shares = expected_protocol_fee_shares(
         &e,
-        Ray::from_asset(expected_fee, ASSET_DECIMALS),
+        Ray::from_asset(&e, expected_fee, ASSET_DECIMALS),
         Ray::from(supply_index),
         Ray::from(pre.supplied),
     );
@@ -314,10 +314,10 @@ fn create_strategy_accounts_debt_cash_and_fee(
         expected_fee_shares
             .mul_floor(&e, Ray::from(supply_index))
             .raw()
-            <= Ray::from_asset(expected_fee, ASSET_DECIMALS).raw()
+            <= Ray::from_asset(&e, expected_fee, ASSET_DECIMALS).raw()
     );
     let expected_debt =
-        Ray::from_asset(amount, ASSET_DECIMALS).div_ceil(&e, Ray::from(borrow_index));
+        Ray::from_asset(&e, amount, ASSET_DECIMALS).div_ceil(&e, Ray::from(borrow_index));
 
     let StrategyOutcome {
         mutation: result,
@@ -371,7 +371,7 @@ fn claim_revenue_burns_equal_shares_and_cash(
     let pre = read_state(&e, &asset);
     let treasury_actual = Ray::from(revenue_before)
         .mul_floor(&e, Ray::from(supply_index))
-        .to_asset_floor(ASSET_DECIMALS);
+        .to_asset_floor(&e, ASSET_DECIMALS);
     let expected_claim = cash_before.min(treasury_actual);
     let expected_burn = if expected_claim <= 0 {
         Ray::ZERO

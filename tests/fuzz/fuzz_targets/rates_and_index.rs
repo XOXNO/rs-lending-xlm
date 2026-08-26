@@ -335,7 +335,7 @@ fn max_borrow_index_after(
     start_index: Ray,
     chunks: &[u64],
 ) -> Ray {
-    let max_rate = params.max_borrow_rate.div_by_int(MS_PER_YEAR as i128);
+    let max_rate = params.max_borrow_rate.div_by_int(env, MS_PER_YEAR as i128);
     let mut index = start_index;
     for &chunk in chunks {
         let mut remaining = chunk;

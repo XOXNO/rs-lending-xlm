@@ -80,7 +80,7 @@ pub fn require_wasm_receiver(env: &Env, receiver: &Address) {
     );
 }
 
-/// Asserts that `fees_bps` does not exceed `BPS`, panicking with
+/// Asserts that `fees_bps` is strictly less than `BPS`, panicking with
 /// `CollateralError::InvalidLiqThreshold` otherwise.
 pub fn validate_liquidation_fees(env: &Env, fees_bps: u32) {
     // Strict: at BPS the protocol takes the entire bonus and liquidation still
@@ -113,7 +113,7 @@ pub fn validate_risk_bounds(env: &Env, ltv: u32, threshold: u32, bonus: u32) {
 
 /// Asserts that `target_hf_wad` lies in `(WAD, MAX_LIQUIDATION_TARGET_HF_WAD]`,
 /// that `hf_for_max_bonus_wad` lies in `(0, target_hf_wad)`, and that
-/// `bonus_factor_bps` does not exceed `BPS`; panics with
+/// `bonus_factor_bps` lies in `(0, BPS]`; panics with
 /// `CollateralError::InvalidLiquidationCurve` if any check fails.
 pub fn validate_liquidation_curve(
     env: &Env,
