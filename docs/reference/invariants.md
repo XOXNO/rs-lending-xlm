@@ -58,7 +58,10 @@ clear a restriction. Reopening is timelocked.
 
 **Status:** ENFORCED — `contracts/controller/src/config/asset.rs`
 (`require_flag_ratchet`); `contracts/governance/src/api.rs` limits the guardian
-to pause and flag-setting; `unpause` is `#[only_owner]` in
+to pause, spoke-asset flag setting, and creating empty hubs and spokes
+(`immediate::pause`, `set_spoke_asset_flags`, `create_hub`, `add_spoke` — all
+gated on `GUARDIAN_ROLE`); none of these can clear a restriction. `unpause` is
+`#[only_owner]` in
 `contracts/controller/src/lib.rs`. VERIFIED —
 `contracts/controller/tests/config/asset_flags.rs`
 (`set_spoke_asset_flags_rejects_unpause`,
@@ -79,9 +82,11 @@ within the supported domain.
 
 ### INV-AUTH-06 — An account's spoke binding is immutable
 
-An account is bound to one spoke at creation. Every supply, borrow, and exit
-re-checks that binding and reverts `SpokeMismatch` (#310) on a mismatch, so risk
-parameters cannot be swapped under a live position (ADR-0009).
+An account is bound to one spoke at creation. Supply, migrate, multiply and
+flash-position all pass a caller-supplied `spoke_id` and re-check it against the
+account's binding, reverting `SpokeMismatch` (#310) on a mismatch. Borrow,
+withdraw and repay take no `spoke_id`: they read the account's own binding, so
+risk parameters cannot be swapped under a live position (ADR-0009).
 
 **Status:** ENFORCED — `contracts/controller/src/account.rs`
 (`require_spoke_match`), called from every `AccountGuard` arm. VERIFIED —
@@ -95,9 +100,11 @@ parameters cannot be swapped under a live position (ADR-0009).
 Revenue shares are a subset of supply shares. No operation may create negative
 share totals or a treasury claim with no corresponding supplied shares.
 
-**Status:** ENFORCED — `contracts/pool/src/cache/shares.rs`
-(`require_revenue_backed` after every burn or absorb; `Ray::checked_sub` traps
-on negative). VERIFIED — rules `withdraw_keeps_revenue_backed`,
+**Status:** ENFORCED — `contracts/pool/src/cache/shares.rs` calls
+`require_revenue_backed` after `burn_supply` and after
+`absorb_supply_as_revenue`; `burn_claimable_revenue` burns `revenue` and
+`supplied` by the identical amount so the relation is preserved by
+construction. `Ray::checked_sub` traps on negative. VERIFIED — rules `withdraw_keeps_revenue_backed`,
 `net_settle_keeps_revenue_backed`, `claim_revenue_leaves_no_orphan_debt`.
 
 ### INV-ACCT-02 — Cash is the reserve book
@@ -120,7 +127,7 @@ evidence.
 by `contracts/controller/src/positions/supply.rs`,
 `contracts/controller/src/keepers.rs`,
 `contracts/controller/src/positions/liquidation/apply.rs`, and
-`contracts/controller/src/strategies/swap/balances.rs`. VERIFIED —
+`contracts/controller/src/strategies/legs.rs`. VERIFIED —
 `contracts/controller/tests/events.rs` (fee-on-transfer token fixtures).
 
 ### INV-ACCT-04 — Backing shortfall blocks new supply
@@ -195,8 +202,9 @@ VERIFIED — rule `withdraw_leaves_no_orphan_debt`.
 
 ### INV-IDX-01 — Borrow index is monotone and bounded
 
-Accrual cannot decrease debt value. The borrow index remains within its
-configured maximum.
+Accrual cannot decrease debt value. The borrow index remains within the
+protocol-wide constant maximum `MAX_BORROW_INDEX_RAY` (1e36 raw) — identical for
+every market and not settable by governance.
 
 **Status:** ENFORCED — `common/src/rates/index.rs` caps at
 `MAX_BORROW_INDEX_RAY` (`common/src/constants/pool.rs`). VERIFIED — rules
@@ -205,7 +213,9 @@ configured maximum.
 
 ### INV-IDX-02 — Supply index is bounded
 
-The supply index stays above a non-zero floor and below its configured maximum.
+The supply index stays above the constant non-zero floor `SUPPLY_INDEX_FLOOR_RAW`
+and below the same protocol-wide constant maximum `MAX_SUPPLY_INDEX_RAY`, which
+is likewise identical for every market and not settable by governance.
 
 **Status:** ENFORCED — `contracts/pool/src/interest.rs` floors at
 `SUPPLY_INDEX_FLOOR_RAW`; `common/src/rates/index.rs` applies the cap. VERIFIED
@@ -222,9 +232,11 @@ cache per `hub_asset`, so `apply_bad_debt_to_supply_index`
 (`contracts/pool/src/interest.rs`) can only touch that market. VERIFIED — rules
 `seize_borrow_reduces_debt_and_writes_down_supply`,
 `bad_debt_writedown_is_noop_on_empty_market`;
-`tests/test-harness/tests/controller/bad_debt_index.rs`. VERIFICATION GAP — the
-scoping holds structurally, but no rule or test asserts that a *different*
-market's index is unchanged across a socialization.
+`tests/test-harness/tests/controller/bad_debt_index.rs`
+(`test_socialization_leaves_an_untouched_market_bit_identical`,
+`test_force_socialize_leaves_an_untouched_market_bit_identical`) assert that a
+market the insolvent account never touched survives the cleanup bit-identical on
+both the keeper and the owner-only path.
 
 ### INV-IDX-04 — Accrual is time-consistent
 
@@ -243,7 +255,7 @@ chunks; time never moves backward.
 Accrued borrower interest is accounted for as supplier reward or protocol
 revenue, including conservative rounding remainders.
 
-**Status:** ENFORCED — `contracts/pool/src/interest.rs` folds
+**Status:** ENFORCED — `common/src/rates/simulate.rs` (`accrue_step`) folds
 `supply_index_reward_shortfall` into the protocol reward;
 `common/src/rates/index.rs`. VERIFIED — rules
 `supplier_rewards_plus_fee_equals_accrued_interest`,
@@ -268,8 +280,15 @@ One functioning leg is not a fallback. Accepted blended prices stay within the
 two validated source prices.
 
 **Status:** ENFORCED — `contracts/price-aggregator/src/engine.rs` (`blend`
-accepts `Legs::Two` only, marks the outcome stale if either leg is stale, and
-returns a value between the two). VERIFIED — rules
+serves `Legs::Two` as a midpoint between the two validated inputs and marks the
+outcome stale if either leg is stale; it rejects `Legs::Partial` — a two-source
+oracle with only one readable leg — by setting the `deviation` flag, which
+`failure` turns into `UnsafePriceNotAllowed`. A configured single-source oracle
+is the separate `Legs::One` case, served directly and still subject to the
+staleness, positivity, and sanity-band checks — see
+[ADR-0004](../explanation/decisions/0004-dual-source-oracle-tolerance-midpoint.md)
+and [ADR-0014](../explanation/decisions/0014-oracle-admission-attestation-independence-smoothing.md)).
+VERIFIED — rules
 `first_band_price_within_inputs`, `second_band_price_within_inputs`,
 `beyond_band_price_within_inputs`, `equal_prices_within_symmetric_band`.
 
@@ -292,10 +311,13 @@ fails closed under INV-ORACLE-01.
 (`OracleObservation::from_multi_feed`, `from_reflector`) returns `None` via
 `is_future_at`. VERIFIED — rules `timestamp_beyond_future_skew_reverts`,
 `timestamp_at_future_skew_boundary_is_allowed`
-(`certora/price-aggregator/spec/freshness_rules.rs`). VERIFICATION GAP — those
-rules exercise the panicking helper `check_not_future_at`, which the contracts do
-not call; the live path uses the dropping helper `is_future_at`. The bound is the
-same constant, but the rules do not cover the live path.
+(`certora/price-aggregator/spec/freshness_rules.rs`) prove the bound on the
+panicking helper `check_not_future_at`, which the contracts do not call; the live
+dropping helper `is_future_at` is covered by
+`tests/test-harness/tests/oracle/future_skew_live_path.rs`
+(`future_skew_boundary_is_accepted_on_the_live_path`,
+`one_second_past_future_skew_fails_closed_on_the_live_path`,
+`future_dated_anchor_does_not_degrade_to_a_single_leg`).
 
 ### INV-RISK-01 — Risk-increasing actions re-prove solvency
 
@@ -320,7 +342,8 @@ down.
 
 **Status:** ENFORCED — `contracts/controller/src/risk/totals.rs`
 (`calculate_account_risk_totals`, `sum_debt_usd`, `calculate_ltv_collateral_wad`), mirrored by
-`unscale_supply_floor` / `unscale_borrow_ceil` in `contracts/pool/src/guards.rs`.
+`unscale_supply_floor` / `unscale_borrow_ceil` (`contracts/pool/src/cache/scale.rs`,
+over `common/src/rates/scaling.rs`), used by `contracts/pool/src/guards.rs`.
 VERIFIED — rules `hf_division_rounds_against_borrower`,
 `position_value_ceil_ge_floor`, `scaled_to_actual_matches_floor_with_rounding`.
 
@@ -373,15 +396,25 @@ Wad::ONE`); `contracts/controller/src/positions/liquidation/mod.rs` (the
 
 ### INV-LIQ-02 — Repayment and seizure stay coupled
 
-Repayment is bounded by the close policy, excess is refunded, and seizure
-never exceeds the current position.
+Repayment is bounded by the close policy, the portion above that bound is never
+pulled from the liquidator, and seizure never exceeds the current position.
 
 **Status:** ENFORCED — `contracts/controller/src/positions/liquidation/plan.rs`
 (`build_liquidation_plan` → `normalize_repayment_plan`,
-`calculate_seized_collateral`, `plan.validate`). VERIFIED — rules
-`ideal_repayment_targets_curve_hf`, `full_repay_refunds_overpayment`,
+`calculate_seized_collateral`, `plan.validate`). The plan trims the repay legs
+before any token moves: `contracts/controller/src/positions/liquidation/mod.rs`
+hands only `result.repaid` to `apply_liquidation_repayments`, so the trimmed
+excess (`result.refunds`, reported only by the non-persisting
+`liquidation_estimations_detailed` view in `contracts/controller/src/views.rs`)
+is never transferred in either direction.
+VERIFIED — rules `ideal_repayment_targets_curve_hf`,
 `liquidation_does_not_increase_seized_collateral`,
-`split_liq_two_partials_never_out_seize_one_close`.
+`split_liq_two_partials_never_out_seize_one_close`;
+`tests/test-harness/tests/controller/liquidation.rs`
+(`test_liquidation_caps_at_actual_debt` asserts the unused portion stays in the
+liquidator's balance);
+`tests/test-harness/tests/controller/liquidation_extreme.rs`
+(`test_overrepay_is_capped_at_ideal`).
 
 ### INV-LIQ-03 — Under-delivery reduces seizure
 
@@ -477,7 +510,7 @@ orphaned authority.
 
 This is the parent id for four separately checkable statements, INV-STOR-02a to
 INV-STOR-02d. Together they say: the NFT instance renews on the account
-lifecycle, two explicit paths renew the per-token `Owner` entry to the
+lifecycle, three explicit paths renew the per-token `Owner` entry to the
 controller's window, passive reads renew it only to OpenZeppelin's shorter
 window, and the residual gap is an operational hazard nothing in this repo
 checks.
@@ -492,20 +525,24 @@ sequential id counter) renews to the protocol's instance TTL on every `mint` and
 `burn` both call `renew_instance`). VERIFIED —
 `contracts/position-nft/src/test.rs` (`burn_extends_instance_ttl`).
 
-#### INV-STOR-02b — Ownership entries renew on two explicit paths
+#### INV-STOR-02b — Ownership entries renew on three explicit paths
 
-`renew_account` on the controller extends the account's NFT `Owner` entry to the
-controller's 120-day per-user window (`TTL_BUMP_USER`), and
-`position-nft::renew(token_id)` is permissionless: anyone, including a keeper or
-a liquidation bot, may extend any live token's `Owner` entry. A TTL extension
-moves no state, cannot reassign the token, and cannot shorten a lifetime.
+Three paths put the per-token `Owner` (and `Balance`) entries on the
+controller's 120-day `TTL_BUMP_USER` window: `mint` lifts them there at account
+creation, `renew_account` on the controller re-lifts them, and
+`position-nft::renew(token_id)` is permissionless so any keeper or liquidation
+bot may re-lift a live token's entries. A TTL extension moves no state, cannot
+reassign the token, and cannot shorten a lifetime.
 
-**Status:** ENFORCED — `contracts/controller/src/account.rs` (`renew_account`
-calls the NFT's `renew`); `contracts/position-nft/src/contract.rs` (`renew`, no
-`require_auth`). Window constants: `common/src/constants/shared.rs`
+**Status:** ENFORCED — `contracts/position-nft/src/contract.rs` (`mint`,
+`renew` — both call `extend_user_persistent_ttl`, and `renew` has no
+`require_auth`); `contracts/controller/src/account.rs` (`renew_account` calls
+the NFT's `renew`). Window constants: `common/src/constants/shared.rs`
 (`TTL_THRESHOLD_USER` = 30 days, `TTL_BUMP_USER` = 120 days). VERIFIED —
 `contracts/position-nft/src/test.rs`
-(`renew_extends_owner_entry_ttl_to_user_window`, `renew_nonexistent_token_fails`).
+(`renew_extends_owner_entry_ttl_to_user_window`, `renew_nonexistent_token_fails`);
+`tests/test-harness/tests/controller/position_nft_ttl_and_ownership_reads.rs`
+(`mint_lifts_owner_entry_to_the_protocol_window`).
 
 #### INV-STOR-02c — Passive ownership reads renew on OZ's shorter window
 
@@ -517,24 +554,43 @@ ever touches `owner_of` passively — more than ~30 days between renewals, and
 within the controller's own 120-day window — can therefore let its `Owner` entry
 archive while controller state is still live.
 
-**Status:** ENFORCED — `stellar-tokens` 0.7.2,
+**Status:** ENFORCED — `stellar-tokens` 0.7.1,
 `src/non_fungible/storage.rs` (`owner_of`) and `src/non_fungible/mod.rs`
 (`OWNER_EXTEND_AMOUNT`, `OWNER_TTL_THRESHOLD`). This is dependency behaviour, not
-a protocol check. VERIFICATION GAP — no repo test exercises the passive-renewal
-window.
+a protocol check. VERIFIED —
+`tests/test-harness/tests/controller/position_nft_ttl_and_ownership_reads.rs`
+(`passive_owner_of_lifts_only_to_the_oz_window`) pins the 30-day top-up, the
+29-day threshold, the non-stacking behaviour, and the 4x asymmetry against the
+controller's 120-day window.
 
 #### INV-STOR-02d — An archived `Owner` entry must be restored before use
 
-Once the `Owner(token_id)` entry archives, any controller operation that reads or
-burns the NFT traps until the entry is restored — by a `RestoreFootprint`
-operation on that entry, or by calling the permissionless
-`position-nft::renew(token_id)`. Bots should renew proactively on positions they
-monitor, and must handle restore-then-liquidate as the fallback.
+Once the `Owner(token_id)` entry archives, a controller operation that reads or
+burns the NFT needs that entry restored. A liquidator that preflights and submits
+is not blocked: from protocol 23 the simulation returns the archived entry ids
+and the submitted operation restores them in line, at the cost of restore rent.
+Only a caller that hand-builds a footprint without simulating needs an explicit
+`RestoreFootprint`; calling the permissionless `position-nft::renew(token_id)`
+avoids the situation entirely, and bots should renew proactively on positions
+they monitor.
 
-**Status:** NOT ENFORCED and VERIFICATION GAP — this is Soroban platform
-behaviour, not a protocol check. `grep -rn RestoreFootprint contracts/ tests/
-common/` returns no hits; no repo test exercises restore-then-liquidate. The
-dependency is real: `contracts/position-nft/src/contract.rs` (`burn`) reads
+**Status:** NOT ENFORCED — this is Soroban platform behaviour, not a protocol
+check. VERIFIED in part —
+`tests/test-harness/tests/controller/position_nft_ttl_and_ownership_reads.rs`
+(`liquidation_resolves_nft_ownership_and_succeeds_after_auto_restore`) pins the
+one survival case: an actually-lapsed `Owner` entry, liquidated successfully
+because the host restored it in line.
+`partial_liquidation_resolves_nft_ownership` and
+`bad_debt_winddown_resolves_nft_ownership` pin only that both paths *do* resolve
+NFT ownership — they make the entry unreadable by burning the token, not by
+letting it lapse, and assert the operation reverts `AccountNotFound`. No test
+drives bad-debt winddown against a lapsed entry. No contract-side code or test
+builds an explicit `RestoreFootprint` — `grep -rn RestoreFootprint contracts/
+tests/ common/` matches only `contracts/position-nft/README.md`. Off-chain, the
+keeper service does build the operation: `services/keeper/src/stellar/restore.rs`
+(`restore_footprint`, unit-tested by
+`builds_restore_op_with_keys_in_read_write_footprint`), scheduled from
+`services/keeper/src/scheduler/tasks.rs`. The dependency is real: `contracts/position-nft/src/contract.rs` (`burn`) reads
 `Base::owner_of` before updating, and `renew` reads it before extending. See
 `docs/explanation/threat-model.md` ("Controller to position NFT") and the
 `building-lending-liquidation-bots` skill.
@@ -578,13 +634,13 @@ a router, a Blend pool, or a listed token whose `transfer` may run a hook — is
 wrapped in `with_flash_guard`. All six production setters:
 
 - `strategies/flash_loan.rs:35` (`process_flash_loan`) — the flash-loan callback.
-- `strategies/flash_position.rs:108` (`process_flash_position`) — the debt-token
+- `strategies/flash_position.rs:110` (`process_flash_position`) — the debt-token
   forward *and* the `execute_flash_position` receiver callback.
-- `strategies/swap/route.rs:26` (`call_router_with_reentrancy_guard`) — the
+- `strategies/swap.rs:89` (`call_router_with_reentrancy_guard`) — the
   swap-aggregator router call.
-- `strategies/legs.rs:104` (`withdraw_collateral_to_controller`) — the pool
+- `strategies/legs.rs:103` (`withdraw_collateral_to_controller`) — the pool
   withdraw leg that moves collateral into the controller.
-- `positions/debt.rs:272` (`borrow_into_controller`) — the pool transfer to the
+- `positions/debt.rs:273` (`borrow_into_controller`) — the pool transfer to the
   controller, held so a listed token's transfer hook cannot reenter before the
   strategy swap guard is taken.
 - `external/blend.rs:91` (`guarded_submit`) — the Blend cross-contract submit.
@@ -619,9 +675,9 @@ re-export in `storage/mod.rs`).
 The router cannot pull more input than approved. Its return values are not
 trusted.
 
-**Status:** ENFORCED — `contracts/controller/src/strategies/swap/auth.rs`
+**Status:** ENFORCED — `contracts/controller/src/strategies/swap.rs:39`
 pre-authorizes exactly one `token_in.transfer` of `amount_in` to the router;
-`contracts/controller/src/strategies/swap/route.rs` discards the router's return
+`contracts/controller/src/strategies/swap.rs:91` discards the router's return
 value. VERIFIED — rules `swap_collateral_preserves_directional_bounds`,
 `swap_debt_preserves_directional_bounds`, `multiply_sanity`; ADR-0011.
 
@@ -630,7 +686,7 @@ value. VERIFIED — rules `swap_collateral_preserves_directional_bounds`,
 Swaps must produce measured output, return residue to the rightful caller, and
 finish behind the same risk gates as ordinary account operations.
 
-**Status:** ENFORCED — `contracts/controller/src/strategies/swap/balances.rs`
+**Status:** ENFORCED — `contracts/controller/src/strategies/swap.rs`
 (`NoSwapOutput` when nothing is received; leftover `token_in` returned to
 `refund_to`); `contracts/controller/src/strategies/legs.rs` and
 `contracts/controller/src/risk/validation.rs` apply the same post-action gate.

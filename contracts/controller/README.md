@@ -9,7 +9,7 @@ It talks to four other contracts:
 | Contract | Why |
 | --- | --- |
 | pool | Holds token custody and per-market share accounting. The controller owns it. |
-| price-aggregator | Supplies USD prices. A failed price read reverts the call. |
+| price-aggregator | Supplies USD prices. A failed price read reverts any state-changing call; the `get_market_indexes_detailed` view instead reports it as an unusable price status (`valid: false`). |
 | swap-aggregator | Executes swap routes for the strategy entrypoints. Treated as untrusted. |
 | position-nft | Records account ownership. `account_id` equals the NFT `token_id`. See [`../position-nft/README.md`](../position-nft/README.md). |
 
@@ -18,13 +18,22 @@ It talks to four other contracts:
 There are three levels.
 
 - **Owner.** Marked `#[only_owner]` in the source. After deployment the owner is
-  the governance contract, so these calls run through a timelock.
+  the governance contract. Most owner calls run through a governance timelock,
+  but `pause`, `set_spoke_asset_flags`, `create_hub` and `add_spoke` are also
+  reachable immediately, with no delay, by a GUARDIAN-role holder. See
+  [`../governance/src/timelock/immediate.rs`](../governance/src/timelock/immediate.rs).
 - **Global pause.** Marked `#[when_not_paused]`. These calls revert while the
   contract is paused. Note that not every user entrypoint carries this
   attribute, so a global pause does not stop everything.
-- **Caller.** Everything else authorizes `caller`. Most position entrypoints
-  additionally require the caller to be the account owner or an opted-in
-  delegate. `repay` is the exception: anyone may repay another account's debt.
+- **Caller.** Everything else authorizes `caller`. `borrow`, `withdraw` and the
+  strategy entrypoints additionally require the caller to be the account owner
+  or an opted-in delegate. Several position entrypoints are permissionless
+  instead: anyone may `repay` any account's debt, `liquidate` an account whose
+  health factor is below one (including the account's own owner), and
+  `clean_bad_debt` on an insolvent account once its remaining collateral is at
+  or below the dust threshold. A third-party `supply` may only top up hub assets
+  the account already holds a supply position in; an `account_id` of 0 creates a
+  new account owned by the caller.
 
 ## Halt flags
 
@@ -69,6 +78,7 @@ than the signature shows.
 | Entrypoint | Signature | Notes | What it does |
 | --- | --- | --- | --- |
 | `flash_loan` | `fn flash_loan( env: Env, caller: Address, asset: HubAssetKey, amount: i128, receiver: Address, data: Bytes, )` | blocked by global pause | Flash-loans `amount` of `asset` to `receiver`, invoking its callback with `data`; the pool pulls back the principal plus fee before the call returns. |
+| `flash_position` | `fn flash_position( env: Env, caller: Address, account_id: u64, spoke_id: u32, mode: PositionMode, debt: HubAssetKey, amount: i128, receiver: Address, data: Bytes, collaterals: Vec<(HubAssetKey, i128)>, refund_assets: Vec<Address>, ) -> u64` | blocked by global pause | Mints `amount` of `debt` onto `account_id` with no flash fee, forwards the measured tokens to `receiver`, invokes `execute_flash_position`, and deposits measured controller-balance increases of `collaterals`; the account must be solvent after the callback. Returns the account id. |
 | `multiply` | `fn multiply( env: Env, caller: Address, account_id: u64, spoke_id: u32, collateral: HubAssetKey, debt_to_flash_loan: i128, debt: HubAssetKey, mode: PositionMode, swap: Bytes, initial_payment: Option<(HubAssetKey, i128)>, convert_swap: Option<Bytes>, ) -> u64` | blocked by global pause | Opens or extends a leveraged position on `account_id`: borrows `debt_to_flash_loan` of `debt`, swaps it (plus any optional initial payment) into `collateral` via `swap`, and deposits the result as collateral. |
 | `swap_debt` | `fn swap_debt( env: Env, caller: Address, account_id: u64, existing_debt: HubAssetKey, amount: i128, new_debt: HubAssetKey, swap: Bytes, )` | blocked by global pause | Replaces `account_id`'s `existing_debt` position with `new_debt` by borrowing `amount` of `new_debt`, swapping it to `existing_debt` via `swap`, and repaying the existing position with the proceeds. |
 | `swap_collateral` | `fn swap_collateral( env: Env, caller: Address, account_id: u64, current: HubAssetKey, amount: i128, new: HubAssetKey, swap: Bytes, )` | blocked by global pause | Replaces `amount` of `account_id`'s `current` collateral with `new` by withdrawing it, swapping to `new` via `swap`, and depositing the proceeds as collateral. |
@@ -118,7 +128,6 @@ than the signature shows.
 | `get_min_borrow_collateral_usd` | `fn get_min_borrow_collateral_usd(env: Env) -> i128` | — | Returns the minimum collateral value (WAD) required to open a new borrow position. |
 | `is_blend_pool_approved` | `fn is_blend_pool_approved(env: Env, pool: Address) -> bool` | — | Returns whether `pool` is approved as a Blend migration source. |
 | `get_app_version` | `fn get_app_version(env: Env) -> u32` | — | Returns the contract's current app version. |
-| `accept_ownership` | `fn accept_ownership(env: Env)` | — | Completes a pending ownership transfer, making the caller the new owner. |
 
 ### Administration (owner only)
 
@@ -146,12 +155,14 @@ than the signature shows.
 | `upgrade_liquidity_pool_params` | `fn upgrade_liquidity_pool_params(env: Env, hub_asset: HubAssetKey, params: InterestRateModel)` | owner-only | Accrues `hub_asset`'s indexes, then updates its interest rate model to `params` on the pool. |
 | `upgrade_pool` | `fn upgrade_pool(env: Env, new_wasm_hash: BytesN<32>)` | owner-only | Upgrades the liquidity pool contract to `new_wasm_hash`. |
 | `upgrade_position_nft` | `fn upgrade_position_nft(env: Env, new_wasm_hash: BytesN<32>)` | owner-only | Upgrades the position-NFT contract's Wasm bytecode to `new_wasm_hash`. |
+| `upgrade_swap_aggregator` | `fn upgrade_swap_aggregator(env: Env, new_wasm_hash: BytesN<32>)` | owner-only | Upgrades the swap-aggregator router's Wasm to `new_wasm_hash`. |
 | `force_socialize_bad_debt` | `fn force_socialize_bad_debt(env: Env, account_id: u64)` | owner-only | Force-socializes `account_id`'s debt into the supply index when the account is insolvent. |
 | `pause` | `fn pause(env: Env)` | owner-only | Pauses the contract. |
 | `unpause` | `fn unpause(env: Env)` | owner-only | Unpauses the contract. |
 | `upgrade` | `fn upgrade(env: Env, new_wasm_hash: BytesN<32>)` | owner-only | Pauses the contract if it is not already paused, then upgrades it to `new_wasm_hash`. |
 | `migrate` | `fn migrate(env: Env, new_version: u32)` | owner-only | Sets the stored app version to `new_version`. |
 | `transfer_ownership` | `fn transfer_ownership(env: Env, new_owner: Address, live_until_ledger: u32)` | owner-only | Begins a two-step transfer of ownership to `new_owner`. |
+| `accept_ownership` | `fn accept_ownership(env: Env)` | pending-owner-only | Completes a pending ownership transfer, making the caller the new owner. Mutates owner state; not a view. |
 
 ## Errors and events
 

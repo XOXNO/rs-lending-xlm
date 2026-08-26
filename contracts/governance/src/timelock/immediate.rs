@@ -1,6 +1,9 @@
 //! Governance actions that execute immediately, bypassing the timelock delay.
-//! Each entry point authenticates the caller and checks a required role before
-//! forwarding to the controller or price aggregator, or applying the change directly.
+//! Each entry point except `revoke_role_immediate` authenticates the caller and
+//! checks a required role through `begin_immediate` before forwarding to the
+//! controller or price aggregator, or applying the change directly.
+//! `revoke_role_immediate` is instead owner-gated at the contract entry point
+//! (`#[only_owner]`) and only restricts which role argument may be revoked.
 
 use common::errors::GenericError;
 use common::types::{HubAssetKey, PriceKey};

@@ -116,7 +116,8 @@ curl -s localhost:9110/metrics | grep lending_
 ### Environment
 
 `--config` is the only CLI flag. Environment values override the loaded YAML
-before validation (`src/main.rs:21`, `src/config.rs:114-125`).
+before validation (`src/main.rs:22-29`, `src/config.rs:104-105` and
+`src/config.rs:112-123`).
 
 | Env var | Meaning | Default | Required |
 | --- | --- | --- | --- |
@@ -125,13 +126,14 @@ before validation (`src/main.rs:21`, `src/config.rs:114-125`).
 | `EXPORTER_CONTROLLER` | Overrides `contracts.controller`. An empty value is ignored. | none | no |
 | `EXPORTER_PRICE_AGGREGATOR` | Overrides `contracts.price_aggregator`. An empty value clears it back to the live controller lookup. | none | no |
 | `EXPORTER_XOXNO_ORACLE_ADAPTER` | Overrides `contracts.xoxno_oracle_adapter`. An empty value clears it. | none | no |
-| `RUST_LOG` | `tracing` filter. When set it replaces `log.level` from the YAML (`src/main.rs:90`). | unset; falls back to `log.level` | no |
+| `RUST_LOG` | `tracing` filter. When set it replaces `log.level` from the YAML (`src/main.rs:99-107`). | unset; falls back to `log.level` | no |
 
 `MAINNET_LENDING_CONTROLLER` is **not** read by the binary. It is a Compose-level
 variable that the example Compose file pipes into `EXPORTER_CONTROLLER`
 (`docker-compose.example.yaml:27`).
 
-Unlike the sibling `keeper`, this service does honour `RUST_LOG`.
+Like the sibling `keeper`, this service honours `RUST_LOG`: when set and
+parseable it replaces `log.level` from the YAML (`../keeper/src/main.rs:168-178`).
 
 ## Config
 
@@ -140,22 +142,27 @@ controller and `(hub_id, asset, symbol)` markets + `spokes` to scan.
 
 - **Pool** and **price-aggregator** are resolved each scrape from the controller
   (`get_pool_address`, `price_aggregator`). YAML `price_aggregator` is a fallback.
-- Addresses in `config/*.yaml` are meant to track `configs/networks.json`.
-  **They currently diverge on testnet.** `config/testnet.yaml` uses controller
-  `CBY6ZCBOMH47…`, price-aggregator `CDD4CFSYS53S…` and oracle adapter
-  `CC7DJH3IZBXO…`, while `configs/networks.json` lists `CCXRWJ6SIU2W…`,
-  `CAALOOTIDXCX…` and `CDYX4ZEO556Y…`. Re-sync them before trusting the testnet
-  dashboard.
-- Markets / hubs / spokes labels mirror `configs/{network}/{markets,hubs,spokes}.json`.
+- `configs/networks.json` is the source of truth for contract addresses;
+  `config/*.yaml` must track it. `config/testnet.yaml` was re-synced to it on
+  2026-08-26 (controller `CCXRWJ6SIU2W…`, price-aggregator `CAALOOTIDXCX…`,
+  oracle adapter `CDYX4ZEO556Y…`). When an address changes, update
+  `configs/networks.json` first, then mirror it here.
+- Markets / hubs / spokes labels are meant to mirror
+  `configs/{network}/{markets,hubs,spokes}.json`, but `config/mainnet.yaml`
+  currently trails it — see below.
 - `symbol`, `hubs`, `spoke_names` are display labels only.
 - `scrape_interval_seconds` defaults to `30`. Values below `5` fail startup.
 - `rpc.timeout_seconds` is parsed but **has no effect**: `RpcClient::new`
   (`src/stellar/client.rs:14-18`) never applies it.
 
-`config/mainnet.yaml` lists the canonical mainnet market set (including the LP
-and XAUM listings), hubs (`Core` / `RWA` / `Aquarius`), and eight spokes
-(`Main` / `Etherfuse` / `Spiko` / `Centrifuge` / `Forex` / `LP Tokens` / `Ondo` /
-`Commodities`). The controller is deliberately
+`config/mainnet.yaml` lists hubs (`Core` / `RWA` / `Aquarius`) and eight of the
+nine spokes (`Main` / `Etherfuse` / `Spiko` / `Centrifuge` / `Forex` /
+`LP Tokens` / `Ondo` / `Commodities`) — spoke `9` (`Aquarius`) is missing. Its
+market list covers 25 of the 30 markets in `configs/mainnet/markets.json`:
+`xSolvBTC`, `AQUA`, `xSolvBTCSolvBTC_LP`, `XLMAQUA_LP` and `AQUAUSDC_LP` are
+absent. Anything not listed is simply not scraped (`collector.rs:780`
+iterates `cfg.spokes`), and `lending_protocol_spokes_count` reports
+`cfg.spokes.len()` — 8, not 9. The controller is deliberately
 empty in `configs/networks.json` because it is not deployed yet. At deployment,
 set `EXPORTER_CONTROLLER` to the deployed `C…` address; it overrides only the
 container's configuration and is validated before the exporter starts.

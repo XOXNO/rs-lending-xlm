@@ -135,7 +135,8 @@ impl XoxnoOracle {
 
     /// Returns the history entry for `asset` with the newest package
     /// timestamp at or before `timestamp`, converted to `ReflectorPriceData`.
-    /// Returns `None` if `asset` has no feed mapping, the feed's history is
+    /// Returns `None` if `asset` has no feed mapping, the feed has no current
+    /// aggregate or that aggregate is stale, the feed's history is
     /// unavailable, or no entry satisfies the timestamp bound.
     pub fn price(env: Env, asset: ReflectorAsset, timestamp: u64) -> Option<ReflectorPriceData> {
         let feed_id = load_feed_id(&env, &asset)?;
@@ -159,7 +160,8 @@ impl XoxnoOracle {
 
     /// Returns up to `records` history entries for `asset`, newest first,
     /// converted to `ReflectorPriceData`. Returns `None` if `asset` has no
-    /// feed mapping or its history is empty or unavailable.
+    /// feed mapping, the feed has no current aggregate or that aggregate is
+    /// stale, or its history is empty or unavailable.
     pub fn prices(
         env: Env,
         asset: ReflectorAsset,

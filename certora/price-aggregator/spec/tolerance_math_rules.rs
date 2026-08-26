@@ -44,7 +44,7 @@ fn par_ratio_is_bps(e: Env, price: i128) {
     cvlr_assume!(price > 0 && price <= 1_000_000 * WAD);
 
     let ratio_ray = fp_core::mul_div_half_up(&e, price, RAY, price);
-    let ratio_bps = fp_core::rescale_half_up(ratio_ray, 27, 4);
+    let ratio_bps = fp_core::rescale_half_up(&e, ratio_ray, 27, 4);
     cvlr_assert!(ratio_bps == BPS);
 }
 

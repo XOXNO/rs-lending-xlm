@@ -10,7 +10,7 @@ fn position_value_half_up_matches_inline() {
     let price = Wad::from(2 * WAD);
 
     let got = position_value(&env, scaled, index, price);
-    let expected = scaled.mul(&env, index).to_wad().mul(&env, price);
+    let expected = scaled.mul(&env, index).to_wad(&env).mul(&env, price);
     assert_eq!(got, expected);
 }
 

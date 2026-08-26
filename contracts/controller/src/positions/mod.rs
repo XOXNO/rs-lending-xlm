@@ -237,7 +237,8 @@ pub(crate) fn finalize_position_flow(
 
 /// Asserts the hub is active, the asset is listed on an active spoke
 /// (unlisted assets revert `AssetNotInSpoke`), and the spoke asset is neither
-/// paused nor frozen (new entries: frozen blocks; paused blocks every verb).
+/// paused nor frozen (`FreezePolicy::BlockOnEntry`: both flags block a new
+/// entry; the seizure leg honours `no_seize` instead — see `FreezePolicy`).
 /// Returns the asset config so the caller can apply its verb-specific
 /// permission check.
 fn require_listed_unhalted_config(

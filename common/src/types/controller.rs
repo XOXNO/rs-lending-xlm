@@ -40,7 +40,9 @@ impl From<&SpokeAssetConfig> for AssetConfig {
 }
 
 /// Lightweight projection of an account's spoke and position mode, omitting the owner
-/// address and position maps carried by `Account` and `AccountMeta`.
+/// address and position maps carried by `Account`. Structurally identical to the stored
+/// `AccountMeta` it is built from; kept as a separate type so the view surface is decoupled
+/// from storage.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AccountAttributes {
@@ -233,9 +235,9 @@ pub enum SeizeMode {
 
     /// The seized supply shares are credited to a controller account instead of being
     /// withdrawn. `0` creates a fresh account owned by the liquidator and bound to the
-    /// liquidated account's spoke; any other id must already exist, be owned by (or delegated
-    /// to) the liquidator, sit in the liquidated account's spoke, and be in
-    /// `PositionMode::Normal`.
+    /// liquidated account's spoke; any other id must already exist, not be the liquidated
+    /// account itself, be owned by (or delegated to) the liquidator, sit in the liquidated
+    /// account's spoke, and be in `PositionMode::Normal`.
     Credit(u64),
 }
 
@@ -528,8 +530,9 @@ mod tests {
 }
 
 /// Storage keys for all controller contract state: singleton protocol settings, per-hub and
-/// per-spoke configuration, per-spoke-asset configuration and usage, and per-account
-/// metadata, positions, and delegates (keyed by account ID or address as applicable).
+/// per-spoke configuration, per-spoke-asset configuration and usage, the address-keyed
+/// position-manager and Blend-pool registries, and per-account metadata, positions, and
+/// delegates, all keyed by the `u64` account id.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub enum ControllerKey {

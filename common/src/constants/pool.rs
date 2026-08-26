@@ -3,7 +3,9 @@
 
 use crate::constants::RAY;
 
-/// Minimum value the supply index is clamped to after accrual or write-down, in raw ray units.
+/// Minimum value the supply index is clamped to when bad debt is written down against
+/// suppliers, in raw ray units. Interest accrual does not apply this floor; it only guarantees
+/// the index never decreases.
 pub const SUPPLY_INDEX_FLOOR_RAW: i128 = RAY / 1_000;
 
 /// Upper bound accepted for a pool's configured maximum borrow rate, in raw ray units.

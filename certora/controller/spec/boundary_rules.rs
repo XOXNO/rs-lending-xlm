@@ -57,7 +57,7 @@ fn borrow_rate_at_100_percent_sanity(e: Env) {
 
 #[rule]
 fn compound_interest_at_max_rate_max_time_sanity(e: Env) {
-    let rate_per_ms = div_by_int_half_up(RAY, MILLISECONDS_PER_YEAR as i128);
+    let rate_per_ms = div_by_int_half_up(&e, RAY, MILLISECONDS_PER_YEAR as i128);
     let factor = compound_interest(&e, Ray::from(rate_per_ms), MILLISECONDS_PER_YEAR);
     cvlr_satisfy!(factor.raw() > 2 * RAY && factor.raw() < 3 * RAY);
 }
@@ -193,7 +193,7 @@ fn mul_at_max_i128_sanity(e: Env) {
 #[rule]
 fn compound_taylor_accuracy(e: Env) {
     let annual_rate_ray = RAY / 100;
-    let rate_per_ms = div_by_int_half_up(annual_rate_ray, MILLISECONDS_PER_YEAR as i128);
+    let rate_per_ms = div_by_int_half_up(&e, annual_rate_ray, MILLISECONDS_PER_YEAR as i128);
     let factor = compound_interest(&e, Ray::from(rate_per_ms), MILLISECONDS_PER_YEAR);
     let tolerance = RAY / 10_000;
     let lower = RAY + annual_rate_ray;
@@ -205,20 +205,20 @@ fn compound_taylor_accuracy(e: Env) {
 
 #[rule]
 fn compound_taylor_accuracy_sanity(e: Env) {
-    let rate_per_ms = div_by_int_half_up(RAY / 100, MILLISECONDS_PER_YEAR as i128);
+    let rate_per_ms = div_by_int_half_up(&e, RAY / 100, MILLISECONDS_PER_YEAR as i128);
     let factor = compound_interest(&e, Ray::from(rate_per_ms), MILLISECONDS_PER_YEAR);
     cvlr_satisfy!(factor.raw() > RAY + RAY / 100);
 }
 
 #[rule]
-fn rescale_ray_to_wad() {
-    let result = rescale_half_up(RAY, 27, 18);
+fn rescale_ray_to_wad(e: Env) {
+    let result = rescale_half_up(&e, RAY, 27, 18);
     cvlr_assert!(result == WAD);
 }
 
 #[rule]
-fn rescale_wad_to_7_decimals() {
-    let result = rescale_half_up(WAD, 18, 7);
+fn rescale_wad_to_7_decimals(e: Env) {
+    let result = rescale_half_up(&e, WAD, 18, 7);
     cvlr_assert!(result == 10_000_000i128);
 }
 

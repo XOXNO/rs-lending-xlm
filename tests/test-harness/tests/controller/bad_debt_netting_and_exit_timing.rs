@@ -7,7 +7,7 @@
 //!    stayer can exit on the same terms at the same moment, the loss lands on
 //!    whoever chose to stay — which is exactly the pro-rata-over-current-
 //!    suppliers rule ADR-0012 and INV-IDX-03 specify, not a privileged path.
-//! 2. `test_a4_econ_force_socialize_does_not_net_collateral_against_debt` uses
+//! 2. `same_market_residual_is_not_netted_against_socialized_debt` uses
 //!    USDC collateral against ETH debt, where offsetting is impossible without
 //!    selling one asset for the other. The only configuration where netting is
 //!    actually available is a residual collateral leg in the *same* market as

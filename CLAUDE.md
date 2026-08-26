@@ -12,7 +12,7 @@ the other documents do not say.
 | Path | Contents |
 |---|---|
 | `contracts/` | Deployable contracts: controller, pool, governance, position-nft, price-aggregator, swap-aggregator, defindex-strategy, xoxno-oracle |
-| `interfaces/` | `#[contractclient]` declarations. One per contract |
+| `interfaces/` | `#[contractclient]` declarations. Six of the eight contracts. `defindex-strategy` has none (it consumes `interfaces/controller`); the `xoxno-oracle` client lives in `common/src/oracle/providers/xoxno.rs` with the other oracle providers |
 | `common/` | Shared math, rates, oracle, types, TTL, errors, validation |
 | `mock/` | Test doubles: mock-oracle, mock-redstone, flash-loan-receiver, flash-position-receiver |
 | `tests/test-harness/` | Integration tests. Sub-suites: controller, pool, governance, oracle, strategy, fuzz, meta |
@@ -26,7 +26,7 @@ the other documents do not say.
 
 `make help` is the index. `make help-build`, `help-verify`, `help-deploy`,
 `help-ops`, `help-views`, `help-oracle`, `help-aggregator`, `help-all` are the
-topic pages. There are 139 targets — read the index before you invent a
+topic pages. There are 131 targets — read the index before you invent a
 command.
 
 Check ladder, narrowest first:

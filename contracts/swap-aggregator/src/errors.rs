@@ -10,13 +10,15 @@ use soroban_sdk::contracterror;
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum Error {
-    /// Instruction count is zero or above the program cap.
+    /// Instruction count is zero or above the program cap, or the split-weight
+    /// count is above its cap.
     EmptyBatch = 1,
     /// Non-positive amount, overdraft, or spend mismatch.
     InvalidAmount = 3,
     /// `Prev` has no predecessor output, or it names a different token.
     BrokenTokenChain = 4,
-    /// Delivered output below the declared minimum.
+    /// Declared minimum output is not positive, or the delivered output is
+    /// below it.
     SlippageExceeded = 5,
     /// Venue returned zero usable output.
     ZeroOutput = 7,

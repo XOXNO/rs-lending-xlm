@@ -77,11 +77,12 @@ fn fuzz_mul_div(i: &In) {
 }
 
 fn fuzz_div_by_int(i: &In) {
+    let env = Env::default();
 
     let a = i.a % (MAX_A + 1);
     let b = (i.b % MAX_A).saturating_abs() + 1;
 
-    let r = div_by_int_half_up(a, b);
+    let r = div_by_int_half_up(&env, a, b);
 
     if let Some(rb) = r.checked_mul(b) {
         let err = (rb - a).abs();
@@ -126,6 +127,7 @@ fn fuzz_div_by_int(i: &In) {
 }
 
 fn fuzz_rescale(i: &In) {
+    let env = Env::default();
 
     let from = (i.choice % 28) as u32;
     let to = (i.extra % 28) as u32;
@@ -133,7 +135,7 @@ fn fuzz_rescale(i: &In) {
     let a = i.a % (MAX_A + 1);
 
     if from == to {
-        assert_eq!(rescale_half_up(a, from, to), a);
+        assert_eq!(rescale_half_up(&env, a, from, to), a);
         return;
     }
 
@@ -143,8 +145,8 @@ fn fuzz_rescale(i: &In) {
 
         let bound = (i128::MAX / 2) / factor;
         let bounded = a % (bound + 1);
-        let up = rescale_half_up(bounded, from, to);
-        let back = rescale_half_up(up, to, from);
+        let up = rescale_half_up(&env, bounded, from, to);
+        let back = rescale_half_up(&env, up, to, from);
         assert_eq!(
             back, bounded,
             "upscale roundtrip lost data: a={} up={} back={}",
@@ -168,7 +170,7 @@ fn fuzz_rescale(i: &In) {
     } else {
         let diff = from - to;
         let factor: i128 = 10i128.pow(diff);
-        let down = rescale_half_up(a, from, to);
+        let down = rescale_half_up(&env, a, from, to);
         if let Some(reconstructed) = down.checked_mul(factor) {
             let err = (reconstructed - a).abs();
             assert!(

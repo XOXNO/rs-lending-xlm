@@ -104,13 +104,13 @@ fn read_spot(
     OracleObservation::from_reflector(now_secs, &price_data, decimals)
 }
 
-/// Computes an arithmetic mean of up to `records` historical Reflector
-/// observations, despite the `Twap` mode name implying a time-weighted
-/// average. Validates that the history is non-empty, has between the
-/// minimum observation count and `records + 1` entries, has no timestamp
-/// beyond `now + MAX_FUTURE_SKEW_SECONDS`, and has consecutive timestamps
-/// spaced at least one resolution period apart. Returns the mean price
-/// paired with the oldest observation's timestamp, or an error if
+/// Computes an arithmetic mean of the returned Reflector observations,
+/// despite the `Twap` mode name implying a time-weighted average. Validates
+/// that the history is non-empty and holds between `records` and
+/// `records + 1` entries, has no timestamp beyond
+/// `now + MAX_FUTURE_SKEW_SECONDS`, and has consecutive timestamps in
+/// descending order spaced at least one resolution period apart. Returns the
+/// mean price paired with the oldest observation's timestamp, or an error if
 /// validation or computation fails.
 fn read_twap(
     session: &Session,

@@ -92,6 +92,8 @@ pub enum GenericError {
     PositionNftNotSet = 53,
 
     PositionNftAlreadyDeployed = 54,
+
+    DivisionByZero = 55,
 }
 
 /// Error codes for collateral, position, interest-rate-curve, and

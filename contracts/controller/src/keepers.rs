@@ -135,7 +135,8 @@ fn claim_revenue_for_asset(env: &Env, hub_asset: &HubAssetKey, cache: &mut Cache
 
 /// Recomputes each of `account_id`'s supply positions' risk parameters against
 /// the current spoke asset config, to the depth `scope` selects. Skips accounts
-/// with no stored metadata or no supply positions. Under `FullTuple`, loads the
+/// with no stored metadata, no supply positions, or whose position-NFT owner
+/// cannot be resolved. Under `FullTuple`, loads the
 /// debt side too and panics if the account's health factor falls below the
 /// minimum threshold-update level after the changes are applied.
 fn sync_account_thresholds(

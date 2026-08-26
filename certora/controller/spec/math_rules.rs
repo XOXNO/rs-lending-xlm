@@ -103,29 +103,29 @@ fn div_half_up_rounding_direction(e: Env) {
 }
 
 #[rule]
-fn rescale_upscale_lossless() {
+fn rescale_upscale_lossless(e: Env) {
     let x: i128 = cvlr::nondet::nondet();
     let from: u32 = 7;
     let to: u32 = 18;
 
     cvlr_assume!((0..=WAD).contains(&x));
 
-    let upscaled = rescale_half_up(x, from, to);
+    let upscaled = rescale_half_up(&e, x, from, to);
 
     let factor = 10i128.pow(to - from);
     cvlr_assert!(upscaled == x * factor);
 }
 
 #[rule]
-fn rescale_roundtrip() {
+fn rescale_roundtrip(e: Env) {
     let x: i128 = cvlr::nondet::nondet();
     let low: u32 = 7;
     let high: u32 = 18;
 
     cvlr_assume!((0..=1_000_000_000_000_000).contains(&x));
 
-    let upscaled = rescale_half_up(x, low, high);
-    let recovered = rescale_half_up(upscaled, high, low);
+    let upscaled = rescale_half_up(&e, x, low, high);
+    let recovered = rescale_half_up(&e, upscaled, high, low);
 
     cvlr_assert!(recovered == x);
 }
@@ -259,7 +259,7 @@ fn split_mul_div_ceil_never_gains(e: Env) {
 /// is this direction for every `asset_decimals <= RAY_DECIMALS`, which is why
 /// the pool's additivity slack comes only from the index division.
 #[rule]
-fn split_rescale_upscale_exact() {
+fn split_rescale_upscale_exact(e: Env) {
     let a1: i128 = cvlr::nondet::nondet();
     let a2: i128 = cvlr::nondet::nondet();
     let low: u32 = 7;
@@ -268,8 +268,8 @@ fn split_rescale_upscale_exact() {
     cvlr_assume!((0..=WAD).contains(&a1));
     cvlr_assume!((0..=WAD).contains(&a2));
 
-    let split = rescale_half_up(a1, low, high) + rescale_half_up(a2, low, high);
-    let single = rescale_half_up(a1 + a2, low, high);
+    let split = rescale_half_up(&e, a1, low, high) + rescale_half_up(&e, a2, low, high);
+    let single = rescale_half_up(&e, a1 + a2, low, high);
 
     cvlr_assert!(split == single);
 }
@@ -277,7 +277,7 @@ fn split_rescale_upscale_exact() {
 /// Downscaling rescale rounds half up, so splitting moves the result by at most
 /// one unit of the coarser decimal scale: `|f(a1) + f(a2) − f(a1 + a2)| <= 1`.
 #[rule]
-fn split_rescale_downscale_bounded() {
+fn split_rescale_downscale_bounded(e: Env) {
     let a1: i128 = cvlr::nondet::nondet();
     let a2: i128 = cvlr::nondet::nondet();
     let high: u32 = 18;
@@ -286,8 +286,8 @@ fn split_rescale_downscale_bounded() {
     cvlr_assume!((0..=WAD).contains(&a1));
     cvlr_assume!((0..=WAD).contains(&a2));
 
-    let split = rescale_half_up(a1, high, low) + rescale_half_up(a2, high, low);
-    let single = rescale_half_up(a1 + a2, high, low);
+    let split = rescale_half_up(&e, a1, high, low) + rescale_half_up(&e, a2, high, low);
+    let single = rescale_half_up(&e, a1 + a2, high, low);
 
     cvlr_assert!(split <= single + 1);
     cvlr_assert!(split >= single - 1);

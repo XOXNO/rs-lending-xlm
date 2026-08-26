@@ -27,9 +27,10 @@ pub(crate) struct RepayWithCollateralParams<'a> {
 /// Repays `debt` using `collateral` for `caller`'s account: nets supply
 /// directly against debt on the pool when they are the same market,
 /// otherwise withdraws `collateral_amount` of collateral, swaps it into the
-/// debt asset, and repays with the proceeds. When `close_position` is set
-/// and no debt remains afterward, also withdraws all remaining collateral to
-/// `caller` before the standard solvency finalize.
+/// debt asset, and repays with the proceeds. When `close_position` is set,
+/// panics with `CannotCloseWithRemainingDebt` if any debt position remains;
+/// otherwise withdraws all remaining collateral to `caller` before the
+/// standard solvency finalize.
 pub(crate) fn process_repay_debt_with_collateral(
     env: &Env,
     caller: &Address,

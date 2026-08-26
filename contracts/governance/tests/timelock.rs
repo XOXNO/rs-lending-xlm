@@ -428,6 +428,27 @@ fn non_owner_cannot_propose_ownership_transfer() {
 }
 
 #[test]
+#[should_panic(expected = "Error(Contract, #44)")]
+fn non_owner_cannot_propose_controller_ownership_transfer() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let delay = 10u32;
+    let (admin, _controller, gov) = register_with_controller(&env, delay);
+    let proposer = grant_role_via_timelock(&env, &gov, &admin, delay, PROPOSER_ROLE, 1);
+    let new_owner = Address::generate(&env);
+
+    let salt = BytesN::<32>::from_array(&env, &[4u8; 32]);
+    gov.propose(
+        &proposer,
+        &AdminOperation::TransferCtrlOwnership(TransferOwnershipArgs {
+            new_owner,
+            live_until_ledger: env.ledger().sequence() + 100_000,
+        }),
+        &salt,
+    );
+}
+
+#[test]
 fn owner_ownership_transfer_is_cancellable() {
     let env = Env::default();
     env.mock_all_auths();

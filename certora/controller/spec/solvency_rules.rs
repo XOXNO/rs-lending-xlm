@@ -314,7 +314,7 @@ fn compound_interest_bounded_output(e: Env) {
     let time: u64 = cvlr::nondet::nondet();
 
     let max_rate_per_ms =
-        common::math::fp_core::div_by_int_half_up(10 * RAY, MILLISECONDS_PER_YEAR as i128);
+        common::math::fp_core::div_by_int_half_up(&e, 10 * RAY, MILLISECONDS_PER_YEAR as i128);
 
     cvlr_assume!(rate >= 0 && rate <= max_rate_per_ms);
     cvlr_assume!(time > 0 && time <= MILLISECONDS_PER_YEAR);
@@ -331,7 +331,7 @@ fn compound_interest_no_wrap(e: Env) {
     let time: u64 = cvlr::nondet::nondet();
 
     let max_rate_per_ms =
-        common::math::fp_core::div_by_int_half_up(10 * RAY, MILLISECONDS_PER_YEAR as i128);
+        common::math::fp_core::div_by_int_half_up(&e, 10 * RAY, MILLISECONDS_PER_YEAR as i128);
 
     cvlr_assume!(rate >= 0 && rate <= max_rate_per_ms);
     cvlr_assume!(time <= MILLISECONDS_PER_YEAR);
@@ -363,7 +363,7 @@ fn roundtrip_supply_sanity(e: Env) {
 #[rule]
 fn compound_no_wrap_sanity(e: Env) {
     let max_rate_per_ms =
-        common::math::fp_core::div_by_int_half_up(RAY, MILLISECONDS_PER_YEAR as i128);
+        common::math::fp_core::div_by_int_half_up(&e, RAY, MILLISECONDS_PER_YEAR as i128);
     let rate = max_rate_per_ms;
     let time = 1;
     let factor = common::rates::compound_interest(&e, Ray::from(rate), time);

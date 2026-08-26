@@ -132,7 +132,7 @@ pub(crate) fn set_spoke_asset_flags(
 ///
 /// Kept as a named function rather than inlined into its single caller: it is
 /// the control that ADR-0007, ADR-0008, STRIDE, the threat model, and
-/// INV-CONF's ENFORCED status all cite by name. The name is the interface to
+/// INV-AUTH-04's ENFORCED status all cite by name. The name is the interface to
 /// that documentation, so it outranks the line it would save.
 fn require_flag_ratchet(
     env: &Env,

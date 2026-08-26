@@ -12,8 +12,10 @@ use crate::positions::{enforce_spoke_asset_flags, FreezePolicy};
 /// Builds and validates a `LiquidationPlan` for `account` from `raw_payments`: computes risk
 /// totals, sizes the repayment against the liquidation curve's ideal close amount, and derives
 /// the pro-rata collateral seizure. Panics with `CollateralError::HealthFactorTooHigh` when the
-/// account has no debt or its health factor is at least one WAD, and enforces spoke pause/freeze
-/// flags on every payment and seizure asset.
+/// account has no debt or its health factor is at least one WAD, enforces the spoke pause flag on
+/// every payment asset (`FreezePolicy::AllowOnExit`: rejects `paused`, tolerates `frozen`), and
+/// enforces only the seizure halt flag on every seized asset (`FreezePolicy::SeizureLeg`: rejects
+/// `no_seize`, tolerates `paused` and `frozen` — see ADR-0008).
 pub(crate) fn build_liquidation_plan(
     env: &Env,
     account: &Account,

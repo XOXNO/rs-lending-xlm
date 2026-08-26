@@ -1,8 +1,8 @@
 # test-harness
 
-In-process Soroban integration layer for the rs-lending-xlm protocol. It deploys controller and pool WASM inside a `soroban-sdk` test `Env`, wires mock oracles and aggregators, and exposes a fluent API for supply/borrow/liquidation/strategy flows used by integration and property tests.
+In-process Soroban integration layer for the rs-lending-xlm protocol. Inside a `soroban-sdk` test `Env` it registers the controller natively (`env.register(controller::Controller, …)`) and deploys the pool and position-nft from built WASM, wires mock oracles and aggregators, and exposes a fluent API for supply/borrow/liquidation/strategy flows used by integration and property tests. Because the controller is native, these tests do not exercise its compiled artifact or its WASM-level ABI.
 
-Build contract WASM first: `make build` from the repo root.
+Build contract WASM first: `make build` from the repo root — the pool and position-nft `.wasm` files must exist.
 
 ## What it provides
 
@@ -55,7 +55,7 @@ t.borrow(ALICE, "ETH", 1.0);
 | Feature | Default | Purpose |
 |---------|---------|---------|
 | `reference-math` | on | `test_harness::reference` for liquidation differential tests |
-| `testing` | off | Controller `testing` feature (enabled by fuzz / libFuzzer consumers) |
+| `testing` | off | Controller and governance `testing` features (enabled by fuzz / libFuzzer consumers) |
 
 ## Running tests
 

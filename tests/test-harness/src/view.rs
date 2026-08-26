@@ -164,7 +164,7 @@ impl LendingTest {
             let decimals = self.resolve_market_by_asset(asset).decimals;
             return Ray::from(scaled_amount)
                 .mul(&self.env, Ray::from(index))
-                .to_asset(decimals);
+                .to_asset(&self.env, decimals);
         }
 
         0

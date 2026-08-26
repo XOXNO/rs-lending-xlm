@@ -64,8 +64,8 @@ Requirements:
 |---|---|
 | Build contracts | make build |
 | Build optimized WASM | make optimize |
-| Run workspace tests | cargo test --workspace |
-| Run the integration harness | make test |
+| Run the whole workspace test suite | make test |
+| Run the integration harness alone | make test-harness |
 | Lint and format | make clippy, make fmt |
 | View deployment and operations help | make help |
 

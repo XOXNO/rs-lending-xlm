@@ -129,18 +129,21 @@ The position NFT's per-token `Owner(token_id)` entry renews to only 30 days
 on read (OZ default), while the controller's own account entries renew to
 120 days. A dormant account (30–120 days without any owner/delegate action
 that touches the controller, which is what drives `owner_of` reads) can end
-up with a live controller account but an **archived** NFT owner entry. Any
-controller op against that account — including `liquidate` — will fail until
-the entry is restored. Two mitigations, in preference order:
+up with a live controller account but an **archived** NFT owner entry. A
+controller op against that account — including `liquidate` — is **not**
+blocked if you simulate and then submit: from protocol 23 the simulation
+returns the archived entry ids and the submitted transaction restores them in
+line, at the cost of restore rent. Only a bot that hand-builds a footprint
+without simulating hits a hard failure. Two mitigations, in preference order:
 
 1. **Proactive:** `position-nft::renew(token_id)` is permissionless and
    extends the `Owner` entry to the protocol's 120-day window. Call it on
    positions you monitor (e.g. whenever a watched account's health factor
    drops below your alert threshold) and the archival case never arises.
-2. **Reactive:** if `liquidate` (or any account op) fails in a way that
-   looks like a missing ledger entry rather than a normal contract error,
-   submit a `RestoreFootprint` operation for the position-NFT contract's
-   `Owner(token_id)` key before retrying.
+2. **Reactive:** if you hand-build footprints and `liquidate` (or any account
+   op) fails in a way that looks like a missing ledger entry rather than a
+   normal contract error, submit a `RestoreFootprint` operation for the
+   position-NFT contract's `Owner(token_id)` key before retrying.
 
 See `docs/reference/invariants.md` (INV-STOR-02).
 

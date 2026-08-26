@@ -107,7 +107,7 @@ fn repayment_fixture(env: &Env) -> (Address, HubAssetKey, Account) {
     borrow_positions.set(
         hub_asset.clone(),
         DebtPositionRaw {
-            scaled_amount: Ray::from_asset(500_0000000, 7).raw(),
+            scaled_amount: Ray::from_asset(env, 500_0000000, 7).raw(),
         },
     );
     let account = Account {
@@ -133,7 +133,7 @@ fn seize_fixture(env: &Env, fees_bps: u32) -> (Address, HubAssetKey, Account) {
     supply_positions.set(
         hub_asset.clone(),
         AccountPositionRaw {
-            scaled_amount: Ray::from_asset(10_000_000_000, 7).raw(),
+            scaled_amount: Ray::from_asset(env, 10_000_000_000, 7).raw(),
             liquidation_threshold: 8_000,
             liquidation_bonus: 500,
             loan_to_value: 7_500,
@@ -198,7 +198,10 @@ fn unscale_borrow_ceil_uses_pool_full_close_ceiling() {
         scaled_amount: Ray::from(RAY + RAY * 4 / 10),
     };
 
-    assert_eq!(position.scaled_amount.mul(&env, Ray::ONE).to_asset(0), 1);
+    assert_eq!(
+        position.scaled_amount.mul(&env, Ray::ONE).to_asset(&env, 0),
+        1
+    );
     assert_eq!(
         unscale_borrow_ceil(&env, position.scaled_amount, Ray::ONE, 0),
         2
@@ -924,7 +927,7 @@ fn seize_fixture_with_collateral(
     supply_positions.set(
         hub_asset.clone(),
         AccountPositionRaw {
-            scaled_amount: Ray::from_asset(stroops(collateral_tokens), 7).raw(),
+            scaled_amount: Ray::from_asset(env, stroops(collateral_tokens), 7).raw(),
             liquidation_threshold: 7_800,
             liquidation_bonus: MAINNET_XLM_BONUS_BPS as u32,
             loan_to_value: 7_500,
@@ -1119,7 +1122,7 @@ fn seize_legs(
         supply_positions.set(
             key.clone(),
             AccountPositionRaw {
-                scaled_amount: Ray::from_asset(leg.amount, leg.decimals).raw(),
+                scaled_amount: Ray::from_asset(env, leg.amount, leg.decimals).raw(),
                 liquidation_threshold: leg.threshold_bps,
                 liquidation_bonus: leg.bonus_bps,
                 loan_to_value: leg.threshold_bps - 500,
@@ -1537,7 +1540,7 @@ fn a_sub_unit_leg_is_dropped_while_its_siblings_are_still_seized() {
     );
 }
 
-// --- the full-close gate boundary (math.rs:160-169) -----------------------
+// --- the full-close gate boundary (math.rs:194-198) -----------------------
 
 /// `cap >= 0` is the gate's solvency test. A cap of exactly zero means any bonus
 /// at all pushes the health factor down, so an underfunded partial is refused.
@@ -1616,7 +1619,7 @@ fn the_full_close_gate_yields_when_the_hf_preserving_cap_is_one_bp_negative() {
 // debt leg costs it nothing at asset-unit granularity. Both surviving sites are
 // on the collateral leg, per seized position:
 //
-//   1. `capped_ray.to_asset_floor(decimals)` on a partial seizure  -> <= 1 unit
+//   1. `capped_ray.to_asset_floor(&env, decimals)` on a partial seizure  -> <= 1 unit
 //   2. the dust fee bump, `protocol_fee_ray > 0 && fee_asset == 0` -> <= 1 unit
 //
 // So `L_round = 2 units of collateral` per leg, and because seizure is pro-rata
@@ -1830,7 +1833,7 @@ fn a_floor_sized_liquidation_pays_the_liquidator_for_every_listed_collateral() {
         // the fee bump never fire.
         let collateral_units = Wad::from(10_000 * WAD)
             .div(&env, Wad::from(c.price_wad))
-            .to_token(c.decimals);
+            .to_token(&env, c.decimals);
 
         let leg = LegSpec {
             amount: collateral_units,
@@ -1846,7 +1849,7 @@ fn a_floor_sized_liquidation_pays_the_liquidator_for_every_listed_collateral() {
         let entry = seized.get_unchecked(0);
 
         let net_units = entry.amount - entry.protocol_fee;
-        let net_usd = Wad::from_token(net_units, c.decimals)
+        let net_usd = Wad::from_token(&env, net_units, c.decimals)
             .mul_floor(&env, Wad::from(c.price_wad))
             .raw();
 
@@ -1898,7 +1901,7 @@ fn floor_sized_liquidation_profits_match_the_documented_table() {
     for (c, want) in LISTED_COLLATERALS.iter().zip(expected.iter()) {
         let collateral_units = Wad::from(10_000 * WAD)
             .div(&env, Wad::from(c.price_wad))
-            .to_token(c.decimals);
+            .to_token(&env, c.decimals);
         let leg = LegSpec {
             amount: collateral_units,
             decimals: c.decimals,
@@ -1908,7 +1911,7 @@ fn floor_sized_liquidation_profits_match_the_documented_table() {
             threshold_bps: 7_000,
         };
         let entry = single_leg(&env, leg, floor, c.bonus_bps).get_unchecked(0);
-        let profit = Wad::from_token(entry.amount - entry.protocol_fee, c.decimals)
+        let profit = Wad::from_token(&env, entry.amount - entry.protocol_fee, c.decimals)
             .mul_floor(&env, Wad::from(c.price_wad))
             .raw()
             - floor;
@@ -2008,7 +2011,7 @@ fn the_profitability_boundary_at_three_decimals_sits_between_198_and_237_dollars
             return -floor;
         }
         let entry = seized.get_unchecked(0);
-        Wad::from_token(entry.amount - entry.protocol_fee, c.decimals)
+        Wad::from_token(&env, entry.amount - entry.protocol_fee, c.decimals)
             .mul_floor(&env, Wad::from(c.price_wad))
             .raw()
             - floor
@@ -2077,7 +2080,7 @@ impl SplitBook {
         supply_positions.set(
             self.coll.clone(),
             AccountPositionRaw {
-                scaled_amount: Ray::from_asset(coll_stroops, 7).raw(),
+                scaled_amount: Ray::from_asset(env, coll_stroops, 7).raw(),
                 liquidation_threshold: SPLIT_LT_BPS,
                 liquidation_bonus: SPLIT_BONUS_BPS,
                 loan_to_value: 7_500,
@@ -2088,7 +2091,7 @@ impl SplitBook {
         borrow_positions.set(
             self.debt.clone(),
             DebtPositionRaw {
-                scaled_amount: Ray::from_asset(debt_stroops, 7).raw(),
+                scaled_amount: Ray::from_asset(env, debt_stroops, 7).raw(),
             },
         );
         Account {

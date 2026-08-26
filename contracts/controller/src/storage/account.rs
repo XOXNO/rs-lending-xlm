@@ -139,7 +139,7 @@ pub(crate) fn iter_debt_positions(
     map.iter().map(|(key, raw)| (key, DebtPosition::from(&raw)))
 }
 
-/// Assembles an account's full state (metadata, supply positions, debt positions), panicking with `AccountNotFound` if its metadata does not exist.
+/// Assembles an account's full state (metadata, supply positions, debt positions), panicking with `AccountNotFound` if its metadata does not exist or its owner cannot be resolved from the position NFT.
 pub(crate) fn get_account(env: &Env, account_id: u64) -> Account {
     try_get_account(env, account_id)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::AccountNotFound))

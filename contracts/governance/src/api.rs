@@ -1,9 +1,11 @@
-//! Implements `GovernanceInterface` for `Governance`. Each method delegates
+//! Implements `GovernanceInterface` for `Governance`. Most methods delegate
 //! to a `pub(crate)` function in the module that owns the corresponding
-//! behavior (`access`, `deploy`, or a `timelock::*` submodule); some methods
-//! carry an `#[only_owner]` guard. Owner gating lives on these methods rather
-//! than on the delegates, so the check runs at the contract entry point before
-//! any state is touched.
+//! behavior (`access`, `deploy`, `op`, `storage`, `validate`, or a
+//! `timelock::*` submodule); a few thin accessors call
+//! `stellar_access::access_control` or `stellar_governance::timelock`
+//! directly. Some methods carry an `#[only_owner]` guard. Owner gating lives
+//! on these methods rather than on the delegates, so the check runs at the
+//! contract entry point before any state is touched.
 
 use common::types::{AssetOracle, HubAssetKey, OracleTolerance, PriceKey};
 

@@ -382,7 +382,7 @@ fn test_borrow_1_raw_unit_is_properly_recorded_on_7dec() {
 #[test]
 fn test_scaled_borrow_never_zero_for_raw_one_within_protocol_bounds() {
     let env = soroban_sdk::Env::default();
-    let one_raw = common::math::fp::Ray::from_asset(1, 18);
+    let one_raw = common::math::fp::Ray::from_asset(&env, 1, 18);
     let samples = [
         common::constants::RAY,
         common::constants::RAY * 1_000,
@@ -391,7 +391,7 @@ fn test_scaled_borrow_never_zero_for_raw_one_within_protocol_bounds() {
         common::constants::MAX_BORROW_INDEX_RAY,
     ];
     for decimals in 6u32..=18 {
-        let from = common::math::fp::Ray::from_asset(1, decimals);
+        let from = common::math::fp::Ray::from_asset(&env, 1, decimals);
         for &index in &samples {
             let scaled = from.div(&env, common::math::fp::Ray::from(index));
             assert!(

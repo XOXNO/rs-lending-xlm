@@ -69,7 +69,7 @@ pub(crate) fn accounting(env: &Env, action: PoolAction, charge_fee: bool) -> Str
     let mut position = Ray::from(position.scaled_amount);
     borrow::mint_debt(env, &mut cache, &mut position, amount);
 
-    let protocol_fee = Ray::from_asset(fee, cache.params().asset_decimals);
+    let protocol_fee = Ray::from_asset(env, fee, cache.params().asset_decimals);
     interest::add_protocol_revenue(&mut cache, protocol_fee);
 
     let amount_to_send = amount

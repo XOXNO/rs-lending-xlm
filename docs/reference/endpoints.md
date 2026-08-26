@@ -137,7 +137,7 @@ Repays part of an unhealthy account's debt and seizes collateral at a bonus.
 
 - **Permissionless, including self-liquidation** by the account owner.
 - **Batch repayment** across several debt assets in one call.
-- **Two delivery modes** (`SeizeMode`, `common/src/types/controller.rs:241`):
+- **Two delivery modes** (`SeizeMode`, `common/src/types/controller.rs:231`):
 
 | Mode | Token movement | Returns | Use when |
 | --- | --- | --- | --- |
@@ -189,12 +189,12 @@ collateral LTV, apply post-pool risk gates, persist, emit the position batch
 
 | Endpoint | Auth | Source |
 | --- | --- | --- |
-| `multiply` | `owner/delegate` (`AccountGuard::Multiply`) | `contracts/controller/src/lib.rs:233` |
+| `multiply` | `owner/delegate` (`AccountGuard::Multiply`) | `contracts/controller/src/lib.rs:237` |
 | `flash_position` | `owner/delegate` (`AccountGuard::Multiply`) | `contracts/controller/src/lib.rs:198` |
-| `swap_debt` | `owner/delegate` | `contracts/controller/src/lib.rs:267` |
-| `swap_collateral` | `owner/delegate` | `contracts/controller/src/lib.rs:293` |
-| `repay_debt_with_collateral` | `owner/delegate` | `contracts/controller/src/lib.rs:320` |
-| `migrate_from_blend` | `owner/delegate` (`AccountGuard::Migrate`) | `contracts/controller/src/lib.rs:350` |
+| `swap_debt` | `owner/delegate` | `contracts/controller/src/lib.rs:271` |
+| `swap_collateral` | `owner/delegate` | `contracts/controller/src/lib.rs:297` |
+| `repay_debt_with_collateral` | `owner/delegate` | `contracts/controller/src/lib.rs:326` |
+| `migrate_from_blend` | `owner/delegate` (`AccountGuard::Migrate`) | `contracts/controller/src/lib.rs:356` |
 | `flash_loan` | `signature` | `contracts/controller/src/lib.rs:182` |
 
 ### `multiply(...) -> u64`
@@ -209,7 +209,7 @@ Options:
   requires owner-or-delegate authority, a matching spoke, **and** that the passed
   `mode` equals the account's stored mode, else `AccountModeMismatch`.
 - **`mode: PositionMode`** — `Normal | Multiply | Long | Short`
-  (`common/src/types/shared.rs:32`). Fixed at account creation and enforced on
+  (`common/src/types/shared.rs:36`). Fixed at account creation and enforced on
   every later `multiply` call against that account.
 - **`initial_payment: Option<(HubAssetKey, i128)>`** — user capital contributed
   alongside the borrowed amount, folded into the deposit.
@@ -228,7 +228,7 @@ repay. See [ADR-0020](../explanation/decisions/0020-flash-position-callback-mult
   nor the pool (`InvalidFlashloanReceiver`).
 - Same `AccountGuard::Multiply` account semantics as `multiply`.
 - The position must remain open: `require_flash_position_still_open`
-  (`contracts/controller/src/strategies/flash_position.rs:371`) is asserted both
+  (`contracts/controller/src/strategies/flash_position.rs:356`) is asserted both
   before and after `strategy_finalize`, so the account must end with live debt in
   `debt` and at least one supply position, else `FlashPositionClosed` (505).
 - Observer note: the strategy-debt mint is tagged `FlashPos` (16) in the position
@@ -247,14 +247,14 @@ validated against the spoke's listing *before* the callback runs, so
 `token::Client` is never invoked on an arbitrary caller-chosen address).
 
 Two balance snapshots are taken **inside** the flash guard, immediately before
-the callback (`flash_position.rs:111-113`). Everything afterwards is a diff
+the callback (`flash_position.rs:113-118`). Everything afterwards is a diff
 against those baselines.
 
 #### `collaterals: Vec<(HubAssetKey, i128)>` — the amount is a minimum
 
 The `i128` is a **slippage floor**, not a cap and not an exact expectation. The
 measured delta is what gets deposited, never the declared figure
-(`collect_collateral_deposits`, `flash_position.rs:335`).
+(`collect_collateral_deposits`, `flash_position.rs:323`).
 
 | Receiver delivers | Result |
 | --- | --- |
@@ -264,7 +264,7 @@ measured delta is what gets deposited, never the declared figure
 | Zero on every declared asset | Revert `CollateralMinimumNotMet` — `deposits` is empty |
 
 Validation, all before the callback (`validate_collaterals`,
-`flash_position.rs:152`): non-empty; `len() <= max_supply_positions`; each
+`flash_position.rs:169`): non-empty; `len() <= max_supply_positions`; each
 `min_amount >= 0`; no duplicate `HubAssetKey` **and** no duplicate underlying
 `Address` (the same token may be listed in two hubs); `require_can_supply` for
 spoke listing, collateralizable flag, and halt flags; **at least one
@@ -280,13 +280,13 @@ cannot be credited as collateral.
 #### `refund_assets: Vec<Address>` — delta only, paid to the caller
 
 `refund_controller_balance_delta`
-(`contracts/controller/src/strategies/legs.rs:226`) transfers
+(`contracts/controller/src/strategies/legs.rs:222`) transfers
 `balance - baseline`, and only when that difference is positive. It is **never**
 the controller's gross balance. The recipient is **`caller`**, not the receiver
 and not the account owner. The leg runs after `process_deposit` and outside the
 flash guard.
 
-Constraints (`validate_refund_assets`, `flash_position.rs:200`):
+Constraints (`validate_refund_assets`, `flash_position.rs:212`):
 
 | Rule | Error |
 | --- | --- |
@@ -341,9 +341,9 @@ callback pushed; the earlier leftover sits inside their baseline and is
 untouchable. The original caller cannot recover it either, for the same reason.
 
 Every controller read of its own token balance is a baseline capture paired with
-a `checked_sub` — `strategies/legs.rs:69,102,119`,
-`strategies/flash_position.rs:256,269,346`, `strategies/swap/balances.rs:18,33`,
-`strategies/migrate_blend.rs:302,325,361`. **No path transfers the controller's
+a `checked_sub` — `strategies/legs.rs:69,101,117,229`,
+`strategies/flash_position.rs:113,118,267,279,334`, `strategies/swap.rs:34,35,45`,
+`strategies/migrate_blend.rs:231,264`. **No path transfers the controller's
 gross balance.** `ControllerAdmin` exposes no sweep or rescue entry point, so
 stranded balances are inaccessible to everyone, including governance.
 
@@ -416,9 +416,9 @@ Standard flash loan through the pool.
 
 | Endpoint | Auth | Pause | Source |
 | --- | --- | --- | --- |
-| `add_delegate` | `owner` | gated | `contracts/controller/src/lib.rs:417` |
-| `remove_delegate` | `owner` | open | `contracts/controller/src/lib.rs:423` |
-| `renew_account` | `owner` | open | `contracts/controller/src/lib.rs:409` |
+| `add_delegate` | `owner` | gated | `contracts/controller/src/lib.rs:423` |
+| `remove_delegate` | `owner` | open | `contracts/controller/src/lib.rs:429` |
+| `renew_account` | `owner` | open | `contracts/controller/src/lib.rs:415` |
 
 - **`add_delegate` requires the delegate to be an active, governance-approved
   position manager at the moment of the grant.** A dormant grant to an address
@@ -444,10 +444,10 @@ All four require only the caller's signature. None carries a privileged role.
 
 | Endpoint | Pause | Source |
 | --- | --- | --- |
-| `update_indexes(caller, assets)` | gated | `contracts/controller/src/lib.rs:379` |
-| `claim_revenue(caller, assets) -> Vec<i128>` | gated | `contracts/controller/src/lib.rs:387` |
-| `update_account_threshold(caller, has_risks, account_ids)` | gated | `contracts/controller/src/lib.rs:396` |
-| `recapitalize(payer, hub_asset, amount) -> i128` | open | `contracts/controller/src/lib.rs:403` |
+| `update_indexes(caller, assets)` | gated | `contracts/controller/src/lib.rs:385` |
+| `claim_revenue(caller, assets) -> Vec<i128>` | gated | `contracts/controller/src/lib.rs:393` |
+| `update_account_threshold(caller, has_risks, account_ids)` | gated | `contracts/controller/src/lib.rs:402` |
+| `recapitalize(payer, hub_asset, amount) -> i128` | open | `contracts/controller/src/lib.rs:409` |
 
 - **`claim_revenue` is callable by anyone, but the proceeds go only to the
   configured accumulator.** The caller cannot name a recipient. Reverts if no
@@ -469,7 +469,7 @@ All four require only the caller's signature. None carries a privileged role.
 
 Read-only. None mutates state. Views that accept a list are bounded by
 `MAX_VIEW_INPUTS = 256` via `require_view_inputs_bound`
-(`contracts/controller/src/views.rs:18`).
+(`contracts/controller/src/views.rs:20`).
 
 **Account risk**
 
@@ -521,11 +521,12 @@ ends up with the difference), and **the units follow the mode** — asset units 
 
 ## Controller — administration
 
-Not end-user surface. Every entry point in `ControllerAdmin`
+Not end-user surface. Every mutating entry point in `ControllerAdmin`
 (`interfaces/controller/src/admin.rs`) carries `#[only_owner]`, and the owner is
 the governance contract. Reaching them requires a governance proposal, the
-applicable timelock tier, and execution. `accept_ownership` is the sole
-unguarded entry, callable only by the pending owner.
+applicable timelock tier, and execution. Two entries are ungated:
+`get_app_version`, a permissionless read of the stored migration version, and
+`accept_ownership`, callable only by the pending owner.
 
 The surface covers: aggregator and accumulator wiring, position limits, the
 minimum-borrow floor, position-manager registration, Blend allowlisting,

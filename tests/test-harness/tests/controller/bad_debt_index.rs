@@ -642,7 +642,7 @@ fn test_same_market_absorb_before_writedown_conserves_exactly() {
 /// its debt (INV-ACCT-09), with the cash book untouched (INV-ACCT-02).
 ///
 /// It also records the reachability bound on the one real deviation. The
-/// `SUPPLY_INDEX_FLOOR_RAW` clamp (`interest.rs:111`) makes a wipeout partial,
+/// `SUPPLY_INDEX_FLOOR_RAW` clamp (`interest.rs:90`) makes a wipeout partial,
 /// but `require_utilization_below_max` caps debt at 95% of supply value, so a
 /// single ordinary liquidation cannot drive the index anywhere near the floor.
 #[test]

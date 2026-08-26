@@ -28,7 +28,7 @@ fn supply_scaled_balance_matches_index(
     cvlr_assume!(position_before >= 0 && position_before <= 10 * RAY);
     cvlr_assume!(supply_index >= SUPPLY_INDEX_FLOOR_RAW && supply_index <= MAX_SUPPLY_INDEX_RAY);
     cvlr_assume!(asset_decimals <= RAY_DECIMALS);
-    let amount_ray = Ray::from_asset(amount, asset_decimals);
+    let amount_ray = Ray::from_asset(&e, amount, asset_decimals);
     let expected = fp_core::mul_div_floor(&e, amount_ray.raw(), RAY, supply_index);
     cvlr_assume!(expected > 0);
     seed(
@@ -55,16 +55,16 @@ fn supply_scaled_balance_matches_index(
     let post = read_state(&e, &asset);
     let pre_claim = Ray::from(pre.supplied)
         .mul_floor(&e, Ray::from(pre.supply_index))
-        .to_asset_floor(asset_decimals);
+        .to_asset_floor(&e, asset_decimals);
     let pre_debt = Ray::from(pre.borrowed)
         .mul_ceil(&e, Ray::from(pre.borrow_index))
-        .to_asset_ceil(asset_decimals);
+        .to_asset_ceil(&e, asset_decimals);
     let post_claim = Ray::from(post.supplied)
         .mul_floor(&e, Ray::from(post.supply_index))
-        .to_asset_floor(asset_decimals);
+        .to_asset_floor(&e, asset_decimals);
     let post_debt = Ray::from(post.borrowed)
         .mul_ceil(&e, Ray::from(post.borrow_index))
-        .to_asset_ceil(asset_decimals);
+        .to_asset_ceil(&e, asset_decimals);
     cvlr_assert!(result.actual_amount == amount);
     cvlr_assert!(result.position.scaled_amount - position_before == expected);
     cvlr_assert!(Ray::from(expected).mul_floor(&e, Ray::from(supply_index)) <= amount_ray);
@@ -90,7 +90,7 @@ fn borrow_scaled_debt_matches_index(
     cvlr_assume!(debt_before >= 0 && debt_before <= 10 * RAY);
     cvlr_assume!(borrow_index >= RAY && borrow_index <= MAX_BORROW_INDEX_RAY);
     cvlr_assume!(asset_decimals <= RAY_DECIMALS);
-    let amount_ray = Ray::from_asset(amount, asset_decimals);
+    let amount_ray = Ray::from_asset(&e, amount, asset_decimals);
     let expected = fp_core::mul_div_ceil(&e, amount_ray.raw(), RAY, borrow_index);
     cvlr_assume!(expected > 0 && expected <= i128::MAX - debt_before);
     seed(
@@ -140,9 +140,9 @@ fn partial_withdraw_burns_scaled_supply(
     cvlr_assume!(asset_decimals <= RAY_DECIMALS);
     let current_actual = Ray::from(position_before)
         .mul(&e, Ray::from(supply_index))
-        .to_asset(asset_decimals);
+        .to_asset(&e, asset_decimals);
     cvlr_assume!(amount < current_actual);
-    let amount_ray = Ray::from_asset(amount, asset_decimals);
+    let amount_ray = Ray::from_asset(&e, amount, asset_decimals);
     let expected_burn = fp_core::mul_div_ceil(&e, amount_ray.raw(), RAY, supply_index);
     cvlr_assume!(expected_burn > 0);
     seed(
@@ -215,7 +215,7 @@ fn full_withdraw_burns_entire_position(
     let post = read_state(&e, &asset);
     let expected_gross = Ray::from(position_before)
         .mul_floor(&e, Ray::from(supply_index))
-        .to_asset_floor(asset_decimals);
+        .to_asset_floor(&e, asset_decimals);
 
     cvlr_assert!(result.position.scaled_amount == 0);
     cvlr_assert!(pre.supplied - post.supplied == position_before);
@@ -239,9 +239,9 @@ fn partial_repay_burns_scaled_debt(
     cvlr_assume!(asset_decimals <= RAY_DECIMALS);
     let debt_ceil = Ray::from(debt_before)
         .mul_ceil(&e, Ray::from(borrow_index))
-        .to_asset_ceil(asset_decimals);
+        .to_asset_ceil(&e, asset_decimals);
     cvlr_assume!(amount < debt_ceil);
-    let amount_ray = Ray::from_asset(amount, asset_decimals);
+    let amount_ray = Ray::from_asset(&e, amount, asset_decimals);
     let expected_burn = fp_core::mul_div_floor(&e, amount_ray.raw(), RAY, borrow_index);
     cvlr_assume!(expected_burn > 0);
     seed(
@@ -289,7 +289,7 @@ fn full_repay_refunds_overpayment(
     cvlr_assume!(asset_decimals <= RAY_DECIMALS);
     let debt_ceil = Ray::from(debt_before)
         .mul_ceil(&e, Ray::from(borrow_index))
-        .to_asset_ceil(asset_decimals);
+        .to_asset_ceil(&e, asset_decimals);
     let amount = debt_ceil + extra;
     seed(
         &e,
@@ -343,7 +343,7 @@ fn full_repay_refunds_overpayment(
 // for every `decimals <= RAY_DECIMALS`, so it contributes no slack of its own.
 //
 // Derivation of the constant, in full, for one leg. Write `K = 10^(27−decimals)`
-// and let `I` be the live index. `Ray::from_asset(a) = a·K` exactly, so
+// and let `I` be the live index. `Ray::from_asset(&e, a) = a·K` exactly, so
 //
 //   calculate_scaled_supply(a)       = floor(a·K·RAY / I)      (supply mint)
 //   calculate_scaled_borrow(a)       = ceil (a·K·RAY / I)      (borrow mint)
@@ -536,7 +536,7 @@ fn additivity_withdraw_split_never_pays_more(
     cvlr_assume!(e.ledger().timestamp() <= u64::MAX / 1_000);
     let held = Ray::from(position_before)
         .mul(&e, Ray::from(supply_index))
-        .to_asset(asset_decimals);
+        .to_asset(&e, asset_decimals);
     cvlr_assume!(first + second < held);
 
     let market = params_with_decimals(asset.clone(), 0, false, asset_decimals);

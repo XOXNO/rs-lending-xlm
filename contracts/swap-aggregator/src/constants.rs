@@ -1,6 +1,9 @@
 //! Fee caps, path-split scale, and residual dust policy.
 
-/// Path split weights sum to this value (parts per million).
+/// Denominator for path split weights (parts per million). Each weight is an
+/// independent share of the input balance available at execution time; weights
+/// are bounded to `1..=PPM_DENOMINATOR` individually and are not required to
+/// sum to it.
 pub(crate) const PPM_DENOMINATOR: i128 = 1_000_000;
 
 /// Minimum residual dust allowed to accrue as admin fee after settlement.

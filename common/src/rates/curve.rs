@@ -63,7 +63,8 @@ pub fn calculate_annual_borrow_rate(env: &Env, utilization: Ray, params: &Market
 /// Divides [`calculate_annual_borrow_rate`] by [`MILLISECONDS_PER_YEAR`] so
 /// [`compound_interest`] can scale by elapsed milliseconds.
 pub fn calculate_borrow_rate(env: &Env, utilization: Ray, params: &MarketParams) -> Ray {
-    calculate_annual_borrow_rate(env, utilization, params).div_by_int(MILLISECONDS_PER_YEAR as i128)
+    calculate_annual_borrow_rate(env, utilization, params)
+        .div_by_int(env, MILLISECONDS_PER_YEAR as i128)
 }
 
 /// Computes the deposit rate suppliers earn from `borrow_rate` at the given

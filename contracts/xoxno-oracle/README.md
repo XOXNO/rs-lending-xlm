@@ -20,9 +20,11 @@ time. RedStone-style reads fail closed; SEP-40 reads soft-fail with `None`.
 | `read_price_data` / `read_price_data_for_feed` / `read_price_history` | Fail-closed RedStone ABI |
 | `lastprice` / `price` / `prices` | Soft SEP-40 (`None` when unmapped/missing/stale) |
 | `base` / `decimals` / `resolution` / `assets` | SEP-40 metadata |
+| `feeds` / `max_stale_seconds` / `max_submission_age_seconds` / `max_relative_skew_seconds` | Public config views |
 | `add_signer` / `remove_signer` / `set_threshold` | Owner signer set |
 | `set_max_stale_seconds` / `set_max_submission_age_seconds` / `set_max_relative_skew_seconds` | Owner freshness knobs |
 | `register_feed` / `add_feed` / `remove_feed` / `purge_feed` | Owner feed hygiene |
+| `recompute_feeds` | Owner — re-derive aggregates after a threshold/signer/freshness change, in footprint-sized batches |
 | `set_resolution` / `upgrade` | Owner admin |
 
 ## Related

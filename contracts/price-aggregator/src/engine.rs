@@ -17,8 +17,9 @@ use crate::registry;
 use crate::session::Session;
 use crate::tolerance::{midpoint_price_or_zero, within_tolerance_band};
 
-/// A single source's resolved value: price, observation timestamp, and whether it
-/// is considered stale.
+/// A single source's resolved value: price, observation timestamp, whether it
+/// is considered stale, and the feed nature used to decide whether the two-leg
+/// age-spread bound applies.
 struct Reading {
     price_wad: i128,
     timestamp: u64,

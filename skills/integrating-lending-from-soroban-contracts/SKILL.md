@@ -132,9 +132,11 @@ client.repay(&me, &account_id, &vec![env, (hub_asset, amount)]);
   `borrow_cap` are always-enforced ceilings in asset units with no unlimited
   sentinel: `0` closes that side entirely (`SpokeSupplyCapReached` #311 /
   `SpokeBorrowCapReached` #312) while exits stay uncapped. Halt flags are a
-  separate layer: global pause blocks risk-increasing verbs only (supply,
-  borrow, strategies, flash loans) and leaves withdraw, repay, liquidate,
-  and renew_account open; per-spoke-asset `paused` blocks both entries and
+  separate layer: global pause blocks risk-increasing verbs (supply, borrow,
+  strategies, flash loans), the index/revenue/threshold keeper verbs, and
+  `add_delegate`, and leaves withdraw, repay, liquidate, clean_bad_debt,
+  renew_account, `remove_delegate`, and `recapitalize` open;
+  per-spoke-asset `paused` blocks both entries and
   exits for that listing (#315); `frozen` blocks new entries only (#316);
   `no_seize` blocks only the liquidation seizure leg (#318) and is the only
   flag that gates seizure. Full matrix: `lending-protocol-fundamentals`.

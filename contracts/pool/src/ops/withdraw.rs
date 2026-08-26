@@ -123,7 +123,7 @@ pub(crate) fn withhold_liquidation_fee(
         CollateralError::WithdrawLessThanFee
     );
 
-    let fee = Ray::from_asset(protocol_fee, cache.params().asset_decimals);
+    let fee = Ray::from_asset(env, protocol_fee, cache.params().asset_decimals);
     interest::add_protocol_revenue(cache, fee);
     gross_amount
         .checked_sub(protocol_fee)

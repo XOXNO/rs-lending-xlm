@@ -64,7 +64,7 @@ fn test_supply_index_shortfall_high_valid_index_stays_conservative() {
     let env = Env::default();
     let supplied = Ray::from(100 * RAY);
     let old_index = Ray::from(145_000_436 * RAY);
-    let reward = Ray::from_asset(1, 7);
+    let reward = Ray::from_asset(&env, 1, 7);
 
     let new_index = update_supply_index(&env, supplied, old_index, reward);
     let distributed = supplied
@@ -108,7 +108,7 @@ fn test_calculate_supplier_rewards() {
 fn test_cap_still_backstops_extreme_reward() {
     let env = Env::default();
 
-    let supplied = Ray::from_asset(1, 7);
+    let supplied = Ray::from_asset(&env, 1, 7);
     let reward = Ray::from(i128::MAX / 2);
 
     let grown = update_supply_index(&env, supplied, Ray::from(RAY), reward);
@@ -392,7 +392,8 @@ fn test_supply_index_shortfall_requires_index_within_cap() {
 }
 
 fn one_token_value(decimals: u32) -> Ray {
-    Ray::from_asset(10i128.pow(decimals), decimals)
+    let env = Env::default();
+    Ray::from_asset(&env, 10i128.pow(decimals), decimals)
 }
 
 #[test]
@@ -417,7 +418,7 @@ fn test_one_whole_token_normalizes_to_one_ray_at_every_decimals() {
 /// (`MAX_COMPOUND_DELTA_MS`, one year) at a pinned 100% utilization, so the
 /// borrow rate sits at `annual_rate_ray` for the whole span.
 fn max_chunk_growth_factor(env: &Env, annual_rate_ray: i128) -> Ray {
-    let rate_per_ms = Ray::from(annual_rate_ray).div_by_int(MILLISECONDS_PER_YEAR as i128);
+    let rate_per_ms = Ray::from(annual_rate_ray).div_by_int(env, MILLISECONDS_PER_YEAR as i128);
     compound_interest(env, rate_per_ms, MAX_COMPOUND_DELTA_MS)
 }
 

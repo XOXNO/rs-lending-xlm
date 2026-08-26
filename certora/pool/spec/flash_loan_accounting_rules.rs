@@ -75,13 +75,13 @@ fn flash_fee_booking_is_exact(
     let pre = read_state(&e, &asset);
     let expected_shares = expected_protocol_fee_shares(
         &e,
-        Ray::from_asset(fee, ASSET_DECIMALS),
+        Ray::from_asset(&e, fee, ASSET_DECIMALS),
         Ray::from(supply_index),
         Ray::from(pre.supplied),
     );
     cvlr_assert!(
         expected_shares.mul_floor(&e, Ray::from(supply_index)).raw()
-            <= Ray::from_asset(fee, ASSET_DECIMALS).raw()
+            <= Ray::from_asset(&e, fee, ASSET_DECIMALS).raw()
     );
     let mut cache = crate::cache::Cache::load(&e, &hub(asset.clone()));
     crate::ops::flash::book_fee(&mut cache, fee);
@@ -154,7 +154,7 @@ fn flash_apply_accounting_books_fee_without_principal_cash(
 
     let expected_shares = expected_protocol_fee_shares(
         &e,
-        Ray::from_asset(terms.fee, ASSET_DECIMALS),
+        Ray::from_asset(&e, terms.fee, ASSET_DECIMALS),
         Ray::from(supply_index),
         Ray::from(pre.supplied),
     );

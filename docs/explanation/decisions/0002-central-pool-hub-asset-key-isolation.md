@@ -2,7 +2,7 @@
 
 **Status:** Accepted
 
-**Implemented by:** common/src/types/controller.rs (`HubAssetKey`), contracts/pool/src/ops/market.rs (per-market `supply_index`, cash, shares, and revenue), contracts/controller/src/config/asset.rs (`upsert_spoke_asset`, `AssetAlreadyInSpoke`), contracts/controller/src/storage/spoke.rs.
+**Implemented by:** common/src/types/pool.rs (`HubAssetKey`), contracts/pool/src/ops/market.rs (per-market `supply_index`, cash, shares, and revenue), contracts/controller/src/config/asset.rs (`upsert_spoke_asset`, `AssetAlreadyInSpoke`), contracts/controller/src/storage/spoke.rs.
 
 ## Decision
 

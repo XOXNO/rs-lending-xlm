@@ -126,7 +126,7 @@ pub(crate) fn terms(env: &Env, amount: i128, fee_bps: u32, pre_balance: i128) ->
 
 /// Credits cash and mints protocol revenue for the flash-loan fee.
 pub(crate) fn book_fee(cache: &mut Cache, fee: i128) {
-    let protocol_fee = Ray::from_asset(fee, cache.params().asset_decimals);
+    let protocol_fee = Ray::from_asset(cache.env(), fee, cache.params().asset_decimals);
     interest::add_protocol_revenue(cache, protocol_fee);
     cache.credit_cash(fee);
 }

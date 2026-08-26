@@ -2211,14 +2211,14 @@ fn usage_coverage_dispatch_reachable(e: Env, caller: Address, asset: Address, le
 //     every remaining position into revenue or socialized debt and removes
 //     the account entry, so usage must shed each wiped position in full.
 //
-// REACHABILITY NOTE, and the reason the shapes are driven at different
-// levels: `positions::liquidation::{apply, bad_debt}` are private modules
-// (liquidation/mod.rs:9,10). The spec mounts at `crate::spec` and is not
-// their descendant, so `apply_liquidation_repayments`,
-// `apply_liquidation_seizures`, `apply_liquidation_share_credit` and
-// `execute_bad_debt_cleanup` are NOT callable from here (E0603). Shapes 1
-// and 2 are therefore driven through the `pub(crate)` batch primitives those
-// functions delegate to — `apply_repay_batch` and `apply_withdraw_batch`,
+// LEVEL NOTE, and the reason the shapes are driven at different levels:
+// `positions::liquidation::{apply, bad_debt}` are `pub(crate)`
+// (liquidation/mod.rs:12,13), and their `pub(crate)` functions
+// `apply_liquidation_repayments`, `apply_liquidation_seizures`,
+// `apply_liquidation_share_credit` and `execute_bad_debt_cleanup` ARE
+// callable from `crate::spec`. Shapes 1 and 2 are nonetheless driven through
+// the `pub(crate)` batch primitives those functions delegate to —
+// `apply_repay_batch` and `apply_withdraw_batch`,
 // which is where every position and usage mutation of those two legs
 // happens; the wrappers themselves only run the flag gate, move tokens, and
 // compute USD. Shapes 3 and 4 have no such seam — the share credit and the
