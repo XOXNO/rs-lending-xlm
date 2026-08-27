@@ -29,7 +29,8 @@ pub struct RpcConfig {
 pub struct ContractsConfig {
     pub controller: String,
     pub pool_wasm_hash: String,
-    pub flash_loan_receiver: String,
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    pub flash_loan_receiver: Option<String>,
 
     #[serde(default)]
     pub markets: Vec<MarketConfig>,
@@ -180,10 +181,12 @@ impl KeeperConfig {
                 "config.contracts.controller must be a C... address"
             ));
         }
-        if !self.contracts.flash_loan_receiver.starts_with('C') {
-            return Err(anyhow!(
-                "config.contracts.flash_loan_receiver must be a C... address"
-            ));
+        if let Some(flash_loan_receiver) = &self.contracts.flash_loan_receiver {
+            if !flash_loan_receiver.starts_with('C') {
+                return Err(anyhow!(
+                    "config.contracts.flash_loan_receiver must be a C... address when set"
+                ));
+            }
         }
         if let Some(governance) = &self.contracts.governance {
             if !governance.starts_with('C') {
@@ -261,11 +264,30 @@ mod tests {
 
     fn contracts(gov_line: &str) -> ContractsConfig {
         let yaml = format!(
-            "controller: CCONTROLLER\npool_wasm_hash: {}\nflash_loan_receiver: CFLR\n{}",
+            "controller: CCONTROLLER\npool_wasm_hash: {}\n{}",
             "0".repeat(64),
             gov_line
         );
         serde_yaml::from_str(&yaml).expect("parse ContractsConfig")
+    }
+
+    /// The flash-loan receiver is a testnet demo contract; mainnet never
+    /// deploys one. It used to be a required `String` validated to start with
+    /// `C`, so an unset receiver failed config load outright and `prepay_rent`
+    /// could not run on mainnet at all. It is optional now, like `governance`
+    /// and `price_aggregator`, and both "absent" spellings have to parse: the
+    /// key omitted entirely, and the key present but empty (which is what the
+    /// Makefile used to emit from an empty `networks.json` field).
+    #[test]
+    fn an_absent_flash_loan_receiver_parses() {
+        assert_eq!(contracts("").flash_loan_receiver, None);
+
+        let empty: ContractsConfig = serde_yaml::from_str(&format!(
+            "controller: CCONTROLLER\npool_wasm_hash: {}\nflash_loan_receiver: \"\"",
+            "0".repeat(64)
+        ))
+        .expect("an empty flash_loan_receiver must parse as absent");
+        assert_eq!(empty.flash_loan_receiver, None);
     }
 
     #[test]

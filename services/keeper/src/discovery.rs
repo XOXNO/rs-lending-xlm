@@ -20,7 +20,7 @@ use crate::stellar::client::{
 pub struct ContractIds {
     pub controller: [u8; 32],
     pub pool_wasm_hash: [u8; 32],
-    pub flash_receiver: [u8; 32],
+    pub flash_receiver: Option<[u8; 32]>,
 
     pub governance: Option<[u8; 32]>,
 
@@ -49,7 +49,11 @@ impl ContractIds {
         Ok(Self {
             controller: contract_id_from_strkey(&contracts.controller)?,
             pool_wasm_hash: hash32_from_hex(&contracts.pool_wasm_hash)?,
-            flash_receiver: contract_id_from_strkey(&contracts.flash_loan_receiver)?,
+            flash_receiver: contracts
+                .flash_loan_receiver
+                .as_deref()
+                .map(contract_id_from_strkey)
+                .transpose()?,
             governance,
             xoxno_oracle_adapter,
             price_aggregator,
@@ -304,7 +308,7 @@ pub async fn snapshot(
     } = plan_instance_keys(
         &controller_id,
         pool_id.as_ref(),
-        &ids.flash_receiver,
+        ids.flash_receiver.as_ref(),
         position_nft_id.as_ref(),
     );
     let mut instance_entries = client.get_ledger_entries(&instance_keys).await?;
@@ -324,8 +328,8 @@ pub async fn snapshot(
             wasm_keys.push(contract_code_key(&live_pool_hash));
         }
     }
-    if let Some(flash_hash) = instance_entries
-        .get(flash_row)
+    if let Some(flash_hash) = flash_row
+        .and_then(|i| instance_entries.get(i))
         .and_then(wasm_hash_from_instance_row)
     {
         wasm_keys.push(contract_code_key(&flash_hash));
@@ -771,7 +775,7 @@ fn row_belongs_to(row: &LedgerEntryQuery, contract_id: Option<&[u8; 32]>) -> boo
 struct InstancePlan {
     keys: Vec<LedgerKey>,
     pool_row: Option<usize>,
-    flash_row: usize,
+    flash_row: Option<usize>,
     nft_row: Option<usize>,
 }
 
@@ -782,7 +786,7 @@ struct InstancePlan {
 fn plan_instance_keys(
     controller_id: &[u8; 32],
     pool_id: Option<&[u8; 32]>,
-    flash_receiver: &[u8; 32],
+    flash_receiver: Option<&[u8; 32]>,
     position_nft_id: Option<&[u8; 32]>,
 ) -> InstancePlan {
     let mut keys = Vec::with_capacity(4);
@@ -791,8 +795,10 @@ fn plan_instance_keys(
         keys.push(contract_instance_key(pool));
         keys.len() - 1
     });
-    keys.push(contract_instance_key(flash_receiver));
-    let flash_row = keys.len() - 1;
+    let flash_row = flash_receiver.map(|receiver| {
+        keys.push(contract_instance_key(receiver));
+        keys.len() - 1
+    });
     let nft_row = position_nft_id.map(|nft| {
         keys.push(contract_instance_key(nft));
         keys.len() - 1
@@ -998,7 +1004,7 @@ mod tests {
         let pool = [2u8; 32];
         let flash = [3u8; 32];
         let nft = [4u8; 32];
-        let plan = plan_instance_keys(&ctrl, Some(&pool), &flash, Some(&nft));
+        let plan = plan_instance_keys(&ctrl, Some(&pool), Some(&flash), Some(&nft));
         assert!(
             plan.keys.contains(&contract_instance_key(&nft)),
             "the NFT holds account ownership; if its instance can archive, \
@@ -1010,7 +1016,10 @@ mod tests {
             plan.keys[plan.pool_row.unwrap()],
             contract_instance_key(&pool)
         );
-        assert_eq!(plan.keys[plan.flash_row], contract_instance_key(&flash));
+        assert_eq!(
+            plan.keys[plan.flash_row.unwrap()],
+            contract_instance_key(&flash)
+        );
         assert_eq!(
             plan.keys[plan.nft_row.unwrap()],
             contract_instance_key(&nft)
@@ -1021,11 +1030,11 @@ mod tests {
     fn instance_rows_stay_addressable_when_optional_contracts_are_absent() {
         let ctrl = [1u8; 32];
         let flash = [3u8; 32];
-        let plan = plan_instance_keys(&ctrl, None, &flash, None);
+        let plan = plan_instance_keys(&ctrl, None, Some(&flash), None);
         assert_eq!(plan.pool_row, None);
         assert_eq!(plan.nft_row, None);
         assert_eq!(
-            plan.keys[plan.flash_row],
+            plan.keys[plan.flash_row.unwrap()],
             contract_instance_key(&flash),
             "dropping the pool must not shift the flash-receiver row"
         );
@@ -1104,7 +1113,7 @@ mod tests {
             controller: "CBSCWXCIAASFR2F2332D2I7C6VWUJZKUW4ONOZR2LZ32KOZ5UZVNJ3LA".into(),
             pool_wasm_hash: "a1e7db9b32626c8d4c57343c50407956ea1b642054bf6aee0a613da06359a6fa"
                 .into(),
-            flash_loan_receiver: "CCYDZ6SLHGZKBJF3MNKRK2QPITSVTHL5NYWKWWPMNSOTW4HHCK32JNLZ".into(),
+            flash_loan_receiver: Some("CCYDZ6SLHGZKBJF3MNKRK2QPITSVTHL5NYWKWWPMNSOTW4HHCK32JNLZ".into()),
             markets: Vec::new(),
             market_assets: Vec::new(),
             governance: Some("CCGAETDFZNTJYNOFRC3DR3KZCDZFANBEN2CJSBTOGTLVJPRAFPF7DWMH".into()),
@@ -1121,7 +1130,7 @@ mod tests {
             controller: "CBSCWXCIAASFR2F2332D2I7C6VWUJZKUW4ONOZR2LZ32KOZ5UZVNJ3LA".into(),
             pool_wasm_hash: "a1e7db9b32626c8d4c57343c50407956ea1b642054bf6aee0a613da06359a6fa"
                 .into(),
-            flash_loan_receiver: "CCYDZ6SLHGZKBJF3MNKRK2QPITSVTHL5NYWKWWPMNSOTW4HHCK32JNLZ".into(),
+            flash_loan_receiver: Some("CCYDZ6SLHGZKBJF3MNKRK2QPITSVTHL5NYWKWWPMNSOTW4HHCK32JNLZ".into()),
             markets: Vec::new(),
             market_assets: Vec::new(),
             governance: None,

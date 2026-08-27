@@ -1347,7 +1347,7 @@ prepay-rent:
 	  echo "  markets:"; \
 	  jq -r '.markets[] | "    - { hub_id: \(.hub_id), asset: \(.asset_address) }"' $(CONFIG_DIR)/$(NETWORK)/markets.json; \
 	  echo "  market_assets: []"; \
-	  echo "  flash_loan_receiver: $$FLR"; \
+	  if [ -n "$$FLR" ]; then echo "  flash_loan_receiver: $$FLR"; fi; \
 	  echo "  governance: $$GOV"; \
 	  echo "  price_aggregator: \"$$PAGG\""; \
 	  echo "  xoxno_oracle_adapter: \"$$OADP\""; \
