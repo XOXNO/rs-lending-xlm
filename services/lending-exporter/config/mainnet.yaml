@@ -1,27 +1,11 @@
-
-
-
-
-
-
-
-
-
-
 network: mainnet
 rpc:
-
-
-
   url: https://stellar-gateway.xoxno.com
   passphrase: "Public Global Stellar Network ; September 2015"
   timeout_seconds: 30
 contracts:
-
-  controller: ""
-
-  price_aggregator: ""
-
+  controller: "CAUCMIN5KSXEVZ7NMXR3LZATGD5EFIEUI5XWTFLYRO2R5OTXI22WE5JX"
+  price_aggregator: "CAZLXFVW2L7Y3S4VSYXYRNEJQVLAZBMDXJX6CUM2NDN74TNTUXZHLRQ5"
   xoxno_oracle_adapter: "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM"
 markets:
   - { hub_id: 1, asset: CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA, symbol: XLM }

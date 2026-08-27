@@ -35,23 +35,29 @@
   "mainnet": {
     "rpc_url": "https://stellar-gateway.xoxno.com",
     "network_passphrase": "Public Global Stellar Network ; September 2015",
-    "timelock_min_delay_ledgers": 34560,
-    "governance": "",
-    "controller": "",
+    "timelock_min_delay_ledgers": 12,
+    "governance": "CC44PEQW7HSEPKAZ5ZRPH2JS5M5KVJXCUBLJ2ZX4E3WCDKMNFILHC2AD",
+    "controller": "CAUCMIN5KSXEVZ7NMXR3LZATGD5EFIEUI5XWTFLYRO2R5OTXI22WE5JX",
     "aggregator": "CCVENFSVCBYDHVOACFZXMNNYVOZ3LKXPZYU5LUI4N7KTXOKRVYD7F3TR",
-    "accumulator": "",
-    "pool_wasm_hash": "",
-    "controller_wasm_hash": "",
-    "ledger_index": 0,
+    "accumulator": "GAVWFZK5BGCGBWH4O2CXAHXVRIYVAMGCTZJ24IPLVNLT2WQ2LJBDEEBP",
+    "pool_wasm_hash": "4fd809ebe3248a27d6428089d7f8e4e5d982d56b12a4da5d782bc358c47832cb",
+    "controller_wasm_hash": "1223ecc4b973155337b26b12b7595b49856cb3274d338d2176ae89e49dd7dcd3",
+    "ledger_index": 64140891,
     "reflector_cex_oracle": "CAFJZQWSED6YAWZU3GWRTOCNPPCGBN32L7QV43XX5LZLFTK6JLN34DLN",
     "reflector_dex_oracle": "CALI2BYU2JE6WVRUFYTS6MSBNEHGJ35P4AVCZYF3B6QOE3QKOB2PLE6M",
     "reflector_fx_oracle": "CBKGPWGKSKZF52CFHMTRR23TBWTPMRDIYZ4O2P5VS65BMHYH4DXMCJZC",
     "redstone_adapter_contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
     "xoxno_oracle_adapter": "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM",
     "flash_loan_receiver": "",
-    "pool": "",
+    "pool": "CBXRNDQMAJFG4VUKMKFEMFS75UUXE2SPSNV4LEEFCSNBCN66PYRWBKXO",
     "governance_wasm_hash": "",
-    "hub_ids": {},
-    "spoke_ids": {}
+    "hub_ids": {
+      "1": 1,
+      "2": 2,
+      "3": 3
+    },
+    "spoke_ids": {},
+    "price_aggregator": "CAZLXFVW2L7Y3S4VSYXYRNEJQVLAZBMDXJX6CUM2NDN74TNTUXZHLRQ5",
+    "position_nft": "CAWCSG77AY2W24QZ6ZXLHZU4UXEFHZBM6EI4A4IF7JB5CTY4XND3TI6C"
   }
 }
