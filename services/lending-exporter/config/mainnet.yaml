@@ -1,6 +1,6 @@
 network: mainnet
 rpc:
-  url: https://stellar-gateway.xoxno.com
+  url: http://stellar-rpc-mainnet:8000
   passphrase: "Public Global Stellar Network ; September 2015"
   timeout_seconds: 30
 contracts:
@@ -96,7 +96,7 @@ spoke_names:
   6: Ondo RWA
   7: Commodities
   8: Aquarius Ecosystem
-scrape_interval_seconds: 30
+scrape_interval_seconds: 10
 metrics:
   bind: 0.0.0.0:9110
 log:
