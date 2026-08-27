@@ -179,6 +179,7 @@ mod config;
 mod debt;
 mod market;
 mod position;
+mod revenue;
 mod strategy;
 
 pub use account::*;
@@ -186,6 +187,7 @@ pub use config::*;
 pub use debt::*;
 pub use market::*;
 pub use position::*;
+pub use revenue::*;
 pub use strategy::*;
 
 #[cfg(test)]

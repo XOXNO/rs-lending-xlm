@@ -3,11 +3,30 @@
 //! claim's forward to the accumulator (`controller/src/keepers.rs`, now measured
 //! on both hops after F-8).
 
-use soroban_sdk::token;
+use crate::shared::{count_topic, data_for_topic};
+use soroban_sdk::{testutils::Events, token, xdr::ScVal};
 use test_harness::{
     eth_preset, hub_asset, usdc_preset, weird_token::WeirdTokenClient, LendingTest, ALICE, BOB,
     CAROL,
 };
+
+/// Reads the `amount` field (an `i128`) out of a `revenue:claim` event payload.
+fn claim_event_amount(data: &ScVal) -> i128 {
+    let ScVal::Map(Some(entries)) = data else {
+        panic!("expected ScVal::Map for revenue:claim, got {data:?}");
+    };
+    for entry in entries.0.iter() {
+        if let ScVal::Symbol(key) = &entry.key {
+            if key.to_string() == "amount" {
+                let ScVal::I128(parts) = &entry.val else {
+                    panic!("revenue:claim amount must be i128, got {:?}", entry.val);
+                };
+                return ((parts.hi as i128) << 64) | (parts.lo as i128);
+            }
+        }
+    }
+    panic!("revenue:claim payload has no `amount` field");
+}
 
 /// A fee-on-transfer recapitalize into a healthy market strands nothing inside
 /// the protocol: the whole receipt is refunded, the pool's balance and cash
@@ -113,6 +132,9 @@ fn claim_revenue_forwards_the_measured_amount_and_leaves_controller_dust_intact(
     let controller_before = tok.balance(&controller);
 
     let claimed = t.claim_revenue("USDC");
+    // Captured before the balance reads below: `events().all()` is scoped to
+    // the LAST contract invocation, and every `tok.balance` call is one.
+    let claim_events = t.env.events().all();
     assert!(
         claimed > 0,
         "a positive claim is what makes this observable"
@@ -135,6 +157,46 @@ fn claim_revenue_forwards_the_measured_amount_and_leaves_controller_dust_intact(
     assert_eq!(
         controller_after, controller_before,
         "controller dust must be untouched, before={controller_before} after={controller_after}"
+    );
+
+    // The event must carry the MEASURED receipt, which is the whole reason it
+    // is published from the controller rather than the pool: on this
+    // fee-on-transfer market the pool's reported figure is strictly larger, so
+    // an event emitted at the burn site would overstate lifetime revenue on
+    // every claim. Indexers accumulate this number, so it has to be the one
+    // that actually moved.
+    let payloads = data_for_topic(&claim_events, "revenue", "claim");
+    assert_eq!(payloads.len(), 1, "one claim, one revenue:claim event");
+    assert_eq!(
+        claim_event_amount(&payloads[0]),
+        claimed,
+        "revenue:claim must report the measured forward, not the pool's reported amount"
+    );
+}
+
+/// A claim that finds nothing to sweep must stay silent. A keeper walking every
+/// market on a timer would otherwise write a row per empty market forever, and
+/// the indexer sums these into lifetime revenue.
+#[test]
+fn claim_revenue_emits_nothing_when_there_is_no_revenue() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let accumulator = t
+        .env
+        .register(test_harness::mock_reflector::MockReflector, ());
+    t.set_accumulator(&accumulator);
+
+    assert_eq!(t.claim_revenue("USDC"), 0, "fixture must accrue nothing");
+    // Captured immediately: `events().all()` is scoped to the last invocation.
+    let events = t.env.events().all();
+    assert!(
+        count_topic(&events, "market", "batch_state_update") > 0,
+        "guard: the claim's own events must be in this window, or the \
+         assertion below passes vacuously"
+    );
+    assert_eq!(
+        count_topic(&events, "revenue", "claim"),
+        0,
+        "a zero claim must not emit revenue:claim"
     );
 }
 

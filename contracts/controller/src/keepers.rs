@@ -35,7 +35,7 @@ pub(crate) fn claim_revenue(env: &Env, caller: Address, assets: Vec<HubAssetKey>
     let mut results = Vec::new(env);
     let mut cache = Cache::new(env);
     for hub_asset in assets {
-        let amount = claim_revenue_for_asset(env, &hub_asset, &mut cache);
+        let amount = claim_revenue_for_asset(env, &caller, &hub_asset, &mut cache);
         results.push_back(amount);
     }
     results
@@ -101,9 +101,14 @@ pub(crate) fn update_account_threshold(
 
 /// Claims `hub_asset`'s accrued protocol revenue from the pool and, if the
 /// claimed amount is positive, transfers it from the controller to the
-/// configured accumulator address. Returns the claimed amount. Panics if no
-/// accumulator has been configured.
-fn claim_revenue_for_asset(env: &Env, hub_asset: &HubAssetKey, cache: &mut Cache) -> i128 {
+/// configured accumulator address and publishes a [`ClaimRevenueEvent`].
+/// Returns the claimed amount. Panics if no accumulator has been configured.
+fn claim_revenue_for_asset(
+    env: &Env,
+    caller: &Address,
+    hub_asset: &HubAssetKey,
+    cache: &mut Cache,
+) -> i128 {
     let accumulator = storage::try_get_accumulator(env)
         .unwrap_or_else(|| panic_with_error!(env, OracleError::NoAccumulator));
 
@@ -128,6 +133,20 @@ fn claim_revenue_for_asset(env: &Env, hub_asset: &HubAssetKey, cache: &mut Cache
             received,
             GenericError::AmountMustBePositive,
         );
+
+        // Published from here, not from the pool: `received` is the measured
+        // delta actually forwarded, whereas the pool reports the amount it
+        // intended to send. Indexers accumulate this into lifetime revenue, so
+        // it must be the truthful figure. Skipped when nothing was claimable —
+        // a keeper sweeping every market would otherwise emit mostly zeros.
+        events::ClaimRevenueEvent {
+            hub_id: hub_asset.hub_id,
+            asset: asset.clone(),
+            caller: caller.clone(),
+            accumulator,
+            amount: received,
+        }
+        .publish(env);
     }
 
     received
