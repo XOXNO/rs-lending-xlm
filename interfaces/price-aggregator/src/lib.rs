@@ -5,7 +5,7 @@ pub use common::types::{
     OracleTolerance, PriceFeedRaw, PriceKey, PriceSource, PriceStatus, ProviderRef,
     ReflectorFeedRef, ScaledSource,
 };
-use soroban_sdk::{contractclient, Address, Env, Map, Vec};
+use soroban_sdk::{contractclient, Address, BytesN, Env, Map, Vec};
 
 #[contractclient(name = "PriceAggregatorClient")]
 pub trait PriceAggregatorInterface {
@@ -24,4 +24,6 @@ pub trait PriceAggregatorInterface {
     fn set_sanity_band(env: Env, key: PriceKey, min_wad: i128, max_wad: i128);
 
     fn set_tolerance(env: Env, key: PriceKey, tolerance: OracleTolerance);
+
+    fn upgrade(env: Env, new_wasm_hash: BytesN<32>);
 }

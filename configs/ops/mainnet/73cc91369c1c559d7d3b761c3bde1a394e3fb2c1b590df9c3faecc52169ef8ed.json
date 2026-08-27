@@ -1,0 +1,12 @@
+{
+  "kind": "controller",
+  "op_id": "73cc91369c1c559d7d3b761c3bde1a394e3fb2c1b590df9c3faecc52169ef8ed",
+  "network": "mainnet",
+  "target": "CAUCMIN5KSXEVZ7NMXR3LZATGD5EFIEUI5XWTFLYRO2R5OTXI22WE5JX",
+  "function": "add_spoke",
+  "args": [],
+  "predecessor": "0000000000000000000000000000000000000000000000000000000000000000",
+  "salt": "beb89572b61859f40a8effae74daf7a42e640a5a3989426d1000f5d49395975e",
+  "cli_executable": true,
+  "executed": true
+}

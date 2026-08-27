@@ -1,0 +1,25 @@
+{
+  "kind": "controller",
+  "op_id": "5ef8865a1126f5cdc43421129e4cfa17b030859a148b146f4ba65b6d5797f73c",
+  "network": "mainnet",
+  "target": "CAUCMIN5KSXEVZ7NMXR3LZATGD5EFIEUI5XWTFLYRO2R5OTXI22WE5JX",
+  "function": "deploy_position_nft",
+  "args": [
+    {
+      "bytes": "e3d4af865add63693ab8a51ca729f4e62326bc18177f024cfc44d3b3afc695ae"
+    },
+    {
+      "string": "https://api.xoxno.com/user/lending/image/"
+    },
+    {
+      "string": "XOXNO Lending Position"
+    },
+    {
+      "string": "XLEND"
+    }
+  ],
+  "predecessor": "0000000000000000000000000000000000000000000000000000000000000000",
+  "salt": "a8a69de83576fedaf6339d1bc4dcf7da9aa2d78d8b184b2fc89454660b8e9923",
+  "cli_executable": true,
+  "executed": true
+}

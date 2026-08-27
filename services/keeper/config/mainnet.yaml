@@ -6,22 +6,14 @@ rpc:
   timeout_seconds: 30
 
 contracts:
-
   controller: ""
   pool_wasm_hash: ""
   markets: []
   market_assets: []
   flash_loan_receiver: ""
-
-
   governance: ""
-
-
   xoxno_oracle_adapter: ""
-
-
-
-  price_aggregator: ""
+  price_aggregator: "CBGUF2G2Q7HCVCWYISDXBHPVBGMYNXA7PG2VET66YBZX6IKOOV27NSMV"
 
 keyvault:
   url: https://my-vault.vault.azure.net

@@ -1,0 +1,45 @@
+{
+  "kind": "price_aggregator",
+  "op_id": "1d90edb5c5d4783948369a7eddbf4ab3316169ef67f7184efae289e9c5bd25f4",
+  "network": "mainnet",
+  "target": "CAZLXFVW2L7Y3S4VSYXYRNEJQVLAZBMDXJX6CUM2NDN74TNTUXZHLRQ5",
+  "function": "set_oracle",
+  "predecessor": "0000000000000000000000000000000000000000000000000000000000000000",
+  "salt": "a993c5287452ee9ee79dc680f482842eeb99ad85a59c13fcc49b9d52c81a3476",
+  "cli_executable": true,
+  "executed": true,
+  "resolve": {
+    "view_fn": "resolve_asset_oracle",
+    "args": {
+      "key": {
+        "Token": "CCCRWH6Q3FNP3I2I57BDLM5AFAT7O6OF6GKQOC6SSJNDAVRZ57SPHGU2"
+      },
+      "oracle": {
+        "asset_decimals": 7,
+        "max_price_stale_seconds": 57600,
+        "sources": [
+          {
+            "Feed": {
+              "provider": {
+                "RedStone": {
+                  "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
+                  "feed_id": "PYUSD",
+                  "nature": "Fundamental"
+                }
+              },
+              "decimals": 8,
+              "max_stale_seconds": 57600
+            }
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 10500,
+          "lower_ratio_bps": 9524
+        },
+        "independence": "RequireDisjoint",
+        "min_sanity_price_wad": "950000000000000000",
+        "max_sanity_price_wad": "1050000000000000000"
+      }
+    }
+  }
+}

@@ -1,0 +1,48 @@
+{
+  "kind": "price_aggregator",
+  "op_id": "c41673683cb74f879d9d7392803de0fe5e70a2426daa9dc66a067f9c7888085b",
+  "network": "mainnet",
+  "target": "CBGUF2G2Q7HCVCWYISDXBHPVBGMYNXA7PG2VET66YBZX6IKOOV27NSMV",
+  "function": "set_oracle",
+  "predecessor": "0000000000000000000000000000000000000000000000000000000000000000",
+  "salt": "614dcae71a54eb6627b0023b4bd3a23acc81943bd821d57b1332e6857ec8247c",
+  "cli_executable": true,
+  "executed": true,
+  "resolve": {
+    "view_fn": "resolve_asset_oracle",
+    "args": {
+      "key": {
+        "Token": "CD3EQXQGRYUKM7LZ6MZVTXSW74ROXU6YI2SXHJ6KTB5BQ425E5KXRDBC"
+      },
+      "oracle": {
+        "asset_decimals": 7,
+        "max_price_stale_seconds": 57600,
+        "sources": [
+          {
+            "AquariusStableLp": {
+              "pool": "CDMH535JSD224YXPET3B4SJOLXTQQ24GRSCWACGYBKSH2DKFJYWI7SUW",
+              "token_a": "CCCRWH6Q3FNP3I2I57BDLM5AFAT7O6OF6GKQOC6SSJNDAVRZ57SPHGU2",
+              "token_b": "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75",
+              "key_a": {
+                "Token": "CCCRWH6Q3FNP3I2I57BDLM5AFAT7O6OF6GKQOC6SSJNDAVRZ57SPHGU2"
+              },
+              "key_b": {
+                "Token": "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75"
+              },
+              "reserve_a_decimals": 7,
+              "reserve_b_decimals": 7,
+              "min_pool_value_wad": "1000000000000000000000000"
+            }
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 0,
+          "lower_ratio_bps": 0
+        },
+        "independence": "RequireDisjoint",
+        "min_sanity_price_wad": "900000000000000000",
+        "max_sanity_price_wad": "1200000000000000000"
+      }
+    }
+  }
+}

@@ -46,8 +46,8 @@
           "lower_ratio_bps": 9091
         },
         "independence": "RequireDisjoint",
-        "min_sanity_price_wad": "40000000000000000000000",
-        "max_sanity_price_wad": "120000000000000000000000"
+        "min_sanity_price_wad": "20000000000000000000000",
+        "max_sanity_price_wad": "300000000000000000000000"
       }
     }
   ],
@@ -306,8 +306,8 @@
           "lower_ratio_bps": 9524
         },
         "independence": "RequireDisjoint",
-        "min_sanity_price_wad": "928300000000000000",
-        "max_sanity_price_wad": "1089700000000000000"
+        "min_sanity_price_wad": "920000000000000000",
+        "max_sanity_price_wad": "1124000000000000000"
       },
       "market_params": {
         "max_borrow_rate": "1250000000000000000000000000",
@@ -620,8 +620,8 @@
           "lower_ratio_bps": 9524
         },
         "independence": "RequireDisjoint",
-        "min_sanity_price_wad": "995690261700000000",
-        "max_sanity_price_wad": "1067916498300000000"
+        "min_sanity_price_wad": "990000000000000000",
+        "max_sanity_price_wad": "1210000000000000000"
       },
       "market_params": {
         "max_borrow_rate": "1250000000000000000000000000",
@@ -664,8 +664,8 @@
           "lower_ratio_bps": 9524
         },
         "independence": "RequireDisjoint",
-        "min_sanity_price_wad": "1004395710050000000",
-        "max_sanity_price_wad": "1077253429950000000"
+        "min_sanity_price_wad": "990000000000000000",
+        "max_sanity_price_wad": "1210000000000000000"
       },
       "market_params": {
         "max_borrow_rate": "1250000000000000000000000000",
@@ -731,7 +731,11 @@
           "upper_ratio_bps": 10500,
           "lower_ratio_bps": 9524
         },
-        "independence": "RequireDisjoint",
+        "independence": {
+          "AllowShared": [
+            "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG"
+          ]
+        },
         "min_sanity_price_wad": "984400000000000000",
         "max_sanity_price_wad": "1155600000000000000"
       },
@@ -799,7 +803,11 @@
           "upper_ratio_bps": 10500,
           "lower_ratio_bps": 9524
         },
-        "independence": "RequireDisjoint",
+        "independence": {
+          "AllowShared": [
+            "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG"
+          ]
+        },
         "min_sanity_price_wad": "61548000000000000",
         "max_sanity_price_wad": "72252000000000000"
       },
@@ -844,8 +852,8 @@
           "lower_ratio_bps": 9524
         },
         "independence": "RequireDisjoint",
-        "min_sanity_price_wad": "1048800000000000000",
-        "max_sanity_price_wad": "1231200000000000000"
+        "min_sanity_price_wad": "1080000000000000000",
+        "max_sanity_price_wad": "1320000000000000000"
       },
       "market_params": {
         "max_borrow_rate": "1250000000000000000000000000",
@@ -875,7 +883,7 @@
                 "Reflector": {
                   "contract": "CBKGPWGKSKZF52CFHMTRR23TBWTPMRDIYZ4O2P5VS65BMHYH4DXMCJZC",
                   "asset": {
-                    "Other": "XAU"
+                    "Symbol": "XAU"
                   },
                   "read_mode": {
                     "Twap": 3
@@ -905,8 +913,8 @@
           "lower_ratio_bps": 9524
         },
         "independence": "RequireDisjoint",
-        "min_sanity_price_wad": "3000000000000000000000",
-        "max_sanity_price_wad": "6000000000000000000000"
+        "min_sanity_price_wad": "2500000000000000000000",
+        "max_sanity_price_wad": "12000000000000000000000"
       },
       "market_params": {
         "max_borrow_rate": "1250000000000000000000000000",
@@ -973,8 +981,8 @@
             "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG"
           ]
         },
-        "min_sanity_price_wad": "40000000000000000000000",
-        "max_sanity_price_wad": "120000000000000000000000"
+        "min_sanity_price_wad": "20000000000000000000000",
+        "max_sanity_price_wad": "300000000000000000000000"
       },
       "market_params": {
         "max_borrow_rate": "1750000000000000000000000000",
@@ -1041,8 +1049,8 @@
             "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG"
           ]
         },
-        "min_sanity_price_wad": "40000000000000000000000",
-        "max_sanity_price_wad": "120000000000000000000000"
+        "min_sanity_price_wad": "20000000000000000000000",
+        "max_sanity_price_wad": "300000000000000000000000"
       },
       "market_params": {
         "max_borrow_rate": "1750000000000000000000000000",
@@ -1532,8 +1540,8 @@
           "lower_ratio_bps": 0
         },
         "independence": "RequireDisjoint",
-        "min_sanity_price_wad": "3000000000000000",
-        "max_sanity_price_wad": "75000000000000000"
+        "min_sanity_price_wad": "5356670329052813",
+        "max_sanity_price_wad": "53566703290528136"
       },
       "market_params": {
         "max_borrow_rate": "1750000000000000000000000000",
@@ -1579,8 +1587,8 @@
           "lower_ratio_bps": 0
         },
         "independence": "RequireDisjoint",
-        "min_sanity_price_wad": "7800000000000000",
-        "max_sanity_price_wad": "195000000000000000"
+        "min_sanity_price_wad": "12851039215266326",
+        "max_sanity_price_wad": "128510392152663280"
       },
       "market_params": {
         "max_borrow_rate": "1750000000000000000000000000",

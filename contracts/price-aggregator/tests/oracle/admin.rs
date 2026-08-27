@@ -247,3 +247,99 @@ fn an_lp_source_may_not_share_its_oracle_with_a_second_source() {
         validate_asset_oracle(&env, &key, &oracle_of(&env, sources));
     });
 }
+
+/// A RedStone-shaped feed that records every read so a test can tell how many
+/// times the cascade actually crossed the contract boundary. The counter lives
+/// in the adapter's own storage, so it survives the nested calls that
+/// `revalidate_dependents` makes while walking the dependency graph.
+#[soroban_sdk::contract]
+pub(crate) struct CountingRedStoneFeed;
+
+#[soroban_sdk::contractimpl]
+impl CountingRedStoneFeed {
+    pub fn set_price_data(
+        env: Env,
+        feed_id: String,
+        price_wad: i128,
+        package_timestamp: u64,
+        write_timestamp: u64,
+    ) {
+        let price_8 = (price_wad / 10_000_000_000) as u128;
+        env.storage().persistent().set(
+            &feed_id,
+            &common::oracle::providers::redstone::RedStonePriceData {
+                price: soroban_sdk::U256::from_u128(&env, price_8),
+                package_timestamp,
+                write_timestamp,
+            },
+        );
+    }
+
+    pub fn reads(env: Env) -> u32 {
+        env.storage()
+            .persistent()
+            .get(&Symbol::new(&env, "reads"))
+            .unwrap_or(0)
+    }
+
+    pub fn read_price_data_for_feed(
+        env: Env,
+        feed_id: String,
+    ) -> Option<common::oracle::providers::redstone::RedStonePriceData> {
+        let key = Symbol::new(&env, "reads");
+        let n: u32 = env.storage().persistent().get(&key).unwrap_or(0);
+        env.storage().persistent().set(&key, &(n + 1));
+        env.storage().persistent().get(&feed_id)
+    }
+}
+
+/// `revalidate_dependents` walks every oracle stacked on the changed key. Each
+/// dependent re-resolves the same shared sub-graph, so without a session shared
+/// across the walk the identical feed is fetched once per dependent instead of
+/// once per transaction.
+///
+/// The chain is `base <- mid <- leaf`: rewriting `base` revalidates `mid` and
+/// `leaf`, and `leaf` resolves through `mid` back down to `base`. Every one of
+/// those hops reads BASE and RATIO from the same adapter, so a shared cache
+/// collapses them.
+#[test]
+fn revalidating_dependents_does_not_refetch_a_shared_feed_once_per_dependent() {
+    let env = Env::default();
+    at_now(&env);
+    let adapter = env.register(CountingRedStoneFeed, ());
+    let client = CountingRedStoneFeedClient::new(&env, &adapter);
+    let ts_ms = NOW * 1_000;
+    client.set_price_data(
+        &String::from_str(&env, "BASE"),
+        &(100 * WAD),
+        &ts_ms,
+        &ts_ms,
+    );
+    client.set_price_data(&String::from_str(&env, "RATIO"), &WAD, &ts_ms, &ts_ms);
+
+    in_contract(&env, || {
+        let (base, _mid, _leaf) = chain(&env, &adapter);
+        set_oracle(
+            &env,
+            base.clone(),
+            oracle_of(
+                &env,
+                one(
+                    &env,
+                    PriceSource::Feed(feed(&env, &adapter, "BASE", CEILING)),
+                ),
+            ),
+        );
+    });
+
+    // Two distinct feeds (BASE, RATIO) are involved. A session shared across the
+    // whole cascade fetches each at most once per probe that opens it; a session
+    // rebuilt per dependent multiplies that by the number of dependents.
+    // Anything at or below one read per feed per dependent-free pass is the
+    // deduped shape; the pre-fix code lands well above it.
+    let reads = client.reads();
+    assert!(
+        reads <= 4,
+        "expected the cascade to dedup shared feed reads, saw {reads} boundary crossings"
+    );
+}

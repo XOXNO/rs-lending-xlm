@@ -50,14 +50,23 @@
     "xoxno_oracle_adapter": "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM",
     "flash_loan_receiver": "",
     "pool": "CBXRNDQMAJFG4VUKMKFEMFS75UUXE2SPSNV4LEEFCSNBCN66PYRWBKXO",
-    "governance_wasm_hash": "",
+    "governance_wasm_hash": "6b20edaab23fcaf4ba5661123a849938e5ff2e90a0283388fc563880df66978e",
     "hub_ids": {
       "1": 1,
       "2": 2,
       "3": 3
     },
-    "spoke_ids": {},
-    "price_aggregator": "CAZLXFVW2L7Y3S4VSYXYRNEJQVLAZBMDXJX6CUM2NDN74TNTUXZHLRQ5",
+    "spoke_ids": {
+      "1": 1,
+      "2": 2,
+      "4": 3,
+      "5": 4,
+      "6": 5,
+      "7": 6,
+      "8": 7,
+      "9": 8
+    },
+    "price_aggregator": "CBGUF2G2Q7HCVCWYISDXBHPVBGMYNXA7PG2VET66YBZX6IKOOV27NSMV",
     "position_nft": "CAWCSG77AY2W24QZ6ZXLHZU4UXEFHZBM6EI4A4IF7JB5CTY4XND3TI6C"
   }
 }

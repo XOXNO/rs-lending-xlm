@@ -5,7 +5,7 @@ rpc:
   timeout_seconds: 30
 contracts:
   controller: "CAUCMIN5KSXEVZ7NMXR3LZATGD5EFIEUI5XWTFLYRO2R5OTXI22WE5JX"
-  price_aggregator: "CAZLXFVW2L7Y3S4VSYXYRNEJQVLAZBMDXJX6CUM2NDN74TNTUXZHLRQ5"
+  price_aggregator: "CBGUF2G2Q7HCVCWYISDXBHPVBGMYNXA7PG2VET66YBZX6IKOOV27NSMV"
   xoxno_oracle_adapter: "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM"
 markets:
   - { hub_id: 1, asset: CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA, symbol: XLM }
@@ -22,37 +22,80 @@ markets:
   - { hub_id: 1, asset: CBIJBDNZNF4X35BJ4FFZWCDBSCKOP5NB4PLG4SNENRMLAPYG4P5FM6VN, symbol: SolvBTC }
   - { hub_id: 1, asset: CAUP7NFABXE5TJRL3FKTPMWRLC7IAXYDCTHQRFSCLR5TMGKHOOQO772J, symbol: xSolvBTC }
   - { hub_id: 3, asset: CAUIKL3IYGMERDRUN6YSCLWVAKIFG5Q4YJHUKM4S4NJZQIA3BAS6OJPK, symbol: AQUA }
-  - { hub_id: 3, asset: CAVKLYY4RWFQBRA2YI5GTGGXKUKJQI3JLAHDGXMS7L5RDH6X6A47NMOZ, symbol: XLMUSDC_LP }
-  - { hub_id: 3, asset: CAPPL34NF6X7M3EQFIPDXZHQX2PT3EOE2LYCDORH3PF2LTRDSFGWV6NL, symbol: XLMSolvBTC_LP }
-  - { hub_id: 3, asset: CDZ4QRNY63YKJY7FLBTJUVPX3Z3U56JY5KHNHQEYI5F5MYLMC5YNRIXE, symbol: xSolvBTCSolvBTC_LP }
-  - { hub_id: 3, asset: CB2WUVUP2SKZVFZFNU33EZCISH65DKHQP4WBEHJ4WE3BF7QOABYGCQMS, symbol: CETESUSDC_LP }
-  - { hub_id: 3, asset: CCLJBNY2KMUOSAW7URIZHREO5ORQREDX7NIHLFRAT6KAZ5GO7652OA4I, symbol: USTRYUSDC_LP }
-  - { hub_id: 3, asset: CCYD4C2WFWIIDF235SCDXEWL5RT6S53WQWLDHUTQ5USZ5VNF5NHJGVW7, symbol: USDYUSDC_LP }
-  - { hub_id: 3, asset: CACO4IS27ANIDC45UN5LWTYZYEELSJWA3WVWGI6QAF6Q2ZY4ZMZFSJRW, symbol: XAUMUSDC_LP }
-  - { hub_id: 3, asset: CD3EQXQGRYUKM7LZ6MZVTXSW74ROXU6YI2SXHJ6KTB5BQ425E5KXRDBC, symbol: PYUSDUSDC_LP }
-  - { hub_id: 3, asset: CBOHAVUYKQD4C7FIVXEDJCVLUZYUO6RN3VIKEDOTIJGDDV3QN33Y4T4D, symbol: XLMAQUA_LP }
-  - { hub_id: 3, asset: CDOY7ILRR7PDGLBXZUPSENB6XOET77PR2JY3HXDGQS3TS4T764OYBUGO, symbol: AQUAUSDC_LP }
-# Enabled spokes only. Spoke 3 (Spiko RWA) is deferred in configs/mainnet/spokes.json
-# and its six SPIKO markets are enabled:false, so neither is scraped.
-spokes: [1, 2, 4, 5, 6, 7, 8, 9]
+  - {
+      hub_id: 3,
+      asset: CAVKLYY4RWFQBRA2YI5GTGGXKUKJQI3JLAHDGXMS7L5RDH6X6A47NMOZ,
+      symbol: XLMUSDC_LP,
+    }
+  - {
+      hub_id: 3,
+      asset: CAPPL34NF6X7M3EQFIPDXZHQX2PT3EOE2LYCDORH3PF2LTRDSFGWV6NL,
+      symbol: XLMSolvBTC_LP,
+    }
+  - {
+      hub_id: 3,
+      asset: CDZ4QRNY63YKJY7FLBTJUVPX3Z3U56JY5KHNHQEYI5F5MYLMC5YNRIXE,
+      symbol: xSolvBTCSolvBTC_LP,
+    }
+  - {
+      hub_id: 3,
+      asset: CB2WUVUP2SKZVFZFNU33EZCISH65DKHQP4WBEHJ4WE3BF7QOABYGCQMS,
+      symbol: CETESUSDC_LP,
+    }
+  - {
+      hub_id: 3,
+      asset: CCLJBNY2KMUOSAW7URIZHREO5ORQREDX7NIHLFRAT6KAZ5GO7652OA4I,
+      symbol: USTRYUSDC_LP,
+    }
+  - {
+      hub_id: 3,
+      asset: CCYD4C2WFWIIDF235SCDXEWL5RT6S53WQWLDHUTQ5USZ5VNF5NHJGVW7,
+      symbol: USDYUSDC_LP,
+    }
+  - {
+      hub_id: 3,
+      asset: CACO4IS27ANIDC45UN5LWTYZYEELSJWA3WVWGI6QAF6Q2ZY4ZMZFSJRW,
+      symbol: XAUMUSDC_LP,
+    }
+  - {
+      hub_id: 3,
+      asset: CD3EQXQGRYUKM7LZ6MZVTXSW74ROXU6YI2SXHJ6KTB5BQ425E5KXRDBC,
+      symbol: PYUSDUSDC_LP,
+    }
+  - {
+      hub_id: 3,
+      asset: CBOHAVUYKQD4C7FIVXEDJCVLUZYUO6RN3VIKEDOTIJGDDV3QN33Y4T4D,
+      symbol: XLMAQUA_LP,
+    }
+  - {
+      hub_id: 3,
+      asset: CDOY7ILRR7PDGLBXZUPSENB6XOET77PR2JY3HXDGQS3TS4T764OYBUGO,
+      symbol: AQUAUSDC_LP,
+    }
+# On-chain spoke ids, not the config ids in configs/mainnet/spokes.json. The
+# two diverge because config spoke 3 (Spiko RWA) is deferred, so every later
+# spoke shifted down by one when it was created. configs/networks.json
+# `mainnet.spoke_ids` holds the config -> on-chain map and is the source of
+# truth; `get_spoke` takes the on-chain id.
+spokes: [1, 2, 3, 4, 5, 6, 7, 8]
 
 hubs:
   1: Core
   2: RWA
   3: AMM
 
-# Named for every spoke id, including the deferred one, so the label is already
-# right when it is enabled. Unlisted ids fall back to "Spoke {id}".
+# Keyed by on-chain spoke id, matching `spokes` above. Spiko RWA is absent
+# because it has no on-chain id yet; creating it will append id 9, so add
+# `9: Spiko RWA` here at the same time. Unlisted ids fall back to "Spoke {id}".
 spoke_names:
   1: Blue Chip
   2: Etherfuse RWA
-  3: Spiko RWA
-  4: Centrifuge RWA
-  5: Stables & FX
-  6: AMM Collateral
-  7: Ondo RWA
-  8: Commodities
-  9: Aquarius Ecosystem
+  3: Centrifuge RWA
+  4: Stables & FX
+  5: AMM Collateral
+  6: Ondo RWA
+  7: Commodities
+  8: Aquarius Ecosystem
 scrape_interval_seconds: 30
 metrics:
   bind: 0.0.0.0:9110

@@ -1,0 +1,69 @@
+{
+  "kind": "price_aggregator",
+  "op_id": "9d0eac1954219e268ef151602ed78d721188ce4521cd8411462f3bea681574d1",
+  "network": "mainnet",
+  "target": "CAZLXFVW2L7Y3S4VSYXYRNEJQVLAZBMDXJX6CUM2NDN74TNTUXZHLRQ5",
+  "function": "set_oracle",
+  "predecessor": "0000000000000000000000000000000000000000000000000000000000000000",
+  "salt": "5cef957d5f70c0405246ff23bff2fc0b18543a842bc25488743fc94721ebb267",
+  "cli_executable": true,
+  "executed": true,
+  "resolve": {
+    "view_fn": "resolve_asset_oracle",
+    "args": {
+      "key": {
+        "Token": "CBIJBDNZNF4X35BJ4FFZWCDBSCKOP5NB4PLG4SNENRMLAPYG4P5FM6VN"
+      },
+      "oracle": {
+        "asset_decimals": 8,
+        "max_price_stale_seconds": 93600,
+        "sources": [
+          {
+            "Scaled": {
+              "factor": {
+                "provider": {
+                  "RedStone": {
+                    "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
+                    "feed_id": "SolvBTC_FUNDAMENTAL",
+                    "nature": "Fundamental"
+                  }
+                },
+                "decimals": 8,
+                "max_stale_seconds": 93600
+              },
+              "quote": {
+                "Ref": "BTC"
+              },
+              "min_factor_wad": "1000000000000000000",
+              "max_factor_wad": "1050000000000000000"
+            }
+          },
+          {
+            "Feed": {
+              "provider": {
+                "RedStone": {
+                  "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
+                  "feed_id": "SolvBTC_FUNDAMENTAL/USD",
+                  "nature": "Fundamental"
+                }
+              },
+              "decimals": 8,
+              "max_stale_seconds": 57600
+            }
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 10500,
+          "lower_ratio_bps": 9524
+        },
+        "independence": {
+          "AllowShared": [
+            "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG"
+          ]
+        },
+        "min_sanity_price_wad": "40000000000000000000000",
+        "max_sanity_price_wad": "120000000000000000000000"
+      }
+    }
+  }
+}

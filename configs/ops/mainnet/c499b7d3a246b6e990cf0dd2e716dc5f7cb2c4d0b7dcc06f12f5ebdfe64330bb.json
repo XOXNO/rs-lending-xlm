@@ -1,0 +1,73 @@
+{
+  "kind": "price_aggregator",
+  "op_id": "c499b7d3a246b6e990cf0dd2e716dc5f7cb2c4d0b7dcc06f12f5ebdfe64330bb",
+  "network": "mainnet",
+  "target": "CAZLXFVW2L7Y3S4VSYXYRNEJQVLAZBMDXJX6CUM2NDN74TNTUXZHLRQ5",
+  "function": "set_oracle",
+  "predecessor": "0000000000000000000000000000000000000000000000000000000000000000",
+  "salt": "d33676208f9cfe46c0b6984655f1c9d26fef227f99251fdf0cbecea75d8f66d3",
+  "cli_executable": true,
+  "executed": true,
+  "resolve": {
+    "view_fn": "resolve_asset_oracle",
+    "args": {
+      "key": {
+        "Token": "CBLV4ATSIWU67CFSQU2NVRKINQIKUZ2ODSZBUJTJ43VJVRSBTZYOPNUR"
+      },
+      "oracle": {
+        "asset_decimals": 7,
+        "max_price_stale_seconds": 57600,
+        "sources": [
+          {
+            "Scaled": {
+              "factor": {
+                "provider": {
+                  "Reflector": {
+                    "contract": "CALI2BYU2JE6WVRUFYTS6MSBNEHGJ35P4AVCZYF3B6QOE3QKOB2PLE6M",
+                    "asset": {
+                      "Stellar": "CBLV4ATSIWU67CFSQU2NVRKINQIKUZ2ODSZBUJTJ43VJVRSBTZYOPNUR"
+                    },
+                    "read_mode": {
+                      "Twap": 3
+                    }
+                  }
+                },
+                "decimals": 14,
+                "max_stale_seconds": 7200
+              },
+              "quote": {
+                "Token": "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75"
+              },
+              "min_factor_wad": "984400000000000000",
+              "max_factor_wad": "1155600000000000000"
+            }
+          },
+          {
+            "Feed": {
+              "provider": {
+                "RedStone": {
+                  "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
+                  "feed_id": "USTRY",
+                  "nature": "Fundamental"
+                }
+              },
+              "decimals": 8,
+              "max_stale_seconds": 57600
+            }
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 10500,
+          "lower_ratio_bps": 9524
+        },
+        "independence": {
+          "AllowShared": [
+            "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG"
+          ]
+        },
+        "min_sanity_price_wad": "984400000000000000",
+        "max_sanity_price_wad": "1155600000000000000"
+      }
+    }
+  }
+}

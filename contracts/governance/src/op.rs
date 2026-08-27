@@ -85,6 +85,22 @@ fn price_aggregator_operation(env: &Env, function: &str, args: Vec<Val>) -> Reso
     }
 }
 
+/// Builds a `ResolvedOperation` targeting the price aggregator contract with
+/// the `Sensitive` delay tier. Code replacement carries the same blast radius
+/// as a controller or pool upgrade -- every price the protocol reads comes
+/// from this contract -- so it is held to the longer delay rather than the
+/// `Standard` one used for oracle configuration.
+fn sensitive_price_aggregator_operation(
+    env: &Env,
+    function: &str,
+    args: Vec<Val>,
+) -> ResolvedOperation {
+    ResolvedOperation {
+        delay_tier: DelayTier::Sensitive,
+        ..price_aggregator_operation(env, function, args)
+    }
+}
+
 /// Builds a `ResolvedOperation` targeting the governance contract itself
 /// (`env.current_contract_address()`) with the given delay tier.
 fn self_operation(
@@ -312,6 +328,14 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
                 vec![env, hash.clone().into_val(env)],
             )
         }
+        AdminOperation::UpgradePriceAggregator(hash) => {
+            validate::require_nonzero_wasm_hash(env, hash);
+            sensitive_price_aggregator_operation(
+                env,
+                "upgrade",
+                vec![env, hash.clone().into_val(env)],
+            )
+        }
         AdminOperation::SetPositionManager(manager, is_active) => sensitive_controller_operation(
             env,
             "set_position_manager",
@@ -427,6 +451,7 @@ pub(crate) fn apply_self_op(env: &Env, op: &AdminOperation) {
         | AdminOperation::DeployPositionNft(_)
         | AdminOperation::UpgradePool(_)
         | AdminOperation::UpgradePositionNft(_)
+        | AdminOperation::UpgradePriceAggregator(_)
         | AdminOperation::SetPositionManager(_, _)
         | AdminOperation::UpgradeController(_)
         | AdminOperation::MigrateController(_)

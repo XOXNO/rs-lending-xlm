@@ -25,7 +25,7 @@ pub mod spec;
 mod test_support;
 
 use price_aggregator_interface::PriceAggregatorInterface;
-use soroban_sdk::{contract, contractimpl, Address, Env, Map, Vec};
+use soroban_sdk::{contract, contractimpl, Address, BytesN, Env, Map, Vec};
 use stellar_access::ownable;
 use stellar_macros::only_owner;
 
@@ -127,6 +127,15 @@ impl PriceAggregatorInterface for PriceAggregator {
     fn set_tolerance(env: Env, key: PriceKey, tolerance: OracleTolerance) {
         renew_instance(&env);
         admin::set_tolerance(&env, key, tolerance);
+    }
+
+    /// Upgrades the contract WASM to `new_wasm_hash`, extending instance TTL
+    /// first. Restricted to the owner, which in a deployed protocol is the
+    /// governance contract, so an upgrade only lands through the timelock.
+    #[only_owner]
+    fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
+        renew_instance(&env);
+        env.deployer().update_current_contract_wasm(new_wasm_hash);
     }
 }
 

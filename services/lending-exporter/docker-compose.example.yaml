@@ -11,9 +11,9 @@ services:
       RUST_LOG: info
     networks: [monitoring]
 
-  # Mainnet remains a profile until a controller has been deployed. Supply the
-  # real address through MAINNET_LENDING_CONTROLLER; it is never baked into an
-  # image before deployment.
+  # Mainnet stays behind a profile so `docker compose up` does not start it by
+  # accident; run it with `--profile mainnet`. The deployed addresses are in
+  # config/mainnet.yaml, so no environment override is needed.
   lending-exporter-mainnet:
     build: .
     image: xoxno/lending-exporter:latest
@@ -22,8 +22,8 @@ services:
     profiles: [mainnet]
     environment:
       EXPORTER_CONFIG: /etc/lending-exporter/mainnet.yaml
-      # Empty by default so an inactive mainnet profile never blocks testnet.
-      # The exporter rejects this configuration at mainnet startup until set.
+      # Only needed to point at a different controller than the committed one;
+      # an empty value is ignored and config/mainnet.yaml wins.
       EXPORTER_CONTROLLER: ${MAINNET_LENDING_CONTROLLER:-}
       RUST_LOG: info
     networks: [monitoring]

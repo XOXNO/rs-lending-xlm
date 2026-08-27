@@ -7,7 +7,7 @@ use mock_redstone::{MockRedStonePriceFeed, MockRedStonePriceFeedClient};
 use price_aggregator::{Error, PriceAggregator, PriceAggregatorClient};
 use soroban_sdk::testutils::storage::Instance as _;
 use soroban_sdk::testutils::{Address as _, Events as _, Ledger as _};
-use soroban_sdk::{Address, Env, String, Vec};
+use soroban_sdk::{Address, BytesN, Env, String, Vec};
 
 const WAD: i128 = 1_000_000_000_000_000_000;
 
@@ -1099,4 +1099,46 @@ fn constructor_emits_owner() {
     });
 
     assert!(saw_owner, "constructor must publish the initial owner");
+}
+
+/// The price aggregator is the only oracle the controller reads, and every
+/// other deployable contract here can be upgraded behind governance. Without
+/// its own `upgrade` the deployed registry would be frozen for the life of the
+/// protocol, so the entry point has to exist and has to be owner-gated: in a
+/// deployed protocol the owner is the governance contract, which reaches it
+/// only through the timelock.
+#[test]
+fn upgrade_reaches_the_host_for_the_owner() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_owner, client) = register_agg(&env);
+
+    // An unknown hash is the cheapest proof the call got past authorization and
+    // into `update_current_contract_wasm`: the host is what rejects it.
+    let missing = BytesN::from_array(&env, &[0xA5; 32]);
+    assert!(
+        client.try_upgrade(&missing).is_err(),
+        "upgrade must invoke the host and reject an unknown Wasm hash"
+    );
+}
+
+/// `try_upgrade` fails for an unknown hash whether or not the caller is
+/// authorized, so an `is_err` assertion alone would pass even with the guard
+/// removed. Asserting on the recorded auth instead proves the entry point
+/// actually demanded the owner's signature: in a deployed protocol that owner
+/// is the governance contract, so this is what puts the upgrade behind the
+/// timelock.
+/// Owner-gating is asserted structurally rather than here: an unknown hash and
+/// a missing signature both surface as `Error(Context, InvalidAction)`, so no
+/// error-code assertion at this level can tell the guard firing apart from the
+/// host rejecting the hash. `make access-control-check` is what proves the
+/// `#[only_owner]` attribute is present, and
+/// `upgrading_the_price_aggregator_preserves_the_registry` in the harness
+/// exercises the authorized path against a real uploaded hash.
+#[test]
+fn upgrade_is_rejected_without_owner_authorization() {
+    let env = Env::default();
+    let (_owner, client) = register_agg(&env);
+    let missing = BytesN::from_array(&env, &[0xA5; 32]);
+    assert!(client.try_upgrade(&missing).is_err());
 }

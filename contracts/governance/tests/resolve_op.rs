@@ -91,6 +91,44 @@ fn upgrade_position_nft_rejects_zero_wasm_hash() {
     env.as_contract(&gov_id, || resolve_op(&env, &op));
 }
 
+/// The price aggregator is the only source of prices the controller reads, so
+/// replacing its code is at least as consequential as an NFT or pool upgrade.
+/// Oracle *configuration* runs on the Standard tier; code replacement must not,
+/// which is why it resolves through `sensitive_price_aggregator_operation`
+/// rather than the plain `price_aggregator_operation` used by
+/// `ConfigureAssetOracle`.
+#[test]
+fn upgrade_price_aggregator_resolves_to_the_aggregator_with_sensitive_delay() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_admin, gov_id, gov) = register_governance(&env);
+    let agg_id = env.register(price_aggregator::PriceAggregator, (gov_id.clone(),));
+    gov.set_price_aggregator(&agg_id);
+
+    let op = AdminOperation::UpgradePriceAggregator(BytesN::from_array(&env, &[0x33; 32]));
+    let resolved = env.as_contract(&gov_id, || resolve_op(&env, &op));
+
+    assert_eq!(resolved.target, agg_id, "must target the price aggregator");
+    assert_eq!(resolved.function, Symbol::new(&env, "upgrade"));
+    assert_eq!(resolved.args.len(), 1);
+    assert_eq!(resolved.delay_tier, DelayTier::Sensitive);
+}
+
+/// Same guard every other upgrade variant carries: a zero hash would brick the
+/// contract it is applied to.
+#[test]
+#[should_panic(expected = "Error(Contract, #10)")]
+fn upgrade_price_aggregator_rejects_zero_wasm_hash() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_admin, gov_id, gov) = register_governance(&env);
+    let agg_id = env.register(price_aggregator::PriceAggregator, (gov_id.clone(),));
+    gov.set_price_aggregator(&agg_id);
+
+    let op = AdminOperation::UpgradePriceAggregator(BytesN::from_array(&env, &[0u8; 32]));
+    env.as_contract(&gov_id, || resolve_op(&env, &op));
+}
+
 #[test]
 fn force_socialize_bad_debt_resolves_to_controller_with_sensitive_delay() {
     let env = Env::default();

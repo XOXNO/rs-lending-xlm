@@ -1,0 +1,16 @@
+{
+  "kind": "controller",
+  "op_id": "f095f24ffcb4efc99702b849c5f8664741229d78652f33f7b791c0b7d565624a",
+  "network": "mainnet",
+  "target": "CAUCMIN5KSXEVZ7NMXR3LZATGD5EFIEUI5XWTFLYRO2R5OTXI22WE5JX",
+  "function": "deploy_pool",
+  "args": [
+    {
+      "bytes": "4fd809ebe3248a27d6428089d7f8e4e5d982d56b12a4da5d782bc358c47832cb"
+    }
+  ],
+  "predecessor": "0000000000000000000000000000000000000000000000000000000000000000",
+  "salt": "41fcce3b9e93e05fc9bdde6c5749a8f12f3ca5dc4f13e4d92d6299815a951b45",
+  "cli_executable": true,
+  "executed": true
+}

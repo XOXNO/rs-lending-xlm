@@ -89,6 +89,11 @@ pub(crate) fn set_oracle(env: &Env, key: PriceKey, oracle: AssetOracle) {
 /// composition transitively depends on `changed`, panicking if any of them fails
 /// validation under the new state.
 fn revalidate_dependents(env: &Env, changed: &PriceKey) {
+    // One session for the whole walk. Dependents of the same key share most of
+    // their sub-graph, so a session rebuilt per candidate re-fetches every
+    // shared feed once per dependent and the cascade grows with the product of
+    // graph width and depth instead of its size.
+    let mut session = Session::new(env);
     for candidate in registry::oracle_keys(env).iter() {
         if candidate == *changed || !depends_on(env, &candidate, changed, &mut Vec::new(env)) {
             continue;
@@ -96,7 +101,6 @@ fn revalidate_dependents(env: &Env, changed: &PriceKey) {
         let oracle = registry::get_oracle(env, &candidate)
             .unwrap_or_else(|| panic_with_error!(env, OracleError::OracleNotConfigured));
         validate_asset_oracle(env, &candidate, &oracle);
-        let mut session = Session::new(env);
         engine::probe(&mut session, &candidate, &oracle);
     }
 }

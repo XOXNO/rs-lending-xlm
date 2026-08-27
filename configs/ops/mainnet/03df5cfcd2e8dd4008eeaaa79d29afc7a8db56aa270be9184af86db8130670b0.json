@@ -1,0 +1,16 @@
+{
+  "kind": "controller",
+  "op_id": "03df5cfcd2e8dd4008eeaaa79d29afc7a8db56aa270be9184af86db8130670b0",
+  "network": "mainnet",
+  "target": "CAUCMIN5KSXEVZ7NMXR3LZATGD5EFIEUI5XWTFLYRO2R5OTXI22WE5JX",
+  "function": "approve_blend_pool",
+  "args": [
+    {
+      "address": "CAJJZSGMMM3PD7N33TAPHGBUGTB43OC73HVIK2L2G6BNGGGYOSSYBXBD"
+    }
+  ],
+  "predecessor": "0000000000000000000000000000000000000000000000000000000000000000",
+  "salt": "c4c8528d392472fc976e8f2a33bf4ff38506103a8f5d4d3f0ef11738a9c9f29b",
+  "cli_executable": true,
+  "executed": true
+}

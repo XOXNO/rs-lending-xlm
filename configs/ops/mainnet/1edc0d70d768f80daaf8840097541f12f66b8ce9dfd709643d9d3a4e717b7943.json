@@ -1,0 +1,25 @@
+{
+  "kind": "controller",
+  "op_id": "1edc0d70d768f80daaf8840097541f12f66b8ce9dfd709643d9d3a4e717b7943",
+  "network": "mainnet",
+  "target": "CAUCMIN5KSXEVZ7NMXR3LZATGD5EFIEUI5XWTFLYRO2R5OTXI22WE5JX",
+  "function": "set_spoke_liquidation_curve",
+  "args": [
+    {
+      "u32": 4
+    },
+    {
+      "i128": "1020000000000000000"
+    },
+    {
+      "i128": "800000000000000000"
+    },
+    {
+      "u32": 10000
+    }
+  ],
+  "predecessor": "0000000000000000000000000000000000000000000000000000000000000000",
+  "salt": "12a6f5417d0b669a7638a5d45f7e9371ea228e1e0001124913cc229046c20d02",
+  "cli_executable": true,
+  "executed": true
+}

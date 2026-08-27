@@ -248,6 +248,7 @@ pub struct ResolvedMarket {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeSet;
 
     #[test]
     fn deployment_environment_overrides_replace_only_the_configured_values() {
@@ -326,5 +327,61 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// `get_spoke` and `get_spoke_asset` take the id the controller returned at
+    /// creation, not the id the config file used. The two diverge on mainnet,
+    /// where deferring config spoke 3 shifted every later spoke down by one.
+    /// Shipping config ids scraped a live spoke under a neighbour's name and
+    /// asked for one id that does not exist — both silent in the metrics.
+    #[test]
+    fn shipped_spoke_and_hub_ids_are_the_on_chain_ids() {
+        // YAML is a superset of JSON, so the existing parser reads networks.json.
+        let networks_path = format!("{}/../../configs/networks.json", env!("CARGO_MANIFEST_DIR"));
+        let raw = std::fs::read_to_string(&networks_path)
+            .unwrap_or_else(|e| panic!("read {networks_path}: {e}"));
+        let networks: BTreeMap<String, NetworkIds> =
+            serde_yaml::from_str(&raw).unwrap_or_else(|e| panic!("parse {networks_path}: {e}"));
+
+        for name in ["mainnet", "testnet"] {
+            let path = format!("{}/config/{name}.yaml", env!("CARGO_MANIFEST_DIR"));
+            let raw = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {path}: {e}"));
+            let cfg: ExporterConfig =
+                serde_yaml::from_str(&raw).unwrap_or_else(|e| panic!("parse {path}: {e}"));
+            let ids = networks
+                .get(name)
+                .unwrap_or_else(|| panic!("networks.json has no {name} entry"));
+
+            let on_chain_spokes: BTreeSet<u32> = ids.spoke_ids.values().copied().collect();
+            for spoke in &cfg.spokes {
+                assert!(
+                    on_chain_spokes.contains(spoke),
+                    "{name}: spoke {spoke} is not an on-chain id. \
+                     networks.json {name}.spoke_ids maps config -> on-chain as {:?}; \
+                     scrape the values, not the keys",
+                    ids.spoke_ids
+                );
+            }
+
+            let on_chain_hubs: BTreeSet<u32> = ids.hub_ids.values().copied().collect();
+            for hub in cfg.hubs.keys() {
+                assert!(
+                    on_chain_hubs.contains(hub),
+                    "{name}: hub {hub} is not an on-chain id. \
+                     networks.json {name}.hub_ids maps config -> on-chain as {:?}",
+                    ids.hub_ids
+                );
+            }
+        }
+    }
+
+    /// The id maps in `configs/networks.json`; every other field is ignored.
+    #[derive(Deserialize)]
+    struct NetworkIds {
+        // JSON object keys are strings; only the values are compared.
+        #[serde(default)]
+        hub_ids: BTreeMap<String, u32>,
+        #[serde(default)]
+        spoke_ids: BTreeMap<String, u32>,
     }
 }

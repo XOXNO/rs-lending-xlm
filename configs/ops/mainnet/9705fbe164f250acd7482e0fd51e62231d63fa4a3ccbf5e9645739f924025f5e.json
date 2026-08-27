@@ -1,0 +1,12 @@
+{
+  "kind": "governance_self",
+  "op_id": "9705fbe164f250acd7482e0fd51e62231d63fa4a3ccbf5e9645739f924025f5e",
+  "network": "mainnet",
+  "execute_label": "set_price_aggregator",
+  "salt": "87d65c3a76dbdee0c39aad07fb6a9a05213e66066dcf444b9553b89e67e0fda5",
+  "op": {
+    "SetPriceAggregator": "CAZLXFVW2L7Y3S4VSYXYRNEJQVLAZBMDXJX6CUM2NDN74TNTUXZHLRQ5"
+  },
+  "cli_executable": true,
+  "executed": true
+}

@@ -670,3 +670,50 @@ fn recovery_grant_enforces_executor_canceller_separation() {
         .with_mut(|l| l.sequence_number += TIMELOCK_RECOVERY_MIN_DELAY_LEDGERS);
     gov.execute_canceller_reset(&Some(admin.clone()), &new_set, &salt);
 }
+
+/// End to end for the new variant: propose -> wait the Sensitive delay ->
+/// execute, landing on the price aggregator's own `upgrade`. The unit tests in
+/// resolve_op.rs prove the operation *resolves* to the right target, function
+/// and tier; only this one proves governance can actually drive it, because the
+/// aggregator's `upgrade` is `#[only_owner]` and governance is the owner.
+///
+/// The hash is the same bytecode already uploaded, so the upgrade is a no-op on
+/// state -- what is under test is that the call is authorized and reaches the
+/// host, not that the code changed.
+#[test]
+fn upgrade_price_aggregator_executes_against_the_aggregator() {
+    let env = Env::default();
+    env.cost_estimate().budget().reset_unlimited();
+    env.cost_estimate().disable_resource_limits();
+    env.mock_all_auths();
+    let delay = 10u32;
+    let (admin, _controller, gov) = register_with_controller(&env, delay);
+
+    let wasm_hash = crate::test_support::upload_price_aggregator_wasm(&env);
+    let agg_id = gov.deploy_price_aggregator(&wasm_hash);
+
+    let salt = zero_salt(&env);
+    let id = gov.propose(
+        &admin,
+        &AdminOperation::UpgradePriceAggregator(wasm_hash.clone()),
+        &salt,
+    );
+    assert_eq!(gov.get_operation_state(&id), OperationState::Waiting);
+
+    let sensitive_delay =
+        env.as_contract(&gov.address, || operation_delay(&env, DelayTier::Sensitive));
+    env.ledger()
+        .with_mut(|l| l.sequence_number += sensitive_delay);
+    assert_eq!(gov.get_operation_state(&id), OperationState::Ready);
+
+    gov.execute(
+        &Some(admin.clone()),
+        &agg_id,
+        &Symbol::new(&env, "upgrade"),
+        &vec![&env, wasm_hash.into_val(&env)],
+        &zero_salt(&env),
+        &salt,
+    );
+
+    assert_eq!(gov.get_operation_state(&id), OperationState::Unset);
+}
