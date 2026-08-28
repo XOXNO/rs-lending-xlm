@@ -1,0 +1,12 @@
+{
+  "kind": "controller",
+  "op_id": "553ed4b90c6b1b0e7971a9fe54cf17fc137d3fb2e5e74f3424d80780f2b43c6e",
+  "network": "mainnet",
+  "target": "CAUCMIN5KSXEVZ7NMXR3LZATGD5EFIEUI5XWTFLYRO2R5OTXI22WE5JX",
+  "function": "unpause",
+  "args": [],
+  "predecessor": "0000000000000000000000000000000000000000000000000000000000000000",
+  "salt": "d941c95d9b0cc2fdab586b61e4e5c03cb104bd1c60fb92f16d1916c53791ba12",
+  "cli_executable": true,
+  "executed": true
+}
