@@ -1769,9 +1769,9 @@
     {
       "id": 102,
       "type": "state-timeline",
-      "title": "Soft status flags (healthy / stale / deviation)",
+      "title": "Oracle health timeline",
       "gridPos": {
-        "h": 8,
+        "h": 12,
         "w": 24,
         "x": 0,
         "y": 76
@@ -1780,25 +1780,7 @@
         {
           "refId": "A",
           "expr": "lending_oracle_healthy{network=\"mainnet\"}",
-          "legendFormat": "{{symbol}} healthy",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        },
-        {
-          "refId": "B",
-          "expr": "lending_oracle_stale{network=\"mainnet\"}",
-          "legendFormat": "{{symbol}} stale",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        },
-        {
-          "refId": "C",
-          "expr": "lending_oracle_deviation_flag{network=\"mainnet\"}",
-          "legendFormat": "{{symbol}} deviation",
+          "legendFormat": "{{symbol}}",
           "datasource": {
             "type": "prometheus",
             "uid": "cfgw0aa7mups0d"
@@ -1809,11 +1791,13 @@
         "showValue": "never",
         "mergeValues": true,
         "alignValue": "center",
-        "rowHeight": 0.9,
+        "rowHeight": 0.85,
         "legend": {
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
+          "showLegend": false
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
         }
       },
       "fieldConfig": {
@@ -1822,17 +1806,20 @@
             "fillOpacity": 70,
             "lineWidth": 0
           },
+          "color": {
+            "mode": "thresholds"
+          },
           "mappings": [
             {
               "type": "value",
               "options": {
                 "0": {
-                  "text": "ok",
-                  "color": "green"
+                  "text": "failing",
+                  "color": "red"
                 },
                 "1": {
-                  "text": "issue",
-                  "color": "red"
+                  "text": "ok",
+                  "color": "green"
                 }
               }
             }
@@ -1841,11 +1828,11 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "red",
                 "value": null
               },
               {
-                "color": "red",
+                "color": "green",
                 "value": 1
               }
             ]
@@ -1853,7 +1840,7 @@
         },
         "overrides": []
       },
-      "description": "Timeline of oracle flags per asset. Green = clear. Red on a 'healthy' track means that asset's price was unusable; red on 'stale' or 'deviation' shows which check caused it.",
+      "description": "One row per asset: green while the price is safe to use, red while it is failing. See the status table above for whether a red patch was staleness or deviation.",
       "datasource": {
         "type": "prometheus",
         "uid": "cfgw0aa7mups0d"
@@ -1867,7 +1854,7 @@
         "h": 9,
         "w": 24,
         "x": 0,
-        "y": 84
+        "y": 88
       },
       "options": {
         "showHeader": true,
@@ -2065,7 +2052,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 93
+        "y": 97
       }
     },
     {
@@ -2077,7 +2064,7 @@
         "h": 12,
         "w": 24,
         "x": 0,
-        "y": 94
+        "y": 98
       },
       "options": {
         "showHeader": true,
@@ -2220,7 +2207,7 @@
         "h": 6,
         "w": 24,
         "x": 0,
-        "y": 106
+        "y": 110
       },
       "options": {
         "showHeader": true,
@@ -2359,7 +2346,7 @@
         "h": 10,
         "w": 24,
         "x": 0,
-        "y": 112
+        "y": 116
       },
       "options": {
         "showHeader": true,
@@ -2572,7 +2559,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 122
+        "y": 126
       },
       "fieldConfig": {
         "defaults": {
@@ -2644,7 +2631,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 122
+        "y": 126
       },
       "fieldConfig": {
         "defaults": {
@@ -2715,7 +2702,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 130
+        "y": 134
       },
       "collapsed": true,
       "panels": [
@@ -2725,7 +2712,7 @@
           "title": "Scrape duration",
           "gridPos": {
             "x": 0,
-            "y": 131,
+            "y": 135,
             "w": 8,
             "h": 6
           },
@@ -2775,7 +2762,7 @@
           "title": "View failures (rate / 5m)",
           "gridPos": {
             "x": 8,
-            "y": 131,
+            "y": 135,
             "w": 8,
             "h": 6
           },
@@ -2825,7 +2812,7 @@
           "title": "Ledger skew (ledger - wall clock)",
           "gridPos": {
             "x": 16,
-            "y": 131,
+            "y": 135,
             "w": 8,
             "h": 6
           },
