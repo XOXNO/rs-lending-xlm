@@ -178,16 +178,19 @@ from `ops/prometheus.example.yml` to Prometheus. Each series already carries a
 `network` label.
 
 - Dashboard: import `ops/grafana-dashboard.json` into the production Grafana.
-  It pins that Grafana's Prometheus datasource UID, so an external/shared view
-  never depends on an unresolved import variable. For another Grafana instance,
-  replace the datasource UID before importing. Queries are static and pinned to
-  `testnet` because public/shared dashboards reject template variables.
-  - **MarketIndexView** — snapshot of indexes + soft prices/flags.
-  - **Oracles** — price/deviation/freshness trends + **oracle config table**
-    (strategy, max/effective stale, tolerance, sanity, probe vs blend timestamps).
-    Soft-flag timeline lives only under MarketIndexView (not duplicated).
-  - **Spokes** — per-spoke liq curve and listing tables, plus an all-spokes
-    operational table that includes new listings and cap-closed state.
+  It contains no template variables — public/shared dashboards reject them —
+  so every query is pinned to `network="mainnet"` and every panel is pinned to
+  the production Prometheus datasource UID (`cfgw0aa7mups0d`) — shared
+  dashboards also reject panels without a concrete datasource. For another
+  Grafana instance, replace that UID before importing. For a testnet copy, replace
+  `network=\"mainnet\"` with `network=\"testnet\"` and change `uid`/`title`
+  before importing.
+  - **Markets** — sizes, rates, quantities, utilization per market.
+  - **Oracles** — per-asset status table, flag timeline, price/deviation/
+    freshness trends, and the oracle config table (strategy, max stale,
+    tolerance band, sanity bounds).
+  - **Spokes** — all-spokes operational table (includes new listings and
+    cap-closed state), liquidation settings, risk parameters & caps.
 - Alerts: recreate the exprs in `ops/alerts.yml` as Grafana-managed alert rules
   (they stay internal, off the public panels). Prefer soft-status flags over
   hard-path error codes.
