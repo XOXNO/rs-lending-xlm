@@ -1,11 +1,11 @@
 {
     "schema_version": 1,
-    "commit": "2e8aadf9e0caf66c2dc54c977fbf00b7642060e9",
-    "indexed_at": "2026-08-27T16:09:33Z",
+    "commit": "8770c7d5ed1ee19fb97c9b5267e4131c79e94559",
+    "indexed_at": "2026-08-28T00:08:42Z",
     "project": "Users-mihaieremia-GitHub-rs-lending-xlm",
-    "nodes": 2763,
-    "edges": 11388,
-    "original_size": 12124160,
-    "compressed_size": 2010729,
+    "nodes": 2773,
+    "edges": 11167,
+    "original_size": 12058624,
+    "compressed_size": 2003949,
     "compression_level": 3
 }

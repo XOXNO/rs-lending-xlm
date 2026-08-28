@@ -10,7 +10,39 @@
   },
   "refresh": "30s",
   "templating": {
-    "list": []
+    "list": [
+      {
+        "name": "ds",
+        "label": "Data source",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": {},
+        "hide": 0,
+        "refresh": 1,
+        "regex": ""
+      },
+      {
+        "name": "network",
+        "label": "Network",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${ds}"
+        },
+        "definition": "label_values(lending_exporter_build_info, network)",
+        "query": {
+          "query": "label_values(lending_exporter_build_info, network)",
+          "refId": "network"
+        },
+        "current": {},
+        "hide": 0,
+        "refresh": 1,
+        "includeAll": false,
+        "multi": false,
+        "sort": 1,
+        "regex": ""
+      }
+    ]
   },
   "annotations": {
     "list": []
@@ -28,7 +60,7 @@
       },
       "options": {
         "mode": "markdown",
-        "content": "#### Colour key \u2014 what the panel thresholds mean\n\n\ud83d\udfe2 good  \u00b7  \ud83d\udfe0 warning  \u00b7  \ud83d\udd34 critical\n\n| Signal | \ud83d\udfe2 Green | \ud83d\udfe0 Orange | \ud83d\udd34 Red |\n|---|---|---|---|\n| **Oracle healthy** (`valid`) | Soft status usable for solvency | \u2014 | `valid=0` (stale, deviation, sanity, or unreadable) |\n| **Oracle stale / deviation flags** | Flag clear (0) | \u2014 | Soft-status diagnostic flag set (1) |\n| **Freshness (time to stale)** | \u2265 5 min of runway | < 5 min left | Stale \u2014 older than max-stale (\u2264 0) |\n| **Oracle deviation (bps)** | < 80% of tolerance band | Near band | Soft deviation flag / above band |\n| **Market / cap utilization** | < 90% | 90\u201395% (market 98%) | over cap \u2014 nearly full |\n| **Exporter \u2014 last scrape age** | < 60 s | 60\u2013120 s | > 120 s \u2014 exporter stalled |\n\n**How to read this board**\n\n1. **Health strip** \u2014 anything red right now?\n2. **MarketIndexView table** \u2014 snapshot: final/primary/anchor prices + soft flags (`valid` / `stale` / `deviation`) + blend status timestamp.\n3. **Oracles row** \u2014 trends (prices, deviation vs band, provider freshness) + **oracle config** (strategy, max-stale, sanity band). Soft flags live in MIV; Oracles does not repeat the flag timeline.\n4. **Markets** \u2014 size / util / rates / accrual age.\n5. **Spokes** \u2014 liq curve, LTV/threshold, pause/freeze, usage & caps.\n6. **Exporter health** \u2014 scrape trust.\n\n**ABI names:** primary = `primary_price_wad`, anchor = `anchor_price_wad`. Soft status is authority; provider-probe freshness is early-warning only.\n\n_\"Now\" for staleness is the **ledger close time**._\n"
+        "content": "#### Colour key — what the panel thresholds mean\n\n🟢 good  ·  🟠 warning  ·  🔴 critical\n\n| Signal | 🟢 Green | 🟠 Orange | 🔴 Red |\n|---|---|---|---|\n| **Oracle healthy** (`valid`) | Soft status usable for solvency | — | `valid=0` (stale, deviation, sanity, or unreadable) |\n| **Oracle stale / deviation flags** | Flag clear (0) | — | Soft-status diagnostic flag set (1) |\n| **Freshness (time to stale)** | ≥ 5 min of runway | < 5 min left | Stale — older than max-stale (≤ 0) |\n| **Oracle deviation (bps)** | < 80% of tolerance band | Near band | Soft deviation flag / above band |\n| **Market / cap utilization** | < 90% | 90–95% (market 98%) | over cap — nearly full |\n| **Exporter — last scrape age** | < 60 s | 60–120 s | > 120 s — exporter stalled |\n\n**How to read this board**\n\n1. **Health strip** — anything red right now?\n2. **MarketIndexView table** — snapshot: final/primary/anchor prices + soft flags (`valid` / `stale` / `deviation`) + blend status timestamp.\n3. **Oracles row** — trends (prices, deviation vs band, provider freshness) + **oracle config** (strategy, max-stale, sanity band). Soft flags live in MIV; Oracles does not repeat the flag timeline.\n4. **Markets** — size / util / rates / accrual age.\n5. **Spokes** — liq curve, LTV/threshold, pause/freeze, usage & caps.\n6. **Exporter health** — scrape trust.\n\n**ABI names:** primary = `primary_price_wad`, anchor = `anchor_price_wad`. Soft status is authority; provider-probe freshness is early-warning only.\n\n_\"Now\" for staleness is the **ledger close time**._\n"
       }
     },
     {
@@ -48,7 +80,7 @@
       "title": "Oracle health",
       "datasource": {
         "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
+        "uid": "${ds}"
       },
       "gridPos": {
         "h": 5,
@@ -106,7 +138,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "min(lending_oracle_healthy{network=\"testnet\"})",
+          "expr": "min(lending_oracle_healthy{network=\"$network\"})",
           "instant": true
         }
       ]
@@ -117,7 +149,7 @@
       "title": "Min freshness (time to stale)",
       "datasource": {
         "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
+        "uid": "${ds}"
       },
       "gridPos": {
         "h": 5,
@@ -165,7 +197,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "min(lending_oracle_seconds_until_stale{network=\"testnet\"})",
+          "expr": "min(lending_oracle_seconds_until_stale{network=\"$network\"})",
           "instant": true
         }
       ]
@@ -176,7 +208,7 @@
       "title": "Max oracle deviation (bps)",
       "datasource": {
         "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
+        "uid": "${ds}"
       },
       "gridPos": {
         "h": 5,
@@ -225,7 +257,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "max(lending_oracle_deviation_bps{network=\"testnet\"})",
+          "expr": "max(lending_oracle_deviation_bps{network=\"$network\"})",
           "instant": true
         }
       ]
@@ -236,7 +268,7 @@
       "title": "Any stale flag",
       "datasource": {
         "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
+        "uid": "${ds}"
       },
       "gridPos": {
         "h": 5,
@@ -247,11 +279,11 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "max(lending_oracle_stale{network=\"testnet\"})",
+          "expr": "max(lending_oracle_stale{network=\"$network\"})",
           "instant": true,
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           }
         }
       ],
@@ -305,7 +337,7 @@
       "title": "Any deviation flag",
       "datasource": {
         "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
+        "uid": "${ds}"
       },
       "gridPos": {
         "h": 5,
@@ -316,11 +348,11 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "max(lending_oracle_deviation_flag{network=\"testnet\"})",
+          "expr": "max(lending_oracle_deviation_flag{network=\"$network\"})",
           "instant": true,
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           }
         }
       ],
@@ -371,10 +403,10 @@
     {
       "id": 5,
       "type": "stat",
-      "title": "Exporter \u2014 last scrape age",
+      "title": "Exporter — last scrape age",
       "datasource": {
         "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
+        "uid": "${ds}"
       },
       "gridPos": {
         "h": 5,
@@ -422,7 +454,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "time() - max(lending_exporter_last_success_timestamp{network=\"testnet\"})",
+          "expr": "time() - max(lending_exporter_last_success_timestamp{network=\"$network\"})",
           "instant": true
         }
       ]
@@ -444,7 +476,7 @@
       "title": "TVL",
       "datasource": {
         "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
+        "uid": "${ds}"
       },
       "gridPos": {
         "h": 4,
@@ -475,7 +507,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(lending_protocol_tvl_usd{network=\"testnet\"})"
+          "expr": "sum(lending_protocol_tvl_usd{network=\"$network\"})"
         }
       ]
     },
@@ -485,7 +517,7 @@
       "title": "Total borrowed",
       "datasource": {
         "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
+        "uid": "${ds}"
       },
       "gridPos": {
         "h": 4,
@@ -516,7 +548,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(lending_protocol_total_borrowed_usd{network=\"testnet\"})"
+          "expr": "sum(lending_protocol_total_borrowed_usd{network=\"$network\"})"
         }
       ]
     },
@@ -526,7 +558,7 @@
       "title": "Available liquidity",
       "datasource": {
         "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
+        "uid": "${ds}"
       },
       "gridPos": {
         "h": 4,
@@ -557,7 +589,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(lending_protocol_total_liquidity_usd{network=\"testnet\"})"
+          "expr": "sum(lending_protocol_total_liquidity_usd{network=\"$network\"})"
         }
       ]
     },
@@ -567,7 +599,7 @@
       "title": "Revenue",
       "datasource": {
         "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
+        "uid": "${ds}"
       },
       "gridPos": {
         "h": 4,
@@ -598,7 +630,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(lending_protocol_total_revenue_usd{network=\"testnet\"})"
+          "expr": "sum(lending_protocol_total_revenue_usd{network=\"$network\"})"
         }
       ]
     },
@@ -608,7 +640,7 @@
       "title": "Min borrow collateral",
       "datasource": {
         "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
+        "uid": "${ds}"
       },
       "gridPos": {
         "h": 4,
@@ -639,7 +671,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "max(lending_min_borrow_collateral_usd{network=\"testnet\"})"
+          "expr": "max(lending_min_borrow_collateral_usd{network=\"$network\"})"
         }
       ]
     },
@@ -660,7 +692,7 @@
       "title": "Market grid",
       "datasource": {
         "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
+        "uid": "${ds}"
       },
       "gridPos": {
         "h": 9,
@@ -678,68 +710,68 @@
       "targets": [
         {
           "refId": "SUP",
-          "expr": "lending_market_supplied_total_usd{network=\"testnet\"}",
+          "expr": "lending_market_supplied_total_usd{network=\"$network\"}",
           "instant": true,
           "format": "table"
         },
         {
           "refId": "BOR",
-          "expr": "lending_market_borrowed_total_usd{network=\"testnet\"}",
+          "expr": "lending_market_borrowed_total_usd{network=\"$network\"}",
           "instant": true,
           "format": "table"
         },
         {
           "refId": "LIQ",
-          "expr": "lending_market_available_liquidity_usd{network=\"testnet\"}",
+          "expr": "lending_market_available_liquidity_usd{network=\"$network\"}",
           "instant": true,
           "format": "table"
         },
         {
           "refId": "UTL",
-          "expr": "lending_market_utilization_ratio{network=\"testnet\"}",
+          "expr": "lending_market_utilization_ratio{network=\"$network\"}",
           "instant": true,
           "format": "table"
         },
         {
           "refId": "SAP",
-          "expr": "lending_market_supply_apy{network=\"testnet\"}",
+          "expr": "lending_market_supply_apy{network=\"$network\"}",
           "instant": true,
           "format": "table"
         },
         {
           "refId": "BAP",
-          "expr": "lending_market_borrow_apy{network=\"testnet\"}",
+          "expr": "lending_market_borrow_apy{network=\"$network\"}",
           "instant": true,
           "format": "table"
         },
         {
           "refId": "ACC",
-          "expr": "time() - lending_market_last_accrual_timestamp{network=\"testnet\"}",
+          "expr": "time() - lending_market_last_accrual_timestamp{network=\"$network\"}",
           "instant": true,
           "format": "table",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           }
         },
         {
           "refId": "DTM",
-          "expr": "lending_market_delta_time_seconds{network=\"testnet\"}",
+          "expr": "lending_market_delta_time_seconds{network=\"$network\"}",
           "instant": true,
           "format": "table",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           }
         },
         {
           "refId": "REV",
-          "expr": "lending_market_revenue_usd{network=\"testnet\"}",
+          "expr": "lending_market_revenue_usd{network=\"$network\"}",
           "instant": true,
           "format": "table",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           }
         }
       ],
@@ -916,7 +948,7 @@
       "title": "Supplied vs borrowed (USD) by market",
       "datasource": {
         "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
+        "uid": "${ds}"
       },
       "gridPos": {
         "h": 8,
@@ -932,13 +964,13 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "lending_market_supplied_total_usd{network=\"testnet\"}",
-          "legendFormat": "supplied {{symbol}} \u00b7 {{hub}}"
+          "expr": "lending_market_supplied_total_usd{network=\"$network\"}",
+          "legendFormat": "supplied {{symbol}} · {{hub}}"
         },
         {
           "refId": "B",
-          "expr": "lending_market_borrowed_total_usd{network=\"testnet\"}",
-          "legendFormat": "borrowed {{symbol}} \u00b7 {{hub}}"
+          "expr": "lending_market_borrowed_total_usd{network=\"$network\"}",
+          "legendFormat": "borrowed {{symbol}} · {{hub}}"
         }
       ],
       "options": {
@@ -956,7 +988,7 @@
       "title": "Interest index growth (supply / borrow)",
       "datasource": {
         "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
+        "uid": "${ds}"
       },
       "gridPos": {
         "h": 8,
@@ -973,13 +1005,13 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "lending_market_supply_index_ray{network=\"testnet\"}",
-          "legendFormat": "supply {{symbol}} \u00b7 {{hub}}"
+          "expr": "lending_market_supply_index_ray{network=\"$network\"}",
+          "legendFormat": "supply {{symbol}} · {{hub}}"
         },
         {
           "refId": "B",
-          "expr": "lending_market_borrow_index_ray{network=\"testnet\"}",
-          "legendFormat": "borrow {{symbol}} \u00b7 {{hub}}"
+          "expr": "lending_market_borrow_index_ray{network=\"$network\"}",
+          "legendFormat": "borrow {{symbol}} · {{hub}}"
         }
       ],
       "options": {
@@ -997,7 +1029,7 @@
       "title": "Available liquidity (USD) by market",
       "datasource": {
         "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
+        "uid": "${ds}"
       },
       "gridPos": {
         "h": 8,
@@ -1008,11 +1040,11 @@
       "targets": [
         {
           "refId": "L",
-          "expr": "lending_market_available_liquidity_usd{network=\"testnet\"}",
+          "expr": "lending_market_available_liquidity_usd{network=\"$network\"}",
           "legendFormat": "{{symbol}}",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           }
         }
       ],
@@ -1036,7 +1068,7 @@
       "title": "Utilization by market",
       "datasource": {
         "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
+        "uid": "${ds}"
       },
       "gridPos": {
         "h": 8,
@@ -1047,11 +1079,11 @@
       "targets": [
         {
           "refId": "U",
-          "expr": "lending_market_utilization_ratio{network=\"testnet\"}",
+          "expr": "lending_market_utilization_ratio{network=\"$network\"}",
           "legendFormat": "{{symbol}}",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           }
         }
       ],
@@ -1086,10 +1118,10 @@
     {
       "id": 101,
       "type": "table",
-      "title": "MarketIndexView \u2014 indexes + soft oracle status",
+      "title": "MarketIndexView — indexes + soft oracle status",
       "datasource": {
         "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
+        "uid": "${ds}"
       },
       "gridPos": {
         "h": 10,
@@ -1107,122 +1139,122 @@
       "targets": [
         {
           "refId": "SI",
-          "expr": "lending_market_supply_index_ray{network=\"testnet\"}",
+          "expr": "lending_market_supply_index_ray{network=\"$network\"}",
           "instant": true,
           "format": "table",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           }
         },
         {
           "refId": "BI",
-          "expr": "lending_market_borrow_index_ray{network=\"testnet\"}",
+          "expr": "lending_market_borrow_index_ray{network=\"$network\"}",
           "instant": true,
           "format": "table",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           }
         },
         {
           "refId": "FP",
-          "expr": "lending_oracle_price_usd{network=\"testnet\"}",
+          "expr": "lending_oracle_price_usd{network=\"$network\"}",
           "instant": true,
           "format": "table",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           }
         },
         {
           "refId": "PP",
-          "expr": "lending_oracle_primary_price_usd{network=\"testnet\"}",
+          "expr": "lending_oracle_primary_price_usd{network=\"$network\"}",
           "instant": true,
           "format": "table",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           }
         },
         {
           "refId": "AP",
-          "expr": "lending_oracle_anchor_price_usd{network=\"testnet\"}",
+          "expr": "lending_oracle_anchor_price_usd{network=\"$network\"}",
           "instant": true,
           "format": "table",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           }
         },
         {
           "refId": "DV",
-          "expr": "lending_oracle_deviation_bps{network=\"testnet\"}",
+          "expr": "lending_oracle_deviation_bps{network=\"$network\"}",
           "instant": true,
           "format": "table",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           }
         },
         {
           "refId": "ST",
-          "expr": "lending_oracle_stale{network=\"testnet\"}",
+          "expr": "lending_oracle_stale{network=\"$network\"}",
           "instant": true,
           "format": "table",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           }
         },
         {
           "refId": "DF",
-          "expr": "lending_oracle_deviation_flag{network=\"testnet\"}",
+          "expr": "lending_oracle_deviation_flag{network=\"$network\"}",
           "instant": true,
           "format": "table",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           }
         },
         {
           "refId": "HL",
-          "expr": "lending_oracle_healthy{network=\"testnet\"}",
+          "expr": "lending_oracle_healthy{network=\"$network\"}",
           "instant": true,
           "format": "table",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           }
         },
         {
           "refId": "TS",
-          "expr": "lending_oracle_status_timestamp_seconds{network=\"testnet\"} * 1000",
+          "expr": "lending_oracle_status_timestamp_seconds{network=\"$network\"} * 1000",
           "instant": true,
           "format": "table",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           }
         },
         {
           "refId": "LQ",
-          "expr": "lending_market_available_liquidity_usd{network=\"testnet\"}",
+          "expr": "lending_market_available_liquidity_usd{network=\"$network\"}",
           "instant": true,
           "format": "table",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           }
         },
         {
           "refId": "UT",
-          "expr": "lending_market_utilization_ratio{network=\"testnet\"}",
+          "expr": "lending_market_utilization_ratio{network=\"$network\"}",
           "instant": true,
           "format": "table",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           }
         }
       ],
@@ -1434,7 +1466,7 @@
       "title": "Soft status flags (healthy / stale / deviation)",
       "datasource": {
         "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
+        "uid": "${ds}"
       },
       "gridPos": {
         "h": 8,
@@ -1445,29 +1477,29 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "lending_oracle_healthy{network=\"testnet\"}",
+          "expr": "lending_oracle_healthy{network=\"$network\"}",
           "legendFormat": "{{symbol}} healthy",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           }
         },
         {
           "refId": "B",
-          "expr": "lending_oracle_stale{network=\"testnet\"}",
+          "expr": "lending_oracle_stale{network=\"$network\"}",
           "legendFormat": "{{symbol}} stale",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           }
         },
         {
           "refId": "C",
-          "expr": "lending_oracle_deviation_flag{network=\"testnet\"}",
+          "expr": "lending_oracle_deviation_flag{network=\"$network\"}",
           "legendFormat": "{{symbol}} deviation",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           }
         }
       ],
@@ -1542,7 +1574,7 @@
       "title": "USD price (final / primary / anchor)",
       "datasource": {
         "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
+        "uid": "${ds}"
       },
       "gridPos": {
         "h": 8,
@@ -1559,29 +1591,29 @@
       "targets": [
         {
           "refId": "F",
-          "expr": "lending_oracle_price_usd{network=\"testnet\"}",
+          "expr": "lending_oracle_price_usd{network=\"$network\"}",
           "legendFormat": "{{symbol}} final",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           }
         },
         {
           "refId": "P",
-          "expr": "lending_oracle_primary_price_usd{network=\"testnet\"}",
+          "expr": "lending_oracle_primary_price_usd{network=\"$network\"}",
           "legendFormat": "{{symbol}} primary",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           }
         },
         {
           "refId": "A",
-          "expr": "lending_oracle_anchor_price_usd{network=\"testnet\"}",
+          "expr": "lending_oracle_anchor_price_usd{network=\"$network\"}",
           "legendFormat": "{{symbol}} anchor",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           }
         }
       ],
@@ -1604,7 +1636,7 @@
       "title": "Deviation vs tolerance band (bps)",
       "datasource": {
         "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
+        "uid": "${ds}"
       },
       "gridPos": {
         "h": 8,
@@ -1682,29 +1714,29 @@
       "targets": [
         {
           "refId": "D",
-          "expr": "lending_oracle_deviation_bps{network=\"testnet\"}",
+          "expr": "lending_oracle_deviation_bps{network=\"$network\"}",
           "legendFormat": "{{symbol}} deviation",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           }
         },
         {
           "refId": "U",
-          "expr": "lending_oracle_tolerance_upper_bps{network=\"testnet\"}",
+          "expr": "lending_oracle_tolerance_upper_bps{network=\"$network\"}",
           "legendFormat": "{{symbol}} upper",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           }
         },
         {
           "refId": "L",
-          "expr": "lending_oracle_tolerance_lower_bps{network=\"testnet\"}",
+          "expr": "lending_oracle_tolerance_lower_bps{network=\"$network\"}",
           "legendFormat": "{{symbol}} lower",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           }
         }
       ],
@@ -1726,7 +1758,7 @@
       "title": "Freshness (seconds until stale + budget left)",
       "datasource": {
         "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
+        "uid": "${ds}"
       },
       "gridPos": {
         "h": 8,
@@ -1802,20 +1834,20 @@
       "targets": [
         {
           "refId": "S",
-          "expr": "lending_oracle_seconds_until_stale{network=\"testnet\"}",
+          "expr": "lending_oracle_seconds_until_stale{network=\"$network\"}",
           "legendFormat": "{{symbol}} s left",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           }
         },
         {
           "refId": "F",
-          "expr": "lending_oracle_seconds_until_stale{network=\"testnet\"} / lending_oracle_effective_max_stale_seconds{network=\"testnet\"}",
+          "expr": "lending_oracle_seconds_until_stale{network=\"$network\"} / lending_oracle_effective_max_stale_seconds{network=\"$network\"}",
           "legendFormat": "{{symbol}} fraction left",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           }
         }
       ],
@@ -1837,7 +1869,7 @@
       "title": "Oracle config (price-aggregator AssetOracle)",
       "datasource": {
         "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
+        "uid": "${ds}"
       },
       "gridPos": {
         "h": 9,
@@ -1855,112 +1887,112 @@
       "targets": [
         {
           "refId": "ST",
-          "expr": "lending_oracle_strategy{network=\"testnet\"}",
+          "expr": "lending_oracle_strategy{network=\"$network\"}",
           "instant": true,
           "format": "table",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           }
         },
         {
           "refId": "MS",
-          "expr": "lending_oracle_max_stale_seconds{network=\"testnet\"}",
+          "expr": "lending_oracle_max_stale_seconds{network=\"$network\"}",
           "instant": true,
           "format": "table",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           }
         },
         {
           "refId": "EM",
-          "expr": "lending_oracle_effective_max_stale_seconds{network=\"testnet\"}",
+          "expr": "lending_oracle_effective_max_stale_seconds{network=\"$network\"}",
           "instant": true,
           "format": "table",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           }
         },
         {
           "refId": "TU",
-          "expr": "lending_oracle_tolerance_upper_bps{network=\"testnet\"}",
+          "expr": "lending_oracle_tolerance_upper_bps{network=\"$network\"}",
           "instant": true,
           "format": "table",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           }
         },
         {
           "refId": "TL",
-          "expr": "lending_oracle_tolerance_lower_bps{network=\"testnet\"}",
+          "expr": "lending_oracle_tolerance_lower_bps{network=\"$network\"}",
           "instant": true,
           "format": "table",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           }
         },
         {
           "refId": "SN",
-          "expr": "lending_oracle_sanity_min_usd{network=\"testnet\"}",
+          "expr": "lending_oracle_sanity_min_usd{network=\"$network\"}",
           "instant": true,
           "format": "table",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           }
         },
         {
           "refId": "SX",
-          "expr": "lending_oracle_sanity_max_usd{network=\"testnet\"}",
+          "expr": "lending_oracle_sanity_max_usd{network=\"$network\"}",
           "instant": true,
           "format": "table",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           }
         },
         {
           "refId": "PT",
-          "expr": "lending_oracle_price_timestamp_seconds{network=\"testnet\"} * 1000",
+          "expr": "lending_oracle_price_timestamp_seconds{network=\"$network\"} * 1000",
           "instant": true,
           "format": "table",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           }
         },
         {
           "refId": "BT",
-          "expr": "lending_oracle_status_timestamp_seconds{network=\"testnet\"} * 1000",
+          "expr": "lending_oracle_status_timestamp_seconds{network=\"$network\"} * 1000",
           "instant": true,
           "format": "table",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           }
         },
         {
           "refId": "SU",
-          "expr": "lending_oracle_seconds_until_stale{network=\"testnet\"}",
+          "expr": "lending_oracle_seconds_until_stale{network=\"$network\"}",
           "instant": true,
           "format": "table",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           }
         },
         {
           "refId": "HL",
-          "expr": "lending_oracle_healthy{network=\"testnet\"}",
+          "expr": "lending_oracle_healthy{network=\"$network\"}",
           "instant": true,
           "format": "table",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           }
         }
       ],
@@ -2182,7 +2214,7 @@
       "description": "Probe = worst-leg provider feed ts. Blend = MarketIndexView.price_timestamp from soft status.",
       "datasource": {
         "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
+        "uid": "${ds}"
       },
       "gridPos": {
         "h": 7,
@@ -2193,20 +2225,20 @@
       "targets": [
         {
           "refId": "P",
-          "expr": "lending_oracle_price_timestamp_seconds{network=\"testnet\"} * 1000",
+          "expr": "lending_oracle_price_timestamp_seconds{network=\"$network\"} * 1000",
           "legendFormat": "{{symbol}} probe",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           }
         },
         {
           "refId": "B",
-          "expr": "lending_oracle_status_timestamp_seconds{network=\"testnet\"} * 1000",
+          "expr": "lending_oracle_status_timestamp_seconds{network=\"$network\"} * 1000",
           "legendFormat": "{{symbol}} blend",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           }
         }
       ],
@@ -2255,7 +2287,7 @@
     {
       "id": 60,
       "type": "row",
-      "title": "Spoke \u00b7 Main (USDC/EURC/XLM/BTC)",
+      "title": "Spoke · Main (USDC/EURC/XLM/BTC)",
       "collapsed": true,
       "gridPos": {
         "h": 1,
@@ -2270,7 +2302,7 @@
           "title": "Liq target HF",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           },
           "gridPos": {
             "h": 4,
@@ -2281,11 +2313,11 @@
           "targets": [
             {
               "refId": "A",
-              "expr": "lending_spoke_liquidation_target_hf{network=\"testnet\",spoke_id=\"1\"}",
+              "expr": "lending_spoke_liquidation_target_hf{network=\"$network\",spoke_id=\"1\"}",
               "instant": true,
               "datasource": {
                 "type": "prometheus",
-                "uid": "cfgw0aa7mups0d"
+                "uid": "${ds}"
               }
             }
           ],
@@ -2313,7 +2345,7 @@
           "title": "HF for max bonus",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           },
           "gridPos": {
             "h": 4,
@@ -2324,11 +2356,11 @@
           "targets": [
             {
               "refId": "A",
-              "expr": "lending_spoke_hf_for_max_bonus{network=\"testnet\",spoke_id=\"1\"}",
+              "expr": "lending_spoke_hf_for_max_bonus{network=\"$network\",spoke_id=\"1\"}",
               "instant": true,
               "datasource": {
                 "type": "prometheus",
-                "uid": "cfgw0aa7mups0d"
+                "uid": "${ds}"
               }
             }
           ],
@@ -2356,7 +2388,7 @@
           "title": "Bonus factor bps",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           },
           "gridPos": {
             "h": 4,
@@ -2367,11 +2399,11 @@
           "targets": [
             {
               "refId": "A",
-              "expr": "lending_spoke_liquidation_bonus_factor_bps{network=\"testnet\",spoke_id=\"1\"}",
+              "expr": "lending_spoke_liquidation_bonus_factor_bps{network=\"$network\",spoke_id=\"1\"}",
               "instant": true,
               "datasource": {
                 "type": "prometheus",
-                "uid": "cfgw0aa7mups0d"
+                "uid": "${ds}"
               }
             }
           ],
@@ -2399,7 +2431,7 @@
           "title": "Supply usage",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           },
           "gridPos": {
             "h": 4,
@@ -2432,7 +2464,7 @@
           "targets": [
             {
               "refId": "A",
-              "expr": "sum(lending_spoke_supply_usage_usd{network=\"testnet\",spoke=\"Main (USDC/EURC/XLM/BTC)\"})",
+              "expr": "sum(lending_spoke_supply_usage_usd{network=\"$network\",spoke=\"Main (USDC/EURC/XLM/BTC)\"})",
               "instant": true
             }
           ]
@@ -2443,7 +2475,7 @@
           "title": "Borrow usage",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           },
           "gridPos": {
             "h": 4,
@@ -2476,7 +2508,7 @@
           "targets": [
             {
               "refId": "A",
-              "expr": "sum(lending_spoke_borrow_usage_usd{network=\"testnet\",spoke=\"Main (USDC/EURC/XLM/BTC)\"})",
+              "expr": "sum(lending_spoke_borrow_usage_usd{network=\"$network\",spoke=\"Main (USDC/EURC/XLM/BTC)\"})",
               "instant": true
             }
           ]
@@ -2487,7 +2519,7 @@
           "title": "Listed assets",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           },
           "gridPos": {
             "h": 4,
@@ -2520,7 +2552,7 @@
           "targets": [
             {
               "refId": "A",
-              "expr": "count(lending_spoke_ltv_bps{network=\"testnet\",spoke=\"Main (USDC/EURC/XLM/BTC)\"})",
+              "expr": "count(lending_spoke_ltv_bps{network=\"$network\",spoke=\"Main (USDC/EURC/XLM/BTC)\"})",
               "instant": true
             }
           ]
@@ -2531,7 +2563,7 @@
           "title": "Borrow cap utilization",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           },
           "gridPos": {
             "h": 8,
@@ -2581,8 +2613,8 @@
           "targets": [
             {
               "refId": "A",
-              "expr": "lending_spoke_borrow_cap_utilization{network=\"testnet\",spoke=\"Main (USDC/EURC/XLM/BTC)\"}",
-              "legendFormat": "{{symbol}} \u00b7 {{hub}}"
+              "expr": "lending_spoke_borrow_cap_utilization{network=\"$network\",spoke=\"Main (USDC/EURC/XLM/BTC)\"}",
+              "legendFormat": "{{symbol}} · {{hub}}"
             }
           ]
         },
@@ -2592,7 +2624,7 @@
           "title": "Supply cap utilization",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           },
           "gridPos": {
             "h": 8,
@@ -2642,8 +2674,8 @@
           "targets": [
             {
               "refId": "A",
-              "expr": "lending_spoke_supply_cap_utilization{network=\"testnet\",spoke=\"Main (USDC/EURC/XLM/BTC)\"}",
-              "legendFormat": "{{symbol}} \u00b7 {{hub}}"
+              "expr": "lending_spoke_supply_cap_utilization{network=\"$network\",spoke=\"Main (USDC/EURC/XLM/BTC)\"}",
+              "legendFormat": "{{symbol}} · {{hub}}"
             }
           ]
         },
@@ -2653,7 +2685,7 @@
           "title": "Listed assets",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           },
           "gridPos": {
             "h": 10,
@@ -2671,132 +2703,132 @@
           "targets": [
             {
               "refId": "LTV",
-              "expr": "lending_spoke_ltv_bps{network=\"testnet\",spoke=\"Main (USDC/EURC/XLM/BTC)\"}/10000",
+              "expr": "lending_spoke_ltv_bps{network=\"$network\",spoke=\"Main (USDC/EURC/XLM/BTC)\"}/10000",
               "instant": true,
               "format": "table",
               "datasource": {
                 "type": "prometheus",
-                "uid": "cfgw0aa7mups0d"
+                "uid": "${ds}"
               }
             },
             {
               "refId": "THR",
-              "expr": "lending_spoke_liquidation_threshold_bps{network=\"testnet\",spoke=\"Main (USDC/EURC/XLM/BTC)\"}/10000",
+              "expr": "lending_spoke_liquidation_threshold_bps{network=\"$network\",spoke=\"Main (USDC/EURC/XLM/BTC)\"}/10000",
               "instant": true,
               "format": "table",
               "datasource": {
                 "type": "prometheus",
-                "uid": "cfgw0aa7mups0d"
+                "uid": "${ds}"
               }
             },
             {
               "refId": "BON",
-              "expr": "lending_spoke_liquidation_bonus_bps{network=\"testnet\",spoke=\"Main (USDC/EURC/XLM/BTC)\"}",
+              "expr": "lending_spoke_liquidation_bonus_bps{network=\"$network\",spoke=\"Main (USDC/EURC/XLM/BTC)\"}",
               "instant": true,
               "format": "table",
               "datasource": {
                 "type": "prometheus",
-                "uid": "cfgw0aa7mups0d"
+                "uid": "${ds}"
               }
             },
             {
               "refId": "FEE",
-              "expr": "lending_spoke_liquidation_fees_bps{network=\"testnet\",spoke=\"Main (USDC/EURC/XLM/BTC)\"}",
+              "expr": "lending_spoke_liquidation_fees_bps{network=\"$network\",spoke=\"Main (USDC/EURC/XLM/BTC)\"}",
               "instant": true,
               "format": "table",
               "datasource": {
                 "type": "prometheus",
-                "uid": "cfgw0aa7mups0d"
+                "uid": "${ds}"
               }
             },
             {
               "refId": "PAU",
-              "expr": "lending_spoke_paused{network=\"testnet\",spoke=\"Main (USDC/EURC/XLM/BTC)\"}",
+              "expr": "lending_spoke_paused{network=\"$network\",spoke=\"Main (USDC/EURC/XLM/BTC)\"}",
               "instant": true,
               "format": "table",
               "datasource": {
                 "type": "prometheus",
-                "uid": "cfgw0aa7mups0d"
+                "uid": "${ds}"
               }
             },
             {
               "refId": "FRZ",
-              "expr": "lending_spoke_frozen{network=\"testnet\",spoke=\"Main (USDC/EURC/XLM/BTC)\"}",
+              "expr": "lending_spoke_frozen{network=\"$network\",spoke=\"Main (USDC/EURC/XLM/BTC)\"}",
               "instant": true,
               "format": "table",
               "datasource": {
                 "type": "prometheus",
-                "uid": "cfgw0aa7mups0d"
+                "uid": "${ds}"
               }
             },
             {
               "refId": "COL",
-              "expr": "lending_spoke_collateral_enabled{network=\"testnet\",spoke=\"Main (USDC/EURC/XLM/BTC)\"}",
+              "expr": "lending_spoke_collateral_enabled{network=\"$network\",spoke=\"Main (USDC/EURC/XLM/BTC)\"}",
               "instant": true,
               "format": "table",
               "datasource": {
                 "type": "prometheus",
-                "uid": "cfgw0aa7mups0d"
+                "uid": "${ds}"
               }
             },
             {
               "refId": "BRW",
-              "expr": "lending_spoke_borrow_enabled{network=\"testnet\",spoke=\"Main (USDC/EURC/XLM/BTC)\"}",
+              "expr": "lending_spoke_borrow_enabled{network=\"$network\",spoke=\"Main (USDC/EURC/XLM/BTC)\"}",
               "instant": true,
               "format": "table",
               "datasource": {
                 "type": "prometheus",
-                "uid": "cfgw0aa7mups0d"
+                "uid": "${ds}"
               }
             },
             {
               "refId": "DEP",
-              "expr": "lending_spoke_deprecated{network=\"testnet\",spoke=\"Main (USDC/EURC/XLM/BTC)\"}",
+              "expr": "lending_spoke_deprecated{network=\"$network\",spoke=\"Main (USDC/EURC/XLM/BTC)\"}",
               "instant": true,
               "format": "table",
               "datasource": {
                 "type": "prometheus",
-                "uid": "cfgw0aa7mups0d"
+                "uid": "${ds}"
               }
             },
             {
               "refId": "SU",
-              "expr": "lending_spoke_supply_usage_usd{network=\"testnet\",spoke=\"Main (USDC/EURC/XLM/BTC)\"}",
+              "expr": "lending_spoke_supply_usage_usd{network=\"$network\",spoke=\"Main (USDC/EURC/XLM/BTC)\"}",
               "instant": true,
               "format": "table",
               "datasource": {
                 "type": "prometheus",
-                "uid": "cfgw0aa7mups0d"
+                "uid": "${ds}"
               }
             },
             {
               "refId": "BU",
-              "expr": "lending_spoke_borrow_usage_usd{network=\"testnet\",spoke=\"Main (USDC/EURC/XLM/BTC)\"}",
+              "expr": "lending_spoke_borrow_usage_usd{network=\"$network\",spoke=\"Main (USDC/EURC/XLM/BTC)\"}",
               "instant": true,
               "format": "table",
               "datasource": {
                 "type": "prometheus",
-                "uid": "cfgw0aa7mups0d"
+                "uid": "${ds}"
               }
             },
             {
               "refId": "SCU",
-              "expr": "lending_spoke_supply_cap_utilization{network=\"testnet\",spoke=\"Main (USDC/EURC/XLM/BTC)\"}",
+              "expr": "lending_spoke_supply_cap_utilization{network=\"$network\",spoke=\"Main (USDC/EURC/XLM/BTC)\"}",
               "instant": true,
               "format": "table",
               "datasource": {
                 "type": "prometheus",
-                "uid": "cfgw0aa7mups0d"
+                "uid": "${ds}"
               }
             },
             {
               "refId": "BCU",
-              "expr": "lending_spoke_borrow_cap_utilization{network=\"testnet\",spoke=\"Main (USDC/EURC/XLM/BTC)\"}",
+              "expr": "lending_spoke_borrow_cap_utilization{network=\"$network\",spoke=\"Main (USDC/EURC/XLM/BTC)\"}",
               "instant": true,
               "format": "table",
               "datasource": {
                 "type": "prometheus",
-                "uid": "cfgw0aa7mups0d"
+                "uid": "${ds}"
               }
             }
           ],
@@ -2999,7 +3031,7 @@
     {
       "id": 70,
       "type": "row",
-      "title": "Spoke \u00b7 XLM + USDC",
+      "title": "Spoke · XLM + USDC",
       "collapsed": true,
       "gridPos": {
         "h": 1,
@@ -3014,7 +3046,7 @@
           "title": "Liq target HF",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           },
           "gridPos": {
             "h": 4,
@@ -3025,11 +3057,11 @@
           "targets": [
             {
               "refId": "A",
-              "expr": "lending_spoke_liquidation_target_hf{network=\"testnet\",spoke_id=\"2\"}",
+              "expr": "lending_spoke_liquidation_target_hf{network=\"$network\",spoke_id=\"2\"}",
               "instant": true,
               "datasource": {
                 "type": "prometheus",
-                "uid": "cfgw0aa7mups0d"
+                "uid": "${ds}"
               }
             }
           ],
@@ -3057,7 +3089,7 @@
           "title": "HF for max bonus",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           },
           "gridPos": {
             "h": 4,
@@ -3068,11 +3100,11 @@
           "targets": [
             {
               "refId": "A",
-              "expr": "lending_spoke_hf_for_max_bonus{network=\"testnet\",spoke_id=\"2\"}",
+              "expr": "lending_spoke_hf_for_max_bonus{network=\"$network\",spoke_id=\"2\"}",
               "instant": true,
               "datasource": {
                 "type": "prometheus",
-                "uid": "cfgw0aa7mups0d"
+                "uid": "${ds}"
               }
             }
           ],
@@ -3100,7 +3132,7 @@
           "title": "Bonus factor bps",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           },
           "gridPos": {
             "h": 4,
@@ -3111,11 +3143,11 @@
           "targets": [
             {
               "refId": "A",
-              "expr": "lending_spoke_liquidation_bonus_factor_bps{network=\"testnet\",spoke_id=\"2\"}",
+              "expr": "lending_spoke_liquidation_bonus_factor_bps{network=\"$network\",spoke_id=\"2\"}",
               "instant": true,
               "datasource": {
                 "type": "prometheus",
-                "uid": "cfgw0aa7mups0d"
+                "uid": "${ds}"
               }
             }
           ],
@@ -3143,7 +3175,7 @@
           "title": "Supply usage",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           },
           "gridPos": {
             "h": 4,
@@ -3176,7 +3208,7 @@
           "targets": [
             {
               "refId": "A",
-              "expr": "sum(lending_spoke_supply_usage_usd{network=\"testnet\",spoke=\"XLM + USDC\"})",
+              "expr": "sum(lending_spoke_supply_usage_usd{network=\"$network\",spoke=\"XLM + USDC\"})",
               "instant": true
             }
           ]
@@ -3187,7 +3219,7 @@
           "title": "Borrow usage",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           },
           "gridPos": {
             "h": 4,
@@ -3220,7 +3252,7 @@
           "targets": [
             {
               "refId": "A",
-              "expr": "sum(lending_spoke_borrow_usage_usd{network=\"testnet\",spoke=\"XLM + USDC\"})",
+              "expr": "sum(lending_spoke_borrow_usage_usd{network=\"$network\",spoke=\"XLM + USDC\"})",
               "instant": true
             }
           ]
@@ -3231,7 +3263,7 @@
           "title": "Listed assets",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           },
           "gridPos": {
             "h": 4,
@@ -3264,7 +3296,7 @@
           "targets": [
             {
               "refId": "A",
-              "expr": "count(lending_spoke_ltv_bps{network=\"testnet\",spoke=\"XLM + USDC\"})",
+              "expr": "count(lending_spoke_ltv_bps{network=\"$network\",spoke=\"XLM + USDC\"})",
               "instant": true
             }
           ]
@@ -3275,7 +3307,7 @@
           "title": "Borrow cap utilization",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           },
           "gridPos": {
             "h": 8,
@@ -3325,8 +3357,8 @@
           "targets": [
             {
               "refId": "A",
-              "expr": "lending_spoke_borrow_cap_utilization{network=\"testnet\",spoke=\"XLM + USDC\"}",
-              "legendFormat": "{{symbol}} \u00b7 {{hub}}"
+              "expr": "lending_spoke_borrow_cap_utilization{network=\"$network\",spoke=\"XLM + USDC\"}",
+              "legendFormat": "{{symbol}} · {{hub}}"
             }
           ]
         },
@@ -3336,7 +3368,7 @@
           "title": "Supply cap utilization",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           },
           "gridPos": {
             "h": 8,
@@ -3386,8 +3418,8 @@
           "targets": [
             {
               "refId": "A",
-              "expr": "lending_spoke_supply_cap_utilization{network=\"testnet\",spoke=\"XLM + USDC\"}",
-              "legendFormat": "{{symbol}} \u00b7 {{hub}}"
+              "expr": "lending_spoke_supply_cap_utilization{network=\"$network\",spoke=\"XLM + USDC\"}",
+              "legendFormat": "{{symbol}} · {{hub}}"
             }
           ]
         },
@@ -3397,7 +3429,7 @@
           "title": "Listed assets",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           },
           "gridPos": {
             "h": 10,
@@ -3415,132 +3447,132 @@
           "targets": [
             {
               "refId": "LTV",
-              "expr": "lending_spoke_ltv_bps{network=\"testnet\",spoke=\"XLM + USDC\"}/10000",
+              "expr": "lending_spoke_ltv_bps{network=\"$network\",spoke=\"XLM + USDC\"}/10000",
               "instant": true,
               "format": "table",
               "datasource": {
                 "type": "prometheus",
-                "uid": "cfgw0aa7mups0d"
+                "uid": "${ds}"
               }
             },
             {
               "refId": "THR",
-              "expr": "lending_spoke_liquidation_threshold_bps{network=\"testnet\",spoke=\"XLM + USDC\"}/10000",
+              "expr": "lending_spoke_liquidation_threshold_bps{network=\"$network\",spoke=\"XLM + USDC\"}/10000",
               "instant": true,
               "format": "table",
               "datasource": {
                 "type": "prometheus",
-                "uid": "cfgw0aa7mups0d"
+                "uid": "${ds}"
               }
             },
             {
               "refId": "BON",
-              "expr": "lending_spoke_liquidation_bonus_bps{network=\"testnet\",spoke=\"XLM + USDC\"}",
+              "expr": "lending_spoke_liquidation_bonus_bps{network=\"$network\",spoke=\"XLM + USDC\"}",
               "instant": true,
               "format": "table",
               "datasource": {
                 "type": "prometheus",
-                "uid": "cfgw0aa7mups0d"
+                "uid": "${ds}"
               }
             },
             {
               "refId": "FEE",
-              "expr": "lending_spoke_liquidation_fees_bps{network=\"testnet\",spoke=\"XLM + USDC\"}",
+              "expr": "lending_spoke_liquidation_fees_bps{network=\"$network\",spoke=\"XLM + USDC\"}",
               "instant": true,
               "format": "table",
               "datasource": {
                 "type": "prometheus",
-                "uid": "cfgw0aa7mups0d"
+                "uid": "${ds}"
               }
             },
             {
               "refId": "PAU",
-              "expr": "lending_spoke_paused{network=\"testnet\",spoke=\"XLM + USDC\"}",
+              "expr": "lending_spoke_paused{network=\"$network\",spoke=\"XLM + USDC\"}",
               "instant": true,
               "format": "table",
               "datasource": {
                 "type": "prometheus",
-                "uid": "cfgw0aa7mups0d"
+                "uid": "${ds}"
               }
             },
             {
               "refId": "FRZ",
-              "expr": "lending_spoke_frozen{network=\"testnet\",spoke=\"XLM + USDC\"}",
+              "expr": "lending_spoke_frozen{network=\"$network\",spoke=\"XLM + USDC\"}",
               "instant": true,
               "format": "table",
               "datasource": {
                 "type": "prometheus",
-                "uid": "cfgw0aa7mups0d"
+                "uid": "${ds}"
               }
             },
             {
               "refId": "COL",
-              "expr": "lending_spoke_collateral_enabled{network=\"testnet\",spoke=\"XLM + USDC\"}",
+              "expr": "lending_spoke_collateral_enabled{network=\"$network\",spoke=\"XLM + USDC\"}",
               "instant": true,
               "format": "table",
               "datasource": {
                 "type": "prometheus",
-                "uid": "cfgw0aa7mups0d"
+                "uid": "${ds}"
               }
             },
             {
               "refId": "BRW",
-              "expr": "lending_spoke_borrow_enabled{network=\"testnet\",spoke=\"XLM + USDC\"}",
+              "expr": "lending_spoke_borrow_enabled{network=\"$network\",spoke=\"XLM + USDC\"}",
               "instant": true,
               "format": "table",
               "datasource": {
                 "type": "prometheus",
-                "uid": "cfgw0aa7mups0d"
+                "uid": "${ds}"
               }
             },
             {
               "refId": "DEP",
-              "expr": "lending_spoke_deprecated{network=\"testnet\",spoke=\"XLM + USDC\"}",
+              "expr": "lending_spoke_deprecated{network=\"$network\",spoke=\"XLM + USDC\"}",
               "instant": true,
               "format": "table",
               "datasource": {
                 "type": "prometheus",
-                "uid": "cfgw0aa7mups0d"
+                "uid": "${ds}"
               }
             },
             {
               "refId": "SU",
-              "expr": "lending_spoke_supply_usage_usd{network=\"testnet\",spoke=\"XLM + USDC\"}",
+              "expr": "lending_spoke_supply_usage_usd{network=\"$network\",spoke=\"XLM + USDC\"}",
               "instant": true,
               "format": "table",
               "datasource": {
                 "type": "prometheus",
-                "uid": "cfgw0aa7mups0d"
+                "uid": "${ds}"
               }
             },
             {
               "refId": "BU",
-              "expr": "lending_spoke_borrow_usage_usd{network=\"testnet\",spoke=\"XLM + USDC\"}",
+              "expr": "lending_spoke_borrow_usage_usd{network=\"$network\",spoke=\"XLM + USDC\"}",
               "instant": true,
               "format": "table",
               "datasource": {
                 "type": "prometheus",
-                "uid": "cfgw0aa7mups0d"
+                "uid": "${ds}"
               }
             },
             {
               "refId": "SCU",
-              "expr": "lending_spoke_supply_cap_utilization{network=\"testnet\",spoke=\"XLM + USDC\"}",
+              "expr": "lending_spoke_supply_cap_utilization{network=\"$network\",spoke=\"XLM + USDC\"}",
               "instant": true,
               "format": "table",
               "datasource": {
                 "type": "prometheus",
-                "uid": "cfgw0aa7mups0d"
+                "uid": "${ds}"
               }
             },
             {
               "refId": "BCU",
-              "expr": "lending_spoke_borrow_cap_utilization{network=\"testnet\",spoke=\"XLM + USDC\"}",
+              "expr": "lending_spoke_borrow_cap_utilization{network=\"$network\",spoke=\"XLM + USDC\"}",
               "instant": true,
               "format": "table",
               "datasource": {
                 "type": "prometheus",
-                "uid": "cfgw0aa7mups0d"
+                "uid": "${ds}"
               }
             }
           ],
@@ -3743,7 +3775,7 @@
     {
       "id": 80,
       "type": "row",
-      "title": "Spoke \u00b7 BTC + Dual USDC",
+      "title": "Spoke · BTC + Dual USDC",
       "collapsed": true,
       "gridPos": {
         "h": 1,
@@ -3758,7 +3790,7 @@
           "title": "Liq target HF",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           },
           "gridPos": {
             "h": 4,
@@ -3769,11 +3801,11 @@
           "targets": [
             {
               "refId": "A",
-              "expr": "lending_spoke_liquidation_target_hf{network=\"testnet\",spoke_id=\"3\"}",
+              "expr": "lending_spoke_liquidation_target_hf{network=\"$network\",spoke_id=\"3\"}",
               "instant": true,
               "datasource": {
                 "type": "prometheus",
-                "uid": "cfgw0aa7mups0d"
+                "uid": "${ds}"
               }
             }
           ],
@@ -3801,7 +3833,7 @@
           "title": "HF for max bonus",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           },
           "gridPos": {
             "h": 4,
@@ -3812,11 +3844,11 @@
           "targets": [
             {
               "refId": "A",
-              "expr": "lending_spoke_hf_for_max_bonus{network=\"testnet\",spoke_id=\"3\"}",
+              "expr": "lending_spoke_hf_for_max_bonus{network=\"$network\",spoke_id=\"3\"}",
               "instant": true,
               "datasource": {
                 "type": "prometheus",
-                "uid": "cfgw0aa7mups0d"
+                "uid": "${ds}"
               }
             }
           ],
@@ -3844,7 +3876,7 @@
           "title": "Bonus factor bps",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           },
           "gridPos": {
             "h": 4,
@@ -3855,11 +3887,11 @@
           "targets": [
             {
               "refId": "A",
-              "expr": "lending_spoke_liquidation_bonus_factor_bps{network=\"testnet\",spoke_id=\"3\"}",
+              "expr": "lending_spoke_liquidation_bonus_factor_bps{network=\"$network\",spoke_id=\"3\"}",
               "instant": true,
               "datasource": {
                 "type": "prometheus",
-                "uid": "cfgw0aa7mups0d"
+                "uid": "${ds}"
               }
             }
           ],
@@ -3887,7 +3919,7 @@
           "title": "Supply usage",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           },
           "gridPos": {
             "h": 4,
@@ -3920,7 +3952,7 @@
           "targets": [
             {
               "refId": "A",
-              "expr": "sum(lending_spoke_supply_usage_usd{network=\"testnet\",spoke=\"BTC + Dual USDC\"})",
+              "expr": "sum(lending_spoke_supply_usage_usd{network=\"$network\",spoke=\"BTC + Dual USDC\"})",
               "instant": true
             }
           ]
@@ -3931,7 +3963,7 @@
           "title": "Borrow usage",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           },
           "gridPos": {
             "h": 4,
@@ -3964,7 +3996,7 @@
           "targets": [
             {
               "refId": "A",
-              "expr": "sum(lending_spoke_borrow_usage_usd{network=\"testnet\",spoke=\"BTC + Dual USDC\"})",
+              "expr": "sum(lending_spoke_borrow_usage_usd{network=\"$network\",spoke=\"BTC + Dual USDC\"})",
               "instant": true
             }
           ]
@@ -3975,7 +4007,7 @@
           "title": "Listed assets",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           },
           "gridPos": {
             "h": 4,
@@ -4008,7 +4040,7 @@
           "targets": [
             {
               "refId": "A",
-              "expr": "count(lending_spoke_ltv_bps{network=\"testnet\",spoke=\"BTC + Dual USDC\"})",
+              "expr": "count(lending_spoke_ltv_bps{network=\"$network\",spoke=\"BTC + Dual USDC\"})",
               "instant": true
             }
           ]
@@ -4019,7 +4051,7 @@
           "title": "Borrow cap utilization",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           },
           "gridPos": {
             "h": 8,
@@ -4069,8 +4101,8 @@
           "targets": [
             {
               "refId": "A",
-              "expr": "lending_spoke_borrow_cap_utilization{network=\"testnet\",spoke=\"BTC + Dual USDC\"}",
-              "legendFormat": "{{symbol}} \u00b7 {{hub}}"
+              "expr": "lending_spoke_borrow_cap_utilization{network=\"$network\",spoke=\"BTC + Dual USDC\"}",
+              "legendFormat": "{{symbol}} · {{hub}}"
             }
           ]
         },
@@ -4080,7 +4112,7 @@
           "title": "Supply cap utilization",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           },
           "gridPos": {
             "h": 8,
@@ -4130,8 +4162,8 @@
           "targets": [
             {
               "refId": "A",
-              "expr": "lending_spoke_supply_cap_utilization{network=\"testnet\",spoke=\"BTC + Dual USDC\"}",
-              "legendFormat": "{{symbol}} \u00b7 {{hub}}"
+              "expr": "lending_spoke_supply_cap_utilization{network=\"$network\",spoke=\"BTC + Dual USDC\"}",
+              "legendFormat": "{{symbol}} · {{hub}}"
             }
           ]
         },
@@ -4141,7 +4173,7 @@
           "title": "Listed assets",
           "datasource": {
             "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
+            "uid": "${ds}"
           },
           "gridPos": {
             "h": 10,
@@ -4159,132 +4191,132 @@
           "targets": [
             {
               "refId": "LTV",
-              "expr": "lending_spoke_ltv_bps{network=\"testnet\",spoke=\"BTC + Dual USDC\"}/10000",
+              "expr": "lending_spoke_ltv_bps{network=\"$network\",spoke=\"BTC + Dual USDC\"}/10000",
               "instant": true,
               "format": "table",
               "datasource": {
                 "type": "prometheus",
-                "uid": "cfgw0aa7mups0d"
+                "uid": "${ds}"
               }
             },
             {
               "refId": "THR",
-              "expr": "lending_spoke_liquidation_threshold_bps{network=\"testnet\",spoke=\"BTC + Dual USDC\"}/10000",
+              "expr": "lending_spoke_liquidation_threshold_bps{network=\"$network\",spoke=\"BTC + Dual USDC\"}/10000",
               "instant": true,
               "format": "table",
               "datasource": {
                 "type": "prometheus",
-                "uid": "cfgw0aa7mups0d"
+                "uid": "${ds}"
               }
             },
             {
               "refId": "BON",
-              "expr": "lending_spoke_liquidation_bonus_bps{network=\"testnet\",spoke=\"BTC + Dual USDC\"}",
+              "expr": "lending_spoke_liquidation_bonus_bps{network=\"$network\",spoke=\"BTC + Dual USDC\"}",
               "instant": true,
               "format": "table",
               "datasource": {
                 "type": "prometheus",
-                "uid": "cfgw0aa7mups0d"
+                "uid": "${ds}"
               }
             },
             {
               "refId": "FEE",
-              "expr": "lending_spoke_liquidation_fees_bps{network=\"testnet\",spoke=\"BTC + Dual USDC\"}",
+              "expr": "lending_spoke_liquidation_fees_bps{network=\"$network\",spoke=\"BTC + Dual USDC\"}",
               "instant": true,
               "format": "table",
               "datasource": {
                 "type": "prometheus",
-                "uid": "cfgw0aa7mups0d"
+                "uid": "${ds}"
               }
             },
             {
               "refId": "PAU",
-              "expr": "lending_spoke_paused{network=\"testnet\",spoke=\"BTC + Dual USDC\"}",
+              "expr": "lending_spoke_paused{network=\"$network\",spoke=\"BTC + Dual USDC\"}",
               "instant": true,
               "format": "table",
               "datasource": {
                 "type": "prometheus",
-                "uid": "cfgw0aa7mups0d"
+                "uid": "${ds}"
               }
             },
             {
               "refId": "FRZ",
-              "expr": "lending_spoke_frozen{network=\"testnet\",spoke=\"BTC + Dual USDC\"}",
+              "expr": "lending_spoke_frozen{network=\"$network\",spoke=\"BTC + Dual USDC\"}",
               "instant": true,
               "format": "table",
               "datasource": {
                 "type": "prometheus",
-                "uid": "cfgw0aa7mups0d"
+                "uid": "${ds}"
               }
             },
             {
               "refId": "COL",
-              "expr": "lending_spoke_collateral_enabled{network=\"testnet\",spoke=\"BTC + Dual USDC\"}",
+              "expr": "lending_spoke_collateral_enabled{network=\"$network\",spoke=\"BTC + Dual USDC\"}",
               "instant": true,
               "format": "table",
               "datasource": {
                 "type": "prometheus",
-                "uid": "cfgw0aa7mups0d"
+                "uid": "${ds}"
               }
             },
             {
               "refId": "BRW",
-              "expr": "lending_spoke_borrow_enabled{network=\"testnet\",spoke=\"BTC + Dual USDC\"}",
+              "expr": "lending_spoke_borrow_enabled{network=\"$network\",spoke=\"BTC + Dual USDC\"}",
               "instant": true,
               "format": "table",
               "datasource": {
                 "type": "prometheus",
-                "uid": "cfgw0aa7mups0d"
+                "uid": "${ds}"
               }
             },
             {
               "refId": "DEP",
-              "expr": "lending_spoke_deprecated{network=\"testnet\",spoke=\"BTC + Dual USDC\"}",
+              "expr": "lending_spoke_deprecated{network=\"$network\",spoke=\"BTC + Dual USDC\"}",
               "instant": true,
               "format": "table",
               "datasource": {
                 "type": "prometheus",
-                "uid": "cfgw0aa7mups0d"
+                "uid": "${ds}"
               }
             },
             {
               "refId": "SU",
-              "expr": "lending_spoke_supply_usage_usd{network=\"testnet\",spoke=\"BTC + Dual USDC\"}",
+              "expr": "lending_spoke_supply_usage_usd{network=\"$network\",spoke=\"BTC + Dual USDC\"}",
               "instant": true,
               "format": "table",
               "datasource": {
                 "type": "prometheus",
-                "uid": "cfgw0aa7mups0d"
+                "uid": "${ds}"
               }
             },
             {
               "refId": "BU",
-              "expr": "lending_spoke_borrow_usage_usd{network=\"testnet\",spoke=\"BTC + Dual USDC\"}",
+              "expr": "lending_spoke_borrow_usage_usd{network=\"$network\",spoke=\"BTC + Dual USDC\"}",
               "instant": true,
               "format": "table",
               "datasource": {
                 "type": "prometheus",
-                "uid": "cfgw0aa7mups0d"
+                "uid": "${ds}"
               }
             },
             {
               "refId": "SCU",
-              "expr": "lending_spoke_supply_cap_utilization{network=\"testnet\",spoke=\"BTC + Dual USDC\"}",
+              "expr": "lending_spoke_supply_cap_utilization{network=\"$network\",spoke=\"BTC + Dual USDC\"}",
               "instant": true,
               "format": "table",
               "datasource": {
                 "type": "prometheus",
-                "uid": "cfgw0aa7mups0d"
+                "uid": "${ds}"
               }
             },
             {
               "refId": "BCU",
-              "expr": "lending_spoke_borrow_cap_utilization{network=\"testnet\",spoke=\"BTC + Dual USDC\"}",
+              "expr": "lending_spoke_borrow_cap_utilization{network=\"$network\",spoke=\"BTC + Dual USDC\"}",
               "instant": true,
               "format": "table",
               "datasource": {
                 "type": "prometheus",
-                "uid": "cfgw0aa7mups0d"
+                "uid": "${ds}"
               }
             }
           ],
@@ -4501,7 +4533,7 @@
       "title": "Scrape duration",
       "datasource": {
         "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
+        "uid": "${ds}"
       },
       "gridPos": {
         "h": 6,
@@ -4517,7 +4549,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "lending_exporter_scrape_duration_seconds{network=\"testnet\"}",
+          "expr": "lending_exporter_scrape_duration_seconds{network=\"$network\"}",
           "legendFormat": "scrape"
         }
       ],
@@ -4536,7 +4568,7 @@
       "title": "View failures (rate / 5m)",
       "datasource": {
         "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
+        "uid": "${ds}"
       },
       "gridPos": {
         "h": 6,
@@ -4552,7 +4584,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (view, code) (rate(lending_exporter_view_failures_total{network=\"testnet\"}[5m]))",
+          "expr": "sum by (view, code) (rate(lending_exporter_view_failures_total{network=\"$network\"}[5m]))",
           "legendFormat": "{{view}} #{{code}}"
         }
       ],
@@ -4571,7 +4603,7 @@
       "title": "Ledger skew (ledger - wall clock)",
       "datasource": {
         "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
+        "uid": "${ds}"
       },
       "gridPos": {
         "h": 6,
@@ -4587,7 +4619,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "lending_exporter_ledger_skew_seconds{network=\"testnet\"}",
+          "expr": "lending_exporter_ledger_skew_seconds{network=\"$network\"}",
           "legendFormat": "skew"
         }
       ],
@@ -4607,7 +4639,7 @@
       "description": "All configured spoke-assets, including newer spokes not represented by the per-spoke detail rows above. Closed means cap = 0, not an uncapped market.",
       "datasource": {
         "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
+        "uid": "${ds}"
       },
       "gridPos": {
         "h": 12,
@@ -4630,49 +4662,49 @@
       "targets": [
         {
           "refId": "PAU",
-          "expr": "lending_spoke_paused{network=\"testnet\"}",
+          "expr": "lending_spoke_paused{network=\"$network\"}",
           "instant": true,
           "format": "table"
         },
         {
           "refId": "FRZ",
-          "expr": "lending_spoke_frozen{network=\"testnet\"}",
+          "expr": "lending_spoke_frozen{network=\"$network\"}",
           "instant": true,
           "format": "table"
         },
         {
           "refId": "COL",
-          "expr": "lending_spoke_collateral_enabled{network=\"testnet\"}",
+          "expr": "lending_spoke_collateral_enabled{network=\"$network\"}",
           "instant": true,
           "format": "table"
         },
         {
           "refId": "BRW",
-          "expr": "lending_spoke_borrow_enabled{network=\"testnet\"}",
+          "expr": "lending_spoke_borrow_enabled{network=\"$network\"}",
           "instant": true,
           "format": "table"
         },
         {
           "refId": "SCL",
-          "expr": "lending_spoke_supply_closed{network=\"testnet\"}",
+          "expr": "lending_spoke_supply_closed{network=\"$network\"}",
           "instant": true,
           "format": "table"
         },
         {
           "refId": "BCL",
-          "expr": "lending_spoke_borrow_closed{network=\"testnet\"}",
+          "expr": "lending_spoke_borrow_closed{network=\"$network\"}",
           "instant": true,
           "format": "table"
         },
         {
           "refId": "SCU",
-          "expr": "lending_spoke_supply_cap_utilization{network=\"testnet\"}",
+          "expr": "lending_spoke_supply_cap_utilization{network=\"$network\"}",
           "instant": true,
           "format": "table"
         },
         {
           "refId": "BCU",
-          "expr": "lending_spoke_borrow_cap_utilization{network=\"testnet\"}",
+          "expr": "lending_spoke_borrow_cap_utilization{network=\"$network\"}",
           "instant": true,
           "format": "table"
         }
