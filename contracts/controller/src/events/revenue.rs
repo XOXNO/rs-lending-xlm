@@ -3,27 +3,16 @@
 
 use soroban_sdk::{contractevent, Address};
 
-/// Event recording that `caller` claimed `amount` of accrued protocol revenue
-/// for `(hub_id, asset)` and forwarded it to `accumulator`.
+/// `caller` claimed `amount` of protocol revenue for `(hub_id, asset)` and
+/// forwarded it to `accumulator`.
 ///
-/// `amount` is the MEASURED balance delta the controller received from the
-/// pool and then forwarded — not the pool's reported figure. A token that
-/// delivers less than it is sent moves the smaller number, and this event
-/// carries that number (F-8, INV-ACCT-03). Only published when it is positive,
-/// so a keeper sweeping a long asset list does not write a row per empty
-/// market.
+/// `amount` is the MEASURED delta the controller received and forwarded, not
+/// the pool's reported figure (F-8, INV-ACCT-03). Published only when positive.
 ///
-/// This is the complement to the `revenue` field on the pool's
-/// `PoolMarketStateEvent`, which is OUTSTANDING unclaimed revenue and is
-/// decremented by every claim. Neither is monotonic alone; lifetime protocol
-/// revenue for a market is
-///
-/// ```text
-/// outstanding (revenue shares valued at the supply index) + Σ ClaimRevenueEvent.amount
-/// ```
-///
-/// Claims may be partial: `burn_claimable_revenue` caps the burn at the
-/// market's available cash, so one market can emit many of these over time.
+/// Complements the pool's `revenue`, which is OUTSTANDING unclaimed and is
+/// decremented by every claim. Neither is monotonic alone: lifetime revenue is
+/// `outstanding (valued at the supply index) + Σ these amounts`. Claims may be
+/// partial — the burn is capped at the market's available cash.
 #[contractevent(topics = ["revenue", "claim"])]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ClaimRevenueEvent {

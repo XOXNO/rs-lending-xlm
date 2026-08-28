@@ -119,11 +119,8 @@ impl LiquidityPoolInterface for LiquidityPool {
         env.deployer().update_current_contract_wasm(new_wasm_hash);
     }
 
-    /// Batch-supplies assets into one or more markets: accrues interest,
-    /// mints scaled supply shares, and credits cash per entry. The hub is
-    /// expected to have already transferred the tokens into the pool.
-    /// Restricted to the owner; returns one [`PoolPositionMutation`] per
-    /// entry.
+    /// Accrues, mints scaled supply shares and credits cash per entry. The hub
+    /// must have already transferred the tokens in. Owner-only.
     #[only_owner]
     fn supply(env: Env, entries: Vec<PoolSupplyEntry>) -> Vec<PoolPositionMutation> {
         ops::run_batch(&env, entries, ops::supply::apply)
@@ -144,12 +141,9 @@ impl LiquidityPoolInterface for LiquidityPool {
         })
     }
 
-    /// Batch-withdraws supply shares and transfers the underlying to
-    /// `receiver`. When `is_liquidation` is true, utilization caps are
-    /// skipped and an optional protocol fee may be withheld from the gross
-    /// withdrawal. Restricted to the owner; returns one
-    /// [`PoolPositionMutation`] per entry with the gross amount in
-    /// `actual_amount`.
+    /// Burns supply shares and transfers the underlying to `receiver`.
+    /// `is_liquidation` skips utilization caps and may withhold a protocol fee.
+    /// Owner-only; `actual_amount` is GROSS of that fee.
     #[only_owner]
     fn withdraw(
         env: Env,
@@ -162,11 +156,8 @@ impl LiquidityPoolInterface for LiquidityPool {
         })
     }
 
-    /// Batch-repays debt and refunds any overpayment to `payer`: accrues
-    /// interest, burns scaled debt up to the repay amount, and credits cash
-    /// with the net repay per action. Restricted to the owner; returns one
-    /// [`PoolPositionMutation`] per action with `actual_amount` set to the
-    /// net repay.
+    /// Burns scaled debt up to the repay amount, credits cash with the net
+    /// repay and refunds overpayment to `payer`. Owner-only.
     #[only_owner]
     fn repay(env: Env, payer: Address, actions: Vec<PoolAction>) -> Vec<PoolPositionMutation> {
         ops::run_batch(&env, actions, |env, action| {
@@ -196,12 +187,9 @@ impl LiquidityPoolInterface for LiquidityPool {
         ops::recapitalize::apply(&env, hub_asset, payer, amount)
     }
 
-    /// Executes a flash loan of `amount` of `hub_asset` to `receiver`,
-    /// requiring the market to have flash loans enabled. Transfers the funds
-    /// out, invokes `execute_flash_loan` on the receiver WASM, pulls
+    /// Transfers out, invokes `execute_flash_loan` on the receiver, pulls
     /// principal plus fee back via `transfer_from`, and books the fee as
-    /// protocol revenue. Restricted to the owner; returns the fee charged in
-    /// asset units.
+    /// protocol revenue. Owner-only; requires the market to allow flash loans.
     #[only_owner]
     fn flash_loan(
         env: Env,
@@ -214,12 +202,8 @@ impl LiquidityPoolInterface for LiquidityPool {
         ops::flash::apply(&env, hub_asset, initiator, receiver, amount, data)
     }
 
-    /// Opens a strategy (borrow-style) position, optionally charging a
-    /// flash fee. Mints debt for `action.amount`, books the fee as protocol
-    /// revenue when `charge_fee` is true, and transfers `amount - fee` to
-    /// `receiver`. Restricted to the owner; returns a
-    /// [`PoolStrategyMutation`] with the scaled position, gross amount, and
-    /// net amount sent.
+    /// Mints debt for `action.amount`, books the fee as protocol revenue when
+    /// `charge_fee`, and sends `amount - fee` to `receiver`. Owner-only.
     #[only_owner]
     fn create_strategy(
         env: Env,
@@ -239,11 +223,8 @@ impl LiquidityPoolInterface for LiquidityPool {
         ops::run_batch(&env, entries, |e, entry| ((), ops::seize::apply(e, entry)));
     }
 
-    /// Nets a user's supply against their debt on the same market with no
-    /// cash movement. Burns matched scaled supply and debt up to
-    /// `entry.amount`, capped by the conservative overlap of floored supply
-    /// and ceiled debt, and returns the residual positions. Restricted to
-    /// the owner.
+    /// Nets supply against debt on one market with no cash movement, capped by
+    /// the conservative overlap of floored supply and ceiled debt. Owner-only.
     #[only_owner]
     fn net_settle(env: Env, entry: PoolNetSettleEntry) -> PoolNetSettleResult {
         renew_instance(&env);
@@ -252,11 +233,11 @@ impl LiquidityPoolInterface for LiquidityPool {
         result
     }
 
-    /// Claims accrued protocol revenue and transfers it to the contract
-    /// owner. Burns claimable revenue shares, debits cash, and sends the
-    /// tokens to the Ownable owner; returns a zero amount if nothing is
-    /// claimable. Restricted to the owner, who is also the recipient of the
-    /// funds.
+    /// Burns claimable revenue shares, debits cash and pays the Ownable owner;
+    /// zero when nothing is claimable. Owner-only, and the owner is the payee.
+    ///
+    /// This DECREMENTS the `revenue` field on the state snapshot, which is why
+    /// that field is not a cumulative counter.
     #[only_owner]
     fn claim_revenue(env: Env, hub_asset: HubAssetKey) -> PoolAmountMutation {
         ops::revenue::apply(&env, hub_asset)
@@ -290,14 +271,11 @@ impl LiquidityPoolInterface for LiquidityPool {
         views::borrow_rate(&env, &hub_asset)
     }
 
-    /// Protocol revenue in asset units at the **stored** supply index (floored
-    /// unscale of revenue shares). This view does not accrue interest first.
+    /// Revenue in asset units at the **stored** index; does not accrue first.
     ///
-    /// `claim_revenue` syncs the market before paying, so it pays
-    /// `min(cash, revenue)` computed on post-accrual state. The amount actually
-    /// paid can therefore be higher than this value (accrual pending since the
-    /// last market write mints further revenue shares) or lower (the cash cap
-    /// binds when the market is heavily utilized).
+    /// `claim_revenue` syncs before paying `min(cash, revenue)`, so the amount
+    /// actually paid can be higher (pending accrual mints more shares) or
+    /// lower (the cash cap binds under heavy utilization).
     fn get_revenue(env: Env, hub_asset: HubAssetKey) -> i128 {
         views::protocol_revenue(&env, &hub_asset)
     }

@@ -13,9 +13,7 @@ use crate::payments::balance_delta_since;
 use crate::risk::validation;
 use crate::{account, events, payments, risk, storage};
 
-/// Accrues borrow and supply indexes on the pool for each hub asset in
-/// `assets`. Requires `caller`'s authorization and reverts while a flash
-/// loan is in progress.
+/// Accrues indexes for each hub asset. Reverts during a flash loan.
 pub(crate) fn update_indexes(env: &Env, caller: Address, assets: Vec<HubAssetKey>) {
     caller.require_auth();
     validation::require_not_flash_loaning(env);
@@ -25,10 +23,8 @@ pub(crate) fn update_indexes(env: &Env, caller: Address, assets: Vec<HubAssetKey
     pool_update_indexes_call(env, &pool_addr, &assets);
 }
 
-/// Claims accrued protocol revenue from the pool for each asset in `assets`
-/// and forwards it to the configured accumulator, returning the claimed
-/// amounts in the same order. Requires `caller`'s authorization and reverts
-/// while a flash loan is in progress.
+/// Claims revenue for each asset and forwards it to the accumulator, in
+/// order. Reverts during a flash loan.
 pub(crate) fn claim_revenue(env: &Env, caller: Address, assets: Vec<HubAssetKey>) -> Vec<i128> {
     caller.require_auth();
     validation::require_not_flash_loaning(env);
@@ -41,11 +37,9 @@ pub(crate) fn claim_revenue(env: &Env, caller: Address, assets: Vec<HubAssetKey>
     results
 }
 
-/// Transfers up to `amount` of `hub_asset` from `payer` to the pool,
-/// crediting only the amount actually delivered. Injects the received
-/// amount into the pool's reserve for that market to cover a backing
-/// shortfall; any unused amount is refunded. Requires `payer`'s
-/// authorization, a positive `amount`, and no flash loan in progress.
+/// Injects up to `amount` into the market's reserve to cover a backing
+/// shortfall, crediting only what is actually delivered and refunding the
+/// rest. Reverts during a flash loan.
 pub(crate) fn recapitalize(
     env: &Env,
     payer: Address,
@@ -71,10 +65,8 @@ pub(crate) fn recapitalize(
     pool_recapitalize_call(env, &pool_addr, &hub_asset, &payer, received).actual_amount
 }
 
-/// Refreshes the loan-to-value snapshot for each account in `account_ids`,
-/// also refreshing liquidation-threshold parameters when `has_risks` is
-/// true. Requires `caller`'s authorization and reverts while a flash loan
-/// is in progress.
+/// Refreshes each account's LTV snapshot, plus liquidation thresholds when
+/// `has_risks`. Reverts during a flash loan.
 pub(crate) fn update_account_threshold(
     env: &Env,
     caller: Address,
@@ -99,10 +91,8 @@ pub(crate) fn update_account_threshold(
     }
 }
 
-/// Claims `hub_asset`'s accrued protocol revenue from the pool and, if the
-/// claimed amount is positive, transfers it from the controller to the
-/// configured accumulator address and publishes a [`ClaimRevenueEvent`].
-/// Returns the claimed amount. Panics if no accumulator has been configured.
+/// Claims one market's revenue, forwards it to the accumulator and publishes
+/// a [`ClaimRevenueEvent`] when positive. Panics if no accumulator is set.
 fn claim_revenue_for_asset(
     env: &Env,
     caller: &Address,
@@ -134,11 +124,9 @@ fn claim_revenue_for_asset(
             GenericError::AmountMustBePositive,
         );
 
-        // Published from here, not from the pool: `received` is the measured
-        // delta actually forwarded, whereas the pool reports the amount it
-        // intended to send. Indexers accumulate this into lifetime revenue, so
-        // it must be the truthful figure. Skipped when nothing was claimable —
-        // a keeper sweeping every market would otherwise emit mostly zeros.
+        // From here, not the pool: `received` is what was actually forwarded,
+        // whereas the pool reports what it intended to send. Indexers sum this
+        // into lifetime revenue, so it must be the truthful figure.
         events::ClaimRevenueEvent {
             hub_id: hub_asset.hub_id,
             asset: asset.clone(),
@@ -152,12 +140,10 @@ fn claim_revenue_for_asset(
     received
 }
 
-/// Recomputes each of `account_id`'s supply positions' risk parameters against
-/// the current spoke asset config, to the depth `scope` selects. Skips accounts
-/// with no stored metadata, no supply positions, or whose position-NFT owner
-/// cannot be resolved. Under `FullTuple`, loads the
-/// debt side too and panics if the account's health factor falls below the
-/// minimum threshold-update level after the changes are applied.
+/// Recomputes an account's supply risk params against current spoke config, to
+/// the depth `scope` selects. Skips accounts with no metadata, no supply
+/// positions, or an unresolvable NFT owner. `FullTuple` also loads the debt
+/// side and panics if the resulting health factor is below the minimum.
 fn sync_account_thresholds(
     env: &Env,
     account_id: u64,

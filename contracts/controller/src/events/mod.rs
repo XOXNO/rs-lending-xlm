@@ -1,14 +1,12 @@
-//! Re-exports the controller's contract-event types and shared event
-//! building blocks: wire representations of position mode and account
-//! attributes, the position-action tag, and the deposit/borrow delta payloads
-//! used by the position-change events defined in the submodules.
+//! Contract-event types plus the shared building blocks the submodules use:
+//! wire position mode, account attributes, the action tag, and the
+//! deposit/borrow delta payloads.
 
 use soroban_sdk::{contracttype, Address};
 
 use common::types::{Account, AccountPosition, DebtPosition, PositionMode};
 
-/// Wire representation of [`PositionMode`] used in event payloads.
-/// `PositionMode::Normal` maps to `None`; the other variants map 1:1.
+/// Wire form of [`PositionMode`]; `Normal` maps to `None`, the rest 1:1.
 #[contracttype]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u32)]
@@ -20,7 +18,6 @@ pub enum EventPositionMode {
 }
 
 impl From<PositionMode> for EventPositionMode {
-    /// Maps `PositionMode::Normal` to `None` and the other variants 1:1.
     fn from(value: PositionMode) -> Self {
         match value {
             PositionMode::Normal => Self::None,
@@ -39,8 +36,6 @@ impl From<PositionMode> for EventPositionMode {
 pub struct EventAccountAttributes(pub Address, pub u32, pub EventPositionMode);
 
 impl From<&Account> for EventAccountAttributes {
-    /// Builds an `EventAccountAttributes` from the account's owner, spoke id,
-    /// and position mode.
     fn from(value: &Account) -> Self {
         Self(value.owner.clone(), value.spoke_id, value.mode.into())
     }
@@ -68,35 +63,22 @@ pub enum PositionAction {
     Migrate = 13,
     RpColNet = 14,
     /// Collateral credited to a share-credit liquidator's receiving account.
-    ///
-    /// Distinct from [`PositionAction::LiqSeize`] on purpose: the seizure leg
-    /// is **gross** of the protocol fee and the credit leg is **net** of it, so
-    /// one tag carrying both senses would silently overstate a liquidator's
-    /// proceeds by the fee.
+    /// Separate from [`PositionAction::LiqSeize`] because the seizure leg is
+    /// **gross** of the protocol fee and this one is **net**; one tag for both
+    /// would overstate a liquidator's proceeds by the fee.
     LiqCredit = 15,
     /// Strategy-debt mint for `flash_position`.
     FlashPos = 16,
 }
 
-/// Tuple of `(action, hub_id, asset, scaled_amount, index_ray, amount,
-/// liquidation_threshold, liquidation_bonus, loan_to_value,
-/// liquidation_fees)` describing a change to a supply position for inclusion
-/// in event payloads. The last four fields are the position's risk
-/// parameters, truncated to `u32`.
+/// Supply-position delta: `(action, hub_id, asset, scaled_amount, index_ray,
+/// amount, liquidation_threshold, liquidation_bonus, loan_to_value,
+/// liquidation_fees)`; the last four are risk params truncated to `u32`.
 ///
-/// `amount` is always this account's own movement, never a counterparty's
-/// receipt. For liquidation the two sides of that movement carry different
-/// tags, because the protocol fee is taken between them:
-///
-/// - [`PositionAction::LiqSeize`] — the liquidated account's debit, **gross**
-///   of the protocol fee, in both seize modes.
-/// - [`PositionAction::LiqCredit`] — a share-credit receiver's credit, **net**
-///   of that fee.
-///
-/// So the fee is `LiqSeize.amount - LiqCredit.amount` in credit mode, and in
-/// transfer mode it is withheld from the outbound token transfer instead of
-/// appearing as a second leg. Reading a `LiqSeize` amount as the liquidator's
-/// proceeds overstates them by the fee.
+/// `amount` is always this account's own movement, never a counterparty's.
+/// In credit-mode liquidation the fee is `LiqSeize.amount - LiqCredit.amount`
+/// (seize is gross, credit net); in transfer mode it is withheld from the
+/// outbound transfer instead of appearing as a second leg.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct EventDepositDelta(
@@ -113,9 +95,6 @@ pub struct EventDepositDelta(
 );
 
 impl EventDepositDelta {
-    /// Builds an `EventDepositDelta` from `action`, `hub_id`, `asset`,
-    /// `index_ray`, `amount`, and the scaled amount and risk parameters read
-    /// from `position`.
     pub fn new(
         action: PositionAction,
         hub_id: u32,
@@ -139,8 +118,7 @@ impl EventDepositDelta {
     }
 }
 
-/// Tuple of `(action, hub_id, asset, scaled_amount, index_ray, amount)`
-/// describing a change to a borrow position for inclusion in event payloads.
+/// Borrow-position delta: `(action, hub_id, asset, scaled_amount, index_ray, amount)`.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct EventBorrowDelta(
@@ -153,8 +131,6 @@ pub struct EventBorrowDelta(
 );
 
 impl EventBorrowDelta {
-    /// Builds an `EventBorrowDelta` from `action`, `hub_id`, `asset`,
-    /// `index_ray`, `amount`, and the scaled amount read from `position`.
     pub fn new(
         action: PositionAction,
         hub_id: u32,
@@ -194,8 +170,7 @@ pub use strategy::*;
 #[path = "../../tests/events.rs"]
 mod tests;
 
-/// Bundles the counterparty address and action tag needed to emit a
-/// position-change event for an operation.
+/// Counterparty address plus action tag for emitting a position event.
 pub(crate) struct EventContext {
     pub counterparty: soroban_sdk::Address,
     pub action: PositionAction,

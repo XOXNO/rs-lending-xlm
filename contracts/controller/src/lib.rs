@@ -140,18 +140,15 @@ impl ControllerInterface for Controller {
         positions::process_repay(&env, &caller, account_id, &payments);
     }
 
-    /// Liquidates `account_id` by having `liquidator` repay `debt_payments`
-    /// and seizing collateral at a bonus scaled by the account's health
-    /// factor. Permissionless — the account owner may liquidate its own
-    /// account. Triggers bad-debt socialization if the account remains
-    /// insolvent afterward.
+    /// `liquidator` repays `debt_payments` and seizes collateral at a bonus
+    /// scaled by the health factor. Permissionless — an owner may liquidate
+    /// itself. Socializes bad debt if the account is still insolvent after.
     ///
-    /// `seize_mode` selects delivery. `Transfer` pays the seized collateral
-    /// out of pool cash. `Credit(account_id)` instead credits the seized
-    /// supply shares to a controller account bound to the liquidated
-    /// account's spoke, moving no tokens at all, so the liquidation can clear
-    /// even when the market has no free liquidity; `Credit(0)` creates that
-    /// account. Returns the receiving account id, or `0` in transfer mode.
+    /// `Transfer` pays the collateral out of pool cash. `Credit(account_id)`
+    /// instead credits the seized shares to a controller account on the
+    /// liquidated account's spoke, moving no tokens, so the liquidation clears
+    /// even with no free liquidity; `Credit(0)` creates it. Returns that
+    /// account id, or `0` in transfer mode.
     fn liquidate(
         env: Env,
         liquidator: Address,
@@ -225,14 +222,11 @@ impl ControllerInterface for Controller {
         )
     }
 
-    /// Opens or extends a leveraged position on `account_id`: borrows
-    /// `debt_to_flash_loan` of `debt`, swaps it into `collateral` via `swap`,
-    /// and deposits the result as collateral. An optional `initial_payment` is
-    /// pulled from the caller and folded in by asset: a collateral-denominated
-    /// payment is added straight to the deposit, a debt-denominated payment
-    /// joins the `swap` leg, and any other asset is converted into `collateral`
-    /// via `convert_swap`, which must be supplied for that case or the call
-    /// reverts with `ConvertStepsRequired`. Returns the account id.
+    /// Borrows `debt_to_flash_loan`, swaps it into `collateral` and deposits
+    /// the result. An optional `initial_payment` is folded in by asset: a
+    /// collateral-denominated one joins the deposit, a debt-denominated one the
+    /// `swap` leg, anything else is converted via `convert_swap` — which must
+    /// then be supplied, or the call reverts with `ConvertStepsRequired`.
     #[when_not_paused]
     fn multiply(
         env: Env,
@@ -316,12 +310,10 @@ impl ControllerInterface for Controller {
         );
     }
 
-    /// Repays `account_id`'s `debt` position using `collateral_amount` of
-    /// `collateral`, netting them directly when the two assets match (in which
-    /// case `swap` must be empty) or swapping via `swap` otherwise. When
-    /// `close_position` is set, withdraws all remaining collateral to the
-    /// caller, and reverts with `CannotCloseWithRemainingDebt` if any debt is
-    /// still open after the repayment.
+    /// Repays `debt` from `collateral`, netting directly when the assets match
+    /// (`swap` must then be empty) or swapping otherwise. `close_position` also
+    /// withdraws the remaining collateral, reverting with
+    /// `CannotCloseWithRemainingDebt` if any debt is left.
     #[when_not_paused]
     fn repay_debt_with_collateral(
         env: Env,
@@ -487,13 +479,11 @@ impl ControllerInterface for Controller {
         views::account_exists(&env, account_id)
     }
 
-    /// Simulates liquidating `account_id` with `debt_payments` under
-    /// `seize_mode` without changing state. Returns the collateral that would
-    /// be seized, the protocol fees, any refunds, the maximum payable debt
-    /// (WAD), and the applicable bonus rate (BPS).
+    /// Dry-run liquidation: seized collateral, protocol fees, refunds, max
+    /// payable debt (WAD) and bonus rate (BPS).
     ///
-    /// Seized and fee amounts are reported in the units the chosen mode moves:
-    /// asset units for `Transfer`, RAY-scaled supply shares for `Credit`.
+    /// Seized and fee amounts use the units the mode moves: asset units for
+    /// `Transfer`, RAY-scaled supply shares for `Credit`.
     fn get_liquidation_estimate(
         env: Env,
         account_id: u64,
