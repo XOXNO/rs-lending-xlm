@@ -10,7 +10,7 @@ use stellar_macros::only_owner;
 
 use common::ttl::renew_instance;
 
-use crate::aggregation::recompute_aggregate;
+use crate::aggregation::{recompute_aggregate, QuorumMiss};
 use crate::storage::{
     asset_index_insert, asset_index_remove, clear_feed_state, clear_signer_feeds,
     ensure_known_feed, feed_index_contains, has_feed_mapping, load_feed_id, load_feed_owner,
@@ -61,7 +61,7 @@ impl XoxnoOracle {
 
         for feed_id in load_signer_feeds(&env, &signer).iter() {
             remove_submission(&env, &feed_id, &signer);
-            recompute_aggregate(&env, &feed_id);
+            recompute_aggregate(&env, &feed_id, QuorumMiss::Clear);
         }
         clear_signer_feeds(&env, &signer);
         Ok(())
@@ -154,7 +154,7 @@ impl XoxnoOracle {
             require_known_feed(&env, &feed_id)?;
         }
         for feed_id in feed_ids.iter() {
-            recompute_aggregate(&env, &feed_id);
+            recompute_aggregate(&env, &feed_id, QuorumMiss::Clear);
         }
         Ok(())
     }

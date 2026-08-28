@@ -81,17 +81,31 @@ pub(crate) fn store_submission(
     store_submission_record(env, feed_id, signer, price, package_timestamp);
 }
 
+/// What a recompute does to the stored aggregate when it finds fewer than
+/// `threshold` usable submissions.
+///
+/// Owner paths `Clear`: a departed signer or a raised threshold means the
+/// configuration no longer justifies the stored value. The submit path
+/// `Retain`s: only age has changed, and every consumer bounds age itself.
+/// Clearing there would also let any single signer take a feed offline by
+/// submitting alone once its peers' entries have aged out.
+pub(crate) enum QuorumMiss {
+    /// Delete the aggregate: the signer set and threshold no longer justify it.
+    Clear,
+    /// Keep the aggregate and let staleness age it out.
+    Retain,
+}
+
 /// Recomputes the current aggregate for `feed_id` from all signers' latest
 /// submissions: discards submissions older than the maximum submission age,
 /// then keeps only those within `max_relative_skew` of the newest surviving
 /// timestamp, clamped to ledger time so an attacker-chosen future-dated
-/// submission cannot drag the cluster window forward. Clears the feed's
-/// aggregate if fewer than `threshold` submissions survive either filter.
-/// Otherwise writes the median of the
-/// clustered prices as the new aggregate, using the oldest clustered
-/// timestamp as its package timestamp, and appends it to the feed's
-/// history.
-pub(crate) fn recompute_aggregate(env: &Env, feed_id: &String) {
+/// submission cannot drag the cluster window forward. If fewer than
+/// `threshold` submissions survive either filter, applies `on_miss` to the
+/// feed's stored aggregate and writes nothing. Otherwise writes the median of
+/// the clustered prices as the new aggregate, using the oldest clustered
+/// timestamp as its package timestamp, and appends it to the feed's history.
+pub(crate) fn recompute_aggregate(env: &Env, feed_id: &String, on_miss: QuorumMiss) {
     let signers = load_signers(env);
     let max_submission_age = load_max_submission_age(env);
     let max_relative_skew = load_max_relative_skew(env);
@@ -116,9 +130,7 @@ pub(crate) fn recompute_aggregate(env: &Env, feed_id: &String) {
 
     let threshold = load_threshold(env);
     if kept_submissions.len() < threshold {
-        // Only the live aggregate is cleared: a transient quorum miss must not
-        // destroy accumulated history that consumers age off themselves.
-        remove_aggregate(env, feed_id);
+        apply_quorum_miss(env, feed_id, on_miss);
         return;
     }
 
@@ -139,7 +151,7 @@ pub(crate) fn recompute_aggregate(env: &Env, feed_id: &String) {
     }
 
     if clustered_prices.len() < threshold {
-        remove_aggregate(env, feed_id);
+        apply_quorum_miss(env, feed_id, on_miss);
         return;
     }
 
@@ -153,6 +165,15 @@ pub(crate) fn recompute_aggregate(env: &Env, feed_id: &String) {
 
     store_aggregate(env, feed_id, &aggregate);
     push_history(env, feed_id, aggregate);
+}
+
+/// Applies `on_miss` to `feed_id`'s stored aggregate. History is untouched --
+/// it is appended only on a successful write.
+fn apply_quorum_miss(env: &Env, feed_id: &String, on_miss: QuorumMiss) {
+    match on_miss {
+        QuorumMiss::Clear => remove_aggregate(env, feed_id),
+        QuorumMiss::Retain => {}
+    }
 }
 
 /// Returns an ascending-sorted copy of `prices`, computed with an in-place

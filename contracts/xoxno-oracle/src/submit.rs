@@ -8,7 +8,7 @@ use soroban_sdk::{contractimpl, Address, Env, String, Vec};
 
 use crate::aggregation::{
     recompute_aggregate, require_fresh_submission, require_monotonic_package, require_not_future,
-    store_submission, MAX_SUBMITTED_PRICE,
+    store_submission, QuorumMiss, MAX_SUBMITTED_PRICE,
 };
 use crate::storage::{require_known_feed, require_registered_signer};
 use crate::{Error, XoxnoOracle, XoxnoOracleArgs, XoxnoOracleClient};
@@ -51,7 +51,7 @@ impl XoxnoOracle {
         require_monotonic_package(&env, &feed_id, &signer, package_timestamp)?;
 
         store_submission(&env, &feed_id, &signer, price, package_timestamp);
-        recompute_aggregate(&env, &feed_id);
+        recompute_aggregate(&env, &feed_id, QuorumMiss::Retain);
         Ok(())
     }
 
@@ -98,7 +98,7 @@ impl XoxnoOracle {
 
         for (feed_id, price) in feed_ids.iter().zip(prices.iter()) {
             store_submission(&env, &feed_id, &signer, price, package_timestamp);
-            recompute_aggregate(&env, &feed_id);
+            recompute_aggregate(&env, &feed_id, QuorumMiss::Retain);
         }
         Ok(())
     }
