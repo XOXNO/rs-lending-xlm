@@ -160,6 +160,9 @@ fn median_even_count_with_odd_gap_rounds_toward_lower_middle() {
     );
 }
 
+/// A submission whose peers have aged out cannot reach threshold, so it cannot
+/// price the feed. The earlier quorum's aggregate is kept -- unchanged package
+/// timestamp proves no write occurred -- and fails closed on age instead.
 #[test]
 fn stale_submission_excluded_from_aggregate() {
     let env = Env::default();
@@ -181,6 +184,87 @@ fn stale_submission_excluded_from_aggregate() {
     let fresh_ms = (env.ledger().timestamp() - 1) * 1_000;
     client.submit_price(&signers[0], &feed, &500i128, &fresh_ms);
 
+    let after = client.read_price_data_for_feed(&feed);
+    assert_eq!(
+        after.price.to_u128(),
+        Some(100u128),
+        "a lone submission below threshold must not price the feed"
+    );
+    assert_eq!(
+        after.package_timestamp, initial_ms,
+        "no aggregate may be written while the cluster is below threshold"
+    );
+
+    // The retained aggregate still fails closed, on read-side staleness.
+    advance_ledger_seconds(&env, 86_400);
+    assert_eq!(
+        expect_error(client.try_read_price_data_for_feed(&feed)),
+        Error::StaleData
+    );
+}
+
+/// Mainnet AQUA regression (2026-08-28). Two signers priced the feed at 16:11;
+/// one submitted alone at 16:33, past the 900s window. Failing to reach
+/// threshold was correct -- deleting the pair's aggregate was not, and left the
+/// consuming market at `deviation, price 0, invalid` for hours. Prices are the
+/// incident's real submissions, at the feed's 8 decimals.
+#[test]
+fn lone_late_submission_cannot_take_the_feed_offline() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, signers) = setup(&env, 3, 2);
+    let feed = feed_id(&env);
+
+    advance_ledger_seconds(&env, 10_000);
+    let quorum_ms = env.ledger().timestamp() * 1_000;
+    client.submit_price(&signers[1], &feed, &34_585i128, &quorum_ms);
+    client.submit_price(&signers[2], &feed, &34_585i128, &quorum_ms);
+    assert_eq!(
+        client.read_price_data_for_feed(&feed).price.to_u128(),
+        Some(34_585u128)
+    );
+
+    // 22 minutes on: both earlier submissions are past the window.
+    advance_ledger_seconds(&env, 1_320);
+    let lone_ms = env.ledger().timestamp() * 1_000;
+    client.submit_price(&signers[0], &feed, &34_287i128, &lone_ms);
+
+    let after = client.read_price_data_for_feed(&feed);
+    assert_eq!(
+        after.price.to_u128(),
+        Some(34_585u128),
+        "a lone late submission must neither price the feed nor unprice it"
+    );
+    assert_eq!(
+        after.package_timestamp, quorum_ms,
+        "the aggregate must be the one the quorum wrote, not a fresh write"
+    );
+}
+
+/// The owner sweep still clears the same below-threshold state the submit path
+/// retains: `recompute_feeds` is how a threshold or window change retires an
+/// aggregate the configuration no longer justifies.
+#[test]
+fn owner_sweep_still_clears_a_below_quorum_aggregate() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, signers) = setup(&env, 3, 2);
+    let feed = feed_id(&env);
+
+    advance_ledger_seconds(&env, 10_000);
+    let quorum_ms = env.ledger().timestamp() * 1_000;
+    client.submit_price(&signers[1], &feed, &34_585i128, &quorum_ms);
+    client.submit_price(&signers[2], &feed, &34_585i128, &quorum_ms);
+
+    advance_ledger_seconds(&env, 1_320);
+    let lone_ms = env.ledger().timestamp() * 1_000;
+    client.submit_price(&signers[0], &feed, &34_287i128, &lone_ms);
+    assert_eq!(
+        client.read_price_data_for_feed(&feed).price.to_u128(),
+        Some(34_585u128)
+    );
+
+    client.recompute_feeds(&vec![&env, feed.clone()]);
     assert_eq!(
         expect_error(client.try_read_price_data_for_feed(&feed)),
         Error::NoDataForFeed

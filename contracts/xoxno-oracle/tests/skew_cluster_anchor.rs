@@ -76,15 +76,16 @@ fn one_future_dated_signer_cannot_clear_the_feed() {
 }
 
 /// Non-vacuity control: the skew filter must still evict a genuinely stale
-/// (old, not future-dated) submission, else the tests above prove nothing. Two
-/// stale signers outside the skew window are dropped, leaving one fresh signer
-/// below threshold and clearing the feed.
+/// (old, not future-dated) submission, else the tests above prove nothing.
+/// Threshold is the full signer set, so a clustered pair would reach threshold
+/// and produce an aggregate -- `NoDataForFeed` is the eviction itself, not the
+/// quorum-miss policy.
 #[test]
 fn stale_submission_outside_the_skew_window_is_still_evicted() {
     let env = soroban_sdk::Env::default();
     env.mock_all_auths();
     advance_ledger_seconds(&env, 10_000);
-    let (client, _admin, signers) = setup(&env, 3, 2);
+    let (client, _admin, signers) = setup(&env, 3, 3);
     let feed = feed_id(&env);
 
     // Wide age window, narrow skew: 200s old is within age but outside skew.
@@ -106,7 +107,7 @@ fn stale_submission_outside_the_skew_window_is_still_evicted() {
     assert_eq!(
         client.try_read_price_data_for_feed(&feed),
         Err(Ok(Error::NoDataForFeed)),
-        "stale submissions outside the skew window must be evicted, dropping the \
+        "stale submissions outside the skew window must be evicted, keeping the \
          cluster below threshold"
     );
 }
