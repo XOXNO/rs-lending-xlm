@@ -55,10 +55,12 @@ contracts:
 
 keyvault:
   url: https://xoxno.vault.azure.net
-  secret_name: keeper-mnemonic-mainnet
+  # Same mnemonic as mx-bridge; the keeper takes its own SEP-0005 index
+  # so it never contends with the bridge relayer for sequence numbers.
+  secret_name: oracle-key
 
 signer:
-  derivation_path: "m/44'/148'/0'"
+  derivation_path: "m/44'/148'/1'"
 
 fees:
   base_fee_stroops: 100
