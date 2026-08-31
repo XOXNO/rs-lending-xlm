@@ -74,6 +74,12 @@ fn spawn_ttl_loop(
         let mut tick = interval(Duration::from_secs(cfg.schedule.ttl_tick_seconds.max(1)));
         tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
+        // Publish the storage gauges before the first scheduled tick. The
+        // immediate tick below is discarded on purpose, so a crash-looping
+        // keeper cannot burst `max_txs_per_tick` transactions at every restart;
+        // priming is the read-only half of a tick and sends nothing.
+        prime_storage_metrics(&cfg, &client, &metrics, &ids).await;
+
         tick.tick().await;
         loop {
             tokio::select! {
@@ -216,6 +222,45 @@ fn record_snapshot_metrics(
             .unwrap_or(0),
     );
     publish_storage_gauges(metrics, snap, ids);
+}
+
+/// Publishes the storage gauges once at startup, without planning or sending a
+/// transaction.
+///
+/// `spawn_ttl_loop` discards the interval's immediate first tick, so the first
+/// real tick lands a full `ttl_tick_seconds` after boot — six hours on mainnet.
+/// Until then every labelled gauge has no series at all, and
+/// `keeper_last_tick_timestamp_seconds` sits at the zero it was registered with,
+/// which the dashboard renders as a ~57-year "last tick age". A freshly started
+/// keeper is therefore indistinguishable from a dead one. This runs the
+/// read-only half of a tick — `snapshot` plus `record_snapshot_metrics` — so the
+/// panels are honest from the first scrape.
+///
+/// Failure is logged and swallowed. Priming is observability: it must never stop
+/// the loop it precedes from starting, and the next scheduled tick retries it.
+async fn prime_storage_metrics(
+    cfg: &KeeperConfig,
+    client: &RpcClient,
+    metrics: &Metrics,
+    ids: &ContractIds,
+) {
+    match snapshot(client, ids, &cfg.contracts, &cfg.schedule).await {
+        Ok(snap) => {
+            record_snapshot_metrics(metrics, &snap, ids, cfg.safety_margin_ledgers());
+            info!(
+                target: "keeper.scheduler",
+                ledger = snap.current_ledger,
+                "primed storage gauges at boot"
+            );
+        }
+        Err(e) => {
+            warn!(
+                target: "keeper.scheduler",
+                error = ?e,
+                "boot metric priming failed; gauges stay empty until the first scheduled tick"
+            );
+        }
+    }
 }
 
 /// Classifies one entry into the state the dashboard reports.
@@ -437,8 +482,11 @@ fn classify_reason(msg: &str) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::entry_state;
+    use super::{entry_state, record_snapshot_metrics};
+    use crate::discovery::{ContractIds, DiscoverySnapshot};
+    use crate::metrics::Metrics;
     use crate::stellar::client::LedgerEntryQuery;
+    use std::time::{SystemTime, UNIX_EPOCH};
     use stellar_xdr::{ContractDataDurability, LedgerEntryData, LedgerKey, ScAddress, ScVal};
 
     const NOW: u32 = 1_000;
@@ -485,5 +533,59 @@ mod tests {
     #[test]
     fn ttl_expiring_at_the_current_ledger_is_still_live() {
         assert_eq!(entry_state(&row(true, Some(NOW)), NOW), "live");
+    }
+
+    fn empty_snapshot(current_ledger: u32) -> DiscoverySnapshot {
+        DiscoverySnapshot {
+            current_ledger,
+            assets: Vec::new(),
+            persistent_entries: Vec::new(),
+            instance_entries: Vec::new(),
+            wasm_code_entries: Vec::new(),
+            max_account_id: 0,
+            pool_id: None,
+            position_nft_id: None,
+        }
+    }
+
+    /// A keeper that has booted but has not yet reached its first scheduled tick
+    /// must not read as a dead one.
+    ///
+    /// `record_snapshot_metrics` is the half `prime_storage_metrics` runs at
+    /// startup, and `keeper_last_tick_timestamp_seconds` is what the "last tick
+    /// age" panel subtracts from `time()`. Left at the zero it is registered
+    /// with, that panel reports roughly 57 years on a perfectly healthy keeper.
+    #[test]
+    fn a_snapshot_stamps_a_real_last_tick_timestamp() {
+        let metrics = Metrics::new("testnet").expect("metrics registry");
+        let ids = ContractIds {
+            controller: [0u8; 32],
+            pool_wasm_hash: [0u8; 32],
+            flash_receiver: None,
+            governance: None,
+            xoxno_oracle_adapter: None,
+            price_aggregator: None,
+        };
+
+        // What the dashboard sees before any tick, and why it renders ~57 years.
+        assert_eq!(metrics.last_tick_timestamp_seconds.get(), 0);
+
+        record_snapshot_metrics(&metrics, &empty_snapshot(12_345), &ids, 100);
+
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock before unix epoch")
+            .as_secs() as i64;
+        let stamped = metrics.last_tick_timestamp_seconds.get();
+        assert!(
+            stamped > 0,
+            "last tick timestamp is still zero; the age panel would report ~57 years"
+        );
+        assert!(
+            (now - stamped).abs() < 60,
+            "last tick timestamp {stamped} is not close to now ({now})"
+        );
+        assert_eq!(metrics.current_ledger.get(), 12_345);
+        assert_eq!(metrics.safety_margin_ledgers.get(), 100);
     }
 }
