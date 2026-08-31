@@ -131,7 +131,7 @@ value for every account ever opened; grouping holds the series count flat.
 | metric | labels | meaning |
 | --- | --- | --- |
 | `keeper_entry_ttl_ledgers_min` | contract, group | lowest remaining TTL in the group — the pacing item |
-| `keeper_entries` | contract, group, state | entry counts, `state` is `live` or `absent` |
+| `keeper_entries` | contract, group, state | entry counts; `state` is `live`, `expired` (TTL lapsed, restorable), `archived` (evicted) or `never_created` |
 | `keeper_safety_margin_ledgers` | — | headroom below which the keeper extends |
 | `keeper_current_ledger` | — | ledger the last tick observed |
 | `keeper_last_tick_timestamp_seconds` | — | unix time of the last completed tick — how stale everything above is |
@@ -140,8 +140,8 @@ value for every account ever opened; grouping holds the series count flat.
 Divide a ledger count by `LEDGERS_PER_DAY` (17280) for days, or multiply by 5
 for seconds.
 
-A group reading zero `live` and non-zero `absent` means the keeper is probing a
-key that does not exist. That is indistinguishable from "nothing to do" in every
+A group reading zero `live` and non-zero `never_created` means the keeper is
+probing a key that does not exist. That is indistinguishable from "nothing to do" in every
 other metric, and is exactly how the price-aggregator oracle rows went unrenewed;
 `ops/grafana-dashboard.json` has a panel dedicated to it.
 

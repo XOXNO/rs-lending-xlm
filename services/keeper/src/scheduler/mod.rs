@@ -216,6 +216,31 @@ fn record_snapshot_metrics(
     publish_storage_gauges(metrics, snap, ids);
 }
 
+/// Classifies one entry into the state the dashboard reports.
+///
+/// The four states are distinct problems, and collapsing them loses the signal:
+/// `never_created` in bulk is what a wrong key encoding looks like, while a
+/// single `archived` row is real damage. `expired` mirrors what
+/// `keeper_entries_archived` counts — the entry is still readable but its TTL
+/// has lapsed, which is the case the keeper restores.
+///
+/// A key that was never written and one whose entry has been fully evicted are
+/// told apart by whether the RPC still returns TTL metadata without a value.
+/// That distinction is the RPC's to make; if it stops returning the TTL for an
+/// evicted entry, such rows land in `never_created` and the bulk-vs-single
+/// reading above is what separates them.
+fn entry_state(
+    row: &crate::stellar::client::LedgerEntryQuery,
+    current_ledger: u32,
+) -> &'static str {
+    match (row.value.is_some(), row.live_until_ledger) {
+        (true, Some(live_until)) if live_until < current_ledger => "expired",
+        (true, _) => "live",
+        (false, Some(_)) => "archived",
+        (false, None) => "never_created",
+    }
+}
+
 /// Publishes the per-`(contract, group)` TTL and entry-count gauges.
 ///
 /// Both families are reset first, so a group that empties between ticks drops
@@ -259,11 +284,7 @@ fn publish_storage_gauges(
             snap.position_nft_id.as_ref(),
         );
         let group = class.label();
-        let state = if row.value.is_some() {
-            "live"
-        } else {
-            "absent"
-        };
+        let state = entry_state(row, snap.current_ledger);
         *counts.entry((contract.clone(), group, state)).or_insert(0) += 1;
 
         // Only a live entry has a meaningful TTL. Folding an absent one in as
@@ -409,5 +430,58 @@ fn classify_reason(msg: &str) -> &'static str {
         "archived"
     } else {
         "other"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::entry_state;
+    use crate::stellar::client::LedgerEntryQuery;
+    use stellar_xdr::{ContractDataDurability, LedgerEntryData, LedgerKey, ScAddress, ScVal};
+
+    const NOW: u32 = 1_000;
+
+    fn row(value: bool, live_until: Option<u32>) -> LedgerEntryQuery {
+        LedgerEntryQuery {
+            key: LedgerKey::ContractData(stellar_xdr::LedgerKeyContractData {
+                contract: ScAddress::Contract(stellar_xdr::ContractId(stellar_xdr::Hash(
+                    [0u8; 32],
+                ))),
+                key: ScVal::Void,
+                durability: ContractDataDurability::Persistent,
+            }),
+            value: value.then_some(LedgerEntryData::ContractData(
+                stellar_xdr::ContractDataEntry {
+                    ext: stellar_xdr::ExtensionPoint::V0,
+                    contract: ScAddress::Contract(stellar_xdr::ContractId(stellar_xdr::Hash(
+                        [0u8; 32],
+                    ))),
+                    key: ScVal::Void,
+                    durability: ContractDataDurability::Persistent,
+                    val: ScVal::Void,
+                },
+            )),
+            live_until_ledger: live_until,
+        }
+    }
+
+    /// The four states are four different problems. Collapsing them is what made
+    /// `controller/per_user absent=69` read like damage when every one of those
+    /// keys had simply never been written, and what let a whole contract's rows
+    /// read "absent" while the real cause was a key encoding that matched
+    /// nothing.
+    #[test]
+    fn entry_states_separate_the_four_cases() {
+        assert_eq!(entry_state(&row(true, Some(NOW + 500)), NOW), "live");
+        assert_eq!(entry_state(&row(true, Some(NOW - 1)), NOW), "expired");
+        assert_eq!(entry_state(&row(false, Some(NOW + 500)), NOW), "archived");
+        assert_eq!(entry_state(&row(false, None), NOW), "never_created");
+    }
+
+    /// An entry whose TTL lapses exactly at the current ledger is still live —
+    /// the bound is exclusive, matching `policy::classify`.
+    #[test]
+    fn ttl_expiring_at_the_current_ledger_is_still_live() {
+        assert_eq!(entry_state(&row(true, Some(NOW)), NOW), "live");
     }
 }

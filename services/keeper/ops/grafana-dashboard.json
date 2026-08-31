@@ -155,7 +155,7 @@
       "id": 103,
       "type": "stat",
       "title": "Key groups with nothing live",
-      "description": "Groups where every probed key came back absent. Usually benign (nothing has set that key yet), but it is also exactly how a wrong key encoding looks \u2014 it is indistinguishable from 'nothing to do' in every other metric. Investigate any new one.",
+      "description": "Groups where every probed key came back never_created. Baseline is 1 (controller/roles \u2014 the controller has no access-control roles). A rise above that is how a wrong key encoding presents; alert KeeperKeyGroupUnreachable covers it.",
       "datasource": {
         "type": "prometheus",
         "uid": "cfgw0aa7mups0d"
@@ -169,7 +169,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "count( (sum by (contract,group) (keeper_entries{network=\"$network\",state=\"absent\"}) > 0) unless (sum by (contract,group) (keeper_entries{network=\"$network\",state=\"live\"}) > 0) ) or vector(0)",
+          "expr": "count( (sum by (contract,group) (keeper_entries{network=\"$network\",state=\"never_created\"}) > 0) unless (sum by (contract,group) (keeper_entries{network=\"$network\",state=\"live\"}) > 0) ) or vector(0)",
           "datasource": {
             "type": "prometheus",
             "uid": "cfgw0aa7mups0d"
@@ -422,8 +422,8 @@
     {
       "id": 3,
       "type": "table",
-      "title": "Entries by state \u2014 a group that is entirely absent is a broken key",
-      "description": "Live vs absent counts. A group with zero live and non-zero absent means the keeper is probing a key that does not exist, which looks identical to 'nothing to do' in every other metric.",
+      "title": "Entries by state \u2014 a group that is entirely never_created is a broken key",
+      "description": "Live, expired (TTL lapsed but restorable), archived (evicted from the ledger) and never_created (key never written). A whole group reading never_created means the keeper is probing a key that does not exist, which is indistinguishable from 'nothing to do' in every other metric. Any archived or expired row is real damage.",
       "datasource": {
         "type": "prometheus",
         "uid": "cfgw0aa7mups0d"

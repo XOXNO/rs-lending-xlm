@@ -82,3 +82,58 @@ groups:
             keeper_txs_total{status=~"failed|error"} increasing for 15m for kind
             {{ $labels.kind }}. Check fees, sequence, and RPC health; persistent
             failures lead to missed TTL extension.
+
+      # `up == 0` catches a dead process and `KeeperEntriesArchived` catches the
+      # damage after the fact. Neither catches the gap between them: a keeper
+      # that is alive but whose TTL loop is wedged — a hung RPC, a stuck await.
+      # `KeeperNotProgressing` and `KeeperTickFailing` both need the tick to run
+      # first, so they stay silent through exactly this failure.
+      - alert: KeeperTickStalled
+        expr: time() - keeper_last_tick_timestamp_seconds > 43200
+        for: 30m
+        labels:
+          severity: critical
+        annotations:
+          summary: "rs-lending keeper has not completed a tick in {{ $value | humanizeDuration }}"
+          description: >
+            The process is up but the TTL loop has not finished a discovery tick
+            for over 12h, twice the 6h interval. Storage TTLs are not being
+            checked and every keeper_entry_* gauge is stale. Check RPC
+            reachability from the keeper and the keeper.discovery logs.
+
+      # A key encoding that matches nothing looks exactly like "nothing to do":
+      # zero jobs planned, no failures, no archived entries. The only signature
+      # is a whole group reading never_created. The baseline is 1
+      # (controller/roles — the controller has no access-control roles), so this
+      # alerts on the count rising above that.
+      - alert: KeeperKeyGroupUnreachable
+        expr: |
+          count(
+            (sum by (contract, group) (keeper_entries{state="never_created"}) > 0)
+            unless
+            (sum by (contract, group) (keeper_entries{state="live"}) > 0)
+          ) > 1
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "rs-lending keeper: {{ $value }} key groups have nothing live"
+          description: >
+            Every probed key in a group came back never_created. Usually benign
+            (nothing has written that key yet), but it is also how a wrong
+            storage-key encoding presents — the keeper renews nothing and no
+            other metric shows it. Compare the keeper key builder against the
+            contract's storage key enum for the affected group.
+
+      # An entry the RPC no longer returns has been evicted outright. Unlike
+      # `expired`, the keeper cannot restore what it cannot read.
+      - alert: KeeperEntriesEvicted
+        expr: sum(keeper_entries{state="archived"}) > 0
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "rs-lending storage entries evicted ({{ $value }})"
+          description: >
+            Entries returned TTL metadata but no value: state is gone from the
+            live ledger. Contract calls touching them fail until restored.

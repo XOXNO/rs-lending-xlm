@@ -21,8 +21,9 @@ pub struct Metrics {
     /// pacing item: the tick when the keeper first has to act on that group.
     pub entry_ttl_ledgers_min: IntGaugeVec,
 
-    /// Entry counts per `(contract, group, state)`, `state` being `live` or
-    /// `absent`. An all-`absent` group is how a wrong key encoding looks.
+    /// Entry counts per `(contract, group, state)`. A group that is entirely
+    /// `never_created` is how a wrong key encoding looks; a single `archived`
+    /// or `expired` row is real damage.
     pub entries: IntGaugeVec,
 
     /// Safety margin and current ledger, so a panel can draw the action
@@ -96,7 +97,9 @@ impl Metrics {
         let entries = IntGaugeVec::new(
             prometheus::Opts::new(
                 "keeper_entries",
-                "Discovered entries per contract, key group and state (live/absent)",
+                "Discovered entries per contract, key group and state: live, \
+                 expired (TTL lapsed, restorable), archived (evicted), or \
+                 never_created (key never written)",
             ),
             &["contract", "group", "state"],
         )?;
