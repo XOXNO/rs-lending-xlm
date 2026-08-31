@@ -33,7 +33,7 @@ async fn main() -> Result<()> {
     let args = Args::parse();
 
     let rpc_cfg = keeper_bot::config::RpcConfig {
-        url: args.rpc.clone(),
+        urls: vec![args.rpc.clone()],
         passphrase: args.passphrase.clone(),
         timeout_seconds: 30,
     };

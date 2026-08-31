@@ -19,7 +19,11 @@ pub struct KeeperConfig {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct RpcConfig {
-    pub url: String,
+    /// RPC endpoints in preference order: primary first, last-resort last. The
+    /// key accepts either spelling (`url` or `urls`) and either shape (one
+    /// string or a list), so a single-endpoint config stays valid unchanged.
+    #[serde(alias = "url", deserialize_with = "one_or_many")]
+    pub urls: Vec<String>,
     pub passphrase: String,
     #[serde(default = "default_rpc_timeout")]
     pub timeout_seconds: u64,
@@ -148,6 +152,25 @@ fn default_hub_id() -> u32 {
     1
 }
 
+/// Accepts `url: <string>` and `urls: [<string>, ...]` as the same field, so
+/// adding a fallback endpoint does not invalidate a deployed config file.
+fn one_or_many<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum OneOrMany {
+        One(String),
+        Many(Vec<String>),
+    }
+
+    Ok(match OneOrMany::deserialize(deserializer)? {
+        OneOrMany::One(single) => vec![single],
+        OneOrMany::Many(list) => list,
+    })
+}
+
 fn empty_string_as_none<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -170,8 +193,11 @@ impl KeeperConfig {
         if self.network.trim().is_empty() {
             return Err(anyhow!("config.network is empty"));
         }
-        if self.rpc.url.trim().is_empty() {
-            return Err(anyhow!("config.rpc.url is empty"));
+        if self.rpc.urls.is_empty() {
+            return Err(anyhow!("config.rpc.url lists no endpoint"));
+        }
+        if let Some(idx) = self.rpc.urls.iter().position(|u| u.trim().is_empty()) {
+            return Err(anyhow!("config.rpc.url[{idx}] is empty"));
         }
         if self.rpc.passphrase.trim().is_empty() {
             return Err(anyhow!("config.rpc.passphrase is empty"));
@@ -261,6 +287,70 @@ pub const LEDGERS_PER_DAY: u32 = 17_280;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The shipped config files are deployed as-is, and nothing else in the
+    /// build reads them. Parse every one of them here, so a YAML edit cannot
+    /// reach a running keeper untested.
+    ///
+    /// This asserts the file shape, not `validate()`: `config/testnet.yaml`
+    /// declares markets with no `price_aggregator` and fails validation today,
+    /// which is a defect in that file rather than in the parser.
+    #[test]
+    fn shipped_configs_parse_with_an_rpc_endpoint() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("config");
+        let mut parsed = 0;
+        for entry in fs::read_dir(&dir).expect("read config dir") {
+            let path = entry.expect("dir entry").path();
+            if path.extension().is_none_or(|ext| ext != "yaml") {
+                continue;
+            }
+            let raw = fs::read_to_string(&path).expect("read config");
+            let cfg: KeeperConfig = serde_yaml::from_str(&raw)
+                .unwrap_or_else(|e| panic!("parse {}: {e}", path.display()));
+            assert!(
+                !cfg.rpc.urls.iter().any(|u| u.trim().is_empty()),
+                "{} has a blank RPC endpoint",
+                path.display()
+            );
+            assert!(
+                !cfg.rpc.urls.is_empty(),
+                "{} has no RPC endpoint",
+                path.display()
+            );
+            parsed += 1;
+        }
+        assert!(parsed >= 3, "expected the shipped configs, found {parsed}");
+    }
+
+    fn rpc(yaml: &str) -> Result<RpcConfig> {
+        Ok(serde_yaml::from_str(yaml)?)
+    }
+
+    /// A deployed config writes `url:` as one string. That must keep parsing
+    /// unchanged, and a list must parse under either spelling.
+    #[test]
+    fn rpc_url_accepts_one_or_many() {
+        let one = rpc("url: https://a.example\npassphrase: p\n").expect("scalar url");
+        assert_eq!(one.urls, vec!["https://a.example".to_string()]);
+        assert_eq!(one.timeout_seconds, 30);
+
+        let many = rpc("urls: [https://a.example, https://b.example]\npassphrase: p\n")
+            .expect("urls list");
+        assert_eq!(many.urls.len(), 2);
+
+        let aliased =
+            rpc("url: [https://a.example, https://b.example]\npassphrase: p\n").expect("url list");
+        assert_eq!(aliased.urls, many.urls);
+    }
+
+    #[test]
+    fn rpc_url_rejects_empty_endpoints() {
+        let cfg = rpc("urls: []\npassphrase: p\n").expect("empty list parses");
+        assert!(cfg.urls.is_empty());
+
+        let blank = rpc("urls: [https://a.example, \"  \"]\npassphrase: p\n").expect("parses");
+        assert!(blank.urls.iter().any(|u| u.trim().is_empty()));
+    }
 
     fn contracts(gov_line: &str) -> ContractsConfig {
         let yaml = format!(

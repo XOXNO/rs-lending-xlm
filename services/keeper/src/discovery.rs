@@ -1,5 +1,6 @@
 use anyhow::{anyhow, Context, Result};
 use std::sync::atomic::{AtomicU64, Ordering};
+use stellar_rpc_client::AuthMode;
 use stellar_xdr::{
     ContractExecutable, ContractId, Hash, LedgerEntryData, LedgerKey, ScAddress,
     ScContractInstance, ScMapEntry, ScSymbol, ScVal, StringM,
@@ -1042,8 +1043,7 @@ pub async fn assert_update_indexes_simulation(
     let envelope = build_envelope(caller_strkey, 0, SIM_FEE_STROOPS, job.op, None)?;
 
     let sim = client
-        .inner()
-        .simulate_transaction_envelope(&envelope, Some(stellar_rpc_client::AuthMode::Enforce))
+        .simulate(&envelope, Some(AuthMode::Enforce))
         .await
         .context("simulate update_indexes(empty) for boot preflight")?;
 

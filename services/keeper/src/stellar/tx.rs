@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use anyhow::{anyhow, bail, Context, Result};
 use sha2::{Digest, Sha256};
-use stellar_rpc_client::{Client as RpcInner, GetTransactionResponse};
+use stellar_rpc_client::{AuthMode, Client as RpcInner, GetTransactionResponse};
 use stellar_xdr::{
     DecoratedSignature, Memo, Operation, Preconditions, SequenceNumber, Signature, SignatureHint,
     SorobanAuthorizationEntry, SorobanCredentials, SorobanResources, SorobanTransactionData,
@@ -164,14 +164,9 @@ async fn build_and_simulate(
     let auth_mode = if kind.is_footprint_op() {
         None
     } else {
-        Some(stellar_rpc_client::AuthMode::Enforce)
+        Some(AuthMode::Enforce)
     };
-    let sim = ctx
-        .client
-        .inner()
-        .simulate_transaction_envelope(&envelope, auth_mode)
-        .await
-        .context("simulate_transaction_envelope")?;
+    let sim = ctx.client.simulate(&envelope, auth_mode).await?;
     Ok((envelope, sim))
 }
 

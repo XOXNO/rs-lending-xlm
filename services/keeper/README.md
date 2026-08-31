@@ -252,6 +252,35 @@ startup (`log_filter_directive` in `src/main.rs`). The sibling
 The network name comes from `network` in the YAML config, which is selected by
 `KEEPER_CONFIG`. There is no separate network environment variable.
 
+## RPC Endpoints and Failover
+
+`rpc.url` takes one endpoint or a list, under either spelling:
+
+```yaml
+rpc:
+  url: https://primary.example          # unchanged single-endpoint form
+```
+
+```yaml
+rpc:
+  urls:                                  # preference order: primary first
+    - https://primary.example
+    - https://fallback.example
+```
+
+Reads and simulations (`get_latest_ledger`, `get_account`,
+`get_full_ledger_entries`, `get_contract_instance`,
+`simulate_transaction_envelope`) retry down the list until one endpoint
+answers. The endpoint that answers becomes the active one, so the submission
+that follows a read and a simulation goes to the same node, and later requests
+start there rather than walking the dead primary again.
+
+Transaction submission does **not** fail over. A send that fails after the
+network accepted the transaction must not be replayed on a node that has not
+seen it yet; the job fails and the next tick rebuilds it. A failover logs
+`RPC failover` at `warn` on target `keeper.rpc`; a total outage fails the tick
+with `... failed on all N RPC endpoints`.
+
 ## Extra Binaries
 
 - `inspect_ttls --config <path>` (env `KEEPER_CONFIG`, default

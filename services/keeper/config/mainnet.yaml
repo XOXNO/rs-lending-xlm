@@ -1,7 +1,15 @@
 network: mainnet
 
 rpc:
-  url: https://soroban-rpc.mainnet.stellar.gateway.fm
+  # Preference order. The in-cluster node first, then third-party public
+  # endpoints. stellar-gateway.xoxno.com is deliberately absent: it fronts the
+  # same node as the first entry, so it fails at the same time and adds no
+  # redundancy. Reads and simulations walk this list; submission stays on
+  # whichever endpoint answered.
+  urls:
+    - http://stellar-rpc-mainnet:8080
+    - https://mainnet.sorobanrpc.com
+    - https://soroban-rpc.mainnet.stellar.gateway.fm
   passphrase: "Public Global Stellar Network ; September 2015"
   timeout_seconds: 30
 
