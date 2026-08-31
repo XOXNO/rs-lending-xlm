@@ -16,6 +16,11 @@ pub struct MarketIndexView {
     pub deviation: bool,
 
     pub valid: bool,
+
+    /// `OracleError` discriminant behind an invalid price, when the contract
+    /// reports one. `None` both when the price is healthy and when reading an
+    /// aggregator that predates the field, so it never fails a decode.
+    pub error_code: Option<u32>,
 }
 
 #[derive(Debug, Clone)]
@@ -67,6 +72,7 @@ fn decode_market_index_row(value: &ScVal) -> Result<MarketIndexView> {
         stale: field_bool(value, "stale").unwrap_or(false),
         deviation: field_bool(value, "deviation").unwrap_or(false),
         valid: field_bool(value, "valid").unwrap_or(false),
+        error_code: field_u32(value, "error_code"),
     })
 }
 
@@ -157,6 +163,46 @@ mod tests {
         assert!(!decoded[0].stale);
         assert!(decoded[0].deviation);
         assert!(!decoded[0].valid);
+        // This row carries no `error_code` key at all, which is what an
+        // aggregator predating the field returns. It must decode, not fail.
+        assert_eq!(decoded[0].error_code, None);
+    }
+
+    /// `error_code` is the only field that reports why an invalid price failed:
+    /// a resolution error zeroes `stale` and `deviation`, so a row can say
+    /// "not stale, no deviation, not valid" and still be a staleness failure.
+    /// Soroban encodes `Option<u32>` as `U32` or `Void`, and both must decode.
+    #[test]
+    fn decodes_market_index_error_code() {
+        let with_code = |code: ScVal| {
+            let row = map(vec![
+                ("asset", i128v(0)),
+                ("supply_index", i128v(1_000_000)),
+                ("borrow_index", i128v(2_000_000)),
+                ("price_wad", i128v(0)),
+                ("primary_price_wad", i128v(0)),
+                ("anchor_price_wad", i128v(0)),
+                ("price_timestamp", ScVal::U64(0)),
+                ("stale", ScVal::Bool(false)),
+                ("deviation", ScVal::Bool(false)),
+                ("valid", ScVal::Bool(false)),
+                ("error_code", code),
+            ]);
+            let vec = ScVal::Vec(Some(ScVec(vec![row].try_into().unwrap())));
+            decode_market_indexes(&vec).unwrap()
+        };
+
+        // PriceFeedStale, the mainnet BTC-reference failure.
+        let some = with_code(ScVal::U32(206));
+        assert_eq!(some[0].error_code, Some(206));
+        assert!(
+            !some[0].stale,
+            "the flags stay zeroed; only the code reports"
+        );
+        assert!(!some[0].deviation);
+
+        let none = with_code(ScVal::Void);
+        assert_eq!(none[0].error_code, None);
     }
 
     #[test]

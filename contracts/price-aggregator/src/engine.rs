@@ -165,11 +165,6 @@ impl Outcome {
         }
     }
 
-    /// Returns whether this outcome has no applicable failure against `oracle`.
-    fn usable(&self, oracle: Option<&AssetOracle>) -> bool {
-        self.failure(oracle).is_none()
-    }
-
     /// Converts this outcome's blended price and timestamp into a `PriceFeedRaw`
     /// tagged with `asset_decimals`.
     fn to_feed(&self, asset_decimals: u32) -> PriceFeedRaw {
@@ -197,10 +192,19 @@ pub(crate) fn force(env: &Env, outcome: &Outcome, oracle: Option<&AssetOracle>) 
 /// Converts `outcome` into a `PriceStatus`. Returns an unusable status when the
 /// outcome carries an error; otherwise reports the blended and leg prices,
 /// timestamp, staleness and deviation flags, and whether the outcome is valid
-/// against `oracle`.
+/// against `oracle`. Either way `error_code` carries the discriminant of the
+/// failure that `oracle` rejects the outcome for, so a caller can tell a
+/// resolution error apart from staleness, deviation and a sanity-bound breach.
+/// A resolution error zeroes the other fields, so `error_code` is the only
+/// field that reports the reason in that case.
 pub(crate) fn to_status(outcome: &Outcome, oracle: Option<&AssetOracle>) -> PriceStatus {
+    let failure = outcome.failure(oracle);
+    let error_code = failure.map(|err| err as u32);
     if outcome.err.is_some() {
-        return PriceStatus::unusable();
+        return PriceStatus {
+            error_code,
+            ..PriceStatus::unusable()
+        };
     }
     PriceStatus {
         final_wad: outcome.price_wad,
@@ -209,7 +213,8 @@ pub(crate) fn to_status(outcome: &Outcome, oracle: Option<&AssetOracle>) -> Pric
         price_timestamp: outcome.timestamp,
         stale: outcome.stale,
         deviation: outcome.deviation,
-        valid: outcome.usable(oracle),
+        valid: failure.is_none(),
+        error_code,
     }
 }
 

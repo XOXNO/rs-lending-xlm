@@ -179,6 +179,7 @@ pub(crate) fn get_all_market_indexes_detailed(
             stale: status.stale,
             deviation: status.deviation,
             valid: status.valid,
+            error_code: status.error_code,
         });
     }
 

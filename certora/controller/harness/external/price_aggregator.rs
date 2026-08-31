@@ -32,6 +32,7 @@ pub(crate) fn fetch_prices_status(env: &Env, assets: &Vec<Address>) -> Map<Addre
                 stale,
                 deviation,
                 valid,
+                error_code: None,
             },
         );
     }

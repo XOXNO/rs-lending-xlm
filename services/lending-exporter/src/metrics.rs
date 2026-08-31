@@ -54,6 +54,8 @@ pub struct Metrics {
 
     pub oracle_deviation_flag: GaugeVec,
 
+    pub oracle_error_code: GaugeVec,
+
     pub oracle_status_timestamp: GaugeVec,
     pub oracle_max_stale_seconds: GaugeVec,
 
@@ -154,6 +156,7 @@ impl Metrics {
             oracle_healthy: register_gauge_vec(&registry, "lending_oracle_healthy", "1 if soft status valid (fresh, in-band, in sanity)", ORACLE_LABELS)?,
             oracle_stale: register_gauge_vec(&registry, "lending_oracle_stale", "1 if soft status stale flag is set", ORACLE_LABELS)?,
             oracle_deviation_flag: register_gauge_vec(&registry, "lending_oracle_deviation_flag", "1 if soft status dual-source deviation flag is set", ORACLE_LABELS)?,
+            oracle_error_code: register_gauge_vec(&registry, "lending_oracle_error_code", "OracleError code behind an invalid price, 0 if none. A resolution error zeroes the stale and deviation flags, so this is the only field that reports the reason", ORACLE_LABELS)?,
             oracle_status_timestamp: register_gauge_vec(&registry, "lending_oracle_status_timestamp_seconds", "Soft status blend price timestamp (Unix s)", ORACLE_LABELS)?,
             oracle_max_stale_seconds: register_gauge_vec(&registry, "lending_oracle_max_stale_seconds", "Configured market-level max price staleness (s)", ORACLE_LABELS)?,
             oracle_effective_max_stale_seconds: register_gauge_vec(&registry, "lending_oracle_effective_max_stale_seconds", "Max-stale of the soonest-to-stale provider leg (s)", ORACLE_LABELS)?,

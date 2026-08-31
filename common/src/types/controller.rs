@@ -182,6 +182,8 @@ pub struct MarketIndexView {
     pub deviation: bool,
 
     pub valid: bool,
+
+    pub error_code: Option<u32>,
 }
 
 /// Per-account caps on the number of distinct supply and borrow positions held at once.

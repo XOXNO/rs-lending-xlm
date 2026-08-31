@@ -54,8 +54,14 @@ pub struct PriceFeedRaw {
 }
 
 /// Detailed result of resolving an asset's price: the blended final price, the individual
-/// primary and secondary leg prices, the timestamp of the older leg, and flags for
-/// staleness, cross-source deviation, and overall validity.
+/// primary and secondary leg prices, the timestamp of the older leg, flags for
+/// staleness, cross-source deviation, and overall validity, and the `OracleError`
+/// discriminant that made the price unusable, if any.
+///
+/// `error_code` is the only field that distinguishes *why* an invalid price failed.
+/// A resolution error (for example a nested reference leg going stale) zeroes every
+/// other field, including `stale` and `deviation`, so those flags cannot be read as
+/// evidence that staleness and deviation were ruled out.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PriceStatus {
@@ -72,6 +78,8 @@ pub struct PriceStatus {
     pub deviation: bool,
 
     pub valid: bool,
+
+    pub error_code: Option<u32>,
 }
 
 impl PriceStatus {
@@ -85,6 +93,7 @@ impl PriceStatus {
             stale: false,
             deviation: false,
             valid: false,
+            error_code: None,
         }
     }
 }

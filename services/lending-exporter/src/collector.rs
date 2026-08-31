@@ -345,12 +345,20 @@ fn publish_market_index_view(
                 .oracle_healthy
                 .with_label_values(&olabels)
                 .set(b(r.valid));
+            metrics
+                .oracle_error_code
+                .with_label_values(&olabels)
+                .set(r.error_code.unwrap_or(0) as f64);
         }
         None => {
             metrics.oracle_healthy.with_label_values(&olabels).set(0.0);
             metrics.oracle_stale.with_label_values(&olabels).set(0.0);
             metrics
                 .oracle_deviation_flag
+                .with_label_values(&olabels)
+                .set(0.0);
+            metrics
+                .oracle_error_code
                 .with_label_values(&olabels)
                 .set(0.0);
         }

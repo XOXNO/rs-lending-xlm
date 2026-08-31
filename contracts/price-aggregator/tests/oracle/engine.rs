@@ -950,13 +950,44 @@ fn to_status_collapses_an_errored_outcome_to_unusable() {
     let status = to_status(&outcome, None);
     assert_eq!(
         status,
-        PriceStatus::unusable(),
+        PriceStatus {
+            error_code: Some(OracleError::NoLastPrice as u32),
+            ..PriceStatus::unusable()
+        },
         "errored outcome must not leak any field"
     );
     assert!(!status.valid, "errored outcome reported valid");
     assert_eq!(status.final_wad, 0);
     assert_eq!(status.primary_wad, 0);
     assert_eq!(status.secondary_wad, 0);
+}
+
+/// The mainnet shape that motivated `error_code`: a nested reference leg going
+/// stale surfaces on the dependent asset as `Outcome::with_err`, which zeroes
+/// `stale` and `deviation`. Read on their own those two flags say the price
+/// passed both checks, when in fact neither ran. `error_code` is the only field
+/// that separates this from a healthy price, so an operator dashboard built on
+/// `stale`/`deviation` alone reports "ok" for a staleness failure.
+#[test]
+fn to_status_reports_the_error_code_when_flags_are_zeroed() {
+    let outcome = Outcome::with_err(OracleError::PriceFeedStale);
+
+    let status = to_status(&outcome, None);
+
+    assert!(!status.valid, "resolution error reported valid");
+    assert!(
+        !status.stale,
+        "with_err zeroes the flags; this pins that shape"
+    );
+    assert!(
+        !status.deviation,
+        "with_err zeroes the flags; this pins that shape"
+    );
+    assert_eq!(
+        status.error_code,
+        Some(OracleError::PriceFeedStale as u32),
+        "staleness failure must be readable from error_code alone"
+    );
 }
 
 /// The other branch: a clean outcome must map straight through, each field to

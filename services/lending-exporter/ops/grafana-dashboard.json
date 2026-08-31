@@ -1573,6 +1573,16 @@
           }
         },
         {
+          "refId": "EC",
+          "expr": "lending_oracle_error_code{network=\"mainnet\"}",
+          "instant": true,
+          "format": "table",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cfgw0aa7mups0d"
+          }
+        },
+        {
           "refId": "TS",
           "expr": "lending_oracle_status_timestamp_seconds{network=\"mainnet\"} * 1000",
           "instant": true,
@@ -1612,7 +1622,8 @@
               "Value #ST": "Stale",
               "Value #DF": "Deviation",
               "Value #HL": "Healthy",
-              "Value #TS": "Status ts"
+              "Value #TS": "Status ts",
+              "Value #EC": "Error"
             },
             "excludeByName": {
               "network": true,
@@ -1629,7 +1640,8 @@
               "Value #ST": 6,
               "Value #DF": 7,
               "Value #HL": 8,
-              "Value #TS": 9
+              "Value #TS": 10,
+              "Value #EC": 9
             }
           }
         }
@@ -1755,6 +1767,82 @@
                 "value": {
                   "type": "color-text"
                 }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Error"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "0": {
+                        "text": "ok",
+                        "color": "green"
+                      },
+                      "205": {
+                        "text": "deviation",
+                        "color": "red"
+                      },
+                      "206": {
+                        "text": "STALE",
+                        "color": "red"
+                      },
+                      "210": {
+                        "text": "no price",
+                        "color": "red"
+                      },
+                      "216": {
+                        "text": "unconfigured",
+                        "color": "red"
+                      },
+                      "217": {
+                        "text": "invalid price",
+                        "color": "red"
+                      },
+                      "223": {
+                        "text": "sanity band",
+                        "color": "red"
+                      },
+                      "225": {
+                        "text": "cycle",
+                        "color": "red"
+                      },
+                      "229": {
+                        "text": "depth",
+                        "color": "red"
+                      },
+                      "230": {
+                        "text": "factor bounds",
+                        "color": "red"
+                      },
+                      "231": {
+                        "text": "source count",
+                        "color": "red"
+                      },
+                      "234": {
+                        "text": "bad LP pool",
+                        "color": "red"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "custom.align",
+                "value": "left"
               }
             ]
           }
