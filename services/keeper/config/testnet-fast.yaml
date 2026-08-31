@@ -23,7 +23,7 @@ contracts:
   price_aggregator: ""
 
 keyvault:
-  url: https://my-vault.vault.azure.net
+  url: https://xoxno.vault.azure.net
   secret_name: keeper-mnemonic-testnet
 
 signer:

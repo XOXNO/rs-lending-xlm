@@ -54,7 +54,7 @@ contracts:
   price_aggregator: CBGUF2G2Q7HCVCWYISDXBHPVBGMYNXA7PG2VET66YBZX6IKOOV27NSMV
 
 keyvault:
-  url: https://my-vault.vault.azure.net
+  url: https://xoxno.vault.azure.net
   secret_name: keeper-mnemonic-mainnet
 
 signer:
