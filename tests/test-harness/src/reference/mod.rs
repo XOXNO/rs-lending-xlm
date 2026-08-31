@@ -1,6 +1,6 @@
 #![cfg(feature = "reference-math")]
 
-pub mod liquidation;
+mod liquidation;
 
 pub use liquidation::{
     bigrational_to_i128_half_up, bigrational_to_i128_wad, compute_liquidation,

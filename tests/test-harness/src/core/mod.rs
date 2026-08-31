@@ -1,4 +1,4 @@
 mod lending;
-pub mod types;
+mod types;
 
 pub use types::*;

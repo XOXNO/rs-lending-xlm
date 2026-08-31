@@ -1,7 +1,7 @@
 #![no_std]
 #![allow(clippy::too_many_arguments)]
 
-pub mod admin;
+mod admin;
 pub use admin::{ControllerAdmin, ControllerAdminClient};
 use common::types::{
     AccountAttributes, AccountPositionRaw, DebtPositionRaw, HubAssetKey, LiquidationEstimate,

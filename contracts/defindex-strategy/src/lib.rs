@@ -9,7 +9,7 @@
 use common::constants::{TTL_BUMP_USER, TTL_THRESHOLD_USER};
 use common::math::fp::Ray;
 use common::token::authorize_transfer_as_current;
-use common::types::pool::HubAssetKey;
+use common::types::HubAssetKey;
 
 use controller_interface::ControllerClient;
 

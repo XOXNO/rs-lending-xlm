@@ -1,7 +1,9 @@
 use super::*;
 use crate::Controller;
-use common::types::pool::{AccountPositionRaw, DebtPositionRaw, HubAssetKey};
-use common::types::{Account, AccountPositionType, PositionLimits, PositionMode};
+use common::types::{
+    Account, AccountPositionRaw, AccountPositionType, DebtPositionRaw, HubAssetKey, PositionLimits,
+    PositionMode,
+};
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, Env, Vec};
 

@@ -1,7 +1,7 @@
 use common::errors::GenericError;
 use soroban_sdk::testutils::Address as _;
 
-use crate::core::types::{LendingTest, MarketState};
+use crate::core::{LendingTest, MarketState};
 
 impl LendingTest {
     pub fn get_or_create_user(&mut self, name: &str) -> soroban_sdk::Address {
@@ -11,7 +11,7 @@ impl LendingTest {
         let address = soroban_sdk::Address::generate(&self.env);
         self.users.insert(
             name.to_string(),
-            crate::core::types::UserState {
+            crate::core::UserState {
                 address: address.clone(),
                 default_account_id: None,
                 accounts: Vec::new(),

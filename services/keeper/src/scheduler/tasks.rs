@@ -9,7 +9,7 @@ use crate::stellar::client::LedgerEntryQuery;
 use crate::stellar::invoke::update_indexes;
 use crate::stellar::restore::restore_footprint;
 use crate::stellar::ttl::{extend_footprint_ttl, MAX_LEDGERS_TO_EXTEND};
-use crate::stellar::TxJob;
+use crate::stellar::tx::TxJob;
 
 const MAX_KEYS_PER_EXTEND_OP: usize = 60;
 

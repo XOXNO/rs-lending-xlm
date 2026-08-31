@@ -12,9 +12,9 @@ mod keeper;
 mod liquidation;
 mod multi_hub;
 pub mod oracle;
-pub mod prelude;
+mod prelude;
 pub mod presets;
-pub mod receivers;
+mod receivers;
 
 pub use receivers::flash_position::{FlashPositionMode, FlashPositionRequest};
 mod revenue;

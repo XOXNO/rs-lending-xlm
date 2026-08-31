@@ -9,7 +9,7 @@ use keeper_bot::{
     metrics::{serve as serve_metrics, Metrics},
     scheduler::run as run_scheduler,
     signer::{signer_from_mnemonic, vault::load_signer, Ed25519Signer},
-    stellar::RpcClient,
+    stellar::client::RpcClient,
 };
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};

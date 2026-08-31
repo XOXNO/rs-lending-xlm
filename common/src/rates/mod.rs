@@ -5,12 +5,12 @@
 #[path = "../../tests/rates/support.rs"]
 pub(crate) mod test_support;
 
-pub mod compound;
-pub mod curve;
-pub mod index;
-pub mod scaling;
-pub mod simulate;
-pub mod value;
+mod compound;
+mod curve;
+mod index;
+mod scaling;
+mod simulate;
+mod value;
 
 pub use compound::{compound_interest, MAX_COMPOUND_DELTA_MS};
 pub use curve::{

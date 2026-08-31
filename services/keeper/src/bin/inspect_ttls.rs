@@ -5,7 +5,7 @@ use keeper_bot::{
     config::{KeeperConfig, LEDGERS_PER_DAY},
     discovery::{snapshot, ContractIds},
     policy::{classify, Decision},
-    stellar::{client::LedgerEntryQuery, RpcClient},
+    stellar::client::{LedgerEntryQuery, RpcClient},
 };
 use std::collections::BTreeMap;
 use std::path::PathBuf;

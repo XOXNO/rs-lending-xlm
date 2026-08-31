@@ -2,11 +2,11 @@
 //! composable-oracle configuration, controller state, oracle feed/status types, pool state,
 //! and shared cross-cutting types.
 
-pub mod composable_oracle;
-pub mod controller;
-pub mod oracle;
-pub mod pool;
-pub mod shared;
+mod composable_oracle;
+mod controller;
+mod oracle;
+mod pool;
+mod shared;
 
 pub use composable_oracle::*;
 pub use controller::*;

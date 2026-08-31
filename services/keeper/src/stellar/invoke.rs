@@ -6,8 +6,7 @@ use stellar_xdr::{
 
 use crate::keys::{hub_asset_key_sc_val, HubAssetKey};
 use crate::stellar::client::account_id_from_strkey;
-use crate::stellar::tx::TxKind;
-use crate::stellar::TxJob;
+use crate::stellar::tx::{TxJob, TxKind};
 
 pub fn update_indexes(
     controller_id: &[u8; 32],

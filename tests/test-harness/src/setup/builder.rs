@@ -6,7 +6,7 @@ use governance::op::{AdminOperation, ConfigureAssetOracleArgs, CreatePoolArgs, S
 use soroban_sdk::testutils::{Address as _, Ledger, LedgerInfo};
 use soroban_sdk::{token, Address, Env, TryFromVal};
 
-use crate::core::types::{LendingTest, MarketState, PendingMarket, PendingSpoke};
+use crate::core::{LendingTest, MarketState, PendingMarket, PendingSpoke};
 use crate::helpers::{f64_to_i128, hub_asset, HARNESS_HUB, HARNESS_SPOKE};
 use crate::presets::{
     unconstrained_test_cap, AssetConfigPreset, MarketParamsPreset, MarketPreset, SpokePreset,

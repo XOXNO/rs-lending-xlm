@@ -6,8 +6,8 @@ use keeper_bot::{
     scheduler::tasks::{plan_extends_with_chunk, plan_restores},
     signer::Ed25519Signer,
     stellar::{
+        client::RpcClient,
         tx::{submit_with_sim, SubmitOutcome, TxContext},
-        RpcClient,
     },
 };
 use std::path::PathBuf;

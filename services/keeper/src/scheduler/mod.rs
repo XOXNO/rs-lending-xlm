@@ -14,8 +14,10 @@ use crate::config::KeeperConfig;
 use crate::discovery::{snapshot, ContractIds};
 use crate::metrics::Metrics;
 use crate::signer::Ed25519Signer;
-use crate::stellar::tx::{simulate_job, submit_with_sim, SimReport, SubmitOutcome, TxContext};
-use crate::stellar::{RpcClient, TxJob};
+use crate::stellar::client::RpcClient;
+use crate::stellar::tx::{
+    simulate_job, submit_with_sim, SimReport, SubmitOutcome, TxContext, TxJob,
+};
 
 use self::budget::TickBudget;
 use self::tasks::{

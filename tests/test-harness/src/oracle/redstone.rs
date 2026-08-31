@@ -1,6 +1,6 @@
 use soroban_sdk::{Address, String};
 
-use crate::core::types::LendingTest;
+use crate::core::LendingTest;
 use crate::presets::DEFAULT_TOLERANCE;
 
 pub fn register_redstone_adapter(t: &LendingTest, feeds: &[(&str, i128)]) -> Address {
