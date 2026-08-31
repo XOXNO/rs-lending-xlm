@@ -431,7 +431,9 @@ Standard flash loan through the pool.
   `granted_by`; transferring the NFT deactivates the previous owner's grants
   immediately, because `get_delegates` reads as empty for anyone else. The stale
   entry is purged on the new owner's next delegate write. No explicit cleanup
-  call exists or is needed.
+  call exists or is needed. If the token returns to the granting address before
+  that write, the grant re-arms with its original list — an intended property
+  of the lazy-revoke design, see the `DelegateGrant` type doc.
 - **`renew_account` extends both the account's storage TTL and the NFT `Owner`
   entry**, closing the 30d/120d renewal asymmetry with OZ's `owner_of`
   (INV-STOR-02).

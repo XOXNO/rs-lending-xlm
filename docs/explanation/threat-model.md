@@ -128,7 +128,10 @@ takes effect immediately (INV-STOR-03).
 
 Transfer is a standard NFT operation. The controller does not gate it and
 cannot prevent it. A transfer lazily revokes any delegate grant that the
-previous owner made.
+previous owner made: the grant is live only while `granted_by` still holds the
+token, so it re-arms with its original delegate list if the token returns to
+the granting address before the new owner's next delegate write
+(`DelegateGrant`, `get_delegates`).
 
 **`approve` and `approve_for_all` hand over the whole position.** The NFT is
 the account's ownership authority. An address that can transfer the token can
@@ -292,7 +295,10 @@ bound.
 
 The controls are real. A delegate must also be an active, governance-approved
 position manager, the check is re-read at use time, and an NFT transfer revokes
-the grant. But the power granted is complete. User-facing documentation must
+the grant while the token is held by another address (it re-arms if the token
+returns to the granting address before the new owner's delegate write — a
+documented property of `DelegateGrant`, not a defect). But the power granted is
+complete. User-facing documentation must
 state this plainly. "Drawn against the account" is not an adequate description.
 
 ### The sanity band tightens only
