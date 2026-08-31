@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-STELLAR_VERSION="${STELLAR_VERSION:-27.0.0}"
+STELLAR_VERSION="${STELLAR_VERSION:-28.0.0}"
 os="$(uname -s)"
 arch="$(uname -m)"
 case "$os" in

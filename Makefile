@@ -992,7 +992,7 @@ clean:
 
 
 install-stellar-cli:
-	STELLAR_VERSION=27.0.0 bash .github/scripts/install-stellar-cli.sh
+	STELLAR_VERSION=28.0.0 bash .github/scripts/install-stellar-cli.sh
 
 
 
