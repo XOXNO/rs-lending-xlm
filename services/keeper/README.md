@@ -336,8 +336,11 @@ required, because the Dockerfile uses cargo cache mounts:
 DOCKER_BUILDKIT=1 docker build -t keeper-bot:latest services/keeper
 ```
 
-The image sets `KEEPER_CONFIG=/etc/keeper/testnet.yaml` and `RUST_LOG=info`.
-Both take effect; see Environment.
+The image sets `KEEPER_CONFIG=/etc/keeper/mainnet.yaml` and `RUST_LOG=info`.
+Both take effect; see Environment. A container started without an explicit
+`KEEPER_CONFIG` therefore runs against mainnet and spends the mainnet
+signer, so a testnet container must set the variable, as the example
+Compose file does.
 The example Compose file publishes testnet on host port `9091` and mainnet on
 host port `9090`.
 

@@ -38,7 +38,7 @@ EXPOSE 9090
 # The network comes from the `network` field of the file KEEPER_CONFIG points
 # at; there is no separate network variable, so nothing here can disagree with
 # the config.
-ENV KEEPER_CONFIG=/etc/keeper/testnet.yaml \
+ENV KEEPER_CONFIG=/etc/keeper/mainnet.yaml \
     RUST_LOG=info
 
 ENTRYPOINT ["/usr/local/bin/keeper-bot"]
