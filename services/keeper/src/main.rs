@@ -57,7 +57,7 @@ async fn main() -> Result<()> {
 
     let client = Arc::new(RpcClient::new(&cfg.rpc)?);
     let signer = Arc::new(resolve_signer(&args, &cfg).await?);
-    let metrics = Arc::new(Metrics::new()?);
+    let metrics = Arc::new(Metrics::new(&cfg.network)?);
     let cancel = CancellationToken::new();
 
     let pools = self_check(&cfg.contracts)?;

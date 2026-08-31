@@ -14,7 +14,11 @@ Each TTL tick discovers:
 
 - Controller instance entry. This covers instance-tier keys such as pool address,
   aggregators, accumulator, spoke/hub counters, and position limits.
-- Price-aggregator persistent `AssetOracle(asset)` rows when `contracts.price_aggregator` is set.
+- Price-aggregator persistent `Oracle(PriceKey)` rows when `contracts.price_aggregator`
+  is set. The set comes from the aggregator's own `OracleKeys` instance index, so it
+  covers `Ref` rows such as the `Ref("BTC")` reference, which no list of market
+  addresses can produce. If the index is unreadable the scan falls back to the
+  configured markets rather than renewing nothing.
 - Controller persistent `Spoke(id)` rows for `1..=LastSpokeId`.
 - Controller per-user persistent keys: `AccountMeta(id)`, `SupplyPositions(id)`,
   `BorrowPositions(id)`, `Delegates(id)`, plus the position-NFT `Owner(id)` key.
@@ -100,10 +104,10 @@ windows.
 | Class | Tier | Source | Renewed |
 | --- | --- | --- | --- |
 | Controller instance | instance | configured controller | yes |
-| Price-aggregator `AssetOracle(asset)` | persistent | `contracts.price_aggregator` + markets | yes |
+| Price-aggregator `Oracle(PriceKey)` — token **and** `Ref` rows | persistent | the aggregator's own `OracleKeys` index, falling back to configured markets | yes |
 | Controller `Spoke(id)` | persistent | `LastSpokeId` | yes |
 | Account state (`AccountMeta` / `SupplyPositions` / `BorrowPositions` / `Delegates`) | persistent | position-NFT counter scan | yes |
-| Account ownership (`Owner(token_id)` on the position NFT) | persistent | position-NFT counter scan | yes — this entry has a 30-day OpenZeppelin TTL against the controller's 120-day window, so it archives first if unrenewed |
+| Account ownership (`Owner(token_id)` on the position NFT) | persistent | position-NFT counter scan | yes, grouped under `per_user` in the metrics — this entry has a 30-day OpenZeppelin TTL against the controller's 120-day window, so it archives first if unrenewed |
 | Controller access-control keys | persistent | `ExistingRoles` | yes, when present |
 | Pool `Params/State(HubAssetKey)` | persistent | configured markets | yes |
 | Governance instance | instance | configured governance | yes |
@@ -111,6 +115,39 @@ windows.
 | Pool / receiver instances and WASM code | instance / code | instance reads | yes |
 | Timelock `OperationLedger(BytesN<32>)` | persistent | event-only | no, documented gap |
 | Temporary keys | temporary | n/a | no, expire by design |
+
+## Metrics
+
+The keeper serves Prometheus metrics and a liveness probe on `metrics.bind`
+(`0.0.0.0:9090` on mainnet):
+
+    GET /metrics      Prometheus text exposition
+    GET /health       liveness
+
+Storage state is published per `(contract, key group)`, never per ledger key.
+Account ids are never reused, so a series per key would add a permanent label
+value for every account ever opened; grouping holds the series count flat.
+
+| metric | labels | meaning |
+| --- | --- | --- |
+| `keeper_entry_ttl_ledgers_min` | contract, group | lowest remaining TTL in the group — the pacing item |
+| `keeper_entries` | contract, group, state | entry counts, `state` is `live` or `absent` |
+| `keeper_safety_margin_ledgers` | — | headroom below which the keeper extends |
+| `keeper_current_ledger` | — | ledger the last tick observed |
+| `keeper_last_tick_timestamp_seconds` | — | unix time of the last completed tick — how stale everything above is |
+| `keeper_sim_resource_fee_stroops` | kind | measured resource fee of the last simulated job |
+
+Divide a ledger count by `LEDGERS_PER_DAY` (17280) for days, or multiply by 5
+for seconds.
+
+A group reading zero `live` and non-zero `absent` means the keeper is probing a
+key that does not exist. That is indistinguishable from "nothing to do" in every
+other metric, and is exactly how the price-aggregator oracle rows went unrenewed;
+`ops/grafana-dashboard.json` has a panel dedicated to it.
+
+Gauges refresh once per TTL tick (`schedule.ttl_tick_seconds`, 6h on mainnet),
+and the first tick fires one full interval after boot — so they are blank for
+the first 6h after a restart and up to 6h stale thereafter.
 
 ## Layout
 

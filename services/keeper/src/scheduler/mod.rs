@@ -2,12 +2,14 @@ pub mod budget;
 pub mod tasks;
 
 use anyhow::Result;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::{interval, MissedTickBehavior};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
+use crate::classify::{classify_persistent, contract_label, KeyClass};
 use crate::config::KeeperConfig;
 use crate::discovery::{snapshot, ContractIds};
 use crate::metrics::Metrics;
@@ -127,7 +129,7 @@ async fn run_ttl_tick(
     ids: &ContractIds,
 ) -> Result<()> {
     let snap = snapshot(client, ids, &cfg.contracts, &cfg.schedule).await?;
-    record_snapshot_metrics(metrics, &snap);
+    record_snapshot_metrics(metrics, &snap, ids, cfg.safety_margin_ledgers());
 
     let safety = cfg.safety_margin_ledgers();
     let restore_jobs = plan_restores(&snap, safety)?;
@@ -165,7 +167,7 @@ async fn run_index_tick(
     ids: &ContractIds,
 ) -> Result<()> {
     let snap = snapshot(client, ids, &cfg.contracts, &cfg.schedule).await?;
-    record_snapshot_metrics(metrics, &snap);
+    record_snapshot_metrics(metrics, &snap, ids, cfg.safety_margin_ledgers());
 
     if snap.assets.is_empty() {
         return Ok(());
@@ -196,8 +198,100 @@ fn tx_context<'a>(
     }
 }
 
-fn record_snapshot_metrics(metrics: &Metrics, snap: &crate::discovery::DiscoverySnapshot) {
+fn record_snapshot_metrics(
+    metrics: &Metrics,
+    snap: &crate::discovery::DiscoverySnapshot,
+    ids: &ContractIds,
+    safety_ledgers: u32,
+) {
     metrics.max_account_id.set(snap.max_account_id as i64);
+    metrics.current_ledger.set(snap.current_ledger as i64);
+    metrics.safety_margin_ledgers.set(safety_ledgers as i64);
+    metrics.last_tick_timestamp_seconds.set(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0),
+    );
+    publish_storage_gauges(metrics, snap, ids);
+}
+
+/// Publishes the per-`(contract, group)` TTL and entry-count gauges.
+///
+/// Both families are reset first, so a group that empties between ticks drops
+/// its series instead of leaving a stale value stranded on the dashboard.
+fn publish_storage_gauges(
+    metrics: &Metrics,
+    snap: &crate::discovery::DiscoverySnapshot,
+    ids: &ContractIds,
+) {
+    metrics.entry_ttl_ledgers_min.reset();
+    metrics.entries.reset();
+
+    let mut min_ttl: BTreeMap<(String, &'static str), u32> = BTreeMap::new();
+    let mut counts: BTreeMap<(String, &'static str, &'static str), i64> = BTreeMap::new();
+
+    let classified = snap
+        .persistent_entries
+        .iter()
+        .map(|row| {
+            (
+                row,
+                classify_persistent(row, &ids.controller, ids.governance.as_ref()),
+            )
+        })
+        .chain(
+            snap.instance_entries
+                .iter()
+                .map(|row| (row, KeyClass::Instance)),
+        )
+        .chain(
+            snap.wasm_code_entries
+                .iter()
+                .map(|row| (row, KeyClass::WasmCode)),
+        );
+
+    for (row, class) in classified {
+        let contract = contract_label(
+            &row.key,
+            ids,
+            snap.pool_id.as_ref(),
+            snap.position_nft_id.as_ref(),
+        );
+        let group = class.label();
+        let state = if row.value.is_some() {
+            "live"
+        } else {
+            "absent"
+        };
+        *counts.entry((contract.clone(), group, state)).or_insert(0) += 1;
+
+        // Only a live entry has a meaningful TTL. Folding an absent one in as
+        // zero would peg the group's minimum at zero and mask the real pacing
+        // item behind a permanent false alarm.
+        if row.value.is_some() {
+            if let Some(live_until) = row.live_until_ledger {
+                let remaining = live_until.saturating_sub(snap.current_ledger);
+                min_ttl
+                    .entry((contract, group))
+                    .and_modify(|m| *m = (*m).min(remaining))
+                    .or_insert(remaining);
+            }
+        }
+    }
+
+    for ((contract, group), remaining) in &min_ttl {
+        metrics
+            .entry_ttl_ledgers_min
+            .with_label_values(&[contract, group])
+            .set(i64::from(*remaining));
+    }
+    for ((contract, group, state), n) in &counts {
+        metrics
+            .entries
+            .with_label_values(&[contract, group, state])
+            .set(*n);
+    }
 }
 
 async fn drive_jobs(
@@ -243,6 +337,10 @@ async fn drive_jobs(
                         .tx_total
                         .with_label_values(&[kind.as_str(), "dry_run_ok"])
                         .inc();
+                    metrics
+                        .sim_resource_fee_stroops
+                        .with_label_values(&[kind.as_str()])
+                        .set(resource_fee as f64);
                 }
                 Ok(SimReport::Rejected(reason)) => {
                     warn!(

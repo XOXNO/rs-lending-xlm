@@ -1,6 +1,7 @@
 use anyhow::Result;
 use clap::Parser;
 use keeper_bot::{
+    classify::{classify_persistent, KeyClass},
     config::{KeeperConfig, LEDGERS_PER_DAY},
     discovery::{snapshot, ContractIds},
     policy::{classify, Decision},
@@ -107,77 +108,6 @@ async fn main() -> Result<()> {
          → would be acted on this tick"
     );
     Ok(())
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum KeyClass {
-    PerAsset,
-    Spoke,
-    PerUser,
-    Roles,
-    Governance,
-    Other,
-}
-
-impl KeyClass {
-    fn title(self) -> &'static str {
-        match self {
-            Self::PerAsset => "PER-ASSET",
-            Self::Spoke => "SPOKE",
-            Self::PerUser => "PER-USER",
-            Self::Roles => "ROLES",
-            Self::Governance => "GOVERNANCE",
-            Self::Other => "OTHER",
-        }
-    }
-}
-
-fn classify_persistent(
-    row: &LedgerEntryQuery,
-    controller_id: &[u8; 32],
-    governance_id: Option<&[u8; 32]>,
-) -> KeyClass {
-    let LedgerKey::ContractData(cd) = &row.key else {
-        return KeyClass::Other;
-    };
-    let on_governance = matches!(
-        &cd.contract,
-        ScAddress::Contract(ContractId(Hash(b))) if Some(b) == governance_id
-    );
-    let on_controller = matches!(
-        &cd.contract,
-        ScAddress::Contract(ContractId(Hash(b))) if b == controller_id
-    );
-    let variant = match &cd.key {
-        ScVal::Vec(Some(v)) => v.0.first().and_then(|s| match s {
-            ScVal::Symbol(ScSymbol(s)) => Some(s.to_utf8_string_lossy()),
-            _ => None,
-        }),
-        _ => None,
-    };
-    let role_variants = [
-        "ExistingRoles",
-        "RoleAccountsCount",
-        "RoleAccounts",
-        "HasRole",
-        "RoleAdmin",
-    ];
-    match variant.as_deref() {
-        Some(v) if role_variants.contains(&v) => {
-            if on_governance {
-                KeyClass::Governance
-            } else {
-                KeyClass::Roles
-            }
-        }
-        Some("AccountMeta" | "SupplyPositions" | "BorrowPositions") if on_controller => {
-            KeyClass::PerUser
-        }
-        Some("Market" | "Params" | "State") => KeyClass::PerAsset,
-        Some("Spoke") => KeyClass::Spoke,
-        _ if on_governance => KeyClass::Governance,
-        _ => KeyClass::Other,
-    }
 }
 
 fn print_section(title: &str, entries: &[LedgerEntryQuery], current: u32, safety: u32) -> usize {

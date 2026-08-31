@@ -8,9 +8,10 @@ use tracing::{debug, info, warn};
 
 use crate::config::{ContractsConfig, ScheduleConfig};
 use crate::keys::{
-    contract_code_key, contract_instance_key, AccessControlPersistentKey, ControllerInstanceKey,
-    ControllerPersistentKey, ControllerUserKey, HubAssetKey, OracleAdapterKey, PoolPersistentKey,
-    PositionNftInstanceKey, PositionNftUserKey, PriceAggregatorPersistentKey,
+    contract_code_key, contract_instance_key, AccessControlPersistentKey, AggregatorPriceKey,
+    ControllerInstanceKey, ControllerPersistentKey, ControllerUserKey, HubAssetKey,
+    OracleAdapterKey, PoolPersistentKey, PositionNftInstanceKey, PositionNftUserKey,
+    PriceAggregatorInstanceKey, PriceAggregatorPersistentKey,
 };
 use crate::stellar::client::{
     contract_id_from_strkey, hash32_from_hex, LedgerEntryQuery, RpcClient,
@@ -92,6 +93,12 @@ pub struct DiscoverySnapshot {
     /// Highest position-NFT token id minted so far, i.e. the largest account id
     /// that can exist. Zero when the NFT address or counter cannot be read.
     pub max_account_id: u64,
+
+    /// Pool and position-NFT ids, read from the controller instance rather than
+    /// configured. Carried so metric labels can name them instead of falling
+    /// back to a hex prefix.
+    pub pool_id: Option<[u8; 32]>,
+    pub position_nft_id: Option<[u8; 32]>,
 }
 
 pub async fn snapshot(
@@ -187,15 +194,7 @@ pub async fn snapshot(
     let mut pool_rows_present = 0usize;
     let mut pool_rows_total = 0usize;
     for chunk in assets.chunks(chunk_size) {
-        let mut keys = Vec::with_capacity(chunk.len() * 3);
-        if let Some(aggregator_id) = &ids.price_aggregator {
-            for asset in chunk {
-                keys.push(
-                    PriceAggregatorPersistentKey::AssetOracle(asset.asset)
-                        .to_ledger_key(aggregator_id)?,
-                );
-            }
-        }
+        let mut keys = Vec::with_capacity(chunk.len() * 2);
         if let Some(pool) = &pool_id {
             for asset in chunk {
                 keys.push(PoolPersistentKey::Params(*asset).to_ledger_key(pool)?);
@@ -208,6 +207,65 @@ pub async fn snapshot(
                 pool_rows_present += 1;
             }
             persistent_entries.push(row);
+        }
+    }
+
+    // The aggregator's own `OracleKeys` index is the authoritative set of stored
+    // `PriceKey`s. Reading it covers `Ref` rows, which no market-address list can
+    // produce, and drops rows for assets the aggregator never registered.
+    // Falling back to the configured markets keeps a stale or unreadable index
+    // from silently dropping oracle coverage to nothing.
+    if let Some(aggregator_id) = &ids.price_aggregator {
+        let registered = match client.get_contract_instance(aggregator_id).await {
+            Ok(agg_instance) => lookup_oracle_keys(&agg_instance)?,
+            Err(e) => {
+                warn!(
+                    target: "keeper.discovery",
+                    error = ?e,
+                    "price-aggregator instance unreadable; falling back to configured markets"
+                );
+                None
+            }
+        };
+        let oracle_keys = registered.unwrap_or_else(|| {
+            warn!(
+                target: "keeper.discovery",
+                "price-aggregator OracleKeys index missing; falling back to configured markets"
+            );
+            assets
+                .iter()
+                .map(|a| AggregatorPriceKey::Token(a.asset))
+                .collect()
+        });
+        let mut oracle_rows_present = 0usize;
+        let oracle_rows_total = oracle_keys.len();
+        for chunk in oracle_keys.chunks(chunk_size) {
+            let mut keys = Vec::with_capacity(chunk.len());
+            for key in chunk {
+                keys.push(
+                    PriceAggregatorPersistentKey::Oracle(key.clone())
+                        .to_ledger_key(aggregator_id)?,
+                );
+            }
+            for row in client.get_ledger_entries(&keys).await? {
+                if row.value.is_some() {
+                    oracle_rows_present += 1;
+                }
+                persistent_entries.push(row);
+            }
+        }
+        info!(
+            target: "keeper.discovery",
+            oracle_rows_total,
+            oracle_rows_present,
+            "price-aggregator oracle rows"
+        );
+        if oracle_rows_total > 0 && oracle_rows_present == 0 {
+            warn!(
+                target: "keeper.discovery",
+                "every price-aggregator oracle row read back absent — the key encoding \
+                 no longer matches AggregatorKey::Oracle(PriceKey)"
+            );
         }
     }
 
@@ -373,6 +431,8 @@ pub async fn snapshot(
         assets,
         persistent_entries,
         instance_entries,
+        pool_id,
+        position_nft_id,
         wasm_code_entries,
         max_account_id,
     })
@@ -892,6 +952,51 @@ fn lookup_scalar<T>(
     lookup_instance_scalar(instance, key.variant_name(), extract)
 }
 
+/// Decodes the price aggregator's `OracleKeys` index into the `PriceKey` set it
+/// stores. Returns `None` when the index is absent so the caller can fall back
+/// rather than treat "no index" as "no oracles". A malformed entry is an error:
+/// silently returning an empty set would drop every oracle row from renewal.
+fn lookup_oracle_keys(instance: &ScContractInstance) -> Result<Option<Vec<AggregatorPriceKey>>> {
+    let raw = lookup_instance_scalar(
+        instance,
+        PriceAggregatorInstanceKey::OracleKeys.variant_name(),
+        |v| Some(v.clone()),
+    )?;
+    let Some(ScVal::Vec(Some(items))) = raw else {
+        return Ok(None);
+    };
+    let mut out = Vec::with_capacity(items.len());
+    for item in items.iter() {
+        out.push(decode_price_key(item)?);
+    }
+    Ok(Some(out))
+}
+
+/// Decodes one `PriceKey` enum value: `Token(Address)` or `Ref(Symbol)`.
+fn decode_price_key(value: &ScVal) -> Result<AggregatorPriceKey> {
+    let ScVal::Vec(Some(parts)) = value else {
+        return Err(anyhow!("PriceKey is not an enum vec"));
+    };
+    let [ScVal::Symbol(variant), payload] = &parts[..] else {
+        return Err(anyhow!("PriceKey has an unexpected shape"));
+    };
+    match variant.to_string().as_str() {
+        "Token" => {
+            let ScVal::Address(ScAddress::Contract(ContractId(Hash(id)))) = payload else {
+                return Err(anyhow!("PriceKey::Token payload is not a contract address"));
+            };
+            Ok(AggregatorPriceKey::Token(*id))
+        }
+        "Ref" => {
+            let ScVal::Symbol(name) = payload else {
+                return Err(anyhow!("PriceKey::Ref payload is not a symbol"));
+            };
+            Ok(AggregatorPriceKey::Ref(name.to_string()))
+        }
+        other => Err(anyhow!("unknown PriceKey variant {other}")),
+    }
+}
+
 /// Reads a unit-variant instance-storage entry by its variant name.
 fn lookup_instance_scalar<T>(
     instance: &ScContractInstance,
@@ -955,7 +1060,7 @@ const SIM_FEE_STROOPS: u32 = 100;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use stellar_xdr::ContractDataDurability;
+    use stellar_xdr::{ContractDataDurability, ScVec};
 
     /// Independently reconstructs the `#[contracttype]` encoding of a
     /// single-argument enum variant, so the test does not just re-run the
@@ -981,6 +1086,71 @@ mod tests {
             executable: stellar_xdr::ContractExecutable::Wasm(Hash([0u8; 32])),
             storage: Some(stellar_xdr::ScMap(vec![entry].try_into().unwrap())),
         }
+    }
+
+    fn price_key_token(id: [u8; 32]) -> ScVal {
+        ScVal::Vec(Some(ScVec(
+            vec![
+                ScVal::Symbol("Token".try_into().unwrap()),
+                ScVal::Address(ScAddress::Contract(ContractId(Hash(id)))),
+            ]
+            .try_into()
+            .unwrap(),
+        )))
+    }
+
+    fn price_key_ref(name: &str) -> ScVal {
+        ScVal::Vec(Some(ScVec(
+            vec![
+                ScVal::Symbol("Ref".try_into().unwrap()),
+                ScVal::Symbol(name.try_into().unwrap()),
+            ]
+            .try_into()
+            .unwrap(),
+        )))
+    }
+
+    /// `Ref` rows are the reason the index is read at all: no list of market
+    /// addresses can produce them, and `Ref("BTC")` backs the SolvBTC assets.
+    #[test]
+    fn oracle_keys_index_decodes_token_and_ref_rows() {
+        let instance = instance_with(
+            "OracleKeys",
+            ScVal::Vec(Some(ScVec(
+                vec![price_key_token([9u8; 32]), price_key_ref("BTC")]
+                    .try_into()
+                    .unwrap(),
+            ))),
+        );
+
+        let keys = lookup_oracle_keys(&instance).unwrap().unwrap();
+
+        assert_eq!(
+            keys,
+            vec![
+                AggregatorPriceKey::Token([9u8; 32]),
+                AggregatorPriceKey::Ref("BTC".to_string()),
+            ]
+        );
+    }
+
+    /// A missing index must read as "unknown" so the caller falls back to the
+    /// configured markets. Returning an empty set here would silently drop every
+    /// oracle row from renewal — the exact failure this rewrite fixes.
+    #[test]
+    fn a_missing_oracle_keys_index_is_none_not_empty() {
+        let instance = instance_with("SomethingElse", ScVal::U32(1));
+        assert!(lookup_oracle_keys(&instance).unwrap().is_none());
+    }
+
+    /// A malformed index must fail loudly rather than silently renew a subset.
+    #[test]
+    fn a_malformed_oracle_keys_index_is_an_error() {
+        let instance = instance_with(
+            "OracleKeys",
+            ScVal::Vec(Some(ScVec(vec![ScVal::U32(7)].try_into().unwrap()))),
+        );
+        assert!(lookup_oracle_keys(&instance).is_err());
     }
 
     /// An absent or archived row must not resolve to a counter. The tick has to
@@ -1113,7 +1283,9 @@ mod tests {
             controller: "CBSCWXCIAASFR2F2332D2I7C6VWUJZKUW4ONOZR2LZ32KOZ5UZVNJ3LA".into(),
             pool_wasm_hash: "a1e7db9b32626c8d4c57343c50407956ea1b642054bf6aee0a613da06359a6fa"
                 .into(),
-            flash_loan_receiver: Some("CCYDZ6SLHGZKBJF3MNKRK2QPITSVTHL5NYWKWWPMNSOTW4HHCK32JNLZ".into()),
+            flash_loan_receiver: Some(
+                "CCYDZ6SLHGZKBJF3MNKRK2QPITSVTHL5NYWKWWPMNSOTW4HHCK32JNLZ".into(),
+            ),
             markets: Vec::new(),
             market_assets: Vec::new(),
             governance: Some("CCGAETDFZNTJYNOFRC3DR3KZCDZFANBEN2CJSBTOGTLVJPRAFPF7DWMH".into()),
@@ -1130,7 +1302,9 @@ mod tests {
             controller: "CBSCWXCIAASFR2F2332D2I7C6VWUJZKUW4ONOZR2LZ32KOZ5UZVNJ3LA".into(),
             pool_wasm_hash: "a1e7db9b32626c8d4c57343c50407956ea1b642054bf6aee0a613da06359a6fa"
                 .into(),
-            flash_loan_receiver: Some("CCYDZ6SLHGZKBJF3MNKRK2QPITSVTHL5NYWKWWPMNSOTW4HHCK32JNLZ".into()),
+            flash_loan_receiver: Some(
+                "CCYDZ6SLHGZKBJF3MNKRK2QPITSVTHL5NYWKWWPMNSOTW4HHCK32JNLZ".into(),
+            ),
             markets: Vec::new(),
             market_assets: Vec::new(),
             governance: None,

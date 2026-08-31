@@ -27,15 +27,43 @@ impl ControllerPersistentKey {
     }
 }
 
+/// A `PriceKey` exactly as the price-aggregator stores it
+/// (`common::types::composable_oracle::PriceKey`): either a token contract
+/// address, or a named synthetic reference used as an intermediate quote.
+///
+/// `Ref` rows are real storage entries — `Ref("BTC")` backs the SolvBTC assets
+/// — so enumerating only token addresses leaves them unrenewed.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum AggregatorPriceKey {
+    Token([u8; 32]),
+    Ref(String),
+}
+
+impl AggregatorPriceKey {
+    pub fn to_sc_val(&self) -> Result<ScVal> {
+        Ok(match self {
+            Self::Token(addr) => sc_enum("Token", &[sc_address_contract(addr)])?,
+            Self::Ref(name) => sc_enum("Ref", &[symbol_val(name)?])?,
+        })
+    }
+}
+
+/// Persistent keys owned by the price aggregator.
+///
+/// The variant is `Oracle` and its payload is a nested `PriceKey`, matching
+/// `AggregatorKey::Oracle(PriceKey)` in
+/// `contracts/price-aggregator/src/registry.rs`. An earlier version built
+/// `AssetOracle` wrapping a bare `Address`, which matches no stored entry, so
+/// every oracle row read back absent and none were ever renewed.
 #[derive(Debug, Clone)]
 pub enum PriceAggregatorPersistentKey {
-    AssetOracle([u8; 32]),
+    Oracle(AggregatorPriceKey),
 }
 
 impl PriceAggregatorPersistentKey {
     pub fn to_sc_val(&self) -> Result<ScVal> {
         Ok(match self {
-            Self::AssetOracle(addr) => sc_enum("AssetOracle", &[sc_address_contract(addr)])?,
+            Self::Oracle(key) => sc_enum("Oracle", &[key.to_sc_val()?])?,
         })
     }
 
@@ -210,6 +238,25 @@ impl ControllerInstanceKey {
             Self::PositionNft => "PositionNft",
             Self::LastHubId => "LastHubId",
             Self::LastSpokeId => "LastSpokeId",
+        }
+    }
+}
+
+/// Instance-storage keys read from the price aggregator.
+///
+/// `OracleKeys` is the aggregator's own index of every registered `PriceKey`
+/// (`AggregatorKey::OracleKeys`). Reading it is what lets discovery renew the
+/// exact set the contract actually stores — token rows and `Ref` rows alike —
+/// instead of reconstructing a guess from the keeper's market config.
+#[derive(Debug, Clone, Copy)]
+pub enum PriceAggregatorInstanceKey {
+    OracleKeys,
+}
+
+impl PriceAggregatorInstanceKey {
+    pub fn variant_name(&self) -> &'static str {
+        match self {
+            Self::OracleKeys => "OracleKeys",
         }
     }
 }
@@ -487,6 +534,47 @@ mod tests {
         assert_eq!(sym_text(&items[0]), "HasRole");
         assert!(matches!(items[1], ScVal::Address(ScAddress::Account(_))));
         assert_eq!(sym_text(&items[2]), "REVENUE");
+    }
+
+    /// Golden values captured from mainnet on 2026-08-31 with
+    /// `stellar contract read --key-xdr`: each of these base64 keys returned a
+    /// live entry from the deployed price aggregator
+    /// (`CBGUF2G2Q7HCVCWYISDXBHPVBGMYNXA7PG2VET66YBZX6IKOOV27NSMV`) — the first
+    /// the SolvBTC oracle config, the second the `Ref("BTC")` reference.
+    ///
+    /// They are pinned because the previous encoding (`AssetOracle` wrapping a
+    /// bare `Address`) matched no stored entry, so every oracle row read back
+    /// absent and none were renewed. A shape regression is invisible in
+    /// production — it looks exactly like "nothing to do" — so only a pin
+    /// against a value proven on chain catches it.
+    #[test]
+    fn oracle_keys_match_the_encoding_proven_on_mainnet() {
+        use stellar_xdr::{Limits, WriteXdr};
+
+        // CBIJBDNZNF4X35BJ4FFZWCDBSCKOP5NB4PLG4SNENRMLAPYG4P5FM6VN (SolvBTC)
+        let solv_btc = [
+            0x50, 0x90, 0x8d, 0xb9, 0x69, 0x79, 0x7d, 0xf4, 0x29, 0xe1, 0x4b, 0x9b, 0x08, 0x61,
+            0x90, 0x94, 0xe7, 0xf5, 0xa1, 0xe3, 0xd6, 0x6e, 0x49, 0xa4, 0x6c, 0x58, 0xb0, 0x3f,
+            0x06, 0xe3, 0xfa, 0x56,
+        ];
+
+        let token = PriceAggregatorPersistentKey::Oracle(AggregatorPriceKey::Token(solv_btc))
+            .to_sc_val()
+            .unwrap();
+        assert_eq!(
+            token.to_xdr_base64(Limits::none()).unwrap(),
+            "AAAAEAAAAAEAAAACAAAADwAAAAZPcmFjbGUAAAAAABAAAAABAAAAAgAAAA8AAAAFVG9rZW4AAAAAAAASAAAAAVCQjblpeX30KeFLmwhhkJTn9aHj1m5JpGxYsD8G4/pW",
+            "Oracle(Token) no longer matches the key the aggregator stores"
+        );
+
+        let reference = PriceAggregatorPersistentKey::Oracle(AggregatorPriceKey::Ref("BTC".into()))
+            .to_sc_val()
+            .unwrap();
+        assert_eq!(
+            reference.to_xdr_base64(Limits::none()).unwrap(),
+            "AAAAEAAAAAEAAAACAAAADwAAAAZPcmFjbGUAAAAAABAAAAABAAAAAgAAAA8AAAADUmVmAAAAAA8AAAADQlRDAA==",
+            "Oracle(Ref) no longer matches the key the aggregator stores"
+        );
     }
 
     #[test]
