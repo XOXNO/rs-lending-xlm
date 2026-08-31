@@ -1,856 +1,990 @@
 {
-  "title": "Stellar Lending Keeper \u2014 Storage & TTL",
-  "uid": "stellar-lending-keeper",
-  "editable": true,
-  "schemaVersion": 39,
-  "refresh": "5m",
-  "time": {
-    "from": "now-7d",
-    "to": "now"
+ "title": "Stellar Lending Keeper \u2014 Storage & TTL",
+ "uid": "stellar-lending-keeper",
+ "editable": true,
+ "schemaVersion": 39,
+ "refresh": "5m",
+ "time": {
+  "from": "now-7d",
+  "to": "now"
+ },
+ "tags": [
+  "stellar",
+  "lending",
+  "keeper"
+ ],
+ "panels": [
+  {
+   "id": 100,
+   "type": "row",
+   "title": "Status \u2014 read these four first",
+   "gridPos": {
+    "x": 0,
+    "y": 0,
+    "w": 24,
+    "h": 1
+   },
+   "collapsed": false,
+   "panels": []
   },
-  "tags": [
-    "stellar",
-    "lending",
-    "keeper"
-  ],
-  "panels": [
+  {
+   "id": 101,
+   "type": "stat",
+   "title": "Days until first action",
+   "description": "Lowest TTL headroom minus the safety margin. This is the whole dashboard in one number: how long before the keeper must extend anything. Negative means it should be acting now.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "cfgw0aa7mups0d"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 1,
+    "w": 6,
+    "h": 5
+   },
+   "targets": [
     {
-      "id": 100,
-      "type": "row",
-      "title": "Status \u2014 read these four first",
-      "gridPos": {
-        "x": 0,
-        "y": 0,
-        "w": 24,
-        "h": 1
-      },
-      "collapsed": false,
-      "panels": []
-    },
-    {
-      "id": 101,
-      "type": "stat",
-      "title": "Days until first action",
-      "description": "Lowest TTL headroom minus the safety margin. This is the whole dashboard in one number: how long before the keeper must extend anything. Negative means it should be acting now.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
-      },
-      "gridPos": {
-        "x": 0,
-        "y": 1,
-        "w": 6,
-        "h": 5
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "(min(keeper_entry_ttl_ledgers_min{network=\"$network\"}) - min(keeper_safety_margin_ledgers{network=\"$network\"})) / 17280",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          },
-          "instant": true
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "d",
-          "decimals": 0,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "red",
-                "value": null
-              },
-              {
-                "color": "orange",
-                "value": 7
-              },
-              {
-                "color": "green",
-                "value": 30
-              }
-            ]
-          },
-          "color": {
-            "mode": "thresholds"
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "graphMode": "none",
-        "colorMode": "background",
-        "textMode": "auto"
-      }
-    },
-    {
-      "id": 102,
-      "type": "stat",
-      "title": "Entries awaiting restore",
-      "description": "Entries whose TTL already lapsed. Non-zero means protocol storage is archived and calls against it fail until restored \u2014 act now.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
-      },
-      "gridPos": {
-        "x": 6,
-        "y": 1,
-        "w": 6,
-        "h": 5
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "keeper_entries_archived{network=\"$network\"}",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          },
-          "instant": true
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "decimals": 0,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 1
-              }
-            ]
-          },
-          "color": {
-            "mode": "thresholds"
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "graphMode": "none",
-        "colorMode": "background",
-        "textMode": "auto"
-      }
-    },
-    {
-      "id": 103,
-      "type": "stat",
-      "title": "Key groups with nothing live",
-      "description": "Groups where every probed key came back never_created. Baseline is 1 (controller/roles \u2014 the controller has no access-control roles). A rise above that is how a wrong key encoding presents; alert KeeperKeyGroupUnreachable covers it.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
-      },
-      "gridPos": {
-        "x": 12,
-        "y": 1,
-        "w": 6,
-        "h": 5
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "count( (sum by (contract,group) (keeper_entries{network=\"$network\",state=\"never_created\"}) > 0) unless (sum by (contract,group) (keeper_entries{network=\"$network\",state=\"live\"}) > 0) ) or vector(0)",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          },
-          "instant": true
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "decimals": 0,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "text",
-                "value": 1
-              }
-            ]
-          },
-          "color": {
-            "mode": "thresholds"
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "graphMode": "none",
-        "colorMode": "background",
-        "textMode": "auto"
-      }
-    },
-    {
-      "id": 104,
-      "type": "stat",
-      "title": "Last tick age",
-      "description": "Age of the storage figures on this dashboard. The TTL loop runs every 6h and the first tick fires one full interval after boot, so expect up to ~6h. Much beyond that means the keeper is not ticking.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
-      },
-      "gridPos": {
-        "x": 18,
-        "y": 1,
-        "w": 6,
-        "h": 5
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "time() - keeper_last_tick_timestamp_seconds{network=\"$network\"}",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          },
-          "instant": true
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s",
-          "decimals": 0,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "orange",
-                "value": 25200
-              },
-              {
-                "color": "red",
-                "value": 43200
-              }
-            ]
-          },
-          "color": {
-            "mode": "thresholds"
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "graphMode": "none",
-        "colorMode": "background",
-        "textMode": "auto"
-      }
-    },
-    {
-      "id": 1,
-      "type": "row",
-      "title": "Storage & TTL",
-      "gridPos": {
-        "x": 0,
-        "y": 6,
-        "w": 24,
-        "h": 1
-      },
-      "collapsed": false,
-      "panels": []
-    },
-    {
-      "id": 2,
-      "type": "table",
-      "title": "TTL headroom by contract and key group",
-      "description": "Lowest remaining TTL in each group. This is the pacing item: the smallest value is when the keeper first has to act. Red once inside the safety margin.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
-      },
-      "gridPos": {
-        "x": 0,
-        "y": 7,
-        "w": 14,
-        "h": 10
-      },
-      "targets": [
-        {
-          "refId": "TTL",
-          "expr": "keeper_entry_ttl_ledgers_min{network=\"$network\"} / 17280",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          },
-          "format": "table",
-          "instant": true
-        }
-      ],
-      "transformations": [
-        {
-          "id": "organize",
-          "options": {
-            "excludeByName": {
-              "Time": true,
-              "__name__": true,
-              "instance": true,
-              "job": true
-            }
-          }
-        },
-        {
-          "id": "organize",
-          "options": {
-            "renameByName": {
-              "contract": "Contract",
-              "group": "Key group",
-              "Value": "Headroom"
-            },
-            "indexByName": {
-              "contract": 0,
-              "group": 1,
-              "Value": 2
-            }
-          }
-        },
-        {
-          "id": "sortBy",
-          "options": {
-            "fields": {},
-            "sort": [
-              {
-                "field": "Headroom"
-              }
-            ]
-          }
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "align": "right",
-            "filterable": true
-          },
-          "unit": "d",
-          "decimals": 1
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byRegexp",
-              "options": "Contract|Key group"
-            },
-            "properties": [
-              {
-                "id": "custom.align",
-                "value": "left"
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Headroom"
-            },
-            "properties": [
-              {
-                "id": "custom.cellOptions",
-                "value": {
-                  "type": "color-text"
-                }
-              },
-              {
-                "id": "thresholds",
-                "value": {
-                  "mode": "absolute",
-                  "steps": [
-                    {
-                      "color": "red",
-                      "value": null
-                    },
-                    {
-                      "color": "orange",
-                      "value": 21
-                    },
-                    {
-                      "color": "green",
-                      "value": 45
-                    }
-                  ]
-                }
-              },
-              {
-                "id": "color",
-                "value": {
-                  "mode": "thresholds"
-                }
-              }
-            ]
-          }
-        ]
-      }
-    },
-    {
-      "id": 3,
-      "type": "table",
-      "title": "Entries by state \u2014 a group that is entirely never_created is a broken key",
-      "description": "Live, expired (TTL lapsed but restorable), archived (evicted from the ledger) and never_created (key never written). A whole group reading never_created means the keeper is probing a key that does not exist, which is indistinguishable from 'nothing to do' in every other metric. Any archived or expired row is real damage.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
-      },
-      "gridPos": {
-        "x": 14,
-        "y": 7,
-        "w": 10,
-        "h": 10
-      },
-      "targets": [
-        {
-          "refId": "E",
-          "expr": "keeper_entries{network=\"$network\"}",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          },
-          "format": "table",
-          "instant": true
-        }
-      ],
-      "transformations": [
-        {
-          "id": "organize",
-          "options": {
-            "excludeByName": {
-              "Time": true,
-              "__name__": true,
-              "instance": true,
-              "job": true
-            }
-          }
-        },
-        {
-          "id": "organize",
-          "options": {
-            "renameByName": {
-              "contract": "Contract",
-              "group": "Key group",
-              "state": "State",
-              "Value": "Entries"
-            },
-            "indexByName": {
-              "contract": 0,
-              "group": 1,
-              "state": 2,
-              "Value": 3
-            }
-          }
-        },
-        {
-          "id": "filterByValue",
-          "options": {
-            "type": "exclude",
-            "match": "all",
-            "filters": [
-              {
-                "fieldName": "Entries",
-                "config": {
-                  "id": "equal",
-                  "options": {
-                    "value": 0
-                  }
-                }
-              }
-            ]
-          }
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "align": "right",
-            "filterable": true
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byRegexp",
-              "options": "Contract|Key group|State"
-            },
-            "properties": [
-              {
-                "id": "custom.align",
-                "value": "left"
-              }
-            ]
-          }
-        ]
-      }
-    },
-    {
-      "id": 4,
-      "type": "timeseries",
-      "title": "TTL headroom over time",
-      "description": "Each series is one contract/key group. A downward slope that crosses the safety margin is when the keeper starts extending.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
-      },
-      "gridPos": {
-        "x": 0,
-        "y": 17,
-        "w": 14,
-        "h": 9
-      },
-      "targets": [
-        {
-          "refId": "TTL",
-          "expr": "keeper_entry_ttl_ledgers_min{network=\"$network\"} / 17280",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          },
-          "format": "time_series",
-          "legendFormat": "{{contract}} / {{group}}"
-        },
-        {
-          "refId": "MARGIN",
-          "expr": "keeper_safety_margin_ledgers{network=\"$network\"} / 17280",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          },
-          "format": "time_series",
-          "legendFormat": "safety margin"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "d",
-          "custom": {
-            "lineWidth": 1,
-            "fillOpacity": 0
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "safety margin"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "red"
-                }
-              },
-              {
-                "id": "custom.lineStyle",
-                "value": {
-                  "fill": "dash",
-                  "dash": [
-                    10,
-                    10
-                  ]
-                }
-              }
-            ]
-          }
-        ]
-      },
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "right",
-          "calcs": [
-            "min"
-          ]
-        }
-      }
-    },
-    {
-      "id": 5,
-      "type": "timeseries",
-      "title": "Simulated resource fee per job kind (rent cost)",
-      "description": "Resource fee returned by simulation for the last job of each kind, in stroops. Measured from the network, not modelled from entry size. Populated on ticks that plan work \u2014 flat when there is nothing to do.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
-      },
-      "gridPos": {
-        "x": 14,
-        "y": 17,
-        "w": 10,
-        "h": 9
-      },
-      "targets": [
-        {
-          "refId": "FEE",
-          "expr": "keeper_sim_resource_fee_stroops{network=\"$network\"}",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          },
-          "format": "time_series",
-          "legendFormat": "{{kind}}"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "lineWidth": 1,
-            "fillOpacity": 10
-          }
-        },
-        "overrides": []
-      }
-    },
-    {
-      "id": 6,
-      "type": "row",
-      "title": "Keeper activity",
-      "gridPos": {
-        "x": 0,
-        "y": 26,
-        "w": 24,
-        "h": 1
-      },
-      "collapsed": false,
-      "panels": []
-    },
-    {
-      "id": 7,
-      "type": "stat",
-      "title": "Entries awaiting restore",
-      "description": "Discovered entries already expired. Non-zero means state is archived and calls against it will fail until restored.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
-      },
-      "gridPos": {
-        "x": 0,
-        "y": 27,
-        "w": 6,
-        "h": 5
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "keeper_entries_archived{network=\"$network\"}",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          },
-          "format": "table",
-          "instant": true
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "decimals": 0
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "graphMode": "area"
-      }
-    },
-    {
-      "id": 8,
-      "type": "stat",
-      "title": "Jobs planned per day",
-      "description": "Jobs the keeper planned per day. Zero is normal when everything is far from its margin. Averaged over 24h because the TTL loop only ticks every 6h \u2014 a 1h window would read zero even while work was happening.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
-      },
-      "gridPos": {
-        "x": 6,
-        "y": 27,
-        "w": 6,
-        "h": 5
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "sum(rate(keeper_jobs_planned_total{network=\"$network\"}[24h])) * 86400",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          },
-          "format": "table",
-          "instant": true
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "decimals": 0
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "graphMode": "area"
-      }
-    },
-    {
-      "id": 9,
-      "type": "stat",
-      "title": "Simulation failures per day",
-      "description": "Simulation rejections per day, by kind and bucketed reason. Averaged over 24h because the TTL loop only ticks every 6h \u2014 a 1h window would read zero even while work was happening.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
-      },
-      "gridPos": {
-        "x": 12,
-        "y": 27,
-        "w": 6,
-        "h": 5
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "sum(rate(keeper_sim_failures_total{network=\"$network\"}[24h])) * 86400",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          },
-          "format": "table",
-          "instant": true
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "decimals": 0
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "graphMode": "area"
-      }
-    },
-    {
-      "id": 10,
-      "type": "stat",
-      "title": "Current ledger",
-      "description": "Ledger the last discovery tick observed. Stale here means the tick is not running \u2014 the TTL loop only fires every 6h.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
-      },
-      "gridPos": {
-        "x": 18,
-        "y": 27,
-        "w": 6,
-        "h": 5
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "keeper_current_ledger{network=\"$network\"}",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          },
-          "format": "table",
-          "instant": true
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "decimals": 0
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "graphMode": "area"
-      }
+     "refId": "A",
+     "expr": "(min(keeper_entry_ttl_ledgers_min{network=\"$network\"}) - min(keeper_safety_margin_ledgers{network=\"$network\"})) / 17280",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     },
+     "instant": true
     }
-  ],
-  "templating": {
-    "list": [
-      {
-        "name": "network",
-        "label": "Network",
-        "type": "query",
-        "datasource": {
-          "type": "prometheus",
-          "uid": "cfgw0aa7mups0d"
-        },
-        "query": {
-          "query": "label_values(keeper_current_ledger, network)",
-          "refId": "network"
-        },
-        "refresh": 1,
-        "includeAll": false,
-        "multi": false,
-        "current": {
-          "text": "mainnet",
-          "value": "mainnet"
-        },
-        "sort": 1
-      }
-    ]
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "d",
+     "decimals": 0,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "red",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 7
+       },
+       {
+        "color": "green",
+        "value": 30
+       }
+      ]
+     },
+     "color": {
+      "mode": "thresholds"
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    },
+    "graphMode": "none",
+    "colorMode": "background",
+    "textMode": "auto"
+   }
   },
-  "timezone": "browser",
-  "annotations": {
-    "list": []
+  {
+   "id": 102,
+   "type": "stat",
+   "title": "Entries awaiting restore",
+   "description": "Entries whose TTL already lapsed. Non-zero means protocol storage is archived and calls against it fail until restored \u2014 act now.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "cfgw0aa7mups0d"
+   },
+   "gridPos": {
+    "x": 6,
+    "y": 1,
+    "w": 6,
+    "h": 5
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "keeper_entries_archived{network=\"$network\"}",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     },
+     "instant": true
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "decimals": 0,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "red",
+        "value": 1
+       }
+      ]
+     },
+     "color": {
+      "mode": "thresholds"
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    },
+    "graphMode": "none",
+    "colorMode": "background",
+    "textMode": "auto"
+   }
+  },
+  {
+   "id": 103,
+   "type": "stat",
+   "title": "Key groups with nothing live",
+   "description": "Groups where every probed key came back never_created. Baseline is 1 (controller/roles \u2014 the controller has no access-control roles). A rise above that is how a wrong key encoding presents; alert KeeperKeyGroupUnreachable covers it.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "cfgw0aa7mups0d"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 1,
+    "w": 6,
+    "h": 5
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "count( (sum by (contract,group) (keeper_entries{network=\"$network\",state=\"never_created\"}) > 0) unless (sum by (contract,group) (keeper_entries{network=\"$network\",state=\"live\"}) > 0) ) or vector(0)",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     },
+     "instant": true
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "decimals": 0,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "text",
+        "value": 1
+       }
+      ]
+     },
+     "color": {
+      "mode": "thresholds"
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    },
+    "graphMode": "none",
+    "colorMode": "background",
+    "textMode": "auto"
+   }
+  },
+  {
+   "id": 104,
+   "type": "stat",
+   "title": "Last tick age",
+   "description": "Age of the storage figures on this dashboard. The TTL loop runs every 6h and the first tick fires one full interval after boot, so expect up to ~6h. Much beyond that means the keeper is not ticking.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "cfgw0aa7mups0d"
+   },
+   "gridPos": {
+    "x": 18,
+    "y": 1,
+    "w": 6,
+    "h": 5
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "time() - keeper_last_tick_timestamp_seconds{network=\"$network\"}",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     },
+     "instant": true
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "s",
+     "decimals": 0,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 25200
+       },
+       {
+        "color": "red",
+        "value": 43200
+       }
+      ]
+     },
+     "color": {
+      "mode": "thresholds"
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    },
+    "graphMode": "none",
+    "colorMode": "background",
+    "textMode": "auto"
+   }
+  },
+  {
+   "id": 1,
+   "type": "row",
+   "title": "Storage & TTL",
+   "gridPos": {
+    "x": 0,
+    "y": 6,
+    "w": 24,
+    "h": 1
+   },
+   "collapsed": false,
+   "panels": []
+  },
+  {
+   "id": 2,
+   "type": "table",
+   "title": "TTL headroom by contract and key group",
+   "description": "Lowest remaining TTL in each group. This is the pacing item: the smallest value is when the keeper first has to act. Red once inside the safety margin.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "cfgw0aa7mups0d"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 7,
+    "w": 14,
+    "h": 10
+   },
+   "targets": [
+    {
+     "refId": "TTL",
+     "expr": "keeper_entry_ttl_ledgers_min{network=\"$network\"} / 17280",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     },
+     "format": "table",
+     "instant": true
+    }
+   ],
+   "transformations": [
+    {
+     "id": "organize",
+     "options": {
+      "excludeByName": {
+       "Time": true,
+       "__name__": true,
+       "instance": true,
+       "job": true
+      }
+     }
+    },
+    {
+     "id": "organize",
+     "options": {
+      "renameByName": {
+       "contract": "Contract",
+       "group": "Key group",
+       "Value": "Headroom"
+      },
+      "indexByName": {
+       "contract": 0,
+       "group": 1,
+       "Value": 2
+      }
+     }
+    },
+    {
+     "id": "sortBy",
+     "options": {
+      "fields": {},
+      "sort": [
+       {
+        "field": "Headroom"
+       }
+      ]
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "custom": {
+      "align": "right",
+      "filterable": true
+     },
+     "unit": "d",
+     "decimals": 1
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byRegexp",
+       "options": "Contract|Key group"
+      },
+      "properties": [
+       {
+        "id": "custom.align",
+        "value": "left"
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Headroom"
+      },
+      "properties": [
+       {
+        "id": "custom.cellOptions",
+        "value": {
+         "type": "color-text"
+        }
+       },
+       {
+        "id": "thresholds",
+        "value": {
+         "mode": "absolute",
+         "steps": [
+          {
+           "color": "red",
+           "value": null
+          },
+          {
+           "color": "orange",
+           "value": 21
+          },
+          {
+           "color": "green",
+           "value": 45
+          }
+         ]
+        }
+       },
+       {
+        "id": "color",
+        "value": {
+         "mode": "thresholds"
+        }
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": 3,
+   "type": "table",
+   "title": "Entries by state \u2014 a group that is entirely never_created is a broken key",
+   "description": "Live, expired (TTL lapsed but restorable), archived (evicted from the ledger) and never_created (key never written). A whole group reading never_created means the keeper is probing a key that does not exist, which is indistinguishable from 'nothing to do' in every other metric. Any archived or expired row is real damage.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "cfgw0aa7mups0d"
+   },
+   "gridPos": {
+    "x": 14,
+    "y": 7,
+    "w": 10,
+    "h": 10
+   },
+   "targets": [
+    {
+     "refId": "E",
+     "expr": "keeper_entries{network=\"$network\"}",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     },
+     "format": "table",
+     "instant": true
+    }
+   ],
+   "transformations": [
+    {
+     "id": "organize",
+     "options": {
+      "excludeByName": {
+       "Time": true,
+       "__name__": true,
+       "instance": true,
+       "job": true
+      }
+     }
+    },
+    {
+     "id": "organize",
+     "options": {
+      "renameByName": {
+       "contract": "Contract",
+       "group": "Key group",
+       "state": "State",
+       "Value": "Entries"
+      },
+      "indexByName": {
+       "contract": 0,
+       "group": 1,
+       "state": 2,
+       "Value": 3
+      }
+     }
+    },
+    {
+     "id": "filterByValue",
+     "options": {
+      "type": "exclude",
+      "match": "all",
+      "filters": [
+       {
+        "fieldName": "Entries",
+        "config": {
+         "id": "equal",
+         "options": {
+          "value": 0
+         }
+        }
+       }
+      ]
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "custom": {
+      "align": "right",
+      "filterable": true
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byRegexp",
+       "options": "Contract|Key group|State"
+      },
+      "properties": [
+       {
+        "id": "custom.align",
+        "value": "left"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": 4,
+   "type": "timeseries",
+   "title": "TTL headroom over time",
+   "description": "Each series is one contract/key group. A downward slope that crosses the safety margin is when the keeper starts extending.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "cfgw0aa7mups0d"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 17,
+    "w": 14,
+    "h": 9
+   },
+   "targets": [
+    {
+     "refId": "TTL",
+     "expr": "keeper_entry_ttl_ledgers_min{network=\"$network\"} / 17280",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     },
+     "format": "time_series",
+     "legendFormat": "{{contract}} / {{group}}"
+    },
+    {
+     "refId": "MARGIN",
+     "expr": "keeper_safety_margin_ledgers{network=\"$network\"} / 17280",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     },
+     "format": "time_series",
+     "legendFormat": "safety margin"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "d",
+     "custom": {
+      "lineWidth": 1,
+      "fillOpacity": 0
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "safety margin"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "red"
+        }
+       },
+       {
+        "id": "custom.lineStyle",
+        "value": {
+         "fill": "dash",
+         "dash": [
+          10,
+          10
+         ]
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "legend": {
+     "displayMode": "table",
+     "placement": "right",
+     "calcs": [
+      "min"
+     ]
+    }
+   }
+  },
+  {
+   "id": 5,
+   "type": "timeseries",
+   "title": "Simulated resource fee per job kind (rent cost)",
+   "description": "Resource fee returned by simulation for the last job of each kind, in stroops. Measured from the network, not modelled from entry size. Populated on ticks that plan work \u2014 flat when there is nothing to do.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "cfgw0aa7mups0d"
+   },
+   "gridPos": {
+    "x": 14,
+    "y": 17,
+    "w": 10,
+    "h": 9
+   },
+   "targets": [
+    {
+     "refId": "FEE",
+     "expr": "keeper_sim_resource_fee_stroops{network=\"$network\"}",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     },
+     "format": "time_series",
+     "legendFormat": "{{kind}}"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "custom": {
+      "lineWidth": 1,
+      "fillOpacity": 10
+     }
+    },
+    "overrides": []
+   }
+  },
+  {
+   "id": 6,
+   "type": "row",
+   "title": "Keeper activity",
+   "gridPos": {
+    "x": 0,
+    "y": 26,
+    "w": 24,
+    "h": 1
+   },
+   "collapsed": false,
+   "panels": []
+  },
+  {
+   "id": 7,
+   "type": "stat",
+   "title": "Entries awaiting restore",
+   "description": "Discovered entries already expired. Non-zero means state is archived and calls against it will fail until restored.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "cfgw0aa7mups0d"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 27,
+    "w": 6,
+    "h": 5
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "keeper_entries_archived{network=\"$network\"}",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     },
+     "format": "table",
+     "instant": true
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "decimals": 0
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    },
+    "graphMode": "area"
+   }
+  },
+  {
+   "id": 8,
+   "type": "stat",
+   "title": "Jobs planned per day",
+   "description": "Jobs the keeper planned per day. Zero is normal when everything is far from its margin. Averaged over 24h because the TTL loop only ticks every 6h \u2014 a 1h window would read zero even while work was happening.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "cfgw0aa7mups0d"
+   },
+   "gridPos": {
+    "x": 6,
+    "y": 27,
+    "w": 6,
+    "h": 5
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "sum(rate(keeper_jobs_planned_total{network=\"$network\"}[24h])) * 86400",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     },
+     "format": "table",
+     "instant": true
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "decimals": 0
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    },
+    "graphMode": "area"
+   }
+  },
+  {
+   "id": 9,
+   "type": "stat",
+   "title": "Simulation failures per day",
+   "description": "Simulation rejections per day, by kind and bucketed reason. Averaged over 24h because the TTL loop only ticks every 6h \u2014 a 1h window would read zero even while work was happening.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "cfgw0aa7mups0d"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 27,
+    "w": 6,
+    "h": 5
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "sum(rate(keeper_sim_failures_total{network=\"$network\"}[24h])) * 86400",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     },
+     "format": "table",
+     "instant": true
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "decimals": 0
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    },
+    "graphMode": "area"
+   }
+  },
+  {
+   "id": 10,
+   "type": "stat",
+   "title": "Current ledger",
+   "description": "Ledger the last discovery tick observed. Stale here means the tick is not running \u2014 the TTL loop only fires every 6h.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "cfgw0aa7mups0d"
+   },
+   "gridPos": {
+    "x": 18,
+    "y": 27,
+    "w": 6,
+    "h": 5
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "keeper_current_ledger{network=\"$network\"}",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     },
+     "format": "table",
+     "instant": true
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "decimals": 0
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    },
+    "graphMode": "area"
+   }
+  },
+  {
+   "id": 900,
+   "type": "row",
+   "title": "Alerting & tick health",
+   "gridPos": {
+    "x": 0,
+    "y": 32,
+    "w": 24,
+    "h": 1
+   },
+   "collapsed": false,
+   "panels": []
+  },
+  {
+   "id": 901,
+   "type": "alertlist",
+   "title": "Keeper alerts",
+   "description": "Imported rules carry no dashboard/panel link, so nothing marks a firing alert on the panels above. This lists them instead.",
+   "gridPos": {
+    "x": 0,
+    "y": 33,
+    "w": 8,
+    "h": 9
+   },
+   "options": {
+    "alertInstanceLabelFilter": "",
+    "alertName": "Keeper",
+    "dashboardAlerts": false,
+    "groupBy": [],
+    "groupMode": "default",
+    "maxItems": 20,
+    "sortOrder": 1,
+    "stateFilter": {
+     "error": true,
+     "firing": true,
+     "noData": false,
+     "normal": false,
+     "pending": true
+    },
+    "viewMode": "list"
+   }
+  },
+  {
+   "id": 902,
+   "type": "timeseries",
+   "title": "Tick failures by loop",
+   "description": "Above zero means run_ttl_tick is running and throwing. Zero, with a stale last-tick age, means the loop is not reaching a tick at all.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "cfgw0aa7mups0d"
+   },
+   "gridPos": {
+    "x": 8,
+    "y": 33,
+    "w": 8,
+    "h": 9
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "increase(keeper_tick_failed_total{network=\"$network\"}[1h])",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     },
+     "format": "time_series",
+     "legendFormat": "{{loop}}"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "custom": {
+      "lineWidth": 1,
+      "fillOpacity": 0
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "table",
+     "placement": "right",
+     "calcs": [
+      "lastNotNull"
+     ]
+    }
+   }
+  },
+  {
+   "id": 903,
+   "type": "timeseries",
+   "title": "Transactions by kind and outcome",
+   "description": "KeeperTxFailures alerts on this; without a panel there was nothing to open when it fired.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "cfgw0aa7mups0d"
+   },
+   "gridPos": {
+    "x": 16,
+    "y": 33,
+    "w": 8,
+    "h": 9
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "increase(keeper_txs_total{network=\"$network\"}[24h])",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     },
+     "format": "time_series",
+     "legendFormat": "{{kind}} / {{status}}"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "custom": {
+      "lineWidth": 1,
+      "fillOpacity": 0
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "table",
+     "placement": "right",
+     "calcs": [
+      "lastNotNull"
+     ]
+    }
+   }
   }
+ ],
+ "templating": {
+  "list": [
+   {
+    "name": "network",
+    "label": "Network",
+    "type": "query",
+    "datasource": {
+     "type": "prometheus",
+     "uid": "cfgw0aa7mups0d"
+    },
+    "query": {
+     "query": "label_values(keeper_current_ledger, network)",
+     "refId": "network"
+    },
+    "refresh": 1,
+    "includeAll": false,
+    "multi": false,
+    "current": {
+     "text": "mainnet",
+     "value": "mainnet"
+    },
+    "sort": 1
+   }
+  ]
+ },
+ "timezone": "browser",
+ "annotations": {
+  "list": []
+ }
 }

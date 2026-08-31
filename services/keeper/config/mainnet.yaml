@@ -17,6 +17,13 @@ contracts:
   controller: CAUCMIN5KSXEVZ7NMXR3LZATGD5EFIEUI5XWTFLYRO2R5OTXI22WE5JX
   pool_wasm_hash: 4fd809ebe3248a27d6428089d7f8e4e5d982d56b12a4da5d782bc358c47832cb
   markets:
+    # Only markets that are `enabled: true` in configs/mainnet/markets.json.
+    # A disabled market is never listed on-chain, so the pool never writes its
+    # Params/State keys and the keeper would report both as `never_created`
+    # forever -- 12 wasted key reads a tick, and 12 rows of permanent noise in
+    # the state panel that look exactly like a broken key encoding. The six
+    # SPIKO* markets (hub 2) are omitted for that reason; add them back here
+    # when they are enabled.
     - { hub_id: 1, asset: CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA }
     - { hub_id: 1, asset: CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75 }
     - { hub_id: 1, asset: CDTKPWPLOURQA2SGTKTUQOWRCBZEORB4BWBOMJ3D3ZTQQSGE5F6JBQLV }
@@ -24,12 +31,6 @@ contracts:
     - { hub_id: 1, asset: CBIJBDNZNF4X35BJ4FFZWCDBSCKOP5NB4PLG4SNENRMLAPYG4P5FM6VN }
     - { hub_id: 1, asset: CAUP7NFABXE5TJRL3FKTPMWRLC7IAXYDCTHQRFSCLR5TMGKHOOQO772J }
     - { hub_id: 2, asset: CBZ4DCE7PYMUTOAKKUTRSUPT3FJFVOWCSKWUM5A72D6SAVMUJE5JN2PJ }
-    - { hub_id: 2, asset: CBGV2QFQBBGEQRUKUMCPO3SZOHDDYO6SCP5CH6TW7EALKVHCXTMWDDOF }
-    - { hub_id: 2, asset: CARUUX2FZNPH6DGJOEUFSIUQWYHNL5AVDV7PMVSHWL7OBYIBFC76F4TO }
-    - { hub_id: 2, asset: CDT3KU6TQZNOHKNOHNAFFDQZDURVC3MSTL4ML7TUTZGNOPBZCLABP4FR }
-    - { hub_id: 2, asset: CDGSC6BA4TCAOVSFQCUEHDMOIIHYYVNYBT6YEARS4MX3ITAHUINVGQHX }
-    - { hub_id: 2, asset: CBOOCGZSVRSZFRE4U2NWR2B4RXYVJWRCBTGOUD2JPI2TDJPWMTJX7FZP }
-    - { hub_id: 2, asset: CAGYRRKPFSWKM6SJOE4QAAVYMOSHMDS5WOQ4T5A2E6XNCU7LZZKUNQKP }
     - { hub_id: 2, asset: CBI7UCH5KGSVQRO5H4SUCZUTZABCITZLRHQQZTWL2TK4RZ72TAR6IHRV }
     - { hub_id: 2, asset: CC64WBDGS6QQP22QTTIACYIXT3WF7BBQEYOQPLTP7GTKYY7PZ74QYGSL }
     - { hub_id: 2, asset: CBLV4ATSIWU67CFSQU2NVRKINQIKUZ2ODSZBUJTJ43VJVRSBTZYOPNUR }

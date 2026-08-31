@@ -1,2950 +1,3224 @@
 {
-  "title": "Stellar Lending Protocol",
-  "uid": "stellar-lending",
-  "editable": true,
-  "schemaVersion": 39,
-  "timezone": "browser",
-  "time": {
-    "from": "now-24h",
-    "to": "now"
+ "title": "Stellar Lending Protocol",
+ "uid": "stellar-lending",
+ "editable": true,
+ "schemaVersion": 39,
+ "timezone": "browser",
+ "time": {
+  "from": "now-24h",
+  "to": "now"
+ },
+ "refresh": "30s",
+ "templating": {
+  "list": []
+ },
+ "annotations": {
+  "list": []
+ },
+ "panels": [
+  {
+   "id": 99,
+   "type": "text",
+   "title": "How to read this dashboard",
+   "gridPos": {
+    "h": 4,
+    "w": 24,
+    "x": 0,
+    "y": 0
+   },
+   "options": {
+    "mode": "markdown",
+    "content": "#### How to read this dashboard\n\nLive health of the XOXNO Lending protocol on Stellar: oracle prices, market sizes, rates, and risk parameters, read directly from the chain. \u201cNow\u201d for staleness is the **ledger close time**.\n\n\ud83d\udfe2 healthy \u00b7 \ud83d\udfe0 warning \u00b7 \ud83d\udd34 needs attention \u2014 hover any panel\u2019s \u24d8 for what it shows and when it turns red.\n\n**Sections:** Health \u00b7 Protocol \u00b7 Markets \u00b7 Oracles \u00b7 Spokes \u00b7 Exporter\n"
+   }
   },
-  "refresh": "30s",
-  "templating": {
-    "list": []
+  {
+   "id": 1,
+   "type": "row",
+   "title": "Health status",
+   "gridPos": {
+    "h": 1,
+    "w": 24,
+    "x": 0,
+    "y": 4
+   }
   },
-  "annotations": {
-    "list": []
-  },
-  "panels": [
-    {
-      "id": 99,
-      "type": "text",
-      "title": "How to read this dashboard",
-      "gridPos": {
-        "h": 4,
-        "w": 24,
-        "x": 0,
-        "y": 0
-      },
-      "options": {
-        "mode": "markdown",
-        "content": "#### How to read this dashboard\n\nLive health of the XOXNO Lending protocol on Stellar: oracle prices, market sizes, rates, and risk parameters, read directly from the chain. \u201cNow\u201d for staleness is the **ledger close time**.\n\n\ud83d\udfe2 healthy \u00b7 \ud83d\udfe0 warning \u00b7 \ud83d\udd34 needs attention \u2014 hover any panel\u2019s \u24d8 for what it shows and when it turns red.\n\n**Sections:** Health \u00b7 Protocol \u00b7 Markets \u00b7 Oracles \u00b7 Spokes \u00b7 Exporter\n"
-      }
-    },
-    {
-      "id": 1,
-      "type": "row",
-      "title": "Health status",
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 4
-      }
-    },
-    {
-      "id": 2,
-      "type": "stat",
-      "title": "Oracle health",
-      "gridPos": {
-        "h": 5,
-        "w": 5,
-        "x": 0,
-        "y": 5
-      },
-      "options": {
-        "colorMode": "background",
-        "graphMode": "none",
-        "textMode": "value",
-        "reduceOptions": {
-          "fields": "",
-          "values": false,
-          "calcs": [
-            "lastNotNull"
-          ]
-        }
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [
-            {
-              "type": "value",
-              "options": {
-                "0": {
-                  "text": "Feed failing",
-                  "color": "red"
-                },
-                "1": {
-                  "text": "Healthy",
-                  "color": "green"
-                }
-              }
-            }
-          ],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "red",
-                "value": null
-              },
-              {
-                "color": "green",
-                "value": 1
-              }
-            ]
-          }
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "min(lending_oracle_healthy{network=\"mainnet\"})",
-          "instant": true,
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        }
-      ],
-      "description": "Worst oracle across all assets. Red means at least one asset price is not safe to use.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
-      }
-    },
-    {
-      "id": 3,
-      "type": "stat",
-      "title": "Min freshness (time to stale)",
-      "gridPos": {
-        "h": 5,
-        "w": 5,
-        "x": 5,
-        "y": 5
-      },
-      "options": {
-        "colorMode": "background",
-        "graphMode": "none",
-        "textMode": "value",
-        "reduceOptions": {
-          "fields": "",
-          "values": false,
-          "calcs": [
-            "lastNotNull"
-          ]
-        }
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s",
-          "color": {
-            "mode": "thresholds"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "red",
-                "value": null
-              },
-              {
-                "color": "orange",
-                "value": 0
-              },
-              {
-                "color": "green",
-                "value": 300
-              }
-            ]
-          }
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "min(lending_oracle_seconds_until_stale{network=\"mainnet\"})",
-          "instant": true,
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        }
-      ],
-      "description": "Smallest remaining time before any asset price becomes stale, measured at ledger close time.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
-      }
-    },
-    {
-      "id": 105,
-      "type": "stat",
-      "title": "Any stale flag",
-      "gridPos": {
-        "h": 5,
-        "w": 5,
-        "x": 10,
-        "y": 5
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "max(lending_oracle_stale{network=\"mainnet\"})",
-          "instant": true,
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "mappings": [
-            {
-              "type": "value",
-              "options": {
-                "0": {
-                  "text": "clear",
-                  "color": "green"
-                },
-                "1": {
-                  "text": "STALE",
-                  "color": "red"
-                }
-              }
-            }
-          ],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 1
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "colorMode": "background",
-        "graphMode": "none",
-        "textMode": "auto"
-      },
-      "description": "1 if any asset price is currently older than its allowed maximum age.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
-      }
-    },
-    {
-      "id": 106,
-      "type": "stat",
-      "title": "Any deviation flag",
-      "gridPos": {
-        "h": 5,
-        "w": 5,
-        "x": 15,
-        "y": 5
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "max(lending_oracle_deviation_flag{network=\"mainnet\"})",
-          "instant": true,
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "mappings": [
-            {
-              "type": "value",
-              "options": {
-                "0": {
-                  "text": "clear",
-                  "color": "green"
-                },
-                "1": {
-                  "text": "DEVIATION",
-                  "color": "red"
-                }
-              }
-            }
-          ],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 1
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "colorMode": "background",
-        "graphMode": "none",
-        "textMode": "auto"
-      },
-      "description": "1 if any asset price currently deviates beyond its tolerance band.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
-      }
-    },
-    {
-      "id": 5,
-      "type": "stat",
-      "title": "Exporter \u2014 last scrape age",
-      "gridPos": {
-        "h": 5,
-        "w": 4,
-        "x": 20,
-        "y": 5
-      },
-      "options": {
-        "colorMode": "background",
-        "graphMode": "none",
-        "textMode": "value",
-        "reduceOptions": {
-          "fields": "",
-          "values": false,
-          "calcs": [
-            "lastNotNull"
-          ]
-        }
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s",
-          "color": {
-            "mode": "thresholds"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "orange",
-                "value": 60
-              },
-              {
-                "color": "red",
-                "value": 120
-              }
-            ]
-          }
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "time() - max(lending_exporter_last_success_timestamp{network=\"mainnet\"})",
-          "instant": true,
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        }
-      ],
-      "description": "Age of the last successful on-chain read. If this is red, everything else on the page may be out of date.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
-      }
-    },
-    {
-      "id": 9,
-      "type": "row",
-      "title": "Protocol",
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 10
-      }
-    },
-    {
-      "id": 10,
-      "type": "stat",
-      "title": "TVL",
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 0,
-        "y": 11
-      },
-      "options": {
-        "colorMode": "none",
-        "graphMode": "area",
-        "textMode": "value",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        }
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "currencyUSD",
-          "decimals": 0,
-          "color": {
-            "mode": "fixed",
-            "fixedColor": "blue"
-          }
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "sum(lending_protocol_tvl_usd{network=\"mainnet\"})",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        }
-      ],
-      "description": "Total value supplied to the protocol, in USD.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
-      }
-    },
-    {
-      "id": 11,
-      "type": "stat",
-      "title": "Total borrowed",
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 6,
-        "y": 11
-      },
-      "options": {
-        "colorMode": "none",
-        "graphMode": "area",
-        "textMode": "value",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        }
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "currencyUSD",
-          "decimals": 0,
-          "color": {
-            "mode": "fixed",
-            "fixedColor": "purple"
-          }
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "sum(lending_protocol_total_borrowed_usd{network=\"mainnet\"})",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        }
-      ],
-      "description": "Total value borrowed from the protocol, in USD.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
-      }
-    },
-    {
-      "id": 12,
-      "type": "stat",
-      "title": "Available liquidity",
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 12,
-        "y": 11
-      },
-      "options": {
-        "colorMode": "none",
-        "graphMode": "area",
-        "textMode": "value",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        }
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "currencyUSD",
-          "decimals": 0,
-          "color": {
-            "mode": "fixed",
-            "fixedColor": "green"
-          }
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "sum(lending_protocol_total_liquidity_usd{network=\"mainnet\"})",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        }
-      ],
-      "description": "Supplied minus borrowed \u2014 what can still be withdrawn or borrowed, in USD.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
-      }
-    },
-    {
-      "id": 13,
-      "type": "stat",
-      "title": "Revenue",
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 18,
-        "y": 11
-      },
-      "options": {
-        "colorMode": "none",
-        "graphMode": "area",
-        "textMode": "value",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        }
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "currencyUSD",
-          "decimals": 2,
-          "color": {
-            "mode": "fixed",
-            "fixedColor": "text"
-          }
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "sum(lending_protocol_total_revenue_usd{network=\"mainnet\"})",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        }
-      ],
-      "description": "Accumulated protocol revenue, in USD.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
-      }
-    },
-    {
-      "id": 300,
-      "type": "timeseries",
-      "title": "TVL / borrowed / liquidity \u2014 trend",
-      "description": "Protocol totals over time, in USD. The gap between TVL and borrowed is the available liquidity.",
-      "gridPos": {
-        "h": 8,
-        "w": 24,
-        "x": 0,
-        "y": 15
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "currencyUSD",
-          "custom": {
-            "showPoints": "never",
-            "fillOpacity": 8,
-            "lineWidth": 1,
-            "spanNulls": true
-          }
-        },
-        "overrides": []
-      },
-      "targets": [
-        {
-          "refId": "T",
-          "expr": "sum(lending_protocol_tvl_usd{network=\"mainnet\"})",
-          "legendFormat": "TVL",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        },
-        {
-          "refId": "B",
-          "expr": "sum(lending_protocol_total_borrowed_usd{network=\"mainnet\"})",
-          "legendFormat": "Borrowed",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        },
-        {
-          "refId": "L",
-          "expr": "sum(lending_protocol_total_liquidity_usd{network=\"mainnet\"})",
-          "legendFormat": "Available liquidity",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        }
-      ],
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true,
-          "calcs": [
-            "lastNotNull",
-            "min",
-            "max"
-          ]
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
-      }
-    },
-    {
-      "id": 19,
-      "type": "row",
-      "title": "Markets",
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 23
-      }
-    },
-    {
-      "id": 20,
-      "type": "table",
-      "title": "Market grid",
-      "gridPos": {
-        "h": 9,
-        "w": 24,
-        "x": 0,
-        "y": 24
-      },
-      "options": {
-        "showHeader": true,
-        "cellHeight": "sm",
-        "footer": {
-          "show": false
-        }
-      },
-      "targets": [
-        {
-          "refId": "SUP",
-          "expr": "lending_market_supplied_total_usd{network=\"mainnet\"}",
-          "instant": true,
-          "format": "table",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        },
-        {
-          "refId": "BOR",
-          "expr": "lending_market_borrowed_total_usd{network=\"mainnet\"}",
-          "instant": true,
-          "format": "table",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        },
-        {
-          "refId": "LIQ",
-          "expr": "lending_market_available_liquidity_usd{network=\"mainnet\"}",
-          "instant": true,
-          "format": "table",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        },
-        {
-          "refId": "UTL",
-          "expr": "lending_market_utilization_ratio{network=\"mainnet\"}",
-          "instant": true,
-          "format": "table",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        },
-        {
-          "refId": "SAP",
-          "expr": "lending_market_supply_apy{network=\"mainnet\"}",
-          "instant": true,
-          "format": "table",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        },
-        {
-          "refId": "BAP",
-          "expr": "lending_market_borrow_apy{network=\"mainnet\"}",
-          "instant": true,
-          "format": "table",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        },
-        {
-          "refId": "REV",
-          "expr": "lending_market_revenue_usd{network=\"mainnet\"}",
-          "instant": true,
-          "format": "table",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        },
-        {
-          "refId": "SQT",
-          "expr": "lending_market_supplied_total{network=\"mainnet\"}",
-          "instant": true,
-          "format": "table",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        },
-        {
-          "refId": "BQT",
-          "expr": "lending_market_borrowed_total{network=\"mainnet\"}",
-          "instant": true,
-          "format": "table",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        }
-      ],
-      "transformations": [
-        {
-          "id": "organize",
-          "options": {
-            "excludeByName": {
-              "Time": true,
-              "__name__": true,
-              "instance": true,
-              "job": true
-            }
-          }
-        },
-        {
-          "id": "merge",
-          "options": {}
-        },
-        {
-          "id": "organize",
-          "options": {
-            "renameByName": {
-              "symbol": "Asset",
-              "hub": "Hub",
-              "Value #SUP": "Supplied $",
-              "Value #BOR": "Borrowed $",
-              "Value #LIQ": "Liquidity $",
-              "Value #UTL": "Utilization",
-              "Value #SAP": "Supply APY",
-              "Value #BAP": "Borrow APY",
-              "Value #REV": "Revenue $",
-              "Value #SQT": "Supplied qty",
-              "Value #BQT": "Borrowed qty"
-            },
-            "excludeByName": {
-              "network": true,
-              "hub_id": true,
-              "asset": true
-            },
-            "indexByName": {
-              "symbol": 0,
-              "hub": 1,
-              "Value #SUP": 2,
-              "Value #BOR": 3,
-              "Value #LIQ": 4,
-              "Value #UTL": 5,
-              "Value #SAP": 6,
-              "Value #BAP": 7,
-              "Value #REV": 8,
-              "Value #SQT": 9,
-              "Value #BQT": 10
-            }
-          }
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "align": "right",
-            "filterable": true
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Asset"
-            },
-            "properties": [
-              {
-                "id": "custom.align",
-                "value": "left"
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Hub"
-            },
-            "properties": [
-              {
-                "id": "custom.align",
-                "value": "left"
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byRegexp",
-              "options": ".*\\$$"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "currencyUSD"
-              },
-              {
-                "id": "decimals",
-                "value": 2
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Utilization"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "percentunit"
-              },
-              {
-                "id": "custom.cellOptions",
-                "value": {
-                  "type": "gauge",
-                  "mode": "gradient"
-                }
-              },
-              {
-                "id": "max",
-                "value": 1
-              },
-              {
-                "id": "min",
-                "value": 0
-              },
-              {
-                "id": "thresholds",
-                "value": {
-                  "mode": "absolute",
-                  "steps": [
-                    {
-                      "color": "green",
-                      "value": null
-                    },
-                    {
-                      "color": "orange",
-                      "value": 0.9
-                    },
-                    {
-                      "color": "red",
-                      "value": 0.98
-                    }
-                  ]
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byRegexp",
-              "options": ".*APY"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "percentunit"
-              },
-              {
-                "id": "decimals",
-                "value": 2
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byRegexp",
-              "options": ".*qty"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "short"
-              },
-              {
-                "id": "decimals",
-                "value": 2
-              }
-            ]
-          }
-        ]
-      },
-      "description": "One row per market: size, rates, utilization, and accrual freshness.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
-      }
-    },
-    {
-      "id": 21,
-      "type": "timeseries",
-      "title": "Supplied vs borrowed (USD) by market",
-      "gridPos": {
-        "h": 8,
-        "w": 24,
-        "x": 0,
-        "y": 33
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "currencyUSD",
-          "custom": {
-            "showPoints": "never",
-            "fillOpacity": 8,
-            "lineWidth": 1,
-            "spanNulls": true
-          }
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "lending_market_supplied_total_usd{network=\"mainnet\"}",
-          "legendFormat": "supplied {{symbol}} \u00b7 {{hub}}",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        },
-        {
-          "refId": "B",
-          "expr": "lending_market_borrowed_total_usd{network=\"mainnet\"}",
-          "legendFormat": "borrowed {{symbol}} \u00b7 {{hub}}",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        }
-      ],
-      "options": {
-        "legend": {
-          "showLegend": true,
-          "displayMode": "list",
-          "placement": "bottom",
-          "calcs": []
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "description": "Total supplied and borrowed per market over time, in USD.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
-      }
-    },
-    {
-      "id": 103,
-      "type": "timeseries",
-      "title": "Available liquidity (USD) by market",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 41
-      },
-      "targets": [
-        {
-          "refId": "L",
-          "expr": "lending_market_available_liquidity_usd{network=\"mainnet\"}",
-          "legendFormat": "{{symbol}}",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "currencyUSD",
-          "custom": {
-            "showPoints": "never",
-            "fillOpacity": 8,
-            "lineWidth": 1,
-            "spanNulls": true
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "description": "Withdrawable liquidity per market over time, in USD.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
-      }
-    },
-    {
-      "id": 104,
-      "type": "timeseries",
-      "title": "Utilization by market",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 41
-      },
-      "targets": [
-        {
-          "refId": "U",
-          "expr": "lending_market_utilization_ratio{network=\"mainnet\"}",
-          "legendFormat": "{{symbol}}",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percentunit",
-          "min": 0,
-          "max": 1,
-          "custom": {
-            "showPoints": "never",
-            "fillOpacity": 8,
-            "lineWidth": 1,
-            "spanNulls": true
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "description": "Borrowed share of supplied funds per market. High utilization means withdrawals may have to wait.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
-      }
-    },
-    {
-      "id": 301,
-      "type": "timeseries",
-      "title": "Supplied quantity by market (tokens)",
-      "description": "Amount supplied per market in native token units (log scale \u2014 assets differ by orders of magnitude).",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 49
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "showPoints": "never",
-            "fillOpacity": 8,
-            "lineWidth": 1,
-            "spanNulls": true,
-            "scaleDistribution": {
-              "type": "log",
-              "log": 10
-            }
-          }
-        },
-        "overrides": []
-      },
-      "targets": [
-        {
-          "refId": "Q",
-          "expr": "lending_market_supplied_total{network=\"mainnet\"}",
-          "legendFormat": "{{symbol}}",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        }
-      ],
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
-      }
-    },
-    {
-      "id": 302,
-      "type": "timeseries",
-      "title": "Borrowed quantity by market (tokens)",
-      "description": "Amount borrowed per market in native token units (log scale).",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 49
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "showPoints": "never",
-            "fillOpacity": 8,
-            "lineWidth": 1,
-            "spanNulls": true,
-            "scaleDistribution": {
-              "type": "log",
-              "log": 10
-            }
-          }
-        },
-        "overrides": []
-      },
-      "targets": [
-        {
-          "refId": "Q",
-          "expr": "lending_market_borrowed_total{network=\"mainnet\"}",
-          "legendFormat": "{{symbol}}",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        }
-      ],
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
-      }
-    },
-    {
-      "id": 29,
-      "type": "row",
-      "title": "Oracles",
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 57
-      }
-    },
-    {
-      "id": 30,
-      "type": "timeseries",
-      "title": "Oracle price (USD)",
-      "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 0,
-        "y": 58
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "currencyUSD",
-          "custom": {
-            "showPoints": "never",
-            "fillOpacity": 8,
-            "lineWidth": 1,
-            "spanNulls": true,
-            "scaleDistribution": {
-              "type": "log",
-              "log": 10
-            }
-          }
-        }
-      },
-      "targets": [
-        {
-          "refId": "F",
-          "expr": "lending_oracle_price_usd{network=\"mainnet\"}",
-          "legendFormat": "{{symbol}}",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        }
-      ],
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true,
-          "calcs": []
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "description": "The USD price the protocol uses for each asset (log scale).",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
-      }
-    },
-    {
-      "id": 31,
-      "type": "timeseries",
-      "title": "Deviation vs tolerance band (bps)",
-      "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 8,
-        "y": 58
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "none",
-          "custom": {
-            "showPoints": "never",
-            "fillOpacity": 8,
-            "lineWidth": 1,
-            "spanNulls": true
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byRegexp",
-              "options": ".*upper|.*lower"
-            },
-            "properties": [
-              {
-                "id": "custom.lineStyle",
-                "value": {
-                  "fill": "dash",
-                  "dash": [
-                    4,
-                    4
-                  ]
-                }
-              },
-              {
-                "id": "custom.lineWidth",
-                "value": 1
-              },
-              {
-                "id": "custom.fillOpacity",
-                "value": 0
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byRegexp",
-              "options": ".*deviation"
-            },
-            "properties": [
-              {
-                "id": "custom.lineWidth",
-                "value": 2
-              }
-            ]
-          }
-        ]
-      },
-      "targets": [
-        {
-          "refId": "D",
-          "expr": "lending_oracle_deviation_bps{network=\"mainnet\"}",
-          "legendFormat": "{{symbol}} deviation",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        },
-        {
-          "refId": "U",
-          "expr": "lending_oracle_tolerance_upper_bps{network=\"mainnet\"}",
-          "legendFormat": "{{symbol}} upper",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        },
-        {
-          "refId": "L",
-          "expr": "lending_oracle_tolerance_lower_bps{network=\"mainnet\"}",
-          "legendFormat": "{{symbol}} lower",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        }
-      ],
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "description": "Primary-vs-anchor price gap per asset (solid), against that asset's own tolerance band (dashed). A solid line crossing its dashed line means the deviation flag raises.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
-      }
-    },
-    {
-      "id": 32,
-      "type": "timeseries",
-      "title": "Freshness (seconds until stale)",
-      "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 16,
-        "y": 58
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "red",
-                "value": null
-              },
-              {
-                "color": "orange",
-                "value": 0
-              },
-              {
-                "color": "green",
-                "value": 300
-              }
-            ]
-          },
-          "custom": {
-            "thresholdsStyle": {
-              "mode": "line"
-            },
-            "showPoints": "never",
-            "fillOpacity": 8,
-            "lineWidth": 1,
-            "spanNulls": true
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byRegexp",
-              "options": ".*s left"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "s"
-              }
-            ]
-          }
-        ]
-      },
-      "targets": [
-        {
-          "refId": "S",
-          "expr": "lending_oracle_seconds_until_stale{network=\"mainnet\"}",
-          "legendFormat": "{{symbol}} s left",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        }
-      ],
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "description": "Time left before each asset price goes stale. Negative or zero means stale now.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
-      }
-    },
-    {
-      "id": 101,
-      "type": "table",
-      "title": "Oracle status by asset",
-      "gridPos": {
-        "h": 10,
-        "w": 24,
-        "x": 0,
-        "y": 66
-      },
-      "options": {
-        "showHeader": true,
-        "cellHeight": "sm",
-        "footer": {
-          "show": false
-        }
-      },
-      "targets": [
-        {
-          "refId": "FP",
-          "expr": "lending_oracle_price_usd{network=\"mainnet\"}",
-          "instant": true,
-          "format": "table",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        },
-        {
-          "refId": "PP",
-          "expr": "lending_oracle_primary_price_usd{network=\"mainnet\"}",
-          "instant": true,
-          "format": "table",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        },
-        {
-          "refId": "AP",
-          "expr": "lending_oracle_anchor_price_usd{network=\"mainnet\"}",
-          "instant": true,
-          "format": "table",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        },
-        {
-          "refId": "DV",
-          "expr": "lending_oracle_deviation_bps{network=\"mainnet\"}",
-          "instant": true,
-          "format": "table",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        },
-        {
-          "refId": "ST",
-          "expr": "lending_oracle_stale{network=\"mainnet\"}",
-          "instant": true,
-          "format": "table",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        },
-        {
-          "refId": "DF",
-          "expr": "lending_oracle_deviation_flag{network=\"mainnet\"}",
-          "instant": true,
-          "format": "table",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        },
-        {
-          "refId": "HL",
-          "expr": "lending_oracle_healthy{network=\"mainnet\"}",
-          "instant": true,
-          "format": "table",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        },
-        {
-          "refId": "EC",
-          "expr": "lending_oracle_error_code{network=\"mainnet\"}",
-          "instant": true,
-          "format": "table",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        },
-        {
-          "refId": "TS",
-          "expr": "lending_oracle_status_timestamp_seconds{network=\"mainnet\"} * 1000",
-          "instant": true,
-          "format": "table",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        }
-      ],
-      "transformations": [
-        {
-          "id": "organize",
-          "options": {
-            "excludeByName": {
-              "Time": true,
-              "__name__": true,
-              "instance": true,
-              "job": true
-            }
-          }
-        },
-        {
-          "id": "merge",
-          "options": {}
-        },
-        {
-          "id": "organize",
-          "options": {
-            "renameByName": {
-              "symbol": "Asset",
-              "hub": "Hub",
-              "Value #FP": "Final $",
-              "Value #PP": "Primary $",
-              "Value #AP": "Anchor $",
-              "Value #DV": "Dev bps",
-              "Value #ST": "Stale",
-              "Value #DF": "Deviation",
-              "Value #HL": "Healthy",
-              "Value #TS": "Status ts",
-              "Value #EC": "Error"
-            },
-            "excludeByName": {
-              "network": true,
-              "hub_id": true,
-              "asset": true
-            },
-            "indexByName": {
-              "symbol": 0,
-              "hub": 1,
-              "Value #FP": 2,
-              "Value #PP": 3,
-              "Value #AP": 4,
-              "Value #DV": 5,
-              "Value #ST": 6,
-              "Value #DF": 7,
-              "Value #HL": 8,
-              "Value #TS": 10,
-              "Value #EC": 9
-            }
-          }
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "align": "right",
-            "filterable": true
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Asset"
-            },
-            "properties": [
-              {
-                "id": "custom.align",
-                "value": "left"
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Hub"
-            },
-            "properties": [
-              {
-                "id": "custom.align",
-                "value": "left"
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byRegexp",
-              "options": ".*\\$$"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "currencyUSD"
-              },
-              {
-                "id": "decimals",
-                "value": 4
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Status ts"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "dateTimeAsIso"
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Healthy"
-            },
-            "properties": [
-              {
-                "id": "mappings",
-                "value": [
-                  {
-                    "type": "value",
-                    "options": {
-                      "0": {
-                        "text": "NO",
-                        "color": "red"
-                      },
-                      "1": {
-                        "text": "YES",
-                        "color": "green"
-                      }
-                    }
-                  }
-                ]
-              },
-              {
-                "id": "custom.cellOptions",
-                "value": {
-                  "type": "color-text"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byRegexp",
-              "options": "Stale|Deviation"
-            },
-            "properties": [
-              {
-                "id": "mappings",
-                "value": [
-                  {
-                    "type": "value",
-                    "options": {
-                      "0": {
-                        "text": "ok",
-                        "color": "green"
-                      },
-                      "1": {
-                        "text": "FLAG",
-                        "color": "red"
-                      }
-                    }
-                  }
-                ]
-              },
-              {
-                "id": "custom.cellOptions",
-                "value": {
-                  "type": "color-text"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Error"
-            },
-            "properties": [
-              {
-                "id": "mappings",
-                "value": [
-                  {
-                    "type": "value",
-                    "options": {
-                      "0": {
-                        "text": "ok",
-                        "color": "green"
-                      },
-                      "205": {
-                        "text": "deviation",
-                        "color": "red"
-                      },
-                      "206": {
-                        "text": "STALE",
-                        "color": "red"
-                      },
-                      "210": {
-                        "text": "no price",
-                        "color": "red"
-                      },
-                      "216": {
-                        "text": "unconfigured",
-                        "color": "red"
-                      },
-                      "217": {
-                        "text": "invalid price",
-                        "color": "red"
-                      },
-                      "223": {
-                        "text": "sanity band",
-                        "color": "red"
-                      },
-                      "225": {
-                        "text": "cycle",
-                        "color": "red"
-                      },
-                      "229": {
-                        "text": "depth",
-                        "color": "red"
-                      },
-                      "230": {
-                        "text": "factor bounds",
-                        "color": "red"
-                      },
-                      "231": {
-                        "text": "source count",
-                        "color": "red"
-                      },
-                      "234": {
-                        "text": "bad LP pool",
-                        "color": "red"
-                      }
-                    }
-                  }
-                ]
-              },
-              {
-                "id": "custom.cellOptions",
-                "value": {
-                  "type": "color-text"
-                }
-              },
-              {
-                "id": "custom.align",
-                "value": "left"
-              }
-            ]
-          }
-        ]
-      },
-      "description": "Per-asset snapshot: the three oracle prices, deviation, and the oracle flags. The single place to see why an asset is flagged.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
-      }
-    },
-    {
-      "id": 102,
-      "type": "state-timeline",
-      "title": "Oracle health timeline",
-      "gridPos": {
-        "h": 12,
-        "w": 24,
-        "x": 0,
-        "y": 76
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "lending_oracle_healthy{network=\"mainnet\"}",
-          "legendFormat": "{{symbol}}",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        }
-      ],
-      "options": {
-        "showValue": "never",
-        "mergeValues": true,
-        "alignValue": "center",
-        "rowHeight": 0.85,
-        "legend": {
-          "showLegend": false
-        },
-        "tooltip": {
-          "mode": "single",
-          "sort": "none"
-        }
-      },
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "fillOpacity": 70,
-            "lineWidth": 0
-          },
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [
-            {
-              "type": "value",
-              "options": {
-                "0": {
-                  "text": "failing",
-                  "color": "red"
-                },
-                "1": {
-                  "text": "ok",
-                  "color": "green"
-                }
-              }
-            }
-          ],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "red",
-                "value": null
-              },
-              {
-                "color": "green",
-                "value": 1
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "description": "One row per asset: green while the price is safe to use, red while it is failing. See the status table above for whether a red patch was staleness or deviation.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
-      }
-    },
-    {
-      "id": 110,
-      "type": "table",
-      "title": "Oracle configuration by asset",
-      "gridPos": {
-        "h": 9,
-        "w": 24,
-        "x": 0,
-        "y": 88
-      },
-      "options": {
-        "showHeader": true,
-        "cellHeight": "sm",
-        "footer": {
-          "show": false
-        }
-      },
-      "targets": [
-        {
-          "refId": "ST",
-          "expr": "lending_oracle_strategy{network=\"mainnet\"}",
-          "instant": true,
-          "format": "table",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        },
-        {
-          "refId": "MS",
-          "expr": "lending_oracle_max_stale_seconds{network=\"mainnet\"}",
-          "instant": true,
-          "format": "table",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        },
-        {
-          "refId": "TU",
-          "expr": "lending_oracle_tolerance_upper_bps{network=\"mainnet\"}",
-          "instant": true,
-          "format": "table",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        },
-        {
-          "refId": "TL",
-          "expr": "lending_oracle_tolerance_lower_bps{network=\"mainnet\"}",
-          "instant": true,
-          "format": "table",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        },
-        {
-          "refId": "SN",
-          "expr": "lending_oracle_sanity_min_usd{network=\"mainnet\"}",
-          "instant": true,
-          "format": "table",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        },
-        {
-          "refId": "SX",
-          "expr": "lending_oracle_sanity_max_usd{network=\"mainnet\"}",
-          "instant": true,
-          "format": "table",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        }
-      ],
-      "transformations": [
-        {
-          "id": "organize",
-          "options": {
-            "excludeByName": {
-              "Time": true,
-              "__name__": true,
-              "instance": true,
-              "job": true
-            }
-          }
-        },
-        {
-          "id": "merge",
-          "options": {}
-        },
-        {
-          "id": "organize",
-          "options": {
-            "renameByName": {
-              "symbol": "Asset",
-              "Value #ST": "Strategy",
-              "Value #MS": "Max stale s",
-              "Value #TU": "Tol upper",
-              "Value #TL": "Tol lower",
-              "Value #SN": "Sanity min $",
-              "Value #SX": "Sanity max $"
-            },
-            "excludeByName": {
-              "network": true,
-              "asset": true
-            },
-            "indexByName": {
-              "symbol": 0,
-              "Value #ST": 1,
-              "Value #MS": 2,
-              "Value #TU": 3,
-              "Value #TL": 4,
-              "Value #SN": 5,
-              "Value #SX": 6
-            }
-          }
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "align": "right",
-            "filterable": true
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Asset"
-            },
-            "properties": [
-              {
-                "id": "custom.align",
-                "value": "left"
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Strategy"
-            },
-            "properties": [
-              {
-                "id": "mappings",
-                "value": [
-                  {
-                    "type": "value",
-                    "options": {
-                      "0": {
-                        "text": "Single",
-                        "color": "blue"
-                      }
-                    }
-                  },
-                  {
-                    "type": "value",
-                    "options": {
-                      "1": {
-                        "text": "Primary+Anchor",
-                        "color": "purple"
-                      }
-                    }
-                  }
-                ]
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byRegexp",
-              "options": "Sanity.*|.*\\$"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "currencyUSD"
-              },
-              {
-                "id": "decimals",
-                "value": 4
-              }
-            ]
-          }
-        ]
-      },
-      "description": "How each asset's oracle is configured: blend strategy, maximum allowed price age, tolerance band, and sanity bounds \u2014 plus its current freshness.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
-      }
-    },
-    {
-      "id": 303,
-      "type": "row",
-      "title": "Spokes",
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 97
-      }
-    },
-    {
-      "id": 112,
-      "type": "table",
-      "title": "All spoke listings \u2014 operational state",
-      "description": "Every listed spoke-asset and its operational switches. \u201cClosed\u201d means the cap is 0 \u2014 the market accepts no new supply or borrows.",
-      "gridPos": {
-        "h": 12,
-        "w": 24,
-        "x": 0,
-        "y": 98
-      },
-      "options": {
-        "showHeader": true,
-        "cellHeight": "sm"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "align": "right",
-            "filterable": true
-          }
-        }
-      },
-      "targets": [
-        {
-          "refId": "PAU",
-          "expr": "lending_spoke_paused{network=\"mainnet\"}",
-          "instant": true,
-          "format": "table",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        },
-        {
-          "refId": "FRZ",
-          "expr": "lending_spoke_frozen{network=\"mainnet\"}",
-          "instant": true,
-          "format": "table",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        },
-        {
-          "refId": "COL",
-          "expr": "lending_spoke_collateral_enabled{network=\"mainnet\"}",
-          "instant": true,
-          "format": "table",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        },
-        {
-          "refId": "BRW",
-          "expr": "lending_spoke_borrow_enabled{network=\"mainnet\"}",
-          "instant": true,
-          "format": "table",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        },
-        {
-          "refId": "SCL",
-          "expr": "lending_spoke_supply_closed{network=\"mainnet\"}",
-          "instant": true,
-          "format": "table",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        },
-        {
-          "refId": "BCL",
-          "expr": "lending_spoke_borrow_closed{network=\"mainnet\"}",
-          "instant": true,
-          "format": "table",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        },
-        {
-          "refId": "SCU",
-          "expr": "lending_spoke_supply_cap_utilization{network=\"mainnet\"}",
-          "instant": true,
-          "format": "table",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        },
-        {
-          "refId": "BCU",
-          "expr": "lending_spoke_borrow_cap_utilization{network=\"mainnet\"}",
-          "instant": true,
-          "format": "table",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        }
-      ],
-      "transformations": [
-        {
-          "id": "merge",
-          "options": {}
-        },
-        {
-          "id": "organize",
-          "options": {
-            "excludeByName": {
-              "Time": true,
-              "__name__": true,
-              "instance": true,
-              "job": true,
-              "network": true,
-              "hub_id": true,
-              "asset": true
-            },
-            "renameByName": {
-              "spoke": "Spoke",
-              "symbol": "Asset",
-              "hub": "Hub",
-              "Value #PAU": "Paused",
-              "Value #FRZ": "Frozen",
-              "Value #COL": "Collateral",
-              "Value #BRW": "Borrow",
-              "Value #SCL": "Supply closed",
-              "Value #BCL": "Borrow closed",
-              "Value #SCU": "Supply cap util",
-              "Value #BCU": "Borrow cap util"
-            }
-          }
-        }
-      ],
-      "datasource": {
-        "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
-      }
-    },
-    {
-      "id": 310,
-      "type": "table",
-      "title": "Liquidation settings by spoke",
-      "description": "Per-spoke liquidation settings: the health factor a liquidation aims to restore, the HF at which the maximum bonus applies, and the bonus scaling factor.",
-      "gridPos": {
-        "h": 6,
-        "w": 24,
-        "x": 0,
-        "y": 110
-      },
-      "options": {
-        "showHeader": true,
-        "cellHeight": "sm",
-        "footer": {
-          "show": false
-        }
-      },
-      "targets": [
-        {
-          "refId": "TH",
-          "expr": "lending_spoke_liquidation_target_hf{network=\"mainnet\"}",
-          "instant": true,
-          "format": "table",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        },
-        {
-          "refId": "MB",
-          "expr": "lending_spoke_hf_for_max_bonus{network=\"mainnet\"}",
-          "instant": true,
-          "format": "table",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        },
-        {
-          "refId": "BF",
-          "expr": "lending_spoke_liquidation_bonus_factor_bps{network=\"mainnet\"}",
-          "instant": true,
-          "format": "table",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        }
-      ],
-      "transformations": [
-        {
-          "id": "organize",
-          "options": {
-            "excludeByName": {
-              "Time": true,
-              "__name__": true,
-              "instance": true,
-              "job": true
-            }
-          }
-        },
-        {
-          "id": "merge",
-          "options": {}
-        },
-        {
-          "id": "organize",
-          "options": {
-            "renameByName": {
-              "spoke": "Spoke",
-              "Value #TH": "Liq target HF",
-              "Value #MB": "HF for max bonus",
-              "Value #BF": "Bonus factor bps"
-            },
-            "excludeByName": {
-              "network": true,
-              "spoke_id": true
-            },
-            "indexByName": {
-              "spoke": 0,
-              "Value #TH": 1,
-              "Value #MB": 2,
-              "Value #BF": 3
-            }
-          }
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "align": "right",
-            "filterable": true
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Spoke"
-            },
-            "properties": [
-              {
-                "id": "custom.align",
-                "value": "left"
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byRegexp",
-              "options": ".*HF.*"
-            },
-            "properties": [
-              {
-                "id": "decimals",
-                "value": 2
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Bonus factor bps"
-            },
-            "properties": [
-              {
-                "id": "decimals",
-                "value": 0
-              }
-            ]
-          }
-        ]
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
-      }
-    },
-    {
-      "id": 311,
-      "type": "table",
-      "title": "Risk parameters & caps by asset",
-      "description": "Per-asset risk settings across all spokes: how much you can borrow against each asset (LTV), when liquidation starts, liquidation bonus and fee, and how full the caps are.",
-      "gridPos": {
-        "h": 10,
-        "w": 24,
-        "x": 0,
-        "y": 116
-      },
-      "options": {
-        "showHeader": true,
-        "cellHeight": "sm",
-        "footer": {
-          "show": false
-        }
-      },
-      "targets": [
-        {
-          "refId": "LTV",
-          "expr": "lending_spoke_ltv_bps{network=\"mainnet\"}/10000",
-          "instant": true,
-          "format": "table",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        },
-        {
-          "refId": "THR",
-          "expr": "lending_spoke_liquidation_threshold_bps{network=\"mainnet\"}/10000",
-          "instant": true,
-          "format": "table",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        },
-        {
-          "refId": "BON",
-          "expr": "lending_spoke_liquidation_bonus_bps{network=\"mainnet\"}",
-          "instant": true,
-          "format": "table",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        },
-        {
-          "refId": "FEE",
-          "expr": "lending_spoke_liquidation_fees_bps{network=\"mainnet\"}",
-          "instant": true,
-          "format": "table",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        },
-        {
-          "refId": "SU",
-          "expr": "lending_spoke_supply_usage_usd{network=\"mainnet\"}",
-          "instant": true,
-          "format": "table",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        },
-        {
-          "refId": "BU",
-          "expr": "lending_spoke_borrow_usage_usd{network=\"mainnet\"}",
-          "instant": true,
-          "format": "table",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        },
-        {
-          "refId": "SCU",
-          "expr": "lending_spoke_supply_cap_utilization{network=\"mainnet\"}",
-          "instant": true,
-          "format": "table",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        },
-        {
-          "refId": "BCU",
-          "expr": "lending_spoke_borrow_cap_utilization{network=\"mainnet\"}",
-          "instant": true,
-          "format": "table",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        }
-      ],
-      "transformations": [
-        {
-          "id": "organize",
-          "options": {
-            "excludeByName": {
-              "Time": true,
-              "__name__": true,
-              "instance": true,
-              "job": true
-            }
-          }
-        },
-        {
-          "id": "merge",
-          "options": {}
-        },
-        {
-          "id": "organize",
-          "options": {
-            "renameByName": {
-              "spoke": "Spoke",
-              "symbol": "Asset",
-              "hub": "Hub",
-              "Value #LTV": "LTV",
-              "Value #THR": "Liq thr",
-              "Value #BON": "Bonus bps",
-              "Value #FEE": "Fee bps",
-              "Value #SU": "Supply $",
-              "Value #BU": "Borrow $",
-              "Value #SCU": "Sup cap util",
-              "Value #BCU": "Bor cap util"
-            },
-            "excludeByName": {
-              "network": true,
-              "spoke_id": true,
-              "hub_id": true,
-              "asset": true
-            },
-            "indexByName": {
-              "spoke": 0,
-              "symbol": 1,
-              "hub": 2,
-              "Value #LTV": 3,
-              "Value #THR": 4,
-              "Value #BON": 5,
-              "Value #FEE": 6,
-              "Value #SU": 7,
-              "Value #BU": 8,
-              "Value #SCU": 9,
-              "Value #BCU": 10
-            }
-          }
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "align": "right",
-            "filterable": true
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byRegexp",
-              "options": "Spoke|Asset|Hub"
-            },
-            "properties": [
-              {
-                "id": "custom.align",
-                "value": "left"
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byRegexp",
-              "options": "LTV|Liq thr|.*cap util"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "percentunit"
-              },
-              {
-                "id": "decimals",
-                "value": 2
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byRegexp",
-              "options": ".*\\$$"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "currencyUSD"
-              },
-              {
-                "id": "decimals",
-                "value": 2
-              }
-            ]
-          }
-        ]
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
-      }
-    },
-    {
-      "id": 312,
-      "type": "timeseries",
-      "title": "Supply cap utilization by spoke-asset",
-      "description": "Supply amount as a share of the supply cap. Red means the cap is nearly exhausted.",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 126
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percentunit",
-          "min": 0,
-          "max": 1,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "orange",
-                "value": 0.9
-              },
-              {
-                "color": "red",
-                "value": 0.95
-              }
-            ]
-          },
-          "custom": {
-            "showPoints": "never",
-            "fillOpacity": 8,
-            "lineWidth": 1,
-            "spanNulls": true,
-            "thresholdsStyle": {
-              "mode": "dashed"
-            }
-          }
-        },
-        "overrides": []
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "lending_spoke_supply_cap_utilization{network=\"mainnet\"}",
-          "legendFormat": "{{spoke}} \u00b7 {{symbol}}",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        }
-      ],
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
-      }
-    },
-    {
-      "id": 313,
-      "type": "timeseries",
-      "title": "Borrow cap utilization by spoke-asset",
-      "description": "Borrow amount as a share of the borrow cap. Red means the cap is nearly exhausted.",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 126
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percentunit",
-          "min": 0,
-          "max": 1,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "orange",
-                "value": 0.9
-              },
-              {
-                "color": "red",
-                "value": 0.95
-              }
-            ]
-          },
-          "custom": {
-            "showPoints": "never",
-            "fillOpacity": 8,
-            "lineWidth": 1,
-            "spanNulls": true,
-            "thresholdsStyle": {
-              "mode": "dashed"
-            }
-          }
-        },
-        "overrides": []
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "lending_spoke_borrow_cap_utilization{network=\"mainnet\"}",
-          "legendFormat": "{{spoke}} \u00b7 {{symbol}}",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        }
-      ],
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
-      }
-    },
-    {
-      "id": 49,
-      "type": "row",
-      "title": "Exporter health",
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 134
-      },
-      "collapsed": true,
-      "panels": [
-        {
-          "id": 50,
-          "type": "timeseries",
-          "title": "Scrape duration",
-          "gridPos": {
-            "x": 0,
-            "y": 135,
-            "w": 8,
-            "h": 6
-          },
-          "fieldConfig": {
-            "defaults": {
-              "unit": "s",
-              "custom": {
-                "showPoints": "never",
-                "fillOpacity": 8,
-                "lineWidth": 1,
-                "spanNulls": true
-              }
-            }
-          },
-          "targets": [
-            {
-              "refId": "A",
-              "expr": "lending_exporter_scrape_duration_seconds{network=\"mainnet\"}",
-              "legendFormat": "scrape",
-              "datasource": {
-                "type": "prometheus",
-                "uid": "cfgw0aa7mups0d"
-              }
-            }
-          ],
-          "options": {
-            "legend": {
-              "showLegend": true,
-              "displayMode": "list",
-              "placement": "bottom",
-              "calcs": []
-            },
-            "tooltip": {
-              "mode": "multi",
-              "sort": "desc"
-            }
-          },
-          "description": "How long one full on-chain read takes.",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        },
-        {
-          "id": 51,
-          "type": "timeseries",
-          "title": "View failures (rate / 5m)",
-          "gridPos": {
-            "x": 8,
-            "y": 135,
-            "w": 8,
-            "h": 6
-          },
-          "fieldConfig": {
-            "defaults": {
-              "unit": "short",
-              "custom": {
-                "showPoints": "never",
-                "fillOpacity": 8,
-                "lineWidth": 1,
-                "spanNulls": true
-              }
-            }
-          },
-          "targets": [
-            {
-              "refId": "A",
-              "expr": "sum by (view, code) (rate(lending_exporter_view_failures_total{network=\"mainnet\"}[5m]))",
-              "legendFormat": "{{view}} #{{code}}",
-              "datasource": {
-                "type": "prometheus",
-                "uid": "cfgw0aa7mups0d"
-              }
-            }
-          ],
-          "options": {
-            "legend": {
-              "showLegend": true,
-              "displayMode": "list",
-              "placement": "bottom",
-              "calcs": []
-            },
-            "tooltip": {
-              "mode": "multi",
-              "sort": "desc"
-            }
-          },
-          "description": "On-chain view calls that failed, by view and error code.",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        },
-        {
-          "id": 52,
-          "type": "timeseries",
-          "title": "Ledger skew (ledger - wall clock)",
-          "gridPos": {
-            "x": 16,
-            "y": 135,
-            "w": 8,
-            "h": 6
-          },
-          "fieldConfig": {
-            "defaults": {
-              "unit": "s",
-              "custom": {
-                "showPoints": "never",
-                "fillOpacity": 8,
-                "lineWidth": 1,
-                "spanNulls": true
-              }
-            }
-          },
-          "targets": [
-            {
-              "refId": "A",
-              "expr": "lending_exporter_ledger_skew_seconds{network=\"mainnet\"}",
-              "legendFormat": "skew",
-              "datasource": {
-                "type": "prometheus",
-                "uid": "cfgw0aa7mups0d"
-              }
-            }
-          ],
-          "options": {
-            "legend": {
-              "showLegend": true,
-              "displayMode": "list",
-              "placement": "bottom",
-              "calcs": []
-            },
-            "tooltip": {
-              "mode": "multi",
-              "sort": "desc"
-            }
-          },
-          "description": "Difference between ledger close time and wall clock. Large skew delays staleness detection.",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        }
-      ]
+  {
+   "id": 2,
+   "type": "stat",
+   "title": "Oracle health",
+   "gridPos": {
+    "h": 5,
+    "w": 5,
+    "x": 0,
+    "y": 5
+   },
+   "options": {
+    "colorMode": "background",
+    "graphMode": "none",
+    "textMode": "value",
+    "reduceOptions": {
+     "fields": "",
+     "values": false,
+     "calcs": [
+      "lastNotNull"
+     ]
     }
-  ]
+   },
+   "fieldConfig": {
+    "defaults": {
+     "color": {
+      "mode": "thresholds"
+     },
+     "mappings": [
+      {
+       "type": "value",
+       "options": {
+        "0": {
+         "text": "Feed failing",
+         "color": "red"
+        },
+        "1": {
+         "text": "Healthy",
+         "color": "green"
+        }
+       }
+      }
+     ],
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "red",
+        "value": null
+       },
+       {
+        "color": "green",
+        "value": 1
+       }
+      ]
+     }
+    }
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "min(lending_oracle_healthy{network=\"mainnet\"})",
+     "instant": true,
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    }
+   ],
+   "description": "Worst oracle across all assets. Red means at least one asset price is not safe to use.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "cfgw0aa7mups0d"
+   }
+  },
+  {
+   "id": 3,
+   "type": "stat",
+   "title": "Min freshness (time to stale)",
+   "gridPos": {
+    "h": 5,
+    "w": 5,
+    "x": 5,
+    "y": 5
+   },
+   "options": {
+    "colorMode": "background",
+    "graphMode": "none",
+    "textMode": "value",
+    "reduceOptions": {
+     "fields": "",
+     "values": false,
+     "calcs": [
+      "lastNotNull"
+     ]
+    }
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "s",
+     "color": {
+      "mode": "thresholds"
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "red",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 0
+       },
+       {
+        "color": "green",
+        "value": 300
+       }
+      ]
+     }
+    }
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "min(lending_oracle_seconds_until_stale{network=\"mainnet\"})",
+     "instant": true,
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    }
+   ],
+   "description": "Smallest remaining time before any asset price becomes stale, measured at ledger close time.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "cfgw0aa7mups0d"
+   }
+  },
+  {
+   "id": 105,
+   "type": "stat",
+   "title": "Any stale flag",
+   "gridPos": {
+    "h": 5,
+    "w": 5,
+    "x": 10,
+    "y": 5
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "max(lending_oracle_stale{network=\"mainnet\"})",
+     "instant": true,
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "mappings": [
+      {
+       "type": "value",
+       "options": {
+        "0": {
+         "text": "clear",
+         "color": "green"
+        },
+        "1": {
+         "text": "STALE",
+         "color": "red"
+        }
+       }
+      }
+     ],
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "red",
+        "value": 1
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    },
+    "colorMode": "background",
+    "graphMode": "none",
+    "textMode": "auto"
+   },
+   "description": "1 if any asset price is currently older than its allowed maximum age.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "cfgw0aa7mups0d"
+   }
+  },
+  {
+   "id": 106,
+   "type": "stat",
+   "title": "Any deviation flag",
+   "gridPos": {
+    "h": 5,
+    "w": 5,
+    "x": 15,
+    "y": 5
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "max(lending_oracle_deviation_flag{network=\"mainnet\"})",
+     "instant": true,
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "mappings": [
+      {
+       "type": "value",
+       "options": {
+        "0": {
+         "text": "clear",
+         "color": "green"
+        },
+        "1": {
+         "text": "DEVIATION",
+         "color": "red"
+        }
+       }
+      }
+     ],
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "red",
+        "value": 1
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    },
+    "colorMode": "background",
+    "graphMode": "none",
+    "textMode": "auto"
+   },
+   "description": "1 if any asset price currently deviates beyond its tolerance band.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "cfgw0aa7mups0d"
+   }
+  },
+  {
+   "id": 5,
+   "type": "stat",
+   "title": "Exporter \u2014 last scrape age",
+   "gridPos": {
+    "h": 5,
+    "w": 4,
+    "x": 20,
+    "y": 5
+   },
+   "options": {
+    "colorMode": "background",
+    "graphMode": "none",
+    "textMode": "value",
+    "reduceOptions": {
+     "fields": "",
+     "values": false,
+     "calcs": [
+      "lastNotNull"
+     ]
+    }
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "s",
+     "color": {
+      "mode": "thresholds"
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 60
+       },
+       {
+        "color": "red",
+        "value": 120
+       }
+      ]
+     }
+    }
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "time() - max(lending_exporter_last_success_timestamp{network=\"mainnet\"})",
+     "instant": true,
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    }
+   ],
+   "description": "Age of the last successful on-chain read. If this is red, everything else on the page may be out of date.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "cfgw0aa7mups0d"
+   }
+  },
+  {
+   "id": 9,
+   "type": "row",
+   "title": "Protocol",
+   "gridPos": {
+    "h": 1,
+    "w": 24,
+    "x": 0,
+    "y": 10
+   }
+  },
+  {
+   "id": 10,
+   "type": "stat",
+   "title": "TVL",
+   "gridPos": {
+    "h": 4,
+    "w": 6,
+    "x": 0,
+    "y": 11
+   },
+   "options": {
+    "colorMode": "none",
+    "graphMode": "area",
+    "textMode": "value",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    }
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "currencyUSD",
+     "decimals": 0,
+     "color": {
+      "mode": "fixed",
+      "fixedColor": "blue"
+     }
+    }
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "sum(lending_protocol_tvl_usd{network=\"mainnet\"})",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    }
+   ],
+   "description": "Total value supplied to the protocol, in USD.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "cfgw0aa7mups0d"
+   }
+  },
+  {
+   "id": 11,
+   "type": "stat",
+   "title": "Total borrowed",
+   "gridPos": {
+    "h": 4,
+    "w": 6,
+    "x": 6,
+    "y": 11
+   },
+   "options": {
+    "colorMode": "none",
+    "graphMode": "area",
+    "textMode": "value",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    }
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "currencyUSD",
+     "decimals": 0,
+     "color": {
+      "mode": "fixed",
+      "fixedColor": "purple"
+     }
+    }
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "sum(lending_protocol_total_borrowed_usd{network=\"mainnet\"})",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    }
+   ],
+   "description": "Total value borrowed from the protocol, in USD.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "cfgw0aa7mups0d"
+   }
+  },
+  {
+   "id": 12,
+   "type": "stat",
+   "title": "Available liquidity",
+   "gridPos": {
+    "h": 4,
+    "w": 6,
+    "x": 12,
+    "y": 11
+   },
+   "options": {
+    "colorMode": "none",
+    "graphMode": "area",
+    "textMode": "value",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    }
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "currencyUSD",
+     "decimals": 0,
+     "color": {
+      "mode": "fixed",
+      "fixedColor": "green"
+     }
+    }
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "sum(lending_protocol_total_liquidity_usd{network=\"mainnet\"})",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    }
+   ],
+   "description": "Supplied minus borrowed \u2014 what can still be withdrawn or borrowed, in USD.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "cfgw0aa7mups0d"
+   }
+  },
+  {
+   "id": 13,
+   "type": "stat",
+   "title": "Revenue",
+   "gridPos": {
+    "h": 4,
+    "w": 6,
+    "x": 18,
+    "y": 11
+   },
+   "options": {
+    "colorMode": "none",
+    "graphMode": "area",
+    "textMode": "value",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    }
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "currencyUSD",
+     "decimals": 2,
+     "color": {
+      "mode": "fixed",
+      "fixedColor": "text"
+     }
+    }
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "sum(lending_protocol_total_revenue_usd{network=\"mainnet\"})",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    }
+   ],
+   "description": "Accumulated protocol revenue, in USD.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "cfgw0aa7mups0d"
+   }
+  },
+  {
+   "id": 300,
+   "type": "timeseries",
+   "title": "TVL / borrowed / liquidity \u2014 trend",
+   "description": "Protocol totals over time, in USD. The gap between TVL and borrowed is the available liquidity.",
+   "gridPos": {
+    "h": 8,
+    "w": 24,
+    "x": 0,
+    "y": 15
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "currencyUSD",
+     "custom": {
+      "showPoints": "never",
+      "fillOpacity": 8,
+      "lineWidth": 1,
+      "spanNulls": true
+     }
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "refId": "T",
+     "expr": "sum(lending_protocol_tvl_usd{network=\"mainnet\"})",
+     "legendFormat": "TVL",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    },
+    {
+     "refId": "B",
+     "expr": "sum(lending_protocol_total_borrowed_usd{network=\"mainnet\"})",
+     "legendFormat": "Borrowed",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    },
+    {
+     "refId": "L",
+     "expr": "sum(lending_protocol_total_liquidity_usd{network=\"mainnet\"})",
+     "legendFormat": "Available liquidity",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    }
+   ],
+   "options": {
+    "legend": {
+     "displayMode": "table",
+     "placement": "bottom",
+     "showLegend": true,
+     "calcs": [
+      "lastNotNull",
+      "min",
+      "max"
+     ]
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "cfgw0aa7mups0d"
+   }
+  },
+  {
+   "id": 19,
+   "type": "row",
+   "title": "Markets",
+   "gridPos": {
+    "h": 1,
+    "w": 24,
+    "x": 0,
+    "y": 23
+   }
+  },
+  {
+   "id": 20,
+   "type": "table",
+   "title": "Market grid",
+   "gridPos": {
+    "h": 9,
+    "w": 24,
+    "x": 0,
+    "y": 24
+   },
+   "options": {
+    "showHeader": true,
+    "cellHeight": "sm",
+    "footer": {
+     "show": false
+    }
+   },
+   "targets": [
+    {
+     "refId": "SUP",
+     "expr": "lending_market_supplied_total_usd{network=\"mainnet\"}",
+     "instant": true,
+     "format": "table",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    },
+    {
+     "refId": "BOR",
+     "expr": "lending_market_borrowed_total_usd{network=\"mainnet\"}",
+     "instant": true,
+     "format": "table",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    },
+    {
+     "refId": "LIQ",
+     "expr": "lending_market_available_liquidity_usd{network=\"mainnet\"}",
+     "instant": true,
+     "format": "table",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    },
+    {
+     "refId": "UTL",
+     "expr": "lending_market_utilization_ratio{network=\"mainnet\"}",
+     "instant": true,
+     "format": "table",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    },
+    {
+     "refId": "SAP",
+     "expr": "lending_market_supply_apy{network=\"mainnet\"}",
+     "instant": true,
+     "format": "table",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    },
+    {
+     "refId": "BAP",
+     "expr": "lending_market_borrow_apy{network=\"mainnet\"}",
+     "instant": true,
+     "format": "table",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    },
+    {
+     "refId": "REV",
+     "expr": "lending_market_revenue_usd{network=\"mainnet\"}",
+     "instant": true,
+     "format": "table",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    },
+    {
+     "refId": "SQT",
+     "expr": "lending_market_supplied_total{network=\"mainnet\"}",
+     "instant": true,
+     "format": "table",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    },
+    {
+     "refId": "BQT",
+     "expr": "lending_market_borrowed_total{network=\"mainnet\"}",
+     "instant": true,
+     "format": "table",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    }
+   ],
+   "transformations": [
+    {
+     "id": "organize",
+     "options": {
+      "excludeByName": {
+       "Time": true,
+       "__name__": true,
+       "instance": true,
+       "job": true
+      }
+     }
+    },
+    {
+     "id": "merge",
+     "options": {}
+    },
+    {
+     "id": "organize",
+     "options": {
+      "renameByName": {
+       "symbol": "Asset",
+       "hub": "Hub",
+       "Value #SUP": "Supplied $",
+       "Value #BOR": "Borrowed $",
+       "Value #LIQ": "Liquidity $",
+       "Value #UTL": "Utilization",
+       "Value #SAP": "Supply APY",
+       "Value #BAP": "Borrow APY",
+       "Value #REV": "Revenue $",
+       "Value #SQT": "Supplied qty",
+       "Value #BQT": "Borrowed qty"
+      },
+      "excludeByName": {
+       "network": true,
+       "hub_id": true,
+       "asset": true
+      },
+      "indexByName": {
+       "symbol": 0,
+       "hub": 1,
+       "Value #SUP": 2,
+       "Value #BOR": 3,
+       "Value #LIQ": 4,
+       "Value #UTL": 5,
+       "Value #SAP": 6,
+       "Value #BAP": 7,
+       "Value #REV": 8,
+       "Value #SQT": 9,
+       "Value #BQT": 10
+      }
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "custom": {
+      "align": "right",
+      "filterable": true
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Asset"
+      },
+      "properties": [
+       {
+        "id": "custom.align",
+        "value": "left"
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Hub"
+      },
+      "properties": [
+       {
+        "id": "custom.align",
+        "value": "left"
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byRegexp",
+       "options": ".*\\$$"
+      },
+      "properties": [
+       {
+        "id": "unit",
+        "value": "currencyUSD"
+       },
+       {
+        "id": "decimals",
+        "value": 2
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Utilization"
+      },
+      "properties": [
+       {
+        "id": "unit",
+        "value": "percentunit"
+       },
+       {
+        "id": "custom.cellOptions",
+        "value": {
+         "type": "gauge",
+         "mode": "gradient"
+        }
+       },
+       {
+        "id": "max",
+        "value": 1
+       },
+       {
+        "id": "min",
+        "value": 0
+       },
+       {
+        "id": "thresholds",
+        "value": {
+         "mode": "absolute",
+         "steps": [
+          {
+           "color": "green",
+           "value": null
+          },
+          {
+           "color": "orange",
+           "value": 0.9
+          },
+          {
+           "color": "red",
+           "value": 0.98
+          }
+         ]
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byRegexp",
+       "options": ".*APY"
+      },
+      "properties": [
+       {
+        "id": "unit",
+        "value": "percentunit"
+       },
+       {
+        "id": "decimals",
+        "value": 2
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byRegexp",
+       "options": ".*qty"
+      },
+      "properties": [
+       {
+        "id": "unit",
+        "value": "short"
+       },
+       {
+        "id": "decimals",
+        "value": 2
+       }
+      ]
+     }
+    ]
+   },
+   "description": "One row per market: size, rates, utilization, and accrual freshness.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "cfgw0aa7mups0d"
+   }
+  },
+  {
+   "id": 21,
+   "type": "timeseries",
+   "title": "Supplied vs borrowed (USD) by market",
+   "gridPos": {
+    "h": 8,
+    "w": 24,
+    "x": 0,
+    "y": 33
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "currencyUSD",
+     "custom": {
+      "showPoints": "never",
+      "fillOpacity": 8,
+      "lineWidth": 1,
+      "spanNulls": true
+     }
+    }
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "lending_market_supplied_total_usd{network=\"mainnet\"}",
+     "legendFormat": "supplied {{symbol}} \u00b7 {{hub}}",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    },
+    {
+     "refId": "B",
+     "expr": "lending_market_borrowed_total_usd{network=\"mainnet\"}",
+     "legendFormat": "borrowed {{symbol}} \u00b7 {{hub}}",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    }
+   ],
+   "options": {
+    "legend": {
+     "showLegend": true,
+     "displayMode": "list",
+     "placement": "bottom",
+     "calcs": []
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "description": "Total supplied and borrowed per market over time, in USD.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "cfgw0aa7mups0d"
+   }
+  },
+  {
+   "id": 103,
+   "type": "timeseries",
+   "title": "Available liquidity (USD) by market",
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 0,
+    "y": 41
+   },
+   "targets": [
+    {
+     "refId": "L",
+     "expr": "lending_market_available_liquidity_usd{network=\"mainnet\"}",
+     "legendFormat": "{{symbol}}",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "currencyUSD",
+     "custom": {
+      "showPoints": "never",
+      "fillOpacity": 8,
+      "lineWidth": 1,
+      "spanNulls": true
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "description": "Withdrawable liquidity per market over time, in USD.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "cfgw0aa7mups0d"
+   }
+  },
+  {
+   "id": 104,
+   "type": "timeseries",
+   "title": "Utilization by market",
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 12,
+    "y": 41
+   },
+   "targets": [
+    {
+     "refId": "U",
+     "expr": "lending_market_utilization_ratio{network=\"mainnet\"}",
+     "legendFormat": "{{symbol}}",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percentunit",
+     "min": 0,
+     "max": 1,
+     "custom": {
+      "showPoints": "never",
+      "fillOpacity": 8,
+      "lineWidth": 1,
+      "spanNulls": true
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "description": "Borrowed share of supplied funds per market. High utilization means withdrawals may have to wait.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "cfgw0aa7mups0d"
+   }
+  },
+  {
+   "id": 301,
+   "type": "timeseries",
+   "title": "Supplied quantity by market (tokens)",
+   "description": "Amount supplied per market in native token units (log scale \u2014 assets differ by orders of magnitude).",
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 0,
+    "y": 49
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "custom": {
+      "showPoints": "never",
+      "fillOpacity": 8,
+      "lineWidth": 1,
+      "spanNulls": true,
+      "scaleDistribution": {
+       "type": "log",
+       "log": 10
+      }
+     }
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "refId": "Q",
+     "expr": "lending_market_supplied_total{network=\"mainnet\"}",
+     "legendFormat": "{{symbol}}",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    }
+   ],
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "cfgw0aa7mups0d"
+   }
+  },
+  {
+   "id": 302,
+   "type": "timeseries",
+   "title": "Borrowed quantity by market (tokens)",
+   "description": "Amount borrowed per market in native token units (log scale).",
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 12,
+    "y": 49
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "custom": {
+      "showPoints": "never",
+      "fillOpacity": 8,
+      "lineWidth": 1,
+      "spanNulls": true,
+      "scaleDistribution": {
+       "type": "log",
+       "log": 10
+      }
+     }
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "refId": "Q",
+     "expr": "lending_market_borrowed_total{network=\"mainnet\"}",
+     "legendFormat": "{{symbol}}",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    }
+   ],
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "cfgw0aa7mups0d"
+   }
+  },
+  {
+   "id": 29,
+   "type": "row",
+   "title": "Oracles",
+   "gridPos": {
+    "h": 1,
+    "w": 24,
+    "x": 0,
+    "y": 57
+   }
+  },
+  {
+   "id": 30,
+   "type": "timeseries",
+   "title": "Oracle price (USD)",
+   "gridPos": {
+    "h": 8,
+    "w": 8,
+    "x": 0,
+    "y": 58
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "currencyUSD",
+     "custom": {
+      "showPoints": "never",
+      "fillOpacity": 8,
+      "lineWidth": 1,
+      "spanNulls": true,
+      "scaleDistribution": {
+       "type": "log",
+       "log": 10
+      }
+     }
+    }
+   },
+   "targets": [
+    {
+     "refId": "F",
+     "expr": "lending_oracle_price_usd{network=\"mainnet\"}",
+     "legendFormat": "{{symbol}}",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    }
+   ],
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true,
+     "calcs": []
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "description": "The USD price the protocol uses for each asset (log scale).",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "cfgw0aa7mups0d"
+   }
+  },
+  {
+   "id": 31,
+   "type": "timeseries",
+   "title": "Deviation vs tolerance band (bps)",
+   "gridPos": {
+    "h": 8,
+    "w": 8,
+    "x": 8,
+    "y": 58
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "custom": {
+      "showPoints": "never",
+      "fillOpacity": 8,
+      "lineWidth": 1,
+      "spanNulls": true
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byRegexp",
+       "options": ".*upper|.*lower"
+      },
+      "properties": [
+       {
+        "id": "custom.lineStyle",
+        "value": {
+         "fill": "dash",
+         "dash": [
+          4,
+          4
+         ]
+        }
+       },
+       {
+        "id": "custom.lineWidth",
+        "value": 1
+       },
+       {
+        "id": "custom.fillOpacity",
+        "value": 0
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byRegexp",
+       "options": ".*deviation"
+      },
+      "properties": [
+       {
+        "id": "custom.lineWidth",
+        "value": 2
+       }
+      ]
+     }
+    ]
+   },
+   "targets": [
+    {
+     "refId": "D",
+     "expr": "lending_oracle_deviation_bps{network=\"mainnet\"}",
+     "legendFormat": "{{symbol}} deviation",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    },
+    {
+     "refId": "U",
+     "expr": "lending_oracle_tolerance_upper_bps{network=\"mainnet\"}",
+     "legendFormat": "{{symbol}} upper",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    },
+    {
+     "refId": "L",
+     "expr": "lending_oracle_tolerance_lower_bps{network=\"mainnet\"}",
+     "legendFormat": "{{symbol}} lower",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    }
+   ],
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "description": "Primary-vs-anchor price gap per asset (solid), against that asset's own tolerance band (dashed). A solid line crossing its dashed line means the deviation flag raises.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "cfgw0aa7mups0d"
+   }
+  },
+  {
+   "id": 32,
+   "type": "timeseries",
+   "title": "Freshness (seconds until stale)",
+   "gridPos": {
+    "h": 8,
+    "w": 8,
+    "x": 16,
+    "y": 58
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "s",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "red",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 0
+       },
+       {
+        "color": "green",
+        "value": 300
+       }
+      ]
+     },
+     "custom": {
+      "thresholdsStyle": {
+       "mode": "line"
+      },
+      "showPoints": "never",
+      "fillOpacity": 8,
+      "lineWidth": 1,
+      "spanNulls": true
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byRegexp",
+       "options": ".*s left"
+      },
+      "properties": [
+       {
+        "id": "unit",
+        "value": "s"
+       }
+      ]
+     }
+    ]
+   },
+   "targets": [
+    {
+     "refId": "S",
+     "expr": "lending_oracle_seconds_until_stale{network=\"mainnet\"}",
+     "legendFormat": "{{symbol}} s left",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    }
+   ],
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "description": "Time left before each asset price goes stale. Negative or zero means stale now.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "cfgw0aa7mups0d"
+   }
+  },
+  {
+   "id": 101,
+   "type": "table",
+   "title": "Oracle status by asset",
+   "gridPos": {
+    "h": 10,
+    "w": 24,
+    "x": 0,
+    "y": 66
+   },
+   "options": {
+    "showHeader": true,
+    "cellHeight": "sm",
+    "footer": {
+     "show": false
+    }
+   },
+   "targets": [
+    {
+     "refId": "FP",
+     "expr": "lending_oracle_price_usd{network=\"mainnet\"}",
+     "instant": true,
+     "format": "table",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    },
+    {
+     "refId": "PP",
+     "expr": "lending_oracle_primary_price_usd{network=\"mainnet\"}",
+     "instant": true,
+     "format": "table",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    },
+    {
+     "refId": "AP",
+     "expr": "lending_oracle_anchor_price_usd{network=\"mainnet\"}",
+     "instant": true,
+     "format": "table",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    },
+    {
+     "refId": "DV",
+     "expr": "lending_oracle_deviation_bps{network=\"mainnet\"}",
+     "instant": true,
+     "format": "table",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    },
+    {
+     "refId": "ST",
+     "expr": "lending_oracle_stale{network=\"mainnet\"}",
+     "instant": true,
+     "format": "table",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    },
+    {
+     "refId": "DF",
+     "expr": "lending_oracle_deviation_flag{network=\"mainnet\"}",
+     "instant": true,
+     "format": "table",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    },
+    {
+     "refId": "HL",
+     "expr": "lending_oracle_healthy{network=\"mainnet\"}",
+     "instant": true,
+     "format": "table",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    },
+    {
+     "refId": "EC",
+     "expr": "lending_oracle_error_code{network=\"mainnet\"}",
+     "instant": true,
+     "format": "table",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    },
+    {
+     "refId": "TS",
+     "expr": "lending_oracle_status_timestamp_seconds{network=\"mainnet\"} * 1000",
+     "instant": true,
+     "format": "table",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    }
+   ],
+   "transformations": [
+    {
+     "id": "organize",
+     "options": {
+      "excludeByName": {
+       "Time": true,
+       "__name__": true,
+       "instance": true,
+       "job": true
+      }
+     }
+    },
+    {
+     "id": "merge",
+     "options": {}
+    },
+    {
+     "id": "organize",
+     "options": {
+      "renameByName": {
+       "symbol": "Asset",
+       "hub": "Hub",
+       "Value #FP": "Final $",
+       "Value #PP": "Primary $",
+       "Value #AP": "Anchor $",
+       "Value #DV": "Dev bps",
+       "Value #ST": "Stale",
+       "Value #DF": "Deviation",
+       "Value #HL": "Healthy",
+       "Value #TS": "Status ts",
+       "Value #EC": "Error"
+      },
+      "excludeByName": {
+       "network": true,
+       "hub_id": true,
+       "asset": true
+      },
+      "indexByName": {
+       "symbol": 0,
+       "hub": 1,
+       "Value #FP": 2,
+       "Value #PP": 3,
+       "Value #AP": 4,
+       "Value #DV": 5,
+       "Value #ST": 6,
+       "Value #DF": 7,
+       "Value #HL": 8,
+       "Value #TS": 10,
+       "Value #EC": 9
+      }
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "custom": {
+      "align": "right",
+      "filterable": true
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Asset"
+      },
+      "properties": [
+       {
+        "id": "custom.align",
+        "value": "left"
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Hub"
+      },
+      "properties": [
+       {
+        "id": "custom.align",
+        "value": "left"
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byRegexp",
+       "options": ".*\\$$"
+      },
+      "properties": [
+       {
+        "id": "unit",
+        "value": "currencyUSD"
+       },
+       {
+        "id": "decimals",
+        "value": 4
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Status ts"
+      },
+      "properties": [
+       {
+        "id": "unit",
+        "value": "dateTimeAsIso"
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Healthy"
+      },
+      "properties": [
+       {
+        "id": "mappings",
+        "value": [
+         {
+          "type": "value",
+          "options": {
+           "0": {
+            "text": "NO",
+            "color": "red"
+           },
+           "1": {
+            "text": "YES",
+            "color": "green"
+           }
+          }
+         }
+        ]
+       },
+       {
+        "id": "custom.cellOptions",
+        "value": {
+         "type": "color-text"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byRegexp",
+       "options": "Stale|Deviation"
+      },
+      "properties": [
+       {
+        "id": "mappings",
+        "value": [
+         {
+          "type": "value",
+          "options": {
+           "0": {
+            "text": "ok",
+            "color": "green"
+           },
+           "1": {
+            "text": "FLAG",
+            "color": "red"
+           }
+          }
+         }
+        ]
+       },
+       {
+        "id": "custom.cellOptions",
+        "value": {
+         "type": "color-text"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Error"
+      },
+      "properties": [
+       {
+        "id": "mappings",
+        "value": [
+         {
+          "type": "value",
+          "options": {
+           "0": {
+            "text": "ok",
+            "color": "green"
+           },
+           "205": {
+            "text": "deviation",
+            "color": "red"
+           },
+           "206": {
+            "text": "STALE",
+            "color": "red"
+           },
+           "210": {
+            "text": "no price",
+            "color": "red"
+           },
+           "216": {
+            "text": "unconfigured",
+            "color": "red"
+           },
+           "217": {
+            "text": "invalid price",
+            "color": "red"
+           },
+           "223": {
+            "text": "sanity band",
+            "color": "red"
+           },
+           "225": {
+            "text": "cycle",
+            "color": "red"
+           },
+           "229": {
+            "text": "depth",
+            "color": "red"
+           },
+           "230": {
+            "text": "factor bounds",
+            "color": "red"
+           },
+           "231": {
+            "text": "source count",
+            "color": "red"
+           },
+           "234": {
+            "text": "bad LP pool",
+            "color": "red"
+           }
+          }
+         }
+        ]
+       },
+       {
+        "id": "custom.cellOptions",
+        "value": {
+         "type": "color-text"
+        }
+       },
+       {
+        "id": "custom.align",
+        "value": "left"
+       }
+      ]
+     }
+    ]
+   },
+   "description": "Per-asset snapshot: the three oracle prices, deviation, and the oracle flags. The single place to see why an asset is flagged.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "cfgw0aa7mups0d"
+   }
+  },
+  {
+   "id": 102,
+   "type": "state-timeline",
+   "title": "Oracle health timeline",
+   "gridPos": {
+    "h": 12,
+    "w": 24,
+    "x": 0,
+    "y": 76
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "lending_oracle_healthy{network=\"mainnet\"}",
+     "legendFormat": "{{symbol}}",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    }
+   ],
+   "options": {
+    "showValue": "never",
+    "mergeValues": true,
+    "alignValue": "center",
+    "rowHeight": 0.85,
+    "legend": {
+     "showLegend": false
+    },
+    "tooltip": {
+     "mode": "single",
+     "sort": "none"
+    }
+   },
+   "fieldConfig": {
+    "defaults": {
+     "custom": {
+      "fillOpacity": 70,
+      "lineWidth": 0
+     },
+     "color": {
+      "mode": "thresholds"
+     },
+     "mappings": [
+      {
+       "type": "value",
+       "options": {
+        "0": {
+         "text": "failing",
+         "color": "red"
+        },
+        "1": {
+         "text": "ok",
+         "color": "green"
+        }
+       }
+      }
+     ],
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "red",
+        "value": null
+       },
+       {
+        "color": "green",
+        "value": 1
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "description": "One row per asset: green while the price is safe to use, red while it is failing. See the status table above for whether a red patch was staleness or deviation.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "cfgw0aa7mups0d"
+   }
+  },
+  {
+   "id": 110,
+   "type": "table",
+   "title": "Oracle configuration by asset",
+   "gridPos": {
+    "h": 9,
+    "w": 24,
+    "x": 0,
+    "y": 88
+   },
+   "options": {
+    "showHeader": true,
+    "cellHeight": "sm",
+    "footer": {
+     "show": false
+    }
+   },
+   "targets": [
+    {
+     "refId": "ST",
+     "expr": "lending_oracle_strategy{network=\"mainnet\"}",
+     "instant": true,
+     "format": "table",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    },
+    {
+     "refId": "MS",
+     "expr": "lending_oracle_max_stale_seconds{network=\"mainnet\"}",
+     "instant": true,
+     "format": "table",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    },
+    {
+     "refId": "TU",
+     "expr": "lending_oracle_tolerance_upper_bps{network=\"mainnet\"}",
+     "instant": true,
+     "format": "table",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    },
+    {
+     "refId": "TL",
+     "expr": "lending_oracle_tolerance_lower_bps{network=\"mainnet\"}",
+     "instant": true,
+     "format": "table",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    },
+    {
+     "refId": "SN",
+     "expr": "lending_oracle_sanity_min_usd{network=\"mainnet\"}",
+     "instant": true,
+     "format": "table",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    },
+    {
+     "refId": "SX",
+     "expr": "lending_oracle_sanity_max_usd{network=\"mainnet\"}",
+     "instant": true,
+     "format": "table",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    }
+   ],
+   "transformations": [
+    {
+     "id": "organize",
+     "options": {
+      "excludeByName": {
+       "Time": true,
+       "__name__": true,
+       "instance": true,
+       "job": true
+      }
+     }
+    },
+    {
+     "id": "merge",
+     "options": {}
+    },
+    {
+     "id": "organize",
+     "options": {
+      "renameByName": {
+       "symbol": "Asset",
+       "Value #ST": "Strategy",
+       "Value #MS": "Max stale s",
+       "Value #TU": "Tol upper",
+       "Value #TL": "Tol lower",
+       "Value #SN": "Sanity min $",
+       "Value #SX": "Sanity max $"
+      },
+      "excludeByName": {
+       "network": true,
+       "asset": true
+      },
+      "indexByName": {
+       "symbol": 0,
+       "Value #ST": 1,
+       "Value #MS": 2,
+       "Value #TU": 3,
+       "Value #TL": 4,
+       "Value #SN": 5,
+       "Value #SX": 6
+      }
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "custom": {
+      "align": "right",
+      "filterable": true
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Asset"
+      },
+      "properties": [
+       {
+        "id": "custom.align",
+        "value": "left"
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Strategy"
+      },
+      "properties": [
+       {
+        "id": "mappings",
+        "value": [
+         {
+          "type": "value",
+          "options": {
+           "0": {
+            "text": "Single",
+            "color": "blue"
+           }
+          }
+         },
+         {
+          "type": "value",
+          "options": {
+           "1": {
+            "text": "Primary+Anchor",
+            "color": "purple"
+           }
+          }
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byRegexp",
+       "options": "Sanity.*|.*\\$"
+      },
+      "properties": [
+       {
+        "id": "unit",
+        "value": "currencyUSD"
+       },
+       {
+        "id": "decimals",
+        "value": 4
+       }
+      ]
+     }
+    ]
+   },
+   "description": "How each asset's oracle is configured: blend strategy, maximum allowed price age, tolerance band, and sanity bounds \u2014 plus its current freshness.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "cfgw0aa7mups0d"
+   }
+  },
+  {
+   "id": 303,
+   "type": "row",
+   "title": "Spokes",
+   "gridPos": {
+    "h": 1,
+    "w": 24,
+    "x": 0,
+    "y": 97
+   }
+  },
+  {
+   "id": 112,
+   "type": "table",
+   "title": "All spoke listings \u2014 operational state",
+   "description": "Every listed spoke-asset and its operational switches. \u201cClosed\u201d means the cap is 0 \u2014 the market accepts no new supply or borrows.",
+   "gridPos": {
+    "h": 12,
+    "w": 24,
+    "x": 0,
+    "y": 98
+   },
+   "options": {
+    "showHeader": true,
+    "cellHeight": "sm"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "custom": {
+      "align": "right",
+      "filterable": true
+     }
+    }
+   },
+   "targets": [
+    {
+     "refId": "PAU",
+     "expr": "lending_spoke_paused{network=\"mainnet\"}",
+     "instant": true,
+     "format": "table",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    },
+    {
+     "refId": "FRZ",
+     "expr": "lending_spoke_frozen{network=\"mainnet\"}",
+     "instant": true,
+     "format": "table",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    },
+    {
+     "refId": "COL",
+     "expr": "lending_spoke_collateral_enabled{network=\"mainnet\"}",
+     "instant": true,
+     "format": "table",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    },
+    {
+     "refId": "BRW",
+     "expr": "lending_spoke_borrow_enabled{network=\"mainnet\"}",
+     "instant": true,
+     "format": "table",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    },
+    {
+     "refId": "SCL",
+     "expr": "lending_spoke_supply_closed{network=\"mainnet\"}",
+     "instant": true,
+     "format": "table",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    },
+    {
+     "refId": "BCL",
+     "expr": "lending_spoke_borrow_closed{network=\"mainnet\"}",
+     "instant": true,
+     "format": "table",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    },
+    {
+     "refId": "SCU",
+     "expr": "lending_spoke_supply_cap_utilization{network=\"mainnet\"}",
+     "instant": true,
+     "format": "table",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    },
+    {
+     "refId": "BCU",
+     "expr": "lending_spoke_borrow_cap_utilization{network=\"mainnet\"}",
+     "instant": true,
+     "format": "table",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    }
+   ],
+   "transformations": [
+    {
+     "id": "merge",
+     "options": {}
+    },
+    {
+     "id": "organize",
+     "options": {
+      "excludeByName": {
+       "Time": true,
+       "__name__": true,
+       "instance": true,
+       "job": true,
+       "network": true,
+       "hub_id": true,
+       "asset": true
+      },
+      "renameByName": {
+       "spoke": "Spoke",
+       "symbol": "Asset",
+       "hub": "Hub",
+       "Value #PAU": "Paused",
+       "Value #FRZ": "Frozen",
+       "Value #COL": "Collateral",
+       "Value #BRW": "Borrow",
+       "Value #SCL": "Supply closed",
+       "Value #BCL": "Borrow closed",
+       "Value #SCU": "Supply cap util",
+       "Value #BCU": "Borrow cap util"
+      }
+     }
+    }
+   ],
+   "datasource": {
+    "type": "prometheus",
+    "uid": "cfgw0aa7mups0d"
+   }
+  },
+  {
+   "id": 310,
+   "type": "table",
+   "title": "Liquidation settings by spoke",
+   "description": "Per-spoke liquidation settings: the health factor a liquidation aims to restore, the HF at which the maximum bonus applies, and the bonus scaling factor.",
+   "gridPos": {
+    "h": 6,
+    "w": 24,
+    "x": 0,
+    "y": 110
+   },
+   "options": {
+    "showHeader": true,
+    "cellHeight": "sm",
+    "footer": {
+     "show": false
+    }
+   },
+   "targets": [
+    {
+     "refId": "TH",
+     "expr": "lending_spoke_liquidation_target_hf{network=\"mainnet\"}",
+     "instant": true,
+     "format": "table",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    },
+    {
+     "refId": "MB",
+     "expr": "lending_spoke_hf_for_max_bonus{network=\"mainnet\"}",
+     "instant": true,
+     "format": "table",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    },
+    {
+     "refId": "BF",
+     "expr": "lending_spoke_liquidation_bonus_factor_bps{network=\"mainnet\"}",
+     "instant": true,
+     "format": "table",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    }
+   ],
+   "transformations": [
+    {
+     "id": "organize",
+     "options": {
+      "excludeByName": {
+       "Time": true,
+       "__name__": true,
+       "instance": true,
+       "job": true
+      }
+     }
+    },
+    {
+     "id": "merge",
+     "options": {}
+    },
+    {
+     "id": "organize",
+     "options": {
+      "renameByName": {
+       "spoke": "Spoke",
+       "Value #TH": "Liq target HF",
+       "Value #MB": "HF for max bonus",
+       "Value #BF": "Bonus factor bps"
+      },
+      "excludeByName": {
+       "network": true,
+       "spoke_id": true
+      },
+      "indexByName": {
+       "spoke": 0,
+       "Value #TH": 1,
+       "Value #MB": 2,
+       "Value #BF": 3
+      }
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "custom": {
+      "align": "right",
+      "filterable": true
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Spoke"
+      },
+      "properties": [
+       {
+        "id": "custom.align",
+        "value": "left"
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byRegexp",
+       "options": ".*HF.*"
+      },
+      "properties": [
+       {
+        "id": "decimals",
+        "value": 2
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Bonus factor bps"
+      },
+      "properties": [
+       {
+        "id": "decimals",
+        "value": 0
+       }
+      ]
+     }
+    ]
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "cfgw0aa7mups0d"
+   }
+  },
+  {
+   "id": 311,
+   "type": "table",
+   "title": "Risk parameters & caps by asset",
+   "description": "Per-asset risk settings across all spokes: how much you can borrow against each asset (LTV), when liquidation starts, liquidation bonus and fee, and how full the caps are.",
+   "gridPos": {
+    "h": 10,
+    "w": 24,
+    "x": 0,
+    "y": 116
+   },
+   "options": {
+    "showHeader": true,
+    "cellHeight": "sm",
+    "footer": {
+     "show": false
+    }
+   },
+   "targets": [
+    {
+     "refId": "LTV",
+     "expr": "lending_spoke_ltv_bps{network=\"mainnet\"}/10000",
+     "instant": true,
+     "format": "table",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    },
+    {
+     "refId": "THR",
+     "expr": "lending_spoke_liquidation_threshold_bps{network=\"mainnet\"}/10000",
+     "instant": true,
+     "format": "table",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    },
+    {
+     "refId": "BON",
+     "expr": "lending_spoke_liquidation_bonus_bps{network=\"mainnet\"}",
+     "instant": true,
+     "format": "table",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    },
+    {
+     "refId": "FEE",
+     "expr": "lending_spoke_liquidation_fees_bps{network=\"mainnet\"}",
+     "instant": true,
+     "format": "table",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    },
+    {
+     "refId": "SU",
+     "expr": "lending_spoke_supply_usage_usd{network=\"mainnet\"}",
+     "instant": true,
+     "format": "table",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    },
+    {
+     "refId": "BU",
+     "expr": "lending_spoke_borrow_usage_usd{network=\"mainnet\"}",
+     "instant": true,
+     "format": "table",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    },
+    {
+     "refId": "SCU",
+     "expr": "lending_spoke_supply_cap_utilization{network=\"mainnet\"}",
+     "instant": true,
+     "format": "table",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    },
+    {
+     "refId": "BCU",
+     "expr": "lending_spoke_borrow_cap_utilization{network=\"mainnet\"}",
+     "instant": true,
+     "format": "table",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    }
+   ],
+   "transformations": [
+    {
+     "id": "organize",
+     "options": {
+      "excludeByName": {
+       "Time": true,
+       "__name__": true,
+       "instance": true,
+       "job": true
+      }
+     }
+    },
+    {
+     "id": "merge",
+     "options": {}
+    },
+    {
+     "id": "organize",
+     "options": {
+      "renameByName": {
+       "spoke": "Spoke",
+       "symbol": "Asset",
+       "hub": "Hub",
+       "Value #LTV": "LTV",
+       "Value #THR": "Liq thr",
+       "Value #BON": "Bonus bps",
+       "Value #FEE": "Fee bps",
+       "Value #SU": "Supply $",
+       "Value #BU": "Borrow $",
+       "Value #SCU": "Sup cap util",
+       "Value #BCU": "Bor cap util"
+      },
+      "excludeByName": {
+       "network": true,
+       "spoke_id": true,
+       "hub_id": true,
+       "asset": true
+      },
+      "indexByName": {
+       "spoke": 0,
+       "symbol": 1,
+       "hub": 2,
+       "Value #LTV": 3,
+       "Value #THR": 4,
+       "Value #BON": 5,
+       "Value #FEE": 6,
+       "Value #SU": 7,
+       "Value #BU": 8,
+       "Value #SCU": 9,
+       "Value #BCU": 10
+      }
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "custom": {
+      "align": "right",
+      "filterable": true
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byRegexp",
+       "options": "Spoke|Asset|Hub"
+      },
+      "properties": [
+       {
+        "id": "custom.align",
+        "value": "left"
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byRegexp",
+       "options": "LTV|Liq thr|.*cap util"
+      },
+      "properties": [
+       {
+        "id": "unit",
+        "value": "percentunit"
+       },
+       {
+        "id": "decimals",
+        "value": 2
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byRegexp",
+       "options": ".*\\$$"
+      },
+      "properties": [
+       {
+        "id": "unit",
+        "value": "currencyUSD"
+       },
+       {
+        "id": "decimals",
+        "value": 2
+       }
+      ]
+     }
+    ]
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "cfgw0aa7mups0d"
+   }
+  },
+  {
+   "id": 312,
+   "type": "timeseries",
+   "title": "Supply cap utilization by spoke-asset",
+   "description": "Supply amount as a share of the supply cap. Red means the cap is nearly exhausted.",
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 0,
+    "y": 126
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percentunit",
+     "min": 0,
+     "max": 1,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 0.9
+       },
+       {
+        "color": "red",
+        "value": 0.95
+       }
+      ]
+     },
+     "custom": {
+      "showPoints": "never",
+      "fillOpacity": 8,
+      "lineWidth": 1,
+      "spanNulls": true,
+      "thresholdsStyle": {
+       "mode": "dashed"
+      }
+     }
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "lending_spoke_supply_cap_utilization{network=\"mainnet\"}",
+     "legendFormat": "{{spoke}} \u00b7 {{symbol}}",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    }
+   ],
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "cfgw0aa7mups0d"
+   }
+  },
+  {
+   "id": 313,
+   "type": "timeseries",
+   "title": "Borrow cap utilization by spoke-asset",
+   "description": "Borrow amount as a share of the borrow cap. Red means the cap is nearly exhausted.",
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 12,
+    "y": 126
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percentunit",
+     "min": 0,
+     "max": 1,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 0.9
+       },
+       {
+        "color": "red",
+        "value": 0.95
+       }
+      ]
+     },
+     "custom": {
+      "showPoints": "never",
+      "fillOpacity": 8,
+      "lineWidth": 1,
+      "spanNulls": true,
+      "thresholdsStyle": {
+       "mode": "dashed"
+      }
+     }
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "lending_spoke_borrow_cap_utilization{network=\"mainnet\"}",
+     "legendFormat": "{{spoke}} \u00b7 {{symbol}}",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    }
+   ],
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "cfgw0aa7mups0d"
+   }
+  },
+  {
+   "id": 49,
+   "type": "row",
+   "title": "Exporter health",
+   "gridPos": {
+    "h": 1,
+    "w": 24,
+    "x": 0,
+    "y": 134
+   },
+   "collapsed": true,
+   "panels": [
+    {
+     "id": 50,
+     "type": "timeseries",
+     "title": "Scrape duration",
+     "gridPos": {
+      "x": 0,
+      "y": 135,
+      "w": 8,
+      "h": 6
+     },
+     "fieldConfig": {
+      "defaults": {
+       "unit": "s",
+       "custom": {
+        "showPoints": "never",
+        "fillOpacity": 8,
+        "lineWidth": 1,
+        "spanNulls": true
+       }
+      }
+     },
+     "targets": [
+      {
+       "refId": "A",
+       "expr": "lending_exporter_scrape_duration_seconds{network=\"mainnet\"}",
+       "legendFormat": "scrape",
+       "datasource": {
+        "type": "prometheus",
+        "uid": "cfgw0aa7mups0d"
+       }
+      }
+     ],
+     "options": {
+      "legend": {
+       "showLegend": true,
+       "displayMode": "list",
+       "placement": "bottom",
+       "calcs": []
+      },
+      "tooltip": {
+       "mode": "multi",
+       "sort": "desc"
+      }
+     },
+     "description": "How long one full on-chain read takes.",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    },
+    {
+     "id": 51,
+     "type": "timeseries",
+     "title": "View failures (rate / 5m)",
+     "gridPos": {
+      "x": 8,
+      "y": 135,
+      "w": 8,
+      "h": 6
+     },
+     "fieldConfig": {
+      "defaults": {
+       "unit": "short",
+       "custom": {
+        "showPoints": "never",
+        "fillOpacity": 8,
+        "lineWidth": 1,
+        "spanNulls": true
+       }
+      }
+     },
+     "targets": [
+      {
+       "refId": "A",
+       "expr": "sum by (view, code) (rate(lending_exporter_view_failures_total{network=\"mainnet\"}[5m]))",
+       "legendFormat": "{{view}} #{{code}}",
+       "datasource": {
+        "type": "prometheus",
+        "uid": "cfgw0aa7mups0d"
+       }
+      }
+     ],
+     "options": {
+      "legend": {
+       "showLegend": true,
+       "displayMode": "list",
+       "placement": "bottom",
+       "calcs": []
+      },
+      "tooltip": {
+       "mode": "multi",
+       "sort": "desc"
+      }
+     },
+     "description": "On-chain view calls that failed, by view and error code.",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    },
+    {
+     "id": 52,
+     "type": "timeseries",
+     "title": "Ledger skew (ledger - wall clock)",
+     "gridPos": {
+      "x": 16,
+      "y": 135,
+      "w": 8,
+      "h": 6
+     },
+     "fieldConfig": {
+      "defaults": {
+       "unit": "s",
+       "custom": {
+        "showPoints": "never",
+        "fillOpacity": 8,
+        "lineWidth": 1,
+        "spanNulls": true
+       }
+      }
+     },
+     "targets": [
+      {
+       "refId": "A",
+       "expr": "lending_exporter_ledger_skew_seconds{network=\"mainnet\"}",
+       "legendFormat": "skew",
+       "datasource": {
+        "type": "prometheus",
+        "uid": "cfgw0aa7mups0d"
+       }
+      }
+     ],
+     "options": {
+      "legend": {
+       "showLegend": true,
+       "displayMode": "list",
+       "placement": "bottom",
+       "calcs": []
+      },
+      "tooltip": {
+       "mode": "multi",
+       "sort": "desc"
+      }
+     },
+     "description": "Difference between ledger close time and wall clock. Large skew delays staleness detection.",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     }
+    }
+   ]
+  },
+  {
+   "id": 910,
+   "type": "row",
+   "title": "Alerting & alerted-but-unpanelled metrics",
+   "gridPos": {
+    "x": 0,
+    "y": 141,
+    "w": 24,
+    "h": 1
+   },
+   "collapsed": false,
+   "panels": []
+  },
+  {
+   "id": 911,
+   "type": "alertlist",
+   "title": "Lending alerts",
+   "description": "Imported rules carry no dashboard/panel link, so no panel above shows alert state. This lists them instead.",
+   "gridPos": {
+    "x": 0,
+    "y": 142,
+    "w": 8,
+    "h": 9
+   },
+   "options": {
+    "alertInstanceLabelFilter": "",
+    "alertName": "Lending",
+    "dashboardAlerts": false,
+    "groupBy": [],
+    "groupMode": "default",
+    "maxItems": 20,
+    "sortOrder": 1,
+    "stateFilter": {
+     "error": true,
+     "firing": true,
+     "noData": false,
+     "normal": false,
+     "pending": true
+    },
+    "viewMode": "list"
+   }
+  },
+  {
+   "id": 912,
+   "type": "timeseries",
+   "title": "Oracle staleness budget (effective max_stale)",
+   "description": "Denominator of LendingOracleFreshnessHalfConsumed/Critical. Without it those alerts fire as a bare ratio with nothing to compare against.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "cfgw0aa7mups0d"
+   },
+   "gridPos": {
+    "x": 8,
+    "y": 142,
+    "w": 8,
+    "h": 9
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "lending_oracle_effective_max_stale_seconds",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     },
+     "format": "time_series",
+     "legendFormat": "{{symbol}} ({{network}})"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "custom": {
+      "lineWidth": 1,
+      "fillOpacity": 0
+     },
+     "unit": "s"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "table",
+     "placement": "right",
+     "calcs": [
+      "lastNotNull"
+     ]
+    }
+   }
+  },
+  {
+   "id": 913,
+   "type": "timeseries",
+   "title": "RPC errors",
+   "description": "What LendingRpcErrors fires on.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "cfgw0aa7mups0d"
+   },
+   "gridPos": {
+    "x": 16,
+    "y": 142,
+    "w": 8,
+    "h": 9
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "increase(lending_exporter_rpc_errors_total[1h])",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     },
+     "format": "time_series",
+     "legendFormat": "{{network}}"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "custom": {
+      "lineWidth": 1,
+      "fillOpacity": 0
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "table",
+     "placement": "right",
+     "calcs": [
+      "lastNotNull"
+     ]
+    }
+   }
+  },
+  {
+   "id": 914,
+   "type": "timeseries",
+   "title": "Time since last accrual",
+   "description": "What LendingAccrualStalled fires on.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "cfgw0aa7mups0d"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 151,
+    "w": 12,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "time() - lending_market_last_accrual_timestamp",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     },
+     "format": "time_series",
+     "legendFormat": "{{symbol}} ({{network}})"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "custom": {
+      "lineWidth": 1,
+      "fillOpacity": 0
+     },
+     "unit": "s"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "table",
+     "placement": "right",
+     "calcs": [
+      "lastNotNull"
+     ]
+    }
+   }
+  },
+  {
+   "id": 915,
+   "type": "timeseries",
+   "title": "Exporters by self-reported network",
+   "description": "One series per exporter process, labelled by the network it claims. Two series on one network, or a network missing entirely, is what LendingExporterNetworkMismatch/Missing catch.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "cfgw0aa7mups0d"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 151,
+    "w": 12,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "lending_exporter_build_info",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     },
+     "format": "time_series",
+     "legendFormat": "{{job}} -> {{network}}"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "custom": {
+      "lineWidth": 1,
+      "fillOpacity": 0
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "table",
+     "placement": "right",
+     "calcs": [
+      "lastNotNull"
+     ]
+    }
+   }
+  },
+  {
+   "id": 916,
+   "type": "timeseries",
+   "title": "Deprecated spoke-assets",
+   "description": "What LendingSpokeDeprecated fires on. A deprecated spoke-asset still holds positions that must wind down.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "cfgw0aa7mups0d"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 159,
+    "w": 24,
+    "h": 7
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "lending_spoke_deprecated == 1",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "cfgw0aa7mups0d"
+     },
+     "format": "time_series",
+     "legendFormat": "spoke {{spoke_id}} / {{symbol}} ({{network}})"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "custom": {
+      "lineWidth": 1,
+      "fillOpacity": 0
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "table",
+     "placement": "right",
+     "calcs": [
+      "lastNotNull"
+     ]
+    }
+   }
+  }
+ ]
 }

@@ -97,6 +97,34 @@ groups:
           summary: "Lending exporter target is down ({{ $labels.job }})"
           description: "Prometheus cannot scrape the exporter."
 
+      # `network` comes from the exporter's own config, not from the scrape
+      # config, so a deployment that mounts the wrong config file relabels its
+      # data instead of failing. Every query keeps working, the other network
+      # simply stops existing, and the silence is indistinguishable from health.
+      # `job` is the only independent witness of which deployment a series came
+      # from, so this is the one rule that compares the two.
+      - alert: LendingExporterNetworkMismatch
+        expr: |
+          lending_exporter_build_info{job=~".*-testnet", network!="testnet"}
+          or
+          lending_exporter_build_info{job=~".*-mainnet", network!="mainnet"}
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: "Exporter {{ $labels.job }} reports network={{ $labels.network }}"
+          description: "The scrape job and the exporter's self-reported network disagree, so this deployment is reading a chain it is not named for. Alerts and panels for {{ $labels.network }} may be mixing two exporters, and the other network has no series at all. Check which config file this container mounts."
+
+      # A network that stops reporting entirely is invisible to every other rule
+      # here: they all filter on series that no longer exist. Absence has to be
+      # asserted against a constant, never inferred from a missing result.
+      - alert: LendingExporterNetworkMissing
+        expr: absent(lending_exporter_build_info{network="mainnet"})
+        for: 10m
+        labels: { severity: critical }
+        annotations:
+          summary: "No exporter is reporting network=mainnet"
+          description: "No series carries network=mainnet, so every mainnet oracle and market alert is evaluating an empty set and cannot fire. Either the mainnet exporter is gone or it is reporting under a different network label."
+
       - alert: LendingRpcErrors
         expr: increase(lending_exporter_rpc_errors_total[10m]) > 0
         for: 10m
