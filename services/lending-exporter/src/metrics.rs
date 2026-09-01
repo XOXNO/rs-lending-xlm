@@ -131,6 +131,7 @@ fn register_counter_vec(
 impl Metrics {
     pub fn new() -> Result<Self> {
         let registry = Registry::new();
+        registry.register(Box::new(crate::stellar::simulations().clone()))?;
         Ok(Self {
             market_supplied: register_gauge_vec(&registry, "lending_market_supplied_total", "Total supplied underlying (whole tokens)", MARKET_LABELS)?,
             market_supplied_usd: register_gauge_vec(&registry, "lending_market_supplied_total_usd", "Total supplied in USD", MARKET_LABELS)?,

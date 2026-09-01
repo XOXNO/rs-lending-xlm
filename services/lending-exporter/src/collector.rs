@@ -4,7 +4,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{anyhow, Result};
 use stellar_xdr::{LedgerEntryData, ScVal};
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 use crate::config::{ExporterConfig, ResolvedContracts, ResolvedMarket};
 use crate::contract::{controller, oracle, pool};
@@ -14,7 +14,7 @@ use crate::keys::{
 use crate::metrics::Metrics;
 use crate::model;
 use crate::scval;
-use crate::stellar::{simulate_view, RpcClient, ViewError};
+use crate::stellar::{simulate_view, simulations_sent, RpcClient, ViewError};
 
 /// Keys per `get_market_indexes_detailed` simulation; 3 stays under the
 /// mainnet CPU budget for every hub, 5 does not.
@@ -65,6 +65,7 @@ pub async fn scrape_once(
 ) {
     let net = cfg.network.as_str();
     let started = Instant::now();
+    let simulations_before = simulations_sent();
 
     let now_secs = read_ledger_now(client, metrics, net).await;
     let index_rows = read_market_indexes(client, metrics, net, contracts).await;
@@ -185,6 +186,13 @@ pub async fn scrape_once(
         .with_label_values(&[net, env!("CARGO_PKG_VERSION")])
         .set(1.0);
 
+    info!(
+        target: "exporter.collector",
+        network = net,
+        simulations = simulations_sent() - simulations_before,
+        duration_ms = started.elapsed().as_secs_f64() * 1e3,
+        "scrape complete"
+    );
     metrics
         .scrape_duration_seconds
         .with_label_values(&[net])

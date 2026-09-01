@@ -1,4 +1,8 @@
 use anyhow::{anyhow, Context};
+use prometheus::{IntCounterVec, Opts};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::OnceLock;
+use std::time::Instant;
 use stellar_xdr::{
     ContractId, Hash, HostFunction, InvokeContractArgs, InvokeHostFunctionOp, LedgerFootprint,
     Memo, MuxedAccount, Operation, OperationBody, Preconditions, ScAddress, ScSymbol, ScVal,
@@ -6,8 +10,32 @@ use stellar_xdr::{
     Transaction, TransactionEnvelope, TransactionExt, TransactionV1Envelope, Uint256, VecM,
 };
 use thiserror::Error;
+use tracing::debug;
 
 use crate::stellar::client::RpcClient;
+
+/// Every simulateTransaction this service sends goes through `simulate_view`,
+/// so this is the one place that counts them. `Metrics::new` registers the
+/// counter; the collector reads `simulations_sent` for its per-scrape summary.
+pub fn simulations() -> &'static IntCounterVec {
+    static COUNTER: OnceLock<IntCounterVec> = OnceLock::new();
+    COUNTER.get_or_init(|| {
+        IntCounterVec::new(
+            Opts::new(
+                "lending_exporter_simulations_total",
+                "simulateTransaction calls sent, by view function and outcome",
+            ),
+            &["function", "outcome"],
+        )
+        .expect("constant metric name and labels are valid")
+    })
+}
+
+static SIMULATIONS_SENT: AtomicU64 = AtomicU64::new(0);
+
+pub fn simulations_sent() -> u64 {
+    SIMULATIONS_SENT.load(Ordering::Relaxed)
+}
 
 #[derive(Debug, Error)]
 pub enum ViewError {
@@ -28,11 +56,26 @@ pub async fn simulate_view(
     let op = invoke_op(contract_id, function, args)?;
     let envelope = read_only_envelope(op)?;
 
+    let started = Instant::now();
+    SIMULATIONS_SENT.fetch_add(1, Ordering::Relaxed);
     let sim = client
         .inner()
         .simulate_transaction_envelope(&envelope, None)
-        .await
-        .context("simulate_transaction_envelope")?;
+        .await;
+    let outcome = match &sim {
+        Ok(s) if s.error.is_some() => "reverted",
+        Ok(_) => "ok",
+        Err(_) => "rpc_error",
+    };
+    simulations().with_label_values(&[function, outcome]).inc();
+    debug!(
+        target: "exporter.rpc",
+        function,
+        outcome,
+        elapsed_ms = started.elapsed().as_secs_f64() * 1e3,
+        "simulateTransaction"
+    );
+    let sim = sim.context("simulate_transaction_envelope")?;
 
     if let Some(err) = sim.error {
         return Err(ViewError::Reverted(err));
