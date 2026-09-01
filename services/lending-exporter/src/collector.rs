@@ -1,5 +1,6 @@
-use std::collections::BTreeSet;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::collections::{BTreeSet, HashMap};
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{anyhow, Result};
 use stellar_xdr::{LedgerEntryData, ScVal};
@@ -14,6 +15,20 @@ use crate::metrics::Metrics;
 use crate::model;
 use crate::scval;
 use crate::stellar::{simulate_view, RpcClient, ViewError};
+
+/// Keys per `get_market_indexes_detailed` simulation; 3 stays under the
+/// mainnet CPU budget for every hub, 5 does not.
+const INDEX_CHUNK_SIZE: usize = 3;
+/// How long a (spoke, hub, asset) pair that reverted with AssetNotInSpoke is
+/// skipped before being probed again.
+const UNLISTED_SPOKE_ASSET_TTL: Duration = Duration::from_secs(10 * 60);
+
+type UnlistedSpokeAssets = HashMap<(u32, u32, [u8; 32]), Instant>;
+
+fn unlisted_spoke_assets() -> &'static Mutex<UnlistedSpokeAssets> {
+    static CACHE: OnceLock<Mutex<UnlistedSpokeAssets>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
 
 pub async fn resolve_pool_id(client: &RpcClient, controller: &[u8; 32]) -> Result<[u8; 32]> {
     let scv = simulate_view(client, controller, "get_pool_address", vec![])
@@ -251,29 +266,39 @@ async fn read_market_indexes(
         return Vec::new();
     }
 
-    if let Some(rows) = try_index_batch(client, &contracts.controller, &keys).await {
-        if rows.len() == keys.len() {
-            return rows.into_iter().map(Some).collect();
-        }
-    }
-
+    // The full-market batch always exceeds the simulation CPU budget on
+    // mainnet (25 keys, hub-3 assets are the heaviest), so it used to cost
+    // 1 failed batch + 25 per-key reads every scrape. Chunks of 3 stay under
+    // budget; a chunk that still fails falls back per key for that chunk only.
     let mut out = Vec::with_capacity(keys.len());
-    for (market, key) in contracts.markets.iter().zip(keys.iter()) {
-        let single =
-            try_index_batch(client, &contracts.controller, std::slice::from_ref(key)).await;
-        match single.and_then(|mut v| v.pop()) {
-            Some(row) => out.push(Some(row)),
-            None => {
-                metrics
-                    .view_failures
-                    .with_label_values(&[
-                        net,
-                        "get_market_indexes_detailed",
-                        &market.asset_strkey,
-                        "batch_key",
-                    ])
-                    .inc();
-                out.push(None);
+    for (markets, chunk) in contracts
+        .markets
+        .chunks(INDEX_CHUNK_SIZE)
+        .zip(keys.chunks(INDEX_CHUNK_SIZE))
+    {
+        if let Some(rows) = try_index_batch(client, &contracts.controller, chunk).await {
+            if rows.len() == chunk.len() {
+                out.extend(rows.into_iter().map(Some));
+                continue;
+            }
+        }
+        for (market, key) in markets.iter().zip(chunk.iter()) {
+            let single =
+                try_index_batch(client, &contracts.controller, std::slice::from_ref(key)).await;
+            match single.and_then(|mut v| v.pop()) {
+                Some(row) => out.push(Some(row)),
+                None => {
+                    metrics
+                        .view_failures
+                        .with_label_values(&[
+                            net,
+                            "get_market_indexes_detailed",
+                            &market.asset_strkey,
+                            "batch_key",
+                        ])
+                        .inc();
+                    out.push(None);
+                }
             }
         }
     }
@@ -882,6 +907,24 @@ async fn publish_spoke_asset(
         return;
     };
 
+    // get_spoke_asset reverts (AssetNotInSpoke) for every hub asset a spoke
+    // does not list, and most (spoke, asset) pairs are unlisted, so probing all
+    // of them each scrape was ~150 guaranteed-revert simulations per pass.
+    // Remember the revert and skip the pair until the entry expires.
+    // ponytail: fixed TTL; invalidate on the controller's listing event if
+    // a 10-minute lag after a governance listing ever matters.
+    let unlisted_key = (spoke_id, market.hub_id, market.asset_id);
+    {
+        let unlisted = unlisted_spoke_assets()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if unlisted
+            .get(&unlisted_key)
+            .is_some_and(|since| since.elapsed() < UNLISTED_SPOKE_ASSET_TTL)
+        {
+            return;
+        }
+    }
     let cfg_scv = match simulate_view(
         client,
         &contracts.controller,
@@ -891,6 +934,13 @@ async fn publish_spoke_asset(
     .await
     {
         Ok(s) => s,
+        Err(ViewError::Reverted(_)) => {
+            unlisted_spoke_assets()
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(unlisted_key, Instant::now());
+            return;
+        }
         Err(_) => return,
     };
 

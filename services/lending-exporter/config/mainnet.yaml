@@ -97,7 +97,7 @@ spoke_names:
   6: Ondo RWA
   7: Commodities
   8: Aquarius Ecosystem
-scrape_interval_seconds: 10
+scrape_interval_seconds: 30
 metrics:
   bind: 0.0.0.0:9110
 log:
