@@ -86,7 +86,7 @@ the real integer path with maximum-size chunks:
 |---|---|---|---|
 | 200% | `MAX_BORROW_RATE_RAY`, the protocol maximum | 7.387301587 | **11** |
 | 175% | XLM / SolvBTC / AQUA / LP markets, `configs/mainnet` | 5.754090434 | 12 |
-| 125% | USDC / EURC / PYUSD / RWA markets, `configs/mainnet` | 3.490319534 | 17 |
+| 125% | USDC / EURC / PYUSD / USDT0 / RWA markets, `configs/mainnet` | 3.490319534 | 17 |
 | 30% | ChainSecurity's own worked example for Aave | 1.349858808 | 70 |
 | 10% | plausible steady state | 1.105170918 | 208 |
 

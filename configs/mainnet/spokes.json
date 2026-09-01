@@ -46,6 +46,17 @@
         "borrow_cap": "735000000000",
         "liquidation_fees": 1000
       },
+      "USDT0": {
+        "hub_id": 1,
+        "can_be_collateral": true,
+        "can_be_borrowed": true,
+        "ltv": 7200,
+        "liquidation_threshold": 7900,
+        "liquidation_bonus": 500,
+        "supply_cap": "500000000000",
+        "borrow_cap": "375000000000",
+        "liquidation_fees": 1000
+      },
       "SolvBTC": {
         "hub_id": 1,
         "can_be_collateral": true,
@@ -373,6 +384,17 @@
         "liquidation_bonus": 300,
         "supply_cap": "2000000000000",
         "borrow_cap": "1500000000000",
+        "liquidation_fees": 1000
+      },
+      "USDT0": {
+        "hub_id": 1,
+        "can_be_collateral": true,
+        "can_be_borrowed": true,
+        "ltv": 8400,
+        "liquidation_threshold": 8800,
+        "liquidation_bonus": 400,
+        "supply_cap": "1000000000000",
+        "borrow_cap": "750000000000",
         "liquidation_fees": 1000
       },
       "USST": {

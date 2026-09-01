@@ -280,6 +280,67 @@
       }
     },
     {
+      "name": "USDT0",
+      "hub_id": 1,
+      "asset_address": "CBSJZEIO5C7KC2SF3MKSNXXJSW5G3VTNBX4ATMKUI3B2MR4JKM4R26YF",
+      "oracle": {
+        "asset_decimals": 7,
+        "max_price_stale_seconds": 57600,
+        "sources": [
+          {
+            "Feed": {
+              "provider": {
+                "Reflector": {
+                  "contract": "CAFJZQWSED6YAWZU3GWRTOCNPPCGBN32L7QV43XX5LZLFTK6JLN34DLN",
+                  "asset": {
+                    "Symbol": "USDT"
+                  },
+                  "read_mode": {
+                    "Twap": 3
+                  }
+                }
+              },
+              "decimals": 14,
+              "max_stale_seconds": 3600
+            }
+          },
+          {
+            "Feed": {
+              "provider": {
+                "RedStone": {
+                  "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
+                  "feed_id": "USDT0",
+                  "nature": "Fundamental"
+                }
+              },
+              "decimals": 8,
+              "max_stale_seconds": 57600
+            }
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 10500,
+          "lower_ratio_bps": 9524
+        },
+        "independence": "RequireDisjoint",
+        "min_sanity_price_wad": "950000000000000000",
+        "max_sanity_price_wad": "1050000000000000000"
+      },
+      "market_params": {
+        "max_borrow_rate": "1250000000000000000000000000",
+        "base_borrow_rate": "5000000000000000000000000",
+        "slope1": "30000000000000000000000000",
+        "slope2": "95000000000000000000000000",
+        "slope3": "1000000000000000000000000000",
+        "mid_utilization": "600000000000000000000000000",
+        "optimal_utilization": "850000000000000000000000000",
+        "max_utilization": "950000000000000000000000000",
+        "reserve_factor": 1500,
+        "is_flashloanable": true,
+        "flashloan_fee": 9
+      }
+    },
+    {
       "name": "USST",
       "hub_id": 2,
       "asset_address": "CBZ4DCE7PYMUTOAKKUTRSUPT3FJFVOWCSKWUM5A72D6SAVMUJE5JN2PJ",
