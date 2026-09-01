@@ -299,8 +299,8 @@ mod tests {
     /// listed six deferred ones, and had no name for spoke 9 — which renders as
     /// a bare "Spoke 9" in the graph via the `spoke_name` fallback.
     ///
-    /// Parses without `validate()`, which requires a deployed controller address
-    /// that mainnet does not have yet.
+    /// Parses without `validate()`, so a parse or label regression is reported
+    /// on its own rather than behind an address error.
     #[test]
     fn shipped_configs_parse_and_label_every_hub_and_spoke() {
         for name in ["mainnet", "testnet"] {

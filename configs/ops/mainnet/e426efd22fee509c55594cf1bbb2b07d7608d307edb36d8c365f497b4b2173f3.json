@@ -1,0 +1,62 @@
+{
+  "kind": "price_aggregator",
+  "op_id": "e426efd22fee509c55594cf1bbb2b07d7608d307edb36d8c365f497b4b2173f3",
+  "network": "mainnet",
+  "target": "CBGUF2G2Q7HCVCWYISDXBHPVBGMYNXA7PG2VET66YBZX6IKOOV27NSMV",
+  "function": "set_oracle",
+  "predecessor": "0000000000000000000000000000000000000000000000000000000000000000",
+  "salt": "8ba13243356d5b2826a9f398be9929a833f045af7450fe36afeae7ada7c8ecb6",
+  "cli_executable": true,
+  "executed": true,
+  "resolve": {
+    "view_fn": "resolve_asset_oracle",
+    "args": {
+      "key": {
+        "Token": "CBSJZEIO5C7KC2SF3MKSNXXJSW5G3VTNBX4ATMKUI3B2MR4JKM4R26YF"
+      },
+      "oracle": {
+        "asset_decimals": 7,
+        "max_price_stale_seconds": 57600,
+        "sources": [
+          {
+            "Feed": {
+              "provider": {
+                "Reflector": {
+                  "contract": "CAFJZQWSED6YAWZU3GWRTOCNPPCGBN32L7QV43XX5LZLFTK6JLN34DLN",
+                  "asset": {
+                    "Symbol": "USDT"
+                  },
+                  "read_mode": {
+                    "Twap": 3
+                  }
+                }
+              },
+              "decimals": 14,
+              "max_stale_seconds": 3600
+            }
+          },
+          {
+            "Feed": {
+              "provider": {
+                "RedStone": {
+                  "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
+                  "feed_id": "USDT0",
+                  "nature": "Fundamental"
+                }
+              },
+              "decimals": 8,
+              "max_stale_seconds": 57600
+            }
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 10500,
+          "lower_ratio_bps": 9524
+        },
+        "independence": "RequireDisjoint",
+        "min_sanity_price_wad": "950000000000000000",
+        "max_sanity_price_wad": "1050000000000000000"
+      }
+    }
+  }
+}
