@@ -167,4 +167,54 @@ mod tests {
         let usd = feed.usd_value_wad(&env, 100_000_000);
         assert_eq!(usd.raw(), 20 * WAD);
     }
+
+    #[test]
+    fn usd_value_wad_of_zero_tokens_is_zero() {
+        let env = Env::default();
+        let feed = PriceFeed {
+            price: crate::math::fp::Wad::from(WAD),
+            asset_decimals: 7,
+            timestamp: 0,
+        };
+        assert_eq!(feed.usd_value_wad(&env, 0).raw(), 0);
+    }
+
+    #[test]
+    fn usd_value_wad_of_one_base_unit_is_price_over_ten_pow_decimals() {
+        let env = Env::default();
+        let feed = PriceFeed {
+            price: crate::math::fp::Wad::from(3 * WAD),
+            asset_decimals: 7,
+            timestamp: 0,
+        };
+        assert_eq!(feed.usd_value_wad(&env, 1).raw(), 3 * WAD / 10_000_000);
+    }
+
+    #[test]
+    fn usd_value_wad_at_the_max_sanity_price_and_max_decimals_fits() {
+        let env = Env::default();
+        let feed = PriceFeed {
+            price: crate::math::fp::Wad::from(crate::constants::MAX_REASONABLE_PRICE_WAD),
+            asset_decimals: 18,
+            timestamp: 0,
+        };
+        // 1e9 whole tokens at $1e9 each is $1e18, i.e. 1e36 wad: inside i128.
+        let one_billion_tokens = 1_000_000_000i128 * WAD;
+        assert_eq!(
+            feed.usd_value_wad(&env, one_billion_tokens).raw(),
+            1_000_000_000i128 * crate::constants::MAX_REASONABLE_PRICE_WAD
+        );
+    }
+
+    #[test]
+    #[should_panic]
+    fn usd_value_wad_panics_instead_of_wrapping_past_i128() {
+        let env = Env::default();
+        let feed = PriceFeed {
+            price: crate::math::fp::Wad::from(crate::constants::MAX_REASONABLE_PRICE_WAD),
+            asset_decimals: 3,
+            timestamp: 0,
+        };
+        let _ = feed.usd_value_wad(&env, i128::MAX / 1_000);
+    }
 }

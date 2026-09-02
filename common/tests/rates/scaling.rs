@@ -292,3 +292,64 @@ fn resolve_net_settle_zero_overlap_is_noop() {
     );
     assert_eq!((burn_s, burn_d, settled), (Ray::ZERO, Ray::ZERO, 0));
 }
+
+// --- resolve_repay boundaries (GH-04) -------------------------------------
+
+#[test]
+fn resolve_repay_zero_amount_burns_nothing_and_refunds_nothing() {
+    let env = Env::default();
+    let index = Ray::from(RAY + RAY / 3);
+    let pos = Ray::from(10 * RAY);
+    let (burn, excess) = resolve_repay(&env, 0, pos, index, 7);
+    assert_eq!(burn, Ray::ZERO);
+    assert_eq!(excess, 0);
+}
+
+#[test]
+fn resolve_repay_one_unit_below_ceil_debt_is_partial_with_floor_burn() {
+    let env = Env::default();
+    let index = Ray::from(RAY + RAY / 3);
+    let pos = Ray::from(10 * RAY);
+    let ceil_debt = unscale_borrow_ceil(&env, pos, index, 7);
+    let (burn, excess) = resolve_repay(&env, ceil_debt - 1, pos, index, 7);
+    assert_eq!(excess, 0, "one unit short of the ceiling is a partial repay");
+    assert_eq!(
+        burn,
+        calculate_scaled_borrow_floor(&env, ceil_debt - 1, 7, index),
+        "partial repay burns the floor-scaled shares"
+    );
+    assert!(burn < pos, "a partial repay never burns the whole position");
+}
+
+#[test]
+fn resolve_repay_at_ceil_debt_closes_with_zero_excess() {
+    let env = Env::default();
+    let index = Ray::from(RAY + RAY / 3);
+    let pos = Ray::from(10 * RAY);
+    let ceil_debt = unscale_borrow_ceil(&env, pos, index, 7);
+    let (burn, excess) = resolve_repay(&env, ceil_debt, pos, index, 7);
+    assert_eq!(burn, pos);
+    assert_eq!(excess, 0);
+}
+
+#[test]
+fn resolve_repay_one_unit_above_ceil_debt_refunds_exactly_one_unit() {
+    let env = Env::default();
+    let index = Ray::from(RAY + RAY / 3);
+    let pos = Ray::from(10 * RAY);
+    let ceil_debt = unscale_borrow_ceil(&env, pos, index, 7);
+    let (burn, excess) = resolve_repay(&env, ceil_debt + 1, pos, index, 7);
+    assert_eq!(burn, pos);
+    assert_eq!(excess, 1);
+}
+
+#[test]
+fn resolve_repay_at_index_ceiling_still_closes() {
+    let env = Env::default();
+    let index = Ray::from(crate::constants::MAX_BORROW_INDEX_RAY);
+    let pos = Ray::from(RAY);
+    let ceil_debt = unscale_borrow_ceil(&env, pos, index, 7);
+    let (burn, excess) = resolve_repay(&env, ceil_debt, pos, index, 7);
+    assert_eq!(burn, pos);
+    assert_eq!(excess, 0);
+}
