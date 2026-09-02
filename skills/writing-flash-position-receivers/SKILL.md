@@ -18,6 +18,12 @@ collateral to the controller.
 Do **not** implement `execute_flash_loan`. Do **not** `approve` the pool.
 There is no repayment pull.
 
+Two gates run before the mint: `mode` must be `Multiply`, `Long` or `Short`
+(`InvalidPositionMode`, #111), and the debt market must have
+`is_flashloanable` set (`FlashloanNotEnabled`, #401). `multiply` is not
+gated on the flag because its funds only ever reach the governance-owned
+router; `flash_position` hands them to your contract.
+
 ```rust
 fn flash_position(
     caller: Address,
