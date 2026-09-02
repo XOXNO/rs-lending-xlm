@@ -16,7 +16,9 @@ mod prelude;
 pub mod presets;
 mod receivers;
 
-pub use receivers::flash_position::{FlashPositionMode, FlashPositionRequest};
+pub use receivers::flash_position::{
+    FlashPositionMode, FlashPositionRequest, FlashPositionTestReceiverClient,
+};
 mod revenue;
 mod script_runner;
 mod setup;

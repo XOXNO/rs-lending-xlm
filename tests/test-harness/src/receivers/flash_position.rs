@@ -83,6 +83,25 @@ pub enum FlashPositionMode {
     ReenterBorrow = 10,
     ReenterWithdraw = 11,
     ReenterRepay = 12,
+    TransferNftMidCallback = 13,
+}
+
+#[contracttype]
+pub enum ReceiverKey {
+    NftTarget,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct NftTarget {
+    pub nft: Address,
+    pub to: Address,
+}
+
+#[allow(dead_code)]
+#[contractclient(name = "NftTransferClient")]
+pub trait NftTransfer {
+    fn transfer(env: Env, from: Address, to: Address, token_id: u32);
 }
 
 #[contracttype]
@@ -102,6 +121,12 @@ pub struct FlashPositionTestReceiver;
 
 #[contractimpl]
 impl FlashPositionTestReceiver {
+    pub fn set_nft_transfer_target(env: Env, nft: Address, to: Address) {
+        env.storage()
+            .instance()
+            .set(&ReceiverKey::NftTarget, &NftTarget { nft, to });
+    }
+
     pub fn execute_flash_position(
         env: Env,
         initiator: Address,
@@ -190,6 +215,23 @@ impl FlashPositionTestReceiver {
                         &amount_received,
                     );
                 }
+            }
+            FlashPositionMode::TransferNftMidCallback => {
+                push_token(
+                    &env,
+                    &request.collateral,
+                    request.collateral_amount,
+                    &controller,
+                );
+                let target: NftTarget = env
+                    .storage()
+                    .instance()
+                    .get(&ReceiverKey::NftTarget)
+                    .unwrap_or_else(|| panic_with_error!(&env, GenericError::InvalidPayments));
+                let token_id = u32::try_from(account_id)
+                    .unwrap_or_else(|_| panic_with_error!(&env, GenericError::InvalidPayments));
+                NftTransferClient::new(&env, &target.nft)
+                    .transfer(&self_addr, &target.to, &token_id);
             }
             FlashPositionMode::SupplyAndReturnDebt => {
                 push_token(

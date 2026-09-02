@@ -4,6 +4,7 @@ mod adversarial;
 mod core;
 mod edge;
 mod extreme_amount_inputs;
+mod flash_position_callback_ownership_transfer;
 mod flash_position;
 mod flash_position_adversarial;
 mod happy;
