@@ -1,5 +1,6 @@
 extern crate std;
 
+mod accrual_partition_bound;
 mod interest;
 mod interest_rigorous;
 mod math_rates;
