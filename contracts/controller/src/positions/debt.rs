@@ -11,6 +11,7 @@ use crate::events;
 use crate::events::EventContext;
 use crate::external::pool::{pool_borrow_call, pool_create_strategy_call, pool_repay_call};
 use crate::payments;
+use crate::positions::require_external_recipient;
 use crate::positions::{
     enforce_post_pool_solvency, enforce_spoke_asset_flags, finalize_position_flow, for_each_leg,
     get_debt_position_or_panic, make_pool_action, merge_debt_leg, validate_position_entry_gates,
@@ -45,6 +46,7 @@ pub(crate) fn process_borrow(
 
     let recipient = to.unwrap_or_else(|| caller.clone());
     let mut cache = Cache::new(env);
+    require_external_recipient(env, &mut cache, &recipient);
     let aggregated = payments::aggregate_positive_payments(env, borrows);
 
     validate_position_entry_gates(

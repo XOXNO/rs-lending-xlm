@@ -7,13 +7,15 @@
 
 pub(crate) mod debt;
 
-use common::errors::{CollateralError, GenericError, SpokeError};
+use common::errors::{CollateralError, FlashLoanError, GenericError, SpokeError};
 use common::math::fp::Ray;
 use common::types::{
     Account, AccountPosition, AccountPositionType, AggregatedPayments, AssetConfig, DebtPosition,
     HubAssetKey, HubPayment, MarketIndexRaw, PoolAction, PoolPositionMutation, ScaledPositionRaw,
 };
-use soroban_sdk::{assert_with_error, panic_with_error, Env, IntoVal, TryFromVal, Val, Vec};
+use soroban_sdk::{
+    assert_with_error, panic_with_error, Address, Env, IntoVal, TryFromVal, Val, Vec,
+};
 
 use crate::account;
 use crate::context::Cache;
@@ -32,6 +34,20 @@ pub(crate) use supply::{
     WithdrawKind, WithdrawalRequest,
 };
 pub(crate) mod supply;
+
+/// Panics with `InvalidFlashloanReceiver` when `recipient` is the pool or the
+/// controller. Either address strands the tokens: the pool debits cash with
+/// no balance change, and the controller holds funds that no balance-delta
+/// measurement ever claims. Same predicate and error as the flash-position
+/// receiver check.
+pub(crate) fn require_external_recipient(env: &Env, cache: &mut Cache, recipient: &Address) {
+    let pool = cache.cached_pool_address();
+    assert_with_error!(
+        env,
+        *recipient != env.current_contract_address() && *recipient != pool,
+        FlashLoanError::InvalidFlashloanReceiver
+    );
+}
 
 pub(crate) struct LegOutcome {
     pub new_scaled: Ray,

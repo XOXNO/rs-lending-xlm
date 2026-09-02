@@ -20,6 +20,7 @@ mod flash_loan_adversarial;
 mod keeper;
 mod large_positions_and_long_horizons;
 mod position_limit_lowering_keeps_topups;
+mod recipient_is_protocol_contract;
 mod liquidation;
 mod liquidation_accrual_timing;
 mod liquidation_boundary;

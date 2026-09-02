@@ -187,7 +187,7 @@ raised by `set_oracle`, `set_sanity_band`, and `set_tolerance`.
 | 401 | `FlashloanNotEnabled` | The market's `is_flashloanable` parameter is false (`contracts/pool/src/ops/flash.rs:89`). | Choose a flash-loan-enabled market. | pool `flash_loan`; controller `flash_loan` |
 | 402 | `InvalidFlashloanRepay` | The receiver's allowance to the pool is below principal plus fee, or the pool balance after the callback is not the expected amount (`contracts/pool/src/ops/flash.rs:180`, `:191`). | Approve and return principal plus fee before returning. | pool `flash_loan`; controller `flash_loan` |
 | 409 | `StrategyFeeExceeds` | The computed flash-loan fee is larger than the borrowed amount (`contracts/pool/src/ops/strategy.rs:99`). | Report it; the market fee parameter is misconfigured. | pool `create_strategy`, reached through controller `multiply`, `swap_debt`, `swap_collateral`, `repay_debt_with_collateral`, `migrate_from_blend` |
-| 412 | `InvalidFlashloanReceiver` | The receiver address is not a deployed Wasm contract (`common/src/validation.rs:79`). | Pass a contract address as the receiver. | pool `flash_loan`; controller `flash_loan` |
+| 412 | `InvalidFlashloanReceiver` | The receiver address is not a deployed Wasm contract (`common/src/validation.rs:79`), or the `to` recipient of a controller `borrow` or `withdraw` is the pool or the controller (`contracts/controller/src/positions/mod.rs`, `require_external_recipient`). | Pass a contract address as the receiver; pay borrows and withdrawals out to an address outside the protocol. | pool `flash_loan`; controller `flash_loan`, `borrow`, `withdraw` |
 
 ### `StrategyError` (6 codes)
 

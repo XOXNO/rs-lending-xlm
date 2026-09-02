@@ -13,6 +13,7 @@ use crate::events;
 use crate::events::EventContext;
 use crate::external::pool::{pool_supply_call, pool_withdraw_call};
 use crate::payments;
+use crate::positions::require_external_recipient;
 use crate::positions::{
     apply_leg_usage, enforce_post_pool_solvency, enforce_spoke_asset_flags, finalize_position_flow,
     for_each_leg, get_supply_position_or_panic, make_pool_action, validate_position_entry_gates,
@@ -171,6 +172,7 @@ pub(crate) fn process_withdraw(
 
     let recipient = to.unwrap_or_else(|| caller.clone());
     let mut cache = Cache::new(env);
+    require_external_recipient(env, &mut cache, &recipient);
     let aggregated = payments::aggregate_payments(env, withdrawals, payments::ZeroLeg::MeansAll);
 
     let paid = settle_withdraw(env, &mut account, &recipient, &aggregated, &mut cache);
