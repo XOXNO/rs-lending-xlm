@@ -34,6 +34,7 @@ mod ownership;
 mod position_nft;
 mod position_nft_ttl_and_ownership_reads;
 mod repay;
+mod round_trip_exactness_and_loop_drift;
 mod security_audit;
 mod security_audit_extended;
 mod shared;
