@@ -71,6 +71,7 @@ if want liquidation; then
     # Last in the phase: halting LIQG's seizure leg is irreversible, so nothing
     # that needs to seize LIQG may run after it.
     flow_spoke_flags_and_curve
+    flow_liq_deprecated_spoke_credit
     unset INV_TRANSIENT_CONTRACT_RE
 fi
 
@@ -80,8 +81,15 @@ fi
 
 if want admin; then
     flow_admin
+    flow_gap_hunt_admin
     flow_pool_surface
     flow_swap_aggregator_admin
+fi
+
+# Standalone keyword for a targeted rerun of the gap-hunt admin checks on a
+# world whose seed account is still live (admin runs it too).
+if want gap_hunt; then
+    flow_gap_hunt_admin
 fi
 
 if want governance; then

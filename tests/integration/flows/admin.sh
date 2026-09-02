@@ -456,3 +456,57 @@ flow_pool_surface() {
         _assert_fail pool_bulk_indexes_shape "get_bulk_indexes returned $(jq -c 'length' <<<"$idx" 2>/dev/null) entries for 1 key"
     fi
 }
+
+# 2026-09 gap hunt, GH-16 and GH-17. The seed account holds XLM and USDC and
+# lives until teardown, so it is the fixture for both: a limit lowered below
+# its position count must keep top-ups (and only top-ups) open, and the pool
+# and the controller must be refused as borrow and withdraw recipients before
+# any transfer. Every check runs against ADMIN_ACCT and restores the limits.
+flow_gap_hunt_admin() {
+    phase gap_hunt_admin
+    [ -n "${ADMIN_ACCT:-}" ] || die gap_hunt_admin "ADMIN_ACCT missing; flow_seed_liquidity must run first"
+    assert_bool_view gh_seed_account_live true account_exists --account_id "$ADMIN_ACCT" \
+        || die gap_hunt_admin "seed account $ADMIN_ACCT is gone (post-teardown resume?); rerun from lifecycle"
+    local xlm_leg
+    xlm_leg=$(pay_vec "$PRIMARY_HUB_ID" "$XLM_SAC" 10000000)
+    # `to` is Option<Address>: the CLI wants JSON, so an address goes as a
+    # JSON string and None as null.
+    local to_pool to_ctrl to_bob
+    to_pool="\"$POOL\""
+    to_ctrl="\"$CONTROLLER\""
+    to_bob="\"$BOB_ADDR\""
+
+    # --- GH-17: recipients inside the protocol are refused with #412 ---
+    xfail gh17_borrow_to_pool 'Error\(Contract, #412\)' "$ADMIN" "$CONTROLLER" -- borrow \
+        --caller "$ADMIN_ADDR" --account_id "$ADMIN_ACCT" --borrows "$xlm_leg" --to "$to_pool"
+    xfail gh17_borrow_to_controller 'Error\(Contract, #412\)' "$ADMIN" "$CONTROLLER" -- borrow \
+        --caller "$ADMIN_ADDR" --account_id "$ADMIN_ACCT" --borrows "$xlm_leg" --to "$to_ctrl"
+    xfail gh17_withdraw_to_pool 'Error\(Contract, #412\)' "$ADMIN" "$CONTROLLER" -- withdraw \
+        --caller "$ADMIN_ADDR" --account_id "$ADMIN_ACCT" --withdrawals "$xlm_leg" --to "$to_pool"
+    xfail gh17_withdraw_to_controller 'Error\(Contract, #412\)' "$ADMIN" "$CONTROLLER" -- withdraw \
+        --caller "$ADMIN_ADDR" --account_id "$ADMIN_ACCT" --withdrawals "$xlm_leg" --to "$to_ctrl"
+    # An outside recipient still works: 1 XLM to BOB, then repaid by ADMIN.
+    inv gh17_borrow_to_bob "$ADMIN" "$CONTROLLER" -- borrow \
+        --caller "$ADMIN_ADDR" --account_id "$ADMIN_ACCT" --borrows "$xlm_leg" --to "$to_bob" >/dev/null
+    inv gh17_repay_after_borrow "$ADMIN" "$CONTROLLER" -- repay \
+        --caller "$ADMIN_ADDR" --account_id "$ADMIN_ACCT" \
+        --payments "$(pay_vec "$PRIMARY_HUB_ID" "$XLM_SAC" 20000000)" >/dev/null
+
+    # --- GH-16: a limit below the account's count keeps top-ups open ---
+    # The seed account holds two supply positions (XLM, USDC); a limit of one
+    # is below that. Topping up XLM opens no slot and passes; EURC would open
+    # a slot and is refused with #109 before any token moves.
+    inv gh16_lower_limits "$ADMIN" "$CONTROLLER" -- set_position_limits \
+        --limits '{"max_supply_positions":1,"max_borrow_positions":1}' >/dev/null
+    inv gh16_topup_held_asset_over_limit "$ADMIN" "$CONTROLLER" -- supply \
+        --caller "$ADMIN_ADDR" --account_id "$ADMIN_ACCT" --spoke_id "$PRIMARY_SPOKE_ID" \
+        --assets "$xlm_leg" >/dev/null
+    inv gh16_third_party_topup_over_limit "$BOB" "$CONTROLLER" -- supply \
+        --caller "$BOB_ADDR" --account_id "$ADMIN_ACCT" --spoke_id "$PRIMARY_SPOKE_ID" \
+        --assets "$xlm_leg" >/dev/null
+    xfail gh16_new_slot_over_limit 'Error\(Contract, #109\)' "$ADMIN" "$CONTROLLER" -- supply \
+        --caller "$ADMIN_ADDR" --account_id "$ADMIN_ACCT" --spoke_id "$PRIMARY_SPOKE_ID" \
+        --assets "$(pay_vec "$PRIMARY_HUB_ID" "$EURC_SAC" 10000000)"
+    inv gh16_restore_limits "$ADMIN" "$CONTROLLER" -- set_position_limits \
+        --limits '{"max_supply_positions":5,"max_borrow_positions":5}' >/dev/null
+}

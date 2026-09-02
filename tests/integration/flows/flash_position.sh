@@ -5,9 +5,11 @@ FP_MODE_SUCCESS=0
 FP_MODE_KEEP_FUNDS=1
 FP_MODE_BELOW_MIN=2
 FP_MODE_PANIC=3
-# PositionMode::Multiply / Normal
+# PositionMode::Multiply / Normal / Long. Since the 2026-09 gap hunt only the
+# strategy modes are accepted; Normal is kept for the rejection check.
 FP_POSITION_MODE=1
 FP_MODE_NORMAL=0
+FP_MODE_LONG=2
 FP_DEBT_AMOUNT="${FP_DEBT_AMOUNT:-10000000}"
 FP_COLLATERAL_AMOUNT="${FP_COLLATERAL_AMOUNT:-10000000000}"
 FP_RECEIVER_FUND="${FP_RECEIVER_FUND:-15000000000}"
@@ -390,7 +392,9 @@ flow_flash_position_matrix() {
     fp_run xfail flash_position_spoke_mismatch 'Error\(Contract, #310\)' || true
     FP_SPOKE="$PRIMARY_SPOKE_ID"
 
-    FP_POS_MODE="$FP_MODE_NORMAL"
+    # Long against a Multiply account: a strategy mode that does not match.
+    # Normal would be refused earlier with #111 (flow_flash_position_gates).
+    FP_POS_MODE="$FP_MODE_LONG"
     fp_run xfail flash_position_mode_mismatch 'Error\(Contract, #25\)' || true
     FP_POS_MODE="$FP_POSITION_MODE"
 
@@ -717,8 +721,9 @@ flow_flash_position_gaps() {
     FP_COLS="$(fp_collaterals "$FP_EXTEND_COLLATERAL")"
 
     # --- create successes that were missing ---
+    # Same-asset borrow-then-supply stays allowed under a strategy mode.
     FP_ACCOUNT_ID=0
-    FP_POS_MODE="$FP_MODE_NORMAL"
+    FP_POS_MODE="$FP_POSITION_MODE"
     FP_PLAN_ASSET="$USDC_SAC"
     FP_DEBT="$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")"
     FP_AMOUNT=10000000
@@ -860,4 +865,54 @@ flow_flash_position_malicious() {
 
     save_state FP_MALICIOUS_DONE 1
     record flash_position_malicious ok flash_position "" "" "" "" "" "malicious receiver coverage complete"
+}
+
+# 2026-09 gap hunt, GH-18 and GH-19. Two gates run before the mint: the mode
+# must be a strategy mode, and the debt market must allow flash loans.
+# `multiply` is not gated on the flag because its funds only ever reach the
+# governance-owned router; `flash_position` hands them to a caller-chosen
+# contract. Both gates are checked for a fresh account and for an existing
+# one, and the USDC curve is restored afterwards.
+flow_flash_position_gates() {
+    phase flash_position_gates
+    [ -n "${ALICE_FP_ACCT:-}" ] || die flash_position_gates "ALICE_FP_ACCT missing"
+    if [ -n "${FP_GATES_DONE:-}" ]; then
+        log "flash_position gates already recorded; skipping"
+        return 0
+    fi
+    FP_RECV="${FLASH_POSITION_RECEIVER_V2:-$FLASH_POSITION_RECEIVER}"
+    FP_SIGNER="$ALICE"
+    FP_CALLER_ADDR="$ALICE_ADDR"
+    FP_SPOKE="$PRIMARY_SPOKE_ID"
+    FP_DEBT="$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")"
+    FP_AMOUNT="$FP_SMALL_DEBT"
+    FP_REFUNDS='[]'
+    FP_PLAN_ASSET="$XLM_SAC"
+    FP_COLS="$(fp_collaterals "$FP_EXTEND_COLLATERAL")"
+
+    # --- GH-18: Normal mode is refused before the mint (#111) ---
+    FP_POS_MODE="$FP_MODE_NORMAL"
+    FP_ACCOUNT_ID=0
+    fp_run xfail flash_position_normal_mode_new 'Error\(Contract, #111\)' || true
+    FP_ACCOUNT_ID="$ALICE_FP_ACCT"
+    fp_run xfail flash_position_normal_mode_ex 'Error\(Contract, #111\)' || true
+    FP_POS_MODE="$FP_POSITION_MODE"
+
+    # --- GH-19: a debt market with flash loans disabled is refused (#401) ---
+    inv fp_usdc_flash_off "$ADMIN" "$CONTROLLER" -- upgrade_liquidity_pool_params \
+        --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")" \
+        --params "$(market_params_json "$USDC_SAC" 7 | jq -c '{
+            max_borrow_rate, base_borrow_rate, slope1, slope2, slope3,
+            mid_utilization, optimal_utilization, max_utilization,
+            reserve_factor, is_flashloanable: false, flashloan_fee
+        }')" >/dev/null
+    FP_ACCOUNT_ID=0
+    fp_run xfail flash_position_flash_disabled_new 'Error\(Contract, #401\)' || true
+    FP_ACCOUNT_ID="$ALICE_FP_ACCT"
+    fp_run xfail flash_position_flash_disabled_ex 'Error\(Contract, #401\)' || true
+    fp_restore_usdc_curve || true
+    # The flag is back on: the same call opens a position again.
+    FP_ACCOUNT_ID=0
+    fp_run create flash_position_after_flag_restored >/dev/null || true
+    save_state FP_GATES_DONE 1
 }
