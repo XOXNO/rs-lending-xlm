@@ -409,3 +409,28 @@ fn renew_user_account_co_renews_all_live_siblings() {
         }
     });
 }
+
+/// GH-14. An inner guard window must not clear the flag an outer window set.
+#[test]
+fn nested_flash_guard_windows_keep_the_outer_flag_until_the_outer_window_closes() {
+    let env = Env::default();
+    let admin = Address::generate(&env);
+    let contract_id = env.register(Controller, (admin,));
+    env.as_contract(&contract_id, || {
+        assert!(!is_flash_loan_ongoing(&env));
+        with_flash_guard(&env, || {
+            assert!(is_flash_loan_ongoing(&env), "outer window sets the flag");
+            with_flash_guard(&env, || {
+                assert!(is_flash_loan_ongoing(&env), "inner window sees it set");
+            });
+            assert!(
+                is_flash_loan_ongoing(&env),
+                "closing the inner window must not clear the outer flag"
+            );
+        });
+        assert!(
+            !is_flash_loan_ongoing(&env),
+            "closing the outer window clears it"
+        );
+    });
+}
