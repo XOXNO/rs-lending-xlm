@@ -410,6 +410,9 @@ end state and charges nothing. The asymmetry is declared in the contract
 documentation and violates no invariant. It is recorded because the economic
 consequence is not written down elsewhere: if the two endpoints are
 interchangeable for a borrower, the origination fee is optional in practice.
+Since 2026-09 `flash_position` also honours `is_flashloanable` on the debt
+market, unlike `multiply`. A market that disables flash loans can still be
+levered through the router, never through a caller-chosen receiver.
 
 ### An approved Blend pool can be upgraded by its own owner
 

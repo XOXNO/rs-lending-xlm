@@ -1,4 +1,4 @@
-use common::errors::{FlashLoanError, GenericError, StrategyError};
+use common::errors::{CollateralError, FlashLoanError, GenericError, StrategyError};
 use common::types::{Account, AccountPositionType, HubAssetKey, PositionMode};
 use common::validation::{
     require_non_empty_payments, require_nonneg_amount, require_positive_amount,
@@ -60,6 +60,14 @@ pub(crate) fn process_flash_position(
 
     require_positive_amount(env, amount);
     config::require_hub_active(env, debt.hub_id);
+    assert_with_error!(
+        env,
+        matches!(
+            mode,
+            PositionMode::Multiply | PositionMode::Long | PositionMode::Short
+        ),
+        CollateralError::InvalidPositionMode
+    );
     require_wasm_receiver(env, receiver);
 
     let controller = env.current_contract_address();
@@ -75,6 +83,14 @@ pub(crate) fn process_flash_position(
         env,
         *receiver != pool_addr,
         FlashLoanError::InvalidFlashloanReceiver
+    );
+    // Strategy debt through `multiply` stays open on such a market because the
+    // funds only ever reach the governance-owned router. Here they reach a
+    // caller-chosen contract, which is exactly what the flag denies.
+    assert_with_error!(
+        env,
+        cache.cached_pool_sync_data(debt).params.is_flashloanable,
+        FlashLoanError::FlashloanNotEnabled
     );
 
     let (account_id, mut account) = account::load_or_create_account(
