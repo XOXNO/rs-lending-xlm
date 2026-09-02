@@ -208,6 +208,45 @@ fn owner_only_endpoints_reject_unauthed_before_validation() {
             .try_claim_revenue(&random_addr, &empty_assets)
     })
     .unwrap();
+    expect_rejected("set_price_aggregator", || {
+        ctrl.set_auths(&no_auths)
+            .try_set_price_aggregator(&random_addr)
+    })
+    .unwrap();
+    expect_rejected("approve_blend_pool", || {
+        ctrl.set_auths(&no_auths)
+            .try_approve_blend_pool(&random_addr)
+    })
+    .unwrap();
+    expect_rejected("revoke_blend_pool", || {
+        ctrl.set_auths(&no_auths)
+            .try_revoke_blend_pool(&random_addr)
+    })
+    .unwrap();
+    expect_rejected("set_min_borrow_collateral_usd", || {
+        ctrl.set_auths(&no_auths)
+            .try_set_min_borrow_collateral_usd(&1)
+    })
+    .unwrap();
+    expect_rejected("set_position_manager", || {
+        ctrl.set_auths(&no_auths)
+            .try_set_position_manager(&random_addr, &true)
+    })
+    .unwrap();
+    expect_rejected("deploy_position_nft", || {
+        ctrl.set_auths(&no_auths).try_deploy_position_nft(
+            &dummy_bytes_n(&env, seed),
+            &soroban_sdk::String::from_str(&env, "u"),
+            &soroban_sdk::String::from_str(&env, "n"),
+            &soroban_sdk::String::from_str(&env, "s"),
+        )
+    })
+    .unwrap();
+    expect_rejected("upgrade_position_nft", || {
+        ctrl.set_auths(&no_auths)
+            .try_upgrade_position_nft(&dummy_bytes_n(&env, seed))
+    })
+    .unwrap();
 }
 
 #[test]
