@@ -244,7 +244,7 @@ fn post_liquidation_hf_applies_bonus_on_seized_weight() {
         900_000_000_000_000_000,
     );
     let hf = calculate_post_liquidation_hf(&env, &s, Wad::from(10 * WAD), Bps::from(1_000i128));
-    let expected = Wad::from(89 * WAD).div(&env, Wad::from(90 * WAD));
+    let expected = Wad::from(89 * WAD).div_floor_saturating(&env, Wad::from(90 * WAD));
     assert_eq!(hf.raw(), expected.raw());
 }
 
@@ -1034,8 +1034,12 @@ fn hf_neutral_bonus_leaves_health_factor_invariant() {
                 }
                 let post = calculate_post_liquidation_hf(&env, &s, repay, bonus);
 
+                // The neutral cap is exact to one raw WAD unit: production floors
+                // the post-liquidation health factor, so the ratio may land one
+                // unit under the pre-liquidation value (1e-18). Pinned at exactly
+                // that slack so a real drop stays visible.
                 assert!(
-                    post.raw() >= s.hf.raw(),
+                    post.raw() + 1 >= s.hf.raw(),
                     "hf fell at the neutral rate: p={p_pct}% hf={hf_pct}% repay={}: {} -> {}",
                     repay.raw(),
                     s.hf.raw(),
