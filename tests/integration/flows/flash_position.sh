@@ -773,7 +773,10 @@ flow_flash_position_gaps() {
     FP_REFUNDS='[]'
     assert_hf_at_least hf_refund_new "$refund_acct" "$WAD"
 
-    # is_flashloanable=false must not block flash_position (it is not pool flash_loan).
+    # Since the 2026-09 gap hunt (OD-1) is_flashloanable=false blocks
+    # flash_position before the mint (#401): the minted debt would reach a
+    # caller-chosen contract, the custody the flag denies. multiply stays
+    # open because its funds only reach the governance-owned router.
     inv fp_usdc_no_flashloan "$ADMIN" "$CONTROLLER" -- upgrade_liquidity_pool_params \
         --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")" \
         --params "$(market_params_json "$USDC_SAC" 7 | jq -c '{
@@ -784,15 +787,11 @@ flow_flash_position_gaps() {
     FP_ACCOUNT_ID=0
     FP_COLS="$(fp_collaterals "$create_coll")"
     fp_set_plan fp_plan_noflash_new "$FP_MODE_SUCCESS" "$create_coll" || return 1
-    local noflash_acct
-    noflash_acct=$(fp_run create flash_position_no_flashloanable_new "" | tr -d '"') || return 1
-    save_state ALICE_FP_NOFLASH_ACCT "$noflash_acct"
-    assert_hf_at_least hf_noflash_new "$noflash_acct" "$WAD"
+    fp_run xfail flash_position_no_flashloanable_new 'Error\(Contract, #401\)' || true
     FP_ACCOUNT_ID="$ALICE_FP_ACCT"
     FP_COLS="$(fp_collaterals "$FP_EXTEND_COLLATERAL")"
     fp_set_plan fp_plan_noflash_ex "$FP_MODE_SUCCESS" "$FP_EXTEND_COLLATERAL" || return 1
-    fp_run inv flash_position_no_flashloanable_ex "" || return 1
-    assert_hf_at_least hf_noflash_ex "$ALICE_FP_ACCT" "$WAD"
+    fp_run xfail flash_position_no_flashloanable_ex 'Error\(Contract, #401\)' || true
     fp_restore_usdc_curve || return 1
 
     # Empty account + max_supply=1 + a single collateral is allowed.
