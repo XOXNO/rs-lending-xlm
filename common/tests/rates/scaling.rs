@@ -312,7 +312,10 @@ fn resolve_repay_one_unit_below_ceil_debt_is_partial_with_floor_burn() {
     let pos = Ray::from(10 * RAY);
     let ceil_debt = unscale_borrow_ceil(&env, pos, index, 7);
     let (burn, excess) = resolve_repay(&env, ceil_debt - 1, pos, index, 7);
-    assert_eq!(excess, 0, "one unit short of the ceiling is a partial repay");
+    assert_eq!(
+        excess, 0,
+        "one unit short of the ceiling is a partial repay"
+    );
     assert_eq!(
         burn,
         calculate_scaled_borrow_floor(&env, ceil_debt - 1, 7, index),
