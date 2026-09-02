@@ -243,6 +243,13 @@ both the keeper and the owner-only path.
 Zero elapsed time changes nothing. Long gaps are processed in bounded forward
 chunks; time never moves backward.
 
+Consistency holds per chunk, not across cadences. Each chunk freezes the rate
+on the utilization it starts from, and utilization drifts upward between
+accruals, so finer accrual realises a higher rate. The index is monotone in
+the cadence and bounded above by continuous compounding at the rate cap; the
+spread is measured in
+`tests/test-harness/tests/pool/accrual_partition_bound.rs`.
+
 **Status:** ENFORCED — `contracts/pool/src/interest.rs`;
 `common/src/rates/simulate.rs` chunks at `MAX_COMPOUND_DELTA_MS`
 (`common/src/rates/compound.rs`, one year). VERIFIED — rules
