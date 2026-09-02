@@ -110,3 +110,23 @@ fn test_all_state_changing_entries_reject_under_flash_loan_ongoing() {
         .expect("multiply should succeed after guard cleared");
     assert!(account_id > 0);
 }
+
+/// GH-28. Three account verbs carry no flash guard on purpose: they move no
+/// value. Pin that they stay reachable under the flag, so a future guard
+/// addition is a deliberate change and not drift.
+#[test]
+fn delegate_and_renew_verbs_stay_reachable_under_flash_loan_ongoing() {
+    let mut t = setup();
+    let alice_id = t.resolve_account_id(ALICE);
+    let alice = t.get_or_create_user(ALICE);
+    let delegate = t.get_or_create_user(BOB);
+    t.ctrl_client().set_position_manager(&delegate, &true);
+    t.set_flash_loan_ongoing(true);
+    let ctrl = t.ctrl_client();
+    assert!(ctrl.try_add_delegate(&alice, &alice_id, &delegate).is_ok());
+    assert!(ctrl
+        .try_remove_delegate(&alice, &alice_id, &delegate)
+        .is_ok());
+    assert!(ctrl.try_renew_account(&alice, &alice_id).is_ok());
+    t.set_flash_loan_ongoing(false);
+}
