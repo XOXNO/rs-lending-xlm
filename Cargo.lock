@@ -1723,6 +1723,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "script-runner"
+version = "0.1.0"
+dependencies = [
+ "common",
+ "controller-interface",
+ "soroban-sdk",
+]
+
+[[package]]
 name = "sec1"
 version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2245,6 +2254,7 @@ dependencies = [
  "position-nft",
  "price-aggregator",
  "proptest",
+ "script-runner",
  "soroban-sdk",
  "xoxno-oracle",
 ]

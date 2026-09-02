@@ -18,6 +18,7 @@ mod receivers;
 
 pub use receivers::flash_position::{FlashPositionMode, FlashPositionRequest};
 mod revenue;
+mod script_runner;
 mod setup;
 mod strategy;
 mod time;

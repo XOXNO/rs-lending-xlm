@@ -23,6 +23,7 @@ price-aggregator = { path = "../../contracts/price-aggregator", features = ["tes
 pool = { path = "../../contracts/pool" }
 position-nft = { path = "../../contracts/position-nft" }
 flash-loan-receiver = { path = "../../mock/flash-loan-receiver" }
+script-runner = { path = "../../mock/script-runner" }
 xoxno-oracle = { path = "../../contracts/xoxno-oracle" }
 
 num-rational = { version = "0.4", default-features = false, features = ["std", "num-bigint-std"], optional = true }
