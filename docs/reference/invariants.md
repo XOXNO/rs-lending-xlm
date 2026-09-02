@@ -390,7 +390,9 @@ remaining identity guard is receiver-side, not caller-side: in `Credit` seize
 mode, the receiving account cannot be the liquidated account itself
 (`requested != account_id`, `SelfLiquidationNotAllowed` = error #133) — crediting
 seized collateral back to the account it was seized from would undo the
-seizure.
+seizure. Liquidation stays live in a deprecated spoke: `Credit(0)` may create
+the receiving account there, because `remove_spoke` performs no usage check
+and deprecation cannot be undone.
 
 **Status:** ENFORCED — `contracts/controller/src/positions/liquidation/plan.rs`
 (`build_liquidation_plan` requires non-empty debt and `health_factor <

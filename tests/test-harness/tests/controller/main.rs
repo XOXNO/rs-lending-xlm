@@ -14,6 +14,7 @@ mod bulk_indexes;
 mod decimal_diversity;
 mod dust_threshold_and_decimal_floor;
 mod events;
+mod deprecated_spoke_liquidation_liveness;
 mod extreme_amount_inputs;
 mod flash_loan;
 mod flash_loan_adversarial;

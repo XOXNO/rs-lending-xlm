@@ -12,6 +12,17 @@ use crate::events::AccountDelegateEvent;
 use crate::external::position_nft::{nft_burn_call, nft_mint_call, nft_renew_call};
 use crate::storage;
 
+/// How strictly account creation treats a deprecated spoke.
+#[derive(Clone, Copy)]
+pub(crate) enum SpokeAdmission {
+    /// New exposure: the spoke must be active.
+    ActiveOnly,
+    /// A liquidation seizure receiver: the spoke need only exist. Seizure
+    /// reduces risk in that spoke, and a deprecated spoke may hold live
+    /// positions forever because deprecation is one-way and unchecked.
+    AllowDeprecated,
+}
+
 /// Creates a new account owned by `owner` in `spoke_id`, assigning it a fresh account id
 /// and persisting its metadata. Panics if `spoke_id` is 0, unknown, or deprecated.
 pub(crate) fn create_account(
@@ -21,8 +32,35 @@ pub(crate) fn create_account(
     mode: PositionMode,
     cache: &mut Cache,
 ) -> (u64, Account) {
+    create_account_with(
+        env,
+        owner,
+        spoke_id,
+        mode,
+        cache,
+        SpokeAdmission::ActiveOnly,
+    )
+}
+
+/// `create_account` with an explicit deprecated-spoke policy. Panics if `spoke_id` is 0 or
+/// unknown; a deprecated spoke panics only under `SpokeAdmission::ActiveOnly`.
+pub(crate) fn create_account_with(
+    env: &Env,
+    owner: &Address,
+    spoke_id: u32,
+    mode: PositionMode,
+    cache: &mut Cache,
+    admission: SpokeAdmission,
+) -> (u64, Account) {
     assert_with_error!(env, spoke_id >= 1, SpokeError::SpokeNotFound);
-    cache.active_spoke(spoke_id);
+    match admission {
+        SpokeAdmission::ActiveOnly => {
+            cache.active_spoke(spoke_id);
+        }
+        SpokeAdmission::AllowDeprecated => {
+            let _ = cache.spoke_config(spoke_id);
+        }
+    }
 
     let nft = storage::get_position_nft(env);
     let account_id = nft_mint_call(env, &nft, owner);
