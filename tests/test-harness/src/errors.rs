@@ -17,6 +17,7 @@ pub mod codes {
     pub const BLEND_POOL_NOT_APPROVED: u32 = GenericError::BlendPoolNotApproved as u32;
     pub const NOT_AUTHORIZED: u32 = GenericError::NotAuthorized as u32;
     pub const INTERNAL_ERROR: u32 = GenericError::InternalError as u32;
+    pub const MATH_OVERFLOW: u32 = GenericError::MathOverflow as u32;
     pub const ACCOUNT_NOT_FOUND: u32 = GenericError::AccountNotFound as u32;
     pub const POSITION_NFT_ALREADY_DEPLOYED: u32 = GenericError::PositionNftAlreadyDeployed as u32;
 
