@@ -8,8 +8,8 @@ A new controller strategy, `flash_position`, mints strategy debt with `charge_fe
 
 This is the multiply *shape* (mint strategy debt, obtain collateral, solvency
 gate) with the aggregator swap replaced by an external callback. It is not a
-cash flash loan. Unlike `multiply`, `PositionMode::Normal` and same-asset
-borrow-then-supply are allowed; solvency is the gate.
+cash flash loan. Like `multiply`, only the Multiply, Long and Short modes are
+accepted; same-asset borrow-then-supply is allowed and solvency is the gate.
 
 Zero fee is allowed because this entrypoint cannot round-trip to a closed
 position. A successful call must still hold the minted debt and at least
