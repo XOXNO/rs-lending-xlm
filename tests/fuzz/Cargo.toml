@@ -24,6 +24,9 @@ pool = { path = "../../contracts/pool" }
 price-aggregator = { path = "../../contracts/price-aggregator", features = ["testing"] }
 mock-redstone = { path = "../../mock/mock-redstone" }
 test-harness = { path = "../test-harness", features = ["testing"] }
+num-bigint = "0.4"
+num-rational = "0.4"
+num-traits = "0.2"
 
 serde_json = { version = "1", optional = true }
 sha2 = { version = "0.10", optional = true }

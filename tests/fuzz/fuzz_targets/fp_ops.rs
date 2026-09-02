@@ -1,15 +1,24 @@
 #![no_main]
 use arbitrary::Arbitrary;
-use common::constants::{BPS, WAD};
+use common::constants::{BPS, RAY, WAD};
 use common::math::fp::{Bps, Ray, Wad};
+use common::math::fp_core::{
+    mul_div_ceil, mul_div_floor, mul_div_floor_saturating, mul_div_half_up,
+};
+use common::rates::{
+    position_value, position_value_ceil, position_value_floor, resolve_net_settle, resolve_repay,
+    resolve_withdrawal,
+};
 use libfuzzer_sys::fuzz_target;
+use num_bigint::BigInt;
+use num_rational::BigRational;
+use num_traits::ToPrimitive;
 use soroban_sdk::Env;
 
 const MAX_MAG: i128 = 10_000_000_000_000_000_000;
 
 #[derive(Debug, Arbitrary)]
 struct In {
-
     a_raw: u64,
     b_raw: u64,
 
@@ -17,6 +26,19 @@ struct In {
 
     decimals: u8,
     token_amount: u64,
+
+    /// Directed-rounding and differential inputs.
+    x_raw: u64,
+    y_raw: u64,
+    d_raw: u64,
+    shift: u8,
+    scaled_raw: u64,
+    scaled_shift: u8,
+    index_raw: u64,
+    price_raw: u64,
+    price_shift: u8,
+    amount_raw: u64,
+    debt_raw: u64,
 }
 
 fn magnitude(raw: u64) -> i128 {
@@ -201,4 +223,265 @@ fuzz_target!(|i: In| {
             err
         );
     }
+
+    directed_rounding(&env, &i);
+    rational_differential(&env, &i);
 });
+
+fn big(v: i128) -> BigInt {
+    BigInt::from(v)
+}
+
+fn ratio(n: BigInt, d: BigInt) -> BigRational {
+    BigRational::new(n, d)
+}
+
+fn floor_i128(r: &BigRational) -> Option<i128> {
+    r.floor().to_integer().to_i128()
+}
+
+fn ceil_i128(r: &BigRational) -> Option<i128> {
+    r.ceil().to_integer().to_i128()
+}
+
+/// `(a + factor / 2) / factor` for non-negative `a`, the `rescale_half_up`
+/// and `mul_div_half_up` rule, in exact arithmetic.
+fn half_up_div(a: &BigInt, factor: &BigInt) -> BigInt {
+    let half = factor / big(2);
+    (a + half) / factor
+}
+
+fn ceil_div(a: &BigInt, factor: &BigInt) -> BigInt {
+    (a + factor - big(1)) / factor
+}
+
+fn pow10(exp: u32) -> BigInt {
+    big(10).pow(exp)
+}
+
+/// The four `mul_div` primitives, `mul_ratio_ceil`, `div_floor_saturating`
+/// and `flash_loan_fee_on` against an exact quotient. Operands reach past
+/// `i128::MAX` in the product, so the `I256` fallback is on the path.
+fn directed_rounding(env: &Env, i: &In) {
+    let x = magnitude(i.x_raw) * 10i128.pow((i.shift % 10) as u32);
+    let y = magnitude(i.y_raw);
+    let d = magnitude(i.d_raw).max(1);
+    let exact = ratio(big(x) * big(y), big(d));
+    let floor = floor_i128(&exact);
+    let ceil = ceil_i128(&exact);
+    match (floor, ceil) {
+        (Some(fl), Some(ce)) => {
+            assert_eq!(mul_div_floor(env, x, y, d), fl, "mul_div_floor {x} {y} {d}");
+            assert_eq!(mul_div_ceil(env, x, y, d), ce, "mul_div_ceil {x} {y} {d}");
+            assert_eq!(
+                mul_div_floor_saturating(env, x, y, d),
+                fl,
+                "mul_div_floor_saturating {x} {y} {d}"
+            );
+            let half = half_up_div(&(big(x) * big(y)), &big(d))
+                .to_i128()
+                .expect("half-up lies between floor and ceil");
+            assert_eq!(
+                mul_div_half_up(env, x, y, d),
+                half,
+                "mul_div_half_up {x} {y} {d}"
+            );
+            assert!(fl <= half && half <= ce, "half-up outside [floor, ceil]");
+            assert_eq!(
+                Ray::from(x).mul_ratio_ceil(env, y, d).raw(),
+                ce,
+                "mul_ratio_ceil {x} {y} {d}"
+            );
+        }
+        _ => {
+            assert_eq!(
+                mul_div_floor_saturating(env, x, y, d),
+                i128::MAX,
+                "saturating quotient past i128::MAX must clamp: {x} {y} {d}"
+            );
+        }
+    }
+
+    let wad_x = Wad::from(x);
+    let wad_y = Wad::from(y.max(1));
+    let exact_div = ratio(big(x) * big(WAD), big(y.max(1)));
+    match floor_i128(&exact_div) {
+        Some(fl) => assert_eq!(
+            wad_x.div_floor_saturating(env, wad_y).raw(),
+            fl,
+            "Wad::div_floor_saturating {x} {y}"
+        ),
+        None => assert_eq!(
+            wad_x.div_floor_saturating(env, wad_y).raw(),
+            i128::MAX,
+            "Wad::div_floor_saturating must clamp: {x} {y}"
+        ),
+    }
+
+    let rate = Bps::from((i.bps as i128) % (BPS + 1));
+    let amount = magnitude(i.amount_raw);
+    let fee = half_up_div(&(big(amount) * big(rate.raw())), &big(BPS))
+        .to_i128()
+        .expect("fee fits");
+    let expected = if rate.raw() > 0 && fee == 0 { 1 } else { fee };
+    assert_eq!(
+        rate.flash_loan_fee_on(env, amount),
+        expected,
+        "flash_loan_fee_on {amount} at {} bps",
+        rate.raw()
+    );
+}
+
+/// Exact mirrors of `position_value*`, `resolve_repay`, `resolve_withdrawal`
+/// and `resolve_net_settle`, stage by stage in `BigInt`, plus the bracket
+/// `floor <= exact <= ceil` that the directed rounding must respect.
+fn rational_differential(env: &Env, i: &In) {
+    // scaled up to 1e36 raw ray, index in [1x, ~11x], price up to 1e25 wad,
+    // token decimals 0..=18: every intermediate stays inside i128.
+    let scaled = magnitude(i.scaled_raw) * 10i128.pow((i.scaled_shift % 18) as u32);
+    let index = RAY + magnitude(i.index_raw) * 1_000_000_000;
+    let price = magnitude(i.price_raw) * 10i128.pow((i.price_shift % 7) as u32);
+    let decimals = (i.decimals % 19) as u32;
+    let ray = big(RAY);
+    let wad = big(WAD);
+    let ray_to_wad = pow10(9);
+
+    // position_value: half-up at every stage.
+    let stage1 = half_up_div(&(big(scaled) * big(index)), &ray);
+    let stage2 = half_up_div(&stage1, &ray_to_wad);
+    let expect_half = half_up_div(&(&stage2 * big(price)), &wad);
+    let got_half = position_value(env, Ray::from(scaled), Ray::from(index), Wad::from(price)).raw();
+    assert_eq!(
+        big(got_half),
+        expect_half,
+        "position_value {scaled} {index} {price}"
+    );
+
+    // position_value_floor: floor at every stage.
+    let f1 = (big(scaled) * big(index)) / &ray;
+    let f2 = &f1 / &ray_to_wad;
+    let expect_floor = (&f2 * big(price)) / &wad;
+    let got_floor =
+        position_value_floor(env, Ray::from(scaled), Ray::from(index), Wad::from(price)).raw();
+    assert_eq!(
+        big(got_floor),
+        expect_floor,
+        "position_value_floor {scaled} {index} {price}"
+    );
+
+    // position_value_ceil: ceiling at every stage.
+    let c1 = ceil_div(&(big(scaled) * big(index)), &ray);
+    let c2 = ceil_div(&c1, &ray_to_wad);
+    let expect_ceil = ceil_div(&(&c2 * big(price)), &wad);
+    let got_ceil =
+        position_value_ceil(env, Ray::from(scaled), Ray::from(index), Wad::from(price)).raw();
+    assert_eq!(
+        big(got_ceil),
+        expect_ceil,
+        "position_value_ceil {scaled} {index} {price}"
+    );
+
+    // The bracket: floor <= exact <= ceil, and half-up between them.
+    let exact_value = ratio(
+        big(scaled) * big(index) * big(price),
+        &ray * &ray_to_wad * &wad,
+    );
+    assert!(
+        BigRational::from(big(got_floor)) <= exact_value,
+        "position_value_floor above the exact value"
+    );
+    assert!(
+        BigRational::from(big(got_ceil)) >= exact_value,
+        "position_value_ceil below the exact value"
+    );
+    assert!(
+        got_floor <= got_half && got_half <= got_ceil,
+        "half-up outside [floor, ceil]"
+    );
+
+    // Token-unit conversions: amounts are exact in ray for decimals <= 27.
+    let unit = pow10(27 - decimals);
+    let exact_supply = ratio(big(scaled) * big(index), &ray * &unit);
+    let supply_floor = floor_i128(&exact_supply).expect("supply fits");
+    let supply_actual = half_up_div(&half_up_div(&(big(scaled) * big(index)), &ray), &unit)
+        .to_i128()
+        .expect("supply fits");
+    let debt_scaled = magnitude(i.debt_raw) * 10i128.pow((i.scaled_shift % 18) as u32);
+    let exact_debt = ratio(big(debt_scaled) * big(index), &ray * &unit);
+    let debt_ceil = ceil_i128(&exact_debt).expect("debt fits");
+    // amount * 10^(27 - decimals) must fit i128 for the scaling helpers.
+    let amount = magnitude(i.amount_raw) % 10i128.pow(10 + decimals);
+    let to_scaled = |amount: i128| ratio(big(amount) * &unit * &ray, big(index));
+
+    // resolve_repay
+    let (burned, refund) = resolve_repay(
+        env,
+        amount,
+        Ray::from(debt_scaled),
+        Ray::from(index),
+        decimals,
+    );
+    if amount >= debt_ceil {
+        assert_eq!(burned.raw(), debt_scaled, "resolve_repay full burn");
+        assert_eq!(refund, amount - debt_ceil, "resolve_repay refund");
+    } else {
+        let expect = floor_i128(&to_scaled(amount)).expect("scaled fits");
+        assert_eq!(burned.raw(), expect, "resolve_repay partial burn floors");
+        assert_eq!(refund, 0, "resolve_repay partial refund");
+    }
+
+    // resolve_withdrawal
+    let (burned, paid) =
+        resolve_withdrawal(env, amount, Ray::from(scaled), Ray::from(index), decimals);
+    if amount >= supply_actual {
+        assert_eq!(burned.raw(), scaled, "resolve_withdrawal full burn");
+        assert_eq!(paid, supply_floor, "resolve_withdrawal pays the floor");
+    } else {
+        let expect = ceil_i128(&to_scaled(amount)).expect("scaled fits");
+        assert_eq!(
+            burned.raw(),
+            expect,
+            "resolve_withdrawal partial burn ceils"
+        );
+        assert_eq!(paid, amount, "resolve_withdrawal partial pays the request");
+    }
+    assert!(
+        BigRational::from(big(paid)) <= exact_supply.max(BigRational::from(big(amount))),
+        "withdrawal paid more than the position or the request"
+    );
+
+    // resolve_net_settle
+    let (burned_supply, burned_debt, settle) = resolve_net_settle(
+        env,
+        amount,
+        Ray::from(scaled),
+        Ray::from(debt_scaled),
+        Ray::from(index),
+        Ray::from(index),
+        decimals,
+    );
+    let expect_settle = amount.min(supply_floor).min(debt_ceil);
+    if expect_settle <= 0 {
+        assert_eq!(
+            (burned_supply.raw(), burned_debt.raw(), settle),
+            (0, 0, 0),
+            "net settle noop"
+        );
+    } else {
+        assert_eq!(settle, expect_settle, "net settle amount");
+        let expect_supply = if settle == supply_floor {
+            scaled
+        } else {
+            ceil_i128(&to_scaled(settle)).expect("fits").min(scaled)
+        };
+        let expect_debt = if settle == debt_ceil {
+            debt_scaled
+        } else {
+            floor_i128(&to_scaled(settle))
+                .expect("fits")
+                .min(debt_scaled)
+        };
+        assert_eq!(burned_supply.raw(), expect_supply, "net settle supply burn");
+        assert_eq!(burned_debt.raw(), expect_debt, "net settle debt burn");
+    }
+}
