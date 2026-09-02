@@ -21,6 +21,7 @@ mod keeper;
 mod large_positions_and_long_horizons;
 mod position_limit_lowering_keeps_topups;
 mod recipient_is_protocol_contract;
+mod third_party_supply_and_risk_restamp;
 mod liquidation;
 mod liquidation_accrual_timing;
 mod liquidation_boundary;
