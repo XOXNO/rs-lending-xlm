@@ -174,3 +174,56 @@ fn test_validate_bulk_position_limits_empty_aggregated_is_noop_at_cap() {
         validate_bulk_position_limits(&env, &account, AccountPositionType::Deposit, &aggregated);
     });
 }
+
+/// GH-16. Governance lowered the limit below the account's count; topping up
+/// a held asset opens no slot and passes.
+#[test]
+fn test_validate_bulk_position_limits_topup_over_cap_passes() {
+    let env = Env::default();
+    let contract = new_controller(&env);
+    let held_a = Address::generate(&env);
+    let held_b = Address::generate(&env);
+    let mut account = account_with(&env, Some(&held_a), None);
+    account.supply_positions.set(
+        hub(&held_b),
+        AccountPositionRaw {
+            scaled_amount: 1,
+            liquidation_threshold: 0,
+            liquidation_bonus: 0,
+            loan_to_value: 0,
+            liquidation_fees: 0,
+        },
+    );
+
+    let aggregated = Vec::from_array(&env, [(hub(&held_a), 100i128)]);
+    with_limits(&env, &contract, 1, 0, || {
+        validate_bulk_position_limits(&env, &account, AccountPositionType::Deposit, &aggregated);
+    });
+}
+
+/// GH-16. The same over-limit account still cannot open a new slot.
+#[test]
+#[should_panic(expected = "Error(Contract, #109)")]
+fn test_validate_bulk_position_limits_new_slot_over_cap_still_panics() {
+    let env = Env::default();
+    let contract = new_controller(&env);
+    let held_a = Address::generate(&env);
+    let held_b = Address::generate(&env);
+    let fresh = Address::generate(&env);
+    let mut account = account_with(&env, Some(&held_a), None);
+    account.supply_positions.set(
+        hub(&held_b),
+        AccountPositionRaw {
+            scaled_amount: 1,
+            liquidation_threshold: 0,
+            liquidation_bonus: 0,
+            loan_to_value: 0,
+            liquidation_fees: 0,
+        },
+    );
+
+    let aggregated = Vec::from_array(&env, [(hub(&fresh), 100i128)]);
+    with_limits(&env, &contract, 1, 0, || {
+        validate_bulk_position_limits(&env, &account, AccountPositionType::Deposit, &aggregated);
+    });
+}

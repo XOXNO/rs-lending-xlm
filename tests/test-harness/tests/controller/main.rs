@@ -19,6 +19,7 @@ mod flash_loan;
 mod flash_loan_adversarial;
 mod keeper;
 mod large_positions_and_long_horizons;
+mod position_limit_lowering_keeps_topups;
 mod liquidation;
 mod liquidation_accrual_timing;
 mod liquidation_boundary;

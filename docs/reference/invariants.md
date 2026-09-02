@@ -364,14 +364,21 @@ An account cannot exceed the configured maximum supply or borrow position count
 delegates. This is a liveness constraint as well as a risk one: a liquidation
 must fit the transaction budget of the widest admissible account.
 
+The bound applies when a new position slot is opened. Topping up a held asset
+opens no slot and is admitted even after governance lowers the limit below an
+account's current count, so lowering a limit never strands exits, top-ups, or
+Credit-mode seizure of an asset the receiver already holds.
+
 **Status:** ENFORCED — `contracts/controller/src/risk/validation.rs`
 (`validate_bulk_position_limits`); `contracts/controller/src/storage/account.rs`
 enforces `MAX_DELEGATES` (`contracts/controller/src/constants.rs`). VERIFIED —
 `contracts/controller/tests/validation.rs`
 (`test_validate_bulk_position_limits_deposit_over_cap_panics`,
-`test_validate_bulk_position_limits_borrow_over_cap_panics`);
+`test_validate_bulk_position_limits_borrow_over_cap_panics`,
+`test_validate_bulk_position_limits_topup_over_cap_passes`);
 `tests/test-harness/tests/controller/borrow.rs`
-(`test_borrow_position_limit_exceeded`).
+(`test_borrow_position_limit_exceeded`);
+`tests/test-harness/tests/controller/position_limit_lowering_keeps_topups.rs`.
 
 ## Liquidation
 
