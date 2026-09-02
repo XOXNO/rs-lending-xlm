@@ -912,6 +912,6 @@ flow_flash_position_gates() {
     fp_restore_usdc_curve || true
     # The flag is back on: the same call opens a position again.
     FP_ACCOUNT_ID=0
-    fp_run create flash_position_after_flag_restored >/dev/null || true
+    fp_run create flash_position_after_flag_restored "" >/dev/null || true
     save_state FP_GATES_DONE 1
 }
