@@ -192,7 +192,11 @@ impl LendingTestBuilder {
         );
         gov.set_price_aggregator(&price_aggregator_address);
 
-        let controller_address = env.register(controller::Controller, (admin.clone(),));
+        // Production deploys the controller through governance, which becomes its
+        // owner; every owner-gated controller verb is then reached through the
+        // timelock. Mirror that so enforcing-auth tests see the real auth tree.
+        let controller_address =
+            env.register(controller::Controller, (governance_address.clone(),));
         gov.set_controller(&controller_address);
         gov.execute_immediate(
             &admin,
