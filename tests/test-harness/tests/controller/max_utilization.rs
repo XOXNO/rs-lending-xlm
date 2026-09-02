@@ -155,3 +155,32 @@ fn test_update_params_rejects_max_above_one() {
     let mapped = map_try_ok_unit(result);
     assert_contract_error(mapped, errors::INVALID_UTIL_RANGE);
 }
+
+/// GH-03. Utilization is rounded half-up before the `<= max` compare, so the
+/// boundary can only ever move toward rejecting. Pin the last admissible
+/// withdrawal and the first rejected one, one raw unit apart.
+#[test]
+fn withdraw_that_lands_exactly_on_max_utilization_passes_and_one_unit_more_fails() {
+    let mut t = LendingTest::new()
+        .standard_two_asset()
+        .with_market_params("USDC", |p| p.max_utilization = RAY * 80 / 100)
+        .with_min_borrow_collateral_disabled()
+        .build();
+    t.supply(ALICE, "USDC", 100_000.0);
+    t.supply(BOB, "ETH", 1_000.0);
+    t.borrow(BOB, "USDC", 40_000.0);
+    // Supplied 100_000, borrowed 40_000. Utilization hits 80 percent when
+    // supplied falls to 50_000: ALICE may withdraw exactly 50_000.
+    let unit = 10_000_000i128;
+    let exact = 50_000 * unit;
+    assert_contract_error(
+        t.try_withdraw_raw(ALICE, "USDC", exact + 1),
+        errors::UTILIZATION_ABOVE_MAX,
+    );
+    t.try_withdraw_raw(ALICE, "USDC", exact)
+        .expect("landing exactly on the ceiling is admissible");
+    assert_contract_error(
+        t.try_withdraw_raw(ALICE, "USDC", 1),
+        errors::UTILIZATION_ABOVE_MAX,
+    );
+}
