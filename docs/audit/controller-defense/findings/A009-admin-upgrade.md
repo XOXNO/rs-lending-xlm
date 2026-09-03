@@ -1,0 +1,11 @@
+# A009 — Admin upgrade / set_* vs timelock assumptions
+- Agent: A009 (coordinator fill)
+- Theme: T1
+- Severity: medium
+- Status: partial
+- Paths: `lib.rs` `ControllerAdmin`, `governance.rs`, threat-model trust roots
+- Defense: Controller admin mutators are `#[only_owner]`. Deployed owner is expected to be governance timelock (typed `AdminOperation`). Upgrade forces paused state (threat-model). Pool/NFT upgrades reachable only through controller owner gate.
+- Gap: Code cannot prove owner is the timelock — deployment gate. Immediate governance powers (guardian, oracle band) and external trust roots (XOXNO oracle owner, swap aggregator owner) sit outside controller.
+- Impact: If controller owner were an EOA, all admin powers become instant — full protocol parameter/upgrade risk. Deployment must keep timelock ownership (threat-model deployment gates).
+- Evidence: threat-model.md Known gaps + trust roots; INV-AUTH-05.
+- Opinion: Controller defenses assume correct ownership wiring; quantify residual as deployment-critical, not a missing require_* in controller Rust.
