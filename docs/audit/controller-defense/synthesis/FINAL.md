@@ -3,7 +3,8 @@
 This is the **authoritative shared report** for the controller defensive-protections
 audit. Per-scope notes live in `findings/A001`–`A110`. Wave syntheses
 `findings/A101`–`A110` remain the detailed evidence. Mid-wave
-`PRELIMINARY.md` is superseded by this file.
+`PRELIMINARY.md` is superseded by this file. Post-close pass:
+[`RESIDUAL_REVALIDATION.md`](RESIDUAL_REVALIDATION.md) (A080 withdrawn).
 
 **Corpus:** 110/110 manifest scopes filed. No production Rust was changed.
 Draft PR: https://github.com/XOXNO/rs-lending-xlm/pull/134
@@ -74,17 +75,23 @@ point here.
 Impact units follow A106: **P** protocol-total, **M** ≤ market TVL,
 **A** account-local, **C** contingent, **Z** fees/availability.
 
-| Rank | Band | Residual | IDs | Kind | Ceiling |
-|---:|---|---|---|---|---|
-| 1 | P0 | Controller owner must be governance; restore Sensitive floor | A009 | D / P | Entire book + NFT authority if mis-wired |
-| 2 | P0 | Swap-aggregator + XOXNO oracle intended owners | threat-model, A056, A065 | D / P or A | Oracle: protocol-wide bad valuation; router: Σ strategy notionals + router treasury |
-| 3 | P0 | No controller quantitative `min_out` on strategy swaps | A048, A056, A101 | D / A | ≈ swapped / withdrawn notional; HF-clipped if debt remains; debt-free `swap_collateral` ≈ full leg |
-| 4 | P1 | Non-SAC / lying / rebasing tokens if listed | A055 | C / M | ≤ that market’s TVL |
-| 5 | P1 | `no_seize` not coupled to `frozen` / still allows supply | A064 | A→C / M | Liquidation stranding until force socialize ≤ \(D_{\mathrm{bad}}\) |
-| 6 | P1 | `apply_exit` no-op if usage row missing | A080, A103 | C / M (soft cap) | Over-admission ≤ spoke cap headroom; realized loss only if later bad debt |
-| 7 | P2 | Uncapped mutator / keeper Vec lengths | A062, A015 | Z | Attacker’s own fees |
-| 8 | P2 | Forgotten `put_market_index` after a future pool merge | A094, A098, A104 | A (tx-local) | Wrong HF/caps **in the same tx** if new code omits the put |
-| 9 | P3 | Evidence density: PIN/CLOSE tests for residuals | A085, A108 | — | Does not create theft; leaves blast radius un-demonstrated |
+Post-close revalidation: [`RESIDUAL_REVALIDATION.md`](RESIDUAL_REVALIDATION.md).
+**A080 is withdrawn** as a live production issue (persistent archive ≠ missing
+row; entry always creates; money paths keep usage+positions in lockstep).
+
+| Rank | Band | Residual | IDs | Kind | Ceiling | Verdict |
+|---:|---|---|---|---|---|---|
+| 1 | P0 | Controller owner must be governance; restore Sensitive floor | A009 | D / P | Entire book + NFT if mis-wired | VALID — deploy |
+| 2 | P0 | Swap-aggregator + XOXNO oracle intended owners | threat-model, A056, A065 | D / P or A | Oracle: protocol-wide bad valuation; router: Σ strategy notionals | VALID — deploy |
+| 3 | P0 | No controller quantitative `min_out` on strategy swaps | A048, A056, A101 | D / A | ≈ swapped / withdrawn notional; HF-clipped if debt remains | VALID — known design |
+| 4 | P1 | Non-SAC / lying / rebasing tokens if listed | A055 | C / M | ≤ that market’s TVL | VALID — listing policy |
+| 5 | P1 | `no_seize` not coupled to `frozen` / still allows supply | A064 | A→C / M | Liquidation stranding until force socialize | VALID — ADR-0008 design |
+| 6 | P2 | Uncapped mutator / keeper Vec lengths | A062, A015 | Z | Attacker’s own fees | VALID — hygiene |
+| 7 | P3 | Forgotten `put_market_index` on a *future* pool merge | A094, A098, A104 | A (tx-local) | Same-tx wrong HF/caps if new code omits the put | VALID — footgun only |
+| 8 | P3 | Evidence density: PIN/CLOSE tests for residuals | A085, A108 | — | Does not create theft | VALID — tests |
+
+**Withdrawn:** A080 missing-usage over-admission — not reachable via TTL archive
+or healthy merges (`findings/A080-*.md` status **defended / info**).
 
 **Not leading, but confirmed:** plant-stale liquidation DoS (A065); min-borrow
 floor vs `BAD_DEBT_USD_THRESHOLD` desync (A067); `swap_debt` refinance-at-cap
@@ -93,15 +100,15 @@ UX (A066); unbound callback `Bytes` (A069); Certora harness override hygiene
 (A100).
 
 A109 found **no material cross-agent fact conflicts**. Apparent tension is
-scope framing (custody **defended** vs residual owned by A048/A056/A080).
+scope framing (custody **defended** vs residual owned by A048/A056).
 
 ## 5. Max-loss bounds (A106)
 
 | Tier | Practical ceiling under intended deploy + SAC listing |
 |---|---|
 | Single account | Strategy dust-out (S1) ≈ in-flight swap notional / excess HF |
-| Single market | Listing desync (S3) or contingent socialize after A080/A064 ≤ \(\mathrm{TVL}_m\) / \(D_{\mathrm{bad}}\) |
-| Protocol | **Only** S4/S5 trust-root failure — not A080, A055, A048, A056, or A064 alone |
+| Single market | Listing desync (S3) or contingent socialize after A064 ≤ \(\mathrm{TVL}_m\) / \(D_{\mathrm{bad}}\) |
+| Protocol | **Only** S4/S5 trust-root failure — not A055, A048, A056, or A064 alone |
 
 Threat-model “unbounded loss” for slippage means unbounded relative to
 **in-flight strategy notional**, not protocol share mint.
@@ -112,8 +119,8 @@ Threat-model “unbounded loss” for slippage means unbounded relative to
   flag ratchet.
 - **RAISE** Tamper.4 at the **controller** layer: positivity-only swap out
   is Medium likelihood for account-local dust-out, not “meet minimums → Low”.
-- **ADD** A080 as a capacity/integrity residual STRIDE does not number at
-  equal prominence.
+- **WITHDRAW** earlier “ADD A080” capacity residual — not a live production
+  hole after revalidation (persistent restore ≠ missing row).
 - **REFRAME** Elevation.6 / INV-LIQ-04 wording so operators do not confuse
   account-local strategy drain with protocol insolvency, or ordinary-liquidate
   HF post-gates with bad-debt seize post-guards.
@@ -161,11 +168,11 @@ are Low. A069/A071/A073–A075 later filings did not add a new Critical.
 ### T5 Spoke usage (A076–A085)
 
 Entry/cap/index/persist/isolation/pool-output reuse are defended. **A080**
-is the only medium T5 residual: missing usage row + non-zero exit no-ops, so
-caps can over-admit if positions exist without a row. Credit fee-only exit
-(A084) is intentional, not double-count. A079/A081/A083 later filings
-confirm A103’s provisionals as defended. A085 is evidence-partial (global
-Σ positions ≉ usage unpinned).
+was ranked medium mid-wave; **revalidation withdraws it as a live issue**
+(first entry always creates; persistent archive restores; money paths
+lockstep usage+positions). Credit fee-only exit (A084) remains intentional.
+A079/A081/A083 later filings confirm A103’s provisionals as defended. A085
+is evidence-partial only.
 
 ### T6–T7 Cache / read savings (A086–A100)
 
@@ -197,10 +204,10 @@ skip, missing-row exit no-op **until** product chooses a reconcile model.
 | 3 | P0 | Controller `min_out` arg **or** decode+check vs measured Δ (mirror `flash_position`) |
 | 4 | P1 | SAC-only listing; never `flashloanable` on non-exact tokens |
 | 5 | P1 | ADR-0008 Option C: `no_seize ⇒ frozen` and/or block supply |
-| 6 | P1 | Spoke usage ↔ Σ positions invariant + permissioned reconcile |
-| 7 | P2 | Cap keeper/mutator Vec lengths (reuse view 256) |
-| 8 | P2 | Review checklist: every pool merge → `put_market_index` (+ `apply_leg_usage`) |
-| 9 | P3 | PIN/CLOSE tests named in A108; oracle plant-stale runbooks |
+| 6 | P2 | Cap keeper/mutator Vec lengths (reuse view 256) |
+| 7 | P3 | Review checklist: every *new* pool merge → `put_market_index` (+ `apply_leg_usage`) |
+| 8 | P3 | PIN/CLOSE tests named in A108 for remaining design residuals |
+| — | ~~P1~~ | ~~A080 usage reconcile~~ — **withdrawn** (not a live hole) |
 
 ## 9. Quality notes
 

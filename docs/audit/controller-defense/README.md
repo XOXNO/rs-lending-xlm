@@ -6,6 +6,8 @@ synthesis under `synthesis/`.
 
 **Shared report:** [synthesis/FINAL.md](synthesis/FINAL.md) (A001–A110 complete).
 Mid-wave [PRELIMINARY.md](synthesis/PRELIMINARY.md) is superseded.
+Post-close residual pass: [RESIDUAL_REVALIDATION.md](synthesis/RESIDUAL_REVALIDATION.md)
+(A080 withdrawn as a live issue).
 
 ## Themes
 
