@@ -1,0 +1,11 @@
+# A029 — Hub / protocol config storage
+- Agent: A029 (coordinator fill)
+- Theme: T2
+- Severity: info
+- Status: defended
+- Paths: `storage/protocol.rs`, `storage/hub.rs`, instance vs persistent shared keys
+- Defense: Pool, price aggregator, swap aggregator, NFT, accumulator, position limits, min borrow collateral live in instance storage (admin-gated setters). Blend allowlist and shared TTL keys use persistent shared storage. Missing pool/aggregators fail closed on read.
+- Gap: Instance keys are single-writer via owner; no user path mutates them.
+- Impact: Compromised owner can retarget pool/oracle/NFT (deployment/timelock residual A009). Users cannot.
+- Evidence: protocol.rs getters panic with NotInitialized/NotSet; INV-AUTH-01.
+- Opinion: Clear instance vs user persistent split reduces accidental cross-writes.

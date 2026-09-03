@@ -1,0 +1,11 @@
+# A072 — Post-pool risk gate validation
+- Agent: A072 (coordinator fill)
+- Theme: T4
+- Severity: info
+- Status: defended
+- Paths: `risk/validation.rs:31-60`, `enforce_post_pool_solvency`
+- Defense: After pool mutations on risk-increasing paths: restamp LTVs, require LTV collateral ≥ debt, HF ≥ 1 WAD, min borrow collateral floor when set. Debt-free accounts skip.
+- Gap: Relies on oracle prices in Cache — fail-closed oracle policy is upstream (INV-ORACLE).
+- Impact: Undercollateralized borrows/withdraws revert; cannot leave unhealthy state on gated paths.
+- Evidence: INV-RISK-01; spec_hooks solvency_gate_checked.
+- Opinion: Central gate is the right chokepoint; strategies share it via strategy_finalize.

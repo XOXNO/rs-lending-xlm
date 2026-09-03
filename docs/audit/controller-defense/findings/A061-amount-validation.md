@@ -1,0 +1,11 @@
+# A061 — Amount sign / zero / overflow validation
+- Agent: A061 (coordinator fill)
+- Theme: T4
+- Severity: info
+- Status: defended
+- Paths: `common/src/validation.rs` (`require_positive_amount`, `require_nonneg_amount`), `payments.rs` aggregate
+- Defense: Positive required for money-in legs; nonneg for withdraw with MeansAll zero sentinel; checked_add overflow panics; negative rejected before MeansAll sticky-zero (comment in payments.rs).
+- Gap: none for sign/zero. Vec empty rejected via `require_non_empty_payments`.
+- Impact: Invalid amounts revert; no silent wrap.
+- Evidence: common/tests/validation.rs; payments tests.
+- Opinion: Aggregate zero-leg rules are carefully ordered — keep the comment.

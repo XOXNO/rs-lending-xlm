@@ -1,0 +1,11 @@
+# A033 — Event buffer vs durable storage order
+- Agent: A033 (coordinator fill)
+- Theme: T2
+- Severity: info
+- Status: defended
+- Paths: `finalize_position_flow` order: `persist_spoke_usage` → `persist_account_positions` → `emit_position_batch`
+- Defense: Durable spoke usage and positions commit before events. Event buffers in Cache are not source of truth.
+- Gap: none — events are observational.
+- Impact: Indexer could see missing events only if emit failed after persist — still would revert tx if panic; success path is ordered.
+- Evidence: positions/mod.rs:241-252.
+- Opinion: Correct order for auditors/indexers relying on events matching storage.

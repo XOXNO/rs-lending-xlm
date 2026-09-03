@@ -1,0 +1,11 @@
+# A031 — Position NFT mint/burn coupling
+- Agent: A031 (coordinator fill)
+- Theme: T2
+- Severity: info
+- Status: defended
+- Paths: `account.rs:47-76` create, cleanup_account_if_empty, `external/position_nft.rs`
+- Defense: Account create mints NFT then writes AccountMeta. Cleanup burns only after emptying positions. Ownership always read live from NFT `owner_of` (fail closed).
+- Gap: none for mint/burn coupling. Enumeration TTL residual documented INV-STOR-02d (A017).
+- Impact: Stranger cannot mint foreign accounts; burn only after empty state.
+- Evidence: INV-AUTH-01, INV-STOR-01; permissionless NFT lines require controller auth.
+- Opinion: NFT as ownership source of truth is a strong defense against stale owner storage.

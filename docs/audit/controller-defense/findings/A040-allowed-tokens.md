@@ -1,0 +1,11 @@
+# A040 — Allowed-token / listed hub-asset constraint
+- Agent: A040 (coordinator fill)
+- Theme: T2/T4
+- Severity: info
+- Status: defended
+- Paths: `require_listed_unhalted_config`, `require_can_supply`/`require_can_borrow`, spoke asset registry
+- Defense: Position mutations require hub active + asset listed in account's spoke + freeze policy flags. Unlisted assets panic `AssetNotInSpoke`. Caps via spoke usage on entry.
+- Gap: Listing is governance; malicious listed token residual A055.
+- Impact: Users cannot inject arbitrary SAC addresses into positions without spoke listing.
+- Evidence: positions/mod.rs:254-270; INV spoke listing.
+- Opinion: Listing gate is the primary allowlist for money-moving assets.

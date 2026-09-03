@@ -1,0 +1,11 @@
+# A032 — Strategy finalize storage write batching
+- Agent: A032 (coordinator fill)
+- Theme: T2/T6
+- Severity: info
+- Status: defended
+- Paths: `strategies/mod.rs` `strategy_finalize`, `positions/mod.rs` `finalize_position_flow`
+- Defense: Strategies mutate in-memory Account + Cache, then single finalize: persist spoke usage → write position maps → emit batch event. Avoids mid-leg durable account writes.
+- Gap: Pool legs commit before finalize; on later revert, pool+controller atomicity is per-Soroban-tx (whole tx rolls back) — OK.
+- Impact: Batching reduces footprint; does not skip solvency (`require_post_pool_risk_gates` before finalize).
+- Evidence: strategy_finalize calls restamp + risk gates then finalize.
+- Opinion: Good savings pattern with gates retained.

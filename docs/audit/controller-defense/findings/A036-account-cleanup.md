@@ -1,0 +1,11 @@
+# A036 — Account deletion / empty-position cleanup
+- Agent: A036 (coordinator fill)
+- Theme: T2
+- Severity: low
+- Status: defended
+- Paths: `persist_account_positions` `remove_if_empty`, `account::cleanup_account_if_empty`
+- Defense: Cleanup only when both sides empty and flag set. Strategies/liquidation set remove_if_empty true where appropriate; supply top-up uses false.
+- Gap: partial — if remove_if_empty false while positions empty, empty maps may remain until later cleanup path (rent), not a fund risk.
+- Impact: Stranded empty meta/maps = rent; NFT may still exist until cleanup burns.
+- Evidence: PositionSides write logic; A017 renew.
+- Opinion: Prefer remove_if_empty true on full-exit paths; already used on strategy finalize.
