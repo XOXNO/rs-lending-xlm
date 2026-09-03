@@ -99,6 +99,56 @@ fn a_contract_caller_liquidates_in_both_seize_modes_and_runs_the_keeper_verbs() 
     );
 }
 
+/// The sentinel has to reach the ids nested inside an op, not only the
+/// top-level `account_id`: `SeizeMode::Credit` carries one, and so does the
+/// `clean_bad_debt` target. Unresolved, both reach the controller as
+/// `u64::MAX` and revert with `AccountNotFound`.
+#[test]
+fn the_sentinel_resolves_inside_seize_mode_and_clean_bad_debt() {
+    let mut t = setup();
+    t.supply(ALICE, "USDC", 10_000.0);
+    t.borrow(ALICE, "ETH", 3.0);
+    t.set_price("ETH", usd(3_000));
+    t.assert_liquidatable(ALICE);
+    let victim = t.account_id(ALICE);
+    let runner = t.deploy_script_runner();
+    t.fund_runner(&runner, "ETH", 10 * U);
+    t.fund_runner(&runner, "USDC", 3_000 * U);
+
+    // Open the receiving account first, then credit the seizure into it.
+    let ops: Vec<Op> = vec![
+        &t.env,
+        supply_op(&t, 0, "USDC", 1_000 * U),
+        liquidate_op(&t, victim, "ETH", U / 10, SeizeMode::Credit(LAST_CREATED)),
+        Op::UpdateAccountThreshold(ThresholdOp {
+            has_risks: false,
+            account_ids: vec![&t.env, LAST_CREATED],
+        }),
+    ];
+    let receiver = t
+        .run_script(&runner, &ops)
+        .expect("the credit target resolves to the account the script opened");
+    assert!(receiver > 0 && receiver != victim);
+    assert!(
+        t.supply_balance_raw_for(receiver, "USDC") > 1_000 * U,
+        "the seizure landed on the account the script opened, not on a fresh one"
+    );
+
+    // Same sentinel nested in clean-bad-debt: resolved it reaches a real
+    // account that simply carries no debt, unresolved it reaches `u64::MAX`.
+    let ops: Vec<Op> = vec![
+        &t.env,
+        supply_op(&t, 0, "USDC", 1_000 * U),
+        Op::CleanBadDebt(AccountOp {
+            account_id: LAST_CREATED,
+        }),
+    ];
+    assert_contract_error(
+        t.run_script(&runner, &ops).map(|_| ()),
+        errors::DEBT_POSITION_NOT_FOUND,
+    );
+}
+
 #[test]
 fn a_contract_caller_runs_the_strategy_verbs_and_the_flash_loan() {
     let t = setup();
