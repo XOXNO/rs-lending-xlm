@@ -51,7 +51,7 @@
 
 ## 2. What is defended (validation stack)
 
-Layered fail-closed gates on risk-increasing user paths (compiled from A061–A064, A070, A072):
+Layered fail-closed gates on risk-increasing user paths (compiled from A061–A067, A070, A072):
 
 ```text
 Auth / pause / flash guard          (T1: A001–A007; out of A102 primary)
@@ -380,14 +380,12 @@ These are **not** synthesized gap claims. They flag follow-up agents and peer hi
 
 | Unfiled | Manifest intent | Peer / code pointer |
 |---|---|---|
-| A066 | Position limits | Largely inventoried in A062 §2.2 (`validate_bulk_position_limits`, `POSITION_LIMIT_MAX=5`, INV-RISK-04) — likely **defended** if filed |
-| A067 | Min borrow collateral floor | Implemented inside `require_post_pool_risk_gates` (A072); governance setter in storage/tests — needs dedicated floor semantics / edge cases |
 | A068 | Mode / SeizeMode exhaustive | A013 / A018 / A051 / A052 own much of the behavior; A068 should confirm match exhaustiveness / no silent `_` arms |
 | A069 | Callback `data` / swap Bytes | A056 explicitly out-of-scopes Bytes size to A069; trust of opaque payload = slippage class |
 | A071 | Blend pool approval on migrate | A050 money-flow; approval check needs dedicated gate inventory |
 | A073 | Interest / market params read trust | Pool FFI / index trust; adjacent A077/A094 |
-| A074 | Panic vs `assert_with_error` | Consistency / error-code surface; A072 already mixes both for min-borrow vs HF |
-| A075 | Fuzz/proptest vs validation | Coverage map for A061–A074 negatives; A070 already notes missing over-length harness; A065 has strong oracle harness density |
+| A074 | Panic vs `assert_with_error` | Consistency / error-code surface; A072/A067 mix both for floor vs HF |
+| A075 | Fuzz/proptest vs validation | Coverage map for A061–A074 negatives; A070 over-length thin; A065/A066/A067 have strong harness density |
 
 When these land, **re-open A102** (or A110) to fold new residuals into §3–§4.
 
@@ -398,22 +396,23 @@ When these land, **re-open A102** (or A110) to fold new residuals into §3–§4
 | Area | Strength | Gaps in evidence |
 |---|---|---|
 | Amounts / aggregate | Unit + harness duplicate/overflow | — |
-| Position limits | INV-RISK-04; Certora; harness top-up after limit cut | Dedicated A066 file missing |
-| FreezePolicy matrix | Unit `flags.rs` + harness pause/freeze/`no_seize` | No Certora named `enforce_spoke_asset_flags` (A064: acceptable) |
+| Position limits | A066: INV-RISK-04; Certora supply/borrow limit rules; harness top-up / Credit / swap_collateral free-slot | `swap_debt` at-cap refinance docs thin |
+| FreezePolicy matrix | Unit `flags.rs` + harness pause/freeze/`no_seize` | No Certora named `enforce_spoke_asset_flags` |
 | Spoke/hub | Unit + harness deprecated liveness | Latent `is_active=false` mostly test-only |
-| Oracle freshness/sanity | Aggregator unit + harness staleness/sanity/supply-stale-shield; Certora freshness* | Controller does not assert timestamps locally (by design) |
+| Oracle freshness/sanity | Aggregator + harness staleness/sanity/supply-stale-shield; Certora freshness* | Controller timestamps by design absent |
+| Min-borrow floor | A067 harness `min_borrow_collateral.rs`; admin boundary | Certora fixtures force floor `0` |
 | Flash refunds | Dupes / overlap / unlisted harness | Over-length + multi-hub keying thin |
-| Post-pool gates | INV-RISK-01; `solvency_gate_checked`; strategy Certora finals | Oracle residual detailed in A065 |
+| Post-pool HF/LTV | INV-RISK-01; `solvency_gate_checked`; strategy Certora finals | Floor covered by A067 residuals |
 
 ---
 
 ## 9. Verdict
 
-**Wave 4 validation (filed subset): mostly defended for fund safety; one medium availability/governance residual; two low availability/hygiene residuals.**
+**Wave 4 validation (filed subset): mostly defended for fund safety; one medium availability/governance residual; several low availability/ops/UX residuals.**
 
 1. **Highest actionable validation gap:** A064 / G-VAL-1 — `no_seize` uncoupled from freeze/supply (**medium**).
-2. **Low residuals:** A062∪A015 / G-VAL-2 (uncapped Vecs); A065 / G-VAL-9–10 (plant-stale + config skew).
-3. **Info / accepted:** hub docs (A063), refund keying (A070), liq 256 asymmetry, migrate soft-dedup, aggregator-as-SoT (A065/A072).
-4. **Incomplete:** 8 of 15 Wave 4 IDs still unfiled; do not treat this file as exhaustion of Bytes (A069), Blend approval (A071), or fuzz coverage (A075). Position limits (A066) and min-borrow (A067) are partially covered by A062/A072 pending dedicated files.
+2. **Low residuals:** A062∪A015 / G-VAL-2 (uncapped Vecs); A065 / G-VAL-9–10 (plant-stale + config skew); A067 / G-VAL-13 (keeper grandfathering + BAD_DEBT drift); A066 / G-VAL-12 (`swap_debt` at-cap UX).
+3. **Info / accepted:** hub docs (A063), refund keying (A070), aggregator-as-SoT (A065), amounts (A061), post-pool HF (A072), slot cardinality core (A066).
+4. **Incomplete:** 6 of 15 Wave 4 IDs still unfiled (A068–A069, A071, A073–A075). Do not treat this file as exhaustion of Bytes, Blend approval, or fuzz coverage.
 
-Cross-links primary: **A061, A062, A063, A064, A065, A070, A072**; supporting **A006, A008, A009, A015, A040, A045, A050, A056**; synthesis peers **A101** (money), **A110** (backlog).)
+Cross-links primary: **A061–A067, A070, A072**; supporting **A006, A008, A009, A012, A015, A040, A045, A048, A050, A056**; synthesis peers **A101** (money), **A110** (backlog).
