@@ -40,5 +40,8 @@ errors.
 
 ## Coordination path
 
+**Mandatory:** read `shared/COORDINATION.md`. Do not change git branches,
+commit, or push — coordinator only.
+
 Write findings to `docs/audit/controller-defense/findings/AXXX-*.md`.
 Do not edit other agents' files; create `disagreements/AXXX-vs-AYYY.md` if needed.
