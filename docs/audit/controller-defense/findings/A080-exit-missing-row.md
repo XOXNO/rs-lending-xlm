@@ -35,7 +35,42 @@ apply_exit(delta > 0):
 
 Missing-row under-count is the A080 residual. Exit no-op prevents “healing” via organic withdraw/repay.
 
-How a missing row can appear in production (not proven as a live bug today): legacy migration, storage prune races, or any future path that mutates positions without a matching usage write. The plant in tests is a durable `ControllerKey::SpokeUsage` delete while account maps stay intact — the same durable shape the no-op tolerates.
+---
+
+## 1b. When can the usage row be missing? (first supply always sets)
+
+**First positive supply/borrow does create the row.** Ordinary entry is not the hole.
+
+Path for first supply:
+
+`process_deposit` → pool success → `merge_supply_leg` → `apply_leg_usage(Entry)` →
+`apply_spoke_entry` → `SpokeUsageContext::apply_entry`:
+
+```text
+load_usage_row()? None → SpokeUsageRaw::default()   # start at zero
+next = enforce_cap(0 + delta)
+map.set(hub, usage)                                  # always buffers a row
+… finalize_position_flow → persist_spoke_usage →
+set_spoke_usage  (removes only if *both* sides are 0)
+```
+
+Same for first borrow via `merge_debt_leg` + `LegDirection::Entry`. Amounts must be `> 0` before the pool leg (`require_positive_amount` / measured receipt), so a successful first entry leaves `supplied_scaled_ray` or `borrowed_scaled_ray` > 0 and a durable key.
+
+Certora states the same: production exits are assumed to follow an entry that created the row; `usage_exit_without_usage_row_is_a_noop` is an explicit carve-out, not the happy path.
+
+### Situations where a row is absent (or stays absent)
+
+| Situation | Positions live? | How |
+|---|---|---|
+| **Never touched hub** | No | No entry yet — correct empty state |
+| **Full exit of both sides** | No | `set_spoke_usage` prunes when supply=0 and borrow=0; positions removed in the same merge — correct |
+| **View / getter default** | n/a | `get_spoke_usage` returns zeroed default when unset — looks like a row to callers, storage is still `None` |
+| **Planted / fixture desync** | **Yes** | Tests, Certora seeds (`seed_supply_position` without `seed_spoke_usage`), or manual storage delete — the harness A080 plants |
+| **`SeizeMode::Credit` share move** | Yes (receiver) | `credit_supply_shares` grows/opens receiver supply **without** `apply_spoke_entry` (intentional: debit+credit cancel; only protocol fee `apply_spoke_exit`s). Does **not** invent a missing row on a healthy book; if the liquidated book was already under-counted, Credit **moves** the hole to the receiver and fee exit may no-op |
+| **Exit against already-missing row** | Maybe | Partial withdraw/repay: positions shrink, usage stays `None` (A080) — hole persists |
+| **Future footgun (not live today)** | Maybe | New merge that writes positions without `apply_leg_usage`; or `reset_spoke_context` after buffering usage before persist (only keeper caller today, and it never dirties usage) |
+
+**Not a live first-supply miss:** there is no production path where a successful positive `merge_supply_leg` / entry `merge_debt_leg` skips buffering usage. The durable hole with **live** positions requires desync *after* (or beside) entry — plant, Credit compounding on a prior hole, or a future regressing merge — not “first supply forgot to set.”
 
 ---
 
