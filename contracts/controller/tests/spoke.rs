@@ -492,3 +492,128 @@ fn full_exit_after_entry_prunes_storage() {
         );
     });
 }
+
+/// A080 — under-count: missing usage row means entry admits from a zero baseline.
+/// A subsequent full-cap entry succeeds even though a conceptual live book already
+/// occupied that capacity (the context layer never sees positions).
+#[test]
+fn missing_usage_row_entry_admits_full_cap_from_zero_baseline() {
+    let env = Env::default();
+    let contract = new_controller(&env);
+    let asset = Address::generate(&env);
+    let key = hub(&asset);
+    let cap_asset = 5;
+    let full = Ray::from_asset(&env, cap_asset, 7);
+    env.as_contract(&contract, || {
+        assert!(storage::get_spoke_usage(&env, 1, &key).is_none());
+
+        let mut ctx = SpokeUsageContext::new(&env, 1);
+        ctx.apply_entry(
+            UsageSide::Supply,
+            &key,
+            full,
+            cap_asset,
+            Ray::from(RAY),
+            7,
+        );
+        ctx.persist();
+        assert_eq!(
+            storage::get_spoke_usage(&env, 1, &key)
+                .expect("row")
+                .supplied_scaled_ray,
+            full.raw()
+        );
+
+        // Plant desync: drop the row (positions conceptually still live off-context).
+        storage::set_spoke_usage(
+            &env,
+            1,
+            &key,
+            &SpokeUsageRaw {
+                supplied_scaled_ray: 0,
+                borrowed_scaled_ray: 0,
+            },
+        );
+        assert!(storage::get_spoke_usage(&env, 1, &key).is_none());
+
+        let mut ctx2 = SpokeUsageContext::new(&env, 1);
+        ctx2.apply_entry(
+            UsageSide::Supply,
+            &key,
+            full,
+            cap_asset,
+            Ray::from(RAY),
+            7,
+        );
+        ctx2.persist();
+        assert_eq!(
+            storage::get_spoke_usage(&env, 1, &key)
+                .expect("second fill")
+                .supplied_scaled_ray,
+            full.raw(),
+            "second full-cap fill succeeds because usage restarted at zero"
+        );
+    });
+}
+
+/// Over-count twin: usage higher than the exit delta leaves residual occupancy
+/// after a conceptual full position exit → false cap pressure (availability).
+#[test]
+fn over_recorded_usage_survives_smaller_exit() {
+    let env = Env::default();
+    let contract = new_controller(&env);
+    let asset = Address::generate(&env);
+    let key = hub(&asset);
+    let unit = Ray::from_asset(&env, 1, 7).raw();
+    env.as_contract(&contract, || {
+        storage::set_spoke_usage(
+            &env,
+            1,
+            &key,
+            &SpokeUsageRaw {
+                // Booked as 5 units, but we only exit 3 (as if positions were lower).
+                supplied_scaled_ray: 5 * unit,
+                borrowed_scaled_ray: 0,
+            },
+        );
+        let mut ctx = SpokeUsageContext::new(&env, 1);
+        ctx.apply_exit(UsageSide::Supply, &key, Ray::from(3 * unit));
+        ctx.persist();
+        let residual = storage::get_spoke_usage(&env, 1, &key)
+            .expect("over-count residual")
+            .supplied_scaled_ray;
+        assert_eq!(residual, 2 * unit);
+    });
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #311)")]
+fn over_recorded_usage_residual_blocks_reentry_to_cap() {
+    let env = Env::default();
+    let contract = new_controller(&env);
+    let asset = Address::generate(&env);
+    let key = hub(&asset);
+    let unit = Ray::from_asset(&env, 1, 7).raw();
+    let cap_asset = 5;
+    env.as_contract(&contract, || {
+        storage::set_spoke_usage(
+            &env,
+            1,
+            &key,
+            &SpokeUsageRaw {
+                supplied_scaled_ray: 2 * unit,
+                borrowed_scaled_ray: 0,
+            },
+        );
+        let mut ctx = SpokeUsageContext::new(&env, 1);
+        // Cap 5; residual 2 → headroom 3. Attempting 4 must hit the supply cap.
+        ctx.apply_entry(
+            UsageSide::Supply,
+            &key,
+            Ray::from(4 * unit),
+            cap_asset,
+            Ray::from(RAY),
+            7,
+        );
+    });
+}

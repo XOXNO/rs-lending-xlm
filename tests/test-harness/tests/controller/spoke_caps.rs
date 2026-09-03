@@ -3,8 +3,8 @@ use controller::types::{ControllerKey, SpokeAssetArgs, SpokeUsageRaw};
 use soroban_sdk::{vec, Vec};
 use test_harness::{
     assert_contract_error, errors, hub_asset, map_try_ok_unit, map_try_ok_value, usd_cents,
-    usdc_preset, usdt_stable_preset, HubAssetKey, LendingTest, ALICE, HARNESS_HUB, HARNESS_SPOKE,
-    STABLECOIN_SPOKE, UNCONSTRAINED_TEST_CAP,
+    usdc_preset, usdt_stable_preset, HubAssetKey, LendingTest, ALICE, BOB, HARNESS_HUB,
+    HARNESS_SPOKE, LIQUIDATOR, STABLECOIN_SPOKE, UNCONSTRAINED_TEST_CAP,
 };
 
 const UNIT: i128 = 10_000_000;
@@ -69,6 +69,27 @@ fn spoke_usage(t: &LendingTest, spoke_id: u32, asset_name: &str) -> SpokeUsageRa
             .persistent()
             .get::<_, SpokeUsageRaw>(&ControllerKey::SpokeUsage(spoke_id, hub_asset(asset)))
             .unwrap_or_default()
+    })
+}
+
+/// A080 plant: drop the durable usage row while account positions stay live.
+fn clear_spoke_usage(t: &LendingTest, spoke_id: u32, asset_name: &str) {
+    let asset = t.resolve_asset(asset_name);
+    t.env.as_contract(&t.controller, || {
+        t.env
+            .storage()
+            .persistent()
+            .remove(&ControllerKey::SpokeUsage(spoke_id, hub_asset(asset)));
+    });
+}
+
+fn spoke_usage_row_present(t: &LendingTest, spoke_id: u32, asset_name: &str) -> bool {
+    let asset = t.resolve_asset(asset_name);
+    t.env.as_contract(&t.controller, || {
+        t.env
+            .storage()
+            .persistent()
+            .has(&ControllerKey::SpokeUsage(spoke_id, hub_asset(asset)))
     })
 }
 
@@ -391,4 +412,130 @@ fn test_borrow_of_exactly_the_cap_succeeds_then_one_unit_reverts() {
         try_borrow_raw(&mut t, ALICE, "USDT", 1),
         errors::SPOKE_BORROW_CAP_REACHED,
     );
+}
+
+/// A080 PIN — missing usage row under-counts occupancy: live supply remains, but
+/// the cap check treats usage as zero and admits a second full-cap fill.
+#[test]
+fn test_missing_usage_row_allows_supply_fill_to_full_cap_while_positions_live() {
+    let cap = 1_000 * UNIT;
+    let mut t = usdc_spoke_market();
+    set_spoke_caps(&t, 2, "USDC", cap, UNCONSTRAINED_TEST_CAP);
+    t.create_spoke_account(ALICE, 2);
+    t.create_spoke_account(BOB, 2);
+
+    t.supply_raw(ALICE, "USDC", cap);
+    assert!(spoke_usage_row_present(&t, 2, "USDC"));
+    assert_contract_error(
+        try_supply_raw(&mut t, BOB, "USDC", 1),
+        errors::SPOKE_SUPPLY_CAP_REACHED,
+    );
+
+    clear_spoke_usage(&t, 2, "USDC");
+    assert!(
+        !spoke_usage_row_present(&t, 2, "USDC"),
+        "planted desync: usage row gone while Alice still holds supply"
+    );
+    assert!(
+        t.supply_balance(ALICE, "USDC") > 0.0,
+        "Alice's position must still be live after the usage plant"
+    );
+
+    // Cap check starts from absent=0, so Bob can fill the configured cap again.
+    t.supply_raw(BOB, "USDC", cap);
+    assert_eq!(
+        spoke_usage(&t, 2, "USDC").supplied_scaled_ray,
+        cap * 10i128.pow(RAY_DECIMALS - 7),
+        "post-plant usage only reflects Bob's fill, not Alice's still-live shares"
+    );
+    assert!(
+        t.supply_balance(ALICE, "USDC") > 0.0 && t.supply_balance(BOB, "USDC") > 0.0,
+        "both accounts keep live supply — spoke occupancy is under-counted vs positions"
+    );
+    assert_contract_error(
+        try_supply_raw(&mut t, BOB, "USDC", 1),
+        errors::SPOKE_SUPPLY_CAP_REACHED,
+    );
+}
+
+/// A080 PIN — withdraw against a missing usage row is a silent no-op on usage;
+/// remaining positions still leave the spoke able to refill to the full configured cap.
+#[test]
+fn test_missing_usage_row_withdraw_then_supply_fills_to_configured_cap() {
+    let cap = 1_000 * UNIT;
+    let mut t = usdc_spoke_market();
+    set_spoke_caps(&t, 2, "USDC", cap, UNCONSTRAINED_TEST_CAP);
+    t.create_spoke_account(ALICE, 2);
+    t.create_spoke_account(BOB, 2);
+
+    t.supply_raw(ALICE, "USDC", cap);
+    clear_spoke_usage(&t, 2, "USDC");
+
+    t.withdraw(ALICE, "USDC", 400.0);
+    assert!(
+        !spoke_usage_row_present(&t, 2, "USDC"),
+        "A080: non-zero exit must not invent a usage row when storage was empty"
+    );
+    let alice_remaining = t.supply_balance(ALICE, "USDC");
+    assert!(
+        alice_remaining > 0.0,
+        "Alice still holds residual supply after the partial withdraw"
+    );
+
+    // Occupancy under-count: recorded usage is still zero, so Bob can take the
+    // entire configured cap even though Alice's residual shares remain live.
+    t.supply_raw(BOB, "USDC", cap);
+    assert_eq!(
+        spoke_usage(&t, 2, "USDC").supplied_scaled_ray,
+        cap * 10i128.pow(RAY_DECIMALS - 7)
+    );
+    assert!(
+        t.supply_balance(ALICE, "USDC") > 0.0,
+        "Alice residual + Bob full-cap fill = over-admission vs configured cap"
+    );
+}
+
+/// A080 PIN — borrow-side twin: missing usage + repay no-op → refill to borrow cap.
+#[test]
+fn test_missing_usage_row_repay_then_borrow_fills_to_configured_borrow_cap() {
+    let borrow_cap = 500 * UNIT;
+    let mut t = usdc_usdt_spoke_market();
+    set_spoke_caps(&t, 2, "USDT", UNCONSTRAINED_TEST_CAP, borrow_cap);
+    t.create_spoke_account(ALICE, 2);
+    t.create_spoke_account(BOB, 2);
+
+    t.supply(ALICE, "USDC", 20_000.0);
+    t.supply(BOB, "USDC", 20_000.0);
+    // Seed borrow liquidity in the pool.
+    t.supply(LIQUIDATOR, "USDT", 5_000.0);
+
+    t.borrow_raw(ALICE, "USDT", borrow_cap);
+    assert!(spoke_usage_row_present(&t, 2, "USDT"));
+    assert_contract_error(
+        try_borrow_raw(&mut t, BOB, "USDT", 1),
+        errors::SPOKE_BORROW_CAP_REACHED,
+    );
+
+    clear_spoke_usage(&t, 2, "USDT");
+    assert!(!spoke_usage_row_present(&t, 2, "USDT"));
+
+    let alice_debt = t.borrow_balance(ALICE, "USDT");
+    assert!(alice_debt > 0.0);
+    t.repay(ALICE, "USDT", alice_debt * 0.25);
+    assert!(
+        !spoke_usage_row_present(&t, 2, "USDT"),
+        "A080: repay exit against a missing row must leave usage absent"
+    );
+    assert!(
+        t.borrow_balance(ALICE, "USDT") > 0.0,
+        "Alice still carries residual debt after the partial repay"
+    );
+
+    t.borrow_raw(BOB, "USDT", borrow_cap);
+    assert_eq!(
+        spoke_usage(&t, 2, "USDT").borrowed_scaled_ray,
+        borrow_cap * 10i128.pow(RAY_DECIMALS - 7),
+        "Bob's full-cap borrow is booked as if Alice's residual debt were absent"
+    );
+    assert!(t.borrow_balance(ALICE, "USDT") > 0.0 && t.borrow_balance(BOB, "USDT") > 0.0);
 }
