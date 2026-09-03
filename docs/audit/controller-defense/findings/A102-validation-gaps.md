@@ -262,6 +262,8 @@ Blast-radius axes: **funds (theft / silent mint)**, **account**, **market**, **p
 | G-VAL-9 (plant-stale) | **None** (borrow still fail-closed) | Poisoned account: liquidate / clean / collateral exit blocked until feed refreshes | Contagion only if many accounts hold the same unpriceable dust leg | Bad-debt latency until oracle recovers (not force-socialize required) | **Low–medium** account recovery DoS; prefer stuck over wrong (ADR-0005) |
 | G-VAL-10 (blend skew) | Economic mis-admission within config | Over-borrow vs honest fresh midpoint | Per-asset window mis-sizing | Valuation bias ≤ configured tolerance / stale envelope | Ops |
 | G-VAL-11 (aggregator root) | If aggregator lies: wrong HF protocol-wide | Same | Same | Same as PRELIMINARY trust-root row | Deploy / upgrade discipline (A009) |
+| G-VAL-12 (`swap_debt` at cap) | None | Full refinance into new hub blocked at max borrow slots | None | None | Low UX; repay+borrow workaround |
+| G-VAL-13 (floor residuals) | None on gated origination | Passive below-floor after LTV restamp / floor raise | Dust cleanup band may not track live floor | Socialize/cleanup ops hygiene | Low; next risk-increasing action re-enforces |
 
 ### 4.1 Worst-case numeric framing (G-VAL-1)
 
@@ -305,17 +307,19 @@ Both raise liquidation latency; G-VAL-1 is worse because a guardian action alone
 
 ### 5.1 Among filed Wave 4 agents
 
-| | A061 | A062 | A063 | A064 | A065 | A070 | A072 |
-|---|---|---|---|---|---|---|---|
-| A061 | — | empty payments / MeansAll order | — | — | — | amounts not refund allowlist | — |
-| A062 | complement amounts | — | — | flash length uses position limits | — | refund length/dupes | position limits feed risk surface |
-| A063 | — | — | — | shared `require_listed_unhalted` stack | — | refund uses `require_listed_active_config` | entry before post-pool |
-| A064 | — | — | hub/spoke before flags | — | — | refund skips freeze (intentional) | flags before money; HF after |
-| A065 | — | — | — | — | — | — | fills A072 oracle deferral |
-| A070 | — | sibling Vec hygiene | debt-hub listing | listing ≠ freeze on refunds | — | — | finalize after refund |
-| A072 | — | — | — | — | consumes hard prices | — | — |
+| | A061 | A062 | A063 | A064 | A065 | A066 | A067 | A070 | A072 |
+|---|---|---|---|---|---|---|---|---|---|
+| A061 | — | empty/MeansAll | — | — | — | — | — | amounts ≠ refund allowlist | — |
+| A062 | amounts | — | — | flash len↔limits | — | slot math vs raw Vec | — | refund len/dupes | — |
+| A063 | — | — | — | shared entry stack | — | — | — | listed refunds | entry before post-pool |
+| A064 | — | — | hub/spoke→flags | — | — | — | — | refund skips freeze | flags before HF |
+| A065 | — | — | — | — | — | — | floor uses prices | — | fills A072 oracle deferral |
+| A066 | — | agrees dedup | — | — | — | — | — | flash len = hygiene | limits before risk |
+| A067 | — | — | — | — | needs live prices | — | — | — | floor inside same chokepoint |
+| A070 | — | Vec sibling | debt-hub listing | listing≠freeze | — | len ≤ max_supply | — | — | finalize after refund |
+| A072 | — | — | — | — | consumes hard prices | — | owns floor call | — | — |
 
-**Agreement:** No disagreement files needed among A061–A065 / A070 / A072. Intentional asymmetries (entry vs exit hub checks; seize vs pause; refund vs supply flags; sum vs reject duplicates; supply skip vs borrow fail-closed oracle) are consistent across findings.
+**Agreement:** No disagreement files among filed Wave 4 agents. A066 owns slot cardinality that A062 only adjacent-noted; A067 owns floor depth that A072 summarized.
 
 ### 5.2 Peers outside Wave 4
 
@@ -323,29 +327,31 @@ Both raise liquidation latency; G-VAL-1 is worse because a guardian action alone
 |---|---|
 | A006 | Guardian ratchet enables G-VAL-1 (`no_seize` tighten-only) |
 | A008 | Contrasts defended view 256-cap vs G-VAL-2 |
-| A009 / A029 | Aggregator pointer — outer trust root for G-VAL-11 |
-| A015 | Same uncapped keeper Vec residual as A062 |
+| A009 / A029 | Aggregator pointer — outer trust root for G-VAL-11; protocol storage for floor |
+| A012 | Third-party cannot open supply slots (complements A066) |
+| A015 | Uncapped keeper Vecs (G-VAL-2); keepers skip min-borrow floor (G-VAL-13) |
 | A040 | High-level listing; A064 owns FreezePolicy depth |
-| A045 | Flash money-flow; defers refund allowlist to A070; price snapshot agrees with A065 INV-ORACLE-03 |
+| A045 | Flash money-flow; refund allowlist → A070; price snapshot ↔ A065 |
+| A048 | `swap_collateral` free-slot order contrasts A066 `swap_debt` |
 | A050 | Migrate soft-dedup residual shared with A062 |
-| A051 / A052 / A026 | Seize Transfer/Credit; Credit listing residual = A064 G2 |
+| A051 / A052 / A026 | Seize Transfer/Credit; Credit listing = A064 G2; Credit limit = A066 |
 | A056 | Slippage / opaque Bytes — points at unfiled A069 |
-| A001 | Global pause orthogonal to per-asset FreezePolicy |
-| A007 | Post-guard listed-token residual on refunds (A070 notes) |
-| A024 / A023 / A032 | Cite A072 as solvency chokepoint; A024 debt-free oracle skip agrees with A065 |
-| A094 / A086 | Index cache footguns ≠ oracle freshness (A065) |
+| A001 | Global pause orthogonal to FreezePolicy |
+| A007 | Post-guard listed-token residual on refunds |
+| A024 / A023 / A032 | Cite A072 solvency chokepoint |
+| A094 / A086 | Index cache ≠ oracle freshness |
 | A099 | `verified_hubs` success-only memo (A063) |
 
 ### 5.3 PRELIMINARY alignment
 
-PRELIMINARY already lists **A062/A015** as a leading residual (fee-funded compute DoS) and aggregator/oracle owners as trust roots. This synthesis **elevates A064 G1** as the highest-severity **in-wave validation** residual (medium) and adds **A065 plant-stale** as a Low recovery-DoS sibling. Recommend PRELIMINARY / A110 backlog add:
+Recommend PRELIMINARY / A110 backlog rows:
 
 | ID | Issue | Impact quantification |
 |---|---|---|
 | A064 G1 | `no_seize` ̸⇒ `frozen`; supply still allowed | Liquidation halt for that collateral; bad-debt latency; hatch = force socialize |
 | A065 §7.2 | Supply without oracle → plant stale leg | Account liquidate/clean blocked until feed recovers |
-
-Keep A062/A015 as Low hygiene. Keep aggregator compromise as external trust-root (not a missing controller `assert`).
+| A062/A015 | Uncapped mutator/keeper Vecs | Fee-funded compute DoS only |
+| A067 | Live floor vs `BAD_DEBT_USD_THRESHOLD` drift | Cleanup-band ops; not silent under-floor mint |
 
 ---
 
@@ -357,13 +363,12 @@ Ordered by severity × leverage. Audit-only recommendations; no production edits
 |---|---|---|---|
 | P0 | Ship ADR-0008 **Option C**: setter couples `no_seize ⇒ frozen` (and/or block `require_can_supply` while `no_seize`) | G-VAL-1 | Product + config setter + harness pins |
 | P1 | Cap keeper Vecs (and optionally mutator payment Vecs) with `MAX_VIEW_INPUTS` or `MAX_KEEPER_INPUTS` **before** loops | G-VAL-2 | Small controller change + tests |
-| P2 | Ops: tighten per-asset stale windows / listing dust policy for fringe assets that enable G-VAL-9; document plant-stale as expected | G-VAL-9, G-VAL-10 | Ops / runbook (not new controller asserts) |
-| P3 | Align `liquidate` raw `debt_payments` with estimate’s 256 cap | G-VAL-3 | API symmetry |
-| P4 | Docs: `errors.md` #43 caller list; `endpoints.md` refund `debt.hub_id` keying; hub deactivation story | G-VAL-5, G-VAL-7 | Docs only |
-| P5 | Optional: hard-reject migrate coll/supply duplicates; harness over-length refunds / multi-hub refund | G-VAL-4, G-VAL-7 | UX / coverage |
-| P5 | Do **not** add `require_hub_active` to withdraw/repay/liquidate | anti-G-VAL-5 | Preserve INV-LIQ-01 |
-| P5 | Do **not** change payment aggregate-and-sum without API break | anti-regression | Documented design |
-| P5 | Do **not** duplicate aggregator stale/sanity checks in controller unless aggregator ceases to be SoT | anti-G-VAL-11 churn | A065 opinion |
+| P2 | Ops: tighten stale windows / listing dust for G-VAL-9; when raising min-borrow floor, realign `BAD_DEBT_USD_THRESHOLD` / cleanup band | G-VAL-9, G-VAL-10, G-VAL-13 | Ops / runbook |
+| P3 | Document `swap_debt` refinance-at-cap UX (do not lightly reorder borrow-first) | G-VAL-12 | Docs |
+| P4 | Align `liquidate` raw `debt_payments` with estimate’s 256 cap | G-VAL-3 | API symmetry |
+| P5 | Docs: `errors.md` #43 / #126 caller lists; refund `debt.hub_id` keying; hub deactivation | G-VAL-5, G-VAL-7, A067 docs | Docs |
+| P5 | Optional: Certora non-zero floor witness; hard-reject migrate coll/supply dupes; refund over-length harness | G-VAL-13, G-VAL-4, G-VAL-7 | Coverage |
+| P5 | Do **not** add hub-active to withdraw/repay/liquidate; do **not** change aggregate-and-sum; do **not** duplicate aggregator stale checks; do **not** bolt floor onto keepers/repay without product decision | anti-regressions | Preserve INV-LIQ-01 / INV-ORACLE / dust cleanup |
 
 **Explicitly out of P0 for “validation” label but still top protocol residual:** controller `min_out` (A056) — track under money-movement / A101 / A110, not as a missing A061 assert.
 
