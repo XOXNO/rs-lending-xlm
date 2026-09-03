@@ -9,7 +9,10 @@
 - Gap: This file does **not** invent gaps. It **orders fixes** for residuals already ranked by PRELIMINARY and refined by A101–A104 / A106
 - Impact: Absolute ceiling is protocol-total only on deploy/oracle ownership failure (A009 / S4–S5). Highest-probability live code loss is account-local strategy slippage (A048/A056 / S1). Market ceilings ≤ \(\mathrm{TVL}_m\) (A055) or contingent bad debt after capacity/availability failures (A080, A064)
 - Evidence: Peer priority tables A101 §10, A102 §6, A103 §8, A104 §9, A106 §8; PRELIMINARY leading-residuals table; threat-model §§Deployment gates / slippage; no `disagreements/` files present
-- Opinion: Remediate by **absolute ceiling first** (deploy + Sensitive floor + router/oracle ownership), then **highest-probability extractable account loss** (controller `min_out`), then **market listing + liquidation liveness** (SAC policy, ADR-0008 Option C), then **soft-cap integrity** (A080 reconcile), then hygiene/footguns. Do not reopen closed money paths (A101 L6–L10) or “fix” intentional designs (aggregate-and-sum, ADR-0005 price snapshot, Credit fee-only usage exit, persist-after-pool).
+- Opinion: Remediate by **absolute ceiling first** (deploy + Sensitive floor + router/oracle ownership), then **highest-probability extractable account loss** (controller `min_out`), then **market listing + liquidation liveness** (SAC policy, ADR-0008 Option C), then hygiene/footguns. Do not reopen closed money paths (A101 L6–L10) or “fix” intentional designs (aggregate-and-sum, ADR-0005 price snapshot, Credit fee-only usage exit, persist-after-pool). **A080 usage reconcile is withdrawn** as a live production issue — see `synthesis/RESIDUAL_REVALIDATION.md`.
+
+> **Revalidation addendum:** A080 dropped from P1. Ranking authority:
+> `synthesis/FINAL.md` + `RESIDUAL_REVALIDATION.md`.
 
 ---
 
