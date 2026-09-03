@@ -61,6 +61,13 @@ fn curve(
     }
 }
 
+/// No lemma split: `calculate_annual_borrow_rate` runs three multiply-divides
+/// whose branch conditions depend on which curve segment `utilization` lands in
+/// (`utilization * slope1 / mid`, `excess * slope2 / range`,
+/// `excess * slope3 / range`), so no single input bound settles them. Every
+/// operand is already inside the validated curve domain
+/// (`InterestRateModel::verify`), which is the under-approximation this rule
+/// relies on instead.
 #[rule]
 #[allow(clippy::too_many_arguments)]
 fn borrow_rate_monotonic_across_utilization(
@@ -96,6 +103,8 @@ fn borrow_rate_monotonic_across_utilization(
     );
 }
 
+/// No lemma split, for the same reason as `borrow_rate_monotonic_across_utilization`:
+/// four evaluations of the curve, each on a different segment.
 #[rule]
 #[allow(clippy::too_many_arguments)]
 fn borrow_rate_kinks_match_configured_curve(
@@ -132,6 +141,12 @@ fn borrow_rate_kinks_match_configured_curve(
     cvlr_assert!(at_full.raw() == expected_full.raw());
 }
 
+/// No lemma split: the Taylor series runs seven `pow.mul(x)` steps whose branch
+/// conditions all move with `pow`, a value derived inside the loop. The
+/// under-approximation here is the input domain instead: `rate_per_ms` is capped
+/// at `MAX_BORROW_RATE_RAY` per millisecond and `delta_ms` at one year, which is
+/// exactly `MAX_COMPOUND_DELTA_MS`, the largest chunk
+/// `simulate_update_indexes_body` ever passes.
 #[rule]
 fn compound_factor_never_below_one(e: Env, rate_per_ms: i128, delta_ms: u64) {
     let max_per_ms = Ray::from(MAX_BORROW_RATE_RAY)
@@ -146,6 +161,9 @@ fn compound_factor_never_below_one(e: Env, rate_per_ms: i128, delta_ms: u64) {
     cvlr_assert!(rate_per_ms == 0 || delta_ms == 0 || factor.raw() > RAY);
 }
 
+/// No lemma split: `old_index >= RAY` makes `old_index * RAY` at least `1e54`,
+/// so `mul_div_half_up` always widens to `I256` here. The native branch is
+/// unreachable on this domain.
 #[rule]
 fn borrow_index_identity_is_noop(e: Env, old_index: i128) {
     cvlr_assume!(old_index >= RAY && old_index <= MAX_BORROW_INDEX_RAY);
@@ -154,6 +172,8 @@ fn borrow_index_identity_is_noop(e: Env, old_index: i128) {
     cvlr_assert!(out.raw() == old_index);
 }
 
+/// No lemma split: both operands are at least `RAY`, so the product is at least
+/// `1e54` and the widened path always wins.
 #[rule]
 fn borrow_index_strictly_grows_below_cap(e: Env, old_index: i128, factor: i128) {
     cvlr_assume!(old_index >= RAY && old_index < MAX_BORROW_INDEX_RAY);
@@ -164,6 +184,8 @@ fn borrow_index_strictly_grows_below_cap(e: Env, old_index: i128, factor: i128) 
     cvlr_assert!(out.raw() <= MAX_BORROW_INDEX_RAY);
 }
 
+/// No lemma split: the index is pinned at `MAX_BORROW_INDEX_RAY = 1e36` and the
+/// factor is at least `RAY`, so the product is at least `1e63` -- always widened.
 #[rule]
 fn borrow_index_cap_is_sticky(e: Env, factor: i128) {
     cvlr_assume!(factor > RAY && factor <= 10 * RAY);
@@ -172,6 +194,8 @@ fn borrow_index_cap_is_sticky(e: Env, factor: i128) {
     cvlr_assert!(out.raw() == MAX_BORROW_INDEX_RAY);
 }
 
+/// No lemma split: both calls return on the zero guard before any
+/// multiply-divide runs.
 #[rule]
 fn supply_index_zero_inputs_are_noop(e: Env, supplied: i128, old_index: i128, rewards: i128) {
     cvlr_assume!(supplied >= 0 && supplied <= 100 * RAY);
@@ -185,6 +209,10 @@ fn supply_index_zero_inputs_are_noop(e: Env, supplied: i128, old_index: i128, re
     cvlr_assert!(no_rewards.raw() == old_index);
 }
 
+/// No lemma split: the rule's own assume, `supplied * old_index` rounding to
+/// zero, forces `supplied * old_index < RAY / 2 = 5e26`, far inside `i128`. The
+/// widened branch is unreachable here, so the rule already sees one arithmetic
+/// path.
 #[rule]
 fn supply_index_rounded_zero_value_is_noop(e: Env, supplied: i128, old_index: i128, rewards: i128) {
     cvlr_assume!(supplied > 0 && supplied <= 100 * RAY);
@@ -198,6 +226,11 @@ fn supply_index_rounded_zero_value_is_noop(e: Env, supplied: i128, old_index: i1
     cvlr_assert!(out.raw() == old_index);
 }
 
+/// No lemma split: `update_supply_index` runs `supplied * old_index` and then a
+/// `mul_div_floor_saturating` on `new_value`, which is derived from the first
+/// result. The rule then multiplies `supplied` by the *returned* index, whose
+/// branch condition is not known before the call. No single input bound settles
+/// all three, so a two-way split would leave both lemmas carrying a branch.
 #[rule]
 fn supply_index_reward_distribution_is_conservative(
     e: Env,
@@ -223,6 +256,9 @@ fn supply_index_reward_distribution_is_conservative(
     cvlr_assert!(distributed.raw() + shortfall.raw() == rewards);
 }
 
+/// No lemma split: `supplied` is pinned at `100 RAY = 1e29` and `old_index`
+/// exceeds `10 RAY`, so every product here is at least `1e57` and the widened
+/// path always wins.
 #[rule]
 fn supply_index_high_index_rewards_are_conservative(e: Env, old_index: i128, rewards: i128) {
     cvlr_assume!(old_index > 10 * RAY && old_index <= REWARD_REGRESSION_INDEX_MAX);
@@ -242,6 +278,8 @@ fn supply_index_high_index_rewards_are_conservative(e: Env, old_index: i128, rew
     cvlr_assert!(distributed.raw() + shortfall.raw() == rewards);
 }
 
+/// No lemma split: `supplied = RAY / 10` against an index at
+/// `MAX_SUPPLY_INDEX_RAY` puts the product at `1e62` -- always widened.
 #[rule]
 fn supply_index_cap_is_sticky(e: Env, rewards: i128) {
     cvlr_assume!(rewards > 0 && rewards <= 100 * RAY);
@@ -256,8 +294,22 @@ fn supply_index_cap_is_sticky(e: Env, rewards: i128) {
     cvlr_assert!(shortfall.raw() == rewards);
 }
 
+/// Native half of `accrued_interest_split_is_conservative`.
+///
+/// `calculate_supplier_rewards` runs two products, `borrowed * old_index` and
+/// `borrowed * new_index`; the `apply_to_ray` that splits the accrued interest
+/// multiplies a value below `1e30` by at most `BPS`, so it never leaves the
+/// native path. `old_index <= new_index` orders the two products, so bounding
+/// the larger one puts both on the native branch. `new_index.max(1)` keeps the
+/// divisor total; the domain forces `new_index >= RAY`, so the clamp never binds.
+///
+/// This native half is a dust sliver of the domain (`new_index >= RAY` means it
+/// needs `borrowed <= ~170` ray-shares), which is exactly the point: the widened
+/// lemma then covers every economically reachable input with the compiler-rt
+/// limb code removed from its path.
 #[rule]
-fn accrued_interest_split_is_conservative(
+#[allow(clippy::too_many_arguments)]
+fn accrued_interest_split_is_conservative_native(
     e: Env,
     asset: Address,
     borrowed: i128,
@@ -269,6 +321,53 @@ fn accrued_interest_split_is_conservative(
     cvlr_assume!(old_index >= RAY && old_index <= new_index);
     cvlr_assume!(new_index <= 10 * RAY);
     cvlr_assume!(reserve_factor < BPS as u32);
+    cvlr_assume!(borrowed <= (i128::MAX - RAY / 2) / new_index.max(1));
+
+    let params = curve(
+        asset,
+        RAY / 100,
+        RAY / 10,
+        RAY / 5,
+        RAY / 2,
+        RAY / 2,
+        RAY * 8 / 10,
+        MAX_BORROW_RATE_RAY,
+        reserve_factor,
+    );
+    let (supplier, fee) = calculate_supplier_rewards(
+        &e,
+        &params,
+        Ray::from(borrowed),
+        Ray::from(new_index),
+        Ray::from(old_index),
+    );
+    let old_debt = Ray::from(borrowed).mul(&e, Ray::from(old_index));
+    let new_debt = Ray::from(borrowed).mul(&e, Ray::from(new_index));
+    let accrued = new_debt.checked_sub(&e, old_debt);
+
+    cvlr_assert!(supplier.raw() >= 0 && fee.raw() >= 0);
+    cvlr_assert!(supplier.raw() + fee.raw() == accrued.raw());
+}
+
+/// Widened half of `accrued_interest_split_is_conservative`: `borrowed *
+/// new_index` overflows `i128`, so the debt valuations run as exact `I256` host
+/// calls. Exact complement of the native lemma's bound, so the pair covers the
+/// original domain.
+#[rule]
+#[allow(clippy::too_many_arguments)]
+fn accrued_interest_split_is_conservative_widened(
+    e: Env,
+    asset: Address,
+    borrowed: i128,
+    old_index: i128,
+    new_index: i128,
+    reserve_factor: u32,
+) {
+    cvlr_assume!(borrowed >= 0 && borrowed <= 100 * RAY);
+    cvlr_assume!(old_index >= RAY && old_index <= new_index);
+    cvlr_assume!(new_index <= 10 * RAY);
+    cvlr_assume!(reserve_factor < BPS as u32);
+    cvlr_assume!(borrowed > (i128::MAX - RAY / 2) / new_index.max(1));
 
     let params = curve(
         asset,

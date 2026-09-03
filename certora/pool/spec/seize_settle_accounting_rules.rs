@@ -3,15 +3,21 @@ use cvlr::{cvlr_assert, cvlr_assume};
 use soroban_sdk::{Address, Env};
 
 use common::constants::{
-    MAX_BORROW_INDEX_RAY, MAX_SUPPLY_INDEX_RAY, RAY, RAY_DECIMALS, SUPPLY_INDEX_FLOOR_RAW,
+    BPS, MAX_ASSET_DECIMALS, MAX_BORROW_INDEX_RAY, MAX_SUPPLY_INDEX_RAY, MIN_ASSET_DECIMALS, RAY,
+    SUPPLY_INDEX_FLOOR_RAW,
 };
 use common::math::fp::Ray;
 use common::types::{AccountPositionType, PoolNetSettleEntry, PoolSeizeEntry};
 
 use super::fixture::{
-    hub, params, params_with_decimals, position, read_state, seed, state, MAX_FLOW_AMOUNT,
-    ONE_TOKEN,
+    hub, nondet_params, params_with_decimals_and_reserve, position, read_state, seed, state,
+    MAX_FLOW_AMOUNT, ONE_TOKEN,
 };
+
+// Fixture domain: these rules draw `asset_decimals` and `reserve_factor` over
+// the ranges production validates (`MIN_ASSET_DECIMALS..=MAX_ASSET_DECIMALS`,
+// `reserve_factor < BPS`) rather than pinning `params`'s mainnet-shaped 7 and
+// 1_000. The rate curve stays fixed; see `certora/pool/spec/README.md`.
 
 #[rule]
 fn seize_borrow_reduces_debt_and_writes_down_supply(
@@ -22,6 +28,13 @@ fn seize_borrow_reduces_debt_and_writes_down_supply(
     borrow_index: i128,
     supply_index: i128,
 ) {
+    // `fixture::state` stamps `last_timestamp = e.ledger().timestamp() * 1_000`
+    // and `Cache::load` recomputes the same product through `time::now_ms`.
+    // Both are checked multiplications, so a ledger clock past `u64::MAX /
+    // 1_000` panics and Sunbeam prunes the path as `assume(false)`. Stating the
+    // bound makes that pruning visible instead of hidden, and drops the
+    // overflow branch from every rule below.
+    cvlr_assume!(e.ledger().timestamp() <= u64::MAX / 1_000);
     cvlr_assume!(seized_scaled >= 0 && seized_scaled <= 20 * RAY);
     cvlr_assume!(borrow_index >= RAY && borrow_index <= MAX_BORROW_INDEX_RAY);
     cvlr_assume!(supply_index >= SUPPLY_INDEX_FLOOR_RAW && supply_index <= MAX_SUPPLY_INDEX_RAY);
@@ -30,7 +43,7 @@ fn seize_borrow_reduces_debt_and_writes_down_supply(
         &e,
         admin,
         asset.clone(),
-        params(asset.clone(), 0, false),
+        nondet_params(asset.clone()),
         state(
             supplied,
             50 * RAY,
@@ -83,12 +96,13 @@ fn seize_deposit_moves_scaled_position_to_revenue(
     asset: Address,
     seized_scaled: i128,
 ) {
+    cvlr_assume!(e.ledger().timestamp() <= u64::MAX / 1_000);
     cvlr_assume!(seized_scaled >= 0 && seized_scaled <= 20 * RAY);
     seed(
         &e,
         admin,
         asset.clone(),
-        params(asset.clone(), 0, false),
+        nondet_params(asset.clone()),
         state(
             100 * RAY,
             20 * RAY,
@@ -128,18 +142,24 @@ fn net_settle_conserves_cash_and_both_scaled_totals(
     supply_index: i128,
     borrow_index: i128,
     asset_decimals: u32,
+    reserve_factor: u32,
 ) {
+    cvlr_assume!(e.ledger().timestamp() <= u64::MAX / 1_000);
     cvlr_assume!(requested >= 0 && requested <= MAX_FLOW_AMOUNT);
     cvlr_assume!(supply_before >= 0 && supply_before <= 20 * RAY);
     cvlr_assume!(debt_before >= 0 && debt_before <= 20 * RAY);
     cvlr_assume!(supply_index >= SUPPLY_INDEX_FLOOR_RAW && supply_index <= MAX_SUPPLY_INDEX_RAY);
     cvlr_assume!(borrow_index >= RAY && borrow_index <= MAX_BORROW_INDEX_RAY);
-    cvlr_assume!(asset_decimals <= RAY_DECIMALS);
+    // Production range, not `RAY_DECIMALS`: governance validates
+    // `MIN_ASSET_DECIMALS..=MAX_ASSET_DECIMALS` and `MarketParamsRaw::verify`
+    // caps at `WAD_DECIMALS`, so 0..=2 and 19..=27 are unreachable markets.
+    cvlr_assume!((MIN_ASSET_DECIMALS..=MAX_ASSET_DECIMALS).contains(&asset_decimals));
+    cvlr_assume!(i128::from(reserve_factor) < BPS);
     seed(
         &e,
         admin,
         asset.clone(),
-        params_with_decimals(asset.clone(), 0, false, asset_decimals),
+        params_with_decimals_and_reserve(asset.clone(), asset_decimals, reserve_factor),
         state(
             100 * RAY,
             50 * RAY,
@@ -214,6 +234,7 @@ fn net_settle_never_persists_supply_drained_with_debt(
     supply_scaled: i128,
     extra_debt: i128,
 ) {
+    cvlr_assume!(e.ledger().timestamp() <= u64::MAX / 1_000);
     cvlr_assume!(supply_scaled > 0 && supply_scaled <= 20 * RAY);
     cvlr_assume!(extra_debt > 0 && extra_debt <= 20 * RAY);
     cvlr_assume!(requested >= 0 && requested <= MAX_FLOW_AMOUNT);
@@ -223,7 +244,7 @@ fn net_settle_never_persists_supply_drained_with_debt(
         &e,
         admin,
         asset.clone(),
-        params(asset.clone(), 0, false),
+        nondet_params(asset.clone()),
         state(
             supply_scaled,
             debt_scaled,
@@ -256,6 +277,7 @@ fn bad_debt_writedown_is_noop_on_empty_market(
     borrowed: i128,
     supply_index: i128,
 ) {
+    cvlr_assume!(e.ledger().timestamp() <= u64::MAX / 1_000);
     cvlr_assume!(borrowed > 0 && borrowed <= 20 * RAY);
     cvlr_assume!(seized_scaled >= 0 && seized_scaled <= borrowed);
     cvlr_assume!(supply_index >= SUPPLY_INDEX_FLOOR_RAW && supply_index <= MAX_SUPPLY_INDEX_RAY);
@@ -264,7 +286,7 @@ fn bad_debt_writedown_is_noop_on_empty_market(
         &e,
         admin,
         asset.clone(),
-        params(asset.clone(), 0, false),
+        nondet_params(asset.clone()),
         state(
             0,
             borrowed,

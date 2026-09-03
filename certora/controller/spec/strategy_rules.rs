@@ -2,6 +2,7 @@ use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env};
 
+use crate::spec::fixture;
 use crate::types::{AccountPositionType, HubAssetKey, StrategySwap};
 use controller_interface::ControllerInterface;
 
@@ -110,6 +111,7 @@ fn swap_debt_preserves_directional_bounds(
     cvlr_assume!(old_scaled_before > 0 && old_scaled_before <= 20 * common::constants::RAY);
     crate::spec::fixture::seed_live_account(&e, account_id, &caller, &existing_debt_token);
     crate::spec::fixture::seed_market(&e, &new_debt_token);
+    fixture::seed_empty_books(&e, account_id);
     crate::spec::fixture::seed_debt_position(
         &e,
         account_id,
@@ -191,6 +193,7 @@ fn swap_collateral_preserves_directional_bounds(
     cvlr_assume!(old_scaled_before > 0 && old_scaled_before <= 20 * common::constants::RAY);
     crate::spec::fixture::seed_live_account(&e, account_id, &caller, &current_collateral);
     crate::spec::fixture::seed_market(&e, &new_collateral);
+    fixture::seed_empty_books(&e, account_id);
     crate::spec::fixture::seed_supply_position(
         &e,
         account_id,
@@ -284,6 +287,7 @@ fn repay_with_collateral_never_increases_positions(
     cvlr_assume!(debt_scaled_before > 0 && debt_scaled_before <= 20 * common::constants::RAY);
     crate::spec::fixture::seed_live_account(&e, account_id, &caller, &collateral_token);
     crate::spec::fixture::seed_market(&e, &debt_token);
+    fixture::seed_empty_books(&e, account_id);
     crate::spec::fixture::seed_supply_position(
         &e,
         account_id,
@@ -341,6 +345,7 @@ fn repay_with_collateral_full_close_clears_debt(
     cvlr_assume!(debt_scaled_before > 0 && debt_scaled_before <= 20 * common::constants::RAY);
     crate::spec::fixture::seed_live_account(&e, account_id, &caller, &collateral_token);
     crate::spec::fixture::seed_market(&e, &debt_token);
+    fixture::seed_empty_books(&e, account_id);
     crate::spec::fixture::seed_supply_position(
         &e,
         account_id,
@@ -400,6 +405,7 @@ fn clean_bad_debt_zeros_positions(e: Env, account_id: u64) {
     let debt_asset = cvlr_soroban::nondet_address();
     crate::spec::fixture::seed_protocol(&e);
     crate::spec::fixture::seed_account(&e, account_id, &owner);
+    fixture::seed_empty_books(&e, account_id);
     crate::spec::fixture::seed_debt_position(&e, account_id, &debt_asset, 1);
 
     crate::positions::liquidation::clean_bad_debt_standalone(&e, account_id);
@@ -530,6 +536,7 @@ fn net_settle_pivot_never_leaves_zero_scaled_records(
     cvlr_assume!(collateral_amount > 0 && collateral_amount <= crate::constants::WAD * 1000);
     let steps = nonempty_strategy_swap();
     crate::spec::fixture::seed_live_account(&e, account_id, &caller, &asset);
+    fixture::seed_empty_books(&e, account_id);
     crate::spec::fixture::seed_supply_position(&e, account_id, &asset, 20 * common::constants::RAY);
     crate::spec::fixture::seed_debt_position(&e, account_id, &asset, 10 * common::constants::RAY);
 
@@ -676,6 +683,86 @@ fn flash_position_rejects_duplicate_collateral_asset(
     cvlr_assert!(false);
 }
 
+/// `flash_position` refuses `PositionMode::Normal`. The verb mints strategy
+/// debt against a caller-chosen receiver, which only the leveraged modes
+/// establish the invariants for.
+///
+/// Same fixture as `flash_position_sanity`, which is its satisfy twin: that
+/// rule passes `Multiply` and completes.
+#[rule]
+fn flash_position_rejects_normal_mode(
+    e: Env,
+    caller: Address,
+    receiver: Address,
+    debt_token: Address,
+    collateral_token: Address,
+    amount: i128,
+) {
+    cvlr_assume!(amount > 0);
+    cvlr_assume!(debt_token != collateral_token);
+    fixture::seed_market(&e, &debt_token);
+    fixture::seed_market(&e, &collateral_token);
+
+    crate::spec::compat::flash_position_minimal(
+        e,
+        caller,
+        0,
+        fixture::SPOKE_ID,
+        0,
+        debt_token,
+        amount,
+        receiver,
+        collateral_token,
+        crate::constants::WAD,
+    );
+
+    cvlr_assert!(false);
+}
+
+/// `flash_position` refuses a market whose pool parameters clear
+/// `is_flashloanable`. Strategy debt raised through `multiply` stays open on
+/// such a market because the funds only reach the governance-owned router;
+/// here they reach a caller-chosen contract, which is what the flag denies.
+///
+/// The assumption is read through a `Cache` of the rule's own, which binds the
+/// call's draw because `spec::ghost_prices` memoises the pool sync data per
+/// rule. Without that memo the entry point would draw an unrelated flag and
+/// this rule would be a statement about nothing.
+#[rule]
+fn flash_position_rejects_non_flashloanable_market(
+    e: Env,
+    caller: Address,
+    receiver: Address,
+    debt_token: Address,
+    collateral_token: Address,
+    amount: i128,
+) {
+    cvlr_assume!(amount > 0);
+    cvlr_assume!(debt_token != collateral_token);
+    fixture::seed_market(&e, &debt_token);
+    fixture::seed_market(&e, &collateral_token);
+
+    let mut cache = crate::context::Cache::new(&e);
+    let sync = cache.cached_pool_sync_data(&hub0(debt_token.clone()));
+    cvlr_assume!(!sync.params.is_flashloanable);
+    drop(cache);
+
+    crate::spec::compat::flash_position_minimal(
+        e,
+        caller,
+        0,
+        fixture::SPOKE_ID,
+        1,
+        debt_token,
+        amount,
+        receiver,
+        collateral_token,
+        crate::constants::WAD,
+    );
+
+    cvlr_assert!(false);
+}
+
 #[rule]
 fn flash_position_guard_blocks_entrypoint(
     e: Env,
@@ -752,6 +839,84 @@ fn flash_position_open_rejects_debt_free(e: Env, debt_token: Address, collateral
     cvlr_assert!(false);
 }
 
+/// An account that still carries collateral and a live debt in `debt_token`:
+/// the shape `require_flash_position_still_open` admits.
+fn open_flash_position_account(
+    e: &Env,
+    debt_token: &Address,
+    collateral_token: &Address,
+) -> crate::types::Account {
+    let mut supply = soroban_sdk::Map::new(e);
+    supply.set(
+        hub0(collateral_token.clone()),
+        crate::types::AccountPositionRaw {
+            scaled_amount: crate::constants::RAY,
+            liquidation_threshold: 8_000,
+            liquidation_bonus: 500,
+            loan_to_value: 7_500,
+            liquidation_fees: 100,
+        },
+    );
+    let mut borrow = soroban_sdk::Map::new(e);
+    borrow.set(
+        hub0(debt_token.clone()),
+        crate::types::DebtPositionRaw {
+            scaled_amount: crate::constants::RAY,
+        },
+    );
+    crate::types::Account {
+        owner: cvlr_soroban::nondet_address(),
+        spoke_id: fixture::SPOKE_ID,
+        mode: crate::types::PositionMode::Multiply,
+        supply_positions: supply,
+        borrow_positions: borrow,
+    }
+}
+
+/// Satisfy twin of `flash_position_open_rejects_empty_account`: the gate
+/// admits a non-empty account, so the revert rule is a statement about the
+/// empty one.
+#[rule]
+fn flash_position_open_rejects_empty_account_fixture_completes(
+    e: Env,
+    debt_token: Address,
+    collateral_token: Address,
+) {
+    cvlr_assume!(debt_token != collateral_token);
+    fixture::seed_market(&e, &collateral_token);
+    let account = open_flash_position_account(&e, &debt_token, &collateral_token);
+
+    crate::strategies::flash_position::require_flash_position_still_open(
+        &e,
+        &account,
+        &hub0(debt_token),
+    );
+
+    cvlr_satisfy!(true);
+}
+
+/// Satisfy twin of `flash_position_open_rejects_debt_free`: the same
+/// collateralized account with a live debt in the flashed asset passes the
+/// gate, so the revert rule is a statement about the missing debt record.
+#[rule]
+fn flash_position_open_rejects_debt_free_fixture_completes(
+    e: Env,
+    debt_token: Address,
+    collateral_token: Address,
+) {
+    cvlr_assume!(debt_token != collateral_token);
+    fixture::seed_market(&e, &collateral_token);
+    let account = open_flash_position_account(&e, &debt_token, &collateral_token);
+
+    crate::strategies::flash_position::require_flash_position_still_open(
+        &e,
+        &account,
+        &hub0(debt_token),
+    );
+
+    cvlr_satisfy!(!account.debt_free() && !account.supply_positions.is_empty());
+}
+
 #[rule]
 fn flash_position_success_leaves_debt_and_supply(
     e: Env,
@@ -764,6 +929,10 @@ fn flash_position_success_leaves_debt_and_supply(
     cvlr_assume!(debt_token != collateral_token);
     crate::spec::fixture::seed_market(&e, &debt_token);
     crate::spec::fixture::seed_market(&e, &collateral_token);
+    // The verb opens a fresh account whose id comes from a havoced counter and
+    // whose books would then be arbitrary. Pin the id and empty its books, so
+    // the assertions below read a book this call built.
+    fixture::seed_empty_books(&e, fixture::seed_next_account_id(&e, 0));
 
     let account_id = crate::spec::compat::flash_position_minimal(
         e.clone(),
@@ -800,6 +969,14 @@ fn flash_position_does_not_change_other_account(
     crate::spec::fixture::seed_market(&e, &debt_token);
     crate::spec::fixture::seed_market(&e, &collateral_token);
     crate::spec::fixture::seed_account(&e, other_account, &caller);
+    // Keep the minted id off `other_account`: the ghost NFT counter is havoced,
+    // so without this the account the verb creates may *be* the account the
+    // rule watches. The books of `other_account` stay arbitrary, which is the
+    // frame rule's strong form.
+    fixture::seed_next_account_id(&e, 100);
+    // The watched book stays unbounded (this is a frame rule); it only has to
+    // be a book a listing could produce.
+    fixture::assume_wellformed_book(&e, other_account);
 
     let other_supply_before = crate::storage::get_supply_positions(&e, other_account).len();
     let other_debt_before = crate::storage::get_debt_positions(&e, other_account).len();

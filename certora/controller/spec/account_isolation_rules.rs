@@ -3,6 +3,7 @@ use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env};
 
 use crate::constants::WAD;
+use crate::spec::fixture;
 use crate::types::HubAssetKey;
 use common::types::Payment;
 
@@ -11,6 +12,17 @@ fn hub0(asset: &Address) -> HubAssetKey {
         hub_id: crate::spec::fixture::HUB_ID,
         asset: asset.clone(),
     }
+}
+
+/// The frame rules keep both accounts' books arbitrary — that is their whole
+/// point — but an arbitrary book is not a *reachable* book: havoced storage can
+/// hold a threshold above `BPS` or a loan-to-value above the threshold, which
+/// no listing can produce. `assume_wellformed_book` states the premise the
+/// risk-totals summary already encodes implicitly, and nothing more: lengths,
+/// keys and scaled amounts stay unbounded.
+fn assume_reachable_books(e: &Env, target_account: u64, other_account: u64) {
+    fixture::assume_wellformed_book(e, target_account);
+    fixture::assume_wellformed_book(e, other_account);
 }
 
 fn scaled_supply_at(env: &Env, account_id: u64, asset: &Address) -> i128 {
@@ -43,6 +55,7 @@ fn supply_does_not_change_other_account_positions(
     cvlr_assume!(amount > 0 && amount <= WAD * 1000);
     crate::spec::fixture::seed_live_account(&e, target_account, &caller, &asset);
     crate::spec::fixture::seed_account(&e, other_account, &caller);
+    assume_reachable_books(&e, target_account, other_account);
 
     let other_supply_before = scaled_supply_at(&e, other_account, &asset);
     let other_borrow_before = scaled_borrow_at(&e, other_account, &asset);
@@ -65,6 +78,7 @@ fn borrow_does_not_change_other_account_positions(
     cvlr_assume!(amount > 0 && amount <= WAD * 1000);
     crate::spec::fixture::seed_live_account(&e, target_account, &caller, &asset);
     crate::spec::fixture::seed_account(&e, other_account, &caller);
+    assume_reachable_books(&e, target_account, other_account);
 
     let other_supply_before = scaled_supply_at(&e, other_account, &asset);
     let other_borrow_before = scaled_borrow_at(&e, other_account, &asset);
@@ -82,6 +96,7 @@ fn repay_only_changes_target_account_debt(e: Env, caller: Address, asset: Addres
     cvlr_assume!(amount > 0 && amount <= WAD * 1000);
     crate::spec::fixture::seed_live_account(&e, target_account, &caller, &asset);
     crate::spec::fixture::seed_account(&e, other_account, &caller);
+    assume_reachable_books(&e, target_account, other_account);
 
     let other_supply_before = scaled_supply_at(&e, other_account, &asset);
     let other_borrow_before = scaled_borrow_at(&e, other_account, &asset);
@@ -117,6 +132,8 @@ fn liquidation_does_not_change_other_account_positions(
     // The receiver is the liquidator's own account, which is what `Credit(id)` requires.
     crate::spec::fixture::seed_account(&e, receiver_account, &liquidator);
     crate::spec::fixture::seed_account(&e, other_account, &owner);
+    assume_reachable_books(&e, target_account, other_account);
+    fixture::assume_wellformed_book(&e, receiver_account);
 
     let other_supply_before = scaled_supply_at(&e, other_account, &debt_asset);
     let other_borrow_before = scaled_borrow_at(&e, other_account, &debt_asset);

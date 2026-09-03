@@ -161,6 +161,16 @@ jobs:
           fi
           echo "provisioned=true" >> "$GITHUB_OUTPUT"
           echo "local prover CLI root present on '$RUNNER_NAME': $(du -sh "$ROOT" | cut -f1), emv.jar $(wc -c < "$ROOT/emv.jar") bytes, z3 $("$ROOT/z3" -version 2>/dev/null | head -1)"
+          # The prover races every solver it finds on PATH. With z3 alone the
+          # local race is narrower than the hosted one (z3, cvc5, yices,
+          # bitwuzla), so nonlinear rules that cvc5 closes stay open here.
+          for solver in cvc5 yices-smt2 bitwuzla; do
+            if [ -x "$ROOT/$solver" ]; then
+              echo "solver $solver: $("$ROOT/$solver" --version 2>/dev/null | head -1)"
+            else
+              echo "::warning::solver $solver is not installed under $ROOT; the local race runs without it"
+            fi
+          done
 
       - name: Prove rules locally (parallel, cap from input)
         if: steps.prover_root.outputs.provisioned == 'true'

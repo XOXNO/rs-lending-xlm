@@ -3,7 +3,8 @@ use cvlr::{cvlr_assert, cvlr_assume};
 use soroban_sdk::{Address, Env};
 
 use common::constants::{
-    MAX_BORROW_INDEX_RAY, MAX_SUPPLY_INDEX_RAY, RAY, RAY_DECIMALS, SUPPLY_INDEX_FLOOR_RAW,
+    MAX_ASSET_DECIMALS, MAX_BORROW_INDEX_RAY, MAX_SUPPLY_INDEX_RAY, MIN_ASSET_DECIMALS, RAY,
+    SUPPLY_INDEX_FLOOR_RAW,
 };
 use common::math::fp::Ray;
 use common::math::fp_core;
@@ -24,10 +25,21 @@ fn supply_scaled_balance_matches_index(
     supply_index: i128,
     asset_decimals: u32,
 ) {
+    // `fixture::state` stamps `last_timestamp = e.ledger().timestamp() * 1_000`
+    // and `Cache::load` recomputes the same product through `time::now_ms`.
+    // Both are checked multiplications, so a ledger clock past `u64::MAX /
+    // 1_000` panics and Sunbeam prunes the path as `assume(false)`. Stating the
+    // bound makes that pruning visible instead of hidden, and drops the
+    // overflow branch from every rule below.
+    cvlr_assume!(e.ledger().timestamp() <= u64::MAX / 1_000);
     cvlr_assume!(amount > 0 && amount <= MAX_FLOW_AMOUNT);
     cvlr_assume!(position_before >= 0 && position_before <= 10 * RAY);
     cvlr_assume!(supply_index >= SUPPLY_INDEX_FLOOR_RAW && supply_index <= MAX_SUPPLY_INDEX_RAY);
-    cvlr_assume!(asset_decimals <= RAY_DECIMALS);
+    // Production range, not `RAY_DECIMALS`: governance's
+    // `validate_market_creation` enforces `MIN_ASSET_DECIMALS..=MAX_ASSET_DECIMALS`
+    // and `MarketParamsRaw::verify` caps at `WAD_DECIMALS`, so a counterexample
+    // at 0..=2 or 19..=27 could only be a fixture artefact.
+    cvlr_assume!((MIN_ASSET_DECIMALS..=MAX_ASSET_DECIMALS).contains(&asset_decimals));
     let amount_ray = Ray::from_asset(&e, amount, asset_decimals);
     let expected = fp_core::mul_div_floor(&e, amount_ray.raw(), RAY, supply_index);
     cvlr_assume!(expected > 0);
@@ -86,10 +98,11 @@ fn borrow_scaled_debt_matches_index(
     borrow_index: i128,
     asset_decimals: u32,
 ) {
+    cvlr_assume!(e.ledger().timestamp() <= u64::MAX / 1_000);
     cvlr_assume!(amount > 0 && amount <= MAX_FLOW_AMOUNT);
     cvlr_assume!(debt_before >= 0 && debt_before <= 10 * RAY);
     cvlr_assume!(borrow_index >= RAY && borrow_index <= MAX_BORROW_INDEX_RAY);
-    cvlr_assume!(asset_decimals <= RAY_DECIMALS);
+    cvlr_assume!((MIN_ASSET_DECIMALS..=MAX_ASSET_DECIMALS).contains(&asset_decimals));
     let amount_ray = Ray::from_asset(&e, amount, asset_decimals);
     let expected = fp_core::mul_div_ceil(&e, amount_ray.raw(), RAY, borrow_index);
     cvlr_assume!(expected > 0 && expected <= i128::MAX - debt_before);
@@ -134,10 +147,11 @@ fn partial_withdraw_burns_scaled_supply(
     supply_index: i128,
     asset_decimals: u32,
 ) {
+    cvlr_assume!(e.ledger().timestamp() <= u64::MAX / 1_000);
     cvlr_assume!(amount > 0 && amount <= MAX_FLOW_AMOUNT);
     cvlr_assume!(position_before > 0 && position_before <= 20 * RAY);
     cvlr_assume!(supply_index >= SUPPLY_INDEX_FLOOR_RAW && supply_index <= MAX_SUPPLY_INDEX_RAY);
-    cvlr_assume!(asset_decimals <= RAY_DECIMALS);
+    cvlr_assume!((MIN_ASSET_DECIMALS..=MAX_ASSET_DECIMALS).contains(&asset_decimals));
     let current_actual = Ray::from(position_before)
         .mul(&e, Ray::from(supply_index))
         .to_asset(&e, asset_decimals);
@@ -186,9 +200,10 @@ fn full_withdraw_burns_entire_position(
     supply_index: i128,
     asset_decimals: u32,
 ) {
+    cvlr_assume!(e.ledger().timestamp() <= u64::MAX / 1_000);
     cvlr_assume!(position_before > 0 && position_before <= 20 * RAY);
     cvlr_assume!(supply_index >= SUPPLY_INDEX_FLOOR_RAW && supply_index <= MAX_SUPPLY_INDEX_RAY);
-    cvlr_assume!(asset_decimals <= RAY_DECIMALS);
+    cvlr_assume!((MIN_ASSET_DECIMALS..=MAX_ASSET_DECIMALS).contains(&asset_decimals));
     seed(
         &e,
         admin,
@@ -233,10 +248,11 @@ fn partial_repay_burns_scaled_debt(
     borrow_index: i128,
     asset_decimals: u32,
 ) {
+    cvlr_assume!(e.ledger().timestamp() <= u64::MAX / 1_000);
     cvlr_assume!(amount > 0 && amount <= MAX_FLOW_AMOUNT);
     cvlr_assume!(debt_before > 0 && debt_before <= 20 * RAY);
     cvlr_assume!(borrow_index >= RAY && borrow_index <= MAX_BORROW_INDEX_RAY);
-    cvlr_assume!(asset_decimals <= RAY_DECIMALS);
+    cvlr_assume!((MIN_ASSET_DECIMALS..=MAX_ASSET_DECIMALS).contains(&asset_decimals));
     let debt_ceil = Ray::from(debt_before)
         .mul_ceil(&e, Ray::from(borrow_index))
         .to_asset_ceil(&e, asset_decimals);
@@ -283,10 +299,11 @@ fn full_repay_refunds_overpayment(
     extra: i128,
     asset_decimals: u32,
 ) {
+    cvlr_assume!(e.ledger().timestamp() <= u64::MAX / 1_000);
     cvlr_assume!(debt_before > 0 && debt_before <= 20 * RAY);
     cvlr_assume!(borrow_index >= RAY && borrow_index <= MAX_BORROW_INDEX_RAY);
     cvlr_assume!(extra >= 0 && extra <= MAX_FLOW_AMOUNT);
-    cvlr_assume!(asset_decimals <= RAY_DECIMALS);
+    cvlr_assume!((MIN_ASSET_DECIMALS..=MAX_ASSET_DECIMALS).contains(&asset_decimals));
     let debt_ceil = Ray::from(debt_before)
         .mul_ceil(&e, Ray::from(borrow_index))
         .to_asset_ceil(&e, asset_decimals);
@@ -340,7 +357,8 @@ fn full_repay_refunds_overpayment(
 //
 // so one extra rounding boundary is crossed by splitting, worth at most one
 // ray-scaled share. `Ray::from_asset` is an exact upscale by `10^(27−decimals)`
-// for every `decimals <= RAY_DECIMALS`, so it contributes no slack of its own.
+// for every `decimals <= RAY_DECIMALS`, and every listable market is far
+// inside that, so it contributes no slack of its own.
 //
 // Derivation of the constant, in full, for one leg. Write `K = 10^(27−decimals)`
 // and let `I` be the live index. `Ray::from_asset(&e, a) = a·K` exactly, so
@@ -381,7 +399,7 @@ fn additivity_supply_split_never_mints_more(
     cvlr_assume!(second > 0 && second <= MAX_FLOW_AMOUNT);
     cvlr_assume!(position_before >= 0 && position_before <= 10 * RAY);
     cvlr_assume!(supply_index >= SUPPLY_INDEX_FLOOR_RAW && supply_index <= MAX_SUPPLY_INDEX_RAY);
-    cvlr_assume!(asset_decimals <= RAY_DECIMALS);
+    cvlr_assume!((MIN_ASSET_DECIMALS..=MAX_ASSET_DECIMALS).contains(&asset_decimals));
     cvlr_assume!(e.ledger().timestamp() <= u64::MAX / 1_000);
 
     let market = params_with_decimals(asset.clone(), 0, false, asset_decimals);
@@ -456,7 +474,7 @@ fn additivity_borrow_split_never_reduces_debt(
     cvlr_assume!(second > 0 && second <= MAX_FLOW_AMOUNT);
     cvlr_assume!(debt_before >= 0 && debt_before <= 10 * RAY);
     cvlr_assume!(borrow_index >= RAY && borrow_index <= MAX_BORROW_INDEX_RAY);
-    cvlr_assume!(asset_decimals <= RAY_DECIMALS);
+    cvlr_assume!((MIN_ASSET_DECIMALS..=MAX_ASSET_DECIMALS).contains(&asset_decimals));
     cvlr_assume!(e.ledger().timestamp() <= u64::MAX / 1_000);
 
     let market = params_with_decimals(asset.clone(), 0, false, asset_decimals);
@@ -532,7 +550,7 @@ fn additivity_withdraw_split_never_pays_more(
     cvlr_assume!(second > 0 && second <= MAX_FLOW_AMOUNT);
     cvlr_assume!(position_before > 0 && position_before <= 20 * RAY);
     cvlr_assume!(supply_index >= SUPPLY_INDEX_FLOOR_RAW && supply_index <= MAX_SUPPLY_INDEX_RAY);
-    cvlr_assume!(asset_decimals <= RAY_DECIMALS);
+    cvlr_assume!((MIN_ASSET_DECIMALS..=MAX_ASSET_DECIMALS).contains(&asset_decimals));
     cvlr_assume!(e.ledger().timestamp() <= u64::MAX / 1_000);
     let held = Ray::from(position_before)
         .mul(&e, Ray::from(supply_index))
@@ -621,7 +639,7 @@ fn additivity_withdraw_partial_then_close_never_exceeds_full_close(
     cvlr_assume!(first > 0 && first <= MAX_FLOW_AMOUNT);
     cvlr_assume!(position_before > 0 && position_before <= 20 * RAY);
     cvlr_assume!(supply_index >= SUPPLY_INDEX_FLOOR_RAW && supply_index <= MAX_SUPPLY_INDEX_RAY);
-    cvlr_assume!(asset_decimals <= RAY_DECIMALS);
+    cvlr_assume!((MIN_ASSET_DECIMALS..=MAX_ASSET_DECIMALS).contains(&asset_decimals));
     cvlr_assume!(e.ledger().timestamp() <= u64::MAX / 1_000);
 
     let market = params_with_decimals(asset.clone(), 0, false, asset_decimals);
@@ -693,7 +711,7 @@ fn additivity_repay_split_never_burns_more_debt(
     cvlr_assume!(second > 0 && second <= MAX_FLOW_AMOUNT);
     cvlr_assume!(debt_before > 0 && debt_before <= 20 * RAY);
     cvlr_assume!(borrow_index >= RAY && borrow_index <= MAX_BORROW_INDEX_RAY);
-    cvlr_assume!(asset_decimals <= RAY_DECIMALS);
+    cvlr_assume!((MIN_ASSET_DECIMALS..=MAX_ASSET_DECIMALS).contains(&asset_decimals));
     cvlr_assume!(e.ledger().timestamp() <= u64::MAX / 1_000);
 
     let market = params_with_decimals(asset.clone(), 0, false, asset_decimals);
@@ -772,7 +790,7 @@ fn additivity_net_settle_split_never_favours_caller(
     cvlr_assume!(debt_before > 0 && debt_before <= 20 * RAY);
     cvlr_assume!(supply_index >= SUPPLY_INDEX_FLOOR_RAW && supply_index <= MAX_SUPPLY_INDEX_RAY);
     cvlr_assume!(borrow_index >= RAY && borrow_index <= MAX_BORROW_INDEX_RAY);
-    cvlr_assume!(asset_decimals <= RAY_DECIMALS);
+    cvlr_assume!((MIN_ASSET_DECIMALS..=MAX_ASSET_DECIMALS).contains(&asset_decimals));
     cvlr_assume!(e.ledger().timestamp() <= u64::MAX / 1_000);
 
     let market = params_with_decimals(asset.clone(), 0, false, asset_decimals);
@@ -827,11 +845,56 @@ fn additivity_net_settle_split_never_favours_caller(
     // Splitting is never a strict improvement on both axes at once: the caller
     // can never give up less collateral *and* retire more debt.
     //
-    // LOWEST-CONFIDENCE ASSERTION IN THIS FILE. It is not a single rounding step
-    // and it spans every branch mix of `resolve_net_settle` (amount-bound,
-    // supply-bound, debt-bound, and either side fully closing). It survived
-    // ~590k randomized samples of an exact integer model but has no hand proof,
-    // so expect this one to be the first to fail if any does.
+    // It is not a single rounding step: it spans every branch mix of
+    // `resolve_net_settle` (amount-bound, supply-bound, debt-bound, and either
+    // side fully closing). Derivation, which also says why no branch mix escapes
+    // it.
+    //
+    // Notation. Both legs and the single call run at the same ledger time, so
+    // all three see the same `Is = supply_index` and `Ib = borrow_index`. Write
+    // `K = 10^(27 - decimals)`, `u = Is / (RAY * K)` and `w = Ib / (RAY * K)`.
+    // `floor(floor(z)/K) = floor(z/K)` and `ceil(ceil(z)/K) = ceil(z/K)` for an
+    // integer `K >= 1`, so the two nested roundings in each conversion collapse:
+    //
+    //   SF(p) = unscale_supply_floor(p)       = floor(p * u)
+    //   SC(a) = calculate_scaled_supply_ceil(a)  = ceil(a / u)
+    //   DC(q) = unscale_borrow_ceil(q)        = ceil(q * w)
+    //   BF(a) = calculate_scaled_borrow_floor(a) = floor(a / w)
+    //
+    // All four are non-decreasing, and:
+    //   (L1) SC(x) + SC(y) >= SC(x+y), DC(x) + DC(y) >= DC(x+y)   [ceil]
+    //   (L2) BF(x) + BF(y) <= BF(x+y)                             [floor]
+    //   (L3) DC(BF(a)) = ceil(floor(a/w) * w) <= ceil(a) = a
+    //   (L4) a burn is capped at the position, so SBs <= p0 and DBs <= q0.
+    //
+    // Let `A = first + second`, `s = min(A, SF(p0), DC(q0))`, and `s1`, `s2` the
+    // two legs' settlements from `(p0, q0)` and `(p1, q1) = (p0 - SB1, q0 - DB1)`.
+    //
+    // Case `s <= 0`: the single call burns nothing, so `SBs < SB` is impossible.
+    //
+    // Case `s == DC(q0)` (debt-bound single, including the tie with SF): the
+    // single call takes the full-close branch and burns `DB = q0`, the maximum,
+    // so `DBs > DB` is impossible by (L4).
+    //
+    // Case `s == SF(p0)` (supply-bound single, `SB = p0`, the maximum). If leg
+    // one is itself supply-bound then `p1 = 0` and leg two is a no-op, so
+    // `SBs = p0`. Otherwise `s1 = first`, and leg two either exhausts supply
+    // (`SBs = p0`) or settles `s2` with `s1 + s2 >= DC(BF(first)) + DC(q1) >=
+    // DC(q0) > SF(p0)` when it is debt-bound (by L1 and L3), so the split
+    // settles strictly more than `SF(p0)`; then `SC(s1) + SC(s2) >= SC(s1+s2)
+    // >= SC(SF(p0) + 1) > p0`, and with (L4) `SBs = p0`. The one remaining
+    // shape is `s2 = second` with `A == SF(p0)`, where the split may burn less
+    // supply -- and there `DBs <= BF(first) + BF(second) <= BF(A) = DB` by (L2).
+    //
+    // Case `s == A < min(SF(p0), DC(q0))` (amount-bound single): both legs are
+    // amount-bound too, because a debt-bound leg two would give
+    // `first + DC(q1) >= DC(q0) > A`, i.e. `DC(q1) > second`, contradicting
+    // `s2 <= second`. So `DBs <= BF(first) + BF(second) <= BF(A) = DB` by (L2),
+    // unless leg two exhausts supply, in which case `SBs = p0 >= SB`.
+    //
+    // Cross-checked against an exact integer model of `resolve_net_settle` over
+    // ~930k samples (random plus the amount-at-the-cap boundary plus a small
+    // exhaustive corner at `Is = Ib = RAY`, `K = 1`): no violation.
     cvlr_assert!(!(split_supply_burn < single_supply_burn && split_debt_burn > single_debt_burn));
     if leg_one.settled_amount == first
         && leg_two.settled_amount == second

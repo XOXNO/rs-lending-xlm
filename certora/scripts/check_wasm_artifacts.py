@@ -7,7 +7,12 @@ import sys
 from pathlib import Path
 
 from focused_wasm import PACKAGES, target_by_artifact, target_for_conf
-from write_wasm_manifest import CERTORA_INPUTS, input_fingerprint, sha256
+from write_wasm_manifest import (
+    CERTORA_INPUTS,
+    has_name_section,
+    input_fingerprint,
+    sha256,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 CERTORA_ROOT = ROOT / "certora"
@@ -60,6 +65,16 @@ def main() -> int:
             provenance_errors.append(f"{wasm.name}: focused feature provenance drift")
         if build.get("stellar_optimize") is not False:
             provenance_errors.append(f"{wasm.name}: optimizer provenance must be false")
+        if build.get("strip") != "none":
+            provenance_errors.append(
+                f"{wasm.name}: strip provenance must be \"none\"; the prover matches"
+                " its exact arithmetic summaries by function name"
+            )
+        if not has_name_section(wasm):
+            provenance_errors.append(
+                f"{wasm.name}: no WASM `name` custom section, so __muloti4,"
+                " __multi3 and __divti3 are analysed as inlined limb code"
+            )
 
     if provenance_errors:
         print("Certora WASM provenance drift:", file=sys.stderr)

@@ -1,14 +1,44 @@
 use cvlr::macros::rule;
+use cvlr::nondet::nondet;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env};
 
+use crate::spec::fixture;
 use crate::types::AccountPositionType;
+
+/// Bounds `account_id`'s books to at most the one position the direction rules
+/// read, keeping both production branches reachable: `held == false` is the
+/// new-slot path, `held == true` the top-up path. Excludes books that hold a
+/// second asset; the frame rules in `account_isolation_rules.rs` keep the
+/// unbounded form.
+fn seed_single_asset_book(
+    e: &Env,
+    account_id: u64,
+    asset: &Address,
+    position: AccountPositionType,
+) {
+    fixture::seed_empty_books(e, account_id);
+    let held: bool = nondet();
+    if held {
+        let scaled: i128 = nondet();
+        cvlr_assume!(scaled > 0 && scaled <= 20 * common::constants::RAY);
+        match position {
+            AccountPositionType::Deposit => {
+                fixture::seed_supply_position(e, account_id, asset, scaled)
+            }
+            AccountPositionType::Borrow => {
+                fixture::seed_debt_position(e, account_id, asset, scaled)
+            }
+        }
+    }
+}
 
 #[rule]
 fn supply_does_not_decrease_position(e: Env, caller: Address, asset: Address, amount: i128) {
     let account_id: u64 = 1;
     cvlr_assume!(amount > 0 && amount <= crate::constants::WAD * 1000);
     crate::spec::fixture::seed_live_account(&e, account_id, &caller, &asset);
+    seed_single_asset_book(&e, account_id, &asset, AccountPositionType::Deposit);
 
     let pos_before = crate::storage::positions::get_scaled_amount(
         &e,
@@ -34,6 +64,7 @@ fn borrow_does_not_decrease_debt(e: Env, caller: Address, asset: Address, amount
     let account_id: u64 = 1;
     cvlr_assume!(amount > 0 && amount <= crate::constants::WAD * 1000);
     crate::spec::fixture::seed_live_account(&e, account_id, &caller, &asset);
+    seed_single_asset_book(&e, account_id, &asset, AccountPositionType::Borrow);
 
     let pos_before = crate::storage::positions::get_scaled_amount(
         &e,
@@ -66,6 +97,7 @@ fn withdraw_does_not_increase_position(
     cvlr_assume!(amount > 0 && amount <= crate::constants::WAD * 1000);
     cvlr_assume!(pos_before > 0 && pos_before <= 20 * common::constants::RAY);
     crate::spec::fixture::seed_live_account(&e, account_id, &caller, &asset);
+    fixture::seed_empty_books(&e, account_id);
     crate::spec::fixture::seed_supply_position(&e, account_id, &asset, pos_before);
 
     crate::spec::compat::withdraw_single(e.clone(), caller, account_id, asset.clone(), amount);
@@ -92,6 +124,7 @@ fn repay_does_not_increase_debt(
     cvlr_assume!(amount > 0 && amount <= crate::constants::WAD * 1000);
     cvlr_assume!(pos_before > 0 && pos_before <= 20 * common::constants::RAY);
     crate::spec::fixture::seed_live_account(&e, account_id, &caller, &asset);
+    fixture::seed_empty_books(&e, account_id);
     crate::spec::fixture::seed_debt_position(&e, account_id, &asset, pos_before);
 
     crate::spec::compat::repay_single(e.clone(), caller, account_id, asset.clone(), amount);
@@ -129,6 +162,7 @@ fn withdraw_after_borrow_preserves_debt_record(
     cvlr_assume!(borrow_amount > 0 && borrow_amount <= crate::constants::WAD * 1000);
     cvlr_assume!(withdraw_amount > 0 && withdraw_amount <= crate::constants::WAD * 1000);
     crate::spec::fixture::seed_live_account(&e, account_id, &caller, &asset);
+    fixture::seed_empty_books(&e, account_id);
     crate::spec::fixture::seed_supply_position(&e, account_id, &asset, pos_before);
 
     crate::spec::compat::borrow_single(

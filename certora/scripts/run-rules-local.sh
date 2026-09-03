@@ -46,12 +46,12 @@ fi
 
 work_dir=$(mktemp -d "${TMPDIR:-/tmp}/certora-local.XXXXXX")
 local_conf="$work_dir/local.conf"
-python3 - "$conf" "$local_conf" "${CERTORA_LOCAL_SPLIT_PARALLEL:-false}" "$local_multi_assert" <<'PY'
+python3 - "$conf" "$local_conf" "${CERTORA_LOCAL_SPLIT_PARALLEL:-false}" "$local_multi_assert" "${CERTORA_RULE_TIMEOUT:-}" <<'PY'
 import json
 import sys
 from pathlib import Path
 
-source, target, keep_split, keep_multi_assert = sys.argv[1:]
+source, target, keep_split, keep_multi_assert, rule_timeout = sys.argv[1:]
 source_path = Path(source).resolve()
 with open(source) as handle:
     data = json.load(handle)
@@ -71,6 +71,14 @@ if keep_split != "true":
     ]
 if keep_multi_assert != "true":
     data["multi_assert_check"] = False
+# A per-rule wrapper cap below the conf's per-query budget means the JVM is
+# killed mid-query and no verdict survives. Keep the solver's own budget
+# inside the cap so the prover reports its own timeout instead.
+if rule_timeout:
+    cap = int(rule_timeout)
+    budget = max(cap - 60, 60)
+    if int(data.get("smt_timeout", 300)) > budget:
+        data["smt_timeout"] = str(budget)
 with open(target, "w") as handle:
     json.dump(data, handle, indent=2)
     handle.write("\n")
@@ -191,7 +199,14 @@ run_one() {
   status=$?
   set -e
 
-  if ! grep -m 8 -E 'Verified|Violated|Timeout|ERROR|Error' "$log" \
+  # GNU timeout exits 124 when it had to kill the JVM: the prover never
+  # returned. Stamp the log so the CI classifier can tell a killed run from
+  # a prover-reported timeout.
+  if [ "$status" -eq 124 ]; then
+    echo "KILLED: exceeded CERTORA_RULE_TIMEOUT=${CERTORA_RULE_TIMEOUT:-?}s before the prover returned" >> "$log"
+  fi
+
+  if ! grep -m 8 -E 'Verified|Violated|Timeout|KILLED|ERROR|Error' "$log" \
       | sed "s|^|[$r] |"; then
     tail -8 "$log" | sed "s|^|[$r] |"
   fi

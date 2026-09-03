@@ -99,6 +99,45 @@
       },
       {
         "conf": "certora/controller/confs/spoke-usage-liq-sanity.conf"
+      },
+      {
+        "conf": "certora/controller/confs/math-reverts-sanity.conf"
+      },
+      {
+        "conf": "certora/pool/confs/fee-strategy-accounting-reverts-sanity.conf"
+      },
+      {
+        "conf": "certora/pool/confs/pool-lifecycle-reverts-sanity.conf"
+      },
+      {
+        "conf": "certora/price-aggregator/confs/freshness-reverts-sanity.conf"
+      },
+      {
+        "conf": "certora/price-aggregator/confs/tolerance-math-reverts-sanity.conf"
+      },
+      {
+        "conf": "certora/controller/confs/flash_loan-reverts-sanity.conf"
+      },
+      {
+        "conf": "certora/controller/confs/market-guard-reverts-sanity.conf"
+      },
+      {
+        "conf": "certora/controller/confs/solvency-borrow-reverts-sanity.conf"
+      },
+      {
+        "conf": "certora/controller/confs/solvency-reserves-reverts-sanity.conf"
+      },
+      {
+        "conf": "certora/controller/confs/spoke-reverts-sanity.conf"
+      },
+      {
+        "conf": "certora/controller/confs/spoke-usage-reverts-sanity.conf"
+      },
+      {
+        "conf": "certora/controller/confs/strategy-flash-position-reverts-sanity.conf"
+      },
+      {
+        "conf": "certora/price-aggregator/confs/config-rejections-reverts-sanity.conf"
       }
     ],
     "fast": [
@@ -167,6 +206,15 @@
       },
       {
         "conf": "certora/price-aggregator/confs/scaled-math.conf"
+      },
+      {
+        "conf": "certora/controller/confs/math-reverts.conf"
+      },
+      {
+        "conf": "certora/price-aggregator/confs/freshness-reverts.conf"
+      },
+      {
+        "conf": "certora/price-aggregator/confs/tolerance-math-reverts.conf"
       }
     ],
     "core": [
@@ -174,7 +222,7 @@
         "conf": "certora/controller/confs/account-isolation.conf"
       },
       {
-        "conf": "certora/controller/confs/controller-pool-consistency-light.conf"
+        "conf": "certora/controller/confs/controller-pool-consistency.conf"
       },
       {
         "conf": "certora/controller/confs/flash_loan.conf"
@@ -198,13 +246,13 @@
         "conf": "certora/controller/confs/liquidation.conf"
       },
       {
-        "conf": "certora/controller/confs/market-guard.conf"
+        "conf": "certora/controller/confs/market-guard-reverts.conf"
       },
       {
         "conf": "certora/controller/confs/positions.conf"
       },
       {
-        "conf": "certora/controller/confs/repay-gates.conf"
+        "conf": "certora/controller/confs/repay-gates-reverts.conf"
       },
       {
         "conf": "certora/controller/confs/solvency-borrow.conf"
@@ -213,7 +261,7 @@
         "conf": "certora/controller/confs/solvency-index.conf"
       },
       {
-        "conf": "certora/controller/confs/solvency-reserves.conf"
+        "conf": "certora/controller/confs/solvency-reserves-reverts.conf"
       },
       {
         "conf": "certora/controller/confs/solvency-roundtrip.conf"
@@ -237,7 +285,7 @@
         "conf": "certora/controller/confs/strategy-swap-debt.conf"
       },
       {
-        "conf": "certora/controller/confs/strategy.conf"
+        "conf": "certora/controller/confs/strategy-reverts.conf"
       },
       {
         "conf": "certora/controller/confs/strategy-flash-position.conf"
@@ -255,7 +303,7 @@
         "conf": "certora/pool/confs/flash-loan-accounting.conf"
       },
       {
-        "conf": "certora/price-aggregator/confs/config-rejections.conf"
+        "conf": "certora/price-aggregator/confs/config-rejections-reverts.conf"
       },
       {
         "conf": "certora/price-aggregator/confs/fail-closed-miss.conf"
@@ -288,13 +336,40 @@
         "conf": "certora/pool/confs/pool-isomorphism.conf"
       },
       {
-        "conf": "certora/pool/confs/pool-lifecycle-revert.conf"
+        "conf": "certora/pool/confs/pool-lifecycle-reverts.conf"
       },
       {
         "conf": "certora/controller/confs/liquidation-additivity.conf"
       },
       {
         "conf": "certora/controller/confs/spoke-usage-liquidation.conf"
+      },
+      {
+        "conf": "certora/controller/confs/flash_loan-reverts.conf"
+      },
+      {
+        "conf": "certora/controller/confs/solvency-borrow-reverts.conf"
+      },
+      {
+        "conf": "certora/controller/confs/spoke-reverts.conf"
+      },
+      {
+        "conf": "certora/controller/confs/spoke-usage-reverts.conf"
+      },
+      {
+        "conf": "certora/controller/confs/strategy-flash-position-reverts.conf"
+      },
+      {
+        "conf": "certora/controller/confs/strategy-swap-collateral-reverts.conf"
+      },
+      {
+        "conf": "certora/controller/confs/strategy-swap-debt-reverts.conf"
+      },
+      {
+        "conf": "certora/pool/confs/fee-strategy-accounting-reverts.conf"
+      },
+      {
+        "conf": "certora/price-aggregator/confs/fail-closed-miss-reverts.conf"
       }
     ],
     "heavy": [
@@ -305,19 +380,7 @@
         "conf": "certora/common/confs/rate-accounting-hard.conf"
       },
       {
-        "conf": "certora/controller/confs/controller-pool-consistency.conf"
-      },
-      {
-        "conf": "certora/controller/confs/global-solvency-heavy.conf"
-      },
-      {
-        "conf": "certora/controller/confs/liquidation-integrity-heavy.conf"
-      },
-      {
         "conf": "certora/controller/confs/math-bv.conf"
-      },
-      {
-        "conf": "certora/controller/confs/no-collateral-no-debt.conf"
       },
       {
         "conf": "certora/controller/confs/strategy-repay-collateral.conf"
@@ -329,6 +392,12 @@
       },
       {
         "conf": "certora/controller/confs/strategy-flash-position.conf"
+      },
+      {
+        "conf": "certora/controller/confs/strategy-flash-position-reverts.conf"
+      },
+      {
+        "conf": "certora/controller/confs/strategy-flash-position-reverts-sanity.conf"
       }
     ],
     "manual": [

@@ -208,7 +208,7 @@ every market and not settable by governance.
 
 **Status:** ENFORCED — `common/src/rates/index.rs` caps at
 `MAX_BORROW_INDEX_RAY` (`common/src/constants/pool.rs`). VERIFIED — rules
-`update_borrow_index_monotonic`, `update_borrow_index_capped`,
+`update_borrow_index_monotonic_when_factor_gte_one`, `update_borrow_index_capped`,
 `borrow_index_cap_is_sticky`, `borrow_index_strictly_grows_below_cap`.
 
 ### INV-IDX-02 — Supply index is bounded
@@ -219,7 +219,8 @@ is likewise identical for every market and not settable by governance.
 
 **Status:** ENFORCED — `contracts/pool/src/interest.rs` floors at
 `SUPPLY_INDEX_FLOOR_RAW`; `common/src/rates/index.rs` applies the cap. VERIFIED
-— rules `update_supply_index_capped`, `update_supply_index_monotonic`,
+— rules `update_supply_index_capped`,
+`update_supply_index_monotonic_when_rewards_positive`,
 `supply_index_cap_is_sticky`.
 
 ### INV-IDX-03 — Bad debt may lower the supply index

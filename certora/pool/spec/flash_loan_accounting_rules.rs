@@ -54,6 +54,13 @@ fn flash_fee_booking_is_exact(
     fee: i128,
     supply_index: i128,
 ) {
+    // `fixture::state` stamps `last_timestamp = e.ledger().timestamp() * 1_000`
+    // and `Cache::load` recomputes the same product through `time::now_ms`.
+    // Both are checked multiplications, so a ledger clock past `u64::MAX /
+    // 1_000` panics and Sunbeam prunes the path as `assume(false)`. Stating the
+    // bound makes that pruning visible instead of hidden, and drops the
+    // overflow branch from every rule below.
+    cvlr_assume!(e.ledger().timestamp() <= u64::MAX / 1_000);
     cvlr_assume!(fee >= 0 && fee <= MAX_FLOW_AMOUNT);
     cvlr_assume!(supply_index >= SUPPLY_INDEX_FLOOR_RAW && supply_index <= MAX_SUPPLY_INDEX_RAY);
     seed(
@@ -112,6 +119,7 @@ fn flash_apply_accounting_books_fee_without_principal_cash(
     pre_balance: i128,
     supply_index: i128,
 ) {
+    cvlr_assume!(e.ledger().timestamp() <= u64::MAX / 1_000);
     cvlr_assume!(amount > 0 && amount <= MAX_FLOW_AMOUNT);
     cvlr_assume!(i128::from(fee_bps) <= MAX_FLASHLOAN_FEE_BPS);
     cvlr_assume!(pre_balance >= amount && pre_balance <= 1_000 * ONE_TOKEN);
@@ -192,6 +200,7 @@ fn flash_apply_accounting_zero_fee_is_cash_noop(
     amount: i128,
     pre_balance: i128,
 ) {
+    cvlr_assume!(e.ledger().timestamp() <= u64::MAX / 1_000);
     cvlr_assume!(amount > 0 && amount <= MAX_FLOW_AMOUNT);
     cvlr_assume!(pre_balance >= amount && pre_balance <= 1_000 * ONE_TOKEN);
     let cash = 200 * ONE_TOKEN;

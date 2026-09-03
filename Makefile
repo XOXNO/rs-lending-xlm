@@ -212,6 +212,12 @@ deploy-artifacts: optimize
 
 
 
+# Prover artifacts keep their function names: the Certora WASM front-end
+# matches its exact compiler-rt summaries (__muloti4, __multi3, __divti3, ...)
+# and its soroban-sdk summaries by demangled function name, and the release
+# profile's strip = "symbols" removes the WASM name section that carries them.
+# Without names the prover inlines the limb arithmetic of every i128 multiply
+# and divide instead (docs/explanation/certora-sunbeam-prover-tuning.md, §9).
 certora-wasm:
 	@set -euo pipefail; \
 	mkdir -p $(CERTORA_WASM_DIR) $(CERTORA_BUILD_DIR); \
@@ -225,6 +231,7 @@ certora-wasm:
 		/bin/rm -f "$$src"; \
 		CARGO_BUILD_JOBS="$(CERTORA_BUILD_JOBS)" \
 		CARGO_TARGET_DIR="$(CERTORA_BUILD_DIR)/focused" \
+		CARGO_PROFILE_RELEASE_STRIP=none \
 			stellar contract build --package $$pkg \
 				--features "certora,certora-focused,$$feature" --optimize=false; \
 		test -s "$$src"; \

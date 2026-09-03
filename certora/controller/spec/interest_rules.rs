@@ -8,7 +8,6 @@ use common::math::fp::Ray;
 use common::math::fp_core::{div_by_int_half_up, mul_div_half_up};
 use common::rates::{
     calculate_borrow_rate, calculate_deposit_rate, calculate_supplier_rewards, compound_interest,
-    update_borrow_index, update_supply_index,
 };
 
 fn nondet_valid_params(e: &Env) -> MarketParams {
@@ -138,24 +137,6 @@ fn borrow_rate_non_decreasing_at_optimal_boundary(e: Env) {
 }
 
 #[rule]
-fn deposit_rate_zero_when_no_utilization(e: Env) {
-    let borrow_rate: i128 = cvlr::nondet::nondet();
-    let reserve_factor: u32 = cvlr::nondet::nondet();
-
-    cvlr_assume!(borrow_rate >= 0);
-    cvlr_assume!((0..BPS).contains(&i128::from(reserve_factor)));
-
-    let rate = calculate_deposit_rate(
-        &e,
-        Ray::ZERO,
-        Ray::from(borrow_rate),
-        common::math::fp::Bps::from(i128::from(reserve_factor)),
-    );
-
-    cvlr_assert!(rate == Ray::ZERO);
-}
-
-#[rule]
 fn deposit_rate_less_than_borrow(e: Env) {
     let utilization: i128 = cvlr::nondet::nondet();
     let borrow_rate: i128 = cvlr::nondet::nondet();
@@ -174,16 +155,6 @@ fn deposit_rate_less_than_borrow(e: Env) {
     let upper_bound = mul_div_half_up(&e, utilization, borrow_rate, RAY);
 
     cvlr_assert!(deposit_rate.raw() <= upper_bound + 1);
-}
-
-#[rule]
-fn compound_interest_identity(e: Env) {
-    let rate: i128 = cvlr::nondet::nondet();
-    cvlr_assume!((0..=RAY).contains(&rate));
-
-    let factor = compound_interest(&e, Ray::from(rate), 0);
-
-    cvlr_assert!(factor == Ray::ONE);
 }
 
 #[rule]
@@ -280,42 +251,4 @@ fn supplier_rewards_conservation(e: Env) {
         expected_fee - protocol_fee.raw()
     };
     cvlr_assert!(fee_diff <= 1);
-}
-
-#[rule]
-fn update_borrow_index_monotonic(e: Env) {
-    let old_index: i128 = cvlr::nondet::nondet();
-    let interest_factor: i128 = cvlr::nondet::nondet();
-
-    cvlr_assume!(old_index >= RAY);
-    cvlr_assume!(interest_factor >= RAY);
-    cvlr_assume!(old_index <= RAY * 8);
-    cvlr_assume!(interest_factor <= RAY * 8);
-
-    let new_index = update_borrow_index(&e, Ray::from(old_index), Ray::from(interest_factor));
-
-    cvlr_assert!(new_index.raw() >= old_index);
-}
-
-#[rule]
-fn update_supply_index_monotonic(e: Env) {
-    let supplied: i128 = cvlr::nondet::nondet();
-    let old_index: i128 = cvlr::nondet::nondet();
-    let rewards_increase: i128 = cvlr::nondet::nondet();
-
-    cvlr_assume!(supplied >= 0);
-    cvlr_assume!(old_index >= RAY);
-    cvlr_assume!(rewards_increase >= 0);
-    cvlr_assume!(supplied < WAD);
-    cvlr_assume!(old_index <= RAY * 8);
-    cvlr_assume!(rewards_increase < WAD);
-
-    let new_index = update_supply_index(
-        &e,
-        Ray::from(supplied),
-        Ray::from(old_index),
-        Ray::from(rewards_increase),
-    );
-
-    cvlr_assert!(new_index.raw() >= old_index);
 }

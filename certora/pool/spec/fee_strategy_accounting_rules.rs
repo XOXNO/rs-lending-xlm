@@ -1,5 +1,5 @@
 use cvlr::macros::rule;
-use cvlr::{cvlr_assert, cvlr_assume};
+use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env};
 
 use common::constants::{
@@ -34,6 +34,13 @@ fn recapitalize_caps_cash_to_shortfall_and_refunds_excess(
     borrow_index: i128,
     cash: i128,
 ) {
+    // `fixture::state` stamps `last_timestamp = e.ledger().timestamp() * 1_000`
+    // and `Cache::load` recomputes the same product through `time::now_ms`.
+    // Both are checked multiplications, so a ledger clock past `u64::MAX /
+    // 1_000` panics and Sunbeam prunes the path as `assume(false)`. Stating the
+    // bound makes that pruning visible instead of hidden, and drops the
+    // overflow branch from every rule below.
+    cvlr_assume!(e.ledger().timestamp() <= u64::MAX / 1_000);
     cvlr_assume!(offered >= 0 && offered <= MAX_FLOW_AMOUNT);
     cvlr_assume!(supplied >= 0 && supplied <= 100 * RAY);
     cvlr_assume!(borrowed >= 0 && borrowed <= supplied);
@@ -206,6 +213,7 @@ fn liquidation_withdraw_books_protocol_fee(
     position_before: i128,
     supply_index: i128,
 ) {
+    cvlr_assume!(e.ledger().timestamp() <= u64::MAX / 1_000);
     cvlr_assume!(gross_amount > 0 && gross_amount <= MAX_FLOW_AMOUNT);
     cvlr_assume!(protocol_fee >= 0 && protocol_fee <= gross_amount);
     cvlr_assume!(position_before > 0 && position_before <= 20 * RAY);
@@ -275,6 +283,7 @@ fn create_strategy_accounts_debt_cash_and_fee(
     flashloan_fee: u32,
     charge_fee: bool,
 ) {
+    cvlr_assume!(e.ledger().timestamp() <= u64::MAX / 1_000);
     cvlr_assume!(amount > 0 && amount <= MAX_FLOW_AMOUNT);
     cvlr_assume!(debt_before >= 0 && debt_before <= 10 * RAY);
     cvlr_assume!(borrow_index >= RAY && borrow_index <= MAX_BORROW_INDEX_RAY);
@@ -349,6 +358,7 @@ fn claim_revenue_burns_equal_shares_and_cash(
     cash_before: i128,
     supply_index: i128,
 ) {
+    cvlr_assume!(e.ledger().timestamp() <= u64::MAX / 1_000);
     cvlr_assume!(revenue_before >= 0 && revenue_before <= 20 * RAY);
     cvlr_assume!(cash_before >= 0 && cash_before <= 200 * ONE_TOKEN);
     cvlr_assume!(supply_index >= SUPPLY_INDEX_FLOOR_RAW && supply_index <= MAX_SUPPLY_INDEX_RAY);
@@ -398,6 +408,7 @@ fn claim_revenue_burns_equal_shares_and_cash(
 
 #[rule]
 fn positive_revenue_claim_with_zero_share_burn_reverts(e: Env, admin: Address, asset: Address) {
+    cvlr_assume!(e.ledger().timestamp() <= u64::MAX / 1_000);
     let extreme_revenue = 3 * 10i128.pow(36);
     seed(
         &e,
@@ -418,4 +429,51 @@ fn positive_revenue_claim_with_zero_share_burn_reverts(e: Env, admin: Address, a
     crate::ops::revenue::accounting(&e, hub(asset));
 
     cvlr_assert!(false);
+}
+
+/// Satisfy twin of [`positive_revenue_claim_with_zero_share_burn_reverts`]: the
+/// same 18-decimal market holding the same extreme revenue, with the gate
+/// flipped by funding the cash book to the full treasury claim.
+///
+/// The revert fixture leaves `cash == 1`, which drives
+/// `burn_claimable_revenue` into its proportional branch
+/// (`revenue.mul_ratio_ceil(amount, treasury_actual)`). Here `cash` equals
+/// `treasury_actual = unscale_supply_floor(revenue, RAY, 18)`, so the full-claim
+/// branch runs instead and burns the whole revenue book. A witness proves the
+/// extreme fixture is reachable and that `revenue::accounting` returns on it,
+/// so the revert rule is not passing because the market itself is unloadable.
+#[rule]
+fn positive_revenue_claim_with_zero_share_burn_reverts_fixture_completes(
+    e: Env,
+    admin: Address,
+    asset: Address,
+) {
+    cvlr_assume!(e.ledger().timestamp() <= u64::MAX / 1_000);
+    let extreme_revenue = 3 * 10i128.pow(36);
+    // `unscale_supply_floor(revenue, RAY, 18)` is `revenue * RAY / RAY` rescaled
+    // from 27 to 18 decimals, i.e. `revenue / 1e9`.
+    let treasury_actual = extreme_revenue / 10i128.pow(9);
+    seed(
+        &e,
+        admin,
+        asset.clone(),
+        params_with_decimals(asset.clone(), 0, false, 18),
+        state(
+            extreme_revenue,
+            0,
+            extreme_revenue,
+            RAY,
+            RAY,
+            treasury_actual,
+            e.ledger().timestamp(),
+        ),
+    );
+
+    let pre = read_state(&e, &asset);
+    let claimed = crate::ops::revenue::accounting(&e, hub(asset.clone()))
+        .mutation
+        .actual_amount;
+    let post = read_state(&e, &asset);
+
+    cvlr_satisfy!(claimed > 0 && pre.revenue - post.revenue > 0 && post.revenue == 0);
 }

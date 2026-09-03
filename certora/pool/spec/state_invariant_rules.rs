@@ -3,8 +3,8 @@ use cvlr::{cvlr_assert, cvlr_assume};
 use soroban_sdk::{vec, Address, Env};
 
 use common::constants::{
-    MAX_BORROW_INDEX_RAY, MAX_SUPPLY_INDEX_RAY, MILLISECONDS_PER_YEAR, RAY, RAY_DECIMALS,
-    SUPPLY_INDEX_FLOOR_RAW,
+    MAX_ASSET_DECIMALS, MAX_BORROW_INDEX_RAY, MAX_SUPPLY_INDEX_RAY, MILLISECONDS_PER_YEAR,
+    MIN_ASSET_DECIMALS, RAY, SUPPLY_INDEX_FLOOR_RAW,
 };
 use common::types::{
     AccountPositionType, PoolBorrowEntry, PoolNetSettleEntry, PoolSeizeEntry, PoolStateRaw,
@@ -12,8 +12,8 @@ use common::types::{
 };
 
 use super::fixture::{
-    action, hub, params, params_with_decimals, position, read_state, seed, state, MAX_FLOW_AMOUNT,
-    ONE_TOKEN,
+    action, hub, nondet_params, params_with_decimals, position, read_state, seed, state,
+    MAX_FLOW_AMOUNT, ONE_TOKEN,
 };
 
 const MAX_SHARES: i128 = 100 * RAY;
@@ -69,11 +69,16 @@ fn seed_invariant_market(
         cash,
     );
     cvlr_assume!(e.ledger().timestamp() <= u64::MAX / 1_000);
+    // `params` pins `asset_decimals = 7` and `reserve_factor = 1_000`; these
+    // rules are about the persisted-state invariant, which must hold for every
+    // market configuration production admits, so both fields are drawn over
+    // their validated ranges instead. The rate curve stays fixed (see
+    // `certora/pool/spec/README.md`, "Fixture domain").
     seed(
         e,
         admin,
         asset.clone(),
-        params(asset, 0, false),
+        nondet_params(asset),
         state(
             supplied,
             borrowed,
@@ -88,7 +93,11 @@ fn seed_invariant_market(
 
 #[rule]
 fn invariant_holds_after_market_create(e: Env, asset: Address, asset_decimals: u32) {
-    cvlr_assume!(asset_decimals <= RAY_DECIMALS);
+    // Production range, not `RAY_DECIMALS`: `MarketParamsRaw::verify` rejects
+    // anything above `WAD_DECIMALS` and governance's `validate_market_creation`
+    // rejects anything below `MIN_ASSET_DECIMALS`, so a counterexample at
+    // 19..=27 could only ever be an artefact of the fixture.
+    cvlr_assume!((MIN_ASSET_DECIMALS..=MAX_ASSET_DECIMALS).contains(&asset_decimals));
     cvlr_assume!(e.ledger().timestamp() <= u64::MAX / 1_000);
 
     crate::ops::market::create(
@@ -539,7 +548,7 @@ fn invariant_preserved_by_one_chunk_accrual(
         &e,
         admin,
         asset.clone(),
-        params(asset.clone(), 0, false),
+        nondet_params(asset.clone()),
         initial_state,
     );
 

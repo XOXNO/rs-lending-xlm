@@ -30,6 +30,41 @@ def sha256(path: Path) -> str:
             digest.update(chunk)
     return digest.hexdigest()
 
+def _leb128(blob: bytes, offset: int) -> tuple[int, int]:
+    value = shift = 0
+    while True:
+        byte = blob[offset]
+        offset += 1
+        value |= (byte & 0x7F) << shift
+        if not byte & 0x80:
+            return value, offset
+        shift += 7
+
+def has_name_section(path: Path) -> bool:
+    """True when the module carries the custom section named "name".
+
+    The prover matches its exact compiler-rt summaries (`__muloti4`,
+    `__multi3`, `__divti3`) and its soroban-sdk summaries by function name. A
+    stripped module names every function `FunctionIndex_<n>`, none of those
+    summaries fire, and the prover analyses inlined 128-bit limb code under
+    bitwise axioms instead. So an artifact without this section silently
+    changes what every arithmetic rule proves.
+    """
+    blob = path.read_bytes()
+    if blob[:8] != b"\0asm\x01\0\0\0":
+        return False
+    offset = 8
+    while offset < len(blob):
+        section_id = blob[offset]
+        size, offset = _leb128(blob, offset + 1)
+        end = offset + size
+        if section_id == 0:
+            name_len, cursor = _leb128(blob, offset)
+            if blob[cursor : cursor + name_len] == b"name":
+                return True
+        offset = end
+    return False
+
 def tool_version(cmd: list[str]) -> str | None:
     try:
         return subprocess.check_output(cmd, text=True, stderr=subprocess.STDOUT).strip()
@@ -132,12 +167,19 @@ def section(
                     raise KeyError(f"missing input snapshot for {wasm.name}")
                 fingerprint = snapshot_entry["source_input_sha256"]
                 file_count = snapshot_entry["source_input_files"]
+            if not has_name_section(wasm):
+                raise RuntimeError(
+                    f"{wasm.name} has no WASM `name` custom section; the focused "
+                    "build must keep symbols (CARGO_PROFILE_RELEASE_STRIP=none). "
+                    "Run: make certora-wasm"
+                )
             entry["build"] = {
                 "source_revision": git_output(["rev-parse", "HEAD"]),
                 "worktree_dirty": bool(git_output(["status", "--porcelain", "--untracked-files=all"])),
                 "cargo_features": CERTORA_TARGETS[wasm.name].cargo_features,
                 "no_default_features": False,
                 "stellar_optimize": False,
+                "strip": "none",
                 "source_inputs": list(inputs),
                 "source_input_files": file_count,
                 "source_input_sha256": fingerprint,

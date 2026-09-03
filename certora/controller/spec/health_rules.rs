@@ -1,12 +1,46 @@
 use controller_interface::ControllerInterface;
 use cvlr::macros::rule;
+use cvlr::nondet::nondet;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env, Map, Vec};
 
 use crate::constants::WAD;
+use crate::spec::fixture;
 use crate::spec::health_ghost;
 use crate::types::{AccountPositionRaw, DebtPositionRaw, HubAssetKey};
 use common::math::fp::{Bps, Ray, Wad};
+
+/// A book of known size whose risk tuple matches the listing, for the two
+/// rules that compare a *valuation* across a supply.
+///
+/// `merge_supply_leg` restamps a supply position's threshold and loan-to-value
+/// from the spoke listing on every write. A havoced pre-book carries an
+/// arbitrary `u32` threshold, so valuing it before the call and after the
+/// restamp compares two different risk tuples and `post_weighted >=
+/// pre_weighted` is violable for a reason that has nothing to do with the
+/// property. Seeding through `fixture::seed_supply_position` writes exactly
+/// the tuple `seed_market` lists (8_000 / 7_500), so the restamp is a no-op.
+///
+/// Excludes: any second asset, and any pre-book risk tuple other than the
+/// listing's. Both branches of the supply verb stay reachable — `holds_supply
+/// == false` is the new slot, `true` the top-up — and the optional debt
+/// position is what makes the debt leg of the assertion non-trivial and the
+/// unhealthy precondition satisfiable.
+fn seed_valuation_book(e: &Env, account_id: u64, asset: &Address) {
+    fixture::seed_empty_books(e, account_id);
+    let holds_supply: bool = nondet();
+    if holds_supply {
+        let scaled: i128 = nondet();
+        cvlr_assume!(scaled > 0 && scaled <= 20 * common::constants::RAY);
+        fixture::seed_supply_position(e, account_id, asset, scaled);
+    }
+    let holds_debt: bool = nondet();
+    if holds_debt {
+        let scaled: i128 = nondet();
+        cvlr_assume!(scaled > 0 && scaled <= 20 * common::constants::RAY);
+        fixture::seed_debt_position(e, account_id, asset, scaled);
+    }
+}
 
 fn hub0(asset: &Address) -> HubAssetKey {
     HubAssetKey {
@@ -137,10 +171,7 @@ fn supply_preserves_frozen_valuation_health_components(
     let account_id: u64 = 1;
     cvlr_assume!(amount > 0 && amount <= WAD * 1000);
     crate::spec::fixture::seed_live_account(&e, account_id, &caller, &asset);
-
-    let pre_account = crate::storage::get_account(&e, account_id);
-    cvlr_assume!(pre_account.supply_positions.len() <= 1);
-    cvlr_assume!(pre_account.borrow_positions.len() <= 1);
+    seed_valuation_book(&e, account_id, &asset);
 
     let mut cache = crate::context::Cache::new(&e);
     let pre_weighted = inline_weighted_collateral_wad(&e, &mut cache, account_id);
@@ -346,10 +377,8 @@ fn nondet_swap_steps() -> crate::types::StrategySwap {
 /// Seeds a single-asset live account and bounds both position books to one
 /// entry, the shape every `post_gate_*` verb rule starts from.
 fn seed_bounded_account(e: &Env, account_id: u64, caller: &Address, asset: &Address) {
-    crate::spec::fixture::seed_live_account(e, account_id, caller, asset);
-    let pre_account = crate::storage::get_account(e, account_id);
-    cvlr_assume!(pre_account.supply_positions.len() <= 1);
-    cvlr_assume!(pre_account.borrow_positions.len() <= 1);
+    fixture::seed_live_account(e, account_id, caller, asset);
+    fixture::assume_books_at_most_one(e, account_id);
 }
 
 #[rule]
@@ -411,6 +440,10 @@ fn post_gate_multiply_totals_are_final(
     cvlr_assume!(collateral_token != debt_token);
     crate::spec::fixture::seed_market(&e, &collateral_token);
     crate::spec::fixture::seed_market(&e, &debt_token);
+    // `multiply` opens a fresh account, whose id comes from a havoced counter
+    // and whose books are then arbitrary. Pin the id and empty its books, so
+    // the fence compares the gate's snapshot against a book this call built.
+    fixture::seed_empty_books(&e, fixture::seed_next_account_id(&e, 0));
 
     health_ghost::reset();
     let account_id = crate::spec::compat::multiply_minimal(
@@ -447,6 +480,7 @@ fn post_gate_repay_with_collateral_totals_are_final(
     cvlr_assume!(debt_scaled_before > 0 && debt_scaled_before <= 20 * common::constants::RAY);
     crate::spec::fixture::seed_live_account(&e, account_id, &caller, &collateral_token);
     crate::spec::fixture::seed_market(&e, &debt_token);
+    fixture::seed_empty_books(&e, account_id);
     crate::spec::fixture::seed_supply_position(
         &e,
         account_id,
@@ -485,6 +519,7 @@ fn post_gate_swap_collateral_totals_are_final(
     cvlr_assume!(scaled_before > 0 && scaled_before <= 20 * common::constants::RAY);
     crate::spec::fixture::seed_live_account(&e, account_id, &caller, &current_collateral);
     crate::spec::fixture::seed_market(&e, &new_collateral);
+    fixture::seed_empty_books(&e, account_id);
     crate::spec::fixture::seed_supply_position(&e, account_id, &current_collateral, scaled_before);
 
     health_ghost::reset();
@@ -517,6 +552,7 @@ fn post_gate_swap_debt_totals_are_final(
     cvlr_assume!(scaled_before > 0 && scaled_before <= 20 * common::constants::RAY);
     crate::spec::fixture::seed_live_account(&e, account_id, &caller, &existing_debt_token);
     crate::spec::fixture::seed_market(&e, &new_debt_token);
+    fixture::seed_empty_books(&e, account_id);
     crate::spec::fixture::seed_debt_position(&e, account_id, &existing_debt_token, scaled_before);
 
     health_ghost::reset();
@@ -643,10 +679,7 @@ fn unhealthy_supply_improves_frozen_valuation_components(
     let account_id: u64 = 1;
     cvlr_assume!(amount > 0 && amount <= WAD * 1000);
     crate::spec::fixture::seed_live_account(&e, account_id, &caller, &asset);
-
-    let pre_account = crate::storage::get_account(&e, account_id);
-    cvlr_assume!(pre_account.supply_positions.len() <= 1);
-    cvlr_assume!(pre_account.borrow_positions.len() <= 1);
+    seed_valuation_book(&e, account_id, &asset);
 
     let mut cache = crate::context::Cache::new(&e);
     let pre_weighted = inline_weighted_collateral_wad(&e, &mut cache, account_id);

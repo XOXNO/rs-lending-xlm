@@ -100,6 +100,36 @@ FILE_ALLOW = {
     "tests/test-harness/tests/README.md": {
         "exceeding_ltv", "stale_twap_history", "creates_position",
     },
+    # Certora prover internals (Kotlin classes, config names, TAC operators),
+    # compiler-rt intrinsics and WASM opcodes cited from the open-source prover
+    # and the Rust sysroot while explaining how the WASM front-end models i128
+    # arithmetic. None of them is an item in this tree.
+    "docs/explanation/certora-sunbeam-prover-tuning.md": {
+        "__udivti3", "__modti3", "__umodti3", "__ashlti3", "__ashrti3",
+        "__lshrti3", "DIVTI3", "MODTI3", "UDIVTI3", "ASHLTI3",
+        "fail_with_error", "i256_add", "i256_div", "i256_mul",
+        "obj_from_i256_pieces", "overflowing_add", "wrapping_neg",
+        "impl_signed_mulo", "widen_mul", "u128_div_rem", "IntModuleImpl",
+        "ByteStore", "BitCounts", "shr_s", "shr_u", "div_u",
+        "ExpNormalizerIA", "uninterp_bwand", "uninterp_bwor",
+        "uninterp_bwashr", "uninterp_bwlshr", "uninterp_bwshl",
+        "uninterp_bwxor", "ShiftRightArithmetical", "IntMul", "UninterpMul",
+        "UninterpDiv", "UseLIA", "UseBV", "WITH_VERIFIER",
+        "BitwiseAxiomGenerator", "test_overflow_add", "test_underflow_add",
+        "AllCommonAvailableSolversWithClOptions",
+    },
+    # The review cites the same compiler-rt intrinsics and the compiler-builtins
+    # helper the prover inlines when function names are stripped.
+    "docs/explanation/certora-suite-review-2026-09-03.md": {
+        "__udivti3", "__modti3", "u128_div_rem", "div_u",
+        # Summaries the review found unused; they are being deleted on the
+        # same branch, so the names describe what was removed.
+        "reserves_summary", "supplied_amount_summary", "borrowed_amount_summary",
+        "protocol_revenue_summary", "capital_utilisation_summary",
+        "pool_snapshot_summary", "PoolViewsSnapshot", "fresh_monotone_index",
+        "token_price_summary", "total_collateral_in_usd_summary",
+        "total_borrow_in_usd_summary", "ltv_collateral_in_usd_summary",
+    },
 }
 
 

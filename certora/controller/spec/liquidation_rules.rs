@@ -6,6 +6,7 @@ use crate::constants::{
     BAD_DEBT_USD_THRESHOLD, BPS, DEFAULT_HF_FOR_MAX_BONUS_WAD, DEFAULT_LIQUIDATION_TARGET_HF_WAD,
     WAD,
 };
+use crate::spec::fixture;
 use crate::types::{AccountPositionType, HubAssetKey};
 use common::math::fp::{Bps, Wad};
 use common::math::fp_core::{mul_div_floor, mul_div_half_up};
@@ -41,6 +42,7 @@ fn liquidation_does_not_increase_repaid_debt(
     cvlr_assume!(scaled_debt_before > 0 && scaled_debt_before <= 20 * common::constants::RAY);
     crate::spec::fixture::seed_live_account(&e, account_id, &owner, &debt_asset);
     crate::spec::fixture::seed_market(&e, &collateral_asset);
+    fixture::seed_empty_books(&e, account_id);
     crate::spec::fixture::seed_debt_position(&e, account_id, &debt_asset, scaled_debt_before);
     // A collateralized debt book is required for liquidation to be able to
     // execute (the seize path), keeping the transition meaningful.
@@ -96,6 +98,7 @@ fn liquidation_does_not_increase_seized_collateral(
     cvlr_assume!(scaled_debt_before > 0 && scaled_debt_before <= 20 * common::constants::RAY);
     crate::spec::fixture::seed_live_account(&e, account_id, &owner, &collateral_asset);
     crate::spec::fixture::seed_market(&e, &debt_asset);
+    fixture::seed_empty_books(&e, account_id);
     crate::spec::fixture::seed_supply_position(
         &e,
         account_id,

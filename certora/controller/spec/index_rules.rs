@@ -7,8 +7,9 @@
 //! which is `simulate_update_indexes(now, load_sync_data())` — a *projection*
 //! of the stored state forward to the current ledger time. The controller's
 //! certora harness replaces the cross-contract call with a havoc summary
-//! (`bulk_index_summary`), so an ABI-level "call the view twice" rule would
-//! compare two independent nondeterministic values and prove nothing.
+//! (`bulk_index_summary`, memoised per rule by `spec::ghost_prices`), so an
+//! ABI-level "call the view twice" rule would compare one nondeterministic
+//! value against itself and prove nothing.
 //!
 //! `common` is compiled *without* its `certora` feature in the controller's
 //! certora build (`controller/Cargo.toml`'s `certora` feature does not pull
@@ -28,6 +29,7 @@ use crate::constants::{
     SUPPLY_INDEX_FLOOR_RAW, WAD,
 };
 use crate::context::Cache;
+use crate::spec::fixture;
 use crate::types::{
     AccountPositionRaw, DebtPositionRaw, HubAssetKey, MarketIndex, MarketIndexRaw, MarketParamsRaw,
     PoolStateRaw, PoolSyncData,
@@ -337,6 +339,7 @@ fn iso_update_indexes_writes_no_controller_state(
     cvlr_assume!((0..=MAX_SHARES).contains(&debt_scaled));
 
     crate::spec::fixture::seed_live_account(&e, account_id, &owner, &asset);
+    fixture::seed_empty_books(&e, account_id);
     crate::spec::fixture::seed_supply_position(&e, account_id, &asset, supply_scaled);
     crate::spec::fixture::seed_debt_position(&e, account_id, &asset, debt_scaled);
 
