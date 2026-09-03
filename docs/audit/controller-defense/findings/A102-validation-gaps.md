@@ -11,6 +11,10 @@
 - Evidence: Filed findings A061–A068, A070, A072; peers A006, A008, A009, A013, A015, A018, A040, A045, A048, A050–A052, A056; PRELIMINARY; INV-HALT-02, INV-LIQ-01, INV-ORACLE-01..04, INV-RISK-01/04, ADR-0005/0008/0019, STRIDE DoS.2 / DoS.5 / DoS.9 / TB3.
 - Opinion: Validation is **mostly defended** for fund safety. Prioritize ADR-0008 Option C. Treat A065 plant-stale, A062 Vec caps, and A067 BAD_DEBT desync as Low ops/hygiene. Document A066 `swap_debt` cap refinance; keep SeizeMode→path coupling explicit before any third mode (A068). Re-run A102 when A069 / A071 / A073–A075 land.
 
+> **Corpus-complete addendum:** A069, A071, A073–A075 later filed. None added a
+> new Critical. Leading in-wave residual remains A064 G1. Ranking:
+> `synthesis/FINAL.md`.
+
 ---
 
 ## 1. Method and coverage

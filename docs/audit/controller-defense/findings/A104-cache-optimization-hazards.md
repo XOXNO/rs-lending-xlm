@@ -3,13 +3,18 @@
 - Agent: A104 (synthesis)
 - Theme: T6 / T7 / T8
 - Severity: low (highest **in-wave** residual is A094 engineering footgun; inherited A080 capacity distortion is medium but owned by T5)
-- Status: partial (4/15 Wave-6 scopes filed; corpus mostly **defended**; residuals clustered and quantified below)
+- Status: partial (Wave-6 now **15/15** filed; corpus mostly **defended**; residuals clustered and quantified below; original 4/15 snapshot kept in §0.2)
 - Paths: synthesis over `findings/A086*`, `A087*`, `A094*`, `A099*`; `context/{mod,pool,market_index,oracle,spoke,events}.rs`; adjacency from A008, A032, A033, A034, A063, A072, A077, A078, A080, A084
 - Defense: See §3 (defended Cache / optimization surfaces)
 - Gap: See §4 (hazards with quantified blast radius) and §7 (coverage holes for unfiled A088–A093, A095–A098, A100)
 - Impact: See §4–§5. No filed Wave-6 finding demonstrates silent fund theft, undercollateralized exit of a gated path, or bypass of a failed hub/oracle/solvency check via memoization. Leading live risk inside the wave is **wrong mid-tx index/price use if a future pool merge omits `put_market_index`** (A094). Leading related residual called out by A099 is **A080 spoke-usage exit no-op** (capacity distortion, not theft).
 - Evidence: Peer findings A086, A087, A094, A099; PRELIMINARY “Cache memoization… defended” + residual row A094; SEED Cache facts; ADR-0005 / ADR-0020; INV-ORACLE / INV-RISK-01; adjacency A032/A033/A034/A063/A077/A078/A080
 - Opinion: Treat Wave-6 Cache design as **substantially defended** for correctness under current call sites. Prioritize a review checklist / lint for `put_market_index` after every pool mutation merge (A094), document `pool_sync_data` invalidation rules (A086), and keep success-only `verified_hubs` + debt-free solvency skip as explicit policy (A099). Do not “fix” ADR-0005 price snapshots mid-tx. Re-run A104 when A088–A093 / A095–A098 / A100 land.
+
+> **Corpus-complete addendum:** A088–A093, A095–A098, A100 later filed. All
+> **defended** / info except A094 (**partial**, low footgun) and A100
+> (optimization-note). No new Critical/High. In-tx index overlay confirmed
+> sound (A098). Ranking: `synthesis/FINAL.md`.
 
 ---
 

@@ -11,6 +11,10 @@
 - Evidence: Peer findings A041–A059 (A042/A043/A060 absent); PRELIMINARY leading residuals; threat-model §§slippage / non-standard tokens / aggregator owner; INV-ACCT-03, INV-STRAT-01/02, INV-LIQ-03, INV-FLASH-01/02, ADR-0003/0011/0013/0019/0020
 - Opinion: Wave-3 money movement is **substantially defended** at the custody and share-book layers. The remaining undefended surface is not a missing `transfer_amount_measured` call — it is (1) quantitative slippage living only in an out-of-governance aggregator trust root, and (2) governance listing of non-SAC / balance-lying tokens. Treat those as the remediation backlog; do not reopen defended flash pullback, Credit absorb-vs-mint, or delta-only refund designs.
 
+> **Corpus-complete addendum:** A042, A043, and A060 later filed as **defended**
+> (A060 partial on dust-band ops). They close the §0.2 holes; they do **not**
+> reopen G-SLIP / G-LIST. Ranking: `synthesis/FINAL.md`.
+
 ---
 
 ## 0. Method and corpus coverage

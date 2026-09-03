@@ -11,6 +11,9 @@
 - Evidence: Live spot-checks listed in §2; peer syntheses A020, A101–A104; deep-dives A003, A005, A009, A014, A030, A048, A055, A056, A057, A064, A065, A067, A072, A080; INV-LIQ-04 / INV-STRAT / INV-HALT / INV-ORACLE
 - Opinion: Treat `threat-model.md` Known gaps as **largely confirmed and still live**. Do not reopen the closed router-input-measurement item. Prioritize documenting newly surfaced residuals (A080, A064 Option C, Vec caps, plant-stale liq DoS, SAC listing) into the next threat-model revision. Soften “unbounded-loss” and INV-LIQ-04 citation wording so operators do not confuse account-local strategy drain with protocol-wide insolvency, or ordinary-liquidate HF post-gates with bad-debt seize post-guards.
 
+> **Corpus-complete addendum:** All A001–A110 files are now present. Later
+> Wave-3/5/6 filings did not refute §3–§4. Ranking: `synthesis/FINAL.md`.
+
 ---
 
 ## 1. Mission and method

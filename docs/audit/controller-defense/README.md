@@ -4,6 +4,9 @@ Coordinated multi-agent review of `contracts/controller` defenses.
 Agents share findings under `findings/`, wave notes under `waves/`, and
 synthesis under `synthesis/`.
 
+**Shared report:** [synthesis/FINAL.md](synthesis/FINAL.md) (A001–A110 complete).
+Mid-wave [PRELIMINARY.md](synthesis/PRELIMINARY.md) is superseded.
+
 ## Themes
 
 | ID | Theme |

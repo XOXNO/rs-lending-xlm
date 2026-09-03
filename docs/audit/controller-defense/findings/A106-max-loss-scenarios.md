@@ -27,11 +27,11 @@
 
 No production Rust edited. No git operations (COORDINATION).
 
-### 1.1 Corpus note — A104 absent
+### 1.1 Corpus note — A104 (later filed)
 
 | ID | Manifest scope | Status for A106 |
 |---|---|---|
-| A104 | Cache/optimization hazards (A086–A100) | **Not filed.** A094 (forgotten `put_market_index`) and PRELIMINARY’s A094 row are used as the only cache-adjacent residual with a loss sketch. Do **not** treat cache hazards as exhaustively quantified until A104 lands. |
+| A104 | Cache/optimization hazards (A086–A100) | **Filed after this note.** Confirms A094 as the Wave-6 correctness footgun; no additional max-loss class. See `synthesis/FINAL.md`. |
 
 ---
 

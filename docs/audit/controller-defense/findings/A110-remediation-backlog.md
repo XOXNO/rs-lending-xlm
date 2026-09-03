@@ -61,10 +61,10 @@ No production Rust edited. No git operations (COORDINATION).
 | A103 spoke-usage gaps | yes | Owns A080 + A078 must-not-regress |
 | A104 cache hazards | yes | Owns A094 checklist; A086 sync-data |
 | A106 max-loss | yes | Owns S1–S11 bounds; absolute-ceiling ranking |
-| A105 threat-model crosswalk | **no** | Backlog still uses threat-model Known gaps directly |
-| A107 STRIDE residual | **no** | STRIDE ids cited via A102/A009 peers only |
-| A108 missing tests | **no** | Test rows inferred from A056/A080/A102 peers |
-| A109 disagreements | **no** | No `disagreements/` files; framing note A101 §7.2 only |
+| A105 threat-model crosswalk | **yes** (filed after this snapshot) | Confirms Known gaps; newly surfaced A080 / A064 |
+| A107 STRIDE residual | **yes** (filed after this snapshot) | Raises Tamper.4 at controller; ADD A080 |
+| A108 missing tests | **yes** (filed after this snapshot) | Owns PIN/CLOSE names; supersedes inferred RB-12 rows |
+| A109 disagreements | **yes** (filed after this snapshot) | No material fact conflicts |
 
 ---
 
@@ -86,7 +86,7 @@ No production Rust edited. No git operations (COORDINATION).
 | 12 | **P4** | Docs UX: `swap_debt` refinance-at-cap; liq 256 symmetry; errors.md | A066, A062, A063 | info×Z×H | UX / fee | Docs / API symmetry |
 | — | **R** | Must-not-regress defended stacks | A101 §9, A078, A104 | — | Regression → Critical | Checklist in §8 |
 
-\*A108 unfiled — test recommendations are peer-derived.
+A108 later filed; use its PIN/CLOSE names over inferred rows. Authoritative ranking: `synthesis/FINAL.md`.
 
 ---
 

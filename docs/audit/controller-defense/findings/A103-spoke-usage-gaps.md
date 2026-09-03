@@ -11,6 +11,11 @@
 - Evidence: peers A076–A078, A080, A082, A084; supporting A022–A028, A032–A033, A041, A052–A053, A072, A086, A094; INV-HALT-03, INV-RISK-01, ADR-0015; Certora `usage_*` / `usage_liq_*` suite; PRELIMINARY.md leading-residuals table
 - Opinion: T5’s load-bearing defenses (pool-truth deltas, post-pool cap, persist-after-pool, one-spoke Cache pin) hold. The only medium-severity residual in the wave is **A080** (exit no-op on missing usage row). Persist/timing (**A078**) is defended and must stay that way. Missing peer files A079/A081/A083/A085 leave coverage holes, not proven new criticals — provisional inferences from peers are below.
 
+> **Corpus-complete addendum:** A079, A081, A083 later filed as **defended**
+> (confirming §7 provisionals). A085 filed as **partial** (evidence density,
+> not a new mechanism). A080 remains the only medium T5 residual. Ranking:
+> `synthesis/FINAL.md`.
+
 ---
 
 ## 1. Mission and method

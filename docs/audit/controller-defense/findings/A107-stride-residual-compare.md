@@ -11,6 +11,9 @@
 - Evidence: STRIDE threat IDs Spoof.1–Elevation.10; A020; A105 §6 / §9 A107 guidance; A106 scenario map; PRELIMINARY leading residuals; A048/A056/A101 (slippage); A055/A101 (listing); A064/A102 (DoS.2); A080/A103 (capacity); A009 (Elevation.1/6/7, Tamper.7); A065 (Tamper.1/10, DoS.1); A007/A019/A030 (Tamper.5, Spoof.4); A001–A006/A012 (auth/pause/ratchet)
 - Opinion: Treat STRIDE’s **controller-facing code-enforced Low residuals as largely correct** for auth, flash guard, measured custody under SAC, pause matrix, and flag ratchet. **Do not** treat Tamper.4’s “meet minimums → Residual Low” as describing the controller — that sentence overclaims; residual likelihood for strategy dust-out under reachable router malice or self-authorized `min_out=1` should be **Medium** at the controller trust boundary (still account-local impact). Keep Mediums for Spoof.1, Tamper.7/9/10, DoS.1/2/10, Elevation.1/6/7/10. **Add** an explicit capacity/integrity residual for A080 (not covered by any numbered STRIDE row at equal prominence). Prefer threat-model Known gaps + this audit over stale STRIDE Elevation.6 wording about a controller-owned aggregator upgrade path.
 
+> **Corpus-complete addendum:** A001–A110 are complete. RAISE Tamper.4 / ADD
+> A080 stand. Ranking: `synthesis/FINAL.md`.
+
 ---
 
 ## 1. Mission and method
