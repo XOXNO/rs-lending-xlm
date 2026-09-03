@@ -32,7 +32,7 @@ A087–A093, A095–A098, A100–A110 continue in subsequent waves.
 | A055 | Non-SAC / rebasing tokens if listed | Market-wide desync → bad debt socialized to that market's suppliers (≤ market TVL) |
 | A009 | Owner must be timelock (deploy) | If mis-wired, instant admin = full parameter/upgrade compromise |
 | A094 | Future leg forgetting `put_market_index` | Wrong HF/caps within a tx; footgun for new code |
-| A048 | Controller has no `min_out` on swap-collateral (only `received > 0`) | Router compromise can drain swapped notional up to post-swap solvency; known aggregator trust-root gap |
+| A048/A056 | Controller has no quantitative `min_out` on strategy swaps (only `received > 0`; min-out lives in opaque aggregator payload) | Router compromise can drain swapped notional up to post-swap solvency; known aggregator trust-root gap |
 | Threat-model | Aggregator + XOXNO oracle standalone owners | Immediate upgrade/sweep/price authority outside governance |
 
 ## Next waves
