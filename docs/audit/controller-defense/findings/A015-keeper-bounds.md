@@ -1,0 +1,11 @@
+# A015 — Keeper bounds (indexes, revenue, thresholds)
+- Agent: A015 (coordinator fill)
+- Theme: T1
+- Severity: info
+- Status: defended
+- Paths: `keepers.rs:16-77`, permissionless lines 68-70
+- Defense: All keepers `require_auth` + `require_not_flash_loaning`. Revenue forwarded to configured accumulator only (measured delta). `update_account_threshold` with `has_risks` enforces HF floor so it cannot push accounts into liquidation via restamp alone.
+- Gap: Caller chooses timing of accrual/claim — economic, not theft. Empty accumulator misconfig would fail closed on claim paths (expect invariant).
+- Impact: Malicious keeper timing cannot lower indexes or redirect revenue.
+- Evidence: INV-IDX-04, INV-ACCT-06, INV-AUTH-03.
+- Opinion: Solid permissionless maintenance design.

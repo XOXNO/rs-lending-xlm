@@ -1,0 +1,11 @@
+# A020 — STRIDE / threat-model cross-check (controller)
+- Agent: A020 (coordinator fill)
+- Theme: T8
+- Severity: medium
+- Status: partial
+- Paths: `STRIDE.md`, `docs/explanation/threat-model.md` Known gaps, findings A080/A055/A009
+- Defense: Live code matches claimed controls for auth, measured receipts, flash guard, flag ratchet, pause matrix (A001), third-party supply (A012).
+- Gap: Threat-model Known gaps correctly call out external trust roots (aggregator/oracle owners) and deployment gates — not missing controller requires. New residual from this audit: spoke-usage missing-row exit (A080) not highlighted as prominently as token measurement. Cache invalidation footguns (A094) are engineering hazards.
+- Impact: External trust-root compromise = strategy swap / price integrity failure modes (bounded by slippage and fail-closed oracle). A080 = capacity accounting distortion, not direct theft.
+- Evidence: threat-model attack surface table rows vs code citations in A001–A019.
+- Opinion: Controller in-code defenses are dense; residual risk concentrates in deployment trust roots and spoke-usage reconciliation.

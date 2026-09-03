@@ -1,0 +1,11 @@
+# A082 — Usage reuses pool return amounts, not caller inputs
+- Agent: A082 (coordinator deep-dive)
+- Theme: T5
+- Severity: info
+- Status: defended
+- Paths: `positions/mod.rs:112-141`, `payments.rs` / `common/src/token.rs` (`transfer_amount_measured`), `debt.rs:248-297` (`borrow_into_controller`)
+- Defense: Scaled usage deltas = `outcome.new_scaled - old_scaled` from pool mutation. Token legs that custody through the controller measure `balance_delta_since` / `transfer_amount_measured` and often assert equality with pool-reported amounts (`measured == result.amount_received`).
+- Gap: Paths that trust pool `actual_amount` for events while measuring tokens separately must keep the equality assert — currently present on strategy borrow-into-controller and flash_position debt forward.
+- Impact: Without measurement, a malicious/fee-on-transfer token could desync controller accounting from cash. Measurement + equality assert closes that for custody legs.
+- Evidence: threat-model actor "Token contract may transfer an amount other than requested"; INV accounting notes.
+- Opinion: Strong defense pattern; do not remove equality asserts as "redundant".

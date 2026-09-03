@@ -1,0 +1,11 @@
+# A080 — apply_exit no-op on missing usage row
+- Agent: A080 (coordinator deep-dive)
+- Theme: T5
+- Severity: medium
+- Status: partial
+- Paths: `spoke_usage.rs:121-141`, `positions/liquidation/bad_debt.rs` (exits before seize), `positions/liquidation/apply.rs` (fee exit)
+- Defense: Exit with zero delta returns early. Exit with missing storage row also returns without writing — intentional tolerance for accounts whose usage was never recorded (legacy/migration) or already cleared.
+- Gap: If usage was under-recorded relative to live positions, exits silently skip, leaving usage **higher** than reality after a full exit path that expected a decrement — wait: missing row means usage treated as absent (zero), so exit no-ops and storage stays absent (zero). That **overstates available capacity** only if positions still exist without a usage row. Conversely, if a row exists but is **lower** than sum of positions, exits can drive toward zero faster than positions (then `next >= 0` assert). If row is **higher** than positions, exits that follow position deltas eventually undershoot toward truth only when positions go to zero without clearing excess usage.
+- Impact: Spoke cap is a soft governance limit. Under-counted usage → temporary over-cap admissions until reconcile. Over-counted usage → false cap hits (availability). Neither directly steals funds; both distort per-spoke capacity. Bad-debt path explicitly `apply_spoke_exit` then `persist` after pool seize.
+- Evidence: Comment in apply_exit; liquidation apply.rs comments on fee-only usage delta for Credit seize.
+- Opinion: Highest residual on T5. Recommend invariant/keeper that recomputes spoke usage from account positions or a Certora/rule that usage ≥ 0 and tracks position totals per spoke, plus an admin reconcile tool if not present.

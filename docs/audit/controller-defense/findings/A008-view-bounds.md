@@ -1,0 +1,11 @@
+# A008 — View entrypoints: bounds and no durable writes
+- Agent: A008 (coordinator fill)
+- Theme: T1
+- Severity: info
+- Status: defended
+- Paths: `views.rs` (`require_view_inputs_bound`, `Cache::new_view`), `lib.rs` view fns
+- Defense: Views use `Cache::new_view` (no instance TTL renew). Input length bounds reject oversized batches. No `finalize_position_flow` / `persist_spoke_usage` / pool mutators on view paths. Liquidation estimate builds plan without applying.
+- Gap: Views still perform cross-contract reads (oracle/pool indexes) — read-only by pool API (`get_bulk_indexes` simulated).
+- Impact: View abuse is compute/DoS bounded by `require_view_inputs_bound`, not fund loss.
+- Evidence: views.rs helpers; INV read-only posture.
+- Opinion: Clear separation of `new` vs `new_view` is an important defense against rent griefing via views.

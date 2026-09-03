@@ -1,0 +1,11 @@
+# A094 — Avoided re-reads after pool sync — staleness risks
+- Agent: A094 (coordinator deep-dive)
+- Theme: T6/T7
+- Severity: low
+- Status: partial
+- Paths: `context/pool.rs`, `context/market_index.rs`, `positions/mod.rs` (`put_market_index`)
+- Defense: Bulk index fetch dedupes uncached keys; post-leg `put_market_index` refreshes from mutation. Pool address cached once per invocation (immutable for tx). Prefetch prices for strategy assets once.
+- Gap: Simulated `get_bulk_indexes` (no write) used for views/prechecks can differ from post-accrual mutation indexes within the same ledger if another tx accrues between — normal chain concurrency, not a bug. Within one invocation, skipping re-fetch after mutation is safe only because mutations write back via `put_market_index`.
+- Impact: A forgotten `put_market_index` after a new pool FFI would leave stale index in Cache → wrong USD risk or wrong usage cap index. That would be a footgun for future legs.
+- Evidence: `merge_debt_leg` / supply merges call `put_market_index`.
+- Opinion: Add a code-review checklist item: every new pool mutation merge must `put_market_index` + `apply_leg_usage`.

@@ -1,0 +1,11 @@
+# A014 — clean_bad_debt vs force_socialize authority
+- Agent: A014 (coordinator fill)
+- Theme: T1
+- Severity: info
+- Status: defended
+- Paths: `positions/liquidation/` bad_debt + lib entrypoints, permissionless line for clean_bad_debt
+- Defense: Permissionless `clean_bad_debt` requires insolvency + collateral ≤ dust. Unrestricted socialization is owner-gated `force_socialize_bad_debt` (admin).
+- Gap: Dust threshold misconfiguration could delay cleanup (liveness) or allow early socialization (supplier haircut) — governance parameter risk.
+- Impact: Premature socialization spreads loss to suppliers of that market (bounded by residual bad debt). Delayed cleanup leaves insolvent shells until dust met.
+- Evidence: INV-LIQ-04; permissionless_entrypoints.txt.
+- Opinion: Authority split is correct; parameter choice is the residual.

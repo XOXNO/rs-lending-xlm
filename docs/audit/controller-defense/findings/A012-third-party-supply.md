@@ -1,0 +1,11 @@
+# A012 — Third-party supply slot rules (INV-AUTH-03)
+- Agent: A012 (coordinator fill)
+- Theme: T1
+- Severity: info
+- Status: defended
+- Paths: `positions/supply.rs:44-100` (`process_supply`, `require_third_party_existing_supply`), `account.rs:88-99`
+- Defense: Non-owner/non-delegate may only top up hub assets already present in `supply_positions`. `account_id==0` creates an account owned by the caller (skips third-party check). Cannot open new slots, change spoke, or set mode via third-party supply.
+- Gap: none for INV-AUTH-03. Third-party can still increase collateral of an existing slot (risk-reducing / neutral for foreign leverage; can affect liquidation dynamics of that account positively).
+- Impact: Stranger cannot create foreign risk or bind victim to a spoke/mode. Can only improve another's collateral on existing assets.
+- Evidence: INV-AUTH-03; permissionless line for `controller::supply`; Certora `supply_new_slot_requires_owner_or_delegate`.
+- Opinion: Clear, local predicate; keep the early auth + aggregate before account load order.

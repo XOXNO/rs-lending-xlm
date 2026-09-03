@@ -1,0 +1,11 @@
+# A006 — Pause / unpause / guardian flag ratchet
+- Agent: A006 (coordinator fill; async slot contended)
+- Theme: T1
+- Severity: info
+- Status: defended
+- Paths: `contracts/controller/src/config/asset.rs:103-149`, `contracts/controller/src/lib.rs` (`pause`/`unpause` admin), ADR-0007/0008, INV-AUTH-04
+- Defense: `require_flag_ratchet` allows only false→true on `paused`/`frozen`/`no_seize`. Clearing requires `edit_asset_in_spoke` (owner/timelock). Global pause gates risk-increasing verbs; exits/liquidation stay open (A001).
+- Gap: none on ratchet itself. Residual: strategy unwind verbs remain pause-gated (A001 N2) — operators must use bare withdraw/repay during halt.
+- Impact: Compromised GUARDIAN can only tighten listings; cannot reopen markets or clear no_seize. Max impact of guardian compromise is availability (freeze markets), not direct theft.
+- Evidence: INV-AUTH-04; `contracts/controller/tests/config/asset_flags.rs`; threat-model immediate-power table.
+- Opinion: Ratchet is correctly named and cited across docs; keep the named helper (comment argues against inlining).

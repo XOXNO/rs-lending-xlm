@@ -1,0 +1,11 @@
+# A011 — require_auth placement vs state (TOCTOU)
+- Agent: A011 (coordinator fill)
+- Theme: T1
+- Severity: low
+- Status: defended
+- Paths: `risk/validation.rs:12-15` (`require_authorized_caller`), `positions/supply.rs:51`, `positions/debt.rs`, `strategies/*`, `keepers.rs`
+- Defense: User mutators call `caller.require_auth()` (via `require_authorized_caller` or direct) before pool FFI / position merges. Flash paths also set `with_flash_guard` around pool transfers so token hooks cannot reenter. Auth is on the caller address supplied as an argument, not inferred from tx source alone.
+- Gap: partial — Soroban auth is declarative and checked at invocation boundaries; classic EVM-style mid-function TOCTOU is less applicable. Residual risk is auth-on-wrong-address (e.g. `to`/`receiver` not requiring auth when funds are sent *to* them — by design; funds leave under owner/delegate authority).
+- Impact: Mis-placed auth would enable unauthorized debt/collateral moves — currently not observed on primary paths. Sending to an arbitrary `to` can only drain the authorizing account's own positions.
+- Evidence: INV-AUTH-02/03; permissionless_entrypoints.txt justifications; flash-guard comments in `debt.rs:272-274`.
+- Opinion: Pattern is consistent: auth first, aggregate/validate, then pool, then merge using pool outputs.

@@ -1,0 +1,11 @@
+# A077 — Cap enforcement using pool output indexes
+- Agent: A077 (coordinator deep-dive)
+- Theme: T5
+- Severity: info
+- Status: defended
+- Paths: `positions/mod.rs:58-67` (`LegOutcome` from `PoolPositionMutation`), `apply_leg_usage`, `spoke_usage.rs:147-159`
+- Defense: After pool returns `PoolPositionMutation`, controller builds `LegOutcome` with `position.scaled_amount`, `market_index`, and `actual_amount`. Entry cap check uses **that** `market_index` (supply or borrow side) and pool-reported decimals — not a pre-call stale index for the delta itself. `put_market_index` then refreshes Cache.
+- Gap: Cap uses current index at enforcement time; if index jumped mid-batch across assets, each leg uses its own returned index (correct per market). Pre-pool risk views may use cached simulated indexes (`fetch_pool_bulk_indexes`) — different from post-pool mutation indexes.
+- Impact: Using caller-requested amounts for caps would under/over count; current design ties usage to pool truth. Stale pre-check indexes could only cause false rejects on views, not under-capped writes.
+- Evidence: `for_each_leg` length equality assert; merge_*_leg call sites in supply.rs/debt.rs.
+- Opinion: This is the right trust boundary — pool is source of truth for scaled positions and indexes after mutation.

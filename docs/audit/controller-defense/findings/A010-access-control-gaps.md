@@ -1,0 +1,11 @@
+# A010 — Access-control checker residual gaps
+- Agent: A010 (coordinator fill)
+- Theme: T1
+- Severity: low
+- Status: partial
+- Paths: `scripts/check_access_control.py`, `scripts/permissionless_entrypoints.txt`, position-nft classification notes
+- Defense: Checker fails on missing/stale/over-broad declared permissionless lines. Forces deliberate inventory of unprivileged mutators.
+- Gap: Checker cannot prove which address a stored controller pointer names (NFT mint/burn classified caller-auth). Cannot prove body-level owner-or-delegate beyond presence patterns. Views vs mutators classification is heuristic.
+- Impact: A mis-declared line could hide an ungated mutator until review — mitigated by CI gate loud failures on drift. No controller UNGATED-MUTATOR declared today.
+- Evidence: file header comments in permissionless_entrypoints.txt; make access-control-check.
+- Opinion: Static gate is strong process defense; still needs human review of justifications when adding lines.

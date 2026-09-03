@@ -1,0 +1,11 @@
+# A086 — Cache field inventory and invalidation
+- Agent: A086 (coordinator deep-dive)
+- Theme: T7
+- Severity: info
+- Status: defended
+- Paths: `context/mod.rs:25-84`, `context/{pool,spoke,oracle,market_index,events}.rs`
+- Defense: Memoizes prices, market indexes, pool address, pool sync data, spoke usage/config/assets, verified hubs; buffers position events. `ensure_spoke_context` pins one spoke; `reset_spoke_context` clears usage/config/assets. Market indexes overwritten via `put_market_index` after pool legs. `new` renews TTL; `new_view` does not.
+- Gap: `pool_sync_data` is not invalidated after pool mutations in the same tx — later reads may see pre-mutation params/state if something re-reads sync data after a leg. Risk paths after legs typically use returned indexes + account positions, not sync data.
+- Impact: Stale sync data mid-tx could mis-read flags like `is_flashloanable` if checked after a governance-unrelated pool state change in-tx (unlikely same tx). Low practical risk today; high if future code reuses sync data post-mutation for safety checks.
+- Evidence: module docs at context/mod.rs:1-6.
+- Opinion: Document invalidation rules; consider clearing `pool_sync_data` entries for touched hubs after mutations if new checks are added.

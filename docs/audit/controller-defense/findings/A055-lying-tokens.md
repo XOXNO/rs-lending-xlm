@@ -1,0 +1,11 @@
+# A055 — Token contract lying about transfer amount
+- Agent: A055 (coordinator deep-dive)
+- Theme: T3
+- Severity: medium
+- Status: partial
+- Paths: `common/src/token.rs`, `strategies/flash_position.rs:272-304`, `strategies/swap.rs` (`verify_router_output`), `debt.rs:271-284`
+- Defense: Measured balance deltas on controller custody; equality asserts vs pool reports on flash/strategy borrows; swap verifies router output via balance increase; `require_external_recipient` blocks pool/controller as `to` (stranded measurement).
+- Gap: Tokens with hidden hooks can still reenter while flash guard is held (blocked from position flows) or manipulate non-measured paths. Non-standard tokens (rebasing) are outside the SAC assumption — listing governance must exclude them.
+- Impact: A listed rebasing/FOT token that bypasses a non-measured path could desync pool cash vs shares → bad debt socialized to suppliers (market-wide, capped by that market's TVL). Governance listing is the outer control.
+- Evidence: threat-model; flash guard; permissionless flash_loan justification.
+- Opinion: Treat asset listing as a security boundary equal to code review; document SAC-only assumption in ops runbooks if not already.

@@ -1,0 +1,11 @@
+# A019 — Wasm receiver requirement for flash callbacks
+- Agent: A019 (coordinator fill)
+- Theme: T1
+- Severity: info
+- Status: defended
+- Paths: `strategies/flash_loan.rs:30`, `common/src/validation.rs` (`require_wasm_receiver`), flash_position receiver checks + `require_external_recipient`
+- Defense: Flash loan rejects non-Wasm receivers. Flash position additionally rejects controller/pool as recipient (measurement stranding). Callback runs under flash guard.
+- Gap: Wasm receiver can still be malicious — mitigated by pool pullback of principal+fee (flash loan) and post-callback solvency + measured collateral (flash position).
+- Impact: EOA receiver DoS/stuck funds prevented at gate. Malicious contract bounded by repayment/solvency asserts.
+- Evidence: INV-FLASH-01/02, INV-STRAT-04; common tests for require_wasm_receiver.
+- Opinion: Layered: wasm gate → flash guard → measure → solvency.

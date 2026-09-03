@@ -1,0 +1,11 @@
+# A099 — Optimizations that skip a security check (hunt)
+- Agent: A099 (coordinator deep-dive)
+- Theme: T6/T7
+- Severity: low
+- Status: defended
+- Paths: `context/mod.rs:76-83` (`verified_hubs` short-circuit), `risk/validation.rs:31-34` (debt_free skips solvency), `spoke_usage` exit no-op, liquidation Credit fee-only usage
+- Defense: Hub active memoization only skips repeat `require_hub_active` after success — cannot skip a failed check. Debt-free skip of post-pool gates is intentional (no borrow risk). Credit seize skips supply-cap on re-entry by design (apply.rs comments).
+- Gap: `verified_hubs` never records false; if hub were deactivated mid-call (impossible same contract without reentrancy), memo would be stale — flash/reentrancy guards reduce that. Exit missing-row no-op (A080) is the main "skipped check" residual.
+- Impact: No direct fund-theft vector identified from memo short-circuits. A080 capacity distortion remains the leading optimization hazard.
+- Evidence: cross-links A007, A080, A084.
+- Opinion: Optimizations reviewed are paired with explicit safety comments; keep that standard.

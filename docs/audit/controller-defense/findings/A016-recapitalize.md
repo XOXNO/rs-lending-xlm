@@ -1,0 +1,11 @@
+# A016 — Recapitalize measured receipt and shortfall clamp
+- Agent: A016 (coordinator fill)
+- Theme: T3
+- Severity: info
+- Status: defended
+- Paths: `keepers.rs:43-66`, `external/pool.rs:136-144`
+- Defense: `transfer_amount_measured` into pool, then `pool_recapitalize_call` with **received** amount (not caller-requested). Pool refunds unused above shortfall; returns `actual_amount`.
+- Gap: none for inflate-applied-amount. Payer cannot credit more than delivered tokens.
+- Impact: Donation-only; reduces shortfall; excess refunded. No foreign risk.
+- Evidence: INV-ACCT-02/03; comment at keepers.rs:55.
+- Opinion: Correct ordering: measure first, pass measured into pool.

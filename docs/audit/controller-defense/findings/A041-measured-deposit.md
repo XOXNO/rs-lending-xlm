@@ -1,0 +1,11 @@
+# A041 — Pool deposit measured-receipt pattern
+- Agent: A041 (coordinator deep-dive)
+- Theme: T3
+- Severity: info
+- Status: defended
+- Paths: `common/src/token.rs:19-34`, `payments.rs:7-24`, `positions/supply.rs` (pool_supply_call → merge legs), `keepers.rs` recap/claim comments
+- Defense: Where the controller custodies tokens, balances are snapshotted and deltas drive credited amounts. Pool supply returns scaled positions; account shares follow pool mutation. Claim revenue comment explicitly forwards measured delta not pool-reported figure.
+- Gap: Direct pool→user withdraw/borrow paths rely on pool+token correctness without controller-side recipient balance measurement (recipient is user). Malicious token still constrained by pool cash accounting.
+- Impact: Fee-on-transfer into controller without measurement would inflate shares vs cash — measurement prevents that on custody legs.
+- Evidence: threat-model token actor; INV-ACCT measured receipt language.
+- Opinion: Keep "measure at controller custody boundary" as a hard rule for new strategies.

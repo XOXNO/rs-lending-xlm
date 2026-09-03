@@ -1,0 +1,11 @@
+# A084 — Liquidation / strategy usage skip or double-count
+- Agent: A084 (coordinator deep-dive)
+- Theme: T5
+- Severity: low
+- Status: defended
+- Paths: `positions/liquidation/apply.rs:165-204`, `bad_debt.rs`, `strategies/mod.rs` (`strategy_finalize` → `finalize_position_flow`)
+- Defense: Credit seize documents that debit+credit cancel on same spoke/asset; only protocol fee is `apply_spoke_exit`'d so liquidations are not blocked by supply cap. Transfer seize uses withdraw batch (leg usage via normal withdraw merge). Strategies share `finalize_position_flow` once at end. `reset_spoke_context` available if multi-spoke needed (liquidation receiver may be different account same spoke).
+- Gap: Liquidation of account A then finalize receiver B — both call `finalize_position_flow` / persist. Must not double-persist conflicting maps; same Cache instance carries usage for one spoke. Receiver Credit path records share credits then finalize — usage fee exit already applied on liquidated spoke.
+- Impact: Incorrect double-count would tighten caps (DoS) more than enable theft. Fee-only exit is intentional under-count of gross seized shares vs net credit.
+- Evidence: inline comments in apply.rs; INV-LIQ-* .
+- Opinion: Credit-mode fee accounting is subtle but deliberate; regression tests on cap-at-limit liquidation are load-bearing.

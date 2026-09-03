@@ -1,0 +1,11 @@
+# A002 — Permissionless supply/repay/liquidate auth mapping
+- Agent: A002 (coordinator fill; async agent branched away)
+- Theme: T1
+- Severity: info
+- Status: defended
+- Paths: `scripts/permissionless_entrypoints.txt:63-65`, `positions/supply.rs:51-65`, `positions/debt.rs` (`process_repay`), `positions/liquidation/mod.rs`, `risk/validation.rs:12-15`
+- Defense: All three require `caller.require_auth` + flash-loan not ongoing. Supply adds third-party existing-slot rule. Repay pulls from caller only (liabilities fall). Liquidate requires unhealthy account; Credit seize binds receiver separately (A013).
+- Gap: none vs declared permissionless lines.
+- Impact: Auth failures revert; no foreign risk creation on these paths.
+- Evidence: INV-AUTH-03; harness liquidation/supply tests.
+- Opinion: Declarations match bodies; keep checker + file as living inventory.

@@ -1,0 +1,11 @@
+# A018 — PositionMode gates on multiply / flash_position
+- Agent: A018 (coordinator fill)
+- Theme: T1
+- Severity: info
+- Status: defended
+- Paths: `account.rs:79-99` (`AccountGuard::Multiply`), `strategies/multiply.rs`, `strategies/flash_position.rs`
+- Defense: Multiply guard requires owner-or-delegate and mode match on existing accounts. New accounts created with requested mode. Flash position shares prepare path with mode validation.
+- Gap: Mode is metadata + strategy admission; Normal vs Multiply semantics must stay consistent with risk gates (strategies finalize with solvency).
+- Impact: Mode mismatch rejects; cannot silently run leverage flow on Normal account without guard pass.
+- Evidence: INV-STRAT-02; permissionless justifications.
+- Opinion: Guard enum centralization in `load_or_create_account` reduces drift across strategies.

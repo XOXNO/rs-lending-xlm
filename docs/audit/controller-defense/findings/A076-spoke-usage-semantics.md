@@ -1,0 +1,11 @@
+# A076 — SpokeUsageContext apply_entry/exit semantics
+- Agent: A076 (coordinator deep-dive)
+- Theme: T5
+- Severity: info
+- Status: defended
+- Paths: `spoke_usage.rs:61-160`, `context/spoke.rs:103-143`, `positions/mod.rs:112-141`
+- Defense: Lazy row load; entry adds scaled delta and enforces cap via `calculate_scaled_cap` using the leg's market index + decimals; exit subtracts and panics on underflow/negative; `persist()` writes every touched row. Cache isolates one spoke per invocation (`SpokeMismatch` on spoke change without reset).
+- Gap: see A080 for exit-on-missing-row no-op.
+- Impact: Cap breaches revert the whole tx (no partial usage write without finalize). Usage is RAY-scaled shares, not caller-requested token amounts.
+- Evidence: INV spoke-cap language in invariants.md; unit tests `contracts/controller/tests/spoke.rs`.
+- Opinion: Core semantics are sound; delta always derived from `new_scaled - old_scaled` via `apply_leg_usage`, not from user input amounts.
