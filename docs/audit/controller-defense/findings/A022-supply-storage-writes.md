@@ -1,273 +1,290 @@
-# A022 — Supply path storage writes (`process_supply`)
+# A022 — Supply path storage writes (`process_supply` / `merge_supply_leg` / finalize)
 
 - Agent: A022
-- Theme: T2 (shares / meta / spoke usage / events via `finalize_position_flow`)
+- Theme: T2
 - Severity: info
 - Status: defended
-- Paths:
-  - `contracts/controller/src/lib.rs:98-107` (`Controller::supply`)
-  - `contracts/controller/src/positions/supply.rs:44-155`, `:308-357` (`process_supply`, `process_deposit`, `settle_supply`, `merge_supply_leg`)
-  - `contracts/controller/src/positions/mod.rs:112-141`, `:206-252`, `:292-327` (`apply_leg_usage`, `finalize_position_flow`, `persist_account_positions`, entry gates)
-  - `contracts/controller/src/account.rs:47-114`, `:172-207` (`create_account_with` / `load_or_create_account`, `update_or_remove_supply_position`)
-  - `contracts/controller/src/storage/account.rs:53-103`, `:247-270` (`set_account_meta`, `set_supply_positions`, `write_side_map`, `renew_user_account`, `remove_account_entry`)
-  - `contracts/controller/src/storage/spoke.rs:56-79` (`set_spoke_usage`)
-  - `contracts/controller/src/context/{mod,spoke,market_index,events}.rs` (Cache buffers + persist/emit)
-  - `contracts/controller/src/spoke_usage.rs:61-160` (`apply_entry` / `persist`)
-  - `contracts/controller/src/risk/params.rs:17-91` (`refresh_supply_risk_params` FullTuple)
-  - `contracts/controller/src/payments.rs`, `common/src/token.rs:19-34` (measured inbound receipt)
-  - `contracts/pool/src/ops/supply.rs:19-42` (pool share mint + cash credit)
-  - `scripts/permissionless_entrypoints.txt` (`controller::supply`)
-- Defense: Durable controller writes for the bare `supply` verb are batched at one tail — `persist_spoke_usage` → `set_supply_positions` (+ TTL renew) → `emit_position_batch` — after pool mutation returns. Account shares take **pool** `new_scaled`; spoke-usage entry deltas are `new_scaled − old_scaled` with cap check on the **returned** supply index; event `scaled_amount` / risk stamps mirror the in-memory position about to be persisted. `AccountMeta` is written only on `account_id==0` create (spoke/mode), never restamped on top-up. `PositionSides::Supply` + `remove_if_empty=false` skip debt-map writes and empty-account burn. Third-party top-ups cannot open new slots (INV-AUTH-03) but may restamp risk params on an existing slot as a side effect of `merge_supply_leg`.
-- Gap: No novel fund-theft or share-inflation write-set bug on this path. Residuals (not unique to supply): (1) third-party top-up triggers `refresh_supply_risk_params(FullTuple)` on the victim’s existing slot — LTV always restamped; liquidator-favoring LT/bonus/fees gated (cross A012 / keepers); (2) shared T5 A080 is exit-side only — supply **creates/updates** usage rows on entry, so missing-row no-op does not apply to this verb’s usage write; (3) `transfer_amount_measured` does not require `delta == requested` — fee-on-transfer under-credits shares (user loss), malicious credit-on-transfer over-credits if governance lists such a token (A041 / A055); (4) strategy reuse of `process_deposit` / `merge_supply_leg` finalizes elsewhere (A032 / A007 residual on post-guard listed-token reentry).
-- Impact: Successful supply can (1) mint NFT + write `AccountMeta` on create, (2) increase/create per-account supply shares and stamped risk params under `SupplyPositions`, (3) increase `SpokeUsage` supply RAY (cap-gated) for touched hubs, (4) renew instance + live user TTLs, (5) emit one `UpdatePositionBatchEvent`. Cannot mint debt, rewrite `BorrowPositions` / delegates, retarget protocol instance keys, or delete the account. Blast radius of a hypothetical skipped finalize after pool success would desync controller books vs pool — prevented by Soroban whole-tx atomicity + mandatory finalize on the success path.
-- Evidence: INV-AUTH-03, INV-ACCT-03/05, INV-HALT-01/03, INV-STOR-01/03, INV-STOR spoke-cap language; Certora `usage_supply_tracks_scaled_delta`, `supply_new_slot_requires_owner_or_delegate`, spoke Wave0 `SupplyEntry` → `merge_supply_leg`; harness `tests/test-harness/tests/controller/supply.rs`, `spoke_caps.rs`, `position_nft.rs`; unit `contracts/controller/tests/storage/account.rs`, `tests/spoke.rs`, `tests/events.rs`; peers A004, A012, A021, A024, A032, A033, A036, A041, A076, A077, A082, A094.
-- Opinion: Supply’s controller write surface is narrow, correctly sided, and ordered (durable before events). Pool outputs drive shares and usage; measured receipt drives the pool credit amount. Treat third-party risk restamp as an intentional maintenance side effect, not a storage integrity failure. Mirror A024’s discipline: any new supply-adjacent pool FFI must still funnel through `merge_supply_leg` + `finalize_position_flow`.
+- Paths: `contracts/controller/src/lib.rs:98-107`; `contracts/controller/src/positions/supply.rs:44-155,303-357`; `contracts/controller/src/positions/mod.rs:52-90,112-141,206-252,289-327,358-368`; `contracts/controller/src/account.rs:47-114,172-207`; `contracts/controller/src/risk/params.rs:17-91`; `contracts/controller/src/risk/validation.rs:12-61`; `contracts/controller/src/context/{mod,spoke,market_index,events}.rs`; `contracts/controller/src/spoke_usage.rs:61-160`; `contracts/controller/src/storage/{account,spoke}.rs`; `contracts/controller/src/payments.rs`; `common/src/token.rs:19-34`; `common/src/types/controller.rs:326-360`; `scripts/permissionless_entrypoints.txt:63`
+- Defense: Ordinary supply mutates durable controller position/usage state only at `finalize_position_flow` after measured token→pool transfer + pool settle + in-memory merge. Create path writes `AccountMeta` (+ NFT mint) early; shares, spoke usage, and events wait for the shared tail. Finalize order is usage → `SupplyPositions` → TTL renew → emit. Debt / delegates / protocol config are never rewritten. Scaled usage deltas and persisted shares come from pool mutation outputs; event token amount uses the measured receipt credited into the pool action.
+- Gap: none on ordinary `process_supply` durable accounting. Residuals (cross-ref, not novel critical): (1) listed-token transfer hooks can re-enter monetary entrypoints while outer merge is still buffered — same class as A007/A023; flash flag is not set on plain supply. (2) Event `amount` is measured transfer (`action.amount`), not `outcome.amount` / pool `actual_amount` — observational only if those ever diverge (no equality assert on this verb; shares still follow pool `new_scaled`). (3) `remove_if_empty: false` is correct here; empty-shell rent is an A036 concern on other verbs, not supply.
+- Impact: Successful supply can (1) create meta+NFT when `account_id==0`, (2) increase/open per-account supply shares and restamp FullTuple risk params on touched hubs, (3) increase `SpokeUsage` supply RAY (cap-gated) for touched hubs, (4) extend instance + existing user TTLs, (5) emit a post-persist position batch. Cannot mint debt, rewrite foreign slots (INV-AUTH-03), change spoke/mode after create, retarget pool/oracle/NFT addresses, or persist another account’s maps. Blast radius if finalize were skipped after pool success would desync controller books vs pool — prevented by single-tx atomicity + mandatory finalize on this entrypoint.
+- Evidence: INV-AUTH-03, INV-ACCT-03, INV-RISK-04, INV-HALT-02 (`BlockOnEntry`), INV-STOR-01/03; Certora `supply_new_slot_requires_owner_or_delegate`, `bulk_supply_two_assets_both_persisted`, `usage_supply_tracks_scaled_delta`; harness `tests/test-harness/tests/controller/supply.rs`; peers A004, A012, A021, A023, A024, A032, A033, A036, A040, A041, A055, A076, A077, A082, A086, A094.
+- Opinion: Supply’s storage story is sound and deliberately asymmetric with borrow/withdraw: always `PositionSides::Supply` + `remove_if_empty: false`; no post-pool solvency restamp (risk-reducing); entry-side usage always creates/updates a row (no A080 exit no-op). Do not add `Both` or solvency gates “for symmetry” — they are load-bearing absences. Keep measured receipt → pool action amount → pool `new_scaled` → usage delta as the credit chain.
 
-## Scope
+## Scope and method
 
-Inventory every **controller** storage mutation reachable from `Controller::supply` → `process_supply`, including create-on-zero, in-memory share/risk merges, spoke-usage buffering, and the `finalize_position_flow` tail (persist usage, persist supply map, emit events).
+1. Read `shared/COORDINATION.md` + `SEED.md` (no git ops; findings-only).
+2. Trace `Controller::supply` → `process_supply` → `load_or_create_account` / third-party gate → `process_deposit` → `settle_supply` → `merge_supply_leg` → `finalize_position_flow`.
+3. Enumerate every durable write (`persistent` / instance TTL / cross-contract NFT) reachable on that path; separate Cache buffers from storage keys.
+4. Cross-check peer findings A004, A007, A012, A021, A023, A024, A032, A033, A036, A040, A041, A055, A076, A077, A082, A086, A094 and invariants INV-AUTH-03 / INV-ACCT-03 / INV-STOR-01/03.
+5. Note shared helper `process_deposit` / `merge_supply_leg` used by strategies — those callers own finalize (A032); this file judges ordinary `process_supply` finalize coupling.
 
-Out of scope as primary claims (peer agents): withdraw legs in the same file (A024), account key layout generally (A021), third-party slot auth predicate detail (A012), strategy finalize batching (A032), event-vs-storage order abstractly (A033), lying/fee-on-transfer token taxonomy (A041/A055), spoke-usage exit missing-row (A080).
+Out of scope as primary claims: withdraw (`process_withdraw` — A024), token lying beyond measured-receipt note (A055), strategy batching beyond shared merge (A032), pool-internal cash books.
 
 ---
 
-## Call graph (storage-relevant)
+## Call graph (ordinary supply)
 
 ```
-Controller::supply                            # #[when_not_paused]
-  └─ process_supply
-       ├─ require_authorized_caller           # auth + flash-guard READ (temp)
-       ├─ aggregate_positive_payments         # no storage; reject empty/zero/neg
-       ├─ Cache::new → renew_controller_instance   # TTL instance
+Controller::supply                            #[when_not_paused]  lib.rs:98-107
+  └─ process_supply                           supply.rs:44-78
+       ├─ require_authorized_caller           auth + !flash_loaning
+       ├─ aggregate_positive_payments         dedupe hubs; reject ≤0 / empty
+       ├─ Cache::new                          renews controller instance TTL
        ├─ load_or_create_account(..., Supply)
-       │    ├─ account_id==0 → create_account_with
-       │    │    ├─ active_spoke READ
-       │    │    ├─ nft_mint_call             # CROSS-CONTRACT NFT mint (+ NFT TTLs)
-       │    │    └─ set_account_meta          # WRITE AccountMeta {spoke, mode=Normal}
-       │    └─ else → get_account READ + require_spoke_match
-       ├─ require_third_party_existing_supply # READ-only auth over existing slots
+       │    ├─ account_id==0 → create_account
+       │    │    ├─ active_spoke check
+       │    │    ├─ nft_mint_call(caller)     CROSS-CONTRACT NFT
+       │    │    └─ set_account_meta          EARLY durable write (spoke, Normal)
+       │    └─ else get_account + require_spoke_match
+       ├─ require_third_party_existing_supply INV-AUTH-03 (skip if create)
        ├─ process_deposit
-       │    ├─ validate_position_entry_gates  # READ hub/spoke/asset; bulk limits
+       │    ├─ validate_position_entry_gates  limits + require_can_supply
        │    └─ settle_supply
-       │         ├─ transfer_amount_measured  # CROSS-CONTRACT token → pool (measured Δ)
-       │         ├─ get_or_create_supply_position  # &self; NO map insert if missing
-       │         ├─ pool_supply_call          # CROSS-CONTRACT pool shares + cash
-       │         └─ merge_supply_leg × N
-       │              ├─ refresh_supply_risk_params(FullTuple)  # memory stamps
+       │         ├─ transfer_amount_measured  token → pool (measured Δ)
+       │         ├─ get_or_create_supply_position  RAM seed only (no map insert)
+       │         ├─ pool_supply_call          pool durable writes (other contract)
+       │         └─ for_each_leg → merge_supply_leg
+       │              ├─ refresh_supply_risk_params FullTuple   memory
        │              ├─ position.scaled_amount = outcome.new_scaled
-       │              ├─ apply_leg_usage Entry → apply_spoke_entry (+ cap)  # BUFFER
-       │              ├─ put_market_index     # CACHE only
-       │              ├─ record_supply_position_update  # event BUFFER
-       │              └─ update_or_remove_supply_position  # memory map
+       │              ├─ apply_leg_usage Entry → apply_spoke_entry  BUFFER usage+cap
+       │              ├─ put_market_index     CACHE only
+       │              ├─ record_supply_position_update  event buffer
+       │              └─ update_or_remove_supply_position  Account RAM only
        └─ finalize_position_flow(..., Supply, remove_if_empty=false)
-            ├─ persist_spoke_usage            # WRITE SpokeUsage keys
+            ├─ persist_spoke_usage            SpokeUsage keys
             ├─ persist_account_positions
-            │    ├─ set_supply_positions      # WRITE/REMOVE SupplyPositions
+            │    ├─ set_supply_positions      WRITE/REMOVE SupplyPositions
             │    ├─ (skip) set_debt_positions
-            │    ├─ renew_user_account        # TTL live account keys
-            │    └─ (skip) cleanup_account_if_empty
-            └─ emit_position_batch            # events only (after durable)
+            │    ├─ renew_user_account        TTL live account keys
+            │    └─ cleanup skipped           remove_if_empty=false
+            └─ emit_position_batch            after durable writes (A033)
 ```
-
-Shared helpers: strategies (`multiply`, `flash_position`, `migrate_blend`, `swap_collateral`) call `process_deposit` / `merge_supply_leg` but finalize via `strategy_finalize` (A032) — same merge write semantics, different outer persist sides/flags.
 
 ---
 
-## Durable write inventory
+## Durable writes inventory
 
-| Step | Key / surface | Mechanism | When | Value mutation? |
+| Phase | Storage class | Key / target | Writer | Notes |
 |---|---|---|---|---|
-| Cache construction | Controller instance | `renew_controller_instance` / `extend_ttl` | Always at `Cache::new` | No (TTL only) |
-| Create (`account_id==0`) | Position NFT | `nft_mint_call` → sequential mint to caller | Create only | Cross-contract mint |
-| Create | `ControllerKey::AccountMeta(id)` | `set_account_meta` | Create only | Yes — `{spoke_id, PositionMode::Normal}` |
-| Per-leg usage buffer | in-memory `SpokeUsageContext` | `apply_entry` (+ cap) | Each successful pool leg | Not durable yet |
-| Finalize usage | `ControllerKey::SpokeUsage(spoke, hub)` | `set_spoke_usage` / remove if both sides 0 | If spoke-usage context loaded and rows cached | Yes — supply RAY ↑ (borrow side preserved) |
-| Finalize positions | `ControllerKey::SupplyPositions(id)` | `set_supply_positions` / remove if map empty | Always on success path | Yes — scaled shares + stamped LTV/LT/bonus/fees |
-| Finalize positions | `BorrowPositions` / `Delegates` | **not written** | — | No |
-| Finalize positions | `AccountMeta` | **not rewritten** on top-up | Create already wrote it | No on top-up |
-| Finalize TTL | meta / supply / debt / delegates if `has` | `renew_user_account` | Always after position write | No (TTL only) |
-| Empty cleanup | account keys + NFT | **skipped** (`remove_if_empty=false`) | — | No |
-| Market indexes | controller persistent | none | `put_market_index` is cache-only | No on controller |
-| Protocol config | instance / shared | none on this path | — | No |
-| Flash flag | temporary `FlashLoanOngoing` | none (read-only check) | — | No |
-| Events | ledger events | `UpdatePositionBatchEvent` | After durable writes | Observational |
+| Entry | Instance | controller instance TTL | `Cache::new` → `renew_controller_instance` | Every mutating path; INV-STOR-01 |
+| Create only | Persistent user | `AccountMeta(account_id)` | `create_account` → `set_account_meta` | `{spoke_id, mode: Normal}` — **before** pool/finalize |
+| Create only | Position NFT | token mint to caller | `nft_mint_call` | Cross-contract; id == account_id (A004/A031) |
+| Mid (token) | Token contract | balances caller→pool | `transfer_amount_measured` | Not controller storage |
+| Mid (pool FFI) | Pool contract | pool market/user books | `pool_supply_call` | Trusted sibling; rolls back with tx on later panic |
+| Mid (controller) | — | none | — | `merge_supply_leg` is **not** a durable write |
+| Finalize | Persistent shared | `ControllerKey::SpokeUsage(spoke_id, hub)` | `SpokeUsageContext::persist` → `set_spoke_usage` | Removes key if both scaled sides are 0 |
+| Finalize | Persistent user | `SupplyPositions(account_id)` | `set_supply_positions` → `write_side_map` | Full map snapshot; remove if empty map |
+| Finalize | Persistent user TTL | AccountMeta / Supply / Borrow / Delegates if present | `renew_user_account` | Extends TTL; no value rewrite |
+| Finalize | Events | `UpdatePositionBatchEvent` | `emit_position_batch` | After persists; observational |
+| Never on this path | Persistent user | `BorrowPositions`, `Delegates` | — | Debt loaded for gated LT refresh HF math only |
+| Never on this path (top-up) | Persistent user | `AccountMeta` | — | Spoke/mode immutable after create (A021) |
+| Never durable | Cache maps | `market_indexes`, event vecs, spoke_assets, … | `put_market_index`, buffers | Dropped at end of invocation |
+
+Temporary `FlashLoanOngoing` is **not** set on ordinary supply (only flash/strategy windows — A007/A030).
 
 ### Explicit non-writes (important)
 
-- **No `set_debt_positions`**: `PositionSides::Supply` skips the debt map. Account is loaded with both maps; only supply is persisted — avoids clobbering live debt with an untouched in-memory copy policy that matches A021/A024.
-- **No `set_account_meta` on top-up**: spoke/mode immutable after create (A021). `AccountGuard::Supply` only enforces spoke match vs the call argument.
-- **No delegate mutation**.
-- **No account deletion / NFT burn** on this verb (`remove_if_empty=false`). Contrast withdraw (A024) and strategy finalize.
-- **No premature durable zero-slot**: `Account::get_or_create_supply_position` takes `&self` and returns an ephemeral zero position without inserting into `supply_positions`; durable insert happens only after pool returns nonzero scaled via `update_or_remove_supply_position`.
+- **No `set_debt_positions`**: `PositionSides::Supply` skips the debt map. In-memory borrow map may be read for `apply_gated_liquidation_params` HF hypothetics but is never persisted back — intentional; avoids clobbering debt.
+- **No `set_account_meta` on top-up**: spoke/mode unchanged; create already wrote meta.
+- **No delegate map mutation**.
+- **No spoke asset / spoke config / hub / pool / oracle / accumulator writes**.
+- **No controller-side market-index persistence** — `put_market_index` is Cache-only; pool remains SoT (A086/A094).
+- **No `enforce_post_pool_solvency` / `restamp_listed_supply_ltv`**: supply does not walk sibling collateral LTVs. Touched legs get `refresh_supply_risk_params(FullTuple)` in merge; those stamps land because `Supply` side is always written.
+- **No empty-account cleanup**: `remove_if_empty: false` — supply cannot empty an account; cleanup belongs on withdraw/strategy/liq (A024/A036).
 
 ---
 
-## 1. Shares (`SupplyPositions`)
+## Phase analysis
 
-### 1.1 Source of truth
+### 1. Gates before position/usage writes
 
-```331:356:contracts/controller/src/positions/supply.rs
+1. **Pause** — `#[when_not_paused]` on `supply` (risk-increasing / new exposure).
+2. **Auth** — `require_authorized_caller` (`caller.require_auth` + flash-loan gate).
+3. **Inputs** — `aggregate_positive_payments` rejects empty/non-positive legs and collapses duplicate hubs so each hub appears once in the pool batch.
+4. **Account resolve** — create (`account_id==0`) or load + `require_spoke_match` (INV-AUTH-06 spoke immutability).
+5. **Third-party slot rule** — non-owner/non-delegate may only top up hubs already in `supply_positions` (INV-AUTH-03 / A012). Create skips (caller becomes owner).
+6. **Listing / halt / collateralizable** — `validate_position_entry_gates` → `require_can_supply` → hub active, listed on account spoke, `BlockOnEntry` (not paused/frozen), `is_collateralizable` (A040).
+7. **Position count** — `validate_bulk_position_limits` (INV-RISK-04).
+
+No position/usage `set_*` runs in this phase. Create may write meta+NFT; `Cache::new` only renews instance TTL otherwise.
+
+### 2. Create-time meta vs finalize positions (ordering)
+
+```47:76:contracts/controller/src/account.rs
+pub(crate) fn create_account_with(...) -> (u64, Account) {
+    // ...
+    let account_id = nft_mint_call(env, &nft, owner);
+    // ... empty in-memory maps ...
+    storage::set_account_meta(env, account_id, &AccountMeta { spoke_id, mode });
+    (account_id, account)
+}
+```
+
+| Fact | Implication |
+|---|---|
+| Meta is the existence sentinel (A021) | Account “exists” before first share is persisted |
+| NFT mint is paired at create (INV-STOR-03) | Ownership never stored on controller |
+| Shares wait for finalize | Mid-tx panic after mint/meta reverts entire tx (Soroban atomicity) — no durable orphan on failure |
+| Success path always finalizes | Live create leaves meta + non-empty `SupplyPositions` after positive supply |
+
+Residual: within the same successful invocation, a listed-token transfer hook after meta mint but before finalize can re-enter against empty-on-disk supply maps while outer RAM state is mid-merge (A007 residual class). Listing trust + measured settlement bound that; not unique to supply.
+
+### 3. `settle_supply` — measure, pool, then in-memory merge
+
+#### 3.1 Measured receipt into pool action
+
+```135:154:contracts/controller/src/positions/supply.rs
+for (hub_asset, amount_in) in aggregated.iter() {
+    let asset_config: AssetConfig = cache.require_spoke_asset(account.spoke_id, &hub_asset);
+    let received = payments::transfer_amount_measured(
+        env, &hub_asset.asset, caller, &pool_addr, amount_in, ...
+    );
+    let position = account.get_or_create_supply_position(&hub_asset, &asset_config);
+    entries.push_back(PoolSupplyEntry {
+        action: make_pool_action(&position, received, hub_asset.clone()),
+    });
+}
+let results = pool_supply_call(...);
+for_each_leg(..., |entry, result| merge_supply_leg(...));
+```
+
+- Transfer is **caller → pool** with balance delta measured at the pool (INV-ACCT-03 / A041). Fee-on-transfer shrinks `received`; pool is asked to credit that measured amount.
+- `get_or_create_supply_position` returns existing or a **zero** seed with config risk stamps — **does not insert** into `account.supply_positions` (`common/.../controller.rs:329-344`). Map insert only later in `update_or_remove_supply_position`.
+- `for_each_leg` asserts `entries.len() == results.len()` then merges in order; aggregation already deduped hubs.
+
+#### 3.2 `merge_supply_leg` — buffer only
+
+```308:357:contracts/controller/src/positions/supply.rs
+pub(crate) fn merge_supply_leg(...) {
+    let mut position = account.get_or_create_supply_position(hub_asset, &asset_config);
+    let old_scaled = position.scaled_amount;
+    refresh_supply_risk_params(..., RiskRefreshScope::FullTuple);
     let outcome = LegOutcome::from(result);
     position.scaled_amount = outcome.new_scaled;
-    // ...
-    update_or_remove_supply_position(account, hub_asset, &position);
-```
-
-- Pool `PoolPositionMutation.position.scaled_amount` → `LegOutcome.new_scaled` → account share balance.
-- Caller-requested amounts and even the measured transfer amount are **not** written as shares; they only seed `PoolAction.amount` for the pool to mint from (`settle_supply` → `make_pool_action(..., received, ...)`).
-- Pool enforces INV-ACCT-05: positive amount that mints zero shares panics (`SupplyRoundsToZeroShares`). Zero-amount no-op is allowed only when mint is zero — not reachable from `aggregate_positive_payments` (rejects 0).
-- Zero post-leg scaled removes the map entry (`update_or_remove_supply_position`); supply entry legs only increase scaled, so removal on this verb is not a realistic success outcome.
-
-### 1.2 Stamped risk meta colocated with shares
-
-Each `AccountPositionRaw` stores RAY shares plus BPS `liquidation_threshold` / `liquidation_bonus` / `loan_to_value` / `liquidation_fees`. On every supply leg, `merge_supply_leg` calls `refresh_supply_risk_params(..., FullTuple)` **before** assigning `new_scaled`:
-
-- `loan_to_value` always restamped from current listed config.
-- LT / bonus / fees go through `apply_gated_liquidation_params` (block liquidator-favoring updates when account has debt and hypothetical HF would fall below 1.05 WAD).
-
-Gating HF uses the **pre-deposit** scaled amount still present in the account map / local position at refresh time — slightly stricter against liquidator-favoring restamps than a post-deposit HF would be (borrower-favorable residual; not a storage integrity bug).
-
-### 1.3 Persist shape
-
-`finalize_position_flow` → `persist_account_positions(..., PositionSides::Supply, false)` → `set_supply_positions` writes the **entire** in-memory supply map (not a per-key patch). Empty map removes the persistent key (`write_side_map`). Then `renew_user_account` extends TTL on every live sibling key that `has` (meta/supply/debt/delegates) — INV-STOR-01.
-
-### 1.4 Multi-leg batching
-
-All legs mutate memory + Cache first; one durable supply-map write at the end. Mid-batch cap failure or pool panic aborts the whole Soroban transaction (token transfer + pool mint + any create meta/NFT roll back together).
-
----
-
-## 2. Meta (`AccountMeta`)
-
-| Case | Meta write? | Notes |
-|---|---|---|
-| `account_id == 0` | Yes, once at create | `spoke_id` from args; `mode = PositionMode::Normal` forced |
-| Existing account | No | Spoke must match (`AccountGuard::Supply`); mode untouched |
-| Third-party top-up | No | Cannot change spoke/mode; cannot open new hub slots (A012) |
-
-Ownership is never written to controller storage (NFT `owner_of` — A004/A021). Create couples mint recipient to authorizing `caller`.
-
----
-
-## 3. Spoke usage
-
-### 3.1 Entry semantics on supply
-
-```334:345:contracts/controller/src/positions/supply.rs
-    apply_leg_usage(
-        env,
-        cache,
-        account.spoke_id,
-        UsageSide::Supply,
-        hub_asset,
-        LegDirection::Entry {
-            asset_decimals: result.asset_decimals,
-        },
-        old_scaled,
-        &outcome,
+    apply_leg_usage(..., LegDirection::Entry { asset_decimals: result.asset_decimals }, ...);
+    cache.put_market_index(...);
+    cache.record_supply_position_update(
+        PositionAction::Supply, hub_asset, outcome.market_index.supply_index,
+        action.amount,  // measured receipt, not outcome.amount
+        &position,
     );
+    update_or_remove_supply_position(account, hub_asset, &position);
+}
 ```
 
-- Delta = `outcome.new_scaled.checked_sub(old_scaled)` (pool truth − preimage shares).
-- `Cache::apply_spoke_entry` loads listed cap, uses **outcome** market supply index + pool-reported decimals, then `SpokeUsageContext::apply_entry` → `enforce_spoke_cap` (`calculate_scaled_cap`). Cap breach → `SpokeSupplyCapReached`; no partial durable usage write without finalize (and tx reverts).
-- Absent usage row starts at zero and is written into the in-memory map unconditionally on entry — supply **does not** share A080’s exit missing-row no-op.
-
-### 3.2 Persist
-
-`cache.persist_spoke_usage()` writes every cached row via `set_spoke_usage`. Both-zero rows are removed from shared persistent storage. Borrow-side RAY on the same key is preserved when only supply changes.
-
-### 3.3 Ordering vs cash movement
-
-Tokens are transferred to the pool and `pool_supply_call` commits **before** usage/cap enforcement in `merge_supply_leg`. A cap miss after the pool leg still reverts the full transaction — no stranded pool mint without controller usage/account commit. INV-HALT-03: exits do not consume caps; this entry path does.
-
-Certora: `usage_supply_tracks_scaled_delta` (endpoint through `process_supply` + finalize); Wave0 `SupplyEntry` wires `merge_supply_leg`.
-
----
-
-## 4. Events via `finalize_position_flow`
-
-### 4.1 Buffer then emit
-
-`record_supply_position_update` pushes `EventDepositDelta` during `merge_supply_leg`. `emit_position_batch` runs **after** `persist_spoke_usage` and `persist_account_positions` (A033). Empty buffers → no-op publish.
-
-### 4.2 Payload vs storage
-
-| Event field | Source on supply leg | Matches durable state? |
+| Step | Effect | Durable? |
 |---|---|---|
-| `scaled_amount` | post-merge `position` | Yes — same object persisted |
-| risk params (LT/LTV/bonus/fees) | post-refresh `position` | Yes |
-| `index_ray` | `outcome.market_index.supply_index` | Cache-updated; pool is SoT |
-| `amount` | `action.amount` (= measured transfer into pool) | Pool `actual_amount` equals credited `amount` on supply (`pool/ops/supply.rs` echoes it) |
+| `old_scaled` | Missing hub → `Ray::ZERO` | No |
+| `refresh_supply_risk_params(FullTuple)` | Always restamps LTV; LT/bonus/fees via `apply_gated_liquidation_params` (debt + HF gate) | No until finalize |
+| `LegOutcome` | Pool `new_scaled`, index, `actual_amount` | No (pool SoT — A082) |
+| `apply_leg_usage` Entry | `delta = new_scaled - old_scaled`; cap via `calculate_scaled_cap` on **returned** supply index + decimals | No until finalize |
+| `put_market_index` | Cache refresh for later math | No |
+| `record_supply_position_update` | Queue `EventDepositDelta` with post-merge stamps | No until emit |
+| `update_or_remove_supply_position` | Upsert raw map; remove if `scaled_amount == 0` | No until finalize |
 
-Contrast withdraw (`merge_withdraw_leg` records `outcome.amount`). For supply, measured receipt and pool `actual_amount` coincide by pool design; observational consistency holds without a separate controller equality assert on this verb (strategy custody legs assert elsewhere — A082).
+Cap failure or math panic aborts before finalize → no controller usage/position writes; Soroban rolls back pool + token movements.
 
-### 4.3 Account attributes on the batch
+**Entry vs exit usage:** supply entry always materializes a usage row (`unwrap_or_default` then write). The A080 missing-row no-op is exit-only — not on this verb’s happy path (A076).
 
-`UpdatePositionBatchEvent.account_attributes` comes from the in-memory `Account` (spoke/mode). Those values originated from create meta or load; supply does not mutate them.
+### 4. Finalize — single commit point
 
----
-
-## 5. Trust boundary: measured receipt → pool credit → controller shares
-
+```241:252:contracts/controller/src/positions/mod.rs
+pub(crate) fn finalize_position_flow(...) {
+    cache.persist_spoke_usage();
+    persist_account_positions(env, account_id, account, sides, remove_if_empty);
+    cache.emit_position_batch(account_id, account);
+}
 ```
-caller token  --transfer_amount_measured-->  pool balance Δ (= received)
-received      --PoolAction.amount-------->  pool mint + credit_cash(amount)
-pool mutation --new_scaled--------------->  account shares + usage Δ
+
+```218:236:contracts/controller/src/positions/mod.rs
+pub(crate) fn persist_account_positions(...) {
+    if sides != PositionSides::Debt {
+        storage::set_supply_positions(...);
+    }
+    if sides != PositionSides::Supply {
+        storage::set_debt_positions(...);
+    }
+    storage::renew_user_account(env, account_id);
+    if remove_if_empty {
+        account::cleanup_account_if_empty(...);
+    }
+}
 ```
 
-- INV-ACCT-03: inbound credit uses measured receipt, not the caller’s requested figure alone.
-- `transfer_amount_measured` does **not** require `Δ == amount`. Under-delivery → fewer shares (user loss). Over-delivery on a malicious listed token → excess shares vs economic intent (governance token trust — A041/A055). Protocol cash book on the pool still tracks what the pool credited.
+For `process_supply`: `sides = PositionSides::Supply`, `remove_if_empty = false`.
 
-No post-pool solvency check on supply (collateral-increasing): intentional; contrast withdraw/borrow (A072).
-
----
-
-## 6. Create vs top-up write-set comparison
-
-| Write | New account (`id=0`) | Owner/delegate top-up | Third-party top-up |
-|---|---|---|---|
-| NFT mint | Yes (to caller) | No | No |
-| `AccountMeta` | Yes | No | No |
-| Open new hub supply slot | Yes (caller is owner) | Yes | **No** (`NotAuthorized`) |
-| Increase existing slot shares | Yes | Yes | Yes |
-| Restamp risk on slot | Yes | Yes | Yes (side effect) |
-| Spoke usage ↑ + cap | Yes | Yes | Yes |
-| `SupplyPositions` persist | Yes | Yes | Yes |
-| `remove_if_empty` cleanup | No | No | No |
-| Debt / delegates | No | No | No |
-
----
-
-## 7. Failure / atomicity
-
-| Failure point | Durable controller state | Pool / token / NFT |
-|---|---|---|
-| Auth / aggregate / gates | Unchanged | Unchanged |
-| Create mint then later panic | Full tx revert | Mint/meta revert with tx |
-| Transfer then pool/cap/merge panic | Full tx revert | Transfer + pool revert |
-| After successful finalize | Committed write-set above | Committed |
-
-There is no success path that returns from `process_supply` without `finalize_position_flow`. In-memory-only windows exist only until the end of the same invocation (or until a panic aborts).
-
----
-
-## 8. Cross-links
-
-| Peer | Relation |
+| Commit step | Behavior |
 |---|---|
-| A021 | Account key family / meta-as-existence / empty-map deletion — supply respects `PositionSides::Supply` |
-| A024 | Mirror inventory for withdraw; supply uses `remove_if_empty=false` and Entry usage+cap |
-| A012 / A004 | Third-party slot rule + create ownership |
-| A032 / A033 | Finalize batching and durable-before-events order |
-| A036 | Empty cleanup asymmetry — supply intentionally never cleans |
-| A076 / A077 / A082 | Usage/cap/pool-output trust boundary |
-| A080 | Exit missing-row residual — **not** on supply entry |
-| A041 / A055 | Measured deposit / lying token residuals |
-| A007 | `process_deposit` reused under strategies after flash-guard windows |
-| A094 | `put_market_index` after merge required for later same-tx risk math |
+| `persist_spoke_usage` | Writes every cached `SpokeUsage` row for the invocation’s spoke; zero/zero removes key |
+| `set_supply_positions` | Persists full in-memory supply map (shares + stamped BPS params); empty map removes key |
+| Skip debt | Preserves on-disk borrow map unchanged |
+| `renew_user_account` | TTL bump on existing meta/supply/debt/delegates keys (create also has meta) |
+| Skip cleanup | Never burns NFT / deletes meta on this verb |
+| `emit_position_batch` | Publishes buffered deposit deltas after durable writes (A033) |
+
+### 5. Why no `PositionSides::Both` / no post-pool solvency
+
+Borrow must widen to `Both` when `restamp_listed_supply_ltv` mutates sibling collateral LTVs used by the solvency gate (A023 / TOB-AAVE-7 class). Supply:
+
+- Does **not** call `enforce_post_pool_solvency`.
+- Only mutates supply hubs present in the deposit batch (plus their FullTuple stamps).
+- Always persists the supply map, so those stamps cannot stay RAM-only.
+
+Adding a borrow-style solvency gate on supply would be incorrect product behavior (blocking collateral top-ups that improve health). Skipping `Both` is safe because debt bytes are untouched in memory for persistence purposes.
+
+### 6. Third-party top-up and stamped params
+
+A stranger who passes INV-AUTH-03 can still:
+
+- Increase `scaled_amount` on an existing hub (risk-reducing / neutral for foreign leverage).
+- Trigger `FullTuple` refresh on that hub: LTV always follows listing; LT/bonus/fees update unless liquidator-favoring change is gated by debt + HF floor (`risk/params.rs:66-91`).
+
+Persisted effect is on the victim’s `SupplyPositions` row for that hub only — cannot open new slots, change spoke/mode, or touch debt map. Agrees with A012.
+
+### 7. Shared `process_deposit` (strategy callers)
+
+`multiply`, `flash_position`, `swap_collateral`, and `migrate_blend` call `process_deposit` / `merge_supply_leg` but **not** `process_supply`’s finalize. They must reach `finalize_position_flow` (often `PositionSides::Both`, `remove_if_empty: true`) via strategy tails (A032). Judging those write sets is out of scope here; the merge buffer semantics are the same.
 
 ---
 
-## 9. Verdict
+## Threat / invariant cross-check
 
-Supply-path controller storage writes are **defended**: create meta/NFT are correctly coupled to the authorizing caller; shares and spoke-usage entry track pool-scaled outputs; caps use post-mutation indexes; events are observational and emitted after durable commits; debt/meta/delegates are not clobbered on top-up; empty-account burn is correctly omitted. No undefended write that lets a stranger forge shares, rewrite foreign meta, or skip usage accounting on a successful entry leg. Residual notes are governance-token trust, intentional third-party risk restamp, and shared strategy finalize concerns — not a broken supply write-set.
+| Claim | Status on this path |
+|---|---|
+| INV-AUTH-03 third-party cannot open slots | Enforced before deposit |
+| INV-ACCT-03 credit = measured receipt | Measured Δ drives pool action amount; shares from pool `new_scaled` |
+| INV-RISK-04 position limits | Pre-pool gate |
+| INV-HALT-02 BlockOnEntry | `require_can_supply` |
+| INV-STOR-01 lifecycle | Instance renew at Cache::new; user renew at finalize; empty map delete |
+| INV-STOR-03 NFT↔account pair | Mint on create; supply never burns |
+| STRIDE Tamper (storage) | Stranger cannot rewrite foreign maps; residual listed-token reentrancy |
+| Cap / usage integrity | Entry cap on scaled delta; persist after all legs; fail → full revert |
+
+---
+
+## Comparison table (supply vs sibling verbs)
+
+| Property | Supply (A022) | Withdraw (A024) | Borrow (A023) |
+|---|---|---|---|
+| `PositionSides` | Always `Supply` | Always `Supply` | `Debt` or `Both` if LTV restamp |
+| `remove_if_empty` | `false` | `true` | `false` |
+| Post-pool solvency | No | Yes | Yes |
+| Usage direction | Entry (+cap) | Exit (A080 residual) | Entry (+cap) |
+| Early meta write | Yes on create | No | No |
+| Pause macro | Yes | No (exit liveness) | Yes |
+| Third-party | Top-up existing only | Owner/delegate | Owner/delegate |
+
+---
+
+## Residuals (non-blocking)
+
+1. **Listed-token reentrancy during `transfer_amount_measured`** — flash guard unset; outer create may already have meta+NFT; inner monetary calls possible until listing policy excludes hooks (A007/A055). Not a missing finalize bug.
+2. **Event amount source** — `action.amount` (measured) vs unused `outcome.amount` on this verb. Indexers should treat scaled/index fields as authoritative for shares; token amount is the measured inflow. Optional hardening: equality assert `received == result.actual_amount` (present on some strategy paths per A082).
+3. **Empty-shell rent** — not introduced by supply; supply with `remove_if_empty: false` is correct because success leaves non-empty supply (or reverts).
+
+---
+
+## Verdict
+
+Ordinary supply’s durable write surface is narrow, ordered, and correctly sided. Shares and spoke usage commit once at finalize from pool outcomes; meta is create-only and spoke-immutable thereafter; events follow storage. No novel controller write-set bug found on this verb. Treat listing-trust reentrancy and event-amount observational asymmetry as shared residuals, not supply-specific storage failures.
