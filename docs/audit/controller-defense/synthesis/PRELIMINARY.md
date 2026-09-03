@@ -33,6 +33,7 @@ A087–A093, A095–A098, A100–A110 continue in subsequent waves.
 | A009 | Owner must be timelock (deploy) | If mis-wired, instant admin = full parameter/upgrade compromise |
 | A094 | Future leg forgetting `put_market_index` | Wrong HF/caps within a tx; footgun for new code |
 | A048/A056 | Controller has no quantitative `min_out` on strategy swaps (only `received > 0`; min-out lives in opaque aggregator payload) | Router compromise can drain swapped notional up to post-swap solvency; known aggregator trust-root gap |
+| A062/A015 | No hard length cap on mutator payment Vecs / keeper asset lists (views use 256) | Fee-funded compute DoS only; money paths still aggregate/limit positions |
 | Threat-model | Aggregator + XOXNO oracle standalone owners | Immediate upgrade/sweep/price authority outside governance |
 
 ## Next waves
