@@ -25,7 +25,7 @@ Section numbers written as "note §N" point into it.
 
 | Surface | Count | Evidence |
 |---|---|---|
-| Conf files | 105 at review time, 126 after section 10 | Observed, parsed with a script |
+| Conf files | 105 at review time, 118 after section 10 | Observed, parsed with a script |
 | Rules | 353 at review time (285 assert, 68 satisfy, 0 mixed), 387 after section 10 | Observed, same classifier as `check_orphans.py` |
 | Rule modules | 20 controller, 9 pool, 4 common, 4 price-aggregator | Observed |
 | Harness and summary files | 12 | Observed |
@@ -1005,13 +1005,13 @@ section is the applied state. The prover was still not run.
 
 ```
 ./certora/compile_all.sh
-# OK: 126 confs, 387 source rules, 7 profiles, zero orphans, zero dead rules
+# OK: 118 confs, 387 source rules, 7 profiles, zero orphans, zero dead rules
 # OK: all conf files use canonical focused WASM paths and features
 make fmt-check                                 # clean after one cargo fmt --all
 make docs-check                                # broken links: 0, unknown symbols: 0
 make access-control-check                      # OK 207 entrypoints
 cargo clippy --all-targets -- -D warnings      # exit 0
-cargo test --workspace                         # 2556 passed, 0 failed
+cargo test --workspace                         # 2557 passed, 0 failed
 make certora-wasm                              # 32 focused artifacts rebuilt
 python3 certora/scripts/check_wasm_artifacts.py  # certora wasm artifacts ok
 ```
@@ -1062,7 +1062,7 @@ that verb's success witness. The gate additionally gained: `optimistic_loop`
 must stay false outside one allowlisted conf, `loop_iter` must be positive and
 at least 28 on any host-state conf, a sanity conf's `loop_iter` may not fall
 below its assert twin's, and `-mediumTimeout` and `-maxCommandCount` must be
-present. Counts moved from 105 confs / 353 rules to 126 confs / 387 rules,
+present. Counts moved from 105 confs / 353 rules to 118 confs / 387 rules,
 almost all of the growth being the 21 new completion witnesses and the 22
 native and widened lemmas described below, less the four cross-layer
 duplicates removed in 10.7.1.
@@ -1154,13 +1154,58 @@ arithmetic budgets.
 The two widenings went in before the deletions, so no domain was lost. Rule
 count moved 391 to 387.
 
-**A cost finding this exposed, not yet acted on.** 63 controller rules and 1
-pool rule reference no `crate::` item at all: they prove shared-crate
-arithmetic through the expensive artifact. That is an upper bound rather than a
-work order, because a rule that calls a contract-local helper imported at the
-top of the file would also match. Moving them is a real refactor: new confs,
-feature wiring, and a different artifact under every one of those proofs. It is
-the largest remaining cost lever in the suite and it needs its own change.
+### 10.7.2 The layer migration
+
+The duplicate scan exposed a larger cost problem: rules that prove shared-crate
+arithmetic while linked into a contract artifact. A first pass counted 63 by
+asking which rule bodies mention no `crate::` path. That count was wrong in both
+directions, and the two corrections matter more than the number:
+
+- It missed **transitive** dependencies. Three liquidation rules call a local
+  helper that calls the controller's liquidation curve, and a pool rule reaches
+  the pool fixture through a `super::` import. Seventeen rules dropped out.
+- It over-counted **re-exports**. The controller's `crate::types` is
+  `pub use common::types` and its `crate::constants` re-exports
+  `common::constants::*`, so `MarketParams`, `HubAssetKey` and the numeric
+  bounds are shared-crate names wearing a contract-crate spelling. Eleven rules
+  came back in.
+
+The honest figure is 57, and 57 moved. Nothing was rewritten: each rule kept its
+assumptions, its assertions and its comments, and the only edits were path
+spellings (`common::x` becomes `crate::x` inside the crate that owns `x`) and
+the private constants and helpers each family needs. Twenty-one inline
+fully-qualified calls the controller copies carried were converted to
+imports plus bare calls, which the repository's own style rule requires.
+
+| Moved from | Rules | Now proved in |
+|---|---|---|
+| controller math_rules (whole module) | 17 | common `math_rules` |
+| controller `boundary_rules` + `solvency_rules` | 19 | common `fp_extremes_rules` (new) |
+| controller interest_rules (whole module) | 10 | common `rates_rules` |
+| controller `hf_lemma_rules` + `liquidation_rules` | 7 | common `value_math_rules` (new) |
+| controller `index_rules` | 3 | common `rate_index_accounting_rules` |
+
+Two controller spec modules and two controller features are gone. The layer
+split moved from 236 controller / 51 common rules to 176 / 108. Fifteen confs
+were retired into six, because rules that were scattered across per-property
+confs are one arithmetic class and belong under one set of budgets.
+
+The point of the exercise is the artifact each proof links against:
+
+| Artifact | Size |
+|---|---|
+| `controller-*-rules.wasm` (what these rules used to link) | 228 KB |
+| `common-math-rules.wasm` | 66 KB |
+| `common-rates-rules.wasm` | 68 KB |
+| `common-rate-index-accounting-rules.wasm` | 65 KB |
+| `common-fp-extremes-rules.wasm` | 59 KB |
+| `common-value-math-rules.wasm` | 55 KB |
+
+**What deliberately did not move.** Four bad-debt boundary rules call the
+controller's socialization gate. Fifteen liquidation rules call its curve. The
+rest of the solvency and index families drive controller entrypoints or read
+controller storage. One pool reachability witness builds its market through the
+pool fixture. Those rules are about contract code and belong where they are.
 
 ### 10.8 Still open
 

@@ -22,6 +22,8 @@ certora-math-rules = ["certora", "certora-focused"]
 certora-lp-math-rules = ["certora", "certora-focused"]
 certora-rates-rules = ["certora", "certora-focused"]
 certora-rate-index-accounting-rules = ["certora", "certora-focused"]
+certora-fp-extremes-rules = ["certora", "certora-focused"]
+certora-value-math-rules = ["certora", "certora-focused"]
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
