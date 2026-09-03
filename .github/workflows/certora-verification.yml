@@ -108,6 +108,9 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
+      # Each running job holds one unfinished cloud job, and the cloud bills an
+      # unfinished job at 120 minutes against the monthly submission allowance.
+      # Four in flight is 480 projected minutes; the allowance is 2120.
       max-parallel: 4
       matrix: ${{ fromJSON(needs.compile-check.outputs.sanity-matrix) }}
     steps:
@@ -144,10 +147,18 @@ jobs:
         working-directory: ${{ matrix.conf_dir }}
         run: |
           set -o pipefail
+          # `--wait_for_results ALL` is not optional here. Without it the CLI
+          # returns as soon as the cloud accepts the job, so the step passes on
+          # submission, `prover.log` holds no verdict, and the summary row below
+          # records "none". Run 33710229937 is the evidence: 35 green jobs, zero
+          # verdicts. Waiting also bounds how many jobs are unfinished at once,
+          # which is what the cloud counts against the monthly allowance.
           if [ -n "$RULE" ]; then
-            certoraSorobanProver "${{ matrix.conf }}" --rule "$RULE" 2>&1 | tee prover.log
+            certoraSorobanProver "${{ matrix.conf }}" --rule "$RULE" \
+              --wait_for_results ALL 2>&1 | tee prover.log
           else
-            certoraSorobanProver "${{ matrix.conf }}" 2>&1 | tee prover.log
+            certoraSorobanProver "${{ matrix.conf }}" \
+              --wait_for_results ALL 2>&1 | tee prover.log
           fi
 
       - name: Record the verdict in the job summary
@@ -155,6 +166,9 @@ jobs:
         working-directory: ${{ matrix.conf_dir }}
         run: |
           # One row per job. The ledger in certora/README.md is filled from these.
+          # With --wait_for_results ALL the log carries a real verdict. A row
+          # that still says "none" means the CLI did not wait: treat the job as
+          # unproved, not as passing.
           verdict="$(grep -Eo '(Verified|Violated|SANITY_FAILED|Timeout|Error)[^ ]*' prover.log 2>/dev/null | tail -1)"
           url="$(grep -Eo 'https://[^ ]*prover.certora.com[^ ]*' prover.log 2>/dev/null | tail -1)"
           {
