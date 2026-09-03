@@ -5,11 +5,11 @@
 - Severity: medium (highest residual in-wave: A064 `no_seize`; otherwise low/info)
 - Status: partial (wave incomplete; gaps below are from filed agents only)
 - Paths: synthesis over `findings/A061`–`A075` that exist; primary code cited by those agents (`payments.rs`, `risk/validation.rs`, `positions/mod.rs` `FreezePolicy`, `context/oracle.rs`, `flash_position.rs`, `keepers.rs`, `views.rs`)
-- Defense: Amount sign/zero/overflow (A061), spoke/hub entry gates (A063), listing + FreezePolicy matrix (A064 core), hard aggregator `prices()` freshness/sanity on valuation mutations (A065), position-slot cardinality (A066), min-borrow collateral floor in post-pool gates (A067/A072), flash `refund_assets` uniqueness/allowlist (A070), post-pool HF/LTV (A072), and intentional aggregate-and-sum (A062) form a dense T4 stack on risk-increasing money paths.
-- Gap: (1) **A064 G1** — `no_seize` uncoupled from `frozen` / supply entry (ADR-0008 Option C not shipped). (2) **A062 / A015** — no hard length cap on mutator payment Vecs or keeper Vecs (views use 256). (3) **A065** — plant-stale-leg liquidation DoS; dual-source config skew; aggregator-as-SoT. (4) **A067** — keeper/passive grandfathering below floor; `BAD_DEBT_USD_THRESHOLD` desync from live floor. (5) **A066** — `swap_debt` borrow-first blocks full refinance at borrow cap (UX). (6) Hygiene/docs residuals (A062/A063/A070). (7) **Unfiled A068–A069, A071, A073–A075**.
-- Impact: See §4 quantification. No filed A061–A075 finding demonstrates silent share mint, durable over-cap position maps, double-credit via duplicate Vecs, or undercollateralized origination on gated paths when the live aggregator enforces `failure`. Worst in-wave residual remains **liquidation unavailability** via `no_seize` (A064, medium) or plant-stale (A065, low). Vec DoS and floor/BAD_DEBT drift are Low. Swap slippage (A056) stays T3.
-- Evidence: Filed findings A061–A067, A070, A072; peers A006, A008, A009, A015, A040, A045, A048, A050, A056; PRELIMINARY; INV-HALT-02, INV-ORACLE-01..04, INV-RISK-01/04, ADR-0005/0008, STRIDE DoS.2 / DoS.5 / DoS.9 / TB3.
-- Opinion: Validation is **mostly defended** for fund safety. Prioritize ADR-0008 Option C. Treat A065 plant-stale, A062 Vec caps, and A067 BAD_DEBT desync as Low ops/hygiene. Document A066 `swap_debt` cap refinance; do not reorder borrow-first legs lightly. Re-run A102 when A068–A069 / A071 / A073–A075 land.
+- Defense: Amount sign/zero/overflow (A061), spoke/hub entry gates (A063), listing + FreezePolicy matrix (A064 core), hard aggregator `prices()` freshness/sanity on valuation mutations (A065), position-slot cardinality (A066), min-borrow collateral floor in post-pool gates (A067/A072), SeizeMode Transfer/Credit exhaustive resolve (A068), flash `refund_assets` uniqueness/allowlist (A070), post-pool HF/LTV (A072), and intentional aggregate-and-sum (A062) form a dense T4 stack on risk-increasing money paths.
+- Gap: (1) **A064 G1** — `no_seize` uncoupled from `frozen` / supply entry (ADR-0008 Option C not shipped). (2) **A062 / A015** — no hard length cap on mutator payment Vecs or keeper Vecs (views use 256). (3) **A065** — plant-stale-leg liquidation DoS; dual-source config skew; aggregator-as-SoT. (4) **A067** — keeper/passive grandfathering below floor; `BAD_DEBT_USD_THRESHOLD` desync from live floor. (5) **A066** — `swap_debt` borrow-first blocks full refinance at borrow cap (UX). (6) **A068** — maintainer/`Option`-tag residual if a third SeizeMode is added; estimate vs execution admission asymmetry (info). (7) Hygiene/docs residuals (A062/A063/A070). (8) **Unfiled A069, A071, A073–A075**.
+- Impact: See §4 quantification. No filed A061–A075 finding demonstrates silent share mint, durable over-cap position maps, double-credit via duplicate Vecs, mis-routed SeizeMode delivery, or undercollateralized origination on gated paths when the live aggregator enforces `failure`. Worst in-wave residual remains **liquidation unavailability** via `no_seize` (A064, medium) or plant-stale (A065, low). Vec DoS and floor/BAD_DEBT drift are Low. Swap slippage (A056) stays T3.
+- Evidence: Filed findings A061–A068, A070, A072; peers A006, A008, A009, A013, A015, A018, A040, A045, A048, A050–A052, A056; PRELIMINARY; INV-HALT-02, INV-LIQ-01, INV-ORACLE-01..04, INV-RISK-01/04, ADR-0005/0008/0019, STRIDE DoS.2 / DoS.5 / DoS.9 / TB3.
+- Opinion: Validation is **mostly defended** for fund safety. Prioritize ADR-0008 Option C. Treat A065 plant-stale, A062 Vec caps, and A067 BAD_DEBT desync as Low ops/hygiene. Document A066 `swap_debt` cap refinance; keep SeizeMode→path coupling explicit before any third mode (A068). Re-run A102 when A069 / A071 / A073–A075 land.
 
 ---
 
@@ -22,8 +22,8 @@
 | `shared/COORDINATION.md` | No git; findings-only write |
 | `synthesis/PRELIMINARY.md` | Leading residuals already call out A062/A015 |
 | `shared/AGENT_MANIFEST.md` Wave 4 | Scope list A061–A075; A102 = synthesize validation gaps |
-| Filed findings | A061, A062, A063, A064, A065, A066, A067, A070, A072 |
-| Adjacent peers (not Wave 4 owners) | A006, A008, A009, A015, A040, A045, A048, A050, A056 — only to quantify cross-theme impact |
+| Filed findings | A061, A062, A063, A064, A065, A066, A067, A068, A070, A072 |
+| Adjacent peers (not Wave 4 owners) | A006, A008, A009, A013, A015, A018, A040, A045, A048, A050–A052, A056 — only to quantify cross-theme impact |
 
 ### 1.2 Wave 4 filing status (snapshot for this synthesis)
 
@@ -36,7 +36,7 @@
 | A065 | Oracle freshness / sanity on risk paths | **yes** | defended / partial | low (config / availability) |
 | A066 | Position limits (max supply/debt slots) | **yes** | defended | info (+ low UX residual) |
 | A067 | Min borrow collateral floor | **yes** | defended / partial | low |
-| A068 | Mode / SeizeMode exhaustive handling | **no** | — | — |
+| A068 | Mode / SeizeMode exhaustive handling | **yes** | defended | info |
 | A069 | Callback `data` / swap Bytes size & trust | **no** | (A056 defers Bytes size here) | — |
 | A070 | `refund_assets` uniqueness & allowlist | **yes** | defended | info |
 | A071 | Blend pool approval on migrate | **no** | — | — |
@@ -45,13 +45,13 @@
 | A074 | Panic vs `assert_with_error` consistency | **no** | — | — |
 | A075 | Fuzz/proptest vs validation surface | **no** | — | — |
 
-**9 / 15** Wave 4 agents filed. Synthesis below is authoritative for those nine; for unfiled IDs, §7 records only **pointers from peers**, not independent gap claims.
+**10 / 15** Wave 4 agents filed. Synthesis below is authoritative for those ten; for unfiled IDs, §7 records only **pointers from peers**, not independent gap claims.
 
 ---
 
 ## 2. What is defended (validation stack)
 
-Layered fail-closed gates on risk-increasing user paths (compiled from A061–A067, A070, A072):
+Layered fail-closed gates on risk-increasing user paths (compiled from A061–A068, A070, A072):
 
 ```text
 Auth / pause / flash guard          (T1: A001–A007; out of A102 primary)
@@ -228,6 +228,16 @@ Post-pool solvency                  A072 / A067 — LTV coll ≥ debt; HF ≥ 1 
 | Mechanism | (a) Keepers restamp LTV/params without evaluating the floor → indebted accounts can sit below floor until next risk-increasing action. (b) `BAD_DEBT_USD_THRESHOLD` is compile-time default; raising live floor desyncs dust cleanup band. |
 | Impact | No silent origination under floor on gated paths. Residuals: temporary below-floor “zombies”, cleanup-band ops drift, Certora fixtures force floor `0` |
 
+### G-VAL-14 — SeizeMode / Option-tag maintainer residual (A068)
+
+| Field | Value |
+|---|---|
+| Source | A068 gaps (1)–(4); ADR-0019; INV-LIQ-01 |
+| Status | **defended** today; info residual for future variants / estimate UX |
+| Severity | **info** |
+| Mechanism | Live matches enumerate `Transfer` / `Credit(_)`. Apply branches on `Option` from resolve — a future third mode that wrongly returns `None` would take Transfer. Estimate skips Credit admission gates (simulation UX). |
+| Impact | No current mis-route of collateral or fee minting across modes. Residual is keeper estimate optimism and maintainer risk when extending the enum |
+
 ### Explicit non-gaps (filed)
 
 | Claim | Owner | Verdict |
@@ -240,6 +250,7 @@ Post-pool solvency                  A072 / A067 — LTV coll ≥ debt; HF ≥ 1 
 | Soft `quotes()` used for on-chain HF | A065 | **defended** (views only) |
 | Durable over-cap supply/borrow maps | A066 | **defended** |
 | Mint debt under positive min-borrow floor on gated paths | A067 | **defended** |
+| Silent SeizeMode mis-route / Credit to strategy mode | A068 | **defended** |
 | Arbitrary `refund_assets` Client | A070 | **defended** |
 | Persist undercollateralized gated path | A072 | **defended** |
 
@@ -264,6 +275,7 @@ Blast-radius axes: **funds (theft / silent mint)**, **account**, **market**, **p
 | G-VAL-11 (aggregator root) | If aggregator lies: wrong HF protocol-wide | Same | Same | Same as PRELIMINARY trust-root row | Deploy / upgrade discipline (A009) |
 | G-VAL-12 (`swap_debt` at cap) | None | Full refinance into new hub blocked at max borrow slots | None | None | Low UX; repay+borrow workaround |
 | G-VAL-13 (floor residuals) | None on gated origination | Passive below-floor after LTV restamp / floor raise | Dust cleanup band may not track live floor | Socialize/cleanup ops hygiene | Low; next risk-increasing action re-enforces |
+| G-VAL-14 (SeizeMode) | None today | Estimate may show Credit units that execution rejects | None | None | Info UX / future-maintainer |
 
 ### 4.1 Worst-case numeric framing (G-VAL-1)
 
@@ -319,7 +331,7 @@ Both raise liquidation latency; G-VAL-1 is worse because a guardian action alone
 | A070 | — | Vec sibling | debt-hub listing | listing≠freeze | — | len ≤ max_supply | — | — | finalize after refund |
 | A072 | — | — | — | — | consumes hard prices | — | owns floor call | — | — |
 
-**Agreement:** No disagreement files among filed Wave 4 agents. A066 owns slot cardinality that A062 only adjacent-noted; A067 owns floor depth that A072 summarized.
+**Agreement:** No disagreement files among filed Wave 4 agents. A066 owns slot cardinality that A062 only adjacent-noted; A067 owns floor depth that A072 summarized; A068 owns SeizeMode exhaustiveness that A013/A051/A052 assumed.
 
 ### 5.2 Peers outside Wave 4
 
@@ -380,12 +392,11 @@ These are **not** synthesized gap claims. They flag follow-up agents and peer hi
 
 | Unfiled | Manifest intent | Peer / code pointer |
 |---|---|---|
-| A068 | Mode / SeizeMode exhaustive | A013 / A018 / A051 / A052 own much of the behavior; A068 should confirm match exhaustiveness / no silent `_` arms |
 | A069 | Callback `data` / swap Bytes | A056 explicitly out-of-scopes Bytes size to A069; trust of opaque payload = slippage class |
 | A071 | Blend pool approval on migrate | A050 money-flow; approval check needs dedicated gate inventory |
 | A073 | Interest / market params read trust | Pool FFI / index trust; adjacent A077/A094 |
 | A074 | Panic vs `assert_with_error` | Consistency / error-code surface; A072/A067 mix both for floor vs HF |
-| A075 | Fuzz/proptest vs validation | Coverage map for A061–A074 negatives; A070 over-length thin; A065/A066/A067 have strong harness density |
+| A075 | Fuzz/proptest vs validation | Coverage map for A061–A074 negatives; A068 estimate/Long-Short harness thin spots; A070 over-length thin |
 
 When these land, **re-open A102** (or A110) to fold new residuals into §3–§4.
 
@@ -401,6 +412,7 @@ When these land, **re-open A102** (or A110) to fold new residuals into §3–§4
 | Spoke/hub | Unit + harness deprecated liveness | Latent `is_active=false` mostly test-only |
 | Oracle freshness/sanity | Aggregator + harness staleness/sanity/supply-stale-shield; Certora freshness* | Controller timestamps by design absent |
 | Min-borrow floor | A067 harness `min_borrow_collateral.rs`; admin boundary | Certora fixtures force floor `0` |
+| SeizeMode exhaustiveness | A068: resolve match + harness Transfer/Credit/`Multiply` reject | Long/Short dedicated cases thin; Certora Transfer-heavy |
 | Flash refunds | Dupes / overlap / unlisted harness | Over-length + multi-hub keying thin |
 | Post-pool HF/LTV | INV-RISK-01; `solvency_gate_checked`; strategy Certora finals | Floor covered by A067 residuals |
 
@@ -412,7 +424,7 @@ When these land, **re-open A102** (or A110) to fold new residuals into §3–§4
 
 1. **Highest actionable validation gap:** A064 / G-VAL-1 — `no_seize` uncoupled from freeze/supply (**medium**).
 2. **Low residuals:** A062∪A015 / G-VAL-2 (uncapped Vecs); A065 / G-VAL-9–10 (plant-stale + config skew); A067 / G-VAL-13 (keeper grandfathering + BAD_DEBT drift); A066 / G-VAL-12 (`swap_debt` at-cap UX).
-3. **Info / accepted:** hub docs (A063), refund keying (A070), aggregator-as-SoT (A065), amounts (A061), post-pool HF (A072), slot cardinality core (A066).
-4. **Incomplete:** 6 of 15 Wave 4 IDs still unfiled (A068–A069, A071, A073–A075). Do not treat this file as exhaustion of Bytes, Blend approval, or fuzz coverage.
+3. **Info / accepted:** hub docs (A063), refund keying (A070), aggregator-as-SoT (A065), amounts (A061), post-pool HF (A072), slot cardinality (A066), SeizeMode exhaustiveness (A068).
+4. **Incomplete:** 5 of 15 Wave 4 IDs still unfiled (A069, A071, A073–A075). Do not treat this file as exhaustion of Bytes, Blend approval, or fuzz coverage.
 
-Cross-links primary: **A061–A067, A070, A072**; supporting **A006, A008, A009, A012, A015, A040, A045, A048, A050, A056**; synthesis peers **A101** (money), **A110** (backlog).
+Cross-links primary: **A061–A068, A070, A072**; supporting **A006, A008, A009, A012, A013, A015, A018, A040, A045, A048, A050–A052, A056**; synthesis peers **A101** (money), **A110** (backlog).
