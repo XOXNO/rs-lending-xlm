@@ -48,7 +48,7 @@
       "title": "Oracle health",
       "gridPos": {
         "h": 5,
-        "w": 5,
+        "w": 4,
         "x": 0,
         "y": 5
       },
@@ -80,6 +80,10 @@
                 "1": {
                   "text": "Healthy",
                   "color": "green"
+                },
+                "-1": {
+                  "text": "no data",
+                  "color": "red"
                 }
               }
             }
@@ -102,7 +106,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "min(lending_oracle_healthy{network=\"mainnet\"})",
+          "expr": "min(lending_oracle_healthy{network=\"mainnet\"}) or vector(-1)",
           "instant": true,
           "datasource": {
             "type": "prometheus",
@@ -110,7 +114,7 @@
           }
         }
       ],
-      "description": "Worst oracle across all assets. Red means at least one asset price is not safe to use.",
+      "description": "Worst oracle across all assets. Red means at least one asset price is not safe to use. \"no data\" means no mainnet series exists at all: the exporter is down or mislabelled.",
       "datasource": {
         "type": "prometheus",
         "uid": "cfgw0aa7mups0d"
@@ -122,8 +126,8 @@
       "title": "Min freshness (time to stale)",
       "gridPos": {
         "h": 5,
-        "w": 5,
-        "x": 5,
+        "w": 4,
+        "x": 4,
         "y": 5
       },
       "options": {
@@ -186,14 +190,14 @@
       "title": "Any stale flag",
       "gridPos": {
         "h": 5,
-        "w": 5,
-        "x": 10,
+        "w": 4,
+        "x": 12,
         "y": 5
       },
       "targets": [
         {
           "refId": "A",
-          "expr": "max(lending_oracle_stale{network=\"mainnet\"})",
+          "expr": "max(lending_oracle_stale{network=\"mainnet\"}) or vector(-1)",
           "instant": true,
           "datasource": {
             "type": "prometheus",
@@ -214,75 +218,9 @@
                 "1": {
                   "text": "STALE",
                   "color": "red"
-                }
-              }
-            }
-          ],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 1
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "colorMode": "background",
-        "graphMode": "none",
-        "textMode": "auto"
-      },
-      "description": "1 if any asset price is currently older than its allowed maximum age.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "cfgw0aa7mups0d"
-      }
-    },
-    {
-      "id": 106,
-      "type": "stat",
-      "title": "Any deviation flag",
-      "gridPos": {
-        "h": 5,
-        "w": 5,
-        "x": 15,
-        "y": 5
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "max(lending_oracle_deviation_flag{network=\"mainnet\"})",
-          "instant": true,
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cfgw0aa7mups0d"
-          }
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "mappings": [
-            {
-              "type": "value",
-              "options": {
-                "0": {
-                  "text": "clear",
-                  "color": "green"
                 },
-                "1": {
-                  "text": "DEVIATION",
+                "-1": {
+                  "text": "no data",
                   "color": "red"
                 }
               }
@@ -314,7 +252,159 @@
         "graphMode": "none",
         "textMode": "auto"
       },
-      "description": "1 if any asset price currently deviates beyond its tolerance band.",
+      "description": "1 if any asset price is currently older than its allowed maximum age. \"no data\" means no mainnet series exists at all: the exporter is down or mislabelled.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cfgw0aa7mups0d"
+      }
+    },
+    {
+      "id": 107,
+      "type": "stat",
+      "title": "Min freshness budget left",
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 8,
+        "y": 5
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "reduceOptions": {
+          "fields": "",
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 0,
+          "min": 0,
+          "max": 1,
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "-1": {
+                  "text": "no data",
+                  "color": "red"
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0
+              },
+              {
+                "color": "green",
+                "value": 0.1
+              }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "instant": true,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cfgw0aa7mups0d"
+          },
+          "expr": "min(lending_oracle_seconds_until_stale{network=\"mainnet\"} / (lending_oracle_effective_max_stale_seconds{network=\"mainnet\"} > 0)) or vector(-1)"
+        }
+      ],
+      "description": "Smallest share of any asset's staleness budget still unspent. Orange below 10% matches LendingOracleFreshnessLow; red means a leg is already rejected on-chain.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cfgw0aa7mups0d"
+      }
+    },
+    {
+      "id": 106,
+      "type": "stat",
+      "title": "Any deviation flag",
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 16,
+        "y": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(lending_oracle_deviation_flag{network=\"mainnet\"}) or vector(-1)",
+          "instant": true,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cfgw0aa7mups0d"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "clear",
+                  "color": "green"
+                },
+                "1": {
+                  "text": "DEVIATION",
+                  "color": "red"
+                },
+                "-1": {
+                  "text": "no data",
+                  "color": "red"
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto"
+      },
+      "description": "1 if any asset price currently deviates beyond its tolerance band. \"no data\" means no mainnet series exists at all: the exporter is down or mislabelled.",
       "datasource": {
         "type": "prometheus",
         "uid": "cfgw0aa7mups0d"
@@ -357,11 +447,11 @@
               },
               {
                 "color": "orange",
-                "value": 60
+                "value": 120
               },
               {
                 "color": "red",
-                "value": 120
+                "value": 300
               }
             ]
           }
@@ -770,6 +860,16 @@
             "type": "prometheus",
             "uid": "cfgw0aa7mups0d"
           }
+        },
+        {
+          "refId": "ACC",
+          "expr": "time() - lending_market_last_accrual_timestamp{network=\"mainnet\"}",
+          "instant": true,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cfgw0aa7mups0d"
+          },
+          "format": "table"
         }
       ],
       "transformations": [
@@ -802,7 +902,8 @@
               "Value #BAP": "Borrow APY",
               "Value #REV": "Revenue $",
               "Value #SQT": "Supplied qty",
-              "Value #BQT": "Borrowed qty"
+              "Value #BQT": "Borrowed qty",
+              "Value #ACC": "Since accrual"
             },
             "excludeByName": {
               "network": true,
@@ -820,7 +921,8 @@
               "Value #BAP": 7,
               "Value #REV": 8,
               "Value #SQT": 9,
-              "Value #BQT": 10
+              "Value #BQT": 10,
+              "Value #ACC": 11
             }
           }
         }
@@ -949,6 +1051,48 @@
               {
                 "id": "decimals",
                 "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Since accrual"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 43200
+                    },
+                    {
+                      "color": "red",
+                      "value": 86400
+                    }
+                  ]
+                }
               }
             ]
           }
@@ -1367,7 +1511,7 @@
         },
         {
           "refId": "U",
-          "expr": "lending_oracle_tolerance_upper_bps{network=\"mainnet\"}",
+          "expr": "(lending_oracle_tolerance_upper_bps{network=\"mainnet\"} > 10000) - 10000",
           "legendFormat": "{{symbol}} upper",
           "datasource": {
             "type": "prometheus",
@@ -1376,7 +1520,7 @@
         },
         {
           "refId": "L",
-          "expr": "lending_oracle_tolerance_lower_bps{network=\"mainnet\"}",
+          "expr": "10000 - (lending_oracle_tolerance_lower_bps{network=\"mainnet\"} > 0)",
           "legendFormat": "{{symbol}} lower",
           "datasource": {
             "type": "prometheus",
@@ -1395,7 +1539,7 @@
           "sort": "desc"
         }
       },
-      "description": "Primary-vs-anchor price gap per asset (solid), against that asset's own tolerance band (dashed). A solid line crossing its dashed line means the deviation flag raises.",
+      "description": "Primary-vs-anchor price gap per asset (solid, unsigned bps), against that asset's own tolerance band converted to a width (dashed; the configured value is a ratio in bps, 10500 means +5%). A solid line crossing the lower of its two dashed lines means the deviation flag raises. LP markets have no band and no lines.",
       "datasource": {
         "type": "prometheus",
         "uid": "cfgw0aa7mups0d"
@@ -1973,8 +2117,18 @@
           }
         },
         {
+          "refId": "EM",
+          "expr": "lending_oracle_effective_max_stale_seconds{network=\"mainnet\"}",
+          "instant": true,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cfgw0aa7mups0d"
+          },
+          "format": "table"
+        },
+        {
           "refId": "TU",
-          "expr": "lending_oracle_tolerance_upper_bps{network=\"mainnet\"}",
+          "expr": "lending_oracle_tolerance_upper_bps{network=\"mainnet\"} / 10000",
           "instant": true,
           "format": "table",
           "datasource": {
@@ -1984,7 +2138,7 @@
         },
         {
           "refId": "TL",
-          "expr": "lending_oracle_tolerance_lower_bps{network=\"mainnet\"}",
+          "expr": "lending_oracle_tolerance_lower_bps{network=\"mainnet\"} / 10000",
           "instant": true,
           "format": "table",
           "datasource": {
@@ -2036,10 +2190,11 @@
               "symbol": "Asset",
               "Value #ST": "Strategy",
               "Value #MS": "Max stale s",
-              "Value #TU": "Tol upper",
-              "Value #TL": "Tol lower",
+              "Value #TU": "Upper bound",
+              "Value #TL": "Lower bound",
               "Value #SN": "Sanity min $",
-              "Value #SX": "Sanity max $"
+              "Value #SX": "Sanity max $",
+              "Value #EM": "Effective max stale s"
             },
             "excludeByName": {
               "network": true,
@@ -2049,10 +2204,11 @@
               "symbol": 0,
               "Value #ST": 1,
               "Value #MS": 2,
-              "Value #TU": 3,
-              "Value #TL": 4,
-              "Value #SN": 5,
-              "Value #SX": 6
+              "Value #TU": 4,
+              "Value #TL": 5,
+              "Value #SN": 6,
+              "Value #SX": 7,
+              "Value #EM": 3
             }
           }
         }
@@ -2123,10 +2279,26 @@
                 "value": 4
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".* bound"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
           }
         ]
       },
-      "description": "How each asset's oracle is configured: blend strategy, maximum allowed price age, tolerance band, and sanity bounds \u2014 plus its current freshness.",
+      "description": "How each asset's oracle is configured: blend strategy, maximum allowed price age (configured, and the effective value of the soonest-to-stale provider leg that the freshness alerts divide by), tolerance band as a share of the anchor price (100% is parity), and sanity bounds \u2014 plus its current freshness.",
       "datasource": {
         "type": "prometheus",
         "uid": "cfgw0aa7mups0d"
@@ -2147,7 +2319,7 @@
       "id": 112,
       "type": "table",
       "title": "All spoke listings \u2014 operational state",
-      "description": "Every listed spoke-asset and its operational switches. \u201cClosed\u201d means the cap is 0 \u2014 the market accepts no new supply or borrows.",
+      "description": "Every listed spoke-asset and its operational switches. \u201cClosed\u201d means the cap is 0 \u2014 the market accepts no new supply or borrows. A closed side has no cap-utilization value, because there is no cap to divide by.",
       "gridPos": {
         "h": 12,
         "w": 24,
@@ -2164,7 +2336,196 @@
             "align": "right",
             "filterable": true
           }
-        }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "Hub|Spoke|Asset"
+            },
+            "properties": [
+              {
+                "id": "custom.align",
+                "value": "left"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "Paused"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "0": {
+                        "text": "ok",
+                        "color": "green"
+                      },
+                      "1": {
+                        "text": "PAUSED",
+                        "color": "red"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "Frozen"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "0": {
+                        "text": "ok",
+                        "color": "green"
+                      },
+                      "1": {
+                        "text": "FROZEN",
+                        "color": "red"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "Collateral|Borrow"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "0": {
+                        "text": "no",
+                        "color": "text"
+                      },
+                      "1": {
+                        "text": "yes",
+                        "color": "green"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "Supply closed|Borrow closed"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "0": {
+                        "text": "open",
+                        "color": "green"
+                      },
+                      "1": {
+                        "text": "CLOSED",
+                        "color": "red"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*cap util"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "max",
+                "value": 1
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "gradient"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 0.9
+                    },
+                    {
+                      "color": "red",
+                      "value": 0.95
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
       },
       "targets": [
         {
@@ -2250,6 +2611,17 @@
       ],
       "transformations": [
         {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true,
+              "instance": true,
+              "job": true
+            }
+          }
+        },
+        {
           "id": "merge",
           "options": {}
         },
@@ -2276,7 +2648,22 @@
               "Value #SCL": "Supply closed",
               "Value #BCL": "Borrow closed",
               "Value #SCU": "Supply cap util",
-              "Value #BCU": "Borrow cap util"
+              "Value #BCU": "Borrow cap util",
+              "spoke_id": "Spoke id"
+            },
+            "indexByName": {
+              "hub": 0,
+              "spoke": 1,
+              "spoke_id": 2,
+              "symbol": 3,
+              "Value #PAU": 4,
+              "Value #FRZ": 5,
+              "Value #COL": 6,
+              "Value #BRW": 7,
+              "Value #SCL": 8,
+              "Value #BCL": 9,
+              "Value #SCU": 10,
+              "Value #BCU": 11
             }
           }
         }
@@ -3039,7 +3426,7 @@
       "id": 913,
       "type": "timeseries",
       "title": "RPC errors",
-      "description": "What LendingRpcErrors fires on.",
+      "description": "What LendingRpcErrors fires on, per RPC op.",
       "datasource": {
         "type": "prometheus",
         "uid": "cfgw0aa7mups0d"
@@ -3053,13 +3440,13 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "increase(lending_exporter_rpc_errors_total[1h])",
+          "expr": "sum by (network, op) (increase(lending_exporter_rpc_errors_total[1h]))",
           "datasource": {
             "type": "prometheus",
             "uid": "cfgw0aa7mups0d"
           },
           "format": "time_series",
-          "legendFormat": "{{network}}"
+          "legendFormat": "{{network}} \u00b7 {{op}}"
         }
       ],
       "fieldConfig": {
@@ -3176,9 +3563,9 @@
     },
     {
       "id": 916,
-      "type": "timeseries",
+      "type": "state-timeline",
       "title": "Deprecated spoke-assets",
-      "description": "What LendingSpokeDeprecated fires on. A deprecated spoke-asset still holds positions that must wind down.",
+      "description": "Spoke-assets whose spoke is deprecated. No alert fires on this; it is the `unless` clause that silences LendingSpokeSupplyClosedWhileCollateralEnabled and LendingSpokeBorrowClosedWhileBorrowEnabled for a market that is being wound down. A deprecated spoke-asset still holds positions that must wind down.",
       "datasource": {
         "type": "prometheus",
         "uid": "cfgw0aa7mups0d"
@@ -3204,19 +3591,38 @@
       "fieldConfig": {
         "defaults": {
           "custom": {
-            "lineWidth": 1,
-            "fillOpacity": 0
-          }
+            "fillOpacity": 70,
+            "lineWidth": 0
+          },
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "orange"
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "1": {
+                  "text": "deprecated",
+                  "color": "orange"
+                }
+              }
+            }
+          ]
         },
         "overrides": []
       },
       "options": {
+        "showValue": "never",
+        "mergeValues": true,
+        "alignValue": "center",
+        "rowHeight": 0.85,
         "legend": {
-          "displayMode": "table",
-          "placement": "right",
-          "calcs": [
-            "lastNotNull"
-          ]
+          "showLegend": false
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
         }
       }
     }

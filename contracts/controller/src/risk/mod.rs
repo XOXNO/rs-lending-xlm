@@ -9,4 +9,4 @@ pub(crate) use totals::{
 };
 
 #[cfg(feature = "certora")]
-pub(crate) use totals::{portfolio_hub_keys, position_value_ceil, position_value_floor};
+pub(crate) use totals::{position_value_ceil, position_value_floor};

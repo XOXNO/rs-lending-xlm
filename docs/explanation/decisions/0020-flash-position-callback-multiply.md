@@ -8,8 +8,8 @@ A new controller strategy, `flash_position`, mints strategy debt with `charge_fe
 
 This is the multiply *shape* (mint strategy debt, obtain collateral, solvency
 gate) with the aggregator swap replaced by an external callback. It is not a
-cash flash loan. Unlike `multiply`, `PositionMode::Normal` and same-asset
-borrow-then-supply are allowed; solvency is the gate.
+cash flash loan. Like `multiply`, only the Multiply, Long and Short modes are
+accepted; same-asset borrow-then-supply is allowed and solvency is the gate.
 
 Zero fee is allowed because this entrypoint cannot round-trip to a closed
 position. A successful call must still hold the minted debt and at least
@@ -29,6 +29,7 @@ never auto-repaid.
 ## Guarantees
 
 - Pool `flash_loan` still requires exact principal-plus-fee repayment and `is_flashloanable`.
+- `flash_position` honours `is_flashloanable` on the debt market and accepts only the Multiply, Long and Short modes: the minted debt reaches a caller-chosen contract, the exact custody the flag denies. `multiply` stays ungated because its funds reach only the governance-owned router.
 - Strategy debt is minted before the callback; pool cash and debt shares stay consistent.
 - The receiver cannot keep the funds unless the account was already solvent enough to borrow them, and at least one strictly positive collateral minimum is supplied.
 - Leftover undeclared tokens are never credited as positions. Caller-listed `refund_assets` can recover them.
@@ -36,4 +37,4 @@ never auto-repaid.
 
 ## Auditor focus
 
-Round-trip attempts (push debt token back and hope for auto-repay), empty/all-zero collateral lists, `receiver = controller` or `receiver = pool`, reentry of every guarded entrypoint, fee-on-transfer debt tokens, `is_flashloanable = false` still succeeding, and protocol revenue remaining unchanged.
+Round-trip attempts (push debt token back and hope for auto-repay), empty/all-zero collateral lists, `receiver = controller` or `receiver = pool`, reentry of every guarded entrypoint, fee-on-transfer debt tokens, `is_flashloanable = false` refusing the call, `PositionMode::Normal` refusing the call, and protocol revenue remaining unchanged.

@@ -24,6 +24,7 @@ use soroban_sdk::{assert_with_error, Address, Env, Vec};
 
 use self::curve::is_socializable_bad_debt;
 use crate::account;
+use crate::account::SpokeAdmission;
 use crate::context::Cache;
 use crate::events::LiquidationEvent;
 use crate::positions::{finalize_position_flow, PositionSides};
@@ -180,12 +181,13 @@ fn resolve_seize_receiver(
     };
 
     if requested == 0 {
-        return Some(account::create_account(
+        return Some(account::create_account_with(
             env,
             liquidator,
             account.spoke_id,
             PositionMode::Normal,
             cache,
+            SpokeAdmission::AllowDeprecated,
         ));
     }
 

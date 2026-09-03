@@ -14,13 +14,20 @@
 groups:
   - name: lending-protocol
     rules:
-      - alert: LendingOracleStaleWarning
-        expr: lending_oracle_seconds_until_stale < 300
-        for: 2m
+      # Budgets range from 1h (Reflector legs) to 26h (RedStone factor legs), and
+      # the slow legs legitimately spend most of their budget between pushes, so
+      # any fixed-seconds or half-budget threshold pages in normal operation.
+      # Warn once, at the last 10% of the budget, and page only when the leg is
+      # actually rejected on-chain. On a 1h leg 10% is six minutes, so this
+      # warning is mostly for the multi-hour legs; the critical below is the
+      # real signal for the fast ones.
+      - alert: LendingOracleFreshnessLow
+        expr: lending_oracle_seconds_until_stale / lending_oracle_effective_max_stale_seconds < 0.10 and lending_oracle_seconds_until_stale > 0 and lending_oracle_effective_max_stale_seconds > 0
+        for: 5m
         labels: { severity: warning }
         annotations:
-          summary: "Oracle price for {{ $labels.symbol }} ({{ $labels.network }}) is close to stale"
-          description: "{{ $value }}s of provider-probe freshness left before the worst feed leg is rejected on-chain."
+          summary: "Oracle freshness budget for {{ $labels.symbol }} ({{ $labels.network }}) below 10%"
+          description: "{{ $value | humanizePercentage }} of the staleness budget remains; a feed heartbeat was likely missed. Check the feeder (Xoxno bots / RedStone push) before the leg is rejected on-chain."
 
       - alert: LendingOracleStaleCritical
         expr: lending_oracle_seconds_until_stale <= 0
@@ -32,49 +39,25 @@ groups:
 
 
 
-
-      - alert: LendingOracleFreshnessHalfConsumed
-        expr: lending_oracle_seconds_until_stale / lending_oracle_effective_max_stale_seconds < 0.5 and lending_oracle_seconds_until_stale / lending_oracle_effective_max_stale_seconds >= 0.25 and lending_oracle_effective_max_stale_seconds > 0
-        for: 15m
-        labels: { severity: warning }
-        annotations:
-          summary: "Oracle freshness half-consumed for {{ $labels.symbol }} ({{ $labels.network }})"
-          description: "{{ $value | humanizePercentage }} of the staleness budget remains; a feed heartbeat was likely missed. Check the feeder (Xoxno bots / RedStone push) before it reaches the on-chain gate."
-
-      - alert: LendingOracleFreshnessCritical
-        expr: lending_oracle_seconds_until_stale / lending_oracle_effective_max_stale_seconds < 0.25 and lending_oracle_seconds_until_stale > 0 and lending_oracle_effective_max_stale_seconds > 0
-        for: 10m
-        labels: { severity: critical }
-        annotations:
-          summary: "Oracle freshness >75% consumed for {{ $labels.symbol }} ({{ $labels.network }})"
-          description: "Only {{ $value | humanizePercentage }} of the staleness budget remains; the feed is approaching PriceFeedStale. Confirm the feeder / RedStone push is live now."
-
+      # valid=0 is the impact; stale=1 and deviation=1 are two of its causes, and
+      # a resolution error zeroes both flags. One page per event, with the reason
+      # read from the status table, replaces three criticals for the same fault.
       - alert: LendingOracleUnhealthy
         expr: lending_oracle_healthy == 0
         for: 5m
         labels: { severity: critical }
         annotations:
           summary: "Oracle soft status invalid for {{ $labels.symbol }} ({{ $labels.network }})"
-          description: "MarketIndexView.valid=0 — price is stale, out of dual-source band, outside sanity, unreadable, or the index view failed. Soft path does not revert; solvency-style use is blocked."
+          description: "MarketIndexView.valid=0 — price is stale, out of dual-source band, outside sanity, unreadable, or the index view failed. Soft path does not revert; solvency-style use is blocked. The Error column of the 'Oracle status by asset' panel names the cause."
 
-      - alert: LendingOracleStaleFlag
-        expr: lending_oracle_stale == 1
-        for: 2m
-        labels: { severity: critical }
-        annotations:
-          summary: "Oracle soft stale flag for {{ $labels.symbol }} ({{ $labels.network }})"
-          description: "MarketIndexView.stale=1 from price-aggregator prices_status."
-
-      - alert: LendingOracleDeviationFlag
-        expr: lending_oracle_deviation_flag == 1
-        for: 2m
-        labels: { severity: critical }
-        annotations:
-          summary: "Oracle soft deviation flag for {{ $labels.symbol }} ({{ $labels.network }})"
-          description: "MarketIndexView.deviation=1 — primary and anchor disagree beyond tolerance (or anchor missing under dual strategy)."
-
+      # lending_oracle_tolerance_*_bps is the configured ratio in bps (10500 means
+      # the primary may sit 5% above the anchor, 9524 means 5% below), while
+      # lending_oracle_deviation_bps is an unsigned width (|p-a|/a). Comparing
+      # them raw needs an 84% gap to fire, so the rule was dead. The width the
+      # chain enforces is the tighter of the two sides; `(A < B) or B` is the
+      # element-wise minimum. LP markets carry a 0/0 band and are excluded.
       - alert: LendingOracleDeviationHigh
-        expr: lending_oracle_deviation_bps > 0.8 * lending_oracle_tolerance_upper_bps and lending_oracle_tolerance_upper_bps > 0
+        expr: lending_oracle_deviation_bps > 0.8 * (((lending_oracle_tolerance_upper_bps - 10000) < (10000 - lending_oracle_tolerance_lower_bps)) or (10000 - lending_oracle_tolerance_lower_bps)) and lending_oracle_tolerance_upper_bps > 10000
         for: 5m
         labels: { severity: warning }
         annotations:
@@ -82,12 +65,12 @@ groups:
           description: "Deviation {{ $value }}bps is within 20% of the configured tolerance; a breach freezes the soft-valid price."
 
       - alert: LendingExporterStalled
-        expr: time() - lending_exporter_last_success_timestamp > 120
-        for: 1m
+        expr: time() - lending_exporter_last_success_timestamp > 300
+        for: 2m
         labels: { severity: critical }
         annotations:
           summary: "Lending exporter has not completed a scrape ({{ $labels.network }})"
-          description: "No successful scrape in over 2× the scrape interval; dashboard data is going stale."
+          description: "No successful scrape for 5 minutes (30× the mainnet 10s interval, 10× the testnet 30s one); dashboard data and every rule above are going blind."
 
       - alert: LendingExporterDown
         expr: up{job=~"stellar-lending-exporter.*"} == 0
@@ -125,9 +108,12 @@ groups:
           summary: "No exporter is reporting network=mainnet"
           description: "No series carries network=mainnet, so every mainnet oracle and market alert is evaluating an empty set and cannot fire. Either the mainnet exporter is gone or it is reporting under a different network label."
 
+      # `increase(...) > 0` stays true for the whole window after one error, so
+      # a single transient RPC failure paged 10 minutes later. Require five
+      # failures of one op inside fifteen minutes before it counts as sustained.
       - alert: LendingRpcErrors
-        expr: increase(lending_exporter_rpc_errors_total[10m]) > 0
-        for: 10m
+        expr: increase(lending_exporter_rpc_errors_total[15m]) >= 5
+        for: 5m
         labels: { severity: warning }
         annotations:
           summary: "Sustained RPC errors from the lending exporter ({{ $labels.network }})"
@@ -154,8 +140,8 @@ groups:
       # still reads as an enabled listing everywhere else on the board, and its
       # cap-utilization series is absent rather than pinned — these two rules are
       # the only thing that distinguishes it from a healthy idle market.
-      # `on(...)` pins the join to the identifying labels; without it the set
-      # operation would also match on __name__ and never fire.
+      # `on(...)` pins the join to the identifying labels, so a hub or symbol
+      # display-name change cannot break the match.
       # `unless` drops deprecated spokes: winding one down by zeroing its caps
       # while leaving the flags set is exactly the intentional case, and without
       # this it would alert forever.
@@ -179,28 +165,31 @@ groups:
       # decode failure drops the whole spoke-asset row, and PromQL `and` on an
       # absent series never fires. The counter is then the only signal.
       - alert: LendingExporterViewFailures
-        expr: increase(lending_exporter_view_failures_total[15m]) > 0
-        for: 15m
+        expr: increase(lending_exporter_view_failures_total[15m]) >= 3
+        for: 5m
         labels: { severity: warning }
         annotations:
           summary: "Exporter cannot read {{ $labels.view }} for {{ $labels.asset }} ({{ $labels.network }})"
           description: "Contract view failing with code {{ $labels.code }}. Spoke-asset gauges for the affected listing are absent, so cap/closed/flag alerts cannot evaluate for it."
 
       - alert: LendingExporterSpokeAssetDecodeBroken
-        expr: increase(lending_exporter_view_failures_total{view="get_spoke_asset",code="decode"}[15m]) > 0
+        expr: increase(lending_exporter_view_failures_total{view="get_spoke_asset",code="decode"}[15m]) >= 3
         for: 5m
         labels: { severity: critical }
         annotations:
           summary: "Exporter cannot decode get_spoke_asset ({{ $labels.network }})"
           description: "Usually contract/exporter ABI skew during a rolling deploy. Every spoke-asset series is missing while this persists, so closed-market and cap-utilization alerting is blind."
 
+      # With no debt the indexes do not move, so an idle market that nobody
+      # touches for a day is not a stalled keeper. Only markets with borrows
+      # have interest to checkpoint.
       - alert: LendingAccrualStalled
-        expr: (time() - lending_market_last_accrual_timestamp) > 86400
+        expr: (time() - lending_market_last_accrual_timestamp) > 86400 and on(network, hub_id, asset) lending_market_borrowed_total > 0
         for: 30m
         labels: { severity: warning }
         annotations:
-          summary: "{{ $labels.symbol }} interest index not accrued in 24h ({{ $labels.network }})"
-          description: "The keeper/index refresh may be down, or the market is idle."
+          summary: "{{ $labels.symbol }} interest index not accrued in 24h with open debt ({{ $labels.network }})"
+          description: "The market has borrows but no accrual checkpoint in 24h; the keeper/index refresh may be down."
 
       - alert: LendingMarketPaused
         expr: lending_spoke_paused == 1

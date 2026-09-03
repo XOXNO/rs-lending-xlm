@@ -101,7 +101,7 @@ fn test_flash_position_same_asset_loop() {
     let account_id = t.flash_position(
         ALICE,
         0,
-        PositionMode::Normal,
+        PositionMode::Multiply,
         "USDC",
         100.0,
         &receiver,
@@ -117,7 +117,7 @@ fn test_flash_position_same_asset_loop() {
 }
 
 #[test]
-fn test_flash_position_works_when_flash_loans_disabled() {
+fn test_flash_position_refuses_a_market_with_flash_loans_disabled() {
     let mut t = LendingTest::new()
         .standard_two_asset()
         .with_market_config("ETH", |c| c.is_flashloanable = false)
@@ -125,10 +125,8 @@ fn test_flash_position_works_when_flash_loans_disabled() {
     let receiver = t.deploy_flash_position_receiver();
     let payload = data(&t, request(&t, FlashPositionMode::Success, 4_000.0));
     let mins = collaterals(&t, &[("USDC", 4_000.0)]);
-    let account_id = t
-        .try_alice_eth_flash(&receiver, &payload, &mins, &Vec::new(&t.env))
-        .expect("zero-fee flash_position must not require is_flashloanable");
-    assert!(account_id > 0);
+    let result = t.try_alice_eth_flash(&receiver, &payload, &mins, &Vec::new(&t.env));
+    assert_contract_error(result, errors::FLASHLOAN_NOT_ENABLED);
 }
 
 #[test]
@@ -272,8 +270,8 @@ fn test_flash_position_refunds_undeclared_push() {
 #[test]
 fn test_flash_position_pushing_debt_back_does_not_repay() {
     let mut t = setup();
+    let account_id = t.create_account_full(ALICE, HARNESS_SPOKE, PositionMode::Multiply);
     t.supply(ALICE, "USDC", 20_000.0);
-    let account_id = t.resolve_account_id(ALICE);
     let receiver = t.deploy_flash_position_receiver();
     let payload = data(&t, request(&t, FlashPositionMode::PushDebtBack, 4_000.0));
     let mins = collaterals(&t, &[("USDC", 1.0)]);
@@ -283,7 +281,7 @@ fn test_flash_position_pushing_debt_back_does_not_repay() {
     let result = t.try_flash_position(
         ALICE,
         account_id,
-        PositionMode::Normal,
+        PositionMode::Multiply,
         "ETH",
         1.0,
         &receiver,
@@ -572,8 +570,8 @@ fn test_flash_position_mixed_zero_and_positive_min_succeeds() {
 #[test]
 fn test_flash_position_keep_funds_on_existing_healthy_account_leaves_debt() {
     let mut t = setup();
+    let account_id = t.create_account_full(ALICE, HARNESS_SPOKE, PositionMode::Multiply);
     t.supply(ALICE, "USDC", 20_000.0);
-    let account_id = t.resolve_account_id(ALICE);
     let receiver = t.deploy_flash_position_receiver();
     let payload = data(&t, request(&t, FlashPositionMode::Success, 1.0));
     let mins = collaterals(&t, &[("USDC", 1.0)]);
@@ -582,7 +580,7 @@ fn test_flash_position_keep_funds_on_existing_healthy_account_leaves_debt() {
         .try_flash_position(
             ALICE,
             account_id,
-            PositionMode::Normal,
+            PositionMode::Multiply,
             "ETH",
             1.0,
             &receiver,

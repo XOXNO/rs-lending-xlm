@@ -346,3 +346,70 @@ flow_clean_bad_debt() {
         --caller "$ADMIN_ADDR" --account_id "$acct" >/dev/null
     assert_borrow_at_most cbd_debt_cleared "$acct" "$SAC_LIQB" 0
 }
+
+# 2026-09 gap hunt, GH-23. `remove_spoke` has no usage check and deprecation
+# is one-way, so a spoke can hold live positions forever. Liquidation must stay
+# open there for a liquidator with no account in that spoke: `Credit(0)`
+# creates the receiver inside the deprecated spoke, while a plain supply into a
+# new account there is still refused. Runs last in the liquidation block so the
+# LIQE/LIQF price moves cannot disturb the earlier flows; teardown drains the
+# two accounts it leaves behind, which needs no active spoke.
+flow_liq_deprecated_spoke_credit() {
+    phase liq_deprecated_spoke
+    if [ -n "${DEPR_SPOKE_DONE:-}" ]; then
+        log "deprecated-spoke liquidation already recorded; skipping"
+        return 0
+    fi
+    local spoke
+    spoke=$(inv depr_spoke_add "$ADMIN" "$CONTROLLER" -- add_spoke | tr -d '"[:space:]')
+    [[ "$spoke" =~ ^[1-9][0-9]*$ ]] || die depr_spoke_add "add_spoke returned invalid spoke id '$spoke'"
+    inv depr_spoke_add_liqe "$ADMIN" "$CONTROLLER" -- add_asset_to_spoke \
+        --input "$(spoke_args "$PRIMARY_HUB_ID" "$SAC_LIQE" "$spoke" true false 9000 9500 300)" >/dev/null
+    inv depr_spoke_add_liqf "$ADMIN" "$CONTROLLER" -- add_asset_to_spoke \
+        --input "$(spoke_args "$PRIMARY_HUB_ID" "$SAC_LIQF" "$spoke" false true 9000 9500 300)" >/dev/null
+    # The mock feeds are shared with flow_liq_spoke, so pin both at one dollar
+    # before sizing the position.
+    dual_px "$SAC_LIQE" LIQE "$WAD" depr_px_reset_e
+    dual_px "$SAC_LIQF" LIQF "$WAD" depr_px_reset_f
+
+    local acct
+    acct=$(inv_create depr_supply "$BOB" "$CONTROLLER" -- supply \
+        --caller "$BOB_ADDR" --account_id 0 --spoke_id "$spoke" \
+        --assets "$(pay_vec "$PRIMARY_HUB_ID" "$SAC_LIQE" $((1000 * LIQ_UNIT)))" | tr -d '"') || return 1
+    inv depr_borrow "$BOB" "$CONTROLLER" -- borrow \
+        --caller "$BOB_ADDR" --account_id "$acct" \
+        --borrows "$(pay_vec "$PRIMARY_HUB_ID" "$SAC_LIQF" $((850 * LIQ_UNIT)))" --to null >/dev/null
+
+    inv depr_spoke_deprecate "$ADMIN" "$CONTROLLER" -- remove_spoke --id "$spoke" >/dev/null
+    # New exposure through a fresh account stays closed (#301).
+    xfail depr_supply_new_account 'Error\(Contract, #301\)' "$CAROL" "$CONTROLLER" -- supply \
+        --caller "$CAROL_ADDR" --account_id 0 --spoke_id "$spoke" \
+        --assets "$(pay_vec "$PRIMARY_HUB_ID" "$SAC_LIQE" $((10 * LIQ_UNIT)))"
+
+    dual_px "$SAC_LIQE" LIQE $((WAD / 100 * 85)) depr_crash
+    assert_hf_below_wad depr_hf "$acct"
+
+    # CAROL owns no account in this spoke. Before the fix Credit(0) died on
+    # the deprecated-spoke check inside account creation.
+    local recv
+    recv=$(inv depr_liquidate_credit0 "$CAROL" "$CONTROLLER" -- liquidate --seize_mode "$(seize_credit 0)" \
+        --liquidator "$CAROL_ADDR" --account_id "$acct" \
+        --debt_payments "$(pay_vec "$PRIMARY_HUB_ID" "$SAC_LIQF" $((200 * LIQ_UNIT)))" | tr -d '"')
+    if [ -z "$recv" ] || [ "$recv" = "0" ] || [ "$recv" = "$acct" ]; then
+        _assert_fail depr_receiver_created "Credit(0) returned '$recv'; want a fresh id != 0 and != $acct"
+    else
+        record depr_receiver_created ok liquidate "" "" "" "" "" "receiver=$recv"
+        local recv_spoke
+        recv_spoke=$(view depr_receiver_attrs "$CONTROLLER" -- get_account_attributes --account_id "$recv" \
+            | jq -r '.spoke_id // empty' 2>/dev/null)
+        if [ "$recv_spoke" = "$spoke" ]; then
+            record depr_receiver_in_deprecated_spoke ok get_account_attributes "" "" "" "" "" "spoke_id=$recv_spoke"
+        else
+            _assert_fail depr_receiver_in_deprecated_spoke "receiver sits in spoke '$recv_spoke', want $spoke"
+        fi
+    fi
+    assert_borrow_decreased depr_debt_post "$acct" "$SAC_LIQF" $((850 * LIQ_UNIT))
+    assert_borrow_at_most depr_debt_cap "$acct" "$SAC_LIQF" $((651 * LIQ_UNIT))
+    save_state DEPR_SPOKE_ID "$spoke"
+    save_state DEPR_SPOKE_DONE 1
+}

@@ -63,7 +63,8 @@ hardcode) and resolve the pool once via `client.get_pool_address()`.
   controller call, or the transfer auth is consumed/absent and the call
   reverts.
 - `withdraw` and `borrow` move tokens pool → recipient; they need no token
-  pre-authorization.
+  pre-authorization. The recipient may not be the pool or the controller
+  (`InvalidFlashloanReceiver`, #412); either would strand the tokens.
 
 ## Supply from a contract
 

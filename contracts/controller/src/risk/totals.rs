@@ -113,7 +113,18 @@ pub(crate) struct AccountRiskTotals {
 
 /// Computes an account's aggregate risk totals (collateral, debt, and
 /// health factor, all WAD) for `supply_positions` and `borrow_positions`.
-#[cfg(not(feature = "certora"))]
+///
+/// Compiled as itself for production and for the two focused verification
+/// modules whose properties are *about* these totals: `certora-health-rules`
+/// and `certora-solvency-rules` need the real arithmetic, because a rule that
+/// values a book after a verb has to compare it against the numbers the gate
+/// inside that verb actually saw. Their fixtures are single-asset, so the real
+/// body is two or three multiply-divides.
+#[cfg(any(
+    not(feature = "certora"),
+    feature = "certora-health-rules",
+    feature = "certora-solvency-rules"
+))]
 pub(crate) fn calculate_account_risk_totals(
     env: &Env,
     cache: &mut Cache,
@@ -123,7 +134,16 @@ pub(crate) fn calculate_account_risk_totals(
     calculate_account_risk_totals_body(env, cache, supply_positions, borrow_positions)
 }
 
-#[cfg(feature = "certora")]
+// Every other verification module gets the havoc summary: those rules need
+// "the gate ran on this book", not the gate's arithmetic, and the summary
+// keeps them tractable. `apply_summary!` also emits the real body as
+// `calculate_account_risk_totals::calculate_account_risk_totals`, which
+// `certora/controller/spec/index_rules.rs` calls directly.
+#[cfg(all(
+    feature = "certora",
+    not(feature = "certora-health-rules"),
+    not(feature = "certora-solvency-rules")
+))]
 cvlr_soroban_macros::apply_summary!(
     crate::spec::summaries::calculate_account_risk_totals_summary,
     /// Computes an account's aggregate risk totals (collateral, debt, and

@@ -255,3 +255,147 @@ fn test_split_accrual_never_reduces_borrow_index() {
         single.borrow_index.raw()
     );
 }
+
+// --- accrue_step boundaries (GH-04) ---------------------------------------
+
+mod accrue_step_boundaries {
+    use super::*;
+    use crate::math::fp::Ray;
+    use crate::rates::{calculate_borrow_rate, utilization};
+
+    #[test]
+    fn zero_delta_is_identity_with_no_revenue() {
+        let env = Env::default();
+        let params = make_test_params(&env);
+        let step = accrue_step(
+            &env,
+            &params,
+            Ray::from(60 * RAY),
+            Ray::from(100 * RAY),
+            Ray::ONE,
+            Ray::ONE,
+            0,
+        );
+        assert_eq!(step.borrow_index, Ray::ONE);
+        assert_eq!(step.supply_index, Ray::ONE);
+        assert_eq!(step.revenue_shares, Ray::ZERO);
+    }
+
+    #[test]
+    fn one_millisecond_moves_the_borrow_index_by_at_most_one_rate_unit() {
+        let env = Env::default();
+        let params = make_test_params(&env);
+        let util = utilization(&env, Ray::from(60 * RAY), Ray::from(100 * RAY));
+        let rate_per_ms = calculate_borrow_rate(&env, util, &params);
+        let step = accrue_step(
+            &env,
+            &params,
+            Ray::from(60 * RAY),
+            Ray::from(100 * RAY),
+            Ray::ONE,
+            Ray::ONE,
+            1,
+        );
+        let growth = step.borrow_index.raw() - RAY;
+        let rate = rate_per_ms.raw();
+        // The series adds x^2/2 on top of the linear term; nothing larger fits
+        // in one millisecond.
+        let quadratic = rate * rate / (2 * RAY);
+        assert!(
+            growth >= rate - 1 && growth - rate <= quadratic + 2,
+            "growth {growth} vs rate {rate} (quadratic term {quadratic})"
+        );
+    }
+
+    #[test]
+    fn zero_borrowed_leaves_supply_index_and_revenue_untouched() {
+        let env = Env::default();
+        let params = make_test_params(&env);
+        let step = accrue_step(
+            &env,
+            &params,
+            Ray::ZERO,
+            Ray::from(100 * RAY),
+            Ray::ONE,
+            Ray::ONE,
+            MILLISECONDS_PER_YEAR,
+        );
+        assert_eq!(step.supply_index, Ray::ONE);
+        assert_eq!(step.revenue_shares, Ray::ZERO);
+        assert!(
+            step.borrow_index.raw() > RAY,
+            "the base rate compounds the borrow index even with no debt"
+        );
+    }
+
+    #[test]
+    fn zero_supplied_books_every_reward_as_revenue_shares() {
+        let env = Env::default();
+        let params = make_test_params(&env);
+        let step = accrue_step(
+            &env,
+            &params,
+            Ray::from(60 * RAY),
+            Ray::ZERO,
+            Ray::ONE,
+            Ray::ONE,
+            MILLISECONDS_PER_YEAR,
+        );
+        assert_eq!(step.supply_index, Ray::ONE, "no supplier to reward");
+        assert!(
+            step.revenue_shares.raw() > 0,
+            "the accrued interest cannot vanish; it lands as revenue shares"
+        );
+    }
+
+    #[test]
+    fn at_the_borrow_index_ceiling_is_sticky_and_accrues_nothing() {
+        let env = Env::default();
+        let params = make_test_params(&env);
+        let cap = Ray::from(crate::constants::MAX_BORROW_INDEX_RAY);
+        let step = accrue_step(
+            &env,
+            &params,
+            Ray::from(RAY),
+            Ray::from(10 * RAY),
+            cap,
+            Ray::ONE,
+            MILLISECONDS_PER_YEAR,
+        );
+        assert_eq!(step.borrow_index, cap);
+        assert_eq!(step.supply_index, Ray::ONE);
+        assert_eq!(step.revenue_shares, Ray::ZERO);
+    }
+
+    #[test]
+    fn one_year_and_one_millisecond_are_two_chunks_in_the_simulator() {
+        let env = Env::default();
+        let sync = sample_sync(
+            &env,
+            PoolStateRaw {
+                supplied: 100 * RAY,
+                borrowed: 60 * RAY,
+                revenue: 0,
+                borrow_index: RAY,
+                supply_index: RAY,
+                last_timestamp: 0,
+                cash: 40_000_000,
+            },
+        );
+        let one_year = simulate_update_indexes(&env, MILLISECONDS_PER_YEAR, &sync);
+        let one_year_plus = simulate_update_indexes(&env, MILLISECONDS_PER_YEAR + 1, &sync);
+        assert!(one_year_plus.borrow_index > one_year.borrow_index);
+        let extra = one_year_plus.borrow_index.raw() - one_year.borrow_index.raw();
+        let params = make_test_params(&env);
+        let rate_per_ms = calculate_borrow_rate(
+            &env,
+            utilization(&env, Ray::from(60 * RAY), Ray::from(100 * RAY)),
+            &params,
+        );
+        let one_ms_of_growth = rate_per_ms.mul(&env, one_year.borrow_index).raw();
+        assert!(
+            extra <= 2 * one_ms_of_growth + 2,
+            "the second chunk is one millisecond long: got {extra}, one ms is {one_ms_of_growth}"
+        );
+    }
+}

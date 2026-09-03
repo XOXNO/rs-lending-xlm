@@ -136,8 +136,8 @@ Prometheus. Every series carries a `network` label.
 
 ### Dashboard
 
-Import `ops/grafana-dashboard.json` into Grafana. It has three sections:
-Markets, Oracles and Spokes.
+Import `ops/grafana-dashboard.json` into Grafana. Its sections are Health,
+Protocol, Markets, Oracles, Spokes, Exporter health, and Alerting.
 
 The dashboard uses no template variables, because public dashboards reject
 them. Every query is therefore pinned to `network="mainnet"`, and every panel is

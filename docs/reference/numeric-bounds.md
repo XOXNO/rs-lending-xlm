@@ -163,6 +163,17 @@ does not itself consume headroom — but the ray *value* is still bounded by
 `i128::MAX`, so no market may hold more than ~170.14 billion whole tokens of
 value however that value was accumulated.
 
+**Verified** by
+`a_whale_market_at_sustained_high_utilization_hits_the_ray_value_ceiling_before_the_index_cap`
+(`tests/test-harness/tests/controller/large_positions_and_long_horizons.rs`):
+the binding limit for a large market is the value ceiling, not the index cap.
+`years_to_ceiling = ln(i128::MAX / principal_ray) / realised_rate`. For one
+billion whole tokens the headroom is `ln(170)`; on the mainnet XLM curve at 98
+percent utilization the yearly accrual reaches x121 after three years and the
+fourth overflows, before the index cap (x1e9) is anywhere near. The failure is
+a `MathOverflow` panic inside accrual, which every verb runs first, so repay
+and withdraw fail as well.
+
 ## 4. Supply index floor
 
 **Observed.** `SUPPLY_INDEX_FLOOR_RAW = RAY / 1_000` (0.001). It is applied in

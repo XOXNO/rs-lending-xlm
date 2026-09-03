@@ -1,5 +1,5 @@
 use cvlr::macros::rule;
-use cvlr::{cvlr_assert, cvlr_assume};
+use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::Env;
 
 use crate::constants::{RAY, WAD};
@@ -152,6 +152,20 @@ fn div_by_zero_sanity(e: Env) {
     let _result = mul_div_half_up(&e, a, RAY, 0);
 
     cvlr_assert!(false);
+}
+
+/// Satisfy twin of `div_by_zero_sanity`: the same domain with the divisor gate
+/// flipped (`RAY` instead of `0`) completes and returns `a`. Without it, the
+/// rule above passes whether the trap is the divisor check or any other
+/// unreachability in the call.
+#[rule]
+fn div_by_zero_sanity_fixture_completes(e: Env) {
+    let a: i128 = cvlr::nondet::nondet();
+    cvlr_assume!((0..=RAY).contains(&a));
+
+    let result = mul_div_half_up(&e, a, RAY, RAY);
+
+    cvlr_satisfy!(result == a);
 }
 
 // ---------------------------------------------------------------------------

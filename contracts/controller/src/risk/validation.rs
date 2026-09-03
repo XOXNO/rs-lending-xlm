@@ -98,6 +98,13 @@ pub(crate) fn validate_bulk_position_limits(
         }
     }
 
+    // Only a new slot can breach the bound. A top-up of a held asset opens
+    // nothing, so it stays allowed even when governance has since lowered
+    // the limit below the account's current count.
+    if new_positions_count == 0 {
+        return;
+    }
+
     let total_positions = current_count
         .checked_add(new_positions_count)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));

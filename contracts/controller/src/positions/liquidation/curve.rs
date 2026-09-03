@@ -172,7 +172,9 @@ pub(super) fn calculate_post_liquidation_hf(
     if new_debt == Wad::ZERO {
         return Wad::from(i128::MAX);
     }
-    new_weighted.div(env, new_debt)
+    // Production rounds the health factor down and saturates; the mirror must
+    // agree or a test can accept a case the controller rejects.
+    new_weighted.div_floor_saturating(env, new_debt)
 }
 
 /// Solves for the debt repayment that brings `snap`'s post-liquidation health factor to exactly

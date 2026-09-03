@@ -32,6 +32,13 @@ fn borrow_respects_utilization_cap(
     borrowed: i128,
     position_before: i128,
 ) {
+    // `fixture::state` stamps `last_timestamp = e.ledger().timestamp() * 1_000`
+    // and `Cache::load` recomputes the same product through `time::now_ms`.
+    // Both are checked multiplications, so a ledger clock past `u64::MAX /
+    // 1_000` panics and Sunbeam prunes the path as `assume(false)`. Stating the
+    // bound makes that pruning visible instead of hidden, and drops the
+    // overflow branch from every rule below.
+    cvlr_assume!(e.ledger().timestamp() <= u64::MAX / 1_000);
     let max_util = RAY * 9 / 10;
     cvlr_assume!(amount > 0 && amount <= MAX_FLOW_AMOUNT);
     cvlr_assume!(supplied > 0 && supplied <= 100 * RAY);
@@ -83,6 +90,7 @@ fn user_withdraw_respects_utilization_cap(
     borrowed: i128,
     position_before: i128,
 ) {
+    cvlr_assume!(e.ledger().timestamp() <= u64::MAX / 1_000);
     let max_util = RAY * 9 / 10;
     cvlr_assume!(amount > 0 && amount <= MAX_FLOW_AMOUNT);
     cvlr_assume!(supplied > 0 && supplied <= 100 * RAY);
@@ -135,6 +143,7 @@ fn withdraw_never_overdraws_cash(
     cash_before: i128,
     supply_index: i128,
 ) {
+    cvlr_assume!(e.ledger().timestamp() <= u64::MAX / 1_000);
     cvlr_assume!(amount > 0 && amount <= MAX_FLOW_AMOUNT);
     cvlr_assume!(position_before > 0 && position_before <= 20 * RAY);
     cvlr_assume!(cash_before >= 0 && cash_before <= 1_000 * ONE_TOKEN);
@@ -179,6 +188,7 @@ fn withdraw_keeps_revenue_backed(
     revenue_before: i128,
     protocol_fee: i128,
 ) {
+    cvlr_assume!(e.ledger().timestamp() <= u64::MAX / 1_000);
     cvlr_assume!(amount > 0 && amount <= MAX_FLOW_AMOUNT);
     cvlr_assume!(position_before > 0 && position_before <= 20 * RAY);
     cvlr_assume!(revenue_before >= 0 && revenue_before <= 100 * RAY);
@@ -221,6 +231,7 @@ fn net_settle_keeps_revenue_backed(
     debt_before: i128,
     revenue_before: i128,
 ) {
+    cvlr_assume!(e.ledger().timestamp() <= u64::MAX / 1_000);
     cvlr_assume!(requested >= 0 && requested <= MAX_FLOW_AMOUNT);
     cvlr_assume!(supply_before > 0 && supply_before <= 20 * RAY);
     cvlr_assume!(debt_before > 0 && debt_before <= 20 * RAY);
@@ -264,6 +275,7 @@ fn withdraw_leaves_no_orphan_debt(
     borrowed: i128,
     borrow_index: i128,
 ) {
+    cvlr_assume!(e.ledger().timestamp() <= u64::MAX / 1_000);
     cvlr_assume!(position_before > 0 && position_before <= 20 * RAY);
     cvlr_assume!(borrowed > 0 && borrowed <= 20 * RAY);
     cvlr_assume!(borrow_index >= RAY && borrow_index <= MAX_BORROW_INDEX_RAY);
@@ -303,6 +315,7 @@ fn claim_revenue_leaves_no_orphan_debt(
     borrowed: i128,
     cash_before: i128,
 ) {
+    cvlr_assume!(e.ledger().timestamp() <= u64::MAX / 1_000);
     cvlr_assume!(revenue_before > 0 && revenue_before <= 20 * RAY);
     cvlr_assume!(borrowed > 0 && borrowed <= 20 * RAY);
     cvlr_assume!(cash_before >= 0 && cash_before <= 1_000 * ONE_TOKEN);
@@ -368,6 +381,7 @@ fn pool_trust_repay_refunds_only_payer_surplus(
     borrow_index: i128,
     cash_before: i128,
 ) {
+    cvlr_assume!(e.ledger().timestamp() <= u64::MAX / 1_000);
     cvlr_assume!(amount >= 0 && amount <= MAX_FLOW_AMOUNT);
     cvlr_assume!(position_before >= 0 && position_before <= 20 * RAY);
     cvlr_assume!(borrowed >= position_before && borrowed <= 100 * RAY);
@@ -419,6 +433,7 @@ fn pool_trust_borrow_payout_is_backed_by_pool_cash(
     borrowed: i128,
     cash_before: i128,
 ) {
+    cvlr_assume!(e.ledger().timestamp() <= u64::MAX / 1_000);
     cvlr_assume!(amount > 0 && amount <= MAX_FLOW_AMOUNT);
     cvlr_assume!(position_before >= 0 && position_before <= 20 * RAY);
     cvlr_assume!(borrowed >= 0 && borrowed <= 50 * RAY);
@@ -468,6 +483,7 @@ fn pool_trust_revenue_claim_pays_owner_from_pool_cash(
     cash_before: i128,
     supply_index: i128,
 ) {
+    cvlr_assume!(e.ledger().timestamp() <= u64::MAX / 1_000);
     cvlr_assume!(revenue_before >= 0 && revenue_before <= 20 * RAY);
     cvlr_assume!(cash_before >= 0 && cash_before <= 1_000 * ONE_TOKEN);
     cvlr_assume!(supply_index >= SUPPLY_INDEX_FLOOR_RAW && supply_index <= MAX_SUPPLY_INDEX_RAY);

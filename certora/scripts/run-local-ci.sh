@@ -7,8 +7,10 @@
 # aggregates results:
 #   - VIOLATED or engine/tooling ERROR  -> failure (exit 1)
 #   - VERIFIED                          -> pass
-#   - timeout / no verdict in budget    -> warning only; the rule is expected
+#   - TIMEOUT (prover's own verdict)    -> warning only; the rule is expected
 #     to prove on the Certora cloud with the conf's cloud budgets
+#   - KILLED (wrapper cap hit first)    -> warning only; the prover never
+#     returned, so this says nothing about the rule
 #
 # Tuning (env): CERTORA_LOCAL_JOBS (default 10) parallel provers, each a JVM
 # with -Xmx8g; CERTORA_RULE_TIMEOUT (default 600s) per-rule cap.
@@ -79,6 +81,8 @@ for c in "${confs[@]}"; do
       verdict="VIOLATED"
     elif grep -q "Verified:" "$rlog" 2>/dev/null; then
       verdict="VERIFIED"
+    elif grep -q "^KILLED:" "$rlog" 2>/dev/null; then
+      verdict="KILLED"
     elif [ ! -s "$rlog" ]; then
       verdict="NO-VERDICT"
     else
@@ -97,8 +101,11 @@ for c in "${confs[@]}"; do
         tail -25 "$rlog" | sed 's/^/    /'
         failed=1
         ;;
+      KILLED)
+        echo "::warning::$c/$rule [$verdict] — hit the ${rule_timeout}s wrapper cap before the prover returned; raise CERTORA_RULE_TIMEOUT or shrink the rule"
+        ;;
       TIMEOUT)
-        echo "::warning::$c/$rule [$verdict] — expected locally; verify on Certora cloud"
+        echo "::warning::$c/$rule [$verdict] — the prover reported its own timeout; verify on Certora cloud"
         ;;
     esac
     verdicts+=("$c/$rule:$verdict")

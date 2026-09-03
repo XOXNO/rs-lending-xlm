@@ -410,6 +410,9 @@ end state and charges nothing. The asymmetry is declared in the contract
 documentation and violates no invariant. It is recorded because the economic
 consequence is not written down elsewhere: if the two endpoints are
 interchangeable for a borrower, the origination fee is optional in practice.
+Since 2026-09 `flash_position` also honours `is_flashloanable` on the debt
+market, unlike `multiply`. A market that disables flash loans can still be
+levered through the router, never through a caller-chosen receiver.
 
 ### An approved Blend pool can be upgraded by its own owner
 
@@ -450,6 +453,27 @@ intentional. Operators must monitor them.
   asset.
 - Storage archival of an account entry or the NFT `Owner` entry blocks access
   until the entry is restored.
+- Position NFT ids are `u32`, sequential, and never reused. Every account
+  creation consumes one, including a one-stroop supply followed by a full
+  withdraw. Exhaustion stops new-account creation while existing accounts keep
+  working. The cost is very high, but the resource is finite and public; the
+  exporter should publish the next id.
+- A whale market can overflow the ray-value ceiling before the index cap
+  engages. At one billion whole tokens the headroom is 170x of index growth.
+  On the mainnet XLM curve at 98 percent utilization the fourth yearly accrual
+  overflows; a book left untouched at 50 percent utilization drifts across the
+  optimal point and runs away within twenty years. Every verb accrues first,
+  so the market then freezes, exits included. Pinned by
+  `tests/test-harness/tests/controller/large_positions_and_long_horizons.rs`.
+  Governance keeps the product of supply cap and plausible index growth below
+  the ceiling per market.
+- Accrual cadence is not neutral. Utilization is value-based and debt
+  compounds faster than supply, so a finer `update_indexes` cadence re-reads a
+  higher utilization and realises a higher borrow rate. At 90 percent
+  utilization on a 200 percent rate cap, daily accrual ends a year about a
+  quarter above one-shot accrual; the index never exceeds continuous
+  compounding at the rate cap. Any caller may force the finer cadence. Pinned
+  by `tests/test-harness/tests/pool/accrual_partition_bound.rs`.
 
 ## Accepted residual risks
 

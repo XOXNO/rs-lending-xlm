@@ -1,5 +1,5 @@
-use cvlr::cvlr_satisfy;
 use cvlr::macros::rule;
+use cvlr::{cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env};
 
 use common::constants::{RAY, SUPPLY_INDEX_FLOOR_RAW};
@@ -25,6 +25,13 @@ fn rate_index_domain_reachable(e: Env, asset: Address) {
 
 #[rule]
 fn supply_borrow_domain_reachable(e: Env, admin: Address, asset: Address) {
+    // `fixture::state` stamps `last_timestamp = e.ledger().timestamp() * 1_000`
+    // and `Cache::load` recomputes the same product through `time::now_ms`.
+    // Both are checked multiplications, so a ledger clock past `u64::MAX /
+    // 1_000` panics and Sunbeam prunes the path as `assume(false)`. Stating the
+    // bound makes that pruning visible instead of hidden, and drops the
+    // overflow branch from every rule below.
+    cvlr_assume!(e.ledger().timestamp() <= u64::MAX / 1_000);
     seed(
         &e,
         admin,
@@ -58,6 +65,7 @@ fn supply_borrow_domain_reachable(e: Env, admin: Address, asset: Address) {
 
 #[rule]
 fn withdraw_repay_domain_reachable(e: Env, admin: Address, asset: Address) {
+    cvlr_assume!(e.ledger().timestamp() <= u64::MAX / 1_000);
     seed(
         &e,
         admin,
@@ -90,6 +98,7 @@ fn withdraw_repay_domain_reachable(e: Env, admin: Address, asset: Address) {
 
 #[rule]
 fn seize_settle_domain_reachable(e: Env, admin: Address, asset: Address) {
+    cvlr_assume!(e.ledger().timestamp() <= u64::MAX / 1_000);
     seed(
         &e,
         admin,
@@ -129,6 +138,7 @@ fn seize_settle_domain_reachable(e: Env, admin: Address, asset: Address) {
 
 #[rule]
 fn seize_floor_residual_reachable(e: Env, admin: Address, asset: Address) {
+    cvlr_assume!(e.ledger().timestamp() <= u64::MAX / 1_000);
     seed(
         &e,
         admin,
@@ -155,6 +165,7 @@ fn seize_floor_residual_reachable(e: Env, admin: Address, asset: Address) {
 
 #[rule]
 fn fee_strategy_claim_domain_reachable(e: Env, admin: Address, asset: Address) {
+    cvlr_assume!(e.ledger().timestamp() <= u64::MAX / 1_000);
     seed(
         &e,
         admin,
@@ -186,6 +197,7 @@ fn fee_strategy_claim_domain_reachable(e: Env, admin: Address, asset: Address) {
 
 #[rule]
 fn flash_accounting_domain_reachable(e: Env, admin: Address, asset: Address) {
+    cvlr_assume!(e.ledger().timestamp() <= u64::MAX / 1_000);
     seed(
         &e,
         admin,

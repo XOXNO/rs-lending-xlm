@@ -2,6 +2,14 @@ name: Certora Verification
 
 on:
   workflow_dispatch:
+    inputs:
+      profile:
+        description: >-
+          Profile from certora/profiles.json to prove, one job per rule.
+          Leave empty to run the sanity profile one job per conf.
+        required: false
+        default: ""
+        type: string
 
 env:
   CARGO_TERM_COLOR: always
@@ -39,21 +47,50 @@ jobs:
         run: python3 certora/scripts/check_wasm_artifacts.py
 
       - id: sanity-matrix
-        name: Derive sanity matrix from profiles.json
+        name: Derive the proof matrix from profiles.json
+        env:
+          PROFILE: ${{ inputs.profile }}
         run: |
           python3 - <<'PY' >> "$GITHUB_OUTPUT"
           import json
+          import os
+          import sys
           from pathlib import Path
 
           profiles = json.loads(Path("certora/profiles.json").read_text())["profiles"]
+
+          def expand(name, seen=()):
+              if name not in profiles:
+                  sys.exit(f"unknown profile {name!r}; known: {', '.join(sorted(profiles))}")
+              if name in seen:
+                  sys.exit(f"recursive profile include: {' -> '.join((*seen, name))}")
+              items = []
+              for item in profiles[name]:
+                  if "profile" in item:
+                      items.extend(expand(item["profile"], (*seen, name)))
+                  else:
+                      items.append(item)
+              return items
+
+          profile = os.environ.get("PROFILE", "").strip()
           matrix = []
-          for item in profiles["sanity"]:
+          for item in expand(profile or "sanity"):
               conf = Path(item["conf"])
-              matrix.append({
-                  "label": conf.stem,
-                  "conf_dir": str(conf.parent),
-                  "conf": conf.name,
-              })
+              entry = {"conf_dir": str(conf.parent), "conf": conf.name}
+              if not profile:
+                  # Default run: one job per conf, the historical sanity sweep.
+                  matrix.append({**entry, "label": conf.stem, "rule": ""})
+                  continue
+              # A chosen profile gets one job per rule, so every rule receives
+              # the whole global_timeout and its own report.
+              for rule in json.loads(conf.read_text())["rule"]:
+                  matrix.append({**entry, "label": f"{conf.stem}/{rule}", "rule": rule})
+
+          if len(matrix) > 256:
+              sys.exit(
+                  f"profile {profile!r} expands to {len(matrix)} jobs; GitHub caps a "
+                  "matrix at 256. Dispatch a narrower profile."
+              )
           print("matrix=" + json.dumps({"include": matrix}, separators=(",", ":")))
           PY
 
@@ -66,7 +103,7 @@ jobs:
           retention-days: 3
 
   sanity:
-    name: Sanity — ${{ matrix.label }}
+    name: ${{ inputs.profile || 'sanity' }} — ${{ matrix.label }}
     needs: compile-check
     runs-on: ubuntu-latest
     strategy:
@@ -99,8 +136,29 @@ jobs:
       - name: Recheck artifact hashes after transfer
         run: python3 certora/scripts/check_wasm_artifacts.py
 
-      - name: Verify focused reachability job
+      - id: prove
+        name: Verify focused job
         env:
           CERTORAKEY: ${{ secrets.CERTORAKEY }}
+          RULE: ${{ matrix.rule }}
         working-directory: ${{ matrix.conf_dir }}
-        run: certoraSorobanProver ${{ matrix.conf }}
+        run: |
+          set -o pipefail
+          if [ -n "$RULE" ]; then
+            certoraSorobanProver "${{ matrix.conf }}" --rule "$RULE" 2>&1 | tee prover.log
+          else
+            certoraSorobanProver "${{ matrix.conf }}" 2>&1 | tee prover.log
+          fi
+
+      - name: Record the verdict in the job summary
+        if: always()
+        working-directory: ${{ matrix.conf_dir }}
+        run: |
+          # One row per job. The ledger in certora/README.md is filled from these.
+          verdict="$(grep -Eo '(Verified|Violated|SANITY_FAILED|Timeout|Error)[^ ]*' prover.log 2>/dev/null | tail -1)"
+          url="$(grep -Eo 'https://[^ ]*prover.certora.com[^ ]*' prover.log 2>/dev/null | tail -1)"
+          {
+            echo "| conf | rule | outcome | verdict | report |"
+            echo "|---|---|---|---|---|"
+            echo "| ${{ matrix.conf }} | ${{ matrix.rule || 'all' }} | ${{ steps.prove.outcome }} | ${verdict:-none} | ${url:-none} |"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -208,7 +208,7 @@ every market and not settable by governance.
 
 **Status:** ENFORCED — `common/src/rates/index.rs` caps at
 `MAX_BORROW_INDEX_RAY` (`common/src/constants/pool.rs`). VERIFIED — rules
-`update_borrow_index_monotonic`, `update_borrow_index_capped`,
+`update_borrow_index_monotonic_when_factor_gte_one`, `update_borrow_index_capped`,
 `borrow_index_cap_is_sticky`, `borrow_index_strictly_grows_below_cap`.
 
 ### INV-IDX-02 — Supply index is bounded
@@ -219,7 +219,8 @@ is likewise identical for every market and not settable by governance.
 
 **Status:** ENFORCED — `contracts/pool/src/interest.rs` floors at
 `SUPPLY_INDEX_FLOOR_RAW`; `common/src/rates/index.rs` applies the cap. VERIFIED
-— rules `update_supply_index_capped`, `update_supply_index_monotonic`,
+— rules `update_supply_index_capped`,
+`update_supply_index_monotonic_when_rewards_positive`,
 `supply_index_cap_is_sticky`.
 
 ### INV-IDX-03 — Bad debt may lower the supply index
@@ -242,6 +243,13 @@ both the keeper and the owner-only path.
 
 Zero elapsed time changes nothing. Long gaps are processed in bounded forward
 chunks; time never moves backward.
+
+Consistency holds per chunk, not across cadences. Each chunk freezes the rate
+on the utilization it starts from, and utilization drifts upward between
+accruals, so finer accrual realises a higher rate. The index is monotone in
+the cadence and bounded above by continuous compounding at the rate cap; the
+spread is measured in
+`tests/test-harness/tests/pool/accrual_partition_bound.rs`.
 
 **Status:** ENFORCED — `contracts/pool/src/interest.rs`;
 `common/src/rates/simulate.rs` chunks at `MAX_COMPOUND_DELTA_MS`
@@ -364,14 +372,21 @@ An account cannot exceed the configured maximum supply or borrow position count
 delegates. This is a liveness constraint as well as a risk one: a liquidation
 must fit the transaction budget of the widest admissible account.
 
+The bound applies when a new position slot is opened. Topping up a held asset
+opens no slot and is admitted even after governance lowers the limit below an
+account's current count, so lowering a limit never strands exits, top-ups, or
+Credit-mode seizure of an asset the receiver already holds.
+
 **Status:** ENFORCED — `contracts/controller/src/risk/validation.rs`
 (`validate_bulk_position_limits`); `contracts/controller/src/storage/account.rs`
 enforces `MAX_DELEGATES` (`contracts/controller/src/constants.rs`). VERIFIED —
 `contracts/controller/tests/validation.rs`
 (`test_validate_bulk_position_limits_deposit_over_cap_panics`,
-`test_validate_bulk_position_limits_borrow_over_cap_panics`);
+`test_validate_bulk_position_limits_borrow_over_cap_panics`,
+`test_validate_bulk_position_limits_topup_over_cap_passes`);
 `tests/test-harness/tests/controller/borrow.rs`
-(`test_borrow_position_limit_exceeded`).
+(`test_borrow_position_limit_exceeded`);
+`tests/test-harness/tests/controller/position_limit_lowering_keeps_topups.rs`.
 
 ## Liquidation
 
@@ -383,7 +398,9 @@ remaining identity guard is receiver-side, not caller-side: in `Credit` seize
 mode, the receiving account cannot be the liquidated account itself
 (`requested != account_id`, `SelfLiquidationNotAllowed` = error #133) — crediting
 seized collateral back to the account it was seized from would undo the
-seizure.
+seizure. Liquidation stays live in a deprecated spoke: `Credit(0)` may create
+the receiving account there, because `remove_spoke` performs no usage check
+and deprecation cannot be undone.
 
 **Status:** ENFORCED — `contracts/controller/src/positions/liquidation/plan.rs`
 (`build_liquidation_plan` requires non-empty debt and `health_factor <

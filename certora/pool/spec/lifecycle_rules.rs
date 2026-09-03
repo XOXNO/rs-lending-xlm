@@ -1,16 +1,21 @@
 use cvlr::macros::rule;
-use cvlr::{cvlr_assert, cvlr_assume};
+use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{vec, Address, Env};
 
 use common::constants::{
-    MAX_BORROW_INDEX_RAY, MAX_SUPPLY_INDEX_RAY, RAY, RAY_DECIMALS, SUPPLY_INDEX_FLOOR_RAW,
+    MAX_ASSET_DECIMALS, MAX_BORROW_INDEX_RAY, MAX_SUPPLY_INDEX_RAY, MIN_ASSET_DECIMALS, RAY,
+    SUPPLY_INDEX_FLOOR_RAW,
 };
 
 use super::fixture::{hub, params, params_with_decimals, read_state, seed, state, ONE_TOKEN};
 
 #[rule]
 fn market_create_writes_zeroed_state(e: Env, asset: Address, asset_decimals: u32) {
-    cvlr_assume!(asset_decimals <= RAY_DECIMALS);
+    // Production range, not `RAY_DECIMALS`: governance's
+    // `validate_market_creation` enforces `MIN_ASSET_DECIMALS..=MAX_ASSET_DECIMALS`
+    // and `MarketParamsRaw::verify` caps at `WAD_DECIMALS`, so a counterexample
+    // at 0..=2 or 19..=27 could only be a fixture artefact.
+    cvlr_assume!((MIN_ASSET_DECIMALS..=MAX_ASSET_DECIMALS).contains(&asset_decimals));
     cvlr_assume!(e.ledger().timestamp() <= u64::MAX / 1_000);
 
     crate::ops::market::create(
@@ -124,4 +129,48 @@ fn accrue_is_noop_when_no_time_elapsed(
     cvlr_assert!(post.supply_index == pre.supply_index);
     cvlr_assert!(post.borrow_index == pre.borrow_index);
     cvlr_assert!(post.last_timestamp == pre.last_timestamp);
+}
+
+/// Satisfy twin of [`market_duplicate_create_reverts`]: the identical live
+/// market is seeded first, and only the duplicate-key gate is flipped by
+/// creating on a hub-asset key the seed did not write.
+///
+/// This is what separates "the duplicate guard fired" from "`params.verify`
+/// rejected the fixture" or "the seed left the rule unreachable": both rules
+/// pass the same `params(_, 0, false)` shape through `ops::market::create`, so
+/// a witness here means the revert rule can only be reverting on the key.
+#[rule]
+fn market_duplicate_create_reverts_fixture_completes(
+    e: Env,
+    admin: Address,
+    asset: Address,
+    fresh_asset: Address,
+    supplied: i128,
+    borrowed: i128,
+) {
+    cvlr_assume!(supplied > 0 && supplied <= 100 * RAY);
+    cvlr_assume!(borrowed >= 0 && borrowed <= supplied);
+    cvlr_assume!(e.ledger().timestamp() <= u64::MAX / 1_000);
+    cvlr_assume!(fresh_asset != asset);
+
+    seed(
+        &e,
+        admin,
+        asset.clone(),
+        params(asset.clone(), 0, false),
+        state(
+            supplied,
+            borrowed,
+            0,
+            RAY,
+            RAY,
+            1_000 * ONE_TOKEN,
+            e.ledger().timestamp(),
+        ),
+    );
+
+    crate::ops::market::create(&e, 0, params(fresh_asset.clone(), 0, false));
+    let created = read_state(&e, &fresh_asset);
+
+    cvlr_satisfy!(created.supplied == 0 && created.borrowed == 0 && created.borrow_index == RAY);
 }

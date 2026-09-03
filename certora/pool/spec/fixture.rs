@@ -1,6 +1,9 @@
 #![allow(dead_code)]
 
-use common::constants::RAY;
+use cvlr::cvlr_assume;
+use cvlr::nondet::nondet;
+
+use common::constants::{BPS, MAX_ASSET_DECIMALS, MIN_ASSET_DECIMALS, RAY};
 use common::math::fp::Ray;
 use common::math::fp_core;
 use common::types::{
@@ -42,6 +45,38 @@ pub fn params_with_decimals(
         asset_id: asset,
         asset_decimals,
     }
+}
+
+/// [`params_with_decimals`] with the reserve factor chosen by the caller too.
+///
+/// `params` pins the two market-configuration fields production validates as a
+/// *range* to one mainnet-shaped value (`ASSET_DECIMALS = 7`,
+/// `reserve_factor = 1_000`). Rules that are about accounting rather than about
+/// one market's shape draw them instead:
+/// `asset_decimals` in `MIN_ASSET_DECIMALS..=MAX_ASSET_DECIMALS`
+/// (`contracts/governance/src/validate/asset.rs`, plus
+/// `MarketParamsRaw::verify`'s `<= WAD_DECIMALS`), and `reserve_factor` below
+/// `BPS` (`InterestRateModel::verify`). The rate curve stays fixed; see the
+/// "Fixture domain" section of `certora/pool/spec/README.md`.
+pub fn params_with_decimals_and_reserve(
+    asset: Address,
+    asset_decimals: u32,
+    reserve_factor: u32,
+) -> MarketParamsRaw {
+    MarketParamsRaw {
+        reserve_factor,
+        ..params_with_decimals(asset, 0, false, asset_decimals)
+    }
+}
+
+/// Draws a market configuration over the two fields production validates as a
+/// range, with the fixed rate curve of [`params_with_decimals`].
+pub fn nondet_params(asset: Address) -> MarketParamsRaw {
+    let asset_decimals: u32 = nondet();
+    let reserve_factor: u32 = nondet();
+    cvlr_assume!((MIN_ASSET_DECIMALS..=MAX_ASSET_DECIMALS).contains(&asset_decimals));
+    cvlr_assume!(i128::from(reserve_factor) < BPS);
+    params_with_decimals_and_reserve(asset, asset_decimals, reserve_factor)
 }
 
 pub fn params_with_max_util(asset: Address, max_utilization: i128) -> MarketParamsRaw {

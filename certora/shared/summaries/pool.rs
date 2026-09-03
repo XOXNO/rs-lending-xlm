@@ -2,13 +2,28 @@ use cvlr::cvlr_assume;
 use cvlr::nondet::nondet;
 use soroban_sdk::{Address, Bytes, Env, Vec};
 
-use common::constants::{MAX_BORROW_INDEX_RAY, MAX_SUPPLY_INDEX_RAY, RAY, SUPPLY_INDEX_FLOOR_RAW};
+use common::constants::{
+    BPS, MAX_ASSET_DECIMALS, MAX_BORROW_INDEX_RAY, MAX_BORROW_RATE_RAY, MAX_FLASHLOAN_FEE_BPS,
+    MAX_SUPPLY_INDEX_RAY, MIN_ASSET_DECIMALS, RAY, SUPPLY_INDEX_FLOOR_RAW,
+};
 use common::types::{
-    MarketIndex, MarketParamsRaw, PoolAmountMutation, PoolNetSettleResult, PoolPositionMutation,
-    PoolSeizeEntry, PoolStateRaw, PoolStrategyMutation, PoolSyncData, ScaledPositionRaw,
+    MarketIndex, MarketIndexRaw, MarketParamsRaw, PoolAmountMutation, PoolNetSettleResult,
+    PoolPositionMutation, PoolSeizeEntry, PoolStateRaw, PoolStrategyMutation, PoolSyncData,
+    ScaledPositionRaw,
 };
 
-fn nondet_market_index() -> MarketIndex {
+/// The one generator for a market's pair of indexes.
+///
+/// Every summary that returns indexes goes through this: the per-verb
+/// mutations below, `get_sync_data_summary` (`Cache::cached_pool_sync_data`)
+/// and `super::bulk_index_summary` (`Cache::cached_market_index`). Sharing the
+/// generator is what keeps the two `Cache` doors from carrying different
+/// domains for the same market. Both ends are the pool's own clamps:
+/// `update_supply_index` and `apply_bad_debt_to_supply_index` hold the supply
+/// index inside `[SUPPLY_INDEX_FLOOR_RAW, MAX_SUPPLY_INDEX_RAY]`, and
+/// `update_borrow_index` holds the borrow index inside
+/// `[RAY, MAX_BORROW_INDEX_RAY]`.
+pub fn nondet_market_index_raw() -> MarketIndexRaw {
     let supply_index: i128 = nondet();
     let borrow_index: i128 = nondet();
 
@@ -16,23 +31,26 @@ fn nondet_market_index() -> MarketIndex {
     cvlr_assume!(supply_index <= MAX_SUPPLY_INDEX_RAY);
     cvlr_assume!(borrow_index >= RAY);
     cvlr_assume!(borrow_index <= MAX_BORROW_INDEX_RAY);
-    MarketIndex {
-        supply_index: common::math::fp::Ray::from(supply_index),
-        borrow_index: common::math::fp::Ray::from(borrow_index),
+    MarketIndexRaw {
+        supply_index,
+        borrow_index,
     }
 }
 
-fn nondet_asset_decimals() -> u32 {
-    let asset_decimals: u32 = nondet();
-    cvlr_assume!(asset_decimals <= 27);
-    asset_decimals
+fn nondet_market_index() -> MarketIndex {
+    let raw = nondet_market_index_raw();
+    MarketIndex {
+        supply_index: common::math::fp::Ray::from(raw.supply_index),
+        borrow_index: common::math::fp::Ray::from(raw.borrow_index),
+    }
 }
 
-fn nondet_market_index_monotone(prior: &MarketIndex) -> MarketIndex {
-    let idx = nondet_market_index();
-    cvlr_assume!(idx.supply_index >= prior.supply_index);
-    cvlr_assume!(idx.borrow_index >= prior.borrow_index);
-    idx
+/// `MarketParamsRaw::verify` rejects anything above `WAD_DECIMALS`, and market
+/// creation rejects anything below `MIN_ASSET_DECIMALS`.
+fn nondet_asset_decimals() -> u32 {
+    let asset_decimals: u32 = nondet();
+    cvlr_assume!((MIN_ASSET_DECIMALS..=MAX_ASSET_DECIMALS).contains(&asset_decimals));
+    asset_decimals
 }
 
 pub fn supply_summary(
@@ -259,23 +277,45 @@ pub fn claim_revenue_summary(_env: &Env, _asset: &Address) -> PoolAmountMutation
     }
 }
 
+/// Market snapshot returned by `LiquidityPool::get_sync_data`, feeding
+/// `Cache::cached_pool_sync_data`.
+///
+/// The index fields come from [`nondet_market_index_raw`], the same generator
+/// [`super::bulk_index_summary`] uses, so a rule that reads both doors for one
+/// market cannot be handed two different index domains. The controller harness
+/// memoises both per rule (`certora/controller/harness/ghost_prices.rs`), which
+/// is what makes the two reads agree on a *value* and not merely on a domain.
+///
+/// The rate-model fields mirror `InterestRateModel::verify`
+/// (`common/src/types/pool.rs`) exactly, because a stored market cannot hold a
+/// curve that failed it: non-negative base, monotone slopes below
+/// `max_borrow_rate`, `max_borrow_rate` in `(base, MAX_BORROW_RATE_RAY]`,
+/// `0 < mid_utilization < optimal_utilization < RAY`, `optimal_utilization <=
+/// max_utilization <= RAY`, `reserve_factor < BPS`, and `flashloan_fee <=
+/// MAX_FLASHLOAN_FEE_BPS`. Drawing them unconstrained (the previous form) let
+/// every controller rule that reads a market see a curve the pool would have
+/// rejected — negative slopes, an inverted kink, or a rate above the ceiling —
+/// and made `calculate_borrow_rate` a nonlinear query over the full `i128` box.
+///
+/// The state fields stay as they are: `supplied`, `borrowed`, `revenue` and
+/// `cash` are non-negative and otherwise unconstrained, which is the strong
+/// form for the frame rules that read them.
 pub fn get_sync_data_summary(_env: &Env, asset: &Address) -> PoolSyncData {
     let supplied: i128 = nondet();
     let borrowed: i128 = nondet();
     let revenue: i128 = nondet();
     let cash: i128 = nondet();
-    let supply_index: i128 = nondet();
-    let borrow_index: i128 = nondet();
     let last_timestamp: u64 = nondet();
 
     cvlr_assume!(supplied >= 0);
     cvlr_assume!(borrowed >= 0);
     cvlr_assume!(revenue >= 0);
     cvlr_assume!(cash >= 0);
-    cvlr_assume!(supply_index >= SUPPLY_INDEX_FLOOR_RAW);
-    cvlr_assume!(supply_index <= MAX_SUPPLY_INDEX_RAY);
-    cvlr_assume!(borrow_index >= RAY);
-    cvlr_assume!(borrow_index <= MAX_BORROW_INDEX_RAY);
+
+    let MarketIndexRaw {
+        supply_index,
+        borrow_index,
+    } = nondet_market_index_raw();
 
     let max_borrow_rate: i128 = nondet();
     let base_borrow_rate: i128 = nondet();
@@ -285,13 +325,24 @@ pub fn get_sync_data_summary(_env: &Env, asset: &Address) -> PoolSyncData {
     let mid_utilization: i128 = nondet();
     let optimal_utilization: i128 = nondet();
     let max_utilization: i128 = nondet();
+    cvlr_assume!(base_borrow_rate >= 0);
+    cvlr_assume!(base_borrow_rate <= slope1);
+    cvlr_assume!(slope1 <= slope2);
+    cvlr_assume!(slope2 <= slope3);
+    cvlr_assume!(slope3 <= max_borrow_rate);
+    cvlr_assume!(max_borrow_rate > base_borrow_rate);
+    cvlr_assume!(max_borrow_rate <= MAX_BORROW_RATE_RAY);
+    cvlr_assume!(mid_utilization > 0);
+    cvlr_assume!(mid_utilization < optimal_utilization);
+    cvlr_assume!(optimal_utilization < RAY);
+    cvlr_assume!(optimal_utilization <= max_utilization);
+    cvlr_assume!(max_utilization <= RAY);
     let reserve_factor: u32 = nondet();
-    cvlr_assume!(i128::from(reserve_factor) < common::constants::BPS);
-    let asset_decimals: u32 = nondet();
-    cvlr_assume!(asset_decimals <= 27);
+    cvlr_assume!(i128::from(reserve_factor) < BPS);
+    let asset_decimals: u32 = nondet_asset_decimals();
     let is_flashloanable: bool = nondet();
     let flashloan_fee: u32 = nondet();
-    cvlr_assume!(i128::from(flashloan_fee) <= common::constants::BPS);
+    cvlr_assume!(i128::from(flashloan_fee) <= MAX_FLASHLOAN_FEE_BPS);
     let asset_id: Address = asset.clone();
 
     PoolSyncData {
@@ -320,64 +371,4 @@ pub fn get_sync_data_summary(_env: &Env, asset: &Address) -> PoolSyncData {
             cash,
         },
     }
-}
-
-pub fn reserves_summary(_env: &Env) -> i128 {
-    let cash: i128 = nondet();
-    cvlr_assume!(cash >= 0);
-    cash
-}
-
-pub fn supplied_amount_summary(_env: &Env) -> i128 {
-    let amount: i128 = nondet();
-    cvlr_assume!(amount >= 0);
-    amount
-}
-
-pub fn borrowed_amount_summary(_env: &Env) -> i128 {
-    let amount: i128 = nondet();
-    cvlr_assume!(amount >= 0);
-    amount
-}
-
-pub fn protocol_revenue_summary(_env: &Env) -> i128 {
-    let amount: i128 = nondet();
-    cvlr_assume!(amount >= 0);
-    amount
-}
-
-pub fn capital_utilisation_summary(_env: &Env) -> i128 {
-    let util_ray: i128 = nondet();
-    cvlr_assume!(util_ray >= 0);
-    util_ray
-}
-
-pub struct PoolViewsSnapshot {
-    pub reserves: i128,
-    pub supplied: i128,
-    pub borrowed: i128,
-    pub revenue: i128,
-}
-
-pub fn pool_snapshot_summary(_env: &Env) -> PoolViewsSnapshot {
-    let reserves: i128 = nondet();
-    let supplied: i128 = nondet();
-    let borrowed: i128 = nondet();
-    let revenue: i128 = nondet();
-    cvlr_assume!(reserves >= 0);
-    cvlr_assume!(supplied >= 0);
-    cvlr_assume!(borrowed >= 0);
-    cvlr_assume!(revenue >= 0);
-    cvlr_assume!(revenue <= supplied);
-    cvlr_assume!(borrowed <= supplied + revenue);
-    PoolViewsSnapshot {
-        reserves,
-        supplied,
-        borrowed,
-        revenue,
-    }
-}
-
-pub fn fresh_monotone_index(prior: &MarketIndex) -> MarketIndex {
-    nondet_market_index_monotone(prior)
 }

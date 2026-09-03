@@ -59,22 +59,112 @@ The focused build intentionally disables the Stellar optimizer. Optimized
 bytecode can trigger internal prover transformation failures despite passing
 ordinary WASM validation.
 
+### Function names must survive the build
+
+The focused build keeps symbols (`CARGO_PROFILE_RELEASE_STRIP=none`); the
+deploy build still strips them. The prover matches its exact compiler-rt
+summaries — `__muloti4`, `__multi3`, `__divti3`, `__udivti3`, `__modti3` — and
+its soroban-sdk summaries by function name. A stripped module names every
+function `FunctionIndex_<n>`, so none of those summaries fire and the prover
+analyses inlined 128-bit limb code under bitwise axioms instead. Every
+`i128` multiply and divide then costs far more and can produce a spurious
+counterexample.
+
+`check_wasm_artifacts.py` now rejects an artifact whose build provenance is
+not `"strip": "none"` or that carries no WASM `name` custom section. The
+artifacts built before this change fail both checks, and keeping names changes
+every artifact's bytes, so its manifest fingerprint changes too. Run
+`make certora-wasm` before the next submission; a stale or stripped artifact
+cannot reach the prover.
+
+## Sanity checking on WASM
+
+`rule_sanity` does not mean on Sunbeam what it means on CVL. The WASM
+verification flow builds its vacuity check at level `advanced` and emits it
+only when the configured level is at least that, so **`basic` runs no vacuity
+check at all** and is indistinguishable from `none`. The CVL-level extras
+(trivial invariant, assert tautology, redundant require) do not exist on WASM,
+so `advanced` costs one extra solve per proved rule, not a multiple.
+
+The suite therefore uses two settings and no third:
+
+| Conf shape | `rule_sanity` | Why |
+|---|---|---|
+| assert | `advanced` | the only setting that checks the rule is not vacuous |
+| satisfy | `none` | a witness is its own reachability evidence |
+| revert | `none` | see below |
+
+### Revert-shaped rules and their twins
+
+A revert-shaped rule is `call(...); cvlr_assert!(false);` — it proves that a
+gate rejects the call. The TAC vacuity check removes every user assert, asserts
+`false` at each sink and re-solves; on this shape no sink is reachable by
+construction, so the check reports SANITY_FAILED on a correct rule. Those rules
+therefore live in their own `<name>-reverts.conf` at `rule_sanity: none`, with
+the same budgets as the conf they were split from.
+
+Turning the check off removes the guard, so each revert-shaped rule is paired
+with a satisfy witness that completes the same fixture. Two forms are accepted,
+and `check_orphans.py` enforces one of them for every such rule:
+
+- a `<rule>_fixture_completes` twin in the sibling `<name>-reverts-sanity.conf`;
+- the module's existing success witness, listed in `EXISTING_WITNESS` in
+  `certora/scripts/check_orphans.py`. An entry belongs there only when the
+  witness drives the same verb, or is the module's only witness — for example
+  `flash_position_sanity` for the `flash_position_rejects_*` family, and
+  `flash_loan_guard_allows_when_clear` for `flash_loan_guard_blocks_callers`.
+
+A satisfy conf never runs at a lower `loop_iter` than its assert twin: the
+prover rewrites a satisfy rule's generated asserts into assumes, the
+loop-unwinding assertion included, so an under-unrolled witness truncates the
+search silently instead of failing loudly.
+
+## Budgets
+
+Two classes, set per conf and not by template:
+
+| Class | `smt_timeout` | `prover_args` | `loop_iter` |
+|---|---|---|---|
+| pure arithmetic and compounding | 600 | `-depth 5 -mediumTimeout 20` | the exact loop count: 1, 8 where `compound_interest` is reached, 6 where `isqrt` or another fixed loop is |
+| host state (pool, controller entrypoint and leg, aggregator endpoint) | 900 | `-depth 10 -splitParallel true -mediumTimeout 20` | measured, floor 28 |
+| the remaining heavy confs with unique rules | 1800 | as their class | as their class |
+
+The documentation's own guidance is that a rule unsolved in 600 seconds will
+not be solved in 2000 either, so a conf that still times out is a shape
+problem, not a budget problem. `-dontStopAtFirstSplitTimeout true` belongs on
+satisfy confs and on rules with an expected counterexample; it is not set on
+any assert conf. `precise_bitwise_ops` stays exactly where the history put it —
+`tolerance-math`, `scaled-math`, `math-bv`, `rate-accounting-hard` — because
+each was added after an observed spurious counterexample. Do not remove one
+without a measurement on a named artifact.
+
+`multi_assert_check` is a per-conf choice, not a default. It is on where a rule
+carries many asserts and per-assert splitting pays — the pool accounting confs
+`pool-state-invariant`, `position-accounting`, `seize-settle-accounting`,
+`fee-strategy-accounting`, `flash-loan-accounting`, `pool-guards` — and off
+everywhere else, because each assert otherwise becomes its own sub-rule and
+multiplies a job that proves the same thing. To diagnose which assert of a rule
+fails, set it to `true` on that one conf for one run and set it back; the
+tuning ledger, not a template, settles the steady-state value.
+
 ## Proof profiles
 
 | Profile | Use |
 |---|---|
-| sanity | Reachability and non-vacuity checks |
-| fast | Stable math, rate, integrity, and light controller properties |
-| core | Main audit set: solvency, liquidation, strategies, pool accounting, and oracle rules |
-| heavy | Expensive targeted proofs |
-| flash-position | Focused flash-position strategy rules: its sanity conf plus its full conf |
+| sanity | Reachability and non-vacuity witnesses, including every `-reverts-sanity` conf |
+| fast | Stable math, rate, integrity, and light controller properties, plus the pure-layer `-reverts` confs |
+| core | Main audit set: solvency, liquidation, strategies, pool accounting, oracle rules, and the host-state `-reverts` confs |
+| heavy | The confs whose rules are unique to them and still need larger budgets |
+| flash-position | Focused flash-position strategy rules: sanity, full, and revert confs |
 | manual | Core plus heavy |
 | all | Sanity, fast, core, and heavy |
 
 Start with sanity. Run fast or core for a relevant change. Use heavy only for
-the targeted surface or an intentional full verification run.
+the targeted surface or an intentional full verification run. A rule runs in
+exactly one non-satisfy conf: move a rule between confs, never copy it, or
+`check_orphans.py` fails.
 
-The repository holds 353 rules across 105 conf files and 7 profiles. Reproduce
+The repository holds 389 rules across 126 conf files and 7 profiles. Reproduce
 those numbers with:
 
     grep -rh '#\[rule\]' certora --include='*.rs' | wc -l
@@ -84,8 +174,10 @@ The `-not -path` filter skips the gitignored `.certora_internal/` prover build
 directory, which holds copies of confs that are not part of the suite.
 
 `certora/scripts/check_orphans.py` confirms that confs, rules and profiles stay
-in sync. It reports every rule that no conf runs and every conf that names a
-rule which no longer exists:
+in sync. It reports, in one pass, every rule that no conf runs, every conf that
+names a rule which no longer exists, every rule that runs in more than one
+non-satisfy conf of its layer, every conf whose `rule_sanity` does not match its
+shape, and every revert-shaped rule without a witness:
 
     python3 certora/scripts/check_orphans.py
 
@@ -110,6 +202,15 @@ while recording timeouts as warnings.
 `certora-verification.yml` and `certora-fastRules.yml` submit hosted jobs and
 run only on manual dispatch. No profile runs automatically on every pull
 request.
+
+`certora-verification.yml` takes an optional `profile` dispatch input. Left
+empty it runs the historical sanity sweep, one job per conf. Given a profile
+name it derives one job per (conf, rule) pair and runs
+`certoraSorobanProver <conf> --rule <rule>`, so every rule gets the whole
+`global_timeout` and its own report; each job appends a conf/rule/outcome/report
+row to the run summary, which is what the tuning ledger is filled from. A
+GitHub matrix caps at 256 jobs, so `all` (389 rules) is refused with a message;
+dispatch a narrower profile.
 
 ## Local and hosted execution
 
@@ -185,6 +286,9 @@ change.
 | Expanded-command limit | Review the modeled surface and raise the relevant limit only when justified |
 | Local host runs out of memory | Run one rule, keep split parallelism off, and lower Java heap before increasing it |
 | Counterexample appears bitwise-spurious | Re-run the targeted rule with precise bitwise modeling |
+| SANITY_FAILED on a revert-shaped rule | Expected on that shape; the rule belongs in a `-reverts` conf at `rule_sanity: none` |
+| Arithmetic rule times out on every operand | Confirm the artifact carries a `name` section; without it no compiler-rt summary fires |
+| Unclear which assert of a rule fails | Set `multi_assert_check: true` on that one conf for one run, then set it back |
 
 ## References
 

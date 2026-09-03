@@ -52,6 +52,7 @@ else
     log "matrix already recorded; skipping"
 fi
 flow_flash_position_gaps || die flash_position_gaps "flash_position gap coverage failed"
+flow_flash_position_gates || die flash_position_gates "flash_position gate coverage failed"
 flow_flash_position_malicious || die flash_position_malicious "malicious receiver coverage failed"
 flow_teardown || die teardown "zero-state teardown failed"
 
