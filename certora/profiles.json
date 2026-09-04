@@ -243,9 +243,6 @@
         "conf": "certora/controller/confs/solvency-reserves-reverts.conf"
       },
       {
-        "conf": "certora/common/confs/fp-extremes.conf"
-      },
-      {
         "conf": "certora/controller/confs/spoke.conf"
       },
       {

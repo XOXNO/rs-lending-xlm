@@ -8,8 +8,9 @@ use crate::constants::{
 };
 use crate::math::fp::{Bps, Ray};
 use crate::rates::{
-    calculate_borrow_rate, calculate_supplier_rewards, compound_interest, simulate_update_indexes,
-    supply_index_reward_shortfall, update_borrow_index, update_supply_index, MAX_COMPOUND_DELTA_MS,
+    calculate_borrow_rate, calculate_supplier_rewards, compound_interest,
+    simulate_update_indexes_body, supply_index_reward_shortfall, update_borrow_index,
+    update_supply_index, MAX_COMPOUND_DELTA_MS,
 };
 use crate::types::{MarketIndex, MarketParams, MarketParamsRaw, PoolStateRaw, PoolSyncData};
 
@@ -412,9 +413,14 @@ fn accrued_interest_split_is_conservative_widened(
 // ---------------------------------------------------------------------------
 // Index-projection rules, moved here from the controller layer on 2026-09-03.
 //
-// `simulate_update_indexes` is this crate's function and these rules only feed
-// it a symbolic market and a symbolic accrual window. The controller artifact
-// added nothing to what they prove.
+// These rules feed a symbolic market and a symbolic accrual window into the
+// projection. They call `simulate_update_indexes_body`, not the public
+// `simulate_update_indexes`: under this crate's `certora` feature the public
+// wrapper is replaced by `simulate_update_indexes_summary`, whose outputs are
+// independent nondets bounded only from below, so the equality and ordering
+// asserted below would be spurious counterexamples. On the controller artifact
+// the public wrapper was the real body because `controller/certora` does not
+// enable `common/certora`.
 // ---------------------------------------------------------------------------
 
 /// A rate model satisfying every constraint `MarketParamsRaw::verify` enforces
@@ -565,11 +571,11 @@ fn iso_market_index_invariant_across_accrual(e: Env, asset: Address) {
     let sync = nondet_sync(&asset, last_timestamp);
 
     // What a view returns with no prior `update_indexes`.
-    let before = simulate_update_indexes(&e, now, &sync);
+    let before = simulate_update_indexes_body(&e, now, &sync);
 
     // What the same view returns immediately after `update_indexes`.
     let accrued = accrued_sync(&sync, &before, now);
-    let after = simulate_update_indexes(&e, now, &accrued);
+    let after = simulate_update_indexes_body(&e, now, &accrued);
 
     cvlr_assert!(after.borrow_index.raw() == before.borrow_index.raw());
     cvlr_assert!(after.supply_index.raw() == before.supply_index.raw());
@@ -593,8 +599,8 @@ fn time_mono_market_index_non_decreasing(e: Env, asset: Address) {
 
     let sync = nondet_sync(&asset, last_timestamp);
 
-    let early = simulate_update_indexes(&e, last_timestamp + early_delta, &sync);
-    let late = simulate_update_indexes(&e, last_timestamp + late_delta, &sync);
+    let early = simulate_update_indexes_body(&e, last_timestamp + early_delta, &sync);
+    let late = simulate_update_indexes_body(&e, last_timestamp + late_delta, &sync);
 
     cvlr_assert!(late.borrow_index.raw() >= early.borrow_index.raw());
     cvlr_assert!(late.supply_index.raw() >= early.supply_index.raw());

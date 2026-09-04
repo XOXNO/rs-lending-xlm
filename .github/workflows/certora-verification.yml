@@ -106,6 +106,10 @@ jobs:
     name: ${{ inputs.profile || 'sanity' }} — ${{ matrix.label }}
     needs: compile-check
     runs-on: ubuntu-latest
+    # --wait_for_results ALL blocks until the cloud returns. The largest conf
+    # global_timeout is 7200 s; the rest is queue time. Without this cap a
+    # stalled queue holds the job for GitHub's 360-minute default.
+    timeout-minutes: 150
     strategy:
       fail-fast: false
       # Each running job holds one unfinished cloud job, and the cloud bills an
@@ -169,7 +173,14 @@ jobs:
           # With --wait_for_results ALL the log carries a real verdict. A row
           # that still says "none" means the CLI did not wait: treat the job as
           # unproved, not as passing.
-          verdict="$(grep -Eo '(Verified|Violated|SANITY_FAILED|Timeout|Error)[^ ]*' prover.log 2>/dev/null | tail -1)"
+          # Anchor on the rule's own "-Assertions" sub-rule. Under
+          # rule_sanity advanced the "<rule>-Assertions-rule_not_vacuous_tac"
+          # sub-rule prints "Violated:" on a healthy rule, so a bare match
+          # would record a false verdict (same defect run-local-ci.sh fixed).
+          verdict="$(grep -Eo '(Verified|Violated): [^ ]*-Assertions$' prover.log 2>/dev/null | cut -d: -f1 | sort -u | tr '\n' '+' | sed 's/+$//')"
+          if [ -z "$verdict" ]; then
+            verdict="$(grep -Eo '(Verified|Violated|SANITY_FAILED|Timeout|Error)[^ ]*' prover.log 2>/dev/null | tail -1)"
+          fi
           url="$(grep -Eo 'https://[^ ]*prover.certora.com[^ ]*' prover.log 2>/dev/null | tail -1)"
           {
             echo "| conf | rule | outcome | verdict | report |"

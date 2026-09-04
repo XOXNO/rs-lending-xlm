@@ -1170,10 +1170,15 @@ directions, and the two corrections matter more than the number:
   bounds are shared-crate names wearing a contract-crate spelling. Eleven rules
   came back in.
 
-The honest figure is 57, and 57 moved. Nothing was rewritten: each rule kept its
-assumptions, its assertions and its comments, and the only edits were path
-spellings (`common::x` becomes `crate::x` inside the crate that owns `x`) and
-the private constants and helpers each family needs. Twenty-one inline
+The honest figure is 56 (17 + 19 + 10 + 7 + 3), and 56 moved. Each rule kept
+its assumptions, its assertions and its comments; the edits were path spellings
+(`common::x` becomes `crate::x` inside the crate that owns `x`) and the private
+constants and helpers each family needs. One edit is not a spelling: the two
+index-projection rules that call the public `simulate_update_indexes` had to
+switch to `simulate_update_indexes_body`, because the common artifact enables
+`common/certora`, which replaces the public wrapper with a nondet summary. A
+textual diff of the rule bodies cannot see that change; the symbol resolution
+is what moved. Twenty-one inline
 fully-qualified calls the controller copies carried were converted to
 imports plus bare calls, which the repository's own style rule requires.
 

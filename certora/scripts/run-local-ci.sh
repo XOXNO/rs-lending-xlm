@@ -83,14 +83,17 @@ for c in "${confs[@]}"; do
     # Reaching that assert is what proves the rule is NOT vacuous, so the
     # prover reports it as Violated on a healthy rule. Matching "Violated:"
     # anywhere turned 17 verified rules red in run 33711445573.
-    if grep -qE "^ *Violated: ${rule}-Assertions\$" "$rlog" 2>/dev/null; then
+    # Under `rule_sanity: none` there is no sub-rule and the line is a bare
+    # "Violated: <rule>"; accept that exact form too so a real violation on
+    # an `all`-mode conf cannot fall through to TIMEOUT.
+    if grep -qE "^ *Violated: ${rule}(-Assertions)?\$" "$rlog" 2>/dev/null; then
       verdict="VIOLATED"
     elif grep -q "Unwinding condition in a loop" "$rlog" 2>/dev/null; then
       # loop_iter is below what the rule's loop needs. With optimistic_loop
       # false the prover asserts the unwinding condition, so this is a config
       # failure, not a counterexample: raise loop_iter for this conf.
       verdict="UNWIND"
-    elif grep -qE "^ *Verified: ${rule}-Assertions\$" "$rlog" 2>/dev/null; then
+    elif grep -qE "^ *Verified: ${rule}(-Assertions)?\$" "$rlog" 2>/dev/null; then
       verdict="VERIFIED"
     elif grep -q "^KILLED:" "$rlog" 2>/dev/null; then
       verdict="KILLED"
