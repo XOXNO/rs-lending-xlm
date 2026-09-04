@@ -71,12 +71,12 @@ jobs:
       - name: Install cargo-llvm-cov (prebuilt)
         # Was `cargo install cargo-llvm-cov --locked` (source compile). The
         # install-action fetches a prebuilt binary in seconds.
-        uses: taiki-e/install-action@v2.86.7
+        uses: taiki-e/install-action@v2.87.3
         with:
           tool: cargo-llvm-cov
 
       - name: Install sccache (prebuilt)
-        uses: taiki-e/install-action@v2.86.7
+        uses: taiki-e/install-action@v2.87.3
         with:
           tool: sccache
 
@@ -125,12 +125,12 @@ jobs:
       - name: Install cargo-llvm-cov (prebuilt)
         # Was `cargo install cargo-llvm-cov --locked` (source compile). The
         # install-action fetches a prebuilt binary in seconds.
-        uses: taiki-e/install-action@v2.86.7
+        uses: taiki-e/install-action@v2.87.3
         with:
           tool: cargo-llvm-cov
 
       - name: Install sccache (prebuilt)
-        uses: taiki-e/install-action@v2.86.7
+        uses: taiki-e/install-action@v2.87.3
         with:
           tool: sccache
 
