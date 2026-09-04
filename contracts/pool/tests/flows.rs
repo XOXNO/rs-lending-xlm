@@ -3265,3 +3265,314 @@ fn prepare_with_balance_still_runs_the_flashloan_gate() {
         flash::prepare_with_balance(&t.env, hub(&t.asset), 100_0000000i128, 500_0000000i128);
     });
 }
+
+// ---------------------------------------------------------------------------
+// The recapitalize refund is bounded by neither the cash book nor custody.
+// Catalogued as A043 gap (5) and A054 §2.3 in
+// docs/audit/controller-defense/findings/A101-money-movement-gaps.md: the pool
+// trusts its owner's measured amount by design (INV-AUTH-01).
+// ---------------------------------------------------------------------------
+
+/// `recapitalize` pays `amount - applied` out through `Cache::transfer_out`,
+/// which checks neither the cash book nor the live SAC balance
+/// (`contracts/pool/src/cache/cash.rs:42-48`) and does not debit `cash`. On a
+/// market with no backing shortfall `applied` is zero, so the entire declared
+/// `amount` is refunded -- out of tokens the pool never received.
+///
+/// Every pool mutator is `#[only_owner]`, so reaching this needs the controller
+/// to pass an `amount` it did not measure; the honest controller measures at
+/// `contracts/controller/src/keepers.rs:56-65`. That is what makes this a
+/// defence-in-depth gap rather than a reachable loss. What this test pins is
+/// that the pool contributes no bound of its own: the payout is limited only by
+/// what the owner declares.
+#[test]
+fn test_recapitalize_refund_pays_out_tokens_the_pool_never_received() {
+    let t = TestSetup::new();
+    let token = token::Client::new(&t.env, &t.asset);
+    let payer = Address::generate(&t.env);
+
+    // `TestSetup::new` mints the pool's custody and sets `cash` to match, so
+    // the book and the real balance agree before the call.
+    let custody_before = token.balance(&t.pool);
+    let before = t.state_snapshot();
+    assert_eq!(
+        before.cash, custody_before,
+        "fixture guard: cash book and SAC balance must start in sync"
+    );
+    assert_eq!(
+        guards_backing_shortfall(&t),
+        0,
+        "fixture must be fully backed"
+    );
+    assert_eq!(token.balance(&payer), 0);
+
+    // Nothing is transferred in. The owner simply declares a payment on its behalf.
+    let declared = custody_before;
+    let result = t.client().recapitalize(&hub(&t.asset), &payer, &declared);
+
+    let after = t.state_snapshot();
+
+    assert_eq!(
+        result.actual_amount, 0,
+        "a backed market has no shortfall, so nothing is applied"
+    );
+    assert_eq!(
+        token.balance(&payer),
+        declared,
+        "the payer is refunded in full for a payment that never happened"
+    );
+    assert_eq!(
+        token.balance(&t.pool),
+        0,
+        "the pool's entire custody has left the contract"
+    );
+    assert_eq!(
+        after.cash, before.cash,
+        "the cash book is untouched, so the pool still reports the paid-out \
+         funds as present"
+    );
+    assert_pool_state_eq(&after, &before);
+}
+
+/// The consequence of the above: `cash` overstates custody, so
+/// `Cache::require_reserves` -- which reads the book, not the balance
+/// (`contracts/pool/src/cache/cash.rs:14-20`) -- keeps admitting exits that
+/// then die inside the SAC transfer. The market reports itself solvent and
+/// cannot pay.
+#[test]
+fn test_unfunded_recapitalize_leaves_the_cash_book_overstating_custody() {
+    let t = TestSetup::new();
+    let token = token::Client::new(&t.env, &t.asset);
+    let token_admin = token::StellarAssetClient::new(&t.env, &t.asset);
+    let payer = Address::generate(&t.env);
+    let receiver = Address::generate(&t.env);
+
+    // A legitimate supplier, with custody moved in as the controller would.
+    let deposit = 10_000_000_000i128;
+    token_admin.mint(&t.pool, &deposit);
+    let supplied = t
+        .client()
+        .supply(&t.sup(0, deposit))
+        .get_unchecked(0)
+        .position
+        .scaled_amount;
+    assert_eq!(
+        t.state_snapshot().cash,
+        token.balance(&t.pool),
+        "fixture guard: book and custody must still agree after the deposit"
+    );
+
+    // Drain every token via an unfunded refund.
+    let custody = token.balance(&t.pool);
+    t.client().recapitalize(&hub(&t.asset), &payer, &custody);
+    assert_eq!(token.balance(&t.pool), 0, "custody is gone");
+
+    let book = t.state_snapshot().cash;
+    assert!(
+        book >= deposit,
+        "the book still claims more than the supplier's deposit: {book}"
+    );
+
+    // The supplier's exit clears the pool's own liquidity guard -- the book
+    // says the cash is there -- and then fails in the token transfer.
+    let outcome = t
+        .client()
+        .try_withdraw(&receiver, &false, &t.wdr(supplied, i128::MAX, 0));
+    assert!(
+        outcome.is_err(),
+        "the withdraw cannot be paid, so it must fail"
+    );
+    // The failure must come from custody, not from a pool guard. A Stellar
+    // Asset Contract reports insufficient balance as its own contract error
+    // `BalanceError = 10`, in the SAC's error space rather than the protocol's
+    // -- so this asserts the exact code the SAC raises, and separately that it
+    // is neither of the pool's liquidity guards, which is the claim that
+    // matters: `require_reserves` read the book and let the exit through.
+    const SAC_BALANCE_ERROR: u32 = 10;
+    match outcome {
+        Err(Ok(err)) => {
+            assert_ne!(
+                err,
+                Error::from_contract_error(CollateralError::InsufficientLiquidity as u32),
+                "the pool's own liquidity guard must NOT be what stopped this -- \
+                 it reads the cash book, which still shows the funds"
+            );
+            assert_ne!(
+                err,
+                Error::from_contract_error(CollateralError::PoolInsolvent as u32),
+                "the pool's solvency guard must NOT be what stopped this either"
+            );
+            assert_eq!(
+                err,
+                Error::from_contract_error(SAC_BALANCE_ERROR),
+                "the exit must fail inside the SAC transfer for want of custody"
+            );
+        }
+        Err(Err(host_abort)) => panic!("expected a SAC contract error, got {host_abort:?}"),
+        Ok(_) => unreachable!("asserted is_err above"),
+    }
+    assert_eq!(token.balance(&receiver), 0, "the supplier received nothing");
+    assert_eq!(
+        t.state_snapshot().cash,
+        book,
+        "the failed exit rolled back, so the book still overstates custody"
+    );
+}
+
+/// The payout is bounded by live custody, not by the declared amount: claiming
+/// more than the pool holds reverts inside the SAC rather than minting a
+/// negative balance. Worth pinning because it caps the blast radius of an
+/// unmeasured owner call at the pool's real holdings for that asset.
+#[test]
+fn test_unfunded_recapitalize_is_bounded_by_custody_not_by_the_declared_amount() {
+    let t = TestSetup::new();
+    let token = token::Client::new(&t.env, &t.asset);
+    let payer = Address::generate(&t.env);
+
+    let custody = token.balance(&t.pool);
+    let before = t.state_snapshot();
+
+    let outcome = t
+        .client()
+        .try_recapitalize(&hub(&t.asset), &payer, &(custody + 1));
+
+    assert!(
+        outcome.is_err(),
+        "over-claiming past custody must not succeed"
+    );
+    assert_eq!(
+        token.balance(&t.pool),
+        custody,
+        "a reverted over-claim leaves custody intact"
+    );
+    assert_eq!(token.balance(&payer), 0);
+    assert_eq!(t.state_snapshot().cash, before.cash);
+}
+
+/// Reads `guards::backing_shortfall` for the default market, so the tests above
+/// state their precondition instead of assuming it.
+fn guards_backing_shortfall(t: &TestSetup) -> i128 {
+    t.env.as_contract(&t.pool, || {
+        let cache = Cache::load(&t.env, &hub(&t.asset));
+        crate::guards::backing_shortfall(&cache)
+    })
+}
+
+/// The asset-substitution payload: pay in a worthless token, be refunded in a
+/// real one. The controller moves `hub_asset.asset` inbound
+/// (`contracts/controller/src/keepers.rs:56-65`) while the pool refunds with
+/// `self.params.asset_id` (`contracts/pool/src/cache/cash.rs:46`), so if those
+/// two could ever name different tokens the refund would be a swap.
+///
+/// They cannot. `ops::market::create` derives the storage key from
+/// `params.asset_id` itself (`contracts/pool/src/ops/market.rs:21-24`), so
+/// `key.asset == params.asset_id` holds for every market that exists, and a
+/// `hub_asset` naming any other token resolves to no market at all. This test
+/// pins both halves, because the guarantee is structural rather than asserted
+/// and a refactor that passed the key and the params separately would lose it.
+#[test]
+fn test_recapitalize_rejects_a_hub_asset_that_names_no_market() {
+    let t = TestSetup::new();
+    let payer = Address::generate(&t.env);
+
+    // A second, unrelated token the payer controls outright.
+    let worthless = t
+        .env
+        .register_stellar_asset_contract_v2(payer.clone())
+        .address()
+        .clone();
+    let worthless_admin = token::StellarAssetClient::new(&t.env, &worthless);
+    let real = token::Client::new(&t.env, &t.asset);
+
+    let stake = 1_000_000_000i128;
+    worthless_admin.mint(&payer, &stake);
+    let pool_custody_before = real.balance(&t.pool);
+
+    // Declaring the foreign token as the market key resolves to no market.
+    let outcome = flatten_contract_result(t.client().try_recapitalize(
+        &hub(&worthless),
+        &payer,
+        &stake,
+    ));
+    assert_contract_error(outcome, GenericError::PoolNotInitialized as u32);
+
+    assert_eq!(
+        real.balance(&t.pool),
+        pool_custody_before,
+        "no real custody may move for a payload naming another token"
+    );
+    assert_eq!(
+        real.balance(&payer),
+        0,
+        "the payer must not be refunded in the market's asset"
+    );
+
+    // The structural half: the market's key and its configured asset are the
+    // same address, which is what makes the substitution unreachable.
+    t.env.as_contract(&t.pool, || {
+        let key = hub(&t.asset);
+        let params: MarketParamsRaw = t
+            .env
+            .storage()
+            .persistent()
+            .get(&PoolKey::Params(key.clone()))
+            .expect("market must exist");
+        assert_eq!(
+            params.asset_id, key.asset,
+            "the market key's asset and params.asset_id must be the same token"
+        );
+    });
+}
+
+/// F-06 generalised: the refund gap is not specific to `recapitalize`. Two pool
+/// legs pay out a refund derived from a declared inbound amount rather than
+/// from the cash book -- `ops/recapitalize.rs:34` (the excess over the
+/// shortfall) and `ops/repay.rs:33` (the excess over the debt). Neither is
+/// debited from `cash`, and neither is bounded by `require_reserves`, because
+/// both are refunding money the pool was told it had just received.
+///
+/// A repay against a market with no debt makes the ENTIRE declared amount an
+/// overpayment: `current_debt_ceil` is zero, so `resolve_repay` takes the
+/// full-close branch, `net_repay` is zero and the assert at `ops/repay.rs:49`
+/// passes on its `net_repay == 0` disjunct. The whole declared amount is then
+/// refunded out of real custody with the book untouched -- the same shape as
+/// the unfunded recapitalize above, reached through a different entrypoint.
+#[test]
+fn test_unfunded_repay_overpayment_refund_also_pays_out_of_custody() {
+    let t = TestSetup::new();
+    let token = token::Client::new(&t.env, &t.asset);
+    let payer = Address::generate(&t.env);
+
+    let custody_before = token.balance(&t.pool);
+    let before = t.state_snapshot();
+    assert_eq!(
+        before.cash, custody_before,
+        "fixture guard: book and custody must start in sync"
+    );
+    assert_eq!(before.borrowed, 0, "fixture must carry no debt");
+
+    // Nothing transferred in, no debt to retire: the whole amount is "excess".
+    let declared = custody_before;
+    let result = t
+        .client()
+        .repay(&payer, &t.ract(0, declared))
+        .get_unchecked(0);
+
+    let after = t.state_snapshot();
+
+    assert_eq!(
+        result.actual_amount, 0,
+        "no debt was retired, so nothing is credited"
+    );
+    assert_eq!(
+        token.balance(&payer),
+        declared,
+        "the entire declared amount comes back as an overpayment refund"
+    );
+    assert_eq!(token.balance(&t.pool), 0, "custody is drained");
+    assert_eq!(
+        after.cash, before.cash,
+        "the cash book is untouched, so it now overstates custody"
+    );
+    assert_pool_state_eq(&after, &before);
+}

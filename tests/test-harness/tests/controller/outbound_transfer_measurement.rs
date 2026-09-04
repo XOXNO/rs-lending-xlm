@@ -258,3 +258,144 @@ fn repay_overpayment_is_refunded_to_the_payer_not_stranded() {
         "the controller must not retain any part of a plain-repay overpayment"
     );
 }
+
+/// The mirror of the fee-on-transfer case above, and the direction the suite
+/// did not cover: an asset that OVER-delivers, crediting the recipient more
+/// than was sent. This is the direction that could let a payer extract value
+/// from `recapitalize`, because the refund basis is `received` -- the measured
+/// inbound delta -- and not what the payer actually paid.
+///
+/// It does not. `transfer_amount_measured` measures the POOL's balance delta
+/// (`common/src/token.rs:29-33`), so over the whole call the pool's balance
+/// moves by `received - refund`, which is exactly `applied` -- the same figure
+/// that lands in the cash book. The payer's windfall here comes from the token
+/// inflating its own supply on each hop, not out of protocol custody.
+///
+/// That identity is why the unmeasured refund at
+/// `contracts/pool/src/ops/recapitalize.rs:34` is not reachable as a drain
+/// through the honest controller path: whatever the asset does on the way in,
+/// the refund is capped by what the pool actually received.
+#[test]
+fn recapitalize_into_an_over_delivering_market_keeps_book_and_custody_in_step() {
+    let mut t = LendingTest::new()
+        .with_extra_credit_market(usdc_preset(), 100)
+        .with_market(eth_preset())
+        .build();
+
+    let payer = t.get_or_create_user(ALICE);
+    let asset = t.resolve_asset("USDC");
+    let pool = t.resolve_market("USDC").pool.clone();
+    let controller = t.controller_address();
+    let key = hub_asset(asset.clone());
+    let tok = token::Client::new(&t.env, &asset);
+
+    let amount = 10_000_000_000i128;
+    WeirdTokenClient::new(&t.env, &asset).mint(&payer, &amount);
+
+    let payer_before = tok.balance(&payer);
+    let pool_before = tok.balance(&pool);
+    let controller_before = tok.balance(&controller);
+    let cash_before = t.pool_client("USDC").get_reserves(&key);
+
+    let applied = t.ctrl_client().recapitalize(&payer, &key, &amount);
+
+    assert_eq!(applied, 0, "a backed market must apply nothing");
+
+    // The load-bearing identity: custody moves by exactly what the book moves
+    // by, even though the asset over-delivered on both hops.
+    let custody_delta = tok.balance(&pool) - pool_before;
+    let book_delta = t.pool_client("USDC").get_reserves(&key) - cash_before;
+    assert_eq!(
+        custody_delta, applied,
+        "pool custody must move by exactly `applied`, got {custody_delta}"
+    );
+    assert_eq!(
+        book_delta, applied,
+        "the cash book must move by exactly `applied`, got {book_delta}"
+    );
+    assert_eq!(
+        custody_delta, book_delta,
+        "book and custody must stay in step under an over-delivering asset"
+    );
+    assert_eq!(
+        tok.balance(&controller),
+        controller_before,
+        "the controller must retain nothing"
+    );
+
+    // The payer does profit -- but from the token minting on each hop, not from
+    // the pool. in: pool is credited 101% of `amount`. out: the pool sends that
+    // measured receipt and the payer is credited 101% of it.
+    let received = amount + amount / 100;
+    let refunded_to_payer = received + received / 100;
+    assert_eq!(
+        tok.balance(&payer) - payer_before,
+        refunded_to_payer - amount,
+        "the payer's gain is exactly the token's own two-hop inflation"
+    );
+    assert!(
+        refunded_to_payer > amount,
+        "guard: the fixture must actually over-deliver, or this proves nothing"
+    );
+}
+
+/// The other way to inflate `received`: move tokens into the pool from inside
+/// the measured window. `transfer_amount_measured` brackets only the single
+/// `tok.transfer` call (`common/src/token.rs:29-31`), so anything the asset
+/// does *during* that transfer lands between the two balance reads and is
+/// counted as part of the payer's receipt.
+///
+/// The transfer-hook asset does exactly that: after every transfer it calls
+/// `controller.supply` as `from`. If that re-entry succeeded during a
+/// recapitalize it would credit the pool inside the window and inflate the
+/// refund basis. It does not: the controller is already on the frame stack, and
+/// the Soroban host runs cross-contract calls under
+/// `ContractReentryMode::Prohibited`, so the hook's call is refused before
+/// dispatch and the whole recapitalize reverts.
+///
+/// Note what is NOT holding this closed: `require_not_flash_loaning`
+/// (`contracts/controller/src/keepers.rs`) only fires while a flash loan is in
+/// flight, and there is none here. The defence is the host's, which is why it
+/// is worth a test rather than an argument.
+#[test]
+fn recapitalize_fails_closed_when_the_asset_reenters_during_the_measured_window() {
+    let mut t = LendingTest::new()
+        .with_transfer_hook_market(usdc_preset())
+        .with_market(eth_preset())
+        .build();
+
+    let payer = t.get_or_create_user(ALICE);
+    let asset = t.resolve_asset("USDC");
+    let pool = t.resolve_market("USDC").pool.clone();
+    let key = hub_asset(asset.clone());
+    let tok = token::Client::new(&t.env, &asset);
+
+    let amount = 10_000_000_000i128;
+    WeirdTokenClient::new(&t.env, &asset).mint(&payer, &amount);
+
+    let payer_before = tok.balance(&payer);
+    let pool_before = tok.balance(&pool);
+    let cash_before = t.pool_client("USDC").get_reserves(&key);
+
+    let outcome = t.ctrl_client().try_recapitalize(&payer, &key, &amount);
+
+    assert!(
+        outcome.is_err(),
+        "a re-entrant asset must not be able to settle a recapitalize"
+    );
+    assert_eq!(
+        tok.balance(&payer),
+        payer_before,
+        "the reverted call must leave the payer whole"
+    );
+    assert_eq!(
+        tok.balance(&pool),
+        pool_before,
+        "the reverted call must leave pool custody untouched"
+    );
+    assert_eq!(
+        t.pool_client("USDC").get_reserves(&key),
+        cash_before,
+        "the reverted call must leave the cash book untouched"
+    );
+}
