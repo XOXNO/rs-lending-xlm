@@ -1,4 +1,5 @@
 use cvlr::macros::rule;
+use cvlr::prelude::clog;
 use cvlr::{cvlr_assert, cvlr_assume};
 use soroban_sdk::{Env, U256};
 
@@ -102,6 +103,18 @@ fn isqrt_is_the_integer_floor_of_the_root(e: Env, a: u64, b: u64) {
     let product = U256::from_u128(&e, u128::from(a)).mul(&U256::from_u128(&e, u128::from(b)));
     let root = isqrt_of_product(&e, u128::from(a), u128::from(b));
     let next = root.add(&U256::from_u32(&e, 1));
+
+    // `isqrt_of_product` is a descending Newton iteration whose `while y < x`
+    // loop the prover unrolls `loop_iter` times. Local run 33711445573 reported
+    // a counterexample here in 82 s, the first answer this rule has ever
+    // returned: before the artifacts kept their function names it only ever
+    // timed out. The inputs are logged so the next run names the pair instead
+    // of reporting a bare verdict, since the operands are the only thing needed
+    // to reproduce it against the Rust implementation.
+    let a_in = i128::from(a);
+    let b_in = i128::from(b);
+    clog!(a_in);
+    clog!(b_in);
 
     cvlr_assert!(root.mul(&root) <= product);
     cvlr_assert!(next.mul(&next) > product);

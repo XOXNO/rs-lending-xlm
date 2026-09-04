@@ -77,9 +77,20 @@ for c in "${confs[@]}"; do
   for rule in "${rules[@]}"; do
     safe=$(printf '%s' "$rule" | tr -c '[:alnum:]_.-' '_')
     rlog="$log_dir/$conf_base-$safe.log"
-    if grep -q "Violated:" "$rlog" 2>/dev/null; then
+    # Classify on the rule's own sub-rules, never on a bare "Violated:" match.
+    # Under `rule_sanity: advanced` the prover emits a vacuity sub-rule named
+    # "<rule>-Assertions-rule_not_vacuous_tac", whose body is `assert false`.
+    # Reaching that assert is what proves the rule is NOT vacuous, so the
+    # prover reports it as Violated on a healthy rule. Matching "Violated:"
+    # anywhere turned 17 verified rules red in run 33711445573.
+    if grep -qE "^ *Violated: ${rule}-Assertions\$" "$rlog" 2>/dev/null; then
       verdict="VIOLATED"
-    elif grep -q "Verified:" "$rlog" 2>/dev/null; then
+    elif grep -q "Unwinding condition in a loop" "$rlog" 2>/dev/null; then
+      # loop_iter is below what the rule's loop needs. With optimistic_loop
+      # false the prover asserts the unwinding condition, so this is a config
+      # failure, not a counterexample: raise loop_iter for this conf.
+      verdict="UNWIND"
+    elif grep -qE "^ *Verified: ${rule}-Assertions\$" "$rlog" 2>/dev/null; then
       verdict="VERIFIED"
     elif grep -q "^KILLED:" "$rlog" 2>/dev/null; then
       verdict="KILLED"
@@ -93,6 +104,11 @@ for c in "${confs[@]}"; do
     case "$verdict" in
       VIOLATED)
         echo "::error::$c/$rule [$verdict] — inspect $rlog"
+        tail -25 "$rlog" | sed 's/^/    /'
+        failed=1
+        ;;
+      UNWIND)
+        echo "::error::$c/$rule [$verdict] — loop unwinding assertion failed; raise loop_iter in $c (never optimistic_loop) and inspect $rlog"
         tail -25 "$rlog" | sed 's/^/    /'
         failed=1
         ;;
