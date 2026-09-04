@@ -86,13 +86,15 @@ for c in "${confs[@]}"; do
     # Under `rule_sanity: none` there is no sub-rule and the line is a bare
     # "Violated: <rule>"; accept that exact form too so a real violation on
     # an `all`-mode conf cannot fall through to TIMEOUT.
-    if grep -qE "^ *Violated: ${rule}(-Assertions)?\$" "$rlog" 2>/dev/null; then
-      verdict="VIOLATED"
-    elif grep -q "Unwinding condition in a loop" "$rlog" 2>/dev/null; then
-      # loop_iter is below what the rule's loop needs. With optimistic_loop
-      # false the prover asserts the unwinding condition, so this is a config
-      # failure, not a counterexample: raise loop_iter for this conf.
+    #
+    # Unwinding is tested first: with optimistic_loop false the prover asserts
+    # the unwinding condition, so a rule whose loop exceeds loop_iter prints
+    # both "Violated: <rule>" and "Unwinding condition in a loop". That is a
+    # config failure, not a counterexample: raise loop_iter for this conf.
+    if grep -q "Unwinding condition in a loop" "$rlog" 2>/dev/null; then
       verdict="UNWIND"
+    elif grep -qE "^ *Violated: ${rule}(-Assertions)?\$" "$rlog" 2>/dev/null; then
+      verdict="VIOLATED"
     elif grep -qE "^ *Verified: ${rule}(-Assertions)?\$" "$rlog" 2>/dev/null; then
       verdict="VERIFIED"
     elif grep -q "^KILLED:" "$rlog" 2>/dev/null; then
