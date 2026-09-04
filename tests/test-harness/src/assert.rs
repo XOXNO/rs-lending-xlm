@@ -257,18 +257,23 @@ impl LendingTest {
                 }
             }
 
-            // Every listed (spoke, asset) pair is checked, not only the ones
+            // Every (spoke, hub, asset) triple is checked, not only the ones
             // with live positions, so a row that outlived its last position
-            // is caught too.
-            let last_spoke: u32 = self
-                .env
-                .storage()
-                .instance()
-                .get(&ControllerKey::LastSpokeId)
-                .unwrap_or(0);
+            // is caught too. Hubs are enumerated from the counter because a
+            // market can be listed on a hub other than the default one and
+            // `self.markets` keeps only the asset.
+            let instance = self.env.storage().instance();
+            let last_spoke: u32 = instance.get(&ControllerKey::LastSpokeId).unwrap_or(0);
+            let last_hub: u32 = instance.get(&ControllerKey::LastHubId).unwrap_or(0);
             for spoke_id in 1..=last_spoke {
-                for market in self.markets.values() {
-                    bump_usage(&mut expected, spoke_id, hub_asset(market.asset.clone()), 0, 0);
+                for hub_id in 1..=last_hub {
+                    for market in self.markets.values() {
+                        let key = HubAssetKey {
+                            hub_id,
+                            asset: market.asset.clone(),
+                        };
+                        bump_usage(&mut expected, spoke_id, key, 0, 0);
+                    }
                 }
             }
 
