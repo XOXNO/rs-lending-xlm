@@ -1,8 +1,8 @@
 # 0008. Halt flags gate liquidation legs
 
-**Status:** Accepted for the shipped decision below. The
-"Proposed amendment (2026-08-16)" section at the end of this document is
-**Draft**: it records an open question and describes no shipped behaviour.
+**Status:** Accepted. The "Proposed amendment (2026-08-16)" section at the
+end of this document was a draft; it was closed on 2026-09-05 with the
+decision to keep `no_seize` independent. See "Decision (2026-09-05)".
 
 **Implemented by:** contracts/controller/src/positions/mod.rs (`FreezePolicy`, `enforce_spoke_asset_flags`, `require_can_supply`, `BlockOnEntry`, `AllowOnExit`, `SeizureLeg`), contracts/controller/src/positions/liquidation/plan.rs, contracts/controller/src/positions/liquidation/apply.rs, contracts/controller/src/config/asset.rs (`set_spoke_asset_flags`, `require_flag_ratchet`); tests contracts/controller/tests/positions/flags.rs (`no_seize_blocks_seizure`), contracts/controller/tests/config/asset_flags.rs (`set_spoke_asset_flags_tightens_no_seize_independently`).
 
@@ -76,8 +76,8 @@ Operator guidance:
   the condition.
 - Pausing a collateral listing never makes its holders unliquidatable.
   `no_seize` does: seizure is pro-rata over the account's whole collateral
-  set, so one halted leg reverts the entire liquidation. See the draft
-  amendment below.
+  set, so one halted leg reverts the entire liquidation. This is accepted;
+  see "Decision (2026-09-05)" below.
 - A delisted asset (no listing config at all) remains both exitable and seizable.
 - The distinction is visible and testable rather than an implicit convention.
 
@@ -88,9 +88,10 @@ liquidation entry and exit legs. Liveness consequences are security-relevant, in
 both directions: a halt that is too broad strands solvent liquidations, and one
 that is too narrow leaves an unsafe asset reachable.
 
-## Proposed amendment (2026-08-16) — not shipped
+## Proposed amendment (2026-08-16) — closed, not adopted
 
-**Status:** Draft. No production change in this revision.
+**Status:** Closed on 2026-09-05. Kept for the record. None of the options
+below was adopted; the decision follows the options table.
 
 `no_seize` does not block supply (`require_can_supply` uses `BlockOnEntry`:
 `paused` and `frozen` only). Seizure is pro-rata and every surviving seize
@@ -119,6 +120,32 @@ travel with `frozen`? Option C is the wind-down reading. None of the three
 options is implemented; the shipped setter has no coupling term, and
 `require_can_supply` still uses `BlockOnEntry`.
 
-Until that is decided, `force_socialize_bad_debt` is the hatch for insolvent
-accounts that `no_seize` has made unliquidatable. See
-[force-socialize-bad-debt](../../reference/runbooks/force-socialize-bad-debt.md).
+### Decision (2026-09-05)
+
+`no_seize` stays as shipped. It gates the liquidation seizure leg and nothing
+else: supply, borrow, and exit on the listing are not affected, and the
+setter keeps the three flags independent. None of options A, B, or C is
+adopted.
+
+Why:
+
+- Option C does not unstick existing holders, so it buys "no new shields"
+  and not liquidation liveness. The hatch is unchanged either way.
+- `frozen` blocks new borrow as well as new supply
+  (`require_can_borrow` and `require_can_supply` share `BlockOnEntry`), so
+  coupling `no_seize` to `frozen` halts the debt side of a listing whose only
+  stated problem is its collateral. That is the over-broad halt this ADR
+  rejected for `paused`.
+- A `no_seize ⇒ frozen` invariant must also hold on the timelocked
+  `edit_asset_in_spoke` path and at propose time, and any live listing that
+  already violates it would have its edits blocked. That is not one assert.
+- A guardian emergency call that reverts on a coupling rule is worse than a
+  documented footgun; an implicit `frozen` write instead contradicts the
+  per-flag ratchet that ADR-0007, INV-AUTH-04, and STRIDE cite by name.
+
+Consequence, accepted: an account that holds or later supplies a `no_seize`
+asset in non-dust size cannot be liquidated while the flag is set.
+`force_socialize_bad_debt` is the hatch for insolvent accounts in that state.
+See [force-socialize-bad-debt](../../reference/runbooks/force-socialize-bad-debt.md).
+Operators should check the listing's spoke usage before setting `no_seize`
+on a live book and prefer `frozen` when the intent is only "no new exposure".
