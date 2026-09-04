@@ -360,6 +360,9 @@
       },
       {
         "conf": "certora/controller/confs/strategy-repay-collateral.conf"
+      },
+      {
+        "conf": "certora/common/confs/lp-math-isqrt.conf"
       }
     ],
     "flash-position": [

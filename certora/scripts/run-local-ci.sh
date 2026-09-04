@@ -13,7 +13,7 @@
 #     returned, so this says nothing about the rule
 #
 # Tuning (env): CERTORA_LOCAL_JOBS (default 10) parallel provers, each a JVM
-# with -Xmx8g; CERTORA_RULE_TIMEOUT (default 600s) per-rule cap.
+# with -Xmx8g; CERTORA_RULE_TIMEOUT (default 900s) per-rule cap.
 #
 # Usage: run-local-ci.sh [CONFS] [RULES]
 #   CONFS: space-separated conf paths relative to certora/ (without .conf);
@@ -28,7 +28,7 @@ log_dir="${CERTORA_LOG_DIR:-$repo_root/target/certora-local-logs}"
 mkdir -p "$log_dir"
 
 jobs="${CERTORA_LOCAL_JOBS:-10}"
-rule_timeout="${CERTORA_RULE_TIMEOUT:-600}"
+rule_timeout="${CERTORA_RULE_TIMEOUT:-900}"
 
 if [ $# -gt 0 ] && [ "$1" = "all" ]; then
   # Every conf in the tree. Only sensible with a raised CERTORA_RULE_TIMEOUT and

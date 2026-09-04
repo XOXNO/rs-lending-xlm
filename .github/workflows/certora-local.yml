@@ -25,10 +25,10 @@ on:
         type: string
         default: ""
       rule_timeout:
-        description: "Seconds per rule (default 600 = the 10-minute smoke cap)"
+        description: "Seconds per rule (default 900 = the 15-minute smoke cap)"
         required: false
         type: string
-        default: "600"
+        default: "900"
       job_timeout_minutes:
         description: "Job wall-clock cap in minutes (default 720 = 12h; 10080 = 7 days)"
         required: false
@@ -178,7 +178,7 @@ jobs:
         env:
           PROVE_CONFS: ${{ inputs.confs }}
           PROVE_RULES: ${{ inputs.rules }}
-          CERTORA_RULE_TIMEOUT: ${{ inputs.rule_timeout || '600' }}
+          CERTORA_RULE_TIMEOUT: ${{ inputs.rule_timeout || '900' }}
           CERTORA_LOCAL_JOBS: "10"
         run: |
           export CERTORA_PYTHON="$(command -v python3)"

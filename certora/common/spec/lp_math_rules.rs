@@ -1,5 +1,4 @@
 use cvlr::macros::rule;
-use cvlr::prelude::clog;
 use cvlr::{cvlr_assert, cvlr_assume};
 use soroban_sdk::{Env, U256};
 
@@ -104,18 +103,14 @@ fn isqrt_is_the_integer_floor_of_the_root(e: Env, a: u64, b: u64) {
     let root = isqrt_of_product(&e, u128::from(a), u128::from(b));
     let next = root.add(&U256::from_u32(&e, 1));
 
-    // `isqrt_of_product` is a descending Newton iteration whose `while y < x`
-    // loop the prover unrolls `loop_iter` times. Local run 33711445573 reported
-    // a counterexample here in 82 s, the first answer this rule has ever
-    // returned: before the artifacts kept their function names it only ever
-    // timed out. The inputs are logged so the next run names the pair instead
-    // of reporting a bare verdict, since the operands are the only thing needed
-    // to reproduce it against the Rust implementation.
-    let a_in = i128::from(a);
-    let b_in = i128::from(b);
-    clog!(a_in);
-    clog!(b_in);
-
+    // Known model gap, so this rule runs from its own conf outside the local
+    // smoke set. The prover models `context/obj_cmp` on two U256 objects as
+    // "equal digests give 0, otherwise a havoc in {1, -1}", so every ordering
+    // comparison in `isqrt_of_product` (`n <= one`, `while y < x`) is
+    // nondeterministic. Run 33850503287 returned a = 0x55555555555556, b = 3
+    // (n = 2^56 + 2) with the `n <= one` branch taken; the Rust function
+    // returns 2^28 and both assertions hold. Until U256 ordering is modelled,
+    // any verdict here is about the model, not the code.
     cvlr_assert!(root.mul(&root) <= product);
     cvlr_assert!(next.mul(&next) > product);
 }
