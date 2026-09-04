@@ -68,6 +68,28 @@ Re-entering `supply` / `borrow` / `flash_loan` / other strategies reverts
 - Empty `collaterals` or all-zero mins (`InvalidPayments` / `CollateralRequired`).
 - Assuming leftover debt token on the controller repays the account — it does not.
 
+## Leftovers and refunds
+
+Nothing is auto-repaid. The account keeps the full minted debt and accrues
+interest on it until someone calls `repay`. Three places tokens can end up:
+
+- **On your receiver.** Whatever you do not push to the controller stays on
+  your contract. The protocol never touches it again.
+- **Pushed to the controller and listed in `refund_assets`.** The controller
+  refunds its balance increase in each listed asset to `caller` after the
+  callback. Each entry must be an active listed asset of the account's spoke,
+  no duplicates, at most `max_supply_positions` entries. Listing the debt
+  token here is the way to get an unspent remainder back; then `repay` it.
+- **Pushed to the controller, not a declared collateral, not in
+  `refund_assets`.** Stranded on the controller. It is credited to no position
+  and refunded to nobody.
+
+The collateral minimum only has to be strictly positive, so a healthy
+account can use this call to route borrowed tokens to your receiver against
+dust collateral. That is intended and is economically the same as
+`borrow(..., to)` on that account: the same solvency, min-borrow, and cap
+gates run at finalize, and the debt is real.
+
 ## Test mock and live coverage
 
 `mock/flash-position-receiver/` is the testnet mock (pre-fund, `set_plan`,

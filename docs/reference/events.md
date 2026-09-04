@@ -202,6 +202,8 @@ The controller defines **20** events, in `contracts/controller/src/events/`.
 
 **One operation can publish more than one batch.** A `SeizeMode::Credit` liquidation writes two accounts and publishes the liquidated account's batch first and the receiving account's batch second (`contracts/controller/src/positions/liquidation/mod.rs:125` and `:139`). Key on `account_id`; do not assume one operation yields one batch.
 
+**Three shapes of the receiver's batch that surprise integrators.** It is supply-side only: `borrows` is always empty, because a share credit never touches debt (`record_share_credit_updates`, `contracts/controller/src/positions/liquidation/apply.rs:258`). It omits any collateral leg whose net credit is zero: the loop at `apply.rs:266` skips an entry when the fee consumes the whole seizure, which is reachable on a one-share seizure, so the liquidated account can carry a `LiqSeize` leg with no matching `LiqCredit` leg. And a `SeizeMode::Credit(0)` receiver is created inside the call with no account-creation event (`resolve_seize_receiver`, `contracts/controller/src/positions/liquidation/mod.rs:183`); its existence, owner, spoke, and mode are announced only by that second batch's `account_id` and `account_attributes`.
+
 ### `LiquidationEvent`
 
 - **Topics:** `["position", "liquidation"]`

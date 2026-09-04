@@ -102,6 +102,14 @@ rule now names both principals and asserts no *third* account changes. That is a
 genuine weakening of a strong invariant and is the price of the feature; it was
 not loosened to "some other account may change".
 
+The receiver's own change is bounded by a companion rule in the same spec,
+`liquidation_share_credit_bounded_by_target_loss`: its debt book does not move,
+its supply shares never fall, and they rise by no more than the liquidated
+account's shares fell in the same asset. `liquidation_share_credit_reachability`
+witnesses that the credit path is live, so the bound cannot pass vacuously.
+The residue is the protocol fee; the rule does not pin it to pool revenue,
+because the pool call is havoced in the controller spec.
+
 ## Guarantees
 
 - A liquidation cannot fail for want of cash when the liquidator accepts shares.
