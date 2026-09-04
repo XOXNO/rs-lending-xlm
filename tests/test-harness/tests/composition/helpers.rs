@@ -79,6 +79,9 @@ pub struct Snapshot {
 
 impl Snapshot {
     pub fn take(t: &LendingTest, runner: &Address, assets: &[&str], accounts: &[u64]) -> Snapshot {
+        // Every snapshot point is also an invariant point: usage must still
+        // equal the positions it tracks, whatever the script just did.
+        t.assert_spoke_usage_matches_positions();
         let mut markets = std::vec::Vec::new();
         let mut usage = std::vec::Vec::new();
         let mut wallets = std::vec::Vec::new();

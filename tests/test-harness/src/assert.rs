@@ -1,6 +1,7 @@
-use common::types::HubAssetKey;
+use common::types::{AccountMeta, DebtPositionRaw, HubAssetKey, SpokeUsageRaw};
 use controller::constants::WAD;
 use controller::types::ControllerKey;
+use position_nft::PositionNftClient;
 use soroban_sdk::{Env, Map};
 
 use crate::context::LendingTest;
@@ -17,6 +18,25 @@ fn side_count(env: &Env, account_id: u64, pos_type: PositionType) -> u32 {
         .get::<_, Map<HubAssetKey, controller::types::AccountPositionRaw>>(&key)
         .map(|m| m.len())
         .unwrap_or(0)
+}
+
+fn bump_usage(
+    rows: &mut Vec<(u32, HubAssetKey, i128, i128)>,
+    spoke_id: u32,
+    key: HubAssetKey,
+    supplied: i128,
+    borrowed: i128,
+) {
+    match rows
+        .iter_mut()
+        .find(|(s, k, _, _)| *s == spoke_id && *k == key)
+    {
+        Some(row) => {
+            row.2 += supplied;
+            row.3 += borrowed;
+        }
+        None => rows.push((spoke_id, key, supplied, borrowed)),
+    }
 }
 
 pub fn assert_contract_error<T: std::fmt::Debug>(
@@ -195,5 +215,87 @@ impl LendingTest {
             snapshot,
             current
         );
+    }
+
+    /// Every spoke usage row equals the sum of live scaled positions in that
+    /// spoke, per hub asset and side, and a row exists only while that sum is
+    /// non-zero on at least one side.
+    ///
+    /// Usage and positions are written by the same leg merge, so the only way
+    /// they can drift is a writer that moves shares without `apply_leg_usage`.
+    /// That is the A080 precondition: the exit path no-ops on a missing row, so
+    /// a drift is never healed once it exists. Accounts are enumerated from the
+    /// position NFT, which includes the receivers `SeizeMode::Credit(0)` opens.
+    pub fn assert_spoke_usage_matches_positions(&self) {
+        let nft = PositionNftClient::new(&self.env, &self.position_nft);
+        let mut expected: Vec<(u32, HubAssetKey, i128, i128)> = Vec::new();
+
+        self.env.as_contract(&self.controller, || {
+            let storage = self.env.storage().persistent();
+            for index in 0..nft.total_supply() {
+                let account_id = u64::from(nft.get_token_id(&index));
+                let Some(meta) =
+                    storage.get::<_, AccountMeta>(&ControllerKey::AccountMeta(account_id))
+                else {
+                    continue;
+                };
+                let supplies = storage
+                    .get::<_, Map<HubAssetKey, controller::types::AccountPositionRaw>>(
+                        &ControllerKey::SupplyPositions(account_id),
+                    )
+                    .unwrap_or_else(|| Map::new(&self.env));
+                for (key, position) in supplies.iter() {
+                    bump_usage(&mut expected, meta.spoke_id, key, position.scaled_amount, 0);
+                }
+                let borrows = storage
+                    .get::<_, Map<HubAssetKey, DebtPositionRaw>>(&ControllerKey::BorrowPositions(
+                        account_id,
+                    ))
+                    .unwrap_or_else(|| Map::new(&self.env));
+                for (key, position) in borrows.iter() {
+                    bump_usage(&mut expected, meta.spoke_id, key, 0, position.scaled_amount);
+                }
+            }
+
+            // Every listed (spoke, asset) pair is checked, not only the ones
+            // with live positions, so a row that outlived its last position
+            // is caught too.
+            let last_spoke: u32 = self
+                .env
+                .storage()
+                .instance()
+                .get(&ControllerKey::LastSpokeId)
+                .unwrap_or(0);
+            for spoke_id in 1..=last_spoke {
+                for market in self.markets.values() {
+                    bump_usage(&mut expected, spoke_id, hub_asset(market.asset.clone()), 0, 0);
+                }
+            }
+
+            for (spoke_id, key, supplied, borrowed) in &expected {
+                let row = storage.get::<_, SpokeUsageRaw>(&ControllerKey::SpokeUsage(
+                    *spoke_id,
+                    key.clone(),
+                ));
+                match row {
+                    Some(usage) => {
+                        assert_eq!(
+                            (usage.supplied_scaled_ray, usage.borrowed_scaled_ray),
+                            (*supplied, *borrowed),
+                            "spoke {spoke_id} usage for {key:?} drifted from the positions it tracks"
+                        );
+                        assert!(
+                            *supplied != 0 || *borrowed != 0,
+                            "spoke {spoke_id} keeps a usage row for {key:?} with no positions behind it"
+                        );
+                    }
+                    None => assert_eq!(
+                        (*supplied, *borrowed),
+                        (0, 0),
+                        "spoke {spoke_id} has live positions in {key:?} but no usage row"
+                    ),
+                }
+            }
+        });
     }
 }
