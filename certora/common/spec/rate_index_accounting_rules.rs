@@ -4,7 +4,7 @@ use soroban_sdk::{Address, Env};
 
 use crate::constants::{
     BPS, MAX_BORROW_INDEX_RAY, MAX_BORROW_RATE_RAY, MAX_SUPPLY_INDEX_RAY, MILLISECONDS_PER_YEAR,
-    RAY, RAY_DECIMALS, SUPPLY_INDEX_FLOOR_RAW,
+    RAY, SUPPLY_INDEX_FLOOR_RAW,
 };
 use crate::math::fp::{Bps, Ray};
 use crate::rates::{
@@ -12,7 +12,8 @@ use crate::rates::{
     simulate_update_indexes_body, supply_index_reward_shortfall, update_borrow_index,
     update_supply_index, MAX_COMPOUND_DELTA_MS,
 };
-use crate::types::{MarketIndex, MarketParams, MarketParamsRaw, PoolStateRaw, PoolSyncData};
+use crate::spec::harness::nondet_market_params;
+use crate::types::{MarketIndex, MarketParams, PoolStateRaw, PoolSyncData};
 
 const REWARD_REGRESSION_INDEX_MAX: i128 = 200_000_000 * RAY;
 
@@ -423,50 +424,6 @@ fn accrued_interest_split_is_conservative_widened(
 // enable `common/certora`.
 // ---------------------------------------------------------------------------
 
-/// A rate model satisfying every constraint `MarketParamsRaw::verify` enforces
-/// on a listed market, with all curve parameters left symbolic.
-fn nondet_market_params(asset: &Address) -> MarketParamsRaw {
-    let base_borrow_rate: i128 = cvlr::nondet::nondet();
-    let slope1: i128 = cvlr::nondet::nondet();
-    let slope2: i128 = cvlr::nondet::nondet();
-    let slope3: i128 = cvlr::nondet::nondet();
-    let mid_utilization: i128 = cvlr::nondet::nondet();
-    let optimal_utilization: i128 = cvlr::nondet::nondet();
-    let max_utilization: i128 = cvlr::nondet::nondet();
-    let max_borrow_rate: i128 = cvlr::nondet::nondet();
-    let reserve_factor: u32 = cvlr::nondet::nondet();
-    let asset_decimals: u32 = cvlr::nondet::nondet();
-
-    cvlr_assume!((0..=MAX_BORROW_RATE_RAY).contains(&base_borrow_rate));
-    cvlr_assume!(base_borrow_rate <= slope1);
-    cvlr_assume!(slope1 <= slope2);
-    cvlr_assume!(slope2 <= slope3);
-    cvlr_assume!(slope3 <= MAX_BORROW_RATE_RAY);
-
-    cvlr_assume!(mid_utilization > 0 && mid_utilization < optimal_utilization);
-    cvlr_assume!(optimal_utilization < RAY);
-    cvlr_assume!(max_utilization >= optimal_utilization && max_utilization <= RAY);
-
-    cvlr_assume!(max_borrow_rate > 0 && max_borrow_rate <= MAX_BORROW_RATE_RAY);
-    cvlr_assume!((0..BPS).contains(&i128::from(reserve_factor)));
-    cvlr_assume!(asset_decimals <= RAY_DECIMALS);
-
-    MarketParamsRaw {
-        max_borrow_rate,
-        base_borrow_rate,
-        slope1,
-        slope2,
-        slope3,
-        mid_utilization,
-        optimal_utilization,
-        max_utilization,
-        reserve_factor,
-        is_flashloanable: false,
-        flashloan_fee: 0,
-        asset_id: asset.clone(),
-        asset_decimals,
-    }
-}
 /// A symbolic market as the pool would report it through `get_sync_data`,
 /// last accrued at `last_timestamp`.
 fn nondet_sync(asset: &Address, last_timestamp: u64) -> PoolSyncData {

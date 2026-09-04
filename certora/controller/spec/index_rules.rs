@@ -34,13 +34,6 @@ use crate::types::{
 use common::math::fp::Ray;
 use common::rates::{simulate_update_indexes, MAX_COMPOUND_DELTA_MS};
 
-fn hub0(asset: &Address) -> HubAssetKey {
-    HubAssetKey {
-        hub_id: crate::spec::fixture::HUB_ID,
-        asset: asset.clone(),
-    }
-}
-
 /// Scaled-share ceiling used by the index rules. One RAY of shares is one
 /// whole token at index 1.0, so 100 RAY is a realistic book size that keeps
 /// every `I256` intermediate far from the `i128` bound.
@@ -54,6 +47,13 @@ const MAX_SEED_INDEX: i128 = 2 * RAY;
 /// Ledger-time ceiling: keeps `last_timestamp + elapsed` inside `u64` and the
 /// projection inside a single compounding chunk.
 const MAX_SEED_TIMESTAMP: u64 = u64::MAX / 4;
+
+fn hub0(asset: &Address) -> HubAssetKey {
+    HubAssetKey {
+        hub_id: crate::spec::fixture::HUB_ID,
+        asset: asset.clone(),
+    }
+}
 
 /// A rate model satisfying every constraint `MarketParamsRaw::verify` enforces
 /// on a listed market, with all curve parameters left symbolic.
@@ -99,6 +99,7 @@ fn nondet_market_params(asset: &Address) -> MarketParamsRaw {
         asset_decimals,
     }
 }
+
 /// A symbolic market as the pool would report it through `get_sync_data`,
 /// last accrued at `last_timestamp`.
 fn nondet_sync(asset: &Address, last_timestamp: u64) -> PoolSyncData {
@@ -129,6 +130,7 @@ fn nondet_sync(asset: &Address, last_timestamp: u64) -> PoolSyncData {
         },
     }
 }
+
 /// The market state `update_indexes` commits at `now`: indexes replaced by the
 /// projection, `last_timestamp` stamped, and protocol fee shares minted into
 /// both `supplied` and `revenue`.
@@ -153,6 +155,7 @@ fn accrued_sync(sync: &PoolSyncData, projected: &MarketIndex, now: u64) -> PoolS
         },
     }
 }
+
 /// Draws a `(last_timestamp, now)` pair with `now - last_timestamp` inside one
 /// compounding chunk, so `simulate_update_indexes` runs a single iteration.
 fn nondet_accrual_window() -> (u64, u64) {

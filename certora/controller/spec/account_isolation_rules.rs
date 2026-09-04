@@ -4,7 +4,7 @@ use soroban_sdk::{Address, Env};
 
 use crate::constants::WAD;
 use crate::spec::fixture;
-use crate::storage::get_supply_positions;
+use crate::storage::{get_debt_positions, get_supply_positions};
 use crate::types::HubAssetKey;
 use common::constants::RAY;
 use common::types::Payment;
@@ -27,32 +27,19 @@ fn assume_reachable_books(e: &Env, target_account: u64, other_account: u64) {
     fixture::assume_wellformed_book(e, other_account);
 }
 
+/// Both readers go to the position maps directly rather than through
+/// `get_account`, which panics with `AccountNotFound` once bad-debt cleanup
+/// has removed the account. A panic drops the path from the rule, so the
+/// post state of a liquidation that ended in cleanup would silently leave it.
 fn scaled_supply_at(env: &Env, account_id: u64, asset: &Address) -> i128 {
-    let account = crate::storage::get_account(env, account_id);
-    account
-        .supply_positions
+    get_supply_positions(env, account_id)
         .get(hub0(asset))
         .map(|p| p.scaled_amount)
         .unwrap_or(0)
 }
 
 fn scaled_borrow_at(env: &Env, account_id: u64, asset: &Address) -> i128 {
-    let account = crate::storage::get_account(env, account_id);
-    account
-        .borrow_positions
-        .get(hub0(asset))
-        .map(|p| p.scaled_amount)
-        .unwrap_or(0)
-}
-
-/// Reads `account_id`'s scaled supply for `asset` from the position map directly.
-///
-/// `scaled_supply_at` goes through `get_account`, which panics with `AccountNotFound` once
-/// bad-debt cleanup has removed the liquidated account. A panic drops the path, so the post
-/// state of a liquidation that ended in cleanup would silently leave the rule. Reading the map
-/// keeps that path in: cleanup empties the book, which the caller sees as the full decrease.
-fn scaled_supply_in_book(env: &Env, account_id: u64, asset: &Address) -> i128 {
-    get_supply_positions(env, account_id)
+    get_debt_positions(env, account_id)
         .get(hub0(asset))
         .map(|p| p.scaled_amount)
         .unwrap_or(0)
@@ -204,7 +191,7 @@ fn liquidation_share_credit_bounded_by_target_loss(
     crate::spec::fixture::seed_account(&e, receiver_account, &liquidator);
     assume_reachable_books(&e, target_account, receiver_account);
 
-    let target_supply_before = scaled_supply_in_book(&e, target_account, &collateral_asset);
+    let target_supply_before = scaled_supply_at(&e, target_account, &collateral_asset);
     let receiver_supply_before = scaled_supply_at(&e, receiver_account, &collateral_asset);
     let receiver_borrow_before = scaled_borrow_at(&e, receiver_account, &collateral_asset);
     // Keeps the two differences below inside `i128`. Excludes only a single scaled position
@@ -223,7 +210,7 @@ fn liquidation_share_credit_bounded_by_target_loss(
         crate::types::SeizeMode::Credit(receiver_account),
     );
 
-    let target_supply_after = scaled_supply_in_book(&e, target_account, &collateral_asset);
+    let target_supply_after = scaled_supply_at(&e, target_account, &collateral_asset);
     let receiver_supply_after = scaled_supply_at(&e, receiver_account, &collateral_asset);
 
     cvlr_assert!(

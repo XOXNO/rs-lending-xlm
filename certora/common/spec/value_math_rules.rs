@@ -19,6 +19,36 @@ use crate::math::fp_core::{mul_div_floor, mul_div_half_up};
 /// split arithmetic rather than about widening.
 const MAX_DEBT_AMOUNT_RAW: i128 = 1_000_000_000_000;
 
+/// Mirrors `liquidation/math.rs`: the seizure clamps to the collateral on
+/// hand, the fee base is the repayment share taken before that clamp.
+/// Returns `(capped, base, bonus, protocol_fee)`.
+fn fee_split(
+    e: &Env,
+    seizure_amount: i128,
+    actual_amount: i128,
+    bonus_bps: i128,
+    liquidation_fees: i128,
+) -> (i128, i128, i128, i128) {
+    let one_plus_bonus_wad = WAD + mul_div_half_up(e, bonus_bps, WAD, BPS);
+    let capped = seizure_amount.min(actual_amount);
+    let base_amount = mul_div_floor(e, seizure_amount, WAD, one_plus_bonus_wad);
+    let bonus_amount = (capped - base_amount).max(0);
+    let protocol_fee = mul_div_half_up(e, bonus_amount, liquidation_fees, BPS);
+    (capped, base_amount, bonus_amount, protocol_fee)
+}
+
+fn assume_fee_domain(seizure_amount: i128, actual_amount: i128, bonus_bps: i128, fees: i128) {
+    cvlr_assume!(seizure_amount > 0);
+    cvlr_assume!(seizure_amount <= MAX_DEBT_AMOUNT_RAW);
+    cvlr_assume!(actual_amount > 0);
+    cvlr_assume!(actual_amount <= MAX_DEBT_AMOUNT_RAW);
+    cvlr_assume!(bonus_bps >= 0);
+    cvlr_assume!(bonus_bps <= BPS);
+    cvlr_assume!(fees >= 0);
+    // validate_liquidation_fees rejects BPS itself.
+    cvlr_assume!(fees < BPS);
+}
+
 #[rule]
 fn hf_division_rounds_against_borrower(e: Env, weighted: i128, debt: i128) {
     cvlr_assume!((0..=1_000_000 * WAD).contains(&weighted));
@@ -54,7 +84,6 @@ fn seizure_split_math(
     cvlr_assume!(asset_b_value_wad > 0);
 
     let total_collateral_wad = asset_a_value_wad + asset_b_value_wad;
-    cvlr_assume!(total_collateral_wad > 0);
     cvlr_assume!(total_seizure_usd_wad <= total_collateral_wad);
 
     let share_a_wad = mul_div_half_up(&e, asset_a_value_wad, WAD, total_collateral_wad);
@@ -79,31 +108,14 @@ fn protocol_fee_bonus_math(
     bonus_bps: i128,
     liquidation_fees: i128,
 ) {
-    cvlr_assume!(seizure_amount > 0);
-    cvlr_assume!(seizure_amount <= MAX_DEBT_AMOUNT_RAW);
-    cvlr_assume!(actual_amount > 0);
-    cvlr_assume!(actual_amount <= MAX_DEBT_AMOUNT_RAW);
-    cvlr_assume!(bonus_bps >= 0);
-    cvlr_assume!(bonus_bps <= BPS);
-    cvlr_assume!(liquidation_fees >= 0);
-    // validate_liquidation_fees rejects BPS itself.
-    cvlr_assume!(liquidation_fees < BPS);
-
-    let one_plus_bonus_wad = WAD + mul_div_half_up(&e, bonus_bps, WAD, BPS);
-    // Mirrors math.rs: the seizure clamps to the collateral on hand, the fee base
-    // is the repayment share taken before that clamp.
-    let capped = if seizure_amount > actual_amount {
-        actual_amount
-    } else {
-        seizure_amount
-    };
-    let base_amount = mul_div_floor(&e, seizure_amount, WAD, one_plus_bonus_wad);
-    let bonus_amount = if capped > base_amount {
-        capped - base_amount
-    } else {
-        0
-    };
-    let protocol_fee = mul_div_half_up(&e, bonus_amount, liquidation_fees, BPS);
+    assume_fee_domain(seizure_amount, actual_amount, bonus_bps, liquidation_fees);
+    let (capped, base_amount, bonus_amount, protocol_fee) = fee_split(
+        &e,
+        seizure_amount,
+        actual_amount,
+        bonus_bps,
+        liquidation_fees,
+    );
 
     let fee_final = if protocol_fee == 0 && bonus_amount > 0 && liquidation_fees > 0 {
         1
@@ -134,49 +146,10 @@ fn protocol_fee_bonus_math(
     if seizure_amount <= actual_amount {
         cvlr_assert!(bonus_amount == seizure_amount - base_amount);
     }
-}
-/// A liquidator performing the close the protocol mandates never receives less
-/// than they paid in.
-///
-/// Net, in collateral units, is `capped - base - fee`. The fee is a fraction
-/// strictly below one of `capped - base`, so the net is non-negative for every
-/// clamp, bonus and HF the curve can produce.
-#[rule]
-fn liquidator_net_is_non_negative_for_any_clamp(
-    e: Env,
-    seizure_amount: i128,
-    actual_amount: i128,
-    bonus_bps: i128,
-    liquidation_fees: i128,
-) {
-    cvlr_assume!(seizure_amount > 0);
-    cvlr_assume!(seizure_amount <= MAX_DEBT_AMOUNT_RAW);
-    cvlr_assume!(actual_amount > 0);
-    cvlr_assume!(actual_amount <= MAX_DEBT_AMOUNT_RAW);
-    cvlr_assume!(bonus_bps >= 0);
-    cvlr_assume!(bonus_bps <= BPS);
-    cvlr_assume!(liquidation_fees >= 0);
-    cvlr_assume!(liquidation_fees < BPS);
 
-    let one_plus_bonus_wad = WAD + mul_div_half_up(&e, bonus_bps, WAD, BPS);
-    let capped = if seizure_amount > actual_amount {
-        actual_amount
-    } else {
-        seizure_amount
-    };
-    let base_amount = mul_div_floor(&e, seizure_amount, WAD, one_plus_bonus_wad);
-    let bonus_amount = if capped > base_amount {
-        capped - base_amount
-    } else {
-        0
-    };
-    let protocol_fee = mul_div_half_up(&e, bonus_amount, liquidation_fees, BPS);
-
-    // Excluding the one-unit dust bump, which is bounded by a single asset unit
-    // and is asserted separately in protocol_fee_bonus_math.
-    if capped >= base_amount {
-        cvlr_assert!(capped - base_amount - protocol_fee >= 0);
-    }
+    // The liquidator's net, `capped - base - fee`, is never negative: the fee
+    // is a fraction strictly below one of the bonus.
+    cvlr_assert!(bonus_amount - protocol_fee >= 0);
 }
 /// Tightening the clamp may only reduce the fee, so no input can be driven to
 /// pay more by seizing less.
@@ -189,32 +162,12 @@ fn fee_is_monotone_non_increasing_in_the_clamp(
     bonus_bps: i128,
     liquidation_fees: i128,
 ) {
-    cvlr_assume!(seizure_amount > 0);
-    cvlr_assume!(seizure_amount <= MAX_DEBT_AMOUNT_RAW);
-    cvlr_assume!(actual_lo > 0);
+    assume_fee_domain(seizure_amount, actual_lo, bonus_bps, liquidation_fees);
     cvlr_assume!(actual_hi >= actual_lo);
     cvlr_assume!(actual_hi <= MAX_DEBT_AMOUNT_RAW);
-    cvlr_assume!(bonus_bps >= 0);
-    cvlr_assume!(bonus_bps <= BPS);
-    cvlr_assume!(liquidation_fees >= 0);
-    cvlr_assume!(liquidation_fees < BPS);
 
-    let one_plus_bonus_wad = WAD + mul_div_half_up(&e, bonus_bps, WAD, BPS);
-    let base_amount = mul_div_floor(&e, seizure_amount, WAD, one_plus_bonus_wad);
-
-    let fee_at = |actual: i128| -> i128 {
-        let capped = if seizure_amount > actual {
-            actual
-        } else {
-            seizure_amount
-        };
-        let bonus = if capped > base_amount {
-            capped - base_amount
-        } else {
-            0
-        };
-        mul_div_half_up(&e, bonus, liquidation_fees, BPS)
-    };
+    let fee_at =
+        |actual: i128| fee_split(&e, seizure_amount, actual, bonus_bps, liquidation_fees).3;
 
     cvlr_assert!(fee_at(actual_lo) <= fee_at(actual_hi));
 }

@@ -3299,25 +3299,35 @@ fn test_recapitalize_refund_pays_out_tokens_the_pool_never_received() {
         before.cash, custody_before,
         "fixture guard: cash book and SAC balance must start in sync"
     );
-    assert_eq!(
-        guards_backing_shortfall(&t),
-        0,
-        "fixture must be fully backed"
-    );
-    assert_eq!(token.balance(&payer), 0);
+    let shortfall = t.env.as_contract(&t.pool, || {
+        crate::guards::backing_shortfall(&Cache::load(&t.env, &hub(&t.asset)))
+    });
+    assert_eq!(shortfall, 0, "fixture must be fully backed");
 
     // Nothing is transferred in. The owner simply declares a payment on its behalf.
-    let declared = custody_before;
-    let result = t.client().recapitalize(&hub(&t.asset), &payer, &declared);
-
-    let after = t.state_snapshot();
-
+    let applied = t
+        .client()
+        .recapitalize(&hub(&t.asset), &payer, &custody_before)
+        .actual_amount;
     assert_eq!(
-        result.actual_amount, 0,
+        applied, 0,
         "a backed market has no shortfall, so nothing is applied"
     );
+    assert_unfunded_refund_drained_custody(&t, &payer, custody_before, &before);
+}
+
+/// Shared tail of the unfunded-refund tests: the declared amount came back to
+/// the payer, custody is gone, and the cash book did not move.
+fn assert_unfunded_refund_drained_custody(
+    t: &TestSetup,
+    payer: &Address,
+    declared: i128,
+    before: &PoolStateRaw,
+) {
+    let token = token::Client::new(&t.env, &t.asset);
+    let after = t.state_snapshot();
     assert_eq!(
-        token.balance(&payer),
+        token.balance(payer),
         declared,
         "the payer is refunded in full for a payment that never happened"
     );
@@ -3331,7 +3341,7 @@ fn test_recapitalize_refund_pays_out_tokens_the_pool_never_received() {
         "the cash book is untouched, so the pool still reports the paid-out \
          funds as present"
     );
-    assert_pool_state_eq(&after, &before);
+    assert_pool_state_eq(&after, before);
 }
 
 /// The consequence of the above: `cash` overstates custody, so
@@ -3449,15 +3459,6 @@ fn test_unfunded_recapitalize_is_bounded_by_custody_not_by_the_declared_amount()
     assert_eq!(t.state_snapshot().cash, before.cash);
 }
 
-/// Reads `guards::backing_shortfall` for the default market, so the tests above
-/// state their precondition instead of assuming it.
-fn guards_backing_shortfall(t: &TestSetup) -> i128 {
-    t.env.as_contract(&t.pool, || {
-        let cache = Cache::load(&t.env, &hub(&t.asset));
-        crate::guards::backing_shortfall(&cache)
-    })
-}
-
 /// The asset-substitution payload: pay in a worthless token, be refunded in a
 /// real one. The controller moves `hub_asset.asset` inbound
 /// (`contracts/controller/src/keepers.rs:56-65`) while the pool refunds with
@@ -3552,27 +3553,11 @@ fn test_unfunded_repay_overpayment_refund_also_pays_out_of_custody() {
     assert_eq!(before.borrowed, 0, "fixture must carry no debt");
 
     // Nothing transferred in, no debt to retire: the whole amount is "excess".
-    let declared = custody_before;
-    let result = t
+    let credited = t
         .client()
-        .repay(&payer, &t.ract(0, declared))
-        .get_unchecked(0);
-
-    let after = t.state_snapshot();
-
-    assert_eq!(
-        result.actual_amount, 0,
-        "no debt was retired, so nothing is credited"
-    );
-    assert_eq!(
-        token.balance(&payer),
-        declared,
-        "the entire declared amount comes back as an overpayment refund"
-    );
-    assert_eq!(token.balance(&t.pool), 0, "custody is drained");
-    assert_eq!(
-        after.cash, before.cash,
-        "the cash book is untouched, so it now overstates custody"
-    );
-    assert_pool_state_eq(&after, &before);
+        .repay(&payer, &t.ract(0, custody_before))
+        .get_unchecked(0)
+        .actual_amount;
+    assert_eq!(credited, 0, "no debt was retired, so nothing is credited");
+    assert_unfunded_refund_drained_custody(&t, &payer, custody_before, &before);
 }

@@ -77,22 +77,16 @@ for c in "${confs[@]}"; do
   for rule in "${rules[@]}"; do
     safe=$(printf '%s' "$rule" | tr -c '[:alnum:]_.-' '_')
     rlog="$log_dir/$conf_base-$safe.log"
-    # Classify on the rule's own sub-rules, never on a bare "Violated:" match.
-    # Under `rule_sanity: advanced` the prover emits a vacuity sub-rule named
-    # "<rule>-Assertions-rule_not_vacuous_tac", whose body is `assert false`.
-    # Reaching that assert is what proves the rule is NOT vacuous, so the
-    # prover reports it as Violated on a healthy rule. Matching "Violated:"
-    # anywhere turned 17 verified rules red in run 33711445573.
-    # Under `rule_sanity: none` there is no sub-rule and the line is a bare
-    # "Violated: <rule>"; accept that exact form too so a real violation on
-    # an `all`-mode conf cannot fall through to TIMEOUT.
-    #
-    # Unwinding is tested first: with optimistic_loop false the prover asserts
-    # the unwinding condition, so a rule whose loop exceeds loop_iter prints
-    # both "Violated: <rule>" and "Unwinding condition in a loop". That is a
-    # config failure, not a counterexample: raise loop_iter for this conf.
+    # Anchor on the rule's own line: under rule_sanity advanced the vacuity
+    # sub-rule "<rule>-Assertions-rule_not_vacuous_tac" prints "Violated:" on
+    # a healthy rule (run 33711445573 turned 17 green rules red on a bare
+    # match). Unwinding and SANITY_FAILED are checked before the verdict: the
+    # first is a loop_iter config failure that also prints "Violated:", the
+    # second is a vacuous proof that also prints "Verified:".
     if grep -q "Unwinding condition in a loop" "$rlog" 2>/dev/null; then
       verdict="UNWIND"
+    elif grep -q "SANITY_FAILED" "$rlog" 2>/dev/null; then
+      verdict="SANITY_FAILED"
     elif grep -qE "^ *Violated: ${rule}(-Assertions)?\$" "$rlog" 2>/dev/null; then
       verdict="VIOLATED"
     elif grep -qE "^ *Verified: ${rule}(-Assertions)?\$" "$rlog" 2>/dev/null; then
@@ -114,6 +108,11 @@ for c in "${confs[@]}"; do
         ;;
       UNWIND)
         echo "::error::$c/$rule [$verdict] — loop unwinding assertion failed; raise loop_iter in $c (never optimistic_loop) and inspect $rlog"
+        tail -25 "$rlog" | sed 's/^/    /'
+        failed=1
+        ;;
+      SANITY_FAILED)
+        echo "::error::$c/$rule [$verdict] — the assertions verified but every path is cut by assumes or traps; the proof is vacuous. Inspect $rlog"
         tail -25 "$rlog" | sed 's/^/    /'
         failed=1
         ;;

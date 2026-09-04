@@ -369,7 +369,7 @@ with larger budgets (Observed):
 
 | Rule | Light conf | Heavy conf |
 |---|---|---|
-| `supply_withdraw_roundtrip_error_bounded`, `borrow_repay_roundtrip_error_bounded` | solvency-roundtrip | global-solvency-heavy |
+| `supply_withdraw_roundtrip_error_bounded` (the borrow/repay twin was folded into it on 2026-09-05) | solvency-roundtrip | global-solvency-heavy |
 | `liquidation_does_not_increase_repaid_debt`, `liquidation_does_not_increase_seized_collateral` | liquidation | liquidation-integrity-heavy |
 | `ideal_repayment_targets_curve_hf`, `estimate_leaves_no_sub_threshold_dust` | liquidation-estimation | liquidation-integrity-heavy |
 | `bonus_monotone_in_hf` | liquidation-bonus | liquidation-integrity-heavy |

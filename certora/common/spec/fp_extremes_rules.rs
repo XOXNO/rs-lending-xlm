@@ -109,6 +109,9 @@ fn supply_dust_amount_sanity(e: Env) {
     let scaled = mul_div_half_up(&e, 1, RAY, RAY);
     cvlr_satisfy!(scaled == 1);
 }
+/// Amount → shares → amount through `mul_div_half_up` at any index in
+/// `[1, 10]` RAY loses at most six units. Supply/withdraw and borrow/repay
+/// are the same primitive with the same bounds, so one rule covers both.
 #[rule]
 fn supply_withdraw_roundtrip_error_bounded(e: Env) {
     let amount: i128 = cvlr::nondet::nondet();
@@ -123,37 +126,10 @@ fn supply_withdraw_roundtrip_error_bounded(e: Env) {
     cvlr_assert!(recovered >= amount.saturating_sub(6));
     cvlr_assert!(recovered <= amount + 6);
 }
-#[rule]
-fn borrow_repay_roundtrip_error_bounded(e: Env) {
-    let amount: i128 = cvlr::nondet::nondet();
-    let borrow_index: i128 = cvlr::nondet::nondet();
-
-    cvlr_assume!(amount > 0 && amount <= WAD * 1000);
-    cvlr_assume!((RAY..=10 * RAY).contains(&borrow_index));
-
-    let scaled_debt = mul_div_half_up(&e, amount, RAY, borrow_index);
-    let debt_owed = mul_div_half_up(&e, scaled_debt, borrow_index, RAY);
-
-    cvlr_assert!(debt_owed >= amount.saturating_sub(6));
-    cvlr_assert!(debt_owed <= amount + 6);
-}
+/// Up to a 1000% annual rate over up to a year, the compounding factor never
+/// wraps below one and never exceeds 100,000×.
 #[rule]
 fn compound_interest_bounded_output(e: Env) {
-    let rate: i128 = cvlr::nondet::nondet();
-    let time: u64 = cvlr::nondet::nondet();
-
-    let max_rate_per_ms = div_by_int_half_up(&e, 10 * RAY, MILLISECONDS_PER_YEAR as i128);
-
-    cvlr_assume!(rate >= 0 && rate <= max_rate_per_ms);
-    cvlr_assume!(time > 0 && time <= MILLISECONDS_PER_YEAR);
-
-    let factor = compound_interest(&e, Ray::from(rate), time);
-
-    let upper_bound = 100_000 * RAY;
-    cvlr_assert!(factor.raw() < upper_bound);
-}
-#[rule]
-fn compound_interest_no_wrap(e: Env) {
     let rate: i128 = cvlr::nondet::nondet();
     let time: u64 = cvlr::nondet::nondet();
 
@@ -165,6 +141,7 @@ fn compound_interest_no_wrap(e: Env) {
     let factor = compound_interest(&e, Ray::from(rate), time);
 
     cvlr_assert!(factor.raw() >= RAY);
+    cvlr_assert!(factor.raw() < 100_000 * RAY);
 }
 #[rule]
 fn roundtrip_supply_sanity(e: Env) {
@@ -173,17 +150,13 @@ fn roundtrip_supply_sanity(e: Env) {
 
     let scaled = mul_div_half_up(&e, amount, RAY, index);
     let recovered = mul_div_half_up(&e, scaled, index, RAY);
-    let _recovered = recovered;
-    cvlr_satisfy!(true);
+    cvlr_satisfy!(recovered == amount);
 }
 #[rule]
 fn compound_no_wrap_sanity(e: Env) {
     let max_rate_per_ms = div_by_int_half_up(&e, RAY, MILLISECONDS_PER_YEAR as i128);
-    let rate = max_rate_per_ms;
-    let time = 1;
-    let factor = compound_interest(&e, Ray::from(rate), time);
-    let _factor = factor;
-    cvlr_satisfy!(true);
+    let factor = compound_interest(&e, Ray::from(max_rate_per_ms), 1);
+    cvlr_satisfy!(factor.raw() >= RAY);
 }
 #[rule]
 fn scaled_to_actual_matches_floor_with_rounding(e: Env) {

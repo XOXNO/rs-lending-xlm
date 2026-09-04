@@ -14,6 +14,7 @@ use crate::rates::{
     protocol_fee_shares, simulate_update_indexes_body, update_borrow_index, update_supply_index,
     utilization,
 };
+use crate::spec::harness::nondet_market_params;
 use crate::types::{MarketParams, PoolStateRaw, PoolSyncData};
 
 const ASSET_TO_RAY_SCALE_7: i128 = 100_000_000_000_000_000_000;
@@ -455,52 +456,7 @@ fn rates_reachability(e: Env, asset: Address) {
 // ---------------------------------------------------------------------------
 
 fn nondet_valid_params(e: &Env) -> MarketParams {
-    let base_borrow_rate: i128 = cvlr::nondet::nondet();
-    let slope1: i128 = cvlr::nondet::nondet();
-    let slope2: i128 = cvlr::nondet::nondet();
-    let slope3: i128 = cvlr::nondet::nondet();
-    let mid_utilization: i128 = cvlr::nondet::nondet();
-    let optimal_utilization: i128 = cvlr::nondet::nondet();
-    let max_utilization: i128 = cvlr::nondet::nondet();
-    cvlr_assume!(max_utilization >= optimal_utilization && max_utilization <= RAY);
-    let max_borrow_rate: i128 = cvlr::nondet::nondet();
-    let reserve_factor: u32 = cvlr::nondet::nondet();
-    let asset_id = e.current_contract_address();
-    let asset_decimals: u32 = cvlr::nondet::nondet();
-
-    cvlr_assume!((0..=MAX_BORROW_RATE_RAY).contains(&base_borrow_rate));
-    cvlr_assume!(slope1 <= MAX_BORROW_RATE_RAY);
-    cvlr_assume!(slope2 <= MAX_BORROW_RATE_RAY);
-    cvlr_assume!(slope3 <= MAX_BORROW_RATE_RAY);
-
-    cvlr_assume!(base_borrow_rate <= slope1);
-    cvlr_assume!(slope1 <= slope2);
-    cvlr_assume!(slope2 <= slope3);
-
-    cvlr_assume!(mid_utilization > 0 && mid_utilization < optimal_utilization);
-    cvlr_assume!(optimal_utilization < RAY);
-
-    cvlr_assume!(max_borrow_rate > 0 && max_borrow_rate <= MAX_BORROW_RATE_RAY);
-
-    cvlr_assume!((0..BPS).contains(&i128::from(reserve_factor)));
-
-    cvlr_assume!(asset_decimals <= 27);
-
-    MarketParams {
-        base_borrow_rate: Ray::from(base_borrow_rate),
-        slope1: Ray::from(slope1),
-        slope2: Ray::from(slope2),
-        slope3: Ray::from(slope3),
-        mid_utilization: Ray::from(mid_utilization),
-        optimal_utilization: Ray::from(optimal_utilization),
-        max_utilization: Ray::from(max_utilization),
-        max_borrow_rate: Ray::from(max_borrow_rate),
-        reserve_factor: crate::math::fp::Bps::from(i128::from(reserve_factor)),
-        is_flashloanable: false,
-        flashloan_fee: 0,
-        asset_id,
-        asset_decimals,
-    }
+    MarketParams::from(&nondet_market_params(&e.current_contract_address()))
 }
 
 #[rule]
@@ -509,11 +465,7 @@ fn borrow_rate_zero_utilization(e: Env) {
 
     let rate = calculate_borrow_rate(&e, Ray::ZERO, &params);
 
-    let annual = if params.base_borrow_rate > params.max_borrow_rate {
-        params.max_borrow_rate.raw()
-    } else {
-        params.base_borrow_rate.raw()
-    };
+    let annual = params.base_borrow_rate.min(params.max_borrow_rate).raw();
     let expected = div_by_int_half_up(&e, annual, MILLISECONDS_PER_YEAR as i128);
 
     cvlr_assert!(rate.raw() == expected);
@@ -680,19 +632,8 @@ fn supplier_rewards_conservation(e: Env) {
     let accrued_interest = new_debt - old_debt;
 
     let sum = supplier_rewards.raw() + protocol_fee.raw();
-    let diff = if sum >= accrued_interest {
-        sum - accrued_interest
-    } else {
-        accrued_interest - sum
-    };
-
-    cvlr_assert!(diff <= 1);
+    cvlr_assert!((sum - accrued_interest).abs() <= 1);
 
     let expected_fee = mul_div_half_up(&e, accrued_interest, params.reserve_factor.raw(), BPS);
-    let fee_diff = if protocol_fee.raw() >= expected_fee {
-        protocol_fee.raw() - expected_fee
-    } else {
-        expected_fee - protocol_fee.raw()
-    };
-    cvlr_assert!(fee_diff <= 1);
+    cvlr_assert!((protocol_fee.raw() - expected_fee).abs() <= 1);
 }

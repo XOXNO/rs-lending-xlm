@@ -3,6 +3,7 @@ use controller::constants::WAD;
 use controller::types::ControllerKey;
 use position_nft::PositionNftClient;
 use soroban_sdk::{Env, Map};
+use std::collections::HashMap;
 
 use crate::context::LendingTest;
 use crate::helpers::hub_asset;
@@ -20,23 +21,22 @@ fn side_count(env: &Env, account_id: u64, pos_type: PositionType) -> u32 {
         .unwrap_or(0)
 }
 
+/// `HubAssetKey` is neither `Hash` nor `Ord`, so the map is keyed by the
+/// spoke id and the key's `Debug` form; the key itself rides along as a value.
+type UsageRows = HashMap<(u32, String), (HubAssetKey, i128, i128)>;
+
 fn bump_usage(
-    rows: &mut Vec<(u32, HubAssetKey, i128, i128)>,
+    rows: &mut UsageRows,
     spoke_id: u32,
     key: HubAssetKey,
     supplied: i128,
     borrowed: i128,
 ) {
-    match rows
-        .iter_mut()
-        .find(|(s, k, _, _)| *s == spoke_id && *k == key)
-    {
-        Some(row) => {
-            row.2 += supplied;
-            row.3 += borrowed;
-        }
-        None => rows.push((spoke_id, key, supplied, borrowed)),
-    }
+    let row = rows
+        .entry((spoke_id, format!("{key:?}")))
+        .or_insert((key, 0, 0));
+    row.1 += supplied;
+    row.2 += borrowed;
 }
 
 pub fn assert_contract_error<T: std::fmt::Debug>(
@@ -228,7 +228,7 @@ impl LendingTest {
     /// position NFT, which includes the receivers `SeizeMode::Credit(0)` opens.
     pub fn assert_spoke_usage_matches_positions(&self) {
         let nft = PositionNftClient::new(&self.env, &self.position_nft);
-        let mut expected: Vec<(u32, HubAssetKey, i128, i128)> = Vec::new();
+        let mut expected = UsageRows::new();
 
         self.env.as_contract(&self.controller, || {
             let storage = self.env.storage().persistent();
@@ -277,7 +277,7 @@ impl LendingTest {
                 }
             }
 
-            for (spoke_id, key, supplied, borrowed) in &expected {
+            for ((spoke_id, _), (key, supplied, borrowed)) in &expected {
                 let row = storage.get::<_, SpokeUsageRaw>(&ControllerKey::SpokeUsage(
                     *spoke_id,
                     key.clone(),

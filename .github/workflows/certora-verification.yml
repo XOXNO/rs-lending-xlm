@@ -173,13 +173,18 @@ jobs:
           # With --wait_for_results ALL the log carries a real verdict. A row
           # that still says "none" means the CLI did not wait: treat the job as
           # unproved, not as passing.
-          # Anchor on the rule's own "-Assertions" sub-rule. Under
-          # rule_sanity advanced the "<rule>-Assertions-rule_not_vacuous_tac"
-          # sub-rule prints "Violated:" on a healthy rule, so a bare match
-          # would record a false verdict (same defect run-local-ci.sh fixed).
-          verdict="$(grep -Eo '(Verified|Violated): [^ ]*-Assertions$' prover.log 2>/dev/null | cut -d: -f1 | sort -u | tr '\n' '+' | sed 's/+$//')"
+          # SANITY_FAILED wins over the assertion verdict: a vacuous rule still
+          # prints "Verified: <rule>-Assertions". Then anchor on the rule's own
+          # "-Assertions" sub-rule, because the "-rule_not_vacuous_tac" sub-rule
+          # prints "Violated:" on a healthy rule; the fallback for timeouts and
+          # errors drops that line for the same reason.
+          if grep -q 'SANITY_FAILED' prover.log 2>/dev/null; then
+            verdict="SANITY_FAILED"
+          else
+            verdict="$(grep -Eo '(Verified|Violated): [^ ]*-Assertions$' prover.log 2>/dev/null | cut -d: -f1 | sort -u | tr '\n' '+' | sed 's/+$//')"
+          fi
           if [ -z "$verdict" ]; then
-            verdict="$(grep -Eo '(Verified|Violated|SANITY_FAILED|Timeout|Error)[^ ]*' prover.log 2>/dev/null | tail -1)"
+            verdict="$(grep -v 'rule_not_vacuous_tac' prover.log 2>/dev/null | grep -Eo '(Verified|Violated|Timeout|Error)[^ ]*' | tail -1)"
           fi
           url="$(grep -Eo 'https://[^ ]*prover.certora.com[^ ]*' prover.log 2>/dev/null | tail -1)"
           {
