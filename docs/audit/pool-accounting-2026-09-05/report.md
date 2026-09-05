@@ -14,7 +14,7 @@ No new ordinary-user fund-extraction path was confirmed in this scope. The revie
 | Negative integer-division bias underflows | `div_by_int_half_up(env, i128::MIN, 2)` panics although the quotient fits. | **Informational library defect.** Actual rate/compound callers use bounded nonnegative values. |
 | Loss-index floor preserves unpaid claims | Writing off 900 tokens of debt against 900 tokens of supply leaves 0.9 token of claims at the 0.001 floor, with zero cash/debt. A 0.4 recap followed by 2.0 retains 0.4 then 0.5 and refunds 1.5; full withdrawal pays 0.9. | **Deliberate loss-policy limit**, reproduced through funded public pool operations. Supply entry rejects a material backing shortfall; recap restores backing without changing the index. |
 
-Detailed independent reviews: [cash and operations](/Users/mihaieremia/GitHub/rs-lending-xlm/docs/audit/pool-accounting-2026-09-05/reviews/cash.md), [rates and interest](/Users/mihaieremia/GitHub/rs-lending-xlm/docs/audit/pool-accounting-2026-09-05/reviews/rates.md), [fixed-point math](/Users/mihaieremia/GitHub/rs-lending-xlm/docs/audit/pool-accounting-2026-09-05/reviews/math.md). Those records preserve each reviewer's original validation limits. The coordinator subsequently recovered the integration build and ran the ceiling/lifecycle tests described here.
+Detailed independent reviews: [cash and operations](reviews/cash.md), [rates and interest](reviews/rates.md), [fixed-point math](reviews/math.md). Those records preserve each reviewer's original validation limits. The coordinator subsequently recovered the integration build and ran the ceiling/lifecycle tests described here.
 
 ## Trust and units
 
@@ -168,7 +168,7 @@ The new tests verify successful lifecycle composition; they do not add exhaustiv
 
 ### Fee entitlement lost before supply burn
 
-Source: [withdraw accounting](/Users/mihaieremia/GitHub/rs-lending-xlm/contracts/pool/src/ops/withdraw.rs:55), [fee headroom](/Users/mihaieremia/GitHub/rs-lending-xlm/common/src/rates/index.rs:94).
+Source: [withdraw accounting](https://github.com/XOXNO/rs-lending-xlm/blob/99613335b410f70ff42dd99d13ff530f6adaee67/contracts/pool/src/ops/withdraw.rs#L55), [fee headroom](https://github.com/XOXNO/rs-lending-xlm/blob/99613335b410f70ff42dd99d13ff530f6adaee67/common/src/rates/index.rs#L94).
 
 Let `H=i128::MAX-S`, `q_desired=floor(F*m*R/Is)` and `b` be the withdrawal burn. Current mint is `min(q_desired,H)`; after the burn, capacity would be `H+b`. This is avoidable clipping tied to action ordering, even though generic fee saturation is documented.
 
@@ -178,13 +178,13 @@ Remediation direction, if this boundary must preserve fee entitlement: compute f
 
 ### Signed arithmetic underflows
 
-Source: [downscale negative bias](/Users/mihaieremia/GitHub/rs-lending-xlm/common/src/math/fp_core.rs:251), [integer division negative bias](/Users/mihaieremia/GitHub/rs-lending-xlm/common/src/math/fp_core.rs:303).
+Source: [downscale negative bias](https://github.com/XOXNO/rs-lending-xlm/blob/99613335b410f70ff42dd99d13ff530f6adaee67/common/src/math/fp_core.rs#L251), [integer division negative bias](https://github.com/XOXNO/rs-lending-xlm/blob/99613335b410f70ff42dd99d13ff530f6adaee67/common/src/math/fp_core.rs#L303).
 
 Both routines subtract a rounding bias before dividing a negative input. Near `i128::MIN`, that intermediate underflows although division would reduce the magnitude into range. Actual production source was compiled with overflow checks enabled and debug assertions disabled and reproduced both panics. Quotient/remainder rounding would avoid the biased intermediate if the library retains its signed contract. Current pool uses do not reach these values. Positive `div_by_int_half_up(MAX,2)` rejection is separately documented and tested; it is not counted as a third new defect.
 
 ### Token semantics are a listing assumption
 
-Ordinary [transfer_out](/Users/mihaieremia/GitHub/rs-lending-xlm/contracts/pool/src/cache/cash.rs:42) sends the requested amount without measuring sender balance change. Receiver-side tax with exact sender debit preserves pool cash/custody alignment, though the recipient gets less. A sender surcharge decreases custody by more than the book debit and can spend backing assigned to any hub sharing the token. Rebases, clawbacks, dishonest balances, or mutable token semantics can break custody too.
+Ordinary [transfer_out](https://github.com/XOXNO/rs-lending-xlm/blob/99613335b410f70ff42dd99d13ff530f6adaee67/contracts/pool/src/cache/cash.rs#L42) sends the requested amount without measuring sender balance change. Receiver-side tax with exact sender debit preserves pool cash/custody alignment, though the recipient gets less. A sender surcharge decreases custody by more than the book debit and can spend backing assigned to any hub sharing the token. Rebases, clawbacks, dishonest balances, or mutable token semantics can break custody too.
 
 Flash rejects inexact balance deltas. Ordinary paths require exact-debit token economics as an admission constraint; parameter validation alone does not establish it. No deployed hostile-token proof was attempted. This is a conditional integration risk, not a demonstrated vulnerability from ordinary receiver tax. A separate sender-debit delta check is a possible hardening measure if such tokens must be supported, but listing semantics must also address changes outside protocol transfers.
 
@@ -202,6 +202,6 @@ Additional actual-source arithmetic probes passed **83,792 assertions**: 72,378 
 
 The shared Cargo target first produced conflicting Soroban trait metadata after scratch builds; the cause was not fully diagnosed. An isolated target successfully built and ran the same workspace code. Initial lifecycle failures then exposed default seeded fixture cash; setting initial liquidity to zero corrected the test setup. Neither issue required production or dependency changes.
 
-Reproduction instructions and logs: [validation record](/Users/mihaieremia/GitHub/rs-lending-xlm/docs/audit/pool-accounting-2026-09-05/validation.md). Retained tests: [pool_money_flow_audit.rs](/Users/mihaieremia/GitHub/rs-lending-xlm/tests/test-harness/tests/pool_money_flow_audit.rs). Complete inventory and source hashes: [coverage](/Users/mihaieremia/GitHub/rs-lending-xlm/docs/audit/pool-accounting-2026-09-05/coverage.md).
+Reproduction instructions and logs: [validation record](validation.md). Retained tests: [pool_money_flow_audit.rs](../../../tests/test-harness/tests/pool_money_flow_audit.rs). Complete inventory and source hashes: [coverage](coverage.md).
 
 Three context-free independent reviewers covered cash/operations, fixed-point arithmetic, and rates/interest. The coordinator reconciled their reports, validated caller assumptions, and added the composed lifecycle checks. Graph discovery was used first; omitted method/test edges were resolved against source. No mainnet calls, exploit transactions, deployed-config proof, WASM budget benchmark, dependency audit, formal proof, or production fixes were performed. Passing host tests and broad arithmetic sampling do not exhaust every state or input.

@@ -141,6 +141,8 @@ The most useful next assurance work is deployment-specific: establish deployed W
 
 ## Execution evidence
 
+The log filenames below identify local audit artifacts excluded from version control; they are not available in a fresh checkout. Commands and counts describe the audited revision.
+
 All final commands exited successfully:
 
 ```sh
@@ -151,9 +153,9 @@ RUSTC_WRAPPER= cargo test --offline -p test-harness --test astra_audit -- --noca
 
 | Run | Passed | Failed | Evidence |
 |---|---:|---:|---|
-| Four scoped crate unit suites | 1,055 | 0 | [unit-tests.log](evidence/unit-tests.log) |
-| Existing test-harness suites, including its library tests | 1,063 | 0 | [integration-tests.log](evidence/integration-tests.log) |
-| Added audit probes | 2 | 0 | [probes-final.log](evidence/probes-final.log) |
+| Four scoped crate unit suites | 1,055 | 0 | `evidence/unit-tests.log` |
+| Existing test-harness suites, including its library tests | 1,063 | 0 | `evidence/integration-tests.log` |
+| Added audit probes | 2 | 0 | `evidence/probes-final.log` |
 | Total | **2,120** | **0** | Counts exclude the corrected fixture's initial failed attempt |
 
 The existing harness run began before the added test target existed. The separate final probe command supplies its two results. Tests include cases that intentionally pin known limitations; a passing count does not mean those limitations were fixed. The initial compiler-cache failure was resolved by clearing `RUSTC_WRAPPER` for these commands, without production edits.

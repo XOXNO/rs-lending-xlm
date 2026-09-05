@@ -36,6 +36,9 @@ EXTRA_NAMES = ("Makefile", "Dockerfile")
 # Adding a name here asserts that some dependency defines it. Keep each grouped
 # under its crate so the claim stays checkable by hand.
 EXTERNAL_SYMBOLS = {
+    # soroban-sdk conversion trait and soroban-env-common crate name cited in
+    # the pool audit's compiler diagnostics.
+    "FromVal", "soroban_env_common",
     # stellar-tokens (OpenZeppelin non-fungible token): TTL constants, the
     # approval surface, and the enumerable/sequential helpers the position-NFT
     # docs describe.
@@ -73,6 +76,11 @@ ALLOW = {
 # Per-file allowances. Each entry is a name the file cites deliberately even
 # though no such item exists in any source we can see; the comment says why.
 FILE_ALLOW = {
+    # Codebase-memory MCP tools used during the archived source review.
+    "docs/audit/pool-accounting-2026-09-05/reviews/cash.md": {"trace_path"},
+    "docs/audit/pool-accounting-2026-09-05/reviews/math.md": {
+        "search_graph", "query_graph", "trace_path",
+    },
     # Historical audit names from before the controller settlement refactor.
     # The archived analysis describes the original source; current functions
     # are settle_borrow/settle_repay and process_deposit.

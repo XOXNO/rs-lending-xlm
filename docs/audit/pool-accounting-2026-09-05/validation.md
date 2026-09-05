@@ -4,6 +4,8 @@ Revision: `99613335b410f70ff42dd99d13ff530f6adaee67`. Commands run locally; no n
 
 ## Counts
 
+The named `.log` files are local audit artifacts excluded from version control; they are not available in a fresh checkout. Reproduction scripts, tests, and reviewer reports are retained in the repository.
+
 | Check | Result | Evidence |
 |---|---|---|
 | Pool unit suite | 168 passed | Independent cash review execution record |
@@ -26,7 +28,7 @@ CARGO_TARGET_DIR=/private/tmp/astra-pool-isolated-target RUSTC_WRAPPER= cargo te
 CARGO_TARGET_DIR=/private/tmp/astra-pool-isolated-target RUSTC_WRAPPER= cargo test --offline --locked -p test-harness --test controller a_whale_market_at_sustained_high_utilization_hits_the_ray_value_ceiling_before_the_index_cap -- --nocapture
 ```
 
-The retained test file is [pool_money_flow_audit.rs](/Users/mihaieremia/GitHub/rs-lending-xlm/tests/test-harness/tests/pool_money_flow_audit.rs). It contains:
+The retained test file is [pool_money_flow_audit.rs](../../../tests/test-harness/tests/pool_money_flow_audit.rs). It contains:
 
 1. All successful pool money paths, shared-token cash across two hubs, unbooked donation, distinct payer/receiver refund checks, explicit net-settle and liquidation share deltas, and revenue custody reconciliation.
 2. Zero-seeded-liquidity origination, cash withdrawal, complete debt seizure, index floor, partial recap, excess refund, and final payout. Maximum utilization is deliberately RAY. This is a valid pool-layer construction, not proof of controller liquidation eligibility.
