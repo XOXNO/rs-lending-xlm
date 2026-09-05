@@ -1,0 +1,1170 @@
+   Compiling common v0.1.0 (/Users/mihaieremia/GitHub/rs-lending-xlm/common)
+   Compiling price-aggregator-interface v0.1.0 (/Users/mihaieremia/GitHub/rs-lending-xlm/interfaces/price-aggregator)
+   Compiling controller-interface v0.1.0 (/Users/mihaieremia/GitHub/rs-lending-xlm/interfaces/controller)
+   Compiling pool-interface v0.1.0 (/Users/mihaieremia/GitHub/rs-lending-xlm/interfaces/pool)
+   Compiling governance-interface v0.1.0 (/Users/mihaieremia/GitHub/rs-lending-xlm/interfaces/governance)
+   Compiling position-nft v0.1.0 (/Users/mihaieremia/GitHub/rs-lending-xlm/contracts/position-nft)
+   Compiling flash-loan-receiver v0.1.0 (/Users/mihaieremia/GitHub/rs-lending-xlm/mock/flash-loan-receiver)
+   Compiling xoxno-oracle v0.1.0 (/Users/mihaieremia/GitHub/rs-lending-xlm/contracts/xoxno-oracle)
+   Compiling price-aggregator v0.1.0 (/Users/mihaieremia/GitHub/rs-lending-xlm/contracts/price-aggregator)
+   Compiling pool v0.1.0 (/Users/mihaieremia/GitHub/rs-lending-xlm/contracts/pool)
+   Compiling script-runner v0.1.0 (/Users/mihaieremia/GitHub/rs-lending-xlm/mock/script-runner)
+   Compiling controller v0.1.0 (/Users/mihaieremia/GitHub/rs-lending-xlm/contracts/controller)
+   Compiling governance v0.1.0 (/Users/mihaieremia/GitHub/rs-lending-xlm/contracts/governance)
+   Compiling test-harness v0.1.0 (/Users/mihaieremia/GitHub/rs-lending-xlm/tests/test-harness)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 30.88s
+     Running unittests src/lib.rs (target/debug/deps/test_harness-f75df38f1a157d8f)
+
+running 2 tests
+test reference::liquidation::tests::bonus_formula_baseline ... ok
+test reference::liquidation::tests::half_up_div_basic ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/composition/main.rs (target/debug/deps/composition-57e73b4499a28cd4)
+
+running 16 tests
+test nft_transfer_between_legs::a_withdraw_after_an_in_script_transfer_is_rejected ... ok
+test atomic_revert_all_legs::a_failing_last_leg_rolls_back_supply_borrow_and_repay ... ok
+test delegate_revocation_between_legs::deactivating_the_manager_kills_a_stored_grant_immediately ... ok
+test nft_transfer_between_legs::a_credit_liquidation_into_an_account_just_transferred_away_is_rejected ... ok
+test delegate_revocation_between_legs::a_removed_delegate_can_still_repay_but_cannot_borrow_or_withdraw ... ok
+test contract_caller_runs_every_verb::under_enforcing_auth_a_stranger_cannot_use_the_runner_to_spend_another_account ... ok
+test supplier_exit_before_socialization_is_bounded_by_utilization::exit_then_clean_then_re_enter_dodges_the_write_down_when_utilization_allows ... ok
+test supplier_exit_before_socialization_is_bounded_by_utilization::the_exit_is_capped_by_max_utilization_and_the_script_reverts_whole ... ok
+test contract_caller_runs_every_verb::the_sentinel_resolves_inside_seize_mode_and_clean_bad_debt ... ok
+test contract_caller_runs_every_verb::under_enforcing_auth_the_runner_carries_its_own_token_pulls ... ok
+test contract_caller_runs_every_verb::a_contract_caller_runs_the_position_verbs_in_one_invocation ... ok
+test contract_caller_runs_every_verb::a_contract_caller_runs_the_strategy_verbs_and_the_flash_loan ... ok
+test contract_caller_runs_every_verb::a_contract_caller_grants_and_revokes_a_delegate_and_moves_its_nft ... ok
+test contract_caller_runs_every_verb::a_contract_caller_liquidates_in_both_seize_modes_and_runs_the_keeper_verbs ... ok
+test repeated_loops_never_extract_value::fifty_supply_then_withdraw_all_cycles_return_at_most_the_deposit ... ok
+test repeated_loops_never_extract_value::fifty_supply_borrow_repay_withdraw_cycles_leave_the_runner_no_richer ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 33.34s
+
+     Running tests/controller/main.rs (target/debug/deps/controller-f2180d20d860b0f1)
+
+running 557 tests
+test admin::test_create_liquidity_pool_panics_before_deploy_pool ... ok
+test admin::test_deploy_pool_panics_on_second_call ... ok
+test admin::test_upgrade_pool_admin_path ... ok
+test admin_config::test_claim_revenue_zero_accrual_skips_transfer ... ok
+test account::test_create_account_full_custom ... ok
+test account::test_account_owner_verified ... ok
+test account::test_remove_empty_account ... ok
+test admin::test_supply_panics_on_deprecated_spoke_category ... ok
+test account::test_create_normal_account ... ok
+test account::test_get_active_accounts ... ok
+test account::test_renew_account_owner_succeeds ... ok
+test account::test_remove_rejects_with_positions ... ok
+test account::test_renew_account_requires_owner ... ok
+test account::test_adopt_account_prunes_old_owner_bookkeeping ... ok
+test account::test_create_spoke_account ... ok
+test account::test_multiple_accounts_per_user ... ok
+test account::test_account_auto_removed_after_full_repay_withdraw ... ok
+test admin_config::test_configure_market_oracle_defers_an_out_of_band_price_to_read_time ... ok
+test admin_config::test_create_liquidity_pool_uniqueness ... ok
+test admin_config::test_edit_asset_config ... ok
+test admin_config::test_set_oracle_rejects_a_degenerate_tolerance ... ok
+test admin_config::test_market_initialization_cascade ... ok
+test admin_config::test_seeding_an_oracle_activates_a_pending_market ... ok
+test admin_config::test_permissionless_revenue_ops ... ok
+test admin_config::test_permissionless_keeper_ops ... ok
+test admin_config::test_set_aggregator ... ok
+test admin_config::test_set_position_limits ... ok
+test admin_config::test_set_position_limits_rejects_out_of_range ... ok
+test admin_config::test_set_tolerance_overwrites_bands ... ok
+test admin_config::test_min_borrow_floor_is_inclusive_at_exact_boundary ... ok
+test admin_config::test_set_tolerance_rejects_degenerate_band ... ok
+test admin_config::test_pause_blocks_operations ... ok
+test admin_config::test_set_tolerance_rejects_loose_lower_band ... ok
+test admin_config::test_set_tolerance_rejects_unknown_asset ... ok
+test admin_config::test_upgrade_liquidity_pool_params_alias ... ok
+test admin_config::test_upgrade_pool_forwards_hash_to_pool ... ok
+test admin_config::test_upgrade_pool_params ... ok
+test admin_config::test_upgrade_pool_params_accepts_max_borrow_rate_at_cap ... ok
+test admin_config::test_unpause_restores_operations ... ok
+test bad_debt_index::force_socialize_does_not_net_collateral_against_debt ... ok
+test bad_debt_index::test_bad_debt_decreases_supply_index ... ok
+test bad_debt_index::test_bad_debt_does_not_affect_borrow_index ... ok
+test bad_debt_index::test_bad_debt_index_floored_at_safety_floor ... ok
+test audit_liquidate_and_clean_stale_leg::audit_liquidate_and_clean_bricked_by_unpriceable_dust_leg ... ok
+test bad_debt_index::test_bad_debt_loss_distributed_proportionally ... ok
+test audit_supply_stale_shield::audit_supply_setup_blocks_liquidation_via_stale_dust_leg ... ok
+test audit_liquidate_dust_fee_dos::audit_liquidate_contracts_dust_fee_full_close_dos ... ok
+test bad_debt_index::test_bad_debt_reduction_matches_formula ... ok
+test bad_debt_index::test_force_socialize_bad_debt_above_dust_threshold ... ok
+test bad_debt_index::test_keeper_clean_bad_debt_decreases_supply_index ... ok
+test bad_debt_index::test_force_socialize_rejects_healthy_account ... ok
+test bad_debt_index::test_same_market_absorb_before_writedown_conserves_exactly ... ok
+test bad_debt_index::test_force_socialize_leaves_an_untouched_market_bit_identical ... ok
+test audit_borrow_withdraw_liquidate_stale_anchor_blend::audit_borrow_withdraw_liquidate_stale_anchor_blends_5pct_skew_into_ltv ... ok
+test bad_debt_index::test_socialization_leaves_the_market_backed_and_open ... ok
+test bad_debt_netting_and_exit_timing::forced_full_close_is_profitable_for_the_liquidator ... ok
+test bad_debt_index::supplier_can_exit_ahead_of_bad_debt_writedown ... ok
+test bad_debt_index::test_supply_index_recovers_after_bad_debt ... ok
+test bad_debt_netting_and_exit_timing::deep_underwater_account_still_liquidates_to_the_dust_gate ... ok
+test bad_debt_netting_and_exit_timing::same_market_residual_is_not_netted_against_socialized_debt ... ok
+test bad_debt_index::test_socialization_leaves_an_untouched_market_bit_identical ... ok
+test bad_debt_netting_and_exit_timing::stayer_has_the_same_exit_as_the_dodger ... ok
+test borrow::test_borrow_at_ltv_limit_stays_healthy ... ok
+test borrow::test_borrow_basic ... ok
+test borrow::test_borrow_bulk_passes_cumulative_hf_check ... ok
+test borrow::test_borrow_duplicate_asset_bulk_accumulates_single_position ... ok
+test bad_debt_netting_and_exit_timing::flash_callback_cannot_reach_any_controller_entrypoint ... ok
+test borrow::test_borrow_rejects_non_borrowable ... ok
+test borrow::test_borrow_multiple_assets_bulk ... ok
+test borrow::test_borrow_rejects_exceeding_ltv ... ok
+test borrow::test_borrow_rejects_during_flash_loan ... ok
+test borrow::test_borrow_same_asset_xlm ... ok
+test borrow::test_borrow_rejects_when_paused ... ok
+test borrow::test_borrow_rejects_zero_amount ... ok
+test borrow::test_borrow_position_limit_exceeded ... ok
+test bulk_indexes::test_index_view_with_unlisted_asset_still_fails ... ok
+test borrow::test_delegated_borrow_to_none_routes_to_caller ... ok
+test decimal_diversity::test_scaled_borrow_never_zero_for_raw_one_within_protocol_bounds ... ok
+test borrow::test_borrow_spoke_enhanced_ltv ... ok
+test borrow::test_delegated_borrow_routes_funds_to_owner ... ok
+test bulk_indexes::test_detailed_indexes_view_matches_pool_simulation ... ok
+test decimal_diversity::test_borrow_1_raw_unit_18dec_saturates_hf ... ok
+test decimal_diversity::test_borrow_1_raw_unit_is_properly_recorded_on_7dec ... ok
+test decimal_diversity::test_interest_accrual_mixed_decimals ... ok
+test decimal_diversity::test_large_amounts_6dec ... ok
+test decimal_diversity::test_liquidation_18dec_collateral_6dec_debt ... ok
+test decimal_diversity::test_liquidation_6dec_collateral_18dec_debt ... ok
+test decimal_diversity::test_low_value_high_quantity_7dec ... ok
+test decimal_diversity::test_multi_user_mixed_decimals ... ok
+test decimal_diversity::test_mixed_decimal_types_single_account ... ok
+test decimal_diversity::test_repay_cross_decimal ... ok
+test decimal_diversity::test_supply_18dec_borrow_6dec ... ok
+test decimal_diversity::test_supply_6dec_borrow_18dec ... ok
+test decimal_diversity::test_supply_9dec_borrow_8dec ... ok
+test decimal_diversity::test_tiny_amounts_18dec ... ok
+test decimal_diversity::test_withdraw_cross_decimal_hf_check ... ok
+test deprecated_spoke_liquidation_liveness::every_other_account_creating_verb_stays_closed_in_the_deprecated_spoke ... ok
+test events::test_add_spoke_emits_events ... ok
+test dust_threshold_and_decimal_floor::clean_bad_debt_gate_never_opens_before_liquidation_does ... ok
+test dust_threshold_and_decimal_floor::three_decimal_market_one_raw_unit_round_trip ... ok
+test deprecated_spoke_liquidation_liveness::transfer_mode_fails_on_cash_and_credit_zero_creates_the_receiver_in_the_deprecated_spoke ... ok
+test dust_threshold_and_decimal_floor::first_depositor_after_index_growth_cannot_mint_free_value ... ok
+test bad_debt_netting_and_exit_timing::same_ledger_kink_roundtrip_cannot_move_the_index ... ok
+test events::test_borrow_emits_events ... ok
+test events::test_index_sync_emits_events ... ok
+test events::test_supply_emits_events ... ok
+test events::test_repay_emits_events ... ok
+test events::test_liquidation_emits_many_events ... ok
+test events::test_position_and_market_batch_v2_wire_shape ... ok
+test events::test_supply_position_event_restores_risk_fields ... ok
+test events::test_withdraw_emits_events ... ok
+test events::test_bulk_supply_emits_single_position_and_market_batch ... ok
+test extreme_amount_inputs::borrow_of_i128_max_fails_on_liquidity_before_any_transfer ... ok
+test extreme_amount_inputs::flash_loan_of_i128_max_fails_on_liquidity ... ok
+test extreme_amount_inputs::recapitalize_of_half_i128_max_on_a_healthy_market_applies_zero_and_refunds_all ... ok
+test extreme_amount_inputs::liquidation_payment_of_half_i128_max_pulls_only_the_close_amount ... ok
+test extreme_amount_inputs::repay_of_half_i128_max_closes_the_debt_and_refunds_the_rest ... ok
+test extreme_amount_inputs::supply_of_half_i128_max_is_a_typed_overflow_not_a_host_trap ... ok
+test flash_loan::test_flash_loan_adversarial_receiver_callback_panic_rolls_back ... ok
+test flash_loan::test_flash_loan_adversarial_receiver_no_repay_rejects ... ok
+test flash_loan::test_flash_loan_adversarial_receiver_reenter_controller_supply_rejects ... ok
+test flash_loan::test_flash_loan_adversarial_receiver_reenter_pool_flash_loan_rejects ... ok
+test flash_loan::test_flash_loan_adversarial_receiver_rejects_invalid_data ... ok
+test extreme_amount_inputs::withdraw_of_i128_max_is_the_withdraw_all_sentinel ... ok
+test flash_loan::test_flash_loan_adversarial_receiver_under_repay_rejects ... ok
+test flash_loan::test_flash_loan_fee_config_matches_default_preset ... ok
+test flash_loan::test_flash_loan_allows_zero_fee_when_configured_zero ... ok
+test flash_loan::test_flash_loan_non_contract_receiver_rejects_and_rolls_back ... ok
+test flash_loan::test_flash_loan_reentrancy_blocks_borrow ... ok
+test flash_loan::test_flash_loan_reentrancy_blocks_withdraw ... ok
+test flash_loan::test_flash_loan_reentrancy_blocks_supply ... ok
+test flash_loan::test_flash_loan_reentrancy_blocks_liquidation ... ok
+test flash_loan::test_flash_loan_rejects_bad_repayment ... ok
+test flash_loan::test_flash_loan_rejects_disabled ... ok
+test flash_loan::test_flash_loan_rejects_zero_amount ... ok
+test flash_loan::test_flash_loan_strict_receiver_rejects_success_without_fee_prefund ... ok
+test flash_loan::test_flash_loan_reentrancy_blocks_repay ... ok
+test flash_loan::test_flash_loan_strict_receiver_success_with_preauthorized_repayment ... ok
+test flash_loan::test_flash_loan_success_under_non_root_auth ... ok
+test flash_loan_adversarial::test_flash_loan_controller_receiver_rejects ... ok
+test flash_loan::test_flash_loan_tiny_amount_charges_min_fee_when_bps_positive ... ok
+test flash_loan_adversarial::test_flash_loan_eoa_receiver_still_rejected ... ok
+test flash_loan_adversarial::test_flash_loan_extra_credit_is_not_pool_theft ... ok
+test flash_loan_adversarial::test_flash_loan_fee_on_transfer_fails_closed ... ok
+test flash_loan_adversarial::test_flash_loan_insufficient_liquidity_rejects ... ok
+test flash_loan_adversarial::test_flash_loan_over_repay_still_charges_exact_fee ... ok
+test flash_loan_adversarial::test_flash_loan_pool_receiver_rejects ... ok
+test flash_loan_adversarial::test_flash_loan_push_to_pool_fails_closed ... ok
+test flash_loan_adversarial::test_flash_loan_reenter_borrow_rejects ... ok
+test flash_loan_adversarial::test_flash_loan_reenter_flash_loan_rejects ... ok
+test flash_loan_adversarial::test_flash_loan_plan_targets_existing_account ... ok
+test flash_loan_adversarial::test_flash_loan_reenter_flash_position_rejects ... ok
+test extreme_amount_inputs::supply_at_the_domain_ceiling_succeeds_and_one_unit_more_is_rejected ... ok
+test flash_loan_adversarial::test_flash_loan_reenter_liquidate_rejects ... ok
+test flash_loan_adversarial::test_flash_loan_reenter_migrate_blend_rejects ... ok
+test flash_loan_adversarial::test_flash_loan_reenter_rdwc_rejects ... ok
+test flash_loan_adversarial::test_flash_loan_reenter_multiply_rejects ... ok
+test flash_loan_adversarial::test_flash_loan_reenter_repay_rejects ... ok
+test bad_debt_netting_and_exit_timing::withdrawal_ceiling_tracks_one_minus_utilization_over_max has been running for over 60 seconds
+test flash_loan_adversarial::test_flash_loan_reenter_swap_collateral_rejects ... ok
+test flash_loan_adversarial::test_flash_loan_reenter_swap_debt_rejects ... ok
+test flash_loan_adversarial::test_flash_loan_reenter_supply_against_live_controller_rejects ... ok
+test flash_loan_adversarial::test_flash_loan_transfer_hook_cannot_reenter ... ok
+test flash_loan_adversarial::test_flash_loan_rejects_when_paused ... ok
+test flash_loan_adversarial::test_flash_loan_reenter_withdraw_rejects ... ok
+test governance_change_between_legs::a_pause_between_two_legs_closes_entries_and_keeps_exits ... ok
+test governance_change_between_legs::lowering_ltv_between_borrow_and_withdraw_gates_the_withdraw_but_not_the_stamp ... ok
+test keeper::test_bad_debt_gap_band_resolved_by_liquidation ... ok
+test governance_change_between_legs::lowering_the_position_limit_between_two_opens_blocks_only_the_new_slot ... ok
+test keeper::test_clean_bad_debt_rejects_above_threshold ... ok
+test keeper::regression_third_party_keeper_cannot_force_adverse_tuple_below_min_hf ... ok
+test keeper::test_clean_bad_debt_rejected_under_oracle_deviation ... ok
+test governance_change_between_legs::swapping_the_router_between_two_strategies_serves_the_second_from_the_new_router ... ok
+test keeper::test_permissionless_keeper_endpoints ... ok
+test keeper::test_supply_roundtrip_preserves_risk_fields ... ok
+test keeper::test_clean_bad_debt_rejects_healthy ... ok
+test keeper::test_update_account_threshold_deprecated_spoke_retains_spoke_params ... ok
+test keeper::test_clean_bad_debt_removes_positions ... ok
+test bad_debt_netting_and_exit_timing::withdrawal_ceiling_tracks_one_minus_utilization_over_max ... ok
+test keeper::test_update_account_threshold_mixed_spokes_batch ... ok
+test keeper::test_update_account_threshold_emits_param_upd_only_for_changed_assets ... ok
+test keeper::test_update_account_threshold_propagates_adverse_tuple_to_healthy_account ... ok
+test keeper::test_update_account_threshold_skips_param_upd_when_stamps_unchanged ... ok
+test keeper::test_update_account_threshold_rejects_low_hf ... ok
+test keeper::test_update_account_threshold_rejects_bonus_raise_below_min_hf ... ok
+test keeper::test_update_account_threshold_risky ... ok
+test keeper::test_update_account_threshold_syncs_all_supply_assets ... ok
+test keeper::test_update_account_threshold_safe ... ok
+test keeper::test_update_indexes_refreshes_rates ... ok
+test large_positions_and_long_horizons::a_whale_market_at_sustained_high_utilization_hits_the_ray_value_ceiling_before_the_index_cap ... ok
+test liquidation::test_liquidation_allowed_when_paused ... ok
+test liquidation::test_liquidation_bad_debt_cleanup_auto ... ok
+test liquidation::test_liquidation_bad_debt_socializes_loss ... ok
+test liquidation::test_liquidation_basic_proportional ... ok
+test liquidation::test_liquidation_caps_at_actual_debt ... ok
+test liquidation::test_liquidation_caps_at_max_bonus ... ok
+test liquidation::test_liquidation_dynamic_bonus_deep_underwater ... ok
+test liquidation::test_liquidation_dynamic_bonus_moderate ... ok
+test liquidation::test_liquidation_improves_health_factor ... ok
+test liquidation::test_liquidation_protocol_fee_on_bonus_only ... ok
+test liquidation::test_liquidation_rejects_during_flash_loan ... ok
+test liquidation::test_liquidation_rejects_healthy_account ... ok
+test liquidation::test_liquidation_rejects_zero_amount ... ok
+test liquidation::test_liquidation_sequential_partial_liquidations ... ok
+test liquidation::test_liquidation_targeted_single_collateral ... ok
+test large_positions_and_long_horizons::one_billion_at_three_decimals_accrues_and_exits ... ok
+test liquidation::test_self_liquidation_allowed ... ok
+test liquidation::test_third_party_supply_self_liquidation_allowed ... ok
+test liquidation::test_third_party_supply_leaves_external_liquidation_available ... ok
+test liquidation_boundary::test_bad_debt_socialization_triggers_under_threshold ... ok
+test liquidation_boundary::test_hf_exactly_one_is_healthy ... ok
+test liquidation_boundary::test_is_liquidatable_flips_strictly_below_hf_one ... ok
+test liquidation_boundary::test_hf_just_below_one_is_liquidatable ... ok
+test liquidation_boundary::test_liquidation_bonus_clamped_at_max ... ok
+test liquidation_boundary::test_liquidation_strictly_improves_hf ... ok
+test liquidation_coverage::test_liquidation_aggregates_duplicate_debt_payments ... ok
+test liquidation_coverage::test_liquidation_multi_debt_capped ... ok
+test liquidation_coverage::test_liquidation_rejects_empty_payments ... ok
+test liquidation_coverage::test_liquidation_rejects_if_no_debt_repaid ... ok
+test liquidation_coverage::test_liquidation_rejects_negative_raw_payment ... ok
+test liquidation_coverage::test_liquidation_rejects_supported_payment_asset_without_debt_position ... ok
+test liquidation_accrual_timing::preaccrual_does_not_change_liquidator_payoff ... ok
+test liquidation_coverage::test_liquidation_rejects_unsupported_payment_asset ... ok
+test liquidation_coverage::test_oracle_rejects_zero_price_before_liquidation_check - should panic ... ok
+test liquidation_coverage::test_liquidation_seize_proportional_subunit_collateral ... ok
+test liquidation_extreme::test_deep_crash_socializes_bad_debt ... ok
+test liquidation_extreme::test_extreme_decimal_spread_3_collateral_18_debt ... ok
+test liquidation_extreme::test_dust_debt_escalates_to_full_close ... ok
+test large_positions_and_long_horizons::one_billion_at_eighteen_decimals_accrues_and_exits ... ok
+test large_positions_and_long_horizons::one_billion_at_seven_decimals_accrues_and_exits_on_the_usdc_curve ... ok
+test liquidation_extreme::test_extreme_high_target_hf_curve ... ok
+test liquidation_extreme::test_flat_bonus_factor_stays_at_base ... ok
+test liquidation_extreme::test_high_ltv_low_bonus_stablecoin ... ok
+test liquidation_extreme::test_high_value_low_decimal_collateral ... ok
+test liquidation_extreme::test_narrow_curve_bonus_bounded_by_max ... ok
+test liquidation_extreme::test_overrepay_is_capped_at_ideal ... ok
+test liquidation_extreme::test_multi_debt_liquidation_reduces_both ... ok
+test liquidation_extreme::test_partial_chain_converges_no_bad_debt ... ok
+test liquidation_extreme::test_toxic_band_low_threshold_bounded ... ok
+test liquidation_extreme::test_paused_debt_leg_rejects_liquidation ... ok
+test large_positions_and_long_horizons::one_billion_at_seven_decimals_accrues_and_exits_on_the_xlm_curve ... ok
+test liquidation_extreme::test_toxic_band_multi_collateral_seizes_both ... ok
+test liquidation_math::test_bonus_formula_at_specific_hf_levels ... ok
+test liquidation_math::test_bad_debt_index_decrease_exact ... ok
+test liquidation_extreme::test_zero_bonus_liquidation ... ok
+test liquidation_math::test_deep_underwater_higher_bonus ... ok
+test liquidation_math::test_liquidation_bounded_by_available_collateral ... ok
+test liquidation_math::test_liquidation_does_not_increase_debt ... ok
+test liquidation_math::test_multiple_partial_liquidations_incremental_hf ... ok
+test liquidation_boundary::test_liquidation_bonus_monotone_in_mild_underwater_band ... ok
+test liquidation_math::test_protocol_fee_on_bonus_only_quantitative ... ok
+test liquidation_mixed_decimal::test_bad_debt_cleanup_mixed_decimals ... ok
+test liquidation_math::test_seizure_equals_debt_times_one_plus_bonus ... ok
+test liquidation_extreme::test_toxic_band_full_and_partial_bounded ... ok
+test liquidation_mixed_decimal::test_liquidation_2x2_four_unique_decimals ... ok
+test liquidation_mixed_decimal::test_liquidation_protocol_fee_cross_decimal ... ok
+test liquidation_mixed_decimal::test_liquidation_asymmetric_90pct_6dec_10pct_18dec ... ok
+test liquidation_mixed_decimal::test_liquidation_multi_debt_different_decimals ... ok
+test liquidation_mixed_decimal::test_liquidation_multi_debt_6dec_and_18dec ... ok
+test liquidation_mixed_decimal::test_liquidation_two_collaterals_6dec_18dec_debt_8dec ... ok
+test liquidation_ratchet::test_solvent_toxic_rejects_partial_and_accepts_full_close ... ok
+test liquidation_seize_modes::a_non_collateralizable_asset_can_still_be_credited ... ok
+test liquidation_mixed_decimal::test_liquidation_4x4_eight_unique_decimals ... ok
+test liquidation_seize_modes::a_paused_collateral_can_still_be_seized ... ok
+test liquidation_extreme::test_hf_spectrum_liquidations_bounded ... ok
+test liquidation_seize_modes::a_paused_collateral_can_still_be_seized_into_credit_mode ... ok
+test liquidation_seize_modes::a_paused_debt_asset_is_opt_in_and_only_blocks_when_named ... ok
+test liquidation_seize_modes::a_receiver_at_the_supply_position_limit_reverts ... ok
+test liquidation_seize_modes::a_receiver_with_a_position_keeps_its_own_tuple_and_just_grows ... ok
+test liquidation_seize_modes::a_receiver_without_a_position_gets_the_current_listing_tuple_not_the_victims ... ok
+test liquidation_ratchet::execute_n_partials_do_not_out_seize_one_close_of_the_sum_credit ... ok
+test liquidation_ratchet::execute_n_partials_do_not_out_seize_one_close_of_the_sum_transfer ... ok
+test liquidation_ratchet::test_partial_chain_deep_does_not_ratchet ... ok
+test liquidation_ratchet::test_partial_chain_does_not_out_extract_single_recoverable ... ok
+test liquidation_seize_modes::a_spoke_at_its_supply_cap_can_still_be_credited ... ok
+test liquidation_seize_modes::bad_debt_promotion_still_fires_after_a_credit_mode_liquidation ... ok
+test liquidation_ratchet::test_partial_chain_no_ratchet_spoke ... ok
+test liquidation_seize_modes::cash_starved_market_blocks_transfer_but_not_credit ... ok
+test liquidation_seize_modes::credit_back_into_the_liquidated_account_reverts ... ok
+test liquidation_seize_modes::credit_mode_emits_two_position_batches_liquidated_account_first ... ok
+test liquidation_seize_modes::credit_mode_leaves_supplied_and_cash_untouched_and_moves_only_revenue ... ok
+test liquidation_seize_modes::credit_mode_moves_spoke_usage_by_exactly_the_protocol_fee ... ok
+test liquidation_seize_modes::credit_to_a_missing_account_reverts ... ok
+test liquidation_seize_modes::credit_to_a_strategy_mode_account_reverts ... ok
+test liquidation_seize_modes::credit_to_an_account_the_liquidator_does_not_control_reverts ... ok
+test liquidation_seize_modes::credit_to_an_account_in_another_spoke_reverts ... ok
+test liquidation_seize_modes::no_seize_blocks_the_seizure_leg_in_both_modes ... ok
+test liquidation_seize_modes::no_seize_does_not_block_ordinary_withdrawal ... ok
+test liquidation_seize_modes::credit_zero_creates_a_usable_account_owned_by_the_liquidator_in_the_right_spoke ... ok
+test liquidation_seize_modes::the_estimate_reports_the_units_the_chosen_mode_moves ... ok
+test liquidation_seize_modes::the_protocol_fee_is_charged_on_the_bonus_not_the_gross_seizure ... ok
+test liquidation_seize_modes::transfer_and_credit_agree_exactly_on_a_full_close ... ok
+test liquidation_seize_modes::transfer_and_credit_agree_on_values_that_do_not_divide_evenly ... ok
+test liquidation_seize_modes::transfer_and_credit_seize_the_same_value_at_the_same_ledger ... ok
+test liquidation_seize_modes::transfer_mode_still_emits_a_single_position_batch ... ok
+test liquidation_seize_modes::withdrawing_the_credit_in_the_same_ledger_matches_the_transfer_payout ... ok
+test max_utilization::test_borrow_above_max_utilization_rejected ... ok
+test max_utilization::test_update_params_rejects_max_above_one ... ok
+test max_utilization::test_update_params_rejects_max_below_optimal ... ok
+test max_utilization::test_borrow_at_max_utilization_succeeds ... ok
+test max_utilization::test_max_utilization_uses_index_aware_ratio ... ok
+test max_utilization::test_withdraw_pushing_above_max_utilization_rejected ... ok
+test max_utilization::test_zero_supply_with_outstanding_borrow_rejected ... ok
+test max_utilization::withdraw_that_lands_exactly_on_max_utilization_passes_and_one_unit_more_fails ... ok
+test min_borrow_collateral::test_borrow_rejected_when_ltv_collateral_below_instance_floor ... ok
+test min_borrow_collateral::test_borrow_succeeds_when_ltv_collateral_meets_instance_floor ... ok
+test min_borrow_collateral::test_borrow_not_blocked_by_unrelated_supply_price_crash ... ok
+test min_borrow_collateral::test_min_borrow_collateral_gate_disabled_when_floor_zero ... ok
+test min_borrow_collateral::test_small_supply_succeeds_when_debt_free ... ok
+test min_borrow_collateral::test_withdraw_while_debt_free_allows_small_residue ... ok
+test min_borrow_collateral::test_partial_repay_leaving_small_debt_succeeds ... ok
+test min_borrow_collateral::test_withdraw_while_in_debt_rejected_when_ltv_collateral_falls_below_floor ... ok
+test multi_hub::hubs_keep_independent_state_and_indices ... ok
+test multi_hub::borrow_cannot_cross_hub_cash ... ok
+test multi_hub::bad_debt_is_isolated_to_its_hub ... ok
+test liquidation_extreme::test_curve_param_sweep_invariants has been running for over 60 seconds
+test liquidation_extreme::test_curve_param_sweep_invariants ... ok
+test multi_hub::keeper_and_revenue_serve_hub_one_markets ... ok
+test multi_hub::multiply_opens_cross_hub_same_asset_carry_trade ... ok
+test multi_hub::swap_collateral_migrates_collateral_across_hubs ... ok
+test multi_hub::liquidation_seizes_hub_one_collateral_without_hub_zero_listing ... ok
+test outbound_transfer_measurement::claim_revenue_emits_nothing_when_there_is_no_revenue ... ok
+test multi_hub::liquidation_charges_seized_collateral_hub_fee ... ok
+test multi_hub::liquidation_repays_and_seizes_on_hub_one ... ok
+test multi_hub::swap_debt_refinances_debt_across_hubs ... ok
+test outbound_transfer_measurement::recapitalize_fails_closed_when_the_asset_reenters_during_the_measured_window ... ok
+test outbound_transfer_measurement::claim_revenue_forwards_the_measured_amount_and_leaves_controller_dust_intact ... ok
+test outbound_transfer_measurement::recapitalize_into_an_over_delivering_market_keeps_book_and_custody_in_step ... ok
+test outbound_transfer_measurement::recapitalize_refund_is_unmeasured_but_strands_nothing ... ok
+test ownership::test_app_version_defaults_to_initial ... ok
+test ownership::test_migrate_bumps_version_when_strictly_greater ... ok
+test outbound_transfer_measurement::repay_overpayment_is_refunded_to_the_payer_not_stranded ... ok
+test ownership::test_migrate_rejects_equal_version - should panic ... ok
+test ownership::test_migrate_rejects_lower_version - should panic ... ok
+test ownership::test_pause_unpause_round_trip ... ok
+test ownership::test_transfer_and_accept_ownership_completes ... ok
+test ownership::test_transfer_ownership_to_self_keeps_owner ... ok
+test ownership::test_transfer_ownership_with_zero_ttl_cancels_pending ... ok
+test position_nft::deploy_position_nft_is_set_once ... ok
+test position_nft::debt_travels_with_the_token ... ok
+test position_nft::clean_bad_debt_burns_nft ... ok
+test position_limit_lowering_keeps_topups::a_new_slot_is_still_rejected_after_the_limit_drops ... ok
+test position_limit_lowering_keeps_topups::a_held_asset_can_still_be_topped_up_after_the_limit_drops_below_the_count ... ok
+test position_nft::emptying_account_burns_nft_and_resupply_mints_fresh_id ... ok
+test position_limit_lowering_keeps_topups::a_credit_liquidation_into_an_over_limit_account_that_holds_the_asset_still_lands ... ok
+test position_nft::force_socialize_bad_debt_burns_nft ... ok
+test position_nft::old_owner_is_rejected_after_transfer ... ok
+test position_nft::new_owner_grant_overwrites_stale_grant ... ok
+test position_nft::renew_account_follows_current_owner ... ok
+test position_nft::liquidation_dust_socialization_burns_nft ... ok
+test position_nft::supply_mints_nft_with_token_id_equal_account_id ... ok
+test position_nft::transfer_hands_full_control_to_new_owner ... ok
+test position_nft::transfer_revokes_old_owners_delegates ... ok
+test position_nft::self_liquidation_is_allowed ... ok
+test position_nft::unknown_and_unmintable_account_ids_are_account_not_found ... ok
+test position_nft::upgrading_the_position_nft_preserves_live_ownership ... ok
+test position_nft::underwater_position_transfers_freely_and_stays_liquidatable ... ok
+test position_nft::upgrading_the_position_nft_to_an_unknown_hash_reverts ... ok
+test position_nft_ttl_and_ownership_reads::bad_debt_winddown_resolves_nft_ownership ... ok
+test position_nft_ttl_and_ownership_reads::liquidation_resolves_nft_ownership_and_succeeds_after_auto_restore ... ok
+test position_nft_ttl_and_ownership_reads::mint_lifts_owner_entry_to_the_protocol_window ... ok
+test position_nft_ttl_and_ownership_reads::partial_liquidation_resolves_nft_ownership ... ok
+test position_nft_ttl_and_ownership_reads::renew_account_and_permissionless_renew_close_the_ttl_gap ... ok
+test position_nft_ttl_and_ownership_reads::passive_owner_of_lifts_only_to_the_oz_window ... ok
+test recipient_is_protocol_contract::borrow_to_the_pool_is_rejected_before_cash_moves ... ok
+test recipient_is_protocol_contract::borrow_to_the_controller_is_rejected ... ok
+test recipient_is_protocol_contract::withdraw_to_the_pool_or_the_controller_is_rejected ... ok
+test repay::test_repay_allowed_when_paused ... ok
+test repay::test_repay_by_third_party ... ok
+test repay::test_repay_cleans_up_empty_account ... ok
+test repay::test_repay_duplicate_asset_payments_aggregate ... ok
+test repay::test_repay_full_clears_position ... ok
+test repay::test_repay_overpayment_refunded ... ok
+test repay::test_repay_rejects_empty_payment_vector ... ok
+test repay::test_repay_rejects_nonexistent_account_id ... ok
+test repay::test_repay_multiple_assets ... ok
+test repay::test_repay_partial ... ok
+test repay::test_repay_permissionless_payer_auth_only ... ok
+test repay::test_repay_rejects_during_flash_loan ... ok
+test repay::test_repay_rejects_negative_raw_amount ... ok
+test repay::test_repay_rejects_position_not_found ... ok
+test repay::test_repay_rejects_zero_amount ... ok
+test round_trip_exactness_and_loop_drift::supply_then_withdraw_all_on_a_fresh_market_returns_exactly_the_deposit ... ok
+test round_trip_exactness_and_loop_drift::withdraw_all_after_index_growth_never_exceeds_deposit_plus_accrued_interest ... ok
+test same_market_bad_debt_cleanup_arithmetic::cleanup_absorbs_same_market_supply_as_revenue_and_socializes_the_full_debt ... ok
+test security_audit::poc_frozen_collateral_still_backs_new_borrows ... ok
+test security_audit::poc_flash_loan_ongoing_blocks_risk_increasing_and_exit_paths ... ok
+test security_audit::poc_lt_cut_stays_sticky_when_hf_below_min ... ok
+test security_audit::poc_paused_debt_blocks_liquidation_repay ... ok
+test security_audit::poc_paused_collateral_does_not_block_liquidation_seizure ... ok
+test security_audit::poc_permissionless_repay_any_caller ... ok
+test security_audit::poc_stale_lt_stamp_blocks_liquidation_after_threshold_cut ... ok
+test security_audit::poc_stale_oracle_blocks_liquidation ... ok
+test security_audit::poc_third_party_top_up_force_restamps_ltv ... ok
+test security_audit::regression_borrow_restamps_ltv_after_governance_cut ... ok
+test round_trip_exactness_and_loop_drift::fifty_supply_withdraw_all_loops_never_return_more_than_deposited_plus_interest ... ok
+test security_audit::regression_borrow_restamps_ltv_only ... ok
+test security_audit::poc_untransferable_collateral_leg_bricks_whole_liquidation ... ok
+test security_audit::regression_ltv_collateral_view_uses_live_listing_ltv ... ok
+test security_audit::regression_strategy_finalize_restamps_safe_params ... ok
+test security_audit::regression_supply_propagates_bonus_raise_to_healthy_account ... ok
+test security_audit::regression_supply_skips_bonus_only_raise_below_min_hf ... ok
+test security_audit::regression_supply_skips_fees_only_cut_below_min_hf ... ok
+test security_audit::regression_third_party_supply_cannot_force_adverse_tuple_below_min_hf ... ok
+test security_audit::regression_withdraw_restamps_sibling_ltv_after_governance_cut ... ok
+test security_audit_extended::poc_delisted_collateral_flag_still_backs_new_borrows ... ok
+test security_audit_extended::poc_dual_in_band_midpoint_used_on_borrow_path ... ok
+test security_audit_extended::poc_frozen_debt_still_repayable_paused_debt_blocked ... ok
+test security_audit::regression_third_party_cannot_open_new_supply_slots ... ok
+test security_audit_extended::poc_global_pause_blocks_risk_increasing_allows_exit_and_liq ... ok
+test security_audit_extended::poc_liquidation_seizes_frozen_collateral ... ok
+test security_audit_extended::poc_stale_oracle_blocks_borrow_write_path ... ok
+test security_audit_extended::poc_spoke_pause_blocks_withdraw_freeze_allows ... ok
+test security_audit_extended::refutation_clean_bad_debt_rejects_non_residual ... ok
+test security_audit_extended::refutation_flash_guard_blocks_clean_bad_debt ... ok
+test security_audit_extended::refutation_global_pause_withdraw_still_enforces_hf ... ok
+test security_audit_extended::refutation_liquidate_healthy_and_empty_payments ... ok
+test spoke::test_add_asset_to_spoke_rejects_liquidation_fees_above_bps ... ok
+test security_audit_extended::refutation_third_party_cannot_borrow_on_victim ... ok
+test security_audit_extended::refutation_owner_can_self_liquidate ... ok
+test security_audit_extended::revalidation_third_party_can_top_up_only_existing_leg ... ok
+test spoke::test_deprecated_spoke_debt_free_account_can_partially_withdraw_collateral ... ok
+test spoke::test_deprecated_spoke_blocks_new_borrow_but_preserves_exit ... ok
+test spoke::test_deprecated_spoke_debt_free_account_can_withdraw_all_collateral ... ok
+test spoke::test_deprecated_spoke_category_still_allows_liquidation ... ok
+test security_audit_extended::regression_borrow_restamps_all_listed_ltv_multi_coll ... ok
+test spoke::test_deprecated_spoke_repay_allowed_but_new_borrow_blocked ... ok
+test spoke::test_deprecated_spoke_repay_decrements_usage ... ok
+test spoke::test_deprecated_spoke_with_debt_keeps_stored_params_on_withdraw ... ok
+test spoke::test_edit_asset_in_spoke_rejects_inverted_or_unsafe_bounds ... ok
+test spoke::test_edit_asset_in_spoke_rejects_liquidation_fees_above_bps ... ok
+test spoke::test_deprecated_spoke_with_debt_withdraw_still_enforces_stored_spoke_ltv ... ok
+test spoke::test_frozen_spoke_asset_blocks_entries_but_allows_exit ... ok
+test spoke::test_edit_spoke_supply_cap_below_usage_ratchets_down ... ok
+test spoke::test_paused_spoke_asset_blocks_supply_and_withdraw ... ok
+test spoke::test_edit_spoke_borrow_cap_below_usage_ratchets_down ... ok
+test spoke::test_removed_spoke_asset_withdraw_decrements_usage ... ok
+test spoke::test_remove_asset_with_live_borrow_usage_reverts ... ok
+test spoke::test_remove_asset_with_live_supply_usage_reverts_until_drained ... ok
+test spoke::test_removed_spoke_collateral_asset_blocks_new_supply_but_existing_withdraw_works ... ok
+test spoke::test_removed_spoke_collateral_asset_stays_liquidatable ... ok
+test spoke::test_removed_spoke_debt_asset_blocks_new_borrow_but_existing_repay_works ... ok
+test spoke::test_spoke_add_asset_to_category ... ok
+test spoke::test_spoke_category_creation ... ok
+test spoke::test_spoke_borrow_cap_enforced ... ok
+test spoke::test_spoke_borrow_flag_update_blocks_new_borrow_but_existing_repay_works ... ok
+test spoke::test_spoke_borrow_with_category_asset ... ok
+test spoke::test_spoke_collateral_flag_update_blocks_new_supply_but_existing_withdraw_works ... ok
+test spoke::test_spoke_deprecated_category_operations ... ok
+test spoke::test_spoke_edit_asset_params ... ok
+test spoke::test_spoke_enhanced_ltv_and_threshold ... ok
+test spoke::test_spoke_liquidation_uses_spoke_bonus ... ok
+test spoke::test_spoke_rejects_non_category_borrow ... ok
+test spoke::test_spoke_per_asset_divergent_params ... ok
+test spoke::test_spoke_rejects_non_category_supply ... ok
+test spoke::test_spoke_remove_asset_from_category ... ok
+test spoke::test_spoke_remove_category_deprecates ... ok
+test spoke::test_spoke_spoke_cap_above_from_asset_domain_rejected ... ok
+test spoke::test_spoke_spoke_supply_cap_headroom_restored_after_withdraw ... ok
+test spoke::test_spoke_supply_cap_enforced ... ok
+test spoke::test_spoke_supply_cap_bounds_cumulative_supply ... ok
+test spoke::test_spoke_supply_with_category_asset ... ok
+test spoke::test_spoke_spoke_borrow_cap_tightens_as_interest_accrues ... ok
+test spoke::test_supply_new_account_rejects_unknown_spoke ... ok
+test round_trip_exactness_and_loop_drift::two_hundred_supply_borrow_repay_withdraw_loops_extract_nothing ... ok
+test spoke::test_supply_new_account_rejects_zero_spoke ... ok
+test spoke::test_spoke_two_assets_same_category ... ok
+test spoke::test_supply_rejects_spoke_mismatch_against_active_category ... ok
+test spoke::test_supply_rejects_spoke_mismatch_on_existing_account ... ok
+test spoke::test_supply_zero_spoke_rejects_mismatch_against_active_category ... ok
+test spoke::test_update_account_threshold_syncs_deprecated_spoke_listing ... ok
+test spoke::test_update_account_threshold_skips_force_delisted_asset ... ok
+test spoke_caps::test_add_asset_to_spoke_rejects_i128_max_cap ... ok
+test spoke_caps::test_edit_asset_in_spoke_rejects_i128_max_cap ... ok
+test spoke_caps::test_spoke_cap_above_asset_domain_ceiling_rejected ... ok
+test spoke_caps::test_single_supply_of_cap_plus_one_reverts ... ok
+test spoke_caps::test_borrow_of_exactly_the_cap_succeeds_then_one_unit_reverts ... ok
+test spoke_caps::test_closed_market_still_allows_bad_debt_cleanup ... ok
+test spoke_caps::test_spoke_cap_at_asset_domain_ceiling_accepted ... ok
+test spoke_caps::test_closed_market_still_allows_full_repay_and_withdraw ... ok
+test spoke_caps::test_supply_of_exactly_the_cap_succeeds_then_one_unit_reverts ... ok
+test spoke_caps::test_zero_supply_cap_rejects_every_supply ... ok
+test spoke_caps::test_zero_borrow_cap_rejects_every_borrow ... ok
+test spoke_liquidation_combo::test_spoke_bonus_bounded_by_category_bonus ... ok
+test spoke_liquidation_combo::test_spoke_liquidation_with_split_collateral ... ok
+test spoke_liquidation_combo::test_spoke_rejects_non_category_collateral_addition ... ok
+test supply::test_supply_creates_account_on_first_call ... ok
+test supply::test_supply_duplicate_asset_bulk_accumulates_single_position ... ok
+test supply::test_supply_duplicate_raw_amount_overflow_reverts ... ok
+test supply::regression_non_owner_cannot_open_new_supply_slot_on_victim ... ok
+test supply::test_supply_duplicate_asset_bulk_is_allowed ... ok
+test supply::test_bulk_supply_duplicate_asset_counts_once ... ok
+test spoke_usage_tracks_positions::usage_equals_positions_across_supply_borrow_withdraw_repay_and_both_seize_modes ... ok
+test supply::test_supply_multiple_assets_bulk ... ok
+test supply::test_supply_raw_precision ... ok
+test supply::test_supply_rejects_during_flash_loan ... ok
+test supply::test_supply_rejects_empty_asset_vector ... ok
+test supply::test_supply_position_limit_exceeded ... ok
+test supply::test_supply_rejects_negative_raw_amount ... ok
+test supply::test_supply_rejects_non_collateralizable ... ok
+test supply::test_supply_rejects_when_paused ... ok
+test supply::test_supply_rejects_zero_amount ... ok
+test supply::test_supply_single_asset ... ok
+test spoke_liquidation_combo::test_spoke_threshold_supersedes_asset_threshold ... ok
+test supply::test_supply_to_existing_account ... ok
+test supply::test_supply_with_spoke_category ... ok
+test supply::test_third_party_supply_to_existing_account_succeeds ... ok
+test supply::test_third_party_supply_cannot_force_low_threshold_update ... ok
+test validation_admin::test_edit_asset_config_persists_flashloan_fee_at_cap ... ok
+test third_party_supply_and_risk_restamp::a_stranger_applies_a_loosened_threshold_immediately ... ok
+test third_party_supply_and_risk_restamp::a_stranger_cannot_tighten_a_stale_threshold_below_the_update_floor ... ok
+test third_party_supply_and_risk_restamp::a_stranger_can_tighten_when_the_account_clears_the_update_floor ... ok
+test views::test_account_exists_view ... ok
+test validation_admin::test_spoke_user_supply_rejects_deprecated_category - should panic ... ok
+test supply::poc_single_actor_spams_unbounded_dust_accounts ... ok
+test views::test_borrow_amount_for_missing_token ... ok
+test views::test_borrow_amount_for_token_happy ... ok
+test views::test_can_be_liquidated_returns_false_for_healthy ... ok
+test views::test_collateral_amount_for_missing_token ... ok
+test views::test_can_be_liquidated_when_unhealthy ... ok
+test views::test_collateral_amount_for_token_happy ... ok
+test views::test_get_account_owner_correct ... ok
+test views::test_get_active_accounts_multiple ... ok
+test views::test_get_all_markets_single ... ok
+test views::test_get_asset_config_view ... ok
+test views::test_get_market_index_view ... ok
+test views::test_get_position_limits_default ... ok
+test views::test_get_position_limits_custom ... ok
+test views::test_get_all_markets_multiple ... ok
+test views::test_get_pool_address_is_global ... ok
+test views::test_pool_address_view ... ok
+test withdraw::test_withdraw_allowed_when_paused ... ok
+test views::test_get_spoke_category_view ... ok
+test views::test_liquidation_estimations_basic ... ok
+test views::test_ltv_collateral_in_usd_happy ... ok
+test views::test_liquidation_collateral_available_happy ... ok
+test withdraw::test_withdraw_aggregates_duplicate_assets ... ok
+test withdraw::test_withdraw_allowed_without_borrows ... ok
+test views::test_total_collateral_usd_multi_asset ... ok
+test withdraw::test_withdraw_allowed_with_ltv_headroom ... ok
+test withdraw::test_withdraw_cleans_up_empty_account ... ok
+test withdraw::test_withdraw_empty_vector_rejected ... ok
+test views::test_total_borrow_usd_multi_asset ... ok
+test withdraw::test_withdraw_duplicate_zero_full_close_is_sticky ... ok
+test withdraw::test_withdraw_full_amount_returned ... ok
+test withdraw::test_withdraw_full_exit_works_with_broken_oracle ... ok
+test withdraw::test_withdraw_full_with_zero_amount ... ok
+test withdraw::test_withdraw_rejects_during_flash_loan ... ok
+test withdraw::test_withdraw_raw_precision ... ok
+test withdraw::test_withdraw_partial ... ok
+test withdraw::test_withdraw_rejects_negative_raw_amount ... ok
+test withdraw::test_withdraw_multiple_assets ... ok
+test withdraw::test_withdraw_returns_actual_amounts_on_full_close ... ok
+test withdraw::test_withdraw_rejects_exceeding_hf ... ok
+test withdraw::test_withdraw_to_pays_third_party_recipient ... ok
+test withdraw::test_withdraw_rejects_position_not_found ... ok
+test withdraw::test_withdraw_rejects_when_above_ltv_but_hf_ok ... ok
+test withdraw::test_withdraw_with_debt_still_requires_oracle ... ok
+test withdraw::test_withdraw_removes_position_when_empty ... ok
+
+test result: ok. 557 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 295.60s
+
+     Running tests/fuzz/main.rs (target/debug/deps/fuzz-4dc2284894a9f58f)
+
+running 11 tests
+test migrate_blend::migrate_blend_rejects_empty_duplicate_unapproved_zero_cap ... ok
+test strategy_router_invariants::empty_swap_payload_reverts_without_state_or_guard_leak ... ok
+test privileged_auth_rejects::owner_only_endpoints_reject_unauthed_before_validation ... ok
+test privileged_auth_rejects::governance_endpoints_reject_unauthed_before_validation ... ok
+test strategy_multiply_budget::prop_valid_multiply_fits_default_budget ... ok
+test accounting_conservation::prop_accounting_conservation has been running for over 60 seconds
+test liquidation_vs_reference::prop_liquidation_matches_bigrational_reference has been running for over 60 seconds
+test migrate_blend::prop_migrate_blend_cap_too_low_reverts has been running for over 60 seconds
+test migrate_blend::prop_migrate_blend_reconciles_same_asset has been running for over 60 seconds
+test strategy_router_invariants::prop_multiply_succeeds_with_safe_hf_and_clean_router has been running for over 60 seconds
+test strategy_router_invariants::prop_swap_collateral_conserves_position_delta has been running for over 60 seconds
+test strategy_router_invariants::prop_multiply_succeeds_with_safe_hf_and_clean_router ... ok
+test strategy_router_invariants::prop_swap_collateral_conserves_position_delta ... ok
+test migrate_blend::prop_migrate_blend_cap_too_low_reverts ... ok
+test migrate_blend::prop_migrate_blend_reconciles_same_asset ... ok
+test liquidation_vs_reference::prop_liquidation_matches_bigrational_reference ... ok
+test accounting_conservation::prop_accounting_conservation ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 148.75s
+
+     Running tests/governance/main.rs (target/debug/deps/governance-293a738857f6cab0)
+
+running 76 tests
+test admin::test_create_liquidity_pool_rejects_token_without_symbol ... ok
+test admin::test_create_liquidity_pool_rejects_unregistered_token ... ok
+test admin::test_create_liquidity_pool_rejects_asset_decimals_mismatch ... ok
+test admin_config::test_set_spoke_liquidation_curve_overrides_defaults_end_to_end ... ok
+test admin::test_configure_market_oracle_rejects_tolerance_below_min - should panic ... ok
+test dex_usd_repricing::test_quoted_reflector_rejected_as_direct_feed - should panic ... ok
+test admin_config::test_set_position_limits_rejects_above_cap ... ok
+test admin_config::test_edit_asset_in_spoke_rejects_threshold_lte_ltv ... ok
+test admin_config::test_set_spoke_liquidation_curve_rejects_bonus_factor_above_bps ... ok
+test admin::test_edit_asset_in_spoke_rejects_threshold_above_bps - should panic ... ok
+test admin_config::test_set_spoke_liquidation_curve_rejects_unknown_spoke ... ok
+test admin_config::test_upgrade_pool_params_rejects_max_borrow_rate_above_cap ... ok
+test admin::test_set_min_borrow_collateral_rejects_negative_floor - should panic ... ok
+test dex_usd_repricing::test_quoted_reflector_rejected_when_quote_is_self - should panic ... ok
+test dex_usd_repricing::test_quoted_reflector_rejected_even_when_quote_is_a_live_market - should panic ... ok
+test dex_usd_repricing::test_quoted_reflector_accepted_as_scaled_factor_matching_its_base ... ok
+test immediate::guardian_creates_hub_and_spoke_immediately ... ok
+test dex_usd_repricing::test_scaled_source_rejected_when_quote_key_has_no_oracle - should panic ... ok
+test permissionless_execution::a_named_executor_needs_its_signature_and_role ... ok
+test permissionless_execution::anyone_executes_a_ready_operation_with_no_signature ... ok
+test immediate::owner_revokes_role_immediately ... ok
+test immediate::sanity_band_may_only_tighten_on_the_immediate_path ... ok
+test dex_usd_repricing::test_scaled_factor_rejected_when_quote_is_not_the_factor_base - should panic ... ok
+test immediate::sanity_band_input_and_role_gates ... ok
+test dex_usd_repricing::test_scaled_source_rejected_when_quote_key_is_self - should panic ... ok
+test immediate::oracle_role_tightens_sanity_band_containing_price ... ok
+test immediate::non_guardian_flags_rejected ... ok
+test permissionless_execution::nobody_executes_before_the_delay_or_after_the_grace_window ... ok
+test dex_usd_repricing::test_scaled_factor_rejected_when_quote_is_a_ref - should panic ... ok
+test immediate::guardian_sets_spoke_asset_flags_immediately ... ok
+test dex_usd_repricing::test_usd_quoted_reflector_rejected_as_scaled_factor - should panic ... ok
+test timelock::non_canceller_cancel_rejected ... ok
+test redstone::test_redstone_missing_feed_id_fails_closed_at_read ... ok
+test redstone::test_redstone_source_stale_window_rejects_invalid_config - should panic ... ok
+test timelock::cancelled_operation_cannot_execute ... ok
+test redstone::test_redstone_future_timestamps_fail_closed_at_read ... ok
+test timelock::non_executor_execute_rejected ... ok
+test timelock::non_proposer_propose_rejected ... ok
+test redstone::test_redstone_stale_package_timestamp_fails_closed_at_read ... ok
+test timelock::operation_state_transitions_unset_waiting_ready_unset ... ok
+test timelock::operation_cannot_execute_before_the_delay_elapses ... ok
+test spoke::test_spoke_rejects_threshold_lte_ltv ... ok
+test redstone::test_redstone_stale_write_timestamp_fails_closed_at_read ... ok
+test spoke::test_spoke_accepts_spoke_caps_without_hub_coupling ... ok
+test spoke::test_spoke_accepts_valid_asset_bounds ... ok
+test immediate::sanity_band_not_containing_price_fails_closed_at_read ... ok
+test spoke::test_spoke_add_asset_via_gov_forwarder ... ok
+test timelock::propose_transfer_controller_ownership_rejects_non_contract_owner ... ok
+test timelock::propose_update_delay_requires_proposer ... ok
+test timelock::same_params_distinct_salts_schedule_independently ... ok
+test tolerance::test_tolerance_config_accepts_valid_bounds ... ok
+test tolerance::test_tolerance_config_rejects_above_max ... ok
+test timelock::resolve_oracle_tolerance_view_matches_scheduled_and_executes ... ok
+test timelock::resolve_market_oracle_view_matches_scheduled_and_executes ... ok
+test tolerance::test_tolerance_config_rejects_below_min ... ok
+test validation_admin::test_configure_market_oracle_rejects_bad_reflector_decimals - should panic ... ok
+test validation_admin::test_configure_market_oracle_rejects_bad_reflector_resolution - should panic ... ok
+test validation_admin::test_configure_market_oracle_rejects_high_staleness - should panic ... ok
+test validation_admin::test_configure_market_oracle_defers_missing_twap_history_to_read_time ... ok
+test validation_admin::test_configure_market_oracle_rejects_identical_sources - should panic ... ok
+test validation_admin::test_configure_market_oracle_rejects_excessive_twap_records - should panic ... ok
+test validation_admin::test_configure_market_oracle_rejects_low_staleness - should panic ... ok
+test validation_admin::test_configure_market_oracle_rejects_max_sanity_above_cap - should panic ... ok
+test validation_admin::test_configure_market_oracle_rejects_min_ge_max_sanity - should panic ... ok
+test validation_admin::test_configure_market_oracle_rejects_non_usd_base - should panic ... ok
+test validation_admin::test_configure_market_oracle_rejects_same_redstone_feed_distinct_max_stale - should panic ... ok
+test validation_admin::test_configure_market_oracle_rejects_zero_min_sanity - should panic ... ok
+test validation_admin::test_configure_market_oracle_rejects_three_sources - should panic ... ok
+test validation_admin::test_edit_asset_in_spoke_accepts_high_bonus_low_threshold ... ok
+test validation_admin::test_edit_asset_in_spoke_rejects_excessive_liq_bonus - should panic ... ok
+test validation_admin::test_configure_market_oracle_rejects_zero_sources - should panic ... ok
+test validation_admin::test_validate_irm_rejects_optimal_at_or_above_ray - should panic ... ok
+test validation_admin::test_validate_irm_rejects_reserve_factor_at_bps - should panic ... ok
+test validation_admin::test_validate_irm_rejects_negative_base_rate - should panic ... ok
+test validation_admin::test_validate_irm_rejects_optimal_not_above_mid - should panic ... ok
+test validation_admin::test_validate_irm_rejects_zero_mid_utilization - should panic ... ok
+
+test result: ok. 76 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 33.15s
+
+     Running tests/meta/main.rs (target/debug/deps/meta-fc672d01a1de7bd9)
+
+running 47 tests
+test budget_breakdown::budget_withdraw_one_asset_no_debt ... ok
+test budget_breakdown::budget_supply_baseline ... ok
+test account_ttl_regression::test_one_sided_activity_renews_both_side_ttls ... ok
+test chaos_simulation::test_chaos_price_oscillation_no_wrongful_liquidation ... ok
+test budget_breakdown::budget_withdraw_with_debt_hf_check ... ok
+test budget_breakdown::budget_borrow_baseline ... ok
+test chaos_simulation::test_chaos_sustained_high_utilization ... ok
+test chaos_simulation::test_chaos_bank_run_full_exit ... ok
+test budget_breakdown::budget_swap_collateral_full ... ok
+test bench_liquidate_max_positions::test_scenario_covers_every_configured_leg ... ok
+test chaos_simulation::test_chaos_keeper_revenue_lifecycle ... ok
+test chaos_simulation::test_chaos_multi_market_accounting ... ok
+test bench_liquidate_max_positions::liquidate_5_supply_5_borrow_completes_without_logic_panic ... ok
+test budget_breakdown::budget_withdraw_5_collateral_double_pass ... ok
+test economic_attacks::test_donation_attack_does_not_inflate_share_price ... ok
+test economic_attacks::test_first_supplier_cannot_dilute_followers ... ok
+test chaos_simulation::test_chaos_multi_user_seeded_operation_sequence ... ok
+test economic_attacks::test_partial_liquidation_chain_converges ... ok
+test invariant::test_borrow_index_monotonically_increasing ... ok
+test invariant::test_full_lifecycle_supply_borrow_repay_withdraw ... ok
+test invariant::test_hf_below_one_required_for_liquidation ... ok
+test lifecycle_regression::test_create_liquidity_pool_rejects_asset_id_mismatch ... ok
+test invariant::test_hf_above_one_after_every_withdraw ... ok
+test invariant::test_ltv_less_than_threshold_always ... ok
+test invariant::test_hf_above_one_after_every_borrow ... ok
+test invariant::test_supply_index_monotonically_increasing ... ok
+test admin_instance_ttl_regression::admin_entrypoints_renew_the_controller_instance_ttl ... ok
+test mem_attribution::mem_attribution_client_new_is_free ... ok
+test invariant::test_total_supply_matches_pool_balance ... ok
+test invariant::test_position_limits_enforced ... ok
+test repro_live_supply::repro_supply_at_wall_clock_timestamp ... ok
+test reentrancy_matrix::delegate_and_renew_verbs_stay_reachable_under_flash_loan_ongoing ... ok
+test reentrancy_matrix::test_all_state_changing_entries_reject_under_flash_loan_ongoing ... ok
+test utils::test_borrow_exceeds_ltv_fails ... ok
+test stress_simulation::test_interest_accrual_consistency ... ok
+test utils::test_health_factor_no_debt_is_max ... ok
+test stress_simulation::test_full_exit_solvency ... ok
+test utils::test_health_factor_changes_with_price ... ok
+test stress_simulation::test_cascading_liquidations_stability ... ok
+test stress_simulation::test_position_limit_exactly_at_cap ... ok
+test utils::test_pool_borrow_rate_increases_with_borrows ... ok
+test utils::test_total_debt_zero_after_full_repay ... ok
+test utils::test_validate_healthy_fails ... ok
+test utils::test_validate_healthy_passes ... ok
+test stress_simulation::test_multi_user_lending_cycle ... ok
+test stress_simulation::test_keeper_index_freshness_matters ... ok
+test footprint_test::footprints_fit_mainnet_limits ... ok
+
+test result: ok. 47 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 35.45s
+
+     Running tests/oracle/main.rs (target/debug/deps/oracle-037d3d4b7d685a07)
+
+running 93 tests
+test redstone::test_redstone_anchor_outside_tolerance_marks_view_deviation ... ok
+test redstone::test_redstone_anchor_uses_source_specific_stale_window ... ok
+test future_skew_live_path::future_dated_anchor_does_not_degrade_to_a_single_leg ... ok
+test redstone::test_redstone_single_source_market_works ... ok
+test redstone::test_reflector_primary_redstone_anchor_market_works ... ok
+test redstone::test_redstone_anchor_read_failure_marks_view_invalid ... ok
+test future_skew_live_path::one_second_past_future_skew_fails_closed_on_the_live_path - should panic ... ok
+test redstone::test_redstone_runtime_missing_price_panics_with_invalid_ticker - should panic ... ok
+test future_skew_live_path::future_skew_boundary_is_accepted_on_the_live_path ... ok
+test dex_usd_repricing::test_scaled_config_write_rejects_quote_key_broken_during_delay - should panic ... ok
+test dex_usd_repricing::test_scaled_read_fails_closed_when_quote_key_loses_its_oracle ... ok
+test dex_usd_repricing::test_scaled_config_write_accepts_a_healthy_quote_key ... ok
+test dex_usd_repricing::test_scaled_source_repriced_through_its_quote_key ... ok
+test dex_usd_repricing::test_scaled_primary_and_usd_anchor_tolerance_evaluated_after_conversion ... ok
+test dex_usd_repricing::test_scaled_market_priced_within_default_budget ... ok
+test redstone_bulk::test_aggregate_views_fire_one_bulk_redstone_call ... ok
+test redstone_bulk::test_borrow_tx_fires_one_bulk_redstone_call ... ok
+test redstone_bulk::test_bulk_length_mismatch_falls_back_to_per_feed_reads ... ok
+test redstone_bulk::test_committed_bulk_failure_reverts_on_missing_anchor - should panic ... ok
+test redstone_bulk::test_no_debt_bulk_full_close_fires_zero_redstone_calls ... ok
+test redstone_bulk::test_bulk_failure_falls_back_to_per_feed_reads ... ok
+test redstone_bulk::test_disabled_market_panics_same_through_prefetch ... ok
+test redstone_bulk::test_no_debt_withdraw_fires_zero_redstone_calls ... ok
+test redstone_bulk::test_multiply_fires_one_bulk_redstone_call ... ok
+test redstone_bulk::test_multi_asset_supply_fires_zero_redstone_calls ... ok
+test redstone_bulk::test_prefetched_prices_resolve_to_expected_values ... ok
+test redstone_bulk::test_liquidation_fires_one_bulk_redstone_call ... ok
+test redstone_bulk::test_prefetch_skips_unlisted_asset_without_panic ... ok
+test redstone_bulk::test_redstone_primary_markets_fire_one_bulk ... ok
+test redstone_bulk::test_same_asset_supplied_and_borrowed_one_call ... ok
+test redstone_bulk::test_full_repay_fires_zero_redstone_calls ... ok
+test redstone_bulk::test_mixed_adapter_groups ... ok
+test redstone_bulk::test_shared_feed_two_assets_single_redstone_call ... ok
+test tolerance::bands::test_single_tolerance_allows_borrow ... ok
+test tolerance::bands::test_safe_price_allows_all_operations ... ok
+test redstone_bulk::test_withdraw_with_debt_uses_one_bulk_redstone_call ... ok
+test tolerance::config::test_edit_asset_in_spoke_category ... ok
+test tolerance::config::test_dual_source_prices_and_risk_gates_still_resolve ... ok
+test redstone_bulk::test_stale_payload_through_bulk_is_still_rejected ... ok
+test tolerance::bands::test_single_tolerance_allows_risk_decreasing ... ok
+test tolerance::bands::test_unsafe_price_allows_repay ... ok
+test tolerance::bands::test_unsafe_price_blocks_borrow ... ok
+test tolerance::bands::test_unsafe_price_allows_supply ... ok
+test tolerance::bands::test_unsafe_price_blocks_liquidation ... ok
+test tolerance::bands::test_unsafe_price_blocks_borrow_debt_asset ... ok
+test tolerance::bands::withdraw_succeeds_under_oracle_deviation_when_no_debt ... ok
+test tolerance::bands::test_unsafe_price_blocks_withdraw_with_borrows ... ok
+test redstone_bulk::test_two_adapters_bulk_once_each ... ok
+test tolerance::config::test_set_accumulator ... ok
+test tolerance::config::test_tolerance_config_rejects_non_reciprocal_lower ... ok
+test tolerance::config::test_tolerance_config_valid_update ... ok
+test tolerance::dual_source::test_exchange_source_safe_only ... ok
+test tolerance::dual_source::test_liquidation_blocked_under_flash_crash ... ok
+test tolerance::dual_source::test_sanity_bound_blocks_price_above_ceiling ... ok
+test tolerance::dual_source::test_sanity_bound_blocks_price_below_floor ... ok
+test tolerance::dual_source::test_mixed_tolerance_states ... ok
+test tolerance::dual_source::test_sanity_bound_tampered_zero_state_rejected_at_runtime ... ok
+test tolerance::edge::test_safe_price_below_aggregator_blocks_borrow ... ok
+test tolerance::dual_source::test_liquidation_collateral_extraction_via_averaging ... ok
+test tolerance::edge::test_tolerance_at_exact_upper_boundary ... ok
+test tolerance::dual_source::test_single_tolerance_uses_midpoint_price ... ok
+test tolerance::edge::test_tolerance_inside_single_band ... ok
+test tolerance::edge::test_tolerance_lower_boundary_accepts_at_edge_and_rejects_one_bp_below ... ok
+test tolerance::edge::test_tolerance_rejects_one_bp_above_the_upper_boundary ... ok
+test tolerance::staleness::test_dual_oracle_future_dex_reverts ... ok
+test tolerance::staleness::test_missing_twap_history_allows_permissive_supply_fallback ... ok
+test tolerance::staleness::test_missing_twap_history_blocks_strict_borrow ... ok
+test twap::configure_rejects_twap_window_larger_than_max_stale - should panic ... ok
+test twap::configure_defers_nonpositive_live_reflector_price_to_read_time ... ok
+test tolerance::staleness::test_primary_anchor_stale_anchor_blocks_strict_borrow ... ok
+test twap::configure_twap_defers_out_of_band_mean_to_read_time ... ok
+test tolerance::staleness::test_stale_price_blocks_borrow ... ok
+test tolerance::staleness::test_stale_price_allows_supply_without_price_read ... ok
+test tolerance::staleness::test_stale_price_blocks_withdraw_with_borrows ... ok
+test twap::test_dual_anchor_missing_spot_marks_view_invalid ... ok
+test twap::test_clustered_adjacent_twap_sample_blocks_strict_borrow ... ok
+test twap::test_duplicate_timestamp_twap_blocks_strict_borrow ... ok
+test twap::test_empty_twap_history_blocks_strict_borrow ... ok
+test twap::test_exact_minimum_twap_history_is_accepted ... ok
+test twap::test_insufficient_span_twap_blocks_strict_borrow ... ok
+test twap::test_insufficient_twap_history_blocks_strict_borrow ... ok
+test twap::test_reflector_spot_missing_lastprice_panics_under_strict - should panic ... ok
+test xoxno::test_real_adapter_single_source_market_end_to_end ... ok
+test twap::test_spot_with_cents_price_supplies_cleanly ... ok
+test twap::test_twap_records_above_max_rejects_on_view - should panic ... ok
+test xoxno::test_reflector_primary_xoxno_anchor_market_works ... ok
+test xoxno::test_xoxno_listing_accepts_a_declared_non_default_adapter_width ... ok
+test twap::test_twap_degradation_on_view_reports_unusable ... ok
+test twap::test_twap_invalid_price_blocks_strict_borrow ... ok
+test twap::test_twap_zero_records_reverts_on_view - should panic ... ok
+test twap::test_twap_stale_history_blocks_strict_borrow ... ok
+test xoxno::test_xoxno_listing_rejects_a_width_the_adapter_contradicts - should panic ... ok
+test xoxno::test_xoxno_single_source_market_works ... ok
+
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 56.26s
+
+     Running tests/poc_multiply_reentrancy.rs (target/debug/deps/poc_multiply_reentrancy-3a0d644a4dcd1fa4)
+
+running 1 test
+test poc_multiply_initial_payment_reentrancy_duplicates_collateral ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.30s
+
+     Running tests/pool/main.rs (target/debug/deps/pool-e6ea2fc6b6344e8b)
+
+running 58 tests
+test interest::test_interest_zero_when_no_borrows ... ok
+test interest_rigorous::test_borrow_index_matches_compound_formula ... ok
+test interest::test_advance_time_without_sync_stale ... ok
+test interest::test_interest_accrues_on_borrow ... ok
+test interest_rigorous::test_interest_accounting_identity ... ok
+test interest_rigorous::test_multiple_suppliers_share_proportionally ... ok
+test interest::test_advance_and_sync_specific_markets ... ok
+test interest::test_reserve_factor_splits_interest ... ok
+test math_rates::test_borrow_index_update ... ok
+test math_rates::test_borrow_rate_at_mid_utilization ... ok
+test math_rates::test_borrow_rate_at_optimal_utilization ... ok
+test math_rates::test_borrow_rate_capped_at_max ... ok
+test math_rates::test_borrow_rate_full_utilization ... ok
+test math_rates::test_borrow_rate_zero_utilization ... ok
+test math_rates::test_compound_interest_one_year ... ok
+test math_rates::test_compound_interest_small_rate ... ok
+test math_rates::test_compound_interest_zero_delta ... ok
+test math_rates::test_deposit_rate_with_reserve_factor ... ok
+test math_rates::test_deposit_rate_zero_utilization ... ok
+test math_rates::test_div_by_int_half_up ... ok
+test math_rates::test_div_half_up_exact ... ok
+test math_rates::test_div_half_up_rounds_up ... ok
+test math_rates::test_mul_div_half_up_precision_boundary ... ok
+test interest::test_interest_rate_increases_with_utilization ... ok
+test math_rates::test_rescale_downscale_half_up ... ok
+test math_rates::test_mul_div_half_up_zero ... ok
+test math_rates::test_rescale_same_decimals ... ok
+test math_rates::test_rescale_upscale ... ok
+test math_rates::test_scaled_to_original_basic ... ok
+test math_rates::test_supply_index_update_with_rewards ... ok
+test math_rates::test_supplier_rewards_split ... ok
+test math_rates::test_utilization_over_one ... ok
+test math_rates::test_supply_index_update_zero_rewards ... ok
+test math_rates::test_utilization_zero_supply ... ok
+test math_rates::test_wad_min_max ... ok
+test interest_rigorous::test_interest_grows_with_time_checkpoints ... ok
+test interest::test_compound_interest_over_multiple_periods ... ok
+test interest::test_interest_accrues_on_supply ... ok
+test interest_rigorous::test_index_values_accessible_and_rational ... ok
+test interest_rigorous::test_supply_index_unchanged_without_borrows ... ok
+test interest_rigorous::test_pool_solvency_invariant ... ok
+test pool_coverage::test_pool_claim_revenue_burns_supplied_ray_coverage ... ok
+test interest_rigorous::test_scaled_amount_times_index_equals_actual ... ok
+test interest_rigorous::test_reserve_factor_exact_split ... ok
+test pool_coverage::test_pool_claim_revenue_proportional_burn_when_reserves_low ... ok
+test interest_rigorous::test_supply_index_reflects_interest_minus_reserve_factor ... ok
+test pool_revenue_edge::test_claim_revenue_blocked_when_post_state_insolvent ... ok
+test interest_rigorous::test_rate_curve_three_regions ... ok
+test revenue::test_claim_revenue_after_interest ... ok
+test pool_revenue_edge::test_claim_revenue_else_branch_when_reserves_fully_drained ... ok
+test revenue::test_claim_revenue_after_liquidation ... ok
+test revenue::test_claim_revenue_zero_when_no_activity ... ok
+test revenue::test_permissionless_revenue_endpoints ... ok
+test revenue::test_claim_revenue_routes_through_controller_to_accumulator ... ok
+test accrual_partition_bound::partition_spread_at_low_utilization_is_within_the_taylor_tail ... ok
+test accrual_partition_bound::partition_spread_is_utilization_drift_not_series_truncation ... ok
+test interest_rigorous::test_single_vs_multi_sync_taylor_accuracy ... ok
+test accrual_partition_bound::finer_accrual_partitions_never_lower_the_borrow_index ... ok
+
+test result: ok. 58 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 29.99s
+
+     Running tests/smoke_test.rs (target/debug/deps/smoke_test-40b512acc82f8ff1)
+
+running 8 tests
+test test_supply_creates_position ... ok
+test test_multiply_smoke_creates_leveraged_position ... ok
+test test_supply_and_borrow ... ok
+test test_withdraw_and_repay ... ok
+test test_interest_accrues ... ok
+test test_liquidation_after_price_drop ... ok
+test test_revenue_accrues_over_time ... ok
+test test_spoke_higher_ltv ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.97s
+
+     Running tests/strategy/main.rs (target/debug/deps/strategy-13c46009e6087ed1)
+
+running 191 tests
+test adversarial::test_multiply_fee_on_transfer_debt_fails_closed ... ok
+test adversarial::test_migrate_blend_submit_hook_cannot_reenter ... ok
+test adversarial::test_multiply_transfer_hook_on_debt_cannot_reenter ... ok
+test adversarial::test_multiply_router_panic_rolls_back ... ok
+test adversarial::test_multiply_router_reenter_flash_loan_rejects ... ok
+test adversarial::test_multiply_router_reenter_supply_rejects ... ok
+test adversarial::test_swap_collateral_transfer_hook_cannot_reenter ... ok
+test adversarial::test_multiply_router_reenter_borrow_rejects ... ok
+test adversarial::test_multiply_extra_credit_is_not_pool_theft ... ok
+test adversarial::test_multiply_wrong_owner_cannot_use_reentering_router ... ok
+test adversarial::test_multiply_fee_on_transfer_collateral_credits_net_or_fails ... ok
+test adversarial::test_swap_debt_empty_payload_still_rejects_under_reentering_router ... ok
+test adversarial::test_swap_debt_router_reenter_supply_rejects ... ok
+test adversarial::test_swap_collateral_router_reenter_supply_rejects ... ok
+test adversarial::test_strategy_entries_still_blocked_by_flag ... ok
+test adversarial::test_rdwc_router_reenter_supply_rejects ... ok
+test core::test_multiply_rejects_during_flash_loan ... ok
+test core::test_multiply_rejects_non_borrowable_debt ... ok
+test core::test_multiply_rejects_non_collateralizable ... ok
+test core::test_multiply_rejects_frozen_collateral ... ok
+test edge::multiply::test_multiply_existing_account_not_found ... ok
+test cross_hub_same_asset_loop::borrowing_usdc_on_hub_two_against_usdc_on_hub_one_keeps_both_books_straight ... ok
+test adversarial::test_swap_debt_same_asset_rejected_before_router ... ok
+test edge::multiply::test_multiply_missing_owner_auth_rejects_before_validation ... ok
+test edge::multiply::test_multiply_existing_account_wrong_owner ... ok
+test edge::multiply::test_multiply_rejects_normal_mode ... ok
+test edge::multiply::test_multiply_rejects_when_paused ... ok
+test edge::multiply::test_multiply_rejects_unlisted_third_token_payment_before_transfer ... ok
+test edge::multiply::test_multiply_preserves_existing_collateral_balance ... ok
+test edge::multiply::test_multiply_rejects_third_token_payment_without_convert ... ok
+test edge::multiply::test_multiply_rejects_new_collateral_when_supply_limit_reached ... ok
+test edge::multiply::test_multiply_respects_borrow_position_limit ... ok
+test edge::multiply::test_multiply_with_debt_token_initial_payment ... ok
+test edge::rejections::test_multiply_same_asset_is_caught ... ok
+test edge::pause_bypass::test_liquidation_of_paused_debt_reverts ... ok
+test edge::pause_bypass::test_liquidation_of_paused_collateral_is_allowed_but_no_seize_blocks_it ... ok
+test edge::rejections::test_multiply_zero_debt_amount ... ok
+test edge::pause_bypass::test_swap_collateral_paused_collateral_reverts ... ok
+test edge::pause_bypass::test_repay_debt_with_collateral_paused_debt_reverts ... ok
+test edge::multiply::test_multiply_reuses_spoke_account_with_zero_category ... ok
+test edge::rejections::test_repay_debt_with_collateral_close_position_removes_account ... ok
+test edge::multiply::test_multiply_spoke_wrong_category_debt ... ok
+test edge::multiply::test_multiply_spoke_wrong_category_collateral ... ok
+test edge::rejections::test_repay_debt_with_collateral_health_factor_guard ... ok
+test edge::rejections::test_repay_debt_with_collateral_nonexistent_account ... ok
+test edge::rejections::test_repay_debt_with_collateral_non_same_token_empty_swap_rejects ... ok
+test edge::pause_bypass::test_close_position_paused_residual_collateral_reverts ... ok
+test edge::rejections::test_repay_debt_with_collateral_refund_only_uses_repay_excess ... ok
+test edge::rejections::test_repay_debt_with_collateral_rejects_zero_and_negative_collateral_amount ... ok
+test edge::rejections::test_repay_debt_with_collateral_removes_empty_account_without_close ... ok
+test edge::rejections::test_strategy_empty_swap_payload_multiply ... ok
+test edge::rejections::test_repay_debt_with_collateral_wrong_account_owner ... ok
+test edge::rejections::test_repay_debt_with_collateral_same_token_nets_positions ... ok
+test edge::rejections::test_repay_debt_with_collateral_same_token_empty_swap_succeeds ... ok
+test edge::rejections::test_swap_collateral_no_borrows_skip_hf ... ok
+test edge::rejections::test_swap_collateral_same_token_error_code ... ok
+test edge::rejections::test_swap_collateral_wrong_account_owner ... ok
+test edge::rejections::test_strategy_entrypoints_reject_missing_owner_auth ... ok
+test edge::rejections::test_swap_collateral_zero_amount ... ok
+test edge::rejections::test_swap_debt_same_token_error_code ... ok
+test edge::rejections::test_swap_collateral_spoke_wrong_category ... ok
+test edge::rejections::test_swap_debt_wrong_account_owner ... ok
+test edge::rejections::test_swap_collateral_full_close_frees_slot_at_max_positions ... ok
+test edge::rejections::test_swap_collateral_rejects_new_asset_when_supply_limit_reached ... ok
+test edge::swap::test_swap_collateral_merges_existing_destination_and_removes_source ... ok
+test edge::rejections::test_swap_debt_zero_amount ... ok
+test edge::swap::test_swap_collateral_applies_spoke_params_to_destination_position ... ok
+test edge::swap::test_swap_collateral_rejects_during_flash_loan ... ok
+test edge::swap::test_swap_collateral_rejects_when_paused ... ok
+test edge::swap::test_swap_collateral_non_collateralizable ... ok
+test edge::swap::test_swap_collateral_rejects_frozen_destination ... ok
+test edge::swap::test_swap_debt_closes_existing_debt_even_if_existing_asset_disabled ... ok
+test edge::swap::test_swap_debt_empty_swap_payload_rolls_back_new_debt ... ok
+test edge::swap::test_swap_debt_health_factor_guard_after_swap ... ok
+test edge::swap::test_swap_debt_non_borrowable_new_debt ... ok
+test edge::swap::test_swap_debt_refund_only_uses_strategy_excess ... ok
+test edge::swap::test_swap_debt_rejects_during_flash_loan ... ok
+test edge::swap::test_swap_debt_rejects_when_paused ... ok
+test extreme_amount_inputs::multiply_with_i128_max_debt_fails_on_liquidity ... ok
+test edge::swap::test_swap_debt_spoke_wrong_category ... ok
+test flash_position::test_flash_position_callback_panic_rolls_back ... ok
+test flash_position::test_flash_position_dust_collateral_fails_solvency ... ok
+test extreme_amount_inputs::repay_debt_with_collateral_with_i128_max_collateral_means_all_and_refunds_the_excess ... ok
+test extreme_amount_inputs::swap_collateral_with_i128_max_amount_means_all ... ok
+test flash_position::test_flash_position_extends_existing_account ... ok
+test flash_position::test_flash_position_keep_funds_on_existing_healthy_account_leaves_debt ... ok
+test flash_position::test_flash_position_mixed_zero_and_positive_min_succeeds ... ok
+test flash_position::test_flash_position_reenter_supply_rejects ... ok
+test flash_position::test_flash_position_pushing_debt_back_does_not_repay ... ok
+test flash_position::test_flash_position_opens_healthy_account_without_fee ... ok
+test flash_position::test_flash_position_refuses_a_market_with_flash_loans_disabled ... ok
+test flash_position::test_flash_position_refunds_undeclared_push ... ok
+test flash_position::test_flash_position_rejects_all_zero_mins ... ok
+test flash_position::test_flash_position_rejects_below_minimum ... ok
+test flash_position::test_flash_position_rejects_controller_receiver ... ok
+test flash_position::test_flash_position_rejects_duplicate_collateral ... ok
+test flash_position::test_flash_position_rejects_duplicate_refund_assets ... ok
+test flash_position::test_flash_position_rejects_during_flash_loan ... ok
+test flash_position::test_flash_position_rejects_empty_collaterals ... ok
+test flash_position::test_flash_position_rejects_frozen_collateral ... ok
+test flash_position::test_flash_position_rejects_keep_funds ... ok
+test flash_position::test_flash_position_rejects_mode_mismatch ... ok
+test flash_position::test_flash_position_rejects_non_borrowable_debt ... ok
+test flash_position::test_flash_position_rejects_non_contract_receiver ... ok
+test flash_position::test_flash_position_rejects_non_collateralizable ... ok
+test flash_position::test_flash_position_rejects_paused_collateral_before_callback ... ok
+test flash_position::test_flash_position_rejects_paused_debt ... ok
+test flash_position::test_flash_position_rejects_non_owner ... ok
+test flash_position::test_flash_position_rejects_pool_receiver ... ok
+test flash_position::test_flash_position_rejects_refund_overlap ... ok
+test flash_position::test_flash_position_rejects_spoke_mismatch ... ok
+test flash_position::test_flash_position_rejects_when_paused ... ok
+test flash_position::test_flash_position_rejects_zero_amount ... ok
+test flash_position::test_flash_position_returning_debt_token_does_not_repay ... ok
+test flash_position::test_flash_position_same_asset_loop ... ok
+test flash_position_adversarial::test_flash_position_extra_credit_is_measured_not_pool_theft ... ok
+test flash_position_adversarial::test_flash_position_fee_on_transfer_collateral_credits_net ... ok
+test flash_position_adversarial::test_flash_position_fee_on_transfer_collateral_misses_min ... ok
+test flash_position_adversarial::test_flash_position_reenter_borrow_rejects ... ok
+test flash_position_adversarial::test_flash_position_fee_on_transfer_debt_fails_closed ... ok
+test flash_position_adversarial::test_flash_position_reenter_flash_loan_rejects ... ok
+test flash_position_adversarial::test_flash_position_reenter_flash_position_rejects ... ok
+test flash_position_adversarial::test_flash_position_reenter_repay_rejects ... ok
+test flash_position_adversarial::test_flash_position_rejects_unlisted_refund_asset ... ok
+test flash_position_adversarial::test_flash_position_reenter_withdraw_rejects ... ok
+test flash_position_callback_ownership_transfer::a_self_owned_receiver_can_hand_the_account_away_mid_callback_and_finalize_still_gates ... ok
+test flash_position_adversarial::test_flash_position_transfer_hook_cannot_reenter ... ok
+test flash_position_mode_and_asset_edges::a_market_with_flash_loans_disabled_refuses_flash_position_but_not_multiply ... ok
+test flash_position_mode_and_asset_edges::a_normal_mode_flash_position_is_rejected ... ok
+test flash_position_mode_and_asset_edges::declaring_the_debt_asset_as_the_only_collateral_fails_the_solvency_gate ... ok
+test flash_position_mode_and_asset_edges::declaring_the_debt_asset_alongside_real_collateral_is_a_plain_leveraged_open ... ok
+test happy::test_multiply_large_amounts ... ok
+test happy::test_multiply_creates_leveraged_position ... ok
+test happy::test_multiply_mode_long ... ok
+test happy::test_multiply_mode_short ... ok
+test happy::test_multiply_two_users ... ok
+test happy::test_multiply_spoke_stablecoin ... ok
+test happy::test_multiply_wbtc_collateral ... ok
+test happy::test_repay_debt_with_collateral_reduces_positions ... ok
+test happy::test_repay_debt_with_collateral_same_token_leaves_excess_as_supply ... ok
+test happy::test_repay_debt_with_collateral_same_token_refreshes_risk_params ... ok
+test happy::test_same_token_net_settle_reduces_both_position_sides ... ok
+test happy::test_repay_debt_with_collateral_same_token_succeeds_at_zero_cash ... ok
+test happy::test_swap_collateral_no_borrows ... ok
+test happy::test_swap_collateral_replaces_supply ... ok
+test happy::test_swap_debt_partial ... ok
+test migrate_blend::test_migrate_collateral_only ... ok
+test migrate_blend::test_migrate_ignores_listed_asset_with_zero_blend_balance ... ok
+test migrate_blend::test_migrate_debt_and_collateral ... ok
+test happy::test_swap_debt_replaces_borrow ... ok
+test migrate_blend::test_migrate_duplicate_debt_rejected ... ok
+test migrate_blend::test_migrate_empty_params_rejected ... ok
+test migrate_blend::test_migrate_debt_cap_too_low_reverts ... ok
+test happy::test_swap_debt_to_costlier_debt_preserves_minimum_hf ... ok
+test migrate_blend::test_migrate_debt_cap_exact_no_refund ... ok
+test migrate_blend::test_migrate_into_existing_account ... ok
+test migrate_blend::test_migrate_same_asset_loop ... ok
+test migrate_blend::test_migrate_multi_debt_refund_reconciles_each ... ok
+test migrate_blend::test_migrate_refund_ignores_preexisting_controller_balance ... ok
+test migrate_blend::test_migrate_rejects_priced_but_unlisted_withdraw_asset_before_blend ... ok
+test flash_position_mode_and_asset_edges::the_three_strategy_modes_are_all_accepted ... ok
+test migrate_blend::test_migrate_unapproved_blend_pool_reverts ... ok
+test migrate_blend::test_migrate_supply_only ... ok
+test migrate_blend::test_migrate_unlisted_withdraw_asset_rejected_before_token_call ... ok
+test migrate_blend::test_migrate_unhealthy_end_state_reverts ... ok
+test migrate_blend::test_migrate_zero_blend_liability_cap_nets_zero_debt ... ok
+test router::test_multiply_existing_account_mode_mismatch_rejects ... ok
+test router::test_borrow_at_cap_then_step_over_rejected ... ok
+test router::test_multiply_reusing_account_wrong_owner_rejects ... ok
+test router::test_multiply_at_utilization_cap_then_step_over_rejected ... ok
+test router::test_multiply_with_collateral_token_initial_payment ... ok
+test router::test_multiply_third_token_payment_without_convert_steps_rejects ... ok
+test router::test_repay_debt_with_collateral_close_with_remaining_debt_rejects ... ok
+test router::test_multiply_with_third_token_initial_payment_swaps_via_convert_steps ... ok
+test router::test_repay_debt_with_collateral_refunds_router_underspend_to_caller ... ok
+test router::test_repay_debt_with_collateral_missing_collateral_rejects ... ok
+test router::test_repay_debt_with_collateral_missing_debt_rejects ... ok
+test router::test_repay_without_excess_skips_zero_value_refund ... ok
+test router::test_router_pull_uses_controller_self_authorization ... ok
+test router::test_sanity_bound_ceiling_exact_accept_then_one_over_reject ... ok
+test router::test_sanity_bound_floor_exact_accept_then_one_under_reject ... ok
+test router::test_strategy_multiply_unsupported_category ... ok
+test router::test_swap_collateral_position_missing_rejects ... ok
+test router::test_swap_collateral_refunds_router_underspend_to_caller ... ok
+test router::test_swap_tokens_allowance_remains_zero_after_overpull_rejection ... ok
+test router::test_swap_tokens_allowance_zero_after_successful_multiply ... ok
+test router::test_swap_debt_existing_position_missing_rejects ... ok
+test router::test_swap_tokens_handles_zero_output_from_router ... ok
+test router::test_swap_tokens_panics_when_router_refunds_token_in ... ok
+test router::test_swap_tokens_rejects_router_pulling_more_than_allowance ... ok
+test router::test_swap_tokens_refunds_router_underspend ... ok
+
+test result: ok. 191 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 114.29s
+
+     Running tests/strategy_origination_fee_parity.rs (target/debug/deps/strategy_origination_fee_parity-eda33c81615ac239)
+
+running 1 test
+test flash_position_substitutes_multiply_without_origination_fee ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.26s
+
+     Running tests/strategy_solvency_gate_rollback.rs (target/debug/deps/strategy_solvency_gate_rollback-d6dc5ab630eb8cc0)
+
+running 1 test
+test solvency_gate_failure_reverts_every_token_transfer ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.69s
+
+     Running tests/zz_storage_sizing.rs (target/debug/deps/zz_storage_sizing-599793126463d67d)
+
+running 1 test
+test print_storage_sizes ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+

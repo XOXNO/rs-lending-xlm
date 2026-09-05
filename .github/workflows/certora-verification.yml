@@ -171,8 +171,8 @@ jobs:
         run: |
           # One row per job. The ledger in certora/README.md is filled from these.
           # With --wait_for_results ALL the log carries a real verdict. A row
-          # that still says "none" means the CLI did not wait: treat the job as
-          # unproved, not as passing.
+          # that still says "none" means the CLI did not wait: the step records
+          # the row and then fails, so an unproved job can never stay green.
           # SANITY_FAILED wins over the assertion verdict: a vacuous rule still
           # prints "Verified: <rule>-Assertions". Then anchor on the rule's own
           # "-Assertions" sub-rule, because the "-rule_not_vacuous_tac" sub-rule
@@ -192,3 +192,7 @@ jobs:
             echo "|---|---|---|---|---|"
             echo "| ${{ matrix.conf }} | ${{ matrix.rule || 'all' }} | ${{ steps.prove.outcome }} | ${verdict:-none} | ${url:-none} |"
           } >> "$GITHUB_STEP_SUMMARY"
+          if [ -z "$verdict" ]; then
+            echo "::error::no prover verdict found in prover.log for ${{ matrix.conf }} (${{ matrix.rule || 'all' }}); the job is unproved, not passing"
+            exit 1
+          fi
