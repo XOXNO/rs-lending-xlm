@@ -1,0 +1,16 @@
+{
+  "kind": "controller",
+  "op_id": "d3dd5fc016d9502d376b0036bfaf604a9b0304a43952cb471015fe7be1762b89",
+  "network": "mainnet",
+  "target": "CAUCMIN5KSXEVZ7NMXR3LZATGD5EFIEUI5XWTFLYRO2R5OTXI22WE5JX",
+  "function": "upgrade_position_nft",
+  "args": [
+    {
+      "bytes": "b93a6e6cf89bea479f87fbc0781d3058257e001a2fe041b5b1ee00e4b919243c"
+    }
+  ],
+  "predecessor": "0000000000000000000000000000000000000000000000000000000000000000",
+  "salt": "df3c703a0912cecefd7b54b9d11d3d8b381bf2640d4b004b17d953d49c88969c",
+  "cli_executable": true,
+  "executed": true
+}
