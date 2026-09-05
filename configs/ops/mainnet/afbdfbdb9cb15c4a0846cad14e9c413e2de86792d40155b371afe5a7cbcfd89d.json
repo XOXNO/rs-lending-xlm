@@ -1,0 +1,16 @@
+{
+  "kind": "controller",
+  "op_id": "afbdfbdb9cb15c4a0846cad14e9c413e2de86792d40155b371afe5a7cbcfd89d",
+  "network": "mainnet",
+  "target": "CAUCMIN5KSXEVZ7NMXR3LZATGD5EFIEUI5XWTFLYRO2R5OTXI22WE5JX",
+  "function": "upgrade",
+  "args": [
+    {
+      "bytes": "03a8630ff42439b7484d7cf4971e3311504a79a98db9b88c81ab0efe748f8fe3"
+    }
+  ],
+  "predecessor": "0000000000000000000000000000000000000000000000000000000000000000",
+  "salt": "1a9783c676449d05b66422628ecc6ec741cca0261e8a42c9c39ef6c0a4fd98aa",
+  "cli_executable": true,
+  "executed": true
+}
