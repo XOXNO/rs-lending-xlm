@@ -203,6 +203,13 @@ fn test_div_by_int_half_up_zero_divisor_is_typed_division_by_zero() {
 }
 
 #[test]
+#[should_panic(expected = "Error(Contract, #33)")]
+fn test_div_by_int_half_up_negative_divisor_is_typed_math_overflow() {
+    let env = Env::default();
+    let _ = div_by_int_half_up(&env, i128::MIN, -1);
+}
+
+#[test]
 fn test_mul_div_floor_saturating_saturates_toward_the_sign_of_the_quotient() {
     let env = Env::default();
     assert_eq!(
@@ -283,17 +290,57 @@ fn test_rescale_downscale_factor_larger_than_i128_saturates_to_zero() {
 }
 
 #[test]
-fn test_rescale_downscale_near_max_does_not_overflow() {
+fn test_rescale_downscale_extremes_do_not_overflow() {
     let env = Env::default();
-    let expected = i128::MAX / 10 + if i128::MAX % 10 >= 5 { 1 } else { 0 };
-    assert_eq!(rescale_half_up(&env, i128::MAX, 1, 0), expected);
+    assert_eq!(rescale_half_up(&env, i128::MAX, 1, 0), i128::MAX / 10 + 1);
+    assert_eq!(rescale_half_up(&env, i128::MIN, 1, 0), i128::MIN / 10 - 1);
+    assert_eq!(rescale_half_up(&env, i128::MAX, 38, 0), 2);
+    assert_eq!(rescale_half_up(&env, i128::MIN, 38, 0), -2);
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #33)")]
-fn test_div_by_int_half_up_addition_overflow_panics() {
+fn test_div_by_int_half_up_extremes_do_not_overflow() {
     let env = Env::default();
-    let _ = div_by_int_half_up(&env, i128::MAX, 2);
+    for (a, b, expected) in [
+        (i128::MAX, 1, i128::MAX),
+        (i128::MIN, 1, i128::MIN),
+        (i128::MAX, 2, i128::MAX / 2 + 1),
+        (i128::MIN, 2, i128::MIN / 2),
+        (i128::MIN + 1, 2, i128::MIN / 2),
+        (i128::MAX, 3, i128::MAX / 3),
+        (i128::MIN, 3, i128::MIN / 3 - 1),
+        (i128::MAX, i128::MAX, 1),
+        (i128::MIN, i128::MAX, -1),
+        (i128::MAX / 2, i128::MAX, 0),
+        (i128::MAX / 2 + 1, i128::MAX, 1),
+        (-(i128::MAX / 2), i128::MAX, 0),
+        (-(i128::MAX / 2) - 1, i128::MAX, -1),
+    ] {
+        assert_eq!(div_by_int_half_up(&env, a, b), expected, "{a} / {b}");
+    }
+}
+
+#[test]
+fn test_div_by_int_half_up_signed_rounding_boundaries() {
+    let env = Env::default();
+    for (a, b, expected) in [
+        (0, 1, 0),
+        (0, 3, 0),
+        (1, 3, 0),
+        (2, 3, 1),
+        (3, 3, 1),
+        (4, 3, 1),
+        (5, 3, 2),
+        (1, 4, 0),
+        (2, 4, 1),
+        (3, 4, 1),
+        (5, 4, 1),
+        (6, 4, 2),
+        (7, 4, 2),
+    ] {
+        assert_eq!(div_by_int_half_up(&env, a, b), expected, "{a} / {b}");
+        assert_eq!(div_by_int_half_up(&env, -a, b), -expected, "-({a}) / {b}");
+    }
 }
 
 #[test]

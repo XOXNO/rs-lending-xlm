@@ -257,8 +257,9 @@ Bounds: `MAX_BORROW_INDEX_RAY` and `MAX_SUPPLY_INDEX_RAY` at `1e36`;
 x⁸/8!`, nine terms) in `common/src/rates/compound.rs`. The divisors are a constant list;
 there is no early-exit. At `x = 2` (`max_borrow_rate` at its `2 × RAY` cap, a
 full untouched year) the series gives `7.387302` against `e² = 7.389056` — a
-**0.024% under-estimate**, never an over-estimate. Reaching it means suppressing
-all activity on a 200%-APR market for a year.
+**0.024% underestimate at this exponent**. At smaller exponents, term and rate
+rounding can instead produce a tiny overestimate. Reaching the maximum truncation
+error means suppressing all activity on a 200%-APR market for a year.
 
 ## Guards
 
@@ -269,10 +270,10 @@ inherits every guard that `borrow` runs.
 | Guard | Fires on | Not on | Error |
 | --- | --- | --- | --- |
 | `require_backed_market` | `supply` | everything else | `PoolInsolvent` (123) |
-| `require_reserves` | `borrow`, `create_strategy`, `withdraw`, `flash_loan` | — | `InsufficientLiquidity` (112) |
+| `require_reserves` | `borrow`, `create_strategy`, `withdraw`, `flash_loan`, `claim_revenue` | — | `InsufficientLiquidity` (112) |
 | `require_liquidation_buffer` | `borrow`, `create_strategy` | `withdraw`, `flash_loan` | `InsufficientLiquidity` (112) |
 | `require_utilization_below_max` | `borrow`, `create_strategy`, `withdraw` (non-liq), `claim_revenue` | `net_settle`, `seize`, liquidation | `UtilizationAboveMax` (127) |
-| `require_solvent_withdraw_state` | `withdraw`, `net_settle`, `claim_revenue` | — | `PoolInsolvent` (123) |
+| `require_supply_for_debt` | `withdraw`, `net_settle`, `claim_revenue` | — | `PoolInsolvent` (123) |
 
 `require_liquidation_buffer` reserves a flat `LIQUIDATION_BUFFER_BPS` of the
 floored supplied amount, 200 bps (2%), from

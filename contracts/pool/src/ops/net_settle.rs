@@ -44,7 +44,7 @@ pub(crate) fn apply(
     cache.burn_supply(burned_supply);
     cache.burn_debt(burned_debt);
 
-    guards::require_solvent_withdraw_state(env, &cache);
+    guards::require_supply_for_debt(env, &cache);
 
     let snapshot = cache.commit();
     let result = PoolNetSettleResult {

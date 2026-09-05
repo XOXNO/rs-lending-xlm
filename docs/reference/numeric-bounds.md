@@ -67,11 +67,11 @@ truncated at the eighth term, so a single one-year chunk at 200% APR yields
 `7.387301587…` where continuous compounding would give `e^2 = 7.389056…` — the
 truncation *under*-shoots by 0.024%, which means many small chunks (the
 liquidator- or keeper-chosen partition) grow the index marginally faster than one
-big chunk. Every dropped term is positive, so the bias is always in the same
-direction — interest is under-accrued, never over-accrued, favouring the
-borrower — and it collapses as the rate falls: the relative shortfall is
-`2.37e-4` at 200% APR, `1.13e-6` at 100%, `1.18e-12` at 20%, and `2.11e-16` at
-5%. Either way:
+big chunk. Truncation alone underestimates the exponential, with relative shortfall
+`2.37e-4` at 200% APR, `1.13e-6` at 100%, `1.18e-12` at 20%, and `5.15e-18` at
+5%. These are truncation errors, not bounds on the complete integer calculation:
+annual-to-millisecond rate conversion and term rounding can produce a tiny
+overestimate at low rates. Either way:
 
 ```
 years_to_ceiling = ln(1e9) / annual_rate = 20.7233 / r

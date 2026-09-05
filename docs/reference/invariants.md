@@ -152,13 +152,14 @@ error). VERIFIED — rules `supply_dust_amount_sanity`,
 `positive_revenue_claim_with_zero_share_burn_reverts`,
 `net_settle_pivot_never_leaves_zero_scaled_records`.
 
-### INV-ACCT-06 — Revenue claims remain solvent
+### INV-ACCT-06 — Revenue claims respect accounting bounds
 
-A revenue claim burns enough shares, respects cash and solvency limits, and
-cannot pay a positive amount while burning zero entitlement.
+A revenue claim burns enough shares, respects cash and utilization limits, and
+cannot pay a positive amount while burning zero entitlement or leave debt with
+zero total supply. These checks do not establish full market backing.
 
 **Status:** ENFORCED — `contracts/pool/src/ops/revenue.rs` calls
-`require_utilization_below_max` and `require_solvent_withdraw_state`;
+`require_utilization_below_max` and `require_supply_for_debt`;
 `contracts/pool/src/cache/shares.rs` (`burn_claimable_revenue`) caps at cash.
 VERIFIED — rules `claim_revenue_burns_equal_shares_and_cash`,
 `positive_revenue_claim_with_zero_share_burn_reverts`,
@@ -187,14 +188,14 @@ the ceiling is at or above RAY 1.0.
 `withdraw.rs`, and `revenue.rs`. VERIFIED — rules
 `borrow_respects_utilization_cap`, `user_withdraw_respects_utilization_cap`.
 
-### INV-ACCT-09 — A market never ends an operation with debt and no supply
+### INV-ACCT-09 — Exits cannot leave debt without supply
 
 No withdraw, net settlement, or revenue claim may leave a market at zero supply
 while debt is outstanding; that state has no index to write against. The
 operation reverts `PoolInsolvent` (#123).
 
 **Status:** ENFORCED — `contracts/pool/src/guards.rs`
-(`require_solvent_withdraw_state`), called from
+(`require_supply_for_debt`), called from
 `contracts/pool/src/ops/withdraw.rs`, `net_settle.rs`, and `revenue.rs`.
 VERIFIED — rule `withdraw_leaves_no_orphan_debt`.
 
@@ -461,8 +462,9 @@ its position NFT are removed in the same invocation.
 `execute_bad_debt_cleanup` and `contracts/pool/src/ops/seize.rs` (`apply`) run no
 `guards::` assertion after the writedown — unlike
 `contracts/pool/src/ops/revenue.rs`, which calls `require_utilization_below_max`
-and `require_solvent_withdraw_state`. The resulting market state is relied upon
-to be solvent, but nothing checks it at runtime.
+and `require_supply_for_debt`. Those exit guards do not establish full market
+backing either. Debt socialization can leave a backing shortfall at the supply
+index floor; supply entry checks that shortfall and recapitalization can cover it.
 
 ## Halts, caps, and storage
 

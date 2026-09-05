@@ -1,0 +1,48 @@
+[
+  {
+    "cwd": "/Users/mihaieremia/GitHub/rs-lending-xlm",
+    "argv": [
+      "cargo",
+      "test",
+      "-p",
+      "common",
+      "math::",
+      "--offline"
+    ],
+    "log": "common-math-tests.log"
+  },
+  {
+    "cwd": "/Users/mihaieremia/GitHub/rs-lending-xlm",
+    "argv": [
+      "/opt/homebrew/opt/python@3.14/bin/python3.14",
+      "/private/tmp/astra-fixed-point-probe/generate.py"
+    ],
+    "log": "generate.log"
+  },
+  {
+    "cwd": "/Users/mihaieremia/GitHub/rs-lending-xlm",
+    "argv": [
+      "rustc",
+      "--edition=2021",
+      "-C",
+      "overflow-checks=yes",
+      "-C",
+      "debug-assertions=no",
+      "/private/tmp/astra-fixed-point-probe/compiled_probe.rs",
+      "--extern",
+      "soroban_sdk=/Users/mihaieremia/GitHub/rs-lending-xlm/target/debug/deps/libsoroban_sdk-3ffcc920a43ac52b.rlib",
+      "-L",
+      "dependency=/Users/mihaieremia/GitHub/rs-lending-xlm/target/debug/deps",
+      "-o",
+      "/private/tmp/astra-fixed-point-probe/probe"
+    ],
+    "log": "compile.log"
+  },
+  {
+    "cwd": "/Users/mihaieremia/GitHub/rs-lending-xlm",
+    "argv": [
+      "/private/tmp/astra-fixed-point-probe/probe"
+    ],
+    "log": "probe.log"
+  }
+]

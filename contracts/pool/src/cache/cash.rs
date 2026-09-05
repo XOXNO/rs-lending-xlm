@@ -4,6 +4,7 @@
 //! transfers use the market's `asset_id` SAC client.
 
 use common::errors::{CollateralError, GenericError};
+use common::validation::require_nonneg_amount;
 
 use soroban_sdk::{assert_with_error, panic_with_error, token, Address};
 
@@ -19,17 +20,20 @@ impl Cache {
         );
     }
 
-    /// Increases accounting cash by `amount` (checked add). Panics on overflow.
+    /// Increases accounting cash by `amount`. Rejects negative amounts and overflow.
     pub(crate) fn credit_cash(&mut self, amount: i128) {
+        require_nonneg_amount(&self.env, amount);
         self.cash = self
             .cash
             .checked_add(amount)
             .unwrap_or_else(|| panic_with_error!(&self.env, GenericError::MathOverflow));
     }
 
-    /// Decreases accounting cash by `amount` (checked sub). Panics if the
-    /// result would underflow.
+    /// Decreases accounting cash by `amount`. Rejects negative amounts or
+    /// insufficient reserves.
     pub(crate) fn debit_cash(&mut self, amount: i128) {
+        require_nonneg_amount(&self.env, amount);
+        self.require_reserves(amount);
         self.cash = self
             .cash
             .checked_sub(amount)
@@ -38,9 +42,10 @@ impl Cache {
 
     /// Transfers `amount` of the market asset from the pool to `recipient`.
     ///
-    /// No-op when `amount <= 0`. Does not adjust accounting cash.
+    /// Rejects negative amounts; zero is a no-op. Does not adjust accounting cash.
     pub(crate) fn transfer_out(&self, recipient: &Address, amount: i128) {
-        if amount <= 0 {
+        require_nonneg_amount(&self.env, amount);
+        if amount == 0 {
             return;
         }
         let tok = token::Client::new(&self.env, &self.params.asset_id);

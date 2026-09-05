@@ -1091,14 +1091,13 @@ fn assert_cadence_never_leaks(
             r.label,
             -residual,
         );
-        // The residual is bounded by the number of accruals, not by the size of
-        // the book: each accrual strands at most ~0.5 ray (1e-27 of a token),
-        // regardless of a $1M or $1B position. Measured: 43_208 ray over 86_400
-        // per-second accruals on a $1M book.
+        // These near-initial-index fixtures fit this tighter measured bound.
+        // In general, without share saturation, each step can leave up to
+        // ceil(supply_index / RAY) raw ray units unallocated.
         assert!(
             residual <= (r.steps as i128) + 8,
-            "{}: cadence '{}' stranded {} ray over {} accruals — more than ~1 ray per accrual, \
-             so the residual is scaling with something other than accrual count",
+            "{}: cadence '{}' stranded {} ray over {} accruals — exceeds the \
+             near-initial-index fixture bound",
             market.label,
             r.label,
             residual,

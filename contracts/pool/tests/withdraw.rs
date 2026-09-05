@@ -6,9 +6,12 @@ use crate::test_support::{hub, init_ledger};
 use crate::{LiquidityPool, LiquidityPoolClient};
 use common::constants::RAY;
 use common::math::fp::Ray;
-use common::types::{MarketParamsRaw, PoolStateRaw};
+use common::types::{
+    MarketParamsRaw, PoolAction, PoolBorrowEntry, PoolStateRaw, PoolSupplyEntry, PoolWithdrawEntry,
+    ScaledPositionRaw,
+};
 use soroban_sdk::testutils::Address as _;
-use soroban_sdk::{Address, Env};
+use soroban_sdk::{token, vec, Address, Env};
 
 struct TestSetup {
     env: Env,
@@ -23,7 +26,9 @@ impl TestSetup {
         init_ledger(&env);
 
         let admin = Address::generate(&env);
-        let asset = Address::generate(&env);
+        let asset = env
+            .register_stellar_asset_contract_v2(admin.clone())
+            .address();
         let params = MarketParamsRaw {
             max_borrow_rate: 2 * RAY,
             base_borrow_rate: RAY / 100,
@@ -107,4 +112,86 @@ fn test_withhold_liquidation_fee_rejects_fee_greater_than_gross() {
         let mut cache = t.cache(100 * RAY, 50_000_000);
         let _ = withhold_liquidation_fee(&t.env, &mut cache, 1_000_000, true, 2_000_000);
     });
+}
+
+#[test]
+fn test_liquidation_withdraw_uses_post_burn_fee_headroom_and_final_debt_guard() {
+    const UNIT: i128 = 10_000_000;
+    let largest_deposit = i128::MAX / (RAY / UNIT);
+    for (deposit, borrowed, full_close) in [
+        (largest_deposit, 0, false),
+        (largest_deposit, 0, true),
+        (100 * UNIT, 10 * UNIT, true),
+    ] {
+        let t = TestSetup::new();
+        let client = LiquidityPoolClient::new(&t.env, &t.contract);
+        let payer = Address::generate(&t.env);
+        let receiver = Address::generate(&t.env);
+        let asset = &t.params.asset_id;
+        let key = hub(asset);
+        let tok = token::Client::new(&t.env, asset);
+        token::StellarAssetClient::new(&t.env, asset).mint(&payer, &deposit);
+        tok.transfer(&payer, &t.contract, &deposit);
+        let supplied = client
+            .supply(&vec![
+                &t.env,
+                PoolSupplyEntry {
+                    action: PoolAction {
+                        hub_asset: key.clone(),
+                        position: ScaledPositionRaw { scaled_amount: 0 },
+                        amount: deposit,
+                    },
+                },
+            ])
+            .get(0)
+            .unwrap();
+        if borrowed > 0 {
+            client.borrow(
+                &payer,
+                &vec![
+                    &t.env,
+                    PoolBorrowEntry {
+                        action: PoolAction {
+                            hub_asset: key.clone(),
+                            position: ScaledPositionRaw { scaled_amount: 0 },
+                            amount: borrowed,
+                        },
+                    },
+                ],
+            );
+        }
+
+        let gross = if full_close { deposit } else { 100 * UNIT };
+        let fee = 10 * UNIT;
+        let result = client
+            .withdraw(
+                &receiver,
+                &true,
+                &vec![
+                    &t.env,
+                    PoolWithdrawEntry {
+                        action: PoolAction {
+                            hub_asset: key.clone(),
+                            position: supplied.position,
+                            amount: if full_close { i128::MAX } else { gross },
+                        },
+                        protocol_fee: fee,
+                    },
+                ],
+            )
+            .get(0)
+            .unwrap();
+
+        let state = client.get_sync_data(&key).state;
+        let remaining_shares = (deposit - gross) * (RAY / UNIT);
+        assert_eq!(result.actual_amount, gross);
+        assert_eq!(result.position.scaled_amount, remaining_shares);
+        assert_eq!(state.supplied, remaining_shares + 10 * RAY);
+        assert_eq!(state.revenue, 10 * RAY);
+        assert_eq!(client.get_revenue(&key), fee);
+        assert_eq!(state.borrowed, borrowed * (RAY / UNIT));
+        assert_eq!(state.cash, deposit - borrowed - (gross - fee));
+        assert_eq!(tok.balance(&t.contract), state.cash);
+        assert_eq!(tok.balance(&receiver), gross - fee);
+    }
 }

@@ -108,21 +108,21 @@ fn test_require_utilization_below_max_panics_when_above() {
 }
 
 #[test]
-fn test_require_solvent_withdraw_state_happy() {
+fn test_require_supply_for_debt_happy() {
     let t = TestSetup::new();
     t.as_contract(|| {
         let cache = cache_with(&t.env, &t.params, 10 * RAY, 5 * RAY, 0);
-        require_solvent_withdraw_state(&t.env, &cache);
+        require_supply_for_debt(&t.env, &cache);
     });
 }
 
 #[test]
 #[should_panic(expected = "Error(Contract, #123)")]
-fn test_require_solvent_withdraw_state_panics_when_insolvent() {
+fn test_require_supply_for_debt_rejects_debt_without_supply() {
     let t = TestSetup::new();
     t.as_contract(|| {
         let cache = cache_with(&t.env, &t.params, 0, RAY, 0);
-        require_solvent_withdraw_state(&t.env, &cache);
+        require_supply_for_debt(&t.env, &cache);
     });
 }
 
