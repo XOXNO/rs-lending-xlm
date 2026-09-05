@@ -53,6 +53,12 @@ contracts:
   governance: CC44PEQW7HSEPKAZ5ZRPH2JS5M5KVJXCUBLJ2ZX4E3WCDKMNFILHC2AD
   xoxno_oracle_adapter: CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM
   price_aggregator: CBGUF2G2Q7HCVCWYISDXBHPVBGMYNXA7PG2VET66YBZX6IKOOV27NSMV
+  # Read-only dependencies with no protocol write path to renew them. The
+  # RedStone adapter anchors 14 markets and was found at 10 days of instance
+  # life on 2026-09-05; the swap router carries every strategy leg.
+  extra_instances:
+    - CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG # RedStone adapter
+    - CCVENFSVCBYDHVOACFZXMNNYVOZ3LKXPZYU5LUI4N7KTXOKRVYD7F3TR # XOXNO swap router
 
 keyvault:
   url: https://xoxno.vault.azure.net

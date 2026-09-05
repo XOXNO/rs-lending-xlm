@@ -395,7 +395,7 @@ Shared math lives in [`common`](../../common): `math/fp.rs` (`Ray`, `Wad`,
 index, scaling, simulate), `types/pool.rs` (ABI types and `verify`).
 
 Persistent entries renew on every read; the instance renews at the top of each
-mutator. `TTL_THRESHOLD_SHARED` is 5 days, `TTL_BUMP_SHARED` 180 days.
+mutator. `TTL_THRESHOLD_SHARED` is 30 days, `TTL_BUMP_SHARED` 180 days.
 
 Events are batched: `PoolMarketStateBatchEvent` on state change,
 `PoolMarketParamsBatchEvent` on create and rate-model replace, and

@@ -592,14 +592,14 @@ The DeFindex strategy adapter defines **1** event.
 
 - **Topics:** `["strategy", "harvest"]`
 - **Data format:** `map` (default)
-- **Defined at:** `contracts/defindex-strategy/src/lib.rs:25`
-- **Emitted by:** `harvest` at `contracts/defindex-strategy/src/lib.rs:282`
+- **Defined at:** `contracts/defindex-strategy/src/lib.rs:26`
+- **Emitted by:** `harvest` at `contracts/defindex-strategy/src/lib.rs:287`
 
 | Field | Type | Scale/unit | Meaning |
 | --- | --- | --- | --- |
 | from | `Address` | — | The caller that invoked `harvest`. |
-| amount | `i128` | raw asset units | Always `0`. `harvest` moves no funds; the call site passes a literal zero (`contracts/defindex-strategy/src/lib.rs:285`). |
-| price_per_share | `i128` | 12 decimals (1e12) | Current price per share for the configured hub asset. Computed by floor-rescaling the RAY supply index down to `PPS_DECIMALS = 12` (`contracts/defindex-strategy/src/lib.rs:32` and `:175`). |
+| amount | `i128` | raw asset units | Always `0`. `harvest` moves no funds; the call site passes a literal zero (`contracts/defindex-strategy/src/lib.rs:290`). |
+| price_per_share | `i128` | 12 decimals (1e12) | Current price per share for the configured hub asset. Computed by floor-rescaling the RAY supply index down to `PPS_DECIMALS = 12` (`contracts/defindex-strategy/src/lib.rs:33` and `:176`). |
 
 ## Contracts that emit no events
 

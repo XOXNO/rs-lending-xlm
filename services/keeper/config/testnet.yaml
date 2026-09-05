@@ -22,6 +22,9 @@ contracts:
 
 
   price_aggregator: ""
+  extra_instances:
+    - CBIHT4HVRIT5OMVLSXZ44J2ZAXYBDDGOSCN3LTN2DOC6SWHDS5IP6BK3 # RedStone adapter (testnet)
+    - CDNTWMWW2WGYTKIZTJYNGNVQQZI4KTC5BQRZ3275KESRX5T4O3AYECL5 # XOXNO swap router (testnet)
 keyvault:
   url: https://unused.vault.azure.net
   secret_name: unused

@@ -1,4 +1,6 @@
 use anyhow::{anyhow, Context, Result};
+
+use crate::stellar::client::contract_id_from_strkey;
 use serde::Deserialize;
 use std::fs;
 use std::net::SocketAddr;
@@ -50,6 +52,13 @@ pub struct ContractsConfig {
 
     #[serde(default, deserialize_with = "empty_string_as_none")]
     pub price_aggregator: Option<String>,
+
+    /// Instances the protocol only reads through (third-party oracle adapters,
+    /// the swap router). Nothing in the protocol writes them, so nothing renews
+    /// them; anyone may pay their rent, and an archived one fails every price
+    /// read or strategy that routes through it.
+    #[serde(default)]
+    pub extra_instances: Vec<String>,
 }
 
 impl ContractsConfig {
@@ -235,6 +244,29 @@ impl KeeperConfig {
                 ));
             }
         }
+        // Parse here, not on the tick: a malformed entry must stop the boot the
+        // way a bad governance or adapter id does, not silently fail every
+        // snapshot afterwards. A repeat of an id already kept alive would put
+        // the same key twice into one footprint.
+        let mut kept: std::collections::HashSet<&str> = [
+            Some(self.contracts.controller.as_str()),
+            self.contracts.flash_loan_receiver.as_deref(),
+            self.contracts.governance.as_deref(),
+            self.contracts.xoxno_oracle_adapter.as_deref(),
+            self.contracts.price_aggregator.as_deref(),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+        for (i, extra) in self.contracts.extra_instances.iter().enumerate() {
+            contract_id_from_strkey(extra)
+                .with_context(|| format!("config.contracts.extra_instances[{i}]"))?;
+            if !kept.insert(extra.as_str()) {
+                return Err(anyhow!(
+                    "config.contracts.extra_instances[{i}] repeats a contract already kept alive: {extra}"
+                ));
+            }
+        }
         self.contracts.require_aggregator_for_markets()?;
         if self.contracts.pool_wasm_hash.len() != 64
             || hex::decode(&self.contracts.pool_wasm_hash).is_err()
@@ -295,6 +327,30 @@ mod tests {
     /// This asserts the file shape, not `validate()`: `config/testnet.yaml`
     /// declares markets with no `price_aggregator` and fails validation today,
     /// which is a defect in that file rather than in the parser.
+    #[test]
+    fn extra_instances_fail_at_boot_when_malformed_or_repeated() {
+        let raw =
+            fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("config/mainnet.yaml"))
+                .expect("read mainnet config");
+        let mut cfg: KeeperConfig = serde_yaml::from_str(&raw).expect("parse mainnet config");
+        cfg.validate().expect("shipped mainnet config validates");
+
+        cfg.contracts.extra_instances.push("CABC".into());
+        assert!(
+            cfg.validate().is_err(),
+            "a truncated strkey must fail at boot, not on every tick"
+        );
+        cfg.contracts.extra_instances.pop();
+
+        cfg.contracts
+            .extra_instances
+            .push(cfg.contracts.controller.clone());
+        assert!(
+            cfg.validate().is_err(),
+            "an id already kept alive must be rejected, or its key lands twice in a footprint"
+        );
+    }
+
     #[test]
     fn shipped_configs_parse_with_an_rpc_endpoint() {
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("config");

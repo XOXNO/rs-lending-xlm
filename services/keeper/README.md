@@ -113,6 +113,7 @@ windows.
 | Governance instance | instance | configured governance | yes |
 | Governance role keys | persistent | `ExistingRoles` | yes, when configured |
 | Pool / receiver instances and WASM code | instance / code | instance reads | yes |
+| Third-party instances the protocol reads through (`contracts.extra_instances`: RedStone adapter, swap router) and their WASM code | instance / code | configured list | yes, when configured — nothing in the protocol writes these, so nothing else renews them |
 | Timelock `OperationLedger(BytesN<32>)` | persistent | event-only | no, documented gap |
 | Temporary keys | temporary | n/a | no, expire by design |
 

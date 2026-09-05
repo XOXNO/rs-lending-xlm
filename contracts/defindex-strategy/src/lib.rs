@@ -9,6 +9,7 @@
 use common::constants::{TTL_BUMP_USER, TTL_THRESHOLD_USER};
 use common::math::fp::Ray;
 use common::token::authorize_transfer_as_current;
+use common::ttl::renew_instance;
 use common::types::HubAssetKey;
 
 use controller_interface::ControllerClient;
@@ -203,6 +204,7 @@ impl Strategy {
     /// stores the resulting `Config` (resolving the pool address from the
     /// controller) in instance storage.
     pub fn __constructor(env: Env, asset: Address, init_args: Vec<Val>) {
+        renew_instance(&env);
         let controller_val = init_args
             .get(0)
             .unwrap_or_else(|| panic_with_error!(&env, DeFindexStrategyError::NotInitialized));
@@ -242,10 +244,12 @@ impl Strategy {
 #[contractimpl]
 impl DeFindexStrategyTrait for Strategy {
     fn asset(env: Env) -> Result<Address, DeFindexStrategyError> {
+        renew_instance(&env);
         Ok(config(&env)?.asset)
     }
 
     fn deposit(env: Env, amount: i128, from: Address) -> Result<i128, DeFindexStrategyError> {
+        renew_instance(&env);
         if amount <= 0 {
             return Err(DeFindexStrategyError::AmountNotPositive);
         }
@@ -277,6 +281,7 @@ impl DeFindexStrategyTrait for Strategy {
     }
 
     fn harvest(env: Env, from: Address, _data: Option<Bytes>) -> Result<(), DeFindexStrategyError> {
+        renew_instance(&env);
         from.require_auth();
         let ctx = Ctx::try_load(&env)?;
         HarvestEvent {
@@ -290,6 +295,7 @@ impl DeFindexStrategyTrait for Strategy {
     }
 
     fn balance(env: Env, from: Address) -> Result<i128, DeFindexStrategyError> {
+        renew_instance(&env);
         Ok(Ctx::try_load(&env)?.vault_balance(&from))
     }
 
@@ -299,6 +305,7 @@ impl DeFindexStrategyTrait for Strategy {
         from: Address,
         to: Address,
     ) -> Result<i128, DeFindexStrategyError> {
+        renew_instance(&env);
         if amount <= 0 {
             return Err(DeFindexStrategyError::AmountNotPositive);
         }

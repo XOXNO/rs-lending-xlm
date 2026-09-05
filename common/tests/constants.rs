@@ -22,9 +22,9 @@ fn derived_usd_bounds() {
 
 #[test]
 fn ttl_ledger_counts() {
-    assert_eq!(TTL_THRESHOLD_INSTANCE, 86_400);
+    assert_eq!(TTL_THRESHOLD_INSTANCE, 518_400);
     assert_eq!(TTL_BUMP_INSTANCE, 3_110_400);
-    assert_eq!(TTL_THRESHOLD_SHARED, 86_400);
+    assert_eq!(TTL_THRESHOLD_SHARED, 518_400);
     assert_eq!(TTL_BUMP_SHARED, 3_110_400);
     assert_eq!(TTL_THRESHOLD_USER, 518_400);
     assert_eq!(TTL_BUMP_USER, 2_073_600);
