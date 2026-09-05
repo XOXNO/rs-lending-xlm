@@ -51,6 +51,10 @@ fn test_xoxno_listing_accepts_a_declared_non_default_adapter_width() {
         .get(0)
         .unwrap();
     assert_eq!(view.price_wad, usd(1));
+    assert!(view.valid, "a declared 9-decimal adapter must price valid");
+    assert!(!view.stale);
+    assert!(!view.deviation);
+    assert_eq!(view.error_code, None);
 }
 
 #[test]
@@ -98,6 +102,9 @@ fn test_real_adapter_single_source_market_end_to_end() {
         .get(0)
         .unwrap();
     assert_eq!(view.price_wad, usd(1));
+    assert!(view.valid, "a quorum-signed adapter price must read valid");
+    assert!(!view.stale);
+    assert_eq!(view.error_code, None);
 
     t.supply(ALICE, "USDC", 1_000.0);
     t.assert_supply_near(ALICE, "USDC", 1_000.0, 1.0);
@@ -128,4 +135,8 @@ fn test_reflector_primary_xoxno_anchor_market_works() {
         .unwrap();
 
     assert_eq!(view.price_wad, usd(1));
+    assert!(view.valid, "both legs fresh and in band must read valid");
+    assert!(!view.stale);
+    assert!(!view.deviation);
+    assert_eq!(view.error_code, None);
 }

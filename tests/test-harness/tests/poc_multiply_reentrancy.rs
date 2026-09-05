@@ -1,6 +1,10 @@
 use controller::types::PositionMode;
+use soroban_sdk::xdr::{ScErrorCode, ScErrorType};
 use soroban_sdk::{contract, contractimpl, token, vec, Address, Env, Symbol};
-use test_harness::{hub_asset, mock_swap_payload_xdr, LendingTest, ALICE, BOB, HARNESS_SPOKE};
+use test_harness::{
+    hub_asset, mock_swap_payload_xdr, reflector_primary_anchor_config, usd, LendingTest, ALICE,
+    BOB, DEFAULT_TOLERANCE, HARNESS_SPOKE,
+};
 
 #[contract]
 pub struct EvilToken;
@@ -18,6 +22,16 @@ impl EvilToken {
 
     pub fn decimals(_env: Env) -> u32 {
         7
+    }
+
+    // The price aggregator probes `decimals`/`symbol` before it will accept an
+    // oracle for an address, so the hostile token has to answer both.
+    pub fn symbol(env: Env) -> soroban_sdk::String {
+        soroban_sdk::String::from_str(&env, "EVIL")
+    }
+
+    pub fn name(env: Env) -> soroban_sdk::String {
+        soroban_sdk::String::from_str(&env, "EVIL")
     }
 
     pub fn balance(env: Env, _id: Address) -> i128 {
@@ -45,7 +59,7 @@ impl EvilToken {
 }
 
 #[test]
-fn poc_multiply_initial_payment_reentrancy_duplicates_collateral() {
+fn poc_multiply_initial_payment_token_cannot_reenter_the_controller() {
     let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(BOB, "USDC", 50_000.0);
@@ -78,6 +92,25 @@ fn poc_multiply_initial_payment_reentrancy_duplicates_collateral() {
     let evil = t.env.register(EvilToken, ());
     EvilTokenClient::new(&t.env, &evil).arm(&t.controller, &alice, &alice_id, &usdc);
 
+    // Price the hostile token. Without an oracle `process_multiply` dies in
+    // `prefetch_strategy_prices` with #216 OracleNotConfigured and
+    // `EvilToken::transfer` is never invoked, which is what made the original
+    // assertion vacuous. A configured feed carries the flow all the way to
+    // `transfer_amount_measured` (multiply.rs:169), the one token call on the
+    // multiply path that runs outside `with_flash_guard`.
+    t.mock_reflector_client().set_price(&evil, &usd(1));
+    t.mock_reflector_client().set_twap_price(&evil, &usd(1));
+    t.configure_market_oracle(
+        &evil,
+        &reflector_primary_anchor_config(
+            &t.env,
+            &t.mock_reflector,
+            &evil,
+            usd(1),
+            DEFAULT_TOLERANCE.tolerance_bps,
+        ),
+    );
+
     let usdc_before = token::Client::new(&t.env, &usdc).balance(&alice);
     let recorded_before = t
         .ctrl_client()
@@ -104,19 +137,31 @@ fn poc_multiply_initial_payment_reentrancy_duplicates_collateral() {
         .ctrl_client()
         .get_collateral_amount(&alice_id, &hub_asset(usdc.clone()));
 
-    std::println!("multiply result       : {:?}", res);
-    std::println!("alice wallet USDC     : {} -> {}", usdc_before, usdc_after);
-    std::println!(
-        "recorded collateral   : {} -> {}",
-        recorded_before,
-        recorded_after
+    // What this PoC reaches: `transfer_amount_measured` (multiply.rs:169) really
+    // invokes the caller-chosen payment token, outside `with_flash_guard`, and
+    // that token really calls back into the controller. What stops it is not the
+    // strategy guard but the Soroban host, which forbids re-entering a contract
+    // already on the call stack. So the terminal fact is the host error, and it
+    // must stay a *rejection*: pinning it here means a future host or SDK that
+    // permitted re-entry would fail this test instead of silently opening the
+    // path. What this PoC does NOT cover: a hostile token calling a *different*
+    // contract that then calls the controller (no host re-entry, guard-only),
+    // which `meta/reentrancy_matrix.rs` probes by injecting the flag directly.
+    let host_error = res
+        .expect_err("re-entry from the initial-payment token must abort multiply")
+        .expect("expected a host error value, not a bare InvokeError");
+    assert_eq!(
+        host_error,
+        soroban_sdk::Error::from_type_and_code(ScErrorType::Context, ScErrorCode::InvalidAction),
+        "the host must refuse the nested controller call; got {host_error:?}"
     );
 
-    let drained = usdc_after - usdc_before;
-    assert!(
-        !(res.is_ok() && drained >= recorded_before && recorded_after >= recorded_before),
-        "REENTRANCY EXPLOIT: withdrew {} USDC to wallet while still credited {} collateral",
-        drained,
-        recorded_after
+    assert_eq!(
+        usdc_after, usdc_before,
+        "a reverted multiply must move no USDC to the caller"
+    );
+    assert_eq!(
+        recorded_after, recorded_before,
+        "a reverted multiply must credit no collateral"
     );
 }

@@ -225,7 +225,28 @@ fn test_liquidation_caps_at_actual_debt() {
     let mut t = liquidatable_usdc_eth();
 
     let debt_before = t.borrow_balance(ALICE, "ETH");
+    t.get_or_create_user(LIQUIDATOR);
+    let debt_before_raw = t.borrow_balance_raw(ALICE, "ETH");
+    let liq_eth_before_raw = t.token_balance_raw(LIQUIDATOR, "ETH");
+
     t.liquidate(LIQUIDATOR, ALICE, "ETH", 100.0);
+
+    // INV-LIQ-02: repayment and seizure stay coupled. Bounding the liquidator's
+    // wallet only from below lets a call that seizes collateral while pulling
+    // zero debt token pass, so pin the debt-token delta to the debt retired.
+    // The harness pre-mints the requested 100 ETH, so the wallet delta is
+    // `minted - spent`.
+    let minted_raw = 100 * 10i128.pow(t.resolve_market("ETH").decimals);
+    let spent_raw = liq_eth_before_raw + minted_raw - t.token_balance_raw(LIQUIDATOR, "ETH");
+    let repaid_raw = debt_before_raw - t.borrow_balance_raw(ALICE, "ETH");
+    assert_eq!(
+        repaid_raw, debt_before_raw,
+        "an over-sized payment must cap at the whole debt: repaid={repaid_raw}, debt={debt_before_raw}"
+    );
+    assert_eq!(
+        spent_raw, repaid_raw,
+        "liquidator must pay exactly the debt retired: spent={spent_raw}, repaid={repaid_raw}"
+    );
 
     let liq_eth_left = t.token_balance(LIQUIDATOR, "ETH");
     assert!(
@@ -233,11 +254,6 @@ fn test_liquidation_caps_at_actual_debt() {
         "unused mint (~{}) must stay with liquidator; got {}",
         100.0 - debt_before,
         liq_eth_left
-    );
-
-    assert!(
-        t.borrow_balance(ALICE, "ETH") < debt_before,
-        "Alice's ETH debt must have decreased"
     );
 
     let liq_usdc = t.token_balance(LIQUIDATOR, "USDC");

@@ -196,13 +196,13 @@ flow_blend_rejects() {
     inv blend_pool_reapprove_after_unapproved "$ADMIN" "$CONTROLLER" -- approve_blend_pool \
         --pool "$BLEND_POOL" >/dev/null
 
-    xfail blend_unlisted_collateral 'Error\(Contract, #216\)|#307|#6|#1' "$ALICE" "$CONTROLLER" -- migrate_from_blend \
+    xfail blend_unlisted_collateral 'Error\(Contract, #216\)' "$ALICE" "$CONTROLLER" -- migrate_from_blend \
         --caller "$ALICE_ADDR" --account_id 0 --spoke_id "$PRIMARY_SPOKE_ID" \
         --hub_id "$PRIMARY_HUB_ID" --blend_pool "$BLEND_POOL" \
         --collateral_assets "$(blend_addr_json "$BLEND_POOL")" \
         --supply_assets "$empty" --debt_caps "$empty"
 
-    xfail blend_unlisted_debt 'Error\(Contract, #216\)|#307|#6|#1|#107' "$ALICE" "$CONTROLLER" -- migrate_from_blend \
+    xfail blend_unlisted_debt 'Error\(Contract, #216\)' "$ALICE" "$CONTROLLER" -- migrate_from_blend \
         --caller "$ALICE_ADDR" --account_id 0 --spoke_id "$PRIMARY_SPOKE_ID" \
         --hub_id "$PRIMARY_HUB_ID" --blend_pool "$BLEND_POOL" \
         --collateral_assets "$empty" --supply_assets "$empty" \
@@ -228,14 +228,8 @@ flow_blend_rejects() {
         --hub_id 99 --blend_pool "$BLEND_POOL" \
         --collateral_assets "$xlm_coll" --supply_assets "$empty" --debt_caps "$empty"
 
-    xfail blend_spoke_no_xlm 'Error\(Contract, #307\)|#216' "$ALICE" "$CONTROLLER" -- migrate_from_blend \
+    xfail blend_spoke_no_xlm 'Error\(Contract, #307\)' "$ALICE" "$CONTROLLER" -- migrate_from_blend \
         --caller "$ALICE_ADDR" --account_id 0 --spoke_id "$SECONDARY_SPOKE_ID" \
-        --hub_id "$PRIMARY_HUB_ID" --blend_pool "$BLEND_POOL" \
-        --collateral_assets "$xlm_coll" --supply_assets "$empty" --debt_caps "$empty"
-
-    xfail blend_caller_mismatch 'Error\(Auth|Host|Authentication|InvalidAction|#5|#44\)' \
-        "$BOB" "$CONTROLLER" -- migrate_from_blend \
-        --caller "$ALICE_ADDR" --account_id 0 --spoke_id "$PRIMARY_SPOKE_ID" \
         --hub_id "$PRIMARY_HUB_ID" --blend_pool "$BLEND_POOL" \
         --collateral_assets "$xlm_coll" --supply_assets "$empty" --debt_caps "$empty"
 
@@ -317,7 +311,7 @@ flow_blend_migrate() {
     # Zero Blend liability + hub debt cap: live Blend rejects a dToken burn of 0
     # (#1219). Position is unchanged, then a coll-only migrate must still work.
     blend_seed blend_seed_eve_coll "$EVE" "$EVE_ADDR" "$coll_amt" 0 0 || return 1
-    xfail blend_zero_liab_cap 'Error\(Contract, #1219\)|#1217' "$EVE" "$CONTROLLER" -- migrate_from_blend \
+    xfail blend_zero_liab_cap 'Error\(Contract, #1219\)' "$EVE" "$CONTROLLER" -- migrate_from_blend \
         --caller "$EVE_ADDR" --account_id 0 --spoke_id "$PRIMARY_SPOKE_ID" \
         --hub_id "$PRIMARY_HUB_ID" --blend_pool "$BLEND_POOL" \
         --collateral_assets "$xlm_coll" --supply_assets "$empty" --debt_caps "$xlm_debt"
@@ -352,6 +346,13 @@ flow_blend_migrate() {
     fi
     log "alice blend liabilities=$(blend_map_sum "$alice_pos" liabilities) seed_debt=$debt_amt cap=$debt_cap has_debt=$alice_has_debt"
 
+    # No caller-mismatch xfail here on purpose. stellar-cli signs an auth
+    # entry for ANY address argument whose secret is in the local keystore,
+    # whatever --source is, so a lane wallet can never play the victim (run
+    # local-20260905-1040 proved it: Bob's tx carried Alice's signature and
+    # migrated her position). A victim without a local secret has no Blend
+    # position to migrate, so the caller gate — require_authorized_caller,
+    # shared by every entrypoint — is proven once in lifecycle.sh instead.
     local alice_acct
     if [ "$alice_has_debt" -eq 1 ]; then
         alice_acct=$(blend_migrate migrate_alice_debtcoll "$ALICE" "$ALICE_ADDR" 0 \
@@ -497,20 +498,23 @@ flow_blend_migrate() {
         --hub_id "$PRIMARY_HUB_ID" --blend_pool "$BLEND_POOL" \
         --collateral_assets "$xlm_coll" --supply_assets "$empty" --debt_caps "$empty"
 
-    # Frank starts Blend-healthy (30 XLM debt / 200 XLM coll) so cap / no-coll /
+    # Frank starts Blend-healthy (30 XLM debt / 200 XLM coll) so no-coll /
     # min-borrow gates are distinguishable from hub #100. Extra Blend borrow
     # then pushes into the c_factor 0.90 vs LTV 0.70 unhealthy window.
+    # There is no hub-side "cap too low" guard: a debt cap only bounds the
+    # flash-borrowed repay, so a 1-stroop cap is rejected by Blend's dust floor
+    # (#1219) and the hub never books a partial migration.
     local frank_has_debt=0 frank_unhealthy=0
     blend_seed blend_seed_frank_debt "$FRANK" "$FRANK_ADDR" "$coll_amt" 0 "$debt_amt"
     rc=$?
     [ "$rc" -eq 0 ] && frank_has_debt=1
     if [ "$frank_has_debt" -eq 1 ]; then
-        xfail blend_cap_too_low 'Error\(Contract' "$FRANK" "$CONTROLLER" -- migrate_from_blend \
+        xfail blend_cap_too_low 'Error\(Contract, #1219\)' "$FRANK" "$CONTROLLER" -- migrate_from_blend \
             --caller "$FRANK_ADDR" --account_id 0 --spoke_id "$PRIMARY_SPOKE_ID" \
             --hub_id "$PRIMARY_HUB_ID" --blend_pool "$BLEND_POOL" \
             --collateral_assets "$xlm_coll" --supply_assets "$empty" \
             --debt_caps "$(blend_debt_json "$XLM_SAC" 1)"
-        xfail blend_debt_without_collateral 'Error\(Contract, #100\)|#126' "$FRANK" "$CONTROLLER" -- migrate_from_blend \
+        xfail blend_debt_without_collateral 'Error\(Contract, #100\)' "$FRANK" "$CONTROLLER" -- migrate_from_blend \
             --caller "$FRANK_ADDR" --account_id 0 --spoke_id "$PRIMARY_SPOKE_ID" \
             --hub_id "$PRIMARY_HUB_ID" --blend_pool "$BLEND_POOL" \
             --collateral_assets "$empty" --supply_assets "$empty" \
@@ -527,7 +531,7 @@ flow_blend_migrate() {
         rc=$?
         if [ "$rc" -eq 0 ]; then
             frank_unhealthy=1
-            xfail blend_unhealthy_end 'Error\(Contract, #100\)|#126' "$FRANK" "$CONTROLLER" -- migrate_from_blend \
+            xfail blend_unhealthy_end 'Error\(Contract, #100\)' "$FRANK" "$CONTROLLER" -- migrate_from_blend \
                 --caller "$FRANK_ADDR" --account_id 0 --spoke_id "$PRIMARY_SPOKE_ID" \
                 --hub_id "$PRIMARY_HUB_ID" --blend_pool "$BLEND_POOL" \
                 --collateral_assets "$xlm_coll" --supply_assets "$empty" \

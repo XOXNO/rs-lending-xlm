@@ -52,6 +52,10 @@ fn test_reflector_primary_redstone_anchor_market_works() {
         .unwrap();
 
     assert_eq!(view.price_wad, usd(1));
+    assert!(view.valid, "both legs fresh and in band must read valid");
+    assert!(!view.stale);
+    assert!(!view.deviation);
+    assert_eq!(view.error_code, None);
 }
 
 #[test]
@@ -80,7 +84,7 @@ fn test_redstone_anchor_uses_source_specific_stale_window() {
     );
     t.configure_market_oracle(&asset, &cfg);
 
-    let assets = soroban_sdk::Vec::from_array(&t.env, [hub_asset(asset)]);
+    let assets = soroban_sdk::Vec::from_array(&t.env, [hub_asset(asset.clone())]);
     let view = t
         .ctrl_client()
         .get_market_indexes_detailed(&assets)
@@ -88,6 +92,33 @@ fn test_redstone_anchor_uses_source_specific_stale_window() {
         .unwrap();
 
     assert_eq!(view.price_wad, usd(1));
+    assert!(
+        view.valid,
+        "a 950s-old anchor is inside its own 86_400s window"
+    );
+    assert!(!view.stale);
+    assert_eq!(view.error_code, None);
+
+    // Negative twin: the same 950s-old anchor under the default 900s window.
+    let tight = test_harness::reflector_primary_redstone_anchor_config(
+        &t.env,
+        &t.mock_reflector,
+        &asset,
+        &redstone,
+        &feed_id,
+        DEFAULT_TOLERANCE.tolerance_bps,
+    );
+    t.configure_market_oracle(&asset, &tight);
+    let tight_view = t
+        .ctrl_client()
+        .get_market_indexes_detailed(&assets)
+        .get(0)
+        .unwrap();
+    assert!(
+        tight_view.stale,
+        "the same anchor is stale once the source window is 900s"
+    );
+    assert!(!tight_view.valid);
 }
 
 #[test]

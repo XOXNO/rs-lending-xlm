@@ -56,6 +56,14 @@ fn preaccrual_does_not_change_liquidator_payoff() {
     let b_spent = b.token_balance_raw(LIQUIDATOR, "ETH") - b_eth_before;
     let b_seized = b.token_balance_raw(LIQUIDATOR, "USDC") - b_usdc_before;
 
+    // Without a liveness guard the two `assert_eq!`s below also hold when both
+    // runs moved nothing at all.
+    let minted = 10i128.pow(a.resolve_market("ETH").decimals);
+    assert!(
+        a_seized > 0 && a_spent < minted,
+        "measurement must be live: net ETH delta={a_spent} of {minted} minted, seized={a_seized}"
+    );
+
     assert_eq!(
         a_spent, b_spent,
         "debt-token delta differs: direct={} pre-accrued={}",

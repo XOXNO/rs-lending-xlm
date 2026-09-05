@@ -1,6 +1,6 @@
 use crate::shared::get_indexes;
 use common::types::SeizeMode;
-use controller::constants::{RAY, WAD};
+use controller::constants::WAD;
 use test_harness::{hub_asset, usd_cents, LendingTest, ALICE, BOB, LIQUIDATOR};
 
 #[test]
@@ -18,8 +18,25 @@ fn test_seizure_equals_debt_times_one_plus_bonus() {
     t.get_or_create_user(LIQUIDATOR);
     let liquidator_usdc_before = t.token_balance(LIQUIDATOR, "USDC");
 
+    // Independent source for the bonus: the estimate view reads the curve, not
+    // the seizure we are about to measure. Deriving it from the seizure instead
+    // makes `seizure == debt * (1 + bonus)` an identity that cannot fail.
+    let account_id = t.resolve_account_id(ALICE);
+    let payments =
+        soroban_sdk::Vec::from_array(&t.env, [(hub_asset(t.resolve_asset("ETH")), 5_000_000)]);
+    let bonus_bps = t
+        .ctrl_client()
+        .get_liquidation_estimate(&account_id, &payments, &SeizeMode::Transfer)
+        .bonus_rate_bps as f64;
+    let fee_bps = f64::from(t.get_asset_config("USDC").liquidation_fees);
+
+    let debt_before = t.borrow_balance(ALICE, "ETH");
     t.liquidate(LIQUIDATOR, ALICE, "ETH", 0.5);
     let liquidator_usdc_after = t.token_balance(LIQUIDATOR, "USDC");
+    assert!(
+        (debt_before - t.borrow_balance(ALICE, "ETH") - 0.5).abs() < 1e-6,
+        "the whole 0.5 ETH must be repaid for the closed form to apply"
+    );
 
     let collateral_received = liquidator_usdc_after - liquidator_usdc_before;
     let debt_repaid_usd = 0.5 * 2000.0;
@@ -34,15 +51,15 @@ fn test_seizure_equals_debt_times_one_plus_bonus() {
         actual_bonus_rate * 100.0
     );
 
-    let expected_seizure_usd = debt_repaid_usd * (1.0 + actual_bonus_rate);
-    let diff_pct =
-        ((collateral_received_usd - expected_seizure_usd) / expected_seizure_usd).abs() * 100.0;
+    // Gross seizure is `debt * (1 + b)`; the protocol keeps `fee_bps` of the
+    // bonus leg only, so the liquidator nets `debt * (1 + b * (1 - fee))`.
+    let expected_seizure_usd =
+        debt_repaid_usd * (1.0 + (bonus_bps / 10_000.0) * (1.0 - fee_bps / 10_000.0));
     assert!(
-        diff_pct < 2.0,
-        "seizure should match debt * (1 + bonus): expected_usd={:.2}, got_usd={:.2}, diff={:.2}%",
-        expected_seizure_usd,
-        collateral_received_usd,
-        diff_pct
+        (collateral_received_usd - expected_seizure_usd).abs() < 1e-5,
+        "seizure must match debt * (1 + bonus) net of the bonus-only fee: \
+         expected_usd={expected_seizure_usd:.9}, got_usd={collateral_received_usd:.9}, \
+         bonus_bps={bonus_bps}, fee_bps={fee_bps}"
     );
 }
 
@@ -168,33 +185,39 @@ fn test_protocol_fee_on_bonus_only_quantitative() {
     t.borrow(ALICE, "ETH", 3.0);
     t.set_price("USDC", usd_cents(50));
 
+    // The old bound (`fee < 50 USDC`) was within ~2x of the true value, and the
+    // discriminating ratio check hid behind `if liquidator_received > 0.0` on an
+    // absolute balance. Close the form instead: the fee is `fee_bps` of the
+    // bonus leg, and `seized = principal * (1 + b)`.
+    let account_id = t.resolve_account_id(ALICE);
+    let payments =
+        soroban_sdk::Vec::from_array(&t.env, [(hub_asset(t.resolve_asset("ETH")), 1_0000000)]);
+    let estimate =
+        t.ctrl_client()
+            .get_liquidation_estimate(&account_id, &payments, &SeizeMode::Transfer);
+    let seized = estimate.seized_collaterals.get_unchecked(0).amount;
+    let bonus_bps = estimate.bonus_rate_bps;
+    let fee_bps = i128::from(t.get_asset_config("USDC").liquidation_fees);
+    assert!(
+        seized > 0 && bonus_bps > 0 && fee_bps > 0,
+        "estimate must be live: seized={seized}, bonus_bps={bonus_bps}, fee_bps={fee_bps}"
+    );
+    let expected_fee = (seized * bonus_bps / (10_000 + bonus_bps)) * fee_bps / 10_000;
+
     let rev_before = t.snapshot_revenue("USDC");
 
     t.liquidate(LIQUIDATOR, ALICE, "ETH", 1.0);
 
-    let rev_after = t.snapshot_revenue("USDC");
-    let fee_collected = (rev_after - rev_before) as f64 / 1e7;
-
+    let fee_collected = t.snapshot_revenue("USDC") - rev_before;
     assert!(
-        fee_collected > 0.0,
-        "protocol fee should be positive: {:.4}",
-        fee_collected
+        (fee_collected - expected_fee).abs() <= 2,
+        "protocol fee must be the bonus-only charge {expected_fee}, got {fee_collected} \
+         (seized={seized}, bonus_bps={bonus_bps}, fee_bps={fee_bps})"
     );
     assert!(
-        fee_collected < 50.0,
-        "protocol fee should be on bonus only (< 50 USDC), got {:.4} USDC",
-        fee_collected
+        fee_collected < seized * fee_bps / 10_000,
+        "fee {fee_collected} matches a charge on the gross seizure, not on the bonus"
     );
-
-    let liquidator_received = t.token_balance(LIQUIDATOR, "USDC");
-    if liquidator_received > 0.0 {
-        let fee_pct_of_seizure = fee_collected / liquidator_received * 100.0;
-        assert!(
-            fee_pct_of_seizure < 1.0,
-            "fee should be <1% of total seizure (bonus-only): {:.4}%",
-            fee_pct_of_seizure
-        );
-    }
 }
 
 #[test]
@@ -206,10 +229,8 @@ fn test_bad_debt_index_decrease_exact() {
     t.supply(ALICE, "USDC", 10.0);
     t.borrow(ALICE, "ETH", 0.003);
 
-    let eth = t.resolve_asset("ETH");
-    let pool_client = t.pool_client("ETH");
-    let supplied_before = pool_client.get_supplied_amount(&hub_asset(eth));
     let (si_before, _) = get_indexes(&t, "ETH");
+    let bob_balance_before = t.supply_balance(BOB, "ETH");
 
     t.set_price("USDC", usd_cents(10));
     t.liquidate(LIQUIDATOR, ALICE, "ETH", 0.001);
@@ -218,23 +239,26 @@ fn test_bad_debt_index_decrease_exact() {
 
     let actual_ratio = si_after as f64 / si_before as f64;
 
-    let _total_supplied_actual = supplied_before as f64 / RAY as f64;
-
     assert!(
-        actual_ratio > 0.999 && actual_ratio < 1.0,
-        "index decrease should be tiny: ratio={:.8}, indicating ~{:.6}% loss",
-        actual_ratio,
-        (1.0 - actual_ratio) * 100.0
+        actual_ratio < 1.0,
+        "socialization must decrease the supply index: ratio={actual_ratio:.12}"
     );
 
-    let bob_balance_before = 1000.0;
     let bob_balance_after = t.supply_balance(BOB, "ETH");
     let bob_loss = bob_balance_before - bob_balance_after;
-
     assert!(
-        (0.0..0.005).contains(&bob_loss),
-        "Bob's loss should be <= bad debt (~0.003 ETH), got {:.6} ETH -- index over-decremented!",
-        bob_loss
+        bob_loss > 0.0,
+        "Bob must absorb part of the loss: {bob_loss:.9}"
+    );
+
+    // "exact" means the index move and the balance move are the same event:
+    // the old `(0.999, 1.0)` band plus `bob_loss in [0.0, 0.005)` admitted zero
+    // loss and any write-down inside a 0.1 % window.
+    let expected_ratio = 1.0 - bob_loss / bob_balance_before;
+    assert!(
+        (actual_ratio - expected_ratio).abs() < 1e-8,
+        "index ratio {actual_ratio:.12} must equal 1 - loss/balance {expected_ratio:.12} \
+         (loss={bob_loss:.9}, balance={bob_balance_before})"
     );
 }
 
@@ -299,14 +323,22 @@ fn test_liquidation_bounded_by_available_collateral() {
 
     t.set_price("USDC", usd_cents(60));
 
-    let _collateral_before = t.supply_balance(ALICE, "USDC");
+    let collateral_before = t.supply_balance_raw(ALICE, "USDC");
+    t.get_or_create_user(LIQUIDATOR);
+    let liq_before = t.token_balance_raw(LIQUIDATOR, "USDC");
 
     t.liquidate(LIQUIDATOR, ALICE, "ETH", 0.3);
 
-    let liquidator_usdc = t.token_balance(LIQUIDATOR, "USDC");
+    // The old assertion was an upper bound on an *absolute* balance and never
+    // read `collateral_before`: a seizure of zero passed. Bound the deltas.
+    let seized = collateral_before - t.supply_balance_raw(ALICE, "USDC");
+    let received = t.token_balance_raw(LIQUIDATOR, "USDC") - liq_before;
     assert!(
-        liquidator_usdc <= 1_001.0,
-        "liquidator should not receive more USDC than existed: {:.2}",
-        liquidator_usdc
+        seized > 0 && seized <= collateral_before,
+        "seizure must be positive and bounded by the position: seized={seized}, had={collateral_before}"
+    );
+    assert!(
+        received > 0 && received <= seized,
+        "liquidator cannot receive more than was seized: received={received}, seized={seized}"
     );
 }

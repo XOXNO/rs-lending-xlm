@@ -35,7 +35,7 @@ flow_xoxno_oracle() {
     xfail xo_threshold_zero 'Error\(Contract, #3\)' "$ADMIN" "$XO" -- set_threshold --threshold 0
     xfail xo_threshold_over 'Error\(Contract, #3\)' "$ADMIN" "$XO" -- set_threshold --threshold 9
     inv xo_set_threshold "$ADMIN" "$XO" -- set_threshold --threshold 2 >/dev/null
-    xfail xo_owner_guard 'Missing signing key|Error\(Contract' "$ALICE" "$XO" -- set_threshold --threshold 2
+    xfail xo_owner_guard "Missing signing key for account $ADMIN_ADDR" "$ALICE" "$XO" -- set_threshold --threshold 2
 
     inv xo_add_signer_dave "$ADMIN" "$XO" -- add_signer --signer "$DAVE_ADDR" >/dev/null
     xfail xo_add_signer_dup 'Error\(Contract, #4\)' "$ADMIN" "$XO" -- add_signer --signer "$DAVE_ADDR"

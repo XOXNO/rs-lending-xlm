@@ -36,13 +36,16 @@ flow_flash_loans() {
         --receiver "$FLASH_RECEIVER" --data "$(flash_data_hex 6)" >/dev/null
 
     local mode name pattern
-    local re_pattern='Error\(Contract, #400\)|InvalidAction|re-entry|Error\(Contract, #40[0-9]\)'
+    # The Soroban host rejects same-contract re-entry with Context/InvalidAction
+    # before the controller's #400 guard runs; that host error is the only
+    # outcome a live callback can observe (#400 is pinned by the harness matrix).
+    local re_pattern='Error\(Context, InvalidAction\)'
     for mode in 1 2 3 4 5 7 8 9 10 11 12 13 14 15 16 17 18; do
         case $mode in
             1) name=no_repay; pattern='Error\(Contract, #402\)' ;;
             2) name=under_repay; pattern='Error\(Contract, #402\)' ;;
             3) name=reenter_pool; pattern="$re_pattern" ;;
-            4) name=panic; pattern='Error\(Contract, #3\)|Trapped|Error\(Contract, #40[0-9]\)' ;;
+            4) name=panic; pattern='Error\(Contract, #3\)' ;;
             5) name=reenter_supply; pattern="$re_pattern" ;;
             7) name=push_to_pool; pattern='Error\(Contract, #402\)' ;;
             8) name=reenter_borrow; pattern="$re_pattern" ;;

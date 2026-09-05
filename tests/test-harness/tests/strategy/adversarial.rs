@@ -4,7 +4,8 @@ use test_harness::mock_aggregator::{ReenterMode, ReenteringAggregator};
 use test_harness::mock_blend::{MockBlendClient, KIND_COLLATERAL, KIND_LIABILITY};
 use test_harness::{
     apply_flash_fee, assert_contract_error, build_aggregator_swap, errors, eth_preset,
-    helpers::f64_to_i128, hub_asset, usdc_preset, LendingTest, ALICE, BOB, HARNESS_HUB,
+    helpers::f64_to_i128, hub_asset, map_try_ok_value, usdc_preset, LendingTest, ALICE, BOB,
+    HARNESS_HUB,
 };
 
 use crate::helpers::register_approved_blend;
@@ -70,9 +71,13 @@ fn assert_router_reentry_rejects_multiply(mode: ReenterMode) {
     fund_router_at(&t, &router, "USDC", 3_000.0);
     let steps = multiply_steps(&t);
     let result = try_multiply_any(&mut t, &steps);
-    assert!(
-        result.is_err(),
-        "multiply via reentering router {mode:?} must revert: {result:?}"
+    // The host refuses the router's call back into the controller with
+    // Error(Context, InvalidAction) before the #400 flash guard is reached;
+    // ReenterMode::Panic traps into the same host verdict.
+    assert_eq!(
+        result.unwrap_err(),
+        "Error(Context, InvalidAction)",
+        "multiply via reentering router {mode:?} must be refused by the host"
     );
     assert!(
         flash_guard_cleared(&t),
@@ -174,9 +179,10 @@ fn test_swap_debt_router_reenter_supply_rejects() {
     fund_router_at(&t, &router, "ETH", 1.0);
     let steps = build_aggregator_swap(&t, "USDC", "ETH", 1_000_000_000, 1_0000000);
     let result = try_swap_debt_any(&mut t, &steps);
-    assert!(
-        result.is_err(),
-        "swap_debt via reentering router must revert: {result:?}"
+    assert_eq!(
+        result.unwrap_err(),
+        "Error(Context, InvalidAction)",
+        "swap_debt via reentering router must be refused by the host"
     );
     assert!(flash_guard_cleared(&t));
 }
@@ -189,9 +195,10 @@ fn test_swap_collateral_router_reenter_supply_rejects() {
     fund_router_at(&t, &router, "ETH", 5.0);
     let steps = build_aggregator_swap(&t, "USDC", "ETH", 1_000_000_000, 1_0000000);
     let result = try_swap_collateral_any(&mut t, &steps);
-    assert!(
-        result.is_err(),
-        "swap_collateral via reentering router must revert: {result:?}"
+    assert_eq!(
+        result.unwrap_err(),
+        "Error(Context, InvalidAction)",
+        "swap_collateral via reentering router must be refused by the host"
     );
     assert!(flash_guard_cleared(&t));
 }
@@ -204,9 +211,10 @@ fn test_rdwc_router_reenter_supply_rejects() {
     fund_router_at(&t, &router, "ETH", 1.0);
     let steps = build_aggregator_swap(&t, "USDC", "ETH", 1_000_000_000, 1_0000000);
     let result = try_rdwc_any(&mut t, &steps);
-    assert!(
-        result.is_err(),
-        "rdwc via reentering router must revert: {result:?}"
+    assert_eq!(
+        result.unwrap_err(),
+        "Error(Context, InvalidAction)",
+        "rdwc via reentering router must be refused by the host"
     );
     assert!(flash_guard_cleared(&t));
 }
@@ -290,9 +298,10 @@ fn test_multiply_transfer_hook_on_debt_cannot_reenter() {
     t.fund_router("USDC", 3_000.0);
     let steps = multiply_steps(&t);
     let result = try_multiply_any(&mut t, &steps);
-    assert!(
-        result.is_err(),
-        "debt-token transfer hook during multiply must not reenter: {result:?}"
+    assert_eq!(
+        result.unwrap_err(),
+        "Error(Context, InvalidAction)",
+        "the debt token's hook must be refused by the host when it reenters"
     );
     assert!(flash_guard_cleared(&t));
 }
@@ -307,9 +316,10 @@ fn test_swap_collateral_transfer_hook_cannot_reenter() {
     t.fund_router("ETH", 5.0);
     let steps = build_aggregator_swap(&t, "USDC", "ETH", 1_000_000_000, 1_0000000);
     let result = try_swap_collateral_any(&mut t, &steps);
-    assert!(
-        result.is_err(),
-        "destination-token transfer hook during swap_collateral must not reenter: {result:?}"
+    assert_eq!(
+        result.unwrap_err(),
+        "Error(Context, InvalidAction)",
+        "the destination token's hook must be refused by the host when it reenters"
     );
     assert!(flash_guard_cleared(&t));
 }
@@ -355,10 +365,14 @@ fn test_migrate_blend_submit_hook_cannot_reenter() {
         &supply_assets,
         &debt_caps,
     );
-    assert!(
-        matches!(result, Err(_) | Ok(Err(_))),
-        "blend submit hook must not reenter: {result:?}"
-    );
+    match result {
+        Err(Ok(err)) => assert_eq!(
+            std::format!("{err:?}"),
+            "Error(Context, InvalidAction)",
+            "the blend submit hook must be refused by the host when it reenters"
+        ),
+        other => panic!("blend submit hook must be refused by the host, got {other:?}"),
+    }
     assert!(flash_guard_cleared(&t));
 }
 
@@ -411,10 +425,7 @@ fn test_multiply_wrong_owner_cannot_use_reentering_router() {
         &None,
         &None,
     );
-    assert!(
-        matches!(result, Err(_) | Ok(Err(_))),
-        "bob must not multiply into alice's account: {result:?}"
-    );
+    assert_contract_error(map_try_ok_value(result), errors::NOT_AUTHORIZED);
 }
 
 #[test]

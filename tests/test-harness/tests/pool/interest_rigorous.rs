@@ -181,7 +181,9 @@ fn test_scaled_amount_times_index_equals_actual() {
     let account_id = t.resolve_account_id(ALICE);
     let eth_addr = t.resolve_asset("ETH");
 
-    let actual_borrow = t.borrow_balance_raw(ALICE, "ETH");
+    let eth_key = hub_asset(eth_addr.clone());
+    // The contract's own debt readout, not a harness reconstruction of it.
+    let reported = t.ctrl_client().get_borrow_amount(&account_id, &eth_key);
 
     let (_, borrow_index) = get_indexes(&t, "ETH");
 
@@ -199,20 +201,35 @@ fn test_scaled_amount_times_index_equals_actual() {
             .scaled_amount
     });
 
-    // Reconstruct in integer math with the production unscaling (borrow
-    // rounds up); the old f64 path needed a ±2-whole-token band that a 15%
-    // conversion bug would have passed.
-    let computed_actual = common::rates::unscale_borrow_ceil(
-        &t.env,
-        common::math::fp::Ray::from(scaled_borrow),
-        common::math::fp::Ray::from(borrow_index),
-        7,
+    let scaled = common::math::fp::Ray::from(scaled_borrow);
+    let index = common::math::fp::Ray::from(borrow_index);
+
+    // `views::borrow_amount_for_hub_asset` documents half-up for the *view*
+    // (views.rs:90). Pin it exactly against the contract's own number: the old
+    // form compared two harness reconstructions inside a ±1 window that is
+    // precisely the half-up/ceil/floor spread, so a rounding-direction flip in
+    // the view was invisible.
+    assert_eq!(
+        reported,
+        common::rates::unscale_borrow(&t.env, scaled, index, 7),
+        "get_borrow_amount must be the half-up unscaling of scaled x index"
     );
-    let diff = (computed_actual - actual_borrow).abs();
-    assert!(
-        diff <= 1,
-        "scaled * index must reconstruct the reported borrow to the stroop: \
-         computed={computed_actual}, reported={actual_borrow}"
+
+    // ADR-0003: what the pool actually charges rounds up. Drive the contract:
+    // one stroop under the ceil value must leave the position open, and the
+    // residual must close it.
+    let computed_actual = common::rates::unscale_borrow_ceil(&t.env, scaled, index, 7);
+    t.repay_raw(ALICE, "ETH", computed_actual - 1);
+    assert_eq!(
+        t.ctrl_client().get_borrow_amount(&account_id, &eth_key),
+        1,
+        "one stroop short of {computed_actual} must leave exactly one stroop owed"
+    );
+    t.repay_raw(ALICE, "ETH", 1);
+    assert_eq!(
+        t.ctrl_client().get_borrow_amount(&account_id, &eth_key),
+        0,
+        "the ceil-unscaled value must close the position exactly"
     );
 }
 

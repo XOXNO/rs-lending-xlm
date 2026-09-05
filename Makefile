@@ -579,6 +579,7 @@ scout-strict:
 # justification -- in scripts/permissionless_entrypoints.txt. Source-only and
 # deterministic: no build, no network, runs in about a second.
 access-control-check:
+	@python3 scripts/test_check_access_control.py
 	@python3 scripts/check_access_control.py
 
 
@@ -594,29 +595,48 @@ WASM_BUDGET_FILE ?= configs/wasm_size_budget.txt
 
 
 # Fail the build if a `testing`-feature-only entrypoint leaked into a deployable
-# WASM. We grep only for symbols that are unambiguously test-only: a leak
-# co-exports every symbol in the cfg-gated impl, so any one firing catches it.
-# `set_price_aggregator` is deliberately NOT grepped — production governance
-# references it as a cross-contract invoke target (op.rs `Symbol::new`), so it is
-# not a reliable leak-only marker; a governance-testing leak is still caught by
-# `set_controller` / `execute_immediate` on the same artifact.
+# WASM. The symbol list is DERIVED from source at run time by the same
+# classifier `access-control-check` uses (`--list-test-only`), so a new
+# `#[cfg(feature = "testing")] #[contractimpl]` block on ANY contract is covered
+# the moment it lands -- a hardcoded list only ever covered governance and
+# price-aggregator, and silently stayed stale. A contract whose artifact is
+# missing is a hard failure, not a skip: add it to WASM_SIZE_CONTRACTS.
+#
+# `set_price_aggregator` is deliberately exempt — production governance
+# references it as a cross-contract invoke target (op.rs `Symbol::new`), so the
+# string is in the artifact whether or not the testing feature leaked; a
+# governance-testing leak is still caught by `set_controller` /
+# `execute_immediate` on the same artifact.
+WASM_ABI_EXEMPT_SYMBOLS ?= set_price_aggregator
+
 wasm-testing-abi-check: deploy-artifacts
-	@gov="$(DEPLOY_DIR)/governance.wasm"; \
-	if [ ! -f "$$gov" ]; then echo "governance deploy WASM missing: $$gov"; exit 1; fi; \
-	if strings "$$gov" | grep -Eqw 'set_controller|execute_immediate'; then \
-		echo "FAIL: governance.wasm exports test-only ABI (set_controller / execute_immediate)"; \
-		echo "  The governance/testing feature leaked into the deployable build."; \
+	@rows=$$(python3 scripts/check_access_control.py --list-test-only) || exit 1; \
+	if [ -z "$$rows" ]; then \
+		echo "FAIL: the classifier reports no test-only entrypoints at all"; \
+		echo "  Either the parser broke or the cfg gate vanished; both are bugs."; \
 		exit 1; \
 	fi; \
-	echo "OK   governance.wasm exports no test-only ABI"
-	@pa="$(DEPLOY_DIR)/price_aggregator.wasm"; \
-	if [ ! -f "$$pa" ]; then echo "price-aggregator deploy WASM missing: $$pa"; exit 1; fi; \
-	if strings "$$pa" | grep -Eqw 'seed_oracle|seed_oracle_config|remove_oracle'; then \
-		echo "FAIL: price_aggregator.wasm exports test-only ABI (seed_oracle / seed_oracle_config / remove_oracle)"; \
-		echo "  The price-aggregator/testing feature leaked into the deployable build."; \
-		exit 1; \
+	status=0; checked=0; \
+	for row in $$rows; do \
+		contract=$${row%%:*}; sym=$${row##*:}; \
+		case " $(WASM_ABI_EXEMPT_SYMBOLS) " in *" $$sym "*) continue ;; esac; \
+		wasm="$(DEPLOY_DIR)/$$(echo $$contract | tr -- - _).wasm"; \
+		if [ ! -f "$$wasm" ]; then \
+			echo "FAIL: $$contract has test-only entrypoint '$$sym' but no deploy WASM: $$wasm"; \
+			status=1; continue; \
+		fi; \
+		if strings "$$wasm" | grep -qw "$$sym"; then \
+			echo "FAIL: $$(basename $$wasm) exports test-only ABI '$$sym'"; \
+			echo "  The $$contract/testing feature leaked into the deployable build."; \
+			status=1; \
+		else \
+			checked=$$((checked+1)); \
+		fi; \
+	done; \
+	if [ "$$status" -eq 0 ]; then \
+		echo "OK   $$checked test-only symbol(s) absent from their deploy WASM"; \
 	fi; \
-	echo "OK   price_aggregator.wasm exports no test-only ABI"
+	exit $$status
 
 
 wasm-size-check: deploy-artifacts wasm-testing-abi-check

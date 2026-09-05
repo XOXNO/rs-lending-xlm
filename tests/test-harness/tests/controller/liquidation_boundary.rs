@@ -1,3 +1,4 @@
+use crate::shared::get_indexes;
 use controller::constants::WAD;
 use test_harness::{assert_contract_error, errors, usd, usd_cents, LendingTest, ALICE, LIQUIDATOR};
 
@@ -57,11 +58,26 @@ fn test_hf_just_below_one_is_liquidatable() {
     let hf_raw = t.health_factor_raw(ALICE);
     assert!(hf_raw < WAD, "HF must be < 1.0, got {}", hf_raw);
 
+    let debt_before = t.borrow_balance(ALICE, "ETH");
+    t.get_or_create_user(LIQUIDATOR);
+    let seized_before = t.token_balance(LIQUIDATOR, "USDC");
+
     let result = t.try_liquidate(LIQUIDATOR, ALICE, "ETH", 0.5);
     assert!(
         result.is_ok(),
         "liquidation at HF<1 should succeed, got {:?}",
         result
+    );
+    // `is_ok()` alone said nothing about the resulting state; the healthy
+    // sibling pins its rejection precisely, so pin this side too.
+    assert!(
+        (debt_before - t.borrow_balance(ALICE, "ETH") - 0.5).abs() < 1e-6,
+        "the 0.5 ETH must actually retire debt: {debt_before} -> {}",
+        t.borrow_balance(ALICE, "ETH")
+    );
+    assert!(
+        t.token_balance(LIQUIDATOR, "USDC") - seized_before > 1_000.0,
+        "liquidator must receive at least the $1 000 repaid in collateral"
     );
 }
 
@@ -90,9 +106,11 @@ fn test_liquidation_strictly_improves_hf() {
 #[test]
 fn test_liquidation_bonus_monotone_in_mild_underwater_band() {
     let mut bonuses: std::vec::Vec<(u32, f64, f64, f64)> = std::vec::Vec::new();
+    let mut fee_frac = f64::NAN;
 
     for cents_per_dollar in [73u32, 71, 69, 67] {
         let mut t = LendingTest::new().standard_two_asset_dust_disabled();
+        fee_frac = f64::from(t.get_asset_config("USDC").liquidation_fees) / 10_000.0;
 
         t.supply(ALICE, "USDC", 10_000.0);
         t.borrow(ALICE, "ETH", 3.0);
@@ -114,18 +132,23 @@ fn test_liquidation_bonus_monotone_in_mild_underwater_band() {
         bonuses.push((cents_per_dollar, realized_bonus, hf_before, hf_after));
     }
 
-    assert!(
-        bonuses.len() >= 3,
-        "need at least 3 samples, got {}: {:?}",
+    assert_eq!(
         bonuses.len(),
-        bonuses
+        4,
+        "every sample must be liquidatable, else a cell silently vanishes: {bonuses:?}"
     );
 
+    // NOT monotone, despite the name: the curve bonus rises as HF falls, but
+    // below ~0.95 the HF-neutral cap takes over and itself falls with HF, so
+    // the realized series here is 0.118 -> 0.134 -> 0.132 -> 0.103. The real
+    // property is the cap, and the liquidator is paid it net of the bonus-only
+    // protocol fee -- so the binding bound is `cap * (1 - fee)`, not `cap`,
+    // which left a whole fee's worth of slack.
     for (cents, bonus, hf_before, hf_after) in &bonuses {
-        let neutral_cap = hf_before / 0.80 - 1.0;
+        let neutral_cap = (hf_before / 0.80 - 1.0) * (1.0 - fee_frac);
         assert!(
-            *bonus <= neutral_cap + 1e-3,
-            "bonus {bonus:.6} above HF-neutral cap {neutral_cap:.6} at cents={cents}, full={bonuses:?}"
+            *bonus <= neutral_cap + 1e-6,
+            "bonus {bonus:.6} above net HF-neutral cap {neutral_cap:.6} at cents={cents}, full={bonuses:?}"
         );
         assert!(
             hf_after + 1e-6 >= *hf_before,
@@ -171,10 +194,21 @@ fn test_liquidation_bonus_clamped_at_max() {
     let usd_received = usdc_received * 0.50;
     let realized_bonus = (usd_received / 200.0) - 1.0;
 
+    // One-sided `<= 0.26` is satisfied by a bonus of zero, so it never shows a
+    // clamp binding. Pin the value two-sided against the base rate net of the
+    // bonus-only protocol fee.
+    let fee_frac = f64::from(t.get_asset_config("USDC").liquidation_fees) / 10_000.0;
+    let base_net =
+        f64::from(t.get_asset_config("USDC").liquidation_bonus) / 10_000.0 * (1.0 - fee_frac);
     assert!(
         realized_bonus <= 0.26,
         "realized bonus must stay under the per-account ceiling, got {:.4}",
         realized_bonus
+    );
+    assert!(
+        (realized_bonus - base_net).abs() < 2e-3,
+        "deep under water the curve pays the base rate net of fees ({base_net:.4}), \
+         got {realized_bonus:.4}"
     );
 }
 
@@ -187,12 +221,18 @@ fn test_bad_debt_socialization_triggers_under_threshold() {
     t.set_price("USDC", usd_cents(10));
     t.assert_liquidatable(ALICE);
 
+    let (si_before, _) = get_indexes(&t, "ETH");
     t.liquidate(LIQUIDATOR, ALICE, "ETH", 0.011);
 
-    let debt_after = t.borrow_balance(ALICE, "ETH");
-    assert!(
-        debt_after < 0.0001,
-        "bad-debt cleanup should zero the debt, got {:.6}",
-        debt_after
+    // Measured: this fixture does NOT socialize. Under the bad-debt threshold
+    // the liquidator repays the whole 0.011 ETH from its own pocket against
+    // $3 of collateral, so the debt is retired, not written off -- the ETH
+    // supply index comes back bit-identical. `debt_after < 0.0001` alone could
+    // not tell those two outcomes apart.
+    let (si_after, _) = get_indexes(&t, "ETH");
+    assert_eq!(
+        si_after, si_before,
+        "a liquidator-funded full close must not touch ETH suppliers"
     );
+    t.assert_no_positions(ALICE);
 }

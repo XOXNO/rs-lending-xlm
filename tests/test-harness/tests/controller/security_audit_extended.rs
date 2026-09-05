@@ -83,16 +83,35 @@ fn poc_global_pause_blocks_risk_increasing_allows_exit_and_liq() {
         errors::CONTRACT_PAUSED,
     );
 
+    // Exit paths must not merely return `Ok` - they must move the value they claim to.
+    let bob_wallet_before = t.token_balance_raw(BOB, "USDC");
+    let bob_supply_before = t.supply_balance_raw(BOB, "USDC");
     let w = t.try_withdraw(BOB, "USDC", 10.0);
     assert!(
         w.is_ok(),
         "H-PAUSE-GLOBAL: debt-free withdraw must remain open while paused; got {w:?}"
     );
+    assert_eq!(
+        t.token_balance_raw(BOB, "USDC") - bob_wallet_before,
+        100_000_000i128,
+        "the paused withdraw must actually pay out 10 USDC"
+    );
+    assert_eq!(
+        bob_supply_before - t.supply_balance_raw(BOB, "USDC"),
+        100_000_000i128,
+        "and must debit the same amount from the position"
+    );
 
+    let debt_before = t.borrow_balance_raw(ALICE, "ETH");
     let r = t.try_repay(ALICE, "ETH", 0.1);
     assert!(
         r.is_ok(),
         "H-PAUSE-GLOBAL: repay must remain open while paused; got {r:?}"
+    );
+    assert_eq!(
+        debt_before - t.borrow_balance_raw(ALICE, "ETH"),
+        1_000_000i128,
+        "the paused repay must actually retire 0.1 ETH of debt"
     );
 
     t.set_price("USDC", test_harness::usd_cents(40));
@@ -100,10 +119,22 @@ fn poc_global_pause_blocks_risk_increasing_allows_exit_and_liq() {
         t.can_be_liquidated(ALICE),
         "precondition: Alice liquidatable after crash"
     );
+    let liq_debt_before = t.borrow_balance_raw(ALICE, "ETH");
+    t.get_or_create_user(LIQUIDATOR);
+    let liquidator_before = t.token_balance_raw(LIQUIDATOR, "USDC");
     let liq = t.try_liquidate(LIQUIDATOR, ALICE, "ETH", 0.5);
     assert!(
         liq.is_ok(),
         "H-PAUSE-GLOBAL: liquidate must remain open while globally paused; got {liq:?}"
+    );
+    assert_eq!(
+        liq_debt_before - t.borrow_balance_raw(ALICE, "ETH"),
+        5_000_000i128,
+        "the paused liquidation must retire exactly the 0.5 ETH repaid"
+    );
+    assert!(
+        t.token_balance_raw(LIQUIDATOR, "USDC") > liquidator_before,
+        "and must pay the liquidator seized collateral"
     );
 }
 

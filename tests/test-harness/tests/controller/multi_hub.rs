@@ -1,4 +1,4 @@
-use controller::constants::RAY;
+use controller::constants::{RAY, RAY_DECIMALS};
 use controller::types::{AccountPositionRaw, ControllerKey, DebtPositionRaw, PositionMode};
 use soroban_sdk::{Bytes, Map};
 use test_harness::{
@@ -232,9 +232,12 @@ fn swap_debt_refinances_debt_across_hubs() {
         0,
         "hub-1 USDC debt is fully repaid by the refinance"
     );
-    assert!(
-        borrow_scaled_on_hub(&t, account_id, hub2, "USDC") > 0,
-        "hub-2 USDC debt now carries the refinanced position"
+    // Fresh hub-2 market: `borrow_index == RAY`, so the scaled position equals the principal.
+    let expected_scaled = new_debt_raw * 10i128.pow(RAY_DECIMALS - 7);
+    assert_eq!(
+        borrow_scaled_on_hub(&t, account_id, hub2, "USDC"),
+        expected_scaled,
+        "hub-2 must carry the whole refinanced principal, not a fraction of it"
     );
 
     assert_eq!(
@@ -242,9 +245,10 @@ fn swap_debt_refinances_debt_across_hubs() {
         0,
         "hub-1 USDC market has no borrows after the refinance"
     );
-    assert!(
-        t.pool_state_on_hub(hub2, "USDC").borrowed > 0,
-        "hub-2 USDC market holds the refinanced borrow"
+    assert_eq!(
+        t.pool_state_on_hub(hub2, "USDC").borrowed,
+        expected_scaled,
+        "and the hub-2 market's borrow book must agree with the position"
     );
 }
 
@@ -488,9 +492,12 @@ fn swap_collateral_migrates_collateral_across_hubs() {
         0,
         "hub-1 USDC collateral is fully withdrawn by the migration"
     );
-    assert!(
-        supply_scaled_on_hub(&t, account_id, hub2, "USDC") > 0,
-        "hub-2 USDC collateral now carries the migrated position"
+    // Fresh hub-2 market: `supply_index == RAY`, so the scaled position equals the amount.
+    let expected_scaled = migrate_amount * 10i128.pow(RAY_DECIMALS - 7);
+    assert_eq!(
+        supply_scaled_on_hub(&t, account_id, hub2, "USDC"),
+        expected_scaled,
+        "hub-2 must carry the whole migrated collateral"
     );
 
     assert_eq!(
@@ -498,9 +505,10 @@ fn swap_collateral_migrates_collateral_across_hubs() {
         0,
         "hub-1 USDC market has no supply after the migration"
     );
-    assert!(
-        t.pool_state_on_hub(hub2, "USDC").supplied > 0,
-        "hub-2 USDC market holds the migrated supply"
+    assert_eq!(
+        t.pool_state_on_hub(hub2, "USDC").supplied,
+        expected_scaled,
+        "and the hub-2 market's supply book must agree with the position"
     );
 }
 
@@ -546,13 +554,18 @@ fn multiply_opens_cross_hub_same_asset_carry_trade() {
         &None,
     );
 
-    assert!(
-        borrow_scaled_on_hub(&t, account_id, HARNESS_HUB, "USDC") > 0,
-        "hub-1 USDC carries the flash-borrowed debt leg"
+    assert_eq!(
+        borrow_scaled_on_hub(&t, account_id, HARNESS_HUB, "USDC"),
+        debt_to_flash_loan * 10i128.pow(RAY_DECIMALS - 7),
+        "hub-1 carries exactly the flash-borrowed debt leg"
     );
-    assert!(
-        supply_scaled_on_hub(&t, account_id, hub2, "USDC") > 0,
-        "hub-2 USDC carries the collateral leg"
+    assert_eq!(
+        supply_scaled_on_hub(&t, account_id, hub2, "USDC"),
+        (amount_raw(2_000.0, 7) + debt_to_flash_loan
+            - debt_to_flash_loan * DEFAULT_ASSET_CONFIG.flashloan_fee as i128 / 10_000)
+            * 10i128.pow(RAY_DECIMALS - 7),
+        "hub-2 carries the initial payment plus the flash-borrowed leg, \
+         net of the 9 bps flash-loan fee"
     );
 
     let same_hub_debt = HubAssetKey {

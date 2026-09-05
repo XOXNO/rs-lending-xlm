@@ -1,6 +1,6 @@
 use common::types::SeizeMode;
 use controller::constants::{RAY, WAD};
-use test_harness::{hub_asset, usd_cents, usdc_preset, LendingTest, ALICE};
+use test_harness::{hub_asset, usd_cents, usdc_preset, LendingTest, ALICE, LIQUIDATOR};
 #[test]
 fn test_total_collateral_usd_multi_asset() {
     let mut t = LendingTest::new().standard_two_asset().build();
@@ -230,11 +230,15 @@ fn test_liquidation_estimations_basic() {
     assert!(t.can_be_liquidated(ALICE));
 
     let account_id = t.resolve_account_id(ALICE);
-    let ctrl = t.ctrl_client();
     let payments =
         soroban_sdk::Vec::from_array(&t.env, [(hub_asset(t.resolve_asset("ETH")), 3_0000000)]);
-    let estimate = ctrl.get_liquidation_estimate(&account_id, &payments, &SeizeMode::Transfer);
-    let hf = ctrl.get_health_factor(&account_id);
+    let (estimate, hf) = {
+        let ctrl = t.ctrl_client();
+        (
+            ctrl.get_liquidation_estimate(&account_id, &payments, &SeizeMode::Transfer),
+            ctrl.get_health_factor(&account_id),
+        )
+    };
 
     let wad = WAD;
     assert!(hf < wad, "HF should be < 1.0 WAD, got {}", hf);
@@ -252,13 +256,44 @@ fn test_liquidation_estimations_basic() {
         estimate.max_payment_wad
     );
 
-    assert!(
-        !estimate.seized_collaterals.is_empty(),
-        "expected non-empty seized collateral estimate"
+    // The estimate is what liquidator bots size trades from, so it must equal what
+    // execution actually moves - not merely be non-empty.
+    let usdc = t.resolve_asset("USDC");
+    let seized = estimate
+        .seized_collaterals
+        .iter()
+        .find(|p| p.asset == usdc)
+        .expect("USDC is the only collateral, so the plan must name it")
+        .amount;
+    let fee = estimate
+        .protocol_fees
+        .iter()
+        .find(|p| p.asset == usdc)
+        .expect("the fee leg must name the same asset")
+        .amount;
+    // The 3.0 ETH payment exhausts the collateral, so the cap leaves no bonus and
+    // therefore no fee (`liquidation/math.rs::calculate_seized_collateral`): a fee
+    // charged on the gross, capped seizure would show up here.
+    assert_eq!(
+        fee, 0,
+        "a seizure capped below principal carries no bonus, so it must carry no fee"
     );
-    assert!(
-        !estimate.protocol_fees.is_empty(),
-        "expected non-empty protocol fee estimate"
+
+    t.get_or_create_user(LIQUIDATOR);
+    let liquidator_before = t.token_balance_raw(LIQUIDATOR, "USDC");
+    let collateral_before = t.supply_balance_raw(ALICE, "USDC");
+
+    t.liquidate(LIQUIDATOR, ALICE, "ETH", 3.0);
+
+    assert_eq!(
+        t.token_balance_raw(LIQUIDATOR, "USDC") - liquidator_before,
+        seized - fee,
+        "the liquidator must receive exactly the estimated seizure net of the fee"
+    );
+    assert_eq!(
+        collateral_before - t.supply_balance_raw(ALICE, "USDC"),
+        seized,
+        "the borrower must lose exactly the estimated gross seizure"
     );
 }
 #[test]

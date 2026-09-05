@@ -35,14 +35,14 @@ flow_admin() {
     inv set_tolerance "$ADMIN" "$PRICE_AGGREGATOR" -- set_tolerance \
         --key "$eurc_key" --tolerance "$tol_bands" >/dev/null
 
-    xfail oracle_tol_owner_guard 'Missing signing key' "$ALICE" "$PRICE_AGGREGATOR" -- set_tolerance \
+    xfail oracle_tol_owner_guard "Missing signing key for account $ADMIN_ADDR" "$ALICE" "$PRICE_AGGREGATOR" -- set_tolerance \
         --key "$eurc_key" --tolerance "$tol_bands"
 
     flow_price_aggregator_extra "$eurc_key"
 
     inv update_indexes "$ADMIN" "$CONTROLLER" -- update_indexes \
         --caller "$ADMIN_ADDR" --assets "$(hub_vec "$PRIMARY_HUB_ID" "$XLM_SAC" "$USDC_SAC" "$EURC_SAC")" >/dev/null
-    inv update_indexes "$ALICE" "$CONTROLLER" -- update_indexes \
+    inv update_indexes_alice "$ALICE" "$CONTROLLER" -- update_indexes \
         --caller "$ALICE_ADDR" --assets "$(hub_vec "$PRIMARY_HUB_ID" "$XLM_SAC")" >/dev/null
 
     inv update_account_threshold "$ADMIN" "$CONTROLLER" -- update_account_threshold \
@@ -129,7 +129,7 @@ inv delegated_borrow_usdc "$ALICE" "$CONTROLLER" -- borrow \
 --borrows "$(pay_vec "$PRIMARY_HUB_ID" "$USDC_SAC" 1000000)" --to null >/dev/null
 inv delegate_remove_alice "$BOB" "$CONTROLLER" -- remove_delegate \
 --caller "$BOB_ADDR" --account_id "$bob_minb_acct" --delegate "$ALICE_ADDR" >/dev/null
-xfail delegated_borrow_removed 'Error\(Contract' "$ALICE" "$CONTROLLER" -- borrow \
+xfail delegated_borrow_removed 'Error\(Contract, #44\)' "$ALICE" "$CONTROLLER" -- borrow \
 --caller "$ALICE_ADDR" --account_id "$bob_minb_acct" \
 --borrows "$(pay_vec "$PRIMARY_HUB_ID" "$USDC_SAC" 1000000)" --to null
 inv manager_deactivate_alice "$ADMIN" "$CONTROLLER" -- set_position_manager \
@@ -277,7 +277,7 @@ flow_admin_upgrade() {
     # Permissionless TTL renew on a live token, then the designed failure on a
     # token that was never minted.
     inv nft_renew "$ALICE" "$POSITION_NFT" -- renew --token_id "${ADMIN_ACCT:-1}" >/dev/null
-    xfail nft_renew_missing 'Error\(Contract' "$ALICE" "$POSITION_NFT" -- renew --token_id 4000000000
+    xfail nft_renew_missing 'Error\(Contract, #200\)' "$ALICE" "$POSITION_NFT" -- renew --token_id 4000000000
 
     local ledger
     ledger=$(curl -s -m 30 -X POST "$RPC_URL" -H 'Content-Type: application/json' \
@@ -301,7 +301,7 @@ flow_admin_upgrade() {
 
     inv ownership_accept "$CAROL" "$CONTROLLER" -- accept_ownership >/dev/null
     # Ownership really moved: ADMIN is now locked out, CAROL is in.
-    xfail ownership_admin_locked_out 'Missing signing key|Error\(Contract' "$ADMIN" "$CONTROLLER" -- set_position_limits \
+    xfail ownership_admin_locked_out "Missing signing key for account $CAROL_ADDR" "$ADMIN" "$CONTROLLER" -- set_position_limits \
         --limits "$limits"
     inv ownership_carol_now_owner "$CAROL" "$CONTROLLER" -- set_position_limits \
         --limits "$limits" >/dev/null
@@ -393,7 +393,7 @@ flow_price_aggregator_extra() {
     inv pa_set_sanity_band "$ADMIN" "$PRICE_AGGREGATOR" -- set_sanity_band \
         --key "$key" --min_wad "$band_min" --max_wad "$band_max" >/dev/null
 
-    xfail pa_set_sanity_band_owner_guard 'Missing signing key' "$ALICE" "$PRICE_AGGREGATOR" -- set_sanity_band \
+    xfail pa_set_sanity_band_owner_guard "Missing signing key for account $ADMIN_ADDR" "$ALICE" "$PRICE_AGGREGATOR" -- set_sanity_band \
         --key "$key" --min_wad "$band_min" --max_wad "$band_max"
 }
 
@@ -415,27 +415,33 @@ flow_pool_surface() {
     hub_asset=$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")
 
     # --- privileged: must reject a non-owner ---
-    xfail pool_create_market_not_owner 'Missing signing key|Error\(Contract' "$ADMIN" "$POOL" -- create_market \
-        --hub_id "$PRIMARY_HUB_ID" --params "$(market_params_json "$USDC_SAC" 7)"
+    # require_auth never reverts in recording mode, so the only proof of the
+    # owner gate is the CLI failing to sign for the pool's owner (the
+    # controller). Every argument must therefore pass body validation: an
+    # unused hub id keeps create_market clear of AssetAlreadySupported.
+    xfail pool_create_market_not_owner "Missing signing key for account $CONTROLLER" "$ADMIN" "$POOL" -- create_market \
+        --hub_id 4242 --params "$(market_params_json "$USDC_SAC" 7)"
     # InterestRateModel carries is_flashloanable and flashloan_fee too; omitting
     # them makes the CLI reject the argument before auth is ever checked, which
     # would pass the xfail for the wrong reason.
-    xfail pool_update_params_not_owner 'Missing signing key|Error\(Contract' "$ADMIN" "$POOL" -- update_params \
+    xfail pool_update_params_not_owner "Missing signing key for account $CONTROLLER" "$ADMIN" "$POOL" -- update_params \
         --hub_asset "$hub_asset" --model "$(market_params_json "$USDC_SAC" 7 | jq -c '{
             max_borrow_rate, base_borrow_rate, slope1, slope2, slope3,
             mid_utilization, optimal_utilization, max_utilization,
             reserve_factor, is_flashloanable, flashloan_fee
         }')"
-    xfail pool_seize_positions_not_owner 'Missing signing key|Error\(Contract' "$ADMIN" "$POOL" -- seize_positions \
+    xfail pool_seize_positions_not_owner "Missing signing key for account $CONTROLLER" "$ADMIN" "$POOL" -- seize_positions \
         --entries '[]'
-    xfail pool_net_settle_not_owner 'Missing signing key|Error\(Contract' "$ADMIN" "$POOL" -- net_settle \
+    xfail pool_net_settle_not_owner "Missing signing key for account $CONTROLLER" "$ADMIN" "$POOL" -- net_settle \
         --entry "$(jq -nc --argjson h "$PRIMARY_HUB_ID" --arg a "$USDC_SAC" \
             '{hub_asset:{hub_id:$h,asset:$a},amount:"0",
               supply_position:{scaled_amount:"0"},debt_position:{scaled_amount:"0"}}')"
-    xfail pool_create_strategy_not_owner 'Missing signing key|Error\(Contract' "$ADMIN" "$POOL" -- create_strategy \
+    # amount 1 (not 0) so the body clears AmountMustBePositive and auth is the
+    # only remaining failure.
+    xfail pool_create_strategy_not_owner "Missing signing key for account $CONTROLLER" "$ADMIN" "$POOL" -- create_strategy \
         --receiver "$ADMIN_ADDR" --charge_fee false \
         --action "$(jq -nc --argjson h "$PRIMARY_HUB_ID" --arg a "$USDC_SAC" \
-            '{position:{scaled_amount:"0"},amount:"0",hub_asset:{hub_id:$h,asset:$a}}')"
+            '{position:{scaled_amount:"0"},amount:"1",hub_asset:{hub_id:$h,asset:$a}}')"
 
     # --- reads: assert shape, since these back hub-side valuation ---
     local sync idx

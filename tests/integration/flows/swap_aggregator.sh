@@ -36,7 +36,7 @@ flow_swap_aggregator_admin() {
     inv sa_reset_fee "$ADMIN" "$agg" -- set_static_fee --fee_bps 0 >/dev/null
 
     # A non-owner must not be able to move the fee at all.
-    xfail sa_fee_not_owner 'Missing signing key|Error\(Contract' "$BOB" "$agg" -- set_static_fee --fee_bps 10
+    xfail sa_fee_not_owner "Missing signing key for account $ADMIN_ADDR" "$BOB" "$agg" -- set_static_fee --fee_bps 10
 
     # --- whitelist ---
     # XLM_SAC, not one of the LIQ* assets: those are created by flow_liq_setup,
@@ -140,7 +140,7 @@ flow_swap_aggregator_admin() {
     # get_owner is Option<Address>, so an unset owner renders as `null`.
     assert_view_eq_at "$agg" sa_owner_after_renounce null get_owner
     # And `admin` must now panic rather than report a stale owner.
-    xfail sa_admin_after_renounce 'Error\(Contract, #20\)|Error\(Contract' "$ADMIN" "$agg" -- admin
+    xfail sa_admin_after_renounce 'Error\(Contract, #20\)' "$ADMIN" "$agg" -- admin
     # With no owner left, the owner-only surface must be permanently closed.
-    xfail sa_owner_only_after_renounce 'Missing signing key|Error\(Contract' "$ADMIN" "$agg" -- set_static_fee --fee_bps 10
+    xfail sa_owner_only_after_renounce 'Error\(Contract, #2100\)' "$ADMIN" "$agg" -- set_static_fee --fee_bps 10
 }

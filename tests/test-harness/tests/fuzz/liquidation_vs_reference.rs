@@ -193,7 +193,11 @@ proptest! {
         supply_usdc in 1_000u64..500_000u64,
         borrow_eth_frac_bps in 5_000u16..9_000u16,
         debt_ratio_bps in 8_150u16..8_600u16,
-        liq_repay_frac_bps in 500u16..10_000u16,
+        // Inclusive: the exclusive range topped out at 9_999 bps, so full
+        // (100%) repayment -- the boundary the whole differential exists to
+        // cover -- was never generated. The reference clamps the payment to the
+        // outstanding debt, so 10_000 is in its domain.
+        liq_repay_frac_bps in 500u16..=10_000u16,
     ) {
         let t = LendingTest::new().standard_two_asset().build();
         run_liquidation_differential(

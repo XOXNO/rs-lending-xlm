@@ -1,7 +1,6 @@
 use soroban_sdk::String;
 use test_harness::oracle::redstone::{
-    anchor_market_with_redstone, anchor_market_with_redstone_feed, redstone_counters,
-    register_redstone_adapter,
+    anchor_market_with_redstone, redstone_counters, register_redstone_adapter,
 };
 use test_harness::{
     apply_flash_fee, assert_contract_error, build_aggregator_swap, errors, redstone_single_config,
@@ -351,12 +350,31 @@ fn test_prefetch_skips_unlisted_asset_without_panic() {
 
     let redstone = register_redstone_adapter(&t, &[("USDC", usd(1)), ("ETH", usd(2000))]);
 
-    anchor_market_with_redstone_feed(&t, &redstone, "USDC", "USDC");
+    // Only ETH carries a RedStone leg. USDC stays on the reflector-only default,
+    // so the prefetch walk has to skip it rather than ask this adapter for a
+    // feed the USDC oracle never references.
     anchor_market_with_redstone(&t, &redstone, "ETH");
 
     t.supply(BOB, "ETH", 100.0);
     t.supply(ALICE, "USDC", 10_000.0);
+
+    let rs = redstone_counters(&t, &redstone);
+    let bulk_before = rs.bulk_calls();
+    let single_before = rs.single_calls();
+
     t.borrow(ALICE, "ETH", 1.0);
+
+    let rs = redstone_counters(&t, &redstone);
+    assert_eq!(
+        rs.bulk_calls() - bulk_before,
+        0,
+        "one RedStone feed in the position set is below MIN_BULK_FEEDS"
+    );
+    assert_eq!(
+        rs.single_calls() - single_before,
+        1,
+        "the skipped reflector-only USDC leg must not add a RedStone feed read"
+    );
     t.assert_healthy(ALICE);
 }
 

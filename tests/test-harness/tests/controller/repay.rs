@@ -56,21 +56,30 @@ fn test_repay_overpayment_refunded() {
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 1.0);
 
-    let wallet_before = t.token_balance(ALICE, "ETH");
+    let debt_before = t.borrow_balance_raw(ALICE, "ETH");
+    let wallet_before = t.token_balance_raw(ALICE, "ETH");
+    let cash_before = t.pool_reserves("ETH");
+    let overpay = 2 * 10_000_000i128; // 2.0 ETH against a 1.0 ETH debt
 
-    t.repay(ALICE, "ETH", 2.0);
+    // `repay_raw` mints `overpay` to ALICE first, so the wallet delta is the refund.
+    t.repay_raw(ALICE, "ETH", overpay);
 
-    let wallet_after = t.token_balance(ALICE, "ETH");
-
-    assert!(
-        wallet_after > wallet_before + 0.9,
-        "overpayment should be refunded: before={}, after={}",
-        wallet_before,
-        wallet_after
+    assert_eq!(
+        t.token_balance_raw(ALICE, "ETH") - wallet_before,
+        overpay - debt_before,
+        "the refund must be the overpayment and nothing more"
     );
-
-    let borrow = t.borrow_balance(ALICE, "ETH");
-    assert!(borrow < 0.01, "borrow should be ~0");
+    assert_eq!(
+        t.borrow_balance_raw(ALICE, "ETH"),
+        0,
+        "the debt must be fully cleared"
+    );
+    assert_eq!(
+        t.pool_reserves("ETH") - cash_before,
+        1.0,
+        "the pool banks exactly the repaid principal; the overpayment is never credited to cash"
+    );
+    t.assert_borrow_count(ALICE, 0);
 }
 #[test]
 fn test_repay_allowed_when_paused() {
