@@ -16,10 +16,11 @@ permissions:
 
 env:
   STELLAR_VERSION: "28.0.0"
-  # Every deployable contract, so the release carries all of mainnet. v1.0.0
-  # shipped without price_aggregator and position_nft because this list was
-  # repeated in five steps and only some were updated.
-  RELEASE_CONTRACTS: controller pool governance price_aggregator position_nft defindex_strategy
+  # Every deployable contract, named as its artifacts/wasm/deploy file, so the
+  # release carries all of mainnet. v1.0.0 shipped without price_aggregator,
+  # position_nft, aggregator (swap) and xoxno-oracle-adapter because this list
+  # was repeated in five steps and only some were updated.
+  RELEASE_CONTRACTS: controller pool governance price_aggregator position_nft defindex_strategy aggregator xoxno-oracle-adapter
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
@@ -54,6 +55,11 @@ jobs:
 
       - name: Build deploy artifacts and WASM size budget
         run: make wasm-size-check
+
+      # The swap aggregator and the oracle adapter are built by their own
+      # targets, outside the size-budgeted set, into the same deploy dir.
+      - name: Build swap aggregator and oracle adapter
+        run: make build-aggregator build-oracle-adapter
 
       - name: Package release WASM
         run: |
@@ -97,14 +103,8 @@ jobs:
         with:
           name: release-wasm
           path: |
-            dist/controller.wasm
-            dist/controller.wasm.sha256
-            dist/pool.wasm
-            dist/pool.wasm.sha256
-            dist/governance.wasm
-            dist/governance.wasm.sha256
-            dist/defindex_strategy.wasm
-            dist/defindex_strategy.wasm.sha256
+            dist/*.wasm
+            dist/*.wasm.sha256
           if-no-files-found: error
 
   testnet-e2e:
