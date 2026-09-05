@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Context, Result};
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicU64, Ordering};
 use stellar_rpc_client::AuthMode;
 use stellar_xdr::{
@@ -433,6 +434,7 @@ pub async fn snapshot(
     {
         wasm_keys.push(contract_code_key(&extra_hash));
     }
+    dedup_keys(&mut wasm_keys);
     let wasm_code_entries = client.get_ledger_entries(&wasm_keys).await?;
 
     if let Some(gov_instance) = governance_instance {
@@ -458,6 +460,17 @@ pub async fn snapshot(
         wasm_code_entries,
         max_account_id,
     })
+}
+
+/// Drops repeated keys, keeping first occurrences in order. Two configured
+/// instances that share a Wasm, or one that shares it with a core contract,
+/// would otherwise put the same contract-code key into the snapshot twice:
+/// `get_ledger_entries` returns one row per input key, `plan_with_chunk`
+/// copies every matching row into the footprint, and a footprint with a
+/// duplicate key is rejected.
+fn dedup_keys(keys: &mut Vec<LedgerKey>) {
+    let mut seen = HashSet::with_capacity(keys.len());
+    keys.retain(|key| seen.insert(key.clone()));
 }
 
 const DEFAULT_ROLES: [&str; 0] = [];
@@ -1082,6 +1095,20 @@ const SIM_FEE_STROOPS: u32 = 100;
 mod tests {
     use super::*;
     use stellar_xdr::{ContractDataDurability, ScVec};
+
+    /// Two extra instances deployed from one Wasm, or one sharing the pool's
+    /// Wasm, must yield a single contract-code key so the TTL footprint never
+    /// carries a duplicate.
+    #[test]
+    fn dedup_keys_keeps_one_code_key_per_wasm_in_first_seen_order() {
+        let pool = contract_code_key(&[1u8; 32]);
+        let shared = contract_code_key(&[2u8; 32]);
+        let mut keys = vec![pool.clone(), shared.clone(), shared.clone(), pool.clone()];
+
+        dedup_keys(&mut keys);
+
+        assert_eq!(keys, vec![pool, shared]);
+    }
 
     /// Independently reconstructs the `#[contracttype]` encoding of a
     /// single-argument enum variant, so the test does not just re-run the
