@@ -57,7 +57,7 @@ SHELL := /bin/bash
         fuzz fuzz-contract fuzz-one fuzz-build fuzz-seed-corpus \
         fuzz-coverage fuzz-coverage-all fuzz-coverage-one fuzz-coverage-clean \
         proptest proptest-one proptest-build \
-        keygen deploy-testnet deploy-mainnet upgrade-controller upgrade-governance upgrade-pool upgrade-all _deploy \
+        keygen deploy-testnet deploy-mainnet upgrade-controller upgrade-governance upgrade-pool upgrade-price-aggregator upgrade-all _deploy \
         _preflight-tools _preflight-network-config _preflight-validate-configs _preflight-setup _preflight-controller _preflight-governance _preflight-pool-hash \
         _preflight-configure-controller _preflight-upgrade-pool _post-setup-status \
         build-flash-loan-receiver deploy-flash-loan-receiver fund-flash-loan-receiver test-flash-loan-receiver \
@@ -132,6 +132,7 @@ POOL_WASM_HASH_FILE ?= target/pool_wasm_hash.txt
 POOL_UPGRADE_WASM_HASH_FILE ?= target/pool_upgrade_wasm_hash.txt
 CONTROLLER_WASM_HASH_FILE ?= target/controller_wasm_hash.txt
 PRICE_AGGREGATOR_WASM_HASH_FILE ?= target/price_aggregator_wasm_hash.txt
+PRICE_AGGREGATOR_UPGRADE_WASM_HASH_FILE ?= target/price_aggregator_upgrade_wasm_hash.txt
 POSITION_NFT_WASM_HASH_FILE ?= target/position_nft_wasm_hash.txt
 POSITION_NFT_URI ?= https://api.xoxno.com/user/lending/image/
 POSITION_NFT_NAME ?= XOXNO Lending Position
@@ -1289,6 +1290,23 @@ upgrade-position-nft: _preflight-controller _preflight-governance deploy-artifac
 	NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh upgradePositionNftHash $$HASH
 
 
+upgrade-price-aggregator: _preflight-governance deploy-artifacts
+	@echo "=== Upgrading price aggregator on $(NETWORK) ==="
+	@echo "Signer: $(SIGNER)"
+	@stellar contract upload \
+		--wasm $(DEPLOY_DIR)/price_aggregator.wasm \
+		$(SOURCE_FLAG) \
+		--network $(NETWORK) > $(PRICE_AGGREGATOR_UPGRADE_WASM_HASH_FILE); \
+	HASH=$$(cat $(PRICE_AGGREGATOR_UPGRADE_WASM_HASH_FILE)); \
+	echo "New price aggregator WASM hash: $$HASH"
+	@HASH=$$(cat $(PRICE_AGGREGATOR_UPGRADE_WASM_HASH_FILE)); \
+	NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh upgradePriceAggregatorHash $$HASH
+	@HASH=$$(cat $(PRICE_AGGREGATOR_UPGRADE_WASM_HASH_FILE)); \
+	TMP_JSON=$$(mktemp); \
+	jq '.["$(NETWORK)"].price_aggregator_wasm_hash = "'$$HASH'"' \
+		$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json
+
+
 upgrade-governance: _preflight-governance deploy-artifacts
 	@echo "=== Upgrading governance on $(NETWORK) ==="
 	@echo "Signer: $(SIGNER)"
@@ -1916,7 +1934,7 @@ VARARG_ACTIONS := updateIndexes claimRevenue supply borrow withdraw getLiquidati
 
 
 
-MAKEFILE_ACTIONS := deploy upgradeController upgradeGovernance upgradePool upgradePositionNft upgradeAll \
+MAKEFILE_ACTIONS := deploy upgradeController upgradeGovernance upgradePool upgradePositionNft upgradePriceAggregator upgradeAll \
                     deployFlashReceiver fundFlashReceiver testFlashReceiver deployAggregator deployOracleAdapter prepayRent setup resume \
                     upgradeAggregator upgradeOracleAdapter upgradeOracleAdapterFull
 
@@ -1950,6 +1968,7 @@ define NETWORK_DISPATCH
 				upgradeGovernance)  $(MAKE) --no-print-directory upgrade-governance NETWORK=$(1) SIGNER=$(SIGNER) ;; \
 				upgradePool)       $(MAKE) --no-print-directory upgrade-pool NETWORK=$(1) SIGNER=$(SIGNER) ;; \
 		upgradePositionNft) $(MAKE) --no-print-directory upgrade-position-nft NETWORK=$(1) SIGNER=$(SIGNER) ;; \
+				upgradePriceAggregator) $(MAKE) --no-print-directory upgrade-price-aggregator NETWORK=$(1) SIGNER=$(SIGNER) ;; \
 				upgradeAll)         $(MAKE) --no-print-directory upgrade-all NETWORK=$(1) SIGNER=$(SIGNER) ;; \
 				deployFlashReceiver) $(MAKE) --no-print-directory deploy-flash-loan-receiver NETWORK=$(1) SIGNER=$(SIGNER) ;; \
 				fundFlashReceiver)  $(MAKE) --no-print-directory fund-flash-loan-receiver NETWORK=$(1) SIGNER=$(SIGNER) FLASH_MARKET=$(FLASH_MARKET) FLASH_RECEIVER_FUND=$(FLASH_RECEIVER_FUND) ;; \
@@ -2162,7 +2181,7 @@ help-deploy:
 	$(call ROW,make <n> info,deployed contract IDs)
 	$(call BLANK)
 	$(call H2,Upgrades (timelocked))
-	$(call NOTE,make <n> upgradeController | upgradeGovernance | upgradePool | upgradeAll)
+	$(call NOTE,make <n> upgradeController | upgradeGovernance | upgradePool | upgradePriceAggregator | upgradeAll)
 	$(call BLANK)
 	$(call H2,Mainnet env (optional))
 	$(call NOTE,AGGREGATOR_CONTRACT=C... ACCUMULATOR_CONTRACT=G... make mainnet setup)
