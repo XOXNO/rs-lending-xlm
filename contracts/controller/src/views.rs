@@ -1,5 +1,5 @@
 use crate::constants::{MAX_VIEW_INPUTS, WAD};
-use crate::context::Cache;
+use crate::context::Context;
 use common::collections::unique_hub_tokens;
 
 use crate::risk;
@@ -28,7 +28,7 @@ fn require_view_inputs_bound<T>(env: &Env, values: &Vec<T>) {
 /// Returns the account's health factor in WAD, or `i128::MAX` if it has no
 /// debt or does not exist.
 pub(crate) fn health_factor(env: &Env, account_id: u64) -> i128 {
-    let mut cache = Cache::new_view(env);
+    let mut cache = Context::new_view(env);
     match storage::try_get_account(env, account_id) {
         Some(account) if !account.debt_free() => risk::calculate_account_risk_totals(
             env,
@@ -59,7 +59,7 @@ pub(crate) fn collateral_amount_for_hub_asset(
         return 0;
     };
 
-    let mut cache = Cache::new_view(env);
+    let mut cache = Context::new_view(env);
     let market_index = cache.cached_market_index(hub_asset);
     let decimals = cache.cached_pool_sync_data(hub_asset).params.asset_decimals;
 
@@ -83,7 +83,7 @@ pub(crate) fn borrow_amount_for_hub_asset(
         return 0;
     };
 
-    let mut cache = Cache::new_view(env);
+    let mut cache = Context::new_view(env);
     let market_index = cache.cached_market_index(hub_asset);
     let decimals = cache.cached_pool_sync_data(hub_asset).params.asset_decimals;
 
@@ -133,7 +133,7 @@ pub(crate) fn liquidation_collateral_available(env: &Env, account_id: u64) -> i1
     let Some(account) = storage::try_get_account(env, account_id) else {
         return 0;
     };
-    let mut cache = Cache::new_view(env);
+    let mut cache = Context::new_view(env);
 
     risk::calculate_account_risk_totals(
         env,
@@ -152,7 +152,7 @@ pub(crate) fn get_all_market_indexes_detailed(
     hub_assets: &Vec<HubAssetKey>,
 ) -> Vec<MarketIndexView> {
     require_view_inputs_bound(env, hub_assets);
-    let mut cache = Cache::new_view(env);
+    let mut cache = Context::new_view(env);
     cache.fetch_market_indexes(hub_assets);
     let assets = unique_hub_tokens(env, hub_assets);
     let statuses = if assets.is_empty() {
@@ -202,7 +202,7 @@ pub(crate) fn liquidation_estimations_detailed(
     seize_mode: SeizeMode,
 ) -> LiquidationEstimate {
     require_view_inputs_bound(env, debt_payments);
-    let mut cache = Cache::new_view(env);
+    let mut cache = Context::new_view(env);
     let account = storage::get_account(env, account_id);
 
     let result = build_liquidation_plan(env, &account, debt_payments, &mut cache).into_result();
@@ -252,7 +252,7 @@ pub(crate) fn total_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
         return 0;
     }
 
-    let mut cache = Cache::new_view(env);
+    let mut cache = Context::new_view(env);
     // Empty borrow map on purpose: it keeps the market load to the supply keys,
     // so this costs the same cross-contract fetches the supply-only sum did and
     // only adds per-position arithmetic that is discarded.
@@ -272,7 +272,7 @@ pub(crate) fn total_borrow_in_usd(env: &Env, account_id: u64) -> i128 {
         return 0;
     }
 
-    let mut cache = Cache::new_view(env);
+    let mut cache = Context::new_view(env);
     risk::sum_debt_usd(env, &mut cache, &borrow).raw()
 }
 
@@ -283,7 +283,7 @@ pub(crate) fn ltv_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
     let Some(mut account) = storage::try_get_account(env, account_id) else {
         return 0;
     };
-    let mut cache = Cache::new_view(env);
+    let mut cache = Context::new_view(env);
     let _ = risk::restamp_listed_supply_ltv(&mut cache, &mut account);
     risk::calculate_ltv_collateral_wad(env, &mut cache, &account.supply_positions).raw()
 }

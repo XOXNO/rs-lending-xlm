@@ -1,7 +1,8 @@
+use common::types::SeizeMode;
 use test_harness::presets::{
     MarketPreset, ALICE, DEFAULT_ASSET_CONFIG, DEFAULT_MARKET_PARAMS, LIQUIDATOR,
 };
-use test_harness::{helpers::usd, LendingTest};
+use test_harness::{helpers::usd, hub_asset, LendingTest};
 
 fn make_market(name: &'static str, decimals: u32, price: i128, liquidity: f64) -> MarketPreset {
     MarketPreset {
@@ -293,7 +294,42 @@ fn test_liquidation_protocol_fee_cross_decimal() {
 
     let collateral_before = t.total_collateral(ALICE);
 
+    // The named property: the fee is charged on the bonus leg only, and lands
+    // in the 6-decimal collateral market while the debt leg is 18-decimal.
+    // Without this the body never read a fee at all, so 0x or 1e12x passed.
+    let account_id = t.resolve_account_id(ALICE);
+    let payments = soroban_sdk::Vec::from_array(
+        &t.env,
+        [(hub_asset(t.resolve_asset("DAI18")), 2_000 * 10i128.pow(18))],
+    );
+    let estimate =
+        t.ctrl_client()
+            .get_liquidation_estimate(&account_id, &payments, &SeizeMode::Transfer);
+    let seized = estimate.seized_collaterals.get_unchecked(0).amount;
+    let fee = estimate.protocol_fees.get_unchecked(0).amount;
+    let bonus_bps = estimate.bonus_rate_bps;
+    let fee_bps = i128::from(t.get_asset_config("USDC6").liquidation_fees);
+    assert!(
+        seized > 0 && fee > 0 && bonus_bps > 0 && fee_bps > 0,
+        "estimate must be live: seized={seized}, fee={fee}, bonus_bps={bonus_bps}"
+    );
+    // seized = principal * (1 + b), so the bonus portion is seized * b / (1 + b).
+    let expected_fee = (seized * bonus_bps / (10_000 + bonus_bps)) * fee_bps / 10_000;
+    assert!(
+        (fee - expected_fee).abs() <= 1,
+        "cross-decimal fee {fee} must equal the bonus-only charge {expected_fee} \
+         (seized={seized}, bonus_bps={bonus_bps}, fee_bps={fee_bps})"
+    );
+
+    let revenue_before = t.snapshot_revenue("USDC6");
+
     t.liquidate(LIQUIDATOR, ALICE, "DAI18", 2_000.0);
+
+    let revenue_delta = t.snapshot_revenue("USDC6") - revenue_before;
+    assert!(
+        (revenue_delta - fee).abs() <= 2,
+        "the 6-decimal market must book the fee as revenue: delta={revenue_delta}, fee={fee}"
+    );
 
     let collateral_after = t.total_collateral(ALICE);
     let debt_after = t.total_debt(ALICE);

@@ -60,7 +60,12 @@ pub(crate) const ONE_DAY_LEDGERS: u32 = 17_280;
 
 const TTL_THRESHOLD_USER_DAYS: u32 = 30;
 
-const TTL_THRESHOLD_SAFETY_DAYS: u32 = 5;
+/// Instance and shared entries are bumped to the 180-day horizon (mainnet's
+/// `max_entry_ttl`), so the threshold only decides how early in the cycle the
+/// bump fires. Thirty days
+/// (the same window as user entries) means a month of protocol quiet cannot
+/// archive an instance; rent per ledger is unchanged by firing earlier.
+const TTL_THRESHOLD_SAFETY_DAYS: u32 = 30;
 const TTL_BUMP_INSTANCE_DAYS: u32 = 180;
 const TTL_BUMP_SHARED_DAYS: u32 = 180;
 const TTL_BUMP_USER_DAYS: u32 = 120;

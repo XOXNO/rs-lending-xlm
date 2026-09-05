@@ -42,7 +42,7 @@ Every event below states its format. Only `UpdatePositionBatchEvent` uses `vec`;
 | `LiqRepay` | 4 | Debt retired on the liquidated account during a liquidation. Set at `contracts/controller/src/positions/liquidation/apply.rs:78`. |
 | `LiqSeize` | 5 | Collateral debited from the liquidated account. **Gross of the protocol fee**, in both seize modes. Set at `contracts/controller/src/positions/liquidation/apply.rs:117` and `:188`. |
 | `Multiply` | 6 | Debt borrowed by the leverage leg of `multiply`. Set at `contracts/controller/src/strategies/multiply.rs:81`. |
-| `ParamUpd` | 7 | Supply position rewritten by a risk-parameter refresh; no funds move. Set at `contracts/controller/src/keepers.rs:203`. |
+| `ParamUpd` | 7 | Supply position rewritten by a risk-parameter refresh; no funds move. Set at `contracts/controller/src/risk/params.rs`. |
 | `SwDebtR` | 8 | Both legs of `swap_debt`: the new borrow and the repay of the old debt. Set at `contracts/controller/src/strategies/swap_debt.rs:66` and `:88`. |
 | `SwColWd` | 9 | Collateral withdrawn to be swapped by `swap_collateral`. Set at `contracts/controller/src/strategies/swap_collateral.rs:67`. |
 | `RpColWd` | 10 | Collateral withdrawn to be swapped by `repay_debt_with_collateral`. Set at `contracts/controller/src/strategies/repay_debt_with_collateral.rs:116`. |
@@ -188,8 +188,8 @@ The controller defines **20** events, in `contracts/controller/src/events/`.
 
 - **Topics:** `["position", "batch_update"]`
 - **Data format:** `vec` — the payload is a 4-entry vector in declaration order, **not** a map.
-- **Defined at:** `contracts/controller/src/events/position.rs:17`
-- **Emitted by:** `supply`, `withdraw`, `borrow`, `repay`, `liquidate`, `multiply`, `swap_debt`, `swap_collateral`, `repay_debt_with_collateral`, `migrate_from_blend`, and `update_account_threshold`. Published from `Cache::emit_position_batch` at `contracts/controller/src/context/events.rs:53`, reached through `finalize_position_flow` (`contracts/controller/src/positions/mod.rs:225`) and from the keeper path at `contracts/controller/src/keepers.rs:231`.
+- **Defined at:** `contracts/controller/src/events/mod.rs`
+- **Emitted by:** `supply`, `withdraw`, `borrow`, `repay`, `liquidate`, `multiply`, `swap_debt`, `swap_collateral`, `repay_debt_with_collateral`, `migrate_from_blend`, and `update_account_threshold`. Published from `Context::emit_position_batch` at `contracts/controller/src/context.rs`, reached through `finalize_position_flow` (`contracts/controller/src/positions/mod.rs:225`) and from the keeper path at `contracts/controller/src/risk/params.rs`.
 
 | Index | Field | Type | Scale/unit | Meaning |
 | --- | --- | --- | --- | --- |
@@ -198,15 +198,17 @@ The controller defines **20** events, in `contracts/controller/src/events/`.
 | 2 | deposits | `Vec<EventDepositDelta>` | vector of 10-entry vectors | One entry per supply-side leg in this operation. May be empty. |
 | 3 | borrows | `Vec<EventBorrowDelta>` | vector of 6-entry vectors | One entry per borrow-side leg in this operation. May be empty. |
 
-**How to iterate.** Read the payload as a vector. Index 2 is itself a vector; each of its entries is a 10-entry vector matching the `EventDepositDelta` table above, so read element `k` of each inner vector by position. Index 3 is a vector of 6-entry vectors matching the `EventBorrowDelta` table. Both lists may be empty, but the event is not published when both are empty (`contracts/controller/src/context/events.rs:50`).
+**How to iterate.** Read the payload as a vector. Index 2 is itself a vector; each of its entries is a 10-entry vector matching the `EventDepositDelta` table above, so read element `k` of each inner vector by position. Index 3 is a vector of 6-entry vectors matching the `EventBorrowDelta` table. Both lists may be empty, but the event is not published when both are empty (`contracts/controller/src/context.rs`).
 
 **One operation can publish more than one batch.** A `SeizeMode::Credit` liquidation writes two accounts and publishes the liquidated account's batch first and the receiving account's batch second (`contracts/controller/src/positions/liquidation/mod.rs:125` and `:139`). Key on `account_id`; do not assume one operation yields one batch.
+
+**Three shapes of the receiver's batch that surprise integrators.** It is supply-side only: `borrows` is always empty, because a share credit never touches debt (`record_share_credit_updates`, `contracts/controller/src/positions/liquidation/apply.rs:258`). It omits any collateral leg whose net credit is zero: the loop at `apply.rs:266` skips an entry when the fee consumes the whole seizure, which is reachable on a one-share seizure, so the liquidated account can carry a `LiqSeize` leg with no matching `LiqCredit` leg. And a `SeizeMode::Credit(0)` receiver is created inside the call with no account-creation event (`resolve_seize_receiver`, `contracts/controller/src/positions/liquidation/mod.rs:183`); its existence, owner, spoke, and mode are announced only by that second batch's `account_id` and `account_attributes`.
 
 ### `LiquidationEvent`
 
 - **Topics:** `["position", "liquidation"]`
 - **Data format:** `map` (default)
-- **Defined at:** `contracts/controller/src/events/position.rs:42`
+- **Defined at:** `contracts/controller/src/events/mod.rs`
 - **Emitted by:** `liquidate`, at `contracts/controller/src/positions/liquidation/mod.rs:106`
 
 | Field | Type | Scale/unit | Meaning |
@@ -222,7 +224,7 @@ This event carries no seizure or protocol-fee figure. Those live in the accompan
 
 - **Topics:** `["position", "flash_loan"]`
 - **Data format:** `map` (default)
-- **Defined at:** `contracts/controller/src/events/position.rs:53`
+- **Defined at:** `contracts/controller/src/events/mod.rs`
 - **Emitted by:** `flash_loan`, at `contracts/controller/src/strategies/flash_loan.rs:39`
 
 | Field | Type | Scale/unit | Meaning |
@@ -238,7 +240,7 @@ This event carries no seizure or protocol-fee figure. Those live in the accompan
 
 - **Topics:** `["position", "flash_position"]`
 - **Data format:** `map` (default)
-- **Defined at:** `contracts/controller/src/events/position.rs:67`
+- **Defined at:** `contracts/controller/src/events/mod.rs`
 - **Emitted by:** `flash_position`, at `contracts/controller/src/strategies/flash_position.rs:145`
 
 | Field | Type | Scale/unit | Meaning |
@@ -258,7 +260,7 @@ The debt legs of this operation appear in the accompanying batch as `FlashPos` l
 
 - **Topics:** `["account", "delegate"]`
 - **Data format:** `map` (default)
-- **Defined at:** `contracts/controller/src/events/account.rs:8`
+- **Defined at:** `contracts/controller/src/events/mod.rs`
 - **Emitted by:** `add_delegate` and `remove_delegate`, at `contracts/controller/src/account.rs:245`. Published only when the delegate list actually changed.
 
 | Field | Type | Scale/unit | Meaning |
@@ -272,7 +274,7 @@ The debt legs of this operation appear in the accompanying batch as `FlashPos` l
 
 - **Topics:** `["debt", "bad_debt"]`
 - **Data format:** `map` (default)
-- **Defined at:** `contracts/controller/src/events/debt.rs:10`
+- **Defined at:** `contracts/controller/src/events/mod.rs`
 - **Emitted by:** `clean_bad_debt`, and by `liquidate` when the post-liquidation account still holds bad debt. Published at `contracts/controller/src/positions/liquidation/bad_debt.rs:54`.
 
 | Field | Type | Scale/unit | Meaning |
@@ -334,7 +336,7 @@ Built from an `InterestRateModel` by `UpdateMarketParamsEvent::from_rate_model` 
 
 - **Topics:** `["strategy", "initial_payment"]`
 - **Data format:** `map` (default)
-- **Defined at:** `contracts/controller/src/events/strategy.rs:7`
+- **Defined at:** `contracts/controller/src/events/mod.rs`
 - **Emitted by:** `multiply`, at `contracts/controller/src/strategies/multiply.rs:242`. Published only when the caller supplied an initial payment.
 
 | Field | Type | Scale/unit | Meaning |
@@ -347,7 +349,7 @@ Built from an `InterestRateModel` by `UpdateMarketParamsEvent::from_rate_model` 
 
 - **Topics:** `["strategy", "blend_migration"]`
 - **Data format:** `map` (default)
-- **Defined at:** `contracts/controller/src/events/strategy.rs:18`
+- **Defined at:** `contracts/controller/src/events/mod.rs`
 - **Emitted by:** `migrate_from_blend`, at `contracts/controller/src/strategies/migrate_blend.rs:107`
 
 | Field | Type | Scale/unit | Meaning |
@@ -590,14 +592,14 @@ The DeFindex strategy adapter defines **1** event.
 
 - **Topics:** `["strategy", "harvest"]`
 - **Data format:** `map` (default)
-- **Defined at:** `contracts/defindex-strategy/src/lib.rs:25`
-- **Emitted by:** `harvest` at `contracts/defindex-strategy/src/lib.rs:282`
+- **Defined at:** `contracts/defindex-strategy/src/lib.rs:26`
+- **Emitted by:** `harvest` at `contracts/defindex-strategy/src/lib.rs:287`
 
 | Field | Type | Scale/unit | Meaning |
 | --- | --- | --- | --- |
 | from | `Address` | — | The caller that invoked `harvest`. |
-| amount | `i128` | raw asset units | Always `0`. `harvest` moves no funds; the call site passes a literal zero (`contracts/defindex-strategy/src/lib.rs:285`). |
-| price_per_share | `i128` | 12 decimals (1e12) | Current price per share for the configured hub asset. Computed by floor-rescaling the RAY supply index down to `PPS_DECIMALS = 12` (`contracts/defindex-strategy/src/lib.rs:32` and `:175`). |
+| amount | `i128` | raw asset units | Always `0`. `harvest` moves no funds; the call site passes a literal zero (`contracts/defindex-strategy/src/lib.rs:290`). |
+| price_per_share | `i128` | 12 decimals (1e12) | Current price per share for the configured hub asset. Computed by floor-rescaling the RAY supply index down to `PPS_DECIMALS = 12` (`contracts/defindex-strategy/src/lib.rs:33` and `:176`). |
 
 ## Contracts that emit no events
 

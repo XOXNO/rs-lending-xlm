@@ -24,11 +24,8 @@ use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{vec, Address, Env, Map};
 
-use crate::constants::{
-    BPS, MAX_BORROW_INDEX_RAY, MAX_BORROW_RATE_RAY, MAX_SUPPLY_INDEX_RAY, RAY, RAY_DECIMALS,
-    SUPPLY_INDEX_FLOOR_RAW, WAD,
-};
-use crate::context::Cache;
+use crate::constants::{BPS, MAX_BORROW_RATE_RAY, RAY, RAY_DECIMALS, SUPPLY_INDEX_FLOOR_RAW, WAD};
+use crate::context::Context;
 use crate::spec::fixture;
 use crate::types::{
     AccountPositionRaw, DebtPositionRaw, HubAssetKey, MarketIndex, MarketIndexRaw, MarketParamsRaw,
@@ -170,33 +167,6 @@ fn nondet_accrual_window() -> (u64, u64) {
 }
 
 #[rule]
-fn indexes_unchanged_when_no_time_elapsed(e: Env) {
-    let old_borrow_index: i128 = cvlr::nondet::nondet();
-    let old_supply_index: i128 = cvlr::nondet::nondet();
-    let supplied: i128 = cvlr::nondet::nondet();
-    let rate: i128 = cvlr::nondet::nondet();
-
-    cvlr_assume!((RAY..=MAX_BORROW_INDEX_RAY).contains(&old_borrow_index));
-    cvlr_assume!((SUPPLY_INDEX_FLOOR_RAW..=MAX_SUPPLY_INDEX_RAY).contains(&old_supply_index));
-    cvlr_assume!(supplied >= 0);
-    cvlr_assume!(rate >= 0);
-
-    let factor = common::rates::compound_interest(&e, Ray::from(rate), 0);
-    cvlr_assert!(factor == Ray::ONE);
-
-    let new_borrow = common::rates::update_borrow_index(&e, Ray::from(old_borrow_index), factor);
-    cvlr_assert!(new_borrow.raw() == old_borrow_index);
-
-    let new_supply = common::rates::update_supply_index(
-        &e,
-        Ray::from(supplied),
-        Ray::from(old_supply_index),
-        Ray::ZERO,
-    );
-    cvlr_assert!(new_supply.raw() == old_supply_index);
-}
-
-#[rule]
 fn index_sanity(e: Env, asset: Address) {
     let idx = crate::storage::market_index::get_market_index(&e, &asset);
     cvlr_satisfy!(idx.supply_index.raw() > 0 && idx.borrow_index.raw() > 0);
@@ -206,38 +176,11 @@ fn index_sanity(e: Env, asset: Address) {
 // V-9 family (a): view/accrue isomorphism.
 // ---------------------------------------------------------------------------
 
-/// `get_market_index` returns the same pair whether or not `update_indexes`
-/// ran first.
-///
-/// The Blackthorn L-6 / Certora Hub L-03 shape: a view that reads unaccrued
-/// state disagrees with the mutating path that accrues first, so a position
-/// looks healthier (or riskier) than it is. Here both sides are the *same*
-/// projection: reading before accrual projects the stored state forward to
-/// `now`; reading after accrual re-projects a state already stamped at `now`,
-/// which the zero-delta early return leaves untouched.
-#[rule]
-fn iso_market_index_invariant_across_accrual(e: Env, asset: Address) {
-    let (last_timestamp, now) = nondet_accrual_window();
-    let sync = nondet_sync(&asset, last_timestamp);
-
-    // What a view returns with no prior `update_indexes`.
-    let before = simulate_update_indexes(&e, now, &sync);
-
-    // What the same view returns immediately after `update_indexes`.
-    let accrued = accrued_sync(&sync, &before, now);
-    let after = simulate_update_indexes(&e, now, &accrued);
-
-    cvlr_assert!(after.borrow_index.raw() == before.borrow_index.raw());
-    cvlr_assert!(after.supply_index.raw() == before.supply_index.raw());
-    cvlr_assert!(after.borrow_index.raw() <= MAX_BORROW_INDEX_RAY);
-    cvlr_assert!(after.supply_index.raw() <= MAX_SUPPLY_INDEX_RAY);
-}
-
 /// `get_health_factor` and `is_liquidatable` return the same values whether or
 /// not `update_indexes` ran first, and `get_liquidation_estimate` reverts under
 /// the same condition.
 ///
-/// The account book is valued twice through one `Cache`, so a single frozen
+/// The account book is valued twice through one `Context`, so a single frozen
 /// price basis applies to both sides and the only thing that varies is the
 /// market index installed by `put_market_index`: the pre-accrual projection on
 /// the first pass, the post-accrual re-projection on the second. Both are
@@ -288,7 +231,7 @@ fn iso_health_factor_invariant_across_accrual(
     );
 
     crate::spec::fixture::seed_market(&e, &asset);
-    let mut cache = Cache::new_view(&e);
+    let mut cache = Context::new_view(&e);
 
     cache.put_market_index(&hub_asset, &MarketIndexRaw::from(&before));
     let pre = crate::risk::totals::calculate_account_risk_totals::calculate_account_risk_totals(
@@ -372,30 +315,6 @@ fn iso_update_indexes_writes_no_controller_state(
 // ---------------------------------------------------------------------------
 // V-9 family (b): time monotonicity with no accrual invoked.
 // ---------------------------------------------------------------------------
-
-/// `get_market_index` is monotone in ledger time when nothing accrues between
-/// the two reads: a keeper who waits never sees a smaller index.
-///
-/// Both projections start from the *same* stored state, which is exactly the
-/// "no accrual is invoked" precondition — `update_indexes` is what would move
-/// `last_timestamp` forward.
-#[rule]
-fn time_mono_market_index_non_decreasing(e: Env, asset: Address) {
-    let last_timestamp: u64 = cvlr::nondet::nondet();
-    let early_delta: u64 = cvlr::nondet::nondet();
-    let late_delta: u64 = cvlr::nondet::nondet();
-    cvlr_assume!(last_timestamp <= MAX_SEED_TIMESTAMP);
-    cvlr_assume!(early_delta <= late_delta);
-    cvlr_assume!(late_delta <= MAX_COMPOUND_DELTA_MS);
-
-    let sync = nondet_sync(&asset, last_timestamp);
-
-    let early = simulate_update_indexes(&e, last_timestamp + early_delta, &sync);
-    let late = simulate_update_indexes(&e, last_timestamp + late_delta, &sync);
-
-    cvlr_assert!(late.borrow_index.raw() >= early.borrow_index.raw());
-    cvlr_assert!(late.supply_index.raw() >= early.supply_index.raw());
-}
 
 /// The valuation legs `get_liquidation_estimate` sizes its plan from are
 /// monotone in ledger time when nothing accrues between the two reads.

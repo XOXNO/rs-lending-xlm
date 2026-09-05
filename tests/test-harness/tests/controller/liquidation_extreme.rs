@@ -1,3 +1,4 @@
+use crate::shared::get_indexes;
 use controller::constants::WAD;
 use governance::op::{AdminOperation, SpokeLiquidationCurveArgs};
 use test_harness::helpers::{usd, usd_cents};
@@ -82,7 +83,15 @@ fn test_extreme_high_target_hf_curve() {
     t.assert_liquidatable(ALICE);
     let hf_before = t.health_factor(ALICE);
 
+    let (si_before, _) = get_indexes(&t, "USD");
     t.liquidate(LIQUIDATOR, ALICE, "USD", 6_000.0);
+    // The `is_none()` disjunct is satisfied by any full close, including one
+    // that produced bad debt; exclude that case unconditionally.
+    let (si_after, _) = get_indexes(&t, "USD");
+    assert_eq!(
+        si_after, si_before,
+        "a heal must not socialize a loss onto USD suppliers"
+    );
     let healed = t.find_account_id(ALICE).is_none() || t.health_factor(ALICE) > hf_before + 0.5;
     assert!(healed, "high target HF must produce a large heal");
 }
@@ -378,6 +387,7 @@ fn test_toxic_band_full_and_partial_bounded() {
 #[test]
 fn test_partial_chain_converges_no_bad_debt() {
     let mut t = seed_toxic();
+    let (si_before, _) = get_indexes(&t, "USD");
     for _ in 0..8 {
         match (
             t.find_account_id(ALICE),
@@ -390,9 +400,22 @@ fn test_partial_chain_converges_no_bad_debt() {
         t.liquidate(LIQUIDATOR, ALICE, "USD", 1_500.0);
     }
 
+    // "No bad debt" has to be asserted unconditionally: this chain ends by
+    // closing the account out, and the old `if let Some(id)` guard made every
+    // assertion vanish in exactly that case. Socialization is what writes the
+    // debt market's supply index down, and no time advances here, so the index
+    // must come back bit-identical.
+    let (si_after, _) = get_indexes(&t, "USD");
+    assert_eq!(
+        si_after, si_before,
+        "converging must not socialize a loss onto USD suppliers"
+    );
     if let Some(id) = t.find_account_id(ALICE) {
         assert!(t.health_factor(ALICE) >= 1.0, "converged to healthy");
-        assert!(t.try_clean_bad_debt_by_id(id).is_err(), "no bad debt");
+        assert_contract_error(
+            t.try_clean_bad_debt_by_id(id),
+            errors::CANNOT_CLEAN_BAD_DEBT,
+        );
     }
 }
 
@@ -481,8 +504,10 @@ fn test_paused_debt_leg_rejects_liquidation() {
     t.assert_liquidatable(ALICE);
 
     t.set_spoke_asset_paused("USD", true);
-    assert!(
-        t.try_liquidate(LIQUIDATOR, ALICE, "USD", 500.0).is_err(),
-        "paused debt leg must reject the liquidation"
+    // The pause gate is the point of the test; a wildcard `is_err()` let an
+    // oracle or liquidity revert stand in for it.
+    assert_contract_error(
+        t.try_liquidate(LIQUIDATOR, ALICE, "USD", 500.0),
+        errors::SPOKE_ASSET_PAUSED,
     );
 }

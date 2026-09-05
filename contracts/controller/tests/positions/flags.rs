@@ -42,7 +42,7 @@ fn run_gate_with_no_seize(paused: bool, frozen: bool, no_seize: bool, freeze: Fr
             &hub_asset,
             &spoke_asset(paused, frozen, no_seize),
         );
-        let mut cache = Cache::new_view(&env);
+        let mut cache = Context::new_view(&env);
         enforce_spoke_asset_flags(&env, &mut cache, SPOKE_ID, &hub_asset, freeze);
     });
 }
@@ -113,7 +113,7 @@ fn missing_spoke_asset_is_noop_for_seizure() {
             hub_id: 0,
             asset: Address::generate(&env),
         };
-        let mut cache = Cache::new_view(&env);
+        let mut cache = Context::new_view(&env);
         // A delisted asset must stay seizable, or its holders become
         // unliquidatable.
         enforce_spoke_asset_flags(
@@ -136,7 +136,7 @@ fn missing_spoke_asset_is_noop() {
             hub_id: 0,
             asset: Address::generate(&env),
         };
-        let mut cache = Cache::new_view(&env);
+        let mut cache = Context::new_view(&env);
 
         enforce_spoke_asset_flags(
             &env,
@@ -196,7 +196,7 @@ fn run_require_can_supply(collateralizable: bool, paused: bool, frozen: bool) {
             asset: Address::generate(&env),
         };
         seed_supplyable_listing(&env, &hub_asset, collateralizable, paused, frozen);
-        let mut cache = Cache::new_view(&env);
+        let mut cache = Context::new_view(&env);
         require_can_supply(&env, &mut cache, SPOKE_ID, &hub_asset);
     });
 }
@@ -267,7 +267,7 @@ fn require_can_borrow_allows_borrowable_asset() {
             asset: Address::generate(&env),
         };
         seed_borrowable_listing(&env, &hub_asset, true);
-        let mut cache = Cache::new_view(&env);
+        let mut cache = Context::new_view(&env);
         require_can_borrow(&env, &mut cache, SPOKE_ID, &hub_asset);
     });
 }
@@ -284,7 +284,7 @@ fn require_can_borrow_blocks_non_borrowable() {
             asset: Address::generate(&env),
         };
         seed_borrowable_listing(&env, &hub_asset, false);
-        let mut cache = Cache::new_view(&env);
+        let mut cache = Context::new_view(&env);
         require_can_borrow(&env, &mut cache, SPOKE_ID, &hub_asset);
     });
 }
@@ -428,7 +428,7 @@ fn require_can_supply_blocks_inactive_hub() {
             &hub_asset,
             &spoke_asset(false, false, false),
         );
-        let mut cache = Cache::new_view(&env);
+        let mut cache = Context::new_view(&env);
         require_can_supply(&env, &mut cache, SPOKE_ID, &hub_asset);
     });
 }

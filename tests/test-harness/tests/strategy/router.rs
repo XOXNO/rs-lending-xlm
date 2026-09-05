@@ -58,20 +58,6 @@ fn mint_to(t: &LendingTest, asset_name: &str, target: &Address, raw_amount: i128
     market.token_admin.mint(target, &raw_amount);
 }
 
-fn assert_overpull_rejected(result: Result<u64, soroban_sdk::Error>) {
-    match result {
-        Ok(account_id) => panic!("OverPull must be rejected, got Ok(account_id={account_id})"),
-        Err(err) => {
-            let overspend = soroban_sdk::Error::from_contract_error(errors::ROUTER_OVERSPEND);
-            let err_str = format!("{err:?}");
-            assert!(
-                err == overspend || err_str.contains("Error(Contract,"),
-                "OverPull must reject via ROUTER_OVERSPEND or a contract error, got {err:?}"
-            );
-        }
-    }
-}
-
 fn set_sanity_bounds(t: &LendingTest, asset_name: &str, min_wad: i128, max_wad: i128) {
     let asset = t.resolve_asset(asset_name);
     let mut oracle = t
@@ -112,6 +98,9 @@ fn test_swap_tokens_rejects_router_pulling_more_than_allowance() {
 
     let bad = install_bad_router(&t, BadMode::OverPull);
     mint_to(&t, "USDC", &bad, 300_000_000_000);
+    // Without spare input on the controller the SAC's own balance check fires
+    // first (Error(Contract, #10)) and the protocol guard never runs.
+    mint_to(&t, "ETH", &t.controller_address(), 2 * SWAP_REQUESTED_ETH);
 
     let steps = build_aggregator_swap(
         &t,
@@ -122,7 +111,7 @@ fn test_swap_tokens_rejects_router_pulling_more_than_allowance() {
     );
     let result = t.try_alice_multiply(&steps);
 
-    assert_overpull_rejected(result);
+    assert_contract_error(result, errors::ROUTER_OVERSPEND);
 }
 
 #[test]
@@ -560,10 +549,11 @@ fn test_swap_tokens_allowance_remains_zero_after_overpull_rejection() {
     t.resolve_market("ETH")
         .token_admin
         .mint(&bad, &100_000_000_i128);
+    mint_to(&t, "ETH", &t.controller_address(), 2 * SWAP_REQUESTED_ETH);
 
     let steps = build_aggregator_swap(&t, "ETH", "USDC", 0, 30_000_000_000);
     let result = t.try_alice_multiply(&steps);
-    assert_overpull_rejected(result);
+    assert_contract_error(result, errors::ROUTER_OVERSPEND);
 
     let eth = t.resolve_asset("ETH");
     let eth_tok = token::Client::new(&t.env, &eth);

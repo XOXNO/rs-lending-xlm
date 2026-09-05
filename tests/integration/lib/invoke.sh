@@ -69,7 +69,7 @@ inv() {
     local out_f="$LOG_DIR/$label.out" err_f="$LOG_DIR/$label.err"
     local attempt
     for attempt in $(seq 1 "$INV_MAX_ATTEMPTS"); do
-        [ "$attempt" -gt 1 ] && backoff_sleep "$attempt"
+        [ "$attempt" -gt 1 ] && { cp -f "$err_f" "$LOG_DIR/$label.a$((attempt-1)).err"; backoff_sleep "$attempt"; }
         log "inv [$label] $fn"
         if stellar contract invoke --id "$contract" --source "$signer" "${NET_ARGS[@]}" -- "$@" \
             >"$out_f" 2>"$err_f"; then
@@ -134,7 +134,7 @@ inv() {
             && grep -q "Signing transaction" "$err_f" \
             && grep -qE "Trapped|ResourceLimitExceeded" "$err_f" \
             && ! grep -q "Error(Contract" "$err_f"; then
-            record "$label" retry "$fn" "" "" "" "" "" "transient apply failure; resimulating"
+            record "$label" retry "$fn" "" "" "" "" "" "transient apply failure ($(grep -oE "Trapped|ResourceLimitExceeded" "$err_f" | head -1)); resimulating"
             continue
         fi
         break
@@ -176,7 +176,7 @@ xfail() {
     local out_f="$LOG_DIR/$label.out" err_f="$LOG_DIR/$label.err"
     local attempt
     for attempt in $(seq 1 "$XFAIL_MAX_ATTEMPTS"); do
-        [ "$attempt" -gt 1 ] && backoff_sleep "$attempt"
+        [ "$attempt" -gt 1 ] && { cp -f "$err_f" "$LOG_DIR/$label.a$((attempt-1)).err"; backoff_sleep "$attempt"; }
         log "xfail [$label] $fn (expect: $pattern)"
         if stellar contract invoke --id "$contract" --source "$signer" "${NET_ARGS[@]}" ${XFAIL_SEND_NO:+--send=no} -- "$@" \
             >"$out_f" 2>"$err_f"; then
@@ -212,7 +212,7 @@ view() {
     local out_f="$LOG_DIR/$label.out" err_f="$LOG_DIR/$label.err"
     local attempt
     for attempt in $(seq 1 "$INV_MAX_ATTEMPTS"); do
-        [ "$attempt" -gt 1 ] && backoff_sleep "$attempt"
+        [ "$attempt" -gt 1 ] && { cp -f "$err_f" "$LOG_DIR/$label.a$((attempt-1)).err"; backoff_sleep "$attempt"; }
         if stellar contract invoke --id "$contract" --source "$ADMIN" "${NET_ARGS[@]}" --send=no -- "$@" \
             >"$out_f" 2>"$err_f"; then
             record "$label" read "$fn" "" "" "" "" "" "$(head -c 120 "$out_f" | tr '\n\t' '  ')"

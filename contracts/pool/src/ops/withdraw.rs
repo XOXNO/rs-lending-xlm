@@ -41,8 +41,8 @@ pub(crate) fn apply(
 
 /// Runs withdraw accounting without transferring tokens.
 ///
-/// Resolves full or partial close, optionally withholds liquidation fee,
-/// burns shares, and gates liquidity / utilization / solvency before debit.
+/// Resolves full or partial close, burns shares, optionally withholds the
+/// liquidation fee, and gates the final state before debiting cash.
 pub(crate) fn accounting(
     env: &Env,
     is_liquidation: bool,
@@ -52,6 +52,8 @@ pub(crate) fn accounting(
     let (mut cache, position) = ops::load_leg(env, &entry.action);
 
     let (burned, gross_amount) = resolve_close_or_partial(&cache, entry.action.amount, position);
+    // Free the withdrawn shares' capacity before minting the retained fee.
+    let remaining = burn_position(env, &mut cache, position, burned);
     let net_transfer = withhold_liquidation_fee(
         env,
         &mut cache,
@@ -60,7 +62,6 @@ pub(crate) fn accounting(
         entry.protocol_fee,
     );
 
-    let remaining = burn_position(env, &mut cache, position, burned);
     gate_and_debit(env, &mut cache, net_transfer, is_liquidation);
 
     let snapshot = cache.commit();
@@ -99,7 +100,7 @@ fn gate_and_debit(env: &Env, cache: &mut Cache, net_transfer: i128, is_liquidati
     if !is_liquidation {
         guards::require_utilization_below_max(env, cache);
     }
-    guards::require_solvent_withdraw_state(env, cache);
+    guards::require_supply_for_debt(env, cache);
     cache.debit_cash(net_transfer);
 }
 

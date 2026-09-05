@@ -233,23 +233,13 @@ fn rescale(
 /// Rescales `a` from `from_decimals` to `to_decimals`. Upscaling multiplies by the exact
 /// power-of-ten factor; downscaling rounds to the nearest representable value, with exact
 /// halves rounding away from zero. Returns `a` unchanged when the decimal counts are equal.
-/// Panics with `GenericError::MathOverflow` if the factor or the upscaled value overflows
-/// `i128`.
+/// Downscaling supports every `i128` input. Panics with `GenericError::MathOverflow` if the
+/// upscaling factor or the upscaled value overflows `i128`.
 pub fn rescale_half_up(env: &Env, a: i128, from_decimals: u32, to_decimals: u32) -> i128 {
     rescale(env, a, from_decimals, to_decimals, |a, factor| {
         // No representable `a` reaches half of a factor that overflows `i128`.
         let Some(factor) = factor else { return 0 };
-        let half = factor / 2;
-        if a >= 0 {
-            let q = a / factor;
-            if a % factor >= half {
-                q + 1
-            } else {
-                q
-            }
-        } else {
-            (a - half) / factor
-        }
+        div_by_int_half_up(env, a, factor)
     })
 }
 
@@ -287,20 +277,25 @@ pub(crate) fn rescale_ceil(env: &Env, a: i128, from_decimals: u32, to_decimals: 
 }
 
 /// Divides `a` by the positive integer `b`, rounding to the nearest result with exact halves
-/// rounding away from zero. Requires `b > 0` in debug builds. Panics with
+/// rounding away from zero. Supports every `i128` numerator. Panics with
 /// `GenericError::DivisionByZero` if `b` is zero, or with `GenericError::MathOverflow` if
-/// adding the rounding half to a non-negative `a` overflows `i128`.
+/// `b` is negative.
 pub fn div_by_int_half_up(env: &Env, a: i128, b: i128) -> i128 {
     require_nonzero_divisor(env, b);
-    debug_assert!(b > 0, "div_by_int_half_up expects positive divisor");
-    let half_b = b / 2;
+    if b < 0 {
+        panic_with_error!(env, GenericError::MathOverflow);
+    }
+    let quotient = a / b;
+    let remainder = a % b;
+    // ceil(b / 2) handles odd divisors without overflowing b or biasing a.
+    let half = b / 2 + b % 2;
 
-    if a >= 0 {
-        a.checked_add(half_b)
-            .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow))
-            / b
+    if remainder >= half {
+        quotient + 1
+    } else if remainder <= -half {
+        quotient - 1
     } else {
-        (a - half_b) / b
+        quotient
     }
 }
 

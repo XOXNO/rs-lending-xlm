@@ -1,4 +1,6 @@
-use test_harness::{days, usd, LendingTest, ALICE, BOB, CAROL, DAVE, EVE, LIQUIDATOR};
+use test_harness::{
+    days, eth_preset, usd, usdc_preset, LendingTest, ALICE, BOB, CAROL, DAVE, EVE, LIQUIDATOR,
+};
 
 #[test]
 fn test_multi_user_lending_cycle() {
@@ -120,23 +122,47 @@ fn test_full_exit_solvency() {
         alice_debt_after
     );
 
+    // Dave is a pure supplier, so his exit is fully determined: the wallet must
+    // move by exactly his credited balance. Without this the test could not see
+    // a bug that under-paid every withdrawer and stranded the surplus.
+    let dave_credited = t.supply_balance_raw(DAVE, "USDC");
+    let dave_wallet_before = t.token_balance_raw(DAVE, "USDC");
+
     t.withdraw_all(ALICE, "USDC");
     t.withdraw_all(BOB, "USDC");
     t.withdraw_all(CAROL, "ETH");
     t.withdraw_all(DAVE, "USDC");
     t.withdraw_all(EVE, "ETH");
 
+    // Exact to the stroop, and directional: withdraw floors in the protocol's
+    // favour (ADR-0003), so the payout is the credited balance or one stroop
+    // under it -- never over, and never 5% under.
+    let dave_paid = t.token_balance_raw(DAVE, "USDC") - dave_wallet_before;
+    assert!(
+        dave_paid == dave_credited || dave_paid == dave_credited - 1,
+        "dave's payout must equal his credited supply within the protocol-favouring \
+         floor: paid={dave_paid}, credited={dave_credited}"
+    );
+
+    // `pool_reserves` is `state.cash`, which the builder pre-loads with
+    // `initial_liquidity` (src/multi_hub.rs:80-95). `>= 0.0` therefore had a
+    // million-unit margin. Everyone has exited, so the only cash that may
+    // remain is that donation plus the unclaimed protocol revenue.
+    let donated_usdc = usdc_preset().initial_liquidity;
+    let donated_eth = eth_preset().initial_liquidity;
     let reserves_usdc = t.pool_reserves("USDC");
     let reserves_eth = t.pool_reserves("ETH");
     assert!(
-        reserves_usdc >= 0.0,
-        "USDC pool should be solvent, reserves = {}",
-        reserves_usdc
+        reserves_usdc >= donated_usdc,
+        "USDC pool leaked below its seeded liquidity: reserves = {}, seeded = {}",
+        reserves_usdc,
+        donated_usdc
     );
     assert!(
-        reserves_eth >= 0.0,
-        "ETH pool should be solvent, reserves = {}",
-        reserves_eth
+        reserves_eth >= donated_eth,
+        "ETH pool leaked below its seeded liquidity: reserves = {}, seeded = {}",
+        reserves_eth,
+        donated_eth
     );
 
     assert!(

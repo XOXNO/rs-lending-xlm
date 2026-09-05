@@ -1,8 +1,8 @@
-//! First-pass killer for `Cache::fetch_prices` → `()`.
+//! First-pass killer for `Context::fetch_prices` → `()`.
 extern crate std;
 
 use crate::constants::WAD;
-use crate::context::Cache;
+use crate::context::Context;
 use crate::storage;
 use crate::Controller;
 use common::types::{PriceFeedRaw, PriceKey};
@@ -39,7 +39,7 @@ fn fetch_prices_populates_cache() {
     let asset = Address::generate(&env);
     env.as_contract(&id, || {
         storage::set_price_aggregator(&env, &aggregator);
-        let mut cache = Cache::new_view(&env);
+        let mut cache = Context::new_view(&env);
         let mut assets = Vec::new(&env);
         assets.push_back(asset.clone());
         cache.fetch_prices(&assets);
@@ -54,7 +54,7 @@ fn fetch_prices_skips_already_cached_assets() {
     let id = env.register(Controller, (admin,));
     let asset = Address::generate(&env);
     env.as_contract(&id, || {
-        let mut cache = Cache::new_view(&env);
+        let mut cache = Context::new_view(&env);
         let mut seeded = Map::new(&env);
         seeded.set(
             asset.clone(),

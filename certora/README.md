@@ -196,8 +196,21 @@ than a whole profile, because the rule exists in only some confs:
 
 `certora-local.yml` runs on pull requests that touch `certora/**` or
 `common/src/**`. It invokes the local prover over a fixed set of confs with a
-per-rule time cap, and treats proved violations and tooling errors as failures
-while recording timeouts as warnings.
+per-rule time cap (900 s by default), and treats proved violations and tooling
+errors as failures while recording timeouts as warnings. When a rule fails, the
+prover's working directory for that rule is uploaded as
+`certora-local-prover-logs-<sha>`; the concrete counterexample is in
+`Reports/Report-<rule>-Assertions-example1.html`, since `clog!` output has no
+visible effect in the model.
+
+One conf is kept out of that set on purpose. `lp-math-isqrt.conf` holds
+`isqrt_is_the_integer_floor_of_the_root`, which cannot be proved under the
+current model: the prover treats `context/obj_cmp` on two U256 objects as
+"equal digests give 0, otherwise a havoc in {1, -1}", so every ordering
+comparison inside `isqrt_of_product` is nondeterministic and the reported
+counterexample (a = 0x55555555555556, b = 3) does not reproduce against the
+Rust function. It lives in the `heavy` profile so `check_orphans.py` keeps
+tracking it; revisit when the prover models U256 ordering.
 
 `certora-verification.yml` and `certora-fastRules.yml` submit hosted jobs and
 run only on manual dispatch. No profile runs automatically on every pull

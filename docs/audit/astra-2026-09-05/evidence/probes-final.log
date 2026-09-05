@@ -1,0 +1,13 @@
+   Compiling test-harness v0.1.0 (/Users/mihaieremia/GitHub/rs-lending-xlm/tests/test-harness)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.44s
+     Running tests/astra_audit.rs (target/debug/deps/astra_audit-7f63c9701dc65261)
+
+running 2 tests
+Writing test snapshot file for test "as_audit_credit_receivers_repay_refunds_and_cleanup_conserve_exact_books" to "test_snapshots/as_audit_credit_receivers_repay_refunds_and_cleanup_conserve_exact_books.1.json".
+test as_audit_credit_receivers_repay_refunds_and_cleanup_conserve_exact_books ... ok
+160 transitions: successful=[26, 12, 8, 14, 1, 1, 17, 23], rejected=[0, 3, 9, 9, 20, 17, 0, 0]
+Writing test snapshot file for test "as_audit_stateful_credit_and_transfer_sequences_keep_exact_books" to "test_snapshots/as_audit_stateful_credit_and_transfer_sequences_keep_exact_books.1.json".
+test as_audit_stateful_credit_and_transfer_sequences_keep_exact_books ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.18s
+

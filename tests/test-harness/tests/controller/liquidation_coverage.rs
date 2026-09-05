@@ -28,8 +28,7 @@ fn try_liquidate_payments(
     }
 }
 
-#[test]
-fn test_liquidation_aggregates_duplicate_debt_payments() {
+fn residual_after_liquidation(payments: &[(&str, f64)]) -> i128 {
     let mut t = LendingTest::new().standard_two_asset().build();
 
     t.set_oracle_single_spot("USDC");
@@ -44,17 +43,29 @@ fn test_liquidation_aggregates_duplicate_debt_payments() {
 
     t.assert_liquidatable(alice);
 
-    t.liquidate_multi(LIQUIDATOR, alice, &[("ETH", 2.0), ("ETH", 0.1)]);
+    t.liquidate_multi(LIQUIDATOR, alice, payments);
 
     let debt = t.borrow_balance(alice, "ETH");
     assert!(
         debt > 0.0 && debt < 2.5,
         "capped repayment should leave residual debt below principal, got {debt}"
     );
+    t.borrow_balance_raw(alice, "ETH")
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #210)")]
+fn test_liquidation_aggregates_duplicate_debt_payments() {
+    // The band alone stayed green with the second leg deleted, so aggregation
+    // was untested. Two legs of one asset must behave as their sum.
+    let split = residual_after_liquidation(&[("ETH", 2.0), ("ETH", 0.1)]);
+    let single = residual_after_liquidation(&[("ETH", 2.1)]);
+    assert_eq!(
+        split, single,
+        "duplicate debt legs must aggregate into a single 2.1 ETH payment"
+    );
+}
+
+#[test]
 fn test_oracle_rejects_zero_price_before_liquidation_check() {
     let mut t = LendingTest::new().standard_two_asset().build();
 
@@ -66,7 +77,12 @@ fn test_oracle_rejects_zero_price_before_liquidation_check() {
     t.set_oracle_single_spot("USDC");
     t.set_price("USDC", 0);
 
-    t.assert_liquidatable(alice);
+    // The act has to be `liquidate` for "before the liquidation check" to mean
+    // anything; the old body only read the `is_liquidatable` view.
+    assert_contract_error(
+        t.try_liquidate(LIQUIDATOR, alice, "ETH", 0.01),
+        errors::NO_LAST_PRICE,
+    );
 }
 
 #[test]

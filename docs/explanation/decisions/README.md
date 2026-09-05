@@ -14,7 +14,7 @@ and [threat model](../threat-model.md).
 | [0005](0005-fail-closed-price-consumption.md) | Fail-closed price use |
 | [0006](0006-timelock-typed-propose-raw-execute.md) | Timelocked administration |
 | [0007](0007-guardian-ratchet.md) | Emergency ratchet |
-| [0008](0008-halt-flags-gate-liquidation-legs.md) | Halt semantics (proposed `no_seize → frozen` amendment, not shipped) |
+| [0008](0008-halt-flags-gate-liquidation-legs.md) | Halt semantics (`no_seize → frozen` amendment closed 2026-09-05, not adopted) |
 | [0009](0009-spokes-immutable-account-risk-binding.md) | Immutable account risk regime |
 | [0010](0010-flash-loan-allowance-repayment.md) | Flash-loan settlement |
 | [0011](0011-untrusted-swap-router-balance-deltas.md) | Untrusted route execution |

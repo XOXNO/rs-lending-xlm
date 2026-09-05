@@ -103,6 +103,14 @@ fn isqrt_is_the_integer_floor_of_the_root(e: Env, a: u64, b: u64) {
     let root = isqrt_of_product(&e, u128::from(a), u128::from(b));
     let next = root.add(&U256::from_u32(&e, 1));
 
+    // Known model gap, so this rule runs from its own conf outside the local
+    // smoke set. The prover models `context/obj_cmp` on two U256 objects as
+    // "equal digests give 0, otherwise a havoc in {1, -1}", so every ordering
+    // comparison in `isqrt_of_product` (`n <= one`, `while y < x`) is
+    // nondeterministic. Run 33850503287 returned a = 0x55555555555556, b = 3
+    // (n = 2^56 + 2) with the `n <= one` branch taken; the Rust function
+    // returns 2^28 and both assertions hold. Until U256 ordering is modelled,
+    // any verdict here is about the model, not the code.
     cvlr_assert!(root.mul(&root) <= product);
     cvlr_assert!(next.mul(&next) > product);
 }

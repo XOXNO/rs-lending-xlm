@@ -1,3 +1,6 @@
+//! Account entries use persistent user storage; successful reads renew user TTL.
+//! Metadata and delegate writes renew TTL; position-map writes do not.
+
 use super::protocol::{get_user, renew_user_key, set_user};
 use crate::constants::MAX_DELEGATES;
 use crate::external::position_nft::nft_try_owner_of_call;
@@ -8,8 +11,7 @@ use common::types::{
 };
 use soroban_sdk::{assert_with_error, contracttype, panic_with_error, Address, Env, Map, Vec};
 
-/// Assembles an `Account` from its owner, separately stored metadata, and raw supply/borrow
-/// position maps.
+/// Assembles an account from the resolved owner, metadata, and raw position maps.
 pub(crate) fn account_from_parts(
     owner: Address,
     meta: AccountMeta,
@@ -25,37 +27,36 @@ pub(crate) fn account_from_parts(
     }
 }
 
-/// Resolves the account's current owner from the position NFT, or `None` when the id was
-/// never minted or its token was burned. Fail closed.
+/// Resolves current NFT ownership; returns `None` for an unconfigured NFT,
+/// unmintable ID, missing token, or failed lookup. Ownership fails closed.
 pub(crate) fn try_account_owner(env: &Env, account_id: u64) -> Option<Address> {
     let nft = super::protocol::try_get_position_nft(env)?;
     nft_try_owner_of_call(env, &nft, account_id)
 }
 
-/// Resolves the account's current owner, panicking with `AccountNotFound` when it cannot be
-/// established.
+/// Resolves current NFT ownership or fails with `AccountNotFound`.
 pub(crate) fn account_owner(env: &Env, account_id: u64) -> Address {
     try_account_owner(env, account_id)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::AccountNotFound))
 }
 
-/// Reads an account's metadata (spoke, position mode) from persistent user storage, or `None` if the account does not exist.
+/// Returns stored account metadata, or `None` when absent.
 pub(crate) fn try_get_account_meta(env: &Env, account_id: u64) -> Option<AccountMeta> {
     get_user(env, &ControllerKey::AccountMeta(account_id))
 }
 
-/// Reads an account's metadata, panicking with `AccountNotInMarket` if it has not been created.
+/// Returns account metadata or fails with `AccountNotInMarket`.
 pub(crate) fn get_account_meta(env: &Env, account_id: u64) -> AccountMeta {
     try_get_account_meta(env, account_id)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::AccountNotInMarket))
 }
 
-/// Writes an account's metadata to persistent user storage.
+/// Stores account metadata and renews user TTL.
 pub(crate) fn set_account_meta(env: &Env, account_id: u64, meta: &AccountMeta) {
     set_user(env, &ControllerKey::AccountMeta(account_id), meta);
 }
 
-/// Reads an account's raw supply positions map from persistent user storage, or an empty map if none is stored.
+/// Returns raw supply positions, defaulting to an empty map.
 pub(crate) fn get_supply_positions(
     env: &Env,
     account_id: u64,
@@ -63,12 +64,12 @@ pub(crate) fn get_supply_positions(
     get_user(env, &ControllerKey::SupplyPositions(account_id)).unwrap_or_else(|| Map::new(env))
 }
 
-/// Reads an account's raw borrow positions map from persistent user storage, or an empty map if none is stored.
+/// Returns raw debt positions, defaulting to an empty map.
 pub(crate) fn get_debt_positions(env: &Env, account_id: u64) -> Map<HubAssetKey, DebtPositionRaw> {
     get_user(env, &ControllerKey::BorrowPositions(account_id)).unwrap_or_else(|| Map::new(env))
 }
 
-/// Writes an account's supply positions map to persistent storage, removing the entry entirely when the map is empty.
+/// Stores supply positions without renewing TTL; deletes an empty map.
 pub(crate) fn set_supply_positions(
     env: &Env,
     account_id: u64,
@@ -77,7 +78,7 @@ pub(crate) fn set_supply_positions(
     write_side_map(env, &ControllerKey::SupplyPositions(account_id), map);
 }
 
-/// Writes an account's borrow positions map to persistent storage, removing the entry entirely when the map is empty.
+/// Stores debt positions without renewing TTL; deletes an empty map.
 pub(crate) fn set_debt_positions(
     env: &Env,
     account_id: u64,
@@ -86,7 +87,7 @@ pub(crate) fn set_debt_positions(
     write_side_map(env, &ControllerKey::BorrowPositions(account_id), map);
 }
 
-/// Writes `map` to persistent storage under `key`, or removes the entry if `map` is empty.
+/// Stores a nonempty position map without renewing TTL; deletes an empty map.
 fn write_side_map<
     V: soroban_sdk::TryFromVal<Env, soroban_sdk::Val> + soroban_sdk::IntoVal<Env, soroban_sdk::Val>,
 >(
@@ -102,7 +103,7 @@ fn write_side_map<
     }
 }
 
-/// Reads and type-converts a single supply position for `hub_asset` from the account's supply map, or `None` if not present.
+/// Returns the typed supply position for this hub asset, or `None`.
 pub(crate) fn try_get_supply_position(
     env: &Env,
     account_id: u64,
@@ -113,7 +114,7 @@ pub(crate) fn try_get_supply_position(
         .map(|raw| AccountPosition::from(&raw))
 }
 
-/// Reads and type-converts a single debt position for `hub_asset` from the account's borrow map, or `None` if not present.
+/// Returns the typed debt position for this hub asset, or `None`.
 pub(crate) fn try_get_debt_position(
     env: &Env,
     account_id: u64,
@@ -124,7 +125,7 @@ pub(crate) fn try_get_debt_position(
         .map(|raw| DebtPosition::from(&raw))
 }
 
-/// Converts a raw supply positions map into an iterator of typed `(HubAssetKey, AccountPosition)` pairs.
+/// Iterates supply positions with typed fixed-point values.
 pub(crate) fn iter_typed_positions(
     map: &Map<HubAssetKey, AccountPositionRaw>,
 ) -> impl Iterator<Item = (HubAssetKey, AccountPosition)> + '_ {
@@ -132,20 +133,22 @@ pub(crate) fn iter_typed_positions(
         .map(|(key, raw)| (key, AccountPosition::from(&raw)))
 }
 
-/// Converts a raw borrow positions map into an iterator of typed `(HubAssetKey, DebtPosition)` pairs.
+/// Iterates debt positions with typed fixed-point values.
 pub(crate) fn iter_debt_positions(
     map: &Map<HubAssetKey, DebtPositionRaw>,
 ) -> impl Iterator<Item = (HubAssetKey, DebtPosition)> + '_ {
     map.iter().map(|(key, raw)| (key, DebtPosition::from(&raw)))
 }
 
-/// Assembles an account's full state (metadata, supply positions, debt positions), panicking with `AccountNotFound` if its metadata does not exist or its owner cannot be resolved from the position NFT.
+/// Loads both position maps and current NFT ownership. Missing metadata or
+/// unresolved ownership fails with `AccountNotFound`.
 pub(crate) fn get_account(env: &Env, account_id: u64) -> Account {
     try_get_account(env, account_id)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::AccountNotFound))
 }
 
-/// Assembles an account's full state (metadata, supply positions, debt positions), or `None` if its metadata or owner does not exist.
+/// Loads both position maps and current NFT ownership; returns `None` when
+/// metadata is absent or ownership cannot be resolved.
 pub(crate) fn try_get_account(env: &Env, account_id: u64) -> Option<Account> {
     let meta = try_get_account_meta(env, account_id)?;
     let owner = try_account_owner(env, account_id)?;
@@ -157,9 +160,9 @@ pub(crate) fn try_get_account(env: &Env, account_id: u64) -> Option<Account> {
     ))
 }
 
-/// Assembles an account from its owner, metadata, and debt positions with an empty
-/// supply-positions map; panics with `AccountNotInMarket` if the account's metadata does not
-/// exist, or with `AccountNotFound` if its owner cannot be resolved.
+/// Loads metadata, current owner, and debt; leaves supply deliberately unloaded.
+/// Missing metadata raises `AccountNotInMarket`; unresolved ownership raises
+/// `AccountNotFound`. The empty supply map does not prove supply is absent.
 pub(crate) fn get_account_borrow_only(env: &Env, account_id: u64) -> Account {
     let meta = get_account_meta(env, account_id);
     let owner = account_owner(env, account_id);
@@ -167,8 +170,8 @@ pub(crate) fn get_account_borrow_only(env: &Env, account_id: u64) -> Account {
     account_from_parts(owner, meta, Map::new(env), borrow_positions)
 }
 
-/// Reads the delegate list for `account_id`, treating any grant stamped by a previous owner
-/// as empty. NFT transfer therefore revokes delegates lazily.
+/// Returns grants stamped by `owner`, or an empty list. Ownership changes
+/// invalidate a previous owner's grants without deleting them.
 pub(crate) fn get_delegates(env: &Env, account_id: u64, owner: &Address) -> Vec<Address> {
     get_user::<DelegateGrant>(env, &ControllerKey::Delegates(account_id))
         .filter(|grant| grant.granted_by == *owner)
@@ -176,8 +179,8 @@ pub(crate) fn get_delegates(env: &Env, account_id: u64, owner: &Address) -> Vec<
         .unwrap_or_else(|| Vec::new(env))
 }
 
-/// Writes an account's delegate list to persistent storage, stamped with the granting `owner`;
-/// removes the entry entirely when the list is empty.
+/// Stores delegates stamped by the granting owner and renews user TTL;
+/// deletes the entry when the list is empty.
 fn set_delegates(env: &Env, account_id: u64, owner: &Address, delegates: &Vec<Address>) {
     let key = ControllerKey::Delegates(account_id);
     if delegates.is_empty() {
@@ -194,8 +197,8 @@ fn set_delegates(env: &Env, account_id: u64, owner: &Address, delegates: &Vec<Ad
     }
 }
 
-/// Adds `delegate` to the account's delegate list, returning `false` if it is already present. Panics with `RegistryCapReached` if the list is already at `MAX_DELEGATES`. A stale grant from a
-/// previous owner reads as empty and is overwritten wholesale, stamped with `owner`.
+/// Adds a delegate, enforcing `MAX_DELEGATES`; returns false for duplicates.
+/// Overwrites stale grants with a list stamped by the current owner.
 pub(crate) fn add_delegate(
     env: &Env,
     account_id: u64,
@@ -216,11 +219,9 @@ pub(crate) fn add_delegate(
     true
 }
 
-/// Removes `delegate` from the account's delegate list if present, returning whether it was
-/// found and removed. If the stored grant belongs to a previous owner (stale — the current
-/// `owner` never wrote it), it is purged from storage unconditionally so it cannot silently
-/// re-arm if the NFT ever returns to the address that granted it; the return value is still
-/// `false` in that case, since the requested delegate was never live for `owner`.
+/// Removes a live delegate and reports whether it changed the list.
+/// Deletes stale grants but returns false, preventing those grants from
+/// reactivating if the NFT returns to their original owner.
 pub(crate) fn remove_delegate(
     env: &Env,
     account_id: u64,
@@ -244,7 +245,7 @@ pub(crate) fn remove_delegate(
     true
 }
 
-/// Deletes an account's metadata, supply positions, borrow positions, and delegate list from persistent storage.
+/// Deletes metadata, both position maps, and delegates. Does not burn the NFT.
 pub(crate) fn remove_account_entry(env: &Env, account_id: u64) {
     let persistent = env.storage().persistent();
     persistent.remove(&ControllerKey::AccountMeta(account_id));
@@ -253,7 +254,7 @@ pub(crate) fn remove_account_entry(env: &Env, account_id: u64) {
     persistent.remove(&ControllerKey::Delegates(account_id));
 }
 
-/// Extends the TTL of each of an account's persistent storage entries (metadata, supply positions, borrow positions, delegates) that currently exists.
+/// Renews user TTL for each existing account entry; does not renew the NFT.
 pub(crate) fn renew_user_account(env: &Env, account_id: u64) {
     let persistent = env.storage().persistent();
     let keys = [
@@ -279,7 +280,7 @@ enum SessionKey {
     FlashLoanOngoing,
 }
 
-/// Reads whether a flash loan is currently in progress from temporary storage, defaulting to `false` if unset.
+/// Returns the temporary flash-loan flag, defaulting to false.
 pub(crate) fn is_flash_loan_ongoing(env: &Env) -> bool {
     env.storage()
         .temporary()
@@ -287,7 +288,7 @@ pub(crate) fn is_flash_loan_ongoing(env: &Env) -> bool {
         .unwrap_or(false)
 }
 
-/// Sets or clears the temporary-storage flag marking a flash loan in progress; clearing removes the entry rather than storing `false`.
+/// Sets the temporary flash-loan flag, or removes it when clearing.
 pub(crate) fn set_flash_loan_ongoing(env: &Env, ongoing: bool) {
     if ongoing {
         env.storage()
@@ -300,7 +301,7 @@ pub(crate) fn set_flash_loan_ongoing(env: &Env, ongoing: bool) {
     }
 }
 
-/// Runs `f` with the flash-loan flag set, clearing the flag afterward only if it was not already set before the call.
+/// Runs `f` with the flash-loan flag set; preserves an already-active outer guard.
 pub(crate) fn with_flash_guard<T>(env: &Env, f: impl FnOnce() -> T) -> T {
     let prev = is_flash_loan_ongoing(env);
     set_flash_loan_ongoing(env, true);

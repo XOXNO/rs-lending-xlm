@@ -272,7 +272,7 @@ fn run_seizure(
 ) -> (Vec<SeizeEntry>, i128) {
     let (contract, hub_asset, account) = seize_fixture(env, scaled_amount, fees_bps);
     let entries = env.as_contract(&contract, || {
-        let mut cache = Cache::new_view(env);
+        let mut cache = Context::new_view(env);
         let mut prices = Map::new(env);
         prices.set(hub_asset.asset.clone(), feed_raw(7));
         cache.set_prices(prices);

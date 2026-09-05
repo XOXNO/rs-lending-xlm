@@ -61,7 +61,7 @@ pub(crate) fn backing_shortfall(cache: &Cache) -> i128 {
 }
 
 /// Panics with `PoolInsolvent` if supplied is zero while borrowed debt is non-zero.
-pub(crate) fn require_solvent_withdraw_state(env: &Env, cache: &Cache) {
+pub(crate) fn require_supply_for_debt(env: &Env, cache: &Cache) {
     if cache.supplied() == Ray::ZERO && cache.borrowed() != Ray::ZERO {
         panic_with_error!(env, CollateralError::PoolInsolvent);
     }

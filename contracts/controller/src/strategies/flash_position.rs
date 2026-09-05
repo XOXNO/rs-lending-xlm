@@ -10,17 +10,17 @@ use soroban_sdk::{
 
 use crate::account;
 use crate::config;
-use crate::context::Cache;
+use crate::context::Context;
 use crate::events::{FlashPositionEvent, PositionAction};
-use crate::payments::{balance_delta_since, transfer_amount_measured};
+use crate::payments::{
+    balance_delta_since, refund_controller_balance_delta, snapshot_balances,
+    transfer_amount_measured,
+};
 use crate::positions::supply::process_deposit;
 use crate::positions::{require_can_supply, validate_position_entry_gates};
 use crate::risk::validation::require_authorized_caller;
 use crate::storage;
-use crate::strategies::{
-    borrow_into_controller, legs::refund_controller_balance_delta, prefetch_strategy_prices,
-    snapshot_balances, strategy_finalize,
-};
+use crate::strategies::{borrow_into_controller, prefetch_strategy_prices, strategy_finalize};
 
 pub(crate) struct FlashPositionParams<'a> {
     pub account_id: u64,
@@ -34,11 +34,9 @@ pub(crate) struct FlashPositionParams<'a> {
     pub refund_assets: &'a Vec<Address>,
 }
 
-/// Opens or extends a leveraged position by minting strategy debt with no
-/// flash fee, forwarding the measured tokens to `receiver`, invoking
-/// `execute_flash_position`, and depositing measured controller-balance
-/// increases of the declared collaterals. Does not repay. Returns the
-/// account id after ordinary solvency finalize.
+/// Opens or extends a leveraged position with fee-free debt and a receiver
+/// callback. Deposits measured collateral receipts and requires the debt and
+/// collateral to remain open through risk checks and finalization.
 pub(crate) fn process_flash_position(
     env: &Env,
     caller: &Address,
@@ -77,16 +75,15 @@ pub(crate) fn process_flash_position(
         FlashLoanError::InvalidFlashloanReceiver
     );
 
-    let mut cache = Cache::new(env);
+    let mut cache = Context::new(env);
     let pool_addr = cache.cached_pool_address();
     assert_with_error!(
         env,
         *receiver != pool_addr,
         FlashLoanError::InvalidFlashloanReceiver
     );
-    // Strategy debt through `multiply` stays open on such a market because the
-    // funds only ever reach the governance-owned router. Here they reach a
-    // caller-chosen contract, which is exactly what the flag denies.
+    // Caller-selected receivers require flash loans enabled; multiply uses
+    // the configured router and does not require this flag.
     assert_with_error!(
         env,
         cache.cached_pool_sync_data(debt).params.is_flashloanable,
@@ -119,13 +116,12 @@ pub(crate) fn process_flash_position(
     }
     prefetch_strategy_prices(&mut cache, &account, &extra_assets);
 
-    // Guard covers the untrusted token forward *and* the receiver callback.
-    // A listed token with a transfer hook could otherwise reenter before the
-    // callback, which is the only window that is not a normal borrow.
+    // Guard both forwarding and the callback: token hooks can reenter first.
     let (amount_received, collateral_before, refund_before) =
         storage::with_flash_guard(env, || {
             let amount_received =
                 mint_and_forward(env, &mut account, debt, amount, receiver, &mut cache);
+            // Baselines exclude funding and forwarding; count callback receipts only.
             let collateral_before = snapshot_balances(
                 env,
                 &controller,
@@ -151,9 +147,8 @@ pub(crate) fn process_flash_position(
 
     refund_listed_assets(env, caller, refund_assets, &refund_before);
 
-    // Checked on both sides of finalize, not redundantly: `strategy_finalize`
-    // restamps LTV, which can drop a zero-scaled supply position, and finalizes
-    // with `remove_if_empty`. Emptiness is therefore re-decidable across it.
+    // Check before and after finalization: its LTV refresh can prune zero-scaled
+    // supply, and persistence removes empty accounts.
     require_flash_position_still_open(env, &account, debt);
     strategy_finalize(env, account_id, &mut account, &mut cache);
     require_flash_position_still_open(env, &account, debt);
@@ -173,18 +168,12 @@ pub(crate) fn process_flash_position(
     account_id
 }
 
-/// Panics unless `collaterals` is non-empty, within the supply-position limit,
-/// free of repeated assets, made of non-negative minimums with at least one
-/// positive, supplyable into `account`'s spoke, and past the deposit entry
-/// gates.
-///
-/// Uniqueness is enforced on the underlying asset rather than the whole
-/// `HubAssetKey`: two distinct keys may share an asset (they differ only by
-/// `hub_id`), so the asset check is the strictly stronger of the two and a
-/// repeated key cannot slip past it.
+/// Validates collateral limits, supply eligibility and non-negative minimums
+/// with at least one positive. Uniqueness is by token, since different hubs
+/// share the same controller token balance.
 fn validate_collaterals(
     env: &Env,
-    cache: &mut Cache,
+    cache: &mut Context,
     account: &Account,
     collaterals: &Vec<(HubAssetKey, i128)>,
 ) {
@@ -227,7 +216,7 @@ fn validate_collaterals(
 
 fn validate_refund_assets(
     env: &Env,
-    cache: &mut Cache,
+    cache: &mut Context,
     spoke_id: u32,
     hub_id: u32,
     collaterals: &Vec<(HubAssetKey, i128)>,
@@ -248,9 +237,7 @@ fn validate_refund_assets(
             GenericError::InvalidPayments
         );
         seen.set(asset.clone(), true);
-        // The refund leg hands this address to `token::Client` after the flash
-        // guard has closed. Requiring it to be listed keeps that call on a
-        // governance-approved contract instead of one the caller chose.
+        // Refund transfers run after the guard; restrict tokens to listed assets.
         cache.require_listed_active_config(
             spoke_id,
             &HubAssetKey {
@@ -268,16 +255,15 @@ fn validate_refund_assets(
     }
 }
 
-/// Mints strategy debt into the controller with no fee, requires the
-/// controller's measured receipt to match the pool mutation, and forwards
-/// that measured amount to `receiver`.
+/// Mints fee-free debt, verifies the controller receipt against the pool result,
+/// then forwards it and returns the receiver's measured receipt.
 fn mint_and_forward(
     env: &Env,
     account: &mut Account,
     debt: &HubAssetKey,
     amount: i128,
     receiver: &Address,
-    cache: &mut Cache,
+    cache: &mut Context,
 ) -> i128 {
     let controller = env.current_contract_address();
     let before = token::Client::new(env, &debt.asset).balance(&controller);
@@ -365,10 +351,8 @@ fn collect_collateral_deposits(
     deposits
 }
 
-/// Panics with `FlashPositionClosed` unless `account` still holds a live
-/// scaled debt position in `debt` and at least one supply position. This is
-/// the last-line defense against a callback-plus-later-repay round trip
-/// leaving an empty account.
+/// Requires positive scaled debt in the borrowed market and remaining supply
+/// so the flash-position flow cannot finish as an empty round trip.
 pub(crate) fn require_flash_position_still_open(env: &Env, account: &Account, debt: &HubAssetKey) {
     assert_with_error!(
         env,

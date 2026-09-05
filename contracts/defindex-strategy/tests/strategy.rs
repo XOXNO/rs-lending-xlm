@@ -1,8 +1,9 @@
 extern crate std;
 
+use common::constants::TTL_THRESHOLD_INSTANCE;
 use defindex_strategy::{Config, DataKey, DeFindexStrategyError, Strategy, StrategyClient};
-use soroban_sdk::testutils::storage::Persistent as _;
-use soroban_sdk::testutils::{Address as _, Events, MockAuth, MockAuthInvoke};
+use soroban_sdk::testutils::storage::{Instance as _, Persistent as _};
+use soroban_sdk::testutils::{Address as _, Events, Ledger as _, MockAuth, MockAuthInvoke};
 use soroban_sdk::xdr::{ContractEventBody, ContractEventV0, ScVal};
 use soroban_sdk::{token, vec, Address, Env, Error, IntoVal, InvokeError, Val, Vec};
 use test_harness::{
@@ -774,4 +775,38 @@ fn a_failed_controller_lookup_aborts_instead_of_clearing_the_vault_mapping() {
             .get::<_, u64>(&DataKey::VaultAccount(vault.clone()))
     });
     assert_eq!(still_there, Some(7u64));
+}
+
+/// The strategy is the only protocol contract with no other write path into
+/// its instance: nothing in the controller or keeper renews it, so without a
+/// renewal on its own entrypoints it archives 120 days after deploy however
+/// busy it is. `asset` is used because it touches nothing but the instance,
+/// so aging the ledger past the threshold cannot expire an unrelated entry;
+/// the other entrypoints share the same first-line `renew_instance` call.
+#[test]
+fn asset_renews_the_strategy_instance_ttl() {
+    let t = StrategyTest::new();
+    let instance_ttl = |t: &StrategyTest| {
+        t.t.env
+            .as_contract(&t.client_address, || t.t.env.storage().instance().get_ttl())
+    };
+
+    let initial = instance_ttl(&t);
+    let ledgers_to_age = initial - TTL_THRESHOLD_INSTANCE + 1;
+    t.t.env
+        .ledger()
+        .with_mut(|ledger| ledger.sequence_number += ledgers_to_age);
+    let aged = instance_ttl(&t);
+    assert!(
+        aged < TTL_THRESHOLD_INSTANCE,
+        "aging must cross the renewal threshold or the check is vacuous: aged={aged}"
+    );
+
+    assert_eq!(t.client().asset(), t.asset);
+
+    let renewed = instance_ttl(&t);
+    assert!(
+        renewed > TTL_THRESHOLD_INSTANCE,
+        "asset() must renew the strategy instance: aged={aged}, after={renewed}"
+    );
 }

@@ -4,7 +4,7 @@ use controller::types::{
 };
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, String, Symbol, Vec};
-use test_harness::{usd, usdc_preset, xlm_preset, LendingTest, DEFAULT_TOLERANCE};
+use test_harness::{hub_asset, usd, usdc_preset, xlm_preset, LendingTest, DEFAULT_TOLERANCE};
 
 fn register_dex_oracle(t: &LendingTest, quote: &Address) -> Address {
     let dex = t
@@ -224,6 +224,22 @@ fn test_quoted_reflector_accepted_as_scaled_factor_matching_its_base() {
 
     let cfg = reflector_scaled_config(&t, &dex_usdc, &xlm, PriceKey::Token(usdc.clone()));
     t.configure_market_oracle(&xlm, &cfg);
+
+    // The point of the Scaled shape is the arithmetic, not the acceptance: a
+    // DEX quote of 2 USDC per XLM times USDC at $1 must price XLM at $2. An
+    // inverted composition (divide instead of multiply, or quote and factor
+    // swapped) configures just as cleanly, so read the composed price back.
+    let row = t
+        .ctrl_client()
+        .get_market_indexes_detailed(&Vec::from_array(&t.env, [hub_asset(xlm.clone())]))
+        .get(0)
+        .unwrap();
+    assert!(row.valid, "an accepted Scaled config must price its asset");
+    assert_eq!(
+        row.price_wad,
+        usd(2),
+        "2 USDC per XLM x $1 per USDC = $2 per XLM"
+    );
 }
 
 // The dangerous case the rule exists for: a factor denominated in one asset

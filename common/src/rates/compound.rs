@@ -21,14 +21,15 @@ pub const MAX_COMPOUND_DELTA_MS: u64 = MILLISECONDS_PER_YEAR;
 ///
 /// # Accuracy
 ///
-/// Every dropped term is positive, so the result is always **below** `e^x`:
-/// interest is under-accrued, never over-accrued, which favours the borrower.
+/// Truncation alone underestimates `e^x` for a nonnegative exponent. Half-up
+/// rounding of the terms and annual-to-millisecond rate conversion can instead
+/// produce a tiny overestimate when the truncation error is smaller.
 /// [`MAX_COMPOUND_DELTA_MS`] plus `MAX_BORROW_RATE_RAY` (2 RAY) bound `x` at 2,
-/// where the relative shortfall is 2.37e-4. It falls off fast with the rate:
-/// 1.13e-6 at 100% APR, 1.18e-12 at 20%, 2.11e-16 at 5% (all measured over a
+/// where the relative truncation shortfall is 2.37e-4. It falls off with the rate:
+/// 1.13e-6 at 100% APR, 1.18e-12 at 20%, 5.15e-18 at 5% (all measured over a
 /// full one-year chunk). A higher-precision `exp` would cost several times the
 /// ~206k CPU instructions this series already spends on `I256` host calls, so
-/// the bias is accepted rather than corrected.
+/// the approximation is accepted rather than corrected.
 pub fn compound_interest(env: &Env, rate: Ray, delta_ms: u64) -> Ray {
     if delta_ms == 0 {
         return Ray::ONE;

@@ -222,9 +222,11 @@ fn test_supply_raw_precision() {
 
     let balance = t.supply_balance_raw(ALICE, "USDC");
 
-    assert!(
-        balance >= 1,
-        "raw supply should preserve precision, got {}",
+    // Fresh market: `supply_index == RAY` (pinned by `views::test_get_market_index_view`),
+    // so the credit is exact and any rounding in the depositor's favour is visible.
+    assert_eq!(
+        balance, 1,
+        "a one-unit deposit must credit exactly one unit, got {}",
         balance
     );
 

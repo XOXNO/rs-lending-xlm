@@ -1,9 +1,5 @@
-//! Shared position-accounting toolkit for the verb modules (supply, debt,
-//! liquidation) and the strategies: the "leg" vocabulary (`LegOutcome`,
-//! `merge_debt_leg`/`merge_withdraw_leg`, `apply_leg_usage`), the entry gates
-//! (`require_can_supply`/`require_can_borrow`), and the persistence tail
-//! (`finalize_position_flow`: persist spoke usage and positions, then emit
-//! the position batch).
+//! Shared position gates, pool-result merging, spoke usage, and persistence
+//! for supply, debt, liquidation, and strategy flows.
 
 pub(crate) mod debt;
 
@@ -18,16 +14,15 @@ use soroban_sdk::{
 };
 
 use crate::account;
-use crate::context::Cache;
-use crate::events;
+use crate::context::Context;
 use crate::risk::{self, validation};
 use crate::spoke_usage::UsageSide;
 use crate::storage;
 
 pub(crate) mod liquidation;
 pub(crate) use debt::{
-    apply_repay_batch, borrow_into_controller, execute_repayment, process_borrow, process_repay,
-    RepaymentRequest,
+    apply_repay_batch, borrow_into_controller, merge_debt_leg, process_borrow, process_repay,
+    repay_prefunded_position, RepaymentRequest,
 };
 pub(crate) use supply::{
     apply_withdraw_batch, execute_withdrawal, merge_withdraw_leg, process_supply, process_withdraw,
@@ -35,12 +30,10 @@ pub(crate) use supply::{
 };
 pub(crate) mod supply;
 
-/// Panics with `InvalidFlashloanReceiver` when `recipient` is the pool or the
-/// controller. Either address strands the tokens: the pool debits cash with
-/// no balance change, and the controller holds funds that no balance-delta
-/// measurement ever claims. Same predicate and error as the flash-position
-/// receiver check.
-pub(crate) fn require_external_recipient(env: &Env, cache: &mut Cache, recipient: &Address) {
+/// Rejects pool and controller recipients with `InvalidFlashloanReceiver`.
+/// Pool self-transfers debit cash without moving tokens; controller receipts
+/// would remain unclaimed by balance-delta accounting.
+pub(crate) fn require_external_recipient(env: &Env, cache: &mut Context, recipient: &Address) {
     let pool = cache.cached_pool_address();
     assert_with_error!(
         env,
@@ -56,8 +49,6 @@ pub(crate) struct LegOutcome {
 }
 
 impl From<&PoolPositionMutation> for LegOutcome {
-    /// Builds a `LegOutcome` from a pool position mutation's resulting scaled
-    /// amount, market index, and settled amount.
     fn from(mutation: &PoolPositionMutation) -> Self {
         Self {
             new_scaled: Ray::from(mutation.position.scaled_amount),
@@ -67,9 +58,7 @@ impl From<&PoolPositionMutation> for LegOutcome {
     }
 }
 
-/// Pairs each request entry with its corresponding pool result by position
-/// and invokes `f` on every pair. Panics with `GenericError::InternalError`
-/// if `entries` and `results` differ in length.
+/// Pairs requests and pool results in order; rejects mismatched lengths.
 pub(crate) fn for_each_leg<E, R>(
     env: &Env,
     entries: &Vec<E>,
@@ -89,13 +78,11 @@ pub(crate) fn for_each_leg<E, R>(
     }
 }
 
-/// Restamps supply position LTVs to their current listed values, then
-/// asserts the account still clears the post-pool solvency gates (collateral
-/// coverage, health factor, minimum borrow collateral). Returns whether the
-/// LTV restamp changed any position.
+/// Restamps listed supply LTVs, then checks collateral coverage, health factor,
+/// and minimum borrow collateral. Returns whether any LTV changed.
 pub(crate) fn enforce_post_pool_solvency(
     env: &Env,
-    cache: &mut Cache,
+    cache: &mut Context,
     account: &mut Account,
 ) -> bool {
     let restamped = risk::restamp_listed_supply_ltv(cache, account);
@@ -109,12 +96,11 @@ pub(crate) enum LegDirection {
     Exit,
 }
 
-/// Updates the spoke's usage accounting for one leg: on entry, applies the
-/// scaled increase (capped, tracked with the leg's market index and asset
-/// decimals); on exit, applies the scaled decrease.
+/// Applies the scaled position delta to spoke usage; entries enforce caps
+/// using the leg's market index and asset decimals.
 pub(crate) fn apply_leg_usage(
     env: &Env,
-    cache: &mut Cache,
+    cache: &mut Context,
     spoke_id: u32,
     side: UsageSide,
     hub_asset: &HubAssetKey,
@@ -140,59 +126,10 @@ pub(crate) fn apply_leg_usage(
     }
 }
 
-/// Merges a debt leg's pool outcome into `account`'s position for
-/// `hub_asset`. Uses the existing scaled amount as the baseline (zero when
-/// opening a position on entry, or panics if none exists on exit), then
-/// updates spoke usage, the cached market index, and the position-update
-/// event before storing or removing the debt position.
-pub(crate) fn merge_debt_leg(
-    env: &Env,
-    account: &mut Account,
-    action: events::PositionAction,
-    hub_asset: &HubAssetKey,
-    direction: LegDirection,
-    outcome: &LegOutcome,
-    cache: &mut Cache,
-) {
-    // Entry may open a leg; exit must find one.
-    let old_scaled = match direction {
-        LegDirection::Entry { .. } => account
-            .borrow_positions
-            .get(hub_asset.clone())
-            .map_or(Ray::ZERO, |p| Ray::from(p.scaled_amount)),
-        LegDirection::Exit => get_debt_position_or_panic(env, account, hub_asset).scaled_amount,
-    };
-    let position = DebtPosition {
-        scaled_amount: outcome.new_scaled,
-    };
-
-    apply_leg_usage(
-        env,
-        cache,
-        account.spoke_id,
-        UsageSide::Borrow,
-        hub_asset,
-        direction,
-        old_scaled,
-        outcome,
-    );
-    cache.put_market_index(hub_asset, &outcome.market_index);
-    cache.record_debt_position_update(
-        action,
-        hub_asset,
-        outcome.market_index.borrow_index,
-        outcome.amount,
-        &position,
-    );
-    account::update_or_remove_debt_position(account, hub_asset, &position);
-}
-
-/// Which listing halt flags a given leg honours.
+/// Listing halt policy for each leg.
 ///
-/// The three policies are disjoint on purpose. `paused` is a *user-activity* halt and does not
-/// reach the seizure leg, because seizure is pro-rata over an account's entire collateral set:
-/// gating it on `paused` turns a per-listing halt into a protocol-wide liquidation halt for
-/// every account holding that collateral. Seizure has its own flag instead. See ADR-0008.
+/// Seizure uses `no_seize`: applying `paused` to pro-rata seizure would block
+/// liquidation of every account holding the paused collateral (ADR-0008).
 #[derive(Clone, Copy, PartialEq)]
 pub(crate) enum FreezePolicy {
     /// New exposure: rejects `paused` and `frozen`.
@@ -211,10 +148,8 @@ pub(crate) enum PositionSides {
     Both,
 }
 
-/// Writes the account's supply and/or debt position maps to storage as
-/// selected by `sides`, renews the account's storage TTL, and removes the
-/// account entry if `remove_if_empty` is set and the account now holds no
-/// positions.
+/// Persists the selected position maps, renews account TTL, and optionally
+/// removes an empty account.
 pub(crate) fn persist_account_positions(
     env: &Env,
     account_id: u64,
@@ -228,21 +163,18 @@ pub(crate) fn persist_account_positions(
     if sides != PositionSides::Supply {
         storage::set_debt_positions(env, account_id, &account.borrow_positions);
     }
-    // Every variant writes at least one side.
     storage::renew_user_account(env, account_id);
     if remove_if_empty {
         account::cleanup_account_if_empty(env, account, account_id);
     }
 }
 
-/// Persists spoke usage, writes the account's positions to storage, and
-/// emits the batched position-update event; the common tail for every
-/// supply, withdraw, borrow, and repay flow.
+/// Persists spoke usage and positions, then emits the position-update batch.
 pub(crate) fn finalize_position_flow(
     env: &Env,
     account_id: u64,
     account: &Account,
-    cache: &mut Cache,
+    cache: &mut Context,
     sides: PositionSides,
     remove_if_empty: bool,
 ) {
@@ -251,15 +183,11 @@ pub(crate) fn finalize_position_flow(
     cache.emit_position_batch(account_id, account);
 }
 
-/// Asserts the hub is active, the asset is listed on an active spoke
-/// (unlisted assets revert `AssetNotInSpoke`), and the spoke asset is neither
-/// paused nor frozen (`FreezePolicy::BlockOnEntry`: both flags block a new
-/// entry; the seizure leg honours `no_seize` instead — see `FreezePolicy`).
-/// Returns the asset config so the caller can apply its verb-specific
-/// permission check.
+/// Requires an active hub, an active spoke listing, and neither pause nor
+/// freeze. Returns the config for the supply or borrow permission check.
 fn require_listed_unhalted_config(
     env: &Env,
-    cache: &mut Cache,
+    cache: &mut Context,
     spoke_id: u32,
     hub_asset: &HubAssetKey,
 ) -> AssetConfig {
@@ -269,12 +197,10 @@ fn require_listed_unhalted_config(
     asset_config
 }
 
-/// Asserts the hub is active, the asset is listed on an active spoke, the
-/// spoke asset is neither paused nor frozen, and the asset config permits
-/// borrowing.
+/// Requires an active, unhalted listing that permits borrowing.
 pub(crate) fn require_can_borrow(
     env: &Env,
-    cache: &mut Cache,
+    cache: &mut Context,
     spoke_id: u32,
     hub_asset: &HubAssetKey,
 ) {
@@ -286,12 +212,10 @@ pub(crate) fn require_can_borrow(
     );
 }
 
-/// Asserts the hub is active, the asset is listed on an active spoke, the
-/// spoke asset is neither paused nor frozen, and the asset config permits
-/// supply as collateral.
+/// Requires an active, unhalted listing that permits collateral supply.
 pub(crate) fn require_can_supply(
     env: &Env,
-    cache: &mut Cache,
+    cache: &mut Context,
     spoke_id: u32,
     hub_asset: &HubAssetKey,
 ) {
@@ -303,13 +227,12 @@ pub(crate) fn require_can_supply(
     );
 }
 
-/// Checks the bulk position-count limit for `position_type`, then runs the
-/// supply or borrow entry gates for every hub asset in `aggregated`.
+/// Checks position-count limits and entry permissions for all aggregated assets.
 pub(crate) fn validate_position_entry_gates(
     env: &Env,
     account: &Account,
     aggregated: &AggregatedPayments,
-    cache: &mut Cache,
+    cache: &mut Context,
     position_type: AccountPositionType,
 ) {
     validation::validate_bulk_position_limits(env, account, position_type, aggregated);
@@ -326,13 +249,11 @@ pub(crate) fn validate_position_entry_gates(
     }
 }
 
-/// Asserts the spoke asset's halt flags permit this leg, per `freeze`.
-///
-/// No-op if the asset has no cached spoke config: a delisted asset must stay exitable and
-/// seizable, or its holders would be stranded and unliquidatable.
+/// Enforces the leg's halt policy. Missing listings remain exitable and
+/// seizable so delisting cannot strand positions or prevent liquidation.
 pub(crate) fn enforce_spoke_asset_flags(
     env: &Env,
-    cache: &mut Cache,
+    cache: &mut Context,
     spoke_id: u32,
     hub_asset: &HubAssetKey,
     freeze: FreezePolicy,
@@ -353,8 +274,6 @@ pub(crate) fn enforce_spoke_asset_flags(
     }
 }
 
-/// Builds a `PoolAction` from a position's scaled representation, the
-/// amount, and the hub asset key.
 pub(crate) fn make_pool_action(
     position: impl Into<ScaledPositionRaw>,
     amount: i128,
@@ -367,8 +286,6 @@ pub(crate) fn make_pool_action(
     }
 }
 
-/// Returns the account's supply position for `hub_asset`, panicking with
-/// `CollateralPositionNotFound` if none exists.
 pub(crate) fn get_supply_position_or_panic(
     env: &Env,
     account: &Account,
@@ -381,8 +298,6 @@ pub(crate) fn get_supply_position_or_panic(
         .into()
 }
 
-/// Returns the account's debt position for `hub_asset`, panicking with
-/// `DebtPositionNotFound` if none exists.
 pub(crate) fn get_debt_position_or_panic(
     env: &Env,
     account: &Account,

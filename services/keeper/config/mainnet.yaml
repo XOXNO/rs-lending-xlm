@@ -15,7 +15,7 @@ rpc:
 
 contracts:
   controller: CAUCMIN5KSXEVZ7NMXR3LZATGD5EFIEUI5XWTFLYRO2R5OTXI22WE5JX
-  pool_wasm_hash: 4fd809ebe3248a27d6428089d7f8e4e5d982d56b12a4da5d782bc358c47832cb
+  pool_wasm_hash: c2857740717a87b58c20b11e68dbacd4f4ab2da1a1cde03f0bc179a8a9f11228
   markets:
     # Only markets that are `enabled: true` in configs/mainnet/markets.json.
     # A disabled market is never listed on-chain, so the pool never writes its
@@ -53,6 +53,12 @@ contracts:
   governance: CC44PEQW7HSEPKAZ5ZRPH2JS5M5KVJXCUBLJ2ZX4E3WCDKMNFILHC2AD
   xoxno_oracle_adapter: CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM
   price_aggregator: CBGUF2G2Q7HCVCWYISDXBHPVBGMYNXA7PG2VET66YBZX6IKOOV27NSMV
+  # Read-only dependencies with no protocol write path to renew them. The
+  # RedStone adapter anchors 14 markets and was found at 10 days of instance
+  # life on 2026-09-05; the swap router carries every strategy leg.
+  extra_instances:
+    - CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG # RedStone adapter
+    - CCVENFSVCBYDHVOACFZXMNNYVOZ3LKXPZYU5LUI4N7KTXOKRVYD7F3TR # XOXNO swap router
 
 keyvault:
   url: https://xoxno.vault.azure.net

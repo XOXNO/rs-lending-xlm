@@ -9,8 +9,7 @@ use crate::events::{
 };
 use crate::storage;
 
-/// Sets the swap aggregator address and publishes an
-/// `UpdateSwapAggregatorEvent`.
+/// Stores the swap aggregator and emits its address.
 pub(crate) fn set_swap_aggregator(env: &Env, addr: Address) {
     storage::set_swap_aggregator(env, &addr);
     UpdateSwapAggregatorEvent {
@@ -19,8 +18,7 @@ pub(crate) fn set_swap_aggregator(env: &Env, addr: Address) {
     .publish(env);
 }
 
-/// Sets the price aggregator address and publishes an
-/// `UpdatePriceAggregatorEvent`.
+/// Stores the price aggregator and emits its address.
 pub(crate) fn set_price_aggregator(env: &Env, addr: Address) {
     storage::set_price_aggregator(env, &addr);
     UpdatePriceAggregatorEvent {
@@ -29,22 +27,19 @@ pub(crate) fn set_price_aggregator(env: &Env, addr: Address) {
     .publish(env);
 }
 
-/// Sets the accumulator address and publishes an `UpdateAccumulatorEvent`.
+/// Stores the revenue accumulator and emits its address.
 pub(crate) fn set_accumulator(env: &Env, addr: Address) {
     storage::set_accumulator(env, &addr);
     UpdateAccumulatorEvent { accumulator: addr }.publish(env);
 }
 
-/// Adds or removes `pool` from the Blend pool allowlist and publishes an
-/// `ApproveBlendPoolEvent`.
+/// Updates the Blend pool allowlist and emits the approval state.
 pub(crate) fn set_blend_pool_approval(env: &Env, pool: Address, approved: bool) {
     storage::set_blend_pool_approved(env, &pool, approved);
     ApproveBlendPoolEvent { pool, approved }.publish(env);
 }
 
-/// Sets the maximum supply and borrow position counts and publishes an
-/// `UpdatePositionLimitsEvent`. Panics if either limit is zero or exceeds
-/// `POSITION_LIMIT_MAX`.
+/// Stores and emits position limits, each in `1..=POSITION_LIMIT_MAX`.
 pub(crate) fn set_position_limits(env: &Env, limits: PositionLimits) {
     let valid = 1..=POSITION_LIMIT_MAX;
     assert_with_error!(
@@ -61,9 +56,8 @@ pub(crate) fn set_position_limits(env: &Env, limits: PositionLimits) {
     .publish(env);
 }
 
-/// Sets the WAD-scaled USD collateral floor required to open a borrow
-/// position and publishes an `UpdateMinBorrowCollateralEvent`. Panics if
-/// `floor_wad` is negative.
+/// Stores and emits the nonnegative LTV-weighted borrow collateral floor
+/// in USD WAD. Zero disables the floor.
 pub(crate) fn set_min_borrow_collateral_usd(env: &Env, floor_wad: i128) {
     assert_with_error!(env, floor_wad >= 0, CollateralError::InvalidBorrowParams);
     storage::set_min_borrow_collateral_usd_wad(env, floor_wad);

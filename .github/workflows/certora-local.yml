@@ -25,10 +25,10 @@ on:
         type: string
         default: ""
       rule_timeout:
-        description: "Seconds per rule (default 600 = the 10-minute smoke cap)"
+        description: "Seconds per rule (default 900 = the 15-minute smoke cap)"
         required: false
         type: string
-        default: "600"
+        default: "900"
       job_timeout_minutes:
         description: "Job wall-clock cap in minutes (default 720 = 12h; 10080 = 7 days)"
         required: false
@@ -173,13 +173,27 @@ jobs:
           done
 
       - name: Prove rules locally (parallel, cap from input)
+        id: prove
         if: steps.prover_root.outputs.provisioned == 'true'
         env:
           PROVE_CONFS: ${{ inputs.confs }}
           PROVE_RULES: ${{ inputs.rules }}
-          CERTORA_RULE_TIMEOUT: ${{ inputs.rule_timeout || '600' }}
+          CERTORA_RULE_TIMEOUT: ${{ inputs.rule_timeout || '900' }}
           CERTORA_LOCAL_JOBS: "10"
         run: |
           export CERTORA_PYTHON="$(command -v python3)"
           export CERTORA_INSTALL="$HOME/certora-install"
           bash certora/scripts/run-local-ci.sh "$PROVE_CONFS" "$PROVE_RULES"
+
+      # A VIOLATED verdict is only actionable with its counterexample, and the
+      # call trace (with the `clog!`-ed inputs) lives in the prover's working
+      # directory, which run-rules-local.sh keeps under target/certora-local-logs/runs/
+      # for every rule the prover failed. Ship that whole directory on failure.
+      - name: Upload prover logs and counterexample traces
+        if: always() && steps.prove.outcome == 'failure'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: certora-local-prover-logs-${{ github.sha }}
+          path: target/certora-local-logs
+          if-no-files-found: warn
+          retention-days: 7

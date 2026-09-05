@@ -72,9 +72,13 @@ fn supply_at_the_domain_ceiling_succeeds_and_one_unit_more_is_rejected() {
         let result = t
             .ctrl_client()
             .try_supply(&alice, &id, &HARNESS_SPOKE, &leg(&t, "A", 1));
-        assert!(
-            map_try_ok_value(result).is_err(),
-            "decimals {decimals}: the ceiling plus one must not book"
+        // The file's own contract is "a typed protocol error before any token
+        // moves", so pin the code and prove the book did not move.
+        assert_contract_error(map_try_ok_value(result), errors::MATH_OVERFLOW);
+        assert_eq!(
+            t.supply_balance_raw(ALICE, "A"),
+            cap,
+            "decimals {decimals}: the rejected unit must not book"
         );
     }
 }
@@ -143,6 +147,7 @@ fn liquidation_payment_of_half_i128_max_pulls_only_the_close_amount() {
     let before = t.borrow_balance_raw(ALICE, "A");
     let liquidator = t.get_or_create_user(LIQUIDATOR);
     t.resolve_market("A").token_admin.mint(&liquidator, &huge);
+    let liq_before = t.token_balance_raw(LIQUIDATOR, "A");
     let victim = t.account_id(ALICE);
     t.ctrl_client().liquidate(
         &liquidator,
@@ -152,10 +157,14 @@ fn liquidation_payment_of_half_i128_max_pulls_only_the_close_amount() {
     );
     let after = t.borrow_balance_raw(ALICE, "A");
     assert!(after < before, "debt fell");
-    let wallet = t.token_balance_raw(LIQUIDATOR, "A");
-    assert!(
-        wallet >= huge - before,
-        "only the repaid amount left the liquidator: wallet {wallet}"
+    // Two-sided: a lower bound alone is satisfied by a call that seizes
+    // collateral while pulling zero debt token.
+    let spent = liq_before - t.token_balance_raw(LIQUIDATOR, "A");
+    assert_eq!(
+        spent,
+        before - after,
+        "only the repaid amount left the liquidator: spent {spent}, repaid {}",
+        before - after
     );
 }
 

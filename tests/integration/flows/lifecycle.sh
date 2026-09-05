@@ -72,6 +72,21 @@ flow_lifecycle() {
     save_state ALICE_ACCT "$acct"
     log "alice account = $acct"
 
+    # Caller gate (require_authorized_caller): the CLI signs auth entries for
+    # every address argument it holds a secret for, so the victim must be an
+    # address whose secret lives only in a throwaway config dir. Friendbot
+    # funds it so the simulated supply runs end to end; the only thing the
+    # CLI cannot produce is the victim's signature.
+    local victim_dir victim
+    victim_dir=$(mktemp -d)
+    stellar keys generate --config-dir "$victim_dir" victim >/dev/null 2>&1
+    victim=$(stellar keys address --config-dir "$victim_dir" victim)
+    rm -rf "$victim_dir"
+    curl -s -m 30 "https://friendbot.stellar.org/?addr=$victim" >/dev/null 2>&1 || true
+    xfail caller_auth_required "Missing signing key for account $victim" "$BOB" "$CONTROLLER" -- supply \
+        --caller "$victim" --account_id 0 --spoke_id "$PRIMARY_SPOKE_ID" \
+        --assets "$(pay_vec "$PRIMARY_HUB_ID" "$XLM_SAC" 10000000)"
+
     # balance() sends stderr to /dev/null, so a failed read is an empty string.
     # Expanding that directly inside $(( )) aborts the whole run with a bash
     # syntax error, before any report is written.

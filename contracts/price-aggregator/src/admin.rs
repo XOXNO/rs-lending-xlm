@@ -85,15 +85,18 @@ pub(crate) fn set_oracle(env: &Env, key: PriceKey, oracle: AssetOracle) {
     registry::emit(env, &key, &oracle);
 }
 
-/// Revalidates and re-probes every oracle registered in the registry whose
-/// composition transitively depends on `changed`, panicking if any of them fails
+/// Revalidates every oracle registered in the registry whose composition
+/// transitively depends on `changed`, panicking if any of them fails
 /// validation under the new state.
+///
+/// Structural only: the walk reads the registry and never crosses a contract
+/// boundary. A live re-probe of each dependent costs one VM instantiation per
+/// provider call, all charged to the transaction memory budget, and a key with
+/// three LP dependents already exceeded the 40 MiB mainnet limit. The probe's
+/// only check beyond `validate_asset_oracle` is `UnsupportedAquariusPool`, a
+/// property of the pool contract that cannot change with `changed` and that
+/// was hard-probed when the dependent itself was admitted.
 fn revalidate_dependents(env: &Env, changed: &PriceKey) {
-    // One session for the whole walk. Dependents of the same key share most of
-    // their sub-graph, so a session rebuilt per candidate re-fetches every
-    // shared feed once per dependent and the cascade grows with the product of
-    // graph width and depth instead of its size.
-    let mut session = Session::new(env);
     for candidate in registry::oracle_keys(env).iter() {
         if candidate == *changed || !depends_on(env, &candidate, changed, &mut Vec::new(env)) {
             continue;
@@ -101,7 +104,6 @@ fn revalidate_dependents(env: &Env, changed: &PriceKey) {
         let oracle = registry::get_oracle(env, &candidate)
             .unwrap_or_else(|| panic_with_error!(env, OracleError::OracleNotConfigured));
         validate_asset_oracle(env, &candidate, &oracle);
-        engine::probe(&mut session, &candidate, &oracle);
     }
 }
 

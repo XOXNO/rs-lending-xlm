@@ -1,6 +1,6 @@
 use test_harness::mock_redstone::MockRedStonePriceFeedClient;
 use test_harness::oracle::redstone::register_redstone_adapter;
-use test_harness::{usd, usd_cents, LendingTest, ALICE, BOB};
+use test_harness::{assert_contract_error, errors, usd, usd_cents, LendingTest, ALICE, BOB};
 
 const ANCHOR_FROZEN_PRICE: i128 = usd(1);
 const TRUE_FRESH_PRICE: i128 = usd_cents(91);
@@ -88,9 +88,7 @@ fn audit_borrow_withdraw_liquidate_stale_anchor_blends_5pct_skew_into_ltv() {
         exploit.borrow
     );
 
-    assert!(
-        control.borrow.is_err(),
-        "honest fresh-anchor pricing must reject the over-capacity borrow, \
-         proving the stale anchor alone enabled it"
-    );
+    // Pin the reason: an unrelated fixture break that reverts for any other
+    // cause would otherwise "prove" the stale anchor enabled the borrow.
+    assert_contract_error(control.borrow, errors::INSUFFICIENT_COLLATERAL);
 }

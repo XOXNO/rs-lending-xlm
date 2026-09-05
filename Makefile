@@ -57,7 +57,7 @@ SHELL := /bin/bash
         fuzz fuzz-contract fuzz-one fuzz-build fuzz-seed-corpus \
         fuzz-coverage fuzz-coverage-all fuzz-coverage-one fuzz-coverage-clean \
         proptest proptest-one proptest-build \
-        keygen deploy-testnet deploy-mainnet upgrade-controller upgrade-governance upgrade-pool upgrade-all _deploy \
+        keygen deploy-testnet deploy-mainnet upgrade-controller upgrade-governance upgrade-pool upgrade-price-aggregator upgrade-all _deploy \
         _preflight-tools _preflight-network-config _preflight-validate-configs _preflight-setup _preflight-controller _preflight-governance _preflight-pool-hash \
         _preflight-configure-controller _preflight-upgrade-pool _post-setup-status \
         build-flash-loan-receiver deploy-flash-loan-receiver fund-flash-loan-receiver test-flash-loan-receiver \
@@ -132,6 +132,7 @@ POOL_WASM_HASH_FILE ?= target/pool_wasm_hash.txt
 POOL_UPGRADE_WASM_HASH_FILE ?= target/pool_upgrade_wasm_hash.txt
 CONTROLLER_WASM_HASH_FILE ?= target/controller_wasm_hash.txt
 PRICE_AGGREGATOR_WASM_HASH_FILE ?= target/price_aggregator_wasm_hash.txt
+PRICE_AGGREGATOR_UPGRADE_WASM_HASH_FILE ?= target/price_aggregator_upgrade_wasm_hash.txt
 POSITION_NFT_WASM_HASH_FILE ?= target/position_nft_wasm_hash.txt
 POSITION_NFT_URI ?= https://api.xoxno.com/user/lending/image/
 POSITION_NFT_NAME ?= XOXNO Lending Position
@@ -538,6 +539,7 @@ coverage-merged:
 
 
 docs-check:
+	python3 scripts/test_check_doc_links.py
 	python3 scripts/check_doc_links.py
 	python3 scripts/check_doc_symbols.py
 
@@ -578,6 +580,7 @@ scout-strict:
 # justification -- in scripts/permissionless_entrypoints.txt. Source-only and
 # deterministic: no build, no network, runs in about a second.
 access-control-check:
+	@python3 scripts/test_check_access_control.py
 	@python3 scripts/check_access_control.py
 
 
@@ -593,29 +596,48 @@ WASM_BUDGET_FILE ?= configs/wasm_size_budget.txt
 
 
 # Fail the build if a `testing`-feature-only entrypoint leaked into a deployable
-# WASM. We grep only for symbols that are unambiguously test-only: a leak
-# co-exports every symbol in the cfg-gated impl, so any one firing catches it.
-# `set_price_aggregator` is deliberately NOT grepped — production governance
-# references it as a cross-contract invoke target (op.rs `Symbol::new`), so it is
-# not a reliable leak-only marker; a governance-testing leak is still caught by
-# `set_controller` / `execute_immediate` on the same artifact.
+# WASM. The symbol list is DERIVED from source at run time by the same
+# classifier `access-control-check` uses (`--list-test-only`), so a new
+# `#[cfg(feature = "testing")] #[contractimpl]` block on ANY contract is covered
+# the moment it lands -- a hardcoded list only ever covered governance and
+# price-aggregator, and silently stayed stale. A contract whose artifact is
+# missing is a hard failure, not a skip: add it to WASM_SIZE_CONTRACTS.
+#
+# `set_price_aggregator` is deliberately exempt — production governance
+# references it as a cross-contract invoke target (op.rs `Symbol::new`), so the
+# string is in the artifact whether or not the testing feature leaked; a
+# governance-testing leak is still caught by `set_controller` /
+# `execute_immediate` on the same artifact.
+WASM_ABI_EXEMPT_SYMBOLS ?= set_price_aggregator
+
 wasm-testing-abi-check: deploy-artifacts
-	@gov="$(DEPLOY_DIR)/governance.wasm"; \
-	if [ ! -f "$$gov" ]; then echo "governance deploy WASM missing: $$gov"; exit 1; fi; \
-	if strings "$$gov" | grep -Eqw 'set_controller|execute_immediate'; then \
-		echo "FAIL: governance.wasm exports test-only ABI (set_controller / execute_immediate)"; \
-		echo "  The governance/testing feature leaked into the deployable build."; \
+	@rows=$$(python3 scripts/check_access_control.py --list-test-only) || exit 1; \
+	if [ -z "$$rows" ]; then \
+		echo "FAIL: the classifier reports no test-only entrypoints at all"; \
+		echo "  Either the parser broke or the cfg gate vanished; both are bugs."; \
 		exit 1; \
 	fi; \
-	echo "OK   governance.wasm exports no test-only ABI"
-	@pa="$(DEPLOY_DIR)/price_aggregator.wasm"; \
-	if [ ! -f "$$pa" ]; then echo "price-aggregator deploy WASM missing: $$pa"; exit 1; fi; \
-	if strings "$$pa" | grep -Eqw 'seed_oracle|seed_oracle_config|remove_oracle'; then \
-		echo "FAIL: price_aggregator.wasm exports test-only ABI (seed_oracle / seed_oracle_config / remove_oracle)"; \
-		echo "  The price-aggregator/testing feature leaked into the deployable build."; \
-		exit 1; \
+	status=0; checked=0; \
+	for row in $$rows; do \
+		contract=$${row%%:*}; sym=$${row##*:}; \
+		case " $(WASM_ABI_EXEMPT_SYMBOLS) " in *" $$sym "*) continue ;; esac; \
+		wasm="$(DEPLOY_DIR)/$$(echo $$contract | tr -- - _).wasm"; \
+		if [ ! -f "$$wasm" ]; then \
+			echo "FAIL: $$contract has test-only entrypoint '$$sym' but no deploy WASM: $$wasm"; \
+			status=1; continue; \
+		fi; \
+		if strings "$$wasm" | grep -qw "$$sym"; then \
+			echo "FAIL: $$(basename $$wasm) exports test-only ABI '$$sym'"; \
+			echo "  The $$contract/testing feature leaked into the deployable build."; \
+			status=1; \
+		else \
+			checked=$$((checked+1)); \
+		fi; \
+	done; \
+	if [ "$$status" -eq 0 ]; then \
+		echo "OK   $$checked test-only symbol(s) absent from their deploy WASM"; \
 	fi; \
-	echo "OK   price_aggregator.wasm exports no test-only ABI"
+	exit $$status
 
 
 wasm-size-check: deploy-artifacts wasm-testing-abi-check
@@ -1268,6 +1290,23 @@ upgrade-position-nft: _preflight-controller _preflight-governance deploy-artifac
 	NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh upgradePositionNftHash $$HASH
 
 
+upgrade-price-aggregator: _preflight-governance deploy-artifacts
+	@echo "=== Upgrading price aggregator on $(NETWORK) ==="
+	@echo "Signer: $(SIGNER)"
+	@stellar contract upload \
+		--wasm $(DEPLOY_DIR)/price_aggregator.wasm \
+		$(SOURCE_FLAG) \
+		--network $(NETWORK) > $(PRICE_AGGREGATOR_UPGRADE_WASM_HASH_FILE); \
+	HASH=$$(cat $(PRICE_AGGREGATOR_UPGRADE_WASM_HASH_FILE)); \
+	echo "New price aggregator WASM hash: $$HASH"
+	@HASH=$$(cat $(PRICE_AGGREGATOR_UPGRADE_WASM_HASH_FILE)); \
+	NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh upgradePriceAggregatorHash $$HASH
+	@HASH=$$(cat $(PRICE_AGGREGATOR_UPGRADE_WASM_HASH_FILE)); \
+	TMP_JSON=$$(mktemp); \
+	jq '.["$(NETWORK)"].price_aggregator_wasm_hash = "'$$HASH'"' \
+		$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json
+
+
 upgrade-governance: _preflight-governance deploy-artifacts
 	@echo "=== Upgrading governance on $(NETWORK) ==="
 	@echo "Signer: $(SIGNER)"
@@ -1895,7 +1934,7 @@ VARARG_ACTIONS := updateIndexes claimRevenue supply borrow withdraw getLiquidati
 
 
 
-MAKEFILE_ACTIONS := deploy upgradeController upgradeGovernance upgradePool upgradePositionNft upgradeAll \
+MAKEFILE_ACTIONS := deploy upgradeController upgradeGovernance upgradePool upgradePositionNft upgradePriceAggregator upgradeAll \
                     deployFlashReceiver fundFlashReceiver testFlashReceiver deployAggregator deployOracleAdapter prepayRent setup resume \
                     upgradeAggregator upgradeOracleAdapter upgradeOracleAdapterFull
 
@@ -1929,6 +1968,7 @@ define NETWORK_DISPATCH
 				upgradeGovernance)  $(MAKE) --no-print-directory upgrade-governance NETWORK=$(1) SIGNER=$(SIGNER) ;; \
 				upgradePool)       $(MAKE) --no-print-directory upgrade-pool NETWORK=$(1) SIGNER=$(SIGNER) ;; \
 		upgradePositionNft) $(MAKE) --no-print-directory upgrade-position-nft NETWORK=$(1) SIGNER=$(SIGNER) ;; \
+				upgradePriceAggregator) $(MAKE) --no-print-directory upgrade-price-aggregator NETWORK=$(1) SIGNER=$(SIGNER) ;; \
 				upgradeAll)         $(MAKE) --no-print-directory upgrade-all NETWORK=$(1) SIGNER=$(SIGNER) ;; \
 				deployFlashReceiver) $(MAKE) --no-print-directory deploy-flash-loan-receiver NETWORK=$(1) SIGNER=$(SIGNER) ;; \
 				fundFlashReceiver)  $(MAKE) --no-print-directory fund-flash-loan-receiver NETWORK=$(1) SIGNER=$(SIGNER) FLASH_MARKET=$(FLASH_MARKET) FLASH_RECEIVER_FUND=$(FLASH_RECEIVER_FUND) ;; \
@@ -2141,7 +2181,7 @@ help-deploy:
 	$(call ROW,make <n> info,deployed contract IDs)
 	$(call BLANK)
 	$(call H2,Upgrades (timelocked))
-	$(call NOTE,make <n> upgradeController | upgradeGovernance | upgradePool | upgradeAll)
+	$(call NOTE,make <n> upgradeController | upgradeGovernance | upgradePool | upgradePriceAggregator | upgradeAll)
 	$(call BLANK)
 	$(call H2,Mainnet env (optional))
 	$(call NOTE,AGGREGATOR_CONTRACT=C... ACCUMULATOR_CONTRACT=G... make mainnet setup)

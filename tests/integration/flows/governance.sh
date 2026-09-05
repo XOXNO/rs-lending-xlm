@@ -108,7 +108,7 @@ inv gov_execute "$ADMIN" "$GOVERNANCE" -- execute \
 --args-file-path "$args_f" --predecessor "$GOV_ZERO32" --salt "$GOV_SALT_EXEC" >/dev/null
     gov_assert_state gov_state_unset_after_exec "$op_exec" Unset
 
-    xfail gov_execute_replay 'Error\(' "$ADMIN" "$GOVERNANCE" -- execute \
+    xfail gov_execute_replay 'Error\(Contract, #4002\)' "$ADMIN" "$GOVERNANCE" -- execute \
         --executor null --target "$GOV_CONTROLLER" --function set_position_limits \
         --args-file-path "$args_f" --predecessor "$GOV_ZERO32" --salt "$GOV_SALT_EXEC"
 
@@ -201,7 +201,7 @@ flow_gov_recovery_and_roles() {
 
         # Deploying a second one must be refused, or the registered aggregator
         # could be swapped out from under the controller.
-        xfail gov_deploy_price_agg_twice 'Error\(Contract' "$ADMIN" "$GOVERNANCE" -- deploy_price_aggregator \
+        xfail gov_deploy_price_agg_twice 'Error\(Contract, #5\)' "$ADMIN" "$GOVERNANCE" -- deploy_price_aggregator \
             --wasm_hash "$PA_HASH"
 
         # XLM_SAC, not SAC_LIQA: the LIQ* assets only exist in the `liq` lane,
@@ -217,11 +217,11 @@ flow_gov_recovery_and_roles() {
         # oracle registered for any key, so ADMIN clears the ORACLE_ROLE gate
         # and only then fails on the missing oracle, while ALICE is stopped at
         # the gate. Distinct outcomes prove the role check runs first.
-        xfail gov_set_sanity_band_no_role 'Missing signing key|Error\(Contract' "$ALICE" "$GOVERNANCE" -- set_sanity_band \
+        xfail gov_set_sanity_band_no_role 'Error\(Contract, #2000\)' "$ALICE" "$GOVERNANCE" -- set_sanity_band \
             --caller "$ALICE_ADDR" --key "$band_key" \
             --min_wad "$band_min" --max_wad "$band_max"
 
-        xfail gov_set_sanity_band_no_oracle 'Error\(Contract' "$ADMIN" "$GOVERNANCE" -- set_sanity_band \
+        xfail gov_set_sanity_band_no_oracle 'Error\(Contract, #216\)' "$ADMIN" "$GOVERNANCE" -- set_sanity_band \
             --caller "$ADMIN_ADDR" --key "$band_key" \
             --min_wad "$band_min" --max_wad "$band_max"
     fi
@@ -236,7 +236,7 @@ flow_gov_recovery_and_roles() {
         --account "$ADMIN_ADDR" --role GUARDIAN
 
     # Only guardian and oracle are revocable this way; EXECUTOR must not be.
-    xfail gov_revoke_executor_rejected 'Error\(Contract' "$ADMIN" "$GOVERNANCE" -- revoke_role_immediate \
+    xfail gov_revoke_executor_rejected 'Error\(Contract, #41\)' "$ADMIN" "$GOVERNANCE" -- revoke_role_immediate \
         --account "$ADMIN_ADDR" --role EXECUTOR
 
     # The happy path therefore needs a non-owner holder: grant GUARDIAN to DAVE
@@ -258,7 +258,7 @@ flow_gov_recovery_and_roles() {
             --account "$DAVE_ADDR" --role GUARDIAN >/dev/null
         # Proof it actually took: a second revoke finds no role to remove rather
         # than silently succeeding.
-        xfail gov_revoke_guardian_twice 'Error\(Contract' "$ADMIN" "$GOVERNANCE" -- revoke_role_immediate \
+        xfail gov_revoke_guardian_twice 'Error\(Contract, #41\)' "$ADMIN" "$GOVERNANCE" -- revoke_role_immediate \
             --account "$DAVE_ADDR" --role GUARDIAN
     else
         log "gov_recovery: grant op $op_grant never reached Ready ($grant_st); skipping revoke happy path"
@@ -280,6 +280,6 @@ flow_gov_recovery_and_roles() {
         _assert_fail gov_canceller_reset_scheduled "propose_canceller_reset returned no operation id"
     fi
 
-    xfail gov_execute_canceller_reset_early 'Error\(Contract' "$ADMIN" "$GOVERNANCE" -- execute_canceller_reset \
+    xfail gov_execute_canceller_reset_early 'Error\(Contract, #4002\)' "$ADMIN" "$GOVERNANCE" -- execute_canceller_reset \
         --executor null --new_cancellers "$cancellers" --salt "$GOV_SALT_CANCELLER_RESET"
 }

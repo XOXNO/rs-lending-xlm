@@ -5,7 +5,7 @@ use soroban_sdk::{assert_with_error, vec, Address, Env};
 
 use crate::account;
 use crate::config;
-use crate::context::Cache;
+use crate::context::Context;
 use crate::events;
 use crate::positions::get_debt_position_or_panic;
 use crate::risk::validation::require_authorized_caller;
@@ -24,13 +24,9 @@ pub(crate) struct RepayWithCollateralParams<'a> {
     pub close_position: bool,
 }
 
-/// Repays `debt` using `collateral` for `caller`'s account: nets supply
-/// directly against debt on the pool when they are the same market,
-/// otherwise withdraws `collateral_amount` of collateral, swaps it into the
-/// debt asset, and repays with the proceeds. When `close_position` is set,
-/// panics with `CannotCloseWithRemainingDebt` if any debt position remains;
-/// otherwise withdraws all remaining collateral to `caller` before the
-/// standard solvency finalize.
+/// Repays from collateral: nets same-market balances or withdraws and swaps.
+/// Closing requires all debt cleared before returning collateral to `caller`;
+/// every path ends with the standard risk checks and finalization.
 pub(crate) fn process_repay_debt_with_collateral(
     env: &Env,
     caller: &Address,
@@ -53,14 +49,13 @@ pub(crate) fn process_repay_debt_with_collateral(
 
     let mut account = storage::get_account(env, account_id);
     account::require_owner_or_delegate(env, account_id, caller, &account.owner);
-    let mut cache = Cache::new(env);
+    let mut cache = Context::new(env);
 
     let extra_assets = vec![env, collateral.asset.clone(), debt.asset.clone()];
     prefetch_strategy_prices(&mut cache, &account, &extra_assets);
 
     if collateral == debt {
-        // Same market on both legs: net supply against debt on the pool with no
-        // tokens moving, so no conversion is needed or allowed.
+        // Same-market netting moves no tokens, so a swap route is invalid.
         assert_with_error!(env, swap.is_empty(), GenericError::InvalidPayments);
         net_settle_collateral_against_debt(
             env,
@@ -83,26 +78,31 @@ pub(crate) fn process_repay_debt_with_collateral(
         );
     }
 
-    close_remaining_collateral_if_requested(env, &mut account, caller, &mut cache, close_position);
+    if close_position {
+        assert_with_error!(
+            env,
+            account.borrow_positions.is_empty(),
+            CollateralError::CannotCloseWithRemainingDebt
+        );
+
+        execute_withdraw_all(env, &mut account, caller, &mut cache);
+    }
 
     strategy_finalize(env, account_id, &mut account, &mut cache);
 }
 
-/// Withdraws `collateral_amount` of `collateral` to the controller, swaps it
-/// into `debt`'s asset, and repays that amount against `account`'s existing
-/// debt position. Requires `account` to already hold a debt position in
-/// `debt`, checked before any collateral is withdrawn.
+/// Confirms debt exists before withdrawing collateral, then swaps and repays
+/// using measured receipts.
 fn repay_via_collateral_swap(
     env: &Env,
     caller: &Address,
     account: &mut Account,
-    cache: &mut Cache,
+    cache: &mut Context,
     collateral: &HubAssetKey,
     collateral_amount: i128,
     debt: &HubAssetKey,
     swap: &StrategySwap,
 ) {
-    // Fail fast if debt is missing before withdrawing collateral.
     let debt_pos = get_debt_position_or_panic(env, account, debt);
 
     let debt_available = withdraw_and_swap_from_supply(
@@ -129,27 +129,4 @@ fn repay_via_collateral_swap(
             action: events::PositionAction::RpColR,
         },
     );
-}
-
-/// Withdraws all of `account`'s remaining supply positions to `caller` when
-/// `close_position` is set; no-op otherwise. Panics with
-/// `CannotCloseWithRemainingDebt` if any debt remains.
-fn close_remaining_collateral_if_requested(
-    env: &Env,
-    account: &mut Account,
-    caller: &Address,
-    cache: &mut Cache,
-    close_position: bool,
-) {
-    if !close_position {
-        return;
-    }
-
-    assert_with_error!(
-        env,
-        account.borrow_positions.is_empty(),
-        CollateralError::CannotCloseWithRemainingDebt
-    );
-
-    execute_withdraw_all(env, account, caller, cache);
 }

@@ -213,6 +213,20 @@ run_one() {
   if [ "$status" -ne 0 ]; then
     echo "[$r] local prover exited $status; full log: $log" >&2
   fi
+
+  # The stdout log carries the verdict table, not the counterexample. The call
+  # trace with every `clog!`-ed value lives in the prover's build directory
+  # under the run dir, which the EXIT trap deletes. Keep it when the prover
+  # returned a failure of its own (a violation or an engine error), so CI can
+  # upload it; a wrapper kill (124) leaves a partial tree that is not worth
+  # the artifact.
+  if [ "$status" -ne 0 ] && [ "$status" -ne 124 ]; then
+    local keep_dir="$log_dir/runs/${name%.conf}-$safe_rule"
+    rm -rf -- "$keep_dir"
+    mkdir -p "$(dirname "$keep_dir")"
+    mv -- "$run_dir" "$keep_dir"
+    echo "[$r] prover working directory kept at $keep_dir" >&2
+  fi
   return "$status"
 }
 

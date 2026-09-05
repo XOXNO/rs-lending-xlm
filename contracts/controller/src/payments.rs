@@ -5,12 +5,8 @@ use soroban_sdk::{panic_with_error, token, Address, Env, Map, Vec};
 pub(crate) use common::token::transfer_amount_measured;
 use common::validation::{expect_invariant, require_non_empty_payments, require_nonneg_amount};
 
-/// Returns `holder`'s current `asset` balance minus `before`: the amount that
-/// arrived since that snapshot was taken. Negative when the balance fell.
-///
-/// Every controller leg that settles through the contract's own custody
-/// measures what actually moved rather than trusting a reported figure, so
-/// the subtraction lives here once instead of at each call site.
+/// Returns the measured balance change since `before`, negative for an outflow.
+/// Custody accounting uses this delta rather than reported transfer amounts.
 pub(crate) fn balance_delta_since(
     env: &Env,
     asset: &Address,
@@ -23,14 +19,49 @@ pub(crate) fn balance_delta_since(
         .unwrap_or_else(|| panic_with_error!(env, GenericError::InternalError))
 }
 
+/// Snapshots `holder`'s balance once per distinct asset address.
+pub(crate) fn snapshot_balances(
+    env: &Env,
+    holder: &Address,
+    assets: impl IntoIterator<Item = Address>,
+) -> Map<Address, i128> {
+    let mut snapshot = Map::new(env);
+    for asset in assets {
+        if snapshot.contains_key(asset.clone()) {
+            continue;
+        }
+        let balance = token::Client::new(env, &asset).balance(holder);
+        snapshot.set(asset, balance);
+    }
+    snapshot
+}
+
+/// Refunds only the controller balance increase since `balance_before`,
+/// preserving the pre-existing balance; no-op for a nonpositive delta.
+pub(crate) fn refund_controller_balance_delta(
+    env: &Env,
+    asset: &Address,
+    balance_before: i128,
+    refund_to: &Address,
+) {
+    let controller = env.current_contract_address();
+    let excess = balance_delta_since(env, asset, &controller, balance_before);
+    if excess > 0 {
+        token::Client::new(env, asset).transfer(&controller, refund_to, &excess);
+    }
+}
+
+/// Meaning of a zero amount when aggregating payment legs.
 #[derive(Clone, Copy, PartialEq)]
 pub(crate) enum ZeroLeg {
+    /// Require strictly positive amounts.
     Rejected,
 
+    /// Withdraw all; overrides positive amounts for the same hub asset.
     MeansAll,
 }
 
-/// Sums `payments` into per-asset totals, rejecting any zero-amount leg.
+/// Aggregates hub-asset payments, requiring every amount to be positive.
 pub(crate) fn aggregate_positive_payments(
     env: &Env,
     payments: &Vec<HubPayment>,
@@ -38,12 +69,9 @@ pub(crate) fn aggregate_positive_payments(
     aggregate_payments(env, payments, ZeroLeg::Rejected)
 }
 
-/// Sums `payments` into per-asset totals, preserving the order in which
-/// assets first appear. Panics if `payments` is empty, if any amount is
-/// negative, or if a total would overflow. A zero amount is rejected under
-/// `ZeroLeg::Rejected`; under `ZeroLeg::MeansAll` it zeroes that asset's
-/// running total as a withdraw-all sentinel, and further amounts for that
-/// asset stay at zero.
+/// Aggregates hub-asset payments in first-seen order. Rejects empty input,
+/// negative amounts, and overflow. Under `MeansAll`, any zero makes that
+/// hub asset's total a persistent withdraw-all sentinel.
 pub(crate) fn aggregate_payments(
     env: &Env,
     payments: &Vec<HubPayment>,
@@ -72,24 +100,20 @@ pub(crate) fn aggregate_payments(
     result
 }
 
-/// Folds `amount` into `previous`'s running total for one asset, applying
-/// `zero_leg`'s zero-amount rules. Panics if `amount` is negative or the
-/// addition would overflow.
+/// Adds one amount to a hub asset's total under the selected zero policy.
 fn aggregate_payment_amount(
     env: &Env,
     previous: Option<i128>,
     amount: i128,
     zero_leg: ZeroLeg,
 ) -> i128 {
-    // Negative is always fatal and must run before sticky-zero arms.
-    // Otherwise MeansAll + previous==Some(0) would swallow negatives as 0.
+    // Validate before the zero sentinel can mask a negative amount.
     require_nonneg_amount(env, amount);
 
     match (zero_leg, amount, previous) {
         (ZeroLeg::Rejected, 0, _) => {
             panic_with_error!(env, GenericError::AmountMustBePositive);
         }
-        // Withdraw-all sentinel, and sticky zero once a MeansAll total is 0.
         (ZeroLeg::MeansAll, 0, _) | (ZeroLeg::MeansAll, _, Some(0)) => 0,
         (_, amount, previous) => previous
             .unwrap_or(0)

@@ -1,3 +1,5 @@
+use soroban_sdk::testutils::{MockAuth, MockAuthInvoke};
+use soroban_sdk::IntoVal;
 use test_harness::{days, hub_asset, usd_cents, usdc_preset, LendingTest, ALICE, BOB, LIQUIDATOR};
 
 fn setup_accumulator(t: &LendingTest) {
@@ -165,19 +167,74 @@ fn test_claim_revenue_zero_when_no_activity() {
 }
 #[test]
 fn test_permissionless_revenue_endpoints() {
-    let mut t = LendingTest::new().with_market(usdc_preset()).build();
+    let mut t = LendingTest::new().standard_two_asset().build();
+
+    t.supply(BOB, "ETH", 100.0);
+    t.supply(ALICE, "USDC", 100_000.0);
+    t.borrow(ALICE, "ETH", 10.0);
+    t.advance_and_sync(days(90));
+
+    let accumulator = t
+        .env
+        .register(test_harness::mock_reflector::MockReflector, ());
+    t.ctrl_client().set_accumulator(&accumulator);
 
     let bob_addr = t.get_or_create_user(BOB);
+    let asset = t.resolve_market("ETH").asset.clone();
+    let assets = soroban_sdk::vec![&t.env, hub_asset(asset.clone())];
+    let expected = t.snapshot_revenue("ETH");
+    assert!(expected > 0, "fixture must accrue revenue, got {expected}");
 
-    t.supply(ALICE, "USDC", 10_000.0);
+    let tok = soroban_sdk::token::Client::new(&t.env, &asset);
+    let acc_before = tok.balance(&accumulator);
+    let bob_before = tok.balance(&bob_addr);
 
-    let ctrl = t.ctrl_client();
-    let asset = t.resolve_market("USDC").asset.clone();
-
-    t.env.mock_all_auths();
-    let assets = soroban_sdk::vec![&t.env, hub_asset(asset)];
+    // Permissionless is not unsigned: with no auth entries the caller's own
+    // `require_auth` must still refuse.
+    t.env.set_auths(&[]);
     assert!(
-        ctrl.try_claim_revenue(&bob_addr, &assets).is_ok(),
-        "any signed caller may claim_revenue"
+        t.ctrl_client()
+            .try_claim_revenue(&bob_addr, &assets)
+            .is_err(),
+        "claim_revenue must still require the caller's own signature"
+    );
+
+    // Sign as Bob and as nobody else. The builder's blanket
+    // `mock_all_auths_allowing_non_root_auth` is what made the old version
+    // vacuous: under it an admin gate on `claim_revenue` would still pass.
+    t.env.mock_auths(&[MockAuth {
+        address: &bob_addr,
+        invoke: &MockAuthInvoke {
+            contract: &t.controller,
+            fn_name: "claim_revenue",
+            args: (bob_addr.clone(), assets.clone()).into_val(&t.env),
+            sub_invokes: &[],
+        },
+    }]);
+    let claimed = t
+        .ctrl_client()
+        .claim_revenue(&bob_addr, &assets)
+        .get(0)
+        .unwrap();
+    t.env.mock_all_auths_allowing_non_root_auth();
+
+    assert_eq!(
+        claimed, expected,
+        "a non-admin caller sweeps the full accrued revenue"
+    );
+    assert_eq!(
+        tok.balance(&accumulator) - acc_before,
+        claimed,
+        "the accumulator, not the caller, receives the revenue"
+    );
+    assert_eq!(
+        tok.balance(&bob_addr),
+        bob_before,
+        "the caller keeps nothing for driving the sweep"
+    );
+    assert_eq!(
+        t.snapshot_revenue("ETH"),
+        0,
+        "revenue is zeroed after the sweep"
     );
 }

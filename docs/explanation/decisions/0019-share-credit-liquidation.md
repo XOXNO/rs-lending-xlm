@@ -2,7 +2,7 @@
 
 **Status:** Accepted
 
-**Implemented by:** common/src/types/controller.rs (`SeizeMode`), contracts/controller/src/positions/liquidation/mod.rs (`process_liquidation`, `resolve_seize_receiver`), contracts/controller/src/positions/liquidation/apply.rs (`apply_liquidation_share_credit`, `credit_supply_shares`, `record_share_credit_updates`, `require_credit_position_limit`), contracts/controller/src/positions/liquidation/math.rs (`split_seized_shares`), contracts/pool/src/cache/shares.rs (`absorb_supply_as_revenue`), contracts/controller/src/events/mod.rs (`LiqSeize`, `LiqCredit`), contracts/controller/src/events/position.rs (`account_attributes`); specs certora/controller/spec/spoke_rules.rs, certora/controller/spec/account_isolation_rules.rs (`liquidation_does_not_change_other_account_positions`); tests contracts/controller/tests/events.rs.
+**Implemented by:** common/src/types/controller.rs (`SeizeMode`), contracts/controller/src/positions/liquidation/mod.rs (`process_liquidation`, `resolve_seize_receiver`), contracts/controller/src/positions/liquidation/apply.rs (`apply_liquidation_share_credit`, `credit_supply_shares`, `record_share_credit_updates`, `require_credit_position_limit`), contracts/controller/src/positions/liquidation/math.rs (`split_seized_shares`), contracts/pool/src/cache/shares.rs (`absorb_supply_as_revenue`), contracts/controller/src/events/mod.rs (`LiqSeize`, `LiqCredit`, `account_attributes`); specs certora/controller/spec/spoke_rules.rs, certora/controller/spec/account_isolation_rules.rs (`liquidation_does_not_change_other_account_positions`); tests contracts/controller/tests/events.rs.
 
 ## Decision
 
@@ -101,6 +101,14 @@ unconditionally. Credit mode makes one liquidation write two accounts, so the
 rule now names both principals and asserts no *third* account changes. That is a
 genuine weakening of a strong invariant and is the price of the feature; it was
 not loosened to "some other account may change".
+
+The receiver's own change is bounded by a companion rule in the same spec,
+`liquidation_share_credit_bounded_by_target_loss`: its debt book does not move,
+its supply shares never fall, and they rise by no more than the liquidated
+account's shares fell in the same asset. `liquidation_share_credit_reachability`
+witnesses that the credit path is live, so the bound cannot pass vacuously.
+The residue is the protocol fee; the rule does not pin it to pool revenue,
+because the pool call is havoced in the controller spec.
 
 ## Guarantees
 

@@ -1,0 +1,16 @@
+{
+  "kind": "price_aggregator",
+  "op_id": "957ed0efcbb689cfb3c2f2c05b1844297146801d9d15a8ff50fda5ef53e4bec9",
+  "network": "mainnet",
+  "target": "CBGUF2G2Q7HCVCWYISDXBHPVBGMYNXA7PG2VET66YBZX6IKOOV27NSMV",
+  "function": "upgrade",
+  "args": [
+    {
+      "bytes": "7807901b2c98c19a56de016c5cf42b4df1c37702a34e38b6d567ce08e41bc8e4"
+    }
+  ],
+  "predecessor": "0000000000000000000000000000000000000000000000000000000000000000",
+  "salt": "0861f8740321c9e43a1ad983c8c976af8cf7c6a50cc5346102c9fe399eda5dc8",
+  "cli_executable": true,
+  "executed": true
+}

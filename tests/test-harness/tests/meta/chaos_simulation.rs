@@ -1,5 +1,8 @@
 use controller::constants::RAY;
-use test_harness::{days, hub_asset, usd, LendingTest, ALICE, BOB, CAROL, DAVE, EVE, LIQUIDATOR};
+use test_harness::{
+    days, eth_preset, hub_asset, usd, usdc_preset, LendingTest, ALICE, BOB, CAROL, DAVE, EVE,
+    LIQUIDATOR,
+};
 
 struct Rng(u64);
 
@@ -184,6 +187,12 @@ fn test_chaos_bank_run_full_exit() {
         "Carol debt should be ~0 after full repay"
     );
 
+    // Eve is a pure supplier, so her exit is fully determined: the wallet must
+    // move by exactly her credited balance. Counting successes alone cannot see
+    // a bug that under-pays every withdrawer and strands the surplus.
+    let eve_credited = t.supply_balance_raw(EVE, "USDC");
+    let eve_wallet_before = t.token_balance_raw(EVE, "USDC");
+
     let mut withdraw_successes = 0u32;
     for user in &suppliers {
         if t.try_withdraw(user, "USDC", 999_999.0).is_ok() {
@@ -199,18 +208,33 @@ fn test_chaos_bank_run_full_exit() {
         "all suppliers should successfully withdraw: got {} successes out of 5 suppliers",
         withdraw_successes
     );
+    // Exact to the stroop, and directional: withdraw floors in the protocol's
+    // favour (ADR-0003), so the payout is the credited balance or one stroop
+    // under it -- never over, and never 5% under.
+    let eve_paid = t.token_balance_raw(EVE, "USDC") - eve_wallet_before;
+    assert!(
+        eve_paid == eve_credited || eve_paid == eve_credited - 1,
+        "eve's payout must equal her credited supply within the protocol-favouring \
+         floor: paid={eve_paid}, credited={eve_credited}"
+    );
 
+    // `pool_reserves` is `state.cash`, which the builder pre-loads with
+    // `initial_liquidity` (src/multi_hub.rs:80-95). `>= 0.0` therefore had a
+    // million-unit margin. Every supplier has exited, so the only cash that may
+    // remain is that donation plus the unclaimed protocol revenue.
     let usdc_reserves = t.pool_reserves("USDC");
     let eth_reserves = t.pool_reserves("ETH");
     assert!(
-        usdc_reserves >= 0.0,
-        "USDC pool should be solvent, reserves={}",
-        usdc_reserves
+        usdc_reserves >= usdc_preset().initial_liquidity,
+        "USDC pool leaked below its seeded liquidity: reserves={}, seeded={}",
+        usdc_reserves,
+        usdc_preset().initial_liquidity
     );
     assert!(
-        eth_reserves >= 0.0,
-        "ETH pool should be solvent, reserves={}",
-        eth_reserves
+        eth_reserves >= eth_preset().initial_liquidity,
+        "ETH pool leaked below its seeded liquidity: reserves={}, seeded={}",
+        eth_reserves,
+        eth_preset().initial_liquidity
     );
 
     let usdc_rev_after = t.snapshot_revenue("USDC");

@@ -15,9 +15,9 @@ use common::types::{
 /// The one generator for a market's pair of indexes.
 ///
 /// Every summary that returns indexes goes through this: the per-verb
-/// mutations below, `get_sync_data_summary` (`Cache::cached_pool_sync_data`)
-/// and `super::bulk_index_summary` (`Cache::cached_market_index`). Sharing the
-/// generator is what keeps the two `Cache` doors from carrying different
+/// mutations below, `get_sync_data_summary` (`Context::cached_pool_sync_data`)
+/// and `super::bulk_index_summary` (`Context::cached_market_index`). Sharing the
+/// generator is what keeps the two `Context` doors from carrying different
 /// domains for the same market. Both ends are the pool's own clamps:
 /// `update_supply_index` and `apply_bad_debt_to_supply_index` hold the supply
 /// index inside `[SUPPLY_INDEX_FLOOR_RAW, MAX_SUPPLY_INDEX_RAY]`, and
@@ -278,7 +278,7 @@ pub fn claim_revenue_summary(_env: &Env, _asset: &Address) -> PoolAmountMutation
 }
 
 /// Market snapshot returned by `LiquidityPool::get_sync_data`, feeding
-/// `Cache::cached_pool_sync_data`.
+/// `Context::cached_pool_sync_data`.
 ///
 /// The index fields come from [`nondet_market_index_raw`], the same generator
 /// [`super::bulk_index_summary`] uses, so a rule that reads both doors for one

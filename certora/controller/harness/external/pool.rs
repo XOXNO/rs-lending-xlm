@@ -18,7 +18,7 @@ use soroban_sdk::{Address, Bytes, BytesN, Env, Vec};
 /// and `get_sync_data` return the same accrued state, so within one
 /// transaction a market has exactly one index pair no matter which door it is
 /// read through. The per-verb summaries draw independently, and the controller
-/// then writes the drawn value into the cache with `Cache::put_market_index`,
+/// then writes the drawn value into the cache with `Context::put_market_index`,
 /// which is what the post-pool risk gate reads. Without this, a rule that
 /// values the same position after the call reads a *different* index from the
 /// one the gate used, and no composition rule can hold.

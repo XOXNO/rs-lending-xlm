@@ -2,23 +2,39 @@ use controller::types::InterestRateModel;
 use controller::types::SpokeAssetArgs;
 use governance_interface::AdminOperation;
 use soroban_sdk::testutils::Address as _;
-use soroban_sdk::{Address, BytesN, Vec as SVec};
+use soroban_sdk::xdr::ScErrorType;
+use soroban_sdk::{Address, BytesN, InvokeError, Vec as SVec};
 use test_harness::{hub_asset, HubAssetKey, LendingTest, HARNESS_HUB};
 
-fn expect_rejected<F, R, InnerErr, OuterErr>(label: &str, call: F) -> Result<(), String>
+/// A privileged call must be stopped by the HOST auth check, never by contract
+/// logic that runs after it.
+///
+/// soroban-sdk 27.0.6 `env.rs:441-463` routes every failure to the OUTER `Err`,
+/// so the old `Err(_) => Ok(())` accepted an arithmetic panic, an argument
+/// rejection, or a missing-wasm host error just as happily as an auth
+/// rejection -- the ordering this file's name promises was never observed.
+/// The inner value is `Ok(soroban_sdk::Error)` (the host error value, which
+/// carries its `ScErrorType`) and only collapses to `Err(InvokeError)` when the
+/// error will not convert; a `Contract`-typed error means the call got PAST the
+/// gate and was stopped by validation instead, which is the regression to
+/// catch.
+fn expect_rejected<F, R, InnerErr>(label: &str, call: F) -> Result<(), String>
 where
-    F: FnOnce() -> Result<Result<R, InnerErr>, OuterErr>,
-    InnerErr: core::fmt::Debug,
+    F: FnOnce() -> Result<Result<R, InnerErr>, Result<soroban_sdk::Error, InvokeError>>,
 {
     match call() {
-        Err(_) => Ok(()),
-        Ok(Ok(_)) => Err(format!(
-            "CRITICAL: {} executed successfully without auth",
-            label
+        Err(Ok(err)) if !err.is_type(ScErrorType::Contract) => Ok(()),
+        Err(Ok(err)) => Err(format!(
+            "CRITICAL: {label} passed the auth gate and was stopped by contract logic: {err:?}"
         )),
-        Ok(Err(contract_err)) => Err(format!(
-            "CRITICAL: {} passed auth gate with contract error {:?}",
-            label, contract_err
+        Err(Err(invoke)) => Err(format!(
+            "CRITICAL: {label} failed with a bare InvokeError, not a host error value: {invoke:?}"
+        )),
+        Ok(Ok(_)) => Err(format!(
+            "CRITICAL: {label} executed successfully without auth"
+        )),
+        Ok(Err(_)) => Err(format!(
+            "CRITICAL: {label} executed without auth (only the return value failed to convert)"
         )),
     }
 }
@@ -42,10 +58,11 @@ fn owner_only_endpoints_reject_unauthed_before_validation() {
     let category_id = 1;
     let can_collateral = true;
     let can_borrow = true;
-    let seed = 0;
     let t = LendingTest::new().three_asset_usdc_eth_wbtc().build();
     let env = t.env.clone();
     let ctrl = t.ctrl_client();
+    // A hash the host can actually resolve: the builder already uploaded it.
+    let real_wasm = t.position_nft_wasm_hash.clone();
     let no_auths: [soroban_sdk::xdr::SorobanAuthorizationEntry; 0] = [];
     let limits = sample_position_limits();
     let usdc = t.resolve_asset("USDC");
@@ -131,18 +148,18 @@ fn owner_only_endpoints_reject_unauthed_before_validation() {
     })
     .unwrap();
     expect_rejected("upgrade", || {
-        ctrl.set_auths(&no_auths)
-            .try_upgrade(&dummy_bytes_n(&env, seed))
+        ctrl.set_auths(&no_auths).try_upgrade(&real_wasm)
     })
     .unwrap();
     expect_rejected("upgrade_pool", || {
-        ctrl.set_auths(&no_auths)
-            .try_upgrade_pool(&dummy_bytes_n(&env, seed))
+        ctrl.set_auths(&no_auths).try_upgrade_pool(&real_wasm)
     })
     .unwrap();
+    // `deploy_pool` stays partly weak: the hash resolves, but deploying the NFT
+    // WASM as a pool would still abort in its constructor, so a dropped gate is
+    // caught here only by the auth error type, not by an `Ok`.
     expect_rejected("deploy_pool", || {
-        ctrl.set_auths(&no_auths)
-            .try_deploy_pool(&dummy_bytes_n(&env, seed))
+        ctrl.set_auths(&no_auths).try_deploy_pool(&real_wasm)
     })
     .unwrap();
     let zero_model = InterestRateModel {
@@ -235,7 +252,7 @@ fn owner_only_endpoints_reject_unauthed_before_validation() {
     .unwrap();
     expect_rejected("deploy_position_nft", || {
         ctrl.set_auths(&no_auths).try_deploy_position_nft(
-            &dummy_bytes_n(&env, seed),
+            &real_wasm,
             &soroban_sdk::String::from_str(&env, "u"),
             &soroban_sdk::String::from_str(&env, "n"),
             &soroban_sdk::String::from_str(&env, "s"),
@@ -244,7 +261,7 @@ fn owner_only_endpoints_reject_unauthed_before_validation() {
     .unwrap();
     expect_rejected("upgrade_position_nft", || {
         ctrl.set_auths(&no_auths)
-            .try_upgrade_position_nft(&dummy_bytes_n(&env, seed))
+            .try_upgrade_position_nft(&real_wasm)
     })
     .unwrap();
 }
@@ -259,6 +276,7 @@ fn governance_endpoints_reject_unauthed_before_validation() {
     let limits = sample_position_limits();
     let random_addr = Address::generate(&env);
     let salt = dummy_bytes_n(&env, seed);
+    let real_wasm = t.position_nft_wasm_hash.clone();
 
     expect_rejected("gov.propose(SetPositionLimits)", || {
         gov.set_auths(&no_auths).try_propose(
@@ -278,9 +296,10 @@ fn governance_endpoints_reject_unauthed_before_validation() {
     })
     .unwrap();
 
+    // Same caveat as `deploy_pool`: the hash resolves, but the deployed NFT WASM
+    // would abort in a controller constructor, so only the error type discriminates.
     expect_rejected("gov.deploy_controller", || {
-        gov.set_auths(&no_auths)
-            .try_deploy_controller(&dummy_bytes_n(&env, seed))
+        gov.set_auths(&no_auths).try_deploy_controller(&real_wasm)
     })
     .unwrap();
     expect_rejected("gov.pause", || {

@@ -9,7 +9,7 @@ use common::validation::expect_invariant;
 use soroban_sdk::{assert_with_error, Address, Env, Vec};
 
 use crate::account::update_or_remove_supply_position;
-use crate::context::Cache;
+use crate::context::Context;
 use crate::events;
 use crate::external::pool::pool_seize_positions_call;
 use crate::payments;
@@ -25,15 +25,14 @@ use crate::risk::AccountRiskTotals;
 use crate::spoke_usage::UsageSide;
 use common::errors::{GenericError, SpokeError};
 
-/// Pulls each `repaid` leg's tokens from `liquidator` into the pool and applies them as
-/// repayments, floor-scaling a leg's USD value down when the pool received less than the
-/// planned amount. Returns the total USD actually received.
+/// Repays from measured pool receipts. Returns WAD USD receipt value, capped
+/// per planned leg and floor-scaled when a token under-delivers.
 pub(crate) fn apply_liquidation_repayments(
     env: &Env,
     liquidator: &Address,
     account: &mut Account,
     repaid: &Vec<RepayEntry>,
-    cache: &mut Cache,
+    cache: &mut Context,
 ) -> Wad {
     let pool_addr = cache.cached_pool_address();
     let mut actions: Vec<PoolAction> = Vec::new(env);
@@ -47,8 +46,7 @@ pub(crate) fn apply_liquidation_repayments(
             FreezePolicy::AllowOnExit,
         );
 
-        // Measure pool receipt (same as user supply/repay) so cash/debt books
-        // never credit more than tokens actually received.
+        // Credit only tokens received by the pool.
         let received = payments::transfer_amount_measured(
             env,
             &entry.hub_asset.asset,
@@ -58,8 +56,7 @@ pub(crate) fn apply_liquidation_repayments(
             GenericError::AmountMustBePositive,
         );
 
-        // Value that actually arrived for this leg. `transfer_amount_measured`
-        // has already asserted `entry.amount > 0`, so the ratio is well defined.
+        // The measured transfer requires a positive amount, so division is safe.
         let leg_usd = if received >= entry.amount {
             Wad::from(entry.usd_wad)
         } else {
@@ -82,15 +79,14 @@ pub(crate) fn apply_liquidation_repayments(
     received_usd
 }
 
-/// Withdraws each `seized` collateral leg to `liquidator` as a liquidation seizure, carrying
-/// along its protocol fee share. This is `SeizeMode::Transfer`: the pool burns the shares,
-/// debits cash, and pays the liquidator in underlying.
+/// Executes transfer-mode seizure: burns shares, debits pool cash, and pays
+/// underlying to the liquidator after withholding the protocol fee.
 pub(crate) fn apply_liquidation_seizures(
     env: &Env,
     liquidator: &Address,
     account: &mut Account,
     seized: &Vec<SeizeEntry>,
-    cache: &mut Cache,
+    cache: &mut Context,
 ) {
     let mut entries: Vec<PoolWithdrawEntry> = Vec::new(env);
     for entry in seized.iter() {
@@ -120,28 +116,19 @@ pub(crate) fn apply_liquidation_seizures(
     );
 }
 
-/// Applies the seizure legs as a share credit — `SeizeMode::Credit`.
+/// Debits seized shares `S`, credits `S - fee`, and reclassifies `fee` as revenue.
+/// No tokens move; pool supply and cash remain unchanged. Moving scaled shares
+/// also avoids supply-index drift between planning and application.
 ///
-/// For each leg the liquidated account is debited by the whole scaled seizure `S`, the
-/// receiving account is credited with `S - fee`, and `fee` is booked as pool revenue. No token
-/// moves and the pool's `supplied` and `cash` are untouched, so the market's liquidity is
-/// irrelevant to whether the liquidation can complete.
-///
-/// The fee is booked through `PoolSeizeEntry { side: Deposit }`, which reaches the pool's
-/// `absorb_supply_as_revenue`: it *reclassifies* shares that already exist, raising `revenue`
-/// alone. `SeizeMode::Transfer`'s `withhold_liquidation_fee` path would be wrong here — it
-/// *mints* new revenue shares, correct only because the equivalent cash was withheld from an
-/// outbound transfer. Nothing is withheld in credit mode, so minting would create a supplier
-/// claim with no assets behind it.
-///
-/// Because only scaled amounts move, the result is independent of the supply index and so
-/// immune to index drift between planning and application — a property `Transfer` lacks.
+/// Deposit-side seizure uses `absorb_supply_as_revenue` to reclassify existing
+/// shares. Transfer-mode fee minting would create unbacked claims here because
+/// credit mode withholds no outbound cash.
 pub(crate) fn apply_liquidation_share_credit(
     env: &Env,
     account: &mut Account,
     receiver: &mut Account,
     seized: &Vec<SeizeEntry>,
-    cache: &mut Cache,
+    cache: &mut Context,
 ) {
     let mut fee_entries: Vec<PoolSeizeEntry> = Vec::new(env);
 
@@ -161,12 +148,8 @@ pub(crate) fn apply_liquidation_share_credit(
             Ray::from(entry.bonus_scaled),
             entry.liquidation_fees,
         );
-        // The account-to-account half of the credit moves no spoke usage. Both accounts are
-        // bound to the same spoke and hold the same hub asset, so the debit and the credit
-        // cancel: `-S + (S - fee) = -fee`, leaving the protocol fee as the only usage delta.
-        // Written as an asserted identity rather than an exit/entry pair on purpose — routing
-        // the credit through `apply_spoke_entry` would put liquidation behind the spoke's
-        // supply cap, and an account in a spoke sitting at its cap must stay liquidatable.
+        // Same-spoke usage nets to `-S + (S - fee) = -fee`. An entry/exit pair
+        // would incorrectly let the supply cap block liquidation.
         assert_with_error!(
             env,
             receiver.spoke_id == account.spoke_id,
@@ -178,9 +161,7 @@ pub(crate) fn apply_liquidation_share_credit(
             GenericError::InternalError
         );
 
-        // Debit the liquidated account by the whole seizure. `checked_sub` traps on a negative
-        // result, so a seizure exceeding the position can never be booked. Risk parameters are
-        // deliberately not refreshed, matching the liquidation withdraw leg.
+        // Checked subtraction prevents over-seizure; liquidation preserves risk stamps.
         let mut position = get_supply_position_or_panic(env, account, &entry.hub_asset);
         position.scaled_amount = position.scaled_amount.checked_sub(env, seized_scaled);
         update_or_remove_supply_position(account, &entry.hub_asset, &position);
@@ -194,9 +175,7 @@ pub(crate) fn apply_liquidation_share_credit(
 
         credit_supply_shares(env, receiver, &entry.hub_asset, liquidator_scaled, cache);
 
-        // The protocol's share is the only value that leaves the account system, so it is the
-        // only spoke-usage movement — the same accounting bad-debt cleanup performs when it
-        // absorbs a position into revenue.
+        // Only the protocol fee leaves account supply and reduces spoke usage.
         if fee_scaled > Ray::ZERO {
             cache.apply_spoke_exit(
                 account.spoke_id,
@@ -220,21 +199,15 @@ pub(crate) fn apply_liquidation_share_credit(
     }
 }
 
-/// Adds `scaled` supply shares of `hub_asset` to `receiver`.
-///
-/// An existing position keeps its own stamped risk tuple and simply grows; a new position is
-/// stamped from the *current* listing, exactly as an ordinary supply would be. The liquidated
-/// account's tuple never travels with the shares — importing it would let a liquidator move a
-/// stale, more generous LTV or threshold onto an account of their choosing.
-///
-/// No entry gate runs: this is a seizure, not a new supply, so `is_collateralizable == false`
-/// must not block it and the spoke supply cap must not either.
+/// Credits shares using the receiver's existing risk tuple or the current
+/// listing for a new position. Never imports the liquidated account's potentially
+/// more generous stamps. Seizure bypasses collateral permissions and supply caps.
 fn credit_supply_shares(
     env: &Env,
     receiver: &mut Account,
     hub_asset: &HubAssetKey,
     scaled: Ray,
-    cache: &mut Cache,
+    cache: &mut Context,
 ) {
     if scaled == Ray::ZERO {
         return;
@@ -250,16 +223,13 @@ fn credit_supply_shares(
     update_or_remove_supply_position(receiver, hub_asset, &position);
 }
 
-/// Buffers the receiving account's position deltas for a completed share credit.
-///
-/// Called after the liquidated account's batch has been published, so the two accounts touched
-/// by one credit-mode liquidation appear as two `UpdatePositionBatchEvent`s in a defined order:
-/// liquidated account first, receiver second.
+/// Buffers receiver deltas after publishing the liquidated account's batch,
+/// keeping the two accounts' events separate and ordered.
 pub(crate) fn record_share_credit_updates(
     env: &Env,
     receiver: &Account,
     seized: &Vec<SeizeEntry>,
-    cache: &mut Cache,
+    cache: &mut Context,
 ) {
     for entry in seized.iter() {
         let liquidator_scaled = credited_shares(env, &entry);
@@ -269,8 +239,7 @@ pub(crate) fn record_share_credit_updates(
         let position = get_supply_position_or_panic(env, receiver, &entry.hub_asset);
         let supply_index = Ray::from(entry.market_index.supply_index);
         cache.record_supply_position_update(
-            // `LiqCredit`, not `LiqSeize`: this amount is net of the protocol
-            // fee, while the liquidated account's seizure leg is gross of it.
+            // Receiver credit is net of fees; the liquidated account's seizure is gross.
             events::PositionAction::LiqCredit,
             &entry.hub_asset,
             entry.market_index.supply_index,
@@ -282,13 +251,8 @@ pub(crate) fn record_share_credit_updates(
     }
 }
 
-/// Enforces `max_supply_positions` on the receiving account against the hub assets a share
-/// credit would open there.
-///
-/// The limit is enforced rather than bypassed because the liquidator chooses the receiver: a
-/// revert is actionable (pass `SeizeMode::Credit(0)` for a fresh account), whereas letting the
-/// bound be exceeded would grow accounts past the size the worst-case liquidation resource
-/// budget is sized for.
+/// Enforces receiver position limits to preserve the liquidation resource bound.
+/// The liquidator can choose `Credit(0)` if the existing receiver has no room.
 pub(crate) fn require_credit_position_limit(
     env: &Env,
     receiver: &Account,
@@ -308,8 +272,7 @@ pub(crate) fn require_credit_position_limit(
     );
 }
 
-/// Returns the scaled shares a share credit hands the receiver for `entry`, re-deriving the
-/// split from the entry alone so every call site agrees.
+/// Derives net receiver shares with the shared fee-splitting rules.
 fn credited_shares(env: &Env, entry: &SeizeEntry) -> Ray {
     let (_, liquidator_scaled) = math::split_seized_shares(
         env,
@@ -320,12 +283,10 @@ fn credited_shares(env: &Env, entry: &SeizeEntry) -> Ray {
     liquidator_scaled
 }
 
-/// After a liquidation, removes `account_id`'s entry if it has no debt left and no supply
-/// positions either; if debt remains and exceeds the leftover collateral, with that collateral at
-/// or below the dust threshold, socializes it as bad debt.
+/// Removes empty accounts or socializes insolvent debt under the collateral dust cap.
 pub(crate) fn check_bad_debt_after_liquidation(
     env: &Env,
-    cache: &mut Cache,
+    cache: &mut Context,
     account_id: u64,
     account: &Account,
     totals: &AccountRiskTotals,

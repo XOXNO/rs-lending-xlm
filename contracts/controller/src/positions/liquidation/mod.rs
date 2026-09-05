@@ -1,14 +1,9 @@
-//! Liquidation pipeline, one phase per file: `plan` builds a validated
-//! `LiquidationPlan` (shared with the estimate view), `apply` executes
-//! repayments and seizures, `math` and `curve` hold the pure arithmetic
-//! (`curve` is certora-pinned), `bad_debt` socializes and removes insolvent
-//! accounts.
+//! Liquidation planning, repayment, seizure, and bad-debt cleanup.
+//! Execution and estimates share the same validated plan and arithmetic.
 
 use crate::risk;
 use common::validation::require_non_empty_payments;
-// `apply` and `bad_debt` are crate-visible so the Certora spec layer can drive
-// the real seizure and cleanup entry points. When they were private the rules
-// could only reach one level below what actually runs.
+// Crate visibility lets Certora exercise seizure, cleanup, and curve arithmetic directly.
 pub(crate) mod apply;
 pub(crate) mod bad_debt;
 pub(crate) mod curve;
@@ -25,24 +20,18 @@ use soroban_sdk::{assert_with_error, Address, Env, Vec};
 use self::curve::is_socializable_bad_debt;
 use crate::account;
 use crate::account::SpokeAdmission;
-use crate::context::Cache;
+use crate::context::Context;
 use crate::events::LiquidationEvent;
 use crate::positions::{finalize_position_flow, PositionSides};
 use crate::risk::validation;
 use crate::storage;
 
-/// Liquidates `account_id`'s undercollateralized debt: builds a plan from `debt_payments`,
-/// applies the repayments, then seizes collateral scaled down to match whatever was actually
-/// received. Requires `liquidator` to authorize the call and socializes any bad debt left on
-/// the account once seizure completes. Owners may liquidate their own account; only crediting
-/// seized collateral back to the account being liquidated is rejected (see
-/// `resolve_seize_receiver`).
+/// Repays unhealthy debt, sizes seizure to measured receipts, and socializes
+/// eligible residual bad debt. Owners may self-liquidate but cannot credit
+/// seized shares back to the liquidated account.
 ///
-/// `seize_mode` decides how the liquidator takes delivery. `Transfer` pays them in underlying
-/// out of pool cash. `Credit` instead moves the seized supply shares to a controller account,
-/// so the only token movement in the whole call is the liquidator's own repayment — which is
-/// what lets a liquidation clear a market with no spare cash. Returns the receiving account id
-/// in credit mode, `0` in transfer mode.
+/// `Transfer` pays underlying from pool cash. `Credit` moves supply shares,
+/// requiring no collateral cash. Returns the credit receiver id, or zero for transfer.
 pub(crate) fn process_liquidation(
     env: &Env,
     liquidator: &Address,
@@ -55,17 +44,16 @@ pub(crate) fn process_liquidation(
 
     let mut account = storage::get_account(env, account_id);
 
-    let mut cache = Cache::new(env);
+    let mut cache = Context::new(env);
 
     require_non_empty_payments(env, debt_payments);
 
-    // Resolved up front so an unusable receiving account fails before any token moves.
+    // Reject an unusable receiver before moving tokens.
     let mut receiver = resolve_seize_receiver(
         env, liquidator, account_id, &account, seize_mode, &mut cache,
     );
 
-    // The plan is the single normalization point: it merges and positivity-checks
-    // the raw payments, so the estimate view and this entry point share one path.
+    // Share payment normalization and positivity checks with the estimate view.
     let liquidation_plan = plan::build_liquidation_plan(env, &account, debt_payments, &mut cache);
 
     let result = liquidation_plan.into_result();
@@ -80,9 +68,7 @@ pub(crate) fn process_liquidation(
         &mut cache,
     );
 
-    // Collateral is sized from the repayment the plan intended to collect. If a
-    // debt token delivered less than was sent, shrink the seizure to match, or
-    // the liquidator keeps collateral they did not pay for.
+    // Under-delivering debt tokens must reduce the collateral awarded.
     let repay_usd = math::sum_repaid_usd(env, &result.repaid);
     let seized = math::scale_seizures_to_received(env, &result.seized, received_usd, repay_usd);
     match &mut receiver {
@@ -101,9 +87,7 @@ pub(crate) fn process_liquidation(
         }
     }
 
-    // Report what the pool actually received, not what the plan intended to
-    // collect. An under-delivering debt token makes the two differ, and the
-    // planned figure would overstate the debt retired.
+    // Report measured receipt value, capped per planned repayment leg.
     LiquidationEvent {
         liquidator: liquidator.clone(),
         account_id,
@@ -119,10 +103,8 @@ pub(crate) fn process_liquidation(
         &account.borrow_positions,
     );
 
-    // Event order is a contract: finalize persists both sides and publishes
-    // UpdatePositionBatchEvent with the post-liquidation positions; bad-debt
-    // cleanup afterwards records no position deltas — it only publishes
-    // CleanBadDebtEvent and removes the account entry.
+    // Event order: LiquidationEvent, liquidated account's UpdatePositionBatchEvent,
+    // optional receiver batch, then CleanBadDebtEvent. Cleanup emits no position deltas.
     finalize_position_flow(
         env,
         account_id,
@@ -132,9 +114,6 @@ pub(crate) fn process_liquidation(
         false,
     );
 
-    // Credit mode writes two accounts, so it publishes a second position batch. Emitted here,
-    // between the liquidated account's batch and any bad-debt cleanup, so the ordering an
-    // indexer sees stays fully determined.
     if let Some((receiver_id, receiving_account)) = &receiver {
         apply::record_share_credit_updates(env, receiving_account, &seized, &mut cache);
         finalize_position_flow(
@@ -156,24 +135,18 @@ pub(crate) fn process_liquidation(
 #[path = "../../../tests/positions/liquidation_zero_threshold.rs"]
 mod zero_threshold_tests;
 
-/// Resolves where seized collateral is delivered.
+/// Resolves an authorized credit receiver, or `None` for underlying transfer.
+/// `Credit(0)` creates an account owned by the liquidator.
 ///
-/// `Transfer` yields `None`: the pool pays the liquidator in underlying. `Credit(0)` creates a
-/// fresh account owned by the liquidator; `Credit(id)` uses an existing one, which must belong
-/// to the liquidator (directly or through an active delegate), sit in the liquidated account's
-/// spoke, be in `PositionMode::Normal`, and not be the liquidated account itself.
-///
-/// The spoke must match because the credited shares are that spoke's supply and an account's
-/// spoke binding is what supplies the risk configuration for every position it holds; letting
-/// them diverge would move collateral into a different risk regime. The mode must be `Normal`
-/// because strategy modes carry invariants this path does not establish.
+/// Credit requires a different account in the same spoke and normal mode:
+/// another spoke changes the risk regime; strategy modes need additional invariants.
 fn resolve_seize_receiver(
     env: &Env,
     liquidator: &Address,
     account_id: u64,
     account: &Account,
     seize_mode: SeizeMode,
-    cache: &mut Cache,
+    cache: &mut Context,
 ) -> Option<(u64, Account)> {
     let requested = match seize_mode {
         SeizeMode::Transfer => return None,
@@ -191,8 +164,7 @@ fn resolve_seize_receiver(
         ));
     }
 
-    // Crediting the liquidated account would hand its own collateral straight back and undo
-    // the seizure.
+    // Crediting the same account would undo the seizure.
     assert_with_error!(
         env,
         requested != account_id,
@@ -215,15 +187,14 @@ fn resolve_seize_receiver(
     Some((requested, receiver))
 }
 
-/// Socializes `account_id`'s bad debt under the dust-threshold gate; requires `caller` to
-/// authorize the call and reverts while a flash loan is in progress.
+/// Authorizes permissionless dust-gated cleanup outside flash loans.
 pub(crate) fn process_clean_bad_debt(env: &Env, caller: &Address, account_id: u64) {
     caller.require_auth();
     validation::require_not_flash_loaning(env);
     clean_bad_debt_standalone(env, account_id);
 }
 
-/// Which condition admits socializing an account's bad debt.
+/// Admission condition for bad-debt socialization.
 #[derive(Clone, Copy, PartialEq)]
 enum BadDebtGate {
     /// Permissionless: insolvent *and* collateral at or below the dust threshold.
@@ -232,11 +203,9 @@ enum BadDebtGate {
     InsolventOnly,
 }
 
-/// Loads `account_id`, asserts it has open debt and that its risk totals admit socialization
-/// under `gate`, then runs bad-debt cleanup to seize its remaining positions and remove the
-/// account entry.
+/// Requires open debt and the selected insolvency gate, then cleans up the account.
 fn socialize_bad_debt(env: &Env, account_id: u64, gate: BadDebtGate) {
-    let mut cache = Cache::new(env);
+    let mut cache = Context::new(env);
     let account = storage::get_account(env, account_id);
 
     assert_with_error!(
@@ -263,13 +232,12 @@ fn socialize_bad_debt(env: &Env, account_id: u64, gate: BadDebtGate) {
     bad_debt::execute_bad_debt_cleanup(env, &mut cache, account_id, &account, &totals);
 }
 
-/// Applies the dust-threshold bad-debt gate to `account_id`.
+/// Socializes insolvent debt when remaining collateral is at or below the dust cap.
 pub(crate) fn clean_bad_debt_standalone(env: &Env, account_id: u64) {
     socialize_bad_debt(env, account_id, BadDebtGate::DustCapped);
 }
 
-/// Applies the insolvency bad-debt gate to `account_id` — total debt exceeding total collateral,
-/// without the dust-threshold cap — and reverts while a flash loan is in progress.
+/// Socializes debt exceeding collateral without a dust cap, outside flash loans.
 pub(crate) fn process_force_socialize_bad_debt(env: &Env, account_id: u64) {
     validation::require_not_flash_loaning(env);
     socialize_bad_debt(env, account_id, BadDebtGate::InsolventOnly);

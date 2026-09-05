@@ -4,13 +4,12 @@ use soroban_sdk::{Address, Env, Map, Vec};
 
 use common::collections::push_unique_address;
 
-use crate::context::Cache;
+use crate::context::Context;
 use crate::storage::{iter_debt_positions, iter_typed_positions};
 
 pub(crate) use common::rates::{position_value, position_value_ceil, position_value_floor};
 
-/// Appends `borrow_keys` onto `supply_keys` and returns the combined list of
-/// hub-asset keys.
+/// Combines supply and debt hub-asset keys without deduplication.
 pub(crate) fn portfolio_hub_keys(
     mut supply_keys: Vec<HubAssetKey>,
     borrow_keys: &Vec<HubAssetKey>,
@@ -19,8 +18,7 @@ pub(crate) fn portfolio_hub_keys(
     supply_keys
 }
 
-/// Returns the deduplicated underlying asset addresses referenced by
-/// `account`'s supply positions, borrow positions, and `extras`.
+/// Returns distinct token addresses from both position maps and `extras`.
 pub(crate) fn account_price_assets(
     env: &Env,
     account: &Account,
@@ -39,11 +37,10 @@ pub(crate) fn account_price_assets(
     assets
 }
 
-/// Sums `borrow_positions`' USD value (WAD) using `value` as the per-position
-/// valuation function, assuming market data is already cached.
+/// Values debt in USD WAD with `value`; prices must already be cached.
 fn sum_debt_usd_loaded(
     env: &Env,
-    cache: &mut Cache,
+    cache: &mut Context,
     borrow_positions: &Map<HubAssetKey, DebtPositionRaw>,
     value: fn(&Env, Ray, Ray, Wad) -> Wad,
 ) -> Wad {
@@ -64,23 +61,21 @@ fn sum_debt_usd_loaded(
     total
 }
 
-/// Loads market data for `borrow_positions` into `cache`, then sums their
-/// USD value (WAD) using half-up rounding.
+/// Loads missing market data and sums debt in USD WAD with half-up rounding.
 pub(crate) fn sum_debt_usd(
     env: &Env,
-    cache: &mut Cache,
+    cache: &mut Context,
     borrow_positions: &Map<HubAssetKey, DebtPositionRaw>,
 ) -> Wad {
     cache.load_markets(&borrow_positions.keys());
     sum_debt_usd_loaded(env, cache, borrow_positions, position_value)
 }
 
-/// Loads market data for `supply_positions` into `cache`, then sums each
-/// position's floor-valued collateral, floor-scaled by the lesser of its
-/// loan-to-value and liquidation threshold (WAD).
+/// Sums collateral in USD WAD, flooring valuation and risk weighting.
+/// Uses each position's stored `min(LTV, liquidation_threshold)`.
 pub(crate) fn calculate_ltv_collateral_wad(
     env: &Env,
-    cache: &mut Cache,
+    cache: &mut Context,
     supply_positions: &Map<HubAssetKey, AccountPositionRaw>,
 ) -> Wad {
     cache.load_markets(&supply_positions.keys());
@@ -103,23 +98,23 @@ pub(crate) fn calculate_ltv_collateral_wad(
     ltv
 }
 
+/// USD totals and unitless health factor, all WAD-scaled.
 pub(crate) struct AccountRiskTotals {
+    /// Unweighted collateral, rounded half-up.
     pub total_collateral: Wad,
+    /// Floored collateral weighted by stored `min(LTV, liquidation_threshold)`.
     pub ltv_collateral: Wad,
+    /// Floored collateral weighted by stored liquidation thresholds.
     pub weighted_collateral: Wad,
+    /// Debt valued with ceiling rounding.
     pub total_debt: Wad,
+    /// Weighted collateral / debt; saturated maximum when debt-free.
     pub health_factor: Wad,
 }
 
-/// Computes an account's aggregate risk totals (collateral, debt, and
-/// health factor, all WAD) for `supply_positions` and `borrow_positions`.
-///
-/// Compiled as itself for production and for the two focused verification
-/// modules whose properties are *about* these totals: `certora-health-rules`
-/// and `certora-solvency-rules` need the real arithmetic, because a rule that
-/// values a book after a verb has to compare it against the numbers the gate
-/// inside that verb actually saw. Their fixtures are single-asset, so the real
-/// body is two or three multiply-divides.
+/// Computes WAD risk totals using stored position parameters. Production,
+/// health rules, and solvency rules use the real arithmetic so valuations
+/// match the values used by the risk gates.
 #[cfg(any(
     not(feature = "certora"),
     feature = "certora-health-rules",
@@ -127,18 +122,15 @@ pub(crate) struct AccountRiskTotals {
 ))]
 pub(crate) fn calculate_account_risk_totals(
     env: &Env,
-    cache: &mut Cache,
+    cache: &mut Context,
     supply_positions: &Map<HubAssetKey, AccountPositionRaw>,
     borrow_positions: &Map<HubAssetKey, DebtPositionRaw>,
 ) -> AccountRiskTotals {
     calculate_account_risk_totals_body(env, cache, supply_positions, borrow_positions)
 }
 
-// Every other verification module gets the havoc summary: those rules need
-// "the gate ran on this book", not the gate's arithmetic, and the summary
-// keeps them tractable. `apply_summary!` also emits the real body as
-// `calculate_account_risk_totals::calculate_account_risk_totals`, which
-// `certora/controller/spec/index_rules.rs` calls directly.
+// Other Certora rules use a nondeterministic summary to bound proof complexity.
+// The macro also exposes the real body under the same-named module for index rules.
 #[cfg(all(
     feature = "certora",
     not(feature = "certora-health-rules"),
@@ -146,11 +138,10 @@ pub(crate) fn calculate_account_risk_totals(
 ))]
 cvlr_soroban_macros::apply_summary!(
     crate::spec::summaries::calculate_account_risk_totals_summary,
-    /// Computes an account's aggregate risk totals (collateral, debt, and
-    /// health factor, all WAD) for `supply_positions` and `borrow_positions`.
+    /// Computes WAD risk totals; substituted by a summary in this Certora build.
     pub(crate) fn calculate_account_risk_totals(
         env: &Env,
-        cache: &mut Cache,
+        cache: &mut Context,
         supply_positions: &Map<HubAssetKey, AccountPositionRaw>,
         borrow_positions: &Map<HubAssetKey, DebtPositionRaw>,
     ) -> AccountRiskTotals {
@@ -158,17 +149,14 @@ cvlr_soroban_macros::apply_summary!(
     }
 );
 
-/// Loads market data for `supply_positions` and `borrow_positions` into
-/// `cache`, then computes total collateral, LTV-gated collateral,
-/// liquidation-threshold-weighted collateral, total debt, and health factor
-/// (all WAD). Debt is valued with ceiling rounding and the collateral
-/// feeding the LTV and weighted sums is floored. Health factor is
-/// `i128::MAX` when there is no debt, otherwise weighted collateral divided
-/// by total debt, floored and saturating at `i128::MAX` instead of
-/// overflowing.
+/// Loads missing market data and values stored position risk snapshots in WAD.
+/// Total collateral rounds half-up; collateral used for risk gates and its
+/// weights round down, while debt rounds up. Health factor is weighted
+/// collateral / debt, floored and saturated at `i128::MAX`; debt-free accounts
+/// use `i128::MAX`.
 fn calculate_account_risk_totals_body(
     env: &Env,
-    cache: &mut Cache,
+    cache: &mut Context,
     supply_positions: &Map<HubAssetKey, AccountPositionRaw>,
     borrow_positions: &Map<HubAssetKey, DebtPositionRaw>,
 ) -> AccountRiskTotals {
@@ -198,8 +186,7 @@ fn calculate_account_risk_totals_body(
         );
 
         total_collateral = total_collateral.checked_add(env, value);
-        // A gated tuple can leave a position with LTV above its frozen LT;
-        // clamp so the origination buffer cannot invert.
+        // A gated threshold can stay below refreshed LTV; clamp the borrow limit to it.
         let effective_ltv = position.loan_to_value.min(position.liquidation_threshold);
         ltv_collateral =
             ltv_collateral.checked_add(env, effective_ltv.apply_to_wad_floor(env, gate_value));

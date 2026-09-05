@@ -43,7 +43,7 @@ pub(crate) fn accounting(env: &Env, hub_asset: HubAssetKey) -> RevenueOutcome {
     let net_transfer = cache.burn_claimable_revenue();
 
     guards::require_utilization_below_max(env, &cache);
-    guards::require_solvent_withdraw_state(env, &cache);
+    guards::require_supply_for_debt(env, &cache);
     cache.debit_cash(net_transfer);
 
     cache.commit();

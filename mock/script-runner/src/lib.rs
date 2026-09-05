@@ -225,7 +225,17 @@ impl ScriptRunner {
                 }
                 Op::Liquidate(o) => {
                     authorize_pulls(&env, &me, &pool, &o.payments);
-                    let id = ctrl.liquidate(&me, &o.account_id, &o.payments, &o.seize_mode);
+                    // `Credit(0)` keeps its own meaning: open a fresh account.
+                    let seize_mode = match o.seize_mode {
+                        SeizeMode::Credit(id) => SeizeMode::Credit(resolve(id, last_created)),
+                        mode => mode,
+                    };
+                    let id = ctrl.liquidate(
+                        &me,
+                        &resolve(o.account_id, last_created),
+                        &o.payments,
+                        &seize_mode,
+                    );
                     if id != 0 {
                         last_created = id;
                     }
@@ -298,10 +308,14 @@ impl ScriptRunner {
                     ctrl.update_indexes(&me, &o.assets);
                 }
                 Op::UpdateAccountThreshold(o) => {
-                    ctrl.update_account_threshold(&me, &o.has_risks, &o.account_ids);
+                    let mut account_ids = Vec::new(&env);
+                    for id in o.account_ids.iter() {
+                        account_ids.push_back(resolve(id, last_created));
+                    }
+                    ctrl.update_account_threshold(&me, &o.has_risks, &account_ids);
                 }
                 Op::CleanBadDebt(o) => {
-                    ctrl.clean_bad_debt(&me, &o.account_id);
+                    ctrl.clean_bad_debt(&me, &resolve(o.account_id, last_created));
                 }
                 Op::AddDelegate(o) => {
                     ctrl.add_delegate(&me, &resolve(o.account_id, last_created), &o.delegate);

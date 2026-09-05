@@ -52,15 +52,41 @@ flow_liq_single() {
     dual_px "$SAC_LIQA" LIQA $((WAD / 10 * 7)) liq1_crash
     assert_hf_below_wad liq1_hf "$acct"
     assert_can_liquidated liq1_can_liq "$acct" true
-    view liq1_estimate "$CONTROLLER" -- get_liquidation_estimate --seize_mode "$(seize_transfer)" \
-        --account_id "$acct" --debt_payments "$(pay_vec "$PRIMARY_HUB_ID" "$SAC_LIQB" $((100 * LIQ_UNIT)))" >/dev/null
+    # Pin the seizure to the estimate and the fee to pool revenue (INV-LIQ-02):
+    # on debt-decreased alone, an over-seizing or fee-less liquidation passes.
+    local liq1_est_seized liq1_coll_pre liq1_rev_pre
+    liq1_est_seized=$(view liq1_estimate "$CONTROLLER" -- get_liquidation_estimate --seize_mode "$(seize_transfer)" \
+        --account_id "$acct" --debt_payments "$(pay_vec "$PRIMARY_HUB_ID" "$SAC_LIQB" $((100 * LIQ_UNIT)))" \
+        | jq -r '[.seized_collaterals[]?.amount | tonumber] | add // 0')
     view liq1_avail "$CONTROLLER" -- get_liquidation_collateral --account_id "$acct" >/dev/null
+    liq1_coll_pre=$(_view_int liq1_coll_pre get_collateral_amount \
+        --account_id "$acct" --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$SAC_LIQA")")
+    liq1_rev_pre=$(_view_pool_int liq1_rev_pre get_revenue --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$SAC_LIQA")")
 
     local liq1_debt_pre_partial=$((600 * LIQ_UNIT))
     inv liq1_liquidate_partial "$CAROL" "$CONTROLLER" -- liquidate --seize_mode "$(seize_transfer)" \
         --liquidator "$CAROL_ADDR" --account_id "$acct" \
         --debt_payments "$(pay_vec "$PRIMARY_HUB_ID" "$SAC_LIQB" $((100 * LIQ_UNIT)))" >/dev/null
     assert_borrow_decreased liq1_debt_post_partial "$acct" "$SAC_LIQB" "$liq1_debt_pre_partial"
+
+    local liq1_coll_post liq1_seized liq1_rev_post
+    liq1_coll_post=$(_view_int liq1_coll_post get_collateral_amount \
+        --account_id "$acct" --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$SAC_LIQA")")
+    liq1_seized=$((liq1_coll_pre - liq1_coll_post))
+    # Interest accrues between estimate and execution; 0.1% covers that drift
+    # while a doubled or zero seizure still fails.
+    if _uint_ge "$liq1_seized" $((liq1_est_seized * 999 / 1000)) \
+        && _uint_le "$liq1_seized" $((liq1_est_seized * 1001 / 1000)); then
+        record liq1_seizure_matches_estimate ok liquidate "" "" "" "" "" "seized=$liq1_seized estimate=$liq1_est_seized"
+    else
+        _assert_fail liq1_seizure_matches_estimate "seized=$liq1_seized want within 0.1% of estimate $liq1_est_seized"
+    fi
+    liq1_rev_post=$(_view_pool_int liq1_rev_post get_revenue --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$SAC_LIQA")")
+    if _uint_lt "${liq1_rev_pre:-0}" "$liq1_rev_post"; then
+        record liq1_fee_booked ok liquidate "" "" "" "" "" "$liq1_rev_pre -> $liq1_rev_post"
+    else
+        _assert_fail liq1_fee_booked "pool revenue $liq1_rev_pre -> $liq1_rev_post; want an increase from the liquidation fee"
+    fi
 
     assert_borrow_at_most liq1_debt_cap_partial "$acct" "$SAC_LIQB" $(( 501 * LIQ_UNIT ))
 
@@ -178,9 +204,11 @@ flow_liq_credit() {
     assert_borrow_decreased liqcr_debt_post_new "$acct" "$SAC_LIQB" $((600 * LIQ_UNIT))
 
     # --- Credit(<existing>): credits the same account a second time ---
-    local credited_pre recv2
+    local credited_pre recv2 liqcr_debt_pre_existing
     credited_pre=$(_view_int liqcr_credited_pre get_collateral_amount \
         --account_id "$recv" --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$SAC_LIQG")")
+    liqcr_debt_pre_existing=$(_view_int liqcr_debt_pre_existing get_borrow_amount \
+        --account_id "$acct" --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$SAC_LIQB")")
 
     recv2=$(inv liqcr_liquidate_existing "$CAROL" "$CONTROLLER" -- liquidate --seize_mode "$(seize_credit "$recv")" \
         --liquidator "$CAROL_ADDR" --account_id "$acct" \
@@ -191,6 +219,7 @@ flow_liq_credit() {
     else
         record liqcr_existing_account_id ok liquidate "" "" "" "" "" "receiver=$recv2"
     fi
+    assert_borrow_decreased liqcr_debt_post_existing "$acct" "$SAC_LIQB" "$liqcr_debt_pre_existing"
 
     local credited_post
     credited_post=$(_view_int liqcr_credited_post get_collateral_amount \

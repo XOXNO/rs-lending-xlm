@@ -1,3 +1,4 @@
+use controller::constants::RAY_DECIMALS;
 use controller::types::{ControllerKey, SpokeAssetArgs};
 use test_harness::{
     assert_contract_error, errors, hub_asset, usd_cents, usdc_preset, usdt_stable_preset,
@@ -374,9 +375,10 @@ fn test_deprecated_spoke_debt_free_account_can_partially_withdraw_collateral() {
         result.is_ok(),
         "deprecated spoke must not block debt-free partial exits; got {result:?}"
     );
-    assert!(
-        t.supply_balance(ALICE, "USDC") < 901.0,
-        "partial withdraw should reduce the existing collateral position"
+    assert_eq!(
+        t.supply_balance_raw(ALICE, "USDC"),
+        900 * 10_000_000,
+        "the withdraw must debit exactly 100 USDC from the 1_000 supplied"
     );
 }
 
@@ -392,15 +394,16 @@ fn test_deprecated_spoke_repay_allowed_but_new_borrow_blocked() {
     let borrow_more = t.try_borrow(ALICE, "USDT", 1.0);
     assert_contract_error(borrow_more, errors::SPOKE_DEPRECATED);
 
-    let debt_before = t.borrow_balance(ALICE, "USDT");
+    let debt_before = t.borrow_balance_raw(ALICE, "USDT");
     let repay = t.try_repay(ALICE, "USDT", 500.0);
     assert!(
         repay.is_ok(),
         "deprecated spoke must not block debt-reducing repay; got {repay:?}"
     );
-    assert!(
-        t.borrow_balance(ALICE, "USDT") < debt_before,
-        "repay should reduce the existing debt position"
+    assert_eq!(
+        debt_before - t.borrow_balance_raw(ALICE, "USDT"),
+        500 * 10_000_000,
+        "the repay must retire exactly the 500 USDT paid"
     );
 }
 
@@ -411,12 +414,28 @@ fn test_deprecated_spoke_with_debt_keeps_stored_params_on_withdraw() {
     t.create_spoke_account(ALICE, 2);
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "USDT", 5_000.0);
+    let account_id = t.resolve_account_id(ALICE);
+    let stamped = |t: &LendingTest| -> (u32, u32) {
+        let p = t
+            .ctrl_client()
+            .get_account_positions(&account_id)
+            .0
+            .get(hub_asset(t.resolve_asset("USDC")))
+            .expect("USDC supply position should exist");
+        (p.loan_to_value, p.liquidation_threshold)
+    };
+    let before = stamped(&t);
     t.remove_spoke_category(2);
 
     let result = t.try_withdraw(ALICE, "USDC", 4_000.0);
     assert!(
         result.is_ok(),
         "deprecated spoke must keep stored position params on safe withdrawals; got {result:?}"
+    );
+    assert_eq!(
+        stamped(&t),
+        before,
+        "the deprecated spoke must leave the stamped (ltv, threshold) untouched"
     );
     t.assert_healthy(ALICE);
 }
@@ -445,15 +464,16 @@ fn test_deprecated_spoke_category_still_allows_liquidation() {
     t.set_price("USDC", usd_cents(85));
     t.assert_liquidatable(ALICE);
 
-    let debt_before = t.borrow_balance(ALICE, "USDT");
+    let debt_before = t.borrow_balance_raw(ALICE, "USDT");
     let result = t.try_liquidate(LIQUIDATOR, ALICE, "USDT", 500.0);
     assert!(
         result.is_ok(),
         "deprecated spoke must not block liquidation; got {result:?}"
     );
-    assert!(
-        t.borrow_balance(ALICE, "USDT") < debt_before,
-        "liquidation should reduce debt"
+    assert_eq!(
+        debt_before - t.borrow_balance_raw(ALICE, "USDT"),
+        500 * 10_000_000,
+        "the liquidation must retire exactly the 500 USDT repaid"
     );
 }
 
@@ -499,6 +519,11 @@ fn test_removed_spoke_collateral_asset_blocks_new_supply_but_existing_withdraw_w
         withdraw.is_ok(),
         "removed collateral asset must still allow safe withdrawal of an existing position; got {withdraw:?}"
     );
+    assert_eq!(
+        t.supply_balance_raw(ALICE, "USDC"),
+        6_000 * 10_000_000,
+        "the withdraw must debit exactly 4_000 USDC from the 10_000 supplied"
+    );
     t.assert_healthy(ALICE);
 }
 
@@ -514,13 +539,17 @@ fn test_removed_spoke_debt_asset_blocks_new_borrow_but_existing_repay_works() {
     let borrow_more = t.try_borrow(ALICE, "USDT", 1.0);
     assert_contract_error(borrow_more, errors::ASSET_NOT_IN_SPOKE);
 
-    let debt_before = t.borrow_balance(ALICE, "USDT");
+    let debt_before = t.borrow_balance_raw(ALICE, "USDT");
     let repay = t.try_repay(ALICE, "USDT", 500.0);
     assert!(
         repay.is_ok(),
         "removed debt asset must still allow debt-reducing repay; got {repay:?}"
     );
-    assert!(t.borrow_balance(ALICE, "USDT") < debt_before);
+    assert_eq!(
+        debt_before - t.borrow_balance_raw(ALICE, "USDT"),
+        500 * 10_000_000,
+        "the repay must retire exactly the 500 USDT paid"
+    );
 }
 
 #[test]
@@ -535,15 +564,16 @@ fn test_removed_spoke_collateral_asset_stays_liquidatable() {
 
     t.assert_liquidatable(ALICE);
 
-    let debt_before = t.borrow_balance(ALICE, "USDT");
+    let debt_before = t.borrow_balance_raw(ALICE, "USDT");
     let result = t.try_liquidate(LIQUIDATOR, ALICE, "USDT", 500.0);
     assert!(
         result.is_ok(),
         "delisted collateral must stay seizable; got {result:?}"
     );
-    assert!(
-        t.borrow_balance(ALICE, "USDT") < debt_before,
-        "liquidation must reduce the debt against delisted collateral"
+    assert_eq!(
+        debt_before - t.borrow_balance_raw(ALICE, "USDT"),
+        500 * 10_000_000,
+        "the liquidation must retire exactly the 500 USDT repaid against delisted collateral"
     );
 }
 
@@ -567,6 +597,11 @@ fn test_spoke_collateral_flag_update_blocks_new_supply_but_existing_withdraw_wor
         withdraw.is_ok(),
         "collateral flag removal must not block withdrawing an existing position; got {withdraw:?}"
     );
+    assert_eq!(
+        t.supply_balance_raw(ALICE, "USDC"),
+        900 * 10_000_000,
+        "the withdraw must debit exactly 100 USDC from the 1_000 supplied"
+    );
 }
 
 #[test]
@@ -581,13 +616,17 @@ fn test_spoke_borrow_flag_update_blocks_new_borrow_but_existing_repay_works() {
     let borrow_more = t.try_borrow(ALICE, "USDT", 1.0);
     assert_contract_error(borrow_more, errors::ASSET_NOT_BORROWABLE);
 
-    let debt_before = t.borrow_balance(ALICE, "USDT");
+    let debt_before = t.borrow_balance_raw(ALICE, "USDT");
     let repay = t.try_repay(ALICE, "USDT", 500.0);
     assert!(
         repay.is_ok(),
         "borrow flag removal must not block repaying an existing debt; got {repay:?}"
     );
-    assert!(t.borrow_balance(ALICE, "USDT") < debt_before);
+    assert_eq!(
+        debt_before - t.borrow_balance_raw(ALICE, "USDT"),
+        500 * 10_000_000,
+        "the repay must retire exactly the 500 USDT paid"
+    );
 }
 
 #[test]
@@ -785,9 +824,11 @@ fn test_removed_spoke_asset_withdraw_decrements_usage() {
     );
 
     let usage_after = spoke_supply_usage(&t, 2, "USDC");
-    assert!(
-        usage_after < usage_before,
-        "withdraw must decrement usage even when asset left the category"
+    assert_eq!(
+        usage_before - usage_after,
+        400 * 10_000_000 * 10i128.pow(RAY_DECIMALS - 7),
+        "withdraw must decrement usage by exactly the 400 USDC withdrawn, \
+         even when the asset left the category"
     );
 }
 
@@ -1078,9 +1119,15 @@ fn test_paused_spoke_asset_blocks_supply_and_withdraw() {
     );
 
     set_spoke_asset_flags(&t, HARNESS_SPOKE, "USDC", false, false);
+    let supply_before = t.supply_balance_raw(ALICE, "USDC");
     assert!(
         t.try_supply(ALICE, "USDC", 1.0).is_ok(),
         "clearing paused must restore supply capacity"
+    );
+    assert_eq!(
+        t.supply_balance_raw(ALICE, "USDC") - supply_before,
+        10_000_000,
+        "and the unpaused supply must actually credit the 1 USDC"
     );
 }
 
@@ -1096,6 +1143,11 @@ fn test_frozen_spoke_asset_blocks_entries_but_allows_exit() {
     assert!(
         t.try_withdraw(ALICE, "USDC", 100.0).is_ok(),
         "frozen listing must still allow withdrawal"
+    );
+    assert_eq!(
+        t.supply_balance_raw(ALICE, "USDC"),
+        900 * 10_000_000,
+        "the frozen-listing withdraw must debit exactly 100 USDC"
     );
 }
 
@@ -1177,6 +1229,20 @@ fn test_update_account_threshold_syncs_deprecated_spoke_listing() {
     t.supply(ALICE, "USDC", 1_000.0);
     let account_id = t.resolve_account_id(ALICE);
 
+    let stamped_ltv = |t: &LendingTest| -> u32 {
+        t.ctrl_client()
+            .get_account_positions(&account_id)
+            .0
+            .get(hub_asset(t.resolve_asset("USDC")))
+            .expect("USDC supply position should exist")
+            .loan_to_value
+    };
+    assert_eq!(
+        stamped_ltv(&t),
+        9_700,
+        "precondition: the position carries the spoke's own LTV"
+    );
+
     t.remove_spoke_category(2);
 
     let usdc = t.resolve_asset("USDC");
@@ -1204,5 +1270,11 @@ fn test_update_account_threshold_syncs_deprecated_spoke_listing() {
     assert!(
         result.is_ok(),
         "threshold sync must work on deprecated spokes: {result:?}"
+    );
+
+    assert_eq!(
+        stamped_ltv(&t),
+        5_000,
+        "the keeper sync must write the new listing LTV onto a deprecated spoke's positions"
     );
 }

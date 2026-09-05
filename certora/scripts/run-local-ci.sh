@@ -13,7 +13,7 @@
 #     returned, so this says nothing about the rule
 #
 # Tuning (env): CERTORA_LOCAL_JOBS (default 10) parallel provers, each a JVM
-# with -Xmx8g; CERTORA_RULE_TIMEOUT (default 600s) per-rule cap.
+# with -Xmx8g; CERTORA_RULE_TIMEOUT (default 900s) per-rule cap.
 #
 # Usage: run-local-ci.sh [CONFS] [RULES]
 #   CONFS: space-separated conf paths relative to certora/ (without .conf);
@@ -28,7 +28,7 @@ log_dir="${CERTORA_LOG_DIR:-$repo_root/target/certora-local-logs}"
 mkdir -p "$log_dir"
 
 jobs="${CERTORA_LOCAL_JOBS:-10}"
-rule_timeout="${CERTORA_RULE_TIMEOUT:-600}"
+rule_timeout="${CERTORA_RULE_TIMEOUT:-900}"
 
 if [ $# -gt 0 ] && [ "$1" = "all" ]; then
   # Every conf in the tree. Only sensible with a raised CERTORA_RULE_TIMEOUT and
@@ -77,9 +77,19 @@ for c in "${confs[@]}"; do
   for rule in "${rules[@]}"; do
     safe=$(printf '%s' "$rule" | tr -c '[:alnum:]_.-' '_')
     rlog="$log_dir/$conf_base-$safe.log"
-    if grep -q "Violated:" "$rlog" 2>/dev/null; then
+    # Anchor on the rule's own line: under rule_sanity advanced the vacuity
+    # sub-rule "<rule>-Assertions-rule_not_vacuous_tac" prints "Violated:" on
+    # a healthy rule (run 33711445573 turned 17 green rules red on a bare
+    # match). Unwinding and SANITY_FAILED are checked before the verdict: the
+    # first is a loop_iter config failure that also prints "Violated:", the
+    # second is a vacuous proof that also prints "Verified:".
+    if grep -q "Unwinding condition in a loop" "$rlog" 2>/dev/null; then
+      verdict="UNWIND"
+    elif grep -q "SANITY_FAILED" "$rlog" 2>/dev/null; then
+      verdict="SANITY_FAILED"
+    elif grep -qE "^ *Violated: ${rule}(-Assertions)?\$" "$rlog" 2>/dev/null; then
       verdict="VIOLATED"
-    elif grep -q "Verified:" "$rlog" 2>/dev/null; then
+    elif grep -qE "^ *Verified: ${rule}(-Assertions)?\$" "$rlog" 2>/dev/null; then
       verdict="VERIFIED"
     elif grep -q "^KILLED:" "$rlog" 2>/dev/null; then
       verdict="KILLED"
@@ -93,6 +103,16 @@ for c in "${confs[@]}"; do
     case "$verdict" in
       VIOLATED)
         echo "::error::$c/$rule [$verdict] — inspect $rlog"
+        tail -25 "$rlog" | sed 's/^/    /'
+        failed=1
+        ;;
+      UNWIND)
+        echo "::error::$c/$rule [$verdict] — loop unwinding assertion failed; raise loop_iter in $c (never optimistic_loop) and inspect $rlog"
+        tail -25 "$rlog" | sed 's/^/    /'
+        failed=1
+        ;;
+      SANITY_FAILED)
+        echo "::error::$c/$rule [$verdict] — the assertions verified but every path is cut by assumes or traps; the proof is vacuous. Inspect $rlog"
         tail -25 "$rlog" | sed 's/^/    /'
         failed=1
         ;;

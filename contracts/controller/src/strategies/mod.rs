@@ -1,11 +1,8 @@
-//! One file per strategy entry point. Shared pieces: the helpers here
-//! (`prefetch_strategy_prices`, `snapshot_balances`, `strategy_finalize`),
-//! `legs.rs` for controller-custody position primitives (repay, withdraw,
-//! withdraw-all, net-settle through the controller's own balance), and
-//! `swap.rs` for the router trust boundary. Every account-touching strategy
-//! ends in `strategy_finalize`: restamp LTV, post-pool risk gates, finalize.
-//! `flash_loan.rs` is the exception: it settles entirely inside the pool call
-//! and never opens or mutates an account.
+//! Strategy entry points with shared pricing and account finalization.
+//! `legs` handles position operations; `payments` measures receipts and refunds;
+//! `swap` enforces the router boundary. Account strategies refresh LTV and check
+//! post-pool risk before persistence. Flash loans settle entirely in the pool
+//! without opening or mutating an account.
 
 #[cfg(test)]
 #[path = "../../tests/strategies/mod.rs"]
@@ -24,40 +21,20 @@ pub(crate) mod swap_debt;
 pub(crate) use crate::positions::borrow_into_controller;
 pub(crate) use legs::{
     execute_withdraw_all, net_settle_collateral_against_debt, repay_debt_from_controller,
-    withdraw_collateral_to_controller, StrategyRepay, StrategyWithdraw,
+    withdraw_and_swap_from_supply, StrategyRepay,
 };
 pub(crate) use swap::{swap_tokens, swap_tokens_or_passthrough};
 
-use common::types::{Account, HubAssetKey, StrategySwap};
-use soroban_sdk::{token, Address, Env, Map, Vec};
+use common::types::Account;
+use soroban_sdk::{Address, Env, Vec};
 
-use crate::context::Cache;
-use crate::events;
-use crate::positions::{finalize_position_flow, get_supply_position_or_panic, PositionSides};
-use crate::risk::{self, account_price_assets, validation};
+use crate::context::Context;
+use crate::positions::{enforce_post_pool_solvency, finalize_position_flow, PositionSides};
+use crate::risk::account_price_assets;
 
-/// Records `holder`'s current balance for each of `assets`, keyed by asset
-/// address. Each distinct asset is read once; repeats in `assets` are skipped.
-pub(crate) fn snapshot_balances(
-    env: &Env,
-    holder: &Address,
-    assets: impl IntoIterator<Item = Address>,
-) -> Map<Address, i128> {
-    let mut snapshot = Map::new(env);
-    for asset in assets {
-        if snapshot.contains_key(asset.clone()) {
-            continue;
-        }
-        let balance = token::Client::new(env, &asset).balance(holder);
-        snapshot.set(asset, balance);
-    }
-    snapshot
-}
-
-/// Fetches oracle prices into `cache` for every asset in `account`'s supply
-/// and borrow positions plus `extra_assets`.
+/// Caches account and extra-asset prices before strategy funding or callbacks.
 pub(crate) fn prefetch_strategy_prices(
-    cache: &mut Cache,
+    cache: &mut Context,
     account: &Account,
     extra_assets: &Vec<Address>,
 ) {
@@ -65,47 +42,14 @@ pub(crate) fn prefetch_strategy_prices(
     cache.fetch_prices(&assets);
 }
 
-/// Restamps `account`'s listed collateral LTV, enforces post-trade solvency
-/// and health-factor gates, and persists positions and spoke usage, emitting
-/// the position batch event.
+/// Refreshes listed collateral LTV, checks solvency, health and collateral floor,
+/// then persists positions and spoke usage and emits the position batch.
 pub(crate) fn strategy_finalize(
     env: &Env,
     account_id: u64,
     account: &mut Account,
-    cache: &mut Cache,
+    cache: &mut Context,
 ) {
-    let _ = risk::restamp_listed_supply_ltv(cache, account);
-    validation::require_post_pool_risk_gates(env, cache, account);
+    let _ = enforce_post_pool_solvency(env, cache, account);
     finalize_position_flow(env, account_id, account, cache, PositionSides::Both, true);
-}
-
-/// Withdraws `amount` of `from` collateral to the controller and swaps the
-/// proceeds into `token_out`, passing through unswapped when `from.asset`
-/// already equals `token_out`. Returns the amount of `token_out` received.
-pub(crate) fn withdraw_and_swap_from_supply(
-    env: &Env,
-    account: &mut Account,
-    cache: &mut Cache,
-    caller: &Address,
-    from: &HubAssetKey,
-    amount: i128,
-    token_out: &Address,
-    swap: &StrategySwap,
-    action: events::PositionAction,
-) -> i128 {
-    let supply_pos = get_supply_position_or_panic(env, account, from);
-
-    let actual_withdrawn = withdraw_collateral_to_controller(
-        env,
-        account,
-        cache,
-        StrategyWithdraw {
-            hub_asset: from,
-            amount,
-            position: &supply_pos,
-            action,
-        },
-    );
-
-    swap_tokens_or_passthrough(env, caller, &from.asset, actual_withdrawn, token_out, swap)
 }

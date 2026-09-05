@@ -1,13 +1,10 @@
-//! Defines the contract events emitted for controller configuration changes:
-//! spoke and spoke-asset registration, blend-pool approval, aggregator and
-//! position-limit updates, and hub creation.
+//! Events for controller configuration changes.
 
 use soroban_sdk::{contractevent, contracttype, Address};
 
 use common::types::{SpokeAssetConfig, SpokeConfig};
 
-/// Snapshot of a spoke's liquidation-relevant configuration fields, embedded
-/// in [`UpdateSpokeEvent`].
+/// Spoke deprecation and liquidation-curve snapshot for [`UpdateSpokeEvent`].
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct EventSpoke {
@@ -19,8 +16,7 @@ pub struct EventSpoke {
 }
 
 impl EventSpoke {
-    /// Builds an `EventSpoke` snapshot from `spoke_id` and the deprecation,
-    /// liquidation-target, max-bonus, and bonus-factor fields of `spoke`.
+    /// Copies the spoke's deprecation flag and liquidation curve.
     pub fn new(spoke_id: u32, spoke: &SpokeConfig) -> Self {
         Self {
             spoke_id,
@@ -32,15 +28,14 @@ impl EventSpoke {
     }
 }
 
-/// Event recording that a spoke's configuration is created or updated.
+/// Spoke configuration created or updated.
 #[contractevent(topics = ["config", "spoke"])]
 #[derive(Clone, Debug)]
 pub struct UpdateSpokeEvent {
     pub spoke: EventSpoke,
 }
 
-/// Event recording that an asset's configuration within a spoke is created or
-/// updated.
+/// Spoke asset configuration created or updated.
 #[contractevent(topics = ["config", "spoke_asset"])]
 #[derive(Clone, Debug)]
 pub struct UpdateSpokeAssetEvent {
@@ -50,7 +45,7 @@ pub struct UpdateSpokeAssetEvent {
     pub hub_id: u32,
 }
 
-/// Event recording that an asset's configuration is removed from a spoke.
+/// Spoke asset configuration removed.
 #[contractevent(topics = ["config", "remove_spoke_asset"])]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RemoveSpokeAssetEvent {
@@ -59,7 +54,7 @@ pub struct RemoveSpokeAssetEvent {
     pub hub_id: u32,
 }
 
-/// Event recording that a Blend pool's approval status changes.
+/// Blend migration source approval changed.
 #[contractevent(topics = ["config", "approve_blend_pool"])]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ApproveBlendPoolEvent {
@@ -67,29 +62,28 @@ pub struct ApproveBlendPoolEvent {
     pub approved: bool,
 }
 
-/// Event recording that the configured swap aggregator address changes.
+/// Swap aggregator address changed.
 #[contractevent(topics = ["config", "swap_aggregator"])]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UpdateSwapAggregatorEvent {
     pub swap_aggregator: Address,
 }
 
-/// Event recording that the configured price aggregator address changes.
+/// Price aggregator address changed.
 #[contractevent(topics = ["config", "price_aggregator"])]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UpdatePriceAggregatorEvent {
     pub price_aggregator: Address,
 }
 
-/// Event recording that the configured accumulator address changes.
+/// Revenue accumulator address changed.
 #[contractevent(topics = ["config", "accumulator"])]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UpdateAccumulatorEvent {
     pub accumulator: Address,
 }
 
-/// Event recording that the protocol-wide maximum supply and borrow position
-/// counts change.
+/// Per-account supply and borrow position limits changed.
 #[contractevent(topics = ["config", "position_limits"])]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UpdatePositionLimitsEvent {
@@ -97,15 +91,14 @@ pub struct UpdatePositionLimitsEvent {
     pub max_borrow_positions: u32,
 }
 
-/// Event recording that the minimum borrow collateral value (in USD, WAD
-/// scale) changes.
+/// Minimum borrow collateral changed, in USD (WAD).
 #[contractevent(topics = ["config", "min_borrow_collateral"])]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UpdateMinBorrowCollateralEvent {
     pub min_borrow_collateral_usd_wad: i128,
 }
 
-/// Event recording that a new hub is created.
+/// Hub created.
 #[contractevent(topics = ["config", "hub"])]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CreateHubEvent {

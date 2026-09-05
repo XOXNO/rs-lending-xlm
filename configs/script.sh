@@ -526,6 +526,37 @@ write_oracle_op_record() {
     echo "  Recorded oracle op $op_id -> $path" >&2
 }
 
+# A plain-args op that governance executes against the price aggregator
+# (currently only `upgrade`). executeOp replays it through the generic
+# target/function/args path, so no resolve view is recorded.
+write_price_aggregator_op_record() {
+    local op_id=$1
+    local aggregator_fn=$2
+    local args_json=$3
+    local salt_hex=$4
+    local agg
+    agg=$(get_price_aggregator)
+    local path
+    path=$(op_record_path "$op_id")
+    local executed=false
+    if [ -f "$path" ]; then
+        executed=$(jq -r '.executed // false' "$path")
+    fi
+    jq -nc \
+        --arg op_id "$op_id" \
+        --arg network "$NETWORK" \
+        --arg target "$agg" \
+        --arg function "$aggregator_fn" \
+        --argjson args "$args_json" \
+        --arg predecessor "$ZERO_PREDECESSOR_HEX" \
+        --arg salt "$salt_hex" \
+        --argjson executed "$executed" \
+        '{kind:"price_aggregator", op_id:$op_id, network:$network, target:$target, function:$function,
+          args:$args, predecessor:$predecessor, salt:$salt,
+          cli_executable:true, executed:$executed}' > "$path"
+    echo "  Recorded price aggregator op $op_id -> $path" >&2
+}
+
 price_key_token() {
     jq -nc --arg a "$1" '{Token:$a}'
 }
@@ -3109,6 +3140,71 @@ schedule_upgrade_position_nft() {
     echo "Position NFT upgrade scheduled (hash ${hash})."
 }
 
+schedule_upgrade_price_aggregator() {
+    local hash=$1
+    if [ -z "$hash" ]; then
+        echo "Usage: $0 upgradePriceAggregatorHash <wasm_hash_hex>" >&2
+        exit 1
+    fi
+
+    # Governance resolves UpgradePriceAggregator to `upgrade(hash)` on the
+    # price aggregator, so the op id, the salt probe and the record all key on
+    # the aggregator. schedule_via_proposer assumes a controller target and
+    # would record an op that executeOp cannot replay.
+    local gov proposer agg
+    gov=$(get_governance)
+    proposer=$(get_signer_address)
+    agg=$(get_price_aggregator)
+
+    local args_json salt
+    args_json=$(jq -nc --arg h "$hash" '[{bytes:$h}]')
+    salt=$(gen_salt "upgrade_price_aggregator" "$args_json")
+
+    local salt_use known_id state gen
+    read -r salt_use known_id state gen < <(probe_salt_generations "$agg" upgrade "$args_json" "$salt")
+    case "$state" in
+        Ready|Waiting)
+            echo "Price aggregator upgrade op ${known_id} already ${state}; reusing it instead of re-proposing." >&2
+            write_price_aggregator_op_record "$known_id" upgrade "$args_json" "$salt_use"
+            schedule_and_maybe_execute "$known_id"
+            return 0
+            ;;
+        Exhausted)
+            die "upgrade_price_aggregator: all ${MAX_SALT_GENERATIONS} salt generations already executed for this hash; re-run with a fresh SALT_NONCE=<n>"
+            ;;
+        Unset)
+            if [ "$gen" -gt 0 ]; then
+                echo "Price aggregator upgrade to ${hash} already executed; RE-APPLYING as generation ${gen}." >&2
+                salt=$salt_use
+            fi
+            ;;
+        *) ;;
+    esac
+
+    local op_file
+    op_file=$(mktemp)
+    admin_op UpgradePriceAggregator "$(jq -nc --arg h "$hash" '$h')" > "$op_file"
+
+    echo "Scheduling upgrade_price_aggregator via propose (salt ${salt})..." >&2
+    local out
+    out=$(retry_tx stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
+        -- propose \
+        --proposer "$proposer" \
+        --op-file-path "$op_file" \
+        --salt "$salt")
+    rm -f "$op_file"
+
+    local op_id
+    op_id=$(parse_op_id "$out")
+    if [ -z "$op_id" ]; then
+        echo "ERROR: propose UpgradePriceAggregator returned no operation id (output: $out)" >&2
+        exit 1
+    fi
+    write_price_aggregator_op_record "$op_id" upgrade "$args_json" "$salt"
+    schedule_and_maybe_execute "$op_id"
+    echo "Price aggregator upgrade scheduled (hash ${hash})."
+}
+
 pause_protocol() {
     local gov caller
     gov=$(get_governance)
@@ -4671,6 +4767,9 @@ case "$1" in
         ;;
     "upgradePositionNftHash")
         schedule_upgrade_position_nft "$2"
+        ;;
+    "upgradePriceAggregatorHash")
+        schedule_upgrade_price_aggregator "$2"
         ;;
     "deployPool")
         schedule_deploy_pool "$2"

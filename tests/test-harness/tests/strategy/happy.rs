@@ -190,6 +190,12 @@ fn test_swap_debt_replaces_borrow() {
     let steps = build_aggregator_swap(&t, "WBTC", "ETH", apply_flash_fee(10_000_000), 1_0000000);
     t.swap_debt(ALICE, "ETH", 1.0, "WBTC", &steps);
 
+    assert_eq!(
+        t.borrow_balance_raw(ALICE, "ETH"),
+        0,
+        "the old ETH leg must be repaid in full, not merely joined by a WBTC leg"
+    );
+
     let wbtc_borrow = t.borrow_balance(ALICE, "WBTC");
     assert!(
         wbtc_borrow > 0.0,
@@ -559,18 +565,16 @@ fn test_multiply_large_amounts() {
         &steps,
     );
 
-    let supply = t.supply_balance_for(ALICE, account_id, "USDC");
-    assert!(
-        supply >= 299_999.0,
-        "should have ~300K USDC supply: got {}",
-        supply
+    // The mock router pays exactly `min_out`, so both legs are exact.
+    assert_eq!(
+        t.supply_balance_raw_for(account_id, "USDC"),
+        3_000_000_000_000,
+        "credited collateral must be exactly the router's min_out, credited once"
     );
-
-    let borrow = t.borrow_balance_for(ALICE, account_id, "ETH");
-    assert!(
-        borrow >= 99.0,
-        "should have ~100 ETH borrow: got {}",
-        borrow
+    assert_eq!(
+        t.borrow_balance_raw_for(account_id, "ETH"),
+        1_000_000_000,
+        "debt leg must be exactly the requested 100 ETH"
     );
 
     let hf = t.health_factor_for(ALICE, account_id);

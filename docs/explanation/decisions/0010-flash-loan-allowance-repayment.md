@@ -2,7 +2,7 @@
 
 **Status:** Accepted
 
-**Implemented by:** contracts/pool/src/ops/flash.rs (`terms`, `apply`, `collect_repayment`), common/src/validation.rs (`require_wasm_receiver`), contracts/controller/src/risk/validation.rs (`require_not_flash_loaning`), with guard call sites in contracts/controller/src/positions/liquidation/mod.rs and contracts/controller/src/keepers.rs.
+**Implemented by:** contracts/pool/src/ops/flash.rs (`terms`, `apply`, `collect_repayment`), common/src/validation.rs (`require_wasm_receiver`), contracts/controller/src/risk/validation.rs (`require_not_flash_loaning`), with guard call sites in contracts/controller/src/positions/liquidation/mod.rs, contracts/controller/src/markets.rs, and contracts/controller/src/risk/params.rs.
 
 ## Decision
 

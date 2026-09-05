@@ -128,11 +128,13 @@ fn test_mixed_decimal_types_single_account() {
     let hf = t.health_factor(ALICE);
     assert!(hf > 1.5 && hf < 1.7, "HF should be ~1.6, got {}", hf);
 
+    // A +-6.7 % window is no test of a decimal conversion. Derive the exact
+    // figure from the preset prices instead.
     let total_collateral = t.total_collateral(ALICE);
+    let expected_collateral = 5_000.0 * 1.0 + 0.083 * 60_000.0 + 33.3 * 150.0;
     assert!(
-        total_collateral > 14_000.0 && total_collateral < 16_000.0,
-        "Total collateral should be ~$15,000, got {}",
-        total_collateral
+        (total_collateral - expected_collateral).abs() < 1.0,
+        "Total collateral should be ${expected_collateral}, got {total_collateral}"
     );
 
     let total_debt = t.total_debt(ALICE);
@@ -198,11 +200,12 @@ fn test_interest_accrual_mixed_decimals() {
         borrow_after
     );
 
-    let supply_after = t.supply_balance(ALICE, "USDC6");
-    assert!(
-        supply_after >= 100_000.0,
-        "6-dec supply should hold or grow with interest: {}",
-        supply_after
+    // Nobody borrows USDC6, so its supply index never moves: "hold or grow" was
+    // an equality dressed as an inequality. Assert the equality.
+    assert_eq!(
+        t.supply_balance_raw(ALICE, "USDC6"),
+        100_000 * 10i128.pow(6),
+        "an unborrowed 6-dec market must accrue exactly nothing"
     );
 
     t.assert_healthy(ALICE);
@@ -266,13 +269,22 @@ fn test_liquidation_6dec_collateral_18dec_debt() {
         hf
     );
 
+    let debt_before = t.borrow_balance(ALICE, "DAI18");
+    t.get_or_create_user(LIQUIDATOR);
+    let seized_before = t.token_balance(LIQUIDATOR, "USDC6");
+
     t.liquidate(LIQUIDATOR, ALICE, "DAI18", 3_000.0);
 
+    // `debt_after < 7_500` alone passed on a one-raw-unit repayment and said
+    // nothing about the 6-dec collateral leg.
     let debt_after = t.borrow_balance(ALICE, "DAI18");
     assert!(
-        debt_after < 7_500.0,
-        "Debt should be reduced after liquidation, got {}",
-        debt_after
+        (debt_before - debt_after - 3_000.0).abs() < 1.0,
+        "the whole 3 000 DAI18 must retire debt: {debt_before} -> {debt_after}"
+    );
+    assert!(
+        t.token_balance(LIQUIDATOR, "USDC6") - seized_before > 3_000.0,
+        "liquidator must receive at least the repaid value in 6-dec collateral"
     );
 }
 
@@ -292,10 +304,21 @@ fn test_liquidation_18dec_collateral_6dec_debt() {
     let hf = t.health_factor(ALICE);
     assert!(hf < 1.0, "HF should be below 1.0, got {}", hf);
 
+    let debt_before = t.borrow_balance(ALICE, "USDC6");
+    t.get_or_create_user(LIQUIDATOR);
+    let seized_before = t.token_balance(LIQUIDATOR, "DAI18");
+
     t.liquidate(LIQUIDATOR, ALICE, "USDC6", 3_000.0);
 
     let debt_after = t.borrow_balance(ALICE, "USDC6");
-    assert!(debt_after < 7_500.0, "Debt reduced, got {}", debt_after);
+    assert!(
+        (debt_before - debt_after - 3_000.0).abs() < 1.0,
+        "the whole 3 000 USDC6 must retire debt: {debt_before} -> {debt_after}"
+    );
+    assert!(
+        t.token_balance(LIQUIDATOR, "DAI18") - seized_before > 3_000.0,
+        "liquidator must receive at least the repaid value in 18-dec collateral"
+    );
 }
 
 #[test]

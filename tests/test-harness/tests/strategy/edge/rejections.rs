@@ -165,7 +165,7 @@ fn test_repay_debt_with_collateral_close_position_removes_account() {
     t.borrow(ALICE, "ETH", 1.0);
     let account_id = t.resolve_account_id(ALICE);
 
-    let alice_usdc_before = t.token_balance(ALICE, "USDC");
+    let alice_usdc_before_raw = t.token_balance_raw(ALICE, "USDC");
     t.fund_router("ETH", 1.0);
 
     let steps = build_aggregator_swap(&t, "USDC", "ETH", 10_000_000_000, 1_0000000);
@@ -176,12 +176,11 @@ fn test_repay_debt_with_collateral_close_position_removes_account() {
         "close_position should remove the fully closed account"
     );
 
-    let alice_usdc_after = t.token_balance(ALICE, "USDC");
-    assert!(
-        alice_usdc_after >= alice_usdc_before,
-        "close_position must refund residual USDC collateral to Alice, before={}, after={}",
-        alice_usdc_before,
-        alice_usdc_after
+    // 100_000 USDC supplied, 1_000 spent on the swap that clears the 1 ETH debt.
+    assert_eq!(
+        t.token_balance_raw(ALICE, "USDC") - alice_usdc_before_raw,
+        990_000_000_000,
+        "close_position must refund the exact residual USDC collateral to Alice"
     );
 }
 

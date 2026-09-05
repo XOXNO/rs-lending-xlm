@@ -14,16 +14,7 @@
         "conf": "certora/controller/confs/account-isolation-sanity.conf"
       },
       {
-        "conf": "certora/controller/confs/boundary-rates.conf"
-      },
-      {
-        "conf": "certora/controller/confs/boundary-compound-sanity.conf"
-      },
-      {
-        "conf": "certora/controller/confs/boundary-math-sanity.conf"
-      },
-      {
-        "conf": "certora/controller/confs/supply-dust-sanity.conf"
+        "conf": "certora/common/confs/fp-extremes-sanity.conf"
       },
       {
         "conf": "certora/controller/confs/flash-loan-sanity.conf"
@@ -38,7 +29,7 @@
         "conf": "certora/controller/confs/health-strategy-sanity.conf"
       },
       {
-        "conf": "certora/controller/confs/hf-lemmas-sanity.conf"
+        "conf": "certora/common/confs/value-math-sanity.conf"
       },
       {
         "conf": "certora/controller/confs/indexes-sanity.conf"
@@ -57,9 +48,6 @@
       },
       {
         "conf": "certora/controller/confs/index-cache-sanity.conf"
-      },
-      {
-        "conf": "certora/controller/confs/roundtrip-sanity.conf"
       },
       {
         "conf": "certora/controller/confs/spoke-sanity.conf"
@@ -101,7 +89,7 @@
         "conf": "certora/controller/confs/spoke-usage-liq-sanity.conf"
       },
       {
-        "conf": "certora/controller/confs/math-reverts-sanity.conf"
+        "conf": "certora/common/confs/fp-identities-reverts-sanity.conf"
       },
       {
         "conf": "certora/pool/confs/fee-strategy-accounting-reverts-sanity.conf"
@@ -166,7 +154,7 @@
         "conf": "certora/common/confs/rate-index-accounting.conf"
       },
       {
-        "conf": "certora/controller/confs/boundary-math.conf"
+        "conf": "certora/common/confs/fp-extremes.conf"
       },
       {
         "conf": "certora/controller/confs/boundary-oracle.conf"
@@ -175,28 +163,16 @@
         "conf": "certora/controller/confs/hf-lemmas.conf"
       },
       {
-        "conf": "certora/controller/confs/interest.conf"
-      },
-      {
-        "conf": "certora/controller/confs/interest-compound.conf"
-      },
-      {
-        "conf": "certora/controller/confs/interest-index.conf"
+        "conf": "certora/common/confs/interest-curve.conf"
       },
       {
         "conf": "certora/controller/confs/liquidation-bonus.conf"
       },
       {
-        "conf": "certora/controller/confs/liquidation-accounting-math.conf"
+        "conf": "certora/common/confs/value-math.conf"
       },
       {
-        "conf": "certora/controller/confs/math.conf"
-      },
-      {
-        "conf": "certora/controller/confs/compound-output.conf"
-      },
-      {
-        "conf": "certora/controller/confs/scaled-reconstruction.conf"
+        "conf": "certora/common/confs/fp-identities.conf"
       },
       {
         "conf": "certora/price-aggregator/confs/freshness.conf"
@@ -208,7 +184,7 @@
         "conf": "certora/price-aggregator/confs/scaled-math.conf"
       },
       {
-        "conf": "certora/controller/confs/math-reverts.conf"
+        "conf": "certora/common/confs/fp-identities-reverts.conf"
       },
       {
         "conf": "certora/price-aggregator/confs/freshness-reverts.conf"
@@ -240,6 +216,9 @@
         "conf": "certora/controller/confs/indexes.conf"
       },
       {
+        "conf": "certora/common/confs/index-projection.conf"
+      },
+      {
         "conf": "certora/controller/confs/liquidation-estimation.conf"
       },
       {
@@ -262,9 +241,6 @@
       },
       {
         "conf": "certora/controller/confs/solvency-reserves-reverts.conf"
-      },
-      {
-        "conf": "certora/controller/confs/solvency-roundtrip.conf"
       },
       {
         "conf": "certora/controller/confs/spoke.conf"
@@ -380,10 +356,13 @@
         "conf": "certora/common/confs/rate-accounting-hard.conf"
       },
       {
-        "conf": "certora/controller/confs/math-bv.conf"
+        "conf": "certora/common/confs/fp-identities-bv.conf"
       },
       {
         "conf": "certora/controller/confs/strategy-repay-collateral.conf"
+      },
+      {
+        "conf": "certora/common/confs/lp-math-isqrt.conf"
       }
     ],
     "flash-position": [

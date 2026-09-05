@@ -17,11 +17,12 @@ properties about every `#[contractimpl]` entrypoint in `contracts/*`:
 Categories, in precedence order (first match wins):
 
   constructor    `__constructor`; the host runs it once, at deploy.
-  test-only      the whole `#[contractimpl]` block is behind
-                 `#[cfg(test)]` / `#[cfg(feature = "testing")]`, so the symbol
-                 does not exist in a deployable WASM (see ADR-0017 and the
-                 `wasm-testing-abi-check` Make target, which verifies the
-                 artifact rather than the source).
+  test-only      the whole `#[contractimpl]` block is behind a POSITIVE
+                 `#[cfg(test)]` / `#[cfg(feature = "testing")]` (a negated term
+                 such as `not(test)` does not count -- it is true in a release
+                 build), so the symbol does not exist in a deployable WASM
+                 (see ADR-0017 and the `wasm-testing-abi-check` Make target,
+                 which verifies the artifact rather than the source).
   owner          `#[only_owner]`, or the body reaches an ownership primitive
                  (`ownable::enforce_owner`, the two-step transfer/accept pair).
   role-timelock  the body reaches a role check (`access_control::ensure_role`,
@@ -65,6 +66,7 @@ Deterministic, no network, no build. Sources are read, never written.
     python3 scripts/check_access_control.py            # table + verdict
     python3 scripts/check_access_control.py --quiet     # violations only
     python3 scripts/check_access_control.py --json out.json
+    python3 scripts/check_access_control.py --list-test-only  # feeds the Make target
 
 Exit 0 = every entrypoint is gated or declared; non-zero = a violation.
 """
@@ -301,6 +303,10 @@ CALL_SITE = re.compile(r"(?:(\w+(?:\s*::\s*\w+)*)\s*::\s*)?\b(\w+)\s*\(")
 # e.g. `run_batch(&env, entries, ops::supply::apply)`.
 PATH_REFERENCE = re.compile(r"\b(\w+(?:\s*::\s*\w+)*)\s*::\s*(\w+)\b(?!\s*[(:])")
 CFG_TEST_ONLY = re.compile(r'\btest\b|feature\s*=\s*"testing"')
+# A negated cfg term. `#[cfg(not(test))]` is TRUE in every release build, so a
+# cfg carrying any negation is not evidence that the symbol is absent from the
+# artifact -- even though CFG_TEST_ONLY matches the `test` inside it.
+CFG_NEGATION = re.compile(r"\bnot\s*\(")
 
 
 class ParseError(RuntimeError):
@@ -716,8 +722,15 @@ def has_attr(fn: dict, names) -> bool:
 
 
 def is_test_only(fn: dict) -> bool:
-    """Whether the entrypoint exists only under `cfg(test)` / `feature="testing"`."""
-    return bool(fn["cfg"]) and bool(CFG_TEST_ONLY.search(fn["cfg"]))
+    """Whether the entrypoint exists only under `cfg(test)` / `feature="testing"`.
+
+    Requires a POSITIVE test term: any negation in the predicate (`not(test)`,
+    `not(feature = "testing")`) is refused, because such a block is compiled
+    INTO the deployable WASM. Fail closed -- a refused cfg falls through to the
+    gate classification, so the entrypoint must be gated or declared.
+    """
+    cfg = fn["cfg"]
+    return bool(cfg) and not CFG_NEGATION.search(cfg) and bool(CFG_TEST_ONLY.search(cfg))
 
 
 def storage_writes(text: str) -> bool:
@@ -954,8 +967,10 @@ def check(entrypoints: list[dict], declared: dict[str, dict]) -> list[str]:
             # Belt to `wasm-testing-abi-check`'s braces: that target proves the
             # symbol is absent from the artifact, this one proves the source
             # still confines it to a test cfg.
-            if not CFG_TEST_ONLY.search(fn["cfg"]):
-                violations.append(f"{key}: test-only mutator with no test cfg: {fn['cfg']!r}")
+            if not is_test_only(fn):
+                violations.append(
+                    f"{key}: test-only mutator with no positive test cfg: {fn['cfg']!r}"
+                )
 
     for key, entry in sorted(declared.items()):
         if key not in seen:
@@ -1001,6 +1016,13 @@ def main() -> int:
     )
     parser.add_argument("--quiet", action="store_true", help="print violations only")
     parser.add_argument("--json", metavar="PATH", help="write the full classification as JSON")
+    parser.add_argument(
+        "--list-test-only",
+        action="store_true",
+        help="print `contract:symbol` for every test-only entrypoint and exit "
+        "(feeds `make wasm-testing-abi-check`, which proves each is absent "
+        "from its deployable artifact)",
+    )
     args = parser.parse_args()
 
     try:
@@ -1014,6 +1036,12 @@ def main() -> int:
     except (ParseError, AllowlistError, OSError) as exc:
         print(f"FAIL: {exc}")
         return 2
+
+    if args.list_test_only:
+        for fn in sorted(entrypoints, key=lambda f: (f["contract"], f["name"])):
+            if fn["category"] == "test-only":
+                print(f"{fn['contract']}:{fn['name']}")
+        return 0
 
     violations = check(entrypoints, declared)
 

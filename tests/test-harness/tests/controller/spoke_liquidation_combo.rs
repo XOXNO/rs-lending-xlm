@@ -80,14 +80,30 @@ fn test_spoke_liquidation_with_split_collateral() {
     t.assert_liquidatable(ALICE);
 
     let usdc_collat_before = t.supply_balance(ALICE, "USDC");
+    let usdt_collat_before = t.supply_balance(ALICE, "USDT");
+    // USD weights at the crashed price: USDC 5_000 x 0.60 = 3_000, USDT 4_000 x 1.00 = 4_000.
     t.liquidate(LIQUIDATOR, ALICE, "USDT", 500.0);
-    let usdc_collat_after = t.supply_balance(ALICE, "USDC");
+
+    let usdc_seized_usd = (usdc_collat_before - t.supply_balance(ALICE, "USDC")) * 0.60;
+    let usdt_seized_usd = usdt_collat_before - t.supply_balance(ALICE, "USDT");
 
     assert!(
-        usdc_collat_after < usdc_collat_before,
-        "USDC collateral must decrease after liquidation: before={:.4}, after={:.4}",
-        usdc_collat_before,
-        usdc_collat_after
+        usdc_seized_usd > 0.0,
+        "USDC collateral must decrease after liquidation, got {usdc_seized_usd}"
+    );
+    assert!(
+        usdt_seized_usd > 0.0,
+        "the USDT leg must be seized too - seizure is pro-rata across every collateral, \
+         got {usdt_seized_usd}"
+    );
+
+    // Pro-rata: each leg gives up the same fraction of its own USD value.
+    let usdc_fraction = usdc_seized_usd / (usdc_collat_before * 0.60);
+    let usdt_fraction = usdt_seized_usd / usdt_collat_before;
+    assert!(
+        (usdc_fraction - usdt_fraction).abs() < 0.005,
+        "both legs must give up the same fraction of their USD value: \
+         usdc={usdc_fraction:.4}, usdt={usdt_fraction:.4}"
     );
 }
 

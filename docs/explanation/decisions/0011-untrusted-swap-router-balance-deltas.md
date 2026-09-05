@@ -2,12 +2,10 @@
 
 **Status:** Accepted
 
-**Implemented by:** contracts/controller/src/strategies/swap.rs (`swap_tokens`, `call_router_with_reentrancy_guard`, `verify_router_output`, `RouterOverspend`, `NoSwapOutput`), contracts/controller/src/risk/validation.rs.
+**Implemented by:** contracts/controller/src/strategies/swap.rs (`swap_tokens`, `verify_router_output`, `RouterOverspend`, `NoSwapOutput`), contracts/controller/src/risk/validation.rs.
 
-The snapshot and settle steps were once separate helpers in a four-file
-`swap/` module; they are now inline in `swap_tokens`. The mechanism is
-unchanged: both sides are snapshotted before the external call, and the
-output is verified against that baseline afterwards.
+Both balances are snapshotted before the guarded router call. Settlement
+uses the measured changes in `swap_tokens`; the router return value is ignored.
 
 ## Decision
 

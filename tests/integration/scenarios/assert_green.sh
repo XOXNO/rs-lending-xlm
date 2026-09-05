@@ -33,6 +33,11 @@ unresolved=$(awk -F'\t' '
 
 echo "--- run $RUN_TS summary ---"
 awk -F'\t' 'NR>1 {c[$4]++} END {for (k in c) printf "  %s: %d\n", k, c[k]}' "$ACTIONS_TSV"
+# retry_leg records a leg's first two failures as `retry` even when the
+# revert was a decoded, deterministic contract error. Surface those so a
+# masked real failure is visible in the summary instead of only in the note.
+masked=$(awk -F'\t' 'NR>1 && $4=="retry" && $11 ~ /Error\(Contract/' "$ACTIONS_TSV" | wc -l | tr -d ' ')
+[ "$masked" -gt 0 ] && echo "WARN: $masked retry row(s) carried a decoded contract revert — inspect their notes" >&2
 
 if [ "$unresolved" -gt 0 ]; then
     echo "FAILED: $unresolved unresolved failure(s)" >&2

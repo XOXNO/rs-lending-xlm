@@ -114,6 +114,14 @@ not double-counted: in credit mode the protocol fee is
 `LiqSeize.amount - LiqCredit.amount`. An indexer that treats 15 as unknown
 loses the liquidator's credited collateral entirely.
 
+Three more shapes of the receiver's batch: its `borrows` list is always
+empty (a credit is supply-side only); it omits any collateral leg whose net
+credit is zero, so a `LiqSeize` leg can exist with no `LiqCredit`
+counterpart when the fee consumes a one-share seizure; and a `Credit(0)`
+receiver is created with **no account-creation event** — the second batch's
+`account_id` and `account_attributes` are the only announcement of the new
+account, so create the account row from that batch.
+
 ## Pipeline design notes
 
 - **Track accounts, not addresses.** Positions key on the `u64` account id;

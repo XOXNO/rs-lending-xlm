@@ -555,7 +555,7 @@ flow_flash_position_gaps() {
     # Existing + unknown spoke is a mismatch, not a missing-spoke load.
     FP_ACCOUNT_ID="$ALICE_FP_ACCT"
     FP_SPOKE=99
-    fp_run xfail flash_position_unknown_spoke_ex 'Error\(Contract, #310\)|#300' || true
+    fp_run xfail flash_position_unknown_spoke_ex 'Error\(Contract, #310\)' || true
     FP_SPOKE="$PRIMARY_SPOKE_ID"
 
     # --- dual-path input / listing / auth (callback never required) ---
@@ -813,8 +813,11 @@ flow_flash_position_gaps() {
 }
 
 # Live malicious receiver: every nested controller entry from the callback
-# must fail (#400 or host InvalidAction). Uses a freshly deployed wasm so
-# reentry modes exist on-chain.
+# must fail. The Soroban host rejects same-contract re-entry with
+# Error(Context, InvalidAction) before the controller's own #400 guard can
+# run, so that host error is the only outcome a live test can observe; #400
+# is covered by the harness reentrancy matrix. Uses a freshly deployed wasm
+# so reentry modes exist on-chain.
 flow_flash_position_malicious() {
     phase flash_position_malicious
     [ -n "${ALICE_FP_ACCT:-}" ] || die flash_position_malicious "ALICE_FP_ACCT missing"
@@ -847,7 +850,7 @@ flow_flash_position_malicious() {
     FP_PLAN_ASSET="$XLM_SAC"
     FP_COLS="$(fp_collaterals "$FP_EXTEND_COLLATERAL")"
 
-    local re_pattern='Error\(Contract, #400\)|InvalidAction|re-entry|Error\(Contract, #44\)'
+    local re_pattern='Error\(Context, InvalidAction\)'
     local mode name
     for mode in 4 5 6 7 8 9; do
         case $mode in

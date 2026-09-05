@@ -75,16 +75,20 @@ fn test_bad_debt_loss_distributed_proportionally() {
         carol_loss
     );
 
-    if carol_loss > 0.0001 {
-        let ratio = bob_loss / carol_loss;
-        assert!(
-            (ratio - 3.0).abs() < 0.3,
-            "loss should be proportional (3:1): ratio={:.4}, bob_loss={:.6}, carol_loss={:.6}",
-            ratio,
-            bob_loss,
-            carol_loss
-        );
-    }
+    // The ratio check used to hide behind `if carol_loss > 0.0001`, so a
+    // rounding change that shrank Carol's loss silently deleted it.
+    assert!(
+        carol_loss > 0.0001,
+        "fixture must produce a measurable loss for the ratio to mean anything: {carol_loss:.6}"
+    );
+    let ratio = bob_loss / carol_loss;
+    assert!(
+        (ratio - 3.0).abs() < 0.3,
+        "loss should be proportional (3:1): ratio={:.4}, bob_loss={:.6}, carol_loss={:.6}",
+        ratio,
+        bob_loss,
+        carol_loss
+    );
 }
 
 #[test]
@@ -234,11 +238,12 @@ fn test_bad_debt_does_not_affect_borrow_index() {
 
     let (_, bi_after) = get_indexes(&t, "ETH");
 
-    assert!(
-        bi_after >= bi_before,
-        "borrow index should never decrease, even during bad debt: before={}, after={}",
-        bi_before,
-        bi_after
+    // No time passes between the two reads, so "does not affect" means equality.
+    // `>=` was already guaranteed by INV-IDX-01 and would still pass if the
+    // write-down were applied to the borrow index instead of the supply index.
+    assert_eq!(
+        bi_after, bi_before,
+        "bad debt must leave the borrow index untouched: before={bi_before}, after={bi_after}"
     );
 }
 
@@ -252,17 +257,27 @@ fn test_bad_debt_reduction_matches_formula() {
     t.borrow(ALICE, "ETH", 0.003);
 
     let bob_balance_before = t.supply_balance(BOB, "ETH");
+    let (si_before, _) = get_indexes(&t, "ETH");
 
     t.set_price("USDC", usd_cents(10));
     t.liquidate(LIQUIDATOR, ALICE, "ETH", 0.001);
 
+    let (si_after, _) = get_indexes(&t, "ETH");
     let bob_balance_after = t.supply_balance(BOB, "ETH");
     let bob_loss = bob_balance_before - bob_balance_after;
 
+    // The formula this test is named for: every supplier's loss is his balance
+    // times the supply-index write-down. `0.0 < loss < 0.01` was a band, and its
+    // lower bound was the wrong direction to catch under-socialization.
+    let expected_loss = bob_balance_before * (1.0 - si_after as f64 / si_before as f64);
     assert!(
-        bob_loss > 0.0 && bob_loss < 0.01,
-        "Bob's loss should be small (~ bad debt amount): {:.6} ETH",
-        bob_loss
+        bob_loss > 0.0,
+        "Bob must absorb part of the loss: {bob_loss:.9}"
+    );
+    assert!(
+        (bob_loss - expected_loss).abs() * 10_000.0 <= expected_loss,
+        "Bob's loss must equal balance x index write-down to within 1bp: \
+         got={bob_loss:.9}, expected={expected_loss:.9}"
     );
 }
 

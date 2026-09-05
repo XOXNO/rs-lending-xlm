@@ -194,18 +194,16 @@ fn test_multiply_preserves_existing_collateral_balance() {
     );
     assert!(matches!(result, Ok(Ok(_))), "multiply should succeed");
 
-    let final_supply = t.supply_balance_for(ALICE, account_id, "USDC");
-    assert!(
-        final_supply > 3_500.0,
-        "existing collateral must be preserved and increased, got {}",
-        final_supply
+    // 1_000 USDC already supplied plus the router's exact 3_000 USDC min_out.
+    assert_eq!(
+        t.supply_balance_raw_for(account_id, "USDC"),
+        40_000_000_000,
+        "existing collateral must be preserved and credited exactly once"
     );
-
-    let final_borrow = t.borrow_balance_for(ALICE, account_id, "ETH");
-    assert!(
-        (0.99..=1.01).contains(&final_borrow),
-        "new ETH borrow leg should be ~1.0 ETH, got {}",
-        final_borrow
+    assert_eq!(
+        t.borrow_balance_raw_for(account_id, "ETH"),
+        10_000_000,
+        "new ETH borrow leg must be exactly 1.0 ETH"
     );
     let hf = t.health_factor_for(ALICE, account_id);
     assert!(

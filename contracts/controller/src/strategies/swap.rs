@@ -8,10 +8,8 @@ use swap_aggregator_interface::SwapAggregatorClient;
 use crate::payments::balance_delta_since;
 use crate::storage;
 
-/// Executes a swap of `amount_in` of `token_in` into `token_out` through the
-/// configured aggregator router under the flash-loan reentrancy guard. Refunds
-/// any unspent `token_in` to `refund_to` and returns the amount of `token_out`
-/// actually received.
+/// Swaps through the configured router, guarding its execution against reentry.
+/// Refunds unspent input and returns the controller's measured output receipt.
 pub(crate) fn swap_tokens(
     env: &Env,
     refund_to: &Address,
@@ -28,20 +26,18 @@ pub(crate) fn swap_tokens(
     let router = SwapAggregatorClient::new(env, &router_addr);
     let token_in_client = token::Client::new(env, token_in);
 
-    // Both sides are snapshotted before anything external runs: the input
-    // balance bounds what the router may spend, and the output balance is the
-    // baseline `verify_router_output` measures against after the call.
+    // Snapshot before router execution to measure its spend and output.
     let in_before = token_in_client.balance(&controller);
     let out_before = token::Client::new(env, token_out).balance(&controller);
 
-    // Exact-amount pull authorization, scoped to this router and this amount,
-    // so the router can take the input without a further signature.
+    // Authorize only this token transfer to this router for this exact amount.
     authorize_transfer_as_current(env, token_in, &controller, &router_addr, amount_in);
 
-    call_router_with_reentrancy_guard(env, &router, amount_in, swap);
+    storage::with_flash_guard(env, || {
+        let _ = router.execute_strategy(&controller, &amount_in, swap);
+    });
 
-    // Input settlement: the router must not have spent more than `amount_in`,
-    // and whatever it left behind goes back to `refund_to`.
+    // Reject input gains or overspending; refund only this swap's unused input.
     let in_after = token_in_client.balance(&controller);
     assert_with_error!(env, in_after <= in_before, StrategyError::RouterOverspend);
     let actual_spent = in_before - in_after;
@@ -58,9 +54,7 @@ pub(crate) fn swap_tokens(
     verify_router_output(env, token_out, out_before)
 }
 
-/// Returns `amount_in` unchanged if `token_in` and `token_out` are the same
-/// asset, requiring `swap` to be empty in that case; otherwise routes the
-/// amount through [`swap_tokens`].
+/// Passes matching assets through only with an empty route; otherwise swaps.
 pub(crate) fn swap_tokens_or_passthrough(
     env: &Env,
     refund_to: &Address,
@@ -77,24 +71,7 @@ pub(crate) fn swap_tokens_or_passthrough(
     }
 }
 
-/// Calls the aggregator router's `execute_strategy` with this contract as
-/// sender while the flash-loan guard flag is held, discarding the returned
-/// amount.
-fn call_router_with_reentrancy_guard(
-    env: &Env,
-    router: &SwapAggregatorClient,
-    amount_in: i128,
-    swap: &StrategySwap,
-) {
-    storage::with_flash_guard(env, || {
-        let sender = env.current_contract_address();
-        let _ = router.execute_strategy(&sender, &amount_in, swap);
-    });
-}
-
-/// Computes the increase in this contract's `token_out` balance since
-/// `balance_before` and returns it, panicking with `NoSwapOutput` if no output
-/// was received.
+/// Returns the output balance increase; rejects zero or negative receipts.
 fn verify_router_output(env: &Env, token_out: &Address, balance_before: i128) -> i128 {
     let received = balance_delta_since(
         env,

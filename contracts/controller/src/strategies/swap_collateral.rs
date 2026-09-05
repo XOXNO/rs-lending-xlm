@@ -5,7 +5,7 @@ use soroban_sdk::{assert_with_error, vec, Address, Env};
 
 use crate::account;
 use crate::config;
-use crate::context::Cache;
+use crate::context::Context;
 use crate::events;
 use crate::positions::require_can_supply;
 use crate::risk::validation::require_authorized_caller;
@@ -22,11 +22,8 @@ pub(crate) struct SwapCollateralParams<'a> {
     pub swap: &'a StrategySwap,
 }
 
-/// Converts `from_amount` of the account's `current` collateral into `new`
-/// collateral: withdraws and swaps the existing supply position, deposits the
-/// resulting output as `new` collateral, and finalizes the account. Requires
-/// the caller to be the account owner or a delegate, `current` and `new` to
-/// differ, and `current`'s hub to be active.
+/// Withdraws current collateral, swaps into the new asset, then deposits and
+/// checks the account's final risk. Matching assets across hubs pass through.
 pub(crate) fn process_swap_collateral(
     env: &Env,
     caller: &Address,
@@ -48,8 +45,8 @@ pub(crate) fn process_swap_collateral(
 
     let mut account = storage::get_account(env, account_id);
     account::require_owner_or_delegate(env, account_id, caller, &account.owner);
-    let mut cache = Cache::new(env);
-    // Preflight: `new` must be suppliable into the account's spoke.
+    let mut cache = Context::new(env);
+    // Check the destination before withdrawing existing collateral.
     require_can_supply(env, &mut cache, account.spoke_id, new);
 
     let extra_assets = vec![env, current.asset.clone(), new.asset.clone()];

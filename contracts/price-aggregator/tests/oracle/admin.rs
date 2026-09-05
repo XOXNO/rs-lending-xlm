@@ -171,7 +171,7 @@ fn depends_on_terminates_on_a_cycle_rather_than_recursing_forever() {
 }
 
 #[test]
-fn set_oracle_revalidates_and_reprobes_the_oracles_stacked_on_the_changed_key() {
+fn set_oracle_revalidates_the_oracles_stacked_on_the_changed_key() {
     let env = Env::default();
     at_now(&env);
     let (adapter, client) = register_redstone_feed(&env);
@@ -182,7 +182,7 @@ fn set_oracle_revalidates_and_reprobes_the_oracles_stacked_on_the_changed_key() 
         let (base, mid, leaf) = chain(&env, &adapter);
 
         // Rewriting the base drives revalidate_dependents over mid and leaf:
-        // each is re-fetched, re-validated and re-probed under the new state.
+        // each is re-fetched and re-validated under the new state.
         set_oracle(
             &env,
             base.clone(),
@@ -293,17 +293,18 @@ impl CountingRedStoneFeed {
     }
 }
 
-/// `revalidate_dependents` walks every oracle stacked on the changed key. Each
-/// dependent re-resolves the same shared sub-graph, so without a session shared
-/// across the walk the identical feed is fetched once per dependent instead of
-/// once per transaction.
+/// `revalidate_dependents` walks every oracle stacked on the changed key and
+/// must not cross a contract boundary while doing so. Every live provider
+/// read instantiates a callee VM and is charged to the transaction memory
+/// budget; on mainnet a key with three LP dependents already exceeded the
+/// 40 MiB limit (2026-09-05, governance op `d1079454…`), which made XLM and
+/// USDC unconfigurable. Structural validation reads only the registry.
 ///
 /// The chain is `base <- mid <- leaf`: rewriting `base` revalidates `mid` and
-/// `leaf`, and `leaf` resolves through `mid` back down to `base`. Every one of
-/// those hops reads BASE and RATIO from the same adapter, so a shared cache
-/// collapses them.
+/// `leaf`. The single provider read allowed is the one `set_oracle` makes
+/// while probing `base` itself.
 #[test]
-fn revalidating_dependents_does_not_refetch_a_shared_feed_once_per_dependent() {
+fn revalidating_dependents_crosses_no_contract_boundary() {
     let env = Env::default();
     at_now(&env);
     let adapter = env.register(CountingRedStoneFeed, ());
@@ -332,14 +333,58 @@ fn revalidating_dependents_does_not_refetch_a_shared_feed_once_per_dependent() {
         );
     });
 
-    // Two distinct feeds (BASE, RATIO) are involved. A session shared across the
-    // whole cascade fetches each at most once per probe that opens it; a session
-    // rebuilt per dependent multiplies that by the number of dependents.
-    // Anything at or below one read per feed per dependent-free pass is the
-    // deduped shape; the pre-fix code lands well above it.
+    // Probing `base` reads BASE once. Revalidating `mid` and `leaf` must add
+    // nothing: a live re-probe of the dependents would read RATIO and BASE
+    // again, and every such read is a VM instantiation on mainnet.
     let reads = client.reads();
-    assert!(
-        reads <= 4,
-        "expected the cascade to dedup shared feed reads, saw {reads} boundary crossings"
+    assert_eq!(
+        reads, 1,
+        "revalidating dependents must not cross a contract boundary, saw {reads} reads"
     );
+}
+
+/// The structural check on dependents still fires without a live probe. The
+/// chain `base <- mid <- leaf` sits at depth 2 from `leaf`. Re-pointing
+/// `base` onto a two-deep stack pushes `leaf` to depth 4, past
+/// `MAX_RESOLUTION_DEPTH`, and the edit to `base` must be refused even though
+/// `base` itself validates.
+#[test]
+#[should_panic(expected = "Error(Contract, #229)")]
+fn a_base_edit_that_pushes_a_dependent_past_the_depth_limit_is_rejected() {
+    let env = Env::default();
+    at_now(&env);
+    let (adapter, client) = register_redstone_feed(&env);
+    publish(&client, &env, "BASE", 100 * WAD);
+    publish(&client, &env, "RATIO", WAD);
+
+    in_contract(&env, || {
+        let (base, _mid, _leaf) = chain(&env, &adapter);
+
+        let deeper = PriceKey::Token(Address::generate(&env));
+        let deep = PriceKey::Token(Address::generate(&env));
+        registry::store_oracle(
+            &env,
+            &deeper,
+            &oracle_of(
+                &env,
+                one(
+                    &env,
+                    PriceSource::Feed(feed(&env, &adapter, "BASE", CEILING)),
+                ),
+            ),
+        );
+        registry::store_oracle(
+            &env,
+            &deep,
+            &oracle_of(&env, one(&env, scaled_onto(&env, &adapter, deeper))),
+        );
+
+        // base <- deep <- deeper is depth 2 from base and passes on its own;
+        // leaf <- mid <- base <- deep <- deeper is depth 4 and must not.
+        set_oracle(
+            &env,
+            base,
+            oracle_of(&env, one(&env, scaled_onto(&env, &adapter, deep))),
+        );
+    });
 }

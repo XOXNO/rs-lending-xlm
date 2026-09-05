@@ -524,6 +524,15 @@ fn test_min_borrow_floor_is_inclusive_at_exact_boundary() {
     t.ctrl_client().set_min_borrow_collateral_usd(&floor);
 
     t.supply(ALICE, "USDC", 10_000.0);
+    // "Inclusive at the exact boundary" only means something while the fixture
+    // sits *on* the floor; a preset LTV change would otherwise move it off the
+    // line silently and the test would still pass.
+    let account_id = t.resolve_account_id(ALICE);
+    assert_eq!(
+        t.ctrl_client().get_ltv_collateral_usd(&account_id),
+        floor,
+        "fixture must sit exactly on the min-borrow floor"
+    );
     t.borrow(ALICE, "ETH", 0.1);
     assert!(t.borrow_balance(ALICE, "ETH") > 0.09);
 }

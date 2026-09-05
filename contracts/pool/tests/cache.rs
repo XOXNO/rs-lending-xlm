@@ -536,3 +536,71 @@ fn test_cache_resolve_net_settle_feeds_both_indexes_and_decimals() {
         }
     });
 }
+
+#[test]
+fn test_cash_helpers_allow_zero_and_debit_exact_reserves() {
+    let t = TestSetup::new();
+    t.as_contract(|| {
+        let mut cache = cache_with(&t.env, &t.params, 0, 0, 0, RAY, RAY);
+        cache.credit_cash(0);
+        cache.debit_cash(0);
+        // The fixture asset has no token contract: zero must skip the call.
+        cache.transfer_out(&t.asset, 0);
+        assert_eq!(cache.cash(), 0);
+        cache.credit_cash(i128::MAX);
+        cache.debit_cash(i128::MAX);
+        assert_eq!(cache.cash(), 0);
+    });
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #14)")]
+fn test_credit_cash_rejects_negative_amount() {
+    let t = TestSetup::new();
+    t.as_contract(|| {
+        let mut cache = cache_with(&t.env, &t.params, 0, 0, 0, RAY, RAY);
+        cache.credit_cash(-1);
+    });
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #14)")]
+fn test_debit_cash_rejects_negative_amount() {
+    let t = TestSetup::new();
+    t.as_contract(|| {
+        let mut cache = cache_with(&t.env, &t.params, 0, 0, 0, RAY, RAY);
+        cache.debit_cash(-1);
+    });
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #112)")]
+fn test_debit_cash_rejects_insufficient_reserves() {
+    let t = TestSetup::new();
+    t.as_contract(|| {
+        let mut cache = cache_with(&t.env, &t.params, 0, 0, 0, RAY, RAY);
+        cache.set_cash(1);
+        cache.debit_cash(2);
+    });
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #14)")]
+fn test_transfer_out_rejects_negative_amount() {
+    let t = TestSetup::new();
+    t.as_contract(|| {
+        let cache = cache_with(&t.env, &t.params, 0, 0, 0, RAY, RAY);
+        cache.transfer_out(&t.asset, -1);
+    });
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #33)")]
+fn test_credit_cash_rejects_overflow() {
+    let t = TestSetup::new();
+    t.as_contract(|| {
+        let mut cache = cache_with(&t.env, &t.params, 0, 0, 0, RAY, RAY);
+        cache.set_cash(i128::MAX);
+        cache.credit_cash(1);
+    });
+}

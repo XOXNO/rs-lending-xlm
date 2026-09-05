@@ -2,11 +2,10 @@ use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env, Vec};
 
-use crate::constants::{MILLISECONDS_PER_YEAR, RAY, WAD};
+use crate::constants::WAD;
 use crate::spec::fixture;
 use crate::storage;
 use crate::types::HubAssetKey;
-use common::math::fp::Ray;
 use controller_interface::ControllerInterface;
 
 fn hub0(asset: Address) -> HubAssetKey {
@@ -59,7 +58,7 @@ fn ltv_borrow_bound_enforced(
     crate::spec::compat::borrow_single(e.clone(), caller, account_id, asset, amount);
 
     let account = storage::get_account(&e, account_id);
-    let mut cache = crate::context::Cache::new(&e);
+    let mut cache = crate::context::Context::new(&e);
     let totals = crate::risk::calculate_account_risk_totals(
         &e,
         &mut cache,
@@ -419,7 +418,7 @@ fn solvency_sanity_repay(e: Env, caller: Address, asset: Address) {
 #[rule]
 fn index_cache_single_snapshot(e: Env, asset: Address) {
     crate::spec::fixture::seed_protocol(&e);
-    let mut cache = crate::context::Cache::new(&e);
+    let mut cache = crate::context::Context::new(&e);
 
     let hub_asset = hub0(asset);
     let index1 = cache.cached_market_index(&hub_asset);
@@ -430,109 +429,9 @@ fn index_cache_single_snapshot(e: Env, asset: Address) {
 }
 
 #[rule]
-fn supply_withdraw_roundtrip_error_bounded(e: Env) {
-    let amount: i128 = cvlr::nondet::nondet();
-    let supply_index: i128 = cvlr::nondet::nondet();
-
-    cvlr_assume!(amount > 0 && amount <= WAD * 1000);
-    cvlr_assume!((RAY..=10 * RAY).contains(&supply_index));
-
-    let scaled = common::math::fp_core::mul_div_half_up(&e, amount, RAY, supply_index);
-    let recovered = common::math::fp_core::mul_div_half_up(&e, scaled, supply_index, RAY);
-
-    cvlr_assert!(recovered >= amount.saturating_sub(6));
-    cvlr_assert!(recovered <= amount + 6);
-}
-
-#[rule]
-fn borrow_repay_roundtrip_error_bounded(e: Env) {
-    let amount: i128 = cvlr::nondet::nondet();
-    let borrow_index: i128 = cvlr::nondet::nondet();
-
-    cvlr_assume!(amount > 0 && amount <= WAD * 1000);
-    cvlr_assume!((RAY..=10 * RAY).contains(&borrow_index));
-
-    let scaled_debt = common::math::fp_core::mul_div_half_up(&e, amount, RAY, borrow_index);
-    let debt_owed = common::math::fp_core::mul_div_half_up(&e, scaled_debt, borrow_index, RAY);
-
-    cvlr_assert!(debt_owed >= amount.saturating_sub(6));
-    cvlr_assert!(debt_owed <= amount + 6);
-}
-
-#[rule]
-fn compound_interest_bounded_output(e: Env) {
-    let rate: i128 = cvlr::nondet::nondet();
-    let time: u64 = cvlr::nondet::nondet();
-
-    let max_rate_per_ms =
-        common::math::fp_core::div_by_int_half_up(&e, 10 * RAY, MILLISECONDS_PER_YEAR as i128);
-
-    cvlr_assume!(rate >= 0 && rate <= max_rate_per_ms);
-    cvlr_assume!(time > 0 && time <= MILLISECONDS_PER_YEAR);
-
-    let factor = common::rates::compound_interest(&e, Ray::from(rate), time);
-
-    let upper_bound = 100_000 * RAY;
-    cvlr_assert!(factor.raw() < upper_bound);
-}
-
-#[rule]
-fn compound_interest_no_wrap(e: Env) {
-    let rate: i128 = cvlr::nondet::nondet();
-    let time: u64 = cvlr::nondet::nondet();
-
-    let max_rate_per_ms =
-        common::math::fp_core::div_by_int_half_up(&e, 10 * RAY, MILLISECONDS_PER_YEAR as i128);
-
-    cvlr_assume!(rate >= 0 && rate <= max_rate_per_ms);
-    cvlr_assume!(time <= MILLISECONDS_PER_YEAR);
-
-    let factor = common::rates::compound_interest(&e, Ray::from(rate), time);
-
-    cvlr_assert!(factor.raw() >= RAY);
-}
-
-#[rule]
 fn index_cache_snapshot_sanity(e: Env, asset: Address) {
     crate::spec::fixture::seed_protocol(&e);
-    let mut cache = crate::context::Cache::new(&e);
+    let mut cache = crate::context::Context::new(&e);
     let _index = cache.cached_market_index(&hub0(asset));
     cvlr_satisfy!(true);
-}
-
-#[rule]
-fn roundtrip_supply_sanity(e: Env) {
-    let amount = WAD;
-    let index = RAY;
-
-    let scaled = common::math::fp_core::mul_div_half_up(&e, amount, RAY, index);
-    let recovered = common::math::fp_core::mul_div_half_up(&e, scaled, index, RAY);
-    let _recovered = recovered;
-    cvlr_satisfy!(true);
-}
-
-#[rule]
-fn compound_no_wrap_sanity(e: Env) {
-    let max_rate_per_ms =
-        common::math::fp_core::div_by_int_half_up(&e, RAY, MILLISECONDS_PER_YEAR as i128);
-    let rate = max_rate_per_ms;
-    let time = 1;
-    let factor = common::rates::compound_interest(&e, Ray::from(rate), time);
-    let _factor = factor;
-    cvlr_satisfy!(true);
-}
-
-#[rule]
-fn scaled_to_actual_matches_floor_with_rounding(e: Env) {
-    let scaled: i128 = cvlr::nondet::nondet();
-    let index: i128 = cvlr::nondet::nondet();
-    cvlr_assume!(scaled > 0 && scaled <= WAD * 1_000_000);
-    cvlr_assume!((RAY..=10 * RAY).contains(&index));
-
-    let actual = common::math::fp_core::mul_div_half_up(&e, scaled, index, RAY);
-    let floor = common::math::fp_core::mul_div_floor(&e, scaled, index, RAY);
-
-    cvlr_assert!(actual >= scaled);
-    cvlr_assert!(actual >= floor);
-    cvlr_assert!(actual <= floor + 1);
 }

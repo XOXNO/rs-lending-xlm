@@ -5,6 +5,23 @@ use test_harness::{
     LendingTest, ALICE, BOB,
 };
 
+/// Mainnet per-transaction limits, the same pair
+/// `tests/fuzz/strategy_multiply_budget.rs:7-8` asserts against.
+const MAINNET_CPU_BUDGET: u64 = 100_000_000;
+const MAINNET_MEM_BUDGET: u64 = 41_943_040;
+
+/// These six paths are held to a quarter of the mainnet limit. The heaviest
+/// measures ~9.9M cpu / ~5.6M mem, so this is ~2x headroom: loose enough not to
+/// flap on ordinary drift, tight enough that a 3x regression fails HERE instead
+/// of silently eating the margin a bigger position or an extra market needs.
+/// Bumping either constant is a reviewed diff, which is the point.
+const CPU_CEILING: u64 = MAINNET_CPU_BUDGET / 4;
+const MEM_CEILING: u64 = MAINNET_MEM_BUDGET / 4;
+
+/// Prints the CPU breakdown AND enforces the mainnet budget it is measured
+/// against -- printing alone left a 10x regression on any measured path green,
+/// and the two `reset_unlimited()` paths had no bound at all. Same shape as
+/// `meta/footprint_test.rs`'s `assert_res`.
 fn dump(env: &Env, label: &str) {
     let b = env.cost_estimate().budget();
     let total_cpu = b.cpu_instruction_cost();
@@ -36,6 +53,17 @@ fn dump(env: &Env, label: &str) {
             inputs
         );
     }
+
+    assert!(
+        total_cpu <= CPU_CEILING,
+        "{label}: cpu={total_cpu} exceeds the ceiling {CPU_CEILING} \
+         (mainnet limit {MAINNET_CPU_BUDGET})"
+    );
+    assert!(
+        total_mem <= MEM_CEILING,
+        "{label}: mem={total_mem} exceeds the ceiling {MEM_CEILING} \
+         (mainnet limit {MAINNET_MEM_BUDGET})"
+    );
 }
 
 #[test]
@@ -101,6 +129,9 @@ fn budget_withdraw_5_collateral_double_pass() {
     t.borrow(ALICE, "XLM", 50_000.0);
     t.advance_time(86_400);
 
+    // Measured unbounded on purpose: enforcing the default budget here exhausts
+    // it inside the test env's own auth recorder, not in protocol code. The
+    // bound lives in `dump`'s assertion instead.
     let mut b = t.env.cost_estimate().budget();
     b.reset_unlimited();
     b.reset_tracker();
@@ -161,6 +192,9 @@ fn budget_swap_collateral_full() {
 
     let steps = build_aggregator_swap(&t, "USDC", "ETH", 200_000_000_000, 10_0000000);
 
+    // Measured unbounded on purpose: enforcing the default budget here exhausts
+    // it inside the test env's own auth recorder, not in protocol code. The
+    // bound lives in `dump`'s assertion instead.
     let mut b = t.env.cost_estimate().budget();
     b.reset_unlimited();
     b.reset_tracker();

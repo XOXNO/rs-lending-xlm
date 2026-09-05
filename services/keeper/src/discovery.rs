@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Context, Result};
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicU64, Ordering};
 use stellar_rpc_client::AuthMode;
 use stellar_xdr::{
@@ -344,6 +345,20 @@ pub async fn snapshot(
         }
     }
 
+    // Third-party instances the protocol reads through. Read as one batch so a
+    // single archived one cannot abort the tick for the others.
+    let extra_ids: Vec<[u8; 32]> = contracts
+        .extra_instances
+        .iter()
+        .map(|id| contract_id_from_strkey(id))
+        .collect::<Result<_>>()?;
+    let extra_instances: Vec<LedgerEntryQuery> = if extra_ids.is_empty() {
+        Vec::new()
+    } else {
+        let keys: Vec<LedgerKey> = extra_ids.iter().map(contract_instance_key).collect();
+        client.get_ledger_entries(&keys).await?
+    };
+
     let mut aggregator_instance: Option<LedgerEntryQuery> = None;
     if let Some(aggregator_id) = &ids.price_aggregator {
         match client
@@ -413,6 +428,13 @@ pub async fn snapshot(
     {
         wasm_keys.push(contract_code_key(&aggregator_hash));
     }
+    for extra_hash in extra_instances
+        .iter()
+        .filter_map(wasm_hash_from_instance_row)
+    {
+        wasm_keys.push(contract_code_key(&extra_hash));
+    }
+    dedup_keys(&mut wasm_keys);
     let wasm_code_entries = client.get_ledger_entries(&wasm_keys).await?;
 
     if let Some(gov_instance) = governance_instance {
@@ -426,6 +448,7 @@ pub async fn snapshot(
     if let Some(aggregator) = aggregator_instance {
         instance_entries.push(aggregator);
     }
+    instance_entries.extend(extra_instances);
 
     Ok(DiscoverySnapshot {
         current_ledger,
@@ -437,6 +460,17 @@ pub async fn snapshot(
         wasm_code_entries,
         max_account_id,
     })
+}
+
+/// Drops repeated keys, keeping first occurrences in order. Two configured
+/// instances that share a Wasm, or one that shares it with a core contract,
+/// would otherwise put the same contract-code key into the snapshot twice:
+/// `get_ledger_entries` returns one row per input key, `plan_with_chunk`
+/// copies every matching row into the footprint, and a footprint with a
+/// duplicate key is rejected.
+fn dedup_keys(keys: &mut Vec<LedgerKey>) {
+    let mut seen = HashSet::with_capacity(keys.len());
+    keys.retain(|key| seen.insert(key.clone()));
 }
 
 const DEFAULT_ROLES: [&str; 0] = [];
@@ -1062,6 +1096,20 @@ mod tests {
     use super::*;
     use stellar_xdr::{ContractDataDurability, ScVec};
 
+    /// Two extra instances deployed from one Wasm, or one sharing the pool's
+    /// Wasm, must yield a single contract-code key so the TTL footprint never
+    /// carries a duplicate.
+    #[test]
+    fn dedup_keys_keeps_one_code_key_per_wasm_in_first_seen_order() {
+        let pool = contract_code_key(&[1u8; 32]);
+        let shared = contract_code_key(&[2u8; 32]);
+        let mut keys = vec![pool.clone(), shared.clone(), shared.clone(), pool.clone()];
+
+        dedup_keys(&mut keys);
+
+        assert_eq!(keys, vec![pool, shared]);
+    }
+
     /// Independently reconstructs the `#[contracttype]` encoding of a
     /// single-argument enum variant, so the test does not just re-run the
     /// production encoder.
@@ -1291,6 +1339,7 @@ mod tests {
             governance: Some("CCGAETDFZNTJYNOFRC3DR3KZCDZFANBEN2CJSBTOGTLVJPRAFPF7DWMH".into()),
             xoxno_oracle_adapter: None,
             price_aggregator: None,
+            extra_instances: Vec::new(),
         };
         let ids = ContractIds::resolve(&contracts).unwrap();
         assert!(ids.governance.is_some());
@@ -1310,6 +1359,7 @@ mod tests {
             governance: None,
             xoxno_oracle_adapter: None,
             price_aggregator: None,
+            extra_instances: Vec::new(),
         };
         let ids = ContractIds::resolve(&contracts).unwrap();
         assert!(ids.governance.is_none());

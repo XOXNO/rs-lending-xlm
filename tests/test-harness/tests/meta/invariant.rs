@@ -1,7 +1,7 @@
 use controller::constants::WAD;
 use test_harness::{
-    assert_contract_error, days, errors, usdt_stable_preset, LendingTest, PositionType, ALICE, BOB,
-    LIQUIDATOR,
+    assert_contract_error, days, errors, usdc_preset, usdt_stable_preset, LendingTest,
+    PositionType, ALICE, BOB, LIQUIDATOR,
 };
 #[test]
 fn test_hf_above_one_after_every_borrow() {
@@ -146,22 +146,29 @@ fn test_total_supply_matches_pool_balance() {
     t.supply(ALICE, "USDC", 50_000.0);
     t.supply(BOB, "USDC", 30_000.0);
 
-    let alice_supply = t.supply_balance(ALICE, "USDC");
-    let bob_supply = t.supply_balance(BOB, "USDC");
-    let total_user_supply = alice_supply + bob_supply;
-
-    assert!(
-        (total_user_supply - 80_000.0).abs() < 10.0,
-        "total supply should be ~80k, got {}",
-        total_user_supply
+    // Raw units, exact: no time passed, so both indexes are still RAY and the
+    // credited balance is the deposited amount to the last stroop. The old
+    // `< 10.0` tolerance on 80,000 hid a 0.0125% credit leak.
+    let unit = 10i128.pow(usdc_preset().decimals);
+    assert_eq!(
+        t.supply_balance_raw(ALICE, "USDC"),
+        50_000 * unit,
+        "alice's credited supply"
+    );
+    assert_eq!(
+        t.supply_balance_raw(BOB, "USDC"),
+        30_000 * unit,
+        "bob's credited supply"
     );
 
-    let pool_balance = t.pool_reserves("USDC");
-    assert!(
-        pool_balance >= total_user_supply,
-        "pool reserves ({}) should be >= total user supply ({})",
-        pool_balance,
-        total_user_supply
+    // `pool_reserves` is `state.cash`, and the market builder pre-loads
+    // `initial_liquidity` straight into it with no matching `supplied`
+    // (src/multi_hub.rs:80-95). Subtracting the donation is what makes this
+    // bind: against raw cash the old `>=` had a 12.5x margin.
+    let deposited = t.pool_reserves("USDC") - usdc_preset().initial_liquidity;
+    assert_eq!(
+        deposited, 80_000.0,
+        "cash must move by exactly the two supplies"
     );
 }
 #[test]

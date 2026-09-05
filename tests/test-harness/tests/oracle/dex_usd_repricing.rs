@@ -55,7 +55,12 @@ fn test_scaled_source_repriced_through_its_quote_key() {
     );
     t.configure_market_oracle(&xlm, &cfg);
 
-    assert_eq!(index_view(&t, &xlm).price_wad, usd_frac(2002, 1000));
+    let view = index_view(&t, &xlm);
+    assert_eq!(view.price_wad, usd_frac(2002, 1000));
+    assert!(view.valid, "a fresh scaled single source must read valid");
+    assert!(!view.stale);
+    assert!(!view.deviation);
+    assert_eq!(view.error_code, None);
 }
 
 #[test]

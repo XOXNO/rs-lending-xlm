@@ -1,9 +1,11 @@
 use crate::shared::{as_vec, count_topic, data_for_topic};
+use common::types::SeizeMode;
+use controller::constants::WAD;
 use soroban_sdk::{testutils::Events, xdr::ScVal};
 
 use test_harness::{
-    days, eth_preset, usd_cents, usdc_preset, usdt_stable_preset, wbtc_preset, xlm_preset,
-    LendingTest, ALICE, LIQUIDATOR,
+    days, eth_preset, hub_asset, usd_cents, usdc_preset, usdt_stable_preset, wbtc_preset,
+    xlm_preset, LendingTest, ALICE, LIQUIDATOR,
 };
 
 #[test]
@@ -99,7 +101,11 @@ fn test_supply_position_event_restores_risk_fields() {
     assert_eq!(entry[6], ScVal::U32(8000), "liquidation_threshold");
     assert_eq!(entry[7], ScVal::U32(500), "liquidation_bonus");
     assert_eq!(entry[8], ScVal::U32(7500), "loan_to_value");
-    assert!(matches!(entry[9], ScVal::U32(_)), "liquidation_fees");
+    assert_eq!(
+        entry[9],
+        ScVal::U32(t.get_asset_config("USDC").liquidation_fees),
+        "liquidation_fees"
+    );
 }
 
 #[test]
@@ -209,6 +215,16 @@ fn test_liquidation_emits_many_events() {
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.0);
     t.set_price("USDC", usd_cents(50));
+
+    let account_id = t.resolve_account_id(ALICE);
+    let payments =
+        soroban_sdk::Vec::from_array(&t.env, [(hub_asset(t.resolve_asset("ETH")), 1_0000000)]);
+    let bonus_bps = t
+        .ctrl_client()
+        .get_liquidation_estimate(&account_id, &payments, &SeizeMode::Transfer)
+        .bonus_rate_bps;
+    let liquidator = t.get_or_create_user(LIQUIDATOR);
+
     t.liquidate(LIQUIDATOR, ALICE, "ETH", 1.0);
 
     let events = t.env.events().all();
@@ -222,6 +238,37 @@ fn test_liquidation_emits_many_events() {
         1,
         "liquidation must emit exactly one liquidation event"
     );
+
+    // Liquidator bots read this payload; a zeroed, swapped or mis-scaled field
+    // must not survive a topic-only count.
+    let liquidations = data_for_topic(&events, "position", "liquidation");
+    let ScVal::Map(Some(map)) = &liquidations[0] else {
+        panic!("liquidation event data is a map, got {:?}", liquidations[0]);
+    };
+    assert_eq!(map.len(), 4, "liquidation event arity is wire ABI");
+    let field = |name: &str| -> &ScVal {
+        &map.iter()
+            .find(|e| matches!(&e.key, ScVal::Symbol(s) if s.0.to_string() == name))
+            .unwrap_or_else(|| panic!("liquidation event has no field `{name}`"))
+            .val
+    };
+    assert_eq!(*field("liquidator"), ScVal::from(&liquidator), "liquidator");
+    assert_eq!(*field("account_id"), ScVal::U64(account_id), "account_id");
+    let ScVal::I128(repaid) = field("repaid_usd_wad") else {
+        panic!("repaid_usd_wad must be i128");
+    };
+    // 1.0 ETH at the $2 000 preset price, retired in full; the USD conversion
+    // floors, so allow a sub-milli-dollar shortfall but nothing near a rescale.
+    let repaid = i128::from(repaid);
+    assert!(
+        (repaid - 2_000 * WAD).abs() < WAD / 1_000,
+        "repaid_usd_wad must be ~2 000 USD in WAD, got {repaid}"
+    );
+    let ScVal::I128(bonus) = field("bonus_bps") else {
+        panic!("bonus_bps must be i128");
+    };
+    assert!(bonus_bps > 0, "estimate must be live");
+    assert_eq!(i128::from(bonus), bonus_bps, "bonus_bps");
 }
 
 #[test]

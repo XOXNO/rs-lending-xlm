@@ -5,16 +5,15 @@ use common::math::fp::Wad;
 use common::types::{Account, AccountPositionType, AggregatedPayments, HubAssetKey};
 use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, Map};
 
-use crate::{context::Cache, storage};
+use crate::{context::Context, storage};
 
-/// Requires `caller` to authorize the invocation and panics if a flash loan
-/// is already in progress.
+/// Authenticates `caller` and rejects execution during a flash loan.
 pub(crate) fn require_authorized_caller(env: &Env, caller: &Address) {
     caller.require_auth();
     require_not_flash_loaning(env);
 }
 
-/// Panics with `FlashLoanOngoing` if a flash loan is currently in progress.
+/// Rejects execution while the temporary flash-loan flag is set.
 pub(crate) fn require_not_flash_loaning(env: &Env) {
     assert_with_error!(
         env,
@@ -23,12 +22,9 @@ pub(crate) fn require_not_flash_loaning(env: &Env) {
     );
 }
 
-/// Validates solvency after a pool-mutating operation; a no-op if the
-/// account carries no debt. Panics with `InsufficientCollateral` if
-/// LTV-gated collateral is below total debt or the health factor falls
-/// below 1 WAD. Panics with `MinBorrowCollateralNotMet` if LTV-gated
-/// collateral is below the configured floor, when one is set.
-pub(crate) fn require_post_pool_risk_gates(env: &Env, cache: &mut Cache, account: &Account) {
+/// Requires debt coverage by LTV-weighted collateral, health factor >= 1, and
+/// the configured collateral floor. Debt-free accounts skip all three checks.
+pub(crate) fn require_post_pool_risk_gates(env: &Env, cache: &mut Context, account: &Account) {
     if account.debt_free() {
         return;
     }
@@ -60,10 +56,8 @@ pub(crate) fn require_post_pool_risk_gates(env: &Env, cache: &mut Cache, account
     }
 }
 
-/// Panics with `PositionLimitExceeded` if adding `aggregated`'s new
-/// positions to `account` would exceed the configured max position count
-/// for `position_type`. Counts only hub assets not already present in the
-/// account, deduplicated within `aggregated`.
+/// Checks position limits only when adding a new hub-asset slot.
+/// Deduplicates new assets and excludes positions already held by the account.
 pub(crate) fn validate_bulk_position_limits(
     env: &Env,
     account: &Account,
@@ -98,9 +92,7 @@ pub(crate) fn validate_bulk_position_limits(
         }
     }
 
-    // Only a new slot can breach the bound. A top-up of a held asset opens
-    // nothing, so it stays allowed even when governance has since lowered
-    // the limit below the account's current count.
+    // Existing positions remain usable after governance lowers the position limit.
     if new_positions_count == 0 {
         return;
     }

@@ -96,8 +96,9 @@ isolation.
 **Scaled balances**: Positions store scaled shares (not token amounts).
 `scaled * current_index / RAY` is still in the 27-decimal RAY domain; rescale
 27 → asset decimals to get token units, or you are off by `10^(27-decimals)`.
-Indexes only increase on normal accrual (supply index has a floor during
-bad-debt socialization).
+The borrow index never decreases. The supply index can **decrease** when
+eligible bad debt is socialized into a market (ADR-0012); it has a non-zero
+floor. Do not cache a supply index or a price-per-share as a high-water mark.
 
 Health factor < 1 WAD means liquidatable. `get_health_factor` returns
 `i128::MAX` for debt-free accounts, missing accounts, and dust-debt accounts

@@ -3,8 +3,8 @@ use cvlr::nondet::nondet;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{Address, Env, Vec};
 
-use crate::context::Cache;
-use crate::events::{EventContext, PositionAction};
+use crate::context::Context;
+use crate::events::PositionAction;
 use crate::positions::{LegDirection, LegOutcome, WithdrawKind};
 use crate::spec::fixture;
 use crate::types::{
@@ -239,7 +239,7 @@ fn spoke_overrides_asset_params(e: Env, asset: Address) {
     cvlr_assume!(spoke_asset.is_some());
     let cfg = spoke_asset.unwrap();
 
-    let mut cache = crate::context::Cache::new(&e);
+    let mut cache = crate::context::Context::new(&e);
     let asset_config: common::types::AssetConfig =
         cache.require_spoke_asset(category_id, &hub_asset);
 
@@ -859,7 +859,7 @@ fn stored_scaled_totals(e: &Env, accounts: &[u64], asset: &Address) -> Option<Sc
 /// values.
 ///
 /// The leg primitives mutate the in-memory account and buffer usage in the
-/// `Cache`; only `finalize_position_flow` writes both out. Leg-level rules
+/// `Context`; only `finalize_position_flow` writes both out. Leg-level rules
 /// must therefore compare in-memory positions against explicitly persisted
 /// usage, or they would compare a moved position against a stale storage read.
 fn account_scaled_totals(accounts: &[&Account], hub_asset: &HubAssetKey) -> Option<ScaledTotals> {
@@ -1102,7 +1102,7 @@ fn usage_repay_tracks_scaled_delta(
 // strategies keeps the swap-router trust boundary out of the proof: what is
 // at stake is the usage wiring of the leg, not the router.
 //
-// Usage is buffered in the `Cache` until `finalize_position_flow` runs, so
+// Usage is buffered in the `Context` until `finalize_position_flow` runs, so
 // these rules persist explicitly. `strategy_finalize` (strategies/mod.rs:65)
 // is the single tail every strategy ends in, and it calls
 // `finalize_position_flow`; the four endpoint rules above prove that tail
@@ -1137,7 +1137,7 @@ fn usage_strategy_borrow_leg_tracks_scaled_delta(
 
     let hub = hub0(&asset);
     let mut account = crate::storage::get_account(&e, account_id);
-    let mut cache = Cache::new(&e);
+    let mut cache = Context::new(&e);
     let charge_fee: bool = nondet();
 
     let usage_before = usage_row(&e, &asset);
@@ -1187,7 +1187,7 @@ fn usage_strategy_withdraw_leg_tracks_scaled_delta(
 
     let hub = hub0(&asset);
     let mut account = crate::storage::get_account(&e, account_id);
-    let mut cache = Cache::new(&e);
+    let mut cache = Context::new(&e);
 
     let usage_before = usage_row(&e, &asset);
     let scaled_before = account_scaled_totals(&[&account], &hub);
@@ -1196,10 +1196,8 @@ fn usage_strategy_withdraw_leg_tracks_scaled_delta(
     crate::positions::execute_withdrawal(
         &e,
         &mut account,
-        EventContext {
-            counterparty: caller.clone(),
-            action: PositionAction::SwColWd,
-        },
+        &caller,
+        PositionAction::SwColWd,
         crate::positions::WithdrawalRequest {
             hub_asset: &hub,
             amount,
@@ -1242,19 +1240,17 @@ fn usage_strategy_repay_leg_tracks_scaled_delta(
 
     let hub = hub0(&asset);
     let mut account = crate::storage::get_account(&e, account_id);
-    let mut cache = Cache::new(&e);
+    let mut cache = Context::new(&e);
 
     let usage_before = usage_row(&e, &asset);
     let scaled_before = account_scaled_totals(&[&account], &hub);
 
     let position = crate::positions::get_debt_position_or_panic(&e, &account, &hub);
-    crate::positions::execute_repayment(
+    crate::positions::repay_prefunded_position(
         &e,
         &mut account,
-        EventContext {
-            counterparty: caller.clone(),
-            action: PositionAction::RpColR,
-        },
+        &caller,
+        PositionAction::RpColR,
         crate::positions::RepaymentRequest {
             hub_asset: &hub,
             position: &position,
@@ -1300,7 +1296,7 @@ fn usage_strategy_net_settle_tracks_scaled_delta(
 
     let hub = hub0(&asset);
     let mut account = crate::storage::get_account(&e, account_id);
-    let mut cache = Cache::new(&e);
+    let mut cache = Context::new(&e);
 
     let usage_before = usage_row(&e, &asset);
     let scaled_before = account_scaled_totals(&[&account], &hub);
@@ -1454,7 +1450,7 @@ enum UsageCoverage {
 /// `LiqCredit` liquidation/apply.rs:294 (credit-mode receiver leg),
 /// `Multiply` multiply.rs:79 (`borrow_into_controller`), `FlashPos`
 /// flash_position.rs (`borrow_into_controller`), `ParamUpd`
-/// keepers.rs:186 (risk-parameter restamp only), `SwDebtR` swap_debt.rs:65,87,
+/// risk/params.rs (risk-parameter restamp only), `SwDebtR` swap_debt.rs:65,87,
 /// `SwColWd` swap_collateral.rs:65, `RpColWd`/`RpColR`/`RpColNet`
 /// repay_debt_with_collateral.rs:134,146,104, `CloseWd` legs.rs:138,
 /// `Migrate` migrate_blend.rs:146,361.
@@ -1577,7 +1573,7 @@ fn run_wave0_leg(
     hub_asset: &HubAssetKey,
     action: PositionAction,
     amount: i128,
-    cache: &mut Cache,
+    cache: &mut Context,
 ) {
     let (outcome, asset_decimals) = nondet_leg_outcome(amount);
     match leg {
@@ -1703,7 +1699,7 @@ fn usage_coverage_no_unwired_verb(
 
     let hub = hub0(&asset);
     let mut account = crate::storage::get_account(&e, account_id);
-    let mut cache = Cache::new(&e);
+    let mut cache = Context::new(&e);
 
     let usage_before = usage_row(&e, &asset);
     let scaled_before = account_scaled_totals(&[&account], &hub);
@@ -1750,7 +1746,7 @@ fn usage_param_refresh_moves_neither(
 
     let mut account_ids: Vec<u64> = Vec::new(&e);
     account_ids.push_back(account_id);
-    crate::keepers::update_account_threshold(&e, caller, has_risks, account_ids);
+    crate::risk::params::update_account_threshold(&e, caller, has_risks, account_ids);
 
     let usage_after = usage_row(&e, &asset);
     let scaled_after = stored_scaled_totals(&e, &accounts, &asset);
@@ -1894,7 +1890,7 @@ fn usage_strategy_borrow_leg_reachable(e: Env, caller: Address, asset: Address) 
 
     let hub = hub0(&asset);
     let mut account = crate::storage::get_account(&e, account_id);
-    let mut cache = Cache::new(&e);
+    let mut cache = Context::new(&e);
 
     let before = usage_row(&e, &asset);
     crate::positions::borrow_into_controller(
@@ -1920,17 +1916,15 @@ fn usage_strategy_withdraw_leg_reachable(e: Env, caller: Address, asset: Address
 
     let hub = hub0(&asset);
     let mut account = crate::storage::get_account(&e, account_id);
-    let mut cache = Cache::new(&e);
+    let mut cache = Context::new(&e);
 
     let before = usage_row(&e, &asset);
     let position = crate::positions::get_supply_position_or_panic(&e, &account, &hub);
     crate::positions::execute_withdrawal(
         &e,
         &mut account,
-        EventContext {
-            counterparty: caller.clone(),
-            action: PositionAction::SwColWd,
-        },
+        &caller,
+        PositionAction::SwColWd,
         crate::positions::WithdrawalRequest {
             hub_asset: &hub,
             amount: crate::constants::WAD,
@@ -1952,17 +1946,15 @@ fn usage_strategy_repay_leg_reachable(e: Env, caller: Address, asset: Address) {
 
     let hub = hub0(&asset);
     let mut account = crate::storage::get_account(&e, account_id);
-    let mut cache = Cache::new(&e);
+    let mut cache = Context::new(&e);
 
     let before = usage_row(&e, &asset);
     let position = crate::positions::get_debt_position_or_panic(&e, &account, &hub);
-    crate::positions::execute_repayment(
+    crate::positions::repay_prefunded_position(
         &e,
         &mut account,
-        EventContext {
-            counterparty: caller.clone(),
-            action: PositionAction::RpColR,
-        },
+        &caller,
+        PositionAction::RpColR,
         crate::positions::RepaymentRequest {
             hub_asset: &hub,
             position: &position,
@@ -1984,7 +1976,7 @@ fn usage_strategy_net_settle_reachable(e: Env, caller: Address, asset: Address) 
 
     let hub = hub0(&asset);
     let mut account = crate::storage::get_account(&e, account_id);
-    let mut cache = Cache::new(&e);
+    let mut cache = Context::new(&e);
 
     let before = usage_row(&e, &asset);
     crate::strategies::net_settle_collateral_against_debt(
@@ -2014,7 +2006,7 @@ fn usage_coverage_dispatch_reachable(e: Env, caller: Address, asset: Address, le
 
     let hub = hub0(&asset);
     let mut account = crate::storage::get_account(&e, account_id);
-    let mut cache = Cache::new(&e);
+    let mut cache = Context::new(&e);
     let leg = nondet_wave0_leg(leg_sel);
 
     let before = usage_row(&e, &asset);
@@ -2215,7 +2207,7 @@ fn usage_liq_repay_leg_tracks_scaled_delta(
 
     let hub = hub0(&asset);
     let mut account = crate::storage::get_account(&e, account_id);
-    let mut cache = Cache::new(&e);
+    let mut cache = Context::new(&e);
 
     let position = crate::positions::get_debt_position_or_panic(&e, &account, &hub);
     let mut actions: Vec<PoolAction> = Vec::new(&e);
@@ -2297,7 +2289,7 @@ fn usage_liq_transfer_seize_leg_tracks_scaled_delta(
 
     let hub = hub0(&asset);
     let mut account = crate::storage::get_account(&e, account_id);
-    let mut cache = Cache::new(&e);
+    let mut cache = Context::new(&e);
 
     let position = crate::positions::get_supply_position_or_panic(&e, &account, &hub);
     let mut entries: Vec<PoolWithdrawEntry> = Vec::new(&e);
@@ -2534,7 +2526,7 @@ fn usage_liq_repay_leg_reachable(e: Env, liquidator: Address, asset: Address) {
 
     let hub = hub0(&asset);
     let mut account = crate::storage::get_account(&e, account_id);
-    let mut cache = Cache::new(&e);
+    let mut cache = Context::new(&e);
 
     let position = crate::positions::get_debt_position_or_panic(&e, &account, &hub);
     let mut actions: Vec<PoolAction> = Vec::new(&e);
@@ -2567,7 +2559,7 @@ fn usage_liq_transfer_seize_leg_reachable(e: Env, liquidator: Address, asset: Ad
 
     let hub = hub0(&asset);
     let mut account = crate::storage::get_account(&e, account_id);
-    let mut cache = Cache::new(&e);
+    let mut cache = Context::new(&e);
 
     let position = crate::positions::get_supply_position_or_panic(&e, &account, &hub);
     let mut entries: Vec<PoolWithdrawEntry> = Vec::new(&e);

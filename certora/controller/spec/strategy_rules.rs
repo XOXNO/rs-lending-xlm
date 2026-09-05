@@ -74,7 +74,7 @@ fn multiply_requires_collateralizable(
         &stored,
     );
 
-    let mut cache = crate::context::Cache::new(&e);
+    let mut cache = crate::context::Context::new(&e);
     let config: common::types::AssetConfig = cache.require_spoke_asset(
         crate::spec::fixture::SPOKE_ID,
         &hub0(collateral_token.clone()),
@@ -724,7 +724,7 @@ fn flash_position_rejects_normal_mode(
 /// such a market because the funds only reach the governance-owned router;
 /// here they reach a caller-chosen contract, which is what the flag denies.
 ///
-/// The assumption is read through a `Cache` of the rule's own, which binds the
+/// The assumption is read through a `Context` of the rule's own, which binds the
 /// call's draw because `spec::ghost_prices` memoises the pool sync data per
 /// rule. Without that memo the entry point would draw an unrelated flag and
 /// this rule would be a statement about nothing.
@@ -742,7 +742,7 @@ fn flash_position_rejects_non_flashloanable_market(
     fixture::seed_market(&e, &debt_token);
     fixture::seed_market(&e, &collateral_token);
 
-    let mut cache = crate::context::Cache::new(&e);
+    let mut cache = crate::context::Context::new(&e);
     let sync = cache.cached_pool_sync_data(&hub0(debt_token.clone()));
     cvlr_assume!(!sync.params.is_flashloanable);
     drop(cache);
