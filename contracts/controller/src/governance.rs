@@ -9,9 +9,8 @@ use common::constants::{DEFAULT_MIN_BORROW_COLLATERAL_USD_WAD, POSITION_LIMIT_MA
 use stellar_access::*;
 use stellar_contract_utils::*;
 
-/// Initializes the controller: sets `admin` as owner, sets position limits
-/// to their maximum and minimum borrow collateral to its default value, and
-/// records the initial app version. Leaves the contract paused.
+/// Sets the owner, default borrow floor, maximum position limits, and initial
+/// app version. Initializes the controller paused.
 pub(crate) fn init(env: &Env, admin: &Address) {
     ownable::set_owner(env, admin);
     ownable::emit_ownership_transfer_completed(env, admin);
@@ -33,8 +32,7 @@ pub(crate) fn init(env: &Env, admin: &Address) {
     pausable::pause(env);
 }
 
-/// Pauses the contract if it is not already paused, then replaces its Wasm
-/// bytecode with `new_wasm_hash`.
+/// Pauses if needed, then schedules replacement of the controller Wasm.
 pub(crate) fn upgrade(env: &Env, new_wasm_hash: &BytesN<32>) {
     if !pausable::paused(env) {
         pausable::pause(env);
@@ -43,8 +41,7 @@ pub(crate) fn upgrade(env: &Env, new_wasm_hash: &BytesN<32>) {
         .update_current_contract_wasm(new_wasm_hash.clone());
 }
 
-/// Records `new_version` as the app version. Panics unless it is strictly
-/// greater than the current version.
+/// Records a strictly greater app version; performs no storage transformation.
 pub(crate) fn migrate(env: &Env, new_version: u32) {
     let current_version: u32 = env
         .storage()
@@ -61,8 +58,7 @@ pub(crate) fn migrate(env: &Env, new_version: u32) {
         .set(&ControllerKey::AppVersion, &new_version);
 }
 
-/// Returns the stored app version, defaulting to `INITIAL_APP_VERSION` if
-/// none has been recorded.
+/// Returns the stored app version, defaulting to `INITIAL_APP_VERSION`.
 pub(crate) fn get_app_version(env: &Env) -> u32 {
     env.storage()
         .instance()
@@ -70,12 +66,12 @@ pub(crate) fn get_app_version(env: &Env) -> u32 {
         .unwrap_or(INITIAL_APP_VERSION)
 }
 
-/// Pauses the contract. Panics if the contract is already paused.
+/// Pauses the controller; fails if already paused.
 pub(crate) fn pause(env: &Env) {
     pausable::pause(env);
 }
 
-/// Unpauses the contract. Panics if the contract is not currently paused.
+/// Unpauses the controller; fails if already unpaused.
 pub(crate) fn unpause(env: &Env) {
     pausable::unpause(env);
 }
@@ -83,7 +79,7 @@ pub(crate) fn unpause(env: &Env) {
 /// Starts a two-step ownership transfer to `new_owner`, acceptable until
 /// ledger `live_until_ledger`.
 pub(crate) fn transfer_ownership(env: &Env, new_owner: &Address, live_until_ledger: u32) {
-    // #[only_owner] already authenticated; low-level role_transfer does not re-auth.
+    // The entrypoint authenticates the owner; low-level role transfer does not.
     let current_owner = ownable::get_owner(env)
         .unwrap_or_else(|| panic_with_error!(env, GenericError::OwnerNotSet));
 
@@ -96,8 +92,7 @@ pub(crate) fn transfer_ownership(env: &Env, new_owner: &Address, live_until_ledg
     ownable::emit_ownership_transfer(env, &current_owner, new_owner, live_until_ledger);
 }
 
-/// Renews the controller's storage TTL and completes a pending ownership
-/// transfer, requiring authorization from the pending owner.
+/// Renews instance TTL and completes transfer with pending-owner authorization.
 pub(crate) fn accept_ownership(env: &Env) {
     storage::renew_controller_instance(env);
     ownable::accept_ownership(env);

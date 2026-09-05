@@ -125,7 +125,7 @@ evidence.
 
 **Status:** ENFORCED — `common/src/token.rs` (`transfer_amount_measured`), used
 by `contracts/controller/src/positions/supply.rs`,
-`contracts/controller/src/keepers.rs`,
+`contracts/controller/src/markets.rs`,
 `contracts/controller/src/positions/liquidation/apply.rs`, and
 `contracts/controller/src/strategies/legs.rs`. VERIFIED —
 `contracts/controller/tests/events.rs` (fee-on-transfer token fixtures).
@@ -305,7 +305,7 @@ VERIFIED — rules
 
 All risk calculations in a mutation use one coherent set of prices.
 
-**Status:** ENFORCED — `contracts/controller/src/context/oracle.rs` fetches once
+**Status:** ENFORCED — `contracts/controller/src/context.rs` fetches once
 and caches for the mutation. VERIFIED — rules `price_cache_consistency`,
 `index_cache_single_snapshot`.
 
@@ -655,7 +655,7 @@ wrapped in `with_flash_guard`. All six production setters:
 - `strategies/flash_loan.rs:35` (`process_flash_loan`) — the flash-loan callback.
 - `strategies/flash_position.rs:110` (`process_flash_position`) — the debt-token
   forward *and* the `execute_flash_position` receiver callback.
-- `strategies/swap.rs:89` (`call_router_with_reentrancy_guard`) — the
+- `strategies/swap.rs` (`swap_tokens`) — the
   swap-aggregator router call.
 - `strategies/legs.rs:103` (`withdraw_collateral_to_controller`) — the pool
   withdraw leg that moves collateral into the controller.

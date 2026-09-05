@@ -212,7 +212,7 @@ fn claim_revenue_emits_nothing_when_there_is_no_revenue() {
 /// Which address `payer` is depends on the caller:
 /// - plain `repay`: `positions/debt.rs:195` passes the user's own address, so
 ///   the pool refunds the user directly. That is what this test pins.
-/// - strategy legs: `execute_repayment` passes `EventContext.counterparty`,
+/// - strategy legs: `repay_prefunded_position` passes the explicit `refund_to`,
 ///   which `legs.rs:38-43` sets to the controller, so the pool refunds the
 ///   controller and `legs.rs:83` `refund_controller_balance_delta` forwards the
 ///   measured delta on to `caller`.

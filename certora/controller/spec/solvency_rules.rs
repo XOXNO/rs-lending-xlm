@@ -58,7 +58,7 @@ fn ltv_borrow_bound_enforced(
     crate::spec::compat::borrow_single(e.clone(), caller, account_id, asset, amount);
 
     let account = storage::get_account(&e, account_id);
-    let mut cache = crate::context::Cache::new(&e);
+    let mut cache = crate::context::Context::new(&e);
     let totals = crate::risk::calculate_account_risk_totals(
         &e,
         &mut cache,
@@ -418,7 +418,7 @@ fn solvency_sanity_repay(e: Env, caller: Address, asset: Address) {
 #[rule]
 fn index_cache_single_snapshot(e: Env, asset: Address) {
     crate::spec::fixture::seed_protocol(&e);
-    let mut cache = crate::context::Cache::new(&e);
+    let mut cache = crate::context::Context::new(&e);
 
     let hub_asset = hub0(asset);
     let index1 = cache.cached_market_index(&hub_asset);
@@ -431,7 +431,7 @@ fn index_cache_single_snapshot(e: Env, asset: Address) {
 #[rule]
 fn index_cache_snapshot_sanity(e: Env, asset: Address) {
     crate::spec::fixture::seed_protocol(&e);
-    let mut cache = crate::context::Cache::new(&e);
+    let mut cache = crate::context::Context::new(&e);
     let _index = cache.cached_market_index(&hub0(asset));
     cvlr_satisfy!(true);
 }

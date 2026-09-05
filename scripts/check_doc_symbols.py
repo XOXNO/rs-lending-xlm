@@ -73,6 +73,12 @@ ALLOW = {
 # Per-file allowances. Each entry is a name the file cites deliberately even
 # though no such item exists in any source we can see; the comment says why.
 FILE_ALLOW = {
+    # Historical audit names from before the controller settlement refactor.
+    # The archived analysis describes the original source; current functions
+    # are settle_borrow/settle_repay and process_deposit.
+    "docs/audit/controller-defense/synthesis/DRAIN-ANALYSIS.md": {
+        "settle_debt", "settle_supply",
+    },
     # Symbolic variable names the formula prose defines for itself right next
     # to the pseudo-code that uses them; they are math notation, not items.
     # (Skipping fenced blocks would not help: these are flagged in the prose

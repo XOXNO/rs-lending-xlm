@@ -118,7 +118,7 @@ fn refresh_writes_full_tuple_for_debt_free_account() {
             hub_id: 0,
             asset: Address::generate(&env),
         };
-        let mut cache = Cache::new_view(&env);
+        let mut cache = Context::new_view(&env);
         let mut position = stamped_position();
 
         let changed = refresh_supply_risk_params(
@@ -164,7 +164,7 @@ fn refresh_writes_ltv_but_holds_tuple_when_gate_rejects() {
             borrow_positions,
         };
 
-        let mut cache = Cache::new_view(&env);
+        let mut cache = Context::new_view(&env);
         let mut prices = Map::new(&env);
         prices.set(
             hub.asset.clone(),
@@ -231,7 +231,7 @@ fn refresh_ltv_only_leaves_liquidation_tuple_stamped() {
             hub_id: 0,
             asset: Address::generate(&env),
         };
-        let mut cache = Cache::new_view(&env);
+        let mut cache = Context::new_view(&env);
         let mut position = stamped_position();
 
         let changed = refresh_supply_risk_params(
@@ -262,7 +262,7 @@ fn refresh_returns_false_when_full_tuple_already_matches() {
             hub_id: 0,
             asset: Address::generate(&env),
         };
-        let mut cache = Cache::new_view(&env);
+        let mut cache = Context::new_view(&env);
         let mut position = stamped_position();
 
         let changed = refresh_supply_risk_params(
@@ -296,7 +296,7 @@ fn refresh_returns_false_when_ltv_only_already_matches() {
             hub_id: 0,
             asset: Address::generate(&env),
         };
-        let mut cache = Cache::new_view(&env);
+        let mut cache = Context::new_view(&env);
         let mut position = stamped_position();
 
         let changed = refresh_supply_risk_params(
@@ -342,7 +342,7 @@ fn refresh_returns_false_when_gate_holds_and_ltv_already_matches() {
             borrow_positions,
         };
 
-        let mut cache = Cache::new_view(&env);
+        let mut cache = Context::new_view(&env);
         let mut prices = Map::new(&env);
         prices.set(
             hub.asset.clone(),

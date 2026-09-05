@@ -17,24 +17,19 @@ enum SpokeAssetMutation {
     Edit,
 }
 
-/// Registers a new asset market in a spoke after validating risk bounds,
-/// liquidation fees, and caps against the pool. Panics if the spoke is
-/// deprecated or the asset is already registered in it.
+/// Lists a new market in an active spoke after validating risk parameters and caps.
 pub(crate) fn add_asset_to_spoke(env: &Env, args: &SpokeAssetArgs) {
     upsert_spoke_asset(env, args, SpokeAssetMutation::Add);
 }
 
-/// Updates an existing spoke asset's configuration after validating risk
-/// bounds, liquidation fees, and caps against the pool. Panics if the spoke
-/// does not exist or the asset is not registered in it.
+/// Updates a listed market after validating risk parameters and caps.
+/// Allows deprecated spokes so existing positions remain configurable.
 pub(crate) fn edit_asset_in_spoke(env: &Env, args: &SpokeAssetArgs) {
     upsert_spoke_asset(env, args, SpokeAssetMutation::Edit);
 }
 
-/// Validates `args`, checks the spoke/asset registration precondition for
-/// `mutation`, validates the caps against the pool's asset decimals, then
-/// writes the spoke asset entry and publishes an `UpdateSpokeAssetEvent`.
-/// Every validation runs before the storage write.
+/// Checks registration state and risk bounds, validates caps against pool
+/// decimals, then stores and emits the asset config.
 fn upsert_spoke_asset(env: &Env, args: &SpokeAssetArgs, mutation: SpokeAssetMutation) {
     common_validate_risk_bounds(env, args.ltv, args.threshold, args.bonus);
     common_validate_liquidation_fees(env, args.liquidation_fees);
@@ -96,10 +91,8 @@ fn upsert_spoke_asset(env: &Env, args: &SpokeAssetArgs, mutation: SpokeAssetMuta
     .publish(env);
 }
 
-/// Updates the paused, frozen, and no-seize flags on an existing spoke asset
-/// and publishes an `UpdateSpokeAssetEvent`. Panics if the asset is not
-/// registered in the spoke, or if any flag would be relaxed from true to
-/// false.
+/// Tightens paused, frozen, and no-seize flags on a listed asset and emits
+/// the new config. Rejects any true-to-false transition.
 pub(crate) fn set_spoke_asset_flags(
     env: &Env,
     spoke_id: u32,
@@ -125,15 +118,8 @@ pub(crate) fn set_spoke_asset_flags(
     .publish(env);
 }
 
-/// Asserts that `paused`, `frozen`, and `no_seize` only move from false to
-/// true relative to `config`, panicking if any flag would be relaxed. The
-/// guardian may only tighten; clearing a flag stays timelocked through
-/// `edit_asset_in_spoke` (ADR-0007).
-///
-/// Kept as a named function rather than inlined into its single caller: it is
-/// the control that ADR-0007, ADR-0008, STRIDE, the threat model, and
-/// INV-AUTH-04's ENFORCED status all cite by name. The name is the interface to
-/// that documentation, so it outranks the line it would save.
+/// Allows only unchanged or tightened flags. Clearing flags requires the
+/// timelocked `edit_asset_in_spoke` path (ADR-0007, INV-AUTH-04).
 fn require_flag_ratchet(
     env: &Env,
     config: &SpokeAssetConfig,
@@ -148,9 +134,7 @@ fn require_flag_ratchet(
     );
 }
 
-/// Removes an asset from a spoke's registry and publishes a
-/// `RemoveSpokeAssetEvent`. Panics if the asset is not registered in the
-/// spoke or still has nonzero supplied or borrowed usage.
+/// Removes and emits a listed asset only when both scaled usage amounts are zero.
 pub(crate) fn remove_asset_from_spoke(env: &Env, hub_asset: HubAssetKey, spoke_id: u32) {
     assert_with_error!(
         env,

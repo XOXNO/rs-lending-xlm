@@ -1,14 +1,11 @@
-//! Defines the contract events emitted when a market is created for a hub
-//! asset and when a market's interest-rate parameters are replaced.
+//! Events for market creation and interest-rate updates.
 
 use common::types::{InterestRateModel, MarketParamsRaw};
 use soroban_sdk::{contractevent, Address};
 
-/// Event recording that a market is created for `hub_id` and `base_asset` at
-/// `market_address`. Carries the interest-rate curve fields and reserve
-/// factor as flat, top-level fields rather than a nested
-/// `InterestRateModel`/`MarketParamsRaw`; omits the flash-loan flag, flash-loan
-/// fee, and asset decimals.
+/// Market creation for `(hub_id, base_asset)` at `market_address`.
+/// Curve fields and reserve factor are flattened; flash-loan settings and
+/// asset decimals are omitted.
 #[contractevent(topics = ["market", "create"])]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CreateMarketEvent {
@@ -27,10 +24,7 @@ pub struct CreateMarketEvent {
 }
 
 impl CreateMarketEvent {
-    /// Builds a `CreateMarketEvent` for `hub_id`/`base_asset`/`market_address`,
-    /// copying the interest-curve fields and reserve factor from `params`.
-    /// Does not copy `is_flashloanable`, `flashloan_fee`, `asset_id`, or
-    /// `asset_decimals`.
+    /// Copies curve fields and reserve factor, using the supplied market identity.
     pub fn from_params(
         hub_id: u32,
         base_asset: Address,
@@ -54,10 +48,8 @@ impl CreateMarketEvent {
     }
 }
 
-/// Event recording that the interest-rate model for `(hub_id, asset)` is
-/// replaced. Carries the interest-rate curve fields and reserve factor as
-/// flat, top-level fields rather than a nested `InterestRateModel`; omits the
-/// flash-loan flag and flash-loan fee.
+/// Rate-model replacement for `(hub_id, asset)`.
+/// Curve fields and reserve factor are flattened; flash-loan settings are omitted.
 #[contractevent(topics = ["market", "params_update"])]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UpdateMarketParamsEvent {
@@ -75,9 +67,7 @@ pub struct UpdateMarketParamsEvent {
 }
 
 impl UpdateMarketParamsEvent {
-    /// Builds an `UpdateMarketParamsEvent` for `(hub_id, asset)`, copying the
-    /// interest-curve fields and reserve factor from `model`. Does not copy
-    /// `is_flashloanable` or `flashloan_fee`.
+    /// Copies the model's curve fields and reserve factor.
     pub fn from_rate_model(hub_id: u32, asset: Address, model: &InterestRateModel) -> Self {
         Self {
             hub_id,

@@ -202,7 +202,7 @@ fn load_existing_account_requires_matching_spoke() {
     let owner = Address::generate(&env);
     let account_id = seed_account(&env, &contract_id, &nft, &owner);
     env.as_contract(&contract_id, || {
-        let mut cache = crate::context::Cache::new_view(&env);
+        let mut cache = crate::context::Context::new_view(&env);
         let (id, account) = load_or_create_account(
             &env,
             &owner,
@@ -228,7 +228,7 @@ fn load_existing_account_rejects_spoke_mismatch() {
     let owner = Address::generate(&env);
     let account_id = seed_account(&env, &contract_id, &nft, &owner);
     env.as_contract(&contract_id, || {
-        let mut cache = crate::context::Cache::new_view(&env);
+        let mut cache = crate::context::Context::new_view(&env);
         let _ = load_or_create_account(
             &env,
             &owner,
@@ -496,7 +496,7 @@ fn account_creation_before_nft_deploy_fails_closed() {
                 liquidation_bonus_factor_bps: 0,
             },
         );
-        let mut cache = crate::context::Cache::new(&env);
+        let mut cache = crate::context::Context::new(&env);
         create_account(&env, &owner, 1, PositionMode::Normal, &mut cache);
     });
 }

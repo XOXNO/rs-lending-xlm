@@ -7,6 +7,7 @@ const REQ_WITHDRAW: u32 = 1;
 const REQ_WITHDRAW_COLLATERAL: u32 = 3;
 const REQ_REPAY: u32 = 5;
 
+/// Request record matching Blend's `submit` ABI.
 #[contracttype]
 #[derive(Clone)]
 pub struct BlendRequest {
@@ -15,6 +16,7 @@ pub struct BlendRequest {
     pub amount: i128,
 }
 
+/// Position response matching Blend's `submit` ABI.
 #[contracttype]
 #[derive(Clone)]
 pub struct BlendPositions {
@@ -26,8 +28,8 @@ pub struct BlendPositions {
 #[allow(dead_code)]
 #[contractclient(name = "BlendPoolClient")]
 pub trait BlendPool {
-    /// Submits a batch of withdraw, withdraw-collateral, or repay requests against `from`'s
-    /// Blend position, pulling repay funds through `spender` and sending withdrawals to `to`.
+    /// Submits requests against `from`'s position, pulling repayments from `spender`
+    /// and sending withdrawals to `to`.
     fn submit(
         env: Env,
         from: Address,
@@ -37,8 +39,8 @@ pub trait BlendPool {
     ) -> BlendPositions;
 }
 
-/// Withdraws all of `from`'s collateral and supply positions from `blend_pool` into the
-/// controller, using `i128::MAX` amounts to request a full withdrawal of each asset.
+/// Fully withdraws the specified collateral and supply assets to the controller.
+/// Uses Blend's `i128::MAX` full-withdrawal sentinel for each requested asset.
 pub(crate) fn blend_sweep_all(
     env: &Env,
     blend_pool: &Address,
@@ -64,8 +66,8 @@ pub(crate) fn blend_sweep_all(
     guarded_submit(env, blend_pool, from, &requests);
 }
 
-/// Repays each of `from`'s debts on `blend_pool` up to its cap in `debt_caps`, pre-authorizing
-/// the controller's token transfers before submitting the repay requests.
+/// Repays the specified debts up to their caps using controller funds.
+/// Authorizes the corresponding token pulls before submitting requests.
 pub(crate) fn blend_repay_all(
     env: &Env,
     blend_pool: &Address,
@@ -84,9 +86,8 @@ pub(crate) fn blend_repay_all(
     guarded_submit(env, blend_pool, from, &requests);
 }
 
-/// Submits `requests` to `blend_pool` on `from`'s behalf, with the controller as both spender
-/// and recipient, while the flash-loan guard is held so reentrant controller calls are blocked
-/// for the duration of the cross-contract call.
+/// Submits with the controller as spender and recipient while holding the
+/// flash-loan guard against reentry into guarded controller operations.
 fn guarded_submit(env: &Env, blend_pool: &Address, from: &Address, requests: &Vec<BlendRequest>) {
     storage::with_flash_guard(env, || {
         let controller = env.current_contract_address();
@@ -95,9 +96,8 @@ fn guarded_submit(env: &Env, blend_pool: &Address, from: &Address, requests: &Ve
     });
 }
 
-/// Pre-authorizes a controller-initiated `transfer` of up to each cap in `debt_caps` from the
-/// controller to `blend_pool`, so Blend's repay requests can pull the funds during the nested
-/// `submit` call. No-op when `debt_caps` is empty.
+/// Authorizes exact cap-sized token transfers from the controller to Blend
+/// for nested repayment calls; no-op when no debt caps are supplied.
 fn authorize_repay_pulls(env: &Env, blend_pool: &Address, debt_caps: &Vec<(Address, i128)>) {
     if debt_caps.is_empty() {
         return;

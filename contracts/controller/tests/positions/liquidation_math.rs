@@ -163,7 +163,7 @@ fn plan_for_seizure(env: &Env, repay_usd_raw: i128, bonus_bps: i128) -> Normaliz
 fn run_seizure(env: &Env, fees_bps: u32, repay_usd_raw: i128, bonus_bps: i128) -> Vec<SeizeEntry> {
     let (contract, hub_asset, account) = seize_fixture(env, fees_bps);
     env.as_contract(&contract, || {
-        let mut cache = Cache::new_view(env);
+        let mut cache = Context::new_view(env);
         cache.set_prices(single_price(env, &hub_asset.asset));
         cache.put_market_index(&hub_asset, &index_raw());
         let plan = plan_for_seizure(env, repay_usd_raw, bonus_bps);
@@ -259,7 +259,7 @@ fn seizure_proportion_is_zero_for_zero_collateral() {
     let contract = env.register(crate::Controller, (Address::generate(&env),));
     env.as_contract(&contract, || {
         let account = empty_account(&env);
-        let mut cache = Cache::new_view(&env);
+        let mut cache = Context::new_view(&env);
         let (proportion, bounds) =
             calculate_seizure_proportions(&env, &account, Wad::ZERO, Wad::ZERO, &mut cache);
         assert_eq!(proportion.raw(), 0);
@@ -273,7 +273,7 @@ fn seizure_proportion_divides_weighted_by_total() {
     let contract = env.register(crate::Controller, (Address::generate(&env),));
     env.as_contract(&contract, || {
         let account = empty_account(&env);
-        let mut cache = Cache::new_view(&env);
+        let mut cache = Context::new_view(&env);
         let (proportion, _) = calculate_seizure_proportions(
             &env,
             &account,
@@ -290,7 +290,7 @@ fn repayment_at_exact_debt_produces_no_refund() {
     let env = Env::default();
     let (contract, hub_asset, account) = repayment_fixture(&env);
     env.as_contract(&contract, || {
-        let mut cache = Cache::new_view(&env);
+        let mut cache = Context::new_view(&env);
         cache.set_prices(single_price(&env, &hub_asset.asset));
         cache.put_market_index(&hub_asset, &index_raw());
 
@@ -311,7 +311,7 @@ fn repayment_above_debt_refunds_exact_excess() {
     let env = Env::default();
     let (contract, hub_asset, account) = repayment_fixture(&env);
     env.as_contract(&contract, || {
-        let mut cache = Cache::new_view(&env);
+        let mut cache = Context::new_view(&env);
         cache.set_prices(single_price(&env, &hub_asset.asset));
         cache.put_market_index(&hub_asset, &index_raw());
 
@@ -430,7 +430,7 @@ fn normalize_repayment_plan_requires_full_close_when_partials_ratchet() {
     let env = Env::default();
     let (contract, hub_asset, account) = repayment_fixture(&env);
     env.as_contract(&contract, || {
-        let mut cache = Cache::new_view(&env);
+        let mut cache = Context::new_view(&env);
         cache.set_prices(single_price(&env, &hub_asset.asset));
         cache.put_market_index(&hub_asset, &index_raw());
 
@@ -459,7 +459,7 @@ fn normalize_rejects_partial_on_solvent_toxic_account() {
     let env = Env::default();
     let (contract, hub_asset, account) = repayment_fixture(&env);
     env.as_contract(&contract, || {
-        let mut cache = Cache::new_view(&env);
+        let mut cache = Context::new_view(&env);
         cache.set_prices(single_price(&env, &hub_asset.asset));
         cache.put_market_index(&hub_asset, &index_raw());
 
@@ -486,7 +486,7 @@ fn normalize_accepts_full_close_on_solvent_toxic_account() {
     let env = Env::default();
     let (contract, hub_asset, account) = repayment_fixture(&env);
     env.as_contract(&contract, || {
-        let mut cache = Cache::new_view(&env);
+        let mut cache = Context::new_view(&env);
         cache.set_prices(single_price(&env, &hub_asset.asset));
         cache.put_market_index(&hub_asset, &index_raw());
 
@@ -516,7 +516,7 @@ fn normalize_accepts_partial_when_cap_equals_base() {
     let env = Env::default();
     let (contract, hub_asset, account) = repayment_fixture(&env);
     env.as_contract(&contract, || {
-        let mut cache = Cache::new_view(&env);
+        let mut cache = Context::new_view(&env);
         cache.set_prices(single_price(&env, &hub_asset.asset));
         cache.put_market_index(&hub_asset, &index_raw());
 
@@ -561,7 +561,7 @@ fn partial_liquidation_of_insolvent_account_is_permitted() {
     let env = Env::default();
     let (contract, hub_asset, account) = repayment_fixture(&env);
     env.as_contract(&contract, || {
-        let mut cache = Cache::new_view(&env);
+        let mut cache = Context::new_view(&env);
         cache.set_prices(single_price(&env, &hub_asset.asset));
         cache.put_market_index(&hub_asset, &index_raw());
 
@@ -594,7 +594,7 @@ fn normalize_rejects_underfunded_partial_when_cap_is_below_base_but_solvent() {
     let env = Env::default();
     let (contract, hub_asset, account) = repayment_fixture(&env);
     env.as_contract(&contract, || {
-        let mut cache = Cache::new_view(&env);
+        let mut cache = Context::new_view(&env);
         cache.set_prices(single_price(&env, &hub_asset.asset));
         cache.put_market_index(&hub_asset, &index_raw());
 
@@ -626,7 +626,7 @@ fn account_bonus_params_weights_bonus_by_collateral_share() {
     let env = Env::default();
     let (contract, hub_asset, account) = seize_fixture(&env, 0);
     env.as_contract(&contract, || {
-        let mut cache = Cache::new_view(&env);
+        let mut cache = Context::new_view(&env);
         cache.set_prices(single_price(&env, &hub_asset.asset));
         cache.put_market_index(&hub_asset, &index_raw());
 
@@ -648,7 +648,7 @@ fn account_bonus_params_zero_collateral_yields_zero_base() {
     let env = Env::default();
     let (contract, hub_asset, account) = seize_fixture(&env, 0);
     env.as_contract(&contract, || {
-        let mut cache = Cache::new_view(&env);
+        let mut cache = Context::new_view(&env);
         cache.set_prices(single_price(&env, &hub_asset.asset));
         cache.put_market_index(&hub_asset, &index_raw());
 
@@ -751,7 +751,7 @@ fn over_payment_is_split_between_repaid_and_refunds_without_loss() {
     let env = Env::default();
     let (contract, hub_asset, account) = repayment_fixture(&env);
     env.as_contract(&contract, || {
-        let mut cache = Cache::new_view(&env);
+        let mut cache = Context::new_view(&env);
         cache.set_prices(single_price(&env, &hub_asset.asset));
         cache.put_market_index(&hub_asset, &index_raw());
 
@@ -780,7 +780,7 @@ fn normalize_conserves_value_when_offer_exceeds_ideal() {
     let env = Env::default();
     let (contract, hub_asset, account) = repayment_fixture(&env);
     env.as_contract(&contract, || {
-        let mut cache = Cache::new_view(&env);
+        let mut cache = Context::new_view(&env);
         cache.set_prices(single_price(&env, &hub_asset.asset));
         cache.put_market_index(&hub_asset, &index_raw());
 
@@ -960,7 +960,7 @@ fn full_close_in_the_solvent_toxic_band_pays_the_liquidator_a_positive_net() {
     let (contract, hub_asset, account) =
         seize_fixture_with_collateral(&env, MAINNET_XLM_FEES_BPS, collateral_tokens);
     let seized = env.as_contract(&contract, || {
-        let mut cache = Cache::new_view(&env);
+        let mut cache = Context::new_view(&env);
         cache.set_prices(single_price(&env, &hub_asset.asset));
         cache.put_market_index(&hub_asset, &index_raw());
         let plan = plan_for_seizure(&env, repaid_usd, MAINNET_XLM_BONUS_BPS);
@@ -997,7 +997,7 @@ fn seize_at(env: &Env, collateral_tokens: i128, repaid_usd: i128) -> SeizeEntry 
     let (contract, hub_asset, account) =
         seize_fixture_with_collateral(env, MAINNET_XLM_FEES_BPS, collateral_tokens);
     let seized = env.as_contract(&contract, || {
-        let mut cache = Cache::new_view(env);
+        let mut cache = Context::new_view(env);
         cache.set_prices(single_price(env, &hub_asset.asset));
         cache.put_market_index(&hub_asset, &index_raw());
         let plan = plan_for_seizure(env, repaid_usd, MAINNET_XLM_BONUS_BPS);
@@ -1142,7 +1142,7 @@ fn seize_legs(
     };
 
     let seized = env.as_contract(&contract, || {
-        let mut cache = Cache::new_view(env);
+        let mut cache = Context::new_view(env);
         cache.set_prices(prices.clone());
         for key in keys.iter() {
             cache.put_market_index(&key, &index_raw());
@@ -1550,7 +1550,7 @@ fn the_full_close_gate_fires_when_the_hf_preserving_cap_is_exactly_zero() {
     let env = Env::default();
     let (contract, hub_asset, account) = repayment_fixture(&env);
     env.as_contract(&contract, || {
-        let mut cache = Cache::new_view(&env);
+        let mut cache = Context::new_view(&env);
         cache.set_prices(single_price(&env, &hub_asset.asset));
         cache.put_market_index(&hub_asset, &index_raw());
 
@@ -1578,7 +1578,7 @@ fn the_full_close_gate_yields_when_the_hf_preserving_cap_is_one_bp_negative() {
     let env = Env::default();
     let (contract, hub_asset, account) = repayment_fixture(&env);
     env.as_contract(&contract, || {
-        let mut cache = Cache::new_view(&env);
+        let mut cache = Context::new_view(&env);
         cache.set_prices(single_price(&env, &hub_asset.asset));
         cache.put_market_index(&hub_asset, &index_raw());
 
@@ -1672,7 +1672,7 @@ fn the_debt_legs_asset_unit_ceiling_is_priced_into_the_repayment_credit() {
                 timestamp: 0,
             },
         );
-        let mut cache = Cache::new_view(&env);
+        let mut cache = Context::new_view(&env);
         cache.set_prices(prices);
         cache.put_market_index(&hub_asset, &index_raw());
 
@@ -2127,7 +2127,7 @@ fn liquidate_slice(
 ) -> SliceOutcome {
     let account = book.account(env, coll_stroops, debt_stroops);
     env.as_contract(&book.contract, || {
-        let mut cache = Cache::new_view(env);
+        let mut cache = Context::new_view(env);
         cache.set_prices(book.prices(env));
         cache.put_market_index(&book.coll, &index_raw());
         cache.put_market_index(&book.debt, &index_raw());

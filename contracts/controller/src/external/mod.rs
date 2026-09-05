@@ -1,3 +1,6 @@
+//! Cross-contract adapters. Certora substitutes pool, oracle, and NFT clients
+//! with harness implementations.
+
 pub(crate) mod blend;
 #[cfg(not(feature = "certora"))]
 pub(crate) mod pool;

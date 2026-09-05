@@ -6,7 +6,7 @@ use crate::types::PriceFeedRaw;
 use common::math::fp::Wad;
 use common::types::MarketIndexRaw;
 
-use crate::context::Cache;
+use crate::context::Context;
 
 pub mod pool;
 
@@ -25,10 +25,10 @@ pub(crate) fn price_feed_summary(env: &Env, _asset: &Address) -> PriceFeedRaw {
 }
 
 /// Indexes returned by `LiquidityPool::get_bulk_indexes`, feeding
-/// `Cache::cached_market_index`.
+/// `Context::cached_market_index`.
 ///
 /// Draws from exactly the same generator as the index fields of
-/// [`pool::get_sync_data_summary`] (`Cache::cached_pool_sync_data`), so the two
+/// [`pool::get_sync_data_summary`] (`Context::cached_pool_sync_data`), so the two
 /// paths can no longer disagree about the domain of one market's indexes. They
 /// still draw *independently* on each call; the controller harness memoises
 /// both per rule (`certora/controller/harness/ghost_prices.rs`) so a rule that
@@ -73,7 +73,7 @@ pub fn bulk_index_summary(_env: &Env, _asset: &Address) -> MarketIndexRaw {
 /// `div_floor`), so the summary cannot panic where production saturates.
 pub(crate) fn calculate_account_risk_totals_summary(
     env: &Env,
-    _cache: &mut Cache,
+    _cache: &mut Context,
     supply_positions: &soroban_sdk::Map<
         common::types::HubAssetKey,
         common::types::AccountPositionRaw,

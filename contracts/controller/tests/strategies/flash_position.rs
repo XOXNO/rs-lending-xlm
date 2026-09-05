@@ -1,4 +1,4 @@
-//! The `FlashPositionClosed` guard and the balance-snapshot dedup.
+//! The `FlashPositionClosed` guard.
 //!
 //! `require_flash_position_still_open` is the last-line defense against a
 //! callback-plus-later-repay round trip leaving an empty account behind: the

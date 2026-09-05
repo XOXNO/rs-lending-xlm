@@ -167,7 +167,7 @@ fn repay_debt_from_controller_without_pool_panics() {
     let admin = Address::generate(&env);
     let id = env.register(Controller, (admin,));
     env.as_contract(&id, || {
-        let mut cache = crate::context::Cache::new_view(&env);
+        let mut cache = crate::context::Context::new_view(&env);
         let mut account = Account {
             owner: Address::generate(&env),
             spoke_id: 1,
@@ -205,7 +205,7 @@ fn withdraw_collateral_to_controller_without_position_panics() {
     let admin = Address::generate(&env);
     let id = env.register(Controller, (admin,));
     env.as_contract(&id, || {
-        let mut cache = crate::context::Cache::new_view(&env);
+        let mut cache = crate::context::Context::new_view(&env);
         let mut account = Account {
             owner: Address::generate(&env),
             spoke_id: 1,

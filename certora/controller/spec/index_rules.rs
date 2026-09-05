@@ -25,7 +25,7 @@ use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
 use soroban_sdk::{vec, Address, Env, Map};
 
 use crate::constants::{BPS, MAX_BORROW_RATE_RAY, RAY, RAY_DECIMALS, SUPPLY_INDEX_FLOOR_RAW, WAD};
-use crate::context::Cache;
+use crate::context::Context;
 use crate::spec::fixture;
 use crate::types::{
     AccountPositionRaw, DebtPositionRaw, HubAssetKey, MarketIndex, MarketIndexRaw, MarketParamsRaw,
@@ -180,7 +180,7 @@ fn index_sanity(e: Env, asset: Address) {
 /// not `update_indexes` ran first, and `get_liquidation_estimate` reverts under
 /// the same condition.
 ///
-/// The account book is valued twice through one `Cache`, so a single frozen
+/// The account book is valued twice through one `Context`, so a single frozen
 /// price basis applies to both sides and the only thing that varies is the
 /// market index installed by `put_market_index`: the pre-accrual projection on
 /// the first pass, the post-accrual re-projection on the second. Both are
@@ -231,7 +231,7 @@ fn iso_health_factor_invariant_across_accrual(
     );
 
     crate::spec::fixture::seed_market(&e, &asset);
-    let mut cache = Cache::new_view(&e);
+    let mut cache = Context::new_view(&e);
 
     cache.put_market_index(&hub_asset, &MarketIndexRaw::from(&before));
     let pre = crate::risk::totals::calculate_account_risk_totals::calculate_account_risk_totals(

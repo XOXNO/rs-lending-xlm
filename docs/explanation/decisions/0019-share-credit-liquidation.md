@@ -2,7 +2,7 @@
 
 **Status:** Accepted
 
-**Implemented by:** common/src/types/controller.rs (`SeizeMode`), contracts/controller/src/positions/liquidation/mod.rs (`process_liquidation`, `resolve_seize_receiver`), contracts/controller/src/positions/liquidation/apply.rs (`apply_liquidation_share_credit`, `credit_supply_shares`, `record_share_credit_updates`, `require_credit_position_limit`), contracts/controller/src/positions/liquidation/math.rs (`split_seized_shares`), contracts/pool/src/cache/shares.rs (`absorb_supply_as_revenue`), contracts/controller/src/events/mod.rs (`LiqSeize`, `LiqCredit`), contracts/controller/src/events/position.rs (`account_attributes`); specs certora/controller/spec/spoke_rules.rs, certora/controller/spec/account_isolation_rules.rs (`liquidation_does_not_change_other_account_positions`); tests contracts/controller/tests/events.rs.
+**Implemented by:** common/src/types/controller.rs (`SeizeMode`), contracts/controller/src/positions/liquidation/mod.rs (`process_liquidation`, `resolve_seize_receiver`), contracts/controller/src/positions/liquidation/apply.rs (`apply_liquidation_share_credit`, `credit_supply_shares`, `record_share_credit_updates`, `require_credit_position_limit`), contracts/controller/src/positions/liquidation/math.rs (`split_seized_shares`), contracts/pool/src/cache/shares.rs (`absorb_supply_as_revenue`), contracts/controller/src/events/mod.rs (`LiqSeize`, `LiqCredit`, `account_attributes`); specs certora/controller/spec/spoke_rules.rs, certora/controller/spec/account_isolation_rules.rs (`liquidation_does_not_change_other_account_positions`); tests contracts/controller/tests/events.rs.
 
 ## Decision
 

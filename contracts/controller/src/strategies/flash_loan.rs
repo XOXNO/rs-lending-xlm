@@ -4,17 +4,13 @@ use common::validation::{require_positive_amount, require_wasm_receiver};
 use soroban_sdk::{Address, Bytes, Env};
 
 use crate::config;
-use crate::context::Cache;
+use crate::context::Context;
 use crate::external::pool::pool_flash_loan_call;
 use crate::risk::validation::require_authorized_caller;
 use crate::storage;
 
-/// Initiates a flash loan of `amount` of `hub_asset` through the pool: the
-/// pool sends the funds to `receiver`, invokes its callback with `data`, and
-/// pulls back principal plus fee before this call returns. Requires
-/// `receiver` to be a WASM contract and marks flash-loan state for the
-/// duration of the pool call, blocking nested strategy calls. Emits
-/// `FlashLoanEvent` with the fee charged.
+/// Runs a pool flash loan under the reentrancy guard. The pool funds the
+/// receiver, calls it and collects principal plus fee before returning.
 pub(crate) fn process_flash_loan(
     env: &Env,
     caller: &Address,
@@ -29,7 +25,7 @@ pub(crate) fn process_flash_loan(
 
     require_wasm_receiver(env, receiver);
 
-    let mut cache = Cache::new(env);
+    let mut cache = Context::new(env);
     let pool_addr = cache.cached_pool_address();
 
     let fee = storage::with_flash_guard(env, || {

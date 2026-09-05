@@ -49,7 +49,7 @@ fn hub0(asset: &Address) -> HubAssetKey {
     }
 }
 
-fn prime_position_inputs(cache: &mut crate::context::Cache, keys: &Vec<HubAssetKey>) {
+fn prime_position_inputs(cache: &mut crate::context::Context, keys: &Vec<HubAssetKey>) {
     cache.load_markets(keys);
 }
 
@@ -58,7 +58,7 @@ fn prime_position_inputs(cache: &mut crate::context::Cache, keys: &Vec<HubAssetK
 /// `calculate_account_risk_totals` (ceiling-rounded per position).
 fn total_borrow_wad_of(
     env: &Env,
-    cache: &mut crate::context::Cache,
+    cache: &mut crate::context::Context,
     positions: &Map<HubAssetKey, DebtPositionRaw>,
 ) -> Wad {
     let keys = positions.keys();
@@ -85,7 +85,7 @@ fn total_borrow_wad_of(
 /// (floor-rounded value, floor-scaled by the position's frozen threshold).
 fn weighted_collateral_wad_of(
     env: &Env,
-    cache: &mut crate::context::Cache,
+    cache: &mut crate::context::Context,
     positions: &Map<HubAssetKey, AccountPositionRaw>,
 ) -> Wad {
     let keys = positions.keys();
@@ -109,14 +109,14 @@ fn weighted_collateral_wad_of(
     weighted
 }
 
-fn inline_total_borrow_wad(env: &Env, cache: &mut crate::context::Cache, account_id: u64) -> Wad {
+fn inline_total_borrow_wad(env: &Env, cache: &mut crate::context::Context, account_id: u64) -> Wad {
     let account = crate::storage::get_account(env, account_id);
     total_borrow_wad_of(env, cache, &account.borrow_positions)
 }
 
 fn inline_weighted_collateral_wad(
     env: &Env,
-    cache: &mut crate::context::Cache,
+    cache: &mut crate::context::Context,
     account_id: u64,
 ) -> Wad {
     let account = crate::storage::get_account(env, account_id);
@@ -128,7 +128,7 @@ fn inline_weighted_collateral_wad(
 /// Asserts that the position book the post-pool solvency gate valued is worth
 /// exactly what the account's *persisted* end-of-transaction book is worth, on
 /// both the debt and the weighted-collateral leg. Both snapshots are valued
-/// through one `Cache`, so a single frozen price/index basis applies to each
+/// through one `Context`, so a single frozen price/index basis applies to each
 /// side and the comparison isolates the only thing a post-gate step could
 /// change: the account's positions and the sides of them that get persisted.
 ///
@@ -145,7 +145,7 @@ fn inline_weighted_collateral_wad(
 /// have no observation to contradict.
 fn assert_gate_observation_is_final(e: &Env, account_id: u64) {
     let observed = health_ghost::gate_observed();
-    let mut cache = crate::context::Cache::new(e);
+    let mut cache = crate::context::Context::new(e);
 
     let gate_supply = health_ghost::observed_supply(e);
     let gate_debt = health_ghost::observed_debt(e);
@@ -173,7 +173,7 @@ fn supply_preserves_frozen_valuation_health_components(
     crate::spec::fixture::seed_live_account(&e, account_id, &caller, &asset);
     seed_valuation_book(&e, account_id, &asset);
 
-    let mut cache = crate::context::Cache::new(&e);
+    let mut cache = crate::context::Context::new(&e);
     let pre_weighted = inline_weighted_collateral_wad(&e, &mut cache, account_id);
     let pre_debt = inline_total_borrow_wad(&e, &mut cache, account_id);
 
@@ -356,7 +356,7 @@ fn unhealthy_repay_improves_frozen_valuation_components(
     cvlr_assume!(pre_account.supply_positions.len() <= 1);
     cvlr_assume!(pre_account.borrow_positions.len() <= 1);
 
-    let mut cache = crate::context::Cache::new(&e);
+    let mut cache = crate::context::Context::new(&e);
     let pre_weighted = inline_weighted_collateral_wad(&e, &mut cache, account_id);
     let pre_debt = inline_total_borrow_wad(&e, &mut cache, account_id);
     cvlr_assume!(pre_weighted.raw() < pre_debt.raw());
@@ -681,7 +681,7 @@ fn unhealthy_supply_improves_frozen_valuation_components(
     crate::spec::fixture::seed_live_account(&e, account_id, &caller, &asset);
     seed_valuation_book(&e, account_id, &asset);
 
-    let mut cache = crate::context::Cache::new(&e);
+    let mut cache = crate::context::Context::new(&e);
     let pre_weighted = inline_weighted_collateral_wad(&e, &mut cache, account_id);
     let pre_debt = inline_total_borrow_wad(&e, &mut cache, account_id);
     cvlr_assume!(pre_weighted.raw() < pre_debt.raw());

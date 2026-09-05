@@ -12,9 +12,8 @@ use crate::{
     storage,
 };
 
-/// Creates a new, non-deprecated spoke with the default liquidation curve
-/// parameters and publishes an `UpdateSpokeEvent`. Returns the new spoke's
-/// id.
+/// Creates an active spoke with default liquidation parameters and emits its
+/// config. Returns the new spoke ID.
 pub(crate) fn add_spoke(env: &Env) -> u32 {
     let id = storage::increment_spoke_id(env);
 
@@ -34,8 +33,8 @@ pub(crate) fn add_spoke(env: &Env) -> u32 {
     id
 }
 
-/// Marks spoke `id` as deprecated and publishes an `UpdateSpokeEvent`.
-/// Panics if the spoke is already deprecated.
+/// Permanently deprecates an active spoke and emits its config.
+/// Existing positions and usage remain; no empty-spoke check is performed.
 pub(crate) fn remove_spoke(env: &Env, id: u32) {
     let mut spoke = storage::get_spoke(env, id);
     assert_with_error!(env, !spoke.is_deprecated, SpokeError::SpokeDeprecated);
@@ -49,9 +48,7 @@ pub(crate) fn remove_spoke(env: &Env, id: u32) {
     .publish(env);
 }
 
-/// Validates and sets the liquidation curve parameters for spoke `id`, then
-/// publishes an `UpdateSpokeEvent`. Panics if the target health factor,
-/// max-bonus health factor, or bonus factor falls outside its valid range.
+/// Validates, stores, and emits the spoke's liquidation curve parameters.
 pub(crate) fn set_spoke_liquidation_curve(
     env: &Env,
     id: u32,
@@ -78,8 +75,7 @@ pub(crate) fn set_spoke_liquidation_curve(
     .publish(env);
 }
 
-/// Creates a new active hub and publishes a `CreateHubEvent`. Returns the
-/// new hub's id.
+/// Creates an active hub, emits its ID, and returns it.
 pub(crate) fn create_hub(env: &Env) -> u32 {
     let id = storage::increment_hub_id(env);
     storage::set_hub(env, id, &HubConfig { is_active: true });
@@ -89,7 +85,7 @@ pub(crate) fn create_hub(env: &Env) -> u32 {
     id
 }
 
-/// Asserts that hub `hub_id` exists and is active. Panics otherwise.
+/// Requires an existing active hub.
 pub(crate) fn require_hub_active(env: &Env, hub_id: u32) {
     let active = storage::get_hub(env, hub_id).is_some_and(|hub| hub.is_active);
     assert_with_error!(env, active, GenericError::HubNotActive);

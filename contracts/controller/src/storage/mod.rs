@@ -1,7 +1,6 @@
-//! Typed storage accessors, split by key family (account, hub, protocol,
-//! spoke). Import via `storage::` — raw key-value access is private to this
-//! module, so every crate-visible accessor carries its value type. Under the
-//! certora feature the harness swaps in via `verification_storage`.
+//! Typed account, hub, protocol, and spoke storage accessors.
+//! Generic key-value helpers stay private to this module. Certora adds
+//! verification accessors through `verification_storage`.
 
 mod account;
 mod hub;

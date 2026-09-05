@@ -1,3 +1,5 @@
+//! Validated registry and risk configuration writes with change events.
+
 pub(crate) mod asset;
 pub(crate) mod registry;
 pub(crate) mod spoke;

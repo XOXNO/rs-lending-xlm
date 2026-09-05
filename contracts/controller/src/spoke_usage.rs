@@ -58,6 +58,7 @@ impl UsageSide {
     }
 }
 
+/// Buffered supply and debt usage for one spoke; persistence is explicit.
 pub(crate) struct SpokeUsageContext {
     env: Env,
     spoke_id: u32,
@@ -65,7 +66,7 @@ pub(crate) struct SpokeUsageContext {
 }
 
 impl SpokeUsageContext {
-    /// Creates an empty in-memory usage context for `spoke_id` with no cached rows.
+    /// Creates an empty usage cache for one spoke.
     pub(crate) fn new(env: &Env, spoke_id: u32) -> Self {
         Self {
             env: env.clone(),
@@ -74,20 +75,19 @@ impl SpokeUsageContext {
         }
     }
 
-    /// Writes every cached usage row in this context back to storage.
+    /// Writes every cached usage row; retains the cache.
     pub(crate) fn persist(&self) {
         for (hub_asset, usage) in self.usage.iter() {
             storage::set_spoke_usage(&self.env, self.spoke_id, &hub_asset, &usage);
         }
     }
 
-    /// Returns the spoke id this context tracks usage for.
+    /// Returns the tracked spoke ID.
     pub(crate) fn spoke_id(&self) -> u32 {
         self.spoke_id
     }
 
-    /// Returns the cached usage row for `hub_asset`, loading it from storage into the
-    /// cache on first access, or `None` when storage has no row for it.
+    /// Returns cached usage or loads it from storage; absent rows remain uncached.
     fn load_usage_row(&mut self, hub_asset: &HubAssetKey) -> Option<SpokeUsageRaw> {
         if let Some(usage) = self.usage.get(hub_asset.clone()) {
             return Some(usage);
@@ -97,8 +97,8 @@ impl SpokeUsageContext {
         Some(loaded)
     }
 
-    /// Increases `side`'s scaled usage for `hub_asset` by `delta_scaled`, panicking with
-    /// this side's cap error if the result would exceed `cap`.
+    /// Buffers a scaled increase from stored usage, or zero for a missing row.
+    /// Rejects totals above the cap converted at the supplied index.
     pub(crate) fn apply_entry(
         &mut self,
         side: UsageSide,
@@ -108,16 +108,14 @@ impl SpokeUsageContext {
         index: Ray,
         decimals: u32,
     ) {
-        // An absent row starts at zero; the row is written back unconditionally below.
         let mut usage = self.load_usage_row(hub_asset).unwrap_or_default();
         let next = enforce_spoke_cap(&self.env, side, &usage, delta_scaled, cap, index, decimals);
         side.set_scaled(&mut usage, next.raw());
         self.usage.set(hub_asset.clone(), usage);
     }
 
-    /// Decreases `side`'s scaled usage for `hub_asset` by `delta_scaled`. No-op if
-    /// `delta_scaled` is zero or no usage row exists; panics on overflow or if the
-    /// result would go negative.
+    /// Buffers a scaled decrease. Zero deltas and missing rows are no-ops;
+    /// overflow or negative resulting usage fails.
     pub(crate) fn apply_exit(
         &mut self,
         side: UsageSide,
@@ -141,9 +139,8 @@ impl SpokeUsageContext {
     }
 }
 
-/// Returns `side`'s current scaled usage plus `delta_scaled`, panicking with this side's
-/// cap error if the result exceeds `cap` (converted to a scaled RAY value via `index` and
-/// `decimals`).
+/// Adds scaled usage and enforces the asset-unit cap converted to RAY
+/// with `index` and `decimals`.
 fn enforce_spoke_cap(
     env: &Env,
     side: UsageSide,

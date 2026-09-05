@@ -5,22 +5,17 @@ use common::math::fp::Wad;
 use common::types::{Account, HubPayment};
 use soroban_sdk::{assert_with_error, panic_with_error, Env, Vec};
 
-use crate::context::Cache;
+use crate::context::Context;
 use crate::positions::liquidation::math::*;
 use crate::positions::{enforce_spoke_asset_flags, FreezePolicy};
 
-/// Builds and validates a `LiquidationPlan` for `account` from `raw_payments`: computes risk
-/// totals, sizes the repayment against the liquidation curve's ideal close amount, and derives
-/// the pro-rata collateral seizure. Panics with `CollateralError::HealthFactorTooHigh` when the
-/// account has no debt or its health factor is at least one WAD, enforces the spoke pause flag on
-/// every payment asset (`FreezePolicy::AllowOnExit`: rejects `paused`, tolerates `frozen`), and
-/// enforces only the seizure halt flag on every seized asset (`FreezePolicy::SeizureLeg`: rejects
-/// `no_seize`, tolerates `paused` and `frozen` — see ADR-0008).
+/// Builds a normalized repayment and pro-rata seizure plan for debt with HF < 1 WAD.
+/// Repayment rejects `paused` but permits `frozen`; seizure rejects only `no_seize`.
 pub(crate) fn build_liquidation_plan(
     env: &Env,
     account: &Account,
     raw_payments: &Vec<HubPayment>,
-    cache: &mut Cache,
+    cache: &mut Context,
 ) -> LiquidationPlan {
     if account.borrow_positions.is_empty() {
         panic_with_error!(env, CollateralError::HealthFactorTooHigh);
@@ -78,9 +73,7 @@ pub(crate) fn build_liquidation_plan(
     let seized_collaterals =
         calculate_seized_collateral(env, account, totals.total_collateral, &repayment, cache);
 
-    // Seizure legs are gated by `no_seize` alone. `paused` must not reach here: seizure is
-    // pro-rata over every collateral the account holds, so pausing one listing would block
-    // liquidation of every account that touches it. See ADR-0008.
+    // Pro-rata seizure must not inherit user pause flags (ADR-0008).
     for entry in seized_collaterals.iter() {
         enforce_spoke_asset_flags(
             env,

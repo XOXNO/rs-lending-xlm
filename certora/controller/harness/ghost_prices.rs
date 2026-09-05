@@ -1,7 +1,7 @@
 //! One oracle and market snapshot per rule.
 //!
 //! `price_feed_summary` and `get_sync_data_summary` draw a fresh
-//! nondeterministic value on every call. `Cache` memoises within one instance,
+//! nondeterministic value on every call. `Context` memoises within one instance,
 //! but a verb creates several caches and a rule usually creates one of its
 //! own, so without this file two reads of the same asset in one rule return
 //! two unrelated prices, and the market index a rule values a position with is
@@ -11,8 +11,8 @@
 //! the rule, which is the model of INV-ORACLE-03, "one transaction sees one
 //! snapshot": within a rule one asset has one price and one market has one
 //! parameter and index pair. `market_index` is derived from the same sync
-//! draw the pool's sync view returns, so `Cache::cached_market_index` and
-//! `Cache::cached_pool_sync_data` can no longer disagree about one market.
+//! draw the pool's sync view returns, so `Context::cached_market_index` and
+//! `Context::cached_pool_sync_data` can no longer disagree about one market.
 //!
 //! The memo only removes behaviours, so it cannot make a universal rule pass
 //! that would otherwise fail on a genuinely reachable state; the states it

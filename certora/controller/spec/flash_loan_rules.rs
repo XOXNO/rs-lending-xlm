@@ -155,7 +155,7 @@ fn flash_loan_guard_cleared_after_summarized_pool_return(
         hub_id: crate::spec::fixture::HUB_ID,
         asset: asset.clone(),
     };
-    let mut cache = crate::context::Cache::new(&e);
+    let mut cache = crate::context::Context::new(&e);
 
     let sync = cache.cached_pool_sync_data(&hub_asset);
     cvlr_assume!(sync.params.is_flashloanable);
