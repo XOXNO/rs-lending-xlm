@@ -1,0 +1,62 @@
+{
+  "kind": "price_aggregator",
+  "op_id": "d107945413c34e38a186e50f4ae6077df37495c9ed9b2671688774aceded9816",
+  "network": "mainnet",
+  "target": "CBGUF2G2Q7HCVCWYISDXBHPVBGMYNXA7PG2VET66YBZX6IKOOV27NSMV",
+  "function": "set_oracle",
+  "predecessor": "0000000000000000000000000000000000000000000000000000000000000000",
+  "salt": "bb502e169a54fee035b7b5cff5365301559bcf211946b0fc6447b885426bcd0b",
+  "cli_executable": true,
+  "executed": true,
+  "resolve": {
+    "view_fn": "resolve_asset_oracle",
+    "args": {
+      "key": {
+        "Token": "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
+      },
+      "oracle": {
+        "asset_decimals": 7,
+        "max_price_stale_seconds": 57600,
+        "sources": [
+          {
+            "Feed": {
+              "provider": {
+                "Reflector": {
+                  "contract": "CAFJZQWSED6YAWZU3GWRTOCNPPCGBN32L7QV43XX5LZLFTK6JLN34DLN",
+                  "asset": {
+                    "Symbol": "XLM"
+                  },
+                  "read_mode": {
+                    "Twap": 3
+                  }
+                }
+              },
+              "decimals": 14,
+              "max_stale_seconds": 3600
+            }
+          },
+          {
+            "Feed": {
+              "provider": {
+                "RedStone": {
+                  "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
+                  "feed_id": "XLM",
+                  "nature": "Fundamental"
+                }
+              },
+              "decimals": 8,
+              "max_stale_seconds": 46800
+            }
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 11000,
+          "lower_ratio_bps": 9091
+        },
+        "independence": "RequireDisjoint",
+        "min_sanity_price_wad": "50000000000000000",
+        "max_sanity_price_wad": "1000000000000000000"
+      }
+    }
+  }
+}

@@ -83,11 +83,11 @@
                 "RedStone": {
                   "contract": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
                   "feed_id": "XLM",
-                  "nature": "Market"
+                  "nature": "Fundamental"
                 }
               },
               "decimals": 8,
-              "max_stale_seconds": 3600
+              "max_stale_seconds": 46800
             }
           }
         ],
