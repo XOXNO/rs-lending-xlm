@@ -25,6 +25,20 @@ tightened by `validate_lp_sanity_band`.
 The policy separates source availability from price validity: a readable source
 may still be rejected for staleness, bounds, or disagreement.
 
+### Dependent revalidation is structural (amended 2026-09-05)
+
+When `set_oracle` changes a key, `revalidate_dependents` re-runs
+`validate_asset_oracle` on every registered oracle that transitively depends
+on it: cycle, depth, source count, missing dependency, staleness envelope,
+smoothing, tolerance, and independence, all from registry reads. It does not
+live-probe those dependents. A live probe costs one VM instantiation per
+provider call, charged to the transaction memory budget, and on mainnet the
+XLM key with three Aquarius LP dependents exceeded the 40 MiB limit, which
+left XLM and USDC unconfigurable. The probe's only check that validation lacks
+is `UnsupportedAquariusPool`; that is a property of the pool contract, not of
+the changed key, and every LP oracle is hard-probed for it when it is admitted.
+The changed key itself is still attested and probed.
+
 ## Guarantees
 
 - A new source cannot become a price leg without governance review.
