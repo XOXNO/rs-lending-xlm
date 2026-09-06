@@ -212,7 +212,7 @@ fn resolve_net_settle_partial_keeps_directed_rounding() {
     );
 }
 
-// --- what the supply-index floor buys (docs/reference/numeric-bounds.md §4) --
+// --- what the supply-index floor buys (`docs/reference/formulas.md#numeric-limits`) --
 //
 // `SUPPLY_INDEX_FLOOR_RAW` (RAY / 1_000) is the value
 // `apply_bad_debt_to_supply_index` clamps to. It keeps the share conversions

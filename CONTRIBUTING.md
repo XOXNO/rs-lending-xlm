@@ -14,7 +14,7 @@ Read the material that matches your change:
 | Accounting, risk, and liquidation arithmetic | [Formulas](docs/reference/formulas.md) |
 | Required protocol properties | [Runtime invariants](docs/reference/invariants.md) |
 | Threats and trust boundaries | [Threat model](docs/explanation/threat-model.md) |
-| Design rationale | [Decision records](docs/explanation/decisions/README.md) |
+| Design rationale | [Decision records](docs/explanation/decisions.md) |
 | Formal verification | [Certora guide](certora/README.md) |
 | Vulnerability reporting | [SECURITY.md](SECURITY.md) |
 

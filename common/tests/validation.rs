@@ -345,7 +345,7 @@ fn cap_domain_rejects_i128_max_at_max_listable_decimals() {
 
 /// The cap ceiling and the balance ceiling are the same number: both are the
 /// largest amount `Ray::from_asset` can upscale without overflowing `i128`.
-/// See docs/reference/numeric-bounds.md §3-§5.
+/// See `docs/reference/formulas.md#numeric-limits`
 #[test]
 fn cap_ceiling_is_exactly_the_largest_representable_balance() {
     let env = Env::default();

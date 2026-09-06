@@ -749,7 +749,7 @@ fn test_wad_add_checked() {
     assert_eq!(sum.raw(), WAD + WAD / 2);
 }
 
-// --- largest representable balance (docs/reference/numeric-bounds.md §3) --
+// --- largest representable balance (`docs/reference/formulas.md#numeric-limits`) --
 //
 // Every token amount enters the accounting through `Ray::from_asset`, which
 // upscales by 10^(27 - decimals). That single multiplication is the ceiling on

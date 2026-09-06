@@ -1625,7 +1625,7 @@ fn the_full_close_gate_yields_when_the_hf_preserving_cap_is_one_bp_negative() {
 // So `L_round = 2 units of collateral` per leg, and because seizure is pro-rata
 // across every collateral the account holds, it scales with the leg count.
 //
-// See docs/reference/numeric-bounds.md §6.
+// See `docs/reference/formulas.md#liquidation-sizing-and-fees`
 
 /// The load-bearing half of that claim, pinned on its own: a full close pays
 /// `ceil(debt)` asset units, and `RepayEntry::usd_wad` is the price of what was
@@ -1875,7 +1875,7 @@ fn a_floor_sized_liquidation_pays_the_liquidator_for_every_listed_collateral() {
     }
 }
 
-/// The realised numbers behind the table in docs/reference/numeric-bounds.md §6,
+/// The realised numbers behind the table in `docs/reference/formulas.md#liquidation-fixture`,
 /// pinned so the documentation cannot drift away from the code. Same fixtures as
 /// the test above, in the same order as `LISTED_COLLATERALS`.
 #[test]

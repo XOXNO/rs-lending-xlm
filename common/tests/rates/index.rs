@@ -407,7 +407,7 @@ fn test_one_whole_token_normalizes_to_one_ray_at_every_decimals() {
     }
 }
 
-// --- index ceiling reachability (docs/reference/numeric-bounds.md §2) -----
+// --- index ceiling reachability (`docs/reference/formulas.md#numeric-limits`) -----
 //
 // `MAX_BORROW_INDEX_RAY` is a clamp, not an overflow guard: at the ceiling the
 // borrow index stops moving and debt stops accruing, silently. The tests below
