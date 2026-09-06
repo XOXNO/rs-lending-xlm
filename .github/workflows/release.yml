@@ -16,6 +16,11 @@ permissions:
 
 env:
   STELLAR_VERSION: "28.0.0"
+  # Every deployable contract, named as its artifacts/wasm/deploy file, so the
+  # release carries all of mainnet. v1.0.0 shipped without price_aggregator,
+  # position_nft, aggregator (swap) and xoxno-oracle-adapter because this list
+  # was repeated in five steps and only some were updated.
+  RELEASE_CONTRACTS: controller pool governance price_aggregator position_nft defindex_strategy aggregator xoxno-oracle-adapter
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
@@ -51,10 +56,15 @@ jobs:
       - name: Build deploy artifacts and WASM size budget
         run: make wasm-size-check
 
+      # The swap aggregator and the oracle adapter are built by their own
+      # targets, outside the size-budgeted set, into the same deploy dir.
+      - name: Build swap aggregator and oracle adapter
+        run: make build-aggregator build-oracle-adapter
+
       - name: Package release WASM
         run: |
           mkdir -p dist
-          for c in controller pool governance defindex_strategy; do
+          for c in $RELEASE_CONTRACTS; do
             cp "artifacts/wasm/deploy/${c}.wasm" "dist/${c}.wasm"
           done
           ls -lh dist/*.wasm
@@ -62,7 +72,7 @@ jobs:
       - name: SHA256 checksums
         run: |
           cd dist
-          for c in controller pool governance defindex_strategy; do
+          for c in $RELEASE_CONTRACTS; do
             sha256sum "${c}.wasm" > "${c}.wasm.sha256"
           done
           cat ./*.wasm.sha256
@@ -70,11 +80,7 @@ jobs:
       - name: Attest build provenance
         uses: actions/attest-build-provenance@v4
         with:
-          subject-path: |
-            dist/controller.wasm
-            dist/pool.wasm
-            dist/governance.wasm
-            dist/defindex_strategy.wasm
+          subject-path: dist/*.wasm
 
       - name: Upload to release (on published release)
         if: github.event_name == 'release'
@@ -82,16 +88,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
-          gh release upload "$RELEASE_TAG" \
-            dist/controller.wasm \
-            dist/controller.wasm.sha256 \
-            dist/pool.wasm \
-            dist/pool.wasm.sha256 \
-            dist/governance.wasm \
-            dist/governance.wasm.sha256 \
-            dist/defindex_strategy.wasm \
-            dist/defindex_strategy.wasm.sha256 \
-            --clobber
+          gh release upload "$RELEASE_TAG" dist/*.wasm dist/*.wasm.sha256 --clobber
 
       - name: Upload to release (workflow_dispatch)
         if: github.event_name == 'workflow_dispatch'
@@ -99,30 +96,15 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ github.event.inputs.tag }}
         run: |
-          gh release upload "$RELEASE_TAG" \
-            dist/controller.wasm \
-            dist/controller.wasm.sha256 \
-            dist/pool.wasm \
-            dist/pool.wasm.sha256 \
-            dist/governance.wasm \
-            dist/governance.wasm.sha256 \
-            dist/defindex_strategy.wasm \
-            dist/defindex_strategy.wasm.sha256 \
-            --clobber
+          gh release upload "$RELEASE_TAG" dist/*.wasm dist/*.wasm.sha256 --clobber
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7.0.1
         with:
           name: release-wasm
           path: |
-            dist/controller.wasm
-            dist/controller.wasm.sha256
-            dist/pool.wasm
-            dist/pool.wasm.sha256
-            dist/governance.wasm
-            dist/governance.wasm.sha256
-            dist/defindex_strategy.wasm
-            dist/defindex_strategy.wasm.sha256
+            dist/*.wasm
+            dist/*.wasm.sha256
           if-no-files-found: error
 
   testnet-e2e:
