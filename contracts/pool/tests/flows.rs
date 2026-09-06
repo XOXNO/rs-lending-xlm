@@ -3269,7 +3269,7 @@ fn prepare_with_balance_still_runs_the_flashloan_gate() {
 // ---------------------------------------------------------------------------
 // The recapitalize refund is bounded by neither the cash book nor custody.
 // Catalogued as A043 gap (5) and A054 §2.3 in
-// docs/audit/controller-defense/findings/A101-money-movement-gaps.md: the pool
+// https://github.com/XOXNO/rs-lending-xlm/blob/d26b93ebb48d718b69571ec737f0097af3379916/docs/audit/controller-defense/findings/A101-money-movement-gaps.md: the pool
 // trusts its owner's measured amount by design (INV-AUTH-01).
 // ---------------------------------------------------------------------------
 
