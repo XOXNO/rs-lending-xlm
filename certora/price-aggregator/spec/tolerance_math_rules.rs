@@ -13,7 +13,7 @@ use common::types::OracleTolerance;
 /// `MAX_REASONABLE_PRICE_WAD` (`common/src/constants/shared.rs`) is the highest
 /// price `validate_sanity_bounds` accepts, at `1e9 * WAD`. This module works one
 /// thousand times below that: the most expensive listed asset is BTC at ~1.2e5
-/// USD per whole token (`docs/reference/numeric-bounds.md` §6.2), so `1e6 * WAD`
+/// USD per whole token (`https://github.com/XOXNO/rs-lending-xlm/blob/d26b93ebb48d718b69571ec737f0097af3379916/docs/reference/numeric-bounds.md#62-instantiated-for-the-listed-set`), so `1e6 * WAD`
 /// leaves an order of magnitude of headroom over anything the registry can
 /// hold. The bound excludes prices above one million USD per whole token, which
 /// no configured sanity band admits.

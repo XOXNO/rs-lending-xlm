@@ -1,258 +1,253 @@
 # Formulas and rounding
 
-This reference defines the arithmetic vocabulary used to review risk and
-accounting. Rounding is part of the protocol policy, not an implementation
-detail.
+Expressions use raw integers: half_up/floor/ceil apply to the entire fraction.
+Pseudocode does not imply unchecked Rust multiplication.
 
-## Units
+## Units and arithmetic domain
 
-| Quantity | Unit |
+| Quantity | Scale |
 |---|---|
-| Interest indexes, scaled shares, utilization, rates | RAY = 10^27 |
-| USD values and health factor | WAD = 10^18 |
+| Shares, indexes, asset values used by the rate engine, rates, utilization | RAY = 10^27 |
+| USD values, prices per whole token, health factor | WAD = 10^18 |
 | Risk ratios and fees | BPS = 10,000 |
-| Token amounts | native token base units |
-| Time | milliseconds |
+| Transfers and accounting cash | Native token base units |
+| Accrual time | Milliseconds; year = 31,556,926,000 ms |
 
-Multiply-divide first attempts the whole computation in 128 bits and widens the
-operands to 256 bits only when the intermediate product does not fit; both paths
-return the same value, so the fast path is a cost optimisation, not a different
-rounding. Decimal rescaling and divide-by-integer stay in 128 bits and revert on
-overflow. Inputs are expected to be non-negative: the half-up path rejects
-negatives, the floor and ceiling paths assume them. Results outside the supported
-signed-integer domain revert unless a formula explicitly uses a saturating cap,
-and a zero denominator reverts with `DivisionByZero`.
+Amounts are non-negative at protocol boundaries. The `Ray`, `Wad`, and `Bps`
+constructors themselves do not enforce that domain. Multiply-divide uses an
+`i128` fast path or an exact `I256` intermediate; an unrepresentable result
+raises `MathOverflow`, except at explicit saturating sites. A zero divisor
+raises `DivisionByZero`. Half-up multiply-divide requires non-negative operands
+and a positive divisor. Raw floor/ceiling multiply-divide also handle signed
+quotients. Decimal upscaling stays in `i128` and rejects overflow; downscaling
+and division by a positive integer support the signed extremes. Signed
+half-up downscaling rounds exact halves away from zero.
 
-Implemented by: `common/src/math/fp.rs`, `common/src/math/fp_core.rs`.
+## Shares and token amounts
 
-## Rounding vocabulary
-
-Implemented by: `common/src/math/fp_core.rs`.
-
-- half_up(x × y ÷ d): nearest integer, with a half rounded upward.
-- floor(x × y ÷ d): discard the fractional remainder.
-- ceil(x × y ÷ d): add one when a non-zero remainder exists.
-
-## Scaled balances
-
-Implemented by: `common/src/rates/scaling.rs`.
-
-Positions store scaled shares. Their current RAY value is:
+For an asset with `d` decimals, first normalize token units into RAY. Multiplying
+shares by an index returns a RAY asset value, requiring a second conversion
+before a token transfer:
 
 ```rust
-let actual = half_up(scaled * index / RAY);
+let amount_ray = token_units * 10_i128.pow(27 - d); // exact, checked
+let value_ray = round(shares_ray * index_ray / RAY);
+let token_units = round(value_ray / 10_i128.pow(27 - d));
+let shares_ray = round(amount_ray * RAY / index_ray);
 ```
 
-| Operation | Share conversion | Rounding |
-|---|---|---|
-| Supply | amount × RAY ÷ supply index | floor |
-| Partial withdrawal | amount × RAY ÷ supply index | ceil |
-| Borrow | amount × RAY ÷ borrow index | ceil |
-| Partial repayment | amount × RAY ÷ borrow index | floor |
-| Net settle size | min(request, floor(supply), ceil(debt)) | never settle unpayable supply |
-| Net settle supply close | all shares iff overlap equals floor(supply) | no half-up promotion |
-| Net settle debt close | all shares iff overlap equals ceil(debt) | no leftover dust when paid |
+| Boundary | Direction |
+|---|---|
+| Supply mint | floor |
+| Partial withdrawal burn | ceil |
+| Debt mint | ceil |
+| Partial repayment burn | floor |
+| Supply claim paid in tokens | floor at both conversion steps |
+| Debt full-close amount | ceil at both conversion steps |
+| Displayed balance | half-up at both conversion steps |
 
-These directions favor the pool at the conversion boundary. A positive token
-movement that would change zero shares is rejected.
+A withdrawal request at least the half-up displayed supply balance burns all
+shares and pays the floor-valued balance. A repayment at least the ceiled debt
+balance burns all debt shares and refunds the excess. Positive supply/borrow mints and positive net-repay/gross-withdrawal burns
+that would change zero shares revert.
 
-A full withdrawal burns all supply shares and pays the floor-valued balance. A
-full repayment burns all debt shares and refunds any excess payment.
+Same-asset net settlement moves no cash. Its token overlap is
+`min(request, floor(supply), ceil(debt))`. It burns all shares on a side only
+when the overlap exhausts that side's conservative value; otherwise it uses a
+ceiled supply burn and floored debt burn, each capped at the position.
 
-## Interest rate
+## Cash, supply, debt, and revenue
 
-Implemented by: `common/src/rates/curve.rs`, `contracts/pool/src/cache/scale.rs`.
+Revenue shares form part of total supplied shares. Minting revenue adds equally
+to both books; claiming revenue burns equally from both. Reclassifying seized
+collateral as revenue leaves total supply unchanged. Cash is a separate reserve
+book: incidental token donations do not increase lendable cash.
 
-Utilization is:
+The market's backing check uses native units:
 
 ```rust
-let utilization = half_up(actual_borrowed * RAY / actual_supplied);
+let shortfall = max(0, floor(supply_value) - (cash + ceil(debt_value)));
 ```
 
-`actual_borrowed` and `actual_supplied` are the scaled totals multiplied by
-their indexes, both in RAY, not token balances. Utilization is zero when
-supplied value is zero and is capped at one RAY for rate selection.
+The implementation saturates the addition/subtraction. Supply entry rejects a
+positive shortfall. Recapitalization credits at most that shortfall, refunds
+excess, and mints no shares. Borrow draws must retain the 200 BPS liquidation
+buffer, calculated half-up on the floored supplied token value. User withdrawal,
+borrow, and revenue claims enforce configured utilization; liquidation
+withdrawal skips that utilization gate. Withdrawal, net settlement, and revenue
+claims reject zero total supply with outstanding debt. These are distinct checks;
+they do not promise full backing after every mutation.
 
-The annual borrow curve has three continuous regions: below the mid point,
-between mid and optimal, and above optimal. Each region begins at the
-cumulative height of the prior regions. The selected annual rate is capped.
-Pool view getters (`get_borrow_rate`, `get_deposit_rate`) return that annual
-RAY value. Accrual converts it to a per-millisecond rate before compounding:
+Revenue payout is `min(cash, floor(revenue_value))`. A full payout burns all
+revenue shares; a cash-limited payout burns
+`ceil(revenue_shares * payout / floor(revenue_value))`. Positive payout with
+zero share burn reverts.
+
+## Rates and accrual
+
+Utilization divides half-up-valued debt by half-up-valued total supply:
 
 ```rust
-let rate_per_ms = half_up(annual_rate / milliseconds_per_year);
+let utilization_ray = half_up(debt_value_ray * RAY / supply_value_ray);
 ```
 
-`milliseconds_per_year` is 31,556,926,000 — a 365.2422-day year.
-
-The displayed deposit APR is approximately:
+It is zero for zero supplied value. Rate selection caps utilization at one RAY.
+The annual borrow curve has three joined linear regions: base plus slope1 up
+to mid utilization, then slope2 up to optimal, then slope3 up to full utilization.
+Each slope contribution uses half-up multiplication followed by half-up division.
+The result is capped at the configured maximum, itself limited to 200% APR.
+Pool borrow/deposit rate views return annual RAY fractions from stored indexes;
+they do not accrue or project first.
 
 ```rust
-let rate_x_util  = half_up(utilization * annual_borrow_rate / RAY);
-let deposit_apr  = half_up(rate_x_util * (BPS - reserve_factor) / BPS);
+let per_ms = half_up(annual_borrow_rate_ray / 31_556_926_000);
+let rate_x_util = half_up(utilization_ray * annual_borrow_rate_ray / RAY);
+let deposit_apr_ray = half_up(rate_x_util * (BPS - reserve_factor_bps) / BPS);
 ```
 
-Two rounding steps, not one. A single composite-denominator division would
-differ by one raw ray unit on a large share of inputs. The result is zero when
-utilization is zero or when `reserve_factor` is outside `0..BPS`.
+Deposit APR is a view with two rounding steps, not the exact realized supplier
+return. It is zero at zero utilization or an out-of-range reserve factor.
+Accrual processes elapsed time in chunks of at most one year. Each chunk reads
+its starting utilization and rate, and approximates `exp(per_ms * delta_ms / RAY)`
+through the eighth-order Taylor term, using fixed-point half-up arithmetic.
+No elapsed time means no accrual. Index projections and mutations share `accrue_step`.
 
-It is a view. Divide the returned RAY by `RAY` for a unit fraction
-(0.05 = 5%). Realized supplier return also reflects the conservative
-rounding remainder retained as protocol revenue.
+For each chunk, borrower interest is the difference between half-up-valued debt
+at the new and old borrow indexes. The reserve factor allocates a half-up
+protocol fee; the remainder becomes supplier rewards. The supply index update
+floors the new total value divided by supplied shares, bounded by the old index
+and the supply-index ceiling. Any reward not reflected by that index change is
+added to the protocol reward. Revenue shares are then floor-converted at the
+new supply index and capped at remaining total-supply share headroom. That final
+floor/cap can leave value unrepresented by revenue shares; exact booked-value
+conservation is not guaranteed.
 
-## Accrual
-
-Implemented by: `contracts/pool/src/interest.rs`, `common/src/rates/compound.rs`,
-`common/src/rates/index.rs`.
-
-When no time has elapsed, accrual changes nothing. Otherwise elapsed time is
-processed in bounded chunks. For each chunk:
-
-1. Calculate the compound factor as an eighth-order Taylor expansion of
-   `e^(rate_per_ms x chunk_ms)`. The factor itself is not capped; the chunk is
-   capped at one year, the rate at the market's configured maximum, and the
-   resulting index at the borrow-index ceiling.
-2. Update the borrow index by half-up multiplication with that factor.
-3. Calculate accrued interest from the change in borrowed value.
-4. Split accrued interest between supplier reward and protocol revenue.
-5. Update the supply index conservatively and record any distribution
-   shortfall as revenue.
-
-The borrow index never decreases. The supply index may decrease when eligible
-bad debt is socialized, but cannot fall below its configured floor.
+Cadence can change borrower cost: each chunk freezes its starting rate while
+later chunks recalculate utilization. Taylor truncation and integer rounding
+also depend on partitioning. There is no general guarantee that every finer
+partition produces the same result, a larger result, or an exact continuous
+exponential bound.
 
 ## Valuation and health
 
-Implemented by: `common/src/rates/value.rs`, `common/src/types/oracle.rs`,
-`contracts/controller/src/risk/totals.rs`.
-
-A position stores scaled shares, so its value takes three steps. A loose token
-payment takes one:
+A position uses one rounding direction at all three boundaries:
 
 ```rust
-// position (scaled shares)
-let actual    = scaled_shares * index / RAY;   // RAY
-let value_usd = wad(actual) * price / WAD;     // WAD
-
-// loose token payment
-let value_usd = token_amount * price / 10^asset_decimals;
+let asset_ray = round(shares_ray * index_ray / RAY);
+let asset_wad = round(asset_ray / 1_000_000_000);
+let value_usd_wad = round(asset_wad * price_wad / WAD);
 ```
 
-`index` is the market's supply index for collateral and its borrow index for
-debt. Each call rounds one way at every step: half up, floor, or ceiling.
-
-Collateral is valued two ways. The gated sums that back the risk checks —
-LTV-weighted collateral and liquidation-threshold-weighted collateral — floor at
-every step. The plain collateral total, which sizes the liquidation seizure
-share and the bad-debt dust test, rounds half up. Debt contributions to the risk
-totals use ceiling rounding; the read-only debt view rounds half up and is not a
-solvency input. The health factor is:
+Risk collateral floors each step and its BPS weighting. LTV weighting uses the
+position's stored `min(LTV, liquidation_threshold)`; health weighting uses its
+stored liquidation threshold. The unweighted collateral total rounds half-up
+and sizes liquidation shares and dust eligibility. Risk debt rounds upward;
+the separate debt display rounds half-up.
 
 ```rust
-let health_factor = floor(weighted_collateral / total_debt);
+let health_factor_wad = floor(weighted_collateral_wad * WAD / debt_wad);
 ```
 
-`weighted_collateral` is the sum over collateral positions of the floor-valued
-position multiplied by that position's liquidation threshold, floored. The
-division truncates toward zero and saturates at the top of the signed domain
-instead of reverting.
+Health factor saturates at `i128::MAX`; debt-free accounts use that sentinel.
+Liquidation eligibility requires debt and health below one WAD. Risk-increasing
+actions with debt remaining require debt within LTV collateral, health at least one WAD, and any
+configured minimum LTV collateral, alongside listing, cap, and pause gates.
 
-A debt-free account reads as maximally healthy. An account is liquidatable only
-when it has debt and health factor is below one WAD.
+## Liquidation sizing and fees
 
-## Risk gates
+Let `D`, `C`, `W`, `HF`, `H` be raw WAD debt, unweighted/weighted collateral, health and target health.
+mul_wad/div_wad round half-up; `b` is the chosen bonus converted from BPS to raw WAD.
 
-Implemented by: `contracts/controller/src/risk/validation.rs`,
-`common/src/validation.rs`, `contracts/controller/src/spoke_usage.rs`.
+```rust
+let p = if C == 0 { 0 } else { div_wad(W, C) };
+let hf_bonus_cap_bps = floor(HF * BPS / p) - BPS; // only p > 0 and HF < WAD
+let backed_max = min(D, div_wad(C, WAD + b));
+let ideal = if H <= mul_wad(p, WAD + b) || mul_wad(H, D) <= W { backed_max }
+    else { min(backed_max, div_wad(mul_wad(H, D) - W, H - mul_wad(p, WAD + b))) };
+```
 
-A risk-increasing operation must leave:
-
-- debt no greater than LTV-weighted collateral;
-- health factor at least one WAD;
-- LTV-weighted collateral at least the configured minimum-collateral floor, when
-  that floor is non-zero; and
-- all relevant position, cap, listing, and pause rules satisfied.
-
-Risk parameters must keep the liquidation threshold strictly above the LTV, and
-must satisfy `threshold x (1 + bonus) <= 100%`. The protocol's liquidation fee
-comes out of the bonus, not on top of it, and must stay strictly below 100%.
-
-## Liquidation
-
-Implemented by: `contracts/controller/src/positions/liquidation/math.rs`,
-`contracts/controller/src/positions/liquidation/curve.rs`,
-`contracts/controller/src/positions/liquidation/apply.rs`.
-
-The liquidator’s repay amount is bounded by the protocol’s close target. The
-collateral base is derived from repaid debt and the price ratio. The bonus is
-added within the configured bonus cap; the protocol fee applies only to that
-bonus portion.
-
-If received repayment is less than planned, every related seizure is reduced
-proportionally with floor rounding. A seizure never exceeds the current
-position. Repayment above the ideal close amount is never pulled: the plan trims
-each `RepayEntry` (and drops whole legs) before transfer, so the liquidator
-simply keeps the excess. The trimmed amounts are reported by the
-`liquidation_estimations_detailed` view as `refunds`; no refund transfer occurs.
-
-Tiny residual *debt* after the computed ideal can raise that ideal to a full
-close, so a liquidator *may* finish a dust stub. The offer is still capped at
-the ideal; leftover debt is socialized separately after the call, but only when
-that debt exceeds the leftover collateral and that collateral is at or below the
-dust threshold.
+The base bonus is collateral-value-weighted from stored bonuses, bounded by
+`BPS * (BPS - t) / t`, where `t = clamp(ceil(p * BPS / WAD), 1, BPS)`.
+Zero `p` gives a zero threshold bonus bound. The configured curve ramps the
+base-to-maximum increment as health falls, then applies its BPS factor; the
+HF-preserving cap above limits it. A cap below base quotes full debt at base.
+Only a nonnegative below-base cap rejects partial funding, with ceil-USD rounding
+tolerance. An ideal residual debt strictly between zero and $5 also quotes full debt.
+Inputs are capped at actual debt and trimmed before pulling; neither a quote
+nor its target health guarantees a full executed close after rounding/underdelivery.
+Seizure is pro-rata to collateral value and capped at held value. Bonus equals
+capped seizure minus floor-divided uncapped principal, floored at zero. Transfer fee
+applies fee BPS half-up to bonus RAY, then floors to token units; positive subunit fees become one unit, capped
+at gross payout. Credit fee is `ceil(bonus_shares * fee_bps / BPS)`; credit is the
+exact seized-share remainder. Under-delivery floor-scales seizure and bonus
+representations by measured/planned USD; credit fees are recomputed. Cleanup is
+separate: debt must exceed collateral, with collateral <= $5 permissionlessly;
+forced owner cleanup omits that collateral cap. See [liquidation source](../../contracts/controller/src/positions/liquidation/math.rs) and [curve](../../contracts/controller/src/positions/liquidation/curve.rs).
 
 ## Bad debt
 
-Implemented by: `contracts/pool/src/interest.rs`,
-`contracts/controller/src/positions/liquidation/mod.rs`,
-`contracts/controller/src/positions/liquidation/curve.rs`.
-
-After liquidation, socialization runs automatically only for eligible residual
-debt: debt above the remaining collateral, with that collateral at or below the
-dust threshold. A separate owner-only entry point (`force_socialize_bad_debt`)
-socializes any account whose debt exceeds its collateral, without the dust cap.
-
-The market supply index is reduced proportionally to the remaining value:
+Debt socialization lowers only the affected market's supply index. The debt
+being removed is valued with a ceiled RAY multiplication. The write-down uses
+half-up total supplied value, two floors, and a non-zero floor clamp:
 
 ```rust
-let reduction_factor  = floor(remaining_value * RAY / total_value);
-let new_supply_index  = floor(old_supply_index * reduction_factor / RAY);
+let remaining_ray = total_supply_ray - min(bad_debt_ray, total_supply_ray);
+let reduction_ray = floor(remaining_ray * RAY / total_supply_ray);
+let new_supply_index = max(10_i128.pow(24),
+    floor(old_supply_index * reduction_ray / RAY));
 ```
 
-`remaining_value` is the total supplied value less the bad debt, capped at that
-total, both in RAY. The two floors compound, so the written-down index is at
-most the single-step value; the extra truncation falls on suppliers, never on
-the protocol. The result is clamped to the non-zero supply-index floor. The loss
-is confined to suppliers in that market.
+Zero supplied value makes the write-down a no-op. Before the clamp, the two
+floors can impose extra truncation on supplied claims, including revenue.
+The floor prevents a zero index; it can leave residual claims without backing.
+Supply then fails the backing gate until recapitalization fills the shortfall.
+Controller eligibility and account cleanup are described in the liquidation
+lifecycle, rather than guaranteed by this arithmetic helper.
 
-## Caps and fees
+<a id="numeric-limits"></a>
+## Caps, fees, and numeric limits
 
-Implemented by: `common/src/rates/scaling.rs`,
-`contracts/controller/src/spoke_usage.rs`, `common/src/math/fp.rs`,
-`contracts/pool/src/cache/shares.rs`.
+A cap is in native token units. Entry compares stored scaled usage plus the
+new scaled amount with the cap floor-converted at the current index. Zero cap
+allows no positive exposure. Exits subtract usage without checking caps;
+missing usage rows and zero exit deltas are no-ops. Cap conversion saturates at
+`i128::MAX`; position conversion still rejects overflow.
 
-Supply and borrow caps are native-asset limits. Before exposure grows, the
-limit and usage are converted using the current index. Zero means no new
-exposure. Exits reduce usage and do not consume a cap.
+Flash/charged strategy fees are half-up BPS of principal, minimum one base unit for a positive rate.
 
-Flash and strategy fees are BPS of the relevant amount, rounded half-up and
-raised to one token unit when a positive fee would otherwise round to zero.
-Revenue claims burn enough revenue shares to cover their payout and cannot
-pay more cash than the market holds.
+| Bound | Consequence |
+|---|---|
+| Asset decimals 3..=18 | Exact token-to-RAY upscaling |
+| Both indexes initially RAY; ceiling 10^36 | 10^9 times initial index; protocol constants |
+| Supply-index floor 10^24 | At most 1,000 times the shares minted at index one for the same deposit |
+| Borrow APR maximum 2 RAY | 200% annual rate; not a bound on balance growth alone |
+| Token-to-RAY input maximum `i128::MAX / 10^(27-d)` | About 170.14 billion whole tokens, before other limits |
+| Deposit conversion at the supply-index floor | About 170.14 million whole tokens before scaled-share overflow |
 
-## Rounding review table
+The token-to-RAY maximum is also the admitted cap maximum. Accrued position
+values and market totals must independently fit the RAY domain; valid caps and
+bounded indexes do not guarantee that future accrual fits. Value overflow can
+occur before the index ceiling and block repayment/withdrawal because those
+operations accrue first. At the borrow-index ceiling, further accrual produces
+no borrower interest. No dedicated ceiling alarm is emitted.
 
-| Boundary | Direction | Safety effect |
-|---|---|---|
-| Supply mint | floor | avoids over-crediting suppliers |
-| Withdrawal share burn | ceil | avoids under-burning shares |
-| Debt mint | ceil | avoids under-recording debt |
-| Repayment share burn | floor | avoids erasing unpaid debt |
-| Collateral valuation (gated sums) | floor | avoids overstating collateral |
-| Collateral total (seizure share, dust test) | half-up | share of portfolio, not a solvency bound |
-| Debt valuation (risk totals) | ceil | avoids understating debt |
-| Health factor | floor | avoids overstating health |
-| Bad-debt write-down | two floors with floor clamp | keeps loss explicit and domain safe |
-| Net settle overlap | min(request, floor supply, ceil debt) | closes a side only when that side is exhausted |
-| Cap conversion | floor | makes the cap slightly tighter |
-| Partial revenue claim | ceil share burn | avoids overpaying treasury |
+These are arithmetic limits, not recommended market sizes or deployment proofs.
+
+### Liquidation fixture
+
+Selected $5 repayment seizure fixtures with ample collateral; native arithmetic examples, not live prices,
+maximum listing prices, network fees, slippage, or guaranteed profitability. The fixture models
+at most two token-unit rounding costs per collateral leg; it is not a universal execution bound.
+
+| Collateral | Fixture USD price | Seized token units | Fee units | Profit USD (rounded) |
+|---|---:|---:|---:|---:|
+| SolvBTC | 120,000 | 4,541 | 45 | 0.3952 |
+| xSolvBTCSolvBTC_LP | 12,000 | 4,583 | 4 | 0.4948 |
+| SPIKOUKTBL | 1.48035816 | 358,021 | 2,431 | 0.264006 |
+| XAUM | 6,000 | 900,000 | 6,666 | 0.360004 |
+| XLM | 1 | 54,500,000 | 540,000 | 0.3960 |
+| USDC | 1.05 | 48,571,428 | 95,238 | 0.09000 |
+| USST | 1.0897 | 4.818e18 | 2.294e16 | 0.2250 |
+
+Sources: [shared rates](../../common/src/rates/mod.rs), [fixed-point arithmetic](../../common/src/math/fp_core.rs),
+[liquidation fixtures](../../contracts/controller/tests/positions/liquidation_math.rs).

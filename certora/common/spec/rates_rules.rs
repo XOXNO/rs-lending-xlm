@@ -22,7 +22,7 @@ const ASSET_TO_RAY_SCALE_7: i128 = 100_000_000_000_000_000_000;
 /// Production ceiling on any ray-denominated amount: a market total, a position
 /// value, or an accrued interest amount.
 ///
-/// `docs/reference/numeric-bounds.md` §3 derives the protocol-wide balance
+/// `docs/reference/formulas.md#numeric-limits` derives the protocol-wide balance
 /// ceiling from `Ray::from_asset`: no balance at any decimal count can exceed
 /// `i128::MAX / RAY = 170_141_183_460.47` whole tokens, and the same bound
 /// applies to a market total and to the `scaled * index` value of a position.
@@ -33,7 +33,7 @@ const ASSET_TO_RAY_SCALE_7: i128 = 100_000_000_000_000_000_000;
 /// `Ray::from_asset` cannot construct from any token amount and which no
 /// accrual can reach without the surrounding `checked_*` first panicking. The
 /// tightest configured supply cap on mainnet is AQUA at 5e8 whole tokens
-/// (numeric-bounds §3), roughly 200x below this bound.
+/// (https://github.com/XOXNO/rs-lending-xlm/blob/d26b93ebb48d718b69571ec737f0097af3379916/docs/reference/numeric-bounds.md#3-largest-representable-balance), roughly 200x below this bound.
 const MAX_RAY_VALUE: i128 = 100_000_000_000 * RAY;
 
 fn valid_params(asset: Address) -> MarketParams {
@@ -318,7 +318,7 @@ fn simulate_indexes_no_time_noop(
 /// `rewards` was previously unbounded above. It is now capped at
 /// `MAX_RAY_VALUE`, the documented ray-value ceiling: `rewards` is an accrued
 /// interest amount, so it is bounded by the market's total value, which
-/// `numeric-bounds.md` §3 bounds at 1e11 whole tokens. The bound excludes
+/// `https://github.com/XOXNO/rs-lending-xlm/blob/d26b93ebb48d718b69571ec737f0097af3379916/docs/reference/numeric-bounds.md#3-largest-representable-balance` bounds at 1e11 whole tokens. The bound excludes
 /// reward amounts no market can hold.
 ///
 /// Note the residual hidden bound this rule keeps: `update_supply_index`

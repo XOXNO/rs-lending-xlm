@@ -1,510 +1,269 @@
 # Threat model
 
-## Purpose
+For reviewers and operators assessing authority, funds, prices, and availability.
+Controls below describe current source, not proof of a safe deployment. Risk IDs
+from the former STRIDE document remain stable; inherited severity scores are
+not repeated because their assumptions and several source claims had drifted.
+The [historical STRIDE matrix](https://github.com/XOXNO/rs-lending-xlm/blob/d26b93ebb48d718b69571ec737f0097af3379916/STRIDE.md)
+preserves those ratings without presenting them as a fresh assessment.
+See [invariants](../reference/invariants.md) for precise properties and
+[audit history](../audit/README.md) for historical finding dispositions.
 
-This document names what the protocol protects, who can attack it, and where
-the protection stops. It is a review guide. It does not claim that the listed
-controls are sufficient in every deployment.
+## Assets and trust roots
 
-Read it with two companion documents:
+Protect supplier claims, pool cash, borrower collateral, account authority,
+market accounting, price integrity, governance authority, and liquidation/exit
+availability. Router fee entitlements and oracle signer configuration are
+separate assets exposed through external dependencies.
 
-| Document | Contents |
-|---|---|
-| [`STRIDE.md`](../../STRIDE.md) | The per-threat matrix, with likelihood and residual ratings |
-| [`docs/reference/invariants.md`](../reference/invariants.md) | The `INV-*` properties that the controls must hold |
-
-This document is the narrative. It states the trust roots, the boundaries, and
-the gaps. Where a control exists, it points at the `INV-*` identifier instead of
-repeating the argument. Where a control does **not** exist, it says so in
-[Known gaps](#known-gaps).
-
-## Protected assets
-
-- Supplier claims and pool cash.
-- Borrower collateral and account authority.
-- Market indexes, debt totals, and revenue entitlement.
-- Price integrity used for solvency and liquidation.
-- Governance authority, timelock state, and emergency response.
-- Protocol liveness during oracle failure, liquidation, and recovery.
-- Fee and referral balances held by the swap aggregator.
-- XOXNO oracle feed integrity: the signer set, the threshold, and the
-  freshness windows.
-
-## Trust roots
-
-`#[only_owner]` does not mean the same thing in every contract. The delay that
-applies to an owner action depends on **who the owner is**. This table is the
-most important one in the document.
-
-| Contract | Owner | Delay on an owner action |
+| Authority | Current repository boundary | What deployment must establish |
 |---|---|---|
-| Controller | Governance timelock | Delayed. Typed `AdminOperation` |
-| Pool | Controller | None directly. The controller is the only caller |
-| Price aggregator | Governance timelock | Delayed, except the ORACLE role band write |
-| Position NFT | Controller | Delayed. Reached through the controller owner gate |
-| Governance | Governance owner key | Delayed, except the immediate verbs below |
-| **XOXNO oracle** | **A standalone key** | **None. Immediate** |
-| **Swap aggregator** | **A standalone key** | **None. Immediate** |
-| DeFindex adapter | No owner | Not applicable. It has no admin surface |
+| Governance owner and roles | Owner bootstrap/recovery; typed delayed administration; restricted immediate roles | Actual owners, signers, role roster, and effective delays |
+| Controller | Governance-owned under the deployment helpers; owner-gated administration | Correct deployed code, owner, pool/NFT/aggregator pointers |
+| Pool | Controller-owned accounting mutations, no separate ownership-transfer endpoint | Correct controller wiring and artifact |
+| Position NFT | Stored controller authority for mint/burn/upgrade; ordinary holder/approved transfers | Correct collection address and controller binding |
+| Price aggregator | Governance-owned deployment; owner configuration and upgrade | Sources, bands, feed metadata, actual owner and artifact |
+| Swap aggregator | Independent constructor administrator; owner-controlled fees, sweep and upgrade | Owner policy; no lending-governance router-upgrade route exists |
+| XOXNO oracle | Independent constructor administrator; signer/configuration and upgrade powers | Honest quorum participation, owner policy, and monitoring |
+| DeFindex adapter | Fixed asset/hub/spoke/controller configuration; per-vault authenticated accounts | Correct immutable constructor inputs; no admin rescue interface |
 
-The two bold rows are trust roots that governance does not control. Verify the
-deployed owner of each before you enable a market that depends on it.
+An address or owner gate proves neither multisig custody nor a timelock. An
+external smart-contract owner may impose its own policy. Lending governance
+cannot be assumed to control standalone router/oracle administration.
 
-### Actions with no reaction window
+### Governance windows and emergency powers
 
-Governance has **two** execution paths, not one. The timelock path validates a
-typed `AdminOperation`, waits out the delay, then executes. A second path in
-`contracts/governance/src/timelock/immediate.rs` skips propose, delay, and
-execute entirely. It is role-gated, not owner-gated.
+Effective delays are in ledgers: Standard uses the configured minimum;
+Sensitive uses `max(minimum, 12)`; Recovery uses `max(minimum, 518400)`.
+The source's intended later Sensitive floor is not the compiled value.
+Repository network inputs currently use a minimum of 12; this is not a live
+chain reading. Verify the deployed minimum and review window before funding.
+Raising the configured minimum and changing a compiled floor are different actions.
 
-These paths commit immediately. A delay cannot absorb a key compromise here.
+GUARDIAN can immediately pause, tighten listing flags, and create empty hubs
+or spokes. ORACLE can immediately narrow sanity bands. The owner can revoke
+those two hot roles immediately and perform one-time deployment bootstrap.
+Reopening, global position-manager changes, and ordinary upgrades use delayed
+operations. Controller construction/upgrade pauses the controller; this is
+not a guarantee that every component upgrade pauses lending.
 
-| Path | Caller | Bounded by |
-|---|---|---|
-| `pause` | GUARDIAN | Tightens only. Unpause is timelocked |
-| `set_spoke_asset_flags` | GUARDIAN | `require_flag_ratchet`. Flags move false to true only |
-| `create_hub`, `add_spoke` | GUARDIAN | Creates empty structures. It does not move value |
-| `set_sanity_band` | ORACLE role | Tighten-only ratchet. Widening is timelocked |
-| `revoke_role_immediate` | Governance owner | GUARDIAN and ORACLE roles only |
-| `upgrade` on the XOXNO oracle | Oracle owner | Nothing |
-| `upgrade`, `sweep_balance`, `set_referral_owner` on the swap aggregator | Router owner | Nothing |
+Typed proposals perform proposal-time checks; targets retain execution-time
+validation. Ready operations must also be within the grace window. Anyone may
+execute with no executor identity; supplying one requires its authorization
+and EXECUTOR role. Executor/canceller separation exempts the governance owner.
+A revocation target cannot cancel its own removal, but an independent canceller
+can veto it. Owner-proposed Recovery operations cannot be cancelled and replace
+cancellers after their delay; they do not recover a lost owner key.
 
-A role is granted through the timelock, so this surface is reachable only after
-a delay. Once a role is held, every action above is instant. Note that the
-delay is the same one that is currently set to about one minute. See
-[Deployment gates](#deployment-gates).
+## Account authority
 
-## Actors
+The position NFT holder controls the lending account. Approving an NFT
+operator enables transfer of the entire position, including collateral and
+debt. This is not a narrowly scoped permission to handle a collectible.
 
-| Actor | Capability |
+An account delegate also needs active global position-manager registration.
+Its grant is stamped with the granting owner's address, not a transfer epoch:
+it becomes inactive while someone else holds the NFT and can revive if the
+NFT returns before an intervening owner updates delegates. Owner revocation
+is immediate; global deactivation takes effect when governance executes it.
+Delegates can borrow/withdraw to their chosen recipient within account gates.
+Those gates do not constrain them to acting in the owner's economic interest.
+
+Controller account renewal requires the owner. Direct NFT renewal is
+permissionless and extends the Owner entry, its holder's Balance entry, and
+instance TTL; it does not renew the controller account. Archived persistent entries need restoration. Sequential
+NFT IDs are finite and not recycled; limits and renewal do not establish
+worst-case network-budget availability.
+
+## Token assumptions
+
+Measured inbound receipt prevents crediting a requested amount that never
+arrived on supported supply, repay, recapitalization, and strategy paths.
+It is not a generic safety guarantee for arbitrary token contracts. Listing
+review must consider sender surcharges, false balances, rebases, clawbacks,
+upgrades, and semantics that can change after admission.
+
+One token listed in several hubs shares physical pool custody even though
+market books are separate. Direct donations do not rewrite those books.
+Cash flash loans impose exact balance transitions and allowance repayment;
+receipt-tax compatibility elsewhere does not establish flash-loan compatibility.
+
+## Routes, callbacks, and external integrations
+
+Router swaps settle measured input/output changes. The controller grants
+one exact input-transfer invocation, not a token allowance, and refunds
+unspent input still held by the controller. The router checks its payload
+minimum against output after fees but before payout; its own residuals
+follow a capped admin-revenue policy. The controller requires positive
+measured output and final account risk, not an independent slippage bound.
+A compromised router may consume authorized input for dust output while the
+final account passes its risk gates. Exposure is bounded by routed funds and
+those gates, not by an independent controller slippage limit.
+
+Flash position mints debt without origination fee, requires nonnegative declared
+collateral minima with at least one positive, and leaves an open solvent position. An already healthy
+account can support that debt with little additional collateral. Debt leftovers
+are not auto-repaid. Refunds cover only positive callback deltas of refund-listed
+tokens; declared collateral is supplied. Neither category sweeps prior balances.
+This differs from cash flash loans and from multiply's
+fee policy. The debt market's flash-loan flag also gates flash position.
+
+Approved Blend pools retain their external upgrade trust until approval is
+removed. DeFindex vault authentication isolates account bindings, but the
+adapter has no recovery path for arbitrary stranded assets.
+
+Protected monetary entrypoints reject guarded callback reentry; Soroban also
+restricts indirect reentry. Do not infer an EVM token-hook exploit without
+establishing host reachability. Risk views lack the monetary guard; consumers
+must not treat them as a transaction-stable oracle for intermediate state.
+A native callback fixture alone does not establish a deployed host call path.
+
+## Price integrity and availability
+
+Two configured price legs must both be usable and agree within tolerance;
+one surviving leg is not a fallback. A single-source key has no top-level
+agreement check, although its transitive source may have multiple dependencies.
+Sanity bands constrain accepted prices but cannot establish economic correctness.
+
+Admission checks source structure, provider-address overlap, smoothing policy,
+and provider-specific metadata. Provider separation is not proof of independent
+operators or upstream data. Feed-nature labels are configuration assertions.
+Non-LP admission probes can accept temporary market-condition failures;
+transitive dependent revalidation is structural rather than a new live attestation.
+Later upstream changes do not erase the lending aggregator's runtime age checks,
+but can invalidate assumptions made during admission.
+
+XOXNO submissions authenticate one registered signer each. A new aggregate
+requires a quorum of fresh, timestamp-clustered submissions and takes their
+lower median. Future skew is bounded at 60 seconds, not forbidden entirely.
+Equal package timestamps may replace a signer's observation. Honest quorum
+participation must be evaluated against the accepted cluster; setting a
+threshold above half the registered signers alone does not establish an
+honest median when some signers are absent.
+
+An ordinary submission below quorum leaves the prior aggregate unchanged;
+reads can serve it until their freshness limits expire. Owner recomputation
+removes an aggregate when its feed lacks quorum. Threshold, submission-age,
+and skew setters do not recompute existing aggregates; follow them with
+batched `recompute_feeds`. Later quorum submissions can also replace aggregates
+under the new settings.
+The cluster anchor is clamped to ledger time. Read paths still apply their
+respective package/write timestamp and freshness rules.
+
+Price failure can stop liquidation as well as borrowing and withdrawal.
+`quotes` can return a nonzero candidate price with `valid=false`; consumers
+must honor validity rather than use the price field alone. Required lending
+valuations use strict prices and cache results within the operation context,
+not a guarantee of identical timestamps across upstream observations.
+
+## Bad debt and liquidation
+
+Global pause leaves designated exit/recovery endpoints callable. Listing-level
+paused debt blocks a repayment leg that selects it. Seizure uses its own
+no_seize flag across nonzero planned collateral legs; one such flag can abort
+a pro-rata liquidation. It does not prevent new supply by itself. Interest
+continues while a listing is paused. Missing prices and liquidity limits remain
+independent obstacles even when an entrypoint is not pause-gated.
+
+Liquidators bear execution-time bonus, rounding, and route-quality risk.
+A tiny repayment can retire debt while its pro-rata seizure rounds to zero.
+Admission does not couple collateral price, decimals, bonus and fee to the
+minimum-collateral floor. Expensive low-decimal collateral can yield zero
+seizure even for a $5 repayment; assess that precision risk before listing.
+The [seizure fixture tests](../../contracts/controller/tests/positions/liquidation_math.rs) reproduce this limit.
+Share credit avoids collateral cash payout but still requires an authorized
+same-spoke receiver in Normal mode, position capacity, and a listing for a newly credited asset.
+The absence of a universal final health-factor assertion on liquidation is not
+itself evidence of a profitable attack; the planning and measured-settlement
+arithmetic require separate verification.
+
+Cleanup converts all remaining account supply to protocol revenue and socializes
+its gross debt, including same-market supply/debt pairs. Netting remains
+[proposed](decisions.md#adr-0021). Current suppliers bear index write-downs;
+a supplier exiting earlier can avoid that loss. The index floor can leave
+material unpaid backing, so displayed supplier claims are not a universal
+pro-rata cash-payout guarantee. New supply checks backing; recapitalization
+repairs the book's measured shortfall without minting shares.
+
+The compile-time dust cleanup threshold and governance-settable collateral
+floor can diverge. Above the permissionless cleanup threshold, an insolvent
+account may require the governed [force-socialize runbook](../reference/runbooks/force-socialize-bad-debt.md).
+An account whose debt does not exceed unweighted collateral is ineligible,
+even if its health factor is below one and listing flags block liquidation.
+
+## Numeric and resource limits
+
+Finite RAY value capacity can be exhausted before the index ceiling. Synchronizing
+an overlarge book can then fail before an otherwise risk-reducing operation.
+Choose caps with plausible index growth, not just today's token balance.
+Accrual cadence changes utilization and subsequent rates; bounded chunks do not
+make cadence neutral or prove exact conservation after integer rounding.
+See [numeric limits](../reference/formulas.md#numeric-limits).
+
+Position/route limits reduce work but do not prove every maximum-size operation
+fits deployed CPU, memory, footprint, and oracle-call budgets. Caller-supplied
+vectors still cost resources. Full-risk threshold refresh can fail atomically when an included account's
+final health factor is below 1.05; isolate and investigate the account rather
+than assuming earlier updates persisted. LTV-only refresh has no such final gate.
+
+## STRIDE register
+
+Each ID retains its original subject. Controls limit a scenario; they do not
+mean zero residual risk. Operational assumptions above apply to these rows.
+
+| ID | Threat and control boundary |
 |---|---|
-| Anonymous caller | Invokes public user and keeper actions with its own authorization |
-| Account owner | Holds the position NFT. Controls every risk-increasing action |
-| Delegate | Acts only when the account lists it **and** governance approves it |
-| Liquidator | Repays unhealthy debt for discounted collateral |
-| Guardian | Pauses and tightens. It cannot reopen |
-| Governance owner | Proposes ownership transfer and canceller recovery. Holds every role at deployment |
-| PROPOSER | Schedules typed timelocked operations |
-| EXECUTOR | Optional execution gate. Execution is permissionless when no executor is named |
-| CANCELLER | Cancels pending operations, except recovery operations |
-| ORACLE role | Narrows sanity bands immediately. Widening is timelocked |
-| Oracle signer | Submits signed price observations |
-| Keeper | Calls permissionless maintenance |
-| Token contract | May transfer an amount other than the requested one |
-| Router and venues | May be malicious, faulty, or economically poor |
-| Flash receiver | Runs arbitrary callback code |
-| External vault | May report arbitrary caller identity and NAV |
-
-The unprivileged mutation surface is declared, not implied.
-`make access-control-check` reports 207 entrypoints and 29 declared
-permissionless lines. `scripts/permissionless_entrypoints.txt` carries the
-justification and the `INV-*` identifier for each one.
-
-## Trust boundaries
-
-### User to controller
-
-User parameters, tokens, and routing intent are untrusted. The controller
-authenticates the caller, then applies account, listing, and price rules.
-
-Solvency gates run **after** the mutation, in the same transaction.
-`require_post_pool_risk_gates` runs from `strategy_finalize`. The gate depends
-on transaction rollback. A path that mutates state and never reaches its gate
-is a critical defect (INV-RISK-01).
-
-### Controller to pool
-
-The controller is the only party that mutates the pool. This stops a direct
-state change from skipping a risk check. It also makes controller correctness
-and the ownership wiring critical (INV-AUTH-01).
-
-### Controller to position NFT
-
-The position NFT is the account-ownership authority. There is one token per
-account, and the token id equals the account id. Mint and burn need the
-controller's authorization. `owner_of` is a public read. The controller reads
-it live on every account access and never caches it, so an ownership change
-takes effect immediately (INV-STOR-03).
-
-Transfer is a standard NFT operation. The controller does not gate it and
-cannot prevent it. A transfer lazily revokes any delegate grant that the
-previous owner made: the grant is live only while `granted_by` still holds the
-token, so it re-arms with its original delegate list if the token returns to
-the granting address before the new owner's next delegate write
-(`DelegateGrant`, `get_delegates`).
-
-**`approve` and `approve_for_all` hand over the whole position.** The NFT is
-the account's ownership authority. An address that can transfer the token can
-take over the collateral, the debt, and the withdraw rights the moment it calls
-`transfer_from`. A phishing signature that reads as "approve this marketplace"
-is, for this token, "hand over my whole loan account".
-
-`contracts/position-nft/src/contract.rs` implements `NonFungibleToken` and
-overrides `token_uri` only. `approve`, `approve_for_all`, and `transfer_from`
-are the stock OpenZeppelin implementations. There is no approval hook, no
-allowlist, and no controller callback on transfer. There is no protocol-level
-mitigation. Wallets and front ends must state this risk in the approval prompt.
-
-### Controller to router and tokens
-
-The router is untrusted. Token behaviour is not assumed to match a requested
-transfer amount. The controller measures balances, scopes pull authority, and
-rechecks solvency after external work (INV-STRAT-01, INV-STRAT-02).
-
-**The controller does not bound slippage.** See
-[Known gaps](#known-gaps).
-
-### Controller to price system
-
-The controller accepts only a validated, complete price snapshot. A source
-failure or an ambiguity stops valuation-dependent activity. The protocol does
-not choose a fallback price (INV-ORACLE-01, INV-ORACLE-02, INV-ORACLE-03).
-
-### Governance to protocol
-
-Governance sets policy, and its ordinary power is delayed. The guardian is more
-available but less powerful. It can tighten, but it cannot reopen (INV-AUTH-04).
-
-### Vault to adapter
-
-The DeFindex adapter authenticates the calling vault with `from.require_auth()`
-in `deposit` and `withdraw`. It keys one controller account per vault address
-through `resolve_vault_account`. Positions are supply-only. The adapter exposes
-no borrow path.
-
-## Attack surfaces
-
-Each row states what an attacker tries, the control that stops it, and the
-invariant that the control must hold.
-
-| Surface | Attacker goal | Control | Invariant |
-|---|---|---|---|
-| Account operations | Borrow against or withdraw another account | Owner-or-delegate authorization, ownership read live from `owner_of`, immutable spoke binding, post-operation gates | INV-AUTH-02, INV-AUTH-06, INV-RISK-01 |
-| Non-standard tokens | Claim more value than the token delivered | Measured receipt on every inbound path, internal cash book, zero-share rejection, backing-shortfall gate | INV-ACCT-02, INV-ACCT-03, INV-ACCT-04 |
-| Oracle integrity | Manipulate, stale, or race a price source | Source admission policy, freshness and sanity checks, dual-source agreement, one snapshot per mutation, fail-closed consumption | INV-ORACLE-01..04 |
-| Oracle source authority | Fabricate a feed value from a subset of signers | Signer authentication, price bounds, `require_not_future`, `require_fresh_submission`, `require_monotonic_package`, median at threshold, `independence` policy | INV-ORACLE-01, INV-ORACLE-04 |
-| Liquidation | Liquidate a healthy account or over-seize collateral | Health gate, close bound, `max_hf_preserving_bonus_bps`, measured repayment, seizure scaled to receipt | INV-LIQ-01, INV-LIQ-02, INV-LIQ-03 |
-| Share-credit liquidation | Route seized collateral to an account that must not receive it | `resolve_seize_receiver` rejects the liquidated account and requires owner-or-delegate, the same spoke, and `PositionMode` Normal | INV-AUTH-02, INV-LIQ-02 |
-| Flash loans | Leave the pool underpaid, or reenter during a callback | `require_wasm_receiver`, exact balance assertions, allowance-based repayment, `require_not_flash_loaning` | INV-FLASH-01, INV-FLASH-02 |
-| Flash position | Treat zero-fee strategy debt as a cash flash loan | No repay or net-settle in the path, declared collateral with a positive minimum, measured deltas, receiver is neither controller nor pool | INV-STRAT-04 |
-| Strategies and routes | Overspend, retain input, or claim output dishonestly | Exact pull authorization, balance-delta settlement, residue return, `verify_router_output`, final solvency gate | INV-STRAT-01, INV-STRAT-02 |
-| Blend migration | Point a migration at a hostile contract | `is_blend_pool_approved` allowlist, `authorize_repay_pulls` capped per pull, `guarded_submit` blocks reentry | INV-STRAT-03 |
-| Governance and emergency | Reopen risk with a hot key, or bypass the delay | Typed scheduling, payload identity, readiness and expiry checks, role separation, guardian ratchet | INV-AUTH-04, INV-AUTH-05 |
-| Upgrades | Ship code that removes a check | `UpgradeController`, `UpgradePool`, `UpgradePositionNft`, `UpgradeGov` are typed timelocked operations. Controller `upgrade` forces the paused state. The price aggregator has no upgrade entrypoint | INV-AUTH-05 |
-| Permissionless maintenance | Create foreign risk through a keeper verb | Every keeper verb calls `require_not_flash_loaning`. Revenue goes only to the configured accumulator. `require_third_party_existing_supply` limits third-party top-ups | INV-AUTH-03 |
-| Storage lifetime | Strand a position by archiving one leg | `renew_account` renews the controller entries and calls the NFT `renew` in the same transaction | INV-STOR-01, INV-STOR-02, INV-STOR-03 |
-| Dust griefing | Open positions too small to liquidate, or mint value by rounding | `SupplyRoundsToZeroShares` and its siblings revert. A configured floor rejects unprofitable accounts | INV-ACCT-05, INV-RISK-04 |
-| Build-surface leakage | Ship a binary that exports test-only entrypoints | `seed_oracle` and `remove_oracle` compile only under `#[cfg(any(test, feature = "testing"))]`. `make wasm-testing-abi-check` gates the artifact | — |
-| Router ownership | Raise fees or edit the fee whitelist | Fee setters are owner-gated and bounded by `FEE_CAP`. Per-strategy loss is bounded by the controller's balance-delta settlement | — |
-| Governance recovery | Lose administrative capability permanently | `propose_canceller_reset` on the Recovery tier, which the ordinary cancel path cannot stop. `revoke_role_immediate` for the two hot roles | INV-AUTH-05 |
-
-### Public state and MEV
-
-There are no controls, by design. Positions, health factors, prices, and
-pending timelock operations are all public. Liquidation is an open race. The
-liquidation curve bounds the bonus and ties repayment size to seizure size, so
-liquidators compete on speed and not on extractable excess (INV-LIQ-02).
-
-The protocol makes no confidentiality assumption anywhere. This risk is
-accepted.
-
-## Known gaps
-
-This section lists what the protocol does **not** fully protect against. Each
-item is either an accepted design decision, a deployment decision, or an open
-defect. Nothing here is a theoretical concern.
-
-### Deployment gates
-
-These must close before real value is at stake. They are ownership decisions,
-not code defects.
-
-**The swap-aggregator owner is a trust root outside governance, by design.**
-The router is a utility contract, operated by a multisig Ledger wallet rather
-than by the timelock. Every one of its ten owner powers — `upgrade`,
-`sweep_balance`, `claim_admin_fees`, `set_static_fee`, the four referral
-setters, and the two whitelist setters — is a bare `#[only_owner]` reachable
-only by that key, and none has a governance path.
-
-This is a deliberate trade. Referral and fee administration are routine
-operational actions; routing them through a timelock would make them
-impractical, and giving the controller ownership so governance could reach
-`upgrade` would strand the other nine, since the controller exposes only what
-governance can ask for. A single Ownable owner cannot serve both, so the config
-picks operations. `make deploy-aggregator` sets the router admin to the
-deploying signer (override with `AGGREGATOR_ADMIN`); confirm after deploy that
-it is the intended multisig.
-
-The consequence to accept: a compromised router owner can upgrade the router's
-Wasm immediately, with no delay and no governance review. The controller's
-exposure is bounded by what it routes through the router — strategy swaps —
-and by the slippage checks on those paths, not by the router being trusted.
-
-The router owner is more powerful than the fee cap suggests. Three further
-powers are immediate and uncapped:
-
-- `sweep_balance` moves every token balance above the reserved fee amount to
-  any recipient.
-- `set_referral_owner` reassigns any referral's fee-claim rights.
-- `renounce_ownership` is the stock Ownable method. It permanently disables
-  every owner-gated router function, including `upgrade`. There is no recovery
-  path.
-
-**The XOXNO oracle owner is a trust root outside governance.** `upgrade`,
-`add_signer`, `remove_signer`, and `set_threshold` are all immediate. One key
-can replace the price-oracle code. Do not enable a market that depends on a
-XOXNO feed while an individual key holds this ownership.
-
-**The sensitive timelock delay is set for pre-audit iteration.**
-`TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS` is 12 ledgers, which is about one
-minute. The production value is 120_960 ledgers, which is about seven days. The
-comment above the constant marks the value as temporary. The value compiles
-into the artifact, so restoring it needs a governance-executed `UpgradeGov`.
-Until then, every sensitive operation is effectively immediate. Shipping this
-constant unrestored is a release blocker.
-
-Note that the code-level floors are floors only. A deployment that configures a
-small delay has the same exposure. Verify the configured delay, not only the
-constant.
-
-### The controller does not bound slippage
-
-`verify_router_output` asserts that `received > 0` and nothing more. The real
-minimum-output bound, `total_min_out`, is carried in the route payload and
-enforced **inside the swap aggregator** — the component this document declares
-untrusted.
-
-A malicious or maliciously upgraded router can return one unit of output and
-keep the rest. The only remaining protection is the post-operation solvency
-gate, which permits any loss that leaves the account healthy.
-
-Treat router compromise and router upgrade as an **unbounded-loss** path for
-in-flight strategies. This gap and the router-ownership gate above are the same
-risk seen from two sides.
-
-### A delegate has complete economic control of the account
-
-This is a design decision, not a defect, and it is the single most important
-fact for a user to understand.
-
-`borrow` and the withdraw path both accept an optional recipient address. Both
-are gated only by the owner-or-delegate check. A delegate can therefore borrow
-the account's whole credit line to its own address, and withdraw the account's
-collateral to its own address. The post-operation health-factor gate is the only
-bound.
-
-The controls are real. A delegate must also be an active, governance-approved
-position manager, the check is re-read at use time, and an NFT transfer revokes
-the grant while the token is held by another address (it re-arms if the token
-returns to the granting address before the new owner's delegate write — a
-documented property of `DelegateGrant`, not a defect). But the power granted is
-complete. User-facing documentation must
-state this plainly. "Drawn against the account" is not an adequate description.
-
-### The sanity band tightens only
-
-`set_sanity_band` rejects any widening: the new band must satisfy
-`min_wad >= stored min` and `max_wad <= stored max`, otherwise it panics with
-`SanityBandMustTighten` (`contracts/price-aggregator/src/admin.rs:197`). A
-compromised ORACLE key can therefore only narrow a band — still an instant,
-per-asset fail-closed kill switch — and restoring a wider band requires the
-timelocked `ConfigureAssetOracle`.
-
-The residual risk is availability, not mispricing. The band is the only
-backstop for single-source and LP feeds, and narrowing it is the one pricing
-control with no reaction window; every sibling operation —
-`ConfigureAssetOracle`, `EditOracleTolerance`, `SetPriceAggregator` — is
-timelocked. Treat the ORACLE key as price-critical custody.
-
-### Liquidation has no post-condition check
-
-The health-factor gate is a pre-condition only. There is no
-`require_post_pool_risk_gates` anywhere on the liquidation path, and
-`contracts/pool/src/ops/seize.rs` commits with no `guards::` assertion.
-INV-LIQ-04 records this exact gap: its main property is ENFORCED, but it
-carries a separate NOT ENFORCED note for the missing post-condition guard. The
-resulting market state is relied on to be solvent. Nothing checks it at
-runtime.
-
-Every concrete attack built on this has been refuted. The structural gap
-remains: the bonus fallback is safe only because it is meant to force a full
-close, and seizure scaling can turn it into a partial close when a debt token
-under-delivers. A post-condition assertion would close the class rather than
-the case.
-
-### The router input pull is measured (closed)
-
-Previously listed here as an open gap. Closed in commit 9da53261: no residual
-risk remains on this path.
-
-`execute::run` credits its vault the `transfer_amount_measured` delta, not the
-declared `total_in` (`contracts/swap-aggregator/src/execute/mod.rs:81`), so a
-fee-on-transfer input token cannot draw the shortfall out of the accrued fee
-backing. The router has no token allowlist by design, so that measurement is
-the containment.
-
-### The oracle skew anchor is clamped to ledger time
-
-`recompute_aggregate` takes the maximum of submitted package timestamps and
-then clamps it with `newest_ts.min(now * MS_PER_SECOND)`
-(`contracts/xoxno-oracle/src/aggregation.rs:125`), so a signer submitting at
-the future bound cannot raise the anchor and evict honest submissions from the
-cluster.
-
-`set_max_relative_skew_seconds` remains a configuration lever worth reviewing.
-A skew window that is too narrow still clusters honest submissions apart and
-clears the feed, and a feed outage blocks **liquidation** as well as borrowing.
-Treat the window width as a configuration hazard.
-
-### The dust gate and the configured floor can drift apart
-
-`BAD_DEBT_USD_THRESHOLD` is a compile-time copy of the **default** of a
-governance-settable floor. Raising the floor desynchronises the two. That opens
-a band in which a position has no permissionless cleanup path:
-`clean_bad_debt` will not admit it, and `force_socialize_bad_debt` is
-owner-only.
-
-The documented lever for a separate listing problem is to raise that same
-floor. The two controls therefore pull against each other.
-
-### Governance actions are not observable at the governance contract
-
-`contracts/governance/src/events.rs` defines two events. Both are one-time
-deploy events. No event is published for `propose`, `execute`, `execute_self`,
-`cancel`, `propose_canceller_reset`, a role grant, a role revoke, or any
-immediate-path action.
-
-The controller does emit typed events for the configuration changes it
-receives, so an operation that lands on the controller is still visible. Two
-things are not:
-
-- **A role grant or revoke produces no event at all.** `GrantGovRole` and
-  `RevokeGovRole` execute against governance storage. An address that gains
-  GUARDIAN or ORACLE is invisible to event-based monitoring.
-- **The two execution paths are indistinguishable.** Nothing on-chain
-  separates "executed after the full delay" from "committed through the
-  immediate path".
-
-This affects the one contract that holds every other contract's admin key.
-Monitoring must read governance storage directly. It cannot rely on events.
-
-### Risk views are not flash-guarded
-
-`get_health_factor` and `is_liquidatable` do not call
-`require_not_flash_loaning`. They report mid-transaction state during a
-`flash_position` callback. This is a composability risk for any external
-protocol that reads these views inside a transaction it does not control. It is
-not a risk to this protocol's own accounting, because every mutating path
-re-derives its own state.
-
-### The DeFindex adapter has no rescue path
-
-The adapter exposes `asset`, `deposit`, `harvest`, `balance`, and `withdraw`.
-It has no owner and no admin surface. There is no route to recover an asset
-that becomes stranded in it.
-
-### Flash position pays no origination fee
-
-`multiply` charges a strategy origination fee. `flash_position` reaches the same
-end state and charges nothing. The asymmetry is declared in the contract
-documentation and violates no invariant. It is recorded because the economic
-consequence is not written down elsewhere: if the two endpoints are
-interchangeable for a borrower, the origination fee is optional in practice.
-Since 2026-09 `flash_position` also honours `is_flashloanable` on the debt
-market, unlike `multiply`. A market that disables flash loans can still be
-levered through the router, never through a caller-chosen receiver.
-
-### An approved Blend pool can be upgraded by its own owner
-
-Approval is a governance decision. An approved pool that its own owner later
-upgrades stays trusted until governance removes it.
-
-### Single-source price keys trust one operator completely
-
-Enumerate every price key that is configured with one source. The independence
-policy and the dual-source tolerance check only apply when a second source
-exists.
-
-## Availability trade-offs
-
-The protocol chooses safety over availability in these cases. They are
-intentional. Operators must monitor them.
-
-- A price outage, or one unusable dual-source leg, blocks every
-  valuation-dependent action, **including liquidation**.
-- The XOXNO oracle publishes no aggregate below its threshold, so signer
-  downtime reads as a price outage.
-- A global pause blocks new risk but keeps exits open. `supply` and `borrow`
-  carry `#[when_not_paused]`. `withdraw`, `repay`, `liquidate`,
-  `clean_bad_debt`, `recapitalize`, and `renew_account` do not (INV-HALT-01).
-- A per-listing paused flag **does** close exits for that listing, and can
-  block its liquidation leg (INV-HALT-02). The listing flag is the stronger
-  control, not the global pause.
-- Pause is immediate. Unpause is reachable only through the timelocked
-  `Unpause` operation. This asymmetry is deliberate and is the safe direction,
-  but it means a mistaken pause costs a full delay to undo.
-- `require_utilization_below_max` and `require_liquidation_buffer` can block a
-  borrow or a withdrawal even when the account is healthy.
-- Bounded position counts and route payload limits can reject a valid large
-  action.
-- An external token, router, oracle, or vault failure can revert a transaction.
-- The flash path asserts an exact balance. An asset that does not deliver
-  exactly can never be flash-loaned. Never set `is_flashloanable` on such an
-  asset.
-- Storage archival of an account entry or the NFT `Owner` entry blocks access
-  until the entry is restored.
-- Position NFT ids are `u32`, sequential, and never reused. Every account
-  creation consumes one, including a one-stroop supply followed by a full
-  withdraw. Exhaustion stops new-account creation while existing accounts keep
-  working. The cost is very high, but the resource is finite and public; the
-  exporter should publish the next id.
-- A whale market can overflow the ray-value ceiling before the index cap
-  engages. At one billion whole tokens the headroom is 170x of index growth.
-  On the mainnet XLM curve at 98 percent utilization the fourth yearly accrual
-  overflows; a book left untouched at 50 percent utilization drifts across the
-  optimal point and runs away within twenty years. Every verb accrues first,
-  so the market then freezes, exits included. Pinned by
-  `tests/test-harness/tests/controller/large_positions_and_long_horizons.rs`.
-  Governance keeps the product of supply cap and plausible index growth below
-  the ceiling per market.
-- Accrual cadence is not neutral. Utilization is value-based and debt
-  compounds faster than supply, so a finer `update_indexes` cadence re-reads a
-  higher utilization and realises a higher borrow rate. At 90 percent
-  utilization on a 200 percent rate cap, daily accrual ends a year about a
-  quarter above one-shot accrual; the index never exceeds continuous
-  compounding at the rate cap. Any caller may force the finer cadence. Pinned
-  by `tests/test-harness/tests/pool/accrual_partition_bound.rs`.
-
-## Accepted residual risks
-
-- Governance and role keys stay high-value operational trust.
-- Route quality is not verified on-chain. A valid but poor route can lose value
-  inside the account's permitted risk envelope.
-- Bad debt socializes pro-rata over **current** suppliers. A supplier that
-  exits before a write-down avoids its share. Value is conserved, the same exit
-  is available to every supplier at the same moment, and the exit ceiling is
-  bounded by the utilization gate.
-- Same-market seized collateral becomes treasury revenue rather than netting
-  the socialized debt. Value is conserved. The permissionless `recapitalize`
-  path returns treasury value to a market.
-- External oracle sources and token implementations are outside protocol
-  control.
-- Formal models and tests carry explicit assumptions. They do not prove
-  arbitrary cross-contract behaviour or a deployed configuration.
-
-## Audit priorities
-
-1. Verify deployment ownership, roles, delay, and active configuration.
-   Governance deploys the controller and the price aggregator itself, and the
-   controller deploys the pool, so those pointers are wired atomically. The
-   standalone deploys are not: check the router owner and the XOXNO oracle
-   owner against the intended addresses, and check the DeFindex adapter's
-   constructor arguments, because it binds its controller, hub, and spoke at
-   construction and has no owner to correct them later.
-2. Close the three deployment gates in [Known gaps](#known-gaps) before mainnet.
-3. Trace value through every external call to its final accounting entry.
-4. Fuzz arithmetic boundaries, share rounding, and liquidation composition.
-5. Treat a liveness failure as a security finding when it can trap collateral or
-   prevent liquidation under plausible conditions.
-6. Check that a cited control still exists. An invariant can hold while its
-   citation drifts.
+| Spoof.1 | Compromised privileged key acts legitimately as its role; delay, cancellation, restricted roles, and custody are the controls. |
+| Spoof.2 | Wrong deployment identity; constructors/helpers wire authority atomically, but standalone arguments and later changes require verification. |
+| Spoof.3 | Former/unlisted delegate; account grant, stamped owner, and active manager checks apply, including return-to-owner revival. |
+| Spoof.4 | Non-contract flash receiver; contract-address validation and path-specific repayment/finalization apply. |
+| Spoof.5 | Impersonated vault; authenticated vault addresses key separate adapter accounts. |
+| Tamper.1 | Manipulated/unavailable prices; freshness, sanity, and configured source agreement do not establish source honesty. |
+| Tamper.2 | Dishonest signer subset; median uses the fresh accepted cluster, whose honest participation remains a trust assumption. |
+| Tamper.3 | Non-standard tokens/donations; measured receipts and separate books do not neutralize arbitrary token semantics. |
+| Tamper.4 | Malicious router/venue; measured input/output bounds apply, while payload minimum output remains router-enforced. |
+| Tamper.5 | Callback reentry/intermediate state; guards and host rules protect reachable paths, not hypothetical EVM behavior. |
+| Tamper.6 | Accrual manipulation/extremes; bounded indexes and chunks coexist with cadence and value-overflow risks. |
+| Tamper.7 | Malicious upgrade; core upgrades are delayed, including price aggregator; standalone owners retain their own upgrade policy. |
+| Tamper.8 | Hostile Blend integration; allowlisting and measured settlement do not freeze an approved pool's code. |
+| Tamper.9 | False feed-nature label bypasses intended smoothing selection; nature is operator-asserted. |
+| Tamper.10 | Upstream configuration changes after admission; structural checks and runtime age limits remain, but admission assumptions need monitoring. |
+| Repudiate.1 | Denied admin actions; inherited governance lifecycle/role/ownership events exist, but application-event coverage is not universal. |
+| Repudiate.2 | Misread user/liquidation actions; use measured repayment and distinct gross/net batch tags, not one-batch assumptions. |
+| Repudiate.3 | Oracle application-event gaps; submission/configuration lack dedicated events, while inherited ownership events remain available. |
+| Info.1 | Public positions, prices, and governance state; confidentiality is not promised. |
+| Info.2 | Liquidation competition and MEV; the bonus curve bounds terms, not ordering or liquidator profit. |
+| Info.3 | Visible pending governance changes allow anticipatory positioning; observability is intentional. |
+| Info.4 | Invalid quotes may contain prices; use validity flags or strict reads. |
+| DoS.1 | Price outage blocks valuation-dependent actions, including liquidation; fail-closed availability cost. |
+| DoS.2 | Selected paused debt or no_seize collateral blocks liquidation; distinct flag policies matter. |
+| DoS.3 | False-alarm pause needs delayed reopening; emergency response is asymmetric. |
+| DoS.4 | Lost governance keys; proposer safeguards and owner-dependent canceller recovery do not restore a lost owner. |
+| DoS.5 | Resource exhaustion; limits do not substitute for real-WASM maximum-case measurements. |
+| DoS.6 | Archived storage blocks access until restoration; controller renewal is owner-authorized. |
+| DoS.7 | Signer liveness loss prevents new aggregates; a prior aggregate can remain usable until stale. |
+| DoS.8 | Cash/utilization/cap limits reject otherwise desired actions; zero caps admit no new exposure. |
+| DoS.9 | Dust and zero-share movements; rejection/floors reduce griefing but do not guarantee liquidation profitability. |
+| DoS.10 | Router/oracle ownership renunciation disables administration; existing oracle signers may continue, but future repair powers are lost. |
+| Elevation.1 | Governance-owner compromise; actual configured delay and approved replacement code determine exposure. |
+| Elevation.2 | Guardian attempts reopening; immediate flag ratchets reject it, while delayed full rewrites can clear flags. |
+| Elevation.3 | Role overlap/cancellation abuse; separation exempts owner and recovery has its own rules. |
+| Elevation.4 | Delegate exceeds mandate; owner-only grant management and delayed global manager deactivation limit eligibility, not economic intent. |
+| Elevation.5 | Third-party creation of foreign risk; supply top-ups require existing positions, while account creation belongs to its caller. |
+| Elevation.6 | Router owner upgrades/sweeps/changes fee rights; no lending-governance router upgrade route supplies a delay. |
+| Elevation.7 | Oracle owner changes code/signers; independent source comparison and bands constrain accepted prices, not all manipulation. |
+| Elevation.8 | Test powers in release WASM; feature and artifact checks cover only their actual build/export scope. |
+| Elevation.9 | Vault abuses adapter authority; current adapter exposes supply/withdrawal, not borrowing or other vault accounts. |
+| Elevation.10 | ORACLE role narrows band to exclude market price; immediate fail-closed denial of service remains possible. |
+
+## Review triggers and evidence limits
+
+Recheck these boundaries after upgrades, new entrypoints/providers/venues,
+authorization changes, storage or SDK changes, and governance/configuration
+updates. Observe actual events plus transactions/state; no event-only model
+covers all administration. Verify source-matched artifacts and deployed roles.
+
+Historical native tests, mocked authorization, formal rules, and successful
+static checks are different evidence. None alone proves arbitrary external
+behavior, maximum network budgets, or live deployment correctness. The
+[formal-model notes](certora-sunbeam-prover-tuning.md) state those boundaries.

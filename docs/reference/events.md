@@ -1,610 +1,154 @@
 # Event reference
 
-The protocol publishes Soroban contract events from five of its eight contracts. Every event is a Rust struct annotated with `#[contractevent]`; the annotation fixes the event's topic vector, and the struct's fields become the event's data payload. A decoder reads the topics to route the event and then reads the data payload according to the struct's `data_format`. This page lists all **27** events, their topics, their data format, every field with its numeric scale, and the entrypoints that emit them.
+The eight protocol contracts define **28 custom event types**: controller 21, pool 3, governance 2, price aggregator 1, DeFindex adapter 1. NFT, swap aggregator and XOXNO oracle have no custom definitions; inherited OpenZeppelin events remain part of their observable surface. Decode by emitting contract **and** topic vector.
 
-## Reading these tables
+## Wire rules and units
 
-**Topics.** The `topics = [...]` list in `#[contractevent]` is the literal topic vector. Each entry is a Soroban `Symbol`. No event in this codebase promotes a struct field into the topic vector, so the topic vector is a constant per event type and carries no data. Match on it exactly, in order.
+- Explicit custom topics below are ordered Soroban Symbols. Custom events have no dynamic topic fields. Inherited events do, as listed separately.
+- `map` payloads use Symbol field-name keys sorted alphabetically. `vec` uses declaration order. `single-value` is the field value itself without a wrapper. Named contract structs are maps; tuple structs are vectors.
+- Only integer enums with explicit discriminants encode as u32 here (`PositionAction`, `EventPositionMode`). Ordinary enum variants encode as `[Symbol(variant), payload...]`, including unit variants such as `["Market"]`. `Option<T>` is T for Some and Void for None.
+- `i128` amounts/fees/cash use raw token decimals unless marked otherwise. `*_wad` and sanity/factor bounds use 10^18; indexes, annual rates, utilization and share balances use 10^27; risk parameters and fees marked BPS use 10,000. Pool timestamps use milliseconds. Oracle staleness and observation timestamps use seconds. Ledger deadlines are sequence numbers.
+- For shares S, RAY index I and token decimals d, underlying RAY is the protocol-rounded `S * I / RAY`, then raw token units rescale by `10^(27-d)` with the path’s floor/ceil rounding. Multiplying shares by index alone does **not** produce raw token units. See [formulas](formulas.md).
 
-**Data format.** The `#[contractevent]` macro supports three payload encodings:
+## Custom events
 
-- `map` (the default when `data_format` is not given) — the payload is an `ScMap`. Keys are the field names as `Symbol`s, **sorted alphabetically by field name**, not in declaration order. Read fields by key.
-- `vec` — the payload is an `ScVec`. Entries are the fields in **declaration order**. Read fields by position.
-- `single-value` — the struct has exactly one data field, and the payload *is* that field's value, with no wrapping map or vector.
+The field list gives exact Rust types; map key order is alphabetic even when the source declares another order. Nested types are defined below.
 
-Every event below states its format. Only `UpdatePositionBatchEvent` uses `vec`; only `PoolMarketStateBatchEvent` and `PoolMarketParamsBatchEvent` use `single-value`; everything else uses the default `map`.
+| Event / ordered topics | Format and fields | Emission / interpretation |
+| --- | --- | --- |
+| `AccountDelegateEvent`<br>`["account", "delegate"]` | map: `account_id: u64, owner: Address, delegate: Address, granted: bool` | add_delegate/remove_delegate, only when list changes. |
+| `CleanBadDebtEvent`<br>`["debt", "bad_debt"]` | map: `account_id: u64, total_borrow_usd_wad: i128, total_collateral_usd_wad: i128` | clean_bad_debt, force_socialize_bad_debt or liquidation residual cleanup. Values are before cleanup; no cleanup position batch. NFT Burn and pool snapshots still emit. |
+| `UpdatePositionBatchEvent`<br>`["position", "batch_update"]` | vec: `account_id: u64, account_attributes: EventAccountAttributes, deposits: Vec<EventDepositDelta>, borrows: Vec<EventBorrowDelta>` | Supply/borrow/withdraw/repay/liquidation, all account strategies including flash_position, and threshold refresh. Suppressed when both leg vectors are empty. |
+| `LiquidationEvent`<br>`["position", "liquidation"]` | map: `liquidator: Address, account_id: u64, repaid_usd_wad: i128, bonus_bps: i128` | liquidate: repayment USD is measured and capped per planned leg; bonus is BPS. Seizure and fee figures are in position batches. |
+| `FlashLoanEvent`<br>`["position", "flash_loan"]` | map: `hub_id: u32, asset: Address, receiver: Address, caller: Address, amount: i128, fee: i128` | flash_loan: requested principal and charged fee, token units. |
+| `FlashPositionEvent`<br>`["position", "flash_position"]` | map: `account_id: u64, hub_id: u32, asset: Address, receiver: Address, caller: Address, amount: i128, amount_received: i128, fee: i128` | flash_position: requested amount, measured receiver receipt; fee is zero. |
+| `ClaimRevenueEvent`<br>`["revenue", "claim"]` | map: `hub_id: u32, asset: Address, caller: Address, accumulator: Address, amount: i128` | claim_revenue: positive measured controller receipt sent onward to accumulator. Does not measure accumulator receipt. |
+| `InitialMultiplyPaymentEvent`<br>`["strategy", "initial_payment"]` | map: `token: Address, amount: i128, account_id: u64` | multiply with initial payment: requested original payment before conversion, not measured receipt. |
+| `BlendMigrationEvent`<br>`["strategy", "blend_migration"]` | map: `account_id: u64, blend_pool: Address, collateral_count: u32, supply_count: u32, debt_count: u32` | migrate_from_blend: completed input entry counts. |
+| `UpdateSpokeEvent`<br>`["config", "spoke"]` | map: `spoke: EventSpoke` | add_spoke, remove_spoke, set_spoke_liquidation_curve: post-change snapshot. |
+| `UpdateSpokeAssetEvent`<br>`["config", "spoke_asset"]` | map: `asset: Address, config: SpokeAssetConfig, spoke_id: u32, hub_id: u32` | add_asset_to_spoke, edit_asset_in_spoke, set_spoke_asset_flags: full post-change listing. |
+| `RemoveSpokeAssetEvent`<br>`["config", "remove_spoke_asset"]` | map: `asset: Address, spoke_id: u32, hub_id: u32` | remove_asset_from_spoke after zero-usage check. |
+| `ApproveBlendPoolEvent`<br>`["config", "approve_blend_pool"]` | map: `pool: Address, approved: bool` | approve_blend_pool/revoke_blend_pool; approval bool. |
+| `UpdateSwapAggregatorEvent`<br>`["config", "swap_aggregator"]` | map: `swap_aggregator: Address` | set_swap_aggregator. |
+| `UpdatePriceAggregatorEvent`<br>`["config", "price_aggregator"]` | map: `price_aggregator: Address` | set_price_aggregator, including governance deployment wiring. |
+| `UpdateAccumulatorEvent`<br>`["config", "accumulator"]` | map: `accumulator: Address` | set_accumulator. |
+| `UpdatePositionLimitsEvent`<br>`["config", "position_limits"]` | map: `max_supply_positions: u32, max_borrow_positions: u32` | set_position_limits and controller constructor. |
+| `UpdateMinBorrowCollateralEvent`<br>`["config", "min_borrow_collateral"]` | map: `min_borrow_collateral_usd_wad: i128` | set_min_borrow_collateral_usd and controller constructor: LTV-weighted USD floor. |
+| `CreateHubEvent`<br>`["config", "hub"]` | map: `hub_id: u32` | create_hub. |
+| `CreateMarketEvent`<br>`["market", "create"]` | map: `hub_id: u32, base_asset: Address, max_borrow_rate: i128, base_borrow_rate: i128, slope1: i128, slope2: i128, slope3: i128, mid_utilization: i128, optimal_utilization: i128, max_utilization: i128, reserve_factor: u32, market_address: Address` | create_liquidity_pool: flattened curve fields; omits decimals/flash settings. |
+| `UpdateMarketParamsEvent`<br>`["market", "params_update"]` | map: `hub_id: u32, asset: Address, max_borrow_rate: i128, base_borrow_rate: i128, slope1: i128, slope2: i128, slope3: i128, mid_utilization: i128, optimal_utilization: i128, max_utilization: i128, reserve_factor: u32` | upgrade_liquidity_pool_params: flattened curve fields; omits flash settings. |
+| `PoolMarketStateBatchEvent`<br>`["market", "batch_state_update"]` | single-value: `updates: Vec<PoolMarketStateEvent>` | Pool supply/borrow/withdraw/repay/seize_positions, update_indexes, recapitalize, flash_loan, create_strategy, net_settle, claim_revenue. Suppressed for empty snapshots. |
+| `PoolMarketParamsBatchEvent`<br>`["market", "batch_params_update"]` | single-value: `updates: Vec<PoolMarketParamsEvent>` | create_market/update_params: one full parameter row. |
+| `StrategyFeeEvent`<br>`["strategy", "fee"]` | map: `hub_id: u32, asset: Address, amount: i128, fee: i128, amount_sent: i128` | create_strategy only when fee != 0; amount_sent = requested amount minus fee, not receiver receipt. |
+| `DeployControllerEvent`<br>`["governance", "deploy_controller"]` | map: `controller: Address, wasm_hash: BytesN<32>` | governance deploy_controller. |
+| `DeployPriceAggregatorEvent`<br>`["governance", "deploy_price_aggregator"]` | map: `price_aggregator: Address, wasm_hash: BytesN<32>` | governance deploy_price_aggregator. |
+| `UpdateAssetOracleEvent`<br>`["config", "asset_oracle"]` | map: `key: PriceKey, oracle: AssetOracle` | set_oracle, set_sanity_band, set_tolerance: full stored oracle snapshot. |
+| `HarvestEvent`<br>`["strategy", "harvest"]` | map: `from: Address, amount: i128, price_per_share: i128` | harvest: from authorizes, amount = 0; supply index floor-rescaled to 12 decimals. |
 
-**Nested types.** A `#[contracttype]` struct with **named** fields encodes as a map (keys sorted alphabetically). A `#[contracttype]` struct with **unnamed** fields (a tuple struct) encodes as a vector in declaration order. A `#[contracttype]` enum whose variants are all unit variants encodes as its `u32` discriminant.
+### Position batches
 
-**Scales and units.** Numeric fields are fixed-point integers. Never assume a scale; use the one in the table.
+`UpdatePositionBatchEvent` is exactly `[account_id, account_attributes, deposits, borrows]`; the last two entries are vectors of tuple records. `scaled_amount` is the resulting share balance, while `amount` is this account’s movement in raw token units. Risk stamps in deposit records are BPS.
 
-| Convention | Meaning |
+| Tuple type | Ordered elements with types |
 | --- | --- |
-| raw asset units | Integer in the token's own decimals. Divide by `10^asset_decimals` to get a human amount. The decimals are not carried in the event; read them from the token contract or from `CreateMarketEvent`'s market. |
-| RAY (1e27) | `common/src/constants/shared.rs:5` — `RAY = 1_000_000_000_000_000_000_000_000_000`. Used for interest indexes, interest rates, utilization points, and scaled (share) balances. |
-| WAD (1e18) | `common/src/constants/shared.rs:8` — `WAD = 1_000_000_000_000_000_000`. Used for USD values, health factors, and oracle sanity bounds. |
-| bps | Basis points, `BPS = 10_000` (`common/src/constants/shared.rs:11`). 10000 = 100%. |
-| ms | Milliseconds since the Unix epoch. Pool market timestamps are milliseconds, not seconds: `contracts/pool/src/time.rs:15` multiplies the Soroban ledger timestamp (seconds) by `MS_PER_SECOND`. |
-| s | Seconds. Used only for oracle staleness windows. |
+| EventAccountAttributes | `owner: Address, spoke_id: u32, mode: EventPositionMode` |
+| EventDepositDelta | `action: PositionAction, hub_id: u32, asset: Address, scaled_amount: i128, index_ray: i128, amount: i128, liquidation_threshold: u32, liquidation_bonus: u32, loan_to_value: u32, liquidation_fees: u32` |
+| EventBorrowDelta | `action: PositionAction, hub_id: u32, asset: Address, scaled_amount: i128, index_ray: i128, amount: i128` |
 
-**Scaled vs actual amounts.** A "scaled amount" is a share balance in RAY. Multiply it by the matching RAY index and divide by RAY to get the actual asset amount in raw asset units. The events that carry a scaled amount always carry the index needed to convert it in the same record.
+| PositionAction u32 | Meaning |
+| --- | --- |
+| `Supply = 0` | ordinary supply and strategy deposits |
+| `Borrow = 1` | ordinary debt mint |
+| `Withdraw = 2` | ordinary collateral withdrawal |
+| `Repay = 3` | ordinary debt repayment |
+| `LiqRepay = 4` | liquidated account repayment |
+| `LiqSeize = 5` | gross collateral debit, both seize modes |
+| `Multiply = 6` | multiply debt mint |
+| `ParamUpd = 7` | risk-parameter rewrite; no token movement |
+| `SwDebtR = 8` | both new borrow and old repay in swap_debt |
+| `SwColWd = 9` | swap_collateral withdrawal |
+| `RpColWd = 10` | repay_debt_with_collateral withdrawal |
+| `RpColR = 11` | repay from converted collateral |
+| `CloseWd = 12` | remaining collateral withdrawn on close |
+| `Migrate = 13` | Blend migration debt/repayment legs |
+| `RpColNet = 14` | same-market net settlement, no cash movement |
+| `LiqCredit = 15` | net supply credit to seizure receiver |
+| `FlashPos = 16` | flash_position debt mint |
 
-## PositionAction values
+`EventPositionMode` is u32: None=0 (internal Normal), Multiply=1, Long=2, Short=3.
 
-`PositionAction` is defined at `contracts/controller/src/events/mod.rs:54`. It is a unit-only `#[contracttype]` enum with `#[repr(u32)]`, so it appears on the wire as a plain `u32`. It tags each leg inside `UpdatePositionBatchEvent`.
+Liquidation emits LiquidationEvent, target position batch, optional Credit receiver batch, then optional bad-debt cleanup. These are controller-event ordering rules; pool/NFT/token events may occur between them. Receiver batch is supply-only and omits zero-net credits. `LiqSeize.amount` is gross; `LiqCredit.amount` is net, both raw token units even in Credit mode. Their difference can include conversion rounding; compute exact share fee from share deltas and the shared seizure math.
 
-| Variant | Value | Meaning |
-| --- | --- | --- |
-| `Supply` | 0 | Collateral added by a plain supply, or by the deposit leg of a strategy. Set at `contracts/controller/src/positions/supply.rs:347`. |
-| `Borrow` | 1 | Debt taken by a plain borrow. Set at `contracts/controller/src/positions/debt.rs:149`. |
-| `Withdraw` | 2 | Collateral removed by a plain withdraw. Set at `contracts/controller/src/positions/supply.rs:227`. |
-| `Repay` | 3 | Debt repaid by a plain repay. Set at `contracts/controller/src/positions/debt.rs:98`. |
-| `LiqRepay` | 4 | Debt retired on the liquidated account during a liquidation. Set at `contracts/controller/src/positions/liquidation/apply.rs:78`. |
-| `LiqSeize` | 5 | Collateral debited from the liquidated account. **Gross of the protocol fee**, in both seize modes. Set at `contracts/controller/src/positions/liquidation/apply.rs:117` and `:188`. |
-| `Multiply` | 6 | Debt borrowed by the leverage leg of `multiply`. Set at `contracts/controller/src/strategies/multiply.rs:81`. |
-| `ParamUpd` | 7 | Supply position rewritten by a risk-parameter refresh; no funds move. Set at `contracts/controller/src/risk/params.rs`. |
-| `SwDebtR` | 8 | Both legs of `swap_debt`: the new borrow and the repay of the old debt. Set at `contracts/controller/src/strategies/swap_debt.rs:66` and `:88`. |
-| `SwColWd` | 9 | Collateral withdrawn to be swapped by `swap_collateral`. Set at `contracts/controller/src/strategies/swap_collateral.rs:67`. |
-| `RpColWd` | 10 | Collateral withdrawn to be swapped by `repay_debt_with_collateral`. Set at `contracts/controller/src/strategies/repay_debt_with_collateral.rs:116`. |
-| `RpColR` | 11 | Debt repaid from the swap proceeds in `repay_debt_with_collateral`. Set at `contracts/controller/src/strategies/repay_debt_with_collateral.rs:128`. |
-| `CloseWd` | 12 | Full withdrawal of a collateral position when a position is closed out. Set at `contracts/controller/src/strategies/legs.rs:137`. |
-| `Migrate` | 13 | Position moved in from an external Blend pool. Set at `contracts/controller/src/strategies/migrate_blend.rs:170` and `:280`. |
-| `RpColNet` | 14 | Collateral netted directly against same-asset debt, with no swap and no token movement. Set at `contracts/controller/src/strategies/repay_debt_with_collateral.rs:70`. |
-| `LiqCredit` | 15 | Collateral credited to a share-credit liquidator's receiving account. **Net of the protocol fee.** Set at `contracts/controller/src/positions/liquidation/apply.rs:274`. |
-| `FlashPos` | 16 | Strategy-debt mint for `flash_position`. Set at `contracts/controller/src/strategies/flash_position.rs:275`. |
+`Credit(0)` emits the inherited NFT Mint when it creates the account. There is no dedicated controller AccountCreated event. Use NFT lifecycle events and position batches; a batch need not exist when no nonzero deltas remain. Account deletion burns its NFT; plain repay does not universally delete an emptied account.
 
-`LiqSeize` and `LiqCredit` are deliberately distinct. In share-credit mode, the protocol fee equals `LiqSeize.amount - LiqCredit.amount`. In transfer mode the fee is withheld from the outbound token transfer and there is no `LiqCredit` leg. Reading a `LiqSeize` amount as the liquidator's proceeds overstates them by the fee.
+### Market and configuration records
 
-## Shared payload types
+`PoolMarketStateBatchEvent` data is directly `Vec<PoolMarketStateEvent>`; each row is `[hub_id: u32, asset: Address, timestamp: u64, supply_index: i128, borrow_index: i128, cash: i128, supplied: i128, borrowed: i128, revenue: i128]`. Timestamp is ms, cash is raw token units, indexes and supplied/borrowed/revenue shares are RAY. Cash is the market’s book allocation, not the pool address’s gross token balance. Revenue is **outstanding unclaimed supply shares**, reduced by claims.
 
-These `#[contracttype]` types are not events themselves. They appear as fields inside events, so a decoder needs their wire shape.
+`PoolMarketParamsBatchEvent` data is directly a vector of named maps `{hub_id: u32, asset: Address, params: MarketParamsRaw}`. Decimals omitted from controller market events are available here or from pool sync data.
 
-### `EventPositionMode`
+| Named map type | Complete fields and units |
+| --- | --- |
+| `EventSpoke` | `spoke_id: u32, is_deprecated: bool, liquidation_target_hf_wad: i128, hf_for_max_bonus_wad: i128, liquidation_bonus_factor_bps: u32` |
+| `SpokeAssetConfig` | `is_collateralizable: bool, is_borrowable: bool, paused: bool, frozen: bool, no_seize: bool, loan_to_value: u32, liquidation_threshold: u32, liquidation_bonus: u32, liquidation_fees: u32, supply_cap: i128, borrow_cap: i128` |
+| `MarketParamsRaw` | `max_borrow_rate: i128, base_borrow_rate: i128, slope1: i128, slope2: i128, slope3: i128, mid_utilization: i128, optimal_utilization: i128, max_utilization: i128, reserve_factor: u32, is_flashloanable: bool, flashloan_fee: u32, asset_id: Address, asset_decimals: u32` |
+| `AssetOracle` | `asset_decimals: u32, max_price_stale_seconds: u64, sources: Vec<PriceSource>, tolerance: OracleTolerance, independence: IndependencePolicy, min_sanity_price_wad: i128, max_sanity_price_wad: i128` |
+| `ReflectorFeedRef` | `contract: Address, asset: OracleAssetRef, read_mode: OracleReadMode` |
+| `MultiFeedRef` | `contract: Address, feed_id: String, nature: FeedNature` |
+| `FeedSource` | `provider: ProviderRef, decimals: u32, max_stale_seconds: u64` |
+| `ScaledSource` | `factor: FeedSource, quote: PriceKey, min_factor_wad: i128, max_factor_wad: i128` |
+| `AquariusLpSource` | `pool: Address, token_a: Address, token_b: Address, key_a: PriceKey, key_b: PriceKey, reserve_a_decimals: u32, reserve_b_decimals: u32, min_pool_value_wad: i128` |
+| `OracleTolerance` | `upper_ratio_bps: u32, lower_ratio_bps: u32` |
 
-Defined at `contracts/controller/src/events/mod.rs:15`. Unit-only enum with `#[repr(u32)]`; encodes as a `u32`. It is the wire form of the internal `PositionMode`, with `PositionMode::Normal` mapped to `None`.
+Rate fields `base_borrow_rate`, `max_borrow_rate`, `slope1/2/3` are annual RAY. Slopes are **additive segment increments**: base+slope1 at mid, base+slope1+slope2 at optimal, then slope3 ramps to 100% utilization; max_borrow_rate caps the result. `max_utilization` limits operations, not the third segment’s denominator. Reserve factor/flashloan fee are BPS. Asset decimals are token decimals, not WAD price decimals. Spoke caps are raw token units; position-limit/count fields are counts.
 
-| Variant | Value | Meaning |
-| --- | --- | --- |
-| `None` | 0 | A normal, non-strategy position. |
-| `Multiply` | 1 | A leveraged multiply position. |
-| `Long` | 2 | A long position. |
-| `Short` | 3 | A short position. |
+Spoke `paused` blocks ordinary entry/exit and liquidation repayment; `frozen` only entry; `no_seize` only seizure. Seizure deliberately ignores the other two. `is_deprecated` marks deprecation, with the Credit(0) liquidation receiver exception.
 
-### `EventAccountAttributes`
+### Oracle enum payloads
 
-Defined at `contracts/controller/src/events/mod.rs:39`. A tuple struct, so it encodes as a **3-entry vector in this order**:
+| Type | Exact variant shape |
+| --- | --- |
+| PriceKey | `["Token", Address]`, `["Ref", Symbol]` |
+| PriceSource | `["Feed", FeedSource]`, `["Scaled", ScaledSource]`, `["AquariusLp", AquariusLpSource]`, `["AquariusStableLp", AquariusLpSource]` |
+| ProviderRef | `["Reflector", ReflectorFeedRef]`, `["RedStone", MultiFeedRef]`, `["Xoxno", MultiFeedRef]` |
+| OracleAssetRef | `["Stellar", Address]`, `["Symbol", Symbol]`, `["String", String]` |
+| OracleReadMode | `["Spot"]`, `["Twap", u32]`; Twap is the equal-weight mean of records |
+| FeedNature | `["Market"]`, `["Fundamental"]` |
+| IndependencePolicy | `["RequireDisjoint"]`, `["AllowShared", Vec<Address>]` |
 
-| Index | Type | Scale/unit | Meaning |
+All `*_seconds` fields are seconds; `*_wad` prices/factors are WAD. Feed `decimals` describes provider output; reserve/asset decimals describe token amounts. OracleTolerance ratios use BPS; only upper ratio is consulted at read time, with lower reciprocal validated at configuration.
+
+## Inherited events
+
+OpenZeppelin revision `fbfde388e1b72afa93d6b1c922067879b20e81db` and Soroban SDK 27.0.6 determine these shapes. Topic names default to snake_case struct names. All payloads here are maps, including empty maps for topic-only events. Angle-bracket entries below are dynamic topic values.
+
+| Emitter / event | Ordered topics | Map fields | Trigger |
 | --- | --- | --- | --- |
-| 0 | `Address` | — | The account's owner. |
-| 1 | `u32` | — | The spoke id the account belongs to. |
-| 2 | `EventPositionMode` | `u32` enum | The account's position mode. |
-
-### `EventDepositDelta`
-
-Defined at `contracts/controller/src/events/mod.rs:102`. A tuple struct, so it encodes as a **10-entry vector in this order**. Built by `EventDepositDelta::new` at `contracts/controller/src/events/mod.rs:119`.
-
-| Index | Field | Type | Scale/unit | Meaning |
-| --- | --- | --- | --- | --- |
-| 0 | action | `PositionAction` | `u32` enum | Which operation produced this supply-side leg. |
-| 1 | hub_id | `u32` | — | The hub the asset belongs to. |
-| 2 | asset | `Address` | — | The asset's token contract. |
-| 3 | scaled_amount | `i128` | RAY (1e27) | The account's supply position **after** the change, as a scaled share balance. |
-| 4 | index_ray | `i128` | RAY (1e27) | The market's supply index at the moment of the change. Multiply `scaled_amount` by this and divide by RAY for the actual balance. |
-| 5 | amount | `i128` | raw asset units | The size of this account's own movement. Never a counterparty's receipt. |
-| 6 | liquidation_threshold | `u32` | bps | The position's stamped liquidation threshold. |
-| 7 | liquidation_bonus | `u32` | bps | The position's stamped liquidation bonus. |
-| 8 | loan_to_value | `u32` | bps | The position's stamped loan-to-value. |
-| 9 | liquidation_fees | `u32` | bps | The position's stamped protocol liquidation fee. |
-
-Fields 6-9 are the position's risk parameters, read from the stored position and truncated from `i128` to `u32`.
-
-### `EventBorrowDelta`
-
-Defined at `contracts/controller/src/events/mod.rs:146`. A tuple struct, so it encodes as a **6-entry vector in this order**. Built by `EventBorrowDelta::new` at `contracts/controller/src/events/mod.rs:158`.
-
-| Index | Field | Type | Scale/unit | Meaning |
-| --- | --- | --- | --- | --- |
-| 0 | action | `PositionAction` | `u32` enum | Which operation produced this borrow-side leg. |
-| 1 | hub_id | `u32` | — | The hub the asset belongs to. |
-| 2 | asset | `Address` | — | The asset's token contract. |
-| 3 | scaled_amount | `i128` | RAY (1e27) | The account's debt position **after** the change, as a scaled share balance. |
-| 4 | index_ray | `i128` | RAY (1e27) | The market's borrow index at the moment of the change. |
-| 5 | amount | `i128` | raw asset units | The size of this account's own debt movement. |
-
-### `EventSpoke`
-
-Defined at `contracts/controller/src/events/config.rs:13`. A named-field struct, so it encodes as a map with keys sorted alphabetically.
-
-| Field | Type | Scale/unit | Meaning |
-| --- | --- | --- | --- |
-| spoke_id | `u32` | — | The spoke this snapshot describes. |
-| is_deprecated | `bool` | — | True when the spoke accepts no new positions. |
-| liquidation_target_hf_wad | `i128` | WAD (1e18) | The health factor a liquidation aims to restore the account to. |
-| hf_for_max_bonus_wad | `i128` | WAD (1e18) | The health factor at or below which the liquidation bonus is maximal. |
-| liquidation_bonus_factor_bps | `u32` | bps | Scaling factor applied to the liquidation bonus curve. |
-
-### `SpokeAssetConfig`
-
-Defined at `common/src/types/controller.rs:111`. Named-field struct; encodes as a map with alphabetically sorted keys.
-
-| Field | Type | Scale/unit | Meaning |
-| --- | --- | --- | --- |
-| is_collateralizable | `bool` | — | True when the asset may be used as collateral in this spoke. |
-| is_borrowable | `bool` | — | True when the asset may be borrowed in this spoke. |
-| paused | `bool` | — | True blocks every user verb on the asset. |
-| frozen | `bool` | — | True blocks entry (supply, borrow) but still allows exit. |
-| no_seize | `bool` | — | True blocks only the liquidation seizure leg for this asset. |
-| loan_to_value | `u32` | bps | Maximum borrowing power granted per unit of this collateral. |
-| liquidation_threshold | `u32` | bps | Collateral ratio at which the position becomes liquidatable. |
-| liquidation_bonus | `u32` | bps | Base discount a liquidator receives on this collateral. |
-| liquidation_fees | `u32` | bps | Share of the liquidation bonus taken by the protocol. |
-| supply_cap | `i128` | raw asset units | Maximum total supply of this asset in this spoke. Validated against the asset's decimals at `contracts/controller/src/config/asset.rs:72`. |
-| borrow_cap | `i128` | raw asset units | Maximum total borrow of this asset in this spoke. |
-
-### `MarketParamsRaw`
-
-Defined at `common/src/types/pool.rs:16`. Named-field struct; encodes as a map with alphabetically sorted keys. All rate and utilization fields are RAY-scaled (`MarketParams` converts each one through `Ray::from`, `common/src/types/pool.rs:93`).
-
-| Field | Type | Scale/unit | Meaning |
-| --- | --- | --- | --- |
-| max_borrow_rate | `i128` | RAY (1e27) | Borrow rate at maximum utilization; the top of the curve. |
-| base_borrow_rate | `i128` | RAY (1e27) | Borrow rate at zero utilization. |
-| slope1 | `i128` | RAY (1e27) | Rate at the mid utilization breakpoint. |
-| slope2 | `i128` | RAY (1e27) | Rate at the optimal utilization breakpoint. |
-| slope3 | `i128` | RAY (1e27) | Rate at the max utilization breakpoint. |
-| mid_utilization | `i128` | RAY (1e27) | First utilization breakpoint, as a fraction of 1 RAY. |
-| optimal_utilization | `i128` | RAY (1e27) | Second utilization breakpoint. |
-| max_utilization | `i128` | RAY (1e27) | Utilization ceiling enforced after borrows. |
-| reserve_factor | `u32` | bps | Share of borrow interest booked as protocol revenue. Converted with `Bps::from` at `common/src/types/pool.rs:104`. |
-| is_flashloanable | `bool` | — | True when flash loans are enabled for this market. |
-| flashloan_fee | `u32` | bps | Flash-loan fee. Capped at `MAX_FLASHLOAN_FEE_BPS = 500` (`common/src/constants/shared.rs:39`). |
-| asset_id | `Address` | — | The market's underlying token contract. |
-| asset_decimals | `u32` | decimal places | The token's decimals. Use this to interpret every raw-asset-unit amount for this market. |
-
-### `AssetOracle`
-
-Defined at `common/src/types/composable_oracle.rs:186`. Named-field struct; encodes as a map with alphabetically sorted keys.
-
-| Field | Type | Scale/unit | Meaning |
-| --- | --- | --- | --- |
-| asset_decimals | `u32` | decimal places | The decimal scale of the price this oracle returns. |
-| max_price_stale_seconds | `u64` | s | Maximum age a blended price may have before it is rejected. |
-| sources | `Vec<PriceSource>` | — | One or two inputs composed into the price. `PriceSource` (`common/src/types/composable_oracle.rs:152`) is an enum with variants `Feed`, `Scaled`, `AquariusLp`, and `AquariusStableLp`, each carrying a payload. |
-| tolerance | `OracleTolerance` | — | The agreement band checked between two sources. |
-| independence | `IndependencePolicy` | — | Enum at `common/src/types/composable_oracle.rs:174`: `RequireDisjoint`, or `AllowShared(Vec<Address>)`. |
-| min_sanity_price_wad | `i128` | WAD (1e18) | Lower bound a resolved price must fall within. |
-| max_sanity_price_wad | `i128` | WAD (1e18) | Upper bound a resolved price must fall within. |
-
-### `PriceKey`
-
-Defined at `common/src/types/composable_oracle.rs:22`. An enum with payload-carrying variants: `Token(Address)` names a token contract, and `Ref(Symbol)` names a synthetic reference used as an intermediate quote.
-
-## Controller events
-
-The controller defines **20** events, in `contracts/controller/src/events/`.
-
-### `UpdatePositionBatchEvent`
-
-- **Topics:** `["position", "batch_update"]`
-- **Data format:** `vec` — the payload is a 4-entry vector in declaration order, **not** a map.
-- **Defined at:** `contracts/controller/src/events/mod.rs`
-- **Emitted by:** `supply`, `withdraw`, `borrow`, `repay`, `liquidate`, `multiply`, `swap_debt`, `swap_collateral`, `repay_debt_with_collateral`, `migrate_from_blend`, and `update_account_threshold`. Published from `Context::emit_position_batch` at `contracts/controller/src/context.rs`, reached through `finalize_position_flow` (`contracts/controller/src/positions/mod.rs:225`) and from the keeper path at `contracts/controller/src/risk/params.rs`.
-
-| Index | Field | Type | Scale/unit | Meaning |
-| --- | --- | --- | --- | --- |
-| 0 | account_id | `u64` | — | The account whose positions changed. |
-| 1 | account_attributes | `EventAccountAttributes` | 3-entry vector | Owner, spoke id, and position mode. See the shared-types section. |
-| 2 | deposits | `Vec<EventDepositDelta>` | vector of 10-entry vectors | One entry per supply-side leg in this operation. May be empty. |
-| 3 | borrows | `Vec<EventBorrowDelta>` | vector of 6-entry vectors | One entry per borrow-side leg in this operation. May be empty. |
-
-**How to iterate.** Read the payload as a vector. Index 2 is itself a vector; each of its entries is a 10-entry vector matching the `EventDepositDelta` table above, so read element `k` of each inner vector by position. Index 3 is a vector of 6-entry vectors matching the `EventBorrowDelta` table. Both lists may be empty, but the event is not published when both are empty (`contracts/controller/src/context.rs`).
-
-**One operation can publish more than one batch.** A `SeizeMode::Credit` liquidation writes two accounts and publishes the liquidated account's batch first and the receiving account's batch second (`contracts/controller/src/positions/liquidation/mod.rs:125` and `:139`). Key on `account_id`; do not assume one operation yields one batch.
-
-**Three shapes of the receiver's batch that surprise integrators.** It is supply-side only: `borrows` is always empty, because a share credit never touches debt (`record_share_credit_updates`, `contracts/controller/src/positions/liquidation/apply.rs:258`). It omits any collateral leg whose net credit is zero: the loop at `apply.rs:266` skips an entry when the fee consumes the whole seizure, which is reachable on a one-share seizure, so the liquidated account can carry a `LiqSeize` leg with no matching `LiqCredit` leg. And a `SeizeMode::Credit(0)` receiver is created inside the call with no account-creation event (`resolve_seize_receiver`, `contracts/controller/src/positions/liquidation/mod.rs:183`); its existence, owner, spoke, and mode are announced only by that second batch's `account_id` and `account_attributes`.
-
-### `LiquidationEvent`
-
-- **Topics:** `["position", "liquidation"]`
-- **Data format:** `map` (default)
-- **Defined at:** `contracts/controller/src/events/mod.rs`
-- **Emitted by:** `liquidate`, at `contracts/controller/src/positions/liquidation/mod.rs:106`
-
-| Field | Type | Scale/unit | Meaning |
-| --- | --- | --- | --- |
-| liquidator | `Address` | — | The caller performing the liquidation. |
-| account_id | `u64` | — | The account being liquidated. |
-| repaid_usd_wad | `i128` | WAD (1e18) USD | The repayment the pool actually received, valued after the tokens moved: net of any refunded overpayment and net of any shortfall from an under-delivering debt token. It matches the debt actually retired, which also appears as the `LiqRepay` legs of the accompanying batch. |
-| bonus_bps | `i128` | bps | The liquidation bonus applied. Sourced from `repayment.bonus.raw()`, a `Bps` value (`contracts/controller/src/positions/liquidation/math.rs:78`). |
-
-This event carries no seizure or protocol-fee figure. Those live in the accompanying batch's `LiqSeize` legs (gross of fee) and, in share-credit mode, its `LiqCredit` legs (net of fee).
-
-### `FlashLoanEvent`
-
-- **Topics:** `["position", "flash_loan"]`
-- **Data format:** `map` (default)
-- **Defined at:** `contracts/controller/src/events/mod.rs`
-- **Emitted by:** `flash_loan`, at `contracts/controller/src/strategies/flash_loan.rs:39`
-
-| Field | Type | Scale/unit | Meaning |
-| --- | --- | --- | --- |
-| hub_id | `u32` | — | The hub the loaned asset belongs to. |
-| asset | `Address` | — | The loaned token contract. |
-| receiver | `Address` | — | The contract that received the funds and ran the callback. |
-| caller | `Address` | — | The account that initiated the loan. |
-| amount | `i128` | raw asset units | Principal lent out. |
-| fee | `i128` | raw asset units | Fee charged on top of the principal, returned by the pool call. |
-
-### `FlashPositionEvent`
-
-- **Topics:** `["position", "flash_position"]`
-- **Data format:** `map` (default)
-- **Defined at:** `contracts/controller/src/events/mod.rs`
-- **Emitted by:** `flash_position`, at `contracts/controller/src/strategies/flash_position.rs:145`
-
-| Field | Type | Scale/unit | Meaning |
-| --- | --- | --- | --- |
-| account_id | `u64` | — | The account the flash position was opened on. |
-| hub_id | `u32` | — | The hub the borrowed asset belongs to. |
-| asset | `Address` | — | The borrowed token contract. |
-| receiver | `Address` | — | The contract that received the funds and ran the callback. |
-| caller | `Address` | — | The account that initiated the flash position. |
-| amount | `i128` | raw asset units | Principal requested from the debt mint. |
-| amount_received | `i128` | raw asset units | Tokens the receiver actually got, measured by balance delta. It can be below `amount` for a token that takes a fee on transfer. |
-| fee | `i128` | raw asset units | Always 0 — a flash position is zero-fee; the cost is the strategy debt it mints. |
-
-The debt legs of this operation appear in the accompanying batch as `FlashPos` legs.
-
-### `AccountDelegateEvent`
-
-- **Topics:** `["account", "delegate"]`
-- **Data format:** `map` (default)
-- **Defined at:** `contracts/controller/src/events/mod.rs`
-- **Emitted by:** `add_delegate` and `remove_delegate`, at `contracts/controller/src/account.rs:245`. Published only when the delegate list actually changed.
-
-| Field | Type | Scale/unit | Meaning |
-| --- | --- | --- | --- |
-| account_id | `u64` | — | The account whose delegate list changed. |
-| owner | `Address` | — | The account owner making the change. |
-| delegate | `Address` | — | The delegate being granted or revoked. |
-| granted | `bool` | — | True when the delegate was added, false when removed. |
-
-### `CleanBadDebtEvent`
-
-- **Topics:** `["debt", "bad_debt"]`
-- **Data format:** `map` (default)
-- **Defined at:** `contracts/controller/src/events/mod.rs`
-- **Emitted by:** `clean_bad_debt`, and by `liquidate` when the post-liquidation account still holds bad debt. Published at `contracts/controller/src/positions/liquidation/bad_debt.rs:54`.
-
-| Field | Type | Scale/unit | Meaning |
-| --- | --- | --- | --- |
-| account_id | `u64` | — | The account being wound down and removed. |
-| total_borrow_usd_wad | `i128` | WAD (1e18) USD | The account's total debt value before cleanup. |
-| total_collateral_usd_wad | `i128` | WAD (1e18) USD | The account's total collateral value before cleanup. |
-
-This event records no position deltas. The positions are seized on the pool and the account entry is removed; no `UpdatePositionBatchEvent` accompanies the cleanup.
-
-### `CreateMarketEvent`
-
-- **Topics:** `["market", "create"]`
-- **Data format:** `map` (default)
-- **Defined at:** `contracts/controller/src/events/market.rs:14`
-- **Emitted by:** `create_liquidity_pool`, at `contracts/controller/src/markets.rs:82`
-
-The interest-rate fields are copied flat from `MarketParamsRaw` by `CreateMarketEvent::from_params` (`contracts/controller/src/events/market.rs:34`). The flash-loan flag, flash-loan fee, and asset decimals are **not** copied.
-
-| Field | Type | Scale/unit | Meaning |
-| --- | --- | --- | --- |
-| hub_id | `u32` | — | The hub the new market belongs to. |
-| base_asset | `Address` | — | The market's underlying token contract. |
-| max_borrow_rate | `i128` | RAY (1e27) | Borrow rate at maximum utilization. |
-| base_borrow_rate | `i128` | RAY (1e27) | Borrow rate at zero utilization. |
-| slope1 | `i128` | RAY (1e27) | Rate at the mid utilization breakpoint. |
-| slope2 | `i128` | RAY (1e27) | Rate at the optimal utilization breakpoint. |
-| slope3 | `i128` | RAY (1e27) | Rate at the max utilization breakpoint. |
-| mid_utilization | `i128` | RAY (1e27) | First utilization breakpoint. |
-| optimal_utilization | `i128` | RAY (1e27) | Second utilization breakpoint. |
-| max_utilization | `i128` | RAY (1e27) | Utilization ceiling. |
-| reserve_factor | `u32` | bps | Share of borrow interest booked as protocol revenue. |
-| market_address | `Address` | — | The pool contract address serving this market. |
-
-### `UpdateMarketParamsEvent`
-
-- **Topics:** `["market", "params_update"]`
-- **Data format:** `map` (default)
-- **Defined at:** `contracts/controller/src/events/market.rs:63`
-- **Emitted by:** `upgrade_liquidity_pool_params`, at `contracts/controller/src/markets.rs:103`
-
-Built from an `InterestRateModel` by `UpdateMarketParamsEvent::from_rate_model` (`contracts/controller/src/events/market.rs:81`). The flash-loan flag and flash-loan fee are **not** copied.
-
-| Field | Type | Scale/unit | Meaning |
-| --- | --- | --- | --- |
-| hub_id | `u32` | — | The hub the market belongs to. |
-| asset | `Address` | — | The market's underlying token contract. |
-| max_borrow_rate | `i128` | RAY (1e27) | Borrow rate at maximum utilization. |
-| base_borrow_rate | `i128` | RAY (1e27) | Borrow rate at zero utilization. |
-| slope1 | `i128` | RAY (1e27) | Rate at the mid utilization breakpoint. |
-| slope2 | `i128` | RAY (1e27) | Rate at the optimal utilization breakpoint. |
-| slope3 | `i128` | RAY (1e27) | Rate at the max utilization breakpoint. |
-| mid_utilization | `i128` | RAY (1e27) | First utilization breakpoint. |
-| optimal_utilization | `i128` | RAY (1e27) | Second utilization breakpoint. |
-| max_utilization | `i128` | RAY (1e27) | Utilization ceiling. |
-| reserve_factor | `u32` | bps | Share of borrow interest booked as protocol revenue. |
-
-### `InitialMultiplyPaymentEvent`
-
-- **Topics:** `["strategy", "initial_payment"]`
-- **Data format:** `map` (default)
-- **Defined at:** `contracts/controller/src/events/mod.rs`
-- **Emitted by:** `multiply`, at `contracts/controller/src/strategies/multiply.rs:242`. Published only when the caller supplied an initial payment.
-
-| Field | Type | Scale/unit | Meaning |
-| --- | --- | --- | --- |
-| token | `Address` | — | The token contract the caller paid in. |
-| amount | `i128` | raw asset units | The amount paid in, before conversion into the position's collateral asset. |
-| account_id | `u64` | — | The account the multiply position belongs to. |
-
-### `BlendMigrationEvent`
-
-- **Topics:** `["strategy", "blend_migration"]`
-- **Data format:** `map` (default)
-- **Defined at:** `contracts/controller/src/events/mod.rs`
-- **Emitted by:** `migrate_from_blend`, at `contracts/controller/src/strategies/migrate_blend.rs:107`
-
-| Field | Type | Scale/unit | Meaning |
-| --- | --- | --- | --- |
-| account_id | `u64` | — | The account the positions were migrated into. |
-| blend_pool | `Address` | — | The external Blend pool migrated from. |
-| collateral_count | `u32` | count | Number of collateral positions moved. |
-| supply_count | `u32` | count | Number of non-collateral supply positions moved. |
-| debt_count | `u32` | count | Number of debt positions moved. |
-
-### `UpdateSpokeEvent`
-
-- **Topics:** `["config", "spoke"]`
-- **Data format:** `map` (default)
-- **Defined at:** `contracts/controller/src/events/config.rs:38`
-- **Emitted by:** `add_spoke` (`contracts/controller/src/config/spoke.rs:29`), `remove_spoke` (`:46`), and `set_spoke_liquidation_curve` (`:75`)
-
-| Field | Type | Scale/unit | Meaning |
-| --- | --- | --- | --- |
-| spoke | `EventSpoke` | map | The spoke's post-change configuration snapshot. See the shared-types section. |
-
-### `UpdateSpokeAssetEvent`
-
-- **Topics:** `["config", "spoke_asset"]`
-- **Data format:** `map` (default)
-- **Defined at:** `contracts/controller/src/events/config.rs:46`
-- **Emitted by:** `add_asset_to_spoke` and `edit_asset_in_spoke` (both via `upsert_spoke_asset`, `contracts/controller/src/config/asset.rs:38`), and `set_spoke_asset_flags` (`contracts/controller/src/config/asset.rs:103`)
-
-| Field | Type | Scale/unit | Meaning |
-| --- | --- | --- | --- |
-| asset | `Address` | — | The asset's token contract. |
-| config | `SpokeAssetConfig` | map | The asset's full post-change configuration. See the shared-types section. |
-| spoke_id | `u32` | — | The spoke the listing belongs to. |
-| hub_id | `u32` | — | The hub the asset belongs to. |
-
-### `RemoveSpokeAssetEvent`
-
-- **Topics:** `["config", "remove_spoke_asset"]`
-- **Data format:** `map` (default)
-- **Defined at:** `contracts/controller/src/events/config.rs:56`
-- **Emitted by:** `remove_asset_from_spoke`, at `contracts/controller/src/config/asset.rs:174`
-
-| Field | Type | Scale/unit | Meaning |
-| --- | --- | --- | --- |
-| asset | `Address` | — | The asset's token contract. |
-| spoke_id | `u32` | — | The spoke the listing was removed from. |
-| hub_id | `u32` | — | The hub the asset belongs to. |
-
-### `ApproveBlendPoolEvent`
-
-- **Topics:** `["config", "approve_blend_pool"]`
-- **Data format:** `map` (default)
-- **Defined at:** `contracts/controller/src/events/config.rs:65`
-- **Emitted by:** `approve_blend_pool` and `revoke_blend_pool`, both via `set_blend_pool_approval` at `contracts/controller/src/config/registry.rs:42`
-
-| Field | Type | Scale/unit | Meaning |
-| --- | --- | --- | --- |
-| pool | `Address` | — | The Blend pool contract. |
-| approved | `bool` | — | True when the pool is approved as a migration source, false when revoked. |
-
-### `UpdateSwapAggregatorEvent`
-
-- **Topics:** `["config", "swap_aggregator"]`
-- **Data format:** `map` (default)
-- **Defined at:** `contracts/controller/src/events/config.rs:73`
-- **Emitted by:** `set_swap_aggregator`, at `contracts/controller/src/config/registry.rs:16`
-
-| Field | Type | Scale/unit | Meaning |
-| --- | --- | --- | --- |
-| swap_aggregator | `Address` | — | The new swap aggregator contract used by strategy swaps. |
-
-### `UpdatePriceAggregatorEvent`
-
-- **Topics:** `["config", "price_aggregator"]`
-- **Data format:** `map` (default)
-- **Defined at:** `contracts/controller/src/events/config.rs:80`
-- **Emitted by:** `set_price_aggregator`, at `contracts/controller/src/config/registry.rs:26`. Governance also calls this entrypoint from `deploy_price_aggregator` (`contracts/governance/src/deploy.rs:83`).
-
-| Field | Type | Scale/unit | Meaning |
-| --- | --- | --- | --- |
-| price_aggregator | `Address` | — | The new price aggregator contract used for oracle lookups. |
-
-### `UpdateAccumulatorEvent`
-
-- **Topics:** `["config", "accumulator"]`
-- **Data format:** `map` (default)
-- **Defined at:** `contracts/controller/src/events/config.rs:87`
-- **Emitted by:** `set_accumulator`, at `contracts/controller/src/config/registry.rs:35`
-
-| Field | Type | Scale/unit | Meaning |
-| --- | --- | --- | --- |
-| accumulator | `Address` | — | The new address that receives claimed protocol revenue. |
-
-### `UpdatePositionLimitsEvent`
-
-- **Topics:** `["config", "position_limits"]`
-- **Data format:** `map` (default)
-- **Defined at:** `contracts/controller/src/events/config.rs:95`
-- **Emitted by:** `set_position_limits`, at `contracts/controller/src/config/registry.rs:61`
-
-| Field | Type | Scale/unit | Meaning |
-| --- | --- | --- | --- |
-| max_supply_positions | `u32` | count | Maximum concurrent supply positions one account may hold. |
-| max_borrow_positions | `u32` | count | Maximum concurrent borrow positions one account may hold. |
-
-### `UpdateMinBorrowCollateralEvent`
-
-- **Topics:** `["config", "min_borrow_collateral"]`
-- **Data format:** `map` (default)
-- **Defined at:** `contracts/controller/src/events/config.rs:104`
-- **Emitted by:** `set_min_borrow_collateral_usd`, at `contracts/controller/src/config/registry.rs:73`
-
-| Field | Type | Scale/unit | Meaning |
-| --- | --- | --- | --- |
-| min_borrow_collateral_usd_wad | `i128` | WAD (1e18) USD | Minimum collateral value required to open a new borrow position. |
-
-### `CreateHubEvent`
-
-- **Topics:** `["config", "hub"]`
-- **Data format:** `map` (default)
-- **Defined at:** `contracts/controller/src/events/config.rs:111`
-- **Emitted by:** `create_hub`, at `contracts/controller/src/config/spoke.rs:87`
-
-| Field | Type | Scale/unit | Meaning |
-| --- | --- | --- | --- |
-| hub_id | `u32` | — | The id of the newly created hub. |
-
-## Pool events
-
-The pool defines **3** events, in `contracts/pool/src/events.rs`.
-
-### `PoolMarketStateBatchEvent`
-
-- **Topics:** `["market", "batch_state_update"]`
-- **Data format:** `single-value` — the struct has one field, `updates`, so the payload **is** the vector of rows. There is no wrapping map and no `updates` key.
-- **Defined at:** `contracts/pool/src/events.rs:48`
-- **Emitted by:** `supply`, `borrow`, `withdraw`, `repay`, and `seize_positions` (batched, via `run_batch` at `contracts/pool/src/ops/mod.rs:52`); `update_indexes` (`contracts/pool/src/ops/market.rs:81`); `claim_revenue` (`contracts/pool/src/ops/revenue.rs:34`); `flash_loan` (`contracts/pool/src/ops/flash.rs:139`); `recapitalize` (`contracts/pool/src/ops/recapitalize.rs:36`); `create_strategy` (`contracts/pool/src/ops/strategy.rs:49`); and `net_settle` (`contracts/pool/src/lib.rs:251`). Not published when the snapshot list is empty (`contracts/pool/src/events.rs:84`).
-
-| Field | Type | Scale/unit | Meaning |
-| --- | --- | --- | --- |
-| updates | `Vec<PoolMarketStateEvent>` | vector of 9-entry vectors | One row per market touched by the operation. |
-
-`PoolMarketStateEvent` (`contracts/pool/src/events.rs:16`) is a tuple struct, so each row is a **9-entry vector in this order**. Values come from `Cache::snapshot` at `contracts/pool/src/cache/report.rs:35`.
-
-| Index | Field | Type | Scale/unit | Meaning |
-| --- | --- | --- | --- | --- |
-| 0 | hub_id | `u32` | — | The hub the market belongs to. |
-| 1 | asset | `Address` | — | The market's underlying token contract. |
-| 2 | timestamp | `u64` | ms | Ledger time stamped on this snapshot. Milliseconds, from `time::now_ms` (`contracts/pool/src/time.rs:15`). |
-| 3 | supply_index | `i128` | RAY (1e27) | Supply exchange-rate index after the operation. |
-| 4 | borrow_index | `i128` | RAY (1e27) | Borrow exchange-rate index after the operation. |
-| 5 | cash | `i128` | raw asset units | Underlying tokens the pool holds for this market. |
-| 6 | supplied | `i128` | RAY (1e27) | Total supply **shares** outstanding. Multiply by `supply_index` and divide by RAY for the actual supplied amount. Stored as `Ray` (`contracts/pool/src/cache/mod.rs:34`). |
-| 7 | borrowed | `i128` | RAY (1e27) | Total debt **shares** outstanding. Multiply by `borrow_index` and divide by RAY for the actual borrowed amount. |
-| 8 | revenue | `i128` | RAY (1e27) | Accrued protocol revenue, held as supply shares. Convert with `supply_index`. |
-
-### `PoolMarketParamsBatchEvent`
-
-- **Topics:** `["market", "batch_params_update"]`
-- **Data format:** `single-value` — the payload **is** the vector of rows.
-- **Defined at:** `contracts/pool/src/events.rs:64`
-- **Emitted by:** `create_market` (`contracts/pool/src/ops/market.rs:47`) and `update_params` (`contracts/pool/src/ops/market.rs:60`), both via `emit_market_params` (`contracts/pool/src/events.rs:101`). Both paths publish exactly one row.
-
-| Field | Type | Scale/unit | Meaning |
-| --- | --- | --- | --- |
-| updates | `Vec<PoolMarketParamsEvent>` | vector of maps | One row per market configured. |
-
-`PoolMarketParamsEvent` (`contracts/pool/src/events.rs:55`) has named fields, so each row is a map with alphabetically sorted keys.
-
-| Field | Type | Scale/unit | Meaning |
-| --- | --- | --- | --- |
-| hub_id | `u32` | — | The hub the market belongs to. |
-| asset | `Address` | — | The market's underlying token contract. |
-| params | `MarketParamsRaw` | map | The market's full post-change parameters, including flash-loan settings and asset decimals. See the shared-types section. |
-
-### `StrategyFeeEvent`
-
-- **Topics:** `["strategy", "fee"]`
-- **Data format:** `map` (default)
-- **Defined at:** `contracts/pool/src/events.rs:71`
-- **Emitted by:** `create_strategy`, at `contracts/pool/src/ops/strategy.rs:40`. Published only when the fee is non-zero (`contracts/pool/src/events.rs:123`).
-
-| Field | Type | Scale/unit | Meaning |
-| --- | --- | --- | --- |
-| hub_id | `u32` | — | The hub the asset belongs to. |
-| asset | `Address` | — | The asset's token contract. |
-| amount | `i128` | raw asset units | Gross strategy principal, before the fee. |
-| fee | `i128` | raw asset units | Protocol fee withheld. |
-| amount_sent | `i128` | raw asset units | Net amount transferred to the receiver, equal to `amount - fee`. |
-
-## Governance events
-
-Governance defines **2** events, in `contracts/governance/src/events.rs`.
-
-### `DeployControllerEvent`
-
-- **Topics:** `["governance", "deploy_controller"]`
-- **Data format:** `map` (default)
-- **Defined at:** `contracts/governance/src/events.rs:10`
-- **Emitted by:** `deploy_controller` (`contracts/governance/src/api.rs:26`), published at `contracts/governance/src/deploy.rs:48`
-
-| Field | Type | Scale/unit | Meaning |
-| --- | --- | --- | --- |
-| controller | `Address` | — | The address the controller was deployed to. |
-| wasm_hash | `BytesN<32>` | 32 raw bytes | The wasm hash the controller was deployed from. |
-
-### `DeployPriceAggregatorEvent`
-
-- **Topics:** `["governance", "deploy_price_aggregator"]`
-- **Data format:** `map` (default)
-- **Defined at:** `contracts/governance/src/events.rs:19`
-- **Emitted by:** `deploy_price_aggregator` (`contracts/governance/src/api.rs:40`), published at `contracts/governance/src/deploy.rs:86`
-
-| Field | Type | Scale/unit | Meaning |
-| --- | --- | --- | --- |
-| price_aggregator | `Address` | — | The address the price aggregator was deployed to. |
-| wasm_hash | `BytesN<32>` | 32 raw bytes | The wasm hash the price aggregator was deployed from. |
-
-## Price-aggregator events
-
-The price aggregator defines **1** event.
-
-### `UpdateAssetOracleEvent`
-
-- **Topics:** `["config", "asset_oracle"]`
-- **Data format:** `map` (default)
-- **Defined at:** `contracts/price-aggregator/src/registry.rs:95`
-- **Emitted by:** `set_oracle` (via `registry::emit`, `contracts/price-aggregator/src/admin.rs:73`), `set_sanity_band` (via `registry::commit`, `contracts/price-aggregator/src/admin.rs:193`), and `set_tolerance` (via `registry::commit`, `contracts/price-aggregator/src/admin.rs:215`). All three publish from `registry::emit` at `contracts/price-aggregator/src/registry.rs:83`.
-
-| Field | Type | Scale/unit | Meaning |
-| --- | --- | --- | --- |
-| key | `PriceKey` | enum with payload | The asset whose oracle configuration changed. See the shared-types section. |
-| oracle | `AssetOracle` | map | The full post-change oracle configuration. See the shared-types section. |
-
-## DeFindex-strategy events
-
-The DeFindex strategy adapter defines **1** event.
-
-### `HarvestEvent`
-
-- **Topics:** `["strategy", "harvest"]`
-- **Data format:** `map` (default)
-- **Defined at:** `contracts/defindex-strategy/src/lib.rs:26`
-- **Emitted by:** `harvest` at `contracts/defindex-strategy/src/lib.rs:287`
-
-| Field | Type | Scale/unit | Meaning |
-| --- | --- | --- | --- |
-| from | `Address` | — | The caller that invoked `harvest`. |
-| amount | `i128` | raw asset units | Always `0`. `harvest` moves no funds; the call site passes a literal zero (`contracts/defindex-strategy/src/lib.rs:290`). |
-| price_per_share | `i128` | 12 decimals (1e12) | Current price per share for the configured hub asset. Computed by floor-rescaling the RAY supply index down to `PPS_DECIMALS = 12` (`contracts/defindex-strategy/src/lib.rs:33` and `:176`). |
-
-## Contracts that emit no events
-
-These three contracts contain zero `#[contractevent]` definitions and publish no contract events:
-
-- **position-nft** (`contracts/position-nft/`) — position ownership changes are observable through the standard SEP-41/non-fungible token transfer semantics of its base library, not through any event this repository defines.
-- **swap-aggregator** (`contracts/swap-aggregator/`) — swap routing and execution emit no protocol events; observe the underlying token transfers instead.
-- **xoxno-oracle** (`contracts/xoxno-oracle/`) — price submissions and reads emit no events.
+| Position NFT: `Transfer` | `["transfer", <from: Address>, <to: Address>]` | `token_id: u32` | transfer/transfer_from |
+| Position NFT: `Approve` | `["approve", <approver: Address>, <token_id: u32>]` | `approved: Address, live_until_ledger: u32` | approve |
+| Position NFT: `ApproveForAll` | `["approve_for_all", <owner: Address>]` | `operator: Address, live_until_ledger: u32` | approve_for_all |
+| Position NFT: `Mint` | `["mint", <to: Address>]` | `token_id: u32` | mint |
+| Position NFT: `Burn` | `["burn", <from: Address>]` | `token_id: u32` | controller-authorized burn |
+| Controller, governance, router, XOXNO: OwnershipTransfer | `["ownership_transfer"]` | `old_owner: Address, new_owner: Address, live_until_ledger: u32` | ownership transfer initiation where exported/routed |
+| Controller, governance, router, XOXNO; price aggregator constructor: OwnershipTransferCompleted | `["ownership_transfer_completed"]` | `new_owner: Address` | accept_ownership; controller, governance and price-aggregator constructors emit explicitly |
+| Router, XOXNO: OwnershipRenounced | `["ownership_renounced"]` | `old_owner: Address` | router/XOXNO renounce_ownership only |
+| Governance: RoleGranted | `["role_granted", <role: Symbol>, <account: Address>]` | `caller: Address` | constructor, role grants, ownership synchronization/reset |
+| Governance: RoleRevoked | `["role_revoked", <role: Symbol>, <account: Address>]` | `caller: Address` | role revocation, immediate revoke, ownership/reset |
+| Governance: AdminTransferInitiated | `["admin_transfer_initiated", <current_admin: Address>]` | `new_admin: Address, live_until_ledger: u32` | scheduled governance ownership transfer |
+| Governance: AdminTransferCompleted | `["admin_transfer_completed", <new_admin: Address>]` | `previous_admin: Address` | constructor and accepted ownership |
+| Controller: `Paused` | `["paused"]` | `{}` | pause, constructor and upgrade when not already paused |
+| Controller: `Unpaused` | `["unpaused"]` | `{}` | unpause |
+| Governance: MinDelayChanged | `["min_delay_changed"]` | `old_delay: u32, new_delay: u32` | constructor, UpdateGovDelay |
+| Governance: OperationScheduled | `["operation_scheduled", <id: BytesN<32>>, <target: Address>]` | `function: Symbol, args: Vec<Val>, predecessor: BytesN<32>, salt: BytesN<32>, delay: u32` | propose/propose_canceller_reset |
+| Governance: OperationExecuted | `["operation_executed", <id: BytesN<32>>, <target: Address>]` | `function: Symbol, args: Vec<Val>, predecessor: BytesN<32>, salt: BytesN<32>` | execute/execute_self/execute_canceller_reset |
+| Governance: OperationCancelled | `["operation_cancelled", <id: BytesN<32>>]` | `{}` | cancel |
+
+The governance ABI does not expose role-admin changes or admin renunciation, so RoleAdminChanged/AdminRenounced are not current protocol emissions. Ownable `set_owner` alone emits nothing. Router/XOXNO constructors and pool constructor use that silent path; controller/price aggregator/governance add explicit ownership events. Direct `update_current_contract_wasm` calls do not define a custom upgrade event.
+
+Underlying token contracts emit their own transfer/approval events. Those are separate contracts and separate token standards; do not label NFT events SEP-41 or count token transfers as protocol custom events. XOXNO price submissions have no custom submission event. Router swaps have no custom route/fee event; its inherited ownership events still exist.
+
+## Source map
+
+- [Controller events](../../contracts/controller/src/events/mod.rs), [config events](../../contracts/controller/src/events/config.rs), [market events](../../contracts/controller/src/events/market.rs), [liquidation application](../../contracts/controller/src/positions/liquidation/apply.rs), [cleanup](../../contracts/controller/src/positions/liquidation/bad_debt.rs).
+- [Pool events](../../contracts/pool/src/events.rs), [governance events](../../contracts/governance/src/events.rs), [price registry](../../contracts/price-aggregator/src/registry.rs), [adapter](../../contracts/defindex-strategy/src/lib.rs), [NFT lifecycle](../../contracts/position-nft/src/contract.rs).
+- [Shared types](../../common/src/types/mod.rs), [rate curve](../../common/src/rates/curve.rs), [dependency pins](../../Cargo.toml).

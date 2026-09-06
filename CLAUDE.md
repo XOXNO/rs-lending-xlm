@@ -89,7 +89,7 @@ Keep the unit boundary explicit. Never mix these in one expression:
 | BPS | ratios, fees, bonuses |
 
 Rounding direction must favour the protocol invariant, not whichever operation
-is convenient. See [ADR-0003](docs/explanation/decisions/0003-ray-scaled-shares-directed-rounding.md).
+is convenient. See [ADR-0003](docs/explanation/decisions.md#adr-0003).
 
 ## Gates that block a PR
 
@@ -100,7 +100,7 @@ is convenient. See [ADR-0003](docs/explanation/decisions/0003-ray-scaled-shares-
 - `make fmt-check`, `make docs-check`, `make integration-validate` — the
   `static-gates` job in `.github/workflows/tests.yml`.
 - `make wasm-size-check`, `make wasm-testing-abi-check` — testing-only
-  entrypoints must not exist in a deployable artifact ([ADR-0017](docs/explanation/decisions/0017-testing-surfaces-behind-features.md)).
+  entrypoints must not exist in a deployable artifact ([ADR-0017](docs/explanation/decisions.md#adr-0017)).
 
 ## Where to read before changing behaviour
 
@@ -108,9 +108,9 @@ is convenient. See [ADR-0003](docs/explanation/decisions/0003-ray-scaled-shares-
 |---|---|
 | Accounting, risk, liquidation arithmetic | [docs/reference/formulas.md](docs/reference/formulas.md) |
 | Properties that must hold | [docs/reference/invariants.md](docs/reference/invariants.md) |
-| Trust boundaries and threats | [docs/explanation/threat-model.md](docs/explanation/threat-model.md), [STRIDE.md](STRIDE.md) |
-| Why a design is the way it is | [docs/explanation/decisions/README.md](docs/explanation/decisions/README.md) |
-| Numeric domains and limits | [docs/reference/numeric-bounds.md](docs/reference/numeric-bounds.md) |
+| Trust boundaries and threats | [docs/explanation/threat-model.md](docs/explanation/threat-model.md) |
+| Why a design is the way it is | [docs/explanation/decisions.md](docs/explanation/decisions.md) |
+| Numeric domains and limits | [docs/reference/formulas.md#numeric-limits](docs/reference/formulas.md#numeric-limits) |
 | Errors and events | [docs/reference/errors.md](docs/reference/errors.md), [docs/reference/events.md](docs/reference/events.md) |
 | Formal verification | [certora/README.md](certora/README.md) |
 
