@@ -1,22 +1,22 @@
 # Threat model
 
-For reviewers and operators assessing authority, funds, prices, and availability.
-Controls below describe current source, not proof of a safe deployment. Risk IDs
-from the former STRIDE document remain stable; inherited severity scores are
-not repeated because their assumptions and several source claims had drifted.
-The [historical STRIDE matrix](https://github.com/XOXNO/rs-lending-xlm/blob/d26b93ebb48d718b69571ec737f0097af3379916/STRIDE.md)
-preserves those ratings without presenting them as a fresh assessment.
-See [invariants](../reference/invariants.md) for precise properties and
-[audit history](../audit/README.md) for historical finding dispositions.
+This model describes threats to funds, account authority, prices, and protocol
+availability. It pairs source controls with the assumptions and residual risks
+that reviewers and operators must assess.
+
+Read [Architecture](../reference/architecture.md) first for markets, accounts,
+and contract responsibilities. The [invariant reference](../reference/invariants.md)
+defines precise safety properties. [Audit records](../audit/README.md) separate
+review results from deployment assurance.
 
 ## Assets and trust roots
 
-Protect supplier claims, pool cash, borrower collateral, account authority,
-market accounting, price integrity, governance authority, and liquidation/exit
-availability. Router fee entitlements and oracle signer configuration are
-separate assets exposed through external dependencies.
+The assets at risk are supplier claims, pool cash, borrower collateral, account
+and governance authority, market accounting, and price integrity. Liquidation
+and exit availability also affect fund recovery. External dependencies expose
+router fee entitlements and oracle signer configuration.
 
-| Authority | Current repository boundary | What deployment must establish |
+| Authority | Source boundary | Deployment checks |
 |---|---|---|
 | Governance owner and roles | Owner bootstrap/recovery; typed delayed administration; restricted immediate roles | Actual owners, signers, role roster, and effective delays |
 | Controller | Governance-owned under the deployment helpers; owner-gated administration | Correct deployed code, owner, pool/NFT/aggregator pointers |
@@ -33,12 +33,19 @@ cannot be assumed to control standalone router/oracle administration.
 
 ### Governance windows and emergency powers
 
-Effective delays are in ledgers: Standard uses the configured minimum;
-Sensitive uses `max(minimum, 12)`; Recovery uses `max(minimum, 518400)`.
-The source's intended later Sensitive floor is not the compiled value.
-Repository network inputs currently use a minimum of 12; this is not a live
-chain reading. Verify the deployed minimum and review window before funding.
-Raising the configured minimum and changing a compiled floor are different actions.
+Governance delays are measured in ledgers. The effective delay depends on the
+operation tier:
+
+| Tier | Effective delay |
+|---|---|
+| Standard | Configured minimum |
+| Sensitive | `max(minimum, 12)` |
+| Recovery | `max(minimum, 518400)` |
+
+The repository's [network configuration](../../configs/networks.json) sets both
+minimums to 12 ledgers. Verify the deployed minimum and its review window before
+funding. Raising the configured minimum and changing a compiled tier floor are
+different actions.
 
 GUARDIAN can immediately pause, tighten listing flags, and create empty hubs
 or spokes. ORACLE can immediately narrow sanity bands. The owner can revoke
@@ -71,9 +78,10 @@ Those gates do not constrain them to acting in the owner's economic interest.
 
 Controller account renewal requires the owner. Direct NFT renewal is
 permissionless and extends the Owner entry, its holder's Balance entry, and
-instance TTL; it does not renew the controller account. Archived persistent entries need restoration. Sequential
-NFT IDs are finite and not recycled; limits and renewal do not establish
-worst-case network-budget availability.
+instance time to live (TTL); it does not renew the controller account. Archived
+persistent entries need restoration. Sequential NFT IDs are finite and are not
+recycled. Renewal and position limits do not guarantee that maximum-size
+operations fit network budgets.
 
 ## Token assumptions
 
@@ -100,23 +108,25 @@ A compromised router may consume authorized input for dust output while the
 final account passes its risk gates. Exposure is bounded by routed funds and
 those gates, not by an independent controller slippage limit.
 
-Flash position mints debt without origination fee, requires nonnegative declared
-collateral minima with at least one positive, and leaves an open solvent position. An already healthy
-account can support that debt with little additional collateral. Debt leftovers
-are not auto-repaid. Refunds cover only positive callback deltas of refund-listed
-tokens; declared collateral is supplied. Neither category sweeps prior balances.
-This differs from cash flash loans and from multiply's
-fee policy. The debt market's flash-loan flag also gates flash position.
+Flash position creates debt without an origination fee and leaves an open
+solvent position. Declared collateral minima must be nonnegative, with at least
+one positive. An already healthy account can support that debt with little
+additional collateral. Debt leftovers are not automatically repaid.
+
+Refunds cover only positive callback deltas of refund-listed tokens; declared
+collateral is supplied. Neither category sweeps prior balances.
+Cash flash loans require repayment, and multiply applies a different
+origination-fee policy. The debt market's flash-loan flag also gates flash position.
 
 Approved Blend pools retain their external upgrade trust until approval is
 removed. DeFindex vault authentication isolates account bindings, but the
 adapter has no recovery path for arbitrary stranded assets.
 
 Protected monetary entrypoints reject guarded callback reentry; Soroban also
-restricts indirect reentry. Do not infer an EVM token-hook exploit without
-establishing host reachability. Risk views lack the monetary guard; consumers
-must not treat them as a transaction-stable oracle for intermediate state.
-A native callback fixture alone does not establish a deployed host call path.
+restricts indirect reentry. A callback exploit requires a reachable host call
+path; a native fixture alone does not establish that path in a deployed contract.
+Risk views lack the monetary guard, so consumers must not treat intermediate
+risk reads as a transaction-stable oracle.
 
 ## Price integrity and availability
 
@@ -128,9 +138,10 @@ Sanity bands constrain accepted prices but cannot establish economic correctness
 Admission checks source structure, provider-address overlap, smoothing policy,
 and provider-specific metadata. Provider separation is not proof of independent
 operators or upstream data. Feed-nature labels are configuration assertions.
-Non-LP admission probes can accept temporary market-condition failures;
-transitive dependent revalidation is structural rather than a new live attestation.
-Later upstream changes do not erase the lending aggregator's runtime age checks,
+Non-LP admission probes can accept temporary market-condition failures.
+Changing an upstream key revalidates dependent source structure without a new
+live attestation for each dependent. Upstream changes do not erase the lending
+aggregator's runtime age checks,
 but can invalidate assumptions made during admission.
 
 XOXNO submissions authenticate one registered signer each. A new aggregate
@@ -145,8 +156,8 @@ An ordinary submission below quorum leaves the prior aggregate unchanged;
 reads can serve it until their freshness limits expire. Owner recomputation
 removes an aggregate when its feed lacks quorum. Threshold, submission-age,
 and skew setters do not recompute existing aggregates; follow them with
-batched `recompute_feeds`. Later quorum submissions can also replace aggregates
-under the new settings.
+batched `recompute_feeds`. Quorum submissions also use the updated settings.
+
 The cluster anchor is clamped to ledger time. Read paths still apply their
 respective package/write timestamp and freshness rules.
 
@@ -172,15 +183,17 @@ minimum-collateral floor. Expensive low-decimal collateral can yield zero
 seizure even for a $5 repayment; assess that precision risk before listing.
 The [seizure fixture tests](../../contracts/controller/tests/positions/liquidation_math.rs) reproduce this limit.
 Share credit avoids collateral cash payout but still requires an authorized
-same-spoke receiver in Normal mode, position capacity, and a listing for a newly credited asset.
-The absence of a universal final health-factor assertion on liquidation is not
-itself evidence of a profitable attack; the planning and measured-settlement
-arithmetic require separate verification.
+same-spoke receiver in Normal mode, position capacity, and a listing for a
+newly credited asset.
+
+Liquidation planning and measured settlement enforce its accounting bounds.
+A missing universal final health-factor assertion alone does not establish a
+profitable attack; assessment must verify that arithmetic and a reachable sequence.
 
 Cleanup converts all remaining account supply to protocol revenue and socializes
-its gross debt, including same-market supply/debt pairs. Netting remains
-[proposed](decisions.md#adr-0021). Current suppliers bear index write-downs;
-a supplier exiting earlier can avoid that loss. The index floor can leave
+its gross debt, including same-market supply/debt pairs. It does not net those
+pairs first. Suppliers present at cleanup bear index write-downs; a supplier
+who exits before cleanup can avoid that loss. The index floor can leave
 material unpaid backing, so displayed supplier claims are not a universal
 pro-rata cash-payout guarantee. New supply checks backing; recapitalization
 repairs the book's measured shortfall without minting shares.
@@ -195,21 +208,24 @@ even if its health factor is below one and listing flags block liquidation.
 
 Finite RAY value capacity can be exhausted before the index ceiling. Synchronizing
 an overlarge book can then fail before an otherwise risk-reducing operation.
-Choose caps with plausible index growth, not just today's token balance.
+Caps must account for plausible index growth as well as token balances.
 Accrual cadence changes utilization and subsequent rates; bounded chunks do not
 make cadence neutral or prove exact conservation after integer rounding.
 See [numeric limits](../reference/formulas.md#numeric-limits).
 
 Position/route limits reduce work but do not prove every maximum-size operation
 fits deployed CPU, memory, footprint, and oracle-call budgets. Caller-supplied
-vectors still cost resources. Full-risk threshold refresh can fail atomically when an included account's
-final health factor is below 1.05; isolate and investigate the account rather
-than assuming earlier updates persisted. LTV-only refresh has no such final gate.
+vectors still cost resources. A full-risk threshold refresh aborts the entire
+batch if an included account's final health factor is below 1.05. Isolate and
+investigate that account; no earlier updates from the failed batch persist.
+An LTV-only refresh has no such final gate.
 
 ## STRIDE register
 
-Each ID retains its original subject. Controls limit a scenario; they do not
-mean zero residual risk. Operational assumptions above apply to these rows.
+STRIDE groups threats into spoofing, tampering, repudiation, information
+disclosure, denial of service, and elevation of privilege. The stable IDs below
+map each scenario to its control boundary. The assumptions above still apply;
+these rows do not assign severity or establish exploitability.
 
 | ID | Threat and control boundary |
 |---|---|
@@ -253,7 +269,7 @@ mean zero residual risk. Operational assumptions above apply to these rows.
 | Elevation.6 | Router owner upgrades/sweeps/changes fee rights; no lending-governance router upgrade route supplies a delay. |
 | Elevation.7 | Oracle owner changes code/signers; independent source comparison and bands constrain accepted prices, not all manipulation. |
 | Elevation.8 | Test powers in release WASM; feature and artifact checks cover only their actual build/export scope. |
-| Elevation.9 | Vault abuses adapter authority; current adapter exposes supply/withdrawal, not borrowing or other vault accounts. |
+| Elevation.9 | Vault abuses adapter authority; adapter exposes supply/withdrawal, not borrowing or other vault accounts. |
 | Elevation.10 | ORACLE role narrows band to exclude market price; immediate fail-closed denial of service remains possible. |
 
 ## Review triggers and evidence limits
@@ -263,7 +279,7 @@ authorization changes, storage or SDK changes, and governance/configuration
 updates. Observe actual events plus transactions/state; no event-only model
 covers all administration. Verify source-matched artifacts and deployed roles.
 
-Historical native tests, mocked authorization, formal rules, and successful
-static checks are different evidence. None alone proves arbitrary external
-behavior, maximum network budgets, or live deployment correctness. The
+Native tests, mocked authorization, formal rules, and successful static checks
+provide different evidence. None alone proves arbitrary external behavior,
+maximum network budgets, or live deployment correctness. The
 [formal-model notes](certora-sunbeam-prover-tuning.md) state those boundaries.

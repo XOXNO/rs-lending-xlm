@@ -2,15 +2,20 @@
 
 [![CI](https://img.shields.io/github/actions/workflow/status/XOXNO/rs-lending-xlm/tests.yml?label=CI&style=flat-square)](https://github.com/XOXNO/rs-lending-xlm/actions/workflows/tests.yml)
 
-A collateralized lending protocol on Stellar Soroban. Suppliers hold indexed
-claims on market liquidity; borrowers hold debt against collateral. A
-controller applies account and risk rules, a central pool holds tokens, and
-configured governance controls administration.
+XOXNO Lending is a collateralized lending protocol on Stellar Soroban.
+Suppliers earn interest on borrowed liquidity. Borrowers hold debt against
+collateral, with account risk enforced by a controller and tokens held in a
+central pool.
 
 ## Documentation
 
-For auditors, read architecture, threat model, invariants, formulas, then decisions.
-These documents describe this source tree, not verified deployment state.
+Start with [Architecture](docs/reference/architecture.md) for markets, accounts,
+and contract responsibilities. Auditors can continue through the threat model,
+invariants, formulas, and design rationale in the order below. Integrators can
+then use the endpoint, event, and error references.
+
+These documents describe this source tree. Deployed code, owners, and
+configuration require separate verification.
 
 | Question | Reference |
 |---|---|
@@ -23,13 +28,13 @@ These documents describe this source tree, not verified deployment state.
 | Event payloads and indexing | [Events](docs/reference/events.md) |
 | Failure codes and causes | [Errors](docs/reference/errors.md) |
 | Governance bad-debt cleanup | [Force-socialize runbook](docs/reference/runbooks/force-socialize-bad-debt.md) |
-| Historical audit results and limitations | [Audit history](docs/audit/README.md) |
+| Review scope, findings, and evidence limits | [Audit records](docs/audit/README.md) |
 | Formal-model boundaries and prover diagnosis | [Certora tuning](docs/explanation/certora-sunbeam-prover-tuning.md) |
 
 ## Development
 
 Install the Rust toolchain and targets in [rust-toolchain.toml](rust-toolchain.toml)
-and Stellar CLI. See [Contributing](CONTRIBUTING.md) for the development workflow.
+and Stellar CLI, then build the WASM contracts before running tests.
 
 ```sh
 git clone https://github.com/XOXNO/rs-lending-xlm.git
@@ -48,9 +53,9 @@ make help
 | Documentation links and symbol names | `make docs-check` |
 
 Contracts, shared arithmetic, and client interfaces live in `contracts/`,
-`common/`, and `interfaces/`; verification lives in `tests/` and `certora/`.
-The keeper and exporter are separate service workspaces. Network configuration
-must be matched to deployed addresses and artifacts before operational use.
+`common/`, and `interfaces/`. Verification lives in `tests/` and `certora/`.
+The keeper and exporter use separate service workspaces. See
+[Contributing](CONTRIBUTING.md) for change and review requirements.
 
 ## Security and license
 

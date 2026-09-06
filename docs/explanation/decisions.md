@@ -1,138 +1,171 @@
-# Protocol decisions
+# Protocol design rationale
 
-For maintainers reviewing why the current design exists. ADR-0001 through
-ADR-0020 are accepted decisions; ADR-0021 remains proposed. These summaries
-replace the separate records, whose full history remains in Git.
-Behavior, exceptions, and evidence limits are specified in [architecture](../reference/architecture.md),
-[formulas](../reference/formulas.md), [invariants](../reference/invariants.md),
-and the [threat model](threat-model.md).
+These explanations connect protocol rules to their trade-offs for maintainers
+and auditors. Read [Architecture](../reference/architecture.md) first for the
+component model. [Invariants](../reference/invariants.md),
+[Formulas](../reference/formulas.md), and the [Threat model](threat-model.md)
+define exact properties, arithmetic, and risks.
+
+The numbered anchors provide stable references across documentation and audit
+records. Sections describe implemented behavior; proposal history belongs in
+[Audit records](../audit/README.md).
+
+## Authority and emergency control
 
 <a id="adr-0001"></a>
-## ADR-0001: Governance, controller, pool authority
 
-Deploy governance as controller owner and the controller as pool owner.
-This concentrates account/risk policy in the controller while the pool handles
-accounting. The trade-off is a critical shared trust boundary: controller bugs,
-upgrades, or an authorized ownership change can affect every market.
+### ADR-0001: Governance, controller, and pool authority
 
-<a id="adr-0002"></a>
-## ADR-0002: Central custody, separate market books
-
-Key markets by hub and asset, giving each its own cash, shares, indexes, and
-revenue. This avoids one custody contract per market. Repeated listings of one
-token keep distinct books but share its physical pool balance and token risks.
-
-<a id="adr-0003"></a>
-## ADR-0003: Indexed shares and directed rounding
-
-Store supply and debt as shares, applying interest through indexes rather than
-updating every account. Supply mints floor shares, withdrawals burn ceiling
-shares, borrowing mints ceiling debt, and partial repayment burns floor debt.
-Close paths and dust rejection matter; [formulas](../reference/formulas.md)
-define units and exceptions rather than assuming all rounding is identical.
-
-<a id="adr-0004"></a>
-## ADR-0004: Dual-source agreement
-
-Serve the integer midpoint, rounded down, only when both configured legs pass
-validity, freshness, and tolerance checks and the result passes its sanity
-band. One healthy leg is not a fallback. Runtime tolerance uses the half-up
-rounded larger/smaller ratio; the reciprocal pair is validated at admission.
-Single-source keys have separate admission constraints.
-
-<a id="adr-0005"></a>
-## ADR-0005: Fail-closed valuation
-
-A valuation-dependent operation must obtain every required valid price in its
-context. Failure aborts rather than substitutes a guess. This protects risk
-decisions at the cost of withdrawal/liquidation availability during outages.
+Governance owns the controller under the deployment helpers, and the controller
+owns the pool. The controller applies account and risk policy while the pool
+handles custody and accounting. This creates a shared trust boundary:
+controller bugs, upgrades, or authorized ownership changes can affect every market.
 
 <a id="adr-0006"></a>
-## ADR-0006: Typed proposal, bound execution
 
-Check typed administrative intent when proposing, then execute its bound
-payload only when ready and within the grace window. Target contracts retain
-execution-time checks. Anyone can execute by omitting the executor identity.
-Owner-proposed canceller recovery uses its own delay and cannot be cancelled;
-a revocation target cannot veto its own removal through ordinary cancellation.
-Completed operations need a fresh proposal and delay before reuse. Effective
-delays and key custody remain operational requirements.
+### ADR-0006: Typed proposals and bound execution
+
+Governance validates administrative intent at proposal time and executes the
+bound payload only after its delay and within its grace window. Target
+contracts also validate at execution. Completed operations require a fresh
+proposal and delay before reuse.
+
+Execution is permissionless when the executor identity is omitted. Cancellation
+and owner-dependent recovery have distinct rules. Their security depends on
+the effective review window and key custody; see
+[governance powers](threat-model.md#governance-windows-and-emergency-powers).
 
 <a id="adr-0007"></a>
-## ADR-0007: Emergency ratchet
 
-Immediate guardian actions can pause and tighten listing flags, not reopen.
-Reopening uses delayed administration. A full listing rewrite can clear flags,
-so an operator must preserve intended restrictions explicitly in that update.
-The ORACLE role similarly narrows sanity bands; widening requires timelocked oracle reconfiguration.
+### ADR-0007: Emergency ratchet
+
+Immediate guardian actions can pause and tighten listing flags. Reopening uses
+delayed administration. A full listing rewrite can clear flags, so operators
+must explicitly preserve restrictions in those updates. The ORACLE role can
+narrow sanity bands; widening requires timelocked oracle reconfiguration.
 
 <a id="adr-0008"></a>
-## ADR-0008: Independent halt flags
 
-Keep `frozen`, `paused`, and `no_seize` independent. Entry checks paused/frozen,
-ordinary exits check paused, and liquidation seizure checks no_seize. A paused
-unselected debt leg does not block repayment of a different selected leg.
-Pausing collateral alone does not block its seizure.
+### ADR-0008: Independent halt flags
 
-The proposed coupling of no_seize to frozen was closed without adoption on
-2026-09-05. Coupling would also halt unrelated debt activity and would not
-restore liquidation of existing holders. Accepted cost: supplying non-dust
-no_seize collateral can block the account's pro-rata liquidation. Interest
-continues during listing pauses; insolvent cases have the governed
+The `frozen`, `paused`, and `no_seize` flags control different actions. Entry
+checks paused/frozen, ordinary exits check paused, and collateral seizure
+checks no_seize. A paused debt leg does not block repayment of another selected
+leg; pausing collateral alone does not block its seizure.
+
+A seizure restriction does not stop new supply. Non-dust no_seize collateral
+can therefore block an account's pro-rata liquidation. Operators should inspect
+existing usage before setting no_seize and use frozen to stop new entry.
+Interest continues during listing pauses; a prolonged pause may also require
+a timelocked rate reduction. Insolvent accounts have the governed
 [force-socialize path](../reference/runbooks/force-socialize-bad-debt.md).
-Operators should inspect existing usage before setting no_seize; use frozen
-when the objective is to stop new entry. For prolonged pauses, consider a
-timelocked rate reduction because pausing does not stop accrual.
 
 <a id="adr-0009"></a>
-## ADR-0009: Immutable spoke binding
 
-Bind each account to its spoke once. Changing an argument cannot move existing
-debt into a different risk regime. Governance can change listings and refresh
-applicable stored risk values, but does not rebind the account.
+### ADR-0009: Immutable spoke binding
 
-<a id="adr-0010"></a>
-## ADR-0010: Cash flash-loan repayment
+An account retains its spoke throughout its lifetime. A caller cannot move
+existing debt into another risk regime by changing an argument. Governance can
+change listings and refresh applicable stored risk values, but cannot rebind
+the account.
 
-Require a contract receiver and allowance at least principal plus fee.
-The pool pulls exactly that amount and checks its expected balance after
-payout, after callback and after collection. Callback pushes do not replace
-repayment; excess allowance is permitted. Cash flash loans create no
-account debt and are distinct from account strategy settlement.
+## Accounting and loss allocation
 
-<a id="adr-0011"></a>
-## ADR-0011: Measure router settlement
+<a id="adr-0002"></a>
 
-Authorize one exact input-token transfer invocation to the configured
-router; do not grant a token allowance. Ignore returned amounts, reject
-excess measured spend and require positive measured output. Router minimum
-output is checked after fees but before payout, not independently by the
-controller. Controller-held unused input returns to caller; router-internal
-residuals follow a capped admin-revenue policy. Final account risk checks
-do not guarantee route quality.
+### ADR-0002: Central custody, separate market books
+
+Markets are keyed by hub and asset, each with its own cash, shares, indexes,
+and revenue. One pool provides custody for all markets. Repeated listings of
+one token retain distinct books but share its physical balance and token risks.
+
+<a id="adr-0003"></a>
+
+### ADR-0003: Indexed shares and directed rounding
+
+Supply and debt use shares, with interest applied through indexes. This avoids
+updating every account on accrual. Supply mints floor shares, withdrawals burn
+ceiling shares, borrowing mints ceiling debt, and partial repayment burns floor
+debt. The [formula reference](../reference/formulas.md) defines close paths and dust handling,
+which do not all follow the partial-operation rules.
 
 <a id="adr-0012"></a>
-## ADR-0012: Supplier-index loss allocation
 
-Remove eligible bad debt and write down its market's supply index, subject to
-the nonzero floor, rather than transfer debt into another market. Current supplier claims bear the
-write-down. The nonzero floor protects conversions but may leave unpaid backing;
-it is not a guarantee that every supplier can withdraw its displayed claim.
+### ADR-0012: Supplier-index loss allocation
+
+Eligible bad debt is removed by reducing the affected market's supply index,
+subject to a nonzero floor. Supplier claims in that market bear the write-down.
+The floor protects share conversions but can leave unpaid backing; a displayed
+claim does not guarantee that the supplier can withdraw that amount.
 
 <a id="adr-0013"></a>
-## ADR-0013: Credit measured receipts
 
-Supply, repayment, recapitalization, and supported strategy legs account for
-what arrived, rather than what a sender requested. Under-delivered liquidation
-repayment reduces the associated seizure. This supports specific receipt-tax
-behavior; it does not admit arbitrary rebases, sender surcharges, or false balances.
+### ADR-0013: Credit measured receipts
+
+Supply, repayment, recapitalization, and supported strategy legs credit the
+amount received. Under-delivered liquidation repayment reduces the associated
+seizure. This supports specific receipt-tax behavior; it does not make rebases,
+sender surcharges, or false balances safe. See [token assumptions](threat-model.md#token-assumptions).
+
+<a id="adr-0015"></a>
+
+### ADR-0015: Literal asset-unit caps
+
+Exposure growth converts asset-unit caps to shares at the applicable index.
+A zero cap permits no new exposure; exits do not consume headroom. Same-spoke
+liquidation credit moves existing supply and its protocol fee reduces usage.
+It therefore does not require new supply-cap headroom.
+
+<a id="adr-0016"></a>
+
+### ADR-0016: Millisecond rates and chunked accrual
+
+Rates use RAY per millisecond, with accrual divided into bounded chunks. Each
+chunk uses the preceding chunk's market state. This bounds individual time
+steps without eliminating value overflow, cumulative work, cadence dependence,
+or rounding error. The [formula reference](../reference/formulas.md) defines these limits.
+
+<a id="adr-0021"></a>
+
+### ADR-0021: Gross-debt cleanup accounting
+
+Cleanup converts remaining account supply to protocol revenue, then socializes
+its gross debt. This applies even when the supply and debt belong to the same
+market; cleanup does not net them first. Treasury gains, supplier losses, and
+recapitalization must be interpreted on that basis.
+
+The [bad-debt section](threat-model.md#bad-debt-and-liquidation) explains the financial
+consequences. The [audit record](../audit/README.md#design-proposal-records)
+retains the separate netting proposal and its status.
+
+## Price validation
+
+<a id="adr-0004"></a>
+
+### ADR-0004: Dual-source agreement
+
+A dual-source key serves the integer midpoint, rounded down. Both legs must
+pass validity, freshness, and tolerance checks, and the result must pass its
+sanity band. One healthy leg is not a fallback. Runtime tolerance uses the half-up
+rounded larger/smaller ratio; the reciprocal pair is validated at admission.
+Single-source keys have separate admission constraints. This makes source
+availability a condition of price availability; see [price risks](threat-model.md#price-integrity-and-availability).
+
+<a id="adr-0005"></a>
+
+### ADR-0005: Fail-closed valuation
+
+A valuation-dependent operation must obtain every required valid price in its
+context. Price failure aborts the operation. This protects risk decisions at
+the cost of withdrawal and liquidation availability during outages.
 
 <a id="adr-0014"></a>
-## ADR-0014: Governed source admission
 
-Validate source structure, dependency relationships, provider-address overlap
-and smoothing policy before accepting configuration. Smoothing governs source
-selection; it is not a post-midpoint transform. Reflector `Twap` mode takes an
+### ADR-0014: Governed source admission
+
+Admission validates source structure, dependencies, provider-address overlap,
+and smoothing policy. Smoothing governs source selection rather than
+transforming the midpoint. Reflector `Twap` mode takes an
 equal-weight mean of its accepted observations. LP configurations are
 sole-source, waive smoothing and tolerance checks, and use a separate sanity
 cap alongside pool and underlying-price validation.
@@ -140,82 +173,88 @@ cap alongside pool and underlying-price validation.
 Changed keys receive provider-specific attestation and a probe. Non-LP probes
 permit market-condition failures; LP admission requires a usable price.
 Transitive dependents receive structural revalidation without new live probes.
-This avoids repeated provider calls consuming VM memory; an LP receives live
+This limits repeated provider calls and their memory cost; an LP receives live
 suitability checks on its own admission, not on each upstream-key edit.
 Provider-address checks do not establish independent operators or upstream
 data, and feed-nature labels remain configuration assertions.
 
-<a id="adr-0015"></a>
-## ADR-0015: Literal asset-unit caps
+## External execution and settlement
 
-Convert caps to shares at the current index when exposure grows. Zero admits
-no new exposure; exits do not consume cap headroom. Same-spoke liquidation
-credit is not new aggregate supply: its move is usage-neutral and its protocol
-fee reduces usage. Rechecking the cap on that move would obstruct liquidation.
+<a id="adr-0010"></a>
 
-<a id="adr-0016"></a>
-## ADR-0016: Millisecond rates and chunked accrual
+### ADR-0010: Cash flash-loan repayment
 
-Use RAY rates per millisecond and bounded accrual chunks. Recompute from the
-preceding chunk's market state rather than extrapolate one unlimited interval.
-Chunking does not eliminate value overflow, cumulative work, cadence dependence,
-or approximation/rounding error; numeric limits belong in [formulas](../reference/formulas.md).
+Cash flash loans require a contract receiver and allowance of at least
+principal plus fee. The pool pulls exactly that amount and checks its expected balance after
+payout, after callback and after collection. Callback pushes do not replace
+repayment; excess allowance is permitted. Cash flash loans create no
+account debt and are distinct from account strategy settlement.
 
-<a id="adr-0017"></a>
-## ADR-0017: Keep testing powers out of deployment
+<a id="adr-0011"></a>
 
-Feature-gate test/verification helpers and check release WASM for forbidden
-exports. An artifact check is evidence only for the binaries, exports, and
-build inputs it actually checks. Formal results also depend on harness and
-external-call assumptions; source specifications alone are not successful proofs.
+### ADR-0011: Measure router settlement
+
+The controller authorizes one exact input-token transfer invocation to the
+configured router, with no token allowance. Settlement ignores returned amounts,
+rejects excess measured spend, and requires positive measured output. Router minimum
+output is checked after fees but before payout, not independently by the
+controller. Controller-held unused input returns to the caller; router-internal
+residuals follow a capped admin-revenue policy. Final account risk checks
+do not guarantee route quality.
 
 <a id="adr-0018"></a>
-## ADR-0018: Compact route instructions
 
-Use bounded indexed address/amount registries for route instructions.
-Decode checks format, index bounds, Prev links and individual split weights;
+### ADR-0018: Compact route instructions
+
+Routes use bounded indexed address and amount registries.
+Decoding checks format, index bounds, Prev links, and individual split weights;
 runtime vault accounting checks available balances and venue receipts.
 Split weights apply to the shrinking remainder and need not sum to one.
 Registries need not be unique; Aquarius LP constituents come from the pool.
 A valid instruction stream does not establish good economic execution.
 
 <a id="adr-0019"></a>
-## ADR-0019: Liquidation share credit
 
-Offer a same-spoke share receiver to avoid collateral cash payout. Seized
-shares split into receiver credit and protocol revenue by reclassification,
-not fee-share minting against nonexistent cash. Position limits and receiver
-authorization still apply; a newly introduced receiver asset needs a listing.
-Existing receiver positions retain their risk tuple; new positions use current
-listing values. This is not identical to ordinary supply's refresh behavior.
+### ADR-0019: Liquidation share credit
 
-A liquidation may therefore change two accounts, not just its target. The
-receiver's supply increase is bounded by target seizure; its debt does not move.
-[Events](../reference/events.md) distinguish gross LiqSeize from net LiqCredit.
+Liquidation can credit an authorized account in the same spoke, avoiding a
+collateral cash payout. Seized shares split into receiver credit and protocol
+revenue by reclassification; the fee does not mint unbacked shares.
 
-The account-isolation specification exempts the declared receiver while framing
-a third account. Its receiver-credit bound does not prove the fee reaches pool
-revenue: the controller model havocs that pool call. See [model boundaries](certora-sunbeam-prover-tuning.md#model-boundaries).
+Receiver position limits still apply, and a newly credited asset needs a
+listing. Existing positions retain their risk tuple; new positions use the
+listing's values. The receiver's supply increase is bounded by the target's
+seizure and its debt does not move. The [event reference](../reference/events.md) distinguishes
+gross LiqSeize from net LiqCredit.
+
+Controller account-isolation proofs exempt the declared receiver and frame a
+third account. The receiver-credit bound does not prove pool fee allocation
+because the model summarizes that call; see
+[model boundaries](certora-sunbeam-prover-tuning.md#model-boundaries).
 
 <a id="adr-0020"></a>
-## ADR-0020: Zero-fee flash-position callback
 
-Mint debt without origination fee and forward it to a caller-chosen
-contract callback. Require nonnegative collateral minima with at least one
-positive, the debt market's flash-loan eligibility, and an open solvent
-final position. Minima bind measured controller receipts; pool supply
+### ADR-0020: Zero-fee flash-position callback
+
+Flash position creates debt without an origination fee and forwards it to a
+caller-chosen contract callback. It requires nonnegative collateral minima
+with at least one positive, an eligible flash-loan debt market, and an open
+solvent final position. Minima bind measured controller receipts; pool supply
 remeasures delivery. Returned debt is never auto-repaid: it can become
 declared collateral, be refunded when refund-listed, or remain uncredited.
 
 This is an authorized borrowing strategy, not a free cash-flash round trip.
 An already healthy account may support the new debt with little added
-collateral. Its fee difference from multiply is an accepted economic choice.
+collateral. Its origination-fee treatment differs from multiply.
 
-<a id="adr-0021"></a>
-## ADR-0021: Same-market bad-debt netting
+## Verification boundaries
 
-**Status: Proposed, deferred (2026-09-02).** Current cleanup seizes remaining
-supply as revenue, then socializes gross debt, even when both are in one
-market. Netting first would change accounting and event semantics; it has not
-been adopted. Preserve this distinction when interpreting treasury gains,
-supplier losses, and recapitalization. See [bad-debt residuals](threat-model.md#bad-debt-and-liquidation).
+<a id="adr-0017"></a>
+
+### ADR-0017: Verification and deployment artifacts
+
+Feature gates separate testing and verification helpers from deployment code.
+Release-WASM checks inspect forbidden exports for the artifacts and build inputs
+they cover. Formal results also depend on their harness and external-call
+assumptions. The [proof guide](certora-sunbeam-prover-tuning.md) explains how to
+interpret that evidence.

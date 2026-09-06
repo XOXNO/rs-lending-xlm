@@ -1,8 +1,12 @@
 # Event reference
 
-The eight protocol contracts define **28 custom event types**: controller 21, pool 3, governance 2, price aggregator 1, DeFindex adapter 1. NFT, swap aggregator and XOXNO oracle have no custom definitions; inherited OpenZeppelin events remain part of their observable surface. Decode by emitting contract **and** topic vector.
+Use this reference to decode protocol events and interpret their amounts, shares and configuration snapshots. Match both the emitting contract and the ordered topic vector.
+
+The contracts define 28 custom event types: controller 21, pool 3, governance 2, price aggregator 1 and DeFindex adapter 1. The position NFT, swap aggregator and XOXNO oracle define no custom events, but their inherited OpenZeppelin events remain observable. Subscribe to both controller and pool events to track account and market changes.
 
 ## Wire rules and units
+
+The decoder must preserve the following encoding rules:
 
 - Explicit custom topics below are ordered Soroban Symbols. Custom events have no dynamic topic fields. Inherited events do, as listed separately.
 - `map` payloads use Symbol field-name keys sorted alphabetically. `vec` uses declaration order. `single-value` is the field value itself without a wrapper. Named contract structs are maps; tuple structs are vectors.
@@ -12,7 +16,9 @@ The eight protocol contracts define **28 custom event types**: controller 21, po
 
 ## Custom events
 
-The field list gives exact Rust types; map key order is alphabetic even when the source declares another order. Nested types are defined below.
+Field lists use exact Rust types. Map key order is alphabetical, regardless of declaration order. The sections after the catalog define nested payloads.
+
+### Controller events
 
 | Event / ordered topics | Format and fields | Emission / interpretation |
 | --- | --- | --- |
@@ -37,17 +43,37 @@ The field list gives exact Rust types; map key order is alphabetic even when the
 | `CreateHubEvent`<br>`["config", "hub"]` | map: `hub_id: u32` | create_hub. |
 | `CreateMarketEvent`<br>`["market", "create"]` | map: `hub_id: u32, base_asset: Address, max_borrow_rate: i128, base_borrow_rate: i128, slope1: i128, slope2: i128, slope3: i128, mid_utilization: i128, optimal_utilization: i128, max_utilization: i128, reserve_factor: u32, market_address: Address` | create_liquidity_pool: flattened curve fields; omits decimals/flash settings. |
 | `UpdateMarketParamsEvent`<br>`["market", "params_update"]` | map: `hub_id: u32, asset: Address, max_borrow_rate: i128, base_borrow_rate: i128, slope1: i128, slope2: i128, slope3: i128, mid_utilization: i128, optimal_utilization: i128, max_utilization: i128, reserve_factor: u32` | upgrade_liquidity_pool_params: flattened curve fields; omits flash settings. |
+
+### Pool events
+
+| Event / ordered topics | Format and fields | Emission / interpretation |
+| --- | --- | --- |
 | `PoolMarketStateBatchEvent`<br>`["market", "batch_state_update"]` | single-value: `updates: Vec<PoolMarketStateEvent>` | Pool supply/borrow/withdraw/repay/seize_positions, update_indexes, recapitalize, flash_loan, create_strategy, net_settle, claim_revenue. Suppressed for empty snapshots. |
 | `PoolMarketParamsBatchEvent`<br>`["market", "batch_params_update"]` | single-value: `updates: Vec<PoolMarketParamsEvent>` | create_market/update_params: one full parameter row. |
 | `StrategyFeeEvent`<br>`["strategy", "fee"]` | map: `hub_id: u32, asset: Address, amount: i128, fee: i128, amount_sent: i128` | create_strategy only when fee != 0; amount_sent = requested amount minus fee, not receiver receipt. |
+
+### Governance events
+
+| Event / ordered topics | Format and fields | Emission / interpretation |
+| --- | --- | --- |
 | `DeployControllerEvent`<br>`["governance", "deploy_controller"]` | map: `controller: Address, wasm_hash: BytesN<32>` | governance deploy_controller. |
 | `DeployPriceAggregatorEvent`<br>`["governance", "deploy_price_aggregator"]` | map: `price_aggregator: Address, wasm_hash: BytesN<32>` | governance deploy_price_aggregator. |
+
+### Price-aggregator events
+
+| Event / ordered topics | Format and fields | Emission / interpretation |
+| --- | --- | --- |
 | `UpdateAssetOracleEvent`<br>`["config", "asset_oracle"]` | map: `key: PriceKey, oracle: AssetOracle` | set_oracle, set_sanity_band, set_tolerance: full stored oracle snapshot. |
+
+### DeFindex-strategy events
+
+| Event / ordered topics | Format and fields | Emission / interpretation |
+| --- | --- | --- |
 | `HarvestEvent`<br>`["strategy", "harvest"]` | map: `from: Address, amount: i128, price_per_share: i128` | harvest: from authorizes, amount = 0; supply index floor-rescaled to 12 decimals. |
 
-### Position batches
+## Position batches
 
-`UpdatePositionBatchEvent` is exactly `[account_id, account_attributes, deposits, borrows]`; the last two entries are vectors of tuple records. `scaled_amount` is the resulting share balance, while `amount` is this account’s movement in raw token units. Risk stamps in deposit records are BPS.
+`UpdatePositionBatchEvent` encodes as `[account_id, account_attributes, deposits, borrows]`. The last two entries are vectors of tuple records. `scaled_amount` is the resulting share balance; `amount` is the account’s movement in raw token units. Deposit risk parameters use BPS.
 
 | Tuple type | Ordered elements with types |
 | --- | --- |
@@ -77,13 +103,22 @@ The field list gives exact Rust types; map key order is alphabetic even when the
 
 `EventPositionMode` is u32: None=0 (internal Normal), Multiply=1, Long=2, Short=3.
 
-Liquidation emits LiquidationEvent, target position batch, optional Credit receiver batch, then optional bad-debt cleanup. These are controller-event ordering rules; pool/NFT/token events may occur between them. Receiver batch is supply-only and omits zero-net credits. `LiqSeize.amount` is gross; `LiqCredit.amount` is net, both raw token units even in Credit mode. Their difference can include conversion rounding; compute exact share fee from share deltas and the shared seizure math.
+Liquidation emits controller events in this order: `LiquidationEvent`, the target position batch, an optional Credit receiver batch, then optional bad-debt cleanup. Pool, NFT and token events can occur between these controller events. The receiver batch contains only supply credits and omits zero-net credits.
 
-`Credit(0)` emits the inherited NFT Mint when it creates the account. There is no dedicated controller AccountCreated event. Use NFT lifecycle events and position batches; a batch need not exist when no nonzero deltas remain. Account deletion burns its NFT; plain repay does not universally delete an emptied account.
+`LiqSeize.amount` is gross and `LiqCredit.amount` is net. Both use raw token units, including in Credit mode. Their difference can include conversion rounding; compute the exact share fee from share deltas and the [seizure calculation](formulas.md).
 
-### Market and configuration records
+`Credit(0)` emits an inherited NFT `Mint` when it creates an account. There is no controller AccountCreated event. Track NFT lifecycle events as well as position batches, which can be absent when no nonzero deltas remain. Account deletion burns the NFT; an ordinary repayment does not always delete an emptied account.
 
-`PoolMarketStateBatchEvent` data is directly `Vec<PoolMarketStateEvent>`; each row is `[hub_id: u32, asset: Address, timestamp: u64, supply_index: i128, borrow_index: i128, cash: i128, supplied: i128, borrowed: i128, revenue: i128]`. Timestamp is ms, cash is raw token units, indexes and supplied/borrowed/revenue shares are RAY. Cash is the market’s book allocation, not the pool address’s gross token balance. Revenue is **outstanding unclaimed supply shares**, reduced by claims.
+## Market and configuration records
+
+`PoolMarketStateBatchEvent` data is directly `Vec<PoolMarketStateEvent>`. Each row is the following ordered tuple:
+
+```text
+[hub_id: u32, asset: Address, timestamp: u64, supply_index: i128,
+ borrow_index: i128, cash: i128, supplied: i128, borrowed: i128, revenue: i128]
+```
+
+Timestamp uses milliseconds and cash uses raw token units. Indexes and supplied, borrowed and revenue shares use RAY. Cash is the market's recorded allocation of the pool's tokens. Revenue is outstanding unclaimed supply shares and decreases when claimed.
 
 `PoolMarketParamsBatchEvent` data is directly a vector of named maps `{hub_id: u32, asset: Address, params: MarketParamsRaw}`. Decimals omitted from controller market events are available here or from pool sync data.
 
@@ -100,11 +135,11 @@ Liquidation emits LiquidationEvent, target position batch, optional Credit recei
 | `AquariusLpSource` | `pool: Address, token_a: Address, token_b: Address, key_a: PriceKey, key_b: PriceKey, reserve_a_decimals: u32, reserve_b_decimals: u32, min_pool_value_wad: i128` |
 | `OracleTolerance` | `upper_ratio_bps: u32, lower_ratio_bps: u32` |
 
-Rate fields `base_borrow_rate`, `max_borrow_rate`, `slope1/2/3` are annual RAY. Slopes are **additive segment increments**: base+slope1 at mid, base+slope1+slope2 at optimal, then slope3 ramps to 100% utilization; max_borrow_rate caps the result. `max_utilization` limits operations, not the third segment’s denominator. Reserve factor/flashloan fee are BPS. Asset decimals are token decimals, not WAD price decimals. Spoke caps are raw token units; position-limit/count fields are counts.
+Rate fields `base_borrow_rate`, `max_borrow_rate` and `slope1/2/3` use annual RAY. Slopes are additive segment increments; `max_utilization` is an operation limit. See [formulas](formulas.md) for the curve and rounding. Reserve factor and flash-loan fee use BPS; asset decimals describe raw token units. Spoke caps use raw token units; position limits and entry counts are counts.
 
-Spoke `paused` blocks ordinary entry/exit and liquidation repayment; `frozen` only entry; `no_seize` only seizure. Seizure deliberately ignores the other two. `is_deprecated` marks deprecation, with the Credit(0) liquidation receiver exception.
+Spoke flags and deprecation affect admission differently for entry, exit and seizure. See [risk checks and pause flags](endpoints.md#risk-checks-and-pause-flags) and [Credit liquidation](endpoints.md#liquidation-results) for these restrictions.
 
-### Oracle enum payloads
+## Oracle enum payloads
 
 | Type | Exact variant shape |
 | --- | --- |
@@ -143,9 +178,11 @@ OpenZeppelin revision `fbfde388e1b72afa93d6b1c922067879b20e81db` and Soroban SDK
 | Governance: OperationExecuted | `["operation_executed", <id: BytesN<32>>, <target: Address>]` | `function: Symbol, args: Vec<Val>, predecessor: BytesN<32>, salt: BytesN<32>` | execute/execute_self/execute_canceller_reset |
 | Governance: OperationCancelled | `["operation_cancelled", <id: BytesN<32>>]` | `{}` | cancel |
 
-The governance ABI does not expose role-admin changes or admin renunciation, so RoleAdminChanged/AdminRenounced are not current protocol emissions. Ownable `set_owner` alone emits nothing. Router/XOXNO constructors and pool constructor use that silent path; controller/price aggregator/governance add explicit ownership events. Direct `update_current_contract_wasm` calls do not define a custom upgrade event.
+The governance ABI does not expose role-admin changes or admin renunciation, so it does not emit RoleAdminChanged or AdminRenounced. Ownable `set_owner` emits nothing: router, XOXNO oracle and pool constructors use this silent path. Controller, price-aggregator and governance constructors explicitly emit ownership events. Direct `update_current_contract_wasm` calls define no custom upgrade event.
 
-Underlying token contracts emit their own transfer/approval events. Those are separate contracts and separate token standards; do not label NFT events SEP-41 or count token transfers as protocol custom events. XOXNO price submissions have no custom submission event. Router swaps have no custom route/fee event; its inherited ownership events still exist.
+Underlying token contracts emit their own transfer and approval events. Decode them under the token's standard; NFT events are not SEP-41 events, and token transfers are not protocol custom events.
+
+XOXNO price submissions have no custom submission event. Router swaps have no custom route or fee event, although the router emits inherited ownership events. Use [endpoint semantics](endpoints.md) when an action has no dedicated event.
 
 ## Source map
 
