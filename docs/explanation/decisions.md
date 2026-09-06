@@ -6,9 +6,8 @@ component model. [Invariants](../reference/invariants.md),
 [Formulas](../reference/formulas.md), and the [Threat model](threat-model.md)
 define exact properties, arithmetic, and risks.
 
-The numbered anchors provide stable references across documentation and audit
-records. Sections describe implemented behavior; proposal history belongs in
-[Audit records](../audit/README.md).
+The numbered anchors provide stable references across documentation. Sections
+describe implemented behavior.
 
 ## Authority and emergency control
 
@@ -135,8 +134,7 @@ market; cleanup does not net them first. Treasury gains, supplier losses, and
 recapitalization must be interpreted on that basis.
 
 The [bad-debt section](threat-model.md#bad-debt-and-liquidation) explains the financial
-consequences. The [audit record](../audit/README.md#design-proposal-records)
-retains the separate netting proposal and its status.
+consequences.
 
 ## Price validation
 

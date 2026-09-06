@@ -6,8 +6,7 @@ that reviewers and operators must assess.
 
 Read [Architecture](../reference/architecture.md) first for markets, accounts,
 and contract responsibilities. The [invariant reference](../reference/invariants.md)
-defines precise safety properties. [Audit records](../audit/README.md) separate
-review results from deployment assurance.
+defines precise safety properties.
 
 ## Assets and trust roots
 

@@ -2,7 +2,7 @@
 
 Use this guide to diagnose slow, vacuous or failing Sunbeam rules without weakening the property under review. A proof result applies to a specific source tree, WASM artifact, configuration and set of assumptions. Compilation, static inventory checks and successful submission do not establish a proof verdict.
 
-[certora/README.md](../../certora/README.md) owns installation, profile selection and routine execution. This guide covers artifact checks, model boundaries and controlled tuning. [Audit records](../audit/README.md) retain historical security-review conclusions.
+[certora/README.md](../../certora/README.md) owns installation, profile selection and routine execution. This guide covers artifact checks, model boundaries and controlled tuning.
 
 ## Check the artifact before tuning
 

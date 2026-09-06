@@ -28,7 +28,6 @@ configuration require separate verification.
 | Event payloads and indexing | [Events](docs/reference/events.md) |
 | Failure codes and causes | [Errors](docs/reference/errors.md) |
 | Governance bad-debt cleanup | [Force-socialize runbook](docs/reference/runbooks/force-socialize-bad-debt.md) |
-| Review scope, findings, and evidence limits | [Audit records](docs/audit/README.md) |
 | Formal-model boundaries and prover diagnosis | [Certora tuning](docs/explanation/certora-sunbeam-prover-tuning.md) |
 
 ## Development
