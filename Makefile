@@ -50,7 +50,7 @@ SHELL := /bin/bash
         _mutants-check _mutants-harness-prepare \
         mutants mutants-math mutants-rates mutants-pool-interest mutants-common mutants-pool \
         mutants-governance mutants-governance-oracle-probe mutants-diff \
-        mutants-controller-core mutants-controller-oracle mutants-controller-positions \
+        mutants-controller-core mutants-controller-context mutants-controller-positions \
         mutants-controller-strategies mutants-controller-views \
         mutants-aggregator mutants-oracle-adapter mutants-swap-aggregator \
         mutants-defindex-strategy mutants-position-nft \
@@ -894,7 +894,7 @@ endif
 
 mutants: mutants-common mutants-pool mutants-governance \
 		 mutants-controller-core \
-         mutants-controller-oracle mutants-controller-positions \
+         mutants-controller-context mutants-controller-positions \
          mutants-controller-strategies mutants-controller-views \
          mutants-aggregator mutants-oracle-adapter mutants-defindex-strategy \
          mutants-swap-aggregator mutants-position-nft
@@ -941,14 +941,17 @@ CONTROLLER_FULL_TESTS = --test-package controller --test-package governance \
 
 mutants-controller-core: _mutants-harness-prepare
 	$(call run_mutants_two_pass,--package controller --file 'contracts/controller/src/**' \
-		--exclude 'contracts/controller/src/context/oracle.rs' \
+		--exclude 'contracts/controller/src/context.rs' \
 		--exclude 'contracts/controller/src/positions/**' \
 		--exclude 'contracts/controller/src/strategies/**' \
 		--exclude 'contracts/controller/src/views.rs',\
 		$(CONTROLLER_FAST_TESTS),$(CONTROLLER_FULL_TESTS))
 
-mutants-controller-oracle: _mutants-harness-prepare
-	$(call run_mutants_two_pass,--package controller --file 'contracts/controller/src/context/oracle.rs',\
+# 79532ca8 folded context/{oracle,events,market_index,pool,spoke}.rs into one
+# context.rs, so the old context/oracle.rs scope matched nothing and
+# cargo-mutants failed the job. The whole module is its own cell now.
+mutants-controller-context: _mutants-harness-prepare
+	$(call run_mutants_two_pass,--package controller --file 'contracts/controller/src/context.rs',\
 		$(CONTROLLER_FAST_TESTS),$(CONTROLLER_FULL_TESTS))
 
 mutants-controller-positions: _mutants-harness-prepare
