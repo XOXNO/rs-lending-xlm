@@ -139,7 +139,7 @@ codes overlap. The canonical enum is
 |---|---|---|
 | 1 | `EmptyBatch` | Empty/over-cap instruction batch or over-cap weights |
 | 3 | `InvalidAmount` | Nonpositive amount, vault overdraft, or measured spend mismatch |
-| 4 | `BrokenTokenChain` | Invalid `Prev` dependency; Aquarius token metadata that is empty, oversized, or duplicate, or that omits a declared hop token; or Sushi `token0`/`token1` does not match the declared pair |
+| 4 | `BrokenTokenChain` | Invalid `Prev` dependency; Aquarius token metadata that is empty or that omits a declared hop token; or Sushi `token0`/`token1` does not match the declared pair |
 | 5 | `SlippageExceeded` | Nonpositive `min_out` or delivered output below it |
 | 7 | `ZeroOutput` | Venue or LP leg produced no usable output |
 | 9 | `IntegerOverflow` | Checked conversion or arithmetic overflow |

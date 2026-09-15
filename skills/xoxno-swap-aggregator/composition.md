@@ -136,7 +136,7 @@ simulation as "re-quote with smaller limits". Request and program caps:
 Always run `prepareStellarBuiltTx` / `server.simulateTransaction` on the composed
 transaction at the ledger you sign at. `prepareStellarBuiltTx(..., { invokedContractId })`
 prefixes errors with `[xoxno-invoked:<contract>]` so a numeric code is mapped against
-the right ABI. Router failures, including the expanded `BrokenTokenChain` cases, are
+the right ABI. Router failures, including `BrokenTokenChain`, are
 centralized in [payload.md#router-errors](payload.md#router-errors). Controller-only
 guards are `RouterOverspend` (501), `NoSwapOutput` (502), `InvalidPayments` (16), and
 `FlashLoanOngoing` (400); `Budget, ExceededLimit` is a host budget failure. Re-quote on
