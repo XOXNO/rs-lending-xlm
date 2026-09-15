@@ -14,7 +14,9 @@ use soroban_sdk::{
 
 use crate::errors::Error;
 use crate::program::encode::{self, RawOp};
-use crate::types::StrategyPayload;
+use crate::reserved_fee_balance;
+use crate::storage::accumulate_fee;
+use crate::types::{DataKey, StrategyPayload};
 use crate::vault::Vault;
 use crate::venues::aquarius::add_liquidity;
 use crate::{Router, RouterClient};
@@ -417,4 +419,138 @@ fn mint_authorizes_every_constituent_the_vault_does_fund() {
     assert_eq!(report.get_unchecked(0), 1_000, "shares must be credited");
     assert_eq!(report.get_unchecked(1), 0);
     assert_eq!(report.get_unchecked(2), 0);
+}
+
+/// `get_tokens` returning `[token, token]` makes burn credit that token twice
+/// from one receipt. If it is also `token_out`, settlement would pay the
+/// inflated amount from other router balances — here, reserved admin fees.
+#[contract]
+pub struct DuplicateConstituentPool;
+
+#[contracttype]
+enum DuplicateConstituentPoolKey {
+    Token,
+    Share,
+    Payout,
+}
+
+#[contractimpl]
+impl DuplicateConstituentPool {
+    pub fn init(env: Env, token: Address, share: Address, payout: i128) {
+        env.storage()
+            .instance()
+            .set(&DuplicateConstituentPoolKey::Token, &token);
+        env.storage()
+            .instance()
+            .set(&DuplicateConstituentPoolKey::Share, &share);
+        env.storage()
+            .instance()
+            .set(&DuplicateConstituentPoolKey::Payout, &payout);
+    }
+
+    pub fn get_tokens(env: Env) -> Vec<Address> {
+        let token: Address = env
+            .storage()
+            .instance()
+            .get(&DuplicateConstituentPoolKey::Token)
+            .unwrap();
+        vec![&env, token.clone(), token]
+    }
+
+    pub fn share_id(env: Env) -> Address {
+        env.storage()
+            .instance()
+            .get(&DuplicateConstituentPoolKey::Share)
+            .unwrap()
+    }
+
+    pub fn withdraw(
+        env: Env,
+        user: Address,
+        share_amount: u128,
+        _min_amounts: Vec<u128>,
+    ) -> Vec<u128> {
+        let pool = env.current_contract_address();
+        let token: Address = env
+            .storage()
+            .instance()
+            .get(&DuplicateConstituentPoolKey::Token)
+            .unwrap();
+        let share: Address = env
+            .storage()
+            .instance()
+            .get(&DuplicateConstituentPoolKey::Share)
+            .unwrap();
+        let payout: i128 = env
+            .storage()
+            .instance()
+            .get(&DuplicateConstituentPoolKey::Payout)
+            .unwrap();
+        token::Client::new(&env, &share).burn(&user, &(share_amount as i128));
+        token::Client::new(&env, &token).transfer(&pool, &user, &payout);
+        vec![&env, payout as u128, payout as u128]
+    }
+}
+
+#[test]
+fn duplicate_lp_constituents_are_rejected_without_balance_changes() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let asset_admin = Address::generate(&env);
+    let sender = Address::generate(&env);
+    let router_addr = env.register(Router, (Address::generate(&env),));
+    let router = RouterClient::new(&env, &router_addr);
+    let (token, token_admin) = new_asset(&env, &asset_admin);
+    let (share, share_admin) = new_asset(&env, &asset_admin);
+    let pool = env.register(DuplicateConstituentPool, ());
+    let payout = 100i128;
+    DuplicateConstituentPoolClient::new(&env, &pool).init(&token, &share, &payout);
+
+    share_admin.mint(&sender, &payout);
+    token_admin.mint(&sender, &payout);
+    token::Client::new(&env, &token).transfer(&sender, &pool, &payout);
+    token_admin.mint(&router_addr, &payout);
+    env.as_contract(&router_addr, || {
+        accumulate_fee(&env, DataKey::AdminFee(token.clone()), payout);
+    });
+
+    let xdr = payload(
+        &env,
+        &[share.clone(), token.clone(), pool.clone()],
+        &[2 * payout, payout, payout],
+        encode::program(
+            &env,
+            0,
+            1,
+            0,
+            0,
+            &[RawOp {
+                opcode: OP_BURN,
+                mode: encode::ALL,
+                idx_a: 2,
+                idx_b: 0,
+                idx_c: 1,
+            }],
+            &[],
+        ),
+    );
+
+    let err = router
+        .try_execute_strategy(&sender, &payout, &xdr)
+        .unwrap_err();
+    assert_eq!(err.unwrap(), Error::BrokenTokenChain.into());
+    assert_eq!(token::Client::new(&env, &share).balance(&sender), payout);
+    assert_eq!(token::Client::new(&env, &share).balance(&router_addr), 0);
+    assert_eq!(token::Client::new(&env, &token).balance(&sender), 0);
+    assert_eq!(token::Client::new(&env, &token).balance(&pool), payout);
+    assert_eq!(
+        token::Client::new(&env, &token).balance(&router_addr),
+        payout
+    );
+    assert_eq!(router.admin_fee_balance(&token), payout);
+    assert_eq!(
+        env.as_contract(&router_addr, || reserved_fee_balance(&env, &token)),
+        payout
+    );
 }

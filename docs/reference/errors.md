@@ -177,7 +177,7 @@ Reflector runtime TWAP errors, including 212, 219 and 222, make the source leg u
 | --- | --- | --- |
 | 1 `EmptyBatch` | Empty/over-cap program or over-cap split table | Use a bounded nonempty program. |
 | 3 `InvalidAmount` | Nonpositive amount, overdraft or spend mismatch | Correct funding and amounts. |
-| 4 `BrokenTokenChain` | Prev absent or wrong token | Repair instruction dependency. |
+| 4 `BrokenTokenChain` | Prev absent or wrong token; Aquarius `get_tokens` empty, oversized, or duplicate; hop token missing from pool metadata | Repair the instruction dependency or the pool's constituent list. |
 | 5 `SlippageExceeded` | Nonpositive declared minimum or vault output below minimum before payout | Correct minimum or route. |
 | 7 `ZeroOutput` | Venue yields no usable output | Use a productive route. |
 | 9 `IntegerOverflow` | Checked arithmetic overflow | Reduce amount/domain. |

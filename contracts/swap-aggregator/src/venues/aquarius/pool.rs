@@ -3,6 +3,7 @@
 use soroban_sdk::{panic_with_error, symbol_short, Address, Env, IntoVal, Map, Symbol, Val, Vec};
 
 use crate::errors::Error;
+use crate::program::MAX_ASSETS;
 use crate::venues::auth::authorize_token_transfer;
 
 /// Authorize transfer and call pool `swap`. Panics with `IntegerOverflow` if
@@ -33,7 +34,7 @@ pub(super) fn invoke_pool_swap(
 }
 
 /// Returns the pool's constituent tokens, cached per invocation in `cache`.
-/// Panics with `BrokenTokenChain` if the pool reports no tokens.
+/// Rejects empty, oversized, or duplicate constituent lists before caching.
 pub(super) fn pool_tokens(
     env: &Env,
     cache: &mut Map<Address, Vec<Address>>,
@@ -44,8 +45,15 @@ pub(super) fn pool_tokens(
     }
     let tokens: Vec<Address> =
         env.invoke_contract(pool, &Symbol::new(env, "get_tokens"), Vec::<Val>::new(env));
-    if tokens.is_empty() {
+    if tokens.is_empty() || tokens.len() > MAX_ASSETS {
         panic_with_error!(env, Error::BrokenTokenChain);
+    }
+    let mut seen: Map<Address, bool> = Map::new(env);
+    for token in tokens.iter() {
+        if seen.contains_key(token.clone()) {
+            panic_with_error!(env, Error::BrokenTokenChain);
+        }
+        seen.set(token, true);
     }
     cache.set(pool.clone(), tokens.clone());
     tokens
@@ -76,3 +84,7 @@ pub(super) fn find_index(env: &Env, tokens: &Vec<Address>, target: &Address) -> 
         .first_index_of(target)
         .unwrap_or_else(|| panic_with_error!(env, Error::BrokenTokenChain))
 }
+
+#[cfg(test)]
+#[path = "../../../tests/unit/venues/aquarius_pool_metadata.rs"]
+mod tests;
