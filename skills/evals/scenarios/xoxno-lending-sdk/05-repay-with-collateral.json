@@ -1,0 +1,18 @@
+{
+  "skills": [
+    "xoxno-lending-sdk"
+  ],
+  "query": "User has a lending account with XLM supplied and USDC borrowed. Add a button that repays the USDC debt using their XLM collateral, and also handle the case where they borrowed and supplied the same token.",
+  "expected_behavior": [
+    "Uses `buildStellarRepayDebtWithCollateralTx` with the EXISTING `accountNonce` from userPositions (never 0 — repay requires an existing account), `collateral`/`debt` as `{ hubId, asset }` pairs, and `collateralAmount` as a base-unit string",
+    "Quotes `from: collateral asset -> to: debt asset` with `amountIn` equal to the collateral amount being sold (not the debt amount, not `amountOut`), without `sender`, and maps it into `steps` via `mapQuoteResponseToStrategySwap`",
+    "For the same-token case passes EMPTY swap bytes (`buildSameTokenRepaySwapSteps()` / `new Uint8Array(0)`) and makes no quote request; does not send a placeholder or self-swap route (controller asserts `swap.is_empty()` and reverts with InvalidPayments otherwise)",
+    "Sets `closePosition` explicitly and explains that it closes the debt position when repaying in full instead of leaving dust",
+    "Prepares and simulates the composed transaction before signing; the quote's own simulation does not cover the controller call"
+  ],
+  "machine_checkable": [
+    "Generated TypeScript passes tsc --noEmit against @xoxno/sdk-js@1.0.214 and @stellar/stellar-sdk@^16",
+    "The same-token branch passes a zero-length Uint8Array (or buildSameTokenRepaySwapSteps()) as `steps` and makes no quote request",
+    "No call passes `accountNonce: 0` to buildStellarRepayDebtWithCollateralTx"
+  ]
+}

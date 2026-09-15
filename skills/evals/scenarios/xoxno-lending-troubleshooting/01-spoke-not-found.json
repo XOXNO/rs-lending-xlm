@@ -1,0 +1,16 @@
+{
+  "skills": [
+    "xoxno-lending-troubleshooting"
+  ],
+  "query": "My first supply on XOXNO lending fails in simulation with Error(Contract, #300). The wallet has plenty of USDC. What is wrong?",
+  "expected_behavior": [
+    "Identifies #300 as SpokeError::SpokeNotFound from common/src/errors.rs and explains that account creation (accountNonce / account_id 0) asserts spoke_id >= 1, so a missing or zero spokeId is the usual cause",
+    "Tells the user to pick a spoke id from configs/networks.json / the addresses reference (../xoxno-lending/addresses.md) or read get_spoke on-chain, and does not hardcode a controller or spoke address in the answer",
+    "Does not invent a meaning for #300 or map it against a generic Soroban error list; cites the contract enum range (SpokeError 300-318)",
+    "Shows how to confirm the diagnosis (re-simulate with spokeId >= 1, or read the diagnostic event / resultXdr) rather than only guessing"
+  ],
+  "machine_checkable": [
+    "Answer contains 'SpokeNotFound' and states spoke ids start at 1",
+    "Answer contains no literal Stellar contract address (no 'C' followed by 55 base32 characters)"
+  ]
+}

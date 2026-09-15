@@ -7,10 +7,12 @@
 //! Not for production. Any address can `set_plan`; a real receiver must gate
 //! the caller to the trusted controller.
 
+use common::types::{HubAssetKey, PositionMode};
+use controller_interface::ControllerClient;
 use soroban_sdk::auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation};
 use soroban_sdk::{
-    contract, contractclient, contracterror, contractimpl, contracttype, panic_with_error,
-    symbol_short, token, vec, Address, Bytes, Env, IntoVal, Vec,
+    contract, contracterror, contractimpl, contracttype, panic_with_error, symbol_short, token,
+    vec, Address, Bytes, Env, IntoVal, Vec,
 };
 
 const MODE_SUCCESS: u32 = 0;
@@ -47,65 +49,6 @@ pub struct Plan {
 #[contracttype]
 pub enum DataKey {
     Plan,
-}
-
-#[contractclient(name = "ControllerClient")]
-pub trait Controller {
-    fn supply(
-        env: Env,
-        caller: Address,
-        account_id: u64,
-        spoke_id: u32,
-        assets: Vec<(HubAssetKey, i128)>,
-    ) -> u64;
-
-    fn borrow(
-        env: Env,
-        caller: Address,
-        account_id: u64,
-        borrows: Vec<(HubAssetKey, i128)>,
-        to: Option<Address>,
-    );
-
-    fn withdraw(
-        env: Env,
-        caller: Address,
-        account_id: u64,
-        withdrawals: Vec<(HubAssetKey, i128)>,
-        to: Option<Address>,
-    ) -> Vec<(HubAssetKey, i128)>;
-
-    fn repay(env: Env, caller: Address, account_id: u64, payments: Vec<(HubAssetKey, i128)>);
-
-    fn flash_loan(
-        env: Env,
-        caller: Address,
-        asset: HubAssetKey,
-        amount: i128,
-        receiver: Address,
-        data: Bytes,
-    );
-
-    fn flash_position(
-        env: Env,
-        caller: Address,
-        account_id: u64,
-        spoke_id: u32,
-        mode: u32,
-        debt: HubAssetKey,
-        amount: i128,
-        receiver: Address,
-        data: Bytes,
-        collaterals: Vec<(HubAssetKey, i128)>,
-        refund_assets: Vec<Address>,
-    ) -> u64;
-}
-
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct HubAssetKey {
-    pub hub_id: u32,
-    pub asset: Address,
 }
 
 #[contract]
@@ -273,7 +216,7 @@ fn reenter_flash_position(
         caller,
         &account_id,
         &plan.spoke_id,
-        &1u32,
+        &PositionMode::Multiply,
         &HubAssetKey {
             hub_id: 1,
             asset: asset.clone(),

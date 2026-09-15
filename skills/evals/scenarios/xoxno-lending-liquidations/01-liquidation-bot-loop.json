@@ -1,0 +1,18 @@
+{
+  "skills": [
+    "xoxno-lending-liquidations"
+  ],
+  "query": "Write me a liquidation bot for XOXNO Lending in TypeScript.",
+  "expected_behavior": [
+    "Discovers candidates from position:batch_update events (or the API liquidations/positions feeds), not by scanning account ids from 1 upward",
+    "Treats get_health_factor == i128::MAX as 'missing or debt-free account', not as healthy, and uses is_liquidatable / HF < 1e18 WAD as the eligibility test",
+    "Simulates get_liquidation_estimate with the same debt_payments and seize_mode it will pass to liquidate, and computes profit as seized_collaterals minus protocol_fees (gross vs net), never seized_collaterals alone",
+    "Builds the transaction with buildStellarLiquidateTx from '@xoxno/sdk-js/stellar-lending' (not '@xoxno/sdk-js/stellar'), passing debtPayments as base-unit strings and an explicit seizeMode, then prepareStellarBuiltTx, sign, sendTransaction, and polls getTransaction treating PENDING/NOT_FOUND as 'keep polling', not failure",
+    "Reads controller/pool addresses from configs/networks.json or the network manifest instead of hardcoding C... addresses",
+    "Confirms execution via the position:liquidation event plus LiqRepay (4) / LiqSeize (5) legs, noting LiqSeize is gross of the protocol fee"
+  ],
+  "machine_checkable": [
+    "Generated TypeScript passes tsc --noEmit against @xoxno/sdk-js@1.0.214 and @stellar/stellar-sdk@16",
+    "No literal C-address (regex /C[A-Z2-7]{55}/) appears in the generated source"
+  ]
+}

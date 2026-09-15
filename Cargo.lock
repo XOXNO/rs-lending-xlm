@@ -947,6 +947,8 @@ name = "flash-loan-receiver"
 version = "0.1.0"
 dependencies = [
  "common",
+ "controller-interface",
+ "pool-interface",
  "soroban-sdk",
 ]
 
@@ -954,6 +956,8 @@ dependencies = [
 name = "flash-position-receiver"
 version = "0.1.0"
 dependencies = [
+ "common",
+ "controller-interface",
  "soroban-sdk",
 ]
 

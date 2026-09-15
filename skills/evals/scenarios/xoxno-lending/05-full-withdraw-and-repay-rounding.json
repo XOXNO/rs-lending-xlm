@@ -1,0 +1,17 @@
+{
+  "skills": [
+    "xoxno-lending"
+  ],
+  "query": "I want to close out a lending account: repay all the debt and withdraw all the collateral. How do I size the amounts so nothing is left behind?",
+  "expected_behavior": [
+    "Passes 0 as the withdraw amount for a full withdrawal (zero means full balance and overrides positive amounts for the same market) instead of computing an exact amount from a floor-rounded balance",
+    "If sizing manually, requests at least the half-up displayed supply balance so all supply shares burn, and states the payout is the floor-valued balance (a floor-sized request is a partial withdrawal with a ceiled share burn that leaves dust shares)",
+    "Sizes full repayment as at least the ceiled debt balance (ceil at both the shares->RAY and RAY->token steps) so all debt shares burn, and states the excess is refunded",
+    "Distinguishes the four share-rounding directions (supply mint floor, partial withdrawal burn ceil, debt mint ceil, partial repayment burn floor) and that a zero-share result reverts",
+    "States that withdraw with remaining debt must pass the LTV, HF >= 1e18 and minimum borrow collateral gates, so repay before withdraw"
+  ],
+  "machine_checkable": [
+    "Generated TypeScript passes tsc --noEmit against @xoxno/sdk-js@1.0.214",
+    "For borrowScaledRay=1000000000000000000000000000 (1e27), borrowIndexRay=1000000000000000000000000001 (1e27+1) and decimals=7 the full-close amount is 10000001 base units (ceil), not 10000000"
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "skills": ["xoxno-lending"],
+  "query": "How is the health factor computed on XOXNO Lending and what units do get_health_factor and the position amounts use?",
+  "expected_behavior": [
+    "States that get_health_factor returns WAD (1e18) and that i128::MAX means debt-free, missing, or saturated — not simply 'healthy'",
+    "States that positions store RAY-scaled shares (1e27) and that scaled * index / RAY is still in the 27-decimal domain and must be rescaled to asset decimals",
+    "Uses liquidation thresholds (not LTV) for the health factor and LTV for borrow capacity, weighting with the parameters stored on each position",
+    "Mentions that the supply index can decrease after bad-debt socialization, so it must not be cached as a high-water mark",
+    "Points to math.md for the formulas and rounding table instead of inventing a formula"
+  ]
+}

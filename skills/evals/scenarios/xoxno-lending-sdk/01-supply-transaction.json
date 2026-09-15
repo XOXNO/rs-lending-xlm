@@ -1,0 +1,18 @@
+{
+  "skills": [
+    "xoxno-lending-sdk"
+  ],
+  "query": "Write a script that supplies 100 USDC to XOXNO lending for my wallet G... on Stellar mainnet using the SDK.",
+  "expected_behavior": [
+    "Imports from '@xoxno/sdk-js/stellar-lending' (the published subpath), not '@xoxno/sdk-js/stellar' or a deep dist path",
+    "Passes spokeId >= 1 (never 0) and accountNonce 0 / omitted to open a new account, and fetches the existing account id from stellarLendingRead(client).userPositions(owner) when topping up",
+    "Sets sourceSequence from rpc.Server.getAccount(caller) and never confuses the Stellar sequence with the lending accountNonce",
+    "Resolves controllerAddress and hub/asset from getStellarDeployment / configs (linking addresses.md) instead of hardcoding a C... address in code",
+    "Passes amount as a base-unit i128 decimal string (100 USDC at 7 decimals = \"1000000000\"), not a float",
+    "Follows getAccount -> buildStellarSupplyTx -> prepareStellarBuiltTx -> sign -> sendTransaction -> poll getTransaction, and treats PENDING/DUPLICATE as 'not yet confirmed' rather than failure"
+  ],
+  "machine_checkable": [
+    "Generated TypeScript passes tsc --noEmit against @xoxno/sdk-js@1.0.214 and @stellar/stellar-sdk@^16",
+    "Source contains 'stellar-lending' import and no 'spokeId: 0' literal"
+  ]
+}

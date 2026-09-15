@@ -1,0 +1,19 @@
+{
+  "skills": [
+    "xoxno-swap-aggregator"
+  ],
+  "query": "Open a leveraged XLM position on XOXNO: flash-loan 500 USDC of debt and swap it into XLM collateral. Give me the quote + multiply call.",
+  "expected_behavior": [
+    "Reads flashloan_fee (bps) and is_flashloanable for the debt market from pool.get_sync_data and quotes amountIn = gross - gross * flashloan_fee / 10_000 (the net amount the strategy actually receives), while debtToFlashLoan stays the gross 500 USDC ('5000000000' at 7 decimals)",
+    "Quotes from = debt asset (USDC) to = collateral asset (XLM) with slippage and without sender, then passes steps: { routeXdr: quote.routeXdr } to buildStellarMultiplyTx; checks quote.from/quote.to/quote.amountIn match before building",
+    "Uses spokeId >= 1 (spoke ids start at 1) and accountNonce 0 only when intentionally creating a new account; mode is the PositionMode integer (1 multiply) not an arbitrary u32",
+    "Simulates the composed multiply transaction before signing and warns that a stale or over-sized quote surfaces as SlippageExceeded / RouterOverspend on-chain, so re-quote rather than raising slippage",
+    "Never hardcodes controller/pool/router addresses; points to configs/networks.json and ../xoxno-lending/addresses.md"
+  ],
+  "machine_checkable": [
+    "Generated TypeScript passes tsc --noEmit against @xoxno/sdk-js 1.0.214",
+    "quote amountIn is computed from debtToFlashLoan minus the bps fee (gross - gross * fee / 10000n), not equal to debtToFlashLoan",
+    "buildStellarMultiplyTx args have spokeId >= 1 and steps of the form { routeXdr: string }",
+    "No string literal matching /^C[A-Z2-7]{55}$/ in the generated code"
+  ]
+}

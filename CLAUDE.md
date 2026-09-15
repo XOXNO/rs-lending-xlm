@@ -1,7 +1,8 @@
 # CLAUDE.md — rs-lending-xlm
 
 XOXNO Lending: invariant-critical Stellar Soroban contracts, plus formal
-proofs, fuzzers, and deployment tooling. Nothing is deployed to mainnet yet.
+proofs, fuzzers, and deployment tooling. Mainnet and testnet deployments are
+listed in `configs/networks.json`.
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) for the human working agreement and the
 per-surface evidence table. This file holds only what an agent must know that
@@ -18,7 +19,7 @@ the other documents do not say.
 | `tests/test-harness/` | Integration tests. Sub-suites: controller, pool, governance, oracle, strategy, fuzz, meta |
 | `tests/fuzz/` | Separate workspace. Excluded from the root workspace |
 | `certora/` | Sunbeam specs. Mounted **into** the controller crate — see Traps |
-| `skills/` | Published integration skills for downstream consumers. Not dev tooling |
+| `skills/` | Published integration skill set for downstream consumers; router at `skills/xoxno-lending/SKILL.md`. Not dev tooling |
 | `docs/` | Reference, decision records (ADR-0001..0020), threat model, runbooks |
 | `vendor/` | Patched `cvlr-soroban` and `cvlr-log`. See the comment in `Cargo.toml` |
 

@@ -3,145 +3,13 @@
 
 use common::errors::GenericError;
 use common::types::{HubAssetKey, InterestRateModel, PositionMode, SeizeMode};
+use controller_interface::{ControllerAdminClient, ControllerClient};
+use pool_interface::LiquidityPoolClient;
 use soroban_sdk::auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation};
 use soroban_sdk::{
-    assert_with_error, contract, contractclient, contracterror, contractimpl, contracttype,
-    panic_with_error, symbol_short, token, xdr::FromXdr, Address, Bytes, Env, IntoVal, Vec,
+    assert_with_error, contract, contracterror, contractimpl, contracttype, panic_with_error,
+    symbol_short, token, xdr::FromXdr, Address, Bytes, Env, IntoVal, Vec,
 };
-
-const TESTNET_CONTROLLER: &str = "CAYHSB4IPBJV6WIB2VJN5IMAVCAOUXHDLJTKWKBEQ4REIBC2RAWXQPEW";
-
-#[contractclient(name = "PoolClient")]
-pub trait Pool {
-    fn flash_loan(
-        env: Env,
-        asset: Address,
-        initiator: Address,
-        receiver: Address,
-        amount: i128,
-        fee: i128,
-        data: Bytes,
-    );
-}
-
-#[contractclient(name = "ControllerClient")]
-pub trait Controller {
-    fn supply(
-        env: Env,
-        caller: Address,
-        account_id: u64,
-        spoke_id: u32,
-        assets: Vec<(HubAssetKey, i128)>,
-    ) -> u64;
-
-    fn borrow(
-        env: Env,
-        caller: Address,
-        account_id: u64,
-        borrows: Vec<(HubAssetKey, i128)>,
-        to: Option<Address>,
-    );
-
-    fn withdraw(
-        env: Env,
-        caller: Address,
-        account_id: u64,
-        withdrawals: Vec<(HubAssetKey, i128)>,
-        to: Option<Address>,
-    ) -> Vec<(HubAssetKey, i128)>;
-
-    fn repay(env: Env, caller: Address, account_id: u64, payments: Vec<(HubAssetKey, i128)>);
-
-    fn liquidate(
-        env: Env,
-        liquidator: Address,
-        account_id: u64,
-        debt_payments: Vec<(HubAssetKey, i128)>,
-        seize_mode: SeizeMode,
-    ) -> u64;
-
-    fn flash_loan(
-        env: Env,
-        caller: Address,
-        asset: HubAssetKey,
-        amount: i128,
-        receiver: Address,
-        data: Bytes,
-    );
-
-    fn upgrade_liquidity_pool_params(env: Env, hub_asset: HubAssetKey, params: InterestRateModel);
-
-    fn flash_position(
-        env: Env,
-        caller: Address,
-        account_id: u64,
-        spoke_id: u32,
-        mode: PositionMode,
-        debt: HubAssetKey,
-        amount: i128,
-        receiver: Address,
-        data: Bytes,
-        collaterals: Vec<(HubAssetKey, i128)>,
-        refund_assets: Vec<Address>,
-    ) -> u64;
-
-    fn multiply(
-        env: Env,
-        caller: Address,
-        account_id: u64,
-        spoke_id: u32,
-        collateral: HubAssetKey,
-        debt_to_flash_loan: i128,
-        debt: HubAssetKey,
-        mode: PositionMode,
-        swap: Bytes,
-        initial_payment: Option<(HubAssetKey, i128)>,
-        convert_swap: Option<Bytes>,
-    ) -> u64;
-
-    fn swap_debt(
-        env: Env,
-        caller: Address,
-        account_id: u64,
-        existing_debt: HubAssetKey,
-        amount: i128,
-        new_debt: HubAssetKey,
-        swap: Bytes,
-    );
-
-    fn swap_collateral(
-        env: Env,
-        caller: Address,
-        account_id: u64,
-        current: HubAssetKey,
-        amount: i128,
-        new: HubAssetKey,
-        swap: Bytes,
-    );
-
-    fn repay_debt_with_collateral(
-        env: Env,
-        caller: Address,
-        account_id: u64,
-        collateral: HubAssetKey,
-        collateral_amount: i128,
-        debt: HubAssetKey,
-        swap: Bytes,
-        close_position: bool,
-    );
-
-    fn migrate_from_blend(
-        env: Env,
-        caller: Address,
-        account_id: u64,
-        spoke_id: u32,
-        hub_id: u32,
-        blend_pool: Address,
-        collateral_assets: Vec<Address>,
-        supply_assets: Vec<Address>,
-        debt_caps: Vec<(Address, i128)>,
-    ) -> u64;
-}
 
 #[contracttype]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -201,6 +69,7 @@ pub enum ReceiverError {
     InvalidData = 1,
     InvalidShortfall = 2,
     CallbackPanic = 3,
+    MissingPlan = 4,
 }
 
 #[contract]
@@ -317,16 +186,12 @@ fn decode_request(env: &Env, data: &Bytes) -> FlashLoanRequest {
     })
 }
 
+/// Reentry modes need a `set_plan` first; there is no baked-in controller.
 fn resolve_plan(env: &Env) -> Plan {
     env.storage()
         .instance()
         .get(&DataKey::Plan)
-        .unwrap_or_else(|| Plan {
-            controller: Address::from_str(env, TESTNET_CONTROLLER),
-            hub_id: 1,
-            spoke_id: 1,
-            account_id: 0,
-        })
+        .unwrap_or_else(|| panic_with_error!(env, ReceiverError::MissingPlan))
 }
 
 fn hub(plan: &Plan, asset: &Address) -> HubAssetKey {
@@ -409,12 +274,12 @@ fn push_to_pool(env: &Env, asset: &Address, pool: &Address, amount: i128) {
 }
 
 fn reenter_pool_flash_loan(env: &Env, asset: &Address, pool: &Address) {
-    PoolClient::new(env, pool).flash_loan(
-        asset,
+    let plan = resolve_plan(env);
+    LiquidityPoolClient::new(env, pool).flash_loan(
+        &hub(&plan, asset),
         &env.current_contract_address(),
         &env.current_contract_address(),
         &1i128,
-        &0i128,
         &Bytes::new(env),
     );
 }
@@ -624,7 +489,7 @@ fn reenter_controller_upgrade_pool_params(env: &Env, asset: &Address) {
         is_flashloanable: true,
         flashloan_fee: 9,
     };
-    ControllerClient::new(env, &plan.controller).upgrade_liquidity_pool_params(
+    ControllerAdminClient::new(env, &plan.controller).upgrade_liquidity_pool_params(
         &HubAssetKey {
             hub_id: plan.hub_id,
             asset: asset.clone(),

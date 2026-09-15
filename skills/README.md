@@ -1,38 +1,55 @@
-# XOXNO Lending — Integration Skills
+# XOXNO Lending — agent skills
 
-Agent skills for integrating or building on XOXNO Lending (Stellar Soroban).
-Each skill is a how-to an agent loads on demand, grounded in contract ABIs and
-`@xoxno/sdk-js`. Addresses and RPC endpoints come from configuration — never
-from these docs.
+Agent skills for building on XOXNO Lending. Each `SKILL.md` routes a task to
+companion references loaded on demand, following the
+[Agent Skills specification](https://agentskills.io/specification).
 
-Contract claims are verified against this repository. SDK claims are verified
-against the separate `sdk-js` repository, not this one — re-check them there
-after any SDK release.
+Use directories named `xoxno-*` for integration tasks. Reserve `evals/` for
+testing skill behavior.
 
-Shared model: [lending-protocol-fundamentals](./lending-protocol-fundamentals/SKILL.md).
-Equations: [docs/reference/formulas.md](../docs/reference/formulas.md).
-Source of truth: contracts, interfaces, and tests (formulas doc must match).
+Start at [xoxno-lending/SKILL.md](xoxno-lending/SKILL.md), select one task
+skill, and load only the companion reference named for the task.
 
-| Layer | Skill | Use it for |
+| Skill | Load when you are… | Companion files |
 |---|---|---|
-| Shared | [lending-protocol-fundamentals](./lending-protocol-fundamentals/SKILL.md) | Hubs/spokes/accounts, units, HF, address discipline |
-| On-chain (Rust) | [integrating-lending-from-soroban-contracts](./integrating-lending-from-soroban-contracts/SKILL.md) | Cross-contract supply/borrow/withdraw/repay |
-| On-chain (Rust) | [writing-flash-loan-receivers](./writing-flash-loan-receivers/SKILL.md) | `execute_flash_loan` receivers |
-| On-chain (Rust) | [writing-flash-position-receivers](./writing-flash-position-receivers/SKILL.md) | `execute_flash_position` receivers |
-| Views | [reading-lending-protocol-state](./reading-lending-protocol-state/SKILL.md) | HF, positions, rates, indexes, caps |
-| Off-chain (TS) | [using-lending-sdk](./using-lending-sdk/SKILL.md) | Tx builders, strategies, REST reads |
-| Off-chain (TS) | [building-lending-liquidation-bots](./building-lending-liquidation-bots/SKILL.md) | Detection, estimation, execution, bonus curve |
-| Off-chain (TS) | [indexing-lending-events](./indexing-lending-events/SKILL.md) | Event decode for indexers |
+| [xoxno-lending](xoxno-lending/SKILL.md) | Starting any XOXNO task; need addresses, ids, or formulas | `addresses.md` (generated), `math.md` |
+| [xoxno-lending-contracts](xoxno-lending-contracts/SKILL.md) | Writing a Soroban contract that supplies, borrows, holds a position, or receives a flash loan | `abi.md`, `positions.md`, `flash-loans.md`, `composing.md` |
+| [xoxno-lending-sdk](xoxno-lending-sdk/SKILL.md) | Building a dApp, backend, or bot in TypeScript on `@xoxno/sdk-js` and `api.xoxno.com` | `reads.md`, `transactions.md`, `strategies.md`, `frontend.md` |
+| [xoxno-swap-aggregator](xoxno-swap-aggregator/SKILL.md) | Quoting or executing swaps, or embedding a swap payload in a lending action or your own contract | `api.md`, `payload.md`, `composition.md` |
+| [xoxno-lending-liquidations](xoxno-lending-liquidations/SKILL.md) | Building a liquidation bot, keeper, or risk monitor | — |
+| [xoxno-lending-data](xoxno-lending-data/SKILL.md) | Indexing events, building analytics, or calling the REST API from any language | `api.md` |
+| [xoxno-lending-troubleshooting](xoxno-lending-troubleshooting/SKILL.md) | Decoding a failed simulation or transaction, or setting up testnet | — |
 
 ## Installing
 
-Skills follow the [Agent Skills](https://agentskills.io/specification) format
-(`SKILL.md` with YAML frontmatter).
-
 ```bash
-mkdir -p .claude/skills
-cp -R path/to/rs-lending-xlm/skills/*/ .claude/skills/
+# Claude Code / any agent that reads ~/.claude/skills
+mkdir -p ~/.claude/skills
+cp -R path/to/rs-lending-xlm/skills/xoxno-* ~/.claude/skills/
+
+# or, from the published repository
+npx skills add https://github.com/XOXNO/rs-lending-xlm
 ```
 
-Ship the whole set — layer skills assume `lending-protocol-fundamentals`.
-When the ABI or SDK changes, re-verify the affected skill against the code.
+Ship the whole set: every skill assumes `xoxno-lending` is available. The set is also
+listed on [skills.stellar.org](https://skills.stellar.org) and in the Stellar
+`standards` skill's ecosystem catalogue.
+
+## Source of truth and verification
+
+- Contract claims are verified against this repository (`interfaces/`, `common/`,
+  `contracts/`, `docs/reference/`). `scripts/check_doc_symbols.py` scans `skills/` for
+  symbols that no longer exist.
+- `xoxno-lending/addresses.md` is generated: `python3 scripts/gen_skill_addresses.py`
+  (`--check` fails when it is stale). Never edit it by hand.
+- SDK claims are verified against the separate `sdk-js` repository at the version named in
+  the skill; API claims against `xoxno-api-v2` (production behind `api.xoxno.com`);
+  aggregator claims against `arb-algo`. Re-check them after a release of any of those.
+- `evals/scenarios/<skill>/` holds task scenarios in the stellar-dev-skill format, each
+  encoding a mistake an agent makes without the skill. Run them before publishing a change.
+
+## Contributing
+
+A skill change is complete when its affected `evals/` scenario is updated,
+every `SKILL.md` remains under about 450 lines, and task-specific depth is
+disclosed through a companion file from the routing table.

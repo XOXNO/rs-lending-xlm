@@ -23,7 +23,7 @@ call-site policy").
 - Specific impact (solvency, oracle, liquidation, flash-loan, storage, etc.):
 
 See [CONTRIBUTING.md](../CONTRIBUTING.md), contract rustdoc, and
-`skills/lending-protocol-fundamentals`.
+[`skills/xoxno-lending/SKILL.md`](../skills/xoxno-lending/SKILL.md).
 
 ## Verification
 
