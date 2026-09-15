@@ -65,9 +65,19 @@ fn constituent_metadata_is_bounded_and_unique_before_caching() {
 
     let a = Address::generate(&env);
     let b = Address::generate(&env);
-    let pool = env.register(MetadataPool, (vec![&env, a.clone(), b, a],));
-    assert_eq!(
-        reader.try_read(&pool).unwrap_err().unwrap(),
-        Error::BrokenTokenChain.into()
-    );
+    let c = Address::generate(&env);
+    let duplicate_lists = [
+        vec![&env, a.clone(), a.clone()],
+        vec![&env, a.clone(), b.clone(), a.clone()],
+        vec![&env, a.clone(), a.clone(), b.clone()],
+        vec![&env, a.clone(), b.clone(), b.clone()],
+        vec![&env, a.clone(), b.clone(), a.clone(), c.clone()],
+    ];
+    for tokens in duplicate_lists {
+        let pool = env.register(MetadataPool, (tokens,));
+        assert_eq!(
+            reader.try_read(&pool).unwrap_err().unwrap(),
+            Error::BrokenTokenChain.into()
+        );
+    }
 }

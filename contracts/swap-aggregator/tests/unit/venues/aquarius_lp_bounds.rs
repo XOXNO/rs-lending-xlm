@@ -26,6 +26,7 @@ use super::super::support::{aquarius_lp_mock, aquarius_mock, new_asset};
 /// Opcode bytes, mirroring `Opcode::from_u8`.
 const OP_AQUARIUS_SWAP: u8 = 1;
 const OP_BURN: u8 = 5;
+const OP_MINT: u8 = 6;
 
 /// Serialize a hand-built payload: these tests need registry shapes the
 /// path-oriented builder cannot express.
@@ -515,6 +516,9 @@ fn duplicate_lp_constituents_are_rejected_without_balance_changes() {
         accumulate_fee(&env, DataKey::AdminFee(token.clone()), payout);
     });
 
+    // amounts[0] = 2 * payout is min_out: without the uniqueness check the
+    // vault would credit the single receipt twice and this strategy would
+    // succeed, paying the extra payout from admin-fee backing.
     let xdr = payload(
         &env,
         &[share.clone(), token.clone(), pool.clone()],
@@ -553,4 +557,63 @@ fn duplicate_lp_constituents_are_rejected_without_balance_changes() {
         env.as_contract(&router_addr, || reserved_fee_balance(&env, &token)),
         payout
     );
+}
+
+#[test]
+fn duplicate_lp_constituents_are_rejected_on_mint_without_balance_changes() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let asset_admin = Address::generate(&env);
+    let sender = Address::generate(&env);
+    let router_addr = env.register(Router, (Address::generate(&env),));
+    let router = RouterClient::new(&env, &router_addr);
+    let (token, token_admin) = new_asset(&env, &asset_admin);
+    let (share, _share_admin) = new_asset(&env, &asset_admin);
+    let pool = env.register(DuplicateConstituentPool, ());
+    let payout = 100i128;
+    DuplicateConstituentPoolClient::new(&env, &pool).init(&token, &share, &payout);
+
+    token_admin.mint(&sender, &payout);
+    token_admin.mint(&router_addr, &payout);
+    env.as_contract(&router_addr, || {
+        accumulate_fee(&env, DataKey::AdminFee(token.clone()), payout);
+    });
+
+    let token_client = token::Client::new(&env, &token);
+    let share_client = token::Client::new(&env, &share);
+    let token_sender_before = token_client.balance(&sender);
+    let token_router_before = token_client.balance(&router_addr);
+    let share_sender_before = share_client.balance(&sender);
+    let admin_fee_before = router.admin_fee_balance(&token);
+
+    let xdr = payload(
+        &env,
+        &[token.clone(), share.clone(), pool.clone()],
+        &[payout, payout],
+        encode::program(
+            &env,
+            0,
+            1,
+            0,
+            0,
+            &[RawOp {
+                opcode: OP_MINT,
+                mode: encode::ALL,
+                idx_a: 2,
+                idx_b: 1,
+                idx_c: 1,
+            }],
+            &[],
+        ),
+    );
+
+    let err = router
+        .try_execute_strategy(&sender, &payout, &xdr)
+        .unwrap_err();
+    assert_eq!(err.unwrap(), Error::BrokenTokenChain.into());
+    assert_eq!(token_client.balance(&sender), token_sender_before);
+    assert_eq!(token_client.balance(&router_addr), token_router_before);
+    assert_eq!(share_client.balance(&sender), share_sender_before);
+    assert_eq!(router.admin_fee_balance(&token), admin_fee_before);
 }
