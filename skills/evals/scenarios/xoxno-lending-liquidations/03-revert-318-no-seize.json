@@ -1,0 +1,17 @@
+{
+  "skills": [
+    "xoxno-lending-liquidations"
+  ],
+  "query": "My liquidate tx simulates fine on estimate but reverts with #318. What is going on?",
+  "expected_behavior": [
+    "Maps 318 as a controller-contract error (SpokeAssetSeizureHalted) by identifying which contract in the diagnostic events emitted it, rather than looking the number up in a single global table or guessing a pool/token error",
+    "Explains the cause: one of the liquidated account's collateral listings has no_seize = true; seizure is pro-rata over every collateral, so a single halted listing reverts the whole liquidation, while paused/frozen do not gate seizure",
+    "Recommends checking get_spoke_asset(spoke_id, hub_asset).no_seize for every collateral the account holds before submitting, and skipping (not retrying) the account while any is halted",
+    "Does not suggest bypassing the flag via Credit mode, a different debt asset, a smaller payment, or repaying a different amount — no_seize blocks the seizure leg regardless of seize_mode or debt_payments",
+    "Uses spoke ids >= 1 in any example call (spoke id 0 does not exist)"
+  ],
+  "machine_checkable": [
+    "Response contains 'SpokeAssetSeizureHalted' and 'no_seize'",
+    "Any Rust snippet compiles against soroban-sdk =27.0.6 with controller-interface + common path deps"
+  ]
+}

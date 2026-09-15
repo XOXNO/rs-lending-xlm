@@ -1,0 +1,16 @@
+{
+  "skills": [
+    "xoxno-lending-troubleshooting"
+  ],
+  "query": "My Soroban vault contract calls the XOXNO controller. Simulation of my deposit function passes on its own path but the supply call fails with 'Unauthorized function call for contract' on the token transfer. I already call authorize_as_current_contract. Why?",
+  "expected_behavior": [
+    "Explains that authorize_as_current_contract covers only the next outbound contract call, so any cross-contract call placed between it and supply (typically a controller view read such as get_spoke / get_reserve or a token balance read) consumes or invalidates the transfer authorization",
+    "Tells the user to move every read before authorize_as_current_contract and call the controller's supply / repay immediately after it, and shows the corrected ordering in soroban-sdk 27.0.6 Rust with the authorized sub-invocation being token.transfer(vault -> pool, amount)",
+    "Points out that require_auth on the vault's own address passes automatically as direct invoker; only the nested token movement needs pre-authorization, and withdraw / borrow need none",
+    "Suggests reproducing in the repo harness (make test-match PATTERN=...) or against the testnet controller from configs/networks.json rather than only reasoning, and links addresses to ../xoxno-lending/addresses.md instead of hardcoding them"
+  ],
+  "machine_checkable": [
+    "Any Rust snippet places authorize_as_current_contract as the last statement before the controller supply/repay call with no intervening cross-contract call",
+    "Rust snippet compiles against soroban-sdk =27.0.6 given the named imports"
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "skills": [
+    "xoxno-lending"
+  ],
+  "query": "How do positions work on XOXNO Lending \u2014 is a position tied to my wallet address? Can I have more than one and can I let a bot manage it?",
+  "expected_behavior": [
+    "Explains that positions are u64 account ids owned by whoever holds the position NFT (token id == account id), that one address can own many accounts, and that account_id 0 creates a new account",
+    "States that ownership moves with an NFT transfer immediately and that delegate grants made by the previous owner stop working (they are suspended, and only removed by remove_delegate)",
+    "Describes delegation as two-key: governance registers the delegate as an active position manager AND the NFT owner calls add_delegate; delegates cannot renew_account or manage delegates",
+    "Distinguishes owner-or-delegate verbs (borrow, withdraw, strategies) from permissionless repay and caller-only supply of already-supplied assets",
+    "Does not claim there is a collateral enable/disable toggle per position"
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "skills": [
+    "xoxno-lending"
+  ],
+  "query": "I fetched my lending positions from the XOXNO API. How much USDC do I actually have supplied? The response has supplyAmount and supplyScaledRay.",
+  "expected_behavior": [
+    "Treats AccountPositionDto.supplyAmount / borrowAmount as RAY (1e27) token quantities, never as base units, and rescales 27 -> asset decimals (divide by 10^(27-decimals)) before display",
+    "Derives the balance as round(supplyScaledRay * liveSupplyIndexRay / 1e27) then round(value_ray / 10^(27-decimals)), naming the rounding per boundary: floor for a supply claim paid in tokens, ceil for the debt full-close amount, half-up for the displayed balance",
+    "Performs the arithmetic in BigInt or BigNumber on the raw string fields, not in float Number",
+    "Uses liveSupplyIndexRay (falling back to supplyIndexRay) rather than assuming the index is 1e27",
+    "Does not divide a RAY quantity by 1e18 (WAD) or by 10^decimals directly"
+  ],
+  "machine_checkable": [
+    "Generated TypeScript passes tsc --noEmit against @xoxno/sdk-js@1.0.214",
+    "For supplyScaledRay=100000000000000000000000000000 (100e27), index=1050000000000000000000000000 (1.05e27), decimals=7 the output is 1050000000 base units (105.0000000 USDC)"
+  ]
+}

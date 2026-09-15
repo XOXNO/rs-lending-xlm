@@ -1,0 +1,18 @@
+{
+  "skills": [
+    "xoxno-lending-contracts"
+  ],
+  "query": "Write a Soroban vault contract that takes XLM deposits and supplies them into XOXNO lending. It should check whether it already has a lending account first.",
+  "expected_behavior": [
+    "Depends on controller-interface and common from the rs-lending-xlm git repo pinned to a tag, with soroban-sdk =27.0.6 matching that revision's workspace; uses ControllerClient from controller_interface",
+    "Takes the controller Address as a constructor parameter and resolves the pool via get_pool_address(); never hardcodes a controller or pool address (addresses come from configs/networks.json via xoxno-lending/addresses.md)",
+    "Calls env.authorize_as_current_contract with exactly transfer(vault, pool, amount) on the hub asset contract immediately before client.supply; the account_exists (or any other controller) read happens BEFORE the authorize call, never between authorize and supply",
+    "Passes account_id 0 on first supply to create the account and a spoke_id >= 1 (never 0, which reverts SpokeNotFound #300); stores the returned u64 account id in persistent storage and extends its TTL on every use",
+    "Reconciles the stored id with account_exists(account_id) and clears it when the account is gone, instead of trusting the stored id blindly"
+  ],
+  "machine_checkable": [
+    "Generated crate passes cargo check --target wasm32v1-none with soroban-sdk =27.0.6 and controller-interface from the pinned tag",
+    "No literal C... contract address appears in the generated Rust source",
+    "In the generated source, no ControllerClient method call sits between authorize_as_current_contract and client.supply"
+  ]
+}

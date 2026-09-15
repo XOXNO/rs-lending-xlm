@@ -84,12 +84,10 @@ FILE_ALLOW = {
     # Cited as a name that deliberately does NOT exist ("`prices_status` is
     # not an entrypoint"); the real helper, fetch_prices_status, is checked.
     "services/lending-exporter/README.md": {"prices_status"},
-    # Exported constant and frozen action-string table of @xoxno/sdk-js. The
-    # file states these live in that repo and are not verifiable here.
-    "skills/indexing-lending-events/SKILL.md": {
-        "STELLAR_LENDING_TOPICS",
-        "liq_repay", "liq_seize", "param_upd", "sw_debt_r", "sw_col_wd",
-        "rp_col_wd", "rp_col_r", "close_wd",
+    # DTOs from the external xoxno-api-v2 repository used by the lending math
+    # reference; their field semantics are linked to the SDK skill.
+    "skills/xoxno-lending/math.md": {
+        "AccountPositionDto", "ReserveIrmCurveDto",
     },
     # Edge and node types of the codebase-memory MCP graph, named while
     # explaining what that graph does and does not model. They are labels in an
@@ -169,13 +167,19 @@ def sources() -> str:
     return "\n".join(parts)
 
 
-def markdown_files():
+def markdown_files() -> list[Path]:
+    """Tracked *.md everywhere, plus every skills/**/*.md on disk: skills are
+    drafted for a while before they are tracked and should be checked from the
+    first draft. docs/ and the rest stay tracked-only (see tracked_files)."""
     out = subprocess.run(
         ["git", "ls-files", "*.md"], cwd=ROOT, capture_output=True, text=True
     )
-    for line in out.stdout.split("\n"):
-        if line.strip():
-            yield ROOT / line.strip()
+    files = {ROOT / line.strip() for line in out.stdout.split("\n") if line.strip()}
+    files.update(
+        p for p in (ROOT / "skills").rglob("*.md")
+        if p.is_file() and not in_skipped_dir(str(p.relative_to(ROOT)))
+    )
+    return sorted(files)
 
 
 def candidates(text: str):

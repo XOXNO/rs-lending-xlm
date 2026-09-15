@@ -1,0 +1,18 @@
+{
+  "skills": [
+    "xoxno-lending-sdk"
+  ],
+  "query": "My React app pre-builds the supply tx while the confirm modal is open so the wallet pops up instantly. Users sometimes see a red 'failed' toast even though the tx went through, and occasionally two success toasts. Fix the submit flow.",
+  "expected_behavior": [
+    "Renders `sendTransaction` status `PENDING` as 'submitted, confirmation unknown' (neutral/pending toast), never as failure; only `ERROR` or a `FAILED` `getTransaction` result is a failure; `TRY_AGAIN_LATER` means check the hash before resubmitting",
+    "Treats `DUPLICATE` as 'already submitted' and polls `getTransaction(hash)` for the real outcome instead of emitting a second success",
+    "Computes the transaction hash from the signed envelope BEFORE calling sendTransaction and persists it so a network error or poll timeout resumes by hash instead of building a replacement",
+    "Invalidates the prepared-XDR / prefetch cache for that caller immediately after a signed submission (success OR failure), because the cached envelope bakes in the consumed sequence number and replaying it yields BAD_SEQ or a DUPLICATE fast-path phantom success; keys the cache by caller + intent with a short TTL",
+    "Polls with a bounded timeout (UI uses ~90 s; the SDK example uses 30 x 2 s) and triggers the live-state/positions refresh only after `SUCCESS`, not on send acceptance"
+  ],
+  "machine_checkable": [
+    "Generated TypeScript passes tsc --noEmit against @xoxno/sdk-js@1.0.214 and @stellar/stellar-sdk@^16",
+    "No branch maps `status === 'PENDING'` or `status === 'DUPLICATE'` to a failure state",
+    "The cache-clear call occurs after signing and is not gated on submit success"
+  ]
+}

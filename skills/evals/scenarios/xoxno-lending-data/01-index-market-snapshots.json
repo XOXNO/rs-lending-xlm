@@ -1,0 +1,19 @@
+{
+  "skills": [
+    "xoxno-lending-data"
+  ],
+  "query": "Index XOXNO lending market state into Postgres so I can chart TVL and utilization per market over time.",
+  "expected_behavior": [
+    "Imports decodeStellarLendingEvent / STELLAR_LENDING_TOPICS from '@xoxno/sdk-js/stellar-lending', not from '@xoxno/sdk-js/stellar' or a hand-rolled XDR parser",
+    "Treats a null decode as a routine skip (third-party topics and intentionally undecoded config topics), never throws or halts the pipeline on it",
+    "Treats market:batch_state_update supplied / borrowed / revenue as RAY (10^27) share totals: multiplies by the row's supply_index / borrow_index, divides by RAY, rescales to asset decimals before storing TVL or utilization; only cash is already in token units",
+    "Keys market rows on (hubId, asset), not asset alone, and reads the pool contract's events as well as the controller's",
+    "Upserts on (txHash, eventId, childIndex) so re-scans and RPC retries do not duplicate rows",
+    "Takes contract addresses from configs/networks.json / addresses.md instead of hardcoding a C... address in the code"
+  ],
+  "machine_checkable": [
+    "Generated TypeScript passes tsc --noEmit against @xoxno/sdk-js@1.0.214 and @stellar/stellar-sdk@16",
+    "No literal Soroban contract address (regex /C[A-Z2-7]{55}/) appears in the generated source",
+    "The string '@xoxno/sdk-js/stellar' never appears without the '-lending' suffix"
+  ]
+}

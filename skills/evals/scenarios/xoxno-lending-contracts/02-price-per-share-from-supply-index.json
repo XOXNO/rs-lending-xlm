@@ -1,0 +1,17 @@
+{
+  "skills": [
+    "xoxno-lending-contracts"
+  ],
+  "query": "My vault holds an XOXNO lending account. Add a view that returns price per share and the vault's current USDC collateral.",
+  "expected_behavior": [
+    "Derives price per share from client.get_market_index(hub_asset).supply_index and treats it as RAY (27 decimals, RAY = 1e27), rescaling with floor rounding to the vault's share decimals; never treats the index as base units or divides by 1e7",
+    "Uses get_market_index because it reads no oracle, so the view cannot fail on a stale or missing price feed",
+    "Reads the collateral in asset units via client.get_collateral_amount(account_id, hub_asset) instead of recomputing from raw scaled positions (scaled * index without the 27-decimal-to-asset-decimal rescale)",
+    "Returns 0 (or an explicit empty result) when the stored account id is 0 or account_exists is false, instead of calling the view with a nonexistent id",
+    "Builds HubAssetKey from common::types (hub id + asset Address) rather than passing a bare token Address to the view"
+  ],
+  "machine_checkable": [
+    "Generated crate passes cargo check --target wasm32v1-none with soroban-sdk =27.0.6 and controller-interface, common from the pinned tag",
+    "Generated source references supply_index and a 27-decimal (RAY) rescale; no division of the index by 10_000_000 / 1e7"
+  ]
+}

@@ -38,7 +38,7 @@ roles (see central implementation facts and governance access control). Governan
 role keys are discovered from `ExistingRoles`; expected governance roles are
 `PROPOSER`, `EXECUTOR`, `CANCELLER`, `ORACLE`, and `GUARDIAN`. The
 controller/pool/governance boundary and role model live in the contract
-rustdoc and `skills/lending-protocol-fundamentals`.
+rustdoc and [`skills/xoxno-lending/SKILL.md`](../../skills/xoxno-lending/SKILL.md).
 
 ## Market Configuration
 

@@ -1,0 +1,11 @@
+{
+  "skills": ["xoxno-lending"],
+  "query": "I want to integrate XOXNO Lending on Stellar. Which contract do I call, what's its mainnet address, and what does a 'spoke' mean here?",
+  "expected_behavior": [
+    "Names the controller as the only user-facing contract and says the pool must never be called directly by integrators",
+    "Takes addresses from the skill's addresses.md / configs/networks.json rather than inventing or guessing one, and notes they are deployment configuration",
+    "Explains a spoke as a risk profile and listing set bound to an account for its lifetime, and a market as HubAssetKey { hub_id, asset } (same token in two hubs = two markets)",
+    "Does not describe the protocol as Aave-style e-mode or isolated mode, and does not claim the controller stores an owner address",
+    "Routes the user to xoxno-lending-contracts or xoxno-lending-sdk depending on whether they are writing a Soroban contract or an app"
+  ]
+}

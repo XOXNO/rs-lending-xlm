@@ -1,0 +1,19 @@
+{
+  "skills": [
+    "xoxno-swap-aggregator"
+  ],
+  "query": "I have a Node backend with a Stellar keypair. Swap 100 XLM to USDC through XOXNO's aggregator and tell me what the user actually gets.",
+  "expected_behavior": [
+    "Calls getStellarAggregatorQuote from '@xoxno/sdk-js/stellar-lending' with amountIn as a base-unit string ('1000000000' for 100 XLM), a slippage in [0,1) and sender set to the G... account; never passes the phantom router param",
+    "Renders amountOut, amountOutMin, priceImpact, rate, hops and feeBps from the response; explains that amountOutMin only exists when slippage was supplied and that the quote has no TTL, so it re-quotes after any change to amount, direction or slippage",
+    "Executes via one of the two documented paths: transaction.envelopeXdr (populates seqNum from the sender account before signing, because the server emits a placeholder sequence 0) or buildStellarExecuteStrategyTx({ routerAddress, totalIn: quote.amountIn, ... }, { routeXdr }) followed by prepare, sign, send",
+    "Polls getTransaction after send and treats PENDING/NOT_FOUND as still-in-flight rather than as failure; only FAILED is a failure",
+    "Reads the router address from configs/networks.json or /api/v1/config and links ../xoxno-lending/addresses.md instead of pasting a C... address into code"
+  ],
+  "machine_checkable": [
+    "Generated TypeScript passes tsc --noEmit against @xoxno/sdk-js 1.0.214 and @stellar/stellar-sdk ^16",
+    "Imports come from '@xoxno/sdk-js/stellar-lending' (grep finds no '@xoxno/sdk-js/stellar' subpath import)",
+    "Quote request includes slippage and sender; no 'router' key in the request object",
+    "No string literal matching /^C[A-Z2-7]{55}$/ in the generated code"
+  ]
+}

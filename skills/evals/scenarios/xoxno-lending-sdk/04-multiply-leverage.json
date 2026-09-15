@@ -1,0 +1,18 @@
+{
+  "skills": [
+    "xoxno-lending-sdk"
+  ],
+  "query": "Add a leverage feature to my app: user picks XLM collateral and USDC debt, I want to open a 3x position with the XOXNO SDK.",
+  "expected_behavior": [
+    "Fetches the quote WITHOUT `sender` (composed-payload mode) and WITH `slippage`, then passes `mapQuoteResponseToStrategySwap(quote)` / `{ routeXdr: quote.routeXdr }` as `steps`; never uses the standalone `transaction.envelopeXdr` or `buildStellarExecuteStrategyTx` for a lending strategy",
+    "Sizes the quote at the NET flash-loan proceeds (`amountIn = gross - gross * flashloanFeeBps / 10_000`, `flashloanFeeBps` read from the reserve) while passing the GROSS amount as `debtToFlashLoan`; does not quote the gross amount",
+    "Uses `buildStellarMultiplyTx` with `mode: 1` (multiply), `collateral`/`debt` as `{ hubId, asset }` pairs, and `initialPayment` for the user's own contribution instead of a separate supply tx",
+    "Re-simulates/prepares the composed multiply transaction itself (`prepareStellarBuiltTx`) instead of trusting the quote server's simulation, and re-quotes when amount or slippage changes (quotes carry no TTL)",
+    "Gates the post-action state on health factor (projected HF above 1 with margin) before offering the transaction"
+  ],
+  "machine_checkable": [
+    "Generated TypeScript passes tsc --noEmit against @xoxno/sdk-js@1.0.214 and @stellar/stellar-sdk@^16",
+    "Quote request contains no `sender` field and the builder call uses `steps: { routeXdr: ... }` or mapQuoteResponseToStrategySwap",
+    "The value passed as `debtToFlashLoan` is strictly greater than the quote `amountIn` by the flash-loan fee"
+  ]
+}

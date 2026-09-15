@@ -1,0 +1,19 @@
+{
+  "skills": [
+    "xoxno-swap-aggregator"
+  ],
+  "query": "My calls to the XOXNO swap quote endpoint fail intermittently. How should my client handle the errors and retries?",
+  "expected_behavior": [
+    "Branches on the JSON error body's stable `code` field, not on the free-text `error` string or on HTTP status alone",
+    "Treats 400 (unknown token, invalid amount, both/neither of amountIn/amountOut) and 404 (no path for the platform) as non-retryable client errors: fix the request, do not resend it",
+    "Explains 409 only occurs with `fresh=true` (live ledger drifted more than 2 ledgers past the snapshot) and the correct reaction is to re-quote, not to submit the stale quote",
+    "On 422 (server-side simulator rejected the envelope, e.g. budget exceeded) retries with lower `maxSplits`/`maxHops` instead of resending identical parameters",
+    "Treats 502 (upstream RPC unreachable during prepare) as transient with bounded backoff and 503 (router configuration unavailable / `/ready` stale) as 'wait for the service', not as a permanent failure",
+    "Treats a 200 response carrying `degraded` (requestedMaxSplits/effectiveMaxSplits, requestedMaxHops/effectiveMaxHops, fallbackAttempts, reason) as a successful quote with reduced search limits, not as an error to retry",
+    "Uses GET /ready (503 when the snapshot is stale) for freshness and GET /health for liveness rather than probing /api/v1/quote as a health check"
+  ],
+  "machine_checkable": [
+    "Generated TypeScript passes tsc --noEmit",
+    "Generated code switches or maps on the response body `code` field and contains no string comparison against the `error` message text"
+  ]
+}

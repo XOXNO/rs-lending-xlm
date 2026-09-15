@@ -1,0 +1,17 @@
+{
+  "skills": [
+    "xoxno-lending-sdk"
+  ],
+  "query": "Show me how to list a user's lending positions with their supplied and borrowed token amounts, plus the supply/borrow APY for each market.",
+  "expected_behavior": [
+    "Uses XOXNOClient with apiUrl set to the production API and stellarLendingRead(client).userPositions(owner) / marketsDetailed() / liveState(), not hand-written fetch calls to guessed paths",
+    "Treats AccountPositionDto.supplyAmount and borrowAmount as RAY (1e27) token quantities and divides by 1e27 (or 1e20 to reach 7-decimal base units) before display; never prints them as base units",
+    "Reads reserve indexes and rate fields with the Ray suffix as 27-decimal values and USD prices as 18-decimal WAD, using the *Short number fields only for display",
+    "Uses the API's precomputed supplyApy / borrowApy fields instead of hand-rolling the rate curve",
+    "Distinguishes context (static catalog) from live-state (per-block indexes/prices) and does not poll the static catalog for live values"
+  ],
+  "machine_checkable": [
+    "Generated TypeScript passes tsc --noEmit against @xoxno/sdk-js@1.0.214",
+    "Source does not divide supplyAmount or borrowAmount by 10 ** decimals directly"
+  ]
+}

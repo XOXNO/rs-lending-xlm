@@ -1,8 +1,9 @@
 # Controller
 
-The controller is the user-facing contract of the lending protocol. It holds
-account state, applies risk rules, and drives the pool that holds the money.
-Users never call the pool directly.
+The controller is the only user-facing **lending** contract. It holds account
+state, applies risk rules, and drives the pool that holds the money. Users never
+call the pool directly; the swap aggregator remains directly callable for
+standalone swaps.
 
 It talks to four other contracts:
 
@@ -171,6 +172,6 @@ Event topics, fields and their scales are listed in
 
 ## Further reading
 
-- Shared model: [`../../skills/lending-protocol-fundamentals/SKILL.md`](../../skills/lending-protocol-fundamentals/SKILL.md)
+- Shared model: [`../../skills/xoxno-lending/SKILL.md`](../../skills/xoxno-lending/SKILL.md)
 - Protocol math: [`../../docs/reference/formulas.md`](../../docs/reference/formulas.md)
 - Client ABI: [`../../interfaces/controller`](../../interfaces/controller)

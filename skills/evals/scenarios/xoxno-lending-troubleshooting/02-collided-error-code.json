@@ -1,0 +1,16 @@
+{
+  "skills": [
+    "xoxno-lending-troubleshooting"
+  ],
+  "query": "A repay-with-collateral swap on XOXNO reverted with Error(Contract, #114). Your docs say 114 is CannotCleanBadDebt but I am not liquidating anyone, I'm just repaying my own debt. Bug in the protocol?",
+  "expected_behavior": [
+    "Explains that Error(Contract, #N) does not say which contract panicked: a strategy call chain includes the swap-aggregator router and inner DEX pools whose error enums collide numerically with the controller's, and CannotCleanBadDebt (#114) is keeper-only and unreachable from a user tx, so this is a cross-contract collision",
+    "Instructs extracting the panicking contract id from the simulateTransaction / getTransaction diagnostic events (or resultXdr) and mapping the code against that contract's enum (router errors from contracts/swap-aggregator/src/errors.rs, controller/governance from common/src/errors.rs, DEX pool from its own enum), never blindly against the controller catalog",
+    "Warns that @xoxno/sdk-js mapSorobanError(raw) resolves the code against the lending catalog only and cannot disambiguate the contract, so its result must be qualified by the contract id",
+    "Suggests the likely real causes for a swap step inside a strategy (router SlippageExceeded #5 / stale quote, DEX pool error) and the fix: re-quote without sender, re-simulate the composed tx, retry"
+  ],
+  "machine_checkable": [
+    "Answer mentions the panicking contract id / diagnostic events as the disambiguator",
+    "Answer does not conclude that the controller returned CannotCleanBadDebt"
+  ]
+}

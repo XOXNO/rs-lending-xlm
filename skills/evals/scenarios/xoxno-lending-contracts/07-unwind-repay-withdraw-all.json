@@ -1,0 +1,18 @@
+{
+  "skills": [
+    "xoxno-lending-contracts"
+  ],
+  "query": "Add an unwind function to my vault: pay back whatever it owes on its XOXNO lending account and pull all the collateral back into the vault.",
+  "expected_behavior": [
+    "Withdraws the full position by passing amount 0 in withdrawals: Vec<(HubAssetKey, i128)> (zero means the asset's whole position); does not pass i128::MAX or a value read moments earlier that interest accrual can make stale",
+    "Uses the Vec<(HubAssetKey, i128)> returned by withdraw as the actual asset-unit amounts received instead of assuming the requested amounts landed",
+    "Repays with ControllerClient::repay(caller, account_id, payments) after self-authorizing the exact token.transfer(vault -> pool, amount) sub-invocation immediately before the call; relies on the documented refund of excess payment to the caller rather than pre-computing the exact debt to the base unit",
+    "Leaves to as None (or the vault's own address) on withdraw; never sets to to the pool or controller address, which reverts InvalidFlashloanReceiver #412 and would strand tokens",
+    "Notes that withdraw and repay carry no when_not_paused gate (unlike supply and borrow), so an unwind still works while the controller is paused"
+  ],
+  "machine_checkable": [
+    "Generated Rust compiles with cargo build --target wasm32v1-none against soroban-sdk =27.0.6 and controller-interface",
+    "Source passes 0 (not i128::MAX) as the withdraw amount for a full exit and binds the return value of withdraw",
+    "Source contains no cross-contract call between `authorize_as_current_contract` and `.repay(`"
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "skills": [
+    "xoxno-lending-contracts"
+  ],
+  "query": "I want to open a leveraged XLM position on XOXNO but route the swap through my own DEX contract instead of the aggregator. How do I do that from a contract?",
+  "expected_behavior": [
+    "Uses `flash_position` with an `execute_flash_position` receiver, not `multiply` (whose `swap: Bytes` must be aggregator router bytes produced off-chain) and not a cash `flash_loan`",
+    "Implements `execute_flash_position(env, initiator: Address, account_id: u64, asset: Address, amount: i128, fee: i128, amount_received: i128, controller: Address, data: Bytes)` with exactly that signature; does not implement `execute_flash_loan` or `approve` the pool (there is no repayment pull, `fee` is 0)",
+    "Pushes the swapped collateral to `controller` (the callback argument) with `transfer(self, controller, amount)` pre-authorized via `authorize_as_current_contract`; does not send it to the pool",
+    "Passes `mode` as `common::types::PositionMode::{Multiply, Long, Short}` (not `u32`, not `Normal` which reverts `InvalidPositionMode` #111) and `spoke_id >= 1`, `account_id` 0 to create",
+    "Declares `collaterals` with at least one entry and a strictly positive minimum, and lists the debt token in `refund_assets` to receive unspent debt tokens back to `caller`; states that leftover debt token on the controller does not auto-repay the account (debt stays minted until `repay`)",
+    "Requires the debt market to have `is_flashloanable` set (`FlashloanNotEnabled` #401) and notes the account must pass ordinary solvency gates after the callback",
+    "Gates the callback invoker to the trusted controller address held in storage; does not hardcode a contract id (addresses come from `configs/networks.json` / `xoxno-lending/addresses.md`)"
+  ],
+  "machine_checkable": [
+    "Generated Rust compiles with `cargo build --target wasm32v1-none` in the eval crate pinned to `soroban-sdk =27.0.6` with `controller-interface` and `common` path deps",
+    "Source declares `pub fn execute_flash_position` with 9 parameters after `env`, contains no `execute_flash_loan`, and no `.approve(` call"
+  ]
+}

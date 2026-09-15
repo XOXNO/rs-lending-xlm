@@ -1,0 +1,18 @@
+{
+  "skills": [
+    "xoxno-lending-liquidations"
+  ],
+  "query": "The USDC pool has no free liquidity so my liquidation keeps failing. Can I still liquidate and just keep the collateral inside lending? How much do I actually get?",
+  "expected_behavior": [
+    "Recommends SeizeMode::Credit — `{ Credit: 0 }` to open a fresh receiving account or `{ Credit: id }` for an existing one owned by / delegated to the liquidator, in the liquidated account's spoke, PositionMode::Normal, and not the liquidated account itself — because Credit moves supply shares and needs no pool cash",
+    "States that get_liquidation_estimate.seized_collaterals and protocol_fees are RAY-scaled supply shares in Credit mode and asset base units in Transfer mode, and converts shares via the supply index (floor) before comparing against the debt paid",
+    "Passes the identical seize_mode to get_liquidation_estimate and liquidate; does not estimate in Transfer and execute in Credit",
+    "Computes proceeds as seized_collaterals minus protocol_fees; explains that LiqSeize (5) is gross and LiqCredit (15) on the receiving account's second position:batch_update is net",
+    "Decodes liquidate's u64 return (decodeStellarLiquidateReturn) as the receiving account id, and notes '0' means Transfer mode",
+    "Does not claim the liquidator can repay by transferring tokens directly to the pool; the controller pulls only the accepted amounts from the liquidator's balance"
+  ],
+  "machine_checkable": [
+    "Generated TypeScript passes tsc --noEmit against @xoxno/sdk-js@1.0.214 and @stellar/stellar-sdk@16",
+    "Any StellarLiquidateArgs literal sets seizeMode to 'Transfer' or { Credit: <integer> }"
+  ]
+}

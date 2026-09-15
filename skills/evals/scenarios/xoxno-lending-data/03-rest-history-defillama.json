@@ -1,0 +1,20 @@
+{
+  "skills": [
+    "xoxno-lending-data"
+  ],
+  "query": "Write a Python script that pulls historical borrow APY for USDC and protocol TVL from XOXNO's lending API for a DefiLlama-style adapter.",
+  "expected_behavior": [
+    "Calls the production REST API under https://api.xoxno.com (the NestJS xoxno-api-v2 /stellar-lending/* routes), not the rs-lending-xlm lending-api Rust crate and not an invented base URL",
+    "Uses GET /stellar-lending/reserves/{spokeId}/{hubId}/{asset}/graph (or /page) for per-market history and reads supplyApy / borrowApy / utilization / totalDepositsUsd / totalBorrowsUsd from the returned points; uses GET /stellar-lending/stats/history for protocol-wide supplied / borrowed / revenue series",
+    "Passes from and to as yyyy-MM-dd and bin as Nd / Nh / Nm (e.g. bin=1d); does not send ISO timestamps, unix seconds, or bins like '1w'",
+    "Uses spokeId >= 1 and hubId >= 1 in the path, never spoke 0",
+    "Sends no auth header or API key; respects the public Cache-Control s-maxage instead of polling faster than it refreshes",
+    "Resolves the USDC asset address and market ids from GET /stellar-lending/assets, /hubs, /spokes or addresses.md rather than hardcoding a contract address"
+  ],
+  "machine_checkable": [
+    "Every URL in the generated source starts with https://api.xoxno.com/stellar-lending/",
+    "Every 'bin' query value matches ^\\d+[dhm]$ and every 'from'/'to' value matches ^\\d{4}-\\d{2}-\\d{2}$",
+    "No path segment for spokeId equals 0",
+    "No literal Soroban contract address (regex /C[A-Z2-7]{55}/) appears in the generated source"
+  ]
+}

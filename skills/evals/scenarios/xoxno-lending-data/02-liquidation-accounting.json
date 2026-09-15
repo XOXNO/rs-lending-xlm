@@ -1,0 +1,18 @@
+{
+  "skills": [
+    "xoxno-lending-data"
+  ],
+  "query": "From the events, work out how much collateral each liquidator actually received and how much the protocol took as fee on every XOXNO liquidation.",
+  "expected_behavior": [
+    "Matches position:batch_update legs by their u32 PositionAction discriminant: LiqSeize = 5 is the liquidated account's gross debit, LiqCredit = 15 is the receiver's net credit; the protocol fee is LiqSeize.amount - LiqCredit.amount (or computed exactly from share deltas), never the sum of the two",
+    "Expects two position:batch_update events per Credit-mode liquidation (liquidated account first, receiving account second, supply side only) and one per Transfer-mode liquidation; does not assume one batch per position:liquidation",
+    "Creates the receiver account row from the second batch's account_id / account_attributes for a Credit(0) receiver and watches the position-NFT mint / transfer / burn events for account lifecycle, since the controller emits no account-created event",
+    "Reads bonus_bps on position:liquidation as basis points and repaid_usd_wad as 10^18-scaled USD, not token units",
+    "Does not treat the SDK's raw discriminant strings (e.g. '16') or unknown actions as errors"
+  ],
+  "machine_checkable": [
+    "Generated TypeScript passes tsc --noEmit against @xoxno/sdk-js@1.0.214",
+    "Source never adds liq_seize and liq_credit amounts together for the same account/asset pair",
+    "Source references both discriminants 5 and 15 (or the strings 'liq_seize' and 'liq_credit')"
+  ]
+}
