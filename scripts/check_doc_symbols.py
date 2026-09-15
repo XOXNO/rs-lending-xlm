@@ -130,6 +130,68 @@ FILE_ALLOW = {
     },
 }
 
+# Directory prefixes of skills that document APIs owned outside this tree.
+# In-repo names in those files are still checked; only the listed identifiers
+# are exempt. Adding a name asserts it is defined in the named external
+# source (or is cited as deliberately absent), not that this tree contains it.
+PREFIX_ALLOW = {
+    # xoxno-api-v2 NestJS pipes, enums, and DTOs behind /stellar-lending/*.
+    # AccountCreated is cited as a controller event that does not exist
+    # (same pattern as prices_status).
+    "skills/xoxno-lending-data/": {
+        "AccountCreated",
+        "AccountPositionDto",
+        "ThrottlerGuard", "ParseDatePipe", "ParseTimeSpanPipe",
+        "ExtendedParseIntPipe", "ParseEnumPipe", "StellarAnalyticsScope",
+        "StellarLendingContextDto", "StellarLendingLiveStateDto",
+        "AssetDto", "AssetPageDto", "HubDto", "HubPageDto",
+        "SpokeDto", "SpokePageDto", "ReserveDto", "ReservePageDto",
+        "TopHoldersDto", "MarketGraphDto", "SpokeGraphDto",
+        "StellarStatsHistoryDto", "AccountPositionsDto", "UserHistoryDto",
+        "StellarPositionsPnlDto", "PnlByScopeDto", "StellarPositionsRankDto",
+        "RevenueSeriesDto", "FeeRevenueSeriesDto", "VolumeSeriesDto",
+        "LiquidationsSeriesDto", "LiquidationsLeaderboardDto",
+        "ParticipantCountsDto", "ActiveUsersSeriesDto",
+        "HolderDistributionDto", "RateSpreadSeriesDto",
+        "DefiLlamaDimensionsDto", "GovernanceProposalsPageDto",
+        "StellarCampaignLeaderboardDto", "StellarCampaignMeDto",
+    },
+    # arb-algo/stellar-indexer quote server (types, JSON fields, constants,
+    # error codes), @xoxno/sdk-js stellar helpers, stellar-sdk
+    # TransactionBuilder, and the xoxno-ui hop cap the composition skill cites.
+    "skills/xoxno-swap-aggregator/": {
+        "last_applied_ledger", "seconds_since_last_apply", "depth_usd",
+        "include_paths", "deny_unknown_fields", "decimals_entries",
+        "last_applied_cursor", "usd_prices_cached",
+        "staleness_threshold_secs", "lp_fee_for",
+        "apply_simulated_amount_out", "build_attempt_ladder",
+        "attach_simulated_transaction", "net_after_fees", "gross_for_net_fees",
+        "simulation_failed", "invalid_request", "no_route", "snapshot_stale",
+        "minimum_output_unreachable", "preserve_output_minimum",
+        "internal_error", "upstream_error", "router_unavailable",
+        "PriceEntry", "QuoteParams", "TimeoutLayer", "ErrorResponse",
+        "DiscoveryError", "TokenEntry", "QuoteResponse", "QuoteSnapshot",
+        "TransactionPayload", "QuoteLp", "DegradedQuote", "QuoteSwap",
+        "QuotePath",
+        "STALENESS_THRESHOLD_SECS", "AGGREGATOR_ROUTER", "PROGRAM_VERSION",
+        "MAX_REQUEST_HOPS", "MAX_REQUEST_SPLITS", "REFERRAL_TTL",
+        "StellarQuoteToken", "StellarAggregatorQuoteRequestDto",
+        "STELLAR_PROGRAM_VERSION", "StellarStrategyPayloadInput",
+        "TransactionBuilder", "STELLAR_SWAP_VENUE_OPCODE",
+        "STELLAR_LENDING_QUOTE_MAX_HOPS",
+    },
+}
+
+
+def allowed_for(rel: str) -> set[str]:
+    """Union of the exact-path FILE_ALLOW entry and every PREFIX_ALLOW whose
+    key is a prefix of rel."""
+    names = set(FILE_ALLOW.get(rel, ()))
+    for prefix, extra in PREFIX_ALLOW.items():
+        if rel.startswith(prefix):
+            names.update(extra)
+    return names
+
 
 def in_skipped_dir(rel: str) -> bool:
     return any(rel.startswith(d) or f"/{d}" in rel for d in SKIP_DIRS)
@@ -202,7 +264,7 @@ def main() -> int:
     unknown = []
     for md in markdown_files():
         rel = str(md.relative_to(ROOT))
-        allowed = FILE_ALLOW.get(rel, frozenset())
+        allowed = allowed_for(rel)
         text = md.read_text(errors="replace")
         for m, name in candidates(text):
             if name in known or name in allowed:

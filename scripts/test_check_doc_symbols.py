@@ -36,6 +36,34 @@ class DocSymbolsTest(unittest.TestCase):
                 self.assertNotIn("ghost_in_docs", text)
                 self.assertIn("unknown symbols: 1", text)
 
+    def test_prefix_allow_exempts_only_listed_external_names(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            (root / "src").mkdir()
+            (root / "src/lib.rs").write_text("pub fn real_symbol() {}\n")
+            skill_dir = root / "skills/ext-api"
+            skill_dir.mkdir(parents=True)
+            skill = skill_dir / "api.md"
+            skill.write_text("Calls `real_symbol` and `QuoteResponse`.\n")
+            listing = subprocess.CompletedProcess(
+                args=[], returncode=0, stdout="src/lib.rs\n"
+            )
+            with patch.object(check_doc_symbols, "ROOT", root), patch.object(
+                check_doc_symbols, "PREFIX_ALLOW",
+                {"skills/ext-api/": {"QuoteResponse"}},
+            ), patch.object(
+                check_doc_symbols.subprocess, "run", return_value=listing
+            ), contextlib.redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(check_doc_symbols.main(), 0)
+                skill.write_text(
+                    "Calls `real_symbol`, `QuoteResponse`, and `ghost_in_skill`.\n"
+                )
+                self.assertEqual(check_doc_symbols.main(), 1)
+                text = output.getvalue()
+                self.assertIn("skills/ext-api/api.md:1  ghost_in_skill", text)
+                self.assertNotIn("QuoteResponse", text)
+                self.assertIn("unknown symbols: 1", text)
+
 
 if __name__ == "__main__":
     unittest.main()
