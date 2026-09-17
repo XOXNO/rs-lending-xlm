@@ -3418,9 +3418,9 @@ migrate_controller_cmd() {
 
 validate_governance_role() {
     case "$1" in
-        ORACLE|PROPOSER|EXECUTOR|CANCELLER) return 0 ;;
+        ORACLE|PROPOSER|EXECUTOR|CANCELLER|GUARDIAN) return 0 ;;
         *)
-            echo "ERROR: Invalid governance role '$1'. Use ORACLE, PROPOSER, EXECUTOR, or CANCELLER." >&2
+            echo "ERROR: Invalid governance role '$1'. Use ORACLE, PROPOSER, EXECUTOR, CANCELLER, or GUARDIAN." >&2
             exit 1
             ;;
     esac
