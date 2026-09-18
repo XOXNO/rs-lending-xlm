@@ -1,4 +1,5 @@
 use crate::config::config;
+use common::types::SeizeMode;
 use controller::constants::WAD;
 use num_bigint::BigInt;
 use num_rational::BigRational;
@@ -43,6 +44,7 @@ fn run_liquidation_differential(
     borrow_eth_frac_bps: u16,
     debt_ratio_bps: u16,
     liq_repay_frac_bps: u16,
+    seize_mode: SeizeMode,
 ) -> Result<(), TestCaseError> {
     t.supply(ALICE, "USDC", supply_usdc as f64);
 
@@ -102,22 +104,24 @@ fn run_liquidation_differential(
     let usdc_revenue_before = t.snapshot_revenue("USDC");
 
     if ref_result.requires_full_close && ref_total_repaid_usd_wad < debt_before_usd {
-        let liq_res = t.try_liquidate(LIQUIDATOR, ALICE, "ETH", repay_amt);
+        let liq_res = t.try_liquidate_with_mode(LIQUIDATOR, ALICE, "ETH", repay_amt, seize_mode);
         prop_assert!(
             liq_res.is_err(),
-            "solvent-toxic partial must be rejected: repay={} debt={}",
+            "solvent-toxic partial must be rejected: repay={} debt={} mode={:?}",
             repay_amt,
-            debt_before_usd
+            debt_before_usd,
+            seize_mode
         );
         return Ok(());
     }
 
-    let liq_res = t.try_liquidate(LIQUIDATOR, ALICE, "ETH", repay_amt);
+    let liq_res = t.try_liquidate_with_mode(LIQUIDATOR, ALICE, "ETH", repay_amt, seize_mode);
     prop_assert!(
         liq_res.is_ok(),
-        "in-scope liquidation failed: repay={} reference_repaid={} error={:?}",
+        "in-scope liquidation failed: repay={} reference_repaid={} mode={:?} error={:?}",
         repay_amt,
         ref_total_repaid_usd_wad,
+        seize_mode,
         liq_res.err()
     );
 
@@ -198,8 +202,19 @@ proptest! {
         // cover -- was never generated. The reference clamps the payment to the
         // outstanding debt, so 10_000 is in its domain.
         liq_repay_frac_bps in 500u16..=10_000u16,
+        // Both seize modes share one planner and one reference model: the mode
+        // decides only how the liquidator takes delivery, never what the
+        // liquidated account gives up. Before this, every fuzz and proptest
+        // path in the repo ran `SeizeMode::Transfer` only (`try_liquidate`
+        // hardcodes it), so the BigRational oracle had never seen credit mode.
+        use_credit in any::<bool>(),
     ) {
         let t = LendingTest::new().standard_two_asset().build();
+        let seize_mode = if use_credit {
+            SeizeMode::Credit(0)
+        } else {
+            SeizeMode::Transfer
+        };
         run_liquidation_differential(
             t,
             0.75,
@@ -207,6 +222,7 @@ proptest! {
             borrow_eth_frac_bps,
             debt_ratio_bps,
             liq_repay_frac_bps,
+            seize_mode,
         )?;
     }
 }
