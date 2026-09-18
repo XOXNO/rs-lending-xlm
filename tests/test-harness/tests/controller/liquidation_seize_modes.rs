@@ -46,6 +46,16 @@ use test_harness::{
 /// `the_share_gap_stays_under_one_asset_unit_across_a_supply_index_sweep`), so
 /// the true headroom is ~1.06x, not the 2.4x an earlier fixed constant claimed.
 /// The supremum is one asset unit and the gap genuinely approaches it.
+///
+/// ONE UNIT IS THE FULL-DELIVERY BOUND. It is derivable: with `r = v mod K`,
+/// transfer burns `ceil((v-r)*c)` and credit `floor(v*c)`, so
+/// `credit - transfer <= r*c < K*c` and `transfer - credit < 2` raw shares.
+/// Under-delivery adds a SECOND independent floor —
+/// `scale_seizures_to_received` (`math.rs:426-452`) floor-scales `amount` and
+/// `scaled_amount` separately by `received/planned` — which doubles it to
+/// `2*K*c`. Callers on an under-delivering asset must use
+/// `UNDER_DELIVERY_SLACK_MULTIPLIER`; see
+/// `under_delivery_doubles_the_gap_but_keeps_it_bounded`.
 fn seize_mode_share_slack(supply_index: i128, decimals: u32) -> f64 {
     let shares_per_unit_at_ray = 10f64.powi(27 - decimals as i32);
     shares_per_unit_at_ray * common::constants::RAY as f64 / supply_index as f64
@@ -1063,6 +1073,10 @@ fn above_the_dust_threshold_transfer_pays_at_least_as_much_as_credit() {
 /// worth stating as an invariant: the direction is regime-dependent, the
 /// magnitude is not.
 ///
+/// Scope: full delivery. All three collateral markets here use standard SACs,
+/// so the repayment arrives intact. On an under-delivering asset the bound is
+/// two units, not one — see `under_delivery_doubles_the_gap_but_keeps_it_bounded`.
+///
 /// The sweep stops at 0.01 WBTC ($600): past that the extra collateral keeps
 /// the account healthy through the USDC price drop and there is no
 /// liquidation left to compare.
@@ -1249,6 +1263,10 @@ fn the_two_modes_charge_the_same_protocol_fee_within_one_unit() {
 /// because transfer's `floor_asset` can shed almost a whole unit before
 /// `ceil_shares` converts back. A point at or above 1.0 is a real regression,
 /// not noise.
+///
+/// Scope: full delivery — a standard SAC repayment, so
+/// `scale_seizures_to_received` is a no-op. The under-delivery bound is twice
+/// this and lives in `under_delivery_doubles_the_gap_but_keeps_it_bounded`.
 #[test]
 fn the_share_gap_stays_under_one_asset_unit_across_a_supply_index_sweep() {
     let mut ran = 0usize;
@@ -1324,4 +1342,127 @@ fn the_share_gap_stays_under_one_asset_unit_across_a_supply_index_sweep() {
          was barely exercised"
     );
     std::println!("index sweep: {ran} points, worst ratio {worst:.4} of one asset unit");
+}
+
+// --- under-delivery: the one regime where one unit is not the bound ---------
+
+/// Under-delivery costs exactly one more floor step per representation, so the
+/// cross-mode bound doubles rather than holding at one unit.
+const UNDER_DELIVERY_SLACK_MULTIPLIER: f64 = 2.0;
+
+/// A fee-on-transfer debt asset makes the repayment under-deliver, and the gap
+/// between the two seize modes doubles.
+///
+/// This is the regime the rest of this file does not reach. Every other
+/// cross-mode test pays with a standard SAC, so `received == planned` and
+/// `scale_seizures_to_received` (`math.rs:426-452`) is a no-op. When it is not,
+/// it floor-scales `amount` and `scaled_amount` **separately** by
+/// `received/planned` — a second independent rounding on each representation,
+/// on top of the `floor_asset`/`ceil_shares` pair the full-delivery bound
+/// already accounts for.
+///
+/// MEASURED over a 77-point sweep of shortfall rates and repayment fractions:
+/// worst share ratio 1.7843 of one asset unit (at `bps=50, repay=61.13%,
+/// supply=9876.54`), worst asset-unit gap 2. Both sit under the doubled bound
+/// and above the single-unit one, which is exactly what one extra floor per
+/// side predicts.
+///
+/// Bounded, and still not exploitable: two stroops of the victim's collateral,
+/// direction unfixed, and reaching it at all requires a non-standard token that
+/// governance chose to list.
+#[test]
+fn under_delivery_doubles_the_gap_but_keeps_it_bounded() {
+    let mut ran = 0usize;
+    let mut worst_ratio = 0.0f64;
+    let mut worst_asset = 0i128;
+    let mut exceeded_single_unit = false;
+
+    for bps in [1i128, 7, 50, 137, 500] {
+        for repay_bps in [2_903u32, 6_113, 9_337] {
+            let mut t = LendingTest::new()
+                .with_market(usdc_preset())
+                .with_fee_on_transfer_market(eth_preset(), bps)
+                .build();
+            let (supply, borrow) = (9_876.54f64, 2.19f64);
+            let mut fixture_ok = true;
+            for user in [ALICE, CAROL] {
+                t.supply(user, "USDC", supply);
+                if t.try_borrow(user, "ETH", borrow).is_err() {
+                    fixture_ok = false;
+                }
+            }
+            if !fixture_ok {
+                continue;
+            }
+            t.set_price("USDC", usd_cents(51));
+            if !t.can_be_liquidated(ALICE) || !t.can_be_liquidated(CAROL) {
+                continue;
+            }
+
+            let index = pool_state(&t, "USDC").supply_index;
+            let repay = borrow * f64::from(repay_bps) / 10_000.0;
+            let a = t.resolve_account_id(ALICE);
+            let c = t.resolve_account_id(CAROL);
+            let a_before = scaled_supply(&t, a, "USDC");
+            let c_before = scaled_supply(&t, c, "USDC");
+
+            if t.try_liquidate_with_mode(LIQUIDATOR, ALICE, "ETH", repay, SeizeMode::Transfer)
+                .is_err()
+            {
+                continue;
+            }
+            if t.try_liquidate_with_mode(LIQUIDATOR, CAROL, "ETH", repay, SeizeMode::Credit(0))
+                .is_err()
+            {
+                continue;
+            }
+            ran += 1;
+
+            let transfer_seized = a_before - scaled_supply(&t, a, "USDC");
+            let credit_seized = c_before - scaled_supply(&t, c, "USDC");
+            let delta = (transfer_seized - credit_seized).abs();
+            let slack = seize_mode_share_slack(index, t.resolve_market("USDC").decimals);
+            let ratio = delta as f64 / slack;
+            if ratio > worst_ratio {
+                worst_ratio = ratio;
+            }
+            if ratio >= 1.0 {
+                exceeded_single_unit = true;
+            }
+            assert!(
+                ratio < UNDER_DELIVERY_SLACK_MULTIPLIER,
+                "bps={bps} repay_bps={repay_bps}: under-delivery gap {delta} reached \
+                 {ratio:.4} asset units, past the doubled bound \
+                 (transfer={transfer_seized} credit={credit_seized})"
+            );
+
+            let alice_left = t.supply_balance_raw(ALICE, "USDC");
+            let carol_left = t.supply_balance_raw(CAROL, "USDC");
+            let asset_delta = (alice_left - carol_left).abs();
+            if asset_delta > worst_asset {
+                worst_asset = asset_delta;
+            }
+            assert!(
+                asset_delta <= 2,
+                "bps={bps} repay_bps={repay_bps}: victims left {alice_left} vs \
+                 {carol_left}, more than two units apart"
+            );
+        }
+    }
+
+    assert!(
+        ran >= 10,
+        "sweep degenerated: only {ran} points liquidated under under-delivery"
+    );
+    // The point of this test is that the full-delivery bound does NOT hold
+    // here. If every point came in under one unit, the fee-on-transfer wiring
+    // silently stopped under-delivering and this test is no longer testing it.
+    assert!(
+        exceeded_single_unit,
+        "no point exceeded one asset unit across {ran} runs, so under-delivery \
+         was not actually exercised; worst ratio was {worst_ratio:.4}"
+    );
+    std::println!(
+        "under-delivery: {ran} points, worst ratio {worst_ratio:.4}, worst asset gap {worst_asset}"
+    );
 }
