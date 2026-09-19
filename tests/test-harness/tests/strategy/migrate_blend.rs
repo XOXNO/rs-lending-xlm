@@ -1,3 +1,4 @@
+use controller::constants::BLEND_WITHDRAW_ALL_AMOUNT;
 use soroban_sdk::testutils::{Address as _, MockAuth, MockAuthInvoke};
 use soroban_sdk::{Address, IntoVal, Val, Vec as SorobanVec};
 use test_harness::mock_blend::{
@@ -109,6 +110,49 @@ fn test_migrate_supply_only() {
     assert_eq!(blend.position(&caller, &usdc, &KIND_SUPPLY), 0);
 }
 
+/// Blend lowers a reserve's b_rate below 1.0 when it socializes bad debt, and
+/// converts a withdraw request to b-tokens before clamping it to the position.
+/// The sweep's withdraw-all amount must survive that conversion for both
+/// request types. Rates are mainnet pool CCCCIQSD's on 2026-09-09 (USDC 0.972,
+/// XLM 0.4756), where an `i128::MAX` request trapped.
+#[test]
+fn test_migrate_sweeps_blend_reserves_whose_b_rate_fell_below_one() {
+    let mut t = LendingTest::new().standard_two_asset().build();
+    let caller = t.get_or_create_user(ALICE);
+    let blend_addr = register_approved_blend(&t);
+    let blend = MockBlendClient::new(&t.env, &blend_addr);
+    let usdc = t.resolve_asset("USDC");
+    let eth = t.resolve_asset("ETH");
+    blend.set_b_rate(&usdc, &972_046_381_753);
+    blend.set_b_rate(&eth, &475_611_892_290);
+    seed_position(&t, &blend_addr, &caller, "USDC", KIND_COLLATERAL, 1000.0);
+    seed_position(&t, &blend_addr, &caller, "ETH", KIND_SUPPLY, 2.0);
+
+    let account_id = t.ctrl_client().migrate_from_blend(
+        &caller,
+        &0u64,
+        &1u32,
+        &HARNESS_HUB,
+        &blend_addr,
+        &SorobanVec::from_array(&t.env, [usdc.clone()]),
+        &SorobanVec::from_array(&t.env, [eth.clone()]),
+        &empty_debt(&t),
+    );
+
+    assert_eq!(blend.position(&caller, &usdc, &KIND_COLLATERAL), 0);
+    assert_eq!(blend.position(&caller, &eth, &KIND_SUPPLY), 0);
+    let usdc_supply = t.supply_balance_for(ALICE, account_id, "USDC");
+    assert!(
+        (990.0..=1010.0).contains(&usdc_supply),
+        "USDC collateral must land in the new account, got {usdc_supply}"
+    );
+    let eth_supply = t.supply_balance_for(ALICE, account_id, "ETH");
+    assert!(
+        (1.98..=2.02).contains(&eth_supply),
+        "ETH supply must land in the new account, got {eth_supply}"
+    );
+}
+
 #[test]
 fn test_migrate_ignores_listed_asset_with_zero_blend_balance() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
@@ -181,7 +225,7 @@ fn test_migrate_debt_and_collateral() {
             [MockBlendRequest {
                 request_type: 3,
                 address: usdc.clone(),
-                amount: i128::MAX,
+                amount: BLEND_WITHDRAW_ALL_AMOUNT,
             }],
         ),
     )
