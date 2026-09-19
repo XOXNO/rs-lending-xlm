@@ -1,6 +1,7 @@
 use common::types::HubAssetKey;
 use soroban_sdk::{
     contract, contractclient, contracterror, contractimpl, contracttype, Address, Env, Map, Vec,
+    I256,
 };
 
 use crate::helpers::{HARNESS_HUB, HARNESS_SPOKE};
@@ -19,6 +20,9 @@ pub trait BlendHookController {
 const REQ_WITHDRAW: u32 = 1;
 const REQ_WITHDRAW_COLLATERAL: u32 = 3;
 const REQ_REPAY: u32 = 5;
+
+/// Blend's b_rate scale (`SCALAR_12`); a reserve with no rate set reads as 1.0.
+const B_RATE_SCALAR: i128 = 1_000_000_000_000;
 
 pub const KIND_COLLATERAL: u32 = 0;
 pub const KIND_SUPPLY: u32 = 1;
@@ -55,6 +59,7 @@ enum Key {
     Liability(Address, Address),
 
     LiabAssets(Address),
+    BRate(Address),
     Hook,
 }
 
@@ -85,6 +90,12 @@ impl MockBlend {
             .persistent()
             .get(&key(kind, &user, &asset))
             .unwrap_or(0)
+    }
+
+    /// Sets `asset`'s b_rate in `SCALAR_12`. Blend lowers a reserve's b_rate
+    /// below 1.0 when it socializes bad debt.
+    pub fn set_b_rate(env: Env, asset: Address, b_rate: i128) {
+        env.storage().persistent().set(&Key::BRate(asset), &b_rate);
     }
 
     pub fn submit(
@@ -222,6 +233,15 @@ fn pay_out(
     kind: u32,
     amount: i128,
 ) {
+    // Blend converts the request to b-tokens before clamping it to the
+    // position (`apply_withdraw*` in blend-contracts-v2), so an amount the
+    // conversion cannot represent traps there and must trap here.
+    let b_rate: i128 = env
+        .storage()
+        .persistent()
+        .get(&Key::BRate(asset.clone()))
+        .unwrap_or(B_RATE_SCALAR);
+    assert_b_token_conversion_fits(env, amount, b_rate);
     let k = key(kind, from, asset);
     let bal: i128 = env.storage().persistent().get(&k).unwrap_or(0);
     let out = amount.min(bal);
@@ -229,4 +249,18 @@ fn pay_out(
         env.storage().persistent().set(&k, &(bal - out));
         token.transfer(pool, to, &out);
     }
+}
+
+/// Traps like Blend's `to_b_token_up` when `ceil(amount * SCALAR_12 / b_rate)`
+/// does not fit in i128. The product is taken in I256, as Blend does.
+fn assert_b_token_conversion_fits(env: &Env, amount: i128, b_rate: i128) {
+    let rate = I256::from_i128(env, b_rate);
+    let b_tokens = I256::from_i128(env, amount)
+        .mul(&I256::from_i128(env, B_RATE_SCALAR))
+        .add(&rate.sub(&I256::from_i128(env, 1)))
+        .div(&rate);
+    assert!(
+        b_tokens.to_i128().is_some(),
+        "Blend b-token conversion overflowed i128"
+    );
 }

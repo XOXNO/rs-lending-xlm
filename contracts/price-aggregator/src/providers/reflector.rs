@@ -1,10 +1,12 @@
 //! Reads prices from Reflector oracle feeds in either spot or TWAP mode,
 //! validating feed configuration (quote asset, decimals, resolution) and,
-//! for TWAP, the spacing, staleness, and count of the underlying
+//! for TWAP, the spacing, staleness, and window coverage of the underlying
 //! observations before averaging them.
 
 use common::errors::OracleError;
-use common::oracle::observation::{is_future_at, MIN_ORACLE_RESOLUTION_SECONDS};
+use common::oracle::observation::{
+    is_future_at, try_normalize_positive_price, MIN_ORACLE_RESOLUTION_SECONDS,
+};
 use common::oracle::providers::reflector::{
     reflector_last_price, reflector_prices, to_reflector_asset, try_reflector_resolution,
     try_twap_mean_price, ReflectorAsset, ReflectorClient,
@@ -48,14 +50,17 @@ pub(crate) fn attest(
         OracleError::InvalidOracleResolution
     );
     if let OracleReadMode::Twap(records) = feed.read_mode {
-        let required_span =
-            u64::from(records.saturating_sub(1)).saturating_mul(u64::from(resolution));
         assert_with_error!(
             env,
-            required_span <= max_stale,
+            twap_required_span(records, resolution) <= max_stale,
             OracleError::InvalidOracleResolution
         );
     }
+}
+
+/// Seconds a `Twap(records)` window spans at `resolution`.
+fn twap_required_span(records: u32, resolution: u32) -> u64 {
+    u64::from(records.saturating_sub(1)).saturating_mul(u64::from(resolution))
 }
 
 /// Enforces that a Reflector contract's quote base matches how its price is
@@ -143,14 +148,10 @@ fn read_spot(
     OracleObservation::from_reflector(now_secs, &price_data, decimals)
 }
 
-/// Computes an arithmetic mean of the returned Reflector observations,
-/// despite the `Twap` mode name implying a time-weighted average. Validates
-/// that the history is non-empty and holds between `records` and
-/// `records + 1` entries, has no timestamp beyond
-/// `now + MAX_FUTURE_SKEW_SECONDS`, and has consecutive timestamps in
-/// descending order spaced at least one resolution period apart. Returns the
-/// mean price paired with the oldest observation's timestamp, or an error if
-/// validation or computation fails.
+/// Computes an arithmetic mean of the Reflector observations, despite the
+/// `Twap` name implying a time-weighted average. Rejects a history that is
+/// empty, oversized, future-dated, mis-ordered, tightly spaced, or short of
+/// the window `records` implies. Returns the mean with the oldest timestamp.
 fn read_twap(
     session: &Session,
     feed: &ReflectorFeedRef,
@@ -169,10 +170,7 @@ fn read_twap(
     if history.is_empty() {
         return Err(OracleError::ReflectorHistoryEmpty);
     }
-    // A TWAP must use its full configured window.
-    if history.len() < records {
-        return Err(OracleError::TwapInsufficientObservations);
-    }
+    // A skipped round is normal; the span check below proves coverage.
     if history.len() > records.saturating_add(1) {
         return Err(OracleError::TwapInsufficientObservations);
     }
@@ -181,6 +179,7 @@ fn read_twap(
         .filter(|resolution| *resolution >= MIN_ORACLE_RESOLUTION_SECONDS)
         .ok_or(OracleError::InvalidOracleResolution)?;
 
+    let newest_ts = history.first().map_or(0, |price_data| price_data.timestamp);
     let mut oldest_ts = u64::MAX;
     let mut previous_ts = None;
     for price_data in history.iter() {
@@ -198,9 +197,14 @@ fn read_twap(
         oldest_ts = price_data.timestamp;
     }
 
+    // Same span `attest` checks at admission; the loop proves the ordering.
+    if newest_ts.saturating_sub(oldest_ts) < twap_required_span(records, resolution) {
+        return Err(OracleError::TwapInsufficientObservations);
+    }
+
     let raw_price = try_twap_mean_price(&history).ok_or(OracleError::InvalidPrice)?;
-    let price_wad = common::oracle::observation::try_normalize_positive_price(raw_price, decimals)
-        .ok_or(OracleError::InvalidPrice)?;
+    let price_wad =
+        try_normalize_positive_price(raw_price, decimals).ok_or(OracleError::InvalidPrice)?;
     Ok(OracleObservation {
         price_wad,
         timestamp: oldest_ts,

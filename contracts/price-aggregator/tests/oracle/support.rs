@@ -24,6 +24,10 @@ pub(crate) const TWAP_OLDER_AGE_SECS: u64 = TWAP_NEWER_AGE_SECS + 300;
 
 pub(crate) const TWAP_TIGHT_SPACING_SECS: u64 = REFLECTOR_RESOLUTION_SECS as u64 - 1;
 
+/// Older sample when a round is missing: two resolution periods back.
+pub(crate) const TWAP_GAPPED_OLDER_AGE_SECS: u64 =
+    TWAP_NEWER_AGE_SECS + 2 * REFLECTOR_RESOLUTION_SECS as u64;
+
 const TWAP_SAMPLES_RAW: [i128; 2] = [REFLECTOR_ONE_RAW, 3 * REFLECTOR_ONE_RAW];
 
 pub(crate) fn in_contract<T>(env: &Env, body: impl FnOnce() -> T) -> T {
@@ -135,6 +139,47 @@ fn twap_history(env: &Env) -> Vec<ReflectorPriceData> {
             },
         ],
     )
+}
+
+/// Mainnet CEX/DEX shape: a round skipped, so two samples sit two periods
+/// apart — fewer entries than asked for, window still covered.
+#[contract]
+pub(crate) struct GappedReflector;
+
+#[contractimpl]
+impl ReflectorOracle for GappedReflector {
+    fn base(env: Env) -> ReflectorAsset {
+        ReflectorAsset::Other(Symbol::new(&env, "USD"))
+    }
+
+    fn decimals(_env: Env) -> u32 {
+        REFLECTOR_DECIMALS
+    }
+
+    fn resolution(_env: Env) -> u32 {
+        REFLECTOR_RESOLUTION_SECS
+    }
+
+    fn lastprice(_env: Env, _asset: ReflectorAsset) -> Option<ReflectorPriceData> {
+        None
+    }
+
+    fn prices(env: Env, _asset: ReflectorAsset, _records: u32) -> Option<Vec<ReflectorPriceData>> {
+        let now = env.ledger().timestamp();
+        Some(Vec::from_array(
+            &env,
+            [
+                ReflectorPriceData {
+                    price: TWAP_SAMPLES_RAW[0],
+                    timestamp: now.saturating_sub(TWAP_NEWER_AGE_SECS),
+                },
+                ReflectorPriceData {
+                    price: TWAP_SAMPLES_RAW[1],
+                    timestamp: now.saturating_sub(TWAP_GAPPED_OLDER_AGE_SECS),
+                },
+            ],
+        ))
+    }
 }
 
 #[contract]

@@ -2,8 +2,8 @@ use super::*;
 use crate::registry;
 use crate::session::Session;
 use crate::test_support::{
-    in_contract, register_redstone_feed, CountingReflector, LongHistoryReflector,
-    TightWindowReflector, TwapReflector, TWAP_OLDER_AGE_SECS,
+    in_contract, register_redstone_feed, CountingReflector, GappedReflector, LongHistoryReflector,
+    TightWindowReflector, TwapReflector, TWAP_GAPPED_OLDER_AGE_SECS, TWAP_OLDER_AGE_SECS,
 };
 use common::constants::WAD;
 use common::oracle::observation::MAX_LEG_AGE_SPREAD_SECONDS;
@@ -729,9 +729,23 @@ fn test_twap_read_averages_the_window_and_dates_itself_to_the_oldest_sample() {
     assert_eq!(feed.timestamp, NOW - TWAP_OLDER_AGE_SECS);
 }
 
+/// A skipped round is availability noise, not a bad price: the samples still
+/// cover the window, so the read must succeed rather than fail closed.
+#[test]
+fn test_twap_read_accepts_a_gapped_history_that_still_spans_the_window() {
+    let env = Env::default();
+    at_now(&env);
+    let reflector = env.register(GappedReflector, ());
+
+    let feed = in_contract(&env, || resolve_twap(&env, &reflector, 3));
+
+    assert_eq!(feed.price_wad, 2 * WAD);
+    assert_eq!(feed.timestamp, NOW - TWAP_GAPPED_OLDER_AGE_SECS);
+}
+
 #[test]
 #[should_panic(expected = "Error(Contract, #210)")]
-fn test_twap_read_rejects_a_history_shorter_than_the_window_needs() {
+fn test_twap_read_rejects_a_history_that_does_not_span_the_window() {
     let env = Env::default();
     at_now(&env);
     let reflector = env.register(TwapReflector, ());

@@ -106,6 +106,21 @@ fn test_insufficient_twap_history_blocks_strict_borrow() {
     assert_contract_error(result, errors::UNSAFE_PRICE);
 }
 
+/// A skipped round returns fewer samples that still span the window. Dropping
+/// the leg would fail the market closed on availability noise.
+#[test]
+fn test_gapped_twap_history_keeps_the_market_open() {
+    let mut t = setup();
+    let usdc_asset = t.resolve_asset("USDC");
+    t.mock_reflector_client()
+        .set_twap_history_mode(&usdc_asset, &10);
+
+    t.supply(ALICE, "USDC", 100_000.0);
+    t.borrow(ALICE, "ETH", 1.0);
+
+    assert!(t.health_factor(ALICE) > 1.0);
+}
+
 #[test]
 fn test_exact_minimum_twap_history_is_accepted() {
     let mut t = setup();
