@@ -1,0 +1,15 @@
+{
+  "kind": "governance_self",
+  "op_id": "947e8c62cedfc5fb3ba25904863b3199a97b2a2e58b9a2d58f121e845f86bf1c",
+  "network": "mainnet",
+  "execute_label": "grant_gov_role",
+  "salt": "68b7e25371bd5bea6a3ea4b07caa0e6ae75cc2f3eeb3ce6bbf391ddd0172a8ea",
+  "op": {
+    "GrantGovRole": {
+      "account": "GAAA7URTWEULP6Z3UF4ESKB4JTBTLEJC3RM7FYSYUNSQVOQ4IVV73MAW",
+      "role": "CANCELLER"
+    }
+  },
+  "cli_executable": true,
+  "executed": true
+}

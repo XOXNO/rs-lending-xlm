@@ -540,6 +540,7 @@ coverage-merged:
 
 docs-check:
 	python3 scripts/test_check_doc_links.py
+	python3 scripts/test_check_doc_symbols.py
 	python3 scripts/check_doc_links.py
 	python3 scripts/check_doc_symbols.py
 
