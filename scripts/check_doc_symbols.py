@@ -131,6 +131,20 @@ FILE_ALLOW = {
 }
 
 
+# Skill directories that document a service living in another repository: the
+# public REST API (xoxno-api-v2) and the swap-aggregator quote server
+# (arb-algo / stellar-indexer). Their names -- NestJS DTOs and pipes, quote
+# server structs and env vars -- are real, but nothing in this repo defines
+# them, so the check cannot resolve them and there is no local code for them to
+# go stale against. Scoped to these two trees, not all of skills/: the other
+# skills cite this repo's contracts and stay gated. check_doc_links.py still
+# covers every file here.
+EXTERNAL_DOC_DIRS = (
+    "skills/xoxno-lending-data/",
+    "skills/xoxno-swap-aggregator/",
+)
+
+
 def in_skipped_dir(rel: str) -> bool:
     return any(rel.startswith(d) or f"/{d}" in rel for d in SKIP_DIRS)
 
@@ -202,6 +216,8 @@ def main() -> int:
     unknown = []
     for md in markdown_files():
         rel = str(md.relative_to(ROOT))
+        if rel.startswith(EXTERNAL_DOC_DIRS):
+            continue
         allowed = FILE_ALLOW.get(rel, frozenset())
         text = md.read_text(errors="replace")
         for m, name in candidates(text):

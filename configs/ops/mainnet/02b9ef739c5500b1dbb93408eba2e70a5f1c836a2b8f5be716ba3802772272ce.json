@@ -1,0 +1,15 @@
+{
+  "kind": "governance_self",
+  "op_id": "02b9ef739c5500b1dbb93408eba2e70a5f1c836a2b8f5be716ba3802772272ce",
+  "network": "mainnet",
+  "execute_label": "grant_gov_role",
+  "salt": "473391489216599243730dc652c6d22ac0bb03d6c868126ff1f3702c549c4e3a",
+  "op": {
+    "GrantGovRole": {
+      "account": "GAAA7URTWEULP6Z3UF4ESKB4JTBTLEJC3RM7FYSYUNSQVOQ4IVV73MAW",
+      "role": "GUARDIAN"
+    }
+  },
+  "cli_executable": true,
+  "executed": true
+}

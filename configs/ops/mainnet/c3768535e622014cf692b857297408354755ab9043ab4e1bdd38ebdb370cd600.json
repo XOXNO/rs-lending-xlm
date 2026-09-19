@@ -1,0 +1,15 @@
+{
+  "kind": "governance_self",
+  "op_id": "c3768535e622014cf692b857297408354755ab9043ab4e1bdd38ebdb370cd600",
+  "network": "mainnet",
+  "execute_label": "transfer_gov_ownership",
+  "salt": "312327ed0f2ce660192a71d66bfbeb9831de4807d05717176c72d93d69c362bb",
+  "op": {
+    "TransferGovOwnership": {
+      "new_owner": "GAVWFZK5BGCGBWH4O2CXAHXVRIYVAMGCTZJ24IPLVNLT2WQ2LJBDEEBP",
+      "live_until_ledger": 64599861
+    }
+  },
+  "cli_executable": true,
+  "executed": true
+}
