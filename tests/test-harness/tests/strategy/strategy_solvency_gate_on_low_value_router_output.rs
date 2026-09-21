@@ -1,6 +1,4 @@
-//! The post-pool solvency gate (`strategies/mod.rs:53`) is the last line between a
-//! low-value router output and an under-collateralised position. `MockAggregator`
-//! pays exactly `min_out`, so `min_out` IS the router output here.
+//! `MockAggregator` pays exactly `min_out`, so `min_out` is the router output here.
 
 use controller::types::PositionMode;
 use soroban_sdk::token;

@@ -1,6 +1,4 @@
-//! Exact-equality boundaries that no other test lands on: health factor exactly
-//! 1.0 at the `liquidate` entry point, a borrow exactly at the LTV limit, and
-//! LTV-weighted collateral exactly at the min-borrow floor.
+//! Health factor exactly 1.0, a borrow exactly at the LTV limit, collateral exactly at the floor.
 
 use common::types::HubAssetKey;
 use controller::constants::WAD;
@@ -84,8 +82,7 @@ fn borrow_passes_exactly_at_the_ltv_limit_and_reverts_one_unit_above() {
 
 #[test]
 fn borrow_passes_with_ltv_collateral_exactly_at_the_floor_and_reverts_one_unit_below() {
-    // The default $5 floor has no exactly-representable collateral amount, so move
-    // the floor onto the account's LTV collateral instead of the other way round.
+    // Move the floor onto the account's LTV collateral; $5 has no exact collateral amount.
     let mut t = LendingTest::new().standard_two_asset().build();
     t.supply(ALICE, "USDC", 100.0); // LTV collateral = exactly $75
     let account_id = t.resolve_account_id(ALICE);

@@ -401,16 +401,6 @@ fn longest_accepted_base_uri_still_renders_token_uri() {
     assert_eq!(client.token_uri(&token_id).len(), 200 + 1 + 28);
 }
 
-// ---------------------------------------------------------------------------
-// A non-controller who signs for THEMSELVES.
-//
-// The `*_requires_controller_auth` tests above send no signature at all and a
-// made-up wasm hash, and accept any `is_err()`. These pin the stronger claim:
-// a complete, valid signature from the wrong address is refused by the HOST
-// auth check (`ScErrorType::Auth`), and `upgrade` is refused even though the
-// target wasm really exists on the ledger.
-// ---------------------------------------------------------------------------
-
 extern crate std;
 
 use soroban_sdk::testutils::{MockAuth, MockAuthInvoke};
@@ -429,13 +419,7 @@ fn uploaded_position_nft_wasm(env: &Env) -> BytesN<32> {
         .upload_contract_wasm(Bytes::from_slice(env, &bytes))
 }
 
-/// Runs `call`, which must panic, and asserts the host error behind the panic
-/// is `Error(Auth, InvalidAction)`.
-///
-/// The `try_*` client cannot show this: the host squashes every non-contract
-/// error from a `try_call` into `Error(Context, InvalidAction)`, so an auth
-/// refusal and a missing-wasm error look the same there. The plain client
-/// panics with the original host error in its message.
+/// Asserts `call` panics with the host error `Error(Auth, InvalidAction)`.
 fn assert_host_auth_error(label: &str, call: impl FnOnce()) {
     let payload = std::panic::catch_unwind(std::panic::AssertUnwindSafe(call))
         .expect_err("the call must be refused");
@@ -483,8 +467,7 @@ fn upgrade_to_a_real_wasm_signed_by_a_stranger_is_a_host_auth_error() {
     );
     assert_host_auth_error("upgrade", || client.upgrade(&real_hash));
 
-    // Control: the same hash is a valid upgrade target once the controller
-    // signs, so the refusal above was the auth gate and not the hash.
+    // Control: the controller can upgrade to the same hash.
     env.mock_all_auths();
     client.upgrade(&real_hash);
 }
@@ -518,7 +501,6 @@ fn burn_signed_by_the_token_owner_is_a_host_auth_error() {
     let owner = Address::generate(&env);
     let token_id = client.mint(&owner);
 
-    // The NFT owner is the most plausible non-controller to try a burn.
     for signer in [owner.clone(), Address::generate(&env)] {
         sign_as(&env, &signer, &id, "burn", (token_id,).into_val(&env));
         assert_host_auth_error("burn", || client.burn(&token_id));

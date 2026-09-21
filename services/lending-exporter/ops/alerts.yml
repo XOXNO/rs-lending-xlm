@@ -21,13 +21,8 @@ groups:
       # actually rejected on-chain. On a 1h leg 10% is six minutes, so this
       # warning is mostly for the multi-hour legs; the critical below is the
       # real signal for the fast ones.
-      #
-      # The 10% rule only works while an ON-TIME push leaves more than 10% of the
-      # budget. The 26h legs (SolvBTC_FUNDAMENTAL, 93600 s) are pushed every 24h,
-      # so an on-time push leaves 2h = 7.7%: the rule fired ~36 minutes every day
-      # and could not show a late push. Those legs are excluded here and get the
-      # lateness rule below. A new leg class needs the same check:
-      # (budget - heartbeat) / budget must be above 0.10, or it belongs below.
+      # The 26h legs are excluded: an on-time 24h push leaves 7.7%, under this
+      # threshold. LendingOracleDailyPushLate covers them.
       - alert: LendingOracleFreshnessLow
         expr: lending_oracle_seconds_until_stale / lending_oracle_effective_max_stale_seconds < 0.10 and lending_oracle_seconds_until_stale > 0 and lending_oracle_effective_max_stale_seconds > 0 and lending_oracle_effective_max_stale_seconds < 90000
         for: 5m
@@ -36,8 +31,7 @@ groups:
           summary: "Oracle freshness budget for {{ $labels.symbol }} ({{ $labels.network }}) below 10%"
           description: "{{ $value | humanizePercentage }} of the staleness budget remains; a feed heartbeat was likely missed. Check the feeder (Xoxno bots / RedStone push) before the leg is rejected on-chain."
 
-      # 24h-heartbeat legs on a 26h budget: an on-time push leaves 7200 s. Under
-      # 5400 s the push is at least 30 minutes late and 90 minutes remain to act.
+      # An on-time push leaves 7200 s; under 5400 s it is at least 30 minutes late.
       - alert: LendingOracleDailyPushLate
         expr: lending_oracle_effective_max_stale_seconds >= 90000 and lending_oracle_seconds_until_stale < 5400 and lending_oracle_seconds_until_stale > 0
         for: 5m
@@ -46,10 +40,7 @@ groups:
           summary: "Daily oracle push for {{ $labels.symbol }} ({{ $labels.network }}) is late"
           description: "The 24h-heartbeat leg has not been pushed on time; the market fails closed when the leg goes stale. Check the RedStone push before the 26h budget ends."
 
-      # An Aquarius LP price fails closed when pool value (LP price x share
-      # supply) drops under the configured floor. From that moment every account
-      # that holds the LP leg, even one unit of it, cannot be liquidated, and
-      # liquidity providers control pool value. Warn while there is still room.
+      # Pool value = LP price x share supply. Under 1.0x the LP price is rejected.
       - alert: LendingLpPoolValueNearFloor
         expr: (lending_oracle_price_usd * lending_oracle_lp_total_shares) / lending_oracle_lp_pool_floor_usd < 1.25 and lending_oracle_lp_pool_floor_usd > 0
         for: 10m

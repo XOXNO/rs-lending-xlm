@@ -18,8 +18,6 @@ fn setup() -> LendingTest {
 fn test_all_state_changing_entries_reject_under_flash_loan_ongoing() {
     let mut t = setup();
     let alice_id = t.resolve_account_id(ALICE);
-    // Approve the Blend pool first: the migrate check below must reach the
-    // controller, not fail while the harness is still wiring the mock.
     t.ensure_approved_blend();
     t.set_flash_loan_ongoing(true);
 

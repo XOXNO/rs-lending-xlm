@@ -687,10 +687,7 @@ async fn publish_oracle_config_and_freshness(
         return;
     };
 
-    // The aggregator admits an LP source only as the sole source
-    // (price-aggregator admin.rs: SourceCountOutOfRange otherwise), so the final
-    // price IS the LP leg price the floor is checked against. Publish nothing if
-    // that ever stops being true, rather than a ratio built on a midpoint.
+    // Sole-source only: then the published price is the LP leg price.
     if let (Some(floor), Some(dec), 1) = (&config.lp_floor, decimals, config.source_count) {
         publish_lp_floor_headroom(client, metrics, net, market, &olabels, floor, dec).await;
     }
@@ -745,10 +742,6 @@ async fn publish_oracle_config_and_freshness(
     }
 }
 
-/// Publishes the two inputs of the Aquarius pool-value floor. Pool value is
-/// `lending_oracle_price_usd * lending_oracle_lp_total_shares`; the aggregator
-/// rejects the LP price, and every account holding the leg stops being
-/// liquidatable, once that product falls under the floor.
 async fn publish_lp_floor_headroom(
     client: &RpcClient,
     metrics: &Metrics,

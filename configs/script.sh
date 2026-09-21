@@ -1536,7 +1536,6 @@ validate_configs() {
         fi
     done
 
-    # Two config spokes on one on-chain spoke would overwrite each other's listings.
     local shared_onchain
     shared_onchain=$(jq -r --arg network "$NETWORK" '
         (.[$network].spoke_ids // {}) | to_entries | group_by(.value)[]
@@ -1668,10 +1667,6 @@ get_mapped_spoke_id() {
         '.[$network].spoke_ids[$config_id] // empty' "$NETWORKS_FILE"
 }
 
-# Config spoke ids and on-chain spoke ids are different numbers (mainnet maps
-# config 5 -> on-chain 4). Every direct spoke verb resolves its argument here:
-# `N` is a CONFIG id and must be mapped; `onchain:N` is a raw on-chain id, for
-# a spoke with no config entry (one that ensure_spoke replaced).
 resolve_config_spoke_id() {
     local config_id=$1
     case "$config_id" in
@@ -1704,6 +1699,9 @@ resolve_spoke_arg() {
 persist_spoke_id() {
     local config_category_id=$1
     local onchain_id=$2
+    case "$onchain_id" in
+        ''|*[!0-9]*) die "spoke for config ${config_category_id} is only scheduled (op ${onchain_id}); run executeOp, record the returned spoke id in ${NETWORKS_FILE} (${NETWORK}.spoke_ids), then re-run" ;;
+    esac
     local tmp
     tmp=$(mktemp)
     jq --arg network "$NETWORK" --arg config_id "$config_category_id" --argjson onchain_id "$onchain_id" \
@@ -1787,8 +1785,6 @@ ensure_spoke() {
         fi
     fi
 
-    # An unmapped config id always gets a NEW spoke. Never reuse the on-chain
-    # spoke that shares its number: config and on-chain ids are unrelated.
     local onchain_id
     onchain_id=$(add_spoke "$config_category_id")
     persist_spoke_id "$config_category_id" "$onchain_id"
@@ -1798,7 +1794,6 @@ ensure_spoke() {
 add_asset_to_spoke() {
     local category_id=$1
     local asset_name=$2
-    # No default: the on-chain id ($1) and the config id ($3) are different numbers.
     local config_category_id=${3:?config spoke id required (resolve_config_spoke_id)}
 
     echo "Adding asset ${asset_name} to Spoke category ${category_id}..."
@@ -1874,9 +1869,6 @@ add_asset_to_spoke() {
     echo "Asset ${asset_name} scheduled into Spoke category ${category_id}."
 }
 
-# One emergency flag for an edit. Config silent -> the live value. Config
-# explicit -> that value, but turning a live `true` off is a relaxation and
-# needs RELAX_SPOKE_FLAGS=1 (ADR-0007: only the timelocked edit can relax).
 resolve_spoke_flag() {
     local flag=$1 config_category_id=$2 asset_name=$3 live_listing=$4
     local live configured
@@ -1896,7 +1888,6 @@ resolve_spoke_flag() {
 edit_asset_in_spoke() {
     local category_id=$1
     local asset_name=$2
-    # No default: the on-chain id ($1) and the config id ($3) are different numbers.
     local config_category_id=${3:?config spoke id required (resolve_config_spoke_id)}
 
     local asset_address
@@ -1931,9 +1922,6 @@ edit_asset_in_spoke() {
         die "spoke asset ${asset_name} (category ${config_category_id}) missing hub_id in ${SPOKES_FILE}"
     fi
 
-    # edit_asset_in_spoke rewrites paused/frozen/no_seize from its arguments, so
-    # a flag the config does not mention must carry its LIVE value: defaulting
-    # it to false would clear a GUARDIAN emergency flag on a routine cap edit.
     local live_listing
     live_listing=$(stellar contract invoke --id "$(get_controller)" $SOURCE_FLAG --network "$NETWORK" --send=no \
         -- get_spoke_asset --spoke_id "$category_id" \
@@ -1966,7 +1954,6 @@ edit_asset_in_spoke() {
 ensure_asset_in_spoke() {
     local category_id=$1
     local asset_name=$2
-    # No default: the on-chain id ($1) and the config id ($3) are different numbers.
     local config_category_id=${3:?config spoke id required (resolve_config_spoke_id)}
 
     local asset_address
@@ -3261,10 +3248,6 @@ schedule_upgrade_price_aggregator() {
     echo "Price aggregator upgrade scheduled (hash ${hash})."
 }
 
-# GUARDIAN immediate action: raise emergency flags on ONE listing. Tighten-only:
-# the requested flags are OR-ed onto the live ones, so this verb cannot clear a
-# flag (the controller ratchet would reject that anyway; clearing needs the
-# timelocked editAssetInSpoke with RELAX_SPOKE_FLAGS=1).
 merge_tightened_flags() {
     local live_listing=$1 wanted=$2
     printf '%s' "$live_listing" | jq -ce --arg w "$wanted" '
@@ -3302,8 +3285,6 @@ tighten_asset_flags() {
         --no_seize "$(printf '%s' "$flags" | jq -r .no_seize)" \
         || die "set_spoke_asset_flags failed (does ${caller} hold GUARDIAN?)"
 
-    # A listing edit proposed BEFORE this call carries the old flags and any
-    # address can execute it once Ready: it would clear what was just set.
     echo "" >&2
     echo "NEXT: cancel every Waiting/Ready op that edits this listing (cancelOp <op-id>):" >&2
     list_ops
@@ -4507,17 +4488,7 @@ case "$1" in
             die "config spoke $2 is already mapped to on-chain spoke ${existing_spoke_id}; use setupAllSpokes to replace a deprecated spoke"
         fi
         onchain_spoke_id=$(add_spoke "$2") || exit 1
-        # With AUTO_EXECUTE=0 add_spoke returns the operation id, not a spoke id:
-        # nothing exists on chain yet, so there is nothing to map.
-        case "$onchain_spoke_id" in
-            ''|*[!0-9]*)
-                echo "Scheduled only: op ${onchain_spoke_id}. The spoke id is the RETURN VALUE of executeOp;" >&2
-                echo "record it by hand in ${NETWORKS_FILE} (${NETWORK}.spoke_ids[\"$2\"]) before any other spoke verb." >&2
-                ;;
-            *)
-                persist_spoke_id "$2" "$onchain_spoke_id"
-                ;;
-        esac
+        persist_spoke_id "$2" "$onchain_spoke_id"
         echo "$onchain_spoke_id"
         ;;
     "addAssetToSpoke")

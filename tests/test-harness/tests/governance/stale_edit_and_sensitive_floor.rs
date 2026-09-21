@@ -1,12 +1,5 @@
-//! Two timelock properties the suite did not pin.
-//!
-//! 1. `EditAssetInSpoke` carries `paused`/`frozen`/`no_seize` in its proposal
-//!    arguments and the controller writes them verbatim. A routine edit
-//!    scheduled BEFORE a GUARDIAN freeze, then executed after it by anyone
-//!    (`executor = None`), clears the freeze. This test passes today: it
-//!    documents the defect, it does not bless it.
-//! 2. A `Sensitive` operation is ready at `max(min_delay, sensitive floor)`,
-//!    never at a `min_delay` below the floor.
+//! A listing edit queued before a guardian freeze clears it when executed; a
+//! `Sensitive` operation is ready at `max(min_delay, floor)`.
 
 use controller::types::PositionLimits;
 use governance::op::{AdminOperation, RoleArgs, SpokeAssetArgs, TransferOwnershipArgs};
@@ -18,9 +11,7 @@ use test_harness::{
     HARNESS_SPOKE,
 };
 
-/// `governance::constants::TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS`, private to
-/// the contract crate. Restated on purpose: a change to the floor must be a
-/// visible test change.
+/// Copy of `governance::constants::TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS` (private).
 const SENSITIVE_FLOOR: u32 = 12;
 
 fn salt(env: &Env, byte: u8) -> BytesN<32> {
@@ -43,7 +34,6 @@ fn stale_edit_executed_by_a_stranger_clears_a_guardian_freeze() {
     let admin = t.admin();
     let usdc = t.resolve_asset("USDC");
     let key = hub_asset(usdc.clone());
-    // Built from owned handles so `t` stays free for `&mut` harness calls.
     let (env, gov_addr) = (t.env.clone(), t.governance.clone());
     let gov = governance_interface::GovernanceClient::new(&env, &gov_addr);
 
@@ -144,8 +134,7 @@ fn sensitive_operations_are_not_ready_at_a_min_delay_below_the_floor() {
     let env = &t.env;
     let admin = t.admin();
 
-    // The harness governance runs at 50 ledgers, above the floor, so it cannot
-    // show the floor binding. This one runs below it.
+    // The harness governance runs above the floor; this instance runs below it.
     const LOW_MIN_DELAY: u32 = 3;
     let gov_addr = env.register(governance::Governance, (admin.clone(), LOW_MIN_DELAY));
     governance::GovernanceClient::new(env, &gov_addr).set_controller(&t.controller);
@@ -217,8 +206,7 @@ fn sensitive_operations_are_not_ready_at_a_min_delay_below_the_floor() {
 
     let try_execute = |i: usize| {
         let c = &cases[i];
-        // `execute` refuses a self-targeted operation (InternalError); those
-        // go through `execute_self`, which re-resolves the operation.
+        // Self-targeted operations go through `execute_self`.
         if c.target == gov_addr {
             return flatten(gov.try_execute_self(&None, &c.op, &salt(env, 10 + i as u8)));
         }

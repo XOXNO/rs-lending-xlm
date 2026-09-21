@@ -193,57 +193,11 @@ proptest! {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Seed-adjusted cash conservation and token custody.
-//
-// `prop_accounting_conservation` asserts `reserves + borrowed - supplied >= -4`.
-// The market builder loads `initial_liquidity` (1_000_000 units of each asset)
-// straight into `state.cash` with no supply shares, so that bound has 1e13 raw
-// units of slack and cannot see a cash leak. The law below removes the seed
-// and is two-sided.
-//
-// Identity, from contracts/pool/src (every value in RAY asset precision):
-//
+// Seed-adjusted conservation, in RAY asset precision:
 //   surplus = (cash - seed) + borrowed * borrow_index - supplied * supply_index
-//
-// `supplied` includes the revenue shares (cache/shares.rs `accrue_revenue`), so
-// the right side is supplier claims plus protocol revenue.
-//
-// Per operation, `surplus` moves as follows:
-//   supply        cash +a, claims +floor(a/si)*si            -> +RAY dust
-//   borrow        cash -a, debt   +ceil(a/bi)*bi             -> +RAY dust
-//   partial repay cash +a, debt   -floor(a/bi)*bi            -> +RAY dust
-//   full repay    cash +ceil_unit(debt), debt -debt          -> +[0, 1 unit)
-//   partial wd    cash -a, claims -ceil(a/si)*si             -> +RAY dust
-//   full withdraw cash -floor_unit(claim), claims -claim     -> +[0, 1 unit)
-//   accrual       debt +I, claims +I (index floor, the rest to revenue, floor)
-//   flash/strategy fee   cash +fee, claims +floor(fee/si)*si -> +RAY dust
-//   liquidation fee      kept in cash, minted as revenue     -> +RAY dust
-//   seize deposit        shares relabelled as revenue        ->  0
-//   bad debt      debt -d, claims -min(ceil(d), claims), index floored
-//                                                           -> +RAY dust
-//   claim revenue cash -floor_unit(rev), claims -rev         -> +[0, 1 unit)
-//   net settle    no cash; claims ceil, debt floor           -> +[0, 2 units)
-//   recapitalize  cash +min(amount, backing_shortfall); with the seed in cash
-//                 the shortfall is 0 unless 1e13 units already leaked.
-//
-// Every rounding favours the pool, so `surplus` starts at 0, never goes
-// negative past RAY dust, and grows by less than 1 token unit per
-// unit-rounding leg (full repay, full withdraw, revenue claim; a net settle
-// is two). One op has at most 8 such legs on one asset: a script is its open,
-// 5 random legs, one closing repay and one closing withdraw per asset.
-// Measured over 1024 cases: the surplus never passed 3 raw units.
-//
-// Known harness-only exception: seed cash lets debt exceed supplier claims
-// after a liquidation withdraw (no utilization gate). Bad debt above the
-// claims then lands on the seed and `surplus` falls by the uncapped part.
-// Without a seed `cash >= 0` forces debt <= claims + surplus, so this cannot
-// occur on a real market. The law below does not excuse it: if it fires, the
-// failing sequence must be read.
-// ---------------------------------------------------------------------------
+// Every rounding favours the pool, so surplus stays in [-dust, 8 token units] per op.
 
-/// Half-up `mul` reads plus directed index rounding: a few raw RAY per leg.
-/// 1e9 raw RAY is 1e-11 of one 7-decimal token unit.
+/// Rounding dust allowed below zero: a few raw RAY per leg.
 const RAY_DUST: i128 = 1_000_000_000;
 const MAX_ROUNDING_LEGS_PER_OP: i128 = 8;
 
@@ -282,9 +236,7 @@ fn assert_cash_conservation_and_custody(
     for (asset, seed) in ASSETS.iter().zip(seeds) {
         let cash = raw_pool_state(t, asset).cash;
         let held = pool_token_balance(t, asset);
-        // Custody: the op set has no direct donation, so the pool must hold
-        // exactly its accounting cash. `held < cash` is phantom cash;
-        // `held > cash` is tokens stranded outside the books.
+        // Custody: the pool holds exactly its accounting cash.
         prop_assert_eq!(
             held,
             cash,
@@ -325,8 +277,6 @@ fn assert_cash_conservation_and_custody(
 static MAX_SURPLUS_UNITS: AtomicI64 = AtomicI64::new(0);
 
 proptest! {
-    // No failure persistence: a failing seed must be read, not auto-filed
-    // into the regression file of the law above.
     #![proptest_config(ProptestConfig { failure_persistence: None, ..config(32) })]
 
     #[test]
@@ -364,11 +314,7 @@ proptest! {
     }
 }
 
-// The generic op set above never lands a liquidation: over 96 deterministic
-// cases, 25 of 34 `Liquidate` ops found no debt in the chosen asset and the
-// other 9 were refused with HealthFactorTooHigh (#101); the supply index never
-// fell. So the liquidation-fee, seize and bad-debt rows of the identity were
-// not exercised by it. This property forces them.
+// The generic op set never lands a liquidation; this property forces one.
 static LIQUIDATIONS_LANDED: AtomicI64 = AtomicI64::new(0);
 static BAD_DEBT_EVENTS: AtomicI64 = AtomicI64::new(0);
 
@@ -432,7 +378,6 @@ proptest! {
             step += 1;
             assert_cash_conservation_and_custody(step, &("claim", asset), &t, &seeds)?;
         }
-        // Reach evidence, on request: CONSERVATION_STATS=1 with --nocapture.
         if std::env::var_os("CONSERVATION_STATS").is_some() {
             eprintln!(
                 "liquidations landed so far: {}, bad-debt socializations so far: {}",

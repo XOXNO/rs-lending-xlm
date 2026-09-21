@@ -35,8 +35,6 @@ pub struct OracleConfig {
     pub max_sanity_price_wad: i128,
 
     pub sources: Vec<OracleSource>,
-    /// Set when the asset is priced as an Aquarius LP share: the aggregator
-    /// fails the price closed when pool value falls under this floor.
     pub lp_floor: Option<LpFloor>,
 }
 

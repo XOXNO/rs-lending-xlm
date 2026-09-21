@@ -99,7 +99,6 @@ fn a_stranger_cannot_grant_or_revoke_a_delegate_on_another_owners_account() {
             errors::ACCOUNT_NOT_IN_MARKET
         )))
     );
-    // The rejected revoke changed nothing: the grant still works.
     t.run_script(
         &runner,
         &vec![&t.env, withdraw_op(&t, account, "USDC", U, None)],

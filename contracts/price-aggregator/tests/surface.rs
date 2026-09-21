@@ -1143,17 +1143,10 @@ fn upgrade_is_rejected_without_owner_authorization() {
     assert!(client.try_upgrade(&missing).is_err());
 }
 
-// ---------------------------------------------------------------------------
-// Sanity-band ratchet, one edge at a time, and per-leg staleness.
-// ---------------------------------------------------------------------------
-
 fn sanity_band_must_tighten() -> soroban_sdk::Error {
     soroban_sdk::Error::from_contract_error(Error::SanityBandMustTighten as u32)
 }
 
-/// The ratchet is an AND of two edge checks. Moving BOTH edges out is pinned
-/// above; a mutant that drops one side of the AND survives that test. Each
-/// edge is moved alone here, by one raw WAD unit.
 #[test]
 fn set_sanity_band_refuses_each_widened_edge_alone_and_accepts_an_unchanged_edge() {
     let env = Env::default();
@@ -1238,9 +1231,6 @@ fn redstone_leg(
     })
 }
 
-/// A fast Market leg carries its own staleness budget. A loose asset-level
-/// ceiling, sized for the slow Fundamental partner, must not extend it, and
-/// the Fundamental partner must not exempt it.
 #[test]
 fn market_leg_past_its_own_budget_is_stale_under_a_loose_asset_ceiling() {
     const MARKET_BUDGET: u64 = 300;
@@ -1288,8 +1278,7 @@ fn market_leg_past_its_own_budget_is_stale_under_a_loose_asset_ceiling() {
         .with_mut(|li| li.timestamp = t0 + MARKET_BUDGET);
     assert_eq!(hard_price(&env, &client, key.clone()).price_wad, WAD);
 
-    // One second past it. Both legs are 301 s old: far inside the asset
-    // ceiling and the fundamental budget, 1 s outside the market budget.
+    // One second past the market budget; still inside the asset ceiling.
     env.ledger()
         .with_mut(|li| li.timestamp = t0 + MARKET_BUDGET + 1);
     let status = soft_quote(&env, &client, key.clone());

@@ -1,7 +1,3 @@
-//! The owner-only `force_socialize_bad_debt` has no dust cap, so its single
-//! admission test `total_debt > total_collateral` (`liquidation/mod.rs:228`) is
-//! the only thing between a liquidatable-but-solvent user and a collateral burn.
-
 use crate::shared::get_indexes;
 use controller::constants::WAD;
 use test_harness::{assert_contract_error, errors, usd_cents, LendingTest, ALICE, BOB};

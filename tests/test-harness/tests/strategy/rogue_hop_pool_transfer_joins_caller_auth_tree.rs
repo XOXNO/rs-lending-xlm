@@ -1,15 +1,6 @@
-//! A swap route names its hop pools, and the canonical router calls whatever pool
-//! the payload names (`swap-aggregator/src/venues/soroswap.rs`, no pool allowlist).
-//! The controller authenticates the strategy caller with `caller.require_auth()` at
-//! the ROOT frame, so the caller's authorization tracker is live for the whole call
-//! stack under it. These tests pin what the host does when code inside a hop pool
-//! calls `wallet_token.transfer(caller, attacker, x)` two contract frames below the
-//! controller (audit hypothesis F-15b):
-//!
-//! * recording-mode simulation (what an honest RPC runs) attaches that transfer as a
-//!   sub-invocation of the caller's `swap_collateral` entry;
-//! * enforcing mode rejects it unless the signed tree lists it, and accepts it when
-//!   the tree does - for address credentials and for source-account credentials.
+//! What the host does when code inside a route hop calls
+//! `token.transfer(caller, third_party, x)` below the controller: recording mode
+//! attaches it to the caller's entry; enforcing mode accepts it only if signed.
 
 use common::types::HubAssetKey;
 use soroban_sdk::testutils::{
@@ -39,8 +30,7 @@ pub struct RoutedSwap {
     pub token_out: Address,
 }
 
-/// Honest router code with the canonical router's trust model: it pays a fair
-/// output, and it calls the hop pool the payload names without any allowlist.
+/// Router double: pays a fair output and calls the hop pool the payload names.
 #[contract]
 pub struct UnlistedPoolRouter;
 
@@ -265,8 +255,7 @@ fn enforced_auth_moves_the_wallet_token_only_when_the_signed_tree_lists_the_rogu
     assert_eq!(s.wallet(&s.attacker), 0);
     assert_eq!(s.t.supply_balance_raw(ALICE, "USDC"), usdc_before);
 
-    // Same route, the tree simulation hands back: the host accepts a transfer of an
-    // unrelated token, to an unrelated address, two contract frames below the root.
+    // Same route, with the tree that simulation returned.
     let stolen_transfer = MockAuthInvoke {
         contract: &s.wallet_token,
         fn_name: "transfer",
@@ -279,8 +268,7 @@ fn enforced_auth_moves_the_wallet_token_only_when_the_signed_tree_lists_the_rogu
     assert_eq!(s.wallet(&s.attacker), WALLET_BALANCE);
 }
 
-/// Stands for the controller entrypoint: root-frame `caller.require_auth()`, then a
-/// call into route-selected code.
+/// Controller stand-in: root-frame `caller.require_auth()`, then route-selected code.
 #[contract]
 pub struct RootAuthEntry;
 
@@ -358,7 +346,6 @@ fn source_account_credentials_bind_the_rogue_transfer_to_the_tree_without_an_ent
     let client = RootAuthEntryClient::new(&env, &entry);
     let token = RecordingTokenClient::new(&env, &wallet_token);
 
-    // Source-account credentials are not a blanket grant: the tree still binds.
     env.set_auths(&[as_source_account(std::vec![])]);
     let refused = client
         .try_run(&wallet, &rogue_pool)
@@ -373,7 +360,6 @@ fn source_account_credentials_bind_the_rogue_transfer_to_the_tree_without_an_ent
     assert!(diagnostics.contains("Unauthorized function call for address"));
     assert_eq!(token.moved(), None);
 
-    // With the child listed, no per-entry signature exists to withhold.
     let transfer_args: Vec<Val> = (wallet.clone(), attacker.clone(), 99i128).into_val(&env);
     let child = contract_fn(&env, &wallet_token, "transfer", transfer_args, std::vec![]);
     env.set_auths(&[as_source_account(std::vec![child])]);

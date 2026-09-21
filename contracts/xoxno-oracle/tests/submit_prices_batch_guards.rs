@@ -1,8 +1,5 @@
 #![cfg(test)]
-//! `submit_prices` is the path the keepers use. Its guards are a second copy
-//! of the `submit_price` chain, in a different order, and only the price and
-//! length faults were pinned. These pin the rest, each with its own error,
-//! and that a rejected batch stores nothing.
+//! Guards of the batch path `submit_prices`; a rejected batch stores nothing.
 extern crate std;
 
 mod common;
@@ -138,9 +135,6 @@ fn submit_prices_rejects_a_timestamp_regression_on_any_entry() {
     client.submit_prices(&signers[0], &b.feeds, &b.prices, &now_ms);
 }
 
-/// Batch twin of `lone_late_submission_cannot_take_the_feed_offline`: the
-/// keepers submit through `submit_prices`, so the AQUA incident guard
-/// (`QuorumMiss::Retain`) must hold on this path for every feed in the batch.
 #[test]
 fn lone_late_batch_submission_cannot_take_the_feeds_offline() {
     let env = Env::default();

@@ -585,8 +585,6 @@ access-control-check:
 	@python3 scripts/test_check_access_control.py
 	@python3 scripts/check_access_control.py
 
-# Operator-tooling guards for configs/script.sh: config spoke ids are resolved to
-# on-chain ids, and listing edits carry the live emergency flags. Offline, ~1 s.
 ops-script-check:
 	@bash -n configs/script.sh
 	@bash scripts/check_spoke_script_guards.sh

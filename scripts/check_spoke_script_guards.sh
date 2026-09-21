@@ -1,14 +1,5 @@
 #!/usr/bin/env bash
-# Pins three operator-safety rules of configs/script.sh.
-# 1. A CONFIG spoke id is never sent on chain unresolved. Mainnet maps config
-#    5 -> on-chain 4, and a verb that used one number for both roles listed
-#    USDT0 on the wrong spoke.
-# 2. A listing edit carries the LIVE paused/frozen/no_seize flags when the
-#    config is silent. Defaulting them to false cleared GUARDIAN flags.
-# 3. The GUARDIAN verb tightenAssetFlags can only raise a flag.
-#
-# Runs offline: extracts the resolver functions (script.sh runs its dispatch
-# when sourced) and exercises them against a temporary networks file.
+# Offline checks of the spoke-id and listing-flag helpers in configs/script.sh.
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -37,6 +28,7 @@ $(extract resolve_spoke_arg)
 $(extract get_spoke_value)
 $(extract resolve_spoke_flag)
 $(extract merge_tightened_flags)
+$(extract persist_spoke_id)
 EOF
 
 run() { bash -c "source '$tmp/lib.sh'; $1" 2>/dev/null; }
@@ -57,7 +49,6 @@ expect_die 'resolve_spoke_arg onchain:'
 expect_die 'resolve_spoke_arg 5x'
 expect_die 'resolve_spoke_arg ""'
 
-# Flags: config silent -> live; explicit tighten ok; explicit relax needs consent.
 LIVE_ON='{"paused":true,"frozen":false,"no_seize":false}'
 LIVE_OFF='{"paused":false,"frozen":false,"no_seize":false}'
 expect "resolve_spoke_flag paused 5 SILENT '$LIVE_ON'" true
@@ -69,7 +60,6 @@ expect "RELAX_SPOKE_FLAGS=1 resolve_spoke_flag paused 5 RELAX '$LIVE_ON'" false
 expect_die "resolve_spoke_flag paused 5 SILENT ''"              # unreadable listing: fail closed
 expect_die "resolve_spoke_flag paused 5 SILENT '{\"paused\":1}'" # not a boolean
 
-# GUARDIAN verb: requested flags are OR-ed onto the live ones, never cleared.
 expect "merge_tightened_flags '$LIVE_ON' frozen" '{"paused":true,"frozen":true,"no_seize":false}'
 expect "merge_tightened_flags '$LIVE_OFF' paused,no_seize" '{"paused":true,"frozen":false,"no_seize":true}'
 expect_die "merge_tightened_flags '$LIVE_ON' unpause"   # unknown flag name
@@ -77,7 +67,10 @@ expect_die "merge_tightened_flags '$LIVE_ON' ''"        # nothing requested
 expect_die "merge_tightened_flags '{\"paused\":1}' paused" # listing without boolean flags
 expect_die "merge_tightened_flags '' paused"             # unreadable listing: fail closed
 
-# Static pins on the call sites.
+expect "persist_spoke_id 9 8 && jq -r '.mainnet.spoke_ids[\"9\"]' '$tmp/networks.json'" 8
+# An op id (AUTO_EXECUTE=0) must stop the caller, also inside $(...), where errexit is off.
+expect "x=\$(persist_spoke_id 7 478cd356fa3de0e609f43b6df283fd3062e95b4b6e2f20232c525b8025980a01; echo reached) || true; echo \"[\$x]\"" '[]'
+
 if grep -n 'config_category_id=\${3:-' "$SCRIPT"; then
     fail "add/edit_asset_in_spoke must not default the config id to the on-chain id"
 fi
@@ -89,9 +82,6 @@ for verb in removeSpoke removeAssetFromSpoke setSpokeLiquidationCurve getSpoke g
     awk -v v="\"$verb\")" '$0 ~ v {p=1} p {print} p && /;;/ {exit}' "$SCRIPT" \
         | grep -q 'resolve_spoke_arg "\$2"' || fail "$verb must resolve its spoke argument"
 done
-# addSpoke returns an operation id under AUTO_EXECUTE=0; only a numeric id is a mapping.
-awk '$0 ~ /"addSpoke"\)/ {p=1} p {print} p && /;;$/ && !/\*\)/ {n++} p && n==3 {exit}' "$SCRIPT" \
-    | grep -q "''|\*\[!0-9\]\*)" || fail "addSpoke must persist only a numeric spoke id"
 if extract ensure_spoke | grep -q 'fetch_spoke_json "\$config_category_id"'; then
     fail "ensure_spoke must not reuse the on-chain spoke that shares the config number"
 fi

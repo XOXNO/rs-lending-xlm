@@ -1,6 +1,4 @@
-//! A debt token that under-delivers (fee-on-transfer) must shrink BOTH sides of a
-//! liquidation: the debt retired and the collateral awarded. Guards pinned:
-//! `liquidation/mod.rs:72-73`, `apply.rs:60-64`, `math.rs:443-444`.
+//! A fee-on-transfer debt token shrinks both the debt retired and the collateral awarded.
 
 use common::types::{AccountPositionRaw, SeizeMode};
 use soroban_sdk::token;
@@ -151,8 +149,6 @@ fn credit_seizure_is_scaled_to_the_debt_tokens_the_pool_received() {
     assert!(credited <= alice_share_drop, "credit cannot exceed debit");
 }
 
-/// Two debt legs, only one under-delivers: the seizure follows the aggregate
-/// received/planned USD ratio, not the honest leg alone.
 #[test]
 fn seizure_follows_the_aggregate_received_value_when_one_of_two_debt_legs_under_delivers() {
     let mut t = LendingTest::new()

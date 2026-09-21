@@ -811,9 +811,6 @@ fn asset_renews_the_strategy_instance_ttl() {
     );
 }
 
-/// `withdraw` pays a caller-chosen `to`, so the vault's own signature is the
-/// only thing between a stranger and the vault's position. Without it the host
-/// must abort the call, and neither the position nor the sink may move.
 #[test]
 fn test_withdraw_without_vault_auth_is_refused_and_moves_nothing() {
     let s = StrategyTest::new();
@@ -827,17 +824,14 @@ fn test_withdraw_without_vault_auth_is_refused_and_moves_nothing() {
 
     for amount in [UNIT, position_before] {
         let result = s.client().try_withdraw(&amount, &s.vault, &attacker_sink);
-        // A contract error would be `Err(Ok(_))`: the call got past the auth
-        // gate. A host auth failure does not convert into the strategy's error
-        // enum, so it surfaces as a bare abort.
+        // A host auth failure surfaces as a bare abort, not as the strategy's error enum.
         assert_eq!(
             result,
             Err(Err(InvokeError::Abort)),
             "withdraw({amount}) must die in the host, not in contract logic"
         );
 
-        // `Abort` hides which host error it was. The plain client panics with
-        // the original one, and it must be the auth check.
+        // The plain client panics with the original host error.
         let payload = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             s.client().withdraw(&amount, &s.vault, &attacker_sink)
         }))
