@@ -68,6 +68,9 @@
     },
     "price_aggregator": "CBGUF2G2Q7HCVCWYISDXBHPVBGMYNXA7PG2VET66YBZX6IKOOV27NSMV",
     "position_nft": "CAWCSG77AY2W24QZ6ZXLHZU4UXEFHZBM6EI4A4IF7JB5CTY4XND3TI6C",
-    "price_aggregator_wasm_hash": "7807901b2c98c19a56de016c5cf42b4df1c37702a34e38b6d567ce08e41bc8e4"
+    "price_aggregator_wasm_hash": "7807901b2c98c19a56de016c5cf42b4df1c37702a34e38b6d567ce08e41bc8e4",
+    "position_nft_wasm_hash": "b93a6e6cf89bea479f87fbc0781d3058257e001a2fe041b5b1ee00e4b919243c",
+    "aggregator_wasm_hash": "8d58bbc589739888a61a804090215ec387e642a367dc01b34d7c9d13fe341604",
+    "oracle_adapter_wasm_hash": "b0b044e551cf7279a975c119a3cef8030fa1a68439cece1d22cfa8225d027e6e"
   }
 }

@@ -88,6 +88,17 @@ determine the accepted amount for each hub leg, while authorization entries
 are consumed against ordered token-transfer sub-invocations. The contract
 cannot safely construct exact per-leg transfer authorizations.
 
+**Full-close band: use a contract liquidator.** When total collateral is below
+`debt × (1 + base bonus)`, the controller accepts only a full repayment of every
+debt leg and reverts a smaller offer with `FullCloseRequired` (`controller #135`).
+It caps each offer at the debt recomputed at EXECUTION time and pulls that capped
+amount, so the pulled amount changes every ledger as interest accrues. A plain
+account signs the transfer amount recorded at simulation: an over-offer then fails
+authorization, and the exact simulated amount is already too small. Paying
+"slightly under the estimate" works outside this band and cannot work inside it.
+A contract liquidator reads the amount and authorizes it in the same transaction,
+so it is not affected.
+
 Perform every controller/token read first. Then authorize each exact accepted
 `transfer(liquidator, pool, amount)` and call `liquidate` immediately; no
 outbound contract call may occur between authorization and the controller
@@ -100,21 +111,44 @@ Never reconstruct gross collateral as
 The estimate already contains the executable legs.
 
 Snapshot the account's canonical ordered supply-position list before
-estimating. Estimate tuples omit hub ids, so pair `seized_collaterals` and
-`protocol_fees` positionally against that ordered snapshot to recover each
-leg's `(hub_id, asset)`. Require equal vector lengths and require each tuple's
-asset to match its paired supply position.
+estimating. `seized_collaterals` and `protocol_fees` are index-aligned with
+each other: require equal lengths between those two vectors and the same asset
+at each index.
+
+They are **not** index-aligned with the supply snapshot. The contract drops a
+leg whose seizure rounds to zero tokens or zero shares (see
+`xoxno-lending/math.md`, "Legs ... are dropped"), so the estimate is an ordered
+**subsequence** of the supply positions. A borrower can hold a one-unit leg, and
+every partial liquidation of that account then returns fewer legs than
+positions. Do not reject such an account: a bot that requires one estimate leg
+per supply position can be switched off by any borrower for the cost of one
+stroop.
+
+Estimate tuples omit hub ids, so recover each leg's `(hub_id, asset)` by walking
+the ordered snapshot and matching each estimate leg, in order, to the next
+supply position with the same asset. A supply position with no matching leg had
+nothing seized from it. Reject the estimate only when a leg matches no remaining
+supply position, or when the estimate is out of order.
+
+Reject an estimate whose `seized_collaterals` is empty. The contract accepts a
+liquidation that repays debt and seizes nothing, so the liquidator would pay
+and receive no collateral.
 
 Repeated collateral token addresses across different hubs are legitimate:
 preserve the hub from each ordered supply-position entry and do not deduplicate
-those estimate legs. This is distinct from repeated **debt payment** token
-addresses for a contract liquidator, which remain unsafe because refunds and
-nested transfer authorization cannot be assigned to hub-specific repayment
-legs.
+those estimate legs. If the same token is supplied in several hubs and the
+estimate has fewer legs for that token than the account has positions, the
+dropped leg cannot be identified from the estimate alone; value each such leg
+with the hub that gives the LOWER net value.
+
+This is distinct from repeated **debt payment** token addresses for a contract
+liquidator, which remain unsafe because refunds and nested transfer
+authorization cannot be assigned to hub-specific repayment legs.
 
 For every paired collateral `(hub_id, asset)`:
 
-1. Reject missing, extra, zero, or non-positive seizure legs.
+1. Reject a zero or non-positive seizure leg that is PRESENT in the estimate, and
+   a leg that matches no supply position. An absent leg is not an error.
 2. Require `0 <= protocol_fee < seized_amount`; reject an omitted fee leg
    instead of silently treating it as zero.
 3. Compute `net_amount = seized_amount - protocol_fee`. In Credit mode these

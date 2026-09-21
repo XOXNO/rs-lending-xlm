@@ -132,8 +132,16 @@ pub async fn scrape_once(
         }
 
         if let Some(agg_id) = &aggregator_id {
-            publish_oracle_config_and_freshness(client, metrics, net, market, now_secs, agg_id)
-                .await;
+            publish_oracle_config_and_freshness(
+                client,
+                metrics,
+                net,
+                market,
+                now_secs,
+                agg_id,
+                decimals[i],
+            )
+            .await;
         }
     }
 
@@ -672,11 +680,17 @@ async fn publish_oracle_config_and_freshness(
     market: &ResolvedMarket,
     now_secs: i64,
     aggregator_id: &[u8; 32],
+    decimals: Option<u32>,
 ) {
     let olabels = [net, market.asset_strkey.as_str(), market.symbol.as_str()];
     let Some(config) = read_oracle_config(client, metrics, net, market, aggregator_id).await else {
         return;
     };
+
+    // Sole-source only: then the published price is the LP leg price.
+    if let (Some(floor), Some(dec), 1) = (&config.lp_floor, decimals, config.source_count) {
+        publish_lp_floor_headroom(client, metrics, net, market, &olabels, floor, dec).await;
+    }
 
     metrics
         .oracle_max_stale_seconds
@@ -725,6 +739,41 @@ async fn publish_oracle_config_and_freshness(
             .oracle_effective_max_stale_seconds
             .with_label_values(&olabels)
             .set(effective_max as f64);
+    }
+}
+
+async fn publish_lp_floor_headroom(
+    client: &RpcClient,
+    metrics: &Metrics,
+    net: &str,
+    market: &ResolvedMarket,
+    olabels: &[&str],
+    floor: &oracle::LpFloor,
+    share_decimals: u32,
+) {
+    metrics
+        .oracle_lp_pool_floor_usd
+        .with_label_values(olabels)
+        .set(model::wad_to_f64(floor.min_pool_value_wad));
+    let Ok(pool) = crate::keys::contract_id_from_strkey(&floor.pool) else {
+        return;
+    };
+    if let Some(shares) = read_view_i128(
+        client,
+        metrics,
+        net,
+        "get_total_shares",
+        &market.asset_strkey,
+        &pool,
+        "get_total_shares",
+        vec![],
+    )
+    .await
+    {
+        metrics
+            .oracle_lp_total_shares
+            .with_label_values(olabels)
+            .set(shares as f64 / 10f64.powi(share_decimals as i32));
     }
 }
 

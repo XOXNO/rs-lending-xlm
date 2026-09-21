@@ -1142,3 +1142,160 @@ fn upgrade_is_rejected_without_owner_authorization() {
     let missing = BytesN::from_array(&env, &[0xA5; 32]);
     assert!(client.try_upgrade(&missing).is_err());
 }
+
+fn sanity_band_must_tighten() -> soroban_sdk::Error {
+    soroban_sdk::Error::from_contract_error(Error::SanityBandMustTighten as u32)
+}
+
+#[test]
+fn set_sanity_band_refuses_each_widened_edge_alone_and_accepts_an_unchanged_edge() {
+    let env = Env::default();
+    env.mock_all_auths();
+    env.ledger().with_mut(|li| li.timestamp = 1_700_000_000);
+    let (_owner, client) = register_agg(&env);
+    let key = PriceKey::Token(Address::generate(&env));
+    let (feed, feed_client) = register_feed(&env);
+    feed_client.set_price(&String::from_str(&env, "BTC/USD"), &WAD);
+    client.set_oracle(&key, &redstone_single(&env, &feed, "BTC/USD", 900));
+
+    let live = client.oracle(&key).unwrap();
+    let (floor, ceiling) = (live.min_sanity_price_wad, live.max_sanity_price_wad);
+
+    // Floor lowered, ceiling TIGHTENED: the good edge must not buy the bad one.
+    assert_eq!(
+        client.try_set_sanity_band(&key, &(floor - 1), &(ceiling - 1)),
+        Err(Ok(sanity_band_must_tighten())),
+        "lowering only the floor"
+    );
+    assert_eq!(
+        client.try_set_sanity_band(&key, &(floor - 1), &ceiling),
+        Err(Ok(sanity_band_must_tighten())),
+        "lowering the floor with the ceiling unchanged"
+    );
+    // Ceiling raised, floor TIGHTENED.
+    assert_eq!(
+        client.try_set_sanity_band(&key, &(floor + 1), &(ceiling + 1)),
+        Err(Ok(sanity_band_must_tighten())),
+        "raising only the ceiling"
+    );
+    assert_eq!(
+        client.try_set_sanity_band(&key, &floor, &(ceiling + 1)),
+        Err(Ok(sanity_band_must_tighten())),
+        "raising the ceiling with the floor unchanged"
+    );
+    let unchanged = client.oracle(&key).unwrap();
+    assert_eq!(
+        (
+            unchanged.min_sanity_price_wad,
+            unchanged.max_sanity_price_wad
+        ),
+        (floor, ceiling),
+        "a refused call must not move the band"
+    );
+
+    // An unchanged edge is not a widening: equal is accepted on both sides.
+    client.set_sanity_band(&key, &floor, &ceiling);
+    client.set_sanity_band(&key, &floor, &(ceiling - 1));
+    client.set_sanity_band(&key, &(floor + 1), &(ceiling - 1));
+    let tightened = client.oracle(&key).unwrap();
+    assert_eq!(
+        (
+            tightened.min_sanity_price_wad,
+            tightened.max_sanity_price_wad
+        ),
+        (floor + 1, ceiling - 1)
+    );
+
+    // The ratchet holds against the NEW band: the old edges are now a widening.
+    assert_eq!(
+        client.try_set_sanity_band(&key, &floor, &(ceiling - 1)),
+        Err(Ok(sanity_band_must_tighten()))
+    );
+}
+
+fn redstone_leg(
+    env: &Env,
+    feed: &Address,
+    feed_id: &str,
+    nature: FeedNature,
+    max_stale: u64,
+) -> PriceSource {
+    PriceSource::Feed(FeedSource {
+        provider: ProviderRef::RedStone(MultiFeedRef {
+            contract: feed.clone(),
+            feed_id: String::from_str(env, feed_id),
+            nature,
+        }),
+        decimals: 8,
+        max_stale_seconds: max_stale,
+    })
+}
+
+#[test]
+fn market_leg_past_its_own_budget_is_stale_under_a_loose_asset_ceiling() {
+    const MARKET_BUDGET: u64 = 300;
+    const FUNDAMENTAL_BUDGET: u64 = 46_800;
+
+    let env = Env::default();
+    env.mock_all_auths();
+    let t0: u64 = 1_700_000_000;
+    env.ledger().with_mut(|li| li.timestamp = t0);
+    let (_owner, client) = register_agg(&env);
+    let key = PriceKey::Token(Address::generate(&env));
+    let (market_feed, market) = register_feed(&env);
+    let (fundamental_feed, fundamental) = register_feed(&env);
+    market.set_price(&String::from_str(&env, "MKT"), &WAD);
+    fundamental.set_price(&String::from_str(&env, "FUND"), &WAD);
+
+    client.set_oracle(
+        &key,
+        &AssetOracle {
+            asset_decimals: 7,
+            max_price_stale_seconds: FUNDAMENTAL_BUDGET,
+            sources: soroban_sdk::vec![
+                &env,
+                redstone_leg(&env, &market_feed, "MKT", FeedNature::Market, MARKET_BUDGET),
+                redstone_leg(
+                    &env,
+                    &fundamental_feed,
+                    "FUND",
+                    FeedNature::Fundamental,
+                    FUNDAMENTAL_BUDGET
+                ),
+            ],
+            tolerance: OracleTolerance {
+                upper_ratio_bps: 10_500,
+                lower_ratio_bps: 9_524,
+            },
+            independence: IndependencePolicy::RequireDisjoint,
+            min_sanity_price_wad: WAD * 95 / 100,
+            max_sanity_price_wad: WAD * 105 / 100,
+        },
+    );
+
+    // Exactly at the market leg's budget: still priced.
+    env.ledger()
+        .with_mut(|li| li.timestamp = t0 + MARKET_BUDGET);
+    assert_eq!(hard_price(&env, &client, key.clone()).price_wad, WAD);
+
+    // One second past the market budget; still inside the asset ceiling.
+    env.ledger()
+        .with_mut(|li| li.timestamp = t0 + MARKET_BUDGET + 1);
+    let status = soft_quote(&env, &client, key.clone());
+    assert!(status.stale, "the market leg's own budget must bind");
+    assert!(!status.valid);
+    assert!(!status.deviation);
+    assert_eq!(
+        client.try_prices(&Vec::from_array(&env, [key.clone()])),
+        Err(Ok(soroban_sdk::Error::from_contract_error(
+            Error::PriceFeedStale as u32
+        )))
+    );
+
+    // Refreshing only the fundamental leg does not help.
+    fundamental.set_price(&String::from_str(&env, "FUND"), &WAD);
+    assert!(soft_quote(&env, &client, key.clone()).stale);
+    // Refreshing the market leg does.
+    market.set_price(&String::from_str(&env, "MKT"), &WAD);
+    assert_eq!(hard_price(&env, &client, key).price_wad, WAD);
+}

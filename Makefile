@@ -45,6 +45,7 @@ SHELL := /bin/bash
         coverage coverage-controller coverage-pool coverage-price-aggregator coverage-merged \
         docs-check fmt fmt-check clippy clippy-contracts clippy-fuzz scout scout-host scout-strict \
         access-control-check \
+        ops-script-check \
         wasm-size-check wasm-testing-abi-check clean install-stellar-cli \
         cbm-reindex cbm-index \
         _mutants-check _mutants-harness-prepare \
@@ -583,6 +584,10 @@ scout-strict:
 access-control-check:
 	@python3 scripts/test_check_access_control.py
 	@python3 scripts/check_access_control.py
+
+ops-script-check:
+	@bash -n configs/script.sh
+	@bash scripts/check_spoke_script_guards.sh
 
 
 
@@ -1934,7 +1939,7 @@ POSITIONAL_ACCOUNT_MARKET_ACTIONS := getCollateral getBorrow maxWithdraw maxSupp
 POSITIONAL_ACCOUNT_ROLE_ACTIONS := hasRole grantGovRole revokeGovRole
 REFLECTOR_PROBE_ACTIONS := queryReflector queryReflectorPrice queryReflectorTwap queryRedStone
 VARARG_ACTIONS := updateIndexes claimRevenue supply borrow withdraw getLiquidationEstimate \
-	claimAggregatorAdminFees sweepAggregatorBalance
+	claimAggregatorAdminFees sweepAggregatorBalance tightenAssetFlags
 
 
 
@@ -2212,6 +2217,7 @@ help-ops:
 	$(call ROW,make <n> listOps,recorded ops + live state)
 	$(call ROW,make <n> executeReady,execute every Ready op)
 	$(call NOTE,make <n> opState | awaitOp | executeOp | cancelOp <id>)
+	$(call ROW,make <n> tightenAssetFlags ID SYM FLAGS,GUARDIAN immediate: raise paused/frozen/no_seize on one listing; cannot clear)
 	$(call NOTE,    per-op lifecycle: Unset | Waiting | Ready | Done)
 	$(call ROW,make <n> checkDelay,live timelock delay vs config)
 	$(call BLANK)
@@ -2238,6 +2244,7 @@ help-ops:
 	$(call NOTE,make <n> listHubs | createHub ID | addSpoke ID | listSpokes)
 	$(call NOTE,make <n> addAssetToSpoke|editAssetInSpoke|removeAssetFromSpoke ID SYM)
 	$(call NOTE,make <n> removeSpoke ID | setupAllSpokes | setupAll)
+	$(call NOTE,Spoke ID = CONFIG id from spokes.json (mapped through networks.json spoke_ids); onchain:N for a raw id)
 	$(call BLANK)
 	$(call H2,Positions)
 	$(call ROW,make <n> supply USDC 1000000000,100 USDC @ 7 dec -> account 0)

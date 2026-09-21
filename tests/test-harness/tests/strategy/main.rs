@@ -12,4 +12,7 @@ mod flash_position_mode_and_asset_edges;
 mod happy;
 mod helpers;
 mod migrate_blend;
+mod migrate_blend_account_ownership;
+mod rogue_hop_pool_transfer_joins_caller_auth_tree;
 mod router;
+mod strategy_solvency_gate_on_low_value_router_output;

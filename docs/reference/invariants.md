@@ -192,6 +192,30 @@ zero total supplied-share balance with non-zero debt shares. This prevents an
 empty-supply state, without establishing full backing or a liquidation cash
 reserve.
 
+<a id="inv-acct-10"></a>
+
+### INV-ACCT-10 — Account books reconcile with pool totals
+
+The pool stores market totals only. Every pool call carries the caller's scaled
+position, and the pool trusts it: it has no per-account book to check the value
+against. For each market, the sum of account supply shares therefore equals the
+pool's supplied shares minus its revenue shares, and the sum of account debt
+shares equals the pool's borrowed shares.
+
+The controller holds this by construction, not by a runtime assertion. It takes
+each new scaled position from the pool's returned mutation, merges duplicate
+legs by hub asset before it reads a position, and moves shares between two
+accounts only in credit-mode liquidation, where the debit, the credit and the
+fee are asserted to sum exactly. A controller path that writes a position from
+any other source, or that sends a stale position to the pool, breaks this
+invariant without a revert.
+
+The conservation property test checks both equalities after every operation,
+and it bounds cash against the seeded liquidity so that the bound binds. No
+on-chain view enumerates accounts, so on a live network only the spoke-level
+identity (pool supplied minus the sum of spoke usage equals revenue) can be
+read.
+
 ## Indexes and accrual
 
 <a id="inv-idx-01"></a>
