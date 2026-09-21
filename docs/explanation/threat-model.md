@@ -95,6 +95,14 @@ market books are separate. Direct donations do not rewrite those books.
 Cash flash loans impose exact balance transitions and allowance repayment;
 receipt-tax compatibility elsewhere does not establish flash-loan compatibility.
 
+Aquarius LP collateral earns venue rewards for its holder, which is the pool.
+The pool has no entrypoint to claim or forward them. The venue's reward claim
+did not require the holder's authorization when reviewed (mainnet simulation,
+2026-09), so any caller can push accrued rewards into the pool address as an
+unbooked donation. Gauge rewards need the pool's authorization and therefore
+cannot be claimed at all. Suppliers of LP collateral should expect no venue
+rewards; this is forgone yield, not a loss of principal.
+
 ## Routes, callbacks, and external integrations
 
 Router swaps settle measured input/output changes. The controller grants
@@ -106,6 +114,19 @@ measured output and final account risk, not an independent slippage bound.
 A compromised router may consume authorized input for dust output while the
 final account passes its risk gates. Exposure is bounded by routed funds and
 those gates, not by an independent controller slippage limit.
+
+That bound covers the controller's own grant only. The router calls the pool
+and token addresses its payload names and keeps no allowlist of them, so a
+route can put third-party code on the call stack below the caller's
+authorization. A token transfer that such code makes from the caller is
+recorded by an honest simulation as a child of the caller's authorization
+entry, and it executes if the caller signs that tree. The loss is then the
+caller's wallet, not the routed amount, and neither the payload minimum nor the
+final risk gate bounds it. An honest swap strategy gives the caller no child
+entry, and a direct router swap gives exactly one input transfer. A client must
+decode the route it signs and refuse an authorization tree with any other
+child. The direct `execute_strategy` path has the same exposure for every swap
+user.
 
 Flash position creates debt without an origination fee and leaves an open
 solvent position. Declared collateral minima must be nonnegative, with at least
@@ -250,7 +271,7 @@ these rows do not assign severity or establish exploitability.
 | Info.2 | Liquidation competition and MEV; the bonus curve bounds terms, not ordering or liquidator profit. |
 | Info.3 | Visible pending governance changes allow anticipatory positioning; observability is intentional. |
 | Info.4 | Invalid quotes may contain prices; use validity flags or strict reads. |
-| DoS.1 | Price outage blocks valuation-dependent actions, including liquidation; fail-closed availability cost. |
+| DoS.1 | Price outage blocks valuation-dependent actions, including liquidation; fail-closed availability cost. Supply needs no price, so an indebted borrower can add a dust leg of any listed collateral and so SELECT which feed outage shields the account; for an Aquarius LP leg the pool-value floor is an outage that liquidity providers can cause. The same leg blocks bad-debt cleanup and force-socialization. |
 | DoS.2 | Selected paused debt or no_seize collateral blocks liquidation; distinct flag policies matter. |
 | DoS.3 | False-alarm pause needs delayed reopening; emergency response is asymmetric. |
 | DoS.4 | Lost governance keys; proposer safeguards and owner-dependent canceller recovery do not restore a lost owner. |
