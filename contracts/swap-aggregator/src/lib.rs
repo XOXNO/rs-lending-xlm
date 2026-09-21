@@ -255,7 +255,7 @@ impl SwapAggregatorInterface for Router {
 
 #[contractimpl]
 impl Ownable for Router {
-    /// Returns the current owner, or `None` if ownership has been renounced or was never set.
+    /// Returns the current owner, or `None` if it was never set.
     fn get_owner(e: &Env) -> Option<Address> {
         ownable::get_owner(e)
     }
@@ -271,11 +271,5 @@ impl Ownable for Router {
     /// pending owner.
     fn accept_ownership(e: &Env) {
         ownable::accept_ownership(e);
-    }
-
-    /// Clears the current owner. Requires current-owner authorization and panics
-    /// if a transfer is pending.
-    fn renounce_ownership(e: &Env) {
-        ownable::renounce_ownership(e);
     }
 }

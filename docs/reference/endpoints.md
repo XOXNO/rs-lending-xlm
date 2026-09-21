@@ -287,14 +287,13 @@ Lending governance has no router-upgrade operation. The router owner controls up
 
 ### Router and XOXNO oracle ownership
 
-Both contracts export these Ownable methods:
+Both contracts export these Ownable methods. Neither exports `renounce_ownership`: the owner is the only path to `upgrade` and to every administrative setter, so ownership can move but cannot be cleared.
 
 | Endpoint | Authority |
 | --- | --- |
 | `get_owner() -> Option<Address>` | Open |
 | `transfer_ownership(new_owner: Address, live_until_ledger: u32)` | Owner |
 | `accept_ownership()` | Pending owner |
-| `renounce_ownership()` | Owner; no pending transfer |
 
 A zero ownership-transfer deadline cancels the matching pending transfer. NFT approvals use zero expiry to revoke approval.
 
@@ -354,7 +353,7 @@ Prices use 8 decimals. Package and aggregate-write timestamps use milliseconds; 
 | `submit_prices(signer: Address, feed_ids: Vec<String>, prices: Vec<i128>, package_timestamp: u64) -> Result<(), Error>` | Registered signer signature |
 | `upgrade(new_wasm_hash: BytesN<32>)` | Owner |
 
-The [four ownership methods](#router-and-xoxno-oracle-ownership) are also exported here. The configured Ownable owner administers this oracle; lending governance has no XOXNO-oracle scheduling variants.
+The [three ownership methods](#router-and-xoxno-oracle-ownership) are also exported here. The configured Ownable owner administers this oracle; lending governance has no XOXNO-oracle scheduling variants.
 
 Threshold, submission-age and relative-skew setters do not recompute aggregates. The owner can call `recompute_feeds` in bounded batches. `remove_signer` deletes that signer's submissions and recomputes affected feeds. When quorum is absent, ordinary submissions retain the previous aggregate, while owner recomputation or signer removal clears it.
 

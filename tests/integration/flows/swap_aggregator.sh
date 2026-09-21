@@ -5,9 +5,6 @@
 # ever talked to the shared `$AGGREGATOR` from configs/networks.json, which this
 # run does not own. `$OWNED_AGGREGATOR` is a throwaway instance deployed by
 # deploy_protocol with ADMIN as owner.
-#
-# Ordering: renounce_ownership is irreversible, so it runs last and everything
-# owner-only must precede it.
 flow_swap_aggregator_admin() {
     phase swap_agg_admin
     if [ -z "${OWNED_AGGREGATOR:-}" ]; then
@@ -133,14 +130,4 @@ flow_swap_aggregator_admin() {
         --id "$ref_id" --tokens "$(jq -nc --arg t "$tok" '[$t]')" >/dev/null
     inv sa_sweep_balance "$ADMIN" "$agg" -- sweep_balance \
         --recipient "$ADMIN_ADDR" --tokens "$(jq -nc --arg t "$tok" '[$t]')" >/dev/null
-
-    # --- ownership, last: irreversible ---
-    inv sa_renounce "$ADMIN" "$agg" -- renounce_ownership >/dev/null
-    # Renouncing must actually clear the owner, not just return successfully.
-    # get_owner is Option<Address>, so an unset owner renders as `null`.
-    assert_view_eq_at "$agg" sa_owner_after_renounce null get_owner
-    # And `admin` must now panic rather than report a stale owner.
-    xfail sa_admin_after_renounce 'Error\(Contract, #20\)' "$ADMIN" "$agg" -- admin
-    # With no owner left, the owner-only surface must be permanently closed.
-    xfail sa_owner_only_after_renounce 'Error\(Contract, #2100\)' "$ADMIN" "$agg" -- set_static_fee --fee_bps 10
 }
