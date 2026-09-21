@@ -687,7 +687,11 @@ async fn publish_oracle_config_and_freshness(
         return;
     };
 
-    if let (Some(floor), Some(dec)) = (&config.lp_floor, decimals) {
+    // The aggregator admits an LP source only as the sole source
+    // (price-aggregator admin.rs: SourceCountOutOfRange otherwise), so the final
+    // price IS the LP leg price the floor is checked against. Publish nothing if
+    // that ever stops being true, rather than a ratio built on a midpoint.
+    if let (Some(floor), Some(dec), 1) = (&config.lp_floor, decimals, config.source_count) {
         publish_lp_floor_headroom(client, metrics, net, market, &olabels, floor, dec).await;
     }
 

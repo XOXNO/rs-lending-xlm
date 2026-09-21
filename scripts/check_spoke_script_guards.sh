@@ -89,6 +89,9 @@ for verb in removeSpoke removeAssetFromSpoke setSpokeLiquidationCurve getSpoke g
     awk -v v="\"$verb\")" '$0 ~ v {p=1} p {print} p && /;;/ {exit}' "$SCRIPT" \
         | grep -q 'resolve_spoke_arg "\$2"' || fail "$verb must resolve its spoke argument"
 done
+# addSpoke returns an operation id under AUTO_EXECUTE=0; only a numeric id is a mapping.
+awk '$0 ~ /"addSpoke"\)/ {p=1} p {print} p && /;;$/ && !/\*\)/ {n++} p && n==3 {exit}' "$SCRIPT" \
+    | grep -q "''|\*\[!0-9\]\*)" || fail "addSpoke must persist only a numeric spoke id"
 if extract ensure_spoke | grep -q 'fetch_spoke_json "\$config_category_id"'; then
     fail "ensure_spoke must not reuse the on-chain spoke that shares the config number"
 fi

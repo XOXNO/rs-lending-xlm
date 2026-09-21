@@ -4507,7 +4507,17 @@ case "$1" in
             die "config spoke $2 is already mapped to on-chain spoke ${existing_spoke_id}; use setupAllSpokes to replace a deprecated spoke"
         fi
         onchain_spoke_id=$(add_spoke "$2") || exit 1
-        persist_spoke_id "$2" "$onchain_spoke_id"
+        # With AUTO_EXECUTE=0 add_spoke returns the operation id, not a spoke id:
+        # nothing exists on chain yet, so there is nothing to map.
+        case "$onchain_spoke_id" in
+            ''|*[!0-9]*)
+                echo "Scheduled only: op ${onchain_spoke_id}. The spoke id is the RETURN VALUE of executeOp;" >&2
+                echo "record it by hand in ${NETWORKS_FILE} (${NETWORK}.spoke_ids[\"$2\"]) before any other spoke verb." >&2
+                ;;
+            *)
+                persist_spoke_id "$2" "$onchain_spoke_id"
+                ;;
+        esac
         echo "$onchain_spoke_id"
         ;;
     "addAssetToSpoke")
