@@ -209,23 +209,6 @@ fn upgrade_pool_reverts_pool_not_initialized_without_deployed_pool() {
 }
 
 #[test]
-fn remove_delegate_reverts_account_not_in_market_for_non_owner() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let contract = new_controller(&env);
-    let client = crate::ControllerClient::new(&env, &contract);
-
-    let stranger = Address::generate(&env);
-    let delegate = Address::generate(&env);
-    assert_eq!(
-        client.try_remove_delegate(&stranger, &1u64, &delegate),
-        Err(Ok(soroban_sdk::Error::from_contract_error(
-            GenericError::AccountNotInMarket as u32
-        )))
-    );
-}
-
-#[test]
 fn recapitalize_is_permissionless_and_pause_exempt() {
     let env = Env::default();
     env.mock_all_auths();

@@ -18,6 +18,9 @@ fn setup() -> LendingTest {
 fn test_all_state_changing_entries_reject_under_flash_loan_ongoing() {
     let mut t = setup();
     let alice_id = t.resolve_account_id(ALICE);
+    // Approve the Blend pool first: the migrate check below must reach the
+    // controller, not fail while the harness is still wiring the mock.
+    t.ensure_approved_blend();
     t.set_flash_loan_ongoing(true);
 
     assert_contract_error(t.try_supply(BOB, "USDC", 1.0), errors::FLASH_LOAN_ONGOING);
@@ -43,6 +46,23 @@ fn test_all_state_changing_entries_reject_under_flash_loan_ongoing() {
     );
     assert_contract_error(
         t.try_clean_bad_debt_by_id(alice_id),
+        errors::FLASH_LOAN_ONGOING,
+    );
+    assert_contract_error(
+        t.try_force_socialize_bad_debt_by_id(alice_id),
+        errors::FLASH_LOAN_ONGOING,
+    );
+    let payer = t.get_or_create_user(BOB);
+    let usdc = test_harness::hub_asset(t.resolve_asset("USDC"));
+    assert_contract_error(
+        t.ctrl_client()
+            .try_recapitalize(&payer, &usdc, &1i128)
+            .map(|decoded| decoded.expect("recapitalize returns i128"))
+            .map_err(|err| err.expect("expected a contract error")),
+        errors::FLASH_LOAN_ONGOING,
+    );
+    assert_contract_error(
+        t.try_migrate_from_blend(BOB, 0, &["USDC"], &[], &[]),
         errors::FLASH_LOAN_ONGOING,
     );
 

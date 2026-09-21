@@ -1,9 +1,14 @@
 use crate::config::config;
 use crate::ops::{capture_indexes, execute_op, op_strategy, LendingOp, ASSETS, USERS};
 use crate::strategy_helpers::{flash_guard_cleared, router_allowance};
+use common::math::fp::Ray;
 use proptest::prelude::*;
 use soroban_sdk::token;
-use test_harness::{hub_asset, seed_fuzz_conservation_book, LendingTest};
+use std::sync::atomic::{AtomicI64, Ordering};
+use test_harness::presets::{eth_preset, usdc_preset, wbtc_preset};
+use test_harness::{
+    f64_to_i128, hub_asset, seed_fuzz_conservation_book, LendingTest, ALICE, BOB, LIQUIDATOR,
+};
 
 const TOLERANCE_UNITS: i128 = 4;
 
@@ -184,6 +189,256 @@ proptest! {
                 );
             }
             last_idx = next_idx;
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Seed-adjusted cash conservation and token custody.
+//
+// `prop_accounting_conservation` asserts `reserves + borrowed - supplied >= -4`.
+// The market builder loads `initial_liquidity` (1_000_000 units of each asset)
+// straight into `state.cash` with no supply shares, so that bound has 1e13 raw
+// units of slack and cannot see a cash leak. The law below removes the seed
+// and is two-sided.
+//
+// Identity, from contracts/pool/src (every value in RAY asset precision):
+//
+//   surplus = (cash - seed) + borrowed * borrow_index - supplied * supply_index
+//
+// `supplied` includes the revenue shares (cache/shares.rs `accrue_revenue`), so
+// the right side is supplier claims plus protocol revenue.
+//
+// Per operation, `surplus` moves as follows:
+//   supply        cash +a, claims +floor(a/si)*si            -> +RAY dust
+//   borrow        cash -a, debt   +ceil(a/bi)*bi             -> +RAY dust
+//   partial repay cash +a, debt   -floor(a/bi)*bi            -> +RAY dust
+//   full repay    cash +ceil_unit(debt), debt -debt          -> +[0, 1 unit)
+//   partial wd    cash -a, claims -ceil(a/si)*si             -> +RAY dust
+//   full withdraw cash -floor_unit(claim), claims -claim     -> +[0, 1 unit)
+//   accrual       debt +I, claims +I (index floor, the rest to revenue, floor)
+//   flash/strategy fee   cash +fee, claims +floor(fee/si)*si -> +RAY dust
+//   liquidation fee      kept in cash, minted as revenue     -> +RAY dust
+//   seize deposit        shares relabelled as revenue        ->  0
+//   bad debt      debt -d, claims -min(ceil(d), claims), index floored
+//                                                           -> +RAY dust
+//   claim revenue cash -floor_unit(rev), claims -rev         -> +[0, 1 unit)
+//   net settle    no cash; claims ceil, debt floor           -> +[0, 2 units)
+//   recapitalize  cash +min(amount, backing_shortfall); with the seed in cash
+//                 the shortfall is 0 unless 1e13 units already leaked.
+//
+// Every rounding favours the pool, so `surplus` starts at 0, never goes
+// negative past RAY dust, and grows by less than 1 token unit per
+// unit-rounding leg (full repay, full withdraw, revenue claim; a net settle
+// is two). One op has at most 8 such legs on one asset: a script is its open,
+// 5 random legs, one closing repay and one closing withdraw per asset.
+// Measured over 1024 cases: the surplus never passed 3 raw units.
+//
+// Known harness-only exception: seed cash lets debt exceed supplier claims
+// after a liquidation withdraw (no utilization gate). Bad debt above the
+// claims then lands on the seed and `surplus` falls by the uncapped part.
+// Without a seed `cash >= 0` forces debt <= claims + surplus, so this cannot
+// occur on a real market. The law below does not excuse it: if it fires, the
+// failing sequence must be read.
+// ---------------------------------------------------------------------------
+
+/// Half-up `mul` reads plus directed index rounding: a few raw RAY per leg.
+/// 1e9 raw RAY is 1e-11 of one 7-decimal token unit.
+const RAY_DUST: i128 = 1_000_000_000;
+const MAX_ROUNDING_LEGS_PER_OP: i128 = 8;
+
+fn raw_pool_state(t: &LendingTest, asset: &str) -> controller::types::PoolStateRaw {
+    let market = t.resolve_market(asset);
+    let key = controller::types::PoolKey::State(hub_asset(market.asset.clone()));
+    t.env.as_contract(&market.pool, || {
+        t.env.storage().persistent().get(&key).unwrap()
+    })
+}
+
+fn pool_token_balance(t: &LendingTest, asset: &str) -> i128 {
+    let market = t.resolve_market(asset);
+    token::Client::new(&t.env, &market.asset).balance(&market.pool)
+}
+
+/// RAY units in one raw token unit of `asset`.
+fn unit_ray(t: &LendingTest, asset: &str) -> i128 {
+    10i128.pow(27 - t.resolve_market(asset).decimals)
+}
+
+/// `(cash - seed) + debt value - supplier claims`, in RAY asset precision.
+fn seed_adjusted_surplus_ray(t: &LendingTest, asset: &str, seed: i128) -> i128 {
+    let s = raw_pool_state(t, asset);
+    let debt = Ray::from(s.borrowed).mul(&t.env, Ray::from(s.borrow_index));
+    let claims = Ray::from(s.supplied).mul(&t.env, Ray::from(s.supply_index));
+    (s.cash - seed) * unit_ray(t, asset) + debt.raw() - claims.raw()
+}
+
+fn assert_cash_conservation_and_custody(
+    step: usize,
+    op: &dyn std::fmt::Debug,
+    t: &LendingTest,
+    seeds: &[i128; 3],
+) -> Result<(), TestCaseError> {
+    for (asset, seed) in ASSETS.iter().zip(seeds) {
+        let cash = raw_pool_state(t, asset).cash;
+        let held = pool_token_balance(t, asset);
+        // Custody: the op set has no direct donation, so the pool must hold
+        // exactly its accounting cash. `held < cash` is phantom cash;
+        // `held > cash` is tokens stranded outside the books.
+        prop_assert_eq!(
+            held,
+            cash,
+            "step {} {:?}: {} pool token balance {} != accounting cash {}",
+            step,
+            op,
+            asset,
+            held,
+            cash
+        );
+
+        let surplus = seed_adjusted_surplus_ray(t, asset, *seed);
+        let unit = unit_ray(t, asset);
+        let ceiling = MAX_ROUNDING_LEGS_PER_OP * (step as i128 + 1) * unit;
+        prop_assert!(
+            surplus >= -RAY_DUST,
+            "step {} {:?}: {} cash leak: seed-adjusted surplus {} raw RAY ({} units)",
+            step,
+            op,
+            asset,
+            surplus,
+            surplus / unit
+        );
+        prop_assert!(
+            surplus <= ceiling,
+            "step {} {:?}: {} over-collection: surplus {} raw RAY ({} units) > {} units",
+            step,
+            op,
+            asset,
+            surplus,
+            surplus / unit,
+            ceiling / unit
+        );
+    }
+    Ok(())
+}
+
+static MAX_SURPLUS_UNITS: AtomicI64 = AtomicI64::new(0);
+
+proptest! {
+    // No failure persistence: a failing seed must be read, not auto-filed
+    // into the regression file of the law above.
+    #![proptest_config(ProptestConfig { failure_persistence: None, ..config(32) })]
+
+    #[test]
+    fn prop_seed_adjusted_cash_conservation_and_token_custody(
+        ops in prop::collection::vec(op_strategy(), 5..15)
+    ) {
+        let mut t = LendingTest::new().three_asset_usdc_eth_wbtc().build();
+
+        // Straight after build a market holds only its seed: no shares, no debt.
+        let presets = [usdc_preset(), eth_preset(), wbtc_preset()];
+        let mut seeds = [0i128; 3];
+        for (i, asset) in ASSETS.iter().enumerate() {
+            let s = raw_pool_state(&t, asset);
+            prop_assert_eq!((s.supplied, s.borrowed, s.revenue), (0, 0, 0));
+            let from_preset =
+                f64_to_i128(presets[i].initial_liquidity, t.resolve_market(asset).decimals);
+            prop_assert_eq!(s.cash, from_preset, "{} seed differs from its preset", asset);
+            seeds[i] = s.cash;
+        }
+
+        seed_fuzz_conservation_book(&mut t);
+
+        for (i, op) in ops.iter().enumerate() {
+            execute_op(&mut t, op);
+            // `i + 1`: the seeded book is six pool legs of its own.
+            assert_cash_conservation_and_custody(i + 1, op, &t, &seeds)?;
+        }
+
+        for (asset, seed) in ASSETS.iter().zip(&seeds) {
+            let units = (seed_adjusted_surplus_ray(&t, asset, *seed) / unit_ray(&t, asset)) as i64;
+            if units > MAX_SURPLUS_UNITS.fetch_max(units, Ordering::Relaxed) {
+                eprintln!("new max seed-adjusted surplus: {units} raw units of {asset}");
+            }
+        }
+    }
+}
+
+// The generic op set above never lands a liquidation: over 96 deterministic
+// cases, 25 of 34 `Liquidate` ops found no debt in the chosen asset and the
+// other 9 were refused with HealthFactorTooHigh (#101); the supply index never
+// fell. So the liquidation-fee, seize and bad-debt rows of the identity were
+// not exercised by it. This property forces them.
+static LIQUIDATIONS_LANDED: AtomicI64 = AtomicI64::new(0);
+static BAD_DEBT_EVENTS: AtomicI64 = AtomicI64::new(0);
+
+fn market_seeds(t: &LendingTest) -> [i128; 3] {
+    let mut seeds = [0i128; 3];
+    for (i, asset) in ASSETS.iter().enumerate() {
+        let s = raw_pool_state(t, asset);
+        assert_eq!((s.supplied, s.borrowed, s.revenue), (0, 0, 0));
+        seeds[i] = s.cash;
+    }
+    seeds
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig { failure_persistence: None, ..config(32) })]
+
+    #[test]
+    fn prop_seed_adjusted_cash_conservation_through_liquidation_and_bad_debt(
+        collateral_usdc in 10u32..50_000u32,
+        borrow_bps in 3_000u32..7_400u32,
+        wait_secs in 0u32..(30 * 24 * 3600),
+        crash_cents in 3u32..70u32,
+        liquidation_bps in prop::collection::vec(100u16..=10_000u16, 1..4),
+    ) {
+        let mut t = LendingTest::new().three_asset_usdc_eth_wbtc().build();
+        let seeds = market_seeds(&t);
+        let mut step = 0usize;
+
+        // Real ETH suppliers, so socialized bad debt has claims to land on.
+        t.supply(BOB, "ETH", 100.0);
+        t.supply(ALICE, "USDC", collateral_usdc as f64);
+        let debt_eth = collateral_usdc as f64 * borrow_bps as f64 / 10_000.0 / 2_000.0;
+        prop_assume!(t.try_borrow(ALICE, "ETH", debt_eth).is_ok());
+        assert_cash_conservation_and_custody(step, &"open", &t, &seeds)?;
+
+        t.advance_and_sync(wait_secs as u64);
+        step += 1;
+        assert_cash_conservation_and_custody(step, &"accrue", &t, &seeds)?;
+
+        t.set_price("USDC", controller::constants::WAD * crash_cents as i128 / 100);
+        for bps in &liquidation_bps {
+            let debt = t.borrow_balance(ALICE, "ETH");
+            if debt <= 0.0 {
+                break;
+            }
+            let index_before = raw_pool_state(&t, "ETH").supply_index;
+            let repay = (debt * *bps as f64 / 10_000.0).max(0.000_001);
+            let landed = t.try_liquidate(LIQUIDATOR, ALICE, "ETH", repay).is_ok();
+            step += 1;
+            assert_cash_conservation_and_custody(step, &("liquidate", bps, landed), &t, &seeds)?;
+            if landed {
+                LIQUIDATIONS_LANDED.fetch_add(1, Ordering::Relaxed);
+            }
+            if raw_pool_state(&t, "ETH").supply_index < index_before {
+                BAD_DEBT_EVENTS.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+
+        for asset in ["USDC", "ETH"] {
+            let _ = t.try_claim_revenue(asset);
+            step += 1;
+            assert_cash_conservation_and_custody(step, &("claim", asset), &t, &seeds)?;
+        }
+        // Reach evidence, on request: CONSERVATION_STATS=1 with --nocapture.
+        if std::env::var_os("CONSERVATION_STATS").is_some() {
+            eprintln!(
+                "liquidations landed so far: {}, bad-debt socializations so far: {}",
+                LIQUIDATIONS_LANDED.load(Ordering::Relaxed),
+                BAD_DEBT_EVENTS.load(Ordering::Relaxed)
+            );
         }
     }
 }
