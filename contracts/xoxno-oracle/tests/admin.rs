@@ -7,7 +7,7 @@ use common::*;
 use xoxno_oracle::{Error, XoxnoOracle, XoxnoOracleClient};
 
 use soroban_sdk::testutils::{Address as _, MockAuth, MockAuthInvoke};
-use soroban_sdk::{vec, Address, BytesN, Env, IntoVal, String};
+use soroban_sdk::{vec, Address, BytesN, Env, IntoVal, String, Symbol, Val, Vec};
 
 #[test]
 #[should_panic(expected = "Error(Contract, #3)")]
@@ -42,14 +42,20 @@ fn constructor_rejects_duplicate_signers() {
 }
 
 #[test]
-fn renounce_ownership_clears_owner() {
+fn renounce_ownership_is_not_on_the_abi() {
     let env = Env::default();
     env.mock_all_auths();
-    let (client, _admin, _signers) = setup(&env, 1, 1);
+    let (client, admin, _signers) = setup(&env, 1, 1);
 
-    assert!(client.get_owner().is_some());
-    client.renounce_ownership();
-    assert!(client.get_owner().is_none());
+    // Invoked by name with the owner's auth mocked: the only thing that can stop
+    // it is the function not being exported.
+    let called = env.try_invoke_contract::<Val, soroban_sdk::Error>(
+        &client.address,
+        &Symbol::new(&env, "renounce_ownership"),
+        Vec::new(&env),
+    );
+    assert!(called.is_err());
+    assert_eq!(client.get_owner(), Some(admin));
 }
 
 #[test]

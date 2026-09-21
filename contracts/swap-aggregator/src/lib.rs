@@ -255,7 +255,7 @@ impl SwapAggregatorInterface for Router {
 
 #[contractimpl]
 impl Ownable for Router {
-    /// Returns the current owner, or `None` if ownership has been renounced or was never set.
+    /// Returns the current owner, or `None` if it was never set.
     fn get_owner(e: &Env) -> Option<Address> {
         ownable::get_owner(e)
     }
@@ -273,9 +273,8 @@ impl Ownable for Router {
         ownable::accept_ownership(e);
     }
 
-    /// Clears the current owner. Requires current-owner authorization and panics
-    /// if a transfer is pending.
-    fn renounce_ownership(e: &Env) {
-        ownable::renounce_ownership(e);
-    }
+    // `renounce_ownership` is deliberately absent. The owner is the only path to
+    // `upgrade`, the pool whitelist and the fee sweep, so one wrong call would end
+    // administration for the life of the contract. A plain `#[contractimpl]` does
+    // not export the trait's default body.
 }

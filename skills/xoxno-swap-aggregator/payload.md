@@ -20,8 +20,8 @@ pub trait SwapAggregatorInterface {
 This snippet is deliberately not the complete contract surface. Use the
 [interface](../../interfaces/swap-aggregator/src/lib.rs) for aggregator methods and the
 [router implementation](../../contracts/swap-aggregator/src/lib.rs) for the additional
-`stellar_access::ownable::Ownable` entrypoints (`get_owner`, two-step transfer/accept,
-and renounce).
+`stellar_access::ownable::Ownable` entrypoints (`get_owner` and the two-step
+transfer/accept; `renounce_ownership` is not exported).
 
 ## `StrategyPayload` ScVal
 

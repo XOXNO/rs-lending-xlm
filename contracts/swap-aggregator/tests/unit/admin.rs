@@ -1,7 +1,7 @@
 use crate::errors::Error;
 use crate::{Router, RouterClient};
 use soroban_sdk::testutils::Address as _;
-use soroban_sdk::{Address, Env, Vec};
+use soroban_sdk::{Address, Env, Symbol, Val, Vec};
 
 use super::support::new_asset;
 use crate::types::ReferralConfig;
@@ -100,17 +100,23 @@ fn fee_setters_accept_exact_cap() {
 }
 
 #[test]
-fn ownable_get_owner_and_renounce() {
+fn renounce_ownership_is_not_on_the_abi() {
     let env = Env::default();
     env.mock_all_auths();
     let admin = Address::generate(&env);
     let router_addr = env.register(Router, (admin.clone(),));
     let router = RouterClient::new(&env, &router_addr);
 
-    assert_eq!(router.get_owner(), Some(admin));
-    router.renounce_ownership();
-    assert_eq!(router.get_owner(), None);
-    assert!(router.try_admin().is_err());
+    // Invoked by name with the owner's auth mocked: the only thing that can stop
+    // it is the function not being exported.
+    let called = env.try_invoke_contract::<Val, soroban_sdk::Error>(
+        &router_addr,
+        &Symbol::new(&env, "renounce_ownership"),
+        Vec::new(&env),
+    );
+    assert!(called.is_err());
+    assert_eq!(router.get_owner(), Some(admin.clone()));
+    assert_eq!(router.admin(), admin);
 }
 
 #[test]

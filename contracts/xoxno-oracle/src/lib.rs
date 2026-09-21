@@ -121,10 +121,10 @@ impl Ownable for XoxnoOracle {
         ownable::accept_ownership(e);
     }
 
-    /// Renounces ownership, leaving the contract without an owner.
-    fn renounce_ownership(e: &Env) {
-        ownable::renounce_ownership(e);
-    }
+    // `renounce_ownership` is deliberately absent. The owner is the only path to
+    // `upgrade`, the signer set and the feed registry, so one wrong call would
+    // freeze the oracle for the life of the contract. A plain `#[contractimpl]`
+    // does not export the trait's default body.
 }
 
 /// Returns true if `signers` contains any address more than once.

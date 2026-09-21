@@ -113,10 +113,9 @@ the signature shows.
 | `admin_fee_balance` | `fn admin_fee_balance(env: Env, token: Address) -> i128` | — | Returns the accrued admin fee balance for `token`. |
 | `referral_fee_balance` | `fn referral_fee_balance(env: Env, id: u64, token: Address) -> i128` | — | Returns the accrued referral fee balance for `(id, token)`. |
 | `execute_strategy` | `fn execute_strategy(env: Env, sender: Address, total_in: i128, swap_xdr: Bytes) -> i128` | — | Decode `swap_xdr` as `StrategyPayload` and execute it. |
-| `get_owner` | `fn get_owner(e: &Env) -> Option<Address>` | — | Returns the current owner, or `None` if ownership has been renounced or was never set. |
+| `get_owner` | `fn get_owner(e: &Env) -> Option<Address>` | — | Returns the current owner, or `None` if it was never set. |
 | `transfer_ownership` | `fn transfer_ownership(e: &Env, new_owner: Address, live_until_ledger: u32)` | — | Starts a two-step ownership transfer to `new_owner`, acceptable until ledger `live_until_ledger`. |
 | `accept_ownership` | `fn accept_ownership(e: &Env)` | — | Completes a pending ownership transfer. |
-| `renounce_ownership` | `fn renounce_ownership(e: &Env)` | — | Clears the current owner. |
 
 Error codes: [`../../docs/reference/errors.md`](../../docs/reference/errors.md).
 Events: [`../../docs/reference/events.md`](../../docs/reference/events.md).
