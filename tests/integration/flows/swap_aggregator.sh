@@ -5,8 +5,6 @@
 # ever talked to the shared `$AGGREGATOR` from configs/networks.json, which this
 # run does not own. `$OWNED_AGGREGATOR` is a throwaway instance deployed by
 # deploy_protocol with ADMIN as owner.
-#
-# The router exports no renounce_ownership, so no step here is irreversible.
 flow_swap_aggregator_admin() {
     phase swap_agg_admin
     if [ -z "${OWNED_AGGREGATOR:-}" ]; then

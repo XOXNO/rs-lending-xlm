@@ -47,8 +47,6 @@ fn renounce_ownership_is_not_on_the_abi() {
     env.mock_all_auths();
     let (client, admin, _signers) = setup(&env, 1, 1);
 
-    // Invoked by name with the owner's auth mocked: the only thing that can stop
-    // it is the function not being exported.
     let called = env.try_invoke_contract::<Val, soroban_sdk::Error>(
         &client.address,
         &Symbol::new(&env, "renounce_ownership"),

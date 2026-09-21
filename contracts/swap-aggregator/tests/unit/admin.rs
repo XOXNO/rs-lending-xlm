@@ -107,8 +107,6 @@ fn renounce_ownership_is_not_on_the_abi() {
     let router_addr = env.register(Router, (admin.clone(),));
     let router = RouterClient::new(&env, &router_addr);
 
-    // Invoked by name with the owner's auth mocked: the only thing that can stop
-    // it is the function not being exported.
     let called = env.try_invoke_contract::<Val, soroban_sdk::Error>(
         &router_addr,
         &Symbol::new(&env, "renounce_ownership"),
