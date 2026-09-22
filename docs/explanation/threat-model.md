@@ -282,7 +282,7 @@ these rows do not assign severity or establish exploitability.
 | DoS.9 | Dust and zero-share movements; rejection/floors reduce griefing but do not guarantee liquidation profitability. |
 | DoS.10 | Router/oracle ownership renunciation disables administration; existing oracle signers may continue, but future repair powers are lost. |
 | Elevation.1 | Governance-owner compromise; actual configured delay and approved replacement code determine exposure. |
-| Elevation.2 | Guardian attempts reopening; immediate flag ratchets reject it, while delayed full rewrites can clear flags. |
+| Elevation.2 | Guardian attempts reopening; immediate flag ratchets reject it. Listing edits cannot clear flags either; only a delayed relaxation bound to the listing's flags epoch can, so one proposed before a later guardian action reverts. |
 | Elevation.3 | Role overlap/cancellation abuse; separation exempts owner and recovery has its own rules. |
 | Elevation.4 | Delegate exceeds mandate; owner-only grant management and delayed global manager deactivation limit eligibility, not economic intent. |
 | Elevation.5 | Third-party creation of foreign risk; supply top-ups require existing positions, while account creation belongs to its caller. |

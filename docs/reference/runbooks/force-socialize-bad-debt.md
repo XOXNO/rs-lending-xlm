@@ -54,8 +54,9 @@ or insurance payment. The account is deleted and its position NFT burns.
   `DebtPositionNotFound`.
 - Oracle or storage failure: restore a valid price/entry state and simulate again.
 - `FlashLoanOngoing`: this operation cannot run inside a guarded monetary flow.
-- Clearing `no_seize` requires timelocked listing editing; the guardian cannot
-  clear it. Insolvent cleanup itself bypasses the listing's seizure flag.
+- Clearing `no_seize` requires the timelocked `relax_spoke_asset_flags`; the
+  guardian and a listing edit cannot clear it. Insolvent cleanup itself bypasses
+  the listing's seizure flag.
 
 After a committed cleanup, `recapitalize` can fill an existing backing shortfall
 and refunds excess. It does not raise the written-down index or restore the

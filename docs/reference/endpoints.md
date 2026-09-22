@@ -111,6 +111,7 @@ Undeclared callback assets receive neither credit nor refunds. There is no contr
 | `get_spoke(spoke_id: u32) -> SpokeConfig` | Spoke config |
 | `get_spoke_asset(spoke_id: u32, hub_asset: HubAssetKey) -> SpokeAssetConfig` | Listed risk config; fails if missing |
 | `get_spoke_usage(spoke_id: u32, hub_asset: HubAssetKey) -> SpokeUsageRaw` | RAY shares; default zero if absent |
+| `get_spoke_asset_flags_epoch(spoke_id: u32, hub_asset: HubAssetKey) -> u64` | Listing flags epoch; zero if never written |
 | `price_aggregator() -> Address` | Configured price aggregator |
 | `get_min_borrow_collateral_usd() -> i128` | LTV-weighted collateral floor WAD |
 | `is_blend_pool_approved(pool: Address) -> bool` | Migration allowlist |
@@ -136,6 +137,7 @@ Constructor `(admin: Address)` initializes the controller and starts it paused. 
 | `add_asset_to_spoke(input: SpokeAssetArgs)` |
 | `edit_asset_in_spoke(input: SpokeAssetArgs)` |
 | `set_spoke_asset_flags(spoke_id: u32, hub_asset: HubAssetKey, paused: bool, frozen: bool, no_seize: bool)` |
+| `relax_spoke_asset_flags(spoke_id: u32, hub_asset: HubAssetKey, expected_epoch: u64, paused: bool, frozen: bool, no_seize: bool)` |
 | `remove_asset_from_spoke(hub_asset: HubAssetKey, spoke_id: u32)` |
 | `deploy_pool(wasm_hash: BytesN<32>) -> Address` |
 | `deploy_position_nft(wasm_hash: BytesN<32>, uri: String, name: String, symbol: String) -> Address` |
@@ -154,7 +156,7 @@ Constructor `(admin: Address)` initializes the controller and starts it paused. 
 
 `force_socialize_bad_debt` requires debt greater than unweighted collateral and bypasses the $5 collateral cap. Follow the [force-socialize runbook](runbooks/force-socialize-bad-debt.md) before scheduling this irreversible operation.
 
-`set_spoke_asset_flags` can set flags but cannot clear them; timelocked listing edits can clear them. Upgrade pauses the controller before replacing its code. Migration requires a strictly increasing version.
+`set_spoke_asset_flags` and `edit_asset_in_spoke` can set flags but cannot clear them. `relax_spoke_asset_flags` writes any flag combination, clearing included, only when `expected_epoch` equals the listing's flags epoch. Listing creation, every `set_spoke_asset_flags` call, every `relax_spoke_asset_flags` call, and an edit that changes a flag advance that epoch; removing a listing keeps it. Upgrade pauses the controller before replacing its code. Migration requires a strictly increasing version.
 
 ## Pool
 
@@ -224,6 +226,8 @@ Constructor `(admin: Address, min_delay: u32)` initializes the owner, access-con
 | `has_role(account: Address, role: Symbol) -> bool` | Open view / resolver |
 
 Governance exports no generic `grant_role`, `revoke_role`, `renounce_ownership`, `get_owner`, `schedule`, or `update_delay` endpoint. Role/owner/delay/upgrade changes route through its explicit AdminOperation handlers.
+
+`AdminOperation::RelaxSpokeAssetFlags(RelaxSpokeAssetFlagsArgs)` schedules controller `relax_spoke_asset_flags` on the Standard delay tier. `propose` rejects it with `SpokeFlagsEpochMismatch` when `expected_epoch` differs from the listing's live flags epoch; execution checks the epoch again.
 
 ## Position NFT
 

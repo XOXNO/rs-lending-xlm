@@ -34,12 +34,14 @@ execute and cancel remove the ledger entry and clear the sidecars.
 | Control | Immediate (GUARDIAN) | Recovery / clear |
 | --- | --- | --- |
 | Global controller pause | `pause` | Timelocked `AdminOperation::Unpause` |
-| Per-spoke-asset `paused` / `frozen` | `set_spoke_asset_flags` (**ratchet**: may only tighten; clearing reverts `SpokeAssetFlagRelaxation`) | Timelocked `AdminOperation::EditAssetInSpoke` with the desired flags |
+| Per-spoke-asset `paused` / `frozen` / `no_seize` | `set_spoke_asset_flags` (**ratchet**: may only tighten; clearing reverts `SpokeAssetFlagRelaxation`) | Timelocked `AdminOperation::RelaxSpokeAssetFlags` bound to the listing's flags epoch |
 
-`EditAssetInSpoke` rewrites the full listing (risk params, caps, **and** halt
-flags). Clearing flags there is intentional and delayed — not a bypass of the
-immediate-path ratchet. Always pass the intended `paused`/`frozen` on every
-edit so a risk-param change does not accidentally re-open a halted listing.
+`EditAssetInSpoke` rewrites the full listing (risk params, caps, and halt
+flags), but its flags may only keep or tighten the stored ones: a clearing edit
+reverts `SpokeAssetFlagRelaxation`. `RelaxSpokeAssetFlags` carries the
+`expected_epoch` read from `get_spoke_asset_flags_epoch`; every flag write
+advances that epoch, so a relaxation proposed before a later guardian action
+reverts `SpokeFlagsEpochMismatch`.
 
 ## Entrypoints
 
