@@ -259,21 +259,66 @@ fn relax_proposed_before_a_later_guardian_freeze_reverts_at_execution() {
 }
 
 #[test]
-fn relax_with_a_stale_epoch_is_rejected_at_proposal() {
+fn relax_with_an_epoch_other_than_the_live_one_is_rejected_at_proposal() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
     let key = hub_asset(t.resolve_asset("USDC"));
     let gov = governance_interface::GovernanceClient::new(&t.env, &t.governance);
-    let epoch = t
+    let guardian = grant_guardian(&t);
+    let stale = t
         .ctrl_client()
         .get_spoke_asset_flags_epoch(&HARNESS_SPOKE, &key);
 
+    gov.set_spoke_asset_flags(&guardian, &HARNESS_SPOKE, &key, &true, &false, &false);
+    let live = t
+        .ctrl_client()
+        .get_spoke_asset_flags_epoch(&HARNESS_SPOKE, &key);
+    assert_eq!(live, stale + 1);
+
+    for (expected_epoch, salt_byte) in [(stale, 4), (live + 1, 5)] {
+        assert_contract_error(
+            flatten(gov.try_propose(
+                &t.admin(),
+                &AdminOperation::RelaxSpokeAssetFlags(clear_all(&key, expected_epoch)),
+                &salt(&t.env, salt_byte),
+            )),
+            errors::SPOKE_FLAGS_EPOCH_MISMATCH,
+        );
+    }
+}
+
+#[test]
+fn guardian_reasserting_the_same_flags_cancels_a_pending_relax() {
+    let mut t = LendingTest::new().with_market(usdc_preset()).build();
+    let key = hub_asset(t.resolve_asset("USDC"));
+    let gov = governance_interface::GovernanceClient::new(&t.env, &t.governance);
+    let guardian = grant_guardian(&t);
+
+    gov.set_spoke_asset_flags(&guardian, &HARNESS_SPOKE, &key, &true, &false, &false);
+    let args = clear_all(
+        &key,
+        t.ctrl_client()
+            .get_spoke_asset_flags_epoch(&HARNESS_SPOKE, &key),
+    );
+    let id = gov.propose(
+        &t.admin(),
+        &AdminOperation::RelaxSpokeAssetFlags(args.clone()),
+        &salt(&t.env, 6),
+    );
+
+    gov.set_spoke_asset_flags(&guardian, &HARNESS_SPOKE, &key, &true, &false, &false);
+
+    let delay = gov.get_min_delay();
+    t.env.ledger().with_mut(|l| l.sequence_number += delay);
+    assert_eq!(gov.get_operation_state(&id), OperationState::Ready);
     assert_contract_error(
-        flatten(gov.try_propose(
-            &t.admin(),
-            &AdminOperation::RelaxSpokeAssetFlags(clear_all(&key, epoch + 1)),
-            &salt(&t.env, 4),
-        )),
+        execute_relax_as_stranger(&t, &args, 6),
         errors::SPOKE_FLAGS_EPOCH_MISMATCH,
+    );
+
+    assert!(t.ctrl_client().get_spoke_asset(&HARNESS_SPOKE, &key).paused);
+    assert_contract_error(
+        t.try_supply(ALICE, "USDC", 10.0),
+        errors::SPOKE_ASSET_PAUSED,
     );
 }
 

@@ -193,8 +193,43 @@ fn relax_spoke_asset_flags_resolves_to_controller_with_standard_delay() {
 }
 
 #[test]
+fn relax_spoke_asset_flags_keeps_each_flag_in_its_argument_position() {
+    let env = Env::default();
+    let (gov_id, _controller_id) = gov_with_controller(&env);
+
+    for (paused, frozen, no_seize) in [
+        (true, false, false),
+        (false, true, false),
+        (false, false, true),
+    ] {
+        let args = RelaxSpokeAssetFlagsArgs {
+            paused,
+            frozen,
+            no_seize,
+            ..relax_args(&env, 0)
+        };
+        let op = AdminOperation::RelaxSpokeAssetFlags(args.clone());
+
+        let resolved = env.as_contract(&gov_id, || resolve_op(&env, &op));
+
+        assert_eq!(
+            resolved.args,
+            vec![
+                &env,
+                args.spoke_id.into_val(&env),
+                args.hub_asset.into_val(&env),
+                args.expected_epoch.into_val(&env),
+                paused.into_val(&env),
+                frozen.into_val(&env),
+                no_seize.into_val(&env),
+            ]
+        );
+    }
+}
+
+#[test]
 #[should_panic(expected = "Error(Contract, #319)")]
-fn relax_spoke_asset_flags_rejects_a_stale_epoch_at_proposal() {
+fn relax_spoke_asset_flags_rejects_a_future_epoch_at_proposal() {
     let env = Env::default();
     let (gov_id, _controller_id) = gov_with_controller(&env);
     let op = AdminOperation::RelaxSpokeAssetFlags(relax_args(&env, 1));

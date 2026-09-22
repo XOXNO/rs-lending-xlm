@@ -412,3 +412,76 @@ fn relisting_never_reuses_a_flags_epoch() {
         assert_eq!(epoch(&env, &asset), 3);
     });
 }
+
+#[test]
+#[should_panic(expected = "Error(Contract, #317)")]
+fn edit_cannot_clear_paused_while_raising_frozen() {
+    let env = Env::default();
+    let contract = env.register(Controller, (Address::generate(&env),));
+    let asset = Address::generate(&env);
+
+    env.as_contract(&contract, || {
+        seed_spoke_and_pool(&env, 1);
+        seed_listing(&env, 1, &asset, true, false, false);
+        edit_asset_in_spoke(&env, &listing_args(1, &asset, false, true, false));
+    });
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #319)")]
+fn relax_with_a_future_epoch_reverts() {
+    let env = Env::default();
+    let contract = env.register(Controller, (Address::generate(&env),));
+    let asset = Address::generate(&env);
+
+    env.as_contract(&contract, || {
+        seed_listing(&env, 1, &asset, false, false, false);
+        set_spoke_asset_flags(&env, 1, hub(&asset), false, true, false);
+        let live = epoch(&env, &asset);
+        relax_spoke_asset_flags(&env, 1, hub(&asset), live + 1, false, false, false);
+    });
+}
+
+#[test]
+fn edit_tightening_any_single_flag_advances_the_epoch() {
+    for (paused, frozen, no_seize) in [
+        (true, false, false),
+        (false, true, false),
+        (false, false, true),
+    ] {
+        let env = Env::default();
+        let contract = env.register(Controller, (Address::generate(&env),));
+        let asset = Address::generate(&env);
+
+        env.as_contract(&contract, || {
+            seed_spoke_and_pool(&env, 1);
+            seed_listing(&env, 1, &asset, false, false, false);
+
+            edit_asset_in_spoke(&env, &listing_args(1, &asset, paused, frozen, no_seize));
+
+            let cfg = storage::get_spoke_asset(&env, 1, &hub(&asset)).unwrap();
+            assert_eq!(
+                (cfg.paused, cfg.frozen, cfg.no_seize),
+                (paused, frozen, no_seize)
+            );
+            assert_eq!(epoch(&env, &asset), 1);
+        });
+    }
+}
+
+#[test]
+fn relax_can_raise_one_flag_while_clearing_another() {
+    let env = Env::default();
+    let contract = env.register(Controller, (Address::generate(&env),));
+    let asset = Address::generate(&env);
+
+    env.as_contract(&contract, || {
+        seed_listing(&env, 1, &asset, true, false, false);
+
+        relax_spoke_asset_flags(&env, 1, hub(&asset), 0, false, true, false);
+
+        let cfg = storage::get_spoke_asset(&env, 1, &hub(&asset)).unwrap();
+        assert_eq!((cfg.paused, cfg.frozen, cfg.no_seize), (false, true, false));
+        assert_eq!(epoch(&env, &asset), 1);
+    });
+}
