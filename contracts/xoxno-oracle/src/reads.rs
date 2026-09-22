@@ -12,8 +12,8 @@ use soroban_sdk::{contractimpl, Env, String, Symbol, Vec};
 use crate::aggregation::MAX_HISTORY_LEN;
 use crate::storage::{
     load_aggregate, load_all_assets, load_all_feeds, load_feed_id, load_history,
-    load_max_relative_skew, load_max_stale_seconds, load_max_submission_age, load_resolution,
-    renew_history,
+    load_max_cluster_spread_bps, load_max_relative_skew, load_max_stale_seconds,
+    load_max_submission_age, load_resolution, renew_history,
 };
 use crate::{Error, XoxnoOracle, XoxnoOracleArgs, XoxnoOracleClient};
 
@@ -91,6 +91,12 @@ impl XoxnoOracle {
     /// between clustered submissions.
     pub fn max_relative_skew_seconds(env: Env) -> u64 {
         load_max_relative_skew(&env)
+    }
+
+    /// Returns the configured maximum price spread, in basis points, of a
+    /// cluster smaller than `2 * (signers - threshold) + 1` entries.
+    pub fn max_cluster_spread_bps(env: Env) -> u32 {
+        load_max_cluster_spread_bps(&env)
     }
 }
 

@@ -1,7 +1,8 @@
 //! Owner-only administrative entry points for the oracle contract: signer
-//! and threshold management, staleness and skew bound configuration, feed
-//! registration and asset mapping, and price resolution.
+//! and threshold management, staleness, skew, and spread bound configuration,
+//! feed registration and asset mapping, and price resolution.
 
+use common::constants::BPS;
 use common::oracle::providers::reflector::ReflectorAsset;
 
 use soroban_sdk::{contractimpl, Address, Env, String, Vec};
@@ -16,8 +17,9 @@ use crate::storage::{
     ensure_known_feed, feed_index_contains, has_feed_mapping, load_feed_id, load_feed_owner,
     load_max_stale_seconds, load_max_submission_age, load_signer_feeds, load_signers,
     load_threshold, map_feed, remove_feed_mapping, remove_submission, require_known_feed,
-    store_max_relative_skew, store_max_stale_seconds, store_max_submission_age, store_resolution,
-    store_signers, store_threshold, MIN_SUBMISSION_AGE_SECONDS,
+    store_max_cluster_spread_bps, store_max_relative_skew, store_max_stale_seconds,
+    store_max_submission_age, store_resolution, store_signers, store_threshold,
+    MIN_SUBMISSION_AGE_SECONDS,
 };
 use crate::{Error, XoxnoOracle, XoxnoOracleArgs, XoxnoOracleClient};
 
@@ -129,6 +131,23 @@ impl XoxnoOracle {
             return Err(Error::InvalidRelativeSkew);
         }
         store_max_relative_skew(&env, seconds);
+
+        Ok(())
+    }
+
+    /// Sets the maximum price spread, in basis points, of a cluster smaller
+    /// than `2 * (signers - threshold) + 1` entries: such a cluster is a
+    /// quorum miss unless `highest * BPS <= lowest * (BPS + bps)`. Fails with
+    /// `InvalidClusterSpread` if `bps` is zero or above `BPS`. Does not
+    /// re-derive existing aggregates: call `recompute_feeds` afterwards to
+    /// apply the new bound to feeds that already hold one.
+    #[only_owner]
+    pub fn set_max_cluster_spread_bps(env: Env, bps: u32) -> Result<(), Error> {
+        renew_instance(&env);
+        if bps == 0 || i128::from(bps) > BPS {
+            return Err(Error::InvalidClusterSpread);
+        }
+        store_max_cluster_spread_bps(&env, bps);
 
         Ok(())
     }

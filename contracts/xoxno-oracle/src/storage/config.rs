@@ -6,8 +6,8 @@
 use soroban_sdk::{Address, Env, Vec};
 
 use crate::storage::{
-    DataKey, DEFAULT_MAX_RELATIVE_SKEW_SECONDS, DEFAULT_MAX_STALE_SECONDS,
-    DEFAULT_MAX_SUBMISSION_AGE_SECONDS,
+    DataKey, DEFAULT_MAX_CLUSTER_SPREAD_BPS, DEFAULT_MAX_RELATIVE_SKEW_SECONDS,
+    DEFAULT_MAX_STALE_SECONDS, DEFAULT_MAX_SUBMISSION_AGE_SECONDS,
 };
 
 /// Loads the configured signer addresses. Returns an empty vector if none are set.
@@ -54,6 +54,14 @@ pub(crate) fn store_max_relative_skew(env: &Env, seconds: u64) {
         .set(&DataKey::MaxRelativeSkewSeconds, &seconds);
 }
 
+/// Overwrites the maximum price spread, in basis points, of a cluster smaller
+/// than `2 * (signers - threshold) + 1` entries.
+pub(crate) fn store_max_cluster_spread_bps(env: &Env, bps: u32) {
+    env.storage()
+        .instance()
+        .set(&DataKey::MaxClusterSpreadBps, &bps);
+}
+
 /// Overwrites the configured price resolution.
 pub(crate) fn store_resolution(env: &Env, resolution: u32) {
     env.storage()
@@ -97,6 +105,16 @@ pub(crate) fn load_max_relative_skew(env: &Env) -> u64 {
         .get(&DataKey::MaxRelativeSkewSeconds)
         .unwrap_or(DEFAULT_MAX_RELATIVE_SKEW_SECONDS);
     configured.min(load_max_submission_age(env))
+}
+
+/// Loads the maximum price spread, in basis points, of a cluster smaller than
+/// `2 * (signers - threshold) + 1` entries. Falls back to
+/// `DEFAULT_MAX_CLUSTER_SPREAD_BPS` if unset.
+pub(crate) fn load_max_cluster_spread_bps(env: &Env) -> u32 {
+    env.storage()
+        .instance()
+        .get(&DataKey::MaxClusterSpreadBps)
+        .unwrap_or(DEFAULT_MAX_CLUSTER_SPREAD_BPS)
 }
 
 /// Loads the configured price resolution. Returns 0 if unset.
