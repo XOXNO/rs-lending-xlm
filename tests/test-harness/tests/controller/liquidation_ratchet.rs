@@ -1,4 +1,5 @@
 use common::types::SeizeMode;
+use soroban_sdk::vec;
 use test_harness::{
     eth_preset, hub_asset, usd_cents, usdt_stable_preset, LendingTest, ALICE, LIQUIDATOR,
 };
@@ -186,6 +187,15 @@ fn test_solvent_toxic_partial_pays_the_cap_and_keeps_coverage() {
     let coverage =
         |t: &LendingTest| t.total_collateral_raw(ALICE) as f64 / t.total_debt_raw(ALICE) as f64;
     let coverage_before = coverage(&t);
+    let account_id = t.resolve_account_id(ALICE);
+    let slice = vec![&t.env, (hub_asset(t.resolve_asset("ETH")), 5_000_000i128)];
+    let quote = t
+        .ctrl_client()
+        .get_liquidation_estimate(&account_id, &slice, &SeizeMode::Transfer);
+    assert_eq!(
+        quote.bonus_rate_bps, 125,
+        "C/D = 8 100 / 8 000 caps the bonus at 125 bps"
+    );
 
     let (coll_usd, debt_usd) = liquidate_once(&mut t, "ETH", 0.5, "USDT", 0.81);
     assert!(

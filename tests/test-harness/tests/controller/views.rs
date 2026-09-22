@@ -1,6 +1,8 @@
 use common::types::SeizeMode;
 use controller::constants::{RAY, WAD};
-use test_harness::{hub_asset, usd_cents, usdc_preset, LendingTest, ALICE, LIQUIDATOR};
+use test_harness::{
+    hub_asset, liquidatable_usdc_eth, usd_cents, usdc_preset, LendingTest, ALICE, LIQUIDATOR,
+};
 #[test]
 fn test_total_collateral_usd_multi_asset() {
     let mut t = LendingTest::new().standard_two_asset().build();
@@ -220,14 +222,9 @@ fn test_get_position_limits_custom() {
     );
 }
 #[test]
-fn test_liquidation_estimations_basic() {
-    let mut t = LendingTest::new().standard_two_asset().build();
-
-    t.supply(ALICE, "USDC", 10_000.0);
-    t.borrow(ALICE, "ETH", 3.0);
-
-    t.set_price("USDC", usd_cents(50));
-    assert!(t.can_be_liquidated(ALICE));
+fn test_liquidation_estimate_matches_execution_on_an_insolvent_over_offer() {
+    const KEPT_ETH_UNITS: i128 = 23_809_523;
+    let mut t = liquidatable_usdc_eth();
 
     let account_id = t.resolve_account_id(ALICE);
     let payments =
@@ -240,24 +237,24 @@ fn test_liquidation_estimations_basic() {
         )
     };
 
-    let wad = WAD;
-    assert!(hf < wad, "HF should be < 1.0 WAD, got {}", hf);
+    assert!(hf < WAD, "HF should be < 1.0 WAD, got {}", hf);
     assert!(hf > 0, "HF should be positive, got {}", hf);
 
-    assert!(
-        estimate.bonus_rate_bps > 0,
-        "bonus should be positive, got {}",
-        estimate.bonus_rate_bps
+    assert_eq!(
+        estimate.bonus_rate_bps, 500,
+        "an insolvent account pays the base bonus"
     );
-
-    assert!(
-        estimate.max_payment_wad > 0,
-        "ideal repayment should be positive, got {}",
-        estimate.max_payment_wad
+    assert_eq!(
+        estimate.max_payment_wad,
+        KEPT_ETH_UNITS * 2_000 * 100_000_000_000,
+        "floor($5 000 / 1.05) kept in whole ETH units"
     );
+    let refund = estimate
+        .refunds
+        .get(0)
+        .expect("the trimmed ETH is refunded");
+    assert_eq!(refund.amount, 3_0000000 - KEPT_ETH_UNITS);
 
-    // The estimate is what liquidator bots size trades from, so it must equal what
-    // execution actually moves - not merely be non-empty.
     let usdc = t.resolve_asset("USDC");
     let seized = estimate
         .seized_collaterals
@@ -271,33 +268,48 @@ fn test_liquidation_estimations_basic() {
         .find(|p| p.asset == usdc)
         .expect("the fee leg must name the same asset")
         .amount;
-    // Insolvent: the offer is cut to what the collateral backs, so the bonus is realised.
-    assert!(
-        estimate.max_payment_wad < t.total_debt_raw(ALICE),
-        "an insolvent account is not quoted its full debt"
+    assert_eq!(
+        seized,
+        95_238_092_000 + 4_761_904_600,
+        "$4 761.9046 of USDC at $0.50 plus the 5% bonus"
     );
-    assert!(fee > 0, "the realised bonus carries the protocol fee");
+    assert_eq!(
+        fee,
+        4_761_904_600 * 1_200 / 10_000,
+        "the fee is the 12% protocol cut of the bonus"
+    );
 
-    t.get_or_create_user(LIQUIDATOR);
-    let liquidator_before = t.token_balance_raw(LIQUIDATOR, "USDC");
     let collateral_before = t.supply_balance_raw(ALICE, "USDC");
+    let revenue_before = t.snapshot_revenue("USDC");
+    t.get_or_create_user(LIQUIDATOR);
+    let usdc_before = t.token_balance_raw(LIQUIDATOR, "USDC");
+    let eth_before = t.token_balance_raw(LIQUIDATOR, "ETH");
 
     t.liquidate(LIQUIDATOR, ALICE, "ETH", 3.0);
 
     assert_eq!(
-        t.token_balance_raw(LIQUIDATOR, "USDC") - liquidator_before,
+        eth_before + 3_0000000 - t.token_balance_raw(LIQUIDATOR, "ETH"),
+        KEPT_ETH_UNITS,
+        "only the backed ETH is pulled"
+    );
+    assert_eq!(
+        t.token_balance_raw(LIQUIDATOR, "USDC") - usdc_before,
         seized - fee,
         "the liquidator must receive exactly the estimated seizure net of the fee"
     );
     let residue = collateral_before - seized;
-    assert!(
-        residue > 0 && residue <= 4_200,
-        "the repayment rounds down by under one ETH unit, so under one unit of \
-         seizure stays with the account: {residue}"
+    assert_eq!(
+        residue, 3_400,
+        "the floored ETH repayment leaves 3 400 USDC units unseized"
+    );
+    assert_eq!(
+        t.snapshot_revenue("USDC") - revenue_before,
+        fee + residue,
+        "the fee and the cleaned-up residue both reach revenue"
     );
     assert!(
         t.find_account_id(ALICE).is_none(),
-        "bad-debt cleanup takes the sub-$5 residue and removes the account"
+        "bad-debt cleanup takes the residue and removes the account"
     );
 }
 #[test]

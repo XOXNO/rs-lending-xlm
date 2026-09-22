@@ -57,6 +57,14 @@ pub fn seed_liquidatable_usdc_eth(t: &mut LendingTest) {
     t.assert_liquidatable(ALICE);
 }
 
+pub fn seed_band_usdc_eth(t: &mut LendingTest) {
+    t.supply(ALICE, "USDC", 10_000.0);
+    t.borrow(ALICE, "ETH", 3.0);
+    t.assert_healthy(ALICE);
+    t.set_price("USDC", usd_cents(62));
+    t.assert_liquidatable(ALICE);
+}
+
 pub fn seed_fuzz_conservation_book(t: &mut LendingTest) {
     t.supply(ALICE, "USDC", 50_000.0);
     t.supply(BOB, "USDC", 50_000.0);

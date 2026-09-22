@@ -1,6 +1,6 @@
 use crate::config::config;
 use common::types::SeizeMode;
-use controller::constants::{BPS, WAD};
+use controller::constants::WAD;
 use num_bigint::BigInt;
 use num_rational::BigRational;
 use proptest::prelude::*;
@@ -220,9 +220,8 @@ fn usd_wad(raw: i128, price_wad: i128, decimals: u32) -> i128 {
     raw * price_wad / 10i128.pow(decimals)
 }
 
-fn within(prod: i128, reference: i128) -> bool {
-    (prod - reference).abs() <= ULP_BOUND_USD_WAD
-        || (prod - reference).abs() * 1_000 <= reference.abs()
+fn within_one_unit(prod: i128, reference: i128, unit_usd: i128) -> bool {
+    (prod - reference).abs() <= unit_usd + ULP_BOUND_USD_WAD
 }
 
 /// Accounts whose HF-preserving cap is below the base bonus: the band
@@ -254,6 +253,7 @@ fn run_below_base_differential(
         eth_decimals,
         debt_ratio_bps as i128,
     );
+    let eth_unit_usd = usd_wad(1, eth_price, eth_decimals);
     t.set_price("ETH", eth_price);
     prop_assert!(
         t.health_factor_raw(ALICE) < WAD,
@@ -288,7 +288,7 @@ fn run_below_base_differential(
         ref_bonus
     );
     prop_assert!(
-        within(estimate.max_payment_wad, ref_repaid_usd),
+        within_one_unit(estimate.max_payment_wad, ref_repaid_usd, eth_unit_usd),
         "repayment: production {} reference {}",
         estimate.max_payment_wad,
         ref_repaid_usd
@@ -312,11 +312,26 @@ fn run_below_base_differential(
 
     let spent = eth_before + offer - t.token_balance_raw(LIQUIDATOR, "ETH");
     let spent_usd = usd_wad(spent, eth_price, eth_decimals);
+    if coll_before < debt_before {
+        let base_bonus_bps = i128::from(t.get_asset_config("USDC").liquidation_bonus);
+        let backed = coll_before * 10_000 / (10_000 + base_bonus_bps);
+        prop_assert!(
+            spent_usd <= backed,
+            "insolvent pull {} above the backed quote {}",
+            spent_usd,
+            backed
+        );
+    }
     prop_assert!(
-        within(spent_usd, ref_repaid_usd),
+        within_one_unit(spent_usd, ref_repaid_usd, eth_unit_usd),
         "pulled and refunded: net spend {} USD vs reference {}",
         spent_usd,
         ref_repaid_usd
+    );
+    let usdc_unit_usd = usd_wad(
+        1,
+        t.resolve_market("USDC").price_wad,
+        t.resolve_market("USDC").decimals,
     );
     let received_usd = usd_wad(
         t.token_balance_raw(LIQUIDATOR, "USDC") - usdc_before,
@@ -324,7 +339,7 @@ fn run_below_base_differential(
         t.resolve_market("USDC").decimals,
     );
     prop_assert!(
-        received_usd + ULP_BOUND_USD_WAD >= spent_usd,
+        received_usd + 2 * usdc_unit_usd + ULP_BOUND_USD_WAD >= spent_usd,
         "liquidator lost money: received {} for {}",
         received_usd,
         spent_usd
@@ -333,10 +348,12 @@ fn run_below_base_differential(
     if coll_before >= debt_before && t.find_account_id(ALICE).is_some() {
         let (coll_after, debt_after) = (t.total_collateral_raw(ALICE), t.total_debt_raw(ALICE));
         if debt_after > 0 {
-            let before = coll_before as f64 / debt_before as f64;
-            let after = coll_after as f64 / debt_after as f64;
+            let (before, after) = (
+                BigInt::from(coll_before) * debt_after,
+                BigInt::from(coll_after) * debt_before,
+            );
             prop_assert!(
-                after >= before * (1.0 - 1.0 / BPS as f64),
+                after >= before,
                 "band partial lowered coverage: {} -> {}",
                 before,
                 after
@@ -357,5 +374,14 @@ proptest! {
     ) {
         let t = LendingTest::new().standard_two_asset().build();
         run_below_base_differential(t, supply_usdc, debt_ratio_bps, offer_frac_bps)?;
+    }
+}
+
+#[test]
+fn below_base_differential_holds_at_exact_cover() {
+    for offer_frac_bps in [500u16, 10_000, 15_000] {
+        let t = LendingTest::new().standard_two_asset().build();
+        run_below_base_differential(t, 1_000, 10_000, offer_frac_bps)
+            .unwrap_or_else(|e| panic!("C == D, offer {offer_frac_bps} bps: {e}"));
     }
 }

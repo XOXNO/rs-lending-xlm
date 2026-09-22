@@ -1,6 +1,6 @@
 use test_harness::{
-    assert_contract_error, errors, liquidatable_usdc_eth, usd_cents, LendingTest, ALICE, BOB,
-    LIQUIDATOR,
+    assert_contract_error, errors, liquidatable_usdc_eth, seed_band_usdc_eth, usd_cents,
+    LendingTest, ALICE, BOB, LIQUIDATOR,
 };
 #[test]
 fn test_liquidation_basic_proportional() {
@@ -226,10 +226,7 @@ fn test_liquidation_sequential_partial_liquidations() {
 #[test]
 fn test_liquidation_caps_at_actual_debt() {
     let mut t = LendingTest::new().standard_two_asset().build();
-    t.supply(ALICE, "USDC", 10_000.0);
-    t.borrow(ALICE, "ETH", 3.0);
-    t.set_price("USDC", usd_cents(62));
-    t.assert_liquidatable(ALICE);
+    seed_band_usdc_eth(&mut t);
 
     let debt_before = t.borrow_balance(ALICE, "ETH");
     t.get_or_create_user(LIQUIDATOR);
@@ -282,13 +279,13 @@ fn test_insolvent_over_offer_repays_only_what_the_collateral_backs() {
 
     t.liquidate(LIQUIDATOR, ALICE, "ETH", 3.0);
 
-    let spent_usd =
-        (eth_before + 3_0000000 - t.token_balance_raw(LIQUIDATOR, "ETH")) as f64 * 2_000.0 / 1e7;
-    let received_usd = (t.token_balance_raw(LIQUIDATOR, "USDC") - usdc_before) as f64 * 0.50 / 1e7;
-    assert!(
-        (spent_usd - 5_000.0 / 1.05).abs() < 0.001,
-        "the repayment is capped at the collateral backing, got ${spent_usd}"
+    let spent_raw = eth_before + 3_0000000 - t.token_balance_raw(LIQUIDATOR, "ETH");
+    assert_eq!(
+        spent_raw, 23_809_523,
+        "the repayment is capped at floor($5 000 / 1.05) in whole ETH units"
     );
+    let spent_usd = spent_raw as f64 * 2_000.0 / 1e7;
+    let received_usd = (t.token_balance_raw(LIQUIDATOR, "USDC") - usdc_before) as f64 * 0.50 / 1e7;
     assert!(
         received_usd > spent_usd,
         "the liquidator must not lose money: paid ${spent_usd}, received ${received_usd}"

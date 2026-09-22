@@ -2,7 +2,8 @@ pub use crate::assert::assert_contract_error;
 pub use crate::core::{AccountEntry, LendingTest, MarketState, UserState};
 
 pub use crate::fixtures::{
-    liquidatable_usdc_eth, seed_fuzz_conservation_book, seed_liquidatable_usdc_eth,
+    liquidatable_usdc_eth, seed_band_usdc_eth, seed_fuzz_conservation_book,
+    seed_liquidatable_usdc_eth,
 };
 pub use crate::helpers::{hub_asset, units::*, HARNESS_HUB, HARNESS_SPOKE};
 pub use crate::ops::internal::{amount_raw, asset_payment_vec, map_try_ok_unit, map_try_ok_value};

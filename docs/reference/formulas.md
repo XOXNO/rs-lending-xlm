@@ -257,8 +257,11 @@ with `InvalidPayments` (16) and the estimate shows a zero payment. The quote is
 not promoted to full debt; bad-debt cleanup takes the unbacked residue. `HF / p`
 approximates `C / D`, but `HF` floors and `p` rounds half-up, so an account at
 `C == D`, or a few raw WAD units above it, can compute a cap of `-1`. Such a
-covered account takes the band quote with the cap clamped to zero: a full close
-seizes exactly `C` for `D` and leaves nothing to socialize.
+covered account takes the band quote with the cap clamped to zero. A full close
+repays all of `D`, so no debt is left to socialize. Seizure floors to whole
+token units, so it takes `C` less at most one token unit per collateral leg.
+That unit stays with the account as collateral. Bad-debt cleanup does not
+sweep it, because the account has no debt.
 
 An ideal residual debt strictly between zero and $5 also promotes the quote to
 full debt, without requiring full funding. Each input is capped at its leg's

@@ -511,6 +511,7 @@ jobs:
         test:
           - prop_accounting_conservation
           - prop_liquidation_matches_bigrational_reference
+          - prop_below_base_liquidation_matches_reference
           - prop_valid_multiply_fits_default_budget
           - prop_multiply_succeeds_with_safe_hf_and_clean_router
           - prop_swap_collateral_conserves_position_delta

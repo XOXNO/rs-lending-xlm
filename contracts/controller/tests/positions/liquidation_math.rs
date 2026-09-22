@@ -636,11 +636,12 @@ fn racing_insolvent_liquidations_never_repay_more_than_the_collateral_backs() {
         if step < 2 {
             assert_eq!(out.repaid, offer, "step {step} is fully backed");
         } else {
-            assert!(out.repaid < offer, "the last offer is capped");
-            assert!(
-                coll <= 1,
-                "the last step takes all but one unit of the collateral, left {coll}"
+            assert_eq!(backed, 152_380_952_380, "floor(16 000 / 1.05) in stroops");
+            assert_eq!(
+                out.repaid, backed,
+                "the last offer is cut to the backed quote"
             );
+            assert_eq!(coll, 1, "the floored repayment leaves one collateral unit");
         }
     }
     assert!(
@@ -786,6 +787,41 @@ fn plan_on_insolvent_book(
         normalize_repayment_plan(env, &account, &payments, &s, bounds, &curve, &mut cache)
     });
     (keys, plan)
+}
+
+#[test]
+fn an_insolvent_trim_drops_the_last_leg_whole_and_floors_the_one_before() {
+    let env = Env::default();
+    let (keys, plan) = plan_on_insolvent_book(
+        &env,
+        &[
+            (WAD, 7, 100_0000000, 50_0000000),
+            (WAD, 7, 100_0000000, 40_0000000),
+        ],
+        30 * WAD,
+        300 * WAD,
+    );
+
+    assert_eq!(plan.repaid.len(), 1, "the second leg is dropped whole");
+    let kept = plan.repaid.get_unchecked(0);
+    assert_eq!(kept.hub_asset, keys.get_unchecked(0));
+    assert_eq!(kept.amount, 28_5714285, "floor($30 / 1.05) in whole units");
+    assert_eq!(plan.repay_usd.raw(), 28_571_428_500_000_000_000);
+    assert!(
+        plan.repay_usd.raw() <= 28_571_428_571_428_571_428,
+        "the kept value stays within the backed quote"
+    );
+    assert_eq!(plan.refunds.len(), 2);
+    let dropped = plan.refunds.get_unchecked(0);
+    assert_eq!(
+        (dropped.asset, dropped.amount),
+        (keys.get_unchecked(1).asset, 40_0000000)
+    );
+    let trimmed = plan.refunds.get_unchecked(1);
+    assert_eq!(
+        (trimmed.asset, trimmed.amount),
+        (keys.get_unchecked(0).asset, 50_0000000 - 28_5714285)
+    );
 }
 
 /// $100 of collateral backs `floor(100 / 1.05)` = $95.238 at the base bonus.
@@ -1932,15 +1968,6 @@ fn an_exactly_covered_account_quotes_the_full_debt_at_zero_bonus_not_the_insolve
             assert_eq!(plan.bonus.raw(), 0, "the negative cap is clamped to zero");
             assert!(plan.full_close);
             assert_eq!(plan.repay_usd.raw(), collateral, "the full debt is repaid");
-            let seized = plan
-                .repay_usd
-                .mul(&env, Wad::ONE.checked_add(&env, plan.bonus.to_wad(&env)));
-            assert_eq!(seized.raw(), collateral, "the close seizes exactly C");
-            assert_eq!(
-                covered.total_debt.raw() - plan.repay_usd.raw(),
-                0,
-                "no residual debt is left to socialize"
-            );
 
             let (ideal, bonus) =
                 estimate_liquidation_amount(&env, &below_cover, bounds_for(&below_cover), &curve);

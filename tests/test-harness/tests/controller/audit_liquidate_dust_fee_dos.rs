@@ -78,25 +78,26 @@ fn audit_liquidate_contracts_dust_fee_full_close_dos() {
         t.health_factor(ALICE)
     );
 
-    let before = t.borrow_balance(ALICE, "ETH");
+    let before_raw = t.borrow_balance_raw(ALICE, "ETH");
     let partial = t.try_liquidate(LIQUIDATOR, ALICE, "ETH", 0.5);
     assert!(
         partial.is_ok(),
         "a band partial must not trip on the sub-unit leg; got {partial:?}"
     );
-    assert!(
-        t.borrow_balance(ALICE, "ETH") < before,
-        "the partial repays"
+    assert_eq!(
+        before_raw - t.borrow_balance_raw(ALICE, "ETH"),
+        5_000_000,
+        "the band partial is taken whole"
     );
 
-    let before = t.borrow_balance(ALICE, "ETH");
     let full = t.try_liquidate(LIQUIDATOR, ALICE, "ETH", 5.0);
     assert!(
         full.is_ok(),
         "post-fix: sub-unit leg full-close must not brick liquidate; got {full:?}"
     );
-    assert!(
-        t.borrow_balance(ALICE, "ETH") < before,
-        "liquidation must reduce the victim's ETH debt"
+    assert_eq!(
+        t.borrow_balance_raw(ALICE, "ETH"),
+        0,
+        "the band full close retires the whole debt"
     );
 }

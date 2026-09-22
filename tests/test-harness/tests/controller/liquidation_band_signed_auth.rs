@@ -6,7 +6,7 @@ use common::types::{HubAssetKey, SeizeMode};
 use soroban_sdk::testutils::{AuthorizedFunction, MockAuth, MockAuthInvoke};
 use soroban_sdk::xdr::ScErrorType;
 use soroban_sdk::{symbol_short, vec, Address, IntoVal, TryFromVal, Vec};
-use test_harness::{hub_asset, usd_cents, LendingTest, ALICE, LIQUIDATOR};
+use test_harness::{hub_asset, seed_band_usdc_eth, usd_cents, LendingTest, ALICE, LIQUIDATOR};
 
 const DEBT: i128 = 30_000_000;
 const OVER_OFFER: i128 = 40_000_000;
@@ -17,8 +17,7 @@ const PARTIAL: i128 = 10_000_000;
 /// insolvent.
 fn account_at(usdc_cents: i128) -> (LendingTest, u64, Address) {
     let mut t = LendingTest::new().standard_two_asset().build();
-    t.supply(ALICE, "USDC", 10_000.0);
-    t.borrow(ALICE, "ETH", 3.0);
+    seed_band_usdc_eth(&mut t);
     t.set_price("USDC", usd_cents(usdc_cents));
     let liquidator = t.get_or_create_user(LIQUIDATOR);
     t.resolve_market("ETH")
@@ -155,9 +154,14 @@ fn a_signed_exact_debt_offer_in_the_band_repays_all_but_the_accrued_interest() {
         .expect("a partial in the band is accepted");
     assert_eq!(before - t.token_balance_raw(LIQUIDATOR, "ETH"), DEBT);
     assert_eq!(debt - DEBT, 1, "five seconds of interest ceil to one unit");
+    assert_eq!(
+        t.borrow_balance_raw(ALICE, "ETH"),
+        0,
+        "no whole debt unit is left"
+    );
     assert!(
-        t.borrow_balance_raw(ALICE, "ETH") <= 1,
-        "only the accrued interest is left"
+        t.total_debt_raw(ALICE) > 0,
+        "the sub-unit interest is still owed, not forgiven"
     );
 }
 
@@ -169,15 +173,30 @@ fn a_signed_band_partial_pulls_exactly_the_signed_amount_after_interest() {
     let (mut t, account_id, liquidator) = account_at(62);
     t.advance_time(5);
     let coverage = t.total_collateral_raw(ALICE) as f64 / t.total_debt_raw(ALICE) as f64;
+    let estimate = t.ctrl_client().get_liquidation_estimate(
+        &account_id,
+        &payments(&t, PARTIAL),
+        &SeizeMode::Transfer,
+    );
+    let cap = 10_000 * t.total_collateral_raw(ALICE) / t.total_debt_raw(ALICE) - 10_000;
+    assert_eq!(
+        estimate.bonus_rate_bps, cap,
+        "the band pays floor(BPS * C / D) - BPS"
+    );
+    assert_eq!(cap, 333);
+    let seized = estimate.seized_collaterals.get(0).expect("USDC leg").amount;
+    let fee = estimate.protocol_fees.get(0).expect("USDC fee").amount;
+    assert_eq!(seized, 33_332_258_064, "1 ETH * $2 000 * 1.0333 at $0.62");
 
     let before = t.token_balance_raw(LIQUIDATOR, "ETH");
     let usdc_before = t.token_balance_raw(LIQUIDATOR, "USDC");
     liquidate_with_signed_tree(&t, &liquidator, account_id, PARTIAL, signed)
         .expect("a partial in the band is accepted");
     assert_eq!(before - t.token_balance_raw(LIQUIDATOR, "ETH"), PARTIAL);
-    assert!(
-        t.token_balance_raw(LIQUIDATOR, "USDC") > usdc_before,
-        "the partial seizes collateral"
+    assert_eq!(
+        t.token_balance_raw(LIQUIDATOR, "USDC") - usdc_before,
+        seized - fee,
+        "the partial seizes exactly the estimate at the cap"
     );
     let coverage_after = t.total_collateral_raw(ALICE) as f64 / t.total_debt_raw(ALICE) as f64;
     assert!(

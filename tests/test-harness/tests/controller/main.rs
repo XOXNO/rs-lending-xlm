@@ -25,6 +25,7 @@ mod large_positions_and_long_horizons;
 mod liquidation;
 mod liquidation_accrual_timing;
 mod liquidation_and_borrow_exact_boundaries;
+mod liquidation_band_full_close;
 mod liquidation_band_signed_auth;
 mod liquidation_boundary;
 mod liquidation_coverage;
