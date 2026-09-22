@@ -412,13 +412,13 @@ flow_flash_position_matrix() {
         --spoke_id "$PRIMARY_SPOKE_ID" --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$XLM_SAC")" \
         --paused true --frozen false --no_seize false >/dev/null
     fp_run xfail flash_position_collateral_paused 'Error\(Contract, #315\)' || true
-    fp_restore_xlm_listing || return 1
+    clear_listing_flags fp_unpause_xlm "$PRIMARY_HUB_ID" "$XLM_SAC" "$PRIMARY_SPOKE_ID" || return 1
 
     inv fp_pause_usdc_debt "$ADMIN" "$CONTROLLER" -- set_spoke_asset_flags \
         --spoke_id "$PRIMARY_SPOKE_ID" --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")" \
         --paused true --frozen false --no_seize false >/dev/null
     fp_run xfail flash_position_debt_paused 'Error\(Contract, #315\)' || true
-    fp_restore_usdc_listing || return 1
+    clear_listing_flags fp_unpause_usdc_debt "$PRIMARY_HUB_ID" "$USDC_SAC" "$PRIMARY_SPOKE_ID" || return 1
 
     inv fp_xlm_not_collateral "$ADMIN" "$CONTROLLER" -- edit_asset_in_spoke \
         --input "$(spoke_args "$PRIMARY_HUB_ID" "$XLM_SAC" "$PRIMARY_SPOKE_ID" false true 7000 7500 1000)" >/dev/null
@@ -610,19 +610,19 @@ flow_flash_position_gaps() {
         --spoke_id "$PRIMARY_SPOKE_ID" --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$XLM_SAC")" \
         --paused true --frozen false --no_seize false >/dev/null
     fp_xfail_pair flash_position_collateral_paused_gap 'Error\(Contract, #315\)'
-    fp_restore_xlm_listing || return 1
+    clear_listing_flags fp_unpause_xlm_gaps "$PRIMARY_HUB_ID" "$XLM_SAC" "$PRIMARY_SPOKE_ID" || return 1
 
     inv fp_freeze_xlm_gaps "$ADMIN" "$CONTROLLER" -- set_spoke_asset_flags \
         --spoke_id "$PRIMARY_SPOKE_ID" --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$XLM_SAC")" \
         --paused false --frozen true --no_seize false >/dev/null
     fp_xfail_pair flash_position_collateral_frozen_gap 'Error\(Contract, #316\)'
-    fp_restore_xlm_listing || return 1
+    clear_listing_flags fp_unfreeze_xlm_gaps "$PRIMARY_HUB_ID" "$XLM_SAC" "$PRIMARY_SPOKE_ID" || return 1
 
     inv fp_pause_usdc_gaps "$ADMIN" "$CONTROLLER" -- set_spoke_asset_flags \
         --spoke_id "$PRIMARY_SPOKE_ID" --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")" \
         --paused true --frozen false --no_seize false >/dev/null
     fp_xfail_pair flash_position_debt_paused_gap 'Error\(Contract, #315\)'
-    fp_restore_usdc_listing || return 1
+    clear_listing_flags fp_unpause_usdc_gaps "$PRIMARY_HUB_ID" "$USDC_SAC" "$PRIMARY_SPOKE_ID" || return 1
 
     inv fp_xlm_not_coll_gaps "$ADMIN" "$CONTROLLER" -- edit_asset_in_spoke \
         --input "$(spoke_args "$PRIMARY_HUB_ID" "$XLM_SAC" "$PRIMARY_SPOKE_ID" false true 7000 7500 1000)" >/dev/null

@@ -1879,8 +1879,8 @@ resolve_spoke_flag() {
         echo "$live"
         return 0
     fi
-    if [ "$live" = "true" ] && [ "$configured" = "false" ] && [ "${RELAX_SPOKE_FLAGS:-0}" != "1" ]; then
-        die "${asset_name}: config sets ${flag}=false but it is TRUE on chain (emergency flag). Re-run with RELAX_SPOKE_FLAGS=1 to clear it on purpose."
+    if [ "$live" = "true" ] && [ "$configured" = "false" ]; then
+        die "${asset_name}: config sets ${flag}=false but it is TRUE on chain (emergency flag). A listing edit cannot clear a flag: run relaxAssetFlags ${config_category_id} ${asset_name} ${flag}."
     fi
     echo "$configured"
 }
@@ -3288,6 +3288,61 @@ tighten_asset_flags() {
     echo "" >&2
     echo "NEXT: cancel every Waiting/Ready op that edits this listing (cancelOp <op-id>):" >&2
     list_ops
+}
+
+merge_relaxed_flags() {
+    local live_listing=$1 cleared=$2
+    printf '%s' "$live_listing" | jq -ce --arg c "$cleared" '
+        ($c | split(",")) as $c
+        | if ($c | length) == 0 or (($c - ["paused","frozen","no_seize"]) | length) > 0
+          then error("flags must be a comma list of: paused, frozen, no_seize") else . end
+        | if ([.paused, .frozen, .no_seize] | all(type == "boolean")) then . else error("live listing has no boolean flags") end
+        | . as $live
+        | if ($c | all(. as $f | $live[$f])) then . else error("a flag to clear is not set on chain") end
+        | { paused:   (.paused   and ($c | index("paused")   == null)),
+            frozen:   (.frozen   and ($c | index("frozen")   == null)),
+            no_seize: (.no_seize and ($c | index("no_seize") == null)) }'
+}
+
+relax_asset_flags() {
+    local category_id=$1 asset_name=$2 config_category_id=$3 cleared=$4
+    local ctrl asset_address hub_id hub_asset live_listing epoch flags
+    ctrl=$(get_controller)
+    asset_address=$(get_market_value "$asset_name" "asset_address")
+    hub_id=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".hub_id")
+    if [ -z "$hub_id" ] || [ "$hub_id" = "null" ]; then
+        die "spoke asset ${asset_name} (category ${config_category_id}) missing hub_id in ${SPOKES_FILE}"
+    fi
+    hub_asset=$(jq -nc --argjson h "$hub_id" --arg a "$asset_address" '{hub_id:$h, asset:$a}')
+    live_listing=$(stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" --send=no \
+        -- get_spoke_asset --spoke_id "$category_id" --hub_asset "$hub_asset" 2>/dev/null | tail -n1) \
+        || die "cannot read the live listing of ${asset_name} in on-chain spoke ${category_id}"
+    epoch=$(stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" --send=no \
+        -- get_spoke_asset_flags_epoch --spoke_id "$category_id" --hub_asset "$hub_asset" 2>/dev/null | tail -n1) \
+        || die "cannot read the flags epoch of ${asset_name} in on-chain spoke ${category_id}"
+    epoch=$(printf '%s' "$epoch" | tr -d '"[:space:]')
+    case "$epoch" in
+        ''|*[!0-9]*) die "flags epoch of ${asset_name} is not a number: '${epoch}'" ;;
+    esac
+    flags=$(merge_relaxed_flags "$live_listing" "$cleared") \
+        || die "cannot compute flags for ${asset_name}: bad flag list '${cleared}', a flag that is not set, or an unreadable listing"
+
+    local args_json salt admin_op_json op_id
+    args_json=$(jq -nc \
+        --argjson spoke "$category_id" \
+        --argjson hub_asset "$(scval_hub_asset "$asset_address" "$hub_id")" \
+        --arg epoch "$epoch" \
+        --argjson f "$flags" \
+        '[{u32:$spoke}, $hub_asset, {u64:$epoch}, {bool:$f.paused}, {bool:$f.frozen}, {bool:$f.no_seize}]')
+    salt=$(gen_salt "relax_spoke_asset_flags" "$args_json")
+    admin_op_json=$(admin_op RelaxSpokeAssetFlags \
+        "$(jq -nc --argjson spoke "$category_id" --argjson h "$hub_asset" --argjson epoch "$epoch" --argjson f "$flags" \
+            '{spoke_id:$spoke, hub_asset:$h, expected_epoch:$epoch} + $f')")
+
+    echo "Relaxing flags on ${asset_name}, on-chain spoke ${category_id}, flags epoch ${epoch}: ${flags}" >&2
+    op_id=$(schedule_via_proposer \
+        relax_spoke_asset_flags "$admin_op_json" "$args_json" true "$salt")
+    schedule_and_maybe_execute "$op_id"
 }
 
 pause_protocol() {
@@ -4820,6 +4875,15 @@ case "$1" in
         onchain_spoke_id=$(resolve_config_spoke_id "$2") || exit 1
         tighten_asset_flags "$onchain_spoke_id" "$3" "$2" "$4"
         ;;
+    "relaxAssetFlags")
+        if [ -z "$2" ] || [ -z "$3" ] || [ -z "$4" ]; then
+            echo "Usage: $0 relaxAssetFlags <config-spoke-id> <asset> <paused|frozen|no_seize>[,...]" >&2
+            echo "Timelocked. Clears the named flags on one listing, bound to its live flags epoch." >&2
+            exit 1
+        fi
+        onchain_spoke_id=$(resolve_config_spoke_id "$2") || exit 1
+        relax_asset_flags "$onchain_spoke_id" "$3" "$2" "$4"
+        ;;
     "pause")
         pause_protocol
         ;;
@@ -5121,6 +5185,7 @@ case "$1" in
         echo "  executeOp <op-id>               Execute a locally-scheduled, ready op"
         echo "  cancelOp <op-id>                Cancel a pending op (CANCELLER)"
         echo "  tightenAssetFlags <spoke> <asset> <flags>  GUARDIAN immediate: raise paused/frozen/no_seize on one listing"
+        echo "  relaxAssetFlags <spoke> <asset> <flags>    Timelocked: clear paused/frozen/no_seize on one listing"
         echo "  opState <op-id>                 Unset | Waiting | Ready | Done"
         echo "  awaitOp <op-id>                 Poll until the op is Ready"
         echo "  NOTE: oracle ops (configureMarketOracle, configureReferenceOracle, editOracleTolerance) schedule a"

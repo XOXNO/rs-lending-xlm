@@ -1939,7 +1939,7 @@ POSITIONAL_ACCOUNT_MARKET_ACTIONS := getCollateral getBorrow maxWithdraw maxSupp
 POSITIONAL_ACCOUNT_ROLE_ACTIONS := hasRole grantGovRole revokeGovRole
 REFLECTOR_PROBE_ACTIONS := queryReflector queryReflectorPrice queryReflectorTwap queryRedStone
 VARARG_ACTIONS := updateIndexes claimRevenue supply borrow withdraw getLiquidationEstimate \
-	claimAggregatorAdminFees sweepAggregatorBalance tightenAssetFlags
+	claimAggregatorAdminFees sweepAggregatorBalance tightenAssetFlags relaxAssetFlags
 
 
 
@@ -2218,6 +2218,7 @@ help-ops:
 	$(call ROW,make <n> executeReady,execute every Ready op)
 	$(call NOTE,make <n> opState | awaitOp | executeOp | cancelOp <id>)
 	$(call ROW,make <n> tightenAssetFlags ID SYM FLAGS,GUARDIAN immediate: raise paused/frozen/no_seize on one listing; cannot clear)
+	$(call ROW,make <n> relaxAssetFlags ID SYM FLAGS,timelocked: clear paused/frozen/no_seize on one listing; bound to the flags epoch)
 	$(call NOTE,    per-op lifecycle: Unset | Waiting | Ready | Done)
 	$(call ROW,make <n> checkDelay,live timelock delay vs config)
 	$(call BLANK)
