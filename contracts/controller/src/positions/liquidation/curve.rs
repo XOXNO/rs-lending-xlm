@@ -94,10 +94,10 @@ pub(super) fn max_hf_preserving_bonus_bps(snap: &LiquidationSnapshot) -> Option<
 }
 
 /// Estimates WAD USD repayment and BPS bonus toward the target HF.
-/// Caps the curve bonus to preserve HF. A cap in `[0, base)` quotes the full
-/// debt at the cap; a negative cap quotes the collateral-backed repayment
-/// `min(D, floor(C / (1 + base)))` at the base bonus. Otherwise closes fully
-/// when a partial repayment would leave dust debt.
+/// Caps the curve bonus to preserve HF. Collateral below debt quotes the
+/// collateral-backed repayment `min(D, floor(C / (1 + base)))` at the base
+/// bonus; otherwise a cap below base quotes the full debt at the cap, floored
+/// at zero. Otherwise closes fully when a partial repayment would leave dust debt.
 pub(crate) fn estimate_liquidation_amount(
     env: &Env,
     snap: &LiquidationSnapshot,
@@ -115,12 +115,14 @@ pub(crate) fn estimate_liquidation_amount(
 
     let bonus = match max_hf_preserving_bonus_bps(snap) {
         None => scaled_bonus,
-        Some(cap) if cap < 0 => {
+        Some(_) if snap.total_collateral < snap.total_debt => {
             let one_plus_base = Wad::ONE.checked_add(env, bounds.base.to_wad(env));
             let backed = snap.total_collateral.div_floor(env, one_plus_base);
             return (backed.min(snap.total_debt), bounds.base);
         }
-        Some(cap) if cap < bounds.base.raw() => return (snap.total_debt, Bps::from(cap)),
+        Some(cap) if cap < bounds.base.raw() => {
+            return (snap.total_debt, Bps::from(cap.max(0)));
+        }
         Some(cap) => Bps::from(scaled_bonus.raw().min(cap)),
     };
 

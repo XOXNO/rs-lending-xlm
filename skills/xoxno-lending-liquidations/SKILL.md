@@ -92,9 +92,9 @@ cannot safely construct exact per-leg transfer authorizations.
 **Full-close band: partials and signed over-offers both work.** When total
 collateral is at least the debt but below `debt × (1 + base bonus)`, the quote
 is the whole debt at `bonus_rate_bps` = the HF-preserving cap
-(`floor(HF × BPS / p) − BPS`, about `C / D − 1`), and any smaller repayment is
-accepted at that bonus. A partial keeps the account's `C / D` and HF, so large
-accounts can be closed in slices. Whenever the quote is the whole debt, the
+(`floor(HF × BPS / p) − BPS`, about `C / D − 1`, never below zero), and any
+smaller repayment is accepted at that bonus. A partial keeps the account's
+`C / D` and HF, so large accounts can be closed in slices. Whenever the quote is the whole debt, the
 controller pulls each merged offered amount and the pool refunds what exceeds
 the debt at execution, so an over-offer signed at simulation still matches after
 interest accrues. The liquidator must hold the full offered amount.

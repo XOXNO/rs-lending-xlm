@@ -354,7 +354,7 @@ fn estimate_liquidation_amount(
     total_collateral_wad: &BigRational,
 ) -> (BigRational, BigRational) {
     match max_hf_preserving_bonus_bps(hf_wad, proportion_seized) {
-        Some(cap) if cap.is_negative() => {
+        Some(_) if total_collateral_wad < total_debt_wad => {
             let one_plus_base = &wad_scale() + base_bonus_bps * &wad_scale() / bps_scale();
             let backed = (total_collateral_wad * &wad_scale() / &one_plus_base).floor();
             let ideal = if backed < *total_debt_wad {
@@ -364,7 +364,12 @@ fn estimate_liquidation_amount(
             };
             return (ideal, base_bonus_bps.clone());
         }
-        Some(cap) if &cap < base_bonus_bps => return (total_debt_wad.clone(), cap),
+        Some(cap) if &cap < base_bonus_bps => {
+            return (
+                total_debt_wad.clone(),
+                if cap.is_negative() { br_zero() } else { cap },
+            );
+        }
         _ => {}
     }
 

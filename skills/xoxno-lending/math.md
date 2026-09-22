@@ -336,9 +336,9 @@ else:
   scale  = H ≤ hf_for_max_bonus ? WAD : min(WAD, half_up((H − HF) × WAD / (H − hf_for_max_bonus)))
   bonus  = base + half_up(half_up((max − base) × scale / WAD) × factor / BPS)
 cap_bps  = (p > 0 and HF < WAD) ? floor(HF × BPS / p) − BPS : none         // HF-preserving ceiling
-if cap < 0:         quote = (min(D, floor(C × WAD / (WAD + base_wad))), base)  // insolvent: what C backs
-elif cap < base:    quote = (D, cap)                                        // band D ≤ C < D × (1 + base)
-else:               b = min(bonus, cap)
+if cap and C < D:      quote = (min(D, floor(C × WAD / (WAD + base_wad))), base)  // insolvent: what C backs
+elif cap and cap < base: quote = (D, max(cap, 0))                            // band D ≤ C < D × (1 + base)
+else:                  b = cap ? min(bonus, cap) : bonus
 ```
 
 ### Close amount

@@ -584,8 +584,8 @@ fn partial_liquidation_of_insolvent_account_is_permitted() {
 
         let s = insolvent_snap();
         assert!(
-            max_hf_preserving_bonus_bps(&s).is_some_and(|cap| cap < 0),
-            "fixture must be insolvent so the cap is negative"
+            s.total_collateral < s.total_debt,
+            "fixture must be insolvent"
         );
         let bounds = BonusBounds {
             base: Bps::from(500i128),
@@ -1647,8 +1647,8 @@ fn a_zero_hf_preserving_cap_admits_a_partial_at_zero_bonus() {
     });
 }
 
-/// One basis point the other side of the same boundary the account is
-/// insolvent: the base bonus is paid and the quote is the collateral backing.
+/// One basis point below cover the account is insolvent: the base bonus is
+/// paid and the quote is the collateral backing.
 #[test]
 fn a_one_bp_negative_cap_takes_the_insolvent_arm_at_the_base_bonus() {
     let env = Env::default();
@@ -1682,72 +1682,73 @@ fn a_one_bp_negative_cap_takes_the_insolvent_arm_at_the_base_bonus() {
     });
 }
 
-/// At `collateral == debt` the floored health factor sits one WAD unit below the
-/// half-up seizure proportion, so the cap is `-1` and the account takes the
-/// insolvent fallback. That is harmless: one WAD unit further down, on the
-/// documented insolvent side, the plan is identical, so the exactly-covered
-/// account grants nothing the fallback does not already grant. Both share the
-/// collateral, so both cap an over-offer at the same `floor(C / (1 + base))`.
+/// Insolvency is `C < D`. At `C == D` the floored health factor sits one WAD
+/// unit below the half-up seizure proportion, so the cap rounds to `-1`; the
+/// covered account still takes the band quote with the cap clamped to zero, so
+/// a full close seizes exactly the collateral and leaves no debt to socialize.
+/// One raw WAD unit below cover the account takes the insolvent quote.
 ///
 /// See `docs/reference/formulas.md#liquidation-sizing-and-fees`
 #[test]
-fn an_exactly_covered_account_plans_the_same_as_one_a_wad_unit_insolvent() {
+fn an_exactly_covered_account_quotes_the_full_debt_at_zero_bonus_not_the_insolvent_arm() {
     let env = Env::default();
     let (contract, hub_asset, account) = repayment_fixture(&env);
     env.as_contract(&contract, || {
         let mut cache = Context::new_view(&env);
         cache.set_prices(single_price(&env, &hub_asset.asset));
         cache.put_market_index(&hub_asset, &index_raw());
-
-        // Production derives both ratios this way: `hf` floors, the proportion
-        // rounds half-up. Two thirds lands them one unit apart.
-        let collateral = Wad::from(300 * WAD);
-        let weighted = Wad::from(200 * WAD);
-        let snap_at = |env: &Env, debt: Wad| {
-            snap(
-                debt.raw(),
-                collateral.raw(),
-                weighted.raw(),
-                weighted.div(env, collateral).raw(),
-                weighted.div_floor_saturating(env, debt).raw(),
-            )
-        };
-        let covered = snap_at(&env, collateral);
-        let insolvent = snap_at(&env, Wad::from(collateral.raw() + 1));
-        assert_eq!(covered.proportion_seized.raw(), covered.hf.raw() + 1);
-        assert_eq!(max_hf_preserving_bonus_bps(&covered), Some(-1));
-        assert_eq!(max_hf_preserving_bonus_bps(&insolvent), Some(-1));
-
         let curve = LiquidationCurve::from_config(&default_spoke_config());
-        let mut plan_for = |s: &LiquidationSnapshot, offer: i128| {
-            let bounds = BonusBounds {
+
+        for (collateral, weighted) in [(3 * WAD, 2 * WAD), (300 * WAD, 200 * WAD)] {
+            let snap_at = |debt: i128| {
+                snap(
+                    debt,
+                    collateral,
+                    weighted,
+                    Wad::from(weighted).div(&env, Wad::from(collateral)).raw(),
+                    Wad::from(weighted)
+                        .div_floor_saturating(&env, Wad::from(debt))
+                        .raw(),
+                )
+            };
+            let covered = snap_at(collateral);
+            let below_cover = snap_at(collateral + 1);
+            assert_eq!(covered.proportion_seized.raw(), covered.hf.raw() + 1);
+            assert_eq!(max_hf_preserving_bonus_bps(&covered), Some(-1));
+            assert_eq!(max_hf_preserving_bonus_bps(&below_cover), Some(-1));
+            let bounds_for = |s: &LiquidationSnapshot| BonusBounds {
                 base: Bps::from(500i128),
                 max: max_bonus_for_threshold(&env, s.proportion_seized),
             };
-            let payments = vec![&env, (hub_asset.clone(), offer)];
-            normalize_repayment_plan(&env, &account, &payments, s, bounds, &curve, &mut cache)
-        };
 
-        let (at_cover, below_cover) = (
-            plan_for(&covered, 100_0000000),
-            plan_for(&insolvent, 100_0000000),
-        );
-        assert_eq!(at_cover.repay_usd.raw(), 100 * WAD, "partial accepted");
-        assert_eq!(at_cover.repay_usd.raw(), below_cover.repay_usd.raw());
-        assert_eq!(at_cover.bonus.raw(), below_cover.bonus.raw());
+            let payments = vec![&env, (hub_asset.clone(), 500_0000000i128)];
+            let plan = normalize_repayment_plan(
+                &env,
+                &account,
+                &payments,
+                &covered,
+                bounds_for(&covered),
+                &curve,
+                &mut cache,
+            );
+            assert_eq!(plan.bonus.raw(), 0, "the negative cap is clamped to zero");
+            assert!(plan.full_close);
+            assert_eq!(plan.repay_usd.raw(), collateral, "the full debt is repaid");
+            let seized = plan
+                .repay_usd
+                .mul(&env, Wad::ONE.checked_add(&env, plan.bonus.to_wad(&env)));
+            assert_eq!(seized.raw(), collateral, "the close seizes exactly C");
+            assert_eq!(
+                covered.total_debt.raw() - plan.repay_usd.raw(),
+                0,
+                "no residual debt is left to socialize"
+            );
 
-        let (at_cover, below_cover) = (
-            plan_for(&covered, 500_0000000),
-            plan_for(&insolvent, 500_0000000),
-        );
-        let repaid = at_cover.repaid.get_unchecked(0).amount;
-        assert_eq!(
-            repaid, 285_7142858,
-            "floor(300 / 1.05) = 285.714285714..., trimmed up to the next stroop"
-        );
-        assert_eq!(repaid, below_cover.repaid.get_unchecked(0).amount);
-        assert_eq!(at_cover.repay_usd.raw(), below_cover.repay_usd.raw());
-        assert_eq!(at_cover.bonus.raw(), below_cover.bonus.raw());
+            let (ideal, bonus) =
+                estimate_liquidation_amount(&env, &below_cover, bounds_for(&below_cover), &curve);
+            assert_eq!(bonus.raw(), 500, "below cover pays the base bonus");
+            assert_eq!(ideal.raw(), collateral * 20 / 21, "floor(C / 1.05)");
+        }
     });
 }
 

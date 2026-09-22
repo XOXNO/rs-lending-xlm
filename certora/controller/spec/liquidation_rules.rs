@@ -360,10 +360,8 @@ fn estimate_leaves_no_sub_threshold_dust(
         &e, &snap, bounds, &curve,
     );
 
-    // The insolvent arm leaves unbacked debt for bad-debt cleanup, not dust.
-    let insolvent_arm = hf_wad * BPS / proportion_seized_wad < BPS;
     let remaining = total_debt_wad - ideal.raw();
-    cvlr_assert!(remaining == 0 || remaining >= BAD_DEBT_USD_THRESHOLD || insolvent_arm);
+    cvlr_assert!(remaining == 0 || remaining >= BAD_DEBT_USD_THRESHOLD);
 }
 
 #[rule]
@@ -633,8 +631,9 @@ fn split_liq_bonus_gain_across_a_partial_stays_within_the_bps_floor(
 
 /// A partial paid at the HF-preserving cap never lowers the collateral
 /// coverage `C / D` beyond rounding: the collateral left stays within
-/// `repay / 10^10 + 2` raw units of `C0 * D1 / D0`. The cap is the quoted bonus
-/// in the below-base band and wherever the curve out-asks it.
+/// `repay / 10^10 + 2` raw units of `C0 * D1 / D0`. The cap, floored at zero, is
+/// the quoted bonus of a covered book in the below-base band and wherever the
+/// curve out-asks it.
 #[rule]
 fn split_liq_partial_at_the_cap_never_lowers_collateral_coverage(
     e: Env,
@@ -654,7 +653,7 @@ fn split_liq_partial_at_the_cap_never_lowers_collateral_coverage(
     let quote_0 = split_liq_quote(&e, book_0);
     cvlr_assume!(quote_0.proportion_wad >= WAD / BPS);
     let cap_0 = quote_0.hf_wad * BPS / quote_0.proportion_wad - BPS;
-    cvlr_assume!(cap_0 >= 0 && quote_0.bonus_bps == cap_0);
+    cvlr_assume!(book_0.collateral >= book_0.debt && quote_0.bonus_bps == cap_0.max(0));
     cvlr_assume!(repay_1 > 0 && repay_1 <= quote_0.ideal);
 
     let (book_1, _seize_1) = split_liq_apply(&e, book_0, repay_1, quote_0.bonus_bps);
@@ -666,11 +665,10 @@ fn split_liq_partial_at_the_cap_never_lowers_collateral_coverage(
 /// The never-recovering path: the same bound, restricted to chains whose health
 /// factor is strictly worse after the first slice.
 ///
-/// That branch is only reachable where the health-factor-preserving ceiling is
-/// already negative — an insolvent book, where the plan pays the base bonus on
-/// at most `C / (1 + base)`. The base bonus is a constant of the collateral mix,
-/// which pro-rata seizure preserves, so the chain stays exactly additive even
-/// while the health factor erodes.
+/// That branch is only reachable on an insolvent book, `C < D`, where the plan
+/// pays the base bonus on at most `C / (1 + base)`. The base bonus is a
+/// constant of the collateral mix, which pro-rata seizure preserves, so the
+/// chain stays exactly additive even while the health factor erodes.
 #[rule]
 fn split_liq_chain_bound_holds_when_health_never_recovers(
     e: Env,

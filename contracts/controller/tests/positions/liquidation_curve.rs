@@ -396,7 +396,7 @@ fn partial_liquidations_of_a_solvent_account_never_reduce_hf() {
                 p_pct * WAD / 100,
                 hf_pct as i128 * WAD / 100,
             );
-            if max_hf_preserving_bonus_bps(&s).is_some_and(|cap| cap < 0) {
+            if s.total_collateral < s.total_debt {
                 continue;
             }
             let bounds = BonusBounds {
@@ -705,7 +705,7 @@ fn returned_bonus_never_exceeds_the_hf_preserving_cap_on_a_solvent_account() {
             let (ideal, bonus) = estimate_liquidation_amount(&env, &s, bounds, &curve);
             let cap = max_hf_preserving_bonus_bps(&s)
                 .expect("hf < 1 and p > 0 on this grid, so a cap must exist");
-            if cap < 0 {
+            if s.total_collateral < s.total_debt {
                 continue;
             }
             if ideal.raw() < s.total_debt.raw() {
@@ -715,7 +715,7 @@ fn returned_bonus_never_exceeds_the_hf_preserving_cap_on_a_solvent_account() {
                 band += 1;
             }
             assert!(
-                bonus.raw() <= cap,
+                bonus.raw() <= cap.max(0),
                 "bonus {} exceeds cap {cap} at p={p_pct}% hf={hf_pct}%",
                 bonus.raw()
             );
@@ -745,7 +745,7 @@ fn below_base_caps_quote_the_full_debt_when_solvent_and_the_backed_repayment_whe
             let (ideal, bonus) = estimate_liquidation_amount(&env, &s, bounds, &curve);
             let cap = max_hf_preserving_bonus_bps(&s).expect("cap exists on this grid");
 
-            if cap < 0 {
+            if s.total_collateral < s.total_debt {
                 insolvent += 1;
                 let backed = s.total_collateral.raw() * 10_000 / (10_000 + base.raw());
                 assert_eq!(
@@ -761,7 +761,7 @@ fn below_base_caps_quote_the_full_debt_when_solvent_and_the_backed_repayment_whe
                     s.total_debt.raw(),
                     "band quote at p={p_pct}% hf={hf_pct}%"
                 );
-                assert_eq!(bonus.raw(), cap);
+                assert_eq!(bonus.raw(), cap.max(0));
             } else {
                 above += 1;
                 assert!(
@@ -794,7 +794,7 @@ fn no_solvent_liquidation_reduces_health_factor() {
                 max: max_bonus_for_threshold(&env, s.proportion_seized),
             };
             let cap = max_hf_preserving_bonus_bps(&s).expect("cap exists on this grid");
-            if cap < 0 {
+            if s.total_collateral < s.total_debt {
                 continue;
             }
             if cap < bounds.base.raw() {
@@ -893,12 +893,12 @@ fn full_close_escalation_causes() {
             if cap < base.raw() {
                 cap_below_base += 1;
                 assert!(
-                    cap >= 0,
+                    s.total_collateral >= s.total_debt,
                     "an insolvent account quoted the full debt at p={p_pct}% hf={hf_pct}%"
                 );
                 assert_eq!(
                     bonus.raw(),
-                    cap,
+                    cap.max(0),
                     "route 1 must pay the HF-preserving cap at p={p_pct}% hf={hf_pct}%"
                 );
             } else if bonus.raw() == cap {

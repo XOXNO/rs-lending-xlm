@@ -237,8 +237,8 @@ applies its BPS factor. The HF-preserving cap above limits the result. A cap
 below base bypasses the target formula:
 
 ```rust
-let quote = if cap < 0 { (min(D, floor(C * WAD / (WAD + base))), base) } // insolvent
-    else if cap < base { (D, cap) } // band: D <= C < D * (1 + base)
+let quote = if C < D { (min(D, floor(C * WAD / (WAD + base))), base) } // insolvent
+    else if cap < base { (D, max(cap, 0)) } // band: D <= C < D * (1 + base)
     else { /* target formula at min(curve, cap) */ };
 ```
 
@@ -247,14 +247,14 @@ accepted. A partial repayment `x` seizes `x * (1 + cap)`, at most `x * C / D`,
 so `C / D` and the health factor do not fall; the BPS floor of the cap can
 raise them slightly.
 
-A negative cap marks an insolvent account, because `HF / p` reduces to `C / D`.
-The quote is the repayment the collateral backs at the base bonus, floored, so
-an offer above it is trimmed and the liquidator never pays more than it seizes.
-The quote is not promoted to full debt; bad-debt cleanup takes the unbacked
-residue. `HF` floors and `p` rounds half-up, so an account at `C == D`, or a
-few raw WAD units above it, can also compute a cap of `-1` and take the
-insolvent arm. This is deliberate and grants nothing: the plan is the same as
-for an account one raw WAD unit below cover, because both quote from the same `C`.
+Insolvency is the exact unweighted comparison `C < D`. The quote is the
+repayment the collateral backs at the base bonus, floored, so an offer above it
+is trimmed and the liquidator never pays more than it seizes. The quote is not
+promoted to full debt; bad-debt cleanup takes the unbacked residue. `HF / p`
+approximates `C / D`, but `HF` floors and `p` rounds half-up, so an account at
+`C == D`, or a few raw WAD units above it, can compute a cap of `-1`. Such a
+covered account takes the band quote with the cap clamped to zero: a full close
+seizes exactly `C` for `D` and leaves nothing to socialize.
 
 An ideal residual debt strictly between zero and $5 also promotes the quote to
 full debt, without requiring full funding. Inputs are capped at actual debt and
