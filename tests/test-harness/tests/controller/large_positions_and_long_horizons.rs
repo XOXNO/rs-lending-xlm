@@ -23,7 +23,7 @@ use test_harness::{
 const YEAR_SECS: u64 = 31_556_926;
 const BILLION: i128 = 1_000_000_000;
 
-/// `configs/mainnet/markets.json`, XLM.
+/// The previous `configs/mainnet/markets.json` XLM curve.
 fn xlm_curve() -> MarketParamsPreset {
     MarketParamsPreset {
         max_borrow_rate: RAY * 175 / 100,
@@ -38,7 +38,7 @@ fn xlm_curve() -> MarketParamsPreset {
     }
 }
 
-/// `configs/mainnet/markets.json`, USDC.
+/// The previous `configs/mainnet/markets.json` USDC curve.
 fn usdc_curve() -> MarketParamsPreset {
     MarketParamsPreset {
         max_borrow_rate: RAY * 125 / 100,

@@ -1,6 +1,11 @@
 {
   "1": {
     "name": "Blue Chip",
+    "liquidation_curve": {
+      "target_hf_wad": "1150000000000000000",
+      "hf_for_max_bonus_wad": "900000000000000000",
+      "liquidation_bonus_factor_bps": 1500
+    },
     "assets": {
       "XLM": {
         "hub_id": 1,
@@ -83,6 +88,11 @@
   },
   "2": {
     "name": "Etherfuse RWA",
+    "liquidation_curve": {
+      "target_hf_wad": "1150000000000000000",
+      "hf_for_max_bonus_wad": "900000000000000000",
+      "liquidation_bonus_factor_bps": 1500
+    },
     "assets": {
       "USTRY": {
         "hub_id": 2,
@@ -154,6 +164,11 @@
   },
   "3": {
     "name": "Spiko RWA",
+    "liquidation_curve": {
+      "target_hf_wad": "1150000000000000000",
+      "hf_for_max_bonus_wad": "900000000000000000",
+      "liquidation_bonus_factor_bps": 1500
+    },
     "assets": {
       "SPIKOEUTBL": {
         "hub_id": 2,
@@ -276,6 +291,11 @@
   },
   "4": {
     "name": "Centrifuge RWA",
+    "liquidation_curve": {
+      "target_hf_wad": "1150000000000000000",
+      "hf_for_max_bonus_wad": "900000000000000000",
+      "liquidation_bonus_factor_bps": 1500
+    },
     "assets": {
       "DEJTRSY": {
         "hub_id": 2,
@@ -495,6 +515,11 @@
   },
   "6": {
     "name": "AMM Collateral",
+    "liquidation_curve": {
+      "target_hf_wad": "1150000000000000000",
+      "hf_for_max_bonus_wad": "900000000000000000",
+      "liquidation_bonus_factor_bps": 1000
+    },
     "assets": {
       "XLMUSDC_LP": {
         "hub_id": 3,
@@ -643,6 +668,11 @@
   },
   "7": {
     "name": "Ondo RWA",
+    "liquidation_curve": {
+      "target_hf_wad": "1150000000000000000",
+      "hf_for_max_bonus_wad": "900000000000000000",
+      "liquidation_bonus_factor_bps": 1000
+    },
     "assets": {
       "USDY": {
         "hub_id": 2,
@@ -714,6 +744,11 @@
   },
   "8": {
     "name": "Commodities",
+    "liquidation_curve": {
+      "target_hf_wad": "1150000000000000000",
+      "hf_for_max_bonus_wad": "900000000000000000",
+      "liquidation_bonus_factor_bps": 1000
+    },
     "assets": {
       "XAUM": {
         "hub_id": 2,
@@ -785,6 +820,11 @@
   },
   "9": {
     "name": "Aquarius Ecosystem",
+    "liquidation_curve": {
+      "target_hf_wad": "1150000000000000000",
+      "hf_for_max_bonus_wad": "900000000000000000",
+      "liquidation_bonus_factor_bps": 1000
+    },
     "assets": {
       "AQUA": {
         "hub_id": 3,
