@@ -12,8 +12,8 @@ use common::types::{
 use soroban_sdk::testutils::{ContractEvents, Events};
 use soroban_sdk::xdr::{ContractEventBody, ScVal};
 use test_harness::{
-    assert_contract_error, errors, eth_preset, hub_asset, usd_cents, usdc_preset, LendingTest,
-    MarketPreset, ALICE, BOB, CAROL, HARNESS_SPOKE, LIQUIDATOR, STABLECOIN_SPOKE,
+    assert_contract_error, errors, eth_preset, hub_asset, usd, usd_cents, usdc_preset, LendingTest,
+    MarketPreset, ALICE, BOB, CAROL, DAVE, HARNESS_SPOKE, LIQUIDATOR, STABLECOIN_SPOKE,
 };
 
 // --- inspection helpers --------------------------------------------------
@@ -1223,21 +1223,16 @@ fn the_two_modes_charge_the_same_protocol_fee_within_one_unit() {
         "both estimates must report a live fee"
     );
 
-    // shares -> asset units, at the same index the planner used. Divide by the
-    // RAY-per-asset-unit factor FIRST: `credit_fee_shares * supply_index` is
-    // ~1e28 * 1e27 and overflows i128.
+    // No accrual or bad debt has touched USDC, so shares convert to asset units
+    // by the decimal factor alone and the comparison carries no rounding of its own.
     let supply_index = pool_state(&t, "USDC").supply_index;
+    assert_eq!(supply_index, common::constants::RAY);
     let decimals = t.resolve_market("USDC").decimals;
-    let ray_per_unit = 10i128.pow(27 - decimals);
-    let credit_fee_assets =
-        credit_fee_shares / ray_per_unit * supply_index / common::constants::RAY;
+    let credit_fee_assets = credit_fee_shares / 10i128.pow(27 - decimals);
 
-    // Tolerance 2, not 1: the pre-division above floors away sub-unit detail
-    // before the index is applied, so one unit of the budget is the
-    // measurement's own error and only the second bounds the protocol.
     let delta = (transfer_fee - credit_fee_assets).abs();
     assert!(
-        delta <= 2,
+        delta <= 1,
         "the two fee rules disagree by {delta} asset units (transfer={transfer_fee} \
          credit={credit_fee_assets} from {credit_fee_shares} shares at index \
          {supply_index}); they rate the same bonus and must land within one unit"
@@ -1342,6 +1337,98 @@ fn the_share_gap_stays_under_one_asset_unit_across_a_supply_index_sweep() {
          was barely exercised"
     );
     std::println!("index sweep: {ran} points, worst ratio {worst:.4} of one asset unit");
+}
+
+/// The sweep above only accrues, so its indexes sit at or above RAY. This one
+/// socialises an insolvent USDC borrower first, which drops the USDC supply
+/// index below RAY by the written-off share of the market, and then runs the
+/// same two-mode liquidation at each level. At an index of `x` RAY one asset
+/// unit is `10^(27-decimals) / x` shares, so a bound fixed at RAY would be
+/// `1/x` times too small here.
+#[test]
+fn the_share_gap_stays_under_one_asset_unit_with_the_supply_index_below_ray() {
+    let mut ran = 0usize;
+    let mut lowest_index = i128::MAX;
+
+    for wiped_usdc in [3_000.0f64, 9_000.0, 15_000.0, 18_700.0] {
+        for repay_bps in [2_903u32, 6_113, 9_337] {
+            let mut t = LendingTest::new().standard_two_asset().build();
+            for user in [ALICE, CAROL] {
+                t.supply(user, "USDC", 9_876.54);
+            }
+            t.supply(BOB, "ETH", 300.0);
+            t.supply(DAVE, "ETH", 20.0);
+            t.borrow(DAVE, "USDC", wiped_usdc);
+
+            // Dave's collateral collapses; his USDC debt is written off against
+            // the USDC supply index.
+            t.set_price("ETH", usd_cents(100));
+            t.force_socialize_bad_debt_by_id(t.resolve_account_id(DAVE));
+            t.set_price("ETH", usd(2_000));
+            let index = pool_state(&t, "USDC").supply_index;
+            assert!(
+                index < common::constants::RAY,
+                "wiped {wiped_usdc}: index {index}"
+            );
+            lowest_index = lowest_index.min(index);
+
+            // Borrow to 95% of the LTV left after the write-down.
+            let borrow = t.total_collateral_raw(ALICE) as f64 / 1e18 * 0.75 * 0.95 / 2_000.0;
+            if [ALICE, CAROL]
+                .iter()
+                .any(|user| t.try_borrow(user, "ETH", borrow).is_err())
+            {
+                continue;
+            }
+            // Walk USDC down until both are liquidatable while still solvent.
+            let mut cents = 100;
+            while cents > 0 && !(t.can_be_liquidated(ALICE) && t.can_be_liquidated(CAROL)) {
+                cents -= 1;
+                t.set_price("USDC", usd_cents(cents));
+            }
+            if cents == 0 || t.total_debt_raw(ALICE) >= t.total_collateral_raw(ALICE) {
+                continue;
+            }
+
+            let repay = borrow * f64::from(repay_bps) / 10_000.0;
+            let a = t.resolve_account_id(ALICE);
+            let c = t.resolve_account_id(CAROL);
+            let a_before = scaled_supply(&t, a, "USDC");
+            let c_before = scaled_supply(&t, c, "USDC");
+            if t.try_liquidate_with_mode(LIQUIDATOR, ALICE, "ETH", repay, SeizeMode::Transfer)
+                .is_err()
+                || t.try_liquidate_with_mode(LIQUIDATOR, CAROL, "ETH", repay, SeizeMode::Credit(0))
+                    .is_err()
+            {
+                continue;
+            }
+            ran += 1;
+
+            let transfer_seized = a_before - scaled_supply(&t, a, "USDC");
+            let credit_seized = c_before - scaled_supply(&t, c, "USDC");
+            let delta = (transfer_seized - credit_seized).abs();
+            let slack = seize_mode_share_slack(index, t.resolve_market("USDC").decimals);
+            assert!(
+                (delta as f64) < slack,
+                "wiped={wiped_usdc} repay_bps={repay_bps} index={index}: share gap {delta} \
+                 is not under one asset unit ({slack:.0} shares)"
+            );
+            let alice_left = t.supply_balance_raw(ALICE, "USDC");
+            let carol_left = t.supply_balance_raw(CAROL, "USDC");
+            assert!(
+                (alice_left - carol_left).abs() <= 1,
+                "wiped={wiped_usdc} repay_bps={repay_bps} index={index}: victims left \
+                 {alice_left} vs {carol_left}"
+            );
+        }
+    }
+
+    assert!(ran >= 6, "only {ran} points liquidated");
+    assert!(
+        lowest_index < common::constants::RAY / 10,
+        "the sweep never reached a deep write-down: lowest index {lowest_index}"
+    );
+    std::println!("below-RAY sweep: {ran} points, lowest index {lowest_index}");
 }
 
 // --- under-delivery: the one regime where one unit is not the bound ---------
