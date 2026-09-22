@@ -11,6 +11,7 @@ use common::types::{
 };
 use soroban_sdk::testutils::{ContractEvents, Events};
 use soroban_sdk::xdr::{ContractEventBody, ScVal};
+use soroban_sdk::{Env, U256};
 use test_harness::{
     assert_contract_error, errors, eth_preset, hub_asset, usd, usd_cents, usdc_preset, LendingTest,
     MarketPreset, ALICE, BOB, CAROL, DAVE, HARNESS_SPOKE, LIQUIDATOR, STABLECOIN_SPOKE,
@@ -54,11 +55,60 @@ use test_harness::{
 /// `scale_seizures_to_received` (`math.rs:426-452`) floor-scales `amount` and
 /// `scaled_amount` separately by `received/planned` — which doubles it to
 /// `2*K*c`. Callers on an under-delivering asset must use
-/// `UNDER_DELIVERY_SLACK_MULTIPLIER`; see
+/// `UNDER_DELIVERY_SLACK_UNITS`; see
 /// `under_delivery_doubles_the_gap_but_keeps_it_bounded`.
 fn seize_mode_share_slack(supply_index: i128, decimals: u32) -> f64 {
     let shares_per_unit_at_ray = 10f64.powi(27 - decimals as i32);
     shares_per_unit_at_ray * common::constants::RAY as f64 / supply_index as f64
+}
+
+/// Exact form of `delta < units * seize_mode_share_slack(supply_index, decimals)`.
+fn share_gap_under_units(
+    env: &Env,
+    delta: i128,
+    supply_index: i128,
+    decimals: u32,
+    units: u32,
+) -> bool {
+    let wide = |v: i128| U256::from_u128(env, u128::try_from(v).expect("non-negative"));
+    let one_unit_times_index = U256::from_u128(env, 10).pow(54 - decimals);
+    wide(delta).mul(&wide(supply_index))
+        < one_unit_times_index.mul(&U256::from_u128(env, units.into()))
+}
+
+#[test]
+fn share_gap_under_units_is_exact_at_the_boundary() {
+    let env = Env::default();
+    let ray = common::constants::RAY;
+    let unit = 10i128.pow(20);
+    assert!(share_gap_under_units(&env, unit - 1, ray, 7, 1));
+    assert!(!share_gap_under_units(&env, unit, ray, 7, 1));
+    assert!(share_gap_under_units(&env, 2 * unit - 1, ray, 7, 2));
+    assert!(!share_gap_under_units(&env, 2 * unit, ray, 7, 2));
+    // At 3 RAY one unit is 33_333_333_333_333_333_333.3 shares.
+    assert!(share_gap_under_units(
+        &env,
+        33_333_333_333_333_333_333,
+        3 * ray,
+        7,
+        1
+    ));
+    assert!(!share_gap_under_units(
+        &env,
+        33_333_333_333_333_333_334,
+        3 * ray,
+        7,
+        1
+    ));
+    // At the supply-index floor (RAY / 1000) one unit is 1e23 shares.
+    assert!(share_gap_under_units(
+        &env,
+        1000 * unit - 1,
+        ray / 1000,
+        7,
+        1
+    ));
+    assert!(!share_gap_under_units(&env, 1000 * unit, ray / 1000, 7, 1));
 }
 
 fn pool_state(t: &LendingTest, asset_name: &str) -> PoolStateRaw {
@@ -711,12 +761,11 @@ fn transfer_and_credit_seize_the_same_value_at_the_same_ledger() {
     // two conversion routes make unavoidable, but no more: anything larger is a
     // rounding regression, not arithmetic noise.
     let delta = (transfer_seized - credit_seized).abs();
-    let slack = seize_mode_share_slack(
-        pool_state(&t, "USDC").supply_index,
-        t.resolve_market("USDC").decimals,
-    );
+    let index = pool_state(&t, "USDC").supply_index;
+    let decimals = t.resolve_market("USDC").decimals;
+    let slack = seize_mode_share_slack(index, decimals);
     assert!(
-        (delta as f64) < slack,
+        share_gap_under_units(&t.env, delta, index, decimals, 1),
         "modes disagree on shares seized by {delta} (transfer={transfer_seized} \
          credit={credit_seized}); the two conversion routes should not diverge \
          beyond {slack}"
@@ -799,12 +848,11 @@ fn transfer_and_credit_agree_on_values_that_do_not_divide_evenly() {
     let transfer_seized = alice_before - scaled_supply(&t, alice_id, "USDC");
     let credit_seized = carol_before - scaled_supply(&t, carol_id, "USDC");
     let delta = (transfer_seized - credit_seized).abs();
-    let slack = seize_mode_share_slack(
-        pool_state(&t, "USDC").supply_index,
-        t.resolve_market("USDC").decimals,
-    );
+    let index = pool_state(&t, "USDC").supply_index;
+    let decimals = t.resolve_market("USDC").decimals;
+    let slack = seize_mode_share_slack(index, decimals);
     assert!(
-        (delta as f64) < slack,
+        share_gap_under_units(&t.env, delta, index, decimals, 1),
         "modes diverged by {delta} shares on non-dividing values \
          (transfer={transfer_seized} credit={credit_seized}, slack={slack})"
     );
@@ -1149,12 +1197,11 @@ fn transfer_and_credit_agree_on_values_that_do_not_divide_evenly_after_accrual()
     let transfer_seized = alice_before - scaled_supply(&t, alice_id, "USDC");
     let credit_seized = carol_before - scaled_supply(&t, carol_id, "USDC");
     let delta = (transfer_seized - credit_seized).abs();
-    let slack = seize_mode_share_slack(
-        pool_state(&t, "USDC").supply_index,
-        t.resolve_market("USDC").decimals,
-    );
+    let index = pool_state(&t, "USDC").supply_index;
+    let decimals = t.resolve_market("USDC").decimals;
+    let slack = seize_mode_share_slack(index, decimals);
     assert!(
-        (delta as f64) < slack,
+        share_gap_under_units(&t.env, delta, index, decimals, 1),
         "with an accrued index the modes diverged by {delta} shares \
          (transfer={transfer_seized} credit={credit_seized}); the bound is one \
          asset unit in share space at THIS index, {slack}"
@@ -1308,13 +1355,13 @@ fn the_share_gap_stays_under_one_asset_unit_across_a_supply_index_sweep() {
                 let transfer_seized = a_before - scaled_supply(&t, a, "USDC");
                 let credit_seized = c_before - scaled_supply(&t, c, "USDC");
                 let delta = (transfer_seized - credit_seized).abs();
-                let slack = seize_mode_share_slack(index, t.resolve_market("USDC").decimals);
-                let ratio = delta as f64 / slack;
+                let decimals = t.resolve_market("USDC").decimals;
+                let ratio = delta as f64 / seize_mode_share_slack(index, decimals);
                 if ratio > worst {
                     worst = ratio;
                 }
                 assert!(
-                    ratio < 1.0,
+                    share_gap_under_units(&t.env, delta, index, decimals, 1),
                     "secs={secs} bob={bob_borrow} repay_bps={repay_bps} index={index}: \
                      share gap {delta} reached {ratio:.4} of one asset unit \
                      (transfer={transfer_seized} credit={credit_seized})"
@@ -1370,7 +1417,6 @@ fn the_share_gap_stays_under_one_asset_unit_with_the_supply_index_below_ray() {
                 index < common::constants::RAY,
                 "wiped {wiped_usdc}: index {index}"
             );
-            lowest_index = lowest_index.min(index);
 
             // Borrow to 95% of the LTV left after the write-down.
             let borrow = t.total_collateral_raw(ALICE) as f64 / 1e18 * 0.75 * 0.95 / 2_000.0;
@@ -1403,13 +1449,15 @@ fn the_share_gap_stays_under_one_asset_unit_with_the_supply_index_below_ray() {
                 continue;
             }
             ran += 1;
+            lowest_index = lowest_index.min(index);
 
             let transfer_seized = a_before - scaled_supply(&t, a, "USDC");
             let credit_seized = c_before - scaled_supply(&t, c, "USDC");
             let delta = (transfer_seized - credit_seized).abs();
-            let slack = seize_mode_share_slack(index, t.resolve_market("USDC").decimals);
+            let decimals = t.resolve_market("USDC").decimals;
+            let slack = seize_mode_share_slack(index, decimals);
             assert!(
-                (delta as f64) < slack,
+                share_gap_under_units(&t.env, delta, index, decimals, 1),
                 "wiped={wiped_usdc} repay_bps={repay_bps} index={index}: share gap {delta} \
                  is not under one asset unit ({slack:.0} shares)"
             );
@@ -1435,7 +1483,7 @@ fn the_share_gap_stays_under_one_asset_unit_with_the_supply_index_below_ray() {
 
 /// Under-delivery costs exactly one more floor step per representation, so the
 /// cross-mode bound doubles rather than holding at one unit.
-const UNDER_DELIVERY_SLACK_MULTIPLIER: f64 = 2.0;
+const UNDER_DELIVERY_SLACK_UNITS: u32 = 2;
 
 /// A fee-on-transfer debt asset makes the repayment under-deliver, and the gap
 /// between the two seize modes doubles.
@@ -1508,16 +1556,16 @@ fn under_delivery_doubles_the_gap_but_keeps_it_bounded() {
             let transfer_seized = a_before - scaled_supply(&t, a, "USDC");
             let credit_seized = c_before - scaled_supply(&t, c, "USDC");
             let delta = (transfer_seized - credit_seized).abs();
-            let slack = seize_mode_share_slack(index, t.resolve_market("USDC").decimals);
-            let ratio = delta as f64 / slack;
+            let decimals = t.resolve_market("USDC").decimals;
+            let ratio = delta as f64 / seize_mode_share_slack(index, decimals);
             if ratio > worst_ratio {
                 worst_ratio = ratio;
             }
-            if ratio >= 1.0 {
+            if !share_gap_under_units(&t.env, delta, index, decimals, 1) {
                 exceeded_single_unit = true;
             }
             assert!(
-                ratio < UNDER_DELIVERY_SLACK_MULTIPLIER,
+                share_gap_under_units(&t.env, delta, index, decimals, UNDER_DELIVERY_SLACK_UNITS),
                 "bps={bps} repay_bps={repay_bps}: under-delivery gap {delta} reached \
                  {ratio:.4} asset units, past the doubled bound \
                  (transfer={transfer_seized} credit={credit_seized})"
