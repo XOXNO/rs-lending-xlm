@@ -127,9 +127,10 @@ impl MockReflector {
         let mut out = Vec::new(&env);
         let len = match mode {
             3 => records.saturating_sub(2).max(1),
-            // Exact-minimum window: a TWAP must use its full configured window, so
-            // `records` observations is the smallest history that is accepted.
+            // Exact window: `records` contiguous observations, no round missed.
             6 => records,
+            // Gapped: one round skipped, one fewer entry, window still covered.
+            10 => records.saturating_sub(1).max(1),
             _ => records,
         };
         for i in 0..len {
@@ -139,6 +140,9 @@ impl MockReflector {
                 7 => twap_pd.timestamp,
                 8 => twap_pd.timestamp.saturating_sub(u64::from(i)),
                 9 if i == 1 => twap_pd.timestamp.saturating_sub(1),
+                10 => twap_pd
+                    .timestamp
+                    .saturating_sub(u64::from(i).saturating_mul(resolution.saturating_mul(2))),
                 _ => twap_pd
                     .timestamp
                     .saturating_sub(u64::from(i).saturating_mul(resolution)),

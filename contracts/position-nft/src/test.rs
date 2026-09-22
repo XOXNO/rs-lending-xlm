@@ -400,3 +400,112 @@ fn longest_accepted_base_uri_still_renders_token_uri() {
     // 200 base + 1 digit + 28 suffix = 229 bytes, inside the 256-byte buffer.
     assert_eq!(client.token_uri(&token_id).len(), 200 + 1 + 28);
 }
+
+extern crate std;
+
+use soroban_sdk::testutils::{MockAuth, MockAuthInvoke};
+use soroban_sdk::{Bytes, IntoVal, Val, Vec};
+
+fn uploaded_position_nft_wasm(env: &Env) -> BytesN<32> {
+    let path = std::env::var("POSITION_NFT_WASM_PATH").unwrap_or_else(|_| {
+        std::format!(
+            "{}/../../target/wasm32v1-none/release/position_nft.wasm",
+            env!("CARGO_MANIFEST_DIR")
+        )
+    });
+    let bytes = std::fs::read(&path)
+        .unwrap_or_else(|e| panic!("position_nft.wasm not found at {path}: {e}; run `make build`"));
+    env.deployer()
+        .upload_contract_wasm(Bytes::from_slice(env, &bytes))
+}
+
+/// Asserts `call` panics with the host error `Error(Auth, InvalidAction)`.
+fn assert_host_auth_error(label: &str, call: impl FnOnce()) {
+    let payload = std::panic::catch_unwind(std::panic::AssertUnwindSafe(call))
+        .expect_err("the call must be refused");
+    let message = payload
+        .downcast_ref::<std::string::String>()
+        .cloned()
+        .or_else(|| {
+            payload
+                .downcast_ref::<&str>()
+                .map(|m| std::string::String::from(*m))
+        })
+        .unwrap_or_default();
+    assert!(
+        message.contains("Error(Auth, InvalidAction)"),
+        "{label}: expected a host Auth error, got: {message}"
+    );
+}
+
+/// Signs `fn_name(args)` on `contract` as `signer`, and as nobody else.
+fn sign_as(env: &Env, signer: &Address, contract: &Address, fn_name: &str, args: Vec<Val>) {
+    env.mock_auths(&[MockAuth {
+        address: signer,
+        invoke: &MockAuthInvoke {
+            contract,
+            fn_name,
+            args,
+            sub_invokes: &[],
+        },
+    }]);
+}
+
+#[test]
+fn upgrade_to_a_real_wasm_signed_by_a_stranger_is_a_host_auth_error() {
+    let env = Env::default();
+    let (id, _controller, client) = setup_with_id(&env);
+    let real_hash = uploaded_position_nft_wasm(&env);
+    let stranger = Address::generate(&env);
+
+    sign_as(
+        &env,
+        &stranger,
+        &id,
+        "upgrade",
+        (real_hash.clone(),).into_val(&env),
+    );
+    assert_host_auth_error("upgrade", || client.upgrade(&real_hash));
+
+    // Control: the controller can upgrade to the same hash.
+    env.mock_all_auths();
+    client.upgrade(&real_hash);
+}
+
+#[test]
+fn mint_signed_by_a_stranger_is_a_host_auth_error() {
+    let env = Env::default();
+    let (id, _controller, client) = setup_with_id(&env);
+    let stranger = Address::generate(&env);
+
+    sign_as(
+        &env,
+        &stranger,
+        &id,
+        "mint",
+        (stranger.clone(),).into_val(&env),
+    );
+    assert_host_auth_error("mint", || {
+        client.mint(&stranger);
+    });
+
+    assert_eq!(client.balance(&stranger), 0u32);
+    assert_eq!(client.total_supply(), 0u32);
+}
+
+#[test]
+fn burn_signed_by_the_token_owner_is_a_host_auth_error() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (id, _controller, client) = setup_with_id(&env);
+    let owner = Address::generate(&env);
+    let token_id = client.mint(&owner);
+
+    for signer in [owner.clone(), Address::generate(&env)] {
+        sign_as(&env, &signer, &id, "burn", (token_id,).into_val(&env));
+        assert_host_auth_error("burn", || client.burn(&token_id));
+    }
+
+    assert_eq!(client.owner_of(&token_id), owner);
+    assert_eq!(client.total_supply(), 1u32);
+}

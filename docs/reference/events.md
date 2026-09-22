@@ -166,7 +166,7 @@ OpenZeppelin revision `fbfde388e1b72afa93d6b1c922067879b20e81db` and Soroban SDK
 | Position NFT: `Burn` | `["burn", <from: Address>]` | `token_id: u32` | controller-authorized burn |
 | Controller, governance, router, XOXNO: OwnershipTransfer | `["ownership_transfer"]` | `old_owner: Address, new_owner: Address, live_until_ledger: u32` | ownership transfer initiation where exported/routed |
 | Controller, governance, router, XOXNO; price aggregator constructor: OwnershipTransferCompleted | `["ownership_transfer_completed"]` | `new_owner: Address` | accept_ownership; controller, governance and price-aggregator constructors emit explicitly |
-| Router, XOXNO: OwnershipRenounced | `["ownership_renounced"]` | `old_owner: Address` | router/XOXNO renounce_ownership only |
+| Router, XOXNO (legacy, before the entrypoint was removed): OwnershipRenounced | `["ownership_renounced"]` | `old_owner: Address` | No current build emits it. Kept so an indexer that replays ledgers from before the router and XOXNO upgrades can decode it |
 | Governance: RoleGranted | `["role_granted", <role: Symbol>, <account: Address>]` | `caller: Address` | constructor, role grants, ownership synchronization/reset |
 | Governance: RoleRevoked | `["role_revoked", <role: Symbol>, <account: Address>]` | `caller: Address` | role revocation, immediate revoke, ownership/reset |
 | Governance: AdminTransferInitiated | `["admin_transfer_initiated", <current_admin: Address>]` | `new_admin: Address, live_until_ledger: u32` | scheduled governance ownership transfer |

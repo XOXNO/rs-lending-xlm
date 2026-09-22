@@ -120,11 +120,6 @@ impl Ownable for XoxnoOracle {
     fn accept_ownership(e: &Env) {
         ownable::accept_ownership(e);
     }
-
-    /// Renounces ownership, leaving the contract without an owner.
-    fn renounce_ownership(e: &Env) {
-        ownable::renounce_ownership(e);
-    }
 }
 
 /// Returns true if `signers` contains any address more than once.

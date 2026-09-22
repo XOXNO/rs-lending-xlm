@@ -73,3 +73,35 @@ fn deactivating_the_manager_kills_a_stored_grant_immediately() {
     )
     .expect("reactivation re-arms the still-stored grant");
 }
+
+#[test]
+fn a_stranger_cannot_grant_or_revoke_a_delegate_on_another_owners_account() {
+    let mut t = LendingTest::new().standard_two_asset_dust_disabled();
+    t.supply(ALICE, "USDC", 10_000.0);
+    let account = t.account_id(ALICE);
+    let runner = t.deploy_script_runner();
+    let alice = t.get_or_create_user(ALICE);
+    let bob = t.get_or_create_user(BOB);
+    t.ctrl_client().set_position_manager(&runner, &true);
+
+    // The account exists, so #13 here is the owner check, not the meta lookup.
+    assert_eq!(
+        t.ctrl_client().try_add_delegate(&bob, &account, &runner),
+        Err(Ok(soroban_sdk::Error::from_contract_error(
+            errors::ACCOUNT_NOT_IN_MARKET
+        )))
+    );
+
+    t.ctrl_client().add_delegate(&alice, &account, &runner);
+    assert_eq!(
+        t.ctrl_client().try_remove_delegate(&bob, &account, &runner),
+        Err(Ok(soroban_sdk::Error::from_contract_error(
+            errors::ACCOUNT_NOT_IN_MARKET
+        )))
+    );
+    t.run_script(
+        &runner,
+        &vec![&t.env, withdraw_op(&t, account, "USDC", U, None)],
+    )
+    .expect("the grant survives a stranger's revoke attempt");
+}

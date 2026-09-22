@@ -1536,6 +1536,15 @@ validate_configs() {
         fi
     done
 
+    local shared_onchain
+    shared_onchain=$(jq -r --arg network "$NETWORK" '
+        (.[$network].spoke_ids // {}) | to_entries | group_by(.value)[]
+        | select(length > 1) | "on-chain \(.[0].value) <- config \(map(.key) | join(", "))"
+    ' "$NETWORKS_FILE")
+    if [ -n "$shared_onchain" ]; then
+        while IFS= read -r v; do vc_err "networks.json ${NETWORK}.spoke_ids maps several config spokes to one on-chain spoke: ${v}"; done <<< "$shared_onchain"
+    fi
+
     echo "=== Validation: ${errors} error(s), ${warnings} warning(s) ===" >&2
     if [ "$errors" -gt 0 ]; then
         exit 1
@@ -1658,9 +1667,41 @@ get_mapped_spoke_id() {
         '.[$network].spoke_ids[$config_id] // empty' "$NETWORKS_FILE"
 }
 
+resolve_config_spoke_id() {
+    local config_id=$1
+    case "$config_id" in
+        ''|*[!0-9]*) die "spoke id '${config_id}' is not a config spoke id (a number from ${SPOKES_FILE})" ;;
+    esac
+    local onchain_id
+    onchain_id=$(get_mapped_spoke_id "$config_id")
+    if [ -z "$onchain_id" ] || [ "$onchain_id" = "null" ]; then
+        die "config spoke ${config_id} has no on-chain id in ${NETWORKS_FILE} (${NETWORK}.spoke_ids); run setupAllSpokes or map it first"
+    fi
+    echo "config spoke ${config_id} -> on-chain spoke ${onchain_id}" >&2
+    echo "$onchain_id"
+}
+
+resolve_spoke_arg() {
+    local arg=$1
+    case "$arg" in
+        onchain:*)
+            local raw=${arg#onchain:}
+            case "$raw" in
+                ''|*[!0-9]*) die "'${arg}' is not onchain:<number>" ;;
+            esac
+            echo "raw on-chain spoke ${raw} (no config mapping applied)" >&2
+            echo "$raw"
+            ;;
+        *) resolve_config_spoke_id "$arg" ;;
+    esac
+}
+
 persist_spoke_id() {
     local config_category_id=$1
     local onchain_id=$2
+    case "$onchain_id" in
+        ''|*[!0-9]*) die "spoke for config ${config_category_id} is only scheduled (op ${onchain_id}); run executeOp, record the returned spoke id in ${NETWORKS_FILE} (${NETWORK}.spoke_ids), then re-run" ;;
+    esac
     local tmp
     tmp=$(mktemp)
     jq --arg network "$NETWORK" --arg config_id "$config_category_id" --argjson onchain_id "$onchain_id" \
@@ -1744,22 +1785,6 @@ ensure_spoke() {
         fi
     fi
 
-    if category_json=$(fetch_spoke_json "$config_category_id" 2>/dev/null); then
-        if spoke_is_deprecated "$category_json"; then
-            echo "On-chain Spoke id ${config_category_id} is deprecated; creating a new category."
-        elif ! spoke_assets_match_config "$config_category_id" "$category_json"; then
-            echo "ERROR: on-chain Spoke id ${config_category_id} holds assets config category ${config_category_id} does not list." >&2
-            echo "       Refusing to reuse it by numeric id; it may be a different category or have live users." >&2
-            echo "       Map config ${config_category_id} to the correct on-chain id in ${NETWORKS_FILE}, or deprecate the on-chain category, then re-run." >&2
-            return 1
-        else
-            persist_spoke_id "$config_category_id" "$config_category_id"
-            echo "Spoke config ${config_category_id} reuses existing on-chain id ${config_category_id}."
-            echo "$config_category_id"
-            return 0
-        fi
-    fi
-
     local onchain_id
     onchain_id=$(add_spoke "$config_category_id")
     persist_spoke_id "$config_category_id" "$onchain_id"
@@ -1769,7 +1794,7 @@ ensure_spoke() {
 add_asset_to_spoke() {
     local category_id=$1
     local asset_name=$2
-    local config_category_id=${3:-$category_id}
+    local config_category_id=${3:?config spoke id required (resolve_config_spoke_id)}
 
     echo "Adding asset ${asset_name} to Spoke category ${category_id}..."
 
@@ -1844,10 +1869,26 @@ add_asset_to_spoke() {
     echo "Asset ${asset_name} scheduled into Spoke category ${category_id}."
 }
 
+resolve_spoke_flag() {
+    local flag=$1 config_category_id=$2 asset_name=$3 live_listing=$4
+    local live configured
+    live=$(printf '%s' "$live_listing" | jq -r --arg f "$flag" '.[$f] | if type == "boolean" then tostring else empty end' 2>/dev/null)
+    [ -n "$live" ] || die "live listing of ${asset_name} has no boolean '${flag}': ${live_listing}"
+    configured=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".${flag}")
+    if [ -z "$configured" ] || [ "$configured" = "null" ]; then
+        echo "$live"
+        return 0
+    fi
+    if [ "$live" = "true" ] && [ "$configured" = "false" ] && [ "${RELAX_SPOKE_FLAGS:-0}" != "1" ]; then
+        die "${asset_name}: config sets ${flag}=false but it is TRUE on chain (emergency flag). Re-run with RELAX_SPOKE_FLAGS=1 to clear it on purpose."
+    fi
+    echo "$configured"
+}
+
 edit_asset_in_spoke() {
     local category_id=$1
     local asset_name=$2
-    local config_category_id=${3:-$category_id}
+    local config_category_id=${3:?config spoke id required (resolve_config_spoke_id)}
 
     local asset_address
     asset_address=$(get_market_value "$asset_name" "asset_address")
@@ -1873,14 +1914,6 @@ edit_asset_in_spoke() {
     fi
     if [ -z "$liquidation_fees" ] || [ "$liquidation_fees" = "null" ]; then liquidation_fees=0; fi
 
-    local paused frozen no_seize
-    paused=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".paused")
-    frozen=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".frozen")
-    no_seize=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".no_seize")
-    if [ -z "$paused" ] || [ "$paused" = "null" ]; then paused=false; fi
-    if [ -z "$frozen" ] || [ "$frozen" = "null" ]; then frozen=false; fi
-    if [ -z "$no_seize" ] || [ "$no_seize" = "null" ]; then no_seize=false; fi
-
     echo "Editing asset ${asset_name} in Spoke category ${category_id}..." >&2
 
     local hub_id
@@ -1888,6 +1921,16 @@ edit_asset_in_spoke() {
     if [ -z "$hub_id" ] || [ "$hub_id" = "null" ]; then
         die "spoke asset ${asset_name} (category ${config_category_id}) missing hub_id in ${SPOKES_FILE}"
     fi
+
+    local live_listing
+    live_listing=$(stellar contract invoke --id "$(get_controller)" $SOURCE_FLAG --network "$NETWORK" --send=no \
+        -- get_spoke_asset --spoke_id "$category_id" \
+        --hub_asset "$(jq -nc --argjson h "$hub_id" --arg a "$asset_address" '{hub_id:$h, asset:$a}')" 2>/dev/null | tail -n1) \
+        || die "cannot read the live listing of ${asset_name} in on-chain spoke ${category_id}; refusing to edit without its flags"
+    local paused frozen no_seize
+    paused=$(resolve_spoke_flag paused "$config_category_id" "$asset_name" "$live_listing") || exit 1
+    frozen=$(resolve_spoke_flag frozen "$config_category_id" "$asset_name" "$live_listing") || exit 1
+    no_seize=$(resolve_spoke_flag no_seize "$config_category_id" "$asset_name" "$live_listing") || exit 1
 
     local args_json
     args_json=$(jq -nc \
@@ -1911,7 +1954,7 @@ edit_asset_in_spoke() {
 ensure_asset_in_spoke() {
     local category_id=$1
     local asset_name=$2
-    local config_category_id=${3:-$category_id}
+    local config_category_id=${3:?config spoke id required (resolve_config_spoke_id)}
 
     local asset_address
     asset_address=$(get_market_value "$asset_name" "asset_address")
@@ -3205,6 +3248,48 @@ schedule_upgrade_price_aggregator() {
     echo "Price aggregator upgrade scheduled (hash ${hash})."
 }
 
+merge_tightened_flags() {
+    local live_listing=$1 wanted=$2
+    printf '%s' "$live_listing" | jq -ce --arg w "$wanted" '
+        ($w | split(",")) as $w
+        | if ($w | length) == 0 or (($w - ["paused","frozen","no_seize"]) | length) > 0
+          then error("flags must be a comma list of: paused, frozen, no_seize") else . end
+        | if ([.paused, .frozen, .no_seize] | all(type == "boolean")) then . else error("live listing has no boolean flags") end
+        | { paused:   (.paused   or ($w | index("paused")   != null)),
+            frozen:   (.frozen   or ($w | index("frozen")   != null)),
+            no_seize: (.no_seize or ($w | index("no_seize") != null)) }'
+}
+
+tighten_asset_flags() {
+    local category_id=$1 asset_name=$2 config_category_id=$3 wanted=$4
+    local asset_address hub_id hub_asset live_listing flags gov caller
+    asset_address=$(get_market_value "$asset_name" "asset_address")
+    hub_id=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".hub_id")
+    if [ -z "$hub_id" ] || [ "$hub_id" = "null" ]; then
+        die "spoke asset ${asset_name} (category ${config_category_id}) missing hub_id in ${SPOKES_FILE}"
+    fi
+    hub_asset=$(jq -nc --argjson h "$hub_id" --arg a "$asset_address" '{hub_id:$h, asset:$a}')
+    live_listing=$(stellar contract invoke --id "$(get_controller)" $SOURCE_FLAG --network "$NETWORK" --send=no \
+        -- get_spoke_asset --spoke_id "$category_id" --hub_asset "$hub_asset" 2>/dev/null | tail -n1) \
+        || die "cannot read the live listing of ${asset_name} in on-chain spoke ${category_id}"
+    flags=$(merge_tightened_flags "$live_listing" "$wanted") \
+        || die "cannot compute flags for ${asset_name}: bad flag list '${wanted}' or unreadable listing"
+
+    gov=$(get_governance)
+    caller=$(get_signer_address)
+    echo "Setting flags on ${asset_name}, on-chain spoke ${category_id}: ${flags}" >&2
+    stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" -- \
+        set_spoke_asset_flags --caller "$caller" --spoke_id "$category_id" --hub_asset "$hub_asset" \
+        --paused "$(printf '%s' "$flags" | jq -r .paused)" \
+        --frozen "$(printf '%s' "$flags" | jq -r .frozen)" \
+        --no_seize "$(printf '%s' "$flags" | jq -r .no_seize)" \
+        || die "set_spoke_asset_flags failed (does ${caller} hold GUARDIAN?)"
+
+    echo "" >&2
+    echo "NEXT: cancel every Waiting/Ready op that edits this listing (cancelOp <op-id>):" >&2
+    list_ops
+}
+
 pause_protocol() {
     local gov caller
     gov=$(get_governance)
@@ -4394,27 +4479,35 @@ case "$1" in
         ;;
     "addSpoke")
         if [ -z "$2" ]; then
-            echo "Usage: $0 addSpoke <category_id>"
+            echo "Usage: $0 addSpoke <config_spoke_id>"
             list_spokes
             exit 1
         fi
-        add_spoke "$2"
+        existing_spoke_id=$(get_mapped_spoke_id "$2")
+        if [ -n "$existing_spoke_id" ] && [ "$existing_spoke_id" != "null" ]; then
+            die "config spoke $2 is already mapped to on-chain spoke ${existing_spoke_id}; use setupAllSpokes to replace a deprecated spoke"
+        fi
+        onchain_spoke_id=$(add_spoke "$2") || exit 1
+        persist_spoke_id "$2" "$onchain_spoke_id"
+        echo "$onchain_spoke_id"
         ;;
     "addAssetToSpoke")
         if [ -z "$2" ] || [ -z "$3" ]; then
-            echo "Usage: $0 addAssetToSpoke <category_id> <asset_name>"
+            echo "Usage: $0 addAssetToSpoke <config_spoke_id> <asset_name>"
             list_spokes
             exit 1
         fi
-        add_asset_to_spoke "$2" "$3"
+        onchain_spoke_id=$(resolve_config_spoke_id "$2") || exit 1
+        add_asset_to_spoke "$onchain_spoke_id" "$3" "$2"
         ;;
     "editAssetInSpoke")
         if [ -z "$2" ] || [ -z "$3" ]; then
-            echo "Usage: $0 editAssetInSpoke <category_id> <asset_name>"
+            echo "Usage: $0 editAssetInSpoke <config_spoke_id> <asset_name>"
             list_spokes
             exit 1
         fi
-        edit_asset_in_spoke "$2" "$3"
+        onchain_spoke_id=$(resolve_config_spoke_id "$2") || exit 1
+        edit_asset_in_spoke "$onchain_spoke_id" "$3" "$2"
         ;;
     "setupAllSpokes")
 
@@ -4530,24 +4623,27 @@ case "$1" in
         ;;
     "removeSpoke")
         if [ -z "$2" ]; then
-            echo "Usage: $0 removeSpoke <spoke_id>" >&2
+            echo "Usage: $0 removeSpoke <config_spoke_id|onchain:N>" >&2
             exit 1
         fi
-        remove_spoke_cmd "$2"
+        onchain_spoke_id=$(resolve_spoke_arg "$2") || exit 1
+        remove_spoke_cmd "$onchain_spoke_id"
         ;;
     "removeAssetFromSpoke")
         if [ -z "$2" ] || [ -z "$3" ]; then
-            echo "Usage: $0 removeAssetFromSpoke <spoke_id> <market>" >&2
+            echo "Usage: $0 removeAssetFromSpoke <config_spoke_id|onchain:N> <market>" >&2
             exit 1
         fi
-        remove_asset_from_spoke_cmd "$2" "$3"
+        onchain_spoke_id=$(resolve_spoke_arg "$2") || exit 1
+        remove_asset_from_spoke_cmd "$onchain_spoke_id" "$3"
         ;;
     "setSpokeLiquidationCurve")
         if [ -z "$2" ] || [ -z "$3" ] || [ -z "$4" ] || [ -z "$5" ]; then
-            echo "Usage: $0 setSpokeLiquidationCurve <spoke_id> <target_hf_wad> <hf_for_max_bonus_wad> <bonus_factor_bps>" >&2
+            echo "Usage: $0 setSpokeLiquidationCurve <config_spoke_id|onchain:N> <target_hf_wad> <hf_for_max_bonus_wad> <bonus_factor_bps>" >&2
             exit 1
         fi
-        set_spoke_liquidation_curve_cmd "$2" "$3" "$4" "$5"
+        onchain_spoke_id=$(resolve_spoke_arg "$2") || exit 1
+        set_spoke_liquidation_curve_cmd "$onchain_spoke_id" "$3" "$4" "$5"
         ;;
     "revokeBlendPool")
         if [ -z "$2" ]; then
@@ -4715,6 +4811,15 @@ case "$1" in
         fi
         withdraw_position "$2" "$3" "$4"
         ;;
+    "tightenAssetFlags")
+        if [ -z "$2" ] || [ -z "$3" ] || [ -z "$4" ]; then
+            echo "Usage: $0 tightenAssetFlags <config-spoke-id> <asset> <paused|frozen|no_seize>[,...]" >&2
+            echo "GUARDIAN immediate. Raises flags on one listing; it cannot clear one." >&2
+            exit 1
+        fi
+        onchain_spoke_id=$(resolve_config_spoke_id "$2") || exit 1
+        tighten_asset_flags "$onchain_spoke_id" "$3" "$2" "$4"
+        ;;
     "pause")
         pause_protocol
         ;;
@@ -4821,14 +4926,16 @@ case "$1" in
         get_all_indexes_cmd
         ;;
     "getSpoke")
-        if [ -z "$2" ]; then echo "Usage: $0 getSpoke <category_id>" >&2; list_spokes >&2; exit 1; fi
-        get_spoke_cmd "$2"
+        if [ -z "$2" ]; then echo "Usage: $0 getSpoke <config_spoke_id|onchain:N>" >&2; list_spokes >&2; exit 1; fi
+        onchain_spoke_id=$(resolve_spoke_arg "$2") || exit 1
+        get_spoke_cmd "$onchain_spoke_id"
         ;;
     "getSpokeAsset")
         if [ -z "$2" ] || [ -z "$3" ]; then
-            echo "Usage: $0 getSpokeAsset <spoke_id> <market>" >&2; list_markets >&2; exit 1
+            echo "Usage: $0 getSpokeAsset <config_spoke_id|onchain:N> <market>" >&2; list_markets >&2; exit 1
         fi
-        get_spoke_asset_cmd "$2" "$3"
+        onchain_spoke_id=$(resolve_spoke_arg "$2") || exit 1
+        get_spoke_asset_cmd "$onchain_spoke_id" "$3"
         ;;
     "getMinBorrowCollateralUsd")
         get_min_borrow_collateral_cmd
@@ -4985,6 +5092,9 @@ case "$1" in
         echo "                                  (skips markets with enabled=false; omit field = enabled)"
         echo ""
         echo "Hubs / Spokes (writes):"
+        echo "  Every spoke <id> is the CONFIG id from spokes.json; it is resolved to the on-chain id"
+        echo "  through networks.json spoke_ids (the two differ). removeSpoke, removeAssetFromSpoke,"
+        echo "  setSpokeLiquidationCurve, getSpoke and getSpokeAsset also accept onchain:<n>."
         echo "  listHubs                        Hubs referenced by config + on-chain mapping"
         echo "  createHub <id>                  Ensure hub exists (idempotent; ascending ids)"
         echo "  listSpokes                      List configured spoke categories (marks enabled=false)"
@@ -5010,6 +5120,7 @@ case "$1" in
         echo "  executeReady                    Execute every recorded op that is Ready"
         echo "  executeOp <op-id>               Execute a locally-scheduled, ready op"
         echo "  cancelOp <op-id>                Cancel a pending op (CANCELLER)"
+        echo "  tightenAssetFlags <spoke> <asset> <flags>  GUARDIAN immediate: raise paused/frozen/no_seize on one listing"
         echo "  opState <op-id>                 Unset | Waiting | Ready | Done"
         echo "  awaitOp <op-id>                 Poll until the op is Ready"
         echo "  NOTE: oracle ops (configureMarketOracle, configureReferenceOracle, editOracleTolerance) schedule a"

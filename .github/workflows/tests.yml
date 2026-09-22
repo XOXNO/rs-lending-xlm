@@ -86,6 +86,9 @@ jobs:
       - name: Integration shell harness parses
         run: make integration-validate
 
+      - name: Operator script guards (spoke id mapping, live flags)
+        run: make ops-script-check
+
   build-and-test:
     name: Build & Test
     runs-on: self-hosted
@@ -114,7 +117,7 @@ jobs:
         run: bash .github/scripts/install-stellar-cli.sh
 
       - name: Install sccache (prebuilt)
-        uses: taiki-e/install-action@v2.87.8
+        uses: taiki-e/install-action@v2.87.13
         with:
           tool: sccache
 

@@ -60,6 +60,8 @@ pub struct Metrics {
     pub oracle_max_stale_seconds: GaugeVec,
 
     pub oracle_effective_max_stale_seconds: GaugeVec,
+    pub oracle_lp_total_shares: GaugeVec,
+    pub oracle_lp_pool_floor_usd: GaugeVec,
     pub oracle_tolerance_upper_bps: GaugeVec,
     pub oracle_tolerance_lower_bps: GaugeVec,
     pub oracle_sanity_min_usd: GaugeVec,
@@ -161,6 +163,8 @@ impl Metrics {
             oracle_status_timestamp: register_gauge_vec(&registry, "lending_oracle_status_timestamp_seconds", "Soft status blend price timestamp (Unix s)", ORACLE_LABELS)?,
             oracle_max_stale_seconds: register_gauge_vec(&registry, "lending_oracle_max_stale_seconds", "Configured market-level max price staleness (s)", ORACLE_LABELS)?,
             oracle_effective_max_stale_seconds: register_gauge_vec(&registry, "lending_oracle_effective_max_stale_seconds", "Max-stale of the soonest-to-stale provider leg (s)", ORACLE_LABELS)?,
+            oracle_lp_total_shares: register_gauge_vec(&registry, "lending_oracle_lp_total_shares", "Aquarius LP share supply of an LP-priced asset (whole shares). Pool value = this * lending_oracle_price_usd", ORACLE_LABELS)?,
+            oracle_lp_pool_floor_usd: register_gauge_vec(&registry, "lending_oracle_lp_pool_floor_usd", "Configured min_pool_value of an LP-priced asset (USD); the price fails closed under it", ORACLE_LABELS)?,
             oracle_tolerance_upper_bps: register_gauge_vec(&registry, "lending_oracle_tolerance_upper_bps", "Configured upper deviation band (bps)", ORACLE_LABELS)?,
             oracle_tolerance_lower_bps: register_gauge_vec(&registry, "lending_oracle_tolerance_lower_bps", "Configured lower deviation band (bps)", ORACLE_LABELS)?,
             oracle_sanity_min_usd: register_gauge_vec(&registry, "lending_oracle_sanity_min_usd", "Configured min sanity price (USD)", ORACLE_LABELS)?,

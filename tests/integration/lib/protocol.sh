@@ -99,9 +99,8 @@ deploy_protocol() {
     # A second, throwaway swap-aggregator owned by this run's ADMIN. The
     # `$AGGREGATOR` from configs/networks.json is a shared testnet deployment
     # whose owner we are not, so its owner-only surface (fees, whitelist,
-    # referrals, sweeps) is untestable there — and renounce_ownership would be
-    # destructive on a contract other runs depend on. Swaps keep using the
-    # shared one; only the admin surface is exercised here.
+    # referrals, sweeps) is untestable there. Swaps keep using the shared one;
+    # only the admin surface is exercised here.
     if [ -z "${OWNED_AGGREGATOR:-}" ] && [ -f "$WASM_DIR/swap_aggregator.wasm" ]; then
         local sa_out="$LOG_DIR/deploy_owned_agg.out" sa_err="$LOG_DIR/deploy_owned_agg.err"
         run_deploy "$sa_out" "$sa_err" -- stellar contract deploy \

@@ -100,6 +100,10 @@ is convenient. See [ADR-0003](docs/explanation/decisions.md#adr-0003).
   means a new justified line in that file.
 - `make fmt-check`, `make docs-check`, `make integration-validate` — the
   `static-gates` job in `.github/workflows/tests.yml`.
+- `make ops-script-check` — same job. `configs/script.sh` must map a config
+  spoke id to its on-chain id (`onchain:N` is the raw escape) and must carry
+  the live `paused`/`frozen`/`no_seize` flags through a listing edit. Offline,
+  about 1 second.
 - `make wasm-size-check`, `make wasm-testing-abi-check` — testing-only
   entrypoints must not exist in a deployable artifact ([ADR-0017](docs/explanation/decisions.md#adr-0017)).
 

@@ -35,14 +35,11 @@ exclude_re = [
     "replace > with >= in rescale_half_up",
     "replace > with >= in rescale_floor",
     "replace > with >= in rescale_ceil",
-    "reflector.rs:[0-9]+:(25|33): replace < with <= in read_twap",
     "observation.rs:[0-9]+:14: replace > with >= in is_stale",
-    "replace > with >= in calculate_borrow_rate",
+    "replace > with >= in calculate_annual_borrow_rate",
     "replace > with >= in update_borrow_index",
     "replace > with >= in normalize_repayment_plan",
     "replace > with >= in estimate_liquidation_amount",
-    "replace > with >= in <impl LiquidityPoolInterface for LiquidityPool>::claim_revenue",
-    "aggregation.rs:[0-9]+:78: replace > with >= in sorted_copy",
     # `add_liquidity` pushes `before[i] = if amount > 0 { balance(router) } else
     # { 0 }`, and `before[i]` is only read inside `if held[i] != 0` -- where
     # `held[i]` *is* the `amount` compared here. At amount == 0 the pushed value

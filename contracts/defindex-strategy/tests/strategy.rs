@@ -810,3 +810,60 @@ fn asset_renews_the_strategy_instance_ttl() {
         "asset() must renew the strategy instance: aged={aged}, after={renewed}"
     );
 }
+
+#[test]
+fn test_withdraw_without_vault_auth_is_refused_and_moves_nothing() {
+    let s = StrategyTest::new();
+    s.client().deposit(&(1_000 * UNIT), &s.vault);
+    let position_before = s.client().balance(&s.vault);
+    let wallet_before = s.usdc_balance(&s.vault);
+    assert!(position_before >= 1_000 * UNIT - 1);
+
+    let attacker_sink = Address::generate(&s.t.env);
+    s.t.env.set_auths(&[]);
+
+    for amount in [UNIT, position_before] {
+        let result = s.client().try_withdraw(&amount, &s.vault, &attacker_sink);
+        // A host auth failure surfaces as a bare abort, not as the strategy's error enum.
+        assert_eq!(
+            result,
+            Err(Err(InvokeError::Abort)),
+            "withdraw({amount}) must die in the host, not in contract logic"
+        );
+
+        // The plain client panics with the original host error.
+        let payload = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            s.client().withdraw(&amount, &s.vault, &attacker_sink)
+        }))
+        .expect_err("withdraw without the vault's auth must be refused");
+        let message = payload
+            .downcast_ref::<std::string::String>()
+            .cloned()
+            .unwrap_or_default();
+        assert!(
+            message.contains("Error(Auth, InvalidAction)"),
+            "withdraw({amount}): expected a host Auth error, got: {message}"
+        );
+    }
+
+    s.t.env.mock_all_auths();
+    assert_eq!(s.usdc_balance(&attacker_sink), 0, "sink was paid");
+    assert_eq!(s.client().balance(&s.vault), position_before);
+    assert_eq!(s.usdc_balance(&s.vault), wallet_before);
+    assert!(s.live_account_id(&s.vault) > 0, "vault mapping was cleared");
+}
+
+#[test]
+fn test_withdraw_negative_amount_returns_amount_not_positive() {
+    let s = StrategyTest::new();
+    s.client().deposit(&(1_000 * UNIT), &s.vault);
+    let position_before = s.client().balance(&s.vault);
+
+    let sink = Address::generate(&s.t.env);
+    for amount in [-1, -UNIT, i128::MIN] {
+        let result = flatten_strategy_result(s.client().try_withdraw(&amount, &s.vault, &sink));
+        assert_strategy_error(result, DeFindexStrategyError::AmountNotPositive as u32);
+    }
+    assert_eq!(s.usdc_balance(&sink), 0);
+    assert_eq!(s.client().balance(&s.vault), position_before);
+}

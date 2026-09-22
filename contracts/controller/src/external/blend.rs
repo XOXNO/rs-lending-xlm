@@ -1,6 +1,7 @@
 use soroban_sdk::auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation};
 use soroban_sdk::{contractclient, contracttype, symbol_short, Address, Env, IntoVal, Map, Vec};
 
+use crate::constants::BLEND_WITHDRAW_ALL_AMOUNT;
 use crate::storage;
 
 const REQ_WITHDRAW: u32 = 1;
@@ -40,7 +41,8 @@ pub trait BlendPool {
 }
 
 /// Fully withdraws the specified collateral and supply assets to the controller.
-/// Uses Blend's `i128::MAX` full-withdrawal sentinel for each requested asset.
+/// Requests `BLEND_WITHDRAW_ALL_AMOUNT` per asset, which Blend clamps to the
+/// position; see that constant for why this is not `i128::MAX`.
 pub(crate) fn blend_sweep_all(
     env: &Env,
     blend_pool: &Address,
@@ -53,14 +55,14 @@ pub(crate) fn blend_sweep_all(
         requests.push_back(BlendRequest {
             request_type: REQ_WITHDRAW_COLLATERAL,
             address: asset,
-            amount: i128::MAX,
+            amount: BLEND_WITHDRAW_ALL_AMOUNT,
         });
     }
     for asset in supply_assets.iter() {
         requests.push_back(BlendRequest {
             request_type: REQ_WITHDRAW,
             address: asset,
-            amount: i128::MAX,
+            amount: BLEND_WITHDRAW_ALL_AMOUNT,
         });
     }
     guarded_submit(env, blend_pool, from, &requests);

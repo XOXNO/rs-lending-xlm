@@ -21,13 +21,33 @@ groups:
       # actually rejected on-chain. On a 1h leg 10% is six minutes, so this
       # warning is mostly for the multi-hour legs; the critical below is the
       # real signal for the fast ones.
+      # The 26h legs are excluded: an on-time 24h push leaves 7.7%, under this
+      # threshold. LendingOracleDailyPushLate covers them.
       - alert: LendingOracleFreshnessLow
-        expr: lending_oracle_seconds_until_stale / lending_oracle_effective_max_stale_seconds < 0.10 and lending_oracle_seconds_until_stale > 0 and lending_oracle_effective_max_stale_seconds > 0
+        expr: lending_oracle_seconds_until_stale / lending_oracle_effective_max_stale_seconds < 0.10 and lending_oracle_seconds_until_stale > 0 and lending_oracle_effective_max_stale_seconds > 0 and lending_oracle_effective_max_stale_seconds < 90000
         for: 5m
         labels: { severity: warning }
         annotations:
           summary: "Oracle freshness budget for {{ $labels.symbol }} ({{ $labels.network }}) below 10%"
           description: "{{ $value | humanizePercentage }} of the staleness budget remains; a feed heartbeat was likely missed. Check the feeder (Xoxno bots / RedStone push) before the leg is rejected on-chain."
+
+      # An on-time push leaves 7200 s; under 5400 s it is at least 30 minutes late.
+      - alert: LendingOracleDailyPushLate
+        expr: lending_oracle_effective_max_stale_seconds >= 90000 and lending_oracle_seconds_until_stale < 5400 and lending_oracle_seconds_until_stale > 0
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "Daily oracle push for {{ $labels.symbol }} ({{ $labels.network }}) is late"
+          description: "The 24h-heartbeat leg has not been pushed on time; the market fails closed when the leg goes stale. Check the RedStone push before the 26h budget ends."
+
+      # Pool value = LP price x share supply. Under 1.0x the LP price is rejected.
+      - alert: LendingLpPoolValueNearFloor
+        expr: (lending_oracle_price_usd * lending_oracle_lp_total_shares) / lending_oracle_lp_pool_floor_usd < 1.25 and lending_oracle_lp_pool_floor_usd > 0
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "Aquarius pool behind {{ $labels.symbol }} ({{ $labels.network }}) is within 25% of its value floor"
+          description: "Pool value is {{ $value | humanize }}x the min_pool_value floor. Under 1.0x the LP price is rejected and accounts holding this leg become unliquidatable. Review the floor, the listing's collateral flag, and the spoke borrow caps."
 
       - alert: LendingOracleStaleCritical
         expr: lending_oracle_seconds_until_stale <= 0
