@@ -53,6 +53,12 @@ Reopening, global position-manager changes, and ordinary upgrades use delayed
 operations. Controller construction/upgrade pauses the controller; this is
 not a guarantee that every component upgrade pauses lending.
 
+A PROPOSER that is not the owner can schedule listing, cap, curve and limit
+changes, but not code upgrades, price or swap sources, Blend approvals, the
+revenue accumulator or role grants; those need the owner as proposer. A stolen
+non-owner PROPOSER key can therefore disrupt (pause, freeze, cancel, change risk
+parameters) but cannot replace code or prices.
+
 Typed proposals perform proposal-time checks; targets retain execution-time
 validation. Ready operations must also be within the grace window. Anyone may
 execute with no executor identity; supplying one requires its authorization

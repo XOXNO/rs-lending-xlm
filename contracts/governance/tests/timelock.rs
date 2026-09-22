@@ -1,15 +1,18 @@
 use soroban_sdk::testutils::{Address as _, Ledger as _};
-use soroban_sdk::{vec, Address, BytesN, Env, IntoVal, Symbol};
+use soroban_sdk::{vec, Address, BytesN, Env, IntoVal, Symbol, Vec};
 use stellar_governance::timelock::OperationState;
 
-use common::types::PositionLimits;
+use common::errors::GenericError;
+use common::types::{AssetOracle, IndependencePolicy, OracleTolerance, PositionLimits, PriceKey};
 
 use crate::access::{CANCELLER_ROLE, EXECUTOR_ROLE, GUARDIAN_ROLE, PROPOSER_ROLE};
 use crate::constants::{
     TIMELOCK_MAX_DELAY_LEDGERS, TIMELOCK_MIN_DELAY_LEDGERS, TIMELOCK_OPERATION_GRACE_LEDGERS,
     TIMELOCK_RECOVERY_MIN_DELAY_LEDGERS, TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS,
 };
-use crate::op::{AdminOperation, RoleArgs, TransferOwnershipArgs};
+use crate::op::{
+    AdminOperation, ConfigureAssetOracleArgs, EditToleranceArgs, RoleArgs, TransferOwnershipArgs,
+};
 use crate::test_support::{
     read_controller_position_limits, register, register_with_controller, zero_salt,
 };
@@ -446,6 +449,92 @@ fn non_owner_cannot_propose_controller_ownership_transfer() {
         }),
         &salt,
     );
+}
+
+fn owner_only_operations(env: &Env) -> Vec<AdminOperation> {
+    let hash = BytesN::<32>::from_array(env, &[9u8; 32]);
+    let key = PriceKey::Token(Address::generate(env));
+    vec![
+        env,
+        AdminOperation::UpgradeGov(hash.clone()),
+        AdminOperation::UpgradeController(hash.clone()),
+        AdminOperation::UpgradePool(hash.clone()),
+        AdminOperation::UpgradePositionNft(hash.clone()),
+        AdminOperation::UpgradePriceAggregator(hash),
+        AdminOperation::MigrateController(2),
+        AdminOperation::SetPriceAggregator(Address::generate(env)),
+        AdminOperation::ConfigureAssetOracle(ConfigureAssetOracleArgs {
+            key: key.clone(),
+            oracle: AssetOracle {
+                asset_decimals: 7,
+                max_price_stale_seconds: 900,
+                sources: vec![env],
+                tolerance: OracleTolerance {
+                    upper_ratio_bps: 10_500,
+                    lower_ratio_bps: 9_524,
+                },
+                independence: IndependencePolicy::RequireDisjoint,
+                min_sanity_price_wad: 1,
+                max_sanity_price_wad: 2,
+            },
+        }),
+        AdminOperation::EditOracleTolerance(EditToleranceArgs {
+            key,
+            tolerance: 100,
+        }),
+        AdminOperation::SetSwapAggregator(Address::generate(env)),
+        AdminOperation::ApproveBlendPool(Address::generate(env)),
+        AdminOperation::SetAccumulator(Address::generate(env)),
+        AdminOperation::GrantGovRole(RoleArgs {
+            account: Address::generate(env),
+            role: Symbol::new(env, PROPOSER_ROLE),
+        }),
+    ]
+}
+
+#[test]
+fn only_the_owner_can_propose_code_price_source_and_role_operations() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let delay = 10u32;
+    let (admin, _controller, gov) = register_with_controller(&env, delay);
+    let proposer = grant_role_via_timelock(&env, &gov, &admin, delay, PROPOSER_ROLE, 1);
+    let not_authorized = Err(Ok(soroban_sdk::Error::from_contract_error(
+        GenericError::NotAuthorized as u32,
+    )));
+
+    for (i, op) in owner_only_operations(&env).iter().enumerate() {
+        let salt = BytesN::<32>::from_array(&env, &[100 + i as u8; 32]);
+        assert_eq!(
+            gov.try_propose(&proposer, &op, &salt).map(|_| ()),
+            not_authorized,
+            "a non-owner proposer scheduled {op:?}"
+        );
+        assert_ne!(
+            gov.try_propose(&admin, &op, &salt).map(|_| ()),
+            not_authorized,
+            "the owner was refused {op:?}"
+        );
+    }
+}
+
+#[test]
+fn a_non_owner_proposer_still_schedules_listing_and_limit_operations() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let delay = 10u32;
+    let (admin, _controller, gov) = register_with_controller(&env, delay);
+    let proposer = grant_role_via_timelock(&env, &gov, &admin, delay, PROPOSER_ROLE, 1);
+
+    let id = gov.propose(
+        &proposer,
+        &AdminOperation::SetPositionLimits(PositionLimits {
+            max_supply_positions: 5,
+            max_borrow_positions: 5,
+        }),
+        &BytesN::<32>::from_array(&env, &[7u8; 32]),
+    );
+    assert_eq!(gov.get_operation_state(&id), OperationState::Waiting);
 }
 
 #[test]
