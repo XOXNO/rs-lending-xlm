@@ -53,6 +53,12 @@ Reopening, global position-manager changes, and ordinary upgrades use delayed
 operations. Controller construction/upgrade pauses the controller; this is
 not a guarantee that every component upgrade pauses lending.
 
+A PROPOSER that is not the owner can schedule listing, cap, curve and limit
+changes, but not code upgrades, price or swap sources, Blend approvals, the
+revenue accumulator or role grants; those need the owner as proposer. A stolen
+non-owner PROPOSER key can therefore disrupt (pause, freeze, cancel, change risk
+parameters) but cannot replace code or prices.
+
 Typed proposals perform proposal-time checks; targets retain execution-time
 validation. Ready operations must also be within the grace window. Anyone may
 execute with no executor identity; supplying one requires its authorization
@@ -170,12 +176,15 @@ lower median. Future skew is bounded at 60 seconds, not forbidden entirely.
 Equal package timestamps may replace a signer's observation. Honest quorum
 participation must be evaluated against the accepted cluster; setting a
 threshold above half the registered signers alone does not establish an
-honest median when some signers are absent.
+honest median when some signers are absent. A cluster with fewer than
+`2 * (signers - threshold) + 1` entries must fit inside `max_cluster_spread_bps`,
+or the round is a quorum miss, so one signer moves such a cluster by at most
+that bound. A cluster at or above that size uses the plain lower median.
 
 An ordinary submission below quorum leaves the prior aggregate unchanged;
 reads can serve it until their freshness limits expire. Owner recomputation
 removes an aggregate when its feed lacks quorum. Threshold, submission-age,
-and skew setters do not recompute existing aggregates; follow them with
+skew, and spread setters do not recompute existing aggregates; follow them with
 batched `recompute_feeds`. Quorum submissions also use the updated settings.
 
 The cluster anchor is clamped to ledger time. Read paths still apply their

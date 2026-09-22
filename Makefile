@@ -1926,6 +1926,7 @@ POSITIONAL_ID_ACTIONS := addSpoke getSpoke createHub removeSpoke \
 	revokeBlendPool setPositionLimits setMinBorrowCollateralUsd setPositionManager \
 	transferCtrlOwnership migrateController accountExists isBlendPoolApproved \
 	addOracleSigner setOracleSubmissionAge setOracleMaxStale setOracleRelativeSkew \
+	setOracleMaxClusterSpread \
 	setSpokeLiquidationCurve \
 	configureReferenceOracle \
 	setAggregatorFee addAggregatorWhitelist removeAggregatorWhitelist \
@@ -2329,6 +2330,7 @@ help-oracle:
 	$(call ROW,make <n> reconfigureOracleFeeds,remove+add feeds only)
 	$(call ROW,make <n> configureOracleWindows,age + stale + relative skew from JSON)
 	$(call NOTE,make <n> setOracleRelativeSkew SECS)
+	$(call NOTE,make <n> setOracleMaxClusterSpread BPS)
 	$(call ROW,make <n> verifyOracleAdapterWindows,print live window getters)
 	$(call ROW,make <n> finalizeOracleAdapterUpgrade,windows + reconfigure (no Wasm))
 	$(call BLANK)

@@ -56,6 +56,10 @@ flow_xoxno_oracle() {
     xfail xo_skew_over_age 'Error\(Contract, #18\)' "$ADMIN" "$XO" -- set_max_relative_skew_seconds --seconds 1000
     inv xo_set_skew "$ADMIN" "$XO" -- set_max_relative_skew_seconds --seconds 120 >/dev/null
     assert_view_eq_at "$XO" xo_skew_read 120 max_relative_skew_seconds
+    xfail xo_spread_zero 'Error\(Contract, #19\)' "$ADMIN" "$XO" -- set_max_cluster_spread_bps --bps 0
+    xfail xo_spread_over 'Error\(Contract, #19\)' "$ADMIN" "$XO" -- set_max_cluster_spread_bps --bps 10001
+    inv xo_set_spread "$ADMIN" "$XO" -- set_max_cluster_spread_bps --bps 200 >/dev/null
+    assert_view_eq_at "$XO" xo_spread_read 200 max_cluster_spread_bps
     inv xo_set_resolution "$ADMIN" "$XO" -- set_resolution --resolution 60 >/dev/null
     assert_view_eq_at "$XO" xo_resolution_reread 60 resolution
 

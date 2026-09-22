@@ -212,7 +212,7 @@ Constructor `(admin: Address, min_delay: u32)` initializes the owner, access-con
 | `hash_operation(target: Address, function: Symbol, args: Vec<Val>, predecessor: BytesN<32>, salt: BytesN<32>) -> BytesN<32>` | Open view / resolver |
 | `resolve_oracle_tolerance(tolerance: u32) -> OracleTolerance` | Open view / resolver |
 | `resolve_asset_oracle(key: PriceKey, oracle: AssetOracle) -> AssetOracle` | Open view / resolver |
-| `propose(proposer: Address, op: AdminOperation, salt: BytesN<32>) -> BytesN<32>` | PROPOSER_ROLE; ownership transfers additionally require proposer == current owner |
+| `propose(proposer: Address, op: AdminOperation, salt: BytesN<32>) -> BytesN<32>` | PROPOSER_ROLE; the proposer must also be the current owner for ownership transfers, code upgrades (`UpgradeGov`, `UpgradeController`, `UpgradePool`, `UpgradePositionNft`, `UpgradePriceAggregator`, `MigrateController`), price and swap sources (`SetPriceAggregator`, `ConfigureAssetOracle`, `EditOracleTolerance`, `SetSwapAggregator`), `ApproveBlendPool`, `SetAccumulator` and `GrantGovRole` |
 | `pause(caller: Address)` | GUARDIAN_ROLE; immediate |
 | `set_spoke_asset_flags(caller: Address, spoke_id: u32, hub_asset: HubAssetKey, paused: bool, frozen: bool, no_seize: bool)` | GUARDIAN_ROLE; immediate tightening only |
 | `set_sanity_band(caller: Address, key: PriceKey, min_wad: i128, max_wad: i128)` | ORACLE_ROLE; immediate tightening only |
@@ -321,7 +321,7 @@ Constructor `(owner: Address)` sets owner and emits OwnershipTransferCompleted.
 
 ## XOXNO oracle
 
-Constructor `(admin: Address, signers: Vec<Address>, threshold: u32, resolution: u32) -> Result<(), Error>` initializes the owner and signing quorum. Each submission authenticates one registered signer. A quorum of fresh stored submissions within the allowed timestamp cluster produces the lower-median aggregate. A successful submission need not produce an aggregate.
+Constructor `(admin: Address, signers: Vec<Address>, threshold: u32, resolution: u32) -> Result<(), Error>` initializes the owner and signing quorum. Each submission authenticates one registered signer. A quorum of fresh stored submissions within the allowed timestamp cluster produces the lower-median aggregate. A cluster with fewer than `2 * (signers - threshold) + 1` entries must also satisfy `max * 10000 <= min * (10000 + max_cluster_spread_bps)`; otherwise the round is a quorum miss. A successful submission need not produce an aggregate.
 
 Prices use 8 decimals. Package and aggregate-write timestamps use milliseconds; freshness and resolution parameters and Reflector timestamps use seconds.
 
@@ -333,6 +333,7 @@ Prices use 8 decimals. Package and aggregate-write timestamps use milliseconds; 
 | `set_max_stale_seconds(seconds: u64) -> Result<(), Error>` | Owner |
 | `set_max_submission_age_seconds(seconds: u64) -> Result<(), Error>` | Owner |
 | `set_max_relative_skew_seconds(seconds: u64) -> Result<(), Error>` | Owner |
+| `set_max_cluster_spread_bps(bps: u32) -> Result<(), Error>` | Owner; `1 <= bps <= 10000` |
 | `recompute_feeds(feed_ids: Vec<String>) -> Result<(), Error>` | Owner |
 | `register_feed(feed_id: String) -> Result<(), Error>` | Owner |
 | `add_feed(feed_id: String, asset: ReflectorAsset) -> Result<(), Error>` | Owner |
@@ -345,6 +346,7 @@ Prices use 8 decimals. Package and aggregate-write timestamps use milliseconds; 
 | `max_submission_age_seconds() -> u64` | Open |
 | `max_stale_seconds() -> u64` | Open |
 | `max_relative_skew_seconds() -> u64` | Open |
+| `max_cluster_spread_bps() -> u32` | Open; 200 when unset |
 | `base() -> ReflectorAsset` | Open |
 | `decimals() -> u32` | Open |
 | `resolution() -> u32` | Open |

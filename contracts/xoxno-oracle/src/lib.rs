@@ -3,9 +3,11 @@
 //! XOXNO oracle contract. Aggregates prices from a configured set of authorized
 //! signers: each signer posts their latest per-feed submission (with auth), and
 //! the contract forms a median once at least `threshold` fresh, skew-clustered
-//! submissions exist. History is bounded; prices are exposed via RedStone-shaped
-//! feed APIs and a Reflector-compatible asset API. Owner-only admin configures
-//! signers, threshold, feeds, and staleness/skew bounds.
+//! submissions exist. A cluster smaller than `2 * (signers - threshold) + 1`
+//! must also fit inside the configured price spread. History is bounded; prices
+//! are exposed via RedStone-shaped feed APIs and a Reflector-compatible asset
+//! API. Owner-only admin configures signers, threshold, feeds, and
+//! staleness/skew/spread bounds.
 
 mod admin;
 mod aggregation;
@@ -59,6 +61,8 @@ pub enum Error {
     FeedAlreadyRegistered = 17,
 
     InvalidRelativeSkew = 18,
+
+    InvalidClusterSpread = 19,
 }
 
 /// The XOXNO oracle contract type.

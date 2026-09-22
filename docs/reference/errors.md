@@ -217,6 +217,7 @@ Reflector runtime TWAP errors, including 212, 219 and 222, make the source leg u
 | 16 `StaleSubmission` | Submission too old or package timestamp older than signer’s prior submission | Submit a fresh nondecreasing timestamp; equality is allowed. |
 | 17 `FeedAlreadyRegistered` | Feed id already registered | Reuse it. |
 | 18 `InvalidRelativeSkew` | Relative skew <= permitted future skew or above submission-age maximum | Correct skew bound. |
+| 19 `InvalidClusterSpread` | Cluster spread bound is 0 or above 10000 bps | Use 1..=10000 bps. |
 
 ### DeFindex strategy
 

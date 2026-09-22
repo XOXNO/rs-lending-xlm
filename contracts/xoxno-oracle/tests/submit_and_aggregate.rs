@@ -476,8 +476,8 @@ fn remove_signer_only_recomputes_touched_feeds() {
     client.submit_price(&signers[0], &feed_a, &100i128, &1_000u64);
     client.submit_price(&signers[1], &feed_a, &200i128, &1_000u64);
     client.submit_price(&signers[2], &feed_a, &300i128, &1_000u64);
-    client.submit_price(&signers[1], &feed_b, &10i128, &1_000u64);
-    client.submit_price(&signers[2], &feed_b, &20i128, &1_000u64);
+    client.submit_price(&signers[1], &feed_b, &1_000i128, &1_000u64);
+    client.submit_price(&signers[2], &feed_b, &1_010i128, &1_000u64);
 
     assert_eq!(
         client.read_price_data_for_feed(&feed_a).price.to_u128(),
@@ -485,7 +485,7 @@ fn remove_signer_only_recomputes_touched_feeds() {
     );
     assert_eq!(
         client.read_price_data_for_feed(&feed_b).price.to_u128(),
-        Some(10u128)
+        Some(1_000u128)
     );
 
     client.remove_signer(&signers[0]);
@@ -495,7 +495,7 @@ fn remove_signer_only_recomputes_touched_feeds() {
     );
     assert_eq!(
         client.read_price_data_for_feed(&feed_b).price.to_u128(),
-        Some(10u128)
+        Some(1_000u128)
     );
 }
 
@@ -507,7 +507,7 @@ fn remove_signer_clears_aggregate_when_dropping_below_threshold() {
     let feed = feed_id(&env);
 
     client.submit_price(&signers[0], &feed, &100i128, &1_000u64);
-    client.submit_price(&signers[1], &feed, &200i128, &1_000u64);
+    client.submit_price(&signers[1], &feed, &101i128, &1_000u64);
     assert_eq!(
         client.read_price_data_for_feed(&feed).price.to_u128(),
         Some(100u128)
@@ -553,7 +553,7 @@ fn raising_threshold_invalidates_below_quorum_aggregate() {
         Error::NoDataForFeed
     );
 
-    client.submit_price(&signers[1], &feed, &200i128, &1_000u64);
+    client.submit_price(&signers[1], &feed, &101i128, &1_000u64);
     assert_eq!(
         client.read_price_data_for_feed(&feed).price.to_u128(),
         Some(100u128)
@@ -570,7 +570,7 @@ fn losing_quorum_clears_twap_history() {
     client.add_feed(&feed, &asset);
 
     client.submit_price(&signers[0], &feed, &100i128, &1_000u64);
-    client.submit_price(&signers[1], &feed, &200i128, &1_000u64);
+    client.submit_price(&signers[1], &feed, &101i128, &1_000u64);
     assert!(client.prices(&asset, &12).is_some());
 
     client.remove_signer(&signers[1]);
