@@ -160,6 +160,7 @@ pub enum CollateralError {
 
     InvalidLiquidationCurve = 134,
 
+    // Reserved: see the note on `GenericError::AssetNotSupported`.
     FullCloseRequired = 135,
 }
 

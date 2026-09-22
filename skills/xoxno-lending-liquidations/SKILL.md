@@ -73,8 +73,9 @@ token_units = floor(value_ray / 10^(27 - asset_decimals))
 ## 3. Build debt payments safely
 
 Offer only positive debt legs the account actually owes. The controller pulls
-accepted amounts; transferring repayment directly to the pool is a donation.
-Refunds are informational and remain in debt-token units.
+accepted amounts, or the whole offer when the quote is the full debt (the pool
+then refunds the excess); transferring repayment directly to the pool is a
+donation. Refunds are in debt-token units.
 
 For a contract liquidator, require each payment leg to have a unique token
 address even when the same token is borrowed in multiple hubs. Reject repeated
@@ -88,21 +89,26 @@ determine the accepted amount for each hub leg, while authorization entries
 are consumed against ordered token-transfer sub-invocations. The contract
 cannot safely construct exact per-leg transfer authorizations.
 
-**Full-close band: use a contract liquidator.** When total collateral is below
-`debt × (1 + base bonus)`, the controller accepts only a full repayment of every
-debt leg and reverts a smaller offer with `FullCloseRequired` (`controller #135`).
-It caps each offer at the debt recomputed at EXECUTION time and pulls that capped
-amount, so the pulled amount changes every ledger as interest accrues. A plain
-account signs the transfer amount recorded at simulation: an over-offer then fails
-authorization, and the exact simulated amount is already too small. Paying
-"slightly under the estimate" works outside this band and cannot work inside it.
-A contract liquidator reads the amount and authorizes it in the same transaction,
-so it is not affected.
+**Full-close band: partials and signed over-offers both work.** When total
+collateral is at least the debt but below `debt × (1 + base bonus)`, the quote
+is the whole debt at `bonus_rate_bps` = the HF-preserving cap
+(`floor(HF × BPS / p) − BPS`, about `C / D − 1`), and any smaller repayment is
+accepted at that bonus. A partial keeps the account's `C / D` and HF, so large
+accounts can be closed in slices. Whenever the quote is the whole debt, the
+controller pulls each merged offered amount and the pool refunds what exceeds
+the debt at execution, so an over-offer signed at simulation still matches after
+interest accrues. The liquidator must hold the full offered amount.
 
-Perform every controller/token read first. Then authorize each exact accepted
-`transfer(liquidator, pool, amount)` and call `liquidate` immediately; no
-outbound contract call may occur between authorization and the controller
-call. See [contract composition](../xoxno-lending-contracts/composing.md#liquidating-from-a-contract).
+**Insolvent accounts are capped at what the collateral backs.** When collateral
+is below debt, the quote is `floor(C / (1 + base))` at the base bonus. A larger
+offer is trimmed, and because the trimmed amount is what the controller pulls,
+a transfer signed for more fails authorization instead of paying for collateral
+that is no longer there. Re-simulate after every competing liquidation.
+
+Perform every controller/token read first. Then offer exactly the accepted
+amounts, authorize each `transfer(liquidator, pool, amount)` for them, and call
+`liquidate` immediately; no outbound contract call may occur between
+authorization and the controller call. See [contract composition](../xoxno-lending-contracts/composing.md#liquidating-from-a-contract).
 
 ## 4. Gate on actual net proceeds
 

@@ -22,6 +22,7 @@ use crate::account;
 use crate::account::SpokeAdmission;
 use crate::context::Context;
 use crate::events::LiquidationEvent;
+use crate::payments;
 use crate::positions::{finalize_position_flow, PositionSides};
 use crate::risk::validation;
 use crate::storage;
@@ -55,6 +56,10 @@ pub(crate) fn process_liquidation(
 
     // Share payment normalization and positivity checks with the estimate view.
     let liquidation_plan = plan::build_liquidation_plan(env, &account, debt_payments, &mut cache);
+    let offered = liquidation_plan
+        .repayment
+        .full_close
+        .then(|| payments::aggregate_positive_payments(env, debt_payments));
 
     let result = liquidation_plan.into_result();
 
@@ -65,6 +70,7 @@ pub(crate) fn process_liquidation(
         liquidator,
         &mut account,
         &result.repaid,
+        offered.as_ref(),
         &mut cache,
     );
 

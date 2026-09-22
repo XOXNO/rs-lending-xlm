@@ -136,12 +136,14 @@ fn repay_of_half_i128_max_closes_the_debt_and_refunds_the_rest() {
     );
 }
 
+/// Collateral covers the debt but not the base bonus, so the plan is a full
+/// close: the whole offer is pulled and the pool refunds all but the debt.
 #[test]
-fn liquidation_payment_of_half_i128_max_pulls_only_the_close_amount() {
+fn liquidation_payment_of_half_i128_max_nets_only_the_close_amount() {
     let mut t = setup(7);
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "A", 7_000.0);
-    t.set_price("A", usd(2));
+    t.set_price("A", usd(14) / 10);
     t.assert_liquidatable(ALICE);
     let huge = i128::MAX / 2;
     let before = t.borrow_balance_raw(ALICE, "A");

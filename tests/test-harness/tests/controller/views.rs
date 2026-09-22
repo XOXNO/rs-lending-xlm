@@ -271,13 +271,12 @@ fn test_liquidation_estimations_basic() {
         .find(|p| p.asset == usdc)
         .expect("the fee leg must name the same asset")
         .amount;
-    // The 3.0 ETH payment exhausts the collateral, so the cap leaves no bonus and
-    // therefore no fee (`liquidation/math.rs::calculate_seized_collateral`): a fee
-    // charged on the gross, capped seizure would show up here.
-    assert_eq!(
-        fee, 0,
-        "a seizure capped below principal carries no bonus, so it must carry no fee"
+    // Insolvent: the offer is cut to what the collateral backs, so the bonus is realised.
+    assert!(
+        estimate.max_payment_wad < t.total_debt_raw(ALICE),
+        "an insolvent account is not quoted its full debt"
     );
+    assert!(fee > 0, "the realised bonus carries the protocol fee");
 
     t.get_or_create_user(LIQUIDATOR);
     let liquidator_before = t.token_balance_raw(LIQUIDATOR, "USDC");

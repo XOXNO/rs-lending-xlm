@@ -220,9 +220,16 @@ fn test_liquidation_sequential_partial_liquidations() {
         "Alice USDC collateral must be seized"
     );
 }
+/// 10 000 USDC at $0.62 against 3 ETH: collateral covers the debt but not the
+/// base bonus, so the plan is a full close at the HF-preserving cap. The offer
+/// is pulled whole and the pool refunds what exceeds the debt.
 #[test]
 fn test_liquidation_caps_at_actual_debt() {
-    let mut t = liquidatable_usdc_eth();
+    let mut t = LendingTest::new().standard_two_asset().build();
+    t.supply(ALICE, "USDC", 10_000.0);
+    t.borrow(ALICE, "ETH", 3.0);
+    t.set_price("USDC", usd_cents(62));
+    t.assert_liquidatable(ALICE);
 
     let debt_before = t.borrow_balance(ALICE, "ETH");
     t.get_or_create_user(LIQUIDATOR);
@@ -263,6 +270,35 @@ fn test_liquidation_caps_at_actual_debt() {
         liq_usdc
     );
 }
+/// $5 000 of collateral against $6 000 of debt at a 5% base bonus: an offer of
+/// the whole debt is cut to `floor(5000 / 1.05)` USD, so the liquidator never
+/// pays more than it seizes, and cleanup socializes the unbacked rest.
+#[test]
+fn test_insolvent_over_offer_repays_only_what_the_collateral_backs() {
+    let mut t = liquidatable_usdc_eth();
+    t.get_or_create_user(LIQUIDATOR);
+    let eth_before = t.token_balance_raw(LIQUIDATOR, "ETH");
+    let usdc_before = t.token_balance_raw(LIQUIDATOR, "USDC");
+
+    t.liquidate(LIQUIDATOR, ALICE, "ETH", 3.0);
+
+    let spent_usd =
+        (eth_before + 3_0000000 - t.token_balance_raw(LIQUIDATOR, "ETH")) as f64 * 2_000.0 / 1e7;
+    let received_usd = (t.token_balance_raw(LIQUIDATOR, "USDC") - usdc_before) as f64 * 0.50 / 1e7;
+    assert!(
+        (spent_usd - 5_000.0 / 1.05).abs() < 0.001,
+        "the repayment is capped at the collateral backing, got ${spent_usd}"
+    );
+    assert!(
+        received_usd > spent_usd,
+        "the liquidator must not lose money: paid ${spent_usd}, received ${received_usd}"
+    );
+    assert!(
+        t.find_account_id(ALICE).is_none(),
+        "the unbacked residue is socialized and the account removed"
+    );
+}
+
 #[test]
 fn test_liquidation_improves_health_factor() {
     let mut t = LendingTest::new().standard_two_asset().build();

@@ -48,8 +48,6 @@ pub struct RefLiquidationResult {
 
     pub total_repaid_usd_wad: BigRational,
 
-    pub requires_full_close: bool,
-
     pub total_seized_usd_wad: BigRational,
 }
 
@@ -318,10 +316,8 @@ fn select_liquidation_tier(
         calculate_linear_bonus_with_target(hf_wad, base_bonus_bps, max_bonus_bps, &target);
 
     let bonus = match max_hf_preserving_bonus_bps(hf_wad, proportion_seized) {
-        None => scaled_bonus,
-        Some(cap) if scaled_bonus <= cap => scaled_bonus,
-        Some(cap) if &cap >= base_bonus_bps => cap,
-        Some(_) => return (total_debt_wad.clone(), base_bonus_bps.clone()),
+        Some(cap) if cap < scaled_bonus => cap,
+        _ => scaled_bonus,
     };
 
     let ideal = match try_liquidation_at_target(
@@ -357,6 +353,21 @@ fn estimate_liquidation_amount(
     proportion_seized: &BigRational,
     total_collateral_wad: &BigRational,
 ) -> (BigRational, BigRational) {
+    match max_hf_preserving_bonus_bps(hf_wad, proportion_seized) {
+        Some(cap) if cap.is_negative() => {
+            let one_plus_base = &wad_scale() + base_bonus_bps * &wad_scale() / bps_scale();
+            let backed = (total_collateral_wad * &wad_scale() / &one_plus_base).floor();
+            let ideal = if backed < *total_debt_wad {
+                backed
+            } else {
+                total_debt_wad.clone()
+            };
+            return (ideal, base_bonus_bps.clone());
+        }
+        Some(cap) if &cap < base_bonus_bps => return (total_debt_wad.clone(), cap),
+        _ => {}
+    }
+
     let (ideal, bonus) = select_liquidation_tier(
         total_debt_wad,
         weighted_coll_wad,
@@ -491,15 +502,9 @@ pub fn compute_liquidation(
         .map(|(id, tokens, _dec)| (*id, tokens.clone()))
         .collect();
 
-    let requires_full_close = match max_hf_preserving_bonus_bps(&hf_wad, &proportion_seized) {
-        Some(cap) => cap >= BigRational::from_integer(BigInt::from(0)) && cap < base_bonus_bps,
-        None => false,
-    };
-
     RefLiquidationResult {
         health_factor_pre_wad: hf_wad,
         final_bonus_bps: bonus_bps,
-        requires_full_close,
         seized_per_collateral: seized,
         repaid_per_debt,
         protocol_fee_per_collateral: fees,

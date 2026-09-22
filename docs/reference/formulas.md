@@ -234,20 +234,35 @@ bound; zero collateral also gives a zero base bonus.
 
 The configured curve ramps the base-to-maximum increment as health falls, then
 applies its BPS factor. The HF-preserving cap above limits the result. A cap
-below base bypasses the target formula and quotes full debt at base bonus.
-Only a nonnegative below-base cap rejects partial funding, with ceiling-USD
-valuation tolerance for a rounding-only shortfall.
+below base bypasses the target formula:
+
+```rust
+let quote = if cap < 0 { (min(D, floor(C * WAD / (WAD + base))), base) } // insolvent
+    else if cap < base { (D, cap) } // band: D <= C < D * (1 + base)
+    else { /* target formula at min(curve, cap) */ };
+```
+
+In the band the quote is the full debt at the cap, and any smaller payment is
+accepted. A partial repayment `x` seizes `x * (1 + cap)`, at most `x * C / D`,
+so `C / D` and the health factor do not fall; the BPS floor of the cap can
+raise them slightly.
 
 A negative cap marks an insolvent account, because `HF / p` reduces to `C / D`.
-`HF` floors and `p` rounds half-up, so an account at `C == D`, or a few raw WAD
-units above it, can also compute a cap of `-1` and take the insolvent fallback.
-This is deliberate and grants nothing: the plan is the same as for an account
-one raw WAD unit below cover.
+The quote is the repayment the collateral backs at the base bonus, floored, so
+an offer above it is trimmed and the liquidator never pays more than it seizes.
+The quote is not promoted to full debt; bad-debt cleanup takes the unbacked
+residue. `HF` floors and `p` rounds half-up, so an account at `C == D`, or a
+few raw WAD units above it, can also compute a cap of `-1` and take the
+insolvent arm. This is deliberate and grants nothing: the plan is the same as
+for an account one raw WAD unit below cover, because both quote from the same `C`.
 
 An ideal residual debt strictly between zero and $5 also promotes the quote to
 full debt, without requiring full funding. Inputs are capped at actual debt and
-trimmed before tokens are pulled. Neither a full-debt quote nor the target
-health factor guarantees an executed full close after rounding or under-delivery.
+trimmed before tokens are pulled. When the quote is the full debt, execution
+pulls each merged offered amount and the pool refunds what exceeds the debt at
+execution to the liquidator; otherwise it pulls the trimmed amount. Neither a
+full-debt quote nor the target health factor guarantees an executed full close
+after rounding or under-delivery.
 
 ### Seizure and fees
 

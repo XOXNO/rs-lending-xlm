@@ -12,7 +12,7 @@ immediately invoke the consuming contract:
 | Call | Authorized nested transfer |
 |---|---|
 | `supply`, `repay`, `recapitalize` | each asset: `self -> pool`, exact submitted amount |
-| `liquidate` | each debt asset: `self -> pool`, exact planned amount |
+| `liquidate` | each debt asset: `self -> pool`, exact offered amount when the quote is the whole debt, else exact planned amount |
 | `multiply` with initial payment | payment asset: `self -> controller`, exact amount |
 | router `execute_strategy` | input token: `self -> router`, exact amount |
 

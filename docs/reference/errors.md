@@ -82,7 +82,6 @@ SDK `try_` calls distinguish contract errors from host, authorization, storage, 
 | 132 `AssetDecimalsTooHigh` | Market decimals exceed 18, or a cap-rescale helper is given decimals above 27. | Use the supported market decimal domain. |
 | 133 `SelfLiquidationNotAllowed` | Credit receiver id equals the liquidated account id. | Choose another receiver; owner self-liquidation is otherwise allowed. |
 | 134 `InvalidLiquidationCurve` | `target_hf` is outside its allowed range, `hf_for_max_bonus` is not below the target, or the bonus factor is outside (0, BPS]. | Fix the curve bounds in the proposal. |
-| 135 `FullCloseRequired` | Partial repayment below ideal amount encounters the HF-preserving bonus cap. | Cover the required full close or revise liquidation size. |
 
 ### Oracle errors (201–235)
 
@@ -161,7 +160,7 @@ The following variants are declared but have no production construction in this 
 | Domain | Code / variant |
 | --- | --- |
 | Generic | 1 `AssetNotSupported`, 3 `InvalidTicker`, 11 `InvalidExchangeSrc`, 12 `PairNotActive` |
-| Collateral | 110 `PositionNotFound` |
+| Collateral | 110 `PositionNotFound`, 135 `FullCloseRequired` (liquidation accepts partial repayment in every band) |
 
 ### Price-status failures
 

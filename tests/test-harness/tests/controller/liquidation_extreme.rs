@@ -334,16 +334,16 @@ fn test_hf_spectrum_liquidations_bounded() {
         t.assert_liquidatable(ALICE);
 
         let coll_price = price as f64 / WAD as f64;
-        let (repay, expect_rejected_partial) = if price == usd(70) {
-            (7_100.0, true)
-        } else {
-            (500.0, false)
-        };
-        if expect_rejected_partial {
-            t.get_or_create_user(LIQUIDATOR);
-            let partial = t.try_liquidate(LIQUIDATOR, ALICE, "USD", 500.0);
-            assert_contract_error(partial, errors::FULL_CLOSE_REQUIRED);
+        let in_band = price == usd(70);
+        if in_band {
+            let coverage = t.total_collateral(ALICE) / t.total_debt(ALICE);
+            let (_c, _d, partial) = liquidate_measure(&mut t, "USD", 500.0, "VOL", coll_price);
+            assert!(
+                partial > 1.0 && partial <= coverage,
+                "a band partial pays at most the coverage {coverage:.5}, got {partial}"
+            );
         }
+        let repay = if in_band { 7_100.0 } else { 500.0 };
         let (_c, _d, ratio) = liquidate_measure(&mut t, "USD", repay, "VOL", coll_price);
         assert!(
             ratio > 1.0 && ratio <= 1.26,

@@ -10,8 +10,8 @@ use common::types::{
 use soroban_sdk::{panic_with_error, Env, Map, Vec};
 
 use super::curve::{
-    estimate_liquidation_amount, max_bonus_for_threshold, max_hf_preserving_bonus_bps, BonusBounds,
-    LiquidationCurve, LiquidationSnapshot,
+    estimate_liquidation_amount, max_bonus_for_threshold, BonusBounds, LiquidationCurve,
+    LiquidationSnapshot,
 };
 use crate::context::Context;
 use crate::payments;
@@ -24,6 +24,8 @@ pub(crate) struct NormalizedRepaymentPlan {
     pub refunds: Vec<PaymentTuple>,
     pub repay_usd: Wad,
     pub bonus: Bps,
+    /// The quote covers the account's whole debt.
+    pub full_close: bool,
 }
 
 impl NormalizedRepaymentPlan {
@@ -155,8 +157,7 @@ pub(crate) fn calculate_repayment_amounts(
 }
 
 /// Caps planned repayments at the ideal WAD USD amount and records unused inputs.
-/// A nonnegative HF-preserving bonus cap below the base requires full repayment;
-/// ceiling-rounded valuation tolerates a shortfall caused solely by rounding.
+/// A payment below the ideal is accepted as offered.
 pub(crate) fn normalize_repayment_plan(
     env: &Env,
     account: &Account,
@@ -172,17 +173,6 @@ pub(crate) fn normalize_repayment_plan(
 
     let (ideal_repayment_usd, bonus) = estimate_liquidation_amount(env, snap, bonus_bounds, curve);
 
-    // Revalue upward only when the full-close gate would otherwise reject a
-    // rounding-only shortfall.
-    let cap_forces_full_close = max_hf_preserving_bonus_bps(snap)
-        .is_some_and(|cap| (0..bonus_bounds.base.raw()).contains(&cap));
-    if total_debt_payment_usd < ideal_repayment_usd
-        && cap_forces_full_close
-        && sum_repaid_usd_ceil(env, &repaid_tokens) < ideal_repayment_usd
-    {
-        panic_with_error!(env, CollateralError::FullCloseRequired);
-    }
-
     let max_debt_to_repay_usd = total_debt_payment_usd.min(ideal_repayment_usd);
 
     let mut final_repayment_tokens = repaid_tokens;
@@ -197,6 +187,7 @@ pub(crate) fn normalize_repayment_plan(
         repaid: final_repayment_tokens,
         refunds,
         bonus,
+        full_close: ideal_repayment_usd >= snap.total_debt,
     }
 }
 
@@ -205,17 +196,6 @@ pub(crate) fn sum_repaid_usd(env: &Env, repaid_tokens: &Vec<RepayEntry>) -> Wad 
     let mut total = Wad::ZERO;
     for entry in repaid_tokens.iter() {
         total = total.checked_add(env, Wad::from(entry.usd_wad));
-    }
-    total
-}
-
-/// Revalues token amounts at their prices with upward rounding, in WAD USD.
-fn sum_repaid_usd_ceil(env: &Env, repaid_tokens: &Vec<RepayEntry>) -> Wad {
-    let mut total = Wad::ZERO;
-    for entry in repaid_tokens.iter() {
-        let value = Wad::from_token(env, entry.amount, entry.feed.asset_decimals)
-            .mul_ceil(env, Wad::from(entry.feed.price_wad));
-        total = total.checked_add(env, value);
     }
     total
 }

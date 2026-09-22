@@ -9,7 +9,7 @@ use crate::constants::{
 use crate::spec::fixture;
 use crate::types::{AccountPositionType, HubAssetKey};
 use common::math::fp::{Bps, Wad};
-use common::math::fp_core::{mul_div_floor, mul_div_half_up};
+use common::math::fp_core::{mul_div_ceil, mul_div_floor, mul_div_half_up};
 
 const MAX_DEBT_AMOUNT_RAW: i128 = 1_000_000_000_000;
 
@@ -360,8 +360,10 @@ fn estimate_leaves_no_sub_threshold_dust(
         &e, &snap, bounds, &curve,
     );
 
+    // The insolvent arm leaves unbacked debt for bad-debt cleanup, not dust.
+    let insolvent_arm = hf_wad * BPS / proportion_seized_wad < BPS;
     let remaining = total_debt_wad - ideal.raw();
-    cvlr_assert!(remaining == 0 || remaining >= BAD_DEBT_USD_THRESHOLD);
+    cvlr_assert!(remaining == 0 || remaining >= BAD_DEBT_USD_THRESHOLD || insolvent_arm);
 }
 
 #[rule]
@@ -443,9 +445,12 @@ fn liquidation_transition_sanity(
 //
 // These rules work at the plan-math level, on the same
 // `estimate_liquidation_amount` the plan calls, with prices and indexes held
-// fixed. Two steps suffice: `split_liq_bonus_never_ratchets_up_across_a_partial`
-// is the induction step, and with it the N-step chain telescopes onto the
-// first step's rate.
+// fixed. The cap is floored to a whole BPS, so a slice at the cap seizes a
+// little less than the neutral rate and the next quote can rise by that slack.
+// `split_liq_partial_at_the_cap_never_lowers_collateral_coverage` is the
+// induction step: the chain's seizure telescopes onto the first step's
+// coverage `C0 / D0`, which one close at the first rate undercuts by at most
+// one BPS of the repayment.
 
 /// An account's liquidation-relevant totals, all WAD except the bonus.
 #[derive(Clone, Copy)]
@@ -464,6 +469,7 @@ struct SplitQuote {
     ideal: i128,
     bonus_bps: i128,
     hf_wad: i128,
+    proportion_wad: i128,
 }
 
 /// Runs `estimate_liquidation_amount` over `book` exactly as
@@ -513,6 +519,7 @@ fn split_liq_quote(e: &Env, book: SplitBook) -> SplitQuote {
         ideal: ideal.raw(),
         bonus_bps: bonus.raw(),
         hf_wad,
+        proportion_wad,
     }
 }
 
@@ -550,11 +557,13 @@ fn split_liq_apply(e: &Env, book: SplitBook, repay: i128, bonus_bps: i128) -> (S
 }
 
 /// Two sequential partial liquidations never seize more collateral value than
-/// one liquidation repaying their sum.
+/// one liquidation repaying their sum, beyond the BPS floor of the first
+/// quote: at most two BPS of the summed repayment plus one raw unit.
 ///
 /// Both slices are assumed to fit inside their own step's ideal amount, which
 /// is what `normalize_repayment_plan` accepts whole; anything above it is capped
-/// or refunded, which only lowers the seizure.
+/// or refunded, which only lowers the seizure. The blended threshold is at
+/// least one BPS; below it the half-up proportion moves the cap on its own.
 #[rule]
 fn split_liq_two_partials_never_out_seize_one_close(
     e: Env,
@@ -573,6 +582,7 @@ fn split_liq_two_partials_never_out_seize_one_close(
         base_bps: base_bonus_bps,
     };
     let quote_0 = split_liq_quote(&e, book_0);
+    cvlr_assume!(quote_0.proportion_wad >= WAD / BPS);
 
     cvlr_assume!(repay_1 > 0);
     cvlr_assume!(repay_2 > 0);
@@ -585,17 +595,18 @@ fn split_liq_two_partials_never_out_seize_one_close(
 
     let one_close = split_liq_seizure(&e, repay_1 + repay_2, quote_0.bonus_bps);
 
-    cvlr_assert!(seize_1 + seize_2 <= one_close);
+    cvlr_assert!(seize_1 + seize_2 <= one_close + 2 * (repay_1 + repay_2) / BPS + 1);
 }
 
-/// The induction step: a partial liquidation never leaves the account priced at
-/// a better bonus than it was priced at going in.
+/// A partial can raise the next quote's bonus only by the BPS floor of its own
+/// quote: weighted by the debt left, the gain past one BPS stays within two
+/// BPS of the first repayment. After a 99% partial of a 90/100 book the bonus
+/// rises 1111 -> 1122 BPS, but only on the 1% of debt left.
 ///
-/// This is what makes the two-step bound generalize to N. Without the clamp the
-/// seizure outruns the health factor, the curve pays more at the lower health
-/// factor, and this fails on the second step.
+/// The blended threshold is at least one BPS; below it the half-up proportion
+/// moves the cap on its own.
 #[rule]
-fn split_liq_bonus_never_ratchets_up_across_a_partial(
+fn split_liq_bonus_gain_across_a_partial_stays_within_the_bps_floor(
     e: Env,
     total_debt_wad: i128,
     total_collateral_wad: i128,
@@ -611,22 +622,55 @@ fn split_liq_bonus_never_ratchets_up_across_a_partial(
         base_bps: base_bonus_bps,
     };
     let quote_0 = split_liq_quote(&e, book_0);
+    cvlr_assume!(quote_0.proportion_wad >= WAD / BPS);
     cvlr_assume!(repay_1 > 0 && repay_1 <= quote_0.ideal);
 
     let (book_1, _seize_1) = split_liq_apply(&e, book_0, repay_1, quote_0.bonus_bps);
     let quote_1 = split_liq_quote(&e, book_1);
 
-    cvlr_assert!(quote_1.bonus_bps <= quote_0.bonus_bps);
+    cvlr_assert!((quote_1.bonus_bps - quote_0.bonus_bps - 1) * book_1.debt <= 2 * (repay_1 + BPS));
+}
+
+/// A partial paid at the HF-preserving cap never lowers the collateral
+/// coverage `C / D` beyond rounding: the collateral left stays within
+/// `repay / 10^10 + 2` raw units of `C0 * D1 / D0`. The cap is the quoted bonus
+/// in the below-base band and wherever the curve out-asks it.
+#[rule]
+fn split_liq_partial_at_the_cap_never_lowers_collateral_coverage(
+    e: Env,
+    total_debt_wad: i128,
+    total_collateral_wad: i128,
+    weighted_collateral_wad: i128,
+    base_bonus_bps: i128,
+    repay_1: i128,
+) {
+    cvlr_assume!(base_bonus_bps > 0 && base_bonus_bps <= 500);
+    let book_0 = SplitBook {
+        debt: total_debt_wad,
+        collateral: total_collateral_wad,
+        weighted: weighted_collateral_wad,
+        base_bps: base_bonus_bps,
+    };
+    let quote_0 = split_liq_quote(&e, book_0);
+    cvlr_assume!(quote_0.proportion_wad >= WAD / BPS);
+    let cap_0 = quote_0.hf_wad * BPS / quote_0.proportion_wad - BPS;
+    cvlr_assume!(cap_0 >= 0 && quote_0.bonus_bps == cap_0);
+    cvlr_assume!(repay_1 > 0 && repay_1 <= quote_0.ideal);
+
+    let (book_1, _seize_1) = split_liq_apply(&e, book_0, repay_1, quote_0.bonus_bps);
+
+    let coverage_kept = mul_div_ceil(&e, book_0.collateral, book_1.debt, book_0.debt);
+    cvlr_assert!(book_1.collateral + repay_1 / 10_000_000_000 + 2 >= coverage_kept);
 }
 
 /// The never-recovering path: the same bound, restricted to chains whose health
 /// factor is strictly worse after the first slice.
 ///
 /// That branch is only reachable where the health-factor-preserving ceiling is
-/// already negative — an insolvent book, where the plan pays the base bonus and
-/// `normalize_repayment_plan` still admits a partial. The base bonus is a
-/// constant of the collateral mix, which pro-rata seizure preserves, so the
-/// chain stays exactly additive even while the health factor erodes.
+/// already negative — an insolvent book, where the plan pays the base bonus on
+/// at most `C / (1 + base)`. The base bonus is a constant of the collateral mix,
+/// which pro-rata seizure preserves, so the chain stays exactly additive even
+/// while the health factor erodes.
 #[rule]
 fn split_liq_chain_bound_holds_when_health_never_recovers(
     e: Env,

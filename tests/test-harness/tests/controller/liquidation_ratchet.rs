@@ -164,9 +164,13 @@ fn test_partial_chain_no_ratchet_spoke() {
     );
 }
 
+/// $8 100 of USDT (threshold 9500, bonus 200) against $8 000 of ETH: the
+/// HF-preserving cap (125 bps) is below the base bonus. A partial pays the cap,
+/// so it seizes at the account's own coverage and leaves that coverage intact;
+/// a full close still clears the debt.
 #[test]
-fn test_solvent_toxic_rejects_partial_and_accepts_full_close() {
-    use test_harness::{assert_contract_error, errors, usd_cents as cents};
+fn test_solvent_toxic_partial_pays_the_cap_and_keeps_coverage() {
+    use test_harness::usd_cents as cents;
 
     let mut t = LendingTest::new()
         .with_market(usdt_stable_preset())
@@ -179,20 +183,33 @@ fn test_solvent_toxic_rejects_partial_and_accepts_full_close() {
 
     t.set_price("USDT", cents(81));
     t.assert_liquidatable(ALICE);
+    let coverage =
+        |t: &LendingTest| t.total_collateral_raw(ALICE) as f64 / t.total_debt_raw(ALICE) as f64;
+    let coverage_before = coverage(&t);
 
-    let partial = t.try_liquidate(LIQUIDATOR, ALICE, "ETH", 0.5);
-    assert_contract_error(partial, errors::FULL_CLOSE_REQUIRED);
+    let (coll_usd, debt_usd) = liquidate_once(&mut t, "ETH", 0.5, "USDT", 0.81);
+    assert!(
+        coll_usd > debt_usd && coll_usd / debt_usd <= coverage_before,
+        "the partial pays at most the account's coverage {coverage_before:.6}: \
+         received ${coll_usd:.4} for ${debt_usd:.4}"
+    );
+    assert!(
+        coverage(&t) >= coverage_before,
+        "a band partial must not lower coverage: {coverage_before:.9} -> {:.9}",
+        coverage(&t)
+    );
 
     let liq_usdt_before = t.token_balance(LIQUIDATOR, "USDT");
     t.liquidate(LIQUIDATOR, ALICE, "ETH", 4.1);
-    assert!(
-        t.find_account_id(ALICE).is_none(),
-        "full close must clean up the emptied account"
+    assert_eq!(
+        t.borrow_balance_raw(ALICE, "ETH"),
+        0,
+        "the full close clears the debt"
     );
     let seized_usdt = t.token_balance(LIQUIDATOR, "USDT") - liq_usdt_before;
     assert!(
-        seized_usdt > 9_900.0,
-        "full close seizes ~all 10k USDT collateral, got {seized_usdt}"
+        seized_usdt * 0.81 > 3.5 * 2_000.0,
+        "the full close is profitable: seized {seized_usdt} USDT for 3.5 ETH"
     );
 }
 
