@@ -12,7 +12,8 @@ use test_harness::presets::{
     AssetConfigPreset, MarketPreset, DEFAULT_ASSET_CONFIG, DEFAULT_MARKET_PARAMS,
 };
 use test_harness::{
-    assert_contract_error, errors, hub_asset, LendingTest, ALICE, HARNESS_SPOKE, LIQUIDATOR,
+    assert_contract_error, errors, hub_asset, map_try_ok_value, LendingTest, ALICE, HARNESS_SPOKE,
+    LIQUIDATOR,
 };
 
 fn set_curve(t: &LendingTest, target_hf_wad: i128, hf_for_max_bonus_wad: i128, factor_bps: u32) {
@@ -645,6 +646,102 @@ fn test_full_close_of_ceiling_rounded_legs_credits_every_unit_pulled() {
         (seized_usd - owed_usd).abs() <= col_price / 10_000_000 + 1,
         "seizure ${seized_usd} must match the payment plus bonus ${owed_usd}"
     );
+}
+
+/// 1 000 COL against a $90 CHEAP debt and two EXP units at $10 each; the
+/// collateral is then priced at `col_price_wad`.
+fn insolvent_book_with_a_ten_dollar_unit(col_price_wad: i128) -> (LendingTest, u64) {
+    let mut t = LendingTest::new()
+        .with_market(asset("COL", 7, usd(1), 7500, 8000, 500, 1_000_000.0))
+        .with_market(asset("CHEAP", 7, usd(1), 7500, 8000, 500, 1_000_000.0))
+        .with_market(asset("EXP", 3, usd(10_000), 7500, 8000, 500, 100.0))
+        .with_min_borrow_collateral_disabled()
+        .build();
+    t.supply(ALICE, "COL", 1_000.0);
+    t.borrow(ALICE, "CHEAP", 90.0);
+    t.borrow(ALICE, "EXP", 0.002);
+    t.set_price("COL", col_price_wad);
+    let account_id = t.resolve_account_id(ALICE);
+    assert!(t.total_collateral_raw(ALICE) < t.total_debt_raw(ALICE));
+    (t, account_id)
+}
+
+/// $100 of collateral backs $95.24 at the 5% base bonus. Offered $90 of CHEAP
+/// and two $10 EXP units, the trim drops the EXP leg whole instead of keeping
+/// one unit above the backed quote: only CHEAP is pulled.
+#[test]
+fn test_insolvent_liquidation_pulls_only_the_leg_that_fits_the_backed_quote() {
+    let (mut t, account_id) = insolvent_book_with_a_ten_dollar_unit(usd(1) / 10);
+    let (cheap, exp) = (t.resolve_asset("CHEAP"), t.resolve_asset("EXP"));
+    let payments = vec![
+        &t.env,
+        (hub_asset(cheap.clone()), 90_0000000),
+        (hub_asset(exp.clone()), 2),
+    ];
+    let estimate =
+        t.ctrl_client()
+            .get_liquidation_estimate(&account_id, &payments, &SeizeMode::Transfer);
+    assert_eq!(estimate.max_payment_wad, 90 * WAD);
+    assert_eq!(estimate.refunds.len(), 1);
+    let refund = estimate.refunds.get(0).expect("EXP refund");
+    assert_eq!((refund.asset, refund.amount), (exp, 2));
+
+    let liquidator = t.get_or_create_user(LIQUIDATOR);
+    t.resolve_market("CHEAP")
+        .token_admin
+        .mint(&liquidator, &90_0000000);
+    t.resolve_market("EXP").token_admin.mint(&liquidator, &2);
+    let col_before = t.token_balance_raw(LIQUIDATOR, "COL");
+    t.ctrl_client()
+        .liquidate(&liquidator, &account_id, &payments, &SeizeMode::Transfer);
+
+    assert_eq!(
+        t.token_balance_raw(LIQUIDATOR, "CHEAP"),
+        0,
+        "CHEAP is pulled"
+    );
+    assert_eq!(
+        t.token_balance_raw(LIQUIDATOR, "EXP"),
+        2,
+        "EXP is not pulled"
+    );
+    assert_eq!(t.borrow_balance_raw(ALICE, "CHEAP"), 0);
+    assert_eq!(t.borrow_balance_raw(ALICE, "EXP"), 2);
+    let seized = estimate.seized_collaterals.get(0).expect("COL leg").amount;
+    let fee = estimate.protocol_fees.get(0).expect("COL fee").amount;
+    assert_eq!(
+        t.token_balance_raw(LIQUIDATOR, "COL") - col_before,
+        seized - fee
+    );
+    assert_eq!(seized, 945_0000000, "$90 * 1.05 of COL at $0.10");
+}
+
+/// $9 of collateral backs $8.57, less than one $10 EXP unit: the estimate
+/// keeps no repayment and refunds the whole offer, and execution reverts.
+#[test]
+fn test_insolvent_liquidation_reverts_when_no_debt_unit_fits_the_backed_quote() {
+    let (mut t, account_id) = insolvent_book_with_a_ten_dollar_unit(usd(9) / 1_000);
+    let exp = t.resolve_asset("EXP");
+    let payments = vec![&t.env, (hub_asset(exp.clone()), 2)];
+    let estimate =
+        t.ctrl_client()
+            .get_liquidation_estimate(&account_id, &payments, &SeizeMode::Transfer);
+    assert_eq!(estimate.max_payment_wad, 0);
+    assert!(estimate.seized_collaterals.is_empty());
+    let refund = estimate.refunds.get(0).expect("EXP refund");
+    assert_eq!((refund.asset, refund.amount), (exp, 2));
+
+    let liquidator = t.get_or_create_user(LIQUIDATOR);
+    t.resolve_market("EXP").token_admin.mint(&liquidator, &2);
+    let result = map_try_ok_value(t.ctrl_client().try_liquidate(
+        &liquidator,
+        &account_id,
+        &payments,
+        &SeizeMode::Transfer,
+    ));
+    assert_contract_error(result, errors::INVALID_PAYMENTS);
+    assert_eq!(t.token_balance_raw(LIQUIDATOR, "EXP"), 2);
+    assert_eq!(t.borrow_balance_raw(ALICE, "EXP"), 2);
 }
 
 #[test]

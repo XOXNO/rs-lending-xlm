@@ -249,8 +249,12 @@ raise them slightly.
 
 Insolvency is the exact unweighted comparison `C < D`. The quote is the
 repayment the collateral backs at the base bonus, floored, so an offer above it
-is trimmed and the liquidator never pays more than it seizes. The quote is not
-promoted to full debt; bad-debt cleanup takes the unbacked residue. `HF / p`
+is trimmed and the liquidator never pays more than it seizes. On an insolvent
+account the trim rounds each kept leg down to whole token units, so the kept
+value never exceeds the quote. A leg whose kept amount rounds to zero is
+dropped and its whole offer refunded; if no leg remains, `liquidate` reverts
+with `InvalidPayments` (16) and the estimate shows a zero payment. The quote is
+not promoted to full debt; bad-debt cleanup takes the unbacked residue. `HF / p`
 approximates `C / D`, but `HF` floors and `p` rounds half-up, so an account at
 `C == D`, or a few raw WAD units above it, can compute a cap of `-1`. Such a
 covered account takes the band quote with the cap clamped to zero: a full close
@@ -259,8 +263,9 @@ seizes exactly `C` for `D` and leaves nothing to socialize.
 An ideal residual debt strictly between zero and $5 also promotes the quote to
 full debt, without requiring full funding. Each input is capped at its leg's
 ceiling-rounded debt, and the excess is listed as a refund. A partial quote
-also trims the inputs above the quote before tokens are pulled, and execution
-pulls the trimmed amount. A full-debt quote trims nothing: the per-leg
+also trims the inputs above the quote from the last leg backward before tokens
+are pulled, and execution pulls the trimmed amount. On a solvent account the
+trim floors the refund, so the kept amount can round up by one token unit. A full-debt quote trims nothing: the per-leg
 ceilings can exceed `D` by unit rounding, and the repayment credits every unit
 of them. Execution then pulls each merged offered amount and the pool refunds
 what exceeds each leg's debt, which is exactly the listed refund. Neither a

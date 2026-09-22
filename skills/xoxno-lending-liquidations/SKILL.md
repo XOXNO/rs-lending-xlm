@@ -103,8 +103,12 @@ liquidator must hold the full offered amount.
 
 **Insolvent accounts are capped at what the collateral backs.** When collateral
 is below debt, the quote is `floor(C / (1 + base))` at the base bonus. A larger
-offer is trimmed, and because the trimmed amount is what the controller pulls,
-a transfer signed for more fails authorization instead of paying for collateral
+offer is trimmed from the last leg backward, each kept leg rounded down to whole
+token units, so the payment never exceeds the quote. A leg whose kept amount
+rounds to zero is dropped and refunded whole; when no leg remains the estimate
+shows a zero payment and `liquidate` reverts with `InvalidPayments`
+(`controller #16`). Because the trimmed amount is what the controller pulls, a
+transfer signed for more fails authorization instead of paying for collateral
 that is no longer there. Re-simulate after every competing liquidation.
 
 Perform every controller/token read first. Then offer exactly the accepted

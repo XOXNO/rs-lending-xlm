@@ -289,10 +289,15 @@ fn test_liquidation_estimations_basic() {
         seized - fee,
         "the liquidator must receive exactly the estimated seizure net of the fee"
     );
-    assert_eq!(
-        collateral_before - t.supply_balance_raw(ALICE, "USDC"),
-        seized,
-        "the borrower must lose exactly the estimated gross seizure"
+    let residue = collateral_before - seized;
+    assert!(
+        residue > 0 && residue <= 4_200,
+        "the repayment rounds down by under one ETH unit, so under one unit of \
+         seizure stays with the account: {residue}"
+    );
+    assert!(
+        t.find_account_id(ALICE).is_none(),
+        "bad-debt cleanup takes the sub-$5 residue and removes the account"
     );
 }
 #[test]

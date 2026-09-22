@@ -20,7 +20,7 @@ SDK `try_` calls distinguish contract errors from host, authorization, storage, 
 | 10 `InvalidWasmHash` | The supplied Wasm hash is all zero bytes. | Pass the hash of an uploaded Wasm. |
 | 13 `AccountNotInMarket` | Account metadata is missing or caller fails the explicit NFT-owner check. | Use a live account; owner must authorize renewal/delegate writes. |
 | 14 `AmountMustBePositive` | Negative input, forbidden zero, or nonpositive measured receipt. Withdrawal zero and zero flash collateral minima are allowed exceptions. | Use valid amounts and a token that delivers funds. |
-| 16 `InvalidPayments` | Required list/route empty, forbidden route nonempty, input bound exceeded, duplicate/overlapping flash declarations. Empty flash collateral list reaches this code. | Correct request shape and declared asset sets. |
+| 16 `InvalidPayments` | Required list/route empty, forbidden route nonempty, input bound exceeded, duplicate/overlapping flash declarations. Empty flash collateral list reaches this code, as does a liquidation whose trimmed plan keeps no repayment leg. | Correct request shape and declared asset sets. |
 | 18 `NotSmartContract` | The supplied address is not a deployed contract. | Pass a contract address, not an account. |
 | 24 `AccountNotFound` | Required account or its NFT owner cannot be resolved; account id exceeds NFT u32 domain. | Use a live valid id. Some views return empty/zero instead. |
 | 25 `AccountModeMismatch` | The account's position mode differs from the mode the call requires, or a liquidation receiver is not in normal mode. | Use an account in the matching mode. |

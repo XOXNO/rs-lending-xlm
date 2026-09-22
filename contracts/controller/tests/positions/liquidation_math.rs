@@ -372,7 +372,7 @@ fn process_excess_payment_zero_excess_is_noop() {
     repaid.push_back(repay_entry(&env, stroops(100), 100 * WAD));
     let mut refunds = Vec::new(&env);
 
-    process_excess_payment(&env, &mut repaid, &mut refunds, Wad::ZERO);
+    process_excess_payment(&env, &mut repaid, &mut refunds, Wad::ZERO, false);
 
     assert_eq!(refunds.len(), 0);
     assert_eq!(repaid.len(), 1);
@@ -387,7 +387,7 @@ fn process_excess_payment_boundary_leg_is_removed() {
     repaid.push_back(repay_entry(&env, stroops(5), 5 * WAD));
     let mut refunds = Vec::new(&env);
 
-    process_excess_payment(&env, &mut repaid, &mut refunds, Wad::from(5 * WAD));
+    process_excess_payment(&env, &mut repaid, &mut refunds, Wad::from(5 * WAD), false);
 
     assert_eq!(repaid.len(), 1, "the exactly-consumed leg must be removed");
     assert_eq!(repaid.get_unchecked(0).amount, stroops(10));
@@ -402,7 +402,7 @@ fn process_excess_payment_survives_exhausting_all_legs() {
     repaid.push_back(repay_entry(&env, stroops(10), 5 * WAD));
     let mut refunds = Vec::new(&env);
 
-    process_excess_payment(&env, &mut repaid, &mut refunds, Wad::from(8 * WAD));
+    process_excess_payment(&env, &mut repaid, &mut refunds, Wad::from(8 * WAD), false);
 
     assert_eq!(repaid.len(), 0);
     assert_eq!(refunds.len(), 1);
@@ -417,7 +417,7 @@ fn process_excess_payment_spans_legs_with_pro_rata_split() {
     repaid.push_back(repay_entry(&env, stroops(40), 40 * WAD));
     let mut refunds = Vec::new(&env);
 
-    process_excess_payment(&env, &mut repaid, &mut refunds, Wad::from(60 * WAD));
+    process_excess_payment(&env, &mut repaid, &mut refunds, Wad::from(60 * WAD), false);
 
     assert_eq!(refunds.len(), 2);
     assert_eq!(refunds.get_unchecked(0).amount, stroops(40));
@@ -627,7 +627,7 @@ fn racing_insolvent_liquidations_never_repay_more_than_the_collateral_backs() {
         );
         let backed = coll * 10_000 / (10_000 + i128::from(SPLIT_BONUS_BPS));
         assert!(
-            out.repaid <= backed + 1,
+            out.repaid <= backed,
             "step {step}: repaid {} above the backed {backed}",
             out.repaid
         );
@@ -637,7 +637,10 @@ fn racing_insolvent_liquidations_never_repay_more_than_the_collateral_backs() {
             assert_eq!(out.repaid, offer, "step {step} is fully backed");
         } else {
             assert!(out.repaid < offer, "the last offer is capped");
-            assert_eq!(coll, 0, "the last step takes the remaining collateral");
+            assert!(
+                coll <= 1,
+                "the last step takes all but one unit of the collateral, left {coll}"
+            );
         }
     }
     assert!(
@@ -719,6 +722,125 @@ fn a_full_close_plan_credits_every_legs_ceiling_without_a_trim_refund() {
             "every ceiling unit is credited"
         );
     });
+}
+
+/// Normalizes `(price_wad, decimals, debt_units, offer_units)` legs against an
+/// insolvent snapshot with collateral `collateral` and debt `debt` (WAD USD).
+fn plan_on_insolvent_book(
+    env: &Env,
+    legs: &[(i128, u32, i128, i128)],
+    collateral: i128,
+    debt: i128,
+) -> (Vec<HubAssetKey>, NormalizedRepaymentPlan) {
+    let contract = env.register(crate::Controller, (Address::generate(env),));
+    let mut keys = Vec::new(env);
+    let mut prices = Map::new(env);
+    let mut borrow_positions = Map::new(env);
+    let mut payments = Vec::new(env);
+    for &(price_wad, asset_decimals, debt_units, offer_units) in legs {
+        let key = hub_key(env);
+        prices.set(
+            key.asset.clone(),
+            PriceFeedRaw {
+                price_wad,
+                asset_decimals,
+                timestamp: 0,
+            },
+        );
+        borrow_positions.set(
+            key.clone(),
+            DebtPositionRaw {
+                scaled_amount: Ray::from_asset(env, debt_units, asset_decimals).raw(),
+            },
+        );
+        payments.push_back((key.clone(), offer_units));
+        keys.push_back(key);
+    }
+    let account = Account {
+        borrow_positions,
+        ..empty_account(env)
+    };
+    let weighted = collateral * 8 / 10;
+    let s = snap(
+        debt,
+        collateral,
+        weighted,
+        8 * WAD / 10,
+        weighted * WAD / debt,
+    );
+    assert!(
+        s.total_collateral < s.total_debt,
+        "the book must be insolvent"
+    );
+    let plan = env.as_contract(&contract, || {
+        let mut cache = Context::new_view(env);
+        cache.set_prices(prices);
+        for key in keys.iter() {
+            cache.put_market_index(&key, &index_raw());
+        }
+        let bounds = BonusBounds {
+            base: Bps::from(500i128),
+            max: max_bonus_for_threshold(env, s.proportion_seized),
+        };
+        let curve = LiquidationCurve::from_config(&default_spoke_config());
+        normalize_repayment_plan(env, &account, &payments, &s, bounds, &curve, &mut cache)
+    });
+    (keys, plan)
+}
+
+/// $100 of collateral backs `floor(100 / 1.05)` = $95.238 at the base bonus.
+/// A $3 unit offered 50 times is trimmed to 31 units ($93), not rounded up to
+/// 32 units ($96) above the backed quote.
+#[test]
+fn an_insolvent_trim_keeps_no_more_than_the_backed_quote_after_unit_rounding() {
+    let env = Env::default();
+    let (_, plan) =
+        plan_on_insolvent_book(&env, &[(3_000 * WAD, 3, 100, 50)], 100 * WAD, 300 * WAD);
+
+    assert!(!plan.full_close);
+    assert_eq!(plan.bonus.raw(), 500);
+    assert_eq!(plan.repaid.get_unchecked(0).amount, 31);
+    assert_eq!(plan.repay_usd.raw(), 93 * WAD);
+    assert!(plan.repay_usd.raw() <= 95_238_095_238_095_238_095);
+    assert_eq!(plan.refunds.get_unchecked(0).amount, 19);
+}
+
+/// $10 of collateral backs $9.52, less than one $10 unit: the leg keeps
+/// nothing, its whole offer is refunded and no repayment leg remains.
+#[test]
+fn an_insolvent_trim_drops_a_leg_whose_smallest_unit_exceeds_the_backed_quote() {
+    let env = Env::default();
+    let (keys, plan) = plan_on_insolvent_book(&env, &[(10_000 * WAD, 3, 5, 2)], 10 * WAD, 50 * WAD);
+
+    assert!(plan.repaid.is_empty(), "no leg fits the backed quote");
+    assert_eq!(plan.repay_usd, Wad::ZERO);
+    assert_eq!(plan.refunds.len(), 1);
+    let refund = plan.refunds.get_unchecked(0);
+    assert_eq!(refund.asset, keys.get_unchecked(0).asset);
+    assert_eq!(refund.amount, 2, "the whole offer is refunded");
+}
+
+/// A $1 leg and a $10-per-unit leg against a $9.52 backed quote: the trim
+/// starts from the last leg, drops the $10 leg whole and keeps the $5 leg.
+#[test]
+fn an_insolvent_trim_keeps_only_the_legs_that_fit_the_backed_quote() {
+    let env = Env::default();
+    let (keys, plan) = plan_on_insolvent_book(
+        &env,
+        &[(WAD, 7, 100_0000000, 5_0000000), (10_000 * WAD, 3, 5, 2)],
+        10 * WAD,
+        150 * WAD,
+    );
+
+    assert_eq!(plan.repaid.len(), 1);
+    let kept = plan.repaid.get_unchecked(0);
+    assert_eq!(kept.hub_asset, keys.get_unchecked(0));
+    assert_eq!(kept.amount, 5_0000000);
+    assert_eq!(plan.repay_usd.raw(), 5 * WAD);
+    assert_eq!(plan.refunds.len(), 1);
+    let refund = plan.refunds.get_unchecked(0);
+    assert_eq!(refund.asset, keys.get_unchecked(1).asset);
+    assert_eq!(refund.amount, 2);
 }
 
 #[test]

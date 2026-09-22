@@ -392,6 +392,38 @@ fn estimate_liquidation_amount(
     (ideal, bonus)
 }
 
+/// Trims `excess` from the last leg backward, rounding each kept amount down to
+/// whole token units, and returns the USD value kept.
+fn kept_within_quote_usd(
+    debt: &[RefDebtPosition],
+    legs: &[(u32, BigRational, u32)],
+    excess: &BigRational,
+) -> BigRational {
+    let mut remaining = excess.clone();
+    let mut kept = br_zero();
+    for (asset_id, tokens, decimals) in legs.iter().rev() {
+        let price = &debt
+            .iter()
+            .find(|d| d.asset_id == *asset_id)
+            .expect("debt payment references unknown asset_id")
+            .price_wad;
+        let to_usd =
+            |tokens: &BigRational| tokens * br_ten_pow(18 - decimals) * price / wad_scale();
+        let usd = to_usd(tokens);
+        if !remaining.is_positive() {
+            kept += usd;
+        } else if usd <= remaining {
+            remaining -= usd;
+        } else {
+            let kept_tokens =
+                ((&usd - &remaining) * wad_scale() / price / br_ten_pow(18 - decimals)).floor();
+            kept += to_usd(&kept_tokens);
+            remaining = br_zero();
+        }
+    }
+    kept
+}
+
 pub fn compute_liquidation(
     collateral: &[RefCollateralPosition],
     debt: &[RefDebtPosition],
@@ -453,6 +485,12 @@ pub fn compute_liquidation(
     let final_repayment_usd =
         if total_payment_usd < ideal_repayment || ideal_repayment >= total_debt {
             total_payment_usd.clone()
+        } else if total_coll < total_debt {
+            kept_within_quote_usd(
+                debt,
+                &per_debt_payments_usd,
+                &(&total_payment_usd - &ideal_repayment),
+            )
         } else {
             ideal_repayment
         };
