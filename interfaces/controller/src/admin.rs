@@ -48,6 +48,16 @@ pub trait ControllerAdmin {
         no_seize: bool,
     );
 
+    fn relax_spoke_asset_flags(
+        env: Env,
+        spoke_id: u32,
+        hub_asset: HubAssetKey,
+        expected_epoch: u64,
+        paused: bool,
+        frozen: bool,
+        no_seize: bool,
+    );
+
     fn remove_asset_from_spoke(env: Env, hub_asset: HubAssetKey, spoke_id: u32);
 
     fn deploy_pool(env: Env, wasm_hash: BytesN<32>) -> Address;

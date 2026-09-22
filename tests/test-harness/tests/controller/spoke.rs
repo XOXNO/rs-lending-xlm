@@ -1078,30 +1078,9 @@ fn test_edit_asset_in_spoke_rejects_liquidation_fees_above_bps() {
     }
 }
 
-fn set_spoke_asset_flags(
-    t: &LendingTest,
-    spoke_id: u32,
-    asset_name: &str,
-    paused: bool,
-    frozen: bool,
-) {
-    let config = t.get_asset_config(asset_name);
-    t.ctrl_client().edit_asset_in_spoke(&SpokeAssetArgs {
-        hub_id: HARNESS_HUB,
-        asset: t.resolve_asset(asset_name),
-        spoke_id,
-        can_collateral: config.is_collateralizable,
-        can_borrow: config.is_borrowable,
-        paused,
-        frozen,
-        no_seize: config.no_seize,
-        ltv: config.loan_to_value,
-        threshold: config.liquidation_threshold,
-        bonus: config.liquidation_bonus,
-        liquidation_fees: config.liquidation_fees,
-        supply_cap: config.supply_cap,
-        borrow_cap: config.borrow_cap,
-    });
+fn set_spoke_asset_flags(t: &LendingTest, asset_name: &str, paused: bool, frozen: bool) {
+    let no_seize = t.get_asset_config(asset_name).no_seize;
+    t.relax_spoke_asset_flags(asset_name, paused, frozen, no_seize);
 }
 
 #[test]
@@ -1110,7 +1089,7 @@ fn test_paused_spoke_asset_blocks_supply_and_withdraw() {
 
     t.supply(ALICE, "USDC", 1_000.0);
 
-    set_spoke_asset_flags(&t, HARNESS_SPOKE, "USDC", true, false);
+    set_spoke_asset_flags(&t, "USDC", true, false);
 
     assert_contract_error(t.try_supply(ALICE, "USDC", 1.0), errors::SPOKE_ASSET_PAUSED);
     assert_contract_error(
@@ -1118,7 +1097,7 @@ fn test_paused_spoke_asset_blocks_supply_and_withdraw() {
         errors::SPOKE_ASSET_PAUSED,
     );
 
-    set_spoke_asset_flags(&t, HARNESS_SPOKE, "USDC", false, false);
+    set_spoke_asset_flags(&t, "USDC", false, false);
     let supply_before = t.supply_balance_raw(ALICE, "USDC");
     assert!(
         t.try_supply(ALICE, "USDC", 1.0).is_ok(),
@@ -1137,7 +1116,7 @@ fn test_frozen_spoke_asset_blocks_entries_but_allows_exit() {
 
     t.supply(ALICE, "USDC", 1_000.0);
 
-    set_spoke_asset_flags(&t, HARNESS_SPOKE, "USDC", false, true);
+    set_spoke_asset_flags(&t, "USDC", false, true);
 
     assert_contract_error(t.try_supply(ALICE, "USDC", 1.0), errors::SPOKE_ASSET_FROZEN);
     assert!(

@@ -11,7 +11,8 @@ extern crate std;
 use super::*;
 
 use crate::test_support::register_governance;
-use common::types::{IndependencePolicy, OracleTolerance};
+use common::types::{HubAssetKey, IndependencePolicy, OracleTolerance};
+use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{symbol_short, BytesN, String as SorobanString};
 
 /// A governance instance with a native controller registered, plus that
@@ -146,6 +147,59 @@ fn force_socialize_bad_debt_resolves_to_controller_with_sensitive_delay() {
     // Writing off debt against the protocol's reserves must not be reachable
     // on the Standard delay.
     assert_eq!(resolved.delay_tier, DelayTier::Sensitive);
+}
+
+fn relax_args(env: &Env, expected_epoch: u64) -> RelaxSpokeAssetFlagsArgs {
+    RelaxSpokeAssetFlagsArgs {
+        spoke_id: 1,
+        hub_asset: HubAssetKey {
+            hub_id: 0,
+            asset: Address::generate(env),
+        },
+        expected_epoch,
+        paused: false,
+        frozen: true,
+        no_seize: false,
+    }
+}
+
+#[test]
+fn relax_spoke_asset_flags_resolves_to_controller_with_standard_delay() {
+    let env = Env::default();
+    let (gov_id, controller_id) = gov_with_controller(&env);
+    let args = relax_args(&env, 0);
+    let op = AdminOperation::RelaxSpokeAssetFlags(args.clone());
+
+    let resolved = env.as_contract(&gov_id, || resolve_op(&env, &op));
+
+    assert_eq!(resolved.target, controller_id);
+    assert_eq!(
+        resolved.function,
+        Symbol::new(&env, "relax_spoke_asset_flags")
+    );
+    assert_eq!(
+        resolved.args,
+        vec![
+            &env,
+            args.spoke_id.into_val(&env),
+            args.hub_asset.into_val(&env),
+            args.expected_epoch.into_val(&env),
+            args.paused.into_val(&env),
+            args.frozen.into_val(&env),
+            args.no_seize.into_val(&env),
+        ]
+    );
+    assert_eq!(resolved.delay_tier, DelayTier::Standard);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #319)")]
+fn relax_spoke_asset_flags_rejects_a_stale_epoch_at_proposal() {
+    let env = Env::default();
+    let (gov_id, _controller_id) = gov_with_controller(&env);
+    let op = AdminOperation::RelaxSpokeAssetFlags(relax_args(&env, 1));
+
+    env.as_contract(&gov_id, || resolve_op(&env, &op));
 }
 
 #[test]
