@@ -3304,19 +3304,8 @@ merge_relaxed_flags() {
             no_seize: (.no_seize and ($c | index("no_seize") == null)) }'
 }
 
-relax_asset_flags() {
-    local category_id=$1 asset_name=$2 config_category_id=$3 cleared=$4
-    local ctrl asset_address hub_id hub_asset live_listing epoch flags
-    ctrl=$(get_controller)
-    asset_address=$(get_market_value "$asset_name" "asset_address")
-    hub_id=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".hub_id")
-    if [ -z "$hub_id" ] || [ "$hub_id" = "null" ]; then
-        die "spoke asset ${asset_name} (category ${config_category_id}) missing hub_id in ${SPOKES_FILE}"
-    fi
-    hub_asset=$(jq -nc --argjson h "$hub_id" --arg a "$asset_address" '{hub_id:$h, asset:$a}')
-    live_listing=$(stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" --send=no \
-        -- get_spoke_asset --spoke_id "$category_id" --hub_asset "$hub_asset" 2>/dev/null | tail -n1) \
-        || die "cannot read the live listing of ${asset_name} in on-chain spoke ${category_id}"
+read_spoke_flags_epoch() {
+    local ctrl=$1 category_id=$2 hub_asset=$3 asset_name=$4 epoch
     epoch=$(stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" --send=no \
         -- get_spoke_asset_flags_epoch --spoke_id "$category_id" --hub_asset "$hub_asset" 2>/dev/null | tail -n1) \
         || die "cannot read the flags epoch of ${asset_name} in on-chain spoke ${category_id}"
@@ -3324,6 +3313,26 @@ relax_asset_flags() {
     case "$epoch" in
         ''|*[!0-9]*) die "flags epoch of ${asset_name} is not a number: '${epoch}'" ;;
     esac
+    echo "$epoch"
+}
+
+relax_asset_flags() {
+    local category_id=$1 asset_name=$2 config_category_id=$3 cleared=$4
+    local ctrl asset_address hub_id hub_asset live_listing epoch epoch_after flags
+    ctrl=$(get_controller)
+    asset_address=$(get_market_value "$asset_name" "asset_address")
+    hub_id=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".hub_id")
+    if [ -z "$hub_id" ] || [ "$hub_id" = "null" ]; then
+        die "spoke asset ${asset_name} (category ${config_category_id}) missing hub_id in ${SPOKES_FILE}"
+    fi
+    hub_asset=$(jq -nc --argjson h "$hub_id" --arg a "$asset_address" '{hub_id:$h, asset:$a}')
+    epoch=$(read_spoke_flags_epoch "$ctrl" "$category_id" "$hub_asset" "$asset_name") || exit 1
+    live_listing=$(stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" --send=no \
+        -- get_spoke_asset --spoke_id "$category_id" --hub_asset "$hub_asset" 2>/dev/null | tail -n1) \
+        || die "cannot read the live listing of ${asset_name} in on-chain spoke ${category_id}"
+    epoch_after=$(read_spoke_flags_epoch "$ctrl" "$category_id" "$hub_asset" "$asset_name") || exit 1
+    [ "$epoch" = "$epoch_after" ] \
+        || die "${asset_name}: flags changed while reading (epoch ${epoch} then ${epoch_after}); retry"
     flags=$(merge_relaxed_flags "$live_listing" "$cleared") \
         || die "cannot compute flags for ${asset_name}: bad flag list '${cleared}', a flag that is not set, or an unreadable listing"
 

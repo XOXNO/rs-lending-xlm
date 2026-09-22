@@ -88,8 +88,9 @@ get_controller() { echo CCTRL; }
 get_market_value() { echo CASSET; }
 stellar() {
     case "\$*" in
-        *"--send=no -- get_spoke_asset --spoke_id 4 "*) echo '$LIVE_ALL' ;;
-        *"--send=no -- get_spoke_asset_flags_epoch --spoke_id 4 "*) echo 7 ;;
+        *"--send=no -- get_spoke_asset --spoke_id 4 "*) echo listing >> '$tmp/calls'; echo '$LIVE_ALL' ;;
+        *"--send=no -- get_spoke_asset_flags_epoch --spoke_id 4 "*)
+            echo epoch >> '$tmp/calls'; sed -n 1p '$tmp/epochs'; sed -i.bak 1d '$tmp/epochs' ;;
         *) echo "unexpected stellar call: \$*" >&2; return 1 ;;
     esac
 }
@@ -98,12 +99,21 @@ schedule_and_maybe_execute() { [ "\$1" = OPID ]; }
 $(extract scval_hub_asset)
 $(extract admin_op)
 $(extract gen_salt)
+$(extract read_spoke_flags_epoch)
 $(extract relax_asset_flags)
 EOF
+run_relax() {
+    printf '%s\n' $1 > "$tmp/epochs"
+    : > "$tmp/calls"
+    rm -f "$tmp/proposed"
+    bash -c "source '$tmp/relax.sh'; relax_asset_flags 4 XLM 5 $2"
+}
 expect_relax() {
     local cleared=$1 p=$2 f=$3 n=$4 got
-    bash -c "source '$tmp/relax.sh'; relax_asset_flags 4 XLM 5 $cleared" 2>/dev/null \
+    run_relax "7 7" "$cleared" 2>/dev/null \
         || fail "relax_asset_flags $cleared failed against a stubbed live listing"
+    [ "$(tr '\n' ' ' < "$tmp/calls")" = "epoch listing epoch " ] \
+        || fail "relax must read the epoch before and after the listing, read '$(tr '\n' ' ' < "$tmp/calls")'"
     [ "$(sed -n 1p "$tmp/proposed")" = relax_spoke_asset_flags ] || fail "relax must schedule relax_spoke_asset_flags"
     got=$(sed -n 2p "$tmp/proposed")
     [ "$got" = "{\"RelaxSpokeAssetFlags\":{\"spoke_id\":4,\"hub_asset\":{\"hub_id\":1,\"asset\":\"CASSET\"},\"expected_epoch\":7,\"paused\":$p,\"frozen\":$f,\"no_seize\":$n}}" ] \
@@ -115,9 +125,14 @@ expect_relax() {
 expect_relax frozen true false true
 expect_relax paused false true true
 expect_relax frozen,no_seize true false false
-if bash -c "source '$tmp/relax.sh'; relax_asset_flags 4 XLM 5 bogus" >/dev/null 2>&1; then
+if run_relax "7 7" bogus >/dev/null 2>&1; then
     fail "relax_asset_flags must refuse an unknown flag"
 fi
+if race=$(run_relax "7 8" frozen 2>&1); then
+    fail "relax_asset_flags must stop when the flags epoch moves during its reads"
+fi
+[ ! -e "$tmp/proposed" ] || fail "relax_asset_flags scheduled an operation although the flags epoch moved"
+grep -q "flags changed while reading" <<<"$race" || fail "a moved flags epoch must say the flags changed: '$race'"
 
 expect "persist_spoke_id 9 8 && jq -r '.mainnet.spoke_ids[\"9\"]' '$tmp/networks.json'" 8
 # An op id (AUTO_EXECUTE=0) must stop the caller, also inside $(...), where errexit is off.
