@@ -15,24 +15,26 @@ use stellar_governance::timelock::{
 
 use crate::access::{self, CANCELLER_ROLE, PROPOSER_ROLE};
 use crate::op::apply_self_op;
+use crate::op::AdminOperation;
 use crate::storage;
 use crate::timelock::*;
 
 /// Schedules `op` for later execution and returns its operation id; requires the
 /// caller to hold `PROPOSER_ROLE`. For a `RevokeGovRole` operation, rejects the
 /// proposer targeting themselves or the owner and records the target account so
-/// it cannot later cancel its own revocation; for `TransferGovOwnership` and
-/// `TransferCtrlOwnership`, requires the proposer to be the current owner. The operation's delay is derived from the
-/// resolved operation's delay tier.
+/// it cannot later cancel its own revocation; for ownership transfers, code
+/// upgrades, price and swap sources, Blend approval, the revenue accumulator,
+/// and role grants, requires the proposer to be the current owner. The
+/// operation's delay is derived from the resolved operation's delay tier.
 pub(crate) fn propose(
     env: &Env,
     proposer: &Address,
-    op: &crate::op::AdminOperation,
+    op: &AdminOperation,
     salt: BytesN<32>,
 ) -> BytesN<32> {
     begin_immediate(env, proposer, PROPOSER_ROLE);
     match op {
-        crate::op::AdminOperation::RevokeGovRole(args) => {
+        AdminOperation::RevokeGovRole(args) => {
             assert_with_error!(env, &args.account != proposer, GenericError::NotAuthorized);
             assert_with_error!(
                 env,
@@ -40,8 +42,21 @@ pub(crate) fn propose(
                 GenericError::NotAuthorized
             );
         }
-        crate::op::AdminOperation::TransferGovOwnership(_)
-        | crate::op::AdminOperation::TransferCtrlOwnership(_) => {
+        AdminOperation::TransferGovOwnership(_)
+        | AdminOperation::TransferCtrlOwnership(_)
+        | AdminOperation::UpgradeGov(_)
+        | AdminOperation::UpgradeController(_)
+        | AdminOperation::UpgradePool(_)
+        | AdminOperation::UpgradePositionNft(_)
+        | AdminOperation::UpgradePriceAggregator(_)
+        | AdminOperation::MigrateController(_)
+        | AdminOperation::SetPriceAggregator(_)
+        | AdminOperation::ConfigureAssetOracle(_)
+        | AdminOperation::EditOracleTolerance(_)
+        | AdminOperation::SetSwapAggregator(_)
+        | AdminOperation::ApproveBlendPool(_)
+        | AdminOperation::SetAccumulator(_)
+        | AdminOperation::GrantGovRole(_) => {
             assert_with_error!(
                 env,
                 proposer == &access::owner_or_panic(env),
@@ -53,7 +68,7 @@ pub(crate) fn propose(
     let (operation, delay_tier) = operation_for_admin_op(env, op, salt);
     let delay = operation_delay(env, delay_tier);
     let operation_id = schedule_operation(env, &operation, delay);
-    if let crate::op::AdminOperation::RevokeGovRole(args) = op {
+    if let AdminOperation::RevokeGovRole(args) = op {
         storage::mark_role_revocation_target(env, &operation_id, &args.account);
     }
     operation_id
@@ -96,7 +111,7 @@ pub(crate) fn execute(
 pub(crate) fn execute_self(
     env: &Env,
     executor: Option<Address>,
-    op: &crate::op::AdminOperation,
+    op: &AdminOperation,
     salt: BytesN<32>,
 ) {
     let (operation, _) = operation_for_admin_op(env, op, salt);
