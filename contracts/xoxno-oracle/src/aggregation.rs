@@ -3,16 +3,17 @@
 //! aggregate computation that clusters signer submissions by timestamp skew
 //! and writes the resulting price and history.
 
-use common::constants::MS_PER_SECOND;
+use common::constants::{BPS, MS_PER_SECOND};
 use common::oracle::observation::{MAX_FUTURE_SKEW_SECONDS, MAX_TWAP_RECORDS};
 use common::oracle::providers::redstone::RedStonePriceData;
 
 use soroban_sdk::{Address, Env, String, Vec, U256};
 
 use crate::storage::{
-    load_history, load_max_relative_skew, load_max_submission_age, load_resolution, load_signers,
-    load_submission, load_threshold, record_signer_feed, remove_aggregate, renew_known_feed,
-    store_aggregate, store_history, store_submission_record, SignerSubmission,
+    load_history, load_max_cluster_spread_bps, load_max_relative_skew, load_max_submission_age,
+    load_resolution, load_signers, load_submission, load_threshold, record_signer_feed,
+    remove_aggregate, renew_known_feed, store_aggregate, store_history, store_submission_record,
+    SignerSubmission,
 };
 use crate::Error;
 
@@ -101,7 +102,9 @@ pub(crate) enum QuorumMiss {
 /// then keeps only those within `max_relative_skew` of the newest surviving
 /// timestamp, clamped to ledger time so an attacker-chosen future-dated
 /// submission cannot drag the cluster window forward. If fewer than
-/// `threshold` submissions survive either filter, applies `on_miss` to the
+/// `threshold` submissions survive either filter, or the cluster has fewer
+/// than `2 * (signers - threshold) + 1` entries and its highest price exceeds
+/// its lowest by more than the configured spread, applies `on_miss` to the
 /// feed's stored aggregate and writes nothing. Otherwise writes the median of
 /// the clustered prices as the new aggregate, using the oldest clustered
 /// timestamp as its package timestamp, and appends it to the feed's history.
@@ -141,16 +144,32 @@ pub(crate) fn recompute_aggregate(env: &Env, feed_id: &String, on_miss: QuorumMi
 
     let mut clustered_prices: Vec<i128> = Vec::new(env);
     let mut oldest_package_timestamp: u64 = u64::MAX;
+    let mut lowest = i128::MAX;
+    let mut highest = i128::MIN;
     for submission in kept_submissions.iter() {
         let ts = submission.package_timestamp;
         if newest_ts.saturating_sub(ts) > skew_ms {
             continue;
         }
         clustered_prices.push_back(submission.price);
+        lowest = lowest.min(submission.price);
+        highest = highest.max(submission.price);
         oldest_package_timestamp = oldest_package_timestamp.min(ts);
     }
 
     if clustered_prices.len() < threshold {
+        apply_quorum_miss(env, feed_id, on_miss);
+        return;
+    }
+
+    let spread_free_cluster = signers
+        .len()
+        .saturating_sub(threshold)
+        .saturating_mul(2)
+        .saturating_add(1);
+    if clustered_prices.len() < spread_free_cluster
+        && !within_spread(lowest, highest, load_max_cluster_spread_bps(env))
+    {
         apply_quorum_miss(env, feed_id, on_miss);
         return;
     }
@@ -173,6 +192,16 @@ fn apply_quorum_miss(env: &Env, feed_id: &String, on_miss: QuorumMiss) {
     match on_miss {
         QuorumMiss::Clear => remove_aggregate(env, feed_id),
         QuorumMiss::Retain => {}
+    }
+}
+
+/// Returns whether `highest * BPS <= lowest * (BPS + spread_bps)`. A product
+/// that overflows `i128` counts as outside the spread.
+fn within_spread(lowest: i128, highest: i128, spread_bps: u32) -> bool {
+    let bound = BPS + i128::from(spread_bps);
+    match (highest.checked_mul(BPS), lowest.checked_mul(bound)) {
+        (Some(scaled_highest), Some(scaled_lowest)) => scaled_highest <= scaled_lowest,
+        _ => false,
     }
 }
 

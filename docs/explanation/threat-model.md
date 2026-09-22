@@ -176,12 +176,15 @@ lower median. Future skew is bounded at 60 seconds, not forbidden entirely.
 Equal package timestamps may replace a signer's observation. Honest quorum
 participation must be evaluated against the accepted cluster; setting a
 threshold above half the registered signers alone does not establish an
-honest median when some signers are absent.
+honest median when some signers are absent. A cluster with fewer than
+`2 * (signers - threshold) + 1` entries must fit inside `max_cluster_spread_bps`,
+or the round is a quorum miss, so one signer moves such a cluster by at most
+that bound. A cluster at or above that size uses the plain lower median.
 
 An ordinary submission below quorum leaves the prior aggregate unchanged;
 reads can serve it until their freshness limits expire. Owner recomputation
 removes an aggregate when its feed lacks quorum. Threshold, submission-age,
-and skew setters do not recompute existing aggregates; follow them with
+skew, and spread setters do not recompute existing aggregates; follow them with
 batched `recompute_feeds`. Quorum submissions also use the updated settings.
 
 The cluster anchor is clamped to ledger time. Read paths still apply their

@@ -206,7 +206,7 @@ fn price_selects_closest_when_history_is_non_monotonic() {
 
     let t_early = env.ledger().timestamp();
     client.submit_price(&signers[0], &feed_id(&env), &100i128, &(t_early * 1000));
-    client.submit_price(&signers[1], &feed_id(&env), &200i128, &(t_early * 1000));
+    client.submit_price(&signers[1], &feed_id(&env), &101i128, &(t_early * 1000));
 
     advance_ledger_seconds(&env, 100);
     let older_obs = t_early - 50;

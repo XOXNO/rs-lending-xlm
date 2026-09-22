@@ -42,11 +42,16 @@ pub(crate) const MIN_SUBMISSION_AGE_SECONDS: u64 =
 /// price update.
 pub(crate) const DEFAULT_MAX_RELATIVE_SKEW_SECONDS: u64 = DEFAULT_MAX_SUBMISSION_AGE_SECONDS;
 
-/// Storage keys for the oracle contract. `Signers` through `Resolution` hold
-/// instance configuration. `LatestSubmission` is **persistent** per-signer
-/// latest package state. `SignerFeeds` maps a signer to the feed ids it
-/// submits for. `CurrentAggregate` and `History` hold, respectively, the latest
-/// aggregated price and the price history for a feed. `FeedMapping` and
+/// Default maximum price spread, in basis points, of a cluster smaller than
+/// `2 * (signers - threshold) + 1` entries.
+pub(crate) const DEFAULT_MAX_CLUSTER_SPREAD_BPS: u32 = 200;
+
+/// Storage keys for the oracle contract. `Signers` through `Resolution` and
+/// `MaxClusterSpreadBps` hold instance configuration. `LatestSubmission` is
+/// **persistent** per-signer latest package state. `SignerFeeds` maps a
+/// signer to the feed ids it submits for. `CurrentAggregate` and `History`
+/// hold, respectively, the latest aggregated price and the price history for
+/// a feed. `FeedMapping` and
 /// `FeedOwner` link a `ReflectorAsset` to its feed id and back. The
 /// `AssetCount`/`AssetAt`/`AssetIndex` and `FeedCount`/`FeedAt`/`FeedIndex`
 /// groups back the swap-remove indexed asset and feed collections in the
@@ -77,6 +82,8 @@ pub(in crate::storage) enum DataKey {
     FeedCount,
     FeedAt(u32),
     FeedIndex(String),
+
+    MaxClusterSpreadBps,
 }
 
 /// A single signer's most recent price submission for a feed: the submitted price and the

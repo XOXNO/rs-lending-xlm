@@ -3874,6 +3874,16 @@ set_oracle_relative_skew() {
         -- set_max_relative_skew_seconds --seconds "$seconds"
 }
 
+set_oracle_max_cluster_spread() {
+    local bps=$1
+    [ -n "$bps" ] || die "Usage: $0 setOracleMaxClusterSpread <bps>"
+    local adapter
+    adapter=$(get_oracle_adapter_address) || die "No oracle adapter deployed for ${NETWORK}."
+    echo "=== set_max_cluster_spread_bps ${bps} on ${NETWORK} (adapter ${adapter}) ===" >&2
+    stellar contract invoke --id "$adapter" $SOURCE_FLAG --network "$NETWORK" \
+        -- set_max_cluster_spread_bps --bps "$bps"
+}
+
 verify_oracle_adapter_windows() {
     local adapter
     adapter=$(get_oracle_adapter_address) || die "No oracle adapter deployed for ${NETWORK}."
@@ -4561,6 +4571,9 @@ case "$1" in
     "setOracleRelativeSkew")
         set_oracle_relative_skew "$2"
         ;;
+    "setOracleMaxClusterSpread")
+        set_oracle_max_cluster_spread "$2"
+        ;;
     "verifyOracleAdapterWindows")
         verify_oracle_adapter_windows
         ;;
@@ -5160,6 +5173,7 @@ case "$1" in
         echo "  finalizeOracleAdapterUpgrade   windows + reconfigure feeds + verify (post-Wasm)"
         echo "  verifyOracleAdapterWindows     Print live max_submission_age / max_stale / relative_skew"
         echo "  setOracleRelativeSkew <secs>   Set max_relative_skew_seconds (<= submission age)"
+        echo "  setOracleMaxClusterSpread <bps> Set max_cluster_spread_bps (1..10000)"
         echo "  configureOracleWindows         Apply max_submission_age_seconds/max_stale_seconds from \${NETWORK}/oracle_feeds.json"
         echo "  setOracleSubmissionAge <secs>  Set the tight aggregation inclusion window (>=60, <= max_stale)"
         echo "  setOracleMaxStale <secs>       Set the cache TTL (>= submission-age window)"
