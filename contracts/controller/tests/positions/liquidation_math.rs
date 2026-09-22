@@ -1605,6 +1605,58 @@ fn the_full_close_gate_yields_when_the_hf_preserving_cap_is_one_bp_negative() {
     });
 }
 
+/// At `collateral == debt` the floored health factor sits one WAD unit below the
+/// half-up seizure proportion, so the cap is `-1` and the account takes the
+/// insolvent fallback. That is harmless: one WAD unit further down, on the
+/// documented insolvent side, the plan is identical, so the exactly-covered
+/// account grants nothing the fallback does not already grant.
+///
+/// See `docs/reference/formulas.md#liquidation-sizing-and-fees`
+#[test]
+fn an_exactly_covered_account_plans_the_same_as_one_a_wad_unit_insolvent() {
+    let env = Env::default();
+    let (contract, hub_asset, account) = repayment_fixture(&env);
+    env.as_contract(&contract, || {
+        let mut cache = Context::new_view(&env);
+        cache.set_prices(single_price(&env, &hub_asset.asset));
+        cache.put_market_index(&hub_asset, &index_raw());
+
+        // Production derives both ratios this way: `hf` floors, the proportion
+        // rounds half-up. Two thirds lands them one unit apart.
+        let collateral = Wad::from(300 * WAD);
+        let weighted = Wad::from(200 * WAD);
+        let snap_at = |env: &Env, debt: Wad| {
+            snap(
+                debt.raw(),
+                collateral.raw(),
+                weighted.raw(),
+                weighted.div(env, collateral).raw(),
+                weighted.div_floor_saturating(env, debt).raw(),
+            )
+        };
+        let covered = snap_at(&env, collateral);
+        let insolvent = snap_at(&env, Wad::from(collateral.raw() + 1));
+        assert_eq!(covered.proportion_seized.raw(), covered.hf.raw() + 1);
+        assert_eq!(max_hf_preserving_bonus_bps(&covered), Some(-1));
+        assert_eq!(max_hf_preserving_bonus_bps(&insolvent), Some(-1));
+
+        let curve = LiquidationCurve::from_config(&default_spoke_config());
+        let payments = vec![&env, (hub_asset.clone(), 100_0000000i128)];
+        let mut plan_for = |s: &LiquidationSnapshot| {
+            let bounds = BonusBounds {
+                base: Bps::from(500i128),
+                max: max_bonus_for_threshold(&env, s.proportion_seized),
+            };
+            normalize_repayment_plan(&env, &account, &payments, s, bounds, &curve, &mut cache)
+        };
+        let (at_cover, below_cover) = (plan_for(&covered), plan_for(&insolvent));
+
+        assert_eq!(at_cover.repay_usd.raw(), 100 * WAD, "partial accepted");
+        assert_eq!(at_cover.repay_usd.raw(), below_cover.repay_usd.raw());
+        assert_eq!(at_cover.bonus.raw(), below_cover.bonus.raw());
+    });
+}
+
 // --- small-position liquidation profitability -----------------------------
 //
 // ChainSecurity Mar-2026 note 8.4 derives the position value below which a

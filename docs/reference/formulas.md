@@ -238,6 +238,12 @@ below base bypasses the target formula and quotes full debt at base bonus.
 Only a nonnegative below-base cap rejects partial funding, with ceiling-USD
 valuation tolerance for a rounding-only shortfall.
 
+A negative cap marks an insolvent account, because `HF / p` reduces to `C / D`.
+`HF` floors and `p` rounds half-up, so an account at `C == D`, or a few raw WAD
+units above it, can also compute a cap of `-1` and take the insolvent fallback.
+This is deliberate and grants nothing: the plan is the same as for an account
+one raw WAD unit below cover.
+
 An ideal residual debt strictly between zero and $5 also promotes the quote to
 full debt, without requiring full funding. Inputs are capped at actual debt and
 trimmed before tokens are pulled. Neither a full-debt quote nor the target
