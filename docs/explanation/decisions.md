@@ -64,13 +64,6 @@ Interest continues during listing pauses; a prolonged pause may also require
 a timelocked rate reduction. Insolvent accounts have the governed
 [force-socialize path](../reference/runbooks/force-socialize-bad-debt.md).
 
-The rule about a paused debt leg holds only while a partial liquidation is
-allowed. When total collateral is below debt times one plus the base bonus, the
-plan accepts nothing less than every debt leg in full, each leg is capped at
-its own debt, and a paused leg cannot be selected. One paused debt leg, however
-small, then makes the account unliquidatable until the listing reopens, and
-force-socialization does not apply while collateral still covers the debt.
-
 A listing pause applies to one spoke, while the market's pool serves its whole
 hub. Borrowers in the paused listing cannot repay, but another spoke that lists
 the same asset can still move its utilization and so its rate. A pause has no

@@ -242,10 +242,15 @@ fn test_cascading_liquidations_stability() {
     t.assert_liquidatable(CAROL);
     t.assert_healthy(EVE);
 
+    let carol_debt_before = t.total_debt(CAROL);
     let carol_partial = t.try_liquidate(LIQUIDATOR, CAROL, "USDC", 3_000.0);
     assert!(
-        carol_partial.is_err(),
-        "solvent-toxic partial must be rejected"
+        carol_partial.is_ok(),
+        "a partial at the edge of solvency is accepted: {carol_partial:?}"
+    );
+    assert!(
+        t.total_debt(CAROL) < carol_debt_before,
+        "the partial reduces Carol's debt"
     );
     t.liquidate(LIQUIDATOR, CAROL, "USDC", 10_100.0);
 

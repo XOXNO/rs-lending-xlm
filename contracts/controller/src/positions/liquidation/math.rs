@@ -10,8 +10,8 @@ use common::types::{
 use soroban_sdk::{panic_with_error, Env, Map, Vec};
 
 use super::curve::{
-    estimate_liquidation_amount, max_bonus_for_threshold, max_hf_preserving_bonus_bps, BonusBounds,
-    LiquidationCurve, LiquidationSnapshot,
+    estimate_liquidation_amount, max_bonus_for_threshold, BonusBounds, LiquidationCurve,
+    LiquidationSnapshot,
 };
 use crate::context::Context;
 use crate::payments;
@@ -24,6 +24,8 @@ pub(crate) struct NormalizedRepaymentPlan {
     pub refunds: Vec<PaymentTuple>,
     pub repay_usd: Wad,
     pub bonus: Bps,
+    /// The quote covers the account's whole debt.
+    pub full_close: bool,
 }
 
 impl NormalizedRepaymentPlan {
@@ -154,9 +156,12 @@ pub(crate) fn calculate_repayment_amounts(
     (total_repaid_usd, repaid_tokens)
 }
 
-/// Caps planned repayments at the ideal WAD USD amount and records unused inputs.
-/// A nonnegative HF-preserving bonus cap below the base requires full repayment;
-/// ceiling-rounded valuation tolerates a shortfall caused solely by rounding.
+/// Trims planned repayments above the ideal WAD USD amount and records unused
+/// inputs. A payment below the ideal is accepted as offered. A full-close plan
+/// is not trimmed: each leg stays at its own ceiling-rounded debt cap, so
+/// `repay_usd` can exceed the total debt by per-leg unit rounding. On an
+/// insolvent account the trim rounds kept amounts down, so `repay_usd` never
+/// exceeds the collateral-backed quote.
 pub(crate) fn normalize_repayment_plan(
     env: &Env,
     account: &Account,
@@ -171,24 +176,19 @@ pub(crate) fn normalize_repayment_plan(
         calculate_repayment_amounts(env, raw_payments, account, &mut refunds, cache);
 
     let (ideal_repayment_usd, bonus) = estimate_liquidation_amount(env, snap, bonus_bounds, curve);
-
-    // Revalue upward only when the full-close gate would otherwise reject a
-    // rounding-only shortfall.
-    let cap_forces_full_close = max_hf_preserving_bonus_bps(snap)
-        .is_some_and(|cap| (0..bonus_bounds.base.raw()).contains(&cap));
-    if total_debt_payment_usd < ideal_repayment_usd
-        && cap_forces_full_close
-        && sum_repaid_usd_ceil(env, &repaid_tokens) < ideal_repayment_usd
-    {
-        panic_with_error!(env, CollateralError::FullCloseRequired);
-    }
-
-    let max_debt_to_repay_usd = total_debt_payment_usd.min(ideal_repayment_usd);
+    let full_close = ideal_repayment_usd >= snap.total_debt;
 
     let mut final_repayment_tokens = repaid_tokens;
-    if total_debt_payment_usd > max_debt_to_repay_usd {
-        let excess_usd = total_debt_payment_usd.checked_sub(env, max_debt_to_repay_usd);
-        process_excess_payment(env, &mut final_repayment_tokens, &mut refunds, excess_usd);
+    if !full_close && total_debt_payment_usd > ideal_repayment_usd {
+        let excess_usd = total_debt_payment_usd.checked_sub(env, ideal_repayment_usd);
+        let insolvent = snap.total_collateral < snap.total_debt;
+        process_excess_payment(
+            env,
+            &mut final_repayment_tokens,
+            &mut refunds,
+            excess_usd,
+            insolvent,
+        );
     }
 
     // Sum the final entries before moving them; plan validation checks equality.
@@ -197,6 +197,7 @@ pub(crate) fn normalize_repayment_plan(
         repaid: final_repayment_tokens,
         refunds,
         bonus,
+        full_close,
     }
 }
 
@@ -205,17 +206,6 @@ pub(crate) fn sum_repaid_usd(env: &Env, repaid_tokens: &Vec<RepayEntry>) -> Wad 
     let mut total = Wad::ZERO;
     for entry in repaid_tokens.iter() {
         total = total.checked_add(env, Wad::from(entry.usd_wad));
-    }
-    total
-}
-
-/// Revalues token amounts at their prices with upward rounding, in WAD USD.
-fn sum_repaid_usd_ceil(env: &Env, repaid_tokens: &Vec<RepayEntry>) -> Wad {
-    let mut total = Wad::ZERO;
-    for entry in repaid_tokens.iter() {
-        let value = Wad::from_token(env, entry.amount, entry.feed.asset_decimals)
-            .mul_ceil(env, Wad::from(entry.feed.price_wad));
-        total = total.checked_add(env, value);
     }
     total
 }
@@ -452,12 +442,16 @@ pub(crate) fn scale_seizures_to_received(
 }
 
 /// Removes planned excess from the last repayment backward, recording unused
-/// inputs in `refunds`. A partial removal uses a floor-rounded ratio; no tokens move.
+/// inputs in `refunds`. A partial removal uses a floor-rounded ratio; with
+/// `keep_within_quote` it floors the kept amount instead, so the kept value
+/// never exceeds the quote, and drops a leg whose kept amount reaches zero.
+/// No tokens move.
 fn process_excess_payment(
     env: &Env,
     repaid_tokens: &mut Vec<RepayEntry>,
     refunds: &mut Vec<PaymentTuple>,
     excess_usd: Wad,
+    keep_within_quote: bool,
 ) {
     let mut remaining_excess_usd = excess_usd;
     let mut current_index = repaid_tokens.len();
@@ -472,28 +466,49 @@ fn process_excess_payment(
             continue;
         }
         if usd > remaining_excess_usd {
-            let ratio = remaining_excess_usd.div_floor(env, usd);
-            let refund_amount = Wad::from_token(env, entry.amount, entry.feed.asset_decimals)
-                .mul_floor(env, ratio)
-                .to_token_floor(env, entry.feed.asset_decimals);
-            let new_amount = entry.amount - refund_amount;
-            let new_usd = Wad::from_token(env, new_amount, entry.feed.asset_decimals)
-                .mul(env, Wad::from(entry.feed.price_wad));
+            let decimals = entry.feed.asset_decimals;
+            let price = Wad::from(entry.feed.price_wad);
+            let new_amount = if keep_within_quote {
+                usd.checked_sub(env, remaining_excess_usd)
+                    .div_floor(env, price)
+                    .to_token_floor(env, decimals)
+                    .min(entry.amount)
+            } else {
+                let ratio = remaining_excess_usd.div_floor(env, usd);
+                entry.amount
+                    - Wad::from_token(env, entry.amount, decimals)
+                        .mul_floor(env, ratio)
+                        .to_token_floor(env, decimals)
+            };
+            let new_usd = Wad::from_token(env, new_amount, decimals).mul(env, price);
             refunds.push_back(PaymentTuple {
                 asset: entry.hub_asset.asset.clone(),
-                amount: refund_amount,
+                amount: entry.amount - new_amount,
             });
-            repaid_tokens.set(
-                current_index,
-                RepayEntry {
-                    hub_asset: entry.hub_asset,
-                    amount: new_amount,
-                    usd_wad: new_usd.raw(),
-                    feed: entry.feed,
-                    market_index: entry.market_index,
-                },
-            );
-            remaining_excess_usd = Wad::ZERO;
+            if new_amount == 0 {
+                repaid_tokens.remove(current_index);
+            } else {
+                repaid_tokens.set(
+                    current_index,
+                    RepayEntry {
+                        hub_asset: entry.hub_asset,
+                        amount: new_amount,
+                        usd_wad: new_usd.raw(),
+                        feed: entry.feed,
+                        market_index: entry.market_index,
+                    },
+                );
+            }
+            remaining_excess_usd = if keep_within_quote {
+                let removed_usd = usd.checked_sub(env, new_usd);
+                if removed_usd >= remaining_excess_usd {
+                    Wad::ZERO
+                } else {
+                    remaining_excess_usd.checked_sub(env, removed_usd)
+                }
+            } else {
+                Wad::ZERO
+            };
         } else {
             refunds.push_back(PaymentTuple {
                 asset: entry.hub_asset.asset.clone(),

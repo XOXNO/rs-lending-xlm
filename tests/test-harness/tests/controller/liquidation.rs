@@ -1,6 +1,6 @@
 use test_harness::{
-    assert_contract_error, errors, liquidatable_usdc_eth, usd_cents, LendingTest, ALICE, BOB,
-    LIQUIDATOR,
+    assert_contract_error, errors, liquidatable_usdc_eth, seed_band_usdc_eth, usd_cents,
+    LendingTest, ALICE, BOB, LIQUIDATOR,
 };
 #[test]
 fn test_liquidation_basic_proportional() {
@@ -220,9 +220,13 @@ fn test_liquidation_sequential_partial_liquidations() {
         "Alice USDC collateral must be seized"
     );
 }
+/// 10 000 USDC at $0.62 against 3 ETH: collateral covers the debt but not the
+/// base bonus, so the plan is a full close at the HF-preserving cap. The offer
+/// is pulled whole and the pool refunds what exceeds the debt.
 #[test]
 fn test_liquidation_caps_at_actual_debt() {
-    let mut t = liquidatable_usdc_eth();
+    let mut t = LendingTest::new().standard_two_asset().build();
+    seed_band_usdc_eth(&mut t);
 
     let debt_before = t.borrow_balance(ALICE, "ETH");
     t.get_or_create_user(LIQUIDATOR);
@@ -263,6 +267,35 @@ fn test_liquidation_caps_at_actual_debt() {
         liq_usdc
     );
 }
+/// $5 000 of collateral against $6 000 of debt at a 5% base bonus: an offer of
+/// the whole debt is cut to `floor(5000 / 1.05)` USD, so the liquidator never
+/// pays more than it seizes, and cleanup socializes the unbacked rest.
+#[test]
+fn test_insolvent_over_offer_repays_only_what_the_collateral_backs() {
+    let mut t = liquidatable_usdc_eth();
+    t.get_or_create_user(LIQUIDATOR);
+    let eth_before = t.token_balance_raw(LIQUIDATOR, "ETH");
+    let usdc_before = t.token_balance_raw(LIQUIDATOR, "USDC");
+
+    t.liquidate(LIQUIDATOR, ALICE, "ETH", 3.0);
+
+    let spent_raw = eth_before + 3_0000000 - t.token_balance_raw(LIQUIDATOR, "ETH");
+    assert_eq!(
+        spent_raw, 23_809_523,
+        "the repayment is capped at floor($5 000 / 1.05) in whole ETH units"
+    );
+    let spent_usd = spent_raw as f64 * 2_000.0 / 1e7;
+    let received_usd = (t.token_balance_raw(LIQUIDATOR, "USDC") - usdc_before) as f64 * 0.50 / 1e7;
+    assert!(
+        received_usd > spent_usd,
+        "the liquidator must not lose money: paid ${spent_usd}, received ${received_usd}"
+    );
+    assert!(
+        t.find_account_id(ALICE).is_none(),
+        "the unbacked residue is socialized and the account removed"
+    );
+}
+
 #[test]
 fn test_liquidation_improves_health_factor() {
     let mut t = LendingTest::new().standard_two_asset().build();

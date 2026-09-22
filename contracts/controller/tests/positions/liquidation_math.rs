@@ -3,6 +3,7 @@ use crate::constants::{
     DEFAULT_HF_FOR_MAX_BONUS_WAD, DEFAULT_LIQUIDATION_BONUS_FACTOR_BPS,
     DEFAULT_LIQUIDATION_TARGET_HF_WAD, WAD,
 };
+use crate::positions::liquidation::curve::max_hf_preserving_bonus_bps;
 use common::constants::RAY;
 use common::types::SpokeConfig;
 use common::types::{DebtPositionRaw, MarketIndexRaw, PositionMode, PriceFeedRaw};
@@ -80,6 +81,7 @@ fn plan_with(env: &Env, repay_usd: i128, seized: Vec<SeizeEntry>) -> Liquidation
             refunds: Vec::new(env),
             repay_usd: Wad::from(repay_usd),
             bonus: Bps::from(0i128),
+            full_close: false,
         },
         seized,
     }
@@ -157,6 +159,7 @@ fn plan_for_seizure(env: &Env, repay_usd_raw: i128, bonus_bps: i128) -> Normaliz
         refunds: Vec::new(env),
         repay_usd: Wad::from(repay_usd_raw),
         bonus: Bps::from(bonus_bps),
+        full_close: false,
     }
 }
 
@@ -369,7 +372,7 @@ fn process_excess_payment_zero_excess_is_noop() {
     repaid.push_back(repay_entry(&env, stroops(100), 100 * WAD));
     let mut refunds = Vec::new(&env);
 
-    process_excess_payment(&env, &mut repaid, &mut refunds, Wad::ZERO);
+    process_excess_payment(&env, &mut repaid, &mut refunds, Wad::ZERO, false);
 
     assert_eq!(refunds.len(), 0);
     assert_eq!(repaid.len(), 1);
@@ -384,7 +387,7 @@ fn process_excess_payment_boundary_leg_is_removed() {
     repaid.push_back(repay_entry(&env, stroops(5), 5 * WAD));
     let mut refunds = Vec::new(&env);
 
-    process_excess_payment(&env, &mut repaid, &mut refunds, Wad::from(5 * WAD));
+    process_excess_payment(&env, &mut repaid, &mut refunds, Wad::from(5 * WAD), false);
 
     assert_eq!(repaid.len(), 1, "the exactly-consumed leg must be removed");
     assert_eq!(repaid.get_unchecked(0).amount, stroops(10));
@@ -399,7 +402,7 @@ fn process_excess_payment_survives_exhausting_all_legs() {
     repaid.push_back(repay_entry(&env, stroops(10), 5 * WAD));
     let mut refunds = Vec::new(&env);
 
-    process_excess_payment(&env, &mut repaid, &mut refunds, Wad::from(8 * WAD));
+    process_excess_payment(&env, &mut repaid, &mut refunds, Wad::from(8 * WAD), false);
 
     assert_eq!(repaid.len(), 0);
     assert_eq!(refunds.len(), 1);
@@ -414,7 +417,7 @@ fn process_excess_payment_spans_legs_with_pro_rata_split() {
     repaid.push_back(repay_entry(&env, stroops(40), 40 * WAD));
     let mut refunds = Vec::new(&env);
 
-    process_excess_payment(&env, &mut repaid, &mut refunds, Wad::from(60 * WAD));
+    process_excess_payment(&env, &mut repaid, &mut refunds, Wad::from(60 * WAD), false);
 
     assert_eq!(refunds.len(), 2);
     assert_eq!(refunds.get_unchecked(0).amount, stroops(40));
@@ -426,7 +429,7 @@ fn process_excess_payment_spans_legs_with_pro_rata_split() {
 }
 
 #[test]
-fn normalize_repayment_plan_requires_full_close_when_partials_ratchet() {
+fn an_insolvent_over_offer_at_zero_base_bonus_repays_at_most_the_collateral() {
     let env = Env::default();
     let (contract, hub_asset, account) = repayment_fixture(&env);
     env.as_contract(&contract, || {
@@ -445,17 +448,16 @@ fn normalize_repayment_plan_requires_full_close_when_partials_ratchet() {
         let plan =
             normalize_repayment_plan(&env, &account, &payments, &s, bounds, &curve, &mut cache);
 
-        assert_eq!(plan.repay_usd.raw(), 500 * WAD);
+        assert_eq!(plan.repay_usd.raw(), 100 * WAD);
         assert_eq!(plan.bonus.raw(), 0);
-        assert_eq!(plan.refunds.len(), 0);
-        assert_eq!(plan.repaid.len(), 1);
-        assert_eq!(plan.repaid.get_unchecked(0).amount, 500_0000000);
+        assert!(!plan.full_close);
+        assert_eq!(plan.repaid.get_unchecked(0).amount, 100_0000000);
+        assert_eq!(plan.refunds.get_unchecked(0).amount, 400_0000000);
     });
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #135)")]
-fn normalize_rejects_partial_on_solvent_toxic_account() {
+fn a_band_partial_is_accepted_at_the_hf_preserving_cap() {
     let env = Env::default();
     let (contract, hub_asset, account) = repayment_fixture(&env);
     env.as_contract(&contract, || {
@@ -468,8 +470,9 @@ fn normalize_rejects_partial_on_solvent_toxic_account() {
             520 * WAD,
             468 * WAD,
             9 * WAD / 10,
-            93 * WAD / 100,
+            936 * WAD / 1000,
         );
+        assert_eq!(max_hf_preserving_bonus_bps(&s), Some(400));
         let bounds = BonusBounds {
             base: Bps::from(500i128),
             max: max_bonus_for_threshold(&env, s.proportion_seized),
@@ -477,7 +480,16 @@ fn normalize_rejects_partial_on_solvent_toxic_account() {
         let curve = LiquidationCurve::from_config(&default_spoke_config());
 
         let payments = vec![&env, (hub_asset.clone(), 100_0000000i128)];
-        normalize_repayment_plan(&env, &account, &payments, &s, bounds, &curve, &mut cache);
+        let plan =
+            normalize_repayment_plan(&env, &account, &payments, &s, bounds, &curve, &mut cache);
+        assert_eq!(
+            plan.repay_usd.raw(),
+            100 * WAD,
+            "the partial is taken whole"
+        );
+        assert_eq!(plan.bonus.raw(), 400, "the band pays the cap, not the base");
+        assert_eq!(plan.refunds.len(), 0);
+        assert!(plan.full_close, "the band quote is the full debt");
     });
 }
 
@@ -495,7 +507,7 @@ fn normalize_accepts_full_close_on_solvent_toxic_account() {
             520 * WAD,
             468 * WAD,
             9 * WAD / 10,
-            93 * WAD / 100,
+            936 * WAD / 1000,
         );
         let bounds = BonusBounds {
             base: Bps::from(500i128),
@@ -507,7 +519,12 @@ fn normalize_accepts_full_close_on_solvent_toxic_account() {
         let plan =
             normalize_repayment_plan(&env, &account, &payments, &s, bounds, &curve, &mut cache);
         assert_eq!(plan.repay_usd.raw(), 500 * WAD);
-        assert_eq!(plan.bonus.raw(), 500, "full close pays the base bonus");
+        assert_eq!(
+            plan.bonus.raw(),
+            400,
+            "full close pays the HF-preserving cap"
+        );
+        assert!(plan.full_close);
     });
 }
 
@@ -567,8 +584,8 @@ fn partial_liquidation_of_insolvent_account_is_permitted() {
 
         let s = insolvent_snap();
         assert!(
-            max_hf_preserving_bonus_bps(&s).is_some_and(|cap| cap < 0),
-            "fixture must be insolvent so the cap is negative"
+            s.total_collateral < s.total_debt,
+            "fixture must be insolvent"
         );
         let bounds = BonusBounds {
             base: Bps::from(500i128),
@@ -576,21 +593,294 @@ fn partial_liquidation_of_insolvent_account_is_permitted() {
         };
         let curve = LiquidationCurve::from_config(&default_spoke_config());
 
-        let payments = vec![&env, (hub_asset.clone(), 100_0000000i128)];
+        let payments = vec![&env, (hub_asset.clone(), 50_0000000i128)];
         let plan =
             normalize_repayment_plan(&env, &account, &payments, &s, bounds, &curve, &mut cache);
-        assert_eq!(plan.repay_usd.raw(), 100 * WAD, "partial accepted");
+        assert_eq!(plan.repay_usd.raw(), 50 * WAD, "partial accepted");
         assert_eq!(
             plan.bonus.raw(),
             500,
             "insolvent partial pays the base bonus"
         );
+        assert!(!plan.full_close);
     });
 }
 
+/// Three liquidators each sign $40 against the same $100 collateral / $120 debt
+/// book. Each one is capped at what the remaining collateral backs, so the last
+/// one is cut to `floor(16 / 1.05)` instead of paying $40 for $16.
 #[test]
-#[should_panic(expected = "Error(Contract, #135)")]
-fn normalize_rejects_underfunded_partial_when_cap_is_below_base_but_solvent() {
+fn racing_insolvent_liquidations_never_repay_more_than_the_collateral_backs() {
+    let env = Env::default();
+    let book = split_book(&env);
+    let offer = stroops(40_000);
+    let (mut coll, mut debt) = (stroops(100_000), stroops(120_000));
+
+    for step in 0..3 {
+        let out = liquidate_slice(&env, &book, coll, debt, offer);
+        assert_eq!(out.bonus_bps, i128::from(SPLIT_BONUS_BPS), "step {step}");
+        assert!(
+            out.seized >= out.repaid,
+            "step {step}: repaid {} for {} of collateral",
+            out.repaid,
+            out.seized
+        );
+        let backed = coll * 10_000 / (10_000 + i128::from(SPLIT_BONUS_BPS));
+        assert!(
+            out.repaid <= backed,
+            "step {step}: repaid {} above the backed {backed}",
+            out.repaid
+        );
+        coll -= out.seized;
+        debt -= out.repaid;
+        if step < 2 {
+            assert_eq!(out.repaid, offer, "step {step} is fully backed");
+        } else {
+            assert_eq!(backed, 152_380_952_380, "floor(16 000 / 1.05) in stroops");
+            assert_eq!(
+                out.repaid, backed,
+                "the last offer is cut to the backed quote"
+            );
+            assert_eq!(coll, 1, "the floored repayment leaves one collateral unit");
+        }
+    }
+    assert!(
+        debt > 0,
+        "the unbacked residue is left for bad-debt cleanup"
+    );
+}
+
+/// Two 3-decimal legs at $1 per unit, each owing 100 400.4 units: the ceilings
+/// (100 401 each) exceed the debt by 1.2 units. The full-close plan keeps both
+/// legs at their ceilings, refunds only the offer above them, and credits
+/// every ceiling unit instead of trimming one unit it would still pull.
+#[test]
+fn a_full_close_plan_credits_every_legs_ceiling_without_a_trim_refund() {
+    let env = Env::default();
+    let contract = env.register(crate::Controller, (Address::generate(&env),));
+    let (d1, d2) = (hub_key(&env), hub_key(&env));
+    let feed = PriceFeedRaw {
+        price_wad: 1_000 * WAD,
+        asset_decimals: 3,
+        timestamp: 0,
+    };
+    let scaled = Ray::from_asset(&env, 100_400, 3).raw() + 4 * 10i128.pow(23);
+    let mut borrow_positions = Map::new(&env);
+    for key in [&d1, &d2] {
+        borrow_positions.set(
+            key.clone(),
+            DebtPositionRaw {
+                scaled_amount: scaled,
+            },
+        );
+    }
+    let account = Account {
+        borrow_positions,
+        ..empty_account(&env)
+    };
+
+    env.as_contract(&contract, || {
+        let mut cache = Context::new_view(&env);
+        let mut prices = Map::new(&env);
+        prices.set(d1.asset.clone(), feed.clone());
+        prices.set(d2.asset.clone(), feed);
+        cache.set_prices(prices);
+        cache.put_market_index(&d1, &index_raw());
+        cache.put_market_index(&d2, &index_raw());
+
+        let debt = 2 * 1_004_004 * 10i128.pow(17);
+        let collateral = debt * 10_205 / 10_000;
+        let s = snap(
+            debt,
+            collateral,
+            collateral * 8 / 10,
+            8 * WAD / 10,
+            8_164 * WAD / 10_000,
+        );
+        assert_eq!(max_hf_preserving_bonus_bps(&s), Some(205));
+        let bounds = BonusBounds {
+            base: Bps::from(500i128),
+            max: max_bonus_for_threshold(&env, s.proportion_seized),
+        };
+        let curve = LiquidationCurve::from_config(&default_spoke_config());
+
+        let payments = vec![&env, (d1.clone(), 100_451i128), (d2.clone(), 100_451i128)];
+        let plan =
+            normalize_repayment_plan(&env, &account, &payments, &s, bounds, &curve, &mut cache);
+
+        assert!(plan.full_close);
+        assert_eq!(plan.bonus.raw(), 205);
+        assert_eq!(plan.refunds.len(), 2, "no trim refund");
+        for refund in plan.refunds.iter() {
+            assert_eq!(refund.amount, 50, "only the offer above each ceiling");
+        }
+        for entry in plan.repaid.iter() {
+            assert_eq!(entry.amount, 100_401, "each leg stays at its ceiling");
+        }
+        assert_eq!(
+            plan.repay_usd.raw(),
+            200_802 * WAD,
+            "every ceiling unit is credited"
+        );
+    });
+}
+
+/// Normalizes `(price_wad, decimals, debt_units, offer_units)` legs against an
+/// insolvent snapshot with collateral `collateral` and debt `debt` (WAD USD).
+fn plan_on_insolvent_book(
+    env: &Env,
+    legs: &[(i128, u32, i128, i128)],
+    collateral: i128,
+    debt: i128,
+) -> (Vec<HubAssetKey>, NormalizedRepaymentPlan) {
+    let contract = env.register(crate::Controller, (Address::generate(env),));
+    let mut keys = Vec::new(env);
+    let mut prices = Map::new(env);
+    let mut borrow_positions = Map::new(env);
+    let mut payments = Vec::new(env);
+    for &(price_wad, asset_decimals, debt_units, offer_units) in legs {
+        let key = hub_key(env);
+        prices.set(
+            key.asset.clone(),
+            PriceFeedRaw {
+                price_wad,
+                asset_decimals,
+                timestamp: 0,
+            },
+        );
+        borrow_positions.set(
+            key.clone(),
+            DebtPositionRaw {
+                scaled_amount: Ray::from_asset(env, debt_units, asset_decimals).raw(),
+            },
+        );
+        payments.push_back((key.clone(), offer_units));
+        keys.push_back(key);
+    }
+    let account = Account {
+        borrow_positions,
+        ..empty_account(env)
+    };
+    let weighted = collateral * 8 / 10;
+    let s = snap(
+        debt,
+        collateral,
+        weighted,
+        8 * WAD / 10,
+        weighted * WAD / debt,
+    );
+    assert!(
+        s.total_collateral < s.total_debt,
+        "the book must be insolvent"
+    );
+    let plan = env.as_contract(&contract, || {
+        let mut cache = Context::new_view(env);
+        cache.set_prices(prices);
+        for key in keys.iter() {
+            cache.put_market_index(&key, &index_raw());
+        }
+        let bounds = BonusBounds {
+            base: Bps::from(500i128),
+            max: max_bonus_for_threshold(env, s.proportion_seized),
+        };
+        let curve = LiquidationCurve::from_config(&default_spoke_config());
+        normalize_repayment_plan(env, &account, &payments, &s, bounds, &curve, &mut cache)
+    });
+    (keys, plan)
+}
+
+#[test]
+fn an_insolvent_trim_drops_the_last_leg_whole_and_floors_the_one_before() {
+    let env = Env::default();
+    let (keys, plan) = plan_on_insolvent_book(
+        &env,
+        &[
+            (WAD, 7, 100_0000000, 50_0000000),
+            (WAD, 7, 100_0000000, 40_0000000),
+        ],
+        30 * WAD,
+        300 * WAD,
+    );
+
+    assert_eq!(plan.repaid.len(), 1, "the second leg is dropped whole");
+    let kept = plan.repaid.get_unchecked(0);
+    assert_eq!(kept.hub_asset, keys.get_unchecked(0));
+    assert_eq!(kept.amount, 28_5714285, "floor($30 / 1.05) in whole units");
+    assert_eq!(plan.repay_usd.raw(), 28_571_428_500_000_000_000);
+    assert!(
+        plan.repay_usd.raw() <= 28_571_428_571_428_571_428,
+        "the kept value stays within the backed quote"
+    );
+    assert_eq!(plan.refunds.len(), 2);
+    let dropped = plan.refunds.get_unchecked(0);
+    assert_eq!(
+        (dropped.asset, dropped.amount),
+        (keys.get_unchecked(1).asset, 40_0000000)
+    );
+    let trimmed = plan.refunds.get_unchecked(1);
+    assert_eq!(
+        (trimmed.asset, trimmed.amount),
+        (keys.get_unchecked(0).asset, 50_0000000 - 28_5714285)
+    );
+}
+
+/// $100 of collateral backs `floor(100 / 1.05)` = $95.238 at the base bonus.
+/// A $3 unit offered 50 times is trimmed to 31 units ($93), not rounded up to
+/// 32 units ($96) above the backed quote.
+#[test]
+fn an_insolvent_trim_keeps_no_more_than_the_backed_quote_after_unit_rounding() {
+    let env = Env::default();
+    let (_, plan) =
+        plan_on_insolvent_book(&env, &[(3_000 * WAD, 3, 100, 50)], 100 * WAD, 300 * WAD);
+
+    assert!(!plan.full_close);
+    assert_eq!(plan.bonus.raw(), 500);
+    assert_eq!(plan.repaid.get_unchecked(0).amount, 31);
+    assert_eq!(plan.repay_usd.raw(), 93 * WAD);
+    assert!(plan.repay_usd.raw() <= 95_238_095_238_095_238_095);
+    assert_eq!(plan.refunds.get_unchecked(0).amount, 19);
+}
+
+/// $10 of collateral backs $9.52, less than one $10 unit: the leg keeps
+/// nothing, its whole offer is refunded and no repayment leg remains.
+#[test]
+fn an_insolvent_trim_drops_a_leg_whose_smallest_unit_exceeds_the_backed_quote() {
+    let env = Env::default();
+    let (keys, plan) = plan_on_insolvent_book(&env, &[(10_000 * WAD, 3, 5, 2)], 10 * WAD, 50 * WAD);
+
+    assert!(plan.repaid.is_empty(), "no leg fits the backed quote");
+    assert_eq!(plan.repay_usd, Wad::ZERO);
+    assert_eq!(plan.refunds.len(), 1);
+    let refund = plan.refunds.get_unchecked(0);
+    assert_eq!(refund.asset, keys.get_unchecked(0).asset);
+    assert_eq!(refund.amount, 2, "the whole offer is refunded");
+}
+
+/// A $1 leg and a $10-per-unit leg against a $9.52 backed quote: the trim
+/// starts from the last leg, drops the $10 leg whole and keeps the $5 leg.
+#[test]
+fn an_insolvent_trim_keeps_only_the_legs_that_fit_the_backed_quote() {
+    let env = Env::default();
+    let (keys, plan) = plan_on_insolvent_book(
+        &env,
+        &[(WAD, 7, 100_0000000, 5_0000000), (10_000 * WAD, 3, 5, 2)],
+        10 * WAD,
+        150 * WAD,
+    );
+
+    assert_eq!(plan.repaid.len(), 1);
+    let kept = plan.repaid.get_unchecked(0);
+    assert_eq!(kept.hub_asset, keys.get_unchecked(0));
+    assert_eq!(kept.amount, 5_0000000);
+    assert_eq!(plan.repay_usd.raw(), 5 * WAD);
+    assert_eq!(plan.refunds.len(), 1);
+    let refund = plan.refunds.get_unchecked(0);
+    assert_eq!(refund.asset, keys.get_unchecked(1).asset);
+    assert_eq!(refund.amount, 2);
+}
+
+#[test]
+fn a_band_plan_is_a_full_close_plan_even_for_a_partial_payment() {
     let env = Env::default();
     let (contract, hub_asset, account) = repayment_fixture(&env);
     env.as_contract(&contract, || {
@@ -617,7 +907,22 @@ fn normalize_rejects_underfunded_partial_when_cap_is_below_base_but_solvent() {
         let curve = LiquidationCurve::from_config(&default_spoke_config());
 
         let payments = vec![&env, (hub_asset.clone(), 100_0000000i128)];
-        normalize_repayment_plan(&env, &account, &payments, &s, bounds, &curve, &mut cache);
+        let plan =
+            normalize_repayment_plan(&env, &account, &payments, &s, bounds, &curve, &mut cache);
+        assert_eq!(plan.repay_usd.raw(), 100 * WAD);
+        assert_eq!(plan.bonus.raw(), cap);
+        assert!(plan.full_close, "execution pulls the offered amount");
+
+        let insolvent = normalize_repayment_plan(
+            &env,
+            &account,
+            &payments,
+            &insolvent_snap(),
+            bounds,
+            &curve,
+            &mut cache,
+        );
+        assert!(!insolvent.full_close, "execution pulls the planned amount");
     });
 }
 
@@ -1540,13 +1845,12 @@ fn a_sub_unit_leg_is_dropped_while_its_siblings_are_still_seized() {
     );
 }
 
-// --- the full-close gate boundary (math.rs:194-198) -----------------------
+// --- the band and insolvent arm boundary ----------------------------------
 
-/// `cap >= 0` is the gate's solvency test. A cap of exactly zero means any bonus
-/// at all pushes the health factor down, so an underfunded partial is refused.
+/// A cap of exactly zero is the solvent edge of the band: a partial is taken
+/// whole at a zero bonus, which leaves the collateral coverage unchanged.
 #[test]
-#[should_panic(expected = "Error(Contract, #135)")]
-fn the_full_close_gate_fires_when_the_hf_preserving_cap_is_exactly_zero() {
+fn a_zero_hf_preserving_cap_admits_a_partial_at_zero_bonus() {
     let env = Env::default();
     let (contract, hub_asset, account) = repayment_fixture(&env);
     env.as_contract(&contract, || {
@@ -1567,14 +1871,19 @@ fn the_full_close_gate_fires_when_the_hf_preserving_cap_is_exactly_zero() {
         let curve = LiquidationCurve::from_config(&default_spoke_config());
 
         let payments = vec![&env, (hub_asset.clone(), 100_0000000i128)];
-        normalize_repayment_plan(&env, &account, &payments, &s, bounds, &curve, &mut cache);
+        let plan =
+            normalize_repayment_plan(&env, &account, &payments, &s, bounds, &curve, &mut cache);
+
+        assert_eq!(plan.repay_usd.raw(), 100 * WAD, "partial accepted");
+        assert_eq!(plan.bonus.raw(), 0);
+        assert!(plan.full_close);
     });
 }
 
-/// One basis point the other side of the same boundary the account is insolvent,
-/// the gate stops applying, and the underfunded partial is accepted.
+/// One basis point below cover the account is insolvent: the base bonus is
+/// paid and the quote is the collateral backing.
 #[test]
-fn the_full_close_gate_yields_when_the_hf_preserving_cap_is_one_bp_negative() {
+fn a_one_bp_negative_cap_takes_the_insolvent_arm_at_the_base_bonus() {
     let env = Env::default();
     let (contract, hub_asset, account) = repayment_fixture(&env);
     env.as_contract(&contract, || {
@@ -1602,58 +1911,69 @@ fn the_full_close_gate_yields_when_the_hf_preserving_cap_is_one_bp_negative() {
 
         assert_eq!(plan.repay_usd.raw(), 100 * WAD, "partial accepted");
         assert_eq!(plan.bonus.raw(), 500, "the base bonus is paid");
+        assert!(!plan.full_close);
     });
 }
 
-/// At `collateral == debt` the floored health factor sits one WAD unit below the
-/// half-up seizure proportion, so the cap is `-1` and the account takes the
-/// insolvent fallback. That is harmless: one WAD unit further down, on the
-/// documented insolvent side, the plan is identical, so the exactly-covered
-/// account grants nothing the fallback does not already grant.
+/// Insolvency is `C < D`. At `C == D` the floored health factor sits one WAD
+/// unit below the half-up seizure proportion, so the cap rounds to `-1`; the
+/// covered account still takes the band quote with the cap clamped to zero, so
+/// a full close seizes exactly the collateral and leaves no debt to socialize.
+/// One raw WAD unit below cover the account takes the insolvent quote.
 ///
 /// See `docs/reference/formulas.md#liquidation-sizing-and-fees`
 #[test]
-fn an_exactly_covered_account_plans_the_same_as_one_a_wad_unit_insolvent() {
+fn an_exactly_covered_account_quotes_the_full_debt_at_zero_bonus_not_the_insolvent_arm() {
     let env = Env::default();
     let (contract, hub_asset, account) = repayment_fixture(&env);
     env.as_contract(&contract, || {
         let mut cache = Context::new_view(&env);
         cache.set_prices(single_price(&env, &hub_asset.asset));
         cache.put_market_index(&hub_asset, &index_raw());
-
-        // Production derives both ratios this way: `hf` floors, the proportion
-        // rounds half-up. Two thirds lands them one unit apart.
-        let collateral = Wad::from(300 * WAD);
-        let weighted = Wad::from(200 * WAD);
-        let snap_at = |env: &Env, debt: Wad| {
-            snap(
-                debt.raw(),
-                collateral.raw(),
-                weighted.raw(),
-                weighted.div(env, collateral).raw(),
-                weighted.div_floor_saturating(env, debt).raw(),
-            )
-        };
-        let covered = snap_at(&env, collateral);
-        let insolvent = snap_at(&env, Wad::from(collateral.raw() + 1));
-        assert_eq!(covered.proportion_seized.raw(), covered.hf.raw() + 1);
-        assert_eq!(max_hf_preserving_bonus_bps(&covered), Some(-1));
-        assert_eq!(max_hf_preserving_bonus_bps(&insolvent), Some(-1));
-
         let curve = LiquidationCurve::from_config(&default_spoke_config());
-        let payments = vec![&env, (hub_asset.clone(), 100_0000000i128)];
-        let mut plan_for = |s: &LiquidationSnapshot| {
-            let bounds = BonusBounds {
+
+        for (collateral, weighted) in [(3 * WAD, 2 * WAD), (300 * WAD, 200 * WAD)] {
+            let snap_at = |debt: i128| {
+                snap(
+                    debt,
+                    collateral,
+                    weighted,
+                    Wad::from(weighted).div(&env, Wad::from(collateral)).raw(),
+                    Wad::from(weighted)
+                        .div_floor_saturating(&env, Wad::from(debt))
+                        .raw(),
+                )
+            };
+            let covered = snap_at(collateral);
+            let below_cover = snap_at(collateral + 1);
+            assert_eq!(covered.proportion_seized.raw(), covered.hf.raw() + 1);
+            assert_eq!(max_hf_preserving_bonus_bps(&covered), Some(-1));
+            assert_eq!(max_hf_preserving_bonus_bps(&below_cover), Some(-1));
+            let bounds_for = |s: &LiquidationSnapshot| BonusBounds {
                 base: Bps::from(500i128),
                 max: max_bonus_for_threshold(&env, s.proportion_seized),
             };
-            normalize_repayment_plan(&env, &account, &payments, s, bounds, &curve, &mut cache)
-        };
-        let (at_cover, below_cover) = (plan_for(&covered), plan_for(&insolvent));
 
-        assert_eq!(at_cover.repay_usd.raw(), 100 * WAD, "partial accepted");
-        assert_eq!(at_cover.repay_usd.raw(), below_cover.repay_usd.raw());
-        assert_eq!(at_cover.bonus.raw(), below_cover.bonus.raw());
+            let debt_stroops = collateral / 100_000_000_000;
+            let payments = vec![&env, (hub_asset.clone(), debt_stroops)];
+            let plan = normalize_repayment_plan(
+                &env,
+                &account,
+                &payments,
+                &covered,
+                bounds_for(&covered),
+                &curve,
+                &mut cache,
+            );
+            assert_eq!(plan.bonus.raw(), 0, "the negative cap is clamped to zero");
+            assert!(plan.full_close);
+            assert_eq!(plan.repay_usd.raw(), collateral, "the full debt is repaid");
+
+            let (ideal, bonus) =
+                estimate_liquidation_amount(&env, &below_cover, bounds_for(&below_cover), &curve);
+            assert_eq!(bonus.raw(), 500, "below cover pays the base bonus");
+            assert_eq!(ideal.raw(), collateral * 20 / 21, "floor(C / 1.05)");
+        }
     });
 }
 
@@ -2223,9 +2543,8 @@ fn liquidate_slice(
 /// The splitting book sits exactly on the CS-AAVE4-009 precondition: the bonus
 /// curve asks for more than the health factor can support, so without the clamp
 /// every partial would erode the health factor and earn a larger bonus next
-/// time. The cap still sits above the base bonus, so partials stay legal --
-/// `normalize_repayment_plan`'s `FullCloseRequired` gate is not what is under
-/// test here.
+/// time. The cap still sits above the base bonus, so the book is outside the
+/// below-base band.
 #[test]
 fn the_splitting_book_is_where_the_curve_out_asks_the_hf_preserving_cap() {
     let env = Env::default();
@@ -2369,5 +2688,38 @@ fn a_never_recovering_position_holds_its_health_factor_across_a_long_chain() {
          single={} excess={}",
         single.seized,
         chain_seized - single.seized
+    );
+}
+
+/// Partials inside the band `D <= C < D * (1 + base)` pay the HF-preserving
+/// cap, so each slice seizes `repaid * C / D` rounded in the protocol's favour:
+/// the collateral coverage never falls and drifts up by less than one bps.
+#[test]
+fn band_partials_never_lower_the_collateral_coverage() {
+    let env = Env::default();
+    let book = split_book(&env);
+    let slice = stroops(100);
+    let (coll_0, debt_0) = (10_333_333_333i128, stroops(SPLIT_DEBT_TOKENS));
+    let (mut coll, mut debt) = (coll_0, debt_0);
+
+    for step in 0..5 {
+        let out = liquidate_slice(&env, &book, coll, debt, slice);
+        assert!(out.hf_wad < WAD, "step {step} is not a liquidation");
+        assert!(
+            out.bonus_bps < i128::from(SPLIT_BONUS_BPS),
+            "step {step} left the band: bonus {}",
+            out.bonus_bps
+        );
+        assert_eq!(out.repaid, slice, "step {step} must take the whole slice");
+        let (next_coll, next_debt) = (coll - out.seized, debt - out.repaid);
+        assert!(
+            next_coll * debt >= coll * next_debt,
+            "step {step} lowered coverage: {coll}/{debt} -> {next_coll}/{next_debt}"
+        );
+        (coll, debt) = (next_coll, next_debt);
+    }
+    assert!(
+        coll * debt_0 * 10_000 <= coll_0 * debt * 10_001,
+        "coverage drifted more than one bps: {coll_0}/{debt_0} -> {coll}/{debt}"
     );
 }

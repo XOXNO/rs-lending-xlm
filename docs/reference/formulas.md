@@ -234,20 +234,46 @@ bound; zero collateral also gives a zero base bonus.
 
 The configured curve ramps the base-to-maximum increment as health falls, then
 applies its BPS factor. The HF-preserving cap above limits the result. A cap
-below base bypasses the target formula and quotes full debt at base bonus.
-Only a nonnegative below-base cap rejects partial funding, with ceiling-USD
-valuation tolerance for a rounding-only shortfall.
+below base bypasses the target formula:
 
-A negative cap marks an insolvent account, because `HF / p` reduces to `C / D`.
-`HF` floors and `p` rounds half-up, so an account at `C == D`, or a few raw WAD
-units above it, can also compute a cap of `-1` and take the insolvent fallback.
-This is deliberate and grants nothing: the plan is the same as for an account
-one raw WAD unit below cover.
+```rust
+let quote = if C < D { (min(D, floor(C * WAD / (WAD + base))), base) } // insolvent
+    else if cap < base { (D, max(cap, 0)) } // band: D <= C < D * (1 + base)
+    else { /* target formula at min(curve, cap) */ };
+```
+
+In the band the quote is the full debt at the cap, and any smaller payment is
+accepted. A partial repayment `x` seizes `x * (1 + cap)`, at most `x * C / D`,
+so `C / D` and the health factor do not fall; the BPS floor of the cap can
+raise them slightly.
+
+Insolvency is the exact unweighted comparison `C < D`. The quote is the
+repayment the collateral backs at the base bonus, floored, so an offer above it
+is trimmed and the liquidator never pays more than it seizes. On an insolvent
+account the trim rounds each kept leg down to whole token units, so the kept
+value never exceeds the quote. A leg whose kept amount rounds to zero is
+dropped and its whole offer refunded; if no leg remains, `liquidate` reverts
+with `InvalidPayments` (16) and the estimate shows a zero payment. The quote is
+not promoted to full debt; bad-debt cleanup takes the unbacked residue. `HF / p`
+approximates `C / D`, but `HF` floors and `p` rounds half-up, so an account at
+`C == D`, or a few raw WAD units above it, can compute a cap of `-1`. Such a
+covered account takes the band quote with the cap clamped to zero. A full close
+repays all of `D`, so no debt is left to socialize. Seizure floors to whole
+token units, so it takes `C` less at most one token unit per collateral leg.
+That unit stays with the account as collateral. Bad-debt cleanup does not
+sweep it, because the account has no debt.
 
 An ideal residual debt strictly between zero and $5 also promotes the quote to
-full debt, without requiring full funding. Inputs are capped at actual debt and
-trimmed before tokens are pulled. Neither a full-debt quote nor the target
-health factor guarantees an executed full close after rounding or under-delivery.
+full debt, without requiring full funding. Each input is capped at its leg's
+ceiling-rounded debt, and the excess is listed as a refund. A partial quote
+also trims the inputs above the quote from the last leg backward before tokens
+are pulled, and execution pulls the trimmed amount. On a solvent account the
+trim floors the refund, so the kept amount can round up by one token unit. A full-debt quote trims nothing: the per-leg
+ceilings can exceed `D` by unit rounding, and the repayment credits every unit
+of them. Execution then pulls each merged offered amount and the pool refunds
+what exceeds each leg's debt, which is exactly the listed refund. Neither a
+full-debt quote nor the target health factor guarantees an executed full close
+after rounding or under-delivery.
 
 ### Seizure and fees
 

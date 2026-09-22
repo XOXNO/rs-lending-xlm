@@ -336,8 +336,9 @@ else:
   scale  = H ≤ hf_for_max_bonus ? WAD : min(WAD, half_up((H − HF) × WAD / (H − hf_for_max_bonus)))
   bonus  = base + half_up(half_up((max − base) × scale / WAD) × factor / BPS)
 cap_bps  = (p > 0 and HF < WAD) ? floor(HF × BPS / p) − BPS : none         // HF-preserving ceiling
-if cap < base:  quote = (D, base)                                           // full close at base bonus
-else:           b = min(bonus, cap)
+if cap and C < D:      quote = (min(D, floor(C × WAD / (WAD + base_wad))), base)  // insolvent: what C backs
+elif cap and cap < base: quote = (D, max(cap, 0))                            // band D ≤ C < D × (1 + base)
+else:                  b = cap ? min(bonus, cap) : bonus
 ```
 
 ### Close amount
@@ -352,7 +353,7 @@ ideal = (H ≤ denom_term or target_debt ≤ W) ? d_max
 if 0 < D − ideal < 5 WAD: ideal = D                                          // dust-debt promotion
 ```
 
-`get_liquidation_estimate(account_id, debt_payments, seize_mode)` returns `max_payment_wad` (= `ideal` capped by what was offered) and `bonus_rate_bps`. Offered payments are capped per asset at the ceiled debt balance; excess is listed in `refunds`. When the cap forces a full close and the offered value (ceil-valued) is below `ideal`, the call reverts with `FullCloseRequired`.
+`get_liquidation_estimate(account_id, debt_payments, seize_mode)` returns `max_payment_wad` (= `ideal` capped by what was offered) and `bonus_rate_bps`. Offered payments are capped per asset at the ceiled debt balance; excess is listed in `refunds`. Any payment up to `ideal` is accepted: a partial in the band pays `bonus = cap`, which keeps `C / D` and HF from falling. When the quote is the full debt nothing is trimmed: `max_payment_wad` credits each leg's ceiled debt and can exceed `D` by unit rounding, `refunds` lists only each offer above its leg's ceiled debt, and `liquidate` pulls each merged offered amount while the pool refunds exactly that excess. Otherwise the offer is trimmed to `ideal` from the last leg backward and `liquidate` pulls the trimmed amount. On a solvent account the trim floors the refund, so a kept leg can round up by one token unit; on an insolvent account (`C < D`) it floors the kept amount instead, drops a leg that keeps nothing, and a plan with no leg left makes `liquidate` revert with `InvalidPayments`. `FullCloseRequired` (#135) is no longer raised.
 
 Worked example (spoke defaults `H = 1.1`, `hf_for_max_bonus = 0.8`, `factor = 10_000`; single XLM collateral with stamped bonus 900, threshold 7800):
 

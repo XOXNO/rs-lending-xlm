@@ -5,8 +5,9 @@ use num_bigint::BigInt;
 use num_rational::BigRational;
 use proptest::prelude::*;
 use proptest::test_runner::TestCaseError;
+use soroban_sdk::vec;
 use test_harness::reference;
-use test_harness::{LendingTest, ALICE, LIQUIDATOR};
+use test_harness::{hub_asset, LendingTest, ALICE, LIQUIDATOR};
 
 const ULP_BOUND_USD_WAD: i128 = 10;
 const ULP_BOUND_TOKENS: i128 = 50;
@@ -102,18 +103,6 @@ fn run_liquidation_differential(
     let coll_before_usd = t.total_collateral_raw(ALICE);
     let usdc_supply_before_tokens = t.supply_balance_raw(ALICE, "USDC");
     let usdc_revenue_before = t.snapshot_revenue("USDC");
-
-    if ref_result.requires_full_close && ref_total_repaid_usd_wad < debt_before_usd {
-        let liq_res = t.try_liquidate_with_mode(LIQUIDATOR, ALICE, "ETH", repay_amt, seize_mode);
-        prop_assert!(
-            liq_res.is_err(),
-            "solvent-toxic partial must be rejected: repay={} debt={} mode={:?}",
-            repay_amt,
-            debt_before_usd,
-            seize_mode
-        );
-        return Ok(());
-    }
 
     let liq_res = t.try_liquidate_with_mode(LIQUIDATOR, ALICE, "ETH", repay_amt, seize_mode);
     prop_assert!(
@@ -224,5 +213,175 @@ proptest! {
             liq_repay_frac_bps,
             seize_mode,
         )?;
+    }
+}
+
+fn usd_wad(raw: i128, price_wad: i128, decimals: u32) -> i128 {
+    raw * price_wad / 10i128.pow(decimals)
+}
+
+fn within_one_unit(prod: i128, reference: i128, unit_usd: i128) -> bool {
+    (prod - reference).abs() <= unit_usd + ULP_BOUND_USD_WAD
+}
+
+/// Accounts whose HF-preserving cap is below the base bonus: the band
+/// `D <= C < D * (1 + base)` and insolvent books. Offers run up to 1.5x the
+/// debt, so band closes exercise the offered pull and its pool refund, and
+/// insolvent over-offers exercise the collateral-backed cap.
+fn run_below_base_differential(
+    mut t: LendingTest,
+    supply_usdc: u64,
+    debt_ratio_bps: u16,
+    offer_frac_bps: u16,
+) -> Result<(), TestCaseError> {
+    t.supply(ALICE, "USDC", supply_usdc as f64);
+    let borrow_result = t.try_borrow(ALICE, "ETH", supply_usdc as f64 * 0.75 / 2000.0 * 0.9);
+    prop_assert!(
+        borrow_result.is_ok(),
+        "generated in-LTV borrow failed: {:?}",
+        borrow_result.err()
+    );
+
+    let (eth_asset, eth_decimals) = {
+        let eth = t.resolve_market("ETH");
+        (eth.asset.clone(), eth.decimals)
+    };
+    let debt_tokens = t.borrow_balance_raw(ALICE, "ETH");
+    let eth_price = price_for_debt_ratio(
+        t.total_collateral_raw(ALICE),
+        debt_tokens,
+        eth_decimals,
+        debt_ratio_bps as i128,
+    );
+    let eth_unit_usd = usd_wad(1, eth_price, eth_decimals);
+    t.set_price("ETH", eth_price);
+    prop_assert!(
+        t.health_factor_raw(ALICE) < WAD,
+        "generated account must be liquidatable"
+    );
+
+    let coll_before = t.total_collateral_raw(ALICE);
+    let debt_before = t.total_debt_raw(ALICE);
+    let offer = debt_tokens * offer_frac_bps as i128 / 10_000;
+    prop_assume!(offer > 0);
+
+    let ref_result = reference::compute_liquidation(
+        &reference::snapshot_collateral(&t, ALICE),
+        &reference::snapshot_debt(&t, ALICE),
+        &[(0u32, BigRational::from_integer(BigInt::from(offer)))],
+        target_hf_wad(),
+    );
+    let ref_repaid_usd = reference::bigrational_to_i128_wad(&ref_result.total_repaid_usd_wad);
+    let ref_bonus = ref_result.final_bonus_bps.floor().to_integer();
+
+    let account_id = t.resolve_account_id(ALICE);
+    let liquidator = t.get_or_create_user(LIQUIDATOR);
+    let payments = vec![&t.env, (hub_asset(eth_asset), offer)];
+    let estimate =
+        t.ctrl_client()
+            .get_liquidation_estimate(&account_id, &payments, &SeizeMode::Transfer);
+    let bonus_gap = BigInt::from(estimate.bonus_rate_bps) - &ref_bonus;
+    prop_assert!(
+        bonus_gap >= BigInt::from(-1) && bonus_gap <= BigInt::from(1),
+        "bonus: production {} reference {}",
+        estimate.bonus_rate_bps,
+        ref_bonus
+    );
+    prop_assert!(
+        within_one_unit(estimate.max_payment_wad, ref_repaid_usd, eth_unit_usd),
+        "repayment: production {} reference {}",
+        estimate.max_payment_wad,
+        ref_repaid_usd
+    );
+
+    let eth_before = t.token_balance_raw(LIQUIDATOR, "ETH");
+    let usdc_before = t.token_balance_raw(LIQUIDATOR, "USDC");
+    t.resolve_market("ETH")
+        .token_admin
+        .mint(&liquidator, &offer);
+    let executed =
+        t.ctrl_client()
+            .try_liquidate(&liquidator, &account_id, &payments, &SeizeMode::Transfer);
+    prop_assert!(
+        matches!(executed, Ok(Ok(_))),
+        "below-base liquidation failed: offer={} debt={} error={:?}",
+        offer,
+        debt_tokens,
+        executed.err()
+    );
+
+    let spent = eth_before + offer - t.token_balance_raw(LIQUIDATOR, "ETH");
+    let spent_usd = usd_wad(spent, eth_price, eth_decimals);
+    if coll_before < debt_before {
+        let base_bonus_bps = i128::from(t.get_asset_config("USDC").liquidation_bonus);
+        let backed = coll_before * 10_000 / (10_000 + base_bonus_bps);
+        prop_assert!(
+            spent_usd <= backed,
+            "insolvent pull {} above the backed quote {}",
+            spent_usd,
+            backed
+        );
+    }
+    prop_assert!(
+        within_one_unit(spent_usd, ref_repaid_usd, eth_unit_usd),
+        "pulled and refunded: net spend {} USD vs reference {}",
+        spent_usd,
+        ref_repaid_usd
+    );
+    let usdc_unit_usd = usd_wad(
+        1,
+        t.resolve_market("USDC").price_wad,
+        t.resolve_market("USDC").decimals,
+    );
+    let received_usd = usd_wad(
+        t.token_balance_raw(LIQUIDATOR, "USDC") - usdc_before,
+        t.resolve_market("USDC").price_wad,
+        t.resolve_market("USDC").decimals,
+    );
+    prop_assert!(
+        received_usd + 2 * usdc_unit_usd + ULP_BOUND_USD_WAD >= spent_usd,
+        "liquidator lost money: received {} for {}",
+        received_usd,
+        spent_usd
+    );
+
+    if coll_before >= debt_before && t.find_account_id(ALICE).is_some() {
+        let (coll_after, debt_after) = (t.total_collateral_raw(ALICE), t.total_debt_raw(ALICE));
+        if debt_after > 0 {
+            let (before, after) = (
+                BigInt::from(coll_before) * debt_after,
+                BigInt::from(coll_after) * debt_before,
+            );
+            prop_assert!(
+                after >= before,
+                "band partial lowered coverage: {} -> {}",
+                before,
+                after
+            );
+        }
+    }
+    Ok(())
+}
+
+proptest! {
+    #![proptest_config(config(32))]
+
+    #[test]
+    fn prop_below_base_liquidation_matches_reference_and_never_loses_the_liquidator_money(
+        supply_usdc in 1_000u64..500_000u64,
+        debt_ratio_bps in 9_530u16..10_800u16,
+        offer_frac_bps in 500u16..=15_000u16,
+    ) {
+        let t = LendingTest::new().standard_two_asset().build();
+        run_below_base_differential(t, supply_usdc, debt_ratio_bps, offer_frac_bps)?;
+    }
+}
+
+#[test]
+fn below_base_differential_holds_at_exact_cover() {
+    for offer_frac_bps in [500u16, 10_000, 15_000] {
+        let t = LendingTest::new().standard_two_asset().build();
+        run_below_base_differential(t, 1_000, 10_000, offer_frac_bps)
+            .unwrap_or_else(|e| panic!("C == D, offer {offer_frac_bps} bps: {e}"));
     }
 }

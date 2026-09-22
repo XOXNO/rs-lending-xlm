@@ -20,7 +20,7 @@ SDK `try_` calls distinguish contract errors from host, authorization, storage, 
 | 10 `InvalidWasmHash` | The supplied Wasm hash is all zero bytes. | Pass the hash of an uploaded Wasm. |
 | 13 `AccountNotInMarket` | Account metadata is missing or caller fails the explicit NFT-owner check. | Use a live account; owner must authorize renewal/delegate writes. |
 | 14 `AmountMustBePositive` | Negative input, forbidden zero, or nonpositive measured receipt. Withdrawal zero and zero flash collateral minima are allowed exceptions. | Use valid amounts and a token that delivers funds. |
-| 16 `InvalidPayments` | Required list/route empty, forbidden route nonempty, input bound exceeded, duplicate/overlapping flash declarations. Empty flash collateral list reaches this code. | Correct request shape and declared asset sets. |
+| 16 `InvalidPayments` | Required list/route empty, forbidden route nonempty, input bound exceeded, duplicate/overlapping flash declarations. Empty flash collateral list reaches this code, as does a liquidation whose trimmed plan keeps no repayment leg. | Correct request shape and declared asset sets. |
 | 18 `NotSmartContract` | The supplied address is not a deployed contract. | Pass a contract address, not an account. |
 | 24 `AccountNotFound` | Required account or its NFT owner cannot be resolved; account id exceeds NFT u32 domain. | Use a live valid id. Some views return empty/zero instead. |
 | 25 `AccountModeMismatch` | The account's position mode differs from the mode the call requires, or a liquidation receiver is not in normal mode. | Use an account in the matching mode. |
@@ -82,7 +82,6 @@ SDK `try_` calls distinguish contract errors from host, authorization, storage, 
 | 132 `AssetDecimalsTooHigh` | Market decimals exceed 18, or a cap-rescale helper is given decimals above 27. | Use the supported market decimal domain. |
 | 133 `SelfLiquidationNotAllowed` | Credit receiver id equals the liquidated account id. | Choose another receiver; owner self-liquidation is otherwise allowed. |
 | 134 `InvalidLiquidationCurve` | `target_hf` is outside its allowed range, `hf_for_max_bonus` is not below the target, or the bonus factor is outside (0, BPS]. | Fix the curve bounds in the proposal. |
-| 135 `FullCloseRequired` | Partial repayment below ideal amount encounters the HF-preserving bonus cap. | Cover the required full close or revise liquidation size. |
 
 ### Oracle errors (201–235)
 
@@ -162,7 +161,7 @@ The following variants are declared but have no production construction in this 
 | Domain | Code / variant |
 | --- | --- |
 | Generic | 1 `AssetNotSupported`, 3 `InvalidTicker`, 11 `InvalidExchangeSrc`, 12 `PairNotActive` |
-| Collateral | 110 `PositionNotFound` |
+| Collateral | 110 `PositionNotFound`, 135 `FullCloseRequired` (liquidation accepts partial repayment in every band) |
 
 ### Price-status failures
 

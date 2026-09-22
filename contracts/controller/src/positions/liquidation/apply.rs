@@ -3,7 +3,8 @@ use common::math::fp::{Ray, Wad};
 use common::math::fp_core::mul_div_floor;
 use common::types::{
     Account, AccountPosition, AccountPositionType, AggregatedPayments, DebtPosition, HubAssetKey,
-    PoolAction, PoolSeizeEntry, PoolWithdrawEntry, RepayEntry, ScaledPositionRaw, SeizeEntry,
+    HubPayment, PoolAction, PoolSeizeEntry, PoolWithdrawEntry, RepayEntry, ScaledPositionRaw,
+    SeizeEntry,
 };
 use common::validation::expect_invariant;
 use soroban_sdk::{assert_with_error, Address, Env, Vec};
@@ -27,11 +28,15 @@ use common::errors::{GenericError, SpokeError};
 
 /// Repays from measured pool receipts. Returns WAD USD receipt value, capped
 /// per planned leg and floor-scaled when a token under-delivers.
+///
+/// With `offered` (a full-close plan), each leg pulls the merged offered amount
+/// and the pool refunds what exceeds the debt; otherwise it pulls the planned amount.
 pub(crate) fn apply_liquidation_repayments(
     env: &Env,
     liquidator: &Address,
     account: &mut Account,
     repaid: &Vec<RepayEntry>,
+    offered: Option<&Vec<HubPayment>>,
     cache: &mut Context,
 ) -> Wad {
     let pool_addr = cache.cached_pool_address();
@@ -46,13 +51,16 @@ pub(crate) fn apply_liquidation_repayments(
             FreezePolicy::AllowOnExit,
         );
 
+        let pull = offered.map_or(entry.amount, |offers| {
+            offered_amount(env, offers, &entry.hub_asset)
+        });
         // Credit only tokens received by the pool.
         let received = payments::transfer_amount_measured(
             env,
             &entry.hub_asset.asset,
             liquidator,
             &pool_addr,
-            entry.amount,
+            pull,
             GenericError::AmountMustBePositive,
         );
 
@@ -77,6 +85,11 @@ pub(crate) fn apply_liquidation_repayments(
         cache,
     );
     received_usd
+}
+
+fn offered_amount(env: &Env, offers: &Vec<HubPayment>, hub_asset: &HubAssetKey) -> i128 {
+    let (_, amount) = expect_invariant(env, offers.iter().find(|(key, _)| key == hub_asset));
+    amount
 }
 
 /// Executes transfer-mode seizure: burns shares, debits pool cash, and pays

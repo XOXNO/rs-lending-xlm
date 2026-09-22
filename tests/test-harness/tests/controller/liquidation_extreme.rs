@@ -1,11 +1,20 @@
 use crate::shared::get_indexes;
+use common::math::fp::Ray;
+use common::rates::unscale_borrow_ceil;
+use common::types::SeizeMode;
 use controller::constants::WAD;
 use governance::op::{AdminOperation, SpokeLiquidationCurveArgs};
+use pool::LiquidityPoolClient;
+use soroban_sdk::testutils::AuthorizedFunction;
+use soroban_sdk::{symbol_short, vec, TryFromVal};
 use test_harness::helpers::{usd, usd_cents};
 use test_harness::presets::{
     AssetConfigPreset, MarketPreset, DEFAULT_ASSET_CONFIG, DEFAULT_MARKET_PARAMS,
 };
-use test_harness::{assert_contract_error, errors, LendingTest, ALICE, HARNESS_SPOKE, LIQUIDATOR};
+use test_harness::{
+    assert_contract_error, errors, hub_asset, map_try_ok_value, LendingTest, ALICE, HARNESS_SPOKE,
+    LIQUIDATOR,
+};
 
 fn set_curve(t: &LendingTest, target_hf_wad: i128, hf_for_max_bonus_wad: i128, factor_bps: u32) {
     let admin = t.admin();
@@ -334,16 +343,16 @@ fn test_hf_spectrum_liquidations_bounded() {
         t.assert_liquidatable(ALICE);
 
         let coll_price = price as f64 / WAD as f64;
-        let (repay, expect_rejected_partial) = if price == usd(70) {
-            (7_100.0, true)
-        } else {
-            (500.0, false)
-        };
-        if expect_rejected_partial {
-            t.get_or_create_user(LIQUIDATOR);
-            let partial = t.try_liquidate(LIQUIDATOR, ALICE, "USD", 500.0);
-            assert_contract_error(partial, errors::FULL_CLOSE_REQUIRED);
+        let in_band = price == usd(70);
+        if in_band {
+            let coverage = t.total_collateral(ALICE) / t.total_debt(ALICE);
+            let (_c, _d, partial) = liquidate_measure(&mut t, "USD", 500.0, "VOL", coll_price);
+            assert!(
+                partial > 1.0 && partial <= coverage,
+                "a band partial pays at most the coverage {coverage:.5}, got {partial}"
+            );
         }
+        let repay = if in_band { 7_100.0 } else { 500.0 };
         let (_c, _d, ratio) = liquidate_measure(&mut t, "USD", repay, "VOL", coll_price);
         assert!(
             ratio > 1.0 && ratio <= 1.26,
@@ -489,6 +498,250 @@ fn test_multi_debt_liquidation_reduces_both() {
         t.borrow_balance(ALICE, "D1") < d1_before && t.borrow_balance(ALICE, "D2") < d2_before,
         "both debt legs must be reduced"
     );
+}
+
+fn ceil_debt(t: &LendingTest, account_id: u64, name: &str, decimals: u32) -> i128 {
+    let hub = hub_asset(t.resolve_asset(name));
+    let (_, borrows) = t.ctrl_client().get_account_positions(&account_id);
+    let scaled = borrows.get(hub.clone()).expect("debt leg").scaled_amount;
+    let index = LiquidityPoolClient::new(&t.env, &t.resolve_market(name).pool)
+        .get_sync_data(&hub)
+        .state
+        .borrow_index;
+    unscale_borrow_ceil(&t.env, Ray::from(scaled), Ray::from(index), decimals)
+}
+
+/// Two 3-decimal debt legs at $1 per unit whose ceiling-rounded balances
+/// together exceed the account's debt by at least one unit. A full close keeps
+/// each offer at its leg's ceiling without trimming: the estimate refunds only
+/// the offer above each ceiling, execution pulls the offers and nets exactly
+/// that, and every unit paid is credited to the seizure.
+#[test]
+fn test_full_close_of_ceiling_rounded_legs_credits_every_unit_pulled() {
+    let mut t = LendingTest::new()
+        .with_market(asset("COL", 7, usd(1), 7500, 8000, 500, 1_000_000.0))
+        .with_market(asset("D1", 3, usd(1_000), 7500, 8000, 500, 10_000.0))
+        .with_market(asset("D2", 3, usd(1_000), 7500, 8000, 500, 10_000.0))
+        .build();
+    t.supply(ALICE, "COL", 300_000.0);
+    t.borrow(ALICE, "D1", 100.0);
+    t.borrow(ALICE, "D2", 100.0);
+    let account_id = t.resolve_account_id(ALICE);
+    let unit_usd = WAD;
+
+    let mut rounding = 0;
+    for _ in 0..48 {
+        t.advance_and_sync(3_600);
+        let ceilings = ceil_debt(&t, account_id, "D1", 3) + ceil_debt(&t, account_id, "D2", 3);
+        rounding = ceilings * unit_usd - t.total_debt_raw(ALICE);
+        if rounding >= unit_usd {
+            break;
+        }
+    }
+    assert!(
+        rounding >= unit_usd,
+        "the leg ceilings must exceed the debt by a unit, got {rounding}"
+    );
+
+    let col_price = t.total_debt_raw(ALICE) * 10_205 / 10_000 / 300_000;
+    t.set_price("COL", col_price);
+    t.assert_liquidatable(ALICE);
+
+    let (d1, d2) = (
+        ceil_debt(&t, account_id, "D1", 3),
+        ceil_debt(&t, account_id, "D2", 3),
+    );
+    let payments = vec![
+        &t.env,
+        (hub_asset(t.resolve_asset("D1")), d1 + 50),
+        (hub_asset(t.resolve_asset("D2")), d2 + 50),
+    ];
+    let estimate =
+        t.ctrl_client()
+            .get_liquidation_estimate(&account_id, &payments, &SeizeMode::Transfer);
+    assert!(estimate.bonus_rate_bps < 500, "the account is in the band");
+    assert_eq!(
+        estimate.refunds.len(),
+        2,
+        "no trim refund: {:?}",
+        estimate.refunds
+    );
+    for refund in estimate.refunds.iter() {
+        assert_eq!(
+            refund.amount, 50,
+            "only the offer above each ceiling is refunded"
+        );
+    }
+    assert_eq!(
+        estimate.max_payment_wad,
+        (d1 + d2) * unit_usd,
+        "every ceiling unit is credited"
+    );
+
+    let liquidator = t.get_or_create_user(LIQUIDATOR);
+    t.resolve_market("D1")
+        .token_admin
+        .mint(&liquidator, &(d1 + 50));
+    t.resolve_market("D2")
+        .token_admin
+        .mint(&liquidator, &(d2 + 50));
+    let wallet = |t: &LendingTest| {
+        (
+            t.token_balance_raw(LIQUIDATOR, "D1"),
+            t.token_balance_raw(LIQUIDATOR, "D2"),
+            t.token_balance_raw(LIQUIDATOR, "COL"),
+        )
+    };
+    let before = wallet(&t);
+    t.ctrl_client()
+        .liquidate(&liquidator, &account_id, &payments, &SeizeMode::Transfer);
+    let auths = t.env.auths();
+    let after = wallet(&t);
+
+    let (_, root) = &auths[0];
+    let pulled: std::vec::Vec<i128> = root
+        .sub_invocations
+        .iter()
+        .filter_map(|sub| match &sub.function {
+            AuthorizedFunction::Contract((_, name, args)) if *name == symbol_short!("transfer") => {
+                Some(i128::try_from_val(&t.env, &args.get(2).expect("amount")).expect("i128"))
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        pulled,
+        std::vec![d1 + 50, d2 + 50],
+        "execution pulls the offers"
+    );
+
+    assert_eq!(
+        before.0 - after.0,
+        d1,
+        "the pool refunds the estimated D1 refund"
+    );
+    assert_eq!(
+        before.1 - after.1,
+        d2,
+        "the pool refunds the estimated D2 refund"
+    );
+    assert_eq!(t.borrow_balance_raw(ALICE, "D1"), 0);
+    assert_eq!(t.borrow_balance_raw(ALICE, "D2"), 0);
+
+    let paid_usd = (before.0 - after.0 + before.1 - after.1) * unit_usd;
+    assert_eq!(
+        paid_usd, estimate.max_payment_wad,
+        "no unit is paid uncredited"
+    );
+    let seized = estimate.seized_collaterals.get(0).expect("COL leg").amount;
+    let fee = estimate.protocol_fees.get(0).expect("COL fee").amount;
+    assert_eq!(
+        after.2 - before.2,
+        seized - fee,
+        "the liquidator receives the estimate"
+    );
+    let seized_usd = seized * col_price / 10_000_000;
+    let owed_usd = paid_usd * (10_000 + estimate.bonus_rate_bps) / 10_000;
+    assert!(
+        (seized_usd - owed_usd).abs() <= col_price / 10_000_000 + 1,
+        "seizure ${seized_usd} must match the payment plus bonus ${owed_usd}"
+    );
+}
+
+/// 1 000 COL against a $90 CHEAP debt and two EXP units at $10 each; the
+/// collateral is then priced at `col_price_wad`.
+fn insolvent_book_with_a_ten_dollar_unit(col_price_wad: i128) -> (LendingTest, u64) {
+    let mut t = LendingTest::new()
+        .with_market(asset("COL", 7, usd(1), 7500, 8000, 500, 1_000_000.0))
+        .with_market(asset("CHEAP", 7, usd(1), 7500, 8000, 500, 1_000_000.0))
+        .with_market(asset("EXP", 3, usd(10_000), 7500, 8000, 500, 100.0))
+        .with_min_borrow_collateral_disabled()
+        .build();
+    t.supply(ALICE, "COL", 1_000.0);
+    t.borrow(ALICE, "CHEAP", 90.0);
+    t.borrow(ALICE, "EXP", 0.002);
+    t.set_price("COL", col_price_wad);
+    let account_id = t.resolve_account_id(ALICE);
+    assert!(t.total_collateral_raw(ALICE) < t.total_debt_raw(ALICE));
+    (t, account_id)
+}
+
+/// $100 of collateral backs $95.24 at the 5% base bonus. Offered $90 of CHEAP
+/// and two $10 EXP units, the trim drops the EXP leg whole instead of keeping
+/// one unit above the backed quote: only CHEAP is pulled.
+#[test]
+fn test_insolvent_liquidation_pulls_only_the_leg_that_fits_the_backed_quote() {
+    let (mut t, account_id) = insolvent_book_with_a_ten_dollar_unit(usd(1) / 10);
+    let (cheap, exp) = (t.resolve_asset("CHEAP"), t.resolve_asset("EXP"));
+    let payments = vec![
+        &t.env,
+        (hub_asset(cheap.clone()), 90_0000000),
+        (hub_asset(exp.clone()), 2),
+    ];
+    let estimate =
+        t.ctrl_client()
+            .get_liquidation_estimate(&account_id, &payments, &SeizeMode::Transfer);
+    assert_eq!(estimate.max_payment_wad, 90 * WAD);
+    assert_eq!(estimate.refunds.len(), 1);
+    let refund = estimate.refunds.get(0).expect("EXP refund");
+    assert_eq!((refund.asset, refund.amount), (exp, 2));
+
+    let liquidator = t.get_or_create_user(LIQUIDATOR);
+    t.resolve_market("CHEAP")
+        .token_admin
+        .mint(&liquidator, &90_0000000);
+    t.resolve_market("EXP").token_admin.mint(&liquidator, &2);
+    let col_before = t.token_balance_raw(LIQUIDATOR, "COL");
+    t.ctrl_client()
+        .liquidate(&liquidator, &account_id, &payments, &SeizeMode::Transfer);
+
+    assert_eq!(
+        t.token_balance_raw(LIQUIDATOR, "CHEAP"),
+        0,
+        "CHEAP is pulled"
+    );
+    assert_eq!(
+        t.token_balance_raw(LIQUIDATOR, "EXP"),
+        2,
+        "EXP is not pulled"
+    );
+    assert_eq!(t.borrow_balance_raw(ALICE, "CHEAP"), 0);
+    assert_eq!(t.borrow_balance_raw(ALICE, "EXP"), 2);
+    let seized = estimate.seized_collaterals.get(0).expect("COL leg").amount;
+    let fee = estimate.protocol_fees.get(0).expect("COL fee").amount;
+    assert_eq!(
+        t.token_balance_raw(LIQUIDATOR, "COL") - col_before,
+        seized - fee
+    );
+    assert_eq!(seized, 945_0000000, "$90 * 1.05 of COL at $0.10");
+}
+
+/// $9 of collateral backs $8.57, less than one $10 EXP unit: the estimate
+/// keeps no repayment and refunds the whole offer, and execution reverts.
+#[test]
+fn test_insolvent_liquidation_reverts_when_no_debt_unit_fits_the_backed_quote() {
+    let (mut t, account_id) = insolvent_book_with_a_ten_dollar_unit(usd(9) / 1_000);
+    let exp = t.resolve_asset("EXP");
+    let payments = vec![&t.env, (hub_asset(exp.clone()), 2)];
+    let estimate =
+        t.ctrl_client()
+            .get_liquidation_estimate(&account_id, &payments, &SeizeMode::Transfer);
+    assert_eq!(estimate.max_payment_wad, 0);
+    assert!(estimate.seized_collaterals.is_empty());
+    let refund = estimate.refunds.get(0).expect("EXP refund");
+    assert_eq!((refund.asset, refund.amount), (exp, 2));
+
+    let liquidator = t.get_or_create_user(LIQUIDATOR);
+    t.resolve_market("EXP").token_admin.mint(&liquidator, &2);
+    let result = map_try_ok_value(t.ctrl_client().try_liquidate(
+        &liquidator,
+        &account_id,
+        &payments,
+        &SeizeMode::Transfer,
+    ));
+    assert_contract_error(result, errors::INVALID_PAYMENTS);
+    assert_eq!(t.token_balance_raw(LIQUIDATOR, "EXP"), 2);
+    assert_eq!(t.borrow_balance_raw(ALICE, "EXP"), 2);
 }
 
 #[test]

@@ -154,6 +154,7 @@ use fixtures::{seed_liquidatable_usdc_eth, LendingTest, ALICE};
 | `LendingTest::new().three_asset_usdc_eth_wbtc()` | USDC + ETH + WBTC |
 | `liquidatable_usdc_eth()` | Built USDC/ETH market with liquidatable Alice position |
 | `seed_liquidatable_usdc_eth(t)` | Alice: 10k USDC, 3 ETH debt, USDC at $0.50 |
+| `seed_band_usdc_eth(t)` | Alice: 10k USDC, 3 ETH debt, USDC at $0.62 (collateral covers the debt, not the base bonus) |
 | `seed_fuzz_conservation_book(t)` | Two-user seed for accounting conservation properties |
 | `seed_standard_liquidity(t)` | Alice USDC supply, Bob ETH supply |
 | `seed_liquidator_usdc(t, amount)` | Fund liquidator wallet |

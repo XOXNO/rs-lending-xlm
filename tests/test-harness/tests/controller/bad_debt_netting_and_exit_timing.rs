@@ -279,12 +279,12 @@ fn deep_underwater_account_still_liquidates_to_the_dust_gate() {
     );
 }
 
-/// The one band where a full close IS forced: `max_hf_preserving_bonus_bps`
-/// returns a cap in `[0, base_bonus)`, i.e. `hf` in `[threshold, 1.05*threshold)`
-/// = [0.80, 0.84) at the preset. Check a full close is still profitable there,
-/// so the band is not a stuck state either.
+/// The band where `max_hf_preserving_bonus_bps` returns a cap in
+/// `[0, base_bonus)`, i.e. `hf` in `[threshold, 1.05*threshold)` = [0.80, 0.84)
+/// at the preset. A partial and the full close that follows are both
+/// profitable, so the band is not a stuck state.
 #[test]
-fn forced_full_close_is_profitable_for_the_liquidator() {
+fn band_partial_and_full_close_are_both_profitable_for_the_liquidator() {
     let mut t = setup();
     t.supply(BOB, "ETH", 100.0);
 
@@ -296,36 +296,36 @@ fn forced_full_close_is_profitable_for_the_liquidator() {
     t.set_price("USDC", usd_cents(10));
 
     std::println!(
-        "V3 full-close band: collateral_usd={:.2} debt_usd={:.2} hf={:.4}",
+        "V3 band: collateral_usd={:.2} debt_usd={:.2} hf={:.4}",
         t.total_collateral(ALICE),
         t.total_debt(ALICE),
         t.health_factor(ALICE)
     );
 
+    let liq_usdc_before = t.token_balance(LIQUIDATOR, "USDC");
     let partial = t.try_liquidate(LIQUIDATOR, ALICE, "ETH", 0.5);
-    // Pin WHY the partial is refused. Without this the test passes unchanged if
-    // this band stops forcing a full close, which is half of what its own doc
-    // comment claims it demonstrates.
-    std::println!("V3 full-close band: partial 0.5 ETH -> {partial:?}");
-    assert_contract_error(partial, errors::FULL_CLOSE_REQUIRED);
+    let partial_usd = (t.token_balance(LIQUIDATOR, "USDC") - liq_usdc_before) * 0.10;
+    std::println!("V3 band: partial 0.5 ETH (=$1000) -> {partial:?} seized=${partial_usd:.2}");
+    assert!(partial.is_ok(), "a partial must succeed in the band");
+    assert!(
+        partial_usd > 1_000.0,
+        "a band partial must be profitable, seized=${partial_usd:.2}"
+    );
 
     let liq_usdc_before = t.token_balance(LIQUIDATOR, "USDC");
     let full = t.try_liquidate(LIQUIDATOR, ALICE, "ETH", 6.0);
     let got_usd = (t.token_balance(LIQUIDATOR, "USDC") - liq_usdc_before) * 0.10;
     std::println!(
-        "V3 full-close band: full 6.0 ETH (=$12000) -> {}  seized=${:.2} (margin {:+.2}%)  \
+        "V3 band: rest 5.5 ETH (=$11000) -> {}  seized=${:.2} (margin {:+.2}%)  \
          account_exists={}",
         if full.is_ok() { "OK" } else { "REVERT" },
         got_usd,
-        (got_usd - 12_000.0) / 12_000.0 * 100.0,
+        (got_usd - 11_000.0) / 11_000.0 * 100.0,
         t.account_exists(alice_id)
     );
+    assert!(full.is_ok(), "a full close must succeed in the band");
     assert!(
-        full.is_ok(),
-        "a full close must succeed in the forced-full-close band"
-    );
-    assert!(
-        got_usd > 12_000.0,
+        got_usd > 11_000.0,
         "a full close must be profitable, seized=${:.2}",
         got_usd
     );

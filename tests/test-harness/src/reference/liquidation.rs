@@ -48,8 +48,6 @@ pub struct RefLiquidationResult {
 
     pub total_repaid_usd_wad: BigRational,
 
-    pub requires_full_close: bool,
-
     pub total_seized_usd_wad: BigRational,
 }
 
@@ -318,10 +316,8 @@ fn select_liquidation_tier(
         calculate_linear_bonus_with_target(hf_wad, base_bonus_bps, max_bonus_bps, &target);
 
     let bonus = match max_hf_preserving_bonus_bps(hf_wad, proportion_seized) {
-        None => scaled_bonus,
-        Some(cap) if scaled_bonus <= cap => scaled_bonus,
-        Some(cap) if &cap >= base_bonus_bps => cap,
-        Some(_) => return (total_debt_wad.clone(), base_bonus_bps.clone()),
+        Some(cap) if cap < scaled_bonus => cap,
+        _ => scaled_bonus,
     };
 
     let ideal = match try_liquidation_at_target(
@@ -357,6 +353,26 @@ fn estimate_liquidation_amount(
     proportion_seized: &BigRational,
     total_collateral_wad: &BigRational,
 ) -> (BigRational, BigRational) {
+    match max_hf_preserving_bonus_bps(hf_wad, proportion_seized) {
+        Some(_) if total_collateral_wad < total_debt_wad => {
+            let one_plus_base = &wad_scale() + base_bonus_bps * &wad_scale() / bps_scale();
+            let backed = (total_collateral_wad * &wad_scale() / &one_plus_base).floor();
+            let ideal = if backed < *total_debt_wad {
+                backed
+            } else {
+                total_debt_wad.clone()
+            };
+            return (ideal, base_bonus_bps.clone());
+        }
+        Some(cap) if &cap < base_bonus_bps => {
+            return (
+                total_debt_wad.clone(),
+                if cap.is_negative() { br_zero() } else { cap },
+            );
+        }
+        _ => {}
+    }
+
     let (ideal, bonus) = select_liquidation_tier(
         total_debt_wad,
         weighted_coll_wad,
@@ -374,6 +390,38 @@ fn estimate_liquidation_amount(
     }
 
     (ideal, bonus)
+}
+
+/// Trims `excess` from the last leg backward, rounding each kept amount down to
+/// whole token units, and returns the USD value kept.
+fn kept_within_quote_usd(
+    debt: &[RefDebtPosition],
+    legs: &[(u32, BigRational, u32)],
+    excess: &BigRational,
+) -> BigRational {
+    let mut remaining = excess.clone();
+    let mut kept = br_zero();
+    for (asset_id, tokens, decimals) in legs.iter().rev() {
+        let price = &debt
+            .iter()
+            .find(|d| d.asset_id == *asset_id)
+            .expect("debt payment references unknown asset_id")
+            .price_wad;
+        let to_usd =
+            |tokens: &BigRational| tokens * br_ten_pow(18 - decimals) * price / wad_scale();
+        let usd = to_usd(tokens);
+        if !remaining.is_positive() {
+            kept += usd;
+        } else if usd <= remaining {
+            remaining -= usd;
+        } else {
+            let kept_tokens =
+                ((&usd - &remaining) * wad_scale() / price / br_ten_pow(18 - decimals)).floor();
+            kept += to_usd(&kept_tokens);
+            remaining = br_zero();
+        }
+    }
+    kept
 }
 
 pub fn compute_liquidation(
@@ -434,11 +482,18 @@ pub fn compute_liquidation(
         &total_coll,
     );
 
-    let final_repayment_usd = if total_payment_usd < ideal_repayment {
-        total_payment_usd.clone()
-    } else {
-        ideal_repayment
-    };
+    let final_repayment_usd =
+        if total_payment_usd < ideal_repayment || ideal_repayment >= total_debt {
+            total_payment_usd.clone()
+        } else if total_coll < total_debt {
+            kept_within_quote_usd(
+                debt,
+                &per_debt_payments_usd,
+                &(&total_payment_usd - &ideal_repayment),
+            )
+        } else {
+            ideal_repayment
+        };
     let one_plus_bonus_wad = &wad_scale() + &bonus_bps * &wad_scale() / bps_scale();
     let total_seizure_usd = &final_repayment_usd * &one_plus_bonus_wad / wad_scale();
 
@@ -491,15 +546,9 @@ pub fn compute_liquidation(
         .map(|(id, tokens, _dec)| (*id, tokens.clone()))
         .collect();
 
-    let requires_full_close = match max_hf_preserving_bonus_bps(&hf_wad, &proportion_seized) {
-        Some(cap) => cap >= BigRational::from_integer(BigInt::from(0)) && cap < base_bonus_bps,
-        None => false,
-    };
-
     RefLiquidationResult {
         health_factor_pre_wad: hf_wad,
         final_bonus_bps: bonus_bps,
-        requires_full_close,
         seized_per_collateral: seized,
         repaid_per_debt,
         protocol_fee_per_collateral: fees,

@@ -282,6 +282,7 @@ fn run_seizure(
             refunds: Vec::new(env),
             repay_usd: Wad::from(repay_usd_raw),
             bonus: Bps::from(bonus_bps),
+            full_close: false,
         };
         calculate_seized_collateral(
             env,
