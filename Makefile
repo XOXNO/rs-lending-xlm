@@ -1372,7 +1372,7 @@ upgrade-pool: _preflight-controller _preflight-governance deploy-artifacts
 		$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json
 
 
-upgrade-all: upgrade-pool upgrade-controller _unpause-after-setup _post-setup-status
+upgrade-all: upgrade-pool upgrade-governance upgrade-controller _unpause-after-setup _post-setup-status
 
 
 
