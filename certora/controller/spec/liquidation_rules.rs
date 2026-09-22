@@ -559,9 +559,10 @@ fn split_liq_apply(e: &Env, book: SplitBook, repay: i128, bonus_bps: i128) -> (S
 /// quote: at most two BPS of the summed repayment plus one raw unit.
 ///
 /// Both slices are assumed to fit inside their own step's ideal amount, which
-/// is what `normalize_repayment_plan` accepts whole; anything above it is capped
-/// or refunded, which only lowers the seizure. The blended threshold is at
-/// least one BPS; below it the half-up proportion moves the cap on its own.
+/// is what `normalize_repayment_plan` accepts whole; a partial plan trims or
+/// refunds anything above it, and a full-debt plan exceeds it only by per-leg
+/// unit rounding it also pays. The blended threshold is at least one BPS; below
+/// it the half-up proportion moves the cap on its own.
 #[rule]
 fn split_liq_two_partials_never_out_seize_one_close(
     e: Env,

@@ -257,10 +257,13 @@ covered account takes the band quote with the cap clamped to zero: a full close
 seizes exactly `C` for `D` and leaves nothing to socialize.
 
 An ideal residual debt strictly between zero and $5 also promotes the quote to
-full debt, without requiring full funding. Inputs are capped at actual debt and
-trimmed before tokens are pulled. When the quote is the full debt, execution
-pulls each merged offered amount and the pool refunds what exceeds the debt at
-execution to the liquidator; otherwise it pulls the trimmed amount. Neither a
+full debt, without requiring full funding. Each input is capped at its leg's
+ceiling-rounded debt, and the excess is listed as a refund. A partial quote
+also trims the inputs above the quote before tokens are pulled, and execution
+pulls the trimmed amount. A full-debt quote trims nothing: the per-leg
+ceilings can exceed `D` by unit rounding, and the repayment credits every unit
+of them. Execution then pulls each merged offered amount and the pool refunds
+what exceeds each leg's debt, which is exactly the listed refund. Neither a
 full-debt quote nor the target health factor guarantees an executed full close
 after rounding or under-delivery.
 

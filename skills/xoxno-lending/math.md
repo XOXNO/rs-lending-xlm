@@ -353,7 +353,7 @@ ideal = (H ≤ denom_term or target_debt ≤ W) ? d_max
 if 0 < D − ideal < 5 WAD: ideal = D                                          // dust-debt promotion
 ```
 
-`get_liquidation_estimate(account_id, debt_payments, seize_mode)` returns `max_payment_wad` (= `ideal` capped by what was offered) and `bonus_rate_bps`. Offered payments are capped per asset at the ceiled debt balance; excess is listed in `refunds`. Any payment up to `ideal` is accepted: a partial in the band pays `bonus = cap`, which keeps `C / D` and HF from falling. When the quote is the full debt, `liquidate` pulls each merged offered amount and the pool refunds what exceeds the execution-time debt; otherwise it pulls the trimmed amount. `FullCloseRequired` (#135) is no longer raised.
+`get_liquidation_estimate(account_id, debt_payments, seize_mode)` returns `max_payment_wad` (= `ideal` capped by what was offered) and `bonus_rate_bps`. Offered payments are capped per asset at the ceiled debt balance; excess is listed in `refunds`. Any payment up to `ideal` is accepted: a partial in the band pays `bonus = cap`, which keeps `C / D` and HF from falling. When the quote is the full debt nothing is trimmed: `max_payment_wad` credits each leg's ceiled debt and can exceed `D` by unit rounding, `refunds` lists only each offer above its leg's ceiled debt, and `liquidate` pulls each merged offered amount while the pool refunds exactly that excess. Otherwise the offer is trimmed to `ideal` and `liquidate` pulls the trimmed amount. `FullCloseRequired` (#135) is no longer raised.
 
 Worked example (spoke defaults `H = 1.1`, `hf_for_max_bonus = 0.8`, `factor = 10_000`; single XLM collateral with stamped bonus 900, threshold 7800):
 

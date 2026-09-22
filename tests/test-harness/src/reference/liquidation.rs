@@ -450,11 +450,12 @@ pub fn compute_liquidation(
         &total_coll,
     );
 
-    let final_repayment_usd = if total_payment_usd < ideal_repayment {
-        total_payment_usd.clone()
-    } else {
-        ideal_repayment
-    };
+    let final_repayment_usd =
+        if total_payment_usd < ideal_repayment || ideal_repayment >= total_debt {
+            total_payment_usd.clone()
+        } else {
+            ideal_repayment
+        };
     let one_plus_bonus_wad = &wad_scale() + &bonus_bps * &wad_scale() / bps_scale();
     let total_seizure_usd = &final_repayment_usd * &one_plus_bonus_wad / wad_scale();
 

@@ -156,8 +156,10 @@ pub(crate) fn calculate_repayment_amounts(
     (total_repaid_usd, repaid_tokens)
 }
 
-/// Caps planned repayments at the ideal WAD USD amount and records unused inputs.
-/// A payment below the ideal is accepted as offered.
+/// Trims planned repayments above the ideal WAD USD amount and records unused
+/// inputs. A payment below the ideal is accepted as offered. A full-close plan
+/// is not trimmed: each leg stays at its own ceiling-rounded debt cap, so
+/// `repay_usd` can exceed the total debt by per-leg unit rounding.
 pub(crate) fn normalize_repayment_plan(
     env: &Env,
     account: &Account,
@@ -172,12 +174,11 @@ pub(crate) fn normalize_repayment_plan(
         calculate_repayment_amounts(env, raw_payments, account, &mut refunds, cache);
 
     let (ideal_repayment_usd, bonus) = estimate_liquidation_amount(env, snap, bonus_bounds, curve);
-
-    let max_debt_to_repay_usd = total_debt_payment_usd.min(ideal_repayment_usd);
+    let full_close = ideal_repayment_usd >= snap.total_debt;
 
     let mut final_repayment_tokens = repaid_tokens;
-    if total_debt_payment_usd > max_debt_to_repay_usd {
-        let excess_usd = total_debt_payment_usd.checked_sub(env, max_debt_to_repay_usd);
+    if !full_close && total_debt_payment_usd > ideal_repayment_usd {
+        let excess_usd = total_debt_payment_usd.checked_sub(env, ideal_repayment_usd);
         process_excess_payment(env, &mut final_repayment_tokens, &mut refunds, excess_usd);
     }
 
@@ -187,7 +188,7 @@ pub(crate) fn normalize_repayment_plan(
         repaid: final_repayment_tokens,
         refunds,
         bonus,
-        full_close: ideal_repayment_usd >= snap.total_debt,
+        full_close,
     }
 }
 

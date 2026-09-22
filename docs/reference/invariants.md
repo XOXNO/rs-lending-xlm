@@ -406,12 +406,13 @@ still apply.
 
 ### INV-LIQ-02 — Repayment and seizure stay coupled
 
-Repayment planning caps each input by actual debt and the liquidation curve,
-then trims excess before transfers. Planned refunds are unused input: a partial
-plan never pulls them, and a full-debt plan pulls the offered amount and the
-pool returns what exceeds the debt. Seizure is proportional to collateral value
-and capped at held collateral; rounding can leave repayment with no payable
-seizure.
+Repayment planning caps each input by its leg's actual debt. A partial plan
+also trims the excess above the liquidation curve's quote before transfers.
+Planned refunds are unused input: a partial plan never pulls them; a full-debt
+plan pulls the offered amount and the pool returns what exceeds each leg's
+debt, which equals the planned refund. Seizure is proportional to collateral
+value and capped at held collateral; rounding can leave repayment with no
+payable seizure.
 
 Transfer mode burns shares and pays underlying after fees. Credit mode splits
 seized shares exactly between receiver credit and a ceiling-rounded fee on

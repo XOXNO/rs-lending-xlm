@@ -646,6 +646,81 @@ fn racing_insolvent_liquidations_never_repay_more_than_the_collateral_backs() {
     );
 }
 
+/// Two 3-decimal legs at $1 per unit, each owing 100 400.4 units: the ceilings
+/// (100 401 each) exceed the debt by 1.2 units. The full-close plan keeps both
+/// legs at their ceilings, refunds only the offer above them, and credits
+/// every ceiling unit instead of trimming one unit it would still pull.
+#[test]
+fn a_full_close_plan_credits_every_legs_ceiling_without_a_trim_refund() {
+    let env = Env::default();
+    let contract = env.register(crate::Controller, (Address::generate(&env),));
+    let (d1, d2) = (hub_key(&env), hub_key(&env));
+    let feed = PriceFeedRaw {
+        price_wad: 1_000 * WAD,
+        asset_decimals: 3,
+        timestamp: 0,
+    };
+    let scaled = Ray::from_asset(&env, 100_400, 3).raw() + 4 * 10i128.pow(23);
+    let mut borrow_positions = Map::new(&env);
+    for key in [&d1, &d2] {
+        borrow_positions.set(
+            key.clone(),
+            DebtPositionRaw {
+                scaled_amount: scaled,
+            },
+        );
+    }
+    let account = Account {
+        borrow_positions,
+        ..empty_account(&env)
+    };
+
+    env.as_contract(&contract, || {
+        let mut cache = Context::new_view(&env);
+        let mut prices = Map::new(&env);
+        prices.set(d1.asset.clone(), feed.clone());
+        prices.set(d2.asset.clone(), feed);
+        cache.set_prices(prices);
+        cache.put_market_index(&d1, &index_raw());
+        cache.put_market_index(&d2, &index_raw());
+
+        let debt = 2 * 1_004_004 * 10i128.pow(17);
+        let collateral = debt * 10_205 / 10_000;
+        let s = snap(
+            debt,
+            collateral,
+            collateral * 8 / 10,
+            8 * WAD / 10,
+            8_164 * WAD / 10_000,
+        );
+        assert_eq!(max_hf_preserving_bonus_bps(&s), Some(205));
+        let bounds = BonusBounds {
+            base: Bps::from(500i128),
+            max: max_bonus_for_threshold(&env, s.proportion_seized),
+        };
+        let curve = LiquidationCurve::from_config(&default_spoke_config());
+
+        let payments = vec![&env, (d1.clone(), 100_451i128), (d2.clone(), 100_451i128)];
+        let plan =
+            normalize_repayment_plan(&env, &account, &payments, &s, bounds, &curve, &mut cache);
+
+        assert!(plan.full_close);
+        assert_eq!(plan.bonus.raw(), 205);
+        assert_eq!(plan.refunds.len(), 2, "no trim refund");
+        for refund in plan.refunds.iter() {
+            assert_eq!(refund.amount, 50, "only the offer above each ceiling");
+        }
+        for entry in plan.repaid.iter() {
+            assert_eq!(entry.amount, 100_401, "each leg stays at its ceiling");
+        }
+        assert_eq!(
+            plan.repay_usd.raw(),
+            200_802 * WAD,
+            "every ceiling unit is credited"
+        );
+    });
+}
+
 #[test]
 fn a_band_plan_is_a_full_close_plan_even_for_a_partial_payment() {
     let env = Env::default();
@@ -1721,7 +1796,8 @@ fn an_exactly_covered_account_quotes_the_full_debt_at_zero_bonus_not_the_insolve
                 max: max_bonus_for_threshold(&env, s.proportion_seized),
             };
 
-            let payments = vec![&env, (hub_asset.clone(), 500_0000000i128)];
+            let debt_stroops = collateral / 100_000_000_000;
+            let payments = vec![&env, (hub_asset.clone(), debt_stroops)];
             let plan = normalize_repayment_plan(
                 &env,
                 &account,
