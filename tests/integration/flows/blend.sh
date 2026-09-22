@@ -45,6 +45,10 @@ blend_restore_xlm() {
         --input "$(spoke_args "$PRIMARY_HUB_ID" "$XLM_SAC" "$PRIMARY_SPOKE_ID" true true 7000 7500 1000)" >/dev/null
 }
 
+blend_clear_xlm_flags() {
+    clear_listing_flags "$1" "$PRIMARY_HUB_ID" "$XLM_SAC" "$PRIMARY_SPOKE_ID"
+}
+
 blend_restore_min_borrow() {
     inv "${1:-blend_restore_min_borrow}" "$ADMIN" "$CONTROLLER" -- set_min_borrow_collateral_usd \
         --floor_wad "${2:-0}" >/dev/null
@@ -247,8 +251,8 @@ flow_blend_rejects() {
         --caller "$ALICE_ADDR" --account_id 0 --spoke_id "$PRIMARY_SPOKE_ID" \
         --hub_id "$PRIMARY_HUB_ID" --blend_pool "$BLEND_POOL" \
         --collateral_assets "$xlm_coll" --supply_assets "$empty" --debt_caps "$empty" \
-        || { blend_restore_xlm blend_restore_xlm_after_pause; return 1; }
-    blend_restore_xlm blend_restore_xlm_after_pause
+        || { blend_clear_xlm_flags blend_unpause_xlm; return 1; }
+    blend_clear_xlm_flags blend_unpause_xlm
 
     inv blend_freeze_xlm "$ADMIN" "$CONTROLLER" -- set_spoke_asset_flags \
         --spoke_id "$PRIMARY_SPOKE_ID" --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$XLM_SAC")" \
@@ -257,8 +261,8 @@ flow_blend_rejects() {
         --caller "$ALICE_ADDR" --account_id 0 --spoke_id "$PRIMARY_SPOKE_ID" \
         --hub_id "$PRIMARY_HUB_ID" --blend_pool "$BLEND_POOL" \
         --collateral_assets "$xlm_coll" --supply_assets "$empty" --debt_caps "$empty" \
-        || { blend_restore_xlm blend_restore_xlm_after_freeze; return 1; }
-    blend_restore_xlm blend_restore_xlm_after_freeze
+        || { blend_clear_xlm_flags blend_unfreeze_xlm; return 1; }
+    blend_clear_xlm_flags blend_unfreeze_xlm
 
     inv blend_xlm_not_coll "$ADMIN" "$CONTROLLER" -- edit_asset_in_spoke \
         --input "$(spoke_args "$PRIMARY_HUB_ID" "$XLM_SAC" "$PRIMARY_SPOKE_ID" false true 7000 7500 1000)" >/dev/null

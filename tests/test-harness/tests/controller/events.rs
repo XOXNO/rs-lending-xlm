@@ -5,7 +5,7 @@ use soroban_sdk::{testutils::Events, xdr::ScVal};
 
 use test_harness::{
     days, eth_preset, hub_asset, usd_cents, usdc_preset, usdt_stable_preset, wbtc_preset,
-    xlm_preset, LendingTest, ALICE, LIQUIDATOR,
+    xlm_preset, LendingTest, ALICE, HARNESS_HUB, HARNESS_SPOKE, LIQUIDATOR,
 };
 
 #[test]
@@ -281,6 +281,44 @@ fn test_add_spoke_emits_events() {
         1,
         "add_spoke must emit exactly one config:spoke event"
     );
+}
+
+#[test]
+fn test_relax_spoke_asset_flags_emits_the_post_change_listing() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let usdc = t.resolve_asset("USDC");
+    let supply_cap = t.get_asset_config("USDC").supply_cap;
+    t.set_spoke_asset_flags("USDC", true, true, true);
+
+    t.relax_spoke_asset_flags("USDC", false, true, false);
+
+    let events = t.env.events().all();
+    let updates = data_for_topic(&events, "config", "spoke_asset");
+    assert_eq!(
+        updates.len(),
+        1,
+        "relax must emit exactly one config:spoke_asset event"
+    );
+    let ScVal::Map(Some(map)) = &updates[0] else {
+        panic!("spoke asset event data is a map, got {:?}", updates[0]);
+    };
+    let field = |map: &soroban_sdk::xdr::ScMap, name: &str| -> ScVal {
+        map.iter()
+            .find(|e| matches!(&e.key, ScVal::Symbol(s) if s.0.to_string() == name))
+            .unwrap_or_else(|| panic!("event has no field `{name}`"))
+            .val
+            .clone()
+    };
+    assert_eq!(field(map, "asset"), ScVal::from(&usdc));
+    assert_eq!(field(map, "spoke_id"), ScVal::U32(HARNESS_SPOKE));
+    assert_eq!(field(map, "hub_id"), ScVal::U32(HARNESS_HUB));
+    let ScVal::Map(Some(config)) = field(map, "config") else {
+        panic!("config is a map");
+    };
+    assert_eq!(field(&config, "paused"), ScVal::Bool(false));
+    assert_eq!(field(&config, "frozen"), ScVal::Bool(true));
+    assert_eq!(field(&config, "no_seize"), ScVal::Bool(false));
+    assert_eq!(field(&config, "supply_cap"), ScVal::from(supply_cap));
 }
 
 #[test]

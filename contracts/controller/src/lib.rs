@@ -511,6 +511,12 @@ impl ControllerInterface for Controller {
         storage::get_spoke_usage(&env, spoke_id, &hub_asset).unwrap_or_default()
     }
 
+    /// Returns the listing's flags epoch, the `expected_epoch` a
+    /// `relax_spoke_asset_flags` call must name; 0 if never written.
+    fn get_spoke_asset_flags_epoch(env: Env, spoke_id: u32, hub_asset: HubAssetKey) -> u64 {
+        storage::get_spoke_flags_epoch(&env, spoke_id, &hub_asset)
+    }
+
     /// Returns the configured price aggregator contract address.
     fn price_aggregator(env: Env) -> Address {
         storage::get_price_aggregator(&env)
@@ -663,6 +669,32 @@ impl ControllerAdmin for Controller {
             env,
             config::asset::set_spoke_asset_flags(
                 &env, spoke_id, hub_asset, paused, frozen, no_seize
+            )
+        )
+    }
+
+    /// Sets a spoke asset's paused, frozen and no-seize flags, clearing
+    /// included, when `expected_epoch` equals its flags epoch. Owner-only.
+    #[only_owner]
+    fn relax_spoke_asset_flags(
+        env: Env,
+        spoke_id: u32,
+        hub_asset: HubAssetKey,
+        expected_epoch: u64,
+        paused: bool,
+        frozen: bool,
+        no_seize: bool,
+    ) {
+        renew_then!(
+            env,
+            config::asset::relax_spoke_asset_flags(
+                &env,
+                spoke_id,
+                hub_asset,
+                expected_epoch,
+                paused,
+                frozen,
+                no_seize
             )
         )
     }

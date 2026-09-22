@@ -509,6 +509,18 @@ hub_key() {
     jq -nc --argjson h "$1" --arg a "$2" '{hub_id:$h, asset:$a}'
 }
 
+clear_listing_flags() {
+    local label="$1" hub="$2" asset="$3" spoke="$4"
+    local key epoch
+    key=$(hub_key "$hub" "$asset")
+    epoch=$(view "${label}_epoch" "$CONTROLLER" -- get_spoke_asset_flags_epoch \
+        --spoke_id "$spoke" --hub_asset "$key" | tail -n1 | tr -d '"[:space:]')
+    [ -n "$epoch" ] || return 1
+    inv "$label" "$ADMIN" "$CONTROLLER" -- relax_spoke_asset_flags \
+        --spoke_id "$spoke" --hub_asset "$key" --expected_epoch "$epoch" \
+        --paused false --frozen false --no_seize false >/dev/null
+}
+
 hub_vec() {
     local hub_id="$1"
     shift

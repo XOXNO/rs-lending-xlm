@@ -64,25 +64,32 @@ impl LendingTest {
         });
     }
 
+    /// Sets `paused` and clears `frozen` and `no_seize` through the relax path.
     pub fn set_spoke_asset_paused(&self, asset_name: &str, paused: bool) {
-        let asset = self.resolve_asset(asset_name);
-        let config = self.get_asset_config(asset_name);
-        self.ctrl_client().edit_asset_in_spoke(&SpokeAssetArgs {
-            hub_id: HARNESS_HUB,
-            asset,
-            spoke_id: HARNESS_SPOKE,
-            can_collateral: config.is_collateralizable,
-            can_borrow: config.is_borrowable,
-            paused,
-            frozen: false,
-            no_seize: false,
-            ltv: config.loan_to_value,
-            threshold: config.liquidation_threshold,
-            bonus: config.liquidation_bonus,
-            liquidation_fees: config.liquidation_fees,
-            supply_cap: config.supply_cap,
-            borrow_cap: config.borrow_cap,
-        });
+        self.relax_spoke_asset_flags(asset_name, paused, false, false);
+    }
+
+    /// Writes any flag combination through the owner-only relax path, bound
+    /// to the listing's live flags epoch.
+    pub fn relax_spoke_asset_flags(
+        &self,
+        asset_name: &str,
+        paused: bool,
+        frozen: bool,
+        no_seize: bool,
+    ) {
+        let key = hub_asset(self.resolve_asset(asset_name));
+        let epoch = self
+            .ctrl_client()
+            .get_spoke_asset_flags_epoch(&HARNESS_SPOKE, &key);
+        self.ctrl_client().relax_spoke_asset_flags(
+            &HARNESS_SPOKE,
+            &key,
+            &epoch,
+            &paused,
+            &frozen,
+            &no_seize,
+        );
     }
 
     /// Sets the listing's halt flags directly, so a test can exercise one flag without the

@@ -6,7 +6,8 @@ one spoke must stop, and a global pause is too wide.
 [ADR-0007](../../explanation/decisions.md#adr-0007) and
 [ADR-0008](../../explanation/decisions.md#adr-0008) define what each flag stops.
 
-The guardian can only raise a flag. Clearing one needs a timelocked listing edit.
+The guardian can only raise a flag, and a listing edit cannot clear one either.
+Clearing needs the timelocked `RelaxSpokeAssetFlags` operation.
 
 ## Raise the flags
 
@@ -18,29 +19,37 @@ governance `set_spoke_asset_flags`. It cannot clear a flag that is already set.
 The spoke id is the id from `configs/<network>/spokes.json`; the verb maps it to
 the on-chain id.
 
-## Cancel pending listing edits
+## Review pending operations
 
 Do this immediately after the flags are set.
 
-A listing edit writes all three flags from the arguments it was proposed with.
-An edit proposed before the freeze carries the old flags. When it is Ready, any
-address can execute it, and it clears the freeze.
+A listing edit proposed before the freeze cannot clear it: the controller
+rejects an edit that turns a set flag off. A relaxation proposed before the
+freeze cannot clear it either, because every flag write advances the listing's
+flags epoch and the old relaxation names the old epoch. Other pending
+operations, such as `Unpause`, still execute as proposed.
 
 1. The verb prints every recorded operation with its live state. `make <network>
    listOps` prints the same list.
-2. Cancel each `Waiting` or `Ready` operation that edits the frozen listing:
-   `make <network> cancelOp <op-id> SIGNER=<canceller>`.
-3. Do not propose a new edit of that listing until the incident is closed.
-   `editAssetInSpoke` carries the live flags when the config does not name them,
-   but an operation proposed by another tool does not.
+2. Cancel each `Waiting` or `Ready` operation that must not run during the
+   incident: `make <network> cancelOp <op-id> SIGNER=<canceller>`. A pending
+   edit of the frozen listing that names the old flags reverts at execution;
+   cancel it too.
 
 ## Clear the flags
 
-1. Set the flag to `false` in `configs/<network>/spokes.json` for that listing.
-2. `RELAX_SPOKE_FLAGS=1 make <network> editAssetInSpoke <config-spoke-id> <asset>`.
-   Without `RELAX_SPOKE_FLAGS=1` the script refuses to turn a live flag off.
-3. Execute the operation after its delay, then read the listing again with
+    make <network> relaxAssetFlags <config-spoke-id> <asset> <flags>
+
+1. `<flags>` is a comma list of the flags to clear. The verb reads the live
+   listing and its flags epoch, keeps every flag not named, and schedules
+   `RelaxSpokeAssetFlags` bound to that epoch. It refuses a flag that is not set.
+2. Execute the operation after its delay. If any flag write lands first, the
+   operation reverts with `SpokeFlagsEpochMismatch`; run the verb again.
+3. Read the listing again with
    `make <network> getSpokeAsset <config-spoke-id> <asset>`.
+
+`editAssetInSpoke` refuses a config that sets a live flag to `false` and names
+this verb instead.
 
 ## Notes
 

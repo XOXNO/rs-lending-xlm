@@ -3,12 +3,12 @@
 //! tier) that the timelock schedules and later executes, and applies the
 //! subset of operations that target the governance contract itself.
 
-use common::errors::{CollateralError, GenericError, OracleError};
+use common::errors::{CollateralError, GenericError, OracleError, SpokeError};
 use common::types::{AssetOracle, PriceKey};
 use common::validation::{
     validate_liquidation_curve, validate_liquidation_fees, validate_risk_bounds,
 };
-use controller_interface::ControllerAdminClient;
+use controller_interface::{ControllerAdminClient, ControllerClient};
 
 use soroban_sdk::{
     assert_with_error, panic_with_error, vec, Address, Env, IntoVal, Symbol, Val, Vec,
@@ -20,8 +20,8 @@ use crate::{storage, validate};
 
 pub use governance_interface::{
     AdminOperation, ConfigureAssetOracleArgs, CreatePoolArgs, DeployPositionNftArgs,
-    EditToleranceArgs, RemoveAssetFromSpokeArgs, RoleArgs, SpokeAssetArgs,
-    SpokeLiquidationCurveArgs, TransferOwnershipArgs, UpgradePoolParamsArgs,
+    EditToleranceArgs, RelaxSpokeAssetFlagsArgs, RemoveAssetFromSpokeArgs, RoleArgs,
+    SpokeAssetArgs, SpokeLiquidationCurveArgs, TransferOwnershipArgs, UpgradePoolParamsArgs,
 };
 
 /// Validates risk bounds, liquidation fees, and supply/borrow caps for a
@@ -246,6 +246,28 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
                 args.spoke_id.into_val(env),
             ],
         ),
+        AdminOperation::RelaxSpokeAssetFlags(args) => {
+            assert_with_error!(
+                env,
+                ControllerClient::new(env, &storage::get_controller(env))
+                    .get_spoke_asset_flags_epoch(&args.spoke_id, &args.hub_asset)
+                    == args.expected_epoch,
+                SpokeError::SpokeFlagsEpochMismatch
+            );
+            controller_operation(
+                env,
+                "relax_spoke_asset_flags",
+                vec![
+                    env,
+                    args.spoke_id.into_val(env),
+                    args.hub_asset.clone().into_val(env),
+                    args.expected_epoch.into_val(env),
+                    args.paused.into_val(env),
+                    args.frozen.into_val(env),
+                    args.no_seize.into_val(env),
+                ],
+            )
+        }
         AdminOperation::ApproveBlendPool(pool) => {
             validate::require_contract_address(env, pool, GenericError::NotSmartContract);
             controller_operation(
@@ -443,6 +465,7 @@ pub(crate) fn apply_self_op(env: &Env, op: &AdminOperation) {
         | AdminOperation::AddAssetToSpoke(_)
         | AdminOperation::EditAssetInSpoke(_)
         | AdminOperation::RemoveAssetFromSpoke(_)
+        | AdminOperation::RelaxSpokeAssetFlags(_)
         | AdminOperation::ApproveBlendPool(_)
         | AdminOperation::RevokeBlendPool(_)
         | AdminOperation::CreateLiquidityPool(_)

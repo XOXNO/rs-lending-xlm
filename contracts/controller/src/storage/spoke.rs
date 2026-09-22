@@ -1,5 +1,5 @@
 use super::protocol::{get_shared, increment_counter, set_shared};
-use common::errors::SpokeError;
+use common::errors::{GenericError, SpokeError};
 use common::types::{ControllerKey, HubAssetKey, SpokeAssetConfig, SpokeConfig, SpokeUsageRaw};
 use soroban_sdk::{panic_with_error, Env};
 
@@ -46,7 +46,28 @@ pub(crate) fn set_spoke_asset(
     );
 }
 
-/// Deletes the listed asset config; does not modify usage.
+/// Returns the listing's flags epoch, or 0 if no flag write happened yet.
+pub(crate) fn get_spoke_flags_epoch(env: &Env, spoke_id: u32, hub_asset: &HubAssetKey) -> u64 {
+    get_shared(
+        env,
+        &ControllerKey::SpokeFlagsEpoch(spoke_id, hub_asset.clone()),
+    )
+    .unwrap_or(0)
+}
+
+/// Increments the listing's flags epoch and renews shared TTL; fails on overflow.
+pub(crate) fn bump_spoke_flags_epoch(env: &Env, spoke_id: u32, hub_asset: &HubAssetKey) {
+    let next = get_spoke_flags_epoch(env, spoke_id, hub_asset)
+        .checked_add(1)
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
+    set_shared(
+        env,
+        &ControllerKey::SpokeFlagsEpoch(spoke_id, hub_asset.clone()),
+        &next,
+    );
+}
+
+/// Deletes the listed asset config; does not modify usage or the flags epoch.
 pub(crate) fn remove_spoke_asset(env: &Env, spoke_id: u32, hub_asset: &HubAssetKey) {
     env.storage()
         .persistent()

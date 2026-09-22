@@ -32,7 +32,7 @@ Field lists use exact Rust types. Map key order is alphabetical, regardless of d
 | `InitialMultiplyPaymentEvent`<br>`["strategy", "initial_payment"]` | map: `token: Address, amount: i128, account_id: u64` | multiply with initial payment: requested original payment before conversion, not measured receipt. |
 | `BlendMigrationEvent`<br>`["strategy", "blend_migration"]` | map: `account_id: u64, blend_pool: Address, collateral_count: u32, supply_count: u32, debt_count: u32` | migrate_from_blend: completed input entry counts. |
 | `UpdateSpokeEvent`<br>`["config", "spoke"]` | map: `spoke: EventSpoke` | add_spoke, remove_spoke, set_spoke_liquidation_curve: post-change snapshot. |
-| `UpdateSpokeAssetEvent`<br>`["config", "spoke_asset"]` | map: `asset: Address, config: SpokeAssetConfig, spoke_id: u32, hub_id: u32` | add_asset_to_spoke, edit_asset_in_spoke, set_spoke_asset_flags: full post-change listing. |
+| `UpdateSpokeAssetEvent`<br>`["config", "spoke_asset"]` | map: `asset: Address, config: SpokeAssetConfig, spoke_id: u32, hub_id: u32` | add_asset_to_spoke, edit_asset_in_spoke, set_spoke_asset_flags, relax_spoke_asset_flags: full post-change listing. |
 | `RemoveSpokeAssetEvent`<br>`["config", "remove_spoke_asset"]` | map: `asset: Address, spoke_id: u32, hub_id: u32` | remove_asset_from_spoke after zero-usage check. |
 | `ApproveBlendPoolEvent`<br>`["config", "approve_blend_pool"]` | map: `pool: Address, approved: bool` | approve_blend_pool/revoke_blend_pool; approval bool. |
 | `UpdateSwapAggregatorEvent`<br>`["config", "swap_aggregator"]` | map: `swap_aggregator: Address` | set_swap_aggregator. |

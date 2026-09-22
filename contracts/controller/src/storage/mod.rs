@@ -28,8 +28,8 @@ pub(crate) use protocol::{
     set_swap_aggregator, try_get_accumulator, try_get_pool, try_get_position_nft,
 };
 pub(crate) use spoke::{
-    get_spoke, get_spoke_asset, get_spoke_usage, increment_spoke_id, remove_spoke_asset, set_spoke,
-    set_spoke_asset, set_spoke_usage,
+    bump_spoke_flags_epoch, get_spoke, get_spoke_asset, get_spoke_flags_epoch, get_spoke_usage,
+    increment_spoke_id, remove_spoke_asset, set_spoke, set_spoke_asset, set_spoke_usage,
 };
 
 #[cfg(any(test, feature = "testing", feature = "certora"))]

@@ -21,6 +21,17 @@ pub struct RemoveAssetFromSpokeArgs {
 
 #[contracttype]
 #[derive(Clone, Debug)]
+pub struct RelaxSpokeAssetFlagsArgs {
+    pub spoke_id: u32,
+    pub hub_asset: HubAssetKey,
+    pub expected_epoch: u64,
+    pub paused: bool,
+    pub frozen: bool,
+    pub no_seize: bool,
+}
+
+#[contracttype]
+#[derive(Clone, Debug)]
 pub struct CreatePoolArgs {
     pub hub_id: u32,
     pub asset: Address,
@@ -126,6 +137,8 @@ pub enum AdminOperation {
     TransferGovOwnership(TransferOwnershipArgs),
 
     ConfigureAssetOracle(ConfigureAssetOracleArgs),
+
+    RelaxSpokeAssetFlags(RelaxSpokeAssetFlagsArgs),
 }
 
 #[contractclient(name = "GovernanceClient")]

@@ -56,8 +56,9 @@ not imply that every operation preserves health or collateral value.
 Immediate guardian power can pause and add listing restrictions. Unpausing or
 clearing restrictions requires a timelock under the repository wiring.
 
-A timelocked full listing rewrite can clear flags. The restriction to tightening
-flags applies to the dedicated flag-setting method.
+A listing edit and the guardian flag method can only keep or tighten flags.
+Only the timelocked `relax_spoke_asset_flags` clears one, and only while the
+listing's flags epoch equals its `expected_epoch`.
 
 <a id="inv-auth-05"></a>
 <a id="inv-auth-05--governance-delay-cannot-be-shortened"></a>

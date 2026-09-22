@@ -1,9 +1,8 @@
-use governance::op::{AdminOperation, RoleArgs, SpokeAssetArgs};
+use governance::op::{AdminOperation, RelaxSpokeAssetFlagsArgs, RoleArgs};
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, Symbol};
 use test_harness::{
-    assert_contract_error, errors, hub_asset, usd, usdc_preset, LendingTest, ALICE, HARNESS_HUB,
-    HARNESS_SPOKE,
+    assert_contract_error, errors, hub_asset, usd, usdc_preset, LendingTest, ALICE, HARNESS_SPOKE,
 };
 
 fn flatten<T, C>(
@@ -82,31 +81,23 @@ fn guardian_sets_spoke_asset_flags_immediately() {
         errors::SPOKE_ASSET_PAUSED,
     );
 
-    let cfg = t
+    let expected_epoch = t
         .ctrl_client()
-        .get_spoke_asset(&HARNESS_SPOKE, &hub_asset(usdc.clone()));
+        .get_spoke_asset_flags_epoch(&HARNESS_SPOKE, &hub_asset(usdc.clone()));
     t.gov_client().execute_immediate(
         &admin,
-        &AdminOperation::EditAssetInSpoke(SpokeAssetArgs {
-            hub_id: HARNESS_HUB,
-            asset: usdc.clone(),
+        &AdminOperation::RelaxSpokeAssetFlags(RelaxSpokeAssetFlagsArgs {
             spoke_id: HARNESS_SPOKE,
-            can_collateral: cfg.is_collateralizable,
-            can_borrow: cfg.is_borrowable,
+            hub_asset: hub_asset(usdc.clone()),
+            expected_epoch,
             paused: false,
             frozen: false,
             no_seize: false,
-            ltv: cfg.loan_to_value,
-            threshold: cfg.liquidation_threshold,
-            bonus: cfg.liquidation_bonus,
-            liquidation_fees: cfg.liquidation_fees,
-            supply_cap: cfg.supply_cap,
-            borrow_cap: cfg.borrow_cap,
         }),
     );
     assert!(
         t.try_supply(ALICE, "USDC", 10.0).is_ok(),
-        "timelocked edit must re-open supply"
+        "timelocked relaxation must re-open supply"
     );
 }
 

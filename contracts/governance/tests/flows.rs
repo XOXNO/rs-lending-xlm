@@ -469,7 +469,7 @@ fn entrypoint_renews_governance_instance_ttl() {
 
 #[test]
 fn propose_resolves_all_controller_and_self_variants() {
-    use crate::op::{RemoveAssetFromSpokeArgs, TransferOwnershipArgs};
+    use crate::op::{RelaxSpokeAssetFlagsArgs, RemoveAssetFromSpokeArgs, TransferOwnershipArgs};
     let env = Env::default();
     env.mock_all_auths();
     let (admin, gov_id, gov) = register_governance(&env);
@@ -504,6 +504,19 @@ fn propose_resolves_all_controller_and_self_variants() {
                 asset: asset.clone(),
             },
             spoke_id: 1,
+        },
+    ));
+    propose_and_assert_waiting(AdminOperation::RelaxSpokeAssetFlags(
+        RelaxSpokeAssetFlagsArgs {
+            spoke_id: 1,
+            hub_asset: HubAssetKey {
+                hub_id: 0,
+                asset: asset.clone(),
+            },
+            expected_epoch: 0,
+            paused: false,
+            frozen: false,
+            no_seize: false,
         },
     ));
     propose_and_assert_waiting(AdminOperation::RevokeBlendPool(controller.clone()));

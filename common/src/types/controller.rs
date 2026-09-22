@@ -562,4 +562,5 @@ pub enum ControllerKey {
     Delegates(u64),
     SupplyPositions(u64),
     BorrowPositions(u64),
+    SpokeFlagsEpoch(u32, HubAssetKey),
 }

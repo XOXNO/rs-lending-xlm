@@ -14,7 +14,7 @@ cat > "$tmp/networks.json" <<'JSON'
 {"mainnet": {"spoke_ids": {"1": 1, "5": 4, "6": 5}}}
 JSON
 cat > "$tmp/spokes.json" <<'JSON'
-{"5": {"assets": {"SILENT": {"ltv": 1}, "TIGHTEN": {"paused": true}, "RELAX": {"paused": false}}}}
+{"5": {"assets": {"SILENT": {"ltv": 1}, "TIGHTEN": {"paused": true}, "RELAX": {"paused": false}, "XLM": {"hub_id": 1}}}}
 JSON
 
 cat > "$tmp/lib.sh" <<EOF
@@ -28,6 +28,7 @@ $(extract resolve_spoke_arg)
 $(extract get_spoke_value)
 $(extract resolve_spoke_flag)
 $(extract merge_tightened_flags)
+$(extract merge_relaxed_flags)
 $(extract persist_spoke_id)
 EOF
 
@@ -56,7 +57,9 @@ expect "resolve_spoke_flag paused 5 SILENT '$LIVE_OFF'" false
 expect "resolve_spoke_flag paused 5 TIGHTEN '$LIVE_OFF'" true
 expect "resolve_spoke_flag paused 5 RELAX '$LIVE_OFF'" false
 expect_die "resolve_spoke_flag paused 5 RELAX '$LIVE_ON'"
-expect "RELAX_SPOKE_FLAGS=1 resolve_spoke_flag paused 5 RELAX '$LIVE_ON'" false
+expect_die "RELAX_SPOKE_FLAGS=1 resolve_spoke_flag paused 5 RELAX '$LIVE_ON'" # no override
+refusal=$(bash -c "source '$tmp/lib.sh'; resolve_spoke_flag paused 5 RELAX '$LIVE_ON'" 2>&1 || true)
+grep -q "relaxAssetFlags 5 RELAX paused" <<<"$refusal" || fail "a refused relaxation must name relaxAssetFlags"
 expect_die "resolve_spoke_flag paused 5 SILENT ''"              # unreadable listing: fail closed
 expect_die "resolve_spoke_flag paused 5 SILENT '{\"paused\":1}'" # not a boolean
 
@@ -66,6 +69,70 @@ expect_die "merge_tightened_flags '$LIVE_ON' unpause"   # unknown flag name
 expect_die "merge_tightened_flags '$LIVE_ON' ''"        # nothing requested
 expect_die "merge_tightened_flags '{\"paused\":1}' paused" # listing without boolean flags
 expect_die "merge_tightened_flags '' paused"             # unreadable listing: fail closed
+
+LIVE_ALL='{"paused":true,"frozen":true,"no_seize":true}'
+expect "merge_relaxed_flags '$LIVE_ALL' frozen" '{"paused":true,"frozen":false,"no_seize":true}'
+expect "merge_relaxed_flags '$LIVE_ALL' paused,no_seize" '{"paused":false,"frozen":true,"no_seize":false}'
+expect "merge_relaxed_flags '$LIVE_ON' paused" '{"paused":false,"frozen":false,"no_seize":false}'
+expect_die "merge_relaxed_flags '$LIVE_ON' frozen"         # not set on chain: nothing to clear
+expect_die "merge_relaxed_flags '$LIVE_ALL' unfreeze"      # unknown flag name
+expect_die "merge_relaxed_flags '$LIVE_ALL' ''"            # nothing requested
+expect_die "merge_relaxed_flags '{\"paused\":1}' paused"   # listing without boolean flags
+expect_die "merge_relaxed_flags '' paused"                 # unreadable listing: fail closed
+
+# The verb end to end, with the chain reads and the proposer stubbed.
+cat > "$tmp/relax.sh" <<EOF
+source '$tmp/lib.sh'
+NETWORK=mainnet SOURCE_FLAG=
+get_controller() { echo CCTRL; }
+get_market_value() { echo CASSET; }
+stellar() {
+    case "\$*" in
+        *"--send=no -- get_spoke_asset --spoke_id 4 "*) echo listing >> '$tmp/calls'; echo '$LIVE_ALL' ;;
+        *"--send=no -- get_spoke_asset_flags_epoch --spoke_id 4 "*)
+            echo epoch >> '$tmp/calls'; sed -n 1p '$tmp/epochs'; sed -i.bak 1d '$tmp/epochs' ;;
+        *) echo "unexpected stellar call: \$*" >&2; return 1 ;;
+    esac
+}
+schedule_via_proposer() { printf '%s\n' "\$@" > '$tmp/proposed'; echo OPID; }
+schedule_and_maybe_execute() { [ "\$1" = OPID ]; }
+$(extract scval_hub_asset)
+$(extract admin_op)
+$(extract gen_salt)
+$(extract read_spoke_flags_epoch)
+$(extract relax_asset_flags)
+EOF
+run_relax() {
+    printf '%s\n' $1 > "$tmp/epochs"
+    : > "$tmp/calls"
+    rm -f "$tmp/proposed"
+    bash -c "source '$tmp/relax.sh'; relax_asset_flags 4 XLM 5 $2"
+}
+expect_relax() {
+    local cleared=$1 p=$2 f=$3 n=$4 got
+    run_relax "7 7" "$cleared" 2>/dev/null \
+        || fail "relax_asset_flags $cleared failed against a stubbed live listing"
+    [ "$(tr '\n' ' ' < "$tmp/calls")" = "epoch listing epoch " ] \
+        || fail "relax must read the epoch before and after the listing, read '$(tr '\n' ' ' < "$tmp/calls")'"
+    [ "$(sed -n 1p "$tmp/proposed")" = relax_spoke_asset_flags ] || fail "relax must schedule relax_spoke_asset_flags"
+    got=$(sed -n 2p "$tmp/proposed")
+    [ "$got" = "{\"RelaxSpokeAssetFlags\":{\"spoke_id\":4,\"hub_asset\":{\"hub_id\":1,\"asset\":\"CASSET\"},\"expected_epoch\":7,\"paused\":$p,\"frozen\":$f,\"no_seize\":$n}}" ] \
+        || fail "relax $cleared proposed '$got'"
+    got=$(sed -n 3p "$tmp/proposed")
+    [ "$got" = "[{\"u32\":4},{\"map\":[{\"key\":{\"symbol\":\"asset\"},\"val\":{\"address\":\"CASSET\"}},{\"key\":{\"symbol\":\"hub_id\"},\"val\":{\"u32\":1}}]},{\"u64\":\"7\"},{\"bool\":$p},{\"bool\":$f},{\"bool\":$n}]" ] \
+        || fail "relax $cleared call args '$got'"
+}
+expect_relax frozen true false true
+expect_relax paused false true true
+expect_relax frozen,no_seize true false false
+if run_relax "7 7" bogus >/dev/null 2>&1; then
+    fail "relax_asset_flags must refuse an unknown flag"
+fi
+if race=$(run_relax "7 8" frozen 2>&1); then
+    fail "relax_asset_flags must stop when the flags epoch moves during its reads"
+fi
+[ ! -e "$tmp/proposed" ] || fail "relax_asset_flags scheduled an operation although the flags epoch moved"
+grep -q "flags changed while reading" <<<"$race" || fail "a moved flags epoch must say the flags changed: '$race'"
 
 expect "persist_spoke_id 9 8 && jq -r '.mainnet.spoke_ids[\"9\"]' '$tmp/networks.json'" 8
 # An op id (AUTO_EXECUTE=0) must stop the caller, also inside $(...), where errexit is off.
@@ -86,8 +153,13 @@ if extract ensure_spoke | grep -q 'fetch_spoke_json "\$config_category_id"'; the
     fail "ensure_spoke must not reuse the on-chain spoke that shares the config number"
 fi
 
-awk '$0 ~ /"tightenAssetFlags"\)/ {p=1} p {print} p && /;;/ {exit}' "$SCRIPT" \
-    | grep -q 'resolve_config_spoke_id "\$2"' || fail "tightenAssetFlags must resolve its config spoke id"
+for verb in tightenAssetFlags relaxAssetFlags; do
+    awk -v v="\"$verb\")" '$0 ~ v {p=1} p {print} p && /;;/ {exit}' "$SCRIPT" \
+        | grep -q 'resolve_config_spoke_id "\$2"' || fail "$verb must resolve its config spoke id"
+done
+if grep -q RELAX_SPOKE_FLAGS "$SCRIPT"; then
+    fail "RELAX_SPOKE_FLAGS must not exist: an edit cannot clear a flag on chain"
+fi
 if extract edit_asset_in_spoke | grep -qE '(paused|frozen|no_seize)=false'; then
     fail "edit_asset_in_spoke must not default an emergency flag to false"
 fi

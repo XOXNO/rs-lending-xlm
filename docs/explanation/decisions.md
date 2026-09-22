@@ -39,11 +39,14 @@ the effective review window and key custody; see
 ### ADR-0007: Emergency ratchet
 
 Immediate guardian actions can pause and tighten listing flags. Reopening uses
-delayed administration. A full listing rewrite can clear flags, so operators
-must explicitly preserve restrictions in those updates. The ORACLE role can
-narrow sanity bands; widening requires timelocked oracle reconfiguration.
+delayed administration. A listing edit can keep or tighten flags but never
+clears one. Clearing is a separate timelocked operation,
+`relax_spoke_asset_flags`, bound to the listing's flags epoch: every flag write
+advances the epoch, so a relaxation proposed before a later guardian action
+reverts when executed. The ORACLE role can narrow sanity bands; widening
+requires timelocked oracle reconfiguration.
 The [listing-freeze runbook](../reference/runbooks/freeze-a-listing.md) gives the
-operator steps, including the pending edits that must be cancelled.
+operator steps.
 
 <a id="adr-0008"></a>
 

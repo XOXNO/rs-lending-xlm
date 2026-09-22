@@ -1,8 +1,11 @@
-//! A listing edit queued before a guardian freeze clears it when executed; a
-//! `Sensitive` operation is ready at `max(min_delay, floor)`.
+//! A listing edit or flag relaxation queued before a guardian freeze cannot
+//! clear it when executed; a timely relaxation can; a `Sensitive` operation is
+//! ready at `max(min_delay, floor)`.
 
-use controller::types::PositionLimits;
-use governance::op::{AdminOperation, RoleArgs, SpokeAssetArgs, TransferOwnershipArgs};
+use controller::types::{HubAssetKey, PositionLimits};
+use governance::op::{
+    AdminOperation, RelaxSpokeAssetFlagsArgs, RoleArgs, SpokeAssetArgs, TransferOwnershipArgs,
+};
 use governance_interface::OperationState;
 use soroban_sdk::testutils::{Address as _, Ledger as _};
 use soroban_sdk::{Address, BytesN, Env, IntoVal, Symbol, Val, Vec};
@@ -28,24 +31,71 @@ fn flatten<T, C>(
     }
 }
 
+/// Grants GUARDIAN, and nothing else, to a fresh address.
+fn grant_guardian(t: &LendingTest) -> Address {
+    let guardian = Address::generate(&t.env);
+    t.gov_client().execute_immediate(
+        &t.admin(),
+        &AdminOperation::GrantGovRole(RoleArgs {
+            account: guardian.clone(),
+            role: Symbol::new(&t.env, "GUARDIAN"),
+        }),
+    );
+    guardian
+}
+
+fn relax_call_args(env: &Env, args: &RelaxSpokeAssetFlagsArgs) -> Vec<Val> {
+    soroban_sdk::vec![
+        env,
+        args.spoke_id.into_val(env),
+        args.hub_asset.clone().into_val(env),
+        args.expected_epoch.into_val(env),
+        args.paused.into_val(env),
+        args.frozen.into_val(env),
+        args.no_seize.into_val(env),
+    ]
+}
+
+fn clear_all(key: &HubAssetKey, expected_epoch: u64) -> RelaxSpokeAssetFlagsArgs {
+    RelaxSpokeAssetFlagsArgs {
+        spoke_id: HARNESS_SPOKE,
+        hub_asset: key.clone(),
+        expected_epoch,
+        paused: false,
+        frozen: false,
+        no_seize: false,
+    }
+}
+
+/// Executes a Ready relaxation with no signature at all, as any address can.
+fn execute_relax_as_stranger(
+    t: &LendingTest,
+    args: &RelaxSpokeAssetFlagsArgs,
+    salt_byte: u8,
+) -> Result<(), soroban_sdk::Error> {
+    let gov = governance_interface::GovernanceClient::new(&t.env, &t.governance);
+    t.env.set_auths(&[]);
+    let result = flatten(gov.try_execute(
+        &None,
+        &t.controller,
+        &Symbol::new(&t.env, "relax_spoke_asset_flags"),
+        &relax_call_args(&t.env, args),
+        &salt(&t.env, 0),
+        &salt(&t.env, salt_byte),
+    ));
+    t.env.mock_all_auths_allowing_non_root_auth();
+    result
+}
+
 #[test]
-fn stale_edit_executed_by_a_stranger_clears_a_guardian_freeze() {
+fn stale_edit_executed_by_a_stranger_cannot_clear_a_guardian_freeze() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
     let admin = t.admin();
     let usdc = t.resolve_asset("USDC");
     let key = hub_asset(usdc.clone());
     let (env, gov_addr) = (t.env.clone(), t.governance.clone());
     let gov = governance_interface::GovernanceClient::new(&env, &gov_addr);
-
-    // A guardian that holds GUARDIAN and nothing else.
-    let guardian = Address::generate(&t.env);
-    t.gov_client().execute_immediate(
-        &admin,
-        &AdminOperation::GrantGovRole(RoleArgs {
-            account: guardian.clone(),
-            role: Symbol::new(&t.env, "GUARDIAN"),
-        }),
-    );
+    let guardian = grant_guardian(&t);
 
     // Routine cap change, flags copied from the live (unfrozen) listing.
     let cfg = t.ctrl_client().get_spoke_asset(&HARNESS_SPOKE, &key);
@@ -98,25 +148,177 @@ fn stale_edit_executed_by_a_stranger_clears_a_guardian_freeze() {
 
     // A stranger, with no signature at all, drives the stale operation.
     t.env.set_auths(&[]);
-    gov.execute(
+    let result = flatten(gov.try_execute(
         &None,
         &t.controller,
         &Symbol::new(&t.env, "edit_asset_in_spoke"),
         &soroban_sdk::vec![&t.env, args.into_val(&t.env)],
         &salt(&t.env, 0),
         &salt(&t.env, 1),
-    );
+    ));
     t.env.mock_all_auths_allowing_non_root_auth();
+    assert_contract_error(result, errors::SPOKE_ASSET_FLAG_RELAXATION);
 
     let after = t.ctrl_client().get_spoke_asset(&HARNESS_SPOKE, &key);
-    assert_eq!(after.supply_cap, cfg.supply_cap - 1, "the edit did land");
     assert!(
-        !after.frozen,
-        "DEFECT PINNED: the stale edit cleared the guardian freeze"
+        after.frozen,
+        "the guardian freeze must survive the stale edit"
     );
+    assert_eq!(
+        after.supply_cap, cfg.supply_cap,
+        "the reverted edit must not land"
+    );
+    assert_contract_error(
+        t.try_supply(ALICE, "USDC", 10.0),
+        errors::SPOKE_ASSET_FROZEN,
+    );
+}
+
+#[test]
+fn relax_executed_after_its_delay_reopens_a_frozen_listing() {
+    let mut t = LendingTest::new().with_market(usdc_preset()).build();
+    let key = hub_asset(t.resolve_asset("USDC"));
+    let gov = governance_interface::GovernanceClient::new(&t.env, &t.governance);
+    let guardian = grant_guardian(&t);
+
+    gov.set_spoke_asset_flags(&guardian, &HARNESS_SPOKE, &key, &true, &true, &false);
+    let epoch = t
+        .ctrl_client()
+        .get_spoke_asset_flags_epoch(&HARNESS_SPOKE, &key);
+    let args = clear_all(&key, epoch);
+    let id = gov.propose(
+        &t.admin(),
+        &AdminOperation::RelaxSpokeAssetFlags(args.clone()),
+        &salt(&t.env, 2),
+    );
+    assert_eq!(gov.get_operation_state(&id), OperationState::Waiting);
+    assert_contract_error(
+        execute_relax_as_stranger(&t, &args, 2),
+        errors::TIMELOCK_UNEXPECTED_STATE,
+    );
+    assert!(t.ctrl_client().get_spoke_asset(&HARNESS_SPOKE, &key).paused);
+
+    let delay = gov.get_min_delay();
+    t.env.ledger().with_mut(|l| l.sequence_number += delay);
+    assert_eq!(gov.get_operation_state(&id), OperationState::Ready);
+    execute_relax_as_stranger(&t, &args, 2).expect("a timely relaxation executes");
+
+    let after = t.ctrl_client().get_spoke_asset(&HARNESS_SPOKE, &key);
+    assert!(!after.paused && !after.frozen && !after.no_seize);
+    assert_eq!(
+        t.ctrl_client()
+            .get_spoke_asset_flags_epoch(&HARNESS_SPOKE, &key),
+        epoch + 1
+    );
+    assert_eq!(gov.get_operation_state(&id), OperationState::Unset);
     assert!(
         t.try_supply(ALICE, "USDC", 10.0).is_ok(),
-        "DEFECT PINNED: new exposure is open again with no guardian or admin action"
+        "the relaxation must reopen supply"
+    );
+}
+
+#[test]
+fn relax_proposed_before_a_later_guardian_freeze_reverts_at_execution() {
+    let mut t = LendingTest::new().with_market(usdc_preset()).build();
+    let key = hub_asset(t.resolve_asset("USDC"));
+    let gov = governance_interface::GovernanceClient::new(&t.env, &t.governance);
+    let guardian = grant_guardian(&t);
+
+    gov.set_spoke_asset_flags(&guardian, &HARNESS_SPOKE, &key, &true, &false, &false);
+    let args = clear_all(
+        &key,
+        t.ctrl_client()
+            .get_spoke_asset_flags_epoch(&HARNESS_SPOKE, &key),
+    );
+    let id = gov.propose(
+        &t.admin(),
+        &AdminOperation::RelaxSpokeAssetFlags(args.clone()),
+        &salt(&t.env, 3),
+    );
+
+    // A second incident while the relaxation waits.
+    gov.set_spoke_asset_flags(&guardian, &HARNESS_SPOKE, &key, &true, &true, &false);
+
+    let delay = gov.get_min_delay();
+    t.env.ledger().with_mut(|l| l.sequence_number += delay);
+    assert_eq!(gov.get_operation_state(&id), OperationState::Ready);
+    assert_contract_error(
+        execute_relax_as_stranger(&t, &args, 3),
+        errors::SPOKE_FLAGS_EPOCH_MISMATCH,
+    );
+
+    let after = t.ctrl_client().get_spoke_asset(&HARNESS_SPOKE, &key);
+    assert!(
+        after.paused && after.frozen,
+        "the later freeze must survive"
+    );
+    assert_contract_error(
+        t.try_supply(ALICE, "USDC", 10.0),
+        errors::SPOKE_ASSET_PAUSED,
+    );
+}
+
+#[test]
+fn relax_with_an_epoch_other_than_the_live_one_is_rejected_at_proposal() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let key = hub_asset(t.resolve_asset("USDC"));
+    let gov = governance_interface::GovernanceClient::new(&t.env, &t.governance);
+    let guardian = grant_guardian(&t);
+    let stale = t
+        .ctrl_client()
+        .get_spoke_asset_flags_epoch(&HARNESS_SPOKE, &key);
+
+    gov.set_spoke_asset_flags(&guardian, &HARNESS_SPOKE, &key, &true, &false, &false);
+    let live = t
+        .ctrl_client()
+        .get_spoke_asset_flags_epoch(&HARNESS_SPOKE, &key);
+    assert_eq!(live, stale + 1);
+
+    for (expected_epoch, salt_byte) in [(stale, 4), (live + 1, 5)] {
+        assert_contract_error(
+            flatten(gov.try_propose(
+                &t.admin(),
+                &AdminOperation::RelaxSpokeAssetFlags(clear_all(&key, expected_epoch)),
+                &salt(&t.env, salt_byte),
+            )),
+            errors::SPOKE_FLAGS_EPOCH_MISMATCH,
+        );
+    }
+}
+
+#[test]
+fn guardian_reasserting_the_same_flags_cancels_a_pending_relax() {
+    let mut t = LendingTest::new().with_market(usdc_preset()).build();
+    let key = hub_asset(t.resolve_asset("USDC"));
+    let gov = governance_interface::GovernanceClient::new(&t.env, &t.governance);
+    let guardian = grant_guardian(&t);
+
+    gov.set_spoke_asset_flags(&guardian, &HARNESS_SPOKE, &key, &true, &false, &false);
+    let args = clear_all(
+        &key,
+        t.ctrl_client()
+            .get_spoke_asset_flags_epoch(&HARNESS_SPOKE, &key),
+    );
+    let id = gov.propose(
+        &t.admin(),
+        &AdminOperation::RelaxSpokeAssetFlags(args.clone()),
+        &salt(&t.env, 6),
+    );
+
+    gov.set_spoke_asset_flags(&guardian, &HARNESS_SPOKE, &key, &true, &false, &false);
+
+    let delay = gov.get_min_delay();
+    t.env.ledger().with_mut(|l| l.sequence_number += delay);
+    assert_eq!(gov.get_operation_state(&id), OperationState::Ready);
+    assert_contract_error(
+        execute_relax_as_stranger(&t, &args, 6),
+        errors::SPOKE_FLAGS_EPOCH_MISMATCH,
+    );
+
+    assert!(t.ctrl_client().get_spoke_asset(&HARNESS_SPOKE, &key).paused);
+    assert_contract_error(
+        t.try_supply(ALICE, "USDC", 10.0),
+        errors::SPOKE_ASSET_PAUSED,
     );
 }
 

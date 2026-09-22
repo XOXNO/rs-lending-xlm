@@ -138,6 +138,28 @@ fn owner_only_endpoints_reject_unauthed_before_validation() {
             .try_remove_asset_from_spoke(&hub_asset(usdc.clone()), &category_id)
     })
     .unwrap();
+    expect_rejected("set_spoke_asset_flags", || {
+        ctrl.set_auths(&no_auths).try_set_spoke_asset_flags(
+            &category_id,
+            &hub_asset(usdc.clone()),
+            &true,
+            &true,
+            &true,
+        )
+    })
+    .unwrap();
+    let live_epoch = ctrl.get_spoke_asset_flags_epoch(&category_id, &hub_asset(usdc.clone()));
+    expect_rejected("relax_spoke_asset_flags", || {
+        ctrl.set_auths(&no_auths).try_relax_spoke_asset_flags(
+            &category_id,
+            &hub_asset(usdc.clone()),
+            &live_epoch,
+            &false,
+            &false,
+            &false,
+        )
+    })
+    .unwrap();
     expect_rejected("set_spoke_liquidation_curve", || {
         ctrl.set_auths(&no_auths).try_set_spoke_liquidation_curve(
             &category_id,

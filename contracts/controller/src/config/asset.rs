@@ -24,12 +24,14 @@ pub(crate) fn add_asset_to_spoke(env: &Env, args: &SpokeAssetArgs) {
 
 /// Updates a listed market after validating risk parameters and caps.
 /// Allows deprecated spokes so existing positions remain configurable.
+/// Flags may stay or tighten; clearing one reverts.
 pub(crate) fn edit_asset_in_spoke(env: &Env, args: &SpokeAssetArgs) {
     upsert_spoke_asset(env, args, SpokeAssetMutation::Edit);
 }
 
 /// Checks registration state and risk bounds, validates caps against pool
-/// decimals, then stores and emits the asset config.
+/// decimals, then stores and emits the asset config. Advances the flags epoch
+/// on a new listing or a flag change.
 fn upsert_spoke_asset(env: &Env, args: &SpokeAssetArgs, mutation: SpokeAssetMutation) {
     common_validate_risk_bounds(env, args.ltv, args.threshold, args.bonus);
     common_validate_liquidation_fees(env, args.liquidation_fees);
@@ -43,7 +45,7 @@ fn upsert_spoke_asset(env: &Env, args: &SpokeAssetArgs, mutation: SpokeAssetMuta
         hub_id: args.hub_id,
         asset: args.asset.clone(),
     };
-    match mutation {
+    let stored = match mutation {
         SpokeAssetMutation::Add => {
             let spoke = storage::get_spoke(env, args.spoke_id);
             assert_with_error!(env, !spoke.is_deprecated, SpokeError::SpokeDeprecated);
@@ -52,16 +54,16 @@ fn upsert_spoke_asset(env: &Env, args: &SpokeAssetArgs, mutation: SpokeAssetMuta
                 storage::get_spoke_asset(env, args.spoke_id, &hub_asset).is_none(),
                 SpokeError::AssetAlreadyInSpoke
             );
+            None
         }
         SpokeAssetMutation::Edit => {
             storage::get_spoke(env, args.spoke_id);
-            assert_with_error!(
-                env,
-                storage::get_spoke_asset(env, args.spoke_id, &hub_asset).is_some(),
-                SpokeError::AssetNotInSpoke
-            );
+            let stored = storage::get_spoke_asset(env, args.spoke_id, &hub_asset)
+                .unwrap_or_else(|| panic_with_error!(env, SpokeError::AssetNotInSpoke));
+            require_flag_ratchet(env, &stored, args.paused, args.frozen, args.no_seize);
+            Some(stored)
         }
-    }
+    };
 
     let market = fetch_pool_sync_data(env, &storage::get_pool(env), &hub_asset);
     require_cap_within_asset_domain(env, args.supply_cap, market.params.asset_decimals);
@@ -81,6 +83,9 @@ fn upsert_spoke_asset(env: &Env, args: &SpokeAssetArgs, mutation: SpokeAssetMuta
         borrow_cap: args.borrow_cap,
     };
     storage::set_spoke_asset(env, args.spoke_id, &hub_asset, &config);
+    if stored.is_none_or(|stored| flags(&stored) != flags(&config)) {
+        storage::bump_spoke_flags_epoch(env, args.spoke_id, &hub_asset);
+    }
 
     UpdateSpokeAssetEvent {
         asset: args.asset.clone(),
@@ -91,8 +96,12 @@ fn upsert_spoke_asset(env: &Env, args: &SpokeAssetArgs, mutation: SpokeAssetMuta
     .publish(env);
 }
 
-/// Tightens paused, frozen, and no-seize flags on a listed asset and emits
-/// the new config. Rejects any true-to-false transition.
+fn flags(config: &SpokeAssetConfig) -> (bool, bool, bool) {
+    (config.paused, config.frozen, config.no_seize)
+}
+
+/// Tightens paused, frozen, and no-seize flags on a listed asset, advances
+/// its flags epoch, and emits the new config. Rejects any true-to-false transition.
 pub(crate) fn set_spoke_asset_flags(
     env: &Env,
     spoke_id: u32,
@@ -101,13 +110,49 @@ pub(crate) fn set_spoke_asset_flags(
     frozen: bool,
     no_seize: bool,
 ) {
-    let mut config = storage::get_spoke_asset(env, spoke_id, &hub_asset)
+    let config = storage::get_spoke_asset(env, spoke_id, &hub_asset)
         .unwrap_or_else(|| panic_with_error!(env, SpokeError::AssetNotInSpoke));
     require_flag_ratchet(env, &config, paused, frozen, no_seize);
+    write_spoke_asset_flags(env, spoke_id, hub_asset, config, paused, frozen, no_seize);
+}
+
+/// Writes any paused, frozen, and no-seize combination on a listed asset when
+/// `expected_epoch` equals its flags epoch, then advances the epoch and emits
+/// the new config.
+pub(crate) fn relax_spoke_asset_flags(
+    env: &Env,
+    spoke_id: u32,
+    hub_asset: HubAssetKey,
+    expected_epoch: u64,
+    paused: bool,
+    frozen: bool,
+    no_seize: bool,
+) {
+    let config = storage::get_spoke_asset(env, spoke_id, &hub_asset)
+        .unwrap_or_else(|| panic_with_error!(env, SpokeError::AssetNotInSpoke));
+    assert_with_error!(
+        env,
+        storage::get_spoke_flags_epoch(env, spoke_id, &hub_asset) == expected_epoch,
+        SpokeError::SpokeFlagsEpochMismatch
+    );
+    write_spoke_asset_flags(env, spoke_id, hub_asset, config, paused, frozen, no_seize);
+}
+
+/// Stores the three flags, advances the flags epoch, and emits the new config.
+fn write_spoke_asset_flags(
+    env: &Env,
+    spoke_id: u32,
+    hub_asset: HubAssetKey,
+    mut config: SpokeAssetConfig,
+    paused: bool,
+    frozen: bool,
+    no_seize: bool,
+) {
     config.paused = paused;
     config.frozen = frozen;
     config.no_seize = no_seize;
     storage::set_spoke_asset(env, spoke_id, &hub_asset, &config);
+    storage::bump_spoke_flags_epoch(env, spoke_id, &hub_asset);
 
     UpdateSpokeAssetEvent {
         asset: hub_asset.asset,
@@ -119,7 +164,7 @@ pub(crate) fn set_spoke_asset_flags(
 }
 
 /// Allows only unchanged or tightened flags. Clearing flags requires the
-/// timelocked `edit_asset_in_spoke` path (ADR-0007, INV-AUTH-04).
+/// timelocked `relax_spoke_asset_flags` path (ADR-0007, INV-AUTH-04).
 fn require_flag_ratchet(
     env: &Env,
     config: &SpokeAssetConfig,

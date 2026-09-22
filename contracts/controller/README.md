@@ -48,8 +48,10 @@ Each spoke asset carries three independent flags, set by
 | `no_seize` | The liquidation seizure leg. This is the only flag that stops a seizure. |
 
 `set_spoke_asset_flags` ratchets: an immediate GUARDIAN call may only tighten a
-flag. Clearing a flag goes through the owner-only `edit_asset_in_spoke`, which
-governance timelocks. See [`../governance/README.md`](../governance/README.md).
+flag, and so may `edit_asset_in_spoke`. Clearing a flag goes through the
+owner-only `relax_spoke_asset_flags`, which governance timelocks and which
+reverts unless its `expected_epoch` equals the listing's flags epoch. See
+[`../governance/README.md`](../governance/README.md).
 
 ## Entrypoints
 
@@ -125,6 +127,7 @@ than the signature shows.
 | `get_spoke` | `fn get_spoke(env: Env, spoke_id: u32) -> SpokeConfig` | — | Returns the configuration of spoke `spoke_id`. |
 | `get_spoke_asset` | `fn get_spoke_asset(env: Env, spoke_id: u32, hub_asset: HubAssetKey) -> SpokeAssetConfig` | — | Returns the configuration of `hub_asset` within spoke `spoke_id`; panics if the asset is not listed there. |
 | `get_spoke_usage` | `fn get_spoke_usage(env: Env, spoke_id: u32, hub_asset: HubAssetKey) -> SpokeUsageRaw` | — | Returns the current supplied and borrowed usage of `hub_asset` within spoke `spoke_id`, or a zeroed value if none is recorded. |
+| `get_spoke_asset_flags_epoch` | `fn get_spoke_asset_flags_epoch(env: Env, spoke_id: u32, hub_asset: HubAssetKey) -> u64` | — | Returns the flags epoch of `hub_asset` within spoke `spoke_id`, the `expected_epoch` that `relax_spoke_asset_flags` must name, or 0 if no flag was written. |
 | `price_aggregator` | `fn price_aggregator(env: Env) -> Address` | — | Returns the configured price aggregator contract address. |
 | `get_min_borrow_collateral_usd` | `fn get_min_borrow_collateral_usd(env: Env) -> i128` | — | Returns the minimum collateral value (WAD) required to open a new borrow position. |
 | `is_blend_pool_approved` | `fn is_blend_pool_approved(env: Env, pool: Address) -> bool` | — | Returns whether `pool` is approved as a Blend migration source. |
@@ -149,6 +152,7 @@ than the signature shows.
 | `add_asset_to_spoke` | `fn add_asset_to_spoke(env: Env, input: SpokeAssetArgs)` | owner-only | Lists a new asset in a spoke with its risk parameters and caps, validating them against the asset's pool decimals. |
 | `edit_asset_in_spoke` | `fn edit_asset_in_spoke(env: Env, input: SpokeAssetArgs)` | owner-only | Updates an already-listed spoke asset's risk parameters and caps, revalidating them against the asset's pool decimals. |
 | `set_spoke_asset_flags` | `fn set_spoke_asset_flags( env: Env, spoke_id: u32, hub_asset: HubAssetKey, paused: bool, frozen: bool, no_seize: bool, )` | owner-only | Sets the paused, frozen, and no-seize flags for `hub_asset` within spoke `spoke_id`. |
+| `relax_spoke_asset_flags` | `fn relax_spoke_asset_flags( env: Env, spoke_id: u32, hub_asset: HubAssetKey, expected_epoch: u64, paused: bool, frozen: bool, no_seize: bool, )` | owner-only | Sets any paused, frozen, and no-seize combination for `hub_asset` within spoke `spoke_id`, clearing included, when `expected_epoch` equals the listing's flags epoch. |
 | `remove_asset_from_spoke` | `fn remove_asset_from_spoke(env: Env, hub_asset: HubAssetKey, spoke_id: u32)` | owner-only | Removes `hub_asset` from spoke `spoke_id`. |
 | `deploy_pool` | `fn deploy_pool(env: Env, wasm_hash: BytesN<32>) -> Address` | owner-only | Deploys the liquidity pool contract from `wasm_hash` and records its address. |
 | `deploy_position_nft` | `fn deploy_position_nft( env: Env, wasm_hash: BytesN<32>, uri: String, name: String, symbol: String, ) -> Address` | owner-only | Deploys the position-NFT contract that anchors account ownership. |
