@@ -13,8 +13,8 @@ use crate::aggregation::{
 use crate::storage::{require_known_feed, require_registered_signer};
 use crate::{Error, XoxnoOracle, XoxnoOracleArgs, XoxnoOracleClient};
 
-/// Rejects `price` if it is not strictly positive or exceeds
-/// `MAX_SUBMITTED_PRICE`.
+/// Rejects `price` with `InvalidPrice` if it is not strictly positive, or with
+/// `PriceOutOfRange` if it exceeds `MAX_SUBMITTED_PRICE`.
 fn validate_price(price: i128) -> Result<(), Error> {
     if price <= 0 {
         return Err(Error::InvalidPrice);
@@ -57,22 +57,15 @@ impl XoxnoOracle {
 
     /// Submits `prices` for `feed_ids` on behalf of `signer`, requiring
     /// `signer`'s authorization and using the same `package_timestamp`
-    /// (milliseconds) for every entry; fails with `LengthMismatch` if the two
-    /// lists differ in length. Validates that `signer` is registered, the
-    /// timestamp is not in the future or stale (age vs max submission age in
-    /// seconds), and each feed is known, monotonic for `signer`, and its
-    /// price within bounds, before storing any submission. Stores each
-    /// submission and recomputes each feed's aggregate.
+    /// (milliseconds) for every entry. Validates every entry before it stores
+    /// any submission, then stores each submission and recomputes each feed's
+    /// aggregate.
     ///
-    /// Faults are reported in that chain's order — unregistered signer,
-    /// length mismatch, future timestamp, stale timestamp, then the per-feed
-    /// pass (unknown feed / non-monotonic timestamp), then price — so a batch
-    /// carrying two different faults reports whichever comes first in that
-    /// list, not the one in the earliest entry. The unknown-feed and
-    /// non-monotonic checks are the exception: they run interleaved per
-    /// entry, so between those two the earlier entry decides. Example:
-    /// `[known-but-non-monotonic, unknown]` reports `StaleSubmission`, not
-    /// `FeedNotKnown`.
+    /// Returns the first failure in this order: `NotAuthorizedSigner`,
+    /// `LengthMismatch`, `FutureTimestamp`, `StaleSubmission` (age), then per
+    /// entry `FeedNotKnown` or `StaleSubmission` (not monotonic), then
+    /// `InvalidPrice` or `PriceOutOfRange` over all prices. A later entry's
+    /// feed fault therefore wins over an earlier entry's price fault.
     pub fn submit_prices(
         env: Env,
         signer: Address,

@@ -57,7 +57,6 @@ fn token_id_zero_is_never_minted() {
 fn metadata_is_set() {
     let env = Env::default();
     let (_controller, client) = setup(&env);
-    // All three come from constructor metadata (storage is the sole source).
     assert_eq!(
         client.name(),
         String::from_str(&env, "XOXNO Lending Position")
@@ -82,7 +81,7 @@ fn burn_requires_controller_auth() {
     let user = Address::generate(&env);
     let token_id = client.mint(&user);
 
-    // Fresh env auth state: stop mocking, so the controller's require_auth fails.
+    // Clear the mocked auths so the controller's require_auth fails.
     env.set_auths(&[]);
     assert!(client.try_burn(&token_id).is_err());
 }
@@ -95,8 +94,8 @@ fn burn_does_not_need_owner_auth() {
     let user = Address::generate(&env);
     let token_id = client.mint(&user);
 
-    // mock_all_auths satisfies the controller; the owner never signs anything —
-    // there is no `from` parameter at all.
+    // mock_all_auths satisfies the controller; `burn` has no `from`, so the
+    // owner never signs.
     client.burn(&token_id);
     assert!(client.try_owner_of(&token_id).is_err());
     assert_eq!(client.balance(&user), 0u32);
@@ -133,8 +132,7 @@ fn transfer_moves_ownership_and_enumeration() {
 
 #[test]
 fn approved_operator_can_transfer_and_approval_is_cleared() {
-    // Pins stock OZ approval semantics (approve / transfer_from), since
-    // `NonFungibleToken`/`NonFungibleEnumerable` are otherwise untested here.
+    // Pins stock OZ approval semantics (`approve`, `transfer_from`).
     let env = Env::default();
     env.mock_all_auths();
     let (_controller, client) = setup(&env);
@@ -159,8 +157,8 @@ fn approved_operator_can_transfer_and_approval_is_cleared() {
 
 #[test]
 fn operator_for_all_can_move_every_token_and_grant_is_per_owner_and_revocable() {
-    // F-9: `approve_for_all` is the protocol's broadest authority grant
-    // (account_id == token_id, so moving a token moves the position).
+    // `approve_for_all` is the broadest authority grant: account id == token
+    // id, so moving a token moves the account.
     let env = Env::default();
     env.mock_all_auths();
     let (_controller, client) = setup(&env);
@@ -178,7 +176,7 @@ fn operator_for_all_can_move_every_token_and_grant_is_per_owner_and_revocable() 
     client.approve_for_all(&owner_a, &operator, &live_until);
     assert!(client.is_approved_for_all(&owner_a, &operator));
 
-    // Blanket approval moves EVERY owner_a token, with no per-token approval.
+    // Blanket approval moves every owner_a token, with no per-token approval.
     client.transfer_from(&operator, &owner_a, &recipient, &a1);
     client.transfer_from(&operator, &owner_a, &recipient, &a2);
     assert_eq!(client.owner_of(&a1), recipient);
@@ -268,9 +266,8 @@ fn renew_extends_owner_entry_ttl_to_user_window() {
     let user = Address::generate(&env);
     let token_id = client.mint(&user);
 
-    // mint now sets the Owner entry to the full user window (F-7), so age the
-    // ledger until its remaining TTL drops below renew's threshold, where renew
-    // must restore it.
+    // mint sets the Owner entry to the user window; age the ledger until its
+    // remaining TTL drops below renew's threshold, where renew must restore it.
     env.ledger()
         .with_mut(|l| l.sequence_number += TTL_BUMP_USER - TTL_THRESHOLD_USER / 2);
     env.as_contract(&id, || {
@@ -282,7 +279,7 @@ fn renew_extends_owner_entry_ttl_to_user_window() {
         );
     });
 
-    // Permissionless: no auth mocked beyond the mint above, caller is anyone.
+    // Permissionless: `renew` requires no auth.
     client.renew(&token_id);
 
     env.as_contract(&id, || {
@@ -350,10 +347,10 @@ fn token_uri_of_missing_token_fails() {
 }
 
 /// `token_uri` builds its result in a fixed 256-byte buffer: base + up to 10
-/// digits of a u32 id + the 28-byte suffix. The buffer is only safe because
-/// OpenZeppelin's `set_metadata` caps `base_uri` at MAX_BASE_URI_LEN (200),
-/// leaving 238 worst-case bytes. These two tests pin that upstream bound so a
-/// longer suffix or a raised OZ cap fails here rather than corrupting memory.
+/// digits of a u32 id + the 28-byte suffix. OZ `set_metadata` caps `base_uri`
+/// at `MAX_BASE_URI_LEN` (200), so the worst case is 238 bytes. These two tests
+/// pin that bound: a longer suffix or a raised OZ cap fails here instead of as
+/// an out-of-bounds panic in `token_uri`.
 #[test]
 #[should_panic(expected = "Error(Contract, #211)")]
 fn constructor_rejects_a_base_uri_over_the_oz_maximum() {

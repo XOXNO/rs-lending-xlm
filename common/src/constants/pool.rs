@@ -1,5 +1,5 @@
-//! Bounds for the pool's supply/borrow interest indices and configured
-//! borrow-rate ceiling, expressed in ray (1e27) fixed-point scale.
+//! Pool bounds: the supply index floor, the index ceilings and the borrow-rate
+//! ceiling (RAY), and the liquidation cash buffer (BPS).
 
 use crate::constants::RAY;
 
@@ -11,8 +11,8 @@ pub const SUPPLY_INDEX_FLOOR_RAW: i128 = RAY / 1_000;
 /// Upper bound accepted for a pool's configured maximum borrow rate, in raw ray units.
 pub const MAX_BORROW_RATE_RAY: i128 = 2 * RAY;
 
-/// Share of supplied value that ordinary borrows may not draw below, reserved
-/// so a seizure is not blocked by cash the borrowers took first.
+/// Share of supplied value, in BPS, that pool cash must still cover after any
+/// debt mint, borrows and strategy openings alike (INV-ACCT-07).
 pub const LIQUIDATION_BUFFER_BPS: i128 = 200;
 
 /// Ceiling the borrow index is clamped to after growth, in raw ray units.

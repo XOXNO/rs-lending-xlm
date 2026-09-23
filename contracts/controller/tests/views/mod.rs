@@ -115,8 +115,8 @@ fn one_ray_position() -> AccountPositionRaw {
 }
 
 /// Mints a position NFT to a fresh owner and writes matching account metadata (and, if given,
-/// supply/debt positions). Returns the minted account id, which callers must use in place of a
-/// hardcoded id since ownership now resolves through the NFT.
+/// supply/debt positions). Returns the minted account id; ownership resolves through the NFT,
+/// so callers must use this id, not a fixed one.
 fn seed_account(
     env: &Env,
     contract_id: &Address,
@@ -174,8 +174,8 @@ fn aggregate_views_return_zero_for_missing_or_empty_account() {
         assert_eq!(total_borrow_in_usd(&env, 1), 0);
         assert_eq!(ltv_collateral_in_usd(&env, 1), 0);
 
-        // No position NFT is registered here: `total_collateral_in_usd` only ever
-        // consults account metadata, never the owner, so this stays meta-only.
+        // No position NFT is registered: `total_collateral_in_usd` reads account
+        // metadata and supply positions, never the owner.
         storage::set_account_meta(
             &env,
             1,
@@ -201,9 +201,9 @@ fn health_factor_debt_free_account_skips_pricing() {
     let owner = Address::generate(&env);
     let account_id = u64::from(position_nft::PositionNftClient::new(&env, &nft).mint(&owner));
     env.as_contract(&contract_id, || {
-        // A minted, debt-free account: `try_get_account` resolves `Some(account)`,
-        // so `health_factor` reaches `i128::MAX` via the `!account.debt_free()`
-        // guard failing on a live account, not via the `None` (missing-owner) arm.
+        // A minted, debt-free account: `try_get_account` returns `Some(account)`,
+        // so `health_factor` returns `i128::MAX` through the debt-free check, not
+        // through the `None` (missing-owner) arm.
         storage::set_account_meta(
             &env,
             account_id,

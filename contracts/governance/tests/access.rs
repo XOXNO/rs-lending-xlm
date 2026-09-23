@@ -134,13 +134,8 @@ fn canceller_reset_grants_each_member_once() {
     });
 }
 
-/// The constructor's owner and admin must be reachable from events alone.
-///
-/// `ownable::set_owner` and `access_control::set_admin` are silent storage
-/// writes, so without these emissions the governance contract's owner and admin
-/// are invisible to an event-sourced indexer — the `*_transfer_*` events only
-/// fire on a later handover. Roles and the timelock delay were already
-/// observable (`grant_role_no_auth` and `set_min_delay` emit).
+/// The constructor emits `ownership_transfer_completed` and
+/// `admin_transfer_completed`, so an indexer sees the initial owner and admin.
 #[test]
 fn constructor_emits_owner_and_admin() {
     use soroban_sdk::testutils::Events as _;
@@ -167,19 +162,14 @@ fn constructor_emits_owner_and_admin() {
     assert!(saw_admin, "constructor must publish the initial admin");
 }
 
-/// `live_until_ledger == 0` is the cancel form of a transfer, and governance
-/// clears the mirrored PendingAdmin entry with a bare `remove` rather than
-/// routing the zero through `role_transfer::transfer_role` as the non-zero case
-/// does. That is not a redundant branch: `transfer_role` panics with
-/// NoPendingTransfer when nothing is pending and InvalidPendingAccount when the
-/// address does not match the pending one, so the explicit arm is deliberately
-/// the more tolerant of the two. A cancel that panicked on an already-absent
-/// mirror would strand the pending owner, since the two entries are temporary
-/// and can archive independently of each other.
+/// A cancel (`live_until_ledger == 0`) removes the mirrored `PendingAdmin` entry
+/// without a panic when that entry is already absent.
 ///
-/// Both probes call the mirror directly. Through `apply_transfer_ownership` the
-/// ownable leg runs first and would panic before this arm is reached, which is
-/// why the arm was dead.
+/// `role_transfer::transfer_role` would panic with `NoPendingTransfer` or
+/// `InvalidPendingAccount` here. The pending owner and pending admin entries are
+/// temporary and archive independently, so such a panic strands the pending
+/// owner. The test calls `sync_pending_admin_transfer` directly because the
+/// ownable leg of `apply_transfer_ownership` panics first.
 #[test]
 fn cancelling_the_admin_mirror_tolerates_an_entry_that_is_already_gone() {
     use stellar_access::access_control::AccessControlStorageKey;

@@ -1,6 +1,6 @@
 //! Withdraw leg: burn supply shares, debit cash, transfer underlying out.
 //!
-//! Liquidation withdrawals may skip the max-utilization check and withhold a
+//! Liquidation withdrawals skip the max-utilization check and may withhold a
 //! protocol fee from the gross amount before paying the receiver.
 
 use common::errors::{CollateralError, GenericError};
@@ -52,7 +52,7 @@ pub(crate) fn accounting(
     let (mut cache, position) = ops::load_leg(env, &entry.action);
 
     let (burned, gross_amount) = resolve_close_or_partial(&cache, entry.action.amount, position);
-    // Free the withdrawn shares' capacity before minting the retained fee.
+    // Burn first: `protocol_fee_shares` caps the fee mint at `i128::MAX - supplied`.
     let remaining = burn_position(env, &mut cache, position, burned);
     let net_transfer = withhold_liquidation_fee(
         env,

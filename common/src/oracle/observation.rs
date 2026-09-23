@@ -15,12 +15,9 @@ pub const MAX_FUTURE_SKEW_SECONDS: u64 = 60;
 pub const MAX_TWAP_RECORDS: u32 = 12;
 
 pub const MIN_PRICE_STALE_SECONDS: u64 = 60;
-// 26h. Sized to clear the slowest upstream heartbeat we consume rather than to
-// sit on a round number: RedStone moved its static FUNDAMENTAL ratio feeds to a
-// 24h heartbeat, and a feed that never deviates publishes at exactly that
-// interval, so a 24h ceiling would leave zero margin and fail intermittently.
-// This only raises what an oracle MAY declare; every asset still carries its own
-// budget, and only SolvBTC's ratio leg goes past 24h.
+/// Largest staleness budget an oracle may declare (26 h). It exceeds the 24 h
+/// heartbeat of the slowest consumed feed, so a feed that publishes only on its
+/// heartbeat does not read as stale.
 pub const MAX_PRICE_STALE_SECONDS: u64 = 93_600;
 
 pub const MIN_ORACLE_RESOLUTION_SECONDS: u32 = 60;
@@ -30,19 +27,16 @@ pub const MAX_ORACLE_DECIMALS: u32 = 18;
 
 pub const MAX_SINGLE_SOURCE_SANITY_BAND_BPS: i128 = 1_000;
 
-/// Largest age gap tolerated between the two legs of a blended price.
+/// Largest timestamp gap between two market-nature legs of a blended price
+/// before the blend is marked stale.
 ///
-/// Wide enough for a TWAP leg (stamped at the oldest sample in its window) to
-/// sit alongside a spot leg, tight enough that a stalled leg cannot be averaged
-/// in as an equal.
+/// A TWAP leg carries the timestamp of the oldest sample in its window.
 pub const MAX_LEG_AGE_SPREAD_SECONDS: u64 = 3_600;
 
-/// Widest band an LP source may declare, as `(max-min)/(max+min)`.
+/// Widest band an LP source may declare, as `(max-min)/(max+min)` in BPS,
+/// rounded up.
 ///
-/// 8182 bps is exactly a 10x range in LP fair value. A constant-product share is
-/// worth `2*sqrt(Va*Vb)/S`, so a volatile pair's fair value legitimately ranges
-/// several-fold over a listing's life and a tighter cap would make it unlistable
-/// — the band fails closed, so an unlistable market is not the safe direction.
+/// 8182 bps is the width of a 10x range in LP fair value.
 pub const MAX_LP_SANITY_BAND_BPS: i128 = 8_182;
 
 /// Scales a positive price reported with `decimals` precision up to
@@ -62,9 +56,9 @@ pub fn is_stale(now_secs: u64, feed_ts: u64, max_stale: u64) -> bool {
     now_secs > feed_ts && (now_secs - feed_ts) > max_stale
 }
 
-/// Panics with `OracleError::PriceFeedStale` if `feed_ts` exceeds `now_secs
-/// + MAX_FUTURE_SKEW_SECONDS`. Panics with `GenericError::MathOverflow` if
-/// that addition overflows `u64`.
+/// Panics with `OracleError::PriceFeedStale` if `feed_ts` exceeds
+/// `now_secs + MAX_FUTURE_SKEW_SECONDS`, and with `GenericError::MathOverflow`
+/// if that addition overflows `u64`.
 pub fn check_not_future_at(env: &Env, now_secs: u64, feed_ts: u64) {
     let max_future_ts = now_secs
         .checked_add(MAX_FUTURE_SKEW_SECONDS)
@@ -96,7 +90,8 @@ pub fn try_u256_to_i128(value: &U256) -> Option<i128> {
 
 /// Scales a non-negative token amount into WAD (`10^18`) base units.
 ///
-/// Fails when `decimals > WAD_DECIMALS` or the product overflows.
+/// Fails with `OracleError::InvalidPrice` when `amount` is negative,
+/// `decimals > WAD_DECIMALS`, or the product overflows.
 pub(crate) fn try_amount_to_wad(
     env: &Env,
     amount: i128,

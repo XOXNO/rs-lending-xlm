@@ -18,7 +18,7 @@ pub enum SwapVenue {
     CometDex,
 }
 
-/// One pool hop: pull `token_in`, push `token_out` via `venue`.
+/// One pool hop: swaps `token_in` for `token_out` through `venue`.
 ///
 /// Built per instruction from registry indices; venue adapters consume this.
 #[derive(Clone, Debug)]
@@ -50,11 +50,9 @@ pub use swap_aggregator_interface::ReferralConfig;
 
 /// Instance and persistent storage keys.
 ///
-/// A `#[contracttype]` enum with data-carrying variants is encoded as
-/// `ScVal::Vec([Symbol("<variant name>"), ..fields])`, so a key's on-ledger
-/// bytes depend on the variant *name*, never on its position. New variants may
-/// therefore be appended without disturbing any existing entry — but a rename
-/// silently orphans every entry already written under the old name.
+/// Each key encodes as `ScVal::Vec([Symbol("<variant name>"), ..fields])`, so
+/// adding a variant leaves existing entries intact, but a rename orphans every
+/// entry stored under the old name.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub enum DataKey {

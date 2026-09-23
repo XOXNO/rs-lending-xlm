@@ -177,7 +177,7 @@ pub enum IndependencePolicy {
     AllowShared(Vec<Address>),
 }
 
-/// Full pricing configuration for one asset: its price decimals, the maximum age a blended
+/// Full pricing configuration for one asset: its token decimals, the maximum age a blended
 /// price may have, one or two `PriceSource` entries composed to form the price, the
 /// tolerance band checked between dual sources, the independence policy applied to those
 /// sources, and the sanity bounds a resolved price must fall within.

@@ -102,9 +102,8 @@ fn submit_price_renews_known_feed_allowlist_ttl() {
     );
 }
 
-/// History is only written on submission, so a feed that is read far more often
-/// than it is updated would let its history expire while still serving reads.
-/// The read path has to re-arm it.
+/// `read_price_history` renews the history TTL, so a feed that is read but not
+/// updated keeps its history.
 #[test]
 fn read_price_history_renews_history_ttl() {
     let env = Env::default();

@@ -4,8 +4,8 @@ use super::*;
 use crate::test_support::{hub, init_ledger};
 use crate::{LiquidityPool, LiquidityPoolClient};
 use common::constants::RAY;
-// The step primitives are no longer imported by `src/interest.rs` (it calls the
-// shared `accrue_step`), but these tests rebuild the step by hand to check it.
+// `src/interest.rs` calls the shared `accrue_step`; these tests rebuild the step
+// from its primitives to check it.
 use common::rates::{
     calculate_borrow_rate, calculate_supplier_rewards, compound_interest,
     supply_index_reward_shortfall, update_borrow_index, update_supply_index,
@@ -234,9 +234,9 @@ fn test_simulate_matches_global_sync_over_multi_year_delta() {
             );
 
             // Accrual grows total supply only by minting revenue shares, so the
-            // two deltas must match exactly. A plumbing slip in either caller
-            // (double-crediting supply, or crediting revenue without supply)
-            // shows up here even though the indexes still agree.
+            // two deltas must match exactly. This catches a booking error
+            // (supply credited twice, or revenue without supply) that leaves
+            // the indexes equal.
             assert_eq!(
                 cache.supplied().raw() - state.supplied,
                 cache.revenue().raw() - state.revenue,
@@ -847,13 +847,13 @@ fn test_year_daily_vs_single_sync_dust_comparison() {
 }
 
 // ---------------------------------------------------------------------------
-// Accrual-cadence value leakage (CS-AAVE4-004 analogue)
+// Accrual-cadence value leakage
 //
-// ChainSecurity found that Aave V4 lost the whole protocol fee when `accrue()`
-// ran every second: the fee was floored to zero before the reserve factor was
-// applied. `update_indexes` here is permissionless, so an attacker picks the
-// cadence. These tests run the SAME elapsed span three ways (one accrual at the
-// end / one per ~5s ledger / one per second) and measure where the value lands.
+// Failure shape: frequent accrual floors the protocol fee to zero before the
+// reserve factor applies. `update_indexes` is permissionless, so an attacker
+// picks the cadence. These tests run the same elapsed span three ways (one
+// accrual at the end, one per ~5s ledger, one per second) and measure where
+// the value lands.
 // ---------------------------------------------------------------------------
 
 const SECOND_MS: u64 = 1_000;
@@ -863,14 +863,13 @@ const LEDGER_MS: u64 = 5_000;
 
 const YEAR_MS: i128 = common::constants::MILLISECONDS_PER_YEAR as i128;
 
-/// Span measured by the cadence harness. One day keeps the per-second path at
-/// 86_400 accruals, which is the finest cadence a caller can reach on-chain and
-/// still fits a unit test; results are annualized for reporting.
+/// Span measured by the cadence harness. One day keeps the per-second path
+/// (the ledger timestamp resolution) at 86_400 accruals, which fits a unit test.
 const CADENCE_SPAN_MS: u64 = DAY_MS;
 
-/// A market sized to mirror ChainSecurity's scenario: ~$1M of borrowed
-/// principal at ~10% APR (utilization 45% on this repo's default curve:
-/// base 1% + slope1 10% ramped over mid_utilization 50%).
+/// Cadence fixture: ~$1M of borrowed principal at ~10% APR (utilization 45%
+/// on the `TestSetup` curve: base 1% + slope1 10% ramped over mid_utilization
+/// 50%).
 struct CadenceMarket {
     label: &'static str,
     /// Pool supports `0..=WAD_DECIMALS` (18); 7 is the Stellar native scale.
@@ -919,7 +918,8 @@ struct CadenceResult {
     supplier_claim_units: i128,
     /// Claimable protocol revenue, floor-rounded to asset units.
     revenue_claim_units: i128,
-    /// Same three quantities at full RAY precision, to expose sub-unit drift.
+    /// Supplier claim, revenue claim and debt at full RAY precision, to expose
+    /// sub-unit drift.
     supplier_claim_ray: i128,
     revenue_claim_ray: i128,
     debt_ray: i128,
@@ -953,11 +953,10 @@ impl CadenceResult {
 /// Accrues `total_ms` in `step_ms` slices through the real mutating path
 /// (`global_sync`) and reports the terminal split.
 ///
-/// Only the initial `Cache::load` touches storage, so it is the only part that
-/// runs inside a contract invocation frame; the accrual loop is pure math on
-/// the cache. Keeping the loop outside the frame avoids tripping the SDK's
-/// per-invocation mainnet resource limits, which a real caller would never hit
-/// because each on-chain `update_indexes` is its own transaction.
+/// Only the initial `Cache::load` touches storage, so only it runs inside a
+/// contract frame; the accrual loop is pure math on the cache. This keeps the
+/// loop clear of the SDK's per-invocation resource limits, which on-chain
+/// callers never hit because each `update_indexes` is its own transaction.
 fn run_cadence(
     t: &TestSetup,
     market: &CadenceMarket,
@@ -1106,16 +1105,14 @@ fn assert_cadence_never_leaks(
     }
 }
 
-/// The security property: no accrual cadence may leave suppliers — or the
-/// suppliers-plus-treasury total — worse off than a single terminal accrual.
+/// The security property: no accrual cadence may leave suppliers, or the
+/// suppliers-plus-treasury total, worse off than a single terminal accrual.
 ///
-/// This is the inverse of CS-AAVE4-004: there, sub-second accrual floored the
-/// protocol fee to zero. Here the per-step fee stays non-zero because the split
-/// happens in RAY (27dp) space, and every rounding residual that cannot lift the
-/// supply index is re-booked as protocol revenue by
-/// `supply_index_reward_shortfall`.
+/// The per-step fee stays nonzero because the split runs in RAY, and
+/// `supply_index_reward_shortfall` re-books every rounding residual that cannot
+/// lift the supply index as protocol revenue.
 ///
-/// One-day horizon, down to the finest cadence a caller can reach (1 s).
+/// One-day horizon, down to a 1 s cadence (the ledger timestamp resolution).
 #[test]
 fn test_accrual_cadence_never_leaks_supplier_or_total_value() {
     let cadences = [
@@ -1146,9 +1143,8 @@ fn test_year_horizon_accrual_cadence_never_leaks_supplier_or_total_value() {
     }
 }
 
-/// CS-AAVE4-004's actual failure mode: the protocol fee rounding to zero under
-/// a fast cadence. Measures the treasury's capture rate at each cadence and
-/// requires it to stay near the 10% reserve factor.
+/// A fast cadence must not round the protocol fee to zero: at each cadence the
+/// treasury captures 990..=1_010 bps of interest (reserve factor 1_000 bps).
 #[test]
 fn test_frequent_accrual_does_not_round_protocol_fee_to_zero() {
     for market in &CADENCE_MARKETS {
@@ -1175,7 +1171,7 @@ fn test_frequent_accrual_does_not_round_protocol_fee_to_zero() {
             let capture_bps = r.revenue_claim_ray.saturating_mul(10_000) / interest;
             assert!(
                 r.revenue_scaled > 0,
-                "{}: {label} minted zero protocol revenue shares — CS-AAVE4-004 repeat",
+                "{}: {label} minted zero protocol revenue shares",
                 market.label
             );
             assert!(

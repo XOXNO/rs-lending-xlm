@@ -354,13 +354,11 @@ fn cap_ceiling_is_exactly_the_largest_representable_balance() {
     for decimals in crate::constants::MIN_ASSET_DECIMALS..=crate::constants::MAX_ASSET_DECIMALS {
         let ceiling = max_cap_for_decimals(decimals);
 
-        // Representable at the ceiling …
         assert_eq!(
             Ray::from_asset(&env, ceiling, decimals).to_asset(&env, decimals),
             ceiling
         );
 
-        // … and tight: one more unit exceeds i128.
         let unit_in_ray = 10i128.pow(RAY_DECIMALS - decimals);
         assert!(
             ceiling.checked_mul(unit_in_ray).is_some(),
@@ -385,9 +383,9 @@ fn cap_ceiling_is_a_constant_whole_token_count() {
     }
 }
 
-/// `max_cap_for_decimals` returns 0 above RAY_DECIMALS rather than panicking, so
-/// `require_cap_within_asset_domain`'s explicit decimals check is what produces
-/// the error — the comparison alone would silently reject every positive cap.
+/// `max_cap_for_decimals` returns 0 above `RAY_DECIMALS` instead of panicking, so only
+/// the explicit decimals check in `require_cap_within_asset_domain` raises
+/// `AssetDecimalsTooHigh`.
 #[test]
 fn cap_ceiling_collapses_to_zero_above_ray_decimals() {
     assert_eq!(max_cap_for_decimals(RAY_DECIMALS), i128::MAX);
@@ -525,10 +523,7 @@ fn require_non_empty_payments_rejects_an_empty_batch() {
     require_non_empty_payments(&env, &payments);
 }
 
-/// The widest deployed LP band (mainnet XLMSolvBTC_LP) spans a 10x range in LP
-/// fair value. A constant-product share is worth 2*sqrt(Va*Vb)/S, so a pair whose
-/// legs each move several-fold legitimately needs a band this wide; the cap has to
-/// admit it or the market cannot be listed at all.
+/// The widest deployed LP bands span a 10x range in LP fair value; the cap admits them.
 #[test]
 fn lp_sanity_band_admits_a_tenfold_fair_value_range() {
     let env = Env::default();
@@ -544,8 +539,8 @@ fn lp_sanity_band_rejects_a_twentyfold_fair_value_range() {
     validate_lp_sanity_band(&env, WAD, 20 * WAD);
 }
 
-/// Every Aquarius LP band this repo actually ships must pass the cap the code
-/// enforces, or the listing reverts after a full timelock cycle.
+/// The deployed Aquarius LP bands listed below pass the cap. A failing band reverts its
+/// listing only after the full timelock.
 #[test]
 fn lp_sanity_band_admits_every_deployed_band() {
     let env = Env::default();

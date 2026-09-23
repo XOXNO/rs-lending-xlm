@@ -36,21 +36,18 @@ struct Ctx<'a> {
     program: &'a Program,
 }
 
-/// Runs the strategy encoded in `payload` for `sender`: pulls up to `total_in` of the input
-/// token and credits the vault the measured delta rather than the declared amount (F-1),
-/// executes the decoded instruction stream, applies static and referral fees, and delivers
-/// `token_out` back to `sender`, returning the amount delivered.
+/// Runs the strategy in `payload` for `sender` and returns the amount of `token_out` delivered.
 ///
-/// Fees are charged only when the payload carries an active referral id. In that case they are
-/// taken on the input token unless only the output token is fee-whitelisted, in which case they
-/// are taken on the output instead; with `referral_id == 0`, or an unknown or deactivated
-/// referral, no static or referral fee is charged on either token (see
-/// [`fees::apply_fees_on_token`]). Leftover vault balance is accrued as admin fee revenue after
-/// payout, independently of that path, but only up to `residual_allowance(credited)` per token.
+/// Transfers `total_in` of the input token from `sender` and credits the vault the measured
+/// balance delta. Executes the instruction stream, applies fees, pays `sender`, and
+/// accrues leftover vault balances as admin fee.
 ///
-/// Requires `sender`'s authorization, and panics if `total_in` or the declared minimum output is
-/// not positive, if the delivered output falls below the minimum, or if a token's leftover
-/// balance exceeds its residual allowance ([`Error::ExcessiveResidual`]).
+/// Fees apply only with an active referral (see [`fees::apply_fees_on_token`]). They are taken
+/// on the input token unless only the output token is fee-whitelisted.
+///
+/// Requires `sender`'s authorization. Panics if `total_in` or the declared minimum output is not
+/// positive, if the delivered output falls below the minimum, or if a token's leftover balance
+/// exceeds its residual allowance ([`Error::ExcessiveResidual`]).
 pub(crate) fn run(env: Env, sender: Address, total_in: i128, payload: StrategyPayload) -> i128 {
     sender.require_auth();
 
@@ -77,7 +74,7 @@ pub(crate) fn run(env: Env, sender: Address, total_in: i128, payload: StrategyPa
     let mut tokens_cache: Map<Address, Vec<Address>> = Map::new(&env);
 
     // Credit the measured delta, not declared `total_in`: a fee-on-transfer
-    // input would otherwise draw the shortfall from the fee reserve (F-1).
+    // input would otherwise draw the shortfall from the fee reserve.
     let credited_in = transfer_amount_measured(
         &env,
         &input_token,
@@ -183,8 +180,6 @@ fn execute_op(
                 op.idx_c,
                 tokens_cache,
             );
-            // A burn releases every constituent; there is no single "previous
-            // output" for the next instruction to chain onto.
             None
         }
         Opcode::Mint => {

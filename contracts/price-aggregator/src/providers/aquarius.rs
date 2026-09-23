@@ -23,7 +23,8 @@ use crate::session::Session;
 /// itself as the expected kind — stable with a positive amplification
 /// coefficient when `stable`, constant-product otherwise — with positive
 /// reserves and total shares, and token decimals match
-/// `oracle.asset_decimals` and `lp`. Panics if any check fails.
+/// `oracle.asset_decimals` and `lp`. Panics with `InvalidOracleBase`,
+/// `UnsupportedAquariusPool` or `InvalidOracleDecimals`.
 pub(crate) fn attest(
     env: &Env,
     key: &PriceKey,
@@ -60,9 +61,11 @@ pub(crate) fn attest(
 /// the pool binding and decimals, resolving both leg prices through
 /// `engine::resolve_nested`, and computing the price from the pool's
 /// reserves and total shares — plus its amplification coefficient when
-/// `stable`. Returns an error if validation fails, the pool cannot be read,
-/// or the pool's value falls below `lp.min_pool_value_wad`. On success, the
-/// observation carries the earlier of the two leg timestamps.
+/// `stable`. Returns `NoLastPrice` if a re-validation or a pool read fails,
+/// a leg's resolution error if a leg price is unusable, `InvalidPrice` if
+/// the price math fails, and `InsufficientAquariusLiquidity` if the pool
+/// value (WAD) is below `lp.min_pool_value_wad`. On success, the observation
+/// carries the earlier of the two leg timestamps.
 pub(crate) fn read(
     session: &mut Session,
     key: &PriceKey,

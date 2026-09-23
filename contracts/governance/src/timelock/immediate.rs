@@ -1,7 +1,7 @@
 //! Governance actions that execute immediately, bypassing the timelock delay.
 //! Each entry point except `revoke_role_immediate` authenticates the caller and
 //! checks a required role through `begin_immediate` before forwarding to the
-//! controller or price aggregator, or applying the change directly.
+//! controller or price aggregator.
 //! `revoke_role_immediate` is instead owner-gated at the contract entry point
 //! (`#[only_owner]`) and only restricts which role argument may be revoked.
 
@@ -19,8 +19,9 @@ pub(crate) fn pause(env: &Env, caller: &Address) {
     controller_client(env).pause();
 }
 
-/// Sets the paused, frozen, and no-seize flags for `hub_asset` in the given spoke.
-/// Requires the caller to hold `GUARDIAN_ROLE`.
+/// Tightens the paused, frozen, and no-seize flags for `hub_asset` in the given spoke.
+/// Requires the caller to hold `GUARDIAN_ROLE`. The controller rejects clearing a set
+/// flag with `SpokeAssetFlagRelaxation` (INV-AUTH-04).
 pub(crate) fn set_spoke_asset_flags(
     env: &Env,
     caller: &Address,
@@ -34,8 +35,9 @@ pub(crate) fn set_spoke_asset_flags(
     controller_client(env).set_spoke_asset_flags(&spoke_id, hub_asset, &paused, &frozen, &no_seize);
 }
 
-/// Sets the sanity-check price band (min/max, WAD-scaled) for `key` on the price
-/// aggregator. Requires the caller to hold `ORACLE_ROLE`.
+/// Tightens the sanity-check price band (min/max, WAD) for `key` on the price
+/// aggregator. Requires the caller to hold `ORACLE_ROLE`. The aggregator rejects
+/// a wider band with `SanityBandMustTighten`.
 pub(crate) fn set_sanity_band(
     env: &Env,
     caller: &Address,

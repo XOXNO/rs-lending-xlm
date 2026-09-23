@@ -34,9 +34,8 @@ use common::types::{AssetOracle, OracleTolerance, PriceFeedRaw, PriceKey, PriceS
 
 pub use common::errors::OracleError as Error;
 
-/// Renews the contract instance and returns a new `Session` pre-warmed with
-/// `keys`, so repeated lookups of the same keys within a call reuse cached
-/// state.
+/// Renews the contract instance and returns a new `Session` warmed for `keys`
+/// by `Session::warm`.
 fn warmed_session(env: &Env, keys: &Vec<PriceKey>) -> session::Session {
     renew_instance(env);
     let mut sess = session::Session::new(env);
@@ -54,8 +53,6 @@ impl PriceAggregator {
     /// event, and renews the contract instance.
     pub fn __constructor(env: Env, owner: Address) {
         ownable::set_owner(&env, &owner);
-        // `set_owner` writes storage without emitting, so the oracle
-        // authority's owner would otherwise be invisible to indexers.
         ownable::emit_ownership_transfer_completed(&env, &owner);
         renew_instance(&env);
     }
@@ -91,8 +88,8 @@ impl PriceAggregatorInterface for PriceAggregator {
         out
     }
 
-    /// Resolves `key` and returns the min and max of its two leg prices as
-    /// `(low, high)`, panicking if resolution fails.
+    /// Resolves `key` and returns the min and max of its two leg prices (WAD)
+    /// as `(low, high)`, panicking if resolution fails.
     fn price_spread(env: Env, key: PriceKey) -> (i128, i128) {
         let keys = Vec::from_array(&env, [key.clone()]);
         let (_, outcome) = engine::resolve_detailed(&mut warmed_session(&env, &keys), &key, 0);

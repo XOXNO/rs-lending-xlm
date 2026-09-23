@@ -1,4 +1,5 @@
-//! Live stubs so fail-open Aquarius helpers cannot hide as `None`/`false`.
+//! Aquarius helpers return `None` or `false` for a missing pool and live values from a stub
+//! pool.
 extern crate std;
 
 use super::*;

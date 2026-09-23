@@ -13,7 +13,7 @@ use soroban_sdk::Env;
 
 use crate::cache::Cache;
 
-/// Accrue borrow/supply indexes from `last_timestamp` to the cache's current time.
+/// Accrues borrow/supply indexes from `last_timestamp` to the cache's current time.
 ///
 /// No-op when no time has elapsed. Splits long gaps into max-sized compound
 /// windows, then sets `last_timestamp` to `current_timestamp`.
@@ -32,12 +32,10 @@ pub(crate) fn global_sync(env: &Env, cache: &mut Cache) {
     cache.mark_accrued();
 }
 
-/// Apply one compound step of `delta_ms` to indexes and protocol revenue.
+/// Applies one compound step of `delta_ms` to indexes and protocol revenue.
 ///
 /// The arithmetic lives in [`accrue_step`], shared with the read-only
-/// `simulate_update_indexes` so the view and the mutator cannot drift. This
-/// function only lands the result on the cache: indexes, then the step's
-/// revenue shares onto both the revenue book and total supply.
+/// `simulate_update_indexes` so the view and the mutator cannot drift.
 fn accrue_chunk(env: &Env, cache: &mut Cache, delta_ms: u64) {
     let step = accrue_step(
         env,
@@ -54,7 +52,7 @@ fn accrue_chunk(env: &Env, cache: &mut Cache, delta_ms: u64) {
     cache.accrue_revenue(step.revenue_shares);
 }
 
-/// Convert a RAY-denominated fee into scaled supply shares and mint them as revenue.
+/// Converts a RAY fee into floor-rounded scaled supply shares and mints them as revenue.
 ///
 /// Increases both `revenue` and total `supplied` so revenue participates in the
 /// supply index until claimed. No-op for zero fee.
@@ -67,7 +65,7 @@ pub(crate) fn add_protocol_revenue(cache: &mut Cache, fee: Ray) {
     cache.accrue_revenue(fee_scaled);
 }
 
-/// Socialize `bad_debt` by reducing the supply index (capped at total supply value).
+/// Socializes `bad_debt` by reducing the supply index (capped at total supply value).
 ///
 /// Used when seizing unpaid debt: remaining supplier claims shrink pro-rata.
 /// No-op when total supplied value is zero. Floors the resulting index at

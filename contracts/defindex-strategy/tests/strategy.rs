@@ -172,8 +172,8 @@ impl StrategyTest {
         }
     }
 
-    /// Point a vault at an account id the controller does not have, the state a
-    /// closure outside this strategy leaves behind.
+    /// Points `vault`'s stored mapping at `account_id` without checking that the
+    /// account exists.
     fn point_vault_at(&self, vault: &Address, account_id: u64) {
         let env = &self.t.env;
         env.as_contract(&self.client_address, || {
@@ -573,15 +573,13 @@ fn test_supply_reopens_when_the_mapping_points_at_a_missing_account() {
 // ---------------------------------------------------------------------------
 // Construction and failure paths.
 //
-// `__constructor` decodes `init_args` positionally and every arity or type
-// error collapses to `NotInitialized`, so a caller that passes the arguments in
-// the wrong order gets the same error as one that passes none. Each position is
-// probed from both sides -- absent, and present with the wrong type -- because
-// a `get(n)` that drifts to `get(n+1)` still panics on one input and silently
-// reads the neighbouring argument on the other.
+// `__constructor` decodes `init_args` positionally, and every arity or type
+// error maps to `NotInitialized`. Each position is tested both absent and
+// present with the wrong type: only one of the two cases catches a drift from
+// `get(n)` to `get(n+1)`.
 //
-// None of these reach the controller: the panic fires before
-// `get_market_index`, so they need no lending harness.
+// The panic fires before `get_market_index`, so these tests need no lending
+// harness.
 // ---------------------------------------------------------------------------
 
 const NOT_INITIALIZED: u32 = 401;
@@ -656,18 +654,15 @@ fn constructor_rejects_spoke_id_argument_of_the_wrong_type() {
 // ---------------------------------------------------------------------------
 // Every entry point fails closed once the instance `Config` is gone.
 //
-// The constructor always writes `Config`, so the `NotInitialized` arm of
-// `config()` is unreachable through the front door. It is reachable through
-// instance-storage archival: if the instance entry expires and is not restored,
-// a live strategy holding vault collateral wakes up with no configuration. What
-// must not happen then is an entry point reading a default and continuing, so
-// each one is checked to return `NotInitialized` rather than a value.
+// The constructor always writes `Config`, and instance storage lives in the
+// contract instance entry, so no normal path reaches the `NotInitialized` arm
+// of `config()`. These tests erase `Config` directly and check that each entry
+// point returns `NotInitialized` instead of reading a default.
 // ---------------------------------------------------------------------------
 
-/// `try_*` methods whose success type converts infallibly surface the inner
-/// error as `ConversionError` rather than `Error`, so the shared
-/// `flatten_strategy_result` does not fit them. Only the outer contract error
-/// matters here, which is the same for every entry point.
+/// Asserts that a `try_*` call failed with `NotInitialized`. Generic over the
+/// inner conversion error, which is `ConversionError` for an `Address` or `()` result;
+/// `flatten_strategy_result` accepts only `Error`.
 fn assert_not_initialized<T: core::fmt::Debug, E: core::fmt::Debug>(
     result: Result<Result<T, E>, Result<DeFindexStrategyError, InvokeError>>,
 ) {
@@ -729,11 +724,9 @@ fn balance_reports_not_initialized_when_the_config_is_gone() {
 // ---------------------------------------------------------------------------
 // A controller that cannot answer `account_exists` must not be read as "gone".
 //
-// resolve_vault_account clears the vault -> account mapping only on an explicit
-// `Ok(false)`. The mapping is the sole route back to the collateral it points
-// at, so a lookup that merely failed has to abort rather than clear. This
-// points the stored config at a contract with no `account_exists` export, which
-// is the shape of a controller that was upgraded out from under the strategy.
+// `resolve_vault_account` clears the vault mapping only on an explicit
+// `Ok(false)`. This test points the stored config at a contract with no
+// `account_exists` export, so the lookup fails and the call must abort.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -777,12 +770,10 @@ fn a_failed_controller_lookup_aborts_instead_of_clearing_the_vault_mapping() {
     assert_eq!(still_there, Some(7u64));
 }
 
-/// The strategy is the only protocol contract with no other write path into
-/// its instance: nothing in the controller or keeper renews it, so without a
-/// renewal on its own entrypoints it archives 120 days after deploy however
-/// busy it is. `asset` is used because it touches nothing but the instance,
-/// so aging the ledger past the threshold cannot expire an unrelated entry;
-/// the other entrypoints share the same first-line `renew_instance` call.
+/// `asset` renews the strategy instance TTL once it falls below the threshold.
+/// `asset` touches only the instance, so aging the ledger cannot expire an
+/// unrelated entry; the other entry points share the same first-line
+/// `renew_instance` call.
 #[test]
 fn asset_renews_the_strategy_instance_ttl() {
     let t = StrategyTest::new();

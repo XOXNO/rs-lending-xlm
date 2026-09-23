@@ -77,9 +77,9 @@ impl TestSetup {
     }
 }
 
-/// Per-millisecond form of a 200% APR — larger than any accrual rate the curve
-/// can emit. View getters must return annual RAY, so a miswired per-ms value
-/// cannot pass this bound.
+/// Asserts `rate` exceeds `MAX_BORROW_RATE_RAY` (200% APR) in per-millisecond
+/// form, the largest per-ms rate any curve can emit. View getters must return
+/// annual RAY, so a per-ms value fails.
 fn assert_annual_apr(rate: i128, label: &str) {
     let max_per_ms = (2 * RAY) / (MILLISECONDS_PER_YEAR as i128);
     assert!(

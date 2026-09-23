@@ -137,8 +137,7 @@ pub(crate) enum Mode {
 }
 
 impl Mode {
-    /// Decodes a mode byte into its selector variant, by value range against
-    /// `MODE_ALL`, `MODE_PREV`, `MODE_FIXED_BASE`, and `MODE_PPM_BASE`.
+    /// Decodes a mode byte. Every byte maps to a variant; `validate` range-checks the index.
     fn from_u8(value: u8) -> Self {
         match value {
             MODE_ALL => Self::All,
@@ -252,8 +251,7 @@ impl Program {
 
             // `Prev` is a purely structural link: the predecessor must exist,
             // must have a single output, and that output must be this
-            // instruction's input. Checking it here means a broken chain never
-            // reaches a venue.
+            // instruction's input.
             if mode == Mode::Prev {
                 if i == 0 {
                     panic_with_error!(env, Error::BrokenTokenChain);
@@ -292,8 +290,7 @@ impl Program {
                         panic_with_error!(env, Error::SameToken);
                     }
                 }
-                // Both liquidity legs consume everything the vault holds, so a
-                // sized mode would be silently ignored — reject it instead.
+                // Liquidity legs spend the full vault balance, so only `Mode::All` is valid.
                 Opcode::Burn | Opcode::Mint => {
                     if mode != Mode::All {
                         panic_with_error!(env, Error::InvalidRouteXdr);
@@ -367,7 +364,7 @@ pub(crate) mod encode {
         pub idx_c: u8,
     }
 
-    /// Serialize header, instructions, and weights into the packed layout.
+    /// Serializes header, instructions, and weights into the packed layout.
     pub(crate) fn program(
         env: &Env,
         token_in: u8,

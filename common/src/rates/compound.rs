@@ -6,10 +6,9 @@ use soroban_sdk::{panic_with_error, Env, I256};
 use crate::constants::MILLISECONDS_PER_YEAR;
 use crate::math::fp::Ray;
 
-/// Largest time delta, in milliseconds, accepted by a single call to
-/// [`compound_interest`]. Equal to one year in milliseconds.
-/// `simulate_update_indexes_body` splits longer intervals into chunks no
-/// larger than this before compounding each chunk.
+/// Largest `delta_ms` passed to one [`compound_interest`] call: one year in
+/// milliseconds. Both accrual paths split longer intervals into chunks no
+/// larger than this.
 pub const MAX_COMPOUND_DELTA_MS: u64 = MILLISECONDS_PER_YEAR;
 
 /// Computes the compounding growth factor for `rate` applied over `delta_ms`
@@ -17,7 +16,7 @@ pub const MAX_COMPOUND_DELTA_MS: u64 = MILLISECONDS_PER_YEAR;
 ///
 /// Returns `Ray::ONE` when `delta_ms` is zero. Otherwise scales `rate` by
 /// `delta_ms` and sums a Taylor series through the eighth-order term. Panics
-/// if the scaled exponent does not fit in `i128`.
+/// with `GenericError::MathOverflow` if the scaled exponent does not fit in `i128`.
 ///
 /// # Accuracy
 ///
@@ -27,9 +26,7 @@ pub const MAX_COMPOUND_DELTA_MS: u64 = MILLISECONDS_PER_YEAR;
 /// [`MAX_COMPOUND_DELTA_MS`] plus `MAX_BORROW_RATE_RAY` (2 RAY) bound `x` at 2,
 /// where the relative truncation shortfall is 2.37e-4. It falls off with the rate:
 /// 1.13e-6 at 100% APR, 1.18e-12 at 20%, 5.15e-18 at 5% (all measured over a
-/// full one-year chunk). A higher-precision `exp` would cost several times the
-/// ~206k CPU instructions this series already spends on `I256` host calls, so
-/// the approximation is accepted rather than corrected.
+/// full one-year chunk).
 pub fn compound_interest(env: &Env, rate: Ray, delta_ms: u64) -> Ray {
     if delta_ms == 0 {
         return Ray::ONE;

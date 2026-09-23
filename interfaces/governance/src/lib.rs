@@ -72,6 +72,7 @@ pub struct ConfigureAssetOracleArgs {
 #[derive(Clone, Debug)]
 pub struct EditToleranceArgs {
     pub key: PriceKey,
+    /// Tolerance width in BPS (500 = 5%). Governance converts it to `OracleTolerance` ratios.
     pub tolerance: u32,
 }
 
@@ -100,6 +101,7 @@ pub enum AdminOperation {
     SetPriceAggregator(Address),
     SetAccumulator(Address),
     SetPositionLimits(PositionLimits),
+    /// LTV-weighted borrow collateral floor in USD WAD. Zero disables the floor.
     SetMinBorrowCollateralUsd(i128),
     CreateHub,
     AddSpoke,
@@ -131,6 +133,7 @@ pub enum AdminOperation {
     Unpause,
 
     UpgradeGov(BytesN<32>),
+    /// Timelock minimum delay in ledgers. It cannot decrease.
     UpdateGovDelay(u32),
     GrantGovRole(RoleArgs),
     RevokeGovRole(RoleArgs),

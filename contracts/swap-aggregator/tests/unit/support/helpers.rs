@@ -2,7 +2,7 @@
 //!
 //! Tests describe a strategy the way the off-chain router thinks about it —
 //! paths with *absolute* split weights, plus optional LP legs — and this module
-//! lowers that into the packed program the contract actually decodes. It is the
+//! lowers that into the packed program the contract decodes. It is the
 //! executable reference for the off-chain encoders; keep it in step with
 //! `crate::program`.
 
@@ -36,11 +36,9 @@ pub(crate) struct SwapPath {
 
 /// How the mint-balancing pre-swap sizes its input.
 ///
-/// [`PreSwap::Fixed`] pins an absolute amount the off-chain solver computed for
-/// the *gross* input. [`PreSwap::Ppm`] states the same solve as a fraction of
-/// whatever the vault actually holds when the instruction runs, which is what
-/// the zap builder emits: a referral fee debited before the pre-swap shrinks the
-/// balance, and a fraction survives that where an absolute amount does not.
+/// [`PreSwap::Fixed`] is an absolute amount. [`PreSwap::Ppm`] is a fraction of
+/// the vault balance when the instruction runs, so it still fits after an
+/// input-side fee shrinks that balance.
 pub(crate) enum PreSwap {
     /// Deposit straight into the pool with no balancing swap.
     None,

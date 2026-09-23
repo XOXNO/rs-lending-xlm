@@ -1,11 +1,8 @@
-//! The `resolve_op` arms, `resolve_oracle` key variants and `apply_self_op`
-//! rejection path that no other governance test reaches.
+//! Tests for the `resolve_op` arms, the `resolve_oracle` key variants and the
+//! `apply_self_op` rejection path.
 //!
-//! Each resolve case pins the three properties the timelock depends on: the
-//! contract the operation is dispatched to, the function it calls, and the
-//! delay tier that gates it. The tier is the security-relevant one -- an
-//! operation classified `Standard` when it should be `Sensitive` executes
-//! after a shorter timelock than its blast radius warrants.
+//! Each resolve case pins the target contract, the function and the delay tier.
+//! A `Sensitive` operation resolved as `Standard` executes after a shorter delay.
 extern crate std;
 
 use super::*;
@@ -45,15 +42,10 @@ fn deploy_position_nft_resolves_to_controller_with_standard_delay() {
 
     assert_eq!(resolved.target, controller_id);
     assert_eq!(resolved.function, Symbol::new(&env, "deploy_position_nft"));
-    // wasm_hash, uri, name, symbol -- dropping one would silently deploy an
-    // NFT with a shifted argument list.
+    // wasm_hash, uri, name, symbol.
     assert_eq!(resolved.args.len(), 4);
-    // Standard, while UpgradePositionNft next door is Sensitive. That asymmetry
-    // is deliberate and safe: markets::deploy_position_nft asserts
-    // try_get_position_nft(env).is_none() and reverts with
-    // PositionNftAlreadyDeployed otherwise, so this is a one-shot bootstrap
-    // that cannot re-point the NFT of a protocol with live positions. The
-    // upgrade path has no such guard, which is why it carries the longer delay.
+    // Standard is safe: the controller reverts with `PositionNftAlreadyDeployed`
+    // once an NFT exists. `UpgradePositionNft` has no such guard and is Sensitive.
     assert_eq!(resolved.delay_tier, DelayTier::Standard);
 }
 
@@ -92,12 +84,8 @@ fn upgrade_position_nft_rejects_zero_wasm_hash() {
     env.as_contract(&gov_id, || resolve_op(&env, &op));
 }
 
-/// The price aggregator is the only source of prices the controller reads, so
-/// replacing its code is at least as consequential as an NFT or pool upgrade.
-/// Oracle *configuration* runs on the Standard tier; code replacement must not,
-/// which is why it resolves through `sensitive_price_aggregator_operation`
-/// rather than the plain `price_aggregator_operation` used by
-/// `ConfigureAssetOracle`.
+/// `UpgradePriceAggregator` resolves to the aggregator's `upgrade` on the
+/// Sensitive tier. Oracle configuration (`ConfigureAssetOracle`) stays Standard.
 #[test]
 fn upgrade_price_aggregator_resolves_to_the_aggregator_with_sensitive_delay() {
     let env = Env::default();
@@ -115,8 +103,8 @@ fn upgrade_price_aggregator_resolves_to_the_aggregator_with_sensitive_delay() {
     assert_eq!(resolved.delay_tier, DelayTier::Sensitive);
 }
 
-/// Same guard every other upgrade variant carries: a zero hash would brick the
-/// contract it is applied to.
+/// A zero wasm hash is rejected with `InvalidWasmHash`, as for every other
+/// upgrade variant.
 #[test]
 #[should_panic(expected = "Error(Contract, #10)")]
 fn upgrade_price_aggregator_rejects_zero_wasm_hash() {
@@ -144,8 +132,7 @@ fn force_socialize_bad_debt_resolves_to_controller_with_sensitive_delay() {
         Symbol::new(&env, "force_socialize_bad_debt")
     );
     assert_eq!(resolved.args.len(), 1);
-    // Writing off debt against the protocol's reserves must not be reachable
-    // on the Standard delay.
+    // Socializing an account's debt into the supply index is a Sensitive operation.
     assert_eq!(resolved.delay_tier, DelayTier::Sensitive);
 }
 
@@ -240,9 +227,8 @@ fn relax_spoke_asset_flags_rejects_a_future_epoch_at_proposal() {
 #[test]
 fn resolve_oracle_zeroes_decimals_for_a_ref_key() {
     let env = Env::default();
-    // A `Ref` key names a synthetic quote with no token contract behind it, so
-    // there are no on-chain decimals to fetch. The caller's value is discarded
-    // rather than trusted: a non-zero input here must still resolve to 0.
+    // A `Ref` key has no token contract to read decimals from, so the input
+    // value is discarded and a non-zero input still resolves to 0.
     let oracle = AssetOracle {
         asset_decimals: 7,
         max_price_stale_seconds: 900,
@@ -269,9 +255,7 @@ fn resolve_oracle_zeroes_decimals_for_a_ref_key() {
 fn apply_self_op_rejects_an_operation_that_does_not_target_governance() {
     let env = Env::default();
     let (gov_id, _controller_id) = gov_with_controller(&env);
-    // `Unpause` resolves to the controller, so the timelock never routes it
-    // here. Reaching this arm means the dispatch in lifecycle.rs and the match
-    // in apply_self_op have drifted apart, which is an internal invariant
-    // failure rather than a caller error.
+    // `Unpause` resolves to the controller, so `execute_self` never routes it
+    // here. Reaching this arm is an internal invariant failure (`InternalError`).
     env.as_contract(&gov_id, || apply_self_op(&env, &AdminOperation::Unpause));
 }

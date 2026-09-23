@@ -41,14 +41,14 @@ pub const MAX_FLASHLOAN_FEE_BPS: i128 = 500;
 /// Upper bound accepted for the maximum number of supply or borrow positions an account may hold.
 pub const POSITION_LIMIT_MAX: u32 = 5;
 
-/// Lower bound accepted for an oracle tolerance value, in basis points.
+/// Smallest accepted oracle tolerance width, in BPS (`upper_ratio_bps >= BPS + MIN_TOLERANCE`).
 pub const MIN_TOLERANCE: u32 = 150;
 
 /// Minimum relative half-width of an oracle sanity band, in basis points of
 /// `(max_wad + min_wad)`: requires `(max - min) * BPS / (max + min) >= this`.
 pub const MIN_SANITY_BAND_BPS: i128 = 50;
 
-/// Upper bound accepted for an oracle tolerance value, in basis points.
+/// Largest accepted oracle tolerance width, in BPS (`upper_ratio_bps <= BPS + MAX_TOLERANCE`).
 pub const MAX_TOLERANCE: u32 = 2_500;
 
 /// Number of milliseconds in one second.
@@ -60,27 +60,25 @@ pub(crate) const ONE_DAY_LEDGERS: u32 = 17_280;
 
 const TTL_THRESHOLD_USER_DAYS: u32 = 30;
 
-/// Instance and shared entries are bumped to the 180-day horizon (mainnet's
-/// `max_entry_ttl`), so the threshold only decides how early in the cycle the
-/// bump fires. Thirty days
-/// (the same window as user entries) means a month of protocol quiet cannot
-/// archive an instance; rent per ledger is unchanged by firing earlier.
+/// Instance and shared entries bump to 180 days (the mainnet `max_entry_ttl`), so
+/// this threshold sets only how early the bump fires. After any renewal check the
+/// entry has at least 30 days left, the same window as user entries.
 const TTL_THRESHOLD_SAFETY_DAYS: u32 = 30;
 const TTL_BUMP_INSTANCE_DAYS: u32 = 180;
 const TTL_BUMP_SHARED_DAYS: u32 = 180;
 const TTL_BUMP_USER_DAYS: u32 = 120;
 
-/// Live-until-ledger threshold below which instance storage TTL extension is triggered.
+/// Remaining TTL, in ledgers, below which instance storage is extended.
 pub const TTL_THRESHOLD_INSTANCE: u32 = ONE_DAY_LEDGERS * TTL_THRESHOLD_SAFETY_DAYS;
 /// Number of ledgers instance storage TTL is extended to when renewed.
 pub const TTL_BUMP_INSTANCE: u32 = ONE_DAY_LEDGERS * TTL_BUMP_INSTANCE_DAYS;
 
-/// Live-until-ledger threshold below which shared persistent storage TTL extension is triggered.
+/// Remaining TTL, in ledgers, below which shared persistent storage is extended.
 pub const TTL_THRESHOLD_SHARED: u32 = ONE_DAY_LEDGERS * TTL_THRESHOLD_SAFETY_DAYS;
 /// Number of ledgers shared persistent storage TTL is extended to when renewed.
 pub const TTL_BUMP_SHARED: u32 = ONE_DAY_LEDGERS * TTL_BUMP_SHARED_DAYS;
 
-/// Live-until-ledger threshold below which per-user persistent storage TTL extension is triggered.
+/// Remaining TTL, in ledgers, below which per-user persistent storage is extended.
 pub const TTL_THRESHOLD_USER: u32 = ONE_DAY_LEDGERS * TTL_THRESHOLD_USER_DAYS;
 /// Number of ledgers per-user persistent storage TTL is extended to when renewed.
 pub const TTL_BUMP_USER: u32 = ONE_DAY_LEDGERS * TTL_BUMP_USER_DAYS;

@@ -1,7 +1,7 @@
 //! Net settlement: offsets a user's supply against their debt on the same market.
 //!
 //! Burns matched scaled supply and debt with no cash movement or token transfer.
-//! Used by the hub to close mirrored legs atomically.
+//! The controller uses it to repay debt from collateral in the same market.
 
 use common::errors::GenericError;
 use common::math::fp::Ray;
@@ -25,7 +25,7 @@ pub(crate) fn apply(
     entry: &PoolNetSettleEntry,
 ) -> (PoolNetSettleResult, MarketStateSnapshot) {
     require_nonneg_amount(env, entry.amount);
-    // Fail closed if the hub passes a negative scaled position (would invert burns).
+    // A negative scaled position from the controller would invert the burns.
     require_nonneg_amount(env, entry.supply_position.scaled_amount);
     require_nonneg_amount(env, entry.debt_position.scaled_amount);
     let mut cache = ops::synced_market(env, &entry.hub_asset);

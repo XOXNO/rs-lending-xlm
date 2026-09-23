@@ -9,7 +9,7 @@
 //! | Layer | Role |
 //! |-------|------|
 //! | [`Router`] | Public entrypoints and Ownable |
-//! | `execute` | Strategy run: pull, paths, LP legs, settle |
+//! | `execute` | Strategy run: pull, instruction stream, fees, settle |
 //! | `fees` | Static + referral fee apply and claim |
 //! | `storage` | Keys, TTL, fee buckets, whitelist, referrals |
 //! | `vault` | Invocation-local token ledger |
@@ -61,12 +61,9 @@ pub struct Router;
 
 #[contractimpl]
 impl Router {
-    /// Set `admin` as Ownable owner.
+    /// Sets `admin` as the Ownable owner.
     ///
-    /// The static fee and referral counter are deliberately left unwritten:
-    /// `storage::static_fee_bps` and `storage::referral_counter` both default to
-    /// zero on a missing key, so writing zeros here only bought two instance
-    /// entries' worth of rent.
+    /// The static fee and referral counter stay unwritten; both read as zero when unset.
     pub fn __constructor(env: Env, admin: Address) {
         ownable::set_owner(&env, &admin);
         common::ttl::renew_instance(&env);
@@ -75,14 +72,17 @@ impl Router {
 
 #[contractimpl]
 impl SwapAggregatorInterface for Router {
-    /// Set the protocol static fee in bps (`<= FEE_CAP`). Owner only.
+    /// Sets the protocol static fee in BPS (`<= FEE_CAP`). Owner only.
     #[only_owner]
     fn set_static_fee(env: Env, fee_bps: u32) {
         common::ttl::renew_instance(&env);
         fees::set_static_fee(&env, fee_bps);
     }
 
-    /// Mark `token` as fee-whitelisted (affects input-side fee selection). Owner only.
+    /// Adds `token` to the fee whitelist. Owner only.
+    ///
+    /// A referral swap takes fees on the output token only when the output token is
+    /// whitelisted and the input token is not.
     #[only_owner]
     fn add_to_whitelist(env: Env, token: Address) {
         common::ttl::renew_instance(&env);
@@ -93,7 +93,7 @@ impl SwapAggregatorInterface for Router {
         }
     }
 
-    /// Remove `token` from the fee whitelist. Owner only.
+    /// Removes `token` from the fee whitelist. Owner only.
     #[only_owner]
     fn remove_from_whitelist(env: Env, token: Address) {
         common::ttl::renew_instance(&env);
@@ -104,14 +104,16 @@ impl SwapAggregatorInterface for Router {
         }
     }
 
-    /// Upgrade contract WASM. Owner only.
+    /// Replaces the contract Wasm with `new_wasm_hash`. Owner only.
     #[only_owner]
     fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
         common::ttl::renew_instance(&env);
         env.deployer().update_current_contract_wasm(new_wasm_hash);
     }
 
-    /// Create a referral; returns the new id. Owner only.
+    /// Creates an active referral and returns its id. Owner only.
+    ///
+    /// Panics with `Error::FeeTooHigh` if `fee_bps > FEE_CAP`.
     #[only_owner]
     fn add_referral(env: Env, owner: Address, fee_bps: u32) -> u64 {
         common::ttl::renew_instance(&env);
@@ -135,7 +137,7 @@ impl SwapAggregatorInterface for Router {
         id
     }
 
-    /// Update a referral's fee bps. Owner only.
+    /// Sets referral `id`'s fee in BPS (`<= FEE_CAP`). Owner only.
     #[only_owner]
     fn set_referral_fee(env: Env, id: u64, fee_bps: u32) {
         common::ttl::renew_instance(&env);
@@ -147,7 +149,7 @@ impl SwapAggregatorInterface for Router {
         storage::set_referral(&env, id, &cfg);
     }
 
-    /// Activate or deactivate a referral. Owner only.
+    /// Activates or deactivates referral `id`. Owner only.
     #[only_owner]
     fn set_referral_active(env: Env, id: u64, active: bool) {
         common::ttl::renew_instance(&env);
@@ -156,7 +158,7 @@ impl SwapAggregatorInterface for Router {
         storage::set_referral(&env, id, &cfg);
     }
 
-    /// Transfer claim rights for a referral. Owner only.
+    /// Sets the address that receives referral `id`'s fee claims. Owner only.
     #[only_owner]
     fn set_referral_owner(env: Env, id: u64, new_owner: Address) {
         common::ttl::renew_instance(&env);
@@ -165,7 +167,7 @@ impl SwapAggregatorInterface for Router {
         storage::set_referral(&env, id, &cfg);
     }
 
-    /// Pay out accrued admin fee balances for `tokens`. Owner only.
+    /// Pays the admin fee balances for `tokens` to `recipient`. Owner only.
     #[only_owner]
     fn claim_admin_fees(env: Env, recipient: Address, tokens: Vec<Address>) {
         common::ttl::renew_instance(&env);
@@ -173,14 +175,14 @@ impl SwapAggregatorInterface for Router {
         fees::claim_fee_bucket(&env, &router, &recipient, tokens, FeeBucket::Admin);
     }
 
-    /// Pay out accrued fees for referral `id` to its configured owner.
+    /// Pays referral `id`'s fee balances for `tokens` to its stored owner. Callable by anyone.
     fn claim_referral_fees(env: Env, id: u64, tokens: Vec<Address>) {
         common::ttl::renew_instance(&env);
         let router = env.current_contract_address();
         fees::claim_referral_fees(&env, &router, id, tokens);
     }
 
-    /// Recover non-fee token balances to `recipient`. Leaves fee buckets intact. Owner only.
+    /// Transfers each token's balance above its reserved fee total to `recipient`. Owner only.
     #[only_owner]
     fn sweep_balance(env: Env, recipient: Address, tokens: Vec<Address>) {
         common::ttl::renew_instance(&env);
@@ -199,9 +201,6 @@ impl SwapAggregatorInterface for Router {
     }
 
     /// Returns the current Ownable owner; panics with `Error::NotAdmin` if unset.
-    ///
-    /// A convenience wrapper over [`Ownable::get_owner`] for callers that want a hard failure
-    /// rather than an `Option`; both read the same Ownable slot.
     fn admin(env: Env) -> Address {
         ownable::get_owner(&env).unwrap_or_else(|| panic_with_error!(&env, Error::NotAdmin))
     }
@@ -241,10 +240,11 @@ impl SwapAggregatorInterface for Router {
         storage::fee_balance(&env, &types::DataKey::ReferralFee(id, token))
     }
 
-    /// Decode `swap_xdr` as `StrategyPayload` and execute it.
+    /// Decodes `swap_xdr` as a `StrategyPayload` and runs it for `sender`.
     ///
-    /// Pulls `total_in` from `sender`, runs optional LP burn/paths/mint, applies
-    /// fees, enforces `total_min_out`, and returns delivered output.
+    /// Requires `sender` authorization. Pulls `total_in` of the input token, runs the
+    /// instruction stream, applies fees, checks the minimum output, and returns the amount
+    /// delivered to `sender`. Panics with `Error::InvalidRouteXdr` if the XDR does not decode.
     fn execute_strategy(env: Env, sender: Address, total_in: i128, swap_xdr: Bytes) -> i128 {
         common::ttl::renew_instance(&env);
         let payload = StrategyPayload::from_xdr(&env, &swap_xdr)
@@ -262,7 +262,7 @@ impl Ownable for Router {
 
     /// Starts a two-step ownership transfer to `new_owner`, acceptable until ledger
     /// `live_until_ledger`. Requires current-owner authorization; overrides any
-    /// pending transfer.
+    /// pending transfer. A `live_until_ledger` of 0 cancels the pending transfer.
     fn transfer_ownership(e: &Env, new_owner: Address, live_until_ledger: u32) {
         ownable::transfer_ownership(e, &new_owner, live_until_ledger);
     }

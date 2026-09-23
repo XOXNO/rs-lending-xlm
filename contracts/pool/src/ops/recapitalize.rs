@@ -1,7 +1,7 @@
 //! Recapitalization: injects cash to cover a market backing shortfall.
 //!
 //! Only the shortfall amount is applied; any excess is refunded to the payer.
-//! The hub is expected to have transferred `amount` into the pool beforehand.
+//! The controller transfers `amount` into the pool before this call.
 
 use common::errors::GenericError;
 use common::types::{HubAssetKey, PoolAmountMutation};

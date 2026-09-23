@@ -6,7 +6,7 @@
 /// sum to it.
 pub(crate) const PPM_DENOMINATOR: i128 = 1_000_000;
 
-/// Minimum residual dust allowed to accrue as admin fee after settlement.
+/// Lower bound of the per-token residual allowance, in token units.
 pub(crate) const RESIDUAL_DUST_FLOOR: i128 = 1_000;
 
 /// Residual allowance = `credited / RESIDUAL_PPM`, at least [`RESIDUAL_DUST_FLOOR`].

@@ -115,7 +115,8 @@ impl GovernanceInterface for Governance {
     }
 
     /// Schedules `op` for later execution and returns its operation id.
-    /// Requires the caller to hold the proposer role.
+    /// Requires the caller to hold the proposer role; some operations also
+    /// require the caller to be the owner.
     fn propose(env: Env, proposer: Address, op: AdminOperation, salt: BytesN<32>) -> BytesN<32> {
         lifecycle::propose(&env, &proposer, &op, salt)
     }
@@ -126,8 +127,9 @@ impl GovernanceInterface for Governance {
         immediate::pause(&env, &caller)
     }
 
-    /// Sets the paused, frozen, and no-seize flags for `hub_asset` in spoke
-    /// `spoke_id`. Requires the caller to hold the guardian role.
+    /// Tightens the paused, frozen, and no-seize flags for `hub_asset` in spoke
+    /// `spoke_id`; clearing a set flag fails. Requires the caller to hold the
+    /// guardian role.
     fn set_spoke_asset_flags(
         env: Env,
         caller: Address,
@@ -142,8 +144,8 @@ impl GovernanceInterface for Governance {
         )
     }
 
-    /// Sets the sanity-check price band for `key` on the price aggregator.
-    /// Requires the caller to hold the oracle role.
+    /// Tightens the sanity-check price band for `key` on the price aggregator;
+    /// widening fails. Requires the caller to hold the oracle role.
     fn set_sanity_band(env: Env, caller: Address, key: PriceKey, min_wad: i128, max_wad: i128) {
         immediate::set_sanity_band(&env, &caller, &key, min_wad, max_wad)
     }
@@ -176,7 +178,8 @@ impl GovernanceInterface for Governance {
     }
 
     /// Schedules a reset of the canceller role to `new_cancellers` and
-    /// returns its operation id. Restricted to the owner.
+    /// returns its operation id. Restricted to the owner. Uses the recovery
+    /// delay and cannot be cancelled.
     #[only_owner]
     fn propose_canceller_reset(
         env: Env,

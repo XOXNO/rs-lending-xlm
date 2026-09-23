@@ -3,9 +3,8 @@
 //!
 //! [`accrue_step`] is the single implementation of one compounding step. Both
 //! accrual paths run it: the pool's mutating `interest::global_sync` and the
-//! no-write [`simulate_update_indexes`] here. Keeping one body is what makes
-//! the view and the mutator agree bit-for-bit; a rounding change lands in both
-//! at once or in neither.
+//! no-write [`simulate_update_indexes`] here, so the view and the mutator agree
+//! bit-for-bit.
 
 use soroban_sdk::Env;
 
@@ -30,18 +29,16 @@ pub struct AccrualStep {
     /// Scaled supply shares owed to the protocol for this step, valued at
     /// `supply_index`. `Ray::ZERO` when the step accrued no fee.
     ///
-    /// The caller decides where these land: the pool books them as revenue
-    /// *and* adds them to total supply, the simulator folds them into its
-    /// running supply only. Either way they must be added to total supply
-    /// before the next step, because the next step's utilization reads it.
+    /// The pool books them as revenue and adds them to total supply; the
+    /// simulator adds them to its running supply only. Either way they must be
+    /// added to total supply before the next step, because the next step's
+    /// utilization reads it.
     pub revenue_shares: Ray,
 }
 
 /// Runs one compounding step of length `delta_ms` over a market snapshot.
 ///
-/// Pure: reads the snapshot, writes nothing. The sequence is
-/// utilization → borrow rate → compound → borrow index → reward/fee split →
-/// supply index → rounding shortfall → revenue shares.
+/// Reads the snapshot and writes nothing.
 ///
 /// `supplied` must already include revenue shares minted by earlier steps,
 /// since utilization and the reward split are both computed against it.
@@ -81,8 +78,8 @@ pub fn accrue_step(
     );
 
     let protocol_reward = protocol_fee.checked_add(env, supplier_shortfall);
-    // Shares are valued at the *new* supply index, matching the index the
-    // caller will store for this step.
+    // Shares are valued at the new supply index, which the caller stores for
+    // this step.
     let revenue_shares = if protocol_reward == Ray::ZERO {
         Ray::ZERO
     } else {
@@ -97,7 +94,7 @@ pub fn accrue_step(
 }
 
 /// Computes the borrow and supply indexes for `sync`'s pool state as of
-/// `current_timestamp`, without persisting the result.
+/// `current_timestamp` (milliseconds), without persisting the result.
 pub fn simulate_update_indexes(
     env: &Env,
     current_timestamp: u64,
@@ -133,14 +130,9 @@ cvlr_soroban_macros::apply_summary!(
 /// between `state.last_timestamp` and `current_timestamp`, without
 /// persisting state.
 ///
-/// Returns the current indexes unchanged if no time has elapsed. Otherwise
-/// splits the interval into chunks of at most `MAX_COMPOUND_DELTA_MS` and,
-/// for each chunk, computes utilization and the borrow rate from
-/// `sync.params`, compounds the borrow index by the resulting interest
-/// factor, splits the accrued interest into supplier rewards and protocol
-/// fee, grows the supply index by the supplier rewards, and folds any
-/// rounding shortfall together with the protocol fee into additional scaled
-/// supply.
+/// Returns the stored indexes unchanged if no time has elapsed. Otherwise
+/// runs [`accrue_step`] over chunks of at most `MAX_COMPOUND_DELTA_MS` and
+/// adds each step's revenue shares to the running supply.
 pub(crate) fn simulate_update_indexes_body(
     env: &Env,
     current_timestamp: u64,

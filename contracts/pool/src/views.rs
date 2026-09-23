@@ -1,9 +1,9 @@
 //! Read-only market queries used by public view entrypoints.
 //!
-//! Views load a [`Cache`] (or raw state for cash) without committing accrual.
-//! Rates and utilization therefore reflect **stored** indexes unless a prior
-//! mutation already wrote an update. Rate getters return **annual** RAY APR,
-//! not the per-millisecond rate used by accrual.
+//! Views load a [`Cache`] (or raw state for cash) without accrual, so rates,
+//! utilization and amounts use the stored indexes. Each load extends the
+//! market TTL. Rate getters return annual RAY APR, not the per-millisecond
+//! rate used by accrual.
 
 use common::rates::{calculate_annual_borrow_rate, calculate_deposit_rate};
 use common::types::HubAssetKey;
@@ -23,7 +23,7 @@ pub(crate) fn reserves(env: &Env, hub_asset: &HubAssetKey) -> i128 {
     storage::load_state(env, hub_asset).cash
 }
 
-/// Supplier APR (annual RAY) at current stored utilization and reserve factor.
+/// Supplier APR (annual RAY) at stored utilization and reserve factor.
 pub(crate) fn deposit_rate(env: &Env, hub_asset: &HubAssetKey) -> i128 {
     let cache = Cache::load(env, hub_asset);
     let util = cache.calculate_utilization();
@@ -31,7 +31,7 @@ pub(crate) fn deposit_rate(env: &Env, hub_asset: &HubAssetKey) -> i128 {
     calculate_deposit_rate(env, util, borrow, cache.params().reserve_factor).raw()
 }
 
-/// Borrow APR (annual RAY) from the piecewise interest model at current util.
+/// Borrow APR (annual RAY) from the piecewise interest model at stored utilization.
 pub(crate) fn borrow_rate(env: &Env, hub_asset: &HubAssetKey) -> i128 {
     let cache = Cache::load(env, hub_asset);
     calculate_annual_borrow_rate(env, cache.calculate_utilization(), cache.params()).raw()

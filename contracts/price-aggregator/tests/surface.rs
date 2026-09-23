@@ -11,8 +11,7 @@ use soroban_sdk::{Address, BytesN, Env, String, Vec};
 
 const WAD: i128 = 1_000_000_000_000_000_000;
 
-/// Single-key reads. `prices()` / `quotes()` are the only entrypoints; these
-/// keep call sites readable without a one-key wrapper on the contract itself.
+/// Single-key wrappers over the batch reads `prices()` and `quotes()`.
 fn hard_price(env: &Env, client: &PriceAggregatorClient, key: PriceKey) -> PriceFeedRaw {
     client
         .prices(&Vec::from_array(env, [key.clone()]))
@@ -605,11 +604,9 @@ fn shared_trust_dual_cannot_gain_a_wide_band_through_update() {
         &redstone_dual(&env, &feed, "PRIMARY", "ANCHOR", 900, 10_500, 9_524),
     );
 
-    // Since F-3 the immediate path refuses ANY widening, so the attempt is
-    // stopped by the ratchet before the single-source width cap is consulted.
-    // The property under test is unchanged and now enforced more strictly: a
-    // shared-trust dual source cannot acquire a wide band through this path at
-    // all. The width cap still guards the timelocked widening path.
+    // The immediate path refuses any widening before the single-source width
+    // cap runs, so a shared-trust dual source cannot gain a wide band here.
+    // The width cap guards the timelocked `set_oracle` path.
     assert_eq!(
         client.try_set_sanity_band(&PriceKey::Token(asset), &(WAD / 2), &(WAD * 3 / 2),),
         Err(Ok(soroban_sdk::Error::from_contract_error(
@@ -1078,12 +1075,9 @@ fn hard_price_accepts_the_inclusive_edges_of_the_sanity_band() {
     }
 }
 
-/// The oracle authority's owner must be reachable from events alone.
-///
-/// `ownable::set_owner` is a silent storage write, and this contract emits
-/// nothing else about ownership — `config:asset_oracle` is its only other
-/// event — so without this emission the owner of the price authority is
-/// invisible to an event-sourced indexer.
+/// The constructor emits the initial owner. `ownable::set_owner` emits no
+/// event and the only other event is `config:asset_oracle`, so an
+/// event-sourced indexer learns the owner only from this one.
 #[test]
 fn constructor_emits_owner() {
     use soroban_sdk::xdr::{ContractEventBody, ScSymbol, ScVal};
@@ -1101,12 +1095,8 @@ fn constructor_emits_owner() {
     assert!(saw_owner, "constructor must publish the initial owner");
 }
 
-/// The price aggregator is the only oracle the controller reads, and every
-/// other deployable contract here can be upgraded behind governance. Without
-/// its own `upgrade` the deployed registry would be frozen for the life of the
-/// protocol, so the entry point has to exist and has to be owner-gated: in a
-/// deployed protocol the owner is the governance contract, which reaches it
-/// only through the timelock.
+/// `upgrade` reaches the host for the owner. In a deployed protocol the owner
+/// is the governance contract, which calls it only through the timelock.
 #[test]
 fn upgrade_reaches_the_host_for_the_owner() {
     let env = Env::default();
@@ -1122,19 +1112,12 @@ fn upgrade_reaches_the_host_for_the_owner() {
     );
 }
 
-/// `try_upgrade` fails for an unknown hash whether or not the caller is
-/// authorized, so an `is_err` assertion alone would pass even with the guard
-/// removed. Asserting on the recorded auth instead proves the entry point
-/// actually demanded the owner's signature: in a deployed protocol that owner
-/// is the governance contract, so this is what puts the upgrade behind the
-/// timelock.
-/// Owner-gating is asserted structurally rather than here: an unknown hash and
-/// a missing signature both surface as `Error(Context, InvalidAction)`, so no
-/// error-code assertion at this level can tell the guard firing apart from the
-/// host rejecting the hash. `make access-control-check` is what proves the
-/// `#[only_owner]` attribute is present, and
-/// `upgrading_the_price_aggregator_preserves_the_registry` in the harness
-/// exercises the authorized path against a real uploaded hash.
+/// Without mocked auths the call fails. An unknown hash and a missing signature
+/// both surface as `Error(Context, InvalidAction)`, so this test cannot tell
+/// the owner guard from the host rejecting the hash. `make access-control-check`
+/// proves the `#[only_owner]` attribute is present, and
+/// `upgrade_price_aggregator_executes_against_the_aggregator` in the governance
+/// tests runs the authorized path against a real uploaded hash.
 #[test]
 fn upgrade_is_rejected_without_owner_authorization() {
     let env = Env::default();
@@ -1161,7 +1144,8 @@ fn set_sanity_band_refuses_each_widened_edge_alone_and_accepts_an_unchanged_edge
     let live = client.oracle(&key).unwrap();
     let (floor, ceiling) = (live.min_sanity_price_wad, live.max_sanity_price_wad);
 
-    // Floor lowered, ceiling TIGHTENED: the good edge must not buy the bad one.
+    // Floor lowered, ceiling tightened: the tightened edge does not offset the
+    // widened one.
     assert_eq!(
         client.try_set_sanity_band(&key, &(floor - 1), &(ceiling - 1)),
         Err(Ok(sanity_band_must_tighten())),
@@ -1172,7 +1156,7 @@ fn set_sanity_band_refuses_each_widened_edge_alone_and_accepts_an_unchanged_edge
         Err(Ok(sanity_band_must_tighten())),
         "lowering the floor with the ceiling unchanged"
     );
-    // Ceiling raised, floor TIGHTENED.
+    // Ceiling raised, floor tightened.
     assert_eq!(
         client.try_set_sanity_band(&key, &(floor + 1), &(ceiling + 1)),
         Err(Ok(sanity_band_must_tighten())),
@@ -1206,7 +1190,7 @@ fn set_sanity_band_refuses_each_widened_edge_alone_and_accepts_an_unchanged_edge
         (floor + 1, ceiling - 1)
     );
 
-    // The ratchet holds against the NEW band: the old edges are now a widening.
+    // The ratchet applies to the stored band: the old floor now widens it.
     assert_eq!(
         client.try_set_sanity_band(&key, &floor, &(ceiling - 1)),
         Err(Ok(sanity_band_must_tighten()))

@@ -6,12 +6,11 @@ use crate::errors::Error;
 use crate::program::MAX_ASSETS;
 use crate::venues::auth::authorize_token_transfer;
 
-/// Authorize transfer and call pool `swap`. Panics with `IntegerOverflow` if
-/// `amount_in` is negative.
+/// Authorizes the input transfer and calls the pool's `swap` with a zero minimum
+/// output. Panics with `IntegerOverflow` if `amount_in` is negative.
 ///
-/// The pool's reported fill is decoded — so a pool returning the wrong type
-/// still fails — and then discarded: `crate::venues::dispatch_hop` measures the
-/// router's balance delta and that measurement is the only authority.
+/// Decodes the pool's reported fill as `u128`, so a wrong return type fails, then
+/// discards it: `crate::venues::dispatch_hop` measures the fill.
 pub(super) fn invoke_pool_swap(
     env: &Env,
     router: &Address,
@@ -34,7 +33,7 @@ pub(super) fn invoke_pool_swap(
 }
 
 /// Returns the pool's constituent tokens, cached per invocation in `cache`.
-/// Rejects empty, oversized, or duplicate constituent lists before caching.
+/// Panics with `BrokenTokenChain` on an empty, oversized, or duplicate list.
 pub(super) fn pool_tokens(
     env: &Env,
     cache: &mut Map<Address, Vec<Address>>,

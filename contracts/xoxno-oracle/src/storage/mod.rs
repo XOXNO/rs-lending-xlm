@@ -1,14 +1,13 @@
 //! Storage layer for the oracle contract: instance-level configuration
-//! (signers, threshold, staleness and skew bounds, resolution), persistent
-//! feed and asset registries backed by swap-remove indexed collections,
-//! per-signer submissions with aggregates and history, and TTL renewal
-//! helpers. Re-exports the `config`, `index`, `prices`, and `registry`
-//! submodules' public items, and defines the `DataKey` storage-key enum and
-//! default configuration constants shared across them.
+//! (signers, threshold, staleness, skew and spread bounds, resolution),
+//! persistent feed and asset registries backed by swap-remove indexed
+//! collections, per-signer submissions with aggregates and history, and TTL
+//! renewal helpers. Re-exports the `config`, `index`, `prices`, and `registry`
+//! submodules' items, and defines the `DataKey` storage-key enum and the
+//! default configuration constants.
 //!
-//! This module is the only place allowed to construct `DataKey`s or touch
-//! `env.storage()`: every other module goes through the named accessors, so
-//! key encoding and TTL policy cannot silently diverge between call sites.
+//! Only this module constructs `DataKey`s or calls `env.storage()`. Other
+//! modules use its accessors, so key encoding and TTL policy stay in one place.
 
 mod config;
 mod index;
@@ -32,9 +31,9 @@ pub(crate) const DEFAULT_MAX_STALE_SECONDS: u64 = 86_400;
 /// ledger time to be accepted.
 pub(crate) const DEFAULT_MAX_SUBMISSION_AGE_SECONDS: u64 = 900;
 
-/// Minimum configurable maximum submission age. Held one second above
-/// `MAX_FUTURE_SKEW_SECONDS` so the age cannot be pinned to the skew bound and
-/// collapse the effective eviction window (F-2, defence-in-depth).
+/// Minimum configurable maximum submission age, in seconds. Held one second
+/// above `MAX_FUTURE_SKEW_SECONDS` so the age cannot be pinned to the
+/// future-skew bound and collapse the effective eviction window.
 pub(crate) const MIN_SUBMISSION_AGE_SECONDS: u64 =
     common::oracle::observation::MAX_FUTURE_SKEW_SECONDS + 1;
 
@@ -47,12 +46,12 @@ pub(crate) const DEFAULT_MAX_RELATIVE_SKEW_SECONDS: u64 = DEFAULT_MAX_SUBMISSION
 pub(crate) const DEFAULT_MAX_CLUSTER_SPREAD_BPS: u32 = 200;
 
 /// Storage keys for the oracle contract. `Signers` through `Resolution` and
-/// `MaxClusterSpreadBps` hold instance configuration. `LatestSubmission` is
-/// **persistent** per-signer latest package state. `SignerFeeds` maps a
-/// signer to the feed ids it submits for. `CurrentAggregate` and `History`
-/// hold, respectively, the latest aggregated price and the price history for
-/// a feed. `FeedMapping` and
-/// `FeedOwner` link a `ReflectorAsset` to its feed id and back. The
+/// `MaxClusterSpreadBps` hold instance configuration; all other keys are
+/// persistent. `LatestSubmission` holds a signer's latest submission for a
+/// feed. `SignerFeeds` maps a signer to the feed ids it submits for.
+/// `CurrentAggregate` and `History` hold, respectively, the latest aggregated
+/// price and the price history for a feed. `FeedMapping` and `FeedOwner` link
+/// a `ReflectorAsset` to its feed id and back. The
 /// `AssetCount`/`AssetAt`/`AssetIndex` and `FeedCount`/`FeedAt`/`FeedIndex`
 /// groups back the swap-remove indexed asset and feed collections in the
 /// `index` submodule.
@@ -87,7 +86,7 @@ pub(in crate::storage) enum DataKey {
 }
 
 /// A single signer's most recent price submission for a feed: the submitted price and the
-/// package timestamp it was submitted with.
+/// package timestamp (milliseconds) it was submitted with.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub(crate) struct SignerSubmission {

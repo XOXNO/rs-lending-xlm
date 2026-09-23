@@ -1,14 +1,12 @@
 //! Structural decoding of the packed program.
 //!
-//! `Program::decode` is the only thing standing between an attacker-supplied
-//! byte string and a venue call, so every registry bound, length cap, and
-//! instruction-level range check gets a rejecting case *and* — where the guard
-//! is an inequality — the exact boundary value it must still accept.
+//! `Program::decode` validates attacker-supplied bytes before any venue call.
+//! Each registry bound, length cap, and instruction range check has a rejecting
+//! case and, where the guard is an inequality, an accepted boundary case.
 //!
-//! The tests drive `Program::decode` through a probe contract rather than
-//! through `execute_strategy`: a payload can then be malformed in exactly one
-//! way at a time, and the contract error it produces is observed precisely
-//! (several of these guards differ only in *which* error they raise).
+//! The tests call `Program::decode` through a probe contract, not
+//! `execute_strategy`, so each payload is malformed in one way only and the
+//! exact contract error is observed.
 
 use soroban_sdk::{contract, contractimpl, Address, Bytes, Env};
 
@@ -96,7 +94,7 @@ fn one_swap(env: &Env) -> Bytes {
     )
 }
 
-// --- registry bounds (decode, line 1) ---------------------------------------
+// --- registry bounds (decode) -----------------------------------------------
 
 #[test]
 fn decode_rejects_an_empty_asset_registry() {
@@ -107,8 +105,7 @@ fn decode_rejects_an_empty_asset_registry() {
     );
 }
 
-/// The registry is addressed by `u8`, so 256 entries is the whole index space
-/// and anything larger is a caller mistake worth refusing outright.
+/// A `u8` index addresses at most 256 assets, so a larger registry is rejected.
 #[test]
 fn decode_rejects_an_asset_registry_past_the_index_space() {
     let env = Env::default();
@@ -143,7 +140,7 @@ fn decode_accepts_the_largest_fixed_addressable_amount_registry() {
     assert_eq!(op_count, 1);
 }
 
-// --- payload length (decode, line 2) ----------------------------------------
+// --- payload length (decode) ------------------------------------------------
 
 #[test]
 fn decode_rejects_a_payload_shorter_than_the_header() {
@@ -202,7 +199,7 @@ fn decode_accepts_a_program_on_every_structural_cap() {
     );
 }
 
-// --- instruction and weight counts (decode, line 3) -------------------------
+// --- instruction and weight counts (decode) ---------------------------------
 
 #[test]
 fn decode_rejects_an_empty_instruction_stream() {
@@ -237,7 +234,7 @@ fn decode_rejects_more_weights_than_the_cap() {
     assert_eq!(decode_error(&env, &bytes, 3, 1), Error::EmptyBatch.into());
 }
 
-// --- header indices (decode, line 4) ----------------------------------------
+// --- header indices (decode) ------------------------------------------------
 
 #[test]
 fn decode_rejects_a_token_in_index_outside_the_asset_registry() {
@@ -420,8 +417,7 @@ fn validate_rejects_a_prev_link_onto_a_preceding_burn() {
 
 // --- Mode::Fixed / Mode::Ppm selectors (validate) ---------------------------
 
-/// `mode` byte 2 is `Fixed(0)`, the first amount slot — the base offset is a
-/// subtraction, and any other arithmetic shifts the whole selector space.
+/// `mode` byte 2 decodes to `Fixed(0)`, the first amount slot.
 #[test]
 fn validate_accepts_the_first_fixed_amount_selector() {
     let env = Env::default();
@@ -634,10 +630,8 @@ fn validate_rejects_a_split_weight_one_part_over_the_denominator() {
 
 // --- header self-consistency ------------------------------------------------
 
-/// A payload built for a different wire version must be refused outright rather
-/// than reinterpreted under the current field layout. Every offset in `head`
-/// and `field` is version-specific, so decoding v-other bytes as v-current
-/// silently reassigns pool and token indices.
+/// A payload with another wire version is rejected, not decoded under the
+/// current field layout.
 #[test]
 fn decode_rejects_a_payload_from_another_wire_version() {
     let env = Env::default();
@@ -655,11 +649,8 @@ fn decode_rejects_a_payload_from_another_wire_version() {
     );
 }
 
-/// `op_count` and `weight_count` in the header must account for every byte:
-/// the decoder computes where the weight run starts from them and requires the
-/// payload to end exactly there. Trailing bytes mean the header and the body
-/// disagree about the program's shape, and the surplus would sit unread just
-/// past the last weight the caller believes it declared.
+/// The payload must end exactly where `op_count` and `weight_count` put the end
+/// of the weight run; one trailing byte is rejected.
 #[test]
 fn decode_rejects_a_payload_with_bytes_past_its_declared_weight_run() {
     let env = Env::default();
@@ -693,9 +684,7 @@ fn decode_rejects_a_header_claiming_more_weights_than_the_payload_carries() {
 
 // --- liquidity legs are whole-balance only ----------------------------------
 
-/// Burn and Mint consume everything the vault holds, so a sized mode on them is
-/// not a smaller operation -- it is a mode the executor ignores. Accepting it
-/// would let a caller believe they had bounded the leg when they had not.
+/// Burn and Mint both reject a sized mode.
 #[test]
 fn decode_rejects_a_sized_mode_on_a_liquidity_leg() {
     let env = Env::default();
@@ -723,8 +712,7 @@ fn decode_rejects_a_sized_mode_on_a_liquidity_leg() {
     }
 }
 
-/// A liquidity leg's `idx_c` addresses the amount registry, so it has to be
-/// inside it. Out of range would read a slot the caller never supplied.
+/// A liquidity leg's `idx_c` indexes the amount registry and must be inside it.
 #[test]
 fn decode_rejects_a_liquidity_leg_addressing_a_missing_amount_slot() {
     let env = Env::default();

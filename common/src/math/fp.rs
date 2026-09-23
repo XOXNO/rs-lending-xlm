@@ -33,10 +33,8 @@ impl Ray {
     pub const ONE: Ray = Ray(RAY);
     pub const ZERO: Ray = Ray(0);
 
-    /// Wraps a raw ray-scaled integer. Does not validate the value: the
-    /// non-negative domain is a call-site obligation, not an enforced
-    /// invariant, because checking every construction would cost more than the
-    /// arithmetic it guards.
+    /// Wraps a raw ray-scaled integer without validation. The caller keeps the
+    /// value non-negative.
     #[inline]
     pub fn from(v: impl Into<i128>) -> Self {
         Ray(v.into())
@@ -58,7 +56,7 @@ impl Ray {
         Ray(fp_core::mul_div_half_up(env, self.0, RAY, other.0))
     }
 
-    /// Divides this value by `other`, truncating the result toward zero.
+    /// Divides this value by `other`, rounding the result down (floor).
     pub fn div_floor(self, env: &Env, other: Ray) -> Ray {
         Ray(fp_core::mul_div_floor(env, self.0, RAY, other.0))
     }
@@ -73,7 +71,7 @@ impl Ray {
         Ray(fp_core::div_by_int_half_up(env, self.0, n))
     }
 
-    /// Multiplies two ray values, truncating the result toward zero.
+    /// Multiplies two ray values, rounding the result down (floor).
     pub fn mul_floor(self, env: &Env, other: Ray) -> Ray {
         Ray(fp_core::mul_div_floor(env, self.0, other.0, RAY))
     }
@@ -169,10 +167,9 @@ impl Wad {
     pub const ONE: Wad = Wad(WAD);
     pub const ZERO: Wad = Wad(0);
 
-    /// Wraps a raw wad-scaled integer. Does not validate the value: the
-    /// non-negative domain is a call-site obligation, not an enforced
-    /// invariant. `Wad::from(i128::MAX)` is used deliberately as the
-    /// no-debt health-factor sentinel.
+    /// Wraps a raw wad-scaled integer without validation. The caller keeps the
+    /// value non-negative. `Wad::from(i128::MAX)` is the no-debt health-factor
+    /// sentinel.
     #[inline]
     pub fn from(v: impl Into<i128>) -> Self {
         Wad(v.into())
@@ -200,18 +197,18 @@ impl Wad {
         Wad(fp_core::mul_div_half_up(env, self.0, WAD, other.0))
     }
 
-    /// Divides this value by `other`, truncating the result toward zero.
+    /// Divides this value by `other`, rounding the result down (floor).
     pub fn div_floor(self, env: &Env, other: Wad) -> Wad {
         Wad(fp_core::mul_div_floor(env, self.0, WAD, other.0))
     }
 
-    /// Divides this value by `other`, truncating toward zero and saturating to
+    /// Divides this value by `other`, rounding down (floor) and saturating to
     /// `i128::MAX` instead of overflowing.
     pub fn div_floor_saturating(self, env: &Env, other: Wad) -> Wad {
         Wad(fp_core::mul_div_floor_saturating(env, self.0, WAD, other.0))
     }
 
-    /// Multiplies two wad values, truncating the result toward zero.
+    /// Multiplies two wad values, rounding the result down (floor).
     pub fn mul_floor(self, env: &Env, other: Wad) -> Wad {
         Wad(fp_core::mul_div_floor(env, self.0, other.0, WAD))
     }
@@ -271,9 +268,8 @@ pub struct Bps(i128);
 impl Bps {
     pub const ONE: Bps = Bps(BPS);
 
-    /// Wraps a raw basis-point integer. Does not validate the value: the
-    /// non-negative domain is a call-site obligation, not an enforced
-    /// invariant.
+    /// Wraps a raw basis-point integer without validation. The caller keeps the
+    /// value non-negative.
     #[inline]
     pub fn from(v: impl Into<i128>) -> Self {
         Bps(v.into())
@@ -313,7 +309,7 @@ impl Bps {
         value.mul(env, ratio)
     }
 
-    /// Applies this basis-point rate to a `Wad` value, truncating the result toward zero.
+    /// Applies this basis-point rate to a `Wad` value, rounding the result down (floor).
     pub fn apply_to_wad_floor(self, env: &Env, value: Wad) -> Wad {
         let ratio = self.to_wad(env);
 

@@ -6,8 +6,8 @@ use common::constants::{TTL_BUMP_SHARED, TTL_THRESHOLD_SHARED};
 use common::types::{AssetOracle, PriceKey};
 use soroban_sdk::{contractevent, contracttype, Env, Vec};
 
-/// Instance/persistent storage keys used by this contract: a single asset
-/// oracle's configuration, or the index of all registered oracle keys.
+/// Storage keys: `Oracle` (persistent) holds one asset oracle's configuration,
+/// and `OracleKeys` (instance) indexes all registered oracle keys.
 #[contracttype]
 enum AggregatorKey {
     Oracle(PriceKey),

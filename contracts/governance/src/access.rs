@@ -14,16 +14,16 @@ use stellar_access::{access_control, ownable, role_transfer};
 
 use crate::{timelock, Governance, GovernanceArgs, GovernanceClient};
 
-/// Identifier for the oracle operational role.
+/// Role that may call `set_sanity_band`.
 pub(crate) const ORACLE_ROLE: &str = "ORACLE";
-/// Identifier for the proposer operational role.
+/// Role that may call `propose`.
 pub(crate) const PROPOSER_ROLE: &str = "PROPOSER";
-/// Identifier for the executor operational role.
+/// Role that a named `executor` must hold to execute a ready operation.
 pub(crate) const EXECUTOR_ROLE: &str = "EXECUTOR";
-/// Identifier for the canceller operational role.
+/// Role that may call `cancel`.
 pub(crate) const CANCELLER_ROLE: &str = "CANCELLER";
 
-/// Identifier for the guardian operational role.
+/// Role that may call `pause`, `set_spoke_asset_flags`, `create_hub` and `add_spoke`.
 pub(crate) const GUARDIAN_ROLE: &str = "GUARDIAN";
 
 /// Returns the five default operational role symbols (oracle, proposer,
@@ -76,7 +76,7 @@ fn sync_pending_admin_transfer(env: &Env, new_owner: &Address, live_until_ledger
 
 /// Finalizes an owner handover on the access-control side: sets `new_owner`
 /// as the admin, clears the pending-admin entry, emits an
-/// admin-transfer-completed event, and re-grants each default operational
+/// admin-transfer-completed event, and grants each default operational
 /// role to `new_owner`, revoking it from `previous_owner` when the two
 /// addresses differ and `previous_owner` still holds it.
 fn sync_owner_access_control(env: &Env, previous_owner: &Address, new_owner: &Address) {
@@ -241,15 +241,11 @@ impl Governance {
     /// `GenericError::InvalidTimelockDelay` if `min_delay` is zero.
     pub fn __constructor(env: Env, admin: Address, min_delay: u32) {
         ownable::set_owner(&env, &admin);
-        // Both `set_owner` and `set_admin` are bare storage writes. Without
-        // these emissions the initial owner and admin are unreachable from the
-        // event stream — `ownership_transfer*` and `admin_transfer*` only fire
-        // on a later handover, so a replay from genesis still learns nothing.
+        // `set_owner` and `set_admin` emit no events; these emissions make the
+        // initial owner and admin visible in the event stream.
         ownable::emit_ownership_transfer_completed(&env, &admin);
         access_control::set_admin(&env, &admin);
-        // Previous and new admin are the same address at construction: there is
-        // no prior admin to hand over from, and the event's meaning here is
-        // "admin is now this address".
+        // No prior admin exists, so `admin` is both the previous and the new admin.
         access_control::emit_admin_transfer_completed(&env, &admin, &admin);
 
         for role in default_operational_roles(&env) {

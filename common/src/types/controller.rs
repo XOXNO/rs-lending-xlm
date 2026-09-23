@@ -10,9 +10,9 @@ use crate::types::pool::{
 use crate::types::shared::PositionMode;
 use soroban_sdk::{contracttype, Address, Map, Vec};
 
-/// Risk parameters used to size and evaluate a position for one asset: the fixed-point
-/// loan-to-value, liquidation threshold, liquidation bonus, and liquidation fee rates, plus
-/// whether the asset currently accepts new supply or new borrows.
+/// Risk parameters used to size and evaluate a position for one asset: the loan-to-value,
+/// liquidation threshold, liquidation bonus, and liquidation fee rates in BPS, plus whether
+/// the asset currently accepts new supply or new borrows.
 #[derive(Clone, Debug)]
 pub struct AssetConfig {
     pub loan_to_value: Bps,
@@ -61,11 +61,10 @@ pub struct AccountMeta {
 }
 
 /// A delegate list stamped with the owner who granted it. The grant is live only while
-/// `granted_by` still owns the account's NFT: transferring the NFT deactivates the prior
-/// owner's grant immediately (`get_delegates` reads it as empty for anyone else). The stale
-/// entry is purged from storage the next time the new owner writes a delegate (`add_delegate`
-/// or `remove_delegate`) — no explicit cleanup call is required. A grant re-arms with its
-/// original delegate list only if the NFT returns to `granted_by` before any such write.
+/// `granted_by` owns the account's NFT: after an NFT transfer, `get_delegates` reads it as
+/// empty for the new owner. The new owner's next `add_delegate` or `remove_delegate`
+/// overwrites or deletes the stale entry. If the NFT returns to `granted_by` before such a
+/// write, the original delegate list is live again.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DelegateGrant {
@@ -101,9 +100,9 @@ pub struct SpokeConfig {
 /// Stored per-spoke risk and cap configuration for one asset, with basis-point rates as raw
 /// `u32` values.
 ///
-/// The three halt flags are independent and gate different legs: `paused` blocks every user
-/// verb, `frozen` blocks entry but allows exit, and `no_seize` blocks only the liquidation
-/// seizure leg. Seizure is deliberately *not* gated by `paused`, because seizure is pro-rata
+/// The three halt flags are independent and gate different legs: `paused` blocks entry and
+/// exit legs, `frozen` blocks entry but allows exit, and `no_seize` blocks only the
+/// liquidation seizure leg. `paused` does not gate seizure, because seizure is pro-rata
 /// across an account's whole collateral set: pausing one collateral would otherwise halt
 /// liquidation of every account holding it. See ADR-0008.
 #[contracttype]
@@ -204,8 +203,8 @@ pub struct PaymentTuple {
 }
 
 /// View-only projection of a simulated liquidation outcome: seized collateral and protocol
-/// fees per asset, any refunded payments, the maximum USD-equivalent debt repayable, and the
-/// applied bonus rate.
+/// fees per asset, any refunded payments, the USD value (WAD) of the planned repayment, and
+/// the applied bonus rate (BPS).
 ///
 /// `seized_collaterals` is gross of `protocol_fees`: the liquidator ends up with
 /// `seized_collaterals - protocol_fees`. Both are reported in the units the requested
@@ -249,19 +248,17 @@ pub enum SeizeMode {
 /// consume different ones:
 ///
 /// - `amount` / `protocol_fee` are asset units and drive `SeizeMode::Transfer`, which routes
-///   through the pool's withdraw leg. `amount` is **gross**: the whole seizure the liquidated
+///   through the pool's withdraw leg. `amount` is gross: the whole seizure the liquidated
 ///   account gives up, with `protocol_fee` still inside it. The liquidator is paid
-///   `amount - protocol_fee`, the pool withholding the fee from the outbound transfer and
-///   booking it as revenue. Reading `amount` as the liquidator's proceeds over-counts by the
-///   fee.
+///   `amount - protocol_fee`; the pool withholds the fee from the outbound transfer and
+///   books it as revenue.
 /// - `scaled_amount` / `bonus_scaled` / `liquidation_fees` are the RAY-scaled supply shares and
 ///   the fee rate that drive `SeizeMode::Credit`, which moves shares between accounts without
 ///   touching pool cash. `scaled_amount` is gross on the same footing — the receiving account is
 ///   credited `scaled_amount` minus the fee share `split_seized_shares` derives.
 ///   `bonus_scaled` is the share-denominated bonus portion the protocol fee
 ///   is charged on; `liquidation_fees` is the seized position's own stamped fee rate in basis
-///   points. Carrying the rate on the entry keeps the credit-mode split derivable from the
-///   entry alone, so every site that recomputes it gets an identical answer.
+///   points, carried on the entry so every site derives the same credit-mode split.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct SeizeEntry {
@@ -294,8 +291,8 @@ pub struct RepayEntry {
     pub market_index: crate::types::pool::MarketIndexRaw,
 }
 
-/// Full outcome of an executed liquidation: seized collateral entries, repaid debt entries,
-/// any refunded payments, the maximum USD-equivalent debt repaid, and the bonus rate applied.
+/// Planned outcome of a liquidation: seized collateral entries, repaid debt entries, any
+/// refunded payments, the USD value (WAD) of the planned repayment, and the bonus rate (BPS).
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct LiquidationResult {
@@ -531,10 +528,10 @@ mod tests {
     }
 }
 
-/// Storage keys for all controller contract state: singleton protocol settings, per-hub and
-/// per-spoke configuration, per-spoke-asset configuration and usage, the address-keyed
-/// position-manager and Blend-pool registries, and per-account metadata, positions, and
-/// delegates, all keyed by the `u64` account id.
+/// Controller storage keys: singleton protocol settings, per-hub and per-spoke configuration,
+/// per-spoke-asset configuration, usage and flags epoch, the address-keyed position-manager
+/// and Blend-pool registries, and per-account metadata, positions, and delegates, all keyed
+/// by the `u64` account id.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub enum ControllerKey {

@@ -1,38 +1,41 @@
 #![no_std]
 //! # Liquidity Pool contract
 //!
-//! Soroban contract that holds per-asset market state (cash, scaled supply/debt,
+//! Soroban contract that holds per-market state (cash, scaled supply and debt,
 //! interest indexes, protocol revenue) and executes market mutations.
 //!
 //! ## Architecture
 //!
-//! The hub (owner) is the only party allowed to mutate state. End users never
-//! call these entrypoints directly in production flows; the hub orchestrates
-//! transfers, position books, and risk checks, then invokes the pool.
+//! The owner, the controller, is the only caller that can mutate state
+//! (INV-AUTH-01). The controller moves tokens, keeps the position books and
+//! runs risk checks, then calls the pool.
 //!
 //! | Layer | Role |
 //! |-------|------|
 //! | [`LiquidityPool`] / [`LiquidityPoolInterface`] | Public entrypoints, owner gates |
 //! | `ops` | Mutation legs (supply, borrow, repay, …) |
 //! | `cache::Cache` | In-memory market view + commit |
-//! | `interest` | Index accrual and fee socialization |
+//! | `interest` | Index accrual, revenue booking and bad-debt socialization |
 //! | `guards` | Utilization and solvency checks |
 //! | `storage` | Persistent params/state + TTL bumps |
 //! | `views` | Read-only rate and balance queries |
 //!
 //! ## Accounting model
 //!
-//! Positions are stored as **scaled shares** (RAY fixed-point). Asset amounts
-//! convert via the market's supply or borrow index. Indexes grow over time as
-//! interest accrues; protocol revenue is held as scaled supply shares so it
-//! earns the same supplier rate until claimed.
+//! The pool stores market totals as scaled shares (RAY); the controller stores
+//! the positions (INV-ACCT-10). Token amounts convert through the market's
+//! supply or borrow index. Accrual raises the indexes; bad-debt socialization
+//! lowers the supply index. Protocol revenue is held as scaled supply shares,
+//! so it earns the supplier rate until claimed.
 //!
 //! ## Security notes
 //!
-//! - All mutators (except views) require the contract owner via `#[only_owner]`.
-//! - Cash is tracked separately from token balances; flash loans verify the
-//!   on-chain balance after payout and after repayment.
-//! - Instance and market storage TTLs are extended on write paths.
+//! - Every mutator requires the owner through `#[only_owner]`; views are public.
+//! - Cash is an accounting book, separate from the token balance. A flash loan
+//!   checks the token balance after payout, after the callback and after
+//!   repayment.
+//! - Write paths extend the instance TTL. Every market load, views included,
+//!   extends the market's params and state TTL.
 
 mod cache;
 mod events;
@@ -85,7 +88,7 @@ pub struct LiquidityPool;
 impl LiquidityPool {
     /// Sets `admin` as the Ownable owner at construction. Every
     /// `#[only_owner]` entrypoint afterward requires that owner, normally the
-    /// hub contract, to authorize.
+    /// controller, to authorize.
     pub fn __constructor(env: Env, admin: Address) {
         ownable::set_owner(&env, &admin);
     }
@@ -95,17 +98,17 @@ impl LiquidityPool {
 impl LiquidityPoolInterface for LiquidityPool {
     /// Creates a new asset market under `hub_id` with the given rate
     /// parameters. Initializes indexes at RAY (1.0) with zero cash, supply,
-    /// and debt; panics if the hub-asset pair already exists. Restricted to
-    /// the owner.
+    /// and debt; panics with `AssetAlreadySupported` if the hub-asset pair
+    /// already exists. Restricted to the owner.
     #[only_owner]
     fn create_market(env: Env, hub_id: u32, params: MarketParamsRaw) {
         ops::market::create(&env, hub_id, params);
     }
 
-    /// Replaces the interest-rate curve and flash-loan settings for a
-    /// market. Accrues interest first so the old curve applies through the
-    /// current ledger, then writes the new model into market params.
-    /// Restricted to the owner.
+    /// Replaces the interest-rate model (curve, utilization cap, reserve
+    /// factor) and flash-loan settings for a market. Accrues interest first so
+    /// the old model applies through the current ledger, then writes the new
+    /// model into market params. Restricted to the owner.
     #[only_owner]
     fn update_params(env: Env, hub_asset: HubAssetKey, model: InterestRateModel) {
         ops::market::replace_rate_model(&env, hub_asset, model);
@@ -119,8 +122,8 @@ impl LiquidityPoolInterface for LiquidityPool {
         env.deployer().update_current_contract_wasm(new_wasm_hash);
     }
 
-    /// Accrues, mints scaled supply shares and credits cash per entry. The hub
-    /// must have already transferred the tokens in. Owner-only.
+    /// Accrues, mints scaled supply shares and credits cash per entry. The
+    /// controller transfers the tokens in before this call. Owner-only.
     #[only_owner]
     fn supply(env: Env, entries: Vec<PoolSupplyEntry>) -> Vec<PoolPositionMutation> {
         ops::run_batch(&env, entries, ops::supply::apply)
@@ -142,8 +145,8 @@ impl LiquidityPoolInterface for LiquidityPool {
     }
 
     /// Burns supply shares and transfers the underlying to `receiver`.
-    /// `is_liquidation` skips utilization caps and may withhold a protocol fee.
-    /// Owner-only; `actual_amount` is GROSS of that fee.
+    /// `is_liquidation` skips the max-utilization check and may withhold a
+    /// protocol fee. Owner-only; `actual_amount` is gross of that fee.
     #[only_owner]
     fn withdraw(
         env: Env,
@@ -173,10 +176,10 @@ impl LiquidityPoolInterface for LiquidityPool {
         ops::market::accrue(&env, hub_assets);
     }
 
-    /// Injects cash to cover a market's backing shortfall and refunds any
-    /// unused amount to `payer`. Applies at most `guards::backing_shortfall`,
-    /// returning the excess via token transfer. Restricted to the owner;
-    /// returns a [`PoolAmountMutation`] with the amount actually applied.
+    /// Credits cash up to the market's backing shortfall
+    /// (`guards::backing_shortfall`) and transfers the excess back to `payer`.
+    /// The controller transfers `amount` in before this call. Restricted to
+    /// the owner; returns a [`PoolAmountMutation`] with the amount applied.
     #[only_owner]
     fn recapitalize(
         env: Env,
@@ -189,7 +192,8 @@ impl LiquidityPoolInterface for LiquidityPool {
 
     /// Transfers out, invokes `execute_flash_loan` on the receiver, pulls
     /// principal plus fee back via `transfer_from`, and books the fee as
-    /// protocol revenue. Owner-only; requires the market to allow flash loans.
+    /// protocol revenue. Returns the fee. Owner-only; requires the market to
+    /// allow flash loans.
     #[only_owner]
     fn flash_loan(
         env: Env,
@@ -233,11 +237,12 @@ impl LiquidityPoolInterface for LiquidityPool {
         result
     }
 
-    /// Burns claimable revenue shares, debits cash and pays the Ownable owner;
-    /// zero when nothing is claimable. Owner-only, and the owner is the payee.
+    /// Burns claimable revenue shares, debits cash and pays the owner the lesser
+    /// of cash and revenue's floored token value. Returns zero when nothing is
+    /// claimable. Owner-only.
     ///
-    /// This DECREMENTS the `revenue` field on the state snapshot, which is why
-    /// that field is not a cumulative counter.
+    /// Decrements the snapshot `revenue` field, so that field is not a
+    /// cumulative counter.
     #[only_owner]
     fn claim_revenue(env: Env, hub_asset: HubAssetKey) -> PoolAmountMutation {
         ops::revenue::apply(&env, hub_asset)
@@ -295,15 +300,15 @@ impl LiquidityPoolInterface for LiquidityPool {
         views::delta_time(&env, &hub_asset)
     }
 
-    /// Full market params + state blob used for hub sync / off-chain indexing.
+    /// Stored market params and state, without accrual.
     fn get_sync_data(env: Env, hub_asset: HubAssetKey) -> PoolSyncData {
         storage::load_sync_data(&env, &hub_asset)
     }
 
-    /// Simulate accrued indexes for many markets without writing state.
+    /// Returns each market's indexes accrued to the current ledger time, in
+    /// request order, without writing state.
     ///
-    /// For each key, loads sync data and runs [`simulate_update_indexes`] to the
-    /// current ledger time. Useful for the hub to refresh position valuations.
+    /// Runs [`simulate_update_indexes`] on each market's stored sync data.
     fn get_bulk_indexes(env: Env, hub_assets: Vec<HubAssetKey>) -> Vec<MarketIndexRaw> {
         let now = time::now_ms(&env);
         let mut indexes = Vec::new(&env);

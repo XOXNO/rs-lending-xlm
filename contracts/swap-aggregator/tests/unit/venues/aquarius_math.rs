@@ -11,10 +11,8 @@ fn allowance_is_the_floor_until_proportional_overtakes_it() {
     assert_eq!(residual_allowance(10_000_000_000), 10_000);
 }
 
-// The accept/reject boundary of the residual guard is exercised through the
-// real enforcement path in
-// `execute_strategy::a_residual_of_exactly_the_allowance_passes_and_one_unit_more_reverts`;
-// comparing integer literals against the allowance here proved nothing.
+// The residual guard's accept/reject boundary is tested through the enforcement path in
+// `execute_strategy::a_residual_of_exactly_the_allowance_passes_and_one_unit_more_reverts`.
 
 #[test]
 fn small_trades_are_judged_against_the_floor_not_a_ratio() {

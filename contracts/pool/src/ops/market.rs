@@ -49,9 +49,6 @@ pub(crate) fn create(env: &Env, hub_id: u32, params: MarketParamsRaw) {
 
 /// Accrues interest under the old model, commits it, then validates and
 /// replaces the interest and flash-loan parameters.
-///
-/// Interest accrued up to the call uses the old rate model; interest accrued
-/// after the call uses the new one.
 pub(crate) fn replace_rate_model(env: &Env, hub_asset: HubAssetKey, model: InterestRateModel) {
     ops::renewed_market(env, &hub_asset).commit();
 

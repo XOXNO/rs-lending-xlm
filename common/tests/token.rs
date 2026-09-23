@@ -1,5 +1,5 @@
-//! First-pass killers for SAC helpers. A no-op `()` mutant must not survive a
-//! positive-amount transfer against a missing token contract.
+//! Tests for `transfer_amount_measured`: a zero amount panics with the supplied error, and a
+//! positive amount against a missing token contract panics.
 extern crate std;
 
 use super::*;

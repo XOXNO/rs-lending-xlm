@@ -2,10 +2,7 @@
 
 use soroban_sdk::{contractclient, contracttype, Address, Bytes, BytesN, Env, Vec};
 
-/// Stored referral account.
-///
-/// Defined here rather than in the contract so that the trait below can name it
-/// without callers depending on the router crate.
+/// Stored referral configuration.
 #[contracttype]
 #[derive(Clone, Debug, PartialEq)]
 pub struct ReferralConfig {
@@ -14,11 +11,10 @@ pub struct ReferralConfig {
     pub active: bool,
 }
 
-/// Swap router surface.
+/// Swap router entrypoints.
 ///
-/// Ownership transfer is deliberately absent: the router implements
-/// `stellar_access::ownable::Ownable`, which already binds those entrypoints at
-/// compile time.
+/// Ownership entrypoints are not in this trait. The router exposes them through
+/// `stellar_access::ownable::Ownable`.
 #[contractclient(name = "SwapAggregatorClient")]
 pub trait SwapAggregatorInterface {
     fn execute_strategy(env: Env, sender: Address, total_in: i128, swap_xdr: Bytes) -> i128;

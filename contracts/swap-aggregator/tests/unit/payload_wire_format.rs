@@ -149,11 +149,7 @@ fn splits_lower_to_relative_weights_with_a_sweeping_tail() {
     assert_eq!(bytes[10 + 5 * 2 + 1], 0, "final leg uses All");
 }
 
-/// Guards the payload-size win against regression.
-///
-/// The pre-registry encoding spent a full XDR struct per hop (a 40-byte
-/// `Address` for the pool and both tokens, plus symbol keys), so the same route
-/// serialized to roughly 2 kB.
+/// A three-way, two-hop route serializes to at most 640 bytes.
 #[test]
 fn a_three_way_two_hop_route_stays_well_under_a_kilobyte() {
     let env = Env::default();

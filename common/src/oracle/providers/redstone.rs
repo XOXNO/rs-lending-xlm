@@ -3,9 +3,8 @@
 
 use soroban_sdk::{contractclient, contracttype, Address, Env, Error, String, Vec, U256};
 
-/// A single RedStone price observation, as returned by a RedStone price feed
-/// contract: the price value together with the package and write timestamps
-/// attached to it.
+/// A RedStone price observation: the price and its package and write
+/// timestamps, in milliseconds.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RedStonePriceData {

@@ -76,9 +76,8 @@ fn test_unscale_borrow_ceil_matches_pool_semantics() {
     assert_eq!(unscale_borrow_ceil(&env, scaled, index, 0), 2);
 }
 
-/// Pins the controller-view / pool-view amount path: half-up mul then half-up
-/// asset rescale. This is the exact expansion of `unscale_supply` /
-/// `unscale_borrow` and must stay identical to inline `mul().to_asset(&env, )`.
+/// `unscale_supply` and `unscale_borrow` equal `scaled.mul(index).to_asset(decimals)`: a
+/// half-up multiply, then a half-up asset rescale.
 #[test]
 fn unscale_supply_and_borrow_match_inline_half_up_mul_to_asset() {
     let env = Env::default();
@@ -104,7 +103,6 @@ fn unscale_supply_and_borrow_match_inline_half_up_mul_to_asset() {
             inline,
             "unscale_borrow must equal scaled.mul(index).to_asset (half-up)"
         );
-        // When fractional residue is non-zero, floor ≤ half-up ≤ ceil.
         let floor = unscale_supply_floor(&env, scaled, index, decimals);
         let ceil = unscale_borrow_ceil(&env, scaled, index, decimals);
         assert!(floor <= inline && inline <= ceil);
@@ -114,8 +112,7 @@ fn unscale_supply_and_borrow_match_inline_half_up_mul_to_asset() {
 #[test]
 fn unscale_half_up_exact_half_residue_rounds_away_from_zero() {
     let env = Env::default();
-    // decimals=0: to_asset is identity on RAY units after mul with index=ONE.
-    // scaled = 1.5 RAY → half-up asset amount = 2.
+    // At 0 decimals and index 1, `scaled = 1.5 RAY` is 1.5 tokens: half-up gives 2.
     let scaled_half = Ray::from(RAY + RAY / 2);
     assert_eq!(unscale_supply(&env, scaled_half, Ray::ONE, 0), 2);
     assert_eq!(unscale_borrow(&env, scaled_half, Ray::ONE, 0), 2);
@@ -156,8 +153,8 @@ fn resolve_net_settle_closes_both_when_conservative_values_match() {
         1_000_000_000
     );
 
-    // Old withdraw∘repay path: debt_ceil = 1e9 < half-up 1e9+1 → partial
-    // supply burn, leftover dust shares, even though payable values match.
+    // Floor supply equals ceiled debt (1e9), so both sides close although half-up
+    // supply is 1e9 + 1.
     let (burn_s, burn_d, settled) =
         resolve_net_settle(&env, i128::MAX, supply, debt, index, index, decimals);
     assert_eq!(settled, 1_000_000_000);

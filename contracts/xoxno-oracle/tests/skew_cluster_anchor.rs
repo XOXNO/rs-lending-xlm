@@ -1,10 +1,6 @@
-//! F-2 regression: the skew-cluster anchor is clamped to ledger time, so a
-//! future-dated (but within-future-skew) submission cannot drag the cluster
-//! window forward and evict the honest cohort.
-//!
-//! These assert the DEFENDED behaviour. On the pre-clamp tree they fail; the
-//! full pre-fix reproduction (asserting the vulnerable behaviour) is preserved
-//! at `docs/audits/artifacts/oracle_skew_cluster_anchor_reproduction.rs`.
+//! The skew-cluster anchor is clamped to ledger time, so a future-dated
+//! submission inside the future-skew bound cannot drag the cluster window
+//! forward and evict the honest submissions.
 #![cfg(test)]
 extern crate std;
 
@@ -13,10 +9,8 @@ use common::*;
 
 use xoxno_oracle::Error;
 
-/// Core defended property: with a five-signer / threshold-two feed, two
-/// colluders publishing a divergent price at the future-skew bound must not
-/// evict the three honest, still-valid submissions. The honest majority keeps
-/// the median.
+/// Five signers, threshold two: two colluders at the future-skew bound do not
+/// evict the three honest submissions, and the aggregate stays at the honest price.
 #[test]
 fn future_dated_submission_cannot_evict_the_honest_cohort() {
     let env = soroban_sdk::Env::default();
@@ -36,8 +30,9 @@ fn future_dated_submission_cannot_evict_the_honest_cohort() {
     client.submit_price(&signers[3], &feed, &500i128, &future_ms);
     client.submit_price(&signers[4], &feed, &500i128, &future_ms);
 
-    // The three honest submissions (880s < 900s age limit) stay in the cluster.
-    // Median of {100, 100, 100, 500, 500} = 100.
+    // The three honest submissions (880 s old) stay in the 900 s skew window.
+    // The five-entry cluster is below 2 * (5 - 2) + 1 = 7 entries and fails the
+    // spread bound, so the honest aggregate of 100 is retained.
     assert_eq!(
         client.read_price_data_for_feed(&feed).price.to_u128(),
         Some(100u128),
@@ -75,11 +70,9 @@ fn one_future_dated_signer_cannot_clear_the_feed() {
     );
 }
 
-/// Non-vacuity control: the skew filter must still evict a genuinely stale
-/// (old, not future-dated) submission, else the tests above prove nothing.
-/// Threshold is the full signer set, so a clustered pair would reach threshold
-/// and produce an aggregate -- `NoDataForFeed` is the eviction itself, not the
-/// quorum-miss policy.
+/// Control: the skew filter still evicts old submissions that are not future-dated.
+/// Threshold is the full signer set: without eviction the three submissions form
+/// an aggregate, so `NoDataForFeed` proves the eviction.
 #[test]
 fn stale_submission_outside_the_skew_window_is_still_evicted() {
     let env = soroban_sdk::Env::default();

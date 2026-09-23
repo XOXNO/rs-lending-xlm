@@ -1,4 +1,4 @@
-//! First-pass killer for `Context::fetch_prices` → `()`.
+//! Tests that `Context::fetch_prices` fills the price cache and skips cached assets.
 extern crate std;
 
 use crate::constants::WAD;

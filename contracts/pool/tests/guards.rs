@@ -126,7 +126,7 @@ fn test_require_supply_for_debt_rejects_debt_without_supply() {
     });
 }
 
-/// Cash the buffer holds back for a given cache, in asset units.
+/// Cash the liquidation buffer holds back for `cache`, as a token amount.
 fn reserved_for(env: &Env, cache: &Cache) -> i128 {
     let supplied = cache.unscale_supply_floor(cache.supplied());
     common::math::fp::Bps::from(common::constants::LIQUIDATION_BUFFER_BPS).apply_to(env, supplied)

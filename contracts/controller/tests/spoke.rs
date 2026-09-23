@@ -270,7 +270,7 @@ fn apply_entry_one_over_cap_reverts_with_supply_cap() {
     let asset = Address::generate(&env);
     env.as_contract(&contract, || {
         let mut ctx = SpokeUsageContext::new(&env, 1);
-        // Cap 1 asset unit; attempt 1 asset unit + 1 scaled ray dust.
+        // Cap 1 asset unit (1e20 scaled); delta `RAY + 1` is 1e7 asset units plus 1 raw.
         ctx.apply_entry(
             UsageSide::Supply,
             &hub(&asset),
@@ -300,7 +300,7 @@ fn apply_entry_overflow_on_usage_plus_delta_panics() {
             },
         );
         let mut ctx = SpokeUsageContext::new(&env, 1);
-        // Cap is domain ceiling so the overflow path is hit before (or instead of) cap breach.
+        // The add overflows before the cap comparison runs.
         ctx.apply_entry(
             UsageSide::Supply,
             &key,
@@ -385,7 +385,7 @@ fn exit_without_usage_row_is_noop_and_does_not_persist() {
     });
 }
 
-/// Entry path must default-insert a zero row so first supply/borrow can accrue.
+/// Entry path must default-insert a zero row so the first supply or borrow is recorded.
 #[test]
 fn entry_without_usage_row_default_inserts_and_persists() {
     let env = Env::default();
@@ -466,7 +466,7 @@ fn spoke_usage_context_preserves_spoke_id() {
     assert_eq!(ctx.spoke_id(), 7);
 }
 
-/// Full exit of an entry-created row prunes storage via set_spoke_usage zeros.
+/// Full exit of an entry-created row deletes it on persist: `set_spoke_usage` prunes zero rows.
 #[test]
 fn full_exit_after_entry_prunes_storage() {
     let env = Env::default();

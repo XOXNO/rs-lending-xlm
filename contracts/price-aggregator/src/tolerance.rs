@@ -1,16 +1,15 @@
-//! Helpers for comparing an anchor price against a primary price within a
-//! configured tolerance band, expressed in basis points.
+//! Tolerance-band check and midpoint for the two legs of a dual-source price.
+//! The band is a ratio in BPS, not a deviation width.
 
 use common::constants::BPS;
 use common::math::fp_core;
 use common::types::OracleTolerance;
 use soroban_sdk::Env;
 
-/// Returns whether `anchor` and `primary` are within `tolerance`'s
-/// `upper_ratio_bps` of each other, computed as the ratio in basis points
-/// between the larger and the smaller of the two values. Returns `false`
-/// if that ratio cannot be computed, for example because the smaller value
-/// is non-positive or the computation overflows.
+/// Returns whether the ratio `larger * BPS / smaller` of `anchor` and
+/// `primary`, rounded half up, is at most `tolerance.upper_ratio_bps`
+/// (`10_500` allows a 5% gap). Returns `false` when the smaller value is not
+/// positive or the ratio overflows `i128`.
 pub(crate) fn within_tolerance_band(
     env: &Env,
     anchor: i128,

@@ -94,10 +94,11 @@ pub(super) fn max_hf_preserving_bonus_bps(snap: &LiquidationSnapshot) -> Option<
 }
 
 /// Estimates WAD USD repayment and BPS bonus toward the target HF.
-/// Caps the curve bonus to preserve HF. Collateral below debt quotes the
-/// collateral-backed repayment `min(D, floor(C / (1 + base)))` at the base
-/// bonus; otherwise a cap below base quotes the full debt at the cap, floored
-/// at zero. Otherwise closes fully when a partial repayment would leave dust debt.
+/// Caps the curve bonus to preserve HF. With a positive seizure proportion,
+/// collateral below debt quotes the collateral-backed repayment
+/// `min(D, floor(C / (1 + base)))` at the base bonus; otherwise a cap below
+/// base quotes the full debt at the cap, floored at zero. A target-HF quote
+/// that would leave positive debt below `BAD_DEBT_USD_THRESHOLD` becomes the full debt.
 pub(crate) fn estimate_liquidation_amount(
     env: &Env,
     snap: &LiquidationSnapshot,

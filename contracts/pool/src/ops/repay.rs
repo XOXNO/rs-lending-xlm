@@ -1,7 +1,6 @@
 //! Repay leg: burn debt shares, credit cash, refund overpayment to the payer.
 //!
-//! The hub is expected to have transferred the repay amount into the pool
-//! before calling. Overpayment (amount above outstanding debt) is returned.
+//! The controller transfers the repay amount into the pool before this call.
 
 use common::errors::GenericError;
 use common::types::{MarketStateSnapshot, PoolAction, PoolPositionMutation};
@@ -20,7 +19,7 @@ pub(crate) struct RepayOutcome {
     pub(crate) overpayment: i128,
 }
 
-/// Accrues interest, burns the payer's debt shares, credits the net repay to cash,
+/// Accrues interest, burns the position's debt shares, credits the net repay to cash,
 /// commits the market state, and transfers any overpayment back to the payer.
 /// The returned mutation's `actual_amount` is the net repay, excluding overpayment.
 pub(crate) fn apply(

@@ -23,8 +23,8 @@ pub(crate) const MAX_HISTORY_LEN: u32 = MAX_TWAP_RECORDS;
 /// Upper bound on a submitted price value.
 pub(crate) const MAX_SUBMITTED_PRICE: i128 = 1_000_000_000_000_000_000_000_000;
 
-/// Rejects `package_timestamp` (milliseconds) if it lies further in the future
-/// than `MAX_FUTURE_SKEW_SECONDS` past the current ledger time (seconds).
+/// Rejects `package_timestamp` (milliseconds) with `FutureTimestamp` if it is
+/// more than `MAX_FUTURE_SKEW_SECONDS` ahead of the ledger time (seconds).
 pub(crate) fn require_not_future(env: &Env, package_timestamp: u64) -> Result<(), Error> {
     let ts_secs = package_timestamp / MS_PER_SECOND;
     let max_future = env
@@ -37,9 +37,8 @@ pub(crate) fn require_not_future(env: &Env, package_timestamp: u64) -> Result<()
     Ok(())
 }
 
-/// Rejects `package_timestamp` (milliseconds) if its age in seconds relative to
-/// the current ledger time exceeds the configured maximum submission age
-/// (seconds).
+/// Rejects `package_timestamp` (milliseconds) with `StaleSubmission` if its age
+/// against the ledger time exceeds the maximum submission age (seconds).
 pub(crate) fn require_fresh_submission(env: &Env, package_timestamp: u64) -> Result<(), Error> {
     let ts_secs = package_timestamp / MS_PER_SECOND;
     let now = env.ledger().timestamp();
@@ -49,9 +48,9 @@ pub(crate) fn require_fresh_submission(env: &Env, package_timestamp: u64) -> Res
     Ok(())
 }
 
-/// Rejects `package_timestamp` (milliseconds) if `signer` has a stored
-/// submission for `feed_id` with a later package timestamp. Passes if no prior
-/// submission exists.
+/// Rejects `package_timestamp` (milliseconds) with `StaleSubmission` if
+/// `signer` has a stored submission for `feed_id` with a later package
+/// timestamp. Passes if no prior submission exists.
 pub(crate) fn require_monotonic_package(
     env: &Env,
     feed_id: &String,
@@ -66,9 +65,9 @@ pub(crate) fn require_monotonic_package(
     Ok(())
 }
 
-/// Records the signer's feed membership, marks the feed as recently touched,
-/// and overwrites the signer's latest submission for `feed_id` with `price`
-/// and `package_timestamp` (milliseconds).
+/// Adds `feed_id` to `signer`'s feed list, renews the feed's index TTL, and
+/// overwrites the signer's latest submission for `feed_id` with `price` and
+/// `package_timestamp` (milliseconds).
 pub(crate) fn store_submission(
     env: &Env,
     feed_id: &String,
@@ -82,14 +81,11 @@ pub(crate) fn store_submission(
     store_submission_record(env, feed_id, signer, price, package_timestamp);
 }
 
-/// What a recompute does to the stored aggregate when it finds fewer than
-/// `threshold` usable submissions.
+/// What a recompute does to the stored aggregate when it cannot form a new one.
 ///
-/// Owner paths `Clear`: a departed signer or a raised threshold means the
-/// configuration no longer justifies the stored value. The submit path
-/// `Retain`s: only age has changed, and every consumer bounds age itself.
-/// Clearing there would also let any single signer take a feed offline by
-/// submitting alone once its peers' entries have aged out.
+/// Owner paths use `Clear`. The submit path uses `Retain`: clearing there would
+/// let one signer take a feed offline by submitting alone after its peers'
+/// entries age out.
 pub(crate) enum QuorumMiss {
     /// Delete the aggregate: the signer set and threshold no longer justify it.
     Clear,
@@ -97,17 +93,17 @@ pub(crate) enum QuorumMiss {
     Retain,
 }
 
-/// Recomputes the current aggregate for `feed_id` from all signers' latest
-/// submissions: discards submissions older than the maximum submission age,
-/// then keeps only those within `max_relative_skew` of the newest surviving
-/// timestamp, clamped to ledger time so an attacker-chosen future-dated
-/// submission cannot drag the cluster window forward. If fewer than
-/// `threshold` submissions survive either filter, or the cluster has fewer
-/// than `2 * (signers - threshold) + 1` entries and its highest price exceeds
-/// its lowest by more than the configured spread, applies `on_miss` to the
-/// feed's stored aggregate and writes nothing. Otherwise writes the median of
-/// the clustered prices as the new aggregate, using the oldest clustered
-/// timestamp as its package timestamp, and appends it to the feed's history.
+/// Recomputes the current aggregate for `feed_id` from the registered signers'
+/// latest submissions: discards submissions older than the maximum submission
+/// age, then keeps only those within `max_relative_skew` of the newest
+/// surviving timestamp, clamped to ledger time so a future-dated submission
+/// cannot drag the cluster window forward. If fewer than `threshold`
+/// submissions survive either filter, or the cluster has fewer than
+/// `2 * (signers - threshold) + 1` entries and its highest price exceeds its
+/// lowest by more than the configured spread, applies `on_miss` and stores no
+/// new aggregate. Otherwise stores the lower median of the clustered prices,
+/// with the oldest clustered package timestamp and the ledger time as write
+/// timestamp, and records it in the feed's history (see `push_history`).
 pub(crate) fn recompute_aggregate(env: &Env, feed_id: &String, on_miss: QuorumMiss) {
     let signers = load_signers(env);
     let max_submission_age = load_max_submission_age(env);
@@ -137,8 +133,6 @@ pub(crate) fn recompute_aggregate(env: &Env, feed_id: &String, on_miss: QuorumMi
         return;
     }
 
-    // Clamp the anchor to ledger time: `package_timestamp` is attacker-chosen,
-    // so a future-dated submission must not drag the skew window forward (F-2).
     let newest_ts = newest_ts.min(now.saturating_mul(MS_PER_SECOND));
     let skew_ms = max_relative_skew.saturating_mul(MS_PER_SECOND);
 

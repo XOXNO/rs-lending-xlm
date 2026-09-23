@@ -16,7 +16,7 @@ use crate::external::price_aggregator::fetch_prices_status;
 use crate::positions::liquidation::{build_liquidation_plan, split_seized_shares};
 use crate::storage;
 
-/// Panics unless `values` has at most `MAX_VIEW_INPUTS` entries.
+/// Fails with `InvalidPayments` when `values` has more than `MAX_VIEW_INPUTS` entries.
 fn require_view_inputs_bound<T>(env: &Env, values: &Vec<T>) {
     assert_with_error!(
         env,
@@ -122,6 +122,7 @@ pub(crate) fn get_account_positions(
 }
 
 /// Returns the account's spoke id and position mode from its stored metadata.
+/// Fails with `AccountNotInMarket` when the account has no metadata.
 pub(crate) fn get_account_attributes(env: &Env, account_id: u64) -> AccountAttributes {
     let meta = storage::get_account_meta(env, account_id);
     AccountAttributes::from(&meta)
@@ -145,8 +146,8 @@ pub(crate) fn liquidation_collateral_available(env: &Env, account_id: u64) -> i1
     .raw()
 }
 
-/// Returns the supply/borrow index and price status for each of
-/// `hub_assets`, refreshing market indexes and current price statuses first.
+/// Returns the simulated current supply and borrow indexes and the price
+/// status for each of `hub_assets`.
 pub(crate) fn get_all_market_indexes_detailed(
     env: &Env,
     hub_assets: &Vec<HubAssetKey>,
@@ -253,9 +254,7 @@ pub(crate) fn total_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
     }
 
     let mut cache = Context::new_view(env);
-    // Empty borrow map on purpose: it keeps the market load to the supply keys,
-    // so this costs the same cross-contract fetches the supply-only sum did and
-    // only adds per-position arithmetic that is discarded.
+    // An empty debt map keeps the market load to the supply keys.
     risk::calculate_account_risk_totals(env, &mut cache, &supply, &Map::new(env))
         .total_collateral
         .raw()
@@ -276,9 +275,8 @@ pub(crate) fn total_borrow_in_usd(env: &Env, account_id: u64) -> i128 {
     risk::sum_debt_usd(env, &mut cache, &borrow).raw()
 }
 
-/// Returns the account's LTV-weighted collateral value in USD (WAD), first
-/// refreshing supply position LTVs to the currently listed spoke asset
-/// configuration.
+/// Returns the account's LTV-weighted collateral value in USD (WAD), or 0 if
+/// the account does not exist. Restamps listed supply LTVs in memory first.
 pub(crate) fn ltv_collateral_in_usd(env: &Env, account_id: u64) -> i128 {
     let Some(mut account) = storage::try_get_account(env, account_id) else {
         return 0;

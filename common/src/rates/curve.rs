@@ -16,8 +16,8 @@ use crate::types::MarketParams;
 /// further by `params.slope2`; above `optimal_utilization` it ramps by
 /// `params.slope3`. Caps the result at `params.max_borrow_rate`.
 ///
-/// This is the value pool view getters return. Accrual still converts it to
-/// a per-millisecond rate via [`calculate_borrow_rate`].
+/// Pool rate views return this annual rate. Accrual uses the per-millisecond
+/// rate from [`calculate_borrow_rate`].
 pub fn calculate_annual_borrow_rate(env: &Env, utilization: Ray, params: &MarketParams) -> Ray {
     let utilization = if utilization > Ray::ONE {
         Ray::ONE
@@ -58,10 +58,10 @@ pub fn calculate_annual_borrow_rate(env: &Env, utilization: Ray, params: &Market
     }
 }
 
-/// Computes the per-millisecond borrow rate for `utilization`.
+/// Computes the per-millisecond borrow rate (RAY) for `utilization`.
 ///
-/// Divides [`calculate_annual_borrow_rate`] by [`MILLISECONDS_PER_YEAR`] so
-/// [`compound_interest`] can scale by elapsed milliseconds.
+/// Divides [`calculate_annual_borrow_rate`] by [`MILLISECONDS_PER_YEAR`],
+/// rounding half up.
 pub fn calculate_borrow_rate(env: &Env, utilization: Ray, params: &MarketParams) -> Ray {
     calculate_annual_borrow_rate(env, utilization, params)
         .div_by_int(env, MILLISECONDS_PER_YEAR as i128)

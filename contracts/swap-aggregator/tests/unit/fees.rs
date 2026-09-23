@@ -294,16 +294,10 @@ fn combined_static_and_referral_fee_cannot_exceed_the_cap() {
     );
 }
 
-/// A combined fee landing exactly on the cap is allowed, not rejected.
+/// A combined fee of exactly `FEE_CAP` (1_000 bps) is charged, not rejected with
+/// `FeeTooHigh`.
 ///
-/// `apply_fees_on_token` rejects with `FeeTooHigh` when
-/// `combined_bps > FEE_CAP`. The neighbouring test only exercises 1200 bps,
-/// comfortably above the 1000 bps cap, so nothing pins the boundary itself.
-///
-/// Break this catches: that `>` becoming `>=`, which would reject a fee
-/// configuration sitting exactly at the documented maximum. Surfaced as a
-/// surviving mutant by `make mutants-swap-aggregator`
-/// (lib.rs:307 `replace > with >= in apply_fees_on_token`).
+/// Pins the strict `combined_bps > FEE_CAP` check in `fees::apply_fees_on_token`.
 #[test]
 fn combined_fee_exactly_at_the_cap_is_charged_not_rejected() {
     let env = Env::default();
@@ -343,9 +337,8 @@ fn combined_fee_exactly_at_the_cap_is_charged_not_rejected() {
 
     let out = router.execute_strategy(&sender, &1_000, &xdr);
 
-    // 1:1 fill of 1000, less 5% static and 5% referral.
-    // With no whitelist configured the fee is taken on the input token: 5%
-    // static + 5% referral of 1000, leaving 900 to swap at the mock's 1:1 rate.
+    // No token is whitelisted, so the fee is taken on the input token: 5% static
+    // + 5% referral of 1_000 leaves 900 to swap at the mock's 1:1 rate.
     assert_eq!(out, 900);
     assert_eq!(router.admin_fee_balance(&token_a), 50);
     assert_eq!(router.referral_fee_balance(&id, &token_a), 50);

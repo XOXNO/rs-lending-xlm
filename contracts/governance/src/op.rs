@@ -86,10 +86,7 @@ fn price_aggregator_operation(env: &Env, function: &str, args: Vec<Val>) -> Reso
 }
 
 /// Builds a `ResolvedOperation` targeting the price aggregator contract with
-/// the `Sensitive` delay tier. Code replacement carries the same blast radius
-/// as a controller or pool upgrade -- every price the protocol reads comes
-/// from this contract -- so it is held to the longer delay rather than the
-/// `Standard` one used for oracle configuration.
+/// the `Sensitive` delay tier, for code upgrades.
 fn sensitive_price_aggregator_operation(
     env: &Env,
     function: &str,

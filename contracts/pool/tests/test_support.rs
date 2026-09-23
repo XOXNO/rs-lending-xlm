@@ -4,10 +4,9 @@ use soroban_sdk::{Address, Env};
 
 /// Protocol version the simulated ledger reports to the host.
 ///
-/// The host rejects a ledger older than the protocol `soroban-sdk` was built
-/// for, raising `Error(Context, InternalError)` with "ledger protocol version
-/// too old for host" -- which reads as an unexplained mass failure rather than
-/// a version mismatch. Keep in step with the workspace `soroban-sdk` pin.
+/// A version older than the protocol `soroban-sdk` targets fails every test with
+/// `Error(Context, InternalError)` ("ledger protocol version too old for host").
+/// Keep in step with the workspace `soroban-sdk` pin.
 pub(crate) const LEDGER_PROTOCOL_VERSION: u32 = 27;
 
 pub(crate) fn init_ledger(env: &Env) {

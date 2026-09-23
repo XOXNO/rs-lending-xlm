@@ -137,10 +137,7 @@ fn remove_signer_succeeds_above_threshold() {
     assert_eq!(result, Err(Ok(Error::CannotRemoveBelowThreshold)));
 }
 
-/// `remove_signer_succeeds_above_threshold` never has the signer submit, so the
-/// cleanup half of `remove_signer` is unobservable there: with no recorded
-/// feeds the loop body never runs and there is no feed list to clear. Submit
-/// first, so a de-authorized signer's price and feed list are proven gone.
+/// Removing a signer that has submitted deletes its latest submission and its feed list.
 #[test]
 fn remove_signer_clears_its_submission_and_feed_list() {
     let env = Env::default();
@@ -181,9 +178,8 @@ fn remove_signer_clears_its_submission_and_feed_list() {
     );
 }
 
-/// An asset already bound to a feed must not be silently repointed at another
-/// one. The second feed id is deliberately different, so `load_feed_owner`
-/// cannot be what rejects the call — only the asset-side mapping check can.
+/// Mapping an asset that already has a feed to a second feed id fails with `FeedAlreadyMapped`.
+/// The second id is different, so only the asset-side mapping check can reject the call.
 #[test]
 fn add_feed_rejects_remapping_an_asset_to_a_second_feed() {
     let env = Env::default();
@@ -206,8 +202,7 @@ fn add_feed_rejects_remapping_an_asset_to_a_second_feed() {
     );
 }
 
-/// Purging a feed must release the asset that owned it, otherwise the asset is
-/// stranded: its feed is gone but it can never be mapped to a replacement.
+/// Purging a feed releases the asset that owned it, so the asset can map to a new feed.
 #[test]
 fn purge_feed_frees_the_asset_for_remapping() {
     let env = Env::default();
@@ -318,8 +313,8 @@ fn set_max_submission_age_enforces_floor_and_ttl_ceiling() {
     env.mock_all_auths();
     let (client, _admin, _signers) = setup(&env, 1, 1);
 
-    // Floor is MAX_FUTURE_SKEW_SECONDS + 1 = 61 (F-2 defence-in-depth): 60, the
-    // future-skew bound itself, is now rejected, and 61 is the smallest accepted.
+    // Floor is `MAX_FUTURE_SKEW_SECONDS + 1` = 61. Ceiling is the configured
+    // `max_stale_seconds`, 86_400 by default.
     assert_eq!(
         client.try_set_max_submission_age_seconds(&60u64),
         Err(Ok(Error::InvalidSubmissionAge))
@@ -427,15 +422,9 @@ fn set_threshold_footprint(feeds: u32, signer_count: u32) -> (u32, u32) {
     )
 }
 
-/// `set_threshold` must cost the same no matter how many feeds are registered.
+/// `set_threshold` uses the same ledger footprint with 1 feed and with 25 feeds.
 ///
-/// It used to recompute every registered feed in the same transaction, so its
-/// transaction footprint grew by about one ledger entry per signer plus three,
-/// per feed. That is bounded by the network footprint limit, so past a certain
-/// feed count the setter becomes permanently uncallable and the threshold can
-/// no longer be changed -- exactly when a signer outage requires lowering it.
-/// Asserting equality rather than an absolute budget keeps this test honest
-/// across protocol versions that revise the limits.
+/// A per-feed recompute would grow the footprint until the network limit blocks the setter.
 #[test]
 fn set_threshold_footprint_does_not_grow_with_feed_count() {
     let (entries_1, writes_1) = set_threshold_footprint(1, 3);
@@ -451,9 +440,8 @@ fn set_threshold_footprint_does_not_grow_with_feed_count() {
     );
 }
 
-/// Raising the threshold stores the new value but deliberately leaves existing
-/// aggregates alone; `recompute_feeds` is what applies it to a feed that
-/// already holds one.
+/// Raising the threshold keeps an existing aggregate; `recompute_feeds` applies the new
+/// threshold to it.
 #[test]
 fn recompute_feeds_applies_a_raised_threshold_to_an_existing_aggregate() {
     let env = Env::default();
@@ -467,8 +455,7 @@ fn recompute_feeds_applies_a_raised_threshold_to_an_existing_aggregate() {
         Some(100u128)
     );
 
-    // The setter no longer sweeps every feed, so the aggregate formed under
-    // the old threshold of 1 survives the change.
+    // The setter does not recompute aggregates, so the threshold-1 aggregate stays.
     client.set_threshold(&3);
     assert_eq!(
         client.read_price_data_for_feed(&feed).price.to_u128(),

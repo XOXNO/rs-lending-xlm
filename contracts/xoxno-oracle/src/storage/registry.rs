@@ -1,8 +1,8 @@
 //! Persistent-storage operations for the asset/feed registry: mapping
 //! between `ReflectorAsset`s and feed ids, listing all registered assets
 //! and feeds, tracking which feeds a signer submits for, clearing a feed's
-//! aggregate/history/submission state, and the signer/feed authorization
-//! checks used by the rest of the contract.
+//! aggregate/history/submission state, and the registered-signer and
+//! known-feed checks used by the rest of the contract.
 
 use common::oracle::providers::reflector::ReflectorAsset;
 use soroban_sdk::{Address, Env, String, Vec};
@@ -165,9 +165,9 @@ pub(crate) fn remove_signer_feed(env: &Env, signer: &Address, feed_id: &String) 
     }
 }
 
-/// Removes all state associated with `feed_id`: its current aggregate, its price history, every
-/// signer's latest submission for it, its entry in each submitting signer's feed list, its
-/// owning-asset mapping, and its entry in the feed index.
+/// Removes all state associated with `feed_id`: its current aggregate, its price history, each
+/// registered signer's latest submission for it and its entry in that signer's feed list, its
+/// `FeedOwner` entry, and its entry in the feed index. Leaves the asset's `FeedMapping` in place.
 pub(crate) fn clear_feed_state(env: &Env, feed_id: &String) {
     remove_aggregate(env, feed_id);
     remove_history(env, feed_id);

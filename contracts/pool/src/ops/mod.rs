@@ -46,7 +46,8 @@ pub(crate) fn load_leg(env: &Env, action: &PoolAction) -> (Cache, Ray) {
     (cache, Ray::from(action.position.scaled_amount))
 }
 
-/// Runs a multi-entry batch: renews the instance, applies `leg` per entry, and emits state events.
+/// Runs a multi-entry batch: renews the instance, applies `leg` per entry, and emits one
+/// market state batch event (none for an empty batch).
 ///
 /// Each leg returns a result `R` plus a [`MarketStateSnapshot`] for the event batch.
 pub(crate) fn run_batch<E, R>(

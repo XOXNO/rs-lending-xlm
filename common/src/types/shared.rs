@@ -28,7 +28,7 @@ pub enum AccountPositionType {
     Borrow = 2,
 }
 
-/// Identifies the trading mode of a position: plain lending, leveraged
+/// Identifies the trading mode of an account: plain lending, leveraged
 /// multiply, or directional long/short exposure.
 #[contracttype]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

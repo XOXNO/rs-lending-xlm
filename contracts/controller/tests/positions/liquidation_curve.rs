@@ -1118,10 +1118,8 @@ fn hf_neutral_bonus_leaves_health_factor_invariant() {
                 }
                 let post = calculate_post_liquidation_hf(&env, &s, repay, bonus);
 
-                // The neutral cap is exact to one raw WAD unit: production floors
-                // the post-liquidation health factor, so the ratio may land one
-                // unit under the pre-liquidation value (1e-18). Pinned at exactly
-                // that slack so a real drop stays visible.
+                // Exactly one raw WAD unit of slack: the post-liquidation health
+                // factor rounds down.
                 assert!(
                     post.raw() + 1 >= s.hf.raw(),
                     "hf fell at the neutral rate: p={p_pct}% hf={hf_pct}% repay={}: {} -> {}",
@@ -1148,18 +1146,13 @@ fn hf_neutral_bonus_leaves_health_factor_invariant() {
     assert!(checked > 0, "grid never reached the neutral-rate arm");
 }
 
-/// NOT anti-splitting coverage — do not rely on it as such.
+/// Pins the arithmetic of the neutral rate only; this is not anti-splitting coverage.
 ///
-/// This drives a hand-rolled arithmetic model off `max_hf_preserving_bonus_bps`
-/// directly. It never calls `estimate_liquidation_amount`, so it does not
-/// exercise the runtime bonus clamp and stays green even when that clamp is
-/// deleted (verified by mutation). It pins the *arithmetic* of the neutral rate
-/// only.
-///
-/// The real anti-splitting guarantee is pinned by
+/// The test drives a local arithmetic model from `max_hf_preserving_bonus_bps`. It never
+/// calls `estimate_liquidation_amount`, so it passes without the runtime bonus clamp.
 /// `a_chain_of_partial_liquidations_never_out_extracts_one_summed_close` and
-/// `a_never_recovering_position_holds_its_health_factor_across_a_long_chain`
-/// in `liquidation_math.rs`, which do go red without the clamp.
+/// `a_never_recovering_position_holds_its_health_factor_across_a_long_chain` in
+/// `liquidation_math.rs` pin the anti-splitting guarantee.
 #[test]
 fn neutral_rate_slicing_arithmetic_is_additive_model_only_not_the_clamp() {
     let env = Env::default();
@@ -1207,13 +1200,12 @@ fn neutral_rate_slicing_arithmetic_is_additive_model_only_not_the_clamp() {
 
 // --- zero liquidation threshold ------------------------------------------
 //
-// Certora's Spoke M-01 against Aave V4: moving a collateral factor from non-zero to
-// zero made positions unliquidatable, because the liquidation call validated that the
-// seized collateral carried a non-zero factor. Seizure here is pro-rata over the whole
+// Guards the failure shape where a threshold set to zero makes positions unliquidatable
+// because seizure requires a non-zero factor. Seizure here is pro-rata over the whole
 // collateral set and reads no per-asset factor, so a zeroed threshold reaches the curve
-// only as `proportion_seized == 0` and `weighted_collateral == 0`. Everything below pins that
-// the curve prices that account at a zero bonus and stays solvable, rather than
-// dividing by zero, panicking, or returning nothing to close.
+// only as `proportion_seized == 0` and `weighted_collateral == 0`. The tests below pin that
+// the curve prices that account at a zero bonus and stays solvable: no division by zero,
+// no panic, and a non-zero close.
 //
 // The end-to-end counterpart is `liquidation_zero_threshold.rs`.
 
@@ -1267,8 +1259,8 @@ fn zero_liquidation_threshold_keeps_the_target_solver_solvable() {
         (i128::from(u32::MAX) * WAD, WAD),
     ] {
         let s = zero_threshold_snap(debt, collateral);
-        // A zero seized proportion can never reach the target's denominator floor, so the
-        // solver must take its collateral-backed exit rather than the linear solve.
+        // With a zero seized proportion the linear solve reaches the whole debt, so the
+        // collateral and debt caps set the close to `min(collateral, debt)`.
         let got = liquidation_at_target(&env, &s, Bps::from(0i128), target);
         assert_eq!(
             got.raw(),
@@ -1386,20 +1378,10 @@ fn bonus_above_the_neutral_rate_ratchets_coverage_down() {
     }
 }
 
-/// Pins which side of exactly `BAD_DEBT_USD_THRESHOLD` the residual-debt
-/// promotion at `curve.rs:147` falls on.
-///
-/// The operator is only partly pinned elsewhere, and the gap is the boundary.
-/// `estimate_leaves_exactly_five_dollar_remainder_unescalated` (this file) does
-/// assert an exact remainder, so it constrains the comparison at that one point.
-/// But `liquidation_rules::estimate_liquidation_*` asserts
-/// `remaining == 0 || remaining >= BAD_DEBT_USD_THRESHOLD`, which holds under
-/// both `<` and `<=`, and the sweep in
-/// `zero_liquidation_threshold_plans_a_zero_bonus_close_rather_than_locking`
-/// re-derives the same expression, making it a tautology with respect to the
-/// comparison. What was missing is the three-point boundary — THRESHOLD-1,
-/// THRESHOLD, THRESHOLD+1 — which is what decides which borrowers get
-/// force-closed.
+/// Pins the residual-debt promotion in `estimate_liquidation_amount` at
+/// `BAD_DEBT_USD_THRESHOLD - 1`, `BAD_DEBT_USD_THRESHOLD` and
+/// `BAD_DEBT_USD_THRESHOLD + 1`: only a residual below the threshold becomes a
+/// full close.
 ///
 /// At a zero seized proportion the plan closes `min(collateral, debt)`, so
 /// `remaining` is exactly `debt - collateral` and can be placed on the
@@ -1434,12 +1416,9 @@ fn residual_debt_promotion_is_exclusive_at_exactly_the_dust_threshold() {
     }
 }
 
-/// The bound on what the promotion can cost a borrower. Promotion replaces a
-/// partial close of `ideal` with a full close of `total_debt`, so the extra
-/// collateral seized is `remaining * (1 + bonus)` — and `remaining` is capped
-/// below `BAD_DEBT_USD_THRESHOLD` by the gate itself. The overshoot is
-/// therefore bounded by a constant, independent of position size, which is
-/// what makes a price-driven flip of this gate uninteresting to an attacker.
+/// Promotion replaces a partial close of `ideal` with a full close of
+/// `total_debt`, so the extra close is `remaining`, which the gate keeps below
+/// `BAD_DEBT_USD_THRESHOLD` at every position size.
 #[test]
 fn residual_debt_promotion_overshoot_is_bounded_by_the_threshold() {
     let env = Env::default();

@@ -63,10 +63,8 @@ fn split(env: &Env, seized: i128, bonus: i128, fees: u32) -> (i128, i128) {
 
 // --- conservation --------------------------------------------------------
 //
-// `S == fee + liquidator` exactly. A share invented on this path is a supplier
-// claim with nothing behind it; a share destroyed is collateral that silently
-// evaporates. The production code asserts the identity itself — these pin the
-// arithmetic that feeds it, including the boundaries where rounding could bite.
+// `S == fee + liquidator` exactly. `split_seized_shares` asserts the identity;
+// these tests pin the arithmetic that feeds it, including rounding boundaries.
 
 #[test]
 fn split_conserves_shares_across_the_decimal_range() {
@@ -109,8 +107,8 @@ fn split_conserves_shares_across_the_decimal_range() {
 #[test]
 fn one_scaled_unit_seizure_conserves() {
     let env = Env::default();
-    // The smallest seizure representable. Any rate above zero rounds the fee up
-    // to the single unit, leaving the liquidator nothing — which still conserves.
+    // The smallest seizure. Any rate above zero rounds the fee up to the single
+    // unit, which leaves the liquidator nothing and still conserves.
     let (fee, liquidator) = split(&env, 1, 1, 1);
     assert_eq!((fee, liquidator), (1, 0));
     assert_eq!(fee + liquidator, 1);

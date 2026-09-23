@@ -45,12 +45,8 @@ pub(crate) fn set_static_fee(env: &Env, fee_bps: u32) {
 /// non-positive, the combined bps is 0, or the computed fee rounds down to zero. Panics if
 /// the combined bps exceeds [`FEE_CAP`].
 ///
-/// The static protocol fee is deliberately coupled to the referral flow: it rides along with a
-/// referral and is charged nowhere else, so a swap with no referral (or with an unknown or
-/// deactivated one) pays zero protocol fee. This is the intended policy, not a missed branch —
-/// the off-chain quote model prices swaps the same way, and decoupling the two would silently
-/// start charging every existing integration that quotes without a referral id. Residual dust
-/// still accrues to the admin bucket after settlement, independently of this path.
+/// The static fee is charged only with an active referral; a swap without one pays no static
+/// fee. Off-chain quotes assume this policy.
 pub(crate) fn apply_fees_on_token(env: &Env, vault: &mut Vault, token: &Address, referral_id: u64) {
     if referral_id == 0 {
         return;
@@ -90,12 +86,10 @@ pub(crate) fn apply_fees_on_token(env: &Env, vault: &mut Vault, token: &Address,
 
     vault.withdraw(token, total);
 
-    // Both buckets in one call: they share `token`'s reserved total, and crediting them
-    // separately would read-modify-write that entry twice for a single swap.
     storage::accumulate_swap_fees(env, token, referral_id, static_fee, referral_fee);
 }
 
-/// Transfer each positive bucket balance for `tokens` to `recipient`.
+/// Transfers each positive bucket balance for `tokens` to `recipient` and clears the bucket.
 pub(crate) fn claim_fee_bucket(
     env: &Env,
     router: &Address,
@@ -115,13 +109,14 @@ pub(crate) fn claim_fee_bucket(
     }
 }
 
-/// Claim referral `id` fee buckets to the referral owner.
+/// Transfers referral `id`'s fee buckets for `tokens` to the referral owner. Panics with
+/// [`Error::ReferralNotFound`] if the referral does not exist.
 pub(crate) fn claim_referral_fees(env: &Env, router: &Address, id: u64, tokens: Vec<Address>) {
     let cfg = storage::load_referral(env, id);
     claim_fee_bucket(env, router, &cfg.owner, tokens, FeeBucket::Referral(id));
 }
 
-/// Computes `balance * fee_bps / BPS` using checked multiplication.
+/// Computes `balance * fee_bps / BPS` in token units, rounded down, with checked multiplication.
 fn fee_amount(env: &Env, balance: i128, fee_bps: u32) -> i128 {
     checked_mul(env, balance, fee_bps as i128) / BPS
 }

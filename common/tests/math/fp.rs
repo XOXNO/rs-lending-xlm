@@ -791,8 +791,7 @@ fn test_ray_from_asset_ceiling_holds_across_the_listable_decimal_range() {
 #[test]
 fn test_balance_ceiling_is_the_same_whole_token_count_at_every_decimals() {
     // i128::MAX / RAY = 170_141_183_460.469…, so the ceiling is ~170.14 billion
-    // whole tokens regardless of the asset's decimals. Tokens whose total supply
-    // exceeds that (memecoin-scale, 1e14+ units) cannot be listed whole.
+    // whole tokens regardless of the asset's decimals.
     for decimals in 3u32..=18 {
         let whole_tokens = max_representable_units(decimals) / 10i128.pow(decimals);
         assert_eq!(
@@ -816,16 +815,10 @@ fn test_ray_from_asset_one_unit_above_the_ceiling_overflows_at_max_decimals() {
     let _ = Ray::from_asset(&env, max_representable_units(18) + 1, 18);
 }
 
-/// The exact-roundtrip property `certora/common/spec/math_rules.rs` asserts in
-/// `ray_asset_roundtrip_preserves_7_decimal_amount`, over the same assumed
-/// range. The local prover reported that rule VIOLATED (run 31904109132), which
-/// is either a real defect or an artifact of the model — `rescale_upscale`
-/// computes its factor with `10i128.checked_pow(diff)`, a loop, and the rule ran
-/// under a loop bound of 6 while `10^20` needs more unrolling than that.
-///
-/// Real execution settles it. Upscale multiplies by exactly `10^20` and
-/// downscale divides by the same factor, so the remainder is always zero and
-/// the half-up branch is never taken; `1e15 * 1e20 = 1e35` is well inside i128.
+/// Real-execution check of the Certora rule `ray_asset_roundtrip_preserves_7_decimal_amount`
+/// (`certora/common/spec/math_rules.rs`) over its assumed range. Upscale multiplies by
+/// exactly `10^20` and downscale divides by it, so the roundtrip is exact;
+/// `1e15 * 1e20 = 1e35` fits in i128.
 #[test]
 fn ray_asset_roundtrip_is_exact_over_the_certora_range() {
     let env = Env::default();
@@ -852,8 +845,7 @@ fn ray_asset_roundtrip_is_exact_over_the_certora_range() {
         }
         p *= 10;
     }
-    // Half-way and just-off-half values: if the factor were wrong, these are
-    // where half-up rounding would first bite.
+    // Values at and next to a half, where a wrong factor first changes the half-up result.
     for amount in [
         499_999i128,
         500_000,
@@ -866,9 +858,8 @@ fn ray_asset_roundtrip_is_exact_over_the_certora_range() {
     }
 }
 
-/// The sibling rule `wad_token_roundtrip_preserves_7_decimal_amount`, which
-/// TIMED OUT rather than violating in the same run. Same shape, smaller
-/// exponent (10^11).
+/// Real-execution check of the Certora rule `wad_token_roundtrip_preserves_7_decimal_amount`:
+/// the same shape with the factor `10^11`.
 #[test]
 fn wad_token_roundtrip_is_exact_over_the_certora_range() {
     let env = Env::default();
@@ -896,11 +887,8 @@ fn wad_token_roundtrip_is_exact_over_the_certora_range() {
     }
 }
 
-/// The roundtrip must hold for every decimal count the protocol can be
-/// configured with, not just the 7 the two rules pin. Upscaling to RAY from
-/// `d` decimals multiplies by `10^(27-d)`, so the smaller `d`, the larger the
-/// factor and the closer the product sits to the i128 ceiling — the range is
-/// scaled per-`d` rather than assuming one bound fits all.
+/// The Ray roundtrip is exact at every decimals value from 0 to 18. Upscaling from `d`
+/// decimals multiplies by `10^(27-d)`, so the amount range shrinks as `d` falls.
 #[test]
 fn ray_asset_roundtrip_is_exact_across_decimals() {
     let env = Env::default();
@@ -919,11 +907,8 @@ fn ray_asset_roundtrip_is_exact_across_decimals() {
     }
 }
 
-/// Pins the factor `rescale_upscale` derives, because that is the precise point
-/// where the prover's model is suspected to diverge: it computes
-/// `10i128.checked_pow(diff)` — a loop — and the violated rule ran under a loop
-/// bound of 6, far short of what `10^20` needs. In real execution the factor is
-/// exact, which is why the roundtrips above hold.
+/// Pins the powers of ten that `fp_core::rescale` computes with `10i128.checked_pow` as
+/// upscale factors.
 #[test]
 fn upscale_factors_are_exact_powers_of_ten() {
     assert_eq!(
@@ -944,19 +929,12 @@ fn upscale_factors_are_exact_powers_of_ten() {
     );
 }
 
-/// `Ray::mul_ratio_ceil` was the only public fp method with no unit test and no
-/// fuzz coverage, and it is not decorative: `burn_claimable_revenue`
-/// (`contracts/pool/src/cache/shares.rs`) uses it to burn a pro-rata *ceiling*
-/// of treasury revenue shares on a partial claim.
-///
-/// The ceiling direction is what keeps that safe. Burning at least the
-/// pro-rata share means the treasury can never take cash while giving up fewer
-/// shares than it owes; flooring would let repeated partial claims withdraw
-/// value the treasury no longer has shares to back.
+/// `Ray::mul_ratio_ceil` rounds up. `burn_claimable_revenue`
+/// (`contracts/pool/src/cache/shares.rs`) uses it to burn at least the pro-rata revenue
+/// shares on a partial claim; flooring would let repeated partial claims take unbacked cash.
 #[test]
 fn mul_ratio_ceil_rounds_up_and_never_below_the_exact_ratio() {
     let env = Env::default();
-    // Exact division: ceiling must not inflate an already-exact result.
     assert_eq!(
         Ray::from(100i128).mul_ratio_ceil(&env, 1, 2).raw(),
         50,
@@ -965,15 +943,14 @@ fn mul_ratio_ceil_rounds_up_and_never_below_the_exact_ratio() {
     // Inexact: must round up, not truncate.
     assert_eq!(Ray::from(100i128).mul_ratio_ceil(&env, 1, 3).raw(), 34);
     assert_eq!(Ray::from(10i128).mul_ratio_ceil(&env, 1, 4).raw(), 3);
-    // The smallest non-zero result: a positive numerator can never round to
-    // zero, which is what `burn_claimable_revenue`'s non-zero assert relies on.
+    // A positive numerator never rounds to zero; `burn_claimable_revenue` asserts a
+    // non-zero burn.
     assert_eq!(Ray::from(1i128).mul_ratio_ceil(&env, 1, i128::MAX).raw(), 1);
 }
 
-/// The invariant the call site depends on: burning `revenue * amount /
-/// treasury_actual` must never exceed `revenue` itself when `amount <=
-/// treasury_actual`. If it could, `burn_claimable_revenue` would subtract more
-/// shares than the treasury holds and underflow the revenue balance.
+/// With `amount <= treasury_actual`, the ceiling burn of `revenue * amount / treasury_actual`
+/// never exceeds `revenue`, so `burn_claimable_revenue` cannot burn more shares than the
+/// treasury holds.
 #[test]
 fn mul_ratio_ceil_never_exceeds_the_base_when_ratio_is_at_most_one() {
     let env = Env::default();

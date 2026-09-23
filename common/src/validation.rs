@@ -1,6 +1,5 @@
-//! Assertion helpers shared across the contract. Each function validates one
-//! input condition and panics with a specific error code when the condition
-//! does not hold.
+//! Input validation helpers shared by the contracts. Each `require_*` and
+//! `validate_*` function panics with a specific error code when its check fails.
 
 use crate::constants::{
     BPS, MAX_LIQUIDATION_TARGET_HF_WAD, MAX_REASONABLE_PRICE_WAD, MAX_TOLERANCE,
@@ -83,8 +82,6 @@ pub fn require_wasm_receiver(env: &Env, receiver: &Address) {
 /// Asserts that `fees_bps` is strictly less than `BPS`, panicking with
 /// `CollateralError::InvalidLiqThreshold` otherwise.
 pub fn validate_liquidation_fees(env: &Env, fees_bps: u32) {
-    // Strict: at BPS the protocol takes the entire bonus and liquidation still
-    // functions but is never rational to perform.
     assert_with_error!(
         env,
         i128::from(fees_bps) < BPS,
@@ -198,8 +195,9 @@ pub fn validate_single_source_sanity_band(env: &Env, is_dual: bool, min_wad: i12
     );
 }
 
-/// LP sources are sole-source, so the band is their only backstop. Wider than a
-/// plain feed to absorb fee accrual, but still bounded.
+/// Asserts that the sanity band width between `min_wad` and `max_wad`, in basis
+/// points and rounded up, does not exceed `MAX_LP_SANITY_BAND_BPS`, panicking with
+/// `OracleError::SanityBandTooWideForSingleSource` otherwise.
 pub fn validate_lp_sanity_band(env: &Env, min_wad: i128, max_wad: i128) {
     let band_bps = mul_div_ceil(env, max_wad - min_wad, BPS, max_wad + min_wad);
     assert_with_error!(

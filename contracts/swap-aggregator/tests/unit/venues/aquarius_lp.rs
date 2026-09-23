@@ -788,19 +788,8 @@ fn temp_budget_probe_mainnet_scale() {
     );
 }
 
-/// A burn whose constituents both need routing must execute both paths.
-///
-/// `execute_paths` groups paths by `token_in` and processes each group once,
-/// skipping any path whose index is not the group's first
-/// (`i != first_index_for_token(..)`). Every other burn test routes a single
-/// path, because one constituent is already the output token -- so only one
-/// distinct `token_in` exists and `first_index_for_token` can only ever return
-/// 0. Burning into a third token forces two groups.
-///
-/// Break this catches: `first_index_for_token` returning a constant 0 (the
-/// surviving mutant in `.cargo/mutants.toml`). The second group's index would
-/// never equal 0, so that path would be skipped, its constituent stranded in
-/// the vault, and only half the position converted.
+/// A burn into a third token routes each constituent through its own path and
+/// delivers both.
 #[test]
 fn burn_routes_every_constituent_through_its_own_path() {
     let env = Env::default();
@@ -868,21 +857,11 @@ fn burn_routes_every_constituent_through_its_own_path() {
     assert_eq!(token::Client::new(&env, &token_b).balance(&router_addr), 0);
 }
 
-/// A constituent left behind at exactly the residual allowance is swept, not
-/// rejected.
+/// A constituent left unrouted at exactly the residual allowance accrues as admin
+/// fee instead of reverting with `ExcessiveResidual`.
 ///
-/// `accrue_residual_as_revenue` reverts with `ExcessiveResidual` when a leftover
-/// vault balance is strictly above `residual_allowance(credited)`.
-/// `burn_rejects_a_constituent_that_cannot_reach_the_output` covers the
-/// comfortably-over case (100_000 against a 1_000 floor); nothing pinned the
-/// boundary itself, and the whole residual path had no other coverage.
-///
-/// Here token_b is deliberately unrouted and its 1_000 leftover sits exactly on
-/// RESIDUAL_DUST_FLOOR, so it must be accepted and accrued to admin fees.
-///
-/// Break this catches: that `>` becoming `>=` (the surviving mutant in
-/// `.cargo/mutants.toml`), which would reject a burn whose dust lands precisely
-/// on the allowance.
+/// `token_b`'s 1_000 leftover equals `RESIDUAL_DUST_FLOOR`, which pins the strict
+/// `>` in `accrue_residual_as_revenue`.
 #[test]
 fn residual_exactly_at_the_allowance_is_accrued_not_rejected() {
     let env = Env::default();
@@ -938,11 +917,10 @@ fn residual_exactly_at_the_allowance_is_accrued_not_rejected() {
     assert_eq!(token::Client::new(&env, &token_b).balance(&sender), 0);
 }
 
-/// Builds the standard pre-balance fixture: a 1:1 mint pool, a swap pool that
-/// can turn token_a into token_b, and a sender holding 1_000 token_a. The
-/// payload routes 20% of the input through the swap pool, so by the time
-/// `pre_balance` runs the vault holds exactly 800 token_a -- the `held_in` that
-/// the pre-swap amount is checked against.
+/// Builds the pre-swap fixture: a 1:1 mint pool, a swap pool that turns
+/// `token_a` into `token_b`, and a sender holding 1_000 `token_a`. The payload
+/// routes 20% of the input through the swap pool, so a pre-swap runs against a
+/// vault holding exactly 800 `token_a`.
 fn pre_balance_fixture(
     env: &Env,
     pre_swap_amount: i128,
@@ -982,12 +960,9 @@ fn pre_balance_fixture(
     (router_addr, sender, xdr)
 }
 
-// `pre_balance` rejects a pre-swap that would spend more of a constituent than
-// the vault holds. The bound is deliberately `amount > held_in` rather than
-// `>=`: spending the entire held side is a legal instruction, it just cannot
-// produce a balanced mint afterwards. The next two tests pin both sides of that
-// boundary -- an off-by-one here either rejects a legal payload or lets an
-// over-spend reach `vault.withdraw`.
+// A pre-swap larger than the vault balance fails `vault.withdraw` with
+// `InvalidAmount`; spending exactly the balance passes that check. The next two
+// tests pin both sides of the boundary.
 #[test]
 fn pre_swap_beyond_the_held_side_is_rejected_as_invalid_amount() {
     let env = Env::default();
@@ -1026,17 +1001,13 @@ fn pre_swap_of_the_entire_held_side_clears_the_amount_guard() {
     );
 }
 
-// Reserves only reach `pre_balance_possible`, whose sole question is whether
-// both sides are non-zero. An empty mint pool therefore has to veto the
-// pre-swap outright: swapping into a pool with nothing on the other side
-// returns zero and aborts the whole strategy.
 #[test]
 fn a_pre_swap_against_an_empty_pool_reverts_instead_of_being_skipped() {
     let env = Env::default();
     env.mock_all_auths();
 
-    // The pre-swap is now an ordinary instruction, so an empty book fails the
-    // whole strategy rather than being silently vetoed mid-mint.
+    // The pre-swap is an ordinary swap instruction: against an empty pool it
+    // yields zero output and the whole strategy reverts.
     let (router_addr, sender, xdr) = pre_balance_fixture(&env, 300, 0);
 
     assert!(
@@ -1105,13 +1076,10 @@ fn referral_zap(env: &Env) -> ReferralZap {
     }
 }
 
-/// A zap-in under an active referral: the pre-swap has to be sized against the
-/// live vault balance, and `Mode::Ppm` is what makes that true.
+/// A zap-in under an active referral succeeds with a `Mode::Ppm` pre-swap.
 ///
-/// The fee is debited before any instruction runs, so the balancing swap sees
-/// 980_000 of the 1_000_000 the caller sent. A ppm weight re-derives its size
-/// from that balance and still lands on the constant-product optimum, leaving
-/// only dust for the residual guard to absorb.
+/// The ppm weight sizes the pre-swap against the 980_000 left after fees, so the
+/// deposit leaves only dust for the residual guard.
 #[test]
 fn referral_zap_in_with_ppm_pre_swap_succeeds() {
     let env = Env::default();
@@ -1168,16 +1136,11 @@ fn referral_zap_in_with_ppm_pre_swap_succeeds() {
     );
 }
 
-/// The same zap with the pre-swap pinned as an absolute amount reverts.
+/// The same zap with a `Mode::Fixed` pre-swap reverts with `ExcessiveResidual`.
 ///
-/// `Mode::Fixed` names `amounts[idx]`, an amount the off-chain solver computed
-/// against the *gross* 1_000_000 input. The referral fee is debited first, so
-/// the swap over-sells the input side against a vault holding only 980_000: the
-/// deposit then refuses the excess `token_b`, ~20_000 of it is stranded in the
-/// vault, and `accrue_residual_as_revenue` rejects it as far past the residual
-/// allowance rather than quietly booking it as protocol revenue.
-///
-/// This is why the off-chain zap builder lowers the pre-swap as `Mode::Ppm`.
+/// The fixed amount is solved against the gross 1_000_000 input, but the fees
+/// leave 980_000 in the vault. The pre-swap over-sells `token_a`, the deposit
+/// refuses about 20_000 `token_b`, and `accrue_residual_as_revenue` rejects it.
 #[test]
 fn referral_zap_in_with_fixed_pre_swap_reverts() {
     let env = Env::default();
@@ -1220,15 +1183,11 @@ fn referral_zap_in_with_fixed_pre_swap_reverts() {
     );
 }
 
-/// The router re-checks each constituent's minimum after the burn instead of
-/// trusting the pool to have honoured the `min_amounts` it was handed.
+/// A pool that under-delivers against the `min_amounts` it accepted fails the
+/// router's own post-burn check with `MinAmountsNotMet`.
 ///
-/// `burn_honours_per_constituent_minimums` above looks like it covers this, but
-/// it does not: the mock pool asserts its own minimums, so that test fails
-/// inside the venue and never reaches the router's check. Region analysis
-/// confirmed the arm was dead. A venue is not a trusted counterparty -- a pool
-/// that silently under-delivers is exactly the case the router's own comparison
-/// exists for, and nothing was pinning it.
+/// `burn_honours_per_constituent_minimums` does not cover this: it fails inside
+/// the mock pool's own assertion and never reaches the router's check.
 #[test]
 fn burn_rejects_a_pool_that_under_delivers_against_the_minimums_it_accepted() {
     let env = Env::default();
@@ -1244,9 +1203,9 @@ fn burn_rejects_a_pool_that_under_delivers_against_the_minimums_it_accepted() {
     let lp_client = aquarius_lp_mock::AqLpPoolClient::new(&env, &pool);
     lp_client.deposit(&sender, &vec![&env, 1_000u128, 1_000u128], &0u128);
 
-    // The pool now returns one unit less than its share of constituent 0 and
-    // skips its own min_amounts assertion, so the only thing standing between
-    // the caller and a short payout is the router's post-burn comparison.
+    // From here the pool returns one unit less of constituent 0 and skips its own
+    // `min_amounts` assertion, so only the router's post-burn check can reject
+    // the short payout.
     lp_client.set_shortfall(&1i128);
 
     let swap_pool = env.register(aquarius_mock::AqPool, ());

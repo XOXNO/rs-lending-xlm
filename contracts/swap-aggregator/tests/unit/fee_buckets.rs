@@ -8,9 +8,8 @@ use crate::storage::{accumulate_fee, accumulate_swap_fees, take_fee_bucket};
 use crate::types::DataKey;
 use crate::Router;
 
-/// Claiming a bucket that holds nothing must not write to storage: the removal
-/// would burn rent and ledger footprint for an entry that already reads as
-/// zero, and it makes an empty claim indistinguishable from a funded one.
+/// Taking a zero-balance bucket returns 0 and writes nothing: the entry stays in
+/// place.
 #[test]
 fn taking_an_empty_fee_bucket_leaves_its_entry_in_place() {
     let env = Env::default();
@@ -48,12 +47,11 @@ fn taking_a_funded_fee_bucket_clears_it() {
     });
 }
 
-/// Every bucket write must move the token's reserved total by the same amount,
-/// in both directions.
+/// Every bucket write moves the token's reserved total by the same amount, in
+/// both directions.
 ///
-/// `sweep_balance` no longer walks the referral space; it trusts
-/// `DataKey::ReservedTotal`. If accrual credited a bucket without reserving, the
-/// next sweep would hand a referral's accrued fees to the admin as stray dust.
+/// `sweep_balance` trusts `DataKey::ReservedTotal`: a bucket credited without a
+/// matching reserve would be swept out as stray balance.
 #[test]
 fn fee_bucket_writes_move_the_reserved_total_in_step() {
     let env = Env::default();
@@ -85,13 +83,9 @@ fn fee_bucket_writes_move_the_reserved_total_in_step() {
     });
 }
 
-/// Crediting both of a swap's fee buckets in one call must land exactly where two
-/// separate `accumulate_fee` calls would: same bucket balances, same reserved total,
-/// and no entry for a bucket that was credited nothing.
-///
-/// The single call exists only to collapse the duplicate read-modify-write of the
-/// shared `DataKey::ReservedTotal` entry, so any divergence in stored state is a bug
-/// in the collapse rather than a policy change.
+/// `accumulate_swap_fees` stores the same state as one `accumulate_fee` call per
+/// positive amount: the same bucket balances and reserved total, and no entry for
+/// a bucket credited zero.
 #[test]
 fn combined_swap_accrual_matches_separate_bucket_writes() {
     let env = Env::default();
@@ -116,8 +110,8 @@ fn combined_swap_accrual_matches_separate_bucket_writes() {
         assert_eq!(referral_bucket, 5);
         assert_eq!(reserved_fee_balance(&env, &both), 17);
 
-        // A zero static fee must leave the admin bucket uncreated, exactly as the
-        // `static_fee > 0` guard did, while still reserving the referral side.
+        // A zero static fee creates no admin bucket but still reserves the
+        // referral side.
         accumulate_swap_fees(&env, &referral_only, 3, 0, 4);
         assert!(
             !env.storage()
@@ -127,7 +121,7 @@ fn combined_swap_accrual_matches_separate_bucket_writes() {
         );
         assert_eq!(reserved_fee_balance(&env, &referral_only), 4);
 
-        // Nothing on either side reserves nothing, so no counter entry appears.
+        // Zero on both sides creates no reserve entry.
         accumulate_swap_fees(&env, &neither, 3, 0, 0);
         assert!(
             !env.storage()

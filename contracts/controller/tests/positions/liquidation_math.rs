@@ -606,9 +606,10 @@ fn partial_liquidation_of_insolvent_account_is_permitted() {
     });
 }
 
-/// Three liquidators each sign $40 against the same $100 collateral / $120 debt
-/// book. Each one is capped at what the remaining collateral backs, so the last
-/// one is cut to `floor(16 / 1.05)` instead of paying $40 for $16.
+/// Three liquidators each offer $40,000 against the same $100,000 collateral /
+/// $120,000 debt book. Each one is capped at what the remaining collateral backs,
+/// so the last one is cut to `floor(16_000 / 1.05)` instead of paying $40,000
+/// for $16,000.
 #[test]
 fn racing_insolvent_liquidations_never_repay_more_than_the_collateral_backs() {
     let env = Env::default();
@@ -856,8 +857,9 @@ fn an_insolvent_trim_drops_a_leg_whose_smallest_unit_exceeds_the_backed_quote() 
     assert_eq!(refund.amount, 2, "the whole offer is refunded");
 }
 
-/// A $1 leg and a $10-per-unit leg against a $9.52 backed quote: the trim
-/// starts from the last leg, drops the $10 leg whole and keeps the $5 leg.
+/// A $1-per-token leg offering $5 and a $10-per-unit leg offering $20 against a
+/// $9.52 backed quote: the trim starts from the last leg, drops the $10-per-unit
+/// leg whole and keeps the $5 leg.
 #[test]
 fn an_insolvent_trim_keeps_only_the_legs_that_fit_the_backed_quote() {
     let env = Env::default();
@@ -1128,10 +1130,9 @@ fn normalize_conserves_value_when_offer_exceeds_ideal() {
 
 // --- scale_seizures_to_received ------------------------------------------
 //
-// Liquidation sizes collateral from the repayment value the plan *intended* to
-// collect. When a debt token delivers less than was sent, the seizure must
-// shrink to match, or the liquidator walks away with collateral they never
-// paid for.
+// The plan sizes collateral from the repayment value it intends to collect.
+// When a debt token delivers less than was sent, the seizure shrinks by the
+// same ratio, so the liquidator gets no collateral it did not pay for.
 
 fn seize(asset: &Address, amount: i128, protocol_fee: i128) -> SeizeEntry {
     SeizeEntry {
@@ -1158,7 +1159,6 @@ fn scaling_is_exact_identity_when_every_token_delivered_in_full() {
 
     let out = scale_seizures_to_received(&env, &seized, Wad::from(500), Wad::from(500));
 
-    // No rounding drift may creep in on the well-behaved path.
     assert_eq!(out.get_unchecked(0).amount, 1_000);
     assert_eq!(out.get_unchecked(0).protocol_fee, 70);
 }
@@ -1213,7 +1213,7 @@ fn a_token_delivering_more_than_planned_cannot_inflate_the_seizure() {
     assert_eq!(out.get_unchecked(0).protocol_fee, 70);
 }
 
-/// Spoke-1 XLM as deployed on mainnet.
+/// Spoke-1 XLM bonus and fee from `configs/mainnet/spokes.json`.
 const MAINNET_XLM_BONUS_BPS: i128 = 900;
 const MAINNET_XLM_FEES_BPS: u32 = 1_200;
 
@@ -1337,8 +1337,8 @@ fn bad_debt_seizure_charges_no_fee_and_does_not_trap() {
     );
 }
 
-/// The regression guard: when nothing clamps, the realised excess IS the full
-/// bonus, so the fee must be bit-identical to the pre-change behaviour.
+/// When nothing clamps, the realised excess is the full bonus, so the fee is
+/// the fee rate applied to the whole bonus.
 #[test]
 fn unclamped_seizure_still_charges_the_full_bonus_fee() {
     let env = Env::default();
@@ -1363,8 +1363,8 @@ fn unclamped_seizure_still_charges_the_full_bonus_fee() {
 //
 // The seizure is sized as `repayment * (1 + bonus)` and then clamped to the
 // collateral that exists. The fee is a cut of the excess the liquidator
-// actually walked away with: `seized - repayment_share`, never a notional
-// bonus reconstructed from the clamped seizure.
+// receives: `seized - repayment_share`, never a notional bonus reconstructed
+// from the clamped seizure.
 
 #[derive(Clone, Copy)]
 struct LegSpec {
@@ -1395,9 +1395,9 @@ impl LegSpec {
     }
 }
 
-/// Build a real multi-leg account and derive `total_collateral` exactly the way
-/// `calculate_account_risk_totals_body` does, so the shares the seizure computes
-/// are the shares production would compute.
+/// Builds a multi-leg account and derives `total_collateral` the way
+/// `calculate_account_risk_totals_body` does, so the seizure computes the same
+/// shares as production.
 fn seize_legs(
     env: &Env,
     legs: &[LegSpec],
@@ -1499,7 +1499,7 @@ fn seizure_at_exactly_the_debt_value_charges_no_protocol_fee() {
 
 /// One stroop of collateral above the debt is one stroop of realised excess.
 /// The fee is bumped off zero to a whole stroop, so it consumes the entire
-/// excess -- but it must never exceed it, or the liquidator ends up under water.
+/// excess, but it must never exceed it, or the liquidator's net goes negative.
 #[test]
 fn a_one_stroop_excess_is_charged_at_most_one_stroop_of_fee() {
     let env = Env::default();
@@ -1671,7 +1671,7 @@ fn at_the_clamp_boundary_legs_split_by_rounding_yet_keep_their_own_fee_rates() {
     }
 }
 
-/// With no bonus the repayment share IS the seizure, so there is never an excess
+/// With no bonus the repayment share is the seizure, so there is never an excess
 /// and never a fee -- whether or not the seizure clamps.
 #[test]
 fn a_zero_bonus_never_charges_a_protocol_fee() {
@@ -1718,7 +1718,7 @@ fn at_the_derived_max_bonus_the_fee_follows_the_realised_excess() {
     );
 }
 
-/// KNOWN DEFECT, recorded as observed. When the whole bonus is worth less than
+/// Known defect, pinned as observed. When the whole bonus is worth less than
 /// one unit of the asset, `protocol_fee_ray > 0 && fee_asset == 0` bumps the fee
 /// to a whole unit. At one stroop of repayment the seizure floors back to the
 /// repayment itself -- zero realised excess -- and the bump still charges one
@@ -1979,34 +1979,30 @@ fn an_exactly_covered_account_quotes_the_full_debt_at_zero_bonus_not_the_insolve
 
 // --- small-position liquidation profitability -----------------------------
 //
-// ChainSecurity Mar-2026 note 8.4 derives the position value below which a
-// liquidation loses money to rounding: `V < L_round / (b * (1 - f))`, where
-// `L_round` is the summed rounding loss, `b` the bonus and `f` the protocol's
-// cut of it. Their count was 2 debt-leg sites plus 2 collateral-leg sites.
+// A liquidation can lose money to rounding below the position value
+// `V < L_round / (b * (1 - f))`, where `L_round` bounds the summed rounding loss,
+// `b` the bonus and `f` the protocol's cut of the bonus.
 //
-// Ours is not that count. The debt leg's asset-unit ceiling
-// (`unscale_borrow_ceil` in `calculate_repayment_amounts`) is priced back into
-// `RepayEntry::usd_wad`, which is what `calculate_seized_collateral` multiplies
-// by `(1 + bonus)` — the liquidator is credited for every unit it ceils, so the
-// debt leg costs it nothing at asset-unit granularity. Both surviving sites are
-// on the collateral leg, per seized position:
+// The debt leg adds no rounding loss. Its asset-unit ceiling
+// (`unscale_borrow_ceil` in `calculate_repayment_amounts`) is priced into
+// `RepayEntry::usd_wad`, which `calculate_seized_collateral` multiplies by
+// `(1 + bonus)`, so the liquidator is credited for every unit it rounds up.
+// Both rounding sites are on the collateral leg, per seized position:
 //
 //   1. `capped_ray.to_asset_floor(&env, decimals)` on a partial seizure  -> <= 1 unit
 //   2. the dust fee bump, `protocol_fee_ray > 0 && fee_asset == 0` -> <= 1 unit
 //
-// So `L_round = 2 units of collateral` per leg, and because seizure is pro-rata
-// across every collateral the account holds, it scales with the leg count.
+// So `L_round = 2 units of collateral` per leg is a worst-case bound, not a
+// guaranteed loss. Seizure is pro-rata across every collateral the account holds,
+// so `L_round` scales with the leg count.
 //
 // See `docs/reference/formulas.md#liquidation-sizing-and-fees`
 
-/// The load-bearing half of that claim, pinned on its own: a full close pays
-/// `ceil(debt)` asset units, and `RepayEntry::usd_wad` is the price of what was
-/// actually transferred, not of the exact debt. `calculate_seized_collateral`
-/// then sizes the seizure from `repay_usd * (1 + bonus)`, so the ceiling comes
-/// back to the liquidator with the bonus on top instead of being a loss.
-///
-/// This is what makes our rounding-site count 0 + 2 rather than ChainSecurity's
-/// 2 + 2 for Aave.
+/// The debt-leg half of that claim: a full close pays `ceil(debt)` asset units,
+/// and `RepayEntry::usd_wad` is the price of what was transferred, not of the
+/// exact debt. `calculate_seized_collateral` then sizes the seizure from
+/// `repay_usd * (1 + bonus)`, so the ceiling returns to the liquidator with the
+/// bonus on top instead of being a loss.
 #[test]
 fn the_debt_legs_asset_unit_ceiling_is_priced_into_the_repayment_credit() {
     let env = Env::default();
@@ -2067,9 +2063,9 @@ fn the_debt_legs_asset_unit_ceiling_is_priced_into_the_repayment_credit() {
     });
 }
 
-/// A listed collateral as `configs/mainnet` configures it, priced at its
-/// oracle's `max_sanity_price_wad` — the highest price the feed will accept, and
-/// therefore the coarsest its asset unit can get.
+/// A collateral fixture with the decimals of a `configs/mainnet` listing and a
+/// selected USD price. Prices, bonuses and fees are fixture inputs; they do not
+/// track the live listing or its `max_sanity_price_wad`.
 struct ListedCollateral {
     label: &'static str,
     decimals: u32,
@@ -2130,7 +2126,7 @@ const LISTED_COLLATERALS: [ListedCollateral; 7] = [
     },
 ];
 
-/// Basis-points denominator, bound locally so this section adds no imports.
+/// Basis-points denominator.
 const BPS_DENOM: i128 = crate::constants::BPS;
 
 /// One asset unit of this collateral, valued in WAD USD.
@@ -2179,8 +2175,8 @@ fn the_min_borrow_collateral_floor_clears_the_unprofitability_threshold_for_ever
             threshold,
             floor,
         );
-        // Not merely above it -- comfortably above it. The tightest listed pair
-        // is SolvBTC at 8 decimals and $120k, and it still leaves 30x.
+        // At least a 30x margin: the tightest fixture, SolvBTC at 8 decimals
+        // and $120k, leaves about 33x.
         assert!(
             threshold * 30 < floor,
             "{}: margin over the floor fell below 30x ({} wad vs {} wad)",
@@ -2192,9 +2188,9 @@ fn the_min_borrow_collateral_floor_clears_the_unprofitability_threshold_for_ever
 }
 
 /// The same claim, run through `calculate_seized_collateral` instead of the
-/// closed form: at a floor-sized repayment the liquidator walks away with more
-/// than it paid, and its shortfall against the ideal `repay * b * (1 - f)` never
-/// exceeds `L_round`.
+/// closed form: at a floor-sized repayment the liquidator receives more than it
+/// paid, and its shortfall against the ideal `repay * b * (1 - f)` never exceeds
+/// `L_round`.
 #[test]
 fn a_floor_sized_liquidation_pays_the_liquidator_for_every_listed_collateral() {
     let env = Env::default();
@@ -2247,9 +2243,8 @@ fn a_floor_sized_liquidation_pays_the_liquidator_for_every_listed_collateral() {
     }
 }
 
-/// The realised numbers behind the table in `docs/reference/formulas.md#liquidation-fixture`,
-/// pinned so the documentation cannot drift away from the code. Same fixtures as
-/// the test above, in the same order as `LISTED_COLLATERALS`.
+/// Pins the numbers in the `docs/reference/formulas.md#liquidation-fixture` table.
+/// Same fixtures as the test above, in `LISTED_COLLATERALS` order.
 #[test]
 fn floor_sized_liquidation_profits_match_the_documented_table() {
     let env = Env::default();
@@ -2297,7 +2292,7 @@ fn floor_sized_liquidation_profits_match_the_documented_table() {
     }
 }
 
-/// The finding. Nothing bounds an asset's *unit* value. `MIN_ASSET_DECIMALS` is
+/// Nothing bounds an asset's *unit* value. `MIN_ASSET_DECIMALS` is
 /// 3 and `validate_sanity_bounds` accepts a price up to
 /// `MAX_REASONABLE_PRICE_WAD` ($1e9 per whole token), so one base unit may be
 /// worth $1,000,000: two hundred thousand times the entire borrow floor. At that
@@ -2322,7 +2317,7 @@ fn an_expensive_low_decimal_collateral_makes_a_floor_sized_liquidation_seize_not
         fees_bps: 1_200,
     };
 
-    // Both halves of the configuration are governance-admissible today.
+    // Listing validation admits both values.
     assert_eq!(hostile.decimals, crate::constants::MIN_ASSET_DECIMALS);
     assert_eq!(
         hostile.price_wad,
@@ -2353,10 +2348,10 @@ fn an_expensive_low_decimal_collateral_makes_a_floor_sized_liquidation_seize_not
     );
 }
 
-/// Where the boundary actually is, for the same 900 bps / 1,200 bps curve at
-/// three decimals: the closed form puts it at a $198 token price, and the
-/// realised net goes negative a little later because the floor loss is usually
-/// well under a full unit. Below the boundary a floor-sized close still pays.
+/// The profitability boundary for a 900 bps bonus and 1,200 bps fee at three
+/// decimals. The closed form puts it at a $198 token price; the realised net
+/// turns negative at $237, because the floor loss is usually under one unit.
+/// Below the boundary a floor-sized close still pays.
 #[test]
 fn the_profitability_boundary_at_three_decimals_sits_between_198_and_237_dollars() {
     let env = Env::default();
@@ -2399,13 +2394,12 @@ fn the_profitability_boundary_at_three_decimals_sits_between_198_and_237_dollars
 
 // --- V-6: splitting a close into N partials is never more profitable --------
 //
-// CS-AAVE4-009 against Aave: when `proportion_seized * (1 + bonus) > HF`, each
-// partial liquidation *lowers* the health factor, the bonus curve pays more at
-// the lower health factor, and N slices therefore extract more collateral than
-// one close of the summed repayment. Aave forbade the configuration off-chain.
-// We clamp at runtime instead: `max_hf_preserving_bonus_bps` caps the bonus at
-// `HF / proportion_seized - 1`, which is exactly the rate that leaves the
-// health factor unchanged, so the next slice cannot be paid any better.
+// When `proportion_seized * (1 + bonus) > HF`, each partial liquidation
+// *lowers* the health factor, the bonus curve pays more at the lower health
+// factor, and N slices extract more collateral than one close of the summed
+// repayment. `max_hf_preserving_bonus_bps` caps the bonus at
+// `HF / proportion_seized - 1`, the rate that leaves the health factor
+// unchanged, so the next slice is not paid more.
 //
 // The chain below runs the production plan path in `build_liquidation_plan`'s
 // own order -- risk totals, seizure proportions, `normalize_repayment_plan`,
@@ -2540,11 +2534,10 @@ fn liquidate_slice(
     })
 }
 
-/// The splitting book sits exactly on the CS-AAVE4-009 precondition: the bonus
-/// curve asks for more than the health factor can support, so without the clamp
-/// every partial would erode the health factor and earn a larger bonus next
-/// time. The cap still sits above the base bonus, so the book is outside the
-/// below-base band.
+/// The splitting book meets the V-6 precondition: the bonus curve asks for more
+/// than the health factor can support, so without the cap every partial would
+/// lower the health factor and earn a larger bonus on the next slice. The cap
+/// still sits above the base bonus, so the book is outside the below-base band.
 #[test]
 fn the_splitting_book_is_where_the_curve_out_asks_the_hf_preserving_cap() {
     let env = Env::default();

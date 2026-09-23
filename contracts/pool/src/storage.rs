@@ -19,7 +19,7 @@ pub(crate) fn market_exists(env: &Env, hub_asset: &HubAssetKey) -> bool {
         .has(&PoolKey::Params(hub_asset.clone()))
 }
 
-/// Load market parameters, or panic if the market was never created.
+/// Loads market parameters, or panics if the market was never created.
 pub(crate) fn read_params(env: &Env, hub_asset: &HubAssetKey) -> MarketParamsRaw {
     env.storage()
         .persistent()
@@ -27,10 +27,9 @@ pub(crate) fn read_params(env: &Env, hub_asset: &HubAssetKey) -> MarketParamsRaw
         .unwrap_or_else(|| panic_with_error!(env, GenericError::PoolNotInitialized))
 }
 
-/// Load market state, or panic if the market was never created.
+/// Loads market state, or panics if the market was never created.
 ///
-/// Does **not** extend storage TTL; prefer [`load_state`] on hot paths that
-/// should keep the market alive.
+/// Does not extend the TTL; [`load_state`] does.
 pub(crate) fn read_state(env: &Env, hub_asset: &HubAssetKey) -> PoolStateRaw {
     env.storage()
         .persistent()
@@ -38,14 +37,14 @@ pub(crate) fn read_state(env: &Env, hub_asset: &HubAssetKey) -> PoolStateRaw {
         .unwrap_or_else(|| panic_with_error!(env, GenericError::PoolNotInitialized))
 }
 
-/// Load market state and extend TTL for both params and state keys.
+/// Loads market state and extends the TTL of both params and state keys.
 pub(crate) fn load_state(env: &Env, hub_asset: &HubAssetKey) -> PoolStateRaw {
     let state = read_state(env, hub_asset);
     renew_market(env, hub_asset);
     state
 }
 
-/// Load params + state as [`PoolSyncData`] and renew market TTLs.
+/// Loads params + state as [`PoolSyncData`] and renews market TTLs.
 pub(crate) fn load_sync_data(env: &Env, hub_asset: &HubAssetKey) -> PoolSyncData {
     let params = read_params(env, hub_asset);
     let state = read_state(env, hub_asset);
@@ -53,24 +52,23 @@ pub(crate) fn load_sync_data(env: &Env, hub_asset: &HubAssetKey) -> PoolSyncData
     PoolSyncData { params, state }
 }
 
-/// Persist market parameters under `PoolKey::Params`.
+/// Persists market parameters under `PoolKey::Params`.
 pub(crate) fn write_params(env: &Env, hub_asset: &HubAssetKey, params: &MarketParamsRaw) {
     env.storage()
         .persistent()
         .set(&PoolKey::Params(hub_asset.clone()), params);
 }
 
-/// Persist market state under `PoolKey::State`.
+/// Persists market state under `PoolKey::State`.
 pub(crate) fn write_state(env: &Env, hub_asset: &HubAssetKey, state: &PoolStateRaw) {
     env.storage()
         .persistent()
         .set(&PoolKey::State(hub_asset.clone()), state);
 }
 
-/// Patch rate-curve and flash-loan fields from `model` into stored params.
+/// Copies every `model` field into the stored params and returns the result.
 ///
-/// Leaves asset identity and other non-model fields unchanged. Returns the
-/// full updated params for event emission.
+/// Leaves `asset_id` and `asset_decimals` unchanged.
 pub(crate) fn write_rate_model(
     env: &Env,
     hub_asset: &HubAssetKey,
@@ -94,7 +92,7 @@ pub(crate) fn write_rate_model(
     params
 }
 
-/// Extend persistent TTL for both params and state of a market.
+/// Extends the persistent TTL of a market's params and state.
 pub(crate) fn renew_market(env: &Env, hub_asset: &HubAssetKey) {
     let storage = env.storage().persistent();
     storage.extend_ttl(

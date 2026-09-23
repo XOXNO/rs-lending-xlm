@@ -132,12 +132,11 @@ impl Session {
     #[cfg(feature = "certora")]
     pub(crate) fn warm(&mut self, _keys: &Vec<PriceKey>) {}
 
-    /// Pre-fetches raw provider payloads for the given keys and their
-    /// transitive dependencies, grouping feed ids by adapter and issuing a
+    /// Pre-fetches the RedStone and Xoxno multi-feed payloads of the given
+    /// keys and their transitive dependencies into the feed cache, with one
     /// bulk read per adapter that has at least `MIN_BULK_FEEDS` distinct
-    /// feeds. Fetched payloads are stored in the feed cache via `set_feed`.
-    /// Adapters with fewer feeds are skipped, and a failed bulk read for an
-    /// adapter is skipped rather than propagated.
+    /// feeds. Adapters with fewer feeds are skipped, and a failed bulk read
+    /// for an adapter is skipped rather than propagated.
     #[cfg(not(feature = "certora"))]
     pub(crate) fn warm(&mut self, keys: &Vec<PriceKey>) {
         use crate::providers::multi_feed::read_price_data_bulk;

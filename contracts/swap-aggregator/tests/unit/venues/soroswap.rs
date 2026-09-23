@@ -167,14 +167,11 @@ fn soroswap_zero_output_rejected() {
     );
 }
 
-/// An 18-decimal pair is inside Soroswap's real parameter space, and the quote
-/// for it must not depend on `i128` headroom.
+/// An 18-decimal pair with 5e24 reserves on each side quotes without trapping.
 ///
-/// With 5e24 reserves on both sides, a 1e18 (one whole token) swap makes
-/// `in_less * reserve_out` about 5e42 -- four orders of magnitude past
-/// `i128::MAX`. The raw multiply in `soroswap_amount_out` traps there, and
-/// `overflow-checks = true` in the release profile means it traps on-chain too:
-/// the pair becomes unroutable rather than merely imprecise.
+/// A 1e18 input makes `in_less * reserve_out` about 5e42, past `i128::MAX`.
+/// `soroswap_amount_out` must widen that product. A raw `i128` multiply traps
+/// on-chain too, because the release profile sets `overflow-checks = true`.
 #[test]
 fn large_reserve_pair_does_not_trap() {
     let env = Env::default();

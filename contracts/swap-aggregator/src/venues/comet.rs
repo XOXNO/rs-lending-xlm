@@ -35,8 +35,8 @@ pub(crate) fn swap(ctx: &HopContext<'_>) {
     clear_comet_approval(ctx);
 }
 
-/// Computes the allowance expiration ledger: the current ledger sequence rounded up to the next
-/// 100,000-ledger boundary.
+/// Computes the allowance expiration ledger: the first multiple of 100,000 above the current
+/// ledger sequence.
 fn comet_approval_ledger(env: &Env) -> u32 {
     let seq = env.ledger().sequence();
     (seq / 100_000 + 1) * 100_000
@@ -44,7 +44,7 @@ fn comet_approval_ledger(env: &Env) -> u32 {
 
 /// Builds the argument vector for the pool's `swap_exact_amount_in` call: input token, input
 /// amount, output token, a zero minimum output amount, an unbounded maximum price, and the router
-/// as the recipient.
+/// as `user` (payer and recipient).
 fn swap_args(ctx: &HopContext<'_>) -> Vec<Val> {
     vec![
         ctx.env,

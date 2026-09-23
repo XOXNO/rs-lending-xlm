@@ -1,8 +1,7 @@
 //! Contract error codes returned via `panic_with_error!`.
 //!
-//! The numbering is not contiguous (2, 6, 8, 10, 14-19, 23, 24 are unused).
-//! Whatever the reason for any individual gap, codes are part of the contract's
-//! observable interface: never backfill one, always append.
+//! Codes 2, 6, 8, 10, 14-19, 23 and 24 are unused. Codes are part of the
+//! contract's observable interface: never backfill a gap, always append.
 
 use soroban_sdk::contracterror;
 
@@ -40,17 +39,15 @@ pub enum Error {
     SameToken = 25,
     /// Declared LP token is not the pool share token.
     LpTokenMismatch = 26,
-    /// Mint delivered fewer shares than `mint_min_shares`.
+    /// `mint_min_shares` is not positive, or the mint delivered fewer shares.
     MinSharesNotMet = 27,
     /// Burn constituent below its min amount.
     MinAmountsNotMet = 28,
     /// Leftover vault balance exceeds residual allowance.
     ExcessiveResidual = 29,
-    /// A contract-internal invariant no longer holds; the call fails closed
-    /// rather than acting on state it can no longer trust. Not reachable
-    /// through any documented sequence of calls on a fresh deployment — if
-    /// you see it, report it. (Instances must always be deployed fresh from
-    /// this build; upgrading a pre-`ReservedTotal` build in place is
-    /// unsupported and would surface this code on fee claims.)
+    /// A contract-internal invariant no longer holds; the call fails closed.
+    /// Unreachable on a fresh deployment of this build. An in-place upgrade
+    /// from a build without `DataKey::ReservedTotal` is unsupported and
+    /// surfaces this code on fee claims.
     InternalInvariant = 30,
 }

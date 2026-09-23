@@ -1,6 +1,6 @@
-//! First-pass mutant killers for `lib.rs` wrappers and the `process_*` bodies
-//! they call. Package tests must exercise the client so `replace fn with ()/0/1`
-//! on those wrappers cannot slip through to the slow iterate suite.
+//! Client-level tests for the `lib.rs` wrappers and the `process_*` bodies they
+//! call. A wrapper mutated to return `()`, `0` or `1` fails here, in the first
+//! mutation pass, before the slower `--iterate` pass.
 extern crate std;
 
 use super::*;

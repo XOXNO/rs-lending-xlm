@@ -138,8 +138,8 @@ pub(crate) fn properties_of_source(
 /// Computes the joined `SourceProperties` across every source configured on the
 /// oracle registered for `key`, tracking `key` on the session's resolution
 /// stack while iterating. Panics with `OracleDepthExceeded` if `depth` exceeds
-/// the maximum resolution depth, or with `OracleNotConfigured` if `key` has no
-/// registered oracle.
+/// the maximum resolution depth, `OracleCycleDetected` if `key` is already on
+/// the stack, or `OracleNotConfigured` if `key` has no registered oracle.
 pub(crate) fn properties_of_key(
     session: &mut Session,
     key: &PriceKey,
@@ -182,8 +182,8 @@ impl ConfigProperties {
     }
 }
 
-/// Validates that `sources` has one or two entries, then computes the
-/// `ConfigProperties` of the first source and, if present, the second.
+/// Panics with `SourceCountOutOfRange` unless `sources` has one or two
+/// entries, then returns the properties of each source as `ConfigProperties`.
 pub(crate) fn properties_of_config(
     session: &mut Session,
     sources: &Vec<PriceSource>,

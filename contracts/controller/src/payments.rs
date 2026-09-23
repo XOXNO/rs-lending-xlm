@@ -70,8 +70,8 @@ pub(crate) fn aggregate_positive_payments(
 }
 
 /// Aggregates hub-asset payments in first-seen order. Rejects empty input,
-/// negative amounts, and overflow. Under `MeansAll`, any zero makes that
-/// hub asset's total a persistent withdraw-all sentinel.
+/// negative amounts, and overflow. Under `MeansAll`, any zero leg sets that
+/// hub asset's total to zero (withdraw all), whatever the other legs hold.
 pub(crate) fn aggregate_payments(
     env: &Env,
     payments: &Vec<HubPayment>,

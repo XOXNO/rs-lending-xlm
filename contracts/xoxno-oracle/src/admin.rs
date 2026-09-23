@@ -44,7 +44,8 @@ impl XoxnoOracle {
     /// `CannotRemoveBelowThreshold` if removal would drop the signer count
     /// below the configured threshold. Deletes the signer's latest submission
     /// for every feed it had submitted to, recomputes the aggregate for each
-    /// of those feeds, and clears the signer's feed list.
+    /// of those feeds (deleting it on a quorum miss), and clears the signer's
+    /// feed list.
     #[only_owner]
     pub fn remove_signer(env: Env, signer: Address) -> Result<(), Error> {
         renew_instance(&env);
@@ -153,16 +154,13 @@ impl XoxnoOracle {
     }
 
     /// Re-derives the stored aggregate for each feed in `feed_ids` under the
-    /// current threshold, submission-age, and skew configuration.
+    /// current threshold, submission-age, skew, and spread configuration, and
+    /// deletes the aggregate of any feed that misses quorum.
     ///
-    /// The configuration setters deliberately do not sweep every registered
-    /// feed. That cost grows with the feed count and eventually crosses the
-    /// transaction footprint limit, which would leave those settings
-    /// permanently unchangeable -- exactly when a signer outage requires
-    /// lowering the threshold. Call this after a configuration change, in
-    /// batches small enough to stay inside the limit: each feed costs about
-    /// one ledger entry per signer plus three. Use `feeds()` to enumerate the
-    /// registered ids.
+    /// The configuration setters do not sweep feeds, because a full sweep can
+    /// exceed the transaction footprint limit. Call this after a configuration
+    /// change, in batches inside that limit: each feed costs about one ledger
+    /// entry per signer plus three. Use `feeds()` to list the registered ids.
     ///
     /// Fails with `FeedNotKnown` if any id is not registered, in which case
     /// no aggregate is recomputed.
@@ -253,10 +251,8 @@ impl XoxnoOracle {
     }
 }
 
-/// Unregisters `asset` — dropping its feed mapping and its asset-registry slot —
-/// and clears every piece of state stored for the `feed_id` it owned. Shared
-/// tail of `remove_feed` and `purge_feed`, which reach it from opposite ends of
-/// the bidirectional asset/feed mapping.
+/// Removes `asset`'s feed mapping and asset-registry slot, then clears all
+/// state stored for `feed_id`.
 fn clear_asset_and_feed(env: &Env, asset: &ReflectorAsset, feed_id: &String) {
     remove_feed_mapping(env, asset);
     asset_index_remove(env, asset);

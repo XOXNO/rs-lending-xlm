@@ -1,5 +1,5 @@
-//! Pool events. Mutation paths emit state snapshots so the hub and indexers
-//! track cash, indexes and share totals without re-simulating accrual.
+//! Pool events. Mutation paths emit state snapshots so indexers track cash,
+//! indexes and share totals without re-simulating accrual.
 
 use common::types::{MarketParamsRaw, MarketStateSnapshot};
 
@@ -8,8 +8,9 @@ use soroban_sdk::{contractevent, contracttype, vec, Address, Env, Vec};
 /// Positional: hub_id, asset, timestamp, supply_index, borrow_index, cash,
 /// supplied, borrowed, revenue.
 ///
-/// `revenue` is OUTSTANDING unclaimed revenue, decremented by every
-/// `claim_revenue` — not a cumulative counter. See `ClaimRevenueEvent`.
+/// `revenue` is the outstanding unclaimed revenue in scaled shares.
+/// `claim_revenue` lowers it; it is not a cumulative counter. See the
+/// controller's `ClaimRevenueEvent`.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PoolMarketStateEvent(
@@ -40,7 +41,7 @@ impl From<&MarketStateSnapshot> for PoolMarketStateEvent {
     }
 }
 
-/// Batch of market state updates after a multi-leg operation.
+/// Batch of market state updates. A single-market operation emits a batch of one.
 #[contractevent(topics = ["market", "batch_state_update"], data_format = "single-value")]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PoolMarketStateBatchEvent {
