@@ -521,8 +521,8 @@ pub fn compute_liquidation(
             } else {
                 &actual_ray * br_ten_pow(c.decimals - 27)
             };
-            // Base is the leg's repayment share, taken before the clamp: once the
-            // seizure clamps there is no realised bonus to take a cut of.
+            // Base is the leg's repayment share, taken before the clamp; a clamp
+            // below the base leaves no bonus to charge a fee on.
             let base_amount = &seizure_tokens * &wad_scale() / &one_plus_bonus_wad;
             let capped = if seizure_tokens > actual_tokens {
                 actual_tokens

@@ -1,28 +1,21 @@
-//! A11-ttl audit: the position-NFT `Owner(token_id)` TTL window against the
-//! controller's own account window, and what that means for liquidation.
+//! The position-NFT `Owner(token_id)` TTL window against the controller's own
+//! account window, and what that means for liquidation (INV-STOR-02b,
+//! INV-STOR-02c, INV-STOR-02d).
 //!
-//! `docs/reference/invariants.md` declares INV-STOR-02c and INV-STOR-02d NOT
-//! ENFORCED with a VERIFICATION GAP. These tests close the measurable half of
-//! that gap: they pin the real windows, prove the two explicit renewal paths
-//! behave as INV-STOR-02b claims, and record the precise reason the archival
-//! half cannot be exercised in-process.
-//!
-//! Windows measured here, not assumed:
-//! * `Owner(token_id)` — stamped to the protocol `TTL_BUMP_USER` window at
-//!   `mint` since F-7, and topped back up to OpenZeppelin's shorter
-//!   `OWNER_EXTEND_AMOUNT` (30 days) by `owner_of` once it decays below OZ's
-//!   29-day threshold. `stellar-tokens` git rev `fbfde38`,
+//! Windows:
+//! * `Owner(token_id)`: `mint` stamps the protocol `TTL_BUMP_USER` window.
+//!   OpenZeppelin `owner_of` tops it back up to the shorter
+//!   `OWNER_EXTEND_AMOUNT` (30 days) once it decays below OZ's 29-day
+//!   threshold. `stellar-tokens` git rev `fbfde38`,
 //!   `packages/tokens/src/non_fungible/mod.rs:395`,
 //!   `packages/tokens/src/non_fungible/storage.rs:69`.
-//! * `AccountMeta(account_id)` — protocol `TTL_BUMP_USER`, 120 days.
-//!   `common/src/constants/shared.rs:81`.
+//! * `AccountMeta(account_id)`: protocol `TTL_BUMP_USER`, 120 days
+//!   (`common/src/constants/shared.rs`).
 //!
-//! Harness caveat that every assertion below depends on:
 //! `tests/test-harness/src/time.rs` pins `min_persistent_entry_ttl: 10`, far
-//! below any real network's `CONFIG_SETTING_STATE_ARCHIVAL` minimum. Newly
-//! created entries therefore start near-dead here and on a real network do
-//! not. Assertions are written against the structural relationship rather
-//! than that number wherever possible.
+//! below any real network minimum, so new entries start near expiry here.
+//! Assertions use the relationship between the windows rather than that
+//! number where possible.
 
 use soroban_sdk::testutils::storage::Persistent as _;
 use soroban_sdk::{contracttype, Address};
@@ -53,8 +46,7 @@ pub enum NftKey {
 }
 
 /// Collapses a `try_` client result into the shape `assert_contract_error`
-/// takes. Mirrors `test_harness::ops::internal::map_try_ok_value`, which is
-/// crate-private.
+/// takes, for any inner error that converts into `soroban_sdk::Error`.
 fn flatten<T, E>(
     result: Result<Result<T, E>, Result<soroban_sdk::Error, soroban_sdk::InvokeError>>,
 ) -> Result<T, soroban_sdk::Error>
@@ -84,22 +76,12 @@ fn meta_ttl(t: &LendingTest, account_id: u64) -> u32 {
     env.as_contract(&ctrl, || env.storage().persistent().get_ttl(&key))
 }
 
-/// INV-STOR-02c, restated after F-7.
+/// INV-STOR-02b: the `Owner` entry and `AccountMeta` start on the same 120-day
+/// window.
 ///
-/// Account creation writes `AccountMeta` through `set_user`, which stamps the
-/// protocol's 120-day window. Before F-7 the paired `Owner` entry got nothing —
-/// `mint` reaches the key through `Base::update`, which does not extend — so
-/// the ownership leg started on the *network's* `minPersistentEntryTTL`.
-/// `mint` now lifts it to the same protocol window via
-/// `extend_user_persistent_ttl` (`contracts/position-nft/src/contract.rs`), so
-/// the two legs start together.
-///
-/// On mainnet that extend is a strict no-op: `min_persistent_ttl` is 2,073,600,
-/// exactly `TTL_BUMP_USER`, so a fresh entry already holds the full window and
-/// the 30-day threshold never trips. It bites on testnet
-/// (`min_persistent_ttl` = 120,960) and in this harness, which pins
-/// `min_persistent_entry_ttl: 10`. See F-7 in
-/// `docs/audits/2026-08-22-final-protocol-audit.md`.
+/// `set_user` stamps `AccountMeta` with the protocol window. `sequential_mint`
+/// writes `Owner` at the network minimum TTL, and `mint` then lifts it with
+/// `extend_user_persistent_ttl` (`contracts/position-nft/src/contract.rs`).
 #[test]
 fn mint_lifts_owner_entry_to_the_protocol_window() {
     let mut t = LendingTest::new().standard_two_asset().build();
@@ -127,11 +109,10 @@ fn mint_lifts_owner_entry_to_the_protocol_window() {
 /// Ages the ledger until the ownership leg has decayed below OZ's threshold,
 /// then runs one controller op so OZ's passive extend fires.
 ///
-/// Needed since F-7: `mint` now starts the `Owner` entry on the full 120-day
-/// protocol window, so `owner_of` is a no-op until the entry falls under
-/// `OZ_OWNER_THRESHOLD`. Decaying from `PROTOCOL_USER_WINDOW` to below 29 days
-/// takes just over 91 days; 92 clears it with margin. The supply is chosen as
-/// the op because adding collateral cannot fail a health check.
+/// `mint` starts the `Owner` entry on the 120-day protocol window, so `owner_of`
+/// extends nothing until the entry falls under `OZ_OWNER_THRESHOLD`. That decay
+/// takes just over 91 days; 92 clears it with margin. The op is a supply
+/// because adding collateral cannot fail a health check.
 fn decay_owner_leg_then_touch(t: &mut LendingTest) {
     let id = t.account_id(ALICE);
     t.advance_time(92 * DAY_SECS);
@@ -144,16 +125,16 @@ fn decay_owner_leg_then_touch(t: &mut LendingTest) {
     t.supply(ALICE, "USDC", 1.0);
 }
 
-/// INV-STOR-02c, second half: OZ renewal tops up to 30 days and no further, and
-/// does not stack. Controller traffic on the same account cannot lift it past
-/// OZ's ceiling, even though F-7 started the entry above it.
+/// INV-STOR-02c: OZ renewal tops up to 30 days and no further, and does not
+/// stack. Controller traffic on the same account cannot lift it past OZ's
+/// ceiling, although `mint` started the entry above it.
 #[test]
 fn passive_owner_of_lifts_only_to_the_oz_window() {
     let mut t = LendingTest::new().standard_two_asset().build();
     t.supply(ALICE, "USDC", 10_000.0);
     let id = t.account_id(ALICE);
 
-    // F-7 starts the leg on the protocol window, above OZ's threshold, so a
+    // `mint` starts the leg on the protocol window, above OZ's threshold, so a
     // passive read does nothing until it has decayed.
     assert_eq!(
         owner_ttl(&t, id),
@@ -195,10 +176,10 @@ fn passive_owner_of_lifts_only_to_the_oz_window() {
     );
 }
 
-/// INV-STOR-02b: both explicit paths lift the ownership leg to the protocol
-/// window. `renew_account` is owner-gated; `position-nft::renew` carries no
-/// `require_auth` (`contracts/position-nft/src/contract.rs:92`), so a keeper or
-/// liquidation bot can pre-warm any position it watches.
+/// INV-STOR-02b: `renew_account` and `position-nft::renew` both lift the
+/// ownership leg to the protocol window. `renew_account` is owner-gated;
+/// `position-nft::renew` carries no `require_auth`, so a keeper or liquidation
+/// bot can renew any position.
 #[test]
 fn renew_account_and_permissionless_renew_close_the_ttl_gap() {
     let mut t = LendingTest::new().standard_two_asset().build();
@@ -232,35 +213,18 @@ fn renew_account_and_permissionless_renew_close_the_ttl_gap() {
     );
 }
 
-/// INV-STOR-02d — the archival half. Verdict: **not a liquidation DoS.**
+/// INV-STOR-02d: a liquidation after the `Owner` entry expires succeeds through
+/// the host's auto-restore.
 ///
-/// `liquidate` does resolve NFT ownership on its hot path. The first statement
-/// of `process_liquidation` after the auth check is `storage::get_account`
-/// (`contracts/controller/src/positions/liquidation/mod.rs:55`), which reaches
-/// `try_account_owner` (`contracts/controller/src/storage/account.rs:30`) and
-/// cross-calls `owner_of`. An unreadable `Owner` entry would block it. The
-/// same is true of `clean_bad_debt` and `force_socialize_bad_debt`, both of
-/// which enter through `socialize_bad_debt`
-/// (`.../liquidation/mod.rs:249`) and then burn through `Base::owner_of` again.
-///
-/// It is not blocked, and this test records why. The soroban-sdk test `Env`
-/// runs storage in **recording** footprint mode, where
-/// `soroban-env-host-27.0.1/src/storage.rs:723` (`handle_maybe_expired_entry`)
-/// silently auto-restores an expired *persistent* entry instead of failing —
-/// only *temporary* entries are dropped. That is not a test-only shortcut:
-/// recording mode is what `simulateTransaction` runs, and from protocol 23 the
-/// restored ids ride back as
-/// `SorobanTransactionData.ext.v1.archivedSorobanEntries`
-/// (`stellar-xdr-23.0.0`), so the submitted `InvokeHostFunctionOp` restores the
-/// entry in line. The harness pins `protocol_version: 27`
-/// (`tests/test-harness/src/presets.rs:20`).
-///
-/// Consequence: a liquidator that preflights then submits is never blocked by
-/// an archived `Owner` entry; it pays restore rent and proceeds. Only a
-/// liquidator that hand-builds a footprint without simulating needs an explicit
-/// restore. This test pins the auto-restore so that an SDK or protocol change
-/// reinstating a hard failure breaks here loudly rather than silently turning
-/// dormant positions into bad debt.
+/// `process_liquidation` calls `storage::get_account`, which resolves the owner
+/// through `try_account_owner` and the NFT's `owner_of`. The test `Env` runs
+/// storage in recording footprint mode, where `handle_maybe_expired_entry`
+/// (`soroban-env-host` 27.0.1) restores an expired persistent entry instead of
+/// failing. `simulateTransaction` also runs in recording mode and lists the
+/// archived entries in `SorobanTransactionData.ext.v1.archivedSorobanEntries`, so
+/// a simulated liquidation restores the entry in the same transaction. A
+/// footprint built without simulation needs an explicit restore. This test
+/// fails if a host change makes the expired read a hard failure.
 #[test]
 fn liquidation_resolves_nft_ownership_and_succeeds_after_auto_restore() {
     let mut t = LendingTest::new().standard_two_asset().build();
@@ -269,11 +233,9 @@ fn liquidation_resolves_nft_ownership_and_succeeds_after_auto_restore() {
     t.assert_healthy(ALICE);
     let id = t.account_id(ALICE);
 
-    // Since F-7 the ownership leg starts on the protocol window, so the
-    // asymmetry this test depends on does not exist at mint. Let it decay past
-    // OZ's threshold and take one passive top-up: that puts the ownership leg
-    // on OZ's 30-day ceiling and re-stamps the account leg to 120 days, which
-    // is the state the hazard below is about.
+    // The ownership leg starts on the protocol window. One passive top-up after
+    // decay puts it on OZ's 30-day ceiling and re-stamps the account leg to
+    // 120 days.
     decay_owner_leg_then_touch(&mut t);
 
     // Ownership leg on OZ's ceiling, account leg on the protocol's; note the
@@ -316,21 +278,10 @@ fn liquidation_resolves_nft_ownership_and_succeeds_after_auto_restore() {
     );
 }
 
-/// Settles whether an **ordinary partial liquidation** resolves NFT ownership,
-/// against the claim that the liquidation module's only NFT touch is the burn
-/// in `remove_account_and_burn_nft` (`.../liquidation/bad_debt.rs:61`).
-///
-/// A symbol grep of `positions/liquidation/**` does miss it, because the read
-/// is indirect: `process_liquidation` (`.../liquidation/mod.rs:56`) calls
-/// `storage::get_account`, and the NFT hop is three frames down in
-/// `storage/account.rs`. This test removes the grep from the argument.
-///
-/// Method: the test `Env` cannot archive an entry, but it can make the same
-/// entry unreadable in the one way it does model — burn it — while leaving
-/// every controller-side account entry intact. If liquidation resolves the
-/// owner, it must now fail `AccountNotFound` (`common/src/errors.rs:44`)
-/// *before* touching any balance. If it does not resolve the owner, a partial
-/// liquidation must still succeed.
+/// A partial liquidation resolves NFT ownership: `process_liquidation` calls
+/// `storage::get_account`, which reads `owner_of`. With the `Owner` entry
+/// burned and every controller-side account entry intact, the liquidation
+/// fails with `AccountNotFound`.
 #[test]
 fn partial_liquidation_resolves_nft_ownership() {
     let mut t = LendingTest::new().standard_two_asset().build();
@@ -356,11 +307,9 @@ fn partial_liquidation_resolves_nft_ownership() {
     assert_contract_error(result, errors::ACCOUNT_NOT_FOUND);
 }
 
-/// Same isolation applied to the wind-down path. `clean_bad_debt` and
-/// `force_socialize_bad_debt` both enter `socialize_bad_debt`
-/// (`.../liquidation/mod.rs:247`), whose line 249 is the same
-/// `storage::get_account`, so they fail on the owner read long before reaching
-/// the burn at `bad_debt.rs:61`.
+/// The same isolation on the bad-debt path: `clean_bad_debt` and
+/// `force_socialize_bad_debt` enter `socialize_bad_debt`, which calls
+/// `storage::get_account`, so both fail on the owner read with `AccountNotFound`.
 #[test]
 fn bad_debt_winddown_resolves_nft_ownership() {
     let mut t = LendingTest::new().standard_two_asset().build();

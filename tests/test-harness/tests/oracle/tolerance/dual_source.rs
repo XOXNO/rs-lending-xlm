@@ -15,9 +15,8 @@ fn test_single_tolerance_uses_midpoint_price() {
 
     t.assert_healthy(ALICE);
 
-    // The valuation must be the primary/anchor midpoint (1.03 + 1.00)/2 =
-    // $1.015 — tight enough to reject primary-only ($103k) and anchor-only
-    // ($100k) pricing.
+    // Primary $1.03 and anchor $1.00 give a $1.015 midpoint. The bound rejects
+    // primary-only ($103k) and anchor-only ($100k) valuation.
     let collateral = t.total_collateral(ALICE);
     assert!(
         (collateral - 101_500.0).abs() < 500.0,

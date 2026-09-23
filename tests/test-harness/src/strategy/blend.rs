@@ -5,8 +5,8 @@ use crate::helpers::{f64_to_i128, HARNESS_HUB, HARNESS_SPOKE};
 use crate::mock_blend::{MockBlend, MockBlendClient, KIND_LIABILITY};
 
 impl LendingTest {
-    /// Registers a MockBlend pool and governance-approves it, reusing the
-    /// same address for the rest of this world's lifetime.
+    /// Registers and governance-approves a `MockBlend` pool once; later calls
+    /// return the same address.
     pub fn ensure_approved_blend(&mut self) -> Address {
         if let Some(addr) = self.blend_pool.clone() {
             return addr;

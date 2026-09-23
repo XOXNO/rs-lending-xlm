@@ -145,15 +145,13 @@ inv() {
     return 1
 }
 
-# Create-and-verify wrapper around inv() for account-creating calls
-# (supply / multiply / migrate_from_blend invoked with --account_id 0, which
-# returns the new account id on stdout). inv() retries transient RPC failures,
-# but an --account_id 0 create is NOT idempotent: if the first send lands on
-# ledger only after tx_status' ~15s poll gives up, inv() resubmits and the id it
-# finally reports can point at no persisted account — every later op on that id
-# then reverts #24 AccountNotFound. Confirm the returned id actually exists on
-# ledger; if it is empty or absent, recreate. Soroban txs are atomic, so a
-# non-persisted create left no effect and re-running is safe.
+# Runs inv() for an account-creating call (supply, multiply or
+# migrate_from_blend with --account_id 0) and prints the new account id.
+# A create is not idempotent: when the first send lands after the ~15s
+# tx_status poll, inv() resubmits, and the reported id can name no persisted
+# account (later calls revert #24 AccountNotFound). The wrapper checks
+# `account_exists` and makes at most 3 attempts. A Soroban tx is atomic, so a
+# create that did not persist has no effect and a retry is safe.
 inv_create() {
     local label="$1" contract="$3" acct attempt
     for attempt in 1 2 3; do

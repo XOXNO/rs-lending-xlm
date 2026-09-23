@@ -12,7 +12,7 @@ impl LendingTest {
     }
 
     /// One withdrawal of `amount` raw units, optionally paid to `recipient`
-    /// instead of the account owner. `amount == 0` means "the whole position".
+    /// instead of `user`. `amount == 0` means "the whole position".
     fn withdraw_inner(
         &mut self,
         user: &str,

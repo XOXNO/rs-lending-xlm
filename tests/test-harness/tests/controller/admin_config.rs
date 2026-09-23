@@ -217,8 +217,8 @@ fn test_upgrade_pool_params_accepts_max_borrow_rate_at_cap() {
     );
 
     let _ = rate_before;
-    // The at-cap model must be accepted AND stored: at zero utilization the
-    // borrow rate equals the new base rate (RAY/100 = 1%).
+    // The at-cap model is accepted and stored: at zero utilization the borrow
+    // rate equals the new base rate (RAY / 100, 1%).
     let rate_after = t.pool_borrow_rate("USDC");
     assert!(
         (rate_after - 0.01).abs() < 1e-9,
@@ -524,9 +524,8 @@ fn test_min_borrow_floor_is_inclusive_at_exact_boundary() {
     t.ctrl_client().set_min_borrow_collateral_usd(&floor);
 
     t.supply(ALICE, "USDC", 10_000.0);
-    // "Inclusive at the exact boundary" only means something while the fixture
-    // sits *on* the floor; a preset LTV change would otherwise move it off the
-    // line silently and the test would still pass.
+    // Pins the fixture on the floor so a preset LTV change cannot make the
+    // boundary check vacuous.
     let account_id = t.resolve_account_id(ALICE);
     assert_eq!(
         t.ctrl_client().get_ltv_collateral_usd(&account_id),

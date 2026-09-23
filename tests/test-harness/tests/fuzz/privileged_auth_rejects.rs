@@ -6,18 +6,11 @@ use soroban_sdk::xdr::ScErrorType;
 use soroban_sdk::{Address, BytesN, InvokeError, Vec as SVec};
 use test_harness::{hub_asset, HubAssetKey, LendingTest, HARNESS_HUB};
 
-/// A privileged call must be stopped by the HOST auth check, never by contract
-/// logic that runs after it.
+/// Checks that an unauthenticated privileged call fails with a host error, not a contract error.
 ///
-/// soroban-sdk 27.0.6 `env.rs:441-463` routes every failure to the OUTER `Err`,
-/// so the old `Err(_) => Ok(())` accepted an arithmetic panic, an argument
-/// rejection, or a missing-wasm host error just as happily as an auth
-/// rejection -- the ordering this file's name promises was never observed.
-/// The inner value is `Ok(soroban_sdk::Error)` (the host error value, which
-/// carries its `ScErrorType`) and only collapses to `Err(InvokeError)` when the
-/// error will not convert; a `Contract`-typed error means the call got PAST the
-/// gate and was stopped by validation instead, which is the regression to
-/// catch.
+/// Every failure arrives in the outer `Err`. A host error of any type except
+/// `ScErrorType::Contract` passes. A `Contract` error means the call got past the auth
+/// check. A bare `InvokeError` or any `Ok` result fails.
 fn expect_rejected<F, R, InnerErr>(label: &str, call: F) -> Result<(), String>
 where
     F: FnOnce() -> Result<Result<R, InnerErr>, Result<soroban_sdk::Error, InvokeError>>,
@@ -177,9 +170,8 @@ fn owner_only_endpoints_reject_unauthed_before_validation() {
         ctrl.set_auths(&no_auths).try_upgrade_pool(&real_wasm)
     })
     .unwrap();
-    // `deploy_pool` stays partly weak: the hash resolves, but deploying the NFT
-    // WASM as a pool would still abort in its constructor, so a dropped gate is
-    // caught here only by the auth error type, not by an `Ok`.
+    // The builder already deployed the pool, so without the auth check this call
+    // fails with `PoolAlreadyDeployed`, a contract error.
     expect_rejected("deploy_pool", || {
         ctrl.set_auths(&no_auths).try_deploy_pool(&real_wasm)
     })
@@ -318,8 +310,8 @@ fn governance_endpoints_reject_unauthed_before_validation() {
     })
     .unwrap();
 
-    // Same caveat as `deploy_pool`: the hash resolves, but the deployed NFT WASM
-    // would abort in a controller constructor, so only the error type discriminates.
+    // The builder already set the controller, so without the auth check this call
+    // fails with `PoolAlreadyDeployed`, a contract error.
     expect_rejected("gov.deploy_controller", || {
         gov.set_auths(&no_auths).try_deploy_controller(&real_wasm)
     })

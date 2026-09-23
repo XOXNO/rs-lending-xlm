@@ -1,7 +1,7 @@
 use test_harness::mock_blend::{KIND_COLLATERAL, KIND_LIABILITY};
 use test_harness::{assert_contract_error, errors, LendingTest, ALICE, BOB};
 
-/// Alice (victim): 10 000 USDC collateral, 0.5 ETH debt, lots of headroom.
+/// Alice (victim): 10 000 USDC collateral, 0.5 ETH debt, health factor 8.
 /// Bob (stranger): a Blend position with 10 000 USDC collateral and 1 ETH liability.
 fn victim_and_stranger() -> (LendingTest, u64) {
     let mut t = LendingTest::new().standard_two_asset().build();
@@ -35,7 +35,7 @@ fn migrate_into_an_account_the_caller_does_not_own_is_not_authorized() {
         100_000_000_000
     );
 
-    // Control: the same arguments succeed on an account the caller owns.
+    // Control: the same arguments succeed when the caller migrates into a new account.
     let own = t
         .try_migrate_from_blend(BOB, 0, &["USDC"], &[], &[("ETH", 1.0)])
         .expect("the stranger can migrate into their own new account");

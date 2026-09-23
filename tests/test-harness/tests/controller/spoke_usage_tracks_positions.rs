@@ -4,9 +4,9 @@
 //! flow that exercises all of them. The check itself lives in the harness
 //! (`assert_spoke_usage_matches_positions`) so scenarios can call it anywhere.
 //!
-//! This is the positive pin for the A080 carve-out: `apply_exit` no-ops on a
-//! missing row, so a row can only go missing if a writer skips `apply_leg_usage`.
-//! No production writer does; this flow is where a future one would show up.
+//! `apply_exit` no-ops on a missing row, so it cannot detect a share writer
+//! that skips `apply_leg_usage`. This flow runs every production writer and
+//! catches that skip.
 
 use common::types::SeizeMode;
 use test_harness::{usd_cents, LendingTest, ALICE, BOB, CAROL, DAVE, LIQUIDATOR};

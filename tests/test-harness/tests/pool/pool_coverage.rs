@@ -75,11 +75,11 @@ fn test_pool_claim_revenue_proportional_burn_when_reserves_low() {
 
     let usdc_key = hub_asset(t.resolve_asset("USDC"));
     let res = t.pool_client("USDC").get_reserves(&usdc_key);
-    // Down to the borrow buffer, the lowest an ordinary borrow can take reserves.
+    // Borrow reserves down to the liquidation buffer, the floor for a borrow.
     t.borrow_raw(BOB, "USDC", res - t.liquidation_buffer_raw("USDC"));
 
-    // Cash is now pinned at the buffer while near-full utilization keeps accruing
-    // revenue, which is what drives revenue past reserves.
+    // Reserves stay at the buffer while near-full utilization accrues revenue
+    // past them.
     t.advance_time(31_536_000 * 4);
     t.update_indexes_for(&["USDC"]);
 

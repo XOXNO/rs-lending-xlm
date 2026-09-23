@@ -9,7 +9,7 @@ Build contract WASM first: `make build` from the repo root — the pool and posi
 | Piece | Location | Role |
 |-------|----------|------|
 | **Library** | `src/` | `LendingTest`, builders, user ops, mocks, assertions, optional `BigRational` liquidation reference |
-| **Integration tests** | `tests/` | Domain-grouped scenario binaries (controller, governance, oracle, pool, strategy, fuzz, meta) |
+| **Integration tests** | `tests/` | Domain-grouped scenario binaries (controller, governance, oracle, pool, strategy, composition, fuzz, meta) plus single-file binaries |
 | **Smoke gate** | `tests/smoke_test.rs` | Fast end-to-end sanity check |
 
 Default runs disable Soroban budget metering. Opt in with `LendingTest::new().with_budget_enabled()` when testing resource limits.
@@ -17,28 +17,29 @@ Default runs disable Soroban budget metering. Opt in with `LendingTest::new().wi
 ## Library layout
 
 Main entry points. `src/` also holds smaller helper modules (`admin.rs`,
-`assert.rs`, `errors.rs`, `flash_loan.rs`, `multi_hub.rs`, `presets.rs`,
-`revenue.rs`, `time.rs`, `view.rs`, `helpers/`, `receivers/`).
+`assert.rs`, `context.rs`, `errors.rs`, `flash_loan.rs`, `multi_hub.rs`,
+`presets.rs`, `revenue.rs`, `script_runner.rs`, `time.rs`, `view.rs`,
+`freezable_token.rs`, `weird_token.rs`, `helpers/`, `receivers/`).
 
 ```text
 src/
-  setup/builder.rs     LendingTestBuilder — markets, spoke, budget, auth mode
+  setup/builder.rs     LendingTestBuilder — markets, spokes, position limits, budget
   core/                LendingTest runtime, market/user state types
   ops/                 supply, borrow, withdraw, repay, account helpers
-  oracle/              reflector config + runtime price/oracle helpers
-  strategy/            swap payloads, multiply/swap strategy actions
+  oracle/              Oracle config builders, RedStone/xoxno adapters, runtime price helpers
+  strategy/            swap payloads, strategy actions, Blend migration helpers
   fixtures.rs          Canonical multi-market presets and seed helpers
-  liquidation.rs       Liquidation helpers and health-factor views
+  liquidation.rs       Liquidation call helpers
   keeper.rs            Index sync, bad-debt cleanup
   reference/           Exact-rational liquidation reference (feature `reference-math`, default on)
-  mock_*.rs            Reflector, Redstone, aggregator, SAC stand-ins
-  prelude.rs           Convenient re-exports for test authors
+  mock_*.rs            Reflector, RedStone, aggregator, Blend, SAC stand-ins
+  prelude.rs           Re-exports, surfaced at the crate root
 ```
 
 ### Entry point
 
 ```rust
-use test_harness::prelude::*;
+use test_harness::*;
 
 let mut t = LendingTest::new()
     .standard_two_asset()
@@ -55,7 +56,7 @@ t.borrow(ALICE, "ETH", 1.0);
 | Feature | Default | Purpose |
 |---------|---------|---------|
 | `reference-math` | on | `test_harness::reference` for liquidation differential tests |
-| `testing` | off | Controller and governance `testing` features (enabled by fuzz / libFuzzer consumers) |
+| `testing` | off | Forwards controller and governance `testing`; the harness dependencies already enable both. Set by the libFuzzer crate (`tests/fuzz`) |
 
 ## Running tests
 
@@ -72,7 +73,7 @@ Pass `-- --test-threads=1` (or `make test TEST_THREADS=1`) to serialise while
 bisecting a suspected cross-test interaction, and for readable `--nocapture`
 output.
 
-Makefile shortcuts: `make test`, `make test-one FILE=controller`, `make test-match PATTERN=liquidation`, `make proptest`.
+Makefile shortcuts: `make test-harness` (this crate only), `make test` (whole workspace), `make test-one FILE=controller`, `make test-match PATTERN=liquidation`, `make proptest`.
 
 Integration test layout, module inventory, naming rules, and fixtures: [`tests/README.md`](tests/README.md).
 

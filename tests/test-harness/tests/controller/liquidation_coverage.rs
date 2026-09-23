@@ -55,8 +55,7 @@ fn residual_after_liquidation(payments: &[(&str, f64)]) -> i128 {
 
 #[test]
 fn test_liquidation_aggregates_duplicate_debt_payments() {
-    // The band alone stayed green with the second leg deleted, so aggregation
-    // was untested. Two legs of one asset must behave as their sum.
+    // Two legs of one asset must behave as one leg of their sum.
     let split = residual_after_liquidation(&[("ETH", 2.0), ("ETH", 0.1)]);
     let single = residual_after_liquidation(&[("ETH", 2.1)]);
     assert_eq!(
@@ -77,8 +76,8 @@ fn test_oracle_rejects_zero_price_before_liquidation_check() {
     t.set_oracle_single_spot("USDC");
     t.set_price("USDC", 0);
 
-    // The act has to be `liquidate` for "before the liquidation check" to mean
-    // anything; the old body only read the `is_liquidatable` view.
+    // Calls `liquidate`, not the `is_liquidatable` view: the price read must fail
+    // before the health-factor check.
     assert_contract_error(
         t.try_liquidate(LIQUIDATOR, alice, "ETH", 0.01),
         errors::NO_LAST_PRICE,

@@ -133,13 +133,9 @@ fn debt_travels_with_the_token() {
 
 #[test]
 fn unknown_and_unmintable_account_ids_are_account_not_found() {
-    // `try_supply_to` isn't used here: it pre-resolves the target account's
-    // spoke id via `get_account_attributes`, which for an unknown id fails
-    // with AccountNotInMarket -- a harness-internal artifact, not the
-    // controller's real answer. The real `supply` entry point only reaches
-    // AccountNotFound inside `load_or_create_account`, after that spoke
-    // lookup would already have failed differently, so we call `try_supply`
-    // directly to observe the controller's actual error.
+    // Calls the controller directly: the harness `supply_to` helpers resolve
+    // the spoke through `get_account_attributes`, which fails with
+    // `AccountNotInMarket` for an unknown id before `supply` runs.
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
     t.supply(ALICE, "USDC", 1_000.0);
 
@@ -160,9 +156,8 @@ fn unknown_and_unmintable_account_ids_are_account_not_found() {
 
 #[test]
 fn self_liquidation_is_allowed() {
-    // NFT-angle variant of liquidation.rs's `test_self_liquidation_allowed`
-    // (Task 5): the same unhealthy-position setup, but the account is
-    // transferred to BOB before he liquidates himself as its new owner.
+    // NFT variant of liquidation.rs's `test_self_liquidation_allowed`: the
+    // account is transferred to BOB, who then liquidates it as its new owner.
     let mut t = LendingTest::new().standard_two_asset().build();
 
     t.supply(ALICE, "USDC", 10_000.0);
@@ -336,16 +331,8 @@ fn force_socialize_bad_debt_burns_nft() {
 
 /// The owner-gated upgrade path, end to end:
 /// `Controller::upgrade_position_nft` -> `markets::upgrade_position_nft` ->
-/// `nft_upgrade_call` -> the NFT's own `upgrade`. None of it had a test in
-/// either suite. The controller-side unit tests cannot reach it, because an
-/// upgrade needs a real wasm hash on-ledger and they load no fixtures; here the
-/// harness already uploads position_nft.wasm to deploy the NFT in the first
-/// place.
-///
-/// What has to survive is ownership. The NFT is the authority record for an
-/// account -- `owner_of` is what the controller resolves a position's owner
-/// through -- so an upgrade that dropped or re-pointed its storage would
-/// silently orphan every live position.
+/// `nft_upgrade_call` -> the NFT's own `upgrade`. Live ownership survives the
+/// upgrade: the controller resolves every account owner through `owner_of`.
 #[test]
 fn upgrading_the_position_nft_preserves_live_ownership() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
@@ -377,13 +364,9 @@ fn upgrading_the_position_nft_preserves_live_ownership() {
     assert_eq!(t.nft_owner_of(alice_id), alice_owner);
 }
 
-/// The preservation test above cannot, on its own, prove the call chain runs:
-/// upgrading to the bytecode already deployed is observationally identical to
-/// not upgrading at all, so it still passes with `nft_upgrade_call` deleted.
-/// Verified that, rather than assumed it.
-///
-/// A hash that was never uploaded is the observable case. Only the NFT can
-/// reject it, so a revert here proves the controller really did reach it.
+/// An upgrade to a hash that was never uploaded reverts. Only the NFT can reject
+/// that hash, so the revert proves the controller reaches `nft_upgrade_call`; a
+/// same-hash upgrade cannot prove it.
 #[test]
 fn upgrading_the_position_nft_to_an_unknown_hash_reverts() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();

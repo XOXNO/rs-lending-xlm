@@ -106,8 +106,8 @@ fn test_insufficient_twap_history_blocks_strict_borrow() {
     assert_contract_error(result, errors::UNSAFE_PRICE);
 }
 
-/// A skipped round returns fewer samples that still span the window. Dropping
-/// the leg would fail the market closed on availability noise.
+/// A skipped round returns fewer samples that still span the window. The TWAP
+/// leg stays usable and the borrow succeeds.
 #[test]
 fn test_gapped_twap_history_keeps_the_market_open() {
     let mut t = setup();

@@ -409,11 +409,9 @@ fn test_partial_chain_converges_no_bad_debt() {
         t.liquidate(LIQUIDATOR, ALICE, "USD", 1_500.0);
     }
 
-    // "No bad debt" has to be asserted unconditionally: this chain ends by
-    // closing the account out, and the old `if let Some(id)` guard made every
-    // assertion vanish in exactly that case. Socialization is what writes the
-    // debt market's supply index down, and no time advances here, so the index
-    // must come back bit-identical.
+    // "No bad debt" is asserted unconditionally because the chain can end with
+    // the account closed. Socialization writes the debt market's supply index
+    // down, and no time advances here, so the index must come back bit-identical.
     let (si_after, _) = get_indexes(&t, "USD");
     assert_eq!(
         si_after, si_before,
@@ -757,8 +755,7 @@ fn test_paused_debt_leg_rejects_liquidation() {
     t.assert_liquidatable(ALICE);
 
     t.set_spoke_asset_paused("USD", true);
-    // The pause gate is the point of the test; a wildcard `is_err()` let an
-    // oracle or liquidity revert stand in for it.
+    // The exact error keeps an oracle or liquidity revert from passing as the pause gate.
     assert_contract_error(
         t.try_liquidate(LIQUIDATOR, ALICE, "USD", 500.0),
         errors::SPOKE_ASSET_PAUSED,

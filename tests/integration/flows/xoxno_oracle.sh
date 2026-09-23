@@ -1,8 +1,8 @@
-# Live xoxno-oracle coverage: deploy with run wallets as the signer set,
-# exercise the whole admin surface with read-backs, drive threshold-gated
-# median aggregation through real multi-signer submissions, hit every
-# designed revert (#NN = contracts/xoxno-oracle Error), and same-hash
-# upgrade with state preserved. Self-contained: no controller wiring.
+# Live xoxno-oracle coverage: deploys with run wallets as the signer set,
+# tests the admin calls with read-backs, drives threshold-gated median
+# aggregation through real multi-signer submissions, checks the designed
+# reverts (#NN = contracts/xoxno-oracle Error), and upgrades to the same hash
+# with state kept. Self-contained: no controller wiring.
 
 flow_xoxno_oracle() {
     phase xoxno_oracle
@@ -50,8 +50,8 @@ flow_xoxno_oracle() {
     assert_view_eq_at "$XO" xo_stale_read 3600 max_stale_seconds
     inv xo_set_sub_age "$ADMIN" "$XO" -- set_max_submission_age_seconds --seconds 900 >/dev/null
     assert_view_eq_at "$XO" xo_sub_age_read 900 max_submission_age_seconds
-    # Skew must sit strictly above MAX_FUTURE_SKEW_SECONDS (60) and at or
-    # below the submission age — both designed rejects covered here.
+    # Skew must be above MAX_FUTURE_SKEW_SECONDS (60) and at most the
+    # submission age; both bounds revert #18.
     xfail xo_skew_too_low 'Error\(Contract, #18\)' "$ADMIN" "$XO" -- set_max_relative_skew_seconds --seconds 60
     xfail xo_skew_over_age 'Error\(Contract, #18\)' "$ADMIN" "$XO" -- set_max_relative_skew_seconds --seconds 1000
     inv xo_set_skew "$ADMIN" "$XO" -- set_max_relative_skew_seconds --seconds 120 >/dev/null

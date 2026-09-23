@@ -1,12 +1,11 @@
-//! INV-ORACLE-04 on the LIVE path.
+//! INV-ORACLE-04 on the live path.
 //!
-//! `docs/reference/invariants.md` records a verification gap: the Certora
-//! rules `timestamp_at_future_skew_boundary_is_allowed` and
+//! The Certora rules `timestamp_at_future_skew_boundary_is_allowed` and
 //! `timestamp_beyond_future_skew_reverts` exercise `check_not_future_at`,
-//! which no contract calls. Production uses `is_future_at`, which DROPS the
-//! leg instead of panicking. These tests cover the live helper end to end:
-//! the boundary it enforces, and that a dropped leg fails closed rather than
-//! degrading a dual source to a single leg (INV-ORACLE-02).
+//! which no contract calls. Production uses `is_future_at`, which drops the
+//! leg instead of panicking. These tests cover the boundary on the live path,
+//! and check that a dropped leg fails closed instead of degrading a dual
+//! source to a single leg (INV-ORACLE-02).
 
 use common::oracle::observation::MAX_FUTURE_SKEW_SECONDS;
 use soroban_sdk::{Address, String};
@@ -34,9 +33,8 @@ fn single_source_usdc(t: &LendingTest, redstone: &Address, feed_id: &String) {
 }
 
 /// A feed stamped at exactly `now + MAX_FUTURE_SKEW_SECONDS` is a valid
-/// observation. This is the boundary the Certora rule proves on the helper the
-/// contracts never call; here it is proved on the live path. The borrow is
-/// what forces valuation -- a bare supply does not read a price.
+/// observation on the live path. The borrow forces a valuation; a supply alone
+/// does not read a price.
 #[test]
 fn future_skew_boundary_is_accepted_on_the_live_path() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
@@ -83,9 +81,8 @@ fn one_second_past_future_skew_fails_closed_on_the_live_path() {
     t.borrow(ALICE, "USDC", 100.0);
 }
 
-/// The quiet-degradation case the dropping helper makes possible: a dual
-/// source whose anchor leg is future-dated must NOT fall back to the healthy
-/// primary leg. The view must report the outcome unusable.
+/// A dual source whose anchor leg is future-dated does not fall back to the
+/// healthy primary leg. The view reports the outcome as unusable.
 #[test]
 fn future_dated_anchor_does_not_degrade_to_a_single_leg() {
     let t = LendingTest::new().with_market(usdc_preset()).build();

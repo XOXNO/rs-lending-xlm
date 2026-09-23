@@ -22,7 +22,7 @@ fn side_count(env: &Env, account_id: u64, pos_type: PositionType) -> u32 {
 }
 
 /// `HubAssetKey` is neither `Hash` nor `Ord`, so the map is keyed by the
-/// spoke id and the key's `Debug` form; the key itself rides along as a value.
+/// spoke id and the key's `Debug` form; the value holds the key itself.
 type UsageRows = HashMap<(u32, String), (HubAssetKey, i128, i128)>;
 
 fn bump_usage(
@@ -217,15 +217,14 @@ impl LendingTest {
         );
     }
 
-    /// Every spoke usage row equals the sum of live scaled positions in that
-    /// spoke, per hub asset and side, and a row exists only while that sum is
-    /// non-zero on at least one side.
+    /// Asserts that every spoke usage row equals the sum of live scaled positions
+    /// in that spoke, per hub asset and side, and that a row exists only while
+    /// that sum is non-zero on at least one side.
     ///
-    /// Usage and positions are written by the same leg merge, so the only way
-    /// they can drift is a writer that moves shares without `apply_leg_usage`.
-    /// That is the A080 precondition: the exit path no-ops on a missing row, so
-    /// a drift is never healed once it exists. Accounts are enumerated from the
-    /// position NFT, which includes the receivers `SeizeMode::Credit(0)` opens.
+    /// Usage and positions are written by the same leg merge, so they drift only
+    /// when a writer moves shares without `apply_leg_usage`. The exit path no-ops
+    /// on a missing row, so a drift is never healed. Accounts are enumerated from
+    /// the position NFT, which includes the receivers `SeizeMode::Credit(0)` opens.
     pub fn assert_spoke_usage_matches_positions(&self) {
         let nft = PositionNftClient::new(&self.env, &self.position_nft);
         let mut expected = UsageRows::new();
@@ -261,7 +260,7 @@ impl LendingTest {
             // with live positions, so a row that outlived its last position
             // is caught too. Hubs are enumerated from the counter because a
             // market can be listed on a hub other than the default one and
-            // `self.markets` keeps only the asset.
+            // `self.markets` stores no hub id.
             let instance = self.env.storage().instance();
             let last_spoke: u32 = instance.get(&ControllerKey::LastSpokeId).unwrap_or(0);
             let last_hub: u32 = instance.get(&ControllerKey::LastHubId).unwrap_or(0);

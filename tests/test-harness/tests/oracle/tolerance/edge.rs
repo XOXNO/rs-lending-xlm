@@ -1,8 +1,8 @@
 use super::{enable_dual_source, setup};
 use test_harness::{assert_contract_error, errors, usd, usd_cents, usd_frac, ALICE};
 
-/// One bp past the upper band: the reject side of the boundary the accept
-/// test below pins from within.
+/// One bp above the upper band edge (10_501 bps) rejects the borrow.
+/// `test_tolerance_at_exact_upper_boundary` pins the accept side.
 #[test]
 fn test_tolerance_rejects_one_bp_above_the_upper_boundary() {
     let mut t = setup();

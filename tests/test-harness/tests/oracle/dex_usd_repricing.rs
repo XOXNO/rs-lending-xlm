@@ -5,10 +5,10 @@ use test_harness::{
     usdc_preset, xlm_preset, LendingTest, ALICE, DEFAULT_TOLERANCE,
 };
 
-/// A DEX oracle quotes in the pool's counter asset rather than in USD — that
-/// is the whole reason these prices go through a `Scaled` source, whose quote
-/// key re-denominates them. `attest` requires the contract's base and that
-/// quote key to name the same asset, so the mock has to carry a real base.
+/// Registers a mock DEX oracle that quotes in `quote_base`, not in USD.
+///
+/// A `Scaled` source re-denominates the price through its quote key, and
+/// `attest` requires the oracle base and the quote key to name the same asset.
 fn register_ratio_oracle(t: &LendingTest, quote_base: &Address) -> Address {
     let dex = t
         .env

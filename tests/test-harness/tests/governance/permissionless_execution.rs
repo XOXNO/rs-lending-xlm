@@ -78,9 +78,8 @@ fn a_named_executor_needs_its_signature_and_role() {
     t.env.ledger().with_mut(|l| l.sequence_number += d);
     let stranger = Address::generate(&t.env);
 
-    // Two distinct refusals, previously indistinguishable behind `is_err()`:
-    // the role holder that did not sign is stopped by the host auth check, the
-    // signer without the role by the contract's own role check.
+    // The host auth check stops the role holder that did not sign. The
+    // contract's role check stops the signer without the role.
     t.env.set_auths(&[]);
     assert_eq!(
         execute(&t, Some(t.admin()), 2).expect_err("the role holder must still sign"),
@@ -104,9 +103,8 @@ fn nobody_executes_before_the_delay_or_after_the_grace_window() {
     let id = propose(&t, 3);
     assert_contract_error(execute(&t, None, 3), errors::TIMELOCK_UNEXPECTED_STATE);
 
-    // `require_operation_not_expired` accepts `sequence() <= expires_at`
-    // (timelock/mod.rs:92-97), so the last ledger of the grace window must
-    // still execute. Without this leg a `<` for `<=` regression is invisible.
+    // `require_operation_not_expired` accepts `sequence() <= expires_at`, so the
+    // last ledger of the grace window still executes.
     t.env.ledger().with_mut(|l| l.sequence_number += d + GRACE);
     execute(&t, None, 3).expect("execution at exactly expires_at must succeed");
     assert_eq!(

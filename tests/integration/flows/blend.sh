@@ -350,13 +350,11 @@ flow_blend_migrate() {
     fi
     log "alice blend liabilities=$(blend_map_sum "$alice_pos" liabilities) seed_debt=$debt_amt cap=$debt_cap has_debt=$alice_has_debt"
 
-    # No caller-mismatch xfail here on purpose. stellar-cli signs an auth
-    # entry for ANY address argument whose secret is in the local keystore,
-    # whatever --source is, so a lane wallet can never play the victim (run
-    # local-20260905-1040 proved it: Bob's tx carried Alice's signature and
-    # migrated her position). A victim without a local secret has no Blend
-    # position to migrate, so the caller gate — require_authorized_caller,
-    # shared by every entrypoint — is proven once in lifecycle.sh instead.
+    # No caller-mismatch xfail here: stellar-cli signs an auth entry for any
+    # address argument whose secret is in the local keystore, whatever --source
+    # is, so a lane wallet cannot act as the victim. A victim without a local
+    # secret has no Blend position to migrate, so lifecycle.sh proves the same
+    # caller gate (require_authorized_caller) on supply instead.
     local alice_acct
     if [ "$alice_has_debt" -eq 1 ]; then
         alice_acct=$(blend_migrate migrate_alice_debtcoll "$ALICE" "$ALICE_ADDR" 0 \
@@ -414,7 +412,7 @@ flow_blend_migrate() {
     local bob_coll_mid
     bob_coll_mid=$(_view_int bob_coll_mid get_collateral_amount --account_id "$bob_acct" \
         --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$XLM_SAC")")
-    # Already-swept Blend position: live pool rejects i128::MAX bToken burn.
+    # Already-swept Blend position: the live pool rejects the zero bToken burn.
     xfail blend_remigrate_empty 'Error\(Contract, #1217\)' "$BOB" "$CONTROLLER" -- migrate_from_blend \
         --caller "$BOB_ADDR" --account_id "$bob_acct" --spoke_id "$PRIMARY_SPOKE_ID" \
         --hub_id "$PRIMARY_HUB_ID" --blend_pool "$BLEND_POOL" \
@@ -502,12 +500,13 @@ flow_blend_migrate() {
         --hub_id "$PRIMARY_HUB_ID" --blend_pool "$BLEND_POOL" \
         --collateral_assets "$xlm_coll" --supply_assets "$empty" --debt_caps "$empty"
 
-    # Frank starts Blend-healthy (30 XLM debt / 200 XLM coll) so no-coll /
-    # min-borrow gates are distinguishable from hub #100. Extra Blend borrow
-    # then pushes into the c_factor 0.90 vs LTV 0.70 unhealthy window.
-    # There is no hub-side "cap too low" guard: a debt cap only bounds the
-    # flash-borrowed repay, so a 1-stroop cap is rejected by Blend's dust floor
-    # (#1219) and the hub never books a partial migration.
+    # Frank starts healthy on Blend (30 XLM debt, 200 XLM collateral), so the
+    # no-collateral and min-borrow gates are distinguishable from hub #100.
+    # A further Blend borrow then enters the window between c_factor 0.90 and
+    # hub LTV 0.70.
+    # The hub has no "cap too low" guard: a debt cap only bounds the
+    # flash-borrowed repay, so Blend's dust floor (#1219) rejects a 1-stroop cap
+    # and the hub never books a partial migration.
     local frank_has_debt=0 frank_unhealthy=0
     blend_seed blend_seed_frank_debt "$FRANK" "$FRANK_ADDR" "$coll_amt" 0 "$debt_amt"
     rc=$?

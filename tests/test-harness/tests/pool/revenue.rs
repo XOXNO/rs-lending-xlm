@@ -199,9 +199,9 @@ fn test_permissionless_revenue_endpoints() {
         "claim_revenue must still require the caller's own signature"
     );
 
-    // Sign as Bob and as nobody else. The builder's blanket
-    // `mock_all_auths_allowing_non_root_auth` is what made the old version
-    // vacuous: under it an admin gate on `claim_revenue` would still pass.
+    // Sign as BOB only. Under the builder's blanket
+    // `mock_all_auths_allowing_non_root_auth`, an admin gate on `claim_revenue`
+    // would still pass.
     t.env.mock_auths(&[MockAuth {
         address: &bob_addr,
         invoke: &MockAuthInvoke {

@@ -82,9 +82,10 @@ pub mod codes {
     pub const COLLATERAL_REQUIRED: u32 = StrategyError::CollateralRequired as u32;
     pub const COLLATERAL_MINIMUM_NOT_MET: u32 = StrategyError::CollateralMinimumNotMet as u32;
 
-    // Literals below come from OpenZeppelin stellar libraries, which expose no
-    // error enums to derive from: stellar-contract-utils pausable (1000),
-    // stellar-access ownable (2000, 2200), stellar-governance timelock (4002).
+    // OpenZeppelin stellar-contracts codes; the harness does not depend on those crates:
+    // stellar-contract-utils pausable `EnforcedPause` (1000), stellar-access access_control
+    // `Unauthorized` (2000) and role_transfer `NoPendingTransfer` (2200), stellar-governance
+    // timelock `InvalidOperationState` (4002).
     pub const CONTRACT_PAUSED: u32 = 1000;
 
     pub const UNAUTHORIZED: u32 = 2000;

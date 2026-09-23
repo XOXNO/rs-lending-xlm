@@ -1,7 +1,7 @@
 //! GH-08. One contract, as the top-level caller, drives every user, keeper
-//! and delegate verb. The last two tests flip the host to enforcing auth so
-//! the runner's own `authorize_as_current_contract` entries are what carries
-//! the token pulls, not the harness mock.
+//! and delegate verb. The last two tests enforce auth, so the runner's own
+//! `authorize_as_current_contract` entries carry the token pulls, not the
+//! harness mock.
 
 use crate::helpers::{borrow_op, key, liquidate_op, repay_op, supply_op, withdraw_op};
 use common::types::{PositionMode, SeizeMode};
@@ -99,10 +99,9 @@ fn a_contract_caller_liquidates_in_both_seize_modes_and_runs_the_keeper_verbs() 
     );
 }
 
-/// The sentinel has to reach the ids nested inside an op, not only the
-/// top-level `account_id`: `SeizeMode::Credit` carries one, and so does the
-/// `clean_bad_debt` target. Unresolved, both reach the controller as
-/// `u64::MAX` and revert with `AccountNotFound`.
+/// `LAST_CREATED` also resolves in nested ids: the `SeizeMode::Credit` target
+/// and the `clean_bad_debt` target. Unresolved, each reaches the controller as
+/// `u64::MAX` and reverts with `AccountNotFound`.
 #[test]
 fn the_sentinel_resolves_inside_seize_mode_and_clean_bad_debt() {
     let mut t = setup();
@@ -134,8 +133,8 @@ fn the_sentinel_resolves_inside_seize_mode_and_clean_bad_debt() {
         "the seizure landed on the account the script opened, not on a fresh one"
     );
 
-    // Same sentinel nested in clean-bad-debt: resolved it reaches a real
-    // account that simply carries no debt, unresolved it reaches `u64::MAX`.
+    // Resolved, the clean-bad-debt target is the new debt-free account, so the
+    // revert is `DebtPositionNotFound`, not `AccountNotFound`.
     let ops: Vec<Op> = vec![
         &t.env,
         supply_op(&t, 0, "USDC", 1_000 * U),

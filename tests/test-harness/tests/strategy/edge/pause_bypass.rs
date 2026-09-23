@@ -51,11 +51,10 @@ fn test_close_position_paused_residual_collateral_reverts() {
     assert_contract_error(result, errors::SPOKE_ASSET_PAUSED);
 }
 
-/// A paused collateral no longer blocks the seizure leg; `no_seize` is the flag that does.
+/// A paused collateral does not block the seizure leg; `no_seize` does (ADR-0008).
 ///
-/// Pause is a user-activity halt, and seizure is pro-rata across an account's whole collateral
-/// set, so gating seizure on `paused` made one paused listing a protocol-wide liquidation halt.
-/// See ADR-0008.
+/// Seizure is pro-rata across the account's whole collateral set, so a `paused` gate on
+/// seizure would turn one paused listing into a protocol-wide liquidation halt.
 #[test]
 fn test_liquidation_of_paused_collateral_is_allowed_but_no_seize_blocks_it() {
     let mut t = liquidatable_usdc_eth();

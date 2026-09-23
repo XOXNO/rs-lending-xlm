@@ -195,9 +195,10 @@ proptest! {
 
 // Seed-adjusted conservation, in RAY asset precision:
 //   surplus = (cash - seed) + borrowed * borrow_index - supplied * supply_index
-// Every rounding favours the pool, so surplus stays in [-dust, 8 token units] per op.
+// Every rounding favours the pool, so surplus stays at or above `-RAY_DUST` and
+// grows by at most 8 token units per op.
 
-/// Rounding dust allowed below zero: a few raw RAY per leg.
+/// Negative surplus allowed as rounding dust, in raw RAY.
 const RAY_DUST: i128 = 1_000_000_000;
 const MAX_ROUNDING_LEGS_PER_OP: i128 = 8;
 
@@ -314,7 +315,7 @@ proptest! {
     }
 }
 
-// The generic op set never lands a liquidation; this property forces one.
+// Drives liquidation and bad-debt socialization directly, not through the generic op set.
 static LIQUIDATIONS_LANDED: AtomicI64 = AtomicI64::new(0);
 static BAD_DEBT_EVENTS: AtomicI64 = AtomicI64::new(0);
 

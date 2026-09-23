@@ -1,6 +1,6 @@
 //! GH-10. Fifty repetitions of a verb cycle inside one invocation extract
-//! nothing: the runner's wallet never rises, spoke usage tracks positions,
-//! and the pool stays backed.
+//! nothing: the runner's wallet never rises, and spoke usage matches both the
+//! positions and the pool's shares.
 
 use crate::helpers::{borrow_op, repay_op, supply_op, withdraw_op, Snapshot};
 use script_runner::{Op, LAST_CREATED};

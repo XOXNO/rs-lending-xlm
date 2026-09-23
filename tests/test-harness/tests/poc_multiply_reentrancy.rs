@@ -24,8 +24,8 @@ impl EvilToken {
         7
     }
 
-    // The price aggregator probes `decimals`/`symbol` before it will accept an
-    // oracle for an address, so the hostile token has to answer both.
+    // Governance probes `decimals` and `symbol` before it configures a token
+    // oracle, so the hostile token answers both.
     pub fn symbol(env: Env) -> soroban_sdk::String {
         soroban_sdk::String::from_str(&env, "EVIL")
     }
@@ -92,12 +92,10 @@ fn poc_multiply_initial_payment_token_cannot_reenter_the_controller() {
     let evil = t.env.register(EvilToken, ());
     EvilTokenClient::new(&t.env, &evil).arm(&t.controller, &alice, &alice_id, &usdc);
 
-    // Price the hostile token. Without an oracle `process_multiply` dies in
-    // `prefetch_strategy_prices` with #216 OracleNotConfigured and
-    // `EvilToken::transfer` is never invoked, which is what made the original
-    // assertion vacuous. A configured feed carries the flow all the way to
-    // `transfer_amount_measured` (multiply.rs:169), the one token call on the
-    // multiply path that runs outside `with_flash_guard`.
+    // Without an oracle, `process_multiply` panics in `prefetch_strategy_prices`
+    // with #216 `OracleNotConfigured` and `EvilToken::transfer` never runs. With
+    // it, the flow reaches `transfer_amount_measured`, which calls the payment
+    // token outside `with_flash_guard`.
     t.mock_reflector_client().set_price(&evil, &usd(1));
     t.mock_reflector_client().set_twap_price(&evil, &usd(1));
     t.configure_market_oracle(
@@ -137,16 +135,10 @@ fn poc_multiply_initial_payment_token_cannot_reenter_the_controller() {
         .ctrl_client()
         .get_collateral_amount(&alice_id, &hub_asset(usdc.clone()));
 
-    // What this PoC reaches: `transfer_amount_measured` (multiply.rs:169) really
-    // invokes the caller-chosen payment token, outside `with_flash_guard`, and
-    // that token really calls back into the controller. What stops it is not the
-    // strategy guard but the Soroban host, which forbids re-entering a contract
-    // already on the call stack. So the terminal fact is the host error, and it
-    // must stay a *rejection*: pinning it here means a future host or SDK that
-    // permitted re-entry would fail this test instead of silently opening the
-    // path. What this PoC does NOT cover: a hostile token calling a *different*
-    // contract that then calls the controller (no host re-entry, guard-only),
-    // which `meta/reentrancy_matrix.rs` probes by injecting the flag directly.
+    // The payment token calls back into the controller. The Soroban host, not the
+    // flash guard, rejects re-entry into a contract already on the call stack.
+    // `meta/reentrancy_matrix.rs` sets the flash flag directly to test contract
+    // guards independently of host protection, which also blocks indirect re-entry.
     let host_error = res
         .expect_err("re-entry from the initial-payment token must abort multiply")
         .expect("expected a host error value, not a bare InvokeError");

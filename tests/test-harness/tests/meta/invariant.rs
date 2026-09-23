@@ -146,9 +146,8 @@ fn test_total_supply_matches_pool_balance() {
     t.supply(ALICE, "USDC", 50_000.0);
     t.supply(BOB, "USDC", 30_000.0);
 
-    // Raw units, exact: no time passed, so both indexes are still RAY and the
-    // credited balance is the deposited amount to the last stroop. The old
-    // `< 10.0` tolerance on 80,000 hid a 0.0125% credit leak.
+    // No time passed, so both indexes are still RAY and each credited raw
+    // balance equals the deposit exactly.
     let unit = 10i128.pow(usdc_preset().decimals);
     assert_eq!(
         t.supply_balance_raw(ALICE, "USDC"),
@@ -161,10 +160,9 @@ fn test_total_supply_matches_pool_balance() {
         "bob's credited supply"
     );
 
-    // `pool_reserves` is `state.cash`, and the market builder pre-loads
-    // `initial_liquidity` straight into it with no matching `supplied`
-    // (src/multi_hub.rs:80-95). Subtracting the donation is what makes this
-    // bind: against raw cash the old `>=` had a 12.5x margin.
+    // `pool_reserves` reads the pool cash, which the builder seeds with
+    // `initial_liquidity` and no matching supply. Subtract the seed to isolate
+    // the two supplies.
     let deposited = t.pool_reserves("USDC") - usdc_preset().initial_liquidity;
     assert_eq!(
         deposited, 80_000.0,

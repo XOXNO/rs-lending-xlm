@@ -1,13 +1,11 @@
-//! A4-econ: does the liquidation path's "stale price + fresh index" asymmetry
-//! give a liquidator anything?
+//! Checks that the stale-price, fresh-index asymmetry on the liquidation path
+//! gives a liquidator nothing.
 //!
-//! The premise under test is that indexes move mid-call while prices are pinned.
-//! `pool::get_bulk_indexes` (contracts/pool/src/lib.rs:321) runs
-//! `simulate_update_indexes(env, now, &sync)` — the same chunking and the same
-//! `update_borrow_index` / `update_supply_index` / `calculate_supplier_rewards`
-//! that `interest::global_sync` commits. So the plan already reads the
-//! accrued-to-now index, and the accruals inside the repay and seize legs land
-//! on `elapsed_ms == 0`.
+//! Indexes move during the call while prices stay fixed. `pool::get_bulk_indexes`
+//! runs `simulate_update_indexes`, which uses the same chunking and the same
+//! `accrue_step` that `interest::global_sync` commits. The plan projects the
+//! accrued-to-now index without persisting it. The first mutation of each market
+//! commits the same index; later mutations of that market have zero elapsed time.
 
 use test_harness::{usd_cents, LendingTest, ALICE, BOB, LIQUIDATOR};
 
@@ -19,8 +17,8 @@ fn seed(t: &mut LendingTest) {
 
 /// A liquidator who pre-accrues with the permissionless `update_indexes` keeper
 /// and then liquidates gets bit-identical delivery to one who liquidates
-/// directly at the same ledger time. INV-IDX-04 time-consistency holds on this
-/// path despite the accrual running three times inside one call.
+/// directly at the same ledger time. INV-IDX-04: the index projection and the
+/// committed accrual share one calculation.
 #[test]
 fn preaccrual_does_not_change_liquidator_payoff() {
     // Run A: liquidate directly.

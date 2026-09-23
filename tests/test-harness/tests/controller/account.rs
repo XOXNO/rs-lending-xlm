@@ -161,17 +161,15 @@ fn test_adopt_account_prunes_old_owner_bookkeeping() {
     // The new owner's bookkeeping resolves the transferred account.
     assert_eq!(t.resolve_account_id(BOB), account_id);
 
-    // The old owner's bookkeeping no longer references it at all.
+    // The old owner's bookkeeping does not reference it.
     assert_eq!(
         t.find_account_id(ALICE),
         None,
         "old owner must have no account left after the transferred id is pruned"
     );
 
-    // The real regression this covers: a harness verb invoked as the old
-    // owner must not keep resolving the account they no longer hold. A
-    // fresh create_account for ALICE must mint a brand-new id rather than
-    // the bookkeeping silently handing back the transferred one.
+    // A harness verb invoked as the old owner must not resolve the transferred
+    // account: `create_account` for ALICE mints a new id.
     let alice_new_account_id = t.create_account(ALICE);
     assert_ne!(
         alice_new_account_id, account_id,
@@ -179,8 +177,7 @@ fn test_adopt_account_prunes_old_owner_bookkeeping() {
     );
     assert_eq!(t.resolve_account_id(ALICE), alice_new_account_id);
 
-    // Same check via the everyday `supply` verb, which resolves the
-    // caller's default account id through the same bookkeeping.
+    // `supply` resolves the caller's default account through the same bookkeeping.
     t.supply(ALICE, "USDC", 100.0);
     assert_eq!(
         t.resolve_account_id(ALICE),

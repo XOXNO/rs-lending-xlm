@@ -110,11 +110,9 @@ fn test_migrate_supply_only() {
     assert_eq!(blend.position(&caller, &usdc, &KIND_SUPPLY), 0);
 }
 
-/// Blend lowers a reserve's b_rate below 1.0 when it socializes bad debt, and
-/// converts a withdraw request to b-tokens before clamping it to the position.
-/// The sweep's withdraw-all amount must survive that conversion for both
-/// request types. Rates are mainnet pool CCCCIQSD's on 2026-09-09 (USDC 0.972,
-/// XLM 0.4756), where an `i128::MAX` request trapped.
+/// Collateral and supply reserves whose b_rate is below 1.0 are both swept in full.
+/// The rates come from mainnet pool CCCCIQSD: USDC 0.972, and XLM 0.4756 set on ETH.
+/// An `i128::MAX` withdraw request traps at these rates.
 #[test]
 fn test_migrate_sweeps_blend_reserves_whose_b_rate_fell_below_one() {
     let mut t = LendingTest::new().standard_two_asset().build();

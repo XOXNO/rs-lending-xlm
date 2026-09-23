@@ -143,9 +143,8 @@ fn cancelled_operation_cannot_execute() {
     assert_contract_error(mapped, errors::TIMELOCK_UNEXPECTED_STATE);
 }
 
-/// The property a timelock exists for: a Waiting operation must refuse to
-/// execute, both immediately and one ledger short of the delay, and the very
-/// same call must succeed once the delay elapses.
+/// A Waiting operation refuses to execute immediately and one ledger short of
+/// the delay. The same call succeeds once the delay elapses.
 #[test]
 fn operation_cannot_execute_before_the_delay_elapses() {
     let t = LendingTest::new().build();

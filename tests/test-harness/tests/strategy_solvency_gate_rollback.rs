@@ -1,21 +1,10 @@
-//! Does host rollback really undo every token transfer when the strategy
-//! surface's single solvency gate rejects, after state has already committed?
+//! A solvency-gate rejection in `flash_position` reverts every token transfer
+//! made before it.
 //!
-//! SCOPE: this covers mint -> forward-to-receiver -> deposit. The `refunds` list
-//! is empty, so `refund_listed_assets` (flash_position.rs:131) iterates nothing
-//! and the refund leg is NOT exercised. A non-empty case would close that gap.
-//!
-//! Every strategy endpoint performs all of its pool commits and all of its
-//! token movement BEFORE the single solvency gate at
-//! `contracts/controller/src/strategies/mod.rs:64`
-//! (`require_post_pool_risk_gates`). In `flash_position` the ordering is
-//! explicitly: mint debt on the pool (`flash_position.rs:107-126`) -> forward
-//! tokens to an arbitrary receiver -> deposit measured collateral (`:129`) ->
-//! refund listed assets to the caller (`:131`) -> *then* gate (`:134`).
-//!
-//! That design is only sound if a panic in the gate reverts every token
-//! transfer already made in the invocation tree. This test forces the gate to
-//! fail and asserts that it does.
+//! `process_flash_position` mints debt on the pool, forwards it to the
+//! receiver, deposits the measured collateral and refunds listed assets. Only
+//! then does `strategy_finalize` run `require_post_pool_risk_gates`. The
+//! `refunds` list is empty here, so the refund leg is not exercised.
 
 extern crate std;
 
@@ -46,9 +35,9 @@ fn solvency_gate_failure_reverts_every_token_transfer() {
     let pool = t.ctrl_client().get_pool_address();
     let controller = t.controller.clone();
 
-    // The receiver returns only 1 stroop of USDC against 1.0 ETH of debt. That
-    // clears the declared minimum, so the deposit leg succeeds and the flow
-    // reaches the solvency gate -- which must then reject it.
+    // The receiver returns 1 raw unit of USDC against 1.0 ETH of debt. That
+    // meets the declared minimum, so the deposit succeeds and the solvency gate
+    // rejects the call.
     let request = FlashPositionRequest {
         mode: FlashPositionMode::Success,
         collateral: usdc.clone(),
@@ -112,14 +101,12 @@ fn solvency_gate_failure_reverts_every_token_transfer() {
         t.snapshot_revenue("ETH")
     );
 
-    // Pin the SPECIFIC error, not merely that something failed. A bare is_err()
-    // would also be satisfied by a revert that happened before any state moved,
-    // which would make every balance assertion below trivially true and prove
-    // nothing about rollback.
+    // The gate's error, not any error: a revert before any transfer would make
+    // the balance checks below vacuous.
     assert_contract_error(res, errors::INSUFFICIENT_COLLATERAL);
 
-    // The pool debited ETH cash and the controller forwarded it to the receiver
-    // before the gate ran. If host rollback is real, none of it survives.
+    // The pool paid out ETH and the controller forwarded it to the receiver
+    // before the gate ran. Host rollback restores all of it.
     assert_eq!(
         eth_client.balance(&pool),
         pool_eth_before,

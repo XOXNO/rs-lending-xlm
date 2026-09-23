@@ -128,8 +128,8 @@ fn test_mixed_decimal_types_single_account() {
     let hf = t.health_factor(ALICE);
     assert!(hf > 1.5 && hf < 1.7, "HF should be ~1.6, got {}", hf);
 
-    // A +-6.7 % window is no test of a decimal conversion. Derive the exact
-    // figure from the preset prices instead.
+    // Checks the exact collateral from the preset prices, so a decimal
+    // conversion error cannot hide inside a wide window.
     let total_collateral = t.total_collateral(ALICE);
     let expected_collateral = 5_000.0 * 1.0 + 0.083 * 60_000.0 + 33.3 * 150.0;
     assert!(
@@ -200,8 +200,8 @@ fn test_interest_accrual_mixed_decimals() {
         borrow_after
     );
 
-    // Nobody borrows USDC6, so its supply index never moves: "hold or grow" was
-    // an equality dressed as an inequality. Assert the equality.
+    // Nobody borrows USDC6, so its supply index stays constant and the balance
+    // is exact.
     assert_eq!(
         t.supply_balance_raw(ALICE, "USDC6"),
         100_000 * 10i128.pow(6),
@@ -275,8 +275,6 @@ fn test_liquidation_6dec_collateral_18dec_debt() {
 
     t.liquidate(LIQUIDATOR, ALICE, "DAI18", 3_000.0);
 
-    // `debt_after < 7_500` alone passed on a one-raw-unit repayment and said
-    // nothing about the 6-dec collateral leg.
     let debt_after = t.borrow_balance(ALICE, "DAI18");
     assert!(
         (debt_before - debt_after - 3_000.0).abs() < 1.0,

@@ -11,8 +11,7 @@ use soroban_sdk::{
 
 use crate::helpers::HARNESS_HUB;
 
-// Exists only to generate `FlashPositionControllerClient`; the trait itself is
-// never implemented here. Same pattern as `external::blend::BlendPool`.
+// Generates `FlashPositionControllerClient` only; nothing implements the trait.
 #[allow(dead_code)]
 #[contractclient(name = "FlashPositionControllerClient")]
 pub trait FlashPositionController {

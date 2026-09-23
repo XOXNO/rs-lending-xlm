@@ -129,9 +129,9 @@ fn test_all_state_changing_entries_reject_under_flash_loan_ongoing() {
     assert!(account_id > 0);
 }
 
-/// GH-28. Three account verbs carry no flash guard on purpose: they move no
-/// value. Pin that they stay reachable under the flag, so a future guard
-/// addition is a deliberate change and not drift.
+/// GH-28. `add_delegate`, `remove_delegate` and `renew_account` move no value and
+/// carry no flash guard, so they remain callable with the flash flag synthetically
+/// set. This tests guard policy, not reachability from a flash-loan callback.
 #[test]
 fn delegate_and_renew_verbs_stay_reachable_under_flash_loan_ongoing() {
     let mut t = setup();

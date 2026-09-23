@@ -19,44 +19,22 @@ use test_harness::{
 
 // --- inspection helpers --------------------------------------------------
 
-/// Share-space slack between the two seize modes: strictly less than one asset
-/// unit. Transfer moves real tokens, so `resolve_withdrawal` quantises its share
-/// burn to whole asset units; credit keeps full RAY precision.
+/// Returns one asset unit in supply shares at `supply_index`:
+/// `10^(27-decimals) * RAY / supply_index`. This is the share gap bound between the two seize
+/// modes under full delivery.
 ///
-/// This MUST be computed from the live supply index, not hardcoded. One asset
-/// unit is `10^(27-decimals)` shares only when `supply_index == RAY`; in general
-/// it is `10^(27-decimals) * RAY / index`. The index is not pinned to RAY in
-/// either direction:
+/// Transfer floors the seizure to asset units, then ceils the share burn (`resolve_withdrawal`).
+/// Credit floors once in RAY share space. With `v` the seizure value, `K` one asset unit of
+/// value, `c = 1 / index` and `r = v mod K`, transfer burns `ceil((v-r)*c)` and credit
+/// `floor(v*c)`, so `credit - transfer < K*c` and `transfer - credit < 2` raw shares.
 ///
-/// - interest accrual drives it above RAY, which makes a fixed 1e20 bound
-///   conservative (harmless);
-/// - bad-debt socialisation drives it BELOW RAY
-///   (`contracts/pool/src/interest.rs:75-91`), floored at `SUPPLY_INDEX_FLOOR_RAW
-///   = RAY / 1_000`. At that floor one asset unit is 1e23 shares, so a fixed
-///   1e20 bound would be 1000x too small and would fail on a market that had
-///   taken a full bad-debt wipeout — a state `pool/tests/flows.rs:3072`
-///   (`test_bad_debt_wipeout_leaves_market_usable_at_realistic_scale`) shows is
-///   reachable and survivable.
+/// The bound follows the live index, so it must not be a constant. Bad-debt socialization
+/// (`apply_bad_debt_to_supply_index`) can lower the index to `SUPPLY_INDEX_FLOOR_RAW`
+/// (`RAY / 1_000`), where one asset unit is 1e23 shares, not 1e20.
 ///
-/// Returned as f64: this is a test bound, and f64's 53-bit mantissa is ample
-/// against quantities of order 1e20 where the comparison only needs to
-/// distinguish "under one unit" from "over".
-///
-/// Measured worst case across a 294-point supply-index sweep is 0.9412 of one
-/// asset unit (see
-/// `the_share_gap_stays_under_one_asset_unit_across_a_supply_index_sweep`), so
-/// the true headroom is ~1.06x, not the 2.4x an earlier fixed constant claimed.
-/// The supremum is one asset unit and the gap genuinely approaches it.
-///
-/// ONE UNIT IS THE FULL-DELIVERY BOUND. It is derivable: with `r = v mod K`,
-/// transfer burns `ceil((v-r)*c)` and credit `floor(v*c)`, so
-/// `credit - transfer <= r*c < K*c` and `transfer - credit < 2` raw shares.
-/// Under-delivery adds a SECOND independent floor —
-/// `scale_seizures_to_received` (`math.rs:426-452`) floor-scales `amount` and
-/// `scaled_amount` separately by `received/planned` — which doubles it to
-/// `2*K*c`. Callers on an under-delivering asset must use
-/// `UNDER_DELIVERY_SLACK_UNITS`; see
-/// `under_delivery_doubles_the_gap_but_keeps_it_bounded`.
+/// Under-delivery adds a second floor (`scale_seizures_to_received`) and doubles the bound;
+/// use `UNDER_DELIVERY_SLACK_UNITS` there. Returns f64 for messages and ratios only;
+/// `share_gap_under_units` does the exact compare.
 fn seize_mode_share_slack(supply_index: i128, decimals: u32) -> f64 {
     let shares_per_unit_at_ray = 10f64.powi(27 - decimals as i32);
     shares_per_unit_at_ray * common::constants::RAY as f64 / supply_index as f64
@@ -247,8 +225,6 @@ fn credit_mode_leaves_supplied_and_cash_untouched_and_moves_only_revenue() {
         "no interest should have accrued in this scenario"
     );
 
-    // Conservation, end to end: everything the liquidated account lost is now either the
-    // receiver's or the protocol's, to the share.
     let seized = alice_before - scaled_supply(&t, alice_id, "USDC");
     let credited = scaled_supply(&t, receiver, "USDC");
     let fee = after.revenue - before.revenue;
@@ -270,9 +246,8 @@ fn credit_mode_moves_spoke_usage_by_exactly_the_protocol_fee() {
     t.liquidate_with_mode(LIQUIDATOR, ALICE, "ETH", 1.0, SeizeMode::Credit(0));
 
     let fee = pool_state(&t, "USDC").revenue - revenue_before;
-    // The account-to-account leg is a genuine no-op: both sides are the same spoke and the same
-    // hub asset. The only value that leaves the account system is the protocol fee, which is
-    // reclassified into revenue exactly as bad-debt cleanup reclassifies an absorbed position.
+    // Both accounts share the spoke and hub asset, so only the protocol fee leaves spoke usage.
+    // The pool reclassifies it as revenue, as bad-debt cleanup does for an absorbed position.
     assert_eq!(
         spoke_supply_usage(&t, "USDC"),
         usage_before - fee,
@@ -413,7 +388,7 @@ fn a_receiver_with_a_position_keeps_its_own_tuple_and_just_grows() {
     let receiver = t.resolve_account_id(LIQUIDATOR);
     let before = position(&t, receiver, "USDC").expect("liquidator holds USDC");
 
-    // Now move the listing. An ordinary supply would not restamp an existing position either.
+    // Move the listing. An ordinary supply restamps an existing position; a credit does not.
     t.edit_asset_config("USDC", |c| {
         c.loan_to_value = 4_000;
         c.liquidation_threshold = 5_000;
@@ -607,8 +582,8 @@ fn the_estimate_reports_the_units_the_chosen_mode_moves() {
 
 #[test]
 fn bad_debt_promotion_still_fires_after_a_credit_mode_liquidation() {
-    // Same shape the existing bad-debt suite uses: a dust-sized borrower whose collateral
-    // collapses far enough that the residual clears the socialization gate.
+    // A dust-sized borrower whose collateral falls far enough that the residual debt clears
+    // the socialization gate.
     let mut t = LendingTest::new().standard_two_asset_dust_disabled();
     t.supply(BOB, "ETH", 100.0);
     t.supply(ALICE, "USDC", 10.0);
@@ -641,8 +616,7 @@ fn bad_debt_promotion_still_fires_after_a_credit_mode_liquidation() {
 #[test]
 fn a_paused_collateral_can_still_be_seized() {
     let mut t = liquid_usdc();
-    // Pausing USDC used to halt liquidation of every account holding it, because seizure is
-    // pro-rata across the whole collateral set.
+    // Seizure is pro-rata across every collateral, so a paused USDC listing must not block it.
     t.set_spoke_asset_flags("USDC", true, false, false);
 
     let coll_before = t.supply_balance(ALICE, "USDC");
@@ -682,14 +656,13 @@ fn no_seize_blocks_the_seizure_leg_in_both_modes() {
 fn a_paused_debt_asset_is_opt_in_and_only_blocks_when_named() {
     let mut t = LendingTest::new().standard_two_asset().build();
 
-    // Two debts; only one of them gets paused.
     t.supply(ALICE, "USDC", 10_000.0);
     t.borrow(ALICE, "ETH", 3.0);
     t.set_price("USDC", usd_cents(50));
     t.assert_liquidatable(ALICE);
 
     t.set_spoke_asset_flags("ETH", true, false, false);
-    // The debt side is chosen by the liquidator, so naming a paused asset reverts...
+    // The liquidator chooses the debt leg, so naming a paused debt asset reverts.
     assert_contract_error(
         t.try_liquidate(LIQUIDATOR, ALICE, "ETH", 1.0),
         errors::SPOKE_ASSET_PAUSED,
@@ -710,22 +683,13 @@ fn no_seize_does_not_block_ordinary_withdrawal() {
 
 // --- mode parity ---------------------------------------------------------
 
-/// Do the two seize modes take the same value out of the liquidated account at the
-/// same ledger?
+/// At the same ledger, transfer and credit debit identical accounts by share amounts less
+/// than one asset unit apart.
 ///
-/// This is the question that decides whether either mode over- or under-seizes,
-/// and nothing tested it: the existing tests check conservation *within* credit
-/// mode (`credited + fee == seized`) but never compare the two paths.
+/// The modes convert the seizure differently, so they cannot match bit for bit:
 ///
-/// They cannot be bit-identical by construction, because they convert the seizure
-/// differently:
-///
-///   Transfer: value -> asset units (floor) -> shares (CEIL)   [resolve_withdrawal]
-///   Credit:   value -> shares (FLOOR)                          [one conversion]
-///
-/// Two conversions in opposite directions versus one. This pins how far apart that
-/// leaves them, so a future change to either rounding step cannot silently widen
-/// the gap.
+/// - Transfer: value -> asset units (floor) -> shares (ceil), in `resolve_withdrawal`.
+/// - Credit: value -> shares (floor).
 #[test]
 fn transfer_and_credit_seize_the_same_value_at_the_same_ledger() {
     let mut t = LendingTest::new().standard_two_asset().build();
@@ -749,7 +713,6 @@ fn transfer_and_credit_seize_the_same_value_at_the_same_ledger() {
         "fixture broken: the two borrowers must start identical"
     );
 
-    // Same repayment, same ledger, same index — only the mode differs.
     t.liquidate_with_mode(LIQUIDATOR, ALICE, "ETH", 1.0, SeizeMode::Transfer);
     let receiver = t.liquidate_with_mode(LIQUIDATOR, CAROL, "ETH", 1.0, SeizeMode::Credit(0));
 
@@ -757,9 +720,7 @@ fn transfer_and_credit_seize_the_same_value_at_the_same_ledger() {
     let credit_seized = carol_before - scaled_supply(&t, carol_id, "USDC");
     assert!(transfer_seized > 0 && credit_seized > 0, "both must seize");
 
-    // The victim-side debit is what "over-seize" means. Allow the sub-unit slack the
-    // two conversion routes make unavoidable, but no more: anything larger is a
-    // rounding regression, not arithmetic noise.
+    // The liquidated accounts' share debits differ by less than one asset unit.
     let delta = (transfer_seized - credit_seized).abs();
     let index = pool_state(&t, "USDC").supply_index;
     let decimals = t.resolve_market("USDC").decimals;
@@ -771,8 +732,6 @@ fn transfer_and_credit_seize_the_same_value_at_the_same_ledger() {
          beyond {slack}"
     );
 
-    // And the liquidator's side: credited shares plus the fee must reconstruct the
-    // whole seizure, so nothing is stranded between the two accounts.
     let credited = scaled_supply(&t, receiver, "USDC");
     assert!(
         credited > 0 && credited <= credit_seized,
@@ -780,14 +739,11 @@ fn transfer_and_credit_seize_the_same_value_at_the_same_ledger() {
     );
 }
 
-/// The full-close case, where the two modes *must* agree exactly rather than
-/// approximately.
+/// On a full close, transfer and credit debit exactly the same shares.
 ///
-/// Both paths special-case it: `resolve_withdrawal` returns `pos_scaled` when the
-/// request covers the position, and the credit path takes `position.scaled_amount`
-/// verbatim when `capped_ray == actual_ray`. Neither re-derives the figure from an
-/// asset amount, precisely so a rounding step cannot strand or invent a share — so
-/// an exact match is the property, not a bound.
+/// `resolve_withdrawal` returns `pos_scaled` when the request covers the position, and
+/// credit takes `position.scaled_amount` when `capped_ray == actual_ray`. Neither path
+/// derives the shares from an asset amount.
 #[test]
 fn transfer_and_credit_agree_exactly_on_a_full_close() {
     let mut t = LendingTest::new().standard_two_asset().build();
@@ -818,13 +774,8 @@ fn transfer_and_credit_agree_exactly_on_a_full_close() {
     );
 }
 
-/// The same parity question, with values chosen so nothing divides evenly.
-///
-/// The round-number fixture above cannot distinguish the two conversion routes:
-/// when every quantity divides cleanly, floor and ceil agree trivially. These
-/// amounts and this price are deliberately awkward, so if `resolve_withdrawal`'s
-/// floor-then-CEIL can ever diverge from the credit path's single FLOOR, it shows
-/// up here.
+/// Transfer and credit debit within one asset unit of shares on amounts and a price that
+/// do not divide evenly, where floor and ceil can differ.
 #[test]
 fn transfer_and_credit_agree_on_values_that_do_not_divide_evenly() {
     let mut t = LendingTest::new().standard_two_asset().build();
@@ -857,13 +808,9 @@ fn transfer_and_credit_agree_on_values_that_do_not_divide_evenly() {
          (transfer={transfer_seized} credit={credit_seized}, slack={slack})"
     );
 
-    // In asset units — what the liquidated account can be said to have lost —
-    // the two modes agree exactly HERE. That exactness is a property of this
-    // fixture's index, not of the protocol: no interest has accrued, so
-    // `supply_index == RAY` and both conversion routes collapse to the same
-    // scaling. Once the index moves the two land one stroop apart — see
-    // `transfer_and_credit_agree_on_values_that_do_not_divide_evenly_after_accrual`,
-    // which carries the bound that holds at any index.
+    // Exact in asset units only because `supply_index == RAY` here. At other indexes the
+    // bound is one unit; see
+    // `transfer_and_credit_agree_on_values_that_do_not_divide_evenly_after_accrual`.
     assert_eq!(
         t.supply_balance_raw(ALICE, "USDC"),
         t.supply_balance_raw(CAROL, "USDC"),
@@ -872,16 +819,12 @@ fn transfer_and_credit_agree_on_values_that_do_not_divide_evenly() {
     );
 }
 
-/// Does a liquidator who immediately withdraws the credited shares end up with
-/// the same tokens as one who took `Transfer`?
+/// Credit followed by a same-ledger withdraw-all pays the liquidator at most one unit less
+/// than transfer.
 ///
-/// This is the question an integrator actually cares about, and the answer is
-/// not obviously yes: the credit path already took the protocol fee in shares,
-/// but the withdraw applies its own share->asset conversion on top, so there are
-/// two roundings in one flow versus one in the other.
-///
-/// Withdraw-all is requested with the `0` sentinel so the exit is not itself
-/// quantised by a caller-supplied amount.
+/// Credit rounds twice (value to shares, then shares to asset units at withdraw); transfer
+/// rounds once. The withdraw uses the `0` withdraw-all sentinel, so no caller amount adds a
+/// rounding step.
 #[test]
 fn withdrawing_the_credit_in_the_same_ledger_matches_the_transfer_payout() {
     let mut t = LendingTest::new().standard_two_asset().build();
@@ -917,21 +860,10 @@ fn withdrawing_the_credit_in_the_same_ledger_matches_the_transfer_payout() {
         transfer_payout > 0 && credit_payout > 0,
         "both flows must pay the liquidator something"
     );
-    // Measured: credit-then-withdraw pays exactly one stroop less. The credit
-    // flow floors twice — value->shares at liquidation, then shares->asset units
-    // at withdraw — where transfer converts once. Each floor can shed at most one
-    // unit of the smallest denomination.
-    //
-    // The direction here is REGIME-LOCAL, not a safety property. On a dust leg
-    // it inverts: transfer's one-unit fee bump (math.rs:320-324) charges a whole
-    // stroop where the true fee is a fraction of one, so credit pays MORE. See
-    // `a_dust_leg_inverts_the_payout_ordering_between_the_modes`, which pins that
-    // regime, and `the_two_modes_never_differ_by_more_than_one_stroop_at_any_leg_size`,
-    // which carries the property that does hold everywhere.
-    //
-    // This fixture sits above the bump threshold, so the ordering below is the
-    // documented one. Assert it separately from the magnitude so a change in
-    // either is visible.
+    // The ordering holds only above the dust threshold; on a dust leg it inverts
+    // (`a_dust_leg_inverts_the_payout_ordering_between_the_modes`). The one-unit magnitude
+    // holds at every leg size
+    // (`the_two_modes_never_differ_by_more_than_one_stroop_at_any_leg_size`).
     assert!(
         credit_payout <= transfer_payout,
         "credit-then-withdraw paid MORE than transfer ({credit_payout} vs \
@@ -947,17 +879,10 @@ fn withdrawing_the_credit_in_the_same_ledger_matches_the_transfer_payout() {
 
 // --- fee base ------------------------------------------------------------
 
-/// The protocol fee is charged on the **bonus**, not on the whole seizure.
+/// The protocol fee is charged on the bonus, not on the gross seizure.
 ///
-/// This is the economics of the liquidation and nothing pinned it. Repay 100,
-/// take 105 back, and the fee comes out of the 5 — the liquidator keeps
-/// `105 - fee`, not `105 * (1 - fee_rate)`. Getting this wrong by charging the
-/// gross would quietly take 12% of principal instead of 12% of profit.
-///
-/// The discriminating check needs no knowledge of the bonus curve: if the fee
-/// were charged on the total, `fee / seized` would be exactly the fee rate. It
-/// is charged on the bonus, so that ratio must come out strictly below it — and
-/// by a wide margin, since the bonus is a small fraction of the seizure.
+/// Repay 100 and seize 105: the fee is a share of the 5, and the liquidator keeps
+/// `105 - fee`, not `105 * (1 - fee_rate)`.
 #[test]
 fn the_protocol_fee_is_charged_on_the_bonus_not_the_gross_seizure() {
     let mut t = LendingTest::new().standard_two_asset().build();
@@ -1005,8 +930,6 @@ fn the_protocol_fee_is_charged_on_the_bonus_not_the_gross_seizure() {
          bonus_bps={bonus_bps}, seized={seized}); drift {drift}"
     );
 
-    // The liquidator's take is the whole seizure minus that fee — `105 - fee`,
-    // never `105` scaled down by the fee rate.
     let liquidator_take = seized - fee;
     assert!(
         liquidator_take > seized * (BPS - FEE_BPS) / BPS,
@@ -1017,13 +940,10 @@ fn the_protocol_fee_is_charged_on_the_bonus_not_the_gross_seizure() {
 
 // --- dust legs: where the two modes stop agreeing ------------------------
 
-/// Builds two identical multi-collateral borrowers whose WBTC leg is worth
-/// `wbtc_amt`, drives them underwater, and returns `(transfer_payout,
-/// credit_then_withdraw_payout)` in WBTC stroops for the same repayment.
+/// Returns `(transfer_payout, credit_then_withdraw_payout)` in WBTC stroops for two identical
+/// liquidatable accounts that each supply `wbtc_amt` WBTC beside USDC, for the same repayment.
 ///
-/// Seizure is pro-rata across every collateral, so a small WBTC position
-/// produces a *dust leg* inside an otherwise ordinary liquidation — the
-/// liquidator does not choose this shape, the victim's collateral mix does.
+/// Seizure is pro-rata across every collateral, so a small WBTC position yields a dust leg.
 fn wbtc_leg_payouts(wbtc_amt: f64) -> (i128, i128) {
     let mut t = LendingTest::new().three_asset_usdc_eth_wbtc().build();
     for user in [ALICE, CAROL] {
@@ -1051,33 +971,14 @@ fn wbtc_leg_payouts(wbtc_amt: f64) -> (i128, i128) {
     (transfer_payout, credit_payout)
 }
 
-/// On a dust leg the two modes invert: credit-then-withdraw pays MORE than
-/// transfer.
+/// On a dust leg, credit-then-withdraw pays exactly one stroop more than transfer.
 ///
-/// `withdrawing_the_credit_in_the_same_ledger_matches_the_transfer_payout`
-/// measures the opposite direction and reads it as a safety property
-/// ("rounding must never favour the liquidator"). That direction is real but
-/// *regime-local*, and this test pins the regime where it flips, so nobody
-/// promotes the observation to an invariant.
-///
-/// The cause is the one-unit fee bump in the transfer planner
-/// (`math.rs:320-324`): when the fee is positive but rounds to zero asset
-/// units, transfer charges a whole unit anyway. Credit mode has no such floor
-/// — `split_seized_shares` ceils in RAY share space, where a sub-stroop fee is
-/// representable — so it charges the true fee instead of the minimum.
-///
-/// Measured at the smallest leg: transfer charges 1 stroop of fee where the
-/// true fee is 0.024 stroops, a 42x overcharge. The liquidator keeps 3 stroops
-/// of a 4-stroop seizure under transfer and 4 under credit.
-///
-/// Bounded and not economically exploitable: at most one stroop per dust leg,
-/// and a liquidator cannot manufacture legs — the victim's collateral mix
-/// fixes them, capped by `PositionLimits.max_supply_positions`. What it costs
-/// the protocol is forgone *fee*, never principal.
+/// When the transfer fee is positive but floors to zero asset units,
+/// `calculate_seized_collateral` charges one unit. Credit ceils the fee in RAY share space
+/// (`split_seized_shares`), so it charges the sub-stroop fee. The difference is at most one
+/// stroop of fee per dust leg; `PositionLimits.max_supply_positions` caps the leg count.
 #[test]
 fn a_dust_leg_inverts_the_payout_ordering_between_the_modes() {
-    // Below the bump threshold the true fee is under one stroop, so transfer's
-    // floor-at-one overcharges and credit undercuts it.
     for wbtc_amt in [0.000001_f64, 0.000005, 0.00001, 0.00002] {
         let (transfer_payout, credit_payout) = wbtc_leg_payouts(wbtc_amt);
         assert!(
@@ -1094,10 +995,8 @@ fn a_dust_leg_inverts_the_payout_ordering_between_the_modes() {
     }
 }
 
-/// Above the bump threshold the ordering returns to the documented one.
-///
-/// Together with the test above this brackets the crossover, so the boundary
-/// is pinned from both sides rather than sampled on one convenient fixture.
+/// Above the dust threshold, transfer pays at least as much as credit-then-withdraw and at
+/// most one stroop more. With the dust-leg test above, this brackets the crossover.
 #[test]
 fn above_the_dust_threshold_transfer_pays_at_least_as_much_as_credit() {
     for wbtc_amt in [0.0001_f64, 0.001, 0.01] {
@@ -1115,19 +1014,13 @@ fn above_the_dust_threshold_transfer_pays_at_least_as_much_as_credit() {
     }
 }
 
-/// Whatever the ordering, the gap is one stroop — never more.
+/// At every WBTC leg size, the two payouts differ by at most one stroop, in either direction.
 ///
-/// This is the property that actually bounds the exposure, and it is the one
-/// worth stating as an invariant: the direction is regime-dependent, the
-/// magnitude is not.
+/// Full delivery only: all three markets use standard SACs. On an under-delivering asset the
+/// bound is two units; see `under_delivery_doubles_the_gap_but_keeps_it_bounded`.
 ///
-/// Scope: full delivery. All three collateral markets here use standard SACs,
-/// so the repayment arrives intact. On an under-delivering asset the bound is
-/// two units, not one — see `under_delivery_doubles_the_gap_but_keeps_it_bounded`.
-///
-/// The sweep stops at 0.01 WBTC ($600): past that the extra collateral keeps
-/// the account healthy through the USDC price drop and there is no
-/// liquidation left to compare.
+/// The sweep stops at 0.01 WBTC ($600). A WBTC leg above $2,500 keeps the account healthy
+/// after the USDC price drop, so no liquidation runs.
 #[test]
 fn the_two_modes_never_differ_by_more_than_one_stroop_at_any_leg_size() {
     for wbtc_amt in [
@@ -1153,14 +1046,8 @@ fn the_two_modes_never_differ_by_more_than_one_stroop_at_any_leg_size() {
 
 // --- accrued index and fee parity ----------------------------------------
 
-/// The same parity question after real interest has accrued, so the
-/// share<->asset conversion is no longer nearly the identity.
-///
-/// Every other cross-mode test in this file runs at `supply_index == RAY`,
-/// where `div_floor(index)` barely rounds and the two fee bases coincide.
-/// That is the regime where the modes agree most easily. This one advances a
-/// year first, so the index is genuinely off one and each conversion has
-/// something to lose.
+/// Transfer and credit stay within one asset unit on values that do not divide evenly after
+/// one year of accrual moves the USDC supply index above RAY.
 #[test]
 fn transfer_and_credit_agree_on_values_that_do_not_divide_evenly_after_accrual() {
     let mut t = LendingTest::new().standard_two_asset().build();
@@ -1169,8 +1056,7 @@ fn transfer_and_credit_agree_on_values_that_do_not_divide_evenly_after_accrual()
         t.supply(user, "USDC", 7_333.37);
         t.borrow(user, "ETH", 2.19);
     }
-    // Borrow against the USDC market too, so its supply index actually moves:
-    // utilisation, not time alone, is what accrues interest.
+    // A USDC borrow is necessary: with no USDC borrowed, the supply index stays at RAY.
     t.supply(BOB, "ETH", 50.0);
     t.borrow(BOB, "USDC", 9_000.0);
     t.advance_and_sync(365 * 24 * 60 * 60);
@@ -1207,17 +1093,7 @@ fn transfer_and_credit_agree_on_values_that_do_not_divide_evenly_after_accrual()
          asset unit in share space at THIS index, {slack}"
     );
 
-    // MEASURED: once the index moves off RAY the asset-unit parity that
-    // `transfer_and_credit_agree_on_values_that_do_not_divide_evenly` asserts
-    // with `assert_eq!` no longer holds exactly — at index 1.0507 the two
-    // victims are left with 46992413062 vs 46992413061, one stroop apart, and
-    // credit is the one that seized more. That test is exact only because it
-    // runs at `supply_index == RAY`, where both conversion routes collapse to
-    // the same scaling.
-    //
-    // So the honest cross-mode property in asset units is a one-unit bound,
-    // not equality, and the sign is not fixed: it is floor-vs-ceil here and
-    // the other way round in the dust regime above.
+    // Off RAY the two accounts can end one asset unit apart, in either direction.
     let alice_left = t.supply_balance_raw(ALICE, "USDC");
     let carol_left = t.supply_balance_raw(CAROL, "USDC");
     let asset_delta = (alice_left - carol_left).abs();
@@ -1229,18 +1105,11 @@ fn transfer_and_credit_agree_on_values_that_do_not_divide_evenly_after_accrual()
     );
 }
 
-/// The protocol fee is computed twice, by two different rules, and nothing
-/// compared them.
+/// Transfer and credit charge the same protocol fee within one asset unit.
 ///
-/// Transfer rates the bonus half-up in RAY asset space then floors to asset
-/// units (`math.rs:286`, `:319`), with a one-unit minimum. Credit rates a
-/// separately-floored share base with a CEIL (`math.rs:360`). They are
-/// independent computations of the same economic quantity off different bases
-/// in different unit spaces, so they are not required to agree by
-/// construction — only by arithmetic.
-///
-/// Converting the credit fee back through the supply index puts both in asset
-/// units and bounds the gap.
+/// Transfer rates the bonus half-up in RAY asset value, then floors to asset units with a
+/// one-unit minimum (`calculate_seized_collateral`). Credit ceils the fee on a floored share
+/// bonus (`split_seized_shares`). The test converts the credit fee to asset units to compare.
 #[test]
 fn the_two_modes_charge_the_same_protocol_fee_within_one_unit() {
     let mut t = LendingTest::new().standard_two_asset().build();
@@ -1270,8 +1139,8 @@ fn the_two_modes_charge_the_same_protocol_fee_within_one_unit() {
         "both estimates must report a live fee"
     );
 
-    // No accrual or bad debt has touched USDC, so shares convert to asset units
-    // by the decimal factor alone and the comparison carries no rounding of its own.
+    // No accrual or bad debt has touched USDC, so the index is RAY and shares convert
+    // to asset units by the decimal factor alone.
     let supply_index = pool_state(&t, "USDC").supply_index;
     assert_eq!(supply_index, common::constants::RAY);
     let decimals = t.resolve_market("USDC").decimals;
@@ -1286,29 +1155,17 @@ fn the_two_modes_charge_the_same_protocol_fee_within_one_unit() {
     );
 }
 
-/// The one-asset-unit bound is an invariant across the supply index, not an
-/// artifact of one fixture.
+/// Across a sweep of accrual durations, USDC borrows and repay fractions, transfer and credit
+/// stay within one asset unit at each resulting supply index.
 ///
-/// Every other cross-mode test fixes the index (at RAY, or at one accrued
-/// value). This sweeps it: awkward accrual durations and utilisations put the
-/// index on values with no clean factorisation, and for each the same
-/// liquidation runs in both modes. Two properties are checked at every point:
+/// Each point checks two bounds:
 ///
-/// 1. share space — the gap stays under one asset unit **at that index**,
-///    which is what `seize_mode_share_slack` computes. A fixed constant would
-///    be checking a different property at every index.
-/// 2. asset space — the two victims are left within one unit of each other.
+/// 1. Share space: the gap is under one asset unit at that index (`seize_mode_share_slack`).
+/// 2. Asset space: the two accounts end within one unit of each other.
 ///
-/// The worst ratio observed over a wider 294-point version of this sweep was
-/// 0.9412, at `secs=86_399, bob=700.13, sup=9876.54, repay=29.03%`, index
-/// 1.000001121…. The margin is thin by nature: the supremum IS one asset unit,
-/// because transfer's `floor_asset` can shed almost a whole unit before
-/// `ceil_shares` converts back. A point at or above 1.0 is a real regression,
-/// not noise.
-///
-/// Scope: full delivery — a standard SAC repayment, so
-/// `scale_seizures_to_received` is a no-op. The under-delivery bound is twice
-/// this and lives in `under_delivery_doubles_the_gap_but_keeps_it_bounded`.
+/// The supremum is one asset unit: the transfer asset floor can shed almost a whole unit
+/// before the share ceil. Full delivery only (a standard SAC repayment); the under-delivery
+/// bound is in `under_delivery_doubles_the_gap_but_keeps_it_bounded`.
 #[test]
 fn the_share_gap_stays_under_one_asset_unit_across_a_supply_index_sweep() {
     let mut ran = 0usize;
@@ -1386,12 +1243,10 @@ fn the_share_gap_stays_under_one_asset_unit_across_a_supply_index_sweep() {
     std::println!("index sweep: {ran} points, worst ratio {worst:.4} of one asset unit");
 }
 
-/// The sweep above only accrues, so its indexes sit at or above RAY. This one
-/// socialises an insolvent USDC borrower first, which drops the USDC supply
-/// index below RAY by the written-off share of the market, and then runs the
-/// same two-mode liquidation at each level. At an index of `x` RAY one asset
-/// unit is `10^(27-decimals) / x` shares, so a bound fixed at RAY would be
-/// `1/x` times too small here.
+/// Transfer and credit stay within one asset unit after bad-debt socialization of a USDC
+/// borrower drops the USDC supply index below RAY.
+///
+/// At an index of `x` RAY, one asset unit is `10^(27-decimals) / x` shares.
 #[test]
 fn the_share_gap_stays_under_one_asset_unit_with_the_supply_index_below_ray() {
     let mut ran = 0usize;
@@ -1481,30 +1336,16 @@ fn the_share_gap_stays_under_one_asset_unit_with_the_supply_index_below_ray() {
 
 // --- under-delivery: the one regime where one unit is not the bound ---------
 
-/// Under-delivery costs exactly one more floor step per representation, so the
-/// cross-mode bound doubles rather than holding at one unit.
+/// Cross-mode gap bound, in asset units, when the debt token under-delivers. One extra floor
+/// per representation doubles the full-delivery bound.
 const UNDER_DELIVERY_SLACK_UNITS: u32 = 2;
 
-/// A fee-on-transfer debt asset makes the repayment under-deliver, and the gap
-/// between the two seize modes doubles.
+/// A fee-on-transfer debt token doubles the gap between the two seize modes to under two
+/// asset units in share space and at most two units in asset space.
 ///
-/// This is the regime the rest of this file does not reach. Every other
-/// cross-mode test pays with a standard SAC, so `received == planned` and
-/// `scale_seizures_to_received` (`math.rs:426-452`) is a no-op. When it is not,
-/// it floor-scales `amount` and `scaled_amount` **separately** by
-/// `received/planned` — a second independent rounding on each representation,
-/// on top of the `floor_asset`/`ceil_shares` pair the full-delivery bound
-/// already accounts for.
-///
-/// MEASURED over a 77-point sweep of shortfall rates and repayment fractions:
-/// worst share ratio 1.7843 of one asset unit (at `bps=50, repay=61.13%,
-/// supply=9876.54`), worst asset-unit gap 2. Both sit under the doubled bound
-/// and above the single-unit one, which is exactly what one extra floor per
-/// side predicts.
-///
-/// Bounded, and still not exploitable: two stroops of the victim's collateral,
-/// direction unfixed, and reaching it at all requires a non-standard token that
-/// governance chose to list.
+/// When `received < planned`, `scale_seizures_to_received` floor-scales `amount` and
+/// `scaled_amount` separately by `received / planned`. That adds one floor to each
+/// representation.
 #[test]
 fn under_delivery_doubles_the_gap_but_keeps_it_bounded() {
     let mut ran = 0usize;
@@ -1589,9 +1430,8 @@ fn under_delivery_doubles_the_gap_but_keeps_it_bounded() {
         ran >= 10,
         "sweep degenerated: only {ran} points liquidated under under-delivery"
     );
-    // The point of this test is that the full-delivery bound does NOT hold
-    // here. If every point came in under one unit, the fee-on-transfer wiring
-    // silently stopped under-delivering and this test is no longer testing it.
+    // At least one point must exceed the single-unit bound; otherwise the token does not
+    // under-deliver and the test exercises nothing.
     assert!(
         exceeded_single_unit,
         "no point exceeded one asset unit across {ran} runs, so under-delivery \

@@ -274,8 +274,8 @@ fn test_flash_loan_extra_credit_is_not_pool_theft() {
         &data,
     );
     // Extra bps also apply on the pool's `transfer_from` repay hop, so the
-    // exact post-repay SAC bracket (`pre + fee`) is violated and the loan
-    // fails closed. The extra units are not booked as protocol cash.
+    // exact post-repay balance check (`pre + fee`) rejects the loan. The extra
+    // units are not booked as protocol cash.
     assert!(
         result.is_err(),
         "extra-credit repay hop must fail the exact-balance check: {result:?}"

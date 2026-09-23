@@ -50,8 +50,8 @@ fn test_dual_source_prices_and_risk_gates_still_resolve() {
     t.borrow(ALICE, "ETH", 10.0);
 
     t.assert_healthy(ALICE);
-    // Both sources sit at the default $1, so the midpoint valuation must be
-    // the full $100k — anything else means a source was dropped or skewed.
+    // Both sources read the default $1, so the midpoint values the collateral
+    // at $100k.
     let collateral = t.total_collateral(ALICE);
     assert!(
         (collateral - 100_000.0).abs() < 100.0,

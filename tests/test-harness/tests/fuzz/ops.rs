@@ -85,7 +85,8 @@ pub enum LendingOp {
         user: &'static str,
         has_risks: bool,
     },
-    /// CAROL, an active position manager, is granted on the user's account.
+    /// Makes CAROL an active position manager and a delegate on the user's
+    /// default account.
     AddDelegate {
         user: &'static str,
     },

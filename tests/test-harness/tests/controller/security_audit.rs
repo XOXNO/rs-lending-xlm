@@ -320,12 +320,10 @@ fn poc_paused_debt_blocks_liquidation_repay() {
     assert_contract_error(result, errors::SPOKE_ASSET_PAUSED);
 }
 
-/// Pausing a collateral listing must NOT block liquidation of the accounts holding it.
+/// Pausing a collateral listing does not block liquidation of the accounts that hold it.
 ///
-/// This test previously pinned the opposite. Seizure is pro-rata across an account's whole
-/// collateral set, so gating it on `paused` turned a per-listing halt into a protocol-wide
-/// liquidation halt for every account touching that asset. Seizure now has its own flag,
-/// `no_seize`; see ADR-0008.
+/// Seizure is pro-rata across the account's whole collateral set; only the listing's
+/// `no_seize` flag halts it (ADR-0008).
 #[test]
 fn poc_paused_collateral_does_not_block_liquidation_seizure() {
     let mut t = LendingTest::new().standard_two_asset().build();

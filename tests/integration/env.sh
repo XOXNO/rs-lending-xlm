@@ -7,9 +7,8 @@ AGGREGATOR_API="${AGGREGATOR_API:-https://testnet-stellar-swap.xoxno.com/api/v1}
 
 NETWORKS_FILE="${NETWORKS_FILE:-$REPO_ROOT/configs/networks.json}"
 
-# An unknown NETWORK must not fall through to another network's addresses: the
-# run would talk to the wrong contracts and report the mismatch as protocol
-# failures.
+# An unknown NETWORK must fail here, never fall through to another network's
+# addresses.
 if ! jq -e --arg n "$NETWORK" 'has($n)' "$NETWORKS_FILE" >/dev/null 2>&1; then
     echo "env.sh: NETWORK '$NETWORK' has no entry in $NETWORKS_FILE" >&2
     echo "        known: $(jq -r 'keys | join(", ")' "$NETWORKS_FILE" 2>/dev/null)" >&2
@@ -18,8 +17,8 @@ fi
 
 net_field() { jq -r --arg n "$NETWORK" --arg f "$1" '.[$n][$f] // empty' "$NETWORKS_FILE" 2>/dev/null; }
 
-# The public RPC drops heavy multi-hop swap submissions, which strands the run
-# with no USDC. Take the endpoint the network config already declares.
+# Default to the network config's RPC: the public RPC drops heavy multi-hop swap
+# submissions.
 RPC_URL="${RPC_URL:-$(net_field rpc_url)}"
 : "${RPC_URL:?no rpc_url for network '$NETWORK' in $NETWORKS_FILE}"
 

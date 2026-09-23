@@ -56,11 +56,9 @@ fn make_params(_env: &Env, asset: &Address, i: &In) -> MarketParamsRaw {
     }
 }
 
-/// Second market on the same underlying, never touched by the op loop.
+/// Hub id of a second market on the same asset. The op loop never touches it.
 ///
-/// Its cash is real backing that belongs to it alone, so it is exactly the
-/// condition the summed bound has to defend: the driven market must never be
-/// able to spend it.
+/// Its cash is backed by its own tokens, and the driven market must never spend them.
 const SIBLING_HUB_ID: u32 = 2;
 
 fn hub_asset(asset: &Address) -> HubAssetKey {
@@ -100,9 +98,10 @@ fn pool_balance(env: &Env, asset: &Address, pool_addr: &Address) -> i128 {
     token::Client::new(env, asset).balance(pool_addr)
 }
 
-/// Cash is tracked per market, but the token balance is shared by every market
-/// on the same asset. Per-market `cash <= balance` holds trivially while the
-/// sum overdraws, so the bound is asserted over the group.
+/// Asserts that the driven and sibling market cash sums to at most the pool token balance.
+///
+/// Markets on one asset share the token balance, so a per-market `cash <= balance`
+/// check cannot detect an overdraw.
 fn assert_cash_matches_balance(
     env: &Env,
     pool: &LiquidityPoolClient<'_>,
@@ -276,7 +275,7 @@ fuzz_target!(|i: In| {
     mint_to_pool(&env, &asset, &pool_addr, initial_cash);
     seed_cash(&env, &pool_addr, &market, initial_cash);
 
-    // Backed, so the summed bound starts tight rather than slack.
+    // Mint the sibling's cash so the summed bound starts at equality.
     let sibling = hub_asset_in(&asset, SIBLING_HUB_ID);
     mint_to_pool(&env, &asset, &pool_addr, initial_cash);
     seed_cash(&env, &pool_addr, &sibling, initial_cash);

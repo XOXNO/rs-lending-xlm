@@ -12,11 +12,9 @@ pub const KEEPER_USER: &str = "keeper";
 
 /// Protocol version the simulated ledger reports to the host.
 ///
-/// The host refuses to run when the ledger reports a protocol older than the one
-/// `soroban-sdk` was built for -- it raises `Error(Context, InternalError)` with
-/// "ledger protocol version too old for host", which surfaces as every test in the
-/// suite failing at once rather than as anything that names a version. Keep this in
-/// step with the workspace `soroban-sdk` pin whenever the SDK major moves.
+/// Keep it equal to the major version of the workspace `soroban-sdk` pin. Any other value
+/// makes the host fail every test with `Error(Context, InternalError)` ("ledger protocol
+/// version too old for host" or "too new for host").
 pub const LEDGER_PROTOCOL_VERSION: u32 = 27;
 
 pub const UNCONSTRAINED_TEST_CAP: i128 = unconstrained_test_cap(7);

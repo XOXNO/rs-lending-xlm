@@ -88,8 +88,8 @@ flow_lifecycle() {
         --assets "$(pay_vec "$PRIMARY_HUB_ID" "$XLM_SAC" 10000000)"
 
     # balance() sends stderr to /dev/null, so a failed read is an empty string.
-    # Expanding that directly inside $(( )) aborts the whole run with a bash
-    # syntax error, before any report is written.
+    # An empty operand inside $(( )) aborts the run with a bash syntax error
+    # before any report is written.
     local usdc_bal usdc_half
     usdc_bal=$(balance "$USDC_SAC" "$ALICE_ADDR")
     if [[ "$usdc_bal" =~ ^[0-9]+$ ]] && [ "$usdc_bal" -gt 0 ]; then
@@ -105,10 +105,8 @@ flow_lifecycle() {
             --assets "$(pay_vec "$PRIMARY_HUB_ID" "$XLM_SAC" 5000000000 "$USDC_SAC" "$usdc_half")" >/dev/null
     fi
 
-    # Supplying must have produced real collateral. Nothing is borrowed yet, so
-    # the account is unambiguously healthy and its collateral must price above
-    # zero — a supply that moved tokens without registering collateral would
-    # otherwise show up only much later, as an unexplained borrow failure.
+    # The supply must register collateral. Nothing is borrowed yet, so the
+    # account is healthy and its collateral must price above zero.
     assert_hf_at_least hf_alice "$acct" "$WAD"
     assert_int_view_positive coll_usd_alice get_total_collateral_usd --account_id "$acct"
     assert_int_view_positive coll_xlm_alice_supplied get_collateral_amount \
@@ -138,13 +136,12 @@ view indexes_view "$CONTROLLER" -- get_market_indexes_detailed \
         --caller "$ALICE_ADDR" --account_id "$acct" --spoke_id "$PRIMARY_SPOKE_ID" \
         --assets "$(pay_vec "$PRIMARY_HUB_ID" "$XLM_SAC" 0)"
 
-    # Both guards below have to bind on collateral (#100), and neither does at
-    # rest: Alice's collateral (1k XLM plus the USDC the funding swap hands out)
-    # dwarfs her debt, so a fixed over-borrow sits well inside her limit and any
-    # withdrawal big enough to breach LTV exhausts pool liquidity first (#112).
-    # Both amounts are therefore derived from her actual borrowing power, and we
-    # first spend most of that power so the limit is the binding constraint. The
-    # repays below read the debt back at runtime, so they clear this too.
+    # Both guards below must fail on collateral (#100). Alice's collateral
+    # (1.5k XLM plus half her USDC) far exceeds her debt, so a fixed over-borrow
+    # stays inside her limit, and a withdrawal large enough to breach LTV first
+    # exhausts pool liquidity (#112). So the flow first borrows most of her
+    # borrowing power and derives both amounts from it. The repays below read
+    # the debt at runtime, so they also clear this borrow.
     local ltv_wad debt_wad headroom_usdc over_usdc
     ltv_wad=$(_view_int ltv_usd_pre_edge get_ltv_collateral_usd --account_id "$acct")
     debt_wad=$(_view_int borrow_usd_pre_edge get_total_borrow_usd --account_id "$acct")
@@ -160,17 +157,16 @@ view indexes_view "$CONTROLLER" -- get_market_indexes_detailed \
             --borrows "$(pay_vec "$PRIMARY_HUB_ID" "$USDC_SAC" "$headroom_usdc")" --to null >/dev/null
     fi
 
-    # Half the original headroom against the ~10% that is left is unambiguously
-    # over the limit, and in USDC it stays inside what the pool can lend, so the
-    # revert is #100 and not #112.
+    # Half the original headroom exceeds the ~10% that is left, and in USDC it
+    # stays inside what the pool can lend, so the revert is #100 and not #112.
     over_usdc=$(awk -v l="$ltv_wad" -v d="$debt_wad" 'BEGIN{printf "%d", (l-d)/1e11*0.5}')
     xfail borrow_over_ltv 'Error\(Contract, #100\)' "$ALICE" "$CONTROLLER" -- borrow \
         --caller "$ALICE_ADDR" --account_id "$acct" \
         --borrows "$(pay_vec "$PRIMARY_HUB_ID" "$USDC_SAC" "$over_usdc")" --to null
 
-    # Pulling all the XLM and half the USDC strips far more borrowing power than
-    # the headroom left above, while staying well inside what the pool can pay
-    # out -- so the withdrawal is refused for being unbacked, not for liquidity.
+    # Withdrawing all the XLM and half the USDC removes far more borrowing power
+    # than the headroom left, and stays inside what the pool can pay out, so the
+    # revert is #100 and not #112.
     local xlm_coll_pre usdc_coll_pre
     xlm_coll_pre=$(_view_int coll_xlm_pre_lock get_collateral_amount \
         --account_id "$acct" --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$XLM_SAC")")
@@ -236,9 +232,7 @@ usdc_coll=$(view coll_usdc_alice "$CONTROLLER" -- get_collateral_amount \
     }
     retry_leg leg_withdraw_full_bulk
 
-    # Amount 0 means "withdraw everything", so both legs must end at zero. A
-    # partial withdraw that reported success would leave collateral stranded in
-    # an account the user believes they have emptied.
+    # Amount 0 withdraws the full position, so both legs must end at zero.
     assert_int_view_eq withdraw_xlm_drained 0 get_collateral_amount \
         --account_id "$acct" --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$XLM_SAC")"
     assert_int_view_eq withdraw_usdc_drained 0 get_collateral_amount \

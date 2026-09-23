@@ -254,7 +254,8 @@ fn pool_all_money_paths_preserve_books_and_shared_token_custody() {
     assert!(loss.supply_index < RAY);
     assert_eq!(token.balance(&market.pool), custody_before);
 
-    // This write-down is fully covered: recapitalization refunds the whole input.
+    // The supply index absorbs this write-down, so recapitalization refunds the
+    // whole input.
     market.token_admin.mint(&payer, &(3 * UNIT));
     let before_payer = token.balance(&payer);
     token.transfer(&payer, &market.pool, &(3 * UNIT));
@@ -357,7 +358,7 @@ fn pool_loss_floor_recapitalization_returns_only_unused_funding() {
     assert_eq!(token.balance(&market.pool), 0);
 }
 
-// Independent reviewer's real SAC reproduction; no market storage injection.
+// Uses a real SAC and no market storage injection.
 #[cfg(test)]
 mod fee_headroom {
     use common::constants::RAY;

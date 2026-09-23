@@ -156,9 +156,8 @@ fn test_update_params_rejects_max_above_one() {
     assert_contract_error(mapped, errors::INVALID_UTIL_RANGE);
 }
 
-/// GH-03. Utilization is rounded half-up before the `<= max` compare, so the
-/// boundary can only ever move toward rejecting. Pin the last admissible
-/// withdrawal and the first rejected one, one raw unit apart.
+/// GH-03. The pool admits utilization (RAY, rounded half-up) `<= max_utilization`.
+/// Pins the last admissible withdrawal and the first rejected one, one raw unit apart.
 #[test]
 fn withdraw_that_lands_exactly_on_max_utilization_passes_and_one_unit_more_fails() {
     let mut t = LendingTest::new()

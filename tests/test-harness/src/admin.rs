@@ -92,8 +92,8 @@ impl LendingTest {
         );
     }
 
-    /// Sets the listing's halt flags directly, so a test can exercise one flag without the
-    /// others. Goes through the guardian ratchet path, which only tightens.
+    /// Sets the listing's halt flags through the owner-only ratchet entry point, which only
+    /// tightens: clearing a set flag fails.
     pub fn set_spoke_asset_flags(
         &self,
         asset_name: &str,
@@ -129,8 +129,8 @@ impl LendingTest {
         self.ctrl_client().remove_spoke(&category_id);
     }
 
-    /// One `SpokeAssetArgs` for the add/edit listing verbs. `caps` of `None`
-    /// means "unconstrained for this market's decimals".
+    /// Builds the `SpokeAssetArgs` for the add and edit listing calls. `None` caps use
+    /// `unconstrained_test_cap` for the market's decimals.
     #[allow(clippy::too_many_arguments)]
     fn spoke_asset_args(
         &self,

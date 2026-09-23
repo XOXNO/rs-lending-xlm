@@ -5,23 +5,19 @@ use test_harness::{
     LendingTest, ALICE, BOB,
 };
 
-/// Mainnet per-transaction limits, the same pair
-/// `tests/fuzz/strategy_multiply_budget.rs:7-8` asserts against.
+/// Mainnet per-transaction CPU and memory limits, the same pair that
+/// `tests/test-harness/tests/fuzz/strategy_multiply_budget.rs` asserts against.
 const MAINNET_CPU_BUDGET: u64 = 100_000_000;
 const MAINNET_MEM_BUDGET: u64 = 41_943_040;
 
-/// These six paths are held to a quarter of the mainnet limit. The heaviest
-/// measures ~9.9M cpu / ~5.6M mem, so this is ~2x headroom: loose enough not to
-/// flap on ordinary drift, tight enough that a 3x regression fails HERE instead
-/// of silently eating the margin a bigger position or an extra market needs.
-/// Bumping either constant is a reviewed diff, which is the point.
+/// Ceilings for the six measured paths: a quarter of the mainnet limit. The
+/// heaviest path measures about 9.9M CPU and 5.6M memory, so a 3x regression
+/// fails here.
 const CPU_CEILING: u64 = MAINNET_CPU_BUDGET / 4;
 const MEM_CEILING: u64 = MAINNET_MEM_BUDGET / 4;
 
-/// Prints the CPU breakdown AND enforces the mainnet budget it is measured
-/// against -- printing alone left a 10x regression on any measured path green,
-/// and the two `reset_unlimited()` paths had no bound at all. Same shape as
-/// `meta/footprint_test.rs`'s `assert_res`.
+/// Prints the per-cost-type CPU breakdown and asserts that the totals stay
+/// within `CPU_CEILING` and `MEM_CEILING`.
 fn dump(env: &Env, label: &str) {
     let b = env.cost_estimate().budget();
     let total_cpu = b.cpu_instruction_cost();

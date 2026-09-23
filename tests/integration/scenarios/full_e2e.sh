@@ -65,11 +65,8 @@ if want liquidation; then
     flow_liq_credit
     flow_liq_credit_rejections
     flow_clean_bad_debt
-    # After clean_bad_debt: the owner-override socialization path is only
-    # meaningful once the permissionless one has run on its own account.
     flow_force_socialize_and_recap
-    # Last in the phase: halting LIQG's seizure leg is irreversible, so nothing
-    # that needs to seize LIQG may run after it.
+    # Sets no_seize on LIQG for the rest of the run: no later flow may seize LIQG.
     flow_spoke_flags_and_curve
     flow_liq_deprecated_spoke_credit
     unset INV_TRANSIENT_CONTRACT_RE
@@ -86,8 +83,8 @@ if want admin; then
     flow_swap_aggregator_admin
 fi
 
-# Standalone keyword for a targeted rerun of the gap-hunt admin checks on a
-# world whose seed account is still live (admin runs it too).
+# Standalone keyword to rerun the gap-hunt admin checks while the seed account
+# is live (the admin phase runs them too).
 if want gap_hunt; then
     flow_gap_hunt_admin
 fi
@@ -113,8 +110,8 @@ if want oracle; then
     flow_xoxno_oracle
 fi
 
-# Last on purpose: zeroing the world ends the lane, so nothing that needs a
-# live position may run after it.
+# Runs last: teardown closes every position, so no flow that needs one may
+# follow it.
 if want teardown; then
     flow_teardown
 fi

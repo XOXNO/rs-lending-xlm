@@ -14,7 +14,7 @@ use test_harness::{
     HARNESS_SPOKE,
 };
 
-/// Copy of `governance::constants::TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS` (private).
+/// Copy of `governance::TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS`.
 const SENSITIVE_FLOOR: u32 = 12;
 
 fn salt(env: &Env, byte: u8) -> BytesN<32> {

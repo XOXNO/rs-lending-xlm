@@ -292,16 +292,15 @@ impl LendingTest {
         })
     }
 
-    /// Account ownership lives in the position-NFT contract, not in
-    /// `AccountMeta` (which carries only spoke/mode). This resolves it
-    /// through `owner_of`, the same path the controller itself uses.
+    /// Returns the account owner through the position NFT's `owner_of`, as the
+    /// controller does; `AccountMeta` stores no owner.
     pub fn get_account_owner(&self, account_id: u64) -> soroban_sdk::Address {
         self.nft_owner_of(account_id)
     }
 }
 
 impl LendingTest {
-    /// Cash a market must keep back from ordinary borrows, in asset units.
+    /// Cash a market must keep back from every debt mint, in token units.
     ///
     /// Mirrors `pool::guards::require_liquidation_buffer`, so a test can borrow
     /// right up to the bound without hard-coding the ratio.

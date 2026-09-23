@@ -1,5 +1,5 @@
-//! Local audit probes. No production changes. Exact scaled-share reconciliation
-//! includes every position NFT, including fresh share-credit receivers.
+//! Exact scaled-share reconciliation across every position NFT, including
+//! fresh credit-mode receivers.
 
 use common::types::{AccountPositionRaw, ControllerKey, DebtPositionRaw, HubAssetKey, SeizeMode};
 use position_nft::PositionNftClient;

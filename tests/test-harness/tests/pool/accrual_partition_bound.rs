@@ -1,5 +1,6 @@
-//! GH-02. Splitting one year of accrual into more keeper calls moves the borrow
-//! index by no more than the Taylor truncation bound, and never downward.
+//! GH-02. Splitting one year of accrual into more keeper calls never lowers the
+//! borrow index. At low utilization the spread stays within the Taylor tail
+//! plus utilization drift.
 
 use controller::constants::RAY;
 use test_harness::{
@@ -81,13 +82,12 @@ fn finer_accrual_partitions_never_lower_the_borrow_index() {
     assert!(daily >= weekly, "daily {daily} < weekly {weekly}");
 }
 
-/// The one-year index at the protocol rate cap when the whole year is one
-/// chunk at a rate frozen on the starting utilization, versus daily accrual
-/// that re-reads utilization every step. Debt compounds faster than supply,
-/// so utilization drifts upward between keeper calls and finer accrual
-/// realises a higher rate. The gap is the curve, not the series: at 90
-/// percent utilization it is about a quarter of the index. Cadence therefore
-/// changes borrower cost, and any caller may force the finer cadence.
+/// One-shot yearly accrual freezes the rate at the starting utilization. Daily
+/// accrual re-reads utilization every step. Debt compounds faster than supply,
+/// so utilization and the rate drift upward between keeper calls. At 90
+/// percent utilization the spread is about a quarter of the index and comes
+/// from the curve, not the series. Any caller can force the finer cadence, so
+/// cadence changes borrower cost.
 #[test]
 fn partition_spread_is_utilization_drift_not_series_truncation() {
     let one = accrue_one_year_in(1, 2 * RAY) as f64;
@@ -111,8 +111,8 @@ fn partition_spread_is_utilization_drift_not_series_truncation() {
     );
 }
 
-/// At low utilization the drift is negligible and the cadence spread is
-/// within the eighth-order Taylor tail plus rounding.
+/// At 10 percent utilization the cadence spread is non-negative and stays within
+/// the eighth-order Taylor tail plus a 1e-4 utilization-drift allowance.
 #[test]
 fn partition_spread_at_low_utilization_is_within_the_taylor_tail() {
     let ray = RAY as f64;
@@ -150,8 +150,8 @@ fn partition_spread_at_low_utilization_is_within_the_taylor_tail() {
         "10% util: one-shot {one:e}, daily {daily:e}, spread {spread:e}, tail {:e}",
         taylor_tail(rate_used)
     );
-    // Ten percent utilization on the default curve is about 1.8 percent APR:
-    // a year of interest moves utilization by well under a tenth of a percent,
+    // Ten percent utilization on the default curve is about 1.8 percent APR.
+    // A year of interest raises utilization by about 0.16 percentage points,
     // so the drift term is below 1e-4 and the tail below 1e-12.
     assert!(
         spread >= -1e-9,

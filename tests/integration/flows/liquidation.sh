@@ -163,13 +163,9 @@ flow_liq_spoke() {
     save_state LIQ3_ACCT "$acct"
 }
 
-# Share-credit liquidation (`SeizeMode::Credit`), covering both admission paths
-# and every binding rule from ADR-0019. `liquidate` returns the receiving
-# account id — 0 for Transfer, the new id for Credit(0), the same id back for
-# Credit(<existing>) — which is what makes these assertions possible.
-#
-# Runs after flow_liq_spoke so SPOKE_ID exists: the spoke-mismatch rejection
-# needs a liquidator-owned account sitting in a *different* spoke.
+# Share-credit liquidation (`SeizeMode::Credit`, ADR-0019) through both
+# admission paths. `liquidate` returns the receiving account id: 0 for
+# Transfer, a new id for Credit(0), the same id for Credit(<existing>).
 flow_liq_credit() {
     phase liq_credit
 
@@ -197,8 +193,8 @@ flow_liq_credit() {
     fi
 
     assert_bool_view liqcr_new_account_exists true account_exists --account_id "$recv"
-    # Net of the protocol fee, so only positivity is asserted here; the exact
-    # net-vs-gross split is what the LiqSeize/LiqCredit event pair carries.
+    # The credit is net of the protocol fee, so this asserts only a positive
+    # amount. The LiqSeize/LiqCredit event pair carries the gross and net split.
     assert_int_view_positive liqcr_new_credited get_collateral_amount \
         --account_id "$recv" --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$SAC_LIQG")"
     assert_borrow_decreased liqcr_debt_post_new "$acct" "$SAC_LIQB" $((600 * LIQ_UNIT))
@@ -234,9 +230,9 @@ flow_liq_credit() {
     save_state LIQCR_RECV "$recv"
 }
 
-# The binding rules that make share-credit safe. Each must reject, or a
-# liquidator could move seized collateral into an account the protocol never
-# vetted — a different owner, a different risk regime, or back to the victim.
+# Share-credit receiver rules (ADR-0019): each call below must revert.
+# Runs after flow_liq_spoke, which creates the SPOKE_ID that the
+# spoke-mismatch case needs.
 flow_liq_credit_rejections() {
     phase liq_credit_reject
     [ -n "${LIQCR_ACCT:-}" ] || { log "liq_credit_reject: no LIQCR_ACCT, skipping"; return 0; }
@@ -255,9 +251,8 @@ flow_liq_credit_rejections() {
             --debt_payments "$(pay_vec "$PRIMARY_HUB_ID" "$SAC_LIQB" $((10 * LIQ_UNIT)))"
     fi
 
-    # A liquidator-owned account bound to a different spoke: the credited shares
-    # are the liquidated spoke's supply, and an account's spoke is what supplies
-    # the risk configuration for everything it holds.
+    # A liquidator-owned account in a different spoke: an account's spoke sets
+    # the risk configuration of every position it holds.
     if [ -n "${SPOKE_ID:-}" ]; then
         local carol_other
         carol_other=$(inv_create liqcr_carol_other_spoke "$CAROL" "$CONTROLLER" -- supply \
@@ -272,10 +267,10 @@ flow_liq_credit_rejections() {
 
 # `set_spoke_asset_flags`, `set_spoke_liquidation_curve` and `get_spoke_usage`.
 #
-# Ordering is load-bearing. `set_spoke_asset_flags` can only tighten a flag, so
-# halting LIQG's seizure leg is irreversible for the rest of the run — it has to
-# come after flow_liq_credit is finished with LIQG. The curve change is applied
-# to the secondary spoke so it cannot perturb the primary spoke's liquidations.
+# Order matters. `set_spoke_asset_flags` only tightens flags and no later flow
+# relaxes LIQG, so the seizure halt lasts for the rest of the run: this flow
+# runs after flow_liq_credit is done with LIQG. The curve change targets
+# SPOKE_ID (from flow_liq_spoke), so primary-spoke liquidations do not change.
 flow_spoke_flags_and_curve() {
     phase spoke_flags
     [ -n "${LIQCR_ACCT:-}" ] || { log "spoke_flags: no LIQCR_ACCT, skipping"; return 0; }
@@ -283,9 +278,8 @@ flow_spoke_flags_and_curve() {
     local liqg_key
     liqg_key=$(hub_key "$PRIMARY_HUB_ID" "$SAC_LIQG")
 
-    # Spoke usage is the only place per-spoke cap consumption is tracked, so it
-    # is worth reading after the credit flow has moved supply around. Returns a
-    # SpokeUsageRaw struct, so this is a field check rather than an int view.
+    # Spoke usage holds per-spoke cap consumption; the credit flow moved supply.
+    # It returns a SpokeUsageRaw struct, so this checks a field, not an int.
     local usage supplied_ray
     usage=$(view sf_usage "$CONTROLLER" -- get_spoke_usage \
         --spoke_id "$PRIMARY_SPOKE_ID" --hub_asset "$liqg_key")
@@ -314,8 +308,7 @@ flow_spoke_flags_and_curve() {
         --paused false --frozen false --no_seize true >/dev/null
     assert_market_field sf_no_seize_set "$SAC_LIQG" no_seize true
 
-    # The whole point of the flag: a liquidatable account whose only collateral
-    # is halted cannot have that collateral seized.
+    # A liquidatable account cannot lose collateral that has no_seize set.
     xfail sf_seizure_halted 'Error\(Contract, #318\)' "$CAROL" "$CONTROLLER" -- liquidate \
         --seize_mode "$(seize_transfer)" \
         --liquidator "$CAROL_ADDR" --account_id "$LIQCR_ACCT" \
@@ -324,15 +317,13 @@ flow_spoke_flags_and_curve() {
 
 # `force_socialize_bad_debt` (owner-only) and `recapitalize` (permissionless).
 #
-# Runs after flow_clean_bad_debt so the permissionless cleanup path has already
-# been exercised on its own account; this one builds a separate position and
-# socializes it through the owner override instead.
+# Runs after flow_clean_bad_debt, which tests the permissionless cleanup on its
+# own account; this flow builds a separate position and socializes it through
+# the owner override.
 flow_force_socialize_and_recap() {
     phase force_socialize
-    # flow_clean_bad_debt leaves LIQC crashed to 15%, so a fresh position built
-    # on it would be underwater before it is borrowed against — the borrow below
-    # failed with #100 InsufficientCollateral. Restore the price first so this
-    # flow controls its own setup regardless of what ran before it.
+    # flow_clean_bad_debt leaves LIQC at 15% of WAD, where the borrow below
+    # fails with #100 InsufficientCollateral. Restore the price first.
     dual_px "$SAC_LIQC" LIQC "$WAD" fs_restore
 
     local acct
@@ -349,10 +340,9 @@ flow_force_socialize_and_recap() {
         --account_id "$acct" >/dev/null
     assert_borrow_at_most fs_debt_cleared "$acct" "$SAC_LIQD" 0
 
-    # Socialized bad debt leaves the pool short of its backing. recapitalize
-    # applies only up to that shortfall and refunds the rest, so an oversized
-    # payment probes how much shortfall exists without risking an overpay.
-    # Invoked for real, not simulated: it moves tokens from the payer.
+    # Socialized bad debt leaves the pool short of backing. recapitalize
+    # applies at most the shortfall and refunds the rest, so an oversized
+    # payment is safe. This is a real transaction: it moves the payer's tokens.
     inv fs_recapitalize "$CAROL" "$CONTROLLER" -- recapitalize \
         --payer "$CAROL_ADDR" --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$SAC_LIQD")" \
         --amount $((100 * LIQ_UNIT)) >/dev/null
@@ -376,13 +366,13 @@ flow_clean_bad_debt() {
     assert_borrow_at_most cbd_debt_cleared "$acct" "$SAC_LIQB" 0
 }
 
-# 2026-09 gap hunt, GH-23. `remove_spoke` has no usage check and deprecation
-# is one-way, so a spoke can hold live positions forever. Liquidation must stay
-# open there for a liquidator with no account in that spoke: `Credit(0)`
-# creates the receiver inside the deprecated spoke, while a plain supply into a
-# new account there is still refused. Runs last in the liquidation block so the
-# LIQE/LIQF price moves cannot disturb the earlier flows; teardown drains the
-# two accounts it leaves behind, which needs no active spoke.
+# GH-23. `remove_spoke` has no usage check and deprecation is one-way, so a
+# spoke can hold live positions forever. Liquidation stays open there for a
+# liquidator with no account in that spoke: `Credit(0)` creates the receiver
+# inside the deprecated spoke, while supply into a new account there fails.
+# Runs last in the liquidation block, so its LIQE/LIQF price moves do not
+# affect earlier flows. Teardown drains the two accounts it leaves; that needs
+# no active spoke.
 flow_liq_deprecated_spoke_credit() {
     phase liq_deprecated_spoke
     if [ -n "${DEPR_SPOKE_DONE:-}" ]; then
@@ -418,8 +408,8 @@ flow_liq_deprecated_spoke_credit() {
     dual_px "$SAC_LIQE" LIQE $((WAD / 100 * 85)) depr_crash
     assert_hf_below_wad depr_hf "$acct"
 
-    # CAROL owns no account in this spoke. Before the fix Credit(0) died on
-    # the deprecated-spoke check inside account creation.
+    # CAROL owns no account in this spoke, so Credit(0) creates the receiver
+    # in the deprecated spoke.
     local recv
     recv=$(inv depr_liquidate_credit0 "$CAROL" "$CONTROLLER" -- liquidate --seize_mode "$(seize_credit 0)" \
         --liquidator "$CAROL_ADDR" --account_id "$acct" \
