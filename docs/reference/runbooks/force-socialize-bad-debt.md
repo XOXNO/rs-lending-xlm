@@ -5,9 +5,9 @@ Use it when permissionless cleanup is unsuitable, such as when collateral
 exceeds the fixed $5 dust limit. Cleanup can also proceed when `no_seize`
 blocks ordinary liquidation.
 
-The account must hold debt, with total debt strictly greater than unweighted
-collateral value. An unhealthy health factor alone does not qualify. The forced
-path has no collateral dust cap.
+The account must hold debt, with ceil risk debt strictly greater than half-up
+unweighted collateral (`D > C`). An unhealthy health factor alone does not
+qualify. The forced path has no collateral dust cap.
 
 **Cleanup is irreversible.** All remaining collateral becomes protocol revenue.
 All remaining debt is written off against its own markets' supply indexes,
@@ -20,9 +20,17 @@ or insurance payment. The account is deleted and its position NFT burns.
    spoke and deployed governance authority. The controller owner must authorize.
    Governance schedules `ForceSocializeBadDebt` as a sensitive operation; follow
    the [governance interface](../endpoints.md#governance) for proposal and execution.
-2. Read `get_total_collateral_usd` and `get_total_borrow_usd` for the account.
-   Both return USD WAD. If debt exceeds collateral and collateral is at or below
-   $5, permissionless `clean_bad_debt` applies the same cleanup without governance.
+2. Confirm insolvency with the same risk totals the entrypoint uses: ceil-valued
+   debt (`AccountRiskTotals.total_debt`) strictly greater than half-up unweighted
+   collateral (`AccountRiskTotals.total_collateral`). `get_total_collateral_usd`
+   matches that collateral total. Do **not** use `get_total_borrow_usd` for the
+   debt side: it is half-up display debt and can disagree with ceil risk debt
+   near the boundary ([INV-RISK-02](../invariants.md#inv-risk-02)). Prefer a
+   dry-run / simulation of `force_socialize_bad_debt` (or `clean_bad_debt`). A
+   successful cleanup's [CleanBadDebtEvent](../events.md#controller-events)
+   records the pre-cleanup ceil debt and half-up collateral WAD totals. If
+   collateral is at or below $5 and the same `D > C` holds, permissionless
+   `clean_bad_debt` applies without governance.
 3. Check every position's price status. Missing or invalid required prices
    prevent cleanup; listing flags and global pause do not waive pricing.
 4. Snapshot debt shares, supply shares, revenue, cash, indexes and spoke usage
@@ -50,8 +58,8 @@ or insurance payment. The account is deleted and its position NFT burns.
 ## Failure and recovery
 
 - `CannotCleanBadDebt`: re-read positions and prices; forced cleanup requires
-  debt greater than collateral. An account without borrow positions fails with
-  `DebtPositionNotFound`.
+  ceil risk debt greater than half-up unweighted collateral. An account without
+  borrow positions fails with `DebtPositionNotFound`.
 - Oracle or storage failure: restore a valid price/entry state and simulate again.
 - `FlashLoanOngoing`: this operation cannot run inside a guarded monetary flow.
 - Clearing `no_seize` requires the timelocked `relax_spoke_asset_flags`; the

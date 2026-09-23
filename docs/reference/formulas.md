@@ -179,11 +179,13 @@ let asset_wad = round(asset_ray / 1_000_000_000);
 let value_usd_wad = round(asset_wad * price_wad / WAD);
 ```
 
-Risk collateral floors all three steps and its BPS weighting. LTV weighting
-uses the position's stored `min(LTV, liquidation_threshold)`; health weighting
-uses its stored liquidation threshold. Risk debt rounds upward, while the
-separate debt display rounds half-up. The unweighted collateral total also
-rounds half-up and is used for liquidation proportions and dust eligibility.
+Risk collateral floors all three valuation steps. Risk BPS weights convert
+BPS→WAD half-up, then multiply that ratio into the floored position value with
+floor rounding (`Bps::apply_to_wad_floor`). LTV weighting uses the position's
+stored `min(LTV, liquidation_threshold)`; health weighting uses its stored
+liquidation threshold. Risk debt rounds upward, while the separate debt display
+rounds half-up. The unweighted collateral total also rounds half-up and is used
+for liquidation proportions and dust eligibility.
 
 ```rust
 let health_factor_wad = floor(weighted_collateral_wad * WAD / debt_wad);
@@ -300,10 +302,11 @@ Under-delivery floor-scales seizure amounts, transfer fees, seized shares and
 bonus shares by measured/planned repayment USD. Credit fees are recomputed
 from the scaled bonus shares.
 
-Bad-debt cleanup has separate eligibility: debt must exceed collateral, and
-permissionless cleanup requires collateral at or below $5. Forced owner
-cleanup omits the collateral cap. See [cleanup invariants](invariants.md#inv-liq-04)
-for authorization and account deletion.
+Bad-debt cleanup has separate eligibility: ceil risk debt must exceed half-up
+unweighted collateral, and permissionless cleanup requires collateral at or
+below $5. Forced owner cleanup omits the collateral cap. See
+[cleanup invariants](invariants.md#inv-liq-04) for authorization and account
+deletion.
 
 ## Bad debt
 
@@ -331,8 +334,13 @@ and account deletion follow the [cleanup rules](invariants.md#inv-liq-04).
 A cap is in native token units. Entry compares stored scaled usage plus the
 new scaled amount with the cap floor-converted at the current index. Zero cap
 allows no positive exposure. Exits subtract usage without checking caps;
-missing usage rows and zero exit deltas are no-ops. Cap conversion saturates at
-`i128::MAX`; position conversion still rejects overflow.
+missing usage rows and zero exit deltas are no-ops. Cap→scaled conversion
+saturates at `i128::MAX` (`calculate_scaled_cap`) so the entry check fails
+open rather than trapping: a saturated scaled cap no longer enforces the
+configured asset-unit limit. That matters for large supply caps after bad-debt
+write-down pins the supply index at its floor (`RAY / 1000`); the borrow index
+is monotone at least one RAY, so borrow caps are much less exposed. Position
+conversion still rejects overflow.
 
 Flash-loan and charged strategy fees are half-up BPS of principal, with a
 minimum of one base unit for a positive rate. Flash position has no origination
@@ -378,5 +386,5 @@ costs per collateral leg; that is not a universal execution bound.
 
 - [Fixed-point arithmetic](../../common/src/math/fp_core.rs) and [share conversion](../../common/src/rates/scaling.rs).
 - [Rate curve](../../common/src/rates/curve.rs), [compounding](../../common/src/rates/compound.rs), [index and reward calculations](../../common/src/rates/index.rs), and [accrual projection](../../common/src/rates/simulate.rs).
-- [Position valuation](../../common/src/rates/value.rs) and [risk validation](../../common/src/validation.rs).
+- [Position valuation](../../common/src/rates/value.rs); [listing admission and shared checks](../../common/src/validation.rs); [post-pool risk gates](../../contracts/controller/src/risk/validation.rs).
 - [Liquidation planning and fees](../../contracts/controller/src/positions/liquidation/math.rs), [liquidation curve](../../contracts/controller/src/positions/liquidation/curve.rs), and [liquidation fixtures](../../contracts/controller/tests/positions/liquidation_math.rs).

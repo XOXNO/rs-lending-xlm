@@ -439,11 +439,11 @@ every rounded debt-share reduction or refund.
 
 ### INV-LIQ-04 — Bad-debt socialization is explicit and total
 
-Permissionless cleanup requires debt greater than total collateral and
-collateral at or below the fixed $5 dust threshold. Owner-only forced cleanup
-omits the dust cap. Both require debt, readable account and NFT state, valid
-required prices and no active flash guard. Listing flags and global pause do
-not block standalone cleanup.
+Permissionless cleanup requires ceil risk debt greater than half-up unweighted
+collateral and collateral at or below the fixed $5 dust threshold. Owner-only
+forced cleanup omits the dust cap. Both require debt, readable account and NFT
+state, valid required prices and no active flash guard. Listing flags and
+global pause do not block standalone cleanup.
 
 Cleanup reclassifies all remaining collateral shares as revenue and writes off
 all remaining debt against each debt's market. It releases spoke usage and
@@ -483,14 +483,21 @@ omitted before that check. Standalone bad-debt cleanup bypasses these flags.
 
 <a id="inv-halt-03"></a>
 
-### INV-HALT-03 — Caps are literal and exit-safe
+### INV-HALT-03 — Cap entry checks; scaled conversion can fail open
 
 A zero supply or borrow cap admits no positive entry. Entry compares scaled
 usage against the asset-unit cap converted at the returned live index.
 
+That conversion saturates at `i128::MAX` instead of reverting, so the scaled
+cap can fail open: once saturated, the configured asset-unit limit is not
+enforced. Domain-max supply caps after a supply-index write-down to the floor
+(`RAY / 1000`) are the practical case; borrow indexes stay at least one RAY, so
+borrow caps are far less exposed. See
+[cap conversion](formulas.md#caps-fees-and-numeric-limits).
+
 Exits consume no cap. Missing usage rows and zero deltas are no-ops, and stored
 usage cannot become negative. Same-spoke liquidation credit bypasses entry
-caps and books its fee as an exit. See [cap conversion](formulas.md#caps-fees-and-numeric-limits).
+caps and books its fee as an exit.
 
 ## Storage and account lifecycle
 

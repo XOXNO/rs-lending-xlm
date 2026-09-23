@@ -230,8 +230,9 @@ repairs the book's measured shortfall without minting shares.
 The compile-time dust cleanup threshold and governance-settable collateral
 floor can diverge. Above the permissionless cleanup threshold, an insolvent
 account may require the governed [force-socialize runbook](../reference/runbooks/force-socialize-bad-debt.md).
-An account whose debt does not exceed unweighted collateral is ineligible,
-even if its health factor is below one and listing flags block liquidation.
+An account whose ceil risk debt does not exceed half-up unweighted collateral
+is ineligible, even if its health factor is below one and listing flags block
+liquidation.
 
 ## Numeric and resource limits
 

@@ -95,8 +95,8 @@ Undeclared callback assets receive neither credit nor refunds. There is no contr
 | --- | --- |
 | `is_liquidatable(account_id: u64) -> bool` | HF < 1 WAD |
 | `get_health_factor(account_id: u64) -> i128` | HF WAD; i128::MAX for missing/debt-free account |
-| `get_total_collateral_usd(account_id: u64) -> i128` | Unweighted USD WAD |
-| `get_total_borrow_usd(account_id: u64) -> i128` | Debt USD WAD |
+| `get_total_collateral_usd(account_id: u64) -> i128` | Unweighted USD WAD (half-up; same `C` as bad-debt eligibility) |
+| `get_total_borrow_usd(account_id: u64) -> i128` | Display debt USD WAD (half-up); cleanup/HF use ceil risk debt |
 | `get_collateral_amount(account_id: u64, hub_asset: HubAssetKey) -> i128` | Underlying token units; zero without position |
 | `get_borrow_amount(account_id: u64, hub_asset: HubAssetKey) -> i128` | Underlying token units; zero without position |
 | `get_account_positions(account_id: u64) -> ( Map<HubAssetKey, AccountPositionRaw>, Map<HubAssetKey, DebtPositionRaw>, )` | Supply/debt maps; empty if missing |
