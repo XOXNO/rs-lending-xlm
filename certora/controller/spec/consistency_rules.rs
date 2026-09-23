@@ -7,7 +7,7 @@ use crate::constants::WAD;
 use crate::spec::fixture;
 use crate::types::AccountPositionType;
 
-/// Empties `account_id`'s books, then optionally re-seeds the one asset the
+/// Assumes `account_id`'s books empty, then optionally seeds the one asset the
 /// rule watches, so both the new-slot and the top-up branch stay reachable on
 /// a book of known size. Excludes any second asset the account might hold.
 fn seed_watched_asset_only(e: &Env, account_id: u64, asset: &Address, borrow: bool) {

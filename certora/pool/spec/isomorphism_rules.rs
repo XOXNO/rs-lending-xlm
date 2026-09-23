@@ -1,5 +1,5 @@
-//! Pool-side V-9: accrue-then-read versus read, over the pool's public view
-//! surface (Certora Aave Hub P-09/P-10 analogue).
+//! Pool half of the view/accrue isomorphism: accrue-then-read versus read, over
+//! the pool's public view surface.
 //!
 //! The controller half (`certora/controller/spec/index_rules.rs`) proves that
 //! the *projected* index a view returns is the same before and after
@@ -57,10 +57,9 @@ struct ViewSurface {
     delta_time: u64,
 }
 
-/// The three curve-derived views. Split out from [`ViewSurface`] because each
-/// one re-runs the piecewise rate model; rules that already pin the whole
-/// stored state get them for free (they are pure functions of that state) and
-/// need not pay for the extra branches.
+/// The utilization and rate views. Kept out of [`ViewSurface`]: they are pure
+/// functions of the stored market, so rules that pin the whole stored state do
+/// not pay for their extra branches.
 struct RateSurface {
     utilization: i128,
     deposit_rate: i128,
@@ -173,8 +172,8 @@ fn seed_market_behind_by(
 ///
 /// This is the view-surface lift of `accrue_is_noop_when_no_time_elapsed`
 /// (`lifecycle_rules.rs`), which pins the same property one level down at the
-/// storage record. Stating it over the entrypoints is what makes it a V-9
-/// isomorphism claim: an integrator polling `get_supplied_amount` /
+/// storage record. Stating it over the entrypoints makes it an isomorphism
+/// claim: an integrator polling `get_supplied_amount` /
 /// `get_borrowed_amount` / `get_revenue` cannot be handed a different answer by
 /// racing a keeper's `update_indexes` within one ledger.
 #[rule]
@@ -224,7 +223,7 @@ fn iso_pool_views_unchanged_by_zero_time_accrue(
 /// any view reports.
 ///
 /// This is the obligation the controller-side isomorphism argument depends on.
-/// `simulate_update_indexes` returns the stored indexes unchanged exactly when
+/// `simulate_update_indexes` returns the stored indexes unchanged when
 /// `last_timestamp == now`, so an accrual that failed to stamp the timestamp —
 /// or that left residual work for a second pass — would break the equality
 /// between "view before `update_indexes`" and "view after". Unlike the
@@ -280,7 +279,8 @@ fn iso_pool_views_fixed_point_after_accrue(
 /// unconditionally, and `get_sync_data().params` is the part of the sync blob
 /// the controller reads for `asset_decimals` (`views::collateral_amount_for_hub_asset`,
 /// `views::borrow_amount_for_hub_asset`). Both are therefore isomorphic to
-/// accrual without the zero-elapsed precondition the rule above needs.
+/// accrual without the zero-elapsed precondition of
+/// `iso_pool_views_unchanged_by_zero_time_accrue`.
 #[rule]
 #[allow(clippy::too_many_arguments)]
 fn iso_accrue_preserves_cash_and_params(

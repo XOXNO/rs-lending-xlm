@@ -69,10 +69,9 @@ fn seed_invariant_market(
         cash,
     );
     cvlr_assume!(e.ledger().timestamp() <= u64::MAX / 1_000);
-    // `params` pins `asset_decimals = 7` and `reserve_factor = 1_000`; these
-    // rules are about the persisted-state invariant, which must hold for every
-    // market configuration production admits, so both fields are drawn over
-    // their validated ranges instead. The rate curve stays fixed (see
+    // The invariant must hold for every market configuration production admits,
+    // so `nondet_params` draws `asset_decimals` and `reserve_factor` over their
+    // validated ranges. The rate curve stays fixed (see
     // `certora/pool/spec/README.md`, "Fixture domain").
     seed(
         e,
@@ -93,10 +92,9 @@ fn seed_invariant_market(
 
 #[rule]
 fn invariant_holds_after_market_create(e: Env, asset: Address, asset_decimals: u32) {
-    // Production range, not `RAY_DECIMALS`: `MarketParamsRaw::verify` rejects
-    // anything above `WAD_DECIMALS` and governance's `validate_market_creation`
-    // rejects anything below `MIN_ASSET_DECIMALS`, so a counterexample at
-    // 19..=27 could only ever be an artefact of the fixture.
+    // Production range, not `RAY_DECIMALS`: governance's `validate_market_creation`
+    // admits only `MIN_ASSET_DECIMALS..=MAX_ASSET_DECIMALS`, and
+    // `MarketParamsRaw::verify` rejects anything above `WAD_DECIMALS`.
     cvlr_assume!((MIN_ASSET_DECIMALS..=MAX_ASSET_DECIMALS).contains(&asset_decimals));
     cvlr_assume!(e.ledger().timestamp() <= u64::MAX / 1_000);
 

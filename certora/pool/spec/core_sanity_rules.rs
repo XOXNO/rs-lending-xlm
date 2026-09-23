@@ -25,12 +25,8 @@ fn rate_index_domain_reachable(e: Env, asset: Address) {
 
 #[rule]
 fn supply_borrow_domain_reachable(e: Env, admin: Address, asset: Address) {
-    // `fixture::state` stamps `last_timestamp = e.ledger().timestamp() * 1_000`
-    // and `Cache::load` recomputes the same product through `time::now_ms`.
-    // Both are checked multiplications, so a ledger clock past `u64::MAX /
-    // 1_000` panics and Sunbeam prunes the path as `assume(false)`. Stating the
-    // bound makes that pruning visible instead of hidden, and drops the
-    // overflow branch from every rule below.
+    // Bounds the clock so the checked `timestamp * 1_000` in `fixture::state` and
+    // `time::now_ms` cannot overflow. Sunbeam prunes that panic path silently.
     cvlr_assume!(e.ledger().timestamp() <= u64::MAX / 1_000);
     seed(
         &e,

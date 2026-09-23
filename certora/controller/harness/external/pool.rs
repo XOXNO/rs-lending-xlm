@@ -15,13 +15,14 @@ use soroban_sdk::{Address, Bytes, BytesN, Env, Vec};
 /// Replaces a mutation's index pair with the market's snapshot for this rule.
 ///
 /// The pool returns the market's index *after* accrual, and `get_bulk_indexes`
-/// and `get_sync_data` return the same accrued state, so within one
-/// transaction a market has exactly one index pair no matter which door it is
-/// read through. The per-verb summaries draw independently, and the controller
-/// then writes the drawn value into the cache with `Context::put_market_index`,
-/// which is what the post-pool risk gate reads. Without this, a rule that
-/// values the same position after the call reads a *different* index from the
-/// one the gate used, and no composition rule can hold.
+/// returns the index accrued to the current ledger time, so within one
+/// transaction both reads give one index pair. `get_sync_data` returns the
+/// stored, unaccrued state; the model reads all three from one sync draw.
+/// The per-verb summaries draw independently, and the controller writes the
+/// drawn value into the cache with `Context::put_market_index`, which the
+/// post-pool risk gate reads. Without this, a rule that values the same
+/// position after the call reads a *different* index from the one the gate
+/// used, and no composition rule can hold.
 fn snapshot_index(env: &Env, hub_asset: &HubAssetKey) -> MarketIndexRaw {
     ghost_prices::market_index(env, hub_asset)
 }

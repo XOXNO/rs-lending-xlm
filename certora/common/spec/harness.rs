@@ -12,8 +12,12 @@ impl CommonCertoraHarness {
     pub fn ping(_env: Env) {}
 }
 
-/// A rate model satisfying every constraint `MarketParamsRaw::verify` enforces
-/// on a listed market, with all curve parameters left symbolic.
+/// A rate model with all curve parameters left symbolic.
+///
+/// Admits every curve `MarketParamsRaw::verify` accepts. It also admits
+/// `max_borrow_rate < slope3`, `max_borrow_rate <= base_borrow_rate` and
+/// `asset_decimals` above `WAD_DECIMALS` (up to `RAY_DECIMALS`), which `verify`
+/// rejects.
 pub fn nondet_market_params(asset: &Address) -> MarketParamsRaw {
     let base_borrow_rate: i128 = cvlr::nondet::nondet();
     let slope1: i128 = cvlr::nondet::nondet();

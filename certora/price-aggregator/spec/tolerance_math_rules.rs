@@ -12,11 +12,9 @@ use common::types::OracleTolerance;
 ///
 /// `MAX_REASONABLE_PRICE_WAD` (`common/src/constants/shared.rs`) is the highest
 /// price `validate_sanity_bounds` accepts, at `1e9 * WAD`. This module works one
-/// thousand times below that: the most expensive listed asset is BTC at ~1.2e5
-/// USD per whole token (`https://github.com/XOXNO/rs-lending-xlm/blob/d26b93ebb48d718b69571ec737f0097af3379916/docs/reference/numeric-bounds.md#62-instantiated-for-the-listed-set`), so `1e6 * WAD`
-/// leaves an order of magnitude of headroom over anything the registry can
-/// hold. The bound excludes prices above one million USD per whole token, which
-/// no configured sanity band admits.
+/// thousand times below that, at one million USD per whole token. No sanity band
+/// in `configs/mainnet/markets.json` admits a higher price; the widest tops out
+/// at `3e5 * WAD`.
 const MAX_PRICE_WAD: i128 = 1_000_000 * WAD;
 
 /// Largest `price` for which `mul_div_half_up(price, RAY, price)` stays on
@@ -72,7 +70,7 @@ fn zero_anchor_reverts_fixture_completes(e: Env, anchor: i128, primary: i128) {
 
 /// No lemma split: `within_tolerance_band` computes
 /// `try_mul_div_half_up(high, BPS, low)`, whose product is at most
-/// `MAX_PRICE_WAD * BPS = 1e28`, five orders of magnitude below `i128::MAX`.
+/// `MAX_PRICE_WAD * BPS = 1e28`, ten orders of magnitude below `i128::MAX`.
 /// The widened branch is unreachable on this domain.
 #[rule]
 fn equal_prices_within_symmetric_band(e: Env, price: i128) {
@@ -89,10 +87,9 @@ fn equal_prices_within_symmetric_band(e: Env, price: i128) {
 /// Native half of `par_ratio_is_bps`: `price * RAY + price / 2` fits `i128`, so
 /// the ray ratio is computed entirely in `i128`.
 ///
-/// Lemma split of the former `par_ratio_is_bps`. The two bounds are exact
-/// complements, so the pair covers `(0, MAX_PRICE_WAD]` and each half asserts
-/// the original identity. `rescale_half_up` divides by a power of ten and has
-/// no branch of its own.
+/// The two bounds are exact complements, so the pair covers `(0, MAX_PRICE_WAD]`
+/// and each half asserts the same identity. `rescale_half_up` divides by a power
+/// of ten and has no native/widened branch of its own.
 #[rule]
 fn par_ratio_is_bps_native(e: Env, price: i128) {
     cvlr_assume!(price > 0 && price <= MAX_PRICE_WAD);

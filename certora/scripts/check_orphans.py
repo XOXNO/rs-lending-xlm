@@ -3,10 +3,15 @@
 
 - Orphan conf entries: rule listed in a conf with no matching #[rule] in spec.
 - Dead spec rules: #[rule] function not referenced by any conf (never runs).
-- Duplicated rules: a rule may run in exactly one non-satisfy conf.
-- Sanity policy: assert confs prove nothing without `rule_sanity: advanced`,
-  revert-shaped confs must disable it, and every revert-shaped rule needs a
-  reachability witness on its fixture.
+- Duplicated rules: a rule runs in at most one non-satisfy conf of its layer.
+- Sanity policy: assert confs need `rule_sanity: advanced`, satisfy and
+  revert-shaped confs need `none`, and every revert-shaped rule needs a
+  satisfy witness on its fixture.
+- Conf integrity: `SOROBAN_CONF_KEYS` only, a non-empty `msg`,
+  `optimistic_loop: false` outside `OPTIMISTIC_LOOP_CONFS`, a positive
+  `loop_iter` (host-state floor, sanity conf not below its twin), and
+  `-mediumTimeout` / `-maxCommandCount` tuning.
+- Profiles: every include and rule argument resolves, and every conf is profiled.
 """
 
 import json
@@ -91,10 +96,9 @@ PURE_PRICE_AGGREGATOR_CONFS = {
 }
 
 # A revert-shaped rule is `call(...); cvlr_assert!(false);`. The TAC vacuity
-# check removes user asserts and asserts false at every sink, so it reports
-# SANITY_FAILED on this shape by construction (note §7). Those rules therefore
-# live in confs with `rule_sanity: none`, and their reachability evidence is a
-# satisfy witness that completes the same fixture. Two forms are accepted: the
+# check reports SANITY_FAILED on this shape by construction (certora/README.md,
+# "Revert-shaped rules and their twins"), so its conf sets `rule_sanity: none`
+# and each rule needs a satisfy witness that completes the same fixture: the
 # `<rule>_fixture_completes` twin in the sibling `-sanity` conf, or the
 # module's existing success witness listed here. An entry is only valid when
 # that witness drives the same verb, or is the module's only witness.
@@ -145,7 +149,7 @@ def read_rules(spec_dir: Path) -> set[str]:
     return rules
 
 def rule_body(text: str, start: int) -> str:
-    """Return the brace-matched body of the rule whose signature starts at `start`.
+    """Return the brace-matched body of the rule whose name ends at `start`.
 
     Slicing to the next `#[rule]` instead would swallow the helper functions
     between two rules, and their asserts would be read as the earlier rule's.
@@ -196,8 +200,8 @@ def read_rule_kinds(spec_dir: Path) -> dict[str, str]:
 def conf_kind(conf: Path, rules: list[str], kinds: dict[str, str]) -> str:
     """Classify a conf as "revert", "satisfy" or "assert".
 
-    Falls back to the file-name convention while a rule the conf names has not
-    been written yet; check_orphans reports those separately as orphans.
+    Falls back to the file-name convention when no rule the conf names exists
+    in the spec yet; `main` reports those rules as orphans.
     """
     known = {kinds[rule] for rule in rules if rule in kinds}
     if known == {"revert"}:
@@ -352,10 +356,9 @@ def main() -> int:
                     "shapes; one conf holds one shape"
                 )
 
-            # Sanity policy. On WASM the prover emits its vacuity sub-rule only
-            # at `advanced`; `basic` emits nothing at all (note §7). A revert
-            # shaped rule is vacuous to that check by construction, so its conf
-            # turns the check off and pairs each rule with a satisfy witness.
+            # Sanity policy. On WASM only `advanced` runs the vacuity check;
+            # `basic` runs none (certora/README.md, "Sanity checking on WASM").
+            # Satisfy and revert confs turn the check off; see EXISTING_WITNESS.
             kind = conf_kind(conf, rules, source_kinds)
             sanity = data.get("rule_sanity")
             expected_sanity = "advanced" if kind == "assert" else "none"

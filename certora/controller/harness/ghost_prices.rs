@@ -8,15 +8,14 @@
 //! unrelated to the one the gate inside the call used.
 //!
 //! These maps record the first draw for a key and replay it for the rest of
-//! the rule, which is the model of INV-ORACLE-03, "one transaction sees one
-//! snapshot": within a rule one asset has one price and one market has one
+//! the rule: within a rule one asset has one price and one market has one
 //! parameter and index pair. `market_index` is derived from the same sync
 //! draw the pool's sync view returns, so `Context::cached_market_index` and
-//! `Context::cached_pool_sync_data` can no longer disagree about one market.
+//! `Context::cached_pool_sync_data` cannot disagree about one market.
 //!
-//! The memo only removes behaviours, so it cannot make a universal rule pass
-//! that would otherwise fail on a genuinely reachable state; the states it
-//! removes are the ones production cannot produce.
+//! The memo removes behaviours, so a rule proven under it holds only for
+//! executions with one snapshot per rule. INV-ORACLE-03 guarantees retained
+//! prices only within one `Context`, not across independent contexts.
 
 use crate::spec::summaries::pool::get_sync_data_summary;
 use crate::spec::summaries::price_feed_summary;
@@ -72,7 +71,8 @@ pub(crate) fn sync_data(env: &Env, hub_asset: &HubAssetKey) -> PoolSyncData {
 }
 
 /// The index pair of `hub_asset`'s snapshot, so a bulk index read and a sync
-/// read of one market agree the way production's single pool state does.
+/// read of one market agree. In production they agree only when the market has
+/// no unaccrued time: the sync view returns the stored index.
 pub(crate) fn market_index(env: &Env, hub_asset: &HubAssetKey) -> MarketIndexRaw {
     let state = sync_data(env, hub_asset).state;
     MarketIndexRaw {

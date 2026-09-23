@@ -28,12 +28,8 @@ fn seize_borrow_reduces_debt_and_writes_down_supply(
     borrow_index: i128,
     supply_index: i128,
 ) {
-    // `fixture::state` stamps `last_timestamp = e.ledger().timestamp() * 1_000`
-    // and `Cache::load` recomputes the same product through `time::now_ms`.
-    // Both are checked multiplications, so a ledger clock past `u64::MAX /
-    // 1_000` panics and Sunbeam prunes the path as `assume(false)`. Stating the
-    // bound makes that pruning visible instead of hidden, and drops the
-    // overflow branch from every rule below.
+    // Excludes the checked `timestamp * 1_000` overflow in `fixture::state` and
+    // `time::now_ms`; see "Fixture domain" in `certora/pool/spec/README.md`.
     cvlr_assume!(e.ledger().timestamp() <= u64::MAX / 1_000);
     cvlr_assume!(seized_scaled >= 0 && seized_scaled <= 20 * RAY);
     cvlr_assume!(borrow_index >= RAY && borrow_index <= MAX_BORROW_INDEX_RAY);
@@ -150,9 +146,6 @@ fn net_settle_conserves_cash_and_both_scaled_totals(
     cvlr_assume!(debt_before >= 0 && debt_before <= 20 * RAY);
     cvlr_assume!(supply_index >= SUPPLY_INDEX_FLOOR_RAW && supply_index <= MAX_SUPPLY_INDEX_RAY);
     cvlr_assume!(borrow_index >= RAY && borrow_index <= MAX_BORROW_INDEX_RAY);
-    // Production range, not `RAY_DECIMALS`: governance validates
-    // `MIN_ASSET_DECIMALS..=MAX_ASSET_DECIMALS` and `MarketParamsRaw::verify`
-    // caps at `WAD_DECIMALS`, so 0..=2 and 19..=27 are unreachable markets.
     cvlr_assume!((MIN_ASSET_DECIMALS..=MAX_ASSET_DECIMALS).contains(&asset_decimals));
     cvlr_assume!(i128::from(reserve_factor) < BPS);
     seed(

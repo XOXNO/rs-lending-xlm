@@ -48,10 +48,9 @@ fn timestamp_beyond_future_skew_reverts(e: Env, now: u64) {
 /// domain with the gate condition flipped from `now + SKEW + 1` to exactly
 /// `now + SKEW`, so `check_not_future_at` returns instead of panicking.
 ///
-/// [`timestamp_at_future_skew_boundary_is_allowed`] is the assert-form
-/// counterpart of this witness and shares the same conf; this rule is the
-/// satisfy form, which is what a `rule_sanity: none` revert conf needs beside
-/// it once the vacuity check is turned on elsewhere.
+/// The revert rule runs at `rule_sanity: none`, so this satisfy form is its
+/// reachability witness. [`timestamp_at_future_skew_boundary_is_allowed`] in
+/// `freshness.conf` is the assert-form counterpart.
 #[rule]
 fn timestamp_beyond_future_skew_reverts_fixture_completes(e: Env, now: u64) {
     cvlr_assume!(now < u64::MAX - MAX_FUTURE_SKEW_SECONDS);

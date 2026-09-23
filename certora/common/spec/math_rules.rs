@@ -38,9 +38,8 @@ fn wad_floor_native_max(ratio: i128) -> i128 {
 /// Native half of `ray_mul_identity`: `amount * RAY + RAY / 2` fits `i128`, so
 /// both multiplications run entirely in `i128`.
 ///
-/// Lemma split of the former `ray_mul_identity`. Together with
-/// `ray_mul_identity_widened` the two domains partition `0..=10 * RAY` exactly,
-/// and each asserts the original identity on its half.
+/// Together with `ray_mul_identity_widened`, the two domains partition
+/// `0..=10 * RAY` exactly.
 #[rule]
 fn ray_mul_identity_native(e: Env, amount: i128) {
     cvlr_assume!((0..=10 * RAY).contains(&amount));
@@ -213,13 +212,10 @@ fn bps_apply_to_wad_floor_monotone_widened(e: Env, v1: i128, v2: i128, bps: i128
 }
 
 // ---------------------------------------------------------------------------
-// `fp_core` identities, moved here from the controller layer on 2026-09-03.
+// `fp_core` identities.
 //
-// None of these rules reads controller state or calls controller code: they
-// pin the behaviour of `crate::math::fp_core`, which lives in this crate. They
-// were proved through the 228 KB controller artifact at entrypoint budgets
-// until the migration; here they share the arithmetic artifact and its much
-// smaller budgets.
+// None of these rules reads contract state or calls contract code: they pin
+// the behaviour of `crate::math::fp_core`.
 // ---------------------------------------------------------------------------
 
 #[rule]
@@ -386,14 +382,14 @@ fn div_by_zero_sanity_fixture_completes(e: Env) {
 }
 
 // ---------------------------------------------------------------------------
-// Anti-splitting bounds for the fixed-point primitives — the analogue of Aave
-// Hub's `*Additivity` rules.
+// Anti-splitting bounds for the fixed-point primitives.
 //
 // The roundtrip rules above bound the error of converting a value out and back.
-// These bound the error of *splitting* one conversion into two, which is the
-// pure-math foundation under the pool's `additivity_*` rules: every share
-// conversion in `contracts/pool/src/cache/scale.rs` is one of these three
-// primitives, so the pool's one-ray-share slack is exactly the slack proved here.
+// These bound the error of *splitting* one conversion into two. They are the
+// pure-math lemmas under the pool's `additivity_*` rules: each asset-to-share
+// conversion in `common/src/rates/scaling.rs` rescales exactly and then divides
+// by the index with the floor or ceil primitive, so the pool's one-ray-share
+// slack is the slack proved here.
 //
 // With `f(a) = (a·b + h) / d` truncated and `h = d/2` (half up), `h = 0` (floor),
 // or a +1 correction on a nonzero remainder (ceil):
@@ -414,7 +410,7 @@ fn div_by_zero_sanity_fixture_completes(e: Env) {
 // Upper: `floor(p)+floor(q) <= floor(p+q) = floor((X+Y+2h)/d)` and `h/d <= 1/2 < 1`
 //        gives `split <= single + 1`.
 //
-// PROOF STATUS: COMPILE-VERIFIED ONLY — not yet run through the Certora prover.
+// Proof status: these rules compile but have not run through the Certora prover.
 // ---------------------------------------------------------------------------
 
 /// Half-up `mul_div` is additive to within a single unit in either direction:
@@ -485,10 +481,9 @@ fn split_mul_div_ceil_never_gains(e: Env) {
     cvlr_assert!(split <= single + 1);
 }
 
-/// Upscaling rescale is an exact multiplication, so it is exactly additive:
-/// splitting a decimal widening is neither better nor worse. `Ray::from_asset`
-/// is this direction for every `asset_decimals <= RAY_DECIMALS`, which is why
-/// the pool's additivity slack comes only from the index division.
+/// Upscaling rescale is an exact multiplication, so it is exactly additive.
+/// `Ray::from_asset` is this direction for every `asset_decimals <= RAY_DECIMALS`,
+/// so the pool's additivity slack comes only from the index division.
 #[rule]
 fn split_rescale_upscale_exact(e: Env) {
     let a1: i128 = cvlr::nondet::nondet();

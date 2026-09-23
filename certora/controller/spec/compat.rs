@@ -238,7 +238,8 @@ pub fn liquidate(env: Env, liquidator: Address, account_id: u64, debt_payments: 
     );
 }
 
-/// `liquidate` with an explicit seize mode, returning the receiving account id.
+/// `liquidate` with an explicit seize mode, returning the receiving account id (`0` for
+/// `Transfer`).
 pub fn liquidate_with_mode(
     env: Env,
     liquidator: Address,

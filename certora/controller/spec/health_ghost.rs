@@ -2,11 +2,10 @@
 //!
 //! `record_gate` is driven by `spec_hooks::solvency_gate_checked`, which
 //! production calls from `risk::validation::require_post_pool_risk_gates`.
-//! Besides the "the gate ran" flag the health rules already consume, it
-//! snapshots the exact supply and debt books the gate valued, so a rule can
-//! prove that snapshot is still the account's persisted state at end of
-//! transaction — the fence against Trail of Bits' TOB-AAVE-7 ordering bug,
-//! where Aave V4 validated health and *then* added debt.
+//! Besides recording whether the gate ran, it snapshots the supply and debt
+//! books the gate valued. The health rules check that the final persisted books
+//! retain that snapshot's debt and weighted-collateral valuations. They do not
+//! require identical books or prohibit writes after the gate.
 
 use common::types::{Account, AccountPositionRaw, DebtPositionRaw, HubAssetKey};
 use soroban_sdk::{Env, Map};

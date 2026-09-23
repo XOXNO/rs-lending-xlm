@@ -6,6 +6,8 @@ use crate::constants::{MAX_BORROW_INDEX_RAY, MAX_SUPPLY_INDEX_RAY};
 use crate::math::fp::Ray;
 use crate::types::{MarketIndex, PoolSyncData};
 
+/// Summary of `simulate_update_indexes_dispatch` under the `certora` feature. Returns
+/// independent nondet indexes, each at least its stored value and at most its cap.
 pub fn simulate_update_indexes_summary(
     _env: &Env,
     _current_timestamp: u64,

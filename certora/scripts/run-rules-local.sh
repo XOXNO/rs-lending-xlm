@@ -84,9 +84,8 @@ with open(target, "w") as handle:
     handle.write("\n")
 PY
 
-# Fail closed on a stale artifact. A missing rule errors loudly ("invalid entry
-# point"), but a rule that still exists will verify green against code that no
-# longer matches the tree — a false pass is the worst outcome this script has.
+# Fail closed on a stale artifact: it still verifies green against code that
+# no longer matches the tree.
 if [ -z "${CERTORA_SKIP_ARTIFACT_CHECK:-}" ]; then
   conf_artifacts=$(python3 -c "
 import json, os, sys
@@ -200,7 +199,7 @@ run_one() {
   set -e
 
   # GNU timeout exits 124 when it had to kill the JVM: the prover never
-  # returned. Stamp the log so the CI classifier can tell a killed run from
+  # returned. Stamp the log so run-local-ci.sh can tell a killed run from
   # a prover-reported timeout.
   if [ "$status" -eq 124 ]; then
     echo "KILLED: exceeded CERTORA_RULE_TIMEOUT=${CERTORA_RULE_TIMEOUT:-?}s before the prover returned" >> "$log"
@@ -214,12 +213,10 @@ run_one() {
     echo "[$r] local prover exited $status; full log: $log" >&2
   fi
 
-  # The stdout log carries the verdict table, not the counterexample. The call
-  # trace with every `clog!`-ed value lives in the prover's build directory
-  # under the run dir, which the EXIT trap deletes. Keep it when the prover
-  # returned a failure of its own (a violation or an engine error), so CI can
-  # upload it; a wrapper kill (124) leaves a partial tree that is not worth
-  # the artifact.
+  # The counterexample call trace (with every `clog!`-ed value) lives under the
+  # run dir, which the EXIT trap deletes. Keep the run dir when the prover
+  # exits non-zero, so CI can upload it; skip a wrapper kill (124), which
+  # leaves a partial tree.
   if [ "$status" -ne 0 ] && [ "$status" -ne 124 ]; then
     local keep_dir="$log_dir/runs/${name%.conf}-$safe_rule"
     rm -rf -- "$keep_dir"

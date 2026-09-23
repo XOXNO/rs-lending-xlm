@@ -1,4 +1,4 @@
-"""Ensure Certora conf files point at existing prebuilt WASM artifacts."""
+"""Check focused Certora WASM artifacts against the manifest, sources and confs."""
 
 from __future__ import annotations
 

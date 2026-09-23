@@ -34,12 +34,8 @@ fn recapitalize_caps_cash_to_shortfall_and_refunds_excess(
     borrow_index: i128,
     cash: i128,
 ) {
-    // `fixture::state` stamps `last_timestamp = e.ledger().timestamp() * 1_000`
-    // and `Cache::load` recomputes the same product through `time::now_ms`.
-    // Both are checked multiplications, so a ledger clock past `u64::MAX /
-    // 1_000` panics and Sunbeam prunes the path as `assume(false)`. Stating the
-    // bound makes that pruning visible instead of hidden, and drops the
-    // overflow branch from every rule below.
+    // Bounds the clock so the checked `timestamp * 1_000` in `fixture::state` and
+    // `time::now_ms` cannot overflow. Sunbeam prunes that panic path silently.
     cvlr_assume!(e.ledger().timestamp() <= u64::MAX / 1_000);
     cvlr_assume!(offered >= 0 && offered <= MAX_FLOW_AMOUNT);
     cvlr_assume!(supplied >= 0 && supplied <= 100 * RAY);
@@ -432,8 +428,8 @@ fn positive_revenue_claim_with_zero_share_burn_reverts(e: Env, admin: Address, a
 }
 
 /// Satisfy twin of [`positive_revenue_claim_with_zero_share_burn_reverts`]: the
-/// same 18-decimal market holding the same extreme revenue, with the gate
-/// flipped by funding the cash book to the full treasury claim.
+/// same 18-decimal market holding the same extreme revenue, with the cash book
+/// funded to the full treasury claim.
 ///
 /// The revert fixture leaves `cash == 1`, which drives
 /// `burn_claimable_revenue` into its proportional branch

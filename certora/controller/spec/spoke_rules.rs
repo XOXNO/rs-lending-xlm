@@ -380,11 +380,10 @@ fn spoke_add_asset_to_deprecated_category(e: Env, asset: Address) {
     cvlr_assert!(false);
 }
 
-/// V-8 (controller half, Certora Hub M-03 analogue): listing an asset that is
-/// already listed on the spoke must revert. Without this, a second
-/// `add_asset_to_spoke` would silently overwrite the risk parameters of a
-/// market that already carries positions and `SpokeUsage`, re-basing the caps
-/// under live exposure. Mirrors `spoke_add_asset_to_deprecated_category`.
+/// Listing an asset that the spoke already lists reverts with
+/// `AssetAlreadyInSpoke`. A second `add_asset_to_spoke` would otherwise
+/// overwrite the risk parameters and caps of a market with live positions and
+/// `SpokeUsage`. Mirrors `spoke_add_asset_to_deprecated_category`.
 #[rule]
 fn spoke_add_asset_to_listed_asset(e: Env, asset: Address) {
     let category_id = crate::spec::fixture::SPOKE_ID;
@@ -513,7 +512,7 @@ fn deprecated_spoke_withdraw_sanity(e: Env, caller: Address, asset: Address) {
 // ---------------------------------------------------------------------------
 // Bulk position-limit proofs.
 //
-// `validate_bulk_position_limits` (risk/validation.rs:50) de-duplicates
+// `validate_bulk_position_limits` (`risk/validation.rs`) de-duplicates
 // repeated assets *within one call* (`seen` map) before comparing the new
 // unique-position count against the configured limits. These rules pin that
 // the duplicated-leg bulk flow at the exact boundary succeeds (supply) or
@@ -556,9 +555,6 @@ fn bulk_supply_duplicate_asset_counted_once(
     legs.push_back((fixture::hub_asset(&asset_a), amount));
     crate::positions::supply::process_supply(&e, &caller, account_id, attrs.spoke_id, &legs);
 
-    // The duplicated leg is counted once for the limit check: at the cap the
-    // call must reach the boundary without reverting, and the new asset's
-    // record must be persisted.
     let book = crate::storage::get_supply_positions(&e, account_id);
     cvlr_assert!(book.get(fixture::hub_asset(&asset_a)).is_some());
     cvlr_assert!(book.len() == common::constants::POSITION_LIMIT_MAX);
@@ -726,8 +722,6 @@ fn bulk_borrow_duplicate_leg_not_double_counted(
     legs.push_back((fixture::hub_asset(&asset_a), amount));
     crate::positions::process_borrow(&e, &caller, account_id, &legs, None);
 
-    // A duplicated leg counts once: the account lands on the cap, so a borrow
-    // of the new asset is reachable.
     cvlr_satisfy!(crate::storage::get_debt_positions(&e, account_id)
         .get(fixture::hub_asset(&asset_a))
         .is_some());
@@ -777,41 +771,28 @@ fn bulk_borrow_distinct_legs_exceed_limit_reverts(
 }
 
 // ---------------------------------------------------------------------------
-// V-5 — spoke usage reconciliation (stream S1a, `usage_` prefix).
+// Spoke usage reconciliation (`usage_` prefix).
 //
-// `SpokeUsage(spoke_id, hub_asset)` is the ONLY per-spoke record of cap
-// consumption: the pool keeps no per-spoke book at all. It is a *second*
-// accumulator, maintained by a separate code path (`spoke_usage.rs`) from the
-// position maps it shadows. A verb that mutates a position but skips its
-// `apply_leg_usage` call breaks cap enforcement in either direction —
-// under-count lets a spoke exceed its cap, over-count locks out legitimate
-// supply — and nothing else in the system would notice.
+// `SpokeUsage(spoke_id, hub_asset)` is the only per-spoke record of cap
+// consumption; the pool keeps no per-spoke book. `spoke_usage.rs` maintains it
+// apart from the position maps it shadows. A verb that moves a position but
+// skips `apply_leg_usage` breaks cap enforcement (an under-count lets a spoke
+// exceed its cap, an over-count blocks valid supply), and no other check sees it.
 //
 // The property proved below, for one `(spoke_id, hub_asset)` cell:
 //
 //     usage_after - usage_before == scaled_after - scaled_before
 //     usage_after >= 0
 //
-// on BOTH sides at once, so "the side this verb does not touch stays put" is
-// proved together with "the side it does touch moves by exactly the leg
-// delta".
+// on both sides at once: the side a verb does not touch stays put, and the side
+// it touches moves by exactly the leg delta.
 //
-// The scaled term is a *sum over affected accounts* (`stored_scaled_totals` /
-// `account_scaled_totals` take a slice), not a single account read.
-// `SeizeMode::Credit` moves collateral between two accounts on the same spoke
-// in one call, where the per-account deltas cancel and only the total is
-// invariant; stream S1b passes both accounts in one slice rather than
-// restating the property.
-//
-// One caveat the slice form makes precise, and which the liquidation rules
-// below turn on: the summed delta is NOT zero in credit mode. The protocol
-// fee shares are reclassified into pool revenue by `absorb_supply_as_revenue`
-// and so leave the account system altogether, which the implementation books
-// with an explicit `apply_spoke_exit` (apply.rs:197). Sum over the two
-// accounts therefore falls by exactly the fee, and usage falls with it. Were
-// that exit missing, usage would ratchet up on every credit-mode liquidation
-// and `remove_asset_from_spoke` — which requires a zero usage row — would
-// become permanently unreachable for the asset.
+// The scaled term is a sum over affected accounts (`stored_scaled_totals` and
+// `account_scaled_totals` take a slice). `SeizeMode::Credit` moves collateral
+// between two accounts on one spoke in one call, so only the sum over both
+// tracks usage, and the credit-mode rule passes both in one slice. That sum is
+// not constant: it falls by the protocol fee (shape 3 of the liquidation
+// section).
 // ---------------------------------------------------------------------------
 
 /// Upper bound for every seeded scaled amount and usage row in this section.
@@ -884,7 +865,7 @@ fn usage_row(e: &Env, asset: &Address) -> SpokeUsageRaw {
     crate::spec::fixture::spoke_usage(e, crate::spec::fixture::SPOKE_ID, &hub0(asset))
 }
 
-/// The V-5 property itself, in the shape stream S1b generalizes.
+/// Asserts the usage reconciliation property for one cell over the given scaled totals.
 ///
 /// Both sides are asserted, so an endpoint that moves the wrong side (or moves
 /// a side it should not touch) fails here just as loudly as one that forgets
@@ -930,7 +911,7 @@ fn assert_usage_tracks_scaled(
 }
 
 /// Seeds a live account holding both a supply and a debt position in `asset`,
-/// plus a usage row that covers both, and returns the seeded usage row.
+/// plus a usage row that covers both.
 ///
 /// Seeding usage at or above the account's own scaled amounts is the
 /// production-faithful state: the row is the sum over every account bound to
@@ -1095,18 +1076,17 @@ fn usage_repay_tracks_scaled_delta(
 }
 
 // ---------------------------------------------------------------------------
-// Strategy legs. Every strategy (multiply, swap-debt, swap-collateral,
-// repay-with-collateral, migrate, close) is assembled from exactly four
-// controller-custody primitives, and each one is proved here against an
-// arbitrary pool outcome. Driving the primitives rather than the full
-// strategies keeps the swap-router trust boundary out of the proof: what is
-// at stake is the usage wiring of the leg, not the router.
+// Strategy legs. Every strategy (multiply, flash-position, swap-debt,
+// swap-collateral, repay-with-collateral, migrate, close) moves positions
+// through the four controller-custody primitives below plus `process_deposit`,
+// which the supply endpoint rule covers. Each primitive is proved here against
+// an arbitrary pool outcome. Driving the primitives rather than the full
+// strategies keeps the swap router out of the proof.
 //
 // Usage is buffered in the `Context` until `finalize_position_flow` runs, so
-// these rules persist explicitly. `strategy_finalize` (strategies/mod.rs:65)
-// is the single tail every strategy ends in, and it calls
-// `finalize_position_flow`; the four endpoint rules above prove that tail
-// really writes the buffered rows.
+// these rules persist explicitly. Every strategy ends in `strategy_finalize`
+// (`strategies/mod.rs`), which calls `finalize_position_flow`; the four
+// endpoint rules above prove that call writes the buffered rows.
 // ---------------------------------------------------------------------------
 
 #[rule]
@@ -1265,9 +1245,9 @@ fn usage_strategy_repay_leg_tracks_scaled_delta(
     assert_usage_tracks_scaled(&usage_before, &usage_after, scaled_before, scaled_after);
 }
 
-/// The net-settle leg is the interesting one: it moves the supply and the
-/// debt side of the *same* cell in a single call, through two different merge
-/// primitives. Both usage sides must track their own leg.
+/// The net-settle leg moves the supply and the debt side of the *same* cell in
+/// a single call, through two different merge primitives. Both usage sides
+/// must track their own leg.
 #[rule]
 fn usage_strategy_net_settle_tracks_scaled_delta(
     e: Env,
@@ -1319,24 +1299,19 @@ fn usage_strategy_net_settle_tracks_scaled_delta(
 // ---------------------------------------------------------------------------
 // Coverage.
 //
-// The threat is not "one of today's verbs is wrong" — it is "tomorrow's verb
-// forgets `apply_leg_usage` and nothing fails". Two mechanisms, one static and
-// one semantic:
+// Two mechanisms stop a new verb from skipping `apply_leg_usage` unnoticed:
 //
-//  1. `usage_coverage_class` matches EXHAUSTIVELY over
-//     `events::PositionAction`. Every verb in this codebase tags its position
-//     updates with its own variant (Supply, Borrow, ..., RpColNet), so adding
-//     a verb means adding a variant, and adding a variant without classifying
-//     it here is a COMPILE ERROR under `--features certora-spoke-rules`. The
-//     author cannot land the verb without reading this section.
+//  1. `usage_coverage_class` matches exhaustively over
+//     `events::PositionAction`. Verbs tag their position updates with a
+//     variant, so a new verb usually adds one, and an unclassified variant is
+//     a compile error under `--features certora-spoke-rules`.
 //
-//  2. Classifying it as `UsageCoverage::Wave0(..)` then obliges the new verb
-//     to name the legs it drives, and `Wave0Legs::contains` / `run_wave0_leg`
-//     match exhaustively over `Wave0Leg`. A verb that mutates positions
-//     through a *new* primitive therefore needs a new `Wave0Leg` variant,
-//     which breaks both matches until `usage_coverage_no_unwired_verb`
-//     actually exercises it. Escaping coverage requires actively
-//     mis-classifying a verb, not merely forgetting one.
+//  2. A `UsageCoverage::Wave0(..)` classification names the legs the verb
+//     drives, and `Wave0Legs::contains` / `run_wave0_leg` match exhaustively
+//     over `Wave0Leg`. A verb that moves positions through a new primitive
+//     needs a new `Wave0Leg` variant, which breaks both matches until
+//     `usage_coverage_no_unwired_verb` exercises it. Escaping coverage takes a
+//     deliberate misclassification.
 // ---------------------------------------------------------------------------
 
 /// One of the merge primitives every position mutation that touches a pool
@@ -1347,11 +1322,10 @@ enum Wave0Leg {
     SupplyEntry,
     /// `positions::supply::merge_withdraw_leg` with `WithdrawKind::Normal`.
     SupplyExit,
-    /// `positions::supply::merge_withdraw_leg` with `WithdrawKind::Liquidation`
-    /// — the transfer-mode seizure leg (stream S1b). A separate variant
-    /// because `spoke_refresh_for_leg` (supply.rs:414) branches on the kind:
-    /// the usage identity must hold on the branch that skips the risk-param
-    /// restamp too.
+    /// `positions::supply::merge_withdraw_leg` with `WithdrawKind::Liquidation`,
+    /// the transfer-mode seizure leg. A separate variant because
+    /// `leg_may_restamp_risk_params` skips the risk-parameter restamp for this
+    /// kind, and the usage identity must hold on that branch too.
     SupplyExitLiquidation,
     /// `positions::merge_debt_leg` with `LegDirection::Entry`.
     DebtEntry,
@@ -1433,49 +1407,43 @@ enum UsageCoverage {
     /// primitive, so the delta is only meaningful summed over both. Proved by
     /// `usage_liq_credit_seize_sums_over_two_accounts`.
     ///
-    /// This is NOT an escape hatch: unlike the `Wave1Liquidation` bucket it
-    /// replaces, it names a rule that exists and passes. Do not classify a new
-    /// action here unless a cross-account rule actually covers it.
+    /// Classify a new action here only when a cross-account rule covers it.
     CrossAccount,
 }
 
-/// COVERAGE GUARD — exhaustive over `events::PositionAction`.
+/// Coverage guard: exhaustive over `events::PositionAction`.
 ///
-/// Do not add a `_ =>` arm. The missing-arm compile error is the mechanism
-/// that stops a new verb from silently escaping V-5 coverage.
+/// Do not add a `_ =>` arm. The missing-arm compile error stops a new verb
+/// from escaping spoke usage coverage.
 ///
-/// Each classification is grounded in the action's production call sites:
-/// `Supply` supply.rs:345, `Borrow` debt.rs:147, `Withdraw` supply.rs:215,
-/// `Repay` debt.rs:96, `LiqRepay`/`LiqSeize` liquidation/apply.rs:78,116,
-/// `LiqCredit` liquidation/apply.rs:294 (credit-mode receiver leg),
-/// `Multiply` multiply.rs:79 (`borrow_into_controller`), `FlashPos`
-/// flash_position.rs (`borrow_into_controller`), `ParamUpd`
-/// risk/params.rs (risk-parameter restamp only), `SwDebtR` swap_debt.rs:65,87,
-/// `SwColWd` swap_collateral.rs:65, `RpColWd`/`RpColR`/`RpColNet`
-/// repay_debt_with_collateral.rs:134,146,104, `CloseWd` legs.rs:138,
-/// `Migrate` migrate_blend.rs:146,361.
+/// Each classification follows the action's production call sites:
+/// `Supply` and `Withdraw` in `positions/supply.rs`, `Borrow` and `Repay` in
+/// `positions/debt.rs`, `LiqRepay`/`LiqSeize`/`LiqCredit` in
+/// `liquidation/apply.rs`, `Multiply` and `FlashPos` (`borrow_into_controller`)
+/// in `multiply.rs` and `flash_position.rs`, `ParamUpd` in `risk/params.rs`
+/// (risk-parameter restamp only), `SwDebtR` in `swap_debt.rs`, `SwColWd` in
+/// `swap_collateral.rs`, `RpColWd`/`RpColR`/`RpColNet` in
+/// `repay_debt_with_collateral.rs`, `CloseWd` in `legs.rs`, `Migrate` in
+/// `migrate_blend.rs`.
 fn usage_coverage_class(action: PositionAction) -> UsageCoverage {
     match action {
         PositionAction::Supply => UsageCoverage::Wave0(Wave0Legs::SUPPLY_ENTRY),
         PositionAction::Borrow => UsageCoverage::Wave0(Wave0Legs::DEBT_ENTRY),
         PositionAction::Withdraw => UsageCoverage::Wave0(Wave0Legs::SUPPLY_EXIT),
         PositionAction::Repay => UsageCoverage::Wave0(Wave0Legs::DEBT_EXIT),
-        // Stream S1b. `apply_liquidation_repayments` (apply.rs:78) reaches
-        // exactly one merge primitive, `merge_debt_leg`/Exit, via
-        // `apply_repay_batch`.
+        // `apply_liquidation_repayments` reaches one merge primitive,
+        // `merge_debt_leg` with `LegDirection::Exit`, via `apply_repay_batch`.
         PositionAction::LiqRepay => UsageCoverage::Wave0(Wave0Legs::DEBT_EXIT),
-        // `apply_liquidation_seizures` (apply.rs:116) reaches exactly one,
-        // `merge_withdraw_leg` with `WithdrawKind::Liquidation`, via
-        // `apply_withdraw_batch`. Since the receiver's leg was split onto its
-        // own `LiqCredit` tag, `LiqSeize` now means exactly one thing: the
-        // liquidated account's debit, gross of the protocol fee, in both
-        // seize modes.
+        // The liquidated account's debit, gross of the protocol fee. Transfer
+        // mode reaches one merge primitive, `merge_withdraw_leg` with
+        // `WithdrawKind::Liquidation`, via `apply_withdraw_batch`. The
+        // credit-mode debit reaches none;
+        // `usage_liq_credit_seize_sums_over_two_accounts` covers it.
         PositionAction::LiqSeize => UsageCoverage::Wave0(Wave0Legs::SUPPLY_EXIT_LIQUIDATION),
-        // The credit-mode receiver's leg. Drives NO merge primitive — it moves
-        // scaled amounts between two accounts directly
-        // (`apply_liquidation_share_credit`, apply.rs:143) and books the
-        // protocol fee with a bare `apply_spoke_exit`, so the delta only
-        // balances when summed over both accounts.
+        // The credit-mode receiver's leg. It reaches no merge primitive:
+        // `apply_liquidation_share_credit` moves scaled amounts between two
+        // accounts and books the protocol fee with a bare `apply_spoke_exit`,
+        // so the delta balances only when summed over both accounts.
         PositionAction::LiqCredit => UsageCoverage::CrossAccount,
         PositionAction::Multiply => UsageCoverage::Wave0(Wave0Legs::DEBT_ENTRY),
         PositionAction::FlashPos => UsageCoverage::Wave0(Wave0Legs::DEBT_ENTRY),
@@ -1529,14 +1497,12 @@ fn nondet_wave0_leg(sel: u32) -> Wave0Leg {
 /// moment it is decoded.
 const WAVE0_LEG_COUNT: u32 = 5;
 
-/// A pool leg outcome with the index and decimals constrained exactly as the
-/// shared pool summary constrains a real one, but with the resulting scaled
-/// amount free in both directions and bounded only by `USAGE_SEED_MAX`.
+/// A pool leg outcome with indexes in the shared pool summary's domain, asset
+/// decimals in `0..=27` (a superset of `MIN_ASSET_DECIMALS..=MAX_ASSET_DECIMALS`),
+/// and a scaled amount free in both directions, bounded only by `USAGE_SEED_MAX`.
 ///
-/// Leaving the direction free is deliberate: the usage identity must follow
-/// from the leg wiring alone, never from the pool's monotonicity. A leg that
-/// happened to be correct only because the pool never moves scaled the other
-/// way would be a latent break the moment the pool changes.
+/// The direction stays free so the usage identity follows from the leg wiring
+/// alone, never from the pool's monotonicity.
 fn nondet_leg_outcome(amount: i128) -> (LegOutcome, u32) {
     let supply_index: i128 = nondet();
     let borrow_index: i128 = nondet();
@@ -1680,7 +1646,7 @@ fn usage_coverage_no_unwired_verb(
     let leg = nondet_wave0_leg(leg_sel);
     let action = nondet_position_action(action_sel);
     match usage_coverage_class(action) {
-        // Restrict to the legs this action can actually drive in production.
+        // Restrict to the legs this action can drive in production.
         UsageCoverage::Wave0(legs) => cvlr_assume!(legs.contains(leg)),
         // Proved by `usage_param_refresh_moves_neither`.
         UsageCoverage::NoScaledMove => {
@@ -1689,8 +1655,7 @@ fn usage_coverage_no_unwired_verb(
         }
         // Proved by `usage_liq_credit_seize_sums_over_two_accounts`, which
         // sums over the liquidated account and the receiver. A single-account
-        // rule cannot state this action's invariant, so excluding it here is
-        // correct rather than a gap.
+        // rule cannot state this action's invariant.
         UsageCoverage::CrossAccount => {
             cvlr_assume!(false);
             return;
@@ -1755,16 +1720,14 @@ fn usage_param_refresh_moves_neither(
     cvlr_assert!(usage_after.borrowed_scaled_ray == usage_before.borrowed_scaled_ray);
 }
 
-/// Pins the one asymmetry in `SpokeUsageContext`: `apply_entry` writes a row
-/// unconditionally, so an absent row becomes a zero row (spoke_usage.rs:115),
-/// but `apply_exit` returns without writing anything (spoke_usage.rs:130). On a
-/// cell whose usage row is absent, an exit therefore leaves usage at the zero
-/// row instead of tracking the position down — the delta identity above holds
-/// *given a row*, which is exactly the precondition every exit rule seeds.
+/// Pins the one asymmetry in `SpokeUsageContext`: `apply_entry` treats an
+/// absent row as zero and writes it, but `apply_exit` on an absent row writes
+/// nothing. On a cell with no usage row, an exit leaves usage at the zero row
+/// instead of tracking the position down. The delta identity above holds
+/// *given a row*, which is the precondition every exit rule seeds.
 ///
-/// Production only reaches an exit after an entry created the row, so this is
-/// a documented carve-out rather than a gap. It is a rule so that it cannot
-/// quietly become one.
+/// Production reaches an exit only after an entry created the row; this rule
+/// pins that carve-out.
 #[rule]
 fn usage_exit_without_usage_row_is_a_noop(
     e: Env,
@@ -1795,9 +1758,9 @@ fn usage_exit_without_usage_row_is_a_noop(
 }
 
 // ---------------------------------------------------------------------------
-// Reachability witnesses. Each satisfies that its endpoint both completes and
-// actually MOVES usage in the expected direction — a bare `satisfy(true)`
-// witness would leave a wholly unwired verb looking healthy.
+// Reachability witnesses. Each requires its endpoint to complete and to move
+// usage in the expected direction; a bare `satisfy(true)` would pass on an
+// unwired verb.
 // ---------------------------------------------------------------------------
 
 #[rule]
@@ -2029,48 +1992,38 @@ fn usage_coverage_dispatch_reachable(e: Env, caller: Address, asset: Address, le
 }
 
 // ---------------------------------------------------------------------------
-// V-5, liquidation legs (stream S1b, `usage_liq_` prefix).
+// Spoke usage reconciliation, liquidation legs (`usage_liq_` prefix).
 //
 // Liquidation is the only verb family that moves positions on more than one
-// account, and the only one that moves value OUT of the account system
-// without a pool withdrawal. Three distinct shapes:
+// account, and the only one that moves value out of the account system
+// without a pool withdrawal. Four shapes:
 //
-//  1. Repayment. `apply_liquidation_repayments` (apply.rs:30) pulls the
-//     liquidator's tokens and hands the legs to `apply_repay_batch`. Ordinary
-//     single-account exit: borrow usage falls by the repaid scaled debt.
+//  1. Repayment. `apply_liquidation_repayments` pulls the liquidator's tokens
+//     and passes the legs to `apply_repay_batch`. Single-account exit: borrow
+//     usage falls by the repaid scaled debt.
 //
-//  2. `SeizeMode::Transfer`. `apply_liquidation_seizures` (apply.rs:92) hands
-//     the legs to `apply_withdraw_batch`. The pool burns the whole seizure —
-//     protocol fee included, since the fee is withheld from the *payout*, not
-//     from the burn — so supply usage falls by the full seized scaled amount.
+//  2. `SeizeMode::Transfer`. `apply_liquidation_seizures` passes the legs to
+//     `apply_withdraw_batch`. The pool burns the whole seizure, protocol fee
+//     included, and withholds the fee from the payout. Supply usage falls by
+//     the full seized scaled amount.
 //
-//  3. `SeizeMode::Credit`. `apply_liquidation_share_credit` (apply.rs:143)
-//     debits the liquidated account by the whole scaled seizure `S`, credits
-//     the receiver `S - fee`, and books `fee` as a bare `apply_spoke_exit`.
-//     Per account nothing reconciles; summed over the pair, supply usage
-//     falls by exactly `fee`. NOT by zero: `absorb_supply_as_revenue`
-//     reclassifies those shares into pool revenue, so they leave the account
-//     system for good. A rule pinning `delta == 0` here would pin a false
-//     invariant, and an implementation matching it would ratchet usage up on
-//     every credit-mode liquidation until `remove_asset_from_spoke` — which
-//     requires a zero usage row — became unreachable for the asset.
+//  3. `SeizeMode::Credit`. `apply_liquidation_share_credit` debits the
+//     liquidated account by the whole scaled seizure `S`, credits the receiver
+//     `S - fee`, and books `fee` as a bare `apply_spoke_exit`. Per account
+//     nothing reconciles; summed over the pair, supply usage falls by exactly
+//     `fee`, because `absorb_supply_as_revenue` reclassifies those shares into
+//     pool revenue. Without that exit, usage ratchets up on every
+//     credit-mode liquidation until `remove_asset_from_spoke`, which requires
+//     a zero usage row, becomes unreachable for the asset.
 //
-//  4. Bad-debt cleanup. `execute_bad_debt_cleanup` (bad_debt.rs:14) absorbs
-//     every remaining position into revenue or socialized debt and removes
-//     the account entry, so usage must shed each wiped position in full.
+//  4. Bad-debt cleanup. `execute_bad_debt_cleanup` absorbs every remaining
+//     position into revenue or socialized debt and removes the account entry,
+//     so usage must shed each wiped position in full.
 //
-// LEVEL NOTE, and the reason the shapes are driven at different levels:
-// `positions::liquidation::{apply, bad_debt}` are `pub(crate)`
-// (liquidation/mod.rs:12,13), and their `pub(crate)` functions
-// `apply_liquidation_repayments`, `apply_liquidation_seizures`,
-// `apply_liquidation_share_credit` and `execute_bad_debt_cleanup` ARE
-// callable from `crate::spec`. Shapes 1 and 2 are nonetheless driven through
-// the `pub(crate)` batch primitives those functions delegate to —
-// `apply_repay_batch` and `apply_withdraw_batch`,
-// which is where every position and usage mutation of those two legs
-// happens; the wrappers themselves only run the flag gate, move tokens, and
-// compute USD. Shapes 3 and 4 have no such seam — the share credit and the
-// cleanup ARE the private functions — so they are driven end to end through
+// Shapes 1 and 2 are driven through `apply_repay_batch` and
+// `apply_withdraw_batch`, where every position and usage mutation of those
+// legs happens; the wrappers add only flag gates, the repayment token pull and
+// USD arithmetic. Shapes 3 and 4 are driven end to end through
 // `process_liquidation` and `clean_bad_debt_standalone`.
 // ---------------------------------------------------------------------------
 
@@ -2078,16 +2031,12 @@ fn usage_coverage_dispatch_reachable(e: Env, caller: Address, asset: Address, le
 /// liquidated account lost, minus what the receiver gained.
 ///
 /// In credit mode this is exactly the protocol fee `split_seized_shares`
-/// (liquidation/math.rs:371) carves out of the seizure, because the debit is
-/// `S` and the credit is `S - fee`. It is the only value that leaves the
-/// account system on the seizure leg, and therefore the only spoke-usage
-/// movement the leg may book.
+/// carves out of the seizure, because the debit is `S` and the credit is
+/// `S - fee`. It is the only value that leaves the account system on the
+/// seizure leg, and therefore the only spoke-usage movement the leg may book.
 ///
-/// Returns `None` when any total is unrepresentable, leaving it to the caller
-/// to decide whether that is an assertion failure or a witness that simply
-/// does not apply. Deliberately free of `cvlr_assert!`/`cvlr_satisfy!`: this
-/// helper is shared by rules of both kinds, and `check_orphans.py` classifies
-/// a rule by the macros in the source span that follows it.
+/// Returns `None` when any total is unrepresentable; the caller decides how to
+/// treat it.
 fn supply_shares_that_left(
     liquidated_before: Option<ScaledTotals>,
     liquidated_after: Option<ScaledTotals>,
@@ -2104,7 +2053,7 @@ fn supply_shares_that_left(
 }
 
 /// Whether the pair's supply shares moved from the liquidated account to the
-/// receiver — the observable signature of a share credit that really ran.
+/// receiver — the observable signature of a share credit that ran.
 fn shares_moved_between(
     liquidated_before: Option<ScaledTotals>,
     liquidated_after: Option<ScaledTotals>,
@@ -2131,13 +2080,13 @@ fn one_payment(e: &Env, asset: &Address, amount: i128) -> Vec<(HubAssetKey, i128
     payments
 }
 
-/// Seeds a liquidatable account plus a credit-mode receiver bound to the same
-/// spoke (`fixture::SPOKE_ID`) and owned by the liquidator, so
-/// `resolve_seize_receiver` (liquidation/mod.rs:158) admits it.
+/// Seeds an account holding collateral and debt plus a credit-mode receiver
+/// bound to the same spoke (`fixture::SPOKE_ID`) and owned by the liquidator,
+/// so `resolve_seize_receiver` admits it.
 ///
 /// `receiver_holds` selects between the two receiver shapes
-/// `credit_supply_shares` (apply.rs:255) distinguishes: merging into an
-/// existing position, or stamping a fresh one from the current listing.
+/// `credit_supply_shares` distinguishes: merging into an existing position, or
+/// stamping a fresh one from the current listing.
 fn seed_credit_liquidation(
     e: &Env,
     account_id: u64,
@@ -2175,10 +2124,7 @@ fn seed_credit_liquidation(
 /// scaled debt the pool burned, and leaves supply usage alone.
 ///
 /// Drives `apply_repay_batch` with `PositionAction::LiqRepay`, which is the
-/// whole of `apply_liquidation_repayments`' position and usage effect
-/// (apply.rs:78) — the enclosing function adds only the flag gate, the
-/// measured token pull, and the USD arithmetic, none of which touch a
-/// position map or a usage row.
+/// whole of `apply_liquidation_repayments`' position and usage effect.
 #[rule]
 fn usage_liq_repay_leg_tracks_scaled_delta(
     e: Env,
@@ -2245,18 +2191,16 @@ fn usage_liq_repay_leg_tracks_scaled_delta(
 // Leg 2 — `SeizeMode::Transfer` seizure.
 // ---------------------------------------------------------------------------
 
-/// The transfer-mode seizure leg decreases supply usage by the FULL seized
-/// scaled amount — protocol fee included — and leaves borrow usage alone.
+/// The transfer-mode seizure leg decreases supply usage by the full seized
+/// scaled amount, protocol fee included, and leaves borrow usage alone.
 ///
 /// Drives `apply_withdraw_batch` with `WithdrawKind::Liquidation` and
 /// `PositionAction::LiqSeize`, which is the whole of
-/// `apply_liquidation_seizures`' position and usage effect (apply.rs:116).
+/// `apply_liquidation_seizures`' position and usage effect.
 ///
-/// The fee is not a second usage movement in this mode: `protocol_fee` rides
-/// along on the `PoolWithdrawEntry` and is withheld by the pool from the
-/// liquidator's *payout*, while the shares burned out of the liquidated
-/// account are the whole seizure. Booking a separate fee exit here — the
-/// credit-mode shape — would double-count it.
+/// The fee is not a second usage movement in this mode: the pool withholds
+/// `protocol_fee` from the payout and burns the whole seizure. A separate fee
+/// exit here would count the fee twice.
 #[rule]
 fn usage_liq_transfer_seize_leg_tracks_scaled_delta(
     e: Env,
@@ -2272,8 +2216,8 @@ fn usage_liq_transfer_seize_leg_tracks_scaled_delta(
 ) {
     cvlr_assume!(account_id != 0);
     cvlr_assume!(amount > 0 && amount <= crate::constants::WAD * 1000);
-    // `LiquidationPlan::validate` (liquidation/math.rs:60) admits exactly this
-    // range for a seizure entry's fee.
+    // `LiquidationPlan::validate` admits exactly this range for a seizure
+    // entry's fee.
     cvlr_assume!(protocol_fee >= 0 && protocol_fee <= amount);
     assume_usage_seeds(supply_scaled, debt_scaled, usage_supply, usage_debt);
     seed_usage_scenario(
@@ -2325,19 +2269,17 @@ fn usage_liq_transfer_seize_leg_tracks_scaled_delta(
 // ---------------------------------------------------------------------------
 
 /// Credit-mode liquidation moves collateral between two accounts on one
-/// spoke, and supply usage falls by exactly the shares that left the pair —
-/// the protocol fee — never by zero and never by the whole seizure.
+/// spoke, and supply usage falls by exactly the shares that left the pair:
+/// the protocol fee, not the whole seizure.
 ///
 /// Stated over the slice `[liquidated, receiver]`, because per account
 /// neither delta reconciles with usage: the liquidated account loses `S`
 /// while usage moves by `fee`, and the receiver gains `S - fee` while usage
 /// does not move for it at all. The sum is what the accumulator tracks.
 ///
-/// `fee` is not re-derived from the plan — the plan is built inside the call
-/// against a nondeterministic market index and a nondeterministic price, so
-/// recomputing it from a second invocation would compare two different
-/// draws. It is instead *observed* as `lost - gained`, which is the fee by
-/// construction of `split_seized_shares`, and the rule pins usage to it.
+/// The rule observes `fee` as `lost - gained` rather than recomputing the plan.
+/// This is the fee by construction of `split_seized_shares`; the rule pins
+/// usage to it. Repeated price and index reads reuse the rule's snapshots.
 ///
 /// If `check_bad_debt_after_liquidation` fires on the residual, the wiped
 /// positions are absorbed into revenue too and `lost - gained` grows to
@@ -2411,7 +2353,7 @@ fn usage_liq_credit_seize_sums_over_two_accounts(
     let liquidated_after = stored_scaled_totals(&e, &liquidated, &collateral_asset);
     let receiver_after = stored_scaled_totals(&e, &receiving, &collateral_asset);
 
-    // The V-5 identity in its slice form: usage tracks the pair, both sides.
+    // The reconciliation identity in its slice form: usage tracks the pair, both sides.
     assert_usage_tracks_scaled(&usage_before, &usage_after, pair_before, pair_after);
 
     // The same statement with the fee named, which is the part that would be
@@ -2457,9 +2399,8 @@ fn usage_liq_credit_seize_sums_over_two_accounts(
 /// Seeded as `account holdings + extra`, so `extra == 0` is the literal
 /// "usage is driven to zero" case and `extra > 0` proves the cleanup takes
 /// down its own positions and nothing else. `execute_bad_debt_cleanup`
-/// (bad_debt.rs:14) removes the account entry outright, so a missing
-/// `apply_spoke_exit` there is invisible everywhere else in the system: the
-/// positions are gone and the usage they consumed would be stranded forever.
+/// removes the account entry, so no other check sees a missing
+/// `apply_spoke_exit` there: the usage those positions consumed stays stranded.
 #[rule]
 fn usage_liq_bad_debt_cleanup_sheds_every_wiped_position(
     e: Env,
@@ -2512,10 +2453,9 @@ fn usage_liq_bad_debt_cleanup_sheds_every_wiped_position(
 }
 
 // ---------------------------------------------------------------------------
-// Reachability witnesses, one per liquidation leg. Each satisfies that usage
-// moved in the direction its leg is supposed to move it — a `satisfy(true)`
-// witness would look just as healthy on a leg that was never wired to
-// `apply_leg_usage` at all, which is the exact failure V-5 exists to catch.
+// Reachability witnesses, one per liquidation leg. Each requires usage to move
+// in its leg's direction; a `satisfy(true)` witness would also pass on a leg
+// never wired to `apply_leg_usage`.
 // ---------------------------------------------------------------------------
 
 #[rule]
@@ -2584,11 +2524,11 @@ fn usage_liq_transfer_seize_leg_reachable(e: Env, liquidator: Address, asset: Ad
     cvlr_satisfy!(after.supplied_scaled_ray < before.supplied_scaled_ray);
 }
 
-/// Credit mode completes and really does move shares from the liquidated
-/// account to the receiver while supply usage does not rise.
+/// Credit mode completes and moves shares from the liquidated account to the
+/// receiver while supply usage does not rise.
 ///
 /// Kept separate from the fee witness below so that "the share transfer
-/// happens at all" and "the fee exit fires" fail independently.
+/// happens" and "the fee exit fires" fail independently.
 #[rule]
 fn usage_liq_credit_seize_reachable(
     e: Env,
@@ -2649,10 +2589,9 @@ fn usage_liq_credit_seize_reachable(
 /// The credit-mode fee exit is reachable: supply usage strictly falls even
 /// though no pool withdrawal occurred.
 ///
-/// This is the witness for the `apply_spoke_exit` at apply.rs:197. Were the
-/// fee exit deleted, credit mode would leave usage untouched and this rule
-/// would go unsatisfiable while every assert rule above still passed on a
-/// zero-fee draw.
+/// Witness for the fee `apply_spoke_exit` in `apply_liquidation_share_credit`:
+/// a positive-fee path exists, so the credit-mode assert rule is not proved
+/// on zero-fee draws alone.
 #[rule]
 fn usage_liq_credit_fee_exits_usage_reachable(
     e: Env,
@@ -2718,12 +2657,11 @@ fn usage_liq_bad_debt_cleanup_reachable(e: Env, caller: Address, asset: Address)
 /// deprecated.
 ///
 /// `remove_spoke` performs no usage check and deprecation is one-way, so a
-/// deprecated spoke can hold live positions forever. While `create_account`
-/// refused every new account there, `Credit(0)` was closed to any liquidator
-/// without an existing account in that spoke, and `Transfer` mode then
-/// depended on pool cash. The witness is the returned receiver id: reaching it
-/// at all means the call completed, and a non-zero id means an account was
-/// minted rather than the request being silently downgraded.
+/// deprecated spoke can hold live positions forever. If `Credit(0)` refused a
+/// deprecated spoke, a liquidator with no account there would have only
+/// `Transfer` mode, which depends on pool cash. The witness is the returned
+/// receiver id: reaching it means the call completed, and a non-zero id means
+/// an account was minted.
 #[rule]
 fn credit_zero_liquidation_creates_receiver_in_deprecated_spoke(
     e: Env,

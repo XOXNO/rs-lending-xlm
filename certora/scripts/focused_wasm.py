@@ -118,9 +118,8 @@ def target_for_conf(conf: Path, layer: str) -> FocusedTarget:
     mapping = rules_by_module(layer)
     modules = {mapping[rule] for rule in rules if rule in mapping}
     if not modules:
-        # A conf that only names rules a spec change has not landed yet still
-        # has to resolve to an artifact; its declared focused feature says
-        # which one. check_orphans.py is the gate that reports those rules.
+        # A conf whose rules exist in no spec module yet resolves through its
+        # declared focused feature. check_orphans.py reports those rules.
         modules = {
             feature.removeprefix("certora-").replace("-", "_")
             for feature in data.get("cargo_features", [])

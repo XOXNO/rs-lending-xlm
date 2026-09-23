@@ -14,13 +14,9 @@ use common::types::{
 
 /// The one generator for a market's pair of indexes.
 ///
-/// Every summary that returns indexes goes through this: the per-verb
-/// mutations below, `get_sync_data_summary` (`Context::cached_pool_sync_data`)
-/// and `super::bulk_index_summary` (`Context::cached_market_index`). Sharing the
-/// generator is what keeps the two `Context` doors from carrying different
-/// domains for the same market. Both ends are the pool's own clamps:
-/// `update_supply_index` and `apply_bad_debt_to_supply_index` hold the supply
-/// index inside `[SUPPLY_INDEX_FLOOR_RAW, MAX_SUPPLY_INDEX_RAY]`, and
+/// Every summary that returns indexes draws from it. Both ends are the pool's
+/// own clamps: `update_supply_index` and `apply_bad_debt_to_supply_index` hold
+/// the supply index inside `[SUPPLY_INDEX_FLOOR_RAW, MAX_SUPPLY_INDEX_RAY]`, and
 /// `update_borrow_index` holds the borrow index inside
 /// `[RAY, MAX_BORROW_INDEX_RAY]`.
 pub fn nondet_market_index_raw() -> MarketIndexRaw {
@@ -61,8 +57,8 @@ pub fn supply_summary(
 ) -> PoolPositionMutation {
     let mut new_position = position.clone();
     let new_scaled: i128 = nondet();
-    // The pool mints shares only when the movement changes the scaled record;
-    // positive supply strictly grows the position (dust reverts inside the pool).
+    // Positive supply mints at least one share; the pool raises
+    // `SupplyRoundsToZeroShares` otherwise.
     if amount > 0 {
         cvlr_assume!(new_scaled > position.scaled_amount);
     } else {
@@ -87,8 +83,8 @@ pub fn borrow_summary(
 ) -> PoolPositionMutation {
     let mut new_position = position.clone();
     let new_scaled: i128 = nondet();
-    // Borrow mints debt shares only when the movement changes the scaled
-    // record; positive borrow strictly grows the position.
+    // Positive borrow mints at least one debt share; the pool raises
+    // `BorrowRoundsToZeroShares` otherwise.
     if amount > 0 {
         cvlr_assume!(new_scaled > position.scaled_amount);
     } else {
@@ -115,8 +111,8 @@ pub fn withdraw_summary(
 ) -> PoolPositionMutation {
     let mut new_position = position.clone();
     let new_scaled: i128 = nondet();
-    // A successful withdraw burns shares: strictly when the position existed,
-    // otherwise it must be a zero-amount no-op (full closes land on zero).
+    // A positive withdraw from an open position burns at least one share and a
+    // full close lands on zero. A zero amount or an empty position is a no-op.
     if amount > 0 && position.scaled_amount > 0 {
         cvlr_assume!(new_scaled >= 0);
         cvlr_assume!(new_scaled < position.scaled_amount);
@@ -146,9 +142,9 @@ pub fn repay_summary(
 ) -> PoolPositionMutation {
     let mut new_position = position.clone();
     let new_scaled: i128 = nondet();
-    // A successful repayment burns debt shares: strictly when the position
-    // existed, otherwise it must be a zero-amount no-op (full closes land on
-    // zero, partial repays burn at least one share or revert).
+    // A positive repay of an open position burns at least one share (the pool
+    // raises `RepayRoundsToZeroShares` otherwise) and a full close lands on
+    // zero. A zero amount or an empty position is a no-op.
     if amount > 0 && position.scaled_amount > 0 {
         cvlr_assume!(new_scaled >= 0);
         cvlr_assume!(new_scaled < position.scaled_amount);
@@ -189,9 +185,9 @@ pub fn net_settle_summary(
     cvlr_assume!(new_supply_scaled <= supply_position.scaled_amount);
     cvlr_assume!(new_debt_scaled >= 0);
     cvlr_assume!(new_debt_scaled <= debt_position.scaled_amount);
-    // Production resolve_net_settle: a positive settlement burns strictly on
-    // both sides (pool enforces burn>0 whenever gross_amount>0); a zero
-    // settlement leaves both positions untouched.
+    // A positive settlement burns at least one share on both sides (the pool
+    // raises `NetSettleRoundsToZeroShares` otherwise); a zero settlement leaves
+    // both positions untouched.
     if settled_amount > 0 {
         cvlr_assume!(new_supply_scaled < supply_position.scaled_amount);
         cvlr_assume!(new_debt_scaled < debt_position.scaled_amount);
@@ -232,10 +228,10 @@ pub fn flash_loan_summary(
     let fee: i128 = nondet();
     cvlr_assume!(amount > 0);
     cvlr_assume!(fee >= 0);
-    // Production flash fee is amount * fee_bps / BPS (half-up) with
-    // fee_bps <= MAX_FLASHLOAN_FEE_BPS (500), so fee <= amount always.
-    // Bound the summary to the production-faithful range: strictly wider
-    // ranges only inflate the SMT search for the flash-loan rules.
+    // Production charges amount * fee_bps / BPS, half-up and at least 1 when
+    // fee_bps > 0, with fee_bps <= MAX_FLASHLOAN_FEE_BPS (500), so
+    // fee <= amount for any positive amount. A wider bound only enlarges the
+    // SMT search.
     cvlr_assume!(fee <= amount);
     fee
 }
@@ -280,26 +276,22 @@ pub fn claim_revenue_summary(_env: &Env, _asset: &Address) -> PoolAmountMutation
 /// Market snapshot returned by `LiquidityPool::get_sync_data`, feeding
 /// `Context::cached_pool_sync_data`.
 ///
-/// The index fields come from [`nondet_market_index_raw`], the same generator
-/// [`super::bulk_index_summary`] uses, so a rule that reads both doors for one
-/// market cannot be handed two different index domains. The controller harness
-/// memoises both per rule (`certora/controller/harness/ghost_prices.rs`), which
-/// is what makes the two reads agree on a *value* and not merely on a domain.
+/// The index fields come from [`nondet_market_index_raw`]. The controller harness
+/// memoises this draw per rule (`certora/controller/harness/ghost_prices.rs`)
+/// and replays its index pair for every bulk index read and pool mutation of the
+/// market.
 ///
 /// The rate-model fields mirror `InterestRateModel::verify`
 /// (`common/src/types/pool.rs`) exactly, because a stored market cannot hold a
-/// curve that failed it: non-negative base, monotone slopes below
+/// curve that failed it: non-negative base, monotone slopes up to
 /// `max_borrow_rate`, `max_borrow_rate` in `(base, MAX_BORROW_RATE_RAY]`,
 /// `0 < mid_utilization < optimal_utilization < RAY`, `optimal_utilization <=
 /// max_utilization <= RAY`, `reserve_factor < BPS`, and `flashloan_fee <=
-/// MAX_FLASHLOAN_FEE_BPS`. Drawing them unconstrained (the previous form) let
-/// every controller rule that reads a market see a curve the pool would have
-/// rejected — negative slopes, an inverted kink, or a rate above the ceiling —
-/// and made `calculate_borrow_rate` a nonlinear query over the full `i128` box.
+/// MAX_FLASHLOAN_FEE_BPS`. Unconstrained fields admit curves the pool rejects
+/// and make `calculate_borrow_rate` a nonlinear query over the full `i128` box.
 ///
-/// The state fields stay as they are: `supplied`, `borrowed`, `revenue` and
-/// `cash` are non-negative and otherwise unconstrained, which is the strong
-/// form for the frame rules that read them.
+/// `supplied`, `borrowed`, `revenue` and `cash` are non-negative and otherwise
+/// unconstrained, the weakest premise for the frame rules that read them.
 pub fn get_sync_data_summary(_env: &Env, asset: &Address) -> PoolSyncData {
     let supplied: i128 = nondet();
     let borrowed: i128 = nondet();

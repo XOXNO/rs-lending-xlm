@@ -18,12 +18,9 @@ fn midpoint_if_in_band(e: &Env, anchor: i128, primary: i128, tolerance: &OracleT
     crate::tolerance::midpoint_price_or_zero(anchor, primary)
 }
 
-/// Resolve one key through the public `prices` entrypoint.
+/// Resolves one key through the public `prices` entrypoint.
 ///
-/// Replaces the former single-key `PriceAggregator::price`, which was removed in
-/// favour of the batch endpoint; that function's body was exactly this, so rules
-/// written against it keep their meaning — including the revert on missing
-/// config, which still originates inside `engine::resolve`.
+/// A key without an oracle reverts inside `engine::resolve`.
 fn single_price(e: Env, key: PriceKey) -> PriceFeedRaw {
     let requested = soroban_sdk::vec![&e, key.clone()];
     crate::PriceAggregator::prices(e, requested).get_unchecked(key)
@@ -211,12 +208,10 @@ fn nondet_partial_outcome(
 
 /// An oracle whose sources produced no reading never yields a feed.
 ///
-/// Revert shape. Its satisfy twin is [`price_endpoint_sanity`], not a new rule:
-/// that witness stores the same `pinned_oracle` configuration and drives
+/// Revert shape. Its satisfy twin is [`price_endpoint_sanity`]: that witness
+/// stores the same `pinned_oracle` configuration and drives
 /// `prices` -> `engine::resolve` -> `compute_hard` -> `force` on a non-empty leg
-/// set, which is exactly this fixture with the empty-legs gate flipped. Adding
-/// a second witness would need a `blend_two` harness door in `engine.rs` that
-/// does not exist, and would prove nothing `price_endpoint_sanity` does not.
+/// set, which is this fixture with the empty-legs gate flipped.
 #[rule]
 fn empty_legs_force_reverts(e: Env, asset: Address, oracle: Address) {
     cvlr_assume!(asset != oracle);
@@ -264,7 +259,7 @@ fn partial_legs_soft_deviation(e: Env, asset: Address, oracle: Address, reading_
 
 /// An unregistered key cannot be priced.
 ///
-/// Revert shape. Satisfy twin: [`price_endpoint_sanity`], which is literally
+/// Revert shape. Satisfy twin: [`price_endpoint_sanity`], which is
 /// this fixture with the gate flipped -- it stores an oracle for the key and
 /// then reaches a positive price through the same `single_price` call.
 #[rule]
@@ -275,9 +270,9 @@ fn missing_oracle_config_reverts(e: Env, asset: Address) {
     cvlr_assert!(false);
 }
 
-/// A scaled source may not quote the key it prices: `properties_of_key` pushes
-/// the key onto the session's resolution stack before recursing, so the
-/// self-reference is caught as `OracleCycleDetected`.
+/// A scaled source may not quote the key it prices: `validate_asset_oracle`
+/// pushes the key onto the session's resolution stack first, so
+/// `properties_of_key` catches the self-reference as `OracleCycleDetected`.
 ///
 /// Revert shape; paired with `self_quoted_scaled_source_reverts_fixture_completes`.
 #[rule]
@@ -300,9 +295,9 @@ fn self_quoted_scaled_source_reverts(e: Env, asset: Address, oracle: Address) {
     cvlr_assert!(false);
 }
 
-/// A zero-width, zero-valued sanity band is rejected. `validate_sanity_bounds`
-/// runs before every other check in `validate_asset_oracle`, so this is the
-/// gate that fires.
+/// A zero-width, zero-valued sanity band is rejected. `validate_asset_oracle`
+/// derives the source properties and then runs `validate_sanity_bounds` before
+/// every other check, so this is the gate that fires.
 ///
 /// Revert shape; paired with `invalid_sanity_bounds_revert_fixture_completes`.
 #[rule]
@@ -322,8 +317,8 @@ fn invalid_sanity_bounds_revert(e: Env, asset: Address, oracle: Address) {
 ///
 /// The quote key needs its own registered oracle, because `properties_of_key`
 /// panics with `OracleNotConfigured` on an unregistered dependency; both
-/// configurations use [`smoothed_oracle`] so the smoothing check does not fire
-/// first and mask the result.
+/// configurations use [`smoothed_oracle`] so the smoothing check does not reject
+/// the scaled source.
 #[rule]
 fn self_quoted_scaled_source_reverts_fixture_completes(
     e: Env,
@@ -361,9 +356,9 @@ fn self_quoted_scaled_source_reverts_fixture_completes(
 /// `[9 WAD, 11 WAD]` band (band width 1000 bps, exactly
 /// `MAX_SINGLE_SOURCE_SANITY_BAND_BPS`).
 ///
-/// This witness is what shows the revert rule is not passing on the smoothing
-/// check instead of on the bounds check: it holds every other field fixed and
-/// only restores the bounds.
+/// It uses [`smoothed_oracle`] so `validate_asset_oracle` accepts it: the
+/// bounds and the `Twap(3)` read mode are the only fields that differ from the
+/// revert fixture.
 #[rule]
 fn invalid_sanity_bounds_revert_fixture_completes(e: Env, asset: Address, oracle: Address) {
     cvlr_assume!(asset != oracle);

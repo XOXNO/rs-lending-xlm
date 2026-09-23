@@ -24,15 +24,11 @@ pub(crate) fn price_feed_summary(env: &Env, _asset: &Address) -> PriceFeedRaw {
     }
 }
 
-/// Indexes returned by `LiquidityPool::get_bulk_indexes`, feeding
-/// `Context::cached_market_index`.
+/// Returns a market index pair from [`pool::nondet_market_index_raw`].
 ///
-/// Draws from exactly the same generator as the index fields of
-/// [`pool::get_sync_data_summary`] (`Context::cached_pool_sync_data`), so the two
-/// paths can no longer disagree about the domain of one market's indexes. They
-/// still draw *independently* on each call; the controller harness memoises
-/// both per rule (`certora/controller/harness/ghost_prices.rs`) so a rule that
-/// reads a market's sync data and its bulk index sees one draw, not two.
+/// The controller harness does not call it: its `fetch_pool_bulk_indexes` replays
+/// the index pair of the memoised [`pool::get_sync_data_summary`] draw
+/// (`certora/controller/harness/ghost_prices.rs`).
 pub fn bulk_index_summary(_env: &Env, _asset: &Address) -> MarketIndexRaw {
     pool::nondet_market_index_raw()
 }
@@ -42,31 +38,31 @@ pub fn bulk_index_summary(_env: &Env, _asset: &Address) -> MarketIndexRaw {
 /// Sunbeam havocs storage at rule start, so the position maps a rule does not
 /// seed hold arbitrary entries: arbitrary length, arbitrary `scaled_amount`
 /// (including zero and negative), and an unclamped `u32 loan_to_value` /
-/// `liquidation_threshold`. The constraints below are therefore split into two
-/// groups, and the split is what a caller has to read before trusting a verdict.
+/// `liquidation_threshold`. Read both groups of constraints below before you
+/// trust a verdict.
 ///
-/// Unconditional (true for any book the production body can be handed):
+/// Unconditional (true for any book on which the production body returns):
 ///
-/// - every total is non-negative — the body sums `checked_add` of `Wad` values
-///   and `Wad::checked_add` panics on a negative operand;
-/// - an empty map yields zero on its side — the body starts at `Wad::ZERO` and
+/// - the three collateral totals are non-negative: the half-up valuation of a
+///   supply position panics on a negative operand;
+/// - an empty map yields zero on its side: the body starts at `Wad::ZERO` and
 ///   never enters the loop.
 ///
-/// A **non-empty** map yields `>= 0`, not `> 0`: a havoced book may hold a
+/// A non-empty map yields `>= 0`, not `> 0`: a havoced book may hold a
 /// `scaled_amount` of zero, or a price and index that floor the position's
-/// value to zero, so a live map does not imply a positive total. The earlier
-/// `> 0` form silently assumed a well-formed book in every dependent proof.
+/// value to zero.
 ///
-/// Well-formed-book premise (kept, because dropping it makes every health rule
-/// vacuous, but it *is* an assumption):
+/// Well-formed-book premise (an assumption, not a property of the body):
 ///
+/// - `total_debt >= 0`. The ceiling debt valuation does not panic on a negative
+///   `scaled_amount`, so this holds only for a non-negative debt book.
 /// - `weighted_collateral <= total_collateral` and
-///   `ltv_collateral <= total_collateral`. The body computes the weighted and
-///   LTV sums as `Bps::apply_to_wad_floor` of a floored position value, so the
-///   inequalities hold exactly when every position's `liquidation_threshold`
-///   and `loan_to_value` are at most `BPS` — which market creation enforces and
-///   a havoced book does not. The controller fixture states the same premise
-///   explicitly through its `assume_wellformed_book` helper.
+///   `ltv_collateral <= total_collateral`. The body weights a floored position
+///   value with `Bps::apply_to_wad_floor`, and the LTV weight is
+///   `min(loan_to_value, liquidation_threshold)`, so both hold when every
+///   `liquidation_threshold` is at most `BPS`. Spoke listing enforces that
+///   (`validate_risk_bounds`); a havoced book does not. The controller fixture
+///   states the same premise through its `assume_wellformed_book` helper.
 ///
 /// The health factor is computed the way the production body computes it:
 /// `i128::MAX` with no debt, otherwise `div_floor_saturating` (not
@@ -88,7 +84,7 @@ pub(crate) fn calculate_account_risk_totals_summary(
     cvlr_assume!(ltv_collateral_raw >= 0);
     cvlr_assume!(weighted_coll_raw >= 0);
     cvlr_assume!(total_debt_raw >= 0);
-    // Well-formed-book premise; see the doc comment above.
+    // Well-formed-book premise, with `total_debt_raw >= 0`; see the doc comment.
     cvlr_assume!(weighted_coll_raw <= total_collateral_raw);
     cvlr_assume!(ltv_collateral_raw <= total_collateral_raw);
     if supply_positions.is_empty() {

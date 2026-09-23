@@ -16,12 +16,11 @@ fn hub0(asset: &Address) -> HubAssetKey {
     }
 }
 
-/// The frame rules keep both accounts' books arbitrary — that is their whole
-/// point — but an arbitrary book is not a *reachable* book: havoced storage can
-/// hold a threshold above `BPS` or a loan-to-value above the threshold, which
-/// no listing can produce. `assume_wellformed_book` states the premise the
-/// risk-totals summary already encodes implicitly, and nothing more: lengths,
-/// keys and scaled amounts stay unbounded.
+/// The frame rules keep both accounts' books arbitrary, but an arbitrary book
+/// is not a *reachable* book: havoced storage can hold a threshold above `BPS`
+/// or a loan-to-value above the threshold, which no listing can produce.
+/// `assume_wellformed_book` states the premise the risk-totals summary already
+/// encodes, and nothing more: lengths, keys and scaled amounts stay unbounded.
 fn assume_reachable_books(e: &Env, target_account: u64, other_account: u64) {
     fixture::assume_wellformed_book(e, target_account);
     fixture::assume_wellformed_book(e, other_account);
@@ -111,12 +110,9 @@ fn repay_only_changes_target_account_debt(e: Env, caller: Address, asset: Addres
 
 /// A liquidation writes at most the two accounts it names.
 ///
-/// Share-credit liquidation deliberately writes a second account: the receiver the liquidator
-/// declares through `SeizeMode::Credit`. The rule therefore names both principals — the
-/// liquidated account and the declared receiver — and still forbids any *third* account from
-/// moving. The declared receiver is the strongest form available: it is chosen in the call
-/// itself, so the rule holds a liquidation to exactly the accounts its arguments identify, and
-/// a liquidation that touched an undeclared account would still be caught.
+/// Share-credit liquidation writes a second account: the receiver the liquidator declares
+/// through `SeizeMode::Credit`. The rule exempts the liquidated account and the declared
+/// receiver, and forbids any *third* account from moving.
 #[rule]
 fn liquidation_does_not_change_other_account_positions(
     e: Env,
@@ -131,7 +127,7 @@ fn liquidation_does_not_change_other_account_positions(
     cvlr_assume!(debt_amount > 0 && debt_amount <= WAD * 1000);
     cvlr_assume!(owner != liquidator);
     crate::spec::fixture::seed_live_account(&e, target_account, &owner, &debt_asset);
-    // The receiver is the liquidator's own account, which is what `Credit(id)` requires.
+    // The liquidator owns the receiver, which passes the owner-or-delegate check of `Credit(id)`.
     crate::spec::fixture::seed_account(&e, receiver_account, &liquidator);
     crate::spec::fixture::seed_account(&e, other_account, &owner);
     assume_reachable_books(&e, target_account, other_account);
@@ -156,23 +152,19 @@ fn liquidation_does_not_change_other_account_positions(
 
 /// A share credit moves the receiver's book by at most what the liquidated account lost.
 ///
-/// `liquidation_does_not_change_other_account_positions` names the receiver so it can exempt
-/// it, which leaves the receiver itself unbounded — the weakening ADR-0019 records. This rule
-/// bounds it, per hub asset: the receiver's debt book does not move at all (a credit is
-/// supply-side only), its supply shares never fall, and they never rise by more than the
-/// liquidated account's supply shares fell in the same asset.
+/// `liquidation_does_not_change_other_account_positions` exempts the receiver, which leaves the
+/// receiver itself unbounded (ADR-0019). This rule bounds it, per hub asset: the receiver's
+/// debt book does not move (a credit is supply-side only), its supply shares never fall, and
+/// they never rise by more than the liquidated account's supply shares fell in the same asset.
 ///
 /// That bound is exactly `credited <= seized`: `split_seized_shares` returns
 /// `(fee, seized - fee)` with `fee >= 0`, `apply_liquidation_share_credit` debits the whole
 /// `seized` and credits `seized - fee`, and the legs are keyed by hub asset, so one asset is
 /// debited at most once per liquidation.
 ///
-/// The residue `seized - credited` is the protocol fee, and this rule does *not* pin it to the
-/// pool's revenue: the fee leaves the controller through `pool_seize_positions_call`, a
-/// cross-contract call the prover havocs, so pool revenue is not observable here. The one
-/// controller-side trace of it — the spoke usage exit — is not the pool's revenue either, and
-/// pinning it would need a seeded usage row plus a no-bad-debt-cleanup assumption. Left out on
-/// purpose rather than assumed into existence.
+/// The residue `seized - credited` is the protocol fee. This rule does *not* pin it to the
+/// pool's revenue: the harness summarizes `pool_seize_positions_call` as a no-op, so pool
+/// revenue is not observable here. The spoke usage exit is not pinned either.
 #[rule]
 fn liquidation_share_credit_bounded_by_target_loss(
     e: Env,
@@ -187,7 +179,7 @@ fn liquidation_share_credit_bounded_by_target_loss(
     cvlr_assume!(debt_amount > 0 && debt_amount <= WAD * 1000);
     cvlr_assume!(owner != liquidator);
     crate::spec::fixture::seed_live_account(&e, target_account, &owner, &debt_asset);
-    // The receiver is the liquidator's own account, which is what `Credit(id)` requires.
+    // The liquidator owns the receiver, which passes the owner-or-delegate check of `Credit(id)`.
     crate::spec::fixture::seed_account(&e, receiver_account, &liquidator);
     assume_reachable_books(&e, target_account, receiver_account);
 
@@ -231,7 +223,7 @@ fn account_isolation_reachability(e: Env, caller: Address, asset: Address) {
     cvlr_satisfy!(true);
 }
 
-/// Witness that a share-credit liquidation actually credits the receiver.
+/// Witness that a share-credit liquidation credits the receiver.
 ///
 /// `account_isolation_reachability` only drives `supply`, so it says nothing about the credit
 /// path. This is the non-vacuity alarm for `liquidation_share_credit_bounded_by_target_loss`:

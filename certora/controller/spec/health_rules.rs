@@ -13,8 +13,8 @@ use common::math::fp::{Bps, Ray, Wad};
 /// A book of known size whose risk tuple matches the listing, for the two
 /// rules that compare a *valuation* across a supply.
 ///
-/// `merge_supply_leg` restamps a supply position's threshold and loan-to-value
-/// from the spoke listing on every write. A havoced pre-book carries an
+/// `merge_supply_leg` restamps a supply position's risk tuple from the spoke
+/// listing on every write. A havoced pre-book carries an
 /// arbitrary `u32` threshold, so valuing it before the call and after the
 /// restamp compares two different risk tuples and `post_weighted >=
 /// pre_weighted` is violable for a reason that has nothing to do with the
@@ -132,13 +132,11 @@ fn inline_weighted_collateral_wad(
 /// side and the comparison isolates the only thing a post-gate step could
 /// change: the account's positions and the sides of them that get persisted.
 ///
-/// This is the generalized form of Trail of Bits' TOB-AAVE-7. Their
-/// `_refreshAndValidateUserPosition` checked health and `_notifyRiskPremiumUpdate`
-/// then added up to 2 wei of debt, so an account admitted at HF = 1 was
-/// instantly liquidatable. Any future step inserted after
-/// `enforce_post_pool_solvency` / `strategy_finalize`'s gate that touches a
-/// value-bearing field — or any regression in the `restamped -> PositionSides`
-/// coupling that decides which side gets written — breaks one of these asserts.
+/// A step after the gate of `enforce_post_pool_solvency` or `strategy_finalize`
+/// that changes either compared valuation breaks an assertion. Changes hidden
+/// by rounding or offset by other changes can preserve both totals. A change
+/// to `loan_to_value` alone, such as a dropped LTV restamp write, is not in
+/// either valuation.
 ///
 /// The assertions are implications: the gate returns early for a debt-free
 /// account, and `supply`/`repay` carry no post-pool gate at all, so those paths
@@ -375,7 +373,7 @@ fn nondet_swap_steps() -> crate::types::StrategySwap {
 }
 
 /// Seeds a single-asset live account and bounds both position books to one
-/// entry, the shape every `post_gate_*` verb rule starts from.
+/// entry, the shape the single-asset `post_gate_*` verb rules start from.
 fn seed_bounded_account(e: &Env, account_id: u64, caller: &Address, asset: &Address) {
     fixture::seed_live_account(e, account_id, caller, asset);
     fixture::assume_books_at_most_one(e, account_id);
@@ -441,8 +439,8 @@ fn post_gate_multiply_totals_are_final(
     crate::spec::fixture::seed_market(&e, &collateral_token);
     crate::spec::fixture::seed_market(&e, &debt_token);
     // `multiply` opens a fresh account, whose id comes from a havoced counter
-    // and whose books are then arbitrary. Pin the id and empty its books, so
-    // the fence compares the gate's snapshot against a book this call built.
+    // and whose books are then arbitrary. Pin the id and assume its books
+    // empty, so the fence compares the gate's snapshot against a book this call built.
     fixture::seed_empty_books(&e, fixture::seed_next_account_id(&e, 0));
 
     health_ghost::reset();
@@ -640,9 +638,8 @@ fn post_gate_multiply_observes_gate_witness(
     cvlr_satisfy!(health_ghost::gate_observed());
 }
 
-/// Witness pinning today's shape: `supply` completes without ever reaching a
-/// post-pool solvency gate, which is why
-/// `post_gate_supply_totals_are_final` currently holds vacuously.
+/// Witness: `supply` completes without reaching a post-pool solvency gate,
+/// which is why `post_gate_supply_totals_are_final` holds vacuously.
 #[rule]
 fn post_gate_supply_skips_gate_witness(e: Env, caller: Address, asset: Address) {
     let account_id: u64 = 1;
@@ -654,9 +651,8 @@ fn post_gate_supply_skips_gate_witness(e: Env, caller: Address, asset: Address) 
     cvlr_satisfy!(!health_ghost::gate_observed());
 }
 
-/// Witness pinning today's shape: `repay` completes without ever reaching a
-/// post-pool solvency gate, which is why
-/// `post_gate_repay_totals_are_final` currently holds vacuously.
+/// Witness: `repay` completes without reaching a post-pool solvency gate,
+/// which is why `post_gate_repay_totals_are_final` holds vacuously.
 #[rule]
 fn post_gate_repay_skips_gate_witness(e: Env, caller: Address, asset: Address) {
     let account_id: u64 = 1;

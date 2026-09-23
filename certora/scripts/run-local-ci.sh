@@ -4,20 +4,22 @@
 #
 # Runs the Certora Sunbeam prover locally on the self-hosted runner, batching
 # each conf's rules in parallel (-j) with a hard per-rule budget, then
-# aggregates results:
-#   - VIOLATED or engine/tooling ERROR  -> failure (exit 1)
+# classifies each rule log:
+#   - VIOLATED, UNWIND, SANITY_FAILED   -> failure (exit 1)
+#   - NO-VERDICT (empty or missing log) -> failure (exit 1)
 #   - VERIFIED                          -> pass
-#   - TIMEOUT (prover's own verdict)    -> warning only; the rule is expected
-#     to prove on the Certora cloud with the conf's cloud budgets
 #   - KILLED (wrapper cap hit first)    -> warning only; the prover never
 #     returned, so this says nothing about the rule
+#   - TIMEOUT (any other log)           -> warning only; prove the rule on
+#     the Certora cloud
+# A missing conf also fails the run.
 #
 # Tuning (env): CERTORA_LOCAL_JOBS (default 10) parallel provers, each a JVM
 # with -Xmx8g; CERTORA_RULE_TIMEOUT (default 900s) per-rule cap.
 #
 # Usage: run-local-ci.sh [CONFS] [RULES]
 #   CONFS: space-separated conf paths relative to certora/ (without .conf);
-#          empty = default set
+#          `all` = every conf; empty = default set
 #   RULES: optional space-separated rule names applied to every conf;
 #          empty = all rules of each conf
 
@@ -31,20 +33,17 @@ jobs="${CERTORA_LOCAL_JOBS:-10}"
 rule_timeout="${CERTORA_RULE_TIMEOUT:-900}"
 
 if [ $# -gt 0 ] && [ "$1" = "all" ]; then
-  # Every conf in the tree. Only sensible with a raised CERTORA_RULE_TIMEOUT and
-  # a job window to match — the default set below exists precisely because the
-  # full sweep does not fit a short one.
+  # Every conf under certora/. Needs a raised CERTORA_RULE_TIMEOUT and a job
+  # timeout to match; the default set below fits a shorter one.
   mapfile -t confs < <(cd "$repo_root/certora" && find . -name '*.conf' \
     | sed 's|^\./||; s|\.conf$||' | sort)
   echo "=== conf set: ALL (${#confs[@]} confs)"
 elif [ $# -gt 0 ] && [ -n "$1" ]; then
   read -r -a confs <<< "$1"
 else
-  # Default set trimmed to the confs measured to fit a 2h job window on the
-  # self-hosted runner (2026-08-13 run: 7 confs ≈ 90 min wall, incl. rules
-  # that burn their full 5-min budget). The heavier accounting confs
-  # (rate-accounting, rate-index-accounting) and tolerance-math are opt-in:
-  # pass them explicitly to run them, or on the Certora cloud.
+  # Default set: the confs that fit the pull-request job window. Pass the
+  # heavier confs (rate-accounting, rate-index-accounting, tolerance-math)
+  # explicitly, or prove them on the Certora cloud.
   confs=(
     common/confs/math common/confs/rates common/confs/lp-math
     common/confs/lp-math-stable common/confs/compound-interest
@@ -79,10 +78,9 @@ for c in "${confs[@]}"; do
     rlog="$log_dir/$conf_base-$safe.log"
     # Anchor on the rule's own line: under rule_sanity advanced the vacuity
     # sub-rule "<rule>-Assertions-rule_not_vacuous_tac" prints "Violated:" on
-    # a healthy rule (run 33711445573 turned 17 green rules red on a bare
-    # match). Unwinding and SANITY_FAILED are checked before the verdict: the
-    # first is a loop_iter config failure that also prints "Violated:", the
-    # second is a vacuous proof that also prints "Verified:".
+    # a healthy rule. Unwinding and SANITY_FAILED are checked before the
+    # verdict: the first is a loop_iter config failure that also prints
+    # "Violated:", the second is a vacuous proof that also prints "Verified:".
     if grep -q "Unwinding condition in a loop" "$rlog" 2>/dev/null; then
       verdict="UNWIND"
     elif grep -q "SANITY_FAILED" "$rlog" 2>/dev/null; then

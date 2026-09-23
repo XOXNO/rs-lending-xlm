@@ -54,12 +54,8 @@ fn flash_fee_booking_is_exact(
     fee: i128,
     supply_index: i128,
 ) {
-    // `fixture::state` stamps `last_timestamp = e.ledger().timestamp() * 1_000`
-    // and `Cache::load` recomputes the same product through `time::now_ms`.
-    // Both are checked multiplications, so a ledger clock past `u64::MAX /
-    // 1_000` panics and Sunbeam prunes the path as `assume(false)`. Stating the
-    // bound makes that pruning visible instead of hidden, and drops the
-    // overflow branch from every rule below.
+    // Bounds the clock so the checked `timestamp * 1_000` in `fixture::state` and
+    // `time::now_ms` cannot overflow. Sunbeam prunes that panic path silently.
     cvlr_assume!(e.ledger().timestamp() <= u64::MAX / 1_000);
     cvlr_assume!(fee >= 0 && fee <= MAX_FLOW_AMOUNT);
     cvlr_assume!(supply_index >= SUPPLY_INDEX_FLOOR_RAW && supply_index <= MAX_SUPPLY_INDEX_RAY);
@@ -102,13 +98,11 @@ fn flash_fee_booking_is_exact(
     cvlr_assert!(post.supply_index == pre.supply_index && post.borrow_index == pre.borrow_index);
 }
 
-/// Full successful-path flash accounting used by `apply` after SAC repay:
-/// `prepare_with_balance` (gates + terms) then `book_fee` + `commit` (finalize
-/// without requiring event host modeling beyond commit).
+/// Proves the successful-path accounting of `flash::apply`: `prepare_with_balance`
+/// (gates and terms), then `book_fee` and `commit`, which is `finalize` without its
+/// event. The token transfers and the receiver callback are not modeled.
 ///
-/// Models the production sequence:
-///   prepare → terms(pre_balance) → … external repay OK … → book_fee → commit
-/// Principal never touches the cash book; only the fee does.
+/// The fee enters the cash book; the principal does not.
 #[rule]
 fn flash_apply_accounting_books_fee_without_principal_cash(
     e: Env,
@@ -125,7 +119,7 @@ fn flash_apply_accounting_books_fee_without_principal_cash(
     cvlr_assume!(pre_balance >= amount && pre_balance <= 1_000 * ONE_TOKEN);
     cvlr_assume!(supply_index >= SUPPLY_INDEX_FLOOR_RAW && supply_index <= MAX_SUPPLY_INDEX_RAY);
 
-    // Cash reserves must cover principal (prepare.require_reserves).
+    // `prepare` calls `require_reserves`: cash must cover the principal.
     let cash = 200 * ONE_TOKEN;
     cvlr_assume!(cash >= amount);
 
@@ -167,31 +161,24 @@ fn flash_apply_accounting_books_fee_without_principal_cash(
         Ray::from(pre.supplied),
     );
 
-    // Production tail after collect_repayment: finalize = book_fee + commit (+ event).
     crate::ops::flash::book_fee(&mut cache, terms.fee);
     cache.commit();
     let post = read_state(&e, &asset);
 
-    // Principal is not booked in cash; fee is.
     cvlr_assert!(post.cash - pre.cash == terms.fee);
     cvlr_assert!(post.revenue - pre.revenue == expected_shares.raw());
     cvlr_assert!(post.supplied - pre.supplied == expected_shares.raw());
     cvlr_assert!(post.borrowed == pre.borrowed);
     cvlr_assert!(post.supply_index == pre.supply_index);
     cvlr_assert!(post.borrow_index == pre.borrow_index);
-    // last_timestamp advanced by prepare → renewed_market → global_sync when elapsed,
-    // but fixture stamps last_timestamp = now so accrual is a no-op.
+    // The fixture stamps `last_timestamp` at the current time, so the
+    // `global_sync` in `prepare` does not accrue.
     cvlr_assert!(post.last_timestamp == pre.last_timestamp);
 }
 
-/// `prepare` requires flash enabled; disabled markets never reach terms/book_fee.
-/// This rule proves the dual of the apply path: when flash is disabled the
-/// successful accounting composition is unreachable (prepare panics). We instead
-/// show that seed with is_flashloanable=false still has unchanged state when
-/// we only read it — and document that prepare asserts is_flashloanable.
-///
-/// Direct panic rules are not supported; this prove-positive rule covers the
-/// enabled gate path with fee_bps=0 (zero fee) end-to-end.
+/// Proves that a flash loan on a flash-enabled market with `flashloan_fee == 0`
+/// charges no fee, requires a repayment equal to the principal, and leaves cash,
+/// revenue, supplied and borrowed unchanged after `book_fee` and `commit`.
 #[rule]
 fn flash_apply_accounting_zero_fee_is_cash_noop(
     e: Env,

@@ -27,8 +27,7 @@ const MAX_SHARES: i128 = 100 * RAY;
 /// `e^2 ≈ 7.4`, so projections stay well inside the configured index caps.
 const MAX_SEED_INDEX: i128 = 2 * RAY;
 
-/// Ledger-time ceiling: keeps `last_timestamp + elapsed` inside `u64` and the
-/// projection inside a single compounding chunk.
+/// Ledger-time ceiling: keeps `last_timestamp + elapsed` inside `u64`.
 const MAX_SEED_TIMESTAMP: u64 = u64::MAX / 4;
 
 #[allow(clippy::too_many_arguments)]
@@ -160,8 +159,8 @@ fn borrow_rate_kinks_match_configured_curve(
 /// No lemma split: the Taylor series runs seven `pow.mul(x)` steps whose branch
 /// conditions all move with `pow`, a value derived inside the loop. The
 /// under-approximation here is the input domain instead: `rate_per_ms` is capped
-/// at `MAX_BORROW_RATE_RAY` per millisecond and `delta_ms` at one year, which is
-/// exactly `MAX_COMPOUND_DELTA_MS`, the largest chunk
+/// at the per-millisecond form of `MAX_BORROW_RATE_RAY` and `delta_ms` at one
+/// year, which is exactly `MAX_COMPOUND_DELTA_MS`, the largest chunk
 /// `simulate_update_indexes_body` ever passes.
 #[rule]
 fn compound_factor_never_below_one(e: Env, rate_per_ms: i128, delta_ms: u64) {
@@ -319,10 +318,9 @@ fn supply_index_cap_is_sticky(e: Env, rewards: i128) {
 /// the larger one puts both on the native branch. `new_index.max(1)` keeps the
 /// divisor total; the domain forces `new_index >= RAY`, so the clamp never binds.
 ///
-/// This native half is a dust sliver of the domain (`new_index >= RAY` means it
-/// needs `borrowed <= ~170` ray-shares), which is exactly the point: the widened
-/// lemma then covers every economically reachable input with the compiler-rt
-/// limb code removed from its path.
+/// This native half is a dust sliver of the domain (`new_index >= RAY` caps
+/// `borrowed` near `1.7e11` raw units), so the widened lemma covers every
+/// economically reachable input.
 #[rule]
 #[allow(clippy::too_many_arguments)]
 fn accrued_interest_split_is_conservative_native(
@@ -366,9 +364,9 @@ fn accrued_interest_split_is_conservative_native(
 }
 
 /// Widened half of `accrued_interest_split_is_conservative`: `borrowed *
-/// new_index` overflows `i128`, so the debt valuations run as exact `I256` host
-/// calls. Exact complement of the native lemma's bound, so the pair covers the
-/// original domain.
+/// new_index` overflows `i128`, so at least the new-debt valuation runs as an
+/// exact `I256` host call. Exact complement of the native lemma's bound, so the
+/// pair covers the original domain.
 #[rule]
 #[allow(clippy::too_many_arguments)]
 fn accrued_interest_split_is_conservative_widened(
@@ -412,16 +410,14 @@ fn accrued_interest_split_is_conservative_widened(
 }
 
 // ---------------------------------------------------------------------------
-// Index-projection rules, moved here from the controller layer on 2026-09-03.
+// Index-projection rules.
 //
 // These rules feed a symbolic market and a symbolic accrual window into the
 // projection. They call `simulate_update_indexes_body`, not the public
 // `simulate_update_indexes`: under this crate's `certora` feature the public
 // wrapper is replaced by `simulate_update_indexes_summary`, whose outputs are
-// independent nondets bounded only from below, so the equality and ordering
-// asserted below would be spurious counterexamples. On the controller artifact
-// the public wrapper was the real body because `controller/certora` does not
-// enable `common/certora`.
+// independent nondets bounded only by the input indexes and the index caps, so
+// the equality and ordering asserted below would be spurious counterexamples.
 // ---------------------------------------------------------------------------
 
 /// A symbolic market as the pool would report it through `get_sync_data`,
@@ -479,7 +475,7 @@ fn accrued_sync(sync: &PoolSyncData, projected: &MarketIndex, now: u64) -> PoolS
     }
 }
 /// Draws a `(last_timestamp, now)` pair with `now - last_timestamp` inside one
-/// compounding chunk, so `simulate_update_indexes` runs a single iteration.
+/// compounding chunk, so `simulate_update_indexes_body` runs at most one iteration.
 fn nondet_accrual_window() -> (u64, u64) {
     let last_timestamp: u64 = cvlr::nondet::nondet();
     let elapsed_ms: u64 = cvlr::nondet::nondet();
@@ -516,12 +512,12 @@ fn indexes_unchanged_when_no_time_elapsed(e: Env) {
 /// `get_market_index` returns the same pair whether or not `update_indexes`
 /// ran first.
 ///
-/// The Blackthorn L-6 / Certora Hub L-03 shape: a view that reads unaccrued
-/// state disagrees with the mutating path that accrues first, so a position
-/// looks healthier (or riskier) than it is. Here both sides are the *same*
-/// projection: reading before accrual projects the stored state forward to
-/// `now`; reading after accrual re-projects a state already stamped at `now`,
-/// which the zero-delta early return leaves untouched.
+/// Guards against a view that reads unaccrued state and disagrees with the
+/// mutating path that accrues first, so a position looks healthier (or riskier)
+/// than it is. Here both sides are the *same* projection: reading before
+/// accrual projects the stored state forward to `now`; reading after accrual
+/// re-projects a state already stamped at `now`, which the zero-delta early
+/// return leaves untouched.
 #[rule]
 fn iso_market_index_invariant_across_accrual(e: Env, asset: Address) {
     let (last_timestamp, now) = nondet_accrual_window();
