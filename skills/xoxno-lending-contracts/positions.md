@@ -1,8 +1,8 @@
 # Accounts and positions from a contract
 
-Account ownership is the position NFT. `account_id` is the NFT token ID widened
-from `u32` to `u64`; ownership, fixed `PositionMode`, and fixed spoke must be
-checked before reusing an ID.
+The position NFT owner is the account owner. `account_id` is the NFT token ID
+widened from `u32` to `u64`. The `PositionMode` and spoke of an account are
+fixed at creation. Check the owner, mode, and spoke before you reuse an ID.
 
 ## Lifecycle
 
@@ -11,10 +11,10 @@ checked before reusing an ID.
 - `account_exists(id)` checks and renews only the controller's
   `AccountMeta(id)`. It does not renew or prove the existence of position maps,
   delegates, NFT entries, your local pointer, or your contract instance.
-- Cleanup is operation-specific. A full withdrawal can remove an empty
-  account; liquidation and bad-debt cleanup have their own removal paths;
-  strategy close paths may remove after their own checks. `repay` persists the
-  debt side and does not automatically remove an otherwise empty account.
+- Cleanup depends on the operation. `withdraw` and the strategy verbs remove
+  the account when both position maps end empty. Liquidation and
+  `clean_bad_debt` remove it through their own paths. `repay` writes only the
+  debt side and does not remove an empty account.
 - Deletion removes controller entries and burns the NFT atomically. IDs are
   not reused.
 
@@ -102,15 +102,24 @@ holder contract must expose an authenticated forwarding entrypoint:
 ```rust
 use common::ttl::renew_instance;
 use controller_interface::ControllerClient;
-use soroban_sdk::{Address, Env};
+use soroban_sdk::{contracttype, Address, Env};
 
-pub fn renew_owned_account(
-    env: Env,
-    admin: Address,
-    controller: Address,
-) {
+#[contracttype]
+pub enum ConfigKey {
+    Admin,
+    Controller,
+}
+
+pub fn renew_owned_account(env: Env) {
     renew_instance(&env);
+    let config = env.storage().instance();
+    let admin: Address = config
+        .get(&ConfigKey::Admin)
+        .expect("set in constructor");
     admin.require_auth();
+    let controller: Address = config
+        .get(&ConfigKey::Controller)
+        .expect("set in constructor");
     let client = ControllerClient::new(&env, &controller);
     let account_id = resolve_account(&env, &client);
     if account_id != 0 {
@@ -119,12 +128,18 @@ pub fn renew_owned_account(
 }
 ```
 
-This entrypoint renews three distinct lifetimes: its own instance, the resolve
-helper renews the local persistent pointer, and `renew_account`
-renews controller/NFT state.
+Read the admin and controller addresses from your own storage, not from
+arguments. A caller-supplied controller can return `false` from
+`account_exists` and make the resolve helper clear your pointer.
 
-Archived entries require a Soroban restore-footprint operation before they can
-be extended. Schedule renewal before expiry.
+This entrypoint renews three lifetimes: `renew_instance` renews its own
+instance, the resolve helper renews the local pointer, and `renew_account`
+renews controller and NFT state.
+
+Renew before expiry. A simulated and assembled transaction restores archived
+entries inline, and the submitter pays restore rent. Only a hand-built
+footprint needs a separate `RestoreFootprint` operation. See
+[archived entries](../xoxno-lending-troubleshooting/SKILL.md#archived-entries).
 
 ## Ownership and delegation
 
@@ -135,9 +150,10 @@ Before owner/delegate or owner-only work on a stored ID:
 3. read `get_account_attributes(id)`
 4. require expected owner, mode, and spoke
 
-These are branch-specific completion/precondition checks, not substitutes for
-controller authorization. NFT transfer moves the account, collateral, and
-debt. A grant from the previous owner is inactive after transfer.
+These checks are preconditions and completion checks for your contract. They
+do not replace controller authorization. An NFT transfer moves the account,
+collateral, and debt. A grant from the previous owner is inactive after the
+transfer.
 
 An owner may call `add_delegate` only for a governance-activated position
 manager. Delegates may borrow or withdraw to arbitrary recipients, so grant
@@ -150,8 +166,10 @@ result as a snapshot and re-check `owner_of` before acting.
 
 ## Reading positions
 
-- `get_collateral_amount` / `get_borrow_amount`: accrued token base units
-- `get_account_positions`: RAY-scaled raw shares
+- `get_collateral_amount` / `get_borrow_amount`: accrued token base units,
+  rounded half up
+- `get_account_positions`: raw maps; `scaled_amount` is RAY-scaled shares, and
+  supply entries also carry their BPS risk parameters
 - `get_health_factor`: WAD; `i128::MAX` means no debt or no account
 - `get_market_index`: accrued RAY indexes, no oracle lookup
 
@@ -161,10 +179,9 @@ and token decimals. Sizing guidance is in
 
 ## DeFindex adapter PPS convention
 
-This is not a generic vault formula. The production DeFindex adapter defines
-its own shares as one-to-one with the lending account's scaled supply shares,
-so its reported PPS is the supply index floor-rescaled from RAY to the
-adapter's 12-decimal convention:
+This is not a generic vault formula. The DeFindex adapter treats one of its
+shares as one scaled supply share of the lending account. Its reported PPS is
+therefore the supply index, floor-rescaled from RAY to 12 decimals:
 
 ```rust
 use common::math::fp::Ray;

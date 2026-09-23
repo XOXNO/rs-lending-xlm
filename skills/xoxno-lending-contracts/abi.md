@@ -48,13 +48,13 @@ initial payment to the controller. See
 |---|---|
 | `supply` | ID `0` creates a `Normal` account and returns its ID. Existing-account third-party top-up is limited to an existing supply market. Persist and renew the returned ID locally. |
 | `borrow` / `withdraw` | `to = None` pays the caller. `to` cannot be the pool or controller. Zero in a withdrawal leg means withdraw all. Use the returned actual withdrawal amounts. |
-| `repay` | Anyone may repay. Excess is refunded. Repaying the last debt does **not** by itself delete an account that still has collateral, and this path does not generally perform account cleanup; reconcile only after an operation that can remove the account. |
-| `liquidate` | Plan with `get_liquidation_estimate`; authorize the planned debt amount, not a larger request. `Credit(0)` creates a receiving `Normal` account in the victim's spoke. |
+| `repay` | Anyone may repay. Excess is refunded to the caller. `repay` never removes the account, even when it repays the last debt; reconcile only after an operation that can remove the account. |
+| `liquidate` | Simulate `get_liquidation_estimate`, subtract its per-asset `refunds`, then submit and authorize exactly those planned amounts. Omit a market whose planned amount is zero. When the quote covers the whole debt, the controller pulls each submitted amount in full and the pool refunds the excess. `Credit(0)` creates a receiving `Normal` account in the victim's spoke. |
 | `flash_loan` | Receiver approves `amount + fee` to the pool. A direct repayment transfer is rejected. |
 | `flash_position` | Debt remains on the account. The callback pushes declared collateral to the controller; undeclared controller balances are not credited. |
-| `multiply` | `Multiply` may use empty swap bytes only for the same token across distinct markets. `Long` and `Short` reject identical token addresses. |
-| `swap_debt` / `swap_collateral` | Distinct markets are required. Same-token passthrough can apply across different hubs, so an empty route is valid only when input and output token addresses match. |
-| `repay_debt_with_collateral` | Same market nets without a route. Different markets use the swap path, including same-token cross-hub passthrough. `close_position` also withdraws remaining supply only after debt is gone. |
+| `multiply` | `Multiply` requires distinct markets. The swap bytes must be empty when both markets use the same token address, and non-empty otherwise. `Long` and `Short` reject identical token addresses. |
+| `swap_debt` / `swap_collateral` | Distinct markets are required. The route must be empty when both markets use the same token address, and non-empty otherwise. |
+| `repay_debt_with_collateral` | The same market nets with an empty route. Different markets withdraw and swap: the route must be empty when both markets use the same token address, and non-empty otherwise. `close_position` withdraws all remaining collateral to the caller and fails with `CannotCloseWithRemainingDebt` if any debt remains. |
 | `renew_account` | Renews controller account entries and NFT state. It never renews the caller contract's persistent pointer or instance. |
 
 ## Views that need interpretation
@@ -73,10 +73,11 @@ initial payment to the controller. See
 
 ## Batch semantics
 
-Payment vectors are non-empty. Negative amounts fail. Duplicate market keys
-are aggregated in first-seen order; for withdrawal, any zero for a market
-wins and means the whole position. New supply/debt markets count against
-position limits.
+The payment vectors of `supply`, `borrow`, `withdraw`, `repay`, and
+`liquidate` are non-empty. Negative amounts fail, and zero fails except in a
+withdrawal leg. Duplicate market keys are aggregated in first-seen
+order; for withdrawal, any zero for a market wins and means the whole
+position. New supply/debt markets count against position limits.
 
 `update_account_threshold(caller, has_risks, account_ids)` iterates the input
 without an explicit length bound in
@@ -84,8 +85,9 @@ without an explicit length bound in
 must use conservative batches, simulate every batch successfully, and only
 submit a batch whose footprint and budget fit.
 
-View endpoints that accept vectors may have their own bounds. Read the
-interface plus implementation instead of applying one global vector limit.
+`get_liquidation_estimate` and `get_market_indexes_detailed` reject more than
+`MAX_VIEW_INPUTS` (256) entries with `InvalidPayments`. Do not apply that
+bound to other views; simulate their batches.
 
 ## Failure handling
 

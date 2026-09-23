@@ -2,7 +2,7 @@
 
 The controller manages lending accounts and risk checks. A central pool holds
 tokens and maintains each market's accounting. Governance administers the core
-contracts through delayed proposals and restricted emergency actions.
+contracts through delayed proposals and restricted immediate actions.
 
 This page introduces the source architecture for contributors, integrators,
 and auditors. Deployment review must also verify contract code, owners, and
@@ -44,8 +44,8 @@ explains NFT approvals and delegate permissions.
 Governance's deployment helpers make governance the owner of the controller
 and price aggregator. The controller deploys one pool and one position NFT
 with itself as their authority. The pool has no separate ownership-transfer
-endpoint. The controller can transfer ownership, so authorized changes can
-alter this authority chain.
+endpoint. Governance and controller ownership can transfer, so authorized
+changes can alter this authority chain.
 
 The swap aggregator and XOXNO oracle each accept a separate administrator at
 construction. Their owner checks do not establish multisig custody, a timelock,
@@ -56,8 +56,9 @@ constructor configuration and no administrative rescue interface.
 
 The pool tracks cash in an accounting book. Supply, repayment, and
 recapitalization credit the tokens actually received; direct donations do not
-automatically increase booked cash. Receipt measurement supports specific
-under-delivery behavior but cannot establish that an arbitrary token is safe.
+automatically increase booked cash. When a token delivers less than requested,
+the pool books the smaller measured amount. Measurement cannot establish that an
+arbitrary token is safe.
 
 The same token can appear in multiple hubs. Its markets keep separate books
 but share one physical pool balance. A malicious token contract can therefore

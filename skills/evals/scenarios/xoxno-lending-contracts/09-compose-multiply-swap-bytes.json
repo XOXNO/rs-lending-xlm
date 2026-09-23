@@ -8,7 +8,7 @@
     "Passes an empty `Bytes` only when `token_in == token_out` (same-market netting), where a non-empty payload reverts `InvalidPayments`",
     "Uses `PositionMode::Multiply` from `common::types` for the open leg and the stored account id with the account's own `spoke_id` (>= 1), and pre-authorizes `transfer(self, controller, amount)` immediately before `multiply` only when `initial_payment` is `Some` (the controller receives the payment, then supplies)",
     "Sequences the unwind as: controller reads (`is_liquidatable` / `get_health_factor`) first, then `repay_debt_with_collateral(self, account_id, collateral, collateral_amount, debt, swap, close_position)`; no controller read sits between any `authorize_as_current_contract` call and the mutating call it authorizes",
-    "Does not call any controller verb from inside a flash-loan or strategy callback (`FlashLoanOngoing` #400); notes the strategy verbs are also blocked while a flash guard is held",
+    "Does not call any controller verb from inside a flash-loan or strategy callback: the Soroban host rejects the re-entry with `Error(Context, InvalidAction)`; notes the controller flash guard (`FlashLoanOngoing` #400) is a second layer that also blocks the strategy verbs",
     "Links `xoxno-swap-aggregator/composition.md` / `payload.md` for the quote request and links `xoxno-lending/addresses.md` (from `configs/networks.json`) instead of hardcoding controller or router ids"
   ],
   "machine_checkable": [

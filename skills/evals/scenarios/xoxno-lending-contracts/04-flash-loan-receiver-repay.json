@@ -11,7 +11,7 @@
     "Gates the callback to the trusted pool/controller address (stored via constructor or config) before acting on `data`; treats `data` as untrusted and decodes it with `FromXdr` handling the error",
     "Initiates the loan through the controller's `flash_loan(caller, asset: HubAssetKey, amount, receiver, data)`, not the pool's controller-only `flash_loan`",
     "Takes the controller/pool address as a constructor or config parameter and points to `xoxno-lending/addresses.md` / `configs/networks.json`; does not hardcode a contract id in the receiver",
-    "Does not call `supply`, `borrow`, `withdraw`, `repay`, `liquidate`, or another flash entrypoint from inside the callback (reverts `FlashLoanOngoing` #400)"
+    "Does not call `supply`, `borrow`, `withdraw`, `repay`, `liquidate`, or another flash entrypoint from inside the callback: the Soroban host rejects the controller re-entry with `Error(Context, InvalidAction)`, and the controller flash guard (`FlashLoanOngoing` #400) is a second layer"
   ],
   "machine_checkable": [
     "Generated Rust compiles with `cargo build --target wasm32v1-none` in the eval crate pinned to `soroban-sdk =27.0.6` with `controller-interface` and `common` path deps",

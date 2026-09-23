@@ -14,7 +14,7 @@ skill, and load only the companion reference named for the task.
 |---|---|---|
 | [xoxno-lending](xoxno-lending/SKILL.md) | Starting any XOXNO task; need addresses, ids, or formulas | `addresses.md` (generated), `math.md` |
 | [xoxno-lending-contracts](xoxno-lending-contracts/SKILL.md) | Writing a Soroban contract that supplies, borrows, holds a position, or receives a flash loan | `abi.md`, `positions.md`, `flash-loans.md`, `composing.md` |
-| [xoxno-lending-sdk](xoxno-lending-sdk/SKILL.md) | Building a dApp, backend, or bot in TypeScript on `@xoxno/sdk-js` and `api.xoxno.com` | `reads.md`, `transactions.md`, `strategies.md`, `frontend.md` |
+| [xoxno-lending-sdk](xoxno-lending-sdk/SKILL.md) | Building a dApp, backend, or bot in TypeScript on `@xoxno/sdk-js` and `api.xoxno.com` | `reads.md`, `positions.md`, `transactions.md`, `strategies.md`, `frontend.md` |
 | [xoxno-swap-aggregator](xoxno-swap-aggregator/SKILL.md) | Quoting or executing swaps, or embedding a swap payload in a lending action or your own contract | `api.md`, `payload.md`, `composition.md` |
 | [xoxno-lending-liquidations](xoxno-lending-liquidations/SKILL.md) | Building a liquidation bot, keeper, or risk monitor | — |
 | [xoxno-lending-data](xoxno-lending-data/SKILL.md) | Indexing events, building analytics, or calling the REST API from any language | `api.md` |
@@ -31,15 +31,15 @@ cp -R path/to/rs-lending-xlm/skills/xoxno-* ~/.claude/skills/
 npx skills add https://github.com/XOXNO/rs-lending-xlm
 ```
 
-Ship the whole set: every skill assumes `xoxno-lending` is available. The set is also
-listed on [skills.stellar.org](https://skills.stellar.org) and in the Stellar
-`standards` skill's ecosystem catalogue.
+Ship the whole set: every skill assumes `xoxno-lending` is available.
 
 ## Source of truth and verification
 
 - Contract claims are verified against this repository (`interfaces/`, `common/`,
-  `contracts/`, `docs/reference/`). `scripts/check_doc_symbols.py` scans `skills/` for
-  symbols that no longer exist.
+  `contracts/`, `docs/reference/`). `scripts/check_doc_symbols.py` flags selected
+  backticked Rust-looking identifiers absent from its source/config text and
+  allowlists; it does not resolve symbols. It skips `xoxno-lending-data/` and
+  `xoxno-swap-aggregator/`, which document services in other repositories.
 - `xoxno-lending/addresses.md` is generated: `python3 scripts/gen_skill_addresses.py`
   (`--check` fails when it is stale). Never edit it by hand.
 - SDK claims are verified against the separate `sdk-js` repository at the version named in

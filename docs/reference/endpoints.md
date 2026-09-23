@@ -23,14 +23,14 @@ Every user mutation below requires the named caller, payer or liquidator to auth
 | --- | --- | --- | --- |
 | `supply(caller: Address, account_id: u64, spoke_id: u32, assets: Vec<(HubAssetKey, i128)>) -> u64` | Existing assets only for third parties | gated | Supply measured deposits; id 0 creates Normal account. |
 | `borrow(caller: Address, account_id: u64, borrows: Vec<(HubAssetKey, i128)>, to: Option<Address>)` | NFT owner/delegate | gated | Debt booked to account; recipient defaults to caller. |
-| `withdraw(caller: Address, account_id: u64, withdrawals: Vec<(HubAssetKey, i128)>, to: Option<Address>) -> Vec<(HubAssetKey, i128)>` | NFT owner/delegate | open | Zero means full withdrawal; returns resolved amounts. |
+| `withdraw(caller: Address, account_id: u64, withdrawals: Vec<(HubAssetKey, i128)>, to: Option<Address>) -> Vec<(HubAssetKey, i128)>` | NFT owner/delegate | open | Zero means full withdrawal; returns the amounts paid. |
 | `repay(caller: Address, account_id: u64, payments: Vec<(HubAssetKey, i128)>)` | None | open | Anyone can repay; excess returns to caller. |
 | `liquidate(liquidator: Address, account_id: u64, debt_payments: Vec<(HubAssetKey, i128)>, seize_mode: SeizeMode) -> u64` | None; credit receiver owner/delegate | open | Pro-rata seizure; Transfer returns 0, Credit returns receiver id. |
 | `clean_bad_debt(caller: Address, account_id: u64)` | None | open | Debt exceeds collateral and collateral <= $5; socialize and burn NFT. |
 | `flash_loan(caller: Address, asset: HubAssetKey, amount: i128, receiver: Address, data: Bytes)` | None | gated | Wasm callback; pool pulls exact principal plus fee. |
-| `flash_position(caller: Address, account_id: u64, spoke_id: u32, mode: PositionMode, debt: HubAssetKey, amount: i128, receiver: Address, data: Bytes, collaterals: Vec<(HubAssetKey, i128)>, refund_assets: Vec<Address>) -> u64` | NFT owner/delegate for existing id | gated | Mint zero-fee debt; callback returns declared collateral deltas. |
+| `flash_position(caller: Address, account_id: u64, spoke_id: u32, mode: PositionMode, debt: HubAssetKey, amount: i128, receiver: Address, data: Bytes, collaterals: Vec<(HubAssetKey, i128)>, refund_assets: Vec<Address>) -> u64` | NFT owner/delegate for existing id | gated | Mint fee-free debt; deposit declared collateral that the callback delivers. |
 | `multiply(caller: Address, account_id: u64, spoke_id: u32, collateral: HubAssetKey, debt_to_flash_loan: i128, debt: HubAssetKey, mode: PositionMode, swap: Bytes, initial_payment: Option<(HubAssetKey, i128)>, convert_swap: Option<Bytes>) -> u64` | NFT owner/delegate for existing id | gated | Borrow, swap and supply; optional initial capital. |
-| `swap_debt(caller: Address, account_id: u64, existing_debt: HubAssetKey, amount: i128, new_debt: HubAssetKey, swap: Bytes)` | NFT owner/delegate | gated | Borrow new debt before repaying existing debt with swap output; the borrow-first order can prevent refinancing at a cap. |
+| `swap_debt(caller: Address, account_id: u64, existing_debt: HubAssetKey, amount: i128, new_debt: HubAssetKey, swap: Bytes)` | NFT owner/delegate | gated | Borrow new debt, then repay existing debt with the swap output. The new borrow must fit its borrow cap and the borrow-position limit before repayment. |
 | `swap_collateral(caller: Address, account_id: u64, current: HubAssetKey, amount: i128, new: HubAssetKey, swap: Bytes)` | NFT owner/delegate | gated | Withdraw, convert and redeposit collateral. |
 | `repay_debt_with_collateral(caller: Address, account_id: u64, collateral: HubAssetKey, collateral_amount: i128, debt: HubAssetKey, swap: Bytes, close_position: bool)` | NFT owner/delegate | gated | Direct same-market netting or swap; optional full close. |
 | `migrate_from_blend(caller: Address, account_id: u64, spoke_id: u32, hub_id: u32, blend_pool: Address, collateral_assets: Vec<Address>, supply_assets: Vec<Address>, debt_caps: Vec<(Address, i128)>) -> u64` | NFT owner/delegate for existing id | gated | Migrate caller’s position from approved Blend pool. |
@@ -46,7 +46,7 @@ Every user mutation below requires the named caller, payer or liquidator to auth
 
 Account id `0` creates an account on `supply`, `multiply`, `flash_position`, `migrate_from_blend`, and liquidation with `Credit(0)`. An account's spoke binding is permanent. `multiply` and `flash_position` require Multiply, Long or Short mode, and an existing account must match the requested mode. Blend migration creates a Normal account; an existing destination need not be Normal.
 
-Delegates belong to the granting owner. An NFT transfer disables that owner's grants; a transfer back can reactivate them unless another owner has rewritten the list. NFT ownership, including control of collateral and the debt obligation, transfers atomically.
+Delegates belong to the granting owner. An NFT transfer disables that owner's grants; a transfer back can reactivate them unless a later owner has replaced or deleted the list. NFT ownership, including control of collateral and the debt obligation, transfers atomically.
 
 Ordinary payment lists sum duplicate markets in first-appearance order and reject negative amounts. `supply`, `borrow` and `repay` reject zero. In `withdraw`, zero means the full balance and overrides positive amounts for the same market. Flash-position declaration lists reject duplicates.
 
@@ -70,16 +70,16 @@ Liquidation estimates report gross seizure before protocol fees. Transfer-mode s
 
 ### Strategy payments and callbacks
 
-For `multiply`, an initial payment in collateral joins the supply; a payment in debt joins the main swap. Another payment asset requires `convert_swap`. Same-market `repay_debt_with_collateral` requires empty swap bytes. With `close_position`, any remaining debt rejects the call; otherwise, the remaining collateral is withdrawn to the caller.
+For `multiply`, an initial payment in collateral joins the supply; a payment in debt joins the main swap. Another payment asset requires `convert_swap`. Same-market `repay_debt_with_collateral` requires empty swap bytes. With `close_position`, the call fails if any debt remains; if none remains, all remaining collateral is withdrawn to the caller.
 
-`flash_position` requires a deployed Wasm receiver other than the controller or pool. Its collateral declarations must meet all of these conditions:
+`flash_position` requires a debt market with flash loans enabled and a deployed Wasm receiver other than the controller or pool. Its collateral declarations must meet all of these conditions:
 
 - The list is nonempty and does not exceed the maximum supply-position count.
 - Markets and underlying tokens are unique.
 - All minimum amounts are nonnegative, with at least one positive minimum.
 - Measured controller receipts from the callback meet every minimum.
 
-Pool supply measures receipts again. Caps are checked when the callback's pool changes merge into account accounting. Supply and the declared debt position must remain open after finalization.
+Pool supply measures receipts again. Borrow and supply caps are checked when each pool result merges into the account. Supply and the declared debt position must remain open after finalization.
 
 Refund assets must be unique, listed in the debt hub and account spoke, disjoint from collateral declarations, and bounded by the maximum supply-position count. Refund eligibility requires an active spoke and an existing listing; it does not check collateralizable, borrowable, paused or frozen flags. Only positive balance changes above pre-callback balances return to the caller. The debt token can be a refund asset, but refunding it does not repay the minted debt.
 
@@ -212,7 +212,7 @@ Constructor `(admin: Address, min_delay: u32)` initializes the owner, access-con
 | `hash_operation(target: Address, function: Symbol, args: Vec<Val>, predecessor: BytesN<32>, salt: BytesN<32>) -> BytesN<32>` | Open view / resolver |
 | `resolve_oracle_tolerance(tolerance: u32) -> OracleTolerance` | Open view / resolver |
 | `resolve_asset_oracle(key: PriceKey, oracle: AssetOracle) -> AssetOracle` | Open view / resolver |
-| `propose(proposer: Address, op: AdminOperation, salt: BytesN<32>) -> BytesN<32>` | PROPOSER_ROLE; the proposer must also be the current owner for ownership transfers, code upgrades (`UpgradeGov`, `UpgradeController`, `UpgradePool`, `UpgradePositionNft`, `UpgradePriceAggregator`, `MigrateController`), price and swap sources (`SetPriceAggregator`, `ConfigureAssetOracle`, `EditOracleTolerance`, `SetSwapAggregator`), `ApproveBlendPool`, `SetAccumulator` and `GrantGovRole` |
+| `propose(proposer: Address, op: AdminOperation, salt: BytesN<32>) -> BytesN<32>` | PROPOSER_ROLE; the proposer must also be the current owner for ownership transfers, code upgrades (`UpgradeGov`, `UpgradeController`, `UpgradePool`, `UpgradePositionNft`, `UpgradePriceAggregator`, `MigrateController`), price and swap sources (`SetPriceAggregator`, `ConfigureAssetOracle`, `EditOracleTolerance`, `SetSwapAggregator`), `ApproveBlendPool`, `SetAccumulator` and `GrantGovRole`; `RevokeGovRole` cannot target the proposer or the owner |
 | `pause(caller: Address)` | GUARDIAN_ROLE; immediate |
 | `set_spoke_asset_flags(caller: Address, spoke_id: u32, hub_asset: HubAssetKey, paused: bool, frozen: bool, no_seize: bool)` | GUARDIAN_ROLE; immediate tightening only |
 | `set_sanity_band(caller: Address, key: PriceKey, min_wad: i128, max_wad: i128)` | ORACLE_ROLE; immediate tightening only |
@@ -225,7 +225,7 @@ Constructor `(admin: Address, min_delay: u32)` initializes the owner, access-con
 | `accept_ownership()` | Pending owner; synchronizes access-control admin and roles |
 | `has_role(account: Address, role: Symbol) -> bool` | Open view / resolver |
 
-Governance exports no generic `grant_role`, `revoke_role`, `renounce_ownership`, `get_owner`, `schedule`, or `update_delay` endpoint. Role/owner/delay/upgrade changes route through its explicit AdminOperation handlers.
+Governance exports no generic `grant_role`, `revoke_role`, `renounce_ownership`, `get_owner`, `schedule`, or `update_delay` endpoint. Role, owner, delay and upgrade changes go through `AdminOperation` handlers. The exceptions are `revoke_role_immediate`, the canceller reset and `accept_ownership`.
 
 `AdminOperation::RelaxSpokeAssetFlags(RelaxSpokeAssetFlagsArgs)` schedules controller `relax_spoke_asset_flags` on the Standard delay tier. `propose` rejects it with `SpokeFlagsEpochMismatch` when `expected_epoch` differs from the listing's live flags epoch; execution checks the epoch again.
 
@@ -258,7 +258,7 @@ Account ids are NFT token ids: the NFT uses `u32`, and the controller exposes th
 
 ## Swap aggregator
 
-Constructor `(admin: Address)` sets the router owner. The sender authorizes `execute_strategy`. Its validated XDR can invoke an LP burn, packed swap program and LP mint. The router applies fees, checks its output balance against the route minimum, then transfers and returns the payout amount.
+Constructor `(admin: Address)` sets the router owner. The sender authorizes `execute_strategy`. Its XDR payload carries a validated, packed instruction stream of swaps and Aquarius LP burns and mints. The router applies fees, checks its output balance against the route minimum, then transfers and returns the payout amount.
 
 Recipient receipt is not remeasured, so taxed payout tokens can deliver less than the return value. Controller strategies measure positive swap receipts but do not independently enforce the route minimum. Fees require an active nonzero referral. The whitelist selects which side pays the fee; it does not restrict permitted tokens.
 
@@ -291,7 +291,7 @@ Lending governance has no router-upgrade operation. The router owner controls up
 
 ### Router and XOXNO oracle ownership
 
-Both contracts export these Ownable methods. Neither exports `renounce_ownership`: the owner is the only path to `upgrade` and to every administrative setter, so ownership can move but cannot be cleared.
+Both contracts export these Ownable methods. Neither exports `renounce_ownership`, so ownership can move but cannot be cleared.
 
 | Endpoint | Authority |
 | --- | --- |
@@ -361,7 +361,7 @@ Prices use 8 decimals. Package and aggregate-write timestamps use milliseconds; 
 
 The [three ownership methods](#router-and-xoxno-oracle-ownership) are also exported here. The configured Ownable owner administers this oracle; lending governance has no XOXNO-oracle scheduling variants.
 
-Threshold, submission-age and relative-skew setters do not recompute aggregates. The owner can call `recompute_feeds` in bounded batches. `remove_signer` deletes that signer's submissions and recomputes affected feeds. When quorum is absent, ordinary submissions retain the previous aggregate, while owner recomputation or signer removal clears it.
+Threshold, submission-age, relative-skew and cluster-spread setters do not recompute aggregates. The owner can call `recompute_feeds` in bounded batches. `remove_signer` deletes that signer's submissions and recomputes affected feeds. When quorum is absent, ordinary submissions retain the previous aggregate, while owner recomputation or signer removal clears it.
 
 Ordinary reads check aggregate freshness without reevaluating quorum. Package timestamps permit 60 seconds of future skew after flooring milliseconds to seconds. Equal timestamps from the same signer are accepted.
 

@@ -52,8 +52,8 @@ let shares_ray = round(amount_ray * RAY / index_ray);
 | Debt full-close amount | ceil at both conversion steps |
 | Displayed balance | half-up at both conversion steps |
 
-A withdrawal request at least the half-up displayed supply balance burns all
-supply shares and pays their floor-valued balance. A repayment at least the
+A withdrawal request of at least the half-up displayed supply balance burns all
+supply shares and pays their floor-valued balance. A repayment of at least the
 ceiled debt balance burns all debt shares and refunds the excess.
 
 Positive supply and borrow amounts must mint shares. Positive net repayment
@@ -130,8 +130,9 @@ utilization. Each slope contribution uses half-up multiplication followed by
 half-up division. The result cannot exceed the configured maximum, which is
 limited to 200% APR.
 
-Pool borrow and deposit rate views return annual RAY fractions using stored
-indexes without first accruing or projecting them:
+Accrual uses the per-millisecond rate `per_ms`. Pool borrow and deposit rate
+views return annual RAY fractions from stored indexes, without first accruing
+or projecting them:
 
 ```rust
 let per_ms = half_up(annual_borrow_rate_ray / 31_556_926_000);
@@ -235,13 +236,13 @@ weight, using half-up division and multiplication. It is bounded by
 bound; zero collateral also gives a zero base bonus.
 
 The configured curve ramps the base-to-maximum increment as health falls, then
-applies its BPS factor. The HF-preserving cap above limits the result. A cap
-below base bypasses the target formula:
+applies its BPS factor. The HF-preserving cap above limits the result. With a
+positive `p`, insolvency or a cap below base bypasses the target formula:
 
 ```rust
-let quote = if C < D { (min(D, floor(C * WAD / (WAD + base))), base) } // insolvent
-    else if cap < base { (D, max(cap, 0)) } // band: D <= C < D * (1 + base)
-    else { /* target formula at min(curve, cap) */ };
+let quote = if p > 0 && C < D { (min(D, floor(C * WAD / (WAD + base))), base) } // insolvent
+    else if p > 0 && cap < base { (D, max(cap, 0)) } // band: D <= C < D * (1 + base)
+    else { /* target formula at min(curve, cap), or at curve when p == 0 */ };
 ```
 
 In the band the quote is the full debt at the cap, and any smaller payment is
@@ -249,15 +250,19 @@ accepted. A partial repayment `x` seizes `x * (1 + cap)`, at most `x * C / D`,
 so `C / D` and the health factor do not fall; the BPS floor of the cap can
 raise them slightly.
 
-Insolvency is the exact unweighted comparison `C < D`. The quote is the
-repayment the collateral backs at the base bonus, floored, so an offer above it
-is trimmed and the liquidator never pays more than it seizes. On an insolvent
-account the trim rounds each kept leg down to whole token units, so the kept
+Insolvency is the exact unweighted comparison `C < D`. With positive `p`, the
+insolvency branch quotes the repayment the collateral backs at the base bonus,
+floored, so an offer above it is trimmed and the liquidator never pays more
+than it seizes. On an insolvent account the trim rounds each kept leg down to
+whole token units, so the kept
 value never exceeds the quote. A leg whose kept amount rounds to zero is
 dropped and its whole offer refunded; if no leg remains, `liquidate` reverts
-with `InvalidPayments` (16) and the estimate shows a zero payment. The quote is
-not promoted to full debt; bad-debt cleanup takes the unbacked residue. `HF / p`
-approximates `C / D`, but `HF` floors and `p` rounds half-up, so an account at
+with `InvalidPayments` (16) and the estimate shows a zero payment. This insolvency
+branch does not promote the quote to full debt; bad-debt cleanup takes the unbacked
+residue. With `p == 0`, the target formula and dust promotion below apply instead.
+
+For positive `p`, `HF / p` approximates `C / D`, but `HF` floors and `p` rounds
+half-up, so an account at
 `C == D`, or a few raw WAD units above it, can compute a cap of `-1`. Such a
 covered account takes the band quote with the cap clamped to zero. A full close
 repays all of `D`, so no debt is left to socialize. Seizure floors to whole
@@ -270,12 +275,13 @@ full debt, without requiring full funding. Each input is capped at its leg's
 ceiling-rounded debt, and the excess is listed as a refund. A partial quote
 also trims the inputs above the quote from the last leg backward before tokens
 are pulled, and execution pulls the trimmed amount. On a solvent account the
-trim floors the refund, so the kept amount can round up by one token unit. A full-debt quote trims nothing: the per-leg
-ceilings can exceed `D` by unit rounding, and the repayment credits every unit
-of them. Execution then pulls each merged offered amount and the pool refunds
-what exceeds each leg's debt, which is exactly the listed refund. Neither a
-full-debt quote nor the target health factor guarantees an executed full close
-after rounding or under-delivery.
+trim floors the refund, so the kept amount can round up by one token unit. A
+full-debt quote trims nothing: the per-leg ceilings can exceed `D` by unit
+rounding, and the repayment credits every unit of them. Execution then pulls
+each merged offered amount and the pool refunds what exceeds each leg's debt,
+which is exactly the listed refund. Neither a full-debt quote nor the target
+health factor guarantees an executed full close after rounding or
+under-delivery.
 
 ### Seizure and fees
 
@@ -335,12 +341,13 @@ A cap is in native token units. Entry compares stored scaled usage plus the
 new scaled amount with the cap floor-converted at the current index. Zero cap
 allows no positive exposure. Exits subtract usage without checking caps;
 missing usage rows and zero exit deltas are no-ops. Cap→scaled conversion
-saturates at `i128::MAX` (`calculate_scaled_cap`) so the entry check fails
-open rather than trapping: a saturated scaled cap no longer enforces the
-configured asset-unit limit. That matters for large supply caps after bad-debt
-write-down pins the supply index at its floor (`RAY / 1000`); the borrow index
-is monotone at least one RAY, so borrow caps are much less exposed. Position
-conversion still rejects overflow.
+saturates at `i128::MAX` (`calculate_scaled_cap`), so the entry check fails
+open instead of trapping. A saturated scaled cap does not enforce the
+configured asset-unit limit. An admitted cap saturates only at an index below
+one RAY. Only a bad-debt write-down moves the supply index below one RAY; at
+its floor (`RAY / 1000`), a supply cap above 1/1000 of the admitted maximum
+saturates. The borrow index never falls below one RAY, so an admitted borrow
+cap cannot saturate. Position conversion still rejects overflow.
 
 Flash-loan and charged strategy fees are half-up BPS of principal, with a
 minimum of one base unit for a positive rate. Flash position has no origination

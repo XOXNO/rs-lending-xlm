@@ -25,9 +25,9 @@ argument-hint: "[error string, hash, or test setup]"
    only that identical envelope while it remains live. Do not build a
    replacement yet.
 4. **Does `getTransaction(hash)` return `NOT_FOUND`?**
-   This is not a terminal failure. Continue checking and, where appropriate,
-   resubmitting the original envelope until it confirms or its timebounds
-   expire. Rebuild only after expiry or another definitive terminal result.
+   This is not a terminal failure. Keep polling the hash and resubmit the
+   original envelope until it confirms or its timebounds expire. Rebuild only
+   after expiry or another definitive terminal result.
 5. **Did the transaction confirm `FAILED`?**
    Decode its diagnostic events, again pairing code with panicking contract.
 6. **Did it confirm `SUCCESS`?**
@@ -46,8 +46,8 @@ This skill keeps only operational interpretation and failure-handling rules.
 ## Identify the panicking contract first
 
 `Error(Contract, #N)` names a number, not an error namespace. A lending call
-can traverse controller, pool, token SAC, position NFT, router, and DEX
-contracts, whose codes overlap.
+can traverse the controller, pool, price aggregator, oracle, token, position
+NFT, router, and DEX contracts, and their codes overlap.
 
 1. Extract only `Error(Contract, #N)`.
 2. Locate the diagnostic `error` event and its emitting `contractId` (or the
@@ -60,7 +60,8 @@ Do not maintain a "non-user/collision" set containing controller #101 or #114:
 - controller `HealthFactorTooHigh` #101 legitimately occurs when a liquidation
   target has no debt or is no longer liquidatable;
 - controller `CannotCleanBadDebt` #114 legitimately occurs on the
-  permissionless cleanup path when debt/collateral dust conditions are unmet.
+  permissionless `clean_bad_debt` path when debt does not exceed collateral
+  or collateral is above the dust cap.
 
 Either number can also collide with another contract. The emitting contract,
 not assumptions about reachability, decides the namespace.
@@ -138,9 +139,9 @@ still-live signed envelope.
 
 Use one rule:
 
-**On protocol 23, simulate the invocation, assemble it with the simulation
-result, and submit it; archived footprint entries are restored inline and the
-submitter pays restoration rent.**
+**On protocol 23 and later, simulate the invocation, assemble it with the
+simulation result, and submit it; archived footprint entries are restored
+inline and the submitter pays restoration rent.**
 
 A separate `restoreFootprint` transaction is only for a footprint constructed
 by hand and submitted without the normal simulation/assembly path. If an
@@ -164,24 +165,24 @@ transfer and invoke the controller immediately. Any outbound contract call
 between those steps can consume the "next invocation" authorization position
 and produce `Error(Auth, InvalidAction)`.
 
-For contract liquidators, repeated token addresses across hub-specific debt
-payment legs are unsafe until estimate/refund results retain hub keys.
-Authorization matches the token call and transfer arguments, not the
-controller's hub id, so asset-only refunds cannot safely derive and authorize
-each repeated-address leg.
+For contract liquidators, do not repeat a token address across hub-specific
+debt payment legs. `LiquidationEstimate` refunds name only the token address,
+not the hub. Authorization binds the token `transfer` arguments, not the hub
+id, so the contract cannot derive and authorize each repeated-address leg.
 
 ## Common operational interpretations
 
-- `SpokeNotFound`: resolve controller address and spoke id from the same
-  network manifest; never use spoke 0.
+- `SpokeNotFound`: resolve the controller address and the on-chain spoke id
+  (not the config key) from the same network manifest; never use spoke 0.
 - `SpokeMismatch`: load the account's stored spoke and keep all account legs in
   that spoke.
-- Pause/freeze/no-seize failures: read the exact spoke-asset configuration;
-  seizure is all-or-nothing across collateral.
+- Pause/freeze/no-seize failures: read the exact spoke-asset configuration.
+  Seizure is pro-rata across every collateral, so one `no_seize` collateral
+  blocks the whole liquidation.
 - Router slippage or venue errors: identify the router/venue contract, fetch a
   fresh quote, rebuild route XDR, and re-simulate the composed call.
-- `InvalidPayments`: inspect empty, duplicate, same-token, and route-shape
-  rules for the exact endpoint.
+- `InvalidPayments`: check the exact endpoint's rules for empty lists, list
+  length, duplicate assets, same-token legs, and swap-route shape.
 - `expected a Transaction, got [object Object]`: rebuild the XDR through the
   same `@stellar/stellar-sdk` instance used by the RPC server before
   preparation.
@@ -197,11 +198,12 @@ Use the narrowest harness target:
 make test-match PATTERN=<substring>
 ```
 
-`PATTERN=` is required. The Makefile now fails loudly when it is missing;
-stale `MATCH=` guidance is incorrect and does not select the intended test.
+`PATTERN=` is required. `MATCH=` is not recognised, and the target exits with
+status 2 when `PATTERN` is empty.
 
-For testnet, resolve controller, pool, hub, spoke, and asset contract addresses
-from `configs/networks.json` / [addresses](../xoxno-lending/addresses.md).
+For testnet, resolve the controller and pool addresses and the on-chain hub
+and spoke ids from `configs/networks.json`, and asset addresses from
+`configs/testnet/markets.json` or [addresses](../xoxno-lending/addresses.md).
 Asset identity is the contract address plus explicit hub and spoke context,
 never the first display-symbol or search result.
 

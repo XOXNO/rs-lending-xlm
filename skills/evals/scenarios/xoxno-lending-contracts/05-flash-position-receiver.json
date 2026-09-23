@@ -14,6 +14,6 @@
   ],
   "machine_checkable": [
     "Generated Rust compiles with `cargo build --target wasm32v1-none` in the eval crate pinned to `soroban-sdk =27.0.6` with `controller-interface` and `common` path deps",
-    "Source declares `pub fn execute_flash_position` with 9 parameters after `env`, contains no `execute_flash_loan`, and no `.approve(` call"
+    "Source declares `pub fn execute_flash_position` with 8 parameters after `env`, contains no `execute_flash_loan`, and no `.approve(` call"
   ]
 }

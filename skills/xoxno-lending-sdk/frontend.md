@@ -19,9 +19,9 @@ Pass only RPC-prepared XDR to this interface and use
 contract failure: wallet providers commonly throw plain objects, with rejection
 codes such as `5000` or `-4`, rather than `Error` instances.
 
-Mobile app switching can exceed 30 seconds. Use the transaction's 300-second
-timebound and never rebuild merely because the wallet prompt was slow; inspect
-the envelope's actual max timebound.
+Mobile app switching can exceed 30 seconds. The builder default timebound is
+300 seconds (`timeoutSeconds`). Do not rebuild only because the wallet prompt
+was slow; read the envelope's actual max timebound.
 
 ## Prepared-XDR prefetch
 
@@ -67,6 +67,7 @@ Render lifecycle states by evidence:
 - local build/validation, preparation simulation, or wallet rejection:
   deterministic pre-submit failure;
 - `PENDING` / `DUPLICATE`: submitted, confirming;
+- first-send `ERROR`: RPC rejected the envelope before inclusion; terminal;
 - `TRY_AGAIN_LATER` or a thrown send transport error: network uncertain;
 - polling `NOT_FOUND`, timeout, or a thrown polling transport error:
   `UNKNOWN`, not failed;
@@ -75,11 +76,10 @@ Render lifecycle states by evidence:
 
 Persist the original hash and exact signed envelope before send. On an
 uncertain state, query that hash and, if needed, resubmit the unchanged
-envelope. Do not build a replacement until the retained envelope's timebounds
-expire. The full policy and reference helper are in
+envelope. A resubmission `ERROR` keeps the state uncertain: the original may
+already have applied. Do not build a replacement until the retained envelope's
+timebounds expire. The full policy and reference helper are in
 [transactions.md#canonical-lifecycle](transactions.md#canonical-lifecycle).
-Every polling exception follows this same-hash policy; it never makes a
-replacement envelope safe.
 
 Use one toast/activity record per transaction hash. `DUPLICATE` must not emit a
 second success, and send acceptance must not refresh product state as though it
@@ -95,8 +95,8 @@ For nested errors:
 
 1. inspect diagnostic events for the emitting contract id;
 2. map only against that contract's namespace;
-3. if the emitter is absent, display an unmapped nested contract error and
-   retain the raw diagnostic.
+3. if diagnostics do not identify the emitter, display an unmapped nested
+   contract error and retain the raw diagnostic.
 
 Do not call `mapSorobanError` solely because the top-level tag is the lending
 controller. Use the single SDK interpretation flow in
@@ -115,10 +115,10 @@ After success:
 3. tolerate indexer lag without claiming the old state is final;
 4. recheck `owner_of(accountId)` before enabling another mutation.
 
-Float fields (`*Short`, `*Usd`, APY percentages, formatted leverage) are UI
-estimates. Builder inputs and risk decisions remain raw base-unit/RAY/WAD
-`BigInt` values, and successful preparation is still not a guarantee of ledger
-admission.
+Float fields (`*Short`, `*Usd`, `*Native`, APY percentages, formatted
+leverage) are UI estimates. Builder inputs and risk decisions remain raw
+base-unit/RAY/WAD `BigInt` values, and successful preparation is still not a
+guarantee of ledger admission.
 
 ## Spokes and trustlines
 
@@ -133,6 +133,6 @@ withdrawals, and possible refunds. Native XLM and pure Soroban tokens do not
 use classic trustlines. Resolve code/issuer from catalog data; a zero-balance
 trustline is still present.
 
-Use the canonical [completion gates](SKILL.md#completion-gates). Frontend-only
-handoff checks are that the prepared-XDR cache is invalidated immediately
-after signing and the retained envelope/hash survive reloads.
+Apply the canonical [completion gates](SKILL.md#completion-gates). A frontend
+must also pass two checks: the prepared-XDR cache is invalidated immediately
+after signing, and the retained envelope and hash survive a page reload.

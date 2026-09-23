@@ -8,7 +8,7 @@
     "Renders amountOut, amountOutMin, priceImpact, rate, hops and feeBps from the response; explains that amountOutMin only exists when slippage was supplied and that the quote has no TTL, so it re-quotes after any change to amount, direction or slippage",
     "Executes via one of the two documented paths: transaction.envelopeXdr (populates seqNum from the sender account before signing, because the server emits a placeholder sequence 0) or buildStellarExecuteStrategyTx({ routerAddress, totalIn: quote.amountIn, ... }, { routeXdr }) followed by prepare, sign, send",
     "Polls getTransaction after send and treats PENDING/NOT_FOUND as still-in-flight rather than as failure; only FAILED is a failure",
-    "Reads the router address from configs/networks.json or /api/v1/config and links ../xoxno-lending/addresses.md instead of pasting a C... address into code"
+    "Reads the router address from configs/networks.json (`aggregator`) or STELLAR_NETWORKS[*].aggregatorRouter, uses /api/v1/config only as a cross-check, and links ../xoxno-lending/addresses.md instead of pasting a C... address into code"
   ],
   "machine_checkable": [
     "Generated TypeScript passes tsc --noEmit against @xoxno/sdk-js 1.0.214 and @stellar/stellar-sdk ^16",

@@ -83,8 +83,9 @@ Do not deep-import `dist/` or unpublished source modules.
   and position-NFT owner.
 - A position-NFT transfer transfers control of the lending account. Recheck
   ownership before preparing any mutation.
-- Full supply withdrawal uses `amount: '0'`. Full debt repayment uses a
-  ceiled, buffered amount and refunds excess; there is no repay-all sentinel.
+- Full supply withdrawal uses `amount: '0'`. Full debt repayment sends a
+  ceiled, buffered amount, and the pool refunds the excess. There is no
+  repay-all sentinel.
 
 ## Completion gates
 

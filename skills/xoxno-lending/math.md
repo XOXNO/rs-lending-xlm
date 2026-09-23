@@ -52,9 +52,9 @@ Positions store shares (`scaled_amount`, RAY); value = shares × index, and two 
 
 Full-close rules (`resolve_withdrawal`, `resolve_repay`):
 
-- A withdrawal request `≥` the half-up displayed supply balance burns **all** supply shares and pays the **floor** balance. A request below it is partial: it pays exactly the request and burns `ceil` shares. Sizing a "full" withdrawal from the floor balance is therefore a partial withdrawal that leaves dust shares.
+- A withdrawal request `≥` the half-up displayed supply balance burns **all** supply shares and pays the **floor** balance. A request below it is partial: it pays exactly the request and burns `ceil` shares. When the floor balance is below the half-up balance, a request sized from the floor balance is partial and leaves dust shares.
 - A repayment `≥` the ceiled debt balance burns **all** debt shares and refunds the excess. A smaller repayment burns `floor` shares.
-- Positive supply, borrow, gross withdrawal and net repayment amounts must move at least one share; a zero-share result reverts with `SupplyRoundsToZeroShares`, `BorrowRoundsToZeroShares`, `WithdrawRoundsToZeroShares`, `RepayRoundsToZeroShares`, or `NetSettleRoundsToZeroShares` (`contracts/pool/src/ops/*.rs`).
+- Positive supply, borrow, gross withdrawal, net repayment and net settlement amounts must move at least one share; a zero-share result reverts with `SupplyRoundsToZeroShares`, `BorrowRoundsToZeroShares`, `WithdrawRoundsToZeroShares`, `RepayRoundsToZeroShares`, or `NetSettleRoundsToZeroShares` (`contracts/pool/src/ops/*.rs`).
 - `withdraw` with amount `0` means the whole position (`contracts/controller/src/positions/supply.rs` maps `0` to `WITHDRAW_ALL_SENTINEL = i128::MAX`). Any `0` leg for a hub asset makes that hub asset's aggregate a withdraw-all sentinel, regardless of positive legs before or after it (`payments.rs`, `ZeroLeg::MeansAll`). Pass `0` to close instead of computing a balance.
 
 ### Worked example: USDC (7 decimals)
@@ -163,7 +163,7 @@ Each segment adds its full slope at the kink: `slope1` is the total rise from 0 
 
 `ReserveIrmCurveDto` (API) carries the same parameters as `baseRateRay`, `slope1Ray`, `slope2Ray`, `slope3Ray`, `midUtilizationRay`, `optimalUtilizationRay`, `maxUtilizationRay`, `maxBorrowRateRay`, `reserveFactorBps`. Map by field name; the swagger descriptions of which slope belongs to which segment are stale (Observed: they swap `optimal` and `mid`).
 
-Worked example, mainnet USDC parameters (`configs/mainnet/markets.json`): base 0.005, slope1 0.03, slope2 0.095, slope3 1.0, mid 0.60, optimal 0.85, max 1.25 (all × RAY):
+Worked example with illustrative parameters (not a live market; read live parameters with the pool's `get_sync_data`): base 0.005, slope1 0.03, slope2 0.095, slope3 1.0, mid 0.60, optimal 0.85, max 1.25 (all × RAY):
 
 | utilization | segment | annual borrow rate |
 |---|---|---|
@@ -235,7 +235,7 @@ factor     = 1 + x + x²/2! + … + x⁸/8!   (each power half-up, each term hal
 borrow_index' = min(half_up(borrow_index × factor / RAY), 10^36)         // update_borrow_index, monotone
 interest   = half_up(borrowed × borrow_index' / RAY) − half_up(borrowed × borrow_index / RAY)
 fee        = half_up(interest × reserve_factor / BPS);  rewards = interest − fee
-supply_index' = clamp(floor((supplied × supply_index + rewards) × RAY / supplied), supply_index, 10^36)
+supply_index' = clamp(floor((half_up(supplied × supply_index / RAY) + rewards) × RAY / supplied), supply_index, 10^36)
 shortfall  = rewards − (half_up(supplied × supply_index' / RAY) − half_up(supplied × supply_index / RAY))   // booked to protocol
 revenue_shares = min(floor((fee + shortfall) × RAY / supply_index'), i128::MAX − supplied)   // added to supplied and revenue
 ```
@@ -243,7 +243,7 @@ revenue_shares = min(floor((fee + shortfall) × RAY / supply_index'), i128::MAX 
 Monotonicity:
 
 - Borrow index only grows (capped at `MAX_BORROW_INDEX_RAY`; at the cap no further interest accrues).
-- Supply index never decreases from accrual, but **bad-debt socialization lowers it** (see below), floored at `SUPPLY_INDEX_FLOOR_RAW = 10^24`. A supply index lower than yesterday means a write-down on that market, not an accrual bug.
+- Supply index never decreases from accrual, but **bad-debt socialization lowers it** (see below), floored at `SUPPLY_INDEX_FLOOR_RAW = 10^24`. A supply index below an earlier reading means a bad-debt write-down on that market, not an accrual bug.
 - Revenue shares are part of `supplied`; the supply index applies to them like any supplier.
 
 Example: borrow rate 0.054 annual, 30 days (`2_592_000_000` ms):
@@ -261,7 +261,7 @@ Three same-rounding steps, [formulas.md#valuation-and-health](../../docs/referen
 
 ## Health factor and LTV weighting
 
-`contracts/controller/src/risk/totals.rs::calculate_account_risk_totals`. Weights come from the **position's stored** parameters (`AccountPositionRaw.loan_to_value`, `.liquidation_threshold`; API `entryLtvBps`, `entryLiquidationThresholdBps`), not from the current `SpokeAssetConfig`. `update_account_threshold` refreshes them; a refresh that favours liquidators requires HF ≥ 1.05 WAD.
+`contracts/controller/src/risk/totals.rs::calculate_account_risk_totals`. Weights come from the **position's stored** parameters (`AccountPositionRaw.loan_to_value`, `.liquidation_threshold`; API `entryLtvBps`, `entryLiquidationThresholdBps`); HF always uses the stored `liquidation_threshold`. The borrow, withdraw and strategy risk gates and `get_ltv_collateral_usd` first restamp each listed supply leg's stored LTV to the current `SpokeAssetConfig.loan_to_value`. A supply, or a non-liquidation withdrawal that leaves shares in a listed leg, refreshes that leg's stored LTV and applies the gated threshold, bonus and fee refresh. `update_account_threshold` refreshes stored LTV. With `has_risks = true` it also refreshes threshold, bonus, and fees. It skips a change that favours liquidators unless HF stays ≥ 1.05 WAD, and reverts with `HealthFactorTooLow` if the final HF is below 1.05 WAD.
 
 ```text
 for each supply position:
@@ -290,7 +290,7 @@ Worked example (mainnet spoke 1 stamps: XLM `ltv 7500 / lt 7800`, USDC `ltv 7600
 | Position | value (floor / half-up, WAD) | LTV-weighted | threshold-weighted |
 |---|---|---|---|
 | 4,080 XLM @ $0.25 | 1_020e18 / 1_020e18 | 765e18 | 795.6e18 |
-| 1,031.4285714 USDC @ $1 (shares from the USDC example, index 1.083) | 1_031_428_571_428_571_428_571 / …572 | 783_885_714_285_714_285_713 | 825_142_857_142_857_142_856 |
+| 1,031.4285714 USDC @ $1 (shares from the USDC example, index 1.083) | 1_031_428_571_428_571_428_571 / …571 | 783_885_714_285_714_285_713 | 825_142_857_142_857_142_856 |
 | **totals** | total_collateral 2_051_428_571_428_571_428_571 | ltv_collateral 1_548_885_714_285_714_285_713 | weighted 1_620_742_857_142_857_142_856 |
 
 Debt: 252.566964… USST (ceil) at $1.0897 → `total_debt = 275_222_220_982_142_857_144` (ceil; half-up display `…143`).
@@ -353,7 +353,7 @@ ideal = (H ≤ denom_term or target_debt ≤ W) ? d_max
 if 0 < D − ideal < 5 WAD: ideal = D                                          // dust-debt promotion
 ```
 
-`get_liquidation_estimate(account_id, debt_payments, seize_mode)` returns `max_payment_wad` (= `ideal` capped by what was offered) and `bonus_rate_bps`. Offered payments are capped per asset at the ceiled debt balance; excess is listed in `refunds`. Any payment up to `ideal` is accepted: a partial in the band pays `bonus = cap`, which keeps `C / D` and HF from falling. When the quote is the full debt nothing is trimmed: `max_payment_wad` credits each leg's ceiled debt and can exceed `D` by unit rounding, `refunds` lists only each offer above its leg's ceiled debt, and `liquidate` pulls each merged offered amount while the pool refunds exactly that excess. Otherwise the offer is trimmed to `ideal` from the last leg backward and `liquidate` pulls the trimmed amount. On a solvent account the trim floors the refund, so a kept leg can round up by one token unit; on an insolvent account (`C < D`) it floors the kept amount instead, drops a leg that keeps nothing, and a plan with no leg left makes `liquidate` revert with `InvalidPayments`. `FullCloseRequired` (#135) is no longer raised.
+`get_liquidation_estimate(account_id, debt_payments, seize_mode)` returns `max_payment_wad` (= `ideal` capped by what was offered) and `bonus_rate_bps`. Offered payments are capped per asset at the ceiled debt balance; excess is listed in `refunds`. Any payment up to `ideal` is accepted: a partial in the band pays `bonus = cap`, which keeps `C / D` and HF from falling. When the quote is the full debt nothing is trimmed: `max_payment_wad` credits each leg up to its ceiled debt and can exceed `D` by unit rounding, `refunds` lists only the part of each offer above its leg's ceiled debt, and `liquidate` pulls each merged offered amount while the pool refunds exactly that excess. Otherwise the offer is trimmed to `ideal` from the last leg backward and `liquidate` pulls the trimmed amount. On a solvent account the trim floors the refund, so a kept leg can round up by one token unit; on an insolvent account (`C < D`) it floors the kept amount instead, drops a leg that keeps nothing, and a plan with no leg left makes `liquidate` revert with `InvalidPayments`. `FullCloseRequired` (#135) is reserved and never raised.
 
 Worked example (spoke defaults `H = 1.1`, `hf_for_max_bonus = 0.8`, `factor = 10_000`; single XLM collateral with stamped bonus 900, threshold 7800):
 
@@ -384,7 +384,7 @@ fee_ray           = half_up(bonus_ray × liquidation_fees_bps / BPS)
 | `SeizeMode::Transfer` | tokens: `capped_ray` rescaled **floor** (partial) or **half-up** (full, pool still pays the floor claim) minus the fee | `max(1, floor(fee_ray / 10^(27−d)))` when `fee_ray > 0`, capped at the pool's gross payout; withheld from the transfer |
 | `SeizeMode::Credit(account_id)` | shares: `seized_scaled − fee_scaled` credited to the receiver account | `fee_scaled = ceil(bonus_scaled × fees_bps / BPS)` where `seized_scaled = floor(capped_ray × RAY / supply_index)` (exact held shares on full close), `bonus_scaled = min(floor(bonus_ray × RAY / supply_index), seized_scaled)` |
 
-Under-delivery (measured repayment USD below plan) floors every seizure field by `received / planned`; credit fees are recomputed from the scaled bonus. Legs that round to zero tokens or zero shares are dropped.
+Under-delivery (measured repayment USD below plan) floors every seizure field by `received / planned`; credit fees are recomputed from the scaled bonus. Planning drops legs that round to zero tokens or zero shares.
 
 Example continued (repay 533.6179 USD, XLM at $0.25, supply index 1 RAY, fees 1200 bps):
 
@@ -398,7 +398,7 @@ Credit:   seized shares 2_497_331_910_352_187_833_512_000_000_000, fee shares 43
 
 ## Bad-debt socialization
 
-Eligibility (`is_socializable_bad_debt`): `total_debt > total_collateral` and `total_collateral ≤ 5 WAD` for permissionless cleanup; owner-forced cleanup drops the collateral cap. `contracts/pool/src/interest.rs::apply_bad_debt_to_supply_index` then lowers only the affected market's supply index ([formulas.md#bad-debt](../../docs/reference/formulas.md#bad-debt)). Example: 2,000,000 USDC of shares at index 1.083 (`total_supply_ray = 2_166_000e27`), bad debt 30,000 USDC:
+Eligibility (`is_socializable_bad_debt`): `total_debt > total_collateral` and `total_collateral ≤ 5 WAD` for permissionless `clean_bad_debt` and the check after `liquidate`; owner-only `force_socialize_bad_debt` drops the collateral cap. `contracts/pool/src/interest.rs::apply_bad_debt_to_supply_index` then lowers only the affected market's supply index ([formulas.md#bad-debt](../../docs/reference/formulas.md#bad-debt)). Example: 2,000,000 USDC of shares at index 1.083 (`total_supply_ray = 2_166_000e27`), bad debt 30,000 USDC:
 
 ```text
 reduction = 986_149_584_487_534_626_038_781_163   // 0.98615
@@ -407,7 +407,7 @@ index 1.083e27 → 1_067_999_999_999_999_999_999_999_999   // ≈ 1.068
 
 ## Liquidation buffer
 
-Ordinary borrows keep 200 bps of the floored supplied token value in cash (`contracts/pool/src/guards.rs::require_liquidation_buffer`, `InsufficientLiquidity`; the backing-shortfall gate on supply entry is [formulas.md#backing-and-cash-constraints](../../docs/reference/formulas.md#backing-and-cash-constraints)):
+Every debt mint (`borrow` and strategy openings, gross of any fee) keeps 200 bps of the floored supplied token value in cash (INV-ACCT-07, `contracts/pool/src/guards.rs::require_liquidation_buffer`, `InsufficientLiquidity`; the backing-shortfall gate on supply entry is [formulas.md#backing-and-cash-constraints](../../docs/reference/formulas.md#backing-and-cash-constraints)):
 
 ```text
 reserved    = half_up(floor_supply_tokens × 200 / BPS)
@@ -445,7 +445,7 @@ headroom   = 923_361_034_164_358_264_081_255_771_006_463 shares → 9_999_999_99
 fee = half_up(principal × fee_bps / BPS);  if fee_bps > 0 and fee == 0: fee = 1
 ```
 
-`flashloan_fee ≤ MAX_FLASHLOAN_FEE_BPS = 500`. Strategies charge it only when `charge_fee` is set and revert with `StrategyFeeExceeds` if `fee > principal`; flash position has no origination fee. Example at 9 bps: 1,000 USDC → `9_000_000` base units (0.9 USDC); 100 base units → 1 base unit.
+`flashloan_fee ≤ MAX_FLASHLOAN_FEE_BPS = 500`. Strategies charge it only when `charge_fee` is set (`multiply`, `swap_debt`) and revert with `StrategyFeeExceeds` if `fee > principal`; `flash_position` and `migrate_from_blend` borrow fee-free. Example at 9 bps: 1,000 USDC → `9_000_000` base units (0.9 USDC); 100 base units → 1 base unit.
 
 ## Numeric limits
 
@@ -453,7 +453,7 @@ Arithmetic bounds (decimals, index ceiling and floor, rate cap, token→RAY inpu
 
 | Bound | Value | Consequence |
 |---|---|---|
-| View input batches | `MAX_VIEW_INPUTS = 256` | `get_market_indexes_detailed` reverts above it |
+| View input batches | `MAX_VIEW_INPUTS = 256` | `get_market_indexes_detailed` and `get_liquidation_estimate` revert above it (`InvalidPayments`) |
 | Positions per side | `POSITION_LIMIT_MAX = 5` upper bound on the configured limit | `PositionLimitExceeded` |
 
 ## Which view rounds how

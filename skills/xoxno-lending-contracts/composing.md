@@ -11,8 +11,8 @@ immediately invoke the consuming contract:
 
 | Call | Authorized nested transfer |
 |---|---|
-| `supply`, `repay`, `recapitalize` | each asset: `self -> pool`, exact submitted amount |
-| `liquidate` | each debt asset: `self -> pool`, exact offered amount when the quote is the whole debt, else exact planned amount |
+| `supply`, `repay`, `recapitalize` | each hub-asset leg: `self -> pool`, exact submitted amount; duplicate legs are summed into one transfer |
+| `liquidate` | each debt leg: `self -> pool`, exact offered amount when the quote is the whole debt, else exact planned amount |
 | `multiply` with initial payment | payment asset: `self -> controller`, exact amount |
 | router `execute_strategy` | input token: `self -> router`, exact amount |
 
@@ -34,20 +34,26 @@ Route bytes come from the quote service; do not construct
 
 - `multiply`:
   - `PositionMode::Multiply` requires distinct `HubAssetKey` markets. If those
-    markets use the same token address, empty swap bytes select passthrough.
+    markets use the same token address, the token passes through and the swap
+    bytes must be empty.
   - `PositionMode::Long` and `PositionMode::Short` require different token
     addresses. Identical token addresses fail `AssetsAreTheSame`; empty-route
     passthrough is not available.
 - `swap_debt` and `swap_collateral` require distinct markets. For two hubs
-  using the same token, an empty route passes the token through; otherwise a
-  non-empty route is required.
+  using the same token, the token passes through and the route must be empty;
+  otherwise a non-empty route is required.
 - `repay_debt_with_collateral` nets directly only when collateral and debt are
-  the same `HubAssetKey`. Distinct markets use the swap path, where same-token
-  cross-hub passthrough can use empty bytes.
+  the same `HubAssetKey`, and that branch requires empty swap bytes. Distinct
+  markets use the swap path, where same-token cross-hub passthrough requires
+  empty bytes.
 
-These branches are enforced by
+A route that breaks these emptiness rules fails `InvalidPayments`. These
+branches are enforced by
 [`strategies/multiply.rs`](../../contracts/controller/src/strategies/multiply.rs),
-[`strategies/swap.rs`](../../contracts/controller/src/strategies/swap.rs), and
+[`strategies/swap.rs`](../../contracts/controller/src/strategies/swap.rs),
+[`strategies/swap_debt.rs`](../../contracts/controller/src/strategies/swap_debt.rs),
+[`strategies/swap_collateral.rs`](../../contracts/controller/src/strategies/swap_collateral.rs),
+and
 [`strategies/repay_debt_with_collateral.rs`](../../contracts/controller/src/strategies/repay_debt_with_collateral.rs).
 Quote sizing and payload checks are in
 [`../xoxno-swap-aggregator/composition.md`](../xoxno-swap-aggregator/composition.md).
@@ -62,9 +68,10 @@ and authorize only the resulting planned debt payments. Then invoke
 For `Credit(existing_id)`, verify before submission:
 
 - `account_exists(existing_id)`
-- position NFT owner is the liquidator contract
+- the receiving ID is not the liquidated account
+- the liquidator contract owns the position NFT or is an active delegate
 - account mode is `Normal`
-- receiving account spoke matches the victim
+- receiving account spoke matches the liquidated account's spoke
 
 For `Credit(0)`, store and renew the returned account ID locally. Do not infer
 the receiving ID from NFT enumeration or events.
@@ -80,8 +87,9 @@ Use conservative batches and require successful Soroban simulation for each
 exact batch before signing/submitting it. A later batch can observe changed
 prices or ownership, so treat each simulation result independently.
 
-Unknown IDs are skipped, but that is not proof that known IDs were fully
-updated if the transaction exceeded budget and failed.
+The call skips, without an error, an ID with no `AccountMeta`, no supply
+positions, or no resolvable NFT owner. A successful call does not prove that
+every listed ID was refreshed. A failed call refreshes no ID.
 
 ## Operation-specific cleanup
 
@@ -91,11 +99,12 @@ Do not apply a generic "empty after any verb means deleted" rule:
 - repay does not automatically remove an empty account
 - liquidation and bad-debt paths perform cleanup under their own conditions
 - `repay_debt_with_collateral(close_position = true)` first requires debt to
-  be gone, then withdraws remaining collateral
+  be gone, then withdraws remaining collateral to the caller and removes the
+  empty account
 
 After a path that can delete, call `account_exists` and reconcile the local
-pointer. Remember that this view checks only `AccountMeta`; a surviving ID
-still needs NFT owner/mode/spoke checks before reuse.
+pointer. This view checks only `AccountMeta`; a surviving ID still needs NFT
+owner/mode/spoke checks before reuse.
 
 ## Submission checklist
 

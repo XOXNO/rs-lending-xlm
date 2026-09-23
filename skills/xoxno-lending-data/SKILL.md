@@ -18,15 +18,16 @@ Use [api.md](api.md) for the public REST surface and
 
 ## Subscribe by contract address
 
-Resolve addresses from the selected network's `configs/networks.json`, then
-subscribe to at least:
+Resolve addresses for the selected network (`testnet` or `mainnet`) from
+`configs/networks.json`, then subscribe to at least:
 
 - controller: account deltas, liquidation, bad debt, and configuration;
 - pool: market indexes, cash, shares, and parameters;
 - position NFT: mint, transfer, and burn lifecycle;
 - relevant token contracts: transfers and approvals when cash-flow evidence is
   required;
-- price aggregator: oracle configuration changes.
+- price aggregator (`price_aggregator` key, not the swap router's
+  `aggregator` key): oracle configuration changes.
 
 Match both emitting contract address and ordered topic vector. Topic text alone
 is not an identity.
@@ -68,8 +69,8 @@ share it.
 If a requested start ledger is older than RPC retention, REST history can seed
 derived balances, charts, or candidate sets. It cannot reconstruct canonical
 raw events, transaction ordering, or missing event payloads unless an
-independent archival source proves and supplies those records. Label REST-
-seeded state with provenance and reconcile it when raw history becomes
+independent archival source proves and supplies those records. Label
+REST-seeded state with provenance and reconcile it when raw history becomes
 available.
 
 ## Decoding pitfalls
@@ -83,16 +84,17 @@ available.
   RAY, WAD, or BPS.
 - Pool timestamps are milliseconds; ledger close times are seconds.
 - Position `scaled_amount` is the resulting RAY share balance, not the delta.
-- Position `amount` is the operation's token-unit movement, but some events
-  intentionally report requested rather than measured receipt.
-- A decoder returning `null` means unsupported/unrecognized for that decoder,
-  not an invalid chain event.
+- Position `amount` is the account's token-unit movement. Some other events
+  report a requested amount, not a measured receipt, for example
+  `FlashPositionEvent.amount` and `InitialMultiplyPaymentEvent.amount`.
+- `decodeStellarLendingEvent` (`@xoxno/sdk-js/stellar-lending`) returns `null`
+  for a topic it does not decode. `null` does not mean an invalid chain event.
 
 ## State is broader than events
 
 Events are not complete state truth:
 
-- zero-delta position batches can be suppressed;
+- a position batch with no legs is not emitted;
 - bad-debt cleanup does not emit a cleanup position batch;
 - constructors and inherited helpers can mutate state without a protocol
   custom event;
@@ -122,14 +124,15 @@ state changed elsewhere.
 Group the successful transaction's controller events using the ordering in the
 canonical event reference. Pool, NFT, and token events can interleave.
 
-- The liquidation summary reports measured debt retired and bonus, not
-  collateral proceeds.
+- `LiquidationEvent` reports measured debt retired (`repaid_usd_wad`, USD
+  WAD) and the bonus (`bonus_bps`, BPS), not collateral proceeds.
 - Target `LiqSeize` legs report gross collateral movement.
 - Credit receiver `LiqCredit` legs report net credited movement and omit
   zero-net legs.
-- Transfer-mode protocol fee is not separately recoverable from controller
-  position events; use the estimate/transaction context or authoritative
-  state/accounting source.
+- Transfer mode emits no fee leg: `LiqSeize.amount` is gross and the pool
+  transfers the net amount to the liquidator. The fee is `LiqSeize.amount`
+  minus that seizure transfer. Before execution, `get_liquidation_estimate`
+  reports it in `protocol_fees`.
 
 For Credit mode, approximate per-asset fee from gross and net token movement.
 For exact share-fee derivation, snapshot the **prior scaled balance of both the
@@ -153,9 +156,10 @@ and the protocol's directed rounding. A newly created `Credit(0)` receiver has
 a prior balance of zero. Without both keyed prior balances, exact fee
 derivation is impossible from the resulting `scaled_amount` values alone.
 
-Do not reconstruct gross seizure from repayment times bonus. For profitability
-use the pre-execution estimate's actual
-`seized_collaterals - protocol_fees` legs and follow the
+Do not reconstruct gross seizure from repayment times bonus. For profitability,
+use `seized_collaterals - protocol_fees` from `get_liquidation_estimate` before
+execution. Both use token amounts for `Transfer` and RAY supply shares for
+`Credit`. Follow the
 [liquidation runbook](../xoxno-lending-liquidations/SKILL.md).
 
 ## Candidate discovery

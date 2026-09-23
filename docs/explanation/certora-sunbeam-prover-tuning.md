@@ -58,7 +58,7 @@ The following frontend behavior is documented for the [pinned research versions]
 
 - Storage starts as arbitrary value and existence maps keyed by storage type and key digest. Reading an absent entry traps. An unwritten fixture book can contain arbitrary entries; it is not necessarily empty.
 - Ledger timestamp, sequence and related context are symbolic values fixed at rule start. This supports reasoning about one call, not induction over arbitrary transaction histories.
-- Cross-contract `call`/try_call, some argument-authorization functions and TTL extension functions are unimplemented in the researched model. An arbitrary return value does not model an external state transition. Explicit summaries define assumptions about pool, oracle, token and router behavior.
+- Cross-contract `call`/try_call, require_auth_for_args, authorize_as_curr_contract and TTL extension functions are unimplemented in the researched model. An arbitrary return value does not model an external state transition. Explicit summaries define assumptions about pool, oracle and position NFT behavior. Other cross-contract calls, including token and swap aggregator calls, have no summary.
 - Pool accounting rules exercise internal transitions. They do not independently model arbitrary token transfers, callbacks, allowances or whole-transaction rollback.
 
 ### Sanity and rejection witnesses
@@ -112,9 +112,9 @@ Validate artifacts and fixtures first, then tune settings and rule structure. In
 
 ### CLI compatibility
 
-For the pinned historical CLI, Soroban accepts explicit WASM `files`, `rule`, `loop_iter`, `smt_timeout`, `global_timeout`, `rule_sanity`, `multi_assert_check`, `independent_satisfy`, `optimistic_loop` and `precise_bitwise_ops`. Its Soroban attribute class rejects EVM-only options such as split_rules, `exclude_rule`, `cache` and max_concurrent_rules. Neither verify_timeout nor `rule_timeout` is defined there. Recheck the installed CLI schema when upgrading.
+`SOROBAN_CONF_KEYS` in `certora/scripts/check_orphans.py` lists the configuration keys that the pinned CLI `8.17.1` accepts for a Soroban run. The CLI's Soroban attribute class rejects EVM-only options such as split_rules, `exclude_rule`, `cache` and max_concurrent_rules. Neither verify_timeout nor `rule_timeout` is defined there. Recheck the installed CLI schema and that key set when upgrading.
 
-The repository submits prebuilt `files`. For a build-script integration, the researched CLI invokes the script with `--json -l` and a single space-joined `--cargo_features` argument when configured. Standard output must contain one JSON document with `success`, project_directory, `sources` and `executables`; send diagnostics elsewhere. `files` and `build_script` are mutually exclusive.
+The repository submits prebuilt `files`. `sync_wasm_conf.py --check` and `check_wasm_artifacts.py` reject a configuration that sets `build_script`.
 
 ## Native-i128 counterexample diagnosis
 
@@ -137,7 +137,7 @@ This diagnosis is an inference. The research record retains neither the concrete
 
 To investigate on the source tree being reviewed:
 
-1. Build and fingerprint the focused artifact using the preflight steps above.
+1. Build and fingerprint the focused artifact with the [artifact checks](#check-the-artifact-before-tuning).
 2. Run both split rules from `certora/common/confs`:
 
    ```sh

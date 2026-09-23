@@ -4,7 +4,7 @@
   ],
   "query": "Write a Python script that pulls historical borrow APY for USDC and protocol TVL from XOXNO's lending API for a DefiLlama-style adapter.",
   "expected_behavior": [
-    "Calls the production REST API under https://api.xoxno.com (the NestJS xoxno-api-v2 /stellar-lending/* routes), not the rs-lending-xlm lending-api Rust crate and not an invented base URL",
+    "Calls the production REST API under https://api.xoxno.com (the NestJS xoxno-api-v2 /stellar-lending/* routes), not the Rust lending-api service (XOXNO/lending-api, a separate repository) and not an invented base URL",
     "Uses GET /stellar-lending/reserves/{spokeId}/{hubId}/{asset}/graph (or /page) for per-market history and reads supplyApy / borrowApy / utilization / totalDepositsUsd / totalBorrowsUsd from the returned points; uses GET /stellar-lending/stats/history for protocol-wide supplied / borrowed / revenue series",
     "Passes from and to as yyyy-MM-dd and bin as Nd / Nh / Nm (e.g. bin=1d); does not send ISO timestamps, unix seconds, or bins like '1w'",
     "Uses spokeId >= 1 and hubId >= 1 in the path, never spoke 0",

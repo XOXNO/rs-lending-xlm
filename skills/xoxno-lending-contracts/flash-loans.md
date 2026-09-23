@@ -35,12 +35,13 @@ pub fn execute_flash_loan(
 );
 ```
 
-Then it requires the receiver balance to remain at the post-payout level,
-checks allowance for `amount + fee`, and calls `transfer_from`. Therefore:
+Then it requires the pool balance to still equal its post-payout level,
+checks allowance for `amount + fee`, and calls `transfer_from`. A failed
+balance or allowance check raises `InvalidFlashloanRepay`. Therefore:
 
 - approve the pool; never transfer repayment directly
 - use the callback `fee`, do not recompute it
-- keep at least `amount + fee` until callback return
+- hold at least `amount + fee` when the callback returns
 - use a short-lived allowance and checked addition
 
 Focused production shape:
@@ -100,16 +101,16 @@ pub fn execute_flash_position(
 );
 ```
 
-`fee` is currently zero. The callback does not repay or approve debt. It
-transfers purchased collateral from the receiver to the controller. After
-return, the controller:
+The controller passes `fee` as `0`. The callback does not repay or approve
+debt. It transfers purchased collateral from the receiver to the controller.
+After return, the controller:
 
 1. measures each declared collateral balance delta
 2. requires every minimum and at least one positive deposit
 3. deposits positive declared deltas on `account_id`
-4. refunds positive deltas for declared refund assets
+4. refunds positive deltas for declared refund assets to the caller
 5. requires debt and collateral to remain open
-6. runs LTV, health-factor, and minimum-borrow settlement checks
+6. runs LTV, health-factor, and minimum borrow collateral checks
 
 An undeclared token left on the controller is neither deposited nor refunded.
 Refunding unused debt tokens does not repay the minted debt.
@@ -176,10 +177,13 @@ arguments for those.
 
 ## Reentrancy
 
-During either callback the controller flash guard blocks user position verbs,
-strategy verbs, keeper updates, liquidation, and recapitalization. Views and
-the owner-only account/delegate renewal paths are not guarded the same way.
-Do not design a callback that depends on reentering controller mutation.
+The Soroban host rejects a call into a contract that is already on the call
+stack with `Error(Context, InvalidAction)`. A callback therefore cannot call
+the controller, including its views, and a `flash_loan` callback cannot call
+the pool. The controller flash guard is a second layer: it blocks user
+position verbs, strategy verbs, keeper updates, revenue claims, liquidation,
+bad-debt cleanup, and recapitalization. Do not design a callback that calls
+the controller.
 
 The router is a separate contract and may be called inside a callback with its
 own exact token authorization.
