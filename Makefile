@@ -219,7 +219,8 @@ deploy-artifacts: optimize
 # and its soroban-sdk summaries by demangled function name, and the release
 # profile's strip = "symbols" removes the WASM name section that carries them.
 # Without names the prover inlines the limb arithmetic of every i128 multiply
-# and divide instead (docs/explanation/certora-sunbeam-prover-tuning.md, §9).
+# and divide instead (docs/explanation/certora-sunbeam-prover-tuning.md,
+# "Check the artifact before tuning").
 certora-wasm:
 	@set -euo pipefail; \
 	mkdir -p $(CERTORA_WASM_DIR) $(CERTORA_BUILD_DIR); \
@@ -363,18 +364,13 @@ TEST_THREADS ?=
 TEST_THREAD_FLAG = $(if $(strip $(TEST_THREADS)),--test-threads=$(TEST_THREADS),)
 
 
-# Kept identical to the `Run tests` step in .github/workflows/tests.yml. If the two
-# drift, `make test` stops predicting CI, which is the only reason to run it first.
+# Must match the `Run tests` step in .github/workflows/tests.yml, so that
+# `make test` predicts CI.
 TEST_FEATURES ?= price-aggregator/testing
 
 
-# Whole workspace: the shared integration suite in tests/test-harness plus every
-# contract's own tests. The per-contract suites are not reachable from
-# `-p test-harness` -- controller, governance, pool and common set
-# `autotests = false` and pull their test files in through `#[path]`, while
-# price-aggregator, position-nft, swap-aggregator, xoxno-oracle and
-# defindex-strategy carry auto-discovered `tests/` targets. Running only the
-# harness silently skips all of them.
+# Whole workspace: tests/test-harness plus the test suites of every contract and
+# of common. `-p test-harness` does not run those suites.
 test:
 	cargo test --workspace --features $(TEST_FEATURES) -- $(TEST_THREAD_FLAG)
 
@@ -385,7 +381,7 @@ test-harness:
 	cargo test -p test-harness -- $(TEST_THREAD_FLAG)
 
 
-# Serial by default: interleaved output from parallel threads defeats the point.
+# Serial by default, so the `--nocapture` output of tests does not interleave.
 test-verbose: TEST_THREADS := 1
 test-verbose:
 	cargo test -p test-harness -- $(TEST_THREAD_FLAG) --nocapture
@@ -401,7 +397,7 @@ test-one:
 test-match:
 	@[ -n "$(strip $(PATTERN))" ] || { \
 	  echo "test-match requires PATTERN=<substring>."; \
-	  echo "MATCH= is NOT recognised and silently runs the entire suite."; \
+	  echo "MATCH= is not recognised; set PATTERN= instead."; \
 	  exit 2; }
 	cargo test -p test-harness $(PATTERN) -- $(TEST_THREAD_FLAG)
 
@@ -501,13 +497,9 @@ coverage-price-aggregator:
 	@echo "  $(COV_DIR)/price-aggregator-report.md"
 	@echo "  lcov.info  (IDE default; copy of $(COV_DIR)/price-aggregator.lcov.info)"
 
-# Every deployable contract, not a subset. governance, swap-aggregator,
-# xoxno-oracle, position-nft and defindex-strategy were all missing here: their
-# tests ran under `cargo test --workspace`, but no percentage was ever
-# attributed to them, so a coverage regression in any of the five was invisible.
-# Keep the package list and MODE_PATHS["merged"] in scripts/coverage_report.py
-# in step -- a package added here that is not matched there is measured and then
-# silently dropped from the report.
+# Covers every deployable contract, common and the harness. Keep the package list
+# in step with MODE_PATHS["merged"] in scripts/coverage_report.py: a package that
+# is measured here but not matched there is dropped from the report.
 coverage-merged:
 	@echo "Running merged coverage (all deployable contracts + common + test-harness)..."
 	@mkdir -p $(COV_DIR)
@@ -601,19 +593,16 @@ WASM_BUDGET_FILE ?= configs/wasm_size_budget.txt
 
 
 
-# Fail the build if a `testing`-feature-only entrypoint leaked into a deployable
-# WASM. The symbol list is DERIVED from source at run time by the same
-# classifier `access-control-check` uses (`--list-test-only`), so a new
-# `#[cfg(feature = "testing")] #[contractimpl]` block on ANY contract is covered
-# the moment it lands -- a hardcoded list only ever covered governance and
-# price-aggregator, and silently stayed stale. A contract whose artifact is
-# missing is a hard failure, not a skip: add it to WASM_SIZE_CONTRACTS.
+# Fails if a `testing`-feature-only entrypoint is in a deployable WASM. The symbol
+# list comes from source at run time, through the classifier that
+# `access-control-check` uses (`--list-test-only`), so it covers every contract.
+# A contract whose artifact is missing fails the check: add it to
+# WASM_SIZE_CONTRACTS.
 #
-# `set_price_aggregator` is deliberately exempt — production governance
-# references it as a cross-contract invoke target (op.rs `Symbol::new`), so the
-# string is in the artifact whether or not the testing feature leaked; a
-# governance-testing leak is still caught by `set_controller` /
-# `execute_immediate` on the same artifact.
+# `set_price_aggregator` is exempt: production governance names it as a
+# cross-contract invoke target (op.rs `Symbol::new`), so the string is in the
+# artifact without a leak. `set_controller` and `execute_immediate` still catch
+# a governance `testing` leak in the same artifact.
 WASM_ABI_EXEMPT_SYMBOLS ?= set_price_aggregator
 
 wasm-testing-abi-check: deploy-artifacts
@@ -792,16 +781,13 @@ endef
 
 
 # Sharding rule for every multi-pass macro below: `--shard k/N` partitions the
-# mutant list cargo-mutants has just generated, so it must be applied EXACTLY
-# ONCE, on the widest pass. The later passes run under `--iterate`, whose list
-# is already the previous pass's missed/timeout set -- sharding again there
-# would partition an already-partitioned set and silently drop mutants.
+# mutant list that cargo-mutants generates, so apply it exactly once, on pass 1
+# (the widest pass). The later passes run under `--iterate`, whose list is the
+# previous pass's missed/timeout set; sharding that set again drops mutants.
 #
-# Applying it to pass 1 (rather than to the `--iterate` passes, as this used to)
-# is also what makes sharding pay: pass 1 compiles and tests every mutant in
-# scope and dominates the runtime, so an unsharded pass 1 was duplicated in full
-# by every shard. Each shard now owns a slice end to end, and the union over
-# shards is the same coverage as an unsharded run.
+# Pass 1 compiles and tests every mutant in scope and dominates the runtime, so
+# sharding it splits most of the cost. Each shard owns one slice end to end, and
+# the union over shards equals an unsharded run.
 define run_mutants_two_pass
 	@count=$$(cargo mutants $(1) $(MUTANTS_FILTER) --list | wc -l); \
 		[ "$$count" -gt 0 ] || { echo "No mutants matched scope: $(1)"; exit 1; }; \
@@ -953,9 +939,6 @@ mutants-controller-core: _mutants-harness-prepare
 		--exclude 'contracts/controller/src/views.rs',\
 		$(CONTROLLER_FAST_TESTS),$(CONTROLLER_FULL_TESTS))
 
-# 79532ca8 folded context/{oracle,events,market_index,pool,spoke}.rs into one
-# context.rs, so the old context/oracle.rs scope matched nothing and
-# cargo-mutants failed the job. The whole module is its own cell now.
 mutants-controller-context: _mutants-harness-prepare
 	$(call run_mutants_two_pass,--package controller --file 'contracts/controller/src/context.rs',\
 		$(CONTROLLER_FAST_TESTS),$(CONTROLLER_FULL_TESTS))
@@ -2071,8 +2054,8 @@ view-id:
 #   $(call H2,title)     subsection label
 #   $(call ROW,cmd,desc) aligned command + description
 #   $(call NOTE,text)    indented note / env line
-# Commas inside call args split parameters -- avoid commas in text, or use
-# a single-arg NOTE line. Do not put unescaped # or lone \ at EOL in recipes.
+# Commas inside call args split parameters, so help text must not contain
+# commas. Do not put unescaped # or lone \ at EOL in recipes.
 # -----------------------------------------------------------------------------
 H_RULE := ----------------------------------------------------------------
 H1 = @printf '%s\n%s\n%s\n\n' "$(H_RULE)" "  $(1)" "$(H_RULE)"

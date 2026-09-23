@@ -1,8 +1,8 @@
-"""Regression check for negated cfgs masking an ungated mutator.
+"""Checks that only a positive test cfg classifies an entrypoint as test-only.
 
-`#[cfg(not(test))]` is TRUE in every release build, so a `#[contractimpl]`
-block behind it ships in the deployable WASM. Classifying it `test-only` made
-`check()` skip it entirely -- an ungated mutator with no declared line passed.
+`#[cfg(not(test))]` is true in every release build, so a `#[contractimpl]`
+block behind it ships in the deployable WASM. Classified `test-only`, an
+ungated mutator in it would pass `check()` with no declared line.
 """
 
 import unittest

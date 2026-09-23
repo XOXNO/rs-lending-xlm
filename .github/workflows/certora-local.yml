@@ -1,21 +1,19 @@
 name: Certora Local Prover
 
-# Runs the Certora Sunbeam prover LOCALLY on the self-hosted runner with a
-# per-rule cap (10 minutes by default, raisable on dispatch) and parallel rule batches (10 concurrent JVMs,
-# each -Xmx8g, on the 128 GB runner), mirroring the local workflow used on
-# development machines. This is a regression smoke, not a substitute for the
-# hosted prover: it fails on proved VIOLATIONS (the class of bug it is built
-# to catch — e.g. a spec that claims something the contract does not actually
-# guarantee) and on tooling errors, while timeouts are recorded as warnings:
-# a rule that needs more than 10 minutes locally is expected and will still
-# prove on the Certora cloud (certora-verification.yml /
+# Runs the Certora Sunbeam prover on the self-hosted runner as a regression
+# smoke, not a substitute for the hosted prover. Rules run in parallel batches
+# (10 JVMs, each -Xmx8g, on the 128 GB runner) with a per-rule cap of 15
+# minutes by default; dispatch can raise the cap.
+# A proved violation, a vacuous proof, a loop-unwind failure, an empty or
+# missing rule log, or a missing conf fails the job. A timeout is a warning:
+# the rule can still prove on the hosted prover (certora-verification.yml,
 # certora-fastRules.yml).
 
 on:
   workflow_dispatch:
     inputs:
       confs:
-        description: "Confs to prove locally (space-separated basenames); empty = default set"
+        description: "Confs to prove locally: space-separated paths under certora/ without .conf (e.g. common/confs/math), or all; empty = default set"
         required: false
         type: string
         default: ""
@@ -130,9 +128,8 @@ jobs:
         run: python3 certora/scripts/check_wasm_artifacts.py
 
       # `self-hosted` matches more than one runner and only some of them carry
-      # the prover CLI, so an unprovisioned host must not fail the pull request:
-      # a missing CLI is a tooling gap, not a proved violation, and this job
-      # exists to catch violations. Report loudly and skip the proof instead.
+      # the prover CLI. A missing CLI is a tooling gap, not a proved violation:
+      # the step warns and skips the proof instead of failing the pull request.
       - name: Ensure local prover CLI root is provisioned
         id: prover_root
         run: |

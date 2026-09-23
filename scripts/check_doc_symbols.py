@@ -8,8 +8,8 @@ stale name the code has renamed or dropped, or a name that never existed.
 
 The corpus is the repo's own sources plus the places docs legitimately cite
 names from: ops/config files (env vars, Prometheus alert rules), Rust file
-stems (test-binary and module names), and the registry sources of the few
-dependencies whose internals the docs describe.
+stems (test-binary and module names), and `EXTERNAL_SYMBOLS`, a fixed list of
+names that dependencies define.
 
 Usage: python3 scripts/check_doc_symbols.py [--quiet]
 Exit status is 1 when unknown symbols remain, so CI can gate on it.
@@ -23,15 +23,14 @@ ROOT = Path(__file__).resolve().parent.parent
 SKIP_DIRS = ("target/", "vendor/", ".git/")
 
 # Non-Rust files that legitimately define names the docs cite: env vars live in
-# Dockerfiles and Compose files, Prometheus alert names in ops/alerts.yml.
+# Dockerfiles and Compose files, Prometheus alert names in
+# services/*/ops/alerts.yml.
 EXTRA_SUFFIXES = (".toml", ".json", ".sh", ".py", ".yml", ".yaml")
 EXTRA_NAMES = ("Makefile", "Dockerfile")
 
 # Dependencies whose internal items the docs name directly. Their sources are
-# not in this repo. They are listed explicitly rather than read out of
-# ~/.cargo/registry, so the check gives the same answer on a cold checkout as on
-# a warm one: depending on unpacked crate sources made `make docs-check` pass or
-# fail according to whether Cargo happened to have fetched them.
+# not in this repo. They are listed explicitly rather than read from
+# ~/.cargo/registry, so the result does not depend on which crates Cargo fetched.
 #
 # Adding a name here asserts that some dependency defines it. Keep each grouped
 # under its crate so the claim stays checkable by hand.
@@ -81,7 +80,7 @@ FILE_ALLOW = {
         "actual_borrowed", "actual_supplied", "milliseconds_per_year",
         "remaining_value",
     },
-    # Cited as a name that deliberately does NOT exist ("`prices_status` is
+    # Cited as a name that deliberately does not exist ("`prices_status` is
     # not an entrypoint"); the real helper, fetch_prices_status, is checked.
     "services/lending-exporter/README.md": {"prices_status"},
     # DTOs from the external xoxno-api-v2 repository used by the lending math
@@ -120,8 +119,7 @@ FILE_ALLOW = {
     # helper the prover inlines when function names are stripped.
     "docs/explanation/certora-suite-review-2026-09-03.md": {
         "__udivti3", "__modti3", "u128_div_rem", "div_u",
-        # Summaries the review found unused; they are being deleted on the
-        # same branch, so the names describe what was removed.
+        # Summaries the review found unused; the names describe what was removed.
         "reserves_summary", "supplied_amount_summary", "borrowed_amount_summary",
         "protocol_revenue_summary", "capital_utilisation_summary",
         "pool_snapshot_summary", "PoolViewsSnapshot", "fresh_monotone_index",

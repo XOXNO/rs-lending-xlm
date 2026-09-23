@@ -1,15 +1,12 @@
 #!/usr/bin/env python3
 """Static access-control gate: every contract entrypoint is gated or declared.
 
-The Rust/Soroban equivalent of the Slither access-control script Trail of Bits
-shipped with the Aave V4 audit (report appendix E). That script asserted three
-properties about the Solidity configurator; this one asserts the analogous
-properties about every `#[contractimpl]` entrypoint in `contracts/*`:
+Asserts three properties about every `#[contractimpl]` entrypoint in
+`contracts/*`:
 
   1. every entrypoint is classified into exactly one authorization category;
-  2. every entrypoint that can change state and is NOT governance-gated
-     (owner / role / timelock) carries an explicit, justified line in
-     `scripts/permissionless_entrypoints.txt`;
+  2. every `caller-auth` or `UNGATED-MUTATOR` entrypoint carries an explicit,
+     justified line in `scripts/permissionless_entrypoints.txt`;
   3. every line in that file names a live entrypoint whose detected category
      still matches the declared one -- a stale or over-broad exception fails
      just as loudly as a missing one.
@@ -17,7 +14,7 @@ properties about every `#[contractimpl]` entrypoint in `contracts/*`:
 Categories, in precedence order (first match wins):
 
   constructor    `__constructor`; the host runs it once, at deploy.
-  test-only      the whole `#[contractimpl]` block is behind a POSITIVE
+  test-only      the method or its `#[contractimpl]` block is behind a positive
                  `#[cfg(test)]` / `#[cfg(feature = "testing")]` (a negated term
                  such as `not(test)` does not count -- it is true in a release
                  build), so the symbol does not exist in a deployable WASM
@@ -28,11 +25,11 @@ Categories, in precedence order (first match wins):
   role-timelock  the body reaches a role check (`access_control::ensure_role`,
                  the oracle's registered-signer check) or a timelock primitive
                  (`schedule_operation` / `set_execute_operation`).
-  caller-auth    the body reaches `Address::require_auth`, i.e. the call
-                 authorizes an address the CALLER supplies. Anyone may invoke
-                 it; the auth only proves they control that address. This is
-                 the permissionless surface INV-AUTH-03 governs, so every such
-                 entrypoint needs a declared line.
+  caller-auth    the body reaches `require_auth` or `require_auth_for_args`:
+                 the call authorizes an address the caller supplies. Anyone may
+                 invoke it; the auth only proves they control that address.
+                 This is the permissionless surface INV-AUTH-03 governs, so
+                 every such entrypoint needs a declared line.
   view           no authorization evidence and no reachable state write.
   UNGATED-MUTATOR
                  no authorization evidence and a reachable state write. Hard
@@ -48,7 +45,7 @@ Fail-closed properties:
   * an entrypoint with no gate evidence is only allowed to pass as `view` when
     the walk proves it reaches no state write; anything unresolved on a write
     path (an `env.invoke_contract`, an unknown contract client, an unknown
-    method on a known client) counts AS a write;
+    method on a known client) counts as a write;
   * cross-contract calls into workspace contracts are resolved against those
     contracts' own classification via a fixpoint, so a controller entrypoint
     that only mutates through the pool is still a mutator;
@@ -56,10 +53,9 @@ Fail-closed properties:
     understand is an error, not a silent skip.
 
 Scope: the deployable contracts under `contracts/*/src`. `mock/` doubles and the
-`certora/*/spec` harnesses are deliberately excluded -- neither ships in a
-protocol WASM -- and the walk skips `tests/` trees reached through `#[path]`
-includes. A contract that grows a new crate under `contracts/` is picked up with
-no change to this script.
+`certora/*/spec` harnesses are excluded -- neither ships in a protocol WASM --
+and the walk skips `tests/` trees reached through `#[path]` includes. A new
+crate under `contracts/` is picked up with no change to this script.
 
 Deterministic, no network, no build. Sources are read, never written.
 
@@ -68,7 +64,8 @@ Deterministic, no network, no build. Sources are read, never written.
     python3 scripts/check_access_control.py --json out.json
     python3 scripts/check_access_control.py --list-test-only  # feeds the Make target
 
-Exit 0 = every entrypoint is gated or declared; non-zero = a violation.
+Exit 0 = every entrypoint is gated or declared; 1 = a violation; 2 = a parse or
+declaration-file error.
 """
 
 from __future__ import annotations
@@ -87,9 +84,9 @@ ALLOWLIST = os.path.join(REPO_ROOT, "scripts", "permissionless_entrypoints.txt")
 # writes routinely live here, so the call-graph walk has to see them.
 SUPPORT_SRC_DIRS = ("common/src", "interfaces")
 
-# Depth cap for the call-graph walk. The deepest real guard chain in this
-# workspace is ~4 hops (entrypoint -> process_* -> require_* -> storage::*);
-# the cap only bounds pathological cycles.
+# Depth cap for the call-graph walk. The deepest guard chain in this workspace
+# is about 4 hops (entrypoint -> process_* -> require_* -> storage::*). The walk
+# does not find a guard or a write deeper than the cap.
 MAX_DEPTH = 12
 
 CATEGORIES = (
@@ -145,7 +142,7 @@ CALLER_AUTH_PATTERNS = (
 )
 
 # Not a category of its own: an entrypoint can reach `require_auth` on an
-# address the caller picks AND separately pin that address to the account
+# address the caller picks and separately pin that address to the account
 # owner or an approved delegate (INV-AUTH-02). Recorded as evidence and shown
 # in the table so a reviewer can tell the two shapes apart, but not treated as
 # a gate: reachability cannot prove the check runs on every path through a
@@ -164,8 +161,8 @@ STORAGE_WRITE_CHAINED = re.compile(
     r"\s*\.\s*(?:set|remove|update|try_update)\s*\("
 )
 # Bound form: `let persistent = env.storage().persistent();` then
-# `persistent.set(..)`. `.extend_ttl` / `.bump` are deliberately NOT writes:
-# read paths renew TTLs, and a TTL bump changes no accounting.
+# `persistent.set(..)`. `.extend_ttl` / `.bump` are not writes: read paths
+# renew TTLs, and a TTL bump changes no accounting.
 STORAGE_HANDLE_BINDING = re.compile(
     r"\blet\s+(?:mut\s+)?(\w+)\s*(?::[^=;]*)?=\s*[^;]*?storage\s*\(\s*\)"
     r"\s*\.\s*(?:instance|persistent|temporary)\s*\(\s*\)\s*;"
@@ -177,8 +174,7 @@ OTHER_WRITE_PATTERNS = (
     re.compile(r"\bupgradeable::upgrade\s*\("),
     # OZ token metadata setter: writes the collection Metadata instance entry.
     re.compile(r"\bBase::set_metadata\s*\("),
-    # OZ non-fungible state writes (F-4): ownership/balance and enumeration
-    # mutations. NOT `.extend_ttl` — that stays a deliberate non-write.
+    # OZ non-fungible state writes: ownership, balance and enumeration.
     re.compile(r"\bBase::update\s*\("),
     re.compile(r"\bEnumerable::sequential_mint\s*\("),
     re.compile(r"\bEnumerable::remove_from_enumerations\s*\("),
@@ -278,7 +274,7 @@ CLIENT_CHAINED_CALL = re.compile(
 # `let c = SomeClient::new(..)` / `let c: SomeClient<'_> = ..`, then `c.method(`.
 # The constructor has to be the whole right-hand side: in
 # `let reserves = match Client::new(..).try_get_reserves() { .. }` the binding
-# holds the RESULT, and attributing `reserves.len()` to the client would invent
+# holds the result, and attributing `reserves.len()` to the client would invent
 # an unknown -- and therefore mutating -- cross-contract call.
 CLIENT_BINDING = re.compile(
     r"\blet\s+(?:mut\s+)?(\w+)\s*(?::\s*([A-Z]\w*Client)\b[^=;]*?)?=\s*&?\s*"
@@ -303,7 +299,7 @@ CALL_SITE = re.compile(r"(?:(\w+(?:\s*::\s*\w+)*)\s*::\s*)?\b(\w+)\s*\(")
 # e.g. `run_batch(&env, entries, ops::supply::apply)`.
 PATH_REFERENCE = re.compile(r"\b(\w+(?:\s*::\s*\w+)*)\s*::\s*(\w+)\b(?!\s*[(:])")
 CFG_TEST_ONLY = re.compile(r'\btest\b|feature\s*=\s*"testing"')
-# A negated cfg term. `#[cfg(not(test))]` is TRUE in every release build, so a
+# A negated cfg term. `#[cfg(not(test))]` is true in every release build, so a
 # cfg carrying any negation is not evidence that the symbol is absent from the
 # artifact -- even though CFG_TEST_ONLY matches the `test` inside it.
 CFG_NEGATION = re.compile(r"\bnot\s*\(")
@@ -573,9 +569,8 @@ class CallGraph:
     contract's `upgrade`, which manufactures guard evidence that is not there.
 
     When a name still resolves to several definitions the walk visits all of
-    them. For guard detection that can only over-report a gate, which is why a
-    detected gate is never the sole basis for a pass: the allowlist covers
-    everything that is not owner/role/timelock gated.
+    them. This can over-report a gate: an owner, role or timelock gate found
+    this way passes with no declared line.
     """
 
     def __init__(self, sources: list[tuple[str, str]]) -> None:
@@ -724,10 +719,10 @@ def has_attr(fn: dict, names) -> bool:
 def is_test_only(fn: dict) -> bool:
     """Whether the entrypoint exists only under `cfg(test)` / `feature="testing"`.
 
-    Requires a POSITIVE test term: any negation in the predicate (`not(test)`,
-    `not(feature = "testing")`) is refused, because such a block is compiled
-    INTO the deployable WASM. Fail closed -- a refused cfg falls through to the
-    gate classification, so the entrypoint must be gated or declared.
+    Requires a positive test term: any negation in the predicate (`not(test)`,
+    `not(feature = "testing")`) is refused, because a negated term can be true
+    in a deployable WASM build. A refused cfg falls through to the normal
+    classification.
     """
     cfg = fn["cfg"]
     return bool(cfg) and not CFG_NEGATION.search(cfg) and bool(CFG_TEST_ONLY.search(cfg))
@@ -763,7 +758,7 @@ def client_calls(text: str) -> list[tuple[str, str | None]]:
             after = match_parens(text, m.end() - 1)
         except ParseError:
             continue
-        # `let x = Client::new(..).method(..);` binds the RESULT, not a client;
+        # `let x = Client::new(..).method(..);` binds the result, not a client;
         # the chained pattern above already recorded that call, and treating
         # `x` as a client would invent unknown methods on it.
         if text[after:].lstrip()[:1] != ";":
@@ -846,8 +841,8 @@ def classify(entrypoints: list[dict], graph: CallGraph) -> None:
         ):
             evidence.append("account owner/delegate")
         if has_attr(fn, ("when_not_paused",)):
-            # A liveness switch, not an authorization gate: it says WHEN a call
-            # is allowed, never WHO may make it.
+            # A liveness switch, not an authorization gate: it says when a call
+            # is allowed, never who may make it.
             evidence.append("#[when_not_paused] (not a gate)")
         fn["evidence"] = evidence
 
@@ -964,9 +959,8 @@ def check(entrypoints: list[dict], declared: dict[str, dict]) -> list[str]:
             )
 
         if fn["category"] == "test-only" and fn["mutates"]:
-            # Belt to `wasm-testing-abi-check`'s braces: that target proves the
-            # symbol is absent from the artifact, this one proves the source
-            # still confines it to a test cfg.
+            # `wasm-testing-abi-check` checks the artifact; this checks that
+            # the source still confines the symbol to a test cfg.
             if not is_test_only(fn):
                 violations.append(
                     f"{key}: test-only mutator with no positive test cfg: {fn['cfg']!r}"

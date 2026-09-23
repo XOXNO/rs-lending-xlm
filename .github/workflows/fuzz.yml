@@ -3,12 +3,8 @@ name: Fuzz
 on:
   pull_request:
     branches: [master, main, feat/*, rc/*]
-    # Deliberately the whole code surface, not just the crates the fuzz and
-    # proptest suites reach. `mutants-diff` mutates the PR diff itself, so it
-    # has to follow the diff everywhere -- scoping this to pool/controller/
-    # governance/common silently skipped mutation testing on every PR that
-    # touched swap-aggregator, price-aggregator, xoxno-oracle, position-nft,
-    # defindex-strategy, the interfaces, or Cargo.lock.
+    # The whole code surface, not only the crates the fuzz and proptest suites
+    # reach: `mutants-diff` mutates the PR diff wherever it lands.
     paths:
       - "common/**"
       - "contracts/**"
@@ -57,9 +53,6 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Fuzz and proptest used to share one job, so the property suite waited
-  # behind ~5.5 min of libFuzzer wall time (3×30s + 4×60s) on every PR.
-  # They only share the pool WASM; compile graphs and toolchains differ.
   pr-fuzz:
     if: github.event_name == 'pull_request'
     name: Fuzz smoke (PR)
@@ -82,20 +75,15 @@ jobs:
         uses: dtolnay/rust-toolchain@nightly
 
       - name: Install cargo-fuzz (prebuilt)
-        # Was `cargo install cargo-fuzz --locked` (compiled from source every
-        # run). install-action fetches a prebuilt binary in seconds.
         uses: taiki-e/install-action@v2.87.13
         with:
           tool: cargo-fuzz
 
       # Only build artifacts are cached, never ~/.cargo. Every self-hosted
-      # runner instance shares one CARGO_HOME (/home/truststaking/.cargo), so
-      # the registry is global while the jobs are concurrent. Cargo itself is
-      # safe there -- it serialises on .package-cache -- but actions/cache
-      # knows nothing of that lock and unpacks its tarball straight over the
-      # live registry, so a job compiling at that moment can read a
-      # half-written crate source. That is the base64 E0583 in run 31214351035.
-      # The registry needs no cache anyway: it persists on the runner.
+      # runner instance shares one CARGO_HOME. Cargo serialises on
+      # .package-cache, but actions/cache ignores that lock and unpacks over
+      # the live registry, so a concurrent build can read a half-written crate
+      # source. The registry persists on the runner and needs no cache.
       - name: Cache cargo build artifacts
         uses: actions/cache@v6
         with:
@@ -225,14 +213,7 @@ jobs:
             echo "toolchain cannot link with mold (gcc < 12.1?); using default linker"
           fi
 
-      # Only build artifacts are cached, never ~/.cargo. Every self-hosted
-      # runner instance shares one CARGO_HOME (/home/truststaking/.cargo), so
-      # the registry is global while the jobs are concurrent. Cargo itself is
-      # safe there -- it serialises on .package-cache -- but actions/cache
-      # knows nothing of that lock and unpacks its tarball straight over the
-      # live registry, so a job compiling at that moment can read a
-      # half-written crate source. That is the base64 E0583 in run 31214351035.
-      # The registry needs no cache anyway: it persists on the runner.
+      # Only build artifacts are cached, never ~/.cargo (see pr-fuzz).
       - name: Cache cargo build artifacts
         uses: actions/cache@v6
         with:
@@ -316,10 +297,8 @@ jobs:
         with:
           toolchain: "1.95"
 
-      # One install-action for all three, as the mutants-diff job already does.
-      # Staging them here rather than installing per matrix cell matters: the
-      # mutants matrix is wide, so a per-cell install repeats the download once
-      # per cell.
+      # Installs the tools once; each mutants matrix cell downloads the staged
+      # copies instead of installing them again.
       - name: Install tools
         uses: taiki-e/install-action@v2.87.13
         with:
@@ -332,9 +311,8 @@ jobs:
             cp "$(command -v "$t")" "$RUNNER_TEMP/cargo-mutants/bin/$t"
           done
 
-      # One artifact for the whole bin directory, not one per binary: adding a
-      # tool is then a single line above, and each matrix cell does one download
-      # instead of one per tool.
+      # One artifact for the whole bin directory, so each matrix cell does one
+      # download.
       - name: Upload tools
         uses: actions/upload-artifact@v7.0.1
         with:
@@ -343,9 +321,8 @@ jobs:
           overwrite: true
 
   wasm-fixtures:
-    # Mutants (02:00), fuzz+proptest (14:00), and any dispatch suite all
-    # consume pool.wasm. Building it once keeps the matrix cells from each
-    # paying a stellar contract build while they queue for the same runners.
+    # Mutants (02:00), fuzz and proptest (14:00) and every dispatch suite use
+    # these WASM fixtures. Build them once for all matrix cells.
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     name: Prepare wasm fixtures
     runs-on: self-hosted
@@ -451,14 +428,7 @@ jobs:
         with:
           tool: cargo-fuzz
 
-      # Only build artifacts are cached, never ~/.cargo. Every self-hosted
-      # runner instance shares one CARGO_HOME (/home/truststaking/.cargo), so
-      # the registry is global while the jobs are concurrent. Cargo itself is
-      # safe there -- it serialises on .package-cache -- but actions/cache
-      # knows nothing of that lock and unpacks its tarball straight over the
-      # live registry, so a job compiling at that moment can read a
-      # half-written crate source. That is the base64 E0583 in run 31214351035.
-      # The registry needs no cache anyway: it persists on the runner.
+      # Only build artifacts are cached, never ~/.cargo (see pr-fuzz).
       - name: Cache cargo build artifacts
         uses: actions/cache@v6
         with:
@@ -525,14 +495,7 @@ jobs:
           toolchain: "1.95"
           targets: wasm32v1-none
 
-      # Only build artifacts are cached, never ~/.cargo. Every self-hosted
-      # runner instance shares one CARGO_HOME (/home/truststaking/.cargo), so
-      # the registry is global while the jobs are concurrent. Cargo itself is
-      # safe there -- it serialises on .package-cache -- but actions/cache
-      # knows nothing of that lock and unpacks its tarball straight over the
-      # live registry, so a job compiling at that moment can read a
-      # half-written crate source. That is the base64 E0583 in run 31214351035.
-      # The registry needs no cache anyway: it persists on the runner.
+      # Only build artifacts are cached, never ~/.cargo (see pr-fuzz).
       - name: Cache cargo build artifacts
         uses: actions/cache@v6
         with:
@@ -580,25 +543,18 @@ jobs:
     strategy:
       fail-fast: false
 
-      # An upper bound, not a measurement: the pool happened to serve 5 lanes in
-      # run 31264146755, but host contention is cross-job (sibling matrices run
-      # concurrently) and is owned by the adaptive "Size the worker budget"
-      # step below. Capping at the observed number could only forfeit
-      # throughput once runners come back online.
+      # An upper bound on lanes, not a measurement. The "Size the worker budget
+      # to this host" step below handles host contention.
       max-parallel: 8
 
       # Cells are listed longest-first: GitHub dispatches matrix cells in order,
-      # and the long poles must claim lanes before the short ones, or they start
-      # late and become the tail.
+      # and the longest cells must claim lanes first, or they start late and
+      # become the tail.
       #
-      # Shard counts were balanced against run 31264146755, which predates the
-      # sharding fix and so measured every shard as pass 1 plus its slice --
-      # treat them as a starting point, not a measurement. The run step prints
-      # scope and elapsed time to the job summary; re-balance from that.
+      # Shard counts are a starting point, not a measurement. The run step
+      # writes each cell's elapsed time to the job summary; re-balance from that.
       matrix:
         include:
-          # Sole critical path at 3h02: the other 13 cells finished 55 min ahead
-          # of it.
           - target: mutants-common
             shard: 0/4
             suffix: "-1of4"
@@ -612,8 +568,6 @@ jobs:
             shard: 3/4
             suffix: "-4of4"
 
-          # 1h24 + 1h28 for two shards that were doing the same pass-1 work
-          # twice; post-fix each shard owns half of it.
           - target: mutants-controller-core
             shard: 0/2
             suffix: "-1of2"
@@ -621,8 +575,7 @@ jobs:
             shard: 1/2
             suffix: "-2of2"
 
-          # Split because 1h18 and 1h13 unsharded would each outlast a
-          # mutants-common shard and become the new tail.
+          # Sharded so that neither target outlasts a mutants-common shard.
           - target: mutants-controller-strategies
             shard: 0/2
             suffix: "-1of2"
@@ -636,9 +589,8 @@ jobs:
             shard: 1/2
             suffix: "-2of2"
 
-          # Was split 2 ways for 22m + 18m. Merged back: two cells each pay a
-          # baseline build to save minutes, a net loss once the shards are no
-          # longer duplicating pass 1.
+          # Not sharded: a second cell pays a second baseline build to save only
+          # minutes.
           - target: mutants-controller-views
 
           - target: mutants-swap-aggregator
@@ -673,17 +625,11 @@ jobs:
           name: mutants-tools-${{ github.run_id }}
           path: .github/tools
 
-      # No actions/cache here, deliberately. This job's warm build state comes
-      # from the runner's own disk: target-mutants is gitignored, so it survives
+      # No actions/cache here. This job's warm build state comes from the
+      # runner's own disk: target-mutants is gitignored, so it survives
       # actions/checkout between runs, and RUSTC_WRAPPER=sccache backs it with a
-      # 50G local cache. Adding a hosted cache on top would be worse than
-      # nothing -- the repo already holds ~8.3G across 19 entries against a 10G
-      # limit, and the mutants-diff job's own entries are currently absent,
-      # evicted. Eighteen more multi-gigabyte entries would evict the fuzz and
-      # proptest caches that do work, and still pay 18 uploads every run.
-      #
-      # target-mutants persisting locally is what makes the next step
-      # load-bearing rather than cache hygiene.
+      # 50G local cache. Hosted cache entries for this matrix would evict the
+      # fuzz and proptest caches.
 
       # cargo-mutants writes mutated sources into the tree and builds them, and
       # target-mutants survives from the previous run, so it can hold objects
@@ -758,20 +704,16 @@ jobs:
 
           MUTANTS_FIXTURES_PREBUILT: "1"
           RUST_TEST_THREADS: "1"
-          # nextest ignores RUST_TEST_THREADS; without this it would fan out to
-          # one process per core inside a lane that is already sized to share
-          # the host with the other runner services.
+          # nextest ignores RUST_TEST_THREADS. Without this it runs one test
+          # process per core in a lane sized to share the host.
           NEXTEST_TEST_THREADS: "1"
           RUSTC_WRAPPER: sccache
           SCCACHE_CACHE_SIZE: 50G
-        # nextest matches the PR-diff job and gives per-test timeouts, which is
-        # what --minimum-test-timeout relies on to catch a mutant that hangs
-        # rather than fails. Safe here because the crates under mutation have no
-        # runnable doctests, the one thing nextest cannot execute.
+        # nextest gives per-test timeouts, which --minimum-test-timeout needs
+        # to catch a mutant that hangs rather than fails. nextest cannot run
+        # doctests; the crates under mutation have no runnable doctests.
         #
-        # Elapsed time lands in the job summary so the shard counts in the
-        # matrix can be re-balanced by reading one page, rather than by
-        # archaeology against a run id that ages out of retention.
+        # Elapsed time goes to the job summary to re-balance the shard counts.
         run: |
           start=$SECONDS
           status=0

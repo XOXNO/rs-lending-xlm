@@ -27,7 +27,7 @@
 **/Cargo.toml
 !/Cargo.toml
 
-# Belt-and-suspenders if discovery ever sees other trees
+# Redundant denies for trees outside the allowlist
 /tests/
 /services/
 /mock/

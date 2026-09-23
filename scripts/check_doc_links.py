@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Check that local markdown links resolve within the tracked repository.
 
-Skips http(s), mailto and pure-anchor links. Strips a trailing `#L123` anchor
-before testing the path, so source links may point at a line. Absolute paths
-and untracked targets fail even when they exist locally.
+Skips http(s), mailto and pure-anchor links. Strips the `#` anchor (for example
+`#L123`) before testing the path, so source links may point at a line. The
+anchor itself is not checked. Absolute paths and untracked targets fail even
+when they exist locally.
 
 Usage: python3 scripts/check_doc_links.py
 Exit status is 1 when a link is broken, so CI can gate on it.

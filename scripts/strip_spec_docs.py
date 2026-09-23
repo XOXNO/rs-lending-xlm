@@ -5,8 +5,9 @@ Rustdoc on entrypoints/types embeds into the on-chain spec and counts against
 contractMaxSizeBytes. Deploy artifacts omit them (docs live in interface crates
 and published docs): blank every `doc` field via stellar XDR codec, reassemble WASM.
 
-Drops contractmetav0 (name/version) and error-enum spec entries too — host needs
-only contractenvmetav0. Error defs live in common/ and interface crates.
+Drops contractmetav0 (`contractmeta!` entries and toolchain versions) and
+error-enum spec entries too — host needs only contractenvmetav0. Error enums are
+defined in common/src/errors.rs and the contract sources.
 
 Usage: strip_spec_docs.py <in.wasm> <out.wasm>
 """

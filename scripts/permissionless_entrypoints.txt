@@ -3,16 +3,21 @@
 #
 # WHAT THIS FILE IS
 #
-# The complete inventory of contract entrypoints that ANY address may invoke:
-# everything that is neither owner-gated, role-gated, timelocked, a constructor,
-# a read-only view, nor confined to a test cfg. Read top to bottom and you have
-# seen the protocol's entire unprivileged mutation surface.
+# The inventory of contract entrypoints that any address may invoke: everything
+# that is neither owner-gated, role-gated, timelocked, a constructor, a
+# read-only view, nor confined to a test cfg. A TTL extension is not a write, so
+# a TTL-only entrypoint such as `position-nft::renew` classifies as a view.
+#
+# The checker does not see methods that a `contracttrait` macro generates. The
+# OpenZeppelin NFT mutators of `position-nft` (`transfer`, `transfer_from`,
+# `approve`, `approve_for_all`) are therefore not listed. Each one authenticates
+# the token owner, spender or operator.
 #
 # The checker fails if an entrypoint in one of the declarable categories is
 # missing here, if a line here names an entrypoint that no longer exists, or if
-# a declared category no longer matches what the classifier detects. Adding a
-# line is a deliberate security decision, not paperwork: it asserts that letting
-# an arbitrary caller reach this code is intended and bounded.
+# a declared category no longer matches what the classifier detects. Each line
+# asserts that letting an arbitrary caller reach this code is intended and
+# bounded.
 #
 # FORMAT
 #
@@ -24,12 +29,13 @@
 #                                address. Any further restriction (account
 #                                owner, delegate, payer) is enforced inside the
 #                                body and is stated in the justification.
-#               UNGATED-MUTATOR  no authorization primitive is reachable at all.
+#               UNGATED-MUTATOR  no authorization primitive is reachable, but a
+#                                state write is.
 #
 # invariants    comma-separated INV-XXX-NN ids from docs/reference/invariants.md.
-#               INV-AUTH-02 = risk-reducing authority is explicit (owner or an
-#               active, listed delegate). INV-AUTH-03 = permissionless actions
-#               do not create foreign risk.
+#               INV-AUTH-02 = account spending authority is explicit (owner
+#               or an active, listed delegate). INV-AUTH-03 = third-party
+#               supply cannot create a foreign asset slot.
 #
 # justification one line, present tense, naming who may call it and what bounds
 #               the damage.
@@ -37,43 +43,47 @@
 # ---------------------------------------------------------------------------
 # controller -- account owner or active delegate (INV-AUTH-02)
 #
-# Every line below reaches `account::require_owner_or_delegate` or
-# `account::require_account_owner` after `caller.require_auth()`. The entrypoint
-# is open to any address; the account binding is what keeps a stranger from
-# moving someone else's collateral.
+# For an existing account, every line below reaches
+# `account::require_owner_or_delegate` or `account::require_account_owner` after
+# `caller.require_auth()`. With `account_id = 0`, multiply, flash_position and
+# migrate_from_blend create a new account owned by the caller. The account
+# check, not the auth, stops a caller from acting on an account it does not
+# control.
 # ---------------------------------------------------------------------------
 controller::borrow | caller-auth | INV-AUTH-02, INV-RISK-01 | Any address may call, but the funds are drawn against account_id, which require_owner_or_delegate pins to its owner or an active listed delegate, and post-pool solvency is re-proven.
 controller::withdraw | caller-auth | INV-AUTH-02, INV-RISK-01 | Any address may call, but require_owner_or_delegate pins account_id to its owner or an active listed delegate before any collateral leaves, and solvency is re-proven afterward.
 controller::multiply | caller-auth | INV-AUTH-02, INV-STRAT-02 | Leverage entry on account_id; the Multiply account guard requires the owner or an active listed delegate and asserts the account's position mode matches.
-controller::flash_position | caller-auth | INV-AUTH-02, INV-STRAT-02, INV-STRAT-04 | Callback leverage entry on account_id; the Multiply account guard requires the owner or an active listed delegate, require_wasm_receiver forces the receiver to be code so it can only hand back measured collateral, and strategy_finalize plus FlashPositionClosed keep the minted debt from leaving as an unrepaid cash flash loan.
-controller::swap_debt | caller-auth | INV-AUTH-02, INV-STRAT-02 | Replaces one debt position with another on account_id; require_owner_or_delegate pins the account before the borrow-and-repay legs run.
-controller::swap_collateral | caller-auth | INV-AUTH-02, INV-STRAT-02 | Swaps one collateral position for another on account_id; require_owner_or_delegate pins the account before the withdraw-and-deposit legs run.
+controller::flash_position | caller-auth | INV-AUTH-02, INV-STRAT-02, INV-STRAT-04 | Callback leverage entry on account_id; the Multiply account guard requires the owner or an active listed delegate, require_wasm_receiver admits only a Wasm contract receiver, collateral is credited from measured receipts only, and FlashPositionClosed plus strategy_finalize keep the minted debt on a solvent account that still holds supply.
+controller::swap_debt | caller-auth | INV-AUTH-02, INV-STRAT-02 | Moves debt on account_id from one asset to another; require_owner_or_delegate pins the account before the borrow-and-repay legs run.
+controller::swap_collateral | caller-auth | INV-AUTH-02, INV-STRAT-02 | Moves collateral on account_id from one asset to another; require_owner_or_delegate pins the account before the withdraw-and-deposit legs run.
 controller::repay_debt_with_collateral | caller-auth | INV-AUTH-02, INV-STRAT-02 | Nets or swaps account_id's own collateral into a repayment; require_owner_or_delegate pins the account, so a stranger cannot force-close a position.
 controller::migrate_from_blend | caller-auth | INV-AUTH-02, INV-STRAT-02 | Sweeps the caller's Blend position into account_id from a governance-approved pool only; the Migrate account guard requires the owner or an active listed delegate.
-controller::add_delegate | caller-auth | INV-AUTH-02 | Grants delegate authority on account_id; require_account_owner admits the owner alone, and the delegate must already be an active governance-approved position manager, so a delegate cannot extend its own reach.
+controller::add_delegate | caller-auth | INV-AUTH-02 | Grants delegate authority on account_id; require_account_owner admits the owner alone, so a delegate cannot extend its own reach, and the delegate must be an active governance-approved position manager.
 controller::remove_delegate | caller-auth | INV-AUTH-02 | Revokes delegate authority on account_id; require_account_owner admits the owner alone. Revocation only narrows authority.
 controller::renew_account | caller-auth | INV-AUTH-02, INV-STOR-01 | Extends account_id's storage TTL; require_account_owner admits the owner alone. Writes no accounting state, only TTLs.
 #
 # ---------------------------------------------------------------------------
-# controller -- genuinely permissionless (INV-AUTH-03)
+# controller -- permissionless (INV-AUTH-03)
 #
-# Third parties may pay in, wind down bad positions, and run maintenance. None
-# of these can increase another account's risk.
+# Third parties may pay in, liquidate, clean bad debt, take flash loans and run
+# maintenance. None of these can open an asset slot in a foreign account.
+# Each line states what bounds its effect on accounts the caller does not
+# control.
 # ---------------------------------------------------------------------------
-controller::supply | caller-auth | INV-AUTH-03, INV-ACCT-03 | Anyone may top up an account they do not own, but only for hub assets it already holds a supply position in; a non-owner cannot open a new position slot, and account_id 0 creates an account owned by the caller.
+controller::supply | caller-auth | INV-AUTH-03, INV-ACCT-03 | Anyone may top up an account they do not own, but only for hub assets it already holds a supply position in; a caller that is neither the owner nor an active delegate cannot open a new asset slot, and account_id 0 creates an account owned by the caller.
 controller::repay | caller-auth | INV-AUTH-03, INV-ACCT-03 | Anyone may repay any account's debt. Funds are pulled from the caller's own balance and credited from the measured receipt; the target's liabilities can only fall.
-controller::liquidate | caller-auth | INV-AUTH-03, INV-LIQ-01, INV-LIQ-02 | Anyone may liquidate an account whose health factor is below one, including the account's own owner; in Credit seize mode the receiving account may not be the liquidated account itself, and seizure stays coupled to the debt actually repaid.
-controller::clean_bad_debt | caller-auth | INV-AUTH-03, INV-LIQ-04 | Anyone may socialize an insolvent account's residual debt, but only once its remaining collateral is at or below the dust threshold; the unrestricted form is the owner-gated force_socialize_bad_debt.
+controller::liquidate | caller-auth | INV-AUTH-03, INV-LIQ-01, INV-LIQ-02 | Anyone may liquidate an account whose health factor is below one, including the account's own owner; in Credit seize mode the receiving account must be a different account that the liquidator owns or is an active delegate of, and seizure stays coupled to the debt actually repaid.
+controller::clean_bad_debt | caller-auth | INV-AUTH-03, INV-LIQ-04 | Anyone may socialize an insolvent account's residual debt, but only once its remaining collateral is at or below the dust threshold; only the owner-gated force_socialize_bad_debt omits the dust cap.
 controller::recapitalize | caller-auth | INV-AUTH-03, INV-ACCT-02, INV-ACCT-03 | Anyone may donate their own funds to cover a market's backing shortfall; only the measured receipt up to the shortfall is applied and the excess is refunded to the payer.
-controller::update_indexes | caller-auth | INV-AUTH-03, INV-IDX-04 | Keeper maintenance: accrues interest to the current ledger. Each chunk is time-consistent; a finer cadence re-reads utilization and can only move the index up, never past continuous compounding at the rate cap, so no caller can lower anyone's balance.
+controller::update_indexes | caller-auth | INV-AUTH-03, INV-IDX-04 | Keeper maintenance: accrues interest to the current ledger timestamp. Accrual never lowers the borrow or supply index and each chunk's rate is capped at max_borrow_rate, so the caller chooses only the accrual timing and cannot lower anyone's balance.
 controller::claim_revenue | caller-auth | INV-AUTH-03, INV-ACCT-06 | Keeper maintenance: sweeps accrued protocol revenue to the governance-configured accumulator. The caller picks the timing, never the recipient.
-controller::update_account_threshold | caller-auth | INV-AUTH-03, INV-RISK-01 | Keeper maintenance: restamps cached risk parameters to their currently listed values. With has_risks set it reverts unless the account clears the update health-factor floor, so it cannot be used to push an account into liquidation.
+controller::update_account_threshold | caller-auth | INV-AUTH-03, INV-RISK-01 | Keeper maintenance: restamps cached risk parameters to their currently listed values. Without has_risks it restamps LTV only, which the health factor does not read; with has_risks set it reverts unless the account clears the update health-factor floor, so it cannot be used to push an account into liquidation.
 controller::flash_loan | caller-auth | INV-AUTH-03, INV-FLASH-01, INV-FLASH-02 | Anyone may borrow within a single call; the pool verifies principal plus fee is back before returning, and the flash-loan flag blocks monetary reentrancy into position flows.
 #
 # ---------------------------------------------------------------------------
 # swap-aggregator
 # ---------------------------------------------------------------------------
-swap-aggregator::execute_strategy | caller-auth | INV-STRAT-01 | Anyone may route their own swap; sender.require_auth authorizes the pull, and the router only ever moves the sender's own funds under the declared minimum output.
+swap-aggregator::execute_strategy | caller-auth | INV-STRAT-01 | Anyone may route their own swap; sender.require_auth authorizes the pull, the route runs only on the measured input, and the payout to the sender must meet the declared minimum output.
 swap-aggregator::claim_referral_fees | UNGATED-MUTATOR | INV-AUTH-03 | Deliberately unauthenticated: the payout recipient is the referral's stored owner, not a caller argument, so an arbitrary caller can only choose when a referral is paid, never who is paid.
 #
 # ---------------------------------------------------------------------------
@@ -84,16 +94,16 @@ swap-aggregator::claim_referral_fees | UNGATED-MUTATOR | INV-AUTH-03 | Deliberat
 defindex-strategy::deposit | caller-auth | INV-AUTH-03, INV-ACCT-03 | Anyone may deposit their own funds; from.require_auth authorizes the pull and the credit lands in the controller account keyed by that same address.
 defindex-strategy::withdraw | caller-auth | INV-AUTH-02 | from.require_auth authorizes the withdrawal and the balance is read from the vault account mapped to that address, so a caller can only drain their own position.
 defindex-strategy::harvest | caller-auth | INV-AUTH-03 | from.require_auth authorizes a caller-triggered HarvestEvent carrying the current price per share. Moves no funds and writes no accounting state.
-defindex-strategy::balance | UNGATED-MUTATOR | INV-AUTH-03, INV-STOR-01 | Read-only balance query, conservatively classified: the only storage write the checker can reach is the stale-pointer cleanup in resolve_vault_account, which this path enters with clear_if_gone = false. Reachable by anyone; discloses only the queried address's own balance.
+defindex-strategy::balance | UNGATED-MUTATOR | INV-AUTH-03, INV-STOR-01 | Read-only balance query, conservatively classified: the only storage write the checker can reach is the stale-pointer cleanup in resolve_vault_account, which this path enters with clear_if_gone = false. Reachable by anyone; returns only the queried address's balance.
 #
 # ---------------------------------------------------------------------------
 # position-nft
 #
-# Both entrypoints require_auth the controller address stored at construction
-# (set once, no setter). The checker classifies them caller-auth because it
-# cannot prove which address the stored value names; in practice only the
-# controller's own cross-contract invocation ever satisfies the auth.
+# All three entrypoints require_auth the controller address stored at
+# construction (set once, no setter). The checker classifies them caller-auth
+# because it cannot prove which address the stored value names; in practice
+# only the controller's own cross-contract invocation satisfies the auth.
 # ---------------------------------------------------------------------------
 position-nft::mint | caller-auth | INV-AUTH-01 | Any address may invoke, but require_auth on the construction-time controller address means only the controller's own invocation passes; a third party cannot mint, so token supply moves only with controller account creation.
-position-nft::burn | caller-auth | INV-AUTH-01, INV-STOR-01 | Any address may invoke, but require_auth on the construction-time controller address means only the controller's own invocation passes; a third party cannot burn, and the controller burns only after removing the account's emptied state.
+position-nft::burn | caller-auth | INV-AUTH-01, INV-STOR-01 | Any address may invoke, but require_auth on the construction-time controller address means only the controller's own invocation passes; a third party cannot burn, and the controller burns only after it deletes the account's entries.
 position-nft::upgrade | caller-auth | INV-AUTH-01 | Any address may invoke, but require_auth on the construction-time controller address means only the controller's own invocation passes; on mainnet that path is the owner-gated upgrade_position_nft behind the governance sensitive timelock, mirroring the pool upgrade chain.

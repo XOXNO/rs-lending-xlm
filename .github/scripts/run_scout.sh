@@ -38,15 +38,13 @@ printf DONOTTRACK >"$HOME/.scout-audit/telemetry/user_id.txt"
 export SOROBAN_SDK_BUILD_SYSTEM_SUPPORTS_SPEC_SHAKING_V2=1
 
 # Stage a source-only copy of the repository. The file list comes from git
-# (tracked + untracked, minus .gitignore), so build outputs -- target/,
-# target-verify/, .worktrees/, test_snapshots/, mutants.out/ -- are excluded by
-# the same rules the repository already declares, and uncommitted working-tree
-# changes are still audited.
+# (tracked and untracked files, minus .gitignore), so build outputs such as
+# target/, test_snapshots/ and mutants.out/ stay out, and uncommitted
+# working-tree changes are still audited.
 #
-# Do NOT go back to `tar --exclude` here: bsdtar/libarchive strips the leading
-# './' from each stored path before matching, so '*/target' matches
-# 'sub/target' but NOT the top-level 'target'. That silently staged the entire
-# 38 GB build cache and exhausted the disk on macOS.
+# Do not use `tar --exclude` here: bsdtar strips the leading './' before it
+# matches, so '*/target' misses the top-level 'target' and the whole build
+# cache gets staged.
 git ls-files -z --cached --others --exclude-standard >"$file_list"
 if [ ! -s "$file_list" ]; then
   echo "Refusing to run: git produced an empty source file list" >&2
