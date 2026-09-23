@@ -17,9 +17,8 @@ pub struct MarketIndexView {
 
     pub valid: bool,
 
-    /// `OracleError` discriminant behind an invalid price, when the contract
-    /// reports one. `None` both when the price is healthy and when reading an
-    /// aggregator that predates the field, so it never fails a decode.
+    /// `OracleError` discriminant behind an invalid price. `None` when the price is
+    /// valid or the row has no `error_code` field, so the field never fails a decode.
     pub error_code: Option<u32>,
 }
 
@@ -163,15 +162,13 @@ mod tests {
         assert!(!decoded[0].stale);
         assert!(decoded[0].deviation);
         assert!(!decoded[0].valid);
-        // This row carries no `error_code` key at all, which is what an
-        // aggregator predating the field returns. It must decode, not fail.
+        // A row without an `error_code` key must decode.
         assert_eq!(decoded[0].error_code, None);
     }
 
-    /// `error_code` is the only field that reports why an invalid price failed:
-    /// a resolution error zeroes `stale` and `deviation`, so a row can say
-    /// "not stale, no deviation, not valid" and still be a staleness failure.
-    /// Soroban encodes `Option<u32>` as `U32` or `Void`, and both must decode.
+    /// Decodes `error_code` from `U32` and `Void`, the encodings of `Option<u32>`.
+    /// A resolution error zeroes `stale` and `deviation`, so only the code names
+    /// the cause.
     #[test]
     fn decodes_market_index_error_code() {
         let with_code = |code: ScVal| {
@@ -192,7 +189,7 @@ mod tests {
             decode_market_indexes(&vec).unwrap()
         };
 
-        // PriceFeedStale, the mainnet BTC-reference failure.
+        // 206 is `PriceFeedStale`.
         let some = with_code(ScVal::U32(206));
         assert_eq!(some[0].error_code, Some(206));
         assert!(

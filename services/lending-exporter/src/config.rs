@@ -106,9 +106,8 @@ impl ExporterConfig {
         Ok(cfg)
     }
 
-    /// Deployment-specific addresses stay outside the immutable image. This is
-    /// primarily for mainnet, whose controller is intentionally not committed
-    /// before deployment.
+    /// Applies the `EXPORTER_*` environment overrides to the RPC URL and contract
+    /// addresses. An empty value keeps a required field and clears an optional one.
     fn apply_environment_overrides(&mut self) {
         override_nonempty("EXPORTER_RPC_URL", &mut self.rpc.url);
         override_nonempty("EXPORTER_CONTROLLER", &mut self.contracts.controller);
@@ -294,13 +293,11 @@ mod tests {
         );
     }
 
-    /// The shipped configs are what actually runs, but nothing parsed them, so
-    /// drift shipped silently: mainnet.yaml had lost five live markets, still
-    /// listed six deferred ones, and had no name for spoke 9 — which renders as
-    /// a bare "Spoke 9" in the graph via the `spoke_name` fallback.
+    /// Parses each shipped config and checks that every market hub and scraped
+    /// spoke has a display name, so none renders through a `hub_name` or
+    /// `spoke_name` fallback.
     ///
-    /// Parses without `validate()`, so a parse or label regression is reported
-    /// on its own rather than behind an address error.
+    /// Skips `validate()`, so an address error cannot hide a parse or label failure.
     #[test]
     fn shipped_configs_parse_and_label_every_hub_and_spoke() {
         for name in ["mainnet", "testnet"] {
@@ -329,11 +326,9 @@ mod tests {
         }
     }
 
-    /// `get_spoke` and `get_spoke_asset` take the id the controller returned at
-    /// creation, not the id the config file used. The two diverge on mainnet,
-    /// where deferring config spoke 3 shifted every later spoke down by one.
-    /// Shipping config ids scraped a live spoke under a neighbour's name and
-    /// asked for one id that does not exist — both silent in the metrics.
+    /// Checks that every shipped spoke and hub id is an on-chain id in
+    /// `configs/networks.json`. `get_spoke` and `get_spoke_asset` take the id the
+    /// controller returned at creation, which differs from the config id on mainnet.
     #[test]
     fn shipped_spoke_and_hub_ids_are_the_on_chain_ids() {
         // YAML is a superset of JSON, so the existing parser reads networks.json.

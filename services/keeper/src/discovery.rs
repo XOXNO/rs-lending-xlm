@@ -129,10 +129,8 @@ pub async fn snapshot(
     let last_hub_id =
         lookup_scalar(&instance, ControllerInstanceKey::LastHubId, scval_u32)?.unwrap_or(0);
 
-    // Account ids are position-NFT token ids. The controller keeps no counter of
-    // its own, so the id ceiling comes from the NFT's sequential counter, which
-    // holds the NEXT free id. Ids are never reused, so scanning 1..=max_account_id
-    // covers every account that has ever existed.
+    // Account ids are position-NFT token ids and are never reused, so
+    // `1..=max_account_id` covers every account that has ever existed.
     let position_nft_id = lookup_scalar(
         &instance,
         ControllerInstanceKey::PositionNft,
@@ -140,12 +138,10 @@ pub async fn snapshot(
     )?;
     let max_account_id = match position_nft_id {
         Some(nft_id) => {
-            // Read through the ledger-entry path, not get_contract_instance:
-            // an archived NFT instance is exactly the state this tick has to
-            // repair, and a hard error here would abort discovery before
-            // plan_restores ever sees the row, so the contract could never be
-            // restored. A missing instance yields no counter, which stops the
-            // user scan for this tick while the restore is planned below.
+            // Read through `get_ledger_entries`, not `get_contract_instance`,
+            // which errors when the RPC returns no instance and would abort the
+            // whole tick. A missing instance yields no counter and skips the
+            // user scan for this tick.
             let rows = client
                 .get_ledger_entries(&[contract_instance_key(&nft_id)])
                 .await?;
@@ -166,7 +162,7 @@ pub async fn snapshot(
                 None => {
                     warn!(
                         target: "keeper.discovery",
-                        "position-NFT instance or its token counter is unreadable (archived?) — user account keys skipped this tick; a restore is planned if the instance is archived"
+                        "position-NFT instance or its token counter is unreadable (archived?) — user account keys skipped this tick"
                     );
                     0
                 }
@@ -212,11 +208,9 @@ pub async fn snapshot(
         }
     }
 
-    // The aggregator's own `OracleKeys` index is the authoritative set of stored
-    // `PriceKey`s. Reading it covers `Ref` rows, which no market-address list can
-    // produce, and drops rows for assets the aggregator never registered.
-    // Falling back to the configured markets keeps a stale or unreadable index
-    // from silently dropping oracle coverage to nothing.
+    // `OracleKeys` lists every stored `PriceKey`, including `Ref` rows that no
+    // market list can produce. A missing index or an unreadable aggregator
+    // instance falls back to the configured markets; a malformed index is an error.
     if let Some(aggregator_id) = &ids.price_aggregator {
         let registered = match client.get_contract_instance(aggregator_id).await {
             Ok(agg_instance) => lookup_oracle_keys(&agg_instance)?,
@@ -763,7 +757,7 @@ async fn discover_user_keys(
             cursor
         }
     };
-    // Wrap so successive ticks cover every id in ceil(nonce / window) rounds.
+    // Wrap so successive ticks cover every id in ceil(max_account_id / window) rounds.
     let ids: Vec<u64> = (0..window)
         .map(|offset| (start - 1 + offset) % max_account_id + 1)
         .collect();
@@ -792,8 +786,6 @@ async fn discover_user_keys(
             keys.push(ControllerUserKey::SupplyPositions(id).to_ledger_key(controller_id)?);
             keys.push(ControllerUserKey::BorrowPositions(id).to_ledger_key(controller_id)?);
             keys.push(ControllerUserKey::Delegates(id).to_ledger_key(controller_id)?);
-            // The NFT `Owner` entry carries a shorter TTL than the controller's
-            // account keys, so it archives first unless it is renewed too.
             if let (Some(nft_id), Ok(token_id)) = (position_nft_id.as_ref(), u32::try_from(id)) {
                 keys.push(PositionNftUserKey::Owner(token_id).to_ledger_key(nft_id)?);
             }
@@ -906,15 +898,11 @@ fn plan_instance_keys(
     }
 }
 
-/// Maps an instance's executable to the Wasm hash whose `ContractCode` entry the
-/// keeper must keep alive.
+/// Returns the Wasm hash whose `ContractCode` entry the keeper keeps alive.
 ///
-/// A `StellarAsset` executable has no code entry, so `None` is simply correct. A
-/// CAP-83 `ExternalRef` has no code hash either — the executable hangs off
-/// `executable_owner` rather than a hash-keyed entry — but unlike a SAC it means a
-/// contract we are responsible for now uses a TTL model this keeper does not cover.
-/// Return `None` so the remaining entries still get extended, and warn so an
-/// operator learns about it before the entry expires rather than after.
+/// A `StellarAsset` executable has no code entry. A CAP-83 `ExternalRef` has no
+/// code hash either (its code hangs off `executable_owner`), so it returns `None`
+/// and warns: that contract's code TTL is outside keeper coverage.
 fn wasm_hash_from_executable(executable: &ContractExecutable) -> Option<[u8; 32]> {
     match executable {
         ContractExecutable::Wasm(Hash(bytes)) => Some(*bytes),
@@ -957,7 +945,7 @@ fn wasm_hash_from_instance_row(row: &LedgerEntryQuery) -> Option<[u8; 32]> {
 /// Converts the position-NFT sequential counter into the largest account id
 /// that can exist.
 ///
-/// The counter holds the NEXT free token id, and the NFT constructor consumes
+/// The counter holds the next free token id, and the NFT constructor consumes
 /// id 0 as the controller's "new account" sentinel, so the largest usable id is
 /// one below the counter. Saturates so an unset counter reports no accounts
 /// rather than underflowing.
@@ -1182,9 +1170,8 @@ mod tests {
         );
     }
 
-    /// A missing index must read as "unknown" so the caller falls back to the
-    /// configured markets. Returning an empty set here would silently drop every
-    /// oracle row from renewal — the exact failure this rewrite fixes.
+    /// A missing index reads as "unknown" so the caller falls back to the
+    /// configured markets. An empty set would drop every oracle row from renewal.
     #[test]
     fn a_missing_oracle_keys_index_is_none_not_empty() {
         let instance = instance_with("SomethingElse", ScVal::U32(1));
@@ -1201,9 +1188,8 @@ mod tests {
         assert!(lookup_oracle_keys(&instance).is_err());
     }
 
-    /// An absent or archived row must not resolve to a counter. The tick has to
-    /// survive it: aborting here would stop discovery before a restore for the
-    /// NFT instance could be planned, so the contract could never come back.
+    /// An absent NFT instance row resolves to no counter, so the tick continues
+    /// with no user scan instead of failing.
     #[test]
     fn an_archived_nft_instance_yields_no_counter() {
         let absent = LedgerEntryQuery {
@@ -1307,10 +1293,8 @@ mod tests {
         );
     }
 
-    /// The sequential counter holds the NEXT free token id, and the NFT
-    /// constructor consumes id 0 as the controller's "new account" sentinel.
-    /// So the largest usable account id is `counter - 1`, and a protocol with
-    /// no accounts yet reports 0 rather than underflowing.
+    /// The largest usable account id is `counter - 1`; a counter of 0 or 1
+    /// reports 0 accounts.
     #[test]
     fn max_account_id_is_one_below_the_next_free_token_id() {
         let max = max_account_id_from_counter;

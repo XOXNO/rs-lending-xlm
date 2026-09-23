@@ -14,14 +14,12 @@
 groups:
   - name: lending-protocol
     rules:
-      # Budgets range from 1h (Reflector legs) to 26h (RedStone factor legs), and
-      # the slow legs legitimately spend most of their budget between pushes, so
-      # any fixed-seconds or half-budget threshold pages in normal operation.
-      # Warn once, at the last 10% of the budget, and page only when the leg is
-      # actually rejected on-chain. On a 1h leg 10% is six minutes, so this
-      # warning is mostly for the multi-hour legs; the critical below is the
-      # real signal for the fast ones.
-      # The 26h legs are excluded: an on-time 24h push leaves 7.7%, under this
+      # Leg budgets run from 1h (Reflector legs) to 26h (RedStone factor legs).
+      # Slow legs spend most of their budget between pushes, so a fixed-seconds
+      # or half-budget threshold pages in normal operation. This rule warns in the
+      # last 10% of the budget. On a 1h leg that is six minutes, so for fast legs
+      # LendingOracleStaleCritical is the signal.
+      # 26h legs are excluded: an on-time 24h push leaves 7.7%, under this
       # threshold. LendingOracleDailyPushLate covers them.
       - alert: LendingOracleFreshnessLow
         expr: lending_oracle_seconds_until_stale / lending_oracle_effective_max_stale_seconds < 0.10 and lending_oracle_seconds_until_stale > 0 and lending_oracle_effective_max_stale_seconds > 0 and lending_oracle_effective_max_stale_seconds < 90000
@@ -60,8 +58,8 @@ groups:
 
 
       # valid=0 is the impact; stale=1 and deviation=1 are two of its causes, and
-      # a resolution error zeroes both flags. One page per event, with the reason
-      # read from the status table, replaces three criticals for the same fault.
+      # a resolution error zeroes both flags. One page per fault; the Error column
+      # of the 'Oracle status by asset' panel names the cause.
       - alert: LendingOracleUnhealthy
         expr: lending_oracle_healthy == 0
         for: 5m
@@ -70,12 +68,11 @@ groups:
           summary: "Oracle soft status invalid for {{ $labels.symbol }} ({{ $labels.network }})"
           description: "MarketIndexView.valid=0 — price is stale, out of dual-source band, outside sanity, unreadable, or the index view failed. Soft path does not revert; solvency-style use is blocked. The Error column of the 'Oracle status by asset' panel names the cause."
 
-      # lending_oracle_tolerance_*_bps is the configured ratio in bps (10500 means
-      # the primary may sit 5% above the anchor, 9524 means 5% below), while
-      # lending_oracle_deviation_bps is an unsigned width (|p-a|/a). Comparing
-      # them raw needs an 84% gap to fire, so the rule was dead. The width the
-      # chain enforces is the tighter of the two sides; `(A < B) or B` is the
-      # element-wise minimum. LP markets carry a 0/0 band and are excluded.
+      # lending_oracle_tolerance_*_bps is a ratio in bps (10500 lets the primary
+      # sit 5% above the anchor, 9524 lets it sit 4.76% below), while
+      # lending_oracle_deviation_bps is an unsigned width (|p-a|/a). The rule
+      # converts each ratio to a width and uses the tighter side; `(A < B) or B`
+      # is the element-wise minimum. LP markets carry a 0/0 band and are excluded.
       - alert: LendingOracleDeviationHigh
         expr: lending_oracle_deviation_bps > 0.8 * (((lending_oracle_tolerance_upper_bps - 10000) < (10000 - lending_oracle_tolerance_lower_bps)) or (10000 - lending_oracle_tolerance_lower_bps)) and lending_oracle_tolerance_upper_bps > 10000
         for: 5m
@@ -90,7 +87,7 @@ groups:
         labels: { severity: critical }
         annotations:
           summary: "Lending exporter has not completed a scrape ({{ $labels.network }})"
-          description: "No successful scrape for 5 minutes (30× the mainnet 10s interval, 10× the testnet 30s one); dashboard data and every rule above are going blind."
+          description: "No successful scrape for 5 minutes (10× the 30s scrape interval); dashboard data and every rule above are going blind."
 
       - alert: LendingExporterDown
         expr: up{job=~"stellar-lending-exporter.*"} == 0
@@ -100,12 +97,10 @@ groups:
           summary: "Lending exporter target is down ({{ $labels.job }})"
           description: "Prometheus cannot scrape the exporter."
 
-      # `network` comes from the exporter's own config, not from the scrape
-      # config, so a deployment that mounts the wrong config file relabels its
-      # data instead of failing. Every query keeps working, the other network
-      # simply stops existing, and the silence is indistinguishable from health.
-      # `job` is the only independent witness of which deployment a series came
-      # from, so this is the one rule that compares the two.
+      # `network` comes from the exporter's config, not the scrape config, so a
+      # deployment that mounts the wrong config file relabels its data instead
+      # of failing, and the other network goes silent. `job` is the only
+      # independent record of the deployment; this rule compares the two.
       - alert: LendingExporterNetworkMismatch
         expr: |
           lending_exporter_build_info{job=~".*-testnet", network!="testnet"}
@@ -117,9 +112,9 @@ groups:
           summary: "Exporter {{ $labels.job }} reports network={{ $labels.network }}"
           description: "The scrape job and the exporter's self-reported network disagree, so this deployment is reading a chain it is not named for. Alerts and panels for {{ $labels.network }} may be mixing two exporters, and the other network has no series at all. Check which config file this container mounts."
 
-      # A network that stops reporting entirely is invisible to every other rule
-      # here: they all filter on series that no longer exist. Absence has to be
-      # asserted against a constant, never inferred from a missing result.
+      # A network that stops reporting is invisible to every other rule here:
+      # they all filter on series that no longer exist. Assert absence against a
+      # constant; never infer it from a missing result.
       - alert: LendingExporterNetworkMissing
         expr: absent(lending_exporter_build_info{network="mainnet"})
         for: 10m
@@ -128,9 +123,8 @@ groups:
           summary: "No exporter is reporting network=mainnet"
           description: "No series carries network=mainnet, so every mainnet oracle and market alert is evaluating an empty set and cannot fire. Either the mainnet exporter is gone or it is reporting under a different network label."
 
-      # `increase(...) > 0` stays true for the whole window after one error, so
-      # a single transient RPC failure paged 10 minutes later. Require five
-      # failures of one op inside fifteen minutes before it counts as sustained.
+      # Five failures of one op inside 15 minutes count as sustained;
+      # `increase(...) > 0` stays true for the whole window after one error.
       - alert: LendingRpcErrors
         expr: increase(lending_exporter_rpc_errors_total[15m]) >= 5
         for: 5m
@@ -156,15 +150,13 @@ groups:
           description: "Supply/borrow cap is nearly exhausted for this spoke-asset."
 
       # A cap of 0 is an enforced ceiling, not an "uncapped" sentinel, and caps
-      # are orthogonal to the enable flags by design. A closed side therefore
-      # still reads as an enabled listing everywhere else on the board, and its
-      # cap-utilization series is absent rather than pinned — these two rules are
-      # the only thing that distinguishes it from a healthy idle market.
-      # `on(...)` pins the join to the identifying labels, so a hub or symbol
-      # display-name change cannot break the match.
-      # `unless` drops deprecated spokes: winding one down by zeroing its caps
-      # while leaving the flags set is exactly the intentional case, and without
-      # this it would alert forever.
+      # are independent of the enable flags. A closed side still shows as an
+      # enabled listing and publishes no cap utilization, so these two rules are
+      # the only signal that separates it from a healthy idle market.
+      # `on(...)` joins on the identifying labels, so a display-name change
+      # (`spoke`, `hub`, `symbol`) cannot break the match.
+      # `unless` drops deprecated spokes: zeroing the caps of a deprecated spoke
+      # while its flags stay set is the intended wind-down.
       - alert: LendingSpokeSupplyClosedWhileCollateralEnabled
         expr: lending_spoke_supply_closed == 1 and on(network, spoke_id, hub_id, asset) lending_spoke_collateral_enabled == 1 unless on(network, spoke_id, hub_id, asset) lending_spoke_deprecated == 1
         for: 15m
@@ -181,9 +173,10 @@ groups:
           summary: "Spoke {{ $labels.spoke_id }} borrowing for {{ $labels.symbol }} is closed but still flagged borrowable ({{ $labels.network }})"
           description: "borrow_cap is 0, so no new borrows are accepted, while is_borrowable is still set, and the spoke is not deprecated. Either the cap was never configured, or the spoke should be marked deprecated."
 
-      # Without this the closed-market rules above go SILENT under ABI skew: a
-      # decode failure drops the whole spoke-asset row, and PromQL `and` on an
-      # absent series never fires. The counter is then the only signal.
+      # A `get_spoke_asset` decode failure (ABI skew) stops updates for that
+      # spoke-asset: its series keep their last values, or are absent after an
+      # exporter restart. The closed-market and cap rules above then evaluate
+      # old data or nothing, so this counter is the only signal.
       - alert: LendingExporterViewFailures
         expr: increase(lending_exporter_view_failures_total[15m]) >= 3
         for: 5m
@@ -200,9 +193,8 @@ groups:
           summary: "Exporter cannot decode get_spoke_asset ({{ $labels.network }})"
           description: "Usually contract/exporter ABI skew during a rolling deploy. Every spoke-asset series is missing while this persists, so closed-market and cap-utilization alerting is blind."
 
-      # With no debt the indexes do not move, so an idle market that nobody
-      # touches for a day is not a stalled keeper. Only markets with borrows
-      # have interest to checkpoint.
+      # With no debt no interest accrues, so an idle market that nobody touches
+      # for a day is not a stalled keeper. Only markets with borrows are checked.
       - alert: LendingAccrualStalled
         expr: (time() - lending_market_last_accrual_timestamp) > 86400 and on(network, hub_id, asset) lending_market_borrowed_total > 0
         for: 30m

@@ -161,8 +161,7 @@ fn default_hub_id() -> u32 {
     1
 }
 
-/// Accepts `url: <string>` and `urls: [<string>, ...]` as the same field, so
-/// adding a fallback endpoint does not invalidate a deployed config file.
+/// Deserializes either one string or a list of strings into a list.
 fn one_or_many<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -244,10 +243,9 @@ impl KeeperConfig {
                 ));
             }
         }
-        // Parse here, not on the tick: a malformed entry must stop the boot the
-        // way a bad governance or adapter id does, not silently fail every
-        // snapshot afterwards. A repeat of an id already kept alive would put
-        // the same key twice into one footprint.
+        // Parse at load so a malformed entry stops the boot instead of failing
+        // every snapshot. A repeated id would put the same key twice into one
+        // footprint.
         let mut kept: std::collections::HashSet<&str> = [
             Some(self.contracts.controller.as_str()),
             self.contracts.flash_loan_receiver.as_deref(),
@@ -320,13 +318,8 @@ pub const LEDGERS_PER_DAY: u32 = 17_280;
 mod tests {
     use super::*;
 
-    /// The shipped config files are deployed as-is, and nothing else in the
-    /// build reads them. Parse every one of them here, so a YAML edit cannot
-    /// reach a running keeper untested.
-    ///
-    /// This asserts the file shape, not `validate()`: `config/testnet.yaml`
-    /// declares markets with no `price_aggregator` and fails validation today,
-    /// which is a defect in that file rather than in the parser.
+    /// The shipped mainnet config validates; a malformed or repeated
+    /// `extra_instances` entry fails validation.
     #[test]
     fn extra_instances_fail_at_boot_when_malformed_or_repeated() {
         let raw =
@@ -351,6 +344,10 @@ mod tests {
         );
     }
 
+    /// Every shipped config file parses with at least one RPC endpoint.
+    ///
+    /// This checks the file shape, not `validate()`: `config/testnet.yaml`
+    /// declares markets with no `price_aggregator` and fails validation.
     #[test]
     fn shipped_configs_parse_with_an_rpc_endpoint() {
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("config");
@@ -417,13 +414,8 @@ mod tests {
         serde_yaml::from_str(&yaml).expect("parse ContractsConfig")
     }
 
-    /// The flash-loan receiver is a testnet demo contract; mainnet never
-    /// deploys one. It used to be a required `String` validated to start with
-    /// `C`, so an unset receiver failed config load outright and `prepay_rent`
-    /// could not run on mainnet at all. It is optional now, like `governance`
-    /// and `price_aggregator`, and both "absent" spellings have to parse: the
-    /// key omitted entirely, and the key present but empty (which is what the
-    /// Makefile used to emit from an empty `networks.json` field).
+    /// The flash-loan receiver is optional (mainnet deploys none). Both absent
+    /// spellings parse as `None`: the key omitted, and the key present but empty.
     #[test]
     fn an_absent_flash_loan_receiver_parses() {
         assert_eq!(contracts("").flash_loan_receiver, None);

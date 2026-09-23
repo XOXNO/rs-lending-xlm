@@ -2,9 +2,10 @@
 
 Soroban contract storage has time-to-live (TTL). When TTL lapses, entries
 archive and must be restored before contract calls can use them again. This
-service keeps XOXNO Lending storage, instances, and WASM code entries alive by
-extending TTL before the configured safety margin and restoring archived entries
-it discovers.
+service keeps XOXNO Lending storage, instances, and WASM code entries alive. It
+extends each discovered entry whose remaining TTL is below
+`schedule.ttl_safety_margin_days`, and restores each discovered entry whose TTL
+has lapsed.
 
 `services/keeper` is a separate Rust workspace.
 
@@ -17,28 +18,41 @@ Each TTL tick discovers:
 - Price-aggregator persistent `Oracle(PriceKey)` rows when `contracts.price_aggregator`
   is set. The set comes from the aggregator's own `OracleKeys` instance index, so it
   covers `Ref` rows such as the `Ref("BTC")` reference, which no list of market
-  addresses can produce. If the index is unreadable the scan falls back to the
-  configured markets rather than renewing nothing.
-- Controller persistent `Spoke(id)` rows for `1..=LastSpokeId`.
+  addresses can produce. If the aggregator instance is unreadable or has no
+  index, the scan falls back to the configured markets rather than renewing
+  nothing. A malformed index fails the tick.
+- Price-aggregator instance and WASM when `contracts.price_aggregator` is set.
+- Controller persistent `Hub(id)` rows for `1..=LastHubId` and `Spoke(id)` rows
+  for `1..=LastSpokeId`.
 - Controller per-user persistent keys: `AccountMeta(id)`, `SupplyPositions(id)`,
   `BorrowPositions(id)`, `Delegates(id)`, plus the position-NFT `Owner(id)` key.
-  Account ids are position-NFT token ids, so the scan covers `1..=max_account_id`
-  where `max_account_id` is one below the NFT's sequential counter.
+  Account ids are position-NFT token ids in `1..=max_account_id`, where
+  `max_account_id` is one below the NFT's sequential counter. Each discovery
+  pass (boot, TTL tick, index tick) scans a window of at most
+  `schedule.max_accounts_scan` ids (default 50,000). The window moves forward on
+  each pass and wraps, so a full cycle takes
+  `ceil(max_account_id / max_accounts_scan)` passes. Set `schedule.scan_users`
+  to `false` to turn the scan off.
 - Controller access-control persistent keys when present:
   `ExistingRoles`, `RoleAccountsCount`, `RoleAccounts`, `HasRole`, `RoleAdmin`.
 - Governance instance and governance role-holder keys when `contracts.governance`
   is configured.
-- Pool instance, flash-loan receiver instance, controller WASM, configured
-  `pool_wasm_hash`, live pool WASM, and flash-loan receiver WASM.
+- Pool and position-NFT instances; the flash-loan receiver instance when
+  configured.
+- Controller WASM, configured `pool_wasm_hash`, live pool WASM, position-NFT
+  WASM, and flash-loan receiver WASM.
 - Pool persistent `Params(HubAssetKey)` and `State(HubAssetKey)` rows for
   configured markets.
+- XOXNO oracle adapter instance, WASM, and persistent asset, feed and signer
+  keys when `contracts.xoxno_oracle_adapter` is set.
+- Each `contracts.extra_instances` instance and its WASM.
 
-The current protocol does not have controller `KEEPER`, `REVENUE`, or `ORACLE`
-roles (see central implementation facts and governance access control). Governance
-role keys are discovered from `ExistingRoles`; expected governance roles are
-`PROPOSER`, `EXECUTOR`, `CANCELLER`, `ORACLE`, and `GUARDIAN`. The
-controller/pool/governance boundary and role model live in the contract
-rustdoc and [`skills/xoxno-lending/SKILL.md`](../../skills/xoxno-lending/SKILL.md).
+The controller defines no access-control roles. Governance role keys are
+discovered from the governance `ExistingRoles` entry. Governance defines the
+roles `PROPOSER`, `EXECUTOR`, `CANCELLER`, `ORACLE`, and `GUARDIAN`
+(`contracts/governance/src/access.rs`). The controller/pool/governance boundary
+and role model live in the contract rustdoc and
+[`skills/xoxno-lending/SKILL.md`](../../skills/xoxno-lending/SKILL.md).
 
 ## Market Configuration
 
@@ -48,14 +62,15 @@ Use `contracts.markets` for current protocol storage keys:
 contracts:
   controller: C...
   pool_wasm_hash: "..."
-  flash_loan_receiver: C...
-  governance: C...
+  flash_loan_receiver: C...  # optional
+  governance: C...           # optional
+  price_aggregator: C...     # required when markets are configured
   markets:
     - hub_id: 1
       asset: C...
 ```
 
-`contracts.market_assets` remains as a legacy shorthand. Each entry maps to
+`contracts.market_assets` is a legacy shorthand. Each entry maps to
 `hub_id = 1`. Prefer `contracts.markets` because pool storage keys are encoded
 as `HubAssetKey { hub_id, asset }`.
 
@@ -67,8 +82,11 @@ The optional index loop calls:
 controller.update_indexes(caller, Vec<HubAssetKey>)
 ```
 
-The caller signs the transaction. The current controller does not require a
-keeper role for this call. The loop is disabled by default:
+The keeper signer is the transaction source and the `caller`. The controller
+calls `caller.require_auth()` and checks no role. When the loop is enabled, boot
+simulates `update_indexes` with an empty asset list and aborts if the simulation
+fails. `--skip-role-check` skips that simulation. The loop is disabled by
+default:
 
 ```yaml
 schedule:
@@ -80,7 +98,7 @@ schedule:
 When `contracts.governance` is set, keeper also keeps governance alive.
 Governance stores `Controller`, `PriceAggregator`, ownable `Owner`,
 access-control `Admin`, and timelock `MinDelay` in instance storage, so the
-governance instance bump covers them. `RoleAdmin` is **persistent**
+governance instance bump covers them. `RoleAdmin` is persistent
 (`stellar-access` `access_control/storage.rs:518-520`); the keeper renews it with
 the other access-control keys.
 
@@ -88,31 +106,34 @@ Timelock `OperationLedger(BytesN<32>)` keys are persistent but not enumerable
 from contract storage, so the keeper skips them. Event tracking would be needed
 to renew them directly.
 
-Cancel removes the entry. Execute does **not**: it rewrites the entry to the
-`DONE_LEDGER` sentinel and keeps it
+Cancel removes the entry. Execute keeps it: it rewrites the entry to the
+`DONE_LEDGER` sentinel
 (`stellar-governance` `timelock/storage.rs:341-342`, `:381-382`). An executed
 operation therefore leaves a permanent persistent entry that nothing renews.
 That entry is what `is_operation_done` reads, and `execute` rejects a chained
 operation with `UnexecutedPredecessor` when its predecessor is not done
 (`timelock/storage.rs:337-338`). If the done-marker of a predecessor has
 archived, the chained operation is blocked until the marker is restored. Pending
-operations are safe: they resolve within `min_delay`, far inside normal TTL
-windows.
+operations also need TTL coverage through their tier-specific delay and execution
+window; becoming ready neither executes nor renews them. The keeper does not
+renew these entries.
 
 ## Coverage Table
 
 | Class | Tier | Source | Renewed |
 | --- | --- | --- | --- |
 | Controller instance | instance | configured controller | yes |
-| Price-aggregator `Oracle(PriceKey)` — token **and** `Ref` rows | persistent | the aggregator's own `OracleKeys` index, falling back to configured markets | yes |
-| Controller `Spoke(id)` | persistent | `LastSpokeId` | yes |
+| Price-aggregator `Oracle(PriceKey)`: token and `Ref` rows | persistent | the aggregator's own `OracleKeys` index, falling back to configured markets | yes |
+| Controller `Hub(id)` / `Spoke(id)` | persistent | `LastHubId` / `LastSpokeId` | yes |
 | Account state (`AccountMeta` / `SupplyPositions` / `BorrowPositions` / `Delegates`) | persistent | position-NFT counter scan | yes |
-| Account ownership (`Owner(token_id)` on the position NFT) | persistent | position-NFT counter scan | yes, grouped under `per_user` in the metrics — this entry has a 30-day OpenZeppelin TTL against the controller's 120-day window, so it archives first if unrenewed |
+| Account ownership (`Owner(token_id)` on the position NFT) | persistent | position-NFT counter scan | yes, in the `per_user` metrics group. OpenZeppelin extends it to 30 days and the controller extends account keys to 120 days, so it archives first if unrenewed |
 | Controller access-control keys | persistent | `ExistingRoles` | yes, when present |
+| Controller `SpokeAsset`, `SpokeUsage`, `SpokeFlagsEpoch`, `PositionManager`, `BlendPoolAllowed` | persistent | not discovered | no; renewed only when a contract call reads or writes them |
 | Pool `Params/State(HubAssetKey)` | persistent | configured markets | yes |
 | Governance instance | instance | configured governance | yes |
 | Governance role keys | persistent | `ExistingRoles` | yes, when configured |
-| Pool / receiver instances and WASM code | instance / code | instance reads | yes |
+| Pool / position-NFT / receiver / price-aggregator instances and WASM code | instance / code | instance reads | yes |
+| XOXNO oracle adapter instance, WASM and persistent keys | instance / code / persistent | configured `xoxno_oracle_adapter` | yes, when configured |
 | Third-party instances the protocol reads through (`contracts.extra_instances`: RedStone adapter, swap router) and their WASM code | instance / code | configured list | yes, when configured — nothing in the protocol writes these, so nothing else renews them |
 | Timelock `OperationLedger(BytesN<32>)` | persistent | event-only | no, documented gap |
 | Temporary keys | temporary | n/a | no, expire by design |
@@ -125,30 +146,34 @@ The keeper serves Prometheus metrics and a liveness probe on `metrics.bind`
     GET /metrics      Prometheus text exposition
     GET /health       liveness
 
-Storage state is published per `(contract, key group)`, never per ledger key.
-Account ids are never reused, so a series per key would add a permanent label
-value for every account ever opened; grouping holds the series count flat.
+Every series carries a constant `network` label from the config. Storage state
+is published per `(contract, key group)`, never per ledger key. Account ids are
+never reused, so a series per key would add a permanent label value for every
+account ever opened; grouping holds the series count flat.
 
 | metric | labels | meaning |
 | --- | --- | --- |
 | `keeper_entry_ttl_ledgers_min` | contract, group | lowest remaining TTL in the group — the pacing item |
-| `keeper_entries` | contract, group, state | entry counts; `state` is `live`, `expired` (TTL lapsed, restorable), `archived` (evicted) or `never_created` |
+| `keeper_entries` | contract, group, state | entry counts; `state` is `live`, `expired` (TTL lapsed, restorable) or `never_created` (the RPC returned no entry; an evicted entry that the RPC omits also lands here). The RPC client never produces the `archived` state |
 | `keeper_safety_margin_ledgers` | — | headroom below which the keeper extends |
 | `keeper_current_ledger` | — | ledger the last tick observed |
-| `keeper_last_tick_timestamp_seconds` | — | unix time of the last completed tick — how stale everything above is |
-| `keeper_sim_resource_fee_stroops` | kind | measured resource fee of the last simulated job |
+| `keeper_last_tick_timestamp_seconds` | — | unix time of the last completed discovery pass — how stale everything above is |
+| `keeper_sim_resource_fee_stroops` | kind | resource fee of the last simulated job, in stroops; set only with `--dry-run` |
 
 Divide a ledger count by `LEDGERS_PER_DAY` (17280) for days, or multiply by 5
 for seconds.
 
 A group reading zero `live` and non-zero `never_created` means the keeper is
-probing a key that does not exist. That is indistinguishable from "nothing to do" in every
-other metric, and is exactly how the price-aggregator oracle rows went unrenewed;
-`ops/grafana-dashboard.json` has a panel dedicated to it.
+probing a key that does not exist. No other metric shows this: it looks like
+"nothing to do". The "Key groups with nothing live" panel in
+`ops/grafana-dashboard.json` and the `KeeperKeyGroupUnreachable` rule in
+`ops/alerts.yml` watch for it.
 
-Gauges refresh once per TTL tick (`schedule.ttl_tick_seconds`, 6h on mainnet),
-and the first tick fires one full interval after boot — so they are blank for
-the first 6h after a restart and up to 6h stale thereafter.
+The keeper publishes the storage gauges at boot and after the discovery pass of
+every tick: each TTL tick (`schedule.ttl_tick_seconds`, 6h on mainnet) and, when
+enabled, each index tick. The gauges can be up to one TTL interval old. If the
+boot pass fails, they stay empty until the first scheduled tick, one full
+interval after boot.
 
 ## Layout
 
@@ -156,13 +181,19 @@ the first 6h after a restart and up to 6h stale thereafter.
 services/keeper/
 ├── Cargo.toml
 ├── Dockerfile
+├── docker-compose.example.yaml
 ├── config/
 │   ├── testnet.yaml
 │   ├── testnet-fast.yaml
 │   └── mainnet.yaml
+├── ops/
+│   ├── alerts.yml
+│   ├── grafana-dashboard.json
+│   └── prometheus.example.yml
 └── src/
     ├── main.rs
     ├── lib.rs
+    ├── classify.rs
     ├── config.rs
     ├── discovery.rs
     ├── keys.rs
@@ -201,17 +232,16 @@ Dry run against testnet with Azure Key Vault:
 
 ```bash
 AZURE_TENANT_ID=... AZURE_CLIENT_ID=... AZURE_CLIENT_SECRET=... \
-  cargo run --release -- --config config/testnet.yaml --dry-run
+  cargo run --release -- --config config/testnet-fast.yaml --dry-run
 ```
 
-Local development without Azure credentials:
+Local development without Azure credentials (use a dev mnemonic only):
 
 ```bash
-cargo run --release -- \
+KEEPER_MNEMONIC="<dev mnemonic>" cargo run --release -- \
   --config config/testnet-fast.yaml \
   --dry-run \
-  --skip-role-check \
-  --mnemonic "$(your dev mnemonic; never commit real one)"
+  --skip-role-check
 ```
 
 `testnet-fast.yaml` shortens tick cadence so a short run observes discovery and
@@ -229,29 +259,34 @@ Every `keeper-bot` flag has an environment fallback (`src/main.rs:24-41`).
 | `--mnemonic` | `KEEPER_MNEMONIC` | none | no; falls back to Key Vault |
 | `--skip-role-check` | `KEEPER_SKIP_ROLE_CHECK` | `false` | no |
 
-Key Vault credentials are read by `mx-keyvault` (`mx-keyvault-0.1.0/src/lib.rs:45-52`):
+Key Vault credentials are read by `mx-keyvault` (`mx-keyvault-0.1.0/src/lib.rs:45-51`).
+When all three `AZURE_*` credential variables are set, it uses the client-secret
+credential. Otherwise it falls back to the Azure CLI login, then the Azure
+Developer CLI login. The distroless image contains neither CLI, so a container
+needs all three variables.
 
 | Env var | Meaning | Default | Required |
 | --- | --- | --- | --- |
-| `AZURE_TENANT_ID` | Azure tenant for the client-secret credential | none | yes, unless managed identity is used |
-| `AZURE_CLIENT_ID` | Azure client id | none | yes, unless managed identity is used |
-| `AZURE_CLIENT_SECRET` | Azure client secret | none | yes, unless managed identity is used |
-| `AZURE_IDENTITY_DISABLE_MANAGED_IDENTITY_CREDENTIAL` | `1` or `true` forbids the managed-identity fallback, so a missing client secret fails the boot | unset (fallback allowed) | no |
+| `AZURE_TENANT_ID` | Azure tenant for the client-secret credential | none | yes, unless a CLI login is used |
+| `AZURE_CLIENT_ID` | Azure client id | none | yes, unless a CLI login is used |
+| `AZURE_CLIENT_SECRET` | Azure client secret | none | yes, unless a CLI login is used |
+| `AZURE_IDENTITY_DISABLE_MANAGED_IDENTITY_CREDENTIAL` | `1` or `true` (any case) forbids the CLI fallback, so a missing credential variable fails the boot | unset (fallback allowed) | no |
 
 `prepay_rent` reads one more variable:
 
 | Env var | Meaning | Default | Required |
 | --- | --- | --- | --- |
-| `PREPAY_SECRET` | `S...` seed that funds and signs the prepay transactions. The variable name itself is `--secret-env`. | name defaults to `PREPAY_SECRET`; the value has no default | yes, unless `--dry-run` |
+| `PREPAY_SECRET` | `S...` seed that funds and signs the prepay transactions. The variable name itself is `--secret-env`. | name defaults to `PREPAY_SECRET`; the value has no default | yes, also with `--dry-run` |
 
 `RUST_LOG` overrides `log.level` from the YAML config when it is set and parses
 as a filter directive; otherwise `log.level` applies. A value that does not
 parse on either side falls back to `info,keeper=debug` rather than failing
 startup (`log_filter_directive` in `src/main.rs`). The sibling
-`lending-exporter` reads `RUST_LOG` the same way.
+`lending-exporter` also lets a `RUST_LOG` that parses override `log.level`, but
+it has no fixed fallback filter.
 
 The network name comes from `network` in the YAML config, which is selected by
-`KEEPER_CONFIG`. There is no separate network environment variable.
+`--config` or `KEEPER_CONFIG`. There is no separate network environment variable.
 
 ## RPC Endpoints and Failover
 
@@ -259,7 +294,7 @@ The network name comes from `network` in the YAML config, which is selected by
 
 ```yaml
 rpc:
-  url: https://primary.example          # unchanged single-endpoint form
+  url: https://primary.example          # single-endpoint form
 ```
 
 ```yaml
@@ -276,7 +311,7 @@ answers. The endpoint that answers becomes the active one, so the submission
 that follows a read and a simulation goes to the same node, and later requests
 start there rather than walking the dead primary again.
 
-Transaction submission does **not** fail over. A send that fails after the
+Transaction submission does not fail over. A send that fails after the
 network accepted the transaction must not be replayed on a node that has not
 seen it yet; the job fails and the next tick rebuilds it. A failover logs
 `RPC failover` at `warn` on target `keeper.rpc`; a total outage fails the tick
@@ -288,18 +323,20 @@ with `... failed on all N RPC endpoints`.
   `/etc/keeper/testnet.yaml`): read-only. Prints the discovered surface and
   per-class TTL counts. Submits nothing.
 - `prove_permissionless --mnemonic <words> [--rpc …] [--passphrase …] [--controller …] [--derivation-path …]`:
-  submits a transaction to show that the call needs no keeper role.
+  submits one `ExtendFootprintTtl` on the controller instance to show that TTL
+  extension needs no contract role.
 - `prepay_rent --config <path> [--secret-env PREPAY_SECRET] [--dry-run]`:
-  **spends funds.** It discovers the whole keep-alive surface, plans every
-  restore and extend with no per-tick cap, and submits them one by one. The
-  signer is built from the `S...` seed in `$PREPAY_SECRET` (or in the variable
-  named by `--secret-env`), not from Key Vault. `--config` has no default here
-  and must be given. Use `--dry-run` first: it prints the planned transaction
-  counts and submits nothing.
+  spends funds. It runs one discovery pass, plans a restore for every lapsed
+  entry and an extend for every live entry, whatever its TTL, with no per-tick
+  cap, and submits them one by one. The per-user scan covers at most
+  `schedule.max_accounts_scan` ids. The signer is built from the `S...` seed in
+  `$PREPAY_SECRET` (or in the variable named by `--secret-env`), not from Key
+  Vault. `--config` (env `KEEPER_CONFIG`) has no default here. Use `--dry-run`
+  first: it prints the planned transaction counts and submits nothing.
 
 ```bash
 PREPAY_SECRET=S... cargo run --release --bin prepay_rent -- \
-  --config config/testnet.yaml --dry-run
+  --config config/testnet-fast.yaml --dry-run
 ```
 
 ## Operations
@@ -310,10 +347,10 @@ PREPAY_SECRET=S... cargo run --release --bin prepay_rent -- \
   without submitting.
 - `schedule.max_txs_per_tick`: caps transactions per tick.
 - `rpc.timeout_seconds`: caps submission polling.
-- SIGTERM/SIGINT: cancels in-flight ticks and waits up to 30 seconds for active
-  submissions to finish.
+- SIGTERM/SIGINT: stops new ticks, then waits up to 30 seconds for the running
+  tick and the metrics server to finish.
 
-Registered metrics (`src/metrics.rs:24-60`):
+Other registered metrics (`src/metrics.rs`):
 
 | Metric | Type | Labels | Meaning |
 | --- | --- | --- | --- |
@@ -321,12 +358,13 @@ Registered metrics (`src/metrics.rs:24-60`):
 | `keeper_sim_failures_total` | counter | `kind`, `reason` | Simulation failures by kind and bucketed reason. |
 | `keeper_jobs_planned_total` | counter | `loop` | Jobs planned per loop tick. |
 | `keeper_tick_failed_total` | counter | `loop` | Tick failures per loop. |
-| `keeper_entries_archived` | gauge | none | Discovered keep-alive entries that are archived and awaiting restore. |
+| `keeper_entries_archived` | gauge | none | Entries the last TTL tick planned to restore: TTL lapsed, value still readable (the `expired` state above). |
 | `keeper_max_account_id` | gauge | none | Highest position-NFT token id minted, i.e. the largest account id that can exist. `0` when the NFT address or its counter cannot be read. |
 
-Alert on keeper liveness (`keeper_tick_failed_total`) and on
-`keeper_entries_archived`. A silent keeper failure can become protocol downtime
-after TTL windows expire. Example rules live in `ops/alerts.yml`.
+Alert on tick failures (`keeper_tick_failed_total`), tick age
+(`keeper_last_tick_timestamp_seconds`) and `keeper_entries_archived`. A silent
+keeper failure can become protocol downtime after TTL windows expire. Example
+rules live in `ops/alerts.yml`.
 
 ## Docker
 
@@ -338,9 +376,9 @@ DOCKER_BUILDKIT=1 docker build -t keeper-bot:latest services/keeper
 ```
 
 The image sets `KEEPER_CONFIG=/etc/keeper/mainnet.yaml` and `RUST_LOG=info`.
-Both take effect; see Environment. A container started without an explicit
-`KEEPER_CONFIG` therefore runs against mainnet and spends the mainnet
-signer, so a testnet container must set the variable, as the example
+Both take effect (see CLI Flags and Environment). A container started without
+an explicit `KEEPER_CONFIG` therefore runs against mainnet and spends the
+mainnet signer, so a testnet container must set the variable, as the example
 Compose file does.
 The example Compose file publishes testnet on host port `9091` and mainnet on
 host port `9090`.
@@ -353,11 +391,15 @@ docker compose -f services/keeper/docker-compose.example.yaml up -d
 
 ## Open Items
 
-- Populate `config/mainnet.yaml` before mainnet deployment.
+- `config/testnet.yaml` lists markets but no `price_aggregator`, so config
+  validation rejects it. The testnet Compose service fails at boot until the
+  file sets `contracts.price_aggregator`.
 - The per-user scan reads the position-NFT sequential counter, which counts ids
-  ever minted, not live accounts. Burned ids are still scanned; their entries are
-  simply absent and cost one lookup each. Ids are never reused, so coverage is
-  correct, but the scan cost grows with total accounts created rather than with
-  accounts alive.
-- If `update_indexes` gains contract-side auth in a future controller version,
-  keeper must attach the required `SorobanAuthorizationEntry` payloads.
+  ever minted, not live accounts. Burned ids are still scanned; their keys read
+  back absent. Ids are never reused, so coverage is correct, but the scan cost
+  grows with total accounts created rather than with accounts alive.
+- The controller's `update_indexes` calls `caller.require_auth()`, but the keeper
+  sends the operation with an empty auth list and does not copy auth entries
+  from simulation. Run a dry run with `enable_index_refresh: true` before you
+  enable the index loop: the boot simulation fails if the call needs a
+  `SorobanAuthorizationEntry`.

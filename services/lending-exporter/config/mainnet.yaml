@@ -73,11 +73,10 @@ markets:
       asset: CDOY7ILRR7PDGLBXZUPSENB6XOET77PR2JY3HXDGQS3TS4T764OYBUGO,
       symbol: AQUAUSDC_LP,
     }
-# On-chain spoke ids, not the config ids in configs/mainnet/spokes.json. The
-# two diverge because config spoke 3 (Spiko RWA) is deferred, so every later
-# spoke shifted down by one when it was created. configs/networks.json
-# `mainnet.spoke_ids` holds the config -> on-chain map and is the source of
-# truth; `get_spoke` takes the on-chain id.
+# On-chain spoke ids, not the config ids in configs/mainnet/spokes.json.
+# Config spoke 3 (Spiko RWA) is deferred, so each later config spoke has an
+# on-chain id one lower. `mainnet.spoke_ids` in configs/networks.json holds the
+# config -> on-chain map. `get_spoke` takes the on-chain id.
 spokes: [1, 2, 3, 4, 5, 6, 7, 8]
 
 hubs:

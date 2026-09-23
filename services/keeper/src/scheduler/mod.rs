@@ -74,10 +74,10 @@ fn spawn_ttl_loop(
         let mut tick = interval(Duration::from_secs(cfg.schedule.ttl_tick_seconds.max(1)));
         tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
-        // Publish the storage gauges before the first scheduled tick. The
-        // immediate tick below is discarded on purpose, so a crash-looping
-        // keeper cannot burst `max_txs_per_tick` transactions at every restart;
-        // priming is the read-only half of a tick and sends nothing.
+        // Publish the storage gauges before the first scheduled tick; priming
+        // sends nothing. The immediate tick below is discarded so a
+        // crash-looping keeper cannot send `max_txs_per_tick` transactions at
+        // every restart.
         prime_storage_metrics(&cfg, &client, &metrics, &ids).await;
 
         tick.tick().await;
@@ -227,17 +227,12 @@ fn record_snapshot_metrics(
 /// Publishes the storage gauges once at startup, without planning or sending a
 /// transaction.
 ///
-/// `spawn_ttl_loop` discards the interval's immediate first tick, so the first
-/// real tick lands a full `ttl_tick_seconds` after boot — six hours on mainnet.
-/// Until then every labelled gauge has no series at all, and
-/// `keeper_last_tick_timestamp_seconds` sits at the zero it was registered with,
-/// which the dashboard renders as a ~57-year "last tick age". A freshly started
-/// keeper is therefore indistinguishable from a dead one. This runs the
-/// read-only half of a tick — `snapshot` plus `record_snapshot_metrics` — so the
-/// panels are honest from the first scrape.
+/// `spawn_ttl_loop` discards the first interval tick. Without this, the gauges
+/// stay empty and `keeper_last_tick_timestamp_seconds` stays 0 for a full
+/// `ttl_tick_seconds` after boot, so a new keeper looks dead.
 ///
-/// Failure is logged and swallowed. Priming is observability: it must never stop
-/// the loop it precedes from starting, and the next scheduled tick retries it.
+/// Logs a failure and does not return it, so the loop always starts; the next
+/// scheduled tick retries.
 async fn prime_storage_metrics(
     cfg: &KeeperConfig,
     client: &RpcClient,
@@ -265,17 +260,13 @@ async fn prime_storage_metrics(
 
 /// Classifies one entry into the state the dashboard reports.
 ///
-/// The four states are distinct problems, and collapsing them loses the signal:
-/// `never_created` in bulk is what a wrong key encoding looks like, while a
-/// single `archived` row is real damage. `expired` mirrors what
-/// `keeper_entries_archived` counts — the entry is still readable but its TTL
-/// has lapsed, which is the case the keeper restores.
+/// `never_created` in bulk is what a wrong key encoding looks like. `expired` is
+/// what `keeper_entries_archived` counts: the RPC returns the entry, its TTL has
+/// lapsed, and the keeper restores it.
 ///
-/// A key that was never written and one whose entry has been fully evicted are
-/// told apart by whether the RPC still returns TTL metadata without a value.
-/// That distinction is the RPC's to make; if it stops returning the TTL for an
-/// evicted entry, such rows land in `never_created` and the bulk-vs-single
-/// reading above is what separates them.
+/// `archived` needs a TTL without a value, and `RpcClient::get_ledger_entries`
+/// never builds such a row. An evicted entry that the RPC does not return reads
+/// as `never_created`.
 fn entry_state(
     row: &crate::stellar::client::LedgerEntryQuery,
     current_ledger: u32,
@@ -290,8 +281,8 @@ fn entry_state(
 
 /// Publishes the per-`(contract, group)` TTL and entry-count gauges.
 ///
-/// Both families are reset first, so a group that empties between ticks drops
-/// its series instead of leaving a stale value stranded on the dashboard.
+/// Resets both families first, so a group that empties between ticks drops its
+/// series instead of keeping a stale value.
 fn publish_storage_gauges(
     metrics: &Metrics,
     snap: &crate::discovery::DiscoverySnapshot,
@@ -334,9 +325,8 @@ fn publish_storage_gauges(
         let state = entry_state(row, snap.current_ledger);
         *counts.entry((contract.clone(), group, state)).or_insert(0) += 1;
 
-        // Only a live entry has a meaningful TTL. Folding an absent one in as
-        // zero would peg the group's minimum at zero and mask the real pacing
-        // item behind a permanent false alarm.
+        // Only an entry with a value has a meaningful TTL. Counting an absent
+        // one as zero would pin the group's minimum at zero.
         if row.value.is_some() {
             if let Some(live_until) = row.live_until_ledger {
                 let remaining = live_until.saturating_sub(snap.current_ledger);
@@ -515,11 +505,7 @@ mod tests {
         }
     }
 
-    /// The four states are four different problems. Collapsing them is what made
-    /// `controller/per_user absent=69` read like damage when every one of those
-    /// keys had simply never been written, and what let a whole contract's rows
-    /// read "absent" while the real cause was a key encoding that matched
-    /// nothing.
+    /// Live, expired, archived and never-created rows map to four distinct states.
     #[test]
     fn entry_states_separate_the_four_cases() {
         assert_eq!(entry_state(&row(true, Some(NOW + 500)), NOW), "live");
@@ -548,13 +534,8 @@ mod tests {
         }
     }
 
-    /// A keeper that has booted but has not yet reached its first scheduled tick
-    /// must not read as a dead one.
-    ///
-    /// `record_snapshot_metrics` is the half `prime_storage_metrics` runs at
-    /// startup, and `keeper_last_tick_timestamp_seconds` is what the "last tick
-    /// age" panel subtracts from `time()`. Left at the zero it is registered
-    /// with, that panel reports roughly 57 years on a perfectly healthy keeper.
+    /// `record_snapshot_metrics`, which `prime_storage_metrics` runs at boot,
+    /// stamps the last-tick timestamp with the current time instead of 0.
     #[test]
     fn a_snapshot_stamps_a_real_last_tick_timestamp() {
         let metrics = Metrics::new("testnet").expect("metrics registry");
@@ -567,7 +548,7 @@ mod tests {
             price_aggregator: None,
         };
 
-        // What the dashboard sees before any tick, and why it renders ~57 years.
+        // Before any snapshot the gauge holds its registered value, 0.
         assert_eq!(metrics.last_tick_timestamp_seconds.get(), 0);
 
         record_snapshot_metrics(&metrics, &empty_snapshot(12_345), &ids, 100);
