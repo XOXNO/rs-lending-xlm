@@ -265,8 +265,8 @@ async fn prime_storage_metrics(
 /// lapsed, and the keeper restores it.
 ///
 /// `archived` needs a TTL without a value, and `RpcClient::get_ledger_entries`
-/// never builds such a row. An evicted entry that the RPC does not return reads
-/// as `never_created`.
+/// never builds such a row. The RPC returns an archived or evicted entry with its
+/// value and a live-until of 0, so it reads as `expired` and the keeper restores it.
 fn entry_state(
     row: &crate::stellar::client::LedgerEntryQuery,
     current_ledger: u32,

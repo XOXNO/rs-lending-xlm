@@ -423,7 +423,7 @@
       "id": 3,
       "type": "table",
       "title": "Entries by state \u2014 a group that is entirely never_created can be a broken key",
-      "description": "Live, expired (TTL lapsed, restorable) and never_created (the RPC returned no entry). The RPC client never reports archived; an evicted entry that the RPC does not return reads as never_created. A group that is entirely never_created is a key nothing wrote yet or a wrong key encoding; every other metric reads 'nothing to do' in both cases. Any expired row is storage the keeper did not extend in time.",
+      "description": "Live, expired (TTL lapsed or archived, restorable) and never_created (the RPC returned no entry). The RPC returns an evicted entry with its value and live-until 0, so it reads as expired; the archived state is never reported. A group that is entirely never_created is a key nothing wrote yet or a wrong key encoding; every other metric reads 'nothing to do' in both cases. Any expired row is storage the keeper did not extend in time.",
       "datasource": {
         "type": "prometheus",
         "uid": "cfgw0aa7mups0d"

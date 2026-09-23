@@ -123,8 +123,8 @@ groups:
             contract's storage key enum for the affected group.
 
       # `archived` is a row with TTL metadata but no value. The keeper RPC client
-      # never builds such a row, so this alert cannot fire: an evicted entry that
-      # the RPC does not return reads as never_created.
+      # never builds such a row, so this alert cannot fire. The RPC returns an
+      # evicted entry with its value and live-until 0, so it reads as expired.
       - alert: KeeperEntriesEvicted
         expr: sum(keeper_entries{state="archived"}) > 0
         for: 10m

@@ -154,7 +154,7 @@ account ever opened; grouping holds the series count flat.
 | metric | labels | meaning |
 | --- | --- | --- |
 | `keeper_entry_ttl_ledgers_min` | contract, group | lowest remaining TTL in the group — the pacing item |
-| `keeper_entries` | contract, group, state | entry counts; `state` is `live`, `expired` (TTL lapsed, restorable) or `never_created` (the RPC returned no entry; an evicted entry that the RPC omits also lands here). The RPC client never produces the `archived` state |
+| `keeper_entries` | contract, group, state | entry counts; `state` is `live`, `expired` (TTL lapsed, restorable) or `never_created` (the RPC returned no entry). The RPC returns an archived or evicted entry with its value and live-until 0, so it counts as `expired`; the `archived` state is never produced |
 | `keeper_safety_margin_ledgers` | — | headroom below which the keeper extends |
 | `keeper_current_ledger` | — | ledger the last tick observed |
 | `keeper_last_tick_timestamp_seconds` | — | unix time of the last completed discovery pass — how stale everything above is |
@@ -400,6 +400,6 @@ docker compose -f services/keeper/docker-compose.example.yaml up -d
   grows with total accounts created rather than with accounts alive.
 - The controller's `update_indexes` calls `caller.require_auth()`, but the keeper
   sends the operation with an empty auth list and does not copy auth entries
-  from simulation. Run a dry run with `enable_index_refresh: true` before you
-  enable the index loop: the boot simulation fails if the call needs a
-  `SorobanAuthorizationEntry`.
+  from simulation. The call needs a `SorobanAuthorizationEntry` with
+  source-account credentials, so with `enable_index_refresh: true` the boot
+  simulation fails with `Error(Auth, InvalidAction)` and the keeper exits.
