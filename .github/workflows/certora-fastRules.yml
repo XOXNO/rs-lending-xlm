@@ -13,6 +13,11 @@ on:
           - heavy
           - sanity
           - all
+      job_timeout_minutes:
+        description: "Job wall-clock cap in minutes; the profile's confs prove one after another"
+        required: false
+        type: string
+        default: "720"
 
 permissions:
   contents: read
@@ -31,20 +36,21 @@ jobs:
   certora-fast:
     name: Fast Certora Rules
     runs-on: self-hosted
+    timeout-minutes: ${{ fromJSON(inputs.job_timeout_minutes || '720') }}
 
     steps:
       - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
+        uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
           toolchain: "1.95"
           targets: wasm32v1-none
           components: rustfmt
 
       - name: Cache cargo registry and build
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry
@@ -72,7 +78,7 @@ jobs:
           fi
 
       - name: Install Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
 
@@ -83,4 +89,6 @@ jobs:
         env:
           CERTORAKEY: ${{ secrets.CERTORAKEY }}
           PROFILE: ${{ inputs.profile || 'fast' }}
-        run: ./certora/scripts/run_profile.py "$PROFILE"
+        # Without --wait_for_results the CLI exits 0 once the cloud accepts the
+        # job. Waiting makes a violated, vacuous or timed-out rule fail here.
+        run: ./certora/scripts/run_profile.py "$PROFILE" -- --wait_for_results ALL

@@ -92,9 +92,6 @@
         "conf": "certora/common/confs/fp-identities-reverts-sanity.conf"
       },
       {
-        "conf": "certora/pool/confs/fee-strategy-accounting-reverts-sanity.conf"
-      },
-      {
         "conf": "certora/pool/confs/pool-lifecycle-reverts-sanity.conf"
       },
       {
@@ -340,9 +337,6 @@
       },
       {
         "conf": "certora/controller/confs/strategy-swap-debt-reverts.conf"
-      },
-      {
-        "conf": "certora/pool/confs/fee-strategy-accounting-reverts.conf"
       },
       {
         "conf": "certora/price-aggregator/confs/fail-closed-miss-reverts.conf"

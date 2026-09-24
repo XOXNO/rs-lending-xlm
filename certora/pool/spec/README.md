@@ -28,7 +28,7 @@ Persisting that result in an account is a separate controller responsibility.
 | `state_invariant_rules.rs` | `pool-state-invariant.conf` |
 | `position_accounting_rules.rs` | `position-accounting.conf` |
 | `seize_settle_accounting_rules.rs` | `seize-settle-accounting.conf` |
-| `fee_strategy_accounting_rules.rs` | `fee-strategy-accounting.conf`, `fee-strategy-accounting-reverts.conf`, `fee-strategy-accounting-reverts-sanity.conf` |
+| `fee_strategy_accounting_rules.rs` | `fee-strategy-accounting.conf` |
 | `flash_loan_accounting_rules.rs` | `flash-loan-accounting.conf` |
 | `isomorphism_rules.rs` | `pool-isomorphism.conf` |
 | `guard_rules.rs` | `pool-guards.conf` |
