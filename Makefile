@@ -316,10 +316,16 @@ integration-validate:
 	@echo "Validating harness sources (sourcing + basic guards)..."
 	@bash -c 'set -u; \
 	  for f in tests/integration/env.sh tests/integration/lib/core.sh tests/integration/lib/invoke.sh \
-	           tests/integration/flows/flash_position.sh tests/integration/scenarios/flash_position.sh; do \
+	           tests/integration/flows/flash_position.sh tests/integration/scenarios/flash_position.sh \
+	           tests/integration/flows/admin.sh tests/integration/lib/protocol.sh; do \
 	    echo "  sourcing $$f"; bash -n "$$f" || exit 1; \
 	  done; \
 	  echo "Basic syntax + source validation passed."'
+	@bash -c 'source tests/integration/lib/protocol.sh; \
+	  [ "$$(wad_band_from_px14 1000000000000000 9)" = "9100000000000000000 10900000000000000000" ] && \
+	  [ "$$(wad_band_from_px14 40000000000000 9)" = "364000000000000000 436000000000000000" ] && \
+	  ! wad_band_from_px14 12345678901234567 9 >/dev/null || { echo "wad_band_from_px14 self-check failed"; exit 1; }; \
+	  echo "wad_band_from_px14 self-check passed"'
 
 integration-shellcheck:
 	@command -v shellcheck >/dev/null 2>&1 || { echo "shellcheck not installed (brew/apt install shellcheck)"; exit 0; }
@@ -580,6 +586,7 @@ access-control-check:
 ops-script-check:
 	@bash -n configs/script.sh
 	@bash scripts/check_spoke_script_guards.sh
+	@bash scripts/check_script_verbs.sh "$(ALL_ACTIONS)" "$(MAKEFILE_ACTIONS)"
 
 
 
@@ -596,6 +603,8 @@ WASM_BUDGET_FILE ?= configs/wasm_size_budget.txt
 # Fails if a `testing`-feature-only entrypoint is in a deployable WASM. The symbol
 # list comes from source at run time, through the classifier that
 # `access-control-check` uses (`--list-test-only`), so it covers every contract.
+# The listing fails when the classified set drifts from the checker's pinned
+# EXPECTED_TEST_ONLY.
 # A contract whose artifact is missing fails the check: add it to
 # WASM_SIZE_CONTRACTS.
 #
@@ -1389,6 +1398,7 @@ prepay-rent:
 	  echo "  governance: $$GOV"; \
 	  echo "  price_aggregator: \"$$PAGG\""; \
 	  echo "  xoxno_oracle_adapter: \"$$OADP\""; \
+	  echo "  blend_pools: $$(jq -c '[.pools[].address]' $(CONFIG_DIR)/$(NETWORK)/blend.json)"; \
 	  echo "keyvault:"; \
 	  echo "  url: https://unused.vault.azure.net"; \
 	  echo "  secret_name: unused"; \
@@ -1893,7 +1903,7 @@ SIMPLE_ACTIONS := listMarkets listSpokes listHubs listOracles listReferences lis
 	validateConfigs checkDelay \
 	setupAll setupAllMarkets setupAllSpokes setupAllReferenceOracles \
 	whitelistBlendPools approveBlendPools configureSpokeCurves \
-	setAggregator setAccumulator pause unpause info \
+	setAggregator setPriceAggregator setAccumulator pause unpause info \
 	getAllMarkets getAllIndexes getMinBorrowCollateralUsd getBulkIndexes \
 	claimRevenueAll deployPool deployPositionNft updateDelay \
 	acceptAggregatorOwnership acceptOracleAdapterOwnership
@@ -2242,6 +2252,7 @@ help-ops:
 	$(call H2,Protocol control)
 	$(call ROW,make <n> pause | unpause,guardian immediate / timelocked unpause)
 	$(call ROW,make <n> setAggregator | setAccumulator,from networks.json or env)
+	$(call ROW,make <n> setPriceAggregator,re-point the oracle authority (timelocked))
 	$(call NOTE,make <n> grantGovRole|revokeGovRole G... ROLE)
 	$(call NOTE,    ROLE = PROPOSER | EXECUTOR | CANCELLER | ORACLE | GUARDIAN)
 	$(call ROW,make <n> setPositionLimits 10 10,max supply/borrow positions)
