@@ -29,6 +29,14 @@ jobs:
     name: Build release WASM
     runs-on: ubuntu-latest
     steps:
+      - name: A manual run starts on the release tag
+        if: github.event_name == 'workflow_dispatch' && github.ref != format('refs/tags/{0}', inputs.tag)
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          echo "::error::Run it on the tag: gh workflow run release.yml --ref $TAG -f tag=$TAG"
+          exit 1
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.tag || github.ref }}
