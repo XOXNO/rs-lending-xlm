@@ -120,6 +120,9 @@ pub fn withdraw_all_to_admin(env: Env, market: HubAssetKey) -> i128 {
     let addresses: LendingAddresses = config.get(&ConfigKey::Lending).expect("set in constructor");
     let lending = XoxnoLending::new(&env, &addresses);
     let account_id = resolve_account(&env, &lending.controller());
+    if account_id == 0 {
+        return 0;
+    }
 
     let withdrawal = lending.withdraw_all(account_id, &market);
     if withdrawal.account_closed {
@@ -137,6 +140,10 @@ pub fn withdraw_all_to_admin(env: Env, market: HubAssetKey) -> i128 {
 The config keys are the ones in [SKILL.md](SKILL.md#minimal-call-shape). The
 withdrawal closes the account only when no other supply or debt remains. The
 tokens go to the stored admin, not to an address the caller passes.
+
+Return before the wrapper call when the resolve helper gives `0`. A withdrawal
+from account `0` fails, and the failure also rolls back the helper's removal of
+a stale pointer, so the pointer could never be cleared.
 
 ## Renewal responsibilities
 
