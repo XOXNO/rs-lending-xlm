@@ -54,9 +54,8 @@ else
   # explicitly, or prove them on the Certora cloud.
   confs=(
     common/confs/math common/confs/rates common/confs/lp-math
-    common/confs/lp-math-stable common/confs/compound-interest
-    common/confs/rate-indexes price-aggregator/confs/scaled-math
-    pool/confs/pool-lifecycle
+    common/confs/compound-interest common/confs/rate-indexes
+    price-aggregator/confs/scaled-math
   )
 fi
 rules_arg="${2:-}"
