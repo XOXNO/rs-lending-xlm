@@ -2,8 +2,9 @@
 //!
 //! Callers run them after interest accrual and before committing state.
 
+use common::constants::LIQUIDATION_BUFFER_BPS;
 use common::errors::CollateralError;
-use common::math::fp::Ray;
+use common::math::fp::{Bps, Ray};
 
 use soroban_sdk::{assert_with_error, panic_with_error, Env};
 
@@ -31,8 +32,7 @@ pub(crate) fn require_utilization_below_max(env: &Env, cache: &Cache) {
 /// Every debt mint checks it, borrows and strategy openings alike (INV-ACCT-07). Exits do not.
 pub(crate) fn require_liquidation_buffer(env: &Env, cache: &Cache, draw: i128) {
     let supplied = cache.unscale_supply_floor(cache.supplied());
-    let reserved = common::math::fp::Bps::from(common::constants::LIQUIDATION_BUFFER_BPS)
-        .apply_to(env, supplied);
+    let reserved = Bps::from(LIQUIDATION_BUFFER_BPS).apply_to(env, supplied);
     assert_with_error!(
         env,
         cache.cash().saturating_sub(draw) >= reserved,
