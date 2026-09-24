@@ -17,13 +17,20 @@ immediately invoke the consuming contract:
 | router `execute_strategy` | input token: `self -> router`, exact amount |
 
 `borrow`, `withdraw`, and controller strategy calls without an initial payment
-do not pull tokens from the caller contract. Use
-`common::token::authorize_transfer_as_current`; do not copy the low-level auth
-tree unless the downstream ABI differs.
+do not pull tokens from the caller contract. The wrapper's `open_account`,
+`deposit`, `supply`, `repay`, and `liquidate` create their transfer
+authorization. For every other pull in the table, use
+`xoxno_contract_sdk::lending::helpers::authorize_transfer_as_current(env,
+token, from, to, amount)` with the exact `to` from the table; do not copy the
+low-level auth tree unless the downstream ABI differs. The crate has no router
+client; declare the `execute_strategy` client as in
+[`../xoxno-swap-aggregator/payload.md`](../xoxno-swap-aggregator/payload.md).
 
 Every public entrypoint that owns this orchestration should start with
-`common::ttl::renew_instance(&env)`. If it reads a persisted account ID, use
-the renew/reconcile helper in
+`env.storage().instance().extend_ttl(INSTANCE_TTL_THRESHOLD,
+INSTANCE_TTL_EXTEND_TO)`, with the constants in
+[SKILL.md](SKILL.md#storage-ttl). If it reads a persisted account ID, use the
+renew/reconcile helper in
 [positions.md](positions.md#canonical-local-account-pointer) before creating
 any auth entry.
 
@@ -65,6 +72,13 @@ the intended `SeizeMode`, simulate the estimate, subtract per-asset refunds,
 and authorize only the resulting planned debt payments. Then invoke
 `liquidate` with those planned amounts.
 
+`XoxnoLending::liquidate` does this for one debt market in `Transfer` mode:
+it reads the estimate, then offers and authorizes only the planned amount,
+and returns it. For `Credit` mode or several debt legs, use the generated
+client and submit exactly the planned amounts you authorize. A submitted
+amount above the authorized one fails when the quote is the whole debt,
+because the controller then pulls the whole submitted amount.
+
 For `Credit(existing_id)`, verify before submission:
 
 - `account_exists(existing_id)`
@@ -104,7 +118,10 @@ Do not apply a generic "empty after any verb means deleted" rule:
 
 After a path that can delete, call `account_exists` and reconcile the local
 pointer. This view checks only `AccountMeta`; a surviving ID still needs NFT
-owner/mode/spoke checks before reuse.
+owner/mode/spoke checks before reuse. On the wrapper path,
+`Withdrawal::account_closed` from `withdraw` or `withdraw_all` is the same
+explicit signal; see
+[positions.md](positions.md#full-exit-with-the-wrapper).
 
 ## Submission checklist
 

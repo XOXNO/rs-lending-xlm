@@ -13,7 +13,7 @@ skill, and load only the companion reference named for the task.
 | Skill | Load when you are… | Companion files |
 |---|---|---|
 | [xoxno-lending](xoxno-lending/SKILL.md) | Starting any XOXNO task; need addresses, ids, or formulas | `addresses.md` (generated), `math.md` |
-| [xoxno-lending-contracts](xoxno-lending-contracts/SKILL.md) | Writing a Soroban contract that supplies, borrows, holds a position, or receives a flash loan | `abi.md`, `positions.md`, `flash-loans.md`, `composing.md` |
+| [xoxno-lending-contracts](xoxno-lending-contracts/SKILL.md) | Writing or testing a Soroban contract that supplies, borrows, holds a position, or receives a flash loan | `abi.md`, `positions.md`, `flash-loans.md`, `composing.md`, `testing.md` |
 | [xoxno-lending-sdk](xoxno-lending-sdk/SKILL.md) | Building a dApp, backend, or bot in TypeScript on `@xoxno/sdk-js` and `api.xoxno.com` | `reads.md`, `positions.md`, `transactions.md`, `strategies.md`, `frontend.md` |
 | [xoxno-swap-aggregator](xoxno-swap-aggregator/SKILL.md) | Quoting or executing swaps, or embedding a swap payload in a lending action or your own contract | `api.md`, `payload.md`, `composition.md` |
 | [xoxno-lending-liquidations](xoxno-lending-liquidations/SKILL.md) | Building a liquidation bot, keeper, or risk monitor | — |
@@ -42,6 +42,8 @@ Ship the whole set: every skill assumes `xoxno-lending` is available.
   `xoxno-swap-aggregator/`, which document services in other repositories.
 - `xoxno-lending/addresses.md` is generated: `python3 scripts/gen_skill_addresses.py`
   (`--check` fails when it is stale). Never edit it by hand.
+- `xoxno-lending-contracts` claims about the `xoxno-contract-sdk` crate are verified against
+  its public repository at the crate version named in that skill.
 - SDK claims are verified against the separate `sdk-js` repository at the version named in
   the skill; API claims against `xoxno-api-v2` (production behind `api.xoxno.com`);
   aggregator claims against `arb-algo`. Re-check them after a release of any of those.

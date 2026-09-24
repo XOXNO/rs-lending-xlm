@@ -6,13 +6,13 @@
   "expected_behavior": [
     "Calls supply(caller, account_id, spoke_id, assets) with the target's existing account_id (never 0, which would open a new account owned by the contract) and a spoke_id equal to the account's own spoke (mismatch reverts SpokeMismatch #310)",
     "States that a non-owner, non-delegate caller can only top up hub assets the account already supplies; adding a new asset to someone else's account reverts NotAuthorized #44, so the contract checks get_collateral_amount(account_id, hub_asset) > 0 (or get_account_positions) before the authorize call",
-    "Calls repay(caller, account_id, payments) as a permissionless action needing only the contract's own authorization (no owner/delegate check), with excess refunded to the caller; does not attempt add_delegate or require the target to sign",
-    "Self-authorizes the exact token.transfer(contract -> pool, amount) sub-invocation immediately before each of supply and repay, with all controller reads placed before the authorize call",
+    "Calls repay(caller, account_id, payments) as a permissionless action needing only the contract's own authorization (no owner/delegate check), with excess refunded to the caller; when it repays with the requesting user's tokens, it sends the refunded excess back to that user (`amount - repaid`, where `XoxnoLending::repay` returns `repaid`); does not attempt add_delegate or require the target to sign",
+    "Creates the exact token.transfer(contract -> pool, amount) authorization immediately before each of supply and repay, with `authorize_transfer_as_current` or through `XoxnoLending::supply`/`repay`, which create it; all controller reads are placed before the authorization. The entrypoint pulls the tokens from the requesting address after `require_auth` on it, or, when it spends the contract's own balance, authorizes against an address the contract stored, never one the caller passes",
     "Does not call borrow or withdraw on the third party's account (those require owner or delegate authorization) and does not hardcode controller/pool addresses"
   ],
   "machine_checkable": [
-    "Generated Rust compiles with cargo build --target wasm32v1-none against soroban-sdk =27.0.6 and controller-interface",
-    "Source never passes the literal 0 as account_id to supply in the third-party path, and contains no `.borrow(` or `.withdraw(` call",
-    "Source contains no ControllerClient view call between `authorize_as_current_contract` and `.supply(` / `.repay(`"
+    "Generated Rust builds with `stellar contract build` against `soroban-sdk = \"28\"` and `xoxno-contract-sdk = \"0.2\"`",
+    "Source never passes the literal 0 as account_id to supply in the third-party path, does not call `open_account`, and contains no `.borrow(` or `.withdraw(` call",
+    "Source contains no ControllerClient view call between `authorize_transfer_as_current` (or `authorize_as_current_contract`) and `.supply(` / `.repay(`"
   ]
 }

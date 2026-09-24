@@ -8,11 +8,11 @@
     "Calls add_delegate from the vault contract (the NFT holder) as caller; explains that ownership is the position NFT and any delegate grant is inactive while another address holds the NFT",
     "For TTL, distinguishes renew_account(caller, account_id) (owner-only, renews controller account entries plus the NFT Owner entry) from the permissionless PositionNft renew(token_id) the keeper can call without being a delegate; does not have the keeper call renew_account",
     "Notes that the keeper renews before expiry to avoid restore rent; a simulated and assembled invocation restores archived entries inline and the submitter pays the rent, and only a hand-built footprint needs an explicit RestoreFootprint",
-    "Extends the vault's own persistent key holding the account id (TTL_THRESHOLD_USER / TTL_BUMP_USER tier) so the pointer cannot outlive the account it references",
+    "Extends the vault's own persistent key holding the account id with the integrator's own per-user TTL constants (renew below 30 days = 518_400 ledgers, extend to 120 days = 2_073_600 ledgers, at 17_280 ledgers per day) so the pointer cannot outlive the account it references",
     "Takes controller, position-NFT and keeper addresses from config/constructor, not hardcoded literals"
   ],
   "machine_checkable": [
-    "Generated Rust passes cargo check --target wasm32v1-none with soroban-sdk =27.0.6, controller-interface and position-nft-interface from the pinned tag",
+    "Generated Rust builds with `stellar contract build` against `soroban-sdk = \"28\"` and `xoxno-contract-sdk = \"0.2\"`; a keeper contract calls the NFT `renew(token_id)` by name with `env.invoke_contract`, because the crate's position NFT client has ownership views only (a keeper account may call it directly)",
     "Generated source does not call renew_account from the keeper path; the keeper path calls the NFT renew or a vault entrypoint that forwards renew_account as owner"
   ]
 }

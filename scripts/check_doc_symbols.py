@@ -50,6 +50,10 @@ EXTERNAL_SYMBOLS = {
     # mx-keyvault: the Azure credential env-var contract the keeper README
     # documents.
     "AZURE_IDENTITY_DISABLE_MANAGED_IDENTITY_CREDENTIAL",
+    # xoxno-contract-sdk (crates.io, MIT): the test fixture and its setup
+    # methods, and the new-account constant, that the contracts skill cites.
+    "LendingFixture", "NEW_ACCOUNT",
+    "add_hub", "create_market_in", "list_market", "add_market_to_hub", "supply_liquidity",
 }
 
 # Per-file allowances. Each entry is a name the file cites deliberately even

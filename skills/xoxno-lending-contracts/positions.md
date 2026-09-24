@@ -30,9 +30,8 @@ This is the caller-owned half of account lifetime. It is adapted from
 [`resolve_vault_account`](../../contracts/defindex-strategy/src/lib.rs):
 
 ```rust
-use common::constants::{TTL_BUMP_USER, TTL_THRESHOLD_USER};
-use controller_interface::ControllerClient;
 use soroban_sdk::{contracterror, contracttype, panic_with_error, Env};
+use xoxno_contract_sdk::lending::ControllerClient;
 
 #[contracttype]
 pub enum DataKey {
@@ -50,8 +49,8 @@ fn store_account(env: &Env, account_id: u64) {
     storage.set(&DataKey::AccountId, &account_id);
     storage.extend_ttl(
         &DataKey::AccountId,
-        TTL_THRESHOLD_USER,
-        TTL_BUMP_USER,
+        POINTER_TTL_THRESHOLD,
+        POINTER_TTL_EXTEND_TO,
     );
 }
 
@@ -66,8 +65,8 @@ fn resolve_account(env: &Env, controller: &ControllerClient) -> u64 {
         Ok(Ok(true)) => {
             storage.extend_ttl(
                 &DataKey::AccountId,
-                TTL_THRESHOLD_USER,
-                TTL_BUMP_USER,
+                POINTER_TTL_THRESHOLD,
+                POINTER_TTL_EXTEND_TO,
             );
             account_id
         }
@@ -80,14 +79,71 @@ fn resolve_account(env: &Env, controller: &ControllerClient) -> u64 {
 }
 ```
 
+The TTL constants are in [SKILL.md](SKILL.md#storage-ttl). With the wrapper,
+pass `&lending.controller()` as the client.
+
 Call the resolve helper before any nested token authorization, call the
 controller verb, then call the store helper with a returned ID. Reconcile after
 an operation that can delete the account. Clear only on `Ok(Ok(false))`; a
 host or decode failure does not prove the account is gone.
 
+`XoxnoLending::resolve_account(stored)` returns the same branch: the stored ID
+while `account_exists` is true, else `NEW_ACCOUNT` (`0`), and a failed lookup
+aborts the call. It does not extend or clear your key. If you use it, extend
+the key on every successful use and overwrite it with the returned ID.
+
 For per-owner adapters use
 `DataKey::VaultAccount(Address)` exactly as the DeFindex strategy does, and
 extend the specific owner key on every successful lookup and write.
+
+## Full exit with the wrapper
+
+The wrapper's `withdraw` and `withdraw_all` return
+`Withdrawal { amount, account_closed }`. `account_closed` is true only when
+the position NFT's `owner_of` fails with `NonExistentToken`: the protocol
+deleted the account and burned its NFT. That is the explicit non-existence
+signal on this path. Any other lookup failure gives `false`, and the key
+stays.
+
+```rust
+use soroban_sdk::{token, Address, Env};
+use xoxno_contract_sdk::lending::controller::HubAssetKey;
+use xoxno_contract_sdk::{LendingAddresses, XoxnoLending};
+
+pub fn withdraw_all_to_admin(env: Env, market: HubAssetKey) -> i128 {
+    env.storage()
+        .instance()
+        .extend_ttl(INSTANCE_TTL_THRESHOLD, INSTANCE_TTL_EXTEND_TO);
+    let config = env.storage().instance();
+    let admin: Address = config.get(&ConfigKey::Admin).expect("set in constructor");
+    admin.require_auth();
+    let addresses: LendingAddresses = config.get(&ConfigKey::Lending).expect("set in constructor");
+    let lending = XoxnoLending::new(&env, &addresses);
+    let account_id = resolve_account(&env, &lending.controller());
+    if account_id == 0 {
+        return 0;
+    }
+
+    let withdrawal = lending.withdraw_all(account_id, &market);
+    if withdrawal.account_closed {
+        env.storage().persistent().remove(&DataKey::AccountId);
+    }
+    token::Client::new(&env, &market.asset).transfer(
+        &env.current_contract_address(),
+        &admin,
+        &withdrawal.amount,
+    );
+    withdrawal.amount
+}
+```
+
+The config keys are the ones in [SKILL.md](SKILL.md#minimal-call-shape). The
+withdrawal closes the account only when no other supply or debt remains. The
+tokens go to the stored admin, not to an address the caller passes.
+
+Return before the wrapper call when the resolve helper gives `0`. A withdrawal
+from account `0` fails, and the failure also rolls back the helper's removal of
+a stale pointer, so the pointer could never be cleared.
 
 ## Renewal responsibilities
 
@@ -96,31 +152,40 @@ instance, account metadata, existing supply/debt/delegate maps, and NFT
 owner/balance state. It cannot touch the integrating contract's storage.
 
 `PositionNft::renew(token_id)` is permissionless and extends NFT state only.
-A keeper can call it directly. To renew controller account state, the NFT
-holder contract must expose an authenticated forwarding entrypoint:
+A keeper can call it directly. The crate's `position_nft` client has
+ownership views only, so a keeper contract calls `renew` by name:
 
 ```rust
-use common::ttl::renew_instance;
-use controller_interface::ControllerClient;
+env.invoke_contract::<()>(
+    &position_nft,
+    &Symbol::new(&env, "renew"),
+    vec![&env, token_id.into_val(&env)],
+);
+```
+
+To renew controller account state, the NFT holder contract must expose an
+authenticated forwarding entrypoint:
+
+```rust
 use soroban_sdk::{contracttype, Address, Env};
+use xoxno_contract_sdk::lending::ControllerClient;
+use xoxno_contract_sdk::LendingAddresses;
 
 #[contracttype]
 pub enum ConfigKey {
     Admin,
-    Controller,
+    Lending,
 }
 
 pub fn renew_owned_account(env: Env) {
-    renew_instance(&env);
+    env.storage()
+        .instance()
+        .extend_ttl(INSTANCE_TTL_THRESHOLD, INSTANCE_TTL_EXTEND_TO);
     let config = env.storage().instance();
-    let admin: Address = config
-        .get(&ConfigKey::Admin)
-        .expect("set in constructor");
+    let admin: Address = config.get(&ConfigKey::Admin).expect("set in constructor");
     admin.require_auth();
-    let controller: Address = config
-        .get(&ConfigKey::Controller)
-        .expect("set in constructor");
-    let client = ControllerClient::new(&env, &controller);
+    let lending: LendingAddresses = config.get(&ConfigKey::Lending).expect("set in constructor");
+    let client = ControllerClient::new(&env, &lending.controller);
     let account_id = resolve_account(&env, &client);
     if account_id != 0 {
         client.renew_account(&env.current_contract_address(), &account_id);
@@ -132,9 +197,9 @@ Read the admin and controller addresses from your own storage, not from
 arguments. A caller-supplied controller can return `false` from
 `account_exists` and make the resolve helper clear your pointer.
 
-This entrypoint renews three lifetimes: `renew_instance` renews its own
-instance, the resolve helper renews the local pointer, and `renew_account`
-renews controller and NFT state.
+This entrypoint renews three lifetimes: the instance `extend_ttl` renews its
+own instance, the resolve helper renews the local pointer, and
+`renew_account` renews controller and NFT state.
 
 Renew before expiry. A simulated and assembled transaction restores archived
 entries inline, and the submitter pays restore rent. Only a hand-built
@@ -173,9 +238,14 @@ result as a snapshot and re-check `owner_of` before acting.
 - `get_health_factor`: WAD; `i128::MAX` means no debt or no account
 - `get_market_index`: accrued RAY indexes, no oracle lookup
 
-Use the helpers in `common::rates`; do not manually mix RAY shares, indexes,
-and token decimals. Sizing guidance is in
-[`../xoxno-lending/math.md`](../xoxno-lending/math.md).
+Read token amounts from these views, or from the wrapper's `collateral`,
+`debt`, and `position`, which call them. Do not mix RAY shares, indexes, and
+token decimals by hand. A full withdrawal pays the floor of the claim, which
+can be one base unit below the half-up view. A full repayment needs the
+ceiling of the debt, which can be one base unit above it. When your contract
+must floor what a user can claim, or ceil what a user owes, compute it as in
+[`../xoxno-lending/math.md`](../xoxno-lending/math.md#shares-and-token-amounts).
+Sizing guidance is in the same file.
 
 ## DeFindex adapter PPS convention
 
@@ -184,11 +254,17 @@ shares as one scaled supply share of the lending account. Its reported PPS is
 therefore the supply index, floor-rescaled from RAY to 12 decimals:
 
 ```rust
-use common::math::fp::Ray;
+use xoxno_contract_sdk::lending::constants::RAY;
 
-let index = controller.get_market_index(&market).supply_index;
-let defindex_pps = Ray::from(index).to_asset_floor(&env, 12);
+const PPS_DECIMALS: u32 = 12;
+
+let index = lending.supply_index(&market);
+let defindex_pps = index / (RAY / 10_i128.pow(PPS_DECIMALS));
 ```
+
+`supply_index` is the RAY supply index from `get_market_index`, and it is
+positive. `RAY / 10^12` is exactly `10^15`. Integer division truncates toward
+zero, which is the floor for a positive index, and it cannot overflow.
 
 Use this only when implementing the same adapter accounting convention. A
 vault with fees, multiple assets, idle balances, or a different share model
