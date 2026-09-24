@@ -45,7 +45,12 @@ impl TxKind {
 
 #[derive(Debug)]
 pub enum SubmitOutcome {
-    Success(Box<GetTransactionResponse>),
+    /// `sim_resource_fee` is the resource fee the simulation returned, in
+    /// stroops, before `resource_fee_multiplier`.
+    Success {
+        resp: Box<GetTransactionResponse>,
+        sim_resource_fee: i64,
+    },
     SkippedSimError(String),
     Retriable(String),
     Failed(String),
@@ -130,7 +135,14 @@ pub async fn submit_with_sim(ctx: &TxContext<'_>, job: TxJob) -> Result<SubmitOu
         "submitting"
     );
 
-    submit_polling(ctx.client.inner(), &signed, ctx.poll_timeout_seconds, kind).await
+    submit_polling(
+        ctx.client.inner(),
+        &signed,
+        ctx.poll_timeout_seconds,
+        kind,
+        resource_fee,
+    )
+    .await
 }
 
 #[derive(Debug)]
@@ -338,6 +350,7 @@ async fn submit_polling(
     envelope: &TransactionEnvelope,
     timeout_s: u32,
     kind: TxKind,
+    sim_resource_fee: i64,
 ) -> Result<SubmitOutcome> {
     let poll = match timeout(
         Duration::from_secs(timeout_s.max(1) as u64),
@@ -363,7 +376,10 @@ async fn submit_polling(
     };
 
     match resp.status.as_str() {
-        "SUCCESS" => Ok(SubmitOutcome::Success(Box::new(resp))),
+        "SUCCESS" => Ok(SubmitOutcome::Success {
+            resp: Box::new(resp),
+            sim_resource_fee,
+        }),
         "NOT_FOUND" => Ok(SubmitOutcome::Retriable(
             "polling completed without terminal status".into(),
         )),

@@ -1,7 +1,8 @@
 use anyhow::{anyhow, Result};
 use stellar_xdr::{
     ContractId, Hash, HostFunction, InvokeContractArgs, InvokeHostFunctionOp, Operation,
-    OperationBody, ScAddress, ScSymbol, ScVal, ScVec, StringM, VecM,
+    OperationBody, ScAddress, ScSymbol, ScVal, ScVec, SorobanAuthorizationEntry,
+    SorobanAuthorizedFunction, SorobanAuthorizedInvocation, SorobanCredentials, StringM, VecM,
 };
 
 use crate::keys::{hub_asset_key_sc_val, HubAssetKey};
@@ -40,11 +41,52 @@ fn invoke_op(contract_id: &[u8; 32], function: &str, args: VecM<ScVal>) -> Resul
         function_name,
         args,
     };
+    let source_auth = SorobanAuthorizationEntry {
+        credentials: SorobanCredentials::SourceAccount,
+        root_invocation: SorobanAuthorizedInvocation {
+            function: SorobanAuthorizedFunction::ContractFn(invoke_args.clone()),
+            sub_invocations: VecM::default(),
+        },
+    };
     Ok(Operation {
         source_account: None,
         body: OperationBody::InvokeHostFunction(InvokeHostFunctionOp {
             host_function: HostFunction::InvokeContract(invoke_args),
-            auth: VecM::default(),
+            auth: vec![source_auth]
+                .try_into()
+                .map_err(|_| anyhow!("auth vector capacity exceeded"))?,
         }),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn update_indexes_carries_source_account_auth_for_the_same_call() {
+        let job = update_indexes(
+            &[7u8; 32],
+            "GDRXE2BQUC3AZNPVFSCEZ76NJ3WWL25FYFK6RGZGIEKWE4SOOHSUJUJ6",
+            &[],
+        )
+        .unwrap();
+        let OperationBody::InvokeHostFunction(op) = job.op.body else {
+            panic!("not an invoke op");
+        };
+        let HostFunction::InvokeContract(args) = op.host_function else {
+            panic!("not a contract call");
+        };
+        assert_eq!(op.auth.len(), 1);
+        let entry = &op.auth[0];
+        assert!(matches!(
+            entry.credentials,
+            SorobanCredentials::SourceAccount
+        ));
+        assert_eq!(
+            entry.root_invocation.function,
+            SorobanAuthorizedFunction::ContractFn(args)
+        );
+        assert!(entry.root_invocation.sub_invocations.is_empty());
+    }
 }

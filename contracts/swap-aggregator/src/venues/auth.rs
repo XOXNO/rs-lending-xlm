@@ -2,7 +2,7 @@
 
 use soroban_sdk::{
     auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation},
-    vec, Address, Env, IntoVal, Symbol, Val,
+    vec, Address, Env, IntoVal, Symbol, Val, Vec,
 };
 
 /// Authorizes `token.transfer(from, to, amount)` as the current contract.
@@ -54,8 +54,8 @@ pub(crate) fn auth_entry(
     env: &Env,
     contract: &Address,
     fn_name: &str,
-    args: soroban_sdk::Vec<Val>,
-    sub_invocations: soroban_sdk::Vec<InvokerContractAuthEntry>,
+    args: Vec<Val>,
+    sub_invocations: Vec<InvokerContractAuthEntry>,
 ) -> InvokerContractAuthEntry {
     InvokerContractAuthEntry::Contract(SubContractInvocation {
         context: ContractContext {
@@ -69,12 +69,7 @@ pub(crate) fn auth_entry(
 
 /// Registers a single top-level invoker auth entry, with no sub-invocations,
 /// for `contract.fn_name(args)`.
-pub(crate) fn authorize_as_current(
-    env: &Env,
-    contract: &Address,
-    fn_name: &str,
-    args: soroban_sdk::Vec<Val>,
-) {
+pub(crate) fn authorize_as_current(env: &Env, contract: &Address, fn_name: &str, args: Vec<Val>) {
     env.authorize_as_current_contract(vec![
         env,
         auth_entry(env, contract, fn_name, args, vec![env]),

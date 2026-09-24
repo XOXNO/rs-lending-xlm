@@ -9,10 +9,13 @@ stale name the code has renamed or dropped, or a name that never existed.
 The corpus is the repo's own sources plus the places docs legitimately cite
 names from: ops/config files (env vars, Prometheus alert rules), Rust file
 stems (test-binary and module names), and `EXTERNAL_SYMBOLS`, a fixed list of
-names that dependencies define.
+names that dependencies define. This checker and its test are not corpus, so
+an allowance is scoped to the file it names. An allowance that no citation
+needs fails as stale.
 
 Usage: python3 scripts/check_doc_symbols.py [--quiet]
-Exit status is 1 when unknown symbols remain, so CI can gate on it.
+Exit status is 1 when unknown symbols or stale allowances remain, so CI can
+gate on it.
 """
 import re
 import subprocess
@@ -21,6 +24,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 SKIP_DIRS = ("target/", "vendor/", ".git/")
+SELF_FILES = ("scripts/check_doc_symbols.py", "scripts/test_check_doc_symbols.py")
+IDENT = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*)\b")
 
 # Non-Rust files that legitimately define names the docs cite: env vars live in
 # Dockerfiles and Compose files, Prometheus alert names in
@@ -35,59 +40,24 @@ EXTRA_NAMES = ("Makefile", "Dockerfile")
 # Adding a name here asserts that some dependency defines it. Keep each grouped
 # under its crate so the claim stays checkable by hand.
 EXTERNAL_SYMBOLS = {
-    # stellar-tokens (OpenZeppelin non-fungible token): TTL constants, the
-    # approval surface, and the enumerable/sequential helpers the position-NFT
-    # docs describe.
-    "OWNER_EXTEND_AMOUNT", "OWNER_TTL_THRESHOLD", "TOKEN_EXTEND_AMOUNT",
-    "TOKEN_TTL_THRESHOLD", "approve_for_all", "is_approved_for_all",
-    "ApproveForAll", "get_token_id", "get_owner_token_id", "total_supply",
-    "NonFungibleTokenError", "NFTSequentialStorageKey", "TokenIdCounter",
-    "next_token_id", "increment_token_id",
-    "NFTEnumerableStorageKey", "OwnerTokens", "OwnerTokensIndex",
-    "GlobalTokens", "GlobalTokensIndex",
+    # stellar-tokens (OpenZeppelin non-fungible token): the approval event, the
+    # error enum and the enumerable storage keys the position-NFT docs describe.
+    "ApproveForAll", "NonFungibleTokenError",
+    "OwnerTokensIndex", "GlobalTokens", "GlobalTokensIndex",
     # stellar-governance (OpenZeppelin timelock): storage keys and predicates
     # the keeper README describes.
     "DONE_LEDGER", "MinDelay", "is_operation_done", "UnexecutedPredecessor",
-    # stellar-contract-utils / stellar-access: error codes the test docs map.
-    "EnforcedPause", "ExpectedPause",
     # mx-keyvault: the Azure credential env-var contract the keeper README
     # documents.
-    "AZURE_TENANT_ID", "AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET",
     "AZURE_IDENTITY_DISABLE_MANAGED_IDENTITY_CREDENTIAL",
-}
-
-# Words that look like symbols but are prose, tooling, or external API names.
-ALLOW = {
-    # external tooling / language keywords that appear in backticks
-    "cargo", "clippy", "rustc", "wasm", "make", "grep", "sed", "jq", "curl",
-    "docker", "python3", "bash", "sh", "git", "soroban", "stellar",
-    # generic prose in backticks
-    "true", "false", "None", "Some", "Ok", "Err", "Self", "Vec", "Option",
-    "Result", "String", "Address", "Env", "Val", "Bytes", "BytesN", "Symbol",
-    "Map", "u32", "u64", "i128", "u128", "i64", "bool", "usize",
-    # status labels of docs/reference/invariants.md, not code identifiers
-    "ENFORCED",
 }
 
 # Per-file allowances. Each entry is a name the file cites deliberately even
 # though no such item exists in any source we can see; the comment says why.
 FILE_ALLOW = {
-    # Symbolic variable names the formula prose defines for itself right next
-    # to the pseudo-code that uses them; they are math notation, not items.
-    # (Skipping fenced blocks would not help: these are flagged in the prose
-    # sentence that defines them, not inside the block.)
-    "docs/reference/formulas.md": {
-        "actual_borrowed", "actual_supplied", "milliseconds_per_year",
-        "remaining_value",
-    },
-    # Cited as a name that deliberately does not exist ("`prices_status` is
-    # not an entrypoint"); the real helper, fetch_prices_status, is checked.
-    "services/lending-exporter/README.md": {"prices_status"},
-    # DTOs from the external xoxno-api-v2 repository used by the lending math
-    # reference; their field semantics are linked to the SDK skill.
-    "skills/xoxno-lending/math.md": {
-        "AccountPositionDto", "ReserveIrmCurveDto",
-    },
+    # A DTO from the external xoxno-api-v2 repository used by the lending math
+    # reference; its field semantics are linked to the SDK skill.
+    "skills/xoxno-lending/math.md": {"ReserveIrmCurveDto"},
     # Edge and node types of the codebase-memory MCP graph, named while
     # explaining what that graph does and does not model. They are labels in an
     # external index, not items in this source tree.
@@ -97,35 +67,9 @@ FILE_ALLOW = {
     "tests/test-harness/tests/README.md": {
         "exceeding_ltv", "stale_twap_history", "creates_position",
     },
-    # Certora prover internals (Kotlin classes, config names, TAC operators),
-    # compiler-rt intrinsics and WASM opcodes cited from the open-source prover
-    # and the Rust sysroot while explaining how the WASM front-end models i128
-    # arithmetic. None of them is an item in this tree.
-    "docs/explanation/certora-sunbeam-prover-tuning.md": {
-        "__udivti3", "__modti3", "__umodti3", "__ashlti3", "__ashrti3",
-        "__lshrti3", "DIVTI3", "MODTI3", "UDIVTI3", "ASHLTI3",
-        "fail_with_error", "i256_add", "i256_div", "i256_mul",
-        "obj_from_i256_pieces", "overflowing_add", "wrapping_neg",
-        "impl_signed_mulo", "widen_mul", "u128_div_rem", "IntModuleImpl",
-        "ByteStore", "BitCounts", "shr_s", "shr_u", "div_u",
-        "ExpNormalizerIA", "uninterp_bwand", "uninterp_bwor",
-        "uninterp_bwashr", "uninterp_bwlshr", "uninterp_bwshl",
-        "uninterp_bwxor", "ShiftRightArithmetical", "IntMul", "UninterpMul",
-        "UninterpDiv", "UseLIA", "UseBV", "WITH_VERIFIER",
-        "BitwiseAxiomGenerator", "test_overflow_add", "test_underflow_add",
-        "AllCommonAvailableSolversWithClOptions",
-    },
-    # The review cites the same compiler-rt intrinsics and the compiler-builtins
-    # helper the prover inlines when function names are stripped.
-    "docs/explanation/certora-suite-review-2026-09-03.md": {
-        "__udivti3", "__modti3", "u128_div_rem", "div_u",
-        # Summaries the review found unused; the names describe what was removed.
-        "reserves_summary", "supplied_amount_summary", "borrowed_amount_summary",
-        "protocol_revenue_summary", "capital_utilisation_summary",
-        "pool_snapshot_summary", "PoolViewsSnapshot", "fresh_monotone_index",
-        "token_price_summary", "total_collateral_in_usd_summary",
-        "total_borrow_in_usd_summary", "ltv_collateral_in_usd_summary",
-    },
+    # A compiler-rt intrinsic the prover models, cited while explaining i128
+    # arithmetic in the WASM front-end.
+    "certora/README.md": {"__modti3"},
 }
 
 
@@ -164,7 +108,7 @@ def sources() -> str:
     stems = []
     for p in tracked_files():
         rel = str(p.relative_to(ROOT))
-        if in_skipped_dir(rel) or not p.is_file():
+        if in_skipped_dir(rel) or rel in SELF_FILES or not p.is_file():
             continue
         if p.suffix == ".rs":
             parts.append(p.read_text(errors="replace"))
@@ -173,9 +117,6 @@ def sources() -> str:
         elif p.suffix in EXTRA_SUFFIXES or p.name in EXTRA_NAMES:
             parts.append(p.read_text(errors="replace"))
     parts.append(" ".join(stems))
-    # Names owned by dependencies, asserted rather than scanned so the result
-    # does not depend on whether Cargo has unpacked the crate sources.
-    parts.append(" ".join(EXTERNAL_SYMBOLS))
     return "\n".join(parts)
 
 
@@ -198,7 +139,7 @@ def candidates(text: str):
     """Backticked tokens that look like Rust identifiers, not prose."""
     for m in re.finditer(r"`([A-Za-z_][A-Za-z0-9_]*)`", text):
         name = m.group(1)
-        if name in ALLOW or len(name) < 4:
+        if len(name) < 4:
             continue
         snake = "_" in name and name.islower()
         camel = re.fullmatch(r"[A-Z][a-z0-9]+(?:[A-Z][a-z0-9]*)+", name)
@@ -209,9 +150,10 @@ def candidates(text: str):
 
 def main() -> int:
     quiet = "--quiet" in sys.argv
-    known = set(re.findall(r"\b([A-Za-z_][A-Za-z0-9_]*)\b", sources()))
+    known = set(IDENT.findall(sources()))
 
     unknown = []
+    used: set = set()
     for md in markdown_files():
         rel = str(md.relative_to(ROOT))
         if rel.startswith(EXTERNAL_DOC_DIRS):
@@ -219,17 +161,33 @@ def main() -> int:
         allowed = FILE_ALLOW.get(rel, frozenset())
         text = md.read_text(errors="replace")
         for m, name in candidates(text):
-            if name in known or name in allowed:
+            if name in known:
                 continue
-            line = text.count("\n", 0, m.start()) + 1
-            unknown.append((rel, line, name))
+            if name in allowed:
+                used.add((rel, name))
+            elif name in EXTERNAL_SYMBOLS:
+                used.add(name)
+            else:
+                line = text.count("\n", 0, m.start()) + 1
+                unknown.append((rel, line, name))
+    stale = [f"EXTERNAL_SYMBOLS: {n}" for n in sorted(EXTERNAL_SYMBOLS) if n not in used] + [
+        f"FILE_ALLOW[{rel!r}]: {n}"
+        for rel, names in sorted(FILE_ALLOW.items())
+        for n in sorted(names)
+        if (rel, n) not in used
+    ]
 
     if unknown and not quiet:
         print("Symbols cited in markdown but absent from the source tree:")
         for path, line, name in unknown:
             print(f"  {path}:{line}  {name}")
+    if stale:
+        print("Allowances no citation needs (delete them):")
+        for entry in stale:
+            print(f"  {entry}")
+        print(f"stale allowances: {len(stale)}")
     print(f"unknown symbols: {len(unknown)}")
-    return 1 if unknown else 0
+    return 1 if unknown or stale else 0
 
 
 if __name__ == "__main__":

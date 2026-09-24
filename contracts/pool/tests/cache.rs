@@ -324,10 +324,9 @@ fn test_positive_revenue_payout_burns_positive_share_at_extreme_ratio() {
 
         assert_eq!(paid, 1, "the single unit of cash must settle");
 
-        assert!(
-            cache.revenue() < Ray::from(extreme_revenue),
-            "a positive payout must retire a positive share"
-        );
+        let burned = 1_000_000_000;
+        assert_eq!(cache.revenue(), Ray::from(extreme_revenue - burned));
+        assert_eq!(cache.supplied(), Ray::from(extreme_revenue - burned));
 
         assert!(claim_after + paid <= claim_before, "claim value created");
         assert!(

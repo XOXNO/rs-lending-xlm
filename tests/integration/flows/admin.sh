@@ -353,8 +353,11 @@ flow_price_aggregator_extra() {
     # (1000); +/-8% is 800 bps. Centred on the asset's *current* price rather
     # than on parity, so the band contains the price it is guarding.
     local band_min band_max band_px cur_min cur_max
-    band_px=$(jq -r '[.. | objects | select(has("price")) | .price] | first // empty' <<<"$px" 2>/dev/null)
-    [[ "$band_px" =~ ^[0-9]+$ ]] || band_px="$WAD"
+    band_px=$(jq -r '[.. | objects | select(has("price_wad")) | .price_wad] | first // empty' <<<"$px" 2>/dev/null)
+    [[ "$band_px" =~ ^[0-9]+$ ]] || {
+        _assert_fail pa_band_centre "prices returned no price_wad: $(head -c 160 <<<"$px")"
+        return 1
+    }
     band_min=$((band_px / 100 * 92))
     band_max=$((band_px / 100 * 108))
     # set_sanity_band is a one-way ratchet: the new band must sit inside the
@@ -369,6 +372,8 @@ flow_price_aggregator_extra() {
     if [[ "$cur_max" =~ ^[0-9]+$ ]] && [ "$cur_max" -lt "$band_max" ]; then band_max="$cur_max"; fi
     inv pa_set_sanity_band "$ADMIN" "$PRICE_AGGREGATOR" -- set_sanity_band \
         --key "$key" --min_wad "$band_min" --max_wad "$band_max" >/dev/null
+    view pa_prices_after_band "$PRICE_AGGREGATOR" -- prices --keys "$keys_json" >/dev/null \
+        || _assert_fail pa_band_contains_live "the narrowed band rejects the live price"
 
     xfail pa_set_sanity_band_owner_guard "Missing signing key for account $ADMIN_ADDR" "$ALICE" "$PRICE_AGGREGATOR" -- set_sanity_band \
         --key "$key" --min_wad "$band_min" --max_wad "$band_max"

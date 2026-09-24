@@ -9,8 +9,9 @@
   satisfy witness on its fixture.
 - Conf integrity: `SOROBAN_CONF_KEYS` only, a non-empty `msg`,
   `optimistic_loop: false` outside `OPTIMISTIC_LOOP_CONFS`, a positive
-  `loop_iter` (host-state floor, sanity conf not below its twin), and
-  `-mediumTimeout` / `-maxCommandCount` tuning.
+  `loop_iter` (host-state floor, sanity conf not below its twin),
+  `-mediumTimeout` / `-maxCommandCount` tuning, and no allowlist entry that
+  names a missing conf.
 - Profiles: every include and rule argument resolves, and every conf is profiled.
 """
 
@@ -62,26 +63,9 @@ MIN_HOST_STATE_LOOP_ITER = 28
 OPTIMISTIC_LOOP_CONFS = {"lp-math-stable.conf"}
 PURE_CONTROLLER_CONFS = {
     "boundary-bad-debt-sanity.conf",
-    "boundary-compound-sanity.conf",
-    "boundary-math-sanity.conf",
-    "boundary-math.conf",
     "boundary-oracle.conf",
-    "boundary-rates.conf",
-    "compound-output.conf",
-    "hf-lemmas-sanity.conf",
     "hf-lemmas.conf",
-    "interest-compound.conf",
-    "interest-index.conf",
-    "interest.conf",
-    "liquidation-accounting-math.conf",
     "liquidation-bonus.conf",
-    "math-bv.conf",
-    "math-reverts-sanity.conf",
-    "math-reverts.conf",
-    "math.conf",
-    "scaled-reconstruction.conf",
-    "solvency-roundtrip.conf",
-    "supply-dust-sanity.conf",
 }
 PURE_POOL_CONFS: set[str] = set()
 PURE_PRICE_AGGREGATOR_CONFS = {
@@ -262,6 +246,18 @@ def main() -> int:
     config_errors: list[str] = []
     conf_source_rules: dict[Path, set[str]] = {}
     profiled_confs: set[Path] = set()
+
+    for layer, names in (
+        ("controller", PURE_CONTROLLER_CONFS),
+        ("pool", PURE_POOL_CONFS),
+        ("price-aggregator", PURE_PRICE_AGGREGATOR_CONFS),
+    ):
+        for name in sorted(names):
+            if not (ROOT / layer / "confs" / name).is_file():
+                config_errors.append(f"{layer}: allowlisted conf {name} does not exist")
+    for name in sorted(OPTIMISTIC_LOOP_CONFS):
+        if not any(ROOT.glob(f"*/confs/{name}")):
+            config_errors.append(f"optimistic-loop allowlist: conf {name} does not exist")
 
     for confs_dir in sorted(ROOT.glob("*/confs")):
         layer = confs_dir.parent.name

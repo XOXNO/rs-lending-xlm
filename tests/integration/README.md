@@ -63,19 +63,15 @@ reuse the standalone scenario scripts verbatim — own wallets, own deploy, own
 inner green gate — so `E2E_LANES="flash"` and `make integration-flash-position`
 exercise the identical code path.
 
-### CI vs research scenarios
+### CI gate
 
 | Tier | Scripts | Gate |
 |------|---------|------|
 | **Release CI** | `parallel_e2e.sh` (per lane: `full_e2e.sh`, `flash_position.sh` or `blend.sh` → `assert_green.sh`) | Every lane exits 0, logs `run complete`, and has no unresolved `FAIL`, `UNEXPECTED-OK` or `sim-error` row. |
-| **Research** | `liq_20feed.sh`, `liq20_v2_walk.sh`, `liq_20feed_*.sh` | Width probes record `research` status (intentional frontier misses); run manually after stress. See `tests/test-harness/tests/fuzz/` for proptest coverage. |
 
-Shared width logic lives in `lib/liq20_width.sh`. `liq_20feed.sh` sets up the
-account. `liq20_v2_walk.sh` is the preferred instruction-cap walk;
-`liq_20feed_walk.sh`, `liq_20feed_width.sh`, `liq_20feed_bisect.sh`,
-`liq_20feed_retry9.sh`, and `liq_20feed_fullrepay.sh` are thin wrappers over
-the same helpers. Every other script needs `LIQ20_ACCT` from a prior
-`liq_20feed.sh` run.
+`POSITION_LIMIT_MAX` is 5, so the largest account to liquidate holds 5
+collaterals and 5 debts. `flow_stress_liq_frontier` in the stress lane builds
+and liquidates it.
 
 Each run writes `runs/<RUN_TS>/`:
 
@@ -120,7 +116,6 @@ See `tests/integration/lib/report.sh` for the generator and `scenarios/assert_gr
   which appears only when the CLI sends a transaction. A success without it
   records `read`; a transient error with it triggers a ledger lookup.
 - `lib/assert.sh` — parsed on-chain assertions (HF, debt, `is_liquidatable`, pool revenue).
-- `lib/liq20_width.sh` — 20-feed liquidation width research helpers (`research` status).
 - `lib/wallet.sh` — per-run unique friendbot-funded wallets (reused aliases
   run dry across runs; never share wallets between runs).
 - `lib/assets.sh` — self-issued SACs, classic trustlines, mint, balances,

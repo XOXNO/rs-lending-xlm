@@ -5,7 +5,7 @@
 use crate::math::fp::{Bps, Ray};
 use crate::types::oracle::PriceFeedRaw;
 use crate::types::pool::{
-    AccountPosition, AccountPositionRaw, DebtPosition, DebtPositionRaw, HubAssetKey,
+    AccountPosition, AccountPositionRaw, DebtPosition, DebtPositionRaw, HubAssetKey, MarketIndexRaw,
 };
 use crate::types::shared::PositionMode;
 use soroban_sdk::{contracttype, Address, Map, Vec};
@@ -274,7 +274,7 @@ pub struct SeizeEntry {
 
     pub liquidation_fees: u32,
     pub feed: PriceFeedRaw,
-    pub market_index: crate::types::pool::MarketIndexRaw,
+    pub market_index: MarketIndexRaw,
 }
 
 /// One debt asset repaid during a liquidation: amount repaid, its USD-equivalent value, and
@@ -288,7 +288,7 @@ pub struct RepayEntry {
 
     pub usd_wad: i128,
     pub feed: PriceFeedRaw,
-    pub market_index: crate::types::pool::MarketIndexRaw,
+    pub market_index: MarketIndexRaw,
 }
 
 /// Planned outcome of a liquidation: seized collateral entries, repaid debt entries, any
@@ -374,6 +374,7 @@ impl From<&AccountMeta> for AccountAttributes {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::constants::RAY;
     use soroban_sdk::{testutils::Address as _, Env};
 
     fn sample_spoke_asset_config() -> SpokeAssetConfig {
@@ -482,7 +483,7 @@ mod tests {
             asset: Address::generate(&env),
         };
         let stored = AccountPositionRaw {
-            scaled_amount: 42 * crate::constants::RAY,
+            scaled_amount: 42 * RAY,
             liquidation_threshold: 8_000,
             liquidation_bonus: 500,
             loan_to_value: 7_500,

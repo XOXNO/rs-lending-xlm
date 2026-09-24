@@ -7,10 +7,11 @@ use common::errors::GenericError;
 use common::ttl::renew_instance;
 
 use soroban_sdk::{
-    assert_with_error, contractimpl, panic_with_error, Address, BytesN, Env, Symbol,
+    assert_with_error, contractimpl, panic_with_error, Address, BytesN, Env, Symbol, Vec,
 };
 
 use stellar_access::{access_control, ownable, role_transfer};
+use stellar_governance::timelock::set_min_delay;
 
 use crate::{timelock, Governance, GovernanceArgs, GovernanceClient};
 
@@ -177,7 +178,7 @@ pub(crate) fn apply_grant_role(env: &Env, account: &Address, role: &Symbol) {
 /// address in `new_cancellers` that does not already hold it, skipping
 /// `owner` and enforcing the executor/canceller separation on each new
 /// grant.
-pub(crate) fn apply_canceller_reset(env: &Env, new_cancellers: &soroban_sdk::Vec<Address>) {
+pub(crate) fn apply_canceller_reset(env: &Env, new_cancellers: &Vec<Address>) {
     renew_instance(env);
     let owner = owner_or_panic(env);
     let role = Symbol::new(env, CANCELLER_ROLE);
@@ -253,7 +254,7 @@ impl Governance {
         }
 
         timelock::require_nonzero_delay(&env, min_delay);
-        stellar_governance::timelock::set_min_delay(&env, min_delay);
+        set_min_delay(&env, min_delay);
     }
 }
 

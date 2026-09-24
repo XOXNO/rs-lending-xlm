@@ -11,6 +11,8 @@ use test_harness::{hub_asset, HubAssetKey, LendingTest, HARNESS_HUB};
 /// Every failure arrives in the outer `Err`. A host error of any type except
 /// `ScErrorType::Contract` passes. A `Contract` error means the call got past the auth
 /// check. A bare `InvokeError` or any `Ok` result fails.
+/// The host narrows every non-contract failure to `Error(Context, InvalidAction)`, so a
+/// pass cannot tell an auth rejection from any other host trap.
 fn expect_rejected<F, R, InnerErr>(label: &str, call: F) -> Result<(), String>
 where
     F: FnOnce() -> Result<Result<R, InnerErr>, Result<soroban_sdk::Error, InvokeError>>,
@@ -81,6 +83,7 @@ fn owner_only_endpoints_reject_unauthed_before_validation() {
         ctrl.set_auths(&no_auths).try_set_position_limits(&limits)
     })
     .unwrap();
+    expect_rejected("create_hub", || ctrl.set_auths(&no_auths).try_create_hub()).unwrap();
     expect_rejected("add_spoke", || ctrl.set_auths(&no_auths).try_add_spoke()).unwrap();
     expect_rejected("remove_spoke_category", || {
         ctrl.set_auths(&no_auths).try_remove_spoke(&category_id)
@@ -164,6 +167,12 @@ fn owner_only_endpoints_reject_unauthed_before_validation() {
     .unwrap();
     expect_rejected("upgrade", || {
         ctrl.set_auths(&no_auths).try_upgrade(&real_wasm)
+    })
+    .unwrap();
+    expect_rejected("migrate", || ctrl.set_auths(&no_auths).try_migrate(&2u32)).unwrap();
+    expect_rejected("force_socialize_bad_debt", || {
+        ctrl.set_auths(&no_auths)
+            .try_force_socialize_bad_debt(&1u64)
     })
     .unwrap();
     expect_rejected("upgrade_pool", || {

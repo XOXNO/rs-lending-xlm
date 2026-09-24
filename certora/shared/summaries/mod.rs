@@ -4,7 +4,6 @@ use soroban_sdk::{Address, Env};
 
 use crate::types::PriceFeedRaw;
 use common::math::fp::Wad;
-use common::types::MarketIndexRaw;
 
 use crate::context::Context;
 
@@ -22,15 +21,6 @@ pub(crate) fn price_feed_summary(env: &Env, _asset: &Address) -> PriceFeedRaw {
         asset_decimals,
         timestamp,
     }
-}
-
-/// Returns a market index pair from [`pool::nondet_market_index_raw`].
-///
-/// The controller harness does not call it: its `fetch_pool_bulk_indexes` replays
-/// the index pair of the memoised [`pool::get_sync_data_summary`] draw
-/// (`certora/controller/harness/ghost_prices.rs`).
-pub fn bulk_index_summary(_env: &Env, _asset: &Address) -> MarketIndexRaw {
-    pool::nondet_market_index_raw()
 }
 
 /// Havoc summary for `risk::totals::calculate_account_risk_totals`.

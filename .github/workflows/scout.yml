@@ -29,7 +29,7 @@ jobs:
     name: Scout Audit (advisory)
     runs-on: self-hosted
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           clean: false
 
@@ -39,14 +39,14 @@ jobs:
           git clean -ffdx -e target
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@master
+        uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
           toolchain: "1.95"
           targets: wasm32v1-none
 
       - name: Warm Scout detector build
         continue-on-error: true
-        uses: mihaieremia/scout-audit@26779da2e72880ba77ab796ee7f71a785ba315f3
+        uses: mihaieremia/scout-audit@26779da2e72880ba77ab796ee7f71a785ba315f3 # v1.3.0
         with:
           contracts: contracts/defindex-strategy
           exclude: dos-unexpected-revert-with-storage
@@ -58,7 +58,7 @@ jobs:
 
       - name: Run Scout
 
-        uses: mihaieremia/scout-audit@26779da2e72880ba77ab796ee7f71a785ba315f3
+        uses: mihaieremia/scout-audit@26779da2e72880ba77ab796ee7f71a785ba315f3 # v1.3.0
         with:
           # Every deployable contract in the workspace. Mocks are test
           # doubles and are deliberately not audited. Keep in sync with the

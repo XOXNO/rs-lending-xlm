@@ -2,7 +2,7 @@ use common::errors::CollateralError;
 use common::math::fp::{Bps, Wad};
 use common::types::{Account, AccountPosition, AssetConfig, HubAssetKey};
 use common::validation::expect_invariant;
-use soroban_sdk::{assert_with_error, Address, Env, Vec};
+use soroban_sdk::{assert_with_error, Address, Env, Map, Vec};
 
 use crate::account::update_or_remove_supply_position;
 use crate::constants::THRESHOLD_UPDATE_MIN_HF_RAW;
@@ -170,7 +170,7 @@ fn sync_account_thresholds(
     let borrow_positions = if full_tuple {
         storage::get_debt_positions(env, account_id)
     } else {
-        soroban_sdk::Map::new(env)
+        Map::new(env)
     };
 
     storage::renew_user_account(env, account_id);

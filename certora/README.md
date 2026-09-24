@@ -171,9 +171,9 @@ in sync. It reports, in one pass, every rule that no conf runs, every conf that
 names a rule that does not exist, every rule that runs in more than one
 non-satisfy conf of its layer, every conf whose `rule_sanity` does not match its
 shape, and every revert-shaped rule without a witness. It also rejects a conf
-that no profile runs, a host-state conf below `loop_iter` 28, and a conf
-without `-mediumTimeout` or `-maxCommandCount`. On success it prints the conf,
-rule and profile counts:
+that no profile runs, a host-state conf below `loop_iter` 28, a conf
+without `-mediumTimeout` or `-maxCommandCount`, and an allowlist entry that
+names no conf. On success it prints the conf, rule and profile counts:
 
     python3 certora/scripts/check_orphans.py
 
@@ -192,11 +192,16 @@ To prove one rule, run the conf that lists it from that conf's directory:
 
 `certora-local.yml` runs on pull requests that touch `certora/**`,
 `common/src/**`, `contracts/**/src/**`, `Cargo.toml` or `Cargo.lock`. It runs
-the local prover on the self-hosted runner over a default set of seven confs,
-with a per-rule time cap (900 s by default). A proved violation, a loop-unwind
-failure, `SANITY_FAILED`, an empty or missing rule log, or a missing conf fails
-the job. Wrapper timeouts are warnings. Unrecognized nonempty logs, including
-tooling errors, are also classified as timeout warnings. A runner without the
+the local prover on the self-hosted runner over a default set of eight confs,
+one of them the pool's `pool-lifecycle`, with a per-rule time cap (900 s by
+default). A proved violation, a loop-unwind failure, `SANITY_FAILED`, an empty
+or missing rule log, a log with no prover verdict (`ERROR`: a prover, CLI or JVM
+error), a runner that stops before the provers, a dispatch `rules` name the
+conf does not list, or a missing conf fails the job. A prover-reported timeout
+(`<rule>: Solver timed out`), a solver unknown (`<rule>: Solver failed`) and a
+wrapper kill are warnings. Each rule log is deleted before its run, so an older
+verdict is never read. `certora/scripts/test-run-local-ci.sh` checks this
+classification against a stub prover in the build job. A runner without the
 local prover install skips the proof with a warning and the job stays green,
 so read the job log for the verdict
 summary. When the prove step fails, `target/certora-local-logs` is uploaded as
@@ -216,6 +221,12 @@ profile runs. Revisit it when the prover models U256 ordering.
 `certora-verification.yml` and `certora-fastRules.yml` submit hosted jobs and
 run only on manual dispatch. No profile runs automatically on every pull
 request.
+
+`certora-fastRules.yml` passes `--wait_for_results ALL`, so each conf's job
+blocks until the cloud returns and a violated, vacuous or timed-out rule fails
+the workflow. The profile's confs prove one after another and the run stops at
+the first failing conf, so a dispatch takes the sum of its confs' prover times.
+The `job_timeout_minutes` input caps it (720 by default).
 
 `certora-verification.yml` takes an optional `profile` dispatch input. Left
 empty, it runs the `sanity` profile with one job per conf. Given a profile

@@ -9,7 +9,10 @@ use common::types::{
     Account, AccountMeta, AccountPosition, AccountPositionRaw, ControllerKey, DebtPosition,
     DebtPositionRaw, DelegateGrant, HubAssetKey,
 };
-use soroban_sdk::{assert_with_error, contracttype, panic_with_error, Address, Env, Map, Vec};
+use soroban_sdk::{
+    assert_with_error, contracttype, panic_with_error, Address, Env, IntoVal, Map, TryFromVal, Val,
+    Vec,
+};
 
 /// Assembles an account from the resolved owner, metadata, and raw position maps.
 pub(crate) fn account_from_parts(
@@ -88,9 +91,7 @@ pub(crate) fn set_debt_positions(
 }
 
 /// Stores a nonempty position map without renewing TTL; deletes an empty map.
-fn write_side_map<
-    V: soroban_sdk::TryFromVal<Env, soroban_sdk::Val> + soroban_sdk::IntoVal<Env, soroban_sdk::Val>,
->(
+fn write_side_map<V: TryFromVal<Env, Val> + IntoVal<Env, Val>>(
     env: &Env,
     key: &ControllerKey,
     map: &Map<HubAssetKey, V>,

@@ -7,8 +7,9 @@ extern crate std;
 
 use super::*;
 
+use position_nft::PositionNft;
 use soroban_sdk::testutils::Address as _;
-use soroban_sdk::{Address, Env};
+use soroban_sdk::{Address, Env, String};
 
 use crate::Controller;
 
@@ -37,14 +38,32 @@ fn renewing_an_id_outside_the_mintable_domain_is_refused() {
     in_controller(&env, || nft_renew_call(&env, &nft, BEYOND_U32));
 }
 
-/// The owner lookup returns `None` for an id outside the `u32` domain instead
-/// of panicking or returning a truncated id's owner.
+/// The owner lookup returns `None` for an id outside the `u32` domain, including
+/// an id whose truncation names a minted token.
 #[test]
 fn an_owner_lookup_outside_the_mintable_domain_reports_no_owner() {
     let env = Env::default();
-    let nft = Address::generate(&env);
-    // No NFT contract is registered at `nft`.
-    in_controller(&env, || {
-        assert_eq!(nft_try_owner_of_call(&env, &nft, BEYOND_U32), None);
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let controller = env.register(Controller, (admin,));
+    let nft = env.register(
+        PositionNft,
+        (
+            controller.clone(),
+            String::from_str(&env, "uri"),
+            String::from_str(&env, "Position"),
+            String::from_str(&env, "POS"),
+        ),
+    );
+    let owner = Address::generate(&env);
+    let minted = u64::from(PositionNftClient::new(&env, &nft).mint(&owner));
+
+    env.as_contract(&controller, || {
+        assert_eq!(
+            nft_try_owner_of_call(&env, &nft, minted),
+            Some(owner.clone())
+        );
+        assert_eq!(nft_try_owner_of_call(&env, &nft, BEYOND_U32 + minted), None);
+        assert_eq!(nft_try_owner_of_call(&env, &nft, u64::MAX), None);
     });
 }

@@ -4,7 +4,7 @@
 //! check panics with the corresponding `OracleError` or `GenericError`
 //! variant when the configuration is invalid.
 
-use common::constants::{MAX_ASSET_DECIMALS, MIN_ASSET_DECIMALS};
+use common::constants::{MAX_ASSET_DECIMALS, MAX_REASONABLE_PRICE_WAD, MIN_ASSET_DECIMALS};
 use common::errors::{GenericError, OracleError};
 use common::oracle::observation::{
     MAX_ORACLE_DECIMALS, MAX_PRICE_STALE_SECONDS, MIN_ORACLE_DECIMALS, MIN_PRICE_STALE_SECONDS,
@@ -191,7 +191,7 @@ pub(crate) fn asset_decimals(env: &Env, key: &PriceKey, decimals: u32) {
 fn factor_bounds(env: &Env, scaled: &ScaledSource) {
     if scaled.min_factor_wad <= 0
         || scaled.max_factor_wad < scaled.min_factor_wad
-        || scaled.max_factor_wad > common::constants::MAX_REASONABLE_PRICE_WAD
+        || scaled.max_factor_wad > MAX_REASONABLE_PRICE_WAD
     {
         panic_with_error!(env, OracleError::InvalidSanityBounds);
     }

@@ -35,7 +35,9 @@ pub struct Metrics {
     /// protocol from a dead keeper.
     pub last_tick_timestamp_seconds: IntGauge,
 
-    /// Resource fee, in stroops, of the last dry-run simulation per job `kind`.
+    /// Resource fee, in stroops, that simulation returned for the last job of
+    /// each `kind`: every passing dry-run simulation, and every submitted
+    /// transaction that succeeded.
     pub sim_resource_fee_stroops: GaugeVec,
 }
 
@@ -93,8 +95,8 @@ impl Metrics {
             prometheus::Opts::new(
                 "keeper_entries",
                 "Discovered entries per contract, key group and state: live, \
-                 expired (TTL lapsed, restorable), archived (evicted), or \
-                 never_created (key never written)",
+                 expired (TTL lapsed or archived, restorable), or never_created \
+                 (the RPC returned no entry)",
             ),
             &["contract", "group", "state"],
         )?;

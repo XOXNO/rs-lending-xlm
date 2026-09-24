@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Context, Result};
 
-use crate::stellar::client::contract_id_from_strkey;
+use crate::stellar::client::{contract_id_from_strkey, sc_address_from_strkey};
 use serde::Deserialize;
 use std::fs;
 use std::net::SocketAddr;
@@ -59,6 +59,16 @@ pub struct ContractsConfig {
     /// read or strategy that routes through it.
     #[serde(default)]
     pub extra_instances: Vec<String>,
+
+    /// Blend pools the controller approved for `migrate_from_blend`. The keeper
+    /// renews each one's controller `BlendPoolAllowed` row.
+    #[serde(default)]
+    pub blend_pools: Vec<String>,
+
+    /// `G...` or `C...` addresses registered with `set_position_manager`. The
+    /// keeper renews each one's controller `PositionManager` row.
+    #[serde(default)]
+    pub position_managers: Vec<String>,
 }
 
 impl ContractsConfig {
@@ -265,6 +275,14 @@ impl KeeperConfig {
                 ));
             }
         }
+        for (i, pool) in self.contracts.blend_pools.iter().enumerate() {
+            contract_id_from_strkey(pool)
+                .with_context(|| format!("config.contracts.blend_pools[{i}]"))?;
+        }
+        for (i, manager) in self.contracts.position_managers.iter().enumerate() {
+            sc_address_from_strkey(manager)
+                .with_context(|| format!("config.contracts.position_managers[{i}]"))?;
+        }
         self.contracts.require_aggregator_for_markets()?;
         if self.contracts.pool_wasm_hash.len() != 64
             || hex::decode(&self.contracts.pool_wasm_hash).is_err()
@@ -344,12 +362,43 @@ mod tests {
         );
     }
 
-    /// Every shipped config file parses with at least one RPC endpoint.
-    ///
-    /// This checks the file shape, not `validate()`: `config/testnet.yaml`
-    /// declares markets with no `price_aggregator` and fails validation.
+    /// A malformed Blend pool or position-manager address fails at boot, not on
+    /// every tick.
     #[test]
-    fn shipped_configs_parse_with_an_rpc_endpoint() {
+    fn malformed_shared_row_addresses_fail_validation() {
+        let raw =
+            fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("config/mainnet.yaml"))
+                .expect("read mainnet config");
+        let base: KeeperConfig = serde_yaml::from_str(&raw).expect("parse mainnet config");
+
+        let mut cfg = base.clone();
+        cfg.contracts.blend_pools.push("CABC".into());
+        assert!(cfg.validate().is_err());
+
+        let mut cfg = base.clone();
+        cfg.contracts
+            .blend_pools
+            .push("GAVWFZK5BGCGBWH4O2CXAHXVRIYVAMGCTZJ24IPLVNLT2WQ2LJBDEEBP".into());
+        assert!(cfg.validate().is_err(), "a Blend pool is a contract");
+
+        let mut cfg = base.clone();
+        cfg.contracts.position_managers.push("GABC".into());
+        assert!(cfg.validate().is_err());
+
+        let mut cfg = base;
+        cfg.contracts
+            .position_managers
+            .push("GAVWFZK5BGCGBWH4O2CXAHXVRIYVAMGCTZJ24IPLVNLT2WQ2LJBDEEBP".into());
+        cfg.contracts
+            .position_managers
+            .push("CAJJZSGMMM3PD7N33TAPHGBUGTB43OC73HVIK2L2G6BNGGGYOSSYBXBD".into());
+        cfg.validate()
+            .expect("an account or a contract can be a position manager");
+    }
+
+    /// Every shipped config file passes the same validation as a boot.
+    #[test]
+    fn shipped_configs_validate() {
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("config");
         let mut parsed = 0;
         for entry in fs::read_dir(&dir).expect("read config dir") {
@@ -360,6 +409,8 @@ mod tests {
             let raw = fs::read_to_string(&path).expect("read config");
             let cfg: KeeperConfig = serde_yaml::from_str(&raw)
                 .unwrap_or_else(|e| panic!("parse {}: {e}", path.display()));
+            cfg.validate()
+                .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
             assert!(
                 !cfg.rpc.urls.iter().any(|u| u.trim().is_empty()),
                 "{} has a blank RPC endpoint",

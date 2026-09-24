@@ -68,7 +68,7 @@ impl XoxnoOracle {
         }
         renew_history(&env, &feed_id);
 
-        let take = core::cmp::min(limit, history.len());
+        let take = limit.min(history.len());
         let mut newest_first = Vec::new(&env);
         for i in 0..take {
             newest_first.push_back(history.get_unchecked(history.len() - 1 - i));

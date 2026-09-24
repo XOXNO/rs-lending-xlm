@@ -12,6 +12,9 @@ use soroban_sdk::{panic_with_error, Address, Env, Map, String, Vec};
 #[cfg(not(feature = "certora"))]
 use common::types::{PriceSource, ProviderRef, MAX_RESOLUTION_DEPTH};
 
+#[cfg(not(feature = "certora"))]
+use crate::registry;
+
 /// Per-invocation resolution state for the price aggregator.
 ///
 /// Caches raw provider feed payloads and per-key resolved prices, errors, and
@@ -185,7 +188,7 @@ fn collect_key(
     }
     visited.push_back(key.clone());
 
-    let Some(oracle) = crate::registry::get_oracle(env, key) else {
+    let Some(oracle) = registry::get_oracle(env, key) else {
         return;
     };
 

@@ -148,17 +148,16 @@ impl Outcome {
     }
 
     /// Returns the carried error only if it is a configuration-level failure
-    /// (cycle detected, depth exceeded, source count out of range, unsupported
-    /// Aquarius pool, or oracle not configured); returns `None` for any other
-    /// error or for no error, letting market-condition failures (staleness,
-    /// deviation, sanity bounds) pass through as non-fatal.
+    /// (cycle detected, depth exceeded, source count out of range, or oracle
+    /// not configured); returns `None` for any other error or for no error,
+    /// letting market-condition failures (staleness, deviation, sanity bounds)
+    /// pass through as non-fatal.
     fn config_failure(&self) -> Option<OracleError> {
         match self.err {
             Some(
                 err @ (OracleError::OracleCycleDetected
                 | OracleError::OracleDepthExceeded
                 | OracleError::SourceCountOutOfRange
-                | OracleError::UnsupportedAquariusPool
                 | OracleError::OracleNotConfigured),
             ) => Some(err),
             _ => None,
@@ -251,9 +250,9 @@ pub(crate) fn probe_priceable(session: &mut Session, key: &PriceKey, oracle: &As
 }
 
 /// Resolves `oracle` for `key` at depth 0 and panics only if the outcome carries
-/// a configuration-level error (cycle, depth, source count, unsupported pool, or
-/// missing oracle). Market-condition failures such as staleness or sanity-bound
-/// violations do not panic here.
+/// a configuration-level error (cycle, depth, source count, or missing oracle).
+/// Market-condition failures such as staleness or sanity-bound violations do
+/// not panic here.
 pub(crate) fn probe(session: &mut Session, key: &PriceKey, oracle: &AssetOracle) {
     let env = session.env().clone();
     let (outcome, _) = resolve_outcome(session, key, 0, Some(oracle));

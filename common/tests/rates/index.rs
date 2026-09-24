@@ -51,6 +51,25 @@ fn test_update_supply_index_zero_supplied() {
     assert_eq!(result, Ray::ONE);
 }
 
+/// Zero rewards keep the index even where `supplied * old_index` rounds half up
+/// and the divide back by `supplied` would land above `old_index`.
+#[test]
+fn test_update_supply_index_zero_rewards_keeps_index() {
+    let env = Env::default();
+
+    let old_index = Ray::from(RAY * 3 / 2);
+    assert_eq!(
+        update_supply_index(&env, Ray::from(1), old_index, Ray::ZERO),
+        old_index
+    );
+
+    let old_index = Ray::from(RAY + 5);
+    assert_eq!(
+        update_supply_index(&env, Ray::from(RAY / 10), old_index, Ray::ZERO),
+        old_index
+    );
+}
+
 #[test]
 fn test_update_supply_index_rounds_supplied_value_to_zero_returns_old_index() {
     let env = Env::default();

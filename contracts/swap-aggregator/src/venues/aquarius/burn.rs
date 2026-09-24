@@ -1,6 +1,6 @@
 //! Aquarius LP withdraw (burn).
 
-use soroban_sdk::{panic_with_error, token, Address, Env, IntoVal, Map, Symbol, Vec};
+use soroban_sdk::{panic_with_error, token, vec, Address, Env, IntoVal, Map, Symbol, Vec};
 
 use crate::errors::Error;
 use crate::vault::Vault;
@@ -56,12 +56,12 @@ pub(crate) fn remove_liquidity(
         env,
         lp_token,
         "burn",
-        soroban_sdk::vec![env, router.into_val(env), shares.into_val(env)],
+        vec![env, router.into_val(env), shares.into_val(env)],
     );
     let _: Vec<u128> = env.invoke_contract(
         pool,
         &Symbol::new(env, "withdraw"),
-        soroban_sdk::vec![
+        vec![
             env,
             router.into_val(env),
             to_u128(env, shares).into_val(env),

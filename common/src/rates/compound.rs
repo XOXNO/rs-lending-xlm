@@ -4,6 +4,7 @@
 use soroban_sdk::{panic_with_error, Env, I256};
 
 use crate::constants::MILLISECONDS_PER_YEAR;
+use crate::errors::GenericError;
 use crate::math::fp::Ray;
 
 /// Largest `delta_ms` passed to one [`compound_interest`] call: one year in
@@ -37,7 +38,7 @@ pub fn compound_interest(env: &Env, rate: Ray, delta_ms: u64) -> Ray {
         let d = I256::from_i128(env, delta_ms as i128);
         r.mul(&d)
             .to_i128()
-            .unwrap_or_else(|| panic_with_error!(env, crate::errors::GenericError::MathOverflow))
+            .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow))
     });
 
     let mut sum = Ray::ONE.checked_add(env, x);

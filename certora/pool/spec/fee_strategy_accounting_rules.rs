@@ -1,5 +1,5 @@
 use cvlr::macros::rule;
-use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
+use cvlr::{cvlr_assert, cvlr_assume};
 use soroban_sdk::{Address, Env};
 
 use common::constants::{
@@ -384,8 +384,7 @@ fn claim_revenue_burns_equal_shares_and_cash(
     } else if expected_claim >= treasury_actual {
         Ray::from(revenue_before)
     } else {
-        let ratio = Ray::from_fraction(&e, expected_claim, treasury_actual);
-        Ray::from(revenue_before).mul(&e, ratio)
+        Ray::from(revenue_before).mul_ratio_ceil(&e, expected_claim, treasury_actual)
     };
     let result = crate::ops::revenue::accounting(&e, hub(asset.clone())).mutation;
     let post = read_state(&e, &asset);
@@ -402,8 +401,14 @@ fn claim_revenue_burns_equal_shares_and_cash(
     cvlr_assert!(treasury_actual == 0 || expected_claim != treasury_actual || post.revenue == 0);
 }
 
+/// Cash 1 against a treasury of 3e27 at 18 decimals takes the proportional
+/// branch: the ceil burn is `3e36 * 1 / 3e27 = 1e9` revenue shares.
 #[rule]
-fn positive_revenue_claim_with_zero_share_burn_reverts(e: Env, admin: Address, asset: Address) {
+fn positive_revenue_claim_at_extreme_ratio_burns_positive_shares(
+    e: Env,
+    admin: Address,
+    asset: Address,
+) {
     cvlr_assume!(e.ledger().timestamp() <= u64::MAX / 1_000);
     let extreme_revenue = 3 * 10i128.pow(36);
     seed(
@@ -422,54 +427,15 @@ fn positive_revenue_claim_with_zero_share_burn_reverts(e: Env, admin: Address, a
         ),
     );
 
-    crate::ops::revenue::accounting(&e, hub(asset));
-
-    cvlr_assert!(false);
-}
-
-/// Satisfy twin of [`positive_revenue_claim_with_zero_share_burn_reverts`]: the
-/// same 18-decimal market holding the same extreme revenue, with the cash book
-/// funded to the full treasury claim.
-///
-/// The revert fixture leaves `cash == 1`, which drives
-/// `burn_claimable_revenue` into its proportional branch
-/// (`revenue.mul_ratio_ceil(amount, treasury_actual)`). Here `cash` equals
-/// `treasury_actual = unscale_supply_floor(revenue, RAY, 18)`, so the full-claim
-/// branch runs instead and burns the whole revenue book. A witness proves the
-/// extreme fixture is reachable and that `revenue::accounting` returns on it,
-/// so the revert rule is not passing because the market itself is unloadable.
-#[rule]
-fn positive_revenue_claim_with_zero_share_burn_reverts_fixture_completes(
-    e: Env,
-    admin: Address,
-    asset: Address,
-) {
-    cvlr_assume!(e.ledger().timestamp() <= u64::MAX / 1_000);
-    let extreme_revenue = 3 * 10i128.pow(36);
-    // `unscale_supply_floor(revenue, RAY, 18)` is `revenue * RAY / RAY` rescaled
-    // from 27 to 18 decimals, i.e. `revenue / 1e9`.
-    let treasury_actual = extreme_revenue / 10i128.pow(9);
-    seed(
-        &e,
-        admin,
-        asset.clone(),
-        params_with_decimals(asset.clone(), 0, false, 18),
-        state(
-            extreme_revenue,
-            0,
-            extreme_revenue,
-            RAY,
-            RAY,
-            treasury_actual,
-            e.ledger().timestamp(),
-        ),
-    );
-
     let pre = read_state(&e, &asset);
     let claimed = crate::ops::revenue::accounting(&e, hub(asset.clone()))
         .mutation
         .actual_amount;
     let post = read_state(&e, &asset);
+    let burned = pre.revenue - post.revenue;
 
-    cvlr_satisfy!(claimed > 0 && pre.revenue - post.revenue > 0 && post.revenue == 0);
+    cvlr_assert!(claimed == 1);
+    cvlr_assert!(burned == 10i128.pow(9));
+    cvlr_assert!(pre.supplied - post.supplied == burned);
+    cvlr_assert!(pre.cash - post.cash == claimed);
 }

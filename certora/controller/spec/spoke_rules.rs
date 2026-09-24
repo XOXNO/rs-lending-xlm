@@ -1476,10 +1476,15 @@ fn nondet_position_action(sel: u32) -> PositionAction {
         12 => PositionAction::CloseWd,
         13 => PositionAction::Migrate,
         14 => PositionAction::RpColNet,
-        16 => PositionAction::FlashPos,
-        _ => PositionAction::LiqCredit,
+        15 => PositionAction::LiqCredit,
+        _ => PositionAction::FlashPos,
     }
 }
+
+/// Number of `PositionAction` variants `nondet_position_action` can produce.
+/// Callers constrain their selector with this so a new variant is reachable
+/// the moment it is decoded.
+const POSITION_ACTION_COUNT: u32 = 17;
 
 /// Decodes a nondeterministic selector into a `Wave0Leg`.
 fn nondet_wave0_leg(sel: u32) -> Wave0Leg {
@@ -1629,7 +1634,7 @@ fn usage_coverage_no_unwired_verb(
 ) {
     cvlr_assume!(account_id != 0);
     cvlr_assume!(amount > 0 && amount <= crate::constants::WAD * 1000);
-    cvlr_assume!(action_sel < 16);
+    cvlr_assume!(action_sel < POSITION_ACTION_COUNT);
     cvlr_assume!(leg_sel < WAVE0_LEG_COUNT);
     assume_usage_seeds(supply_scaled, debt_scaled, usage_supply, usage_debt);
     seed_usage_scenario(
@@ -1989,6 +1994,14 @@ fn usage_coverage_dispatch_reachable(e: Env, caller: Address, asset: Address, le
         after.supplied_scaled_ray != before.supplied_scaled_ray
             || after.borrowed_scaled_ray != before.borrowed_scaled_ray
     );
+}
+
+/// The selector bound of [`usage_coverage_no_unwired_verb`] reaches the last
+/// decoded `PositionAction`.
+#[rule]
+fn usage_coverage_selector_reaches_flash_pos(_e: Env, action_sel: u32) {
+    cvlr_assume!(action_sel < POSITION_ACTION_COUNT);
+    cvlr_satisfy!(nondet_position_action(action_sel) == PositionAction::FlashPos);
 }
 
 // ---------------------------------------------------------------------------

@@ -8,11 +8,6 @@
 # read-only view, nor confined to a test cfg. A TTL extension is not a write, so
 # a TTL-only entrypoint such as `position-nft::renew` classifies as a view.
 #
-# The checker does not see methods that a `contracttrait` macro generates. The
-# OpenZeppelin NFT mutators of `position-nft` (`transfer`, `transfer_from`,
-# `approve`, `approve_for_all`) are therefore not listed. Each one authenticates
-# the token owner, spender or operator.
-#
 # The checker fails if an entrypoint in one of the declarable categories is
 # missing here, if a line here names an entrypoint that no longer exists, or if
 # a declared category no longer matches what the classifier detects. Each line
@@ -32,7 +27,8 @@
 #               UNGATED-MUTATOR  no authorization primitive is reachable, but a
 #                                state write is.
 #
-# invariants    comma-separated INV-XXX-NN ids from docs/reference/invariants.md.
+# invariants    comma-separated INV-XXX-NN ids; each must head a section of
+#               docs/reference/invariants.md.
 #               INV-AUTH-02 = account spending authority is explicit (owner
 #               or an active, listed delegate). INV-AUTH-03 = third-party
 #               supply cannot create a foreign asset slot.
@@ -57,7 +53,7 @@ controller::flash_position | caller-auth | INV-AUTH-02, INV-STRAT-02, INV-STRAT-
 controller::swap_debt | caller-auth | INV-AUTH-02, INV-STRAT-02 | Moves debt on account_id from one asset to another; require_owner_or_delegate pins the account before the borrow-and-repay legs run.
 controller::swap_collateral | caller-auth | INV-AUTH-02, INV-STRAT-02 | Moves collateral on account_id from one asset to another; require_owner_or_delegate pins the account before the withdraw-and-deposit legs run.
 controller::repay_debt_with_collateral | caller-auth | INV-AUTH-02, INV-STRAT-02 | Nets or swaps account_id's own collateral into a repayment; require_owner_or_delegate pins the account, so a stranger cannot force-close a position.
-controller::migrate_from_blend | caller-auth | INV-AUTH-02, INV-STRAT-02 | Sweeps the caller's Blend position into account_id from a governance-approved pool only; the Migrate account guard requires the owner or an active listed delegate.
+controller::migrate_from_blend | caller-auth | INV-AUTH-02, INV-STRAT-02, INV-STRAT-03 | Sweeps the caller's Blend position into account_id from a governance-approved pool only; the Migrate account guard requires the owner or an active listed delegate.
 controller::add_delegate | caller-auth | INV-AUTH-02 | Grants delegate authority on account_id; require_account_owner admits the owner alone, so a delegate cannot extend its own reach, and the delegate must be an active governance-approved position manager.
 controller::remove_delegate | caller-auth | INV-AUTH-02 | Revokes delegate authority on account_id; require_account_owner admits the owner alone. Revocation only narrows authority.
 controller::renew_account | caller-auth | INV-AUTH-02, INV-STOR-01 | Extends account_id's storage TTL; require_account_owner admits the owner alone. Writes no accounting state, only TTLs.
@@ -83,7 +79,7 @@ controller::flash_loan | caller-auth | INV-AUTH-03, INV-FLASH-01, INV-FLASH-02 |
 # ---------------------------------------------------------------------------
 # swap-aggregator
 # ---------------------------------------------------------------------------
-swap-aggregator::execute_strategy | caller-auth | INV-STRAT-01 | Anyone may route their own swap; sender.require_auth authorizes the pull, the route runs only on the measured input, and the payout to the sender must meet the declared minimum output.
+swap-aggregator::execute_strategy | caller-auth | INV-STRAT-02 | Anyone may route their own swap; sender.require_auth authorizes the pull, the route runs only on the measured input, and the payout to the sender must meet the declared minimum output.
 swap-aggregator::claim_referral_fees | UNGATED-MUTATOR | INV-AUTH-03 | Deliberately unauthenticated: the payout recipient is the referral's stored owner, not a caller argument, so an arbitrary caller can only choose when a referral is paid, never who is paid.
 #
 # ---------------------------------------------------------------------------
@@ -99,11 +95,20 @@ defindex-strategy::balance | UNGATED-MUTATOR | INV-AUTH-03, INV-STOR-01 | Read-o
 # ---------------------------------------------------------------------------
 # position-nft
 #
-# All three entrypoints require_auth the controller address stored at
+# mint, burn and upgrade require_auth the controller address stored at
 # construction (set once, no setter). The checker classifies them caller-auth
 # because it cannot prove which address the stored value names; in practice
 # only the controller's own cross-contract invocation satisfies the auth.
+#
+# transfer, transfer_from, approve and approve_for_all are the stock
+# OpenZeppelin NonFungibleToken methods (ContractType = Enumerable), classified
+# from the pinned table in the checker. The NFT owner is the account owner, so
+# each one moves or delegates control of a whole lending account.
 # ---------------------------------------------------------------------------
-position-nft::mint | caller-auth | INV-AUTH-01 | Any address may invoke, but require_auth on the construction-time controller address means only the controller's own invocation passes; a third party cannot mint, so token supply moves only with controller account creation.
-position-nft::burn | caller-auth | INV-AUTH-01, INV-STOR-01 | Any address may invoke, but require_auth on the construction-time controller address means only the controller's own invocation passes; a third party cannot burn, and the controller burns only after it deletes the account's entries.
-position-nft::upgrade | caller-auth | INV-AUTH-01 | Any address may invoke, but require_auth on the construction-time controller address means only the controller's own invocation passes; on mainnet that path is the owner-gated upgrade_position_nft behind the governance sensitive timelock, mirroring the pool upgrade chain.
+position-nft::mint | caller-auth | INV-STOR-03 | Any address may invoke, but require_auth on the construction-time controller address means only the controller's own invocation passes; a third party cannot mint, so token supply moves only with controller account creation.
+position-nft::burn | caller-auth | INV-STOR-03, INV-STOR-01 | Any address may invoke, but require_auth on the construction-time controller address means only the controller's own invocation passes; a third party cannot burn, and the controller burns only after it deletes the account's entries.
+position-nft::upgrade | caller-auth | INV-AUTH-02, INV-STOR-03 | Any address may invoke, but require_auth on the construction-time controller address means only the controller's own invocation passes; on mainnet that path is the owner-gated upgrade_position_nft behind the governance sensitive timelock, mirroring the pool upgrade chain.
+position-nft::transfer | caller-auth | INV-AUTH-02 | from.require_auth authorizes the move and the stock update rejects any from that is not the token owner, so only the holder can move the whole account; delegate grants from the previous owner go inactive.
+position-nft::transfer_from | caller-auth | INV-AUTH-02 | spender.require_auth authorizes the move, which needs spender to be the owner, the token's live approved address, or an operator the owner approved for all; the stock update then rejects any from that is not the owner, and the transfer clears the token approval.
+position-nft::approve | caller-auth | INV-AUTH-02 | approver.require_auth plus the stock owner-or-operator check limit a token approval to its holder or that holder's operator; the approval expires at live_until_ledger and grants only the power to transfer that NFT, which moves the whole account.
+position-nft::approve_for_all | caller-auth | INV-AUTH-02 | owner.require_auth authorizes the grant and the storage key is (owner, operator), so a caller can only give an operator power over its own NFTs; the grant expires at live_until_ledger.

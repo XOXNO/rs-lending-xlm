@@ -1,4 +1,3 @@
-use std::collections::{BTreeMap, BTreeSet};
 use std::net::SocketAddr;
 use std::sync::{Arc, RwLock};
 
@@ -218,78 +217,29 @@ impl Metrics {
         })
     }
 
-    fn spoke_asset_families(&self) -> [(&'static str, &GaugeVec); 19] {
-        [
-            ("lending_spoke_paused", &self.spoke_paused),
-            ("lending_spoke_frozen", &self.spoke_frozen),
-            (
-                "lending_spoke_collateral_enabled",
-                &self.spoke_collateral_enabled,
-            ),
-            ("lending_spoke_borrow_enabled", &self.spoke_borrow_enabled),
-            ("lending_spoke_deprecated", &self.spoke_deprecated),
-            ("lending_spoke_ltv_bps", &self.spoke_ltv_bps),
-            (
-                "lending_spoke_liquidation_threshold_bps",
-                &self.spoke_liq_threshold_bps,
-            ),
-            (
-                "lending_spoke_liquidation_bonus_bps",
-                &self.spoke_liq_bonus_bps,
-            ),
-            (
-                "lending_spoke_liquidation_fees_bps",
-                &self.spoke_liq_fees_bps,
-            ),
-            ("lending_spoke_supply_cap", &self.spoke_supply_cap),
-            ("lending_spoke_borrow_cap", &self.spoke_borrow_cap),
-            ("lending_spoke_supply_closed", &self.spoke_supply_closed),
-            ("lending_spoke_borrow_closed", &self.spoke_borrow_closed),
-            ("lending_spoke_supply_usage", &self.spoke_supply_usage),
-            (
-                "lending_spoke_supply_usage_usd",
-                &self.spoke_supply_usage_usd,
-            ),
-            ("lending_spoke_borrow_usage", &self.spoke_borrow_usage),
-            (
-                "lending_spoke_borrow_usage_usd",
-                &self.spoke_borrow_usage_usd,
-            ),
-            (
-                "lending_spoke_supply_cap_utilization",
-                &self.spoke_supply_cap_utilization,
-            ),
-            (
-                "lending_spoke_borrow_cap_utilization",
-                &self.spoke_borrow_cap_utilization,
-            ),
-        ]
-    }
-
-    pub fn prune_spoke_assets(&self, attempted: &BTreeSet<BTreeMap<String, String>>) {
-        if attempted.is_empty() {
-            return;
-        }
-        let families = self.registry.gather();
-        for (name, gauge) in self.spoke_asset_families() {
-            let Some(family) = families.iter().find(|f| f.get_name() == name) else {
-                continue;
-            };
-            for metric in family.get_metric() {
-                let seen: BTreeMap<String, String> = metric
-                    .get_label()
-                    .iter()
-                    .map(|l| (l.get_name().to_string(), l.get_value().to_string()))
-                    .collect();
-                if attempted.contains(&seen) {
-                    continue;
-                }
-                let values: Vec<&str> = SPOKE_ASSET_LABELS
-                    .iter()
-                    .map(|k| seen.get(*k).map(|s| s.as_str()).unwrap_or(""))
-                    .collect();
-                let _ = gauge.remove_label_values(&values);
-            }
+    pub fn remove_spoke_asset(&self, labels: &[&str; 7]) {
+        for gauge in [
+            &self.spoke_paused,
+            &self.spoke_frozen,
+            &self.spoke_collateral_enabled,
+            &self.spoke_borrow_enabled,
+            &self.spoke_deprecated,
+            &self.spoke_ltv_bps,
+            &self.spoke_liq_threshold_bps,
+            &self.spoke_liq_bonus_bps,
+            &self.spoke_liq_fees_bps,
+            &self.spoke_supply_cap,
+            &self.spoke_borrow_cap,
+            &self.spoke_supply_closed,
+            &self.spoke_borrow_closed,
+            &self.spoke_supply_usage,
+            &self.spoke_supply_usage_usd,
+            &self.spoke_borrow_usage,
+            &self.spoke_borrow_usage_usd,
+            &self.spoke_supply_cap_utilization,
+            &self.spoke_borrow_cap_utilization,
+        ] {
+            let _ = gauge.remove_label_values(labels);
         }
     }
 
@@ -313,14 +263,6 @@ impl Metrics {
             .expect("metrics snapshot lock poisoned")
             .clone()
     }
-}
-
-pub fn spoke_asset_label_key(values: &[&str; 7]) -> BTreeMap<String, String> {
-    SPOKE_ASSET_LABELS
-        .iter()
-        .zip(values.iter())
-        .map(|(k, v)| (k.to_string(), v.to_string()))
-        .collect()
 }
 
 pub async fn serve(
@@ -430,84 +372,5 @@ mod tests {
                 f.get_name()
             );
         }
-    }
-}
-
-#[cfg(test)]
-mod prune_tests {
-    use super::*;
-
-    fn labels(asset: &str) -> [&str; 7] {
-        ["testnet", "2", "spoke2", "1", "hub1", asset, "SYM"]
-    }
-
-    #[test]
-    fn prune_removes_only_series_not_attempted_this_cycle() {
-        let m = Metrics::new().unwrap();
-        m.spoke_supply_closed
-            .with_label_values(&labels("KEEP"))
-            .set(1.0);
-        m.spoke_supply_closed
-            .with_label_values(&labels("GONE"))
-            .set(1.0);
-
-        let mut attempted = BTreeSet::new();
-        attempted.insert(spoke_asset_label_key(&labels("KEEP")));
-        m.prune_spoke_assets(&attempted);
-
-        let names: Vec<String> = m
-            .registry
-            .gather()
-            .iter()
-            .filter(|f| f.get_name() == "lending_spoke_supply_closed")
-            .flat_map(|f| f.get_metric().to_vec())
-            .flat_map(|met| met.get_label().to_vec())
-            .filter(|l| l.get_name() == "asset")
-            .map(|l| l.get_value().to_string())
-            .collect();
-
-        assert!(names.contains(&"KEEP".to_string()));
-        assert!(!names.contains(&"GONE".to_string()));
-    }
-
-    #[test]
-    fn every_prunable_family_name_is_actually_registered() {
-        let m = Metrics::new().unwrap();
-        m.spoke_paused.with_label_values(&labels("SEED")).set(1.0);
-        let registered: Vec<String> = m
-            .registry
-            .gather()
-            .iter()
-            .map(|f| f.get_name().to_string())
-            .collect();
-
-        for (name, gauge) in m.spoke_asset_families() {
-            gauge.with_label_values(&labels("SEED")).set(1.0);
-            assert!(
-                m.registry.gather().iter().any(|f| f.get_name() == name),
-                "prune list names `{name}`, which no registered family matches, so that \
-                 family is never pruned and delisted spoke-assets leak stale series. \
-                 Registered: {registered:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn prune_is_a_noop_when_nothing_was_attempted() {
-        let m = Metrics::new().unwrap();
-        m.spoke_supply_closed
-            .with_label_values(&labels("KEEP"))
-            .set(1.0);
-
-        m.prune_spoke_assets(&BTreeSet::new());
-
-        let count: usize = m
-            .registry
-            .gather()
-            .iter()
-            .filter(|f| f.get_name() == "lending_spoke_supply_closed")
-            .map(|f| f.get_metric().len())
-            .sum();
-        assert_eq!(count, 1, "a failed cycle must not delete existing series");
     }
 }

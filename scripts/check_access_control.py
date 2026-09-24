@@ -2,7 +2,8 @@
 """Static access-control gate: every contract entrypoint is gated or declared.
 
 Asserts three properties about every `#[contractimpl]` entrypoint in
-`contracts/*`:
+`contracts/*`, including the stock methods of a `#[contractimpl(contracttrait)]`
+block (see `CONTRACTTRAIT_METHODS`):
 
   1. every entrypoint is classified into exactly one authorization category;
   2. every `caller-auth` or `UNGATED-MUTATOR` entrypoint carries an explicit,
@@ -19,12 +20,16 @@ Categories, in precedence order (first match wins):
                  such as `not(test)` does not count -- it is true in a release
                  build), so the symbol does not exist in a deployable WASM
                  (see ADR-0017 and the `wasm-testing-abi-check` Make target,
-                 which verifies the artifact rather than the source).
+                 which verifies the artifact rather than the source). The set
+                 is pinned in `EXPECTED_TEST_ONLY`: a symbol that leaves or
+                 joins it fails the gate.
   owner          `#[only_owner]`, or the body reaches an ownership primitive
-                 (`ownable::enforce_owner`, the two-step transfer/accept pair).
+                 (`ownable::enforce_owner_auth`, the two-step transfer/accept
+                 pair).
   role-timelock  the body reaches a role check (`access_control::ensure_role`,
                  the oracle's registered-signer check) or a timelock primitive
-                 (`schedule_operation` / `set_execute_operation`).
+                 (`schedule_operation` / `execute_operation` /
+                 `set_execute_operation`).
   caller-auth    the body reaches `require_auth` or `require_auth_for_args`:
                  the call authorizes an address the caller supplies. Anyone may
                  invoke it; the auth only proves they control that address.
@@ -39,6 +44,9 @@ Evidence is collected by a depth-limited call-graph walk over the workspace's
 own Rust sources (`contracts/*/src`, `common/src`, `interfaces/*/src`), so a
 guard that lives three helpers deep still counts. The walk resolves calls by
 name, preferring a module-path match when the call site is path-qualified.
+Owner, role and timelock evidence follows only edges that resolve to exactly one
+definition. Evidence is reachability, not dominance: a guard in any branch
+counts.
 
 Fail-closed properties:
 
@@ -49,8 +57,9 @@ Fail-closed properties:
   * cross-contract calls into workspace contracts are resolved against those
     contracts' own classification via a fixpoint, so a controller entrypoint
     that only mutates through the pool is still a mutator;
-  * a `#[contractimpl]` block, impl target, or function the parser cannot
-    understand is an error, not a silent skip.
+  * a `#[contractimpl]` block, impl target, attribute argument, contracttrait
+    trait or `ContractType`, or function the parser cannot understand is an
+    error, not a silent skip.
 
 Scope: the deployable contracts under `contracts/*/src`. `mock/` doubles and the
 `certora/*/spec` harnesses are excluded -- neither ships in a protocol WASM --
@@ -79,6 +88,7 @@ import sys
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONTRACTS_DIR = os.path.join(REPO_ROOT, "contracts")
 ALLOWLIST = os.path.join(REPO_ROOT, "scripts", "permissionless_entrypoints.txt")
+INVARIANTS = os.path.join(REPO_ROOT, "docs", "reference", "invariants.md")
 
 # Extra crates whose functions entrypoints delegate into. Guards and storage
 # writes routinely live here, so the call-graph walk has to see them.
@@ -104,6 +114,46 @@ CATEGORIES = (
 # a deployable WASM (constructor, test-only).
 DECLARABLE_CATEGORIES = frozenset({"caller-auth", "UNGATED-MUTATOR"})
 
+# Every test-only entrypoint. `wasm-testing-abi-check` proves each is absent
+# from its deploy WASM, so a symbol that drops its test cfg must fail here even
+# when a gate keeps it out of the declarable categories.
+EXPECTED_TEST_ONLY = frozenset(
+    {
+        "governance::execute_immediate",
+        "governance::set_controller",
+        "governance::set_price_aggregator",
+        "price-aggregator::remove_oracle",
+        "price-aggregator::seed_oracle",
+    }
+)
+
+# `#[contractimpl(contracttrait)]` exports the trait's default methods, which
+# live in the dependency, not in this tree. Pinned to OpenZeppelin
+# stellar-contracts rev fbfde388 (Cargo.toml): each stock method's category, and
+# the stock `ContractType` implementations whose bodies back those categories.
+# An override in the impl body is classified from its own source instead.
+CONTRACTTRAIT_METHODS = {
+    "NonFungibleToken": {
+        "transfer": "caller-auth",
+        "transfer_from": "caller-auth",
+        "approve": "caller-auth",
+        "approve_for_all": "caller-auth",
+        "balance": "view",
+        "owner_of": "view",
+        "get_approved": "view",
+        "is_approved_for_all": "view",
+        "name": "view",
+        "symbol": "view",
+        "token_uri": "view",
+    },
+    "NonFungibleEnumerable": {
+        "total_supply": "view",
+        "get_owner_token_id": "view",
+        "get_token_id": "view",
+    },
+}
+CONTRACTTRAIT_TYPES = {"NonFungibleToken": frozenset({"Base", "Enumerable"})}
+
 # --- authorization primitives -------------------------------------------------
 #
 # Each pattern below is matched against a function body (comments stripped).
@@ -113,13 +163,13 @@ DECLARABLE_CATEGORIES = frozenset({"caller-auth", "UNGATED-MUTATOR"})
 OWNER_ATTRS = ("only_owner",)
 
 OWNER_PATTERNS = (
-    # `stellar_access::ownable`: `#[only_owner]` expands to `enforce_owner`,
-    # and the two-step handover pair authenticates owner / pending owner.
-    re.compile(r"\bownable::enforce_owner\s*\("),
+    # `stellar_access::ownable`: `#[only_owner]` expands to
+    # `enforce_owner_auth`, and the two-step handover pair authenticates
+    # owner / pending owner.
+    re.compile(r"\benforce_owner_auth\s*\("),
     re.compile(r"\bownable::accept_ownership\s*\("),
     re.compile(r"\bownable::transfer_ownership\s*\("),
     re.compile(r"\bownable::renounce_ownership\s*\("),
-    re.compile(r"\benforce_owner\s*\(\s*&?env"),
 )
 
 ROLE_PATTERNS = (
@@ -133,6 +183,7 @@ ROLE_PATTERNS = (
 
 TIMELOCK_PATTERNS = (
     re.compile(r"\bschedule_operation\s*\("),
+    re.compile(r"\bexecute_operation\s*\("),
     re.compile(r"\bset_execute_operation\s*\("),
 )
 
@@ -245,11 +296,11 @@ EXTERNAL_CLIENT_READS = {
         }
     ),
     # position-nft is a workspace contract, but its standard NFT surface
-    # (owner_of, balance, transfer, approvals) is generated by OpenZeppelin's
-    # `contracttrait` macro, so the checker never sees those bodies and cannot
-    # resolve them like other workspace entrypoints. Enumerate the read-only
-    # method the controller consumes. `mint` and `burn` are deliberately
-    # absent: they write, and must resolve conservatively as mutations.
+    # (owner_of, balance, transfer, approvals) comes from OpenZeppelin's
+    # `contracttrait` defaults, which the walk cannot enter. Enumerate the
+    # read-only method the controller consumes. `mint` and `burn` are
+    # deliberately absent: they write, and must resolve conservatively as
+    # mutations.
     "PositionNftClient": frozenset({"owner_of"}),
     # Blend's `submit` moves positions and funds; nothing here is a read.
     "BlendPoolClient": frozenset(),
@@ -303,6 +354,10 @@ CFG_TEST_ONLY = re.compile(r'\btest\b|feature\s*=\s*"testing"')
 # cfg carrying any negation is not evidence that the symbol is absent from the
 # artifact -- even though CFG_TEST_ONLY matches the `test` inside it.
 CFG_NEGATION = re.compile(r"\bnot\s*\(")
+CONTRACTIMPL_ATTR = re.compile(r"#\[\s*(?:soroban_sdk\s*::\s*)?contractimpl\b")
+CONTRACT_TYPE = re.compile(r"\btype\s+ContractType\s*=\s*([\w:]+)\s*;")
+CUSTOM_OVERRIDES = re.compile(r"\bimpl\b[^{;]*?\bContractOverrides\s+for\b")
+INVARIANT_HEADING = re.compile(r"^#+\s+(INV-[A-Z]+-\d+)\b", re.M)
 
 
 class ParseError(RuntimeError):
@@ -568,9 +623,10 @@ class CallGraph:
     without it a call to `upgrade` in one contract resolves into every other
     contract's `upgrade`, which manufactures guard evidence that is not there.
 
-    When a name still resolves to several definitions the walk visits all of
-    them. This can over-report a gate: an owner, role or timelock gate found
-    this way passes with no declared line.
+    When a name still resolves to several definitions the permissive walk
+    visits all of them, which fails closed for write reachability. The strict
+    walk, used for owner, role and timelock evidence, drops such an edge, so a
+    same-named guarded helper cannot lend its gate to an ungated caller.
     """
 
     def __init__(self, sources: list[tuple[str, str]]) -> None:
@@ -584,17 +640,18 @@ class CallGraph:
                 self.by_name.setdefault(name, []).append(
                     {"module": mod, "crate": crate, "file": rel, "body": text[fn_kw:end]}
                 )
-        self._cache: dict[tuple[int, str], list[dict]] = {}
+        self._cache: dict[tuple[int, str, bool], list[dict]] = {}
 
-    def callees(self, body: str, crate: str) -> list[dict]:
+    def callees(self, body: str, crate: str, strict: bool = False) -> list[dict]:
         """Definitions referenced from `body`, best-effort resolved.
 
         Both call sites (`foo::bar(..)`) and bare path references
         (`ops::supply::apply` passed as a value) count: the pool hands mutation
         legs to `run_batch` as function items, and missing those would make
-        every batched mutator look read-only.
+        every batched mutator look read-only. `strict` keeps only edges that
+        resolve to exactly one definition.
         """
-        key = (id(body), crate)
+        key = (id(body), crate, strict)
         hit = self._cache.get(key)
         if hit is not None:
             return hit
@@ -612,8 +669,10 @@ class CallGraph:
             if qual:
                 tail = qual.replace(" ", "").split("::")[-1]
                 narrowed = [c for c in candidates if c["module"].split("::")[-1] == tail]
-                if narrowed:
+                if narrowed or strict:
                     candidates = narrowed
+            if strict and len(candidates) != 1:
+                continue
             for c in candidates:
                 if id(c) not in seen:
                     seen.add(id(c))
@@ -621,7 +680,7 @@ class CallGraph:
         self._cache[key] = found
         return found
 
-    def walk(self, body: str, crate: str, predicate) -> bool:
+    def walk(self, body: str, crate: str, predicate, strict: bool = False) -> bool:
         """Whether `predicate(text)` holds for `body` or any transitive callee."""
         stack = [(body, 0)]
         seen: set[int] = set()
@@ -631,15 +690,15 @@ class CallGraph:
                 return True
             if depth >= MAX_DEPTH:
                 continue
-            for c in self.callees(text, crate):
+            for c in self.callees(text, crate, strict):
                 if id(c) not in seen:
                     seen.add(id(c))
                     stack.append((c["body"], depth + 1))
         return False
 
-    def reaches(self, body: str, crate: str, patterns) -> bool:
+    def reaches(self, body: str, crate: str, patterns, strict: bool = False) -> bool:
         """Whether `body` or anything it transitively calls matches `patterns`."""
-        return self.walk(body, crate, lambda text: any(p.search(text) for p in patterns))
+        return self.walk(body, crate, lambda text: any(p.search(text) for p in patterns), strict)
 
 
 # --------------------------------------------------------------------------- #
@@ -670,25 +729,59 @@ def discover_entrypoints() -> list[dict]:
 
 def _entrypoints_in_file(contract: str, rel: str, text: str) -> list[dict]:
     found: list[dict] = []
-    for m in re.finditer(r"#\[\s*(?:soroban_sdk\s*::\s*)?contractimpl\s*\]", text):
+    custom = CUSTOM_OVERRIDES.search(text)
+    if custom:
+        where = f"{rel}:{line_of(text, custom.start())}"
+        raise ParseError(f"{where}: ContractOverrides impl is not pinned")
+    for m in CONTRACTIMPL_ATTR.finditer(text):
+        where = f"{rel}:{line_of(text, m.start())}"
+        close = text.find("]", m.end())
+        args = "".join(text[m.end() : close].split()) if close != -1 else None
+        if args not in ("", "(contracttrait)"):
+            raise ParseError(f"{where}: unsupported #[contractimpl] argument {args!r}")
         attrs = preceding_attributes(text, m.start())
         cfg = " ".join(a for a in attrs if a.startswith("#[cfg"))
-        header = IMPL_HEADER.search(text, m.end())
-        if header is None or header.start() > m.end() + 400:
-            raise ParseError(f"{rel}:{line_of(text, m.start())}: #[contractimpl] with no impl")
+        header = IMPL_HEADER.search(text, close)
+        if header is None or header.start() > close + 400:
+            raise ParseError(f"{where}: #[contractimpl] with no impl")
         target = " ".join(header.group(1).split())
         if not IMPL_TARGET_OK.fullmatch(target):
-            raise ParseError(
-                f"{rel}:{line_of(text, m.start())}: cannot parse impl header {target[:60]!r}"
-            )
+            raise ParseError(f"{where}: cannot parse impl header {target[:60]!r}")
         brace = header.end() - 1
         block_end = match_block(text, brace)
         body = text[brace:block_end]
         methods = iter_functions(body, brace)
-        if not methods:
-            raise ParseError(
-                f"{rel}:{line_of(text, m.start())}: #[contractimpl] block exposes no entrypoints"
-            )
+        if args:
+            trait = target.split(" for ")[0].split("<")[0].split("::")[-1].strip()
+            stock = CONTRACTTRAIT_METHODS.get(trait)
+            if stock is None:
+                raise ParseError(f"{where}: no pinned stock methods for contracttrait {trait!r}")
+            ctype = CONTRACT_TYPE.search(body)
+            ctype = ctype.group(1).split("::")[-1] if ctype else None
+            if ctype not in CONTRACTTRAIT_TYPES.get(trait, {None}):
+                raise ParseError(f"{where}: {trait} ContractType {ctype!r} is not pinned")
+            unknown = {fn["name"] for fn in methods} - set(stock)
+            if unknown:
+                raise ParseError(f"{where}: {trait} has no stock method {sorted(unknown)}")
+            overridden = {fn["name"] for fn in methods}
+            for name, category in sorted(stock.items()):
+                if name not in overridden:
+                    found.append(
+                        {
+                            "contract": contract,
+                            "impl": target,
+                            "name": name,
+                            "file": rel,
+                            "line": line_of(text, m.start()),
+                            "attrs": [],
+                            "signature": f"fn {name} (stock {trait} method)",
+                            "body": "",
+                            "cfg": cfg,
+                            "stock": category,
+                        }
+                    )
+        elif not methods:
+            raise ParseError(f"{where}: #[contractimpl] block exposes no entrypoints")
         for fn in methods:
             fn_cfg = cfg + " " + " ".join(a for a in fn["attrs"] if a.startswith("#[cfg"))
             found.append(
@@ -819,16 +912,20 @@ def classify(entrypoints: list[dict], graph: CallGraph) -> None:
     for fn in entrypoints:
         body, crate = fn["body"], fn["contract"]
         evidence: list[str] = []
+        if "stock" in fn:
+            fn["gate"] = fn["stock"] if fn["stock"] != "view" else None
+            fn["evidence"] = [f"pinned stock {fn['impl'].split(' for ')[0]} method"]
+            continue
         if has_attr(fn, OWNER_ATTRS):
             evidence.append("#[only_owner]")
             fn["gate"] = "owner"
-        elif graph.reaches(body, crate, OWNER_PATTERNS):
+        elif graph.reaches(body, crate, OWNER_PATTERNS, strict=True):
             evidence.append("ownable primitive")
             fn["gate"] = "owner"
-        elif graph.reaches(body, crate, ROLE_PATTERNS):
+        elif graph.reaches(body, crate, ROLE_PATTERNS, strict=True):
             evidence.append("role check")
             fn["gate"] = "role-timelock"
-        elif graph.reaches(body, crate, TIMELOCK_PATTERNS):
+        elif graph.reaches(body, crate, TIMELOCK_PATTERNS, strict=True):
             evidence.append("timelock operation")
             fn["gate"] = "role-timelock"
         elif graph.reaches(body, crate, CALLER_AUTH_PATTERNS):
@@ -854,7 +951,9 @@ def classify(entrypoints: list[dict], graph: CallGraph) -> None:
     for _ in range(len(WORKSPACE_CLIENTS) + 2):
         predicate = make_write_predicate(mutating)
         updated = {
-            (fn["contract"], fn["name"]): graph.walk(fn["body"], fn["contract"], predicate)
+            (fn["contract"], fn["name"]): fn["stock"] != "view"
+            if "stock" in fn
+            else graph.walk(fn["body"], fn["contract"], predicate)
             for fn in entrypoints
         }
         if updated == mutating:
@@ -884,10 +983,17 @@ def classify(entrypoints: list[dict], graph: CallGraph) -> None:
 # --------------------------------------------------------------------------- #
 
 
+def invariant_ids() -> set[str]:
+    """The `INV-XXX-NN` ids that head a section of docs/reference/invariants.md."""
+    with open(INVARIANTS, encoding="utf-8") as fh:
+        return set(INVARIANT_HEADING.findall(fh.read()))
+
+
 def load_allowlist(path: str) -> dict[str, dict]:
     """Parse `contract::function | category | invariants | justification`."""
     if not os.path.exists(path):
         raise AllowlistError(f"declaration file missing: {path}")
+    known = invariant_ids()
     entries: dict[str, dict] = {}
     with open(path, encoding="utf-8") as fh:
         for lineno, raw in enumerate(fh, 1):
@@ -913,6 +1019,12 @@ def load_allowlist(path: str) -> dict[str, dict]:
                     f"{path}:{lineno}: invariant field must be a comma-separated list "
                     f"of INV-XXX-NN references, got {invariants!r}"
                 )
+            missing = [r for r in refs if r not in known]
+            if missing:
+                raise AllowlistError(
+                    f"{path}:{lineno}: {', '.join(missing)} is not a heading in "
+                    f"{os.path.relpath(INVARIANTS, REPO_ROOT)}"
+                )
             if len(justification) < 24:
                 raise AllowlistError(f"{path}:{lineno}: justification too short to be useful")
             if key in entries:
@@ -924,6 +1036,20 @@ def load_allowlist(path: str) -> dict[str, dict]:
                 "justification": justification,
             }
     return entries
+
+
+def test_only_violations(entrypoints: list[dict]) -> list[str]:
+    """Differences between the classified test-only set and `EXPECTED_TEST_ONLY`."""
+    got = {f"{fn['contract']}::{fn['name']}" for fn in entrypoints if fn["category"] == "test-only"}
+    return [
+        f"{key} is test-only but not in EXPECTED_TEST_ONLY\n"
+        f"    fix: pin it in scripts/check_access_control.py."
+        for key in sorted(got - EXPECTED_TEST_ONLY)
+    ] + [
+        f"{key} is in EXPECTED_TEST_ONLY but no longer classifies as test-only\n"
+        f"    fix: restore its positive test cfg, or unpin it if it was removed."
+        for key in sorted(EXPECTED_TEST_ONLY - got)
+    ]
 
 
 def check(entrypoints: list[dict], declared: dict[str, dict]) -> list[str]:
@@ -958,21 +1084,13 @@ def check(entrypoints: list[dict], declared: dict[str, dict]) -> list[str]:
                 f"    fix: reconcile the declaration with the code."
             )
 
-        if fn["category"] == "test-only" and fn["mutates"]:
-            # `wasm-testing-abi-check` checks the artifact; this checks that
-            # the source still confines the symbol to a test cfg.
-            if not is_test_only(fn):
-                violations.append(
-                    f"{key}: test-only mutator with no positive test cfg: {fn['cfg']!r}"
-                )
-
     for key, entry in sorted(declared.items()):
         if key not in seen:
             violations.append(
                 f"{key} is declared in {os.path.relpath(ALLOWLIST, REPO_ROOT)}:{entry['line']} "
                 f"but no such entrypoint exists\n    fix: drop the stale declaration."
             )
-    return violations
+    return violations + test_only_violations(entrypoints)
 
 
 # --------------------------------------------------------------------------- #
@@ -1013,7 +1131,8 @@ def main() -> int:
     parser.add_argument(
         "--list-test-only",
         action="store_true",
-        help="print `contract:symbol` for every test-only entrypoint and exit "
+        help="print `contract:symbol` for every test-only entrypoint and exit; "
+        "exit 1 when that set differs from EXPECTED_TEST_ONLY "
         "(feeds `make wasm-testing-abi-check`, which proves each is absent "
         "from its deployable artifact)",
     )
@@ -1032,6 +1151,10 @@ def main() -> int:
         return 2
 
     if args.list_test_only:
+        pinned = test_only_violations(entrypoints)
+        if pinned:
+            print("FAIL: " + "\n  - ".join(pinned), file=sys.stderr)
+            return 1
         for fn in sorted(entrypoints, key=lambda f: (f["contract"], f["name"])):
             if fn["category"] == "test-only":
                 print(f"{fn['contract']}:{fn['name']}")

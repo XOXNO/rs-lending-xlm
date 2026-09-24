@@ -1,0 +1,57 @@
+name: Static Gates
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # Source-only gates: no contract build, no stellar-cli, no test run. They
+  # finish in seconds, so they fail a PR long before Build & Test does.
+  static-gates:
+    name: Static Gates
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          clean: false
+
+      - name: Reset workspace, preserve target/ build cache
+        run: |
+          git reset --hard
+          git clean -ffdx -e target
+
+      - name: Workflow actions pinned, Static Gates unfiltered
+        run: python3 .github/scripts/check_workflows.py
+
+      - name: stellar-cli installer verifies its download
+        run: bash .github/scripts/test_install_stellar_cli.sh
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: "1.95"
+          components: rustfmt
+
+      - name: Formatting
+        run: make fmt-check
+
+      - name: Doc links and symbol references resolve
+        run: make docs-check
+
+      - name: Integration shell harness parses
+        run: make integration-validate
+
+      - name: Operator script guards (spoke id mapping, live flags)
+        run: make ops-script-check

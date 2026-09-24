@@ -5,6 +5,7 @@
 use soroban_sdk::{panic_with_error, Env};
 
 use crate::constants::RAY;
+use crate::errors::GenericError;
 use crate::math::fp::Ray;
 use crate::math::fp_core;
 
@@ -178,9 +179,9 @@ pub fn resolve_repay(
     if amount >= current_debt_ceil {
         (
             pos_scaled,
-            amount.checked_sub(current_debt_ceil).unwrap_or_else(|| {
-                panic_with_error!(env, crate::errors::GenericError::MathOverflow)
-            }),
+            amount
+                .checked_sub(current_debt_ceil)
+                .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow)),
         )
     } else {
         (

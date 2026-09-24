@@ -144,7 +144,7 @@ fn status_of(row: &LedgerEntryQuery, current: u32, safety: u32) -> (&'static str
         Decision::Restore => "EXPIRED (restore)",
         Decision::Extend => "IN-MARGIN (extend)",
 
-        Decision::Skip if row.value.is_none() => "ABSENT / ARCHIVED",
+        Decision::Skip if row.value.is_none() => "ABSENT",
         Decision::Skip if row.live_until_ledger.is_none() => "no-ttl",
         Decision::Skip => "OK",
     };

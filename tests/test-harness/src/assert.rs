@@ -121,8 +121,20 @@ impl LendingTest {
         });
     }
 
+    /// Asserts that no account the harness records for `user`, live or removed
+    /// on chain, still stores a supply or borrow position.
     pub fn assert_no_positions(&self, user: &str) {
-        if let Some(account_id) = self.find_account_id(user) {
+        let account_ids: Vec<u64> = self
+            .users
+            .get(user)
+            .map(|state| state.accounts.iter().map(|a| a.account_id).collect())
+            .unwrap_or_default();
+        assert!(
+            !account_ids.is_empty(),
+            "'{}' has no recorded account to check",
+            user
+        );
+        for account_id in account_ids {
             self.assert_no_positions_for(user, account_id);
         }
     }

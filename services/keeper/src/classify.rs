@@ -62,20 +62,6 @@ impl KeyClass {
             Self::Other => "other",
         }
     }
-
-    /// Every class.
-    pub const ALL: [KeyClass; 10] = [
-        Self::PerAsset,
-        Self::Spoke,
-        Self::PerUser,
-        Self::Roles,
-        Self::Governance,
-        Self::Oracle,
-        Self::OracleFeed,
-        Self::Instance,
-        Self::WasmCode,
-        Self::Other,
-    ];
 }
 
 /// Returns a stable label for the contract that holds an entry.
@@ -164,7 +150,10 @@ pub fn classify_persistent(
             | "SignerFeeds",
         ) => KeyClass::OracleFeed,
         Some("Market" | "Params" | "State") => KeyClass::PerAsset,
-        Some("Hub" | "Spoke") => KeyClass::Spoke,
+        Some(
+            "Hub" | "Spoke" | "SpokeAsset" | "SpokeUsage" | "SpokeFlagsEpoch" | "PositionManager"
+            | "BlendPoolAllowed",
+        ) => KeyClass::Spoke,
         _ if on_governance => KeyClass::Governance,
         _ => KeyClass::Other,
     }
@@ -262,9 +251,19 @@ mod tests {
     #[test]
     fn hub_and_spoke_share_a_group() {
         use crate::keys::ControllerPersistentKey;
+        let hub_asset = HubAssetKey {
+            hub_id: 1,
+            asset: [7u8; 32],
+        };
+        let pool = ScAddress::Contract(ContractId(Hash([8u8; 32])));
         for k in [
             ControllerPersistentKey::Hub(1),
             ControllerPersistentKey::Spoke(1),
+            ControllerPersistentKey::SpokeAsset(1, hub_asset),
+            ControllerPersistentKey::SpokeUsage(1, hub_asset),
+            ControllerPersistentKey::SpokeFlagsEpoch(1, hub_asset),
+            ControllerPersistentKey::PositionManager(pool.clone()),
+            ControllerPersistentKey::BlendPoolAllowed(pool.clone()),
         ] {
             let r = row(k.to_ledger_key(&CTRL).unwrap());
             assert_eq!(classify_persistent(&r, &CTRL, Some(&GOV)), KeyClass::Spoke);

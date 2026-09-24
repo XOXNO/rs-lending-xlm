@@ -56,6 +56,12 @@ contracts:
   extra_instances:
     - CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG # RedStone adapter
     - CCVENFSVCBYDHVOACFZXMNNYVOZ3LKXPZYU5LUI4N7KTXOKRVYD7F3TR # XOXNO swap router
+  # Blend pools approved with approve_blend_pool (configs/mainnet/blend.json and
+  # the executed configs/ops/mainnet records). No position manager is set.
+  blend_pools:
+    - CAJJZSGMMM3PD7N33TAPHGBUGTB43OC73HVIK2L2G6BNGGGYOSSYBXBD # FixedV2
+    - CCCCIQSDILITHMM7PBSLVDT5MISSY7R26MNZXCX4H7J5JQ5FPIYOGYFS # YieldBloxV2
+  position_managers: []
 
 keyvault:
   url: https://xoxno.vault.azure.net

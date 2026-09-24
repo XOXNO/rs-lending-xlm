@@ -4,7 +4,7 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use clap::Parser;
 use keeper_bot::{
-    config::KeeperConfig,
+    config::{KeeperConfig, ScheduleConfig},
     discovery::{assert_update_indexes_simulation, self_check},
     metrics::{serve as serve_metrics, Metrics},
     scheduler::run as run_scheduler,
@@ -43,7 +43,7 @@ struct Args {
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
-    let cfg = KeeperConfig::load(&args.config)
+    let mut cfg = KeeperConfig::load(&args.config)
         .with_context(|| format!("load config at {}", args.config.display()))?;
     init_tracing(&cfg.log.level, &cfg.log.format)?;
 
@@ -76,14 +76,14 @@ async fn main() -> Result<()> {
             signer = %signer_pk,
             "pure-TTL mode (enable_index_refresh=false); no invoke preflight"
         );
-    } else if let Err(e) =
-        assert_update_indexes_simulation(client.as_ref(), &cfg.contracts.controller, &signer_pk)
-            .await
-    {
-        error!(target: "keeper.boot", error = ?e, "update_indexes simulation failed — aborting");
-        return Err(e);
     } else {
-        info!(target: "keeper.boot", signer = %signer_pk, "update_indexes simulation passed");
+        let preflight = assert_update_indexes_simulation(
+            client.as_ref(),
+            &cfg.contracts.controller,
+            &signer_pk,
+        )
+        .await;
+        disable_index_refresh_on_failed_preflight(&mut cfg.schedule, preflight);
     }
 
     let metrics_handle = {
@@ -123,6 +123,22 @@ async fn main() -> Result<()> {
 
     info!(target: "keeper.boot", "stopped cleanly");
     Ok(())
+}
+
+/// Turns index refresh off when its boot simulation failed. The TTL loop starts
+/// either way.
+fn disable_index_refresh_on_failed_preflight(schedule: &mut ScheduleConfig, preflight: Result<()>) {
+    match preflight {
+        Ok(()) => info!(target: "keeper.boot", "update_indexes simulation passed"),
+        Err(e) => {
+            error!(
+                target: "keeper.boot",
+                error = ?e,
+                "update_indexes simulation failed; index refresh disabled, TTL keepalive continues"
+            );
+            schedule.enable_index_refresh = false;
+        }
+    }
 }
 
 async fn wait_for_shutdown() {
@@ -192,6 +208,36 @@ fn init_tracing(level: &str, format: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use anyhow::anyhow;
+
+    fn schedule(enable_index_refresh: bool) -> ScheduleConfig {
+        ScheduleConfig {
+            ttl_tick_seconds: 21_600,
+            index_tick_seconds: 3_600,
+            ttl_safety_margin_days: 21,
+            asset_chunk: 20,
+            max_txs_per_tick: 80,
+            enable_index_refresh,
+            scan_users: true,
+            max_accounts_scan: 50_000,
+        }
+    }
+
+    /// A failed `update_indexes` preflight turns the index loop off instead of
+    /// stopping the process, so the TTL loop still starts.
+    #[test]
+    fn a_failed_index_preflight_disables_index_refresh_only() {
+        let mut failed = schedule(true);
+        disable_index_refresh_on_failed_preflight(
+            &mut failed,
+            Err(anyhow!("HostError: Error(Auth, InvalidAction)")),
+        );
+        assert!(!failed.enable_index_refresh);
+
+        let mut passed = schedule(true);
+        disable_index_refresh_on_failed_preflight(&mut passed, Ok(()));
+        assert!(passed.enable_index_refresh);
+    }
 
     #[test]
     fn rust_log_overrides_the_config_level() {

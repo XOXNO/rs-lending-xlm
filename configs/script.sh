@@ -4971,7 +4971,7 @@ case "$1" in
 "grantGovRole")
         if [ -z "$2" ] || [ -z "$3" ]; then
             echo "Usage: $0 grantGovRole <account> <role>" >&2
-            echo "Governance roles: ORACLE | PROPOSER | EXECUTOR | CANCELLER (timelocked)" >&2
+            echo "Governance roles: ORACLE | PROPOSER | EXECUTOR | CANCELLER | GUARDIAN (timelocked)" >&2
             exit 1
         fi
         grant_gov_role_cmd "$2" "$3"

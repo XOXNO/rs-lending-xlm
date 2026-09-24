@@ -1,4 +1,4 @@
-use common::types::SeizeMode;
+use common::types::{AccountMeta, ControllerKey, SeizeMode};
 
 use test_harness::{
     assert_contract_error, asset_payment_vec, errors, f64_to_i128, map_try_ok_unit,
@@ -141,8 +141,22 @@ fn unknown_and_unmintable_account_ids_are_account_not_found() {
 
     let alice_addr = t.get_or_create_user(ALICE);
     let asset_addr = t.resolve_asset("USDC");
+    let live_id = t.account_id(ALICE);
+    let aliases = [
+        (1u64 << 32) + live_id,
+        (u64::from(u32::MAX) << 32) + live_id,
+    ];
+    t.env.as_contract(&t.controller, || {
+        let storage = t.env.storage().persistent();
+        let meta: AccountMeta = storage
+            .get(&ControllerKey::AccountMeta(live_id))
+            .expect("live account metadata");
+        for alias in aliases {
+            storage.set(&ControllerKey::AccountMeta(alias), &meta);
+        }
+    });
 
-    for bad_id in [9_999u64, u64::from(u32::MAX) + 1, u64::MAX] {
+    for bad_id in [9_999u64, u64::from(u32::MAX) + 1, aliases[0], aliases[1]] {
         let assets = asset_payment_vec(&t.env, asset_addr.clone(), 10_000_000i128);
         let result = map_try_ok_value(t.ctrl_client().try_supply(
             &alice_addr,
