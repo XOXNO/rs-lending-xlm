@@ -4,7 +4,8 @@ use super::*;
 use crate::cache::Cache;
 use crate::test_support::{hub, init_ledger};
 use crate::{LiquidityPool, LiquidityPoolClient};
-use common::constants::RAY;
+use common::constants::{BPS, LIQUIDATION_BUFFER_BPS, RAY, SUPPLY_INDEX_FLOOR_RAW};
+use common::math::fp_core::mul_div_ceil;
 use common::types::{MarketParamsRaw, PoolStateRaw};
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, Env};
@@ -129,7 +130,7 @@ fn test_require_supply_for_debt_rejects_debt_without_supply() {
 /// Cash the liquidation buffer holds back for `cache`, as a token amount.
 fn reserved_for(env: &Env, cache: &Cache) -> i128 {
     let supplied = cache.unscale_supply_floor(cache.supplied());
-    common::math::fp::Bps::from(common::constants::LIQUIDATION_BUFFER_BPS).apply_to(env, supplied)
+    mul_div_ceil(env, supplied, LIQUIDATION_BUFFER_BPS, BPS)
 }
 
 /// An ordinary draw may take the market down to the buffer, but not through it.
@@ -155,5 +156,92 @@ fn test_require_liquidation_buffer_rejects_a_draw_one_unit_past_the_reserve() {
         let cache = cache_with(&t.env, &t.params, 1_000 * RAY, 0, 1_000);
         let reserved = reserved_for(&t.env, &cache);
         require_liquidation_buffer(&t.env, &cache, 1_000 - reserved + 1);
+    });
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #127)")]
+fn test_require_utilization_below_max_rejects_one_raw_ray_above_the_cap() {
+    let t = TestSetup::new();
+    t.as_contract(|| {
+        let cache = cache_with(&t.env, &t.params, 10 * RAY, 95 * RAY / 10 + 1, 0);
+        require_utilization_below_max(&t.env, &cache);
+    });
+}
+
+/// One scaled unit at the supply-index floor is worth less than one raw RAY unit.
+#[test]
+#[should_panic(expected = "Error(Contract, #127)")]
+fn test_require_utilization_below_max_rejects_debt_against_a_zero_floored_supply_value() {
+    let t = TestSetup::new();
+    t.as_contract(|| {
+        let cache = Cache::from_parts(
+            &t.env,
+            hub(&t.params.asset_id),
+            &t.params,
+            &PoolStateRaw {
+                supplied: 1,
+                borrowed: 1,
+                revenue: 0,
+                borrow_index: RAY,
+                supply_index: SUPPLY_INDEX_FLOOR_RAW,
+                last_timestamp: 0,
+                cash: 0,
+            },
+            1_000_000,
+        );
+        require_utilization_below_max(&t.env, &cache);
+    });
+}
+
+#[test]
+fn test_require_utilization_below_max_admits_no_debt_against_a_zero_floored_supply_value() {
+    let t = TestSetup::new();
+    t.as_contract(|| {
+        let cache = Cache::from_parts(
+            &t.env,
+            hub(&t.params.asset_id),
+            &t.params,
+            &PoolStateRaw {
+                supplied: 1,
+                borrowed: 0,
+                revenue: 0,
+                borrow_index: RAY,
+                supply_index: SUPPLY_INDEX_FLOOR_RAW,
+                last_timestamp: 0,
+                cash: 0,
+            },
+            1_000_000,
+        );
+        require_utilization_below_max(&t.env, &cache);
+    });
+}
+
+#[test]
+fn test_require_utilization_below_max_admits_exactly_the_cap() {
+    let t = TestSetup::new();
+    t.as_contract(|| {
+        let cache = cache_with(&t.env, &t.params, 10 * RAY, 95 * RAY / 10, 0);
+        require_utilization_below_max(&t.env, &cache);
+    });
+}
+
+/// 200 BPS of 1,020 units is 20.4 units, so the reserve is 21 units.
+#[test]
+#[should_panic(expected = "Error(Contract, #112)")]
+fn test_require_liquidation_buffer_rounds_a_fractional_reserve_up() {
+    let t = TestSetup::new();
+    t.as_contract(|| {
+        let cache = cache_with(&t.env, &t.params, 1_020 * RAY / 10_000_000, 0, 1_020);
+        require_liquidation_buffer(&t.env, &cache, 1_000);
+    });
+}
+
+#[test]
+fn test_require_liquidation_buffer_admits_cash_at_the_rounded_up_reserve() {
+    let t = TestSetup::new();
+    t.as_contract(|| {
+        let cache = cache_with(&t.env, &t.params, 1_020 * RAY / 10_000_000, 0, 1_020);
+        require_liquidation_buffer(&t.env, &cache, 999);
     });
 }
