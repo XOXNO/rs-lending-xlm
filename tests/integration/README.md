@@ -98,7 +98,7 @@ See `tests/integration/lib/report.sh` for the generator and `scenarios/assert_gr
 ## Extending the Harness
 
 - Use `inv` / `view` / `xfail` / `sim_probe` for contract calls: each records a row, `inv` also captures the tx hash and resources, and all but `sim_probe` retry transient failures.
-- For direct `stellar contract deploy/upload` (rare): wrap it in `run_deploy` (retries, records nothing), then use `extract_signing_hash "$err_f"` + `sanitize_output "$out_f"` + `is_contract_id`/`is_wasm_hash` + `tail_err_note` + `record` + `save_state`.
+- For direct `stellar contract deploy/upload` (rare): wrap it in `run_deploy` (retries, records nothing, sets `DEPLOY_ATTEMPTS` to the attempts it made), then use `extract_signing_hash "$err_f"` + `sanitize_output "$out_f"` + `is_contract_id`/`is_wasm_hash` + `tail_err_note` + `record` + `save_state`.
 - Add new constants to `env.sh` (or document overrides). Prefer `require_var FOO` for load-bearing state.
 - Start each flow with `phase`, and record every action with a status from the list above.
 - Run `make integration-validate integration-preflight` locally.
@@ -108,7 +108,9 @@ See `tests/integration/lib/report.sh` for the generator and `scenarios/assert_gr
 ## Layers
 
 - `env.sh` — network constants, run-dir wiring. Network, address and
-  `WASM_DIR` settings are overridable by env.
+  `WASM_DIR` settings are overridable by env. On testnet it exports
+  `STELLAR_INCLUSION_FEE=1000000` (a maximum bid in stroops) unless the caller
+  sets it.
 - `lib/core.sh` — run dir, action recording, state persistence (resume).
 - `lib/invoke.sh` — `inv` (send + capture tx hash + resources), `xfail`
   (expected revert), `view` (read-only), `sim_probe` (build+simulate budget

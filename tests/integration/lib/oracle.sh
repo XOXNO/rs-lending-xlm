@@ -6,7 +6,7 @@ deploy_mock_reflector() {
     local mock hash
     mock=$(sanitize_output "$out_f")
     hash=$(extract_signing_hash "$err_f")
-    is_contract_id "$mock" || die deploy_mock_reflector "mock reflector deploy produced no id after $DEPLOY_MAX_ATTEMPTS attempts: $(tail_err_note "$err_f")"
+    is_contract_id "$mock" || die deploy_mock_reflector "mock reflector deploy produced no id after $DEPLOY_ATTEMPTS attempt(s): $(tail_err_note "$err_f")"
     save_state MOCK "$mock"
     record deploy_mock_reflector ok deploy "$hash" "" "" "" "" "$mock"
     log "mock reflector = $mock"
@@ -20,7 +20,7 @@ deploy_mock_redstone() {
     local mock hash
     mock=$(sanitize_output "$out_f")
     hash=$(extract_signing_hash "$err_f")
-    is_contract_id "$mock" || die deploy_mock_redstone "mock redstone deploy produced no id after $DEPLOY_MAX_ATTEMPTS attempts: $(tail_err_note "$err_f")"
+    is_contract_id "$mock" || die deploy_mock_redstone "mock redstone deploy produced no id after $DEPLOY_ATTEMPTS attempt(s): $(tail_err_note "$err_f")"
     save_state MOCKRS "$mock"
     record deploy_mock_redstone ok deploy "$hash" "" "" "" "" "$mock"
     log "mock redstone = $mock"
