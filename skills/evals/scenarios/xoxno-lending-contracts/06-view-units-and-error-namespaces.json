@@ -10,7 +10,7 @@
     "Uses the view signatures of the crate's generated controller client (account_id: u64, spoke_id: u32, hub_asset: `lending::controller::HubAssetKey`) and does not invent fields such as a health-factor float or a spoke utilization percentage view"
   ],
   "machine_checkable": [
-    "Generated Rust builds with `stellar contract build` against `soroban-sdk = \"28\"` and `xoxno-contract-sdk = \"0.1\"`",
+    "Generated Rust builds with `stellar contract build` against `soroban-sdk = \"28\"` and `xoxno-contract-sdk = \"0.2\"`",
     "Source compares the get_health_factor result against a 10^18-scaled constant and checks for i128::MAX",
     "Source does not add or compare supplied_scaled_ray directly with an i128 asset amount without an index multiplication"
   ]

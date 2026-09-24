@@ -14,7 +14,7 @@
     "Does not call `supply`, `borrow`, `withdraw`, `repay`, `liquidate`, or another flash entrypoint from inside the callback: the Soroban host rejects the controller re-entry with `Error(Context, InvalidAction)`, and the controller flash guard (`FlashLoanOngoing` #400) is a second layer"
   ],
   "machine_checkable": [
-    "Generated Rust builds with `stellar contract build` against `soroban-sdk = \"28\"` and `xoxno-contract-sdk = \"0.1\"` in the eval crate",
+    "Generated Rust builds with `stellar contract build` against `soroban-sdk = \"28\"` and `xoxno-contract-sdk = \"0.2\"` in the eval crate",
     "Inside `execute_flash_loan`, the source calls `approve_flash_repayment(` or `.approve(` with the pool as spender, and contains no `.transfer(` call targeting `pool`"
   ]
 }

@@ -96,6 +96,48 @@ For per-owner adapters use
 `DataKey::VaultAccount(Address)` exactly as the DeFindex strategy does, and
 extend the specific owner key on every successful lookup and write.
 
+## Full exit with the wrapper
+
+The wrapper's `withdraw` and `withdraw_all` return
+`Withdrawal { amount, account_closed }`. `account_closed` is true only when
+the position NFT's `owner_of` fails with `NonExistentToken`: the protocol
+deleted the account and burned its NFT. That is the explicit non-existence
+signal on this path. Any other lookup failure gives `false`, and the key
+stays.
+
+```rust
+use soroban_sdk::{token, Address, Env};
+use xoxno_contract_sdk::lending::controller::HubAssetKey;
+use xoxno_contract_sdk::{LendingAddresses, XoxnoLending};
+
+pub fn withdraw_all_to_admin(env: Env, market: HubAssetKey) -> i128 {
+    env.storage()
+        .instance()
+        .extend_ttl(INSTANCE_TTL_THRESHOLD, INSTANCE_TTL_EXTEND_TO);
+    let config = env.storage().instance();
+    let admin: Address = config.get(&ConfigKey::Admin).expect("set in constructor");
+    admin.require_auth();
+    let addresses: LendingAddresses = config.get(&ConfigKey::Lending).expect("set in constructor");
+    let lending = XoxnoLending::new(&env, &addresses);
+    let account_id = resolve_account(&env, &lending.controller());
+
+    let withdrawal = lending.withdraw_all(account_id, &market);
+    if withdrawal.account_closed {
+        env.storage().persistent().remove(&DataKey::AccountId);
+    }
+    token::Client::new(&env, &market.asset).transfer(
+        &env.current_contract_address(),
+        &admin,
+        &withdrawal.amount,
+    );
+    withdrawal.amount
+}
+```
+
+The config keys are the ones in [SKILL.md](SKILL.md#minimal-call-shape). The
+withdrawal closes the account only when no other supply or debt remains. The
+tokens go to the stored admin, not to an address the caller passes.
+
 ## Renewal responsibilities
 
 `renew_account(owner, id)` is NFT-owner-only. It extends the controller

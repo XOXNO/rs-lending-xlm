@@ -12,7 +12,7 @@
     "Takes controller, position-NFT and keeper addresses from config/constructor, not hardcoded literals"
   ],
   "machine_checkable": [
-    "Generated Rust builds with `stellar contract build` against `soroban-sdk = \"28\"` and `xoxno-contract-sdk = \"0.1\"`; a keeper contract calls the NFT `renew(token_id)` by name with `env.invoke_contract`, because the crate's position NFT client has ownership views only (a keeper account may call it directly)",
+    "Generated Rust builds with `stellar contract build` against `soroban-sdk = \"28\"` and `xoxno-contract-sdk = \"0.2\"`; a keeper contract calls the NFT `renew(token_id)` by name with `env.invoke_contract`, because the crate's position NFT client has ownership views only (a keeper account may call it directly)",
     "Generated source does not call renew_account from the keeper path; the keeper path calls the NFT renew or a vault entrypoint that forwards renew_account as owner"
   ]
 }

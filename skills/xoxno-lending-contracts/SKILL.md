@@ -35,11 +35,11 @@ release:
 ```toml
 [dependencies]
 soroban-sdk = "28"
-xoxno-contract-sdk = "0.1"
+xoxno-contract-sdk = "0.2"
 
 [dev-dependencies]
 soroban-sdk = { version = "28", features = ["testutils"] }
-xoxno-contract-sdk = { version = "0.1", features = ["testutils"] }
+xoxno-contract-sdk = { version = "0.2", features = ["testutils"] }
 ```
 
 Use the crate version whose embedded release is the deployment you call. The
@@ -49,8 +49,8 @@ compatibility table is in the crate README. Build the contract with
 The crate contains:
 
 - `XoxnoLending`: a wrapper in which the current contract is the caller, the
-  payer, and the receiver. Its `open_account`, `deposit`, `supply`, and
-  `repay` create the nested token-transfer authorization.
+  payer, and the receiver. Its `open_account`, `deposit`, `supply`, `repay`,
+  and `liquidate` create the nested token-transfer authorization.
 - Generated clients and types in `xoxno_contract_sdk::lending::{controller,
   pool, position_nft, price_aggregator}`. `lending::ControllerClient` is the
   controller client. Arguments pass by reference.
@@ -109,8 +109,8 @@ instance or persistent extension to the network maximum entry TTL.
    satisfies `caller.require_auth()`.
 2. Before `supply`, `repay`, `liquidate`, or `recapitalize`, authorize the
    exact nested token transfer from your contract to the pool. The wrapper's
-   `open_account`, `deposit`, `supply`, and `repay` do this. For a
-   generated-client call, including `liquidate` and `recapitalize`, call
+   `open_account`, `deposit`, `supply`, `repay`, and `liquidate` do this. For
+   a generated-client call, including `recapitalize`, call
    `authorize_transfer_as_current`.
 3. Run every controller read before that authorization. The controller verb
    must be the next cross-contract call.
@@ -122,6 +122,11 @@ instance or persistent extension to the network maximum entry TTL.
 6. Persist account IDs in local persistent storage and renew those keys on
    every successful use. `renew_account` renews controller/NFT state; it does
    not renew storage owned by the caller contract.
+7. A public entrypoint that spends your contract's own balance or borrowing
+   power (supply, repay, borrow, withdraw, or a token transfer out) must
+   authorize against an address your contract stored, never one the caller
+   passes. Take your own account ID from your storage, and send tokens only
+   to a stored address or back to the address whose tokens you pulled.
 
 The complete local pointer renew/reconcile pattern is in
 [positions.md](positions.md#canonical-local-account-pointer). Production code
@@ -133,7 +138,7 @@ using the same pattern is
 With the generated client:
 
 ```rust
-use soroban_sdk::{contracttype, vec, Env};
+use soroban_sdk::{contracttype, vec, Address, Env};
 use xoxno_contract_sdk::lending::controller::HubAssetKey;
 use xoxno_contract_sdk::lending::helpers::authorize_transfer_as_current;
 use xoxno_contract_sdk::lending::ControllerClient;
@@ -141,55 +146,50 @@ use xoxno_contract_sdk::LendingAddresses;
 
 #[contracttype]
 pub enum ConfigKey {
+    Admin,
     Lending,
 }
 
-pub fn supply_from_contract(
-    env: Env,
-    account_id: u64,
-    spoke_id: u32,
-    market: HubAssetKey,
-    amount: i128,
-) -> u64 {
+pub fn supply_from_contract(env: Env, spoke_id: u32, market: HubAssetKey, amount: i128) -> u64 {
     env.storage()
         .instance()
         .extend_ttl(INSTANCE_TTL_THRESHOLD, INSTANCE_TTL_EXTEND_TO);
-    let lending: LendingAddresses = env
-        .storage()
-        .instance()
-        .get(&ConfigKey::Lending)
-        .expect("set in constructor");
+    let config = env.storage().instance();
+    let admin: Address = config.get(&ConfigKey::Admin).expect("set in constructor");
+    admin.require_auth();
+    let lending: LendingAddresses = config.get(&ConfigKey::Lending).expect("set in constructor");
     let me = env.current_contract_address();
     let client = ControllerClient::new(&env, &lending.controller);
+    let account_id = resolve_account(&env, &client);
 
-    // Reconcile and renew the local pointer before this authorization.
     authorize_transfer_as_current(&env, &market.asset, &me, &lending.pool, amount);
-    client.supply(&me, &account_id, &spoke_id, &vec![&env, (market, amount)])
+    let account_id = client.supply(&me, &account_id, &spoke_id, &vec![&env, (market, amount)]);
+    store_account(&env, account_id);
+    account_id
 }
 ```
 
-With the wrapper, the body after the TTL renewal becomes:
+With the wrapper, the part after `admin.require_auth()` becomes:
 
 ```rust
-    let addresses: LendingAddresses = env
-        .storage()
-        .instance()
-        .get(&ConfigKey::Lending)
-        .expect("set in constructor");
+    let addresses: LendingAddresses = config.get(&ConfigKey::Lending).expect("set in constructor");
     let lending = XoxnoLending::new(&env, &addresses);
+    let account_id = resolve_account(&env, &lending.controller());
 
-    // Reconcile and renew the local pointer before this call.
-    lending.deposit(account_id, spoke_id, &market, amount)
+    let account_id = lending.deposit(account_id, spoke_id, &market, amount);
+    store_account(&env, account_id);
+    account_id
 ```
+
+The resolve and store helpers are in
+[positions.md](positions.md#canonical-local-account-pointer). The resolve
+read comes before the authorization, and the controller verb is the next
+cross-contract call.
 
 `deposit` with account ID `0` opens a new account in `spoke_id`. With an
 existing ID, `spoke_id` must be the account's spoke. `supply(account_id,
 market, amount)` reads the spoke first, and `open_account(spoke_id, market,
 amount)` always opens a new account.
-
-The fragments intentionally leave pointer lookup/storage to the canonical
-helper. A production entrypoint must call that helper before the
-authorization or the wrapper call, and store the returned ID afterward.
 
 ## Completion checks
 
@@ -207,7 +207,7 @@ operation-specific return and state checks:
 - token-pulling or strategy call: returned amounts/IDs and resulting balances
   or positions match the requested branch
 - full exit: reconcile `account_exists`; clear the local pointer only on an
-  explicit `false`
+  explicit `false`, or, on the wrapper path, on `Withdrawal::account_closed`
 - flash callback: pool/controller settlement succeeds after the callback
   (allowance was pulled for a cash flash loan, or declared collateral was
   measured and deposited for a flash position)

@@ -98,7 +98,8 @@ The initiator is never the receiver itself. The pool calls the receiver while
 the initiator is still on the call stack, and the host rejects a call into a
 contract that is already on the stack (see [Reentrancy](#reentrancy)). Start
 the loan from an account or from a separate contract, and store its address as
-`cfg.operator`.
+`cfg.operator`. A contract initiator authorizes its entrypoint against a
+stored address, as in [SKILL.md](SKILL.md#contract-caller-rules) rule 7.
 
 ## Flash position
 
@@ -141,6 +142,7 @@ use xoxno_contract_sdk::lending::FlashPositionReceiver;
 
 #[contractimpl]
 impl FlashPositionReceiver for Receiver {
+    #[allow(clippy::too_many_arguments)]
     fn execute_flash_position(
         env: Env,
         initiator: Address,
@@ -175,7 +177,10 @@ impl FlashPositionReceiver for Receiver {
 Send the collateral with a plain token `transfer` from the receiver. The
 receiver calls the token itself, so direct invoker auth covers it. Use
 `authorize_transfer_as_current` only for a pull that another contract makes
-inside your next call, such as a controller `supply`.
+inside your next call, such as a controller `supply`. The callback has nine
+parameters, so clippy's `too_many_arguments` lint fires in your crate. The
+`allow` on the method suppresses it for the code the macro generates; an
+`allow` on the `impl` block does not.
 
 The initiator is an account or a separate contract, as for flash loans. A
 contract initiator calls the resolve helper before `flash_position` and the

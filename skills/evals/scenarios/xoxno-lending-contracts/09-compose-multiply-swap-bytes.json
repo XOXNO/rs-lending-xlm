@@ -12,7 +12,7 @@
     "Links `xoxno-swap-aggregator/composition.md` / `payload.md` for the quote request and links `xoxno-lending/addresses.md` (from `configs/networks.json`) instead of hardcoding controller or router ids"
   ],
   "machine_checkable": [
-    "Generated Rust builds with `stellar contract build` against `soroban-sdk = \"28\"` and `xoxno-contract-sdk = \"0.1\"` in the eval crate",
+    "Generated Rust builds with `stellar contract build` against `soroban-sdk = \"28\"` and `xoxno-contract-sdk = \"0.2\"` in the eval crate",
     "The `multiply` call site's `swap` argument is a function parameter of type `Bytes`, not a `Bytes::new(` literal or a locally constructed payload",
     "Source references `PositionMode::Multiply` and contains no `execute_strategy(` call"
   ]

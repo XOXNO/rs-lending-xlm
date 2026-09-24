@@ -12,7 +12,7 @@ Enable the fixture only in the dev-dependencies:
 ```toml
 [dev-dependencies]
 soroban-sdk = { version = "28", features = ["testutils"] }
-xoxno-contract-sdk = { version = "0.1", features = ["testutils"] }
+xoxno-contract-sdk = { version = "0.2", features = ["testutils"] }
 ```
 
 ## Fixture API

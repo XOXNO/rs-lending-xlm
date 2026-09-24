@@ -13,7 +13,7 @@
     "Gates the callback invoker to the trusted controller address held in storage; does not hardcode a contract id (addresses come from `configs/networks.json` / `xoxno-lending/addresses.md`)"
   ],
   "machine_checkable": [
-    "Generated Rust builds with `stellar contract build` against `soroban-sdk = \"28\"` and `xoxno-contract-sdk = \"0.1\"` in the eval crate",
-    "Source declares `pub fn execute_flash_position` with 8 parameters after `env`, contains no `execute_flash_loan`, and no `.approve(` call"
+    "Generated Rust builds with `stellar contract build` against `soroban-sdk = \"28\"` and `xoxno-contract-sdk = \"0.2\"` in the eval crate",
+    "Source declares `execute_flash_position` (as a `pub fn` or as the `FlashPositionReceiver` trait method) with 8 parameters after `env`, contains no `execute_flash_loan`, and no `.approve(` call"
   ]
 }

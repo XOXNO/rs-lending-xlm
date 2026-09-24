@@ -11,7 +11,7 @@
     "Builds HubAssetKey from `xoxno_contract_sdk::lending::controller` (hub id + asset Address) rather than passing a bare token Address to the view, and does not pass the `pool` module's HubAssetKey to a controller call"
   ],
   "machine_checkable": [
-    "Generated crate builds with `stellar contract build` against `soroban-sdk = \"28\"` and `xoxno-contract-sdk = \"0.1\"`",
+    "Generated crate builds with `stellar contract build` against `soroban-sdk = \"28\"` and `xoxno-contract-sdk = \"0.2\"`",
     "Generated source references supply_index and a 27-decimal (RAY) rescale; no division of the index by 10_000_000 / 1e7"
   ]
 }
