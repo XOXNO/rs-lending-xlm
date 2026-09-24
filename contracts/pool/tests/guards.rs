@@ -195,6 +195,29 @@ fn test_require_utilization_below_max_rejects_debt_against_a_zero_floored_supply
 }
 
 #[test]
+fn test_require_utilization_below_max_admits_no_debt_against_a_zero_floored_supply_value() {
+    let t = TestSetup::new();
+    t.as_contract(|| {
+        let cache = Cache::from_parts(
+            &t.env,
+            hub(&t.params.asset_id),
+            &t.params,
+            &PoolStateRaw {
+                supplied: 1,
+                borrowed: 0,
+                revenue: 0,
+                borrow_index: RAY,
+                supply_index: SUPPLY_INDEX_FLOOR_RAW,
+                last_timestamp: 0,
+                cash: 0,
+            },
+            1_000_000,
+        );
+        require_utilization_below_max(&t.env, &cache);
+    });
+}
+
+#[test]
 fn test_require_utilization_below_max_admits_exactly_the_cap() {
     let t = TestSetup::new();
     t.as_contract(|| {
