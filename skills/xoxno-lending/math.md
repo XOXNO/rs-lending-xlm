@@ -145,7 +145,7 @@ Totals are the **hub pool's** totals (`get_supplied_amount`, `get_borrowed_amoun
 
 Example: 10,000,000 USDC supplied value, 6,500,000 USDC borrowed value → `utilization_ray = 650_000_000_000_000_000_000_000_000` (0.65).
 
-`max_utilization` (`MarketParams`, RAY) is a guard, not a curve input: after borrow, user withdrawal, or revenue claim the pool requires `utilization ≤ max_utilization` unless supply is zero or `max_utilization ≥ 1 RAY` (`contracts/pool/src/guards.rs::require_utilization_below_max`, error `UtilizationAboveMax`). Liquidation withdrawals skip it.
+`max_utilization` (`MarketParams`, RAY) is a guard, not a curve input: after borrow, user withdrawal, or revenue claim the pool requires `ceil(ceil(debt value) / floor(supply value)) ≤ max_utilization` (values in RAY) unless supply or debt is zero or `max_utilization ≥ 1 RAY`; debt against a supply value that floors to zero is rejected (`contracts/pool/src/guards.rs::require_utilization_below_max`, error `UtilizationAboveMax`). Liquidation withdrawals skip it.
 
 ## Borrow-rate curve
 
@@ -381,7 +381,7 @@ fee_ray           = half_up(bonus_ray × liquidation_fees_bps / BPS)
 
 | Seize mode | Liquidator receives | Protocol fee |
 |---|---|---|
-| `SeizeMode::Transfer` | tokens: `capped_ray` rescaled **floor** (partial) or **half-up** (full, pool still pays the floor claim) minus the fee | `max(1, floor(fee_ray / 10^(27−d)))` when `fee_ray > 0`, capped at the pool's gross payout; withheld from the transfer |
+| `SeizeMode::Transfer` | tokens: `capped_ray` rescaled **floor** (partial) or **half-up** (full, pool still pays the floor claim) minus the fee | `max(1, floor(fee_ray / 10^(27−d)))` when `fee_ray > 0`, capped at the whole units the pool pays above the principal (`floor(paid_ray − base_ray)`, 0 when the payout does not exceed it); withheld from the transfer |
 | `SeizeMode::Credit(account_id)` | shares: `seized_scaled − fee_scaled` credited to the receiver account | `fee_scaled = ceil(bonus_scaled × fees_bps / BPS)` where `seized_scaled = floor(capped_ray × RAY / supply_index)` (exact held shares on full close), `bonus_scaled = min(floor(bonus_ray × RAY / supply_index), seized_scaled)` |
 
 Under-delivery (measured repayment USD below plan) floors every seizure field by `received / planned`; credit fees are recomputed from the scaled bonus. Planning drops legs that round to zero tokens or zero shares.
@@ -410,7 +410,7 @@ index 1.083e27 → 1_067_999_999_999_999_999_999_999_999   // ≈ 1.068
 Every debt mint (`borrow` and strategy openings, gross of any fee) keeps 200 bps of the floored supplied token value in cash (INV-ACCT-07, `contracts/pool/src/guards.rs::require_liquidation_buffer`, `InsufficientLiquidity`; the backing-shortfall gate on supply entry is [formulas.md#backing-and-cash-constraints](../../docs/reference/formulas.md#backing-and-cash-constraints)):
 
 ```text
-reserved    = half_up(floor_supply_tokens × 200 / BPS)
+reserved    = ceil(floor_supply_tokens × 200 / BPS)
 cash − draw ≥ reserved
 ```
 

@@ -2,8 +2,10 @@
 //!
 //! Callers run them after interest accrual and before committing state.
 
+use common::constants::{BPS, LIQUIDATION_BUFFER_BPS};
 use common::errors::CollateralError;
 use common::math::fp::Ray;
+use common::math::fp_core::mul_div_ceil;
 
 use soroban_sdk::{assert_with_error, panic_with_error, Env};
 
@@ -11,17 +13,22 @@ use crate::cache::Cache;
 
 /// Panics with `UtilizationAboveMax` if utilization exceeds `params.max_utilization`.
 ///
-/// Skipped when there is no supply, or when max utilization is effectively
-/// unbounded (`>= RAY 1.0`).
+/// Utilization here is ceiled debt value over floored supply value, rounded up.
+/// Skipped when there is no supply or no debt, or when max utilization is
+/// effectively unbounded (`>= RAY 1.0`).
 pub(crate) fn require_utilization_below_max(env: &Env, cache: &Cache) {
     if cache.supplied() == Ray::ZERO || cache.params().max_utilization >= Ray::ONE {
         return;
     }
 
-    let utilization = cache.calculate_utilization();
+    let borrowed = cache.borrowed().mul_ceil(env, cache.borrow_index());
+    if borrowed == Ray::ZERO {
+        return;
+    }
+    let supplied = cache.supplied().mul_floor(env, cache.supply_index());
     assert_with_error!(
         env,
-        utilization <= cache.params().max_utilization,
+        supplied > Ray::ZERO && borrowed.div_ceil(env, supplied) <= cache.params().max_utilization,
         CollateralError::UtilizationAboveMax
     );
 }
@@ -31,8 +38,7 @@ pub(crate) fn require_utilization_below_max(env: &Env, cache: &Cache) {
 /// Every debt mint checks it, borrows and strategy openings alike (INV-ACCT-07). Exits do not.
 pub(crate) fn require_liquidation_buffer(env: &Env, cache: &Cache, draw: i128) {
     let supplied = cache.unscale_supply_floor(cache.supplied());
-    let reserved = common::math::fp::Bps::from(common::constants::LIQUIDATION_BUFFER_BPS)
-        .apply_to(env, supplied);
+    let reserved = mul_div_ceil(env, supplied, LIQUIDATION_BUFFER_BPS, BPS);
     assert_with_error!(
         env,
         cache.cash().saturating_sub(draw) >= reserved,

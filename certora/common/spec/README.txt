@@ -59,7 +59,7 @@ fp_extremes_rules.rs
 
 value_math_rules.rs
   value-math.conf — health-factor, seizure-split and protocol-fee lemmas
-  value-math-sanity.conf — hf_lemmas_reachability
+  value-math-sanity.conf — hf_lemmas_reachability, fee_lemmas_reachability
 
 Lemma-before-main
 -----------------
