@@ -2,7 +2,8 @@ use common::errors::{GenericError, OracleError};
 use common::types::{HubAssetKey, InterestRateModel, MarketParamsRaw};
 use common::validation::require_positive_amount;
 use soroban_sdk::{
-    assert_with_error, panic_with_error, token, vec, Address, BytesN, Env, String, Vec,
+    assert_with_error, panic_with_error, token, vec, Address, BytesN, ContractExecutable, Env,
+    String, Vec,
 };
 
 use crate::config;
@@ -29,10 +30,10 @@ pub(crate) fn deploy_pool(env: &Env, wasm_hash: BytesN<32>) -> Address {
     );
 
     let salt = BytesN::from_array(env, &POOL_DEPLOY_SALT);
-    let pool = env
-        .deployer()
-        .with_current_contract(salt)
-        .deploy_v2(wasm_hash, (env.current_contract_address(),));
+    let pool = env.deployer().with_current_contract(salt).deploy_contract(
+        ContractExecutable::Wasm(wasm_hash),
+        (env.current_contract_address(),),
+    );
 
     storage::set_pool(env, &pool);
     pool
@@ -54,8 +55,8 @@ pub(crate) fn deploy_position_nft(
     );
 
     let salt = BytesN::from_array(env, &POSITION_NFT_DEPLOY_SALT);
-    let nft = env.deployer().with_current_contract(salt).deploy_v2(
-        wasm_hash,
+    let nft = env.deployer().with_current_contract(salt).deploy_contract(
+        ContractExecutable::Wasm(wasm_hash),
         (env.current_contract_address(), uri, name, symbol),
     );
 

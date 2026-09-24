@@ -25,7 +25,7 @@ pub mod spec;
 mod test_support;
 
 use price_aggregator_interface::PriceAggregatorInterface;
-use soroban_sdk::{contract, contractimpl, Address, BytesN, Env, Map, Vec};
+use soroban_sdk::{contract, contractimpl, Address, BytesN, ContractExecutable, Env, Map, Vec};
 use stellar_access::ownable;
 use stellar_macros::only_owner;
 
@@ -132,7 +132,8 @@ impl PriceAggregatorInterface for PriceAggregator {
     #[only_owner]
     fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
         renew_instance(&env);
-        env.deployer().update_current_contract_wasm(new_wasm_hash);
+        env.deployer()
+            .update_current_contract(ContractExecutable::Wasm(new_wasm_hash));
     }
 }
 

@@ -5,7 +5,7 @@ use common::errors::GenericError;
 use common::ttl::renew_instance;
 use controller_interface::ControllerAdminClient;
 
-use soroban_sdk::{assert_with_error, Address, BytesN, Env};
+use soroban_sdk::{assert_with_error, Address, BytesN, ContractExecutable, Env};
 
 use crate::events::{DeployControllerEvent, DeployPriceAggregatorEvent};
 use crate::storage;
@@ -38,10 +38,10 @@ pub(crate) fn deploy_controller(env: &Env, wasm_hash: BytesN<32>) -> Address {
     );
 
     let salt = BytesN::from_array(env, &CONTROLLER_DEPLOY_SALT);
-    let controller = env
-        .deployer()
-        .with_current_contract(salt)
-        .deploy_v2(wasm_hash.clone(), (env.current_contract_address(),));
+    let controller = env.deployer().with_current_contract(salt).deploy_contract(
+        ContractExecutable::Wasm(wasm_hash.clone()),
+        (env.current_contract_address(),),
+    );
 
     storage::set_controller(env, &controller);
 
@@ -71,10 +71,10 @@ pub(crate) fn deploy_price_aggregator(env: &Env, wasm_hash: BytesN<32>) -> Addre
     );
 
     let salt = BytesN::from_array(env, &PRICE_AGGREGATOR_DEPLOY_SALT);
-    let price_aggregator = env
-        .deployer()
-        .with_current_contract(salt)
-        .deploy_v2(wasm_hash.clone(), (env.current_contract_address(),));
+    let price_aggregator = env.deployer().with_current_contract(salt).deploy_contract(
+        ContractExecutable::Wasm(wasm_hash.clone()),
+        (env.current_contract_address(),),
+    );
 
     storage::set_price_aggregator(env, &price_aggregator);
 

@@ -77,7 +77,7 @@ boundary dictionary and the verified query set.
 **Certora `cvlr-soroban` is vendored on purpose.** Upstream still pins
 `soroban-sdk` 26.1.0, which puts two majors in the graph and breaks the
 `certora` feature. Do not remove the `[patch]` block until upstream moves
-to 27.
+to 28.
 
 ## Units
 

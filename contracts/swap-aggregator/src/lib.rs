@@ -43,7 +43,8 @@ pub(crate) use storage::reserved_fee_balance;
 use common::ttl::renew_instance;
 
 use soroban_sdk::{
-    contract, contractimpl, panic_with_error, token, xdr::FromXdr, Address, Bytes, BytesN, Env, Vec,
+    contract, contractimpl, panic_with_error, token, xdr::FromXdr, Address, Bytes, BytesN,
+    ContractExecutable, Env, Vec,
 };
 
 use stellar_access::ownable::{self, Ownable};
@@ -108,7 +109,8 @@ impl SwapAggregatorInterface for Router {
     #[only_owner]
     fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
         renew_instance(&env);
-        env.deployer().update_current_contract_wasm(new_wasm_hash);
+        env.deployer()
+            .update_current_contract(ContractExecutable::Wasm(new_wasm_hash));
     }
 
     /// Creates an active referral and returns its id. Owner only.

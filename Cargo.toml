@@ -27,12 +27,12 @@ resolver = "2"
 
 [workspace.dependencies]
 
-soroban-sdk = "=27.0.6"
-stellar-access = { git = "https://github.com/OpenZeppelin/stellar-contracts.git", rev = "fbfde388e1b72afa93d6b1c922067879b20e81db" }
-stellar-contract-utils = { git = "https://github.com/OpenZeppelin/stellar-contracts.git", rev = "fbfde388e1b72afa93d6b1c922067879b20e81db" }
-stellar-governance = { git = "https://github.com/OpenZeppelin/stellar-contracts.git", rev = "fbfde388e1b72afa93d6b1c922067879b20e81db" }
-stellar-macros = { git = "https://github.com/OpenZeppelin/stellar-contracts.git", rev = "fbfde388e1b72afa93d6b1c922067879b20e81db" }
-stellar-tokens = { git = "https://github.com/OpenZeppelin/stellar-contracts.git", rev = "fbfde388e1b72afa93d6b1c922067879b20e81db" }
+soroban-sdk = "=28.0.0"
+stellar-access = { git = "https://github.com/OpenZeppelin/stellar-contracts.git", rev = "59b98f8e127f0e877a3870e8eb82fa282a4aadf3" }
+stellar-contract-utils = { git = "https://github.com/OpenZeppelin/stellar-contracts.git", rev = "59b98f8e127f0e877a3870e8eb82fa282a4aadf3" }
+stellar-governance = { git = "https://github.com/OpenZeppelin/stellar-contracts.git", rev = "59b98f8e127f0e877a3870e8eb82fa282a4aadf3" }
+stellar-macros = { git = "https://github.com/OpenZeppelin/stellar-contracts.git", rev = "59b98f8e127f0e877a3870e8eb82fa282a4aadf3" }
+stellar-tokens = { git = "https://github.com/OpenZeppelin/stellar-contracts.git", rev = "59b98f8e127f0e877a3870e8eb82fa282a4aadf3" }
 
 cvlr = { git = "https://github.com/Certora/cvlr.git", rev = "b8bfb4c9587ad1e6576a74506fb1ae1a7006cd1b", default-features = false }
 cvlr-soroban = { git = "https://github.com/Certora/cvlr-soroban.git", rev = "5ff9d010e2d322c2291697c07e850759f850f245" }
@@ -45,11 +45,11 @@ cvlr-soroban-derive = { git = "https://github.com/Certora/cvlr-soroban.git", rev
 [patch."https://github.com/Certora/cvlr.git"]
 cvlr-log = { path = "vendor/cvlr-log" }
 
-# Vendored cvlr-soroban repins soroban-sdk to =27.0.6. Upstream (Certora/cvlr-soroban
+# Vendored cvlr-soroban repins soroban-sdk to =28.0.0. Upstream (Certora/cvlr-soroban
 # 5ff9d01) pins "26.1.0", which resolves to <27 and puts two soroban-sdk majors in
 # the graph: the `certora` feature then fails to compile with Address type mismatches.
 # The vendored tree is that rev with only the workspace pin changed. Drop this patch
-# once upstream moves to soroban-sdk 27.
+# once upstream moves to soroban-sdk 28.
 [patch."https://github.com/Certora/cvlr-soroban.git"]
 cvlr-soroban = { path = "vendor/cvlr-soroban/cvlr-soroban" }
 cvlr-soroban-macros = { path = "vendor/cvlr-soroban/cvlr-soroban-macros" }

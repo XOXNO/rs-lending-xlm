@@ -155,7 +155,7 @@ All `*_seconds` fields are seconds; `*_wad` prices/factors are WAD. Feed `decima
 
 ## Inherited events
 
-OpenZeppelin revision `fbfde388e1b72afa93d6b1c922067879b20e81db` and Soroban SDK 27.0.6 determine these shapes. Topic names default to snake_case struct names. All payloads here are maps, including empty maps for topic-only events. Angle-bracket entries below are dynamic topic values.
+OpenZeppelin revision `59b98f8e127f0e877a3870e8eb82fa282a4aadf3` and Soroban SDK 28.0.0 determine these shapes. Topic names default to snake_case struct names. All payloads here are maps, including empty maps for topic-only events. Angle-bracket entries below are dynamic topic values.
 
 | Emitter / event | Ordered topics | Map fields | Trigger |
 | --- | --- | --- | --- |
@@ -178,7 +178,7 @@ OpenZeppelin revision `fbfde388e1b72afa93d6b1c922067879b20e81db` and Soroban SDK
 | Governance: OperationExecuted | `["operation_executed", <id: BytesN<32>>, <target: Address>]` | `function: Symbol, args: Vec<Val>, predecessor: BytesN<32>, salt: BytesN<32>` | execute/execute_self/execute_canceller_reset |
 | Governance: OperationCancelled | `["operation_cancelled", <id: BytesN<32>>]` | `{}` | cancel |
 
-The governance ABI does not expose role-admin changes or admin renunciation, so it does not emit RoleAdminChanged or AdminRenounced. Ownable `set_owner` emits nothing: router, XOXNO oracle and pool constructors use this silent path. Controller, price-aggregator and governance constructors explicitly emit ownership events. Direct `update_current_contract_wasm` calls define no custom upgrade event.
+The governance ABI does not expose role-admin changes or admin renunciation, so it does not emit RoleAdminChanged or AdminRenounced. Ownable `set_owner` emits nothing: router, XOXNO oracle and pool constructors use this silent path. Controller, price-aggregator and governance constructors explicitly emit ownership events. Direct `update_current_contract` calls define no custom upgrade event.
 
 Underlying token contracts emit their own transfer and approval events. Decode them under the token's standard; NFT events are not SEP-41 events, and token transfers are not protocol custom events.
 

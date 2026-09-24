@@ -7,7 +7,7 @@ use soroban_sdk::{Address, Env};
 /// A version older than the protocol `soroban-sdk` targets fails every test with
 /// `Error(Context, InternalError)` ("ledger protocol version too old for host").
 /// Keep in step with the workspace `soroban-sdk` pin.
-pub(crate) const LEDGER_PROTOCOL_VERSION: u32 = 27;
+pub(crate) const LEDGER_PROTOCOL_VERSION: u32 = 28;
 
 pub(crate) fn init_ledger(env: &Env) {
     env.ledger().set(LedgerInfo {
