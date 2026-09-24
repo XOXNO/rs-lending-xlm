@@ -192,9 +192,8 @@ To prove one rule, run the conf that lists it from that conf's directory:
 
 `certora-local.yml` runs on pull requests that touch `certora/**`,
 `common/src/**`, `contracts/**/src/**`, `Cargo.toml` or `Cargo.lock`. It runs
-the local prover on the self-hosted runner over a default set of eight confs,
-one of them the pool's `pool-lifecycle`, with a per-rule time cap (900 s by
-default). A proved violation, a loop-unwind failure, `SANITY_FAILED`, an empty
+the local prover on the self-hosted runner over a default set of seven confs,
+with a per-rule time cap (900 s by default). A proved violation, a loop-unwind failure, `SANITY_FAILED`, an empty
 or missing rule log, a log with no prover verdict (`ERROR`: a prover, CLI or JVM
 error), a runner that stops before the provers, a dispatch `rules` name the
 conf does not list, or a missing conf fails the job. A prover-reported timeout
@@ -208,6 +207,10 @@ summary. When the prove step fails, `target/certora-local-logs` is uploaded as
 `certora-local-prover-logs-<sha>`. It keeps the prover working directory of each
 failed rule. The concrete counterexample, with its `clog!` values, is in
 `Reports/Report-<rule>-Assertions-example1.html` under that directory.
+
+`pool-lifecycle` runs only on the hosted prover (`profiles.json`). On the local
+prover, `market_create_writes_zeroed_state` reports a violation and
+`accrue_is_noop_when_no_time_elapsed` stops with a rule-encoding error.
 
 `isqrt_is_the_integer_floor_of_the_root` runs from its own `lp-math-isqrt.conf`,
 outside the default set, because it cannot be proved under the current model.
