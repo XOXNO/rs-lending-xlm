@@ -1031,6 +1031,7 @@ dependencies = [
  "clap",
  "prometheus",
  "serde",
+ "serde_json",
  "serde_yaml",
  "stellar-rpc-client",
  "stellar-strkey 0.0.16",

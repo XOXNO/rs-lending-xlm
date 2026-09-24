@@ -173,17 +173,16 @@ groups:
           summary: "Spoke {{ $labels.spoke_id }} borrowing for {{ $labels.symbol }} is closed but still flagged borrowable ({{ $labels.network }})"
           description: "borrow_cap is 0, so no new borrows are accepted, while is_borrowable is still set, and the spoke is not deprecated. Either the cap was never configured, or the spoke should be marked deprecated."
 
-      # A `get_spoke_asset` decode failure (ABI skew) stops updates for that
-      # spoke-asset: its series keep their last values, or are absent after an
-      # exporter restart. The closed-market and cap rules above then evaluate
-      # old data or nothing, so this counter is the only signal.
+      # A `get_spoke_asset` decode failure (ABI skew) removes every series of
+      # that spoke-asset. The closed-market, cap and pause rules then have
+      # nothing to evaluate, so this counter is the only signal.
       - alert: LendingExporterViewFailures
         expr: increase(lending_exporter_view_failures_total[15m]) >= 3
         for: 5m
         labels: { severity: warning }
         annotations:
           summary: "Exporter cannot read {{ $labels.view }} for {{ $labels.asset }} ({{ $labels.network }})"
-          description: "Contract view failing with code {{ $labels.code }}. Spoke-asset gauges for the affected listing are absent, so cap/closed/flag alerts cannot evaluate for it."
+          description: "Contract view failing with code {{ $labels.code }}. The gauges this view feeds stop updating, so alerts on them evaluate old data or nothing."
 
       - alert: LendingExporterSpokeAssetDecodeBroken
         expr: increase(lending_exporter_view_failures_total{view="get_spoke_asset",code="decode"}[15m]) >= 3
@@ -191,7 +190,7 @@ groups:
         labels: { severity: critical }
         annotations:
           summary: "Exporter cannot decode get_spoke_asset ({{ $labels.network }})"
-          description: "Usually contract/exporter ABI skew during a rolling deploy. Every spoke-asset series is missing while this persists, so closed-market and cap-utilization alerting is blind."
+          description: "Usually contract/exporter ABI skew during a rolling deploy. The series of every spoke-asset that fails to decode are removed while this persists, so closed-market, cap-utilization and pause alerting is blind for them."
 
       # With no debt no interest accrues, so an idle market that nobody touches
       # for a day is not a stalled keeper. Only markets with borrows are checked.

@@ -1,8 +1,9 @@
-use std::collections::{BTreeSet, HashMap};
+use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{anyhow, Result};
+use prometheus::GaugeVec;
 use stellar_xdr::{LedgerEntryData, ScVal};
 use tracing::{debug, info, warn};
 
@@ -19,9 +20,11 @@ use crate::stellar::{simulate_view, simulations_sent, RpcClient, ViewError};
 /// Keys per `get_market_indexes_detailed` simulation; 3 stays under the
 /// mainnet CPU budget for every hub, 5 does not.
 const INDEX_CHUNK_SIZE: usize = 3;
-/// How long a (spoke, hub, asset) key whose `get_spoke_asset` call reverted is
-/// skipped before the next probe.
+/// How long a (spoke, hub, asset) key whose `get_spoke_asset` call reverted
+/// with `ASSET_NOT_IN_SPOKE` is skipped before the next probe.
 const UNLISTED_SPOKE_ASSET_TTL: Duration = Duration::from_secs(10 * 60);
+/// `SpokeError::AssetNotInSpoke`: `get_spoke_asset` on a pair that is not listed.
+const ASSET_NOT_IN_SPOKE: &str = "307";
 
 type UnlistedSpokeAssets = HashMap<(u32, u32, [u8; 32]), Instant>;
 
@@ -544,7 +547,6 @@ async fn read_sync_data(
         pool_id,
         "get_sync_data",
         vec![arg],
-        true,
     )
     .await?;
     pool::decode_sync_data(&scv)
@@ -600,7 +602,6 @@ async fn read_market_scalar_u64(
         pool_id,
         function,
         vec![arg],
-        true,
     )
     .await?;
     scval::as_u64(&scv)
@@ -626,7 +627,6 @@ async fn read_view_i128(
         contract,
         function,
         args,
-        true,
     )
     .await?;
     pool::decode_i128(&scv).ok()
@@ -642,32 +642,42 @@ async fn read_view(
     contract: &[u8; 32],
     function: &str,
     args: Vec<ScVal>,
-    count_reverts: bool,
 ) -> Option<ScVal> {
     match simulate_view(client, contract, function, args).await {
         Ok(scv) => Some(scv),
-        Err(ViewError::Reverted(msg)) => {
-            if count_reverts {
-                let code = bucket_error_code(&msg);
-                metrics
-                    .view_failures
-                    .with_label_values(&[net, view_label, asset_label, &code])
-                    .inc();
-                debug!(target: "exporter.collector", view = view_label, asset = asset_label, error = %msg, "view reverted");
-            }
+        Err(e) => {
+            count_view_error(metrics, net, view_label, asset_label, function, &e);
             None
         }
-        Err(ViewError::NoResult) => {
+    }
+}
+
+fn count_view_error(
+    metrics: &Metrics,
+    net: &str,
+    view_label: &str,
+    asset_label: &str,
+    function: &str,
+    error: &ViewError,
+) {
+    match error {
+        ViewError::Reverted(msg) => {
+            let code = bucket_error_code(msg);
+            metrics
+                .view_failures
+                .with_label_values(&[net, view_label, asset_label, &code])
+                .inc();
+            debug!(target: "exporter.collector", view = view_label, asset = asset_label, error = %msg, "view reverted");
+        }
+        ViewError::NoResult => {
             metrics
                 .view_failures
                 .with_label_values(&[net, view_label, asset_label, "no_result"])
                 .inc();
-            None
         }
-        Err(ViewError::Rpc(e)) => {
+        ViewError::Rpc(e) => {
             metrics.rpc_errors.with_label_values(&[net, function]).inc();
             debug!(target: "exporter.collector", view = view_label, error = %e, "view rpc error");
-            None
         }
     }
 }
@@ -825,7 +835,6 @@ async fn read_feed_timestamp(
                 &contract,
                 "lastprice",
                 vec![arg],
-                true,
             )
             .await?;
             oracle::decode_reflector_price(&scv)
@@ -845,7 +854,6 @@ async fn read_feed_timestamp(
                 &contract,
                 "read_price_data_for_feed",
                 vec![arg],
-                true,
             )
             .await?;
             oracle::decode_redstone_price(&scv)
@@ -865,11 +873,10 @@ async fn publish_spokes(
     index_rows: &[Option<controller::MarketIndexView>],
     decimals: &[Option<u32>],
 ) {
-    let mut attempted = BTreeSet::new();
     for &spoke_id in &cfg.spokes {
         let spoke_name = cfg.spoke_name(spoke_id);
         let spoke_cfg = read_spoke_config(client, metrics, net, contracts, spoke_id).await;
-        let deprecated = spoke_cfg.as_ref().map(|c| c.is_deprecated).unwrap_or(false);
+        let deprecated = spoke_cfg.as_ref().map(|c| c.is_deprecated);
         if let Some(c) = &spoke_cfg {
             let s = spoke_id.to_string();
             let slabels = [net, s.as_str(), spoke_name.as_str()];
@@ -889,17 +896,6 @@ async fn publish_spokes(
         for (i, (market, row)) in contracts.markets.iter().zip(index_rows.iter()).enumerate() {
             let dec = decimals.get(i).copied().flatten();
             let hub_name = cfg.hub_name(market.hub_id);
-            let s = spoke_id.to_string();
-            let hub = market.hub_id.to_string();
-            attempted.insert(crate::metrics::spoke_asset_label_key(&[
-                net,
-                s.as_str(),
-                spoke_name.as_str(),
-                hub.as_str(),
-                hub_name.as_str(),
-                market.asset_strkey.as_str(),
-                market.symbol.as_str(),
-            ]));
             publish_spoke_asset(
                 client,
                 metrics,
@@ -916,7 +912,6 @@ async fn publish_spokes(
             .await;
         }
     }
-    metrics.prune_spoke_assets(&attempted);
 }
 
 async fn read_spoke_config(
@@ -935,7 +930,6 @@ async fn read_spoke_config(
         &contracts.controller,
         "get_spoke",
         vec![ScVal::U32(spoke_id)],
-        true,
     )
     .await
     .and_then(|s| controller::decode_spoke(&s).ok())
@@ -953,7 +947,7 @@ async fn publish_spoke_asset(
     market: &ResolvedMarket,
     row: &Option<controller::MarketIndexView>,
     decimals: Option<u32>,
-    deprecated: bool,
+    deprecated: Option<bool>,
 ) {
     let key = HubAssetKey {
         hub_id: market.hub_id,
@@ -962,10 +956,21 @@ async fn publish_spoke_asset(
     let Ok(hub_arg) = hub_asset_key_sc_val(&key) else {
         return;
     };
+    let s = spoke_id.to_string();
+    let hub = market.hub_id.to_string();
+    let labels = [
+        net,
+        s.as_str(),
+        spoke_name,
+        hub.as_str(),
+        hub_name,
+        market.asset_strkey.as_str(),
+        market.symbol.as_str(),
+    ];
 
-    // `get_spoke_asset` reverts with `AssetNotInSpoke` for every hub asset the
-    // spoke does not list, and most pairs are unlisted. Cache the revert and
-    // skip the pair until `UNLISTED_SPOKE_ASSET_TTL` expires.
+    // `get_spoke_asset` reverts with `AssetNotInSpoke` (#307) for every hub
+    // asset the spoke does not list, and most pairs are unlisted. Cache that
+    // revert and skip the pair until `UNLISTED_SPOKE_ASSET_TTL` expires.
     // ponytail: fixed TTL; invalidate on the controller's listing event if
     // a 10-minute lag after a governance listing ever matters.
     let unlisted_key = (spoke_id, market.hub_id, market.asset_id);
@@ -989,14 +994,25 @@ async fn publish_spoke_asset(
     .await
     {
         Ok(s) => s,
-        Err(ViewError::Reverted(_)) => {
+        Err(ViewError::Reverted(msg)) if bucket_error_code(&msg) == ASSET_NOT_IN_SPOKE => {
+            metrics.remove_spoke_asset(&labels);
             unlisted_spoke_assets()
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .insert(unlisted_key, Instant::now());
             return;
         }
-        Err(_) => return,
+        Err(e) => {
+            count_view_error(
+                metrics,
+                net,
+                "get_spoke_asset",
+                &market.asset_strkey,
+                "get_spoke_asset",
+                &e,
+            );
+            return;
+        }
     };
 
     let cfg = match controller::decode_spoke_asset(&cfg_scv) {
@@ -1007,21 +1023,11 @@ async fn publish_spoke_asset(
                 .with_label_values(&[net, "get_spoke_asset", &market.asset_strkey, "decode"])
                 .inc();
             debug!(target: "exporter.collector", spoke_id, asset = %market.asset_strkey, error = %e, "decode spoke_asset failed");
+            metrics.remove_spoke_asset(&labels);
             return;
         }
     };
 
-    let s = spoke_id.to_string();
-    let hub = market.hub_id.to_string();
-    let labels = [
-        net,
-        s.as_str(),
-        spoke_name,
-        hub.as_str(),
-        hub_name,
-        market.asset_strkey.as_str(),
-        market.symbol.as_str(),
-    ];
     let b = |v: bool| if v { 1.0 } else { 0.0 };
     metrics
         .spoke_paused
@@ -1039,10 +1045,12 @@ async fn publish_spoke_asset(
         .spoke_borrow_enabled
         .with_label_values(&labels)
         .set(b(cfg.is_borrowable));
-    metrics
-        .spoke_deprecated
-        .with_label_values(&labels)
-        .set(b(deprecated));
+    if let Some(deprecated) = deprecated {
+        metrics
+            .spoke_deprecated
+            .with_label_values(&labels)
+            .set(b(deprecated));
+    }
 
     metrics
         .spoke_supply_closed
@@ -1123,18 +1131,25 @@ async fn publish_spoke_asset(
                 .spoke_borrow_usage_usd
                 .with_label_values(&labels)
                 .set(borrow_tokens * price);
-            if let Some(u) = model::cap_utilization(supply_tokens, cfg.supply_cap, dec) {
-                metrics
-                    .spoke_supply_cap_utilization
-                    .with_label_values(&labels)
-                    .set(u);
-            }
-            if let Some(u) = model::cap_utilization(borrow_tokens, cfg.borrow_cap, dec) {
-                metrics
-                    .spoke_borrow_cap_utilization
-                    .with_label_values(&labels)
-                    .set(u);
-            }
+            set_or_remove(
+                &metrics.spoke_supply_cap_utilization,
+                &labels,
+                model::cap_utilization(supply_tokens, cfg.supply_cap, dec),
+            );
+            set_or_remove(
+                &metrics.spoke_borrow_cap_utilization,
+                &labels,
+                model::cap_utilization(borrow_tokens, cfg.borrow_cap, dec),
+            );
+        }
+    }
+}
+
+fn set_or_remove(gauge: &GaugeVec, labels: &[&str], value: Option<f64>) {
+    match value {
+        Some(v) => gauge.with_label_values(labels).set(v),
+        None => {
+            let _ = gauge.remove_label_values(labels);
         }
     }
 }
@@ -1168,5 +1183,341 @@ mod tests {
         assert_eq!(bucket_error_code("HostError: Error(Contract, #210)"), "210");
         assert_eq!(bucket_error_code("no code here"), "unknown");
         assert_eq!(bucket_error_code("#30 trailing"), "30");
+    }
+}
+
+#[cfg(test)]
+mod spoke_asset_tests {
+    use std::sync::atomic::{AtomicU8, Ordering};
+    use std::sync::Arc;
+
+    use axum::{extract::State, http::header, routing::post, Router};
+    use serde_json::{json, Value};
+    use stellar_xdr::{
+        HostFunction, Int128Parts, Limits, OperationBody, ReadXdr, ScMap, ScMapEntry,
+        TransactionEnvelope, WriteXdr,
+    };
+    use tokio::net::TcpListener;
+
+    use super::*;
+    use crate::keys::symbol;
+
+    const LISTED: u8 = 0;
+    const DELISTED: u8 = 1;
+    const CAPS_ZERO: u8 = 2;
+    const DECODE_BROKEN: u8 = 3;
+    const OTHER_REVERT: u8 = 4;
+    const RPC_DOWN: u8 = 5;
+    const SPOKE_DOWN: u8 = 6;
+    const RAY: i128 = 1_000_000_000_000_000_000_000_000_000;
+    const WAD: i128 = 1_000_000_000_000_000_000;
+    const DECIMALS: u32 = 7;
+
+    fn i128v(v: i128) -> ScVal {
+        ScVal::I128(Int128Parts {
+            hi: (v >> 64) as i64,
+            lo: v as u64,
+        })
+    }
+
+    fn map(entries: Vec<(&str, ScVal)>) -> ScVal {
+        let entries: Vec<ScMapEntry> = entries
+            .into_iter()
+            .map(|(k, val)| ScMapEntry {
+                key: ScVal::Symbol(symbol(k).unwrap()),
+                val,
+            })
+            .collect();
+        ScVal::Map(Some(ScMap(entries.try_into().unwrap())))
+    }
+
+    fn spoke_asset(cap_tokens: i128, with_caps: bool) -> ScVal {
+        let mut e = vec![
+            ("is_collateralizable", ScVal::Bool(true)),
+            ("is_borrowable", ScVal::Bool(true)),
+            ("paused", ScVal::Bool(true)),
+            ("frozen", ScVal::Bool(false)),
+            ("loan_to_value", ScVal::U32(7000)),
+            ("liquidation_threshold", ScVal::U32(8000)),
+            ("liquidation_bonus", ScVal::U32(500)),
+            ("liquidation_fees", ScVal::U32(100)),
+        ];
+        if with_caps {
+            let cap = cap_tokens * 10i128.pow(DECIMALS);
+            e.push(("supply_cap", i128v(cap)));
+            e.push(("borrow_cap", i128v(cap)));
+        }
+        map(e)
+    }
+
+    fn sim_ok(v: ScVal) -> Value {
+        json!({"latestLedger": 1, "results": [{"auth": [], "xdr": v.to_xdr_base64(Limits::none()).unwrap()}]})
+    }
+
+    fn sim_revert(msg: &str) -> Value {
+        json!({"latestLedger": 1, "error": msg})
+    }
+
+    async fn rpc(
+        State(phase): State<Arc<AtomicU8>>,
+        body: String,
+    ) -> ([(header::HeaderName, &'static str); 1], String) {
+        let req: Value = serde_json::from_str(&body).unwrap();
+        let tx = req["params"]["transaction"].as_str().unwrap();
+        let TransactionEnvelope::Tx(env) =
+            TransactionEnvelope::from_xdr_base64(tx, Limits::none()).unwrap()
+        else {
+            panic!("unexpected envelope")
+        };
+        let OperationBody::InvokeHostFunction(op) = &env.tx.operations[0].body else {
+            panic!("not an invoke")
+        };
+        let HostFunction::InvokeContract(args) = &op.host_function else {
+            panic!("not a contract invoke")
+        };
+        let func = args.function_name.0.to_utf8_string_lossy();
+        let result = match (func.as_str(), phase.load(Ordering::SeqCst)) {
+            ("get_spoke", SPOKE_DOWN) => sim_revert("HostError: Error(Contract, #1)"),
+            ("get_spoke", _) => sim_ok(map(vec![("is_deprecated", ScVal::Bool(true))])),
+            ("get_spoke_asset", DELISTED) => sim_revert("HostError: Error(Contract, #307)"),
+            ("get_spoke_asset", OTHER_REVERT) => sim_revert("HostError: Error(Contract, #10)"),
+            ("get_spoke_asset", RPC_DOWN) => {
+                let resp = json!({"jsonrpc": "2.0", "id": req["id"].clone(), "error": {"code": -32603, "message": "down"}});
+                return (
+                    [(header::CONTENT_TYPE, "application/json")],
+                    resp.to_string(),
+                );
+            }
+            ("get_spoke_asset", CAPS_ZERO) => sim_ok(spoke_asset(0, true)),
+            ("get_spoke_asset", DECODE_BROKEN) => sim_ok(spoke_asset(0, false)),
+            ("get_spoke_asset", _) => sim_ok(spoke_asset(100, true)),
+            ("get_spoke_usage", _) => sim_ok(map(vec![
+                ("supplied_scaled_ray", i128v(97 * RAY)),
+                ("borrowed_scaled_ray", i128v(97 * RAY)),
+            ])),
+            _ => sim_revert("HostError: Error(Contract, #1)"),
+        };
+        let resp = json!({"jsonrpc": "2.0", "id": req["id"].clone(), "result": result});
+        (
+            [(header::CONTENT_TYPE, "application/json")],
+            resp.to_string(),
+        )
+    }
+
+    struct Fixture {
+        phase: Arc<AtomicU8>,
+        client: RpcClient,
+        cfg: ExporterConfig,
+        contracts: ResolvedContracts,
+        rows: Vec<Option<controller::MarketIndexView>>,
+        metrics: Metrics,
+        spoke: String,
+    }
+
+    // The unlisted cache is process-global, so every test uses its own spoke id.
+    async fn fixture(spoke_id: u32) -> Fixture {
+        let phase = Arc::new(AtomicU8::new(LISTED));
+        let app = Router::new()
+            .route("/", post(rpc))
+            .with_state(phase.clone());
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let cfg: ExporterConfig = serde_yaml::from_str(&format!(
+            "network: testnet\nrpc: {{url: \"http://{addr}\", passphrase: x}}\ncontracts: {{controller: C}}\nspokes: [{spoke_id}]\nmetrics: {{bind: \"127.0.0.1:0\"}}\n"
+        ))
+        .unwrap();
+        let client = RpcClient::new(&cfg.rpc).unwrap();
+        let contracts = ResolvedContracts {
+            controller: [7u8; 32],
+            price_aggregator: None,
+            oracle_adapter: None,
+            markets: vec![ResolvedMarket {
+                hub_id: 1,
+                asset_id: [spoke_id as u8; 32],
+                asset_strkey: "CASSET".into(),
+                symbol: "SYM".into(),
+            }],
+        };
+        let rows = vec![Some(controller::MarketIndexView {
+            supply_index_ray: RAY,
+            borrow_index_ray: RAY,
+            final_price_wad: WAD,
+            primary_price_wad: 0,
+            anchor_price_wad: 0,
+            price_timestamp: 0,
+            stale: false,
+            deviation: false,
+            valid: true,
+            error_code: None,
+        })];
+        Fixture {
+            phase,
+            client,
+            cfg,
+            contracts,
+            rows,
+            metrics: Metrics::new().unwrap(),
+            spoke: spoke_id.to_string(),
+        }
+    }
+
+    impl Fixture {
+        async fn scrape(&self, phase: u8) {
+            self.phase.store(phase, Ordering::SeqCst);
+            publish_spokes(
+                &self.client,
+                &self.metrics,
+                "testnet",
+                &self.cfg,
+                &self.contracts,
+                &self.rows,
+                &[Some(DECIMALS)],
+            )
+            .await;
+        }
+
+        fn spoke_asset_series(&self) -> Vec<(String, f64)> {
+            self.metrics
+                .registry
+                .gather()
+                .iter()
+                .flat_map(|f| {
+                    f.get_metric()
+                        .iter()
+                        .filter(|m| {
+                            let l = m.get_label();
+                            l.iter()
+                                .any(|l| l.get_name() == "spoke_id" && l.get_value() == self.spoke)
+                                && l.iter().any(|l| l.get_name() == "hub_id")
+                        })
+                        .map(|m| (f.get_name().to_string(), m.get_gauge().get_value()))
+                        .collect::<Vec<_>>()
+                })
+                .collect()
+        }
+
+        fn value(&self, family: &str) -> Option<f64> {
+            self.spoke_asset_series()
+                .into_iter()
+                .find(|(name, _)| name == family)
+                .map(|(_, v)| v)
+        }
+
+        fn counter(&self, family: &str, labels: &[(&str, &str)]) -> f64 {
+            self.metrics
+                .registry
+                .gather()
+                .iter()
+                .filter(|f| f.get_name() == family)
+                .flat_map(|f| f.get_metric().to_vec())
+                .filter(|m| {
+                    labels.iter().all(|(k, v)| {
+                        m.get_label()
+                            .iter()
+                            .any(|l| l.get_name() == *k && l.get_value() == *v)
+                    })
+                })
+                .map(|m| m.get_counter().get_value())
+                .sum()
+        }
+    }
+
+    fn near(v: Option<f64>, want: f64) -> bool {
+        v.is_some_and(|v| (v - want).abs() < 1e-9)
+    }
+
+    #[tokio::test]
+    async fn delisted_spoke_asset_drops_every_series() {
+        let f = fixture(41).await;
+        f.scrape(LISTED).await;
+        assert_eq!(f.spoke_asset_series().len(), 19);
+        assert_eq!(f.value("lending_spoke_paused"), Some(1.0));
+        assert!(near(f.value("lending_spoke_supply_cap_utilization"), 0.97));
+
+        f.scrape(DELISTED).await;
+        f.scrape(DELISTED).await;
+        assert_eq!(f.spoke_asset_series(), vec![]);
+        assert_eq!(
+            f.counter(
+                "lending_exporter_view_failures_total",
+                &[("view", "get_spoke_asset")]
+            ),
+            0.0
+        );
+    }
+
+    #[tokio::test]
+    async fn undecodable_spoke_asset_drops_every_series() {
+        let f = fixture(42).await;
+        f.scrape(LISTED).await;
+        assert_eq!(f.value("lending_spoke_paused"), Some(1.0));
+
+        f.scrape(DECODE_BROKEN).await;
+        assert_eq!(f.spoke_asset_series(), vec![]);
+        assert_eq!(
+            f.counter(
+                "lending_exporter_view_failures_total",
+                &[("view", "get_spoke_asset"), ("code", "decode")]
+            ),
+            1.0
+        );
+    }
+
+    #[tokio::test]
+    async fn closed_cap_drops_cap_utilization() {
+        let f = fixture(43).await;
+        f.scrape(LISTED).await;
+        assert!(near(f.value("lending_spoke_supply_cap_utilization"), 0.97));
+        assert!(near(f.value("lending_spoke_borrow_cap_utilization"), 0.97));
+
+        f.scrape(CAPS_ZERO).await;
+        assert_eq!(f.value("lending_spoke_supply_closed"), Some(1.0));
+        assert_eq!(f.value("lending_spoke_borrow_closed"), Some(1.0));
+        assert_eq!(f.value("lending_spoke_supply_cap"), Some(0.0));
+        assert!(near(f.value("lending_spoke_supply_usage"), 97.0));
+        assert_eq!(f.value("lending_spoke_supply_cap_utilization"), None);
+        assert_eq!(f.value("lending_spoke_borrow_cap_utilization"), None);
+
+        f.scrape(LISTED).await;
+        assert!(near(f.value("lending_spoke_supply_cap_utilization"), 0.97));
+    }
+
+    #[tokio::test]
+    async fn unexpected_spoke_asset_failures_are_counted_and_retried() {
+        let f = fixture(44).await;
+        f.scrape(LISTED).await;
+
+        f.scrape(OTHER_REVERT).await;
+        f.scrape(OTHER_REVERT).await;
+        assert_eq!(
+            f.counter(
+                "lending_exporter_view_failures_total",
+                &[("view", "get_spoke_asset"), ("code", "10")]
+            ),
+            2.0
+        );
+        assert_eq!(f.value("lending_spoke_paused"), Some(1.0));
+
+        f.scrape(RPC_DOWN).await;
+        assert_eq!(
+            f.counter(
+                "lending_exporter_rpc_errors_total",
+                &[("op", "get_spoke_asset")]
+            ),
+            1.0
+        );
+        assert_eq!(f.value("lending_spoke_paused"), Some(1.0));
+    }
+
+    #[tokio::test]
+    async fn failed_get_spoke_keeps_the_last_deprecated_value() {
+        let f = fixture(45).await;
+        f.scrape(LISTED).await;
+        assert_eq!(f.value("lending_spoke_deprecated"), Some(1.0));
+
+        f.scrape(SPOKE_DOWN).await;
+        assert_eq!(f.value("lending_spoke_paused"), Some(1.0));
+        assert_eq!(f.value("lending_spoke_deprecated"), Some(1.0));
     }
 }

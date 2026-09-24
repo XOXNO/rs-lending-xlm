@@ -56,7 +56,8 @@ interest-rate parameters, and the time since the last accrual.
 flags. LTV, liquidation threshold, liquidation bonus and fees. Supply and borrow
 caps, how much of each is used, and how full each is. Per spoke: the
 liquidation target health factor, the health factor at the maximum bonus, and
-the bonus factor.
+the bonus factor. When a listing is removed on chain, or the exporter cannot
+decode it, every series of that listing is removed.
 
 **Protocol** — total value locked, total borrowed, liquidity, revenue, market
 and spoke counts, and the minimum borrow collateral.
