@@ -163,8 +163,10 @@ For every paired collateral `(hub_id, asset)`:
 1. Reject a non-positive seizure leg that is present in the estimate, and a
    leg that matches no supply position. An absent leg is not an error.
 2. Require `0 <= protocol_fee <= seized_amount`; reject an omitted fee leg
-   instead of silently treating it as zero. A dust leg can carry a fee equal
-   to its seizure; value it at zero instead of rejecting the estimate.
+   instead of silently treating it as zero. In Credit mode a dust leg can carry
+   a fee equal to its seizure; value it at zero instead of rejecting the
+   estimate. In Transfer mode the fee never exceeds the whole units the pool
+   pays above the leg's repayment share.
 3. Compute `net_amount = seized_amount - protocol_fee`. In Credit mode these
    are shares: subtract fee shares from gross seized shares first, then convert
    the single net share amount once using that hub market's supply index and
