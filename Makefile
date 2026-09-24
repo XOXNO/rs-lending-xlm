@@ -38,7 +38,7 @@
 
 SHELL := /bin/bash
 .PHONY: \
-        build build-one optimize deploy-artifacts integration-wasm integration-preflight integration-validate integration-shellcheck integration-appendix certora-wasm wasm-artifacts \
+        build build-one optimize deploy-artifacts release-artifacts integration-wasm integration-preflight integration-validate integration-shellcheck integration-appendix certora-wasm wasm-artifacts \
         certora certora-list \
         test test-harness test-verbose test-one test-match test-pool \
         miri-common miri-pool miri-controller miri-all \
@@ -90,6 +90,15 @@ OPTIMIZED_DIR := target/optimized
 
 WASM_ARTIFACTS_DIR := artifacts/wasm
 DEPLOY_DIR := $(WASM_ARTIFACTS_DIR)/deploy
+
+# RELEASE_TAG=vX.Y.Z: the deploy and upgrade targets take the attested WASM of
+# that GitHub release instead of building it from this checkout.
+RELEASE_TAG ?=
+RELEASE_REPO ?= XOXNO/rs-lending-xlm
+RELEASE_CONTRACTS := controller pool governance price_aggregator position_nft defindex_strategy aggregator xoxno-oracle-adapter
+CORE_WASM := $(if $(RELEASE_TAG),release-artifacts,deploy-artifacts)
+AGGREGATOR_WASM := $(if $(RELEASE_TAG),release-artifacts,build-aggregator)
+ORACLE_ADAPTER_WASM := $(if $(RELEASE_TAG),release-artifacts,build-oracle-adapter)
 CERTORA_WASM_DIR := $(WASM_ARTIFACTS_DIR)/certora
 CERTORA_BUILD_DIR := target/certora-build
 
@@ -210,6 +219,20 @@ deploy-artifacts: optimize
 	@echo ""
 	@echo "Deploy WASM ($(DEPLOY_DIR)):"
 	@ls -lh $(DEPLOY_DIR)/*.wasm 2>/dev/null
+
+
+release-artifacts:
+	@if [ -z "$(RELEASE_TAG)" ]; then echo "Set RELEASE_TAG, e.g. RELEASE_TAG=v1.1.0"; exit 1; fi
+	@rm -rf $(DEPLOY_DIR) && mkdir -p $(DEPLOY_DIR)
+	@gh release download "$(RELEASE_TAG)" -R $(RELEASE_REPO) -D $(DEPLOY_DIR) \
+		$(foreach c,$(RELEASE_CONTRACTS),-p '$(c).wasm')
+	@for c in $(RELEASE_CONTRACTS); do \
+		gh attestation verify "$(DEPLOY_DIR)/$$c.wasm" -R $(RELEASE_REPO) \
+			--signer-workflow $(RELEASE_REPO)/.github/workflows/release.yml \
+			--source-ref refs/tags/$(RELEASE_TAG) --deny-self-hosted-runners >/dev/null || exit 1; \
+		echo "$$(shasum -a 256 "$(DEPLOY_DIR)/$$c.wasm" | cut -c1-64)  $$c.wasm"; \
+	done
+	@echo "Release $(RELEASE_TAG) WASM, attested by release.yml at refs/tags/$(RELEASE_TAG), is in $(DEPLOY_DIR)"
 
 
 
@@ -1250,7 +1273,7 @@ deploy-mainnet: NETWORK=mainnet
 deploy-mainnet: _deploy
 
 
-upgrade-controller: _preflight-controller _preflight-governance deploy-artifacts
+upgrade-controller: _preflight-controller _preflight-governance $(CORE_WASM)
 	@echo "=== Upgrading controller on $(NETWORK) ==="
 	@echo "Signer: $(SIGNER)"
 	@GOV=$$(stellar contract alias show governance --network $(NETWORK) 2>/dev/null | tail -n1); \
@@ -1278,7 +1301,7 @@ upgrade-controller: _preflight-controller _preflight-governance deploy-artifacts
 		$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json
 
 
-upgrade-position-nft: _preflight-controller _preflight-governance deploy-artifacts
+upgrade-position-nft: _preflight-controller _preflight-governance $(CORE_WASM)
 	@echo "=== Upgrading position NFT on $(NETWORK) ==="
 	@echo "Signer: $(SIGNER)"
 	@stellar contract upload \
@@ -1291,7 +1314,7 @@ upgrade-position-nft: _preflight-controller _preflight-governance deploy-artifac
 	NETWORK=$(NETWORK) SIGNER=$(SIGNER) bash $(CONFIG_DIR)/script.sh upgradePositionNftHash $$HASH
 
 
-upgrade-price-aggregator: _preflight-governance deploy-artifacts
+upgrade-price-aggregator: _preflight-governance $(CORE_WASM)
 	@echo "=== Upgrading price aggregator on $(NETWORK) ==="
 	@echo "Signer: $(SIGNER)"
 	@stellar contract upload \
@@ -1308,7 +1331,7 @@ upgrade-price-aggregator: _preflight-governance deploy-artifacts
 		$(CONFIG_DIR)/networks.json > $$TMP_JSON && mv $$TMP_JSON $(CONFIG_DIR)/networks.json
 
 
-upgrade-governance: _preflight-governance deploy-artifacts
+upgrade-governance: _preflight-governance $(CORE_WASM)
 	@echo "=== Upgrading governance on $(NETWORK) ==="
 	@echo "Signer: $(SIGNER)"
 	@GOV=$$(stellar contract alias show governance --network $(NETWORK) 2>/dev/null | tail -n1); \
@@ -1337,7 +1360,7 @@ upgrade-governance: _preflight-governance deploy-artifacts
 
 
 
-upgrade-pool: _preflight-controller _preflight-governance deploy-artifacts
+upgrade-pool: _preflight-controller _preflight-governance $(CORE_WASM)
 	@echo "=== Upgrading central pool on $(NETWORK) ==="
 	@echo "Signer: $(SIGNER)"
 	@GOV=$$(stellar contract alias show governance --network $(NETWORK) 2>/dev/null | tail -n1); \
@@ -1442,7 +1465,7 @@ build-aggregator:
 
 
 
-deploy-aggregator: build-aggregator
+deploy-aggregator: $(AGGREGATOR_WASM)
 	@echo "=== Deploying aggregator on $(NETWORK) ==="
 	@echo "Signer: $(SIGNER)"
 	@ADMIN=$${AGGREGATOR_ADMIN:-$(SIGNER_ADDRESS)}; \
@@ -1481,7 +1504,7 @@ build-oracle-adapter:
 
 
 
-deploy-oracle-adapter: build-oracle-adapter
+deploy-oracle-adapter: $(ORACLE_ADAPTER_WASM)
 	@echo "=== Deploying xoxno-oracle-adapter on $(NETWORK) ==="
 	@echo "Signer: $(SIGNER)"
 	@ADMIN=$${ORACLE_ADAPTER_ADMIN:-$(SIGNER_ADDRESS)}; \
@@ -1505,7 +1528,7 @@ deploy-oracle-adapter: build-oracle-adapter
 
 
 
-upgrade-aggregator: build-aggregator
+upgrade-aggregator: $(AGGREGATOR_WASM)
 	@echo "=== Upgrading aggregator on $(NETWORK) ==="
 	@echo "Signer: $(SIGNER)"
 	@stellar contract upload \
@@ -1522,7 +1545,7 @@ upgrade-aggregator: build-aggregator
 
 
 
-upgrade-oracle-adapter: build-oracle-adapter
+upgrade-oracle-adapter: $(ORACLE_ADAPTER_WASM)
 	@echo "=== Upgrading xoxno-oracle-adapter on $(NETWORK) ==="
 	@echo "Signer: $(SIGNER)"
 	@stellar contract upload \
@@ -1683,7 +1706,7 @@ test-flash-loan-receiver:
 	run_data_case InvalidData failure 00; \
 	run_case Success success
 
-_deploy: deploy-artifacts
+_deploy: $(CORE_WASM)
 	@echo "=== Deploying to $(NETWORK) ==="
 	@echo "Signer: $(SIGNER)"
 	@echo ""
@@ -2185,6 +2208,7 @@ help-deploy:
 	$(call BLANK)
 	$(call H2,Upgrades (timelocked))
 	$(call NOTE,make <n> upgradeController | upgradeGovernance | upgradePool | upgradePriceAggregator | upgradeAll)
+	$(call NOTE,RELEASE_TAG=v1.1.0 make mainnet upgradeAll    (attested release WASM, not a local build))
 	$(call BLANK)
 	$(call H2,Mainnet env (optional))
 	$(call NOTE,AGGREGATOR_CONTRACT=C... ACCUMULATOR_CONTRACT=G... make mainnet setup)
