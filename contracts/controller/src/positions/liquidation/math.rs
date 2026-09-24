@@ -216,7 +216,8 @@ pub(crate) fn sum_repaid_usd(env: &Env, repaid_tokens: &Vec<RepayEntry>) -> Wad 
 ///
 /// Transfer amounts round down for partial closes and half-up for full closes.
 /// Positive fees floor to asset units with a one-unit minimum, capped by the
-/// pool's gross withdrawal. Credit mode retains a separate exact share representation.
+/// whole units the pool pays above the repayment share. Credit mode retains a
+/// separate exact share representation.
 pub(crate) fn calculate_seized_collateral(
     env: &Env,
     account: &Account,
@@ -234,7 +235,8 @@ pub(crate) fn calculate_seized_collateral(
     let total_seizure_usd = repayment.repay_usd.mul(env, one_plus_bonus);
 
     // Units: *_ray = RAY asset value (shares * index); *_scaled = RAY shares;
-    // *_amount, fee_asset, and protocol_fee = token units at the feed's decimals.
+    // *_amount, pool_gross, realised_excess, fee_asset, and protocol_fee = token
+    // units at the feed's decimals.
     for (hub_asset, position) in iter_typed_positions(&account.supply_positions) {
         let feed = cache.cached_price(&hub_asset.asset);
         let market_index = cache.cached_market_index(&hub_asset);
@@ -312,7 +314,15 @@ pub(crate) fn calculate_seized_collateral(
         } else {
             fee_asset
         };
-        let protocol_fee = bumped_fee.min(pool_gross);
+        let paid_ray = Ray::from_asset(env, pool_gross, feed.asset_decimals);
+        let realised_excess = if paid_ray > base_ray {
+            paid_ray
+                .checked_sub(env, base_ray)
+                .to_asset_floor(env, feed.asset_decimals)
+        } else {
+            0
+        };
+        let protocol_fee = bumped_fee.min(realised_excess);
 
         seized.push_back(SeizeEntry {
             hub_asset,
