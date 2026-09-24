@@ -1104,7 +1104,7 @@ fn upgrade_reaches_the_host_for_the_owner() {
     let (_owner, client) = register_agg(&env);
 
     // An unknown hash is the cheapest proof the call got past authorization and
-    // into `update_current_contract_wasm`: the host is what rejects it.
+    // into `update_current_contract`: the host is what rejects it.
     let missing = BytesN::from_array(&env, &[0xA5; 32]);
     assert!(
         client.try_upgrade(&missing).is_err(),

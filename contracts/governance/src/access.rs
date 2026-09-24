@@ -7,7 +7,8 @@ use common::errors::GenericError;
 use common::ttl::renew_instance;
 
 use soroban_sdk::{
-    assert_with_error, contractimpl, panic_with_error, Address, BytesN, Env, Symbol, Vec,
+    assert_with_error, contractimpl, panic_with_error, Address, BytesN, ContractExecutable, Env,
+    Symbol, Vec,
 };
 
 use stellar_access::{access_control, ownable, role_transfer};
@@ -113,7 +114,7 @@ pub(crate) fn owner_or_panic(env: &Env) -> Address {
 pub(crate) fn apply_upgrade(env: &Env, new_wasm_hash: &BytesN<32>) {
     renew_instance(env);
     env.deployer()
-        .update_current_contract_wasm(new_wasm_hash.clone());
+        .update_current_contract(ContractExecutable::Wasm(new_wasm_hash.clone()));
 }
 
 /// Renews the governance instance's storage TTL, updates the pending-owner

@@ -16,7 +16,9 @@ mod storage;
 mod submit;
 
 use common::ttl::renew_instance;
-use soroban_sdk::{contract, contracterror, contractimpl, Address, BytesN, Env, Vec};
+use soroban_sdk::{
+    contract, contracterror, contractimpl, Address, BytesN, ContractExecutable, Env, Vec,
+};
 
 use stellar_access::ownable::{self, Ownable};
 use stellar_macros::only_owner;
@@ -103,7 +105,8 @@ impl XoxnoOracle {
     #[only_owner]
     pub fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
         renew_instance(&env);
-        env.deployer().update_current_contract_wasm(new_wasm_hash);
+        env.deployer()
+            .update_current_contract(ContractExecutable::Wasm(new_wasm_hash));
     }
 }
 

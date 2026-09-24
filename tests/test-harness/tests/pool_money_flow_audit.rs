@@ -369,13 +369,14 @@ mod fee_headroom {
     use pool::{LiquidityPool, LiquidityPoolClient};
     use soroban_sdk::testutils::{Address as _, Ledger};
     use soroban_sdk::{token, vec, Address, Env};
+    use test_harness::presets::LEDGER_PROTOCOL_VERSION;
 
     #[test]
     fn liquidation_fee_uses_headroom_freed_by_supply_burn() {
         let env = Env::default();
         env.mock_all_auths();
         env.ledger().with_mut(|info| {
-            info.protocol_version = 27;
+            info.protocol_version = LEDGER_PROTOCOL_VERSION;
             info.timestamp = 1_000;
             info.sequence_number = 100;
         });

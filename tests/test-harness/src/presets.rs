@@ -15,7 +15,7 @@ pub const KEEPER_USER: &str = "keeper";
 /// Keep it equal to the major version of the workspace `soroban-sdk` pin. Any other value
 /// makes the host fail every test with `Error(Context, InternalError)` ("ledger protocol
 /// version too old for host" or "too new for host").
-pub const LEDGER_PROTOCOL_VERSION: u32 = 27;
+pub const LEDGER_PROTOCOL_VERSION: u32 = 28;
 
 pub const UNCONSTRAINED_TEST_CAP: i128 = unconstrained_test_cap(7);
 

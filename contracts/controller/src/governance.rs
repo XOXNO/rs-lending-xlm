@@ -1,6 +1,6 @@
 use common::errors::GenericError;
 use common::types::{ControllerKey, PositionLimits};
-use soroban_sdk::{assert_with_error, panic_with_error, Address, BytesN, Env};
+use soroban_sdk::{assert_with_error, panic_with_error, Address, BytesN, ContractExecutable, Env};
 
 #[cfg(test)]
 use crate::Controller;
@@ -38,7 +38,7 @@ pub(crate) fn upgrade(env: &Env, new_wasm_hash: &BytesN<32>) {
         pausable::pause(env);
     }
     env.deployer()
-        .update_current_contract_wasm(new_wasm_hash.clone());
+        .update_current_contract(ContractExecutable::Wasm(new_wasm_hash.clone()));
 }
 
 /// Records a strictly greater app version; performs no storage transformation.

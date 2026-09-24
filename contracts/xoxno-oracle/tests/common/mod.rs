@@ -10,7 +10,7 @@ use soroban_sdk::{contracttype, Address, ConversionError, Env, InvokeError, Stri
 ///
 /// Must match the workspace `soroban-sdk` pin. On an older version every call fails with
 /// `Error(Context, InternalError)`, "ledger protocol version too old for host".
-pub const LEDGER_PROTOCOL_VERSION: u32 = 27;
+pub const LEDGER_PROTOCOL_VERSION: u32 = 28;
 
 #[allow(dead_code)]
 #[contracttype]

@@ -65,7 +65,9 @@ use common::types::{
 
 use pool_interface::LiquidityPoolInterface;
 
-use soroban_sdk::{contract, contractimpl, contractmeta, Address, Bytes, BytesN, Env, Vec};
+use soroban_sdk::{
+    contract, contractimpl, contractmeta, Address, Bytes, BytesN, ContractExecutable, Env, Vec,
+};
 
 use stellar_access::ownable;
 use stellar_macros::only_owner;
@@ -119,7 +121,8 @@ impl LiquidityPoolInterface for LiquidityPool {
     #[only_owner]
     fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
         renew_instance(&env);
-        env.deployer().update_current_contract_wasm(new_wasm_hash);
+        env.deployer()
+            .update_current_contract(ContractExecutable::Wasm(new_wasm_hash));
     }
 
     /// Accrues, mints scaled supply shares and credits cash per entry. The
