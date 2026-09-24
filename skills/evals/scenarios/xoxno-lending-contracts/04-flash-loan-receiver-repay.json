@@ -4,17 +4,17 @@
   ],
   "query": "Write me a Soroban contract that borrows USDC from XOXNO with a flash loan, runs my arb, and pays the loan back.",
   "expected_behavior": [
-    "Implements `execute_flash_loan(env, initiator: Address, asset: Address, amount: i128, fee: i128, pool: Address, data: Bytes)` with exactly that callback signature, on a deployed Wasm contract (not a G-address)",
-    "Repays by `token::Client::approve(&self, &pool, &(amount + fee), &expiration)` during the callback so the pool can `transfer_from`; never pushes tokens back with `transfer` (the pool's balance bracket check reverts with `InvalidFlashloanRepay`)",
+    "Implements `execute_flash_loan(env, initiator: Address, asset: Address, amount: i128, fee: i128, pool: Address, data: Bytes)` with exactly that callback signature (the `xoxno_contract_sdk::lending::FlashLoanReceiver` trait fixes it), on a deployed Wasm contract (not a G-address)",
+    "Repays by approving the pool as spender of `amount + fee` during the callback, with `lending::helpers::approve_flash_repayment(&env, &asset, &pool, total)` or an equivalent `token::Client::approve(&self, &pool, &total, &expiration)`, so the pool can `transfer_from`; never pushes tokens back with `transfer` (the pool's balance bracket check reverts with `InvalidFlashloanRepay`)",
     "Approves `amount + fee` using the `fee` argument from the callback (checked add), not `amount` alone and not a hardcoded fee rate",
-    "Calls `env.authorize_as_current_contract` with an `InvokerContractAuthEntry` for `approve(self, pool, total, expiration)` immediately before the `approve` call, with a short expiration ledger",
+    "Uses a short-lived allowance: expiration at most the next ledger, as `approve_flash_repayment` sets it. Direct invoker auth covers the receiver's own `approve`; an extra `authorize_as_current_contract` entry for it is optional, and the answer does not ask a user or the pool to sign it",
     "Gates the callback to the trusted pool/controller address (stored via constructor or config) before acting on `data`; treats `data` as untrusted and decodes it with `FromXdr` handling the error",
     "Initiates the loan through the controller's `flash_loan(caller, asset: HubAssetKey, amount, receiver, data)`, not the pool's controller-only `flash_loan`",
     "Takes the controller/pool address as a constructor or config parameter and points to `xoxno-lending/addresses.md` / `configs/networks.json`; does not hardcode a contract id in the receiver",
     "Does not call `supply`, `borrow`, `withdraw`, `repay`, `liquidate`, or another flash entrypoint from inside the callback: the Soroban host rejects the controller re-entry with `Error(Context, InvalidAction)`, and the controller flash guard (`FlashLoanOngoing` #400) is a second layer"
   ],
   "machine_checkable": [
-    "Generated Rust compiles with `cargo build --target wasm32v1-none` in the eval crate pinned to `soroban-sdk =27.0.6` with `controller-interface` and `common` path deps",
-    "Source contains `symbol_short!(\"approve\")` or `Symbol::new(&env, \"approve\")` inside an `InvokerContractAuthEntry` and contains no `.transfer(` call targeting `pool` inside `execute_flash_loan`"
+    "Generated Rust builds with `stellar contract build` against `soroban-sdk = \"28\"` and `xoxno-contract-sdk = \"0.1\"` in the eval crate",
+    "Inside `execute_flash_loan`, the source calls `approve_flash_repayment(` or `.approve(` with the pool as spender, and contains no `.transfer(` call targeting `pool`"
   ]
 }

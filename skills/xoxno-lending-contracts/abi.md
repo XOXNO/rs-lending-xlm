@@ -5,6 +5,9 @@ error catalogue.
 
 ## Canonical owners
 
+- Integrator clients and types: the `xoxno_contract_sdk::lending` modules,
+  generated from the WASM the crate embeds (see
+  [SKILL.md](SKILL.md#dependencies))
 - Controller signatures:
   [`interfaces/controller/src/lib.rs`](../../interfaces/controller/src/lib.rs)
 - Controller admin signatures:
@@ -16,9 +19,9 @@ error catalogue.
 - Canonical error names, namespaces, causes, and remedies:
   [`docs/reference/errors.md`](../../docs/reference/errors.md)
 
-Generated clients pass arguments by reference. Pin interface crates and
-`soroban-sdk` together as described in [SKILL.md](SKILL.md#dependencies);
-duplicating a `#[contracttype]` locally is unnecessary and can drift.
+Generated clients pass arguments by reference. Use the crate's types as
+described in [SKILL.md](SKILL.md#dependencies); duplicating a
+`#[contracttype]` locally is unnecessary and can drift.
 
 ## Integration interpretation
 

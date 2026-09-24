@@ -6,13 +6,13 @@
   "expected_behavior": [
     "States that `multiply(..., swap: Bytes, ...)`, `swap_collateral`, `swap_debt`, and `repay_debt_with_collateral` take aggregator router payload bytes that must be produced off-chain (arb-algo quote `routeXdr`, quoted with `slippage` and WITHOUT `sender`, base64-decoded) and passed into the contract entrypoint as an argument; does not hand-build the bytes on-chain, pass `Bytes::new(&env)` for a cross-token swap (`InvalidPayments`), or call the router's `execute_strategy` itself to fake a strategy",
     "Passes an empty `Bytes` only when `token_in == token_out` (same-market netting), where a non-empty payload reverts `InvalidPayments`",
-    "Uses `PositionMode::Multiply` from `common::types` for the open leg and the stored account id with the account's own `spoke_id` (>= 1), and pre-authorizes `transfer(self, controller, amount)` immediately before `multiply` only when `initial_payment` is `Some` (the controller receives the payment, then supplies)",
-    "Sequences the unwind as: controller reads (`is_liquidatable` / `get_health_factor`) first, then `repay_debt_with_collateral(self, account_id, collateral, collateral_amount, debt, swap, close_position)`; no controller read sits between any `authorize_as_current_contract` call and the mutating call it authorizes",
+    "Uses `PositionMode::Multiply` from `xoxno_contract_sdk::lending::controller` for the open leg and the stored account id with the account's own `spoke_id` (>= 1), and calls `authorize_transfer_as_current(&env, &asset, &self, &controller, amount)` immediately before `multiply` only when `initial_payment` is `Some` (the controller receives the payment, then supplies)",
+    "Sequences the unwind as: controller reads (`is_liquidatable` / `get_health_factor`) first, then `repay_debt_with_collateral(self, account_id, collateral, collateral_amount, debt, swap, close_position)`; no controller read sits between any `authorize_transfer_as_current` or `authorize_as_current_contract` call and the mutating call it authorizes",
     "Does not call any controller verb from inside a flash-loan or strategy callback: the Soroban host rejects the re-entry with `Error(Context, InvalidAction)`; notes the controller flash guard (`FlashLoanOngoing` #400) is a second layer that also blocks the strategy verbs",
     "Links `xoxno-swap-aggregator/composition.md` / `payload.md` for the quote request and links `xoxno-lending/addresses.md` (from `configs/networks.json`) instead of hardcoding controller or router ids"
   ],
   "machine_checkable": [
-    "Generated Rust compiles with `cargo build --target wasm32v1-none` in the eval crate pinned to `soroban-sdk =27.0.6` with `controller-interface` and `common` path deps",
+    "Generated Rust builds with `stellar contract build` against `soroban-sdk = \"28\"` and `xoxno-contract-sdk = \"0.1\"` in the eval crate",
     "The `multiply` call site's `swap` argument is a function parameter of type `Bytes`, not a `Bytes::new(` literal or a locally constructed payload",
     "Source references `PositionMode::Multiply` and contains no `execute_strategy(` call"
   ]

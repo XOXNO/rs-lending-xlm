@@ -4,13 +4,13 @@
   ],
   "query": "My Soroban vault contract calls the XOXNO controller. Simulation of my deposit function passes on its own path but the supply call fails with 'Unauthorized function call for contract' on the token transfer. I already call authorize_as_current_contract. Why?",
   "expected_behavior": [
-    "Explains that authorize_as_current_contract covers only the next outbound contract call, so any cross-contract call placed between it and supply (typically a controller view read such as get_spoke / get_spoke_asset or a token balance read) consumes or invalidates the transfer authorization",
-    "Tells the user to move every read before authorize_as_current_contract and call the controller's supply / repay immediately after it, and shows the corrected ordering in soroban-sdk 27.0.6 Rust with the authorized sub-invocation being token.transfer(vault -> pool, amount)",
+    "Explains that authorize_as_current_contract (which `xoxno_contract_sdk::lending::helpers::authorize_transfer_as_current` calls) covers only the next outbound contract call, so any cross-contract call placed between it and supply (typically a controller view read such as get_spoke / get_spoke_asset or a token balance read) consumes or invalidates the transfer authorization",
+    "Tells the user to move every read before the authorization and call the controller's supply / repay immediately after it, and shows the corrected ordering in soroban-sdk 28 Rust with `authorize_transfer_as_current(&env, &token, &vault, &pool, amount)` (or `authorize_as_current_contract`) for the sub-invocation token.transfer(vault -> pool, amount), or with `XoxnoLending::deposit` / `supply` / `repay`, which create it after their own reads",
     "Points out that require_auth on the vault's own address passes automatically as direct invoker; only the nested token movement needs pre-authorization, and withdraw / borrow need none",
     "Suggests reproducing in the repo harness (make test-match PATTERN=...) or against the testnet controller from configs/networks.json rather than only reasoning, and links addresses to ../xoxno-lending/addresses.md instead of hardcoding them"
   ],
   "machine_checkable": [
-    "Any Rust snippet places authorize_as_current_contract as the last statement before the controller supply/repay call with no intervening cross-contract call",
-    "Rust snippet compiles against soroban-sdk =27.0.6 given the named imports"
+    "Any Rust snippet places `authorize_transfer_as_current` or `authorize_as_current_contract` as the last statement before the controller supply/repay call with no intervening cross-contract call",
+    "Rust snippet builds with `stellar contract build` against `soroban-sdk = \"28\"` and `xoxno-contract-sdk = \"0.1\"` given the named imports"
   ]
 }

@@ -4,6 +4,11 @@ Use `flash_loan` for temporary cash repaid through a pool allowance. Use
 `flash_position` to mint debt onto an account and return declared collateral
 to the controller.
 
+Implement the callback traits from `xoxno_contract_sdk::lending`:
+`FlashLoanReceiver` and `FlashPositionReceiver`. Each trait fixes the callback
+name and arity, and `#[contractimpl] impl FlashLoanReceiver for MyContract`
+exports the callback.
+
 Authoritative sources:
 
 - cash settlement:
@@ -15,16 +20,16 @@ Authoritative sources:
   and
   [`mock/flash-position-receiver/src/lib.rs`](../../mock/flash-position-receiver/src/lib.rs)
 
-The mocks are test fixtures, not deployable production receivers. Reuse their
-exact callback arity and token auth shape, while adding trusted-invoker gates,
-instance TTL renewal, payload validation, and application-specific checks.
+The mocks are test fixtures, not deployable production receivers. A
+production receiver adds trusted-invoker gates, instance TTL renewal, payload
+validation, and application-specific checks.
 
 ## Cash flash loan
 
 The pool transfers `amount`, invokes:
 
 ```rust
-pub fn execute_flash_loan(
+fn execute_flash_loan(
     env: Env,
     initiator: Address,
     asset: Address,
@@ -47,37 +52,47 @@ balance or allowance check raises `InvalidFlashloanRepay`. Therefore:
 Focused production shape:
 
 ```rust
-use common::ttl::renew_instance;
-use soroban_sdk::{panic_with_error, Address, Bytes, Env};
+use soroban_sdk::{contract, contractimpl, panic_with_error, Address, Bytes, Env};
+use xoxno_contract_sdk::lending::helpers::approve_flash_repayment;
+use xoxno_contract_sdk::lending::FlashLoanReceiver;
 
-pub fn execute_flash_loan(
-    env: Env,
-    initiator: Address,
-    asset: Address,
-    amount: i128,
-    fee: i128,
-    pool: Address,
-    data: Bytes,
-) {
-    renew_instance(&env);
-    let cfg = config(&env);
-    cfg.pool.require_auth();
-    if pool != cfg.pool || initiator != cfg.operator {
-        panic_with_error!(&env, ReceiverError::InvalidCaller);
+#[contract]
+pub struct Receiver;
+
+#[contractimpl]
+impl FlashLoanReceiver for Receiver {
+    fn execute_flash_loan(
+        env: Env,
+        initiator: Address,
+        asset: Address,
+        amount: i128,
+        fee: i128,
+        pool: Address,
+        data: Bytes,
+    ) {
+        env.storage()
+            .instance()
+            .extend_ttl(INSTANCE_TTL_THRESHOLD, INSTANCE_TTL_EXTEND_TO);
+        let cfg = config(&env);
+        cfg.pool.require_auth();
+        if pool != cfg.pool || initiator != cfg.operator {
+            panic_with_error!(&env, ReceiverError::InvalidCaller);
+        }
+        let plan = decode_and_validate(&env, &data);
+        execute_plan(&env, &plan, &asset, amount);
+        let total = amount
+            .checked_add(fee)
+            .unwrap_or_else(|| panic_with_error!(&env, ReceiverError::Overflow));
+        approve_flash_repayment(&env, &asset, &pool, total);
     }
-    let plan = decode_and_validate(&env, &data);
-    execute_plan(&env, &plan, &asset, amount);
-    let total = amount
-        .checked_add(fee)
-        .unwrap_or_else(|| panic_with_error!(&env, ReceiverError::Overflow));
-    approve_repayment(&env, &asset, &pool, total);
 }
 ```
 
-`approve_repayment` must self-authorize the exact token `approve` invocation;
-use the compiled implementation in
-[`mock/flash-loan-receiver`](../../mock/flash-loan-receiver/src/lib.rs).
-Balance and profit checks belong before approval.
+`approve_flash_repayment` approves the pool to pull `total` from the receiver,
+with an expiration at the next ledger. The receiver calls the token itself, so
+direct invoker auth covers the `approve`; it needs no extra auth entry.
+Balance and profit checks belong before approval. The TTL constants are in
+[SKILL.md](SKILL.md#storage-ttl).
 
 The initiator is never the receiver itself. The pool calls the receiver while
 the initiator is still on the call stack, and the host rejects a call into a
@@ -91,7 +106,7 @@ the loan from an account or from a separate contract, and store its address as
 mints debt, transfers the measured receipt to the receiver, and invokes:
 
 ```rust
-pub fn execute_flash_position(
+fn execute_flash_position(
     env: Env,
     initiator: Address,
     account_id: u64,
@@ -121,45 +136,46 @@ Refunding unused debt tokens does not repay the minted debt.
 Focused callback shape:
 
 ```rust
-use common::token::authorize_transfer_as_current;
-use common::ttl::renew_instance;
-use soroban_sdk::{panic_with_error, token, Address, Bytes, Env};
+use soroban_sdk::{contractimpl, panic_with_error, token, Address, Bytes, Env};
+use xoxno_contract_sdk::lending::FlashPositionReceiver;
 
-pub fn execute_flash_position(
-    env: Env,
-    initiator: Address,
-    account_id: u64,
-    asset: Address,
-    _amount: i128,
-    _fee: i128,
-    amount_received: i128,
-    controller: Address,
-    data: Bytes,
-) {
-    renew_instance(&env);
-    let cfg = config(&env);
-    cfg.controller.require_auth();
-    if controller != cfg.controller || initiator != cfg.operator {
-        panic_with_error!(&env, ReceiverError::InvalidCaller);
+#[contractimpl]
+impl FlashPositionReceiver for Receiver {
+    fn execute_flash_position(
+        env: Env,
+        initiator: Address,
+        account_id: u64,
+        asset: Address,
+        _amount: i128,
+        _fee: i128,
+        amount_received: i128,
+        controller: Address,
+        data: Bytes,
+    ) {
+        env.storage()
+            .instance()
+            .extend_ttl(INSTANCE_TTL_THRESHOLD, INSTANCE_TTL_EXTEND_TO);
+        let cfg = config(&env);
+        cfg.controller.require_auth();
+        if controller != cfg.controller || initiator != cfg.operator {
+            panic_with_error!(&env, ReceiverError::InvalidCaller);
+        }
+        validate_expected_account(&env, account_id);
+        let plan = decode_and_validate(&env, &data);
+        let collateral_out = swap_and_measure(&env, &asset, amount_received, &plan);
+        token::Client::new(&env, &plan.collateral).transfer(
+            &env.current_contract_address(),
+            &controller,
+            &collateral_out,
+        );
     }
-    validate_expected_account(&env, account_id);
-    let plan = decode_and_validate(&env, &data);
-    let collateral_out = swap_and_measure(&env, &asset, amount_received, &plan);
-    let me = env.current_contract_address();
-    authorize_transfer_as_current(
-        &env,
-        &plan.collateral,
-        &me,
-        &controller,
-        collateral_out,
-    );
-    token::Client::new(&env, &plan.collateral).transfer(
-        &me,
-        &controller,
-        &collateral_out,
-    );
 }
 ```
+
+Send the collateral with a plain token `transfer` from the receiver. The
+receiver calls the token itself, so direct invoker auth covers it. Use
+`authorize_transfer_as_current` only for a pull that another contract makes
+inside your next call, such as a controller `supply`.
 
 The initiator is an account or a separate contract, as for flash loans. A
 contract initiator calls the resolve helper before `flash_position` and the

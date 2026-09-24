@@ -4,15 +4,15 @@
   ],
   "query": "Write a Soroban vault contract that takes XLM deposits and supplies them into XOXNO lending. It should check whether it already has a lending account first.",
   "expected_behavior": [
-    "Depends on controller-interface and common from the rs-lending-xlm git repo pinned to a tag, with soroban-sdk =27.0.6 matching that revision's workspace; uses ControllerClient from controller_interface",
-    "Takes the controller Address as a constructor parameter and resolves the pool via get_pool_address(); never hardcodes a controller or pool address (addresses come from configs/networks.json via xoxno-lending/addresses.md)",
-    "Calls env.authorize_as_current_contract with exactly transfer(vault, pool, amount) on the hub asset contract immediately before client.supply; the account_exists (or any other controller) read happens BEFORE the authorize call, never between authorize and supply",
+    "Depends on `xoxno-contract-sdk = \"0.1\"` from crates.io with `soroban-sdk = \"28\"`, the version the crate uses; uses `xoxno_contract_sdk::lending::ControllerClient` or the `XoxnoLending` wrapper, with `lending::controller::HubAssetKey`; does not depend on the rs-lending-xlm `controller-interface` or `common` crates",
+    "Takes the controller (and position NFT) address, or a `LendingAddresses` value, as a constructor parameter and resolves the pool via get_pool_address() or checks a passed pool against it; never hardcodes a controller or pool address and never builds the wrapper with `XoxnoLending::mainnet`/`testnet` or `LendingAddresses::mainnet`/`testnet`, which compile the crate's address constants into the Wasm (addresses come from configs/networks.json via xoxno-lending/addresses.md)",
+    "Creates the nested transfer(vault, pool, amount) authorization on the hub asset contract immediately before the supply: either through `XoxnoLending::open_account`/`deposit`/`supply`, which create it, or with `lending::helpers::authorize_transfer_as_current(&env, &asset, &vault, &pool, amount)` immediately before `client.supply`; the account_exists (or any other controller) read happens BEFORE the authorization or the wrapper call, never between the authorization and supply",
     "Passes account_id 0 on first supply to create the account and a spoke_id >= 1 (never 0, which reverts SpokeNotFound #300); stores the returned u64 account id in persistent storage and extends its TTL on every use",
-    "Reconciles the stored id with account_exists(account_id) and clears it when the account is gone, instead of trusting the stored id blindly"
+    "Reconciles the stored id with account_exists(account_id) and clears it when the account is gone, instead of trusting the stored id blindly; `XoxnoLending::resolve_account` is acceptable only when the contract still extends the key and overwrites it with the returned id"
   ],
   "machine_checkable": [
-    "Generated crate passes cargo check --target wasm32v1-none with soroban-sdk =27.0.6 and controller-interface from the pinned tag",
-    "No literal C... contract address appears in the generated Rust source",
-    "In the generated source, no ControllerClient method call sits between authorize_as_current_contract and client.supply"
+    "Generated crate builds with `stellar contract build` against `soroban-sdk = \"28\"` and `xoxno-contract-sdk = \"0.1\"`",
+    "No literal C... contract address appears in the generated Rust source, and the source does not call `XoxnoLending::mainnet`, `XoxnoLending::testnet`, `LendingAddresses::mainnet`, or `LendingAddresses::testnet`",
+    "In the generated source, no ControllerClient method call sits between `authorize_transfer_as_current` (or `authorize_as_current_contract`) and `client.supply`; when the wrapper creates the authorization, the supply goes through `XoxnoLending::open_account`, `deposit`, or `supply`"
   ]
 }
