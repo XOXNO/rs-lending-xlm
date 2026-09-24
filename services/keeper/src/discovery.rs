@@ -16,7 +16,7 @@ use crate::keys::{
     PriceAggregatorInstanceKey, PriceAggregatorPersistentKey,
 };
 use crate::stellar::client::{
-    contract_id_from_strkey, hash32_from_hex, LedgerEntryQuery, RpcClient,
+    contract_id_from_strkey, hash32_from_hex, sc_address_from_strkey, LedgerEntryQuery, RpcClient,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -101,6 +101,10 @@ pub struct DiscoverySnapshot {
     /// back to a hex prefix.
     pub pool_id: Option<[u8; 32]>,
     pub position_nft_id: Option<[u8; 32]>,
+
+    /// Cursor the next per-user scan starts from once this snapshot is
+    /// committed with `commit_user_scan_cursor`. `None` when no user was scanned.
+    pub next_user_cursor: Option<u64>,
 }
 
 pub async fn snapshot(
@@ -293,20 +297,26 @@ pub async fn snapshot(
         }
     }
 
+    let shared_keys = controller_shared_keys(&controller_id, last_spoke_id, &assets, contracts)?;
+    for chunk in shared_keys.chunks(chunk_size) {
+        persistent_entries.extend(client.get_ledger_entries(chunk).await?);
+    }
+
     persistent_entries.extend(discover_role_keys(client, &controller_id, chunk_size).await?);
 
+    let mut next_user_cursor = None;
     if schedule.scan_users && max_account_id > 0 {
-        persistent_entries.extend(
-            discover_user_keys(
-                client,
-                &controller_id,
-                position_nft_id,
-                max_account_id,
-                schedule.max_accounts_scan,
-                chunk_size,
-            )
-            .await?,
-        );
+        let (rows, next) = discover_user_keys(
+            client,
+            &controller_id,
+            position_nft_id,
+            max_account_id,
+            schedule.max_accounts_scan,
+            chunk_size,
+        )
+        .await?;
+        persistent_entries.extend(rows);
+        next_user_cursor = Some(next);
     }
 
     let mut governance_instance: Option<LedgerEntryQuery> = None;
@@ -453,7 +463,49 @@ pub async fn snapshot(
         position_nft_id,
         wasm_code_entries,
         max_account_id,
+        next_user_cursor,
     })
+}
+
+/// Returns the controller shared rows keyed by a listing or an address:
+/// `SpokeAsset`, `SpokeUsage` and `SpokeFlagsEpoch` for every spoke in
+/// `1..=last_spoke_id` and every configured market, then `BlendPoolAllowed` and
+/// `PositionManager` for each configured address. Most spoke/market pairs are
+/// not listed; their rows read back `never_created` and plan nothing.
+fn controller_shared_keys(
+    controller_id: &[u8; 32],
+    last_spoke_id: u32,
+    assets: &[HubAssetKey],
+    contracts: &ContractsConfig,
+) -> Result<Vec<LedgerKey>> {
+    let mut keys = Vec::with_capacity(
+        (last_spoke_id as usize) * assets.len() * 3
+            + contracts.blend_pools.len()
+            + contracts.position_managers.len(),
+    );
+    for spoke in 1..=last_spoke_id {
+        for asset in assets {
+            for key in [
+                ControllerPersistentKey::SpokeAsset(spoke, *asset),
+                ControllerPersistentKey::SpokeUsage(spoke, *asset),
+                ControllerPersistentKey::SpokeFlagsEpoch(spoke, *asset),
+            ] {
+                keys.push(key.to_ledger_key(controller_id)?);
+            }
+        }
+    }
+    for pool in &contracts.blend_pools {
+        let pool = ScAddress::Contract(ContractId(Hash(contract_id_from_strkey(pool)?)));
+        keys.push(ControllerPersistentKey::BlendPoolAllowed(pool).to_ledger_key(controller_id)?);
+    }
+    for manager in &contracts.position_managers {
+        keys.push(
+            ControllerPersistentKey::PositionManager(sc_address_from_strkey(manager)?)
+                .to_ledger_key(controller_id)?,
+        );
+    }
+    dedup_keys(&mut keys);
+    Ok(keys)
 }
 
 /// Drops repeated keys, keeping first occurrences in order. Two configured
@@ -734,11 +786,37 @@ fn signers_needle() -> Option<ScVal> {
     Some(ScVal::Vec(Some(stellar_xdr::ScVec(vec))))
 }
 
-/// Rotating start of the per-user scan window, carried across ticks.
+/// Rotating start of the per-user scan window, carried across TTL ticks.
 ///
 /// A fixed `1..=max_accounts_scan` prefix would permanently exclude every
-/// account created past the cap, since account ids only ever increase.
+/// account created past the cap, since account ids only ever increase. Only a
+/// TTL tick moves it, through `commit_user_scan_cursor`.
 static USER_SCAN_CURSOR: AtomicU64 = AtomicU64::new(1);
+
+/// Returns the account ids one pass scans from the current cursor, and the
+/// cursor the next TTL pass starts from. `max_account_id` must be at least 1.
+fn plan_user_scan(max_account_id: u64, max_accounts_scan: u64) -> (Vec<u64>, u64) {
+    let window = max_accounts_scan.max(1).min(max_account_id);
+    let cursor = USER_SCAN_CURSOR.load(Ordering::Relaxed);
+    let start = if (1..=max_account_id).contains(&cursor) {
+        cursor
+    } else {
+        1
+    };
+    // Wrap so successive TTL ticks cover every id in ceil(max_account_id / window) rounds.
+    let ids: Vec<u64> = (0..window)
+        .map(|offset| (start - 1 + offset) % max_account_id + 1)
+        .collect();
+    let next = (start - 1 + window) % max_account_id + 1;
+    (ids, next)
+}
+
+/// Moves the per-user scan window forward to the one after `snap`.
+pub fn commit_user_scan_cursor(snap: &DiscoverySnapshot) {
+    if let Some(next) = snap.next_user_cursor {
+        USER_SCAN_CURSOR.store(next, Ordering::Relaxed);
+    }
+}
 
 async fn discover_user_keys(
     client: &RpcClient,
@@ -747,22 +825,10 @@ async fn discover_user_keys(
     max_account_id: u64,
     max_accounts_scan: u64,
     chunk_size: usize,
-) -> Result<Vec<LedgerEntryQuery>> {
-    let window = max_accounts_scan.max(1).min(max_account_id);
-    let start = {
-        let cursor = USER_SCAN_CURSOR.load(Ordering::Relaxed);
-        if cursor < 1 || cursor > max_account_id {
-            1
-        } else {
-            cursor
-        }
-    };
-    // Wrap so successive ticks cover every id in ceil(max_account_id / window) rounds.
-    let ids: Vec<u64> = (0..window)
-        .map(|offset| (start - 1 + offset) % max_account_id + 1)
-        .collect();
-    let next = (start - 1 + window) % max_account_id + 1;
-    USER_SCAN_CURSOR.store(next, Ordering::Relaxed);
+) -> Result<(Vec<LedgerEntryQuery>, u64)> {
+    let (ids, next) = plan_user_scan(max_account_id, max_accounts_scan);
+    let window = ids.len() as u64;
+    let start = ids.first().copied().unwrap_or(1);
 
     if max_account_id > window {
         info!(
@@ -771,7 +837,7 @@ async fn discover_user_keys(
             max_accounts_scan,
             scanned_from = start,
             next_tick_from = next,
-            "per-user scan window rotating; full coverage every {} ticks",
+            "per-user scan window rotating; full coverage every {} TTL ticks",
             max_account_id.div_ceil(window)
         );
     }
@@ -799,7 +865,7 @@ async fn discover_user_keys(
         per_user_entries = rows.len(),
         "per-user account keys discovered"
     );
-    Ok(rows)
+    Ok((rows, next))
 }
 
 fn extract_existing_roles(rows: &[LedgerEntryQuery]) -> Option<Vec<String>> {
@@ -1084,6 +1150,95 @@ mod tests {
     use super::*;
     use stellar_xdr::{ContractDataDurability, ScVec};
 
+    /// Boot priming and index ticks scan without moving the window, so the TTL
+    /// ticks, the only ones that plan extends, still visit every account.
+    /// Seven windows and six index ticks per TTL tick is the aliasing case: if
+    /// every pass advanced, each TTL tick would land on the same window.
+    #[test]
+    fn only_ttl_ticks_move_the_user_scan_window() {
+        const MAX_ACCOUNT_ID: u64 = 35;
+        const WINDOW: u64 = 5;
+        const INDEX_TICKS_PER_TTL_TICK: usize = 6;
+        const TTL_TICKS: usize = 7;
+
+        USER_SCAN_CURSOR.store(1, Ordering::Relaxed);
+        let mut covered = HashSet::new();
+
+        plan_user_scan(MAX_ACCOUNT_ID, WINDOW);
+        for _ in 0..TTL_TICKS {
+            for _ in 0..INDEX_TICKS_PER_TTL_TICK {
+                plan_user_scan(MAX_ACCOUNT_ID, WINDOW);
+            }
+            let (ids, next) = plan_user_scan(MAX_ACCOUNT_ID, WINDOW);
+            covered.extend(ids);
+            commit_user_scan_cursor(&DiscoverySnapshot {
+                next_user_cursor: Some(next),
+                ..Default::default()
+            });
+        }
+
+        let missing: Vec<u64> = (1..=MAX_ACCOUNT_ID)
+            .filter(|id| !covered.contains(id))
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "TTL ticks never scanned accounts {missing:?}"
+        );
+    }
+
+    /// Every spoke gets the three listing rows of every configured market, and
+    /// each configured Blend pool and position manager gets its row. A repeated
+    /// market or address adds no second key, since a footprint rejects one.
+    #[test]
+    fn controller_shared_keys_cover_every_spoke_listing_and_address() {
+        let controller = [1u8; 32];
+        let a = HubAssetKey {
+            hub_id: 1,
+            asset: [2u8; 32],
+        };
+        let b = HubAssetKey {
+            hub_id: 3,
+            asset: [4u8; 32],
+        };
+        let pool = "CAJJZSGMMM3PD7N33TAPHGBUGTB43OC73HVIK2L2G6BNGGGYOSSYBXBD";
+        let manager = "GAVWFZK5BGCGBWH4O2CXAHXVRIYVAMGCTZJ24IPLVNLT2WQ2LJBDEEBP";
+        let contracts = ContractsConfig {
+            controller: "CAUCMIN5KSXEVZ7NMXR3LZATGD5EFIEUI5XWTFLYRO2R5OTXI22WE5JX".into(),
+            pool_wasm_hash: "0".repeat(64),
+            flash_loan_receiver: None,
+            markets: Vec::new(),
+            market_assets: Vec::new(),
+            governance: None,
+            xoxno_oracle_adapter: None,
+            price_aggregator: None,
+            extra_instances: Vec::new(),
+            blend_pools: vec![pool.into(), pool.into()],
+            position_managers: vec![manager.into()],
+        };
+
+        let keys = controller_shared_keys(&controller, 2, &[a, b, a], &contracts).unwrap();
+
+        let mut expected = Vec::new();
+        for spoke in 1..=2 {
+            for asset in [a, b] {
+                expected.push(ControllerPersistentKey::SpokeAsset(spoke, asset));
+                expected.push(ControllerPersistentKey::SpokeUsage(spoke, asset));
+                expected.push(ControllerPersistentKey::SpokeFlagsEpoch(spoke, asset));
+            }
+        }
+        expected.push(ControllerPersistentKey::BlendPoolAllowed(
+            ScAddress::Contract(ContractId(Hash(contract_id_from_strkey(pool).unwrap()))),
+        ));
+        expected.push(ControllerPersistentKey::PositionManager(
+            sc_address_from_strkey(manager).unwrap(),
+        ));
+        let expected: Vec<LedgerKey> = expected
+            .iter()
+            .map(|k| k.to_ledger_key(&controller).unwrap())
+            .collect();
+        assert_eq!(keys, expected);
+    }
+
     /// Two extra instances deployed from one Wasm, or one sharing the pool's
     /// Wasm, must yield a single contract-code key so the TTL footprint never
     /// carries a duplicate.
@@ -1324,6 +1479,8 @@ mod tests {
             xoxno_oracle_adapter: None,
             price_aggregator: None,
             extra_instances: Vec::new(),
+            blend_pools: Vec::new(),
+            position_managers: Vec::new(),
         };
         let ids = ContractIds::resolve(&contracts).unwrap();
         assert!(ids.governance.is_some());
@@ -1344,6 +1501,8 @@ mod tests {
             xoxno_oracle_adapter: None,
             price_aggregator: None,
             extra_instances: Vec::new(),
+            blend_pools: Vec::new(),
+            position_managers: Vec::new(),
         };
         let ids = ContractIds::resolve(&contracts).unwrap();
         assert!(ids.governance.is_none());

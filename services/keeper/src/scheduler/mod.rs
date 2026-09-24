@@ -11,12 +11,12 @@ use tracing::{error, info, warn};
 
 use crate::classify::{classify_persistent, contract_label, KeyClass};
 use crate::config::KeeperConfig;
-use crate::discovery::{snapshot, ContractIds};
+use crate::discovery::{commit_user_scan_cursor, snapshot, ContractIds};
 use crate::metrics::Metrics;
 use crate::signer::Ed25519Signer;
 use crate::stellar::client::RpcClient;
 use crate::stellar::tx::{
-    simulate_job, submit_with_sim, SimReport, SubmitOutcome, TxContext, TxJob,
+    simulate_job, submit_with_sim, SimReport, SubmitOutcome, TxContext, TxJob, TxKind,
 };
 
 use self::budget::TickBudget;
@@ -142,6 +142,7 @@ async fn run_ttl_tick(
     let safety = cfg.safety_margin_ledgers();
     let restore_jobs = plan_restores(&snap, safety)?;
     let extend_jobs = plan_extends(&snap, safety)?;
+    commit_user_scan_cursor(&snap);
 
     let restored = restored_keys(&restore_jobs);
     metrics.entries_archived.set(restored.len() as i64);
@@ -262,11 +263,8 @@ async fn prime_storage_metrics(
 ///
 /// `never_created` in bulk is what a wrong key encoding looks like. `expired` is
 /// what `keeper_entries_archived` counts: the RPC returns the entry, its TTL has
-/// lapsed, and the keeper restores it.
-///
-/// `archived` needs a TTL without a value, and `RpcClient::get_ledger_entries`
-/// never builds such a row. The RPC returns an archived or evicted entry with its
-/// value and a live-until of 0, so it reads as `expired` and the keeper restores it.
+/// lapsed, and the keeper restores it. The RPC returns an archived or evicted
+/// entry with its value and a live-until of 0, so it also reads as `expired`.
 fn entry_state(
     row: &crate::stellar::client::LedgerEntryQuery,
     current_ledger: u32,
@@ -274,8 +272,7 @@ fn entry_state(
     match (row.value.is_some(), row.live_until_ledger) {
         (true, Some(live_until)) if live_until < current_ledger => "expired",
         (true, _) => "live",
-        (false, Some(_)) => "archived",
-        (false, None) => "never_created",
+        (false, _) => "never_created",
     }
 }
 
@@ -395,10 +392,7 @@ async fn drive_jobs(
                         .tx_total
                         .with_label_values(&[kind.as_str(), "dry_run_ok"])
                         .inc();
-                    metrics
-                        .sim_resource_fee_stroops
-                        .with_label_values(&[kind.as_str()])
-                        .set(resource_fee as f64);
+                    record_sim_fee(metrics, kind, resource_fee);
                 }
                 Ok(SimReport::Rejected(reason)) => {
                     warn!(
@@ -418,43 +412,57 @@ async fn drive_jobs(
             }
             continue;
         }
-        match submit_with_sim(ctx, job).await {
-            Ok(SubmitOutcome::Success(_)) => {
-                metrics
-                    .tx_total
-                    .with_label_values(&[kind.as_str(), "success"])
-                    .inc();
-            }
-            Ok(SubmitOutcome::SkippedSimError(reason)) => {
-                metrics
-                    .sim_failures
-                    .with_label_values(&[kind.as_str(), classify_reason(&reason)])
-                    .inc();
-            }
-            Ok(SubmitOutcome::Retriable(reason)) => {
-                warn!(target: "keeper.scheduler", kind = kind.as_str(), %reason, "retriable failure");
-                metrics
-                    .tx_total
-                    .with_label_values(&[kind.as_str(), "retriable"])
-                    .inc();
-            }
-            Ok(SubmitOutcome::Failed(reason)) => {
-                error!(target: "keeper.scheduler", kind = kind.as_str(), %reason, "tx failed");
-                metrics
-                    .tx_total
-                    .with_label_values(&[kind.as_str(), "failed"])
-                    .inc();
-            }
-            Err(e) => {
-                error!(target: "keeper.scheduler", kind = kind.as_str(), error = ?e, "submitter pipeline error");
-                metrics
-                    .tx_total
-                    .with_label_values(&[kind.as_str(), "error"])
-                    .inc();
-            }
-        }
+        record_submit_outcome(metrics, kind, submit_with_sim(ctx, job).await);
     }
     Ok(())
+}
+
+fn record_submit_outcome(metrics: &Metrics, kind: TxKind, outcome: Result<SubmitOutcome>) {
+    match outcome {
+        Ok(SubmitOutcome::Success {
+            sim_resource_fee, ..
+        }) => {
+            record_sim_fee(metrics, kind, sim_resource_fee);
+            metrics
+                .tx_total
+                .with_label_values(&[kind.as_str(), "success"])
+                .inc();
+        }
+        Ok(SubmitOutcome::SkippedSimError(reason)) => {
+            metrics
+                .sim_failures
+                .with_label_values(&[kind.as_str(), classify_reason(&reason)])
+                .inc();
+        }
+        Ok(SubmitOutcome::Retriable(reason)) => {
+            warn!(target: "keeper.scheduler", kind = kind.as_str(), %reason, "retriable failure");
+            metrics
+                .tx_total
+                .with_label_values(&[kind.as_str(), "retriable"])
+                .inc();
+        }
+        Ok(SubmitOutcome::Failed(reason)) => {
+            error!(target: "keeper.scheduler", kind = kind.as_str(), %reason, "tx failed");
+            metrics
+                .tx_total
+                .with_label_values(&[kind.as_str(), "failed"])
+                .inc();
+        }
+        Err(e) => {
+            error!(target: "keeper.scheduler", kind = kind.as_str(), error = ?e, "submitter pipeline error");
+            metrics
+                .tx_total
+                .with_label_values(&[kind.as_str(), "error"])
+                .inc();
+        }
+    }
+}
+
+fn record_sim_fee(metrics: &Metrics, kind: TxKind, resource_fee: i64) {
+    metrics
+        .sim_resource_fee_stroops
+        .with_label_values(&[kind.as_str()])
+        .set(resource_fee as f64);
 }
 
 fn classify_reason(msg: &str) -> &'static str {
@@ -472,11 +480,14 @@ fn classify_reason(msg: &str) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::{entry_state, record_snapshot_metrics};
+    use super::{entry_state, record_snapshot_metrics, record_submit_outcome};
     use crate::discovery::{ContractIds, DiscoverySnapshot};
     use crate::metrics::Metrics;
+    use crate::policy::{classify, Decision};
     use crate::stellar::client::LedgerEntryQuery;
+    use crate::stellar::tx::{SubmitOutcome, TxKind};
     use std::time::{SystemTime, UNIX_EPOCH};
+    use stellar_rpc_client::{GetTransactionEvents, GetTransactionResponse};
     use stellar_xdr::{ContractDataDurability, LedgerEntryData, LedgerKey, ScAddress, ScVal};
 
     const NOW: u32 = 1_000;
@@ -505,13 +516,45 @@ mod tests {
         }
     }
 
-    /// Live, expired, archived and never-created rows map to four distinct states.
+    /// The RPC returns an archived or evicted entry with its value and a
+    /// live-until of 0, so it reads as `expired` and is restored.
     #[test]
-    fn entry_states_separate_the_four_cases() {
+    fn entry_states_cover_every_row_the_rpc_returns() {
         assert_eq!(entry_state(&row(true, Some(NOW + 500)), NOW), "live");
         assert_eq!(entry_state(&row(true, Some(NOW - 1)), NOW), "expired");
-        assert_eq!(entry_state(&row(false, Some(NOW + 500)), NOW), "archived");
+        assert_eq!(entry_state(&row(true, Some(0)), NOW), "expired");
+        assert_eq!(classify(Some(0), true, NOW, 100), Decision::Restore);
         assert_eq!(entry_state(&row(false, None), NOW), "never_created");
+        assert_eq!(
+            entry_state(&row(false, Some(NOW + 500)), NOW),
+            "never_created"
+        );
+    }
+
+    /// Every `state` an alert or dashboard panel selects is one `entry_state`
+    /// can return, so no rule watches a series that never exists.
+    #[test]
+    fn alerts_and_panels_select_only_produced_states() {
+        let produced = ["live", "expired", "never_created"];
+        for (name, text) in [
+            ("ops/alerts.yml", include_str!("../../ops/alerts.yml")),
+            (
+                "ops/grafana-dashboard.json",
+                include_str!("../../ops/grafana-dashboard.json"),
+            ),
+        ] {
+            for selector in text.split("state=").skip(1) {
+                let value: String = selector
+                    .trim_start_matches(['\\', '"'])
+                    .chars()
+                    .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+                    .collect();
+                assert!(
+                    produced.contains(&value.as_str()),
+                    "{name} selects state {value:?}, which entry_state never returns"
+                );
+            }
+        }
     }
 
     /// An entry whose TTL lapses exactly at the current ledger is still live —
@@ -519,6 +562,51 @@ mod tests {
     #[test]
     fn ttl_expiring_at_the_current_ledger_is_still_live() {
         assert_eq!(entry_state(&row(true, Some(NOW)), NOW), "live");
+    }
+
+    /// A submitting keeper publishes the fee its own simulation returned, as a
+    /// dry-run keeper does.
+    #[test]
+    fn a_submitted_job_publishes_its_simulated_resource_fee() {
+        let metrics = Metrics::new("testnet").expect("metrics registry");
+        let resp = GetTransactionResponse {
+            status: "SUCCESS".into(),
+            ledger: Some(1),
+            application_order: None,
+            fee_bump: None,
+            tx_hash: None,
+            created_at: None,
+            envelope: None,
+            result: None,
+            result_meta: None,
+            events: GetTransactionEvents {
+                contract_events: Vec::new(),
+                diagnostic_events: Vec::new(),
+                transaction_events: Vec::new(),
+            },
+        };
+
+        record_submit_outcome(
+            &metrics,
+            TxKind::ExtendFootprintTtl,
+            Ok(SubmitOutcome::Success {
+                resp: Box::new(resp),
+                sim_resource_fee: 12_345,
+            }),
+        );
+
+        let kind = TxKind::ExtendFootprintTtl.as_str();
+        assert_eq!(
+            metrics
+                .sim_resource_fee_stroops
+                .with_label_values(&[kind])
+                .get(),
+            12_345.0
+        );
+        assert_eq!(
+            metrics.tx_total.with_label_values(&[kind, "success"]).get(),
+            1
+        );
     }
 
     fn empty_snapshot(current_ledger: u32) -> DiscoverySnapshot {
@@ -531,6 +619,7 @@ mod tests {
             max_account_id: 0,
             pool_id: None,
             position_nft_id: None,
+            next_user_cursor: None,
         }
     }
 

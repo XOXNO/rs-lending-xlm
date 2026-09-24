@@ -4,10 +4,16 @@ use stellar_xdr::{
     ScMapEntry, ScSymbol, ScVal, ScVec, StringM, VecM,
 };
 
+/// Shared persistent keys of the controller (`common::types::ControllerKey`).
 #[derive(Debug, Clone)]
 pub enum ControllerPersistentKey {
     Hub(u32),
     Spoke(u32),
+    SpokeAsset(u32, HubAssetKey),
+    SpokeUsage(u32, HubAssetKey),
+    SpokeFlagsEpoch(u32, HubAssetKey),
+    PositionManager(ScAddress),
+    BlendPoolAllowed(ScAddress),
 }
 
 impl ControllerPersistentKey {
@@ -15,6 +21,24 @@ impl ControllerPersistentKey {
         Ok(match self {
             Self::Hub(id) => sc_enum("Hub", &[ScVal::U32(*id)])?,
             Self::Spoke(id) => sc_enum("Spoke", &[ScVal::U32(*id)])?,
+            Self::SpokeAsset(spoke, hub_asset) => sc_enum(
+                "SpokeAsset",
+                &[ScVal::U32(*spoke), hub_asset_key_sc_val(hub_asset)?],
+            )?,
+            Self::SpokeUsage(spoke, hub_asset) => sc_enum(
+                "SpokeUsage",
+                &[ScVal::U32(*spoke), hub_asset_key_sc_val(hub_asset)?],
+            )?,
+            Self::SpokeFlagsEpoch(spoke, hub_asset) => sc_enum(
+                "SpokeFlagsEpoch",
+                &[ScVal::U32(*spoke), hub_asset_key_sc_val(hub_asset)?],
+            )?,
+            Self::PositionManager(manager) => {
+                sc_enum("PositionManager", &[ScVal::Address(manager.clone())])?
+            }
+            Self::BlendPoolAllowed(pool) => {
+                sc_enum("BlendPoolAllowed", &[ScVal::Address(pool.clone())])?
+            }
         })
     }
 
@@ -564,6 +588,69 @@ mod tests {
             "AAAAEAAAAAEAAAACAAAADwAAAAZPcmFjbGUAAAAAABAAAAABAAAAAgAAAA8AAAADUmVmAAAAAA8AAAADQlRDAA==",
             "Oracle(Ref) no longer matches the key the aggregator stores"
         );
+    }
+
+    /// Golden controller shared keys, encoded with `stellar xdr encode --type
+    /// LedgerKey` against the mainnet controller
+    /// (`CAUCMIN5KSXEVZ7NMXR3LZATGD5EFIEUI5XWTFLYRO2R5OTXI22WE5JX`). The
+    /// `SpokeAsset`, `SpokeUsage` and `BlendPoolAllowed` keys each returned a
+    /// live entry from mainnet `getLedgerEntries`.
+    #[test]
+    fn controller_shared_keys_match_the_encoding_proven_on_mainnet() {
+        use crate::stellar::client::{account_id_from_strkey, contract_id_from_strkey};
+        use stellar_xdr::{Limits, WriteXdr};
+
+        let controller =
+            contract_id_from_strkey("CAUCMIN5KSXEVZ7NMXR3LZATGD5EFIEUI5XWTFLYRO2R5OTXI22WE5JX")
+                .unwrap();
+        let xlm = HubAssetKey {
+            hub_id: 1,
+            asset: contract_id_from_strkey(
+                "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA",
+            )
+            .unwrap(),
+        };
+        let fixed_v2 = ScAddress::Contract(ContractId(Hash(
+            contract_id_from_strkey("CAJJZSGMMM3PD7N33TAPHGBUGTB43OC73HVIK2L2G6BNGGGYOSSYBXBD")
+                .unwrap(),
+        )));
+        let account = ScAddress::Account(
+            account_id_from_strkey("GAVWFZK5BGCGBWH4O2CXAHXVRIYVAMGCTZJ24IPLVNLT2WQ2LJBDEEBP")
+                .unwrap(),
+        );
+
+        let golden = [
+            (
+                ControllerPersistentKey::SpokeAsset(1, xlm),
+                "AAAABgAAAAEoJiG9VK5K5+1l47XkEzD6QqCUR29plXiLtR66d0a1YgAAABAAAAABAAAAAwAAAA8AAAAKU3Bva2VBc3NldAAAAAAAAwAAAAEAAAARAAAAAQAAAAIAAAAPAAAABWFzc2V0AAAAAAAAEgAAAAEltPzYWa7C+mNIQ4xImzw8EMmLbSG+T9PLMMtolT75dwAAAA8AAAAGaHViX2lkAAAAAAADAAAAAQAAAAE=",
+            ),
+            (
+                ControllerPersistentKey::SpokeUsage(1, xlm),
+                "AAAABgAAAAEoJiG9VK5K5+1l47XkEzD6QqCUR29plXiLtR66d0a1YgAAABAAAAABAAAAAwAAAA8AAAAKU3Bva2VVc2FnZQAAAAAAAwAAAAEAAAARAAAAAQAAAAIAAAAPAAAABWFzc2V0AAAAAAAAEgAAAAEltPzYWa7C+mNIQ4xImzw8EMmLbSG+T9PLMMtolT75dwAAAA8AAAAGaHViX2lkAAAAAAADAAAAAQAAAAE=",
+            ),
+            (
+                ControllerPersistentKey::SpokeFlagsEpoch(1, xlm),
+                "AAAABgAAAAEoJiG9VK5K5+1l47XkEzD6QqCUR29plXiLtR66d0a1YgAAABAAAAABAAAAAwAAAA8AAAAPU3Bva2VGbGFnc0Vwb2NoAAAAAAMAAAABAAAAEQAAAAEAAAACAAAADwAAAAVhc3NldAAAAAAAABIAAAABJbT82FmuwvpjSEOMSJs8PBDJi20hvk/TyzDLaJU++XcAAAAPAAAABmh1Yl9pZAAAAAAAAwAAAAEAAAAB",
+            ),
+            (
+                ControllerPersistentKey::BlendPoolAllowed(fixed_v2),
+                "AAAABgAAAAEoJiG9VK5K5+1l47XkEzD6QqCUR29plXiLtR66d0a1YgAAABAAAAABAAAAAgAAAA8AAAAQQmxlbmRQb29sQWxsb3dlZAAAABIAAAABEpzIzGM28f273MDzmDQ0w824X9nqhWl6N4LTGNh0pYAAAAAB",
+            ),
+            (
+                ControllerPersistentKey::PositionManager(account),
+                "AAAABgAAAAEoJiG9VK5K5+1l47XkEzD6QqCUR29plXiLtR66d0a1YgAAABAAAAABAAAAAgAAAA8AAAAPUG9zaXRpb25NYW5hZ2VyAAAAABIAAAAAAAAAACti5V0JhGDY/HaFcB71ijFQMMKeU64h66tXPVoaWkIyAAAAAQ==",
+            ),
+        ];
+        for (key, expected) in golden {
+            assert_eq!(
+                key.to_ledger_key(&controller)
+                    .unwrap()
+                    .to_xdr_base64(Limits::none())
+                    .unwrap(),
+                expected,
+                "{key:?} no longer matches the key the controller stores"
+            );
+        }
     }
 
     #[test]

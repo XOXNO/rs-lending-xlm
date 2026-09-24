@@ -76,7 +76,7 @@ async fn main() -> Result<()> {
     let mut failed = 0usize;
     for job in restores.into_iter().chain(extends) {
         match submit_with_sim(&ctx, job).await? {
-            SubmitOutcome::Success(resp) => {
+            SubmitOutcome::Success { resp, .. } => {
                 succeeded += 1;
                 println!("submitted (ledger {:?})", resp.ledger);
             }

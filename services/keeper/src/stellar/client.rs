@@ -4,8 +4,8 @@ use std::future::Future;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use stellar_rpc_client::{AuthMode, Client as InnerClient, SimulateTransactionResponse};
 use stellar_xdr::{
-    AccountId, LedgerEntryData, LedgerKey, MuxedAccount, PublicKey, ScContractInstance,
-    TransactionEnvelope, Uint256,
+    AccountId, ContractId, Hash, LedgerEntryData, LedgerKey, MuxedAccount, PublicKey, ScAddress,
+    ScContractInstance, TransactionEnvelope, Uint256,
 };
 use tracing::warn;
 
@@ -236,6 +236,17 @@ pub fn contract_id_from_strkey(c_strkey: &str) -> Result<[u8; 32]> {
     let c = stellar_strkey::Contract::from_string(c_strkey)
         .map_err(|e| anyhow!("invalid C... contract id {c_strkey}: {e}"))?;
     Ok(c.0)
+}
+
+/// Parses a `G...` account or a `C...` contract into a Soroban `Address`.
+pub fn sc_address_from_strkey(strkey: &str) -> Result<ScAddress> {
+    if strkey.starts_with('G') {
+        Ok(ScAddress::Account(account_id_from_strkey(strkey)?))
+    } else {
+        Ok(ScAddress::Contract(ContractId(Hash(
+            contract_id_from_strkey(strkey)?,
+        ))))
+    }
 }
 
 pub fn hash32_from_hex(hex_str: &str) -> Result<[u8; 32]> {

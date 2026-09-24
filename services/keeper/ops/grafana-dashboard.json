@@ -423,7 +423,7 @@
       "id": 3,
       "type": "table",
       "title": "Entries by state \u2014 a group that is entirely never_created can be a broken key",
-      "description": "Live, expired (TTL lapsed or archived, restorable) and never_created (the RPC returned no entry). The RPC returns an evicted entry with its value and live-until 0, so it reads as expired; the archived state is never reported. A group that is entirely never_created is a key nothing wrote yet or a wrong key encoding; every other metric reads 'nothing to do' in both cases. Any expired row is storage the keeper did not extend in time.",
+      "description": "Live, expired (TTL lapsed or archived, restorable) and never_created (the RPC returned no entry). The RPC returns an archived or evicted entry with its value and live-until 0, so it reads as expired. A group that is entirely never_created is a key nothing wrote yet or a wrong key encoding; every other metric reads 'nothing to do' in both cases. Any expired row is storage the keeper did not extend in time.",
       "datasource": {
         "type": "prometheus",
         "uid": "cfgw0aa7mups0d"
@@ -604,7 +604,7 @@
       "id": 5,
       "type": "timeseries",
       "title": "Simulated resource fee per job kind (rent cost)",
-      "description": "Resource fee, in stroops, that simulation returned for the last job of each kind. Measured from the network, not modelled from entry size. Only a dry-run keeper sets it; a submitting keeper leaves this panel empty.",
+      "description": "Resource fee, in stroops, that simulation returned for the last job of each kind. Measured from the network, not modelled from entry size, and before resource_fee_multiplier. A dry-run keeper sets it for every simulation that passes; a submitting keeper sets it for every transaction that succeeds.",
       "datasource": {
         "type": "prometheus",
         "uid": "cfgw0aa7mups0d"

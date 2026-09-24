@@ -24,15 +24,24 @@ Each TTL tick discovers:
 - Price-aggregator instance and WASM when `contracts.price_aggregator` is set.
 - Controller persistent `Hub(id)` rows for `1..=LastHubId` and `Spoke(id)` rows
   for `1..=LastSpokeId`.
+- Controller persistent `SpokeAsset(spoke, HubAssetKey)`,
+  `SpokeUsage(spoke, HubAssetKey)` and `SpokeFlagsEpoch(spoke, HubAssetKey)` rows
+  for every spoke in `1..=LastSpokeId` and every configured market. Pairs that
+  are not listed read back `never_created` and plan nothing.
+- Controller persistent `BlendPoolAllowed(pool)` rows for `contracts.blend_pools`
+  and `PositionManager(address)` rows for `contracts.position_managers`. The
+  contract keeps no index of either, so the lists are maintained by hand: add an
+  address when governance runs `approve_blend_pool` or `set_position_manager`.
 - Controller per-user persistent keys: `AccountMeta(id)`, `SupplyPositions(id)`,
   `BorrowPositions(id)`, `Delegates(id)`, plus the position-NFT `Owner(id)` key.
   Account ids are position-NFT token ids in `1..=max_account_id`, where
   `max_account_id` is one below the NFT's sequential counter. Each discovery
   pass (boot, TTL tick, index tick) scans a window of at most
-  `schedule.max_accounts_scan` ids (default 50,000). The window moves forward on
-  each pass and wraps, so a full cycle takes
-  `ceil(max_account_id / max_accounts_scan)` passes. Set `schedule.scan_users`
-  to `false` to turn the scan off.
+  `schedule.max_accounts_scan` ids (default 50,000). Only a TTL tick moves the
+  window forward, and it wraps, so a full cycle takes
+  `ceil(max_account_id / max_accounts_scan)` TTL ticks. The window starts again
+  at id 1 when the process restarts. Set `schedule.scan_users` to `false` to
+  turn the scan off.
 - Controller access-control persistent keys when present:
   `ExistingRoles`, `RoleAccountsCount`, `RoleAccounts`, `HasRole`, `RoleAdmin`.
 - Governance instance and governance role-holder keys when `contracts.governance`
@@ -68,6 +77,8 @@ contracts:
   markets:
     - hub_id: 1
       asset: C...
+  blend_pools: [C...]        # optional; approved Blend pools
+  position_managers: [G...]  # optional; G... or C... managers
 ```
 
 `contracts.market_assets` is a legacy shorthand. Each entry maps to
@@ -83,10 +94,13 @@ controller.update_indexes(caller, Vec<HubAssetKey>)
 ```
 
 The keeper signer is the transaction source and the `caller`. The controller
-calls `caller.require_auth()` and checks no role. When the loop is enabled, boot
-simulates `update_indexes` with an empty asset list and aborts if the simulation
-fails. `--skip-role-check` skips that simulation. The loop is disabled by
-default:
+calls `caller.require_auth()` and checks no role. The operation carries one
+`SorobanAuthorizationEntry` with source-account credentials whose root
+invocation is this same call, which satisfies that check. When the loop is
+enabled, boot simulates `update_indexes` with an empty asset list. If the
+simulation fails, boot logs the error at `error` on target `keeper.boot`, turns
+index refresh off and starts the TTL loop as usual. `--skip-role-check` skips
+that simulation. The loop is disabled by default:
 
 ```yaml
 schedule:
@@ -128,7 +142,8 @@ renew these entries.
 | Account state (`AccountMeta` / `SupplyPositions` / `BorrowPositions` / `Delegates`) | persistent | position-NFT counter scan | yes |
 | Account ownership (`Owner(token_id)` on the position NFT) | persistent | position-NFT counter scan | yes, in the `per_user` metrics group. OpenZeppelin extends it to 30 days and the controller extends account keys to 120 days, so it archives first if unrenewed |
 | Controller access-control keys | persistent | `ExistingRoles` | yes, when present |
-| Controller `SpokeAsset`, `SpokeUsage`, `SpokeFlagsEpoch`, `PositionManager`, `BlendPoolAllowed` | persistent | not discovered | no; renewed only when a contract call reads or writes them |
+| Controller `SpokeAsset` / `SpokeUsage` / `SpokeFlagsEpoch` | persistent | `1..=LastSpokeId` × configured markets | yes, in the `hub_spoke` metrics group |
+| Controller `BlendPoolAllowed` / `PositionManager` | persistent | `contracts.blend_pools` / `contracts.position_managers` | yes, when listed, in the `hub_spoke` metrics group |
 | Pool `Params/State(HubAssetKey)` | persistent | configured markets | yes |
 | Governance instance | instance | configured governance | yes |
 | Governance role keys | persistent | `ExistingRoles` | yes, when configured |
@@ -154,11 +169,11 @@ account ever opened; grouping holds the series count flat.
 | metric | labels | meaning |
 | --- | --- | --- |
 | `keeper_entry_ttl_ledgers_min` | contract, group | lowest remaining TTL in the group — the pacing item |
-| `keeper_entries` | contract, group, state | entry counts; `state` is `live`, `expired` (TTL lapsed, restorable) or `never_created` (the RPC returned no entry). The RPC returns an archived or evicted entry with its value and live-until 0, so it counts as `expired`; the `archived` state is never produced |
+| `keeper_entries` | contract, group, state | entry counts; `state` is `live`, `expired` (TTL lapsed, restorable) or `never_created` (the RPC returned no entry). The RPC returns an archived or evicted entry with its value and live-until 0, so it counts as `expired` and the keeper restores it |
 | `keeper_safety_margin_ledgers` | — | headroom below which the keeper extends |
 | `keeper_current_ledger` | — | ledger the last tick observed |
 | `keeper_last_tick_timestamp_seconds` | — | unix time of the last completed discovery pass — how stale everything above is |
-| `keeper_sim_resource_fee_stroops` | kind | resource fee of the last simulated job, in stroops; set only with `--dry-run` |
+| `keeper_sim_resource_fee_stroops` | kind | resource fee the simulation returned for the last job of this kind, in stroops, before `fees.resource_fee_multiplier`. A dry-run keeper sets it for every simulation that passes; a submitting keeper sets it for every transaction that succeeds |
 
 Divide a ledger count by `LEDGERS_PER_DAY` (17280) for days, or multiply by 5
 for seconds.
@@ -391,15 +406,13 @@ docker compose -f services/keeper/docker-compose.example.yaml up -d
 
 ## Open Items
 
-- `config/testnet.yaml` lists markets but no `price_aggregator`, so config
-  validation rejects it. The testnet Compose service fails at boot until the
-  file sets `contracts.price_aggregator`.
 - The per-user scan reads the position-NFT sequential counter, which counts ids
   ever minted, not live accounts. Burned ids are still scanned; their keys read
   back absent. Ids are never reused, so coverage is correct, but the scan cost
   grows with total accounts created rather than with accounts alive.
-- The controller's `update_indexes` calls `caller.require_auth()`, but the keeper
-  sends the operation with an empty auth list and does not copy auth entries
-  from simulation. The call needs a `SorobanAuthorizationEntry` with
-  source-account credentials, so with `enable_index_refresh: true` the boot
-  simulation fails with `Error(Auth, InvalidAction)` and the keeper exits.
+- The per-user scan window starts again at id 1 on every restart. Once
+  `max_account_id` exceeds `schedule.max_accounts_scan`, a keeper that restarts
+  more often than one full rotation keeps renewing the first windows only.
+- A failed index preflight turns index refresh off for the life of the process,
+  also when the cause was a transient RPC error. Only the `keeper.boot` error
+  log shows it; restart the keeper to retry.

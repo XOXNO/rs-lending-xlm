@@ -60,7 +60,7 @@ async fn main() -> Result<()> {
     };
 
     match submit_with_sim(&ctx, job).await? {
-        SubmitOutcome::Success(resp) => {
+        SubmitOutcome::Success { resp, .. } => {
             println!(
                 "SUCCESS — tx {:?} landed at ledger {:?}",
                 resp.tx_hash, resp.ledger
