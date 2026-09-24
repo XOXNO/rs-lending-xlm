@@ -9,7 +9,7 @@ deploy_protocol() {
         local hash txh
         hash=$(sanitize_output "$out_f")
         txh=$(extract_signing_hash "$err_f")
-        is_wasm_hash "$hash" || die upload_pool_wasm "pool wasm upload produced no hash after $DEPLOY_MAX_ATTEMPTS attempts: $(tail_err_note "$err_f")"
+        is_wasm_hash "$hash" || die upload_pool_wasm "pool wasm upload produced no hash after $DEPLOY_ATTEMPTS attempt(s): $(tail_err_note "$err_f")"
         save_state POOL_HASH "$hash"
         record upload_pool_wasm ok upload "$txh" "" "" "" "" "$hash"
     fi
@@ -22,7 +22,7 @@ deploy_protocol() {
         local hash txh
         hash=$(sanitize_output "$out_f")
         txh=$(extract_signing_hash "$err_f")
-        is_wasm_hash "$hash" || die upload_position_nft_wasm "position nft wasm upload produced no hash after $DEPLOY_MAX_ATTEMPTS attempts: $(tail_err_note "$err_f")"
+        is_wasm_hash "$hash" || die upload_position_nft_wasm "position nft wasm upload produced no hash after $DEPLOY_ATTEMPTS attempt(s): $(tail_err_note "$err_f")"
         save_state NFT_HASH "$hash"
         record upload_position_nft_wasm ok upload "$txh" "" "" "" "" "$hash"
     fi
@@ -51,7 +51,7 @@ deploy_protocol() {
         local ctrl txh
         ctrl=$(sanitize_output "$out_f")
         txh=$(extract_signing_hash "$err_f")
-        is_contract_id "$ctrl" || die deploy_controller "controller deploy produced no id after $DEPLOY_MAX_ATTEMPTS attempts: $(tail_err_note "$err_f")"
+        is_contract_id "$ctrl" || die deploy_controller "controller deploy produced no id after $DEPLOY_ATTEMPTS attempt(s): $(tail_err_note "$err_f")"
         save_state CONTROLLER "$ctrl"
         record deploy_controller ok deploy "$txh" "" "" "" "" "$ctrl"
         log "controller = $ctrl"
@@ -59,7 +59,7 @@ deploy_protocol() {
     if [ -z "${POOL:-}" ]; then
         local pool
         pool=$(inv deploy_pool "$ADMIN" "$CONTROLLER" -- deploy_pool --wasm_hash "$POOL_HASH" | tr -d '"\n')
-        is_contract_id "$pool" || die deploy_pool "central pool deploy produced no id after $INV_MAX_ATTEMPTS attempts"
+        is_contract_id "$pool" || die deploy_pool "central pool deploy produced no id"
         save_state POOL "$pool"
         log "central pool = $pool"
     fi
@@ -73,7 +73,7 @@ deploy_protocol() {
             --uri "https://api.xoxno.com/user/lending/image/" \
             --name "XOXNO Lending Position" \
             --symbol "XLEND" | tr -d '"\n')
-        is_contract_id "$nft" || die deploy_position_nft "position nft deploy produced no id after $INV_MAX_ATTEMPTS attempts"
+        is_contract_id "$nft" || die deploy_position_nft "position nft deploy produced no id"
         save_state POSITION_NFT "$nft"
         log "position nft = $nft"
     fi
@@ -90,7 +90,7 @@ deploy_protocol() {
         local pa txh
         pa=$(sanitize_output "$out_f")
         txh=$(extract_signing_hash "$err_f")
-        is_contract_id "$pa" || die deploy_price_aggregator "price-aggregator deploy produced no id after $DEPLOY_MAX_ATTEMPTS attempts: $(tail_err_note "$err_f")"
+        is_contract_id "$pa" || die deploy_price_aggregator "price-aggregator deploy produced no id after $DEPLOY_ATTEMPTS attempt(s): $(tail_err_note "$err_f")"
         save_state PRICE_AGGREGATOR "$pa"
         record deploy_price_aggregator ok deploy "$txh" "" "" "" "" "$pa"
         log "price-aggregator = $pa"
@@ -146,7 +146,7 @@ deploy_protocol() {
         local recv txh
         recv=$(sanitize_output "$out_f")
         txh=$(extract_signing_hash "$err_f")
-        is_contract_id "$recv" || die deploy_flash_receiver "flash receiver deploy produced no id after $DEPLOY_MAX_ATTEMPTS attempts: $(tail_err_note "$err_f")"
+        is_contract_id "$recv" || die deploy_flash_receiver "flash receiver deploy produced no id after $DEPLOY_ATTEMPTS attempt(s): $(tail_err_note "$err_f")"
         save_state FLASH_RECEIVER "$recv"
         record deploy_flash_receiver ok deploy "$txh" "" "" "" "" "$recv"
     fi
@@ -178,7 +178,7 @@ deploy_protocol() {
         local gov txh
         gov=$(sanitize_output "$out_f")
         txh=$(extract_signing_hash "$err_f")
-        is_contract_id "$gov" || die deploy_governance "governance deploy produced no id after $DEPLOY_MAX_ATTEMPTS attempts: $(tail_err_note "$err_f")"
+        is_contract_id "$gov" || die deploy_governance "governance deploy produced no id after $DEPLOY_ATTEMPTS attempt(s): $(tail_err_note "$err_f")"
         save_state GOVERNANCE "$gov"
         record deploy_governance ok deploy "$txh" "" "" "" "" "$gov"
         log "governance = $gov"
@@ -191,7 +191,7 @@ deploy_protocol() {
         local chash txh
         chash=$(sanitize_output "$out_f")
         txh=$(extract_signing_hash "$err_f")
-        is_wasm_hash "$chash" || die upload_controller_wasm "controller wasm upload produced no hash after $DEPLOY_MAX_ATTEMPTS attempts: $(tail_err_note "$err_f")"
+        is_wasm_hash "$chash" || die upload_controller_wasm "controller wasm upload produced no hash after $DEPLOY_ATTEMPTS attempt(s): $(tail_err_note "$err_f")"
         save_state CTRL_HASH "$chash"
         record upload_controller_wasm ok upload "$txh" "" "" "" "" "$chash"
     fi
@@ -200,7 +200,7 @@ deploy_protocol() {
         local gc
         gc=$(inv deploy_controller "$ADMIN" "$GOVERNANCE" -- deploy_controller \
             --wasm_hash "$CTRL_HASH" | tr -d '"\n')
-        is_contract_id "$gc" || die deploy_gov_controller "governance-owned controller deploy produced no id after $INV_MAX_ATTEMPTS attempts"
+        is_contract_id "$gc" || die deploy_gov_controller "governance-owned controller deploy produced no id"
         save_state GOV_CONTROLLER "$gc"
         log "governance-owned controller = $gc"
     fi

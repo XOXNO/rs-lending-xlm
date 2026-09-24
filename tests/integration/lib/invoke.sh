@@ -1,4 +1,4 @@
-RPC_TRANSIENT_RE='rejected .?50[0-9]|status_code: 50[0-9]|No status yet|Transport\(Rejected|error sending request|SendRequest|client error|timed out|timeout|connection (reset|refused|closed)|tcp connect error|temporarily unavailable|TxBadSeq|tx_bad_seq|not present in the snapshot'
+RPC_TRANSIENT_RE='rejected .?50[0-9]|status_code: 50[0-9]|No status yet|Transport\(Rejected|error sending request|SendRequest|client error|timed out|timeout|connection (reset|refused|closed)|tcp connect error|temporarily unavailable|TxBadSeq|tx_bad_seq|TxInsufficientFee|tx_insufficient_fee|not present in the snapshot'
 
 DEPLOY_PROPAGATION_RE='Contract not found|non-existing value for contract instance'
 
@@ -18,7 +18,9 @@ run_deploy() {
     local out_f="$1" err_f="$2"; shift 2
     [ "$1" = "--" ] && shift
     local attempt
+    DEPLOY_ATTEMPTS=0
     for attempt in $(seq 1 "$DEPLOY_MAX_ATTEMPTS"); do
+        DEPLOY_ATTEMPTS=$attempt
         [ "$attempt" -gt 1 ] && backoff_sleep "$attempt" 3 15
         if "$@" >"$out_f" 2>"$err_f" && [ -s "$out_f" ]; then
             return 0

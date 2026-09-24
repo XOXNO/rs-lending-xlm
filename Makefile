@@ -349,6 +349,13 @@ integration-validate:
 	  [ "$$(wad_band_from_px14 40000000000000 9)" = "364000000000000000 436000000000000000" ] && \
 	  ! wad_band_from_px14 12345678901234567 9 >/dev/null || { echo "wad_band_from_px14 self-check failed"; exit 1; }; \
 	  echo "wad_band_from_px14 self-check passed"'
+	@bash -c 'source tests/integration/lib/invoke.sh; backoff_sleep() { :; }; \
+	  o=$$(mktemp); e=$$(mktemp); trap "rm -f $$o $$e" EXIT; n=0; \
+	  surge() { n=$$((n + 1)); [ "$$n" -ge 3 ] && { echo C; return 0; }; echo "error: transaction submission failed: TxInsufficientFee" >&2; return 1; }; \
+	  revert() { echo "error: HostError: Error(Contract, #3)" >&2; return 1; }; \
+	  run_deploy "$$o" "$$e" -- surge && [ "$$DEPLOY_ATTEMPTS" = 3 ] && \
+	  ! run_deploy "$$o" "$$e" -- revert && [ "$$DEPLOY_ATTEMPTS" = 1 ] || { echo "run_deploy retry self-check failed"; exit 1; }; \
+	  echo "run_deploy retry self-check passed"'
 
 integration-shellcheck:
 	@command -v shellcheck >/dev/null 2>&1 || { echo "shellcheck not installed (brew/apt install shellcheck)"; exit 0; }

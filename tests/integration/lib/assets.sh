@@ -36,7 +36,7 @@ issue_sac() {
         done
         if ! sac_wait_live "$sac"; then
             die "issue_sac_$code" \
-                "SAC $code not live after $DEPLOY_MAX_ATTEMPTS deploy attempts: $(tail_err_note "$err_f" 200)"
+                "SAC $code not live after ${attempt:-0} deploy attempt(s): $(tail_err_note "$err_f" 200)"
         fi
         record "issue_sac_$code" ok "asset_deploy" "${hash:-}" "" "" "" "" "$sac"
     fi
