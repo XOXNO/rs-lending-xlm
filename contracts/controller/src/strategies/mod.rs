@@ -43,7 +43,8 @@ pub(crate) fn prefetch_strategy_prices(
 }
 
 /// Refreshes listed collateral LTV, checks solvency, health and collateral floor,
-/// then persists positions and spoke usage and emits the position batch.
+/// then persists positions and spoke usage, removes an empty account, and emits
+/// the position batch.
 pub(crate) fn strategy_finalize(
     env: &Env,
     account_id: u64,

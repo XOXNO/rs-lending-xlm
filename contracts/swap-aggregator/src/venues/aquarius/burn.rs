@@ -7,7 +7,7 @@ use crate::vault::Vault;
 use crate::venues::aquarius::pool::{assert_share_token, pool_tokens, to_u128};
 use crate::venues::auth::authorize_as_current;
 
-/// Burn vault LP shares; credit measured constituent amounts (mins enforced).
+/// Burns the vault's full `lp_token` balance and credits the measured constituent amounts.
 ///
 /// Floors are read from `amounts[min_start .. min_start + n]`, in the pool's own
 /// token order, where `n` is the pool's constituent count.
@@ -32,7 +32,6 @@ pub(crate) fn remove_liquidity(
     assert_share_token(env, pool, lp_token);
 
     let n = tokens.len();
-    // The registry must carry a full floor run for this pool's arity.
     if min_start
         .checked_add(n)
         .is_none_or(|end| end > amounts.len())

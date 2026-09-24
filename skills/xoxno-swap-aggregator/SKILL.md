@@ -50,7 +50,9 @@ There is no submit endpoint; the quote builds the envelope when `sender` is pres
 Before the first quote, `GET /api/v1/config` and compare `networkPassphrase` and `router`
 with `configs/networks.json` (`aggregator`, listed in
 [../xoxno-lending/addresses.md](../xoxno-lending/addresses.md)). Never paste a `C…`
-router address into code; read it from configuration or from `/api/v1/config`.
+router address into code. Read it from trusted configuration (`configs/networks.json`
+`aggregator` or the SDK's `STELLAR_NETWORKS[*].aggregatorRouter`). Use
+`/api/v1/config.router` only as a cross-check.
 
 ## Token identifiers
 
@@ -124,7 +126,10 @@ export async function quoteXlmToUsdc(usdcContractId: string, xlmBaseUnits: bigin
 
 Calls `router.execute_strategy(sender, total_in = quote.amountIn, routeXdr)`. The sender's
 signature is the only authorization
-([payload.md#authorization-model](payload.md#authorization-model)).
+([payload.md#authorization-model](payload.md#authorization-model)). Copy
+`verifyRoutePayload` from
+[payload.md#verify-routexdr-before-signing](payload.md#verify-routexdr-before-signing)
+into `verify-route-payload.ts`.
 
 ```ts
 import { Keypair, TransactionBuilder, rpc, scValToNative, xdr } from '@stellar/stellar-sdk'
@@ -200,7 +205,7 @@ export async function swapStandalone(
   if (sent.status === 'ERROR') throw new Error(`send rejected: ${sent.errorResult?.toXDR('base64') ?? ''}`)
   if (sent.status === 'TRY_AGAIN_LATER') throw new Error('rpc busy; resubmit the same signed tx later')
 
-  // getTransaction NOT_FOUND while polling means still in flight, never failure. Only FAILED is a failure.
+  // NOT_FOUND after polling means not yet included, not an on-chain failure. Only FAILED is a failure.
   const result = await server.pollTransaction(sent.hash, { attempts: 20 })
   if (result.status === rpc.Api.GetTransactionStatus.FAILED) throw new Error(`failed on-chain: ${sent.hash}`)
   if (result.status === rpc.Api.GetTransactionStatus.NOT_FOUND) return { status: 'PENDING', hash: sent.hash }
@@ -229,6 +234,7 @@ current ledger; reject a delivered result below `amountOutMin`.
 
 Before submitting: confirm no quote input, route byte, signer, network, or router changed
 after verification; sign the prepared XDR only; then submit once and poll its hash.
-`PENDING`, `DUPLICATE`, and polling `NOT_FOUND` are not execution failures. HTTP,
-placeholder, and submission-status details are external pinned behavior documented in
-[api.md](api.md).
+`PENDING`, `DUPLICATE`, and polling `NOT_FOUND` are not execution failures. HTTP and
+envelope-placeholder details are external pinned behavior documented in [api.md](api.md).
+Submission statuses are in
+[../xoxno-lending-troubleshooting/SKILL.md#submission-lifecycle](../xoxno-lending-troubleshooting/SKILL.md#submission-lifecycle).

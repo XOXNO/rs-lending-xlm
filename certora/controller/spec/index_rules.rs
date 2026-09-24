@@ -1,23 +1,21 @@
-//! Index rules: zero-time stability, plus the V-9 view/accrue isomorphism and
-//! time-monotonicity families (Certora Aave Hub P-09/P-10 analogues).
+//! Index rules: the view/accrue isomorphism and time-monotonicity
+//! families, plus a positive-index reachability check.
 //!
 //! ## Why the `iso_` family is written against `simulate_update_indexes`
 //!
 //! Production `get_market_index` reads the pool through `get_bulk_indexes`,
-//! which is `simulate_update_indexes(now, load_sync_data())` — a *projection*
-//! of the stored state forward to the current ledger time. The controller's
-//! certora harness replaces the cross-contract call with a havoc summary
-//! (`bulk_index_summary`, memoised per rule by `spec::ghost_prices`), so an
-//! ABI-level "call the view twice" rule would compare one nondeterministic
-//! value against itself and prove nothing.
+//! which is `simulate_update_indexes(now, load_sync_data())`: a projection of
+//! the stored state forward to the current ledger time. The controller harness
+//! replaces that cross-contract call with a havoc memoised per rule
+//! (`spec::ghost_prices::market_index`), so an ABI-level "call the view twice"
+//! rule compares one draw with itself and proves nothing.
 //!
-//! `common` is compiled *without* its `certora` feature in the controller's
-//! certora build (`controller/Cargo.toml`'s `certora` feature does not pull
-//! `common/certora`), so `common::rates::simulate_update_indexes` here is the
-//! real implementation, not the monotone havoc summary the pool layer sees.
-//! The `iso_`/`time_mono_` rules therefore model the pool response exactly as
-//! production computes it and compare the two projections that a view would
-//! return with and without a prior `update_indexes`.
+//! The controller's `certora` feature does not enable `common/certora`, so
+//! `common::rates::simulate_update_indexes` here is the real implementation,
+//! not the monotone havoc summary the pool build uses. The `iso_` and
+//! `time_mono_` rules therefore model the pool response as production computes
+//! it, and compare the projections a view returns with and without a prior
+//! `update_indexes`.
 
 use controller_interface::ControllerInterface;
 use cvlr::macros::rule;
@@ -44,8 +42,7 @@ const MAX_SHARES: i128 = 100 * RAY;
 /// `e^2 ≈ 7.4`, so projections stay well inside the configured index caps.
 const MAX_SEED_INDEX: i128 = 2 * RAY;
 
-/// Ledger-time ceiling: keeps `last_timestamp + elapsed` inside `u64` and the
-/// projection inside a single compounding chunk.
+/// Ledger-time ceiling: keeps `last_timestamp + elapsed` inside `u64`.
 const MAX_SEED_TIMESTAMP: u64 = u64::MAX / 4;
 
 fn hub0(asset: &Address) -> HubAssetKey {
@@ -55,8 +52,10 @@ fn hub0(asset: &Address) -> HubAssetKey {
     }
 }
 
-/// A rate model satisfying every constraint `MarketParamsRaw::verify` enforces
-/// on a listed market, with all curve parameters left symbolic.
+/// A symbolic rate model, flash loans disabled, that admits every curve
+/// `MarketParamsRaw::verify` accepts. It omits the `slope3 <= max_borrow_rate` and
+/// `max_borrow_rate > base_borrow_rate` checks and allows `asset_decimals` up to
+/// `RAY_DECIMALS`, so it also admits some models `verify` rejects.
 fn nondet_market_params(asset: &Address) -> MarketParamsRaw {
     let base_borrow_rate: i128 = cvlr::nondet::nondet();
     let slope1: i128 = cvlr::nondet::nondet();
@@ -135,9 +134,8 @@ fn nondet_sync(asset: &Address, last_timestamp: u64) -> PoolSyncData {
 /// projection, `last_timestamp` stamped, and protocol fee shares minted into
 /// both `supplied` and `revenue`.
 ///
-/// The minted share count is left symbolic rather than recomputed, so the rule
-/// holds for *any* fee the pool could have booked — strictly stronger than
-/// pinning production's exact `protocol_fee_shares` result.
+/// The minted share count is symbolic, not recomputed with
+/// `protocol_fee_shares`, so the rule holds for any fee the pool books.
 fn accrued_sync(sync: &PoolSyncData, projected: &MarketIndex, now: u64) -> PoolSyncData {
     let minted: i128 = cvlr::nondet::nondet();
     cvlr_assume!((0..=MAX_SHARES).contains(&minted));
@@ -173,23 +171,22 @@ fn index_sanity(e: Env, asset: Address) {
 }
 
 // ---------------------------------------------------------------------------
-// V-9 family (a): view/accrue isomorphism.
+// Family (a): view/accrue isomorphism.
 // ---------------------------------------------------------------------------
 
 /// `get_health_factor` and `is_liquidatable` return the same values whether or
 /// not `update_indexes` ran first, and `get_liquidation_estimate` reverts under
 /// the same condition.
 ///
-/// The account book is valued twice through one `Context`, so a single frozen
-/// price basis applies to both sides and the only thing that varies is the
-/// market index installed by `put_market_index`: the pre-accrual projection on
-/// the first pass, the post-accrual re-projection on the second. Both are
-/// derived here, not assumed equal.
+/// The account book is valued twice through one `Context`, so both passes use
+/// one frozen price basis. Only the market index installed by
+/// `put_market_index` varies: the pre-accrual projection on the first pass,
+/// the post-accrual re-projection on the second. Both are derived here, not
+/// assumed equal.
 ///
-/// The `< WAD` assertion is doing double duty: it is `is_liquidatable`'s whole
-/// definition (`views::can_be_liquidated`) and it is the gate
-/// `build_liquidation_plan` uses to raise `HealthFactorTooHigh`, so it pins
-/// `get_liquidation_estimate`'s revert condition as accrual-independent too.
+/// The `< WAD` assertion is `is_liquidatable` (`views::can_be_liquidated`) and
+/// the gate where `build_liquidation_plan` raises `HealthFactorTooHigh`, so it
+/// also pins the revert condition of `get_liquidation_estimate`.
 #[rule]
 fn iso_health_factor_invariant_across_accrual(
     e: Env,
@@ -259,15 +256,15 @@ fn iso_health_factor_invariant_across_accrual(
     cvlr_assert!(pre.total_collateral.raw() == post.total_collateral.raw());
 }
 
-/// `update_indexes` writes no controller state, so nothing a view reads on the
-/// controller side — positions, account metadata, spoke risk parameters — can
-/// differ between a view called before it and the same view called after.
+/// `update_indexes` writes no controller state, so the controller-side inputs
+/// of a view (positions, account metadata, spoke asset risk parameters and
+/// flags) are the same before and after it.
 ///
 /// This is the other half of isomorphism: the projected index is invariant
 /// (above), and the controller-local inputs are invariant here. Together they
-/// cover the *revert* conditions too, since `get_health_factor`,
-/// `is_liquidatable`, `get_liquidation_estimate` and `get_market_index` all
-/// gate on account existence and spoke listing, both read from this state.
+/// also cover the view reverts that read this state: `get_liquidation_estimate`
+/// raises `AccountNotFound` for a missing account and `SpokeAssetPaused` for a
+/// paused debt leg.
 #[rule]
 fn iso_update_indexes_writes_no_controller_state(
     e: Env,
@@ -313,7 +310,7 @@ fn iso_update_indexes_writes_no_controller_state(
 }
 
 // ---------------------------------------------------------------------------
-// V-9 family (b): time monotonicity with no accrual invoked.
+// Family (b): time monotonicity with no accrual invoked.
 // ---------------------------------------------------------------------------
 
 /// The valuation legs `get_liquidation_estimate` sizes its plan from are

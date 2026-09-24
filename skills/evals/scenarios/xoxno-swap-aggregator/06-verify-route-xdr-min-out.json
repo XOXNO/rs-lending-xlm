@@ -9,7 +9,7 @@
     "Knows the header layout for VERSION 1: [0]=version, [1]=tokenIn index, [2]=tokenOut index, [3]=minOut amounts index, [4..8]=u32 BE referral id, [8]=op count, [9]=weight count; then 5-byte instruction records (opcode, mode, pool, tokenIn, tokenOut) and 3-byte u24 ppm split weights",
     "Verifies the standalone envelope invokes `execute_strategy(sender, total_in, swap_xdr)` with args[2] bytes equal to `routeXdr` and `total_in` equal to the quote's gross `amountIn` (fee-inclusive), rather than net-of-fee or `amountOut`",
     "Does not tell the user to `transfer` or `approve` tokens to the router first: the router pulls the input under the sender's own `require_auth` (measured delta, `transfer_amount_measured`) and self-authorizes venue calls, so the only auth is the sender's signature on the invocation",
-    "Uses the server's `routeXdr` as-is for execution (`buildStellarExecuteStrategyTx({ routeXdr })` / `mapQuoteResponseToStrategySwap`) instead of re-encoding a payload from `hops`/`paths` with `mapQuoteResponseToStrategyPayload`, which loses the server-chosen referral and split weights",
+    "Uses the server's `routeXdr` as-is for execution (`buildStellarExecuteStrategyTx({ routeXdr })` / `mapQuoteResponseToStrategySwap`) instead of re-encoding a payload from `hops`/`paths` with `mapQuoteResponseToStrategyPayload`, which loses the server-chosen referral and the server's rounding sweep on the last split",
     "Simulates the sequence-populated transaction and checks `scValToNative(simulation.result.retval) >= amountOutMin`; explains a shortfall at execution reverts with router error `SlippageExceeded = 5`, mapped by contract id (router errors and controller errors share numeric codes)"
   ],
   "machine_checkable": [

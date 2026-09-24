@@ -1,7 +1,7 @@
-//! Where the shortfall lands when an asset under-delivers on an outbound leg:
-//! the recapitalize refund (`pool/src/ops/recapitalize.rs`) and the revenue
-//! claim's forward to the accumulator (`controller/src/keepers.rs`, now measured
-//! on both hops after F-8).
+//! Where the difference lands when an asset delivers an inexact amount on an
+//! outbound leg: the recapitalize refund (`pool/src/ops/recapitalize.rs`), the
+//! revenue claim's forward to the accumulator (`controller/src/markets.rs`,
+//! measured on both hops), and the repay overpayment refund.
 
 use crate::shared::{count_topic, data_for_topic};
 use soroban_sdk::{testutils::Events, token, xdr::ScVal};
@@ -28,15 +28,13 @@ fn claim_event_amount(data: &ScVal) -> i128 {
     panic!("revenue:claim payload has no `amount` field");
 }
 
-/// A fee-on-transfer recapitalize into a healthy market strands nothing inside
-/// the protocol: the whole receipt is refunded, the pool's balance and cash
-/// book both come back to where they started, and the only loss is the token's
-/// own haircut, taken twice, by the token contract.
+/// A fee-on-transfer recapitalize into a healthy market strands nothing in the
+/// protocol. The pool refunds the whole receipt, so its balance and cash book
+/// return to their start values. The payer loses only the token's haircut on
+/// each of the two hops.
 ///
-/// This is the answer to "the refund is unmeasured, so where does the
-/// difference go". `transfer_out` moves the declared `refund` out of the pool
-/// regardless of what the payer receives, so the pool cannot retain it. The
-/// haircut never enters protocol custody at all.
+/// `transfer_out` moves the declared `refund` out of the pool whatever the payer
+/// receives, so the pool cannot retain the difference.
 #[test]
 fn recapitalize_refund_is_unmeasured_but_strands_nothing() {
     let mut t = LendingTest::new()
@@ -61,8 +59,6 @@ fn recapitalize_refund_is_unmeasured_but_strands_nothing() {
 
     let applied = t.ctrl_client().recapitalize(&payer, &key, &amount);
 
-    // A healthy market has no backing shortfall, so nothing is applied and the
-    // entire measured receipt is refunded.
     assert_eq!(applied, 0, "a backed market must apply nothing");
 
     assert_eq!(
@@ -91,10 +87,10 @@ fn recapitalize_refund_is_unmeasured_but_strands_nothing() {
     );
 }
 
-/// F-8 fixed: the controller measures what it receives from the pool and
-/// forwards exactly that (`keepers.rs`), so an under-delivering asset no longer
-/// makes it raid a stranded balance. The accumulator is short only by the
-/// forward transfer's own haircut, which is inherent to the token.
+/// The controller measures what it receives from the pool and forwards exactly
+/// that (`claim_revenue_for_asset`), so an under-delivering asset cannot drain a
+/// stranded controller balance. The accumulator is short only by the forward
+/// transfer's own haircut.
 #[test]
 fn claim_revenue_forwards_the_measured_amount_and_leaves_controller_dust_intact() {
     let mut t = LendingTest::new()
@@ -133,7 +129,7 @@ fn claim_revenue_forwards_the_measured_amount_and_leaves_controller_dust_intact(
 
     let claimed = t.claim_revenue("USDC");
     // Captured before the balance reads below: `events().all()` is scoped to
-    // the LAST contract invocation, and every `tok.balance` call is one.
+    // the last contract invocation, and every `tok.balance` call is one.
     let claim_events = t.env.events().all();
     assert!(
         claimed > 0,
@@ -143,28 +139,19 @@ fn claim_revenue_forwards_the_measured_amount_and_leaves_controller_dust_intact(
     let accumulator_got = tok.balance(&accumulator);
     let controller_after = tok.balance(&controller);
 
-    // `claimed` is now the measured receipt, and the accumulator is short only
-    // by the inherent haircut on the forward transfer itself (unavoidable for a
-    // fee-on-transfer token).
     assert_eq!(
         accumulator_got,
         claimed - claimed / 100,
         "accumulator receives one forward-hop haircut less than the measured claim"
     );
 
-    // F-8 fixed: the controller forwards exactly what it received and never
-    // raids its pre-existing dust.
     assert_eq!(
         controller_after, controller_before,
         "controller dust must be untouched, before={controller_before} after={controller_after}"
     );
 
-    // The event must carry the MEASURED receipt, which is the whole reason it
-    // is published from the controller rather than the pool: on this
-    // fee-on-transfer market the pool's reported figure is strictly larger, so
-    // an event emitted at the burn site would overstate lifetime revenue on
-    // every claim. Indexers accumulate this number, so it has to be the one
-    // that actually moved.
+    // The controller publishes the measured receipt, not the pool's larger
+    // reported figure: indexers sum this number into lifetime revenue.
     let payloads = data_for_topic(&claim_events, "revenue", "claim");
     assert_eq!(payloads.len(), 1, "one claim, one revenue:claim event");
     assert_eq!(
@@ -174,9 +161,8 @@ fn claim_revenue_forwards_the_measured_amount_and_leaves_controller_dust_intact(
     );
 }
 
-/// A claim that finds nothing to sweep must stay silent. A keeper walking every
-/// market on a timer would otherwise write a row per empty market forever, and
-/// the indexer sums these into lifetime revenue.
+/// A claim with no revenue emits no `revenue:claim` event, so a keeper that
+/// claims every market on a timer adds no indexer rows for empty markets.
 #[test]
 fn claim_revenue_emits_nothing_when_there_is_no_revenue() {
     let t = LendingTest::new().with_market(usdc_preset()).build();
@@ -200,25 +186,14 @@ fn claim_revenue_emits_nothing_when_there_is_no_revenue() {
     );
 }
 
-/// Reconciles two trace statements that look contradictory: "on repay only
-/// `net_repay` is credited to cash, the overpayment is UNCREDITED" and "the
-/// overpayment routes controller -> caller".
+/// A plain `repay` overpayment is refunded to the payer, and the controller
+/// keeps nothing.
 ///
-/// Both are true and they describe different layers. The overpayment is
-/// uncredited *to the cash book* on purpose — `pool/src/ops/repay.rs:58`
-/// credits `net_repay`, which deliberately excludes it — and it is refunded by
-/// `transfer_out(payer, overpayment)` at `repay.rs:33`.
-///
-/// Which address `payer` is depends on the caller:
-/// - plain `repay`: `positions/debt.rs:195` passes the user's own address, so
-///   the pool refunds the user directly. That is what this test pins.
-/// - strategy legs: `repay_prefunded_position` passes the explicit `refund_to`,
-///   which `legs.rs:38-43` sets to the controller, so the pool refunds the
-///   controller and `legs.rs:83` `refund_controller_balance_delta` forwards the
-///   measured delta on to `caller`.
-///
-/// Either way the overpayment reaches a real party and the controller keeps
-/// nothing.
+/// The pool credits only `net_repay` to cash and refunds the overpayment with
+/// `transfer_out(payer, overpayment)` (`pool/src/ops/repay.rs`). For plain
+/// `repay`, `payer` is the user; this test pins that path. Strategy legs pass
+/// the controller as `refund_to` (`repay_debt_from_controller`), and
+/// `refund_controller_balance_delta` forwards the measured delta to `caller`.
 #[test]
 fn repay_overpayment_is_refunded_to_the_payer_not_stranded() {
     let mut t = LendingTest::new().standard_two_asset().build();
@@ -259,22 +234,13 @@ fn repay_overpayment_is_refunded_to_the_payer_not_stranded() {
     );
 }
 
-/// The mirror of the fee-on-transfer case above, and the direction the suite
-/// did not cover: an asset that OVER-delivers, crediting the recipient more
-/// than was sent. This is the direction that could let a payer extract value
-/// from `recapitalize`, because the refund basis is `received` -- the measured
-/// inbound delta -- and not what the payer actually paid.
+/// A recapitalize into an over-delivering market moves pool custody and the cash
+/// book by the same `applied` amount.
 ///
-/// It does not. `transfer_amount_measured` measures the POOL's balance delta
-/// (`common/src/token.rs:29-33`), so over the whole call the pool's balance
-/// moves by `received - refund`, which is exactly `applied` -- the same figure
-/// that lands in the cash book. The payer's windfall here comes from the token
-/// inflating its own supply on each hop, not out of protocol custody.
-///
-/// That identity is why the unmeasured refund at
-/// `contracts/pool/src/ops/recapitalize.rs:34` is not reachable as a drain
-/// through the honest controller path: whatever the asset does on the way in,
-/// the refund is capped by what the pool actually received.
+/// The refund basis is `received`, the pool's measured balance delta
+/// (`transfer_amount_measured`), so the refund never exceeds what the pool
+/// received. The payer's gain comes from the token minting on each hop, not
+/// from protocol custody.
 #[test]
 fn recapitalize_into_an_over_delivering_market_keeps_book_and_custody_in_step() {
     let mut t = LendingTest::new()
@@ -301,8 +267,6 @@ fn recapitalize_into_an_over_delivering_market_keeps_book_and_custody_in_step() 
 
     assert_eq!(applied, 0, "a backed market must apply nothing");
 
-    // The load-bearing identity: custody moves by exactly what the book moves
-    // by, even though the asset over-delivered on both hops.
     let custody_delta = tok.balance(&pool) - pool_before;
     let book_delta = t.pool_client("USDC").get_reserves(&key) - cash_before;
     assert_eq!(
@@ -319,8 +283,7 @@ fn recapitalize_into_an_over_delivering_market_keeps_book_and_custody_in_step() 
         "the controller must retain nothing"
     );
 
-    // The payer does profit -- but from the token minting on each hop, not from
-    // the pool. in: pool is credited 101% of `amount`. out: the pool sends that
+    // in: the pool is credited 101% of `amount`. out: the pool sends that
     // measured receipt and the payer is credited 101% of it.
     let received = amount + amount / 100;
     let refunded_to_payer = received + received / 100;
@@ -335,24 +298,15 @@ fn recapitalize_into_an_over_delivering_market_keeps_book_and_custody_in_step() 
     );
 }
 
-/// The other way to inflate `received`: move tokens into the pool from inside
-/// the measured window. `transfer_amount_measured` brackets only the single
-/// `tok.transfer` call (`common/src/token.rs:29-31`), so anything the asset
-/// does *during* that transfer lands between the two balance reads and is
-/// counted as part of the payer's receipt.
+/// A token that re-enters the controller during the measured transfer cannot
+/// inflate `received`, and the recapitalize reverts.
 ///
-/// The transfer-hook asset does exactly that: after every transfer it calls
-/// `controller.supply` as `from`. If that re-entry succeeded during a
-/// recapitalize it would credit the pool inside the window and inflate the
-/// refund basis. It does not: the controller is already on the frame stack, and
-/// the Soroban host runs cross-contract calls under
-/// `ContractReentryMode::Prohibited`, so the hook's call is refused before
-/// dispatch and the whole recapitalize reverts.
-///
-/// Note what is NOT holding this closed: `require_not_flash_loaning`
-/// (`contracts/controller/src/keepers.rs`) only fires while a flash loan is in
-/// flight, and there is none here. The defence is the host's, which is why it
-/// is worth a test rather than an argument.
+/// `transfer_amount_measured` reads the pool balance before and after one
+/// `transfer` call, so a pool credit made inside that call would count as
+/// receipt. The transfer-hook asset calls `controller.supply` as `from` after
+/// every transfer. The host refuses that call because the controller is already
+/// on the call stack (`ContractReentryMode::Prohibited`). The flash-loan guard
+/// (`require_not_flash_loaning`) does not apply: no flash loan is in flight.
 #[test]
 fn recapitalize_fails_closed_when_the_asset_reenters_during_the_measured_window() {
     let mut t = LendingTest::new()

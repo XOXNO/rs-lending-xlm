@@ -14,8 +14,9 @@ use soroban_sdk::{
     IntoVal, Vec,
 };
 
-/// Sentinel account id: the id returned by the most recent account-creating
-/// op in the same script. Lets one script open an account and act on it.
+/// Sentinel account id: resolves to the account the script last opened
+/// (`Supply` or `Multiply` with `account_id == 0`) or credited (`Liquidate` in
+/// `Credit` mode). Lets one script open an account and act on it.
 pub const LAST_CREATED: u64 = u64::MAX;
 
 #[allow(dead_code)]
@@ -187,8 +188,8 @@ pub struct ScriptRunner;
 #[contractimpl]
 impl ScriptRunner {
     /// Runs `ops` in order from this contract's frame. Any failing op reverts
-    /// the whole run. Returns the id of the last account created by a
-    /// `Supply`, `Multiply` or `Liquidate(Credit(0))` op, or `0`.
+    /// the whole run. Returns the id `LAST_CREATED` resolves to after the last
+    /// op, or `0` if no op set it.
     pub fn run(env: Env, controller: Address, nft: Address, ops: Vec<Op>) -> u64 {
         let me = env.current_contract_address();
         let ctrl = ControllerClient::new(&env, &controller);

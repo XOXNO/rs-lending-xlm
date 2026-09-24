@@ -70,8 +70,8 @@ pub struct MockBlend;
 impl MockBlend {
     pub fn __constructor(_env: Env) {}
 
-    /// After `submit` starts, try to `supply` 1 unit onto the controller.
-    /// Used to prove `guarded_submit` holds the flash-loan flag.
+    /// Makes `submit` call the controller's `supply` with 1 unit before it processes requests.
+    /// Tests use it to prove that `guarded_submit` holds the flash-loan guard.
     pub fn set_hook(env: Env, controller: Address) {
         env.storage().instance().set(&Key::Hook, &controller);
     }

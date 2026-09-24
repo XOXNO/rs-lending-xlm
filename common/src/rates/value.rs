@@ -1,8 +1,8 @@
 //! Converts a scaled position balance (ray-precision units, e.g. principal
 //! divided by an index) into a USD value expressed in WAD, given the
-//! applicable index and asset price. Each function performs the same
-//! sequence — multiply by the index, rescale from ray to WAD, multiply by
-//! the price — using a different rounding direction at every step.
+//! applicable index and asset price. Each function multiplies by the index,
+//! rescales from RAY to WAD, then multiplies by the price. The functions
+//! differ only in rounding direction: half-up, floor or ceiling at every step.
 
 use soroban_sdk::Env;
 

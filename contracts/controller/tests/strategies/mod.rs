@@ -1,5 +1,6 @@
-//! First-pass killers for strategy auth/validation. Full swap/flash-loan legs
-//! still need the iterate suite; these catch `replace fn with ()` on the gates.
+//! Unit tests for the strategy authorization and input-validation gates. A gate
+//! mutated to return `()` fails here, in the first mutation pass. Mutants in the
+//! swap and flash-loan legs need the `--iterate` pass.
 extern crate std;
 
 use crate::risk::validation::require_authorized_caller;

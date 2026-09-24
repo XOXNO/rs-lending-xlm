@@ -203,11 +203,9 @@ fn stale_submission_excluded_from_aggregate() {
     );
 }
 
-/// Mainnet AQUA regression (2026-08-28). Two signers priced the feed at 16:11;
-/// one submitted alone at 16:33, past the 900s window. Failing to reach
-/// threshold was correct -- deleting the pair's aggregate was not, and left the
-/// consuming market at `deviation, price 0, invalid` for hours. Prices are the
-/// incident's real submissions, at the feed's 8 decimals.
+/// Two signers price the feed; a third submits alone 22 minutes later, when both
+/// earlier submissions are past the 900 s window. The lone submission misses
+/// threshold, and the pair's aggregate stays in place.
 #[test]
 fn lone_late_submission_cannot_take_the_feed_offline() {
     let env = Env::default();
@@ -241,9 +239,7 @@ fn lone_late_submission_cannot_take_the_feed_offline() {
     );
 }
 
-/// The owner sweep still clears the same below-threshold state the submit path
-/// retains: `recompute_feeds` is how a threshold or window change retires an
-/// aggregate the configuration no longer justifies.
+/// `recompute_feeds` clears the below-threshold aggregate that the submit path retains.
 #[test]
 fn owner_sweep_still_clears_a_below_quorum_aggregate() {
     let env = Env::default();
@@ -533,20 +529,16 @@ fn raising_threshold_invalidates_below_quorum_aggregate() {
         Some(100u128)
     );
 
-    // The setter stores the threshold and nothing else: sweeping every feed in
-    // the same transaction grows the footprint with the feed count and would
-    // eventually make the setter permanently uncallable. So the aggregate formed
-    // under the old threshold is still served here -- the window the batched
-    // sweep trades for a bounded footprint.
+    // The setter does not recompute aggregates, so the threshold-1 aggregate is
+    // still served.
     client.set_threshold(&2u32);
     assert_eq!(
         client.read_price_data_for_feed(&feed).price.to_u128(),
         Some(100u128)
     );
 
-    // Once the sweep runs, the single submission is below the new quorum and the
-    // feed must stop serving a price rather than serve one the threshold no
-    // longer justifies.
+    // After `recompute_feeds`, the single submission is below the new threshold
+    // and the aggregate is cleared.
     client.recompute_feeds(&vec![&env, feed.clone()]);
     assert_eq!(
         expect_error(client.try_read_price_data_for_feed(&feed)),

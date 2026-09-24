@@ -29,8 +29,6 @@ env:
   # the Makefile's `coverage-merged`, or MODE_PATHS["merged"] in
   # scripts/coverage_report.py). A baseline measured under a different scope
   # is not comparable, and comparing it reports a delta that never happened.
-  # v2: added governance, swap-aggregator, xoxno-oracle, position-nft,
-  # defindex-strategy.
   COV_CACHE_PREFIX: cov-baseline-main-v2
 
 concurrency:
@@ -69,8 +67,6 @@ jobs:
         run: bash .github/scripts/install-stellar-cli.sh
 
       - name: Install cargo-llvm-cov (prebuilt)
-        # Was `cargo install cargo-llvm-cov --locked` (source compile). The
-        # install-action fetches a prebuilt binary in seconds.
         uses: taiki-e/install-action@v2.87.13
         with:
           tool: cargo-llvm-cov
@@ -123,8 +119,6 @@ jobs:
         run: bash .github/scripts/install-stellar-cli.sh
 
       - name: Install cargo-llvm-cov (prebuilt)
-        # Was `cargo install cargo-llvm-cov --locked` (source compile). The
-        # install-action fetches a prebuilt binary in seconds.
         uses: taiki-e/install-action@v2.87.13
         with:
           tool: cargo-llvm-cov

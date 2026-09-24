@@ -69,7 +69,7 @@ impl AliceOps for LendingTest {
     }
 }
 
-/// Register a `MockBlend` pool and put it on the controller's approved list.
+/// Registers a `MockBlend` pool and approves it on the controller through governance.
 pub fn register_approved_blend(t: &LendingTest) -> Address {
     let addr = t.env.register(MockBlend, ());
     let admin = t.admin();

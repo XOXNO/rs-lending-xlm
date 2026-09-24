@@ -25,12 +25,8 @@ fn supply_scaled_balance_matches_index(
     supply_index: i128,
     asset_decimals: u32,
 ) {
-    // `fixture::state` stamps `last_timestamp = e.ledger().timestamp() * 1_000`
-    // and `Cache::load` recomputes the same product through `time::now_ms`.
-    // Both are checked multiplications, so a ledger clock past `u64::MAX /
-    // 1_000` panics and Sunbeam prunes the path as `assume(false)`. Stating the
-    // bound makes that pruning visible instead of hidden, and drops the
-    // overflow branch from every rule below.
+    // Excludes the checked `timestamp * 1_000` overflow in `fixture::state` and
+    // `time::now_ms`; see "Fixture domain" in `certora/pool/spec/README.md`.
     cvlr_assume!(e.ledger().timestamp() <= u64::MAX / 1_000);
     cvlr_assume!(amount > 0 && amount <= MAX_FLOW_AMOUNT);
     cvlr_assume!(position_before >= 0 && position_before <= 10 * RAY);
@@ -338,17 +334,17 @@ fn full_repay_refunds_overpayment(
 }
 
 // ---------------------------------------------------------------------------
-// Anti-splitting / additivity — the analogue of Aave Hub's `*Additivity` rules.
+// Anti-splitting / additivity.
 //
 // Shape of every rule below: run one operation as two sequential calls, then
 // replay the *byte-identical* starting market and run one call for the summed
 // amount. Assert the direction that leaves a caller no better off for having
 // split, plus the exact slack.
 //
-// Why the slack constants are exact and not fudge factors. Both legs execute at
+// The slack constants are exact. Both legs execute at
 // the same ledger timestamp, so `Cache::needs_accrual` is false and
 // `interest::global_sync` returns without touching either index
-// (`contracts/pool/src/interest.rs:24`). Both runs therefore see literally the
+// (`contracts/pool/src/interest.rs`). Both runs therefore see the
 // same `supply_index` / `borrow_index`, and the only difference is the single
 // rounding step named per rule in `contracts/pool/src/cache/scale.rs`:
 //
@@ -360,7 +356,7 @@ fn full_repay_refunds_overpayment(
 // for every `decimals <= RAY_DECIMALS`, and every listable market is far
 // inside that, so it contributes no slack of its own.
 //
-// Derivation of the constant, in full, for one leg. Write `K = 10^(27−decimals)`
+// Derivation of the constant for one leg. Write `K = 10^(27−decimals)`
 // and let `I` be the live index. `Ray::from_asset(&e, a) = a·K` exactly, so
 //
 //   calculate_scaled_supply(a)       = floor(a·K·RAY / I)      (supply mint)
@@ -371,11 +367,11 @@ fn full_repay_refunds_overpayment(
 // `a ↦ a·K·RAY/I` is exactly additive over the rationals, so with
 // `x = a1·K·RAY/I` and `y = a2·K·RAY/I` the whole slack is the classical
 // `floor(x)+floor(y) − floor(x+y) ∈ {−1, 0}` and
-// `ceil(x)+ceil(y) − ceil(x+y) ∈ {0, +1}`. Hence **exactly 1 ray share**, in
-// the direction that is unfavourable to a splitting caller, for every rule below.
+// `ceil(x)+ceil(y) − ceil(x+y) ∈ {0, +1}`. Hence the slack is at most 1 ray
+// share, against a splitting caller, in every rule below.
 //
-// PROOF STATUS: these rules are COMPILE-VERIFIED ONLY — they have not been run
-// through the Certora prover. The bounds rest on the derivation above plus a
+// Proof status: compile-verified only; these rules have not run through the
+// Certora prover. The bounds rest on the derivation above plus a
 // randomized exact-integer model of `common/src/rates/scaling.rs`. Assertions
 // that are *not* a single rounding step are flagged individually below.
 // ---------------------------------------------------------------------------
@@ -620,11 +616,10 @@ fn additivity_withdraw_split_never_pays_more(
     }
 }
 
-/// The interesting boundary: a partial withdrawal followed by a full close can
-/// never extract more than a single full close. `resolve_withdrawal` ceils the
-/// partial burn and floors the closing payout, so the ceiling removes at least
-/// the value the caller already took. This is the withdraw-side shape of
-/// CS-AAVE4-009's "split the operation to cross a rounding boundary twice".
+/// A partial withdrawal followed by a full close never extracts more than a
+/// single full close. `resolve_withdrawal` ceils the partial burn and floors the
+/// closing payout, so the ceiling removes at least the value the caller already
+/// took. Splitting cannot cross a rounding boundary twice in the caller's favour.
 #[rule]
 #[allow(clippy::too_many_arguments)]
 fn additivity_withdraw_partial_then_close_never_exceeds_full_close(
@@ -753,15 +748,15 @@ fn additivity_repay_split_never_burns_more_debt(
         cvlr_assert!(split_paid >= whole.mutation.actual_amount);
     }
     if leg_one.overpayment == 0 && leg_two.overpayment == 0 && whole.overpayment == 0 {
-        // Partial regime: same cash in, floor sub-additive burn — exactly 1 ray share.
+        // Partial regime: same cash in, floor sub-additive burn — at most 1 ray share.
         cvlr_assert!(single_burn - split_burn <= 1);
     }
 }
 
-/// `resolve_net_settle` sizes the burn from the conservative overlap: supply is
-/// **ceiled** and debt is **floored**. Splitting therefore burns at least as much
-/// collateral (≤ +1 ray share) and retires at most as much debt (≥ −1 ray share)
-/// for the same settled tokens — both directions against the caller.
+/// `resolve_net_settle` sizes the burns from the conservative overlap: the supply
+/// burn is **ceiled** and the debt burn **floored**. Splitting therefore burns at
+/// least as much collateral (≤ +1 ray share) and retires at most as much debt
+/// (≥ −1 ray share) for the same settled tokens — both directions against the caller.
 ///
 /// Deliberately *not* asserted: `split_settled <= single_settled`. When the
 /// overlap is debt-bound, the floored debt burn leaves a residue smaller than one

@@ -137,8 +137,8 @@ fn renew_user_account_renews_delegates_ttl() {
     });
 }
 
-/// A stale grant from a previous owner reads as empty once the NFT transfers, and gets
-/// overwritten wholesale — not merged with — the new owner's next write.
+/// A previous owner's grant reads as empty after the NFT transfers. The new owner's next
+/// write replaces it; it does not merge with it.
 #[test]
 fn delegates_of_previous_owner_read_as_empty() {
     let env = Env::default();
@@ -174,10 +174,8 @@ fn delegates_of_previous_owner_read_as_empty() {
     });
 }
 
-/// A grant stamped by a previous owner must not resurrect if the NFT ever returns to
-/// them: the new owner's `remove_delegate` purges the stale entry outright (even though
-/// the requested delegate was never live for them and the call returns `false`), so a
-/// later transfer back to the original owner finds no grant to re-arm.
+/// The new owner's `remove_delegate` deletes a previous owner's grant and returns `false`.
+/// The grant stays deleted when the NFT returns to the previous owner.
 #[test]
 fn remove_delegate_purges_stale_grant_preventing_resurrection() {
     let env = Env::default();
@@ -203,8 +201,6 @@ fn remove_delegate_purges_stale_grant_preventing_resurrection() {
     );
 
     env.as_contract(&contract_id, || {
-        // Bob never granted `delegate` (or anyone), so removal reports nothing found —
-        // but the stale entry stamped by alice must still be purged as a side effect.
         assert!(!remove_delegate(&env, account_id, &bob, &delegate));
         assert!(
             !env.storage()
@@ -299,8 +295,8 @@ fn set_debt_positions_empty_map_removes_key() {
     });
 }
 
-/// Side writers must not co-renew siblings; renewal is owned by the caller
-/// (e.g. persist_account_positions) so BOTH-side writes renew once.
+/// `set_supply_positions` does not renew sibling TTLs. The caller renews the
+/// account once (for example `persist_account_positions`).
 #[test]
 fn set_supply_positions_does_not_renew_sibling_ttls() {
     use common::constants::TTL_BUMP_USER;

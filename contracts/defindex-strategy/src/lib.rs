@@ -20,7 +20,8 @@ use soroban_sdk::{
 };
 
 /// Event published on each `harvest` call, reporting the caller and the
-/// current price per share for the configured hub asset.
+/// current price per share (12 decimals) for the configured hub asset.
+/// `amount` is always 0.
 #[contractevent(topics = ["strategy", "harvest"])]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HarvestEvent {
@@ -48,8 +49,8 @@ pub enum DeFindexStrategyError {
 }
 
 /// Configuration stored once at construction: the hub/spoke ids and asset
-/// this strategy supplies to, plus the controller and pool contract
-/// addresses resolved at that time.
+/// this strategy supplies to, the controller address, and the pool address
+/// read from the controller at that time.
 #[contracttype]
 #[derive(Clone)]
 pub struct Config {
@@ -77,11 +78,11 @@ pub trait DeFindexStrategyTrait {
     fn asset(env: Env) -> Result<Address, DeFindexStrategyError>;
 
     /// Transfers `amount` of the underlying asset from `from` into the
-    /// strategy and supplies it to the controller, creating or reusing
-    /// `from`'s vault account. Requires `from`'s authorization and returns
-    /// `AmountNotPositive` if `amount` is not positive or `NotInitialized`
-    /// if the contract has not been constructed. Returns the account's
-    /// resulting collateral balance.
+    /// strategy and supplies the amount received to the controller, creating
+    /// or reusing `from`'s vault account. Requires `from`'s authorization.
+    /// Returns `AmountNotPositive` if `amount` is not positive or
+    /// `NotInitialized` if the contract has not been constructed. Returns the
+    /// account's resulting collateral balance.
     fn deposit(env: Env, amount: i128, from: Address) -> Result<i128, DeFindexStrategyError>;
 
     /// Emits a `HarvestEvent` carrying the current price per share for the
@@ -96,10 +97,10 @@ pub trait DeFindexStrategyTrait {
     fn balance(env: Env, from: Address) -> Result<i128, DeFindexStrategyError>;
 
     /// Withdraws `amount` of collateral from `from`'s vault account to `to`
-    /// via the controller. Requires `from`'s authorization and returns
-    /// `AmountNotPositive`, `InsufficientBalance`, or `NotInitialized` if
-    /// `amount` is not positive, `from` has no vault account or an amount
-    /// exceeding its balance, or the contract has not been constructed. A
+    /// via the controller. Requires `from`'s authorization. Returns
+    /// `AmountNotPositive` if `amount` is not positive, `InsufficientBalance`
+    /// if `from` has no vault account or `amount` exceeds its balance, and
+    /// `NotInitialized` if the contract has not been constructed. A
     /// withdrawal equal to the full balance clears the vault account
     /// mapping. Returns the account's remaining collateral balance.
     fn withdraw(
@@ -172,7 +173,6 @@ impl<'a> Ctx<'a> {
             .get_market_index(&self.hub_asset())
             .supply_index;
 
-        // Floor rescale RAY (27 dec) → PPS (12 dec); matches prior `index / (RAY/1e12)`.
         Ok(Ray::from(supply_index).to_asset_floor(self.env, PPS_DECIMALS))
     }
 
@@ -286,7 +286,6 @@ impl DeFindexStrategyTrait for Strategy {
         let ctx = Ctx::try_load(&env)?;
         HarvestEvent {
             from,
-            // `harvest` moves no funds.
             amount: 0,
             price_per_share: ctx.harvest_price_per_share()?,
         }
@@ -370,8 +369,7 @@ fn extend_vault_account_ttl(env: &Env, vault: &Address) {
     let key = DataKey::VaultAccount(vault.clone());
     let storage = env.storage().persistent();
     if storage.has(&key) {
-        // Same tier as the controller account this points at, so the pointer can
-        // never outlive its target.
+        // Same TTL tier as the controller account it points at.
         storage.extend_ttl(&key, TTL_THRESHOLD_USER, TTL_BUMP_USER);
     }
 }
@@ -400,9 +398,7 @@ fn resolve_vault_account(
             extend_vault_account_ttl(env, vault);
             stored
         }
-        // Only an explicit "gone" clears. The mapping is the sole route back to
-        // the collateral it points at and there is no way to re-point it, so a
-        // lookup that merely failed to answer must not be read as gone.
+        // Only an explicit `false` clears: the mapping is the only route back to its collateral.
         Ok(Ok(false)) => {
             if clear_if_gone {
                 clear_vault_account(env, vault);

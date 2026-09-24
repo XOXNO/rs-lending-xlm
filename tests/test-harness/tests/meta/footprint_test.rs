@@ -14,9 +14,7 @@ fn mk(name: &'static str, dec: u32, price: i128, liq: f64) -> MarketPreset {
     }
 }
 
-/// Prints the footprint AND enforces the mainnet limits it is measured
-/// against — a scenario crossing a limit is the regression this file exists
-/// to catch, and used to report it in green.
+/// Prints the footprint and asserts that it fits the mainnet per-transaction limits.
 fn assert_res(env: &soroban_sdk::Env, label: &str) {
     let r = env.cost_estimate().resources();
     let total = r.disk_read_entries + r.memory_read_entries + r.write_entries;

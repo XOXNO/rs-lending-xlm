@@ -16,10 +16,10 @@ struct Endpoint {
     client: InnerClient,
 }
 
-/// One RPC surface over an ordered endpoint list. A request that fails on the
-/// active endpoint is retried on the next one, and the endpoint that answers
-/// becomes active for later requests, including the submission that follows a
-/// read and a simulation.
+/// One RPC surface over an ordered endpoint list. A read or simulation that
+/// fails on the active endpoint is retried on the next one, and the endpoint
+/// that answers becomes active for later requests, including the submission
+/// that follows a read and a simulation.
 pub struct RpcClient {
     endpoints: Vec<Endpoint>,
     active: AtomicUsize,
@@ -48,11 +48,11 @@ impl RpcClient {
         })
     }
 
-    /// The endpoint that answered last. Transaction submission uses this
-    /// directly instead of `try_all`: a submission is not safe to replay on a
-    /// second node from here, because a send that fails after the network
-    /// accepted it would be retried against a node that has not yet seen it.
-    /// Failing the job and letting the next tick rebuild it is the safe path.
+    /// Returns the client of the endpoint that answered last.
+    ///
+    /// Submission uses this instead of `try_all`: a send that fails after the
+    /// network accepted it must not be replayed on another node. The job ends
+    /// as `SubmitOutcome::Retriable` and the next tick rebuilds it.
     pub fn inner(&self) -> &InnerClient {
         &self.endpoints[self.active_index()].client
     }
@@ -298,8 +298,8 @@ mod tests {
         assert!(first_tried);
     }
 
-    /// A request that no endpoint can serve reports the whole list, not just
-    /// the last node, so an operator sees an outage rather than one bad host.
+    /// A request that no endpoint can serve fails with an error that counts
+    /// every endpoint, so an operator sees an outage rather than one bad host.
     #[tokio::test]
     async fn all_endpoints_down_is_an_error() {
         let client = client_with(&["http://127.0.0.1:1", "http://127.0.0.1:2"]);

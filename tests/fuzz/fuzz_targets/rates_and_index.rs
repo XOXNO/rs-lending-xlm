@@ -55,15 +55,14 @@ struct In {
     dust_reward_hi: u64,
     dust_reward_lo: u64,
 
-    /// How many chunks the accrual span is split into (see `PARTITION_MAX`).
+    /// Selects the number of chunks, from 2 to `PARTITION_MAX`.
     partition_count: u8,
     /// Relative chunk widths; only the first `n` entries are used.
     partition_weights: [u16; PARTITION_MAX],
 }
 
-/// Upper bound on partition chunks. Each chunk costs one full compounding step
-/// (plus one per `MAX_COMPOUND_DELTA_MS` it spans), so this bounds per-iteration
-/// cost while still covering uneven splits.
+/// Upper bound on partition chunks. Each chunk costs one compounding step per
+/// started `MAX_COMPOUND_DELTA_MS`, so this bounds the cost per input.
 const PARTITION_MAX: usize = 8;
 
 /// Longest span used by the partition property. Two years keeps every chunk to
@@ -279,7 +278,7 @@ struct AccrualState {
 /// helpers, so a span can be accrued in pieces.
 ///
 /// `assert_partition_invariants` pins this against the production entry point
-/// on the single-chunk case before using it, so it cannot silently drift.
+/// on the unpartitioned span before using it, so it cannot silently drift.
 fn accrue_span(
     env: &Env,
     params: &MarketParams,
@@ -328,7 +327,7 @@ fn accrue_span(
 /// Upper bound on the borrow index after `chunks`: the same compounding walk
 /// driven by `params.max_borrow_rate` instead of the curve. `calculate_borrow_rate`
 /// is capped at that rate and both `compound_interest` and `update_borrow_index`
-/// are monotone in their inputs, so this dominates any real run exactly.
+/// are monotone in their inputs, so no run over the same chunks exceeds it.
 fn max_borrow_index_after(
     env: &Env,
     params: &MarketParams,
@@ -370,35 +369,27 @@ fn partition(
     (chunks, n)
 }
 
+/// Accrues one span in a single run and in a fuzzed partition, then checks the
+/// model against production, the max-rate ceiling, and each run for leaks.
+///
 /// `update_indexes` is permissionless, so the caller chooses how a span is
-/// partitioned into accruals. CS-AAVE4-004 is exactly a partition that strands
-/// value: Aave V4 floored the fee to zero once accrual ran every second, so the
-/// interest borrowers paid stopped reaching anyone.
+/// partitioned into accruals. No partition may strand value, for example by
+/// flooring the protocol fee to zero when accrual runs every second.
 ///
-/// The property asserted here is therefore **per path**: whatever the partition,
-/// the value credited to suppliers plus treasury must equal the interest charged
-/// to borrowers, up to a bounded per-compounding-step rounding residual, and must
-/// never exceed it.
+/// The property is per path: on each run, the value credited to suppliers plus
+/// the treasury equals the interest charged to borrowers, within a
+/// per-compounding-step rounding residual (see `assert_interest_reaches_someone`).
 ///
-/// Deliberately NOT asserted: that a partitioned run leaves suppliers (or
-/// suppliers plus treasury) with at least as much as a single terminal accrual.
-/// That cross-path comparison is false in this target's parameter domain and the
-/// counterexamples are not leaks:
+/// Paths are not compared. A partitioned run can leave suppliers with less than
+/// a single terminal accrual without a leak:
 ///
 /// * Protocol fee shares minted by an early chunk compound for the rest of the
 ///   span, so a partitioned run shifts value from suppliers to the treasury.
-///   With a 90%+ reserve factor and a ~200% APR left un-accrued for two years,
-///   the original suppliers can end with ~21% of the single-accrual claim while
-///   suppliers+treasury still *grows*. Deferring the mint is what over-credits
-///   suppliers; frequent accrual is the economically correct side.
-/// * A partitioned run re-evaluates utilization more often and can therefore
-///   settle on a *lower* rate trajectory, charging borrowers less interest and
-///   so booking less value in total. Charging less is not destroying value.
+/// * A partitioned run re-evaluates utilization more often and can settle on a
+///   lower rate, so it charges borrowers less interest.
 ///
-/// `contracts/pool/tests/interest.rs` asserts the cross-path directional
-/// property unconditionally for realistic markets (a ~$1M book at ~10% APR,
-/// 10% reserve factor), where it holds with a positive margin at every cadence
-/// down to one accrual per second.
+/// `contracts/pool/tests/interest.rs` asserts the cross-path property for
+/// realistic markets (a ~$1M book at ~10% APR, 10% reserve factor).
 fn assert_partition_invariants(
     env: &Env,
     params_raw: &MarketParamsRaw,
@@ -451,8 +442,6 @@ fn assert_partition_invariants(
         part_steps += compounding_steps(chunk);
     }
 
-    // The rate curve is capped at `max_borrow_rate`, so neither path can compound
-    // past the ceiling that rate would produce over the same chunk boundaries.
     let part_ceiling = max_borrow_index_after(env, params, start.borrow_index, &chunks[..n]);
     assert!(
         part.borrow_index.raw() <= part_ceiling.raw(),
@@ -491,24 +480,21 @@ fn compounding_steps(span_ms: u64) -> i128 {
 ///
 /// Per compounding step the accrual can strand at most:
 ///
-/// * under one ray of supply index (`update_supply_index` floors), worth
+/// * under one raw unit of supply index (`update_supply_index` floors), worth
 ///   `supplied / RAY` in value; that part is re-booked to the treasury by
 ///   `supply_index_reward_shortfall`, so it is normally not stranded at all; and
-/// * under one scaled share of protocol fee (`protocol_fee_shares` floors),
+/// * under one raw scaled share of protocol fee (`protocol_fee_shares` floors),
 ///   worth `supply_index / RAY` in value.
 ///
 /// The supply index never decreases during accrual, so the terminal index bounds
 /// every step's contribution.
 ///
-/// Both directions have to scale with `steps`. Measuring both sides with
-/// `mul_floor` does NOT make the comparison rounding-neutral, which is what an
-/// earlier flat `-1` lower bound assumed: production accrues with `Ray::mul`
-/// (`mul_div_half_up`, see common/src/math/fp.rs), so each step's half-up
-/// rounding is already baked into the indexes these floors are applied to. A
-/// step can therefore push `credited` a unit past the floor-measured `charged`
-/// without any interest being minted, and over enough steps that accumulates
-/// past any constant. Run 31856319201 hit exactly this on the partitioned path
-/// (charged=4 credited=6 over a ~2 year span).
+/// Both directions scale with `steps`. Measuring both sides with `mul_floor`
+/// does not make the comparison rounding-neutral: production accrues with
+/// `Ray::mul` (`mul_div_half_up`), so each step's half-up rounding is already
+/// in the indexes. A step can push `credited` one unit past the floor-measured
+/// `charged` without minting interest, so a constant bound fails over enough
+/// steps.
 fn assert_interest_reaches_someone(
     env: &Env,
     borrowed: Ray,
@@ -525,11 +511,9 @@ fn assert_interest_reaches_someone(
     let residual = charged - credited;
 
     // One unit per compounding step for production's half-up rounding, plus one
-    // for the terminal pair of measurement floors. Deliberately far tighter than
-    // the stranding bound below, which carries a `supplied / RAY` term: minting
-    // is the dangerous direction, and reusing that term here would let a real
-    // over-credit of nearly any size pass. If fuzzing ever exceeds this, treat it
-    // as a finding rather than a bound to widen.
+    // for the terminal pair of measurement floors. Minting is the dangerous
+    // direction, so this bound omits the `supplied / RAY` term of the stranding
+    // bound below. A failure here is a finding, not a bound to widen.
     let mint_slack = steps.saturating_add(1);
     assert!(
         residual >= -mint_slack,

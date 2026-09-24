@@ -32,11 +32,10 @@ flow_stress_setup() {
     save_state STRESS_SETUP_DONE 1
 }
 
-# Probes exist to find the CPU/budget frontier: `sim-exceeded` is the expected
-# terminal state and is not a failure. A *contract* error is recorded as
-# `sim-error` and does count, so every probe has to stay inside
-# POSITION_LIMIT_MAX (5) — past it the probe trips #109 PositionLimitExceeded
-# and measures the validator instead of the budget.
+# Probes find the host budget frontier: `sim-exceeded` is an expected end state,
+# not a failure. A contract error is recorded as `sim-error` and counts, so
+# every probe stays within POSITION_LIMIT_MAX (5). Past it, the probe reverts
+# with #109 PositionLimitExceeded and measures the validator, not the budget.
 flow_stress_supply_frontier() {
     phase stress_supply_frontier
     local k args i
@@ -53,10 +52,8 @@ flow_stress_supply_frontier() {
 flow_stress_borrow_frontier() {
     local mode="${1:-single}" colls acct_var
     phase stress_borrow_frontier
-    # Single mode is the worst case, so it sits at the limit itself (5). It used
-    # to be 10, which needed a second supply into the same account — that second
-    # call is what failed with #109 once the limit dropped. At 5 the `colls > 5`
-    # branch below is dead and the account is built in one call.
+    # Single mode is the worst case, so it uses the position limit (5). At 5
+    # the `colls > 5` branch below never runs: one supply builds the account.
     if [ "$mode" = dual ]; then colls=4; acct_var=DAVE_DUAL_ACCT; else colls=5; acct_var=DAVE_ACCT; fi
     local args="" i acct
     if [ -z "${!acct_var:-}" ]; then
@@ -157,9 +154,8 @@ local k i args acct var debt_args repay_args
             save_state "$var" "$acct"
         fi
     done
-    # One maximal account instead of the old 8C8D and 10C10D pair: at a limit of
-    # 5 both collapse to the same shape, and 5 collateral against 5 debts IS the
-    # worst case a liquidation has to clear.
+    # One maximal account: 5 collaterals against 5 debts is the largest
+    # liquidation that the position limit (5) allows.
     if [ -z "${LIQF_ACCT_MAX:-}" ]; then
         args=""
         for i in $(seq 0 4); do args+=" $(stress_sac $i) $((1000 * STRESS_UNIT))"; done
@@ -174,7 +170,7 @@ local k i args acct var debt_args repay_args
         save_state LIQF_ACCT_MAX "$acct"
     fi
 
-    # Only collateral 0-4 is in play now, so there is no reason to move 5-9.
+    # Only collaterals 0-4 back these accounts, so only their prices move.
     for i in $(seq 0 4); do
         dual_px "$(stress_sac $i)" "$(stress_code $i)" $((WAD / 10 * 6)) "crash_$(stress_code $i)"
     done
@@ -204,8 +200,8 @@ local k i args acct var debt_args repay_args
         --debt_payments "$(pay_vec "$PRIMARY_HUB_ID" $repay_args)"
     save_state LIQ_FRONTIER_MAX_FULL "$PROBE_STATUS"
     if [ "$PROBE_STATUS" = ok ]; then
-        # `research` rather than a hard failure: a simulation that fits can still
-        # miss live, and that gap is the measurement, not a regression.
+        # Records `research`, not FAIL: a simulation that fits can still fail
+        # live, and that gap is what this measures.
         if INV_FAIL_STATUS=research inv stress_liquidate_proof_5coll_5debt_full "$CAROL" "$CONTROLLER" -- liquidate --seize_mode "$(seize_transfer)" \
             --liquidator "$CAROL_ADDR" --account_id "$LIQF_ACCT_MAX" \
             --debt_payments "$(pay_vec "$PRIMARY_HUB_ID" $repay_args)" >/dev/null; then
@@ -215,8 +211,8 @@ local k i args acct var debt_args repay_args
         fi
     fi
 
-    # If the full sweep does not land, fall back to the single-debt leg so the
-    # lane still records where the boundary actually sits.
+    # When the full sweep does not land, try the single-debt leg so the lane
+    # still records where the boundary is.
     if [ "${LIQ_FRONTIER_MAX_FULL_LIVE:-}" != ok ]; then
         repay_args="$(stress_sac 14) $((100 * STRESS_UNIT))"
         sim_probe probe_liquidate_5coll_one_debt "$CAROL" "$CONTROLLER" -- liquidate --seize_mode "$(seize_transfer)" \

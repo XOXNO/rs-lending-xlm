@@ -161,10 +161,9 @@ async fn resolve_signer(args: &Args, cfg: &KeeperConfig) -> Result<Ed25519Signer
 
 const DEFAULT_LOG_FILTER: &str = "info,keeper=debug";
 
-/// Chooses the log filter directive. `RUST_LOG` wins when it is set and valid,
-/// so an operator can raise the level on a running container without editing
-/// the mounted config; otherwise `config.log.level` applies. An unusable value
-/// on either side falls back to the default rather than failing startup.
+/// Returns the log filter directive: `RUST_LOG` when it is set and valid, else
+/// `log.level` from the config, else `DEFAULT_LOG_FILTER`. An invalid value
+/// never fails startup.
 fn log_filter_directive(rust_log: Option<&str>, level: &str) -> String {
     for candidate in [rust_log.unwrap_or("").trim(), level.trim()] {
         if !candidate.is_empty() && EnvFilter::try_new(candidate).is_ok() {

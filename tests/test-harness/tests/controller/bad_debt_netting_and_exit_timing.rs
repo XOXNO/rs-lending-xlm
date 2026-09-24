@@ -1,17 +1,13 @@
 //! Bad-debt netting, supplier exit timing, and the same-ledger kink round trip.
 //!
-//! Two questions the original A4-econ tests did not answer:
-//!
-//! 1. Is the "supplier exits ahead of the write-down" behaviour an asymmetric
-//!    capability, or is the remaining supplier equally free to leave? If the
-//!    stayer can exit on the same terms at the same moment, the loss lands on
-//!    whoever chose to stay — which is exactly the pro-rata-over-current-
-//!    suppliers rule ADR-0012 and INV-IDX-03 specify, not a privileged path.
-//! 2. `same_market_residual_is_not_netted_against_socialized_debt` uses
-//!    USDC collateral against ETH debt, where offsetting is impossible without
-//!    selling one asset for the other. The only configuration where netting is
-//!    actually available is a residual collateral leg in the *same* market as
-//!    the socialized debt. This exercises that case.
+//! 1. A supplier can exit ahead of a bad-debt write-down, and the supplier who
+//!    stays has the same exit at the same moment. The loss lands pro-rata on
+//!    the current suppliers (ADR-0012, INV-IDX-03).
+//! 2. `force_socialize_does_not_net_collateral_against_debt` uses USDC
+//!    collateral against ETH debt, where netting needs a swap. Netting is
+//!    available only for a residual collateral leg in the same market as the
+//!    socialized debt; `same_market_residual_is_not_netted_against_socialized_debt`
+//!    covers that case.
 
 use flash_loan_receiver::{FlashLoanMode, FlashLoanRequest};
 use soroban_sdk::xdr::ToXdr;
@@ -24,8 +20,8 @@ fn setup() -> LendingTest {
     LendingTest::new().standard_two_asset_dust_disabled()
 }
 
-/// The "victim" of the dodge has the same exit available at the same moment.
-/// No capability the dodger holds is denied to the stayer.
+/// The supplier who stays has the same exit, at the same moment, as the
+/// supplier who leaves ahead of the write-down.
 #[test]
 fn stayer_has_the_same_exit_as_the_dodger() {
     let mut t = setup();
@@ -40,13 +36,12 @@ fn stayer_has_the_same_exit_as_the_dodger() {
     t.set_price("USDC", usd_cents(10));
     t.assert_liquidatable(ALICE);
 
-    // Bob dodges exactly as A4-econ describes.
+    // Bob exits ahead of the write-down.
     t.withdraw_all(BOB, "ETH");
 
-    // Carol, the alleged victim, is still free to do the identical thing.
-    // A full exit is refused only because she would be the last supplier while
-    // debt is still open (`require_solvent_withdraw_state`) — a rule that binds
-    // whoever leaves last, not a privilege Bob held. She takes all but a token.
+    // Carol can do the same. A full exit fails only because she would be the
+    // last supplier while debt is open (`require_supply_for_debt`, INV-ACCT-09),
+    // a rule that binds whoever leaves last. She withdraws all but 0.1 ETH.
     t.withdraw(CAROL, "ETH", 24.9);
     let carol_recovered = t.token_balance(CAROL, "ETH") - carol_wallet_before;
 
@@ -65,16 +60,17 @@ fn stayer_has_the_same_exit_as_the_dodger() {
     );
 }
 
-/// Same-market residual: Alice keeps an ETH deposit leg *and* an ETH debt leg.
-/// Netting is arithmetically available here. Measure whether it happens.
+/// Alice holds an ETH supply leg and an ETH debt leg, so netting is
+/// arithmetically available. Forced cleanup does not net them: the ETH leg
+/// becomes revenue and the write-down covers the whole debt.
 #[test]
 fn same_market_residual_is_not_netted_against_socialized_debt() {
     let mut t = setup();
 
     t.supply(BOB, "ETH", 100.0);
 
-    // Alice's collateral is mostly USDC, plus a small ETH leg in the very
-    // market she borrows from.
+    // Alice's collateral is mostly USDC, plus a small ETH leg in the market
+    // she borrows from.
     t.supply(ALICE, "USDC", 1000.0);
     t.supply(ALICE, "ETH", 0.010);
     t.borrow(ALICE, "ETH", 0.300);
@@ -112,16 +108,16 @@ fn same_market_residual_is_not_netted_against_socialized_debt() {
         "same-market residual should land in ETH revenue, gain={eth_rev_gain}"
     );
 
-    // THE CLAIM, asserted rather than printed. `alice_debt - bob_loss` is how
-    // much of the socialized debt Alice's own same-market collateral absorbed.
+    // `alice_debt - bob_loss` is the part of the socialized debt that Alice's
+    // own same-market collateral absorbed.
     //
     //   netting     => Bob absorbs only (debt - collateral), so this is
     //                  ~= alice_eth_collateral.
     //   no netting  => Bob absorbs the whole debt, so this is ~= 0 and the
     //                  collateral went to revenue instead.
     //
-    // Both of the bounds above hold either way, so without this the test would
-    // pass unchanged if netting were introduced tomorrow.
+    // The two bounds above hold in both cases; only this assertion tells them
+    // apart.
     let offset_taken = alice_debt - bob_loss;
     assert!(
         offset_taken < alice_eth_collateral * 0.10,
@@ -132,11 +128,10 @@ fn same_market_residual_is_not_netted_against_socialized_debt() {
     );
 }
 
-/// Quantifies how much of a market a large supplier can actually pull out.
-/// `require_utilization_below_max` is checked after the burn, so the exit
-/// ceiling is `f <= 1 - u / max_utilization` of total supply (max_utilization
-/// is 95% in the preset). Confirms the closed form by probing each side of it
-/// on a fresh fixture.
+/// Measures how much of a market a large supplier can withdraw.
+/// `require_utilization_below_max` runs after the burn, so the exit ceiling is
+/// `f <= 1 - u / max_utilization` of total supply (`max_utilization` is 95% in
+/// the preset). Probes each side of the closed form on a fresh fixture.
 #[test]
 fn withdrawal_ceiling_tracks_one_minus_utilization_over_max() {
     // 100 ETH of real supply: Bob 80, Carol 20. Dave drives utilization.
@@ -179,23 +174,20 @@ fn withdrawal_ceiling_tracks_one_minus_utilization_over_max() {
             target_u
         );
         if predicted < 79.9 {
-            // Pin the REASON, not merely that it failed. A bare !is_ok() is also
-            // satisfied by insufficient collateral, a fixture break, or a panic —
-            // any of which would let a ceiling that moved for the wrong reason
-            // survive this test.
+            // Pins the error: a bare `!is_ok()` also passes on insufficient
+            // collateral or a fixture break.
             assert_contract_error(res_above, errors::UTILIZATION_ABOVE_MAX);
         }
     }
 }
 
-/// A4-01b claims that below `hf ~= proportion_seized` no repayment size is
-/// profitable, so liquidators rationally stop, leaving a $12k-debt / $10k-
-/// collateral account permanently unrecognisable because `clean_bad_debt` is
-/// gated at $5 of collateral. Build exactly that account and drive it.
+/// A $12k-debt / $10k-collateral account is above the $5 dust gate of
+/// `clean_bad_debt`, so cleanup refuses it. Partial liquidations still run on
+/// it and shrink it toward the dust gate.
 ///
-/// NOTE on the numbers: the harness pre-funds the liquidator's repayment
-/// (`burn_prefund`), so the ETH spend does not appear as a wallet delta. The
-/// meaningful figure is the seized USD against the $1,000 repaid per step.
+/// The harness mints the liquidator's repayment before each call, so the ETH
+/// spend does not show as a wallet delta. Compare the seized USD with the
+/// $1,000 repaid per step.
 #[test]
 fn deep_underwater_account_still_liquidates_to_the_dust_gate() {
     let mut t = setup();
@@ -218,16 +210,13 @@ fn deep_underwater_account_still_liquidates_to_the_dust_gate() {
         t.can_be_liquidated(ALICE)
     );
 
-    // The permissionless dust gate is shut at this size — A4-01b is right there.
-    // Pin the specific error: a bare is_err() would let any unrelated revert
-    // stand in for the gate actually refusing.
+    // The permissionless dust gate refuses an account of this size.
     assert_contract_error(
         t.try_clean_bad_debt_by_id(alice_id),
         errors::CANNOT_CLEAN_BAD_DEBT,
     );
     std::println!("V3 A4-01b clean_bad_debt at $10k collateral: REVERT (CannotCleanBadDebt)");
 
-    // The load-bearing question: can a liquidator still make money here?
     let repay_usd = 0.5 * 2000.0;
     let mut steps = 0;
     for step in 1..=14 {
@@ -332,44 +321,25 @@ fn band_partial_and_full_close_are_both_profitable_for_the_liquidator() {
 }
 
 // ---------------------------------------------------------------------------
-// F-11: does a nested unguarded pool mutation get reverted by flash's stale Cache?
+// Flash callback re-entry into the controller
 // ---------------------------------------------------------------------------
 //
-// The claim: an owner calling `upgrade_liquidity_pool_params` inside a flash
-// callback reaches `markets.rs:104` `pool_update_indexes_call`, which commits
-// accrual to `PoolKey::State` with no flash guard. `flash::apply` then commits
-// the `Cache` it loaded before the callback, "silently reverting" that accrual.
-//
-// Run the identical flash loan twice — with and without the re-entry — and
-// compare the committed state. If accrual were lost, the two must diverge.
-// Each run gets its own `#[test]` so each owns its `Env`.
+// The owner-gated `upgrade_liquidity_pool_params` calls `pool_update_indexes_call`,
+// which commits accrual with no flash guard. If a flash callback could reach it,
+// pool `flash::apply` would then commit the `Cache` it loaded before the
+// callback and drop that accrual.
 
-/// Strengthens what `flash_loan_adversarial.rs:186`
-/// (`test_flash_loan_reenter_supply_against_live_controller_rejects`) already
-/// covers. That test asserts only `is_err()` via `assert_reentry_fails`, so it
-/// cannot distinguish the Soroban host's re-entry prohibition from the
-/// protocol's own flash guard. This one pins the exact host error, and adds the
-/// owner-gated arm the existing test does not reach.
+/// A flash-loan callback cannot reach any controller entrypoint.
 ///
-/// The property: **a flash-loan
-/// callback cannot reach any controller entrypoint at all.**
+/// The call stack is controller -> pool -> receiver -> controller. Cross-contract
+/// calls default to `ContractReentryMode::Prohibited` (soroban-env-host 27.0.1,
+/// `src/host/frame.rs`), and re-entry into a contract already on the context
+/// stack returns `Error(Context, InvalidAction)`.
 ///
-/// The call stack is controller -> pool -> receiver -> **controller**, and the
-/// Soroban host prohibits contract re-entry. Cross-contract calls default to
-/// `ContractReentryMode::Prohibited`
-/// (soroban-env-host-27.0.1/src/host/frame.rs:110,119) and any re-entry into a
-/// contract already on the context stack returns
-/// `Error(Context, InvalidAction)` (frame.rs:924-950).
-///
-/// The two cases below discriminate the mechanism. `supply` is **not**
-/// owner-gated and auth mocking is left ON, so neither an authorization failure
-/// nor the flash guard can explain its rejection — if the guard were what
-/// fired, `supply` would return `FlashLoanOngoing`. Both return the identical
-/// host error instead.
-///
-/// Consequence for F-11: the precondition (reaching an unguarded controller
-/// entrypoint from inside a callback) cannot be constructed, independently of
-/// the flash guard and of who holds the owner key.
+/// `supply` is not owner-gated and auth mocking stays on, so neither an
+/// authorization failure nor the flash guard (`FlashLoanOngoing`) explains its
+/// rejection. Both cases return the same host error, so no unguarded controller
+/// entrypoint is reachable from a callback, whoever holds the owner key.
 #[test]
 fn flash_callback_cannot_reach_any_controller_entrypoint() {
     let host_reentry_error = soroban_sdk::Error::from_type_and_code(
@@ -423,34 +393,24 @@ fn flash_callback_cannot_reach_any_controller_entrypoint() {
 }
 
 // ---------------------------------------------------------------------------
-// N2: can a same-ledger borrow -> repay round trip across a utilization kink
-// move the index in the attacker's favour?
+// Same-ledger borrow -> repay round trip across a utilization kink
 // ---------------------------------------------------------------------------
 //
-// The claim: `ops::synced_market` (ops/mod.rs:29-33) accrues BEFORE every
-// mutation, reading utilization from committed state — i.e. from before the
-// caller's own borrow. After the first leg `last_timestamp == now`, so the
-// second leg's `elapsed_ms()` is 0, `needs_accrual` (cache/mod.rs:137-139) is
-// false and `global_sync` returns immediately. No index moves.
+// `ops::synced_market` accrues before every mutation, at the utilization of the
+// committed state. After the first leg `last_timestamp == now`, so the second
+// leg's `elapsed_ms()` is 0, `needs_accrual` is false and `global_sync` returns
+// at once. No index moves.
 //
-// A test that only asserts "the indexes are identical" is worthless unless the
-// measurement can detect a move at all. So each case is run twice: once with
-// the round trip closed in the same ledger (the attack), and once holding the
-// position across real time (the positive control). If the second pair does not
-// diverge, the first pair proving equal means nothing.
+// Each shape also runs with the position held across real time. That control
+// must move the indexes, else the same-ledger equality proves nothing.
 
-/// Reads the **committed** `PoolStateRaw` — not a view.
+/// Reads the committed (supply_index, borrow_index, last_timestamp) of `asset`.
 ///
-/// `get_market_indexes_detailed` runs `simulate_update_indexes(now)`
-/// (`views.rs:160` -> `context/market_index.rs:25` -> pool `get_bulk_indexes`,
-/// documented "Simulate accrued indexes ... without writing state"), so it
-/// reconstructs the accrued-to-now value whether or not anything was ever
-/// committed. That would let this test pass even if leg 1 stopped committing.
-/// `get_sync_data` returns the raw stored state instead.
-///
-/// `last_timestamp` is the direct mechanism probe: it is what `mark_accrued()`
-/// (`cache/mod.rs:141-143`) stamps, so asserting it is unchanged across leg 2
-/// tests `elapsed_ms() == 0` itself rather than its numerical effect.
+/// `get_market_indexes_detailed` reaches pool `get_bulk_indexes`, which
+/// simulates accrual to now without writing state, so it would hide a leg that
+/// stopped committing. `get_sync_data` returns the stored state. `last_timestamp`
+/// is what `mark_accrued` stamps, so an unchanged value across leg 2 shows
+/// `elapsed_ms() == 0` directly.
 fn committed_state(t: &LendingTest, asset: &str) -> (i128, i128, u64) {
     let key = test_harness::hub_asset(t.resolve_asset(asset));
     let sync = t.pool_client(asset).get_sync_data(&key);
@@ -465,7 +425,7 @@ fn committed_state(t: &LendingTest, asset: &str) -> (i128, i128, u64) {
 /// `slope3`). `hold`: leave the position open for a day before repaying.
 /// Returns the committed (supply_index, borrow_index, last_timestamp) plus the
 /// borrow rate before and at the peak, so the test can prove the kink was
-/// actually exercised.
+/// exercised.
 fn kink_run(cross: bool, hold: bool) -> (i128, i128, u64, f64, f64) {
     let mut t = LendingTest::new().standard_two_asset_dust_disabled();
     t.supply(ALICE, "USDC", 100_000.0);
@@ -533,8 +493,7 @@ fn same_ledger_kink_roundtrip_cannot_move_the_index() {
         bi_ha
     );
 
-    // Guard 1: the kink is actually being crossed. Without this the test could
-    // silently stop exercising slope3 if a preset changed, and still pass.
+    // Guard 1: the 85% leg crosses the kink into `slope3`.
     assert!(
         r_peak > r_before * 2.0,
         "the 30% -> 85% leg must cross into slope3: {:.6} -> {:.6}",

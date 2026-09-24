@@ -1,8 +1,8 @@
 //! Strategy open: mints debt like a borrow, optionally withholding a flash-style fee.
 //!
-//! Used when the hub opens a leveraged or strategy position that draws pool
-//! liquidity. Fee (if charged) is booked as protocol revenue and never leaves
-//! the pool as cash debit.
+//! The controller calls it to open a strategy position that draws pool
+//! liquidity. A charged fee stays in pool cash and is booked as protocol
+//! revenue.
 
 use common::errors::{FlashLoanError, GenericError};
 use common::math::fp::{Bps, Ray};
@@ -50,11 +50,11 @@ pub(crate) fn apply(
     outcome.mutation
 }
 
-/// Computes the fee, mints debt for `action.amount`, and debits cash for the
-/// net send amount.
+/// Computes the fee, mints debt for `action.amount`, and debits cash for
+/// `amount - fee`.
 ///
-/// The cash debit equals `amount - fee`; the fee remains in the pool and is
-/// credited as protocol revenue via [`interest::add_protocol_revenue`].
+/// The fee stays in the pool as protocol revenue via
+/// [`interest::add_protocol_revenue`].
 pub(crate) fn accounting(env: &Env, action: PoolAction, charge_fee: bool) -> StrategyOutcome {
     let PoolAction {
         position,

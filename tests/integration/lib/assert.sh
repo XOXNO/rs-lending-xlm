@@ -6,11 +6,9 @@ _view_pool_int() {
   view "$1" "$POOL" -- "${@:2}" | tr -d '"' | tr -d '[:space:]'
 }
 
-# Reads a scalar view from whichever contract `VIEW_AT` names, for surfaces that
-# are neither the controller nor the central pool (an owned swap-aggregator, a
-# second price-aggregator). Kept to the `_view_int` argument shape so it can be
-# passed to `_retry_until`; the contract travels via the caller's `local
-# VIEW_AT`, which dynamic scoping makes visible here.
+# Reads a scalar view from the contract that `VIEW_AT` names (default: the
+# controller). Takes the `_view_int` arguments, so `_retry_until` can call it.
+# Callers set `local VIEW_AT`; bash dynamic scoping makes it visible here.
 _view_at_int() {
   view "$1" "${VIEW_AT:-$CONTROLLER}" -- "${@:2}" | tr -d '"' | tr -d '[:space:]'
 }

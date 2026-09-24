@@ -1,5 +1,6 @@
-//! GH-01. The directed-rounding policy end to end: what a user puts in is the
-//! most they can take out, at every index, after any number of repetitions.
+//! GH-01. The directed-rounding policy end to end: a user never takes out more
+//! than the deposit plus accrued interest, at any index, after any number of
+//! repetitions.
 
 use common::math::fp::Ray;
 use common::types::HubAssetKey;

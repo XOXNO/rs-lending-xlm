@@ -1,5 +1,5 @@
 //! Test-only token with fee-on-transfer, extra credit, and optional transfer
-//! hooks into the controller. Not a production SAC.
+//! hooks into the controller.
 
 use common::types::HubAssetKey;
 use soroban_sdk::{
@@ -78,9 +78,9 @@ impl WeirdToken {
         env.storage().instance().set(&Key::ExtraBps, &bps);
     }
 
-    /// After each transfer, the token tries to `supply` 1 unit onto the
-    /// controller as `from`. Used to prove the flash guard covers the
-    /// token-forward window.
+    /// After each transfer, the token calls the controller's `supply` for 1 unit
+    /// as `from`; a revert there reverts the transfer. Used to prove the flash
+    /// guard covers the token-forward window.
     pub fn set_hook(env: Env, controller: Address) {
         env.storage().instance().set(&Key::Hook, &controller);
     }

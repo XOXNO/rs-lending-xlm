@@ -31,17 +31,15 @@ fn market_create_writes_zeroed_state(e: Env, asset: Address, asset_decimals: u32
     cvlr_assert!(post.last_timestamp == crate::time::now_ms(&e));
 }
 
-/// Certora Hub M-03 analogue: creating a market on a `HubAssetKey` that already
-/// exists must revert, never silently re-zero live accounting.
+/// Creating a market on a `HubAssetKey` that already exists reverts; it never
+/// re-zeroes live accounting.
 ///
 /// Counterpart of [`market_create_writes_zeroed_state`]: that rule pins *what*
 /// a first create writes; this one pins that a second create on the same key
-/// can never write it again. Aave's `addSpoke()` re-call zeroed the spoke's
-/// accounting and broke solvency; our guard is `ops/market.rs:24`
-/// (`assert_with_error!(!market_exists, AssetAlreadySupported)`).
+/// can never write it again. The guard is the `!storage::market_exists` assert
+/// in `ops::market::create` (`AssetAlreadySupported`).
 ///
-/// The market is pre-seeded with *live* accounting (non-zero supply and debt),
-/// which is the state Aave's bug destroyed.
+/// The market is pre-seeded with *live* accounting (non-zero supply).
 ///
 /// Revert shape: the trailing assert is reachable only if `create` returns, so
 /// the rule verifies exactly when every path panics. The params passed here are

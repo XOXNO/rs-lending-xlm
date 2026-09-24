@@ -186,16 +186,12 @@ proptest! {
         supply_usdc in 1_000u64..500_000u64,
         borrow_eth_frac_bps in 5_000u16..9_000u16,
         debt_ratio_bps in 8_150u16..8_600u16,
-        // Inclusive: the exclusive range topped out at 9_999 bps, so full
-        // (100%) repayment -- the boundary the whole differential exists to
-        // cover -- was never generated. The reference clamps the payment to the
-        // outstanding debt, so 10_000 is in its domain.
+        // Inclusive, so a full (100%) repayment is generated. The reference
+        // clamps the payment to the outstanding debt.
         liq_repay_frac_bps in 500u16..=10_000u16,
         // Both seize modes share one planner and one reference model: the mode
         // decides only how the liquidator takes delivery, never what the
-        // liquidated account gives up. Before this, every fuzz and proptest
-        // path in the repo ran `SeizeMode::Transfer` only (`try_liquidate`
-        // hardcodes it), so the BigRational oracle had never seen credit mode.
+        // liquidated account gives up.
         use_credit in any::<bool>(),
     ) {
         let t = LendingTest::new().standard_two_asset().build();

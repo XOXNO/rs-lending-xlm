@@ -1,13 +1,13 @@
 //! Flash-loan flow: pays out principal, invokes the receiver callback, pulls
 //! back principal plus fee, then books the fee.
 //!
-//! Asserts the pool SAC balance after principal payout, again after the
+//! Asserts the pool token balance after principal payout, again after the
 //! receiver callback (must still equal post-payout), and after principal+fee
-//! collection.
+//! collection (INV-FLASH-01).
 //!
 //! [`prepare`], [`terms`], [`book_fee`], and [`finalize`] are the accounting
-//! helpers used by [`apply`]; this same set is the surface Certora verifies
-//! without modeling SAC/callback hosts.
+//! helpers used by [`apply`]. Certora specs call `prepare_with_balance`,
+//! [`terms`] and [`book_fee`] directly, without a token or callback model.
 
 use common::errors::{FlashLoanError, GenericError};
 use common::math::fp::{Bps, Ray};
@@ -72,7 +72,7 @@ pub(crate) fn apply(
 
 /// Accrues interest, requires flash loans enabled, and requires cash reserves for `amount`.
 ///
-/// Production front half of [`apply`] before SAC/callback steps.
+/// Front half of [`apply`], before any token call or callback.
 pub(crate) fn prepare(env: &Env, hub_asset: HubAssetKey, amount: i128) -> Cache {
     require_positive_amount(env, amount);
 
@@ -86,15 +86,11 @@ pub(crate) fn prepare(env: &Env, hub_asset: HubAssetKey, amount: i128) -> Cache 
     cache
 }
 
-/// Accrues, requires flash loans enabled and cash for `amount`, then builds
-/// repayment terms from a symbolic/pre-loan `pre_balance`.
+/// Runs [`prepare`] and [`terms`] as [`apply`] does, with a caller-supplied
+/// `pre_balance` in place of the live token balance.
 ///
-/// Composes [`prepare`] + [`terms`] exactly as [`apply`] does after reading the
-/// live SAC balance, letting a caller supply that balance instead of reading a
-/// SAC. Nothing in the production path needs that -- [`apply`] reads the live
-/// balance itself -- so this is compiled only for the Certora specs that drive
-/// full successful-path accounting symbolically, and for the unit tests that
-/// pin the composition. It is deliberately not part of the deployed contract.
+/// Compiled only for unit tests and Certora specs; the deployed contract does
+/// not include it.
 #[cfg(any(test, feature = "certora"))]
 pub(crate) fn prepare_with_balance(
     env: &Env,
@@ -133,7 +129,7 @@ pub(crate) fn book_fee(cache: &mut Cache, fee: i128) {
 
 /// Successful-path tail of [`apply`]: books the fee, commits the market, and emits market state.
 ///
-/// Called only after SAC balance checks confirm principal+fee returned.
+/// Called only after token balance checks confirm principal+fee returned.
 pub(crate) fn finalize(env: &Env, cache: &mut Cache, fee: i128) {
     book_fee(cache, fee);
     events::emit_market_state(env, cache.commit());

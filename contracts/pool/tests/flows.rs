@@ -393,9 +393,9 @@ fn flatten_contract_result<T, E: core::fmt::Debug>(
     }
 }
 
-/// Per-millisecond form of a 200% APR — larger than any accrual rate the curve
-/// can emit. View getters must return annual RAY, so a miswired per-ms value
-/// cannot pass this bound.
+/// Asserts `rate` exceeds `MAX_BORROW_RATE_RAY` (200% APR) in per-millisecond
+/// form, the largest per-ms rate any curve can emit. View getters must return
+/// annual RAY, so a per-ms value fails.
 fn assert_rate_is_annual_apr(rate: i128, label: &str) {
     let max_per_ms = (2 * RAY) / (MILLISECONDS_PER_YEAR as i128);
     assert!(
@@ -2321,8 +2321,8 @@ fn test_update_params_happy_path() {
     );
 }
 
-/// Accrual during `update_params` must use the **old** rate curve for elapsed time,
-/// then commit indexes before the new model is written (ops residual from pool-ops audit).
+/// `update_params` accrues elapsed time under the old rate curve and commits the
+/// indexes before it writes the new model.
 #[test]
 fn test_update_params_accrues_under_old_curve_after_time_advance() {
     let t = TestSetup::new();
@@ -3091,7 +3091,6 @@ fn test_bad_debt_wipeout_leaves_market_usable_at_realistic_scale() {
     assert!(opened.get(0).unwrap().position.scaled_amount > 0);
 }
 
-/// Live seize wipeout → index floor → blocked supply → recap → new supply is safe.
 fn backing_snapshot(t: &TestSetup) -> (i128, i128, i128, i128, i128, i128) {
     t.env.as_contract(&t.pool, || {
         let cache = Cache::load(&t.env, &hub(&t.asset));
@@ -3106,6 +3105,7 @@ fn backing_snapshot(t: &TestSetup) -> (i128, i128, i128, i128, i128, i128) {
     })
 }
 
+/// Live seize wipeout → index floor → blocked supply → recap → new supply is safe.
 #[test]
 fn test_floor_wipeout_blocks_supply_until_recap_then_new_deposit_is_safe() {
     let t = TestSetup::new();
@@ -3188,12 +3188,9 @@ fn test_floor_wipeout_blocks_supply_until_recap_then_new_deposit_is_safe() {
     assert_eq!(token.balance(&bob_recv), bob_deposit);
 }
 
-/// `prepare_with_balance` is not in the deployed contract -- it is compiled only
-/// under `cfg(any(test, feature = "certora"))`, for the Certora specs that drive
-/// flash-loan accounting symbolically and for these tests. The specs prove
-/// properties over whatever it returns, so if its composition ever drifted from
-/// what `apply` does after reading the live SAC balance, those proofs would be
-/// proving something the contract does not do. That is what these pin.
+/// `prepare_with_balance` exists only under `cfg(any(test, feature = "certora"))`.
+/// The Certora flash-loan specs prove properties over its result, so these tests
+/// pin that it builds the same terms `apply` builds from the live SAC balance.
 fn flash_terms_setup() -> (TestSetup, i128, i128) {
     let t = TestSetup::new();
     enable_flashloan(&t);
@@ -3267,24 +3264,22 @@ fn prepare_with_balance_still_runs_the_flashloan_gate() {
 }
 
 // ---------------------------------------------------------------------------
-// The recapitalize refund is bounded by neither the cash book nor custody.
-// Catalogued as A043 gap (5) and A054 §2.3 in
-// https://github.com/XOXNO/rs-lending-xlm/blob/d26b93ebb48d718b69571ec737f0097af3379916/docs/audit/controller-defense/findings/A101-money-movement-gaps.md: the pool
-// trusts its owner's measured amount by design (INV-AUTH-01).
+// The pool bounds the recapitalize refund by neither the cash book nor a
+// balance check of its own. It trusts its owner's measured amount by design
+// (INV-AUTH-01).
 // ---------------------------------------------------------------------------
 
 /// `recapitalize` pays `amount - applied` out through `Cache::transfer_out`,
-/// which checks neither the cash book nor the live SAC balance
-/// (`contracts/pool/src/cache/cash.rs:42-48`) and does not debit `cash`. On a
-/// market with no backing shortfall `applied` is zero, so the entire declared
-/// `amount` is refunded -- out of tokens the pool never received.
+/// which checks neither the cash book nor the live SAC balance and does not
+/// debit `cash`. On a market with no backing shortfall `applied` is zero, so
+/// the entire declared `amount` is refunded out of tokens the pool never
+/// received.
 ///
 /// Every pool mutator is `#[only_owner]`, so reaching this needs the controller
-/// to pass an `amount` it did not measure; the honest controller measures at
-/// `contracts/controller/src/keepers.rs:56-65`. That is what makes this a
-/// defence-in-depth gap rather than a reachable loss. What this test pins is
-/// that the pool contributes no bound of its own: the payout is limited only by
-/// what the owner declares.
+/// to pass an `amount` it did not measure; the controller's
+/// `markets::recapitalize` measures the receipt. The gap is defence in depth,
+/// not a reachable loss. This test pins that the pool adds no bound of its
+/// own: only the owner's declared amount limits the payout.
 #[test]
 fn test_recapitalize_refund_pays_out_tokens_the_pool_never_received() {
     let t = TestSetup::new();
@@ -3304,7 +3299,7 @@ fn test_recapitalize_refund_pays_out_tokens_the_pool_never_received() {
     });
     assert_eq!(shortfall, 0, "fixture must be fully backed");
 
-    // Nothing is transferred in. The owner simply declares a payment on its behalf.
+    // Nothing is transferred in; the owner declares a payment on the payer's behalf.
     let applied = t
         .client()
         .recapitalize(&hub(&t.asset), &payer, &custody_before)
@@ -3344,11 +3339,9 @@ fn assert_unfunded_refund_drained_custody(
     assert_pool_state_eq(&after, before);
 }
 
-/// The consequence of the above: `cash` overstates custody, so
-/// `Cache::require_reserves` -- which reads the book, not the balance
-/// (`contracts/pool/src/cache/cash.rs:14-20`) -- keeps admitting exits that
-/// then die inside the SAC transfer. The market reports itself solvent and
-/// cannot pay.
+/// After an unfunded refund, `cash` overstates custody. `Cache::require_reserves`
+/// reads the book, not the balance, so it admits exits that then fail inside
+/// the SAC transfer. The market reports itself solvent and cannot pay.
 #[test]
 fn test_unfunded_recapitalize_leaves_the_cash_book_overstating_custody() {
     let t = TestSetup::new();
@@ -3392,12 +3385,10 @@ fn test_unfunded_recapitalize_leaves_the_cash_book_overstating_custody() {
         outcome.is_err(),
         "the withdraw cannot be paid, so it must fail"
     );
-    // The failure must come from custody, not from a pool guard. A Stellar
-    // Asset Contract reports insufficient balance as its own contract error
-    // `BalanceError = 10`, in the SAC's error space rather than the protocol's
-    // -- so this asserts the exact code the SAC raises, and separately that it
-    // is neither of the pool's liquidity guards, which is the claim that
-    // matters: `require_reserves` read the book and let the exit through.
+    // The failure must come from custody, not from a pool guard. The SAC
+    // reports insufficient balance as its own contract error `BalanceError = 10`.
+    // The asserts check that exact code and that neither pool liquidity guard
+    // fired: `require_reserves` read the book and let the exit through.
     const SAC_BALANCE_ERROR: u32 = 10;
     match outcome {
         Err(Ok(err)) => {
@@ -3429,10 +3420,9 @@ fn test_unfunded_recapitalize_leaves_the_cash_book_overstating_custody() {
     );
 }
 
-/// The payout is bounded by live custody, not by the declared amount: claiming
-/// more than the pool holds reverts inside the SAC rather than minting a
-/// negative balance. Worth pinning because it caps the blast radius of an
-/// unmeasured owner call at the pool's real holdings for that asset.
+/// Live custody bounds the payout, not the declared amount: claiming more than
+/// the pool holds reverts inside the SAC. This caps an unmeasured owner call at
+/// the pool's real holdings of that asset.
 #[test]
 fn test_unfunded_recapitalize_is_bounded_by_custody_not_by_the_declared_amount() {
     let t = TestSetup::new();
@@ -3460,17 +3450,15 @@ fn test_unfunded_recapitalize_is_bounded_by_custody_not_by_the_declared_amount()
 }
 
 /// The asset-substitution payload: pay in a worthless token, be refunded in a
-/// real one. The controller moves `hub_asset.asset` inbound
-/// (`contracts/controller/src/keepers.rs:56-65`) while the pool refunds with
-/// `self.params.asset_id` (`contracts/pool/src/cache/cash.rs:46`), so if those
-/// two could ever name different tokens the refund would be a swap.
+/// real one. The controller's `markets::recapitalize` moves `hub_asset.asset`
+/// inbound while `Cache::transfer_out` refunds in `params.asset_id`, so if those
+/// two could name different tokens the refund would be a swap.
 ///
 /// They cannot. `ops::market::create` derives the storage key from
-/// `params.asset_id` itself (`contracts/pool/src/ops/market.rs:21-24`), so
-/// `key.asset == params.asset_id` holds for every market that exists, and a
-/// `hub_asset` naming any other token resolves to no market at all. This test
-/// pins both halves, because the guarantee is structural rather than asserted
-/// and a refactor that passed the key and the params separately would lose it.
+/// `params.asset_id`, so `key.asset == params.asset_id` holds for every market,
+/// and a `hub_asset` naming any other token resolves to no market. This test
+/// pins both halves: the guarantee is structural, and a refactor that passes
+/// the key and the params separately would lose it.
 #[test]
 fn test_recapitalize_rejects_a_hub_asset_that_names_no_market() {
     let t = TestSetup::new();
@@ -3525,19 +3513,17 @@ fn test_recapitalize_rejects_a_hub_asset_that_names_no_market() {
     });
 }
 
-/// F-06 generalised: the refund gap is not specific to `recapitalize`. Two pool
-/// legs pay out a refund derived from a declared inbound amount rather than
-/// from the cash book -- `ops/recapitalize.rs:34` (the excess over the
-/// shortfall) and `ops/repay.rs:33` (the excess over the debt). Neither is
-/// debited from `cash`, and neither is bounded by `require_reserves`, because
-/// both are refunding money the pool was told it had just received.
+/// The refund gap is not specific to `recapitalize`. Two pool legs refund an
+/// excess derived from a declared inbound amount, not from the cash book:
+/// `ops::recapitalize::apply` (the excess over the shortfall) and
+/// `ops::repay::apply` (the excess over the debt). Neither refund debits `cash`
+/// or passes `require_reserves`.
 ///
-/// A repay against a market with no debt makes the ENTIRE declared amount an
+/// A repay against a market with no debt makes the entire declared amount an
 /// overpayment: `current_debt_ceil` is zero, so `resolve_repay` takes the
-/// full-close branch, `net_repay` is zero and the assert at `ops/repay.rs:49`
-/// passes on its `net_repay == 0` disjunct. The whole declared amount is then
-/// refunded out of real custody with the book untouched -- the same shape as
-/// the unfunded recapitalize above, reached through a different entrypoint.
+/// full-close branch and `net_repay` is zero. The `RepayRoundsToZeroShares`
+/// assert in `ops::repay::accounting` passes on its `net_repay == 0` disjunct,
+/// and the whole amount is refunded out of real custody with the book untouched.
 #[test]
 fn test_unfunded_repay_overpayment_refund_also_pays_out_of_custody() {
     let t = TestSetup::new();

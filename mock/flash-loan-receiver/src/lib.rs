@@ -34,11 +34,7 @@ pub enum FlashLoanMode {
     ReenterControllerRdwc = 16,
     ReenterControllerLiquidate = 17,
     ReenterMigrateBlend = 18,
-    /// V3 audit: reach an unguarded controller->pool state mutation
-    /// (`markets.rs:99` `pool_update_indexes_call`) from inside the callback.
-    /// `markets.rs` has no flash-guard site at all; the other unguarded pool
-    /// mutations there are `pool_create_market_call` (:80),
-    /// `pool_update_params_call` (:101) and `pool_upgrade_call` (:110).
+    /// Re-enters the owner-only `upgrade_liquidity_pool_params`, a path with no flash guard.
     ReenterControllerUpgradePoolParams = 19,
 }
 
@@ -472,8 +468,8 @@ fn reenter_migrate_blend(env: &Env, asset: &Address) {
 
 /// Calls the controller's `#[only_owner]` `upgrade_liquidity_pool_params` from
 /// inside the flash callback. That path runs `pool_update_indexes_call` with no
-/// flash guard, so it commits accrual to `PoolKey::State` while `flash::apply`
-/// still holds an uncommitted `Cache`.
+/// flash guard. The host re-entry rule rejects the call with
+/// `Error(Context, InvalidAction)` first.
 fn reenter_controller_upgrade_pool_params(env: &Env, asset: &Address) {
     let plan = resolve_plan(env);
     let model = InterestRateModel {

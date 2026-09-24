@@ -127,11 +127,8 @@ fn upgrade_to_unknown_wasm_hash_fails() {
     assert!(router.try_upgrade(&missing).is_err());
 }
 
-// Every entry point calls `renew_instance` precisely so the router's instance
-// storage -- owner, fee config, whitelist -- cannot expire out from under a
-// live contract. Asserting the TTL is the only way to observe that: a router
-// that never renews behaves identically until the ledger passes the threshold,
-// at which point the instance is archived and every entry point starts failing.
+// `renew_instance` sets the router instance TTL to `TTL_BUMP_INSTANCE`, both on
+// a fresh instance and after the TTL falls below `TTL_THRESHOLD_INSTANCE`.
 #[test]
 fn renew_instance_re_extends_router_instance_ttl() {
     use common::constants::{TTL_BUMP_INSTANCE, TTL_THRESHOLD_INSTANCE};
@@ -146,8 +143,7 @@ fn renew_instance_re_extends_router_instance_ttl() {
         assert_eq!(env.storage().instance().get_ttl(), TTL_BUMP_INSTANCE);
     });
 
-    // Age the ledger just past the renewal threshold so the next call has to do
-    // real work rather than finding the TTL already high enough.
+    // Age the ledger so the TTL falls one ledger below the renewal threshold.
     let aged = TTL_BUMP_INSTANCE - TTL_THRESHOLD_INSTANCE + 1;
     env.ledger().with_mut(|l| l.sequence_number += aged);
 

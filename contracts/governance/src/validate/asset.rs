@@ -1,5 +1,5 @@
 //! Validation helpers for asset onboarding: token decimals and symbol checks,
-//! per-spoke position limits, market creation parameters, and spoke cap arguments.
+//! per-account position limits, market creation parameters, and spoke cap arguments.
 
 use common::constants::{MAX_ASSET_DECIMALS, MIN_ASSET_DECIMALS, POSITION_LIMIT_MAX};
 use common::errors::{CollateralError, GenericError};

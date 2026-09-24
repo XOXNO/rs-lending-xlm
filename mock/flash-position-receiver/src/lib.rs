@@ -1,11 +1,10 @@
 #![no_std]
-// The contract ABI fixes these arities: the entrypoint and its generated
-// client both exceed the lint. Same treatment as mock/flash-loan-receiver.
+// The fixed `execute_flash_position` ABI and its generated client exceed this lint.
 #![allow(clippy::too_many_arguments)]
 
 //! Test-only `execute_flash_position` receiver for live testnet coverage.
-//! Not for production. Any address can `set_plan`; a real receiver must gate
-//! the caller to the trusted controller.
+//! It does not check who calls `set_plan` or `execute_flash_position`. A
+//! production receiver must accept the callback only from the trusted controller.
 
 use common::types::{HubAssetKey, PositionMode};
 use controller_interface::ControllerClient;

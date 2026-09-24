@@ -1,4 +1,4 @@
-//! Claim protocol revenue: burn treasury shares and transfer cash to the owner.
+//! Claim protocol revenue: burn revenue shares and transfer cash to the owner.
 
 use common::errors::GenericError;
 use common::types::{HubAssetKey, PoolAmountMutation};
@@ -18,8 +18,7 @@ pub(crate) struct RevenueOutcome {
 
 /// Claims all currently claimable revenue and pays it to the Ownable owner.
 /// Emits a market state snapshot in all cases. If nothing is claimable, returns
-/// a mutation with `actual_amount` zero and performs no transfer; otherwise
-/// transfers the claimed amount to the owner after accounting.
+/// a mutation with `actual_amount` zero and performs no transfer.
 pub(crate) fn apply(env: &Env, hub_asset: HubAssetKey) -> PoolAmountMutation {
     let outcome = accounting(env, hub_asset);
 

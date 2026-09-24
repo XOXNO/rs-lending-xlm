@@ -29,8 +29,9 @@ freeze cannot clear it either, because every flag write advances the listing's
 flags epoch and the old relaxation names the old epoch. Other pending
 operations, such as `Unpause`, still execute as proposed.
 
-1. The verb prints every recorded operation with its live state. `make <network>
-   listOps` prints the same list.
+1. The verb prints every operation recorded in `configs/ops/<network>/` with its
+   live state. `make <network> listOps` prints the same list. An operation
+   proposed without a record there does not appear.
 2. Cancel each `Waiting` or `Ready` operation that must not run during the
    incident: `make <network> cancelOp <op-id> SIGNER=<canceller>`. A pending
    edit of the frozen listing that names the old flags reverts at execution;
@@ -38,13 +39,15 @@ operations, such as `Unpause`, still execute as proposed.
 
 ## Clear the flags
 
-    make <network> relaxAssetFlags <config-spoke-id> <asset> <flags>
+    make <network> relaxAssetFlags <config-spoke-id> <asset> <flags> SIGNER=<proposer>
 
 1. `<flags>` is a comma list of the flags to clear. The verb reads the live
    listing and its flags epoch, keeps every flag not named, and schedules
    `RelaxSpokeAssetFlags` bound to that epoch. It refuses a flag that is not set.
-2. Execute the operation after its delay. If any flag write lands first, the
-   operation reverts with `SpokeFlagsEpochMismatch`; run the verb again.
+2. The verb waits for the delay, then executes the operation. With
+   `AUTO_EXECUTE=0` it only schedules; run `make <network> executeOp <op-id>`
+   after the delay. If any flag write lands first, the operation reverts with
+   `SpokeFlagsEpochMismatch`; run the verb again.
 3. Read the listing again with
    `make <network> getSpokeAsset <config-spoke-id> <asset>`.
 

@@ -8,13 +8,13 @@ use soroban_sdk::contracterror;
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum GenericError {
-    // Reserved: retired codes kept declared so their numbers can never be
-    // reused and existing error codes never shift. See docs/reference/errors.md.
-    // Not dead code — do not delete.
+    // Reserved: a retired code stays declared so its number is never reused
+    // and no other code shifts. See docs/reference/errors.md. Do not delete.
     AssetNotSupported = 1,
 
     AssetAlreadySupported = 2,
 
+    // Reserved: see the note on `AssetNotSupported` above.
     InvalidTicker = 3,
 
     PoolAlreadyDeployed = 5,
@@ -114,6 +114,7 @@ pub enum CollateralError {
 
     PositionLimitExceeded = 109,
 
+    // Reserved: see the note on `GenericError::AssetNotSupported`.
     PositionNotFound = 110,
 
     InvalidPositionMode = 111,
@@ -208,9 +209,8 @@ pub enum OracleError {
 
     SanityBandTooWideForSingleSource = 226,
 
-    /// The immediate `set_sanity_band` path may only tighten a band. Widening
-    /// (a lower min or higher max) must go through the timelocked
-    /// `ConfigureAssetOracle` path so it has a reaction window (INV-AUTH-04).
+    /// `set_sanity_band` would widen the band (a lower min or a higher max).
+    /// Only the timelocked `ConfigureAssetOracle` operation widens a band (INV-AUTH-04).
     SanityBandMustTighten = 227,
 
     TwapRecordsOutOfRange = 228,
@@ -293,13 +293,12 @@ pub enum StrategyError {
 
     NoSwapOutput = 502,
 
-    /// Declared collateral list is empty or every minimum is zero.
+    /// Every declared collateral minimum is zero.
     CollateralRequired = 503,
 
-    /// Measured collateral push is below the caller-declared minimum.
+    /// A measured collateral deposit is below its declared minimum, or no deposit is positive.
     CollateralMinimumNotMet = 504,
 
-    /// `flash_position` finished debt-free or without supply — a round-trip
-    /// close that would be a free cash flash loan.
+    /// `flash_position` ends without supply, or without debt in its declared debt market.
     FlashPositionClosed = 505,
 }

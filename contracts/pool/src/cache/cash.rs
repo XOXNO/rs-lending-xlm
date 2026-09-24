@@ -1,7 +1,7 @@
 //! Cash reserve bookkeeping and outbound token transfers.
 //!
-//! Accounting cash is updated on supply/borrow/repay paths. Live token
-//! transfers use the market's `asset_id` SAC client.
+//! `credit_cash` and `debit_cash` change accounting cash. `transfer_out`
+//! moves tokens through the market's `asset_id` token client.
 
 use common::errors::{CollateralError, GenericError};
 use common::validation::require_nonneg_amount;

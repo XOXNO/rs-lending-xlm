@@ -1,6 +1,7 @@
 //! GH-18, GH-19, GH-20. `flash_position` accepts only the three strategy
-//! modes, refuses a market whose flash loans are disabled, and collapses to a
-//! plain borrow when the debt asset is declared as collateral.
+//! modes and refuses a market whose flash loans are disabled. A debt asset
+//! declared as collateral books as ordinary collateral: alone it fails the
+//! solvency gate, and next to other collateral the position opens.
 
 use common::types::HubAssetKey;
 use controller::types::PositionMode;

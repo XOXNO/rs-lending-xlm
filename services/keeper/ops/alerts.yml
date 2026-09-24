@@ -54,7 +54,7 @@ groups:
           summary: "rs-lending keeper planning jobs but completing none"
           description: >
             Jobs were planned in the last 15m but no transaction succeeded. Check
-            RPC connectivity, signer XLM balance and KEEPER role, and recent
+            RPC connectivity, signer XLM balance, and recent
             keeper_txs_total{status=~"failed|error"} / keeper_sim_failures_total.
 
 
@@ -83,11 +83,9 @@ groups:
             {{ $labels.kind }}. Check fees, sequence, and RPC health; persistent
             failures lead to missed TTL extension.
 
-      # `up == 0` catches a dead process and `KeeperEntriesArchived` catches the
-      # damage after the fact. Neither catches the gap between them: a keeper
-      # that is alive but whose TTL loop is wedged — a hung RPC, a stuck await.
-      # `KeeperNotProgressing` and `KeeperTickFailing` both need the tick to run
-      # first, so they stay silent through exactly this failure.
+      # Catches a live process whose TTL loop is wedged (a hung RPC call or a
+      # stuck await). `KeeperNotProgressing` and `KeeperTickFailing` need a tick
+      # to run, so they stay silent in this case.
       - alert: KeeperTickStalled
         expr: time() - keeper_last_tick_timestamp_seconds > 43200
         for: 30m
@@ -101,11 +99,10 @@ groups:
             checked and every keeper_entry_* gauge is stale. Check RPC
             reachability from the keeper and the keeper.discovery logs.
 
-      # A key encoding that matches nothing looks exactly like "nothing to do":
-      # zero jobs planned, no failures, no archived entries. The only signature
-      # is a whole group reading never_created. The baseline is 1
-      # (controller/roles — the controller has no access-control roles), so this
-      # alerts on the count rising above that.
+      # A key encoding that matches nothing looks like "nothing to do": no jobs
+      # planned, no failures, no archived entries. Its only signature is a group
+      # where every key reads never_created. The baseline is 1 (controller/roles:
+      # the controller has no access-control roles), so this alerts above 1.
       - alert: KeeperKeyGroupUnreachable
         expr: |
           count(
@@ -125,8 +122,9 @@ groups:
             other metric shows it. Compare the keeper key builder against the
             contract's storage key enum for the affected group.
 
-      # An entry the RPC no longer returns has been evicted outright. Unlike
-      # `expired`, the keeper cannot restore what it cannot read.
+      # `archived` is a row with TTL metadata but no value. The keeper RPC client
+      # never builds such a row, so this alert cannot fire. The RPC returns an
+      # evicted entry with its value and live-until 0, so it reads as expired.
       - alert: KeeperEntriesEvicted
         expr: sum(keeper_entries{state="archived"}) > 0
         for: 10m

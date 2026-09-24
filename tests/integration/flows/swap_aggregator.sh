@@ -1,10 +1,9 @@
 : "${SA_FEE_CAP:=1000}"
 
-# The swap-aggregator's owner-only surface: fees, whitelist, referrals, fee
-# balances and sweeps. None of it was reachable before, because the harness only
-# ever talked to the shared `$AGGREGATOR` from configs/networks.json, which this
-# run does not own. `$OWNED_AGGREGATOR` is a throwaway instance deployed by
-# deploy_protocol with ADMIN as owner.
+# Tests the swap-aggregator's owner calls: fee, whitelist, referrals, fee
+# claims and sweep. The run does not own the shared `$AGGREGATOR` from
+# configs/networks.json, so it uses `$OWNED_AGGREGATOR`, a throwaway instance
+# that deploy_protocol deploys with ADMIN as owner.
 flow_swap_aggregator_admin() {
     phase swap_agg_admin
     if [ -z "${OWNED_AGGREGATOR:-}" ]; then
@@ -13,9 +12,8 @@ flow_swap_aggregator_admin() {
     fi
     local agg="$OWNED_AGGREGATOR"
 
-    # Ownership gates every setter below, so pin the identity up front. `admin`
-    # and `get_owner` must agree — `admin` panics with NotAdmin when unset,
-    # which is why it is worth reading both rather than either alone.
+    # Every setter below is owner-only. `admin` and `get_owner` must both
+    # return ADMIN; `admin` panics with NotAdmin (#20) when no owner is set.
     assert_view_eq_at "$agg" sa_owner_initial "$ADMIN_ADDR" get_owner
     assert_view_eq_at "$agg" sa_admin_initial "$ADMIN_ADDR" admin
 
@@ -24,7 +22,7 @@ flow_swap_aggregator_admin() {
     inv sa_set_fee "$ADMIN" "$agg" -- set_static_fee --fee_bps 50 >/dev/null
     assert_view_eq_at "$agg" sa_fee_after_set 50 static_fee_bps
 
-    # The cap is the only thing standing between an owner and a 100% fee.
+    # FEE_CAP (1000 BPS) bounds the owner's fee: above it reverts FeeTooHigh.
     xfail sa_fee_above_cap 'Error\(Contract, #21\)' "$ADMIN" "$agg" -- set_static_fee \
         --fee_bps $((SA_FEE_CAP + 1))
     # At the cap exactly it must still be accepted.
@@ -32,14 +30,13 @@ flow_swap_aggregator_admin() {
     assert_view_eq_at "$agg" sa_fee_at_cap "$SA_FEE_CAP" static_fee_bps
     inv sa_reset_fee "$ADMIN" "$agg" -- set_static_fee --fee_bps 0 >/dev/null
 
-    # A non-owner must not be able to move the fee at all.
+    # A non-owner cannot set the fee.
     xfail sa_fee_not_owner "Missing signing key for account $ADMIN_ADDR" "$BOB" "$agg" -- set_static_fee --fee_bps 10
 
     # --- whitelist ---
-    # XLM_SAC, not one of the LIQ* assets: those are created by flow_liq_setup,
-    # which only the `liq` lane runs. Referencing SAC_LIQA here aborted the whole
-    # `agg` lane under `set -u` before governance ever started. XLM_SAC is set by
-    # deploy_protocol, so it exists in every lane.
+    # XLM_SAC, not a LIQ* asset: deploy_protocol sets XLM_SAC in every lane,
+    # but only the `liq` lane runs flow_liq_setup. An unset SAC_LIQA aborts the
+    # `agg` lane under `set -u`.
     local tok="$XLM_SAC"
     assert_view_eq_at "$agg" sa_wl_before false is_whitelisted --token "$tok"
     inv sa_wl_add "$ADMIN" "$agg" -- add_to_whitelist --token "$tok" >/dev/null
@@ -106,8 +103,8 @@ flow_swap_aggregator_admin() {
     fi
     inv sa_ref_reactivate "$ADMIN" "$agg" -- set_referral_active --id "$ref_id" --active true >/dev/null
 
-    # Hand the referral to CAROL so the referral-owner-gated claim below is
-    # exercised as CAROL, not as the contract owner.
+    # Moves the referral to CAROL, who then runs the claim below.
+    # `claim_referral_fees` takes no auth and pays the stored owner.
     inv sa_ref_set_owner "$ADMIN" "$agg" -- set_referral_owner \
         --id "$ref_id" --new_owner "$CAROL_ADDR" >/dev/null
     ref=$(view sa_ref_after_owner "$agg" -- referral --id "$ref_id")
@@ -118,9 +115,8 @@ flow_swap_aggregator_admin() {
     fi
 
     # --- fee balances and claims ---
-    # No swap has routed through this instance, so both balances are zero and
-    # the claims are no-ops. That is the point: they must succeed rather than
-    # revert on an empty balance, or a referral with no volume could never call.
+    # No swap routes through this instance, so both balances are zero. The
+    # claims must succeed as no-ops on an empty balance, not revert.
     assert_view_eq_at "$agg" sa_admin_fee_zero 0 admin_fee_balance --token "$tok"
     assert_view_eq_at "$agg" sa_ref_fee_zero 0 referral_fee_balance --id "$ref_id" --token "$tok"
 

@@ -128,9 +128,9 @@ fn oracle_role_tightens_sanity_band_containing_price() {
 
     let before = t.market_oracle_config(&usdc);
 
-    // The market starts on `tight_single_source_band` = [0.99, 1.01]. F-3
-    // restricts the immediate ORACLE_ROLE path to tightening, so the new band
-    // must sit inside the old one; widening now needs the timelock.
+    // The market starts on `tight_single_source_band` = [0.99, 1.01]. The
+    // immediate `ORACLE_ROLE` path may only tighten, so the new band sits
+    // inside the old one. Widening needs the timelock.
     let min = usd(1) * 995 / 1000;
     let max = usd(1) * 1005 / 1000;
     gov.set_sanity_band(
@@ -152,9 +152,8 @@ fn oracle_role_tightens_sanity_band_containing_price() {
 
 #[test]
 fn sanity_band_not_containing_price_fails_closed_at_read() {
-    // Both bands exclude the live price of usd(1). Each is a tightening of the
-    // seeded [0.95, 1.05] start below, so F-3's ratchet admits the write and
-    // the failure has to surface at read time rather than at the write.
+    // Both bands exclude the live price of usd(1). Each tightens the seeded
+    // [0.95, 1.05] band, so the write succeeds and the read fails.
     for (min_wad, max_wad) in [
         (usd(1) * 1005 / 1000, usd(1) * 105 / 100),
         (usd(1) * 95 / 100, usd(1) * 995 / 1000),
@@ -164,8 +163,8 @@ fn sanity_band_not_containing_price_fails_closed_at_read() {
         let admin = t.admin();
         let usdc = t.resolve_asset("USDC");
 
-        // The market defaults to a 1%-wide band; widen it out of band before
-        // the governed call, which may only narrow.
+        // The market defaults to a +/-1% band. Widen it outside governance
+        // first, because the governed call may only narrow it.
         t.seed_sanity_band("USDC", usd(1) * 95 / 100, usd(1) * 105 / 100);
 
         flatten(gov.try_set_sanity_band(
@@ -196,7 +195,7 @@ fn sanity_band_may_only_tighten_on_the_immediate_path() {
     let usdc = t.resolve_asset("USDC");
 
     // Starting band is [0.99, 1.01] (100 bps). Tighten to 75 bps, leaving room
-    // for a second tighten above MIN_SANITY_BAND_BPS (50).
+    // for a second tighten to `MIN_SANITY_BAND_BPS` (50).
     let narrow_min = usd(1) * 9925 / 10000;
     let narrow_max = usd(1) * 10075 / 10000;
     gov.set_sanity_band(
@@ -214,9 +213,8 @@ fn sanity_band_may_only_tighten_on_the_immediate_path() {
     );
     assert_contract_error(flatten(result), errors::SANITY_BAND_MUST_TIGHTEN);
 
-    // F-3: widening is refused on this path too, even when the new band still
-    // contains the live price and overlaps the old one. Only the timelock may
-    // widen. Before the ratchet this call succeeded and walked the band.
+    // Widening is refused even when the new band contains the live price and
+    // overlaps the old one. Only the timelock may widen.
     let wide_min = usd(1) * 94 / 100;
     let wide_max = usd(1) * 106 / 100;
     let widened = gov.try_set_sanity_band(

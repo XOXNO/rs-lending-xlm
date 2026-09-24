@@ -204,20 +204,16 @@ fn test_scaled_amount_times_index_equals_actual() {
     let scaled = common::math::fp::Ray::from(scaled_borrow);
     let index = common::math::fp::Ray::from(borrow_index);
 
-    // `views::borrow_amount_for_hub_asset` documents half-up for the *view*
-    // (views.rs:90). Pin it exactly against the contract's own number: the old
-    // form compared two harness reconstructions inside a ±1 window that is
-    // precisely the half-up/ceil/floor spread, so a rounding-direction flip in
-    // the view was invisible.
+    // `views::borrow_amount_for_hub_asset` unscales half up. An exact match
+    // catches a rounding-direction flip in the view.
     assert_eq!(
         reported,
         common::rates::unscale_borrow(&t.env, scaled, index, 7),
         "get_borrow_amount must be the half-up unscaling of scaled x index"
     );
 
-    // ADR-0003: what the pool actually charges rounds up. Drive the contract:
-    // one stroop under the ceil value must leave the position open, and the
-    // residual must close it.
+    // ADR-0003: the amount owed rounds up. One stroop under the ceil value
+    // leaves the position open, and the residual stroop closes it.
     let computed_actual = common::rates::unscale_borrow_ceil(&t.env, scaled, index, 7);
     t.repay_raw(ALICE, "ETH", computed_actual - 1);
     assert_eq!(

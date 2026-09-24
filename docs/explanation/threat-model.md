@@ -41,23 +41,24 @@ operation tier:
 | Sensitive | `max(minimum, 12)` |
 | Recovery | `max(minimum, 518400)` |
 
-The repository's [network configuration](../../configs/networks.json) sets both
-minimums to 12 ledgers. Verify the deployed minimum and its review window before
-funding. Raising the configured minimum and changing a compiled tier floor are
-different actions.
+The repository's [network configuration](../../configs/networks.json) sets the
+minimum to 12 ledgers on testnet and mainnet. Verify the deployed minimum and
+its review window before funding. Raising the configured minimum and changing a
+compiled tier floor are different actions.
 
 GUARDIAN can immediately pause, tighten listing flags, and create empty hubs
 or spokes. ORACLE can immediately narrow sanity bands. The owner can revoke
 those two hot roles immediately and perform one-time deployment bootstrap.
 Reopening, global position-manager changes, and ordinary upgrades use delayed
-operations. Controller construction/upgrade pauses the controller; this is
-not a guarantee that every component upgrade pauses lending.
+operations. Controller construction and upgrade pause the controller. Pool,
+position NFT, price aggregator and governance upgrades do not pause lending.
 
 A PROPOSER that is not the owner can schedule listing, cap, curve and limit
-changes, but not code upgrades, price or swap sources, Blend approvals, the
-revenue accumulator or role grants; those need the owner as proposer. A stolen
-non-owner PROPOSER key can therefore disrupt (pause, freeze, cancel, change risk
-parameters) but cannot replace code or prices.
+changes. Ownership transfers, code upgrades and migration, price and swap
+sources, Blend approvals, the revenue accumulator and role grants need the owner
+as proposer. A stolen non-owner PROPOSER key can therefore schedule disruptive
+changes, such as listing flags, risk parameters, role revocations or an unpause,
+but cannot replace code or prices.
 
 Typed proposals perform proposal-time checks; targets retain execution-time
 validation. Ready operations must also be within the grace window. Anyone may
@@ -281,7 +282,7 @@ these rows do not assign severity or establish exploitability.
 | Info.2 | Liquidation competition and MEV; the bonus curve bounds terms, not ordering or liquidator profit. |
 | Info.3 | Visible pending governance changes allow anticipatory positioning; observability is intentional. |
 | Info.4 | Invalid quotes may contain prices; use validity flags or strict reads. |
-| DoS.1 | Price outage blocks valuation-dependent actions, including liquidation; fail-closed availability cost. Supply needs no price, so an indebted borrower can add a dust leg of any listed collateral and so SELECT which feed outage shields the account; for an Aquarius LP leg the pool-value floor is an outage that liquidity providers can cause. The same leg blocks bad-debt cleanup and force-socialization. |
+| DoS.1 | Price outage blocks valuation-dependent actions, including liquidation; fail-closed availability cost. Supply needs no price, so an indebted borrower can add a dust leg of any listed collateral and choose which feed outage shields the account. For an Aquarius LP leg, liquidity providers can cause that outage by withdrawing pool value below `min_pool_value_wad`. The same leg blocks bad-debt cleanup and force-socialization. |
 | DoS.2 | Selected paused debt or no_seize collateral blocks liquidation; distinct flag policies matter. |
 | DoS.3 | False-alarm pause needs delayed reopening; emergency response is asymmetric. |
 | DoS.4 | Lost governance keys; proposer safeguards and owner-dependent canceller recovery do not restore a lost owner. |
@@ -290,7 +291,7 @@ these rows do not assign severity or establish exploitability.
 | DoS.7 | Signer liveness loss prevents new aggregates; a prior aggregate can remain usable until stale. |
 | DoS.8 | Cash/utilization/cap limits reject otherwise desired actions; zero caps admit no new exposure. |
 | DoS.9 | Dust and zero-share movements; rejection/floors reduce griefing but do not guarantee liquidation profitability. |
-| DoS.10 | Router/oracle ownership renunciation disables administration; existing oracle signers may continue, but future repair powers are lost. |
+| DoS.10 | Router/oracle owner loss disables administration; existing oracle signers may continue, but future repair powers are lost. The source ABIs export no `renounce_ownership`; verify that the deployed artifacts match. |
 | Elevation.1 | Governance-owner compromise; actual configured delay and approved replacement code determine exposure. |
 | Elevation.2 | Guardian attempts reopening; immediate flag ratchets reject it. Listing edits cannot clear flags either; only a delayed relaxation bound to the listing's flags epoch can, so one proposed before a later guardian action reverts. |
 | Elevation.3 | Role overlap/cancellation abuse; separation exempts owner and recovery has its own rules. |

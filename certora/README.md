@@ -19,8 +19,9 @@ Read the report associated with the exact built WASM and source fingerprint.
 | Submit the default hosted profile | make certora |
 | Submit a chosen profile | make certora CERTORA_PROFILE=fast |
 
-The hosted prover requires CERTORAKEY and the Certora command-line tool. Build
-the focused WASM before submitting directly or through a profile.
+The hosted prover requires `CERTORAKEY` and `certoraSorobanProver` from the
+Certora CLI. `make certora` builds the focused WASM first. Build it yourself
+before a direct `run_profile.py` or prover call.
 
 ## What is covered
 
@@ -32,9 +33,10 @@ the focused WASM before submitting directly or through a profile.
 | Price system | Do source admission, freshness, tolerance, and fail-closed outcomes hold? |
 | Shared summaries | Are cross-contract assumptions explicit and reviewable? |
 
-Each proof area has configuration files, rule modules, fixtures, and
-domain-specific documentation. The [pool-core guide](pool/spec/README.md)
-explains the pool suite in review terms.
+The common, pool, controller and price-aggregator directories each hold conf
+files under `confs/` and rule modules under `spec/`. The shared summaries are
+in `shared/summaries/`. The [pool-core guide](pool/spec/README.md) explains the
+pool suite in review terms.
 
 ## Artifact integrity
 
@@ -45,8 +47,9 @@ Deployable WASM and prover WASM serve different purposes:
 | Deploy artifact | Optimized bytecode for deployment and upgrade |
 | Focused Certora artifact | Unoptimized bytecode containing one focused rule module |
 
-Focused artifacts reduce prover transformation cost. They are not a separate
-production behavior: production code has no focused-verification branch.
+Focused artifacts reduce prover transformation cost. They do not change
+deployed behavior: every focused-verification branch is behind the `certora`
+feature, which the deploy build does not enable.
 
 The artifact manifest binds each focused artifact to its source fingerprint and
 feature set. Rebuild after changing a contract, rule, fixture, summary, or
@@ -55,38 +58,35 @@ relevant dependency. Do not submit a stale artifact.
     make certora-wasm
     python3 certora/scripts/check_wasm_artifacts.py
 
-The focused build intentionally disables the Stellar optimizer. Optimized
-bytecode can trigger internal prover transformation failures despite passing
-ordinary WASM validation.
+The focused build disables the Stellar optimizer (`--optimize=false`).
+Optimized bytecode can trigger internal prover transformation failures despite
+passing ordinary WASM validation.
 
 ### Function names must survive the build
 
 The focused build keeps symbols (`CARGO_PROFILE_RELEASE_STRIP=none`); the
-deploy build still strips them. The prover matches its exact compiler-rt
-summaries — `__muloti4`, `__multi3`, `__divti3`, `__udivti3`, `__modti3` — and
-its soroban-sdk summaries by function name. A stripped module names every
-function `FunctionIndex_<n>`, so none of those summaries fire and the prover
-analyses inlined 128-bit limb code under bitwise axioms instead. Every
-`i128` multiply and divide then costs far more and can produce a spurious
+deploy build strips them (`strip = "symbols"`). The prover matches its exact
+compiler-rt summaries — `__muloti4`, `__multi3`, `__divti3`, `__udivti3`,
+`__modti3` — and its soroban-sdk summaries by function name. A stripped module
+names every function `FunctionIndex_<n>`, so none of those summaries fire and
+the prover analyses inlined 128-bit limb code under bitwise axioms instead.
+Every `i128` multiply and divide then costs far more and can produce a spurious
 counterexample.
 
-`check_wasm_artifacts.py` now rejects an artifact whose build provenance is
-not `"strip": "none"` or that carries no WASM `name` custom section. The
-artifacts built before this change fail both checks, and keeping names changes
-every artifact's bytes, so its manifest fingerprint changes too. Run
-`make certora-wasm` before the next submission; a stale or stripped artifact
-cannot reach the prover.
+`make certora-wasm` refuses to record an artifact without a WASM `name`
+custom section. `check_wasm_artifacts.py` rejects an artifact whose build
+provenance is not `"strip": "none"` or that has no `name` section.
 
 ## Sanity checking on WASM
 
 `rule_sanity` does not mean on Sunbeam what it means on CVL. The WASM
 verification flow builds its vacuity check at level `advanced` and emits it
-only when the configured level is at least that, so **`basic` runs no vacuity
-check at all** and is indistinguishable from `none`. The CVL-level extras
+only when the configured level is at least that, so `basic` runs no vacuity
+check and is indistinguishable from `none`. The CVL-level extras
 (trivial invariant, assert tautology, redundant require) do not exist on WASM,
 so `advanced` costs one extra solve per proved rule, not a multiple.
 
-The suite therefore uses two settings and no third:
+The suite uses two settings:
 
 | Conf shape | `rule_sanity` | Why |
 |---|---|---|
@@ -121,31 +121,33 @@ search silently instead of failing loudly.
 
 ## Budgets
 
-Two classes, set per conf and not by template:
+Budgets are set per conf, not by template:
 
 | Class | `smt_timeout` | `prover_args` | `loop_iter` |
 |---|---|---|---|
-| pure arithmetic and compounding | 600 | `-depth 5 -mediumTimeout 20` | the exact loop count: 1, 8 where `compound_interest` is reached, 6 where `isqrt` or another fixed loop is |
+| pure arithmetic and compounding | 600 | `-depth 5 -mediumTimeout 20` | the exact loop count: 1, 8 where `compound_interest` is reached, 6 where `isqrt_of_product` or another fixed loop is |
 | host state (pool, controller entrypoint and leg, aggregator endpoint) | 900 | `-depth 10 -splitParallel true -mediumTimeout 20` | measured, floor 28 |
-| the remaining heavy confs with unique rules | 1800 | as their class | as their class |
+| `math-hard`, `rate-accounting-hard`, `fp-identities-bv`, `strategy-repay-collateral`, `bulk-borrow-duplicate-leg` | 1800 | as their class | as their class |
 
-The documentation's own guidance is that a rule unsolved in 600 seconds will
-not be solved in 2000 either, so a conf that still times out is a shape
-problem, not a budget problem. `-dontStopAtFirstSplitTimeout true` belongs on
-satisfy confs and on rules with an expected counterexample; it is not set on
-any assert conf. `precise_bitwise_ops` stays exactly where the history put it —
-`tolerance-math`, `scaled-math`, `math-bv`, `rate-accounting-hard` — because
-each was added after an observed spurious counterexample. Do not remove one
+The `pool-lifecycle` confs are host state at `smt_timeout` 300. Every conf
+also sets its own `-maxBlockCount` and `-maxCommandCount`.
+
+Certora's guidance is that a rule unsolved in 600 seconds will not be solved
+in 2000 either, so a conf that still times out is a shape problem, not a
+budget problem. `-dontStopAtFirstSplitTimeout true` belongs on satisfy confs
+and on rules with an expected counterexample; it is not set on any assert conf.
+`precise_bitwise_ops` is on only in `fp-identities-bv`, `rate-accounting-hard`,
+`scaled-math` and the three `tolerance-math` confs.
+Each one answers an observed spurious counterexample. Do not remove one
 without a measurement on a named artifact.
 
 `multi_assert_check` is a per-conf choice, not a default. It is on where a rule
 carries many asserts and per-assert splitting pays — the pool accounting confs
 `pool-state-invariant`, `position-accounting`, `seize-settle-accounting`,
 `fee-strategy-accounting`, `flash-loan-accounting`, `pool-guards` — and off
-everywhere else, because each assert otherwise becomes its own sub-rule and
+everywhere else, because it makes each assert its own sub-rule and
 multiplies a job that proves the same thing. To diagnose which assert of a rule
-fails, set it to `true` on that one conf for one run and set it back; the
-tuning ledger, not a template, settles the steady-state value.
+fails, set it to `true` on that one conf for one run, then set it back.
 
 ## Proof profiles
 
@@ -154,7 +156,7 @@ tuning ledger, not a template, settles the steady-state value.
 | sanity | Reachability and non-vacuity witnesses, including every `-reverts-sanity` conf |
 | fast | Stable math, rate, integrity, and light controller properties, plus the pure-layer `-reverts` confs |
 | core | Main audit set: solvency, liquidation, strategies, pool accounting, oracle rules, and the host-state `-reverts` confs |
-| heavy | The confs whose rules are unique to them and still need larger budgets |
+| heavy | The 1800-second confs outside `core`, plus `lp-math-isqrt` |
 | flash-position | Focused flash-position strategy rules: sanity, full, and revert confs |
 | manual | Core plus heavy |
 | all | Sanity, fast, core, and heavy |
@@ -164,65 +166,64 @@ the targeted surface or an intentional full verification run. A rule runs in
 exactly one non-satisfy conf: move a rule between confs, never copy it, or
 `check_orphans.py` fails.
 
-The repository holds 389 rules across 126 conf files and 7 profiles. Reproduce
-those numbers with:
-
-    grep -rh '#\[rule\]' certora --include='*.rs' | wc -l
-    find certora -name '*.conf' -not -path '*/.certora_internal/*' | wc -l
-
-The `-not -path` filter skips the gitignored `.certora_internal/` prover build
-directory, which holds copies of confs that are not part of the suite.
-
 `certora/scripts/check_orphans.py` confirms that confs, rules and profiles stay
 in sync. It reports, in one pass, every rule that no conf runs, every conf that
-names a rule which no longer exists, every rule that runs in more than one
+names a rule that does not exist, every rule that runs in more than one
 non-satisfy conf of its layer, every conf whose `rule_sanity` does not match its
-shape, and every revert-shaped rule without a witness:
+shape, and every revert-shaped rule without a witness. It also rejects a conf
+that no profile runs, a host-state conf below `loop_iter` 28, and a conf
+without `-mediumTimeout` or `-maxCommandCount`. On success it prints the conf,
+rule and profile counts:
 
     python3 certora/scripts/check_orphans.py
 
-Extra prover flags follow a double dash:
+Extra prover flags follow a double dash. `run_profile.py` passes them to every
+conf in the profile and stops at the first non-zero exit. Its own `--dry-run`
+flag prints each command and runs nothing:
 
-    ./certora/scripts/run_profile.py fast -- --dry-run
+    ./certora/scripts/run_profile.py fast --dry-run
 
-`run_profile.py` passes those flags to every conf in the profile and stops at
-the first non-zero exit. To prove one rule, run its own conf directly rather
-than a whole profile, because the rule exists in only some confs:
+To prove one rule, run the conf that lists it from that conf's directory:
 
-    certoraSorobanProver interest.conf --rule borrow_rate_capped
-      # from certora/controller/confs/
+    cd certora/common/confs
+    certoraSorobanProver interest-curve.conf --rule borrow_rate_capped
 
 ## What runs on a pull request
 
-`certora-local.yml` runs on pull requests that touch `certora/**` or
-`common/src/**`. It invokes the local prover over a fixed set of confs with a
-per-rule time cap (900 s by default), and treats proved violations and tooling
-errors as failures while recording timeouts as warnings. When a rule fails, the
-prover's working directory for that rule is uploaded as
-`certora-local-prover-logs-<sha>`; the concrete counterexample is in
-`Reports/Report-<rule>-Assertions-example1.html`, since `clog!` output has no
-visible effect in the model.
+`certora-local.yml` runs on pull requests that touch `certora/**`,
+`common/src/**`, `contracts/**/src/**`, `Cargo.toml` or `Cargo.lock`. It runs
+the local prover on the self-hosted runner over a default set of seven confs,
+with a per-rule time cap (900 s by default). A proved violation, a loop-unwind
+failure, `SANITY_FAILED`, an empty or missing rule log, or a missing conf fails
+the job. Wrapper timeouts are warnings. Unrecognized nonempty logs, including
+tooling errors, are also classified as timeout warnings. A runner without the
+local prover install skips the proof with a warning and the job stays green,
+so read the job log for the verdict
+summary. When the prove step fails, `target/certora-local-logs` is uploaded as
+`certora-local-prover-logs-<sha>`. It keeps the prover working directory of each
+failed rule. The concrete counterexample, with its `clog!` values, is in
+`Reports/Report-<rule>-Assertions-example1.html` under that directory.
 
-One conf is kept out of that set on purpose. `lp-math-isqrt.conf` holds
-`isqrt_is_the_integer_floor_of_the_root`, which cannot be proved under the
-current model: the prover treats `context/obj_cmp` on two U256 objects as
-"equal digests give 0, otherwise a havoc in {1, -1}", so every ordering
-comparison inside `isqrt_of_product` is nondeterministic and the reported
-counterexample (a = 0x55555555555556, b = 3) does not reproduce against the
-Rust function. It lives in the `heavy` profile so `check_orphans.py` keeps
-tracking it; revisit when the prover models U256 ordering.
+`isqrt_is_the_integer_floor_of_the_root` runs from its own `lp-math-isqrt.conf`,
+outside the default set, because it cannot be proved under the current model.
+The prover treats `context/obj_cmp` on two U256 objects as "equal digests give
+0, otherwise a havoc in {1, -1}", so every ordering comparison inside
+`isqrt_of_product` is nondeterministic. The reported counterexample
+(a = 0x55555555555556, b = 3) does not reproduce against the Rust function. The
+conf is in the `heavy` profile because `check_orphans.py` rejects a conf that no
+profile runs. Revisit it when the prover models U256 ordering.
 
 `certora-verification.yml` and `certora-fastRules.yml` submit hosted jobs and
 run only on manual dispatch. No profile runs automatically on every pull
 request.
 
 `certora-verification.yml` takes an optional `profile` dispatch input. Left
-empty it runs the historical sanity sweep, one job per conf. Given a profile
-name it derives one job per (conf, rule) pair and runs
+empty, it runs the `sanity` profile with one job per conf. Given a profile
+name, it derives one job per (conf, rule) pair and runs
 `certoraSorobanProver <conf> --rule <rule>`, so every rule gets the whole
-`global_timeout` and its own report; each job appends a conf/rule/outcome/report
-row to the run summary, which is what the tuning ledger is filled from. A
-GitHub matrix caps at 256 jobs, so `all` (389 rules) is refused with a message;
+`global_timeout` and its own report. Each job appends a conf, rule, outcome,
+verdict and report row to the run summary. A GitHub matrix caps at 256 jobs, so
+the workflow refuses a profile that expands past the cap, such as `all`;
 dispatch a narrower profile.
 
 ## Local and hosted execution
@@ -234,13 +235,16 @@ dependencies, and a local prover binary. Build focused WASM first.
     ./certora/scripts/run_profile.py sanity --local
 
 For expensive local rules, use the dedicated local runner. It isolates temporary
-prover state and retains logs under the build directory.
+prover state, keeps logs under `target/certora-local-logs/`, and refuses a stale
+artifact.
 
     ./certora/scripts/run-rules-local.sh certora/pool/confs/position-accounting.conf
 
-The local runner defaults to conservative parallelism and an 8 GiB Java heap.
-Increase CERTORA_JAVA_HEAP, enable split parallelism, or enable per-assert
-diagnostics only after measuring available host and solver capacity.
+The local runner defaults to one rule at a time and a `-Xmx8g` Java heap. It
+drops `-splitParallel true` and sets `multi_assert_check` to false. Raise
+`CERTORA_JAVA_HEAP`, pass `-j <n>`, or set `CERTORA_LOCAL_SPLIT_PARALLEL=true`
+or `CERTORA_LOCAL_MULTI_ASSERT=true` only after you measure host and solver
+capacity.
 
 ## How to read a proof result
 
@@ -262,8 +266,9 @@ allowances, reentrancy, or transaction rollback.
 
 Controller rules use explicit summaries for cross-contract work where a full
 composition would be intractable. A controller verdict therefore does not
-independently prove the summarized pool, oracle, token, or external-call
-behavior.
+independently prove the summarized pool, oracle, or position NFT behavior.
+Token, swap aggregator, Blend, and flash-position receiver calls have no harness
+summary, and a verdict proves nothing about those contracts either.
 
 Price-system rules separate success-path properties from fail-closed outcomes.
 Controller valuation rules assume an accepted price unless the rule explicitly

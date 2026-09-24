@@ -36,11 +36,10 @@ Use:
 - `marketsDetailed()` when oracle validity, staleness, or deviation flags are
   needed.
 
-SDK declarations for routes that the deployed API does not expose consistently
-must be treated as experimental. In particular, do not make
-`walletBalance(...)` or `userActivityPage(...)` a required production path
-until the target deployment is probed and versioned. Use Horizon/Soroban token
-reads for wallet balances. See the endpoint reference for current route
+The SDK declares `walletBalance(...)` and `userActivityPage(...)`, but the API
+does not serve their routes; a deployment without a route returns 404. Do not
+make either one a required production path. Read wallet balances from Horizon
+or the Soroban token contract. See the endpoint reference for route
 availability.
 
 ## Units and DTO semantics
@@ -52,8 +51,10 @@ The canonical formulas and rounding directions are in
 
 - `supplyScaledRay` and `borrowScaledRay` are RAY shares.
 - `supplyAmount` and `borrowAmount` are RAY token quantities, not builder-ready
-  base units. `live*IndexRay === null` also means the API may have fallen back
-  to stored data.
+  base units.
+- `live*IndexRay` falls back to the stored position index when the API has no
+  live index. `null` means it has neither, and `*Amount` then repeats the raw
+  shares.
 - `liveSupplyIndexRay`, `liveBorrowIndexRay`, and market index fields use RAY
   (`1e27`).
 - Exact USD prices and risk values use WAD (`1e18`); risk weights and fees use
@@ -95,8 +96,8 @@ after a transfer. See [positions.md](positions.md).
 - Poll one shared `liveState()` query about every 10 seconds.
 - Refetch positions only after transaction `SUCCESS`, then retry reconciliation
   if the indexer still serves the prior snapshot.
-- Use `marketsDetailed().valid` and its stale/deviation flags before presenting
-  live oracle data as trustworthy.
+- Present a price as trustworthy only when its `marketsDetailed()` row has
+  `valid: true`. `stale` and `deviation` flag two causes of `valid: false`.
 - For liquidation, final sizing, or post-transaction verification, contract
   simulation at the current ledger is authoritative. API data is an indexed
   mirror.

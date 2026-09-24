@@ -62,7 +62,7 @@ deployment address in Wasm.
    `common::ttl::renew_instance(&env)`.
 6. Persist account IDs in local persistent storage and renew those keys on
    every successful use. `renew_account` renews controller/NFT state; it does
-   **not** renew storage owned by the caller contract.
+   not renew storage owned by the caller contract.
 
 The complete local pointer renew/reconcile pattern is in
 [positions.md](positions.md#canonical-local-account-pointer). Production code

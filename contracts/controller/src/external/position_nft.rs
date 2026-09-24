@@ -24,7 +24,7 @@ pub(crate) fn nft_try_owner_of_call(env: &Env, nft: &Address, account_id: u64) -
     }
 }
 
-/// Renews the NFT owner entry to the protocol user TTL window.
+/// Renews the NFT `Owner` and owner `Balance` entries to the protocol user TTL window.
 /// IDs outside the mintable `u32` domain fail with `AccountNotFound`.
 pub(crate) fn nft_renew_call(env: &Env, nft: &Address, account_id: u64) {
     let token_id = u32::try_from(account_id)

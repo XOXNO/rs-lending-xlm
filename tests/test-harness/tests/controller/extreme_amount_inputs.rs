@@ -1,6 +1,6 @@
 //! GH-07. Amounts at the domain ceiling and at `i128::MAX` on every controller
-//! money path. Each row pins either a typed protocol error raised before any
-//! token moves, or a documented "means all" semantic.
+//! money path. Each test pins a typed protocol error raised before any token
+//! moves, a documented "means all" semantic, or a refund of the excess.
 
 use common::types::{HubAssetKey, SeizeMode};
 use common::validation::max_cap_for_decimals;
@@ -72,8 +72,7 @@ fn supply_at_the_domain_ceiling_succeeds_and_one_unit_more_is_rejected() {
         let result = t
             .ctrl_client()
             .try_supply(&alice, &id, &HARNESS_SPOKE, &leg(&t, "A", 1));
-        // The file's own contract is "a typed protocol error before any token
-        // moves", so pin the code and prove the book did not move.
+        // Pins the typed error and shows that the book did not move.
         assert_contract_error(map_try_ok_value(result), errors::MATH_OVERFLOW);
         assert_eq!(
             t.supply_balance_raw(ALICE, "A"),
@@ -159,8 +158,7 @@ fn liquidation_payment_of_half_i128_max_nets_only_the_close_amount() {
     );
     let after = t.borrow_balance_raw(ALICE, "A");
     assert!(after < before, "debt fell");
-    // Two-sided: a lower bound alone is satisfied by a call that seizes
-    // collateral while pulling zero debt token.
+    // Equality: `spent <= before - after` alone also passes when no debt token is pulled.
     let spent = liq_before - t.token_balance_raw(LIQUIDATOR, "A");
     assert_eq!(
         spent,

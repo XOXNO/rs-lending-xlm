@@ -1,35 +1,27 @@
-# Zero-state teardown. Runs last in a lane: repays every live account's
-# debts (owner wallet, minted on harness-issued mock markets when short),
-# withdraws every position, drains the DeFindex strategy when one exists,
-# claims all pool revenue, then proves the world is empty on chain:
+# Zero-state teardown. Runs last in a lane: drains the DeFindex strategy when
+# one exists, repays every live account's debts from the owner wallet (topped
+# up by ADMIN when short), withdraws every position, claims all pool revenue,
+# then asserts on chain:
 #
 #   - position NFT total_supply == 0 (every emptied account was burned)
-#   - per market: pool borrowed, supplied and revenue down to accounting dust
-#   - pool + controller token balances down to rounding dust
+#   - per market: pool borrowed, supplied and revenue at most accounting dust
+#   - pool + controller token balances at most rounding dust
 #
-# What survives those asserts is recorded per market as the storage-residue
-# report — the exact value the protocol retains after everyone leaves.
+# Each market then records its residue: the value the protocol still holds
+# after every participant leaves.
 
 TEARDOWN_POOL_DUST="${TEARDOWN_POOL_DUST:-10000}"
 TEARDOWN_CTRL_DUST="${TEARDOWN_CTRL_DUST:-1000}"
 
 # Accounting residue that survives a full wind-down, in asset units.
 #
-# Interest accrual mints protocol-fee shares into BOTH `revenue` and `supplied`
-# (contracts/pool/src/interest.rs). Shares whose floor-unscaled value is below
-# one unit can never be claimed: burn_claimable_revenue floors the treasury to
-# 0, so `amount <= 0` returns early without burning. That early return is
-# deliberate — controller::claim_revenue is permissionless, so burning
-# sub-unit revenue would let any caller repeatedly destroy the reserve factor
-# before it ever accumulates to a claimable unit.
+# Interest accrual mints protocol-fee shares into both `revenue` and `supplied`
+# (contracts/pool/src/interest.rs). burn_claimable_revenue burns nothing while
+# the floor-unscaled revenue is below one unit, so those shares stay.
+# get_revenue floors them to 0, but get_supplied_amount rounds half-up and
+# reports 1. So `supplied == 0` can fail on a market that accrued a fee.
 #
-# Those stranded shares are then read through two different roundings:
-# get_revenue floors them to 0, while get_supplied_amount unscales half-up and
-# reports 1. Asserting `supplied == 0` therefore cannot hold once a market has
-# accrued a fee, which is why only markets with borrow activity trip it.
-#
-# The cap stays small so a real accounting break of any meaningful size still
-# fails the gate.
+# The cap stays small, so an accounting break of real size still fails.
 TEARDOWN_ACCT_DUST="${TEARDOWN_ACCT_DUST:-10}"
 
 # Maps an NFT owner address to the run wallet alias that signs for it.
@@ -52,10 +44,10 @@ _td_mock_code_for() {
     return 1
 }
 
-# Makes sure `owner` can pay `pay` of `sac`: mock assets are minted by ADMIN,
-# real classic assets are topped up from ADMIN's balance (trustline first) —
-# borrowers whose proceeds went to a receiver or a swap never held the debt
-# asset, so the SAC would otherwise reject the repay's transfer.
+# Ensures `owner` holds `pay` of `sac`: ADMIN mints a mock asset, and sends a
+# classic asset other than XLM from its own balance (trustline first). A
+# borrower whose proceeds went to a receiver or a swap never held the debt
+# asset, so the repay transfer would otherwise fail.
 _td_ensure_funds() {
     local id="$1" alias="$2" owner="$3" sac="$4" pay="$5"
     local bal code line
@@ -69,8 +61,8 @@ _td_ensure_funds() {
     local need=$((pay - bal + 1000))
     local line
     line=$(classic_line "$sac")
-    # ADMIN may itself be dry (receiver funding drains it in the flash lane):
-    # buy the asset with XLM through the aggregator before handing it on.
+    # ADMIN can be short (flash-lane receiver funding drains it): buy the
+    # asset with XLM through the aggregator first.
     local admin_bal
     admin_bal=$(balance "$sac" "$ADMIN_ADDR"); [[ "$admin_bal" =~ ^[0-9]+$ ]] || admin_bal=0
     if ! _uint_ge "$admin_bal" "$need"; then
@@ -109,8 +101,8 @@ _td_repay_account() {
         debt=$(_view_int "td_debt_${id}_${sac:0:6}" get_borrow_amount \
             --account_id "$id" --hub_asset "$(hub_key "$hub" "$sac")")
         [[ "$debt" =~ ^[0-9]+$ ]] && [ "$debt" -gt 0 ] || continue
-        # Interest accrues between the read and the transaction; overpay is
-        # capped at the live debt by the controller, so the buffer is free.
+        # Interest accrues between the read and the transaction; the
+        # pool refunds any excess, so the buffer costs nothing.
         pay=$((debt + debt / 50 + 100))
         _td_ensure_funds "$id" "$alias" "$owner" "$sac" "$pay"
         inv "td_repay_${id}_${sac:0:6}" "$alias" "$CONTROLLER" -- repay \
@@ -149,9 +141,8 @@ flow_teardown() {
     require_var MARKETS
     require_var POSITION_NFT
 
-    # The DeFindex strategy owns its controller account, so it can only be
-    # emptied through its own withdraw. Drain it first; its account burns with
-    # everyone else's below.
+    # The DeFindex strategy owns its controller account, so only the
+    # strategy's own withdraw can empty it. Drain it first.
     if [ -n "${STRATEGY:-}" ]; then
         local sbal
         sbal=$(view td_dfx_balance "$STRATEGY" -- balance --from "$DAVE_ADDR" | tr -d '"')

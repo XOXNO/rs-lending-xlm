@@ -166,6 +166,7 @@ impl ControllerInterface for Controller {
 
     /// Flash-loans `amount` of `asset` to a deployed Wasm `receiver`, invoking
     /// its callback with `data`. The pool recovers principal plus fee before return.
+    /// Permissionless; requires caller authorization.
     #[when_not_paused]
     fn flash_loan(
         env: Env,
@@ -182,7 +183,8 @@ impl ControllerInterface for Controller {
     /// and invokes the Wasm receiver's `execute_flash_position` callback.
     /// `collaterals` sets minimum controller-balance increases to deposit;
     /// listed `refund_assets` balance increases return to the caller.
-    /// Returns the solvent account's id; `account_id = 0` creates it.
+    /// Returns the solvent account's id; `account_id = 0` creates it. An existing
+    /// account requires owner or delegate authorization and a matching mode.
     #[when_not_paused]
     fn flash_position(
         env: Env,
@@ -218,6 +220,7 @@ impl ControllerInterface for Controller {
     /// proceeds. An `initial_payment` in collateral joins the deposit; one in debt
     /// joins `swap`; a third asset requires `convert_swap` or reverts with
     /// `ConvertStepsRequired`. Returns the account id; `account_id = 0` creates it.
+    /// An existing account requires owner or delegate authorization and a matching mode.
     #[when_not_paused]
     fn multiply(
         env: Env,
@@ -302,7 +305,8 @@ impl ControllerInterface for Controller {
     /// Repays `debt` from `collateral`, netting directly for the same hub asset
     /// (`swap` must be empty) or converting otherwise. `close_position` withdraws
     /// all remaining collateral to the caller, reverting with
-    /// `CannotCloseWithRemainingDebt` if any debt remains.
+    /// `CannotCloseWithRemainingDebt` if any debt remains. Requires owner or
+    /// delegate authorization.
     #[when_not_paused]
     fn repay_debt_with_collateral(
         env: Env,
@@ -331,7 +335,8 @@ impl ControllerInterface for Controller {
     /// Migrates the caller's position from an approved `blend_pool`: borrows
     /// `debt_caps`, repays Blend and unused borrowing, then deposits withdrawn
     /// `collateral_assets` and `supply_assets`. Returns the account id;
-    /// `account_id = 0` creates it.
+    /// `account_id = 0` creates it. An existing account requires owner or
+    /// delegate authorization.
     #[when_not_paused]
     fn migrate_from_blend(
         env: Env,
@@ -359,14 +364,16 @@ impl ControllerInterface for Controller {
         )
     }
 
-    /// Accrues pool borrow and supply indexes for `assets`.
+    /// Accrues pool borrow and supply indexes for `assets`. Permissionless;
+    /// requires caller authorization.
     #[when_not_paused]
     fn update_indexes(env: Env, caller: Address, assets: Vec<HubAssetKey>) {
         markets::update_indexes(&env, caller, assets);
     }
 
     /// Claims pool revenue and forwards measured receipts to the accumulator.
-    /// Returns those amounts in asset units, in input order.
+    /// Returns those amounts in asset units, in input order. Permissionless;
+    /// requires caller authorization.
     #[when_not_paused]
     fn claim_revenue(env: Env, caller: Address, assets: Vec<HubAssetKey>) -> Vec<i128> {
         markets::claim_revenue(&env, caller, assets)
@@ -382,6 +389,7 @@ impl ControllerInterface for Controller {
 
     /// Covers a pool backing shortfall using measured receipts from `payer`.
     /// Refunds excess and returns the amount applied in asset units.
+    /// Permissionless; requires payer authorization.
     fn recapitalize(env: Env, payer: Address, hub_asset: HubAssetKey, amount: i128) -> i128 {
         markets::recapitalize(&env, payer, hub_asset, amount)
     }
@@ -522,7 +530,8 @@ impl ControllerInterface for Controller {
         storage::get_price_aggregator(&env)
     }
 
-    /// Returns the minimum collateral in USD (WAD) for a new borrow position.
+    /// Returns the LTV-weighted collateral floor in USD (WAD) for accounts with
+    /// debt; borrows, withdrawals and strategies check it. Zero disables it.
     fn get_min_borrow_collateral_usd(env: Env) -> i128 {
         storage::get_min_borrow_collateral_usd_wad(&env)
     }
@@ -560,8 +569,8 @@ impl ControllerAdmin for Controller {
         renew_then!(env, config::registry::set_position_limits(&env, limits))
     }
 
-    /// Sets the non-negative collateral floor in USD (WAD) for new borrow
-    /// positions. Owner-only.
+    /// Sets the non-negative LTV-weighted collateral floor in USD (WAD) for
+    /// accounts with debt; zero disables it. Owner-only.
     #[only_owner]
     fn set_min_borrow_collateral_usd(env: Env, floor_wad: i128) {
         renew_then!(
@@ -612,7 +621,8 @@ impl ControllerAdmin for Controller {
     }
 
     /// Deprecates a spoke, blocking ordinary position entry. Owner-only;
-    /// reverts if already deprecated. Repayment and liquidation remain available.
+    /// reverts if already deprecated. Withdrawal, repayment and liquidation remain
+    /// available.
     #[only_owner]
     fn remove_spoke(env: Env, id: u32) {
         renew_then!(env, config::spoke::remove_spoke(&env, id))
@@ -648,14 +658,14 @@ impl ControllerAdmin for Controller {
     }
 
     /// Updates a listed spoke asset's risk parameters and caps, validating
-    /// against pool decimals. Owner-only; rejects unlisted assets.
+    /// against pool decimals. Owner-only; rejects unlisted assets and cleared flags.
     #[only_owner]
     fn edit_asset_in_spoke(env: Env, input: SpokeAssetArgs) {
         renew_then!(env, config::asset::edit_asset_in_spoke(&env, &input))
     }
 
-    /// Tightens a spoke asset's paused, frozen and no-seize flags to true.
-    /// Cannot clear flags. Owner-only.
+    /// Sets a spoke asset's paused, frozen and no-seize flags. Owner-only; reverts
+    /// with `SpokeAssetFlagRelaxation` if a set flag would clear.
     #[only_owner]
     fn set_spoke_asset_flags(
         env: Env,
@@ -778,8 +788,9 @@ impl ControllerAdmin for Controller {
         )
     }
 
-    /// Pauses guarded operations. Owner-only. Repayment, withdrawal and
-    /// liquidation remain available subject to their asset-level gates.
+    /// Pauses guarded operations. Owner-only. Withdrawal, repayment, liquidation,
+    /// bad-debt cleanup, recapitalization, account renewal and delegate removal
+    /// remain available, subject to listing flags.
     #[only_owner]
     fn pause(env: Env) {
         renew_then!(env, governance::pause(&env))

@@ -24,16 +24,17 @@ public issue or pull request for a vulnerability.
 
 ## Set up
 
-Install the Rust toolchain declared by the repository, the wasm32v1-none
-target, and Stellar CLI with Soroban support.
+Install the Rust toolchain and targets from `rust-toolchain.toml`, and Stellar
+CLI with `make install-stellar-cli`. Run `make build` before the tests: they
+load contract WASM from `target/`.
 
-    cargo test --workspace
     make build
     make test
     make help
 
-The keeper and lending exporter have separate Cargo workspaces. Run their
-checks from their own manifests and follow their local documentation.
+The keeper (`services/keeper`) and the lending exporter
+(`services/lending-exporter`) are separate Cargo workspaces. Run their checks
+from their own manifests and follow their README files.
 
 ## Working agreement
 
@@ -62,14 +63,16 @@ risk-sensitive changes require more than a passing workspace build.
 
 Every pull request should start with:
 
-    cargo fmt --all -- --check
-    cargo clippy --workspace --all-targets -- -D warnings
-    cargo test --workspace
+    make fmt-check
+    make clippy
+    make build
+    make test
+    make docs-check
+    make access-control-check
 
 Then run the focused checks for the changed behavior:
 
-    make test
-    make test-pool
+    make test-match PATTERN=<substring>
     make fuzz FUZZ_TIME=30
     make proptest PROPTEST_CASES=256
     make miri-common
@@ -78,9 +81,9 @@ Then run the focused checks for the changed behavior:
 Not every command applies to every change. If a check is skipped, say why in
 the pull request rather than implying it ran.
 
-For repository-wide assurance, use the verification targets listed by
-make help-verify. Scout, mutation testing, coverage, and broader Certora
-profiles are intentionally heavier and should be selected by risk and scope.
+For repository-wide assurance, use the verification targets that
+`make help-verify` lists. Scout, mutation testing, coverage, and the broader
+Certora profiles are heavier; select them by risk and scope.
 
 ## Pull request description
 

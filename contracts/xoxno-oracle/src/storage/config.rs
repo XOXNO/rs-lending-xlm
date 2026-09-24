@@ -1,6 +1,6 @@
 //! Reads and writes instance-storage configuration values for the oracle:
-//! the signer set, submission threshold, staleness and skew bounds, and
-//! price resolution. Every read accessor falls back to a default when the
+//! the signer set, submission threshold, staleness, skew and spread bounds,
+//! and price resolution. Every read accessor falls back to a default when the
 //! underlying key is absent from instance storage.
 
 use soroban_sdk::{Address, Env, Vec};
@@ -62,7 +62,7 @@ pub(crate) fn store_max_cluster_spread_bps(env: &Env, bps: u32) {
         .set(&DataKey::MaxClusterSpreadBps, &bps);
 }
 
-/// Overwrites the configured price resolution.
+/// Overwrites the configured price resolution, in seconds.
 pub(crate) fn store_resolution(env: &Env, resolution: u32) {
     env.storage()
         .instance()
@@ -117,7 +117,7 @@ pub(crate) fn load_max_cluster_spread_bps(env: &Env) -> u32 {
         .unwrap_or(DEFAULT_MAX_CLUSTER_SPREAD_BPS)
 }
 
-/// Loads the configured price resolution. Returns 0 if unset.
+/// Loads the configured price resolution, in seconds. Returns 0 if unset.
 pub(crate) fn load_resolution(env: &Env) -> u32 {
     env.storage()
         .instance()

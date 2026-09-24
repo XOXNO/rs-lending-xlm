@@ -39,12 +39,8 @@ fn accept_ownership_updates_owner_only() {
     });
 }
 
-/// The constructor's state must be reachable from the event stream alone.
-///
-/// `ownable::set_owner` and the storage setters are silent writes, so before
-/// these emissions an indexer replaying from genesis could never learn the
-/// owner, the position limits or the borrow-collateral floor — they only
-/// became observable once someone changed them.
+/// The constructor publishes the owner, the default position limits and the
+/// borrow-collateral floor, so an indexer can rebuild them from events alone.
 #[test]
 fn init_emits_owner_and_default_limits() {
     use soroban_sdk::testutils::Events as _;

@@ -1,17 +1,17 @@
 # Positions, ownership, and risk
 
 Companion to [SKILL.md](SKILL.md). The published
-`@xoxno/sdk-js@1.0.214` package does **not** export
+`@xoxno/sdk-js@1.0.214` package does not export
 `computeAccountRisk`, `maxBorrow`, `maxWithdraw`, `maxSupply`, `maxRepay`,
-`projectAccountRisk`, `projectReserveApy`, or the alpha math primitives.
-Do not import those names in an application pinned to 1.0.214.
+`projectAccountRisk`, `projectReserveApy`, or the other SDK math-module
+exports. Do not import those names in an application pinned to 1.0.214.
 
-Those APIs exist only on an unpublished SDK alpha branch. Documentation or
-code that uses them must be explicitly gated by a later package version whose
-published `dist/sdk/stellar/index.d.ts` exports the names and whose tarball is
-covered by the application's compile test. Until then, implement application
-math from [../xoxno-lending/math.md](../xoxno-lending/math.md), or use
-authoritative contract views through [reads.md](reads.md).
+Those APIs first ship in `1.0.218`; this skill does not document them. Code
+that uses them must pin a version whose published `dist/sdk/stellar/index.d.ts`
+exports the names, and the application's compile test must cover that tarball.
+On 1.0.214, implement application math from
+[../xoxno-lending/math.md](../xoxno-lending/math.md), or use authoritative
+contract views through [reads.md](reads.md).
 
 ## Discover accounts without inventing identifiers
 
@@ -65,11 +65,14 @@ of the whole lending account; API ownership is index-time data.
 The DTO contains:
 
 - `supplyScaledRay` / `borrowScaledRay`: RAY shares.
-- `liveSupplyIndexRay` / `liveBorrowIndexRay`: the applied index when
-  available.
+- `liveSupplyIndexRay` / `liveBorrowIndexRay`: the index the API applied
+  (live, else the stored position index); `null` when it has neither.
 - `supplyAmount` / `borrowAmount`: RAY token quantities for display, not
   builder amounts.
-- entry LTV and liquidation BPS: weights snapshotted when the leg opened.
+- `entryLtvBps`, `entryLiquidationThresholdBps`, `entryLiquidationBonusBps`,
+  `entryLiquidationFeesBps`: the leg's stored risk weights (BPS). Supply,
+  withdraw, and `update_account_threshold` can refresh them; borrow and
+  strategy calls can refresh the LTV.
 
 For builder-ready amounts, use integer math and the protocol's directed
 rounding:
@@ -84,8 +87,9 @@ rounding:
 
 The exact formulas and pseudocode are in
 [../xoxno-lending/math.md#shares-and-token-amounts](../xoxno-lending/math.md#shares-and-token-amounts).
-At a current ledger, `get_collateral_amount` and `get_borrow_amount` are the
-authoritative base-unit views.
+`get_collateral_amount` and `get_borrow_amount` return base units at the
+current ledger, rounded half-up. A full debt close needs the ceiled amount,
+which can be one unit above `get_borrow_amount`.
 
 ## Application-side risk
 
@@ -95,16 +99,25 @@ Keep the implementation in raw `bigint` WAD/RAY/BPS values:
 ```text
 for each row in one account:
   resolve reserve by (account.spokeId, row.hubId, row.asset)
-  resolve an accepted current index and WAD price
-  unscale supply with protocol floor; unscale debt with protocol ceil
-  value collateral with floor and debt with ceil
-  weight collateral by the row's snapshotted entry BPS
+  resolve an accepted current index (RAY) and price (WAD)
+  collateralWad = shares * index / RAY, to WAD, * price / WAD; floor each step
+  rowDebtWad    = the same steps; ceil each step
+  ltvBps = min(reserve.collateralFactorBps, row.entryLiquidationThresholdBps)
+           // row.entryLtvBps in place of collateralFactorBps if unlisted
+  ltvWeightedCollateralWad = floor(collateralWad * ltvBps / BPS)
+  liquidationWeightedCollateralWad =
+    floor(collateralWad * row.entryLiquidationThresholdBps / BPS)
 
 borrowLimitWad = sum(ltvWeightedCollateralWad)
 liquidationCollateralWad = sum(liquidationWeightedCollateralWad)
+debtWad = sum(rowDebtWad)
 healthFactorWad =
   debtWad == 0 ? debtFree : floor(liquidationCollateralWad * WAD / debtWad)
 ```
+
+The borrow, withdraw, and strategy gates restamp each listed collateral leg's
+LTV to the current listing before they check. The health factor uses the
+stored liquidation threshold.
 
 Admission also depends on more than health factor: the minimum collateral
 floor, reserve pause/freeze flags, borrow/supply caps, hub cash, liquidation
@@ -120,7 +133,9 @@ An application preview may project share deltas using the formulas above, but
 must:
 
 - value the route at `amountOutMin`, not optimistic `amountOut`;
-- preserve the existing leg's snapshotted entry risk weights;
+- use current listed LTV; preserve an existing leg's stored liquidation
+  parameters unless the action supplies to or partially withdraws from that
+  leg, in which case model the gated liquidation-parameter refresh;
 - use the selected reserve's current settings for a newly opened leg;
 - apply share-mint/burn rounding before valuation;
 - keep comparisons in raw WAD `bigint`;

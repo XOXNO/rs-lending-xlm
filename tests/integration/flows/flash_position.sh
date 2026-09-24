@@ -5,8 +5,8 @@ FP_MODE_SUCCESS=0
 FP_MODE_KEEP_FUNDS=1
 FP_MODE_BELOW_MIN=2
 FP_MODE_PANIC=3
-# PositionMode::Multiply / Normal / Long. Since the 2026-09 gap hunt only the
-# strategy modes are accepted; Normal is kept for the rejection check.
+# PositionMode::Multiply / Normal / Long. flash_position accepts only the
+# strategy modes; Normal is kept for the rejection check.
 FP_POSITION_MODE=1
 FP_MODE_NORMAL=0
 FP_MODE_LONG=2
@@ -315,8 +315,8 @@ flow_flash_position_matrix() {
     FP_COLS="$(fp_collaterals "$FP_EXTEND_COLLATERAL")"
     fp_run xfail flash_position_keep_funds_existing 'Error\(Contract, #504\)' || true
 
-    # Closest honest "callback returns almost nothing": dust min, existing
-    # collateral covers the new debt at finalize.
+    # The callback pushes only a dust minimum; the existing collateral covers
+    # the new debt at finalize.
     FP_COLS="$(fp_collaterals "$FP_DUST_COLLATERAL")"
     fp_set_plan fp_plan_dust_existing "$FP_MODE_SUCCESS" "$FP_DUST_COLLATERAL" || return 1
     fp_run inv flash_position_dust_min_existing "" || return 1
@@ -720,8 +720,8 @@ flow_flash_position_gaps() {
     FP_AMOUNT="$FP_SMALL_DEBT"
     FP_COLS="$(fp_collaterals "$FP_EXTEND_COLLATERAL")"
 
-    # --- create successes that were missing ---
-    # Same-asset borrow-then-supply stays allowed under a strategy mode.
+    # --- create successes ---
+    # Same-asset borrow-then-supply is allowed under a strategy mode.
     FP_ACCOUNT_ID=0
     FP_POS_MODE="$FP_POSITION_MODE"
     FP_PLAN_ASSET="$USDC_SAC"
@@ -773,10 +773,7 @@ flow_flash_position_gaps() {
     FP_REFUNDS='[]'
     assert_hf_at_least hf_refund_new "$refund_acct" "$WAD"
 
-    # Since the 2026-09 gap hunt (OD-1) is_flashloanable=false blocks
-    # flash_position before the mint (#401): the minted debt would reach a
-    # caller-chosen contract, the custody the flag denies. multiply stays
-    # open because its funds only reach the governance-owned router.
+    # is_flashloanable=false blocks flash_position before the mint (#401).
     inv fp_usdc_no_flashloan "$ADMIN" "$CONTROLLER" -- upgrade_liquidity_pool_params \
         --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")" \
         --params "$(market_params_json "$USDC_SAC" 7 | jq -c '{
@@ -869,12 +866,11 @@ flow_flash_position_malicious() {
     record flash_position_malicious ok flash_position "" "" "" "" "" "malicious receiver coverage complete"
 }
 
-# 2026-09 gap hunt, GH-18 and GH-19. Two gates run before the mint: the mode
-# must be a strategy mode, and the debt market must allow flash loans.
-# `multiply` is not gated on the flag because its funds only ever reach the
-# governance-owned router; `flash_position` hands them to a caller-chosen
-# contract. Both gates are checked for a fresh account and for an existing
-# one, and the USDC curve is restored afterwards.
+# GH-18 and GH-19. Two gates run before the mint: the mode must be a strategy
+# mode, and the debt market must allow flash loans. `multiply` is not gated on
+# the flag because its funds reach only the governance-owned router;
+# `flash_position` hands them to a caller-chosen contract. Both gates run for a
+# new account and for an existing one, and the USDC curve is restored after.
 flow_flash_position_gates() {
     phase flash_position_gates
     [ -n "${ALICE_FP_ACCT:-}" ] || die flash_position_gates "ALICE_FP_ACCT missing"

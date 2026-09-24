@@ -18,9 +18,9 @@ server/SDK before treating them as current production behavior.
 | Token ids | 56-char `C…` Soroban contract strkeys only. `AssetKey::parse_id` rejects `XLM`, `CODE:GISSUER`, and `G…` with `400 invalid_request`. Resolve `from`/`to` from `GET /api/v1/tokens`; XLM is listed under its Stellar Asset Contract id, and lending market ids are in [../xoxno-lending/addresses.md](../xoxno-lending/addresses.md) |
 | Naming | `/health` and `/ready` bodies are **snake_case** (`last_applied_ledger`, `seconds_since_last_apply`). Every `/api/v1/*` body is **camelCase** (`#[serde(rename_all = "camelCase")]`) with one exception: `/api/v1/prices` entries carry `depth_usd` (`PriceEntry` has no rename) |
 | Query names | `/api/v1/quote` canonical names are snake_case; camelCase aliases exist for `amount_in`, `amount_out`, `max_hops`, `max_splits`, `include_paths`, `referral_id` (plus `referral`). `from`, `to`, `slippage`, `sender`, `simulate`, `platform`, `fresh` have one spelling. Unknown query keys (for example `router`) are ignored, not rejected (`QuoteParams` has no `deny_unknown_fields`) |
-| Limits | 30 s request timeout, 1 MiB request-body limit, `x-request-id` header propagated or generated (`bootstrap.rs`). Unverified: a timed-out request is answered by tower-http's `TimeoutLayer` with `408` and an empty body |
+| Limits | 30 s request timeout, 1 MiB request-body limit, `x-request-id` header propagated or generated (`bootstrap.rs`). A timed-out request gets `408` with an empty body (tower-http 0.5 `TimeoutLayer`) |
 | Errors | JSON `{ "code": string, "error": string }` (`ErrorResponse` on `/api/v1/quote`, `DiscoveryError` on `/api/v1/referrals/{id}`). Branch on `code` (stable); `error` is free text and may change |
-| OpenAPI | `GET /api-docs/openapi.json`; Swagger UI at `/`. Regenerate offline with `DUMP_OPENAPI=1 RUSTC_WRAPPER= cargo run -q -p stellar-indexer --features server --bin quote_server > openapi.json` (`scripts/sync_stellar_openapi.py` docstring): `server::run()` prints `ApiDoc::openapi().to_pretty_json()` to stdout and exits before any network bootstrap (`bootstrap.rs`) |
+| OpenAPI | `GET /api-docs/openapi.json`; Swagger UI at `/`. Regenerate offline with `DUMP_OPENAPI=1 RUSTC_WRAPPER= cargo run -q -p stellar-indexer --features server --bin quote_server > openapi.json` (`arb-algo/scripts/sync_stellar_openapi.py` docstring): `server::run()` prints `ApiDoc::openapi().to_pretty_json()` to stdout and exits before any network bootstrap (`bootstrap.rs`) |
 
 ## Routes
 
@@ -69,7 +69,7 @@ Process liveness. A 200 does not mean quotes are fresh; use `/ready` for that.
 |---|---|---|
 | `network` | `"mainnet"` \| `"testnet"` | Deployment network |
 | `networkPassphrase` | string | Signing domain every returned envelope is bound to |
-| `router` | string \| null | Router contract `C…` the deployment executes through; `null` when `AGGREGATOR_ROUTER` is unset. Must equal the `aggregator` entry of `configs/networks.json` for the same network |
+| `router` | string \| null | Router contract `C…` the deployment executes through. Resolved from `AGGREGATOR_ROUTER`, then the seed file, then the built-in network default; `null` only when none resolves. Must equal the `aggregator` entry of `configs/networks.json` for the same network |
 | `apiVersion` | string | `"v1"` |
 | `protocolVersion` | integer (u8) | Packed program version the router expects: `1` (`PROGRAM_VERSION`, see [payload.md](payload.md)) |
 | `defaultMaxHops` | integer | `4` (`SplitConfig::default().max_hops`) |
@@ -93,16 +93,16 @@ Array of `TokenEntry`, sorted by pool count descending, then `id` ascending. Res
 | `pool` | string | LP only: pool contract that issued the shares (omitted otherwise) |
 | `assets` | string[] | LP only: constituent token ids in pool order (omitted otherwise) |
 
-The `@xoxno/sdk-js` 1.0.214 `StellarQuoteToken` type (`kind`, `sacPeer`, `code`, `degree`) predates this shape; the server never returns those fields. Type `getStellarQuoteTokens` output as the table above.
+The `@xoxno/sdk-js` 1.0.214 `StellarQuoteToken` type does not match this shape: the server never returns `kind`, `sacPeer`, `code` or `degree`. Type `getStellarQuoteTokens` output as the table above.
 
 ### GET /api/v1/prices
 
-`Record<tokenId, PriceEntry>`. Tokens unreachable from an oracle anchor are absent, not zero.
+`Record<tokenId, PriceEntry>`. A token is absent, not zero, when no usable pool path of 4 hops or fewer (`PRICE_MAX_HOPS`) reaches it from an oracle-priced token. An LP share is priced from its constituents instead, and is absent unless all of them have a price.
 
 | Field | Type | Meaning |
 |---|---|---|
 | `usd` | number | USD per whole token |
-| `source` | `"oracle"` \| `"pool"` \| `"lp"` | Reflector oracle (authoritative), depth-weighted pool average, or LP share valued from its pool |
+| `source` | `"oracle"` \| `"pool"` \| `"lp"` | Reflector price or the network USD anchor (USDC on mainnet) fixed at `1.0`, depth-weighted pool average, or LP share valued from its pool |
 | `depth_usd` | number | Summed depth of the pools that produced the price, or the LP pool's TVL; absent for oracle prices. Threshold on it to drop prices implied by untradeable pools |
 | `hops` | integer (u8) | Pool hops from the nearest oracle-priced token; `0` = oracle |
 
@@ -119,7 +119,7 @@ The `@xoxno/sdk-js` 1.0.214 `StellarQuoteToken` type (`kind`, `sacPeer`, `code`,
 
 ### GET /api/v1/referrals/{id}
 
-Path `id`: unsigned u32 decimal; `0` = no referral. Served from the quote cache (`REFERRAL_TTL`, documented as up to 60 s old); a cache miss simulates `referral(id)` on the router.
+Path `id`: unsigned u32 decimal; `0` = no referral. Served from the quote cache (`REFERRAL_TTL` = 60 s); a cache miss simulates `referral(id)` on the router.
 
 | Field | Type | Meaning |
 |---|---|---|
@@ -136,16 +136,16 @@ Errors (`DiscoveryError` `{code, error}`): `400 invalid_referral_id` (not a u32)
 ### GET /api/v1/quote
 
 Exactly one of `amount_in` (forward: maximize net output) or `amount_out` (reverse:
-minimize gross input). With `fresh=true`, the live-ledger check currently runs before
-request parsing; otherwise parsing and referral lookup precede routing. This ordering is
-external implementation detail, not a contract guarantee.
+minimize gross input). Processing order at the pinned revision: query deserialization,
+the `fresh=true` live-ledger check, parameter validation, referral lookup, route search.
+Do not depend on this order.
 
 #### Freshness and slippage (canonical)
 
 There is no quote expiry field. `snapshot` describes the search input, while the route's
 absolute `amountOutMin` is the on-chain protection. Use `/ready`, request `fresh=true`
 when ledger drift must reject the quote, and re-quote immediately before building.
-Never widen slippage merely to make stale bytes pass. `fresh=true` rejects drift above
+Never widen slippage to make stale bytes pass. `fresh=true` rejects drift above
 two ledgers with `409 snapshot_stale`; it does not reserve liquidity.
 
 | Query param | Aliases | Type | Default | Constraint / meaning |
@@ -154,13 +154,13 @@ two ledgers with `409 snapshot_stale`; it does not reserve liquidity.
 | `to` | — | string | required | Output token `C…`; an LP share token selects a liquidity operation |
 | `amount_in` | `amountIn` | string | — | Gross input in atomic units **including any input-side fee**; `1..=i128::MAX`; surrounding whitespace trimmed |
 | `amount_out` | `amountOut` | string | — | Required **net** output after fees; `1..=i128::MAX`. Exact-out preservation is external pinned behavior; see [composition.md#exact-out-status](composition.md#exact-out-status) |
-| `slippage` | — | number | none | Output tolerance as a decimal fraction: `0.005` = 0.5%, `0.5` = 50%. Finite, in `[0, 1)`; rounded down to ppm. Required for `amountOutMin`, `routeXdr`, and `transaction`; omit for indicative amounts. See the [canonical policy](#freshness-and-slippage-canonical) |
+| `slippage` | — | number | none | Output tolerance as a decimal fraction: `0.005` = 0.5%, `0.5` = 50%. Finite, in `[0, 1)`; rounded down to ppm. Required for `routeXdr`, `transaction`, and a forward `amountOutMin`; omit for indicative amounts. See the [canonical policy](#freshness-and-slippage-canonical) |
 | `max_hops` | `maxHops` | integer | `4` | `1..=6` |
 | `max_splits` | `maxSplits` | integer | `4` | `0..=8`; `0` is treated as `1` (single path) |
 | `include_paths` | `includePaths` | boolean | `false` | Emit `paths[]`; `hops[]` is always present |
 | `sender` | — | string | none | Account `G…` (56 chars). Requires `slippage`. Adds `transaction` (or `transactions[]` for `convertLiquidity`). Without `sender`, `slippage` alone still yields `routeXdr` |
-| `referral_id` | `referralId`, `referral` | integer | `0` | `0..=4294967295` (`u32` on the wire). `0` = no referral **and no protocol fee**. A nonzero id must be an **active** referral on the router: `lp_fee_for` looks it up and answers `400 invalid_request` (`unknown referral N`) when it is missing or inactive; the id is baked into `routeXdr` |
-| `simulate` | — | boolean | `true` | Only with `sender`. `true`: the server simulates and returns a prepared envelope (`transaction.simulated = true`) with the budget fallback ladder. `false`: unprepared envelope, no ladder. Ignored without `sender` |
+| `referral_id` | `referralId`, `referral` | integer | `0` | `0..=4294967295` (the payload stores a `u32`). `0` = no referral **and no protocol fee**. A nonzero id must be an **active** referral on the router: `lp_fee_for` looks it up and answers `400 invalid_request` (`unknown referral N`) when it is missing or inactive; the id is baked into `routeXdr` |
+| `simulate` | — | boolean | `true` | `true`: the server simulates and returns a prepared envelope (`transaction.simulated = true`) with the budget fallback ladder. `false`: unprepared envelope, no ladder. Ignored without `sender` |
 | `platform` | — | string | `"aggregator"` | Only value the `Platform` enum deserializes; kept for compatibility |
 | `fresh` | — | boolean | `false` | Compare the live RPC ledger with the snapshot; `409` when drift > `MAX_FRESH_LEDGER_DRIFT = 2`. Costs one RPC call |
 
@@ -179,7 +179,7 @@ Not a parameter: `router`. The router is fixed by the deployment (`AppState::rou
 | `amountIn` | string | **Gross** input the router pulls from the user, fee-inclusive when `feeOnInput=true`. This is `total_in` for `execute_strategy` and the cost to report in reverse mode |
 | `amountOut` | string | Expected **net** output after aggregator/referral fees. A successful server-side simulation replaces the model estimate with the simulated delivered output (`apply_simulated_amount_out`) |
 | `amountInShort` / `amountOutShort` | number | Display values (decimals applied) |
-| `amountOutMin?` | string | Absolute net-output floor encoded in `routeXdr`. Present when `slippage` was supplied or in reverse mode; exact-out details are centralized in [composition.md#exact-out-status](composition.md#exact-out-status) |
+| `amountOutMin?` | string | Absolute net-output floor encoded in `routeXdr`. Present when `slippage` was supplied, or when `amount_out` was set on a quote other than `convertLiquidity`. Exact-out: [composition.md#exact-out-status](composition.md#exact-out-status) |
 | `amountOutMinShort?` | number | Display value |
 | `slippage?` | number | Echo of the request |
 | `priceImpact?` | number | Modelled execution impact as a decimal, excluding aggregator/referral fees, against oracle-anchored prices when deep enough, else route spot rates; absent when no reference exists; not recomputed from simulation |
@@ -188,7 +188,7 @@ Not a parameter: `router`. The router is fixed by the deployment (`AppState::rou
 | `decimalsIn` / `decimalsOut` | integer (u8) | Token decimals |
 | `hops` | `QuoteSwap[]` | Flat hop list (all paths concatenated); LP mint/burn legs are not hops |
 | `paths?` | `QuotePath[]` | Per-path breakdown; only with `includePaths=true` (`pipeline.rs` strips it otherwise) |
-| `routeXdr?` | string | Base64 XDR of the `StrategyPayload` ScVal. Present when `slippage` was sent (always for swaps and add/remove liquidity; optional for `convertLiquidity`). Pass the decoded bytes as `swap_xdr` to `execute_strategy` or as lending `steps`. Presence does not prove budget feasibility; simulate the full call |
+| `routeXdr?` | string | Base64 XDR of the `StrategyPayload` ScVal. Present when `slippage` was sent (always for swaps and add/remove liquidity; optional for `convertLiquidity`). Pass the decoded bytes as `swap_xdr` to `execute_strategy` or as the controller's `swap` argument; SDK lending builders take the base64 string as `steps: { routeXdr }`. Presence does not prove budget feasibility; simulate the full call |
 | `transaction?` | `TransactionPayload` | Unsigned standalone envelope; requires `sender` + `slippage`. Mutually exclusive with `transactions` |
 | `transactions?` | `TransactionPayload[]` | Ordered `convertLiquidity` steps; confirm each before preparing the next |
 | `platform` | string | `"aggregator"` |
@@ -226,10 +226,10 @@ Not a parameter: `router`. The router is fixed by the deployment (`AppState::rou
 
 | HTTP | `code` | Trigger | Client action |
 |---|---|---|---|
-| 400 | `invalid_request` | Query deserialization failure; `slippage` not finite or outside `[0,1)`; `sender` without `slippage`; bad `sender` strkey; `referral_id > u32::MAX`; `from`/`to` not a `C…` id or `token … not tracked in snapshot`; both or neither of `amount_in`/`amount_out`; amount not an integer or outside `1..=i128::MAX`; `maxHops` outside `1..=6`; `maxSplits > 8`; `unknown referral N` (nonzero id not active on the router); combined static + referral fee above 1000 bps; fee-adjusted amount outside the executable range; `simulate=false` envelope build failure | Fix the request. Do not resend unchanged |
+| 400 | `invalid_request` | Query deserialization failure; `slippage` not finite or outside `[0,1)`; `sender` without `slippage`; bad `sender` strkey; `referral_id > u32::MAX`; `from`/`to` not a `C…` id or `token … not tracked in snapshot`; both or neither of `amount_in`/`amount_out`; amount not an integer or outside `1..=i128::MAX`; `maxHops` outside `1..=6`; `maxSplits > 8`; `amountOut` above the liquidity route capacity; `unknown referral N` (nonzero id not active on the router); combined static + referral fee above 1000 bps; fee-adjusted amount outside the executable range; `simulate=false` envelope build failure | Fix the request. Do not resend unchanged |
 | 404 | `no_route` | Both tokens resolved, no path between them for the amount and limits | Do not retry as-is; change tokens or amount, or raise `maxHops` |
 | 409 | `snapshot_stale` | Only with `fresh=true`: live ledger − snapshot ledger > 2 | Re-quote (optionally after `/ready` returns 200). Never submit the stale quote |
-| 422 | `simulation_failed` | Server simulation failed. `Budget, ExceededLimit` is an explicit route-structure limit. Auth/state diagnostics are not. A successful simulation may also report output `0`/below `amountOutMin` (`below execution minimum`) or no decodable output (`no valid delivered output`) | Re-quote unchanged first for missing/zero/below-min output. Reduce `maxSplits`/`maxHops` only for explicit `Budget, ExceededLimit`. Fix or surface other diagnostics |
+| 422 | `simulation_failed` | Server simulation failed. Only `Budget, ExceededLimit` means the route is too large; other diagnostics (auth, state) do not. A successful simulation may also report output `0`/below `amountOutMin` (`below execution minimum`) or no decodable output (`no valid delivered output`) | Re-quote unchanged first for missing/zero/below-min output. Reduce `maxSplits`/`maxHops` only for explicit `Budget, ExceededLimit`. Fix or surface other diagnostics |
 | 422 | `minimum_output_unreachable` | Net output below the enforced floor `max(slippage floor, amount_out target, 1)`; on a fallback attempt the floor is the one fixed by the first attempt (`preserve_output_minimum`) | Re-quote |
 | 500 | `internal_error` | Payload encoding failed; routed output unparsable; nonzero `referral_id` on a deployment with no router configured for fees | Retry unchanged once after a bounded delay; then report and fail |
 | 502 | `upstream_error` | RPC unreachable during the `fresh` check, the referral lookup, or simulation | Transient: bounded backoff with jitter, then retry |
@@ -244,9 +244,8 @@ GET /api/v1/quote?from=<C…>&to=<C…>&amountIn=1000000000&slippage=0.01&sender
 ```
 
 Before signing, follow [SKILL.md#completion-checks](SKILL.md#completion-checks).
-Exact-out usage is centralized in
-[composition.md#exact-out-status](composition.md#exact-out-status); freshness is
-centralized in [the canonical policy above](#freshness-and-slippage-canonical).
+Exact-out usage: [composition.md#exact-out-status](composition.md#exact-out-status).
+Freshness: [the canonical policy above](#freshness-and-slippage-canonical).
 
 ## Client error handling
 
@@ -287,8 +286,8 @@ export async function quote(
       const hops = Number(url.searchParams.get('maxHops') ?? 4)
       if (splits === 1 && hops <= 2) throw new Error(body.error)
       url.searchParams.set('maxSplits', String(Math.max(1, Math.floor(splits / 2))))
-      url.searchParams.set('maxHops', String(Math.max(2, Math.floor(hops / 2))))
-      return quote(url, attempt, retriedInternal) // bounded by (1 split, 2 hops)
+      url.searchParams.set('maxHops', String(Math.max(Math.min(hops, 2), Math.floor(hops / 2))))
+      return quote(url, attempt, retriedInternal) // stops at 1 split and <= 2 hops
     }
     case 'internal_error': { // 500
       if (retriedInternal) throw new Error(body.error)

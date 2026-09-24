@@ -1,6 +1,5 @@
 //! Cross-contract client trait and call helpers for Reflector price oracle
-//! contracts, plus TWAP helpers used to derive a price from a Reflector
-//! price history.
+//! contracts, plus the mean-price helper for `Twap` reads.
 
 use crate::errors::OracleError;
 use crate::types::OracleAssetRef;
@@ -15,8 +14,7 @@ pub enum ReflectorAsset {
     Other(Symbol),
 }
 
-/// A single price observation from a Reflector oracle: the price value
-/// together with its observation timestamp.
+/// A Reflector price observation: the price and its timestamp, in seconds.
 #[contracttype]
 #[derive(Clone)]
 pub struct ReflectorPriceData {
@@ -34,14 +32,14 @@ pub trait ReflectorOracle {
     /// Returns the number of decimal places oracle prices are scaled to.
     fn decimals(env: Env) -> u32;
 
-    /// Returns the oracle's configured price resolution.
+    /// Returns the oracle's price resolution, in seconds.
     fn resolution(env: Env) -> u32;
 
     /// Returns the most recent price data for `asset`, or `None` if no price is available.
     fn lastprice(env: Env, asset: ReflectorAsset) -> Option<ReflectorPriceData>;
 
-    /// Returns up to `records` of the most recent price data points for `asset`,
-    /// or `None` if unavailable.
+    /// Returns the most recent price data for `asset`, newest first, or `None` if
+    /// unavailable. The count can be below `records` or one above it.
     fn prices(env: Env, asset: ReflectorAsset, records: u32) -> Option<Vec<ReflectorPriceData>>;
 }
 
@@ -58,8 +56,8 @@ pub fn reflector_last_price(
     }
 }
 
-/// Returns up to `records` price data points for `asset` from `oracle` via
-/// `try_prices`. Returns `None` if the call fails or no data is available.
+/// Returns recent price data for `asset` from `oracle` via `try_prices`,
+/// newest first. Returns `None` if the call fails or no data is available.
 pub fn reflector_prices(
     env: &Env,
     oracle: &Address,
@@ -91,7 +89,7 @@ pub fn to_reflector_asset(env: &Env, asset: &OracleAssetRef) -> ReflectorAsset {
     }
 }
 
-/// Computes the arithmetic mean price over `history`. Returns `None` if any
+/// Computes the arithmetic mean price over `history`, rounded down. Returns `None` if any
 /// price is not positive, the running sum overflows i128, or `history` is empty.
 pub fn try_twap_mean_price(history: &Vec<ReflectorPriceData>) -> Option<i128> {
     let mut sum: i128 = 0;

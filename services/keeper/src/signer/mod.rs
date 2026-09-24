@@ -89,7 +89,7 @@ mod tests {
 
     #[test]
     fn index_one_is_a_distinct_account() {
-        // SEP-0005 test vector 1, m/44'/148'/1' — the index the keeper uses so it
+        // SEP-0005 test vector 1, m/44'/148'/1' — the index the mainnet keeper uses so it
         // never shares a sequence number with the mx-bridge relayer at index 0.
         let signer = signer_from_mnemonic(
             "illness spike retreat truth genius clock brain pass fit cave bargain toe",

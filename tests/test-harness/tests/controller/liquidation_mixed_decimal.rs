@@ -294,9 +294,8 @@ fn test_liquidation_protocol_fee_cross_decimal() {
 
     let collateral_before = t.total_collateral(ALICE);
 
-    // The named property: the fee is charged on the bonus leg only, and lands
-    // in the 6-decimal collateral market while the debt leg is 18-decimal.
-    // Without this the body never read a fee at all, so 0x or 1e12x passed.
+    // The fee is charged on the bonus leg only and lands in the 6-decimal
+    // collateral market; the debt leg is 18-decimal.
     let account_id = t.resolve_account_id(ALICE);
     let payments = soroban_sdk::Vec::from_array(
         &t.env,

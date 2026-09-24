@@ -185,9 +185,8 @@ fn withdraw_after_borrow_preserves_debt_record(
         withdraw_amount,
     );
 
-    // Two-step induction: a withdraw acts only on the supply book, so the
-    // debt record produced by the preceding borrow must be exactly unchanged
-    // on every path where both calls complete.
+    // A withdraw acts only on the supply book, so the debt record the borrow
+    // wrote is unchanged on every path where both calls complete.
     let post = crate::storage::get_debt_positions(&e, account_id).get(hub);
     cvlr_assert!(post.is_some());
     cvlr_assert!(post.unwrap().scaled_amount == mid.unwrap().scaled_amount);

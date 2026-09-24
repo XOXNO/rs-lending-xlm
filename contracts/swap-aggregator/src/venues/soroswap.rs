@@ -9,22 +9,16 @@ use crate::venues::HopContext;
 
 /// Soroswap's swap fee as `FEE_NUM / FEE_DEN`: 30 basis points.
 ///
-/// Invariant: every deployed Soroswap pair charges 30 bps. A pair does expose
-/// its own fee setting, but reading it would cost one host call per hop for a
-/// value that has never differed, so hardcoding it is a deliberate trade rather
-/// than an oversight. If Soroswap ever ships a pair on a different fee tier,
-/// this adapter must read the fee from the pair before quoting it.
+/// Assumes every Soroswap pair charges 30 BPS. A pair on another fee tier needs
+/// this adapter to read the fee from the pair.
 const FEE_NUM: i128 = 3;
 const FEE_DEN: i128 = 1_000;
 
 /// Computes the 0.3% swap fee on `amount_in`, rounded up. Returns zero if `amount_in` is not
 /// positive. Panics with `Error::IntegerOverflow` if the scaled numerator does not fit in `i128`.
 ///
-/// This one panics where the shared [`mul_div_floor`] widens, because the two overflows mean
-/// different things. `in_less * reserve_out` overflows for pair sizes that genuinely exist (1e18
-/// against 1e24 reserves), so refusing them would strand real liquidity. `amount_in * 3` only
-/// overflows above `i128::MAX / 3` ≈ 5.7e37, which no token supply reaches; an input that large
-/// is a corrupt amount, not a large trade, and widening it would quietly route on nonsense.
+/// Panics instead of widening like [`mul_div_floor`]: an `amount_in` above `i128::MAX / 3` is a
+/// corrupt amount, not a trade.
 fn soroswap_fee(env: &Env, amount_in: i128) -> i128 {
     if amount_in <= 0 {
         return 0;
@@ -34,8 +28,8 @@ fn soroswap_fee(env: &Env, amount_in: i128) -> i128 {
 }
 
 /// Computes the constant-product output amount for `amount_in` against `reserve_in` and
-/// `reserve_out`, net of the swap fee. Returns zero if any input is not positive, or if the fee
-/// consumes the entire input amount.
+/// `reserve_out`, net of the swap fee, rounded down. Returns zero if any input is not positive,
+/// or if the fee consumes the entire input amount.
 fn soroswap_amount_out(env: &Env, amount_in: i128, reserve_in: i128, reserve_out: i128) -> i128 {
     if amount_in <= 0 || reserve_in <= 0 || reserve_out <= 0 {
         return 0;

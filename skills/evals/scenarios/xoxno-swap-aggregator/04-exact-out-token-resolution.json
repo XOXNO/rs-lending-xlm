@@ -7,7 +7,7 @@
     "Uses the server's reverse mode: one request with `amountOut` = \"10000000000\" (1000 USDC at 7 decimals) and no `amountIn`; never inverts a forward quote or a `rate` client-side to guess the input, and never sends both amounts (400: exactly one of amount_in / amount_out)",
     "Resolves `from`/`to` to 56-char C… contract ids from GET /api/v1/tokens (`id`, `decimals`, `lp`) or addresses.md, never passing 'XLM'/'USDC' symbols or a Classic `CODE:GISSUER` string to /api/v1/quote",
     "Passes `slippage` as the decimal 0.005, not 0.5 (the server rejects values outside [0,1) with 400 and 0.5 would mean 50%)",
-    "Reports the cost as the response `amountIn` (gross, fee-inclusive base units; `feeOnInput` says whether the fee sits on that side) and `amountInShort`, and explains a reverse quote's `amountOutMin` never drops below the requested 1000 USDC target even with slippage set",
+    "Reports the cost as the response `amountIn` (gross, fee-inclusive base units; `feeOnInput` says whether the fee sits on that side) and `amountInShort`, and explains that at the pinned server revision a reverse quote's `amountOutMin` stays at or above the requested 1000 USDC target even with slippage set, and checks that before building",
     "Does not pass a `router` param, does not hardcode a router address, and re-quotes before execution because the quote carries no TTL and `snapshot.ledger`/`ageSeconds` only describe the search snapshot"
   ],
   "machine_checkable": [

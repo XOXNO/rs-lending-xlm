@@ -34,8 +34,8 @@ deploy_dfx_strategy() {
     strat=$(sanitize_output "$out_f")
     txh=$(extract_signing_hash "$err_f")
     # A FAIL row, not just a log line: this deploy is raw CLI, so nothing else
-    # records the failure and the lane would gate green with the entire
-    # strategy surface silently skipped (which is exactly what happened once).
+    # records the failure and the lane would pass with the strategy surface
+    # skipped.
     [ -z "$strat" ] && { _assert_fail deploy_defindex_strategy "strategy deploy failed: $(tail_err_note "$err_f" 200)"; return 1; }
     save_state STRATEGY "$strat"
     record deploy_defindex_strategy ok deploy "$txh" "" "" "" "" "$strat"

@@ -169,25 +169,22 @@ xfail gov_set_controller_absent 'set_controller|unknown|not found|No such' \
     flow_gov_recovery_and_roles
 
     inv gov_pause "$ADMIN" "$GOVERNANCE" -- pause --caller "$ADMIN_ADDR" >/dev/null
-    # governance `pause` is a guardian action that pauses the CONTROLLER, not
-    # governance itself — proposals keep working, which is why an earlier
-    # assertion that propose should fail here came back UNEXPECTED-OK. The
-    # property to assert is that the controller it governs actually halted.
+    # governance `pause` is a guardian action that pauses the controller, not
+    # governance: proposals keep working. Assert that the controller halted.
     xfail gov_pause_halts_controller 'Error\(Contract, #1000\)' "$ALICE" "$GOV_CONTROLLER" -- supply \
         --caller "$ALICE_ADDR" --account_id 0 --spoke_id 1 \
         --assets "$(pay_vec "$PRIMARY_HUB_ID" "$XLM_SAC" 1000000)"
 }
 
-# The governance surface the main flow never reached: its own price aggregator,
-# the oracle-gated sanity band, immediate role revocation, and the Recovery-tier
-# canceller reset.
+# Covers the governance price aggregator, the oracle-gated sanity band,
+# immediate role revocation, and the Recovery-tier canceller reset.
 #
 # ADMIN holds every default operational role from the constructor, so it is both
 # owner and ORACLE/GUARDIAN here.
 flow_gov_recovery_and_roles() {
     # `set_sanity_band` forwards to `price_aggregator_client`, so governance
-    # needs its own aggregator before the band can be set. That is also the only
-    # way to reach `deploy_price_aggregator` / `price_aggregator`.
+    # needs its own aggregator first. This step also covers
+    # `deploy_price_aggregator` and `price_aggregator`.
     local gov_pa=""
     if [ -n "${PA_HASH:-}" ]; then
         gov_pa=$(inv gov_deploy_price_agg "$ADMIN" "$GOVERNANCE" -- deploy_price_aggregator \
@@ -204,19 +201,17 @@ flow_gov_recovery_and_roles() {
         xfail gov_deploy_price_agg_twice 'Error\(Contract, #5\)' "$ADMIN" "$GOVERNANCE" -- deploy_price_aggregator \
             --wasm_hash "$PA_HASH"
 
-        # XLM_SAC, not SAC_LIQA: the LIQ* assets only exist in the `liq` lane,
-        # and an empty --key here aborted the call before it reached the
-        # contract at all.
+        # XLM_SAC, not SAC_LIQA: the LIQ* assets exist only in the `liq` lane,
+        # and an empty --key fails before the call reaches the contract.
         local band_key band_min band_max
         band_key=$(price_key_token "$XLM_SAC")
         band_min=$((WAD / 100 * 92))
         band_max=$((WAD / 100 * 108))
 
-        # Both calls are expected to fail, for *different* reasons, and that is
-        # the test: the governance aggregator was just deployed and has no
-        # oracle registered for any key, so ADMIN clears the ORACLE_ROLE gate
-        # and only then fails on the missing oracle, while ALICE is stopped at
-        # the gate. Distinct outcomes prove the role check runs first.
+        # Both calls fail, with different errors. The new governance aggregator
+        # has no oracle for any key: ALICE fails the ORACLE_ROLE gate, and ADMIN
+        # passes it and fails on the missing oracle. The distinct errors prove
+        # that the role check runs first.
         xfail gov_set_sanity_band_no_role 'Error\(Contract, #2000\)' "$ALICE" "$GOVERNANCE" -- set_sanity_band \
             --caller "$ALICE_ADDR" --key "$band_key" \
             --min_wad "$band_min" --max_wad "$band_max"
@@ -229,9 +224,8 @@ flow_gov_recovery_and_roles() {
     # --- immediate role revocation (owner only, guardian/oracle only) ---
     view gov_has_guardian_pre "$GOVERNANCE" -- has_role \
         --account "$ADMIN_ADDR" --role GUARDIAN >/dev/null
-    # The owner's own roles are protected: apply_revoke_role asserts
-    # `account != owner` with NotAuthorized (#44). ADMIN is the owner, so
-    # revoking its GUARDIAN is refused — the owner cannot be disarmed this way.
+    # apply_revoke_role refuses the owner's roles with NotAuthorized (#44).
+    # ADMIN is the owner, so revoking its GUARDIAN fails.
     xfail gov_revoke_owner_role_rejected 'Error\(Contract, #44\)' "$ADMIN" "$GOVERNANCE" -- revoke_role_immediate \
         --account "$ADMIN_ADDR" --role GUARDIAN
 
@@ -256,8 +250,7 @@ flow_gov_recovery_and_roles() {
 
         inv gov_revoke_guardian_dave "$ADMIN" "$GOVERNANCE" -- revoke_role_immediate \
             --account "$DAVE_ADDR" --role GUARDIAN >/dev/null
-        # Proof it actually took: a second revoke finds no role to remove rather
-        # than silently succeeding.
+        # A second revoke fails with InvalidRole (#41): the role is gone.
         xfail gov_revoke_guardian_twice 'Error\(Contract, #41\)' "$ADMIN" "$GOVERNANCE" -- revoke_role_immediate \
             --account "$DAVE_ADDR" --role GUARDIAN
     else
@@ -266,9 +259,8 @@ flow_gov_recovery_and_roles() {
 
     # --- canceller reset (Recovery tier) ---
     # TIMELOCK_RECOVERY_MIN_DELAY_LEDGERS is 518_400 (~30 days at 5s/ledger), so
-    # the execute half is unreachable inside a run. What is reachable — and what
-    # actually matters — is that it schedules, and that executing early is
-    # refused rather than silently applied.
+    # a run cannot execute the reset. Assert that it schedules and that an early
+    # execute fails.
     local cancellers op_reset
     cancellers=$(jq -nc --arg a "$DAVE_ADDR" '[$a]')
     op_reset=$(inv gov_propose_canceller_reset "$ADMIN" "$GOVERNANCE" -- propose_canceller_reset \

@@ -1,4 +1,4 @@
-//! Types owned by the per-hub-asset pool contract: interest-rate model parameters, market
+//! Types owned by the pool contract: interest-rate model parameters, market
 //! state and indices (raw wire form and typed form), scaled position storage shapes, the
 //! request/result types for each pool operation (supply, borrow, withdraw, strategy, seize,
 //! net-settle), and the `PoolKey` storage key enum.
@@ -9,8 +9,8 @@ use crate::math::fp::{Bps, Ray};
 use crate::types::shared::AccountPositionType;
 use soroban_sdk::{assert_with_error, contracttype, panic_with_error, Address, Env};
 
-/// Wire form of a market's interest-rate model and asset configuration, with rates as raw
-/// ray-scaled `i128` values.
+/// Wire form of a market's interest-rate model and asset configuration. Rates and utilization
+/// breakpoints are raw RAY `i128` values; `reserve_factor` and `flashloan_fee` are BPS.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct MarketParamsRaw {
@@ -218,9 +218,9 @@ impl InterestRateModel {
 
 /// Wire form of a supply position: ray-scaled amount plus the risk parameters stamped on the
 /// position (basis points as raw `u32`). The stamp is seeded when the position is opened and
-/// re-synced against the current spoke asset config on later supply legs and by the restamp
-/// keeper; changes that favour the liquidator are gated for accounts carrying debt (see
-/// `apply_gated_liquidation_params`).
+/// re-synced against the current spoke asset config on later supply legs and by
+/// `update_account_threshold`; changes that favour the liquidator are gated for accounts
+/// carrying debt (see `apply_gated_liquidation_params`).
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AccountPositionRaw {
@@ -365,9 +365,8 @@ impl From<&MarketIndex> for MarketIndexRaw {
     }
 }
 
-/// Point-in-time snapshot of a market's committed state, emitted after each pool mutation for
-/// events and views: interest indices, cash on hand, total supplied and borrowed amounts, and
-/// accrued protocol revenue.
+/// Point-in-time snapshot of a market's committed state for the market state event: interest
+/// indices, cash (token amount), and the scaled supplied, borrowed and revenue totals (RAY).
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct MarketStateSnapshot {
@@ -388,7 +387,7 @@ pub struct MarketStateSnapshot {
     pub revenue: i128,
 }
 
-/// Result of a supply, borrow, or withdraw mutation: the position's updated scaled amount,
+/// Result of a supply, borrow, withdraw, or repay mutation: the position's updated scaled amount,
 /// the market's post-commit indices, the actual asset amount applied (gross, for withdraw),
 /// and the asset's token decimals.
 #[contracttype]
@@ -419,7 +418,7 @@ pub struct PoolStrategyMutation {
     pub asset_decimals: u32,
 }
 
-/// Result of net-settling a user's supply against their debt on the same market: the
+/// Result of net-settling an account's supply against its debt on the same market: the
 /// residual scaled supply and debt positions after burning the matched amount, the market's
 /// post-commit indices, and the asset amount settled.
 #[contracttype]
@@ -476,7 +475,7 @@ pub enum PoolKey {
     State(HubAssetKey),
 }
 
-/// Common request shape for a pool operation on one market: the caller's current scaled
+/// Common request shape for a pool operation on one market: the account's current scaled
 /// position, the requested asset amount, and the target market.
 #[contracttype]
 #[derive(Clone, Debug)]
@@ -522,8 +521,8 @@ pub struct PoolSeizeEntry {
     pub position: ScaledPositionRaw,
 }
 
-/// Request to net-settle a user's supply against their debt on the same market: the target
-/// amount to settle, and the caller's current supply and debt positions.
+/// Request to net-settle an account's supply against its debt on the same market: the target
+/// amount to settle, and the account's current supply and debt positions.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct PoolNetSettleEntry {
@@ -534,7 +533,8 @@ pub struct PoolNetSettleEntry {
     pub debt_position: ScaledPositionRaw,
 }
 
-/// Wire form of a market's mutable state: totals, indices, cash, and last accrual timestamp.
+/// Wire form of a market's mutable state: scaled totals and indices (RAY), cash (token amount),
+/// and last accrual timestamp.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct PoolStateRaw {

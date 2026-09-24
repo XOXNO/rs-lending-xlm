@@ -760,15 +760,12 @@ fn recovery_grant_enforces_executor_canceller_separation() {
     gov.execute_canceller_reset(&Some(admin.clone()), &new_set, &salt);
 }
 
-/// End to end for the new variant: propose -> wait the Sensitive delay ->
-/// execute, landing on the price aggregator's own `upgrade`. The unit tests in
-/// resolve_op.rs prove the operation *resolves* to the right target, function
-/// and tier; only this one proves governance can actually drive it, because the
-/// aggregator's `upgrade` is `#[only_owner]` and governance is the owner.
+/// Proposes `UpgradePriceAggregator`, waits the Sensitive delay and executes the
+/// aggregator's `#[only_owner]` `upgrade` with governance as owner. The
+/// operation ends `Unset`.
 ///
-/// The hash is the same bytecode already uploaded, so the upgrade is a no-op on
-/// state -- what is under test is that the call is authorized and reaches the
-/// host, not that the code changed.
+/// The hash is the aggregator's current code, so the test checks authorization
+/// and dispatch, not a code change.
 #[test]
 fn upgrade_price_aggregator_executes_against_the_aggregator() {
     let env = Env::default();

@@ -50,11 +50,8 @@ impl AggregatorPriceKey {
 
 /// Persistent keys owned by the price aggregator.
 ///
-/// The variant is `Oracle` and its payload is a nested `PriceKey`, matching
-/// `AggregatorKey::Oracle(PriceKey)` in
-/// `contracts/price-aggregator/src/registry.rs`. An earlier version built
-/// `AssetOracle` wrapping a bare `Address`, which matches no stored entry, so
-/// every oracle row read back absent and none were ever renewed.
+/// `Oracle` wraps a nested `PriceKey`, matching `AggregatorKey::Oracle(PriceKey)`
+/// in `contracts/price-aggregator/src/registry.rs`.
 #[derive(Debug, Clone)]
 pub enum PriceAggregatorPersistentKey {
     Oracle(AggregatorPriceKey),
@@ -244,10 +241,8 @@ impl ControllerInstanceKey {
 
 /// Instance-storage keys read from the price aggregator.
 ///
-/// `OracleKeys` is the aggregator's own index of every registered `PriceKey`
-/// (`AggregatorKey::OracleKeys`). Reading it is what lets discovery renew the
-/// exact set the contract actually stores — token rows and `Ref` rows alike —
-/// instead of reconstructing a guess from the keeper's market config.
+/// `OracleKeys` (`AggregatorKey::OracleKeys`) indexes every registered
+/// `PriceKey`, so discovery renews the exact stored set, `Ref` rows included.
 #[derive(Debug, Clone, Copy)]
 pub enum PriceAggregatorInstanceKey {
     OracleKeys,
@@ -263,11 +258,10 @@ impl PriceAggregatorInstanceKey {
 
 /// Persistent keys owned by the position-NFT contract.
 ///
-/// `Owner` is the entry that records who holds an account. OpenZeppelin extends
-/// it by 30 days on read, while the controller extends its own account keys by
-/// 120 days, so `Owner` is the shorter-lived of the two and archives first if
-/// nothing renews it. An archived `Owner` makes the account unusable until the
-/// entry is restored.
+/// `Owner` records who holds an account. OpenZeppelin `owner_of` extends it to
+/// 30 days, while the controller extends its account keys to 120 days, so
+/// `Owner` archives first if nothing renews it. An archived `Owner` makes the
+/// account unusable until the entry is restored.
 #[derive(Debug, Clone, Copy)]
 pub enum PositionNftUserKey {
     Owner(u32),
@@ -291,10 +285,9 @@ impl PositionNftUserKey {
 
 /// Instance-storage keys read from the position-NFT contract.
 ///
-/// Account ids are position-NFT token ids, so the controller no longer keeps a
-/// counter of its own. `TokenIdCounter` is the OpenZeppelin sequential
-/// counter (`NFTSequentialStorageKey::TokenIdCounter` in `stellar-tokens`)
-/// and holds the NEXT free token id, not the highest minted one.
+/// Account ids are position-NFT token ids. `TokenIdCounter` is the OpenZeppelin
+/// sequential counter (`NFTSequentialStorageKey::TokenIdCounter` in
+/// `stellar-tokens`) and holds the next free token id, not the highest minted one.
 #[derive(Debug, Clone, Copy)]
 pub enum PositionNftInstanceKey {
     TokenIdCounter,
@@ -536,17 +529,13 @@ mod tests {
         assert_eq!(sym_text(&items[2]), "REVENUE");
     }
 
-    /// Golden values captured from mainnet on 2026-08-31 with
-    /// `stellar contract read --key-xdr`: each of these base64 keys returned a
-    /// live entry from the deployed price aggregator
-    /// (`CBGUF2G2Q7HCVCWYISDXBHPVBGMYNXA7PG2VET66YBZX6IKOOV27NSMV`) — the first
-    /// the SolvBTC oracle config, the second the `Ref("BTC")` reference.
+    /// Golden keys read with `stellar contract read --key-xdr` from the mainnet
+    /// price aggregator (`CBGUF2G2Q7HCVCWYISDXBHPVBGMYNXA7PG2VET66YBZX6IKOOV27NSMV`).
+    /// Each returned a live entry: the SolvBTC oracle config and the
+    /// `Ref("BTC")` reference.
     ///
-    /// They are pinned because the previous encoding (`AssetOracle` wrapping a
-    /// bare `Address`) matched no stored entry, so every oracle row read back
-    /// absent and none were renewed. A shape regression is invisible in
-    /// production — it looks exactly like "nothing to do" — so only a pin
-    /// against a value proven on chain catches it.
+    /// A wrong encoding reads back absent, which looks like "nothing to do" in
+    /// production, so only a pin against an on-chain value catches it.
     #[test]
     fn oracle_keys_match_the_encoding_proven_on_mainnet() {
         use stellar_xdr::{Limits, WriteXdr};

@@ -420,8 +420,8 @@ fn a_program_with_no_instructions_is_rejected() {
     );
 }
 
-/// Split weights no longer have to be declared to sum to 1e6 up front — the
-/// residual guard is what enforces it, by rejecting anything left unrouted.
+/// Split weights need not sum to 1e6: the residual guard rejects unrouted input
+/// above its allowance.
 #[test]
 fn an_under_routed_split_leaves_funds_behind_and_reverts() {
     let env = Env::default();
@@ -457,11 +457,9 @@ fn an_under_routed_split_leaves_funds_behind_and_reverts() {
     );
 }
 
-/// The residual guard's boundary, driven through the real enforcement path:
-/// an unrouted remainder of exactly the allowance is accepted, one raw unit
-/// more is rejected. An input of 1_000_000 puts the trade in the dust-floor
-/// regime (allowance = 1_000 whatever the venue credits), and makes one
-/// weight-ppm equal one raw unit, so the boundary is exact.
+/// An unrouted remainder of exactly the residual allowance passes; one raw unit
+/// more reverts with `ExcessiveResidual`. An input of 1_000_000 sets the
+/// allowance to the 1_000 dust floor and makes one weight ppm equal one raw unit.
 #[test]
 fn a_residual_of_exactly_the_allowance_passes_and_one_unit_more_reverts() {
     let run = |weight_ppm| {
@@ -550,15 +548,9 @@ fn a_path_ending_off_target_reverts() {
     );
 }
 
-/// A fee-on-transfer input token makes the router credit its vault with the
-/// *declared* `total_in` while receiving less, and the shortfall is paid out of
-/// the accrued fee buckets held in that same token.
-///
-/// `execute::run` does `transfer(sender, router, total_in)` immediately
-/// followed by `vault.deposit(&input_token, total_in)`: the deposit is the
-/// declared argument, never a measured balance delta. Every other inbound leg
-/// in this workspace measures (`common::token::transfer_amount_measured`,
-/// `venues::dispatch_hop`); this one does not.
+/// A fee-on-transfer input token credits the vault with the measured amount
+/// received, not the declared `total_in`, so the accrued fee bucket held in that
+/// token stays fully backed.
 #[test]
 fn fee_on_transfer_input_is_credited_at_measured_amount_and_leaves_the_fee_reserve_intact() {
     use super::support::fee_on_transfer_token_mock;
@@ -617,9 +609,8 @@ fn fee_on_transfer_input_is_credited_at_measured_amount_and_leaves_the_fee_reser
     let reserved = env.as_contract(&router_addr, || reserved_fee_balance(&env, &fot));
     let real = fot_client.balance(&router_addr);
 
-    // F-1 fixed: the vault is credited the MEASURED 990, not the declared 1000,
-    // so the hop routes only what arrived and the accrued fee bucket is never
-    // touched. The reserve stays fully backed.
+    // The vault is credited the measured 990, not the declared 1_000, so the hop
+    // routes only what arrived and the fee bucket is not touched.
     assert_eq!(reserved, 100, "the fee bucket still claims 100");
     assert_eq!(real, 100, "and its 100 tokens of backing are intact");
     assert!(

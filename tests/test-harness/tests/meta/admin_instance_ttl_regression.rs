@@ -1,14 +1,9 @@
 //! Pins instance-TTL renewal on the owner-gated admin surface.
 //!
-//! Every `ControllerAdmin` entrypoint bumps the controller's instance TTL
-//! through exactly one mechanism: the `renew_then!` wrapper in
-//! `contracts/controller/src/lib.rs`. The admin bodies in `governance.rs` and
-//! `markets.rs` used to repeat that bump themselves; those duplicate calls were
-//! removed, which leaves `renew_then!` a single point of failure for the whole
-//! surface. Nothing else in the suite reads the *instance* TTL — the existing
-//! TTL regressions all cover per-account persistent keys — so without this test,
-//! dropping `renew_then!` from an admin entrypoint would pass CI silently and
-//! surface only as an archived contract on a quiet network.
+//! Every owner-gated `ControllerAdmin` entrypoint bumps the controller's instance
+//! TTL through the `renew_then!` wrapper in `contracts/controller/src/lib.rs`. No
+//! other test reads the instance TTL after an admin call, so this test is what
+//! fails when a checked entrypoint drops `renew_then!`.
 
 use controller::constants::TTL_THRESHOLD_INSTANCE;
 use soroban_sdk::testutils::storage::Instance as _;
@@ -40,11 +35,9 @@ fn assert_renews(name: &str, call: impl Fn(&LendingTest)) {
 
     call(&t);
 
-    // Not an equality check against TTL_BUMP_INSTANCE: `get_ttl` excludes the
-    // current ledger and the harness caps `max_entry_ttl` at the bump target,
-    // so the renewed value lands one short. The invariant that matters is that
-    // the call pulled the entry back out of the renewal regime — a missing
-    // `renew_then!` leaves it at `aged`, well below the threshold.
+    // `get_ttl` excludes the current ledger and the harness caps `max_entry_ttl`
+    // at the bump target, so the renewed TTL is one short of `TTL_BUMP_INSTANCE`.
+    // Without `renew_then!` the TTL stays at `aged`, below the threshold.
     let renewed = instance_ttl(&t);
     assert!(
         renewed > TTL_THRESHOLD_INSTANCE,

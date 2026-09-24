@@ -78,7 +78,7 @@ jobs:
               conf = Path(item["conf"])
               entry = {"conf_dir": str(conf.parent), "conf": conf.name}
               if not profile:
-                  # Default run: one job per conf, the historical sanity sweep.
+                  # Default run: one job per conf of the sanity profile.
                   matrix.append({**entry, "label": conf.stem, "rule": ""})
                   continue
               # A chosen profile gets one job per rule, so every rule receives
@@ -151,11 +151,10 @@ jobs:
         working-directory: ${{ matrix.conf_dir }}
         run: |
           set -o pipefail
-          # `--wait_for_results ALL` is not optional here. Without it the CLI
-          # returns as soon as the cloud accepts the job, so the step passes on
-          # submission, `prover.log` holds no verdict, and the summary row below
-          # records "none". Run 33710229937 is the evidence: 35 green jobs, zero
-          # verdicts. Waiting also bounds how many jobs are unfinished at once,
+          # `--wait_for_results ALL` is required. Without it the CLI returns as
+          # soon as the cloud accepts the job, so the step passes on submission,
+          # `prover.log` holds no verdict, and the summary row below records
+          # "none". Waiting also bounds how many jobs are unfinished at once,
           # which is what the cloud counts against the monthly allowance.
           if [ -n "$RULE" ]; then
             certoraSorobanProver "${{ matrix.conf }}" --rule "$RULE" \
@@ -169,10 +168,10 @@ jobs:
         if: always()
         working-directory: ${{ matrix.conf_dir }}
         run: |
-          # One row per job. The ledger in certora/README.md is filled from these.
-          # With --wait_for_results ALL the log carries a real verdict. A row
-          # that still says "none" means the CLI did not wait: the step records
-          # the row and then fails, so an unproved job can never stay green.
+          # One row per job. With --wait_for_results ALL the log carries a real
+          # verdict. A row that still says "none" means the CLI did not wait:
+          # the step records the row and then fails, so an unproved job can
+          # never stay green.
           # SANITY_FAILED wins over the assertion verdict: a vacuous rule still
           # prints "Verified: <rule>-Assertions". Then anchor on the rule's own
           # "-Assertions" sub-rule, because the "-rule_not_vacuous_tac" sub-rule

@@ -14,9 +14,8 @@ flow_flash_loans() {
         --spoke_id "$PRIMARY_SPOKE_ID" --account_id 0 >/dev/null \
         || die flash_loan_set_plan "set_plan must succeed so reentry hits this controller"
 
-    # The flash-loan fee is the protocol's whole economic interest in this path,
-    # so assert it landed. A loan that returned successfully while booking no
-    # fee would be a free borrow, invisible to a success-only check.
+    # Asserts the flash-loan fee reaches pool revenue: a success-only check
+    # misses a loan that books no fee.
     local flash_rev_pre flash_rev_post
     flash_rev_pre=$(_view_pool_int flash_revenue_pre get_revenue \
         --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")")
@@ -36,9 +35,10 @@ flow_flash_loans() {
         --receiver "$FLASH_RECEIVER" --data "$(flash_data_hex 6)" >/dev/null
 
     local mode name pattern
-    # The Soroban host rejects same-contract re-entry with Context/InvalidAction
-    # before the controller's #400 guard runs; that host error is the only
-    # outcome a live callback can observe (#400 is pinned by the harness matrix).
+    # The Soroban host rejects re-entry into a contract already on the call
+    # stack with Context/InvalidAction, before the controller's #400 guard runs.
+    # A live callback sees only that host error; the harness test
+    # meta/reentrancy_matrix.rs pins #400.
     local re_pattern='Error\(Context, InvalidAction\)'
     for mode in 1 2 3 4 5 7 8 9 10 11 12 13 14 15 16 17 18; do
         case $mode in

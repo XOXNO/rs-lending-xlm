@@ -1,6 +1,6 @@
 //! Converts between asset-unit amounts and index-scaled `Ray` values for
-//! supply and borrow positions, and resolves withdrawal and repayment
-//! amounts against a scaled position.
+//! supply and borrow positions, and resolves withdrawal, repayment and
+//! net-settle amounts against scaled positions.
 
 use soroban_sdk::{panic_with_error, Env};
 
@@ -9,18 +9,19 @@ use crate::math::fp::Ray;
 use crate::math::fp_core;
 
 /// Converts a scaled `Ray` amount to its original (unscaled) value by
-/// multiplying by `index`.
+/// multiplying by `index`, rounding half up.
 pub fn scaled_to_original(env: &Env, scaled: Ray, index: Ray) -> Ray {
     scaled.mul(env, index)
 }
 
-/// Converts an asset-unit `cap` to a scaled `Ray` value using floor rounding,
-/// saturating the division to `i128::MAX` instead of panicking on overflow, so
-/// the cap check fails open rather than trapping an entry path. (The asset→ray
-/// rescale itself panics on overflow; caps must be pre-validated to the asset's
-/// decimal domain — see [`crate::validation::require_cap_within_asset_domain`].)
-/// Distinct from [`calculate_scaled_supply`] / [`calculate_scaled_borrow`],
-/// which panic on overflow (position accounting).
+/// Converts an asset-unit `cap` to a scaled `Ray` value, rounding down.
+///
+/// The division saturates at `i128::MAX` instead of panicking, so the cap check
+/// fails open rather than trapping an entry path. The asset-to-RAY
+/// rescale still panics on overflow; listings validate caps with
+/// [`crate::validation::require_cap_within_asset_domain`]. Position accounting
+/// uses [`calculate_scaled_supply`] and [`calculate_scaled_borrow`], which panic
+/// on overflow.
 pub fn calculate_scaled_cap(env: &Env, cap: i128, decimals: u32, index: Ray) -> Ray {
     Ray::from(fp_core::mul_div_floor_saturating(
         env,
@@ -158,7 +159,7 @@ pub fn resolve_net_settle(
     (burned_supply, burned_debt, settle)
 }
 
-/// Determines the scaled debt to **burn** and any excess repayment when a
+/// Determines the scaled debt to burn and any excess repayment when a
 /// caller repays `amount` asset units against `pos_scaled`.
 ///
 /// If `amount` is at least the position's ceiling-rounded debt value, treats

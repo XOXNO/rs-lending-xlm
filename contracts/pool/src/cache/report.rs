@@ -1,7 +1,7 @@
 //! Index snapshots and position mutation DTOs built from the cache.
 //!
-//! These helpers package post-mutation state for hub return values and events
-//! without re-reading storage.
+//! These helpers package post-mutation state for controller return values and
+//! events without re-reading storage.
 
 use common::math::fp::Ray;
 use common::types::{
@@ -22,7 +22,7 @@ impl Cache {
         self.borrow_index = index;
     }
 
-    /// Current borrow/supply indexes as a raw DTO for hub sync.
+    /// Current borrow/supply indexes as a raw DTO for the controller.
     pub(crate) fn market_index(&self) -> MarketIndexRaw {
         MarketIndexRaw {
             borrow_index: self.borrow_index.raw(),
@@ -45,7 +45,7 @@ impl Cache {
     }
 
     /// Builds a supply/borrow position mutation for a batch leg result,
-    /// pairing the caller's remaining scaled position with the actual asset
+    /// pairing the caller's updated scaled position with the actual asset
     /// amount applied.
     pub(crate) fn position_mutation(
         &self,

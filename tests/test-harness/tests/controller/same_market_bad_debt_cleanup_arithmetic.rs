@@ -1,7 +1,7 @@
 //! GH-30. An insolvent account holding supply and debt in the same market:
 //! cleanup books the supply as protocol revenue and writes the whole debt off
-//! against that market's suppliers. Pins the exact raw arithmetic that
-//! ADR-0021 records as the netting follow-up.
+//! against that market's suppliers. Pins the exact raw arithmetic of the
+//! ADR-0021 gross-debt cleanup.
 
 use crate::shared::get_indexes;
 use common::math::fp::Ray;

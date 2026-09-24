@@ -35,9 +35,8 @@ COPY config /etc/keeper
 USER nonroot:nonroot
 EXPOSE 9090
 
-# The network comes from the `network` field of the file KEEPER_CONFIG points
-# at; there is no separate network variable, so nothing here can disagree with
-# the config.
+# The network comes from the `network` field of the `KEEPER_CONFIG` file. No
+# separate network variable exists to disagree with it.
 ENV KEEPER_CONFIG=/etc/keeper/mainnet.yaml \
     RUST_LOG=info
 

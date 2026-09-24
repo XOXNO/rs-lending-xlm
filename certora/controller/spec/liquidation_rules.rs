@@ -44,8 +44,7 @@ fn liquidation_does_not_increase_repaid_debt(
     crate::spec::fixture::seed_market(&e, &collateral_asset);
     fixture::seed_empty_books(&e, account_id);
     crate::spec::fixture::seed_debt_position(&e, account_id, &debt_asset, scaled_debt_before);
-    // A collateralized debt book is required for liquidation to be able to
-    // execute (the seize path), keeping the transition meaningful.
+    // Collateral lets the liquidation reach the seize path.
     crate::spec::fixture::seed_supply_position(
         &e,
         account_id,
@@ -433,13 +432,12 @@ fn liquidation_transition_sanity(
 
 // --- V-6: splitting a close into partials is never more profitable ---------
 //
-// CS-AAVE4-009 against Aave: when `proportion_seized * (1 + bonus) > HF`, every
-// partial liquidation lowers the health factor, the bonus curve pays more at
-// the lower health factor, and N slices extract more collateral than one close
-// of the summed repayment. Aave forbade the configuration off-chain. We clamp
-// at runtime: `max_hf_preserving_bonus_bps` caps the bonus at
-// `HF / proportion_seized - 1`, the exact rate that leaves the health factor
-// unchanged, so the next slice can never be priced better than this one.
+// When `proportion_seized * (1 + bonus) > HF`, every partial liquidation lowers
+// the health factor and the bonus curve pays more at the lower health factor,
+// so N slices would seize more collateral than one close of the summed
+// repayment. `max_hf_preserving_bonus_bps` caps the bonus at
+// `HF / proportion_seized - 1`, the rate that leaves the health factor
+// unchanged, so the next slice is never priced better than this one.
 //
 // These rules work at the plan-math level, on the same
 // `estimate_liquidation_amount` the plan calls, with prices and indexes held
@@ -599,8 +597,9 @@ fn split_liq_two_partials_never_out_seize_one_close(
 
 /// A partial can raise the next quote's bonus only by the BPS floor of its own
 /// quote: weighted by the debt left, the gain past one BPS stays within two
-/// BPS of the first repayment. After a 99% partial of a 90/100 book the bonus
-/// rises 1111 -> 1122 BPS, but only on the 1% of debt left.
+/// BPS of the first repayment. After a 99% partial of a book with `C = 100`,
+/// `W = 80` and `D = 90`, the bonus rises 1111 -> 1122 BPS, but only on the 1%
+/// of debt left.
 ///
 /// The blended threshold is at least one BPS; below it the half-up proportion
 /// moves the cap on its own.
@@ -631,8 +630,8 @@ fn split_liq_bonus_gain_across_a_partial_stays_within_the_bps_floor(
 }
 
 /// A partial paid at the HF-preserving cap never lowers the collateral
-/// coverage `C / D` beyond rounding: the collateral left stays within
-/// `repay / 10^10 + 2` raw units of `C0 * D1 / D0`. The cap, floored at zero, is
+/// coverage `C / D` beyond rounding: the collateral left is at least
+/// `C0 * D1 / D0` minus `repay / 10^10 + 2` raw units. The cap, floored at zero, is
 /// the quoted bonus of a covered book in the below-base band and wherever the
 /// curve out-asks it.
 #[rule]
@@ -695,7 +694,6 @@ fn split_liq_chain_bound_holds_when_health_never_recovers(
 
     let (book_1, seize_1) = split_liq_apply(&e, book_0, repay_1, quote_0.bonus_bps);
     let quote_1 = split_liq_quote(&e, book_1);
-    // The eroding branch: this is the shape CS-AAVE4-009 exploited.
     cvlr_assume!(quote_1.hf_wad < quote_0.hf_wad);
     cvlr_assume!(repay_2 <= quote_1.ideal);
     let seize_2 = split_liq_seizure(&e, repay_2, quote_1.bonus_bps);

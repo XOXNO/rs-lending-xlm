@@ -8,10 +8,9 @@ use common::math::fp_core::mul_div_half_up;
 
 /// Production `read_scaled` computes the scaled price as
 /// `factor.try_mul(quote)` (Wad), which is `fp_core::try_mul_div_half_up(factor,
-/// quote, WAD)`: half-up rounding, `None` on non-positive operands or i128
-/// overflow. These rules pin that semantics on a pure-math level (no host
-/// storage), mirroring the pool/common split: the interesting arithmetic is
-/// verified without resolving any feeds.
+/// quote, WAD)`: half-up rounding, `None` on a negative operand or i128
+/// overflow. These rules pin that semantics as pure math, with no host storage
+/// and no feed resolution.
 ///
 /// Both operands are capped at the registry's own ceiling,
 /// `MAX_REASONABLE_PRICE_WAD` (1e9 WAD).
@@ -40,10 +39,9 @@ fn scaled_native_max(quote: i128) -> i128 {
 /// Native half of `scaled_price_pins_half_up_rounding`: the biased product fits
 /// `i128`, so both the wrapped and the raw multiply run entirely in `i128`.
 ///
-/// Lemma split of the former `scaled_price_pins_half_up_rounding`. The two
-/// bounds are exact complements, so the pair covers the original
+/// The two bounds are exact complements, so the pair covers the
 /// `(0, MAX_FACTOR_WAD] x (0, MAX_QUOTE_WAD]` box and each half asserts the
-/// original identity.
+/// same identity.
 #[rule]
 fn scaled_price_pins_half_up_rounding_native(e: Env, factor: i128, quote: i128) {
     cvlr_assume!(factor > 0 && factor <= MAX_FACTOR_WAD);
@@ -57,10 +55,10 @@ fn scaled_price_pins_half_up_rounding_native(e: Env, factor: i128, quote: i128) 
 
     // Result uses half-up rounding on the WAD product (a switch to floor or
     // truncation changes this identity). The product is never negative for
-    // positive operands, but it CAN round down to zero: `read_scaled`
+    // positive operands, but it can round down to zero: `read_scaled`
     // (engine.rs) performs no post-multiplication positivity check, so a dust
-    // factor*quote < WAD/2 yields an accepted zero price. Strict positivity
-    // is enforced by production's feed-side checks, not by this math.
+    // factor*quote < WAD/2 yields a zero reading. `Outcome::failure` rejects
+    // the resulting outcome later; this math does not.
     let expected = mul_div_half_up(&e, factor, quote, WAD);
     cvlr_assert!(scaled_price == expected);
     cvlr_assert!(scaled_price >= 0);

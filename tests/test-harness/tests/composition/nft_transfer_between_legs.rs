@@ -1,5 +1,5 @@
 //! GH-11. Ownership is read live from the NFT, so a transfer between two legs
-//! of one script revokes the runner's authority on the very next leg.
+//! of one script revokes the runner's authority on the next leg.
 
 use crate::helpers::{liquidate_op, supply_op, withdraw_op};
 use common::types::SeizeMode;

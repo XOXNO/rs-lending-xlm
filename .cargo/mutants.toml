@@ -13,63 +13,67 @@ exclude_globs = [
     "common/src/types/shared.rs",
 ]
 
-# Surviving mutants we accept. Grouped by WHY, because "a mutant survives" has
-# two very different meanings and they need different follow-up:
+# Mutation exclusions, grouped by reason or review status:
 #
-#   EQUIVALENT  the mutated program is observably identical to the original, so
-#               no test can ever kill it. Nothing to fix.
-#   UNREVIEWED  the mutant survives and nobody has shown it is equivalent. Each
-#               of these is a possible test gap. Do not add to this group
-#               without saying what you checked.
+#   EQUIVALENT    the mutated program is observably identical to the original,
+#                 so no test can kill it.
+#   OUT OF SCOPE  the code is not compiled into the deployed contract or into
+#                 an ordinary test build.
+#   STALE         the pattern currently matches no mutant.
+#   NON-EQUIVALENT a counterexample demonstrates changed behavior.
+#   UNREVIEWED    nobody has shown the mutant is equivalent, so it is a possible
+#                 test gap. Say what you checked when you add an entry.
 #
-# Entries naming a function that no longer exists are worse than useless: they
-# are dead, and a name-scoped regex will silently suppress a *future* function
-# that happens to reuse the name. Prune on rename.
+# Stale name-scoped patterns can suppress later functions that reuse the name;
+# they are listed separately below, not counted as equivalent mutations.
 exclude_re = [
     "test_support::",
 
-    # --- EQUIVALENT: boundary-equivalent comparisons -------------------------
-    # Flipping strict/non-strict at a point the surrounding logic already
-    # handles identically (the equal case is unreachable, or both branches
-    # produce the same value).
+    # --- STALE: operators no longer present ----------------------------------
+    # Neither rescale body contains `>`.
     "replace > with >= in rescale_half_up",
     "replace > with >= in rescale_floor",
+
+    # --- NON-EQUIVALENT: existing test covers the counterexample --------------
+    # For `a == 0` and a factor that overflows `i128`, the mutant returns 1.
+    # `test_rescale_downscale_factor_larger_than_i128_saturates_to_zero`
+    # expects 0. This exclusion suppresses a detectable mutation.
     "replace > with >= in rescale_ceil",
+
+    # --- EQUIVALENT: boundary-equivalent comparisons -------------------------
+    # Flipping strict/non-strict where the equal case is unreachable or both
+    # branches produce the same value.
     "observation.rs:[0-9]+:14: replace > with >= in is_stale",
     "replace > with >= in calculate_annual_borrow_rate",
     "replace > with >= in update_borrow_index",
     "replace > with >= in normalize_repayment_plan",
     "replace > with >= in estimate_liquidation_amount",
     # `add_liquidity` pushes `before[i] = if amount > 0 { balance(router) } else
-    # { 0 }`, and `before[i]` is only read inside `if held[i] != 0` -- where
-    # `held[i]` *is* the `amount` compared here. At amount == 0 the pushed value
-    # is dead, so `>=` only adds a `balance` read whose result is discarded.
-    # (Was scoped to `aquarius.rs`, which since split into
-    # `venues/aquarius/{mint,burn}.rs`; the old entry had stopped matching.)
+    # { 0 }`, and reads `before[i]` only when `held[i]`, the same `amount`, is
+    # nonzero. At amount == 0 the pushed value is never read, so `>=` only adds
+    # a discarded `balance` read.
     "venues/aquarius/mint.rs:[0-9]+:36: replace > with >= in add_liquidity",
-    # `residual_allowance` returns `proportional` above the floor and the floor
-    # otherwise, so at proportional == RESIDUAL_DUST_FLOOR both arms return the
-    # same value. It has lived in aquarius.rs, then lib.rs, and now
-    # constants.rs, and the entry was never re-scoped on either move.
+    # --- STALE: operator no longer present -----------------------------------
+    # `residual_allowance` is
+    # `(credited / RESIDUAL_PPM).max(RESIDUAL_DUST_FLOOR)` and contains no `>`.
     "constants.rs:[0-9]+:21: replace > with >= in residual_allowance",
+
+    # --- EQUIVALENT: boundary-equivalent comparison --------------------------
     "vault.rs:[0-9]+:19: replace < with <= in Vault",
 
     # --- EQUIVALENT: widened slice bound that is never read -------------------
     # The referral id is read as `&buf[head::REFERRAL..head::REFERRAL + 4]`, and
     # `head::REFERRAL` is 4, so the mutant widens the slice from `buf[4..8]` to
-    # `buf[4..16]`. `buf` is `[u8; MAX_PROGRAM_BYTES]` (346 bytes) regardless of
-    # the payload length, so the wider range can never go out of bounds, and the
-    # slice is only indexed at 0..=3 -- `buf[4..8]` either way. Byte-identical
-    # referral id on every input.
+    # `buf[4..16]`. `buf` is always `[u8; MAX_PROGRAM_BYTES]` (346 bytes), so the
+    # wider slice stays in bounds, and only its indexes 0..=3 are read. The
+    # referral id is identical on every input.
     "program.rs:[0-9]+:60: replace \\+ with \\* in Program::decode",
 
-    # --- EQUIVALENT: guarded downstream --------------------------------------
-    # `update_supply_index` returns `old_index` when supplied == 0 OR
-    # rewards_increase == 0. Narrowing `||` to `&&` lets a single-zero case fall
-    # through, but the `total_supplied_value == Ray::ZERO` guard immediately
-    # below returns `old_index` when supplied == 0, and with rewards_increase
-    # == 0 the arithmetic reduces to `old_index` anyway. Same output on every
-    # input.
+    # --- NON-EQUIVALENT: counterexample identifies a test gap -----------------
+    # With `&&`, `rewards_increase == 0` and `supplied != 0` reach the
+    # arithmetic. `supplied.mul(old_index)` rounds half up, and the floor divide
+    # back can return more than `old_index`: supplied = 1 raw and
+    # old_index = 1.5 RAY return 2 RAY. A unit test with these inputs would kill it.
     "replace \\|\\| with && in update_supply_index",
 
     # --- EQUIVALENT: comparison the surrounding logic already decided ---------
@@ -77,55 +81,48 @@ exclude_re = [
     # reserve orientation. `HopContext::new` panics with `SameToken` before the
     # adapter runs, so the two operands are never equal and `<` and `<=` agree on
     # every reachable input.
-    #
-    # The sibling entry for `sushi.rs` column 43 was pruned: venue adapters now
-    # return `()`, so the `output_balance() - balance_before` line it named no
-    # longer exists. The fill is measured once, in `venues::dispatch_hop`, and
-    # that subtraction IS covered -- see
-    # `sushi_split_credits_only_the_delta_of_each_hop`, the only test that fails
-    # when it becomes `checked_add`.
     "soroswap.rs:[0-9]+:42: replace < with <= in swap",
 
     # --- EQUIVALENT: unobservable against a Stellar Asset Contract ------------
     # Both build invoker-contract auth for the Comet hop. Against a SAC token
-    # neither is load-bearing: `approve` is invoked directly by the router, so
-    # the router's authorization is implicit, and SAC `transfer_from` requires
-    # the *spender* (the pool), not the router. Confirmed by deleting each call
-    # and running the suite under `mock_auths` rather than `mock_all_auths` --
-    # `env.auths()` records only the sender's tree either way.
-    # Killing these needs a venue mock that demands the caller's auth the way a
-    # real Comet pool might; until such a mock exists they cannot be killed.
+    # neither is needed: the router calls `approve` directly, so its auth is
+    # implicit, and SAC `transfer_from` requires the spender (the pool), not the
+    # router. With either call deleted, `env.auths()` under `mock_auths` records
+    # the same sender tree. Only a venue mock that demands the router's auth can
+    # kill these.
     "replace authorize_token_approve with \\(\\)",
     "replace authorize_comet_swap with \\(\\)",
 
     # --- OUT OF SCOPE: not in the deployed contract ---------------------------
-    # Both are `#[cfg(feature = "certora")]` helpers in price-aggregator's engine,
-    # used to drive two-leg *price blending* in formal verification. Nothing to do
-    # with the Blend lending protocol. They are not compiled into the shipped wasm
-    # and no ordinary test builds them, so no test can ever kill these.
+    # Both are `#[cfg(feature = "certora")]` entry points in
+    # `contracts/price-aggregator/src/engine.rs` that drive oracle price blending
+    # for the prover. They are unrelated to the Blend integration. Neither the
+    # deployed wasm nor an ordinary test build compiles them, so no test can
+    # kill these.
     "replace blend_empty -> Outcome with Default::default\\(\\)",
     "replace blend_partial -> Outcome with Default::default\\(\\)",
 
     # --- EQUIVALENT: guard is unreachable under the owner-holds-all invariant --
-    # `__constructor` grants all five operational roles to the owner and
-    # `sync_owner_access_control` migrates them on transfer, while
-    # `apply_revoke_role` refuses to act on the owner at all. So the owner holds
-    # every role permanently, and any role a non-owner holds has member count >= 2.
-    # The `count > 1` last-proposer guard therefore never fails -- with `==` or
-    # with `!=`. CannotRemoveLastProposer (error 48) is unreachable today; if the
-    # owner ever stops being auto-granted every role, this becomes killable and
-    # should move back to UNREVIEWED.
+    # `__constructor` grants the five operational roles to the owner,
+    # `sync_owner_access_control` moves them on an ownership transfer, and
+    # neither `apply_revoke_role` nor `apply_canceller_reset` revokes from the
+    # owner. So the owner holds every role, and a role a non-owner holds has at
+    # least two members. The `count > 1` guard passes for every role that reaches
+    # it under `==` or `!=`, and `CannotRemoveLastProposer` (error 48) is
+    # unreachable.
+    # If the owner stops holding every role, this entry becomes killable and
+    # belongs in UNREVIEWED.
     "replace == with != in apply_revoke_role",
 
-    # The `while` loop directly above the grant loop revokes CANCELLER from every
-    # non-owner holder first, so `has_role(account, role).is_none()` is already
-    # true for every account the grant loop sees; and for the owner both operands
-    # are false. `&&` and `||` agree on every reachable input.
+    # For the owner both operands are false. The `while` loop above the grant
+    # loop revokes CANCELLER from every non-owner holder, so a non-owner's first
+    # occurrence in `new_cancellers` reaches the grant under `&&` and `||`. A
+    # repeated address reaches it again under `||`: the separation check passes
+    # again, and `grant_role_no_auth` returns early for an existing holder. The
+    # two forms agree on every reachable input.
     "replace && with \\|\\| in apply_canceller_reset",
 
     # --- UNREVIEWED: possible test gaps, not shown equivalent -----------------
-    # Each of these changes real branch or accounting behaviour and nobody has
-    # demonstrated the mutated program is observably identical. Treat as open
-    # work: either write the test that kills it, or move it up with a note
-    # saying what makes it equivalent.
+    # Write the test that kills each entry, or move the entry to a group above
+    # with the reason it is equivalent.
 ]

@@ -10,12 +10,13 @@ use crate::vault::Vault;
 use crate::venues::aquarius::pool::{assert_share_token, pool_tokens, to_u128};
 use crate::venues::auth::auth_entry;
 
-/// Deposits the vault's full balance of each pool constituent token into the pool
-/// and credits the vault with the measured LP shares received. Returns the minted
-/// share amount.
+/// Offers the vault's full balance of each pool constituent to the pool, debits
+/// the measured amounts spent, and credits the measured LP shares. Returns the
+/// shares minted.
 ///
-/// Panics if `min_shares` is not positive, if the vault holds none of the pool's
-/// constituent tokens, or if the shares received fall below `min_shares`.
+/// Panics with `MinSharesNotMet` if `min_shares` is not positive or the shares
+/// received fall below it, and with `InvalidAmount` if the vault holds none of
+/// the pool's constituent tokens or a constituent balance rises.
 pub(crate) fn add_liquidity(
     env: &Env,
     router: &Address,

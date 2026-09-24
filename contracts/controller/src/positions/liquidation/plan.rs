@@ -73,7 +73,6 @@ pub(crate) fn build_liquidation_plan(
     let seized_collaterals =
         calculate_seized_collateral(env, account, totals.total_collateral, &repayment, cache);
 
-    // Pro-rata seizure must not inherit user pause flags (ADR-0008).
     for entry in seized_collaterals.iter() {
         enforce_spoke_asset_flags(
             env,

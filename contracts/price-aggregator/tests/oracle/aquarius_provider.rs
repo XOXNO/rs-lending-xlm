@@ -1,10 +1,8 @@
 //! Failure paths of the Aquarius LP provider.
 //!
-//! `attest_*` runs once, at configuration time, and `read_*` re-checks the same
+//! `attest` runs once, at configuration time. `read` re-checks the same
 //! bindings on every price read, because a pool can be re-pointed or drained
-//! after it was attested. The re-check arms had no tests: the stable variant
-//! had none at all, and the constant-product variant only ever ran its happy
-//! path.
+//! after it was attested.
 use super::*;
 
 use crate::registry;
@@ -156,7 +154,7 @@ fn attest_stable_rejects_a_key_that_is_not_the_pools_share_token() {
     let env = Env::default();
     let p = pool_fixture(&env, "stable");
     let lp = lp_source(&p);
-    // A different token entirely: bound_tokens refuses to bind it to the pool.
+    // A reserve token, not the share token: `bound_tokens` refuses it.
     let stranger = PriceKey::Token(p.token_a.clone());
     in_pa(&env, || {
         attest(&env, &stranger, &lp_oracle(&env, &lp, 7), &lp, true)

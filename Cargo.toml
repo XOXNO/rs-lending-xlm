@@ -39,14 +39,17 @@ cvlr-soroban = { git = "https://github.com/Certora/cvlr-soroban.git", rev = "5ff
 cvlr-soroban-macros = { git = "https://github.com/Certora/cvlr-soroban.git", rev = "5ff9d010e2d322c2291697c07e850759f850f245" }
 cvlr-soroban-derive = { git = "https://github.com/Certora/cvlr-soroban.git", rev = "5ff9d010e2d322c2291697c07e850759f850f245" }
 
+# Vendored cvlr-log expands `cvlr_rule_location!`, which `#[rule]` inserts into every
+# rule, with `::core::file!()` and `::core::line!()`. Upstream (b8bfb4c) uses `std::`,
+# which does not resolve in a `#![no_std]` crate such as the controller.
 [patch."https://github.com/Certora/cvlr.git"]
 cvlr-log = { path = "vendor/cvlr-log" }
 
 # Vendored cvlr-soroban repins soroban-sdk to =27.0.6. Upstream (Certora/cvlr-soroban
-# 5ff9d01, its current main HEAD) still pins "26.1.0", which resolves to <27 and puts
-# two soroban-sdk majors in the graph -- the `certora` feature then fails to compile
-# with ~31 Address type mismatches. The vendored tree is that rev verbatim with the
-# single workspace pin changed; drop this patch once upstream moves to soroban-sdk 27.
+# 5ff9d01) pins "26.1.0", which resolves to <27 and puts two soroban-sdk majors in
+# the graph: the `certora` feature then fails to compile with Address type mismatches.
+# The vendored tree is that rev with only the workspace pin changed. Drop this patch
+# once upstream moves to soroban-sdk 27.
 [patch."https://github.com/Certora/cvlr-soroban.git"]
 cvlr-soroban = { path = "vendor/cvlr-soroban/cvlr-soroban" }
 cvlr-soroban-macros = { path = "vendor/cvlr-soroban/cvlr-soroban-macros" }

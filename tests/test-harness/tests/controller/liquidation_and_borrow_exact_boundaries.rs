@@ -82,7 +82,8 @@ fn borrow_passes_exactly_at_the_ltv_limit_and_reverts_one_unit_above() {
 
 #[test]
 fn borrow_passes_with_ltv_collateral_exactly_at_the_floor_and_reverts_one_unit_below() {
-    // Move the floor onto the account's LTV collateral; $5 has no exact collateral amount.
+    // At 75 % LTV no USDC supply lands exactly on the default $5 floor; move the floor
+    // onto the LTV collateral.
     let mut t = LendingTest::new().standard_two_asset().build();
     t.supply(ALICE, "USDC", 100.0); // LTV collateral = exactly $75
     let account_id = t.resolve_account_id(ALICE);

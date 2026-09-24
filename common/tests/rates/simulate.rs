@@ -298,8 +298,7 @@ mod accrue_step_boundaries {
         );
         let growth = step.borrow_index.raw() - RAY;
         let rate = rate_per_ms.raw();
-        // The series adds x^2/2 on top of the linear term; nothing larger fits
-        // in one millisecond.
+        // Beyond the linear term, only x^2/2 is nonzero over one millisecond.
         let quadratic = rate * rate / (2 * RAY);
         assert!(
             growth >= rate - 1 && growth - rate <= quadratic + 2,

@@ -287,11 +287,9 @@ fn test_revalidation_touches_only_the_keys_that_actually_depend_on_the_change() 
     });
 }
 
-/// A reband that TIGHTENS `reflector_oracle`'s +/-5% band. Since F-3 the
-/// immediate `set_sanity_band` path may only narrow, so a 7% delta — what this
-/// was before the ratchet — is now refused with `SanityBandMustTighten` before
-/// the code under test is reached. 3% keeps the band 300 bps wide, comfortably
-/// above `MIN_SANITY_BAND_BPS`.
+/// A reband that tightens `reflector_oracle`'s +/-5% band: `set_sanity_band`
+/// refuses a wider one with `SanityBandMustTighten`. At 3% the band is 300 bps
+/// wide, above `MIN_SANITY_BAND_BPS`.
 const REBAND_DELTA_WAD: i128 = TWAP_MEAN_WAD * 3 / 100;
 
 #[test]
@@ -591,9 +589,8 @@ fn test_set_oracle_lists_a_stableswap_lp_and_prices_it() {
     });
 }
 
-/// Attestation rejects it, not the pricing probe: the specific error pins which
-/// gate fired, so removing the stable-pool attestation is caught rather than masked by the
-/// probe failing later for its own reasons.
+/// Stable-pool attestation rejects a constant-product pool before the pricing
+/// probe runs; the error code pins that gate.
 #[test]
 #[should_panic(expected = "Error(Contract, #234)")]
 fn test_stable_lp_rejects_a_constant_product_pool() {

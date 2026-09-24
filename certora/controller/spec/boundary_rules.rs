@@ -25,11 +25,12 @@ fn bad_debt_socialization_threshold_boundary(e: Env, debt_wad: i128, collateral_
     }
 }
 
-/// Predicate-level mirror of the `BadDebtGate::Insolvent` arm reached only through the
+/// Predicate-level mirror of the `BadDebtGate::InsolventOnly` arm reached only through the
 /// owner-gated `force_socialize_bad_debt` entrypoint
 /// ([`lib.rs`](contracts/controller/src/lib.rs) `force_socialize_bad_debt` →
 /// [`liquidation/mod.rs`](contracts/controller/src/positions/liquidation/mod.rs)
-/// `BadDebtGate::admits`, `Self::Insolvent => totals.total_debt > totals.total_collateral`).
+/// `socialize_bad_debt`,
+/// `BadDebtGate::InsolventOnly => totals.total_debt > totals.total_collateral`).
 ///
 /// `BadDebtGate` is private to `positions::liquidation`, so the spec module cannot name it;
 /// the predicate is restated here and anchored to production code by
@@ -40,12 +41,11 @@ fn insolvent_gate_admits(total_debt: Wad, total_collateral: Wad) -> bool {
     total_debt > total_collateral
 }
 
-/// Aave-comparison V-7, first half. An attacker who tops `total_collateral` to strictly above
-/// `BAD_DEBT_USD_THRESHOLD` — `BAD_DEBT_USD_THRESHOLD + 1` is the cheapest such state — blocks
-/// the permissionless dust-gated socialization path while staying insolvent. Unlike Aave's
-/// count-based `activeCollateralCount` gate (ToB-AAVE-1, Blackthorn L-3), this is not reachable
-/// with 1 wei of a second collateral: the gate is value-based, so the attacker must post real
-/// value above the threshold and keep it there.
+/// Straddle, first half. An attacker who raises `total_collateral` strictly above
+/// `BAD_DEBT_USD_THRESHOLD` (`BAD_DEBT_USD_THRESHOLD + 1` is the cheapest such state) blocks
+/// the permissionless dust-gated socialization path while staying insolvent. The gate is
+/// value-based, not count-based, so one unit of a second collateral cannot block it: the
+/// attacker must post value above the threshold and keep it there.
 #[rule]
 fn bad_debt_straddle_blocks_dust_gate(e: Env, debt_wad: i128, collateral_wad: i128) {
     let _ = e;
@@ -59,18 +59,18 @@ fn bad_debt_straddle_blocks_dust_gate(e: Env, debt_wad: i128, collateral_wad: i1
         Wad::from(collateral_wad)
     ));
 
-    // Explicit +1 witness: one wad-wei above the cap is already enough to block it.
+    // Explicit +1 witness: one raw WAD unit above the cap blocks it.
     cvlr_assert!(!is_socializable_bad_debt(
         Wad::from(BAD_DEBT_USD_THRESHOLD + 2),
         Wad::from(BAD_DEBT_USD_THRESHOLD + 1)
     ));
 }
 
-/// Aave-comparison V-7, second half. The owner-gated force path
-/// (`force_socialize_bad_debt`, `BadDebtGate::Insolvent`) still admits exactly the straddling
-/// state that `bad_debt_straddle_blocks_dust_gate` shows the dust gate rejects. This pins the
-/// escape hatch as load-bearing: the dust gate does not cover the whole insolvent domain, so
-/// removing the force path would leave straddled bad debt permanently unsocializable.
+/// Straddle, second half. The owner-gated force path
+/// (`force_socialize_bad_debt`, `BadDebtGate::InsolventOnly`) admits exactly the straddling
+/// state that `bad_debt_straddle_blocks_dust_gate` shows the dust gate rejects. The dust gate
+/// does not cover the whole insolvent domain, so without the force path straddled bad debt
+/// cannot be socialized.
 #[rule]
 fn bad_debt_straddle_admitted_by_force_gate(e: Env, debt_wad: i128, collateral_wad: i128) {
     let _ = e;
@@ -87,7 +87,7 @@ fn bad_debt_straddle_admitted_by_force_gate(e: Env, debt_wad: i128, collateral_w
     cvlr_assert!(!dust_gate || force_gate);
 
     // Anchor: the dust gate is exactly the force gate conjoined with the dust cap. Keeps the
-    // mirrored `Insolvent` predicate from drifting away from production silently.
+    // mirrored `InsolventOnly` predicate from drifting away from production silently.
     cvlr_assert!(dust_gate == (force_gate && collateral_wad <= BAD_DEBT_USD_THRESHOLD));
 
     // The straddle separates the two gates: dust blocked, force admits.
@@ -103,7 +103,7 @@ fn bad_debt_straddle_admitted_by_force_gate(e: Env, debt_wad: i128, collateral_w
     cvlr_assert!(insolvent_gate_admits(witness_debt, witness_collateral));
 }
 
-/// Reachability witness for the V-7 straddle at exactly
+/// Reachability witness for the straddle at exactly
 /// `collateral == BAD_DEBT_USD_THRESHOLD + 1 && debt == collateral + 1`: the two gates really do
 /// split there, so neither straddle rule is vacuous.
 #[rule]

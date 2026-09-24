@@ -15,19 +15,20 @@ the other documents do not say.
 | `contracts/` | Deployable contracts: controller, pool, governance, position-nft, price-aggregator, swap-aggregator, defindex-strategy, xoxno-oracle |
 | `interfaces/` | `#[contractclient]` declarations. Six of the eight contracts. `defindex-strategy` has none (it consumes `interfaces/controller`); the `xoxno-oracle` client lives in `common/src/oracle/providers/xoxno.rs` with the other oracle providers |
 | `common/` | Shared math, rates, oracle, types, TTL, errors, validation |
-| `mock/` | Test doubles: mock-oracle, mock-redstone, flash-loan-receiver, flash-position-receiver |
-| `tests/test-harness/` | Integration tests. Sub-suites: controller, pool, governance, oracle, strategy, fuzz, meta |
+| `mock/` | Test doubles: mock-oracle, mock-redstone, flash-loan-receiver, flash-position-receiver, script-runner |
+| `tests/test-harness/` | Integration tests. Sub-suites: controller, pool, governance, oracle, strategy, composition, fuzz, meta |
 | `tests/fuzz/` | Separate workspace. Excluded from the root workspace |
-| `certora/` | Sunbeam specs. Mounted **into** the controller crate — see Traps |
+| `certora/` | Sunbeam specs. Each spec tree is mounted **into** its crate (controller, pool, price-aggregator, common) — see Traps |
 | `skills/` | Published integration skill set for downstream consumers; router at `skills/xoxno-lending/SKILL.md`. Not dev tooling |
-| `docs/` | Reference, decision records (ADR-0001..0020), threat model, runbooks |
+| `docs/` | Reference, decision records (ADR-0001..0021), threat model, runbooks |
 | `vendor/` | Patched `cvlr-soroban` and `cvlr-log`. See the comment in `Cargo.toml` |
+| `services/` | Keeper and lending exporter. Separate Cargo workspaces; `make test` does not cover them |
 
 ## Commands
 
 `make help` is the index. `make help-build`, `help-verify`, `help-deploy`,
 `help-ops`, `help-views`, `help-oracle`, `help-aggregator`, `help-all` are the
-topic pages. There are 131 targets — read the index before you invent a
+topic pages. There are 133 targets — read the index before you invent a
 command.
 
 Check ladder, narrowest first:
@@ -45,15 +46,15 @@ Heavier evidence, only for the surface that needs it: `make miri-common`,
 
 ## Traps
 
-**`make test-match` needs `PATTERN=`.** `MATCH=` is not recognised. The
-Makefile now fails loudly on an empty `PATTERN`, but a misnamed variable that
-the target does accept will silently run the entire suite.
+**`make test-match` needs `PATTERN=`.** `MATCH=` is not recognised, and the
+target fails on an empty `PATTERN`. A target without such a guard ignores a
+variable it does not read, so a misnamed filter runs the entire suite.
 
 **This repo is driven from zsh.** Write `--include='*.rs'` with quotes.
 Unquoted, zsh fails the command with `no matches found`.
 
 **Controller internal module paths are load-bearing.** `contracts/controller/src/lib.rs`
-mounts the Certora spec with `#[path] = "../../../certora/controller/spec/mod.rs"`,
+mounts the Certora spec with `#[path = "../../../certora/controller/spec/mod.rs"]`,
 and the spec calls internals by exact path (`crate::positions::process_borrow`,
 `crate::positions::supply::process_supply`). Unit tests mount the same way from
 `contracts/controller/tests/` and call `pub(crate)` items positionally. A
@@ -106,6 +107,10 @@ is convenient. See [ADR-0003](docs/explanation/decisions.md#adr-0003).
   about 1 second.
 - `make wasm-size-check`, `make wasm-testing-abi-check` — testing-only
   entrypoints must not exist in a deployable artifact ([ADR-0017](docs/explanation/decisions.md#adr-0017)).
+
+`tests.yml` and `security.yml` start only when their `paths` filter matches. A
+change limited to `docs/`, `skills/`, `configs/` or a root Markdown file starts
+neither, so run these gates locally.
 
 ## Where to read before changing behaviour
 

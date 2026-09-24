@@ -100,10 +100,8 @@ impl LendingTest {
 
     /// Seeds the sanity band directly, bypassing governance.
     ///
-    /// Setup only. Since F-3 the governed `set_sanity_band` may only tighten,
-    /// so a test that needs to *start* from a band wider than the market's
-    /// `tight_single_source_band` default cannot get there through the
-    /// governed path.
+    /// Setup only. The governed `set_sanity_band` only tightens a band, so it
+    /// cannot widen the market's `tight_single_source_band` default.
     pub fn seed_sanity_band(&self, asset_name: &str, min_wad: i128, max_wad: i128) {
         let key = PriceKey::Token(self.resolve_asset(asset_name));
         let mut oracle = self.price_agg_client().oracle(&key).unwrap();

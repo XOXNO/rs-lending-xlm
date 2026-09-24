@@ -1,10 +1,9 @@
-//! Ratio lemmas over WAD values: health factors and seizure splits.
+//! Ratio lemmas: health factors and seizure splits in WAD, fee splits in token amounts.
 //!
-//! Moved out of the controller layer on 2026-09-03. Every rule here is a
-//! statement about `crate::math`: which way a health-factor division rounds,
-//! and that a seizure split across two collaterals neither over-seizes nor
-//! lets the liquidator end up short. None of them reads controller state or
-//! calls controller code, so the arithmetic crate is where they belong.
+//! Every rule here is a statement about `crate::math`: which way a health-factor
+//! division rounds, that a seizure split across two collaterals over-seizes by at
+//! most one unit, and that the protocol fee never exceeds the liquidation bonus.
+//! No rule reads controller state or calls controller code.
 
 use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
@@ -19,7 +18,7 @@ use crate::math::fp_core::{mul_div_floor, mul_div_half_up};
 /// split arithmetic rather than about widening.
 const MAX_DEBT_AMOUNT_RAW: i128 = 1_000_000_000_000;
 
-/// Mirrors `liquidation/math.rs`: the seizure clamps to the collateral on
+/// Mirrors `positions/liquidation/math.rs`: the seizure clamps to the collateral on
 /// hand, the fee base is the repayment share taken before that clamp.
 /// Returns `(capped, base, bonus, protocol_fee)`.
 fn fee_split(
@@ -147,8 +146,8 @@ fn protocol_fee_bonus_math(
         cvlr_assert!(bonus_amount == seizure_amount - base_amount);
     }
 
-    // The liquidator's net, `capped - base - fee`, is never negative: the fee
-    // is a fraction strictly below one of the bonus.
+    // The liquidator's bonus net of fee is never negative: the fee is a
+    // fraction strictly below one of the bonus.
     cvlr_assert!(bonus_amount - protocol_fee >= 0);
 }
 /// Tightening the clamp may only reduce the fee, so no input can be driven to

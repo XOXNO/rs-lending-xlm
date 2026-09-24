@@ -56,9 +56,8 @@ flow_admin() {
     inv claim_revenue "$ADMIN" "$CONTROLLER" -- claim_revenue \
         --caller "$ADMIN_ADDR" --assets "$(hub_vec "$PRIMARY_HUB_ID" "$USDC_SAC")" >/dev/null
     assert_pool_revenue_decreased pool_revenue_post "$USDC_SAC" "${pool_rev_before:-0}"
-    # claim_revenue is permissionless — anyone may trigger the sweep — but it
-    # must pay out to the configured accumulator, not the caller. ALICE calling
-    # it right after ADMIN's sweep must therefore move nothing.
+    # claim_revenue is permissionless but pays the configured accumulator, not the
+    # caller. ALICE's claim right after ADMIN's sweep must not raise pool revenue.
     local rev_before_alice rev_after_alice
     rev_before_alice=$(_view_pool_int pool_revenue_pre_alice get_revenue --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")")
     inv claim_revenue "$ALICE" "$CONTROLLER" -- claim_revenue \
@@ -72,10 +71,7 @@ flow_admin() {
     view pool_rates_view "$POOL" -- get_borrow_rate --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")" >/dev/null
     view pool_util_view "$POOL" -- get_utilisation --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")" >/dev/null
 
-    # The remaining pool read surface. These back the accounting the controller
-    # reports, so a non-negative, well-formed answer for a live market is the
-    # property worth pinning — a panicking or absent getter would break every
-    # consumer reading pool state.
+    # The remaining pool reads must return a non-negative value for a live market.
     local usdc_hub
     usdc_hub=$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")
     assert_int_view_at_nonneg pool_reserves_view "$POOL" get_reserves --hub_asset "$usdc_hub"
@@ -138,10 +134,7 @@ inv manager_deactivate_alice "$ADMIN" "$CONTROLLER" -- set_position_manager \
 local blend_pool blend_seeded
 blend_pool=$(jq -r '.pools[0].address // empty' "$REPO_ROOT/configs/$NETWORK/blend.json")
 if [ -n "$blend_pool" ] && [ "$blend_pool" != "null" ]; then
-# The allowlist decides which external pools this protocol will migrate
-# positions from, so each transition is asserted rather than read and
-# discarded: an approve or revoke that returned successfully without moving the
-# flag would have been invisible here.
+# Assert each allowlist transition: an approve or revoke must move the flag.
 view blend_pool_initial "$CONTROLLER" -- is_blend_pool_approved --pool "$blend_pool" >/dev/null
 inv blend_pool_approve "$ADMIN" "$CONTROLLER" -- approve_blend_pool --pool "$blend_pool" >/dev/null
 assert_bool_view blend_pool_true true is_blend_pool_approved --pool "$blend_pool"
@@ -150,9 +143,8 @@ assert_bool_view blend_pool_false false is_blend_pool_approved --pool "$blend_po
 inv blend_pool_reapprove "$ADMIN" "$CONTROLLER" -- approve_blend_pool --pool "$blend_pool" >/dev/null
 assert_bool_view blend_pool_reapproved true is_blend_pool_approved --pool "$blend_pool"
 if [ "${BLEND_MIGRATION_LIVE:-0}" = "1" ]; then
-# Full live edge coverage lives in tests/integration/scenarios/blend.sh
-# (make integration-blend). This flag keeps a single happy-path migrate in
-# the admin lane for CI that opts in.
+# Full edge coverage is in tests/integration/scenarios/blend.sh
+# (`make integration-blend`). This lane runs one happy-path migrate.
 
 local coll_amt supply_amt debt_amt debt_cap seed_requests coll_json supply_json debt_json migrate_acct
 coll_amt="${BLEND_XLM_COLLATERAL_AMOUNT:-${BLEND_XLM_AMOUNT:-2000000000}}"
@@ -178,8 +170,7 @@ fi
 inv blend_seed_xlm_positions "$ALICE" "$blend_pool" -- submit \
     --from "$ALICE_ADDR" --spender "$ALICE_ADDR" --to "$ALICE_ADDR" \
     --requests "$seed_requests" >/dev/null
-# The migration below reads from this position, so an empty seed would make the
-# whole migration test vacuously pass against nothing.
+# An empty seed would let the migration below pass without migrating anything.
 blend_seeded=$(view blend_position_seeded "$blend_pool" -- get_positions --address "$ALICE_ADDR")
 if [ -n "$blend_seeded" ] && [ "$blend_seeded" != "null" ] && [ "$blend_seeded" != "{}" ]; then
 record blend_position_nonempty ok get_positions "" "" "" "" "" "seeded"
@@ -264,43 +255,35 @@ flow_admin_upgrade() {
         inv unpause_after_upgrade "$ADMIN" "$CONTROLLER" -- unpause >/dev/null
     fi
 
-    # Satellite upgrades, same-hash like the pool/controller legs above: the
-    # position NFT is controller-owned from deploy, so this proves the
-    # owner-gated controller entrypoint plus the NFT's controller-only upgrade
-    # auth without changing behavior. Token ids are account ids, so the owner
-    # read-back doubles as the post-upgrade liveness check.
+    # Same-hash position NFT upgrade: it proves the owner-gated controller
+    # entrypoint and the NFT's controller-only upgrade auth. Token ids are
+    # account ids, so the owner read-back checks the NFT after the upgrade.
     inv nft_upgrade_via_controller "$ADMIN" "$CONTROLLER" -- upgrade_position_nft \
         --new_wasm_hash "$NFT_HASH" >/dev/null
     assert_view_eq_at "$POSITION_NFT" nft_owner_after_upgrade "$ADMIN_ADDR" \
         owner_of --token_id "${ADMIN_ACCT:-1}"
 
-    # Permissionless TTL renew on a live token, then the designed failure on a
-    # token that was never minted.
+    # renew is permissionless on a live token and fails with #200 on a token that
+    # was never minted.
     inv nft_renew "$ALICE" "$POSITION_NFT" -- renew --token_id "${ADMIN_ACCT:-1}" >/dev/null
     xfail nft_renew_missing 'Error\(Contract, #200\)' "$ALICE" "$POSITION_NFT" -- renew --token_id 4000000000
 
     local ledger
     ledger=$(curl -s -m 30 -X POST "$RPC_URL" -H 'Content-Type: application/json' \
         -d '{"jsonrpc":"2.0","id":1,"method":"getLatestLedger"}' | jq -r '.result.sequence')
-    # Ownership is the root of every #[only_owner] gate on the controller, so
-    # each leg asserts who actually holds it. A transfer that succeeded without
-    # moving ownership — or an accept that left the old owner in place — would
-    # otherwise pass unnoticed.
-    # The controller exposes no get_owner, so ownership is asserted through its
-    # effect: who can still drive an #[only_owner] entry point. set_position_limits
-    # is the probe, always re-set to the same valid value so the probe itself
-    # changes nothing.
+    # Each leg asserts who holds controller ownership. The controller has no
+    # get_owner, so the probe is set_position_limits, an #[only_owner] entry
+    # point. The probe re-sets the same valid limits, so it changes nothing.
     local limits='{"max_supply_positions":5,"max_borrow_positions":5}'
 
     inv ownership_transfer "$ADMIN" "$CONTROLLER" -- transfer_ownership \
         --new_owner "$CAROL_ADDR" --live_until_ledger $((ledger + 1000)) >/dev/null
-    # A pending transfer must not hand over control on its own — ADMIN still owns
-    # it until CAROL accepts.
+    # A pending transfer leaves ADMIN as the owner until CAROL accepts.
     inv ownership_admin_still_owner "$ADMIN" "$CONTROLLER" -- set_position_limits \
         --limits "$limits" >/dev/null
 
     inv ownership_accept "$CAROL" "$CONTROLLER" -- accept_ownership >/dev/null
-    # Ownership really moved: ADMIN is now locked out, CAROL is in.
+    # After the accept, ADMIN is locked out and CAROL is the owner.
     xfail ownership_admin_locked_out "Missing signing key for account $CAROL_ADDR" "$ADMIN" "$CONTROLLER" -- set_position_limits \
         --limits "$limits"
     inv ownership_carol_now_owner "$CAROL" "$CONTROLLER" -- set_position_limits \
@@ -309,29 +292,24 @@ flow_admin_upgrade() {
     inv ownership_transfer_back "$CAROL" "$CONTROLLER" -- transfer_ownership \
         --new_owner "$ADMIN_ADDR" --live_until_ledger $((ledger + 1000)) >/dev/null
     inv ownership_accept_back "$ADMIN" "$CONTROLLER" -- accept_ownership >/dev/null
-    # Restored, or every later owner-gated step in the suite would be testing the
-    # wrong signer.
+    # Later owner-gated steps sign as ADMIN, so ownership must return to ADMIN.
     inv ownership_admin_restored "$ADMIN" "$CONTROLLER" -- set_position_limits \
         --limits "$limits" >/dev/null
 }
 
-# The two price-aggregator entry points the tolerance work above never reached.
+# Covers the price-aggregator reads and set_sanity_band for `key`.
 #
-# `seed_oracle` and `remove_oracle` are deliberately NOT covered: they sit
-# behind #[cfg(any(test, feature = "testing"))] and are absent from the wasm the
-# harness deploys, since integration-wasm builds without the `testing` feature.
-# Calling them on testnet would fail because they do not exist there.
+# `seed_oracle` and `remove_oracle` are not covered: they sit behind
+# #[cfg(any(test, feature = "testing"))], and `make integration-wasm` builds
+# without the `testing` feature, so the deployed wasm does not have them.
 flow_price_aggregator_extra() {
     local key="${1:-}"
     [ -n "$key" ] || return 0
 
-    # Reads first, band last. Narrowing the sanity band changes what these reads
-    # are allowed to return, so setting it up front made every later read of the
-    # same key fail with #223 SanityBoundViolated — the band test breaking the
-    # data it was set on.
+    # Reads run before the band change: a narrower sanity band can make later
+    # reads of this key fail with #223 SanityBoundViolated.
 
-    # price_spread returns the (low, high) pair behind a resolved price: what a
-    # caller inspects to see how far the two legs disagree.
+    # price_spread returns the (low, high) pair behind a resolved price.
     local spread
     spread=$(view pa_price_spread "$PRICE_AGGREGATOR" -- price_spread --key "$key")
     if [ "$(jq -r 'if type == "array" then length else 0 end' <<<"$spread" 2>/dev/null)" = "2" ]; then
@@ -343,8 +321,7 @@ flow_price_aggregator_extra() {
     # Ownership gates every setter below, so assert the identity.
     assert_view_eq_at "$PRICE_AGGREGATOR" pa_get_owner "$ADMIN_ADDR" get_owner
 
-    # `oracle` must return the config set_oracle registered for this key. An
-    # empty answer would mean the setters wrote somewhere else.
+    # `oracle` must return the config registered for this key.
     local orc
     orc=$(view pa_oracle "$PRICE_AGGREGATOR" -- oracle --key "$key")
     if [ -n "$orc" ] && [ "$(jq -r 'if type=="object" then "obj" else . end' <<<"$orc" 2>/dev/null)" = "obj" ]; then
@@ -353,8 +330,8 @@ flow_price_aggregator_extra() {
         _assert_fail pa_oracle_registered "oracle returned no config for a registered key: $(head -c 160 <<<"$orc")"
     fi
 
-    # prices/quotes are keyed maps: one key in must yield an entry for that same
-    # key, or a consumer silently reads another asset's price.
+    # prices and quotes are keyed maps: one requested key must yield at least one
+    # entry.
     local keys_json px qt
     keys_json=$(jq -nc --argjson k "$key" '[$k]')
     px=$(view pa_prices "$PRICE_AGGREGATOR" -- prices --keys "$keys_json")
@@ -397,18 +374,10 @@ flow_price_aggregator_extra() {
         --key "$key" --min_wad "$band_min" --max_wad "$band_max"
 }
 
-# The pool's own surface, which the harness only ever reached through the
-# controller. Two properties are worth pinning here.
-#
-# First, the pool's privileged entry points are #[only_owner] and the pool's
-# owner is the CONTROLLER, not ADMIN. So a direct call from ADMIN must be
-# rejected: that is what stops anyone minting markets, rewriting rate models or
-# seizing positions behind the controller's back. Asserting the rejection is the
-# direct assertion these endpoints can carry — their happy path is only
-# reachable through the controller, and is already covered there.
-#
-# Second, the two read endpoints back hub-side valuation, so they are asserted
-# on shape, not merely on not-reverting.
+# Calls the pool directly. The pool's mutators are #[only_owner] and its owner
+# is the controller, so a direct call from ADMIN must fail. Their happy paths
+# run through the controller in other flows. The two reads are asserted on
+# shape, not only on success.
 flow_pool_surface() {
     phase pool_surface
     local hub_asset
@@ -421,9 +390,8 @@ flow_pool_surface() {
     # unused hub id keeps create_market clear of AssetAlreadySupported.
     xfail pool_create_market_not_owner "Missing signing key for account $CONTROLLER" "$ADMIN" "$POOL" -- create_market \
         --hub_id 4242 --params "$(market_params_json "$USDC_SAC" 7)"
-    # InterestRateModel carries is_flashloanable and flashloan_fee too; omitting
-    # them makes the CLI reject the argument before auth is ever checked, which
-    # would pass the xfail for the wrong reason.
+    # InterestRateModel also carries is_flashloanable and flashloan_fee; without
+    # them the CLI rejects the argument before the auth check.
     xfail pool_update_params_not_owner "Missing signing key for account $CONTROLLER" "$ADMIN" "$POOL" -- update_params \
         --hub_asset "$hub_asset" --model "$(market_params_json "$USDC_SAC" 7 | jq -c '{
             max_borrow_rate, base_borrow_rate, slope1, slope2, slope3,
@@ -452,8 +420,7 @@ flow_pool_surface() {
         _assert_fail pool_sync_data_shape "get_sync_data missing params/state: $(head -c 160 <<<"$sync")"
     fi
 
-    # One key in, one index out — a mismatch would silently misalign the hub's
-    # per-asset valuations.
+    # One key in must yield one index out.
     idx=$(view pool_get_bulk_indexes "$POOL" -- get_bulk_indexes \
         --hub_assets "$(jq -nc --argjson h "$PRIMARY_HUB_ID" --arg a "$USDC_SAC" '[{hub_id:$h,asset:$a}]')")
     if [ "$(jq -r 'if type=="array" then length else 0 end' <<<"$idx" 2>/dev/null)" = "1" ]; then
@@ -463,11 +430,10 @@ flow_pool_surface() {
     fi
 }
 
-# 2026-09 gap hunt, GH-16 and GH-17. The seed account holds XLM and USDC and
-# lives until teardown, so it is the fixture for both: a limit lowered below
-# its position count must keep top-ups (and only top-ups) open, and the pool
-# and the controller must be refused as borrow and withdraw recipients before
-# any transfer. Every check runs against ADMIN_ACCT and restores the limits.
+# GH-16 and GH-17 on the seed account ADMIN_ACCT, which holds XLM and USDC until
+# teardown. GH-16: a limit below the account's position count keeps top-ups, and
+# only top-ups, open. GH-17: the pool and the controller are refused as borrow
+# and withdraw recipients before any transfer. The flow restores the limits.
 flow_gap_hunt_admin() {
     phase gap_hunt_admin
     [ -n "${ADMIN_ACCT:-}" ] || die gap_hunt_admin "ADMIN_ACCT missing; flow_seed_liquidity must run first"

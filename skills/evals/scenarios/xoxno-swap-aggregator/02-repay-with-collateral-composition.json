@@ -5,7 +5,7 @@
   "query": "User owes 200 USDC on their lending account and wants to pay it off with their XLM collateral in one transaction. How do I wire the swap in?",
   "expected_behavior": [
     "Quotes with from = collateral token (XLM), to = debt token (USDC), amountIn = the collateral amount to withdraw (base-unit string), slippage set, and NO sender: sender only adds a standalone execute_strategy envelope and a server-side simulation of the wrong transaction; routeXdr is present whenever slippage is present",
-    "Passes the quote as steps: { routeXdr: quote.routeXdr } (or mapQuoteResponseToStrategySwap(quote)) to buildStellarRepayDebtWithCollateralTx with collateralAmount equal to the quoted amountIn and the existing accountNonce (never 0, which would create a new account)",
+    "Passes the quote as steps: { routeXdr: quote.routeXdr } (or mapQuoteResponseToStrategySwap(quote)) to buildStellarRepayDebtWithCollateralTx with collateralAmount equal to the quoted amountIn and the existing accountNonce (never 0: this verb requires an existing account and reverts with AccountNotFound)",
     "States that when collateral token === debt token the swap bytes must be empty (buildSameTokenRepaySwapSteps() / new Uint8Array(0)); any placeholder route reverts with GenericError::InvalidPayments",
     "Re-simulates the composed controller transaction (prepareStellarBuiltTx / simulateTransaction) before signing instead of relying on the quote server's simulation, and explains that NoSwapOutput / RouterOverspend / SlippageExceeded are the revert paths to expect if the route went stale"
   ],

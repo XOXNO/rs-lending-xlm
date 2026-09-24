@@ -475,10 +475,8 @@ fn cleanup_empty_account_burns_nft() {
 #[test]
 #[should_panic(expected = "Error(Contract, #53)")]
 fn account_creation_before_nft_deploy_fails_closed() {
-    // The PositionNft key is deliberately left unset (no `setup_position_nft`
-    // call): governance has activated a spoke but never deployed the NFT.
-    // `create_account` must fail closed with `PositionNftNotSet` (#53) rather
-    // than skip minting or fall back to some default authority.
+    // A spoke exists but the position NFT is not set (no `setup_position_nft`
+    // call). `create_account` fails with `PositionNftNotSet` (#53).
     let env = Env::default();
     env.mock_all_auths();
     let admin = Address::generate(&env);

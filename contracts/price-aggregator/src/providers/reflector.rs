@@ -1,6 +1,6 @@
-//! Reads prices from Reflector oracle feeds in either spot or TWAP mode,
-//! validating feed configuration (quote asset, decimals, resolution) and,
-//! for TWAP, the spacing, staleness, and window coverage of the underlying
+//! Reads prices from Reflector oracle feeds in spot or TWAP mode. `attest`
+//! checks a feed's quote base, decimals and resolution at admission. A TWAP
+//! read checks the spacing, future timestamps and window coverage of its
 //! observations before averaging them.
 
 use common::errors::OracleError;
@@ -23,12 +23,11 @@ use crate::session::Session;
 /// decimals match `decimals`, and the resolution is at least
 /// `MIN_ORACLE_RESOLUTION_SECONDS` and at most `max_stale`. For TWAP mode,
 /// also checks that the span covered by the requested record count does not
-/// exceed `max_stale`. Panics if any check fails.
+/// exceed `max_stale`. Panics with `InvalidOracleBase`,
+/// `InvalidOracleDecimals` or `InvalidOracleResolution`.
 ///
-/// `quote` is `None` for a bare feed, whose price is consumed as USD
-/// directly, and `Some` for the factor leg of a `Scaled` source, whose price
-/// is re-denominated by multiplying against the price resolved for that key.
-/// See [`attest_base`] for the rule each case enforces.
+/// `quote` is `None` for a bare feed and `Some` for the factor leg of a
+/// `Scaled` source. See [`attest_base`] for the rule each case enforces.
 pub(crate) fn attest(
     env: &Env,
     feed: &ReflectorFeedRef,
@@ -63,24 +62,16 @@ fn twap_required_span(records: u32, resolution: u32) -> u64 {
     u64::from(records.saturating_sub(1)).saturating_mul(u64::from(resolution))
 }
 
-/// Enforces that a Reflector contract's quote base matches how its price is
-/// about to be consumed.
+/// Panics with `InvalidOracleBase` unless a Reflector contract's quote base
+/// matches how its price is consumed.
 ///
-/// A bare feed (`quote` is `None`) is read as a USD price directly, so the
-/// contract must quote in USD.
-///
-/// A `Scaled` factor is re-denominated by multiplying against the price
-/// resolved for `quote`, so the only sound pairing is the one where the
-/// factor's own quote currency is exactly the asset that key prices: a
-/// contract quoting in token `X` may only be scaled by `Token(X)`. Anything
-/// else silently multiplies a price denominated in one currency by the price
-/// of another — two near-1.0 stablecoins would produce a plausible, wrong
-/// number that no sanity band would catch.
-///
-/// A `Ref` quote is rejected outright: a `Ref` names a synthetic reference
-/// with no on-chain asset identity, so there is no way to prove it prices the
-/// contract's base. A USD-quoting contract is likewise rejected as a factor,
-/// because no `Token` key prices USD and scaling it would double-count.
+/// A bare feed (`quote` is `None`) is read as a USD price, so the contract
+/// must quote in USD. A `Scaled` factor is multiplied by the price resolved
+/// for `quote`, so a contract quoting in token `X` may only be scaled by
+/// `Token(X)`; any other pairing multiplies prices in two different
+/// currencies. A `Ref` quote has no on-chain asset identity and is always
+/// rejected. A USD-quoting contract is rejected as a factor, because no
+/// `Token` key prices USD.
 fn attest_base(env: &Env, base: &ReflectorAsset, quote: Option<&PriceKey>) {
     let ok = match (base, quote) {
         (ReflectorAsset::Other(symbol), None) => *symbol == Symbol::new(env, "USD"),
@@ -118,9 +109,9 @@ mod certora_read {
 #[cfg(not(feature = "certora"))]
 pub(crate) use read_reflector_source_impl as read_reflector_source;
 
-/// Reads `feed`'s price scaled to `decimals`, dispatching to a spot read or
-/// a TWAP read depending on `feed.read_mode`. Returns `None` if the read
-/// fails for either mode.
+/// Reads `feed`'s price and converts it from `decimals` to WAD, dispatching
+/// to a spot read or a TWAP read depending on `feed.read_mode`. Returns
+/// `None` if the read fails for either mode.
 pub(crate) fn read_reflector_source_impl(
     session: &mut Session,
     feed: &ReflectorFeedRef,
@@ -133,8 +124,8 @@ pub(crate) fn read_reflector_source_impl(
     }
 }
 
-/// Reads the latest Reflector price for `feed.asset` and converts it to an
-/// `OracleObservation` scaled to `decimals`. Returns `None` if the
+/// Reads the latest Reflector price for `feed.asset` and converts it from
+/// `decimals` to a WAD `OracleObservation`. Returns `None` if the
 /// underlying price cannot be read or the conversion fails.
 fn read_spot(
     session: &Session,

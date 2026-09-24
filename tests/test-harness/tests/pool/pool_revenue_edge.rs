@@ -16,8 +16,8 @@ fn test_claim_revenue_else_branch_when_reserves_fully_drained() {
     t.set_oracle_single_spot("USDC");
 
     t.supply(ALICE, "USDC", 1_000.0);
-    // Undebted supply, so the residual the borrow buffer reserves can still be
-    // withdrawn: only borrowing is bounded by it.
+    // CAROL has no debt, so she can withdraw the residual that the liquidation
+    // buffer keeps from borrowers. Only a borrow checks the buffer.
     t.supply(CAROL, "USDC", 300.0);
     t.borrow(ALICE, "USDC", 700.0);
     t.advance_time(31_536_000);

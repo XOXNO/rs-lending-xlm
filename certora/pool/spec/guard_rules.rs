@@ -32,12 +32,8 @@ fn borrow_respects_utilization_cap(
     borrowed: i128,
     position_before: i128,
 ) {
-    // `fixture::state` stamps `last_timestamp = e.ledger().timestamp() * 1_000`
-    // and `Cache::load` recomputes the same product through `time::now_ms`.
-    // Both are checked multiplications, so a ledger clock past `u64::MAX /
-    // 1_000` panics and Sunbeam prunes the path as `assume(false)`. Stating the
-    // bound makes that pruning visible instead of hidden, and drops the
-    // overflow branch from every rule below.
+    // Bounds the clock so the checked `timestamp * 1_000` in `fixture::state` and
+    // `time::now_ms` cannot overflow. Sunbeam prunes that panic path silently.
     cvlr_assume!(e.ledger().timestamp() <= u64::MAX / 1_000);
     let max_util = RAY * 9 / 10;
     cvlr_assume!(amount > 0 && amount <= MAX_FLOW_AMOUNT);
@@ -344,21 +340,21 @@ fn claim_revenue_leaves_no_orphan_debt(
     cvlr_assert!(post.cash >= 0);
 }
 
-// --- Token-authority guards (Certora Hub L-02 analogue) -------------------
+// --- Token-authority guards ------------------------------------------------
 //
-// Aave's Hub called `transferFrom` with a caller-supplied `from`, so anyone who
-// had approved the Hub could be drained. Our pool has no such pull: the
-// controller moves tokens in and reports the measured receipt, and every pool
-// payout is a `transfer_out` from the pool's own balance, sized by the pool's
-// own cash book. The single `transfer_from` in the pool (`ops/flash.rs:198`)
-// names the flash receiver the pool just funded, for exactly principal + fee —
-// pinned by `flash_repayment_terms_recover_principal_and_fee`, not here.
+// The pool pulls tokens only from the flash receiver it just funded. The
+// controller transfers tokens in before each inbound call and passes the
+// measured receipt. The one `transfer_from` in the pool (`collect_repayment`
+// in `ops/flash.rs`) pulls exactly principal + fee from that receiver;
+// `flash_repayment_terms_recover_principal_and_fee` pins those terms. Every
+// payout except the flash principal is a `transfer_out` from the pool's own
+// balance.
 //
-// The rules below pin the accounting half of that claim on the three paths not
-// already covered elsewhere in the pool suite:
+// The rules below pin the accounting side of this on three paths not covered
+// elsewhere in the pool suite:
 //
-//   * repay      — inbound leg with a refund, the only path that returns value
-//                  to a payer address without debiting the cash book;
+//   * repay      — inbound leg whose refund to the payer does not debit the
+//                  cash book;
 //   * borrow     — payout to a controller-named receiver;
 //   * revenue    — the one payout whose recipient the *pool* picks, not the
 //                  controller (it is the Ownable owner).
@@ -409,11 +405,9 @@ fn pool_trust_repay_refunds_only_payer_surplus(
         crate::ops::repay::accounting(&e, &action(asset.clone(), position_before, amount));
     let post = read_state(&e, &asset);
 
-    // `apply` transfers exactly `overpayment` back to the payer; it can never
-    // exceed what the payer supplied, so no third party's funds are reachable.
+    // `apply` transfers exactly `overpayment` back to the payer.
     cvlr_assert!(outcome.overpayment >= 0 && outcome.overpayment <= amount);
     cvlr_assert!(outcome.mutation.actual_amount == amount - outcome.overpayment);
-    // The refund is paid out of the payer's own inbound amount, never the book.
     cvlr_assert!(post.cash - pre.cash == outcome.mutation.actual_amount);
     cvlr_assert!(post.cash >= pre.cash);
     cvlr_assert!(ownable::get_owner(&e) == Some(admin));

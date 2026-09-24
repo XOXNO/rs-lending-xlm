@@ -18,9 +18,9 @@ impl LendingTest {
         token::Client::new(&self.env, &self.resolve_asset(asset_name)).balance(runner)
     }
 
-    /// Runs the script from the runner's frame. `Err` carries the contract
-    /// error of the failing op; a host error (auth, re-entry) surfaces as a
-    /// panic with its text.
+    /// Runs the script from the runner's frame. `Err` carries the failing op's
+    /// error: a contract error, or a host error such as
+    /// `Error(Context, InvalidAction)` for re-entry.
     pub fn run_script(&self, runner: &Address, ops: &Vec<Op>) -> Result<u64, soroban_sdk::Error> {
         match ScriptRunnerClient::new(&self.env, runner).try_run(
             &self.controller,

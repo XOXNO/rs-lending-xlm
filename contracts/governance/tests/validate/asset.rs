@@ -41,9 +41,8 @@ fn validate_position_limits_rejects_zero() {
     );
 }
 
-// The accept side of the cap, from the constant rather than a literal: this is
-// the test that catches a POSITION_LIMIT_MAX change at the validator instead
-// of via unrelated fixtures downstream.
+// The cap is inclusive. Use `POSITION_LIMIT_MAX`, not a literal, so the test
+// tracks the constant.
 #[test]
 fn validate_position_limits_accepts_exactly_the_cap() {
     let env = Env::default();

@@ -1,24 +1,14 @@
 //! Multi-position liquidation coverage.
 //!
-//! What this file proves: a liquidation of a maximally-legged account (up to the
-//! 5 market presets the harness ships) completes without a logic or arithmetic
-//! panic. It does NOT assert transaction-budget fit, and cannot: the harness
-//! runs under `mock_all_auths_allowing_non_root_auth`, whose end-of-call auth
-//! re-verification is itself metered against the budget. That auth-verification
-//! cost is a test-host artifact — a real signed transaction does not incur it —
-//! so it dominates and trips `Budget/ExceededLimit` well below a real
-//! transaction's true cost. Evidence: an isolated single-debt partial
-//! liquidation at just 5 collateral legs exceeds the default budget here (the
-//! failure lands in `soroban-env-host` `auth.rs`, not in contract logic), while
-//! the same single-debt-partial shape at 10 collateral legs submits and settles
-//! on live testnet under real auth (`tests/integration/scenarios/liq_20feed.sh`,
-//! `tests/integration/flows/stress.sh` `LIQF_ACCT_10C10D`).
+//! Liquidating an account with 5 supply and 5 borrow positions (the 5 market
+//! presets the harness ships) completes without a logic or arithmetic panic.
 //!
-//! The authoritative budget measurement for liquidation therefore lives in the
-//! live-testnet integration suite, which submits real transactions and captures
-//! the on-chain resource envelope. `classify_panic` below deliberately tolerates
-//! the mock-auth budget artifact while re-raising every other panic, so this
-//! test remains a genuine logic-panic guard.
+//! This file does not assert a transaction-budget fit. Under
+//! `mock_all_auths_allowing_non_root_auth` the host meters its own auth
+//! re-verification against the budget, a cost that a signed transaction does not
+//! pay. The live-testnet integration suite measures the liquidation budget
+//! (`flow_stress_liq_frontier` in `tests/integration/flows/stress.sh`).
+//! `classify_panic` accepts a budget panic and re-raises every other panic.
 
 use controller::constants::WAD;
 use test_harness::{
@@ -114,15 +104,9 @@ fn liquidate_5_supply_5_borrow_completes_without_logic_panic() {
     }
 }
 
-/// Guards the logic-panic coverage above against silent erosion. The harness
-/// ships 5 market presets, so this file can exercise at most a 5-supply/5-borrow
-/// liquidation. If the ctx is ever configured beyond that preset count, the
-/// scenario above would no longer touch every configured leg and the coverage
-/// claim would be overstated — extend the preset set first.
-///
-/// This is coverage of the no-logic-panic path only; it says nothing about
-/// transaction budget (see the module comment — budget fit at higher leg counts
-/// is proven by the live-testnet integration suite, not here).
+/// Fails when the ctx position limits exceed the 5 legs the scenario above
+/// exercises. The harness ships 5 market presets, so add presets and extend the
+/// scenario before raising the limits.
 #[test]
 fn test_scenario_covers_every_configured_leg() {
     let scenario_legs = 5u32;

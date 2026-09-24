@@ -1,5 +1,5 @@
 //! A simulate-and-sign liquidator in the band `D <= C < D * (1 + base)`, under
-//! ENFORCED authorization. The transfer amount is recorded at simulation and
+//! enforced authorization. The transfer amount is recorded at simulation and
 //! interest accrues before execution.
 
 use common::types::{HubAssetKey, SeizeMode};

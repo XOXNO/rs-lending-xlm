@@ -129,7 +129,7 @@ impl MockReflector {
             3 => records.saturating_sub(2).max(1),
             // Exact window: `records` contiguous observations, no round missed.
             6 => records,
-            // Gapped: one round skipped, one fewer entry, window still covered.
+            // Gapped: `records - 1` entries two rounds apart; the span still covers the window.
             10 => records.saturating_sub(1).max(1),
             _ => records,
         };

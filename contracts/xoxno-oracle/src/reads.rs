@@ -53,8 +53,8 @@ impl XoxnoOracle {
     }
 
     /// Returns up to `limit` history entries for `feed_id`, newest first.
-    /// Fails with `NoDataForFeed` if the feed has no current aggregate or an
-    /// empty history, and with `StaleData` if the current aggregate is stale.
+    /// Fails with `NoDataForFeed` if the feed has no current aggregate or no
+    /// history entries, and with `StaleData` if the current aggregate is stale.
     pub fn read_price_history(
         env: Env,
         feed_id: String,
@@ -87,8 +87,9 @@ impl XoxnoOracle {
         load_max_stale_seconds(&env)
     }
 
-    /// Returns the configured maximum relative timestamp skew, in seconds,
-    /// between clustered submissions.
+    /// Returns the effective maximum relative timestamp skew, in seconds,
+    /// between clustered submissions: the configured value, clamped to the
+    /// maximum submission age.
     pub fn max_relative_skew_seconds(env: Env) -> u64 {
         load_max_relative_skew(&env)
     }
@@ -140,7 +141,8 @@ impl XoxnoOracle {
     }
 
     /// Returns the history entry for `asset` with the newest package
-    /// timestamp at or before `timestamp`, converted to `ReflectorPriceData`.
+    /// timestamp at or before `timestamp` (seconds), converted to
+    /// `ReflectorPriceData`.
     /// Returns `None` if `asset` has no feed mapping, the feed has no current
     /// aggregate or that aggregate is stale, the feed's history is
     /// unavailable, or no entry satisfies the timestamp bound.

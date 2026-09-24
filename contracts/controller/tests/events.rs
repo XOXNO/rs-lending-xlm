@@ -28,7 +28,7 @@ fn sample_rate_model() -> InterestRateModel {
         optimal_utilization: 800_000_000_000_000_000,
         max_utilization: 900_000_000_000_000_000,
         reserve_factor: 1_000,
-        // Intentionally non-default: must NOT appear on market events.
+        // Non-default values; market events must not carry these fields.
         is_flashloanable: true,
         flashloan_fee: 9,
     }
@@ -77,10 +77,7 @@ fn event_position_mode_eq_and_from() {
 
 #[test]
 fn event_account_attributes_from_account_owner_spoke_mode() {
-    // `From<&AccountMeta>` is gone: `AccountMeta` no longer carries an owner, since
-    // ownership now resolves through the position NFT. `From<&Account>` is the
-    // surviving source of `EventAccountAttributes` and pins the same tuple shape
-    // this test originally pinned against `AccountMeta`.
+    // `AccountMeta` has no owner field, so `EventAccountAttributes` comes from `Account`.
     let env = Env::default();
     let owner = dummy_address(&env);
     let account = Account {
@@ -272,8 +269,6 @@ fn create_market_event_from_params_flattens_rate_fields() {
     assert_eq!(ev.optimal_utilization, params.optimal_utilization);
     assert_eq!(ev.max_utilization, params.max_utilization);
     assert_eq!(ev.reserve_factor, params.reserve_factor);
-    // Wire shape remains flat named fields only — no nested params struct and
-    // no flash-loan / decimals fields on this event type.
 }
 
 #[test]
@@ -295,26 +290,20 @@ fn update_market_params_event_from_rate_model_is_flat() {
     assert_eq!(via_ctor.optimal_utilization, model.optimal_utilization);
     assert_eq!(via_ctor.max_utilization, model.max_utilization);
     assert_eq!(via_ctor.reserve_factor, model.reserve_factor);
-    // is_flashloanable / flashloan_fee exist on the model but have no event
-    // fields — mapping must drop them rather than nest the whole model.
 }
 
 // ===========================================================================
 // Liquidation events: gross vs net.
 //
-// TOB-AAVE-4 was exactly this shape — `LiquidationCall` documented
-// `liquidatedCollateral` as the collateral the liquidator receives while the
-// implementation emitted the gross seizure with the protocol fee still in it,
-// so every off-chain consumer under-counted the fee. The tests below pin our
-// answer against quantities the controller does not compute: the tokens a pool
-// actually pays out, and the fee shares the controller hands the pool.
+// An event that reports the gross seizure as the liquidator's proceeds makes
+// off-chain consumers under-count the protocol fee. The tests below check the
+// events against quantities the controller does not compute: the tokens a pool
+// pays out, and the fee shares the controller hands the pool.
 //
-// The pool is stood up as a recorder here rather than the real contract — the
-// controller crate does not depend on `pool`. Its withdraw leg reuses the
-// pool's own `common::rates::resolve_withdrawal` and mirrors
-// `contracts/pool/src/ops/withdraw.rs::withhold_liquidation_fee`, which is the
-// only pool behaviour these assertions rest on. End-to-end coverage against the
-// real pool lives in `tests/test-harness/tests/controller/`.
+// The pool is a recorder mock, because the controller crate does not depend on
+// `pool`. Its withdraw leg calls `common::rates::resolve_withdrawal` and mirrors
+// `withhold_liquidation_fee` in `contracts/pool/src/ops/withdraw.rs`. End-to-end
+// coverage against the real pool is in `tests/test-harness/tests/controller/`.
 // ===========================================================================
 
 extern crate std;
@@ -335,8 +324,7 @@ const DECIMALS: u32 = 7;
 const UNIT: i128 = 10_000_000;
 const COLLATERAL_TOKENS: i128 = 100_000;
 const DEBT_TOKENS: i128 = 70_000;
-/// 20% of the bonus portion of a seizure, so the protocol fee is unmistakably
-/// non-zero and large enough that a gross/net confusion cannot hide in dust.
+/// 20% of the bonus portion of a seizure, so a gross/net mix-up is larger than dust.
 const LIQUIDATION_FEES_BPS: u32 = 2_000;
 
 const WITHDRAW_LOG: Symbol = symbol_short!("wlog");
@@ -408,9 +396,8 @@ struct MockPool;
 
 #[contractimpl]
 impl MockPool {
-    /// Indexes are pinned at 1.0 RAY: interest accrual is orthogonal to the
-    /// gross/net question and a unit index keeps shares and asset units
-    /// directly comparable in the assertions.
+    /// Returns a 1.0 RAY index for every market, so shares and asset units
+    /// compare directly.
     pub fn get_bulk_indexes(env: Env, hub_assets: Vec<HubAssetKey>) -> Vec<MarketIndexRaw> {
         let mut out = Vec::new(&env);
         for _ in hub_assets.iter() {
@@ -436,11 +423,9 @@ impl MockPool {
         out
     }
 
-    /// `SeizeMode::Transfer`'s leg. Burns shares for the requested gross amount
-    /// through the pool's own `resolve_withdrawal`, withholds `protocol_fee`
-    /// from that gross, and pays the remainder out — the rule
-    /// `withhold_liquidation_fee` implements. Records `(gross, fee, paid)` so a
-    /// test can compare the emitted event against what left the pool.
+    /// `SeizeMode::Transfer`'s leg. Burns shares for the gross amount through
+    /// `resolve_withdrawal`, withholds `protocol_fee` as `withhold_liquidation_fee`
+    /// does, and pays out the rest. Records `(gross, fee, paid)` for the assertions.
     pub fn withdraw(
         env: Env,
         receiver: Address,
@@ -535,10 +520,9 @@ struct Liquidation {
     debt_key: HubAssetKey,
 }
 
-/// An account whose health factor sits below one with a single collateral and a
-/// single debt asset, sized so the seizure clamps below the position (leaving a
-/// real bonus portion for the protocol fee to bite on) and so the residual debt
-/// stays clear of the bad-debt dust gate.
+/// Builds an account with a health factor below 1, one collateral and one debt
+/// asset. The seizure stays below the position, so its bonus portion carries a
+/// protocol fee, and the residual debt stays above `BAD_DEBT_USD_THRESHOLD`.
 fn unhealthy_account() -> Liquidation {
     let env = Env::default();
     env.mock_all_auths();
@@ -686,10 +670,9 @@ fn collateral_config() -> SpokeAssetConfig {
 impl Liquidation {
     /// Repays the whole debt balance; the planner caps the accepted repayment at
     /// the curve's ideal amount and refunds the rest before any transfer.
-    /// Returns the receiving account id and everything the call published. The
-    /// events are decoded here because `Env::events` only reports the most
-    /// recent invocation, so any later client call — a balance read included —
-    /// would discard them.
+    /// Returns the credit receiver's account id (0 in transfer mode) and the
+    /// decoded events. Decodes here because `Env::events` reports only the most
+    /// recent invocation, and any later client call replaces them.
     fn liquidate(&self, mode: SeizeMode) -> (u64, Emitted) {
         let mut payments = Vec::new(&self.env);
         payments.push_back((self.debt_key.clone(), DEBT_TOKENS * UNIT));
@@ -707,8 +690,7 @@ impl Liquidation {
         (receiver_id, Emitted::capture(&self.env))
     }
 
-    /// Makes the debt token deliver `bps` less than it is sent, the
-    /// fee-on-transfer shape `transfer_amount_measured` exists to absorb.
+    /// Makes the debt token deliver `bps` less than it is sent (fee on transfer).
     fn set_debt_shortfall_bps(&self, bps: i128) {
         MockTokenClient::new(&self.env, &self.debt_key.asset).set_shortfall(&bps);
     }
@@ -808,16 +790,15 @@ impl Batch {
         found.expect("batch carries the expected delta")
     }
 
-    /// The liquidated account's seizure delta — **gross** of the protocol fee.
+    /// The liquidated account's seizure delta, gross of the protocol fee.
     fn seize_delta(&self, asset: &Address) -> EventDepositDelta {
         self.delta_for(PositionAction::LiqSeize, asset)
     }
 
-    /// A share-credit receiver's credit delta — **net** of the protocol fee.
+    /// A share-credit receiver's credit delta, net of the protocol fee.
     ///
-    /// Deliberately a different tag from [`Self::seize_delta`]: one tag
-    /// carrying both senses would let an indexer read the gross figure as
-    /// liquidator proceeds and overstate them by the fee.
+    /// Uses a different tag from [`Self::seize_delta`], so an indexer cannot
+    /// read the gross seizure as the liquidator's proceeds.
     fn credit_delta(&self, asset: &Address) -> EventDepositDelta {
         self.delta_for(PositionAction::LiqCredit, asset)
     }
@@ -842,8 +823,8 @@ fn transfer_mode_seizure_delta_is_gross_of_the_protocol_fee() {
     assert_eq!(batches.len(), 1, "transfer mode publishes one batch");
     let delta = batches[0].seize_delta(&t.collateral);
 
-    // The emitted amount is the whole seizure, fee included — it is NOT the
-    // liquidator's proceeds. This is the TOB-AAVE-4 distinction.
+    // The emitted amount is the gross seizure, fee included, not the
+    // liquidator's proceeds.
     assert_eq!(delta.5, gross, "LiqSeize amount is the gross seizure");
     assert_eq!(
         delta.5 - fee,
@@ -941,8 +922,8 @@ fn credit_mode_debits_the_victim_gross_and_credits_the_receiver_net() {
          fee the pool reclassifies — nothing is created or destroyed"
     );
 
-    // Same tag, two different senses: the victim's amount is the gross seizure,
-    // the receiver's is what it actually received.
+    // The victim's `LiqSeize` amount is the gross seizure; the receiver's
+    // `LiqCredit` amount is net of the fee.
     assert!(
         victim.5 > receiver.5,
         "victim delta is gross, receiver delta is net of the fee"
@@ -972,9 +953,8 @@ fn credit_mode_receiver_batch_identifies_the_new_account() {
 #[test]
 fn liquidation_event_reports_the_delivered_repayment_not_the_planned_one() {
     let t = unhealthy_account();
-    // A debt token that keeps 1% of every transfer. `transfer_amount_measured`
-    // exists precisely because such tokens are in scope, and the seizure is
-    // scaled down to match — the headline event must be measured too.
+    // The debt token keeps 1% of every transfer; the event must report the
+    // measured receipt.
     t.set_debt_shortfall_bps(100);
 
     let (_, emitted) = t.liquidate(SeizeMode::Transfer);
@@ -988,9 +968,8 @@ fn liquidation_event_reports_the_delivered_repayment_not_the_planned_one() {
     // differ only by scale: one token unit is 10^11 WAD of value.
     let applied_usd_wad = leg.5 * (common::constants::WAD / UNIT);
 
-    // The event must not overstate the debt retired. Valuing the measured
-    // receipt re-derives the USD figure through a floor-rounded ratio, so allow
-    // a wei of slack — but nothing near the token's ~1% shortfall.
+    // The event values the measured receipt through a floor-rounded ratio, so
+    // allow 1 ppm of slack, far below the token's 1% shortfall.
     let slack = applied_usd_wad / 1_000_000;
     assert!(
         emitted.repaid_usd_wad <= applied_usd_wad + slack,

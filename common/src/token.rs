@@ -1,6 +1,5 @@
-//! Helpers for Stellar Asset Contract (SAC) token transfers and for
-//! authorizing the current contract to invoke a token transfer on its own
-//! behalf.
+//! Token helpers: a transfer that measures the amount received, and an
+//! authorization entry for a token `transfer` made on the current contract's behalf.
 
 use soroban_sdk::auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation};
 use soroban_sdk::{
@@ -9,13 +8,11 @@ use soroban_sdk::{
 
 use crate::errors::GenericError;
 
-/// Transfers `amount` from `from` to `to` and returns the observed balance
-/// delta at `to`.
+/// Transfers `amount` from `from` to `to` and returns the balance change at
+/// `to` (`post - pre`, token amount). The result can differ from `amount`.
 ///
-/// Snapshots the recipient balance before and after the transfer and returns
-/// `post - pre`. Panics with `non_positive_error` if `amount <= 0`, and
-/// panics with `GenericError::AmountMustBePositive` if the balance delta
-/// cannot be represented in `i128`.
+/// Panics with `non_positive_error` if `amount <= 0`, and with
+/// `GenericError::AmountMustBePositive` if `post - pre` overflows `i128`.
 pub fn transfer_amount_measured(
     env: &Env,
     asset: &Address,
@@ -33,9 +30,9 @@ pub fn transfer_amount_measured(
         .unwrap_or_else(|| panic_with_error!(env, GenericError::AmountMustBePositive))
 }
 
-/// Grants an authorization entry allowing the current contract to invoke
-/// `transfer(from, to, amount)` on the token at `token_addr`, with no further
-/// sub-invocations.
+/// Authorizes, on behalf of the current contract, one `transfer(from, to, amount)`
+/// call on `token_addr` made deeper in the next contract call (for example by
+/// the pool). The entry allows no further sub-invocations.
 pub fn authorize_transfer_as_current(
     env: &Env,
     token_addr: &Address,

@@ -1,8 +1,7 @@
-//! Administrative operations for configuring, revalidating, and updating asset oracles.
+//! Owner-only oracle configuration: register an oracle, tighten its sanity band,
+//! or change its tolerance.
 //!
-//! Provides the entry points used by privileged callers to register a new oracle
-//! configuration, attest its price sources, adjust its sanity bounds, or adjust its
-//! tolerance, and cascades revalidation to any other configured oracle whose
+//! `set_oracle` also attests the price sources and revalidates every oracle whose
 //! composition depends on the changed key.
 
 use common::errors::OracleError;
@@ -90,12 +89,11 @@ pub(crate) fn set_oracle(env: &Env, key: PriceKey, oracle: AssetOracle) {
 /// validation under the new state.
 ///
 /// Structural only: the walk reads the registry and never crosses a contract
-/// boundary. A live re-probe of each dependent costs one VM instantiation per
-/// provider call, all charged to the transaction memory budget, and a key with
-/// three LP dependents already exceeded the 40 MiB mainnet limit. The probe's
-/// only check beyond `validate_asset_oracle` is `UnsupportedAquariusPool`, a
-/// property of the pool contract that cannot change with `changed` and that
-/// was hard-probed when the dependent itself was admitted.
+/// boundary. A live re-probe costs one VM instantiation per provider call, and
+/// three LP dependents can exceed the 40 MiB mainnet transaction memory budget.
+/// The pool-kind check is not repeated: only `aquarius::attest` raises
+/// `UnsupportedAquariusPool`, it ran when the dependent was admitted, and
+/// `changed` cannot alter the pool kind.
 fn revalidate_dependents(env: &Env, changed: &PriceKey) {
     for candidate in registry::oracle_keys(env).iter() {
         if candidate == *changed || !depends_on(env, &candidate, changed, &mut Vec::new(env)) {
@@ -191,11 +189,13 @@ pub(crate) fn validate_asset_oracle(env: &Env, key: &PriceKey, oracle: &AssetOra
     }
 }
 
-/// Tightens the sanity band on the immediate (no-timelock) path: it may only
-/// narrow, never widen. Widening must go through the timelocked
-/// `ConfigureAssetOracle` so it has a reaction window; without this ratchet the
-/// old intersect-only check let `ORACLE_ROLE` walk the band across calls (F-3,
-/// INV-AUTH-04). Revalidates and re-probes before committing.
+/// Narrows the sanity band of the oracle under `key`; panics with
+/// `SanityBandMustTighten` if either bound widens. Revalidates and re-probes
+/// before committing.
+///
+/// Governance calls this on the immediate `ORACLE_ROLE` path, so it only
+/// narrows and repeated calls cannot walk the band. Widening goes through the
+/// timelocked `ConfigureAssetOracle` (INV-AUTH-04).
 pub(crate) fn set_sanity_band(env: &Env, key: PriceKey, min_wad: i128, max_wad: i128) {
     let mut oracle = registry::get_oracle(env, &key)
         .unwrap_or_else(|| panic_with_error!(env, OracleError::OracleNotConfigured));

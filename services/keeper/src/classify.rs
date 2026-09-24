@@ -1,11 +1,8 @@
-//! Grouping of discovered ledger entries into the `(contract, group)` pairs the
-//! metrics surface and the TTL inspector both report against.
+//! Groups discovered ledger entries into the `(contract, group)` pairs that the
+//! metrics surface and the TTL inspector report.
 //!
-//! Cardinality is the reason this aggregates rather than labelling per key.
-//! Account ids are never reused, so a series per ledger key would add a
-//! permanent new label value for every account ever opened. Grouping holds the
-//! series count flat — roughly contracts times groups — no matter how far the
-//! protocol grows.
+//! Metrics aggregate per group, never per key: account ids are never reused, so
+//! a per-key label would add a new series for every account ever opened.
 
 use stellar_xdr::{ContractId, Hash, LedgerKey, ScAddress, ScSymbol, ScVal};
 
@@ -66,9 +63,7 @@ impl KeyClass {
         }
     }
 
-    /// Every class, so the metrics surface can publish a zero for groups that
-    /// hold no entries this tick. Without that, a group whose entries all
-    /// vanish leaves its last value on the dashboard forever.
+    /// Every class.
     pub const ALL: [KeyClass; 10] = [
         Self::PerAsset,
         Self::Spoke,
@@ -83,9 +78,10 @@ impl KeyClass {
     ];
 }
 
-/// Returns the contract an entry lives on, as a stable label. Falls back to the
-/// strkey-free hex prefix so an unrecognised contract is still distinguishable
-/// rather than collapsing into one bucket.
+/// Returns a stable label for the contract that holds an entry.
+///
+/// A contract-code key is `wasm_code`. An unrecognised contract gets `other_`
+/// plus its first four id bytes in hex, so it stays distinct on the dashboard.
 pub fn contract_label(
     key: &LedgerKey,
     ids: &ContractIds,
@@ -112,8 +108,6 @@ pub fn contract_label(
             return name.to_string();
         }
     }
-    // Anything still unnamed keeps a distinct label rather than collapsing into
-    // one bucket, so an unexpected contract is visible on the dashboard.
     format!("other_{:02x}{:02x}{:02x}{:02x}", id[0], id[1], id[2], id[3])
 }
 
@@ -161,11 +155,7 @@ pub fn classify_persistent(
         {
             KeyClass::PerUser
         }
-        // `Owner` lives on the position NFT, not the controller. OpenZeppelin
-        // extends it by 30 days against the controller's 120, so it is the
-        // entry that archives first, and an archived `Owner` makes the account
-        // unusable. It belongs with the rest of the per-account state rather
-        // than in `other`, which is the group nobody reads.
+        // `Owner` lives on the position NFT; see `PositionNftUserKey`.
         Some("Owner") => KeyClass::PerUser,
         Some("Oracle") => KeyClass::Oracle,
         Some(
@@ -220,8 +210,7 @@ mod tests {
         );
     }
 
-    /// The same variant name on a different contract must not be read as a
-    /// controller account key; grouping keys by name alone would mislabel it.
+    /// A pool `Params` key groups as per-asset state.
     #[test]
     fn pool_market_keys_group_as_per_asset() {
         let hub_asset = HubAssetKey {
@@ -258,9 +247,7 @@ mod tests {
         );
     }
 
-    /// `Owner` is the shortest-lived entry in the protocol and an archived one
-    /// makes an account unusable, so it must group with the other per-account
-    /// state and not disappear into `other`.
+    /// A position-NFT `Owner` key groups as per-user state, not `other`.
     #[test]
     fn position_nft_owner_groups_as_per_user() {
         use crate::keys::PositionNftUserKey;
@@ -295,11 +282,8 @@ mod tests {
         );
     }
 
-    /// An unconfigured contract (pool and position-NFT are resolved at runtime)
-    /// must stay distinguishable rather than collapsing into one bucket.
-    /// Pool and position-NFT are read from the controller instance, not config.
-    /// Without threading them through they render as an opaque hex prefix, which
-    /// is unreadable on a per-contract dashboard.
+    /// The pool id comes from the controller instance, not the config. A pool
+    /// key is labelled `pool` when that id is passed, and `other_` when it is not.
     #[test]
     fn runtime_resolved_contracts_are_named() {
         let pool = [0xEEu8; 32];

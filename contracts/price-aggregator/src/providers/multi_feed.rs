@@ -39,8 +39,8 @@ mod certora_read {
 pub(crate) use read_multi_feed_source_impl as read_multi_feed_source;
 
 /// Reads `feed`'s price data (via the session cache) from its contract and
-/// converts it to an `OracleObservation` scaled to `decimals`. Returns
-/// `None` if the price data cannot be read or the conversion fails.
+/// converts it from `decimals` to a WAD `OracleObservation`. Returns `None`
+/// if the price data cannot be read or the conversion fails.
 pub(crate) fn read_multi_feed_source_impl(
     session: &mut Session,
     feed: &MultiFeedRef,

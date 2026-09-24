@@ -69,17 +69,20 @@ swap-debt gross up returned `amountIn` before building.
 
 When input and output token addresses are equal, no quote is required. Pass
 the zero-length bytes returned by `buildSameTokenRepaySwapSteps()`. A
-placeholder/self-swap route is not equivalent and can fail
-`InvalidPayments`.
+non-empty route between equal tokens, including a placeholder or self-swap,
+reverts with `InvalidPayments`.
 
-`swap_debt` and `swap_collateral` reject identical full `HubAssetKey` values.
+`swap_debt` and `swap_collateral` reject identical full `HubAssetKey` values
+with `AssetsAreTheSame`.
 Different hubs with the same token can use the pass-through empty-byte path,
 but the account and reserve coordinates must still be valid.
 
 ## `mode`, `initialPayment`, `convertSwap`
 
 Stellar position modes are `0` normal, `1` multiply, `2` long, and `3` short.
-`multiply` accepts modes `1..=3`. Reusing an account requires its stored mode
+`multiply` accepts modes `1..=3`. Mode `1` requires distinct `HubAssetKey`
+values; modes `2` and `3` require distinct token addresses. Otherwise the call
+reverts with `AssetsAreTheSame`. Reusing an account requires its stored mode
 and spoke; read both from that account rather than deriving them from the
 selected token.
 
@@ -88,7 +91,7 @@ selected token.
 - collateral token: add directly to supplied collateral;
 - debt token: add to the quoted swap input;
 - third token: provide a second executable `convertSwap` route into
-  collateral.
+  collateral, or the call reverts with `ConvertStepsRequired`.
 
 ## Leverage display is not admission
 
@@ -106,10 +109,10 @@ For builder and risk decisions:
 - still require successful preparation of the composed transaction.
 
 Application formulas are pseudocode in
-[../xoxno-lending/math.md](../xoxno-lending/math.md). The published
-`@xoxno/sdk-js@1.0.214` package has no supported `projectAccountRisk` or
-`maxBorrow` export; do not use unpublished alpha helpers to present an
-admission guarantee.
+[../xoxno-lending/math.md](../xoxno-lending/math.md).
+`@xoxno/sdk-js@1.0.214` exports no `projectAccountRisk` or `maxBorrow`. Later
+SDK versions export both; do not present their output as an admission
+guarantee.
 
 Even a careful client estimate or earlier simulation can fail later because
 of:
@@ -133,10 +136,12 @@ build `mode: 1` and require composed preparation before signing.
 
 ## Repay and close
 
-`closePosition: true` requires all debt legs to be gone, then withdraws all
-supply legs. Size reverse quotes from the ceiled live debt and include a small
-accrual buffer; swap surplus is refunded. `accountNonce: '0'` is never valid
-for repay-with-collateral.
+`closePosition: true` requires the account to hold no debt position after the
+repayment, or the call reverts with `CannotCloseWithRemainingDebt`. It then
+withdraws every supply position to the caller. Size reverse quotes from the
+ceiled live debt and include a small accrual buffer; the controller refunds
+surplus debt tokens to the caller. `accountNonce: '0'` is never valid for
+repay-with-collateral.
 
 ### Complete example: repay USDC debt with XLM collateral, same-token aware
 

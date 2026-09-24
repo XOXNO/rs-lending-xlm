@@ -194,7 +194,6 @@ fn claim_revenue_for_asset(
             GenericError::AmountMustBePositive,
         );
 
-        // Record the measured pool receipt used as the outbound transfer amount.
         events::ClaimRevenueEvent {
             hub_id: hub_asset.hub_id,
             asset: asset.clone(),

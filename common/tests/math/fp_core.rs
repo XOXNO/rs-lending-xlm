@@ -154,7 +154,7 @@ fn test_mul_div_floor_rounds_toward_negative_infinity() {
 
     assert_eq!(mul_div_floor(&env, 7, 1, 3), 2);
 
-    // A negative divisor puts the quotient on the same side.
+    // A negative divisor also floors.
     assert_eq!(mul_div_floor(&env, 7, 1, -3), -3);
     assert_eq!(mul_div_floor(&env, -7, 1, -3), 2);
 }
@@ -165,7 +165,7 @@ fn test_mul_div_ceil_rounds_toward_positive_infinity() {
 
     assert_eq!(mul_div_ceil(&env, 7, 1, 3), 3);
 
-    // -7/3 = -2.33 -> ceil is -2; the pre-fix body returned -1 here.
+    // -7/3 = -2.33 -> ceil is -2.
     assert_eq!(mul_div_ceil(&env, -7, 1, 3), -2);
 
     assert_eq!(mul_div_ceil(&env, -6, 1, 3), -2);
@@ -449,30 +449,20 @@ fn test_rescale_ceil_downscale_to_nonzero_decimals() {
     assert_eq!(rescale_ceil(&env, 1_000_000_000, 9, 6), 1_000_000);
 }
 
-/// `mul_div_floor_saturating` is the only mul_div variant that does NOT panic on
-/// overflow — it returns `i128::MAX`. Every panicking sibling has an overflow
-/// test; this one had none, in either the unit tests or the fuzzer, despite
-/// being the variant used for interest index growth
-/// (`common/src/rates/index.rs:41`) and fee-to-share conversion (`:95`).
-///
-/// The contrast is the point: identical inputs, one aborts and one silently
-/// saturates. A silent `i128::MAX` in index growth would be a catastrophic
-/// state rather than a rejected transaction, so the behaviour deserves to be
-/// pinned rather than left implicit.
+/// `mul_div_floor_saturating` returns `i128::MAX` on a positive overflow, where `mul_div_floor`
+/// panics. `update_supply_index` and `protocol_fee_shares` (`common/src/rates/index.rs`)
+/// use it.
 #[test]
 fn mul_div_floor_saturating_saturates_where_the_panicking_variant_aborts() {
     let env = Env::default();
-    // mul_div_floor panics on exactly these inputs (see
-    // test_mul_div_floor_overflow_panics); the saturating variant must not.
+    // Same inputs as `test_mul_div_floor_overflow_panics`.
     assert_eq!(
         mul_div_floor_saturating(&env, i128::MAX, i128::MAX, 1),
         i128::MAX
     );
 }
 
-/// Below the saturation point it must agree exactly with the panicking floor
-/// variant, or the two would disagree on ordinary values and the choice of
-/// variant would silently change results.
+/// Below saturation, `mul_div_floor_saturating` equals `mul_div_floor`.
 #[test]
 fn mul_div_floor_saturating_matches_floor_below_saturation() {
     let env = Env::default();
@@ -496,8 +486,8 @@ fn mul_div_floor_saturating_matches_floor_below_saturation() {
     }
 }
 
-/// Pins the collapsed [`rescale`] against the three hand-written bodies it replaced, across
-/// negative, zero, exact-multiple and half-boundary inputs in both directions.
+/// Checks `rescale_half_up`, `rescale_floor` and `rescale_ceil` against reference bodies
+/// across negative, zero, exact-multiple and half-boundary inputs in both directions.
 #[test]
 fn test_rescale_variants_match_their_pre_refactor_bodies() {
     let env = Env::default();

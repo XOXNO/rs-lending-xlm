@@ -2,9 +2,9 @@
 
 # Focused live-testnet migrate_from_blend against the real Blend TestnetV2
 # pool. Covers allowlist, input rejects, market-flag rejects, collateral /
-# supply / debt migrates, zero-liability refund, existing-account merge,
-# delegate migrate, remigrate-empty, and Blend-side health/cap/min-borrow
-# failures that a website happy-path does not hit.
+# supply / debt migrates, the zero-liability reject, existing-account merge,
+# delegate migrate, remigrate-empty, and the health, debt-cap and min-borrow
+# failures that a web-app happy path does not reach.
 
 set -uo pipefail
 

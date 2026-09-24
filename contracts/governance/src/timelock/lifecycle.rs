@@ -20,12 +20,14 @@ use crate::storage;
 use crate::timelock::*;
 
 /// Schedules `op` for later execution and returns its operation id; requires the
-/// caller to hold `PROPOSER_ROLE`. For a `RevokeGovRole` operation, rejects the
-/// proposer targeting themselves or the owner and records the target account so
-/// it cannot later cancel its own revocation; for ownership transfers, code
-/// upgrades, price and swap sources, Blend approval, the revenue accumulator,
-/// and role grants, requires the proposer to be the current owner. The
-/// operation's delay is derived from the resolved operation's delay tier.
+/// caller to hold `PROPOSER_ROLE`.
+///
+/// `RevokeGovRole` rejects a target that is the proposer or the owner, and records
+/// the target so it cannot cancel its own revocation. Ownership transfers, code
+/// upgrades, controller migration, price aggregator and oracle configuration, the
+/// swap aggregator, Blend pool approval, the revenue accumulator, and role grants
+/// also require the proposer to be the owner. These checks fail with
+/// `GenericError::NotAuthorized`. The delay comes from the operation's delay tier.
 pub(crate) fn propose(
     env: &Env,
     proposer: &Address,

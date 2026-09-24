@@ -13,8 +13,8 @@ use crate::{interest, ops};
 
 /// Applies one seize entry, syncing the market, socializing bad debt or
 /// reclassifying supply as revenue depending on `entry.side`, and returns the
-/// committed market snapshot. Does not transfer tokens; the hub adjusts user
-/// position books separately. Panics if `entry.position.scaled_amount` is negative.
+/// committed market snapshot. Does not transfer tokens; the controller adjusts
+/// the position books. Panics if `entry.position.scaled_amount` is negative.
 pub(crate) fn apply(env: &Env, entry: &PoolSeizeEntry) -> MarketStateSnapshot {
     require_nonneg_amount(env, entry.position.scaled_amount);
     let mut cache = ops::synced_market(env, &entry.hub_asset);

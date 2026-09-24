@@ -8,14 +8,11 @@ source "$HERE/../env.sh"
 BASE="$RUN_TS"
 LANE_TIMEOUT="${LANE_TIMEOUT:-95m}"
 
-# Lane selection is env-overridable so a caller can run just the lane it
-# affects (e.g. only `liq` after a liquidation change) instead of paying for
-# all three. Unset behaviour is unchanged: all three lanes.
+# E2E_LANES selects the lanes, so a caller can run only the lane a change
+# affects (for example `liq` after a liquidation change). Unset runs all five.
 #
-# `-` and not `:-` on purpose. With `:-`, an explicitly empty E2E_LANES (a
-# caller whose lane variable came back blank) would silently expand to the
-# full default and run every lane against the network. Empty must reach the
-# zero-lane check below and abort instead.
+# `-`, not `:-`: an explicitly empty E2E_LANES must reach the zero-lane check
+# below and abort, not expand to the default and run every lane.
 read -r -a LANES <<<"${E2E_LANES-agg liq stress flash blend}"
 
 phases_for() {
@@ -53,10 +50,9 @@ command -v gtimeout >/dev/null 2>&1 && timeout_bin="gtimeout $LANE_TIMEOUT"
 
 log_orch() { printf '[%s] [orchestrator] %s\n' "$(date +%H:%M:%S)" "$*" >&2; }
 
-# Reject an unknown lane up front. `phases_for` returns empty for one, and an
-# empty PHASES is indistinguishable from unset to full_e2e.sh's `${PHASES:-...}`
-# default — so a typo would quietly run every phase and report it under the
-# wrong lane name.
+# Rejects an unknown lane up front. `phases_for` prints nothing for one, and
+# full_e2e.sh's `${PHASES:-...}` treats empty as unset, so a typo would run the
+# default phases under the wrong lane name.
 [ "${#LANES[@]}" -gt 0 ] || { log_orch "E2E_LANES resolved to no lanes"; exit 2; }
 for lane in "${LANES[@]}"; do
     if [ -z "$(phases_for "$lane")" ] && [ "$(script_for "$lane")" = "full_e2e.sh" ]; then
@@ -121,9 +117,7 @@ combined="$INTEG_DIR/runs/${BASE}-combined.md"
 {
     echo "# Parallel testnet e2e — $BASE"
     echo
-    # Name the lanes rather than saying "all lanes": lane selection means a
-    # single-lane run would otherwise report "GREEN (all lanes)" and read as
-    # full-suite coverage it never had.
+    # Names the lanes that ran, so a partial run does not read as full coverage.
     if [ "$overall" -eq 0 ]; then
         echo "**Result: GREEN (lanes run: ${LANES[*]})**"
     else

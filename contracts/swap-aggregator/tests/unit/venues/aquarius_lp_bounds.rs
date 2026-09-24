@@ -2,9 +2,7 @@
 //!
 //! A burn reads its per-constituent floors out of the shared `amounts`
 //! registry at a caller-declared offset, and a mint has to survive a pool that
-//! takes less than it was offered. Both are places where an off-by-one in the
-//! indexing, or an over-eager guard, silently changes which numbers the
-//! protocol enforces.
+//! takes less than it was offered.
 
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::xdr::ToXdr;
@@ -106,9 +104,10 @@ fn burn_then_fold(env: &Env, min_start: u8) -> (Address, Address, Address, Bytes
         pool,
         swap_pool,
     ];
-    // Slot 0 is the strategy-wide minimum and is *not* part of the floor run.
-    // It is set past anything a constituent could deliver, so a floor read from
-    // the wrong offset fails loudly instead of passing by accident.
+    // Slot 0 is a sentinel outside the floor run, set above anything a
+    // constituent can deliver, so a floor read from the wrong offset fails.
+    // `min_start = 1` selects slots 1-2 as the floor run; slot 3 is the
+    // strategy-wide minimum.
     let amounts = alloc::vec![1_000_000_000i128, 0, 0, 1];
     let ops = encode::program(
         env,
@@ -152,9 +151,8 @@ fn burn_reads_its_floor_run_from_the_declared_offset() {
     assert_eq!(token::Client::new(&env, &token_a).balance(&sender), 2_000);
 }
 
-/// The floor run must fit inside the registry for the pool's whole arity: a run
-/// that starts in range but ends past the end would otherwise enforce floors
-/// read from nowhere.
+/// A floor run that starts inside the amount registry but ends past it is
+/// rejected with `MinAmountsNotMet`.
 #[test]
 fn burn_rejects_a_floor_run_that_overruns_the_amount_registry() {
     let env = Env::default();
@@ -422,9 +420,9 @@ fn mint_authorizes_every_constituent_the_vault_does_fund() {
     assert_eq!(report.get_unchecked(2), 0);
 }
 
-/// `get_tokens` returning `[token, token]` makes burn credit that token twice
-/// from one receipt. If it is also `token_out`, settlement would pay the
-/// inflated amount from other router balances — here, reserved admin fees.
+/// A pool whose `get_tokens` returns `[token, token]`. Without the router's
+/// uniqueness check, a burn would credit one receipt twice and, with `token` as
+/// `token_out`, pay the excess from reserved admin fees.
 #[contract]
 pub struct DuplicateConstituentPool;
 

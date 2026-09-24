@@ -35,13 +35,9 @@ fn test_bulk_supply_emits_single_position_and_market_batch() {
         .with_market(xlm_preset())
         .build();
 
-    // Pre-create ALICE's account as its own top-level call so the
-    // position-NFT `mint` event it emits lands outside the window
-    // `events().all()` inspects below (that helper returns only events
-    // from the *last* contract invocation). Otherwise a fresh account_id=0
-    // supply_bulk would fold account creation's mint event into the count
-    // this test is actually about: how many events supply_bulk itself
-    // emits.
+    // Create the account in its own call. `events().all()` returns only the
+    // last invocation's events, so the position-NFT `mint` event stays out of
+    // the `supply_bulk` count.
     t.create_account(ALICE);
 
     t.supply_bulk(
@@ -239,8 +235,8 @@ fn test_liquidation_emits_many_events() {
         "liquidation must emit exactly one liquidation event"
     );
 
-    // Liquidator bots read this payload; a zeroed, swapped or mis-scaled field
-    // must not survive a topic-only count.
+    // Liquidator bots read this payload, so each field is checked, not only the
+    // topic count.
     let liquidations = data_for_topic(&events, "position", "liquidation");
     let ScVal::Map(Some(map)) = &liquidations[0] else {
         panic!("liquidation event data is a map, got {:?}", liquidations[0]);
@@ -257,8 +253,8 @@ fn test_liquidation_emits_many_events() {
     let ScVal::I128(repaid) = field("repaid_usd_wad") else {
         panic!("repaid_usd_wad must be i128");
     };
-    // 1.0 ETH at the $2 000 preset price, retired in full; the USD conversion
-    // floors, so allow a sub-milli-dollar shortfall but nothing near a rescale.
+    // 1.0 ETH at the $2,000 preset price, retired in full. The tolerance admits
+    // rounding but not a rescale.
     let repaid = i128::from(repaid);
     assert!(
         (repaid - 2_000 * WAD).abs() < WAD / 1_000,

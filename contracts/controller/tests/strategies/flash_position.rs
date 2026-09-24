@@ -1,10 +1,8 @@
-//! The `FlashPositionClosed` guard.
+//! The `FlashPositionClosed` (#505) guard.
 //!
-//! `require_flash_position_still_open` is the last-line defense against a
-//! callback-plus-later-repay round trip leaving an empty account behind: the
-//! receiver is handed borrowed funds mid-transaction and could, without this,
-//! unwind the position it was opened against before control returns. All three
-//! of its arms were dead.
+//! `require_flash_position_still_open` rejects a flash position that the
+//! receiver callback left empty, debt-free, without live debt in the
+//! flash-borrowed asset, or without collateral.
 extern crate std;
 
 use super::*;

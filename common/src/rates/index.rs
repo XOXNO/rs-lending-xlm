@@ -19,7 +19,7 @@ pub fn update_borrow_index(env: &Env, old_index: Ray, interest_factor: Ray) -> R
 }
 
 /// Grows `old_index` by distributing `rewards_increase` over the total value
-/// currently supplied (`supplied * old_index`).
+/// currently supplied (`supplied * old_index`). The division rounds down.
 ///
 /// Returns `old_index` unchanged if `supplied` or `rewards_increase` is zero,
 /// or if the total supplied value is zero. Clamps the result between

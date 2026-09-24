@@ -199,26 +199,15 @@ fn comet_approval_ledger_covers_current_sequence() {
     );
 }
 
-/// A Comet swap must demand exactly one authorization from the user.
+/// A Comet swap asks the user to authorize one tree: the `execute_strategy` root with the
+/// inbound `transfer` as its only sub-invocation.
 ///
-/// Every other Comet test calls `mock_all_auths()`, which satisfies any tree and
-/// so cannot observe what the router actually asks the user to sign. This one
-/// mocks only the sender's own entry, then pins the recorded tree: one root
-/// (`execute_strategy`) with exactly one sub-invocation (the inbound
-/// `transfer`), and nothing else.
+/// Only the sender's entry is mocked, so the recorded tree shows what the user must sign. It
+/// fails if the router adds a venue approval or a second token movement to that tree.
 ///
-/// Break this catches: the router widening what the user must authorize -- e.g.
-/// requiring the user to approve the venue pool directly, or adding a second
-/// token movement to the signed tree. Either would let a signature intended for
-/// one hop cover more than the caller agreed to.
-///
-/// It deliberately does NOT cover `authorize_token_approve` /
-/// `authorize_comet_swap`: `approve` is invoked directly by the router (implicit
-/// invoker auth) and SAC `transfer_from` requires the *spender* (the pool), not
-/// the router, so against a SAC token those calls are unobservable here. Their
-/// surviving mutants in `.cargo/mutants.toml` are equivalent mutants under SAC
-/// semantics, not gaps -- a real Comet pool demanding the caller's auth would
-/// need a venue mock that reproduces that requirement.
+/// It cannot observe `authorize_token_approve` or `authorize_comet_swap`: against a SAC token
+/// the router's own `approve` needs no extra auth, and `transfer_from` requires the spender
+/// (the pool). `.cargo/mutants.toml` lists their mutants as equivalent.
 #[test]
 fn comet_swap_relies_on_router_invoker_auth_not_mocked_auth() {
     let env = Env::default();

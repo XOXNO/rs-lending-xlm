@@ -1,26 +1,21 @@
 //! Policy: a collateral stamped with `liquidation_threshold == 0` must stay liquidatable.
 //!
-//! Certora's Spoke M-01 against Aave V4: moving a collateral factor from non-zero to zero made
-//! positions **unliquidatable**, because the liquidation call validated that the seized
-//! collateral carried a non-zero factor, so a zeroed one could never be seized and the debt
-//! could never be cleared. Aave's fix was to forbid the transition outright.
+//! Failure shape guarded against: seizure requires a non-zero per-asset threshold, so a zeroed
+//! collateral can never be seized and the debt can never be cleared.
 //!
-//! Seizure here is pro-rata over an account's *entire* collateral set and reads no per-asset
-//! factor on the seizure leg, so the same configuration should simply liquidate at a zero bonus
-//! instead of locking. That was inferred from the arithmetic; these tests execute it — both
+//! Seizure here is pro-rata over the account's whole collateral set and reads no per-asset
+//! threshold, so a zero-threshold account liquidates at a zero bonus. These tests cover both
 //! seize modes, the mixed-collateral case, and both bad-debt routes.
 //!
-//! Reachability is a separate question and is pinned by
-//! `policy_configuration_cannot_stamp_a_zero_liquidation_threshold`: `validate_risk_bounds`
-//! demands `threshold > ltv` over `u32`, so no configuration entry point can write a zero, and
-//! `apply_gated_liquidation_params` only ever copies a validated config value onto a position.
-//! The fixtures below write the position map directly, which is the only way to reach the state
-//! at all — so what is under test is the *absence of a lock-out*, not a live configuration.
+//! `policy_configuration_cannot_stamp_a_zero_liquidation_threshold` pins reachability:
+//! `validate_risk_bounds` requires `threshold > ltv` over `u32`, so no configuration entry point
+//! writes a zero, and `apply_gated_liquidation_params` only copies a validated config value onto
+//! a position. The fixtures write the position map directly; the tests check that no lock-out
+//! exists, not a live configuration.
 //!
-//! The pool here is a stub that reproduces the real pool's scaled arithmetic
-//! (`common::rates::resolve_repay` / `resolve_withdrawal`) and nothing else: cash movement is
-//! irrelevant to whether a zero-threshold account can be liquidated, and the crate has no pool
-//! dependency. Cash-side behaviour lives in `tests/test-harness`.
+//! The pool is a stub that reproduces the pool's scaled arithmetic
+//! (`common::rates::resolve_repay` / `resolve_withdrawal`) and nothing else; the controller crate
+//! does not depend on the pool contract. Cash-side behaviour lives in `tests/test-harness`.
 
 use crate::constants::{
     DEFAULT_HF_FOR_MAX_BONUS_WAD, DEFAULT_LIQUIDATION_BONUS_FACTOR_BPS,
@@ -103,8 +98,8 @@ impl StubPool {
         out
     }
 
-    /// Counts calls so the bad-debt tests can prove the socialization leg actually reached the
-    /// pool rather than merely not panicking.
+    /// Counts seized entries (at least one per call) so the bad-debt tests can prove the
+    /// socialization leg reached the pool.
     pub fn seize_positions(env: Env, entries: Vec<PoolSeizeEntry>) {
         let key = symbol_short!("seizes");
         let seen: u32 = env.storage().instance().get(&key).unwrap_or(0);
@@ -219,7 +214,7 @@ fn stamped(scaled_amount: i128, liquidation_threshold: u32) -> AccountPositionRa
 ///
 /// The supply map is written straight to storage: `validate_risk_bounds` rejects a zero
 /// threshold at every configuration entry point, so no supported call sequence produces this
-/// state. What the tests need is the state itself, not a route to it.
+/// state.
 fn seed(zeroed_scaled: i128, normal_scaled: i128, debt_scaled: i128) -> Fixture {
     let env = Env::default();
     env.mock_all_auths();
@@ -262,9 +257,7 @@ fn seed(zeroed_scaled: i128, normal_scaled: i128, debt_scaled: i128) -> Fixture 
             soroban_sdk::String::from_str(&env, "POS"),
         ),
     );
-    // Minting the victim's own token first (before any `Credit(0)` receiver can be
-    // minted) is what keeps a fresh receiver account from colliding with VICTIM's id;
-    // no manual nonce bookkeeping is needed once ownership is real NFT ownership.
+    // Mint the victim's NFT first so a `Credit(0)` receiver account gets a different id.
     let victim_id = u64::from(position_nft::PositionNftClient::new(&env, &nft).mint(&owner));
     assert_eq!(
         victim_id, VICTIM,
@@ -292,8 +285,8 @@ fn seed(zeroed_scaled: i128, normal_scaled: i128, debt_scaled: i128) -> Fixture 
                 liquidation_bonus_factor_bps: DEFAULT_LIQUIDATION_BONUS_FACTOR_BPS,
             },
         );
-        // The *listings* carry ordinary thresholds. Only the stamped positions are zeroed, which
-        // is what makes the receiver-side tuple assertion meaningful.
+        // The listings carry ordinary thresholds; only the stamped positions are zeroed. The
+        // receiver-side tuple assertion depends on this.
         storage::set_spoke_asset(&env, SPOKE, &zeroed, &listed_asset(8_000));
         storage::set_spoke_asset(&env, SPOKE, &normal, &listed_asset(8_000));
         storage::set_spoke_asset(&env, SPOKE, &debt, &listed_asset(8_000));
@@ -342,8 +335,7 @@ fn payment(fx: &Fixture, tokens: i128) -> Vec<(HubAssetKey, i128)> {
 #[test]
 fn policy_zero_threshold_account_is_liquidatable_not_locked() {
     // $100 of zero-threshold collateral against $90 of debt. Weighted collateral is zero, so
-    // the health factor is zero: deeply liquidatable by the gate, and the question is only
-    // whether the rest of the pipeline can price and execute it.
+    // the health factor is zero; the estimate must still price the liquidation.
     let fx = seed(100 * RAY, 0, 90 * RAY);
     let client = fx.client();
 
@@ -447,9 +439,8 @@ fn policy_zero_threshold_collateral_liquidates_end_to_end_in_credit_mode() {
 
 #[test]
 fn policy_zero_threshold_collateral_is_seized_pro_rata_beside_a_normal_one() {
-    // The shape of the Aave finding: one collateral at zero, one at 80%. If seizure gated on a
-    // per-asset factor the zeroed leg would be untouchable and the debt would be stuck behind
-    // it. Pro-rata seizure must take both, in proportion to value.
+    // One collateral at a zero threshold, one at 80%. A per-asset threshold gate would leave
+    // the zeroed leg unseizable. Pro-rata seizure must take both, in proportion to value.
     let fx = seed(50 * RAY, 50 * RAY, 60 * RAY);
     let client = fx.client();
 
@@ -485,8 +476,8 @@ fn policy_zero_threshold_collateral_is_seized_pro_rata_beside_a_normal_one() {
 #[test]
 fn policy_zero_threshold_account_is_still_socializable_as_bad_debt() {
     // $3 of collateral under $10 of debt: insolvent and at or below the $5 dust cap. The gate
-    // reads only the two USD totals, so a zeroed threshold must not exempt the account from
-    // cleanup — otherwise the debt is unpayable *and* unremovable.
+    // reads only the two USD totals, so a zeroed threshold does not exempt the account from
+    // cleanup.
     let fx = seed(3 * RAY, 0, 10 * RAY);
     let client = fx.client();
 
@@ -505,8 +496,7 @@ fn policy_zero_threshold_account_is_still_socializable_as_bad_debt() {
 #[test]
 fn policy_zero_threshold_liquidation_promotes_its_own_residual_to_bad_debt() {
     // $6 of collateral under $50 of debt. Repaying $6 consumes the whole collateral at a zero
-    // bonus, leaving $44 of debt against nothing — which the in-call dust gate must socialize
-    // rather than leave stranded.
+    // bonus and leaves $44 of debt against nothing; the in-call bad-debt check must socialize it.
     let fx = seed(6 * RAY, 0, 50 * RAY);
     let client = fx.client();
 
@@ -529,10 +519,7 @@ fn policy_zero_threshold_liquidation_promotes_its_own_residual_to_bad_debt() {
 #[test]
 #[should_panic(expected = "#113")]
 fn policy_configuration_cannot_stamp_a_zero_liquidation_threshold() {
-    // `threshold > ltv` over `u32` makes zero unreachable even at `ltv == 0`, so every
-    // configuration path — listing, timelocked edit, and the restamp in
-    // `apply_gated_liquidation_params`, which only ever copies a validated config value —
-    // is closed. The fixtures above reach the state by writing storage directly.
+    // `threshold > ltv` over `u32` rejects a zero threshold even at `ltv == 0`.
     let env = Env::default();
     common::validation::validate_risk_bounds(&env, 0, 0, 0);
 }

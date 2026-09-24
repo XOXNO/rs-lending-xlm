@@ -29,11 +29,10 @@ const ASSET_TO_RAY_SCALE_7: i128 = 100_000_000_000_000_000_000;
 /// 1e11 whole tokens in ray is the largest round number strictly inside that
 /// domain (`1e11 * RAY = 1e38 < i128::MAX = 1.7014e38`).
 ///
-/// What the bound excludes: ray values above 1e11 whole tokens, which
-/// `Ray::from_asset` cannot construct from any token amount and which no
-/// accrual can reach without the surrounding `checked_*` first panicking. The
-/// tightest configured supply cap on mainnet is AQUA at 5e8 whole tokens
-/// (https://github.com/XOXNO/rs-lending-xlm/blob/d26b93ebb48d718b69571ec737f0097af3379916/docs/reference/numeric-bounds.md#3-largest-representable-balance), roughly 200x below this bound.
+/// What the bound excludes: ray values between 1e11 whole tokens and
+/// `i128::MAX / RAY` whole tokens, a band `Ray::from_asset` can still construct.
+/// The largest configured mainnet supply cap (AQUA, 5e8 whole tokens) is 200x
+/// below this bound.
 const MAX_RAY_VALUE: i128 = 100_000_000_000 * RAY;
 
 fn valid_params(asset: Address) -> MarketParams {
@@ -70,11 +69,10 @@ fn utilization_zero_when_supplied_zero(e: Env, borrowed: i128) {
 /// supplied)`, whose native branch condition is `borrowed * RAY + supplied / 2
 /// <= i128::MAX`, i.e. `borrowed <= (i128::MAX - supplied / 2) / RAY`.
 ///
-/// This lemma is the half that runs on the inlined compiler-builtins limb code
-/// (`__multi3`, `__udivti3`), which `docs/explanation/certora-sunbeam-prover-tuning.md`
-/// §9.7 identifies as the likely source of the counterexample the whole rule
-/// reported on 2026-09-02. Splitting the branch is what lets the next run say
-/// which half produced it.
+/// This half runs on the inlined compiler-builtins limb code (`__multi3`,
+/// `__udivti3`). `docs/explanation/certora-sunbeam-prover-tuning.md` §9.7 names
+/// that code as a plausible source of a spurious `util > RAY` counterexample on
+/// the unsplit rule; the split shows which half produces it.
 #[rule]
 fn utilization_bounded_when_borrowed_lte_supplied_native(e: Env, borrowed: i128, supplied: i128) {
     cvlr_assume!((0..=100 * RAY).contains(&borrowed));
@@ -83,8 +81,7 @@ fn utilization_bounded_when_borrowed_lte_supplied_native(e: Env, borrowed: i128,
     cvlr_assume!(borrowed <= (i128::MAX - supplied / 2) / RAY);
 
     let util = utilization(&e, Ray::from(borrowed), Ray::from(supplied));
-    // Witness values for the call trace: the 2026-09-02 local counterexample
-    // on the unsplit rule was reported without them.
+    // Logs the inputs and the result into the counterexample call trace.
     let util_raw = util.raw();
     clog!(borrowed);
     clog!(supplied);
@@ -105,8 +102,7 @@ fn utilization_bounded_when_borrowed_lte_supplied_widened(e: Env, borrowed: i128
     cvlr_assume!(borrowed > (i128::MAX - supplied / 2) / RAY);
 
     let util = utilization(&e, Ray::from(borrowed), Ray::from(supplied));
-    // Witness values for the call trace: the 2026-09-02 local counterexample
-    // on the unsplit rule was reported without them.
+    // Logs the inputs and the result into the counterexample call trace.
     let util_raw = util.raw();
     clog!(borrowed);
     clog!(supplied);
@@ -134,7 +130,7 @@ fn deposit_rate_zero_when_no_utilization(e: Env, borrow_rate: i128, reserve_bps:
 ///
 /// `calculate_deposit_rate` has one branch-relevant product,
 /// `utilization.mul(borrow_rate)` = `mul_div_half_up(util_raw, borrow_rate,
-/// RAY)`; the `apply_to_ray` that follows multiplies a value below `2 RAY` by
+/// RAY)`; the `apply_to_ray` that follows multiplies a value of at most `2 RAY` by
 /// at most `BPS`, so it never leaves the native path and needs no bound of its
 /// own. `borrow_rate.max(1)` keeps the divisor total: at `borrow_rate == 0` the
 /// product is zero and native for every `util_raw`, and the bound then admits
@@ -201,8 +197,8 @@ fn compound_interest_identity_at_zero_delta(e: Env, rate: i128) {
 /// native branch is unreachable on this domain.
 #[rule]
 fn update_borrow_index_monotonic_when_factor_gte_one(e: Env, old_index: i128, factor: i128) {
-    // The factor ceiling is 8 ray, not the 2 ray of `MAX_BORROW_RATE_RAY`, so
-    // this lemma also covers the domain the deleted controller copy carried.
+    // The 8 RAY factor ceiling covers one full `MAX_COMPOUND_DELTA_MS` chunk at
+    // `MAX_BORROW_RATE_RAY` (`e^2 ≈ 7.39`).
     cvlr_assume!((RAY..=10 * RAY).contains(&old_index));
     cvlr_assume!((RAY..=8 * RAY).contains(&factor));
 
@@ -224,8 +220,7 @@ fn update_supply_index_monotonic_when_rewards_positive(
     rewards: i128,
 ) {
     // `supplied == 0` is included: `update_supply_index` returns `old_index`
-    // before any arithmetic there, and covering it lets this lemma replace the
-    // deleted controller copy outright.
+    // before any arithmetic there.
     cvlr_assume!((0..=100 * RAY).contains(&supplied));
     cvlr_assume!((RAY..=10 * RAY).contains(&old_index));
     cvlr_assume!((0..=10 * RAY).contains(&rewards));
@@ -315,18 +310,14 @@ fn simulate_indexes_no_time_noop(
 /// The supply index never grows past `MAX_SUPPLY_INDEX_RAY` and never falls
 /// below the caller's own (capped) starting index.
 ///
-/// `rewards` was previously unbounded above. It is now capped at
-/// `MAX_RAY_VALUE`, the documented ray-value ceiling: `rewards` is an accrued
-/// interest amount, so it is bounded by the market's total value, which
-/// `https://github.com/XOXNO/rs-lending-xlm/blob/d26b93ebb48d718b69571ec737f0097af3379916/docs/reference/numeric-bounds.md#3-largest-representable-balance` bounds at 1e11 whole tokens. The bound excludes
-/// reward amounts no market can hold.
+/// `rewards` is capped at `MAX_RAY_VALUE`: it is an accrued interest amount, so
+/// the market's total value bounds it.
 ///
-/// Note the residual hidden bound this rule keeps: `update_supply_index`
-/// computes `supplied.mul(old_index)`, which panics with `MathOverflow` once
+/// Residual hidden bound: `update_supply_index` computes
+/// `supplied.mul(old_index)`, which panics with `MathOverflow` once
 /// `supplied * old_index / RAY` leaves `i128`. Sunbeam treats that panic as
-/// `assume(false)`, so the upper corner of the `supplied x old_index` box is
-/// pruned by the trap rather than by an assume. The assertion is proved on
-/// whatever survives, which is the honest statement of the property.
+/// `assume(false)`, so the trap, not an assume, prunes the upper corner of the
+/// `supplied x old_index` box. The assertion is proved on the rest.
 #[rule]
 fn update_supply_index_capped(e: Env, supplied: i128, old_index: i128, rewards: i128) {
     cvlr_assume!((0..=1_000_000 * RAY).contains(&supplied));
@@ -377,24 +368,20 @@ fn update_supply_index_dust_growth_bounded(e: Env, supplied: i128, old_index: i1
 }
 
 /// Booking a protocol fee as supply-index shares can never push the supply
-/// share total past `i128::MAX` (INV-POOL-03 headroom clause).
+/// share total past `i128::MAX` (INV-IDX-05 headroom clause).
 ///
-/// Every operand is bounded to the domain production can actually produce:
+/// Every operand is bounded to the domain production can produce:
 ///
 /// - `supply_index` to `[SUPPLY_INDEX_FLOOR_RAW, MAX_SUPPLY_INDEX_RAY]`. The
 ///   pool clamps the index at both ends on every write — `update_supply_index`
 ///   caps at `MAX_SUPPLY_INDEX_RAY` and `apply_bad_debt_to_supply_index` floors
 ///   at `SUPPLY_INDEX_FLOOR_RAW` — so an index outside the interval is
-///   unreachable, not merely unlikely. The previous form left the index
-///   unbounded above, which is what made this rule a nonlinear query over the
-///   full `i128` range under `precise_bitwise_ops` (review F8).
-/// - `fee` and `supplied` to `MAX_RAY_VALUE`. See that constant: 1e11 whole
-///   tokens is the documented ray-value ceiling, ~200x above the largest
-///   configured supply cap.
+///   unreachable.
+/// - `fee` and `supplied` to `MAX_RAY_VALUE` (see that constant).
 ///
 /// The saturating branch of `mul_div_floor_saturating` stays reachable inside
 /// these bounds (`fee * RAY / SUPPLY_INDEX_FLOOR_RAW` is up to `1e41`), so the
-/// headroom clamp this rule is about is still exercised.
+/// rule exercises the headroom clamp.
 #[rule]
 fn protocol_fee_shares_bounded_by_headroom(e: Env, fee: i128, supply_index: i128, supplied: i128) {
     cvlr_assume!((0..=MAX_RAY_VALUE).contains(&fee));
@@ -411,11 +398,11 @@ fn protocol_fee_shares_bounded_by_headroom(e: Env, fee: i128, supply_index: i128
     cvlr_assert!(out.raw() <= i128::MAX - supplied);
 }
 
-/// No lemma split: `fee * RAY` is at least `1e56` for every non-trivial point
-/// of this domain (`fee <= 100 RAY`, and the native path needs
-/// `fee <= 1.7e11`), so the interesting states are all widened. The rule is
-/// kept whole because it compares two implementations and the comparison is
-/// only meaningful when both take the same branch.
+/// No lemma split: the native path needs `fee * RAY` inside `i128`, that is
+/// `fee <= 1.7e11` raw units, a dust sliver of `0..=100 RAY`, so the
+/// interesting states are all widened. The rule is kept whole because it
+/// compares two implementations and the comparison is only meaningful when both
+/// take the same branch.
 #[rule]
 fn protocol_fee_shares_matches_divide_in_range(
     e: Env,
@@ -446,13 +433,12 @@ fn rates_reachability(e: Env, asset: Address) {
 }
 
 // ---------------------------------------------------------------------------
-// Interest-curve and compounding lemmas, moved here from the controller layer
-// on 2026-09-03.
+// Interest-curve and compounding lemmas.
 //
-// They exercise `crate::rates` only, over a *symbolic* market drawn by
-// `nondet_valid_params` rather than the single pinned market `valid_params`
-// above builds. Keeping both is deliberate: the pinned fixture is cheap and
-// the symbolic one is general.
+// They exercise `crate::rates` only. The curve rules draw a *symbolic* market
+// from `nondet_valid_params`; `valid_params` above builds one pinned market.
+// Keeping both is deliberate: the pinned fixture is cheap and the symbolic one
+// is general.
 // ---------------------------------------------------------------------------
 
 fn nondet_valid_params(e: &Env) -> MarketParams {

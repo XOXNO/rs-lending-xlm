@@ -330,7 +330,7 @@
           "expr": "min(lending_oracle_seconds_until_stale{network=\"mainnet\"} / (lending_oracle_effective_max_stale_seconds{network=\"mainnet\"} > 0)) or vector(-1)"
         }
       ],
-      "description": "Smallest share of any asset's staleness budget still unspent. Orange below 10% matches LendingOracleFreshnessLow; red means a leg is already rejected on-chain.",
+      "description": "Smallest share of any asset's staleness budget still unspent. Orange below 10%, the LendingOracleFreshnessLow threshold. That alert skips budgets of 90000 s or more, where an on-time daily push leaves 7.7%. Red means a leg is already rejected on-chain.",
       "datasource": {
         "type": "prometheus",
         "uid": "cfgw0aa7mups0d"
@@ -617,7 +617,7 @@
           }
         }
       ],
-      "description": "Supplied minus borrowed \u2014 what can still be withdrawn or borrowed, in USD.",
+      "description": "Pool cash summed over all markets, in USD: what can still be withdrawn or borrowed.",
       "datasource": {
         "type": "prometheus",
         "uid": "cfgw0aa7mups0d"
@@ -663,7 +663,7 @@
           }
         }
       ],
-      "description": "Accumulated protocol revenue, in USD.",
+      "description": "Unclaimed protocol revenue summed over all markets, in USD, at the stored supply index. It drops when revenue is claimed.",
       "datasource": {
         "type": "prometheus",
         "uid": "cfgw0aa7mups0d"
@@ -673,7 +673,7 @@
       "id": 300,
       "type": "timeseries",
       "title": "TVL / borrowed / liquidity \u2014 trend",
-      "description": "Protocol totals over time, in USD. The gap between TVL and borrowed is the available liquidity.",
+      "description": "Protocol totals over time, in USD. Available liquidity is pool cash; a backing shortfall makes it smaller than TVL minus borrowed.",
       "gridPos": {
         "h": 8,
         "w": 24,
@@ -1269,7 +1269,7 @@
       "id": 301,
       "type": "timeseries",
       "title": "Supplied quantity by market (tokens)",
-      "description": "Amount supplied per market in native token units (log scale \u2014 assets differ by orders of magnitude).",
+      "description": "Amount supplied per market, in whole tokens (log scale \u2014 assets differ by orders of magnitude).",
       "gridPos": {
         "h": 8,
         "w": 12,
@@ -1323,7 +1323,7 @@
       "id": 302,
       "type": "timeseries",
       "title": "Borrowed quantity by market (tokens)",
-      "description": "Amount borrowed per market in native token units (log scale).",
+      "description": "Amount borrowed per market, in whole tokens (log scale).",
       "gridPos": {
         "h": 8,
         "w": 12,
@@ -1539,7 +1539,7 @@
           "sort": "desc"
         }
       },
-      "description": "Primary-vs-anchor price gap per asset (solid, unsigned bps), against that asset's own tolerance band converted to a width (dashed; the configured value is a ratio in bps, 10500 means +5%). A solid line crossing the lower of its two dashed lines means the deviation flag raises. LP markets have no band and no lines.",
+      "description": "Primary-vs-anchor price gap per asset (solid, unsigned bps of the anchor), against that asset's tolerance band converted to a width (dashed; the configured value is a ratio in bps, 10500 means +5%). The deviation flag raises when the gap crosses the upper line with the primary above the anchor, or the lower line with the primary below it. LP markets have no band and no lines.",
       "datasource": {
         "type": "prometheus",
         "uid": "cfgw0aa7mups0d"
@@ -1622,7 +1622,7 @@
           "sort": "desc"
         }
       },
-      "description": "Time left before each asset price goes stale. Negative or zero means stale now.",
+      "description": "Time left before each asset price goes stale. Negative means stale now.",
       "datasource": {
         "type": "prometheus",
         "uid": "cfgw0aa7mups0d"
@@ -2298,7 +2298,7 @@
           }
         ]
       },
-      "description": "How each asset's oracle is configured: blend strategy, maximum allowed price age (configured, and the effective value of the soonest-to-stale provider leg that the freshness alerts divide by), tolerance band as a share of the anchor price (100% is parity), and sanity bounds \u2014 plus its current freshness.",
+      "description": "How each asset's oracle is configured: source count (single, or primary plus anchor), maximum allowed price age (configured, and the effective value of the soonest-to-stale provider leg that LendingOracleFreshnessLow divides by), tolerance band as a share of the anchor price (100% is parity), and sanity bounds.",
       "datasource": {
         "type": "prometheus",
         "uid": "cfgw0aa7mups0d"
@@ -3379,7 +3379,7 @@
       "id": 912,
       "type": "timeseries",
       "title": "Oracle staleness budget (effective max_stale)",
-      "description": "Denominator of LendingOracleFreshnessHalfConsumed/Critical. Without it those alerts fire as a bare ratio with nothing to compare against.",
+      "description": "Denominator of LendingOracleFreshnessLow. LendingOracleDailyPushLate applies to legs whose budget is 90000 s or more.",
       "datasource": {
         "type": "prometheus",
         "uid": "cfgw0aa7mups0d"
@@ -3472,7 +3472,7 @@
       "id": 914,
       "type": "timeseries",
       "title": "Time since last accrual",
-      "description": "What LendingAccrualStalled fires on.",
+      "description": "Time since the last accrual checkpoint per market. LendingAccrualStalled fires above 24h, only for markets with borrows.",
       "datasource": {
         "type": "prometheus",
         "uid": "cfgw0aa7mups0d"
@@ -3519,7 +3519,7 @@
       "id": 915,
       "type": "timeseries",
       "title": "Exporters by self-reported network",
-      "description": "One series per exporter process, labelled by the network it claims. Two series on one network, or a network missing entirely, is what LendingExporterNetworkMismatch/Missing catch.",
+      "description": "One series per exporter process, labelled by the network it reports. LendingExporterNetworkMismatch fires when the scrape job and the reported network disagree; LendingExporterNetworkMissing fires when no exporter reports mainnet.",
       "datasource": {
         "type": "prometheus",
         "uid": "cfgw0aa7mups0d"

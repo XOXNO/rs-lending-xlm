@@ -131,7 +131,7 @@ fn test_flash_position_extra_credit_is_measured_not_pool_theft() {
         .try_alice_eth_flash(&receiver, &payload, &mins, &Vec::new(&t.env))
         .expect("extra credit still meets min");
     let supply = t.supply_balance_for(ALICE, account_id, "USDC");
-    // Extra bps apply on the push *and* the pool deposit hop (~4000*1.01²).
+    // Extra bps apply on the push and on the pool deposit hop (~4000*1.01²).
     assert!(
         (4_079.0..=4_082.0).contains(&supply),
         "1% extra credit must be measured in, got {supply}"
@@ -167,14 +167,9 @@ fn test_flash_position_transfer_hook_cannot_reenter() {
     });
 }
 
-/// `refund_assets` is caller-supplied and reaches `token::Client::balance` and
-/// `transfer` after `with_flash_guard` has closed, while the invocation still
-/// holds an unpersisted spoke-usage snapshot that `strategy_finalize` writes
-/// back absolutely. An unlisted address there is an arbitrary contract the
-/// controller invokes with reentrancy protection off. Only listed assets may
-/// appear. A WeirdToken is used rather than an arbitrary contract because a
-/// non-token merely errors on the missing `balance`, which is an accident of
-/// shape, not a check.
+/// An unlisted `refund_assets` entry fails with `ASSET_NOT_IN_SPOKE`. The refund
+/// `balance` and `transfer` calls run after `with_flash_guard` closes, so only
+/// listed assets may appear.
 #[test]
 fn test_flash_position_rejects_unlisted_refund_asset() {
     let mut t = LendingTest::new().standard_two_asset().build();
@@ -182,7 +177,7 @@ fn test_flash_position_rejects_unlisted_refund_asset() {
     let payload = data(&t, request(&t, FlashPositionMode::Success, 4_000.0));
     let mins = collaterals(&t, &[("USDC", 4_000.0)]);
 
-    // A real token contract, listed on no spoke: what an attacker supplies.
+    // A real token that no spoke lists, so only the listing check can reject it.
     let rogue = t.env.register(test_harness::weird_token::WeirdToken, ());
     let mut refunds = Vec::new(&t.env);
     refunds.push_back(rogue);

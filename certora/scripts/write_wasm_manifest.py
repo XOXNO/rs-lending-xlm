@@ -43,12 +43,9 @@ def _leb128(blob: bytes, offset: int) -> tuple[int, int]:
 def has_name_section(path: Path) -> bool:
     """True when the module carries the custom section named "name".
 
-    The prover matches its exact compiler-rt summaries (`__muloti4`,
-    `__multi3`, `__divti3`) and its soroban-sdk summaries by function name. A
-    stripped module names every function `FunctionIndex_<n>`, none of those
-    summaries fire, and the prover analyses inlined 128-bit limb code under
-    bitwise axioms instead. So an artifact without this section silently
-    changes what every arithmetic rule proves.
+    The prover matches its compiler-rt and soroban-sdk summaries by function
+    name, so none of them fire on a module without this section (certora/README.md,
+    "Function names must survive the build").
     """
     blob = path.read_bytes()
     if blob[:8] != b"\0asm\x01\0\0\0":
@@ -188,11 +185,10 @@ def section(
     return files
 
 def artifact_staleness_errors(artifact: str) -> list[str]:
-    """Report why `artifact` must not be proven against.
+    """Return why `artifact` must not be proven against; empty when it is current.
 
-    A stale artifact is worse than a missing one: an absent rule fails loudly
-    with "invalid entry point", but a rule that still exists verifies happily
-    against code that no longer matches the tree, and reports green.
+    A stale artifact still verifies a rule that exists in it, against code that
+    no longer matches the tree.
     """
     errors: list[str] = []
     if not MANIFEST.exists():

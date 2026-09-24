@@ -1,7 +1,7 @@
 name: Tests
 
 on:
-  # `mock/**` holds four workspace members that are dev-dependencies of
+  # `mock/**` holds five workspace members, three of them dependencies of
   # test-harness and price-aggregator, and `vendor/**` holds the patched cvlr
   # crates the certora feature builds against. Both can break the build, so
   # both must trigger it. `.github/scripts/**` installs the stellar-cli this
@@ -53,11 +53,7 @@ concurrency:
 
 jobs:
   # Source-only gates: no contract build, no stellar-cli, no test run. They
-  # finish in seconds, so they fail a PR long before Build & Test does. All
-  # three were Makefile targets that no workflow called -- `cargo fmt` was
-  # only a tick-box in .github/pull_request_template.md, and a syntax error
-  # in the tests/integration/ shell harness surfaced only when somebody
-  # dispatched e2e.yml by hand.
+  # finish in seconds, so they fail a PR long before Build & Test does.
   static-gates:
     name: Static Gates
     runs-on: self-hosted

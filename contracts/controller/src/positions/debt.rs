@@ -256,7 +256,7 @@ pub(crate) fn repay_prefunded_position(
 }
 
 /// Validates entry gates and borrows into the controller for a strategy.
-/// Returns the measured receipt, net of any charged flash fee.
+/// Returns the measured receipt, net of any charged strategy fee.
 pub(crate) fn borrow_into_controller(
     env: &Env,
     account: &mut Account,

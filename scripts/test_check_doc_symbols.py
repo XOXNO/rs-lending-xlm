@@ -1,4 +1,4 @@
-"""Regression checks for the doc-symbol gate: skills/**/*.md are scanned even
+"""Checks for the doc-symbol gate: skills/**/*.md are scanned even
 before git tracks them, everything else stays tracked-only, and the
 external-service skill trees are exempt without exempting the rest of skills/."""
 import contextlib

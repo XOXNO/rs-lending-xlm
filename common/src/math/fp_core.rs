@@ -1,12 +1,11 @@
-//! Raw `i128` arithmetic primitives shared by the fixed-point newtypes in
-//! [`super::fp`]: overflow-safe `x * y / d` in various rounding modes, plus
-//! decimal rescaling between arbitrary decimal precisions.
+//! Raw `i128` arithmetic primitives behind the fixed-point newtypes in
+//! [`super::fp`]: overflow-safe `x * y / d` with half-up, floor and ceiling
+//! rounding, plus rescaling between decimal precisions.
 //!
 //! Every multiply-divide first attempts the whole computation in `i128` and
 //! only widens the operands to `I256` when the intermediate product does not
-//! fit. The widened path is exact, so both paths return the same value; the
-//! fast path exists because `I256` arithmetic runs as host calls and costs
-//! roughly 15k CPU instructions per operation where native `i128` costs none.
+//! fit. The widened path is exact, so both paths return the same value.
+//! `I256` operations are host calls, so the `i128` path costs less.
 
 use soroban_sdk::{panic_with_error, Env, I256};
 
@@ -64,10 +63,9 @@ fn div_ceil_i128(p: i128, d: i128) -> Option<i128> {
 /// nonzero remainder on a negative quotient means truncation landed one above
 /// the floor.
 ///
-/// `nonneg` says the caller already proved the quotient cannot be negative,
-/// where truncation *is* the floor. Taking that shortcut skips a host
-/// `rem_euclid` and two comparisons, which matters because `Ray` products
-/// (1e27 x 1e27) always land on this widened path.
+/// `nonneg` means the caller proved the quotient is not negative, so truncation
+/// is the floor and the host `rem_euclid` call is skipped. `Ray` products
+/// (1e27 x 1e27) always take this widened path.
 fn div_floor_i256(env: &Env, p: &I256, d: &I256, nonneg: bool) -> I256 {
     if nonneg {
         return p.div(d);
@@ -202,13 +200,11 @@ pub fn mul_div_floor_saturating(env: &Env, x: i128, y: i128, d: i128) -> i128 {
     })
 }
 
-/// Rescales `a` from `from_decimals` to `to_decimals`, applying `round_down` when the
-/// conversion drops digits. Upscaling multiplies by the exact power-of-ten factor and never
-/// consults `round_down`; downscaling calls `round_down(a, factor)` with the power of ten
-/// being divided out, passing `None` when that power exceeds `i128` — in which case the factor
-/// is larger than any `i128`, so `|a| < factor` and each caller knows its own answer without
-/// dividing. Returns `a` unchanged when the decimal counts are equal. Panics with
-/// `GenericError::MathOverflow` if the upscaling factor or the upscaled value overflows `i128`.
+/// Rescales `a` from `from_decimals` to `to_decimals`. Upscaling multiplies by the exact
+/// power-of-ten factor. Downscaling returns `round_down(a, factor)`, where `factor` is `None`
+/// when the power of ten overflows `i128`; every `|a|` is then below that power. Returns `a`
+/// unchanged when the decimal counts are equal. Panics with `GenericError::MathOverflow` if the
+/// upscaling factor or the upscaled value overflows `i128`.
 fn rescale(
     env: &Env,
     a: i128,
@@ -245,8 +241,8 @@ pub fn rescale_half_up(env: &Env, a: i128, from_decimals: u32, to_decimals: u32)
 
 /// Rescales `a` from `from_decimals` to `to_decimals`. Upscaling multiplies by the exact
 /// power-of-ten factor; downscaling truncates the quotient toward zero. Returns `a` unchanged
-/// when the decimal counts are equal. Panics with `GenericError::MathOverflow` if the factor
-/// or the upscaled value overflows `i128`.
+/// when the decimal counts are equal. Panics with `GenericError::MathOverflow` if the upscaling
+/// factor or the upscaled value overflows `i128`.
 pub(crate) fn rescale_floor(env: &Env, a: i128, from_decimals: u32, to_decimals: u32) -> i128 {
     rescale(env, a, from_decimals, to_decimals, |a, factor| {
         // `|a|` is below any factor that overflows `i128`, so truncation gives 0.
@@ -259,7 +255,7 @@ pub(crate) fn rescale_floor(env: &Env, a: i128, from_decimals: u32, to_decimals:
 /// power-of-ten factor. Downscaling truncates the quotient toward zero and, for a non-negative
 /// `a` with a nonzero remainder, adds 1 to round up; a negative `a` is truncated toward zero
 /// without rounding up. Returns `a` unchanged when the decimal counts are equal. Panics with
-/// `GenericError::MathOverflow` if the factor or the upscaled value overflows `i128`.
+/// `GenericError::MathOverflow` if the upscaling factor or the upscaled value overflows `i128`.
 pub(crate) fn rescale_ceil(env: &Env, a: i128, from_decimals: u32, to_decimals: u32) -> i128 {
     rescale(env, a, from_decimals, to_decimals, |a, factor| {
         // `|a|` is below any factor that overflows `i128`: a positive `a` rounds

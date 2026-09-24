@@ -41,13 +41,7 @@ fn sweep_balance_recovers_stray_tokens_to_recipient() {
     );
 }
 
-/// A referral that exists but has never accrued anything withholds nothing.
-///
-/// Existing at all used to matter: the reserve walked `1..=referral_counter()`
-/// and an unfunded id contributed an absent slot to skip. The counter made the
-/// walk go away, so what is pinned now is the outcome rather than the mechanism
-/// — issuing a referral must not, by itself, make a single stray unit
-/// unsweepable.
+/// A referral with no accrued fees withholds nothing from a sweep.
 #[test]
 fn a_referral_with_no_accrual_withholds_nothing_from_a_sweep() {
     let env = Env::default();
@@ -76,14 +70,11 @@ fn a_referral_with_no_accrual_withholds_nothing_from_a_sweep() {
     );
 }
 
-/// Accrual re-arms the bucket it credits, and reading the reserve re-arms the
-/// counter.
+/// Accrual re-arms the TTL of the bucket it credits, and reading the reserve
+/// re-arms the counter.
 ///
-/// `reserved_fee_balance` used to walk every referral bucket and bump each one's
-/// TTL as a side effect. It now reads a single `ReservedTotal` entry, so the
-/// buckets have to be kept alive where they are actually written -- otherwise a
-/// long-lived referral bucket could archive while the reserve still withholds
-/// its backing from `sweep_balance`.
+/// `reserved_fee_balance` reads only `ReservedTotal` and never touches a bucket,
+/// so accrual must re-arm each bucket it credits.
 #[test]
 fn fee_accrual_and_reserve_reads_re_arm_their_ttls() {
     use common::constants::{TTL_BUMP_SHARED, TTL_THRESHOLD_SHARED};
@@ -128,11 +119,8 @@ fn fee_accrual_and_reserve_reads_re_arm_their_ttls() {
     });
 }
 
-/// The reserve must not grow with the number of referrals ever issued.
-///
-/// The old `reserved_fee_balance` walked `1..=referral_counter()` on every
-/// `sweep_balance`, so a cheap `add_referral` loop could push the sweep past the
-/// CPU budget and strand stray tokens in the router permanently.
+/// The CPU cost of `sweep_balance` does not scale with the number of referrals
+/// issued.
 #[test]
 fn reserved_fee_balance_does_not_walk_the_referral_space() {
     let sweep_cpu = |referral_count: u32| -> u64 {
@@ -168,13 +156,10 @@ fn reserved_fee_balance_does_not_walk_the_referral_space() {
     let one = sweep_cpu(1);
     let many = sweep_cpu(64);
     let per_referral = many.saturating_sub(one) / 63;
-    // Measured: ~3k per referral with the counter (the ledger map simply holds
-    // more entries), ~62k per referral with the walk it replaced. The 10k
-    // threshold sits ~3x above the O(1) figure and ~6x below the O(n) one, so
-    // it absorbs host-cost drift from an SDK bump without ever admitting a
-    // regression back to a per-referral read. If a future SDK pushes the O(1)
-    // side past this, re-measure both numbers and keep the band, rather than
-    // just raising the constant.
+    // Measured: about 3k CPU per referral with the counter (the ledger map holds
+    // more entries) and about 62k with a per-referral walk. The 10k threshold
+    // sits between the two. If an SDK bump pushes the counter figure past it,
+    // re-measure both and keep the threshold between them; do not only raise it.
     assert!(
         per_referral < 10_000,
         "sweep cost must not scale with the referral counter \
@@ -241,15 +226,9 @@ fn sweep_balance_keeps_fee_backing_claimable() {
     assert_eq!(token_client.balance(&router_addr), 0);
 }
 
-/// The O(1) reserve must agree with the sum it replaced, across several
-/// referrals and several tokens, and stay in step through claims.
-///
-/// The old `reserved_fee_balance` recomputed `AdminFee(token) + sum over
-/// 1..=referral_counter of ReferralFee(id, token)` on every read. This drives
-/// six real `execute_strategy` runs -- three referrals, both directions of a
-/// pair -- then checks the counter against that same sum, sweeps to prove no fee
-/// backing leaks out as stray dust, and claims everything to prove the counter
-/// unwinds to exactly zero.
+/// After six swaps (three referrals, both directions of a pair), `ReservedTotal`
+/// equals `AdminFee(token)` plus every `ReferralFee(id, token)`. A sweep leaves
+/// every bucket backed, and claiming every bucket unwinds the counter to zero.
 #[test]
 fn reserved_total_matches_bucket_sum() {
     let env = Env::default();
@@ -363,16 +342,10 @@ fn sweep_balance_skips_transfer_when_balance_equals_reserved() {
     assert_eq!(router.admin_fee_balance(&token), 20);
 }
 
-/// The mutation `total > 0` -> `total < 0` in `reserved_fee_balance` survived
-/// the suite, and `fee_accrual_and_reserve_reads_re_arm_their_ttls` above is why:
-/// it accrues first, and `accumulate_fee` already re-arms `ReservedTotal` on the
-/// write path, so the entry sits at `TTL_BUMP_SHARED` before the read happens.
-/// The assertion then holds whether or not the read extends anything.
+/// Reading a funded `ReservedTotal` re-arms its aged TTL.
 ///
-/// These two probe the guard from an aged entry, where only the read itself can
-/// raise the TTL. That matters beyond the mutant: the reserved counter is what
-/// withholds fee backing from `sweep_balance`, so if it archives, the sweep pays
-/// out money that is already owed to referrers and the admin.
+/// `fee_accrual_and_reserve_reads_re_arm_their_ttls` cannot pin this: accrual
+/// already re-arms the counter before the read.
 #[test]
 fn reading_a_funded_reserve_re_arms_an_aged_counter() {
     use common::constants::{TTL_BUMP_SHARED, TTL_THRESHOLD_SHARED};
@@ -419,8 +392,6 @@ fn reading_an_empty_reserve_does_not_pay_rent_to_keep_it_alive() {
 
         assert_eq!(reserved_fee_balance(&env, &token), 0);
 
-        // A zero counter withholds nothing, so extending it would burn rent to
-        // keep an entry that reads the same when absent.
         assert_eq!(
             env.storage().persistent().get_ttl(&total_key),
             aged,

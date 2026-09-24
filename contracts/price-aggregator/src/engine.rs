@@ -189,14 +189,11 @@ pub(crate) fn force(env: &Env, outcome: &Outcome, oracle: Option<&AssetOracle>) 
     outcome.to_feed(oracle.asset_decimals)
 }
 
-/// Converts `outcome` into a `PriceStatus`. Returns an unusable status when the
-/// outcome carries an error; otherwise reports the blended and leg prices,
-/// timestamp, staleness and deviation flags, and whether the outcome is valid
-/// against `oracle`. Either way `error_code` carries the discriminant of the
-/// failure that `oracle` rejects the outcome for, so a caller can tell a
-/// resolution error apart from staleness, deviation and a sanity-bound breach.
-/// A resolution error zeroes the other fields, so `error_code` is the only
-/// field that reports the reason in that case.
+/// Converts `outcome` into a `PriceStatus`. `error_code` always carries the
+/// discriminant of the failure that `oracle` rejects the outcome for. An
+/// outcome with a resolution error returns `PriceStatus::unusable` with only
+/// `error_code` set. Otherwise the status reports the blended and leg prices,
+/// timestamp, staleness and deviation flags, and `valid`.
 pub(crate) fn to_status(outcome: &Outcome, oracle: Option<&AssetOracle>) -> PriceStatus {
     let failure = outcome.failure(oracle);
     let error_code = failure.map(|err| err as u32);
@@ -245,9 +242,8 @@ pub(crate) fn resolve_status(session: &mut Session, key: &PriceKey, depth: u32) 
 
 /// Resolves `oracle` for `key` at depth 0 and panics with the applicable
 /// `OracleError` if it produces any unusable outcome, including market-condition
-/// failures such as staleness or sanity-bound violations. Used to confirm an
-/// oracle (typically one with an Aquarius LP source) is fully priceable before
-/// it is stored.
+/// failures such as staleness or sanity-bound violations. `admin::set_oracle`
+/// calls it for an oracle whose first source is an Aquarius LP.
 pub(crate) fn probe_priceable(session: &mut Session, key: &PriceKey, oracle: &AssetOracle) {
     let env = session.env().clone();
     let (outcome, resolved) = resolve_outcome(session, key, 0, Some(oracle));
@@ -411,9 +407,9 @@ fn resolve_outcome(
 
 /// Converts composed `Legs` into an `Outcome`. For two readings, marks the
 /// outcome stale when either leg is individually stale, or when both legs
-/// are market-nature feeds whose timestamps differ by more than the maximum
-/// allowed leg-age spread. Takes the earlier of the two timestamps, flags a
-/// deviation when the legs fall outside the oracle's tolerance band, and
+/// are market-nature feeds whose timestamps differ by more than
+/// `MAX_LEG_AGE_SPREAD_SECONDS`. Takes the earlier of the two timestamps,
+/// flags a deviation when the legs fall outside the oracle's tolerance band, and
 /// sets the blended price to the midpoint of the two legs (zero if the
 /// midpoint computation fails).
 fn blend(env: &Env, oracle: &AssetOracle, legs: Legs) -> Outcome {
@@ -422,11 +418,6 @@ fn blend(env: &Env, oracle: &AssetOracle, legs: Legs) -> Outcome {
         Legs::One(r) => Outcome::one(r),
         Legs::Partial { reading, slot } => Outcome::partial(reading, slot),
         Legs::Two { primary, anchor } => {
-            // The midpoint weights both legs equally, so a market leg far older
-            // than its market partner would drag the result while each still
-            // satisfies its own bound. A fundamental leg is exempt: it prices a
-            // slow-moving quantity and its own bound is the intended budget, so
-            // holding it to a market leg's cadence would only fail closed.
             let spread_bounded =
                 primary.nature == FeedNature::Market && anchor.nature == FeedNature::Market;
             let age_spread = primary.timestamp.abs_diff(anchor.timestamp);
@@ -451,11 +442,7 @@ fn blend(env: &Env, oracle: &AssetOracle, legs: Legs) -> Outcome {
     }
 }
 
-// Gated to exactly the configurations where its only caller exists: the
-// spec module compiles `oracle_rules` only when the build is unfocused or
-// targets that rule set, so under any other focused build these have no
-// caller. Matching the caller's cfg is what keeps that from warning --
-// `#[allow(dead_code)]` would hide it instead of describing it.
+// Both harness entry points share the cfg of their only caller, `oracle_rules`.
 /// Certora harness entry point: blends an empty leg set for `oracle`, exercising
 /// the same path as an oracle whose sources produced no readings.
 #[cfg(all(
@@ -636,8 +623,9 @@ fn read_feed(session: &mut Session, feed: &FeedSource) -> Option<(OracleObservat
 /// checks it falls within `scaled.min_factor_wad`/`max_factor_wad`, resolves the
 /// nested `quote` price at `depth + 1`, and multiplies factor and quote into a
 /// price using the earlier of their two timestamps. Returns
-/// `FactorOutOfBounds` if the factor is out of range and `InvalidPrice` if the
-/// multiplication fails.
+/// `FactorOutOfBounds` if the factor is out of range, the quote's resolution
+/// error if the quote is unusable, and `InvalidPrice` if the multiplication
+/// fails.
 fn read_scaled(
     session: &mut Session,
     scaled: &ScaledSource,

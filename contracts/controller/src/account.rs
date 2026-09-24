@@ -213,7 +213,7 @@ pub(crate) fn update_or_remove_debt_position(
 }
 
 /// Requires the NFT owner to authorize renewal of the instance and account entries.
-/// Renews the NFT owner entry to the same user TTL window (INV-STOR-02).
+/// Renews the NFT ownership entries to the same user TTL window (INV-STOR-02).
 pub(crate) fn renew_account(env: &Env, caller: Address, account_id: u64) {
     storage::renew_controller_instance(env);
 

@@ -27,9 +27,7 @@ pub const POSITION_LIMIT: usize = common::constants::POSITION_LIMIT_MAX as usize
 /// `POSITION_LIMIT` (or `POSITION_LIMIT - 1`) addresses by hand and lets the
 /// array type check the count. Raising or lowering `POSITION_LIMIT_MAX` must
 /// break this build, not quietly make those rules vacuous: seeding more
-/// positions than the cap makes `cvlr_assume!(seeded == cap)` unsatisfiable,
-/// which is exactly how ten-asset fixtures survived the 2026-08-14 change from
-/// ten to five without a single failing rule.
+/// positions than the cap makes `cvlr_assume!(seeded == cap)` unsatisfiable.
 ///
 /// Fixtures to re-count when this fires:
 /// `solvency_rules::supply_position_limit_enforced`,
@@ -83,9 +81,8 @@ pub fn seed_protocol(env: &Env) {
 /// Sunbeam havocs contract storage at rule start, so a book no fixture writes
 /// is an *arbitrary* map — any length, any keys, any scaled amounts and risk
 /// parameters — not an empty one. A rule that seeds one position on top of
-/// that still runs over the arbitrary remainder, which is both the strongest
-/// and the most expensive form (every read is unrolled under the conf's
-/// `loop_iter`).
+/// that still runs over the arbitrary remainder, and every read of it is
+/// unrolled under the conf's `loop_iter`.
 ///
 /// What this excludes: every pre-existing position the account might hold, and
 /// therefore every counterexample that needs a second asset in the book. Use
@@ -104,8 +101,8 @@ pub fn seed_empty_books(env: &Env, account_id: u64) {
 ///
 /// This is the premise the risk-totals summary encodes implicitly (it draws
 /// non-negative totals with `weighted <= total` and `ltv <= total`) and the
-/// premise production maintains: `validate_asset_params` refuses a listing
-/// outside these bounds and every write restamps from a listing. Havoced
+/// premise production maintains: `validate_risk_bounds` refuses a listing
+/// outside these bounds and every stored risk tuple comes from a listing. Havoced
 /// storage does not know that, so a rule that keeps its books unbounded — the
 /// frame rules — must say it, or a counterexample can be a book no listing
 /// could produce.
@@ -125,8 +122,8 @@ pub fn assume_wellformed_book(env: &Env, account_id: u64) {
 }
 
 /// Assumes both of `account_id`'s books hold at most one entry: one unknown
-/// neighbour position survives, an arbitrary book does not. The shape every
-/// `post_gate_*` verb rule and the frozen-valuation rules start from.
+/// neighbour position survives, an arbitrary book does not. The shape the
+/// single-asset `post_gate_*` rules start from, through `seed_bounded_account`.
 pub fn assume_books_at_most_one(env: &Env, account_id: u64) {
     let account = storage::get_account(env, account_id);
     cvlr_assume!(account.supply_positions.len() <= 1);
@@ -137,8 +134,8 @@ pub fn assume_books_at_most_one(env: &Env, account_id: u64) {
 ///
 /// The position maps are keyed by hub asset, so only distinct keys reach the
 /// seeded count the position-limit rules assume, and only a key outside
-/// `assets` opens a new slot. This is what the production de-duplicating
-/// counter relies on.
+/// `assets` opens a new slot. `validate_bulk_position_limits` counts new slots
+/// the same way.
 pub fn assume_pairwise_distinct(assets: &[Address], extra: &Address) {
     for i in 0..assets.len() {
         cvlr_assume!(assets[i] != *extra);
@@ -262,12 +259,12 @@ pub fn seed_supply_positions(env: &Env, account_id: u64, assets: &[Address]) -> 
 /// Reads spoke `spoke_id`'s stored `SpokeUsage` row for `hub_asset`, falling
 /// back to the zero row when storage has none.
 ///
-/// `SpokeUsageContext::apply_exit` treats a missing row as "nothing to
-/// decrement" rather than as a zero row it may take negative, so the absent
-/// and zero cases are *not* interchangeable for exits. Rules that exercise an
-/// exit leg must therefore seed a row with `seed_spoke_usage` first; see
-/// `usage_exit_without_usage_row_is_a_noop` in `spoke_rules.rs`, which pins
-/// that carve-out instead of hiding it.
+/// `SpokeUsageContext::apply_exit` returns without a write when the row is
+/// missing, but panics with `InternalError` when an exit takes a zero row
+/// below zero, so the absent and zero cases are *not* interchangeable for
+/// exits. Rules that exercise an exit leg must seed a row with
+/// `seed_spoke_usage` first; `usage_exit_without_usage_row_is_a_noop` in
+/// `spoke_rules.rs` pins the missing-row case.
 pub fn spoke_usage(env: &Env, spoke_id: u32, hub_asset: &HubAssetKey) -> SpokeUsageRaw {
     crate::storage::get_spoke_usage(env, spoke_id, hub_asset).unwrap_or_default()
 }

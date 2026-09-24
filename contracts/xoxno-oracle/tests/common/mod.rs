@@ -8,10 +8,8 @@ use soroban_sdk::{contracttype, Address, ConversionError, Env, InvokeError, Stri
 
 /// Protocol version the simulated ledger reports to the host.
 ///
-/// The host rejects a ledger older than the protocol `soroban-sdk` was built
-/// for, raising `Error(Context, InternalError)` with "ledger protocol version
-/// too old for host" -- which reads as an unexplained mass failure rather than
-/// a version mismatch. Keep in step with the workspace `soroban-sdk` pin.
+/// Must match the workspace `soroban-sdk` pin. On an older version every call fails with
+/// `Error(Context, InternalError)`, "ledger protocol version too old for host".
 pub const LEDGER_PROTOCOL_VERSION: u32 = 27;
 
 #[allow(dead_code)]

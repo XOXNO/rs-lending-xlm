@@ -1,4 +1,4 @@
-//! GH-06. One billion whole tokens at 3, 7 and 18 decimals, mainnet rate
+//! GH-06. One billion whole tokens at 3, 7 and 18 decimals, steep stress rate
 //! curves, years of accrual at several utilizations. Every path must clear,
 //! the borrow index must track an `e^(r t)` reference within the Taylor bound,
 //! accrued interest must be fully assigned, and the exit must pay back what
@@ -23,7 +23,7 @@ use test_harness::{
 const YEAR_SECS: u64 = 31_556_926;
 const BILLION: i128 = 1_000_000_000;
 
-/// The previous `configs/mainnet/markets.json` XLM curve.
+/// Steep XLM stress curve: 175 percent max borrow rate, optimal at 75 percent.
 fn xlm_curve() -> MarketParamsPreset {
     MarketParamsPreset {
         max_borrow_rate: RAY * 175 / 100,
@@ -38,7 +38,7 @@ fn xlm_curve() -> MarketParamsPreset {
     }
 }
 
-/// The previous `configs/mainnet/markets.json` USDC curve.
+/// Steep USDC stress curve: 125 percent max borrow rate, optimal at 85 percent.
 fn usdc_curve() -> MarketParamsPreset {
     MarketParamsPreset {
         max_borrow_rate: RAY * 125 / 100,
@@ -337,7 +337,7 @@ fn a_whale_market_at_sustained_high_utilization_hits_the_ray_value_ceiling_befor
         years += 1;
         assert!(
             years <= 40,
-            "no cliff within 40 years; the bound in numeric-bounds.md is wrong"
+            "no cliff within 40 years; the bound in docs/reference/formulas.md is wrong"
         );
         t.advance_time(YEAR_SECS);
         if let Err(e) = t.try_update_indexes_for(&["BIG18"]) {

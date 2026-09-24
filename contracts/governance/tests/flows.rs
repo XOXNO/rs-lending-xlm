@@ -477,8 +477,7 @@ fn propose_resolves_all_controller_and_self_variants() {
 
     let asset = Address::generate(&env);
     let mut n: u8 = 0;
-    // Each variant must not merely survive propose: it must land as a real
-    // timelocked operation in the Waiting state.
+    // Each proposed variant must reach the `Waiting` state.
     let mut propose_and_assert_waiting = |op: AdminOperation| {
         n += 1;
         let salt = BytesN::<32>::from_array(&env, &[n; 32]);

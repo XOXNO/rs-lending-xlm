@@ -26,10 +26,9 @@ deploy_protocol() {
         save_state NFT_HASH "$hash"
         record upload_position_nft_wasm ok upload "$txh" "" "" "" "" "$hash"
     fi
-    # Governance's `deploy_price_aggregator` takes a wasm hash, not a wasm, so
-    # the price-aggregator code has to be on-ledger by hash as well as deployed
-    # directly. Non-fatal: only the governance-owned aggregator coverage needs
-    # it, and the harness's own $PRICE_AGGREGATOR is deployed from the file.
+    # Governance `deploy_price_aggregator` takes a wasm hash, so the
+    # price-aggregator wasm is uploaded too. Non-fatal: only the governance-owned
+    # aggregator coverage needs PA_HASH; $PRICE_AGGREGATOR deploys from the file.
     if [ -z "${PA_HASH:-}" ] && [ -f "$WASM_DIR/price_aggregator.wasm" ]; then
         local pa_out="$LOG_DIR/upload_price_agg.out" pa_err="$LOG_DIR/upload_price_agg.err"
         run_deploy "$pa_out" "$pa_err" -- stellar contract upload \
@@ -64,9 +63,9 @@ deploy_protocol() {
         save_state POOL "$pool"
         log "central pool = $pool"
     fi
-    # Account creation mints a position NFT and fail-closes with #53 if this
-    # was skipped. Integration deploys are EOA-owned, so this is immediate
-    # rather than the production timelock path in configs/script.sh.
+    # Account creation mints a position NFT and fails with #53
+    # PositionNftNotSet without it. ADMIN owns the controller here, so the
+    # deploy is immediate, not the timelock path in configs/script.sh.
     if [ -z "${POSITION_NFT:-}" ]; then
         local nft
         nft=$(inv deploy_position_nft "$ADMIN" "$CONTROLLER" -- deploy_position_nft \
@@ -96,11 +95,10 @@ deploy_protocol() {
         record deploy_price_aggregator ok deploy "$txh" "" "" "" "" "$pa"
         log "price-aggregator = $pa"
     fi
-    # A second, throwaway swap-aggregator owned by this run's ADMIN. The
-    # `$AGGREGATOR` from configs/networks.json is a shared testnet deployment
-    # whose owner we are not, so its owner-only surface (fees, whitelist,
-    # referrals, sweeps) is untestable there. Swaps keep using the shared one;
-    # only the admin surface is exercised here.
+    # A throwaway swap-aggregator owned by this run's ADMIN. The shared
+    # `$AGGREGATOR` from configs/networks.json has another owner, so its
+    # owner-only calls cannot be tested. Swaps use `$AGGREGATOR`;
+    # flow_swap_aggregator_admin tests the owner-only calls on this instance.
     if [ -z "${OWNED_AGGREGATOR:-}" ] && [ -f "$WASM_DIR/swap_aggregator.wasm" ]; then
         local sa_out="$LOG_DIR/deploy_owned_agg.out" sa_err="$LOG_DIR/deploy_owned_agg.err"
         run_deploy "$sa_out" "$sa_err" -- stellar contract deploy \
@@ -123,12 +121,9 @@ deploy_protocol() {
 
         inv set_accumulator "$ADMIN" "$CONTROLLER" -- set_accumulator --addr "$ADMIN_ADDR" >/dev/null
         inv set_price_aggregator "$ADMIN" "$CONTROLLER" -- set_price_aggregator --addr "$PRICE_AGGREGATOR" >/dev/null
-        # Read back: every price the protocol acts on comes through whichever
-        # aggregator this points at, so a setter that silently kept the old one
-        # would route the whole run's valuations to the wrong contract.
-        # set_swap_aggregator and set_accumulator have no getter on the
-        # controller, so they can only be asserted through their effects — the
-        # strategies phase exercises the swap path.
+        # Reads back the price aggregator: every price the run uses comes from
+        # it. set_swap_aggregator and set_accumulator have no controller
+        # getter; the strategies phase tests the swap path through its effects.
         assert_view_eq_at "$CONTROLLER" wired_price_aggregator "$PRICE_AGGREGATOR" price_aggregator
         save_state WIRED 1
     fi
@@ -304,10 +299,9 @@ spoke_args() {
     }'
 }
 
-# `SeizeMode` on the wire, following the same convention the oracle configs use
-# for `read_mode`: a unit variant is a bare JSON string, a data variant is
-# {Variant: value}. Emitted as JSON rather than a bare word so the CLI parses it
-# as a value instead of falling back to string coercion.
+# `SeizeMode::Transfer` as CLI JSON. A unit variant is a JSON string; a data
+# variant is {Variant: value}. The quotes make the CLI parse a value instead of
+# coercing a bare word.
 seize_transfer() {
     jq -nc '"Transfer"'
 }
@@ -410,18 +404,15 @@ oracle_cfg_reflector() {
     }'
 }
 
-# Self-calibrating single-source sanity band for a live reflector-CEX symbol.
-# Reads the current price and brackets it by ±PCT (default 9 → ~900 bps half-width
-# ratio, safely under MAX_SINGLE_SOURCE_SANITY_BAND_BPS=1000 and above
-# MIN_SANITY_BAND_BPS=50). Echoes "min_wad max_wad" for oracle_cfg_reflector to
-# splat as its $2 $3. A single-source band is capped at ~10% half-width, so a
-# hardcoded band silently goes stale as the live price drifts and eventually the
-# reflector price falls outside it — the aggregator then fails closed with
-# OracleError::SanityBoundViolated (#223) and every borrow/multiply reverts.
-# Returns non-zero if the live price is unavailable so the caller aborts rather
-# than listing a market whose oracle is guaranteed to reject. Reflector CEX prices
-# are 14-decimal; WAD is 18-decimal, hence the ×10000. Bracketing is done in
-# 14-decimal space first so 64-bit intermediates cannot overflow before scaling.
+# Prints "min_wad max_wad" for oracle_cfg_reflector's $2 $3: the live
+# Reflector CEX price of `sym` ±PCT percent (default 9: a 900 bps half-width,
+# between MIN_SANITY_BAND_BPS=50 and MAX_SINGLE_SOURCE_SANITY_BAND_BPS=1000).
+# A fixed band goes stale as the price drifts; a price outside the band fails
+# with OracleError::SanityBoundViolated (#223) and every borrow and multiply
+# reverts. Returns non-zero when no live price exists, so the caller does not
+# list a market that its oracle rejects. Reflector CEX prices have 14 decimals;
+# the band is computed at 14 decimals, then multiplied by 10000 to WAD. That
+# last step overflows 64-bit shell arithmetic for prices above about 8.4 USD.
 reflector_band() {
     local sym="$1" pct="${2:-9}" raw px14 min14 max14
     raw=$(stellar contract invoke --id "$REFLECTOR_CEX" --source "$ADMIN" "${NET_ARGS[@]}" \
@@ -496,8 +487,8 @@ create_market() {
         --input "$(spoke_args "$hub_id" "$sac" "$PRIMARY_SPOKE_ID" true true "$ltv" "$thr" "$bonus")" >/dev/null || return 1
     market_wait_listed "$hub_id" "$sac" \
         || die "confirm_market_$name" "market $name primary spoke listing not active after create -> oracle -> activate (read replica lag exhausted)"
-    # Registry of every market this run listed, consumed by flow_teardown to
-    # sweep and zero-check the whole world. Idempotent across resumes.
+    # Records every market this run lists for flow_teardown to drain and
+    # zero-check. Idempotent across resumes.
     case " ${MARKETS:-} " in
         *" ${hub_id}:${sac} "*) ;;
         *) save_state MARKETS "${MARKETS:+$MARKETS }${hub_id}:${sac}" ;;

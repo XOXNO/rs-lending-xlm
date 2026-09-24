@@ -38,13 +38,13 @@ the effective review window and key custody; see
 
 ### ADR-0007: Emergency ratchet
 
-Immediate guardian actions can pause and tighten listing flags. Reopening uses
-delayed administration. A listing edit can keep or tighten flags but never
-clears one. Clearing is a separate timelocked operation,
-`relax_spoke_asset_flags`, bound to the listing's flags epoch: every flag write
-advances the epoch, so a relaxation proposed before a later guardian action
-reverts when executed. The ORACLE role can narrow sanity bands; widening
-requires timelocked oracle reconfiguration.
+Immediate guardian actions can pause the controller and tighten listing flags.
+Reopening uses delayed administration. A listing edit can keep or tighten flags
+but never clears one. Clearing is a separate timelocked operation,
+`relax_spoke_asset_flags`, bound to the listing's flags epoch. Every guardian
+flag call and every flag change advances the epoch, so a relaxation proposed
+before a later guardian action reverts when executed. The ORACLE role can
+narrow sanity bands; widening requires timelocked oracle reconfiguration.
 The [listing-freeze runbook](../reference/runbooks/freeze-a-listing.md) gives the
 operator steps.
 
@@ -78,8 +78,8 @@ borrowers have had notice.
 
 An account retains its spoke throughout its lifetime. A caller cannot move
 existing debt into another risk regime by changing an argument. Governance can
-change listings and refresh applicable stored risk values, but cannot rebind
-the account.
+change listings, and any caller can refresh an account's stored risk values
+with `update_account_threshold`. No path rebinds the account.
 
 ## Accounting and loss allocation
 
@@ -88,8 +88,9 @@ the account.
 ### ADR-0002: Central custody, separate market books
 
 Markets are keyed by hub and asset, each with its own cash, shares, indexes,
-and revenue. One pool provides custody for all markets. Repeated listings of
-one token retain distinct books but share its physical balance and token risks.
+and revenue. One pool provides custody for all markets. Markets for one token
+in different hubs keep distinct books but share its pool balance and token
+risks. Spokes that list the same hub asset share its single market book.
 
 <a id="adr-0003"></a>
 
@@ -132,7 +133,8 @@ It therefore does not require new supply-cap headroom.
 
 ### ADR-0016: Millisecond rates and chunked accrual
 
-Rates use RAY per millisecond, with accrual divided into bounded chunks. Each
+Accrual uses a per-millisecond RAY rate derived from the annual rate. It splits
+elapsed time into chunks of at most one year (`MAX_COMPOUND_DELTA_MS`). Each
 chunk uses the preceding chunk's market state. This bounds individual time
 steps without eliminating value overflow, cumulative work, cadence dependence,
 or rounding error. The [formula reference](../reference/formulas.md) defines these limits.
@@ -197,9 +199,10 @@ data, and feed-nature labels remain configuration assertions.
 
 Cash flash loans require a contract receiver and allowance of at least
 principal plus fee. The pool pulls exactly that amount and checks its expected balance after
-payout, after callback and after collection. Callback pushes do not replace
-repayment; excess allowance is permitted. Cash flash loans create no
-account debt and are distinct from account strategy settlement.
+payout, after callback and after collection. A transfer to the pool during the
+callback fails the post-callback check, so only the pull repays. Excess
+allowance is permitted. Cash flash loans create no account debt and are
+distinct from account strategy settlement.
 
 <a id="adr-0011"></a>
 
@@ -228,9 +231,10 @@ A valid instruction stream does not establish good economic execution.
 
 ### ADR-0019: Liquidation share credit
 
-Liquidation can credit an authorized account in the same spoke, avoiding a
-collateral cash payout. Seized shares split into receiver credit and protocol
-revenue by reclassification; the fee does not mint unbacked shares.
+Liquidation can credit a `Normal`-mode account in the same spoke that the
+liquidator owns or is a delegate for, avoiding a collateral cash payout.
+Seized shares split into receiver credit and protocol revenue by
+reclassification; the fee does not mint unbacked shares.
 
 Receiver position limits still apply, and a newly credited asset needs a
 listing. Existing positions retain their risk tuple; new positions use the

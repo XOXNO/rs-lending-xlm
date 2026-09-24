@@ -122,9 +122,7 @@ fn test_full_exit_solvency() {
         alice_debt_after
     );
 
-    // Dave is a pure supplier, so his exit is fully determined: the wallet must
-    // move by exactly his credited balance. Without this the test could not see
-    // a bug that under-paid every withdrawer and stranded the surplus.
+    // Dave only supplies, so his full withdrawal pays out his credited balance.
     let dave_credited = t.supply_balance_raw(DAVE, "USDC");
     let dave_wallet_before = t.token_balance_raw(DAVE, "USDC");
 
@@ -134,9 +132,8 @@ fn test_full_exit_solvency() {
     t.withdraw_all(DAVE, "USDC");
     t.withdraw_all(EVE, "ETH");
 
-    // Exact to the stroop, and directional: withdraw floors in the protocol's
-    // favour (ADR-0003), so the payout is the credited balance or one stroop
-    // under it -- never over, and never 5% under.
+    // Withdraw rounds down in the protocol's favour (ADR-0003), so the payout is
+    // the credited balance or one raw unit under it, never over.
     let dave_paid = t.token_balance_raw(DAVE, "USDC") - dave_wallet_before;
     assert!(
         dave_paid == dave_credited || dave_paid == dave_credited - 1,
@@ -144,10 +141,9 @@ fn test_full_exit_solvency() {
          floor: paid={dave_paid}, credited={dave_credited}"
     );
 
-    // `pool_reserves` is `state.cash`, which the builder pre-loads with
-    // `initial_liquidity` (src/multi_hub.rs:80-95). `>= 0.0` therefore had a
-    // million-unit margin. Everyone has exited, so the only cash that may
-    // remain is that donation plus the unclaimed protocol revenue.
+    // `pool_reserves` reads the pool cash, which the builder seeds with
+    // `initial_liquidity`. After everyone exits, the cash still covers that
+    // seed; the rest is unclaimed protocol revenue.
     let donated_usdc = usdc_preset().initial_liquidity;
     let donated_eth = eth_preset().initial_liquidity;
     let reserves_usdc = t.pool_reserves("USDC");

@@ -1,11 +1,10 @@
 //! Fixed-point behaviour at the edges of its domain.
 //!
-//! Two families that were proved through contract artifacts until 2026-09-03:
-//! the boundary rules, which pin `calculate_borrow_rate` and `compound_interest`
-//! at the exact corners of the rate curve and `fp_core` at the top of `i128`;
-//! and the scaling round-trips, which bound the error of converting an amount
-//! to shares and back. Neither family reads contract state or calls contract
-//! code, so both belong to the crate that owns the arithmetic.
+//! Two families: the boundary rules, which pin `calculate_borrow_rate` and
+//! `compound_interest` at the exact corners of the rate curve and `fp_core` at
+//! the top of `i128`; and the scaling round-trips, which bound the error of
+//! converting an amount to shares and back. Neither family reads contract state
+//! or calls contract code.
 
 use cvlr::macros::rule;
 use cvlr::{cvlr_assert, cvlr_assume, cvlr_satisfy};
@@ -110,8 +109,9 @@ fn supply_dust_amount_sanity(e: Env) {
     cvlr_satisfy!(scaled == 1);
 }
 /// Amount → shares → amount through `mul_div_half_up` at any index in
-/// `[1, 10]` RAY loses at most six units. Supply/withdraw and borrow/repay
-/// are the same primitive with the same bounds, so one rule covers both.
+/// `[1, 10]` RAY stays within six units of the input amount. The directional
+/// `calculate_scaled_supply` (floor) and `calculate_scaled_borrow` (ceiling)
+/// are not covered here.
 #[rule]
 fn supply_withdraw_roundtrip_error_bounded(e: Env) {
     let amount: i128 = cvlr::nondet::nondet();

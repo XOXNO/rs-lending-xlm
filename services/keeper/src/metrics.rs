@@ -17,13 +17,12 @@ pub struct Metrics {
     pub max_account_id: IntGauge,
     pub entries_archived: IntGauge,
 
-    /// Lowest remaining TTL in a `(contract, group)`, in ledgers. This is the
-    /// pacing item: the tick when the keeper first has to act on that group.
+    /// Lowest remaining TTL, in ledgers, per `(contract, group)`. It marks the
+    /// entry the keeper must act on first in that group.
     pub entry_ttl_ledgers_min: IntGaugeVec,
 
-    /// Entry counts per `(contract, group, state)`. A group that is entirely
-    /// `never_created` is how a wrong key encoding looks; a single `archived`
-    /// or `expired` row is real damage.
+    /// Entry counts per `(contract, group, state)`. `scheduler::entry_state`
+    /// defines the states.
     pub entries: IntGaugeVec,
 
     /// Safety margin and current ledger, so a panel can draw the action
@@ -31,22 +30,18 @@ pub struct Metrics {
     pub safety_margin_ledgers: IntGauge,
     pub current_ledger: IntGauge,
 
-    /// Wall-clock time of the last completed discovery tick. The TTL loop runs
-    /// every `ttl_tick_seconds` (6h on mainnet), so every storage gauge can be
-    /// that stale; without this a dashboard cannot tell a quiet protocol from a
-    /// dead keeper.
+    /// Unix time, in seconds, of the last discovery snapshot. Storage gauges can
+    /// be `ttl_tick_seconds` old (6h on mainnet); this gauge tells a quiet
+    /// protocol from a dead keeper.
     pub last_tick_timestamp_seconds: IntGauge,
 
-    /// Resource fee a simulated extend or restore would cost, in stroops. This
-    /// is measured from simulation, not modelled from entry size.
+    /// Resource fee, in stroops, of the last dry-run simulation per job `kind`.
     pub sim_resource_fee_stroops: GaugeVec,
 }
 
 impl Metrics {
-    /// `network` becomes a const label on every family. Without it, a testnet
-    /// and a mainnet keeper scraped into the same Prometheus collide on
-    /// identical `(contract, group)` label sets, and a `_min` gauge silently
-    /// reports whichever scrape landed last.
+    /// Builds every metric family with `network` as a const label, so a testnet
+    /// and a mainnet keeper scraped into one Prometheus do not share series.
     pub fn new(network: &str) -> Result<Self> {
         let registry = Registry::new_custom(
             None,

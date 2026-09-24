@@ -144,8 +144,7 @@ mod zero_threshold_tests;
 /// Resolves an authorized credit receiver, or `None` for underlying transfer.
 /// `Credit(0)` creates an account owned by the liquidator.
 ///
-/// Credit requires a different account in the same spoke and normal mode:
-/// another spoke changes the risk regime; strategy modes need additional invariants.
+/// Credit requires a different account in the same spoke, in `Normal` mode.
 fn resolve_seize_receiver(
     env: &Env,
     liquidator: &Address,

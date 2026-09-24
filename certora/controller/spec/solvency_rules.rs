@@ -160,11 +160,9 @@ fn supply_position_limit_enforced(
     let limits = storage::get_position_limits(&e);
     cvlr_assume!(limits.max_supply_positions == common::constants::POSITION_LIMIT_MAX);
 
-    // Concrete pre-existing position book exactly at the configured limit. The
-    // assets are symbolic; pairwise distinctness is what makes the map hold
-    // `POSITION_LIMIT` entries and the new asset a fresh key, and the array
-    // type is what keeps the count tied to the constant (see the guard in
-    // `fixture.rs`).
+    // A book exactly at the configured limit. Pairwise distinctness makes the
+    // map hold `POSITION_LIMIT` entries and the new asset a fresh key; the
+    // array type ties the count to the constant (see the guard in `fixture.rs`).
     let assets: [Address; fixture::POSITION_LIMIT] = [a1, a2, a3, a4, a5];
     fixture::assume_pairwise_distinct(&assets, &new_asset);
     let seeded = fixture::seed_supply_positions(&e, account_id, &assets);
@@ -206,8 +204,7 @@ fn borrow_position_limit_enforced(
     let limits = storage::get_position_limits(&e);
     cvlr_assume!(limits.max_borrow_positions == common::constants::POSITION_LIMIT_MAX);
 
-    // Concrete pre-existing debt book at the configured limit (see
-    // supply_position_limit_enforced for the distinctness rationale).
+    // A debt book at the configured limit (see `supply_position_limit_enforced`).
     let assets: [Address; fixture::POSITION_LIMIT] = [a1, a2, a3, a4, a5];
     fixture::assume_pairwise_distinct(&assets, &new_asset);
     let seeded = fixture::seed_debt_positions(&e, account_id, &assets);
@@ -297,10 +294,9 @@ fn borrow_position_limit_enforced_fixture_completes(
 /// A top-up of an asset the account already holds is admitted after governance
 /// lowers the position limit below the account's current count.
 ///
-/// A top-up opens no slot, so it cannot breach the bound; before the fix in
-/// `validate_bulk_position_limits`, every supply to such an account failed and
-/// the position was locked in place. The witness is the strictly larger scaled
-/// record, so a path that reverted or wrote nothing does not satisfy it.
+/// A top-up opens no slot, so `validate_bulk_position_limits` does not count it
+/// against the bound. The witness is the strictly larger scaled record, so a
+/// path that reverted or wrote nothing does not satisfy it.
 #[rule]
 #[allow(clippy::too_many_arguments)]
 fn supply_topup_survives_lowered_limit(

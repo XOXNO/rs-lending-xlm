@@ -32,7 +32,7 @@ load the lending skill first and the swap skill only for its quote or payload.
 | API `supplyAmount` / RAY → token units | [math.md](math.md#api-position-fields-are-ray-quantities) |
 | Full repay / withdraw sizing and share rounding | [math.md](math.md#shares-and-token-amounts) |
 | Health factor, LTV weights | [math.md](math.md#health-factor-and-ltv-weighting) |
-| APR vs APY, deposit rate, borrow curve | [math.md](math.md#apr-to-apy) |
+| Borrow curve, deposit rate, APR vs APY | [math.md](math.md#borrow-rate-curve) |
 
 Reference selection is complete when every interpreted value has an explicit
 unit and every market identifier includes both `hub_id` and asset address.

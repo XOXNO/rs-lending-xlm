@@ -17,11 +17,11 @@ pub trait SwapAggregatorInterface {
 
 `swap_xdr` is the XDR serialization of the `StrategyPayload` ScVal: `lib.rs` runs `StrategyPayload::from_xdr(&env, &swap_xdr)` and panics with `Error::InvalidRouteXdr = 13` on failure, then `execute::run`. `total_in` is the gross input in atomic units — the quote's `amountIn`. The return value is the delivered output in atomic units of `token_out`, net of any output-side fee.
 
-This snippet is deliberately not the complete contract surface. Use the
-[interface](../../interfaces/swap-aggregator/src/lib.rs) for aggregator methods and the
-[router implementation](../../contracts/swap-aggregator/src/lib.rs) for the additional
-`stellar_access::ownable::Ownable` entrypoints (`get_owner` and the two-step
-transfer/accept; `renounce_ownership` is not exported).
+The snippet shows only `execute_strategy`. The
+[interface](../../interfaces/swap-aggregator/src/lib.rs) lists every aggregator method. The
+[router implementation](../../contracts/swap-aggregator/src/lib.rs) also exports the
+`stellar_access::ownable::Ownable` entrypoints `get_owner`, `transfer_ownership`, and
+`accept_ownership`. It does not export `renounce_ownership`.
 
 ## `StrategyPayload` ScVal
 
@@ -35,7 +35,7 @@ pub struct StrategyPayload {
 }
 ```
 
-On the wire this is `ScVal::Map` with `Symbol` keys in lexicographic order `amounts`, `assets`, `ops` — the layout `#[contracttype]` derives, and the order `abi.rs::StrategyPayload::to_scval` emits and `scval-encode.ts::scStruct` (sorted keys) emits; `arb-algo/tests/strategy_payload_abi.rs` pins it. `routeXdr` = base64 of that map's XDR (`abi.rs::to_xdr_bytes`, `Limits::none()`), built by `build_strategy_payload_xdr_from_quote(quote, referral_id)` from the quote's `paths` (or its single `hops` path), `amountOutMin`, and the request's `referral_id`. The standalone envelope's `swap_xdr` argument comes from the same function on the same response, so its bytes equal `routeXdr`. Instructions address both registries by `u8` index, so an address shared by several hops is carried once.
+On the wire this is `ScVal::Map` with `Symbol` keys in lexicographic order `amounts`, `assets`, `ops`. `#[contracttype]` derives this layout, `abi.rs::StrategyPayload::to_scval` and `scval-encode.ts::scStruct` (sorted keys) emit it, and `arb-algo/stellar-indexer/tests/strategy_payload_abi.rs` pins it. `routeXdr` = base64 of that map's XDR (`abi.rs::to_xdr_bytes`, `Limits::none()`). A swap quote builds it with `build_strategy_payload_xdr_from_quote(quote, referral_id)` from the quote's `paths` (or its single `hops` path), `amountOutMin`, and the request's `referral_id`; a liquidity quote builds it with `builder/lp.rs::build_lp_strategy_payload`, or `builder/lp.rs::build_convert_strategy_payload` for an LP-to-LP conversion. The standalone envelope's `swap_xdr` argument carries the same bytes as `routeXdr`. Instructions address both registries by `u8` index, so an address shared by several hops is carried once.
 
 ## Packed program (`ops`) — VERSION 1
 
@@ -48,7 +48,7 @@ Byte layout from `program.rs` (contract) and `abi.rs` (encoder), pinned on both 
 | `[2]` | 1 | `token_out` | Index into `assets`; must differ from `token_in` (`SameToken = 25`) |
 | `[3]` | 1 | `min_out` | **Index into `amounts`** of the total minimum output. Every encoder writes `0` here (`amounts[0] = total_min_out`); read it as an index, never as the amount |
 | `[4..8]` | 4 | `referral_id` | `u32` big-endian; `0` = no referral, no fee |
-| `[8]` | 1 | `op_count` | `1..=48` (`MAX_OPS`); `0` or above → `EmptyBatch = 1` |
+| `[8]` | 1 | `op_count` | `1..=48` (`MAX_OPS`); `0` or above `48` → `EmptyBatch = 1` |
 | `[9]` | 1 | `weight_count` | `0..=32` (`MAX_WEIGHTS`); above → `EmptyBatch = 1` |
 | `[10 + 5·i]` | 5 each | instruction `i` | See below |
 | `[10 + 5·op_count + 3·j]` | 3 each | weight `j` | `u24` big-endian parts-per-million, each in `1..=1_000_000` (`ZeroSplitPpm = 11`, `SplitPpmMismatch = 12`) |
@@ -59,18 +59,17 @@ Instruction record (5 bytes):
 
 | Byte | Field | Swap (`opcode 0..=4`) | Burn (`5`) | Mint (`6`) |
 |---|---|---|---|---|
-| `[0]` | `opcode` | `0` Soroswap, `1` Aquarius (also drives Aquarius CLMM, same `swap` ABI), `2` Phoenix, `3` Sushi, `4` CometDex | Aquarius withdraw | Aquarius deposit |
+| `[0]` | `opcode` | `0` Soroswap, `1` Aquarius (the encoder also maps Aquarius CLMM pools here), `2` Phoenix, `3` Sushi, `4` CometDex | Aquarius withdraw | Aquarius deposit |
 | `[1]` | `mode` | any | must be `All` (`0`) | must be `All` (`0`) |
 | `[2]` | `idx_a` | pool → `assets` | pool | pool |
 | `[3]` | `idx_b` | `token_in` → `assets` | share token → `assets` | share token → `assets` |
 | `[4]` | `idx_c` | `token_out` → `assets` (≠ `idx_b`) | first index of the per-constituent floor run in `amounts` | index of `mint_min_shares` in `amounts` |
 
-This table is the canonical on-chain venue/opcode mapping. It proves which local
-adapter an opcode dispatches; it does **not** prove that an external quote server or
-current production pool is ABI-compatible. In particular, production compatibility for
-Aquarius CLMM/stable pools, Phoenix stable pools, Sushi concentrated pools, and Comet
-weighted pools remains external/unverified unless deployment tests pin those contracts
-and the quote-server revision.
+The table maps each opcode to its on-chain adapter. It does **not** prove that a
+production pool or the quote server is ABI-compatible with that adapter. Treat production
+compatibility for Aquarius CLMM and stable pools, Phoenix stable pools, Sushi concentrated
+pools, and Comet weighted pools as unverified until a deployment test pins those pool
+contracts and the quote-server revision.
 
 Mode byte → input sizing (`Mode::from_u8` in `program.rs`, `resolve_amount` in `execute/mod.rs`):
 
@@ -79,13 +78,13 @@ Mode byte → input sizing (`Mode::from_u8` in `program.rs`, `resolve_amount` in
 | `0` | `All` | Entire vault balance of `token_in` at that instruction |
 | `1` | `Prev` | Exactly the previous instruction's output. The predecessor must be a Swap (produces its `token_out`) or a Mint (produces its share token) and that token must equal this `token_in`, else `BrokenTokenChain = 4`; `Prev` on instruction 0 is `BrokenTokenChain` |
 | `2..=127` | `Fixed(v − 2)` | `amounts[v − 2]`, an absolute amount |
-| `128..=255` | `Ppm(v − 128)` | `vault_balance(token_in) · weights[v − 128] / 1_000_000`, measured at execution time |
+| `128..=255` | `Ppm(v − 128)` | `vault_balance(token_in) · weights[v − 128] / 1_000_000`, rounded down, measured at execution time |
 
-Unrecognized opcode, an out-of-range registry index, or a sized mode on Burn/Mint →
-`InvalidRouteXdr = 13`. `Program::decode` completes these packed-program checks before
-any venue call. It cannot validate venue-supplied metadata: an Aquarius Burn first calls
-`get_tokens` and `share_id`, then uses the returned pool arity to validate the complete
-burn-floor run. Do not claim that every LP validation precedes external calls.
+Unrecognized opcode, an out-of-range registry index, or a mode other than `All` on
+Burn/Mint → `InvalidRouteXdr = 13`. `Program::decode` runs these checks before any venue
+call. Checks that need pool metadata run during execution: an Aquarius Burn first calls
+`get_tokens` and `share_id`, then uses the pool's token count to validate the burn-floor
+run.
 
 ## `execute_strategy` semantics (`execute/mod.rs::run`)
 
@@ -98,7 +97,7 @@ Order of operations, with the error raised on failure:
 4. `amounts[min_out] <= 0` → `SlippageExceeded = 5`.
 5. **Measured input credit:** `transfer_amount_measured(token_in, sender → router, total_in)` (`common/src/token.rs`) transfers under the sender's auth and credits the vault with `balance_after − balance_before`, not the declared `total_in`. A fee-on-transfer input shrinks the credited amount instead of drawing on the fee reserve.
 6. **Fee side:** `fee_on_input = referral_id != 0 && (!out_whitelisted || in_whitelisted)`; when true, `fees::apply_fees_on_token(token_in)` debits the vault before any hop.
-7. Instruction loop. Swap: resolve the input by mode (`InvalidAmount` if `<= 0`), `vault.withdraw`, `venues::dispatch_hop` — measures the router's own `token_in`/`token_out` balances around the venue call; received `<= 0` → `ZeroOutput = 7`; spent `!= amount_in` → `InvalidAmount` — then `vault.deposit(token_out, received)`. Burn: reads Aquarius pool tokens and share id, validates the full constituent-floor span, withdraws the vault's whole share-token balance, checks each receipt against its floor (`MinAmountsNotMet = 28`), and deposits every constituent. Mint: reads and validates Aquarius metadata, deposits the vault's constituent balances, and requires `shares >= mint_min_shares` (`MinSharesNotMet = 27`).
+7. Instruction loop. Swap: resolve the input by mode (`InvalidAmount` if `<= 0`), `vault.withdraw`, `venues::dispatch_hop` — measures the router's own `token_in`/`token_out` balances around the venue call; received `<= 0` → `ZeroOutput = 7`; spent `!= amount_in` → `InvalidAmount` — then `vault.deposit(token_out, received)`. Burn: reads Aquarius pool tokens and share id, validates the full constituent-floor span, withdraws the vault's whole share-token balance, checks each receipt against its floor (`MinAmountsNotMet = 28`), and deposits every constituent. Mint: reads and validates Aquarius metadata, deposits the vault's constituent balances, and requires `mint_min_shares > 0` and `shares >= mint_min_shares` (`MinSharesNotMet = 27`).
 8. When the fee was not on input: `apply_fees_on_token(token_out)`.
 9. **Min-out check:** `total_out = vault.balance_of(token_out)`; `total_out < amounts[min_out]` → `SlippageExceeded = 5`.
 10. `vault.withdraw(token_out, total_out)` and `token_out.transfer(router → sender, total_out)`.
@@ -139,16 +138,16 @@ codes overlap. The canonical enum is
 |---|---|---|
 | 1 | `EmptyBatch` | Empty/over-cap instruction batch or over-cap weights |
 | 3 | `InvalidAmount` | Nonpositive amount, vault overdraft, or measured spend mismatch |
-| 4 | `BrokenTokenChain` | Invalid `Prev` dependency; Aquarius token metadata that is empty or that omits a declared hop token; or Sushi `token0`/`token1` does not match the declared pair |
+| 4 | `BrokenTokenChain` | Invalid `Prev` dependency; an Aquarius `get_tokens` list that is empty, longer than 256, has duplicates, or omits a hop token; or Sushi `token0`/`token1` does not match the hop pair |
 | 5 | `SlippageExceeded` | Nonpositive `min_out` or delivered output below it |
 | 7 | `ZeroOutput` | Venue or LP leg produced no usable output |
 | 9 | `IntegerOverflow` | Checked conversion or arithmetic overflow |
 | 11 / 12 | `ZeroSplitPpm` / `SplitPpmMismatch` | Split weight is zero or above 1,000,000 ppm |
 | 13 | `InvalidRouteXdr` | Strategy map or packed program malformed |
-| 20 / 21 / 22 | `NotAdmin` / `FeeTooHigh` / `ReferralNotFound` | Administration or referral failure |
+| 20 / 21 / 22 | `NotAdmin` / `FeeTooHigh` / `ReferralNotFound` | `admin()` found no owner; a fee above `FEE_CAP`; an unknown referral id in an owner setter or `claim_referral_fees`. Owner-only calls fail with `stellar_access` errors, not `NotAdmin` |
 | 25 | `SameToken` | Program input/output or a hop pair is identical |
 | 26 | `LpTokenMismatch` | Aquarius `share_id` differs from the declared LP token; see [`assert_share_token`](../../contracts/swap-aggregator/src/venues/aquarius/pool.rs) |
-| 27 / 28 | `MinSharesNotMet` / `MinAmountsNotMet` | LP mint or burn floor failed |
+| 27 / 28 | `MinSharesNotMet` / `MinAmountsNotMet` | LP mint or burn floor failed; `28` also when the burn-floor run is shorter than the pool's token count |
 | 29 | `ExcessiveResidual` | A leftover exceeds the per-token residual allowance |
 | 30 | `InternalInvariant` | Fee-reservation accounting reached an impossible state and failed closed; see [`storage.rs`](../../contracts/swap-aggregator/src/storage.rs) and report it |
 
@@ -213,7 +212,7 @@ export function verifyRouteBytes(quote: RouteQuote, expected: ExpectedRoute): vo
   if (tokenIn !== expected.tokenIn || tokenOut !== expected.tokenOut) {
     throw new Error('encoded token pair does not match requested pair')
   }
-  // ops[3] is an INDEX into amounts, not the amount.
+  // ops[3] indexes amounts; it is not the amount.
   const minOut = payload.amounts[ops[3]]
   if (minOut === undefined || minOut !== BigInt(quote.amountOutMin)) {
     throw new Error('encoded minimum output does not match quote.amountOutMin')
@@ -295,8 +294,8 @@ complete controller/contract transaction. For standalone use, call
 
 | Export | Use |
 |---|---|
-| `asStellarStrategySwapBytes(steps: unknown): xdr.ScVal` (`scval-encode.ts`) | Normalizes any accepted form into the `Bytes` argument. Accepts: base64 `routeXdr` string; `0x`-prefixed hex string; `Uint8Array`; `{ routeXdr }`; `{ swapXdr }`; `{ bytes: string \| Uint8Array }`; or a decoded `StellarStrategyPayloadInput` object (validated by `asStellarStrategyPayload`, then re-encoded locally). An empty `Uint8Array` or empty `bytes` yields empty bytes (`emptyStrategySwapBytes`, the same-token passthrough case); an empty string throws |
-| `encodeStrategyPayload(payload): xdr.ScVal` | Lowers `{ paths, tokenIn, tokenOut, totalMinOut, referralId?, burnPool?, burnMinAmounts?, mintPool?, mintMinShares?, mintPoolTokens?, preSwapAmount?, preSwapFromA? }` into the `StrategyPayload` map. Throws on same-token, broken chain, more than 48 ops, 32 weights, or 256 assets, a weight outside `1..=1_000_000`, or a referral outside u32 |
+| `asStellarStrategySwapBytes(steps: unknown): xdr.ScVal` (`scval-encode.ts`) | Normalizes any accepted form into the `Bytes` argument. Accepts: base64 `routeXdr` string; `0x`-prefixed hex string; `Uint8Array`; `{ routeXdr }`; `{ swapXdr }`; `{ bytes: string \| Uint8Array }`; or a decoded `StellarStrategyPayloadInput` object (validated by `asStellarStrategyPayload`, then re-encoded locally). An empty `Uint8Array`, bare or as `bytes`, yields empty bytes (`emptyStrategySwapBytes`, the same-token passthrough case); an empty string throws |
+| `encodeStrategyPayload(payload): xdr.ScVal` | Lowers `{ paths, tokenIn, tokenOut, totalMinOut, referralId?, burnPool?, burnMinAmounts?, mintPool?, mintMinShares?, mintPoolTokens?, preSwapAmount?, preSwapFromA? }` into the `StrategyPayload` map. Throws on same-token, broken chain, more than 48 ops, 32 weights, 256 assets, or 126 amounts, a weight outside `1..=1_000_000`, or a referral outside u32 |
 | `encodeStrategyPayloadToBytes(payload): xdr.ScVal` | `scvBytes` of the map's XDR — the contract argument form |
 | `encodeStrategyPayloadToRouteXdr(payload): string` (`swap.ts`) | Base64 form, equivalent to the server's `routeXdr` |
 | `mapQuoteResponseToStrategySwap(quote, { referralId? })` (`swap.ts`) | Returns `{ routeXdr }` when the quote has a non-empty one; otherwise falls back to `mapQuoteResponseToStrategyPayload`. **Use this** |

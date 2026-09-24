@@ -53,8 +53,7 @@ We may credit reporters in release notes with their consent.
   key, unless the report demonstrates that the protocol makes that compromise
   materially worse.
 - Purely theoretical claims without a reproducible security impact.
-- Test-only contracts, unless the issue affects a production build or the test
-  harness is itself in scope.
+- Test-only contracts, unless the issue affects a production build.
 
 A strong report identifies a concrete deviation from a protocol invariant,
 authorization boundary, accounting rule, price guarantee, or liveness property.

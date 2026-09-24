@@ -115,12 +115,13 @@ impl Ownable for XoxnoOracle {
     }
 
     /// Starts an ownership transfer to `new_owner`, valid for acceptance
-    /// until `live_until_ledger`.
+    /// until `live_until_ledger`. Requires the owner's authorization.
     fn transfer_ownership(e: &Env, new_owner: Address, live_until_ledger: u32) {
         ownable::transfer_ownership(e, &new_owner, live_until_ledger);
     }
 
-    /// Accepts a pending ownership transfer, making the caller the new owner.
+    /// Makes the pending owner the owner. Requires the pending owner's
+    /// authorization.
     fn accept_ownership(e: &Env) {
         ownable::accept_ownership(e);
     }

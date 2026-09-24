@@ -1,11 +1,10 @@
 network: mainnet
 
 rpc:
-  # Preference order. The in-cluster node first, then third-party public
-  # endpoints. stellar-gateway.xoxno.com is deliberately absent: it fronts the
-  # same node as the first entry, so it fails at the same time and adds no
-  # redundancy. Reads and simulations walk this list; submission stays on
-  # whichever endpoint answered.
+  # Preference order: the in-cluster node first, then public endpoints.
+  # stellar-gateway.xoxno.com is not listed: it fronts the first node and adds
+  # no redundancy. Reads and simulations walk this list; submission stays on
+  # the endpoint that answered last.
   urls:
     - http://stellar-rpc-mainnet:8080
     - https://mainnet.sorobanrpc.com
@@ -17,13 +16,11 @@ contracts:
   controller: CAUCMIN5KSXEVZ7NMXR3LZATGD5EFIEUI5XWTFLYRO2R5OTXI22WE5JX
   pool_wasm_hash: c2857740717a87b58c20b11e68dbacd4f4ab2da1a1cde03f0bc179a8a9f11228
   markets:
-    # Only markets that are `enabled: true` in configs/mainnet/markets.json.
-    # A disabled market is never listed on-chain, so the pool never writes its
-    # Params/State keys and the keeper would report both as `never_created`
-    # forever -- 12 wasted key reads a tick, and 12 rows of permanent noise in
-    # the state panel that look exactly like a broken key encoding. The six
-    # SPIKO* markets (hub 2) are omitted for that reason; add them back here
-    # when they are enabled.
+    # Every market in configs/mainnet/markets.json except those marked
+    # `enabled: false`. A disabled market is not listed on-chain, so its pool
+    # Params/State keys read as `never_created` on every tick, which looks like
+    # a broken key encoding. The six SPIKO* markets (hub 2) are disabled; add
+    # them here when they are enabled.
     - { hub_id: 1, asset: CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA }
     - { hub_id: 1, asset: CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75 }
     - { hub_id: 1, asset: CDTKPWPLOURQA2SGTKTUQOWRCBZEORB4BWBOMJ3D3ZTQQSGE5F6JBQLV }
@@ -54,9 +51,8 @@ contracts:
   governance: CC44PEQW7HSEPKAZ5ZRPH2JS5M5KVJXCUBLJ2ZX4E3WCDKMNFILHC2AD
   xoxno_oracle_adapter: CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM
   price_aggregator: CBGUF2G2Q7HCVCWYISDXBHPVBGMYNXA7PG2VET66YBZX6IKOOV27NSMV
-  # Read-only dependencies with no protocol write path to renew them. The
-  # RedStone adapter anchors 14 markets and was found at 10 days of instance
-  # life on 2026-09-05; the swap router carries every strategy leg.
+  # Read-only dependencies that no protocol write renews. The RedStone adapter
+  # backs 14 markets; the swap router carries every strategy leg.
   extra_instances:
     - CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG # RedStone adapter
     - CCVENFSVCBYDHVOACFZXMNNYVOZ3LKXPZYU5LUI4N7KTXOKRVYD7F3TR # XOXNO swap router

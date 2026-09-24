@@ -8,7 +8,7 @@ call-site policy").
 
 **High-priority areas touched (check all that apply and explain):**
 - [ ] Storage layout, keys, TTL/renewal, per-side maps (`SupplyPositions`/`BorrowPositions`), `HubAssetKey`, or `PoolKey` changes
-- [ ] Oracle config, price resolution, tolerance, providers (Reflector/RedStone/Xoxno), sanity/staleness, or call-site policy
+- [ ] Oracle config, price resolution, tolerance, providers (Reflector/RedStone/Xoxno/Aquarius), sanity/staleness, or call-site policy
 - [ ] Risk params, LTV/liquidation curves, caps, position limits, min-borrow-collateral, or spoke overrides
 - [ ] Authorization, delegates, position managers, pause/freeze matrix, or governance/timelock/roles/upgrade
 - [ ] Flash-loan or strategy reentrancy, callback surfaces, or balance-delta validation
@@ -28,14 +28,14 @@ See [CONTRIBUTING.md](../CONTRIBUTING.md), contract rustdoc, and
 ## Verification
 
 **Baseline (must pass):**
-- [ ] `cargo fmt --all -- --check`
-- [ ] `cargo clippy --workspace --all-targets -- -D warnings`
-- [ ] `cargo test --workspace`
-- [ ] `make test` (full harness) / `make test-pool`
+- [ ] `make fmt-check`
+- [ ] `make clippy`
+- [ ] `make build`, then `make test` (whole workspace)
 - [ ] `make wasm-size-check`
+- [ ] `make docs-check` / `make access-control-check`
 
 **Protocol-sensitive changes — list exactly what was run and attach key results:**
-- Certora profile(s) / rules (see `certora/profiles.json` and `certora/*/spec/README.txt`):
+- Certora profile(s) / rules (see `certora/profiles.json` and `certora/*/spec/README.*`):
 - Fuzz target(s) + duration (`make fuzz` / `make fuzz-contract`):
 - Proptest / mutants / other (Scout, miri, specific harness tests):
 

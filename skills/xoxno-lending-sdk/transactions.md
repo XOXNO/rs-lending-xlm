@@ -1,7 +1,7 @@
 # Transactions: builders and canonical lifecycle
 
 Companion to [SKILL.md](SKILL.md). This is the single lifecycle used by
-scripts and frontends. Every `buildStellar*Tx` call is synchronous and returns
+scripts and frontends. Every builder on this page is synchronous and returns
 `{ xdr }`: one unsigned, unprepared controller invocation.
 
 ## Builder options and identifiers
@@ -18,19 +18,20 @@ interface StellarLendingBuilderOptions {
 ```
 
 - `sourceSequence` comes from
-  `server.getAccount(caller).sequenceNumber()`.
+  `(await server.getAccount(caller)).sequenceNumber()`.
 - `accountNonce` is the lending account id / position-NFT token id from a
   selected account. It is unrelated to `sourceSequence`.
-- `accountNonce: '0'` may open an account only for supply/multiply paths that
-  accept it. Borrow, withdraw, repay, liquidation, and strategy swaps require
-  an existing id.
+- `accountNonce: '0'` (or omitted) opens an account only in supply and
+  multiply. `migrate_from_blend` opens one with `accountId: '0'`. Borrow,
+  withdraw, repay, liquidation, `swap_debt`, `swap_collateral`, and
+  `repay_debt_with_collateral` require an existing id.
 - `spokeId`, `hubId`, and `asset` come from the selected reserve/account
   coordinates. An account id does not encode a spoke.
 - Builder amounts are decimal `i128` strings in token base units.
 
-Defaults are `fee: '100'` stroops and `timeoutSeconds: 300`. Production wallet
-flows commonly use `fee: '100000'` and 300-second timebounds; preparation adds
-the Soroban resource fee.
+Defaults are `fee: '100'` stroops and `timeoutSeconds: 300`. The XOXNO
+frontend uses `fee: '100000'` and `timeoutSeconds: 300`; preparation adds the
+Soroban resource fee.
 
 ## User builders and ABI intent
 
@@ -41,8 +42,8 @@ the Soroban resource fee.
 - `buildStellarWithdrawTx` / batch: withdraw from an existing account.
   `amount: '0'` is the withdraw-all sentinel.
 - `buildStellarRepayTx` / batch: repay an existing account. There is no
-  repay-all sentinel; overpaying the ceiled debt closes shares and refunds
-  excess.
+  repay-all sentinel; a payment at or above the debt (rounded up) burns all
+  debt shares and refunds any excess.
 - `buildStellarLiquidateTx`: repay target debt and choose `'Transfer'`,
   `{ Credit: 0 }`, or `{ Credit: existingId }` seizure mode.
 - `buildStellarFlashLoanTx`: `data` is hex or `Uint8Array`; do not pass
@@ -56,8 +57,9 @@ the Soroban resource fee.
 
 The exact controller signatures, option encoding, and return types are in
 [../xoxno-lending-contracts/abi.md](../xoxno-lending-contracts/abi.md).
-Methods without a dedicated 1.0.214 builder can use exported `buildTx` with
-ScVals encoded by the host's `@stellar/stellar-sdk`; verify the ABI first.
+Controller methods without a dedicated 1.0.214 builder can use the exported
+`buildTx(opts, method, params)` with ScVals encoded by the host's
+`@stellar/stellar-sdk`; verify the ABI first.
 
 ## Canonical lifecycle
 
@@ -69,11 +71,11 @@ ScVals encoded by the host's `@stellar/stellar-sdk`; verify the ABI first.
 5. Sign **only the prepared XDR** using the matching network passphrase.
 6. Parse and retain the signed envelope; compute and persist its hash before
    sending.
-7. Submit. `PENDING` and `DUPLICATE` both mean “poll the original hash.”
-8. Confirm `SUCCESS` or `FAILED`. In Stellar SDK v16.0.0, the JSDoc says the
-   `pollTransaction` default is 5 attempts, while the published ESM runtime
-   uses `DEFAULT_GET_TRANSACTION_TIMEOUT = 30` as the default attempt count.
-   Do not rely on that discrepancy: always pass `attempts` explicitly.
+7. Submit. `PENDING`, `DUPLICATE`, and `TRY_AGAIN_LATER` all mean “poll the
+   original hash.”
+8. Confirm `SUCCESS` or `FAILED`. Always pass `attempts` to
+   `pollTransaction`: in Stellar SDK v16 the JSDoc states a default of 5
+   attempts, but the runtime uses `DEFAULT_GET_TRANSACTION_TIMEOUT = 30`.
 9. On `SUCCESS`, reconcile live state, indexed positions, returned account id,
    and current NFT owner.
 
@@ -151,26 +153,23 @@ function markTerminalRejected(hash: string, detail: string): void {
 }
 ```
 
-`UNKNOWN` includes polling `NOT_FOUND`, a polling transport exception, a
-timeout, and send transport uncertainty. It is not failure and does not
+`UNKNOWN` covers three cases: `sendTransaction` throws, `pollTransaction`
+throws, or polling ends at `NOT_FOUND`. It is not a failure and does not
 authorize a rebuild:
 
 1. Keep the exact signed envelope and original hash.
 2. Query `getTransaction(originalHash)` again.
 3. If submission may not have arrived, resubmit the **unchanged signed
-   envelope**, then continue checking the same hash.
+   envelope**, then continue checking the same hash. Do this even when the
+   resubmission returns `ERROR`: the original may already have applied.
 4. Never change sequence, fee, operations, or route while that envelope's
    timebounds remain valid.
 5. Rebuild, re-prepare, and re-sign only after its max timebound has expired
    and the original hash has not reached `SUCCESS` or `FAILED`.
 
-This prevents two distinct envelopes from both landing. A deterministic local
-build/parse/signing error can be fixed before submission. A preparation
-simulation error is also pre-submission and can be rebuilt after its cause is
-fixed. `sendTransaction` transport errors and `NOT_FOUND` are uncertain
-network observations and follow the retain/resubmit policy above. The same is
-true of every exception thrown while polling: resume with the retained
-envelope and original hash, never a replacement.
+This prevents two distinct envelopes from both landing. Errors before
+submission (build, parse, signing, or preparation simulation) send nothing:
+fix the cause, then rebuild.
 
 ## Error interpretation
 
@@ -179,9 +178,9 @@ Use the contract-specific catalog in
 Numeric codes overlap between controller, pool, router, NFT, governance, and
 DEX contracts.
 
-`invokedContractId` on `prepareStellarBuiltTx` tags only the **top-level**
-contract invoked by the envelope. It does not identify a nested contract that
-panicked. Therefore:
+`invokedContractId` on `prepareStellarBuiltTx` prefixes a preparation error
+with the contract id you pass, normally the **top-level** contract. It does
+not identify a nested contract that panicked. Therefore:
 
 - map a code only when diagnostics identify the emitting contract, or when the
   top-level contract itself is proven to be the emitter;

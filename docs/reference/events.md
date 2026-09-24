@@ -11,7 +11,7 @@ The decoder must preserve the following encoding rules:
 - Explicit custom topics below are ordered Soroban Symbols. Custom events have no dynamic topic fields. Inherited events do, as listed separately.
 - `map` payloads use Symbol field-name keys sorted alphabetically. `vec` uses declaration order. `single-value` is the field value itself without a wrapper. Named contract structs are maps; tuple structs are vectors.
 - Only integer enums with explicit discriminants encode as u32 here (`PositionAction`, `EventPositionMode`). Ordinary enum variants encode as `[Symbol(variant), payload...]`, including unit variants such as `["Market"]`. `Option<T>` is T for Some and Void for None.
-- `i128` amounts/fees/cash use raw token decimals unless marked otherwise. `*_wad` and sanity/factor bounds use 10^18; indexes, annual rates, utilization and share balances use 10^27; risk parameters and fees marked BPS use 10,000. Pool timestamps use milliseconds. Oracle staleness and observation timestamps use seconds. Ledger deadlines are sequence numbers.
+- `i128` amounts/fees/cash use raw token decimals unless marked otherwise. `*_wad` fields use 10^18; indexes, annual rates, utilization and share balances use 10^27; risk parameters and fees marked BPS use 10,000. Pool timestamps use milliseconds. Oracle staleness and observation timestamps use seconds. Ledger deadlines are sequence numbers.
 - For shares S, RAY index I and token decimals d, underlying RAY is the protocol-rounded `S * I / RAY`, then raw token units rescale by `10^(27-d)` with the path’s floor/ceil rounding. Multiplying shares by index alone does **not** produce raw token units. See [formulas](formulas.md).
 
 ## Custom events
@@ -23,8 +23,8 @@ Field lists use exact Rust types. Map key order is alphabetical, regardless of d
 | Event / ordered topics | Format and fields | Emission / interpretation |
 | --- | --- | --- |
 | `AccountDelegateEvent`<br>`["account", "delegate"]` | map: `account_id: u64, owner: Address, delegate: Address, granted: bool` | add_delegate/remove_delegate, only when list changes. |
-| `CleanBadDebtEvent`<br>`["debt", "bad_debt"]` | map: `account_id: u64, total_borrow_usd_wad: i128, total_collateral_usd_wad: i128` | clean_bad_debt, force_socialize_bad_debt or liquidation residual cleanup. Pre-cleanup totals: ceil risk debt and half-up unweighted collateral (not the half-up display borrow view). No cleanup position batch. NFT Burn and pool snapshots still emit. |
-| `UpdatePositionBatchEvent`<br>`["position", "batch_update"]` | vec: `account_id: u64, account_attributes: EventAccountAttributes, deposits: Vec<EventDepositDelta>, borrows: Vec<EventBorrowDelta>` | Supply/borrow/withdraw/repay/liquidation, all account strategies including flash_position, and threshold refresh. Suppressed when both leg vectors are empty. |
+| `CleanBadDebtEvent`<br>`["debt", "bad_debt"]` | map: `account_id: u64, total_borrow_usd_wad: i128, total_collateral_usd_wad: i128` | clean_bad_debt, force_socialize_bad_debt or liquidation residual cleanup. Totals are taken before cleanup: debt rounds up (the `get_total_borrow_usd` view rounds half-up), and unweighted collateral rounds half-up. Cleanup emits no position batch. The NFT `Burn` and pool snapshots still emit. |
+| `UpdatePositionBatchEvent`<br>`["position", "batch_update"]` | vec: `account_id: u64, account_attributes: EventAccountAttributes, deposits: Vec<EventDepositDelta>, borrows: Vec<EventBorrowDelta>` | Supply/borrow/withdraw/repay/liquidation, all account strategies including flash_position, and update_account_threshold. Suppressed when both leg vectors are empty. |
 | `LiquidationEvent`<br>`["position", "liquidation"]` | map: `liquidator: Address, account_id: u64, repaid_usd_wad: i128, bonus_bps: i128` | liquidate: repayment USD is measured and capped per planned leg; bonus is BPS. Seizure and fee figures are in position batches. |
 | `FlashLoanEvent`<br>`["position", "flash_loan"]` | map: `hub_id: u32, asset: Address, receiver: Address, caller: Address, amount: i128, fee: i128` | flash_loan: requested principal and charged fee, token units. |
 | `FlashPositionEvent`<br>`["position", "flash_position"]` | map: `account_id: u64, hub_id: u32, asset: Address, receiver: Address, caller: Address, amount: i128, amount_received: i128, fee: i128` | flash_position: requested amount, measured receiver receipt; fee is zero. |
@@ -34,7 +34,7 @@ Field lists use exact Rust types. Map key order is alphabetical, regardless of d
 | `UpdateSpokeEvent`<br>`["config", "spoke"]` | map: `spoke: EventSpoke` | add_spoke, remove_spoke, set_spoke_liquidation_curve: post-change snapshot. |
 | `UpdateSpokeAssetEvent`<br>`["config", "spoke_asset"]` | map: `asset: Address, config: SpokeAssetConfig, spoke_id: u32, hub_id: u32` | add_asset_to_spoke, edit_asset_in_spoke, set_spoke_asset_flags, relax_spoke_asset_flags: full post-change listing. |
 | `RemoveSpokeAssetEvent`<br>`["config", "remove_spoke_asset"]` | map: `asset: Address, spoke_id: u32, hub_id: u32` | remove_asset_from_spoke after zero-usage check. |
-| `ApproveBlendPoolEvent`<br>`["config", "approve_blend_pool"]` | map: `pool: Address, approved: bool` | approve_blend_pool/revoke_blend_pool; approval bool. |
+| `ApproveBlendPoolEvent`<br>`["config", "approve_blend_pool"]` | map: `pool: Address, approved: bool` | approve_blend_pool/revoke_blend_pool. |
 | `UpdateSwapAggregatorEvent`<br>`["config", "swap_aggregator"]` | map: `swap_aggregator: Address` | set_swap_aggregator. |
 | `UpdatePriceAggregatorEvent`<br>`["config", "price_aggregator"]` | map: `price_aggregator: Address` | set_price_aggregator, including governance deployment wiring. |
 | `UpdateAccumulatorEvent`<br>`["config", "accumulator"]` | map: `accumulator: Address` | set_accumulator. |
@@ -48,7 +48,7 @@ Field lists use exact Rust types. Map key order is alphabetical, regardless of d
 
 | Event / ordered topics | Format and fields | Emission / interpretation |
 | --- | --- | --- |
-| `PoolMarketStateBatchEvent`<br>`["market", "batch_state_update"]` | single-value: `updates: Vec<PoolMarketStateEvent>` | Pool supply/borrow/withdraw/repay/seize_positions, update_indexes, recapitalize, flash_loan, create_strategy, net_settle, claim_revenue. Suppressed for empty snapshots. |
+| `PoolMarketStateBatchEvent`<br>`["market", "batch_state_update"]` | single-value: `updates: Vec<PoolMarketStateEvent>` | Pool supply/borrow/withdraw/repay/seize_positions, update_indexes, recapitalize, flash_loan, create_strategy, net_settle, claim_revenue. update_indexes emits one single-row event per market. Suppressed for an empty batch. |
 | `PoolMarketParamsBatchEvent`<br>`["market", "batch_params_update"]` | single-value: `updates: Vec<PoolMarketParamsEvent>` | create_market/update_params: one full parameter row. |
 | `StrategyFeeEvent`<br>`["strategy", "fee"]` | map: `hub_id: u32, asset: Address, amount: i128, fee: i128, amount_sent: i128` | create_strategy only when fee != 0; amount_sent = requested amount minus fee, not receiver receipt. |
 
@@ -107,7 +107,7 @@ Liquidation emits controller events in this order: `LiquidationEvent`, the targe
 
 `LiqSeize.amount` is gross and `LiqCredit.amount` is net. Both use raw token units, including in Credit mode. Their difference can include conversion rounding; compute the exact share fee from share deltas and the [seizure calculation](formulas.md).
 
-`Credit(0)` emits an inherited NFT `Mint` when it creates an account. There is no controller AccountCreated event. Track NFT lifecycle events as well as position batches, which can be absent when no nonzero deltas remain. Account deletion burns the NFT; an ordinary repayment does not always delete an emptied account.
+`Credit(0)` emits an inherited NFT `Mint` when it creates an account. There is no controller AccountCreated event. Track NFT lifecycle events as well as position batches: an operation that records no deltas emits no batch. Account deletion burns the NFT; `repay` never deletes an account, even when it clears the last debt.
 
 ## Market and configuration records
 
@@ -164,12 +164,12 @@ OpenZeppelin revision `fbfde388e1b72afa93d6b1c922067879b20e81db` and Soroban SDK
 | Position NFT: `ApproveForAll` | `["approve_for_all", <owner: Address>]` | `operator: Address, live_until_ledger: u32` | approve_for_all |
 | Position NFT: `Mint` | `["mint", <to: Address>]` | `token_id: u32` | mint |
 | Position NFT: `Burn` | `["burn", <from: Address>]` | `token_id: u32` | controller-authorized burn |
-| Controller, governance, router, XOXNO: OwnershipTransfer | `["ownership_transfer"]` | `old_owner: Address, new_owner: Address, live_until_ledger: u32` | ownership transfer initiation where exported/routed |
+| Controller, governance, router, XOXNO: OwnershipTransfer | `["ownership_transfer"]` | `old_owner: Address, new_owner: Address, live_until_ledger: u32` | transfer_ownership; governance and controller transfers run as the TransferGovOwnership and TransferCtrlOwnership operations |
 | Controller, governance, router, XOXNO; price aggregator constructor: OwnershipTransferCompleted | `["ownership_transfer_completed"]` | `new_owner: Address` | accept_ownership; controller, governance and price-aggregator constructors emit explicitly |
-| Router, XOXNO (legacy, before the entrypoint was removed): OwnershipRenounced | `["ownership_renounced"]` | `old_owner: Address` | No current build emits it. Kept so an indexer that replays ledgers from before the router and XOXNO upgrades can decode it |
-| Governance: RoleGranted | `["role_granted", <role: Symbol>, <account: Address>]` | `caller: Address` | constructor, role grants, ownership synchronization/reset |
-| Governance: RoleRevoked | `["role_revoked", <role: Symbol>, <account: Address>]` | `caller: Address` | role revocation, immediate revoke, ownership/reset |
-| Governance: AdminTransferInitiated | `["admin_transfer_initiated", <current_admin: Address>]` | `new_admin: Address, live_until_ledger: u32` | scheduled governance ownership transfer |
+| Router, XOXNO: OwnershipRenounced | `["ownership_renounced"]` | `old_owner: Address` | renounce_ownership, only on a deployment that still exports it. Builds from this source do not export it |
+| Governance: RoleGranted | `["role_granted", <role: Symbol>, <account: Address>]` | `caller: Address` | constructor, GrantGovRole, accept_ownership role sync, canceller reset |
+| Governance: RoleRevoked | `["role_revoked", <role: Symbol>, <account: Address>]` | `caller: Address` | RevokeGovRole, revoke_role_immediate, accept_ownership role sync, canceller reset |
+| Governance: AdminTransferInitiated | `["admin_transfer_initiated", <current_admin: Address>]` | `new_admin: Address, live_until_ledger: u32` | TransferGovOwnership |
 | Governance: AdminTransferCompleted | `["admin_transfer_completed", <new_admin: Address>]` | `previous_admin: Address` | constructor and accepted ownership |
 | Controller: `Paused` | `["paused"]` | `{}` | pause, constructor and upgrade when not already paused |
 | Controller: `Unpaused` | `["unpaused"]` | `{}` | unpause |

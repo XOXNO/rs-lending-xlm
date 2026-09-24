@@ -2,7 +2,7 @@
 
 # Focused live-testnet exercise of `flash_position` only: deploy current
 # controller/pool wasm plus the mock receiver, list XLM/USDC, seed pool cash,
-# then run the success path and the designed reverts.
+# then run the success path, the designed reverts and the zero-state teardown.
 
 set -uo pipefail
 

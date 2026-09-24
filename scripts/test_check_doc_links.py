@@ -1,4 +1,4 @@
-"""Regression check for local files masking broken links in a clean checkout."""
+"""Checks that a link resolves only to a tracked, existing, relative path in the repo."""
 import contextlib
 import io
 import subprocess

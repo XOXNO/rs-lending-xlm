@@ -1,8 +1,7 @@
 //! `Mode::Prev` end to end: a hop sized from what the hop before it produced.
 //!
-//! `Program::validate` proves the chain structurally at decode time, but the
-//! executor re-checks the token identity before it spends. Both halves need a
-//! route that actually chains and settles, not just one that is rejected.
+//! `Program::validate` checks the chain structurally at decode time, and the
+//! executor re-checks the token identity before it spends.
 
 use crate::types::{SwapHop, SwapVenue};
 use crate::{Router, RouterClient};
@@ -23,7 +22,7 @@ fn a_two_hop_route_sizes_the_second_hop_from_the_first_hops_output() {
     let (token_b, sac_b) = new_asset(&env, &admin);
     let (token_c, sac_c) = new_asset(&env, &admin);
 
-    // Two 1:1 books: a -> b, then b -> c.
+    // Two 1:1 pools: a -> b, then b -> c.
     let pool_ab = env.register(aquarius_mock::AqPool, ());
     aquarius_mock::AqPoolClient::new(&env, &pool_ab).init(&token_a, &token_b);
     sac_b.mint(&pool_ab, &10_000);

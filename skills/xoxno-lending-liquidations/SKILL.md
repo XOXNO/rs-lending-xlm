@@ -58,8 +58,9 @@ contract before mapping the number.
 
 Seizure is pro rata across all collateral. Before estimating, load every
 supplied `(hub_id, asset)` through `get_spoke_asset`; one `no_seize` leg makes
-the entire liquidation fail. A missing listing is a separate invalid-state
-condition, not a halted leg.
+the entire liquidation fail with `SpokeAssetSeizureHalted` (`controller #318`).
+A missing listing (`AssetNotInSpoke`, `controller #307`) is a separate
+invalid-state condition, not a halted leg.
 
 Use Credit when Transfer cannot draw pool cash. Convert Credit estimate shares
 to token units with the matching market supply index and asset decimals before
@@ -78,28 +79,28 @@ then refunds the excess); transferring repayment directly to the pool is a
 donation. Refunds are in debt-token units.
 
 For a contract liquidator, require each payment leg to have a unique token
-address even when the same token is borrowed in multiple hubs. Reject repeated
-addresses until estimates and refunds are keyed by `(hub_id, asset)`.
+address even when the same token is borrowed in multiple hubs. Estimates and
+refunds are keyed by token address only, not by `(hub_id, asset)`.
 
-This is an authorization limitation, not merely a bookkeeping preference.
-`authorize_as_current_contract` authorizes the nested token call by token
-contract, function, and transfer arguments. It does not include the
-controller's hub id. With repeated token addresses, asset-only refunds cannot
-determine the accepted amount for each hub leg, while authorization entries
-are consumed against ordered token-transfer sub-invocations. The contract
-cannot safely construct exact per-leg transfer authorizations.
+This is an authorization limit. `authorize_as_current_contract` authorizes the
+nested token call by token contract, function, and transfer arguments. It does
+not include the controller's hub id. With repeated token addresses, asset-only
+refunds cannot determine the accepted amount for each hub leg, while
+authorization entries are consumed against ordered token-transfer
+sub-invocations. The contract cannot safely construct exact per-leg transfer
+authorizations.
 
 **Full-close band: partials and signed over-offers both work.** When total
 collateral is at least the debt but below `debt × (1 + base bonus)`, the quote
 is the whole debt at `bonus_rate_bps` = the HF-preserving cap
-(`floor(HF × BPS / p) − BPS`, about `C / D − 1`, never below zero), and any
-smaller repayment is accepted at that bonus. A partial keeps the account's
-`C / D` and HF, so large accounts can be closed in slices. Whenever the quote
-is the whole debt, nothing is trimmed: the controller pulls each merged offered
-amount, the pool refunds what exceeds each leg's debt at execution (the
-estimate's `refunds`), and every unit of each leg's ceiled debt is credited.
-An over-offer signed at simulation still matches after interest accrues. The
-liquidator must hold the full offered amount.
+(`floor(HF × BPS / p) − BPS`, about `(C / D − 1) × BPS`, never below zero),
+and any smaller repayment is accepted at that bonus. A partial keeps the
+account's `C / D` and HF, so large accounts can be closed in slices. Whenever
+the quote is the whole debt, nothing is trimmed: the controller pulls each
+merged offered amount, the pool refunds what exceeds each leg's debt at
+execution (the estimate's `refunds`), and every unit of each leg's ceiled debt
+is credited. An over-offer signed at simulation still matches after interest
+accrues. The liquidator must hold the full offered amount.
 
 **Insolvent accounts are capped at what the collateral backs.** When collateral
 is below debt, the quote is `floor(C / (1 + base))` at the base bonus. A larger
@@ -114,7 +115,7 @@ that is no longer there. Re-simulate after every competing liquidation.
 Perform every controller/token read first. Then offer exactly the accepted
 amounts, authorize each `transfer(liquidator, pool, amount)` for them, and call
 `liquidate` immediately; no outbound contract call may occur between
-authorization and the controller call. See [contract composition](../xoxno-lending-contracts/composing.md#liquidating-from-a-contract).
+authorization and the controller call. See [contract composition](../xoxno-lending-contracts/composing.md#contract-liquidation).
 
 ## 4. Gate on actual net proceeds
 
@@ -129,7 +130,7 @@ at each index.
 
 They are **not** index-aligned with the supply snapshot. The contract drops a
 leg whose seizure rounds to zero tokens or zero shares (see
-`xoxno-lending/math.md`, "Legs ... are dropped"), so the estimate is an ordered
+[math](../xoxno-lending/math.md#seizure-and-fees-per-collateral)), so the estimate is an ordered
 **subsequence** of the supply positions. A borrower can hold a one-unit leg, and
 every partial liquidation of that account then returns fewer legs than
 positions. Do not reject such an account: a bot that requires one estimate leg
@@ -151,7 +152,7 @@ preserve the hub from each ordered supply-position entry and do not deduplicate
 those estimate legs. If the same token is supplied in several hubs and the
 estimate has fewer legs for that token than the account has positions, the
 dropped leg cannot be identified from the estimate alone; value each such leg
-with the hub that gives the LOWER net value.
+with the hub that gives the lower net value.
 
 This is distinct from repeated **debt payment** token addresses for a contract
 liquidator, which remain unsafe because refunds and nested transfer
@@ -159,10 +160,11 @@ authorization cannot be assigned to hub-specific repayment legs.
 
 For every paired collateral `(hub_id, asset)`:
 
-1. Reject a zero or non-positive seizure leg that is PRESENT in the estimate, and
-   a leg that matches no supply position. An absent leg is not an error.
-2. Require `0 <= protocol_fee < seized_amount`; reject an omitted fee leg
-   instead of silently treating it as zero.
+1. Reject a non-positive seizure leg that is present in the estimate, and a
+   leg that matches no supply position. An absent leg is not an error.
+2. Require `0 <= protocol_fee <= seized_amount`; reject an omitted fee leg
+   instead of silently treating it as zero. A dust leg can carry a fee equal
+   to its seizure; value it at zero instead of rejecting the estimate.
 3. Compute `net_amount = seized_amount - protocol_fee`. In Credit mode these
    are shares: subtract fee shares from gross seized shares first, then convert
    the single net share amount once using that hub market's supply index and
@@ -218,15 +220,17 @@ post-transaction views. Use the canonical ordering and payload definitions in
 
 ## Bad debt
 
-`clean_bad_debt` is permissionless only when debt exceeds collateral and
-collateral is at most the configured $5 WAD dust gate. `CannotCleanBadDebt`
-(`controller #114`) is a legitimate result when those conditions do not hold;
-it is not inherently a collision or a non-user error. Automatic post-
-liquidation cleanup and governance force-socialization have different entry
-conditions. Always identify the panicking contract before interpreting #114.
+`clean_bad_debt` is permissionless. It succeeds only when debt exceeds
+collateral and collateral is at most `BAD_DEBT_USD_THRESHOLD`, a fixed 5 USD
+in WAD. `CannotCleanBadDebt` (`controller #114`) is a legitimate result when
+those conditions do not hold; it is not inherently a collision or a non-user
+error. Post-liquidation cleanup applies the same gate but skips instead of
+reverting. The owner-only `force_socialize_bad_debt` has no collateral cap.
+Always identify the panicking contract before interpreting #114.
 
 The controller's own flash loan cannot fund a liquidation on that controller:
-the flash guard rejects guarded reentry. Use inventory or external liquidity.
+the Soroban host rejects the re-entry, and `liquidate` also rejects an active
+flash loan (`FlashLoanOngoing`). Use inventory or external liquidity.
 
 ## Completion checks
 
@@ -235,6 +239,7 @@ the flash guard rejects guarded reentry. Use inventory or external liquidity.
 - [ ] Exact payments/mode were estimated and the final write was simulated.
 - [ ] Net profit used actual `seized_collaterals - protocol_fees` per asset,
       including gas, trustline/reserve cost, and exit slippage.
-- [ ] Repeated token addresses were rejected for contract-liquidator legs.
+- [ ] Repeated debt-payment token addresses were rejected for a contract
+      liquidator.
 - [ ] The original signed envelope/hash was persisted and confirmed.
 - [ ] Events were reconciled with resulting account and market state.

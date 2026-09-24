@@ -80,10 +80,9 @@ pub mod soroswap_mock {
 
             let balance0_adjusted = balance0 * 1000 - amount0_in * 3;
             let balance1_adjusted = balance1 * 1000 - amount1_in * 3;
-            // An 18-decimal pair holds reserves around 1e24, and the scaled
-            // product of two of those is ~1e55 -- far past `i128`. Compare the
-            // invariant in 256-bit space so the mock stays usable at the scales
-            // the adapter has to quote.
+            // An 18-decimal pair holds reserves around 1e24, so the scaled
+            // product reaches about 1e54, far past `i128`. Compare the invariant
+            // in 256-bit space so the mock works at the scales the adapter quotes.
             let k_after = k_term(&env, balance0_adjusted).mul(&k_term(&env, balance1_adjusted));
             let k_before = k_term(&env, reserve0)
                 .mul(&k_term(&env, reserve1))
@@ -166,8 +165,8 @@ pub mod aquarius_lp_mock {
         Stable,
         /// Units withheld from constituent 0 on withdraw, and a signal to skip
         /// the pool's own min_amounts assertion. Models a venue that does not
-        /// honour the minimums it was handed. Absent by default, so every
-        /// existing test sees the honest pool.
+        /// honour the minimums it was handed. Absent by default: the pool is
+        /// honest.
         Shortfall,
     }
 

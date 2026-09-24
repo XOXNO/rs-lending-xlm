@@ -28,7 +28,7 @@ mod view;
 
 mod ops;
 
-// `prelude` is the single re-export surface -- add new names there, not here.
+// Add new re-exports to `prelude`, not here.
 pub use common::types::HubAssetKey;
 pub use prelude::*;
 pub mod freezable_token;

@@ -1,6 +1,5 @@
-//! Oracle feed reference and price-result types shared across the price aggregator and its
-//! callers: how a feed identifies its underlying asset, the raw and typed forms of a
-//! resolved price, and the detailed status returned for dual-source assets.
+//! Oracle types shared by the price aggregator and its callers: asset references, tolerance
+//! bands, read modes, the raw and typed forms of a resolved price, and the price status.
 
 use soroban_sdk::{contracttype, Address, Env, String, Symbol};
 
@@ -30,9 +29,9 @@ pub struct OracleTolerance {
     pub lower_ratio_bps: u32,
 }
 
-/// How a feed is sampled: an instantaneous spot read, or a multi-observation
-/// average over the given number of recorded samples (`Twap` mode name is
-/// historical; Reflector implements equal-weight mean, not duration-weighted).
+/// How a feed is sampled: a spot read, or `Twap(records)`, the equal-weight mean of
+/// returned history covering the requested window. The observation count may vary;
+/// `Twap` is not time-weighted.
 #[contracttype]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum OracleReadMode {
@@ -109,7 +108,7 @@ pub struct PriceFeed {
 
 impl PriceFeed {
     /// Converts a raw token amount (scaled by `asset_decimals`) to its WAD-scaled USD value
-    /// at this feed's price.
+    /// at this feed's price, rounding half up.
     pub fn usd_value_wad(self, env: &Env, token_amount: i128) -> crate::math::fp::Wad {
         crate::math::fp::Wad::from_token(env, token_amount, self.asset_decimals)
             .mul(env, self.price)

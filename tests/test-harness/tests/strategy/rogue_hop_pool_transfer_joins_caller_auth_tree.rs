@@ -19,7 +19,7 @@ use test_harness::{hub_asset, LendingTest, ALICE};
 
 const SWAP_IN_USDC: i128 = 50_000_000_000; // 5 000 USDC, 7 decimals
 const FAIR_OUT_ETH: i128 = 25_000_000; // 2.5 ETH at $2 000
-const WALLET_BALANCE: i128 = 77_770_000_000; // a token the protocol never listed
+const WALLET_BALANCE: i128 = 77_770_000_000; // Alice's balance of a token the protocol never listed
 
 #[contracttype]
 #[derive(Clone)]

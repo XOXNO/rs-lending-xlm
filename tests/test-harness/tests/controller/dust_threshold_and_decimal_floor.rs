@@ -1,6 +1,6 @@
-//! Boundary probes for the dust / precision surface the existing suites skip:
-//! the `MIN_ASSET_DECIMALS` endpoint (3), and the first depositor into a market
-//! drained after its supply index had already grown.
+//! Boundary probes for dust and precision: the `MIN_ASSET_DECIMALS` endpoint
+//! (3), and the first depositor into a market drained after its supply index
+//! grew.
 //!
 //! The harness mints on `supply_raw`, so supply legs are measured on the
 //! position book; token balances are only meaningful across an exit.
@@ -9,8 +9,7 @@ use soroban_sdk::Vec;
 use test_harness::presets::{MarketPreset, DEFAULT_ASSET_CONFIG, DEFAULT_MARKET_PARAMS};
 use test_harness::{helpers::usd, hub_asset, LendingTest, ALICE, BOB, CAROL};
 
-/// `MIN_ASSET_DECIMALS`. No preset anywhere in the harness uses 3 -- the suite
-/// only exercises 6, 7, 8, 9, 14 and 18.
+/// Market at `MIN_ASSET_DECIMALS` (3).
 fn low3() -> MarketPreset {
     MarketPreset {
         name: "LOW3",
@@ -43,9 +42,9 @@ fn supply_index(t: &LendingTest, name: &str) -> i128 {
         .supply_index
 }
 
-/// One raw unit at 3 decimals is 0.001 whole tokens -- the coarsest granularity
-/// the protocol admits. Supply / borrow / repay / withdraw must each move the
-/// book by exactly that unit and leave nothing stranded.
+/// One raw unit at 3 decimals is 0.001 tokens, the coarsest granularity the
+/// protocol admits. Supply, borrow, repay and withdraw each move the book by
+/// exactly that unit and leave nothing stranded.
 #[test]
 fn three_decimal_market_one_raw_unit_round_trip() {
     let mut t = LendingTest::new()
@@ -93,9 +92,9 @@ fn three_decimal_market_one_raw_unit_round_trip() {
     );
 }
 
-/// The first depositor into a market whose supply index has already grown, after
-/// every other supplier has left. The classic inflation-attack shape: if a first
-/// deposit could mint shares worth more than it paid, this is where it shows.
+/// The first depositor into a market whose supply index grew, after every other
+/// supplier left, is credited and paid back at most the deposit (the share
+/// inflation shape).
 #[test]
 fn first_depositor_after_index_growth_cannot_mint_free_value() {
     let mut t = LendingTest::new()
@@ -151,20 +150,17 @@ fn first_depositor_after_index_growth_cannot_mint_free_value() {
     );
 }
 
-/// End-to-end sweep of the permissionless `clean_bad_debt` gate across the
-/// `BAD_DEBT_USD_THRESHOLD` line, moving the account by **price alone**.
+/// Sweeps the permissionless `clean_bad_debt` gate across the
+/// `BAD_DEBT_USD_THRESHOLD` line by price alone.
 ///
-/// The gate is WAD USD, so an oracle move -- not a user action -- decides which
-/// side of it an account sits on. The property that has to hold is that a price
-/// move can never open the gate on an account that is still solvent: every
-/// price at which `clean_bad_debt` succeeds must already be a price at which
-/// the account was liquidatable. `is_socializable_bad_debt` requires
-/// `total_debt > total_collateral`, which is strictly stronger than `HF < 1`
-/// for any liquidation threshold below 100%, so the gate should never be the
-/// first thing that opens.
+/// The gate is in WAD USD, so an oracle move decides which side an account sits
+/// on. Every price at which the gate opens is a price at which the account is
+/// liquidatable: `is_socializable_bad_debt` requires
+/// `total_debt > total_collateral`, which implies `HF < 1` for any liquidation
+/// threshold below 100%.
 ///
-/// The certora rules and `contracts/controller/tests/positions/liquidation_curve.rs`
-/// pin the predicate; nothing drove it end to end through the oracle.
+/// The Certora rules and `contracts/controller/tests/positions/liquidation_curve.rs`
+/// pin the predicate in isolation; this test drives it through the oracle.
 #[test]
 fn clean_bad_debt_gate_never_opens_before_liquidation_does() {
     let mut t = LendingTest::new()
@@ -210,8 +206,7 @@ fn clean_bad_debt_gate_never_opens_before_liquidation_does() {
     let opened = opened_at.expect("the price walk never crossed the dust gate");
     assert!(opened > 0);
 
-    // At the crossing point the gate really is callable, so the sweep above was
-    // not vacuous.
+    // The gate is callable at the final price, so the sweep was not vacuous.
     t.clean_bad_debt_by_id(alice_id);
     assert!(
         !t.try_nft_owner_of(alice_id),

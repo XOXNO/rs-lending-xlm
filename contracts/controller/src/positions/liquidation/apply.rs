@@ -64,7 +64,7 @@ pub(crate) fn apply_liquidation_repayments(
             GenericError::AmountMustBePositive,
         );
 
-        // The measured transfer requires a positive amount, so division is safe.
+        // Planned amounts are positive, so the division is safe.
         let leg_usd = if received >= entry.amount {
             Wad::from(entry.usd_wad)
         } else {
@@ -133,9 +133,8 @@ pub(crate) fn apply_liquidation_seizures(
 /// No tokens move; pool supply and cash remain unchanged. Moving scaled shares
 /// also avoids supply-index drift between planning and application.
 ///
-/// Deposit-side seizure uses `absorb_supply_as_revenue` to reclassify existing
-/// shares. Transfer-mode fee minting would create unbacked claims here because
-/// credit mode withholds no outbound cash.
+/// The pool reclassifies the fee shares (`absorb_supply_as_revenue`); minting
+/// them would create claims without backing cash.
 pub(crate) fn apply_liquidation_share_credit(
     env: &Env,
     account: &mut Account,

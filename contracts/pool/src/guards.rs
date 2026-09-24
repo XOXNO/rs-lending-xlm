@@ -1,7 +1,6 @@
-//! Solvency and utilization invariants enforced after market mutations.
+//! Solvency, utilization and liquidity checks on the in-memory [`Cache`].
 //!
-//! These checks run on the in-memory [`Cache`] after interest accrual and
-//! share accounting, before (or as part of) committing state.
+//! Callers run them after interest accrual and before committing state.
 
 use common::errors::CollateralError;
 use common::math::fp::Ray;
@@ -10,7 +9,7 @@ use soroban_sdk::{assert_with_error, panic_with_error, Env};
 
 use crate::cache::Cache;
 
-/// Panic if utilization exceeds `params.max_utilization`.
+/// Panics with `UtilizationAboveMax` if utilization exceeds `params.max_utilization`.
 ///
 /// Skipped when there is no supply, or when max utilization is effectively
 /// unbounded (`>= RAY 1.0`).
@@ -27,9 +26,9 @@ pub(crate) fn require_utilization_below_max(env: &Env, cache: &Cache) {
     );
 }
 
-/// Panic if drawing `draw` from cash would leave less than the reserved liquidation buffer.
+/// Panics with `InsufficientLiquidity` if drawing `draw` leaves cash below the liquidation buffer.
 ///
-/// Only enforced on ordinary borrow draws; the buffer keeps cash available for seizures.
+/// Every debt mint checks it, borrows and strategy openings alike (INV-ACCT-07). Exits do not.
 pub(crate) fn require_liquidation_buffer(env: &Env, cache: &Cache, draw: i128) {
     let supplied = cache.unscale_supply_floor(cache.supplied());
     let reserved = common::math::fp::Bps::from(common::constants::LIQUIDATION_BUFFER_BPS)
@@ -41,9 +40,9 @@ pub(crate) fn require_liquidation_buffer(env: &Env, cache: &Cache, draw: i128) {
     );
 }
 
-/// Panic if the market has a positive backing shortfall (insolvent).
+/// Panics with `PoolInsolvent` if the market has a positive backing shortfall.
 ///
-/// Backing = cash + outstanding debt value; claims = floored supply value.
+/// Backing = cash + ceiled debt value; claims = floored supply value.
 pub(crate) fn require_backed_market(env: &Env, cache: &Cache) {
     assert_with_error!(
         env,

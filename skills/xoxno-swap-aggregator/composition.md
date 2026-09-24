@@ -8,7 +8,7 @@ router addresses (`controller`, `pool`, `aggregator` in `configs/networks.json`)
 Sources: `arb-algo/scripts/check-stellar-{lending,lp}-composition.ts`,
 `rs-lending-xlm/contracts/controller/src/strategies/{swap,legs,multiply,swap_debt,swap_collateral,repay_debt_with_collateral}.rs`,
 `contracts/swap-aggregator/src/{execute/mod,program}.rs`, `common/src/token.rs`,
-`sdk-js/src/sdk/stellar/{lending,scval-encode,swap,repay-swap}.ts` (1.0.214).
+`sdk-js/src/sdk/stellar/{lending,scval-encode,swap,repay-swap,quote,prepare}.ts` (1.0.214).
 
 ## Standalone or composed
 
@@ -56,17 +56,20 @@ untouched: `steps: { routeXdr: quote.routeXdr }` or
 `mapQuoteResponseToStrategySwap(quote)` (returns `{ routeXdr }` when present). The
 builders decode base64 into Soroban `Bytes` via `asStellarStrategySwapBytes`; the
 controller forwards those bytes to the router as `swap_xdr` without decoding them.
-`referralId` is baked into `routeXdr` by the server; there is no way to add one later.
+Set `referralId` on the quote request: the server encodes it into `routeXdr`, and the
+builders cannot add it later.
 
 ### Exact-out status
 
 Exact-out preservation is **external, pinned quote-server behavior**, not an invariant
 proved by this repository. At `arb-algo` commit `f2d5fe9`,
 `preserve_output_minimum` keeps `amountOutMin >= requested amountOut`; this makes
-exact-out useful when the target matters (for example, repaying N debt). Pin and
-re-verify that server revision before relying on it. The returned `amountIn` is the
-amount the controller must withdraw or borrow; the router has no separate maximum-input
-guard.
+exact-out useful when the target matters (for example, repaying N debt). The hosted
+server can change, so check that `amountOutMin` is at least the `amountOut` you
+requested before you build. The returned `amountIn` is what the router must receive.
+Withdraw it unchanged. For a borrow (`multiply`, `swap_debt`), subtract any debt-asset
+`initialPayment`, then borrow `grossForNet` of the rest. The router has no separate
+maximum-input guard.
 
 ## `amountIn` per lending verb
 
@@ -83,20 +86,20 @@ The controller measures what it actually receives and hands exactly that to the 
 | `repay_debt_with_collateral` (`buildStellarRepayDebtWithCollateralTx`) | `collateral.asset → debt.asset` | `collateralAmount` (measured withdrawal) | Same withdrawal leg; then repays with the measured swap output |
 
 `fee = round_half_up(gross × flashloan_fee / 10_000)`, min 1 when the rate is positive
-([../xoxno-lending/math.md#flash-loan-and-strategy-fees](../xoxno-lending/math.md#flash-loan-and-strategy-fees));
-`flashloan_fee` (bps) and `is_flashloanable` come from `pool.get_sync_data(HubAssetKey).params`
-or the reserve DTO's `flashloanFeeBps`; helper (`netAfterFlashFee`, `grossForNet`) in
+([../xoxno-lending/math.md#flash-loan-and-strategy-fees](../xoxno-lending/math.md#flash-loan-and-strategy-fees)).
+Read `flashloan_fee` (BPS) from `pool.get_sync_data(HubAssetKey).params` or the reserve
+DTO's `flashloanFeeBps`. The strategy fee applies even when `is_flashloanable` is false.
+Helpers `netAfterFlashFee` and `grossForNet`:
 [../xoxno-lending-sdk/strategies.md#sizing-rule-per-verb-what-amountin-must-equal](../xoxno-lending-sdk/strategies.md#sizing-rule-per-verb-what-amountin-must-equal).
 
-Withdrawals sized with the withdraw-all sentinel (`i128::MAX`,
-`WITHDRAW_ALL_SENTINEL`) hand the router an amount you cannot know exactly up front;
-quote the current position balance, but do not treat the result as amount-agnostic. The
-first hop may use `Mode::All` or `Mode::Ppm` and consume the smaller measured withdrawal,
-while `amountOutMin` remains the **absolute floor encoded for the quoted estimate**. If
-the actual input is smaller, the proportional output can fall below that fixed floor
-and revert with `SlippageExceeded`. Re-read the position immediately before building,
-leave a deliberate safety margin, or avoid withdraw-all composition when the amount can
-move materially; always simulate the complete transaction.
+A withdrawal sized with the withdraw-all sentinel (`i128::MAX`, `WITHDRAW_ALL_SENTINEL`)
+hands the router an amount you cannot know exactly in advance. Quote the current position
+balance. The first hop may use `Mode::All` or `Mode::Ppm` and consume the measured
+withdrawal, but `amountOutMin` stays the **absolute floor encoded for the quoted
+amount**. A smaller actual input can give an output below that floor and revert with
+`SlippageExceeded`. Re-read the position immediately before you build, quote slightly
+less than the balance, or do not use withdraw-all when the amount can change materially.
+Always simulate the complete transaction.
 
 `accountNonce`, `mode`, `initialPayment` and `convertSwap` rules:
 [../xoxno-lending-sdk/strategies.md#mode-initialpayment-convertswap](../xoxno-lending-sdk/strategies.md#mode-initialpayment-convertswap).
@@ -122,13 +125,13 @@ non-empty route into a same-token swap would also fail inside the router with
 
 ## Budget: why `maxSplits: 1`, `maxHops: 2`
 
-The server's budget ladder (`build_attempt_ladder`) only runs when it simulates, which
-requires `sender`. A composed quote is never budget-checked by the server: the
-controller verb adds pool calls, oracle reads and account updates around the swap, so
-keep `maxSplits` at 1 and `maxHops` at 2 for composition (`STELLAR_LENDING_QUOTE_MAX_HOPS`
-/ `_MAX_SPLITS` in `xoxno-ui/src/modules/swap/soroswap.ts`; a 4-hop `swap_collateral`
-hit `Budget, ExceededLimit` on testnet), and treat a `Budget, ExceededLimit` in your own
-simulation as "re-quote with smaller limits". Request and program caps:
+The server's budget ladder (`build_attempt_ladder`) runs only when the server simulates,
+and simulation requires `sender`. The server never budget-checks a composed quote. The
+controller verb adds pool calls, oracle reads and account updates around the swap. For
+composition, keep `maxSplits` at 1 and `maxHops` at 2 (`STELLAR_LENDING_QUOTE_MAX_HOPS`
+/ `_MAX_SPLITS` in `xoxno-ui/src/modules/swap/soroswap.ts`); a 4-hop `swap_collateral`
+hit `Budget, ExceededLimit` on testnet. If your own simulation fails with
+`Budget, ExceededLimit`, re-quote with smaller limits. Request and program caps:
 [api.md#get-apiv1quote](api.md#get-apiv1quote), [payload.md](payload.md#packed-program-ops--version-1).
 
 ## Re-simulate, then read the revert
@@ -154,12 +157,14 @@ The controller never checks a minimum output. The only slippage floor is
 credits its measured output-balance delta, and the verb's own risk checks
 (`strategy_finalize`) apply the same LTV / health-factor gates as a manual borrow. The
 `swap_tokens` auth and measurement sequence is in
-[../xoxno-lending-contracts/composing.md#calling-the-router-directly](../xoxno-lending-contracts/composing.md#calling-the-router-directly).
+[`strategies/swap.rs`](../../contracts/controller/src/strategies/swap.rs).
 
 ## Your own contract as `sender`
 
 Use the contract-sender flow in
 [payload.md#authorization-model](payload.md#authorization-model), then credit the
 measured output-balance delta. Quote without `sender`; the bytes arrive as an argument.
-Rust:
-[../xoxno-lending-contracts/composing.md#calling-the-router-directly](../xoxno-lending-contracts/composing.md#calling-the-router-directly).
+Rust reference: `swap_tokens` in
+[`strategies/swap.rs`](../../contracts/controller/src/strategies/swap.rs). Token-pull
+rules:
+[../xoxno-lending-contracts/composing.md#token-pull-ordering](../xoxno-lending-contracts/composing.md#token-pull-ordering).

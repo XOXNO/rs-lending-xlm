@@ -187,9 +187,7 @@ fn test_chaos_bank_run_full_exit() {
         "Carol debt should be ~0 after full repay"
     );
 
-    // Eve is a pure supplier, so her exit is fully determined: the wallet must
-    // move by exactly her credited balance. Counting successes alone cannot see
-    // a bug that under-pays every withdrawer and strands the surplus.
+    // Eve only supplies, so her full withdrawal pays out her credited balance.
     let eve_credited = t.supply_balance_raw(EVE, "USDC");
     let eve_wallet_before = t.token_balance_raw(EVE, "USDC");
 
@@ -208,9 +206,8 @@ fn test_chaos_bank_run_full_exit() {
         "all suppliers should successfully withdraw: got {} successes out of 5 suppliers",
         withdraw_successes
     );
-    // Exact to the stroop, and directional: withdraw floors in the protocol's
-    // favour (ADR-0003), so the payout is the credited balance or one stroop
-    // under it -- never over, and never 5% under.
+    // Withdraw rounds down in the protocol's favour (ADR-0003), so the payout is
+    // the credited balance or one raw unit under it, never over.
     let eve_paid = t.token_balance_raw(EVE, "USDC") - eve_wallet_before;
     assert!(
         eve_paid == eve_credited || eve_paid == eve_credited - 1,
@@ -218,10 +215,9 @@ fn test_chaos_bank_run_full_exit() {
          floor: paid={eve_paid}, credited={eve_credited}"
     );
 
-    // `pool_reserves` is `state.cash`, which the builder pre-loads with
-    // `initial_liquidity` (src/multi_hub.rs:80-95). `>= 0.0` therefore had a
-    // million-unit margin. Every supplier has exited, so the only cash that may
-    // remain is that donation plus the unclaimed protocol revenue.
+    // `pool_reserves` reads the pool cash, which the builder seeds with
+    // `initial_liquidity`. After every supplier exits, the cash still covers
+    // that seed; the rest is unclaimed protocol revenue.
     let usdc_reserves = t.pool_reserves("USDC");
     let eth_reserves = t.pool_reserves("ETH");
     assert!(

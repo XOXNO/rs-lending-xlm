@@ -33,7 +33,7 @@ configuration require separate verification.
 ## Development
 
 Install the Rust toolchain and targets in [rust-toolchain.toml](rust-toolchain.toml)
-and Stellar CLI, then build the WASM contracts before running tests.
+and the Stellar CLI, then build the WASM contracts before running tests.
 
 ```sh
 git clone https://github.com/XOXNO/rs-lending-xlm.git
@@ -51,7 +51,7 @@ make help
 | Formatting check / lint | `make fmt-check` / `make clippy` |
 | Documentation links and symbol names | `make docs-check` |
 
-Contracts, shared arithmetic, and client interfaces live in `contracts/`,
+Contracts, shared logic, and client interfaces live in `contracts/`,
 `common/`, and `interfaces/`. Verification lives in `tests/` and `certora/`.
 The keeper and exporter use separate service workspaces. See
 [Contributing](CONTRIBUTING.md) for change and review requirements.

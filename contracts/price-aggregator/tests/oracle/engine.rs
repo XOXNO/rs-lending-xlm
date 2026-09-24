@@ -77,7 +77,7 @@ fn test_a_fundamental_leg_may_lag_its_market_partner_past_the_spread_bound() {
     });
 }
 
-/// The bound is exclusive: legs exactly `MAX_LEG_AGE_SPREAD_SECONDS` apart are
+/// The bound is inclusive: legs exactly `MAX_LEG_AGE_SPREAD_SECONDS` apart are
 /// still blended. Kills the `>` -> `>=` mutant at the comparison.
 #[test]
 fn test_two_market_legs_exactly_at_the_spread_bound_still_price() {
@@ -940,15 +940,9 @@ fn test_a_scaled_factor_outside_its_band_is_rejected() {
     });
 }
 
-/// `to_status` is what `PriceAggregator::quotes` returns, and it had no test —
-/// found by sweeping the 84 common/price-aggregator Certora rules for
-/// production functions with no Rust coverage. Two rules reference it; nothing
-/// else did.
-///
-/// The security-relevant half is the first branch: an outcome carrying an error
-/// must collapse to `unusable()` and nothing else. A consumer reads `valid` to
-/// decide whether to act on a price, so an errored resolution leaking a
-/// non-zero price with `valid: true` is the failure that matters.
+/// `PriceAggregator::quotes` returns `to_status` output. An outcome carrying an
+/// error collapses to `unusable()` plus its `error_code`: a consumer reads
+/// `valid` to decide whether to act, so no other field of the errored outcome leaks.
 #[test]
 fn to_status_collapses_an_errored_outcome_to_unusable() {
     let mut outcome = Outcome::blank();
@@ -976,12 +970,9 @@ fn to_status_collapses_an_errored_outcome_to_unusable() {
     assert_eq!(status.secondary_wad, 0);
 }
 
-/// The mainnet shape that motivated `error_code`: a nested reference leg going
-/// stale surfaces on the dependent asset as `Outcome::with_err`, which zeroes
-/// `stale` and `deviation`. Read on their own those two flags say the price
-/// passed both checks, when in fact neither ran. `error_code` is the only field
-/// that separates this from a healthy price, so an operator dashboard built on
-/// `stale`/`deviation` alone reports "ok" for a staleness failure.
+/// A nested reference leg going stale surfaces on the dependent asset as
+/// `Outcome::with_err`, which zeroes `stale` and `deviation`. `error_code` is
+/// then the only field that separates it from a healthy price.
 #[test]
 fn to_status_reports_the_error_code_when_flags_are_zeroed() {
     let outcome = Outcome::with_err(OracleError::PriceFeedStale);
@@ -1004,9 +995,8 @@ fn to_status_reports_the_error_code_when_flags_are_zeroed() {
     );
 }
 
-/// The other branch: a clean outcome must map straight through, each field to
-/// its counterpart. Primary and secondary are distinct values here so a swapped
-/// mapping cannot pass — that is the mistake this shape is chosen to catch.
+/// A clean outcome maps each field to its counterpart. Distinct primary and
+/// secondary values catch a swapped mapping.
 #[test]
 fn to_status_maps_a_clean_outcome_field_for_field() {
     let mut outcome = Outcome::blank();
@@ -1035,10 +1025,8 @@ fn to_status_maps_a_clean_outcome_field_for_field() {
     assert!(!status.deviation);
 }
 
-/// Flags must survive the mapping even when the outcome carries no error: a
-/// stale or deviating reading is still reported, and it is the consumer's job
-/// to weigh them. Silently clearing either would hide exactly the condition
-/// they exist to signal.
+/// Without an error, the stale and deviation flags pass through unchanged for
+/// the consumer to weigh.
 #[test]
 fn to_status_preserves_stale_and_deviation_flags_without_an_error() {
     let mut outcome = Outcome::blank();
@@ -1054,18 +1042,12 @@ fn to_status_preserves_stale_and_deviation_flags_without_an_error() {
     assert_eq!(status.final_wad, WAD);
 }
 
-/// Both cycle guards, driven directly.
+/// Both cycle guards, driven directly. Each test pushes the key onto the
+/// resolution stack, the state a re-entrant source produces, and checks that
+/// the entry point refuses rather than recursing.
 ///
-/// `test_a_scaled_cycle_reverts_at_read_time_too` above builds a self-quoting
-/// oracle but discards the result -- `let _ = resolve(..)` -- so it asserts
-/// nothing, and region analysis shows neither `is_resolving` arm was reached by
-/// the suite. These push the key onto the resolution stack first, which is the
-/// state a re-entrant source produces, and check that each entry point refuses
-/// rather than recursing.
-///
-/// The stack is the only thing bounding recursion through a composed oracle
-/// graph: `MAX_RESOLUTION_DEPTH` bounds a chain, but a cycle short enough to sit
-/// inside the depth cap would spin without this.
+/// `MAX_RESOLUTION_DEPTH` bounds a chain; the stack bounds a cycle that fits
+/// inside the depth cap.
 #[test]
 fn resolve_outcome_refuses_a_key_already_on_the_resolution_stack() {
     let env = Env::default();

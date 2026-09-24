@@ -52,9 +52,8 @@ fn test_compound_interest_high_x_pins_all_taylor_terms() {
     );
 }
 
-/// Pins the Taylor-term loop against the hand-unrolled `x^2..x^8` form it replaced: same
-/// operation order, same rounding, bit-identical results across the supported rate and
-/// elapsed-time domain.
+/// The Taylor-term loop in `compound_interest` equals a hand-unrolled `x^2..x^8` expansion
+/// bit for bit across the supported rate and elapsed-time domain.
 #[test]
 fn test_compound_interest_matches_the_unrolled_taylor_expansion() {
     fn unrolled(env: &Env, x: Ray) -> Ray {

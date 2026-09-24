@@ -2,11 +2,6 @@
 //! revalidates composed oracles when a key they are built on changes, the
 //! cycle guard that keeps that walk from recursing forever, and the LP
 //! source-count rule.
-//!
-//! `set_oracle` is the only writer, so a composed oracle is only ever as valid
-//! as the last edit to whatever it quotes. `revalidate_dependents` is what
-//! stops an edit to a base feed from silently invalidating everything stacked
-//! on top of it, and none of it had a test.
 use super::*;
 
 use crate::registry;
@@ -45,8 +40,6 @@ fn one(env: &Env, source: PriceSource) -> Vec<PriceSource> {
 }
 
 fn oracle_of(env: &Env, sources: Vec<PriceSource>) -> AssetOracle {
-    // Kept in the signature for call-site symmetry with the other fixtures;
-    // same idiom as `oracle` in tests/oracle/engine.rs.
     let _ = env;
     AssetOracle {
         asset_decimals: 8,
@@ -73,9 +66,8 @@ fn scaled_onto(env: &Env, adapter: &Address, quote: PriceKey) -> PriceSource {
     PriceSource::Scaled(ScaledSource {
         factor: feed(env, adapter, "RATIO", CEILING),
         quote,
-        // validation::factor_bounds rejects a max above MAX_REASONABLE_PRICE_WAD,
-        // so an unbounded factor never survives set_oracle. The published RATIO
-        // is 1 WAD, which sits inside this band.
+        // `validation::factor_bounds` caps the max at `MAX_REASONABLE_PRICE_WAD`.
+        // The published RATIO (1 WAD) sits inside this band.
         min_factor_wad: WAD / 2,
         max_factor_wad: 2 * WAD,
     })
@@ -144,10 +136,8 @@ fn depends_on_terminates_on_a_cycle_rather_than_recursing_forever() {
     let env = Env::default();
     let adapter = Address::generate(&env);
     in_contract(&env, || {
-        // A quotes B and B quotes A. set_oracle's validation would reject this,
-        // but the registry is written directly here: the guard exists precisely
-        // because the walk must stay bounded on a graph nobody validated, and
-        // storage archival can leave a partially-rewritten graph behind.
+        // A quotes B and B quotes A. `set_oracle` rejects this cycle, so the
+        // registry is written directly.
         let a = PriceKey::Token(Address::generate(&env));
         let b = PriceKey::Token(Address::generate(&env));
         registry::store_oracle(
@@ -161,11 +151,10 @@ fn depends_on_terminates_on_a_cycle_rather_than_recursing_forever() {
             &oracle_of(&env, one(&env, scaled_onto(&env, &adapter, a.clone()))),
         );
 
-        // Reaching this assertion at all is the point: without the `visiting`
-        // guard the walk revisits `a` forever and the host traps on depth.
+        // Without the `visiting` guard this walk recurses until the host traps.
         let stranger = PriceKey::Ref(Symbol::new(&env, "OTHER"));
         assert!(!depends_on(&env, &a, &stranger, &mut Vec::new(&env)));
-        // The cycle still resolves as a dependency of itself in one direction.
+        // The direct edge from `a` to `b` still matches.
         assert!(depends_on(&env, &a, &b, &mut Vec::new(&env)));
     });
 }
@@ -248,10 +237,8 @@ fn an_lp_source_may_not_share_its_oracle_with_a_second_source() {
     });
 }
 
-/// A RedStone-shaped feed that records every read so a test can tell how many
-/// times the cascade actually crossed the contract boundary. The counter lives
-/// in the adapter's own storage, so it survives the nested calls that
-/// `revalidate_dependents` makes while walking the dependency graph.
+/// A RedStone-shaped feed that counts its reads in its own storage, so a test
+/// can count how many times the cascade crosses the contract boundary.
 #[soroban_sdk::contract]
 pub(crate) struct CountingRedStoneFeed;
 
@@ -293,16 +280,10 @@ impl CountingRedStoneFeed {
     }
 }
 
-/// `revalidate_dependents` walks every oracle stacked on the changed key and
-/// must not cross a contract boundary while doing so. Every live provider
-/// read instantiates a callee VM and is charged to the transaction memory
-/// budget; on mainnet a key with three LP dependents already exceeded the
-/// 40 MiB limit (2026-09-05, governance op `d1079454…`), which made XLM and
-/// USDC unconfigurable. Structural validation reads only the registry.
-///
-/// The chain is `base <- mid <- leaf`: rewriting `base` revalidates `mid` and
-/// `leaf`. The single provider read allowed is the one `set_oracle` makes
-/// while probing `base` itself.
+/// Rewriting `base` in `base <- mid <- leaf` revalidates `mid` and `leaf` from
+/// the registry alone. The only provider read is the probe of `base` itself.
+/// Each live provider read instantiates a callee VM, which the transaction
+/// memory budget pays for.
 #[test]
 fn revalidating_dependents_crosses_no_contract_boundary() {
     let env = Env::default();
@@ -333,9 +314,7 @@ fn revalidating_dependents_crosses_no_contract_boundary() {
         );
     });
 
-    // Probing `base` reads BASE once. Revalidating `mid` and `leaf` must add
-    // nothing: a live re-probe of the dependents would read RATIO and BASE
-    // again, and every such read is a VM instantiation on mainnet.
+    // Probing `base` reads BASE once; revalidating `mid` and `leaf` adds no read.
     let reads = client.reads();
     assert_eq!(
         reads, 1,
@@ -343,8 +322,8 @@ fn revalidating_dependents_crosses_no_contract_boundary() {
     );
 }
 
-/// The structural check on dependents still fires without a live probe. The
-/// chain `base <- mid <- leaf` sits at depth 2 from `leaf`. Re-pointing
+/// The structural check on dependents fires without a live probe. The chain
+/// `base <- mid <- leaf` sits at depth 2 from `leaf`. Re-pointing
 /// `base` onto a two-deep stack pushes `leaf` to depth 4, past
 /// `MAX_RESOLUTION_DEPTH`, and the edit to `base` must be refused even though
 /// `base` itself validates.
@@ -379,8 +358,8 @@ fn a_base_edit_that_pushes_a_dependent_past_the_depth_limit_is_rejected() {
             &oracle_of(&env, one(&env, scaled_onto(&env, &adapter, deeper))),
         );
 
-        // base <- deep <- deeper is depth 2 from base and passes on its own;
-        // leaf <- mid <- base <- deep <- deeper is depth 4 and must not.
+        // deeper <- deep <- base is depth 2 from base and passes on its own;
+        // deeper <- deep <- base <- mid <- leaf is depth 4 and must not.
         set_oracle(
             &env,
             base,

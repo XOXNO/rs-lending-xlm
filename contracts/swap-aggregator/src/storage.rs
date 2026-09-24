@@ -103,9 +103,8 @@ pub(crate) fn accumulate_fee(env: &Env, key: DataKey, amount: i128) {
 /// `static_amount` and referral `referral_id`'s bucket by `referral_amount` — and reserves the
 /// combined amount. A non-positive amount leaves its bucket untouched.
 ///
-/// Equivalent to two [`accumulate_fee`] calls and settles on the same stored state, but the
-/// shared [`DataKey::ReservedTotal`] entry is read, written and TTL-extended once instead of
-/// twice. Panics with `Error::IntegerOverflow` if any addition overflows `i128`.
+/// Writes [`DataKey::ReservedTotal`] once for both buckets. Panics with `Error::IntegerOverflow`
+/// if any addition overflows `i128`.
 pub(crate) fn accumulate_swap_fees(
     env: &Env,
     token: &Address,
@@ -132,8 +131,8 @@ pub(crate) fn accumulate_swap_fees(
 /// Adds `amount` to the fee bucket balance stored under `key` and persists the result, without
 /// touching the token's reserved total. Panics with `Error::IntegerOverflow` on overflow.
 ///
-/// Private because a bucket write that is not matched by a [`reserve`] of the same amount breaks
-/// the counter `sweep_balance` trusts; the two public accrual paths above pair them.
+/// Every call must be paired with a [`reserve`] of the same amount, or `sweep_balance` can
+/// transfer fee backing.
 fn credit_bucket(env: &Env, key: DataKey, amount: i128) {
     let cur: i128 = env.storage().persistent().get(&key).unwrap_or(0);
     let next = checked_add(env, cur, amount);
@@ -155,10 +154,6 @@ pub(crate) fn take_fee_bucket(env: &Env, key: &DataKey) -> i128 {
 
 /// Returns the total fee balance reserved for `token`: the admin fee bucket plus every referral
 /// fee bucket, read from the [`DataKey::ReservedTotal`] counter in one lookup.
-///
-/// The counter replaces a walk over `1..=referral_counter()`, which grew unboundedly with the
-/// number of referrals ever issued and would eventually exhaust the CPU budget of
-/// `sweep_balance`.
 pub(crate) fn reserved_fee_balance(env: &Env, token: &Address) -> i128 {
     let key = DataKey::ReservedTotal(token.clone());
     let total: i128 = env.storage().persistent().get(&key).unwrap_or(0);
@@ -170,13 +165,9 @@ pub(crate) fn reserved_fee_balance(env: &Env, token: &Address) -> i128 {
 
 /// Returns the token a fee bucket is denominated in.
 ///
-/// Inverse of `fees::FeeBucket::key`, which maps a bucket kind to its `DataKey`: the two encode
-/// the same key set in opposite directions and must be extended together if a bucket kind is
-/// ever added.
+/// Inverse of `fees::FeeBucket::key`; a new bucket kind must extend both.
 ///
-/// Panics with [`Error::InternalInvariant`] for any other key. Every caller passes a bucket key,
-/// and failing closed matters: a key that slipped through would leave the reserved counter
-/// under-reporting, and `sweep_balance` would then pay out fee backing as if it were stray dust.
+/// Panics with [`Error::InternalInvariant`] for a key that is not a fee bucket.
 fn bucket_token(env: &Env, key: &DataKey) -> Address {
     match key {
         DataKey::AdminFee(token) | DataKey::ReferralFee(_, token) => token.clone(),
@@ -186,10 +177,8 @@ fn bucket_token(env: &Env, key: &DataKey) -> Address {
 
 /// Adds `amount` to `token`'s reserved total. Panics with `Error::IntegerOverflow` on overflow.
 ///
-/// A zero amount reserves nothing, so it must not create the entry either. A *negative* amount is
-/// the one input that could drive the counter below the backing it represents, which is exactly
-/// the state that turns `sweep_balance` into an over-transfer, so it fails closed here rather
-/// than at the point where the money moves.
+/// A zero amount writes nothing. Panics with [`Error::InternalInvariant`] on a negative amount,
+/// which would let `sweep_balance` transfer fee backing.
 fn reserve(env: &Env, token: &Address, amount: i128) {
     if amount < 0 {
         panic_with_error!(env, Error::InternalInvariant);
@@ -206,10 +195,7 @@ fn reserve(env: &Env, token: &Address, amount: i128) {
 
 /// Subtracts `amount` from `token`'s reserved total, removing the entry once it reaches zero.
 ///
-/// Panics with [`Error::InternalInvariant`] if the total would go negative. Only
-/// [`accumulate_fee`], [`accumulate_swap_fees`] and [`take_fee_bucket`] move both a bucket and
-/// this counter, so a shortfall would mean a bucket was written behind their backs and the
-/// counter can no longer be trusted.
+/// Panics with [`Error::InternalInvariant`] if the total would go negative.
 ///
 /// Callers pass `amount > 0` (a bucket balance that was just removed), so once `current >= amount`
 /// the subtraction lands in `0..=current` and cannot overflow.

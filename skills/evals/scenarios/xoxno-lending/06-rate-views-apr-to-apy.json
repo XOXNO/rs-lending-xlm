@@ -5,9 +5,9 @@
   "query": "What's the current supply APY for a market? I can read get_deposit_rate and get_borrow_rate from the pool contract.",
   "expected_behavior": [
     "Reads get_borrow_rate / get_deposit_rate as annual RAY fractions (divide by 1e27), never as APY, WAD, BPS, or token units",
-    "Converts APR to APY (contract: e^apr − 1; API supplyApy/borrowApy: daily compounding) instead of labeling the raw view as APY",
+    "Converts APR to APY (continuous: e^apr − 1, an approximation of on-chain accrual; API supplyApy/borrowApy: daily compounding) instead of labeling the raw view as APY",
     "States that those pool views use stored indexes (no live projection) and that utilization is hub-pool scoped, not per spoke",
-    "Points to math.md for the deposit-rate formula and the three-kink borrow curve instead of restating them"
+    "Points to math.md for the deposit-rate formula and the three-segment borrow curve instead of restating them"
   ],
   "machine_checkable": [
     "Generated TypeScript passes tsc --noEmit",

@@ -5,9 +5,9 @@
   "query": "I want a keeper contract to manage my vault's XOXNO lending account (rebalance, keep it alive). How do I set that up on-chain?",
   "expected_behavior": [
     "States that add_delegate(caller, account_id, delegate) only succeeds if the delegate is already an active position manager via the governance-gated set_position_manager(manager, true); otherwise it reverts NotAuthorized (#44). Does not present add_delegate as self-service",
-    "Calls add_delegate from the vault contract (the NFT holder) as caller; explains that ownership is the position NFT and any delegate grant is revoked if the NFT leaves the vault",
+    "Calls add_delegate from the vault contract (the NFT holder) as caller; explains that ownership is the position NFT and any delegate grant is inactive while another address holds the NFT",
     "For TTL, distinguishes renew_account(caller, account_id) (owner-only, renews controller account entries plus the NFT Owner entry) from the permissionless PositionNft renew(token_id) the keeper can call without being a delegate; does not have the keeper call renew_account",
-    "Notes that renewal extends live entries only; an archived account needs RestoreFootprint, so the keeper must renew before expiry rather than after",
+    "Notes that the keeper renews before expiry to avoid restore rent; a simulated and assembled invocation restores archived entries inline and the submitter pays the rent, and only a hand-built footprint needs an explicit RestoreFootprint",
     "Extends the vault's own persistent key holding the account id (TTL_THRESHOLD_USER / TTL_BUMP_USER tier) so the pointer cannot outlive the account it references",
     "Takes controller, position-NFT and keeper addresses from config/constructor, not hardcoded literals"
   ],

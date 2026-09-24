@@ -58,7 +58,8 @@ clearing restrictions requires a timelock under the repository wiring.
 
 A listing edit and the guardian flag method can only keep or tighten flags.
 Only the timelocked `relax_spoke_asset_flags` clears one, and only while the
-listing's flags epoch equals its `expected_epoch`.
+listing's flags epoch equals its `expected_epoch`. The oracle role's immediate
+`set_sanity_band` can only keep or narrow a band.
 
 <a id="inv-auth-05"></a>
 <a id="inv-auth-05--governance-delay-cannot-be-shortened"></a>
@@ -197,11 +198,11 @@ reserve.
 
 ### INV-ACCT-10 — Account books reconcile with pool totals
 
-The pool stores market totals only. Every pool call carries the caller's scaled
-position, and the pool trusts it: it has no per-account book to check the value
-against. For each market, the sum of account supply shares therefore equals the
-pool's supplied shares minus its revenue shares, and the sum of account debt
-shares equals the pool's borrowed shares.
+The pool stores market totals only. Every pool position call carries the
+account's scaled position, and the pool trusts it: it has no per-account book to
+check the value against. For each market, the sum of account supply shares
+equals the pool's supplied shares minus its revenue shares, and the sum of
+account debt shares equals the pool's borrowed shares.
 
 The controller holds this by construction, not by a runtime assertion. It takes
 each new scaled position from the pool's returned mutation, merges duplicate
@@ -211,8 +212,9 @@ fee are asserted to sum exactly. A controller path that writes a position from
 any other source, or that sends a stale position to the pool, breaks this
 invariant without a revert.
 
-The conservation property test checks both equalities after every operation,
-and it bounds cash against the seeded liquidity so that the bound binds. No
+The `prop_accounting_conservation` property test checks both equalities in
+token units, within 4 units, after every operation. The seed-adjusted cash tests
+subtract the seeded pool liquidity, so their cash bound is tight. No
 on-chain view enumerates accounts, so on a live network only the spoke-level
 identity (pool supplied minus the sum of spoke usage equals revenue) can be
 read.
@@ -466,7 +468,6 @@ grants, index updates, revenue claims and threshold refresh.
 
 Withdrawal, repayment, liquidation, bad-debt cleanup, recapitalization, account
 renewal and delegate revocation remain callable under their separate gates.
-Some maintenance operations therefore remain pause-gated.
 
 <a id="inv-halt-02"></a>
 
@@ -490,9 +491,10 @@ usage against the asset-unit cap converted at the returned live index.
 
 That conversion saturates at `i128::MAX` instead of reverting, so the scaled
 cap can fail open: once saturated, the configured asset-unit limit is not
-enforced. Domain-max supply caps after a supply-index write-down to the floor
-(`RAY / 1000`) are the practical case; borrow indexes stay at least one RAY, so
-borrow caps are far less exposed. See
+enforced. An admitted cap saturates only at an index below one RAY. At the
+supply-index floor (`RAY / 1000`), a supply cap above 1/1000 of the admitted
+maximum saturates. The borrow index never falls below one RAY, so an admitted
+borrow cap cannot saturate. See
 [cap conversion](formulas.md#caps-fees-and-numeric-limits).
 
 Exits consume no cap. Missing usage rows and zero deltas are no-ops, and stored
@@ -641,7 +643,7 @@ ordinary supply and repayment do not universally apply that final account gate.
 
 ### INV-STRAT-03 — Blend migration requires an approved pool
 
-Blend migration requires the destination pool on the controller's
+Blend migration requires the source Blend pool on the controller's
 governance-managed approval list. Admission does not prove permanent integrity
 of external code.
 

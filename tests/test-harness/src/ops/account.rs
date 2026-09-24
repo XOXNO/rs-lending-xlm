@@ -157,18 +157,10 @@ impl LendingTest {
         );
     }
 
-    /// Post-transfer bookkeeping: registers `account_id` against `user` in the
-    /// harness's local user index so subsequent harness verbs keyed by user
-    /// name (`supply`, `borrow`, `resolve_account_id`, ...) resolve to the
-    /// account the NFT was just transferred to. Does not touch on-chain
-    /// state -- the NFT transfer itself (via `nft_transfer`) is the source of
-    /// truth for ownership.
+    /// Registers `account_id` under `user` in the harness user index and removes it from every
+    /// other user's index. It becomes `user`'s default account only when `user` has no live one.
     ///
-    /// Also prunes `account_id` from every *other* user's bookkeeping --
-    /// mirroring what `remove_account` does for the id it removes -- so a
-    /// stale entry doesn't linger in the old owner's `accounts`/
-    /// `default_account_id` and cause harness verbs invoked as the old owner
-    /// to keep resolving an account they no longer own.
+    /// Does not change on-chain state: `nft_transfer` moves the ownership.
     pub fn adopt_account(
         &mut self,
         user: &str,

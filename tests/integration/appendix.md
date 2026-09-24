@@ -6,9 +6,10 @@ from a test run rather than from this page.
 
 `make integration-appendix` only creates this file when it is missing; it never
 overwrites the checked-in text. It runs no test and captures no harness output.
-`full_e2e.sh` copies whatever this file contains into `runs/<RUN_TS>/appendix.md`.
+`full_e2e.sh`, `flash_position.sh`, `blend.sh` and `strategies.sh` copy this
+file into `runs/<RUN_TS>/appendix.md`, and `report.md` ends with that copy.
 
-Per-call CPU, memory, and ledger-entry costs:
+Per-call CPU and memory totals, with CPU split by host cost type:
 
 ```bash
 cargo test -p test-harness --test meta budget_breakdown -- --nocapture

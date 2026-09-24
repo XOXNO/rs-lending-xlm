@@ -337,7 +337,7 @@ fn directed_rounding(env: &Env, i: &In) {
 /// `floor <= exact <= ceil` that the directed rounding must respect.
 fn rational_differential(env: &Env, i: &In) {
     // scaled up to 1e36 raw ray, index in [1x, ~11x], price up to 1e25 wad,
-    // token decimals 0..=18: every intermediate stays inside i128.
+    // token decimals 0..=18: every stage result fits in i128.
     let scaled = magnitude(i.scaled_raw) * 10i128.pow((i.scaled_shift % 18) as u32);
     let index = RAY + magnitude(i.index_raw) * 1_000_000_000;
     let price = magnitude(i.price_raw) * 10i128.pow((i.price_shift % 7) as u32);

@@ -18,7 +18,7 @@ reading the accounting, and for anyone reading the ABI.
 Two persistent keys per market, and **no per-user storage anywhere**:
 
 ```text
-PoolKey::Params(HubAssetKey)   # rate curve, asset id, decimals
+PoolKey::Params(HubAssetKey)   # InterestRateModel fields, asset id, decimals
 PoolKey::State(HubAssetKey)    # supplied, borrowed, revenue, indexes, ts, cash
 ```
 
@@ -56,13 +56,11 @@ already guaranteed upstream:
 The flash guard wraps every external-router and external-receiver call, so it
 covers seven controller entrypoints: `flash_loan`, `flash_position`,
 `migrate_from_blend`, and the swap-routed `multiply`, `swap_debt`,
-`swap_collateral` and
-`repay_debt_with_collateral`. The last row is the load-bearing one: `supply`,
-`repay` and `recapitalize` all credit `cash` on the controller's word, without
-verifying the transfer. `cash` is a bookkeeping number.
-The only reconciliation against a real
-`token.balance()` is in `flash_loan`, which checks it three times with strict
-equality.
+`swap_collateral` and `repay_debt_with_collateral`. The last row is the
+load-bearing one: `supply`, `repay` and `recapitalize` all credit `cash` on the
+controller's word, without verifying the transfer. `cash` is a bookkeeping
+number. The only reconciliation against a real `token.balance()` is in
+`flash_loan`, which checks it three times with strict equality.
 
 ## Surface
 
@@ -124,18 +122,14 @@ controller.
 | `get_borrowed_amount` | `fn get_borrowed_amount(env: Env, hub_asset: HubAssetKey) -> i128` | anyone | Total borrowed underlying in asset units. |
 | `get_delta_time` | `fn get_delta_time(env: Env, hub_asset: HubAssetKey) -> u64` | anyone | Milliseconds since the market's last accrual. |
 | `get_sync_data` | `fn get_sync_data(env: Env, hub_asset: HubAssetKey) -> PoolSyncData` | anyone | Full params plus state for one market. |
-| `get_bulk_indexes` | `fn get_bulk_indexes(env: Env, hub_assets: Vec<HubAssetKey>) -> Vec<MarketIndexRaw>` | anyone | Forward-simulated indexes for many markets. Note the plural argument. |
-
-The owner is fixed at construction. There is no `transfer_ownership` and no
-`accept_ownership` on this contract, so the only way to change the code behind
-the address is `upgrade`.
+| `get_bulk_indexes` | `fn get_bulk_indexes(env: Env, hub_assets: Vec<HubAssetKey>) -> Vec<MarketIndexRaw>` | anyone | Forward-simulated indexes for many markets. |
 
 ## Errors
 
-Every `#[only_owner]` entrypoint first panics with the Ownable unauthorized
-error if the caller is not the owner. Beyond that, each entrypoint panics with
-the codes below. Numbers are the raw contract error codes from
-`common/src/errors.rs`.
+Every `#[only_owner]` entrypoint first requires the owner's authorization. A
+call without it fails with a host auth error, not a contract error code. Beyond
+that, each entrypoint panics with the codes below. Numbers are the raw contract
+error codes from `common/src/errors.rs`.
 
 | Entrypoint | Errors |
 | --- | --- |
@@ -144,10 +138,10 @@ the codes below. Numbers are the raw contract error codes from
 | `update_indexes`, every `get_*` view | `PoolNotInitialized` (30) |
 | `supply` | `AmountMustBePositive` (14) on a negative amount, `PoolInsolvent` (123) when the market is under-backed, `SupplyRoundsToZeroShares` (51) |
 | `borrow` | `AmountMustBePositive` (14) — zero is rejected here, `InsufficientLiquidity` (112) from cash or the liquidation buffer, `BorrowRoundsToZeroShares` (47), `UtilizationAboveMax` (127) |
-| `withdraw` | `AmountMustBePositive` (14) on a negative amount or fee, `WithdrawRoundsToZeroShares` (49), `WithdrawLessThanFee` (115), `InsufficientLiquidity` (112), `UtilizationAboveMax` (127) on non-liquidation calls, `PoolInsolvent` (123) |
+| `withdraw` | `AmountMustBePositive` (14) on a negative amount or fee, `WithdrawRoundsToZeroShares` (49), `WithdrawLessThanFee` (115), `InsufficientLiquidity` (112), `UtilizationAboveMax` (127) on non-liquidation calls, `PoolInsolvent` (123), `InternalError` (34) |
 | `repay` | `AmountMustBePositive` (14), `RepayRoundsToZeroShares` (52), `MathOverflow` (33) |
-| `net_settle` | `AmountMustBePositive` (14), `NetSettleRoundsToZeroShares` (50), `PoolInsolvent` (123) |
-| `seize_positions` | `AmountMustBePositive` (14) |
+| `net_settle` | `AmountMustBePositive` (14), `NetSettleRoundsToZeroShares` (50), `PoolInsolvent` (123), `InternalError` (34) |
+| `seize_positions` | `AmountMustBePositive` (14), `InternalError` (34) |
 | `flash_loan` | `AmountMustBePositive` (14), `FlashloanNotEnabled` (401), `InsufficientLiquidity` (112), `InvalidFlashloanReceiver` (412) for a non-Wasm receiver, `InvalidFlashloanRepay` (402) for a short allowance or a balance mismatch |
 | `create_strategy` | `AmountMustBePositive` (14) on a negative amount, `StrategyFeeExceeds` (409), plus the whole `borrow` set — it mints debt through the same path |
 | `recapitalize` | `AmountMustBePositive` (14) on a negative amount, `MathOverflow` (33) |
@@ -156,18 +150,20 @@ the codes below. Numbers are the raw contract error codes from
 
 Every market entrypoint also panics with `PoolNotInitialized` (30) when the
 market does not exist, and with `MathOverflow` (33) on a checked-arithmetic
-overflow.
+overflow. `InternalError` (34) marks a broken invariant: `revenue > supplied`
+after a supply burn or a deposit seizure, or a revenue claim that burns zero
+shares.
 
 ## Flow
 
-Every operation is the same five beats:
+Each mutation of an existing market runs this sequence:
 
 ```text
 entrypoint (#[only_owner])
   → Cache::load             # read params + state, bump TTL
   → interest::global_sync   # accrue to now, in ≤1yr chunks
   → mutate                  # cache/shares.rs, cache/cash.rs
-  → guards::*               # post-state checks
+  → guards::*               # reserve, utilization, backing checks
   → commit → transfer_out → emit
 ```
 
@@ -230,7 +226,8 @@ favor of the protocol**. Changing a `floor` to a `ceil` is never cosmetic.
 | revenue claim | `mul_ratio_ceil` | burns more treasury shares than proportional |
 
 Dust defences: the `*RoundsToZeroShares` errors reject amounts that move value
-without moving shares, and `Bps::flash_loan_fee_on` floors a fee at `1`.
+without moving shares, and `Bps::flash_loan_fee_on` charges at least `1` when
+the fee rate is positive.
 
 Rewards that floor rounding keeps out of the supply index are measured by
 `supply_index_reward_shortfall` and booked as protocol revenue, so no accrued
@@ -314,10 +311,10 @@ stays. Do not read `actual_amount` as tokens received.
 
 **`net_settle`** moves no tokens. It does not compose withdraw+repay. The
 settle size is the conservative overlap
-`min(requested, floor(supply), ceil(debt))`. A side is fully closed only when
-that overlap exhausts that side — a half-up display that is one native unit
-above the floor cannot wipe supply and leave a stroop of debt, and matching
-conservative values close both books.
+`min(requested, floor(supply), ceil(debt))`. A side closes fully only when that
+overlap exhausts it. The half-up supply value is not used: when `ceil(debt)` is
+one unit above `floor(supply)`, the settle closes the supply and leaves one unit
+of debt. When `floor(supply)` equals `ceil(debt)`, both sides close.
 
 In exact arithmetic it cannot raise utilization in a healthy market:
 
@@ -342,27 +339,27 @@ correct only because the controller transferred the full amount in first.
 `get_revenue` reports, and pays out zero when `cash` is zero. A partial claim
 burns revenue shares with `mul_ratio_ceil`, which burns slightly more shares
 than the proportional amount. Nothing is lost: the unclaimed remainder stays as
-revenue shares and keeps earning. When nothing is claimable the call still
-succeeds, returns `actual_amount = 0`, moves no tokens, and still emits a market
-state snapshot. Always read `actual_amount` from the returned
-`PoolAmountMutation`; never assume the full revenue was paid.
+revenue shares and keeps earning. `require_utilization_below_max` and
+`require_supply_for_debt` run even when nothing is claimable. If they pass, the
+call returns `actual_amount = 0`, moves no tokens, and emits a market state
+snapshot. Always read `actual_amount` from the returned `PoolAmountMutation`;
+never assume the full revenue was paid.
 
 ## Views
 
 | View | Consumer | Interest-synced |
 | --- | --- | --- |
-| `get_bulk_indexes` | controller (`context/market_index.rs`) | **yes**, forward-simulated |
-| `get_sync_data` | controller (`context/pool.rs`) | raw; caller simulates |
+| `get_bulk_indexes` | controller (`context.rs`) | **yes**, forward-simulated |
+| `get_sync_data` | controller (`context.rs`, `config/asset.rs`) | raw; caller simulates |
 
-`get_bulk_indexes` exists so the controller can get forward-accurate indexes
-for an unsynced market without paying for a state write. That is its whole
-purpose.
+`get_bulk_indexes` gives the controller forward-accurate indexes for an unsynced
+market without writing market state.
 
 The scalar getters — `get_utilisation`, `get_reserves`, `get_deposit_rate`,
 `get_borrow_rate`, `get_revenue`, `get_supplied_amount`, `get_borrowed_amount`,
-`get_delta_time` — are consumed by no controller code. They return checkpoint
-values as of `last_timestamp` and lag by the accrual gap. For live figures use
-`get_sync_data` plus `simulate_update_indexes`.
+`get_delta_time` — are consumed by no controller code. They read stored state
+without accrual, so their values lag by the gap that `get_delta_time` reports.
+For live figures use `get_sync_data` plus `simulate_update_indexes`.
 
 `get_borrow_rate` and `get_deposit_rate` return **annual** RAY (the capped
 curve APR). Divide by `RAY` for a unit fraction. Accrual still compounds the
@@ -374,8 +371,8 @@ write cost.
 ## Layout
 
 ```text
-lib.rs        # ABI; every entrypoint delegates to ops/
-ops/          # one module per entrypoint, end to end
+lib.rs        # ABI and owner gates; mutators delegate to ops/
+ops/          # one module per mutator; market.rs has create, params, accrual
 cache/        # Cache: load a market, mutate by named transition, commit
   scale.rs    #   share ⇄ asset conversion
   shares.rs   #   mint/burn supply and debt, revenue mechanics
@@ -414,8 +411,8 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 
 make test-pool        # cargo test -p pool, the pool unit tests
-make test             # cargo test -p test-harness, the full harness
-make miri-common      # for changes under common/src/math or common/src/rates
+make test             # cargo test --workspace: harness and contract suites
+make miri-common      # two fp_core Miri tests; for common/src/math changes
 ```
 
 `make test` runs in parallel. `TEST_THREADS` is empty by default, so libtest
@@ -443,13 +440,13 @@ make certora-list                          # print the confs in each profile
 `make certora` needs `CERTORAKEY` in the environment and `certoraSorobanProver`
 on `PATH`.
 
-A **feature** is a Cargo feature in `contracts/pool/Cargo.toml`. `certora-wasm`
-selects one to compile a rule set into the verification Wasm; you never pass one
-to `CERTORA_PROFILE`. The pool declares eleven:
+A **feature** is a Cargo feature in `contracts/pool/Cargo.toml`.
+`make certora-wasm` builds one verification Wasm per rule-set feature; you never
+pass a feature to `CERTORA_PROFILE`. The pool declares eleven:
 
 ```text
 certora                                  # base: pulls in the cvlr crates
-certora-focused                          # narrows common/ to the focused build
+certora-focused                          # builds only the selected rule sets
 certora-position-accounting-rules
 certora-seize-settle-accounting-rules
 certora-fee-strategy-accounting-rules

@@ -9,7 +9,7 @@
     "Passes the identical seize_mode to get_liquidation_estimate and liquidate; does not estimate in Transfer and execute in Credit",
     "Computes proceeds as seized_collaterals minus protocol_fees; explains that LiqSeize (5) is gross and LiqCredit (15) on the receiving account's second position:batch_update is net",
     "Decodes liquidate's u64 return (decodeStellarLiquidateReturn) as the receiving account id, and notes '0' means Transfer mode",
-    "Does not claim the liquidator can repay by transferring tokens directly to the pool; the controller pulls only the accepted amounts from the liquidator's balance"
+    "Does not claim the liquidator can repay by transferring tokens directly to the pool; the controller pulls the accepted amounts from the liquidator's balance, or the whole offer when the quote is the full debt (the pool refunds the excess)"
   ],
   "machine_checkable": [
     "Generated TypeScript passes tsc --noEmit against @xoxno/sdk-js@1.0.214 and @stellar/stellar-sdk@16",

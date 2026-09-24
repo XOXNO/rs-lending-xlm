@@ -446,8 +446,8 @@ fn test_borrow_index_ceiling_is_eleven_years_away_at_the_protocol_rate_cap() {
     let env = Env::default();
     env.cost_estimate().budget().reset_unlimited();
 
-    // MAX_BORROW_RATE_RAY is 200% APR, the highest `MarketParamsRaw::validate`
-    // will accept for `max_borrow_rate`.
+    // MAX_BORROW_RATE_RAY is 200% APR, the highest `InterestRateModel::verify`
+    // accepts for `max_borrow_rate`.
     assert_eq!(
         max_chunks_to_borrow_index_ceiling(&env, MAX_BORROW_RATE_RAY),
         11,
@@ -460,7 +460,7 @@ fn test_borrow_index_ceiling_years_at_configured_and_realistic_rates() {
     let env = Env::default();
     env.cost_estimate().budget().reset_unlimited();
 
-    // 175% and 125% are the two `max_borrow_rate` values in configs/mainnet.
+    // High `max_borrow_rate` values below the 200% cap.
     assert_eq!(
         max_chunks_to_borrow_index_ceiling(&env, RAY * 175 / 100),
         12
@@ -469,7 +469,7 @@ fn test_borrow_index_ceiling_years_at_configured_and_realistic_rates() {
         max_chunks_to_borrow_index_ceiling(&env, RAY * 125 / 100),
         17
     );
-    // ChainSecurity's own worked example for Aave's uint120 `drawnIndex`.
+    // Typical rates: 30% and 10% APR.
     assert_eq!(max_chunks_to_borrow_index_ceiling(&env, RAY * 30 / 100), 70);
     assert_eq!(max_chunks_to_borrow_index_ceiling(&env, RAY / 10), 208);
 }

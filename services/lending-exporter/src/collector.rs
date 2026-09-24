@@ -19,8 +19,8 @@ use crate::stellar::{simulate_view, simulations_sent, RpcClient, ViewError};
 /// Keys per `get_market_indexes_detailed` simulation; 3 stays under the
 /// mainnet CPU budget for every hub, 5 does not.
 const INDEX_CHUNK_SIZE: usize = 3;
-/// How long a (spoke, hub, asset) pair that reverted with AssetNotInSpoke is
-/// skipped before being probed again.
+/// How long a (spoke, hub, asset) key whose `get_spoke_asset` call reverted is
+/// skipped before the next probe.
 const UNLISTED_SPOKE_ASSET_TTL: Duration = Duration::from_secs(10 * 60);
 
 type UnlistedSpokeAssets = HashMap<(u32, u32, [u8; 32]), Instant>;
@@ -282,10 +282,9 @@ async fn read_market_indexes(
         return Vec::new();
     }
 
-    // The full-market batch always exceeds the simulation CPU budget on
-    // mainnet (25 keys, hub-3 assets are the heaviest), so it used to cost
-    // 1 failed batch + 25 per-key reads every scrape. Chunks of 3 stay under
-    // budget; a chunk that still fails falls back per key for that chunk only.
+    // The full-market batch exceeds the mainnet simulation CPU budget, so keys
+    // go in chunks of `INDEX_CHUNK_SIZE`. A chunk that fails falls back to
+    // per-key reads for that chunk only.
     let mut out = Vec::with_capacity(keys.len());
     for (markets, chunk) in contracts
         .markets
@@ -964,10 +963,9 @@ async fn publish_spoke_asset(
         return;
     };
 
-    // get_spoke_asset reverts (AssetNotInSpoke) for every hub asset a spoke
-    // does not list, and most (spoke, asset) pairs are unlisted, so probing all
-    // of them each scrape was ~150 guaranteed-revert simulations per pass.
-    // Remember the revert and skip the pair until the entry expires.
+    // `get_spoke_asset` reverts with `AssetNotInSpoke` for every hub asset the
+    // spoke does not list, and most pairs are unlisted. Cache the revert and
+    // skip the pair until `UNLISTED_SPOKE_ASSET_TTL` expires.
     // ponytail: fixed TTL; invalidate on the controller's listing event if
     // a 10-minute lag after a governance listing ever matters.
     let unlisted_key = (spoke_id, market.hub_id, market.asset_id);

@@ -26,8 +26,8 @@ impl LendingTestBuilder {
             .with_market(wbtc_preset())
     }
 
-    /// USDC + USDT listed on the stablecoin spoke (id 2), both collateral and
-    /// borrowable. Chain `.build()`, or add markets first.
+    /// Adds USDC and USDT and lists both on the stablecoin spoke (id 2) as
+    /// collateral and borrowable.
     pub fn stablecoin_spoke_two_asset(self) -> Self {
         self.with_market(usdc_preset())
             .with_market(usdt_stable_preset())
