@@ -93,11 +93,9 @@ Addition and subtraction saturate. Supply entry rejects a positive shortfall.
 Recapitalization credits at most that shortfall, refunds excess and mints no
 shares.
 
-Borrow draws must retain a 200 BPS liquidation buffer, rounded up from the
-floored supplied token value. Borrow, user withdrawal and revenue claims
+Borrow draws must retain a 200 BPS liquidation buffer, calculated half-up on
+the floored supplied token value. Borrow, user withdrawal and revenue claims
 enforce the configured utilization ceiling; liquidation withdrawal skips it.
-That gate divides ceiled debt value by floored supply value and rounds the
-ratio up; debt against a zero floored supply value fails it.
 Withdrawal, net settlement and revenue claims reject zero total supply with
 outstanding debt. These checks apply at their respective boundaries; they do
 not establish full backing after every mutation.
@@ -298,20 +296,8 @@ Bonus shares floor at the supply index and cannot exceed seized shares.
 Zero-share or zero-token planned seizure legs are omitted.
 
 Transfer fees apply BPS half-up to bonus RAY, then floor to token units. A
-positive subunit fee becomes one unit. The fee is then capped at the whole
-token units the pool pays above the principal:
-
-```rust
-let realised_excess = if paid_ray > base_ray {
-    floor(paid_ray - base_ray)
-} else { 0 };
-let transfer_fee = min(bumped_fee, realised_excess);
-```
-
-`paid_ray` is the pool's gross payout and `base_ray` the uncapped principal,
-both in RAY; `floor` rescales to token units. The planned transfer fee
-therefore never takes the liquidator's leg below its principal; the payout
-floor still can. Credit fees use the ceiling of bonus shares:
+positive subunit fee becomes one unit, capped at the pool's gross payout.
+Credit fees use the ceiling of bonus shares:
 
 ```rust
 let credit_fee_shares = ceil(bonus_shares * fee_bps / BPS);
@@ -387,22 +373,20 @@ These are arithmetic limits, not recommended market sizes or deployment proofs.
 
 ### Liquidation fixture
 
-These $5 repayment fixtures use ample collateral, selected USD prices and the
-decimals, bonus and fee of one mainnet listing each. They illustrate native
-arithmetic, excluding network fees and slippage. The prices are not live
-quotes; four rows sit at their listing's `max_sanity_price_wad`. The results
-do not guarantee profitability. The fixture tests also run each row at its
-listing's `max_sanity_price_wad`. The fixture models at most two token-unit
-rounding costs per collateral leg; that is not a universal execution bound.
+These $5 repayment fixtures use ample collateral and selected USD prices.
+They illustrate native arithmetic, excluding network fees and slippage. The
+prices are neither live quotes nor maximum listing prices, and the results do
+not guarantee profitability. The fixture models at most two token-unit rounding
+costs per collateral leg; that is not a universal execution bound.
 
 | Collateral | Fixture USD price | Seized token units | Fee units | Profit USD (rounded) |
 |---|---:|---:|---:|---:|
 | SolvBTC | 120,000 | 4,541 | 45 | 0.3952 |
-| xSolvBTCSolvBTC_LP | 12,000 | 4,583 | 41 | 0.4504 |
+| xSolvBTCSolvBTC_LP | 12,000 | 4,583 | 4 | 0.4948 |
 | SPIKOUKTBL | 1.48035816 | 358,021 | 2,431 | 0.264006 |
 | XAUM | 6,000 | 900,000 | 6,666 | 0.360004 |
 | XLM | 1 | 54,500,000 | 540,000 | 0.3960 |
-| PYUSD | 1.05 | 49,047,619 | 142,857 | 0.1350 |
+| USDC | 1.05 | 48,571,428 | 95,238 | 0.09000 |
 | USST | 1.0897 | 4.818e18 | 2.294e16 | 0.2250 |
 
 ## Sources

@@ -1,7 +1,4 @@
-use common::constants::{BPS, LIQUIDATION_BUFFER_BPS};
 use common::math::fp::Ray;
-use common::math::fp_core::mul_div_ceil;
-use common::rates::unscale_supply_floor;
 use controller::constants::RAY;
 use controller::types::{AccountPositionType, ControllerKey, PositionLimits};
 use soroban_sdk::token;
@@ -305,20 +302,19 @@ impl LendingTest {
 impl LendingTest {
     /// Cash a market must keep back from every debt mint, in token units.
     ///
-    /// Mirrors `pool::guards::require_liquidation_buffer` at the stored supply
-    /// index: floored supply, reserve rounded up. A test that borrows right
-    /// after reading it can draw exactly to the bound.
+    /// Mirrors `pool::guards::require_liquidation_buffer`, so a test can borrow
+    /// right up to the bound without hard-coding the ratio.
     pub fn liquidation_buffer_raw(&self, asset_name: &str) -> i128 {
         let asset = self.resolve_asset(asset_name);
-        let sync = self
+        let supplied = self
             .pool_client(asset_name)
-            .get_sync_data(&hub_asset(asset));
-        let supplied = unscale_supply_floor(
+            .get_supplied_amount(&hub_asset(asset));
+        // Half-up, matching Bps::apply_to in the guard.
+        common::math::fp_core::mul_div_half_up(
             &self.env,
-            Ray::from(sync.state.supplied),
-            Ray::from(sync.state.supply_index),
-            sync.params.asset_decimals,
-        );
-        mul_div_ceil(&self.env, supplied, LIQUIDATION_BUFFER_BPS, BPS)
+            supplied,
+            common::constants::LIQUIDATION_BUFFER_BPS,
+            common::constants::BPS,
+        )
     }
 }

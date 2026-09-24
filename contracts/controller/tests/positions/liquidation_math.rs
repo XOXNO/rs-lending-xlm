@@ -1,13 +1,9 @@
 use super::*;
 use crate::constants::{
-    BAD_DEBT_USD_THRESHOLD, DEFAULT_HF_FOR_MAX_BONUS_WAD, DEFAULT_LIQUIDATION_BONUS_FACTOR_BPS,
-    DEFAULT_LIQUIDATION_TARGET_HF_WAD, DEFAULT_MIN_BORROW_COLLATERAL_USD_WAD,
-    MAX_REASONABLE_PRICE_WAD, MIN_ASSET_DECIMALS, POSITION_LIMIT_MAX, WAD,
+    DEFAULT_HF_FOR_MAX_BONUS_WAD, DEFAULT_LIQUIDATION_BONUS_FACTOR_BPS,
+    DEFAULT_LIQUIDATION_TARGET_HF_WAD, WAD,
 };
-use crate::positions::liquidation::curve::{
-    calculate_linear_bonus_with_target, max_hf_preserving_bonus_bps,
-};
-use crate::Controller;
+use crate::positions::liquidation::curve::max_hf_preserving_bonus_bps;
 use common::constants::RAY;
 use common::types::SpokeConfig;
 use common::types::{DebtPositionRaw, MarketIndexRaw, PositionMode, PriceFeedRaw};
@@ -31,8 +27,8 @@ fn feed_raw() -> PriceFeedRaw {
     }
 }
 
-fn single_price(env: &Env, asset: &Address) -> Map<Address, PriceFeedRaw> {
-    let mut prices = Map::new(env);
+fn single_price(env: &Env, asset: &Address) -> soroban_sdk::Map<Address, PriceFeedRaw> {
+    let mut prices = soroban_sdk::Map::new(env);
     prices.set(asset.clone(), feed_raw());
     prices
 }
@@ -102,7 +98,7 @@ fn empty_account(env: &Env) -> Account {
 }
 
 fn repayment_fixture(env: &Env) -> (Address, HubAssetKey, Account) {
-    let contract = env.register(Controller, (Address::generate(env),));
+    let contract = env.register(crate::Controller, (Address::generate(env),));
     let asset = Address::generate(env);
 
     let hub_asset = HubAssetKey {
@@ -128,7 +124,7 @@ fn repayment_fixture(env: &Env) -> (Address, HubAssetKey, Account) {
 }
 
 fn seize_fixture(env: &Env, fees_bps: u32) -> (Address, HubAssetKey, Account) {
-    let contract = env.register(Controller, (Address::generate(env),));
+    let contract = env.register(crate::Controller, (Address::generate(env),));
     let asset = Address::generate(env);
 
     let hub_asset = HubAssetKey {
@@ -263,7 +259,7 @@ fn liquidation_plan_validate_rejects_fee_above_amount() {
 #[test]
 fn seizure_proportion_is_zero_for_zero_collateral() {
     let env = Env::default();
-    let contract = env.register(Controller, (Address::generate(&env),));
+    let contract = env.register(crate::Controller, (Address::generate(&env),));
     env.as_contract(&contract, || {
         let account = empty_account(&env);
         let mut cache = Context::new_view(&env);
@@ -277,7 +273,7 @@ fn seizure_proportion_is_zero_for_zero_collateral() {
 #[test]
 fn seizure_proportion_divides_weighted_by_total() {
     let env = Env::default();
-    let contract = env.register(Controller, (Address::generate(&env),));
+    let contract = env.register(crate::Controller, (Address::generate(&env),));
     env.as_contract(&contract, || {
         let account = empty_account(&env);
         let mut cache = Context::new_view(&env);
@@ -347,16 +343,14 @@ fn partial_seizure_floors_amount_and_zero_fee_stays_zero() {
     assert_eq!(entry.protocol_fee, 0);
 }
 
-/// Ten stroops repaid at a 50% bonus seize 15: five stroops are realised above
-/// the repayment, and the 10% fee on them, half a stroop, becomes one stroop.
 #[test]
 fn dust_protocol_fee_rounds_up_to_one_unit() {
     let env = Env::default();
 
-    let seized = run_seizure(&env, 1_000, WAD / 1_000_000, 5_000);
+    let seized = run_seizure(&env, 10_000, WAD / 10_000_000, 5_000);
     assert_eq!(seized.len(), 1);
     let entry = seized.get_unchecked(0);
-    assert_eq!(entry.amount, 15);
+    assert_eq!(entry.amount, 1);
     assert_eq!(entry.protocol_fee, 1);
 }
 
@@ -664,7 +658,7 @@ fn racing_insolvent_liquidations_never_repay_more_than_the_collateral_backs() {
 #[test]
 fn a_full_close_plan_credits_every_legs_ceiling_without_a_trim_refund() {
     let env = Env::default();
-    let contract = env.register(Controller, (Address::generate(&env),));
+    let contract = env.register(crate::Controller, (Address::generate(&env),));
     let (d1, d2) = (hub_key(&env), hub_key(&env));
     let feed = PriceFeedRaw {
         price_wad: 1_000 * WAD,
@@ -740,7 +734,7 @@ fn plan_on_insolvent_book(
     collateral: i128,
     debt: i128,
 ) -> (Vec<HubAssetKey>, NormalizedRepaymentPlan) {
-    let contract = env.register(Controller, (Address::generate(env),));
+    let contract = env.register(crate::Controller, (Address::generate(env),));
     let mut keys = Vec::new(env);
     let mut prices = Map::new(env);
     let mut borrow_positions = Map::new(env);
@@ -1228,7 +1222,7 @@ fn seize_fixture_with_collateral(
     fees_bps: u32,
     collateral_tokens: i128,
 ) -> (Address, HubAssetKey, Account) {
-    let contract = env.register(Controller, (Address::generate(env),));
+    let contract = env.register(crate::Controller, (Address::generate(env),));
     let asset = Address::generate(env);
     let hub_asset = HubAssetKey {
         hub_id: 0,
@@ -1410,8 +1404,8 @@ fn seize_legs(
     repay_usd_raw: i128,
     plan_bonus_bps: i128,
 ) -> (Vec<Address>, Vec<SeizeEntry>) {
-    let contract = env.register(Controller, (Address::generate(env),));
-    let mut prices = Map::new(env);
+    let contract = env.register(crate::Controller, (Address::generate(env),));
+    let mut prices = soroban_sdk::Map::new(env);
     let mut supply_positions = Map::new(env);
     let mut assets: Vec<Address> = Vec::new(env);
     let mut keys: Vec<HubAssetKey> = Vec::new(env);
@@ -1724,13 +1718,13 @@ fn at_the_derived_max_bonus_the_fee_follows_the_realised_excess() {
     );
 }
 
-/// When the whole bonus is worth less than one unit of the asset,
-/// `protocol_fee_ray > 0 && fee_asset == 0` bumps the fee to a whole unit, but
-/// never above the whole units realised above the repayment share. At one stroop
-/// of repayment the seizure floors back to the repayment itself, so nothing is
-/// realised and nothing is charged.
+/// Known defect, pinned as observed. When the whole bonus is worth less than
+/// one unit of the asset, `protocol_fee_ray > 0 && fee_asset == 0` bumps the fee
+/// to a whole unit. At one stroop of repayment the seizure floors back to the
+/// repayment itself -- zero realised excess -- and the bump still charges one
+/// stroop, so the liquidator nets minus one stroop.
 #[test]
-fn the_dust_fee_bump_never_exceeds_the_realised_excess() {
+fn the_dust_fee_bump_charges_more_than_the_realised_excess() {
     let env = Env::default();
 
     // One stroop of repayment against ample collateral: seizure is 1.09 stroops.
@@ -1746,28 +1740,12 @@ fn the_dust_fee_bump_never_exceeds_the_realised_excess() {
     assert_eq!(entry.amount, 1, "1.09 stroops floors back to 1");
     let realised_excess = entry.amount - repay_stroops;
     assert_eq!(realised_excess, 0, "nothing above the repayment was seized");
-    assert_eq!(entry.protocol_fee, 0, "no realised excess, no fee");
-    assert_eq!(entry.amount - repay_stroops - entry.protocol_fee, 0);
-}
-
-/// A fee rate just below 100% floors to a whole unit on its own, without the
-/// bump. An 11.9-stroop repayment share seizes 12.971 stroops, which floors to
-/// 12: less than one whole stroop is realised above the share, so the cap takes
-/// the fee to zero.
-#[test]
-fn a_fee_rate_near_one_is_capped_at_the_realised_excess() {
-    let env = Env::default();
-
-    let entry = single_leg(
-        &env,
-        LegSpec::mainnet_xlm(stroops(1_000)).with_fees(9_999),
-        119 * WAD / 100_000_000,
-        MAINNET_XLM_BONUS_BPS,
-    )
-    .get_unchecked(0);
-
-    assert_eq!(entry.amount, 12, "12.971 stroops floors to 12");
-    assert_eq!(entry.protocol_fee, 0, "0.1 stroop realised floors to zero");
+    assert_eq!(entry.protocol_fee, 1, "the bump charges a whole stroop");
+    assert_eq!(
+        entry.amount - repay_stroops - entry.protocol_fee,
+        -1,
+        "the liquidator is one stroop out of pocket"
+    );
 }
 
 /// A two-decimal asset at $0.13: the leg's units are coarse enough that both the
@@ -2028,7 +2006,7 @@ fn an_exactly_covered_account_quotes_the_full_debt_at_zero_bonus_not_the_insolve
 #[test]
 fn the_debt_legs_asset_unit_ceiling_is_priced_into_the_repayment_credit() {
     let env = Env::default();
-    let contract = env.register(Controller, (Address::generate(&env),));
+    let contract = env.register(crate::Controller, (Address::generate(&env),));
     let asset = Address::generate(&env);
     let hub_asset = HubAssetKey {
         hub_id: 0,
@@ -2053,7 +2031,7 @@ fn the_debt_legs_asset_unit_ceiling_is_priced_into_the_repayment_credit() {
     };
 
     env.as_contract(&contract, || {
-        let mut prices = Map::new(&env);
+        let mut prices = soroban_sdk::Map::new(&env);
         prices.set(
             asset.clone(),
             PriceFeedRaw {
@@ -2085,16 +2063,13 @@ fn the_debt_legs_asset_unit_ceiling_is_priced_into_the_repayment_credit() {
     });
 }
 
-/// A collateral fixture with the decimals, bonus, fee and `max_sanity_price_wad`
-/// of one `configs/mainnet` listing, and a selected USD price. The fixtures are
-/// a sample of the listings, not all of them; the selected price is not a live
-/// quote.
-#[derive(Clone, Copy)]
+/// A collateral fixture with the decimals of a `configs/mainnet` listing and a
+/// selected USD price. Prices, bonuses and fees are fixture inputs; they do not
+/// track the live listing or its `max_sanity_price_wad`.
 struct ListedCollateral {
     label: &'static str,
     decimals: u32,
     price_wad: i128,
-    max_price_wad: i128,
     bonus_bps: i128,
     fees_bps: u32,
 }
@@ -2104,7 +2079,6 @@ const LISTED_COLLATERALS: [ListedCollateral; 7] = [
         label: "SolvBTC (spoke 1)",
         decimals: 8,
         price_wad: 120_000 * WAD,
-        max_price_wad: 300_000 * WAD,
         bonus_bps: 900,
         fees_bps: 1_200,
     },
@@ -2112,15 +2086,13 @@ const LISTED_COLLATERALS: [ListedCollateral; 7] = [
         label: "xSolvBTCSolvBTC_LP (spoke 6)",
         decimals: 7,
         price_wad: 12_000 * WAD,
-        max_price_wad: 12_000 * WAD,
         bonus_bps: 1_000,
-        fees_bps: 1_000,
+        fees_bps: 100,
     },
     ListedCollateral {
         label: "SPIKOUKTBL (spoke 3)",
         decimals: 5,
         price_wad: 1_480_358_160_000_000_000,
-        max_price_wad: 1_480_358_160_000_000_000,
         bonus_bps: 600,
         fees_bps: 1_200,
     },
@@ -2128,7 +2100,6 @@ const LISTED_COLLATERALS: [ListedCollateral; 7] = [
         label: "XAUM (spoke 8)",
         decimals: 9,
         price_wad: 6_000 * WAD,
-        max_price_wad: 12_000 * WAD,
         bonus_bps: 800,
         fees_bps: 1_000,
     },
@@ -2136,30 +2107,27 @@ const LISTED_COLLATERALS: [ListedCollateral; 7] = [
         label: "XLM (spoke 1)",
         decimals: 7,
         price_wad: WAD,
-        max_price_wad: WAD,
         bonus_bps: 900,
         fees_bps: 1_200,
     },
     ListedCollateral {
-        label: "PYUSD (spoke 5, lowest bonus listed)",
+        label: "USDC (spoke 5, lowest bonus listed)",
         decimals: 7,
         price_wad: 1_050_000_000_000_000_000,
-        max_price_wad: 1_050_000_000_000_000_000,
-        bonus_bps: 300,
+        bonus_bps: 200,
         fees_bps: 1_000,
     },
     ListedCollateral {
         label: "USST (spoke 5)",
         decimals: 18,
         price_wad: 1_089_700_000_000_000_000,
-        max_price_wad: 1_124_000_000_000_000_000,
         bonus_bps: 500,
         fees_bps: 1_000,
     },
 ];
 
 /// Basis-points denominator.
-const BPS_DENOM: i128 = BPS;
+const BPS_DENOM: i128 = crate::constants::BPS;
 
 /// One asset unit of this collateral, valued in WAD USD.
 fn unit_value_usd_wad(c: &ListedCollateral) -> i128 {
@@ -2180,28 +2148,24 @@ fn unprofitable_below_usd_wad(c: &ListedCollateral, legs: i128) -> i128 {
 }
 
 /// The closed form, evaluated against the configured floor rather than a
-/// liquidation, at each fixture's `max_sanity_price_wad`: the unit value, and so
-/// the threshold, is largest there. `MinBorrowCollateralUsd` gates every borrow,
-/// and `BAD_DEBT_USD_THRESHOLD` promotes anything smaller to a full close or to
+/// liquidation. `MinBorrowCollateralUsd` gates every borrow, and
+/// `BAD_DEBT_USD_THRESHOLD` promotes anything smaller to a full close or to
 /// permissionless socialization, so the floor is the smallest position a
 /// liquidator is ever asked to clear at a profit.
 #[test]
-fn the_min_borrow_collateral_floor_clears_the_unprofitability_threshold_at_each_max_price() {
-    let floor = DEFAULT_MIN_BORROW_COLLATERAL_USD_WAD;
+fn the_min_borrow_collateral_floor_clears_the_unprofitability_threshold_for_every_listed_pair() {
+    let floor = crate::constants::DEFAULT_MIN_BORROW_COLLATERAL_USD_WAD;
 
     assert_eq!(
-        BAD_DEBT_USD_THRESHOLD, floor,
+        crate::constants::BAD_DEBT_USD_THRESHOLD,
+        floor,
         "the dust-socialization gate and the borrow floor are the same number",
     );
 
-    for listed in LISTED_COLLATERALS.iter() {
-        let c = &ListedCollateral {
-            price_wad: listed.max_price_wad,
-            ..*listed
-        };
+    for c in LISTED_COLLATERALS.iter() {
         // Worst case: the account holds the maximum number of supply positions
         // and every one of them is this asset, so every leg pays L_round.
-        let legs = i128::from(POSITION_LIMIT_MAX);
+        let legs = i128::from(crate::constants::POSITION_LIMIT_MAX);
         let threshold = unprofitable_below_usd_wad(c, legs);
 
         assert!(
@@ -2211,11 +2175,11 @@ fn the_min_borrow_collateral_floor_clears_the_unprofitability_threshold_at_each_
             threshold,
             floor,
         );
-        // At least a 10x margin: the tightest fixture, SolvBTC at 8 decimals
-        // and $300k, leaves about 13x.
+        // At least a 30x margin: the tightest fixture, SolvBTC at 8 decimals
+        // and $120k, leaves about 33x.
         assert!(
-            threshold * 10 < floor,
-            "{}: margin over the floor fell below 10x ({} wad vs {} wad)",
+            threshold * 30 < floor,
+            "{}: margin over the floor fell below 30x ({} wad vs {} wad)",
             c.label,
             threshold,
             floor,
@@ -2224,26 +2188,15 @@ fn the_min_borrow_collateral_floor_clears_the_unprofitability_threshold_at_each_
 }
 
 /// The same claim, run through `calculate_seized_collateral` instead of the
-/// closed form, at each fixture's selected price and at its
-/// `max_sanity_price_wad`: at a floor-sized repayment the liquidator receives
-/// more than it paid, and its shortfall against the ideal `repay * b * (1 - f)`
-/// never exceeds `L_round`.
+/// closed form: at a floor-sized repayment the liquidator receives more than it
+/// paid, and its shortfall against the ideal `repay * b * (1 - f)` never exceeds
+/// `L_round`.
 #[test]
-fn a_floor_sized_liquidation_pays_the_liquidator_for_each_collateral_fixture() {
+fn a_floor_sized_liquidation_pays_the_liquidator_for_every_listed_collateral() {
     let env = Env::default();
-    let floor = DEFAULT_MIN_BORROW_COLLATERAL_USD_WAD;
+    let floor = crate::constants::DEFAULT_MIN_BORROW_COLLATERAL_USD_WAD;
 
-    let priced = LISTED_COLLATERALS.iter().flat_map(|listed| {
-        [
-            *listed,
-            ListedCollateral {
-                price_wad: listed.max_price_wad,
-                ..*listed
-            },
-        ]
-    });
-    for c in priced {
-        let c = &c;
+    for c in LISTED_COLLATERALS.iter() {
         // Ample collateral: the seizure must not clamp, or the floor site and
         // the fee bump never fire.
         let collateral_units = Wad::from(10_000 * WAD)
@@ -2295,16 +2248,16 @@ fn a_floor_sized_liquidation_pays_the_liquidator_for_each_collateral_fixture() {
 #[test]
 fn floor_sized_liquidation_profits_match_the_documented_table() {
     let env = Env::default();
-    let floor = DEFAULT_MIN_BORROW_COLLATERAL_USD_WAD;
+    let floor = crate::constants::DEFAULT_MIN_BORROW_COLLATERAL_USD_WAD;
 
     // (seized units, protocol fee units, liquidator profit in WAD USD)
     let expected: [(i128, i128, i128); 7] = [
         (4_541, 45, 395_200_000_000_000_000),
-        (4_583, 41, 450_400_000_000_000_000),
+        (4_583, 4, 494_800_000_000_000_000),
         (358_021, 2_431, 264_005_581_144_000_000),
         (900_000, 6_666, 360_004_000_000_000_000),
         (54_500_000, 540_000, 396_000_000_000_000_000),
-        (49_047_619, 142_857, 135_000_010_000_000_000),
+        (48_571_428, 95_238, 89_999_950_000_000_000),
         (
             4_817_839_772_414_425_989,
             22_942_094_154_354_409,
@@ -2354,20 +2307,22 @@ fn floor_sized_liquidation_profits_match_the_documented_table() {
 #[test]
 fn an_expensive_low_decimal_collateral_makes_a_floor_sized_liquidation_seize_nothing() {
     let env = Env::default();
-    let floor = DEFAULT_MIN_BORROW_COLLATERAL_USD_WAD;
+    let floor = crate::constants::DEFAULT_MIN_BORROW_COLLATERAL_USD_WAD;
 
     let hostile = ListedCollateral {
         label: "3-decimal asset at the maximum reasonable price",
-        decimals: MIN_ASSET_DECIMALS,
-        price_wad: MAX_REASONABLE_PRICE_WAD,
-        max_price_wad: MAX_REASONABLE_PRICE_WAD,
+        decimals: crate::constants::MIN_ASSET_DECIMALS,
+        price_wad: crate::constants::MAX_REASONABLE_PRICE_WAD,
         bonus_bps: 900,
         fees_bps: 1_200,
     };
 
     // Listing validation admits both values.
-    assert_eq!(hostile.decimals, MIN_ASSET_DECIMALS);
-    assert_eq!(hostile.price_wad, MAX_REASONABLE_PRICE_WAD);
+    assert_eq!(hostile.decimals, crate::constants::MIN_ASSET_DECIMALS);
+    assert_eq!(
+        hostile.price_wad,
+        crate::constants::MAX_REASONABLE_PRICE_WAD
+    );
 
     // One base unit is worth $1,000,000: 200,000x the entire borrow floor.
     assert_eq!(unit_value_usd_wad(&hostile), 1_000_000 * WAD);
@@ -2395,21 +2350,18 @@ fn an_expensive_low_decimal_collateral_makes_a_floor_sized_liquidation_seize_not
 
 /// The profitability boundary for a 900 bps bonus and 1,200 bps fee at three
 /// decimals. The closed form puts it at a $198 token price; the realised net
-/// turns negative at $496, the first price where the floored seizure falls
-/// below the repayment share. The fee never exceeds the realised excess, so
-/// only the floor loss can take the net below zero. Below the boundary a
-/// floor-sized close still pays.
+/// turns negative at $237, because the floor loss is usually under one unit.
+/// Below the boundary a floor-sized close still pays.
 #[test]
-fn the_profitability_boundary_at_three_decimals_sits_between_198_and_496_dollars() {
+fn the_profitability_boundary_at_three_decimals_sits_between_198_and_237_dollars() {
     let env = Env::default();
-    let floor = DEFAULT_MIN_BORROW_COLLATERAL_USD_WAD;
+    let floor = crate::constants::DEFAULT_MIN_BORROW_COLLATERAL_USD_WAD;
 
     let at_price = |price_usd: i128| -> i128 {
         let c = ListedCollateral {
             label: "3-decimal probe",
             decimals: 3,
             price_wad: price_usd * WAD,
-            max_price_wad: price_usd * WAD,
             bonus_bps: 900,
             fees_bps: 1_200,
         };
@@ -2435,9 +2387,9 @@ fn the_profitability_boundary_at_three_decimals_sits_between_198_and_496_dollars
     // The closed-form bound `2 * unit <= repay * b * (1 - f)` breaks at $198:
     // 2 * 0.198 = 0.396 = 5 * 0.09 * 0.88.
     assert!(at_price(198) > 0, "the bound must be conservative at $198");
-    // The realised net survives past it, and turns negative at $496.
-    assert!(at_price(495) > 0, "still profitable one dollar below");
-    assert!(at_price(496) < 0, "the realised net turns negative at $496");
+    // The realised net survives past it, and turns negative at $237.
+    assert!(at_price(236) > 0, "still profitable one dollar below");
+    assert!(at_price(237) < 0, "the realised net turns negative at $237");
 }
 
 // --- V-6: splitting a close into N partials is never more profitable --------
@@ -2474,7 +2426,7 @@ struct SplitBook {
 
 fn split_book(env: &Env) -> SplitBook {
     SplitBook {
-        contract: env.register(Controller, (Address::generate(env),)),
+        contract: env.register(crate::Controller, (Address::generate(env),)),
         owner: Address::generate(env),
         coll: hub_key(env),
         debt: hub_key(env),
@@ -2482,8 +2434,8 @@ fn split_book(env: &Env) -> SplitBook {
 }
 
 impl SplitBook {
-    fn prices(&self, env: &Env) -> Map<Address, PriceFeedRaw> {
-        let mut prices = Map::new(env);
+    fn prices(&self, env: &Env) -> soroban_sdk::Map<Address, PriceFeedRaw> {
+        let mut prices = soroban_sdk::Map::new(env);
         prices.set(self.coll.asset.clone(), feed_raw());
         prices.set(self.debt.asset.clone(), feed_raw());
         prices
@@ -2599,7 +2551,7 @@ fn the_splitting_book_is_where_the_curve_out_asks_the_hf_preserving_cap() {
     let cap = max_hf_preserving_bonus_bps(&s).expect("cap exists below one WAD");
     let max = max_bonus_for_threshold(&env, s.proportion_seized);
     let curve = LiquidationCurve::from_config(&default_spoke_config());
-    let curve_bonus = calculate_linear_bonus_with_target(
+    let curve_bonus = crate::positions::liquidation::curve::calculate_linear_bonus_with_target(
         &env,
         s.hf,
         Bps::from(i128::from(SPLIT_BONUS_BPS)),

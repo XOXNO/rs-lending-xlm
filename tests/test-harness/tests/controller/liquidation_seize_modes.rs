@@ -6,18 +6,15 @@
 //! real pool, so it lives against the full harness.
 
 use crate::shared::count_topic;
-use common::constants::RAY;
 use common::types::{
     AccountPositionRaw, ControllerKey, PoolStateRaw, PositionMode, SeizeMode, SpokeUsageRaw,
 };
-use controller::types::SpokeAssetArgs;
 use soroban_sdk::testutils::{ContractEvents, Events};
 use soroban_sdk::xdr::{ContractEventBody, ScVal};
-use soroban_sdk::{vec, Env, U256};
+use soroban_sdk::{Env, U256};
 use test_harness::{
-    amount_raw, assert_contract_error, asset_payment_vec, errors, eth_preset, hub_asset, usd,
-    usd_cents, usdc_preset, LendingTest, MarketPreset, ALICE, BOB, CAROL, DAVE, HARNESS_HUB,
-    HARNESS_SPOKE, LIQUIDATOR, STABLECOIN_SPOKE,
+    assert_contract_error, errors, eth_preset, hub_asset, usd, usd_cents, usdc_preset, LendingTest,
+    MarketPreset, ALICE, BOB, CAROL, DAVE, HARNESS_SPOKE, LIQUIDATOR, STABLECOIN_SPOKE,
 };
 
 // --- inspection helpers --------------------------------------------------
@@ -40,7 +37,7 @@ use test_harness::{
 /// `share_gap_under_units` does the exact compare.
 fn seize_mode_share_slack(supply_index: i128, decimals: u32) -> f64 {
     let shares_per_unit_at_ray = 10f64.powi(27 - decimals as i32);
-    shares_per_unit_at_ray * RAY as f64 / supply_index as f64
+    shares_per_unit_at_ray * common::constants::RAY as f64 / supply_index as f64
 }
 
 /// Exact form of `delta < units * seize_mode_share_slack(supply_index, decimals)`.
@@ -60,7 +57,7 @@ fn share_gap_under_units(
 #[test]
 fn share_gap_under_units_is_exact_at_the_boundary() {
     let env = Env::default();
-    let ray = RAY;
+    let ray = common::constants::RAY;
     let unit = 10i128.pow(20);
     assert!(share_gap_under_units(&env, unit - 1, ray, 7, 1));
     assert!(!share_gap_under_units(&env, unit, ray, 7, 1));
@@ -433,22 +430,23 @@ fn a_spoke_at_its_supply_cap_can_still_be_credited() {
     // unliquidatable in credit mode.
     let cfg = t.get_asset_config("USDC");
     let asset = t.resolve_asset("USDC");
-    t.ctrl_client().edit_asset_in_spoke(&SpokeAssetArgs {
-        hub_id: HARNESS_HUB,
-        asset,
-        spoke_id: HARNESS_SPOKE,
-        can_collateral: cfg.is_collateralizable,
-        can_borrow: cfg.is_borrowable,
-        paused: false,
-        frozen: false,
-        no_seize: false,
-        ltv: cfg.loan_to_value,
-        threshold: cfg.liquidation_threshold,
-        bonus: cfg.liquidation_bonus,
-        liquidation_fees: cfg.liquidation_fees,
-        supply_cap: 1,
-        borrow_cap: cfg.borrow_cap,
-    });
+    t.ctrl_client()
+        .edit_asset_in_spoke(&controller::types::SpokeAssetArgs {
+            hub_id: test_harness::HARNESS_HUB,
+            asset,
+            spoke_id: HARNESS_SPOKE,
+            can_collateral: cfg.is_collateralizable,
+            can_borrow: cfg.is_borrowable,
+            paused: false,
+            frozen: false,
+            no_seize: false,
+            ltv: cfg.loan_to_value,
+            threshold: cfg.liquidation_threshold,
+            bonus: cfg.liquidation_bonus,
+            liquidation_fees: cfg.liquidation_fees,
+            supply_cap: 1,
+            borrow_cap: cfg.borrow_cap,
+        });
 
     let receiver = t.liquidate_with_mode(LIQUIDATOR, ALICE, "ETH", 1.0, SeizeMode::Credit(0));
     assert!(scaled_supply(&t, receiver, "USDC") > 0);
@@ -547,10 +545,10 @@ fn batch_account_ids(events: &ContractEvents) -> std::vec::Vec<u64> {
 fn the_estimate_reports_the_units_the_chosen_mode_moves() {
     let mut t = liquid_usdc();
     let alice_id = t.resolve_account_id(ALICE);
-    let payments = asset_payment_vec(
+    let payments = test_harness::asset_payment_vec(
         &t.env,
         t.resolve_asset("ETH"),
-        amount_raw(1.0, t.resolve_market("ETH").decimals),
+        test_harness::amount_raw(1.0, t.resolve_market("ETH").decimals),
     );
 
     let transfer =
@@ -853,7 +851,7 @@ fn withdrawing_the_credit_in_the_same_ledger_matches_the_transfer_payout() {
     let receiver = t.liquidate_with_mode(LIQUIDATOR, CAROL, "ETH", 0.73, SeizeMode::Credit(0));
 
     let usdc = t.resolve_asset("USDC");
-    let withdrawals = vec![&t.env, (hub_asset(usdc), 0i128)]; // 0 = withdraw all
+    let withdrawals = soroban_sdk::vec![&t.env, (hub_asset(usdc), 0i128)]; // 0 = withdraw all
     t.ctrl_client()
         .withdraw(&liquidator_addr, &receiver, &withdrawals, &None);
     let credit_payout = t.token_balance_raw(LIQUIDATOR, "USDC") - before_credit;
@@ -895,7 +893,8 @@ fn the_protocol_fee_is_charged_on_the_bonus_not_the_gross_seizure() {
     t.assert_liquidatable(ALICE);
 
     let account_id = t.resolve_account_id(ALICE);
-    let payments = vec![&t.env, (hub_asset(t.resolve_asset("ETH")), 1_0000000)];
+    let payments =
+        soroban_sdk::Vec::from_array(&t.env, [(hub_asset(t.resolve_asset("ETH")), 1_0000000)]);
     let estimate =
         t.ctrl_client()
             .get_liquidation_estimate(&account_id, &payments, &SeizeMode::Transfer);
@@ -964,7 +963,7 @@ fn wbtc_leg_payouts(wbtc_amt: f64) -> (i128, i128) {
 
     let before_credit = t.token_balance_raw(LIQUIDATOR, "WBTC");
     let receiver = t.liquidate_with_mode(LIQUIDATOR, CAROL, "ETH", 1.0, SeizeMode::Credit(0));
-    let withdrawals = vec![&t.env, (hub_asset(t.resolve_asset("WBTC")), 0i128)];
+    let withdrawals = soroban_sdk::vec![&t.env, (hub_asset(t.resolve_asset("WBTC")), 0i128)];
     t.ctrl_client()
         .withdraw(&liquidator_addr, &receiver, &withdrawals, &None);
     let credit_payout = t.token_balance_raw(LIQUIDATOR, "WBTC") - before_credit;
@@ -972,19 +971,15 @@ fn wbtc_leg_payouts(wbtc_amt: f64) -> (i128, i128) {
     (transfer_payout, credit_payout)
 }
 
-/// On a dust leg that realises at least one whole stroop above the repayment share,
-/// credit-then-withdraw pays exactly one stroop more than transfer.
+/// On a dust leg, credit-then-withdraw pays exactly one stroop more than transfer.
 ///
 /// When the transfer fee is positive but floors to zero asset units,
-/// `calculate_seized_collateral` charges one unit, capped at the whole units realised above
-/// the repayment share. Credit ceils the fee in RAY share space (`split_seized_shares`), so it
-/// charges the sub-stroop fee. On the smallest legs nothing whole is realised, so transfer
-/// charges no fee and the two modes pay the same. The difference is at most one stroop of fee
-/// per dust leg; `PositionLimits.max_supply_positions` caps the leg count.
+/// `calculate_seized_collateral` charges one unit. Credit ceils the fee in RAY share space
+/// (`split_seized_shares`), so it charges the sub-stroop fee. The difference is at most one
+/// stroop of fee per dust leg; `PositionLimits.max_supply_positions` caps the leg count.
 #[test]
 fn a_dust_leg_inverts_the_payout_ordering_between_the_modes() {
-    for (wbtc_amt, credit_premium) in [(0.000001_f64, 0), (0.000005, 0), (0.00001, 1), (0.00002, 1)]
-    {
+    for wbtc_amt in [0.000001_f64, 0.000005, 0.00001, 0.00002] {
         let (transfer_payout, credit_payout) = wbtc_leg_payouts(wbtc_amt);
         assert!(
             transfer_payout > 0 && credit_payout > 0,
@@ -992,10 +987,10 @@ fn a_dust_leg_inverts_the_payout_ordering_between_the_modes() {
         );
         assert_eq!(
             credit_payout - transfer_payout,
-            credit_premium,
-            "wbtc={wbtc_amt}: credit must pay {credit_premium} stroop more than transfer \
-             (transfer={transfer_payout} credit={credit_payout}); a change here means the \
-             fee bump, its realised-excess cap or the credit fee rule moved"
+            1,
+            "wbtc={wbtc_amt}: on a dust leg credit must pay exactly one stroop MORE \
+             than transfer (transfer={transfer_payout} credit={credit_payout}); a \
+             change here means the fee bump or the credit fee rule moved"
         );
     }
 }
@@ -1068,7 +1063,7 @@ fn transfer_and_credit_agree_on_values_that_do_not_divide_evenly_after_accrual()
 
     let index_before = pool_state(&t, "USDC").supply_index;
     assert!(
-        index_before > RAY,
+        index_before > common::constants::RAY,
         "fixture broken: the USDC supply index must have accrued past RAY, got \
          {index_before}"
     );
@@ -1124,10 +1119,10 @@ fn the_two_modes_charge_the_same_protocol_fee_within_one_unit() {
     t.assert_liquidatable(ALICE);
 
     let alice_id = t.resolve_account_id(ALICE);
-    let payments = asset_payment_vec(
+    let payments = test_harness::asset_payment_vec(
         &t.env,
         t.resolve_asset("ETH"),
-        amount_raw(0.73, t.resolve_market("ETH").decimals),
+        test_harness::amount_raw(0.73, t.resolve_market("ETH").decimals),
     );
 
     let transfer =
@@ -1147,7 +1142,7 @@ fn the_two_modes_charge_the_same_protocol_fee_within_one_unit() {
     // No accrual or bad debt has touched USDC, so the index is RAY and shares convert
     // to asset units by the decimal factor alone.
     let supply_index = pool_state(&t, "USDC").supply_index;
-    assert_eq!(supply_index, RAY);
+    assert_eq!(supply_index, common::constants::RAY);
     let decimals = t.resolve_market("USDC").decimals;
     let credit_fee_assets = credit_fee_shares / 10i128.pow(27 - decimals);
 
@@ -1273,7 +1268,10 @@ fn the_share_gap_stays_under_one_asset_unit_with_the_supply_index_below_ray() {
             t.force_socialize_bad_debt_by_id(t.resolve_account_id(DAVE));
             t.set_price("ETH", usd(2_000));
             let index = pool_state(&t, "USDC").supply_index;
-            assert!(index < RAY, "wiped {wiped_usdc}: index {index}");
+            assert!(
+                index < common::constants::RAY,
+                "wiped {wiped_usdc}: index {index}"
+            );
 
             // Borrow to 95% of the LTV left after the write-down.
             let borrow = t.total_collateral_raw(ALICE) as f64 / 1e18 * 0.75 * 0.95 / 2_000.0;
@@ -1330,7 +1328,7 @@ fn the_share_gap_stays_under_one_asset_unit_with_the_supply_index_below_ray() {
 
     assert!(ran >= 6, "only {ran} points liquidated");
     assert!(
-        lowest_index < RAY / 10,
+        lowest_index < common::constants::RAY / 10,
         "the sweep never reached a deep write-down: lowest index {lowest_index}"
     );
     std::println!("below-RAY sweep: {ran} points, lowest index {lowest_index}");

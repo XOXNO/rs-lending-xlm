@@ -166,8 +166,8 @@ defines the burn calculation.
 ### INV-ACCT-07 — Borrow draws reserve a cash buffer
 
 Borrow debt minting requires cash after the requested draw to cover 200 BPS of
-the floored supplied token value, rounded up. Strategy debt openings check
-gross principal before withholding any fee.
+the floored supplied token value, with half-up BPS rounding. Strategy debt
+openings check gross principal before withholding any fee.
 
 Exits do not preserve this buffer. It does not guarantee enough cash for every
 subsequent liquidation.
@@ -178,10 +178,8 @@ subsequent liquidation.
 ### INV-ACCT-08 — Selected operations enforce the utilization ceiling
 
 Borrow debt minting, ordinary withdrawal and revenue claims reject utilization
-above the market ceiling. The gate divides ceiled debt value by floored supply
-value and rounds the ratio up, so rounding cannot admit utilization above the
-ceiling. It skips zero total supply, zero debt value and ceilings at least one
-RAY. Debt against a zero floored supply value fails the gate.
+above the market ceiling. The gate divides half-up-valued debt by half-up-valued
+supply. It skips zero total supply and ceilings at least one RAY.
 
 Liquidation withdrawal skips the gate. Accrual and bad-debt writeoff can exceed
 the ceiling; it is not a market-wide bound maintained by every operation.
@@ -419,12 +417,10 @@ debt, which equals the planned refund. Seizure is proportional to collateral
 value and capped at held collateral; rounding can leave repayment with no
 payable seizure.
 
-Transfer mode burns shares and pays underlying after fees. The planned transfer
-fee never exceeds the whole token units paid above the leg's principal. Credit
-mode splits seized shares exactly between receiver credit and a
-ceiling-rounded fee on bonus shares. The fee reclassifies existing supply as
-revenue, requires no collateral cash and reduces same-spoke usage only by the
-fee.
+Transfer mode burns shares and pays underlying after fees. Credit mode splits
+seized shares exactly between receiver credit and a ceiling-rounded fee on
+bonus shares. The fee reclassifies existing supply as revenue, requires no
+collateral cash and reduces same-spoke usage only by the fee.
 
 New receiver assets require a current listing. Existing receiver risk snapshots
 stay unchanged. See [liquidation arithmetic](formulas.md#liquidation-sizing-and-fees)
