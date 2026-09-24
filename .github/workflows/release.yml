@@ -30,6 +30,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
@@ -75,10 +77,15 @@ jobs:
           done
           cat ./*.wasm.sha256
 
+      - name: Package the xoxno-contract-sdk bundle
+        run: python3 scripts/sdk_manifest.py dist
+
       - name: Attest build provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
-          subject-path: dist/*.wasm
+          subject-path: |
+            dist/*.wasm
+            dist/sdk-manifest.json
 
       - name: Upload to release (on published release)
         if: github.event_name == 'release'
@@ -86,7 +93,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
-          gh release upload "$RELEASE_TAG" dist/*.wasm dist/*.wasm.sha256 --clobber
+          gh release upload "$RELEASE_TAG" dist/*.wasm dist/*.wasm.sha256 dist/sdk-manifest.json --clobber
 
       - name: Upload to release (workflow_dispatch)
         if: github.event_name == 'workflow_dispatch'
@@ -94,7 +101,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ github.event.inputs.tag }}
         run: |
-          gh release upload "$RELEASE_TAG" dist/*.wasm dist/*.wasm.sha256 --clobber
+          gh release upload "$RELEASE_TAG" dist/*.wasm dist/*.wasm.sha256 dist/sdk-manifest.json --clobber
 
       - name: Upload artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -103,6 +110,7 @@ jobs:
           path: |
             dist/*.wasm
             dist/*.wasm.sha256
+            dist/sdk-manifest.json
           if-no-files-found: error
 
   testnet-e2e:
@@ -120,6 +128,8 @@ jobs:
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
