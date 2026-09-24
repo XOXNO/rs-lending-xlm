@@ -58,7 +58,7 @@ jobs:
     name: Fuzz smoke (PR)
     runs-on: self-hosted
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Isolate rustup toolchain dir
         run: |
@@ -66,16 +66,18 @@ jobs:
           echo "RUSTUP_HOME=$RUNNER_TEMP/rustup" >> "$GITHUB_ENV"
 
       - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@master
+        uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
           toolchain: "1.95"
           targets: wasm32v1-none
 
       - name: Install Rust nightly (for cargo-fuzz)
-        uses: dtolnay/rust-toolchain@nightly
+        uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: nightly
 
       - name: Install cargo-fuzz (prebuilt)
-        uses: taiki-e/install-action@v2.87.13
+        uses: taiki-e/install-action@26e9283f268b880168bdbd2c545dfcd60ec2c6ab # v2.87.13
         with:
           tool: cargo-fuzz
 
@@ -85,7 +87,7 @@ jobs:
       # the live registry, so a concurrent build can read a half-written crate
       # source. The registry persists on the runner and needs no cache.
       - name: Cache cargo build artifacts
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             target
@@ -114,7 +116,7 @@ jobs:
     name: Proptest smoke (PR)
     runs-on: self-hosted
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Isolate rustup toolchain dir
         run: |
@@ -122,13 +124,13 @@ jobs:
           echo "RUSTUP_HOME=$RUNNER_TEMP/rustup" >> "$GITHUB_ENV"
 
       - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@master
+        uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
           toolchain: "1.95"
           targets: wasm32v1-none
 
       - name: Cache cargo build artifacts
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             target
@@ -154,14 +156,15 @@ jobs:
     env:
       RUSTUP_TOOLCHAIN: nightly
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Isolate rustup toolchain dir
         run: |
           rm -rf "$RUNNER_TEMP/rustup"
           echo "RUSTUP_HOME=$RUNNER_TEMP/rustup" >> "$GITHUB_ENV"
-      - uses: dtolnay/rust-toolchain@nightly
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
+          toolchain: nightly
           components: miri, rust-src
       - run: make miri-all
 
@@ -175,7 +178,7 @@ jobs:
       matrix:
         shard: [0, 1, 2, 3]
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
@@ -185,13 +188,13 @@ jobs:
           echo "RUSTUP_HOME=$RUNNER_TEMP/rustup" >> "$GITHUB_ENV"
 
       - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@master
+        uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
           toolchain: "1.95"
           targets: wasm32v1-none
 
       - name: Install cargo-mutants + nextest
-        uses: taiki-e/install-action@v2.87.13
+        uses: taiki-e/install-action@26e9283f268b880168bdbd2c545dfcd60ec2c6ab # v2.87.13
         with:
           tool: cargo-mutants@${{ env.CARGO_MUTANTS_VERSION }},cargo-nextest
 
@@ -215,7 +218,7 @@ jobs:
 
       # Only build artifacts are cached, never ~/.cargo (see pr-fuzz).
       - name: Cache cargo build artifacts
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             target-mutants
@@ -250,7 +253,7 @@ jobs:
 
       - name: Upload mutation results
         if: always()
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: mutants-artifacts-diff-s${{ matrix.shard }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: mutants.out/
@@ -262,23 +265,13 @@ jobs:
     name: Prepare stellar-cli
     runs-on: self-hosted
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install stellar-cli
         run: bash .github/scripts/install-stellar-cli.sh
 
-      - name: Stage stellar-cli
-        run: |
-          mkdir -p "$RUNNER_TEMP/stellar-cli"
-          if [ -x "$HOME/.local/bin/stellar" ]; then
-            cp "$HOME/.local/bin/stellar" "$RUNNER_TEMP/stellar-cli/stellar"
-          else
-            cp "$(command -v stellar)" "$RUNNER_TEMP/stellar-cli/stellar"
-          fi
-          chmod +x "$RUNNER_TEMP/stellar-cli/stellar"
-
       - name: Upload stellar-cli
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: stellar-cli-${{ github.run_id }}
           path: ${{ runner.temp }}/stellar-cli/stellar
@@ -293,14 +286,14 @@ jobs:
     name: Prepare cargo-mutants
     runs-on: self-hosted
     steps:
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
           toolchain: "1.95"
 
       # Installs the tools once; each mutants matrix cell downloads the staged
       # copies instead of installing them again.
       - name: Install tools
-        uses: taiki-e/install-action@v2.87.13
+        uses: taiki-e/install-action@26e9283f268b880168bdbd2c545dfcd60ec2c6ab # v2.87.13
         with:
           tool: cargo-mutants@${{ env.CARGO_MUTANTS_VERSION }},sccache,cargo-nextest
 
@@ -314,7 +307,7 @@ jobs:
       # One artifact for the whole bin directory, so each matrix cell does one
       # download.
       - name: Upload tools
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: mutants-tools-${{ github.run_id }}
           path: ${{ runner.temp }}/cargo-mutants/bin
@@ -328,20 +321,20 @@ jobs:
     runs-on: self-hosted
     needs: stellar-tool
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Isolate rustup toolchain dir
         run: |
           rm -rf "$RUNNER_TEMP/rustup"
           echo "RUSTUP_HOME=$RUNNER_TEMP/rustup" >> "$GITHUB_ENV"
 
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
           toolchain: "1.95"
           targets: wasm32v1-none
 
       - name: Download stellar-cli
-        uses: actions/download-artifact@v8.0.1
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: stellar-cli-${{ github.run_id }}
           path: .github/tools
@@ -373,7 +366,7 @@ jobs:
           cat "$dst/SHA256SUMS"
 
       - name: Upload wasm fixtures
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: wasm-fixtures-${{ github.run_id }}
           path: ${{ runner.temp }}/wasm-fixtures/
@@ -409,28 +402,30 @@ jobs:
           - target: aggregator
             kind: contract
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Isolate rustup toolchain dir
         run: |
           rm -rf "$RUNNER_TEMP/rustup"
           echo "RUSTUP_HOME=$RUNNER_TEMP/rustup" >> "$GITHUB_ENV"
 
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
           toolchain: "1.95"
           targets: wasm32v1-none
 
-      - uses: dtolnay/rust-toolchain@nightly
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: nightly
 
       - name: Install cargo-fuzz (prebuilt)
-        uses: taiki-e/install-action@v2.87.13
+        uses: taiki-e/install-action@26e9283f268b880168bdbd2c545dfcd60ec2c6ab # v2.87.13
         with:
           tool: cargo-fuzz
 
       # Only build artifacts are cached, never ~/.cargo (see pr-fuzz).
       - name: Cache cargo build artifacts
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             target
@@ -441,7 +436,7 @@ jobs:
 
       - name: Download pool WASM fixture
         if: matrix.kind == 'contract'
-        uses: actions/download-artifact@v8.0.1
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: wasm-fixtures-${{ github.run_id }}
           path: target/wasm32v1-none/release
@@ -458,7 +453,7 @@ jobs:
 
       - name: Upload fuzz artifacts on failure
         if: failure()
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: fuzz-artifacts-${{ matrix.target }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
@@ -488,16 +483,16 @@ jobs:
           - prop_migrate_blend_reconciles_same_asset
           - prop_migrate_blend_cap_too_low_reverts
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
           toolchain: "1.95"
           targets: wasm32v1-none
 
       # Only build artifacts are cached, never ~/.cargo (see pr-fuzz).
       - name: Cache cargo build artifacts
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             target
@@ -506,7 +501,7 @@ jobs:
             ${{ runner.os }}-proptest-v2-
 
       - name: Download pool WASM fixture
-        uses: actions/download-artifact@v8.0.1
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: wasm-fixtures-${{ github.run_id }}
           path: target/wasm32v1-none/release
@@ -522,7 +517,7 @@ jobs:
 
       - name: Upload proptest regressions on failure
         if: failure()
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: proptest-regressions-${{ matrix.test }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
@@ -602,44 +597,37 @@ jobs:
           - target: mutants-defindex-strategy
           - target: mutants-position-nft
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Isolate rustup toolchain dir
         run: |
           rm -rf "$RUNNER_TEMP/rustup"
           echo "RUSTUP_HOME=$RUNNER_TEMP/rustup" >> "$GITHUB_ENV"
 
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
           toolchain: "1.95"
 
       - name: Download stellar-cli
-        uses: actions/download-artifact@v8.0.1
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: stellar-cli-${{ github.run_id }}
           path: .github/tools
 
       - name: Download mutants tools
-        uses: actions/download-artifact@v8.0.1
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: mutants-tools-${{ github.run_id }}
           path: .github/tools
 
-      # No actions/cache here. This job's warm build state comes from the
-      # runner's own disk: target-mutants is gitignored, so it survives
-      # actions/checkout between runs, and RUSTC_WRAPPER=sccache backs it with a
-      # 50G local cache. Hosted cache entries for this matrix would evict the
-      # fuzz and proptest caches.
-
-      # cargo-mutants writes mutated sources into the tree and builds them, and
-      # target-mutants survives from the previous run, so it can hold objects
-      # built from a mutant rather than from clean source. Touching every
-      # tracked .rs file forces cargo to rebuild anything derived from them.
-      - name: Invalidate any mutant-built artifacts left on the runner
-        run: git ls-files -z '*.rs' | xargs -0 touch
-
+      # No actions/cache here. cargo-mutants builds in temporary copies of the
+      # tree, and the relative CARGO_TARGET_DIR resolves inside each copy, so
+      # every run starts with an empty target dir. The only warm build state is
+      # the runner's local sccache (RUSTC_WRAPPER=sccache, 50G). The workspace
+      # target-mutants holds only the wasm fixtures. Hosted cache entries for
+      # this matrix would evict the fuzz and proptest caches.
       - name: Download wasm fixtures
-        uses: actions/download-artifact@v8.0.1
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: wasm-fixtures-${{ github.run_id }}
           path: target-mutants/wasm32v1-none/release
@@ -731,7 +719,7 @@ jobs:
 
       - name: Upload mutation results
         if: always()
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: mutants-artifacts-${{ matrix.target }}${{ matrix.suffix || '' }}-${{ github.run_id }}-${{ github.run_attempt }}
 

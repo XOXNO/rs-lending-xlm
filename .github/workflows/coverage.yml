@@ -47,7 +47,7 @@ jobs:
       CARGO_INCREMENTAL: "0"
       SCCACHE_CACHE_SIZE: 20G
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           clean: false
 
@@ -57,7 +57,7 @@ jobs:
           git clean -ffdx -e target
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@master
+        uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
           toolchain: "1.95"
           targets: wasm32v1-none
@@ -67,12 +67,12 @@ jobs:
         run: bash .github/scripts/install-stellar-cli.sh
 
       - name: Install cargo-llvm-cov (prebuilt)
-        uses: taiki-e/install-action@v2.87.13
+        uses: taiki-e/install-action@26e9283f268b880168bdbd2c545dfcd60ec2c6ab # v2.87.13
         with:
           tool: cargo-llvm-cov
 
       - name: Install sccache (prebuilt)
-        uses: taiki-e/install-action@v2.87.13
+        uses: taiki-e/install-action@26e9283f268b880168bdbd2c545dfcd60ec2c6ab # v2.87.13
         with:
           tool: sccache
 
@@ -88,7 +88,7 @@ jobs:
           cp target/coverage/merged.lcov.info coverage-baseline/merged.lcov.info
 
       - name: Save baseline to cache
-        uses: actions/cache/save@v6
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: coverage-baseline
           key: ${{ env.COV_CACHE_PREFIX }}-${{ github.sha }}
@@ -106,10 +106,10 @@ jobs:
       RUSTC_WRAPPER: sccache
       CARGO_INCREMENTAL: "0"
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@master
+        uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
           toolchain: "1.95"
           targets: wasm32v1-none
@@ -119,17 +119,17 @@ jobs:
         run: bash .github/scripts/install-stellar-cli.sh
 
       - name: Install cargo-llvm-cov (prebuilt)
-        uses: taiki-e/install-action@v2.87.13
+        uses: taiki-e/install-action@26e9283f268b880168bdbd2c545dfcd60ec2c6ab # v2.87.13
         with:
           tool: cargo-llvm-cov
 
       - name: Install sccache (prebuilt)
-        uses: taiki-e/install-action@v2.87.13
+        uses: taiki-e/install-action@26e9283f268b880168bdbd2c545dfcd60ec2c6ab # v2.87.13
         with:
           tool: sccache
 
       - name: Cache cargo registry + sccache objects
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry
@@ -146,7 +146,7 @@ jobs:
 
       - name: Restore latest main coverage baseline
 
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: coverage-baseline
           key: ${{ env.COV_CACHE_PREFIX }}-${{ github.sha }}
@@ -175,7 +175,7 @@ jobs:
           fi
 
       - name: Post or update PR coverage comment
-        uses: actions/github-script@v9
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           HEAD_PCT: ${{ steps.cov.outputs.head_pct }}
           BASE_PCT: ${{ steps.cov.outputs.base_pct }}

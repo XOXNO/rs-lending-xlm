@@ -5,7 +5,9 @@ on:
   # test-harness and price-aggregator, and `vendor/**` holds the patched cvlr
   # crates the certora feature builds against. Both can break the build, so
   # both must trigger it. `.github/scripts/**` installs the stellar-cli this
-  # workflow runs on.
+  # workflow runs on. `make wasm-size-check` reads the budget file, the two
+  # `scripts/` checkers, and the declaration and invariant files the
+  # access-control checker loads.
   push:
     branches: [main]
     paths:
@@ -20,6 +22,11 @@ on:
       - "Cargo.lock"
       - "rust-toolchain.toml"
       - "Makefile"
+      - "configs/wasm_size_budget.txt"
+      - "scripts/check_access_control.py"
+      - "scripts/strip_spec_docs.py"
+      - "scripts/permissionless_entrypoints.txt"
+      - "docs/reference/invariants.md"
       - ".github/workflows/**"
       - ".github/scripts/**"
   pull_request:
@@ -36,6 +43,11 @@ on:
       - "Cargo.lock"
       - "rust-toolchain.toml"
       - "Makefile"
+      - "configs/wasm_size_budget.txt"
+      - "scripts/check_access_control.py"
+      - "scripts/strip_spec_docs.py"
+      - "scripts/permissionless_entrypoints.txt"
+      - "docs/reference/invariants.md"
       - ".github/workflows/**"
       - ".github/scripts/**"
   workflow_dispatch:
@@ -52,39 +64,6 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Source-only gates: no contract build, no stellar-cli, no test run. They
-  # finish in seconds, so they fail a PR long before Build & Test does.
-  static-gates:
-    name: Static Gates
-    runs-on: self-hosted
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          clean: false
-
-      - name: Reset workspace, preserve target/ build cache
-        run: |
-          git reset --hard
-          git clean -ffdx -e target
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: "1.95"
-          components: rustfmt
-
-      - name: Formatting
-        run: make fmt-check
-
-      - name: Doc links and symbol references resolve
-        run: make docs-check
-
-      - name: Integration shell harness parses
-        run: make integration-validate
-
-      - name: Operator script guards (spoke id mapping, live flags)
-        run: make ops-script-check
-
   build-and-test:
     name: Build & Test
     runs-on: self-hosted
@@ -93,7 +72,7 @@ jobs:
       CARGO_INCREMENTAL: "0"
       SCCACHE_CACHE_SIZE: 20G
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           clean: false
 
@@ -103,7 +82,7 @@ jobs:
           git clean -ffdx
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@master
+        uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
           toolchain: "1.95"
           targets: wasm32v1-none
@@ -113,7 +92,7 @@ jobs:
         run: bash .github/scripts/install-stellar-cli.sh
 
       - name: Install sccache (prebuilt)
-        uses: taiki-e/install-action@v2.87.13
+        uses: taiki-e/install-action@26e9283f268b880168bdbd2c545dfcd60ec2c6ab # v2.87.13
         with:
           tool: sccache
 

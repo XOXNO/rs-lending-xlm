@@ -103,7 +103,15 @@ the entire change history.
 Some workflows execute pull-request-controlled code on persistent self-hosted
 runners. Repository administrators must require approval for workflow runs from
 outside collaborators. This setting lives in the repository's GitHub Actions
-configuration, not in workflow YAML.
+configuration, not in workflow YAML. Administrators should also make the
+`Static Gates` check required on `main`, and require actions pinned to a
+full-length commit SHA.
+
+Pin every action to a full commit SHA with a trailing `# <ref>` comment. The
+Static Gates job runs on every pull request and fails on an unpinned action.
+The stellar-cli installer checks the release tarball against a pinned SHA-256,
+so a `STELLAR_VERSION` bump needs the new digests in
+`.github/scripts/install-stellar-cli.sh`.
 
 Do not weaken pinned-action, least-privilege, or deployable-ABI safeguards to
 make CI pass. Raise a maintainer discussion if a legitimate change needs a

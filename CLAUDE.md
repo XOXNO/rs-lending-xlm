@@ -98,19 +98,29 @@ is convenient. See [ADR-0003](docs/explanation/decisions.md#adr-0003).
 - `make access-control-check` — every `#[contractimpl]` entrypoint is gated or
   declared in `scripts/permissionless_entrypoints.txt`. A stale or over-broad
   declared line fails as loudly as a missing one. New permissionless entrypoint
-  means a new justified line in that file.
+  means a new justified line in that file. It also covers the stock methods of
+  `#[contractimpl(contracttrait)]` blocks, pins the test-only set in
+  `EXPECTED_TEST_ONLY`, and requires every cited INV id to be a heading in
+  `docs/reference/invariants.md`.
 - `make fmt-check`, `make docs-check`, `make integration-validate` — the
-  `static-gates` job in `.github/workflows/tests.yml`.
+  `Static Gates` job in `.github/workflows/static-gates.yml`. It runs on every
+  pull request and every push to `main`, with no `paths` filter.
 - `make ops-script-check` — same job. `configs/script.sh` must map a config
   spoke id to its on-chain id (`onchain:N` is the raw escape) and must carry
-  the live `paused`/`frozen`/`no_seize` flags through a listing edit. Offline,
-  about 1 second.
+  the live `paused`/`frozen`/`no_seize` flags through a listing edit. Every
+  `configs/script.sh` verb must be in a Makefile action list (the
+  `upgrade*Hash` verbs are internal), and every forwarded make verb needs a
+  script arm (`scripts/check_script_verbs.sh`). Offline, about 1 second.
+- `python3 .github/scripts/check_workflows.py` — same job. Every `uses:` in a
+  workflow pins a full commit SHA, and the Static Gates workflow keeps no
+  `paths` filter. `bash .github/scripts/test_install_stellar_cli.sh`, same job,
+  proves the stellar-cli installer checks its pinned SHA-256.
 - `make wasm-size-check`, `make wasm-testing-abi-check` — testing-only
   entrypoints must not exist in a deployable artifact ([ADR-0017](docs/explanation/decisions.md#adr-0017)).
 
-`tests.yml` and `security.yml` start only when their `paths` filter matches. A
-change limited to `docs/`, `skills/`, `configs/` or a root Markdown file starts
-neither, so run these gates locally.
+`tests.yml` (Build & Test) and `security.yml` start only when their `paths`
+filter matches. Each filter lists the repository files its jobs read. When a
+gate starts to read a new file, add that file to the filter.
 
 ## Where to read before changing behaviour
 
