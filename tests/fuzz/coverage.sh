@@ -48,15 +48,15 @@ if command -v rustfilt >/dev/null 2>&1; then
     DEMANGLER_ARGS=(-Xdemangler=rustfilt)
 fi
 
-IGNORE_REGEX='(\.rustup/|/\.cargo/|/rustc/|rs-lending-xlm/tests/fuzz/|tests/test-harness/|/types/|events\.rs|contracts/controller/src/(governance|views)/)'
+IGNORE_REGEX='(\.rustup/|/\.cargo/|/rustc/|/tests/fuzz/|tests/test-harness/|/types/|events(\.rs|/)|contracts/controller/src/(governance|views)\.rs)'
 
 focus_regex() {
     case "$1" in
         fp_math) echo '(^|/)math/fp_core\.rs|TOTAL' ;;
         fp_ops) echo '(^|/)math/fp(_core)?\.rs|TOTAL' ;;
-        rates_and_index) echo '(^|/)rates\.rs|(^|/)math/fp(_core)?\.rs|TOTAL' ;;
-        flow_e2e) echo 'contracts/controller/src/(positions|strategies|oracle|helpers|storage|cache|router|validation)|common/src/oracle|TOTAL' ;;
-        flow_strategy) echo 'contracts/controller/src/(strategies|positions|router|helpers|validation|cache)|TOTAL' ;;
+        rates_and_index) echo '(^|/)rates/|(^|/)math/fp(_core)?\.rs|TOTAL' ;;
+        flow_e2e) echo 'contracts/controller/src/(positions|strategies|storage|risk|account|markets|payments|context|config)|common/src/oracle|TOTAL' ;;
+        flow_strategy) echo 'contracts/controller/src/(strategies|positions|risk|payments|context)|TOTAL' ;;
         pool_native) echo 'contracts/pool/src|common/src/(rates|math|validation)|TOTAL' ;;
         *) echo 'TOTAL' ;;
     esac

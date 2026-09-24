@@ -1,3 +1,5 @@
+use core::str::from_utf8;
+
 use common::constants::{
     TTL_BUMP_INSTANCE, TTL_BUMP_USER, TTL_THRESHOLD_INSTANCE, TTL_THRESHOLD_USER,
 };
@@ -359,7 +361,7 @@ fn constructor_rejects_a_base_uri_over_the_oz_maximum() {
     let controller = Address::generate(&env);
 
     let oversized = [b'a'; 201];
-    let oversized = core::str::from_utf8(&oversized).unwrap();
+    let oversized = from_utf8(&oversized).unwrap();
 
     env.register(
         PositionNft,
@@ -379,7 +381,7 @@ fn longest_accepted_base_uri_still_renders_token_uri() {
     let controller = Address::generate(&env);
 
     let max_base = [b'a'; 200];
-    let max_base = core::str::from_utf8(&max_base).unwrap();
+    let max_base = from_utf8(&max_base).unwrap();
 
     let id = env.register(
         PositionNft,
@@ -400,17 +402,21 @@ fn longest_accepted_base_uri_still_renders_token_uri() {
 
 extern crate std;
 
+use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::string::String as StdString;
+use std::{env, format, fs};
+
 use soroban_sdk::testutils::{MockAuth, MockAuthInvoke};
 use soroban_sdk::{Bytes, IntoVal, Val, Vec};
 
 fn uploaded_position_nft_wasm(env: &Env) -> BytesN<32> {
-    let path = std::env::var("POSITION_NFT_WASM_PATH").unwrap_or_else(|_| {
-        std::format!(
+    let path = env::var("POSITION_NFT_WASM_PATH").unwrap_or_else(|_| {
+        format!(
             "{}/../../target/wasm32v1-none/release/position_nft.wasm",
             env!("CARGO_MANIFEST_DIR")
         )
     });
-    let bytes = std::fs::read(&path)
+    let bytes = fs::read(&path)
         .unwrap_or_else(|e| panic!("position_nft.wasm not found at {path}: {e}; run `make build`"));
     env.deployer()
         .upload_contract_wasm(Bytes::from_slice(env, &bytes))
@@ -418,16 +424,11 @@ fn uploaded_position_nft_wasm(env: &Env) -> BytesN<32> {
 
 /// Asserts `call` panics with the host error `Error(Auth, InvalidAction)`.
 fn assert_host_auth_error(label: &str, call: impl FnOnce()) {
-    let payload = std::panic::catch_unwind(std::panic::AssertUnwindSafe(call))
-        .expect_err("the call must be refused");
+    let payload = catch_unwind(AssertUnwindSafe(call)).expect_err("the call must be refused");
     let message = payload
-        .downcast_ref::<std::string::String>()
+        .downcast_ref::<StdString>()
         .cloned()
-        .or_else(|| {
-            payload
-                .downcast_ref::<&str>()
-                .map(|m| std::string::String::from(*m))
-        })
+        .or_else(|| payload.downcast_ref::<&str>().map(|m| StdString::from(*m)))
         .unwrap_or_default();
     assert!(
         message.contains("Error(Auth, InvalidAction)"),
@@ -505,4 +506,100 @@ fn burn_signed_by_the_token_owner_is_a_host_auth_error() {
 
     assert_eq!(client.owner_of(&token_id), owner);
     assert_eq!(client.total_supply(), 1u32);
+}
+
+#[test]
+fn transfer_signed_by_a_stranger_is_a_host_auth_error() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (id, _controller, client) = setup_with_id(&env);
+    let owner = Address::generate(&env);
+    let stranger = Address::generate(&env);
+    let token_id = client.mint(&owner);
+
+    sign_as(
+        &env,
+        &stranger,
+        &id,
+        "transfer",
+        (owner.clone(), stranger.clone(), token_id).into_val(&env),
+    );
+    assert_host_auth_error("transfer", || client.transfer(&owner, &stranger, &token_id));
+
+    assert_eq!(client.owner_of(&token_id), owner);
+}
+
+#[test]
+fn transfer_from_signed_by_a_stranger_is_a_host_auth_error() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (id, _controller, client) = setup_with_id(&env);
+    let owner = Address::generate(&env);
+    let spender = Address::generate(&env);
+    let stranger = Address::generate(&env);
+    let token_id = client.mint(&owner);
+    let live_until = env.ledger().sequence() + 1_000;
+    client.approve(&owner, &spender, &token_id, &live_until);
+
+    sign_as(
+        &env,
+        &stranger,
+        &id,
+        "transfer_from",
+        (spender.clone(), owner.clone(), stranger.clone(), token_id).into_val(&env),
+    );
+    assert_host_auth_error("transfer_from", || {
+        client.transfer_from(&spender, &owner, &stranger, &token_id)
+    });
+
+    assert_eq!(client.owner_of(&token_id), owner);
+    assert_eq!(client.get_approved(&token_id), Some(spender));
+}
+
+#[test]
+fn approve_signed_by_a_stranger_is_a_host_auth_error() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (id, _controller, client) = setup_with_id(&env);
+    let owner = Address::generate(&env);
+    let stranger = Address::generate(&env);
+    let token_id = client.mint(&owner);
+    let live_until = env.ledger().sequence() + 1_000;
+
+    sign_as(
+        &env,
+        &stranger,
+        &id,
+        "approve",
+        (owner.clone(), stranger.clone(), token_id, live_until).into_val(&env),
+    );
+    assert_host_auth_error("approve", || {
+        client.approve(&owner, &stranger, &token_id, &live_until)
+    });
+
+    assert_eq!(client.get_approved(&token_id), None);
+}
+
+#[test]
+fn approve_for_all_signed_by_a_stranger_is_a_host_auth_error() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (id, _controller, client) = setup_with_id(&env);
+    let owner = Address::generate(&env);
+    let stranger = Address::generate(&env);
+    client.mint(&owner);
+    let live_until = env.ledger().sequence() + 1_000;
+
+    sign_as(
+        &env,
+        &stranger,
+        &id,
+        "approve_for_all",
+        (owner.clone(), stranger.clone(), live_until).into_val(&env),
+    );
+    assert_host_auth_error("approve_for_all", || {
+        client.approve_for_all(&owner, &stranger, &live_until)
+    });
+
+    assert!(!client.is_approved_for_all(&owner, &stranger));
 }

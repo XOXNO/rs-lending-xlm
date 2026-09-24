@@ -19,30 +19,19 @@ exclude_globs = [
 #                 so no test can kill it.
 #   OUT OF SCOPE  the code is not compiled into the deployed contract or into
 #                 an ordinary test build.
-#   STALE         the pattern currently matches no mutant.
-#   NON-EQUIVALENT a counterexample demonstrates changed behavior.
 #   UNREVIEWED    nobody has shown the mutant is equivalent, so it is a possible
 #                 test gap. Say what you checked when you add an entry.
 #
-# Stale name-scoped patterns can suppress later functions that reuse the name;
-# they are listed separately below, not counted as equivalent mutations.
+# Every pattern must match at least one mutant in `cargo mutants --list`. A
+# name-scoped pattern that matches nothing can suppress a later function that
+# reuses the name, so delete it.
 exclude_re = [
-    "test_support::",
-
-    # --- STALE: operators no longer present ----------------------------------
-    # Neither rescale body contains `>`.
-    "replace > with >= in rescale_half_up",
-    "replace > with >= in rescale_floor",
-
-    # --- NON-EQUIVALENT: existing test covers the counterexample --------------
-    # For `a == 0` and a factor that overflows `i128`, the mutant returns 1.
-    # `test_rescale_downscale_factor_larger_than_i128_saturates_to_zero`
-    # expects 0. This exclusion suppresses a detectable mutation.
-    "replace > with >= in rescale_ceil",
-
     # --- EQUIVALENT: boundary-equivalent comparisons -------------------------
     # Flipping strict/non-strict where the equal case is unreachable or both
     # branches produce the same value.
+    # `rescale` returns early when the decimal counts are equal, so the
+    # upscale/downscale branch never sees equal operands.
+    "fp_core.rs:[0-9]+:20: replace > with >= in rescale$",
     "observation.rs:[0-9]+:14: replace > with >= in is_stale",
     "replace > with >= in calculate_annual_borrow_rate",
     "replace > with >= in update_borrow_index",
@@ -53,10 +42,6 @@ exclude_re = [
     # nonzero. At amount == 0 the pushed value is never read, so `>=` only adds
     # a discarded `balance` read.
     "venues/aquarius/mint.rs:[0-9]+:36: replace > with >= in add_liquidity",
-    # --- STALE: operator no longer present -----------------------------------
-    # `residual_allowance` is
-    # `(credited / RESIDUAL_PPM).max(RESIDUAL_DUST_FLOOR)` and contains no `>`.
-    "constants.rs:[0-9]+:21: replace > with >= in residual_allowance",
 
     # --- EQUIVALENT: boundary-equivalent comparison --------------------------
     "vault.rs:[0-9]+:19: replace < with <= in Vault",
@@ -68,13 +53,6 @@ exclude_re = [
     # wider slice stays in bounds, and only its indexes 0..=3 are read. The
     # referral id is identical on every input.
     "program.rs:[0-9]+:60: replace \\+ with \\* in Program::decode",
-
-    # --- NON-EQUIVALENT: counterexample identifies a test gap -----------------
-    # With `&&`, `rewards_increase == 0` and `supplied != 0` reach the
-    # arithmetic. `supplied.mul(old_index)` rounds half up, and the floor divide
-    # back can return more than `old_index`: supplied = 1 raw and
-    # old_index = 1.5 RAY return 2 RAY. A unit test with these inputs would kill it.
-    "replace \\|\\| with && in update_supply_index",
 
     # --- EQUIVALENT: comparison the surrounding logic already decided ---------
     # Column 42 is `ctx.hop.token_in < ctx.hop.token_out`, which picks the pair's

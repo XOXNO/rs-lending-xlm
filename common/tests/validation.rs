@@ -539,24 +539,41 @@ fn lp_sanity_band_rejects_a_twentyfold_fair_value_range() {
     validate_lp_sanity_band(&env, WAD, 20 * WAD);
 }
 
-/// The deployed Aquarius LP bands listed below pass the cap. A failing band reverts its
-/// listing only after the full timelock.
+/// Every Aquarius LP band in `configs/*/markets.json` passes the cap. A failing band
+/// reverts its listing only after the full timelock.
 #[test]
 fn lp_sanity_band_admits_every_deployed_band() {
     let env = Env::default();
 
-    // mainnet XLMUSDC_LP, XLMSolvBTC_LP, XAUMUSDC_LP, xSolvBTCSolvBTC_LP; testnet XLMUSDC_LP.
-    validate_lp_sanity_band(&env, 450_000_000_000_000_000, 2_500_000_000_000_000_000);
-    validate_lp_sanity_band(
-        &env,
-        25_000_000_000_000_000_000,
-        250_000_000_000_000_000_000,
-    );
-    validate_lp_sanity_band(&env, 6_000_000_000_000_000_000, 25_000_000_000_000_000_000);
-    validate_lp_sanity_band(
-        &env,
-        4_000_000_000_000_000_000_000,
-        12_000_000_000_000_000_000_000,
-    );
-    validate_lp_sanity_band(&env, 400_000_000_000_000_000, 3_000_000_000_000_000_000);
+    // (min_sanity_price_wad, max_sanity_price_wad)
+    let bands: [(i128, i128); 11] = [
+        // mainnet XLMUSDC_LP
+        (450_000_000_000_000_000, 2_500_000_000_000_000_000),
+        // mainnet XLMSolvBTC_LP
+        (25_000_000_000_000_000_000, 250_000_000_000_000_000_000),
+        // mainnet xSolvBTCSolvBTC_LP
+        (
+            4_000_000_000_000_000_000_000,
+            12_000_000_000_000_000_000_000,
+        ),
+        // mainnet CETESUSDC_LP
+        (430_000_000_000_000_000, 610_000_000_000_000_000),
+        // mainnet USTRYUSDC_LP
+        (1_740_000_000_000_000_000, 2_440_000_000_000_000_000),
+        // mainnet USDYUSDC_LP
+        (1_790_000_000_000_000_000, 2_510_000_000_000_000_000),
+        // mainnet XAUMUSDC_LP
+        (6_000_000_000_000_000_000, 25_000_000_000_000_000_000),
+        // mainnet PYUSDUSDC_LP
+        (900_000_000_000_000_000, 1_200_000_000_000_000_000),
+        // mainnet XLMAQUA_LP
+        (5_356_670_329_052_813, 53_566_703_290_528_136),
+        // mainnet AQUAUSDC_LP
+        (12_851_039_215_266_326, 128_510_392_152_663_280),
+        // testnet XLMUSDC_LP
+        (400_000_000_000_000_000, 3_000_000_000_000_000_000),
+    ];
+    for (min_wad, max_wad) in bands {
+        validate_lp_sanity_band(&env, min_wad, max_wad);
+    }
 }

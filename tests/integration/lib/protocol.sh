@@ -410,20 +410,26 @@ oracle_cfg_reflector() {
 # A fixed band goes stale as the price drifts; a price outside the band fails
 # with OracleError::SanityBoundViolated (#223) and every borrow and multiply
 # reverts. Returns non-zero when no live price exists, so the caller does not
-# list a market that its oracle rejects. Reflector CEX prices have 14 decimals;
-# the band is computed at 14 decimals, then multiplied by 10000 to WAD. That
-# last step overflows 64-bit shell arithmetic for prices above about 8.4 USD.
+# list a market that its oracle rejects. Reflector CEX prices have 14 decimals.
 reflector_band() {
-    local sym="$1" pct="${2:-9}" raw px14 min14 max14
+    local sym="$1" pct="${2:-9}" raw px14
     raw=$(stellar contract invoke --id "$REFLECTOR_CEX" --source "$ADMIN" "${NET_ARGS[@]}" \
         --send=no -- lastprice --asset "{\"Other\":\"$sym\"}" 2>/dev/null) || return 1
     px14=$(printf '%s' "$raw" | jq -r '.price // empty' 2>/dev/null)
     case "$px14" in
         ''|*[!0-9]*) log "reflector_band[$sym]: no live price (got '${raw:-<none>}')"; return 1 ;;
     esac
-    min14=$(( px14 * (100 - pct) / 100 ))
-    max14=$(( px14 * (100 + pct) / 100 ))
-    printf '%s %s\n' "$(( min14 * 10000 ))" "$(( max14 * 10000 ))"
+    wad_band_from_px14 "$px14" "$pct" \
+        || { log "reflector_band[$sym]: price $px14 exceeds 16 digits"; return 1; }
+}
+
+# Prints the WAD band `px14` +/-`pct` percent for a 14-decimal price. Appending
+# four zeros scales to WAD without 64-bit shell arithmetic. Refuses a price of
+# more than 16 digits (about 100 USD), where `px14 * (100 + pct)` can overflow.
+wad_band_from_px14() {
+    local px14="$1" pct="$2"
+    [ "${#px14}" -le 16 ] || return 1
+    printf '%s0000 %s0000\n' "$(( px14 * (100 - pct) / 100 ))" "$(( px14 * (100 + pct) / 100 ))"
 }
 
 market_listing_exists() {

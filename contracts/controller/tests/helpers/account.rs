@@ -438,14 +438,20 @@ fn account_owner_fails_closed() {
     env.mock_all_auths();
     let admin = Address::generate(&env);
     let contract_id = env.register(Controller, (admin,));
-    let _nft = setup_position_nft(&env, &contract_id);
+    let nft = setup_position_nft(&env, &contract_id);
+    let alice = Address::generate(&env);
+    let minted = u64::from(position_nft::PositionNftClient::new(&env, &nft).mint(&alice));
 
     env.as_contract(&contract_id, || {
+        assert_eq!(
+            storage::try_account_owner(&env, minted),
+            Some(alice.clone())
+        );
         // Never minted.
-        assert!(crate::storage::try_account_owner(&env, 7u64).is_none());
-        // Outside the mintable domain — the narrowing rejects, no panic.
-        assert!(crate::storage::try_account_owner(&env, u64::from(u32::MAX) + 1).is_none());
-        assert!(crate::storage::try_account_owner(&env, u64::MAX).is_none());
+        assert!(storage::try_account_owner(&env, 7u64).is_none());
+        // Outside the mintable domain, including the id that truncates to `minted`.
+        assert!(storage::try_account_owner(&env, u64::from(u32::MAX) + 1 + minted).is_none());
+        assert!(storage::try_account_owner(&env, u64::MAX).is_none());
     });
 }
 

@@ -1,6 +1,9 @@
-use crate::shared::get_indexes;
+use crate::shared::{count_topic, get_indexes};
 use controller::constants::WAD;
-use test_harness::{assert_contract_error, errors, usd, usd_cents, LendingTest, ALICE, LIQUIDATOR};
+use soroban_sdk::testutils::Events;
+use test_harness::{
+    assert_contract_error, errors, usd, usd_cents, LendingTest, ALICE, BOB, LIQUIDATOR,
+};
 
 #[test]
 fn test_hf_exactly_one_is_healthy() {
@@ -211,6 +214,7 @@ fn test_liquidation_bonus_clamped_at_max() {
 fn test_bad_debt_socialization_triggers_under_threshold() {
     let mut t = LendingTest::new().standard_two_asset_dust_disabled();
 
+    t.supply(BOB, "ETH", 100.0);
     t.supply(ALICE, "USDC", 30.0);
     t.borrow(ALICE, "ETH", 0.011);
     t.set_price("USDC", usd_cents(10));
@@ -218,15 +222,19 @@ fn test_bad_debt_socialization_triggers_under_threshold() {
 
     let (si_before, _) = get_indexes(&t, "ETH");
     t.liquidate(LIQUIDATOR, ALICE, "ETH", 0.011);
+    assert_eq!(count_topic(&t.env.events().all(), "debt", "bad_debt"), 1);
 
     // $3 of collateral backs $22 of debt, so the liquidator repays only
-    // `floor($3 / 1.05)` worth of ETH and cleanup socializes the rest. The ETH
-    // market has no suppliers (the harness seeds pool cash directly), so the
-    // write-down leaves the supply index unchanged.
+    // `floor($3 / 1.05)` worth of ETH and cleanup writes the rest down onto
+    // Bob's ETH supply.
     let (si_after, _) = get_indexes(&t, "ETH");
-    assert_eq!(
-        si_after, si_before,
-        "a liquidator-funded full close must not touch ETH suppliers"
+    assert!(
+        si_after < si_before,
+        "the unrepaid residual must be written down onto ETH suppliers"
+    );
+    assert!(
+        t.find_account_id(ALICE).is_none(),
+        "cleanup must remove the account"
     );
     t.assert_no_positions(ALICE);
 }

@@ -6,7 +6,7 @@
 //! transaction: every leg commits or none does. Not for production. It has no
 //! callback role; the two receiver mocks cover callback shapes.
 
-use common::types::{HubAssetKey, PositionMode, SeizeMode};
+use common::types::{HubAssetKey, PaymentTuple, PositionMode, SeizeMode};
 use controller_interface::ControllerClient;
 use soroban_sdk::auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation};
 use soroban_sdk::{
@@ -15,8 +15,9 @@ use soroban_sdk::{
 };
 
 /// Sentinel account id: resolves to the account the script last opened
-/// (`Supply` or `Multiply` with `account_id == 0`) or credited (`Liquidate` in
-/// `Credit` mode). Lets one script open an account and act on it.
+/// (`Supply` or `Multiply` whose account id resolves to `0`) or credited
+/// (`Liquidate` in `Credit` mode). Lets one script open an account and act on
+/// it.
 pub const LAST_CREATED: u64 = u64::MAX;
 
 #[allow(dead_code)]
@@ -198,14 +199,10 @@ impl ScriptRunner {
         for op in ops.iter() {
             match op {
                 Op::Supply(o) => {
-                    authorize_pulls(&env, &me, &pool, &o.assets);
-                    let id = ctrl.supply(
-                        &me,
-                        &resolve(o.account_id, last_created),
-                        &o.spoke_id,
-                        &o.assets,
-                    );
-                    if o.account_id == 0 {
+                    authorize_pulls(&env, &me, &pool, &merge_legs(&env, &o.assets));
+                    let account_id = resolve(o.account_id, last_created);
+                    let id = ctrl.supply(&me, &account_id, &o.spoke_id, &o.assets);
+                    if account_id == 0 {
                         last_created = id;
                     }
                 }
@@ -221,22 +218,28 @@ impl ScriptRunner {
                     );
                 }
                 Op::Repay(o) => {
-                    authorize_pulls(&env, &me, &pool, &o.payments);
+                    authorize_pulls(&env, &me, &pool, &merge_legs(&env, &o.payments));
                     ctrl.repay(&me, &resolve(o.account_id, last_created), &o.payments);
                 }
                 Op::Liquidate(o) => {
-                    authorize_pulls(&env, &me, &pool, &o.payments);
+                    let account_id = resolve(o.account_id, last_created);
                     // `Credit(0)` keeps its own meaning: open a fresh account.
                     let seize_mode = match o.seize_mode {
                         SeizeMode::Credit(id) => SeizeMode::Credit(resolve(id, last_created)),
                         mode => mode,
                     };
-                    let id = ctrl.liquidate(
+                    let refunds = ctrl
+                        .try_get_liquidation_estimate(&account_id, &o.payments, &seize_mode)
+                        .ok()
+                        .and_then(Result::ok)
+                        .map_or_else(|| Vec::new(&env), |estimate| estimate.refunds);
+                    authorize_pulls(
+                        &env,
                         &me,
-                        &resolve(o.account_id, last_created),
-                        &o.payments,
-                        &seize_mode,
+                        &pool,
+                        &liquidation_pulls(&env, &o.payments, &refunds),
                     );
+                    let id = ctrl.liquidate(&me, &account_id, &o.payments, &seize_mode);
                     if id != 0 {
                         last_created = id;
                     }
@@ -245,10 +248,11 @@ impl ScriptRunner {
                     ctrl.flash_loan(&me, &o.asset, &o.amount, &o.receiver, &o.data);
                 }
                 Op::Multiply(o) => {
-                    authorize_pulls(&env, &me, &pool, &o.initial_payment);
+                    authorize_pulls(&env, &me, &controller, &o.initial_payment);
+                    let account_id = resolve(o.account_id, last_created);
                     let id = ctrl.multiply(
                         &me,
-                        &resolve(o.account_id, last_created),
+                        &account_id,
                         &o.spoke_id,
                         &o.collateral,
                         &o.debt_amount,
@@ -258,7 +262,7 @@ impl ScriptRunner {
                         &o.initial_payment.first(),
                         &None,
                     );
-                    if o.account_id == 0 {
+                    if account_id == 0 {
                         last_created = id;
                     }
                 }
@@ -346,16 +350,54 @@ fn resolve(requested: u64, last_created: u64) -> u64 {
     }
 }
 
-/// One exact `transfer(me, pool, amount)` authorization per leg, so the
-/// controller can pull the runner's tokens under enforcing auth.
-fn authorize_pulls(env: &Env, me: &Address, pool: &Address, legs: &Vec<(HubAssetKey, i128)>) {
+/// Sums legs per hub asset in first-seen order, as the controller does before
+/// it pulls.
+fn merge_legs(env: &Env, legs: &Vec<(HubAssetKey, i128)>) -> Vec<(HubAssetKey, i128)> {
+    let mut merged: Vec<(HubAssetKey, i128)> = Vec::new(env);
+    for (key, amount) in legs.iter() {
+        match (0..merged.len()).find(|&i| merged.get_unchecked(i).0 == key) {
+            Some(i) => {
+                let (key, total) = merged.get_unchecked(i);
+                merged.set(i, (key, total.saturating_add(amount)));
+            }
+            None => merged.push_back((key, amount)),
+        }
+    }
+    merged
+}
+
+/// Each merged leg at the full offer, which a full close pulls, and at the
+/// offer less the estimate's refunds for that asset, which a partial pulls.
+/// Assumes one hub asset per token within a liquidation.
+fn liquidation_pulls(
+    env: &Env,
+    legs: &Vec<(HubAssetKey, i128)>,
+    refunds: &Vec<PaymentTuple>,
+) -> Vec<(HubAssetKey, i128)> {
+    let mut pulls = Vec::new(env);
+    for (key, offered) in merge_legs(env, legs).iter() {
+        let refunded = refunds
+            .iter()
+            .filter(|refund| refund.asset == key.asset)
+            .fold(0i128, |sum, refund| sum.saturating_add(refund.amount));
+        if refunded != 0 {
+            pulls.push_back((key.clone(), offered.saturating_sub(refunded)));
+        }
+        pulls.push_back((key, offered));
+    }
+    pulls
+}
+
+/// One exact `transfer(me, to, amount)` authorization per leg, so the
+/// controller can pull the runner's tokens into `to` under enforcing auth.
+fn authorize_pulls(env: &Env, me: &Address, to: &Address, legs: &Vec<(HubAssetKey, i128)>) {
     let mut entries: Vec<InvokerContractAuthEntry> = Vec::new(env);
     for (key, amount) in legs.iter() {
         entries.push_back(InvokerContractAuthEntry::Contract(SubContractInvocation {
             context: ContractContext {
                 contract: key.asset.clone(),
                 fn_name: symbol_short!("transfer"),
-                args: (me.clone(), pool.clone(), amount).into_val(env),
+                args: (me.clone(), to.clone(), amount).into_val(env),
             },
             sub_invocations: Vec::new(env),
         }));

@@ -268,13 +268,14 @@ fn apply_entry_one_over_cap_reverts_with_supply_cap() {
     let env = Env::default();
     let contract = new_controller(&env);
     let asset = Address::generate(&env);
+    // Cap 1 raw asset unit, 1e20 scaled at index RAY; delta is the scaled cap plus 1.
+    let delta = Ray::from_asset(&env, 1, 7).raw() + 1;
     env.as_contract(&contract, || {
         let mut ctx = SpokeUsageContext::new(&env, 1);
-        // Cap 1 asset unit (1e20 scaled); delta `RAY + 1` is 1e7 asset units plus 1 raw.
         ctx.apply_entry(
             UsageSide::Supply,
             &hub(&asset),
-            Ray::from(RAY + 1),
+            Ray::from(delta),
             1,
             Ray::from(RAY),
             7,

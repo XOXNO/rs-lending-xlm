@@ -1,3 +1,4 @@
+use controller::types::ControllerKey;
 use test_harness::{
     assert_contract_error, errors, hub_asset, map_try_ok_unit, usdc_preset, LendingTest, ALICE, BOB,
 };
@@ -204,4 +205,19 @@ fn test_renew_account_owner_succeeds() {
 
     assert_eq!(t.find_account_id(ALICE), Some(account_id));
     t.assert_supply_near(ALICE, "USDC", 1_000.0, 0.01);
+}
+
+#[test]
+#[should_panic(expected = "should have no positions")]
+fn assert_no_positions_checks_a_removed_account_for_leftover_positions() {
+    let mut t = LendingTest::new().with_market(usdc_preset()).build();
+    t.supply(ALICE, "USDC", 100.0);
+    let account_id = t.account_id(ALICE);
+    t.env.as_contract(&t.controller, || {
+        t.env
+            .storage()
+            .persistent()
+            .remove(&ControllerKey::AccountMeta(account_id));
+    });
+    t.assert_no_positions(ALICE);
 }

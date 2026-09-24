@@ -1,13 +1,13 @@
 //! GH-08. One contract, as the top-level caller, drives every user, keeper
-//! and delegate verb. The last two tests enforce auth, so the runner's own
-//! `authorize_as_current_contract` entries carry the token pulls, not the
-//! harness mock.
+//! and delegate verb. The `under_enforcing_auth_*` tests drop the harness
+//! mock, so the runner's own `authorize_as_current_contract` entries carry the
+//! token pulls.
 
 use crate::helpers::{borrow_op, key, liquidate_op, repay_op, supply_op, withdraw_op};
 use common::types::{PositionMode, SeizeMode};
 use script_runner::{
-    AccountOp, AssetsOp, DelegateOp, FlashLoanOp, MultiplyOp, NftTransferOp, Op, RecapOp,
-    ThresholdOp, LAST_CREATED,
+    AccountOp, AssetsOp, DelegateOp, FlashLoanOp, LiquidateOp, MultiplyOp, NftTransferOp, Op,
+    RecapOp, RepayOp, SupplyOp, ThresholdOp, LAST_CREATED,
 };
 use soroban_sdk::{vec, Bytes, Vec};
 use test_harness::{
@@ -251,4 +251,104 @@ fn under_enforcing_auth_a_stranger_cannot_use_the_runner_to_spend_another_accoun
     let result = t.run_script(&runner, &ops);
     t.env.mock_all_auths_allowing_non_root_auth();
     assert_contract_error(result.map(|_| ()), errors::NOT_AUTHORIZED);
+}
+
+#[test]
+fn under_enforcing_auth_the_runner_carries_a_multiply_initial_payment() {
+    let t = setup();
+    let runner = t.deploy_script_runner();
+    t.fund_runner(&runner, "USDC", 20_000 * U);
+    let swap = build_aggregator_swap(&t, "ETH", "USDC", 0, 200 * U);
+    let ops: Vec<Op> = vec![
+        &t.env,
+        Op::Multiply(MultiplyOp {
+            account_id: 0,
+            spoke_id: HARNESS_SPOKE,
+            collateral: key(&t, "USDC"),
+            debt_amount: U / 10,
+            debt: key(&t, "ETH"),
+            mode: PositionMode::Multiply,
+            swap,
+            initial_payment: vec![&t.env, (key(&t, "USDC"), 1_000 * U)],
+        }),
+    ];
+    t.env.set_auths(&[]);
+    let result = t.run_script(&runner, &ops);
+    t.env.mock_all_auths_allowing_non_root_auth();
+    let id = result.expect("the controller pulls the initial payment into itself");
+    assert_eq!(t.supply_balance_raw_for(id, "USDC"), 1_200 * U);
+    assert_eq!(t.runner_wallet(&runner, "USDC"), 19_000 * U);
+}
+
+#[test]
+fn under_enforcing_auth_the_runner_carries_a_trimmed_partial_liquidation() {
+    let mut t = setup();
+    t.supply(ALICE, "USDC", 10_000.0);
+    t.borrow(ALICE, "ETH", 3.0);
+    t.set_price("ETH", usd(2_800));
+    t.assert_liquidatable(ALICE);
+    let victim = t.account_id(ALICE);
+    let runner = t.deploy_script_runner();
+    t.fund_runner(&runner, "ETH", 10 * U);
+    let requested = 29 * U / 10;
+    let payments = vec![&t.env, (key(&t, "ETH"), requested)];
+    let refunded: i128 = t
+        .ctrl_client()
+        .get_liquidation_estimate(&victim, &payments, &SeizeMode::Transfer)
+        .refunds
+        .iter()
+        .map(|refund| refund.amount)
+        .sum();
+    assert!(refunded > 0, "the plan trims the request below the offer");
+    let ops: Vec<Op> = vec![
+        &t.env,
+        liquidate_op(&t, victim, "ETH", requested, SeizeMode::Transfer),
+    ];
+    t.env.set_auths(&[]);
+    let result = t.run_script(&runner, &ops);
+    t.env.mock_all_auths_allowing_non_root_auth();
+    result.expect("the runner authorizes the trimmed amount the controller pulls");
+    assert_eq!(
+        t.runner_wallet(&runner, "ETH"),
+        10 * U - (requested - refunded)
+    );
+}
+
+#[test]
+fn under_enforcing_auth_the_runner_merges_duplicate_legs_like_the_controller() {
+    let mut t = setup();
+    t.supply(ALICE, "USDC", 10_000.0);
+    t.borrow(ALICE, "ETH", 3.0);
+    t.set_price("ETH", usd(3_000));
+    t.assert_liquidatable(ALICE);
+    let victim = t.account_id(ALICE);
+    let runner = t.deploy_script_runner();
+    t.fund_runner(&runner, "USDC", 1_000 * U);
+    t.fund_runner(&runner, "ETH", 10 * U);
+    let (usdc, eth) = (key(&t, "USDC"), key(&t, "ETH"));
+    let ops: Vec<Op> = vec![
+        &t.env,
+        Op::Supply(SupplyOp {
+            account_id: 0,
+            spoke_id: HARNESS_SPOKE,
+            assets: vec![&t.env, (usdc.clone(), 600 * U), (usdc, 400 * U)],
+        }),
+        borrow_op(&t, LAST_CREATED, "ETH", U / 10, None),
+        Op::Repay(RepayOp {
+            account_id: LAST_CREATED,
+            payments: vec![&t.env, (eth.clone(), U / 20), (eth.clone(), U / 20 + 1)],
+        }),
+        Op::Liquidate(LiquidateOp {
+            account_id: victim,
+            payments: vec![&t.env, (eth.clone(), 2 * U), (eth, 2 * U)],
+            seize_mode: SeizeMode::Transfer,
+        }),
+    ];
+    t.env.set_auths(&[]);
+    let result = t.run_script(&runner, &ops);
+    t.env.mock_all_auths_allowing_non_root_auth();
+    let id = result.expect("each merged leg matches one pre-authorized pull");
+    assert_eq!(t.supply_balance_raw_for(id, "USDC"), 1_000 * U);
+    assert_eq!(t.borrow_balance_raw_for(id, "ETH"), 0);
+    assert_eq!(t.borrow_balance_raw_for(victim, "ETH"), 0);
 }

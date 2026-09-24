@@ -24,6 +24,9 @@ fn main() {
             "ReenterControllerRdwc" => FlashLoanMode::ReenterControllerRdwc,
             "ReenterControllerLiquidate" => FlashLoanMode::ReenterControllerLiquidate,
             "ReenterMigrateBlend" => FlashLoanMode::ReenterMigrateBlend,
+            "ReenterControllerUpgradePoolParams" => {
+                FlashLoanMode::ReenterControllerUpgradePoolParams
+            }
             _ => panic!("unknown flash loan mode: {arg}"),
         })
         .unwrap_or(FlashLoanMode::Success);

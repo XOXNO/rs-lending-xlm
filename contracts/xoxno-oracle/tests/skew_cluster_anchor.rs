@@ -40,34 +40,33 @@ fn future_dated_submission_cannot_evict_the_honest_cohort() {
     );
 }
 
-/// One future-dated signer must not clear a two-signer honest quorum.
+/// Three signers, threshold two, minimum 61 s skew: a third signer at the future
+/// bound does not evict the honest pair submitted 2 s earlier, so its submission
+/// writes a fresh aggregate over all three.
 #[test]
-fn one_future_dated_signer_cannot_clear_the_feed() {
+fn one_future_dated_signer_cannot_evict_the_honest_pair() {
     let env = soroban_sdk::Env::default();
     env.mock_all_auths();
     advance_ledger_seconds(&env, 10_000);
     let (client, _admin, signers) = setup(&env, 3, 2);
     let feed = feed_id(&env);
+    client.set_max_relative_skew_seconds(&61u64);
 
+    let honest_ms = env.ledger().timestamp() * 1_000;
+    client.submit_price(&signers[0], &feed, &100i128, &honest_ms);
+    client.submit_price(&signers[1], &feed, &100i128, &honest_ms);
+
+    // Measured from the future timestamp, the honest pair is 62 s old.
+    advance_ledger_seconds(&env, 2);
     let now_ms = env.ledger().timestamp() * 1_000;
-    client.submit_price(&signers[0], &feed, &100i128, &now_ms);
-    client.submit_price(&signers[1], &feed, &100i128, &now_ms);
-    assert_eq!(
-        client.read_price_data_for_feed(&feed).price.to_u128(),
-        Some(100u128),
-        "quorum of 2 honest signers prices the feed"
-    );
+    client.submit_price(&signers[2], &feed, &100i128, &(now_ms + 60_000));
 
-    advance_ledger_seconds(&env, 1);
-    let future_ms = (env.ledger().timestamp() + 60) * 1_000;
-    client.submit_price(&signers[2], &feed, &100i128, &future_ms);
-
-    // The honest pair, one second old, stays clustered; the feed is still live.
+    let aggregate = client.read_price_data_for_feed(&feed);
     assert_eq!(
-        client.read_price_data_for_feed(&feed).price.to_u128(),
-        Some(100u128),
-        "a future-dated third submission must not evict the honest pair"
+        aggregate.write_timestamp, now_ms,
+        "the future-dated submission must aggregate with the honest pair"
     );
+    assert_eq!(aggregate.package_timestamp, honest_ms);
 }
 
 /// Control: the skew filter still evicts old submissions that are not future-dated.

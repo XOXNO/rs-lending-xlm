@@ -12,8 +12,8 @@ use test_harness::presets::{
     AssetConfigPreset, MarketPreset, DEFAULT_ASSET_CONFIG, DEFAULT_MARKET_PARAMS,
 };
 use test_harness::{
-    assert_contract_error, errors, hub_asset, map_try_ok_value, LendingTest, ALICE, HARNESS_SPOKE,
-    LIQUIDATOR,
+    assert_contract_error, errors, hub_asset, map_try_ok_value, LendingTest, ALICE, BOB,
+    HARNESS_SPOKE, LIQUIDATOR,
 };
 
 fn set_curve(t: &LendingTest, target_hf_wad: i128, hf_for_max_bonus_wad: i128, factor_bps: u32) {
@@ -396,6 +396,7 @@ fn test_toxic_band_full_and_partial_bounded() {
 #[test]
 fn test_partial_chain_converges_no_bad_debt() {
     let mut t = seed_toxic();
+    t.supply(BOB, "USD", 10_000.0);
     let (si_before, _) = get_indexes(&t, "USD");
     for _ in 0..8 {
         match (
@@ -410,8 +411,9 @@ fn test_partial_chain_converges_no_bad_debt() {
     }
 
     // "No bad debt" is asserted unconditionally because the chain can end with
-    // the account closed. Socialization writes the debt market's supply index
-    // down, and no time advances here, so the index must come back bit-identical.
+    // the account closed. Socialization writes the USD supply index down against
+    // Bob's supply, and no time advances here, so the index must come back
+    // bit-identical.
     let (si_after, _) = get_indexes(&t, "USD");
     assert_eq!(
         si_after, si_before,
