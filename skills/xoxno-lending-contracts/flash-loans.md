@@ -62,7 +62,7 @@ pub fn execute_flash_loan(
     renew_instance(&env);
     let cfg = config(&env);
     cfg.pool.require_auth();
-    if pool != cfg.pool || initiator != env.current_contract_address() {
+    if pool != cfg.pool || initiator != cfg.operator {
         panic_with_error!(&env, ReceiverError::InvalidCaller);
     }
     let plan = decode_and_validate(&env, &data);
@@ -79,8 +79,11 @@ use the compiled implementation in
 [`mock/flash-loan-receiver`](../../mock/flash-loan-receiver/src/lib.rs).
 Balance and profit checks belong before approval.
 
-The public initiator entrypoint must also renew the receiver instance before
-calling `ControllerClient::flash_loan`.
+The initiator is never the receiver itself. The pool calls the receiver while
+the initiator is still on the call stack, and the host rejects a call into a
+contract that is already on the stack (see [Reentrancy](#reentrancy)). Start
+the loan from an account or from a separate contract, and store its address as
+`cfg.operator`.
 
 ## Flash position
 
@@ -136,7 +139,7 @@ pub fn execute_flash_position(
     renew_instance(&env);
     let cfg = config(&env);
     cfg.controller.require_auth();
-    if controller != cfg.controller || initiator != env.current_contract_address() {
+    if controller != cfg.controller || initiator != cfg.operator {
         panic_with_error!(&env, ReceiverError::InvalidCaller);
     }
     validate_expected_account(&env, account_id);
@@ -158,10 +161,11 @@ pub fn execute_flash_position(
 }
 ```
 
-The initiator branch must call the resolve helper before `flash_position` and
-the store helper with the returned ID afterward; both helpers are in
-[positions.md](positions.md#canonical-local-account-pointer). Its public
-entrypoint must call `renew_instance(&env)` as well.
+The initiator is an account or a separate contract, as for flash loans. A
+contract initiator calls the resolve helper before `flash_position` and the
+store helper with the returned ID afterward; both helpers are in
+[positions.md](positions.md#canonical-local-account-pointer). The account the
+initiator opens or reuses is its own, not the receiver's.
 
 ## Callback gate and payload
 
