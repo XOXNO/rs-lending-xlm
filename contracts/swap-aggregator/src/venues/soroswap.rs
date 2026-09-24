@@ -1,7 +1,7 @@
 //! Soroswap (constant-product) hop: transfer in, then pool `swap`.
 
 use common::math::fp_core::mul_div_floor;
-use soroban_sdk::{panic_with_error, symbol_short, token, vec, Env, IntoVal, Symbol, Val};
+use soroban_sdk::{panic_with_error, symbol_short, token, vec, Env, IntoVal, Symbol, Val, Vec};
 
 use crate::errors::Error;
 use crate::math::{checked_add, checked_mul};
@@ -51,7 +51,7 @@ fn soroswap_amount_out(env: &Env, amount_in: i128, reserve_in: i128, reserve_out
 pub(crate) fn swap(ctx: &HopContext<'_>) {
     let token_in_is_0 = ctx.hop.token_in < ctx.hop.token_out;
 
-    let no_args: soroban_sdk::Vec<Val> = vec![ctx.env];
+    let no_args: Vec<Val> = vec![ctx.env];
     let (reserve_0, reserve_1): (i128, i128) = ctx.env.invoke_contract(
         &ctx.hop.pool,
         &Symbol::new(ctx.env, "get_reserves"),
@@ -76,7 +76,7 @@ pub(crate) fn swap(ctx: &HopContext<'_>) {
     } else {
         (requested_out, 0_i128)
     };
-    let args: soroban_sdk::Vec<Val> = vec![
+    let args: Vec<Val> = vec![
         ctx.env,
         amount_0_out.into_val(ctx.env),
         amount_1_out.into_val(ctx.env),

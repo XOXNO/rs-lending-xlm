@@ -3,11 +3,12 @@
 //! and composition depth — by recursing through a source's dependencies.
 
 use common::errors::OracleError;
-use common::types::{FeedSource, PriceKey, PriceSource};
+use common::types::{FeedSource, PriceKey, PriceSource, MAX_RESOLUTION_DEPTH};
 use soroban_sdk::{panic_with_error, Address, Env, Vec};
 
 use crate::registry;
 use crate::session::Session;
+use crate::validation;
 
 /// Structural properties of a source or a composition of sources: whether an
 /// unsmoothed market leg is present, the set of trusted provider contracts, the
@@ -189,7 +190,7 @@ pub(crate) fn properties_of_config(
     sources: &Vec<PriceSource>,
 ) -> ConfigProperties {
     let env = session.env().clone();
-    crate::validation::source_count(&env, sources.len());
+    validation::source_count(&env, sources.len());
 
     let first = properties_of_source(session, &sources.get_unchecked(0), 0);
     let second = if sources.len() == 2 {
@@ -203,7 +204,7 @@ pub(crate) fn properties_of_config(
 /// Panics with `OracleDepthExceeded` if `depth` exceeds the maximum resolution
 /// depth.
 fn require_depth(env: &Env, depth: u32) {
-    if depth > common::types::MAX_RESOLUTION_DEPTH {
+    if depth > MAX_RESOLUTION_DEPTH {
         panic_with_error!(env, OracleError::OracleDepthExceeded);
     }
 }

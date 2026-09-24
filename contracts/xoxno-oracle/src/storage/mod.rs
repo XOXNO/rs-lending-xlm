@@ -20,6 +20,7 @@ pub(crate) use index::*;
 pub(crate) use prices::*;
 pub(crate) use registry::*;
 
+use common::oracle::observation::MAX_FUTURE_SKEW_SECONDS;
 use common::oracle::providers::reflector::ReflectorAsset;
 
 use soroban_sdk::{contracttype, Address, String};
@@ -34,8 +35,7 @@ pub(crate) const DEFAULT_MAX_SUBMISSION_AGE_SECONDS: u64 = 900;
 /// Minimum configurable maximum submission age, in seconds. Held one second
 /// above `MAX_FUTURE_SKEW_SECONDS` so the age cannot be pinned to the
 /// future-skew bound and collapse the effective eviction window.
-pub(crate) const MIN_SUBMISSION_AGE_SECONDS: u64 =
-    common::oracle::observation::MAX_FUTURE_SKEW_SECONDS + 1;
+pub(crate) const MIN_SUBMISSION_AGE_SECONDS: u64 = MAX_FUTURE_SKEW_SECONDS + 1;
 
 /// Default maximum allowed timestamp skew, in seconds, between signer submissions for the same
 /// price update.

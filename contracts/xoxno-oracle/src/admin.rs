@@ -3,6 +3,7 @@
 //! feed registration and asset mapping, and price resolution.
 
 use common::constants::BPS;
+use common::oracle::observation::MAX_FUTURE_SKEW_SECONDS;
 use common::oracle::providers::reflector::ReflectorAsset;
 
 use soroban_sdk::{contractimpl, Address, Env, String, Vec};
@@ -126,9 +127,7 @@ impl XoxnoOracle {
     #[only_owner]
     pub fn set_max_relative_skew_seconds(env: Env, seconds: u64) -> Result<(), Error> {
         renew_instance(&env);
-        if seconds > load_max_submission_age(&env)
-            || seconds <= common::oracle::observation::MAX_FUTURE_SKEW_SECONDS
-        {
+        if seconds > load_max_submission_age(&env) || seconds <= MAX_FUTURE_SKEW_SECONDS {
             return Err(Error::InvalidRelativeSkew);
         }
         store_max_relative_skew(&env, seconds);

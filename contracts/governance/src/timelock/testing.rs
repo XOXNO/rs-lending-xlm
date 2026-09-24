@@ -6,7 +6,10 @@ use common::ttl::renew_instance;
 
 use soroban_sdk::{contractimpl, Address, BytesN, Env, IntoVal, Symbol, Val};
 
-use crate::op::apply_self_op;
+use stellar_access::{access_control, ownable};
+
+use crate::access::ORACLE_ROLE;
+use crate::op::{apply_self_op, AdminOperation};
 use crate::timelock::*;
 use crate::{Governance, GovernanceArgs, GovernanceClient};
 
@@ -21,21 +24,15 @@ impl Governance {
     /// resolved operation targets this contract, applies it via `apply_self_op`
     /// and returns `()`; otherwise invokes the resolved target contract directly
     /// and returns its result.
-    pub fn execute_immediate(env: Env, caller: Address, op: crate::op::AdminOperation) -> Val {
+    pub fn execute_immediate(env: Env, caller: Address, op: AdminOperation) -> Val {
         renew_instance(&env);
         caller.require_auth();
         match &op {
-            crate::op::AdminOperation::ConfigureAssetOracle(_)
-            | crate::op::AdminOperation::EditOracleTolerance(_) => {
-                stellar_access::access_control::ensure_role(
-                    &env,
-                    &Symbol::new(&env, crate::access::ORACLE_ROLE),
-                    &caller,
-                );
+            AdminOperation::ConfigureAssetOracle(_) | AdminOperation::EditOracleTolerance(_) => {
+                access_control::ensure_role(&env, &Symbol::new(&env, ORACLE_ROLE), &caller);
             }
             _ => {
-                let owner = stellar_access::ownable::get_owner(&env)
-                    .unwrap_or_else(|| panic!("Owner not set"));
+                let owner = ownable::get_owner(&env).unwrap_or_else(|| panic!("Owner not set"));
                 assert_eq!(caller, owner, "not owner");
             }
         }

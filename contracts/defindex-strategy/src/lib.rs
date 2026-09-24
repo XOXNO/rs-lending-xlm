@@ -7,8 +7,9 @@
 //! account id that holds its collateral.
 
 use common::constants::{TTL_BUMP_USER, TTL_THRESHOLD_USER};
+use common::errors::GenericError;
 use common::math::fp::Ray;
-use common::token::authorize_transfer_as_current;
+use common::token::{authorize_transfer_as_current, transfer_amount_measured};
 use common::ttl::renew_instance;
 use common::types::HubAssetKey;
 
@@ -257,13 +258,13 @@ impl DeFindexStrategyTrait for Strategy {
 
         let ctx = Ctx::try_load(&env)?;
 
-        let received = common::token::transfer_amount_measured(
+        let received = transfer_amount_measured(
             &env,
             &ctx.cfg.asset,
             &from,
             &ctx.strategy,
             amount,
-            common::errors::GenericError::AmountMustBePositive,
+            GenericError::AmountMustBePositive,
         );
 
         let stored_id = resolve_vault_account(ctx.env, &ctx.controller, &from, true);

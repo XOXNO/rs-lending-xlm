@@ -10,7 +10,8 @@ use common::oracle::providers::reflector::ReflectorClient;
 use common::oracle::providers::xoxno::XoxnoOracleAdapterClient;
 use common::types::{AssetOracle, FeedSource, OracleTolerance, PriceKey, PriceSource, ProviderRef};
 use common::validation::{
-    validate_oracle_tolerance, validate_sanity_bounds, validate_single_source_sanity_band,
+    validate_lp_sanity_band, validate_oracle_tolerance, validate_sanity_bounds,
+    validate_single_source_sanity_band,
 };
 use soroban_sdk::{assert_with_error, panic_with_error, Env, Vec};
 
@@ -145,7 +146,7 @@ pub(crate) fn validate_asset_oracle(env: &Env, key: &PriceKey, oracle: &AssetOra
     );
     if oracle.has_aquarius_lp_source() {
         // Sole-source by construction, so the band is the only backstop.
-        common::validation::validate_lp_sanity_band(
+        validate_lp_sanity_band(
             env,
             oracle.min_sanity_price_wad,
             oracle.max_sanity_price_wad,

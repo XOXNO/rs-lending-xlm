@@ -18,11 +18,12 @@ use soroban_sdk::{assert_with_error, vec, Address, BytesN, Env, IntoVal, Symbol,
 
 use stellar_access::access_control;
 use stellar_governance::timelock::{
-    get_min_delay, get_operation_ledger, hash_operation, Operation, TimelockStorageKey,
+    get_min_delay, get_operation_ledger, hash_operation, set_min_delay, Operation,
+    TimelockStorageKey,
 };
 
 use crate::access::EXECUTOR_ROLE;
-use crate::op::resolve_op;
+use crate::op::{resolve_op, AdminOperation};
 use crate::{constants, storage};
 
 /// Classifies an operation by the minimum delay it must wait before execution.
@@ -68,7 +69,7 @@ pub(crate) fn validate_delay_update(env: &Env, new_delay: u32) {
 /// Validates `new_delay` and, if valid, sets it as the timelock's minimum delay.
 pub(crate) fn apply_update_delay(env: &Env, new_delay: u32) {
     validate_delay_update(env, new_delay);
-    stellar_governance::timelock::set_min_delay(env, new_delay);
+    set_min_delay(env, new_delay);
 }
 
 /// When `Some(exec)`, requires `exec` auth + `EXECUTOR_ROLE`. When `None`,
@@ -123,7 +124,7 @@ pub(crate) fn hash_operation_parts(
 /// predecessor, and `salt`) together with its delay tier.
 fn operation_for_admin_op(
     env: &Env,
-    op: &crate::op::AdminOperation,
+    op: &AdminOperation,
     salt: BytesN<32>,
 ) -> (Operation, DelayTier) {
     let resolved = resolve_op(env, op);

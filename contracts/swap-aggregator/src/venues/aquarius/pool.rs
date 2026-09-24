@@ -1,6 +1,8 @@
 //! Aquarius pool queries, share checks, and shared swap invoke.
 
-use soroban_sdk::{panic_with_error, symbol_short, Address, Env, IntoVal, Map, Symbol, Val, Vec};
+use soroban_sdk::{
+    panic_with_error, symbol_short, vec, Address, Env, IntoVal, Map, Symbol, Val, Vec,
+};
 
 use crate::errors::Error;
 use crate::program::MAX_ASSETS;
@@ -21,7 +23,7 @@ pub(super) fn invoke_pool_swap(
     amount_in: i128,
 ) {
     authorize_token_transfer(env, token_in, router, pool, amount_in);
-    let args: Vec<Val> = soroban_sdk::vec![
+    let args: Vec<Val> = vec![
         env,
         router.into_val(env),
         in_idx.into_val(env),

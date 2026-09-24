@@ -156,7 +156,7 @@ pub(crate) fn simulate_update_indexes_body(
 
     let mut remaining = total_delta_ms;
     while remaining > 0 {
-        let chunk = core::cmp::min(remaining, MAX_COMPOUND_DELTA_MS);
+        let chunk = remaining.min(MAX_COMPOUND_DELTA_MS);
         let step = accrue_step(
             env,
             &params,

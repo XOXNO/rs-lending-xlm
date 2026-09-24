@@ -3,6 +3,8 @@
 
 use soroban_sdk::{contracttype, Address, Env, String, Symbol};
 
+use crate::math::fp::Wad;
+
 /// Identifies the underlying asset a price feed reports on, in whichever form the source
 /// provider expects: a Stellar contract address, a symbol, or a string identifier.
 #[contracttype]
@@ -101,7 +103,7 @@ impl PriceStatus {
 /// decimals and observation timestamp.
 #[derive(Clone, Copy, Debug)]
 pub struct PriceFeed {
-    pub price: crate::math::fp::Wad,
+    pub price: Wad,
     pub asset_decimals: u32,
     pub timestamp: u64,
 }
@@ -109,16 +111,15 @@ pub struct PriceFeed {
 impl PriceFeed {
     /// Converts a raw token amount (scaled by `asset_decimals`) to its WAD-scaled USD value
     /// at this feed's price, rounding half up.
-    pub fn usd_value_wad(self, env: &Env, token_amount: i128) -> crate::math::fp::Wad {
-        crate::math::fp::Wad::from_token(env, token_amount, self.asset_decimals)
-            .mul(env, self.price)
+    pub fn usd_value_wad(self, env: &Env, token_amount: i128) -> Wad {
+        Wad::from_token(env, token_amount, self.asset_decimals).mul(env, self.price)
     }
 }
 
 impl From<&PriceFeedRaw> for PriceFeed {
     fn from(r: &PriceFeedRaw) -> Self {
         Self {
-            price: crate::math::fp::Wad::from(r.price_wad),
+            price: Wad::from(r.price_wad),
             asset_decimals: r.asset_decimals,
             timestamp: r.timestamp,
         }
@@ -138,7 +139,7 @@ impl From<&PriceFeed> for PriceFeedRaw {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::constants::WAD;
+    use crate::constants::{MAX_REASONABLE_PRICE_WAD, WAD};
 
     #[test]
     fn test_price_feed_raw_typed_roundtrip() {
@@ -158,7 +159,7 @@ mod tests {
     fn test_price_feed_usd_value_wad_scales_by_decimals() {
         let env = Env::default();
         let feed = PriceFeed {
-            price: crate::math::fp::Wad::from(2 * WAD),
+            price: Wad::from(2 * WAD),
             asset_decimals: 7,
             timestamp: 0,
         };
@@ -171,7 +172,7 @@ mod tests {
     fn usd_value_wad_of_zero_tokens_is_zero() {
         let env = Env::default();
         let feed = PriceFeed {
-            price: crate::math::fp::Wad::from(WAD),
+            price: Wad::from(WAD),
             asset_decimals: 7,
             timestamp: 0,
         };
@@ -182,7 +183,7 @@ mod tests {
     fn usd_value_wad_of_one_base_unit_is_price_over_ten_pow_decimals() {
         let env = Env::default();
         let feed = PriceFeed {
-            price: crate::math::fp::Wad::from(3 * WAD),
+            price: Wad::from(3 * WAD),
             asset_decimals: 7,
             timestamp: 0,
         };
@@ -193,7 +194,7 @@ mod tests {
     fn usd_value_wad_at_the_max_sanity_price_and_max_decimals_fits() {
         let env = Env::default();
         let feed = PriceFeed {
-            price: crate::math::fp::Wad::from(crate::constants::MAX_REASONABLE_PRICE_WAD),
+            price: Wad::from(MAX_REASONABLE_PRICE_WAD),
             asset_decimals: 18,
             timestamp: 0,
         };
@@ -201,7 +202,7 @@ mod tests {
         let one_billion_tokens = 1_000_000_000i128 * WAD;
         assert_eq!(
             feed.usd_value_wad(&env, one_billion_tokens).raw(),
-            1_000_000_000i128 * crate::constants::MAX_REASONABLE_PRICE_WAD
+            1_000_000_000i128 * MAX_REASONABLE_PRICE_WAD
         );
     }
 
@@ -210,7 +211,7 @@ mod tests {
     fn usd_value_wad_panics_instead_of_wrapping_past_i128() {
         let env = Env::default();
         let feed = PriceFeed {
-            price: crate::math::fp::Wad::from(crate::constants::MAX_REASONABLE_PRICE_WAD),
+            price: Wad::from(MAX_REASONABLE_PRICE_WAD),
             asset_decimals: 3,
             timestamp: 0,
         };

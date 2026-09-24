@@ -14,6 +14,8 @@ mod scale;
 mod shares;
 
 use common::math::fp::Ray;
+#[cfg(test)]
+use common::types::MarketParamsRaw;
 use common::types::{HubAssetKey, MarketParams, MarketStateSnapshot, PoolState, PoolStateRaw};
 
 use soroban_sdk::Env;
@@ -158,7 +160,7 @@ impl Cache {
     pub(crate) fn from_parts(
         env: &Env,
         hub_asset: HubAssetKey,
-        params: &common::types::MarketParamsRaw,
+        params: &MarketParamsRaw,
         state: &PoolStateRaw,
         current_timestamp: u64,
     ) -> Self {
