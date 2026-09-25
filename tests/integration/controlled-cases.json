@@ -18,6 +18,15 @@
     "scope": "native SAC recipient; freeze simulation footprint, advance five seconds, verify zero-to-one payout; original skipped-transfer path fails with StorageExceededLimit"
   },
   {
+    "id": "same_ledger_index_footprint",
+    "execution": "controlled-ledger",
+    "methods": [
+      "pool.update_indexes"
+    ],
+    "test": "tests::same_ledger_index_update_keeps_state_writable_at_inclusion",
+    "scope": "freeze a same-ledger zero-accrual footprint, advance five seconds, persist interest; original read-only State footprint fails with StorageExceededLimit"
+  },
+  {
     "id": "risk_hf_boundary",
     "execution": "controlled-ledger",
     "methods": [

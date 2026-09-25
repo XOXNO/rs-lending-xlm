@@ -154,6 +154,10 @@ burned for a zero-token payout. This reserves writable recipient state; empty
 withdrawals and other zero refunds remain no-ops. Dust recipients must have a
 valid account/authorized trustline. Custom tokens may implement zero transfers
 differently; this fix does not guarantee every state-dependent footprint.
+Another live failure exposed a same-ledger `update_indexes` simulation that
+recorded pool state as read-only. Inclusion advanced time and interest accrual
+needed a write. Index updates now always commit state; a frozen-footprint
+regression preserves the original failure and verifies the later-ledger write.
 Current-schema upgrades deliberately record same-bytecode baselines and make
 no claim about migration from a different executable.
 

@@ -172,8 +172,8 @@ impl LiquidityPoolInterface for LiquidityPool {
     }
 
     /// Accrues interest for each market in `hub_assets` through the current
-    /// ledger time. No-op write for a market with no elapsed time, but still
-    /// emits its market state event. Restricted to the owner.
+    /// ledger time. Commits state even with no elapsed time to reserve the write
+    /// footprint, and emits its market state event. Restricted to the owner.
     #[only_owner]
     fn update_indexes(env: Env, hub_assets: Vec<HubAssetKey>) {
         ops::market::accrue(&env, hub_assets);

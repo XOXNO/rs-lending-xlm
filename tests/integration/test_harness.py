@@ -147,6 +147,19 @@ for body in ['return 1', 'echo null', 'echo malformed']:
     shell(f'view() {{ {body}; }}; ! balance token owner')
 # A failed mutation leg is never replayed by its outer wrapper.
 shell('n=0; leg() { n=$((n+1)); return 1; }; ! retry_leg leg; [ "$n" = 1 ]')
+# A phase cannot report pass after ignoring a failed action, even if a later
+# action with the same label succeeds. Earlier cases stay outside this range.
+for status in ['FAIL', 'UNEXPECTED-OK']:
+    shell('''
+printf 'id\\tstatus\\tfirst_action\\tlast_action\\n' > "$RUN_DIR/cases.tsv"
+record previous FAIL assert
+good() { record good ok assert; }
+run_case good good || exit 1
+ignored_failure() { record repeated STATUS assert; record repeated ok assert; }
+if run_case ignored ignored_failure; then exit 1; fi
+awk -F'\\t' '$1=="good" && $2=="pass" {good=1} $1=="ignored" && $2=="fail" {bad=1} END {exit !(good && bad)}' "$RUN_DIR/cases.tsv"
+[ ! -e "$RUN_DIR/active-case" ]
+'''.replace('STATUS', status))
 print('E2E offline harness regressions passed')
 # Suppressed refund, wrong fee destination and recap refund must all fail.
 for before, after, expected in [('100', '100', '10000000'), ('100', '100', '25'), ('1000', '800', '-20')]:

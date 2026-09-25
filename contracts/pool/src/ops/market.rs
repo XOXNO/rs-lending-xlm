@@ -60,21 +60,14 @@ pub(crate) fn replace_rate_model(env: &Env, hub_asset: HubAssetKey, model: Inter
 /// Accrues interest for each market in `hub_assets` and emits one state event
 /// per market.
 ///
-/// Writes storage only for markets where time has elapsed; otherwise emits a
-/// snapshot of the currently loaded state.
+/// Always commits state so same-ledger simulation records the write footprint
+/// needed if time advances before transaction inclusion.
 pub(crate) fn accrue(env: &Env, hub_assets: Vec<HubAssetKey>) {
     renew_instance(env);
 
     for hub_asset in hub_assets.iter() {
         let mut cache = Cache::load(env, &hub_asset);
-        let had_elapsed_time = cache.needs_accrual();
         interest::global_sync(env, &mut cache);
-
-        let snapshot = if had_elapsed_time {
-            cache.commit()
-        } else {
-            cache.snapshot()
-        };
-        events::emit_market_state(env, snapshot);
+        events::emit_market_state(env, cache.commit());
     }
 }

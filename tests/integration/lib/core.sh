@@ -249,6 +249,11 @@ run_case() {
     printf '%s\t%s\n' "$id" "$first" > "$RUN_DIR/active-case"
     "$@" || rc=$?
     last=$(( $(wc -l < "$ACTIONS_TSV") - 1 ))
+    if [ "$rc" -eq 0 ] && ! awk -F'\t' -v first="$first" -v last="$last" \
+        'NR>1 && $1>=first && $1<=last && ($4=="FAIL" || $4=="UNEXPECTED-OK") {exit 1}' "$ACTIONS_TSV"; then
+        log "case $id recorded a failed action despite returning success"
+        rc=1
+    fi
     printf '%s\t%s\t%s\t%s\n' "$id" "$([ "$rc" -eq 0 ] && echo pass || echo fail)" "$first" "$last" >> "$RUN_DIR/cases.tsv"
     rm "$RUN_DIR/active-case"
     [ "$rc" -eq 0 ] || record "$id" FAIL phase "" "" "" "" "" "case returned $rc"
