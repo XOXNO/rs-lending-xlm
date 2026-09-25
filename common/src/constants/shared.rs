@@ -23,7 +23,7 @@ pub const MIN_ASSET_DECIMALS: u32 = 0;
 pub const MIN_BORROWABLE_ASSET_DECIMALS: u32 = 3;
 
 /// Minimum whole units in a collateral leg below `MIN_BORROWABLE_ASSET_DECIMALS`
-/// when the account opens or increases debt.
+/// after any action that leaves the account with debt.
 pub const MIN_WHOLE_UNIT_COLLATERAL: i128 = 2;
 
 /// Maximum allowed market / listed-token decimals (matches WAD-scale prices).

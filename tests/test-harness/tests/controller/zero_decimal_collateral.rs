@@ -801,6 +801,20 @@ fn zdc_borrow_needs_two_whole_units_of_collateral() {
     assert!(z.debt_raw(two) > 0);
 }
 
+/// The two-unit floor holds after any debt-bearing action, so a withdraw
+/// cannot leave one unit behind debt; a debt-free exit is not gated.
+#[test]
+fn zdc_withdraw_cannot_leave_one_unit_behind_debt() {
+    let mut z = setup(nav(1_000));
+    let id = open(&mut z, "alice", 2, 1_000, 1_000);
+    assert_eq!(
+        z.try_withdraw("alice", id, 1).unwrap_err(),
+        Error::from_contract_error(errors::MIN_BORROW_COLLATERAL_NOT_MET)
+    );
+    z.repay_all("alice", id);
+    assert_eq!(z.try_withdraw("alice", id, 1), Ok(1));
+}
+
 /// A flash-loan fee rounds up to one whole unit, so a sub-3-decimal market
 /// cannot be flash-loanable.
 #[test]

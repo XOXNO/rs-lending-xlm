@@ -73,7 +73,7 @@ SDK `try_` calls distinguish contract errors from host, authorization, storage, 
 | 121 `CollateralPositionNotFound` | The account has no supply position for the referenced hub asset. | Reference an asset the account supplied. |
 | 122 `CannotCloseWithRemainingDebt` | `repay_debt_with_collateral` sets `close_position` while borrow positions remain open. | Repay all debt before closing. |
 | 123 `PoolInsolvent` | Supplier claims exceed cash plus outstanding debt, or supply is zero while debt remains. | Recapitalize or clean bad debt first. |
-| 126 `MinBorrowCollateralNotMet` | LTV-weighted collateral is below the configured USD floor while the account still has debt, or a borrow leaves a collateral leg below 3 decimals under 2 whole units. | Supply more collateral or repay in full. |
+| 126 `MinBorrowCollateralNotMet` | LTV-weighted collateral is below the configured USD floor, or a collateral leg below 3 decimals holds under 2 whole units, while the account still has debt. | Supply more collateral or repay in full. |
 | 127 `UtilizationAboveMax` | Utilization after the operation exceeds the market's `max_utilization`. | Reduce the borrow or withdrawal size. |
 | 128 `BaseRateNegative` | The base borrow rate is negative. | Use a non-negative base rate. |
 | 129 `SlopeNonMonotonic` | Parameters violate base <= slope1 <= slope2 <= slope3 <= max. Slopes remain additive increments in pricing. | Fix the stored parameter ordering. |

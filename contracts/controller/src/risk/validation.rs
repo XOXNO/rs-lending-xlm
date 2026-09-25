@@ -4,7 +4,7 @@ use common::constants::{MIN_BORROWABLE_ASSET_DECIMALS, MIN_WHOLE_UNIT_COLLATERAL
 use common::errors::*;
 use common::math::fp::Wad;
 use common::types::{Account, AccountPositionType, AggregatedPayments, HubAssetKey};
-use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, Map};
+use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, Map, Vec};
 
 use crate::storage::iter_typed_positions;
 use crate::{context::Context, storage};
@@ -56,6 +56,8 @@ pub(crate) fn require_post_pool_risk_gates(env: &Env, cache: &mut Context, accou
     if floor != 0 && totals.ltv_collateral.raw() < floor {
         panic_with_error!(env, CollateralError::MinBorrowCollateralNotMet);
     }
+
+    require_whole_unit_collateral_floor(env, cache, account);
 }
 
 /// Checks position limits only when adding a new hub-asset slot.
@@ -110,23 +112,29 @@ pub(crate) fn validate_bulk_position_limits(
 }
 
 /// Rejects a new supply slot that would leave a collateral leg below
-/// `MIN_BORROWABLE_ASSET_DECIMALS` beside any other supply position.
+/// `MIN_BORROWABLE_ASSET_DECIMALS` beside any other supply position. An account
+/// already holding two positions holds no such leg, so only the new assets and
+/// a sole existing one are read.
 pub(crate) fn require_whole_unit_isolation(
     env: &Env,
     cache: &mut Context,
     account: &Account,
     aggregated: &AggregatedPayments,
 ) {
-    let mut assets = account.supply_positions.keys();
+    let existing = account.supply_positions.keys();
+    let mut checked: Vec<HubAssetKey> = Vec::new(env);
     for (hub_asset, _) in aggregated.iter() {
-        if !assets.contains(&hub_asset) {
-            assets.push_back(hub_asset);
+        if !existing.contains(&hub_asset) && !checked.contains(&hub_asset) {
+            checked.push_back(hub_asset);
         }
     }
-    if assets.len() <= 1 || assets.len() == account.supply_positions.len() {
+    if checked.is_empty() || existing.len() + checked.len() <= 1 {
         return;
     }
-    for hub_asset in assets.iter() {
+    if existing.len() == 1 {
+        checked.push_back(existing.get_unchecked(0));
+    }
+    for hub_asset in checked.iter() {
         let decimals = cache
             .cached_pool_sync_data(&hub_asset)
             .params
@@ -142,11 +150,7 @@ pub(crate) fn require_whole_unit_isolation(
 /// Requires `MIN_WHOLE_UNIT_COLLATERAL` whole units in every supply leg below
 /// `MIN_BORROWABLE_ASSET_DECIMALS`. Reads prices and indexes the solvency
 /// check already loaded.
-pub(crate) fn require_whole_unit_collateral_floor(
-    env: &Env,
-    cache: &mut Context,
-    account: &Account,
-) {
+fn require_whole_unit_collateral_floor(env: &Env, cache: &mut Context, account: &Account) {
     for (hub_asset, position) in iter_typed_positions(&account.supply_positions) {
         let decimals = cache.cached_price(&hub_asset.asset).asset_decimals;
         if decimals >= MIN_BORROWABLE_ASSET_DECIMALS {
