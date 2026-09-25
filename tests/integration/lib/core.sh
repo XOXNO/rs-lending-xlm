@@ -22,7 +22,7 @@ metadata = dict(lane=lane, selected_cases=[c['id'] for c in manifest if lane in 
     configuration_sha256=hashlib.sha256(Path(config).read_bytes()).hexdigest(),
     case_manifest_sha256=hashlib.sha256((Path(base)/'cases.json').read_bytes()).hexdigest(),
     sdk_lock_sha256=hashlib.sha256((Path(base)/'sdk/package-lock.json').read_bytes()).hexdigest(),
-    sdk_version='1.0.219', stellar_sdk_version='16.0.1', network='testnet', rpc_url=rpc,
+    sdk_version='1.0.220', stellar_sdk_version='16.0.1', network='testnet', rpc_url=rpc,
     network_passphrase=passphrase, run_id=run_id,
     workflow_run_id=os.environ.get('GITHUB_RUN_ID'), workflow_run_attempt=os.environ.get('GITHUB_RUN_ATTEMPT'))
 path = Path(run)/'metadata.json'

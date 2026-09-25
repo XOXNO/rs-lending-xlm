@@ -4,7 +4,7 @@
   "type": "module",
   "engines": {"node": "24.x"},
   "dependencies": {
-    "@xoxno/sdk-js": "1.0.219",
+    "@xoxno/sdk-js": "1.0.220",
     "@stellar/stellar-sdk": "16.0.1"
   }
 }

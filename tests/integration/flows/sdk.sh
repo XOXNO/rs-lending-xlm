@@ -12,7 +12,7 @@ sdk_inv() {
         if [ -n "${EXPECT_ERROR:-}" ]; then
             record "$label" xfail "$method" "" "" "" "" "" "published SDK error mapping: $EXPECT_ERROR" simulation "$CONTROLLER"
         else
-            record "$label" ok "$method" "$(jq -r '.hash // empty' "$result")" "" "" "" "" "published SDK 1.0.219; Stellar SDK 16.0.1" transaction "$CONTROLLER"
+            record "$label" ok "$method" "$(jq -r '.hash // empty' "$result")" "" "" "" "" "published SDK 1.0.220; Stellar SDK 16.0.1" transaction "$CONTROLLER"
         fi
         jq -r '.value' "$result"
     else
