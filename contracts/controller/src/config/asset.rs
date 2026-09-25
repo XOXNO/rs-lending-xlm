@@ -75,9 +75,6 @@ fn upsert_spoke_asset(env: &Env, args: &SpokeAssetArgs, mutation: SpokeAssetMuta
             || (!args.can_borrow && args.liquidation_fees == 0),
         CollateralError::InvalidBorrowParams
     );
-    if market.params.asset_decimals < MIN_BORROWABLE_ASSET_DECIMALS && args.can_collateral {
-        storage::mark_whole_unit_spoke(env, args.spoke_id);
-    }
 
     let config = SpokeAssetConfig {
         is_collateralizable: args.can_collateral,

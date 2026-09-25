@@ -82,7 +82,7 @@ pub(crate) fn process_liquidation(
             apply::apply_liquidation_seizures(env, liquidator, &mut account, &seized, &mut cache)
         }
         Some((_, receiving_account)) => {
-            apply::require_credit_position_limit(env, receiving_account, &seized);
+            apply::require_credit_position_limit(env, receiving_account, &seized, &mut cache);
             apply::apply_liquidation_share_credit(
                 env,
                 &mut account,

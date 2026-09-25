@@ -270,9 +270,9 @@ divided by `1 + bonus` and floored, is trimmed from the repayment and
 refunded, kept amounts rounding up, so the liquidator pays for the units it
 receives, and a plan that then seizes nothing reverts with `InvalidPayments`
 (16). Neither applies when an insolvent account's repayment reaches the
-collateral-backed quote: that call seizes every unit. An account in a spoke
-that lists such collateral holds a single supply position, so the leg is the
-whole collateral and the seizure stays proportional.
+collateral-backed quote: that call seizes every unit. Such a leg is its
+account's only supply position, so it is the whole collateral and the seizure
+stays proportional, and a borrow needs at least 2 whole units in it.
 
 For positive `p`, `HF / p` approximates `C / D`, but `HF` floors and `p` rounds
 half-up, so an account at
@@ -380,7 +380,7 @@ fee; see [its settlement invariant](invariants.md#inv-strat-04).
 
 | Bound | Consequence |
 |---|---|
-| Asset decimals 0..=18 | Exact token-to-RAY upscaling. Below 3: collateral only, no flash loans, no liquidation fee, one supply position per account in its spoke |
+| Asset decimals 0..=18 | Exact token-to-RAY upscaling. Below 3: collateral only, no flash loans, no liquidation fee, its account's only supply position, at least 2 whole units to borrow |
 | Both indexes initially RAY; ceiling 10^36 | 10^9 times initial index; protocol constants |
 | Supply-index floor 10^24 | At most 1,000 times the shares minted at index one for the same deposit |
 | Borrow APR maximum 2 RAY | 200% annual rate; not a bound on balance growth alone |

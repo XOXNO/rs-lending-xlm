@@ -236,6 +236,9 @@ pub(crate) fn validate_position_entry_gates(
     position_type: AccountPositionType,
 ) {
     validation::validate_bulk_position_limits(env, account, position_type, aggregated);
+    if matches!(position_type, AccountPositionType::Deposit) {
+        validation::require_whole_unit_isolation(env, cache, account, aggregated);
+    }
 
     for (hub_asset, _) in aggregated {
         match position_type {

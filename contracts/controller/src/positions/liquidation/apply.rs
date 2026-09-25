@@ -269,6 +269,7 @@ pub(crate) fn require_credit_position_limit(
     env: &Env,
     receiver: &Account,
     seized: &Vec<SeizeEntry>,
+    cache: &mut Context,
 ) {
     let mut aggregated: AggregatedPayments = Vec::new(env);
     for entry in seized.iter() {
@@ -282,6 +283,7 @@ pub(crate) fn require_credit_position_limit(
         AccountPositionType::Deposit,
         &aggregated,
     );
+    validation::require_whole_unit_isolation(env, cache, receiver, &aggregated);
 }
 
 /// Derives net receiver shares with the shared fee-splitting rules.

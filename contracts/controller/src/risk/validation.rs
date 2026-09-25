@@ -1,10 +1,12 @@
 use crate::risk;
 use crate::spec_hooks;
+use common::constants::{MIN_BORROWABLE_ASSET_DECIMALS, MIN_WHOLE_UNIT_COLLATERAL};
 use common::errors::*;
 use common::math::fp::Wad;
 use common::types::{Account, AccountPositionType, AggregatedPayments, HubAssetKey};
 use soroban_sdk::{assert_with_error, panic_with_error, Address, Env, Map};
 
+use crate::storage::iter_typed_positions;
 use crate::{context::Context, storage};
 
 /// Authenticates `caller` and rejects execution during a flash loan.
@@ -105,13 +107,62 @@ pub(crate) fn validate_bulk_position_limits(
         total_positions <= max_allowed,
         CollateralError::PositionLimitExceeded
     );
-    assert_with_error!(
-        env,
-        !matches!(position_type, AccountPositionType::Deposit)
-            || total_positions <= 1
-            || !storage::is_whole_unit_spoke(env, account.spoke_id),
-        CollateralError::PositionLimitExceeded
-    );
+}
+
+/// Rejects a new supply slot that would leave a collateral leg below
+/// `MIN_BORROWABLE_ASSET_DECIMALS` beside any other supply position.
+pub(crate) fn require_whole_unit_isolation(
+    env: &Env,
+    cache: &mut Context,
+    account: &Account,
+    aggregated: &AggregatedPayments,
+) {
+    let mut assets = account.supply_positions.keys();
+    for (hub_asset, _) in aggregated.iter() {
+        if !assets.contains(&hub_asset) {
+            assets.push_back(hub_asset);
+        }
+    }
+    if assets.len() <= 1 || assets.len() == account.supply_positions.len() {
+        return;
+    }
+    for hub_asset in assets.iter() {
+        let decimals = cache
+            .cached_pool_sync_data(&hub_asset)
+            .params
+            .asset_decimals;
+        assert_with_error!(
+            env,
+            decimals >= MIN_BORROWABLE_ASSET_DECIMALS,
+            CollateralError::PositionLimitExceeded
+        );
+    }
+}
+
+/// Requires `MIN_WHOLE_UNIT_COLLATERAL` whole units in every supply leg below
+/// `MIN_BORROWABLE_ASSET_DECIMALS`. Reads prices and indexes the solvency
+/// check already loaded.
+pub(crate) fn require_whole_unit_collateral_floor(
+    env: &Env,
+    cache: &mut Context,
+    account: &Account,
+) {
+    for (hub_asset, position) in iter_typed_positions(&account.supply_positions) {
+        let decimals = cache.cached_price(&hub_asset.asset).asset_decimals;
+        if decimals >= MIN_BORROWABLE_ASSET_DECIMALS {
+            continue;
+        }
+        let supply_index = cache.cached_market_index(&hub_asset).supply_index;
+        let units = position
+            .scaled_amount
+            .mul(env, supply_index)
+            .to_asset_floor(env, decimals);
+        assert_with_error!(
+            env,
+            units >= MIN_WHOLE_UNIT_COLLATERAL,
+            CollateralError::MinBorrowCollateralNotMet
+        );
+    }
 }
 
 #[cfg(test)]

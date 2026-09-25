@@ -57,6 +57,7 @@ pub(crate) fn process_borrow(
     settle_borrow(env, &mut account, &recipient, &aggregated, &mut cache);
 
     let restamped = enforce_post_pool_solvency(env, &mut cache, &mut account);
+    validation::require_whole_unit_collateral_floor(env, &mut cache, &account);
     let sides = if restamped {
         PositionSides::Both
     } else {

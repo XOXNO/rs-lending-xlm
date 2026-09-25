@@ -387,7 +387,8 @@ configuration; they do not guarantee a profitable liquidation after rounding.
 New supply and borrow slots must fit their configured counts. Existing-asset
 top-ups remain allowed if a count limit falls below the account's existing
 count. Credit-mode receivers obey the same new-slot limit, and an account can
-have at most 16 delegates.
+have at most 16 delegates. A supply leg below 3 decimals is its account's only
+supply position: a new slot beside it, by deposit or credit, is rejected.
 
 These bounds limit state size without proving worst-case transaction-budget
 sufficiency.
