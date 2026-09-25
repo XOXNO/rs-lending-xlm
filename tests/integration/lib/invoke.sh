@@ -17,6 +17,32 @@ backoff_sleep() {
 run_deploy() {
     local out_f="$1" err_f="$2"; shift 2
     [ "$1" = "--" ] && shift
+    # Upload and deploy use the same native simulation policy as inv(). Insert
+    # the option before constructor args, and reject conflicting explicit limits.
+    case "${1:-} ${2:-} ${3:-}" in
+        'stellar contract upload'|'stellar contract deploy')
+            local verb="$3" leeway="${INSTRUCTION_LEEWAY:-2000000}" explicit=0 value
+            local deployment_args=()
+            shift 3
+            while [ "$#" -gt 0 ]; do
+                case "$1" in
+                    --) deployment_args+=("$@"); break;;
+                    --instruction-leeway|--instruction-leeway=*)
+                        value="${1#--instruction-leeway=}"
+                        if [ "$1" = --instruction-leeway ]; then
+                            [ "$#" -ge 2 ] || { record deployment_policy FAIL deploy "" "" "" "" "" 'missing instruction leeway'; return 1; }
+                            value="$2"; shift
+                        fi
+                        [ "$explicit" -eq 0 ] && [ "$value" = "$leeway" ] || { record deployment_policy FAIL deploy "" "" "" "" "" 'conflicting or duplicate instruction leeway'; return 1; }
+                        explicit=1;;
+                    --instructions|--instructions=*)
+                        record deployment_policy FAIL deploy "" "" "" "" "" 'absolute instruction override violates native leeway policy'; return 1;;
+                    *) deployment_args+=("$1");;
+                esac
+                shift
+            done
+            set -- stellar contract "$verb" --instruction-leeway "$leeway" "${deployment_args[@]}";;
+    esac
     local attempt rc hash sequence label st
     sequence=$(wc -l < "$ACTIONS_TSV")
     label=$(basename "$out_f" .out)
