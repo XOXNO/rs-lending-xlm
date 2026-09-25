@@ -59,3 +59,4 @@ mod third_party_supply_and_risk_restamp;
 mod validation_admin;
 mod views;
 mod withdraw;
+mod zero_decimal_collateral;

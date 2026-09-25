@@ -263,6 +263,17 @@ with `InvalidPayments` (16) and the estimate shows a zero payment. This insolven
 branch does not promote the quote to full debt; bad-debt cleanup takes the unbacked
 residue. With `p == 0`, the target formula and dust promotion below apply instead.
 
+A partial seizure leg below 3 decimals takes whole token units only. When the
+repayment covers the whole debt, the leg rounds up to the held balance and
+the debt closes. Otherwise it rounds down: the dropped fraction's USD value,
+divided by `1 + bonus` and floored, is trimmed from the repayment and
+refunded, kept amounts rounding up, so the liquidator pays for the units it
+receives, and a plan that then seizes nothing reverts with `InvalidPayments`
+(16). Neither applies when an insolvent account's repayment reaches the
+collateral-backed quote: that call seizes every unit. An account in a spoke
+that lists such collateral holds a single supply position, so the leg is the
+whole collateral and the seizure stays proportional.
+
 For positive `p`, `HF / p` approximates `C / D`, but `HF` floors and `p` rounds
 half-up, so an account at
 `C == D`, or a few raw WAD units above it, can compute a cap of `-1`. Such a
@@ -369,7 +380,7 @@ fee; see [its settlement invariant](invariants.md#inv-strat-04).
 
 | Bound | Consequence |
 |---|---|
-| Asset decimals 3..=18 | Exact token-to-RAY upscaling |
+| Asset decimals 0..=18 | Exact token-to-RAY upscaling. Below 3: collateral only, no flash loans, no liquidation fee, one supply position per account in its spoke |
 | Both indexes initially RAY; ceiling 10^36 | 10^9 times initial index; protocol constants |
 | Supply-index floor 10^24 | At most 1,000 times the shares minted at index one for the same deposit |
 | Borrow APR maximum 2 RAY | 200% annual rate; not a bound on balance growth alone |
