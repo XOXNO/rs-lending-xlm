@@ -105,6 +105,13 @@ pub(crate) fn validate_bulk_position_limits(
         total_positions <= max_allowed,
         CollateralError::PositionLimitExceeded
     );
+    assert_with_error!(
+        env,
+        !matches!(position_type, AccountPositionType::Deposit)
+            || total_positions <= 1
+            || !storage::is_whole_unit_spoke(env, account.spoke_id),
+        CollateralError::PositionLimitExceeded
+    );
 }
 
 #[cfg(test)]

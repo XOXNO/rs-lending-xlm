@@ -561,4 +561,5 @@ pub enum ControllerKey {
     SupplyPositions(u64),
     BorrowPositions(u64),
     SpokeFlagsEpoch(u32, HubAssetKey),
+    WholeUnitSpoke(u32),
 }

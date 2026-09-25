@@ -67,6 +67,16 @@ pub(crate) fn bump_spoke_flags_epoch(env: &Env, spoke_id: u32, hub_asset: &HubAs
     );
 }
 
+/// Returns whether the spoke lists collateral below `MIN_BORROWABLE_ASSET_DECIMALS`.
+pub(crate) fn is_whole_unit_spoke(env: &Env, spoke_id: u32) -> bool {
+    get_shared(env, &ControllerKey::WholeUnitSpoke(spoke_id)).unwrap_or(false)
+}
+
+/// Marks the spoke as listing collateral below `MIN_BORROWABLE_ASSET_DECIMALS`.
+pub(crate) fn mark_whole_unit_spoke(env: &Env, spoke_id: u32) {
+    set_shared(env, &ControllerKey::WholeUnitSpoke(spoke_id), &true);
+}
+
 /// Deletes the listed asset config; does not modify usage or the flags epoch.
 pub(crate) fn remove_spoke_asset(env: &Env, spoke_id: u32, hub_asset: &HubAssetKey) {
     env.storage()

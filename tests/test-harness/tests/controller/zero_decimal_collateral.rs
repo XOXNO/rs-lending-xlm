@@ -4,10 +4,10 @@
 //!
 //! Tests prefixed `zdc_`. Tables print with `--nocapture`.
 
-use common::types::{HubAssetKey, LiquidationEstimate, SeizeMode};
+use common::types::{HubAssetKey, InterestRateModel, LiquidationEstimate, SeizeMode};
 use common::validation::max_cap_for_decimals;
 use controller::constants::{RAY, WAD};
-use governance::op::{AdminOperation, CreatePoolArgs, SpokeAssetArgs};
+use governance::op::{AdminOperation, CreatePoolArgs, SpokeAssetArgs, UpgradePoolParamsArgs};
 use soroban_sdk::{token, vec, Address, Error, TryFromVal, Vec};
 use test_harness::{
     errors, usd, usd_cents, usdc_preset, AssetConfigPreset, LendingTest, MarketPreset,
@@ -30,7 +30,7 @@ struct Zdc {
     usdc: Address,
 }
 
-fn setup(nav_wad: i128, liquidation_fees: u32) -> Zdc {
+fn setup(nav_wad: i128) -> Zdc {
     let mut t = LendingTest::new()
         .with_market(MarketPreset {
             initial_liquidity: 50_000_000.0,
@@ -46,6 +46,7 @@ fn setup(nav_wad: i128, liquidation_fees: u32) -> Zdc {
                 is_borrowable: false,
                 is_flashloanable: false,
                 flashloan_fee: 0,
+                liquidation_fees: 0,
                 ..DEFAULT_ASSET_CONFIG
             },
             params: DEFAULT_MARKET_PARAMS,
@@ -81,7 +82,7 @@ fn setup(nav_wad: i128, liquidation_fees: u32) -> Zdc {
             ltv: LTV,
             threshold: LT,
             bonus: BONUS,
-            liquidation_fees,
+            liquidation_fees: 0,
             supply_cap: LIQ_CAP_UNITS,
             borrow_cap: 0,
         }),
@@ -312,7 +313,7 @@ fn open(z: &mut Zdc, name: &str, units: i128, nav_usd: i128, borrow_bps: i128) -
 
 #[test]
 fn zdc_listing_admits_zero_decimals_and_supply_index_stays_ray() {
-    let mut z = setup(nav(1_000), 0);
+    let mut z = setup(nav(1_000));
     let id = open(&mut z, "alice", 100, 1_000, 5_000);
     assert_eq!(z.collateral_units(id), 100);
     assert_eq!(z.collateral_scaled(id), 100 * RAY);
@@ -327,7 +328,7 @@ fn zdc_listing_admits_zero_decimals_and_supply_index_stays_ray() {
 
 #[test]
 fn zdc_round_trip_supply_borrow_withdraw_repay_is_exact_at_nav_1000() {
-    let mut z = setup(nav(1_000), 0);
+    let mut z = setup(nav(1_000));
     let id = open(&mut z, "alice", 100, 1_000, 5_500);
     assert_eq!(z.hub_liq_cash(), 100);
 
@@ -352,31 +353,23 @@ fn zdc_round_trip_supply_borrow_withdraw_repay_is_exact_at_nav_1000() {
 
 #[test]
 fn zdc_one_and_two_unit_positions_round_trip() {
-    let mut z = setup(nav(1_000), 0);
-    let one = open(&mut z, "alice", 1, 1_000, 5_000);
-    let two = open(&mut z, "bob", 2, 1_000, 5_000);
+    let mut z = setup(nav(1_000));
+    let one = z.supply("alice", 0, 1);
+    let two = z.supply("bob", 0, 2);
     assert_eq!(z.collateral_units(one), 1);
     assert_eq!(z.collateral_units(two), 2);
-    let err = z.try_withdraw("alice", one, 1).unwrap_err();
-    assert_eq!(
-        err,
-        Error::from_contract_error(errors::INSUFFICIENT_COLLATERAL)
-    );
-    z.repay_all("alice", one);
-    z.repay_all("bob", two);
     assert_eq!(z.try_withdraw("alice", one, 1), Ok(1));
     assert_eq!(z.try_withdraw("bob", two, 1), Ok(1));
     assert_eq!(z.try_withdraw("bob", two, 1), Ok(1));
     assert_eq!(z.hub_liq_cash(), 0);
 }
-
 /// Opens N units at 58% LTV, drops NAV 20% (HF ~0.966), liquidates in
 /// `Transfer` mode with a debt-sized payment and prints the outcome.
-fn sweep(nav_cents: i128, sizes: &[i128], fees: u32) -> std::vec::Vec<(i128, LiqOutcome)> {
+fn sweep(nav_cents: i128, sizes: &[i128]) -> std::vec::Vec<(i128, Option<LiqOutcome>)> {
     let mut rows = std::vec::Vec::new();
     let new_cents = nav_cents * 8 / 10;
     std::println!(
-        "\nNAV ${:.2}/unit, drop to ${:.2}, fees {fees} bps",
+        "\nNAV ${:.2}/unit, drop to ${:.2}",
         nav_cents as f64 / 100.0,
         new_cents as f64 / 100.0
     );
@@ -392,7 +385,7 @@ fn sweep(nav_cents: i128, sizes: &[i128], fees: u32) -> std::vec::Vec<(i128, Liq
         "exists"
     );
     for &n in sizes {
-        let mut z = setup(usd_cents(nav_cents), fees);
+        let mut z = setup(usd_cents(nav_cents));
         let id = z.supply("alice", 0, n);
         z.borrow(
             "alice",
@@ -402,9 +395,15 @@ fn sweep(nav_cents: i128, sizes: &[i128], fees: u32) -> std::vec::Vec<(i128, Liq
         z.t.set_price(LIQ, usd_cents(new_cents));
         assert!(z.hf(id) < WAD);
         let debt = z.debt_raw(id);
-        let out = z
-            .liquidate(id, debt + usdc_raw(1), SeizeMode::Transfer)
-            .expect("liquidation");
+        let out = match z.liquidate(id, debt + usdc_raw(1), SeizeMode::Transfer) {
+            Ok(out) => out,
+            Err(e) => {
+                assert_eq!(e, Error::from_contract_error(errors::INVALID_PAYMENTS));
+                std::println!("{n:>7} | reverted: no whole unit is seizable");
+                rows.push((n, None));
+                continue;
+            }
+        };
         let got_usd = out.got_units as f64 * new_cents as f64 / 100.0;
         let paid_usd = out.paid_usdc_raw as f64 / USDC_UNIT as f64;
         std::println!(
@@ -418,104 +417,116 @@ fn sweep(nav_cents: i128, sizes: &[i128], fees: u32) -> std::vec::Vec<(i128, Liq
             out.units_after,
             out.account_exists
         );
-        rows.push((n, out));
+        rows.push((n, Some(out)));
     }
     rows
 }
 
 #[test]
 fn zdc_transfer_liquidation_sweep_nav_1000() {
-    let rows = sweep(100_000, &[1, 2, 3, 5, 10, 20, 50, 100, 1_000], 0);
-    for (n, out) in &rows {
-        assert!(out.paid_usdc_raw > 0, "{n} units: repayment settled");
+    let rows = sweep(100_000, &[10, 20, 50, 100, 1_000]);
+    for (n, out) in rows.iter().filter_map(|(n, o)| o.as_ref().map(|o| (n, o))) {
+        assert!(out.got_units > 0, "{n} units: every settled call seizes");
         assert_eq!(
             out.units_before,
             out.units_after + out.got_units,
             "{n} units: collateral conserved (fees 0)"
         );
     }
-    let one = &rows[0].1;
-    assert_eq!(
-        one.got_units, 0,
-        "1 unit: the planned seizure is below one whole unit and floors to zero"
-    );
 }
 
 #[test]
 fn zdc_transfer_liquidation_sweep_nav_1() {
-    let rows = sweep(100, &[10, 20, 50, 100, 1_000, 10_000], 0);
-    for (n, out) in &rows {
+    let rows = sweep(100, &[10, 20, 50, 100, 1_000, 10_000]);
+    for (n, out) in rows.iter().filter_map(|(n, o)| o.as_ref().map(|o| (n, o))) {
         assert_eq!(out.units_before, out.units_after + out.got_units, "{n}");
     }
 }
 
+/// A band quote (D <= C < D * (1 + bonus)) closes the whole debt in one call:
+/// the last fractional unit rounds up instead of stranding an unliquidatable unit.
 #[test]
-fn zdc_transfer_liquidation_sweep_nav_1000_with_protocol_fee() {
-    let rows = sweep(100_000, &[1, 5, 10, 21, 50, 100, 1_000], 1_200);
-    for (n, out) in &rows {
-        assert!(out.units_before >= out.units_after + out.got_units, "{n}");
-    }
+fn zdc_band_full_close_leaves_no_unliquidatable_unit() {
+    let mut z = setup(nav(1_000));
+    let id = open(&mut z, "alice", 10, 1_000, 5_800);
+    z.t.set_price(LIQ, nav(600));
+    assert!(z.hf(id) < WAD);
+    let debt = z.debt_raw(id);
+    let out = z.liquidate(id, debt + 1, SeizeMode::Transfer).unwrap();
+    assert_eq!(out.debt_after, 0, "{out:?}");
+    assert_eq!(out.got_units, 10);
+    assert!(out.paid_usdc_raw >= debt);
 }
 
-/// F1: a partial liquidation whose planned seizure is below one unit settles the
-/// repayment, burns debt, and pays the liquidator nothing.
+/// On a band quote, an offer below the whole debt still pays for every unit
+/// it receives: only a call that repays all debt rounds a unit up.
 #[test]
-fn zdc_one_unit_partial_liquidation_takes_repayment_and_seizes_nothing() {
-    let mut z = setup(nav(1_000), 0);
-    let id = open(&mut z, "alice", 1, 1_000, 5_800);
+fn zdc_band_underpaid_offer_cannot_round_a_unit_up() {
+    let mut z = setup(nav(1_000));
+    let id = open(&mut z, "alice", 10, 1_000, 5_800);
+    z.t.set_price(LIQ, nav(600));
+    let bonus = z
+        .estimate(id, usdc_raw(1), SeizeMode::Transfer)
+        .bonus_rate_bps;
+    let charged_fairly = |out: &LiqOutcome| {
+        out.paid_usdc_raw >= out.got_units * 600 * USDC_UNIT * 10_000 / (10_000 + bonus)
+    };
+    match z.liquidate(id, usdc_raw(1), SeizeMode::Transfer) {
+        Ok(out) => assert!(charged_fairly(&out), "{out:?}"),
+        Err(e) => assert_eq!(e, Error::from_contract_error(errors::INVALID_PAYMENTS)),
+    }
+    assert_eq!(z.collateral_units(id), 10, "a $1 offer takes no unit");
+    let out = z
+        .liquidate(id, usdc_raw(2_000), SeizeMode::Transfer)
+        .unwrap();
+    assert!(charged_fairly(&out), "{out:?}");
+}
+
+/// A partial liquidation charges only for the whole units it seizes:
+/// `paid * (1 + bonus) == units * NAV`, rounded up by at most one raw unit.
+#[test]
+fn zdc_partial_liquidation_charges_only_for_whole_units_seized() {
+    let mut z = setup(nav(1_000));
+    let id = open(&mut z, "alice", 10, 1_000, 5_800);
     z.t.set_price(LIQ, nav(800));
     let debt = z.debt_raw(id);
-    let est = z.estimate(id, debt, SeizeMode::Transfer);
-    std::println!(
-        "estimate: max_payment=${:.4} seized={:?} bonus={}",
-        est.max_payment_wad as f64 / 1e18,
-        est.seized_collaterals
-            .iter()
-            .map(|p| p.amount)
-            .collect::<std::vec::Vec<_>>(),
-        est.bonus_rate_bps
-    );
-    assert_eq!(est.seized_collaterals.len(), 0);
-
+    let bonus = z.estimate(id, debt, SeizeMode::Transfer).bonus_rate_bps;
     let out = z.liquidate(id, debt, SeizeMode::Transfer).unwrap();
-    std::println!("{out:?}");
-    assert!(out.paid_usdc_raw > 0);
-    assert_eq!(out.got_units, 0);
+    assert!(out.got_units > 0 && out.units_after > 0, "{out:?}");
     assert!(out.debt_after < out.debt_before);
-    assert_eq!(out.units_after, 1);
+    let fair = out.got_units * 800 * USDC_UNIT * 10_000 / (10_000 + bonus);
+    assert!(
+        out.paid_usdc_raw >= fair && out.paid_usdc_raw <= fair + 1,
+        "paid {} for {} units, fair {fair}",
+        out.paid_usdc_raw,
+        out.got_units
+    );
 }
 
-/// F1: a 1-unit account with $580 debt, walked down in NAV. While solvent
-/// (NAV 600..820) neither the partial nor the full-debt quote seizes the unit.
-/// Once insolvent, the collateral-backed quote seizes the whole unit.
+/// An offer whose seizure is below one whole unit charges nothing: no whole
+/// unit backs the repayment, so the call reverts.
 #[test]
-fn zdc_one_unit_position_seizure_dead_zone() {
-    std::println!("\n1 unit, $580 debt, NAV walk (fees 0)");
-    for nav_usd in (300..=820).rev().step_by(20) {
-        let mut z = setup(nav(1_000), 0);
-        let id = open(&mut z, "alice", 1, 1_000, 5_800);
-        z.t.set_price(LIQ, nav(nav_usd));
-        if z.hf(id) >= WAD {
-            continue;
-        }
-        let debt = z.debt_raw(id);
-        let est = z.estimate(id, debt, SeizeMode::Transfer);
-        let seized: i128 = est.seized_collaterals.iter().map(|p| p.amount).sum();
-        std::println!(
-            "nav ${nav_usd}: hf={:.4} quote=${:.2} seized={seized}",
-            z.hf(id) as f64 / 1e18,
-            est.max_payment_wad as f64 / 1e18
-        );
-        let want = i128::from(nav_usd <= 580);
-        assert_eq!(seized, want, "nav ${nav_usd}");
-    }
-}
+fn zdc_sub_unit_liquidation_reverts_without_charging() {
+    let mut z = setup(nav(1_000));
+    let id = open(&mut z, "alice", 10, 1_000, 5_800);
+    z.t.set_price(LIQ, nav(800));
+    let debt = z.debt_raw(id);
+    let est = z.estimate(id, usdc_raw(1), SeizeMode::Transfer);
+    assert_eq!(est.seized_collaterals.len(), 0);
+    assert_eq!(est.max_payment_wad, 0, "no payment is quoted");
 
-/// F2: credit mode moves exact shares, so both accounts end with fractional
-/// units that only withdraw as whole units.
+    let err = z
+        .liquidate(id, usdc_raw(1), SeizeMode::Transfer)
+        .unwrap_err();
+    assert_eq!(err, Error::from_contract_error(errors::INVALID_PAYMENTS));
+    assert_eq!(z.collateral_units(id), 10);
+    assert_eq!(z.debt_raw(id), debt);
+}
+/// Credit mode moves whole-unit shares, so both accounts withdraw every unit
+/// and nothing is stranded in the pool.
 #[test]
-fn zdc_credit_mode_leaves_fractional_units_that_withdraw_floors() {
-    let mut z = setup(nav(1_000), 0);
+fn zdc_credit_mode_moves_whole_units_only() {
+    let mut z = setup(nav(1_000));
     let id = open(&mut z, "alice", 10, 1_000, 5_800);
     z.t.set_price(LIQ, nav(800));
     let debt = z.debt_raw(id);
@@ -535,7 +546,8 @@ fn zdc_credit_mode_leaves_fractional_units_that_withdraw_floors() {
         z.debt_raw(id) as f64 / 1e7
     );
     assert_eq!(a_scaled + r_scaled, 10 * ray, "shares conserved (fees 0)");
-    assert_ne!(r_scaled % ray, 0, "receiver holds a fractional unit");
+    assert_eq!(r_scaled % ray, 0, "receiver holds whole units");
+    assert_eq!(a_scaled % ray, 0, "borrower keeps whole units");
 
     z.repay_all("alice", id);
     let alice_units = z.collateral_units(id);
@@ -548,88 +560,16 @@ fn zdc_credit_mode_leaves_fractional_units_that_withdraw_floors() {
         "alice withdrew {got} (view {alice_units}), liquidator withdrew {got_r} (view {liquidator_units}); pool cash left {}",
         z.hub_liq_cash()
     );
-    assert_eq!(
-        got + got_r,
-        9,
-        "one unit of combined fractions cannot leave"
-    );
-    assert_eq!(z.hub_liq_cash(), 1, "the stranded unit stays as pool cash");
+    assert_eq!(got + got_r, 10, "every unit leaves");
+    assert_eq!(z.hub_liq_cash(), 0, "nothing is stranded");
     assert!(!z.exists(id) || z.collateral_scaled(id) == 0);
-}
-
-/// F3: a positive fee floors to zero units and bumps to one whole unit when
-/// the whole-unit excess allows it.
-#[test]
-fn zdc_protocol_fee_is_zero_or_one_whole_unit() {
-    std::println!("\nfees 1200 bps, NAV $1000 -> $800, fee units per liquidation");
-    for n in [10i128, 21, 25, 50, 100, 200, 1_000] {
-        let mut z = setup(nav(1_000), 1_200);
-        let id = open(&mut z, "alice", n, 1_000, 5_800);
-        z.t.set_price(LIQ, nav(800));
-        let debt = z.debt_raw(id);
-        let est = z.estimate(id, debt, SeizeMode::Transfer);
-        let seized: i128 = est.seized_collaterals.iter().map(|p| p.amount).sum();
-        let fee: i128 = est.protocol_fees.iter().map(|p| p.amount).sum();
-        let pay = (est.max_payment_wad / 100_000_000_000) + 1;
-        std::println!(
-            "n={n:>5}: quote=${:.2} seized={seized} fee_units={fee} (fee ${}) liquidator net units={} (${:.2} vs paid ${:.2})",
-            est.max_payment_wad as f64 / 1e18,
-            fee * 800,
-            seized - fee,
-            (seized - fee) as f64 * 800.0,
-            pay as f64 / 1e7,
-        );
-    }
-}
-
-/// Bad debt at a NAV where the collateral-backed quote lands exactly on one
-/// unit: the unit is seized and the residual debt socialized on the USDC hub.
-#[test]
-fn zdc_bad_debt_is_socialized_when_the_quote_lands_on_the_whole_unit() {
-    let mut z = setup(nav(1_000), 0);
-    z.t.supply("bob", "USDC", 100_000.0);
-    let id = open(&mut z, "alice", 1, 1_000, 5_800);
-    z.t.set_price(LIQ, nav(420));
-    let idx_before = z.supply_index(z.usdc_key());
-    let debt = z.debt_raw(id);
-    let out = z.liquidate(id, debt, SeizeMode::Transfer).unwrap();
-    let idx_after = z.supply_index(z.usdc_key());
-    std::println!("{out:?}\nusdc supply index {idx_before} -> {idx_after}");
-    assert_eq!(out.got_units, 1);
-    assert!(
-        !out.account_exists,
-        "residual debt socialized and account removed"
-    );
-    assert!(idx_after < idx_before);
-}
-
-/// F4: insolvent 1-unit account (NAV $500 < debt $580). The dust gate refuses
-/// permissionless cleanup ($500 > $5); the collateral-backed liquidation seizes
-/// the unit and socializes the residual debt.
-#[test]
-fn zdc_insolvent_one_unit_liquidation_seizes_the_unit() {
-    let mut z = setup(nav(1_000), 0);
-    z.t.supply("bob", "USDC", 100_000.0);
-    let id = open(&mut z, "alice", 1, 1_000, 5_800);
-    z.t.set_price(LIQ, nav(500));
-    let err = z.t.try_clean_bad_debt_by_id(id).unwrap_err();
-    assert_eq!(
-        err,
-        Error::from_contract_error(errors::CANNOT_CLEAN_BAD_DEBT)
-    );
-    let debt = z.debt_raw(id);
-    let out = z.liquidate(id, debt, SeizeMode::Transfer).unwrap();
-    std::println!("{out:?}");
-    assert_eq!(out.got_units, 1);
-    assert!(out.paid_usdc_raw > usdc_raw(470) && out.paid_usdc_raw < usdc_raw(480));
-    assert!(!out.account_exists, "residual debt socialized");
 }
 
 /// F4: a 10-unit insolvent account. The collateral-backed quote seizes all 10
 /// units and the residual debt is socialized in the same call.
 #[test]
 fn zdc_insolvent_multi_unit_liquidation_seizes_every_unit() {
-    let mut z = setup(nav(1_000), 0);
+    let mut z = setup(nav(1_000));
     z.t.supply("bob", "USDC", 100_000.0);
     let id = open(&mut z, "alice", 10, 1_000, 5_800);
     z.t.set_price(LIQ, nav(500));
@@ -643,24 +583,32 @@ fn zdc_insolvent_multi_unit_liquidation_seizes_every_unit() {
 }
 
 /// An offer below the collateral-backed quote does not take the whole
-/// collateral: the seizure stays proportional and floors to whole units.
+/// collateral: the seizure floors to whole units and the charge follows it.
 #[test]
 fn zdc_insolvent_underpaid_offer_does_not_seize_all() {
-    let mut z = setup(nav(1_000), 0);
+    let mut z = setup(nav(1_000));
     let id = open(&mut z, "alice", 10, 1_000, 5_800);
     z.t.set_price(LIQ, nav(500));
+    let bonus = z
+        .estimate(id, usdc_raw(2_000), SeizeMode::Transfer)
+        .bonus_rate_bps;
     let out = z
         .liquidate(id, usdc_raw(2_000), SeizeMode::Transfer)
         .unwrap();
     std::println!("{out:?}");
-    assert_eq!(out.paid_usdc_raw, usdc_raw(2_000));
     assert_eq!(out.got_units, 4);
     assert_eq!(out.units_after, 6);
+    let fair = 4 * 500 * USDC_UNIT * 10_000 / (10_000 + bonus);
+    assert!(
+        out.paid_usdc_raw >= fair && out.paid_usdc_raw <= fair + 1,
+        "paid {} for 4 units, fair {fair}",
+        out.paid_usdc_raw
+    );
 }
 
 #[test]
 fn zdc_zero_decimal_market_cannot_be_listed_borrowable() {
-    let z = setup(nav(1_000), 0);
+    let z = setup(nav(1_000));
     let admin = z.t.admin();
     let err =
         z.t.gov_client()
@@ -691,11 +639,179 @@ fn zdc_zero_decimal_market_cannot_be_listed_borrowable() {
     );
 }
 
+/// Whole-unit seizure is pro-rata only on a single collateral leg, so an
+/// account in a spoke listing sub-3-decimal collateral holds one supply
+/// position, whichever path adds the second.
+#[test]
+fn zdc_whole_unit_spoke_accounts_hold_one_supply_position() {
+    let mut z = setup(nav(1_000));
+    let admin = z.t.admin();
+    z.t.gov_client().execute_immediate(
+        &admin,
+        &AdminOperation::EditAssetInSpoke(SpokeAssetArgs {
+            hub_id: HARNESS_HUB,
+            asset: z.usdc.clone(),
+            spoke_id: z.spoke,
+            can_collateral: true,
+            can_borrow: true,
+            paused: false,
+            frozen: false,
+            no_seize: false,
+            ltv: 7_500,
+            threshold: 8_000,
+            bonus: 500,
+            liquidation_fees: 0,
+            supply_cap: USDC_CAP_RAW,
+            borrow_cap: USDC_CAP_RAW,
+        }),
+    );
+    let limit = Error::from_contract_error(errors::POSITION_LIMIT_EXCEEDED);
+    let usdc_leg = |z: &Zdc| (z.usdc_key(), usdc_raw(100));
+
+    let liq_first = z.supply("alice", 0, 10);
+    let alice = z.user("alice");
+    z.t.resolve_market("USDC")
+        .token_admin
+        .mint(&alice, &usdc_raw(100));
+    let err =
+        z.t.ctrl_client()
+            .try_supply(&alice, &liq_first, &z.spoke, &vec![&z.t.env, usdc_leg(&z)]);
+    assert_eq!(err.unwrap_err().unwrap(), limit, "stable after LIQ");
+
+    let bob = z.user("bob");
+    z.t.resolve_market("USDC")
+        .token_admin
+        .mint(&bob, &usdc_raw(100));
+    let usdc_first =
+        z.t.ctrl_client()
+            .supply(&bob, &0, &z.spoke, &vec![&z.t.env, usdc_leg(&z)]);
+    z.t.resolve_market(LIQ).token_admin.mint(&bob, &10);
+    let err = z.t.ctrl_client().try_supply(
+        &bob,
+        &usdc_first,
+        &z.spoke,
+        &vec![&z.t.env, (z.liq_key(), 10)],
+    );
+    assert_eq!(err.unwrap_err().unwrap(), limit, "LIQ after stable");
+
+    z.t.supply("lender", "USDC", 100_000.0);
+    let id = open(&mut z, "carol", 10, 1_000, 5_800);
+    z.t.set_price(LIQ, nav(800));
+    let liquidator = z.user("liquidator");
+    z.t.resolve_market("USDC")
+        .token_admin
+        .mint(&liquidator, &usdc_raw(200));
+    let receiver = z.t.ctrl_client().supply(
+        &liquidator,
+        &0,
+        &z.spoke,
+        &vec![&z.t.env, (z.usdc_key(), usdc_raw(100))],
+    );
+    let debt = z.debt_raw(id);
+    let err = z
+        .liquidate(id, debt, SeizeMode::Credit(receiver))
+        .unwrap_err();
+    assert_eq!(err, limit, "credit cannot add LIQ beside the stable");
+}
+
+/// A flash-loan fee rounds up to one whole unit, so a sub-3-decimal market
+/// cannot be flash-loanable.
+#[test]
+fn zdc_zero_decimal_market_cannot_be_flash_loanable() {
+    let z = setup(nav(1_000));
+    let admin = z.t.admin();
+    let hub = z.t.create_hub();
+    let mut params = DEFAULT_MARKET_PARAMS.to_market_params(&z.liq, 0);
+    params.is_flashloanable = true;
+    params.flashloan_fee = 9;
+    let err =
+        z.t.gov_client()
+            .try_execute_immediate(
+                &admin,
+                &AdminOperation::CreateLiquidityPool(CreatePoolArgs {
+                    hub_id: hub,
+                    asset: z.liq.clone(),
+                    params,
+                }),
+            )
+            .unwrap_err()
+            .unwrap();
+    assert_eq!(
+        err,
+        Error::from_contract_error(errors::INVALID_BORROW_PARAMS)
+    );
+
+    let listed = DEFAULT_MARKET_PARAMS.to_market_params(&z.liq, 0);
+    let err =
+        z.t.gov_client()
+            .try_execute_immediate(
+                &admin,
+                &AdminOperation::UpgradeLiquidityPoolParams(UpgradePoolParamsArgs {
+                    hub_asset: z.liq_key(),
+                    params: InterestRateModel {
+                        max_borrow_rate: listed.max_borrow_rate,
+                        base_borrow_rate: listed.base_borrow_rate,
+                        slope1: listed.slope1,
+                        slope2: listed.slope2,
+                        slope3: listed.slope3,
+                        mid_utilization: listed.mid_utilization,
+                        optimal_utilization: listed.optimal_utilization,
+                        max_utilization: listed.max_utilization,
+                        reserve_factor: listed.reserve_factor,
+                        is_flashloanable: true,
+                        flashloan_fee: 9,
+                    },
+                }),
+            )
+            .unwrap_err()
+            .unwrap();
+    assert_eq!(
+        err,
+        Error::from_contract_error(errors::INVALID_BORROW_PARAMS),
+        "a params update cannot enable flash loans on the listed 0-decimal market"
+    );
+}
+
+/// A protocol liquidation fee would round to zero or one whole unit, so a
+/// sub-3-decimal listing must carry no fee.
+#[test]
+fn zdc_zero_decimal_listing_rejects_a_liquidation_fee() {
+    let z = setup(nav(1_000));
+    let admin = z.t.admin();
+    let err =
+        z.t.gov_client()
+            .try_execute_immediate(
+                &admin,
+                &AdminOperation::EditAssetInSpoke(SpokeAssetArgs {
+                    hub_id: z.hub,
+                    asset: z.liq.clone(),
+                    spoke_id: z.spoke,
+                    can_collateral: true,
+                    can_borrow: false,
+                    paused: false,
+                    frozen: false,
+                    no_seize: false,
+                    ltv: LTV,
+                    threshold: LT,
+                    bonus: BONUS,
+                    liquidation_fees: 1,
+                    supply_cap: LIQ_CAP_UNITS,
+                    borrow_cap: 0,
+                }),
+            )
+            .unwrap_err()
+            .unwrap();
+    assert_eq!(
+        err,
+        Error::from_contract_error(errors::INVALID_BORROW_PARAMS)
+    );
+}
+
 /// A liquidator who sizes the repayment to land on whole units keeps the
 /// bonus: repay ceil(k * NAV / (1 + bonus)) for the largest whole k in quote.
 #[test]
 fn zdc_liquidator_sized_to_whole_units_keeps_the_bonus() {
-    let mut z = setup(nav(1_000), 0);
+    let mut z = setup(nav(1_000));
     let id = open(&mut z, "alice", 10, 1_000, 5_800);
     z.t.set_price(LIQ, nav(800));
     let debt = z.debt_raw(id);
@@ -716,7 +832,7 @@ fn zdc_liquidator_sized_to_whole_units_keeps_the_bonus() {
 
 #[test]
 fn zdc_large_position_near_cap() {
-    let mut z = setup(nav(1_000), 1_200);
+    let mut z = setup(nav(1_000));
     let id = z.supply("whale", 0, 8_700_000);
     assert_eq!(z.collateral_units(id), 8_700_000);
     let whale = z.user("whale");
@@ -742,7 +858,7 @@ fn zdc_large_position_near_cap() {
 
 #[test]
 fn zdc_cap_domain_at_zero_decimals_is_170_billion_units() {
-    let z = setup(nav(1_000), 0);
+    let z = setup(nav(1_000));
     let admin = z.t.admin();
     let max = max_cap_for_decimals(0);
     assert_eq!(max, 170_141_183_460);

@@ -417,7 +417,10 @@ Planned refunds are unused input: a partial plan never pulls them; a full-debt
 plan pulls the offered amount and the pool returns what exceeds each leg's
 debt, which equals the planned refund. Seizure is proportional to collateral
 value and capped at held collateral; rounding can leave repayment with no
-payable seizure.
+payable seizure. A collateral leg below 3 decimals seizes whole units: rounded
+up when the plan repays all debt, otherwise rounded down with the unbacked
+repayment refunded, and a plan left with no seizure reverts. Such a leg is the
+account's only supply position, so the seizure stays proportional.
 
 Transfer mode burns shares and pays underlying after fees. The planned transfer
 fee never exceeds the whole token units paid above the leg's principal. Credit

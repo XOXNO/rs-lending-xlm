@@ -1,6 +1,6 @@
 use super::curve::{LiquidationCurve, LiquidationSnapshot};
 use crate::risk;
-use common::errors::CollateralError;
+use common::errors::{CollateralError, GenericError};
 use common::math::fp::Wad;
 use common::types::{Account, HubPayment};
 use soroban_sdk::{assert_with_error, panic_with_error, Env, Vec};
@@ -60,7 +60,7 @@ pub(crate) fn build_liquidation_plan(
     };
 
     let curve = LiquidationCurve::from_config(&cache.spoke_config(account.spoke_id));
-    let repayment = normalize_repayment_plan(
+    let mut repayment = normalize_repayment_plan(
         env,
         account,
         raw_payments,
@@ -70,8 +70,14 @@ pub(crate) fn build_liquidation_plan(
         cache,
     );
 
-    let seized_collaterals =
+    let (seized_collaterals, unbacked_usd) =
         calculate_seized_collateral(env, account, totals.total_collateral, &repayment, cache);
+    release_unbacked_repayment(env, &mut repayment, unbacked_usd);
+    assert_with_error!(
+        env,
+        unbacked_usd == Wad::ZERO || !seized_collaterals.is_empty(),
+        GenericError::InvalidPayments
+    );
 
     for entry in seized_collaterals.iter() {
         enforce_spoke_asset_flags(

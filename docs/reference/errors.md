@@ -14,7 +14,7 @@ SDK `try_` calls distinguish contract errors from host, authorization, storage, 
 | --- | --- | --- |
 | 2 `AssetAlreadySupported` | A market already exists for this hub asset. | Use the existing market. |
 | 5 `PoolAlreadyDeployed` | The singleton pool, controller, or price aggregator address is already recorded. | Use the recorded deployment. |
-| 6 `InvalidAsset` | The token reports no decimals or symbol, or the declared decimals differ from the token's or fall outside 3–18 (`MIN_ASSET_DECIMALS`..=`MAX_ASSET_DECIMALS`). | Pass a real token and its true decimals. |
+| 6 `InvalidAsset` | The token reports no decimals or symbol, or the declared decimals differ from the token's or fall outside 0–18 (`MIN_ASSET_DECIMALS`..=`MAX_ASSET_DECIMALS`). | Pass a real token and its true decimals. |
 | 7 `AssetsAreTheSame` | A prohibited same-market pair is used (Long/Short also reject the same underlying token across hubs), or a Blend migration repeats a debt asset. | Choose an allowed distinct market/token pair. |
 | 8 `WrongToken` | `params.asset_id` does not equal the asset the market is being created for. | Make `params.asset_id` match the asset. |
 | 10 `InvalidWasmHash` | The supplied Wasm hash is all zero bytes. | Pass the hash of an uploaded Wasm. |
@@ -59,13 +59,13 @@ SDK `try_` calls distinguish contract errors from host, authorization, storage, 
 | 102 `HealthFactorTooLow` | A full risk-parameter refresh (`has_risks`) leaves the health factor below 1.05 WAD (`THRESHOLD_UPDATE_MIN_HF_RAW`). | Improve the health factor first. |
 | 104 `NotCollateral` | The spoke listing does not allow the asset to be used as collateral. | Choose a collateral-enabled asset. |
 | 107 `AssetNotBorrowable` | The spoke listing does not allow the asset to be borrowed. | Choose a borrow-enabled asset. |
-| 109 `PositionLimitExceeded` | The new supply or borrow position would push the account past its configured position count. | Close or consolidate positions. |
+| 109 `PositionLimitExceeded` | The new supply or borrow position would push the account past its configured position count, or give an account in a spoke that lists collateral below 3 decimals a second supply position. | Close or consolidate positions. |
 | 111 `InvalidPositionMode` | The requested position mode is not Multiply, Long, or Short. | Use Multiply, Long, or Short. |
 | 112 `InsufficientLiquidity` | Market cash is below the requested draw, or the draw would break the liquidation buffer. | Reduce the amount or wait for liquidity. |
 | 113 `InvalidLiqThreshold` | The liquidation fee is at or above BPS, the threshold is at or below the LTV or above BPS, or threshold times (BPS plus bonus) exceeds BPS squared. | Fix the risk bounds in the proposal. |
 | 114 `CannotCleanBadDebt` | Debt does not exceed collateral, or permissionless cleanup has collateral above `BAD_DEBT_USD_THRESHOLD` (5 USD, WAD). | Liquidate further; governance force-socialization bypasses only the collateral dust cap. |
 | 115 `WithdrawLessThanFee` | Liquidation protocol fee exceeds gross withdrawal. | Re-estimate; caller cannot select individual collateral legs. |
-| 116 `InvalidBorrowParams` | A cap or floor is negative, a cap exceeds the asset's decimal domain, or the flash-loan fee is above the maximum. | Use non-negative, in-range parameters. |
+| 116 `InvalidBorrowParams` | A cap or floor is negative, a cap exceeds the asset's decimal domain, or the flash-loan fee is above the maximum. A market below 3 decimals is listed borrowable, flash-loanable, or with a liquidation fee. | Use non-negative, in-range parameters. |
 | 117 `InvalidUtilRange` | `mid_utilization` is nonpositive, `optimal_utilization` is not above it, or `max_utilization` is below optimal or above RAY. | Order the utilization breakpoints correctly. |
 | 118 `OptUtilTooHigh` | Optimal utilization is at or above RAY, that is 100%. | Set optimal utilization below 100%. |
 | 119 `InvalidReserveFactor` | The reserve factor is at or above BPS, that is 100%. | Set the reserve factor below 100%. |
