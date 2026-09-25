@@ -156,3 +156,25 @@ for name in ['e2e.yml','release.yml']:
     content=(Path(__file__).resolve().parents[2]/'.github/workflows'/name).read_text()
     cargo_step=content.split('cargo test --workspace --no-fail-fast 2>&1 | tee controlled-tests.log',1)[0].rsplit('run: |',1)[1]
     assert 'set -o pipefail' in cargo_step, f'{name}: tee masks failed workspace tests'
+    build,live=content.split('  e2e:' if name=='e2e.yml' else '  testnet-e2e:',1)
+    live=live.split('  publish:',1)[0]
+    assert build.count('integration-fixtures')==1
+    assert 'name: e2e-fixtures' in build and 'name: e2e-fixtures' in live
+    assert 'artifacts/wasm/fixtures/*.wasm\n            artifacts/wasm/fixtures/SHA256SUMS' in build
+    assert 'path: artifacts/wasm/fixtures' in live
+    assert not any(tool in live for tool in ['rust-toolchain@','actions/cache@','integration-fixtures','cargo '])
+    assert live.index('sha256sum --strict --check SHA256SUMS') < live.index('bash tests/integration/scenarios/parallel_e2e.sh')
+    # Exercise the actual workflow checksum commands: substitutions and missing
+    # fixture files must fail before any lane sends transactions.
+    checksum=re.search(r'        run: (sha256sum .* > SHA256SUMS)',build).group(1)
+    check=re.search(r'cd artifacts/wasm/fixtures && (sha256sum .*?)\)',live).group(1)
+    with tempfile.TemporaryDirectory() as directory:
+        fixture=Path(directory)/'fixture.wasm'; fixture.write_bytes(b'fixture')
+        subprocess.run(['bash','-ec',checksum],cwd=directory,check=True)
+        def checked():
+            return subprocess.run(['bash','-ec',check],cwd=directory,capture_output=True).returncode==0
+        assert checked()
+        fixture.write_bytes(b'changed'); assert not checked()
+        fixture.unlink(); assert not checked()
+assert 'e2e-fixtures' not in publish and 'artifacts/wasm/fixtures' not in publish
+print('Build-only fixture handoff and checksum rejection checks passed')

@@ -58,7 +58,7 @@ jobs:
           toolchain: "1.95"
           targets: wasm32v1-none
       - run: bash .github/scripts/install-stellar-cli.sh
-      - run: make candidate-wasm candidate-size-check
+      - run: make candidate-wasm candidate-size-check integration-fixtures
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: '24'
@@ -81,6 +81,18 @@ jobs:
           path: artifacts/wasm/deploy
           if-no-files-found: error
 
+      - name: Checksum separate E2E fixtures
+        working-directory: artifacts/wasm/fixtures
+        run: sha256sum ./*.wasm > SHA256SUMS
+      - name: Upload separate E2E fixtures
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: e2e-fixtures
+          path: |
+            artifacts/wasm/fixtures/*.wasm
+            artifacts/wasm/fixtures/SHA256SUMS
+          if-no-files-found: error
+
       - name: Upload offline verification log
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -93,28 +105,12 @@ jobs:
     needs: build
     name: Testnet e2e (${{ inputs.lanes }})
     runs-on: self-hosted
-    # Above the 95m default lane cap, leaving room for the WASM build ahead of
-    # it. Queue time is not counted against this.
+    # Above the 95m default lane cap, leaving room for tool setup and reports.
+    # Queue time is not counted against this.
     timeout-minutes: 150
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
-        with:
-          toolchain: "1.95"
-          targets: wasm32v1-none
-
-      - name: Cache cargo
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-e2e-${{ hashFiles('Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-e2e-
 
       - name: Install stellar-cli
         run: bash .github/scripts/install-stellar-cli.sh
@@ -130,10 +126,14 @@ jobs:
         with:
           name: e2e-wasm
           path: artifacts/wasm/deploy
-      - name: Verify candidates and build separate fixtures
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: e2e-fixtures
+          path: artifacts/wasm/fixtures
+      - name: Verify candidates and separate fixtures
         run: |
           python3 tests/integration/artifacts.py check artifacts/wasm/deploy
-          make integration-fixtures
+          (cd artifacts/wasm/fixtures && sha256sum --strict --check SHA256SUMS)
 
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:

@@ -120,22 +120,22 @@ _td_repay_account() {
 # controller burns the account once its last position is gone.
 _td_withdraw_account() {
     local id="$1"
-    local exists owner alias pos k hub sac
-    exists=$(view "td_exists2_$id" "$CONTROLLER" -- account_exists --account_id "$id" | tr -d '"')
+    local exists owner alias pos withdrawals
+    exists=$(view "td_exists2_$id" "$CONTROLLER" -- account_exists --account_id "$id" | tr -d '"') || return 1
     [ "$exists" = "true" ] || return 0
-    owner=$(view "td_owner2_$id" "$POSITION_NFT" -- owner_of --token_id "$id" | tr -d '"')
+    owner=$(view "td_owner2_$id" "$POSITION_NFT" -- owner_of --token_id "$id" | tr -d '"') || return 1
     alias=$(_td_wallet_alias "$owner") || return 0
-    pos=$(view "td_positions2_$id" "$CONTROLLER" -- get_account_positions --account_id "$id")
-    local supply_keys=()
-    while IFS= read -r k; do [ -n "$k" ] && supply_keys+=("$k"); done \
-        < <(jq -r '.[0] | keys[]' <<<"$pos" 2>/dev/null)
-    for k in ${supply_keys[@]+"${supply_keys[@]}"}; do
-        hub=$(jq -r '.hub_id' <<<"$k")
-        sac=$(jq -r '.asset' <<<"$k")
-        inv "td_withdraw_${id}_${sac:0:6}" "$alias" "$CONTROLLER" -- withdraw \
+    pos=$(view "td_positions2_$id" "$CONTROLLER" -- get_account_positions --account_id "$id") || return 1
+    # The supported account limit is five positions; never split/retry a failed submission.
+    withdrawals=$(jq -ec '.[0] | keys | if length <= 5 then map([fromjson, "0"]) else error("too many positions") end' <<<"$pos") || {
+        _assert_fail "td_positions_$id" "invalid withdrawal positions or more than five assets"
+        return 1
+    }
+    if [ "$withdrawals" != '[]' ]; then
+        inv "td_withdraw_$id" "$alias" "$CONTROLLER" -- withdraw \
             --caller "$owner" --account_id "$id" \
-            --withdrawals "$(pay_vec "$hub" "$sac" 0)" --to null >/dev/null
-    done
+            --withdrawals "$withdrawals" --to null >/dev/null || return 1
+    fi
     assert_bool_view "td_burned_$id" false account_exists --account_id "$id"
 }
 

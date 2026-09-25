@@ -161,6 +161,42 @@ awk -F'\\t' '$1=="good" && $2=="pass" {good=1} $1=="ignored" && $2=="fail" {bad=
 [ ! -e "$RUN_DIR/active-case" ]
 '''.replace('STATUS', status))
 print('E2E offline harness regressions passed')
+# Teardown batches full withdrawals by account, retaining mixed hub keys and
+# the burn proof. A submitted failure must never fall back to per-asset calls.
+for count, failure in [(1, False), (5, False), (5, True), (6, False)]:
+    keys = [dict(hub_id=i % 2 + 1, asset=f'TOKEN{i // 2}') for i in range(count)]
+    positions = [{json.dumps(key): dict(scaled_amount='123') for key in keys}, {}]
+    shell(f'''
+source "{HERE}/flows/teardown.sh"
+CONTROLLER=CTRL; POSITION_NFT=NFT; ALICE=alice; ALICE_ADDR=OWNER
+positions='{json.dumps(positions)}'
+n=0; burned=0
+view() {{
+    case "$1" in
+        td_exists2_7) echo true;;
+        td_owner2_7) echo OWNER;;
+        td_positions2_7) echo "$positions";;
+        *) return 1;;
+    esac
+}}
+inv() {{
+    n=$((n+1))
+    [ "$2" = alice ] && [ "$3" = CTRL ] && [ "$5" = withdraw ] || return 1
+    [ "$6" = --caller ] && [ "$7" = OWNER ] && [ "$8" = --account_id ] && [ "$9" = 7 ] || return 1
+    [ "${{10}}" = --withdrawals ] && [ "${{12}}" = --to ] && [ "${{13}}" = null ] || return 1
+    jq -e --argjson positions "$positions" 'length == {count} and all(.[]; .[1] == "0") and (map(.[0]|tojson)|sort) == ($positions[0]|keys|map(fromjson|tojson)|sort)' <<<"${{11}}" || return 1
+    record "$1" {'FAIL' if failure else 'ok'} withdraw
+    return {int(failure)}
+}}
+assert_bool_view() {{
+    [ "$1" = td_burned_7 ] && [ "$2" = false ] && [ "$3" = account_exists ] && [ "$5" = 7 ] || return 1
+    burned=1
+}}
+rc=0
+_td_withdraw_account 7 || rc=$?
+[ "$n" = {0 if count > 5 else 1} ] && [ "$burned" = {int(count <= 5 and not failure)} ] || exit 1
+{('[ "$rc" -ne 0 ] && grep -q FAIL "$ACTIONS_TSV"') if failure or count > 5 else '[ "$rc" = 0 ]'}
+''')
 # Suppressed refund, wrong fee destination and recap refund must all fail.
 for before, after, expected in [('100', '100', '10000000'), ('100', '100', '25'), ('1000', '800', '-20')]:
     shell(f'! assert_delta broken {before} {after} {expected}; grep -q FAIL "$ACTIONS_TSV"')
