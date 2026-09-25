@@ -9,19 +9,18 @@ cd "$root"
 unset CARGO_ENCODED_RUSTFLAGS
 export RUSTFLAGS="-C link-arg=-zstack-size=16384"
 export CARGO_BUILD_RUSTFLAGS="$RUSTFLAGS"
-raw="${CARGO_TARGET_DIR:-target}/wasm32v1-none/release"
 case "$mode" in
 candidate)
     out=artifacts/wasm/deploy
     mkdir -p "$out" target/optimized
     for pkg in controller pool governance price-aggregator position-nft defindex-strategy swap-aggregator xoxno-oracle; do
-        stellar contract build --package "$pkg"
+        stellar contract build --package "$pkg" --optimize --out-dir target/optimized
         name="${pkg//-/_}"
         case "$pkg" in swap-aggregator) name=aggregator;; xoxno-oracle) name=xoxno-oracle-adapter;; esac
-        stellar contract optimize --wasm "$raw/${pkg//-/_}.wasm" --wasm-out "$out/$name.optimized.wasm"
-        cp "$out/$name.optimized.wasm" "target/optimized/$name.wasm"
-        python3 scripts/strip_spec_docs.py "$out/$name.optimized.wasm" "$out/$name.wasm"
-        rm "$out/$name.optimized.wasm"
+        if [ "$name" != "${pkg//-/_}" ]; then
+            mv "target/optimized/${pkg//-/_}.wasm" "target/optimized/$name.wasm"
+        fi
+        python3 scripts/strip_spec_docs.py "target/optimized/$name.wasm" "$out/$name.wasm"
     done
     python3 tests/integration/artifacts.py create "$out"
     ;;
@@ -29,8 +28,7 @@ fixtures)
     out=artifacts/wasm/fixtures
     mkdir -p "$out"
     for pkg in mock-oracle mock-redstone flash-loan-receiver flash-position-receiver script-runner production-fixture; do
-        stellar contract build --package "$pkg"
-        stellar contract optimize --wasm "$raw/${pkg//-/_}.wasm" --wasm-out "$out/${pkg//-/_}.wasm"
+        stellar contract build --package "$pkg" --optimize --out-dir "$out"
     done
     ;;
 *) echo "unknown build mode: $mode" >&2; exit 2;;

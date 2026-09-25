@@ -174,36 +174,21 @@ endif
 
 build:
 	@echo "Building all contracts (stack-size $(WASM_STACK_SIZE))..."
-	CARGO_BUILD_RUSTFLAGS="$(WASM_RUSTFLAGS)" stellar contract build
+	CARGO_BUILD_RUSTFLAGS="$(WASM_RUSTFLAGS)" stellar contract build --optimize --out-dir $(OPTIMIZED_DIR)
 	@echo ""
 	@echo "WASM artifacts:"
-	@ls -lh $(RELEASE_DIR)/*.wasm 2>/dev/null || ls -lh target/wasm32-unknown-unknown/release/*.wasm 2>/dev/null || echo "  (none found)"
+	@ls -lh $(OPTIMIZED_DIR)/*.wasm
 
 
 build-one:
 	@echo "Building $(CRATE) (stack-size $(WASM_STACK_SIZE))..."
-	CARGO_BUILD_RUSTFLAGS="$(WASM_RUSTFLAGS)" stellar contract build --package $(CRATE)
+	CARGO_BUILD_RUSTFLAGS="$(WASM_RUSTFLAGS)" stellar contract build --package $(CRATE) --optimize --out-dir $(OPTIMIZED_DIR)
 
 
+# Native build optimization writes here; never silently fall back to raw WASM.
 optimize: build
-	@mkdir -p $(OPTIMIZED_DIR)
-	@for contract in $(WASM_SIZE_CONTRACTS); do \
-		echo "Optimizing $$contract..."; \
-		if command -v stellar &>/dev/null; then \
-			stellar contract optimize \
-				--wasm $(RELEASE_DIR)/$${contract//-/_}.wasm \
-				--wasm-out $(OPTIMIZED_DIR)/$$contract.wasm 2>/dev/null || \
-			cp $(RELEASE_DIR)/$${contract//-/_}.wasm $(OPTIMIZED_DIR)/$$contract.wasm; \
-		elif command -v wasm-opt &>/dev/null; then \
-			wasm-opt -Oz $(RELEASE_DIR)/$${contract//-/_}.wasm \
-				-o $(OPTIMIZED_DIR)/$$contract.wasm; \
-		else \
-			cp $(RELEASE_DIR)/$${contract//-/_}.wasm $(OPTIMIZED_DIR)/$$contract.wasm; \
-		fi; \
-	done
-	@echo ""
 	@echo "Optimized WASM:"
-	@ls -lh $(OPTIMIZED_DIR)/*.wasm 2>/dev/null
+	@ls -lh $(OPTIMIZED_DIR)/*.wasm
 
 
 
@@ -1477,16 +1462,9 @@ prepay-rent:
 
 build-aggregator:
 	@echo "Building aggregator..."
-	@stellar contract build --package swap-aggregator
+	@stellar contract build --package swap-aggregator --optimize --out-dir $(OPTIMIZED_DIR)
 	@mkdir -p $(DEPLOY_DIR)
-	@if command -v stellar &>/dev/null; then \
-		stellar contract optimize \
-			--wasm $(RELEASE_DIR)/swap_aggregator.wasm \
-			--wasm-out $(DEPLOY_DIR)/aggregator.wasm 2>/dev/null || \
-		cp $(RELEASE_DIR)/swap_aggregator.wasm $(DEPLOY_DIR)/aggregator.wasm; \
-	else \
-		cp $(RELEASE_DIR)/swap_aggregator.wasm $(DEPLOY_DIR)/aggregator.wasm; \
-	fi
+	@cp $(OPTIMIZED_DIR)/swap_aggregator.wasm $(DEPLOY_DIR)/aggregator.wasm
 	@ls -lh $(DEPLOY_DIR)/aggregator.wasm
 
 
@@ -1512,16 +1490,9 @@ deploy-aggregator: $(AGGREGATOR_WASM)
 
 build-oracle-adapter:
 	@echo "Building xoxno-oracle-adapter..."
-	@stellar contract build --package xoxno-oracle
+	@stellar contract build --package xoxno-oracle --optimize --out-dir $(OPTIMIZED_DIR)
 	@mkdir -p $(DEPLOY_DIR)
-	@if command -v stellar &>/dev/null; then \
-		stellar contract optimize \
-			--wasm $(RELEASE_DIR)/xoxno_oracle.wasm \
-			--wasm-out $(DEPLOY_DIR)/xoxno-oracle-adapter.wasm 2>/dev/null || \
-		cp $(RELEASE_DIR)/xoxno_oracle.wasm $(DEPLOY_DIR)/xoxno-oracle-adapter.wasm; \
-	else \
-		cp $(RELEASE_DIR)/xoxno_oracle.wasm $(DEPLOY_DIR)/xoxno-oracle-adapter.wasm; \
-	fi
+	@cp $(OPTIMIZED_DIR)/xoxno_oracle.wasm $(DEPLOY_DIR)/xoxno-oracle-adapter.wasm
 	@ls -lh $(DEPLOY_DIR)/xoxno-oracle-adapter.wasm
 
 
@@ -1601,16 +1572,9 @@ upgrade-oracle-adapter-full: upgrade-oracle-adapter
 
 build-flash-loan-receiver:
 	@echo "Building flash-loan receiver..."
-	@stellar contract build --package flash-loan-receiver
+	@stellar contract build --package flash-loan-receiver --optimize --out-dir $(OPTIMIZED_DIR)
 	@mkdir -p $(DEPLOY_DIR)
-	@if command -v stellar &>/dev/null; then \
-		stellar contract optimize \
-			--wasm $(RELEASE_DIR)/flash_loan_receiver.wasm \
-			--wasm-out $(DEPLOY_DIR)/flash-loan-receiver.wasm 2>/dev/null || \
-		cp $(RELEASE_DIR)/flash_loan_receiver.wasm $(DEPLOY_DIR)/flash-loan-receiver.wasm; \
-	else \
-		cp $(RELEASE_DIR)/flash_loan_receiver.wasm $(DEPLOY_DIR)/flash-loan-receiver.wasm; \
-	fi
+	@cp $(OPTIMIZED_DIR)/flash_loan_receiver.wasm $(DEPLOY_DIR)/flash-loan-receiver.wasm
 	@ls -lh $(DEPLOY_DIR)/flash-loan-receiver.wasm
 
 

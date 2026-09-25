@@ -5,6 +5,12 @@ harness, RPC-fixture and operator regressions. Release ordering is canonical
 build → offline/contract checks → seven live lanes → publication of those exact
 files. A passing smoke or a mapped ABI is not release acceptance.
 
+Builds use `stellar contract build --optimize --out-dir` and consume that
+optimized output. Cargo's target WASM remains raw. Production artifacts are
+optimized once, then stripped; fixtures retain their separate output directory.
+Removing the old second optimization pass changes some artifact hashes, so
+earlier live proofs do not certify the new build outputs.
+
 Release packaging records all 26 published files in `distribution.json` and its
 E2E proof: production/SDK WASM, checksum files, SDK/candidate manifests, and the
 distribution manifest itself. Publication rejects missing, extra or changed
@@ -132,7 +138,10 @@ candidate SHA and a release-workflow dry run. Release dispatch defaults to `dry_
 without publication. `inject_e2e_failure=true` deliberately stops the E2E job
 before deployment and must leave publication skipped. A successful dry run still
 requires all seven live lanes. Local publication regressions inject failed lanes
-and wrong artifacts; no dispatched GitHub dry run has completed yet.
+and wrong artifacts. The injected-failure dry run at
+[3d4153e0](https://github.com/XOXNO/rs-lending-xlm/actions/runs/36127604894)
+passed build/checks, failed E2E deliberately, and skipped publication. A successful
+full dry run remains outstanding.
 The pinned SDK currently fails the required `AmountMustBePositive` (#14) mapping:
 `mapSorobanError` returns null. Keep this failure blocking; do not replace it
 with a local SDK or harness mapping.

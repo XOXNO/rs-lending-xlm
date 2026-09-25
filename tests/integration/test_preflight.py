@@ -4,6 +4,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -15,6 +16,64 @@ MAKE = shutil.which('make')
 
 
 class Preflight(unittest.TestCase):
+    def test_native_optimized_build_outputs_and_fixture_isolation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            for name in ('scripts/build_e2e_wasm.sh', 'scripts/strip_spec_docs.py',
+                         'tests/integration/artifacts.py'):
+                target = base / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(ROOT / name, target)
+            binaries = base / 'bin'
+            binaries.mkdir()
+            stellar = binaries / 'stellar'
+            stellar.write_text(f'#!{sys.executable}\n' + '''
+import os, sys
+from pathlib import Path
+args = sys.argv[1:]
+if args[0] == 'xdr':
+    sys.exit(0)
+assert args[:2] == ['contract', 'build'] and '--optimize' in args
+assert os.environ['RUSTFLAGS'] == '-C link-arg=-zstack-size=16384'
+assert os.environ['CARGO_BUILD_RUSTFLAGS'] == os.environ['RUSTFLAGS']
+assert 'CARGO_ENCODED_RUSTFLAGS' not in os.environ
+if os.environ.get('FAIL_BUILD'):
+    sys.exit(23)
+pkg = args[args.index('--package') + 1].replace('-', '_')
+out = Path(args[args.index('--out-dir') + 1])
+out.mkdir(parents=True, exist_ok=True)
+# Only --out-dir contains optimized bytes. Cargo's raw output must not be used.
+raw = Path(os.environ['CARGO_TARGET_DIR']) / 'wasm32v1-none/release'
+raw.mkdir(parents=True, exist_ok=True)
+(raw / (pkg + '.wasm')).write_bytes(b'UNOPTIMIZED')
+(out / (pkg + '.wasm')).write_bytes(b'\\0asm\\1\\0\\0\\0\\0\\x0f\\x0econtractspecv0')
+''')
+            stellar.chmod(0o755)
+            git = binaries / 'git'
+            git.write_text('#!/bin/sh\necho ' + 'a' * 40 + '\n')
+            git.chmod(0o755)
+            env = dict(os.environ, PATH=str(binaries) + os.pathsep + os.environ['PATH'],
+                       CARGO_TARGET_DIR=str(base / 'custom target'),
+                       RUSTFLAGS='wrong', CARGO_ENCODED_RUSTFLAGS='wrong')
+            script = base / 'scripts/build_e2e_wasm.sh'
+            def build(mode, **overrides):
+                return subprocess.run(['bash', str(script), mode], env=env | overrides,
+                                      capture_output=True, text=True)
+            result = build('candidate')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            candidates = base / 'artifacts/wasm/deploy'
+            self.assertEqual({p.stem for p in candidates.glob('*.wasm')}, set(CONTRACTS))
+            before = {p.name: p.read_bytes() for p in candidates.iterdir()}
+            self.assertTrue(all(before[c + '.wasm'] == b'\0asm\1\0\0\0\0\x0f\x0econtractspecv0' for c in CONTRACTS))
+            result = build('fixtures')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(before, {p.name: p.read_bytes() for p in candidates.iterdir()})
+            fixtures = base / 'artifacts/wasm/fixtures'
+            self.assertEqual(len(list(fixtures.glob('*.wasm'))), 6)
+            self.assertTrue(all(p.read_bytes() == b'\0asm\1\0\0\0\0\x0f\x0econtractspecv0' for p in fixtures.glob('*.wasm')))
+            self.assertEqual(build('candidate', FAIL_BUILD='1').returncode, 23)
+            self.assertEqual(build('fixtures', FAIL_BUILD='1').returncode, 23)
+
     def test_existing_candidates_and_failures(self):
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
