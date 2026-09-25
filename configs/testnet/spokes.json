@@ -161,5 +161,44 @@
         "borrow_cap": "0"
       }
     }
+  },
+  "5": {
+    "name": "Liqvid Private Credit",
+    "assets": {
+      "LIQVID1039": {
+        "hub_id": 4,
+        "can_be_collateral": true,
+        "can_be_borrowed": false,
+        "ltv": 5000,
+        "liquidation_threshold": 6000,
+        "liquidation_bonus": 500,
+        "liquidation_fees": 1000,
+        "supply_cap": "1000000",
+        "borrow_cap": "0",
+        "enabled": false
+      },
+      "USDC_LIQVID": {
+        "hub_id": 4,
+        "can_be_collateral": false,
+        "can_be_borrowed": true,
+        "ltv": 9701,
+        "liquidation_threshold": 9800,
+        "liquidation_bonus": 200,
+        "supply_cap": "100000000000",
+        "borrow_cap": "100000000000",
+        "liquidation_fees": 100
+      },
+      "EURC_LIQVID": {
+        "hub_id": 4,
+        "can_be_collateral": false,
+        "can_be_borrowed": true,
+        "ltv": 9700,
+        "liquidation_threshold": 9800,
+        "liquidation_bonus": 200,
+        "supply_cap": "50000000000000",
+        "borrow_cap": "25000000000000",
+        "liquidation_fees": 100
+      }
+    }
   }
 }

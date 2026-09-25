@@ -21,13 +21,15 @@
     "hub_ids": {
       "1": 1,
       "2": 2,
-      "3": 3
+      "3": 3,
+      "4": 4
     },
     "spoke_ids": {
       "1": 1,
       "2": 2,
       "3": 3,
-      "4": 4
+      "4": 4,
+      "5": 5
     },
     "price_aggregator": "CAALOOTIDXCX7D7FMQIBSSAJLPKOM3GMXS4UUSTDIG42JCRRJHOPUHOP",
     "position_nft": "CDVN5JU675MEDPVRPCYC45AHFC275UH57WEU5OTFE4WFGZBNN7HTLPSY"
