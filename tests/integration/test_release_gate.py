@@ -5,7 +5,7 @@ from copy import deepcopy
 import json, hashlib, subprocess, sys, re
 from controlled import MANIFEST
 from controlled import collect as collect_controlled
-import tempfile
+import tempfile, textwrap
 from release_gate import LANES, verify
 import release_gate
 from artifacts import CONTRACTS, DISTRIBUTION_FILES, distribution
@@ -149,6 +149,39 @@ assert re.search(r'^          exit 1$', injection, re.M)
 assert 'continue-on-error:' not in injection
 assert 'continue-on-error:' not in e2e
 assert 'if:' not in e2e.split('      - name: Run parallel testnet e2e',1)[1].split('      - name:',1)[0]
+
+def step(section, name):
+    return section.split(f'      - name: {name}\n',1)[1].split('      - name:',1)[0]
+def run_step(body, gh_out, env=None):
+    script = textwrap.dedent(body.split('        run: |\n',1)[1])
+    with tempfile.TemporaryDirectory() as directory:
+        gh = Path(directory)/'gh'
+        gh.write_text('#!/usr/bin/env bash\necho "$*" >> "$GH_LOG"\n'
+            'case "$1 $2" in "api "*|"release view") [ -n "$GH_OUT" ] || exit 1; echo "$GH_OUT";; esac\n')
+        gh.chmod(0o755)
+        log = Path(directory)/'calls'; log.touch()
+        result = subprocess.run(['bash','-ec',script], capture_output=True, env={
+            'PATH':f'{directory}:/usr/bin:/bin', 'GH_LOG':str(log), 'GH_OUT':gh_out,
+            'GITHUB_REPOSITORY':'o/r', 'SOURCE_SHA':'a'*40, 'RELEASE_TAG':'v1.2.3', **(env or {})})
+        return result.returncode, log.read_text()
+on_main = step(build, 'Release commit is on main')
+assert "if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}" in on_main
+assert build.index('Release commit is on main') < build.index('Build canonical candidate')
+for status, allowed in [('identical',True),('behind',True),('ahead',False),('diverged',False),('',False)]:
+    code, calls = run_step(on_main, status)
+    assert (code == 0) == allowed, f'release commit status {status!r}'
+    assert calls.startswith(f'api repos/o/r/compare/main...{"a"*40}')
+publish_job = publish.split('    steps:',1)[0]
+release_tag = re.search(r'RELEASE_TAG: \$\{\{ (.*?) \}\}', publish).group(1)
+assert f'group: release-publish-${{{{ {release_tag} }}}}' in publish_job
+assert 'cancel-in-progress: false' in publish_job
+release = step(publish, 'Publish release')
+for draft, allowed, created in [('',True,True),('true',True,False),('false',False,False)]:
+    code, calls = run_step(release, draft)
+    assert (code == 0) == allowed, f'existing release draft={draft!r}'
+    assert ('release create' in calls) == created
+    assert ('release upload' in calls) == allowed
+print('Release commit and published-release guards passed')
 assert workflow.index('sdk_manifest.py dist') < workflow.index('artifacts.py distribution-create dist') < workflow.index('name: Upload artifact')
 assert 'collect tests/integration/runs "$RUN_TS" artifacts/wasm/deploy' in workflow
 assert workflow.count('dist/distribution.json') == 3  # Attestation, upload, publication.

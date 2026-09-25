@@ -54,6 +54,21 @@ jobs:
         with:
           ref: ${{ inputs.tag || github.sha }}
 
+      - name: Release commit is on main
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ steps.checkout.outputs.commit }}
+        run: |
+          status=$(gh api "repos/${GITHUB_REPOSITORY}/compare/main...${SOURCE_SHA}" --jq .status)
+          case "$status" in
+            identical|behind) ;;
+            *)
+              echo "::error::Release commit $SOURCE_SHA is not on main (compare status: ${status:-none})."
+              exit 1
+              ;;
+          esac
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
@@ -260,6 +275,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    concurrency:
+      group: release-publish-${{ inputs.tag || github.ref_name }}
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -286,8 +304,16 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
-          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release create "$RELEASE_TAG" --draft --verify-tag --title "$RELEASE_TAG" --generate-notes
-          fi
+          draft=$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft 2>/dev/null || echo missing)
+          case "$draft" in
+            missing)
+              gh release create "$RELEASE_TAG" --draft --verify-tag --title "$RELEASE_TAG" --generate-notes
+              ;;
+            true) ;;
+            *)
+              echo "::error::Release $RELEASE_TAG is already published; refusing to replace its assets."
+              exit 1
+              ;;
+          esac
           gh release upload "$RELEASE_TAG" dist/*.wasm dist/*.wasm.sha256 dist/sdk-manifest.json dist/candidate.json dist/distribution.json --clobber
           gh release edit "$RELEASE_TAG" --draft=false
