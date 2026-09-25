@@ -153,7 +153,8 @@ jobs:
     permissions:
       contents: read
 
-    runs-on: self-hosted
+    # The injected failure sends no transactions and needs no live-runner state.
+    runs-on: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && inputs.inject_e2e_failure && 'ubuntu-latest' || 'self-hosted' }}
     timeout-minutes: 150
 
     concurrency:

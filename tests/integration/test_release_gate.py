@@ -138,6 +138,17 @@ assert publish.index('release_gate.py verify') < publish.index('gh release uploa
 assert "if: github.event_name != 'workflow_dispatch' || !inputs.dry_run" in publish
 assert "if: github.event_name == 'workflow_dispatch' && inputs.dry_run && inputs.inject_e2e_failure" in workflow
 assert workflow.index('Inject failed E2E gate') < workflow.index('Run parallel testnet e2e')
+# Only a guaranteed pre-deployment failure may use the hosted runner. Normal
+# dry runs and tag releases retain the live runner and all seven lanes.
+e2e = workflow.split('  testnet-e2e:',1)[1].split('  publish:',1)[0]
+runner = re.search(r'    runs-on: \$\{\{ (.*?) \}\}', e2e).group(1)
+guard = re.search(r"      - name: Inject failed E2E gate.*?        if: (.*?)\n", e2e, re.S).group(1)
+assert runner == guard + " && 'ubuntu-latest' || 'self-hosted'"
+injection = e2e.split('      - name: Inject failed E2E gate',1)[1].split('      - name:',1)[0]
+assert re.search(r'^          exit 1$', injection, re.M)
+assert 'continue-on-error:' not in injection
+assert 'continue-on-error:' not in e2e
+assert 'if:' not in e2e.split('      - name: Run parallel testnet e2e',1)[1].split('      - name:',1)[0]
 assert workflow.index('sdk_manifest.py dist') < workflow.index('artifacts.py distribution-create dist') < workflow.index('name: Upload artifact')
 assert 'collect tests/integration/runs "$RUN_TS" artifacts/wasm/deploy' in workflow
 assert workflow.count('dist/distribution.json') == 3  # Attestation, upload, publication.
