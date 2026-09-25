@@ -39,11 +39,7 @@ pub(crate) fn apply(
         && (entry.action.position.scaled_amount > 0 || entry.action.amount == i128::MAX)
         && outcome.mutation.position.scaled_amount == 0
     {
-        // A dust close can round from zero to one unit between simulation and
-        // inclusion, or the leg itself can appear after a strategy repayment.
-        // Explicit full closes reserve the footprint even with zero shares.
-        // SAC transfer(0) records the pool and recipient's writable footprint.
-        token::Client::new(env, &outcome.cache.params().asset_id).transfer(
+        let _ = token::Client::new(env, &outcome.cache.params().asset_id).try_transfer(
             &env.current_contract_address(),
             receiver,
             &0,

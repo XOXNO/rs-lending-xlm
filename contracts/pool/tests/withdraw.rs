@@ -2,6 +2,7 @@ extern crate std;
 
 use super::withhold_liquidation_fee;
 use crate::cache::Cache;
+use crate::storage;
 use crate::test_support::{hub, init_ledger};
 use crate::{LiquidityPool, LiquidityPoolClient};
 use common::constants::RAY;
@@ -11,7 +12,7 @@ use common::types::{
     ScaledPositionRaw,
 };
 use soroban_sdk::testutils::Address as _;
-use soroban_sdk::{token, vec, Address, Env};
+use soroban_sdk::{token, vec, xdr, Address, Env, TryIntoVal};
 
 struct TestSetup {
     env: Env,
@@ -363,4 +364,55 @@ fn empty_withdrawal_and_zero_refund_do_not_touch_recipient() {
         ],
     );
     assert_eq!(result.get(0).unwrap().actual_amount, 0);
+}
+
+#[test]
+fn zero_value_full_close_succeeds_without_recipient_trustline() {
+    let dust = RAY / 10_000_000 - 1;
+    for scaled in [0, dust] {
+        let t = TestSetup::new();
+        let recipient: Address = xdr::ScAddress::Account(xdr::AccountId(
+            xdr::PublicKey::PublicKeyTypeEd25519(xdr::Uint256([9; 32])),
+        ))
+        .try_into_val(&t.env)
+        .unwrap();
+        t.as_contract(|| {
+            storage::write_state(
+                &t.env,
+                &hub(&t.params.asset_id),
+                &PoolStateRaw {
+                    supplied: scaled,
+                    borrowed: 0,
+                    revenue: 0,
+                    borrow_index: RAY,
+                    supply_index: RAY,
+                    last_timestamp: 1_000_000,
+                    cash: 0,
+                },
+            )
+        });
+        let result = LiquidityPoolClient::new(&t.env, &t.contract).withdraw(
+            &recipient,
+            &false,
+            &vec![
+                &t.env,
+                PoolWithdrawEntry {
+                    action: PoolAction {
+                        hub_asset: hub(&t.params.asset_id),
+                        amount: i128::MAX,
+                        position: ScaledPositionRaw {
+                            scaled_amount: scaled,
+                        },
+                    },
+                    protocol_fee: 0,
+                },
+            ],
+        );
+        let mutation = result.get(0).unwrap();
+        assert_eq!(mutation.actual_amount, 0);
+        assert_eq!(mutation.position.scaled_amount, 0);
+        let state = t.as_contract(|| storage::read_state(&t.env, &hub(&t.params.asset_id)));
+        assert_eq!(state.supplied, 0);
+        assert_eq!(state.cash, 0);
+    }
 }
