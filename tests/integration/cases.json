@@ -2043,6 +2043,17 @@
           "simulation"
         ],
         "contract": "price_aggregator"
+      },
+      {
+        "label": "pa_set_sanity_band_owner_guard",
+        "method": "set_sanity_band",
+        "status": "xfail",
+        "count": 1,
+        "execution": [
+          "simulation",
+          "rejected_transaction"
+        ],
+        "contract": "price_aggregator"
       }
     ]
   },
@@ -3343,7 +3354,6 @@
       "migrate",
       "renew",
       "set_position_limits",
-      "set_sanity_band",
       "supply",
       "transfer_ownership",
       "unpause",
@@ -3524,16 +3534,6 @@
         "count": 1,
         "execution": [
           "transaction"
-        ]
-      },
-      {
-        "label": "pa_set_sanity_band_owner_guard",
-        "method": "set_sanity_band",
-        "status": "xfail",
-        "count": 1,
-        "execution": [
-          "simulation",
-          "rejected_transaction"
         ]
       }
     ]

@@ -10,6 +10,34 @@ def shell(file,body,*args):
     return subprocess.run(['bash','-c','source "$1"; source "$2"; shift 2; record() { :; }; log() { :; }; _assert_fail() { return 1; }; '+body,'_',str(HERE/'lib/assert.sh'),str(HERE/file),*args],capture_output=True,text=True)
 
 class Predicates(unittest.TestCase):
+    def test_sanity_owner_guard_belongs_to_executing_case(self):
+        result=shell('flows/admin.sh', '''
+set -e
+phase() { CASE_ID="flow_$1"; }
+for f in inv assert_market_field assert_view_eq_at; do eval "$f() { :; }"; done
+for f in pay_vec hub_key market_params_json spoke_args price_key_token; do eval "$f() { echo '{}'; }"; done
+view() {
+    case "$1" in
+        pa_price_spread) echo '[1,1]';;
+        pa_oracle) echo '{"min_sanity_price_wad":8000,"max_sanity_price_wad":12000}';;
+        *) echo '[{"price_wad":"10000"}]';;
+    esac
+}
+xfail() {
+    if [ "$1" = pa_set_sanity_band_owner_guard ]; then
+        echo "$CASE_ID"; exit 0
+    fi
+}
+flow_admin
+exit 1
+''')
+        self.assertEqual(result.returncode,0,result.stderr)
+        definitions=json.loads((HERE/'cases.json').read_text())
+        owners=[case['id'] for case in definitions if any(
+            action['label']=='pa_set_sanity_band_owner_guard'
+            for action in case['required_actions'])]
+        self.assertEqual(owners,[result.stdout.strip()])
+
     def test_risk_stamps(self):
         key=json.dumps({'asset':'A','hub_id':1}); base=[{key:dict(scaled_amount='123',loan_to_value=5000,liquidation_threshold=7000,liquidation_bonus=800,liquidation_fees=100)},{}]
         for change,ok in [('none',True),('threshold',False),('principal',False),('missing',False)]:
