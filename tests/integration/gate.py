@@ -115,7 +115,7 @@ def validate(run, expected_lane=None):
         raise ValueError('invalid source SHA or instruction policy')
     if metadata['network'] != 'testnet' or metadata['network_passphrase'] != 'Test SDF Network ; September 2015' or not metadata['rpc_url'].startswith('https://'):
         raise ValueError('invalid testnet identity')
-    if not re.match(r'stellar 28\.', metadata['cli_version']) or (metadata['sdk_version'],metadata['stellar_sdk_version']) != ('1.0.220','16.0.1'):
+    if not re.match(r'stellar 28\.', metadata['cli_version']) or (metadata['sdk_version'],metadata['stellar_sdk_version']) != ('1.0.221','16.0.1'):
         raise ValueError('unexpected tool versions')
     candidate = json.loads((run / 'candidate.json').read_text())
     if set(candidate['artifacts']) != {f'{c}.wasm' for c in CONTRACTS}:

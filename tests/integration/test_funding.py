@@ -43,6 +43,7 @@ agg_route_hex() {
 }
 inv() {
     echo "$label submit" >> "$LOG_DIR/order"
+    touch "$LOG_DIR/$label.submitted"
     if [ "$mode" = cancel ]; then sleep 60; fi
     sleep .2
     echo 101 > "$LOG_DIR/ledger"
@@ -58,14 +59,14 @@ swap_xlm_to wallet addr token 1 "$label"
     (root / 'ledger').write_text('100')
     def launch(label, mode='ok'):
         return subprocess.Popen(['bash', '-c', script, '_', str(HERE), directory, label, mode], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
-    def quoted(label):
+    def reached(label, stage='quoted'):
         for _ in range(200):
-            if (root / f'{label}.quoted').exists():
+            if (root / f'{label}.{stage}').exists():
                 return
             time.sleep(.01)
-        raise AssertionError('quote never reached')
+        raise AssertionError(f'{stage} never reached')
     first = launch('first', 'fail')
-    quoted('first')
+    reached('first')
     second = launch('second')
     for proc, code in [(first, 1), (second, 0)]:
         out, err = proc.communicate(timeout=5)
@@ -74,7 +75,7 @@ swap_xlm_to wallet addr token 1 "$label"
         'first quote 100', 'first submit', 'first receipt',
         'second quote 101', 'second submit', 'second receipt'], 'concurrent quote or resubmission'
     cancelled = launch('cancelled', 'cancel')
-    quoted('cancelled')
+    reached('cancelled', 'submitted')
     os.killpg(cancelled.pid, signal.SIGTERM)
     cancelled.communicate(timeout=5)
     after = launch('after-cancel')

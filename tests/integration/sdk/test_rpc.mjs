@@ -1,10 +1,11 @@
 // Controlled RPC fixtures. No network, signing, or multiweek observation.
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
+import {createRequire} from 'node:module';
 import {Account,Address,Keypair,Networks,Operation,SorobanDataBuilder,TransactionBuilder,rpc,xdr} from '@stellar/stellar-sdk';
 import {buildStellarSupplyTx,prepareStellarTxXdr,mapSorobanError} from '@xoxno/sdk-js/stellar-lending';
 assert.equal(process.versions.node.split('.')[0],'24');
-for (const [name,version] of [['@xoxno/sdk-js','1.0.220'],['@stellar/stellar-sdk','16.0.1']]) {
+for (const [name,version] of [['@xoxno/sdk-js','1.0.221'],['@stellar/stellar-sdk','16.0.1']]) {
   assert.equal(JSON.parse(readFileSync(new URL(`./node_modules/${name}/package.json`,import.meta.url),'utf8')).version,version);
 }
 assert.deepEqual(mapSorobanError('simulation failed: HostError: Error(Contract, #14)'),{
@@ -44,6 +45,36 @@ for(const malformed of [{},null,{error:'restore failed'},{...success,transaction
   await assert.rejects(()=>prepareStellarTxXdr(server,build('11').xdr,{network:'testnet',invokedContractId:controller}));
 }
 console.log('Controlled RPC restore preparation, refreshed sequence, malformed simulation checks passed');
+
+// Published ESM/CJS entrypoints must request native leeway through the pinned
+// host SDK's real RPC parser, preserving the returned fee and unsigned call.
+const require=createRequire(import.meta.url);
+const originalFetch=globalThis.fetch;
+try {
+  for(const sdk of [await import('@xoxno/sdk-js'),await import('@xoxno/sdk-js/stellar-lending'),
+    require('@xoxno/sdk-js'),require('@xoxno/sdk-js/stellar-lending')]) {
+    const built=build('11');
+    let requests=0;
+    globalThis.fetch=async(url,init)=>{
+      assert.equal(String(url),'https://rpc.invalid/');
+      const request=JSON.parse(init.body);
+      assert.equal(request.method,'simulateTransaction');
+      assert.equal(request.params.transaction,built.xdr);
+      assert.deepEqual(request.params.resourceConfig,{instructionLeeway:20000000});
+      requests++;
+      return new Response(JSON.stringify({jsonrpc:'2.0',id:request.id,result:success}),{status:200});
+    };
+    const encoded=await sdk.prepareStellarTxXdr(new rpc.Server('https://rpc.invalid'),built.xdr,{network:'testnet'});
+    const before=TransactionBuilder.fromXDR(built.xdr,Networks.TESTNET);
+    const after=TransactionBuilder.fromXDR(encoded,Networks.TESTNET);
+    assert.equal(requests,1);
+    assert.equal(after.signatures.length,0);
+    assert.equal(BigInt(after.fee),BigInt(before.fee)+300n);
+    assert.deepEqual(after.toEnvelope().v1().tx().operations(),before.toEnvelope().v1().tx().operations());
+    assert.equal(after.toEnvelope().v1().tx().ext().sorobanData().toXDR('base64'),callData.toXDR('base64'));
+  }
+} finally { globalThis.fetch=originalFetch; }
+console.log('Published ESM/CJS root/lending entrypoints request native 20M leeway and preserve unsigned simulation resources');
 
 // String and numeric zero both select the newly returned account identity.
 const {receiptAccountId}=await import('./account.mjs');

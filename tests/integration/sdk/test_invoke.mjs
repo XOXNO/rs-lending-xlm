@@ -1,6 +1,6 @@
 // Exercise the real invocation and shell recorder against offline RPC fixtures.
 import assert from 'node:assert/strict';
-import {mkdtempSync,readFileSync,writeFileSync,appendFileSync,mkdirSync,rmSync,existsSync} from 'node:fs';
+import {mkdtempSync,readFileSync,writeFileSync,appendFileSync,mkdirSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join,dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -84,14 +84,7 @@ if (mode) {
         assert.equal(resources.latestLedger,100);
         assert.equal(resources.minResourceFee,'300');
         assert.equal(resources.resources.instructions,200000);
-        // The current release rejects native simulation; the next release can
-        // proceed to the same failed submission fixture without changing this test.
-        if (fixture==='native' && !existsSync(join(logs,'fixture.hash'))) {
-          assert.equal(proof[1],'simulation');
-          assert.deepEqual(trace,['simulate']);
-          continue;
-        }
-        assert.equal(proof[1],'transaction');
+        assert.equal(proof[1],'transaction',readFileSync(join(logs,'fixture.err'),'utf8'));
         assert.match(action[5],/^[0-9a-f]{64}$/);
         assert.equal(readFileSync(join(logs,'fixture.hash'),'utf8'),action[5]);
         const receipt=JSON.parse(readFileSync(join(logs,`${action[5]}.receipt.json`),'utf8'));

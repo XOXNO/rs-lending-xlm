@@ -63,7 +63,7 @@ omitting phases produces incomplete coverage.
 | `flash` | callback success/rejections, protected balances, Long/multiple collateral, delegates and rollback snapshots | live Reflector; existing receiver fixtures |
 | `blend` | actual pool allowlist/reserve addresses, six XLM paths plus distinct-token/multiple-liability migration, committed-rate shares/refunds/identity/unrelated balances | real Blend TestnetV2 pool |
 | `production` | governance operator setup/replay, enabled mainnet policy readbacks, 7/8/9/18 decimal round trips, XOXNO-backed borrowing, contract caller, same-schema upgrades | disposable policy/wallet roots; explicit provider/LP/token fixtures |
-| `sdk` | supply/borrow/repay/withdraw, routed multiply, Blend, events/error mapping/delayed signing | published SDK 1.0.220 and Stellar SDK 16.0.1; fresh contracts |
+| `sdk` | supply/borrow/repay/withdraw, routed multiply, Blend, events/error mapping/delayed signing | published SDK 1.0.221 and Stellar SDK 16.0.1; fresh contracts |
 
 `cases.json` defines required terminal cases and action predicates, qualified by
 contract role and execution type. `abi-coverage.json` maps all 218 candidate
@@ -156,13 +156,15 @@ and wrong artifacts. The injected-failure dry run at
 passed build/checks, failed E2E deliberately, and skipped publication. A successful
 full dry run remains outstanding.
 Published SDK 1.0.219 returned null for `AmountMustBePositive` (#14). SDK
-1.0.220 fixes that mapping; the harness pins the published release and checks
-the mapping offline and live. Local SDK substitutions remain forbidden.
+1.0.220 fixed that mapping; 1.0.221 adds native preparation instruction leeway.
+The harness pins 1.0.221 and checks all four published ESM/CJS root/lending
+entrypoints for the native 20M request, returned resources/fee, unsigned output,
+and unchanged invocation. Error mapping is checked offline and live. Local SDK substitutions remain forbidden.
 
 Live acceptance remains outstanding for newly added predicates and branches.
 Complete liquidation, stress and flash smokes passed their 15, 12 and 11 cases. The SDK
 lifecycle, routed strategy and Blend passed financial checks; its earlier
-error-mapping failure requires a fresh run with SDK 1.0.220. These smokes used
+error-mapping and instruction-budget failures require a fresh run with SDK 1.0.221. These smokes used
 uncommitted harness snapshots and do
 not satisfy final-SHA acceptance. An older smoke hit a submitted Reflector
 storage-footprint race, which remains a sticky failure. Fresh complete runs

@@ -8,7 +8,7 @@ import * as sdk from '@xoxno/sdk-js/stellar-lending';
 import { receiptAccountId } from './account.mjs';
 
 assert.equal(process.versions.node.split('.')[0], '24', 'SDK lane requires Node 24');
-for (const [name,version] of [['@xoxno/sdk-js','1.0.220'],['@stellar/stellar-sdk','16.0.1']]) {
+for (const [name,version] of [['@xoxno/sdk-js','1.0.221'],['@stellar/stellar-sdk','16.0.1']]) {
   assert.equal(JSON.parse(readFileSync(new URL(`./node_modules/${name}/package.json`,import.meta.url),'utf8')).version,version);
 }
 const [builder, argsJSON, evidence] = process.argv.slice(2);
