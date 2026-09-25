@@ -10,7 +10,7 @@ use controller::constants::{RAY, WAD};
 use governance::op::{AdminOperation, CreatePoolArgs, SpokeAssetArgs, UpgradePoolParamsArgs};
 use soroban_sdk::{token, vec, Address, Error, TryFromVal, Vec};
 use test_harness::{
-    errors, usd, usd_cents, usdc_preset, AssetConfigPreset, LendingTest, MarketPreset,
+    errors, usd, usd_cents, usdc_preset, xlm_preset, AssetConfigPreset, LendingTest, MarketPreset,
     DEFAULT_ASSET_CONFIG, DEFAULT_MARKET_PARAMS, HARNESS_HUB,
 };
 
@@ -36,6 +36,7 @@ fn setup(nav_wad: i128) -> Zdc {
             initial_liquidity: 50_000_000.0,
             ..usdc_preset()
         })
+        .with_market(xlm_preset())
         .with_market(MarketPreset {
             name: LIQ,
             decimals: 0,
@@ -639,11 +640,11 @@ fn zdc_zero_decimal_market_cannot_be_listed_borrowable() {
     );
 }
 
-/// Whole-unit seizure is pro-rata only on a single collateral leg, so an
-/// account in a spoke listing sub-3-decimal collateral holds one supply
-/// position, whichever path adds the second.
+/// Whole-unit seizure is pro-rata only on a single collateral leg, so a
+/// sub-3-decimal leg is its account's only supply position, whichever path
+/// adds the second.
 #[test]
-fn zdc_whole_unit_spoke_accounts_hold_one_supply_position() {
+fn zdc_whole_unit_leg_is_its_accounts_only_supply_position() {
     let mut z = setup(nav(1_000));
     let admin = z.t.admin();
     z.t.gov_client().execute_immediate(
@@ -712,6 +713,106 @@ fn zdc_whole_unit_spoke_accounts_hold_one_supply_position() {
         .liquidate(id, debt, SeizeMode::Credit(receiver))
         .unwrap_err();
     assert_eq!(err, limit, "credit cannot add LIQ beside the stable");
+}
+
+/// Isolation binds the account holding the whole-unit leg, not its spoke: an
+/// account without one keeps several positions beside it.
+#[test]
+fn zdc_accounts_without_a_whole_unit_leg_keep_several_positions() {
+    let mut z = setup(nav(1_000));
+    let admin = z.t.admin();
+    let xlm = z.t.resolve_asset("XLM");
+    for (asset, can_borrow) in [(z.usdc.clone(), true), (xlm.clone(), false)] {
+        let op = if can_borrow {
+            AdminOperation::EditAssetInSpoke
+        } else {
+            AdminOperation::AddAssetToSpoke
+        };
+        z.t.gov_client().execute_immediate(
+            &admin,
+            &op(SpokeAssetArgs {
+                hub_id: HARNESS_HUB,
+                asset,
+                spoke_id: z.spoke,
+                can_collateral: true,
+                can_borrow,
+                paused: false,
+                frozen: false,
+                no_seize: false,
+                ltv: 7_500,
+                threshold: 8_000,
+                bonus: 500,
+                liquidation_fees: 0,
+                supply_cap: USDC_CAP_RAW,
+                borrow_cap: if can_borrow { USDC_CAP_RAW } else { 0 },
+            }),
+        );
+    }
+    let dave = z.user("dave");
+    z.t.resolve_market("USDC")
+        .token_admin
+        .mint(&dave, &usdc_raw(100));
+    z.t.resolve_market("XLM")
+        .token_admin
+        .mint(&dave, &(1_000 * USDC_UNIT));
+    let id = z.t.ctrl_client().supply(
+        &dave,
+        &0,
+        &z.spoke,
+        &vec![&z.t.env, (z.usdc_key(), usdc_raw(100))],
+    );
+    let xlm_key = HubAssetKey {
+        hub_id: HARNESS_HUB,
+        asset: xlm,
+    };
+    z.t.ctrl_client().supply(
+        &dave,
+        &id,
+        &z.spoke,
+        &vec![&z.t.env, (xlm_key, 1_000 * USDC_UNIT)],
+    );
+    let (supplies, _) = z.t.ctrl_client().get_account_positions(&id);
+    assert_eq!(supplies.len(), 2);
+}
+
+/// Borrowing needs two whole units behind a sub-3-decimal leg: below HF 1 a
+/// one-unit account quotes less than one seizable unit until the full-debt
+/// promotion, while two units already floor to one.
+#[test]
+fn zdc_borrow_needs_two_whole_units_of_collateral() {
+    let mut z = setup(nav(1_000));
+    let one = z.supply("alice", 0, 1);
+    let alice = z.user("alice");
+    let err =
+        z.t.ctrl_client()
+            .try_borrow(
+                &alice,
+                &one,
+                &vec![&z.t.env, (z.usdc_key(), usdc_raw(100))],
+                &None,
+            )
+            .unwrap_err()
+            .unwrap();
+    assert_eq!(
+        err,
+        Error::from_contract_error(errors::MIN_BORROW_COLLATERAL_NOT_MET)
+    );
+    let two = open(&mut z, "bob", 2, 1_000, 5_000);
+    assert!(z.debt_raw(two) > 0);
+}
+
+/// The two-unit floor holds after any debt-bearing action, so a withdraw
+/// cannot leave one unit behind debt; a debt-free exit is not gated.
+#[test]
+fn zdc_withdraw_cannot_leave_one_unit_behind_debt() {
+    let mut z = setup(nav(1_000));
+    let id = open(&mut z, "alice", 2, 1_000, 1_000);
+    assert_eq!(
+        z.try_withdraw("alice", id, 1).unwrap_err(),
+        Error::from_contract_error(errors::MIN_BORROW_COLLATERAL_NOT_MET)
+    );
+    z.repay_all("alice", id);
+    assert_eq!(z.try_withdraw("alice", id, 1), Ok(1));
 }
 
 /// A flash-loan fee rounds up to one whole unit, so a sub-3-decimal market

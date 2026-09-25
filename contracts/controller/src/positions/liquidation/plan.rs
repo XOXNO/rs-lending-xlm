@@ -1,6 +1,6 @@
 use super::curve::{LiquidationCurve, LiquidationSnapshot};
 use crate::risk;
-use common::errors::{CollateralError, GenericError};
+use common::errors::CollateralError;
 use common::math::fp::Wad;
 use common::types::{Account, HubPayment};
 use soroban_sdk::{assert_with_error, panic_with_error, Env, Vec};
@@ -73,11 +73,10 @@ pub(crate) fn build_liquidation_plan(
     let (seized_collaterals, unbacked_usd) =
         calculate_seized_collateral(env, account, totals.total_collateral, &repayment, cache);
     release_unbacked_repayment(env, &mut repayment, unbacked_usd);
-    assert_with_error!(
-        env,
-        unbacked_usd == Wad::ZERO || !seized_collaterals.is_empty(),
-        GenericError::InvalidPayments
-    );
+    if unbacked_usd > Wad::ZERO && seized_collaterals.is_empty() {
+        let repay_usd = repayment.repay_usd;
+        release_unbacked_repayment(env, &mut repayment, repay_usd);
+    }
 
     for entry in seized_collaterals.iter() {
         enforce_spoke_asset_flags(

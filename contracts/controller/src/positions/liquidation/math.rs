@@ -202,15 +202,43 @@ pub(crate) fn normalize_repayment_plan(
         && repay_usd > Wad::ZERO
         && repay_usd.checked_add(env, one_unit_per_leg_usd(env, &final_repayment_tokens))
             >= ideal_repayment_usd;
+    let repays_all_debt =
+        full_close && repays_every_debt_leg(env, account, &final_repayment_tokens, cache);
     NormalizedRepaymentPlan {
         repay_usd,
         repaid: final_repayment_tokens,
         refunds,
         bonus,
         full_close,
-        repays_all_debt: full_close && repay_usd >= snap.total_debt,
+        repays_all_debt,
         seize_all,
     }
+}
+
+/// Returns whether every debt position has a repayment at its ceiling-rounded balance.
+fn repays_every_debt_leg(
+    env: &Env,
+    account: &Account,
+    repaid: &Vec<RepayEntry>,
+    cache: &mut Context,
+) -> bool {
+    if repaid.len() != account.borrow_positions.len() {
+        return false;
+    }
+    repaid.iter().all(|entry| {
+        let Some(raw) = account.borrow_positions.get(entry.hub_asset.clone()) else {
+            return false;
+        };
+        let position: DebtPosition = (&raw).into();
+        let borrow_index = cache.cached_market_index(&entry.hub_asset).borrow_index;
+        entry.amount
+            >= unscale_borrow_ceil(
+                env,
+                position.scaled_amount,
+                borrow_index,
+                entry.feed.asset_decimals,
+            )
+    })
 }
 
 /// Sums the WAD USD value of one native unit of each repayment leg.
