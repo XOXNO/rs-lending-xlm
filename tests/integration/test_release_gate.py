@@ -171,6 +171,10 @@ for status, allowed in [('identical',True),('behind',True),('ahead',False),('div
     code, calls = run_step(on_main, status)
     assert (code == 0) == allowed, f'release commit status {status!r}'
     assert calls.startswith(f'api repos/o/r/compare/main...{"a"*40}')
+publish_job = publish.split('    steps:',1)[0]
+release_tag = re.search(r'RELEASE_TAG: \$\{\{ (.*?) \}\}', publish).group(1)
+assert f'group: release-publish-${{{{ {release_tag} }}}}' in publish_job
+assert 'cancel-in-progress: false' in publish_job
 release = step(publish, 'Publish release')
 for draft, allowed, created in [('',True,True),('true',True,False),('false',False,False)]:
     code, calls = run_step(release, draft)
