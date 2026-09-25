@@ -281,6 +281,7 @@ fn run_seizure(
             repay_usd: Wad::from(repay_usd_raw),
             bonus: Bps::from(bonus_bps),
             full_close: false,
+            seize_all: false,
         };
         calculate_seized_collateral(
             env,

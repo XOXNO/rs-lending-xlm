@@ -1,3 +1,4 @@
+use common::constants::MIN_BORROWABLE_ASSET_DECIMALS;
 use common::errors::{CollateralError, SpokeError};
 use common::types::{HubAssetKey, SpokeAssetArgs, SpokeAssetConfig};
 use common::validation::{
@@ -68,6 +69,11 @@ fn upsert_spoke_asset(env: &Env, args: &SpokeAssetArgs, mutation: SpokeAssetMuta
     let market = fetch_pool_sync_data(env, &storage::get_pool(env), &hub_asset);
     require_cap_within_asset_domain(env, args.supply_cap, market.params.asset_decimals);
     require_cap_within_asset_domain(env, args.borrow_cap, market.params.asset_decimals);
+    assert_with_error!(
+        env,
+        !args.can_borrow || market.params.asset_decimals >= MIN_BORROWABLE_ASSET_DECIMALS,
+        CollateralError::InvalidBorrowParams
+    );
 
     let config = SpokeAssetConfig {
         is_collateralizable: args.can_collateral,

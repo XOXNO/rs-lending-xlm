@@ -26,6 +26,9 @@ pub(crate) struct NormalizedRepaymentPlan {
     pub bonus: Bps,
     /// The quote covers the account's whole debt.
     pub full_close: bool,
+    /// The account is insolvent and the kept repayment reaches the collateral-backed
+    /// quote within one native unit per debt leg.
+    pub seize_all: bool,
 }
 
 impl NormalizedRepaymentPlan {
@@ -177,11 +180,11 @@ pub(crate) fn normalize_repayment_plan(
 
     let (ideal_repayment_usd, bonus) = estimate_liquidation_amount(env, snap, bonus_bounds, curve);
     let full_close = ideal_repayment_usd >= snap.total_debt;
+    let insolvent = snap.total_collateral < snap.total_debt;
 
     let mut final_repayment_tokens = repaid_tokens;
     if !full_close && total_debt_payment_usd > ideal_repayment_usd {
         let excess_usd = total_debt_payment_usd.checked_sub(env, ideal_repayment_usd);
-        let insolvent = snap.total_collateral < snap.total_debt;
         process_excess_payment(
             env,
             &mut final_repayment_tokens,
@@ -192,13 +195,30 @@ pub(crate) fn normalize_repayment_plan(
     }
 
     // Sum the final entries before moving them; plan validation checks equality.
+    let repay_usd = sum_repaid_usd(env, &final_repayment_tokens);
+    let seize_all = insolvent
+        && repay_usd > Wad::ZERO
+        && repay_usd.checked_add(env, one_unit_per_leg_usd(env, &final_repayment_tokens))
+            >= ideal_repayment_usd;
     NormalizedRepaymentPlan {
-        repay_usd: sum_repaid_usd(env, &final_repayment_tokens),
+        repay_usd,
         repaid: final_repayment_tokens,
         refunds,
         bonus,
         full_close,
+        seize_all,
     }
+}
+
+/// Sums the WAD USD value of one native unit of each repayment leg.
+fn one_unit_per_leg_usd(env: &Env, repaid_tokens: &Vec<RepayEntry>) -> Wad {
+    let mut total = Wad::ZERO;
+    for entry in repaid_tokens.iter() {
+        let unit = Wad::from_token(env, 1, entry.feed.asset_decimals)
+            .mul(env, Wad::from(entry.feed.price_wad));
+        total = total.checked_add(env, unit);
+    }
+    total
 }
 
 /// Sums recorded repayment values in WAD USD.
@@ -259,7 +279,11 @@ pub(crate) fn calculate_seized_collateral(
             continue;
         }
 
-        let capped_ray = seizure_ray.min(actual_ray);
+        let capped_ray = if repayment.seize_all {
+            actual_ray
+        } else {
+            seizure_ray.min(actual_ray)
+        };
         if capped_ray <= Ray::ZERO {
             continue;
         }

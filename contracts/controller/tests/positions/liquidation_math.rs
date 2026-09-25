@@ -86,6 +86,7 @@ fn plan_with(env: &Env, repay_usd: i128, seized: Vec<SeizeEntry>) -> Liquidation
             repay_usd: Wad::from(repay_usd),
             bonus: Bps::from(0i128),
             full_close: false,
+            seize_all: false,
         },
         seized,
     }
@@ -164,6 +165,7 @@ fn plan_for_seizure(env: &Env, repay_usd_raw: i128, bonus_bps: i128) -> Normaliz
         repay_usd: Wad::from(repay_usd_raw),
         bonus: Bps::from(bonus_bps),
         full_close: false,
+        seize_all: false,
     }
 }
 
@@ -648,7 +650,7 @@ fn racing_insolvent_liquidations_never_repay_more_than_the_collateral_backs() {
                 out.repaid, backed,
                 "the last offer is cut to the backed quote"
             );
-            assert_eq!(coll, 1, "the floored repayment leaves one collateral unit");
+            assert_eq!(coll, 0, "the backed quote takes every collateral unit");
         }
     }
     assert!(
@@ -2369,8 +2371,10 @@ fn an_expensive_low_decimal_collateral_makes_a_floor_sized_liquidation_seize_not
     assert_eq!(hostile.decimals, MIN_ASSET_DECIMALS);
     assert_eq!(hostile.price_wad, MAX_REASONABLE_PRICE_WAD);
 
-    // One base unit is worth $1,000,000: 200,000x the entire borrow floor.
-    assert_eq!(unit_value_usd_wad(&hostile), 1_000_000 * WAD);
+    assert_eq!(
+        unit_value_usd_wad(&hostile),
+        MAX_REASONABLE_PRICE_WAD / 10i128.pow(MIN_ASSET_DECIMALS)
+    );
     assert!(
         unprofitable_below_usd_wad(&hostile, 1) > floor,
         "the closed form must already flag this pair",
