@@ -77,7 +77,7 @@ jobs:
           toolchain: nightly
 
       - name: Install cargo-fuzz (prebuilt)
-        uses: taiki-e/install-action@26e9283f268b880168bdbd2c545dfcd60ec2c6ab # v2.87.13
+        uses: taiki-e/install-action@dfae9bf3d6f6c6f20ef4ebb3486c01a51341ff12 # v2.87.18
         with:
           tool: cargo-fuzz
 
@@ -194,7 +194,7 @@ jobs:
           targets: wasm32v1-none
 
       - name: Install cargo-mutants + nextest
-        uses: taiki-e/install-action@26e9283f268b880168bdbd2c545dfcd60ec2c6ab # v2.87.13
+        uses: taiki-e/install-action@dfae9bf3d6f6c6f20ef4ebb3486c01a51341ff12 # v2.87.18
         with:
           tool: cargo-mutants@${{ env.CARGO_MUTANTS_VERSION }},cargo-nextest
 
@@ -293,7 +293,7 @@ jobs:
       # Installs the tools once; each mutants matrix cell downloads the staged
       # copies instead of installing them again.
       - name: Install tools
-        uses: taiki-e/install-action@26e9283f268b880168bdbd2c545dfcd60ec2c6ab # v2.87.13
+        uses: taiki-e/install-action@dfae9bf3d6f6c6f20ef4ebb3486c01a51341ff12 # v2.87.18
         with:
           tool: cargo-mutants@${{ env.CARGO_MUTANTS_VERSION }},sccache,cargo-nextest
 
@@ -419,7 +419,7 @@ jobs:
           toolchain: nightly
 
       - name: Install cargo-fuzz (prebuilt)
-        uses: taiki-e/install-action@26e9283f268b880168bdbd2c545dfcd60ec2c6ab # v2.87.13
+        uses: taiki-e/install-action@dfae9bf3d6f6c6f20ef4ebb3486c01a51341ff12 # v2.87.18
         with:
           tool: cargo-fuzz
 
