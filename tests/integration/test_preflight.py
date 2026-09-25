@@ -92,7 +92,7 @@ raw.mkdir(parents=True, exist_ok=True)
             guard = base / 'guard.mk'
             guard.write_text('candidate-wasm integration-fixtures:\n\t@echo UNEXPECTED_BUILD; exit 99\n')
             env = dict(os.environ, PATH=str(binaries), WASM_DIR=str(candidate),
-                       NETWORK='testnet', INSTRUCTION_LEEWAY='2000000')
+                       NETWORK='testnet', INSTRUCTION_LEEWAY='20000000')
             for key in ['RUN_TS', 'MAKEFLAGS', 'MFLAGS', 'NETWORKS_FILE', 'BASH_ENV']:
                 env.pop(key, None)
 

@@ -69,6 +69,8 @@ jobs:
 
       - run: make integration-validate
       - name: Contract and controlled-ledger proofs
+        env:
+          STRESS_BUDGET_WASM_DIR: ${{ github.workspace }}/artifacts/wasm/deploy
         run: |
           set -o pipefail
           cargo test --workspace --no-fail-fast 2>&1 | tee controlled-tests.log

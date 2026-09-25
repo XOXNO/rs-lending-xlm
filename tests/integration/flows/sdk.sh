@@ -16,7 +16,13 @@ sdk_inv() {
         fi
         jq -r '.value' "$result"
     else
-        record "$label" FAIL "$builder" "" "" "" "" "" "$(tail_err_note "$LOG_DIR/$label.err")"
+        local hash='' execution=simulation
+        if [ -f "$LOG_DIR/$label.hash" ]; then
+            hash=$(cat "$LOG_DIR/$label.hash")
+            [[ "$hash" =~ ^[0-9a-f]{64}$ ]] || hash=''
+            [ -z "$hash" ] || execution=transaction
+        fi
+        record "$label" FAIL "$method" "$hash" "" "" "" "" "$(tail_err_note "$LOG_DIR/$label.err")" "$execution" "$CONTROLLER"
         return 1
     fi
 }

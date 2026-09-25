@@ -281,7 +281,7 @@ flow_stress_delayed() {
     stellar contract invoke --id "$CONTROLLER" --source "$DAVE" "${NET_ARGS[@]}" --build-only -- borrow \
         --caller "$DAVE_ADDR" --account_id "$acct" --borrows "$(pay_vec "$PRIMARY_HUB_ID" $args)" --to null \
         >"$LOG_DIR/$label.built.xdr" 2>"$LOG_DIR/$label.prepare.err" || return 1
-    stellar tx simulate --source "$DAVE" "${NET_ARGS[@]}" --instruction-leeway "${INSTRUCTION_LEEWAY:-2000000}" \
+    stellar tx simulate --source "$DAVE" "${NET_ARGS[@]}" --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" \
         <"$LOG_DIR/$label.built.xdr" >"$LOG_DIR/$label.prepared.xdr" 2>>"$LOG_DIR/$label.prepare.err" || return 1
     stellar tx sign --sign-with-key "$DAVE" "${NET_ARGS[@]}" \
         <"$LOG_DIR/$label.prepared.xdr" >"$LOG_DIR/$label.signed.xdr" 2>>"$LOG_DIR/$label.prepare.err" || return 1

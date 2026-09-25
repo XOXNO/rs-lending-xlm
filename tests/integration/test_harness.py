@@ -40,7 +40,7 @@ def check_gate():
     with tempfile.TemporaryDirectory() as directory:
         run = Path(directory)
         (run / 'logs').mkdir()
-        (run / 'metadata.json').write_text(json.dumps(dict(lane='agg', selected_cases=required, source_sha='a'*40, configuration_sha256='b'*64, case_manifest_sha256=gate.digest(HERE/'cases.json'),sdk_lock_sha256=gate.digest(HERE/'sdk/package-lock.json'), instruction_leeway=2000000,network='testnet',network_passphrase='Test SDF Network ; September 2015',rpc_url='https://example.invalid',cli_version='stellar 28.0.0',sdk_version='1.0.220',stellar_sdk_version='16.0.1')))
+        (run / 'metadata.json').write_text(json.dumps(dict(lane='agg', selected_cases=required, source_sha='a'*40, configuration_sha256='b'*64, case_manifest_sha256=gate.digest(HERE/'cases.json'),sdk_lock_sha256=gate.digest(HERE/'sdk/package-lock.json'), instruction_leeway=20000000,network='testnet',network_passphrase='Test SDF Network ; September 2015',rpc_url='https://example.invalid',cli_version='stellar 28.0.0',sdk_version='1.0.220',stellar_sdk_version='16.0.1')))
         (run / 'candidate.json').write_text(json.dumps({'source_sha': 'a'*40, 'artifacts': {f'{c}.wasm': 'a'*64 for c in gate.CONTRACTS}}))
         limits = dict(txMaxInstructions=400000000, txMaxDiskReadBytes=200000,
                       txMaxWriteBytes=132096, txMaxDiskReadEntries=200, txMaxWriteLedgerEntries=200,
@@ -83,7 +83,7 @@ def check_gate():
         write('evidence.tsv',['seq','execution','contract'],wrong); rejected(); baseline()
         meta=run/'metadata.json'; saved_meta=meta.read_text()
         meta.write_text(json.dumps({'lane':'agg','selected_cases':required,'source_sha':'a'*40})); rejected(); meta.write_text(saved_meta)
-        for leeway in [1000000, 0, '2000000', 2000000.0]:
+        for leeway in [1000000, 2000000, 0, '20000000', 20000000.0]:
             wrong_policy=json.loads(saved_meta); wrong_policy['instruction_leeway']=leeway
             meta.write_text(json.dumps(wrong_policy)); rejected(); meta.write_text(saved_meta)
         try: gate.validate(run, expected_lane='sdk')

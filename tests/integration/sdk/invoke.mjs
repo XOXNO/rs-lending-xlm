@@ -17,6 +17,32 @@ const caller = key.publicKey();
 const server = new rpc.Server(process.env.RPC_URL);
 const controllerAddress = process.env.CONTROLLER;
 const json = value => JSON.stringify(value, (_, v) => typeof v === 'bigint' ? v.toString() : v, 2);
+// Observe the native RPC boundary; return the exact response to the preparer.
+const simulate = server.simulateTransaction.bind(server);
+let simulation = 0;
+server.simulateTransaction = async (...args) => {
+  const prefix = `${evidence}.simulation-${++simulation}`;
+  let response;
+  try { response = await simulate(...args); }
+  catch (error) {
+    writeFileSync(`${prefix}.error.txt`, String(error));
+    throw error;
+  }
+  writeFileSync(`${prefix}.json`, json(response) ?? 'null');
+  if (response?.transactionData) {
+    try {
+      const data = response.transactionData;
+      const encoded = typeof data === 'string' ? data : data.build().toXDR('base64');
+      writeFileSync(`${prefix}.transaction-data.xdr`, encoded);
+      const resources = JSON.parse(execFileSync('stellar', ['xdr','decode','--type','SorobanTransactionData','--output','json'], {input:encoded,encoding:'utf8'}));
+      writeFileSync(`${prefix}.resources.json`, json({latestLedger:response.latestLedger,minResourceFee:response.minResourceFee,...resources}));
+    } catch (error) {
+      // Malformed evidence must still reach the SDK's own validation unchanged.
+      writeFileSync(`${prefix}.resources-error.txt`, String(error));
+    }
+  }
+  return response;
+};
 const account = await server.getAccount(caller);
 const options = {network: 'testnet', caller, sourceSequence: account.sequenceNumber(), controllerAddress, fee: '1000000'};
 assert.equal(typeof sdk[builder], 'function', `published builder missing: ${builder}`);
@@ -57,21 +83,28 @@ for (let attempt = 0; attempt < 30; attempt++) {
   if (receipt?.status === 'SUCCESS' || receipt?.status === 'FAILED') break;
   await delay(2000);
 }
-assert.equal(receipt?.status, 'SUCCESS', `unconfirmed/failed transaction ${hash}`);
-assert(receipt.returnValue && receipt.resultMetaXdr && receipt.envelopeXdr, 'incomplete receipt');
 // Save the RPC wire receipt as well as the SDK's decoded receipt. The common
 // gate checks the same committed resources for both CLI and SDK transactions.
-const response = await fetch(process.env.RPC_URL, {method:'POST', headers:{'Content-Type':'application/json'},
-  body:JSON.stringify({jsonrpc:'2.0',id:1,method:'getTransaction',params:{hash}})});
-assert(response.ok, `receipt HTTP ${response.status}`);
-const wire = await response.json();
+// Save failures too, before any success assertion can discard their evidence.
+const logs = dirname(evidence);
+let wire;
+try {
+  const response = await fetch(process.env.RPC_URL, {method:'POST', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({jsonrpc:'2.0',id:1,method:'getTransaction',params:{hash}})});
+  wire = await response.json();
+  writeFileSync(join(logs, `${hash}.receipt.json`), json(wire));
+  assert(response.ok, `receipt HTTP ${response.status}`);
+} catch (error) {
+  writeFileSync(`${evidence}.receipt-error.txt`, String(error));
+  throw error;
+}
+assert.equal(receipt?.status, 'SUCCESS', `unconfirmed/failed transaction ${hash}`);
+assert(receipt.returnValue && receipt.resultMetaXdr && receipt.envelopeXdr, 'incomplete receipt');
 assert.equal(wire.jsonrpc, '2.0');
 assert.equal(wire.id, 1);
 assert(!wire.error);
 assert.equal(wire.result.txHash, hash);
 assert.equal(wire.result.status, 'SUCCESS');
-const logs = dirname(evidence);
-writeFileSync(join(logs, `${hash}.receipt.json`), json(wire));
 const envelope = JSON.parse(execFileSync('stellar', ['xdr','decode','--type','TransactionEnvelope','--output','json'], {input:wire.result.envelopeXdr,encoding:'utf8'}));
 function resourceData(value) {
   if (!value || typeof value !== 'object') return;

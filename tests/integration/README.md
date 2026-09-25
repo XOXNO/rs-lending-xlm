@@ -78,11 +78,15 @@ negative cases distinguish simulation rejection from a submitted failed receipt;
 a simulation rollback check is not a committed-transaction rollback proof.
 
 Mutations use `--send=yes`; reads use `--send=no`. CLI calls use native
-`--instruction-leeway 2000000`. The initial 1,000,000 policy produced a submitted
-Credit 5+5 resource failure: 67,229,548 instructions consumed against 67,229,371
-declared (ledger 4852784). A fresh stress smoke passed all 12 required cases
-with the larger margin, including Credit 5+5 (76,514,233 declared instructions).
-The original run remains failed and the 10% headroom gate is unchanged.
+`--instruction-leeway 20000000`. Both earlier 1M and 2M policies produced
+submitted Credit 5+5 instruction failures. Controlled replay of the four exact
+WASMs from release run 36137339149 measured 40,637,121 instructions at zero
+elapsed time and 52,480,186 five seconds later: 11,843,065 additional instructions
+for index projection/accrual. The regression uses one fixture provider and
+source-account authorization; live dual-provider proofs remain required.
+The 20M policy covers that measured delta with additional margin. The original
+runs remain failed; maximum dimensions and the 10% resource headroom gate remain
+unchanged. A fixed margin does not guarantee every future state transition.
 SDK-prepared envelopes are not patched. Retry is
 limited to classified transient failures without a signed hash. After a hash
 exists, reconcile that hash; never rebuild the mutation. Unexpected submitted
@@ -90,6 +94,15 @@ Trapped/ResourceLimitExceeded failures remain fatal.
 If the CLI loses a successful response, recovery verifies the signed envelope,
 host operation and receipt return/event hash before recovering the result;
 the original CLI status and output remain in attempt evidence.
+
+Funding swaps share a checkout-wide file lock from quote acquisition through
+receipt confirmation. Quote snapshots must reach the RPC ledger observed after
+acquiring the lock. A cancelled or unresolved funding operation leaves
+`runs/.external-funding.pending.json`; subsequent funding fails before quoting.
+Reconcile the recorded operation before removing that marker. This coordination
+does not control unrelated external traders or the deliberate contention tests.
+SDK evidence includes native simulation responses/resources and failed wire
+receipts; the harness observes them without changing prepared envelopes.
 
 The resource gate checks signed envelope declarations, actual transaction/event
 bytes, footprint counts, and both captured network limit sets. Declared

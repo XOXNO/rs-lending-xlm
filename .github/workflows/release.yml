@@ -86,6 +86,8 @@ jobs:
           make integration-sdk-validate
 
       - name: Offline harness and contract checks
+        env:
+          STRESS_BUDGET_WASM_DIR: ${{ github.workspace }}/artifacts/wasm/deploy
         run: |
           set -o pipefail
           make integration-validate

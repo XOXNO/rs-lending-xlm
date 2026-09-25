@@ -26,26 +26,27 @@ flow_fund_usdc() {
     phase funding
     [ -n "${FUNDED_USDC:-}" ] && return 0
     local line code issuer
-    line=$(classic_line "$USDC_SAC")
+    line=$(classic_line "$USDC_SAC") || return 1
     code="${line%%:*}"; issuer="${line##*:}"
-    trustline "$ADMIN" "$code" "$issuer"
-    trustline "$ALICE" "$code" "$issuer"
-    trustline "$BOB" "$code" "$issuer"
-    trustline "$CAROL" "$code" "$issuer"
+    trustline "$ADMIN" "$code" "$issuer" || return 1
+    trustline "$ALICE" "$code" "$issuer" || return 1
+    trustline "$BOB" "$code" "$issuer" || return 1
+    trustline "$CAROL" "$code" "$issuer" || return 1
 
     swap_xlm_to "$ADMIN" "$ADMIN_ADDR" "$USDC_SAC" 50000000000 fund_swap_usdc || return 1
     local got
-    got=$(balance "$USDC_SAC" "$ADMIN_ADDR")
-    [ -z "$got" ] || [ "$got" -le 0 ] && { log "funding swap produced no USDC"; return 1; }
+    got=$(balance "$USDC_SAC" "$ADMIN_ADDR") || return 1
+    _uint_ge "$got" 4 || { _assert_fail funding_balance "insufficient USDC to fund four wallets"; return 1; }
     log "admin USDC balance: $got"
-    local share=$((got / 4))
-    sac_transfer "$ADMIN" "$USDC_SAC" "$ADMIN_ADDR" "$ALICE_ADDR" "$share" fund_alice_usdc
-    sac_transfer "$ADMIN" "$USDC_SAC" "$ADMIN_ADDR" "$BOB_ADDR" "$share" fund_bob_usdc
-    sac_transfer "$ADMIN" "$USDC_SAC" "$ADMIN_ADDR" "$CAROL_ADDR" "$share" fund_carol_usdc
+    local share
+    share=$(python3 -c 'import sys; print(int(sys.argv[1]) // 4)' "$got") || return 1
+    sac_transfer "$ADMIN" "$USDC_SAC" "$ADMIN_ADDR" "$ALICE_ADDR" "$share" fund_alice_usdc || return 1
+    sac_transfer "$ADMIN" "$USDC_SAC" "$ADMIN_ADDR" "$BOB_ADDR" "$share" fund_bob_usdc || return 1
+    sac_transfer "$ADMIN" "$USDC_SAC" "$ADMIN_ADDR" "$CAROL_ADDR" "$share" fund_carol_usdc || return 1
 
-    line=$(classic_line "$EURC_SAC")
-    trustline "$ALICE" "${line%%:*}" "${line##*:}"
-    swap_xlm_to "$ALICE" "$ALICE_ADDR" "$EURC_SAC" 5000000000 fund_alice_eurc
+    line=$(classic_line "$EURC_SAC") || return 1
+    trustline "$ALICE" "${line%%:*}" "${line##*:}" || return 1
+    swap_xlm_to "$ALICE" "$ALICE_ADDR" "$EURC_SAC" 5000000000 fund_alice_eurc || return 1
     save_state FUNDED_USDC 1
 }
 

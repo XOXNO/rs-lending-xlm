@@ -21,7 +21,7 @@ run_deploy() {
     # the option before constructor args, and reject conflicting explicit limits.
     case "${1:-} ${2:-} ${3:-}" in
         'stellar contract upload'|'stellar contract deploy')
-            local verb="$3" leeway="${INSTRUCTION_LEEWAY:-2000000}" explicit=0 value
+            local verb="$3" leeway="${INSTRUCTION_LEEWAY:-20000000}" explicit=0 value
             local deployment_args=()
             shift 3
             while [ "$#" -gt 0 ]; do
@@ -156,7 +156,7 @@ inv() {
         rc=0
         begin_attempt "$label" "$fn" "$sequence" "$attempt" "$out_f" "$err_f" "$contract" || return 1
         stellar contract invoke --id "$contract" --source "$signer" "${NET_ARGS[@]}" \
-            --instruction-leeway "${INSTRUCTION_LEEWAY:-2000000}" --send=yes -- "$@" >"$out_f" 2>"$err_f" || rc=$?
+            --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --send=yes -- "$@" >"$out_f" 2>"$err_f" || rc=$?
         hash=$(extract_signing_hash "$err_f")
         record_attempt "$label" "$fn" "$sequence" "$attempt" "$rc" "$hash" "$out_f" "$err_f" "$contract" || return 1
         if [ -n "$hash" ]; then
@@ -211,7 +211,7 @@ xfail() {
         log "xfail [$label] $fn (expect: $pattern)"
         rc=0
         begin_attempt "$label" "$fn" "$sequence" "$attempt" "$out_f" "$err_f" "$contract" || return 1
-        stellar contract invoke --config-dir "$config" --id "$contract" --source "$signer" "${NET_ARGS[@]}" --instruction-leeway "${INSTRUCTION_LEEWAY:-2000000}" --send="${XFAIL_SEND_MODE:-yes}" -- "$@" \
+        stellar contract invoke --config-dir "$config" --id "$contract" --source "$signer" "${NET_ARGS[@]}" --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --send="${XFAIL_SEND_MODE:-yes}" -- "$@" \
             >"$out_f" 2>"$err_f" || rc=$?
         signed_hash=$(extract_signing_hash "$err_f")
         record_attempt "$label" "$fn" "$sequence" "$attempt" "$rc" "$signed_hash" "$out_f" "$err_f" "$contract" || return 1
@@ -257,7 +257,7 @@ view() {
         [ "$attempt" -gt 1 ] && backoff_sleep "$attempt"
         rc=0
         begin_attempt "$label" "$fn" "$sequence" "$attempt" "$out_f" "$err_f" "$contract" || return 1
-        stellar contract invoke --id "$contract" --source "$ADMIN" "${NET_ARGS[@]}" --instruction-leeway "${INSTRUCTION_LEEWAY:-2000000}" --send=no -- "$@" \
+        stellar contract invoke --id "$contract" --source "$ADMIN" "${NET_ARGS[@]}" --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --send=no -- "$@" \
             >"$out_f" 2>"$err_f" || rc=$?
         record_attempt "$label" "$fn" "$sequence" "$attempt" "$rc" "" "$out_f" "$err_f" "$contract" || return 1
         if [ "$rc" -eq 0 ] && jq -e 'true' "$out_f" >/dev/null; then
@@ -283,13 +283,13 @@ sim_probe() {
     local fn="$1"
     local tx_f="$LOG_DIR/$label.txb64" sim_f="$LOG_DIR/$label.sim.json"
     PROBE_STATUS=error
-    if ! stellar contract invoke --id "$contract" --source "$signer" "${NET_ARGS[@]}" --instruction-leeway "${INSTRUCTION_LEEWAY:-2000000}" --build-only -- "$@" \
+    if ! stellar contract invoke --id "$contract" --source "$signer" "${NET_ARGS[@]}" --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --build-only -- "$@" \
         >"$tx_f" 2>"$LOG_DIR/$label.err"; then
         record "$label" FAIL "$fn" "" "" "" "" "" "build-only failed"
         return 1
     fi
     if ! curl --fail-with-body -sS -m 60 -X POST "$RPC_URL" -H 'Content-Type: application/json' \
-        -d "$(jq -n --argjson leeway "${INSTRUCTION_LEEWAY:-2000000}" --rawfile tx "$tx_f" '{jsonrpc:"2.0",id:1,method:"simulateTransaction",params:{transaction:($tx|rtrimstr("\n")),resourceConfig:{instructionLeeway:$leeway}}}')" \
+        -d "$(jq -n --argjson leeway "${INSTRUCTION_LEEWAY:-20000000}" --rawfile tx "$tx_f" '{jsonrpc:"2.0",id:1,method:"simulateTransaction",params:{transaction:($tx|rtrimstr("\n")),resourceConfig:{instructionLeeway:$leeway}}}')" \
         >"$sim_f" || ! jq -e '.jsonrpc == "2.0" and .id == 1 and (has("error") | not) and (.result | type == "object")' "$sim_f" >/dev/null; then
         record "$label" FAIL "$fn" "" "" "" "" "" "invalid simulation transport or JSON-RPC response"
         return 1

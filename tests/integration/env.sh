@@ -2,10 +2,10 @@ INTEG_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$INTEG_DIR/../.." && pwd)"
 
 NETWORK="${NETWORK:-testnet}"
-# Fresh-run policy after the 1m-leeway Credit 5+5 submission exceeded its
-# declared instructions. Keep all CLI paths and operator subprocesses aligned.
-export INSTRUCTION_LEEWAY="${INSTRUCTION_LEEWAY:-2000000}"
-[ "$INSTRUCTION_LEEWAY" = 2000000 ] || { echo 'E2E requires the recorded 2000000 instruction leeway policy' >&2; exit 1; }
+# Controlled Credit 5+5 replay measured >11m extra CPU across a ledger boundary.
+# Keep native preparation aligned; the full resource/headroom gate still applies.
+export INSTRUCTION_LEEWAY="${INSTRUCTION_LEEWAY:-20000000}"
+[ "$INSTRUCTION_LEEWAY" = 20000000 ] || { echo 'E2E requires the recorded 20000000 instruction leeway policy' >&2; exit 1; }
 [ "$NETWORK" = testnet ] || { echo "E2E transactions are restricted to testnet" >&2; exit 1; }
 EXPLORER_TX="${EXPLORER_TX:-https://stellar.expert/explorer/testnet/tx}"
 AGGREGATOR_API="${AGGREGATOR_API:-https://testnet-stellar-swap.xoxno.com/api/v1}"

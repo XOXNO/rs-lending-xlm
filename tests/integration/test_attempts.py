@@ -289,18 +289,18 @@ policy_shapes=[
     ['upload','--wasm','/tmp/pool with spaces.wasm','--source','admin','--network','testnet'],
     ['deploy','--wasm','/tmp/pool.wasm','--source','admin','--rpc-url','https://rpc.invalid','--','--admin','OWNER'],
     ['deploy','--wasm-hash','a'*64,'--source','admin','--','--name','literal words'],
-    ['upload','--instruction-leeway','2000000','--wasm','/tmp/pool.wasm'],
-    ['deploy','--instruction-leeway=2000000','--wasm','/tmp/pool.wasm','--','--instruction-leeway','constructor field'],
+    ['upload','--instruction-leeway','20000000','--wasm','/tmp/pool.wasm'],
+    ['deploy','--instruction-leeway=20000000','--wasm','/tmp/pool.wasm','--','--instruction-leeway','constructor field'],
 ]
 for argv in policy_shapes:
     command=shlex.join(['stellar','contract',*argv])
-    expected=['contract',argv[0],'--instruction-leeway','2000000']
+    expected=['contract',argv[0],'--instruction-leeway','20000000']
     remaining=argv[1:]
     if remaining[:1]==['--instruction-leeway']: remaining=remaining[2:]
-    if remaining[:1]==['--instruction-leeway=2000000']: remaining=remaining[1:]
+    if remaining[:1]==['--instruction-leeway=20000000']: remaining=remaining[1:]
     expected+=remaining
     attempts,outputs,actions=shell(f'''
-INSTRUCTION_LEEWAY=2000000
+INSTRUCTION_LEEWAY=20000000
 stellar() {{ printf '%s\\n' "$@" > "$LOG_DIR/command-args"; printf '%064d' 1; }}
 verify_deployed_wasm() {{ :; }}
 run_deploy "$LOG_DIR/policy.out" "$LOG_DIR/policy.err" -- {command} || exit 1
@@ -313,12 +313,12 @@ PYPOLICY
     assert len(attempts)==1 and attempts[0]['cli_exit']==0
 for options in [
     ['--instruction-leeway','1000000'],['--instruction-leeway=1000000'],
-    ['--instruction-leeway','2000000','--instruction-leeway=2000000'],
-    ['--instructions','2000000'],['--instructions=2000000'],['--instruction-leeway'],
+    ['--instruction-leeway','20000000','--instruction-leeway=20000000'],
+    ['--instructions','20000000'],['--instructions=20000000'],['--instruction-leeway'],
 ]:
     command=shlex.join(['stellar','contract','upload','--wasm','/tmp/pool.wasm',*options])
     attempts,outputs,actions=shell(f'''
-INSTRUCTION_LEEWAY=2000000
+INSTRUCTION_LEEWAY=20000000
 n=0; stellar() {{ n=$((n+1)); return 0; }}
 if run_deploy "$LOG_DIR/policy.out" "$LOG_DIR/policy.err" -- {command}; then exit 1; fi
 [ "$n" = 0 ] || exit 1

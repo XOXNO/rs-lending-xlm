@@ -10,7 +10,7 @@ init_run() {
     if [ ! -f "$RUN_DIR/cases.tsv" ]; then
         printf 'id\tstatus\tfirst_action\tlast_action\n' > "$RUN_DIR/cases.tsv"
     fi
-    python3 - "$INTEG_DIR" "$RUN_DIR" "${E2E_LANE:?}" "${INSTRUCTION_LEEWAY:-2000000}" "$NETWORKS_FILE" "$RPC_URL" "$NETWORK_PASSPHRASE" "$RUN_TS" <<'PYMETA'
+    python3 - "$INTEG_DIR" "$RUN_DIR" "${E2E_LANE:?}" "${INSTRUCTION_LEEWAY:-20000000}" "$NETWORKS_FILE" "$RPC_URL" "$NETWORK_PASSPHRASE" "$RUN_TS" <<'PYMETA'
 import hashlib, json, subprocess, sys, os
 from datetime import datetime, timezone
 from pathlib import Path

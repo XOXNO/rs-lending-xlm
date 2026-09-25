@@ -111,7 +111,7 @@ def validate(run, expected_lane=None):
             raise ValueError(f'invalid metadata {field}')
     if metadata['case_manifest_sha256'] != digest(Path(__file__).with_name('cases.json')) or metadata['sdk_lock_sha256'] != digest(Path(__file__).parent/'sdk/package-lock.json'):
         raise ValueError('case manifest or SDK lock changed since execution')
-    if not re.fullmatch(r'[0-9a-f]{40}', metadata['source_sha']) or type(metadata['instruction_leeway']) is not int or metadata['instruction_leeway'] != 2000000:
+    if not re.fullmatch(r'[0-9a-f]{40}', metadata['source_sha']) or type(metadata['instruction_leeway']) is not int or metadata['instruction_leeway'] != 20000000:
         raise ValueError('invalid source SHA or instruction policy')
     if metadata['network'] != 'testnet' or metadata['network_passphrase'] != 'Test SDF Network ; September 2015' or not metadata['rpc_url'].startswith('https://'):
         raise ValueError('invalid testnet identity')

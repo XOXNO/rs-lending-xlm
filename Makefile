@@ -315,12 +315,14 @@ integration-preflight:
 .PHONY: integration-sdk-validate
 integration-sdk-validate:
 	@$${NODE_BIN:-node} tests/integration/sdk/test_rpc.mjs
+	@$${NODE_BIN:-node} tests/integration/sdk/test_invoke.mjs
 
 integration-validate:
 	@python3 tests/integration/test_preflight.py
 	@python3 tests/integration/test_harness.py
 	@python3 tests/integration/test_receipts.py
 	@python3 tests/integration/test_attempts.py
+	@python3 tests/integration/test_funding.py
 	@python3 tests/integration/test_xoxno_oracle.py
 	@python3 tests/integration/test_production_config.py
 	@python3 tests/integration/test_flash_position.py

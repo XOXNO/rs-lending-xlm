@@ -103,6 +103,15 @@
     "scope": "95-day account TTL renewal with one-sided activity"
   },
   {
+    "id": "credit_5coll_5debt_ledger_drift",
+    "execution": "controlled-ledger",
+    "methods": [
+      "controller.liquidate"
+    ],
+    "test": "bench_liquidate_max_positions::credit_5coll_5debt_same_ledger_to_next_ledger_cpu",
+    "scope": "candidate WASM with one fixture provider; source-account authorized Credit 5+5 at zero/five seconds, insufficient 2M and successful 20M CPU margins; not a live envelope or IO-limit proof"
+  },
+  {
     "id": "nft_host_restore",
     "execution": "controlled-ledger",
     "methods": [

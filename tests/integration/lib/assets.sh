@@ -1,5 +1,5 @@
 sac_live() {
-    stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-2000000}" --id "$1" --source "$ADMIN" "${NET_ARGS[@]}" --send=no \
+    stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$1" --source "$ADMIN" "${NET_ARGS[@]}" --send=no \
         -- decimals >/dev/null 2>&1
 }
 
@@ -84,16 +84,43 @@ sac_transfer() {
     inv "$label" "$signer" "$sac" -- transfer --from "$from" --to "$to" --amount "$amount" >/dev/null
 }
 
-swap_xlm_to() {
+swap_xlm_to() (
     local wallet="$1" addr="$2" to_sac="$3" amount_in="$4" label="$5"
-    local swap_hex
+    local swap_hex AGGREGATOR_MIN_LEDGER rc=0 hash pending="$INTEG_DIR/runs/.external-funding.pending.json"
+    # ponytail: one checkout-wide funding lock; use per-pool locks if throughput matters.
+    # The subshell retains fd 9 through confirmation; exit/cancellation releases it.
+    exec 9>"$INTEG_DIR/runs/.external-funding.lock" || { _assert_fail "$label" 'cannot open funding lock'; return 1; }
+    python3 -c 'import fcntl; fcntl.flock(9, fcntl.LOCK_EX)' || { _assert_fail "$label" 'funding lock failed'; return 1; }
+    [ ! -e "$pending" ] || { _assert_fail "$label" "earlier funding submission unresolved; reconcile evidence in $pending before removing it"; return 1; }
+    # The quote indexer must include trades confirmed by the preceding holder.
+    if ! curl --fail-with-body -sS -m 30 "$RPC_URL" -H 'Content-Type: application/json' \
+        -d '{"jsonrpc":"2.0","id":1,"method":"getLatestLedger"}' >"$LOG_DIR/$label.funding-ledger.json"; then
+        _assert_fail "$label" 'funding ledger transport failed'; return 1
+    fi
+    AGGREGATOR_MIN_LEDGER=$(jq -er 'select(.jsonrpc=="2.0" and .id==1 and (has("error")|not)) | .result.sequence | select(type=="number" and .>0 and floor==.)' \
+        "$LOG_DIR/$label.funding-ledger.json") || { _assert_fail "$label" 'invalid funding ledger'; return 1; }
     swap_hex=$(agg_route_hex "$XLM_SAC" "$to_sac" "$amount_in") || {
         record "$label" FAIL execute_strategy "" "" "" "" "" "no aggregator route"
         return 1
     }
+    # A cancelled/unknown submission can still commit after releasing the lock.
+    # Quarantine subsequent funding until that operation has a terminal receipt.
+    jq -nc --arg label "$label" --arg logs "$LOG_DIR" '{label:$label,logs:$logs}' >"$pending" \
+        || { _assert_fail "$label" 'cannot record pending funding'; return 1; }
     inv "$label" "$wallet" "$AGGREGATOR" -- execute_strategy \
-        --sender "$addr" --total_in "$amount_in" --swap_xdr "$swap_hex" >/dev/null
-}
+        --sender "$addr" --total_in "$amount_in" --swap_xdr "$swap_hex" >/dev/null || rc=$?
+    if [ "$rc" -eq 0 ]; then
+        rm "$pending" || return 1
+    else
+        hash=$(extract_signing_hash "$LOG_DIR/$label.err")
+        if [[ "$hash" =~ ^[0-9a-f]{64}$ ]] && jq -e --arg h "$hash" \
+            '.jsonrpc=="2.0" and .id==1 and (has("error")|not) and .result.txHash==$h and (.result.status=="SUCCESS" or .result.status=="FAILED")' \
+            "$LOG_DIR/$hash.receipt.json" >/dev/null 2>&1; then
+            rm "$pending" || return 1
+        fi
+    fi
+    return "$rc"
+)
 
 # Compare economic token movement separately from Stellar transaction fees.
 # Raw balance() remains unchanged; fee evidence is retained beside receipts.
