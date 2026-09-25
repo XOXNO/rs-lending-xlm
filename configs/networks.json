@@ -7,9 +7,9 @@
     "controller": "CCXRWJ6SIU2WPFEGLFGJVITPL57QAYIMIO6OAM2NBGNDQSSCK2FFV3F3",
     "aggregator": "CDNTWMWW2WGYTKIZTJYNGNVQQZI4KTC5BQRZ3275KESRX5T4O3AYECL5",
     "accumulator": "GDBBOILYIJBSUQKC3Z3USAW3DGPFHIGVKYA5T4ZUZBO56HBUPHJEN3FV",
-    "pool_wasm_hash": "97a5acb28ca2a21e62b9e2245b76026da7de6dc6a154a1db1150d8fce5c1886b",
-    "controller_wasm_hash": "911fcac7aa7b1a16932a80bcf071778924a1dd2f8d1468f48087fe952d899b2d",
-    "governance_wasm_hash": "72479e64b8850befe2faba4b1d18b4d6c199eecdb3cf1e8ce4842f9a83964d6a",
+    "pool_wasm_hash": "c4f534b333429fb06c658e39b3c7fceae01f7007be8c0693b614d8bb0c2fec8d",
+    "controller_wasm_hash": "f13533dbba8921cd43afd775c5e0556c09993d4fcc436e8113a8ac2699cd5be0",
+    "governance_wasm_hash": "d8a03dd6ded5164bd439a9fc90faea50076ec486947b9934dcdab4cfd69d9327",
     "ledger_index": 4037973,
     "reflector_cex_oracle": "CCYOZJCOPG34LLQQ7N24YXBM7LL62R7ONMZ3G6WZAAYPB5OYKOMJRN63",
     "reflector_dex_oracle": "CAVLP5DH2GJPZMVO7IJY4CVOD5MWEFTJFVPD2YY2FQXOQHRGHK4D6HLP",
@@ -29,7 +29,8 @@
       "2": 2,
       "3": 3,
       "4": 4,
-      "5": 5
+      "5": 5,
+      "6": 6
     },
     "price_aggregator": "CBMARXSYE56NPDLX42TTICM5GS5XQCYRD5VMCJME624TS6C2S53VETYU",
     "position_nft": "CDVN5JU675MEDPVRPCYC45AHFC275UH57WEU5OTFE4WFGZBNN7HTLPSY"
