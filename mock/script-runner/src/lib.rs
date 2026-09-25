@@ -6,6 +6,7 @@
 //! transaction: every leg commits or none does. Not for production. It has no
 //! callback role; the two receiver mocks cover callback shapes.
 
+use common::token::authorize_transfer_as_current;
 use common::types::{HubAssetKey, PaymentTuple, PositionMode, SeizeMode};
 use controller_interface::ControllerClient;
 use soroban_sdk::auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation};
@@ -24,6 +25,30 @@ pub const LAST_CREATED: u64 = u64::MAX;
 #[contractclient(name = "NftTransferClient")]
 pub trait NftTransfer {
     fn transfer(env: Env, from: Address, to: Address, token_id: u32);
+}
+
+#[allow(dead_code)]
+#[contractclient(name = "StrategyClient")]
+pub trait Strategy {
+    fn asset(env: Env) -> Address;
+    fn deposit(env: Env, amount: i128, from: Address) -> i128;
+    fn harvest(env: Env, from: Address, data: Option<Bytes>);
+    fn withdraw(env: Env, amount: i128, from: Address, to: Address) -> i128;
+}
+
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct StrategyDepositOp {
+    pub strategy: Address,
+    pub amount: i128,
+}
+
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct StrategyWithdrawOp {
+    pub strategy: Address,
+    pub amount: i128,
+    pub to: Address,
 }
 
 #[contracttype]
@@ -181,6 +206,9 @@ pub enum Op {
     RemoveDelegate(DelegateOp),
     RenewAccount(AccountOp),
     NftTransfer(NftTransferOp),
+    StrategyDeposit(StrategyDepositOp),
+    StrategyHarvest(Address),
+    StrategyWithdraw(StrategyWithdrawOp),
 }
 
 #[contract]
@@ -188,10 +216,26 @@ pub struct ScriptRunner;
 
 #[contractimpl]
 impl ScriptRunner {
+    /// Pins the external owner of the test vault before it is funded.
+    pub fn configure_vault(env: Env, owner: Address) {
+        owner.require_auth();
+        let key = symbol_short!("v_owner");
+        assert!(
+            !env.storage().instance().has(&key),
+            "vault already configured"
+        );
+        env.storage().instance().set(&key, &owner);
+    }
+
     /// Runs `ops` in order from this contract's frame. Any failing op reverts
     /// the whole run. Returns the id `LAST_CREATED` resolves to after the last
     /// op, or `0` if no op set it.
     pub fn run(env: Env, controller: Address, nft: Address, ops: Vec<Op>) -> u64 {
+        // A configured vault must not expose its funds through legacy ops either.
+        let vault_configured = env.storage().instance().has(&symbol_short!("v_owner"));
+        if vault_configured {
+            require_vault_owner(&env);
+        }
         let me = env.current_contract_address();
         let ctrl = ControllerClient::new(&env, &controller);
         let pool = ctrl.get_pool_address();
@@ -336,10 +380,39 @@ impl ScriptRunner {
                         u32::try_from(resolve(o.token_id, last_created)).unwrap_or(u32::MAX);
                     NftTransferClient::new(&env, &nft).transfer(&me, &o.to, &token_id);
                 }
+                Op::StrategyDeposit(o) => {
+                    assert!(vault_configured, "vault not configured");
+                    let strategy = StrategyClient::new(&env, &o.strategy);
+                    authorize_transfer_as_current(
+                        &env,
+                        &strategy.asset(),
+                        &me,
+                        &o.strategy,
+                        o.amount,
+                    );
+                    strategy.deposit(&o.amount, &me);
+                }
+                Op::StrategyHarvest(strategy) => {
+                    assert!(vault_configured, "vault not configured");
+                    StrategyClient::new(&env, &strategy).harvest(&me, &None);
+                }
+                Op::StrategyWithdraw(o) => {
+                    assert!(vault_configured, "vault not configured");
+                    StrategyClient::new(&env, &o.strategy).withdraw(&o.amount, &me, &o.to);
+                }
             }
         }
         last_created
     }
+}
+
+fn require_vault_owner(env: &Env) {
+    let owner: Address = env
+        .storage()
+        .instance()
+        .get(&symbol_short!("v_owner"))
+        .expect("vault not configured");
+    owner.require_auth();
 }
 
 fn resolve(requested: u64, last_created: u64) -> u64 {
@@ -404,3 +477,6 @@ fn authorize_pulls(env: &Env, me: &Address, to: &Address, legs: &Vec<(HubAssetKe
     }
     env.authorize_as_current_contract(entries);
 }
+
+#[cfg(test)]
+mod tests;

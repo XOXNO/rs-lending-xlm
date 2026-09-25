@@ -29,6 +29,10 @@ impl MockReflectorOracle {
         env.storage().instance().set(&MockKey::Resolution, &300u32);
     }
 
+    pub fn set_base(env: Env, base: ReflectorAsset) {
+        env.storage().instance().set(&MockKey::Base, &base);
+    }
+
     pub fn set_price(env: Env, asset: ReflectorAsset, price_wad: i128) {
         let now = env.ledger().timestamp();
         Self::set_price_at(env, asset, price_wad, now);

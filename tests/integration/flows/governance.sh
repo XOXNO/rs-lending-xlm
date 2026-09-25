@@ -17,9 +17,9 @@ gov_state() {
 
 gov_assert_state() {
     local label="$1" op_id="$2" want="$3" got
-    got=$(gov_state "$op_id")
+    got=$(view "$label" "$GOVERNANCE" -- get_operation_state --operation_id "$op_id" | tr -d '"[:space:]') || return 1
     if [ "$got" = "$want" ]; then
-        record "$label" read get_operation_state "" "" "" "" "" "state=$got"
+        : # view above records contract-qualified simulation evidence
     else
         _assert_fail "$label" "op state=$got want $want"
     fi
@@ -48,6 +48,8 @@ gov_scval_args() {
 flow_governance() {
     phase governance
 
+    inv gov_create_hub "$ADMIN" "$GOVERNANCE" -- create_hub --caller "$ADMIN_ADDR" >/dev/null || return 1
+    inv gov_add_spoke "$ADMIN" "$GOVERNANCE" -- add_spoke --caller "$ADMIN_ADDR" >/dev/null || return 1
     local gov_ctrl
     gov_ctrl=$(view gov_controller_view "$GOVERNANCE" -- controller | tr -d '"[:space:]')
     if [ "$gov_ctrl" != "$GOV_CONTROLLER" ]; then
@@ -254,7 +256,8 @@ flow_gov_recovery_and_roles() {
         xfail gov_revoke_guardian_twice 'Error\(Contract, #41\)' "$ADMIN" "$GOVERNANCE" -- revoke_role_immediate \
             --account "$DAVE_ADDR" --role GUARDIAN
     else
-        log "gov_recovery: grant op $op_grant never reached Ready ($grant_st); skipping revoke happy path"
+        _assert_fail gov_grant_ready "grant op $op_grant never reached Ready ($grant_st)"
+        return 1
     fi
 
     # --- canceller reset (Recovery tier) ---

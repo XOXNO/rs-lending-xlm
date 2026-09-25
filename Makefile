@@ -273,26 +273,15 @@ certora-wasm:
 	ls -lh $(CERTORA_WASM_DIR)/*.wasm 2>/dev/null
 
 
-integration-wasm: deploy-artifacts
-	@mkdir -p $(OPTIMIZED_DIR)
-	@for wasm in controller pool governance flash_loan_receiver defindex_strategy price_aggregator position_nft; do \
-		cp "$(DEPLOY_DIR)/$$wasm.wasm" "$(OPTIMIZED_DIR)/$$wasm.wasm"; \
-	done
-	@for pkg in mock_oracle mock_redstone swap_aggregator flash_position_receiver xoxno_oracle; do \
-		echo "Optimizing $$pkg for integration..."; \
-		if command -v stellar &>/dev/null; then \
-			stellar contract optimize \
-				--wasm $(RELEASE_DIR)/$$pkg.wasm \
-				--wasm-out $(OPTIMIZED_DIR)/$$pkg.wasm 2>/dev/null || \
-			cp $(RELEASE_DIR)/$$pkg.wasm $(OPTIMIZED_DIR)/$$pkg.wasm; \
-		else \
-			cp $(RELEASE_DIR)/$$pkg.wasm $(OPTIMIZED_DIR)/$$pkg.wasm; \
-		fi; \
-	done
-	@echo ""
-	@echo "Integration WASM ($(OPTIMIZED_DIR)):"
-	@ls -lh $(OPTIMIZED_DIR)/{controller,pool,flash_loan_receiver,flash_position_receiver,defindex_strategy,price_aggregator,position_nft,mock_oracle,mock_redstone}.wasm 2>/dev/null
+# Canonical candidates are shared with release.yml; fixtures have their own dir.
+.PHONY: candidate-wasm integration-fixtures
+candidate-wasm:
+	bash scripts/build_e2e_wasm.sh candidate
 
+integration-fixtures:
+	bash scripts/build_e2e_wasm.sh fixtures
+
+integration-wasm: candidate-wasm integration-fixtures
 
 
 # tests/integration/appendix.md is hand-maintained: it points at the meta tests
@@ -327,20 +316,41 @@ integration-blend: integration-wasm
 	RUN_TS=$$(date +%Y%m%d-%H%M%S) bash tests/integration/scenarios/blend.sh
 
 
-integration-preflight: integration-wasm
+# Validate existing candidates; building is an explicit integration-wasm step.
+integration-preflight:
 	@echo "Running integration harness preflight..."
-	@bash -c 'source tests/integration/env.sh; source tests/integration/lib/core.sh; \
-	  check_tools || echo "(some tools missing — install jq xxd stellar etc.)"; \
-	  check_stellar_version || echo "(stellar version may be old)"; \
-	  echo "WASM_DIR=$$WASM_DIR"; ls -l $$WASM_DIR/*.wasm 2>/dev/null | head -3 || true; \
+	@RUN_TS=$${RUN_TS:-preflight} bash -c 'source tests/integration/env.sh || exit 1; \
+	  source tests/integration/lib/core.sh || exit 1; \
+	  check_tools || exit 1; \
+	  check_stellar_version || exit 1; \
+	  python3 "$$INTEG_DIR/artifacts.py" check "$$WASM_DIR" || exit 1; \
+	  echo "WASM_DIR=$$WASM_DIR"; \
 	  echo "Preflight complete."'
 
+.PHONY: integration-sdk-validate
+integration-sdk-validate:
+	@$${NODE_BIN:-node} tests/integration/sdk/test_rpc.mjs
+
 integration-validate:
+	@python3 tests/integration/test_preflight.py
+	@python3 tests/integration/test_harness.py
+	@python3 tests/integration/test_receipts.py
+	@python3 tests/integration/test_attempts.py
+	@python3 tests/integration/test_xoxno_oracle.py
+	@python3 tests/integration/test_production_config.py
+	@python3 tests/integration/test_flash_position.py
+	@python3 tests/integration/test_stress.py
+	@python3 tests/integration/test_blend_financial.py
+	@python3 tests/integration/test_liq_multi_hub.py
+	@python3 tests/integration/test_strategy_financial.py
+	@python3 tests/integration/test_lifecycle_financial.py
+	@python3 tests/integration/test_flow_predicates.py
+	@python3 tests/integration/test_orchestration.py
+	@python3 tests/integration/abi_coverage.py
+	@python3 tests/integration/test_release_gate.py
 	@echo "Validating harness sources (sourcing + basic guards)..."
 	@bash -c 'set -u; \
-	  for f in tests/integration/env.sh tests/integration/lib/core.sh tests/integration/lib/invoke.sh \
-	           tests/integration/flows/flash_position.sh tests/integration/scenarios/flash_position.sh \
-	           tests/integration/flows/admin.sh tests/integration/lib/protocol.sh; do \
+	  for f in $$(find tests/integration -path '*/node_modules' -prune -o -name '*.sh' -print); do \
 	    echo "  sourcing $$f"; bash -n "$$f" || exit 1; \
 	  done; \
 	  echo "Basic syntax + source validation passed."'
@@ -349,8 +359,9 @@ integration-validate:
 	  [ "$$(wad_band_from_px14 40000000000000 9)" = "364000000000000000 436000000000000000" ] && \
 	  ! wad_band_from_px14 12345678901234567 9 >/dev/null || { echo "wad_band_from_px14 self-check failed"; exit 1; }; \
 	  echo "wad_band_from_px14 self-check passed"'
-	@bash -c 'source tests/integration/lib/invoke.sh; backoff_sleep() { :; }; \
-	  o=$$(mktemp); e=$$(mktemp); trap "rm -f $$o $$e" EXIT; n=0; \
+	@bash -c 'source tests/integration/lib/core.sh; source tests/integration/lib/invoke.sh; backoff_sleep() { :; }; \
+	  RUN_DIR=$$(mktemp -d); LOG_DIR=$$RUN_DIR; PHASE=test; ACTIONS_TSV=$$RUN_DIR/actions.tsv; echo header > $$ACTIONS_TSV; \
+	  o=$$RUN_DIR/deploy.out; e=$$RUN_DIR/deploy.err; trap '"'"'rm -rf "$$RUN_DIR"'"'"' EXIT; n=0; \
 	  surge() { n=$$((n + 1)); [ "$$n" -ge 3 ] && { echo C; return 0; }; echo "error: transaction submission failed: TxInsufficientFee" >&2; return 1; }; \
 	  revert() { echo "error: HostError: Error(Contract, #3)" >&2; return 1; }; \
 	  run_deploy "$$o" "$$e" -- surge && [ "$$DEPLOY_ATTEMPTS" = 3 ] && \
@@ -644,7 +655,10 @@ WASM_BUDGET_FILE ?= configs/wasm_size_budget.txt
 # a governance `testing` leak in the same artifact.
 WASM_ABI_EXEMPT_SYMBOLS ?= set_price_aggregator
 
-wasm-testing-abi-check: deploy-artifacts
+wasm-testing-abi-check: deploy-artifacts candidate-testing-abi-check
+
+# Validate already-built candidates without rebuilding or replacing them.
+candidate-testing-abi-check:
 	@rows=$$(python3 scripts/check_access_control.py --list-test-only) || exit 1; \
 	if [ -z "$$rows" ]; then \
 		echo "FAIL: the classifier reports no test-only entrypoints at all"; \
@@ -674,7 +688,13 @@ wasm-testing-abi-check: deploy-artifacts
 	exit $$status
 
 
-wasm-size-check: deploy-artifacts wasm-testing-abi-check
+wasm-size-check: deploy-artifacts candidate-testing-abi-check wasm-budget-check
+
+candidate-size-check: candidate-testing-abi-check
+	@python3 tests/integration/artifacts.py policy artifacts/wasm/deploy
+	@python3 tests/integration/abi_coverage.py artifacts/wasm/deploy
+
+wasm-budget-check:
 	@if [ ! -f $(WASM_BUDGET_FILE) ]; then \
 		echo "WASM budget file missing: $(WASM_BUDGET_FILE)"; \
 		echo "Create one with 'path bytes' lines (one per contract)."; \

@@ -41,7 +41,7 @@ deploy_protocol() {
             save_state PA_HASH "$pa_hash"
             record upload_price_agg_wasm ok upload "$pa_txh" "" "" "" "" "$pa_hash"
         else
-            log "price-aggregator wasm upload produced no hash; governance aggregator coverage will skip"
+            die upload_price_agg_wasm "price-aggregator upload failed"
         fi
     fi
     if [ -z "${CONTROLLER:-}" ]; then
@@ -99,22 +99,25 @@ deploy_protocol() {
     # `$AGGREGATOR` from configs/networks.json has another owner, so its
     # owner-only calls cannot be tested. Swaps use `$AGGREGATOR`;
     # flow_swap_aggregator_admin tests the owner-only calls on this instance.
-    if [ -z "${OWNED_AGGREGATOR:-}" ] && [ -f "$WASM_DIR/swap_aggregator.wasm" ]; then
+    if [ -z "${OWNED_AGGREGATOR:-}" ]; then
+        [ -f "$WASM_DIR/aggregator.wasm" ] || die aggregator_wasm "candidate aggregator missing"
         local sa_out="$LOG_DIR/deploy_owned_agg.out" sa_err="$LOG_DIR/deploy_owned_agg.err"
         run_deploy "$sa_out" "$sa_err" -- stellar contract deploy \
-            --wasm "$WASM_DIR/swap_aggregator.wasm" \
+            --wasm "$WASM_DIR/aggregator.wasm" \
             --source "$ADMIN" "${NET_ARGS[@]}" -- --admin "$ADMIN_ADDR"
         local sa sa_tx
         sa=$(sanitize_output "$sa_out")
         sa_tx=$(extract_signing_hash "$sa_err")
         if is_contract_id "$sa"; then
             save_state OWNED_AGGREGATOR "$sa"
-            record deploy_owned_aggregator ok deploy "$sa_tx" "" "" "" "" "$sa"
+            record deploy_owned_aggregator ok deploy "$sa_tx" "" "" "" "" "$sa" deployment "$OWNED_AGGREGATOR"
             log "owned swap-aggregator = $sa"
         else
-            log "owned swap-aggregator deploy failed; admin-surface coverage will skip: $(tail_err_note "$sa_err")"
+            die deploy_owned_aggregator "candidate aggregator failed: $(tail_err_note "$sa_err")"
         fi
     fi
+
+    save_state AGGREGATOR "$OWNED_AGGREGATOR"
 
     if [ -z "${WIRED:-}" ]; then
         inv set_swap_aggregator "$ADMIN" "$CONTROLLER" -- set_swap_aggregator --addr "$AGGREGATOR" >/dev/null
@@ -141,7 +144,7 @@ deploy_protocol() {
     fi
     if [ -z "${FLASH_RECEIVER:-}" ]; then
         local out_f="$LOG_DIR/deploy_flashrecv.out" err_f="$LOG_DIR/deploy_flashrecv.err"
-        run_deploy "$out_f" "$err_f" -- stellar contract deploy --wasm "$WASM_DIR/flash_loan_receiver.wasm" \
+        run_deploy "$out_f" "$err_f" -- stellar contract deploy --wasm "$FIXTURE_WASM_DIR/flash_loan_receiver.wasm" \
             --source "$ADMIN" "${NET_ARGS[@]}"
         local recv txh
         recv=$(sanitize_output "$out_f")
@@ -150,9 +153,9 @@ deploy_protocol() {
         save_state FLASH_RECEIVER "$recv"
         record deploy_flash_receiver ok deploy "$txh" "" "" "" "" "$recv"
     fi
-    if [ -z "${FLASH_POSITION_RECEIVER:-}" ] && [ -f "$WASM_DIR/flash_position_receiver.wasm" ]; then
+    if [ -z "${FLASH_POSITION_RECEIVER:-}" ] && [ -f "$FIXTURE_WASM_DIR/flash_position_receiver.wasm" ]; then
         local out_f="$LOG_DIR/deploy_flashposrecv.out" err_f="$LOG_DIR/deploy_flashposrecv.err"
-        run_deploy "$out_f" "$err_f" -- stellar contract deploy --wasm "$WASM_DIR/flash_position_receiver.wasm" \
+        run_deploy "$out_f" "$err_f" -- stellar contract deploy --wasm "$FIXTURE_WASM_DIR/flash_position_receiver.wasm" \
             --source "$ADMIN" "${NET_ARGS[@]}"
         local recv txh
         recv=$(sanitize_output "$out_f")
@@ -180,7 +183,7 @@ deploy_protocol() {
         txh=$(extract_signing_hash "$err_f")
         is_contract_id "$gov" || die deploy_governance "governance deploy produced no id after $DEPLOY_ATTEMPTS attempt(s): $(tail_err_note "$err_f")"
         save_state GOVERNANCE "$gov"
-        record deploy_governance ok deploy "$txh" "" "" "" "" "$gov"
+        record deploy_governance ok deploy "$txh" "" "" "" "" "$gov" deployment "$GOVERNANCE"
         log "governance = $gov"
     fi
 
@@ -204,6 +207,13 @@ deploy_protocol() {
         save_state GOV_CONTROLLER "$gc"
         log "governance-owned controller = $gc"
     fi
+    verify_candidate_contract candidate_controller "$CONTROLLER" controller || return 1
+    verify_candidate_contract candidate_pool "$POOL" pool || return 1
+    verify_candidate_contract candidate_nft "$POSITION_NFT" position_nft || return 1
+    verify_candidate_contract candidate_pa "$PRICE_AGGREGATOR" price_aggregator || return 1
+    verify_candidate_contract candidate_aggregator "$OWNED_AGGREGATOR" aggregator || return 1
+    verify_candidate_contract candidate_governance "$GOVERNANCE" governance || return 1
+    verify_candidate_contract candidate_governance_controller "$GOV_CONTROLLER" controller || return 1
 }
 
 create_test_hub() {

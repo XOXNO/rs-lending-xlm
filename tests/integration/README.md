@@ -1,189 +1,167 @@
-# Live Testnet Integration Harness
+# E2E release gate
 
-End-to-end protocol exercise against **live Stellar testnet** using the
-`stellar` CLI, friendbot, and the XOXNO swap aggregator. Primitives (`lib/`) →
-flows (`flows/`) → scenarios (`scenarios/`). Any subset can run standalone or
-in CI.
+Live execution is manual or release-only, on Stellar testnet. PRs run offline
+harness, RPC-fixture and operator regressions. Release ordering is canonical
+build → offline/contract checks → seven live lanes → publication of those exact
+files. A passing smoke or a mapped ABI is not release acceptance.
 
-Before important runs: `make integration-preflight integration-validate`.
+Release packaging records all 26 published files in `distribution.json` and its
+E2E proof: production/SDK WASM, checksum files, SDK/candidate manifests, and the
+distribution manifest itself. Publication rejects missing, extra or changed
+files, including a substituted distribution manifest. Standalone local proof
+collection without the packaged bundle cannot authorize publication.
 
 ## Run
 
+Requires Stellar CLI 28.0.0, Node 24, Python 3, jq, curl, xxd and GNU timeout
+(`gtimeout` on macOS). Never enable PYTHONOPTIMIZE: validation uses assertions.
+
 ```bash
-# Build every wasm the harness deploys (contracts, mock oracles, receivers):
-make integration-wasm   # required: plain `stellar contract build` leaves target/optimized empty
+# Production contracts and fixtures have separate output directories.
+make integration-wasm candidate-size-check
+npm ci --ignore-scripts --prefix tests/integration/sdk
+make integration-validate integration-sdk-validate ops-script-check
 
-# (Optional) Preflight, and create the appendix pointer stub if it is missing
-make integration-preflight integration-appendix
+# Required controlled-ledger evidence for this candidate.
+set -o pipefail
+cargo test --workspace --no-fail-fast 2>&1 | tee controlled-tests.log
+python3 tests/integration/controlled.py controlled-tests.log artifacts/wasm/deploy
 
-# Release e2e: five independent lanes in parallel, each gated (what CI runs):
-RUN_TS=$(date +%Y%m%d-%H%M%S) bash tests/integration/scenarios/parallel_e2e.sh
+# Seven fresh independent worlds; default caps: 95m per lane, 150m CI job.
+NETWORK=testnet RUN_TS="local-$(date +%Y%m%d-%H%M%S)" \
+  bash tests/integration/scenarios/parallel_e2e.sh
 
-# Single serial world (debugging / resume): the default PHASES against one deploy:
-RUN_TS=$(date +%Y%m%d-%H%M%S) bash tests/integration/scenarios/full_e2e.sh
+# Focused smoke; does not satisfy the full release gate.
+NETWORK=testnet RUN_TS="liq-$(date +%Y%m%d-%H%M%S)" E2E_LANES=liq \
+  bash tests/integration/scenarios/parallel_e2e.sh
 
-# Focused live `flash_position` only (fresh controller wasm + mock receiver):
-make integration-flash-position
-# or:
-RUN_TS=$(date +%Y%m%d-%H%M%S) bash tests/integration/scenarios/flash_position.sh
-
-# Focused live `migrate_from_blend` against the real Blend TestnetV2 pool:
-make integration-blend
-# or:
-RUN_TS=$(date +%Y%m%d-%H%M%S) bash tests/integration/scenarios/blend.sh
-
-# Subset of phases, resuming an existing run's contracts/wallets:
-PHASES="liquidation stress" RUN_TS=<existing> bash tests/integration/scenarios/full_e2e.sh
-
-# CI green gate for a single RUN_TS (parallel_e2e runs it per lane automatically):
-RUN_TS=<ts> bash tests/integration/scenarios/assert_green.sh
+python3 tests/integration/gate.py tests/integration/runs/<base>-liq
+python3 tests/integration/release_gate.py collect tests/integration/runs <base>
 ```
 
-### Parallel lanes
+Do not edit scripts during a live run: Bash may read their remaining contents
+later. Use an immutable checkout or a copied harness for concurrent development.
+GitHub run IDs include `run_attempt`. Reusing a local ID requires explicit
+`E2E_RESUME=1`; interrupted cases, unknown submissions and completed-case
+manifest drift cannot be resumed as fresh work. Use a new ID after fixing code.
+Standalone scenarios use the same complete lane manifest and gate; arbitrarily
+omitting phases produces incomplete coverage.
 
-The suite is bound by network waits, so `parallel_e2e.sh` splits it into
-independent self-contained worlds (own controller / pool / governance / wallets /
-markets, keyed by `RUN_TS=<base>-<lane>`) and runs them concurrently —
-wall-clock ≈ slowest lane instead of the sum. The split is along the
-**aggregator boundary**:
+## Lanes and evidence
 
-| Lane | Phases / scenario | Oracle / venue |
-|------|--------|----------------|
-| `agg` | lifecycle + strategies + admin + governance + teardown | live Reflector + XOXNO aggregator (serial *within* the lane) |
-| `liq` | liquidation + defindex + teardown | mock oracles, venue-free |
-| `stress` | stress + xoxno-oracle + teardown | mock oracles, venue-free |
-| `flash` | `scenarios/flash_position.sh` (full live `flash_position` matrix + malicious receiver) | live Reflector + one funding swap |
-| `blend` | `scenarios/blend.sh` (live `migrate_from_blend` vs Blend TestnetV2, XLM coll/supply/debt) | live Reflector + real Blend pool, aggregator-free |
+| Lane | Required surface | Environment |
+|---|---|---|
+| `agg` | lifecycle, NFT, same-market settlement, routed strategies, fees, risk/admin/governance | live Reflector and quote routes; fresh candidate aggregator |
+| `liq` | Transfer/Credit liquidation and multi-hub isolation, exact bad debt/recap, two-vault and contract-vault DeFindex | isolated SACs and oracle fixtures |
+| `stress` | five collateral plus five debt positions, dual sources, Transfer/Credit maximum liquidation, five-asset exits, composed providers, delayed submission; oracle history/quorum | independent provider fixtures; deterministic shared-account interleaving |
+| `flash` | callback success/rejections, protected balances, Long/multiple collateral, delegates and rollback snapshots | live Reflector; existing receiver fixtures |
+| `blend` | actual pool allowlist/reserve addresses, six XLM paths plus distinct-token/multiple-liability migration, committed-rate shares/refunds/identity/unrelated balances | real Blend TestnetV2 pool |
+| `production` | governance operator setup/replay, enabled mainnet policy readbacks, 7/8/9/18 decimal round trips, XOXNO-backed borrowing, contract caller, same-schema upgrades | disposable policy/wallet roots; explicit provider/LP/token fixtures |
+| `sdk` | supply/borrow/repay/withdraw, routed multiply, Blend, events/error mapping/delayed signing | published SDK 1.0.219 and Stellar SDK 16.0.1; fresh contracts |
 
-Each lane is gated independently; the run is green only if every lane it runs
-is. The mock lanes share no state with `agg` or each other. `admin` uses the
-idle real EURC market, not liquidation's mocks. The DeFindex strategy flow runs
-in the `liq` lane with its own mock collateral. The `flash` and `blend` lanes
-reuse the standalone scenario scripts verbatim — own wallets, own deploy, own
-inner green gate — so `E2E_LANES="flash"` and `make integration-flash-position`
-exercise the identical code path.
+`cases.json` defines required terminal cases and action predicates, qualified by
+contract role and execution type. `abi-coverage.json` maps all 218 candidate
+exports, including generated NFT methods and constructors, to required actions
+or justified controlled tests. Nested-call mappings are source-traced; they are
+not runtime host call traces. `abi_coverage.py` compares actual WASM exports.
 
-### CI gate
+Required cases cannot pass via `research`, `sim-exceeded`, `environment-blocked`,
+an empty report, missing actions, unknown status, or duplicate case IDs.
+Diagnostics cannot erase a failed assertion, even with the same label. Expected
+negative cases distinguish simulation rejection from a submitted failed receipt;
+a simulation rollback check is not a committed-transaction rollback proof.
 
-| Tier | Scripts | Gate |
-|------|---------|------|
-| **Release CI** | `parallel_e2e.sh` (per lane: `full_e2e.sh`, `flash_position.sh` or `blend.sh` → `assert_green.sh`) | Every lane exits 0, logs `run complete`, and has no unresolved `FAIL`, `UNEXPECTED-OK` or `sim-error` row. |
+Mutations use `--send=yes`; reads use `--send=no`. CLI calls use native
+`--instruction-leeway 2000000`. The initial 1,000,000 policy produced a submitted
+Credit 5+5 resource failure: 67,229,548 instructions consumed against 67,229,371
+declared (ledger 4852784). A fresh stress smoke passed all 12 required cases
+with the larger margin, including Credit 5+5 (76,514,233 declared instructions).
+The original run remains failed and the 10% headroom gate is unchanged.
+SDK-prepared envelopes are not patched. Retry is
+limited to classified transient failures without a signed hash. After a hash
+exists, reconcile that hash; never rebuild the mutation. Unexpected submitted
+Trapped/ResourceLimitExceeded failures remain fatal.
+If the CLI loses a successful response, recovery verifies the signed envelope,
+host operation and receipt return/event hash before recovering the result;
+the original CLI status and output remain in attempt evidence.
 
-`POSITION_LIMIT_MAX` is 5, so the largest account to liquidate holds 5
-collaterals and 5 debts. `flow_stress_liq_frontier` in the stress lane builds
-and liquidates it.
+The resource gate checks signed envelope declarations, actual transaction/event
+bytes, footprint counts, and both captured network limit sets. Declared
+instructions, including CLI leeway, must retain at least 10% headroom. Successful
+execution proves the testnet memory cap; a lower mainnet memory cap fails closed.
+Mainnet access is read-only limit capture, never transaction submission.
 
-Each run writes `runs/<RUN_TS>/`:
+## Reports
 
-| file | content |
+| Artifact | Meaning |
 |---|---|
-| `report.md` | every action with status, tx hash (explorer link), declared CPU instructions / read / write bytes / resource fee |
-| `actions.tsv` | the same data, machine-readable |
-| `state.env` | deployed contract ids, wallet aliases, completed-block markers (resume support) |
-| `logs/` | per-action stdout/stderr, quotes, simulation JSON |
+| `actions.tsv`, `report.md` | original action columns, status, hash, resources and reason |
+| `cases.tsv`, `evidence.tsv` | terminal case ranges and transaction/simulation/assertion classification |
+| `attempts.jsonl`, `summary.json` | immutable attempt log paths, exit status, hash, receipt state, counts and interruption |
+| `metadata.json`, `candidate.json`, `deployed-artifacts.jsonl` | source/config/case hashes, selected cases, network/tools/SDK policy and bytecode identity |
+| `network-limits.json` | testnet/mainnet protocol, ledger, version and resource limits |
+| `controlled.json`, `controlled-tests.log` | selected controlled-clock proofs and exact hashed test log |
+| `logs/` | quotes, XDR, simulations, receipts, attempt stdout/stderr and financial snapshots |
+| `before-cleanup.jsonl`, `cleanup-funding.tsv` | state before teardown and separately recorded repairs/top-ups |
+| `private/` | lane-specific CLI identities; **never upload** |
 
-### Interpreting reports
+CI uploads detailed evidence on failure. `state.env` is local execution state;
+reports omit private key material. Native XLM financial deltas account for actual
+committed network fees. Raw token/share arithmetic uses integers, including
+18-decimal values; exact rounding predicates use committed indexes, not later
+projected view indexes.
 
-`report.md` (and `runs/<base>-combined.md` for parallel lanes) are the primary human-readable artifacts.
+## Controlled time and acceptance limits
 
-- **Statuses**: `ok` (success), `xfail` (expected revert as designed), `read` (view-only), `sim-ok` / `sim-exceeded` (budget probe results), `research` (intentional wide probes in liquidation/stress research flows — these are expected to have errors in the note and are ignored by green gates), `environment-blocked` (the live network or an unset opt-in variable prevents the case; ignored by green gates), `retry` (transient handled internally).
-- **Gates** (`assert_green.sh`): No unresolved `FAIL` or `UNEXPECTED-OK` or `sim-error`. A failing row is forgiven when a later row with the same action label lands `ok` or `xfail` (retry semantics); only unresolved rows fail the gate. All lanes must complete with the "run complete" marker.
-- `runs/<base>-combined.md` concatenates per-lane reports (the release workflow attaches it).
-- Full simulation JSON and raw CLI output live under `logs/`. Resource numbers are the ones declared on the signed envelope. The explorer link shows the full receipt; memory use is not reported on chain.
-- `appendix.md` is copied into each run directory. It holds no numbers: it points at the `meta` budget tests that print them (see `tests/integration/appendix.md`).
-- `runs/` is gitignored; CI uploads each run's `report.md`, `actions.tsv` and logs as workflow artifacts. Do not hand-edit generated `report.md` / `actions.tsv`.
+`controlled-cases.json` labels long-idle interest, HF boundaries, governance
+expiry/recovery, dust-close footprint stability, account TTL and host auto-restore. These are controlled-ledger
+proofs, not multiweek testnet observations. The long-idle test compares paths
+sharing the accrual routine; it is not independent reference arithmetic.
+`integration-sdk-validate` tests native RPC restore preparation, a refreshed
+source sequence and malformed simulations offline. It does not claim live
+archival/restoration or automatic restore orchestration by the published SDK.
 
-See `tests/integration/lib/report.sh` for the generator and `scenarios/assert_green.sh` for the exact gate.
+Production fixture checks preserve enabled policy, caps, fees, rates, decimals,
+hub/spoke relationships and composition. Fixture-backed checks do not prove
+real external-provider availability. Current upgrade evidence explicitly records
+identical baseline/candidate controller hashes and `executable_differs=false`; controller/pool/NFT/price-aggregator/governance and oracle history preservation are checked; no v1.0.0
+storage migration claim is made.
 
-## Extending the Harness
+Final acceptance still requires two fresh complete seven-lane runs on the final
+candidate SHA and a release-workflow dry run. Release dispatch defaults to `dry_run=true`; a branch can run the complete gate
+without publication. `inject_e2e_failure=true` deliberately stops the E2E job
+before deployment and must leave publication skipped. A successful dry run still
+requires all seven live lanes. Local publication regressions inject failed lanes
+and wrong artifacts; no dispatched GitHub dry run has completed yet.
+The pinned SDK currently fails the required `AmountMustBePositive` (#14) mapping:
+`mapSorobanError` returns null. Keep this failure blocking; do not replace it
+with a local SDK or harness mapping.
 
-- Use `inv` / `view` / `xfail` / `sim_probe` for contract calls: each records a row, `inv` also captures the tx hash and resources, and all but `sim_probe` retry transient failures.
-- For direct `stellar contract deploy/upload` (rare): wrap it in `run_deploy` (retries, records nothing, sets `DEPLOY_ATTEMPTS` to the attempts it made), then use `extract_signing_hash "$err_f"` + `sanitize_output "$out_f"` + `is_contract_id`/`is_wasm_hash` + `tail_err_note` + `record` + `save_state`.
-- Add new constants to `env.sh` (or document overrides). Prefer `require_var FOO` for load-bearing state.
-- Start each flow with `phase`, and record every action with a status from the list above.
-- Run `make integration-validate integration-preflight` locally.
-- Research flows should still record `research` for intentional misses so `assert_green` ignores them.
+Live acceptance remains outstanding for newly added predicates and branches.
+Complete liquidation, stress and flash smokes passed their 15, 12 and 11 cases. The SDK
+lifecycle, routed strategy and Blend passed financial checks; error mapping
+still blocks its lane. These smokes used uncommitted harness snapshots and do
+not satisfy final-SHA acceptance. An older smoke hit a submitted Reflector
+storage-footprint race, which remains a sticky failure. Fresh complete runs
+must demonstrate all required cases; an
+ABI map, successful offline regression, or partial smoke cannot certify them.
+An aggregation smoke caught a real dust-close footprint failure: accrued
+interest made a zero-token native withdrawal become one stroop at inclusion,
+but simulation had omitted the recipient account. Preserve that failed receipt
+when validating the pool fix; a fresh run must prove the corrected path.
+The pool now sends a zero-value SAC transfer when positive shares are fully
+burned for a zero-token payout. This reserves writable recipient state; empty
+withdrawals and other zero refunds remain no-ops. Dust recipients must have a
+valid account/authorized trustline. Custom tokens may implement zero transfers
+differently; this fix does not guarantee every state-dependent footprint.
+Current-schema upgrades deliberately record same-bytecode baselines and make
+no claim about migration from a different executable.
 
+## Extending
 
-## Layers
-
-- `env.sh` — network constants, run-dir wiring. Network, address and
-  `WASM_DIR` settings are overridable by env. On testnet it exports
-  `STELLAR_INCLUSION_FEE=1000000` (a maximum bid in stroops) unless the caller
-  sets it.
-- `lib/core.sh` — run dir, action recording, state persistence (resume).
-- `lib/invoke.sh` — `inv` (send + capture tx hash + resources), `xfail`
-  (expected revert), `view` (read-only), `sim_probe` (build+simulate budget
-  probe, no fees). Tx hash parsed from the CLI's `Signing transaction:` line,
-  which appears only when the CLI sends a transaction. A success without it
-  records `read`; a transient error with it triggers a ledger lookup.
-- `lib/assert.sh` — parsed on-chain assertions (HF, debt, `is_liquidatable`, pool revenue).
-- `lib/wallet.sh` — per-run unique friendbot-funded wallets (reused aliases
-  run dry across runs; never share wallets between runs).
-- `lib/assets.sh` — self-issued SACs, classic trustlines, mint, balances,
-  funding via aggregator swap (one swap, then SAC transfers; rapid repeat
-  swaps trip the stale min-out check).
-- `lib/aggregator.sh` — quote API; always `max_splits=1`, or the route
-  payload exceeds the tx budget inside strategy calls.
-- `lib/oracle.sh` — deployable mock Reflector / mock RedStone price control.
-  Liquidations are only force-able on mock-priced markets (real-feed HF can't
-  be pushed underwater); deploy fresh mocks per run, or the feeds go stale and
-  the price aggregator rejects reads with `#206 PriceFeedStale`.
-- `lib/protocol.sh` — **integration fast-path** deploy (EOA-owned controller,
-  immediate admin). Production deploy is `make testnet setup` (governance
-  timelock). Also deploys a **governance contract + governance-owned controller**
-  (short `INTEG_MIN_DELAY`): `resolve_asset_oracle` overwrites `asset_decimals`
-  from the SAC, and the governance-owned controller is the target of the
-  timelock e2e. Market bring-up sequence: create pending →
-  `resolve_asset_oracle` (governance view) → `set_oracle` on the
-  price-aggregator (`PriceKey` + `AssetOracle`) → activate; JSON builders emit
-  composable single/dual `AssetOracle` documents.
-- `lib/report.sh` — markdown report. Resource columns are the declared
-  Soroban resources decoded from each signed envelope (from the simulation for
-  `sim-ok` rows). The explorer link on each sent transaction shows the full
-  per-tx resource report; memory use is not reported on chain.
-
-## Flows
-
-`#NNN` is a Soroban contract error discriminant. Protocol codes 1-505 are
-defined in [`common/src/errors.rs`](../../common/src/errors.rs) and described in
-[`docs/reference/errors.md`](../../docs/reference/errors.md). Four codes come
-from the OpenZeppelin Stellar crates instead: `#1000 EnforcedPause` and
-`#1001 ExpectedPause` from `stellar-contract-utils`, `#2000 Unauthorized`
-from `stellar-access`, and `#4002 InvalidOperationState` from
-`stellar-governance`. Flows that call the xoxno-oracle, swap aggregator,
-DeFindex strategy, position NFT or Blend pool also match that contract's own
-codes.
-
-| flow | covers |
-|---|---|
-| `lifecycle.sh` | real markets (XLM/USDC/EURC on Reflector), aggregator funding, supply/borrow/repay/withdraw single + bulk, cross-account repay, views, guard reverts (`#14 AmountMustBePositive` on zero, `#100 InsufficientCollateral` over LTV) |
-| `strategies.sh` | flash loan success (fee booked to pool revenue), over-repay, and 17 receiver failure modes (no repay, under-repay, panic, push to pool, 13 re-entry paths), multiply long/short, swap_debt, swap_collateral, repay_debt_with_collateral (all via aggregator routes) |
-| `flash_position.sh` | live `flash_position`: account_id=0 and existing, same-asset, min-borrow floor, caps/util/liquidity, spoke 0/unknown/deprecated, frozen, is_flashloanable=false |
-| `blend.sh` | live `migrate_from_blend` vs Blend TestnetV2: allowlist, empty/dup/unapproved/unlisted/auth/spoke/hub/pause/frozen/not-collateral/not-borrowable rejects, coll/supply/debt migrates, zero-liability reject, existing merge, delegate, remigrate-empty, cap/min-borrow/unhealthy |
-| `liquidation.sh` | partial / full / bulk multi-debt liquidation, spoke liquidation, clean_bad_debt socialization, healthy-account guards (`#101 HealthFactorTooHigh`) |
-| `defindex.sh` | DeFindex strategy lifecycle (deposit, harvest, partial and full withdraw, redeposit, designed reverts) over its own mock collateral (runs in the `liq` lane) |
-| `admin.sh` | pause gates (`#1000 EnforcedPause` / `#1001 ExpectedPause`), position limits, param/config edits with read-back (`#113 InvalidLiqThreshold` bounds), oracle tolerance (resolve→set, owner-auth guard) and the sanity band (`#223 SanityBoundViolated`), `set_min_borrow_collateral_usd` (set/read/`#126 MinBorrowCollateralNotMet` effect/reset/`#116 InvalidBorrowParams`), permissionless keeper/revenue paths, spoke admin lifecycle (`#301 SpokeDeprecated`), upgrade (pauses by design) + migrate + satellite upgrades (`upgrade_position_nft` with owner_of read-back) + permissionless NFT `renew` (live + never-minted revert) + 2-step ownership round-trip |
-| `governance.sh` | governance timelock e2e on the governance-owned controller: `deploy_controller` ownership (+`#5 PoolAlreadyDeployed` redeploy), resolver views, propose→cancel (Waiting→Unset), propose→await→`execute` (open executor) lifecycle (Waiting→Ready→Unset), non-PROPOSER guard (`#2000 Unauthorized`), proposal validation (`#36 InvalidPositionLimits`, `#134 InvalidLiquidationCurve`), immediate role revocation refusing the owner's own role (`#44 NotAuthorized`), owner pause + timelocked unpause forwarding |
-| `stress.sh` | 20 mock markets; bulk-supply frontier, distinct-feed borrow frontier (single- then dual-source), withdraw probe, repay-1 liquidation seize frontier — all via fee-less simulation probes plus one on-chain proof tx per frontier |
-| `swap_aggregator.sh` | Swap-aggregator admin lifecycle |
-| `xoxno_oracle.sh` | live xoxno-oracle: deploy with run-wallet signers, full admin surface with read-backs (threshold/signers/staleness/skew/resolution/feed registry), threshold-gated median aggregation through real multi-signer submissions, designed reverts, Reflector-compat reads, same-hash upgrade with state preserved (runs in the `stress` lane) |
-| `teardown.sh` | zero-state teardown, last in every lane: drain the DeFindex strategy, repay every live account (ADMIN mints or tops up a short owner), withdraw everything, claim all revenue, then prove NFT `total_supply == 0`, per-market borrowed/supplied/revenue at most accounting dust, pool + controller balances at dust — and record the per-market residue |
-
-## Encoding gotchas
-
-- `i128` inside `Vec<(Address,i128)>` JSON must be a **quoted string**;
-  scalar `--amount` flags take bare numbers.
-- `#[repr(u32)]` enums (`PositionMode`, `AccountPositionType`) pass as bare
-  integers.
-- Union types use a bare JSON string for a unit variant and `{"Variant": value}`
-  for a data variant, e.g. `nature: "Fundamental"` and `read_mode: {"Twap": 3}`
-  in the oracle configs, or `"Transfer"` and `{"Credit": 0}` for `SeizeMode`.
-  Emit these as JSON rather than a bare word so the CLI parses them as values
-  instead of coercing them to strings (`lib/protocol.sh`).
-- Mock-primary oracle configs must read **Twap**: `set_oracle` rejects a
-  Spot-only single-source config with `#38 SpotOnlyNotProductionSafe`.
-  Under `independence: "RequireDisjoint"`, the two sources of a dual config
-  must read different contracts, or `set_oracle` reverts with
-  `#232 IndependenceNotDeclared`.
-- Flash receiver `data` is the XDR-encoded `FlashLoanRequest{mode}` ScVal.
+Use `run_case` and the existing `inv`, `view`, `xfail`, `run_deploy` and assertion
+helpers. Propagate prerequisites explicitly; a log message is not a failed case.
+Add required predicates alongside a new flow, update ABI bindings, and add a
+focused offline fault injection proving a wrong outcome cannot pass. Never
+reduce required stress dimensions after failure. Inspect conservation before
+cleanup; minting or top-ups must remain separately attributable.

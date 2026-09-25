@@ -168,3 +168,56 @@ for flag in paused frozen no_seize; do
 done
 
 echo "spoke script guards: OK"
+
+# A failed submission inside command substitution must never mark an op done.
+# Both retry entry points share this guarantee; Bash errexit is disabled by ||.
+cat > "$tmp/execute.sh" <<EOF
+set -e
+SOURCE_FLAG= NETWORK=testnet
+op_record_path() { echo '$tmp/op.json'; }
+get_governance() { echo CTEST; }
+retry_tx() { echo injected-submission-failure >&2; return 7; }
+mark_op_executed() { echo marked >> '$tmp/incorrectly-marked'; }
+$(extract execute_gov_self_op)
+$(extract execute_op)
+EOF
+printf '%s\n' '{"cli_executable":true,"kind":"controller","target":"C","function":"pause","predecessor":"00","salt":"00","args":[]}' > "$tmp/op.json"
+if bash -c "source '$tmp/execute.sh'; result=\$(execute_op test) || exit \$?"; then fail 'failed controller execution reported success'; fi
+printf '%s\n' '{"cli_executable":true,"kind":"governance_self","execute_label":"UpdateGovDelay","salt":"00","op":{}}' > "$tmp/op.json"
+if bash -c "source '$tmp/execute.sh'; result=\$(execute_op test) || exit \$?"; then fail 'failed self execution reported success'; fi
+[ ! -f "$tmp/incorrectly-marked" ] || fail 'failed operation was marked executed'
+echo 'operator failed-submission regression: OK'
+
+# Disposable roots route every config and operation write away from the checkout.
+cat > "$tmp/isolation.sh" <<EOF
+CONFIG_ROOT='$tmp/disposable-config' OPS_ROOT='$tmp/disposable-ops' NETWORK=testnet
+$(sed -n '5,15p' "$SCRIPT")
+$(sed -n '/^OPS_DIR=/p; /^ORACLE_FEEDS_FILE=/p' "$SCRIPT")
+$(extract ops_dir)
+$(extract op_record_path)
+$(extract get_mapped_hub_id)
+$(extract persist_hub_id)
+$(extract persist_spoke_id)
+$(extract ensure_hub)
+$(extract parse_returned_u32)
+die() { echo "ERROR: \$*" >&2; exit 1; }
+gen_salt() { echo salt; }
+admin_op() { echo '{}'; }
+schedule_via_proposer() { echo scheduled >> '$tmp/schedules'; echo op; }
+op_state() { echo Ready; }
+await_op_ready() { :; }
+execute_op() { echo 1; }
+EOF
+mkdir -p "$tmp/disposable-config/testnet"
+printf '%s\n' '{"testnet":{"hub_ids":{},"spoke_ids":{}}}' > "$tmp/disposable-config/networks.json"
+bash -c 'source "$1"; for f in "$NETWORKS_FILE" "$HUBS_FILE" "$SPOKES_FILE" "$MARKET_CONFIG_FILE" "$BLEND_POOLS_FILE" "$ORACLE_FEEDS_FILE"; do
+    [[ "$f" == "$CONFIG_ROOT/"* ]] || exit 1
+done
+[[ "$(op_record_path sample)" == "$OPS_ROOT/testnet/sample.json" ]] || exit 1
+ensure_hub 1 || exit 1
+persist_spoke_id 1 1 || exit 1
+cp "$NETWORKS_FILE" "$NETWORKS_FILE.before"
+ensure_hub 1 || exit 1
+cmp "$NETWORKS_FILE.before" "$NETWORKS_FILE"' _ "$tmp/isolation.sh" || fail 'operator configuration isolation or replay failed'
+[ "$(wc -l < "$tmp/schedules" | tr -d ' ')" = 1 ] || fail 'setup replay scheduled duplicate hub'
+echo 'operator root isolation and idempotent hub replay: OK'

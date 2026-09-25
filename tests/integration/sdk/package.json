@@ -1,0 +1,10 @@
+{
+  "name": "lending-e2e-sdk",
+  "private": true,
+  "type": "module",
+  "engines": {"node": "24.x"},
+  "dependencies": {
+    "@xoxno/sdk-js": "1.0.219",
+    "@stellar/stellar-sdk": "16.0.1"
+  }
+}

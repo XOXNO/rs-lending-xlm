@@ -10,3 +10,6 @@ crate-type = ["cdylib", "rlib"]
 soroban-sdk = { workspace = true }
 common = { path = "../../common" }
 controller-interface = { path = "../../interfaces/controller" }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }

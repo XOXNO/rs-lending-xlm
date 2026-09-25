@@ -195,3 +195,166 @@ fn test_liquidation_withdraw_uses_post_burn_fee_headroom_and_final_debt_guard() 
         assert_eq!(tok.balance(&receiver), gross - fee);
     }
 }
+
+/// Simulate a dust close, then execute at the next ledger with precisely the
+/// recorded footprint. The recipient is a classic account, not a mock token.
+#[test]
+fn dust_close_keeps_native_recipient_writable_when_interest_crosses_one_unit() {
+    use soroban_sdk::testutils::Ledger;
+    use soroban_sdk::{xdr, TryIntoVal};
+    use std::rc::Rc;
+
+    let setup = TestSetup::new();
+    let native: Address = setup
+        .env
+        .host()
+        .invoke_function(xdr::HostFunction::CreateContract(xdr::CreateContractArgs {
+            contract_id_preimage: xdr::ContractIdPreimage::Asset(xdr::Asset::Native),
+            executable: xdr::ContractExecutable::StellarAsset,
+        }))
+        .unwrap()
+        .try_into_val(&setup.env)
+        .unwrap();
+    let account_id = xdr::AccountId(xdr::PublicKey::PublicKeyTypeEd25519(xdr::Uint256([7; 32])));
+    let recipient: Address = xdr::ScAddress::Account(account_id.clone())
+        .try_into_val(&setup.env)
+        .unwrap();
+    let key = Rc::new(xdr::LedgerKey::Account(xdr::LedgerKeyAccount {
+        account_id: account_id.clone(),
+    }));
+    setup
+        .env
+        .host()
+        .add_ledger_entry(
+            &key,
+            &Rc::new(xdr::LedgerEntry {
+                data: xdr::LedgerEntryData::Account(xdr::AccountEntry {
+                    account_id,
+                    balance: 20_000_000_000,
+                    seq_num: xdr::SequenceNumber(0),
+                    num_sub_entries: 0,
+                    inflation_dest: None,
+                    flags: 0,
+                    home_domain: Default::default(),
+                    thresholds: xdr::Thresholds([1; 4]),
+                    signers: Default::default(),
+                    ext: xdr::AccountEntryExt::V0,
+                }),
+                last_modified_ledger_seq: 0,
+                ext: xdr::LedgerEntryExt::V0,
+            }),
+            None,
+        )
+        .unwrap();
+    token::Client::new(&setup.env, &native).transfer(&recipient, &setup.contract, &10_000_000_000);
+    let mut params = setup.params.clone();
+    params.asset_id = native.clone();
+    LiquidityPoolClient::new(&setup.env, &setup.contract).create_market(&0, &params);
+    let state = PoolStateRaw {
+        supplied: 2_000 * RAY,
+        borrowed: 1_000 * RAY,
+        revenue: 0,
+        supply_index: RAY,
+        borrow_index: RAY,
+        cash: 10_000_000_000,
+        last_timestamp: 1_000_000,
+    };
+    setup.env.as_contract(&setup.contract, || {
+        crate::storage::write_state(&setup.env, &hub(&native), &state)
+    });
+
+    // Start recording only after funding and market setup, so those operations
+    // cannot accidentally add the recipient's account to the tested footprint.
+    let snapshot = setup.env.to_ledger_snapshot();
+    for omit_zero_transfer in [true, false] {
+        let env = Env::from_ledger_snapshot(snapshot.clone());
+        env.mock_all_auths();
+        let pool: Address = xdr::ScAddress::from(&setup.contract)
+            .try_into_val(&env)
+            .unwrap();
+        let native: Address = xdr::ScAddress::from(&native).try_into_val(&env).unwrap();
+        let recipient: Address = xdr::ScAddress::from(&recipient).try_into_val(&env).unwrap();
+        let entry = PoolWithdrawEntry {
+            action: PoolAction {
+                hub_asset: hub(&native),
+                amount: i128::MAX,
+                position: ScaledPositionRaw {
+                    scaled_amount: 100_000_000_000_000_000_000 - 1,
+                },
+            },
+            protocol_fee: 0,
+        };
+        // One test frame prevents the SDK's per-invocation meter from resetting
+        // the recorded footprint before the enforcing replay.
+        let replay = env.try_as_contract::<_, soroban_sdk::Error>(&pool, || {
+            // Earlier RDWC routing already touches the native SAC and pool balance.
+            token::Client::new(&env, &native).transfer(&pool, &pool, &0);
+            let simulated = if omit_zero_transfer {
+                // Negative control: the exact pre-fix payout path.
+                let outcome = super::accounting(&env, false, &entry);
+                outcome.cache.transfer_out(&recipient, outcome.net_transfer);
+                outcome.mutation
+            } else {
+                super::apply(&env, &recipient, false, &entry).0
+            };
+            assert_eq!(simulated.actual_amount, 0);
+            assert_eq!(simulated.position.scaled_amount, 0);
+
+            // Roll back the simulated market write; transfer(0) changed no balance.
+            // Do not read the recipient before enforcing the simulation footprint.
+            crate::storage::write_state(&env, &hub(&native), &state);
+            env.ledger().with_mut(|ledger| {
+                ledger.timestamp += 5;
+                ledger.sequence_number += 1;
+            });
+            env.host().switch_to_enforcing_storage().unwrap();
+            let committed = super::apply(&env, &recipient, false, &entry).0;
+            assert_eq!(committed.actual_amount, 1);
+            assert_eq!(committed.position.scaled_amount, 0);
+            assert_eq!(
+                token::Client::new(&env, &native).balance(&recipient),
+                10_000_000_001
+            );
+        });
+        if omit_zero_transfer {
+            assert_eq!(
+                replay,
+                Err(Ok(soroban_sdk::Error::from_type_and_code(
+                    xdr::ScErrorType::Storage,
+                    xdr::ScErrorCode::ExceededLimit,
+                )))
+            );
+        } else {
+            assert_eq!(replay, Ok(()));
+        }
+    }
+}
+
+#[test]
+fn empty_withdrawal_and_zero_refund_do_not_touch_recipient() {
+    use soroban_sdk::{xdr, TryIntoVal};
+    let t = TestSetup::new();
+    // No account or credit-asset trustline: any SAC transfer would fail.
+    let recipient: Address = xdr::ScAddress::Account(xdr::AccountId(
+        xdr::PublicKey::PublicKeyTypeEd25519(xdr::Uint256([9; 32])),
+    ))
+    .try_into_val(&t.env)
+    .unwrap();
+    t.as_contract(|| t.cache(0, 0).transfer_out(&recipient, 0));
+    let result = LiquidityPoolClient::new(&t.env, &t.contract).withdraw(
+        &recipient,
+        &false,
+        &vec![
+            &t.env,
+            PoolWithdrawEntry {
+                action: PoolAction {
+                    hub_asset: hub(&t.params.asset_id),
+                    amount: i128::MAX,
+                    position: ScaledPositionRaw { scaled_amount: 0 },
+                },
+                protocol_fee: 0,
+            },
+        ],
+    );
+    assert_eq!(result.get(0).unwrap().actual_amount, 0);
+}

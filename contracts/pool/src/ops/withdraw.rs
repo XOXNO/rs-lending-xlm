@@ -8,7 +8,7 @@ use common::math::fp::Ray;
 use common::types::{MarketStateSnapshot, PoolPositionMutation, PoolWithdrawEntry};
 use common::validation::require_nonneg_amount;
 
-use soroban_sdk::{assert_with_error, panic_with_error, Address, Env};
+use soroban_sdk::{assert_with_error, panic_with_error, token, Address, Env};
 
 use crate::cache::Cache;
 use crate::{guards, interest, ops};
@@ -35,7 +35,20 @@ pub(crate) fn apply(
 ) -> (PoolPositionMutation, MarketStateSnapshot) {
     let outcome = accounting(env, is_liquidation, entry);
 
-    outcome.cache.transfer_out(receiver, outcome.net_transfer);
+    if outcome.net_transfer == 0
+        && entry.action.position.scaled_amount > 0
+        && outcome.mutation.position.scaled_amount == 0
+    {
+        // A dust close can round from zero to one unit between simulation and
+        // inclusion. SAC transfer(0) records the recipient's writable footprint.
+        token::Client::new(env, &outcome.cache.params().asset_id).transfer(
+            &env.current_contract_address(),
+            receiver,
+            &0,
+        );
+    } else {
+        outcome.cache.transfer_out(receiver, outcome.net_transfer);
+    }
     (outcome.mutation, outcome.snapshot)
 }
 
