@@ -1996,8 +1996,6 @@ ensure_asset_in_spoke() {
         exit 1
     fi
 
-    category_json=$(fetch_spoke_json "$category_id")
-
     local _hub _ha _probe
     _hub=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".hub_id")
     if [ -n "$_hub" ] && [ "$_hub" != "null" ]; then
@@ -2007,6 +2005,8 @@ ensure_asset_in_spoke() {
         else
             category_json='{"assets":{}}'
         fi
+    else
+        category_json=$(fetch_spoke_json "$category_id")
     fi
     if printf '%s' "$category_json" | jq -e --arg asset "$asset_address" '.assets[$asset] != null' >/dev/null; then
         if printf '%s' "$category_json" | jq -e \
@@ -2189,12 +2189,9 @@ create_market() {
         die "market ${market_name} missing hub_id in ${MARKET_CONFIG_FILE}"
     fi
 
-    local ctrl
-    ctrl=$(get_controller)
-
     local hub_asset
     hub_asset=$(build_hub_assets_json "$market_name" | jq -c '.[0]')
-    if stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-2000000}" --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" --send=no -- get_spoke_asset --spoke_id 0 --hub_asset "$hub_asset" &>/dev/null; then
+    if stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-2000000}" --id "$(get_controller)" $SOURCE_FLAG --network "$NETWORK" --send=no -- get_market_index --hub_asset "$hub_asset" &>/dev/null; then
         echo "Market for ${market_name} already exists, skipping creation."
         return 0
     fi
