@@ -1,0 +1,12 @@
+{
+  "kind": "governance_self",
+  "op_id": "ec9c7dba4941e203ad992ca6a8ecad065e6bc0b156268f2b0d34ef9ae96e63a2",
+  "network": "testnet",
+  "execute_label": "set_price_aggregator",
+  "salt": "c262f742f7b8284322b53a281f5f051df4a2d808eeb0fbd9ae7f8cf8ff9d2cb3",
+  "op": {
+    "SetPriceAggregator": "CAALOOTIDXCX7D7FMQIBSSAJLPKOM3GMXS4UUSTDIG42JCRRJHOPUHOP"
+  },
+  "cli_executable": true,
+  "executed": true
+}
