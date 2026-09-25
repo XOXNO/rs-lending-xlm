@@ -269,13 +269,12 @@ fn test_liquidation_estimate_matches_execution_on_an_insolvent_over_offer() {
         .expect("the fee leg must name the same asset")
         .amount;
     assert_eq!(
-        seized,
-        95_238_092_000 + 4_761_904_600,
-        "$4 761.9046 of USDC at $0.50 plus the 5% bonus"
+        seized, 100_000_000_000,
+        "the backed quote seizes the whole $5 000 of USDC at $0.50"
     );
     assert_eq!(
         fee,
-        4_761_904_600 * 1_200 / 10_000,
+        (seized - 95_238_092_000) * 1_200 / 10_000,
         "the fee is the 12% protocol cut of the bonus"
     );
 
@@ -297,19 +296,15 @@ fn test_liquidation_estimate_matches_execution_on_an_insolvent_over_offer() {
         seized - fee,
         "the liquidator must receive exactly the estimated seizure net of the fee"
     );
-    let residue = collateral_before - seized;
-    assert_eq!(
-        residue, 3_400,
-        "the floored ETH repayment leaves 3 400 USDC units unseized"
-    );
+    assert_eq!(collateral_before, seized, "no collateral is left unseized");
     assert_eq!(
         t.snapshot_revenue("USDC") - revenue_before,
-        fee + residue,
-        "the fee and the cleaned-up residue both reach revenue"
+        fee,
+        "only the fee reaches revenue"
     );
     assert!(
         t.find_account_id(ALICE).is_none(),
-        "bad-debt cleanup takes the residue and removes the account"
+        "bad-debt cleanup socializes the residual debt and removes the account"
     );
 }
 #[test]

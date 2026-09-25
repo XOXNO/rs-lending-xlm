@@ -11,7 +11,7 @@ Sources: [`docs/reference/formulas.md`](../../docs/reference/formulas.md), `comm
 | Shares (`scaled_amount`), indexes, rate-engine asset values, rates, utilization | RAY = 10^27 | `RAY`, `RAY_DECIMALS = 27` |
 | USD values, prices per whole token, health factor | WAD = 10^18 | `WAD`, `WAD_DECIMALS = 18` |
 | LTV, liquidation threshold, bonus, fees, reserve factor | BPS = 10,000 | `BPS` |
-| Token transfers, cash, caps, `get_collateral_amount`, `get_borrow_amount` | Token base units at the asset's decimals (3..=18) | `MIN_ASSET_DECIMALS = 3`, `MAX_ASSET_DECIMALS = 18` |
+| Token transfers, cash, caps, `get_collateral_amount`, `get_borrow_amount` | Token base units at the asset's decimals (0..=18) | `MIN_ASSET_DECIMALS = 0`, `MAX_ASSET_DECIMALS = 18` |
 | Accrual time | Milliseconds | `MILLISECONDS_PER_YEAR = 31_556_926_000`, `MS_PER_SECOND = 1_000` |
 
 Rescaling between units multiplies or divides by a power of ten:
@@ -384,7 +384,7 @@ fee_ray           = half_up(bonus_ray × liquidation_fees_bps / BPS)
 | `SeizeMode::Transfer` | tokens: `capped_ray` rescaled **floor** (partial) or **half-up** (full, pool still pays the floor claim) minus the fee | `max(1, floor(fee_ray / 10^(27−d)))` when `fee_ray > 0`, capped at the whole units the pool pays above the principal (`floor(paid_ray − base_ray)`, 0 when the payout does not exceed it); withheld from the transfer |
 | `SeizeMode::Credit(account_id)` | shares: `seized_scaled − fee_scaled` credited to the receiver account | `fee_scaled = ceil(bonus_scaled × fees_bps / BPS)` where `seized_scaled = floor(capped_ray × RAY / supply_index)` (exact held shares on full close), `bonus_scaled = min(floor(bonus_ray × RAY / supply_index), seized_scaled)` |
 
-Under-delivery (measured repayment USD below plan) floors every seizure field by `received / planned`; credit fees are recomputed from the scaled bonus. Planning drops legs that round to zero tokens or zero shares.
+Under-delivery (measured repayment USD below plan) floors every seizure field by `received / planned`; credit fees are recomputed from the scaled bonus. Planning drops legs that round to zero tokens or zero shares. A leg below 3 decimals seizes whole units only: rounded up when the repayment covers the whole debt, otherwise rounded down with the repayment trimmed to what those units back (a plan left with no seizure reverts with `InvalidPayments`). Such a leg is its account's only supply position, and it must hold at least 2 whole units after any action that leaves debt.
 
 Example continued (repay 533.6179 USD, XLM at $0.25, supply index 1 RAY, fees 1200 bps):
 

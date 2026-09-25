@@ -7,9 +7,9 @@
     "controller": "CCXRWJ6SIU2WPFEGLFGJVITPL57QAYIMIO6OAM2NBGNDQSSCK2FFV3F3",
     "aggregator": "CDNTWMWW2WGYTKIZTJYNGNVQQZI4KTC5BQRZ3275KESRX5T4O3AYECL5",
     "accumulator": "GDBBOILYIJBSUQKC3Z3USAW3DGPFHIGVKYA5T4ZUZBO56HBUPHJEN3FV",
-    "pool_wasm_hash": "8076becddd6385ef80cfde22d6ade9d086235d6cc3e7a0867e1f3835083065a7",
-    "controller_wasm_hash": "dd6dd50bc0bbf2834bfa2215bc66f6911aeba05c984a42590fe37df4da46e29d",
-    "governance_wasm_hash": "",
+    "pool_wasm_hash": "c4f534b333429fb06c658e39b3c7fceae01f7007be8c0693b614d8bb0c2fec8d",
+    "controller_wasm_hash": "f13533dbba8921cd43afd775c5e0556c09993d4fcc436e8113a8ac2699cd5be0",
+    "governance_wasm_hash": "d8a03dd6ded5164bd439a9fc90faea50076ec486947b9934dcdab4cfd69d9327",
     "ledger_index": 4037973,
     "reflector_cex_oracle": "CCYOZJCOPG34LLQQ7N24YXBM7LL62R7ONMZ3G6WZAAYPB5OYKOMJRN63",
     "reflector_dex_oracle": "CAVLP5DH2GJPZMVO7IJY4CVOD5MWEFTJFVPD2YY2FQXOQHRGHK4D6HLP",
@@ -21,15 +21,18 @@
     "hub_ids": {
       "1": 1,
       "2": 2,
-      "3": 3
+      "3": 3,
+      "4": 4
     },
     "spoke_ids": {
       "1": 1,
       "2": 2,
       "3": 3,
-      "4": 4
+      "4": 4,
+      "5": 5,
+      "6": 6
     },
-    "price_aggregator": "CAALOOTIDXCX7D7FMQIBSSAJLPKOM3GMXS4UUSTDIG42JCRRJHOPUHOP",
+    "price_aggregator": "CBMARXSYE56NPDLX42TTICM5GS5XQCYRD5VMCJME624TS6C2S53VETYU",
     "position_nft": "CDVN5JU675MEDPVRPCYC45AHFC275UH57WEU5OTFE4WFGZBNN7HTLPSY"
   },
   "mainnet": {

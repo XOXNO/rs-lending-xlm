@@ -72,6 +72,13 @@
         "tag": "Other",
         "value": "SPIKOGBPSAFO"
       }
+    },
+    {
+      "feed_id": "LIQVID1039",
+      "asset": {
+        "tag": "Stellar",
+        "value": "CAH7FDDP6IDC76VTXNPN6MF5TWVZMM2N3PCU5C7TXRLTCKBSG6BGUGEA"
+      }
     }
   ]
 }

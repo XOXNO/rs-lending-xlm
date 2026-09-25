@@ -1,4 +1,4 @@
-use common::constants::BPS;
+use common::constants::{BPS, MIN_BORROWABLE_ASSET_DECIMALS};
 use common::errors::{CollateralError, GenericError};
 use common::math::fp::{Bps, Ray, Wad};
 use common::math::fp_core::{mul_div_ceil, mul_div_floor};
@@ -26,6 +26,11 @@ pub(crate) struct NormalizedRepaymentPlan {
     pub bonus: Bps,
     /// The quote covers the account's whole debt.
     pub full_close: bool,
+    /// The kept repayment covers the account's whole debt.
+    pub repays_all_debt: bool,
+    /// The account is insolvent and the kept repayment reaches the collateral-backed
+    /// quote within one native unit per debt leg.
+    pub seize_all: bool,
 }
 
 impl NormalizedRepaymentPlan {
@@ -177,11 +182,11 @@ pub(crate) fn normalize_repayment_plan(
 
     let (ideal_repayment_usd, bonus) = estimate_liquidation_amount(env, snap, bonus_bounds, curve);
     let full_close = ideal_repayment_usd >= snap.total_debt;
+    let insolvent = snap.total_collateral < snap.total_debt;
 
     let mut final_repayment_tokens = repaid_tokens;
     if !full_close && total_debt_payment_usd > ideal_repayment_usd {
         let excess_usd = total_debt_payment_usd.checked_sub(env, ideal_repayment_usd);
-        let insolvent = snap.total_collateral < snap.total_debt;
         process_excess_payment(
             env,
             &mut final_repayment_tokens,
@@ -192,13 +197,59 @@ pub(crate) fn normalize_repayment_plan(
     }
 
     // Sum the final entries before moving them; plan validation checks equality.
+    let repay_usd = sum_repaid_usd(env, &final_repayment_tokens);
+    let seize_all = insolvent
+        && repay_usd > Wad::ZERO
+        && repay_usd.checked_add(env, one_unit_per_leg_usd(env, &final_repayment_tokens))
+            >= ideal_repayment_usd;
+    let repays_all_debt =
+        full_close && repays_every_debt_leg(env, account, &final_repayment_tokens, cache);
     NormalizedRepaymentPlan {
-        repay_usd: sum_repaid_usd(env, &final_repayment_tokens),
+        repay_usd,
         repaid: final_repayment_tokens,
         refunds,
         bonus,
         full_close,
+        repays_all_debt,
+        seize_all,
     }
+}
+
+/// Returns whether every debt position has a repayment at its ceiling-rounded balance.
+fn repays_every_debt_leg(
+    env: &Env,
+    account: &Account,
+    repaid: &Vec<RepayEntry>,
+    cache: &mut Context,
+) -> bool {
+    if repaid.len() != account.borrow_positions.len() {
+        return false;
+    }
+    repaid.iter().all(|entry| {
+        let Some(raw) = account.borrow_positions.get(entry.hub_asset.clone()) else {
+            return false;
+        };
+        let position: DebtPosition = (&raw).into();
+        let borrow_index = cache.cached_market_index(&entry.hub_asset).borrow_index;
+        entry.amount
+            >= unscale_borrow_ceil(
+                env,
+                position.scaled_amount,
+                borrow_index,
+                entry.feed.asset_decimals,
+            )
+    })
+}
+
+/// Sums the WAD USD value of one native unit of each repayment leg.
+fn one_unit_per_leg_usd(env: &Env, repaid_tokens: &Vec<RepayEntry>) -> Wad {
+    let mut total = Wad::ZERO;
+    for entry in repaid_tokens.iter() {
+        let unit = Wad::from_token(env, 1, entry.feed.asset_decimals)
+            .mul(env, Wad::from(entry.feed.price_wad));
+        total = total.checked_add(env, unit);
+    }
+    total
 }
 
 /// Sums recorded repayment values in WAD USD.
@@ -218,21 +269,27 @@ pub(crate) fn sum_repaid_usd(env: &Env, repaid_tokens: &Vec<RepayEntry>) -> Wad 
 /// Positive fees floor to asset units with a one-unit minimum, capped by the
 /// whole units the pool pays above the repayment share. Credit mode retains a
 /// separate exact share representation.
+///
+/// A partial leg below `MIN_BORROWABLE_ASSET_DECIMALS` seizes whole units only:
+/// rounded up to the held balance when the plan repays all debt, down otherwise.
+/// Returns the seizures and the repayment USD that the dropped fractions no
+/// longer back, floored so the kept repayment rounds toward the protocol.
 pub(crate) fn calculate_seized_collateral(
     env: &Env,
     account: &Account,
     total_collateral: Wad,
     repayment: &NormalizedRepaymentPlan,
     cache: &mut Context,
-) -> Vec<SeizeEntry> {
+) -> (Vec<SeizeEntry>, Wad) {
     let mut seized: Vec<SeizeEntry> = Vec::new(env);
     if total_collateral <= Wad::ZERO {
-        return seized;
+        return (seized, Wad::ZERO);
     }
 
     let one_plus_bonus = Wad::ONE.checked_add(env, repayment.bonus.to_wad(env));
 
     let total_seizure_usd = repayment.repay_usd.mul(env, one_plus_bonus);
+    let mut unseized_usd = Wad::ZERO;
 
     // Units: *_ray = RAY asset value (shares * index); *_scaled = RAY shares;
     // *_amount, pool_gross, realised_excess, fee_asset, and protocol_fee = token
@@ -253,13 +310,35 @@ pub(crate) fn calculate_seized_collateral(
         let seizure_for_asset_usd = total_seizure_usd.mul(env, share);
 
         let seizure_amount_wad = seizure_for_asset_usd.div(env, feed.price);
-        let seizure_ray = seizure_amount_wad.to_ray(env);
+        let mut seizure_ray = seizure_amount_wad.to_ray(env);
+
+        if !repayment.seize_all
+            && feed.asset_decimals < MIN_BORROWABLE_ASSET_DECIMALS
+            && seizure_ray < actual_ray
+        {
+            if repayment.repays_all_debt {
+                let whole = seizure_ray.to_asset_ceil(env, feed.asset_decimals);
+                seizure_ray = Ray::from_asset(env, whole, feed.asset_decimals).min(actual_ray);
+            } else {
+                let whole = seizure_ray.to_asset_floor(env, feed.asset_decimals);
+                seizure_ray = Ray::from_asset(env, whole, feed.asset_decimals);
+                let whole_usd = seizure_ray.to_wad(env).mul(env, feed.price);
+                if seizure_for_asset_usd > whole_usd {
+                    unseized_usd = unseized_usd
+                        .checked_add(env, seizure_for_asset_usd.checked_sub(env, whole_usd));
+                }
+            }
+        }
 
         if seizure_ray <= Ray::ZERO {
             continue;
         }
 
-        let capped_ray = seizure_ray.min(actual_ray);
+        let capped_ray = if repayment.seize_all {
+            actual_ray
+        } else {
+            seizure_ray.min(actual_ray)
+        };
         if capped_ray <= Ray::ZERO {
             continue;
         }
@@ -336,7 +415,29 @@ pub(crate) fn calculate_seized_collateral(
         });
     }
 
-    seized
+    (seized, unseized_usd.div_floor(env, one_plus_bonus))
+}
+
+/// Trims `excess_usd` of repayment that no seizure backs, refunding it and
+/// rounding the kept amounts up. The trimmed plan no longer closes the debt.
+pub(crate) fn release_unbacked_repayment(
+    env: &Env,
+    repayment: &mut NormalizedRepaymentPlan,
+    excess_usd: Wad,
+) {
+    if excess_usd <= Wad::ZERO {
+        return;
+    }
+    process_excess_payment(
+        env,
+        &mut repayment.repaid,
+        &mut repayment.refunds,
+        excess_usd,
+        false,
+    );
+    repayment.repay_usd = sum_repaid_usd(env, &repayment.repaid);
+    repayment.full_close = false;
+    repayment.repays_all_debt = false;
 }
 
 /// Splits credit-mode shares with `fee = ceil(fee_rate * bonus_scaled)`.

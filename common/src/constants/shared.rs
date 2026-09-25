@@ -17,7 +17,14 @@ pub const RAY_DECIMALS: u32 = 27;
 pub const WAD_DECIMALS: u32 = 18;
 
 /// Minimum allowed market / listed-token decimals (governance + price-aggregator).
-pub const MIN_ASSET_DECIMALS: u32 = 3;
+pub const MIN_ASSET_DECIMALS: u32 = 0;
+
+/// Minimum decimals for a market listed as borrowable in any spoke.
+pub const MIN_BORROWABLE_ASSET_DECIMALS: u32 = 3;
+
+/// Minimum whole units in a collateral leg below `MIN_BORROWABLE_ASSET_DECIMALS`
+/// after any action that leaves the account with debt.
+pub const MIN_WHOLE_UNIT_COLLATERAL: i128 = 2;
 
 /// Maximum allowed market / listed-token decimals (matches WAD-scale prices).
 pub const MAX_ASSET_DECIMALS: u32 = 18;

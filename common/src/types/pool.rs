@@ -3,7 +3,10 @@
 //! request/result types for each pool operation (supply, borrow, withdraw, strategy, seize,
 //! net-settle), and the `PoolKey` storage key enum.
 
-use crate::constants::{BPS, MAX_BORROW_RATE_RAY, MAX_FLASHLOAN_FEE_BPS, RAY, WAD_DECIMALS};
+use crate::constants::{
+    BPS, MAX_BORROW_RATE_RAY, MAX_FLASHLOAN_FEE_BPS, MIN_BORROWABLE_ASSET_DECIMALS, RAY,
+    WAD_DECIMALS,
+};
 use crate::errors::CollateralError;
 use crate::math::fp::{Bps, Ray};
 use crate::types::shared::AccountPositionType;
@@ -59,12 +62,18 @@ impl MarketParamsRaw {
     }
 
     /// Validates `asset_decimals` and the rate model. Panics if `asset_decimals` exceeds
-    /// `WAD_DECIMALS`, or if the rate model fails its own checks.
+    /// `WAD_DECIMALS`, if a market below `MIN_BORROWABLE_ASSET_DECIMALS` is
+    /// flash-loanable, or if the rate model fails its own checks.
     pub fn verify(&self, env: &Env) {
         assert_with_error!(
             env,
             self.asset_decimals <= WAD_DECIMALS,
             CollateralError::AssetDecimalsTooHigh
+        );
+        assert_with_error!(
+            env,
+            !self.is_flashloanable || self.asset_decimals >= MIN_BORROWABLE_ASSET_DECIMALS,
+            CollateralError::InvalidBorrowParams
         );
 
         self.rate_model_view().verify(env);

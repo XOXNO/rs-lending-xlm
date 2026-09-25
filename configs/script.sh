@@ -2487,8 +2487,8 @@ set_aggregator() {
 
 set_price_aggregator() {
     echo "Wiring Price Aggregator (oracle authority) for ${NETWORK}..."
-    local agg
-    if ! agg=$(get_price_aggregator); then
+    local agg=${PRICE_AGGREGATOR_CONTRACT:-}
+    if [ -z "$agg" ] && ! agg=$(get_price_aggregator); then
         echo "ERROR: No price-aggregator address for ${NETWORK}. Run the deploy step (governance deploy_price_aggregator) first." >&2
         exit 1
     fi

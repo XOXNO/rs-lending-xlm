@@ -47,13 +47,13 @@ pub(crate) fn create(env: &Env, hub_id: u32, params: MarketParamsRaw) {
     events::emit_market_params(env, hub_id, hub_asset.asset, params);
 }
 
-/// Accrues interest under the old model, commits it, then validates and
-/// replaces the interest and flash-loan parameters.
+/// Accrues interest under the old model, commits it, then replaces the interest
+/// and flash-loan parameters and validates them against the stored decimals.
 pub(crate) fn replace_rate_model(env: &Env, hub_asset: HubAssetKey, model: InterestRateModel) {
     ops::renewed_market(env, &hub_asset).commit();
 
-    model.verify(env);
     let params = storage::write_rate_model(env, &hub_asset, &model);
+    params.verify(env);
     events::emit_market_params(env, hub_asset.hub_id, hub_asset.asset, params);
 }
 

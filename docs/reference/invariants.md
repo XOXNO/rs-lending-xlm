@@ -387,7 +387,8 @@ configuration; they do not guarantee a profitable liquidation after rounding.
 New supply and borrow slots must fit their configured counts. Existing-asset
 top-ups remain allowed if a count limit falls below the account's existing
 count. Credit-mode receivers obey the same new-slot limit, and an account can
-have at most 16 delegates.
+have at most 16 delegates. A supply leg below 3 decimals is its account's only
+supply position: a new slot beside it, by deposit or credit, is rejected.
 
 These bounds limit state size without proving worst-case transaction-budget
 sufficiency.
@@ -417,7 +418,10 @@ Planned refunds are unused input: a partial plan never pulls them; a full-debt
 plan pulls the offered amount and the pool returns what exceeds each leg's
 debt, which equals the planned refund. Seizure is proportional to collateral
 value and capped at held collateral; rounding can leave repayment with no
-payable seizure.
+payable seizure. A collateral leg below 3 decimals seizes whole units: rounded
+up when the plan repays all debt, otherwise rounded down with the unbacked
+repayment refunded, and a plan left with no seizure reverts. Such a leg is the
+account's only supply position, so the seizure stays proportional.
 
 Transfer mode burns shares and pays underlying after fees. The planned transfer
 fee never exceeds the whole token units paid above the leg's principal. Credit
