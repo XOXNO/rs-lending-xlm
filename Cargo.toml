@@ -20,6 +20,7 @@ members = [
     "mock/flash-loan-receiver",
     "mock/flash-position-receiver",
     "mock/script-runner",
+    "mock/production-fixture",
     "tests/test-harness",
 ]
 exclude = ["tests/fuzz", "vendor"]

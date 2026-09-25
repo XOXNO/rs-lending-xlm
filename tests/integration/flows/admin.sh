@@ -1,3 +1,110 @@
+# Check stored risk snapshots, preserving supply shares and the entire debt map.
+risk_assert_stamps() {
+    local label="$1" account="$2" asset="$3" expected="$4" before="$5" after
+    after=$(view "$label" "$CONTROLLER" -- get_account_positions --account_id "$account") || return 1
+    if ! jq -e --arg asset "$asset" --argjson hub "$PRIMARY_HUB_ID" \
+        --argjson expected "$expected" --argjson before "$before" '
+        def principal: [(.[0] | with_entries(.value |= {scaled_amount})), .[1]];
+        (principal == ($before | principal)) and
+        ([.[0] | to_entries[] | select((.key | fromjson) == {asset:$asset,hub_id:$hub}) |
+          .value | [.loan_to_value,.liquidation_threshold,.liquidation_bonus,.liquidation_fees]] == [$expected])
+    ' <<<"$after" >/dev/null; then
+        _assert_fail "$label" "risk tuple must be $expected with unchanged supply shares and debt: $after"
+        return 1
+    fi
+    record "$label" ok assert "" "" "" "" "" "stored risk tuple $expected; principal unchanged"
+}
+
+flow_risk_refresh() {
+    phase risk_refresh
+    # Zero rates from creation keep both indexes at RAY. At price $1, 150
+    # collateral * 70% / 100 debt is exactly HF 1.05; test +/- one raw unit.
+    deploy_mock_reflector || return 1
+    issue_sac SAC_RISK RISK || return 1
+    trustline "$ALICE" RISK "$ADMIN_ADDR" || return 1
+    mint_to "$SAC_RISK" RISK "$ALICE_ADDR" 100000000000 || return 1
+    set_mock_price "$SAC_RISK" "$WAD" risk_price || return 1
+    local key params other
+    key=$(hub_key "$PRIMARY_HUB_ID" "$SAC_RISK")
+    params=$(market_params_json "$SAC_RISK" 7 | jq -c '.base_borrow_rate="0" | .slope1="0" | .slope2="0" | .slope3="0"') || return 1
+    inv risk_create_market "$ADMIN" "$CONTROLLER" -- create_liquidity_pool \
+        --hub_id "$PRIMARY_HUB_ID" --asset "$SAC_RISK" --params "$params" >/dev/null || return 1
+    oracle_cfg_mock_single "$SAC_RISK" > "$LOG_DIR/risk_oracle_config.json" || return 1
+    view risk_resolve_oracle "$GOVERNANCE" -- resolve_asset_oracle --key "$(price_key_token "$SAC_RISK")" \
+        --oracle-file-path "$LOG_DIR/risk_oracle_config.json" > "$LOG_DIR/risk_oracle_resolved.json" || return 1
+    inv risk_set_oracle "$ADMIN" "$PRICE_AGGREGATOR" -- set_oracle --key "$(price_key_token "$SAC_RISK")" \
+        --oracle-file-path "$LOG_DIR/risk_oracle_resolved.json" >/dev/null || return 1
+    inv risk_primary_listing "$ADMIN" "$CONTROLLER" -- add_asset_to_spoke \
+        --input "$(spoke_args "$PRIMARY_HUB_ID" "$SAC_RISK" "$PRIMARY_SPOKE_ID" true true 7500 8000 500)" >/dev/null || return 1
+    other=$(inv risk_other_spoke "$ADMIN" "$CONTROLLER" -- add_spoke | tr -d '\"[:space:]') || return 1
+    inv risk_other_listing "$ADMIN" "$CONTROLLER" -- add_asset_to_spoke \
+        --input "$(spoke_args "$PRIMARY_HUB_ID" "$SAC_RISK" "$other" true true 8000 8100 400)" >/dev/null || return 1
+    save_state MARKETS "${MARKETS:+$MARKETS }$PRIMARY_HUB_ID:$SAC_RISK"
+
+    local below equal above free low account amount spoke debt name snapshot
+    local below_before equal_before above_before free_before low_before
+    for name in below equal above free low; do
+        spoke="$PRIMARY_SPOKE_ID"; debt=1000000000
+        case "$name" in
+            below) amount=1499999999;;
+            equal) amount=1500000000;;
+            above) amount=1500000001;;
+            free) amount=100000000; spoke="$other"; debt=0;;
+            low) amount=1500000000; spoke="$other"; debt=1200000000;;
+        esac
+        account=$(inv_create "risk_supply_$name" "$ALICE" "$CONTROLLER" -- supply \
+            --caller "$ALICE_ADDR" --account_id 0 --spoke_id "$spoke" \
+            --assets "$(pay_vec "$PRIMARY_HUB_ID" "$SAC_RISK" "$amount")") || return 1
+        printf -v "$name" '%s' "$account"
+        if [ "$debt" -gt 0 ]; then
+            inv "risk_borrow_$name" "$ALICE" "$CONTROLLER" -- borrow --caller "$ALICE_ADDR" \
+                --account_id "$account" --borrows "$(pay_vec "$PRIMARY_HUB_ID" "$SAC_RISK" "$debt")" --to null >/dev/null || return 1
+            assert_int_view_eq "risk_debt_$name" "$debt" get_borrow_amount --account_id "$account" --hub_asset "$key" || return 1
+        fi
+        snapshot=$(view "risk_before_$name" "$CONTROLLER" -- get_account_positions --account_id "$account") || return 1
+        printf -v "${name}_before" '%s' "$snapshot"
+    done
+    assert_view_eq_at "$POOL" risk_zero_rate 0 get_borrow_rate --hub_asset "$key" || return 1
+    assert_int_view_eq risk_low_hf 1012500000000000000 get_health_factor --account_id "$low" || return 1
+
+    inv risk_edit_primary "$ADMIN" "$CONTROLLER" -- edit_asset_in_spoke \
+        --input "$(spoke_args "$PRIMARY_HUB_ID" "$SAC_RISK" "$PRIMARY_SPOKE_ID" true true 5000 7000 900 | jq -c '.liquidation_fees=50')" >/dev/null || return 1
+    inv risk_edit_other "$ADMIN" "$CONTROLLER" -- edit_asset_in_spoke \
+        --input "$(spoke_args "$PRIMARY_HUB_ID" "$SAC_RISK" "$other" true true 5100 6900 800 | jq -c '.liquidation_fees=60')" >/dev/null || return 1
+    # Permissionless keeper; alternate spokes within the same cached batch.
+    inv risk_ltv_batch "$BOB" "$CONTROLLER" -- update_account_threshold --caller "$BOB_ADDR" \
+        --has_risks false --account_ids "[$below,$free,$equal,$low,$above]" >/dev/null || return 1
+    for name in below equal above; do
+        snapshot="${name}_before"
+        risk_assert_stamps "risk_ltv_only_$name" "${!name}" "$SAC_RISK" '[5000,8000,500,100]' "${!snapshot}" || return 1
+    done
+    risk_assert_stamps risk_ltv_only_free "$free" "$SAC_RISK" '[5100,8100,400,100]' "$free_before" || return 1
+    risk_assert_stamps risk_ltv_only_low "$low" "$SAC_RISK" '[5100,8100,400,100]' "$low_before" || return 1
+
+    inv risk_full_batch "$BOB" "$CONTROLLER" -- update_account_threshold --caller "$BOB_ADDR" \
+        --has_risks true --account_ids "[$below,$free,$equal,$above]" >/dev/null || return 1
+    risk_assert_stamps risk_gate_below "$below" "$SAC_RISK" '[5000,8000,500,100]' "$below_before" || return 1
+    risk_assert_stamps risk_gate_equal "$equal" "$SAC_RISK" '[5000,7000,900,50]' "$equal_before" || return 1
+    risk_assert_stamps risk_gate_above "$above" "$SAC_RISK" '[5000,7000,900,50]' "$above_before" || return 1
+    risk_assert_stamps risk_debt_free "$free" "$SAC_RISK" '[5100,6900,800,60]' "$free_before" || return 1
+    assert_int_view_eq risk_hf_equal 1050000000000000000 get_health_factor --account_id "$equal" || return 1
+    assert_int_view_eq risk_hf_above 1050000000700000000 get_health_factor --account_id "$above" || return 1
+    assert_int_view_eq risk_hf_held 1199999999200000000 get_health_factor --account_id "$below" || return 1
+
+    # An existing HF below 1.05 rejects the full batch, even when its adverse
+    # tuple is held. The preceding debt-free update must roll back as well.
+    inv risk_edit_rollback "$ADMIN" "$CONTROLLER" -- edit_asset_in_spoke \
+        --input "$(spoke_args "$PRIMARY_HUB_ID" "$SAC_RISK" "$other" true true 5200 6800 1000 | jq -c '.liquidation_fees=25')" >/dev/null || return 1
+    xfail risk_full_low_hf 'Error\(Contract, #102\)' "$BOB" "$CONTROLLER" -- update_account_threshold \
+        --caller "$BOB_ADDR" --has_risks true --account_ids "[$free,$low]" || return 1
+    risk_assert_stamps risk_atomic_free "$free" "$SAC_RISK" '[5100,6900,800,60]' "$free_before" || return 1
+    risk_assert_stamps risk_atomic_low "$low" "$SAC_RISK" '[5100,8100,400,100]' "$low_before" || return 1
+    inv risk_ltv_low_hf "$BOB" "$CONTROLLER" -- update_account_threshold --caller "$BOB_ADDR" \
+        --has_risks false --account_ids "[$free,$low]" >/dev/null || return 1
+    risk_assert_stamps risk_ltv_low_hf_free "$free" "$SAC_RISK" '[5200,6900,800,60]' "$free_before" || return 1
+    risk_assert_stamps risk_ltv_low_hf_debt "$low" "$SAC_RISK" '[5200,8100,400,100]' "$low_before"
+}
+
 flow_admin() {
     phase admin
 
@@ -53,21 +160,19 @@ flow_admin() {
 
     local pool_rev_before
     pool_rev_before=$(_view_pool_int pool_revenue_pre get_revenue --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")")
-    inv claim_revenue "$ADMIN" "$CONTROLLER" -- claim_revenue \
-        --caller "$ADMIN_ADDR" --assets "$(hub_vec "$PRIMARY_HUB_ID" "$USDC_SAC")" >/dev/null
-    assert_pool_revenue_decreased pool_revenue_post "$USDC_SAC" "${pool_rev_before:-0}"
-    # claim_revenue is permissionless but pays the configured accumulator, not the
-    # caller. ALICE's claim right after ADMIN's sweep must not raise pool revenue.
-    local rev_before_alice rev_after_alice
-    rev_before_alice=$(_view_pool_int pool_revenue_pre_alice get_revenue --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")")
-    inv claim_revenue "$ALICE" "$CONTROLLER" -- claim_revenue \
-        --caller "$ALICE_ADDR" --assets "$(hub_vec "$PRIMARY_HUB_ID" "$USDC_SAC")" >/dev/null
-    rev_after_alice=$(_view_pool_int pool_revenue_post_alice get_revenue --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")")
-    if _uint_le "$rev_after_alice" "${rev_before_alice:-0}"; then
-        record claim_revenue_permissionless_safe ok claim_revenue "" "" "" "" "" "$rev_before_alice -> $rev_after_alice"
-    else
-        _assert_fail claim_revenue_permissionless_safe "revenue rose $rev_before_alice -> $rev_after_alice on a non-admin claim"
-    fi
+    local accumulator_pre caller_pre pool_pre controller_pre claimed
+    accumulator_pre=$(balance "$USDC_SAC" "$ADMIN_ADDR") || return 1
+    caller_pre=$(balance "$USDC_SAC" "$ALICE_ADDR") || return 1
+    pool_pre=$(balance "$USDC_SAC" "$POOL") || return 1
+    controller_pre=$(balance "$USDC_SAC" "$CONTROLLER") || return 1
+    claimed=$(inv claim_revenue "$ALICE" "$CONTROLLER" -- claim_revenue \
+        --caller "$ALICE_ADDR" --assets "$(hub_vec "$PRIMARY_HUB_ID" "$USDC_SAC")" | jq -er '.[0]') || return 1
+    _uint_ge "$claimed" 1 || { _assert_fail claim_nonzero "claim must exercise nonzero fees"; return 1; }
+    assert_delta claim_recipient "$accumulator_pre" "$(balance "$USDC_SAC" "$ADMIN_ADDR")" "$claimed" || return 1
+    assert_delta claim_pool "$pool_pre" "$(balance "$USDC_SAC" "$POOL")" "$(raw_sub 0 "$claimed")" || return 1
+    assert_delta claim_caller "$caller_pre" "$(balance "$USDC_SAC" "$ALICE_ADDR")" 0 || return 1
+    assert_delta claim_controller "$controller_pre" "$(balance "$USDC_SAC" "$CONTROLLER")" 0 || return 1
+    assert_pool_revenue_decreased pool_revenue_post "$USDC_SAC" "$pool_rev_before"
     view pool_rates_view "$POOL" -- get_borrow_rate --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")" >/dev/null
     view pool_util_view "$POOL" -- get_utilisation --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")" >/dev/null
 
@@ -142,79 +247,8 @@ inv blend_pool_revoke "$ADMIN" "$CONTROLLER" -- revoke_blend_pool --pool "$blend
 assert_bool_view blend_pool_false false is_blend_pool_approved --pool "$blend_pool"
 inv blend_pool_reapprove "$ADMIN" "$CONTROLLER" -- approve_blend_pool --pool "$blend_pool" >/dev/null
 assert_bool_view blend_pool_reapproved true is_blend_pool_approved --pool "$blend_pool"
-if [ "${BLEND_MIGRATION_LIVE:-0}" = "1" ]; then
-# Full edge coverage is in tests/integration/scenarios/blend.sh
-# (`make integration-blend`). This lane runs one happy-path migrate.
-
-local coll_amt supply_amt debt_amt debt_cap seed_requests coll_json supply_json debt_json migrate_acct
-coll_amt="${BLEND_XLM_COLLATERAL_AMOUNT:-${BLEND_XLM_AMOUNT:-2000000000}}"
-supply_amt="${BLEND_XLM_SUPPLY_AMOUNT:-500000000}"
-debt_amt="${BLEND_XLM_DEBT_AMOUNT:-300000000}"
-if [ "${debt_amt:-0}" -gt 0 ]; then
-    debt_cap="${BLEND_XLM_DEBT_CAP:-$((debt_amt + debt_amt / 5))}"
-else
-    debt_cap=0
-fi
-
-if [ -n "${BLEND_SEED_REQUESTS_JSON:-}" ]; then
-    seed_requests="$BLEND_SEED_REQUESTS_JSON"
-else
-
-    seed_requests="[{\"request_type\":2,\"address\":\"$XLM_SAC\",\"amount\":\"$coll_amt\"}"
-    [ "${supply_amt:-0}" -gt 0 ] && \
-        seed_requests+=",{\"request_type\":0,\"address\":\"$XLM_SAC\",\"amount\":\"$supply_amt\"}"
-    [ "${debt_amt:-0}" -gt 0 ] && \
-        seed_requests+=",{\"request_type\":4,\"address\":\"$XLM_SAC\",\"amount\":\"$debt_amt\"}"
-    seed_requests+="]"
-fi
-inv blend_seed_xlm_positions "$ALICE" "$blend_pool" -- submit \
-    --from "$ALICE_ADDR" --spender "$ALICE_ADDR" --to "$ALICE_ADDR" \
-    --requests "$seed_requests" >/dev/null
-# An empty seed would let the migration below pass without migrating anything.
-blend_seeded=$(view blend_position_seeded "$blend_pool" -- get_positions --address "$ALICE_ADDR")
-if [ -n "$blend_seeded" ] && [ "$blend_seeded" != "null" ] && [ "$blend_seeded" != "{}" ]; then
-record blend_position_nonempty ok get_positions "" "" "" "" "" "seeded"
-else
-_assert_fail blend_position_nonempty "blend position empty after seeding; migration would test nothing: $(head -c 120 <<<"$blend_seeded")"
-fi
-
-coll_json="${BLEND_MIGRATE_COLLATERAL_ASSETS_JSON:-[\"$XLM_SAC\"]}"
-if [ -n "${BLEND_MIGRATE_SUPPLY_ASSETS_JSON:-}" ]; then
-    supply_json="$BLEND_MIGRATE_SUPPLY_ASSETS_JSON"
-elif [ "${supply_amt:-0}" -gt 0 ]; then
-    supply_json="[\"$XLM_SAC\"]"
-else
-    supply_json="[]"
-fi
-if [ -n "${BLEND_MIGRATE_DEBT_CAPS_JSON:-}" ]; then
-    debt_json="$BLEND_MIGRATE_DEBT_CAPS_JSON"
-elif [ "${debt_amt:-0}" -gt 0 ]; then
-    debt_json="[[\"$XLM_SAC\",\"$debt_cap\"]]"
-else
-    debt_json="[]"
-fi
-
-migrate_acct=$(inv_create migrate_blend_live "$ALICE" "$CONTROLLER" -- migrate_from_blend \
-    --caller "$ALICE_ADDR" --account_id 0 --spoke_id "$PRIMARY_SPOKE_ID" --hub_id "$PRIMARY_HUB_ID" \
-    --blend_pool "$blend_pool" \
-    --collateral_assets "$coll_json" \
-    --supply_assets "$supply_json" \
-    --debt_caps "$debt_json" | tr -d '"')
-
-view blend_position_swept "$blend_pool" -- get_positions --address "$ALICE_ADDR" >/dev/null
-
-assert_bool_view migrate_blend_account_exists true account_exists --account_id "$migrate_acct"
-assert_hf_at_least migrate_blend_hf "$migrate_acct" "$WAD"
-if [ "${debt_amt:-0}" -gt 0 ]; then
-
-    assert_borrow_at_least migrate_blend_debt_min "$migrate_acct" "$XLM_SAC" $((debt_amt * 95 / 100))
-    assert_borrow_at_most migrate_blend_debt_max "$migrate_acct" "$XLM_SAC" $((debt_amt * 105 / 100))
-    assert_borrow_at_most migrate_blend_debt_below_cap "$migrate_acct" "$XLM_SAC" $((debt_cap - 1))
-fi
-else
-record migrate_blend_live environment-blocked migrate_from_blend "" "" "" "" "" \
-    "set BLEND_MIGRATION_LIVE=1 (seeds XLM coll+supply+debt on Blend, migrates with refund buffer)"
-fi
+# Migration financial/negative coverage belongs to the isolated Blend and SDK
+# lanes; this case exercises only approval administration.
 fi
 
     local xlm_sec_band
@@ -235,8 +269,8 @@ fi
 flow_admin_upgrade() {
     phase admin_upgrade
     local ctrl_hash out_f="$LOG_DIR/upload_ctrl.out" err_f="$LOG_DIR/upload_ctrl.err"
-    stellar contract upload --wasm "$WASM_DIR/controller.wasm" \
-        --source "$ADMIN" "${NET_ARGS[@]}" >"$out_f" 2>"$err_f" || true
+    run_deploy "$out_f" "$err_f" -- stellar contract upload --wasm "$WASM_DIR/controller.wasm" \
+        --source "$ADMIN" "${NET_ARGS[@]}" || return 1
     ctrl_hash=$(sanitize_output "$out_f")
     if [ -n "$ctrl_hash" ]; then
         record upload_controller_wasm ok upload \
@@ -304,7 +338,7 @@ flow_admin_upgrade() {
 # without the `testing` feature, so the deployed wasm does not have them.
 flow_price_aggregator_extra() {
     local key="${1:-}"
-    [ -n "$key" ] || return 0
+    [ -n "$key" ] || { _assert_fail pa_prerequisite "missing price key"; return 1; }
 
     # Reads run before the band change: a narrower sanity band can make later
     # reads of this key fail with #223 SanityBoundViolated.

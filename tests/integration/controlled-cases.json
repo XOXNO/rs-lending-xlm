@@ -1,0 +1,124 @@
+[
+  {
+    "id": "interest_multi_year",
+    "execution": "controlled-ledger",
+    "methods": [
+      "pool.update_indexes"
+    ],
+    "test": "interest::tests::test_simulate_matches_global_sync_over_multi_year_delta",
+    "scope": "2.5-year controlled clock; compares paths sharing accrue_step, not independent reference arithmetic; internal accrual proof supporting update_indexes"
+  },
+  {
+    "id": "dust_close_footprint",
+    "execution": "controlled-ledger",
+    "methods": [
+      "pool.withdraw"
+    ],
+    "test": "ops::withdraw::tests::dust_close_keeps_native_recipient_writable_when_interest_crosses_one_unit",
+    "scope": "native SAC recipient; freeze simulation footprint, advance five seconds, verify zero-to-one payout; original skipped-transfer path fails with StorageExceededLimit"
+  },
+  {
+    "id": "same_ledger_index_footprint",
+    "execution": "controlled-ledger",
+    "methods": [
+      "pool.update_indexes"
+    ],
+    "test": "tests::same_ledger_index_update_keeps_state_writable_at_inclusion",
+    "scope": "freeze a same-ledger zero-accrual footprint, advance five seconds, persist interest; original read-only State footprint fails with StorageExceededLimit"
+  },
+  {
+    "id": "risk_hf_boundary",
+    "execution": "controlled-ledger",
+    "methods": [
+      "controller.update_account_threshold"
+    ],
+    "test": "risk::params::tests::adverse_risk_refresh_checks_exact_one_point_zero_five_boundary",
+    "scope": "adverse tuple refresh at 1.05 and one raw collateral unit either side; internal refresh helper, separate entrypoint tests cover the final account gate"
+  },
+  {
+    "id": "governance_expiry",
+    "execution": "controlled-ledger",
+    "methods": [
+      "governance.execute"
+    ],
+    "test": "timelock::tests::execute_after_grace_period_reverts",
+    "scope": "advance beyond ready ledger plus grace period; expired execution rejects with contract error 40"
+  },
+  {
+    "id": "governance_recovery",
+    "execution": "controlled-ledger",
+    "methods": [
+      "governance.propose_canceller_reset",
+      "governance.execute_canceller_reset"
+    ],
+    "test": "timelock::tests::recovery_resets_captured_council_after_long_delay",
+    "scope": "advance recovery delay; not a multiweek testnet observation"
+  },
+  {
+    "id": "governance_role_separation",
+    "execution": "controlled-ledger",
+    "methods": [
+      "governance.execute_canceller_reset"
+    ],
+    "test": "timelock::tests::recovery_grant_enforces_executor_canceller_separation",
+    "scope": "recovery cannot merge executor and canceller authority"
+  },
+  {
+    "id": "governance_ownership",
+    "execution": "controlled-ledger",
+    "methods": [
+      "governance.execute_self",
+      "governance.accept_ownership"
+    ],
+    "test": "tests::execute_self_transfer_then_accept_migrates_owner_and_roles",
+    "scope": "ownership acceptance after delay and role migration"
+  },
+  {
+    "id": "price_aggregator_upgrade",
+    "execution": "controlled-ledger",
+    "methods": [
+      "price_aggregator.upgrade",
+      "governance.execute"
+    ],
+    "test": "timelock::tests::upgrade_price_aggregator_executes_against_the_aggregator",
+    "scope": "same-schema real WASM upgrade through sensitive timelock"
+  },
+  {
+    "id": "defindex_harvest_yield",
+    "execution": "controlled-ledger",
+    "methods": [
+      "defindex_strategy.harvest"
+    ],
+    "test": "test_harvest_emits_price_per_share_from_supply_index",
+    "scope": "180-day controlled clock with positive lending yield; exact emitted price-per-share follows supply index; live no-debt cases prove token conservation"
+  },
+  {
+    "id": "account_ttl",
+    "execution": "controlled-ledger",
+    "methods": [
+      "controller.supply",
+      "controller.borrow"
+    ],
+    "test": "account_ttl_regression::test_one_sided_activity_renews_both_side_ttls",
+    "scope": "95-day account TTL renewal with one-sided activity"
+  },
+  {
+    "id": "credit_5coll_5debt_ledger_drift",
+    "execution": "controlled-ledger",
+    "methods": [
+      "controller.liquidate"
+    ],
+    "test": "bench_liquidate_max_positions::credit_5coll_5debt_same_ledger_to_next_ledger_cpu",
+    "scope": "candidate WASM with one fixture provider; source-account authorized Credit 5+5 at zero/five seconds, insufficient 2M and successful 20M CPU margins; not a live envelope or IO-limit proof"
+  },
+  {
+    "id": "nft_host_restore",
+    "execution": "controlled-ledger",
+    "methods": [
+      "controller.liquidate",
+      "position_nft.owner_of"
+    ],
+    "test": "position_nft_ttl_and_ownership_reads::liquidation_resolves_nft_ownership_and_succeeds_after_auto_restore",
+    "scope": "host recording-mode restore; does not prove RPC restore submission"
+  }
+]

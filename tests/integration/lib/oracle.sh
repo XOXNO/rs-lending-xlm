@@ -1,7 +1,7 @@
 deploy_mock_reflector() {
     if [ -n "${MOCK:-}" ]; then return 0; fi
     local out_f="$LOG_DIR/deploy_mock.out" err_f="$LOG_DIR/deploy_mock.err"
-    run_deploy "$out_f" "$err_f" -- stellar contract deploy --wasm "$WASM_DIR/mock_oracle.wasm" \
+    run_deploy "$out_f" "$err_f" -- stellar contract deploy --wasm "$FIXTURE_WASM_DIR/mock_oracle.wasm" \
         --source "$ADMIN" "${NET_ARGS[@]}"
     local mock hash
     mock=$(sanitize_output "$out_f")
@@ -15,7 +15,7 @@ deploy_mock_reflector() {
 deploy_mock_redstone() {
     if [ -n "${MOCKRS:-}" ]; then return 0; fi
     local out_f="$LOG_DIR/deploy_mockrs.out" err_f="$LOG_DIR/deploy_mockrs.err"
-    run_deploy "$out_f" "$err_f" -- stellar contract deploy --wasm "$WASM_DIR/mock_redstone.wasm" \
+    run_deploy "$out_f" "$err_f" -- stellar contract deploy --wasm "$FIXTURE_WASM_DIR/mock_redstone.wasm" \
         --source "$ADMIN" "${NET_ARGS[@]}"
     local mock hash
     mock=$(sanitize_output "$out_f")

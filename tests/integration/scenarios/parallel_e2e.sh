@@ -7,13 +7,14 @@ source "$HERE/../env.sh"
 
 BASE="$RUN_TS"
 LANE_TIMEOUT="${LANE_TIMEOUT:-95m}"
+[[ "$LANE_TIMEOUT" =~ ^[1-9][0-9]*[smh]$ ]] || { echo 'invalid LANE_TIMEOUT' >&2; exit 2; }
 
 # E2E_LANES selects the lanes, so a caller can run only the lane a change
-# affects (for example `liq` after a liquidation change). Unset runs all five.
+# affects (for example `liq` after a liquidation change). Unset runs all seven.
 #
 # `-`, not `:-`: an explicitly empty E2E_LANES must reach the zero-lane check
 # below and abort, not expand to the default and run every lane.
-read -r -a LANES <<<"${E2E_LANES-agg liq stress flash blend}"
+read -r -a LANES <<<"${E2E_LANES-agg liq stress flash blend production sdk}"
 
 phases_for() {
     case "$1" in
@@ -28,6 +29,8 @@ phases_for() {
 # the orchestrator only maps lane -> script and applies the same outer gate.
 script_for() {
     case "$1" in
+        production) echo "production.sh" ;;
+        sdk) echo "sdk.sh" ;;
         flash) echo "flash_position.sh" ;;
         blend) echo "blend.sh" ;;
         *)     echo "full_e2e.sh" ;;
@@ -45,8 +48,8 @@ describe_lane() {
 }
 
 timeout_bin=""
-command -v timeout  >/dev/null 2>&1 && timeout_bin="timeout $LANE_TIMEOUT"
-command -v gtimeout >/dev/null 2>&1 && timeout_bin="gtimeout $LANE_TIMEOUT"
+command -v timeout  >/dev/null 2>&1 && timeout_bin="timeout"
+command -v gtimeout >/dev/null 2>&1 && timeout_bin="gtimeout"
 
 log_orch() { printf '[%s] [orchestrator] %s\n' "$(date +%H:%M:%S)" "$*" >&2; }
 
@@ -56,24 +59,46 @@ log_orch() { printf '[%s] [orchestrator] %s\n' "$(date +%H:%M:%S)" "$*" >&2; }
 [ "${#LANES[@]}" -gt 0 ] || { log_orch "E2E_LANES resolved to no lanes"; exit 2; }
 for lane in "${LANES[@]}"; do
     if [ -z "$(phases_for "$lane")" ] && [ "$(script_for "$lane")" = "full_e2e.sh" ]; then
-        log_orch "unknown lane '$lane' (known: agg liq stress flash blend)"
+        log_orch "unknown lane '$lane' (known: agg liq stress flash blend production sdk)"
         exit 2
     fi
 done
 
+[ -n "$timeout_bin" ] || { log_orch "timeout utility required"; exit 2; }
+seen=" "
+for lane in "${LANES[@]}"; do
+    case "$seen" in *" $lane "*) log_orch "duplicate lane $lane"; exit 2;; esac
+    seen+="$lane "
+done
 mkdir -p "$INTEG_DIR/runs"
 
+export E2E_LIMITS_FILE="$INTEG_DIR/runs/$BASE-network-limits.json"
+"${NODE_BIN:-node}" "$INTEG_DIR/sdk/limits.mjs" "$NETWORKS_FILE" "$E2E_LIMITS_FILE" || exit 1
 pids=()
+stop_children() {
+    trap - INT TERM
+    # GNU timeout owns a process group; kill that group, including CLI/RPC children.
+    for pid in "${pids[@]}"; do [ -z "$pid" ] || kill -TERM -- "-$pid" 2>/dev/null || true; done
+    sleep 2
+    for pid in "${pids[@]}"; do [ -z "$pid" ] || kill -KILL -- "-$pid" 2>/dev/null || true; done
+    for pid in "${pids[@]}"; do [ -z "$pid" ] || wait "$pid" 2>/dev/null || true; done
+    for lane in "${LANES[@]}"; do
+        [ ! -f "$INTEG_DIR/runs/$BASE-$lane/metadata.json" ] || python3 "$INTEG_DIR/gate.py" mark-incomplete "$INTEG_DIR/runs/$BASE-$lane" cancelled
+    done
+    exit 130
+}
+trap stop_children INT TERM
 for lane in "${LANES[@]}"; do
     lane_ts="${BASE}-${lane}"
     log_orch "launching lane '$lane' (RUN_TS=$lane_ts) $(describe_lane "$lane")"
     (
         export RUN_TS="$lane_ts"
+        export E2E_LANE="$lane"
         script="$(script_for "$lane")"
         if [ "$script" = "full_e2e.sh" ]; then
             export PHASES="$(phases_for "$lane")"
         fi
-        exec $timeout_bin bash "$HERE/$script"
+        exec "$timeout_bin" --kill-after=10s "$LANE_TIMEOUT" bash "$HERE/$script"
     ) >"$INTEG_DIR/runs/${lane_ts}.log" 2>&1 &
     pids+=("$!")
 done
@@ -85,8 +110,10 @@ for i in "${!LANES[@]}"; do
         log_orch "lane '${LANES[$i]}' process exited 0"
     else
         lane_exit[$i]=$?
+        python3 "$INTEG_DIR/gate.py" mark-incomplete "$INTEG_DIR/runs/$BASE-${LANES[$i]}" "lane exit ${lane_exit[$i]}" || true
         log_orch "lane '${LANES[$i]}' process exited NON-ZERO (${lane_exit[$i]}: timeout/crash) — see runs/${BASE}-${LANES[$i]}.log"
     fi
+    pids[$i]=""
 done
 
 overall=0
@@ -123,9 +150,9 @@ combined="$INTEG_DIR/runs/${BASE}-combined.md"
     else
         echo "**Result: FAILED (lanes run: ${LANES[*]})**"
     fi
-    if [ "${#LANES[@]}" -lt 5 ]; then
+    if [ "${#LANES[@]}" -lt 7 ]; then
         echo
-        echo "> Partial run — only ${#LANES[@]} of 5 lanes. Phases not covered here were not executed."
+        echo "> Partial run — only ${#LANES[@]} of 7 lanes. Phases not covered here were not executed."
     fi
     echo
     for lane in "${LANES[@]}"; do

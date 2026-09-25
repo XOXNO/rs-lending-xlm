@@ -15,48 +15,53 @@ source "$INTEG_DIR/flows/lifecycle.sh"
 source "$INTEG_DIR/flows/flash_position.sh"
 source "$INTEG_DIR/flows/teardown.sh"
 
+E2E_LANE="${E2E_LANE:-flash}"
 init_run
 if [ -f "$INTEG_DIR/appendix.md" ]; then
     cp -n "$INTEG_DIR/appendix.md" "$RUN_DIR/appendix.md" 2>/dev/null || cp "$INTEG_DIR/appendix.md" "$RUN_DIR/appendix.md" 2>/dev/null || true
 fi
 
-check_tools 2>/dev/null || log "WARNING: some required tools missing (see check_tools)"
-check_stellar_version 2>/dev/null || log "WARNING: stellar CLI version check failed or not met"
+check_tools || die preflight "required tool missing"
+check_stellar_version || die preflight "wrong stellar CLI version"
 
 [ -f "$WASM_DIR/controller.wasm" ] \
     || die preflight "missing $WASM_DIR/controller.wasm (run make integration-wasm)"
 [ -f "$WASM_DIR/position_nft.wasm" ] \
     || die preflight "missing $WASM_DIR/position_nft.wasm (run make integration-wasm)"
-[ -f "$WASM_DIR/flash_position_receiver.wasm" ] \
-    || die preflight "missing $WASM_DIR/flash_position_receiver.wasm (run make integration-wasm)"
+[ -f "$FIXTURE_WASM_DIR/flash_position_receiver.wasm" ] \
+    || die preflight "missing $FIXTURE_WASM_DIR/flash_position_receiver.wasm (run make integration-wasm)"
 
-trap 'write_report; run_summary' EXIT
+trap 'finish_run $?' EXIT
+trap 'exit 130' INT TERM
 
-phase wallets
-new_wallet ADMIN admin
-new_wallet ALICE alice
-new_wallet BOB bob
+wallets() {
+    new_wallet ADMIN admin || return 1
+    new_wallet ALICE alice || return 1
+    new_wallet BOB bob || return 1
+}
+run_case wallets wallets || die wallets "wallet preflight failed"
 
 phase deploy
-deploy_protocol
+run_case deploy_protocol deploy_protocol || die deploy_protocol "required case failed"
 [ -n "${FLASH_POSITION_RECEIVER:-}" ] \
     || die deploy_flash_position_receiver "FLASH_POSITION_RECEIVER unset after deploy_protocol"
 
-flow_flash_position_markets || die markets "XLM/USDC market listing failed"
-flow_flash_position_fund || die funding "USDC funding failed"
-flow_seed_liquidity || die seed "pool seed failed"
-flow_flash_position || die flash_position "flash_position live coverage failed"
+run_case flow_flash_position_markets flow_flash_position_markets || die flow_flash_position_markets "required case failed"
+run_case flow_flash_position_fund flow_flash_position_fund || die flow_flash_position_fund "required case failed"
+run_case flow_seed_liquidity flow_seed_liquidity || die flow_seed_liquidity "required case failed"
+run_case flow_flash_position flow_flash_position || die flow_flash_position "required case failed"
 if [ -z "${FP_MATRIX_DONE:-}" ]; then
-    flow_flash_position_matrix || die flash_position_matrix "flash_position matrix failed"
+    run_case flow_flash_position_matrix flow_flash_position_matrix || die flow_flash_position_matrix "required case failed"
 else
     log "matrix already recorded; skipping"
 fi
-flow_flash_position_gaps || die flash_position_gaps "flash_position gap coverage failed"
-flow_flash_position_gates || die flash_position_gates "flash_position gate coverage failed"
-flow_flash_position_malicious || die flash_position_malicious "malicious receiver coverage failed"
-flow_teardown || die teardown "zero-state teardown failed"
+run_case flow_flash_position_gaps flow_flash_position_gaps || die flow_flash_position_gaps "required case failed"
+run_case flow_flash_position_gates flow_flash_position_gates || die flow_flash_position_gates "required case failed"
+run_case flow_flash_position_malicious flow_flash_position_malicious || die flow_flash_position_malicious "required case failed"
+run_case flow_teardown flow_teardown || die flow_teardown "required case failed"
 
 phase done
+python3 "$INTEG_DIR/gate.py" "$RUN_DIR" || exit 1
 log "run complete"
 log "flash_position account=${ALICE_FP_ACCT:-n/a} controller=$CONTROLLER receiver=${FLASH_POSITION_RECEIVER_V2:-$FLASH_POSITION_RECEIVER}"
 bash "$HERE/assert_green.sh" || exit 1

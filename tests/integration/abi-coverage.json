@@ -1,0 +1,2307 @@
+[
+  {
+    "contract": "controller",
+    "method": "pause",
+    "case": "flow_admin",
+    "label": "admin_pause",
+    "root_contract": "controller",
+    "root_method": "pause",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/admin.sh:4"
+  },
+  {
+    "contract": "controller",
+    "method": "repay",
+    "case": "flow_gap_hunt_admin",
+    "label": "gh17_repay_after_borrow",
+    "root_contract": "controller",
+    "root_method": "repay",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/admin.sh:395"
+  },
+  {
+    "contract": "controller",
+    "method": "borrow",
+    "case": "flow_admin",
+    "label": "delegated_borrow_usdc",
+    "root_contract": "controller",
+    "root_method": "borrow",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/admin.sh:121"
+  },
+  {
+    "contract": "controller",
+    "method": "supply",
+    "case": "flow_admin",
+    "label": "minb_supply",
+    "root_contract": "controller",
+    "root_method": "supply",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/admin.sh:98"
+  },
+  {
+    "contract": "controller",
+    "method": "migrate",
+    "case": "flow_admin_upgrade",
+    "label": "controller_migrate",
+    "root_contract": "controller",
+    "root_method": "migrate",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/admin.sh:181"
+  },
+  {
+    "contract": "controller",
+    "method": "unpause",
+    "case": "flow_admin",
+    "label": "admin_unpause",
+    "root_contract": "controller",
+    "root_method": "unpause",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/admin.sh:8"
+  },
+  {
+    "contract": "controller",
+    "method": "upgrade",
+    "case": "flow_admin_upgrade",
+    "label": "controller_upgrade",
+    "root_contract": "controller",
+    "root_method": "upgrade",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/admin.sh:174"
+  },
+  {
+    "contract": "controller",
+    "method": "multiply",
+    "case": "flow_strategies",
+    "label": "multiply_long",
+    "root_contract": "controller",
+    "root_method": "multiply",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/strategies.sh:75"
+  },
+  {
+    "contract": "controller",
+    "method": "withdraw",
+    "case": "flow_lifecycle",
+    "label": "withdraw_partial",
+    "root_contract": "controller",
+    "root_method": "withdraw",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/lifecycle.sh:217"
+  },
+  {
+    "contract": "controller",
+    "method": "add_spoke",
+    "case": "flow_admin",
+    "label": "spoke_tmp_add",
+    "root_contract": "controller",
+    "root_method": "add_spoke",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/admin.sh:82"
+  },
+  {
+    "contract": "controller",
+    "method": "get_spoke",
+    "case": "flow_liq_spoke",
+    "label": "spoke_view",
+    "root_contract": "controller",
+    "root_method": "get_spoke",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/liquidation.sh:130"
+  },
+  {
+    "contract": "controller",
+    "method": "liquidate",
+    "case": "flow_liq_bulk",
+    "label": "liq2_liquidate_bulk",
+    "root_contract": "controller",
+    "root_method": "liquidate",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/liquidation.sh:111"
+  },
+  {
+    "contract": "controller",
+    "method": "swap_debt",
+    "case": "flow_strategies",
+    "label": "swap_debt",
+    "root_contract": "controller",
+    "root_method": "swap_debt",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/strategies.sh:86"
+  },
+  {
+    "contract": "controller",
+    "method": "create_hub",
+    "case": "deploy_protocol",
+    "label": "create_hub_PRIMARY",
+    "root_contract": "controller",
+    "root_method": "create_hub",
+    "execution": "direct-call",
+    "source": "tests/integration/lib/protocol.sh:223"
+  },
+  {
+    "contract": "controller",
+    "method": "flash_loan",
+    "case": "flow_flash_loans",
+    "label": "flash_loan_success",
+    "root_contract": "controller",
+    "root_method": "flash_loan",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/strategies.sh:22"
+  },
+  {
+    "contract": "controller",
+    "method": "deploy_pool",
+    "case": "deploy_protocol",
+    "label": "deploy_pool",
+    "root_contract": "controller",
+    "root_method": "deploy_pool",
+    "execution": "direct-call",
+    "source": "tests/integration/lib/protocol.sh:61"
+  },
+  {
+    "contract": "controller",
+    "method": "add_delegate",
+    "case": "flow_admin",
+    "label": "delegate_add_alice",
+    "root_contract": "controller",
+    "root_method": "add_delegate",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/admin.sh:119"
+  },
+  {
+    "contract": "controller",
+    "method": "recapitalize",
+    "case": "flow_force_socialize_and_recap",
+    "label": "fs_recapitalize",
+    "root_contract": "controller",
+    "root_method": "recapitalize",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/liquidation.sh:333"
+  },
+  {
+    "contract": "controller",
+    "method": "remove_spoke",
+    "case": "flow_admin",
+    "label": "spoke_tmp_deprecate",
+    "root_contract": "controller",
+    "root_method": "remove_spoke",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/admin.sh:92"
+  },
+  {
+    "contract": "controller",
+    "method": "upgrade_pool",
+    "case": "flow_admin_upgrade",
+    "label": "pool_upgrade",
+    "root_contract": "controller",
+    "root_method": "upgrade_pool",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/admin.sh:172"
+  },
+  {
+    "contract": "controller",
+    "method": "__constructor",
+    "case": "deploy_protocol",
+    "label": "deploy_controller",
+    "root_contract": "governance",
+    "root_method": "deploy_controller",
+    "execution": "deployment",
+    "path": [
+      "deployment invokes constructor"
+    ],
+    "source": "tests/integration/lib/protocol.sh"
+  },
+  {
+    "contract": "controller",
+    "method": "claim_revenue",
+    "case": "flow_admin",
+    "label": "claim_revenue",
+    "root_contract": "controller",
+    "root_method": "claim_revenue",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/admin.sh:61"
+  },
+  {
+    "contract": "controller",
+    "method": "renew_account",
+    "case": "flow_lifecycle",
+    "label": "renew_account",
+    "root_contract": "controller",
+    "root_method": "renew_account",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/lifecycle.sh:220"
+  },
+  {
+    "contract": "controller",
+    "method": "account_exists",
+    "case": "flow_admin",
+    "label": "secondary_account_exists",
+    "root_contract": "controller",
+    "root_method": "account_exists",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/admin.sh:158"
+  },
+  {
+    "contract": "controller",
+    "method": "clean_bad_debt",
+    "case": "flow_clean_bad_debt",
+    "label": "cbd_clean",
+    "root_contract": "controller",
+    "root_method": "clean_bad_debt",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/liquidation.sh:355"
+  },
+  {
+    "contract": "controller",
+    "method": "flash_position",
+    "case": "flow_flash_position",
+    "label": "flash_position_success",
+    "root_contract": "controller",
+    "root_method": "flash_position",
+    "execution": "direct-call",
+    "path": [
+      "fp_run",
+      "inv_create"
+    ],
+    "source": "tests/integration/flows/flash_position.sh:59"
+  },
+  {
+    "contract": "controller",
+    "method": "update_indexes",
+    "case": "flow_admin",
+    "label": "update_indexes",
+    "root_contract": "controller",
+    "root_method": "update_indexes",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/admin.sh:43"
+  },
+  {
+    "contract": "controller",
+    "method": "get_app_version",
+    "case": "flow_admin_upgrade",
+    "label": "app_version_view",
+    "root_contract": "controller",
+    "root_method": "get_app_version",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/admin.sh:180"
+  },
+  {
+    "contract": "controller",
+    "method": "get_spoke_asset",
+    "case": "flow_admin",
+    "label": "market_cfg_ltv",
+    "root_contract": "controller",
+    "root_method": "get_spoke_asset",
+    "execution": "direct-call",
+    "path": [
+      "assert_market_field",
+      "view"
+    ],
+    "source": "tests/integration/flows/admin.sh:24"
+  },
+  {
+    "contract": "controller",
+    "method": "get_spoke_usage",
+    "case": "flow_spoke_flags_and_curve",
+    "label": "sf_usage",
+    "root_contract": "controller",
+    "root_method": "get_spoke_usage",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/liquidation.sh:269"
+  },
+  {
+    "contract": "controller",
+    "method": "is_liquidatable",
+    "case": "flow_liq_single",
+    "label": "liq1_can_liq",
+    "root_contract": "controller",
+    "root_method": "is_liquidatable",
+    "execution": "direct-call",
+    "path": [
+      "assert_can_liquidated",
+      "assert_bool_view",
+      "view"
+    ],
+    "source": "tests/integration/flows/liquidation.sh:54"
+  },
+  {
+    "contract": "controller",
+    "method": "remove_delegate",
+    "case": "flow_admin",
+    "label": "delegate_remove_alice",
+    "root_contract": "controller",
+    "root_method": "remove_delegate",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/admin.sh:124"
+  },
+  {
+    "contract": "controller",
+    "method": "set_accumulator",
+    "case": "deploy_protocol",
+    "label": "set_accumulator",
+    "root_contract": "controller",
+    "root_method": "set_accumulator",
+    "execution": "direct-call",
+    "source": "tests/integration/lib/protocol.sh:125"
+  },
+  {
+    "contract": "controller",
+    "method": "swap_collateral",
+    "case": "flow_strategies",
+    "label": "swap_collateral",
+    "root_contract": "controller",
+    "root_method": "swap_collateral",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/strategies.sh:95"
+  },
+  {
+    "contract": "controller",
+    "method": "accept_ownership",
+    "case": "flow_admin_upgrade",
+    "label": "ownership_accept",
+    "root_contract": "controller",
+    "root_method": "accept_ownership",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/admin.sh:212"
+  },
+  {
+    "contract": "controller",
+    "method": "get_market_index",
+    "case": "flow_admin",
+    "label": "market_index_xlm",
+    "root_contract": "controller",
+    "root_method": "get_market_index",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/admin.sh:113"
+  },
+  {
+    "contract": "controller",
+    "method": "get_pool_address",
+    "case": "flow_admin",
+    "label": "pool_address_view",
+    "root_contract": "controller",
+    "root_method": "get_pool_address",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/admin.sh:112"
+  },
+  {
+    "contract": "controller",
+    "method": "price_aggregator",
+    "case": "deploy_protocol",
+    "label": "wired_price_aggregator",
+    "root_contract": "controller",
+    "root_method": "price_aggregator",
+    "execution": "direct-call",
+    "path": [
+      "assert_view_eq_at",
+      "view"
+    ],
+    "source": "tests/integration/lib/protocol.sh:130"
+  },
+  {
+    "contract": "controller",
+    "method": "get_borrow_amount",
+    "case": "flow_lifecycle",
+    "label": "debt_usdc_alice",
+    "root_contract": "controller",
+    "root_method": "get_borrow_amount",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/lifecycle.sh:187"
+  },
+  {
+    "contract": "controller",
+    "method": "get_health_factor",
+    "case": "flow_lifecycle",
+    "label": "hf_alice",
+    "root_contract": "controller",
+    "root_method": "get_health_factor",
+    "execution": "direct-call",
+    "path": [
+      "assert_hf_at_least",
+      "view"
+    ],
+    "source": "tests/integration/flows/lifecycle.sh:110"
+  },
+  {
+    "contract": "controller",
+    "method": "revoke_blend_pool",
+    "case": "flow_admin",
+    "label": "blend_pool_revoke",
+    "root_contract": "controller",
+    "root_method": "revoke_blend_pool",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/admin.sh:139"
+  },
+  {
+    "contract": "controller",
+    "method": "add_asset_to_spoke",
+    "case": "flow_admin",
+    "label": "spoke_tmp_add_asset",
+    "root_contract": "controller",
+    "root_method": "add_asset_to_spoke",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/admin.sh:83"
+  },
+  {
+    "contract": "controller",
+    "method": "approve_blend_pool",
+    "case": "flow_admin",
+    "label": "blend_pool_approve",
+    "root_contract": "controller",
+    "root_method": "approve_blend_pool",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/admin.sh:137"
+  },
+  {
+    "contract": "controller",
+    "method": "migrate_from_blend",
+    "case": "flow_blend_migrate",
+    "label": "migrate_alice_debtcoll",
+    "root_contract": "controller",
+    "root_method": "migrate_from_blend",
+    "execution": "direct-call",
+    "path": [
+      "blend_migrate",
+      "inv_create"
+    ],
+    "source": "tests/integration/flows/blend.sh:99"
+  },
+  {
+    "contract": "controller",
+    "method": "transfer_ownership",
+    "case": "flow_admin_upgrade",
+    "label": "ownership_transfer",
+    "root_contract": "controller",
+    "root_method": "transfer_ownership",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/admin.sh:206"
+  },
+  {
+    "contract": "controller",
+    "method": "deploy_position_nft",
+    "case": "deploy_protocol",
+    "label": "deploy_position_nft",
+    "root_contract": "controller",
+    "root_method": "deploy_position_nft",
+    "execution": "direct-call",
+    "source": "tests/integration/lib/protocol.sh:71"
+  },
+  {
+    "contract": "controller",
+    "method": "edit_asset_in_spoke",
+    "case": "flow_admin",
+    "label": "edit_asset_config_admin",
+    "root_contract": "controller",
+    "root_method": "edit_asset_in_spoke",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/admin.sh:22"
+  },
+  {
+    "contract": "controller",
+    "method": "set_position_limits",
+    "case": "flow_admin",
+    "label": "set_position_limits",
+    "root_contract": "controller",
+    "root_method": "set_position_limits",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/admin.sh:11"
+  },
+  {
+    "contract": "controller",
+    "method": "set_swap_aggregator",
+    "case": "deploy_protocol",
+    "label": "set_swap_aggregator",
+    "root_contract": "controller",
+    "root_method": "set_swap_aggregator",
+    "execution": "direct-call",
+    "source": "tests/integration/lib/protocol.sh:123"
+  },
+  {
+    "contract": "controller",
+    "method": "get_total_borrow_usd",
+    "case": "flow_admin",
+    "label": "total_borrow_bob_minb",
+    "root_contract": "controller",
+    "root_method": "get_total_borrow_usd",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/admin.sh:115"
+  },
+  {
+    "contract": "controller",
+    "method": "set_position_manager",
+    "case": "flow_admin",
+    "label": "manager_activate_alice",
+    "root_contract": "controller",
+    "root_method": "set_position_manager",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/admin.sh:117"
+  },
+  {
+    "contract": "controller",
+    "method": "set_price_aggregator",
+    "case": "deploy_protocol",
+    "label": "set_price_aggregator",
+    "root_contract": "controller",
+    "root_method": "set_price_aggregator",
+    "execution": "direct-call",
+    "source": "tests/integration/lib/protocol.sh:126"
+  },
+  {
+    "contract": "controller",
+    "method": "upgrade_position_nft",
+    "case": "flow_admin_upgrade",
+    "label": "nft_upgrade_via_controller",
+    "root_contract": "controller",
+    "root_method": "upgrade_position_nft",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/admin.sh:188"
+  },
+  {
+    "contract": "controller",
+    "method": "create_liquidity_pool",
+    "case": "flow_real_markets",
+    "label": "create_market_XLM",
+    "root_contract": "controller",
+    "root_method": "create_liquidity_pool",
+    "execution": "direct-call",
+    "path": [
+      "create_market",
+      "inv"
+    ],
+    "source": "tests/integration/lib/protocol.sh:475"
+  },
+  {
+    "contract": "controller",
+    "method": "get_account_positions",
+    "case": "flow_lifecycle",
+    "label": "positions_alice",
+    "root_contract": "controller",
+    "root_method": "get_account_positions",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/lifecycle.sh:116"
+  },
+  {
+    "contract": "controller",
+    "method": "get_collateral_amount",
+    "case": "flow_lifecycle",
+    "label": "coll_xlm_alice",
+    "root_contract": "controller",
+    "root_method": "get_collateral_amount",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/lifecycle.sh:223"
+  },
+  {
+    "contract": "controller",
+    "method": "set_spoke_asset_flags",
+    "case": "flow_blend_rejects",
+    "label": "blend_pause_xlm",
+    "root_contract": "controller",
+    "root_method": "set_spoke_asset_flags",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/blend.sh:233"
+  },
+  {
+    "contract": "controller",
+    "method": "get_account_attributes",
+    "case": "flow_lifecycle",
+    "label": "attrs_alice",
+    "root_contract": "controller",
+    "root_method": "get_account_attributes",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/lifecycle.sh:115"
+  },
+  {
+    "contract": "controller",
+    "method": "get_ltv_collateral_usd",
+    "case": "flow_lifecycle",
+    "label": "ltv_usd_alice",
+    "root_contract": "controller",
+    "root_method": "get_ltv_collateral_usd",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/lifecycle.sh:114"
+  },
+  {
+    "contract": "controller",
+    "method": "is_blend_pool_approved",
+    "case": "flow_admin",
+    "label": "blend_pool_initial",
+    "root_contract": "controller",
+    "root_method": "is_blend_pool_approved",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/admin.sh:136"
+  },
+  {
+    "contract": "controller",
+    "method": "relax_spoke_asset_flags",
+    "case": "flow_flash_position_matrix",
+    "label": "fp_unpause_xlm",
+    "root_contract": "controller",
+    "root_method": "relax_spoke_asset_flags",
+    "execution": "direct-call",
+    "path": [
+      "clear_listing_flags",
+      "inv"
+    ],
+    "source": "tests/integration/flows/flash_position.sh:411"
+  },
+  {
+    "contract": "controller",
+    "method": "remove_asset_from_spoke",
+    "case": "flow_admin",
+    "label": "spoke_tmp_remove_asset",
+    "root_contract": "controller",
+    "root_method": "remove_asset_from_spoke",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/admin.sh:90"
+  },
+  {
+    "contract": "controller",
+    "method": "force_socialize_bad_debt",
+    "case": "flow_force_socialize_and_recap",
+    "label": "fs_force_socialize",
+    "root_contract": "controller",
+    "root_method": "force_socialize_bad_debt",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/liquidation.sh:324"
+  },
+  {
+    "contract": "controller",
+    "method": "get_liquidation_estimate",
+    "case": "flow_liq_single",
+    "label": "liq1_estimate",
+    "root_contract": "controller",
+    "root_method": "get_liquidation_estimate",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/liquidation.sh:55"
+  },
+  {
+    "contract": "controller",
+    "method": "get_total_collateral_usd",
+    "case": "flow_lifecycle",
+    "label": "coll_usd_alice",
+    "root_contract": "controller",
+    "root_method": "get_total_collateral_usd",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/lifecycle.sh:111"
+  },
+  {
+    "contract": "controller",
+    "method": "update_account_threshold",
+    "case": "flow_admin",
+    "label": "update_account_threshold",
+    "root_contract": "controller",
+    "root_method": "update_account_threshold",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/admin.sh:48"
+  },
+  {
+    "contract": "controller",
+    "method": "get_liquidation_collateral",
+    "case": "flow_liq_single",
+    "label": "liq1_avail",
+    "root_contract": "controller",
+    "root_method": "get_liquidation_collateral",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/liquidation.sh:57"
+  },
+  {
+    "contract": "controller",
+    "method": "repay_debt_with_collateral",
+    "case": "flow_strategies",
+    "label": "repay_debt_with_coll",
+    "root_contract": "controller",
+    "root_method": "repay_debt_with_collateral",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/strategies.sh:111"
+  },
+  {
+    "contract": "controller",
+    "method": "get_market_indexes_detailed",
+    "case": "flow_lifecycle",
+    "label": "indexes_view",
+    "root_contract": "controller",
+    "root_method": "get_market_indexes_detailed",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/lifecycle.sh:117"
+  },
+  {
+    "contract": "controller",
+    "method": "get_spoke_asset_flags_epoch",
+    "case": "flow_flash_position_matrix",
+    "label": "fp_unpause_xlm_epoch",
+    "root_contract": "controller",
+    "root_method": "get_spoke_asset_flags_epoch",
+    "execution": "direct-call",
+    "path": [
+      "clear_listing_flags",
+      "view"
+    ],
+    "source": "tests/integration/lib/protocol.sh:523"
+  },
+  {
+    "contract": "controller",
+    "method": "set_spoke_liquidation_curve",
+    "case": "flow_spoke_flags_and_curve",
+    "label": "sf_set_curve",
+    "root_contract": "controller",
+    "root_method": "set_spoke_liquidation_curve",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/liquidation.sh:279"
+  },
+  {
+    "contract": "controller",
+    "method": "get_min_borrow_collateral_usd",
+    "case": "flow_admin",
+    "label": "minb_read_high",
+    "root_contract": "controller",
+    "root_method": "get_min_borrow_collateral_usd",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/admin.sh:103"
+  },
+  {
+    "contract": "controller",
+    "method": "set_min_borrow_collateral_usd",
+    "case": "flow_admin",
+    "label": "minb_set_high",
+    "root_contract": "controller",
+    "root_method": "set_min_borrow_collateral_usd",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/admin.sh:101"
+  },
+  {
+    "contract": "controller",
+    "method": "upgrade_liquidity_pool_params",
+    "case": "flow_admin",
+    "label": "update_pool_params",
+    "root_contract": "controller",
+    "root_method": "upgrade_liquidity_pool_params",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/admin.sh:14"
+  },
+  {
+    "contract": "pool",
+    "method": "repay",
+    "case": "flow_lifecycle",
+    "label": "repay_partial",
+    "root_contract": "controller",
+    "root_method": "repay",
+    "execution": "nested-call",
+    "path": [
+      "controller.repay",
+      "pool.repay"
+    ],
+    "source": "contracts/controller/src/external/pool.rs"
+  },
+  {
+    "contract": "pool",
+    "method": "borrow",
+    "case": "flow_lifecycle",
+    "label": "borrow_single",
+    "root_contract": "controller",
+    "root_method": "borrow",
+    "execution": "nested-call",
+    "path": [
+      "controller.borrow",
+      "pool.borrow"
+    ],
+    "source": "contracts/controller/src/external/pool.rs"
+  },
+  {
+    "contract": "pool",
+    "method": "supply",
+    "case": "flow_lifecycle",
+    "label": "supply_create",
+    "root_contract": "controller",
+    "root_method": "supply",
+    "execution": "nested-call",
+    "path": [
+      "controller.supply",
+      "pool.supply"
+    ],
+    "source": "contracts/controller/src/external/pool.rs"
+  },
+  {
+    "contract": "pool",
+    "method": "upgrade",
+    "case": "flow_admin_upgrade",
+    "label": "pool_upgrade",
+    "root_contract": "controller",
+    "root_method": "upgrade_pool",
+    "execution": "nested-call",
+    "path": [
+      "controller.upgrade_pool",
+      "pool.upgrade"
+    ],
+    "source": "contracts/controller/src/external/pool.rs"
+  },
+  {
+    "contract": "pool",
+    "method": "withdraw",
+    "case": "flow_lifecycle",
+    "label": "withdraw_partial",
+    "root_contract": "controller",
+    "root_method": "withdraw",
+    "execution": "nested-call",
+    "path": [
+      "controller.withdraw",
+      "pool.withdraw"
+    ],
+    "source": "contracts/controller/src/external/pool.rs"
+  },
+  {
+    "contract": "pool",
+    "method": "flash_loan",
+    "case": "flow_flash_loans",
+    "label": "flash_loan_success",
+    "root_contract": "controller",
+    "root_method": "flash_loan",
+    "execution": "nested-call",
+    "path": [
+      "controller.flash_loan",
+      "pool.flash_loan"
+    ],
+    "source": "contracts/controller/src/external/pool.rs"
+  },
+  {
+    "contract": "pool",
+    "method": "net_settle",
+    "case": "flow_same_market",
+    "label": "net_partial",
+    "root_contract": "controller",
+    "root_method": "repay_debt_with_collateral",
+    "execution": "nested-call",
+    "path": [
+      "controller.repay_debt_with_collateral",
+      "pool.net_settle"
+    ],
+    "source": "contracts/controller/src/external/pool.rs"
+  },
+  {
+    "contract": "pool",
+    "method": "get_revenue",
+    "case": "flow_admin",
+    "label": "pool_revenue_pre",
+    "root_contract": "pool",
+    "root_method": "get_revenue",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/admin.sh:55"
+  },
+  {
+    "contract": "pool",
+    "method": "get_reserves",
+    "case": "flow_admin",
+    "label": "pool_reserves_view",
+    "root_contract": "pool",
+    "root_method": "get_reserves",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/admin.sh:75"
+  },
+  {
+    "contract": "pool",
+    "method": "recapitalize",
+    "case": "flow_force_socialize_and_recap",
+    "label": "fs_recapitalize",
+    "root_contract": "controller",
+    "root_method": "recapitalize",
+    "execution": "nested-call",
+    "path": [
+      "controller.recapitalize",
+      "pool.recapitalize"
+    ],
+    "source": "contracts/controller/src/external/pool.rs"
+  },
+  {
+    "contract": "pool",
+    "method": "__constructor",
+    "case": "deploy_protocol",
+    "label": "deploy_pool",
+    "root_contract": "controller",
+    "root_method": "deploy_pool",
+    "execution": "deployment",
+    "path": [
+      "deployment invokes constructor"
+    ],
+    "source": "tests/integration/lib/protocol.sh"
+  },
+  {
+    "contract": "pool",
+    "method": "claim_revenue",
+    "case": "flow_admin",
+    "label": "claim_revenue",
+    "root_contract": "controller",
+    "root_method": "claim_revenue",
+    "execution": "nested-call",
+    "path": [
+      "controller.claim_revenue",
+      "pool.claim_revenue"
+    ],
+    "source": "contracts/controller/src/external/pool.rs"
+  },
+  {
+    "contract": "pool",
+    "method": "create_market",
+    "case": "flow_real_markets",
+    "label": "create_market_XLM",
+    "root_contract": "controller",
+    "root_method": "create_liquidity_pool",
+    "execution": "nested-call",
+    "path": [
+      "controller.create_liquidity_pool",
+      "pool.create_market"
+    ],
+    "source": "contracts/controller/src/external/pool.rs"
+  },
+  {
+    "contract": "pool",
+    "method": "get_sync_data",
+    "case": "flow_pool_surface",
+    "label": "pool_get_sync_data",
+    "root_contract": "pool",
+    "root_method": "get_sync_data",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/admin.sh:348"
+  },
+  {
+    "contract": "pool",
+    "method": "update_params",
+    "case": "flow_admin",
+    "label": "update_pool_params",
+    "root_contract": "controller",
+    "root_method": "upgrade_liquidity_pool_params",
+    "execution": "nested-call",
+    "path": [
+      "controller.upgrade_liquidity_pool_params",
+      "pool.update_params"
+    ],
+    "source": "contracts/controller/src/external/pool.rs"
+  },
+  {
+    "contract": "pool",
+    "method": "get_delta_time",
+    "case": "flow_admin",
+    "label": "pool_delta_time_view",
+    "root_contract": "pool",
+    "root_method": "get_delta_time",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/admin.sh:79"
+  },
+  {
+    "contract": "pool",
+    "method": "update_indexes",
+    "case": "flow_admin",
+    "label": "update_indexes",
+    "root_contract": "controller",
+    "root_method": "update_indexes",
+    "execution": "nested-call",
+    "path": [
+      "controller.update_indexes",
+      "pool.update_indexes"
+    ],
+    "source": "contracts/controller/src/external/pool.rs"
+  },
+  {
+    "contract": "pool",
+    "method": "create_strategy",
+    "case": "flow_strategies",
+    "label": "multiply_long",
+    "root_contract": "controller",
+    "root_method": "multiply",
+    "execution": "nested-call",
+    "path": [
+      "controller.multiply",
+      "pool.create_strategy"
+    ],
+    "source": "contracts/controller/src/external/pool.rs"
+  },
+  {
+    "contract": "pool",
+    "method": "get_borrow_rate",
+    "case": "flow_admin",
+    "label": "pool_rates_view",
+    "root_contract": "pool",
+    "root_method": "get_borrow_rate",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/admin.sh:69"
+  },
+  {
+    "contract": "pool",
+    "method": "get_utilisation",
+    "case": "flow_admin",
+    "label": "pool_util_view",
+    "root_contract": "pool",
+    "root_method": "get_utilisation",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/admin.sh:70"
+  },
+  {
+    "contract": "pool",
+    "method": "seize_positions",
+    "case": "flow_force_socialize_and_recap",
+    "label": "fs_force_socialize",
+    "root_contract": "controller",
+    "root_method": "force_socialize_bad_debt",
+    "execution": "nested-call",
+    "path": [
+      "controller.force_socialize_bad_debt",
+      "pool.seize_positions"
+    ],
+    "source": "contracts/controller/src/external/pool.rs"
+  },
+  {
+    "contract": "pool",
+    "method": "get_bulk_indexes",
+    "case": "flow_pool_surface",
+    "label": "pool_get_bulk_indexes",
+    "root_contract": "pool",
+    "root_method": "get_bulk_indexes",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/admin.sh:356"
+  },
+  {
+    "contract": "pool",
+    "method": "get_deposit_rate",
+    "case": "flow_admin",
+    "label": "pool_deposit_rate_view",
+    "root_contract": "pool",
+    "root_method": "get_deposit_rate",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/admin.sh:78"
+  },
+  {
+    "contract": "pool",
+    "method": "get_borrowed_amount",
+    "case": "flow_admin",
+    "label": "pool_borrowed_view",
+    "root_contract": "pool",
+    "root_method": "get_borrowed_amount",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/admin.sh:77"
+  },
+  {
+    "contract": "pool",
+    "method": "get_supplied_amount",
+    "case": "flow_admin",
+    "label": "pool_supplied_view",
+    "root_contract": "pool",
+    "root_method": "get_supplied_amount",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/admin.sh:76"
+  },
+  {
+    "contract": "governance",
+    "method": "pause",
+    "case": "flow_governance",
+    "label": "gov_pause",
+    "root_contract": "governance",
+    "root_method": "pause",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/governance.sh:171"
+  },
+  {
+    "contract": "governance",
+    "method": "cancel",
+    "case": "flow_governance",
+    "label": "gov_cancel",
+    "root_contract": "governance",
+    "root_method": "cancel",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/governance.sh:85"
+  },
+  {
+    "contract": "governance",
+    "method": "execute",
+    "case": "flow_governance",
+    "label": "gov_execute_unpause",
+    "root_contract": "governance",
+    "root_method": "execute",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/governance.sh:70"
+  },
+  {
+    "contract": "governance",
+    "method": "propose",
+    "case": "flow_governance",
+    "label": "gov_propose_unpause",
+    "root_contract": "governance",
+    "root_method": "propose",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/governance.sh:60"
+  },
+  {
+    "contract": "governance",
+    "method": "has_role",
+    "case": "flow_governance",
+    "label": "gov_has_role_admin_executor",
+    "root_contract": "governance",
+    "root_method": "has_role",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/governance.sh:74"
+  },
+  {
+    "contract": "governance",
+    "method": "add_spoke",
+    "case": "flow_governance",
+    "label": "gov_add_spoke",
+    "root_contract": "governance",
+    "root_method": "add_spoke",
+    "execution": "direct-call"
+  },
+  {
+    "contract": "governance",
+    "method": "controller",
+    "case": "flow_governance",
+    "label": "gov_controller_view",
+    "root_contract": "governance",
+    "root_method": "controller",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/governance.sh:52"
+  },
+  {
+    "contract": "governance",
+    "method": "create_hub",
+    "case": "flow_governance",
+    "label": "gov_create_hub",
+    "root_contract": "governance",
+    "root_method": "create_hub",
+    "execution": "direct-call"
+  },
+  {
+    "contract": "governance",
+    "method": "execute_self",
+    "case": "flow_governance",
+    "label": "gov_self_execute_delay",
+    "root_contract": "governance",
+    "root_method": "execute_self",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/governance.sh:142"
+  },
+  {
+    "contract": "governance",
+    "method": "get_min_delay",
+    "case": "flow_governance",
+    "label": "gov_min_delay",
+    "root_contract": "governance",
+    "root_method": "get_min_delay",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/governance.sh:73"
+  },
+  {
+    "contract": "governance",
+    "method": "hash_operation",
+    "case": "flow_governance",
+    "label": "gov_hash_exec",
+    "root_contract": "governance",
+    "root_method": "hash_operation",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/governance.sh:101"
+  },
+  {
+    "contract": "governance",
+    "method": "set_sanity_band",
+    "case": "flow_production_caller",
+    "label": "prod_governance_band",
+    "root_contract": "governance",
+    "root_method": "set_sanity_band",
+    "execution": "direct-call"
+  },
+  {
+    "contract": "governance",
+    "method": "accept_ownership",
+    "execution": "controlled-ledger",
+    "controlled_case": "governance_ownership",
+    "scope": "Native client, mocked auth, sensitive-delay advance and owner/admin/role state assertions"
+  },
+  {
+    "contract": "governance",
+    "method": "price_aggregator",
+    "case": "flow_governance",
+    "label": "gov_price_aggregator_getter",
+    "root_contract": "governance",
+    "root_method": "price_aggregator",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/governance.sh:197"
+  },
+  {
+    "contract": "governance",
+    "method": "deploy_controller",
+    "case": "deploy_protocol",
+    "label": "deploy_controller",
+    "root_contract": "governance",
+    "root_method": "deploy_controller",
+    "execution": "direct-call",
+    "source": "tests/integration/lib/protocol.sh:204"
+  },
+  {
+    "contract": "governance",
+    "method": "get_operation_state",
+    "case": "flow_governance",
+    "label": "gov_state_waiting",
+    "root_contract": "governance",
+    "root_method": "get_operation_state",
+    "execution": "direct-call",
+    "path": [
+      "gov_assert_state",
+      "gov_state"
+    ],
+    "source": "tests/integration/flows/governance.sh:84"
+  },
+  {
+    "contract": "governance",
+    "method": "get_operation_ledger",
+    "case": "flow_governance",
+    "label": "gov_op_ledger_exec",
+    "root_contract": "governance",
+    "root_method": "get_operation_ledger",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/governance.sh:104"
+  },
+  {
+    "contract": "governance",
+    "method": "resolve_asset_oracle",
+    "case": "flow_real_markets",
+    "label": "resolve_oracle_XLM",
+    "root_contract": "governance",
+    "root_method": "resolve_asset_oracle",
+    "execution": "direct-call",
+    "path": [
+      "create_market",
+      "view"
+    ],
+    "source": "tests/integration/lib/protocol.sh:485"
+  },
+  {
+    "contract": "governance",
+    "method": "revoke_role_immediate",
+    "case": "flow_governance",
+    "label": "gov_revoke_guardian_dave",
+    "root_contract": "governance",
+    "root_method": "revoke_role_immediate",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/governance.sh:251"
+  },
+  {
+    "contract": "governance",
+    "method": "set_spoke_asset_flags",
+    "case": "flow_production_caller",
+    "label": "prod_governance_flags",
+    "root_contract": "governance",
+    "root_method": "set_spoke_asset_flags",
+    "execution": "direct-call"
+  },
+  {
+    "contract": "governance",
+    "method": "deploy_price_aggregator",
+    "case": "flow_governance",
+    "label": "gov_deploy_price_agg",
+    "root_contract": "governance",
+    "root_method": "deploy_price_aggregator",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/governance.sh:190"
+  },
+  {
+    "contract": "governance",
+    "method": "execute_canceller_reset",
+    "execution": "controlled-ledger",
+    "controlled_case": "governance_recovery",
+    "scope": "Native governance client, mocked auth, advanced ledger reaches full successful recovery"
+  },
+  {
+    "contract": "governance",
+    "method": "propose_canceller_reset",
+    "case": "flow_governance",
+    "label": "gov_propose_canceller_reset",
+    "root_contract": "governance",
+    "root_method": "propose_canceller_reset",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/governance.sh:267"
+  },
+  {
+    "contract": "governance",
+    "method": "resolve_oracle_tolerance",
+    "case": "flow_admin",
+    "label": "oracle_tol_resolve",
+    "root_contract": "governance",
+    "root_method": "resolve_oracle_tolerance",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/admin.sh:33"
+  },
+  {
+    "contract": "governance",
+    "method": "__constructor",
+    "case": "deploy_protocol",
+    "label": "deploy_governance",
+    "root_contract": "governance",
+    "root_method": "deploy",
+    "execution": "deployment",
+    "path": [
+      "deployment invokes constructor"
+    ],
+    "source": "tests/integration/lib/protocol.sh"
+  },
+  {
+    "contract": "price_aggregator",
+    "method": "oracle",
+    "case": "flow_admin",
+    "label": "pa_oracle",
+    "root_contract": "price_aggregator",
+    "root_method": "oracle",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/admin.sh:253"
+  },
+  {
+    "contract": "price_aggregator",
+    "method": "prices",
+    "case": "flow_admin",
+    "label": "pa_prices",
+    "root_contract": "price_aggregator",
+    "root_method": "prices",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/admin.sh:264"
+  },
+  {
+    "contract": "price_aggregator",
+    "method": "quotes",
+    "case": "flow_admin",
+    "label": "pa_quotes",
+    "root_contract": "price_aggregator",
+    "root_method": "quotes",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/admin.sh:265"
+  },
+  {
+    "contract": "price_aggregator",
+    "method": "upgrade",
+    "execution": "controlled-ledger",
+    "controlled_case": "price_aggregator_upgrade",
+    "scope": "Governance invokes real deployed price-aggregator WASM with its current hash after sensitive delay; dispatch/auth, not schema migration"
+  },
+  {
+    "contract": "price_aggregator",
+    "method": "get_owner",
+    "case": "flow_admin",
+    "label": "pa_get_owner",
+    "root_contract": "price_aggregator",
+    "root_method": "get_owner",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/admin.sh:249"
+  },
+  {
+    "contract": "price_aggregator",
+    "method": "set_oracle",
+    "case": "flow_real_markets",
+    "label": "set_oracle_XLM",
+    "root_contract": "price_aggregator",
+    "root_method": "set_oracle",
+    "execution": "direct-call",
+    "path": [
+      "create_market",
+      "inv"
+    ],
+    "source": "tests/integration/lib/protocol.sh:492"
+  },
+  {
+    "contract": "price_aggregator",
+    "method": "price_spread",
+    "case": "flow_admin",
+    "label": "pa_price_spread",
+    "root_contract": "price_aggregator",
+    "root_method": "price_spread",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/admin.sh:241"
+  },
+  {
+    "contract": "price_aggregator",
+    "method": "__constructor",
+    "case": "flow_governance",
+    "label": "gov_deploy_price_agg",
+    "root_contract": "governance",
+    "root_method": "deploy_price_aggregator",
+    "execution": "deployment",
+    "path": [
+      "deployment invokes constructor"
+    ],
+    "source": "tests/integration/flows/governance.sh"
+  },
+  {
+    "contract": "price_aggregator",
+    "method": "set_tolerance",
+    "case": "flow_admin",
+    "label": "set_tolerance",
+    "root_contract": "price_aggregator",
+    "root_method": "set_tolerance",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/admin.sh:35"
+  },
+  {
+    "contract": "price_aggregator",
+    "method": "set_sanity_band",
+    "case": "flow_admin",
+    "label": "pa_set_sanity_band",
+    "root_contract": "price_aggregator",
+    "root_method": "set_sanity_band",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/admin.sh:300"
+  },
+  {
+    "contract": "position_nft",
+    "method": "burn",
+    "case": "flow_nft",
+    "label": "nft_new_owner_withdraw",
+    "root_contract": "controller",
+    "root_method": "withdraw",
+    "execution": "nested-call",
+    "path": [
+      "controller.withdraw",
+      "position_nft.burn"
+    ],
+    "source": "contracts/controller/src/external/position_nft.rs"
+  },
+  {
+    "contract": "position_nft",
+    "method": "mint",
+    "case": "flow_nft",
+    "label": "nft_supply",
+    "root_contract": "controller",
+    "root_method": "supply",
+    "execution": "nested-call",
+    "path": [
+      "controller.supply",
+      "position_nft.mint"
+    ],
+    "source": "contracts/controller/src/external/position_nft.rs"
+  },
+  {
+    "contract": "position_nft",
+    "method": "name",
+    "case": "flow_nft",
+    "label": "nft_name",
+    "root_contract": "position_nft",
+    "root_method": "name",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/nft.sh:7"
+  },
+  {
+    "contract": "position_nft",
+    "method": "renew",
+    "case": "flow_admin_upgrade",
+    "label": "nft_renew",
+    "root_contract": "position_nft",
+    "root_method": "renew",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/admin.sh:195"
+  },
+  {
+    "contract": "position_nft",
+    "method": "symbol",
+    "case": "flow_nft",
+    "label": "nft_symbol",
+    "root_contract": "position_nft",
+    "root_method": "symbol",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/nft.sh:8"
+  },
+  {
+    "contract": "position_nft",
+    "method": "approve",
+    "case": "flow_nft",
+    "label": "nft_approve",
+    "root_contract": "position_nft",
+    "root_method": "approve",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/nft.sh:16"
+  },
+  {
+    "contract": "position_nft",
+    "method": "balance",
+    "case": "flow_nft",
+    "label": "nft_owner_balance",
+    "root_contract": "position_nft",
+    "root_method": "balance",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/nft.sh:24"
+  },
+  {
+    "contract": "position_nft",
+    "method": "upgrade",
+    "case": "flow_admin_upgrade",
+    "label": "nft_upgrade_via_controller",
+    "root_contract": "controller",
+    "root_method": "upgrade_position_nft",
+    "execution": "nested-call",
+    "path": [
+      "controller.upgrade_position_nft",
+      "position_nft.upgrade"
+    ],
+    "source": "contracts/controller/src/external/position_nft.rs"
+  },
+  {
+    "contract": "position_nft",
+    "method": "owner_of",
+    "case": "flow_nft",
+    "label": "nft_transferred",
+    "root_contract": "position_nft",
+    "root_method": "owner_of",
+    "execution": "direct-call"
+  },
+  {
+    "contract": "position_nft",
+    "method": "transfer",
+    "case": "flow_nft",
+    "label": "nft_transfer",
+    "root_contract": "position_nft",
+    "root_method": "transfer",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/nft.sh:10"
+  },
+  {
+    "contract": "position_nft",
+    "method": "token_uri",
+    "case": "flow_nft",
+    "label": "nft_uri",
+    "root_contract": "position_nft",
+    "root_method": "token_uri",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/nft.sh:9"
+  },
+  {
+    "contract": "position_nft",
+    "method": "get_approved",
+    "case": "flow_nft",
+    "label": "nft_approved",
+    "root_contract": "position_nft",
+    "root_method": "get_approved",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/nft.sh:17"
+  },
+  {
+    "contract": "position_nft",
+    "method": "get_token_id",
+    "case": "flow_nft",
+    "label": "nft_global_enumeration",
+    "root_contract": "position_nft",
+    "root_method": "get_token_id",
+    "execution": "direct-call"
+  },
+  {
+    "contract": "position_nft",
+    "method": "total_supply",
+    "case": "flow_teardown",
+    "label": "td_nft_total",
+    "root_contract": "position_nft",
+    "root_method": "total_supply",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/teardown.sh:204"
+  },
+  {
+    "contract": "position_nft",
+    "method": "__constructor",
+    "case": "deploy_protocol",
+    "label": "deploy_position_nft",
+    "root_contract": "controller",
+    "root_method": "deploy_position_nft",
+    "execution": "deployment",
+    "path": [
+      "deployment invokes constructor"
+    ],
+    "source": "tests/integration/lib/protocol.sh"
+  },
+  {
+    "contract": "position_nft",
+    "method": "transfer_from",
+    "case": "flow_nft",
+    "label": "nft_transfer_from",
+    "root_contract": "position_nft",
+    "root_method": "transfer_from",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/nft.sh:18"
+  },
+  {
+    "contract": "position_nft",
+    "method": "approve_for_all",
+    "case": "flow_nft",
+    "label": "nft_approve_all",
+    "root_contract": "position_nft",
+    "root_method": "approve_for_all",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/nft.sh:19"
+  },
+  {
+    "contract": "position_nft",
+    "method": "get_owner_token_id",
+    "case": "flow_nft",
+    "label": "nft_owner_enumeration",
+    "root_contract": "position_nft",
+    "root_method": "get_owner_token_id",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/nft.sh:23"
+  },
+  {
+    "contract": "position_nft",
+    "method": "is_approved_for_all",
+    "case": "flow_nft",
+    "label": "nft_all_approved",
+    "root_contract": "position_nft",
+    "root_method": "is_approved_for_all",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/nft.sh:20"
+  },
+  {
+    "contract": "defindex_strategy",
+    "method": "asset",
+    "case": "flow_defindex_strategy",
+    "label": "dfx_asset",
+    "root_contract": "defindex_strategy",
+    "root_method": "asset",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/defindex.sh:60"
+  },
+  {
+    "contract": "defindex_strategy",
+    "method": "balance",
+    "case": "flow_defindex_strategy",
+    "label": "dfx_balance_post_deposit",
+    "root_contract": "defindex_strategy",
+    "root_method": "balance",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/defindex.sh:76"
+  },
+  {
+    "contract": "defindex_strategy",
+    "method": "deposit",
+    "case": "flow_defindex_strategy",
+    "label": "dfx_deposit",
+    "root_contract": "defindex_strategy",
+    "root_method": "deposit",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/defindex.sh:72"
+  },
+  {
+    "contract": "defindex_strategy",
+    "method": "harvest",
+    "case": "flow_defindex_strategy",
+    "label": "dfx_harvest",
+    "root_contract": "defindex_strategy",
+    "root_method": "harvest",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/defindex.sh:84"
+  },
+  {
+    "contract": "defindex_strategy",
+    "method": "withdraw",
+    "case": "flow_defindex_strategy",
+    "label": "dfx_withdraw_partial",
+    "root_contract": "defindex_strategy",
+    "root_method": "withdraw",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/defindex.sh:99"
+  },
+  {
+    "contract": "defindex_strategy",
+    "method": "__constructor",
+    "case": "flow_defindex_strategy",
+    "label": "deploy_defindex_strategy",
+    "root_contract": "defindex_strategy",
+    "root_method": "deploy",
+    "execution": "deployment",
+    "path": [
+      "deployment invokes constructor"
+    ],
+    "source": "tests/integration/flows/defindex.sh"
+  },
+  {
+    "contract": "aggregator",
+    "method": "admin",
+    "case": "flow_swap_aggregator_admin",
+    "label": "sa_admin_initial",
+    "root_contract": "aggregator",
+    "root_method": "admin",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/swap_aggregator.sh:18"
+  },
+  {
+    "contract": "aggregator",
+    "method": "upgrade",
+    "case": "flow_swap_aggregator_admin",
+    "label": "sa_upgrade",
+    "root_contract": "aggregator",
+    "root_method": "upgrade",
+    "execution": "direct-call"
+  },
+  {
+    "contract": "aggregator",
+    "method": "referral",
+    "case": "flow_swap_aggregator_admin",
+    "label": "sa_ref_view",
+    "root_contract": "aggregator",
+    "root_method": "referral",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/swap_aggregator.sh:81"
+  },
+  {
+    "contract": "aggregator",
+    "method": "get_owner",
+    "case": "flow_swap_aggregator_admin",
+    "label": "sa_owner_initial",
+    "root_contract": "aggregator",
+    "root_method": "get_owner",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/swap_aggregator.sh:17"
+  },
+  {
+    "contract": "aggregator",
+    "method": "add_referral",
+    "case": "flow_swap_aggregator_admin",
+    "label": "sa_ref_add",
+    "root_contract": "aggregator",
+    "root_method": "add_referral",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/swap_aggregator.sh:71"
+  },
+  {
+    "contract": "aggregator",
+    "method": "__constructor",
+    "case": "deploy_protocol",
+    "label": "deploy_owned_aggregator",
+    "root_contract": "aggregator",
+    "root_method": "deploy",
+    "execution": "deployment",
+    "path": [
+      "deployment invokes constructor"
+    ],
+    "source": "tests/integration/lib/protocol.sh"
+  },
+  {
+    "contract": "aggregator",
+    "method": "sweep_balance",
+    "case": "flow_swap_aggregator_admin",
+    "label": "sa_sweep_balance",
+    "root_contract": "aggregator",
+    "root_method": "sweep_balance",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/swap_aggregator.sh:127"
+  },
+  {
+    "contract": "aggregator",
+    "method": "is_whitelisted",
+    "case": "flow_swap_aggregator_admin",
+    "label": "sa_wl_before",
+    "root_contract": "aggregator",
+    "root_method": "is_whitelisted",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/swap_aggregator.sh:41"
+  },
+  {
+    "contract": "aggregator",
+    "method": "set_static_fee",
+    "case": "flow_swap_aggregator_admin",
+    "label": "sa_set_fee",
+    "root_contract": "aggregator",
+    "root_method": "set_static_fee",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/swap_aggregator.sh:22"
+  },
+  {
+    "contract": "aggregator",
+    "method": "static_fee_bps",
+    "case": "flow_swap_aggregator_admin",
+    "label": "sa_fee_initial",
+    "root_contract": "aggregator",
+    "root_method": "static_fee_bps",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/swap_aggregator.sh:21"
+  },
+  {
+    "contract": "aggregator",
+    "method": "accept_ownership",
+    "case": "flow_swap_aggregator_admin",
+    "label": "sa_accept_owner",
+    "root_contract": "aggregator",
+    "root_method": "accept_ownership",
+    "execution": "direct-call"
+  },
+  {
+    "contract": "aggregator",
+    "method": "add_to_whitelist",
+    "case": "flow_swap_aggregator_admin",
+    "label": "sa_wl_add",
+    "root_contract": "aggregator",
+    "root_method": "add_to_whitelist",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/swap_aggregator.sh:42"
+  },
+  {
+    "contract": "aggregator",
+    "method": "claim_admin_fees",
+    "case": "flow_swap_aggregator_admin",
+    "label": "sa_claim_admin_fees",
+    "root_contract": "aggregator",
+    "root_method": "claim_admin_fees",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/swap_aggregator.sh:123"
+  },
+  {
+    "contract": "aggregator",
+    "method": "execute_strategy",
+    "case": "flow_strategies",
+    "label": "multiply_long",
+    "root_contract": "controller",
+    "root_method": "multiply",
+    "execution": "nested-call",
+    "path": [
+      "controller.multiply",
+      "aggregator.execute_strategy"
+    ],
+    "source": "contracts/controller/src/strategies/swap.rs:37"
+  },
+  {
+    "contract": "aggregator",
+    "method": "referral_counter",
+    "case": "flow_swap_aggregator_admin",
+    "label": "sa_ref_counter_initial",
+    "root_contract": "aggregator",
+    "root_method": "referral_counter",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/swap_aggregator.sh:69"
+  },
+  {
+    "contract": "aggregator",
+    "method": "set_referral_fee",
+    "case": "flow_swap_aggregator_admin",
+    "label": "sa_ref_set_fee",
+    "root_contract": "aggregator",
+    "root_method": "set_referral_fee",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/swap_aggregator.sh:93"
+  },
+  {
+    "contract": "aggregator",
+    "method": "admin_fee_balance",
+    "case": "flow_swap_aggregator_admin",
+    "label": "sa_admin_fee_zero",
+    "root_contract": "aggregator",
+    "root_method": "admin_fee_balance",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/swap_aggregator.sh:120"
+  },
+  {
+    "contract": "aggregator",
+    "method": "set_referral_owner",
+    "case": "flow_swap_aggregator_admin",
+    "label": "sa_ref_set_owner",
+    "root_contract": "aggregator",
+    "root_method": "set_referral_owner",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/swap_aggregator.sh:108"
+  },
+  {
+    "contract": "aggregator",
+    "method": "transfer_ownership",
+    "case": "flow_swap_aggregator_admin",
+    "label": "sa_transfer_owner",
+    "root_contract": "aggregator",
+    "root_method": "transfer_ownership",
+    "execution": "direct-call"
+  },
+  {
+    "contract": "aggregator",
+    "method": "whitelisted_tokens",
+    "case": "flow_swap_aggregator_admin",
+    "label": "sa_wl_list_again",
+    "root_contract": "aggregator",
+    "root_method": "whitelisted_tokens",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/swap_aggregator.sh:56"
+  },
+  {
+    "contract": "aggregator",
+    "method": "claim_referral_fees",
+    "case": "flow_swap_aggregator_admin",
+    "label": "sa_claim_referral_fees",
+    "root_contract": "aggregator",
+    "root_method": "claim_referral_fees",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/swap_aggregator.sh:125"
+  },
+  {
+    "contract": "aggregator",
+    "method": "set_referral_active",
+    "case": "flow_swap_aggregator_admin",
+    "label": "sa_ref_deactivate",
+    "root_contract": "aggregator",
+    "root_method": "set_referral_active",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/swap_aggregator.sh:94"
+  },
+  {
+    "contract": "aggregator",
+    "method": "referral_fee_balance",
+    "case": "flow_swap_aggregator_admin",
+    "label": "sa_ref_fee_zero",
+    "root_contract": "aggregator",
+    "root_method": "referral_fee_balance",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/swap_aggregator.sh:121"
+  },
+  {
+    "contract": "aggregator",
+    "method": "remove_from_whitelist",
+    "case": "flow_swap_aggregator_admin",
+    "label": "sa_wl_remove",
+    "root_contract": "aggregator",
+    "root_method": "remove_from_whitelist",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/swap_aggregator.sh:63"
+  },
+  {
+    "contract": "xoxno-oracle-adapter",
+    "method": "upgrade",
+    "case": "flow_xoxno_oracle",
+    "label": "xo_upgrade",
+    "root_contract": "xoxno-oracle-adapter",
+    "root_method": "upgrade",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/xoxno_oracle.sh:155"
+  },
+  {
+    "contract": "xoxno-oracle-adapter",
+    "method": "get_owner",
+    "case": "flow_xoxno_oracle",
+    "label": "xo_owner",
+    "root_contract": "xoxno-oracle-adapter",
+    "root_method": "get_owner",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/xoxno_oracle.sh:29"
+  },
+  {
+    "contract": "xoxno-oracle-adapter",
+    "method": "__constructor",
+    "case": "flow_xoxno_oracle",
+    "label": "deploy_xoxno_oracle",
+    "root_contract": "xoxno-oracle-adapter",
+    "root_method": "deploy",
+    "execution": "deployment",
+    "path": [
+      "deployment invokes constructor"
+    ],
+    "source": "tests/integration/flows/xoxno_oracle.sh"
+  },
+  {
+    "contract": "xoxno-oracle-adapter",
+    "method": "accept_ownership",
+    "case": "flow_xoxno_oracle",
+    "label": "xo_accept_owner",
+    "root_contract": "xoxno-oracle-adapter",
+    "root_method": "accept_ownership",
+    "execution": "direct-call"
+  },
+  {
+    "contract": "xoxno-oracle-adapter",
+    "method": "transfer_ownership",
+    "case": "flow_xoxno_oracle",
+    "label": "xo_transfer_owner",
+    "root_contract": "xoxno-oracle-adapter",
+    "root_method": "transfer_ownership",
+    "execution": "direct-call"
+  },
+  {
+    "contract": "xoxno-oracle-adapter",
+    "method": "add_feed",
+    "case": "flow_xoxno_oracle",
+    "label": "xo_add_feed_usdx",
+    "root_contract": "xoxno-oracle-adapter",
+    "root_method": "add_feed",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/xoxno_oracle.sh:69"
+  },
+  {
+    "contract": "xoxno-oracle-adapter",
+    "method": "add_signer",
+    "case": "flow_xoxno_oracle",
+    "label": "xo_add_signer_dave",
+    "root_contract": "xoxno-oracle-adapter",
+    "root_method": "add_signer",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/xoxno_oracle.sh:40"
+  },
+  {
+    "contract": "xoxno-oracle-adapter",
+    "method": "purge_feed",
+    "case": "flow_xoxno_oracle",
+    "label": "xo_purge_xlmx",
+    "root_contract": "xoxno-oracle-adapter",
+    "root_method": "purge_feed",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/xoxno_oracle.sh:164"
+  },
+  {
+    "contract": "xoxno-oracle-adapter",
+    "method": "remove_feed",
+    "case": "flow_xoxno_oracle",
+    "label": "xo_remove_feed",
+    "root_contract": "xoxno-oracle-adapter",
+    "root_method": "remove_feed",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/xoxno_oracle.sh:162"
+  },
+  {
+    "contract": "xoxno-oracle-adapter",
+    "method": "register_feed",
+    "case": "flow_xoxno_oracle",
+    "label": "xo_register_xlmx",
+    "root_contract": "xoxno-oracle-adapter",
+    "root_method": "register_feed",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/xoxno_oracle.sh:67"
+  },
+  {
+    "contract": "xoxno-oracle-adapter",
+    "method": "remove_signer",
+    "case": "flow_xoxno_oracle",
+    "label": "xo_remove_signer_dave",
+    "root_contract": "xoxno-oracle-adapter",
+    "root_method": "remove_signer",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/xoxno_oracle.sh:42"
+  },
+  {
+    "contract": "xoxno-oracle-adapter",
+    "method": "set_threshold",
+    "case": "flow_xoxno_oracle",
+    "label": "xo_set_threshold",
+    "root_contract": "xoxno-oracle-adapter",
+    "root_method": "set_threshold",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/xoxno_oracle.sh:37"
+  },
+  {
+    "contract": "xoxno-oracle-adapter",
+    "method": "set_resolution",
+    "case": "flow_xoxno_oracle",
+    "label": "xo_set_resolution",
+    "root_contract": "xoxno-oracle-adapter",
+    "root_method": "set_resolution",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/xoxno_oracle.sh:63"
+  },
+  {
+    "contract": "xoxno-oracle-adapter",
+    "method": "recompute_feeds",
+    "case": "flow_xoxno_oracle",
+    "label": "xo_recompute",
+    "root_contract": "xoxno-oracle-adapter",
+    "root_method": "recompute_feeds",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/xoxno_oracle.sh:144"
+  },
+  {
+    "contract": "xoxno-oracle-adapter",
+    "method": "set_max_stale_seconds",
+    "case": "flow_xoxno_oracle",
+    "label": "xo_set_stale",
+    "root_contract": "xoxno-oracle-adapter",
+    "root_method": "set_max_stale_seconds",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/xoxno_oracle.sh:49"
+  },
+  {
+    "contract": "xoxno-oracle-adapter",
+    "method": "set_max_cluster_spread_bps",
+    "case": "flow_xoxno_oracle",
+    "label": "xo_set_spread",
+    "root_contract": "xoxno-oracle-adapter",
+    "root_method": "set_max_cluster_spread_bps",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/xoxno_oracle.sh:61"
+  },
+  {
+    "contract": "xoxno-oracle-adapter",
+    "method": "set_max_relative_skew_seconds",
+    "case": "flow_xoxno_oracle",
+    "label": "xo_set_skew",
+    "root_contract": "xoxno-oracle-adapter",
+    "root_method": "set_max_relative_skew_seconds",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/xoxno_oracle.sh:57"
+  },
+  {
+    "contract": "xoxno-oracle-adapter",
+    "method": "set_max_submission_age_seconds",
+    "case": "flow_xoxno_oracle",
+    "label": "xo_set_sub_age",
+    "root_contract": "xoxno-oracle-adapter",
+    "root_method": "set_max_submission_age_seconds",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/xoxno_oracle.sh:51"
+  },
+  {
+    "contract": "xoxno-oracle-adapter",
+    "method": "base",
+    "case": "flow_xoxno_oracle",
+    "label": "xo_base",
+    "root_contract": "xoxno-oracle-adapter",
+    "root_method": "base",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/xoxno_oracle.sh:32"
+  },
+  {
+    "contract": "xoxno-oracle-adapter",
+    "method": "feeds",
+    "case": "flow_xoxno_oracle",
+    "label": "xo_feeds",
+    "root_contract": "xoxno-oracle-adapter",
+    "root_method": "feeds",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/xoxno_oracle.sh:72"
+  },
+  {
+    "contract": "xoxno-oracle-adapter",
+    "method": "price",
+    "case": "flow_xoxno_oracle",
+    "label": "xo_price_at",
+    "root_contract": "xoxno-oracle-adapter",
+    "root_method": "price",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/xoxno_oracle.sh:136"
+  },
+  {
+    "contract": "xoxno-oracle-adapter",
+    "method": "assets",
+    "case": "flow_xoxno_oracle",
+    "label": "xo_assets",
+    "root_contract": "xoxno-oracle-adapter",
+    "root_method": "assets",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/xoxno_oracle.sh:75"
+  },
+  {
+    "contract": "xoxno-oracle-adapter",
+    "method": "prices",
+    "case": "flow_xoxno_oracle",
+    "label": "xo_prices",
+    "root_contract": "xoxno-oracle-adapter",
+    "root_method": "prices",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/xoxno_oracle.sh:137"
+  },
+  {
+    "contract": "xoxno-oracle-adapter",
+    "method": "decimals",
+    "case": "flow_xoxno_oracle",
+    "label": "xo_decimals",
+    "root_contract": "xoxno-oracle-adapter",
+    "root_method": "decimals",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/xoxno_oracle.sh:31"
+  },
+  {
+    "contract": "xoxno-oracle-adapter",
+    "method": "lastprice",
+    "case": "flow_xoxno_oracle",
+    "label": "xo_lastprice",
+    "root_contract": "xoxno-oracle-adapter",
+    "root_method": "lastprice",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/xoxno_oracle.sh:132"
+  },
+  {
+    "contract": "xoxno-oracle-adapter",
+    "method": "resolution",
+    "case": "flow_xoxno_oracle",
+    "label": "xo_resolution",
+    "root_contract": "xoxno-oracle-adapter",
+    "root_method": "resolution",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/xoxno_oracle.sh:30"
+  },
+  {
+    "contract": "xoxno-oracle-adapter",
+    "method": "read_price_data",
+    "case": "flow_xoxno_oracle",
+    "label": "xo_read_batch",
+    "root_contract": "xoxno-oracle-adapter",
+    "root_method": "read_price_data",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/xoxno_oracle.sh:142"
+  },
+  {
+    "contract": "xoxno-oracle-adapter",
+    "method": "max_stale_seconds",
+    "case": "flow_xoxno_oracle",
+    "label": "xo_stale_read",
+    "root_contract": "xoxno-oracle-adapter",
+    "root_method": "max_stale_seconds",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/xoxno_oracle.sh:50"
+  },
+  {
+    "contract": "xoxno-oracle-adapter",
+    "method": "read_price_history",
+    "case": "flow_xoxno_oracle",
+    "label": "xo_history",
+    "root_contract": "xoxno-oracle-adapter",
+    "root_method": "read_price_history",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/xoxno_oracle.sh:139"
+  },
+  {
+    "contract": "xoxno-oracle-adapter",
+    "method": "max_cluster_spread_bps",
+    "case": "flow_xoxno_oracle",
+    "label": "xo_spread_read",
+    "root_contract": "xoxno-oracle-adapter",
+    "root_method": "max_cluster_spread_bps",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/xoxno_oracle.sh:62"
+  },
+  {
+    "contract": "xoxno-oracle-adapter",
+    "method": "read_price_data_for_feed",
+    "case": "flow_xoxno_oracle",
+    "label": "xo_read_aggregate",
+    "root_contract": "xoxno-oracle-adapter",
+    "root_method": "read_price_data_for_feed",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/xoxno_oracle.sh:104"
+  },
+  {
+    "contract": "xoxno-oracle-adapter",
+    "method": "max_relative_skew_seconds",
+    "case": "flow_xoxno_oracle",
+    "label": "xo_skew_read",
+    "root_contract": "xoxno-oracle-adapter",
+    "root_method": "max_relative_skew_seconds",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/xoxno_oracle.sh:58"
+  },
+  {
+    "contract": "xoxno-oracle-adapter",
+    "method": "max_submission_age_seconds",
+    "case": "flow_xoxno_oracle",
+    "label": "xo_sub_age_read",
+    "root_contract": "xoxno-oracle-adapter",
+    "root_method": "max_submission_age_seconds",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/xoxno_oracle.sh:52"
+  },
+  {
+    "contract": "xoxno-oracle-adapter",
+    "method": "submit_price",
+    "case": "flow_xoxno_oracle",
+    "label": "xo_submit_alice",
+    "root_contract": "xoxno-oracle-adapter",
+    "root_method": "submit_price",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/xoxno_oracle.sh:95"
+  },
+  {
+    "contract": "xoxno-oracle-adapter",
+    "method": "submit_prices",
+    "case": "flow_xoxno_oracle",
+    "label": "xo_batch_submit",
+    "root_contract": "xoxno-oracle-adapter",
+    "root_method": "submit_prices",
+    "execution": "direct-call",
+    "source": "tests/integration/flows/xoxno_oracle.sh:126"
+  }
+]

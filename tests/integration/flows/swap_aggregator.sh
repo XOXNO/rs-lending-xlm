@@ -7,8 +7,8 @@
 flow_swap_aggregator_admin() {
     phase swap_agg_admin
     if [ -z "${OWNED_AGGREGATOR:-}" ]; then
-        log "swap_agg_admin: no OWNED_AGGREGATOR, skipping"
-        return 0
+        _assert_fail sa_candidate "missing candidate aggregator"
+        return 1
     fi
     local agg="$OWNED_AGGREGATOR"
 
@@ -114,9 +114,12 @@ flow_swap_aggregator_admin() {
         _assert_fail sa_ref_owner_moved "referral owner not CAROL: $ref"
     fi
 
+    sa_fee_trade "$agg" "$ref_id" input || return 1
+    inv sa_output_whitelist "$ADMIN" "$agg" -- add_to_whitelist --token "$XLM_SAC" >/dev/null || return 1
+    sa_fee_trade "$agg" "$ref_id" output || return 1
+
     # --- fee balances and claims ---
-    # No swap routes through this instance, so both balances are zero. The
-    # claims must succeed as no-ops on an empty balance, not revert.
+    # Nonzero claims above cleared the buckets; repeated claims are no-ops.
     assert_view_eq_at "$agg" sa_admin_fee_zero 0 admin_fee_balance --token "$tok"
     assert_view_eq_at "$agg" sa_ref_fee_zero 0 referral_fee_balance --id "$ref_id" --token "$tok"
 
@@ -126,4 +129,53 @@ flow_swap_aggregator_admin() {
         --id "$ref_id" --tokens "$(jq -nc --arg t "$tok" '[$t]')" >/dev/null
     inv sa_sweep_balance "$ADMIN" "$agg" -- sweep_balance \
         --recipient "$ADMIN_ADDR" --tokens "$(jq -nc --arg t "$tok" '[$t]')" >/dev/null
+    local candidate_hash ledger
+    candidate_hash=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["artifacts"]["aggregator.wasm"])' "$RUN_DIR/candidate.json") || return 1
+    inv sa_upgrade "$ADMIN" "$agg" -- upgrade --new_wasm_hash "$candidate_hash" >/dev/null || return 1
+    assert_view_eq_at "$agg" sa_upgrade_fee 50 static_fee_bps || return 1
+    ledger=$(curl --fail-with-body -sS -m 30 "$RPC_URL" -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"getLatestLedger"}' | jq -er '.result.sequence') || return 1
+    inv sa_transfer_owner "$ADMIN" "$agg" -- transfer_ownership --new_owner "$BOB_ADDR" --live_until_ledger "$((ledger+1000))" >/dev/null || return 1
+    inv sa_accept_owner "$BOB" "$agg" -- accept_ownership >/dev/null || return 1
+    assert_view_eq_at "$agg" sa_new_owner "$BOB_ADDR" get_owner || return 1
+    xfail sa_old_owner_denied "Missing signing key for account $BOB_ADDR" "$ADMIN" "$agg" -- set_static_fee --fee_bps 10
+}
+
+sa_fee_trade() {
+    local agg="$1" referral="$2" mode="$3" amount=10000000 route token tokens
+    local payer recipient returned admin_fee referral_fee gross expected_admin expected_ref
+    local owner_before caller_before reserve_before protected=12345
+    token="$USDC_SAC"; [ "$mode" != output ] || token="$XLM_SAC"
+    tokens=$(jq -nc --arg t "$token" '[$t]')
+    inv "sa_${mode}_static_fee" "$ADMIN" "$agg" -- set_static_fee --fee_bps 50 >/dev/null || return 1
+    route=$(agg_route_hex "$USDC_SAC" "$XLM_SAC" "$amount") || return 1
+    route=$(agg_referral_route_hex "$route" "$referral") || { _assert_fail "sa_${mode}_route" "candidate referral route incompatible"; return 1; }
+    payer=$(financial_balance "$USDC_SAC" "$ALICE_ADDR") || return 1
+    recipient=$(financial_balance "$XLM_SAC" "$ALICE_ADDR") || return 1
+    reserve_before=$(financial_balance "$token" "$agg") || return 1
+    returned=$(inv "sa_${mode}_trade" "$ALICE" "$agg" -- execute_strategy --sender "$ALICE_ADDR" --total_in "$amount" --swap_xdr "$route" | tr -d '"[:space:]') || return 1
+    assert_delta "sa_${mode}_payer" "$payer" "$(financial_balance "$USDC_SAC" "$ALICE_ADDR")" "-$amount" || return 1
+    assert_delta "sa_${mode}_output" "$recipient" "$(financial_balance "$XLM_SAC" "$ALICE_ADDR")" "$returned" || return 1
+    admin_fee=$(view "sa_${mode}_admin_fee" "$agg" -- admin_fee_balance --token "$token" | tr -d '"[:space:]') || return 1
+    referral_fee=$(view "sa_${mode}_ref_fee" "$agg" -- referral_fee_balance --id "$referral" --token "$token" | tr -d '"[:space:]') || return 1
+    gross="$amount"; [ "$mode" != output ] || gross=$(raw_add "$returned" "$admin_fee" "$referral_fee")
+    expected_admin=$(python3 -c 'import sys;print(int(sys.argv[1])*50//10000)' "$gross") || return 1
+    expected_ref=$(python3 -c 'import sys;print(int(sys.argv[1])*40//10000)' "$gross") || return 1
+    _uint_ge "$expected_admin" 1 && _uint_ge "$expected_ref" 1 || { _assert_fail "sa_${mode}_nonzero" "fee fixture rounds to zero"; return 1; }
+    assert_raw_within "sa_${mode}_admin_exact" "$admin_fee" "$expected_admin" 0 || return 1
+    assert_raw_within "sa_${mode}_ref_exact" "$referral_fee" "$expected_ref" 0 || return 1
+    assert_delta "sa_${mode}_reserved" "$reserve_before" "$(financial_balance "$token" "$agg")" "$(raw_add "$admin_fee" "$referral_fee")" || return 1
+    # A sweep may take a donation, never either fee bucket.
+    inv "sa_${mode}_donation" "$ALICE" "$token" -- transfer --from "$ALICE_ADDR" --to "$agg" --amount "$protected" >/dev/null || return 1
+    owner_before=$(financial_balance "$token" "$ADMIN_ADDR") || return 1
+    inv "sa_${mode}_sweep" "$ADMIN" "$agg" -- sweep_balance --recipient "$ADMIN_ADDR" --tokens "$tokens" >/dev/null || return 1
+    assert_delta "sa_${mode}_swept_donation" "$owner_before" "$(financial_balance "$token" "$ADMIN_ADDR")" "$protected" || return 1
+    assert_delta "sa_${mode}_protected_fees" "$reserve_before" "$(financial_balance "$token" "$agg")" "$(raw_add "$admin_fee" "$referral_fee")" || return 1
+    owner_before=$(financial_balance "$token" "$CAROL_ADDR") || return 1
+    caller_before=$(financial_balance "$token" "$BOB_ADDR") || return 1
+    inv "sa_${mode}_ref_claim" "$BOB" "$agg" -- claim_referral_fees --id "$referral" --tokens "$tokens" >/dev/null || return 1
+    assert_delta "sa_${mode}_ref_recipient" "$owner_before" "$(financial_balance "$token" "$CAROL_ADDR")" "$referral_fee" || return 1
+    assert_delta "sa_${mode}_ref_caller" "$caller_before" "$(financial_balance "$token" "$BOB_ADDR")" 0 || return 1
+    owner_before=$(financial_balance "$token" "$ADMIN_ADDR") || return 1
+    inv "sa_${mode}_admin_claim" "$ADMIN" "$agg" -- claim_admin_fees --recipient "$ADMIN_ADDR" --tokens "$tokens" >/dev/null || return 1
+    assert_delta "sa_${mode}_admin_recipient" "$owner_before" "$(financial_balance "$token" "$ADMIN_ADDR")" "$admin_fee" || return 1
 }

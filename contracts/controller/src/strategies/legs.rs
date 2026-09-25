@@ -1,15 +1,15 @@
 use common::errors::GenericError;
 use common::math::fp::Ray;
 use common::types::{
-    Account, AccountPosition, DebtPosition, HubAssetKey, PoolNetSettleEntry, ScaledPositionRaw,
-    StrategySwap,
+    Account, AccountPosition, DebtPosition, HubAssetKey, PoolAction, PoolNetSettleEntry,
+    PoolWithdrawEntry, ScaledPositionRaw, StrategySwap,
 };
-use soroban_sdk::{token, Address, Env, Vec};
+use soroban_sdk::{token, vec, Address, Env, Vec};
 
 use crate::constants::WITHDRAW_ALL_SENTINEL;
 use crate::context::Context;
 use crate::events;
-use crate::external::pool::pool_net_settle_call;
+use crate::external::pool::{pool_net_settle_call, pool_withdraw_call};
 use crate::payments::{self, balance_delta_since, refund_controller_balance_delta};
 use crate::positions::{
     enforce_spoke_asset_flags, get_debt_position_or_panic, get_supply_position_or_panic,
@@ -114,7 +114,32 @@ pub(crate) fn execute_withdraw_all(
     account: &mut Account,
     destination: &Address,
     cache: &mut Context,
+    repaid_collateral: &HubAssetKey,
 ) {
+    if !account
+        .supply_positions
+        .contains_key(repaid_collateral.clone())
+    {
+        // Repayment can remove this leg in simulation but leave accrued dust at
+        // inclusion. Reserve the same pool/token/recipient footprint either way.
+        pool_withdraw_call(
+            env,
+            &cache.cached_pool_address(),
+            destination,
+            false,
+            &vec![
+                env,
+                PoolWithdrawEntry {
+                    action: PoolAction {
+                        hub_asset: repaid_collateral.clone(),
+                        amount: WITHDRAW_ALL_SENTINEL,
+                        position: ScaledPositionRaw { scaled_amount: 0 },
+                    },
+                    protocol_fee: 0,
+                },
+            ],
+        );
+    }
     let deposit_keys: Vec<HubAssetKey> = account.supply_positions.keys();
     for hub_asset in deposit_keys.iter() {
         if let Some(pos) = account.supply_positions.get(hub_asset.clone()) {

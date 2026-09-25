@@ -1020,6 +1020,68 @@ fn test_interest_accrual() {
     );
 }
 
+#[test]
+fn same_ledger_index_update_keeps_state_writable_at_inclusion() {
+    use soroban_sdk::xdr::ToXdr;
+    use soroban_sdk::{xdr, TryIntoVal};
+
+    let t = TestSetup::new();
+    t.client().supply(&t.sup(0, 50_000_000_000));
+    t.client()
+        .borrow(&Address::generate(&t.env), &t.bor(0, 10_000_000_000));
+    let initial = t.client().get_sync_data(&hub(&t.asset)).state;
+    let ledger = t.env.to_ledger_snapshot();
+
+    for omit_same_ledger_commit in [true, false] {
+        // Setup writes must not grant the simulation a writable State footprint.
+        let env = Env::from_ledger_snapshot(ledger.clone());
+        let pool: Address = xdr::ScAddress::from(&t.pool).try_into_val(&env).unwrap();
+        let asset: Address = xdr::ScAddress::from(&t.asset).try_into_val(&env).unwrap();
+        let key = hub(&asset);
+        // Keep recording and enforcing in one frame: separate SDK invocations
+        // reset their footprint. No rollback write may contaminate recording.
+        let replay = env.try_as_contract::<_, Error>(&pool, || {
+            if omit_same_ledger_commit {
+                // Negative control: the exact former zero-elapsed-time branch.
+                common::ttl::renew_instance(&env);
+                let mut cache = Cache::load(&env, &key);
+                assert!(!cache.needs_accrual());
+                crate::interest::global_sync(&env, &mut cache);
+                crate::events::emit_market_state(&env, cache.snapshot());
+            } else {
+                crate::ops::market::accrue(&env, vec![&env, key.clone()]);
+            }
+            assert_eq!(
+                crate::storage::read_state(&env, &key).to_xdr(&env),
+                initial.clone().to_xdr(&env)
+            );
+            env.ledger().with_mut(|ledger| {
+                ledger.timestamp += 5;
+                ledger.sequence_number += 1;
+            });
+            env.host().switch_to_enforcing_storage().unwrap();
+            crate::ops::market::accrue(&env, vec![&env, key.clone()]);
+            let committed = crate::storage::read_state(&env, &key);
+            assert_eq!(committed.last_timestamp, initial.last_timestamp + 5_000);
+            assert!(committed.borrow_index > initial.borrow_index);
+            assert!(committed.supply_index > initial.supply_index);
+            assert_eq!(committed.borrowed, initial.borrowed);
+            assert_eq!(committed.cash, initial.cash);
+        });
+        if omit_same_ledger_commit {
+            assert_eq!(
+                replay,
+                Err(Ok(Error::from_type_and_code(
+                    xdr::ScErrorType::Storage,
+                    xdr::ScErrorCode::ExceededLimit,
+                )))
+            );
+        } else {
+            assert_eq!(replay, Ok(()));
+        }
+    }
+}
+
 fn enable_flashloan(t: &TestSetup) {
     t.env.as_contract(&t.pool, || {
         let key = PoolKey::Params(hub(&t.asset));

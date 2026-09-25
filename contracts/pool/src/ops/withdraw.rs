@@ -8,7 +8,7 @@ use common::math::fp::Ray;
 use common::types::{MarketStateSnapshot, PoolPositionMutation, PoolWithdrawEntry};
 use common::validation::require_nonneg_amount;
 
-use soroban_sdk::{assert_with_error, panic_with_error, Address, Env};
+use soroban_sdk::{assert_with_error, panic_with_error, token, Address, Env};
 
 use crate::cache::Cache;
 use crate::{guards, interest, ops};
@@ -35,7 +35,22 @@ pub(crate) fn apply(
 ) -> (PoolPositionMutation, MarketStateSnapshot) {
     let outcome = accounting(env, is_liquidation, entry);
 
-    outcome.cache.transfer_out(receiver, outcome.net_transfer);
+    if outcome.net_transfer == 0
+        && (entry.action.position.scaled_amount > 0 || entry.action.amount == i128::MAX)
+        && outcome.mutation.position.scaled_amount == 0
+    {
+        // A dust close can round from zero to one unit between simulation and
+        // inclusion, or the leg itself can appear after a strategy repayment.
+        // Explicit full closes reserve the footprint even with zero shares.
+        // SAC transfer(0) records the pool and recipient's writable footprint.
+        token::Client::new(env, &outcome.cache.params().asset_id).transfer(
+            &env.current_contract_address(),
+            receiver,
+            &0,
+        );
+    } else {
+        outcome.cache.transfer_out(receiver, outcome.net_transfer);
+    }
     (outcome.mutation, outcome.snapshot)
 }
 
@@ -62,7 +77,10 @@ pub(crate) fn accounting(
         entry.protocol_fee,
     );
 
-    gate_and_debit(env, &mut cache, net_transfer, is_liquidation);
+    // A footprint-only close must not add a utilization gate to same-market
+    // net settlement: it burns no shares and moves no cash.
+    let empty_close = position.raw() == 0 && entry.action.amount == i128::MAX;
+    gate_and_debit(env, &mut cache, net_transfer, is_liquidation || empty_close);
 
     let snapshot = cache.commit();
     let mutation = cache.position_mutation(remaining, gross_amount);
@@ -93,11 +111,11 @@ fn burn_position(env: &Env, cache: &mut Cache, position: Ray, burned: Ray) -> Ra
 }
 
 /// Enforces reserve, utilization, and solvency guards, then debits cash for
-/// the net transfer. The utilization guard is skipped during liquidations.
-fn gate_and_debit(env: &Env, cache: &mut Cache, net_transfer: i128, is_liquidation: bool) {
+/// the net transfer. Liquidations and footprint-only closes skip utilization.
+fn gate_and_debit(env: &Env, cache: &mut Cache, net_transfer: i128, skip_utilization_check: bool) {
     cache.require_reserves(net_transfer);
 
-    if !is_liquidation {
+    if !skip_utilization_check {
         guards::require_utilization_below_max(env, cache);
     }
     guards::require_supply_for_debt(env, cache);

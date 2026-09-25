@@ -89,6 +89,32 @@ fp_run() {
     esac
 }
 
+# Raw position shares and token balances do not accrue between ledgers.
+# Exclude the signer's XLM balance: a submitted failure may charge a network fee.
+fp_snapshot() {
+    local label="$1" positions total asset holder values='[]' amount
+    positions=$(view "${label}_positions" "$CONTROLLER" -- get_account_positions --account_id "${FP_ACCOUNT_ID:-0}") || return 1
+    total=$(view "${label}_nfts" "$POSITION_NFT" -- total_supply | tr -d '\"[:space:]') || return 1
+    _is_uint "$total" || return 1
+    for asset in "$XLM_SAC" "$USDC_SAC"; do
+        for holder in "$CONTROLLER" "$POOL" "$FP_RECV"; do
+            amount=$(balance "$asset" "$holder") || return 1
+            values=$(jq -nc --argjson values "$values" --arg amount "$amount" '$values + [$amount]') || return 1
+        done
+    done
+    jq -necS --argjson positions "$positions" --arg total "$total" --argjson balances "$values" \
+        'if ($positions | type == "array" and length == 2) then {positions:$positions,nfts:$total,balances:$balances} else error("invalid positions") end'
+}
+
+fp_reject_unchanged() {
+    local label="$1" pattern="$2" before after
+    before=$(fp_snapshot "${label}_before") || { _assert_fail "${label}_rollback" "snapshot before rejection failed"; return 1; }
+    fp_run xfail "$label" "$pattern" || return 1
+    after=$(fp_snapshot "${label}_after") || { _assert_fail "${label}_rollback" "snapshot after rejection failed"; return 1; }
+    [ "$before" = "$after" ] || { _assert_fail "${label}_rollback" "rejected callback changed positions, NFT count, or token balances"; return 1; }
+    record "${label}_rollback" ok assert "" "" "" "" "" "positions, NFT count, and controller/pool/receiver balances unchanged"
+}
+
 fp_restore_xlm_listing() {
     inv fp_restore_xlm_listing "$ADMIN" "$CONTROLLER" -- edit_asset_in_spoke \
         --input "$(spoke_args "$PRIMARY_HUB_ID" "$XLM_SAC" "$PRIMARY_SPOKE_ID" true true 7000 7500 1000)" >/dev/null
@@ -117,13 +143,12 @@ fp_restore_position_limits() {
 fp_ensure_token() {
     local sac="$1" need="$2" label="$3"
     local have gap
-    have=$(balance "$sac" "$FP_RECV")
-    have=${have:-0}
+    have=$(balance "$sac" "$FP_RECV") || return 1
     if _uint_ge "$have" "$need"; then
         record "$label" ok skip "" "" "" "" "" "receiver already has $have"
         return 0
     fi
-    gap=$((need - have))
+    gap=$(raw_sub "$need" "$have") || return 1
     if [ "$sac" = "$XLM_SAC" ]; then
         sac_transfer "$ALICE" "$XLM_SAC" "$ALICE_ADDR" "$FP_RECV" "$gap" "$label" || return 1
         return 0
@@ -168,9 +193,8 @@ flow_flash_position_fund() {
 flow_flash_position() {
     phase flash_position
     if [ -z "${FLASH_POSITION_RECEIVER:-}" ]; then
-        log "FLASH_POSITION_RECEIVER unset; skipping live flash_position coverage"
-        record flash_position_skipped ok skip "" "" "" "" "" "receiver wasm not deployed"
-        return 0
+        _assert_fail flash_position_receiver "required receiver was not deployed"
+        return 1
     fi
     FP_RECV="$FLASH_POSITION_RECEIVER"
 
@@ -183,7 +207,7 @@ flow_flash_position() {
         "$FP_RECEIVER_FUND" fund_flash_position_receiver || return 1
     local recv_xlm
     recv_xlm=$(balance "$XLM_SAC" "$FLASH_POSITION_RECEIVER")
-    _uint_ge "${recv_xlm:-0}" "$FP_COLLATERAL_AMOUNT" \
+    _uint_ge "$recv_xlm" "$FP_COLLATERAL_AMOUNT" \
         || { _assert_fail fund_flash_position_receiver "receiver XLM $recv_xlm want >= $FP_COLLATERAL_AMOUNT"; return 1; }
 
     FP_ACCOUNT_ID=0
@@ -197,13 +221,13 @@ flow_flash_position() {
     FP_RECV="$FLASH_POSITION_RECEIVER"
 
     fp_set_plan fp_plan_panic "$FP_MODE_PANIC" || return 1
-    fp_run xfail flash_position_panic 'Error\(Contract, #2\)|Trapped|CallbackPanic' || true
+    fp_reject_unchanged flash_position_panic 'Error\(Contract, #2\)|Trapped|CallbackPanic' || return 1
 
     fp_set_plan fp_plan_keep "$FP_MODE_KEEP_FUNDS" || return 1
-    fp_run xfail flash_position_keep_funds 'Error\(Contract, #504\)' || true
+    fp_reject_unchanged flash_position_keep_funds 'Error\(Contract, #504\)' || return 1
 
     fp_set_plan fp_plan_below "$FP_MODE_BELOW_MIN" || return 1
-    fp_run xfail flash_position_below_min 'Error\(Contract, #504\)' || true
+    fp_reject_unchanged flash_position_below_min 'Error\(Contract, #504\)' || return 1
 
     fp_set_plan fp_plan_success "$FP_MODE_SUCCESS" || return 1
     local rev_pre rev_post acct recv_usdc min_debt
@@ -231,7 +255,7 @@ flow_flash_position() {
         --account_id "$acct" --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$XLM_SAC")"
 
     recv_usdc=$(balance "$USDC_SAC" "$FLASH_POSITION_RECEIVER")
-    if _uint_ge "${recv_usdc:-0}" "$FP_DEBT_AMOUNT"; then
+    if _uint_ge "$recv_usdc" "$FP_DEBT_AMOUNT"; then
         record flash_position_debt_stays_on_receiver ok flash_position "" "" "" "" "" \
             "receiver USDC $recv_usdc (not pulled back)"
     else
@@ -248,7 +272,7 @@ fp_deploy_matrix_receiver() {
     fi
     local out_f="$LOG_DIR/deploy_flashposrecv_v2.out" err_f="$LOG_DIR/deploy_flashposrecv_v2.err"
     run_deploy "$out_f" "$err_f" -- stellar contract deploy \
-        --wasm "$WASM_DIR/flash_position_receiver.wasm" \
+        --wasm "$FIXTURE_WASM_DIR/flash_position_receiver.wasm" \
         --source "$ADMIN" "${NET_ARGS[@]}"
     local recv txh
     recv=$(sanitize_output "$out_f")
@@ -324,27 +348,35 @@ flow_flash_position_matrix() {
 
     # Extra undeclared asset is not deposited; listed refund returns it to caller.
     local alice_usdc_pre alice_usdc_post extra_usdc=10000000
-    alice_usdc_pre=$(balance "$USDC_SAC" "$ALICE_ADDR")
+    local controller_usdc_pre controller_xlm_pre
+    # Nonzero balances make accidental refund/credit of preexisting funds visible.
+    # Both donations remain below the teardown's 1,000-stroop controller dust cap.
+    inv fp_protected_usdc_funding "$ALICE" "$CONTROLLER" -- borrow \
+        --caller "$ALICE_ADDR" --account_id "$ALICE_FP_ACCT" \
+        --borrows "$(pay_vec "$PRIMARY_HUB_ID" "$USDC_SAC" 37)" --to null >/dev/null || return 1
+    sac_transfer "$ALICE" "$USDC_SAC" "$ALICE_ADDR" "$CONTROLLER" 37 fp_protected_usdc_seed || return 1
+    sac_transfer "$ALICE" "$XLM_SAC" "$ALICE_ADDR" "$CONTROLLER" 41 fp_protected_xlm_seed || return 1
+    controller_usdc_pre=$(balance "$USDC_SAC" "$CONTROLLER") || return 1
+    controller_xlm_pre=$(balance "$XLM_SAC" "$CONTROLLER") || return 1
+    _uint_ge "$controller_usdc_pre" 37 && _uint_ge "$controller_xlm_pre" 41 \
+        || { _assert_fail fp_protected_nonzero "controller baselines must contain donated funds"; return 1; }
+    alice_usdc_pre=$(balance "$USDC_SAC" "$ALICE_ADDR") || return 1
     FP_COLS="$(fp_collaterals "$FP_EXTEND_COLLATERAL")"
     FP_REFUNDS="$(fp_refunds "$USDC_SAC")"
     fp_set_plan fp_plan_refund_extra "$FP_MODE_SUCCESS" "$FP_EXTEND_COLLATERAL" \
         "$USDC_SAC" "$extra_usdc" || return 1
     fp_run inv flash_position_refund_undeclared "" || return 1
     alice_usdc_post=$(balance "$USDC_SAC" "$ALICE_ADDR")
-    if _uint_ge "${alice_usdc_post:-0}" "${alice_usdc_pre:-0}"; then
-        record flash_position_refund_observed ok flash_position "" "" "" "" "" \
-            "alice USDC $alice_usdc_pre -> $alice_usdc_post"
-    else
-        _assert_fail flash_position_refund_observed \
-            "alice USDC $alice_usdc_pre -> $alice_usdc_post; refund_assets should return extra"
-    fi
+    assert_delta refund_exact "$alice_usdc_pre" "$alice_usdc_post" 10000000 || return 1
+    assert_delta refund_protected "$controller_usdc_pre" "$(balance "$USDC_SAC" "$CONTROLLER")" 0 || return 1
+    assert_delta fp_protected_collateral "$controller_xlm_pre" "$(balance "$XLM_SAC" "$CONTROLLER")" 0 || return 1
     FP_REFUNDS='[]'
 
     # Push the wrong listed asset (USDC) while declaring XLM — measured XLM
     # delta is 0, so the min fails. The undeclared USDC is not credited.
     fp_set_plan fp_plan_wrong_asset "$FP_MODE_SUCCESS" 0 "$USDC_SAC" 10000000 || return 1
     FP_COLS="$(fp_collaterals "$FP_EXTEND_COLLATERAL")"
-    fp_run xfail flash_position_wrong_asset_push 'Error\(Contract, #504\)' || true
+    fp_reject_unchanged flash_position_wrong_asset_push 'Error\(Contract, #504\)' || return 1
 
     # --- new-account dust fails solvency / min-borrow floor ---
     FP_ACCOUNT_ID=0
@@ -376,6 +408,12 @@ flow_flash_position_matrix() {
     FP_COLS="$(fp_collaterals "$FP_EXTEND_COLLATERAL")"
     FP_REFUNDS="$(fp_refunds "$XLM_SAC")"
     fp_run xfail flash_position_refund_overlap 'Error\(Contract, #16\)' || true
+    FP_REFUNDS=$(jq -nc --arg a "$USDC_SAC" '[$a,$a]') || return 1
+    fp_run xfail flash_position_refund_duplicate 'Error\(Contract, #16\)' || return 1
+    # Six distinct addresses exceed max_supply_positions=5. Without the length
+    # guard, the second (unlisted) asset would fail #307 instead of #16.
+    FP_REFUNDS=$(jq -nc '$ARGS.positional' --args "$USDC_SAC" "$EURC_SAC" "$CONTROLLER" "$POOL" "$GOVERNANCE" "$POSITION_NFT") || return 1
+    fp_run xfail flash_position_refund_over_limit 'Error\(Contract, #16\)' || return 1
     FP_REFUNDS='[]'
 
     FP_RECV="$CONTROLLER"
@@ -439,8 +477,8 @@ flow_flash_position_matrix() {
 
     local supplied cap
     supplied=$(_view_pool_int fp_xlm_supplied get_supplied_amount \
-        --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$XLM_SAC")")
-    cap=${supplied:-0}
+        --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$XLM_SAC")") || return 1
+    cap="$supplied"
     inv fp_xlm_supply_cap "$ADMIN" "$CONTROLLER" -- edit_asset_in_spoke \
         --input "$(spoke_args "$PRIMARY_HUB_ID" "$XLM_SAC" "$PRIMARY_SPOKE_ID" true true 7000 7500 1000 "$cap")" >/dev/null
     fp_set_plan fp_plan_supply_cap "$FP_MODE_SUCCESS" "$FP_EXTEND_COLLATERAL" || true
@@ -449,10 +487,10 @@ flow_flash_position_matrix() {
 
     local borrowed
     borrowed=$(_view_pool_int fp_usdc_borrowed get_borrowed_amount \
-        --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")")
+        --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")") || return 1
     inv fp_usdc_borrow_cap "$ADMIN" "$CONTROLLER" -- edit_asset_in_spoke \
         --input "$(spoke_args "$PRIMARY_HUB_ID" "$USDC_SAC" "$PRIMARY_SPOKE_ID" true true 7500 8000 500 \
-            1000000000000000000 "${borrowed:-0}")" >/dev/null
+            1000000000000000000 "$borrowed")" >/dev/null
     fp_run xfail flash_position_borrow_cap 'Error\(Contract, #312\)' || true
     fp_restore_usdc_listing || return 1
 
@@ -475,13 +513,13 @@ flow_flash_position_matrix() {
     fp_restore_usdc_curve || return 1
 
     local cash borrowed_now try_liq
-    cash=$(_view_pool_int fp_usdc_cash get_reserves --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")")
+    cash=$(_view_pool_int fp_usdc_cash get_reserves --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")") || return 1
     borrowed_now=$(_view_pool_int fp_usdc_borrowed_liq get_borrowed_amount \
-        --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")")
+        --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")") || return 1
     # Draw more than remaining cash so the pool's liquidation buffer / cash
     # check binds rather than the spoke borrow cap (restored above).
-    try_liq=$(( ${cash:-0} + ${borrowed_now:-0} + 1 ))
-    if [ "$try_liq" -gt 1 ]; then
+    try_liq=$(raw_add "$cash" "$borrowed_now" 1) || return 1
+    if _uint_ge "$try_liq" 2; then
         FP_AMOUNT="$try_liq"
         fp_run xfail flash_position_insufficient_liquidity 'Error\(Contract, #112\)' || true
         FP_AMOUNT="$FP_SMALL_DEBT"
@@ -491,6 +529,63 @@ flow_flash_position_matrix() {
     assert_bool_view fp_account_still_exists true account_exists --account_id "$ALICE_FP_ACCT"
     save_state FP_MATRIX_DONE 1
     record flash_position_matrix ok flash_position "" "" "" "" "" "matrix complete"
+}
+
+# Two declared pushes use the receiver's existing collateral + extra plan.
+# A separate Long account keeps the baseline account's position-limit tests intact.
+fp_long_multi_collateral() {
+    local FP_RECV="${FLASH_POSITION_RECEIVER_V2:-$FLASH_POSITION_RECEIVER}"
+    local FP_SIGNER="$ALICE" FP_CALLER_ADDR="$ALICE_ADDR" FP_ACCOUNT_ID=0
+    local FP_POS_MODE="$FP_MODE_LONG" FP_PLAN_ASSET="$XLM_SAC" FP_SPOKE="$PRIMARY_SPOKE_ID"
+    local FP_DEBT FP_COLS FP_REFUNDS='[]' FP_AMOUNT=10000000
+    local collateral=2000000000 extra=10000000 acct attributes
+    local pool_xlm pool_usdc receiver_xlm receiver_usdc controller_xlm controller_usdc
+    FP_DEBT=$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC") || return 1
+    FP_COLS=$(pay_vec "$PRIMARY_HUB_ID" "$XLM_SAC" "$collateral" "$USDC_SAC" "$extra") || return 1
+    fp_ensure_token "$XLM_SAC" "$(raw_add "$collateral" "$FP_EXTEND_COLLATERAL")" fp_long_fund || return 1
+    fp_set_plan fp_plan_long_multi "$FP_MODE_SUCCESS" "$collateral" "$USDC_SAC" "$extra" || return 1
+    pool_xlm=$(balance "$XLM_SAC" "$POOL") || return 1
+    pool_usdc=$(balance "$USDC_SAC" "$POOL") || return 1
+    receiver_xlm=$(balance "$XLM_SAC" "$FP_RECV") || return 1
+    receiver_usdc=$(balance "$USDC_SAC" "$FP_RECV") || return 1
+    controller_xlm=$(balance "$XLM_SAC" "$CONTROLLER") || return 1
+    controller_usdc=$(balance "$USDC_SAC" "$CONTROLLER") || return 1
+    acct=$(fp_run create flash_position_long_multi "" | tr -d '\"[:space:]') || return 1
+    save_state ALICE_FP_LONG_ACCT "$acct"
+    assert_delta fp_long_xlm_paid "$receiver_xlm" "$(balance "$XLM_SAC" "$FP_RECV")" "-$collateral" || return 1
+    assert_delta fp_long_xlm_received "$pool_xlm" "$(balance "$XLM_SAC" "$POOL")" "$collateral" || return 1
+    # All newly borrowed USDC is pushed back as collateral; no wallet receives it.
+    assert_delta fp_long_usdc_receiver "$receiver_usdc" "$(balance "$USDC_SAC" "$FP_RECV")" 0 || return 1
+    assert_delta fp_long_usdc_pool "$pool_usdc" "$(balance "$USDC_SAC" "$POOL")" 0 || return 1
+    assert_delta fp_long_xlm_protected "$controller_xlm" "$(balance "$XLM_SAC" "$CONTROLLER")" 0 || return 1
+    assert_delta fp_long_usdc_protected "$controller_usdc" "$(balance "$USDC_SAC" "$CONTROLLER")" 0 || return 1
+    assert_int_view_positive fp_long_xlm_credit get_collateral_amount --account_id "$acct" --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$XLM_SAC")" || return 1
+    assert_int_view_positive fp_long_usdc_credit get_collateral_amount --account_id "$acct" --hub_asset "$FP_DEBT" || return 1
+    assert_borrow_at_least fp_long_debt "$acct" "$USDC_SAC" "$FP_AMOUNT" || return 1
+    assert_hf_at_least fp_long_hf "$acct" "$WAD" || return 1
+    attributes=$(view fp_long_attributes "$CONTROLLER" -- get_account_attributes --account_id "$acct") || return 1
+    jq -e --argjson mode "$FP_MODE_LONG" --argjson spoke "$PRIMARY_SPOKE_ID" '.mode == $mode and .spoke_id == $spoke' <<<"$attributes" >/dev/null \
+        || { _assert_fail fp_long_mode "created account did not retain Long mode/spoke"; return 1; }
+
+    inv fp_delegate_manager_on "$ADMIN" "$CONTROLLER" -- set_position_manager --manager "$BOB_ADDR" --is_active true >/dev/null || return 1
+    inv fp_delegate_add "$ALICE" "$CONTROLLER" -- add_delegate --caller "$ALICE_ADDR" --account_id "$acct" --delegate "$BOB_ADDR" >/dev/null || return 1
+    FP_ACCOUNT_ID="$acct"
+    FP_SIGNER="$BOB"
+    FP_CALLER_ADDR="$BOB_ADDR"
+    FP_COLS=$(fp_collaterals "$FP_EXTEND_COLLATERAL") || return 1
+    fp_set_plan fp_plan_delegate "$FP_MODE_SUCCESS" "$FP_EXTEND_COLLATERAL" || return 1
+    pool_xlm=$(balance "$XLM_SAC" "$POOL") || return 1
+    pool_usdc=$(balance "$USDC_SAC" "$POOL") || return 1
+    receiver_usdc=$(balance "$USDC_SAC" "$FP_RECV") || return 1
+    fp_run inv flash_position_delegated "" || return 1
+    assert_delta fp_delegate_collateral "$pool_xlm" "$(balance "$XLM_SAC" "$POOL")" "$FP_EXTEND_COLLATERAL" || return 1
+    assert_delta fp_delegate_debt_paid "$pool_usdc" "$(balance "$USDC_SAC" "$POOL")" "-$FP_AMOUNT" || return 1
+    assert_delta fp_delegate_debt_received "$receiver_usdc" "$(balance "$USDC_SAC" "$FP_RECV")" "$FP_AMOUNT" || return 1
+    assert_view_eq_at "$POSITION_NFT" fp_delegate_owner "$ALICE_ADDR" owner_of --token_id "$acct" || return 1
+    assert_hf_at_least fp_delegate_hf "$acct" "$WAD" || return 1
+    inv fp_delegate_remove "$ALICE" "$CONTROLLER" -- remove_delegate --caller "$ALICE_ADDR" --account_id "$acct" --delegate "$BOB_ADDR" >/dev/null || return 1
+    fp_reject_unchanged flash_position_delegate_removed 'Error\(Contract, #44\)' || return 1
+    inv fp_delegate_manager_off "$ADMIN" "$CONTROLLER" -- set_position_manager --manager "$BOB_ADDR" --is_active false >/dev/null
 }
 
 # Remaining create-path and dual-path cases that the baseline/matrix did not
@@ -662,8 +757,8 @@ flow_flash_position_gaps() {
 
     local supplied cap borrowed
     supplied=$(_view_pool_int fp_xlm_supplied_gaps get_supplied_amount \
-        --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$XLM_SAC")")
-    cap=${supplied:-0}
+        --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$XLM_SAC")") || return 1
+    cap="$supplied"
     inv fp_xlm_supply_cap_gaps "$ADMIN" "$CONTROLLER" -- edit_asset_in_spoke \
         --input "$(spoke_args "$PRIMARY_HUB_ID" "$XLM_SAC" "$PRIMARY_SPOKE_ID" true true 7000 7500 1000 "$cap")" >/dev/null
     fp_set_plan fp_plan_supply_cap_gaps "$FP_MODE_SUCCESS" "$FP_EXTEND_COLLATERAL" || true
@@ -671,10 +766,10 @@ flow_flash_position_gaps() {
     fp_restore_xlm_listing || return 1
 
     borrowed=$(_view_pool_int fp_usdc_borrowed_gaps get_borrowed_amount \
-        --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")")
+        --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")") || return 1
     inv fp_usdc_borrow_cap_gaps "$ADMIN" "$CONTROLLER" -- edit_asset_in_spoke \
         --input "$(spoke_args "$PRIMARY_HUB_ID" "$USDC_SAC" "$PRIMARY_SPOKE_ID" true true 7500 8000 500 \
-            1000000000000000000 "${borrowed:-0}")" >/dev/null
+            1000000000000000000 "$borrowed")" >/dev/null
     fp_xfail_pair flash_position_borrow_cap_gap 'Error\(Contract, #312\)'
     fp_restore_usdc_listing || return 1
 
@@ -698,11 +793,11 @@ flow_flash_position_gaps() {
 
     local cash borrowed_now try_liq
     cash=$(_view_pool_int fp_usdc_cash_gaps get_reserves \
-        --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")")
+        --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")") || return 1
     borrowed_now=$(_view_pool_int fp_usdc_borrowed_liq_gaps get_borrowed_amount \
-        --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")")
-    try_liq=$(( ${cash:-0} + ${borrowed_now:-0} + 1 ))
-    if [ "$try_liq" -gt 1 ]; then
+        --hub_asset "$(hub_key "$PRIMARY_HUB_ID" "$USDC_SAC")") || return 1
+    try_liq=$(raw_add "$cash" "$borrowed_now" 1) || return 1
+    if _uint_ge "$try_liq" 2; then
         FP_AMOUNT="$try_liq"
         fp_xfail_pair flash_position_insufficient_liquidity_gap 'Error\(Contract, #112\)'
         FP_AMOUNT="$FP_SMALL_DEBT"
@@ -756,20 +851,17 @@ flow_flash_position_gaps() {
     FP_COLS="$(fp_collaterals "$create_coll")"
     FP_REFUNDS="$(fp_refunds "$USDC_SAC")"
     local alice_usdc_pre alice_usdc_post
-    alice_usdc_pre=$(balance "$USDC_SAC" "$ALICE_ADDR")
+    local controller_usdc_pre
+    controller_usdc_pre=$(balance "$USDC_SAC" "$CONTROLLER") || return 1
+    alice_usdc_pre=$(balance "$USDC_SAC" "$ALICE_ADDR") || return 1
     fp_set_plan fp_plan_refund_new "$FP_MODE_SUCCESS" "$create_coll" \
         "$USDC_SAC" 10000000 || return 1
     local refund_acct
     refund_acct=$(fp_run create flash_position_refund_new "" | tr -d '"') || return 1
     save_state ALICE_FP_REFUND_ACCT "$refund_acct"
     alice_usdc_post=$(balance "$USDC_SAC" "$ALICE_ADDR")
-    if _uint_ge "${alice_usdc_post:-0}" "${alice_usdc_pre:-0}"; then
-        record flash_position_refund_new_observed ok flash_position "" "" "" "" "" \
-            "alice USDC $alice_usdc_pre -> $alice_usdc_post"
-    else
-        _assert_fail flash_position_refund_new_observed \
-            "alice USDC $alice_usdc_pre -> $alice_usdc_post"
-    fi
+    assert_delta refund_exact "$alice_usdc_pre" "$alice_usdc_post" 10000000 || return 1
+    assert_delta refund_protected "$controller_usdc_pre" "$(balance "$USDC_SAC" "$CONTROLLER")" 0 || return 1
     FP_REFUNDS='[]'
     assert_hf_at_least hf_refund_new "$refund_acct" "$WAD"
 
@@ -803,6 +895,8 @@ flow_flash_position_gaps() {
     assert_hf_at_least hf_one_supply_ok_new "$onesup_acct" "$WAD"
     fp_restore_position_limits || return 1
 
+    fp_long_multi_collateral || return 1
+
     assert_hf_at_least hf_flash_position_gaps_end "$ALICE_FP_ACCT" "$WAD"
     assert_bool_view fp_gaps_account_exists true account_exists --account_id "$ALICE_FP_ACCT"
     save_state FP_GAPS_DONE 1
@@ -825,7 +919,7 @@ flow_flash_position_malicious() {
 
     local out_f="$LOG_DIR/deploy_flashposrecv_mal.out" err_f="$LOG_DIR/deploy_flashposrecv_mal.err"
     run_deploy "$out_f" "$err_f" -- stellar contract deploy \
-        --wasm "$WASM_DIR/flash_position_receiver.wasm" \
+        --wasm "$FIXTURE_WASM_DIR/flash_position_receiver.wasm" \
         --source "$ADMIN" "${NET_ARGS[@]}"
     local recv txh
     recv=$(sanitize_output "$out_f")
@@ -859,7 +953,7 @@ flow_flash_position_malicious() {
             9) name=reenter_flash_position ;;
         esac
         fp_set_plan "fp_plan_mal_$name" "$mode" "$FP_EXTEND_COLLATERAL" || return 1
-        fp_run xfail "flash_position_malicious_$name" "$re_pattern" || true
+        fp_reject_unchanged "flash_position_malicious_$name" "$re_pattern" || return 1
     done
 
     save_state FP_MALICIOUS_DONE 1
@@ -886,14 +980,19 @@ flow_flash_position_gates() {
     FP_AMOUNT="$FP_SMALL_DEBT"
     FP_REFUNDS='[]'
     FP_PLAN_ASSET="$XLM_SAC"
-    FP_COLS="$(fp_collaterals "$FP_EXTEND_COLLATERAL")"
+    # This phase creates a fresh account after restoring the flag. The previous
+    # delegate plan pushes only 1 XLM, relying on an existing account's collateral.
+    local create_coll=2000000000
+    FP_COLS="$(fp_collaterals "$create_coll")"
+    fp_ensure_token "$XLM_SAC" "$create_coll" fp_gates_fund || return 1
+    fp_set_plan fp_plan_gates_create "$FP_MODE_SUCCESS" "$create_coll" || return 1
 
     # --- GH-18: Normal mode is refused before the mint (#111) ---
     FP_POS_MODE="$FP_MODE_NORMAL"
     FP_ACCOUNT_ID=0
-    fp_run xfail flash_position_normal_mode_new 'Error\(Contract, #111\)' || true
+    fp_run xfail flash_position_normal_mode_new 'Error\(Contract, #111\)' || return 1
     FP_ACCOUNT_ID="$ALICE_FP_ACCT"
-    fp_run xfail flash_position_normal_mode_ex 'Error\(Contract, #111\)' || true
+    fp_run xfail flash_position_normal_mode_ex 'Error\(Contract, #111\)' || return 1
     FP_POS_MODE="$FP_POSITION_MODE"
 
     # --- GH-19: a debt market with flash loans disabled is refused (#401) ---
@@ -903,14 +1002,14 @@ flow_flash_position_gates() {
             max_borrow_rate, base_borrow_rate, slope1, slope2, slope3,
             mid_utilization, optimal_utilization, max_utilization,
             reserve_factor, is_flashloanable: false, flashloan_fee
-        }')" >/dev/null
+        }')" >/dev/null || return 1
     FP_ACCOUNT_ID=0
-    fp_run xfail flash_position_flash_disabled_new 'Error\(Contract, #401\)' || true
+    fp_run xfail flash_position_flash_disabled_new 'Error\(Contract, #401\)' || return 1
     FP_ACCOUNT_ID="$ALICE_FP_ACCT"
-    fp_run xfail flash_position_flash_disabled_ex 'Error\(Contract, #401\)' || true
-    fp_restore_usdc_curve || true
+    fp_run xfail flash_position_flash_disabled_ex 'Error\(Contract, #401\)' || return 1
+    fp_restore_usdc_curve || return 1
     # The flag is back on: the same call opens a position again.
     FP_ACCOUNT_ID=0
-    fp_run create flash_position_after_flag_restored "" >/dev/null || true
+    fp_run create flash_position_after_flag_restored "" >/dev/null || return 1
     save_state FP_GATES_DONE 1
 }

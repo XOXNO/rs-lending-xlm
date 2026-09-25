@@ -1,18 +1,24 @@
 name: Release Build
 
 on:
-  release:
-    types: [published]
+  push:
+    tags: ["v*"]
   workflow_dispatch:
     inputs:
       tag:
         description: "Release tag (e.g. v0.1.0)"
-        required: true
+        required: false
+      dry_run:
+        description: "Verify the full release gate without publishing (branch refs allowed)"
+        type: boolean
+        default: true
+      inject_e2e_failure:
+        description: "Dry run only: fail the E2E job before deployment to prove publication is blocked"
+        type: boolean
+        default: false
 
 permissions:
-  id-token: write
-  contents: write
-  attestations: write
+  contents: read
 
 env:
   STELLAR_VERSION: "28.0.0"
@@ -28,9 +34,15 @@ jobs:
   build:
     name: Build release WASM
     runs-on: ubuntu-latest
+    outputs:
+      source_sha: ${{ steps.checkout.outputs.commit }}
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     steps:
       - name: A manual run starts on the release tag
-        if: github.event_name == 'workflow_dispatch' && github.ref != format('refs/tags/{0}', inputs.tag)
+        if: github.event_name == 'workflow_dispatch' && !inputs.dry_run && (inputs.tag == '' || github.ref != format('refs/tags/{0}', inputs.tag))
         env:
           TAG: ${{ inputs.tag }}
         run: |
@@ -38,8 +50,9 @@ jobs:
           exit 1
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        id: checkout
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          ref: ${{ inputs.tag || github.sha }}
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
@@ -61,13 +74,25 @@ jobs:
 
         run: bash .github/scripts/install-stellar-cli.sh
 
-      - name: Build deploy artifacts and WASM size budget
-        run: make wasm-size-check
+      - name: Build canonical candidate
+        run: make candidate-wasm candidate-size-check integration-fixtures
 
-      # The swap aggregator and the oracle adapter are built by their own
-      # targets, outside the size-budgeted set, into the same deploy dir.
-      - name: Build swap aggregator and oracle adapter
-        run: make build-aggregator build-oracle-adapter
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+      - name: Offline pinned SDK RPC fixtures
+        run: |
+          npm ci --ignore-scripts --prefix tests/integration/sdk
+          make integration-sdk-validate
+
+      - name: Offline harness and contract checks
+        env:
+          STRESS_BUDGET_WASM_DIR: ${{ github.workspace }}/artifacts/wasm/deploy
+        run: |
+          set -o pipefail
+          make integration-validate
+          cargo test --workspace --no-fail-fast 2>&1 | tee controlled-tests.log
+          python3 tests/integration/controlled.py controlled-tests.log artifacts/wasm/deploy
 
       - name: Package release WASM
         run: |
@@ -75,6 +100,8 @@ jobs:
           for c in $RELEASE_CONTRACTS; do
             cp "artifacts/wasm/deploy/${c}.wasm" "dist/${c}.wasm"
           done
+          cp artifacts/wasm/deploy/candidate.json dist/
+          cp artifacts/wasm/deploy/controlled.json artifacts/wasm/deploy/controlled-tests.log dist/
           ls -lh dist/*.wasm
 
       - name: SHA256 checksums
@@ -88,28 +115,16 @@ jobs:
       - name: Package the xoxno-contract-sdk bundle
         run: python3 scripts/sdk_manifest.py dist
 
+      - name: Bind complete distribution
+        run: python3 tests/integration/artifacts.py distribution-create dist
+
       - name: Attest build provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: |
             dist/*.wasm
             dist/sdk-manifest.json
-
-      - name: Upload to release (on published release)
-        if: github.event_name == 'release'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
-        run: |
-          gh release upload "$RELEASE_TAG" dist/*.wasm dist/*.wasm.sha256 dist/sdk-manifest.json --clobber
-
-      - name: Upload to release (workflow_dispatch)
-        if: github.event_name == 'workflow_dispatch'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_TAG: ${{ github.event.inputs.tag }}
-        run: |
-          gh release upload "$RELEASE_TAG" dist/*.wasm dist/*.wasm.sha256 dist/sdk-manifest.json --clobber
+            dist/distribution.json
 
       - name: Upload artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -119,17 +134,42 @@ jobs:
             dist/*.wasm
             dist/*.wasm.sha256
             dist/sdk-manifest.json
+            dist/candidate.json
+            dist/distribution.json
+            dist/controlled.json
+            dist/controlled-tests.log
           if-no-files-found: error
+
+      - name: Checksum separate E2E fixtures
+        working-directory: artifacts/wasm/fixtures
+        run: sha256sum ./*.wasm > SHA256SUMS
+      - name: Upload separate E2E fixtures
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: e2e-fixtures
+          path: |
+            artifacts/wasm/fixtures/*.wasm
+            artifacts/wasm/fixtures/SHA256SUMS
+          if-no-files-found: error
+
+      - name: Upload offline verification log
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: controlled-ledger-log
+          path: controlled-tests.log
+          if-no-files-found: warn
 
   testnet-e2e:
     name: Testnet e2e
     needs: build
 
     permissions:
-      contents: write
+      contents: read
 
-    runs-on: self-hosted
-    timeout-minutes: 120
+    # The injected failure sends no transactions and needs no live-runner state.
+    runs-on: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && inputs.inject_e2e_failure && 'ubuntu-latest' || 'self-hosted' }}
+    timeout-minutes: 150
 
     concurrency:
       group: testnet-e2e
@@ -137,23 +177,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ inputs.tag || github.ref }}
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
-        with:
-          toolchain: "1.95"
-          targets: wasm32v1-none
-
-      - name: Cache cargo
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-release-${{ hashFiles('Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-release-
+          ref: ${{ needs.build.outputs.source_sha }}
 
       - name: Install stellar-cli
 
@@ -167,13 +191,47 @@ jobs:
           fi
           sudo apt-get update -q && sudo apt-get install -y -q jq xxd
 
-      - name: Build integration WASM
-        run: make integration-wasm
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-wasm
+          path: artifacts/wasm/deploy
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: e2e-fixtures
+          path: artifacts/wasm/fixtures
+      - name: Verify candidates and separate fixtures
+        run: |
+          python3 tests/integration/artifacts.py distribution-check artifacts/wasm/deploy
+          (cd artifacts/wasm/fixtures && sha256sum --strict --check SHA256SUMS)
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+      - name: Install pinned published SDK
+        run: npm ci --ignore-scripts --prefix tests/integration/sdk
+
+      - name: Inject failed E2E gate for dry-run verification
+        if: github.event_name == 'workflow_dispatch' && inputs.dry_run && inputs.inject_e2e_failure
+        run: |
+          echo "::error::Deliberate E2E failure: publish job must be skipped. No live transactions sent."
+          exit 1
 
       - name: Run parallel testnet e2e
         env:
-          RUN_TS: release-${{ github.run_id }}
+          NETWORK: testnet
+          RUN_TS: release-${{ github.run_id }}-${{ github.run_attempt }}
         run: bash tests/integration/scenarios/parallel_e2e.sh
+
+      - name: Bind full E2E proof to candidate
+        env:
+          RUN_TS: release-${{ github.run_id }}-${{ github.run_attempt }}
+        run: python3 tests/integration/release_gate.py collect tests/integration/runs "$RUN_TS" artifacts/wasm/deploy
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-gate
+          path: tests/integration/runs/release-${{ github.run_id }}-${{ github.run_attempt }}-release-gate.json
+          if-no-files-found: error
 
       - name: Upload e2e reports
         if: always()
@@ -181,20 +239,55 @@ jobs:
         with:
           name: testnet-e2e-report
           path: |
-            tests/integration/runs/release-${{ github.run_id }}-combined.md
-            tests/integration/runs/release-${{ github.run_id }}-*/report.md
-            tests/integration/runs/release-${{ github.run_id }}-*/actions.tsv
-            tests/integration/runs/release-${{ github.run_id }}-*.log
+            tests/integration/runs/release-${{ github.run_id }}-${{ github.run_attempt }}-combined.md
+            tests/integration/runs/release-${{ github.run_id }}-${{ github.run_attempt }}-*/report.md
+            tests/integration/runs/release-${{ github.run_id }}-${{ github.run_attempt }}-*/actions.tsv
+            tests/integration/runs/release-${{ github.run_id }}-${{ github.run_attempt }}-*/attempts.jsonl
+            tests/integration/runs/release-${{ github.run_id }}-${{ github.run_attempt }}-*/cases.tsv
+            tests/integration/runs/release-${{ github.run_id }}-${{ github.run_attempt }}-*/evidence.tsv
+            tests/integration/runs/release-${{ github.run_id }}-${{ github.run_attempt }}-*/cleanup-funding.tsv
+            tests/integration/runs/release-${{ github.run_id }}-${{ github.run_attempt }}-*/before-cleanup.jsonl
+            tests/integration/runs/release-${{ github.run_id }}-${{ github.run_attempt }}-*/deployed-artifacts.jsonl
+            tests/integration/runs/release-${{ github.run_id }}-${{ github.run_attempt }}-*/*.json
+            tests/integration/runs/release-${{ github.run_id }}-${{ github.run_attempt }}-*/logs/**
+            tests/integration/runs/release-${{ github.run_id }}-${{ github.run_attempt }}-*.log
           if-no-files-found: error
 
-      - name: Attach report to release
-        if: github.event_name == 'release'
+
+  publish:
+    name: Publish tested files
+    needs: [build, testnet-e2e]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.build.outputs.source_sha }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-wasm
+          path: dist
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-gate
+          path: gate
+      - name: Verify tested artifacts before publication
+        run: python3 tests/integration/release_gate.py verify dist gate/release-${{ github.run_id }}-${{ github.run_attempt }}-release-gate.json
+      - name: Report verified dry run
+        if: github.event_name == 'workflow_dispatch' && inputs.dry_run
+        run: |
+          echo "All seven lanes passed; exact tested candidate verified; publication disabled." >> "$GITHUB_STEP_SUMMARY"
+          cat dist/candidate.json >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish release
+        if: github.event_name != 'workflow_dispatch' || !inputs.dry_run
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
-          RUN_TS: release-${{ github.run_id }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
-          cp "tests/integration/runs/${RUN_TS}-combined.md" "testnet-e2e-report-${RELEASE_TAG}.md"
-          gh release upload "$RELEASE_TAG" \
-            "testnet-e2e-report-${RELEASE_TAG}.md" \
-            --clobber
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --draft --verify-tag --title "$RELEASE_TAG" --generate-notes
+          fi
+          gh release upload "$RELEASE_TAG" dist/*.wasm dist/*.wasm.sha256 dist/sdk-manifest.json dist/candidate.json dist/distribution.json --clobber
+          gh release edit "$RELEASE_TAG" --draft=false

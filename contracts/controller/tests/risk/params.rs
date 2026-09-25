@@ -59,6 +59,65 @@ fn threshold_update_min_hf_is_one_point_zero_five_wad() {
 }
 
 #[test]
+fn adverse_risk_refresh_checks_exact_one_point_zero_five_boundary() {
+    // 150 collateral * 70% threshold / 100 debt = 1.05. One raw
+    // seven-decimal unit either side must not be hidden by a tolerance.
+    for delta in [-1, 0, 1] {
+        let env = Env::default();
+        let contract = env.register(crate::Controller, (Address::generate(&env),));
+        env.as_contract(&contract, || {
+            let hub = HubAssetKey {
+                hub_id: 1,
+                asset: Address::generate(&env),
+            };
+            let mut account = debt_free_account(&env);
+            account.borrow_positions.set(
+                hub.clone(),
+                DebtPositionRaw {
+                    scaled_amount: Ray::from_asset(&env, 100_0000000, 7).raw(),
+                },
+            );
+            let mut cache = Context::new_view(&env);
+            let mut prices = Map::new(&env);
+            prices.set(
+                hub.asset.clone(),
+                PriceFeedRaw {
+                    price_wad: WAD,
+                    asset_decimals: 7,
+                    timestamp: 0,
+                },
+            );
+            cache.set_prices(prices);
+            cache.put_market_index(
+                &hub,
+                &MarketIndexRaw {
+                    borrow_index: RAY,
+                    supply_index: RAY,
+                },
+            );
+            let mut position = stamped_position();
+            position.scaled_amount = Ray::from_asset(&env, 150_0000000 + delta, 7);
+            let mut adverse = matching_config();
+            adverse.liquidation_threshold = Bps::from(7_000);
+            let changed = refresh_supply_risk_params(
+                &env,
+                &mut cache,
+                &account,
+                &hub,
+                &mut position,
+                &adverse,
+                RiskRefreshScope::FullTuple,
+            );
+            assert_eq!(changed, delta >= 0, "boundary delta {delta}");
+            assert_eq!(
+                position.liquidation_threshold.raw(),
+                if delta >= 0 { 7_000 } else { STAMPED_LT }
+            );
+        });
+    }
+}
+
+#[test]
 fn favors_liquidator_on_threshold_cut() {
     let position = stamped_position();
     assert!(favors_liquidator(

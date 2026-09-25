@@ -17,8 +17,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Source-only gates: no contract build, no stellar-cli, no test run. They
-  # finish in seconds, so they fail a PR long before Build & Test does.
+  # Offline gates: no contract deployment or live-network tests.
   static-gates:
     name: Static Gates
     runs-on: self-hosted
@@ -49,6 +48,17 @@ jobs:
 
       - name: Doc links and symbol references resolve
         run: make docs-check
+
+      - name: Install pinned CLI for offline XDR regressions
+        run: bash .github/scripts/install-stellar-cli.sh
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+      - name: Offline pinned SDK RPC fixtures
+        run: |
+          npm ci --ignore-scripts --prefix tests/integration/sdk
+          make integration-sdk-validate
 
       - name: Integration shell harness parses
         run: make integration-validate

@@ -51,20 +51,22 @@ _td_mock_code_for() {
 _td_ensure_funds() {
     local id="$1" alias="$2" owner="$3" sac="$4" pay="$5"
     local bal code line
-    bal=$(balance "$sac" "$owner"); [[ "$bal" =~ ^[0-9]+$ ]] || bal=0
+    bal=$(balance "$sac" "$owner") || return 1
     _uint_ge "$bal" "$pay" && return 0
+    printf '%s\t%s\t%s\t%s\n' "$id" "$sac" "$bal" "$pay" >> "$RUN_DIR/cleanup-funding.tsv"
     if code=$(_td_mock_code_for "$sac"); then
         mint_to "$sac" "$code" "$owner" "$pay"
         return 0
     fi
     [ "$sac" = "$XLM_SAC" ] && return 0
-    local need=$((pay - bal + 1000))
+    local need
+    need=$(raw_add "$(raw_sub "$pay" "$bal")" 1000) || return 1
     local line
     line=$(classic_line "$sac")
     # ADMIN can be short (flash-lane receiver funding drains it): buy the
     # asset with XLM through the aggregator first.
     local admin_bal
-    admin_bal=$(balance "$sac" "$ADMIN_ADDR"); [[ "$admin_bal" =~ ^[0-9]+$ ]] || admin_bal=0
+    admin_bal=$(balance "$sac" "$ADMIN_ADDR") || return 1
     if ! _uint_ge "$admin_bal" "$need"; then
         trustline "$ADMIN" "${line%%:*}" "${line##*:}"
         swap_xlm_to "$ADMIN" "$ADMIN_ADDR" "$sac" "${TEARDOWN_SWAP_XLM:-20000000000}" \
@@ -100,10 +102,11 @@ _td_repay_account() {
         sac=$(jq -r '.asset' <<<"$k")
         debt=$(_view_int "td_debt_${id}_${sac:0:6}" get_borrow_amount \
             --account_id "$id" --hub_asset "$(hub_key "$hub" "$sac")")
-        [[ "$debt" =~ ^[0-9]+$ ]] && [ "$debt" -gt 0 ] || continue
+        [[ "$debt" =~ ^[0-9]+$ ]] || { _assert_fail "td_debt_$id" "unreadable debt"; return 1; }
+        [ "$debt" != 0 ] || continue
         # Interest accrues between the read and the transaction; the
         # pool refunds any excess, so the buffer costs nothing.
-        pay=$((debt + debt / 50 + 100))
+        pay=$(python3 -c 'import sys; d=int(sys.argv[1]); print(d+d//50+100)' "$debt") || return 1
         _td_ensure_funds "$id" "$alias" "$owner" "$sac" "$pay"
         inv "td_repay_${id}_${sac:0:6}" "$alias" "$CONTROLLER" -- repay \
             --caller "$owner" --account_id "$id" \
@@ -117,29 +120,91 @@ _td_repay_account() {
 # controller burns the account once its last position is gone.
 _td_withdraw_account() {
     local id="$1"
-    local exists owner alias pos k hub sac
-    exists=$(view "td_exists2_$id" "$CONTROLLER" -- account_exists --account_id "$id" | tr -d '"')
+    local exists owner alias pos withdrawals
+    exists=$(view "td_exists2_$id" "$CONTROLLER" -- account_exists --account_id "$id" | tr -d '"') || return 1
     [ "$exists" = "true" ] || return 0
-    owner=$(view "td_owner2_$id" "$POSITION_NFT" -- owner_of --token_id "$id" | tr -d '"')
+    owner=$(view "td_owner2_$id" "$POSITION_NFT" -- owner_of --token_id "$id" | tr -d '"') || return 1
     alias=$(_td_wallet_alias "$owner") || return 0
-    pos=$(view "td_positions2_$id" "$CONTROLLER" -- get_account_positions --account_id "$id")
-    local supply_keys=()
-    while IFS= read -r k; do [ -n "$k" ] && supply_keys+=("$k"); done \
-        < <(jq -r '.[0] | keys[]' <<<"$pos" 2>/dev/null)
-    for k in ${supply_keys[@]+"${supply_keys[@]}"}; do
-        hub=$(jq -r '.hub_id' <<<"$k")
-        sac=$(jq -r '.asset' <<<"$k")
-        inv "td_withdraw_${id}_${sac:0:6}" "$alias" "$CONTROLLER" -- withdraw \
+    pos=$(view "td_positions2_$id" "$CONTROLLER" -- get_account_positions --account_id "$id") || return 1
+    # The supported account limit is five positions; never split/retry a failed submission.
+    withdrawals=$(jq -ec '.[0] | keys | if length <= 5 then map([fromjson, "0"]) else error("too many positions") end' <<<"$pos") || {
+        _assert_fail "td_positions_$id" "invalid withdrawal positions or more than five assets"
+        return 1
+    }
+    if [ "$withdrawals" != '[]' ]; then
+        inv "td_withdraw_$id" "$alias" "$CONTROLLER" -- withdraw \
             --caller "$owner" --account_id "$id" \
-            --withdrawals "$(pay_vec "$hub" "$sac" 0)" --to null >/dev/null
-    done
+            --withdrawals "$withdrawals" --to null >/dev/null || return 1
+    fi
     assert_bool_view "td_burned_$id" false account_exists --account_id "$id"
+}
+
+snapshot_before_cleanup() {
+    local market hub asset cash held role address amount line issuer balances
+    local file="$RUN_DIR/before-cleanup.jsonl"
+    : > "$file"
+    for market in $MARKETS; do
+        hub="${market%%:*}"; asset="${market##*:}"
+        cash=$(_view_pool_int "before_cleanup_cash_${hub}_${asset:0:8}" get_reserves --hub_asset "$(hub_key "$hub" "$asset")") || return 1
+        held=$(balance "$asset" "$POOL") || return 1
+        jq -nc --arg hub "$hub" --arg asset "$asset" --arg cash "$cash" --arg held "$held" \
+            '{hub:$hub,asset:$asset,cash:$cash,pool_balance:$held}' >> "$file"
+        # A SAC rejects balance() for an absent classic trustline. Prove
+        # absence directly at the ledger, separately from numeric view reads.
+        balances='{}'
+        line=$(classic_line "$asset") || return 1
+        if [[ "$line" = *:* ]]; then
+            issuer="${line##*:}"
+            local addresses=() av
+            for role in ADMIN ALICE BOB CAROL DAVE EVE FRANK; do
+                av="${role}_ADDR"; address="${!av:-}"
+                [ -z "$address" ] || [ "$address" = "$issuer" ] || addresses+=("$address")
+            done
+            "${NODE_BIN:-node}" "$INTEG_DIR/sdk/balances.mjs" "$RPC_URL" "$asset" "${line%%:*}" "$issuer" "$LOG_DIR/pre_cleanup_${asset}_trustlines.json" "${addresses[@]}" || return 1
+            balances=$(cat "$LOG_DIR/pre_cleanup_${asset}_trustlines.json") || return 1
+        fi
+        for role in ADMIN ALICE BOB CAROL DAVE EVE FRANK CONTROLLER; do
+            if [ "$role" = CONTROLLER ]; then address="$CONTROLLER"; else local av="${role}_ADDR"; address="${!av:-}"; fi
+            [ -n "$address" ] || continue
+            if jq -e --arg a "$address" 'has($a)' <<<"$balances" >/dev/null; then
+                amount=$(jq -er --arg a "$address" '.[$a].balance | select(type=="string" and test("^[0-9]+$"))' <<<"$balances") || return 1
+            else
+                amount=$(balance "$asset" "$address") || return 1
+            fi
+            jq -nc --arg role "$role" --arg asset "$asset" --arg amount "$amount" '{role:$role,asset:$asset,balance:$amount}' >> "$file"
+        done
+    done
+    if ! python3 - "$file" <<'PYBACKING'
+import json,sys
+cash,balances,seen={},{},set()
+for line in open(sys.argv[1]):
+    row=json.loads(line)
+    if 'hub' not in row: continue
+    key=(row['hub'],row['asset'])
+    if key in seen: continue
+    seen.add(key)
+    a=row['asset']; c=int(row['cash']); b=int(row['pool_balance'])
+    assert c>=0 and b>=0
+    cash[a]=cash.get(a,0)+c
+    assert a not in balances or balances[a]==b, 'balance changed during snapshot'
+    balances[a]=b
+assert cash, 'empty market snapshot'
+for a,c in cash.items():
+    assert balances[a]>=c, f'{a}: actual cash {balances[a]} below all-hub accounting {c}'
+PYBACKING
+    then
+        _assert_fail pre_cleanup_conservation "cash backing mismatch; preserved before-cleanup.jsonl"
+        return 1
+    fi
+    record pre_cleanup_conservation ok assert "" "" "" "" "" "all-hub cash backed before any cleanup mint/top-up"
 }
 
 flow_teardown() {
     phase teardown
     require_var MARKETS
     require_var POSITION_NFT
+    # Financial failures remain sticky; cleanup still runs afterward.
+    snapshot_before_cleanup || _assert_fail pre_cleanup_snapshot "incomplete pre-cleanup snapshot"
 
     # The DeFindex strategy owns its controller account, so only the
     # strategy's own withdraw can empty it. Drain it first.
@@ -194,8 +259,8 @@ flow_teardown() {
             --hub_asset "$(hub_key "$hub" "$sac")")
         reserves=$(_view_pool_int "td_reserves_${hub}_${sac:0:6}" get_reserves \
             --hub_asset "$(hub_key "$hub" "$sac")")
-        pool_bal=$(balance "$sac" "$POOL"); [[ "$pool_bal" =~ ^[0-9]+$ ]] || pool_bal=0
-        ctrl_bal=$(balance "$sac" "$CONTROLLER"); [[ "$ctrl_bal" =~ ^[0-9]+$ ]] || ctrl_bal=0
+        pool_bal=$(balance "$sac" "$POOL") || return 1
+        ctrl_bal=$(balance "$sac" "$CONTROLLER") || return 1
 
         _uint_le "$borrowed" "$TEARDOWN_ACCT_DUST" \
             || _assert_fail "td_zero_borrowed_${hub}_${sac:0:6}" \

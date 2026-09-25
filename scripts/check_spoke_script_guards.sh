@@ -168,3 +168,118 @@ for flag in paused frozen no_seize; do
 done
 
 echo "spoke script guards: OK"
+
+# A failed submission inside command substitution must never mark an op done.
+# Both retry entry points share this guarantee; Bash errexit is disabled by ||.
+cat > "$tmp/execute.sh" <<EOF
+set -e
+SOURCE_FLAG= NETWORK=testnet
+op_record_path() { echo '$tmp/op.json'; }
+get_governance() { echo CTEST; }
+retry_tx() { echo injected-submission-failure >&2; return 7; }
+mark_op_executed() { echo marked >> '$tmp/incorrectly-marked'; }
+$(extract execute_gov_self_op)
+$(extract execute_op)
+EOF
+printf '%s\n' '{"cli_executable":true,"kind":"controller","target":"C","function":"pause","predecessor":"00","salt":"00","args":[]}' > "$tmp/op.json"
+if bash -c "source '$tmp/execute.sh'; result=\$(execute_op test) || exit \$?"; then fail 'failed controller execution reported success'; fi
+printf '%s\n' '{"cli_executable":true,"kind":"governance_self","execute_label":"UpdateGovDelay","salt":"00","op":{}}' > "$tmp/op.json"
+if bash -c "source '$tmp/execute.sh'; result=\$(execute_op test) || exit \$?"; then fail 'failed self execution reported success'; fi
+[ ! -f "$tmp/incorrectly-marked" ] || fail 'failed operation was marked executed'
+echo 'operator failed-submission regression: OK'
+
+# Disposable roots route every config and operation write away from the checkout.
+cat > "$tmp/isolation.sh" <<EOF
+CONFIG_ROOT='$tmp/disposable-config' OPS_ROOT='$tmp/disposable-ops' NETWORK=testnet
+$(sed -n '5,15p' "$SCRIPT")
+$(sed -n '/^OPS_DIR=/p; /^ORACLE_FEEDS_FILE=/p' "$SCRIPT")
+$(extract ops_dir)
+$(extract op_record_path)
+$(extract get_mapped_hub_id)
+$(extract persist_hub_id)
+$(extract persist_spoke_id)
+$(extract ensure_hub)
+$(extract parse_returned_u32)
+die() { echo "ERROR: \$*" >&2; exit 1; }
+gen_salt() { echo salt; }
+admin_op() { echo '{}'; }
+schedule_via_proposer() { echo scheduled >> '$tmp/schedules'; echo op; }
+op_state() { echo Ready; }
+await_op_ready() { :; }
+execute_op() { echo 1; }
+EOF
+mkdir -p "$tmp/disposable-config/testnet"
+printf '%s\n' '{"testnet":{"hub_ids":{},"spoke_ids":{}}}' > "$tmp/disposable-config/networks.json"
+bash -c 'source "$1"; for f in "$NETWORKS_FILE" "$HUBS_FILE" "$SPOKES_FILE" "$MARKET_CONFIG_FILE" "$BLEND_POOLS_FILE" "$ORACLE_FEEDS_FILE"; do
+    [[ "$f" == "$CONFIG_ROOT/"* ]] || exit 1
+done
+[[ "$(op_record_path sample)" == "$OPS_ROOT/testnet/sample.json" ]] || exit 1
+ensure_hub 1 || exit 1
+persist_spoke_id 1 1 || exit 1
+cp "$NETWORKS_FILE" "$NETWORKS_FILE.before"
+ensure_hub 1 || exit 1
+cmp "$NETWORKS_FILE.before" "$NETWORKS_FILE"' _ "$tmp/isolation.sh" || fail 'operator configuration isolation or replay failed'
+[ "$(wc -l < "$tmp/schedules" | tr -d ' ')" = 1 ] || fail 'setup replay scheduled duplicate hub'
+echo 'operator root isolation and idempotent hub replay: OK'
+
+# Probe the selected controller, independent of spoke listings or stale local pool mappings.
+cat > "$tmp/market.json" <<'JSON'
+{"markets":[{"name":"XLM","asset_address":"CASSET","hub_id":1,"market_params":{"is_flashloanable":false,"flashloan_fee":0}}]}
+JSON
+cat > "$tmp/market.sh" <<EOF
+NETWORK=testnet SOURCE_FLAG= MARKET_CONFIG_FILE='$tmp/market.json'
+get_pool() { echo CSTALE; }
+get_controller() { echo CCTRL; }
+get_market_value() { jq -r --arg k "\$2" '.markets[0][\$k]' "\$MARKET_CONFIG_FILE"; }
+get_contract_decimals() { echo 7; }
+build_hub_assets_json() { echo '[{"hub_id":1,"asset":"CASSET"}]'; }
+stellar() {
+    [[ "\$*" == *'--id CCTRL '* && "\$*" == *'--send=no -- get_market_index --hub_asset '* ]] || exit 99
+    [ "\$MARKET_EXISTS" = yes ]
+}
+scval_market_params() { echo '{}'; }
+gen_salt() { echo salt; }
+admin_op() { echo '{}'; }
+schedule_via_proposer() { echo scheduled >> '$tmp/market-schedules'; echo op; }
+schedule_and_maybe_execute() { [ "\$1" = op ]; }
+$(extract create_market)
+EOF
+bash -c 'source "$1"; MARKET_EXISTS=yes create_market XLM' _ "$tmp/market.sh" >/dev/null || fail 'existing pool market must skip creation without a spoke'
+[ ! -e "$tmp/market-schedules" ] || fail 'existing market was scheduled again'
+bash -c 'source "$1"; MARKET_EXISTS=no create_market XLM; MARKET_EXISTS=yes create_market XLM' _ "$tmp/market.sh" >/dev/null || fail 'missing market creation or replay failed'
+[ "$(wc -l < "$tmp/market-schedules" | tr -d ' ')" = 1 ] || fail 'market creation must schedule exactly once'
+
+# Explicit hub listings need one qualified read, never the discarded spoke read.
+cat > "$tmp/listing-spokes.json" <<'JSON'
+{"5":{"assets":{"XLM":{"hub_id":1,"can_be_collateral":true,"can_be_borrowed":true,"ltv":1,"liquidation_threshold":2,"liquidation_bonus":3,"liquidation_fees":4}}}}
+JSON
+cat > "$tmp/listing.json" <<'JSON'
+{"is_collateralizable":true,"is_borrowable":true,"loan_to_value":1,"liquidation_threshold":2,"liquidation_bonus":3,"liquidation_fees":4,"supply_cap":"1000","borrow_cap":"1000"}
+JSON
+cat > "$tmp/listing.sh" <<EOF
+NETWORK=testnet SOURCE_FLAG= SPOKES_FILE='$tmp/listing-spokes.json'
+get_controller() { echo CCTRL; }
+get_market_value() { echo CASSET; }
+require_spoke_cap() { echo 1000; }
+fetch_spoke_json() { echo unnecessary >> '$tmp/spoke-fetch'; return 1; }
+stellar() {
+    [[ "\$*" == *'--id CCTRL '* && "\$*" == *'--send=no -- get_spoke_asset --spoke_id 4 --hub_asset '* ]] || exit 99
+    echo read >> '$tmp/listing-reads'
+    [ "\$LISTING_EXISTS" = yes ] || return 1
+    cat '$tmp/listing.json'
+}
+add_asset_to_spoke() { echo add >> '$tmp/listing-mutations'; }
+edit_asset_in_spoke() { echo edit >> '$tmp/listing-mutations'; }
+$(extract get_spoke_value)
+$(extract ensure_asset_in_spoke)
+EOF
+bash -c 'source "$1"; LISTING_EXISTS=yes ensure_asset_in_spoke 4 XLM 5' _ "$tmp/listing.sh" >/dev/null || fail 'matching hub listing failed'
+[ ! -e "$tmp/listing-mutations" ] || fail 'matching listing was mutated'
+bash -c 'source "$1"; LISTING_EXISTS=no ensure_asset_in_spoke 4 XLM 5' _ "$tmp/listing.sh" >/dev/null || fail 'missing listing was not added'
+jq '.loan_to_value=0' "$tmp/listing.json" > "$tmp/listing.changed"
+mv "$tmp/listing.changed" "$tmp/listing.json"
+bash -c 'source "$1"; LISTING_EXISTS=yes ensure_asset_in_spoke 4 XLM 5' _ "$tmp/listing.sh" >/dev/null || fail 'changed listing was not edited'
+[ "$(tr '\n' ' ' < "$tmp/listing-mutations")" = 'add edit ' ] || fail 'listing reconciliation changed'
+[ "$(wc -l < "$tmp/listing-reads" | tr -d ' ')" = 3 ] || fail 'each listing needs exactly one read'
+[ ! -e "$tmp/spoke-fetch" ] || fail 'explicit hub listing fetched discarded spoke data'
+echo 'operator market replay and qualified listing reads: OK'

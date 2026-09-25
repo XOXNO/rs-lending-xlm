@@ -7,11 +7,12 @@ SIGNER=${SIGNER:-deployer}
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 
-NETWORKS_FILE="$SCRIPT_DIR/networks.json"
-HUBS_FILE="$SCRIPT_DIR/${NETWORK}/hubs.json"
-SPOKES_FILE="$SCRIPT_DIR/${NETWORK}/spokes.json"
-MARKET_CONFIG_FILE="$SCRIPT_DIR/${NETWORK}/markets.json"
-BLEND_POOLS_FILE="$SCRIPT_DIR/${NETWORK}/blend.json"
+CONFIG_ROOT="${CONFIG_ROOT:-$SCRIPT_DIR}"
+NETWORKS_FILE="$CONFIG_ROOT/networks.json"
+HUBS_FILE="$CONFIG_ROOT/${NETWORK}/hubs.json"
+SPOKES_FILE="$CONFIG_ROOT/${NETWORK}/spokes.json"
+MARKET_CONFIG_FILE="$CONFIG_ROOT/${NETWORK}/markets.json"
+BLEND_POOLS_FILE="$CONFIG_ROOT/${NETWORK}/blend.json"
 
 require_tool() {
     if ! command -v "$1" >/dev/null 2>&1; then
@@ -191,7 +192,7 @@ get_price_aggregator() {
     local gov addr
     gov=$(get_governance 2>/dev/null) || gov=""
     if [ -n "$gov" ] && [ "$gov" != "null" ]; then
-        addr=$(stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
+        addr=$(stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
             --send=no -- price_aggregator 2>/dev/null | tr -d '"') || addr=""
         if [ -n "$addr" ] && [ "$addr" != "null" ]; then
             echo "$addr"
@@ -255,7 +256,7 @@ get_signer_address() {
 invoke_view() {
 
     local output
-    output=$(stellar contract invoke --id "$1" $SOURCE_FLAG --network "$NETWORK" --send=no -- "${@:2}")
+    output=$(stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$1" $SOURCE_FLAG --network "$NETWORK" --send=no -- "${@:2}")
     if command -v jq >/dev/null 2>&1 && printf '%s' "$output" | jq . >/dev/null 2>&1; then
         printf '%s' "$output" | jq .
     else
@@ -269,7 +270,7 @@ get_contract_decimals() {
 
 ZERO_PREDECESSOR_HEX="0000000000000000000000000000000000000000000000000000000000000000"
 
-OPS_DIR="$ROOT_DIR/configs/ops/$NETWORK"
+OPS_DIR="${OPS_ROOT:-$ROOT_DIR/configs/ops}/$NETWORK"
 
 AWAIT_POLL_SECONDS=${AWAIT_POLL_SECONDS:-5}
 
@@ -610,14 +611,14 @@ resolve_oracle_args_for() {
             local oracle_file oracle_file2
             oracle_file=$(mktemp)
             printf '%s' "$payload" > "$oracle_file"
-            resolved=$(stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
+            resolved=$(stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
                 --send=no -- resolve_asset_oracle \
                 --key-file-path "$key_file" --oracle-file-path "$oracle_file")
             rm -f "$oracle_file"
             oracle_file2=$(mktemp)
             printf '%s' "$resolved" > "$oracle_file2"
 
-            tx_xdr=$(stellar contract invoke --id "$target" $SOURCE_FLAG --network "$NETWORK" \
+            tx_xdr=$(stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$target" $SOURCE_FLAG --network "$NETWORK" \
                 --build-only --send=no -- "$function" \
                 --key-file-path "$key_file" --oracle-file-path "$oracle_file2")
             rm -f "$oracle_file2"
@@ -625,12 +626,12 @@ resolve_oracle_args_for() {
                 | jq -c 'first(.. | objects | select(has("invoke_contract")) | .invoke_contract.args)'
             ;;
         resolve_oracle_tolerance)
-            resolved=$(stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
+            resolved=$(stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
                 --send=no -- resolve_oracle_tolerance --tolerance "$payload")
             local tol_file
             tol_file=$(mktemp)
             printf '%s' "$resolved" > "$tol_file"
-            tx_xdr=$(stellar contract invoke --id "$target" $SOURCE_FLAG --network "$NETWORK" \
+            tx_xdr=$(stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$target" $SOURCE_FLAG --network "$NETWORK" \
                 --build-only --send=no -- "$function" \
                 --key-file-path "$key_file" --tolerance-file-path "$tol_file")
             rm -f "$tol_file"
@@ -698,6 +699,14 @@ retry_tx() {
             printf '%s' "$out"
             return 0
         fi
+        # A signed transaction may already have committed. Never rebuild it
+        # after a lost response; retain its hash for explicit reconciliation.
+        if grep -qE 'Signing transaction: [0-9a-f]{64}' "$errfile"; then
+            cat "$errfile" >&2
+            printf '%s' "$out"
+            rm -f "$errfile"
+            return "$rc"
+        fi
         if [ "$attempt" -lt "$STELLAR_TX_MAX_RETRIES" ] && grep -qiE "$RPC_RETRYABLE_RE" "$errfile"; then
             echo "  transient RPC error (attempt ${attempt}/${STELLAR_TX_MAX_RETRIES}); retrying in ${STELLAR_TX_RETRY_DELAY}s..." >&2
             sed 's/^/    | /' "$errfile" >&2
@@ -720,7 +729,7 @@ precomputed_op_id() {
     gov=$(get_governance)
     args_file=$(mktemp)
     printf '%s' "$args_json" > "$args_file"
-    op_id=$(stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" --send=no \
+    op_id=$(stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$gov" $SOURCE_FLAG --network "$NETWORK" --send=no \
         -- hash_operation \
         --target "$target" \
         --function "$function" \
@@ -821,7 +830,7 @@ schedule_via_proposer() {
     op_file=$(mktemp)
     printf '%s' "$admin_op_json" > "$op_file"
     local out
-    out=$(retry_tx stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
+    out=$(retry_tx stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
         -- propose \
         --proposer "$proposer" \
         --op-file-path "$op_file" \
@@ -887,7 +896,7 @@ schedule_via_gov_self_proposer() {
     op_file=$(mktemp)
     printf '%s' "$admin_op_json" > "$op_file"
     local out
-    out=$(retry_tx stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
+    out=$(retry_tx stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
         -- propose \
         --proposer "$proposer" \
         --op-file-path "$op_file" \
@@ -913,7 +922,7 @@ current_ledger_sequence() {
 min_delay_ledgers() {
     local gov min_delay
     gov=$(get_governance)
-    min_delay=$(stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" --send=no \
+    min_delay=$(stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$gov" $SOURCE_FLAG --network "$NETWORK" --send=no \
         -- get_min_delay | tr -d '"' | tr -d '[:space:]')
     if [ -z "$min_delay" ] || [ "$min_delay" = "null" ]; then
         echo "0"
@@ -937,7 +946,7 @@ op_ready_ledger() {
     local op_id=$1
     local gov
     gov=$(get_governance)
-    stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" --send=no \
+    stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$gov" $SOURCE_FLAG --network "$NETWORK" --send=no \
         -- get_operation_ledger --operation_id "$op_id" | tr -d '"' | tr -d '[:space:]'
 }
 
@@ -945,7 +954,7 @@ op_state() {
     local op_id=$1
     local gov state
     gov=$(get_governance)
-    state=$(stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" --send=no \
+    state=$(stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$gov" $SOURCE_FLAG --network "$NETWORK" --send=no \
         -- get_operation_state --operation_id "$op_id" | tr -d '"' | tr -d '[:space:]')
     if [ "$state" = "Unset" ]; then
         local path
@@ -1025,11 +1034,11 @@ execute_gov_self_op() {
     op_file=$(mktemp)
     jq -c '.op' "$path" > "$op_file"
 
-    retry_tx stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
+    retry_tx stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
         -- execute_self \
         --executor null \
         --op-file-path "$op_file" \
-        --salt "$salt"
+        --salt "$salt" || { local rc=$?; rm -f "$op_file"; return "$rc"; }
     rm -f "$op_file"
     mark_op_executed "$op_id"
     echo "Executed governance-self op ${op_id}." >&2
@@ -1055,7 +1064,7 @@ execute_op() {
     local kind
     kind=$(jq -r '.kind // "controller"' "$path")
     if [ "$kind" = "governance_self" ]; then
-        execute_gov_self_op "$op_id"
+        execute_gov_self_op "$op_id" || return $?
         return 0
     fi
 
@@ -1080,14 +1089,14 @@ execute_op() {
     args_file=$(mktemp)
     printf '%s' "$args_json" > "$args_file"
 
-    retry_tx stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
+    retry_tx stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
         -- execute \
         --executor null \
         --target "$target" \
         --function "$function" \
         --args-file-path "$args_file" \
         --predecessor "$predecessor" \
-        --salt "$salt"
+        --salt "$salt" || { local rc=$?; rm -f "$args_file"; return "$rc"; }
     rm -f "$args_file"
     mark_op_executed "$op_id"
     echo "Executed op ${op_id}." >&2
@@ -1099,7 +1108,7 @@ cancel_op() {
     gov=$(get_governance)
     local canceller
     canceller=$(get_signer_address)
-    stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
+    stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
         -- cancel \
         --canceller "$canceller" \
         --operation_id "$op_id"
@@ -1649,6 +1658,7 @@ add_spoke() {
         rm -f "$errf"
         die "execute of spoke-create op ${op_id} failed"
     }
+    cat "$errf" >&2
     rm -f "$errf"
     local onchain_id
     onchain_id=$(parse_returned_u32 "$result")
@@ -1715,7 +1725,7 @@ fetch_spoke_json() {
     local onchain_id=$1
     local ctrl
     ctrl=$(get_controller)
-    stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
+    stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
         --send=no -- get_spoke --spoke_id "$onchain_id"
 }
 
@@ -1923,7 +1933,7 @@ edit_asset_in_spoke() {
     fi
 
     local live_listing
-    live_listing=$(stellar contract invoke --id "$(get_controller)" $SOURCE_FLAG --network "$NETWORK" --send=no \
+    live_listing=$(stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$(get_controller)" $SOURCE_FLAG --network "$NETWORK" --send=no \
         -- get_spoke_asset --spoke_id "$category_id" \
         --hub_asset "$(jq -nc --argjson h "$hub_id" --arg a "$asset_address" '{hub_id:$h, asset:$a}')" 2>/dev/null | tail -n1) \
         || die "cannot read the live listing of ${asset_name} in on-chain spoke ${category_id}; refusing to edit without its flags"
@@ -1986,17 +1996,17 @@ ensure_asset_in_spoke() {
         exit 1
     fi
 
-    category_json=$(fetch_spoke_json "$category_id")
-
     local _hub _ha _probe
     _hub=$(get_spoke_value "$config_category_id" ".assets.\"$asset_name\".hub_id")
     if [ -n "$_hub" ] && [ "$_hub" != "null" ]; then
         _ha=$(jq -nc --argjson h "$_hub" --arg a "$asset_address" '{hub_id:$h, asset:$a}')
-        if _probe=$(stellar contract invoke --id "$(get_controller)" $SOURCE_FLAG --network "$NETWORK" --send=no -- get_spoke_asset --spoke_id "$category_id" --hub_asset "$_ha" 2>/dev/null); then
+        if _probe=$(stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$(get_controller)" $SOURCE_FLAG --network "$NETWORK" --send=no -- get_spoke_asset --spoke_id "$category_id" --hub_asset "$_ha" 2>/dev/null); then
             category_json=$(jq -nc --arg addr "$asset_address" --argjson cfg "$_probe" '{assets: {($addr): $cfg}}')
         else
             category_json='{"assets":{}}'
         fi
+    else
+        category_json=$(fetch_spoke_json "$category_id")
     fi
     if printf '%s' "$category_json" | jq -e --arg asset "$asset_address" '.assets[$asset] != null' >/dev/null; then
         if printf '%s' "$category_json" | jq -e \
@@ -2123,6 +2133,7 @@ ensure_hub() {
         rm -f "$errf"
         die "execute of hub-create op ${op_id} failed"
     }
+    cat "$errf" >&2
     rm -f "$errf"
     onchain_id=$(parse_returned_u32 "$result")
     if [ -z "$onchain_id" ]; then
@@ -2178,12 +2189,9 @@ create_market() {
         die "market ${market_name} missing hub_id in ${MARKET_CONFIG_FILE}"
     fi
 
-    local ctrl
-    ctrl=$(get_controller)
-
     local hub_asset
     hub_asset=$(build_hub_assets_json "$market_name" | jq -c '.[0]')
-    if stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" --send=no -- get_spoke_asset --spoke_id 0 --hub_asset "$hub_asset" &>/dev/null; then
+    if stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$(get_controller)" $SOURCE_FLAG --network "$NETWORK" --send=no -- get_market_index --hub_asset "$hub_asset" &>/dev/null; then
         echo "Market for ${market_name} already exists, skipping creation."
         return 0
     fi
@@ -2297,7 +2305,7 @@ update_indexes() {
     local assets_json
     assets_json=$(build_hub_assets_json "$@")
 
-    stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
+    stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
         -- update_indexes \
         --caller "$caller" \
         --assets "$assets_json"
@@ -2322,7 +2330,7 @@ claim_revenue() {
     local assets_json
     assets_json=$(build_hub_assets_json "$@")
 
-    stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
+    stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
         -- claim_revenue \
         --caller "$caller" \
         --assets "$assets_json"
@@ -2346,7 +2354,7 @@ claim_revenue_all() {
     local caller
     caller=$(get_signer_address)
 
-    stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
+    stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
         -- claim_revenue \
         --caller "$caller" \
         --assets "$hub_assets_json"
@@ -2358,7 +2366,7 @@ is_blend_pool_whitelisted() {
     local pool=$1
     local ctrl
     ctrl=$(get_controller)
-    stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" --send=no \
+    stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" --send=no \
         -- is_blend_pool_approved --pool "$pool" 2>/dev/null | tr -d '"' | tr -d '[:space:]'
 }
 
@@ -2549,7 +2557,7 @@ supply_position() {
     echo "  Amount:   $amount_raw"
     echo
 
-    stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
+    stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
         -- supply \
         --caller "$caller" \
         --account_id "$account_id" \
@@ -2579,7 +2587,7 @@ borrow_position() {
     echo "  Amount:  $amount_raw"
     echo
 
-    stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
+    stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
         -- borrow \
         --caller "$caller" \
         --account_id "$account_id" \
@@ -2609,7 +2617,7 @@ withdraw_position() {
     echo "  Amount:  $amount_raw (0 = all)"
     echo
 
-    stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
+    stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" \
         -- withdraw \
         --caller "$caller" \
         --account_id "$account_id" \
@@ -2726,7 +2734,7 @@ schedule_configure_asset_oracle() {
 
     echo "Scheduling oracle config for ${label}..." >&2
     local out
-    out=$(retry_tx stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
+    out=$(retry_tx stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
         -- propose \
         --proposer "$proposer" \
         --op-file-path "$op_file" \
@@ -2920,7 +2928,7 @@ edit_oracle_tolerance() {
 
     echo "Scheduling oracle tolerance edit for ${market_name} (tolerance=${tolerance})..." >&2
     local out
-    out=$(retry_tx stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
+    out=$(retry_tx stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
         -- propose \
         --proposer "$proposer" \
         --op-file-path "$op_file" \
@@ -3094,6 +3102,7 @@ schedule_deploy_position_nft() {
     local result errf
     errf=$(mktemp)
     result=$(execute_op "$op_id" 2>"$errf") || { cat "$errf" >&2; rm -f "$errf"; die "execute of deploy_position_nft op ${op_id} failed"; }
+    cat "$errf" >&2
     rm -f "$errf"
     local nft
     nft=$(printf '%s' "$result" | tail -n1 | tr -d '"' | tr -d '[:space:]')
@@ -3135,6 +3144,7 @@ schedule_deploy_pool() {
         rm -f "$errf"
         die "execute of deploy_pool op ${op_id} failed"
     }
+    cat "$errf" >&2
     rm -f "$errf"
     local pool
     pool=$(printf '%s' "$result" | tail -n1 | tr -d '"' | tr -d '[:space:]')
@@ -3230,7 +3240,7 @@ schedule_upgrade_price_aggregator() {
 
     echo "Scheduling upgrade_price_aggregator via propose (salt ${salt})..." >&2
     local out
-    out=$(retry_tx stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
+    out=$(retry_tx stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$gov" $SOURCE_FLAG --network "$NETWORK" \
         -- propose \
         --proposer "$proposer" \
         --op-file-path "$op_file" \
@@ -3269,7 +3279,7 @@ tighten_asset_flags() {
         die "spoke asset ${asset_name} (category ${config_category_id}) missing hub_id in ${SPOKES_FILE}"
     fi
     hub_asset=$(jq -nc --argjson h "$hub_id" --arg a "$asset_address" '{hub_id:$h, asset:$a}')
-    live_listing=$(stellar contract invoke --id "$(get_controller)" $SOURCE_FLAG --network "$NETWORK" --send=no \
+    live_listing=$(stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$(get_controller)" $SOURCE_FLAG --network "$NETWORK" --send=no \
         -- get_spoke_asset --spoke_id "$category_id" --hub_asset "$hub_asset" 2>/dev/null | tail -n1) \
         || die "cannot read the live listing of ${asset_name} in on-chain spoke ${category_id}"
     flags=$(merge_tightened_flags "$live_listing" "$wanted") \
@@ -3278,7 +3288,7 @@ tighten_asset_flags() {
     gov=$(get_governance)
     caller=$(get_signer_address)
     echo "Setting flags on ${asset_name}, on-chain spoke ${category_id}: ${flags}" >&2
-    stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" -- \
+    stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$gov" $SOURCE_FLAG --network "$NETWORK" -- \
         set_spoke_asset_flags --caller "$caller" --spoke_id "$category_id" --hub_asset "$hub_asset" \
         --paused "$(printf '%s' "$flags" | jq -r .paused)" \
         --frozen "$(printf '%s' "$flags" | jq -r .frozen)" \
@@ -3306,7 +3316,7 @@ merge_relaxed_flags() {
 
 read_spoke_flags_epoch() {
     local ctrl=$1 category_id=$2 hub_asset=$3 asset_name=$4 epoch
-    epoch=$(stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" --send=no \
+    epoch=$(stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" --send=no \
         -- get_spoke_asset_flags_epoch --spoke_id "$category_id" --hub_asset "$hub_asset" 2>/dev/null | tail -n1) \
         || die "cannot read the flags epoch of ${asset_name} in on-chain spoke ${category_id}"
     epoch=$(printf '%s' "$epoch" | tr -d '"[:space:]')
@@ -3327,7 +3337,7 @@ relax_asset_flags() {
     fi
     hub_asset=$(jq -nc --argjson h "$hub_id" --arg a "$asset_address" '{hub_id:$h, asset:$a}')
     epoch=$(read_spoke_flags_epoch "$ctrl" "$category_id" "$hub_asset" "$asset_name") || exit 1
-    live_listing=$(stellar contract invoke --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" --send=no \
+    live_listing=$(stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$ctrl" $SOURCE_FLAG --network "$NETWORK" --send=no \
         -- get_spoke_asset --spoke_id "$category_id" --hub_asset "$hub_asset" 2>/dev/null | tail -n1) \
         || die "cannot read the live listing of ${asset_name} in on-chain spoke ${category_id}"
     epoch_after=$(read_spoke_flags_epoch "$ctrl" "$category_id" "$hub_asset" "$asset_name") || exit 1
@@ -3359,7 +3369,7 @@ pause_protocol() {
     gov=$(get_governance)
     caller=$(get_signer_address)
 
-    stellar contract invoke --id "$gov" $SOURCE_FLAG --network "$NETWORK" -- \
+    stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$gov" $SOURCE_FLAG --network "$NETWORK" -- \
         pause --caller "$caller"
     echo "Protocol paused on ${NETWORK} (GUARDIAN immediate)."
 }
@@ -3716,7 +3726,7 @@ list_oracles() {
     done
 }
 
-ORACLE_FEEDS_FILE="$SCRIPT_DIR/${NETWORK}/oracle_feeds.json"
+ORACLE_FEEDS_FILE="$CONFIG_ROOT/${NETWORK}/oracle_feeds.json"
 
 get_oracle_adapter_address() {
     local addr
@@ -3761,7 +3771,7 @@ configure_oracle_feeds() {
 
         echo "  add_feed ${feed_id} -> ${asset_json}" >&2
         errfile=$(mktemp)
-        out=$(stellar contract invoke --id "$adapter" $SOURCE_FLAG --network "$NETWORK" \
+        out=$(stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$adapter" $SOURCE_FLAG --network "$NETWORK" \
             -- add_feed --feed_id "$feed_id" --asset "$asset_json" 2>"$errfile") && rc=0 || rc=$?
         if [ "$rc" -ne 0 ]; then
 
@@ -3803,7 +3813,7 @@ reconfigure_oracle_feeds() {
 
         echo "  remove_feed ${asset_json}" >&2
         errfile=$(mktemp)
-        stellar contract invoke --id "$adapter" $SOURCE_FLAG --network "$NETWORK" \
+        stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$adapter" $SOURCE_FLAG --network "$NETWORK" \
             -- remove_feed --asset "$asset_json" 2>"$errfile" && rc=0 || rc=$?
         if [ "$rc" -ne 0 ]; then
 
@@ -3819,7 +3829,7 @@ reconfigure_oracle_feeds() {
 
         echo "  add_feed ${feed_id} -> ${asset_json}" >&2
         errfile=$(mktemp)
-        stellar contract invoke --id "$adapter" $SOURCE_FLAG --network "$NETWORK" \
+        stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$adapter" $SOURCE_FLAG --network "$NETWORK" \
             -- add_feed --feed_id "$feed_id" --asset "$asset_json" 2>"$errfile" && rc=0 || rc=$?
         if [ "$rc" -ne 0 ]; then
             if grep -qiE 'FeedAlreadyMapped|Error\(Contract, #12\)' "$errfile"; then
@@ -3851,7 +3861,7 @@ add_oracle_signer() {
     echo "=== Adding oracle signer ${signer} on ${NETWORK} (adapter ${adapter}) ===" >&2
     local errfile rc
     errfile=$(mktemp)
-    stellar contract invoke --id "$adapter" $SOURCE_FLAG --network "$NETWORK" \
+    stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$adapter" $SOURCE_FLAG --network "$NETWORK" \
         -- add_signer --signer "$signer" 2>"$errfile" && rc=0 || rc=$?
     if [ "$rc" -ne 0 ]; then
 
@@ -3869,7 +3879,7 @@ add_oracle_signer() {
 
 _invoke_set_window() {
     local fn=$1 seconds=$2 adapter=$3
-    stellar contract invoke --id "$adapter" $SOURCE_FLAG --network "$NETWORK" \
+    stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$adapter" $SOURCE_FLAG --network "$NETWORK" \
         -- "$fn" --seconds "$seconds" >/dev/null 2>&1
 }
 
@@ -3901,7 +3911,7 @@ configure_oracle_windows() {
 
     if [ -n "$skew" ]; then
 
-        stellar contract invoke --id "$adapter" $SOURCE_FLAG --network "$NETWORK" \
+        stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$adapter" $SOURCE_FLAG --network "$NETWORK" \
             -- set_max_relative_skew_seconds --seconds "$skew" \
             || die "set_max_relative_skew_seconds failed (must be <= MaxSubmissionAgeSeconds)"
     fi
@@ -3914,7 +3924,7 @@ set_oracle_submission_age() {
     local adapter
     adapter=$(get_oracle_adapter_address) || die "No oracle adapter deployed for ${NETWORK}."
     echo "=== set_max_submission_age_seconds ${seconds} on ${NETWORK} (adapter ${adapter}) ===" >&2
-    stellar contract invoke --id "$adapter" $SOURCE_FLAG --network "$NETWORK" \
+    stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$adapter" $SOURCE_FLAG --network "$NETWORK" \
         -- set_max_submission_age_seconds --seconds "$seconds"
 }
 
@@ -3924,7 +3934,7 @@ set_oracle_max_stale() {
     local adapter
     adapter=$(get_oracle_adapter_address) || die "No oracle adapter deployed for ${NETWORK}."
     echo "=== set_max_stale_seconds ${seconds} on ${NETWORK} (adapter ${adapter}) ===" >&2
-    stellar contract invoke --id "$adapter" $SOURCE_FLAG --network "$NETWORK" \
+    stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$adapter" $SOURCE_FLAG --network "$NETWORK" \
         -- set_max_stale_seconds --seconds "$seconds"
 }
 
@@ -3934,7 +3944,7 @@ set_oracle_relative_skew() {
     local adapter
     adapter=$(get_oracle_adapter_address) || die "No oracle adapter deployed for ${NETWORK}."
     echo "=== set_max_relative_skew_seconds ${seconds} on ${NETWORK} (adapter ${adapter}) ===" >&2
-    stellar contract invoke --id "$adapter" $SOURCE_FLAG --network "$NETWORK" \
+    stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$adapter" $SOURCE_FLAG --network "$NETWORK" \
         -- set_max_relative_skew_seconds --seconds "$seconds"
 }
 
@@ -3944,7 +3954,7 @@ set_oracle_max_cluster_spread() {
     local adapter
     adapter=$(get_oracle_adapter_address) || die "No oracle adapter deployed for ${NETWORK}."
     echo "=== set_max_cluster_spread_bps ${bps} on ${NETWORK} (adapter ${adapter}) ===" >&2
-    stellar contract invoke --id "$adapter" $SOURCE_FLAG --network "$NETWORK" \
+    stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$adapter" $SOURCE_FLAG --network "$NETWORK" \
         -- set_max_cluster_spread_bps --bps "$bps"
 }
 
@@ -3982,7 +3992,7 @@ set_aggregator_fee() {
     local router
     router=$(get_aggregator_address) || die "No aggregator deployed for ${NETWORK}."
     echo "=== set_static_fee ${bps} on aggregator ${router} (${NETWORK}) ===" >&2
-    stellar contract invoke --id "$router" $SOURCE_FLAG --network "$NETWORK" \
+    stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$router" $SOURCE_FLAG --network "$NETWORK" \
         -- set_static_fee --fee_bps "$bps"
 }
 
@@ -3992,7 +4002,7 @@ add_aggregator_whitelist() {
     local router
     router=$(get_aggregator_address) || die "No aggregator deployed for ${NETWORK}."
     echo "=== add_to_whitelist ${token} on aggregator ${router} (${NETWORK}) ===" >&2
-    stellar contract invoke --id "$router" $SOURCE_FLAG --network "$NETWORK" \
+    stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$router" $SOURCE_FLAG --network "$NETWORK" \
         -- add_to_whitelist --token "$token"
 }
 
@@ -4002,7 +4012,7 @@ remove_aggregator_whitelist() {
     local router
     router=$(get_aggregator_address) || die "No aggregator deployed for ${NETWORK}."
     echo "=== remove_from_whitelist ${token} on aggregator ${router} (${NETWORK}) ===" >&2
-    stellar contract invoke --id "$router" $SOURCE_FLAG --network "$NETWORK" \
+    stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$router" $SOURCE_FLAG --network "$NETWORK" \
         -- remove_from_whitelist --token "$token"
 }
 
@@ -4012,7 +4022,7 @@ add_aggregator_referral() {
     local router
     router=$(get_aggregator_address) || die "No aggregator deployed for ${NETWORK}."
     echo "=== add_referral ${owner} ${fee_bps}bps on aggregator ${router} (${NETWORK}) ===" >&2
-    stellar contract invoke --id "$router" $SOURCE_FLAG --network "$NETWORK" \
+    stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$router" $SOURCE_FLAG --network "$NETWORK" \
         -- add_referral --owner "$owner" --fee_bps "$fee_bps"
 }
 
@@ -4022,7 +4032,7 @@ set_aggregator_referral_fee() {
     local router
     router=$(get_aggregator_address) || die "No aggregator deployed for ${NETWORK}."
     echo "=== set_referral_fee ${id} ${fee_bps}bps on aggregator ${router} (${NETWORK}) ===" >&2
-    stellar contract invoke --id "$router" $SOURCE_FLAG --network "$NETWORK" \
+    stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$router" $SOURCE_FLAG --network "$NETWORK" \
         -- set_referral_fee --id "$id" --fee_bps "$fee_bps"
 }
 
@@ -4032,7 +4042,7 @@ set_aggregator_referral_active() {
     local router
     router=$(get_aggregator_address) || die "No aggregator deployed for ${NETWORK}."
     echo "=== set_referral_active ${id} ${active} on aggregator ${router} (${NETWORK}) ===" >&2
-    stellar contract invoke --id "$router" $SOURCE_FLAG --network "$NETWORK" \
+    stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$router" $SOURCE_FLAG --network "$NETWORK" \
         -- set_referral_active --id "$id" --active "$active"
 }
 
@@ -4042,7 +4052,7 @@ set_aggregator_referral_owner() {
     local router
     router=$(get_aggregator_address) || die "No aggregator deployed for ${NETWORK}."
     echo "=== set_referral_owner ${id} -> ${new_owner} on aggregator ${router} (${NETWORK}) ===" >&2
-    stellar contract invoke --id "$router" $SOURCE_FLAG --network "$NETWORK" \
+    stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$router" $SOURCE_FLAG --network "$NETWORK" \
         -- set_referral_owner --id "$id" --new_owner "$new_owner"
 }
 
@@ -4054,7 +4064,7 @@ claim_aggregator_admin_fees() {
     router=$(get_aggregator_address) || die "No aggregator deployed for ${NETWORK}."
     tokens_json=$(_json_addr_vec "$@")
     echo "=== claim_admin_fees -> ${recipient} on aggregator ${router} (${NETWORK}) ===" >&2
-    stellar contract invoke --id "$router" $SOURCE_FLAG --network "$NETWORK" \
+    stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$router" $SOURCE_FLAG --network "$NETWORK" \
         -- claim_admin_fees --recipient "$recipient" --tokens "$tokens_json"
 }
 
@@ -4066,7 +4076,7 @@ sweep_aggregator_balance() {
     router=$(get_aggregator_address) || die "No aggregator deployed for ${NETWORK}."
     tokens_json=$(_json_addr_vec "$@")
     echo "=== sweep_balance -> ${recipient} on aggregator ${router} (${NETWORK}) ===" >&2
-    stellar contract invoke --id "$router" $SOURCE_FLAG --network "$NETWORK" \
+    stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$router" $SOURCE_FLAG --network "$NETWORK" \
         -- sweep_balance --recipient "$recipient" --tokens "$tokens_json"
 }
 
@@ -4076,7 +4086,7 @@ upgrade_aggregator_hash() {
     local router
     router=$(get_aggregator_address) || die "No aggregator deployed for ${NETWORK}."
     echo "=== upgrade aggregator ${router} -> ${hash} (${NETWORK}) ===" >&2
-    stellar contract invoke --id "$router" $SOURCE_FLAG --network "$NETWORK" \
+    stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$router" $SOURCE_FLAG --network "$NETWORK" \
         -- upgrade --new_wasm_hash "$hash"
 }
 
@@ -4086,7 +4096,7 @@ upgrade_oracle_adapter_hash() {
     local adapter
     adapter=$(get_oracle_adapter_address) || die "No oracle adapter deployed for ${NETWORK}."
     echo "=== upgrade oracle adapter ${adapter} -> ${hash} (${NETWORK}) ===" >&2
-    stellar contract invoke --id "$adapter" $SOURCE_FLAG --network "$NETWORK" \
+    stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$adapter" $SOURCE_FLAG --network "$NETWORK" \
         -- upgrade --new_wasm_hash "$hash"
 }
 
@@ -4096,7 +4106,7 @@ transfer_aggregator_ownership() {
     local router
     router=$(get_aggregator_address) || die "No aggregator deployed for ${NETWORK}."
     echo "=== transfer_ownership(${new_owner}, ${live_until}) on aggregator ${router} (${NETWORK}) ===" >&2
-    stellar contract invoke --id "$router" $SOURCE_FLAG --network "$NETWORK" \
+    stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$router" $SOURCE_FLAG --network "$NETWORK" \
         -- transfer_ownership --new_owner "$new_owner" --live_until_ledger "$live_until"
 }
 
@@ -4104,7 +4114,7 @@ accept_aggregator_ownership() {
     local router
     router=$(get_aggregator_address) || die "No aggregator deployed for ${NETWORK}."
     echo "=== accept_ownership on aggregator ${router} (${NETWORK}); signer must be the pending owner ===" >&2
-    stellar contract invoke --id "$router" $SOURCE_FLAG --network "$NETWORK" \
+    stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$router" $SOURCE_FLAG --network "$NETWORK" \
         -- accept_ownership
 }
 
@@ -4114,7 +4124,7 @@ transfer_oracle_adapter_ownership() {
     local adapter
     adapter=$(get_oracle_adapter_address) || die "No oracle adapter deployed for ${NETWORK}."
     echo "=== transfer_ownership(${new_owner}, ${live_until}) on oracle adapter ${adapter} (${NETWORK}) ===" >&2
-    stellar contract invoke --id "$adapter" $SOURCE_FLAG --network "$NETWORK" \
+    stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$adapter" $SOURCE_FLAG --network "$NETWORK" \
         -- transfer_ownership --new_owner "$new_owner" --live_until_ledger "$live_until"
 }
 
@@ -4122,7 +4132,7 @@ accept_oracle_adapter_ownership() {
     local adapter
     adapter=$(get_oracle_adapter_address) || die "No oracle adapter deployed for ${NETWORK}."
     echo "=== accept_ownership on oracle adapter ${adapter} (${NETWORK}); signer must be the pending owner ===" >&2
-    stellar contract invoke --id "$adapter" $SOURCE_FLAG --network "$NETWORK" \
+    stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$adapter" $SOURCE_FLAG --network "$NETWORK" \
         -- accept_ownership
 }
 
