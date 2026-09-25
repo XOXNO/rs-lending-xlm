@@ -1,0 +1,49 @@
+{
+  "kind": "price_aggregator",
+  "op_id": "b6256fb362467811929f66b57b8e6ac055c5adae1be0d841cdb2d79c03fd69fd",
+  "network": "testnet",
+  "target": "CAALOOTIDXCX7D7FMQIBSSAJLPKOM3GMXS4UUSTDIG42JCRRJHOPUHOP",
+  "function": "set_oracle",
+  "predecessor": "0000000000000000000000000000000000000000000000000000000000000000",
+  "salt": "f138981b82c1f65e038cd9ae22c04d3197ce6e56a185a2323dac1b79845161c1",
+  "cli_executable": true,
+  "executed": true,
+  "resolve": {
+    "view_fn": "resolve_asset_oracle",
+    "args": {
+      "key": {
+        "Token": "CCUUDM434BMZMYWYDITHFXHDMIVTGGD6T2I5UKNX5BSLXLW7HVR4MCGZ"
+      },
+      "oracle": {
+        "asset_decimals": 7,
+        "max_price_stale_seconds": 3600,
+        "sources": [
+          {
+            "Feed": {
+              "provider": {
+                "Reflector": {
+                  "contract": "CCYOZJCOPG34LLQQ7N24YXBM7LL62R7ONMZ3G6WZAAYPB5OYKOMJRN63",
+                  "asset": {
+                    "Symbol": "EURC"
+                  },
+                  "read_mode": {
+                    "Twap": 3
+                  }
+                }
+              },
+              "decimals": 14,
+              "max_stale_seconds": 3600
+            }
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 10500,
+          "lower_ratio_bps": 9524
+        },
+        "independence": "RequireDisjoint",
+        "min_sanity_price_wad": "972000000000000000",
+        "max_sanity_price_wad": "1188000000000000000"
+      }
+    }
+  }
+}

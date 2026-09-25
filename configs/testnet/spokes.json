@@ -172,10 +172,9 @@
         "ltv": 5000,
         "liquidation_threshold": 6000,
         "liquidation_bonus": 500,
-        "liquidation_fees": 1000,
+        "liquidation_fees": 0,
         "supply_cap": "1000000",
-        "borrow_cap": "0",
-        "enabled": false
+        "borrow_cap": "0"
       },
       "USDC_LIQVID": {
         "hub_id": 4,
