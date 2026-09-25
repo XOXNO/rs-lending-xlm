@@ -2,7 +2,7 @@
 """Dry-run publication guard: injected failures and artifact swaps block it."""
 from pathlib import Path
 from copy import deepcopy
-import json, hashlib, subprocess, sys
+import json, hashlib, subprocess, sys, re
 from controlled import MANIFEST
 from controlled import collect as collect_controlled
 import tempfile
@@ -110,6 +110,28 @@ with tempfile.TemporaryDirectory() as directory:
 # Keep the actual workflow publication behind both job success and exact-byte
 # verification; dry-run dispatch must never enter the GitHub release mutation.
 workflow = (Path(__file__).resolve().parents[2]/'.github/workflows/release.yml').read_text()
+# Queued jobs consume the build checkout's resolved SHA even if its branch or
+# explicit tag moves. Resolve the actual workflow expressions against that move.
+build = workflow.split('  testnet-e2e:',1)[0]
+assert 'id: checkout' in build
+output = re.search(r'      source_sha: \$\{\{ (.*?) \}\}', build).group(1)
+refs = re.findall(r'          ref: \$\{\{ (.*?) \}\}', workflow)
+assert len(refs) == 3
+assert refs[0] == 'inputs.tag || github.sha'
+assert output == 'steps.checkout.outputs.commit'
+assert refs[1:] == ['needs.build.outputs.source_sha'] * 2
+def resolve(expression, context):
+    return next(context[part.strip()] for part in expression.split('||') if context[part.strip()])
+for tag in ['', 'v1.2.3']:
+    event_sha, built_sha, advanced_sha = 'a'*40, ('b'*40 if tag else 'a'*40), 'c'*40
+    context = {'inputs.tag':tag, 'github.sha':event_sha, 'github.ref':'refs/heads/main',
+        'steps.checkout.outputs.commit':built_sha}
+    assert resolve(refs[0],context) == (tag or event_sha)
+    context['needs.build.outputs.source_sha'] = resolve(output,context)
+    moved_refs = {'refs/heads/main':advanced_sha, 'v1.2.3':advanced_sha}
+    for expression in refs[1:]:
+        ref = resolve(expression,context)
+        assert moved_refs.get(ref,ref) == built_sha, 'queued job followed a moved ref'
 publish = workflow.split('  publish:',1)[1]
 assert 'needs: [build, testnet-e2e]' in publish
 assert publish.index('release_gate.py verify') < publish.index('gh release upload')
