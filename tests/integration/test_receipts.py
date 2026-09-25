@@ -150,7 +150,7 @@ def fee_bump(receipt):
 
 bumped=fee_bump(r)
 outer=envelope_hash(decode('TransactionEnvelope',bumped['result']['envelopeXdr']),args[1])
-# Independently reproduced using stellar-sdk 16.0.1 FeeBumpTransaction.hash().
+# Independently reproduced using stellar-sdk 16.3.0 FeeBumpTransaction.hash().
 assert outer=='56c8c172a050b9dada0fbe8af32a8b8c2d2fce7bfda269f986cbe624c985b750'
 assert verify(bumped,*args)==verify(r,*args)
 assert recover(bumped,args[0],args[1],'invoke',args[3],args[4])==recover(r,args[0],args[1],'invoke',args[3],args[4])
