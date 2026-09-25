@@ -17,7 +17,9 @@ def spent(logs, address):
         else:
             envelope=decode('TransactionEnvelope',receipt['envelopeXdr'])
             result=decode('TransactionResult',receipt['resultXdr'])
-            charge=dict(payer=envelope['tx']['tx']['source_account'],fee=int(result['fee_charged']))
+            payer=(envelope['tx_fee_bump']['tx']['fee_source'] if 'tx_fee_bump' in envelope
+                   else envelope['tx']['tx']['source_account'])
+            charge=dict(payer=payer,fee=int(result['fee_charged']))
             if charge['fee']<0: raise ValueError('negative committed fee')
             cache.write_text(json.dumps(charge)+'\n')
         if charge['payer']==address: total+=charge['fee']

@@ -266,7 +266,8 @@ fn dust_close_keeps_native_recipient_writable_when_interest_crosses_one_unit() {
     // Start recording only after funding and market setup, so those operations
     // cannot accidentally add the recipient's account to the tested footprint.
     let snapshot = setup.env.to_ledger_snapshot();
-    for omit_zero_transfer in [true, false] {
+    for (omit_zero_transfer, empty_at_simulation) in [(true, false), (false, false), (false, true)]
+    {
         let env = Env::from_ledger_snapshot(snapshot.clone());
         env.mock_all_auths();
         let pool: Address = xdr::ScAddress::from(&setup.contract)
@@ -274,12 +275,16 @@ fn dust_close_keeps_native_recipient_writable_when_interest_crosses_one_unit() {
             .unwrap();
         let native: Address = xdr::ScAddress::from(&native).try_into_val(&env).unwrap();
         let recipient: Address = xdr::ScAddress::from(&recipient).try_into_val(&env).unwrap();
-        let entry = PoolWithdrawEntry {
+        let mut entry = PoolWithdrawEntry {
             action: PoolAction {
                 hub_asset: hub(&native),
                 amount: i128::MAX,
                 position: ScaledPositionRaw {
-                    scaled_amount: 100_000_000_000_000_000_000 - 1,
+                    scaled_amount: if empty_at_simulation {
+                        0
+                    } else {
+                        100_000_000_000_000_000_000 - 1
+                    },
                 },
             },
             protocol_fee: 0,
@@ -308,6 +313,7 @@ fn dust_close_keeps_native_recipient_writable_when_interest_crosses_one_unit() {
                 ledger.sequence_number += 1;
             });
             env.host().switch_to_enforcing_storage().unwrap();
+            entry.action.position.scaled_amount = 100_000_000_000_000_000_000 - 1;
             let committed = super::apply(&env, &recipient, false, &entry).0;
             assert_eq!(committed.actual_amount, 1);
             assert_eq!(committed.position.scaled_amount, 0);
@@ -349,7 +355,7 @@ fn empty_withdrawal_and_zero_refund_do_not_touch_recipient() {
             PoolWithdrawEntry {
                 action: PoolAction {
                     hub_asset: hub(&t.params.asset_id),
-                    amount: i128::MAX,
+                    amount: 0,
                     position: ScaledPositionRaw { scaled_amount: 0 },
                 },
                 protocol_fee: 0,

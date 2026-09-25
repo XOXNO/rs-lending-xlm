@@ -270,10 +270,10 @@ rc=0; verify_deployed_wasm "$LOG_DIR/id.out" --wasm "$LOG_DIR/candidate.wasm" ||
     assert any(a['label']=='deployed_hash' and a['status']=='FAIL' for a in actions)==mismatch
 print('Read-only fetch retry preserves distinct transport and bytecode mismatch evidence')
 
-for status in ['FAILED','UNKNOWN']:
+for status, error in [('FAILED','ResourceLimitExceeded'),('UNKNOWN','ResourceLimitExceeded'),('UNKNOWN','TxInsufficientFee')]:
     attempts,outputs,actions=shell(f'''
 n=0
-cli_deploy() {{ n=$((n+1)); echo 'Signing transaction: {receipt_hash}' >&2; echo ResourceLimitExceeded >&2; return 1; }}
+cli_deploy() {{ n=$((n+1)); echo 'Signing transaction: {receipt_hash}' >&2; echo {error} >&2; return 1; }}
 tx_status() {{ echo {status}; }}
 recover_output() {{ echo forbidden >&2; exit 88; }}
 if run_deploy "$LOG_DIR/deploy.out" "$LOG_DIR/deploy.err" -- cli_deploy; then exit 1; fi
@@ -294,16 +294,20 @@ policy_shapes=[
 ]
 for argv in policy_shapes:
     command=shlex.join(['stellar','contract',*argv])
-    expected=['contract',argv[0],'--instruction-leeway','20000000']
+    expected=['contract',argv[0],'--filter-logs','stellar_cli::assembled=trace','--instruction-leeway','20000000']
     remaining=argv[1:]
     if remaining[:1]==['--instruction-leeway']: remaining=remaining[2:]
     if remaining[:1]==['--instruction-leeway=20000000']: remaining=remaining[1:]
     expected+=remaining
     attempts,outputs,actions=shell(f'''
 INSTRUCTION_LEEWAY=20000000
-stellar() {{ printf '%s\\n' "$@" > "$LOG_DIR/command-args"; printf '%064d' 1; }}
+stellar() {{
+    if [ "$1 $2" = 'fees stats' ]; then echo unavailable >&2; return 1; fi
+    printf '%s\\n' "$@" > "$LOG_DIR/command-args"; printf '%064d' 1;
+}}
 verify_deployed_wasm() {{ :; }}
 run_deploy "$LOG_DIR/policy.out" "$LOG_DIR/policy.err" -- {command} || exit 1
+[ -f "$LOG_DIR/deployment-fee-stats.json" ] && grep -q unavailable "$LOG_DIR/deployment-fee-stats.err" || exit 1
 python3 - "$LOG_DIR/command-args" {shlex.quote(json.dumps(expected))} <<'PYPOLICY'
 import json,sys
 from pathlib import Path
@@ -319,9 +323,25 @@ for options in [
     command=shlex.join(['stellar','contract','upload','--wasm','/tmp/pool.wasm',*options])
     attempts,outputs,actions=shell(f'''
 INSTRUCTION_LEEWAY=20000000
-n=0; stellar() {{ n=$((n+1)); return 0; }}
+n=0; stellar() {{ [ "$1 $2" = 'fees stats' ] && return 0; n=$((n+1)); return 0; }}
 if run_deploy "$LOG_DIR/policy.out" "$LOG_DIR/policy.err" -- {command}; then exit 1; fi
 [ "$n" = 0 ] || exit 1
 ''')
     assert not attempts and actions[0]['label']=='deployment_policy' and actions[0]['status']=='FAIL'
 print('Native deployment policy reaches uploads and constructors without conflicting flags')
+
+attempts, _, _ = shell('''
+fee_reads=0
+stellar() {
+    if [ "$1 $2" = 'fees stats' ]; then
+        fee_reads=$((fee_reads+1)); echo '{"sorobanInclusionFee":{"max":"200"},"latestLedger":123}'; return 0
+    fi
+    printf '%064d' 1
+}
+verify_deployed_wasm() { :; }
+run_deploy "$LOG_DIR/first.out" "$LOG_DIR/first.err" -- stellar contract upload --wasm unused || exit 1
+run_deploy "$LOG_DIR/second.out" "$LOG_DIR/second.err" -- stellar contract upload --wasm unused || exit 1
+[ "$fee_reads" = 1 ] && jq -e '.latestLedger == 123' "$LOG_DIR/deployment-fee-stats.json" >/dev/null || exit 1
+''')
+assert len(attempts) == 2
+print('Deployment fee diagnostics retain one RPC snapshot without changing fee policy')

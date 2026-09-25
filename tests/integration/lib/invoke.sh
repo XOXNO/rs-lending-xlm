@@ -21,6 +21,11 @@ run_deploy() {
     # the option before constructor args, and reject conflicting explicit limits.
     case "${1:-} ${2:-} ${3:-}" in
         'stellar contract upload'|'stellar contract deploy')
+            # Diagnostic only: historical fee stats cannot prove admission.
+            if [ ! -f "$LOG_DIR/deployment-fee-stats.json" ]; then
+                stellar fees stats "${NET_ARGS[@]}" --output json \
+                    > "$LOG_DIR/deployment-fee-stats.json" 2> "$LOG_DIR/deployment-fee-stats.err" || true
+            fi
             local verb="$3" leeway="${INSTRUCTION_LEEWAY:-20000000}" explicit=0 value
             local deployment_args=()
             shift 3
@@ -41,7 +46,10 @@ run_deploy() {
                 esac
                 shift
             done
-            set -- stellar contract "$verb" --instruction-leeway "$leeway" "${deployment_args[@]}";;
+            # Retain unsigned XDR and native simulation fees in each attempt's
+            # stderr: rejected submissions have no getTransaction envelope.
+            set -- stellar contract "$verb" --filter-logs stellar_cli::assembled=trace \
+                --instruction-leeway "$leeway" "${deployment_args[@]}";;
     esac
     local attempt rc hash sequence label st
     sequence=$(wc -l < "$ACTIONS_TSV")

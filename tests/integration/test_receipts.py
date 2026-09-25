@@ -132,3 +132,46 @@ with tempfile.TemporaryDirectory() as directory:
     except ValueError: pass
     else: raise AssertionError('wrong upload candidate accepted')
 print('Verified return recovery and deployment operation binding passed')
+
+# CLI 28 wraps high fees in a fee bump; RPC can be queried by either hash.
+from receipts import envelope_hash
+fee_source='GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF'
+def fee_bump(receipt):
+    bumped=deepcopy(receipt)
+    envelope={'tx_fee_bump':{'tx':{'fee_source':fee_source,'fee':'10000000',
+        'inner_tx':decode('TransactionEnvelope',receipt['result']['envelopeXdr']),
+        'ext':'v0'},'signatures':[]}}
+    outcome=decode('TransactionResult',receipt['result']['resultXdr'])
+    kind='tx_fee_bump_inner_success' if receipt['result']['status']=='SUCCESS' else 'tx_fee_bump_inner_failed'
+    bumped['result']['envelopeXdr']=encode('TransactionEnvelope',envelope)
+    bumped['result']['resultXdr']=encode('TransactionResult',{'fee_charged':'321',
+        'result':{kind:{'transaction_hash':receipt['result']['txHash'],'result':outcome}},'ext':'v0'})
+    return bumped
+
+bumped=fee_bump(r)
+outer=envelope_hash(decode('TransactionEnvelope',bumped['result']['envelopeXdr']),args[1])
+# Independently reproduced using stellar-sdk 16.0.1 FeeBumpTransaction.hash().
+assert outer=='56c8c172a050b9dada0fbe8af32a8b8c2d2fce7bfda269f986cbe624c985b750'
+assert verify(bumped,*args)==verify(r,*args)
+assert recover(bumped,args[0],args[1],'invoke',args[3],args[4])==recover(r,args[0],args[1],'invoke',args[3],args[4])
+bumped['result']['txHash']=outer
+assert verify(bumped,outer,*args[1:])==verify(r,*args)
+assert verify(fee_bump(failed),args[0],args[1],'FAILED',args[3],args[4])['resources']['instructions']>0
+for kind in ['network','inner_hash','inner_status','missing_wrapper','unrelated_hash']:
+    bad=deepcopy(bumped)
+    outcome=decode('TransactionResult',bad['result']['resultXdr'])
+    wrapper=outcome['result']['tx_fee_bump_inner_success']
+    if kind=='inner_hash': wrapper['transaction_hash']='00'*32
+    elif kind=='inner_status': wrapper['result']['result']='tx_bad_seq'
+    elif kind=='missing_wrapper': outcome=wrapper['result']
+    elif kind=='unrelated_hash': bad['result']['txHash']='00'*32
+    bad['result']['resultXdr']=encode('TransactionResult',outcome)
+    try: verify(bad,bad['result']['txHash'],'wrong network' if kind=='network' else args[1],*args[2:])
+    except ValueError: pass
+    else: raise AssertionError('invalid fee bump accepted: '+kind)
+with tempfile.TemporaryDirectory() as directory:
+    logs=Path(directory)
+    (logs/(outer+'.receipt.json')).write_text(json.dumps(bumped))
+    assert spent(logs,fee_source)==321
+    assert spent(logs,payer)==0
+print('Fee-bump identity, result, recovery and fee-payer regressions passed')

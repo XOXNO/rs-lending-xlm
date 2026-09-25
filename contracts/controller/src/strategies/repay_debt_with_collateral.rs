@@ -85,7 +85,7 @@ pub(crate) fn process_repay_debt_with_collateral(
             CollateralError::CannotCloseWithRemainingDebt
         );
 
-        execute_withdraw_all(env, &mut account, caller, &mut cache);
+        execute_withdraw_all(env, &mut account, caller, &mut cache, collateral);
     }
 
     strategy_finalize(env, account_id, &mut account, &mut cache);

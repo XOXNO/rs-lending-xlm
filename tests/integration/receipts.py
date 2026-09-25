@@ -16,6 +16,30 @@ def decode(kind, value):
     return json.loads(cli(['xdr', 'decode', '--type', kind, '--output', 'json'], value))
 
 
+def envelope_hash(envelope, passphrase):
+    if set(envelope) not in ({'tx'}, {'tx_fee_bump'}):
+        raise ValueError('unsupported transaction envelope')
+    payload = {'network_id': hashlib.sha256(passphrase.encode()).hexdigest(),
+               'tagged_transaction': {kind: value['tx'] for kind, value in envelope.items()}}
+    encoded = cli(['xdr', 'encode', '--type', 'TransactionSignaturePayload'], json.dumps(payload))
+    return hashlib.sha256(base64.b64decode(encoded, validate=True)).hexdigest()
+
+
+def unwrap(envelope, outcome):
+    """Keep fee-bump result status consistent with its inner transaction."""
+    if set(envelope) == {'tx_fee_bump'}:
+        result = outcome['result']
+        if set(result) not in ({'tx_fee_bump_inner_success'}, {'tx_fee_bump_inner_failed'}):
+            raise ValueError('missing fee-bump inner result')
+        inner = next(iter(result.values()))['result']
+        if ('tx_fee_bump_inner_success' in result) != ('tx_success' in inner['result']):
+            raise ValueError('fee-bump status contradicts inner result')
+        return envelope['tx_fee_bump']['tx']['inner_tx'], inner
+    if set(envelope) != {'tx'} or any(key.startswith('tx_fee_bump_') for key in outcome['result']):
+        raise ValueError('unsupported transaction envelope/result')
+    return envelope, outcome
+
+
 def verify(receipt, hash_, passphrase, status, contract=None, method=None):
     result = receipt['result']
     if receipt.get('jsonrpc') != '2.0' or receipt.get('id') != 1 or 'error' in receipt:
@@ -39,12 +63,19 @@ def verify(receipt, hash_, passphrase, status, contract=None, method=None):
     wire_events=[decode('ContractEvent',event) for operation in result.get('events', {}).get('contractEventsXdr', []) for event in operation]
     if committed_events!=wire_events:
         raise ValueError('RPC event list differs from committed metadata')
-    actual_hash = cli(['tx', 'hash', '--network-passphrase', passphrase], result['envelopeXdr'])
-    if actual_hash != hash_:
+    actual_hash = envelope_hash(envelope, passphrase)
+    inner_envelope, inner_outcome = unwrap(envelope, outcome)
+    hashes = {actual_hash}
+    if 'tx_fee_bump' in envelope:
+        inner_hash = envelope_hash(inner_envelope, passphrase)
+        if next(iter(outcome['result'].values()))['transaction_hash'] != inner_hash:
+            raise ValueError('fee-bump result differs from inner transaction hash')
+        # RPC accepts either the outer or inner hash when querying a fee bump.
+        hashes.add(inner_hash)
+    if hash_ not in hashes:
         raise ValueError('receipt envelope hash differs from submitted hash')
-    # Native CLI submissions use a v1 envelope; unsupported envelopes fail closed.
-    transaction = envelope['tx']['tx']
-    successful = 'tx_success' in outcome['result']
+    transaction = inner_envelope['tx']['tx']
+    successful = 'tx_success' in inner_outcome['result']
     if successful != (status == 'SUCCESS'):
         raise ValueError('receipt status contradicts decoded transaction result')
     if contract is not None:
@@ -94,7 +125,9 @@ def recover(receipt, hash_, passphrase, mode, *binding):
     contract, method = binding if mode == 'invoke' else (None, None)
     verify(receipt, hash_, passphrase, 'SUCCESS', contract, method)
     result = receipt['result']
-    transaction = decode('TransactionEnvelope', result['envelopeXdr'])['tx']['tx']
+    envelope, outcome = unwrap(decode('TransactionEnvelope', result['envelopeXdr']),
+                               decode('TransactionResult', result['resultXdr']))
+    transaction = envelope['tx']['tx']
     operations = transaction['operations']
     if len(operations) != 1:
         raise ValueError('expected one recovery operation')
@@ -126,7 +159,7 @@ def recover(receipt, hash_, passphrase, mode, *binding):
               if 'v4' in meta else version['soroban_meta']['events'])
     preimage = cli(['xdr', 'encode', '--type', 'InvokeHostFunctionSuccessPreImage'],
                    json.dumps({'return_value': value, 'events': events}))
-    outcome = decode('TransactionResult', result['resultXdr'])['result']['tx_success']
+    outcome = outcome['result']['tx_success']
     if len(outcome) != 1 or outcome[0]['op_inner']['invoke_host_function'] != {
             'success': hashlib.sha256(base64.b64decode(preimage, validate=True)).hexdigest()}:
         raise ValueError('committed return/events differ from successful result hash')
