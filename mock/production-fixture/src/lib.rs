@@ -28,6 +28,11 @@ pub struct ProductionFixture;
 #[contractimpl(contracttrait)]
 impl FungibleToken for ProductionFixture {
     type ContractType = Base;
+
+    // Keep the generated CLI flag compatible with SAC balance --id.
+    fn balance(e: &Env, id: Address) -> i128 {
+        Base::balance(e, &id)
+    }
 }
 
 #[contractimpl]
@@ -83,6 +88,19 @@ fn snapshot(e: &Env) -> PoolSnapshot {
 mod tests {
     use super::*;
     use soroban_sdk::testutils::Address as _;
+    use soroban_sdk::xdr::{Limits, ReadXdr, ScSpecEntry};
+
+    #[test]
+    fn balance_spec_accepts_standard_cli_id_argument() {
+        let entry =
+            ScSpecEntry::from_xdr(ProductionFixture::spec_xdr_balance(), Limits::none()).unwrap();
+        let ScSpecEntry::FunctionV0(function) = entry else {
+            panic!("expected balance function spec");
+        };
+        assert_eq!(function.inputs.len(), 1);
+        assert_eq!(function.inputs[0].name.to_utf8_string().unwrap(), "id");
+    }
+
     #[test]
     fn preserves_eighteen_decimal_amounts_and_enforces_minter_auth() {
         let e = Env::default();
