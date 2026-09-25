@@ -335,7 +335,12 @@ fn credit_5coll_5debt_same_ledger_to_next_ledger_cpu() {
                 message.contains("HostError: Error(Budget, ExceededLimit)"),
                 "unexpected failure: {message}"
             );
-            assert!(cpu > costs[0] + 2_000_000);
+            // Wasmi can trap before charging an instruction that exceeds its
+            // remaining fuel, leaving the host counter just below the limit.
+            assert!(
+                cpu > costs[0] + 2_000_000 || message.contains("OutOfFuel"),
+                "negative control must exhaust CPU: consumed={cpu}, failure={message}"
+            );
             continue;
         }
         let receiver = result
