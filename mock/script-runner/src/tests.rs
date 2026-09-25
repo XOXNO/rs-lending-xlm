@@ -34,7 +34,7 @@ impl MockStrategy {
         from.require_auth();
         token::Client::new(&env, &Self::asset(env.clone())).transfer(
             &from,
-            &env.current_contract_address(),
+            env.current_contract_address(),
             &amount,
         );
         amount
