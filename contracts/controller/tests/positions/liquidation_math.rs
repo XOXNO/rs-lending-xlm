@@ -86,6 +86,8 @@ fn plan_with(env: &Env, repay_usd: i128, seized: Vec<SeizeEntry>) -> Liquidation
             repay_usd: Wad::from(repay_usd),
             bonus: Bps::from(0i128),
             full_close: false,
+            repays_all_debt: false,
+            seize_all: false,
         },
         seized,
     }
@@ -164,6 +166,8 @@ fn plan_for_seizure(env: &Env, repay_usd_raw: i128, bonus_bps: i128) -> Normaliz
         repay_usd: Wad::from(repay_usd_raw),
         bonus: Bps::from(bonus_bps),
         full_close: false,
+        repays_all_debt: false,
+        seize_all: false,
     }
 }
 
@@ -174,7 +178,7 @@ fn run_seizure(env: &Env, fees_bps: u32, repay_usd_raw: i128, bonus_bps: i128) -
         cache.set_prices(single_price(env, &hub_asset.asset));
         cache.put_market_index(&hub_asset, &index_raw());
         let plan = plan_for_seizure(env, repay_usd_raw, bonus_bps);
-        calculate_seized_collateral(env, &account, Wad::from(1_000 * WAD), &plan, &mut cache)
+        calculate_seized_collateral(env, &account, Wad::from(1_000 * WAD), &plan, &mut cache).0
     })
 }
 
@@ -648,7 +652,7 @@ fn racing_insolvent_liquidations_never_repay_more_than_the_collateral_backs() {
                 out.repaid, backed,
                 "the last offer is cut to the backed quote"
             );
-            assert_eq!(coll, 1, "the floored repayment leaves one collateral unit");
+            assert_eq!(coll, 0, "the backed quote takes every collateral unit");
         }
     }
     assert!(
@@ -1282,6 +1286,7 @@ fn full_close_in_the_solvent_toxic_band_pays_the_liquidator_a_positive_net() {
             &plan,
             &mut cache,
         )
+        .0
     });
 
     let entry = seized.get_unchecked(0);
@@ -1319,6 +1324,7 @@ fn seize_at(env: &Env, collateral_tokens: i128, repaid_usd: i128) -> SeizeEntry 
             &plan,
             &mut cache,
         )
+        .0
     });
     seized.get_unchecked(0)
 }
@@ -1467,7 +1473,7 @@ fn seize_legs(
             );
         }
         let plan = plan_for_seizure(env, repay_usd_raw, plan_bonus_bps);
-        calculate_seized_collateral(env, &account, total_collateral, &plan, &mut cache)
+        calculate_seized_collateral(env, &account, total_collateral, &plan, &mut cache).0
     });
 
     (assets, seized)
@@ -2369,8 +2375,10 @@ fn an_expensive_low_decimal_collateral_makes_a_floor_sized_liquidation_seize_not
     assert_eq!(hostile.decimals, MIN_ASSET_DECIMALS);
     assert_eq!(hostile.price_wad, MAX_REASONABLE_PRICE_WAD);
 
-    // One base unit is worth $1,000,000: 200,000x the entire borrow floor.
-    assert_eq!(unit_value_usd_wad(&hostile), 1_000_000 * WAD);
+    assert_eq!(
+        unit_value_usd_wad(&hostile),
+        MAX_REASONABLE_PRICE_WAD / 10i128.pow(MIN_ASSET_DECIMALS)
+    );
     assert!(
         unprofitable_below_usd_wad(&hostile, 1) > floor,
         "the closed form must already flag this pair",
@@ -2571,7 +2579,8 @@ fn liquidate_slice(
         let plan =
             normalize_repayment_plan(env, &account, &payments, &s, bounds, &curve, &mut cache);
         let seized =
-            calculate_seized_collateral(env, &account, totals.total_collateral, &plan, &mut cache);
+            calculate_seized_collateral(env, &account, totals.total_collateral, &plan, &mut cache)
+                .0;
 
         SliceOutcome {
             seized: seized.iter().map(|e| e.amount).sum(),
