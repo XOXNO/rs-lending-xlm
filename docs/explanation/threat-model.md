@@ -54,11 +54,15 @@ operations. Controller construction and upgrade pause the controller. Pool,
 position NFT, price aggregator and governance upgrades do not pause lending.
 
 A PROPOSER that is not the owner can schedule listing, cap, curve and limit
-changes. Ownership transfers, code upgrades and migration, price and swap
-sources, Blend approvals, the revenue accumulator and role grants need the owner
-as proposer. A stolen non-owner PROPOSER key can therefore schedule disruptive
-changes, such as listing flags, risk parameters, role revocations or an unpause,
-but cannot replace code or prices.
+changes. Ownership transfers, code upgrades and migration, the timelock
+minimum delay, price and swap sources, Blend approvals, the revenue accumulator
+and role grants need the owner as proposer. A stolen non-owner PROPOSER key can
+therefore schedule disruptive changes, such as listing flags, risk parameters,
+role revocations or an unpause, but cannot replace code or prices. It cannot
+change the minimum delay either. `UpdateGovDelay` can only raise the minimum,
+so no later delay update can lower it. An owner `UpgradeGov` can still replace
+the governance code and its delay rules
+([INV-AUTH-05](../reference/invariants.md#inv-auth-05)).
 
 Typed proposals perform proposal-time checks; targets retain execution-time
 validation. Ready operations must also be within the grace window. Anyone may
@@ -96,6 +100,31 @@ arrived on supported supply, repay, recapitalization, and strategy paths.
 It is not a generic safety guarantee for arbitrary token contracts. Listing
 review must consider sender surcharges, false balances, rebases, clawbacks,
 upgrades, and semantics that can change after admission.
+
+A token issuer can change the token's decimals after listing, for example with
+a `set_metadata` call. Pool decimals are fixed at listing, and the pool never
+reads the token's decimals itself. Governance calls the token's `decimals()`
+and `symbol()` on every `CreateLiquidityPool` proposal and on every
+`ConfigureAssetOracle` proposal for a `PriceKey::Token` key, and a failing call
+rejects the proposal with `InvalidAsset` (6). Governance uses the live decimals
+only while the price aggregator holds no oracle for the token. Otherwise
+`resolve_oracle` uses the stored oracle's `asset_decimals`, and
+`CreateLiquidityPool` checks `asset_decimals` against the same value. The price
+aggregator rejects a replacement oracle that changes the stored
+`asset_decimals` with `InvalidOracleDecimals` (221). Thus oracle maintenance
+keeps the listed decimals after a relabel, and a listing in a second hub must
+use them too.
+
+Live decimals still apply to every `CreateLiquidityPool` and
+`ConfigureAssetOracle` proposed while the aggregator holds no oracle for the
+token, in either order. This includes every such proposal after a
+`SetPriceAggregator` re-point to an aggregator with an empty registry. Before
+execution, the operator must compare the resolved `asset_decimals` of every
+pending listing and oracle operation for that token with each other and with
+the existing pools of that token. On any mismatch, the operator cancels the
+operation. After a mismatch executes, only an aggregator Wasm upgrade can
+correct the stored unit: `set_oracle` rejects a decimals change, and
+`remove_oracle` exists only in testing builds.
 
 One token listed in several hubs shares physical pool custody even though
 market books are separate. Direct donations do not rewrite those books.
@@ -162,6 +191,45 @@ one surviving leg is not a fallback. A single-source key has no top-level
 agreement check, although its transitive source may have multiple dependencies.
 Sanity bands constrain accepted prices but cannot establish economic correctness.
 
+A single-source feed can report any price `p` in its band `[min, max]`. Two
+reports `p1` and `p2` in the same band have `p1 / p2 <= u = max / min`. The
+10% single-source cap gives `u <= 11/9`, which is about 1.222. The true NAV
+`P` is also in the band, so `P / p <= u`.
+
+Lender safety depends only on the reported collateral prices. Bad debt occurs
+only when the reported collateral is less than the debt. Take one collateral
+leg with `n` units and a debt `D`. A borrow at the reported price `p1` gives
+`D <= LTV * n * p1`. Bad debt at a later reported price `p2` needs
+`n * p2 < D`. Both conditions need `p1 / p2 > 1 / LTV >= 1 / LT`. When
+`LT < 1 / u`, `1 / LT > u`, and the band does not allow this ratio. An account
+that is healthy at a report `p1` has `D <= LT * n * p1`, so the same result
+applies from that report. A liquidation does not decrease the units held for
+each unit of debt, so the result also applies after a liquidation. Thus
+lenders cannot lose while `LT < 1 / u`. The band ratio `u` is the threshold,
+not the price deviation. The Liqvid hub has LT 60% or 53% and `u` at most
+11/9, so it has a large margin.
+
+This result has limits. It applies to one collateral leg. It prices the debt
+at its true value. If the debt feed can also move in its own band, the
+effective `u` is the product of the two band ratios. It does not include
+interest that accrues after the borrow. When governance moves the band, the
+result applies again only from a report in the new band at which the account
+is healthy.
+
+The borrower has less protection. The bonus `b` is the curve bonus at the
+reported HF, capped at `HF / LT - 1`. It is not the base bonus. On the default
+curve (target HF 1.10, maximum bonus at HF 0.80) with LT 60%, a reported HF of
+0.98 gives `b` of about 30%, not 5%. The curve 1.06/0.90/598 with LT 53% keeps
+`b` at or below 10%. One liquidation at the reported price `p` that pays `R`
+retires exactly `R` of debt. At true NAV, it costs the borrower at most
+`min(E, R * ((1 + b) * P / p - 1))`. `E` is the equity at true NAV. A full
+close on a whole-unit leg can add one unit at true NAV. When `b` reaches the
+cap, one liquidation takes all of `E`. With LT 60% and `u = 11/9`, this occurs
+for an account at true HF 1.01 when `P` is the band top and `p` is the band
+floor. The
+[oracle-deviation bound tests](../../tests/test-harness/tests/controller/liqvid_oracle_deviation_bounds.rs)
+pin these bounds.
+
 Admission checks source structure, provider-address overlap, smoothing policy,
 and provider-specific metadata. Provider separation is not proof of independent
 operators or upstream data. Feed-nature labels are configuration assertions.
@@ -215,6 +283,17 @@ The [seizure fixture tests](../../contracts/controller/tests/positions/liquidati
 Share credit avoids collateral cash payout but still requires an authorized
 same-spoke receiver in Normal mode, position capacity, and a listing for a
 newly credited asset.
+
+On a solvent account whose only leg is below 3 decimals, the quote can rise to
+one whole unit or to the whole debt
+([whole-unit legs](../reference/formulas.md#bonus-and-target-repayment)). An
+offer that backs less than one unit still seizes nothing. In the full-debt
+case the liquidator repays the debt `D` and receives one unit worth `U`. Its
+effective bonus is `U / D - 1`, not the quoted bonus `b`. With `k` held units
+and liquidation threshold `LT`, `HF < 1` bounds it at about
+`1 / (k * LT) - 1`. The borrower loses `U - D * (1 + b)` above the normal
+bonus, and `bonus_bps` shows only `b`. Listing review must note that expensive
+units with a low liquidation threshold raise this loss.
 
 Liquidation planning and measured settlement enforce its accounting bounds.
 A missing universal final health-factor assertion alone does not establish a

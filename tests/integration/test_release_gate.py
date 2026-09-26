@@ -114,6 +114,36 @@ workflow = (Path(__file__).resolve().parents[2]/'.github/workflows/release.yml')
 # explicit tag moves. Resolve the actual workflow expressions against that move.
 build = workflow.split('  testnet-e2e:',1)[0]
 assert 'id: checkout' in build
+# The attested build reads no restorable cache and builds from the committed lockfile.
+BUILD_ACTIONS = {'actions/checkout', 'dtolnay/rust-toolchain', 'actions/setup-node',
+    'actions/attest-build-provenance', 'actions/upload-artifact'}
+def build_job_problems(text):
+    job = text.split('  testnet-e2e:',1)[0].split('\n  build:\n',1)[1]
+    problems = []
+    for body in re.split(r'^      - ', job, flags=re.M)[1:]:
+        action = re.search(r'^\s*uses:\s*([^@\s]+)@', body, re.M)
+        if action and action.group(1) not in BUILD_ACTIONS:
+            problems.append(f'build job uses {action.group(1)}')
+        if re.search(r'^\s+cache[\w-]*:', body, re.M):
+            problems.append(f'build step sets a cache input: {body.splitlines()[0]}')
+    if not re.search(r'^\s+run: make candidate-wasm\b', job, re.M):
+        problems.append('build job does not run make candidate-wasm')
+    if 'stellar contract build' in text:
+        problems.append('release.yml runs stellar contract build directly')
+    return problems
+assert build_job_problems(workflow) == [], build_job_problems(workflow)
+node_step = "          node-version: '24'\n"
+cli_step = '      - name: Install stellar-cli\n'
+for mutated in [
+    workflow.replace(cli_step, "      - uses: actions/cache@" + '0'*40 + "\n        with:\n          path: target\n          key: k\n" + cli_step, 1),
+    workflow.replace(node_step, node_step + "          cache: npm\n", 1),
+    workflow.replace('run: make candidate-wasm ', 'run: make ', 1),
+    workflow.replace('      - name: Package release WASM\n', "      - run: stellar contract build --locked --package pool\n      - name: Package release WASM\n", 1),
+]:
+    assert mutated != workflow and build_job_problems(mutated), 'build-job gate accepted a mutated workflow'
+builder = (Path(__file__).resolve().parents[2]/'scripts/build_e2e_wasm.sh').read_text()
+contract_builds = [line for line in builder.splitlines() if 'stellar contract build' in line]
+assert contract_builds and all('--locked' in line for line in contract_builds), contract_builds
 output = re.search(r'      source_sha: \$\{\{ (.*?) \}\}', build).group(1)
 refs = re.findall(r'          ref: \$\{\{ (.*?) \}\}', workflow)
 assert len(refs) == 3

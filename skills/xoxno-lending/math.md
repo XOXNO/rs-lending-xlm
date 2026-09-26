@@ -396,6 +396,22 @@ Transfer: seized 24_973_319_103 stroops (2,497.3319103 XLM), fee 435_432_230 str
 Credit:   seized shares 2_497_331_910_352_187_833_512_000_000_000, fee shares 43_543_223_052_294_557_097_132_307_693, liquidator shares 2_453_788_687_299_893_276_414_867_692_307
 ```
 
+Whole-unit quote for a collateral leg below 3 decimals. It applies only when the account is solvent (`C ≥ D`), the curve quote `ideal` is below `D`, the leg is the account's only supply position, and it holds at least one whole unit (one base unit at the asset's decimals). Let `U` be the WAD USD value of one whole unit. The first matching rule applies:
+
+```text
+R             = Σ over debt legs of the WAD USD value of one base unit of that debt token
+unit_at_bonus = floor(U × WAD / one_plus_b)
+margin        = max(floor(U / 1_000_000), 1)                           // raw WAD
+raised        = ceil((U + margin) × WAD / one_plus_b)
+if unit_at_bonus ≥ D + R:                                      ideal = D       // full close; the leg rounds up to one unit
+elif half_up(ideal × one_plus_b / WAD) < U + margin and raised < D: ideal = raised  // seize one unit, refund the margin
+else:                                                          ideal unchanged
+```
+
+The raised seizure takes one unit and refunds the unseized margin, rounded down to whole debt-token units. The raised quote is a ceiling: a smaller offer is not raised, an offer that backs less than one unit seizes nothing and reverts with `InvalidPayments`, and an offer between `U / one_plus_b` and `raised` still takes one unit. The raised quote is not promoted to full debt (`D − raised` can be below 5 WAD). The HF-preserving cap keeps `one_plus_b ≤ C / D`, so a one-unit sale does not lower `C / D`, and such an account stays liquidatable below `HF = 1`. The exception is `unit_at_bonus − R < D ≤ raised`: no rule changes the quote, and if the curve quote backs less than one unit, every offer reverts until accrual or a price move ends that state.
+
+A rule-1 full close gives the liquidator one unit worth `U` for `D`: the effective bonus is `U / D − 1`, not `b`. With `k` held units and liquidation threshold `LT`, `HF < 1` bounds it at about `1 / (k × LT) − 1`. The borrower loses `U − D × one_plus_b / WAD` above the normal bonus. `bonus_rate_bps` and the `LiquidationEvent` `bonus_bps` show only `b`; a listing below 3 decimals has no liquidation fee. Size offers for such a leg from `get_liquidation_estimate`, not from the close-amount formula above.
+
 ## Bad-debt socialization
 
 Eligibility (`is_socializable_bad_debt`): `total_debt > total_collateral` and `total_collateral ≤ 5 WAD` for permissionless `clean_bad_debt` and the check after `liquidate`; owner-only `force_socialize_bad_debt` drops the collateral cap. `contracts/pool/src/interest.rs::apply_bad_debt_to_supply_index` then lowers only the affected market's supply index ([formulas.md#bad-debt](../../docs/reference/formulas.md#bad-debt)). Example: 2,000,000 USDC of shares at index 1.083 (`total_supply_ray = 2_166_000e27`), bad debt 30,000 USDC:

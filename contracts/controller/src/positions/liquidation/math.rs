@@ -166,7 +166,10 @@ pub(crate) fn calculate_repayment_amounts(
 /// is not trimmed: each leg stays at its own ceiling-rounded debt cap, so
 /// `repay_usd` can exceed the total debt by per-leg unit rounding. On an
 /// insolvent account the trim rounds kept amounts down, so `repay_usd` never
-/// exceeds the collateral-backed quote.
+/// exceeds the collateral-backed quote. On a solvent partial plan whose only
+/// collateral leg is below `MIN_BORROWABLE_ASSET_DECIMALS`, the ideal rises to
+/// one whole unit when the curve quote seizes less than one unit, or to the
+/// whole debt when one unit would repay it.
 pub(crate) fn normalize_repayment_plan(
     env: &Env,
     account: &Account,
@@ -180,9 +183,14 @@ pub(crate) fn normalize_repayment_plan(
     let (total_debt_payment_usd, repaid_tokens) =
         calculate_repayment_amounts(env, raw_payments, account, &mut refunds, cache);
 
-    let (ideal_repayment_usd, bonus) = estimate_liquidation_amount(env, snap, bonus_bounds, curve);
-    let full_close = ideal_repayment_usd >= snap.total_debt;
+    let (curve_repayment_usd, bonus) = estimate_liquidation_amount(env, snap, bonus_bounds, curve);
     let insolvent = snap.total_collateral < snap.total_debt;
+    let ideal_repayment_usd = if insolvent || curve_repayment_usd >= snap.total_debt {
+        curve_repayment_usd
+    } else {
+        whole_unit_repayment(env, account, snap, curve_repayment_usd, bonus, cache)
+    };
+    let full_close = ideal_repayment_usd >= snap.total_debt;
 
     let mut final_repayment_tokens = repaid_tokens;
     if !full_close && total_debt_payment_usd > ideal_repayment_usd {
@@ -215,6 +223,73 @@ pub(crate) fn normalize_repayment_plan(
     }
 }
 
+/// Raises a solvent partial quote to one whole unit when the account's only
+/// supply leg is below `MIN_BORROWABLE_ASSET_DECIMALS` and the quoted seizure
+/// is below one unit. The raised repayment backs one unit plus one millionth
+/// at `unit / (1 + bonus)`; the seizure refunds the fraction it cannot take.
+/// Returns the whole debt when one unit at `unit / (1 + bonus)` covers it with
+/// one native unit per debt leg to spare, so the plan closes in full and the
+/// leg rounds up to one unit. Keeps the quote
+/// when the leg holds no whole unit, or when only the margin separates one
+/// unit from the whole debt.
+fn whole_unit_repayment(
+    env: &Env,
+    account: &Account,
+    snap: &LiquidationSnapshot,
+    quote_usd: Wad,
+    bonus: Bps,
+    cache: &mut Context,
+) -> Wad {
+    if account.supply_positions.len() != 1 {
+        return quote_usd;
+    }
+    let Some((hub_asset, position)) = iter_typed_positions(&account.supply_positions).next() else {
+        return quote_usd;
+    };
+    let feed = cache.cached_price(&hub_asset.asset);
+    if feed.asset_decimals >= MIN_BORROWABLE_ASSET_DECIMALS {
+        return quote_usd;
+    }
+    let supply_index = cache.cached_market_index(&hub_asset).supply_index;
+    let held_units = position
+        .scaled_amount
+        .mul(env, supply_index)
+        .to_asset_floor(env, feed.asset_decimals);
+    if held_units < 1 {
+        return quote_usd;
+    }
+
+    let one_plus_bonus = Wad::ONE.checked_add(env, bonus.to_wad(env));
+    let unit_usd = Wad::from_token(env, 1, feed.asset_decimals).mul(env, feed.price);
+    let unit_with_margin =
+        unit_usd.checked_add(env, Wad::from((unit_usd.raw() / 1_000_000).max(1)));
+    if quote_usd.mul(env, one_plus_bonus) >= unit_with_margin {
+        return quote_usd;
+    }
+    let unit_at_bonus = Wad::from(mul_div_floor(
+        env,
+        unit_usd.raw(),
+        Wad::ONE.raw(),
+        one_plus_bonus.raw(),
+    ));
+    let full_close_ceiling = snap
+        .total_debt
+        .checked_add(env, one_unit_per_debt_leg_usd(env, account, cache));
+    if unit_at_bonus >= full_close_ceiling {
+        return snap.total_debt;
+    }
+    let unit_repayment = Wad::from(mul_div_ceil(
+        env,
+        unit_with_margin.raw(),
+        Wad::ONE.raw(),
+        one_plus_bonus.raw(),
+    ));
+    if unit_repayment >= snap.total_debt {
+        return quote_usd;
+    }
+    unit_repayment
+}
+
 /// Returns whether every debt position has a repayment at its ceiling-rounded balance.
 fn repays_every_debt_leg(
     env: &Env,
@@ -239,6 +314,17 @@ fn repays_every_debt_leg(
                 entry.feed.asset_decimals,
             )
     })
+}
+
+/// Sums the WAD USD value of one native unit of each debt position.
+fn one_unit_per_debt_leg_usd(env: &Env, account: &Account, cache: &mut Context) -> Wad {
+    let mut total = Wad::ZERO;
+    for hub_asset in account.borrow_positions.keys() {
+        let feed = cache.cached_price(&hub_asset.asset);
+        let unit = Wad::from_token(env, 1, feed.asset_decimals).mul(env, feed.price);
+        total = total.checked_add(env, unit);
+    }
+    total
 }
 
 /// Sums the WAD USD value of one native unit of each repayment leg.

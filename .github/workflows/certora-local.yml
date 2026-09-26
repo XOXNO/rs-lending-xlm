@@ -55,6 +55,7 @@ concurrency:
 
 jobs:
   build:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     name: Build focused WASM artifacts
     runs-on: self-hosted
     steps:
@@ -100,6 +101,7 @@ jobs:
           retention-days: 1
 
   local-prove:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     name: Prover regression smoke
     needs: build
     runs-on: self-hosted

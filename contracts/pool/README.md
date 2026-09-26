@@ -46,7 +46,7 @@ already guaranteed upstream:
 
 | Guarantee | Enforced in |
 | --- | --- |
-| `asset_decimals` matches the token's real `decimals()`, in `[3,18]` | `governance/validate/asset.rs::validate_market_creation` |
+| `asset_decimals` matches the listed decimals (the stored oracle's `asset_decimals`, else the token's live `decimals()`), in `[0,18]` | `governance/validate/asset.rs::validate_market_creation` |
 | Asset contract is live (`try_decimals` + `try_symbol`) | `governance/validate/asset.rs` |
 | Rate-model params are timelocked before reaching the pool | `governance/op.rs` |
 | Flash-loan reentrancy | `controller/storage/account.rs::with_flash_guard`, checked by `controller/risk/validation.rs::require_not_flash_loaning` |

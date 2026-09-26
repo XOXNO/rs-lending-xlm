@@ -462,6 +462,7 @@ fn owner_only_operations(env: &Env) -> Vec<AdminOperation> {
         AdminOperation::UpgradePositionNft(hash.clone()),
         AdminOperation::UpgradePriceAggregator(hash),
         AdminOperation::MigrateController(2),
+        AdminOperation::UpdateGovDelay(TIMELOCK_MAX_DELAY_LEDGERS),
         AdminOperation::SetPriceAggregator(Address::generate(env)),
         AdminOperation::ConfigureAssetOracle(ConfigureAssetOracleArgs {
             key: key.clone(),

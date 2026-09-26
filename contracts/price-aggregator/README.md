@@ -33,7 +33,7 @@ Pass a `Vec<PriceKey>` even for one key.
 | `quotes` | `quotes(env: Env, keys: Vec<PriceKey>) -> Map<PriceKey, PriceStatus>` | anyone | Soft read. Does not panic on a failing key; returns `PriceStatus { valid: false }` with its `error_code`. |
 | `price_spread` | `price_spread(env: Env, key: PriceKey) -> (i128, i128)` | anyone | Returns the two leg prices (WAD) as `(low, high)`. Fail-closed. |
 | `oracle` | `oracle(env: Env, key: PriceKey) -> Option<AssetOracle>` | anyone | Reads the registered configuration for one key. |
-| `set_oracle` | `set_oracle(env: Env, key: PriceKey, oracle: AssetOracle)` | owner | Registers a configuration after validation and attestation. |
+| `set_oracle` | `set_oracle(env: Env, key: PriceKey, oracle: AssetOracle)` | owner | Registers a configuration after validation and attestation. A replacement must keep the stored `asset_decimals`, else it panics with `InvalidOracleDecimals`. |
 | `set_sanity_band` | `set_sanity_band(env: Env, key: PriceKey, min_wad: i128, max_wad: i128)` | owner | Narrows the accepted WAD USD range. Live-probes before committing. |
 | `set_tolerance` | `set_tolerance(env: Env, key: PriceKey, tolerance: OracleTolerance)` | owner | Sets the dual-source disagreement tolerance. Live-probes before committing. |
 | `upgrade` | `upgrade(env: Env, new_wasm_hash: BytesN<32>)` | owner | Renews the instance TTL, then replaces the contract Wasm. |

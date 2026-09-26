@@ -37,6 +37,7 @@ pub mod mock_blend;
 pub mod mock_redstone;
 pub mod mock_reflector;
 pub mod mock_sac;
+pub mod rwa_gated_token;
 pub mod weird_token;
 
 #[cfg(feature = "reference-math")]

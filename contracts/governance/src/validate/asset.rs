@@ -3,8 +3,11 @@
 
 use common::constants::{MAX_ASSET_DECIMALS, MIN_ASSET_DECIMALS, POSITION_LIMIT_MAX};
 use common::errors::{CollateralError, GenericError};
-use common::types::{MarketParamsRaw, PositionLimits};
+use common::types::{MarketParamsRaw, PositionLimits, PriceKey};
+use price_aggregator_interface::PriceAggregatorClient;
 use soroban_sdk::{assert_with_error, panic_with_error, token, Address, Env};
+
+use crate::storage;
 
 /// Fetches `token`'s decimals via a cross-contract call and returns them.
 /// Panics with `GenericError::InvalidAsset` if the decimals call fails, or if the
@@ -34,7 +37,19 @@ pub(crate) fn validate_position_limits(env: &Env, limits: &PositionLimits) {
     );
 }
 
-/// Validates market creation parameters against `asset` and the already-fetched
+/// Returns the decimals `token` is priced in: the `asset_decimals` of the
+/// aggregator's stored oracle for `PriceKey::Token(token)` when one exists,
+/// otherwise the live `token_decimals`.
+pub(crate) fn listed_token_decimals(env: &Env, token: &Address, token_decimals: u32) -> u32 {
+    if !storage::has_price_aggregator(env) {
+        return token_decimals;
+    }
+    PriceAggregatorClient::new(env, &storage::get_price_aggregator(env))
+        .oracle(&PriceKey::Token(token.clone()))
+        .map_or(token_decimals, |oracle| oracle.asset_decimals)
+}
+
+/// Validates market creation parameters against `asset` and its listed
 /// `token_decimals`: `params.asset_id` must equal `asset`, `params.asset_decimals`
 /// must equal `token_decimals` and fall within `MIN_ASSET_DECIMALS..=MAX_ASSET_DECIMALS`,
 /// and delegates further checks to `params.verify`. Panics with `GenericError::WrongToken`

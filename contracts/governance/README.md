@@ -18,7 +18,7 @@ execute and cancel remove the ledger entry and clear the sidecars.
 
 | Call | Role |
 | --- | --- |
-| `propose` | `PROPOSER` — schedule `AdminOperation`; ownership, upgrade, migration, oracle, swap-aggregator, Blend-approval, accumulator and role-grant ops also require the owner as proposer |
+| `propose` | `PROPOSER` — schedule `AdminOperation`; ownership, upgrade, migration, delay (`UpdateGovDelay`), oracle, swap-aggregator, Blend-approval, accumulator and role-grant ops also require the owner as proposer |
 | `execute` / `execute_self` | `EXECUTOR` optional — run ready op |
 | `cancel` | `CANCELLER` — veto pending (not Recovery, not a revocation of the canceller) |
 | `pause` / `set_spoke_asset_flags` / `create_hub` / `add_spoke` | `GUARDIAN` — immediate |
@@ -63,7 +63,7 @@ the signature shows.
 | `get_operation_ledger` | `fn get_operation_ledger(env: Env, operation_id: BytesN<32>) -> u32` | — | Returns the ledger at which the operation becomes ready (delay elapsed). |
 | `hash_operation` | `fn hash_operation( env: Env, target: Address, function: Symbol, args: Vec<Val>, predecessor: BytesN<32>, salt: BytesN<32>, ) -> BytesN<32>` | — | Computes the operation id for the given target, function, arguments, predecessor, and salt. |
 | `resolve_oracle_tolerance` | `fn resolve_oracle_tolerance(env: Env, tolerance: u32) -> OracleTolerance` | — | Validates `tolerance` and returns the resolved oracle tolerance bounds. |
-| `resolve_asset_oracle` | `fn resolve_asset_oracle(env: Env, key: PriceKey, oracle: AssetOracle) -> AssetOracle` | — | Resolves `oracle` for `key`, filling in `asset_decimals` from the token contract for a `PriceKey::Token` key or `0` for `PriceKey::Ref`. |
+| `resolve_asset_oracle` | `fn resolve_asset_oracle(env: Env, key: PriceKey, oracle: AssetOracle) -> AssetOracle` | — | Resolves `oracle` for `key`, filling in `asset_decimals`: for a `PriceKey::Token` key, the stored oracle's decimals when the price aggregator holds one, otherwise the token contract's decimals; `0` for `PriceKey::Ref`. |
 | `propose` | `fn propose(env: Env, proposer: Address, op: AdminOperation, salt: BytesN<32>) -> BytesN<32>` | — | Schedules `op` for later execution and returns its operation id. |
 | `pause` | `fn pause(env: Env, caller: Address)` | — | Pauses the controller. |
 | `set_spoke_asset_flags` | `fn set_spoke_asset_flags( env: Env, caller: Address, spoke_id: u32, hub_asset: HubAssetKey, paused: bool, frozen: bool, no_seize: bool, )` | — | Tightens the paused, frozen, and no-seize flags for `hub_asset` in spoke `spoke_id`; a clearing call reverts `SpokeAssetFlagRelaxation`. |

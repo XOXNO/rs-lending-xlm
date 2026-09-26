@@ -70,7 +70,17 @@ fn attest_feed(env: &Env, feed: &FeedSource, quote: Option<&PriceKey>) {
 /// for Aquarius LP oracles that panics on any unusable outcome, or a soft
 /// probe otherwise that panics only on configuration-level failures. Stores
 /// the oracle, revalidates dependents, and emits the registry event.
+///
+/// A replacement must keep the stored `asset_decimals`. Panics with
+/// `OracleError::InvalidOracleDecimals` otherwise.
 pub(crate) fn set_oracle(env: &Env, key: PriceKey, oracle: AssetOracle) {
+    if let Some(stored) = registry::get_oracle(env, &key) {
+        assert_with_error!(
+            env,
+            stored.asset_decimals == oracle.asset_decimals,
+            OracleError::InvalidOracleDecimals
+        );
+    }
     validate_asset_oracle(env, &key, &oracle);
     attest_sources(env, &key, &oracle);
     let mut session = Session::new(env);

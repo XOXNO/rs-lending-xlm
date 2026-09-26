@@ -523,6 +523,89 @@ fn zdc_sub_unit_liquidation_reverts_without_charging() {
     assert_eq!(z.collateral_units(id), 10);
     assert_eq!(z.debt_raw(id), debt);
 }
+
+/// Small accounts just below HF 1 quote less than one whole unit on the curve.
+/// A debt-sized offer still buys whole units at `NAV / (1 + bonus)`: the debt
+/// falls and the account's collateral-to-debt ratio does not fall.
+#[test]
+fn zdc_small_accounts_just_below_hf_one_sell_one_whole_unit() {
+    // Borrowing 59.9% of $1,000 per unit gives HF = 0.7 * price / 599.
+    for units in 2..=9i128 {
+        for price_cents in [85_500i128, 85_000, 84_000, 83_000] {
+            let mut z = setup(nav(1_000));
+            let id = open(&mut z, "alice", units, 1_000, 5_990);
+            z.t.set_price(LIQ, usd_cents(price_cents));
+            let ctx = std::format!("{units} units at ${}", price_cents / 100);
+            assert!(z.hf(id) < WAD, "{ctx}: HF must be below 1");
+            assert!(z.t.ctrl_client().is_liquidatable(&id), "{ctx}");
+
+            let debt = z.debt_raw(id);
+            let est = z.estimate(id, debt, SeizeMode::Transfer);
+            assert!(est.max_payment_wad > 0, "{ctx}: the view quotes a payment");
+            assert_eq!(est.seized_collaterals.len(), 1, "{ctx}");
+            let bonus = est.bonus_rate_bps;
+
+            let out = z
+                .liquidate(id, debt, SeizeMode::Transfer)
+                .unwrap_or_else(|e| panic!("{ctx}: liquidation reverted with {e:?}"));
+            assert!(out.got_units >= 1, "{ctx}: {out:?}");
+            assert_eq!(
+                out.got_units,
+                est.seized_collaterals.get(0).unwrap().amount,
+                "{ctx}: execution matches the view"
+            );
+            assert!(out.debt_after < out.debt_before, "{ctx}: {out:?}");
+            assert_eq!(out.units_before, out.units_after + out.got_units, "{ctx}");
+
+            let unit_raw = price_cents * USDC_UNIT / 100;
+            let fair = out.got_units * unit_raw * 10_000 / (10_000 + bonus);
+            assert!(
+                out.paid_usdc_raw >= fair && out.paid_usdc_raw <= fair + 10,
+                "{ctx}: paid {} for {} units, fair {fair}",
+                out.paid_usdc_raw,
+                out.got_units
+            );
+            assert!(
+                out.units_after * unit_raw * out.debt_before
+                    >= out.units_before * unit_raw * out.debt_after,
+                "{ctx}: collateral-to-debt fell: {out:?}"
+            );
+        }
+    }
+}
+
+/// A curve quote worth several whole units keeps its size: the one-unit raise
+/// applies only when the quote seizes less than one unit.
+#[test]
+fn zdc_partial_liquidation_keeps_a_multi_unit_curve_quote() {
+    let mut z = setup(nav(1_000));
+    let id = open(&mut z, "alice", 10, 1_000, 5_800);
+    z.t.set_price(LIQ, nav(800));
+    let debt = z.debt_raw(id);
+    let est = z.estimate(id, debt, SeizeMode::Transfer);
+    let quoted = est.seized_collaterals.get(0).unwrap().amount;
+    assert!(quoted >= 2, "the curve quotes {quoted} units");
+    let out = z.liquidate(id, debt, SeizeMode::Transfer).unwrap();
+    assert_eq!(out.got_units, quoted);
+    assert!(out.units_after > 0 && out.debt_after > 0, "{out:?}");
+}
+
+/// An offer below one whole unit's price still takes nothing on a small
+/// account: the one-unit quote is a ceiling for the kept payment, not a price
+/// the protocol rounds a smaller offer up to.
+#[test]
+fn zdc_small_account_underpaid_offer_takes_no_unit() {
+    let mut z = setup(nav(1_000));
+    let id = open(&mut z, "alice", 2, 1_000, 5_990);
+    z.t.set_price(LIQ, usd_cents(85_000));
+    let debt = z.debt_raw(id);
+    let err = z
+        .liquidate(id, usdc_raw(400), SeizeMode::Transfer)
+        .unwrap_err();
+    assert_eq!(err, Error::from_contract_error(errors::INVALID_PAYMENTS));
+    assert_eq!(z.collateral_units(id), 2);
+    assert_eq!(z.debt_raw(id), debt);
+}
 /// Credit mode moves whole-unit shares, so both accounts withdraw every unit
 /// and nothing is stranded in the pool.
 #[test]
@@ -775,9 +858,9 @@ fn zdc_accounts_without_a_whole_unit_leg_keep_several_positions() {
     assert_eq!(supplies.len(), 2);
 }
 
-/// Borrowing needs two whole units behind a sub-3-decimal leg: below HF 1 a
-/// one-unit account quotes less than one seizable unit until the full-debt
-/// promotion, while two units already floor to one.
+/// Borrowing needs two whole units behind a sub-3-decimal leg. Liquidation of
+/// small accounts is pinned separately by
+/// `zdc_small_accounts_just_below_hf_one_sell_one_whole_unit`.
 #[test]
 fn zdc_borrow_needs_two_whole_units_of_collateral() {
     let mut z = setup(nav(1_000));
@@ -929,6 +1012,77 @@ fn zdc_liquidator_sized_to_whole_units_keeps_the_bonus() {
     );
     assert_eq!(out.got_units, k);
     assert!(pnl > 0);
+}
+
+/// Closes `units` shares at `C / D = ratio_ppm / 1e6` with an offer of twice
+/// the debt. Returns profit, collateral and debt in WAD USD, the outcome, and
+/// the drop of the USDC supply index (RAY).
+fn zdc_payoff_at_cover_ratio(units: i128, ratio_ppm: i128) -> (i128, i128, i128, LiqOutcome, i128) {
+    let mut z = setup(nav(1_000));
+    z.t.supply("bob", "USDC", 100_000.0);
+    let id = open(&mut z, "alice", units, 1_000, 5_990);
+    let debt = z.t.ctrl_client().get_total_borrow_usd(&id);
+    let price = debt * ratio_ppm / (1_000_000 * units);
+    z.t.set_price(LIQ, price);
+    let collateral = z.t.ctrl_client().get_total_collateral_usd(&id);
+    let offer = 2 * z.debt_raw(id);
+    let idx_before = z.supply_index(z.usdc_key());
+    let out = z.liquidate(id, offer, SeizeMode::Transfer).unwrap();
+    let idx_drop = idx_before - z.supply_index(z.usdc_key());
+    let profit = out.got_units * price - out.paid_usdc_raw * (WAD / USDC_UNIT);
+    (profit, collateral, debt, out, idx_drop)
+}
+
+#[test]
+fn zdc_liquidator_payoff_jumps_where_collateral_falls_below_debt() {
+    for units in 2..=5i128 {
+        let (above, c_above, d_above, out_above, drop_above) =
+            zdc_payoff_at_cover_ratio(units, 1_005_000);
+        let (below, c_below, d_below, out_below, drop_below) =
+            zdc_payoff_at_cover_ratio(units, 995_000);
+        std::println!(
+            "{units} units, D ${}: profit ${:.4} at C/D 1.005, ${:.4} at 0.995",
+            d_above / WAD,
+            above as f64 / WAD as f64,
+            below as f64 / WAD as f64
+        );
+
+        assert_eq!(
+            out_above.got_units, units,
+            "{units}: the band takes every unit"
+        );
+        assert_eq!(out_above.debt_after, 0, "{units}: the band closes the debt");
+        assert_eq!(
+            out_above.paid_usdc_raw, out_above.debt_before,
+            "{units}: the band repays the whole debt"
+        );
+        assert!(
+            (above - (c_above - d_above)).abs() <= WAD / USDC_UNIT,
+            "{units}: the band pays C - D within one USDC unit"
+        );
+        assert_eq!(drop_above, 0, "{units}: the band leaves the USDC index");
+
+        assert_eq!(
+            out_below.got_units, units,
+            "{units}: seize_all takes every unit"
+        );
+        assert!(
+            !out_below.account_exists,
+            "{units}: the residue is socialized"
+        );
+        assert!(drop_below > 0, "{units}: the USDC index drops");
+        let backed = c_below * 20 / 21;
+        assert_eq!(
+            below,
+            c_below - backed / (WAD / USDC_UNIT) * (WAD / USDC_UNIT),
+            "{units}: the insolvent arm pays C - floor(C / 1.05)"
+        );
+
+        assert!(
+            below - above > d_below * 4 / 100,
+            "{units}: crossing C = D raises the payoff by more than 4% of D"
+        );
+    }
 }
 
 #[test]

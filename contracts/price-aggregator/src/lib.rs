@@ -105,7 +105,8 @@ impl PriceAggregatorInterface for PriceAggregator {
         registry::get_oracle(&env, &key)
     }
 
-    /// Owner-only. Registers or replaces the oracle configuration for `key`.
+    /// Owner-only. Registers or replaces the oracle configuration for `key`. A
+    /// replacement must keep the stored `asset_decimals`.
     #[only_owner]
     fn set_oracle(env: Env, key: PriceKey, oracle: AssetOracle) {
         renew_instance(&env);

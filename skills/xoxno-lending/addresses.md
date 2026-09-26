@@ -74,7 +74,7 @@ Generated from `configs/networks.json` and `configs/<network>/*.json` in the pro
 | XLMAQUA_LP | 3 | `CBOHAVUYKQD4C7FIVXEDJCVLUZYUO6RN3VIKEDOTIJGDDV3QN33Y4T4D` | 7 |
 | AQUAUSDC_LP | 3 | `CDOY7ILRR7PDGLBXZUPSENB6XOET77PR2JY3HXDGQS3TS4T764OYBUGO` | 7 |
 
-The decimals column is the oracle configuration value; the pool reads the token contract's own `decimals` at market creation.
+The decimals column is the oracle configuration value. The market unit is the listed decimals: the stored oracle's `asset_decimals` when the price aggregator holds an oracle for the token, otherwise the token's `decimals()` at first listing. An issuer relabel does not change it. The pool never reads decimals itself.
 
 ### Spokes
 
@@ -147,7 +147,7 @@ Blend pool factory v2: `CDSYOAVXFY7SM5S64IZPPPYB4GVGGLMQVFREPSQQEZVIWXX5R23G4QSU
 | USDC_HUB2 | 2 | `CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA` | 7 |
 | XLMUSDC_LP | 3 | `CDEUHPEUQAQNLCHFVBX3ZOSIR2FUWD2COYTSHUPQPJWK2BCLLQCW66FY` | 7 |
 
-The decimals column is the oracle configuration value; the pool reads the token contract's own `decimals` at market creation.
+The decimals column is the oracle configuration value. The market unit is the listed decimals: the stored oracle's `asset_decimals` when the price aggregator holds an oracle for the token, otherwise the token's `decimals()` at first listing. An issuer relabel does not change it. The pool never reads decimals itself.
 
 ### Spokes
 

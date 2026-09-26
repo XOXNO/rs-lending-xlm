@@ -104,7 +104,9 @@ is convenient. See [ADR-0003](docs/explanation/decisions.md#adr-0003).
   `docs/reference/invariants.md`.
 - `make fmt-check`, `make docs-check`, `make integration-validate` — the
   `Static Gates` job in `.github/workflows/static-gates.yml`. It runs on every
-  pull request and every push to `main`, with no `paths` filter.
+  same-repository pull request and every push to `main`, with no `paths`
+  filter. A fork pull request skips it and gets the failing `Fork pull request`
+  job instead.
 - `make ops-script-check` — same job. `configs/script.sh` must map a config
   spoke id to its on-chain id (`onchain:N` is the raw escape) and must carry
   the live `paused`/`frozen`/`no_seize` flags through a listing edit. Every
@@ -112,9 +114,11 @@ is convenient. See [ADR-0003](docs/explanation/decisions.md#adr-0003).
   `upgrade*Hash` verbs are internal), and every forwarded make verb needs a
   script arm (`scripts/check_script_verbs.sh`). Offline, about 1 second.
 - `python3 .github/scripts/check_workflows.py` — same job. Every `uses:` in a
-  workflow pins a full commit SHA, and the Static Gates workflow keeps no
-  `paths` filter. `bash .github/scripts/test_install_stellar_cli.sh`, same job,
-  proves the stellar-cli installer checks its pinned SHA-256.
+  workflow pins a full commit SHA, the Static Gates workflow keeps no `paths`
+  filter, and every self-hosted job that can run on `pull_request` carries the
+  same-repository head guard in its `if`. Fork pull requests skip the
+  self-hosted gates. `bash .github/scripts/test_install_stellar_cli.sh`, same
+  job, proves the stellar-cli installer checks its pinned SHA-256.
 - `make wasm-size-check`, `make wasm-testing-abi-check` — testing-only
   entrypoints must not exist in a deployable artifact ([ADR-0017](docs/explanation/decisions.md#adr-0017)).
 
