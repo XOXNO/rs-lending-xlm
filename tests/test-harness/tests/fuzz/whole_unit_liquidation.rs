@@ -16,7 +16,7 @@ use crate::config::config;
 use common::math::fp::{Bps, Ray, Wad};
 use common::math::fp_core::{mul_div_ceil, mul_div_floor};
 use common::rates::unscale_borrow_ceil;
-use common::types::{HubAssetKey, LiquidationEstimate, SeizeMode};
+use common::types::{HubAssetKey, LiquidationEstimate, PriceKey, SeizeMode};
 use common::validation::max_cap_for_decimals;
 use controller::constants::{BPS, RAY, WAD};
 use governance::op::{AdminOperation, CreatePoolArgs, SpokeAssetArgs, SpokeLiquidationCurveArgs};
@@ -38,6 +38,7 @@ const LIQUIDATOR: &str = "liquidator";
 const MAX_RESIDUE_STEPS: u32 = 3;
 const WEI_TOLERANCE: i128 = 16;
 const COVERAGE_TOLERANCE: i128 = 1_000_000_000_000;
+const HEALTHY_AT_EDGE: &str = "skipped: HF >= 1 at the unit edge";
 
 #[derive(Clone, Copy, Debug)]
 enum Band {
@@ -260,9 +261,10 @@ fn spoke_listing(
 }
 
 /// Lists the market, opens the account and prices the collateral into the
-/// case's HF band or onto the unit edge. Returns `None` when the priced
-/// account is not liquidatable.
-fn open_world(case: &Case) -> Result<Option<World>, TestCaseError> {
+/// case's HF band or onto the unit edge. Returns `Ok(Err(reason))` when the
+/// priced account is not liquidatable or the unit-edge sale closed it. A setup
+/// call that reverts fails the case.
+fn open_world(case: &Case) -> Result<Result<World, &'static str>, TestCaseError> {
     let (units, unit_cents) = sizing(case);
     let token_price = usd_cents(unit_cents) * 10i128.pow(case.decimals);
     let mut builder = LendingTest::new()
@@ -428,11 +430,14 @@ fn open_world(case: &Case) -> Result<Option<World>, TestCaseError> {
         listed_bonus: i128::from(case.bonus),
         lt: i128::from(case.lt),
     };
-    let liquidatable = match case.band {
-        Band::UnitEdge => w.price_at_unit_edge(case),
-        band => w.price_into_band(band, case, units),
+    let priced = match case.band {
+        Band::UnitEdge => w.price_at_unit_edge(case)?,
+        band => w
+            .price_into_band(band, case, units)
+            .then_some(())
+            .ok_or("skipped: HF >= 1 after band pricing"),
     };
-    Ok(liquidatable.then_some(w))
+    Ok(priced.map(|()| w))
 }
 
 impl World {
@@ -440,7 +445,14 @@ impl World {
         let price: i128 = price.try_into().expect("price fits i128");
         assert!(price > 0, "generated price must be positive");
         self.t.set_price(LIQ, price);
-        self.liq_price = price;
+        let key = PriceKey::Token(self.liq_key.asset.clone());
+        self.liq_price = self
+            .t
+            .price_agg_client()
+            .prices(&vec![&self.t.env, key.clone()])
+            .get(key)
+            .expect("aggregator prices the collateral")
+            .price_wad;
     }
 
     /// Prices the collateral so HF lands at the band's target. Returns whether
@@ -471,10 +483,15 @@ impl World {
     /// per million of zero. `D` then falls on either side of the whole-unit
     /// margin band or inside it. An odd `pick` first sells one of the two
     /// units, so the edge is priced for a one-unit residue.
-    fn price_at_unit_edge(&mut self, case: &Case) -> bool {
+    fn price_at_unit_edge(
+        &mut self,
+        case: &Case,
+    ) -> Result<Result<(), &'static str>, TestCaseError> {
         let pick = case.band_pick;
-        if pick % 2 == 1 && !self.sell_to_one_unit(case) {
-            return false;
+        if pick % 2 == 1 && !self.sell_to_one_unit(case)? {
+            return Ok(Err(
+                "skipped: unit-edge setup sale closed the account in full",
+            ));
         }
         let eps_ppb = (pick / 2) * 6 / 5 - 3_000;
         let (_, debt, _, _) = self.totals();
@@ -486,7 +503,7 @@ impl World {
         let mut lo = target(0) / 2;
         let mut hi = target(4 * BPS) * 2;
         if self.reaches_edge(&lo, debt, eps_ppb) || !self.reaches_edge(&hi, debt, eps_ppb) {
-            return false;
+            return Ok(Err("skipped: unit-edge bisection has no bracket"));
         }
         while &hi - &lo > &lo / 10_000_000_000i64 + 1 {
             let mid: BigInt = (&lo + &hi) / 2;
@@ -497,7 +514,7 @@ impl World {
             }
         }
         self.set_liq_price(&hi);
-        self.totals().3 < WAD
+        Ok((self.totals().3 < WAD).then_some(()).ok_or(HEALTHY_AT_EDGE))
     }
 
     fn reaches_edge(&mut self, price: &BigInt, debt: i128, eps_ppb: i128) -> bool {
@@ -508,13 +525,16 @@ impl World {
     }
 
     /// Prices the two-unit account at `C / D = 1.9`, or HF 0.99 when that is
-    /// lower, and liquidates it with a debt-sized offer. Returns whether one
-    /// unit and some debt remain.
-    fn sell_to_one_unit(&mut self, case: &Case) -> bool {
+    /// lower, and liquidates it with a debt-sized offer. Fails the case when
+    /// the account stays healthy or the liquidation reverts. Returns whether
+    /// debt remains; the sale then leaves exactly one unit.
+    fn sell_to_one_unit(&mut self, case: &Case) -> Result<bool, TestCaseError> {
         let lt = i128::from(case.lt);
-        if !self.price_at_hf((lt * 190).min(990_000), lt, 2) {
-            return false;
-        }
+        prop_assert!(
+            self.price_at_hf((lt * 190).min(990_000), lt, 2),
+            "setup: the two-unit account is healthy at the sale price; case={:?}",
+            case
+        );
         let liquidator = self.t.get_or_create_user(LIQUIDATOR);
         let mut payments = vec![&self.t.env];
         for leg in self.legs.clone() {
@@ -533,10 +553,22 @@ impl World {
             &payments,
             &SeizeMode::Transfer,
         );
-        sold.is_ok()
-            && self.exists(self.account)
-            && self.units_of(self.account) == 1
-            && self.totals().1 > 0
+        prop_assert!(
+            matches!(sold, Ok(Ok(_))),
+            "setup: the one-unit sale reverted with {:?}; case={:?}",
+            sold.err().map(revert_of),
+            case
+        );
+        if !self.exists(self.account) || self.totals().1 == 0 {
+            return Ok(false);
+        }
+        prop_assert_eq!(
+            self.units_of(self.account),
+            1,
+            "setup: the sale left debt but not exactly one unit; case={:?}",
+            case
+        );
+        Ok(true)
     }
 
     fn unit_scaled(&self) -> i128 {
@@ -677,7 +709,10 @@ fn refunded(estimate: &LiquidationEstimate, asset: &Address) -> i128 {
 }
 
 /// Runs one liquidation, checks P1-P8 and returns whether the account is
-/// still liquidatable with debt left.
+/// still liquidatable with debt left. P2 and P3 allow one base unit per repaid
+/// leg only when an insolvent call pays within that of the collateral-backed
+/// quote and takes every unit; every other plan that leaves debt meets them
+/// within `WEI_TOLERANCE` raw WAD.
 fn liquidate_step(
     w: &mut World,
     offer_bps: i128,
@@ -763,6 +798,14 @@ fn liquidate_step(
     let estimate =
         w.t.ctrl_client()
             .try_get_liquidation_estimate(&id, &payments, &mode);
+    if let Ok(Ok(e)) = &estimate {
+        prop_assert_eq!(
+            e.bonus_rate_bps,
+            bonus_m,
+            "mirrored bonus disagrees with the estimate; {}",
+            &ctx
+        );
+    }
     for (i, leg) in legs.iter().enumerate() {
         if offers[i] > 0 {
             w.t.resolve_market(leg.name)
@@ -861,13 +904,6 @@ fn liquidate_step(
             )))
         }
     };
-    prop_assert_eq!(
-        estimate.bonus_rate_bps,
-        bonus_m,
-        "mirrored bonus disagrees with the controller; {}",
-        &ctx
-    );
-
     let exists = w.exists(id);
     let scaled_after = if exists { w.liq_scaled(id) } else { 0 };
     let paid: std::vec::Vec<i128> = legs
@@ -935,12 +971,17 @@ fn liquidate_step(
         .enumerate()
         .map(|(i, l)| rat(paid[i]) * per_unit(l.price, l.decimals))
         .fold(rat(0), |a, b| a + b);
-    let per_leg = legs
-        .iter()
-        .zip(&debts)
-        .filter(|(_, debt)| **debt > 0)
-        .map(|(l, _)| per_unit(l.price, l.decimals))
-        .fold(rat(0), |a, b| a + b);
+    let units_after = scaled_after / unit_scaled;
+    let quote = Wad::from(c).div_floor(&env, one_plus_bonus_m).raw().min(d);
+    let paid_legs = || legs.iter().zip(&paid).filter(|(_, p)| **p > 0);
+    let paid_unit_wad = paid_legs()
+        .map(|(l, _)| {
+            Wad::from_token(&env, 1, l.decimals)
+                .mul(&env, Wad::from(l.price))
+                .raw()
+        })
+        .sum::<i128>();
+    let seize_all = !solvent && paid_usd_wad > 0 && paid_usd_wad + paid_unit_wad >= quote;
     let tol = rat(WEI_TOLERANCE);
     let full_close = debts.iter().zip(&paid).all(|(debt, p)| p >= debt);
     let at_bonus = &paid_value * &one_plus_b / rat(BPS);
@@ -955,7 +996,7 @@ fn liquidate_step(
         );
         record_max(
             stats,
-            "full close: excess over the bonus, in units",
+            "P2 full close: excess over paid * (1 + b), units",
             &(&excess / &unit_value),
         );
         if received_units == 1 && at_bonus < unit_value {
@@ -979,27 +1020,56 @@ fn liquidate_step(
             );
         }
     } else {
+        let slack = if seize_all {
+            prop_assert_eq!(
+                units_after,
+                0,
+                "an insolvent call within one unit per leg of the quote takes every unit; {}",
+                &ctx
+            );
+            paid_legs()
+                .map(|(l, _)| per_unit(l.price, l.decimals))
+                .fold(rat(0), |a, b| a + b)
+        } else {
+            rat(0)
+        };
+        let path = if seize_all { "seize_all" } else { "partial" };
         prop_assert!(
-            excess <= &per_leg * &one_plus_b / rat(BPS) + &tol,
-            "P2: partial received {} above {} at bonus; {}",
+            excess <= &slack * &one_plus_b / rat(BPS) + &tol,
+            "P2: {} received {} above {} at bonus; {}",
+            path,
             received,
             at_bonus,
             ctx
         );
         let undercharge = &received * rat(BPS) / &one_plus_b - &paid_value;
         prop_assert!(
-            undercharge <= &per_leg + &tol,
-            "P3: paid {} for {} at bonus; {}",
+            undercharge <= &slack + &tol,
+            "P3: {} paid {} for {} at bonus; {}",
+            path,
             paid_value,
             received,
             ctx
         );
+        bump(stats, &format!("path: {path}"));
         record_max(
             stats,
-            "partial: received above paid * (1 + b), WAD",
+            &format!("P2 {path}: excess over paid * (1 + b), WAD"),
             &excess,
         );
-        record_max(stats, "partial: undercharge, WAD", &undercharge);
+        record_max(stats, &format!("P3 {path}: undercharge, WAD"), &undercharge);
+        if seize_all {
+            record_max(
+                stats,
+                "P2 seize_all: excess / ((1 + b) * R)",
+                &(&excess * rat(BPS) / (&slack * &one_plus_b)),
+            );
+            record_max(
+                stats,
+                "P3 seize_all: undercharge / R",
+                &(&undercharge / &slack),
+            );
+        }
     }
 
     let (c_after, d_after) = if exists {
@@ -1009,7 +1079,6 @@ fn liquidate_step(
         (0, 0)
     };
     prop_assert!(d_after < d, "P5: debt falls; {} -> {}; {}", d, d_after, ctx);
-    let units_after = scaled_after / unit_scaled;
     if exists && d_after > 0 {
         prop_assert!(units_after > 0, "P5: debt left without collateral; {}", ctx);
     }
@@ -1063,9 +1132,7 @@ fn liquidate_step(
     let kind = if full_close {
         "ok: full close"
     } else if !exists || d_after == 0 {
-        "ok: seized all, residue socialized"
-    } else if units_after == 0 {
-        "ok: seized all"
+        "ok: residue socialized"
     } else {
         "ok: partial"
     };
@@ -1084,9 +1151,12 @@ fn liquidate_step(
 }
 
 fn run_case(case: &Case, stats: &Stats) -> Result<(), TestCaseError> {
-    let Some(mut w) = open_world(case)? else {
-        bump(stats, "skipped: not liquidatable after pricing");
-        return Ok(());
+    let mut w = match open_world(case)? {
+        Ok(w) => w,
+        Err(reason) => {
+            bump(stats, reason);
+            return Ok(());
+        }
     };
     bump(stats, "cases");
     let (c, d, _, _) = w.totals();
@@ -1151,8 +1221,11 @@ fn prop_whole_unit_liquidation_holds_the_documented_bounds() {
     });
 }
 
-/// A two-unit $1,000 unit-edge case. With LT 26%, bonus 3% and curve factor
-/// 15%, the controller's bonus at the edge is 45.24% and HF is about 0.755.
+/// Opens 2 whole units of a 0-decimal collateral at $1,000 with LTV = 3/4 of
+/// `lt` and a USDC borrow at 90% of LTV, on the curve target HF 1.1, max-bonus
+/// HF 0.8 and `factor_bps`. It then prices the collateral at the unit edge
+/// `U / (1 + b) = D / (1 + e)`: an even `pick` sets `e = 0` at 5,000,
+/// -0.24 ppm at 4,600 and +3 ppm at 10,000; an odd `pick` first sells one unit.
 fn edge_case(pick: i128, lt: u32, bonus: u32, factor_bps: u32) -> Case {
     Case {
         decimals: 0,
@@ -1182,6 +1255,19 @@ fn edge_world(case: &Case) -> World {
         .expect("edge account is liquidatable")
 }
 
+/// Returns `(units, U, D, b, HF)`, with `U` and `D` in cents and `b` and `HF`
+/// in bps, each rounded down.
+fn edge_numbers(w: &World) -> (i128, i128, i128, i128, i128) {
+    let totals = w.totals();
+    (
+        w.units_of(w.account),
+        w.unit_usd().raw() / (WAD / 100),
+        totals.1 / (WAD / 100),
+        mirror_bonus(&w.t.env, totals, w.listed_bonus, &w.curve),
+        totals.3 / (WAD / BPS),
+    )
+}
+
 fn step_counts(w: &mut World, offer_bps: i128) -> BTreeMap<String, u64> {
     let stats: Stats = RefCell::new(Report::default());
     liquidate_step(w, offer_bps, true, false, false, &stats)
@@ -1190,14 +1276,17 @@ fn step_counts(w: &mut World, offer_bps: i128) -> BTreeMap<String, u64> {
     counts
 }
 
-/// Inside `floor(U / (1 + b)) - R < D <= ceil((U + m) / (1 + b))` a two-unit
-/// account whose curve quote backs less than one unit refuses every offer;
-/// one day of debt accrual moves it out, and a debt-sized offer then sells one
-/// unit.
+/// `edge_case(5_000, 2_600, 300, 1_500)`: LT 26%, listed bonus 3%, curve
+/// factor 15%, `e = 0`. Two units at `U = $509.79` hold `D = $351.00` at
+/// `b = 45.24%` and `HF = 0.7552`, so `U / (1 + b) = D` and `D` is inside
+/// `floor(U / (1 + b)) - R < D <= ceil((U + m) / (1 + b))`. Offers of 1%, 100%
+/// and 300% of the debt all revert. After one day of accrual, `D` is out of
+/// that band and a debt-sized offer sells one unit.
 #[test]
 fn wul_two_units_inside_the_margin_band_refuse_every_offer_until_accrual() {
     unnamed_thread(|| {
         let mut w = edge_world(&edge_case(5_000, 2_600, 300, 1_500));
+        assert_eq!(edge_numbers(&w), (2, 50_979, 35_100, 4_524, 7_552));
         for offer_bps in [100, BPS, 3 * BPS] {
             let counts = step_counts(&mut w, offer_bps);
             assert_eq!(counts.get("band: step in margin band"), Some(&1));
@@ -1219,12 +1308,14 @@ fn wul_two_units_inside_the_margin_band_refuse_every_offer_until_accrual() {
     });
 }
 
-/// Just above the band, one unit at `1 + b` covers the debt plus one USDC base
-/// unit: a debt-sized offer repays all debt for one unit (rule 1).
+/// `edge_case(4_600, 2_600, 300, 1_500)`: the same account at `e = -0.24` ppm,
+/// so `floor(U / (1 + b)) >= D + R` with `R = $0.0000001`. Rule 1 applies: a
+/// debt-sized offer repays the whole `$351.00` debt for one unit.
 #[test]
 fn wul_two_units_above_the_margin_band_close_in_full_for_one_unit() {
     unnamed_thread(|| {
         let mut w = edge_world(&edge_case(4_600, 2_600, 300, 1_500));
+        assert_eq!(edge_numbers(&w), (2, 50_979, 35_100, 4_524, 7_552));
         let counts = step_counts(&mut w, BPS);
         assert_eq!(
             counts.get("ok: full close, one unit for the whole debt"),
@@ -1236,12 +1327,14 @@ fn wul_two_units_above_the_margin_band_close_in_full_for_one_unit() {
     });
 }
 
-/// Just below the band, the raised quote `ceil((U + m) / (1 + b))` stays below
-/// the debt: a debt-sized offer sells one unit and keeps the other (rule 2).
+/// `edge_case(10_000, 2_600, 300, 1_500)`: the same account at `e = +3` ppm,
+/// so `ceil((U + m) / (1 + b)) < D`. Rule 2 applies: a debt-sized offer sells
+/// one unit, the other unit and some debt stay, and `C / D` does not fall.
 #[test]
 fn wul_two_units_below_the_margin_band_sell_one_unit() {
     unnamed_thread(|| {
         let mut w = edge_world(&edge_case(10_000, 2_600, 300, 1_500));
+        assert_eq!(edge_numbers(&w), (2, 50_979, 35_100, 4_524, 7_552));
         let (c, d, _, _) = w.totals();
         let counts = step_counts(&mut w, BPS);
         assert_eq!(counts.get("ok: partial"), Some(&1), "{counts:?}");
@@ -1252,17 +1345,24 @@ fn wul_two_units_below_the_margin_band_sell_one_unit() {
     });
 }
 
-/// A one-unit residue priced at its debt has `C / D` just above 1, so the
-/// HF-preserving cap is 0: the band quote closes the whole debt at bonus 0
-/// and the liquidator takes the last unit.
+/// `edge_case(5_001, lt, 500, 1_500)` for LT 26%, 60% and 90%: a debt-sized
+/// sale at `C / D = 1.9`, or HF 0.99 when lower, leaves one unit, which is
+/// then priced at `e = 0`. That puts `C = U` less than one USDC base unit
+/// above `D` ($124.07, $193.47 and $580.62), so the HF-preserving cap is 0.
+/// The band quote closes the whole debt at bonus 0 and the liquidator takes
+/// the last unit.
 #[test]
 fn wul_one_unit_residue_at_cover_closes_in_full_at_zero_bonus() {
     unnamed_thread(|| {
-        for lt in [2_600u32, 6_000, 9_000] {
+        for (lt, cents) in [(2_600u32, 12_407), (6_000, 19_347), (9_000, 58_062)] {
             let mut w = edge_world(&edge_case(5_001, lt, 500, 1_500));
-            assert_eq!(w.units_of(w.account), 1, "LT {lt}");
-            let totals = w.totals();
-            assert_eq!(mirror_bonus(&w.t.env, totals, w.listed_bonus, &w.curve), 0);
+            assert_eq!(
+                edge_numbers(&w),
+                (1, cents, cents, 0, i128::from(lt)),
+                "LT {lt}"
+            );
+            let (c, d, _, _) = w.totals();
+            assert!(c > d && c - d < WAD / 10_000_000, "LT {lt}: C={c} D={d}");
             let counts = step_counts(&mut w, BPS);
             assert_eq!(
                 counts.get("ok: full close"),
@@ -1274,9 +1374,13 @@ fn wul_one_unit_residue_at_cover_closes_in_full_at_zero_bonus() {
     });
 }
 
-/// With the testnet LIQVID1039 listing (LTV 50%, LT 60%, bonus 5%, default
-/// curve), two units priced at the unit edge have `HF = 2 * LT * (1 + b)`
-/// above 1, so the margin band that refuses every offer cannot hold them.
+/// The testnet LIQVID1039 listing: LTV 50%, LT 60%, listed bonus 5% and the
+/// default curve (target HF 1.1, max-bonus HF 0.8, factor 100%). The $5 borrow
+/// floor lifts the opening price to $7 a unit, so 2 units back `D = $6.30`. At
+/// the unit edge `U = D * (1 + b) / (1 + e)`, so `HF = 2 * LT * (1 + b) / (1 + e)`.
+/// That is about 1.26 at the listed `b = 5%`. For every `e` from -3 to +3 ppm
+/// the account stays healthy, so the margin band that refuses every offer
+/// cannot hold two listed units.
 #[test]
 fn wul_listed_liqvid_two_units_are_healthy_at_the_unit_edge() {
     unnamed_thread(|| {
@@ -1287,9 +1391,11 @@ fn wul_listed_liqvid_two_units_are_healthy_at_the_unit_edge() {
                 factor_bps: BPS as u32,
                 ..edge_case(pick, 6_000, 500, 1)
             };
-            assert!(
-                open_world(&case).expect("edge setup").is_none(),
-                "pick {pick}: two listed units are liquidatable at the unit edge"
+            assert_eq!(sizing(&case), (2, 700), "pick {pick}");
+            assert_eq!(
+                open_world(&case).expect("edge setup").err(),
+                Some(HEALTHY_AT_EDGE),
+                "pick {pick}"
             );
         }
     });

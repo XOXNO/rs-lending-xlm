@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 0096a69ec3cc2726369fb28e30e7b5605a6c89592f73f1f52b97c3d43d273b9e # shrinks to Case { decimals: 0, unit_cents: 50, units: 2, lt: 2500, ltv: 1000, bonus: 0, target_hf_bps: 11000, knee_bps: 8000, factor_bps: 10000, second_leg: Some(18), second_share_pct: 10, borrow_pct: 50, accrue_days: 1, band: NearOne, band_pick: 958, offer_bps: 813, offer_all_legs: true, credit: false }
