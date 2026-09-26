@@ -9,3 +9,4 @@ mod privileged_auth_rejects;
 mod strategy_helpers;
 mod strategy_multiply_budget;
 mod strategy_router_invariants;
+mod whole_unit_liquidation;
