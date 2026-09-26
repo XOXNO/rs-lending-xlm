@@ -2984,6 +2984,7 @@ wave_each() {
         (
             SOURCE_FLAG="--source ${sources[$w]}"
             for ((i = w; i < ${#items[@]}; i += jobs)); do
+                echo "=== wave ${fn}: ${items[$i]}" >&2
                 "$fn" ${items[$i]} || exit 1
             done
         ) >"$dir/$fn.$w.out" 2>"$dir/$fn.$w.err" &
@@ -3008,7 +3009,7 @@ setup_all_wave() {
     [ "${#sources[@]}" -ge 3 ] || die "SETUP_JOBS=${SETUP_JOBS} needs at least 3 SETUP_SOURCES channel identities"
     [ "${#sources[@]}" -le "$SETUP_JOBS" ] || sources=("${sources[@]:0:$SETUP_JOBS}")
     require_spoke_caps_configured
-    local dir snapshot markets spokes cat_id asset onchain_id ops p_spokes p_refs p_exec p_curves
+    local dir snapshot markets market spokes cat_id asset onchain_id ops p_spokes p_refs p_exec p_curves
     markets=$(enabled_market_names)
     [ -n "$markets" ] || die "no enabled markets in ${MARKET_CONFIG_FILE}"
     spokes=$(enabled_spoke_ids)
@@ -3029,7 +3030,11 @@ setup_all_wave() {
     wave_stream_wait "$dir" refs "$p_refs"
 
     AUTO_EXECUTE=0 WAVE_SOURCES="${sources[*]}" wave_each "$dir" configure_market_oracle $markets
-    ops=$(cat "$dir"/configure_market_oracle.*.err | grep -oE 'Scheduled op [0-9a-f]+ \(AUTO_EXECUTE=0' | awk '{print $3}')
+    ops=''
+    for market in $markets; do
+        ops="$ops $(awk -v item="=== wave configure_market_oracle: ${market}" '$0 == item {p=1; next} /^=== wave configure_market_oracle: / {p=0} p' "$dir"/configure_market_oracle.*.err \
+            | grep -oE 'Scheduled op [0-9a-f]+ \(AUTO_EXECUTE=0' | awk '{print $3}')"
+    done
     ( SOURCE_FLAG="--source ${sources[0]}"; for op in $ops; do await_op_ready "$op"; execute_op "$op" || exit 1; done ) \
         >"$dir/oracles.out" 2>"$dir/oracles.err" &
     p_exec=$!

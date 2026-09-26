@@ -82,6 +82,7 @@ grep ' refs ' "$tmp/log" | grep -q 'src=c1$' || fail "reference oracles left the
 [ "$(grep -c ' exec-end ' "$tmp/log")" = 6 ] || fail "not every scheduled oracle op executed"
 grep -E ' exec-(start|end) ' "$tmp/log" | grep -qv 'src=c0$' && fail "oracle executes left the executor source"
 awk '/ exec-start /{if (open) bad=1; open=1} / exec-end /{open=0} END {exit bad}' "$tmp/log" || fail "oracle executes overlapped"
+[ "$(grep ' exec-start ' "$tmp/log" | awk '{print $3}' | tr '\n' ' ')" = "010 020 030 040 050 060 " ] || fail "oracle executes left market config order"
 last_propose=$(grep -n ' propose ' "$tmp/log" | tail -1 | cut -d: -f1)
 first_exec=$(grep -n ' exec-start ' "$tmp/log" | head -1 | cut -d: -f1)
 [ "$first_exec" -gt "$last_propose" ] || fail "an oracle executed before every proposal was scheduled"
