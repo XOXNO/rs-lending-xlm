@@ -153,10 +153,14 @@ fetch_resources() {
     [[ "$RES_INSTR" =~ ^[0-9]+$ && "$RES_READ" =~ ^[0-9]+$ && "$RES_WRITE" =~ ^[0-9]+$ && "$RES_FEE" =~ ^[0-9]+$ ]]
 }
 
+receipt_drift() {
+    python3 "$INTEG_DIR/receipts.py" drift "$@"
+}
+
 inv() {
     local label="$1" signer="$2" contract="$3"; shift 3
     [ "$1" = "--" ] && shift
-    local fn="$1" attempt hash rc st sequence
+    local fn="$1" attempt hash rc st sequence drifted=''
     sequence=$(wc -l < "$ACTIONS_TSV")
     local out_f="$LOG_DIR/$label.out" err_f="$LOG_DIR/$label.err"
     for attempt in $(seq 1 "$INV_MAX_ATTEMPTS"); do
@@ -171,17 +175,29 @@ inv() {
             st=$(tx_status "$hash")
             if [ "$st" = SUCCESS ] && fetch_resources "$hash"; then
                 if { [ "$rc" -eq 0 ] && [ -s "$out_f" ]; } || recover_output "$hash" "$out_f" invoke "$contract" "$fn"; then
+                    if [ -n "$drifted" ] && ! receipt_drift "$LOG_DIR/$drifted.receipt.json" "$drifted" "$NETWORK_PASSPHRASE" \
+                        "$contract" "$fn" "$LOG_DIR/$hash.receipt.json" "$hash" 2>>"$LOG_DIR/$drifted.drift.err"; then
+                        record "$label" FAIL "$fn" "$hash" "" "" "" "" "retry of $drifted not proven: $(tail -n1 "$LOG_DIR/$drifted.drift.err")"
+                        return 1
+                    fi
                     record "$label" ok "$fn" "$hash" "$RES_INSTR" "$RES_READ" "$RES_WRITE" "$RES_FEE" "confirmed attempt $attempt; cli=$rc" transaction "$contract"
                     cat "$out_f"
                     return 0
                 fi
             fi
-            # A signed envelope is potentially submitted. Never rebuild it,
-            # including when the RPC cannot find it or the CLI lost its result.
+            if [ "$st" = FAILED ] && [ -z "$drifted" ] && [ "$attempt" -lt "$INV_MAX_ATTEMPTS" ] \
+                && receipt_drift "$LOG_DIR/$hash.receipt.json" "$hash" "$NETWORK_PASSPHRASE" "$contract" "$fn" 2>>"$LOG_DIR/$hash.drift.err"; then
+                drifted="$hash"
+                record "$label" retry "$fn" "$hash" "" "" "" "" "submitted attempt $attempt FAILED on a storage footprint limit; resimulating once" rejected_transaction "$contract"
+                continue
+            fi
+            # A signed envelope is potentially submitted. Rebuild it only after a
+            # verified FAILED footprint-limit receipt, never when the RPC cannot
+            # find it or the CLI lost its result.
             record "$label" FAIL "$fn" "$hash" "" "" "" "" "submitted attempt $attempt: status=$st cli=$rc; $(tail_err_note "$err_f")"
             return 1
         fi
-        if [ "$rc" -ne 0 ] && [ "$attempt" -lt "$INV_MAX_ATTEMPTS" ] \
+        if [ "$rc" -ne 0 ] && [ "$attempt" -lt "$INV_MAX_ATTEMPTS" ] && [ -z "$drifted" ] \
             && grep -qE "$DEPLOY_PROPAGATION_RE|Wasm does not exist" "$err_f" \
             && ! grep -q 'Error(Contract' "$err_f"; then
             record "$label" retry "$fn" "" "" "" "" "" "explicit simulation prerequisite unavailable, attempt $attempt"

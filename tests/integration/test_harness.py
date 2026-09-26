@@ -118,6 +118,32 @@ def check_gate():
         baseline()
         with (run/'actions.tsv').open('a') as f: f.write('malformed\n')
         rejected()
+        (run/'interruption.json').unlink(missing_ok=True); baseline()
+        def with_retry(relabel=False):
+            i=index; failed_hash='f'*64
+            retry=actions[i].copy(); retry[3]='retry'; retry[5]=failed_hash
+            if relabel: retry[2]='other_label'
+            rows_=[r.copy() for r in actions[:i]]+[retry]+[r.copy() for r in actions[i:]]
+            proof_rows=[r.copy() for r in proofs[:i]]+[[None,'rejected_transaction',proofs[i][2]]]+[r.copy() for r in proofs[i:]]
+            for n,(a,e) in enumerate(zip(rows_,proof_rows),1): a[0]=e[0]=str(n)
+            ranges=[[c[0],c[1],c[2]+(c[2]>i+1),c[3]+(c[3]>=i+1)] for c in cases]
+            write('actions.tsv',gate.ACTION_FIELDS,rows_)
+            write('evidence.tsv',['seq','execution','contract'],proof_rows)
+            write('cases.tsv',['id','status','first_action','last_action'],ranges)
+            (run/'logs'/f'{failed_hash}.receipt.json').write_text(json.dumps({'result':{'status':'FAILED'}}))
+            return failed_hash, actions[i]
+        original_drift=gate.footprint_drift
+        calls=[]
+        gate.footprint_drift=lambda *a: calls.append(a)
+        failed_hash, follow=with_retry()
+        assert gate.validate(run, expected_lane='agg') == len(required)
+        assert len(calls)==1 and calls[0][1]==failed_hash and calls[0][3:5]==(proofs[index][2],follow[4]) and calls[0][6]==follow[5]
+        def refuse(*a): raise ValueError('retry footprint equals the failed footprint')
+        gate.footprint_drift=refuse; rejected()
+        gate.footprint_drift=lambda *a: None
+        with_retry(relabel=True); rejected()
+        gate.footprint_drift=original_drift
+        baseline()
     gate.verify_receipt = original_verify
 
 

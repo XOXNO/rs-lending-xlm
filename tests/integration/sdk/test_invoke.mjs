@@ -62,7 +62,7 @@ if (mode) {
       `],{encoding:'utf8',env:{...process.env,SDK_INVOKE_FIXTURE:fixture,
         NODE_OPTIONS:`--import=${import.meta.url}`,NODE_BIN:process.execPath,
         INTEG_DIR:dirname(here),RUN_DIR:run,LOG_DIR:logs,ACTIONS_TSV:join(run,'actions.tsv'),PHASE:'sdk',
-        RPC_URL:'https://rpc.invalid',CONTROLLER:controller,ALICE:'fixture',EXPECT_ERROR:'',
+        RPC_URL:'https://rpc.invalid',NETWORK_PASSPHRASE:'Test SDF Network ; September 2015',CONTROLLER:controller,ALICE:'fixture',EXPECT_ERROR:'',
         FIXTURE_SECRET:key.secret(),FIXTURE_ARGS:JSON.stringify({asset,hubId:1,spokeId:1,amount:'10000001',accountNonce:0})}});
       assert.equal(result.status,1,result.stderr);
       const action=readFileSync(join(run,'actions.tsv'),'utf8').trimEnd().split('\n')[1].split('\t');

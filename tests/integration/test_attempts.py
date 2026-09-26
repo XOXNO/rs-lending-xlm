@@ -21,7 +21,7 @@ set -uo pipefail
 source "{HERE}/lib/core.sh"
 source "{HERE}/lib/invoke.sh"
 RUN_DIR={directory}; LOG_DIR="$RUN_DIR/logs"; ACTIONS_TSV="$RUN_DIR/actions.tsv"
-PHASE=test; ADMIN=admin; RPC_URL=unused; NET_ARGS=(--network testnet)
+PHASE=test; ADMIN=admin; RPC_URL=unused; NET_ARGS=(--network testnet); NETWORK_PASSPHRASE='Test SDF Network ; September 2015'; INTEG_DIR="{HERE}"
 XDG_CONFIG_HOME="$RUN_DIR/private"
 mkdir -p "$LOG_DIR" "$XDG_CONFIG_HOME/stellar/identity"
 printf 'mock key' > "$XDG_CONFIG_HOME/stellar/identity/admin.toml"
@@ -80,6 +80,106 @@ if inv mutation admin contract -- supply; then exit 1; fi
 [ "$n" = 1 ] || exit 1
 ''')
     assert len(attempts) == 1 and actions[0]['status'] == 'FAIL'
+
+DRIFT_SETUP = '''
+n=0
+stellar() { n=$((n+1)); echo "$n"; echo "Signing transaction: $(printf '%064d' "$n")" >&2; }
+fetch_resources() { RES_INSTR=1 RES_READ=0 RES_WRITE=0 RES_FEE=1; }
+NETWORK_PASSPHRASE=testnet
+'''
+attempts, _, actions = shell(DRIFT_SETUP + '''
+tx_status() { [ "$1" = "$(printf '%064d' 1)" ] && echo FAILED || echo SUCCESS; }
+receipt_drift() { echo "$#" >> "$RUN_DIR/drift"; }
+inv mutation admin contract -- borrow >/dev/null || exit 1
+[ "$(cat "$RUN_DIR/drift" | tr '\n' ' ')" = "5 7 " ] || exit 1
+grep -q $'^1\trejected_transaction\tcontract$' "$RUN_DIR/evidence.tsv"
+''')
+assert [a['status'] for a in actions] == ['retry', 'ok']
+assert [a['hash'] for a in actions] == ['0'*63+'1', '0'*63+'2'] and len(attempts) == 2
+print('A verified FAILED footprint-limit receipt is retried once and proven by the pair check')
+
+for tx_status, drift, calls, statuses in [
+    ('echo FAILED', 'return 1', 1, ['FAIL']),
+    ('echo FAILED', ':', 2, ['retry', 'FAIL']),
+    ('[ "$1" = "$(printf \'%064d\' 1)" ] && echo FAILED || echo SUCCESS', '[ "$#" -eq 5 ]', 2, ['retry', 'FAIL']),
+    ('echo UNKNOWN', ':', 1, ['FAIL']),
+]:
+    attempts, _, actions = shell(DRIFT_SETUP + f'''
+tx_status() {{ {tx_status}; }}
+receipt_drift() {{ {drift}; }}
+if inv mutation admin contract -- borrow >/dev/null; then exit 1; fi
+[ "$n" = {calls} ]
+''')
+    assert [a['status'] for a in actions] == statuses, (tx_status, drift, actions)
+attempts, _, actions = shell(DRIFT_SETUP + '''
+tx_status() { echo FAILED; }
+receipt_drift() { :; }
+if INV_MAX_ATTEMPTS=1 inv mutation admin contract -- borrow >/dev/null; then exit 1; fi
+[ "$n" = 1 ]
+''')
+assert [a['status'] for a in actions] == ['FAIL']
+attempts, _, actions = shell(DRIFT_SETUP + '''
+stellar() {
+    n=$((n+1)); echo "$n"
+    if [ "$n" = 1 ]; then echo "Signing transaction: $(printf '%064d' 1)" >&2; else echo 'Contract not found' >&2; return 1; fi
+}
+tx_status() { echo FAILED; }
+receipt_drift() { :; }
+if inv mutation admin contract -- borrow >/dev/null; then exit 1; fi
+[ "$n" = 2 ]
+''')
+assert [a['status'] for a in actions] == ['retry', 'FAIL']
+attempts, _, actions = shell(DRIFT_SETUP + '''
+stellar() { n=$((n+1)); echo "Signing transaction: $(printf '%064d' 1)" >&2; echo 'Error(Contract, #102)' >&2; return 1; }
+tx_status() { echo FAILED; }
+receipt_drift() { echo 'Traceback: ValueError: failure is not a storage footprint limit' >&2; return 1; }
+if inv mutation admin contract -- borrow >/dev/null; then exit 1; fi
+grep -q 'not a storage footprint limit' "$LOG_DIR/$(printf '%064d' 1).drift.err"
+''')
+assert [a['status'] for a in actions] == ['FAIL'] and 'Error(Contract, #102)' in actions[0]['note'] and 'Traceback' not in actions[0]['note']
+print('Non-footprint failures, a second failure, an unchanged footprint and UNKNOWN stay final')
+
+SDK_SETUP = '''
+source "{HERE}/flows/sdk.sh"
+export RUN_DIR
+ALICE=alice CONTROLLER=controller NETWORK_PASSPHRASE=testnet INTEG_DIR="{HERE}"
+stellar() { echo secret; }
+cat > "$RUN_DIR/node" <<'NODE'
+#!/bin/bash
+cat >/dev/null
+n=$(( $(cat "$RUN_DIR/node.count" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$RUN_DIR/node.count"
+printf '%064d' "$n" > "$4.hash"
+[ "$n" -gt "${NODE_FAILS:-1}" ] || { echo 'unconfirmed/failed transaction' >&2; exit 1; }
+printf '{"hash":"%064d","value":7}' "$n"
+NODE
+chmod +x "$RUN_DIR/node"; NODE_BIN="$RUN_DIR/node"
+'''.replace('{HERE}', str(HERE))
+attempts, _, actions = shell(SDK_SETUP + '''
+receipt_drift() { echo "$#" >> "$RUN_DIR/drift"; }
+[ "$(sdk_inv sdk_borrow buildStellarBorrowTx '{}')" = 7 ] || exit 1
+[ "$(cat "$RUN_DIR/drift" | tr '\n' ' ')" = "5 7 " ] && [ -f "$LOG_DIR/sdk_borrow.hash" ] && [ -f "$LOG_DIR/sdk_borrow_retry.hash" ]
+''')
+assert [(a['status'], a['fn'], a['hash']) for a in actions] == [('retry', 'borrow', '0'*63+'1'), ('ok', 'borrow', '0'*63+'2')]
+attempts, _, actions = shell(SDK_SETUP + '''
+receipt_drift() { return 1; }
+if sdk_inv sdk_borrow buildStellarBorrowTx '{}' >/dev/null; then exit 1; fi
+[ "$(cat "$RUN_DIR/node.count")" = 1 ]
+''')
+assert [a['status'] for a in actions] == ['FAIL']
+for fails, drift, expect_error, calls, statuses in [
+    (2, ':', '', 2, ['retry', 'FAIL']),
+    (1, '[ "$#" -eq 5 ] || { echo "ValueError: retry is not the same call" >&2; return 1; }', '', 2, ['retry', 'FAIL']),
+    (1, ':', 'AmountMustBePositive', 1, ['FAIL']),
+]:
+    attempts, _, actions = shell(SDK_SETUP + f'''
+export NODE_FAILS={fails}
+receipt_drift() {{ {drift}; }}
+if EXPECT_ERROR={expect_error} sdk_inv sdk_borrow buildStellarBorrowTx '{{}}' >/dev/null; then exit 1; fi
+[ "$(cat "$RUN_DIR/node.count")" = {calls} ]
+''')
+    assert [a['status'] for a in actions] == statuses, (fails, drift, actions)
+    assert ('not the same call' in actions[-1]['note']) == ('same call' in drift), actions[-1]['note']
+print('The published SDK path retries a verified footprint-limit failure once, as a fresh process')
 
 attempts, _, actions = shell('''
 stellar() { echo "Signing transaction: $(printf '%064d' 1)" >&2; exit 130; }
