@@ -68,7 +68,8 @@ listing's flags epoch equals its `expected_epoch`. The oracle role's immediate
 
 Construction requires a nonzero minimum delay. Delay updates can retain or
 increase it, up to 241920 ledgers; construction does not enforce that upper
-bound. Sensitive and Recovery delays also apply their compiled minimums.
+bound. Only the owner can propose `UpdateGovDelay`. Sensitive and Recovery
+delays also apply their compiled minimums.
 
 These checks govern the deployed implementation and cannot constrain replacement
 Wasm.
@@ -421,7 +422,19 @@ value and capped at held collateral; rounding can leave repayment with no
 payable seizure. A collateral leg below 3 decimals seizes whole units: rounded
 up when the plan repays all debt, otherwise rounded down with the unbacked
 repayment refunded, and a plan left with no seizure reverts. Such a leg is the
-account's only supply position, so the seizure stays proportional.
+account's only supply position, so the seizure stays proportional. On a
+solvent account whose leg holds a whole unit, the partial quote can change.
+When one unit's value divided by `1 + bonus` covers the whole debt plus one base
+unit of each debt leg, the quote becomes the whole debt and the leg rounds up to
+one unit. That full close can pay the liquidator more than the quoted bonus.
+Otherwise, when the quote seizes less than one unit plus a `1e-6` margin, it
+rises to the repayment that backs one unit plus the margin, if that repayment
+is below the whole debt. The seizure then refunds the margin, rounded down to
+whole debt-token units. Thus such an account stays liquidatable below `HF = 1`, by a one-unit
+sale or by a full close. The exception is a debt in the narrow band where
+neither change applies: if the curve quote backs less than one unit, every
+offer reverts until accrual or a price move ends that state. See
+[whole-unit legs](formulas.md#bonus-and-target-repayment).
 
 Transfer mode burns shares and pays underlying after fees. The planned transfer
 fee never exceeds the whole token units paid above the leg's principal. Credit

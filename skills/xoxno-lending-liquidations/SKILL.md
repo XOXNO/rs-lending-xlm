@@ -112,6 +112,38 @@ shows a zero payment and `liquidate` reverts with `InvalidPayments`
 transfer signed for more fails authorization instead of paying for collateral
 that is no longer there. Re-simulate after every competing liquidation.
 
+**Collateral below 3 decimals seizes whole units.** Such a leg is the account's
+only supply position. On a solvent account whose leg holds at least one whole
+unit, the controller can change a partial quote:
+
+- When one unit's USD value divided by `1 + bonus` covers the whole debt plus
+  one base unit of each debt leg, the quote is the whole debt. The liquidator
+  repays all debt and receives one unit.
+- Otherwise, when the curve quote seizes less than one unit plus a `1e-6`
+  margin, the quote rises to the repayment that backs one unit plus the
+  margin, if that repayment is below the whole debt. The seizure takes one
+  unit and refunds the margin, rounded down to whole debt-token units.
+- Otherwise the curve quote stays.
+
+The raised quote is a ceiling. A smaller offer is not raised. An offer that
+backs less than one unit seizes nothing and reverts with `InvalidPayments`
+(`controller #16`). A raised quote is not promoted to full debt, so it can
+leave debt below $5. While the debt sits in the narrow band where neither
+change applies, and the curve quote backs less than one unit, every offer
+reverts until accrual or a price move ends that state.
+
+In the full-close case the liquidator pays the debt `D` and receives one unit
+worth `U`. Its effective bonus is `U / D - 1`, not the reported
+`bonus_rate_bps`. With `k` held units and liquidation threshold `LT`, it is at
+most about `1 / (k * LT) - 1`. The borrower loses `U - D * (1 + bonus)` above
+the normal bonus. The listing has no liquidation fee. Value the seized unit at
+its price, not at `D * (1 + bonus)`.
+
+Do not size such an offer from the curve formula. Estimate an offer up to the
+debt with `get_liquidation_estimate`, read `max_payment_wad` and `refunds`, and
+sign only the accepted amounts. See
+[math](../xoxno-lending/math.md#seizure-and-fees-per-collateral).
+
 Perform every controller/token read first. Then offer exactly the accepted
 amounts, authorize each `transfer(liquidator, pool, amount)` for them, and call
 `liquidate` immediately; no outbound contract call may occur between

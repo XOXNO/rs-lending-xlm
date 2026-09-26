@@ -54,11 +54,15 @@ operations. Controller construction and upgrade pause the controller. Pool,
 position NFT, price aggregator and governance upgrades do not pause lending.
 
 A PROPOSER that is not the owner can schedule listing, cap, curve and limit
-changes. Ownership transfers, code upgrades and migration, price and swap
-sources, Blend approvals, the revenue accumulator and role grants need the owner
-as proposer. A stolen non-owner PROPOSER key can therefore schedule disruptive
-changes, such as listing flags, risk parameters, role revocations or an unpause,
-but cannot replace code or prices.
+changes. Ownership transfers, code upgrades and migration, the timelock
+minimum delay, price and swap sources, Blend approvals, the revenue accumulator
+and role grants need the owner as proposer. A stolen non-owner PROPOSER key can
+therefore schedule disruptive changes, such as listing flags, risk parameters,
+role revocations or an unpause, but cannot replace code or prices. It cannot
+change the minimum delay either. `UpdateGovDelay` can only raise the minimum,
+so no later delay update can lower it. An owner `UpgradeGov` can still replace
+the governance code and its delay rules
+([INV-AUTH-05](../reference/invariants.md#inv-auth-05)).
 
 Typed proposals perform proposal-time checks; targets retain execution-time
 validation. Ready operations must also be within the grace window. Anyone may
@@ -96,6 +100,31 @@ arrived on supported supply, repay, recapitalization, and strategy paths.
 It is not a generic safety guarantee for arbitrary token contracts. Listing
 review must consider sender surcharges, false balances, rebases, clawbacks,
 upgrades, and semantics that can change after admission.
+
+A token issuer can change the token's decimals after listing, for example with
+a `set_metadata` call. Pool decimals are fixed at listing, and the pool never
+reads the token's decimals itself. Governance calls the token's `decimals()`
+and `symbol()` on every `CreateLiquidityPool` proposal and on every
+`ConfigureAssetOracle` proposal for a `PriceKey::Token` key, and a failing call
+rejects the proposal with `InvalidAsset` (6). Governance uses the live decimals
+only while the price aggregator holds no oracle for the token. Otherwise
+`resolve_oracle` uses the stored oracle's `asset_decimals`, and
+`CreateLiquidityPool` checks `asset_decimals` against the same value. The price
+aggregator rejects a replacement oracle that changes the stored
+`asset_decimals` with `InvalidOracleDecimals` (221). Thus oracle maintenance
+keeps the listed decimals after a relabel, and a listing in a second hub must
+use them too.
+
+Live decimals still apply to every `CreateLiquidityPool` and
+`ConfigureAssetOracle` proposed while the aggregator holds no oracle for the
+token, in either order. This includes every such proposal after a
+`SetPriceAggregator` re-point to an aggregator with an empty registry. Before
+execution, the operator must compare the resolved `asset_decimals` of every
+pending listing and oracle operation for that token with each other and with
+the existing pools of that token. On any mismatch, the operator cancels the
+operation. After a mismatch executes, only an aggregator Wasm upgrade can
+correct the stored unit: `set_oracle` rejects a decimals change, and
+`remove_oracle` exists only in testing builds.
 
 One token listed in several hubs shares physical pool custody even though
 market books are separate. Direct donations do not rewrite those books.
@@ -215,6 +244,17 @@ The [seizure fixture tests](../../contracts/controller/tests/positions/liquidati
 Share credit avoids collateral cash payout but still requires an authorized
 same-spoke receiver in Normal mode, position capacity, and a listing for a
 newly credited asset.
+
+On a solvent account whose only leg is below 3 decimals, the quote can rise to
+one whole unit or to the whole debt
+([whole-unit legs](../reference/formulas.md#bonus-and-target-repayment)). An
+offer that backs less than one unit still seizes nothing. In the full-debt
+case the liquidator repays the debt `D` and receives one unit worth `U`. Its
+effective bonus is `U / D - 1`, not the quoted bonus `b`. With `k` held units
+and liquidation threshold `LT`, `HF < 1` bounds it at about
+`1 / (k * LT) - 1`. The borrower loses `U - D * (1 + b)` above the normal
+bonus, and `bonus_bps` shows only `b`. Listing review must note that expensive
+units with a low liquidation threshold raise this loss.
 
 Liquidation planning and measured settlement enforce its accounting bounds.
 A missing universal final health-factor assertion alone does not establish a
