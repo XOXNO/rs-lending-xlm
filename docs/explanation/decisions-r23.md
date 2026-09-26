@@ -75,7 +75,8 @@ share. The insolvent close reaches the collateral-backed quote, so
 
 At `C / D = 0.995` the lenders lose `D - floor(C / 1.05)`. That is 5.238 % of
 `D`, or $73.33 at `D = $1,400`. The hub socializes this loss in the same call.
-At `C / D = 1.005` the lenders lose nothing.
+At `C / D = 1.005` the lenders lose nothing. The 7-decimal test reads both
+results from the bad-debt event: $73.33 below `C = D`, and no event above it.
 
 ## Why no small change is safe
 
@@ -91,12 +92,18 @@ open. The band cannot pay more without new bad debt.
 ### A continuous payoff lets a liquidator split for profit
 
 A continuous payoff needs an insolvent bonus that goes to 0 as `C` goes up to
-`D`. An example is `β(x) = min(b, (1 - x) / (2x - 1))`. It pays
-`min(C * b / (1 + b), D - C)`, and each lender loss is not more than today.
+`D`. An example is `β(x) = min(b, (1 - x) / (2x - 1))`. The formula is
+defined only for `x > 1/2`. It gives `b` for
+`1/2 < x <= (1 + b) / (1 + 2b)`, which is 0.9545 at `b = 5 %`. For
+`x <= 1/2`, use `b`. It pays `min(C * b / (1 + b), D - C)`, and each lender
+loss is not more than today.
 
 This bonus depends on `x`. An insolvent liquidation seizes `R * (1 + β)` for
-`R`, so it lowers `x`. The next part then gets a higher bonus. A real-valued
-model (not a harness run) gives these profits:
+`R`. Because `1 + β > x`, it lowers `x`. The next part then gets a higher
+bonus. This is true for each continuous bonus with `β(1) = 0` that is positive
+below `x = 1`, not only for this example. Such a bonus must rise as `x` falls
+on some range below 1, and a split pays more than one call on that range. A
+real-valued model (not a harness run) gives these profits for the example:
 
 | Start `x` | One call | 1000 equal parts | Today |
 |---:|---:|---:|---:|
@@ -106,9 +113,15 @@ model (not a harness run) gives these profits:
 
 Today the insolvent bonus is a constant of the collateral mix. The Certora
 rule `split_liq_chain_bound_holds_when_health_never_recovers` uses this fact.
-The rule would not hold for `β(x)`. To stop the split, the insolvent quote must
-be all or nothing. That change touches `curve.rs`, `math.rs`, the Certora
-specifications and the liquidator tools. It is not small.
+The rule would not hold for `β(x)`. Two changes stop the split:
+
+- Make the insolvent quote all or nothing.
+- Store the bonus for each account at its first insolvent liquidation, and use
+  it for the later parts. This adds account state, which must reset when the
+  account closes or becomes solvent again.
+
+Each change touches `curve.rs`, `math.rs`, the Certora specifications and the
+liquidator tools. Neither is small.
 
 The continuous payoff also removes the incentive near `C = D`. It gives a lower
 lender loss only when a liquidator acts at a profit below
@@ -133,8 +146,8 @@ debt. This option is not acceptable.
   $66.33 below `C = D`.
 - The highest profit comes before the band. The harness gives 16.30 % of `D`
   at `x = 1.163` for LT 8000 (a probe, not a pinned test). The real-valued
-  model agrees with it. The model gives 29.45 % at `x = 1.2945` for LT 7000,
-  and 48.25 % at `x = 1.4826` for LT 6000 with the default curve.
+  model agrees with it. The model gives 29.46 % at `x = 1.2946` for LT 7000,
+  and 48.26 % at `x = 1.4826` for LT 6000 with the default curve.
 - The gain from a wait is at most `D * b / (1 + b) - (x - 1) * D` for each
   account. It stays in one account, and the hub socializes it.
 - A NAV step that goes over the band makes the window not important. The
@@ -165,22 +178,53 @@ The curve bonus below `HF = 1` changes little, because the maximum bonus from
 LT controls the ramp. At LT 6000 the maximum is 6666 BPS. At `HF = 0.99` the
 curve gives about 2760 BPS with a 500 BPS base, and about 2570 BPS with a
 200 BPS base. A lower bonus also lowers the incentive to close an insolvent
-account. `update_account_threshold` with `has_risks` applies the lower bonus
-to an open position. That call needs a final health factor of at least 1.05,
-so apply the change before an account is near liquidation.
+account.
 
-### C. Continuous insolvent arm with an all-or-nothing quote
+An open position keeps its stored tuple of threshold, bonus and fees. These
+paths copy the listed tuple into the position. Each calls
+`refresh_supply_risk_params` with `FullTuple`:
 
-Use `β(x)` from above, and refuse a partial insolvent repayment. This makes
-the payoff continuous, but not monotone. It needs new Certora rules, new
-liquidator sizing, and a new estimate shape. A liquidator must fund the whole
-insolvent quote in one call. Do this only with a full design review.
+- A supply to that leg, through `merge_supply_leg`. The owner, a delegate, or
+  any caller that tops up the leg can do this. A deposit to the leg from
+  `multiply`, `swap_collateral`, `flash_position` or `migrate_from_blend`
+  uses the same path. A Credit-mode liquidation credit to the leg does not.
+- A withdrawal that is not a liquidation and leaves a balance on a listed leg,
+  through `merge_withdraw_leg`.
+- `update_account_threshold` with `has_risks`, for each listed leg.
+
+The refresh applies a tuple that favors the liquidator (a lower threshold, a
+higher bonus or a lower fee) to an account with debt only if the health factor
+with the new threshold is at least 1.05. Otherwise the stored tuple stays. A
+lower bonus alone does not favor the liquidator, so the refresh applies it at
+any health factor. `update_account_threshold` with `has_risks` also reverts
+if the final health factor is below 1.05. Thus it cannot apply the lower bonus
+to an account near liquidation, but a supply to the leg can. A position that
+no path touches keeps the old bonus.
+
+### C. Continuous insolvent arm with a split stop
+
+Use `β(x)` from above, and stop the split with one of the two changes above.
+This makes the payoff continuous, but not monotone. It needs new Certora
+rules, new liquidator sizing, and a new estimate shape. With the
+all-or-nothing quote, a liquidator must fund the whole insolvent quote in one
+call. With a bonus stored for each account, the reset rules need their own
+tests. Do this only with a full design review.
 
 The audit option (a), a protocol-owned closer with no margin, is an operations
 choice. This memo does not include it.
 
 ## When the decision changes the payoff
 
-The two pinning tests fail for any change to the payoff at `C / D = 1.005` or
-`0.995`. Update them, this memo and
+The two pinning tests check the payoff at a small set of points, with these
+tolerances:
+
+| Point | 7-decimal test | 0-decimal test |
+|---|---|---|
+| `C / D = 0.995` | account closed; profit equals `C - floor(C / 1.05)`; bad debt equals `D - floor(C / 1.05)` | account closed; every share seized; profit equals `C - floor(C / 1.05)` |
+| `C / D = 1.005` | full repayment; profit from 0.5 % of `D` less 1 BPS of `D`, up to `C - D`; no bad debt | full repayment; every share seized; profit within one USDC unit (1e-7 USD) of `C - D` |
+| `C / D = 1.05` | profit above the profit at 0.995 | not run |
+| Jump | above 4 % of `D` | above 4 % of `D` |
+
+A change at other points, or a change inside these tolerances, does not make
+the tests fail. Update the tests, this memo and
 [formulas.md](../reference/formulas.md#bonus-and-target-repayment) together.

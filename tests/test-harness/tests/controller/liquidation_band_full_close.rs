@@ -11,6 +11,22 @@ use test_harness::{
 };
 
 const SAC_INSUFFICIENT_BALANCE: u32 = 10;
+const ETH_UNIT: i128 = 10_000_000;
+const USDC_UNIT: i128 = 10_000_000;
+
+fn i128_field(data: &ScVal, name: &str) -> i128 {
+    let ScVal::Map(Some(map)) = data else {
+        panic!("event data is a map");
+    };
+    let entry = map
+        .iter()
+        .find(|e| matches!(&e.key, ScVal::Symbol(s) if s.0.to_string() == name))
+        .unwrap_or_else(|| panic!("no field `{name}`"));
+    let ScVal::I128(value) = &entry.val else {
+        panic!("`{name}` is i128");
+    };
+    i128::from(value)
+}
 
 fn band_book() -> LendingTest {
     let mut t = LendingTest::new().standard_two_asset().build();
@@ -132,31 +148,18 @@ fn a_band_over_offer_liquidation_event_reports_the_credited_debt_not_the_pull() 
     let events = t.env.events().all();
     let liquidations = data_for_topic(&events, "position", "liquidation");
     assert_eq!(liquidations.len(), 1);
-    let ScVal::Map(Some(map)) = &liquidations[0] else {
-        panic!("liquidation event data is a map");
-    };
-    let field = |name: &str| -> ScVal {
-        map.iter()
-            .find(|e| matches!(&e.key, ScVal::Symbol(s) if s.0.to_string() == name))
-            .unwrap_or_else(|| panic!("no field `{name}`"))
-            .val
-            .clone()
-    };
-    let (ScVal::I128(repaid), ScVal::I128(bonus)) = (field("repaid_usd_wad"), field("bonus_bps"))
-    else {
-        panic!("repaid_usd_wad and bonus_bps are i128");
-    };
+    let repaid = i128_field(&liquidations[0], "repaid_usd_wad");
+    let bonus = i128_field(&liquidations[0], "bonus_bps");
     assert_eq!(
         estimate.max_payment_wad,
         6_000 * WAD,
         "the 3 ETH debt is worth $6 000"
     );
     assert_eq!(
-        i128::from(&repaid),
-        estimate.max_payment_wad,
+        repaid, estimate.max_payment_wad,
         "the event reports the 3 ETH credited, not the 4 ETH pulled"
     );
-    assert_eq!(i128::from(&bonus), 333);
+    assert_eq!(bonus, 333);
 }
 
 #[test]
@@ -167,7 +170,7 @@ fn an_exact_cover_full_close_leaves_the_floored_collateral_unit_with_the_debt_fr
     let debt_tokens = t.borrow_balance_raw(ALICE, "ETH");
     t.set_price(
         "ETH",
-        t.total_collateral_raw(ALICE) * 10_000_000 / debt_tokens,
+        t.total_collateral_raw(ALICE) * ETH_UNIT / debt_tokens,
     );
     let (collateral, debt) = (t.total_collateral_raw(ALICE), t.total_debt_raw(ALICE));
     assert_eq!(collateral - debt, 1_000, "C sits a few WAD units above D");
@@ -215,11 +218,13 @@ struct CoverPayoff {
     collateral: i128,
     debt: i128,
     paid: i128,
+    socialized_debt: Option<i128>,
     account_exists: bool,
 }
 
 /// Closes 1 fee-free 7-decimal ETH leg against a $1,400 USDC debt at
-/// `C / D = ratio_ppm / 1e6`, with an offer of twice the debt.
+/// `C / D = ratio_ppm / 1e6`, with an offer of twice the debt. Amounts are in
+/// WAD USD; `socialized_debt` is the debt that the bad-debt event reports.
 fn payoff_at_cover_ratio(ratio_ppm: i128) -> CoverPayoff {
     let mut t = LendingTest::new()
         .with_market(usdc_preset())
@@ -252,14 +257,18 @@ fn payoff_at_cover_ratio(ratio_ppm: i128) -> CoverPayoff {
         &vec![&t.env, (hub_asset(t.resolve_asset("USDC")), offer)],
         &SeizeMode::Transfer,
     );
+    let socialized_debt = data_for_topic(&t.env.events().all(), "debt", "bad_debt")
+        .first()
+        .map(|data| i128_field(data, "total_borrow_usd_wad"));
 
     let paid = usdc_before - t.token_balance_raw(LIQUIDATOR, "USDC");
     let seized = t.token_balance_raw(LIQUIDATOR, "ETH") - eth_before;
     CoverPayoff {
-        profit: seized * eth_price / 10_000_000 - paid * (WAD / 10_000_000),
+        profit: seized * eth_price / ETH_UNIT - paid * (WAD / USDC_UNIT),
         collateral,
         debt,
-        paid: paid * (WAD / 10_000_000),
+        paid: paid * (WAD / USDC_UNIT),
+        socialized_debt,
         account_exists: t.ctrl_client().account_exists(&account_id),
     }
 }
@@ -278,6 +287,7 @@ fn the_liquidator_payoff_jumps_where_collateral_falls_below_debt() {
     );
 
     assert_eq!(above.paid, above.debt, "the band repays the whole debt");
+    assert_eq!(above.socialized_debt, None, "the band leaves no bad debt");
     assert!(
         above.profit >= above.debt / 200 - above.debt / 10_000
             && above.profit <= above.collateral - above.debt,
@@ -290,11 +300,21 @@ fn the_liquidator_payoff_jumps_where_collateral_falls_below_debt() {
         "the unbacked residue is socialized"
     );
     let backed = below.collateral * 20 / 21;
-    let paid_usdc = backed / (WAD / 10_000_000) * (WAD / 10_000_000);
+    let backed_usd_wad = backed / (WAD / USDC_UNIT) * (WAD / USDC_UNIT);
     assert_eq!(
         below.profit,
-        below.collateral - paid_usdc,
+        below.collateral - backed_usd_wad,
         "the insolvent arm pays C - floor(C / 1.05)"
+    );
+    assert_eq!(
+        below.socialized_debt,
+        Some(below.debt - backed_usd_wad),
+        "the hub socializes D - floor(C / 1.05)"
+    );
+    assert_eq!(
+        below.debt - backed_usd_wad,
+        73_3333334 * (WAD / USDC_UNIT),
+        "the lenders lose $73.33, 5.238% of D"
     );
 
     assert!(
