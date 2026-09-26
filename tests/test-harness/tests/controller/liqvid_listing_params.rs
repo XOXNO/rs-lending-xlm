@@ -454,7 +454,7 @@ fn lqv_params_max_ltv_account_turns_liquidatable_inside_the_band() {
     assert!((effective - bonus).abs() <= 2, "{effective} vs {bonus}");
     let post = p.hf(id);
     assert!(
-        post >= WAD * 1_055 / 1_000 && post <= WAD * 1_065 / 1_000,
+        (WAD * 1_055 / 1_000..=WAD * 1_065 / 1_000).contains(&post),
         "post HF {post}"
     );
 }
@@ -494,7 +494,7 @@ fn lqv_params_bonus_at_hf_099_095_090_stays_in_the_target_range() {
         );
         let post = p.hf(id);
         assert!(
-            post >= WAD * 1_055 / 1_000 && post <= WAD * 1_065 / 1_000,
+            (WAD * 1_055 / 1_000..=WAD * 1_065 / 1_000).contains(&post),
             "HF {hf_bps}: post HF {post}"
         );
     }
