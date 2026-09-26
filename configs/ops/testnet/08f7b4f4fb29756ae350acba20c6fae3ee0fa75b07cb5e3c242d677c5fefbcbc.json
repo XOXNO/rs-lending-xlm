@@ -1,0 +1,45 @@
+{
+  "kind": "price_aggregator",
+  "op_id": "08f7b4f4fb29756ae350acba20c6fae3ee0fa75b07cb5e3c242d677c5fefbcbc",
+  "network": "testnet",
+  "target": "CBMARXSYE56NPDLX42TTICM5GS5XQCYRD5VMCJME624TS6C2S53VETYU",
+  "function": "set_oracle",
+  "predecessor": "0000000000000000000000000000000000000000000000000000000000000000",
+  "salt": "d4e187be71fe76a0a375c753d8e73e9b2b98ebd63fbea5cdc0539a5fe53e8245",
+  "cli_executable": true,
+  "executed": true,
+  "resolve": {
+    "view_fn": "resolve_asset_oracle",
+    "args": {
+      "key": {
+        "Token": "CAH7FDDP6IDC76VTXNPN6MF5TWVZMM2N3PCU5C7TXRLTCKBSG6BGUGEA"
+      },
+      "oracle": {
+        "asset_decimals": 0,
+        "max_price_stale_seconds": 86400,
+        "sources": [
+          {
+            "Feed": {
+              "provider": {
+                "Xoxno": {
+                  "contract": "CDHPWYORLKTMN2XAG7Q7KMSBRNVEO3ZECDDKOAZ3EIZCLS42JOLX4JKL",
+                  "feed_id": "LIQVID1039",
+                  "nature": "Fundamental"
+                }
+              },
+              "decimals": 8,
+              "max_stale_seconds": 86400
+            }
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 10500,
+          "lower_ratio_bps": 9524
+        },
+        "independence": "RequireDisjoint",
+        "min_sanity_price_wad": "57009499999999991808",
+        "max_sanity_price_wad": "63010500000000000000"
+      }
+    }
+  }
+}
