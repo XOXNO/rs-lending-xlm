@@ -168,10 +168,18 @@ The factor 598 makes the bonus exactly 10 % at `K`:
 | 0.99 | 719 bps | 2761 bps |
 | 0.95 | 844 bps | 3583 bps |
 | 0.90 | 1000 bps | 4611 bps |
-| below 0.90 | 1000 bps | up to 6666 bps |
+| 0.8895 | 1000 bps | 4825 bps (peak) |
+| 0.85 | 1000 bps | 4166 bps (cap) |
+| 0.80 | 1000 bps | 3333 bps (cap) |
 
 The target range is 500 to 1000 bps. The bonus is 6.88 % when liquidation
 starts and 10 % at the band floor.
+
+The previous-listing column includes the HF-preserving cap (next
+paragraph). For one leg with LT 6000, the cap is `HF / 0.6 - 1`. It is lower than the default
+curve below HF 0.8895. Thus the effective bonus of the previous listing peaks
+at about 4,825 bps at HF 0.8895 and then falls with HF. It never reaches
+`M = 6666` bps.
 
 The HF-preserving cap keeps `1 + b <= C / D`. Inside the band, an account
 opened at the LTV limit has `C / D >= 0.849 / 0.5 = 1.698`. The cap is then
@@ -191,24 +199,39 @@ is:
 
 The borrower loses the bonus on the repaid amount: `loss = b × x`.
 
-| HF | Repaid, share of `D` | Loss, share of `C` | HF after |
+| HF | Repaid, share of `D` | Loss, share of `C` at that NAV | HF after |
 |---|---|---|---|
 | 0.99 | 14.2 % | 0.55 % | 1.06 |
 | 0.95 | 22.7 % | 1.07 % | 1.06 |
 | 0.90 | 33.5 % | 1.98 % | 1.06 |
 
-The largest loss inside one band comes from one jump from `R` to the floor.
-For 1,000 shares opened at $1 with $500 of debt, the liquidator repays
-$167.48 and receives 217 whole shares, worth $184.23 at the floor. The loss
-is $16.75, or 1.67 % of the collateral value at `R`. The model without whole
-shares gives 1.68 %. After that, HF is 1.06 at the floor. A lower price fails
-closed. Only interest can then start a second liquidation in the same band.
+The largest loss inside one band comes from one jump to the floor. For
+1,000 shares opened at $1 with $500 of debt, the liquidator repays $167.48
+and receives 217 whole shares, worth $184.23 at the floor. The loss is
+$16.75. After that, HF is 1.06 at the floor. A lower price fails closed. Only
+interest can then start a second liquidation in the same band.
+
+An account that borrowed at a higher accepted NAV has more debt, so the same
+jump costs it more. The table gives the loss of 1,000 shares at the LTV
+limit, with no interest. The loss is a share of the collateral value at `R`
+and, in brackets, of the value at the floor. The model column has no whole
+shares.
+
+| Borrowed at | HF at the floor | Shares seized | Loss | Model loss |
+|---|---|---|---|---|
+| `R` | 0.900 | 217 | $16.75, 1.67 % (1.97 %) | 1.68 % (1.98 %) |
+| `1.015 R` | 0.887 | 238 | $18.37, 1.84 % (2.16 %) | 1.84 % (2.17 %) |
+| `1.03 R` (ceiling) | 0.874 | 260 | $20.07, 2.01 % (2.36 %) | 2.01 % (2.37 %) |
 
 A path of 1 % NAV steps (0.99 R, 0.98 R, ..., 0.85 R, then the floor) costs
-less. It liquidates only at 0.94 R and at 0.88 R. The total loss is $8.76
-(0.88 %), and HF is 1.022 at the floor. The harness test
-`lqv_params_floor_jump_costs_more_than_one_percent_steps` pins these
-figures.
+less. For an account opened at `R`, it liquidates only at 0.94 R and at
+0.88 R. The total loss is $8.76 (0.88 % of the value at `R`), and HF is 1.022
+at the floor.
+
+The harness test `lqv_params_floor_jump_costs_more_than_one_percent_steps`
+pins the shares seized, each loss in dollars and the step path. It also
+checks that HF is between 1.055 and 1.065 after each jump, and between 1.020
+and 1.025 at the floor after the steps.
 
 Inside the band the loss is at most 10 % of the repaid debt, plus the
 whole-share rounding in section 8.
@@ -298,8 +321,21 @@ extra loss of the borrower is less than one share.
 At NAV $1, these accounts cannot borrow (limit 1 above). They never become
 liquidatable.
 
-At NAV $1,000, the whole-unit rules of `whole_unit_repayment` apply. An
-account with 1 share cannot borrow (limit 2). Accounts with `k` = 2 to 5
+At NAV $1,000, the whole-unit rules of `whole_unit_repayment` apply
+([formulas](../formulas.md#bonus-and-target-repayment)). `U` is the value of
+one share, `b` the bonus and `D` the debt. The controller applies the first
+rule that matches:
+
+1. **Full close.** One share at `U / (1 + b)` covers all of `D`, with one
+   base unit of each debt token to spare. The liquidator repays all debt and
+   gets one share.
+2. **One-share sale.** The curve quote seizes less than one share. The
+   repayment rises to one share at `U / (1 + b)`, plus a margin of one
+   millionth.
+3. **Curve quote.** If no other rule applies, the curve quote stays. The seizure takes whole
+   shares and refunds the fraction.
+
+An account with 1 share cannot borrow (limit 2). Accounts with `k` = 2 to 5
 shares that borrowed to the LTV limit at $1,000, with no interest, have
 `D = k × $500`. The table and the HF bounds below use these preconditions.
 More debt gives a lower "HF after".
@@ -313,7 +349,7 @@ More debt gives a lower "HF after".
 
 The curve quote seizes less than one share, so rule 2 raises the repayment to
 one share at `p / (1 + b)`. At the floor, 5 shares already quote 1.09 shares
-(rule 3), and the seizure keeps 1 whole share.
+(rule 3), and the seizure takes 1 whole share.
 
 Rule 1 (full close for one share) needs `k × LT × (1 + b) < 1`. At these
 parameters only `k = 1` meets it. A 1-share account with debt is only the rest
@@ -371,15 +407,33 @@ it is paused or while a flash loan is open.
 
 For this listing, LT moves from 6000 to 5300, and the bonus and the fee do
 not change. For an account with one collateral leg, the gate needs
-`HF(LT 6000) × 5300 / 6000 >= 1.05`, that is `HF(LT 6000) >= 1.1887`. An
-account that borrowed to the LTV limit at `R` has HF 1.06 with LT 5300 at
-`R`. It passes the gate only while the NAV is at least `1.05 / 1.06 = 0.9906 R`
-and no interest has accrued.
+`HF(LT 6000) × 5300 / 6000 >= 1.05`, that is `HF(LT 6000) >= 1.1887`.
 
-A position that keeps LT 6000 becomes liquidatable only below `0.8333 R`,
-which is below the band floor. Inside the band, only interest can make it
-liquidatable. At the floor, its HF is `1.2 × 0.849 = 1.0188`, so the debt must
-grow by more than 1.9 %.
+The figures below are for an account with one collateral leg that borrowed
+to the LTV limit at the NAV in the first column, with no interest. Interest
+moves each NAV up in proportion to the debt.
+
+| Borrowed at | Takes LT 5300 at a NAV of | Call reverts below | Liquidatable with LT 6000 below | HF with LT 6000 at the floor |
+|---|---|---|---|---|
+| `R` | `0.9906 R` or more | `0.875 R` | `0.8333 R` | 1.019 |
+| `1.015 R` | `1.0054 R` or more | `0.8881 R` | `0.8458 R` | 1.004 |
+| `1.03 R` (ceiling) | `1.0203 R` or more | `0.9013 R` | `0.8583 R` | 0.989 |
+
+An account that borrowed at `q` has HF `1.06 × p / q` with LT 5300 and
+`1.2 × p / q` with LT 6000. It takes LT 5300 when `1.06 × p / q >= 1.05`.
+Between that NAV and the revert NAV, the call keeps LT 6000 and does not
+fail. Below the revert NAV, `1.2 × p / q < 1.05`, and the call reverts with
+`HealthFactorTooLow`. The harness test
+`lqv_params_restamp_applies_lt_5300_only_above_the_gate` checks the `R` row
+at 0.991 R, 0.990 R, 0.876 R and 0.874 R.
+
+A position that borrowed at `R` and keeps LT 6000 becomes liquidatable only
+below `0.8333 R`, which is below the band floor. Inside the band, only
+interest can make it liquidatable. At the floor, its HF is
+`1.2 × 0.849 = 1.0188`, so the debt must grow by more than 1.9 %. A position
+that borrowed at `1.015 R` needs more than 0.37 % of debt growth. A position that
+borrowed at the ceiling `1.03 R` is liquidatable below `0.8583 R`, inside the
+band, with no interest.
 
 ## 11. Apply order
 
@@ -388,8 +442,11 @@ governance operations: propose, wait for the delay, then execute. You can
 propose them at the same time, but execute them in the order below.
 
 1. **Adapter staleness.** The owner of the Liqvid NAV adapter calls
-   `set_max_stale_seconds` with 93,600 (section 6). This call is immediate.
-   It changes nothing while the aggregator limit is 86,400 s.
+   `set_max_stale_seconds` with 93,600 (section 6). On testnet the owner is
+   the `deployer` key (read with `get_owner` on 2026-09-26), so this call is
+   immediate. If the owner is a governance contract, this step is a
+   timelocked governance operation too. It changes nothing while the
+   aggregator limit is 86,400 s.
 2. **Oracle.** `make testnet configureMarketOracle LIQVID1039` proposes the
    band `[0.849 R, 1.03 R]` and 93,600 s for the asset and the feed. Set `R` to
    the last posted NAV first (section 3).
@@ -400,8 +457,10 @@ propose them at the same time, but execute them in the order below.
    and the supply cap 970,873. Only new positions get LT 5300 at once.
 5. **Refresh.** While the NAV is near `R`, call
    `update_account_threshold(caller, true, [id])` for each account that holds
-   `LIQVID1039`. An account at the LTV limit passes the gate only at a NAV of
-   `0.9906 R` or more (section 10). Send one account for each call, or simulate the batch first.
+   `LIQVID1039`. An account that borrowed to the LTV limit at `R` passes the
+   gate only at a NAV of `0.9906 R` or more. An account that borrowed at a
+   higher NAV needs a higher NAV (section 10). Send one account for each
+   call, or simulate the batch first.
    Then read each position with `get_account_positions` and list the positions
    that still carry LT 6000. Ask these borrowers to repay debt or to add
    collateral, then call again.
@@ -423,7 +482,9 @@ The order has these reasons:
 
 The harness tests are in `tests/test-harness/tests/controller/liqvid_listing_params.rs`.
 They use the parameters above with one Xoxno NAV feed and the Asterizm gate.
-Each test lists the share with LT 5300, so all positions carry that LT.
+Each test lists the share with LT 5300, so all positions carry that LT. The
+restamp test is the exception: it lists LT 6000 first and then edits the
+listing to LT 5300.
 
     cargo test -p test-harness --test controller lqv_params_
 
@@ -436,15 +497,19 @@ Each test lists the share with LT 5300, so all positions carry that LT.
 | `lqv_params_nav_prices_until_the_26_hour_staleness_budget` | A NAV signed 93,600 s ago prices. At 93,601 s liquidation and borrow fail closed. The mock adapter has no limit of its own (section 6). |
 | `lqv_params_one_dollar_accounts_below_ten_shares_cannot_borrow` | 1 to 9 shares cannot borrow at $1. The 10-share account closes in full with a whole-share round-up. |
 | `lqv_params_two_to_five_thousand_dollar_shares_sell_one_share_inside_the_band` | At $1,000, 1 share cannot borrow. 2 to 5 shares sell exactly 1 share at `p / (1 + b)` and end above HF 1. |
-| `lqv_params_floor_jump_costs_more_than_one_percent_steps` | One jump to the floor seizes 217 of 1,000 shares for a loss of $16.75. 1 % NAV steps liquidate at 0.94 R and 0.88 R only, for a loss of $8.76. |
+| `lqv_params_floor_jump_costs_more_than_one_percent_steps` | One jump to the floor seizes 217, 238 and 260 of 1,000 shares, for a loss of $16.75, $18.37 and $20.07, from accounts that borrowed at `R`, `1.015 R` and `1.03 R`. HF is 1.055 to 1.065 after each jump. 1 % NAV steps liquidate at 0.94 R and 0.88 R only, for a loss of $8.76, and HF is 1.020 to 1.025 at the floor. |
+| `lqv_params_restamp_applies_lt_5300_only_above_the_gate` | After the edit from LT 6000 to LT 5300, `update_account_threshold(caller, true, [id])` applies LT 5300 at `R` and 0.991 R. It keeps LT 6000 without a revert at 0.990 R and 0.876 R. It reverts with `HealthFactorTooLow` at 0.874 R and keeps LT 6000. |
 
 If you change one constant in that file, these tests fail:
 
-| Change | Failed tests (of 8) |
+| Change | Failed tests (of 9) |
 |---|---|
 | `LT` 5300 to 6000 | 7 |
 | `BONUS_FACTOR` 598 to 10000 | 6 |
-| `BAND_FLOOR_PER_MILLE` 849 to 950 | 8 |
+| `BAND_FLOOR_PER_MILLE` 849 to 950 | 9 |
+
+The restamp test does not fail when `LT` is 6000, because `LT` is then equal
+to `PREVIOUS_LT` and the edit changes nothing.
 
 The table in section 5 and the "HF after" values in section 9 come from an
 integer model of `estimate_liquidation_amount`, without whole shares. For
@@ -454,10 +519,13 @@ those cases the harness checks the bonus, the trigger, the seizure and
 ## 13. Open items
 
 - One signer posts the NAV (H-10, H-29). Inside the band, a bad signer can
-  post the floor. Each account at the LTV limit then loses up to 1.68 % of
-  its collateral value (section 5). A bad signer can also post the ceiling.
-  Borrowers can then borrow 3 % more, but no account opens below HF 1 at the
-  true NAV.
+  post the floor. An account that borrowed to the LTV limit at `R` then
+  loses about 1.68 % of its collateral value at `R` (section 5). An account
+  that borrowed at `1.015 R` loses 1.84 %, and one that borrowed at the
+  ceiling `1.03 R` loses 2.01 %, on the same basis. A bad signer can also
+  post the ceiling. Borrowers can then borrow 3 % more, but no account opens
+  below HF 1 at the true NAV. If the signer then posts the floor, these
+  accounts lose 2.01 %.
 - A NAV fall larger than 15.1 % fails closed until a new band is live. On
   mainnet this can take the full timelock delay. Accounts can become
   insolvent in that time.
@@ -466,6 +534,7 @@ those cases the harness checks the bonus, the trigger, the seizure and
   `networks.json` adapter and `oracle_feeds.json` are for a different
   contract (G-17).
 - Positions opened before the listing edit keep LT 6000 until a refresh
-  passes the gate (section 10).
+  passes the gate (section 10). A position that keeps LT 6000 and borrowed at
+  the ceiling becomes liquidatable inside the band, below `0.8583 R`.
 - This runbook changes `configs/testnet` only. Section 11 gives the steps to
   apply it.
