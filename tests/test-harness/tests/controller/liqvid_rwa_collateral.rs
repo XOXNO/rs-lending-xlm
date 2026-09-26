@@ -1014,7 +1014,7 @@ fn lqv_a_share_leg_stays_its_accounts_only_supply_position() {
     assert_eq!(supplies.len(), 1);
 }
 
-/// The testnet listing ($1 shares, LT 60%): a NAV markdown path liquidates in
+/// The testnet listing ($1 shares, LT 53%): a NAV markdown path liquidates in
 /// whole shares, and a gap into insolvency seizes every remaining share.
 #[test]
 fn lqv_listed_one_dollar_shares_markdown_and_insolvency() {

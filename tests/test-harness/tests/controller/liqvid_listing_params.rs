@@ -663,3 +663,43 @@ fn lqv_params_two_to_five_thousand_dollar_shares_sell_one_share_inside_the_band(
         }
     }
 }
+
+/// Borrower loss in USD cents, rounded half up: seized share value at `nav_wad`
+/// minus the USDC paid.
+fn loss_cents(shares: i128, nav_wad: i128, paid_raw: i128) -> i128 {
+    let loss_raw = shares * nav_wad / (WAD / USDC_UNIT) - paid_raw;
+    (loss_raw + USDC_UNIT / 200) / (USDC_UNIT / 100)
+}
+
+/// 1,000 shares opened at $1 with $500 of debt. One jump to the band floor
+/// costs the borrower $16.75. A path of 1% NAV steps liquidates at 0.94 and
+/// 0.88 only, costs $8.76 in total, and leaves HF above 1 at the floor.
+#[test]
+fn lqv_params_floor_jump_costs_more_than_one_percent_steps() {
+    let mut p = setup(100);
+    let id = p.open_at_max_ltv("jump", 1_000, p.nav_ref);
+    let floor = p.nav_ref * BAND_FLOOR_PER_MILLE / 1_000;
+    p.post_nav(floor);
+    let (shares, paid) = p.try_liquidate("liquidator", id).unwrap();
+    assert_eq!(shares, 217);
+    assert_eq!(loss_cents(shares, floor, paid), 1_675);
+    assert!(p.hf(id) > WAD);
+
+    p.post_nav(p.nav_ref);
+    let id = p.open_at_max_ltv("steps", 1_000, p.nav_ref);
+    let mut liquidated_at = Vec::new();
+    let mut total_cents = 0;
+    for per_mille in (850..=990).rev().step_by(10).chain([BAND_FLOOR_PER_MILLE]) {
+        let nav = p.nav_ref * per_mille / 1_000;
+        p.post_nav(nav);
+        if !p.liquidatable(id) {
+            continue;
+        }
+        let (shares, paid) = p.try_liquidate("liquidator", id).unwrap();
+        liquidated_at.push(per_mille);
+        total_cents += loss_cents(shares, nav, paid);
+    }
+    assert_eq!(liquidated_at, [940, 880]);
+    assert_eq!(total_cents, 876);
+    assert!(p.hf(id) > WAD, "HF at the floor after the steps");
+}
