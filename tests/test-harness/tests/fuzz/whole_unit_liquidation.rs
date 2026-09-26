@@ -10,7 +10,7 @@
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::string::{String, ToString};
-use std::{format, println};
+use std::{format, panic, println, thread};
 
 use crate::config::config;
 use common::math::fp::{Bps, Ray, Wad};
@@ -36,7 +36,6 @@ const LIQ: &str = "WUL";
 const BORROWER: &str = "borrower";
 const LIQUIDATOR: &str = "liquidator";
 const MAX_RESIDUE_STEPS: u32 = 3;
-const WEI_TOLERANCE: i128 = 16;
 const COVERAGE_TOLERANCE: i128 = 1_000_000_000_000;
 const HEALTHY_AT_EDGE: &str = "skipped: HF >= 1 at the unit edge";
 
@@ -174,9 +173,9 @@ struct World {
     liq_key: HubAssetKey,
     decimals: u32,
     liq_price: i128,
-    legs: std::vec::Vec<Leg>,
+    legs: Vec<Leg>,
     account: u64,
-    receivers: std::vec::Vec<u64>,
+    receivers: Vec<u64>,
     curve: Curve,
     listed_bonus: i128,
     lt: i128,
@@ -421,7 +420,7 @@ fn open_world(case: &Case) -> Result<Result<World, &'static str>, TestCaseError>
         liq_price: token_price,
         legs,
         account,
-        receivers: std::vec::Vec::new(),
+        receivers: Vec::new(),
         curve: Curve {
             target: i128::from(case.target_hf_bps) * WAD / BPS,
             knee: i128::from(case.knee_bps) * WAD / BPS,
@@ -709,10 +708,12 @@ fn refunded(estimate: &LiquidationEstimate, asset: &Address) -> i128 {
 }
 
 /// Runs one liquidation, checks P1-P8 and returns whether the account is
-/// still liquidatable with debt left. P2 and P3 allow one base unit per repaid
-/// leg only when an insolvent call pays within that of the collateral-backed
-/// quote and takes every unit; every other plan that leaves debt meets them
-/// within `WEI_TOLERANCE` raw WAD.
+/// still liquidatable with debt left. P2 and P3 allow `tol`, which is
+/// `price / 2e18 + (1 + b) + 1` raw WAD. P2 allows one more unit on a full close,
+/// and `(1 + b) * R`, with `R` one base unit per repaid leg, when an insolvent
+/// call pays within `R` of the collateral-backed quote and receives every unit.
+/// P3 bounds a partial plan from the other side: the liquidator pays at most
+/// `2 * (1 + b) * R + tol` more than the units it receives are worth.
 fn liquidate_step(
     w: &mut World,
     offer_bps: i128,
@@ -739,7 +740,7 @@ fn liquidate_step(
     let unit = w.unit_usd();
     let bonus_m = mirror_bonus(&env, totals, w.listed_bonus, &w.curve);
     let legs = w.legs.clone();
-    let debts: std::vec::Vec<i128> = legs.iter().map(|leg| w.debt_ceil(leg)).collect();
+    let debts: Vec<i128> = legs.iter().map(|leg| w.debt_ceil(leg)).collect();
     let per_leg_unit = legs
         .iter()
         .zip(&debts)
@@ -756,7 +757,7 @@ fn liquidate_step(
     }
 
     let offer_every_leg = all_legs || debts[0] == 0;
-    let mut offers = std::vec::Vec::new();
+    let mut offers = Vec::new();
     let mut payments = vec![&env];
     for (i, leg) in legs.iter().enumerate() {
         let offer = if debts[i] == 0 || (i > 0 && !offer_every_leg) {
@@ -814,7 +815,7 @@ fn liquidate_step(
         }
     }
     let balance = |asset: &Address| token::Client::new(&env, asset).balance(&liquidator);
-    let paid_before: std::vec::Vec<i128> = legs.iter().map(|l| balance(&l.key.asset)).collect();
+    let paid_before: Vec<i128> = legs.iter().map(|l| balance(&l.key.asset)).collect();
     let liq_before = balance(&w.liq_key.asset);
 
     if debt_sized && solvent && units_before >= 1 {
@@ -829,38 +830,28 @@ fn liquidate_step(
         Ok(Err(e)) => return Err(TestCaseError::fail(format!("receiver decode: {e:?}"))),
         Err(err) => {
             let revert = revert_of(err);
-            match estimate {
-                Err(e) => prop_assert_eq!(
-                    revert_of(e),
-                    revert.clone(),
-                    "P7: estimate and execution revert alike; {}",
-                    ctx
-                ),
-                Ok(Ok(e)) if revert == Revert::Code(errors::INVALID_PAYMENTS) => {
-                    prop_assert!(
-                        e.seized_collaterals.is_empty() && e.max_payment_wad == 0,
-                        "P7: an empty plan shows a zero estimate; {}",
-                        ctx
-                    );
-                    for (i, leg) in legs.iter().enumerate() {
-                        prop_assert_eq!(
-                            refunded(&e, &leg.key.asset),
-                            offers[i],
-                            "P7: an empty plan refunds every offer; {}",
-                            &ctx
-                        );
-                    }
-                }
-                Ok(_) => {
+            let e = match estimate {
+                Ok(Ok(e)) if revert == Revert::Code(errors::INVALID_PAYMENTS) => e,
+                other => {
                     return Err(TestCaseError::fail(format!(
-                        "P7: estimate settled but execution reverted {revert:?}; {ctx}"
+                        "P7: execution reverted {revert:?} and the estimate gave {:?}; only \
+                         InvalidPayments with a settled estimate is expected; {ctx}",
+                        other.map(|decoded| decoded.is_ok()).map_err(revert_of)
                     )))
                 }
-            }
-            if revert != Revert::Code(errors::INVALID_PAYMENTS) {
-                return Err(TestCaseError::fail(format!(
-                    "unexpected revert {revert:?}; {ctx}"
-                )));
+            };
+            prop_assert!(
+                e.seized_collaterals.is_empty() && e.max_payment_wad == 0,
+                "P7: an empty plan shows a zero estimate; {}",
+                ctx
+            );
+            for (i, leg) in legs.iter().enumerate() {
+                prop_assert_eq!(
+                    refunded(&e, &leg.key.asset),
+                    offers[i],
+                    "P7: an empty plan refunds every offer; {}",
+                    &ctx
+                );
             }
             if debt_sized && units_before >= 1 {
                 prop_assert!(
@@ -906,7 +897,7 @@ fn liquidate_step(
     };
     let exists = w.exists(id);
     let scaled_after = if exists { w.liq_scaled(id) } else { 0 };
-    let paid: std::vec::Vec<i128> = legs
+    let paid: Vec<i128> = legs
         .iter()
         .enumerate()
         .map(|(i, l)| paid_before[i] - balance(&l.key.asset))
@@ -931,6 +922,11 @@ fn liquidate_step(
         prop_assert!(received_scaled <= scaled_before);
     }
     prop_assert!(received_units >= 1, "a settled call seizes; {}", ctx);
+    prop_assert!(
+        paid.iter().any(|p| *p > 0),
+        "a settled call repays; {}",
+        ctx
+    );
 
     let seized_estimate = estimate
         .seized_collaterals
@@ -981,8 +977,11 @@ fn liquidate_step(
                 .raw()
         })
         .sum::<i128>();
+    let repaid_unit = paid_legs()
+        .map(|(l, _)| per_unit(l.price, l.decimals))
+        .fold(rat(0), |a, b| a + b);
     let seize_all = !solvent && paid_usd_wad > 0 && paid_usd_wad + paid_unit_wad >= quote;
-    let tol = rat(WEI_TOLERANCE);
+    let tol = per_unit(w.liq_price, 18) / rat(2) + &one_plus_b / rat(BPS) + rat(1);
     let full_close = debts.iter().zip(&paid).all(|(debt, p)| p >= debt);
     let at_bonus = &paid_value * &one_plus_b / rat(BPS);
     let excess = &received - &at_bonus;
@@ -1022,14 +1021,12 @@ fn liquidate_step(
     } else {
         let slack = if seize_all {
             prop_assert_eq!(
-                units_after,
-                0,
-                "an insolvent call within one unit per leg of the quote takes every unit; {}",
+                received_scaled,
+                scaled_before,
+                "an insolvent call within one unit per leg of the quote receives every unit; {}",
                 &ctx
             );
-            paid_legs()
-                .map(|(l, _)| per_unit(l.price, l.decimals))
-                .fold(rat(0), |a, b| a + b)
+            repaid_unit.clone()
         } else {
             rat(0)
         };
@@ -1042,32 +1039,33 @@ fn liquidate_step(
             at_bonus,
             ctx
         );
-        let undercharge = &received * rat(BPS) / &one_plus_b - &paid_value;
-        prop_assert!(
-            undercharge <= &slack + &tol,
-            "P3: {} paid {} for {} at bonus; {}",
-            path,
-            paid_value,
-            received,
-            ctx
-        );
         bump(stats, &format!("path: {path}"));
         record_max(
             stats,
             &format!("P2 {path}: excess over paid * (1 + b), WAD"),
             &excess,
         );
-        record_max(stats, &format!("P3 {path}: undercharge, WAD"), &undercharge);
         if seize_all {
             record_max(
                 stats,
                 "P2 seize_all: excess / ((1 + b) * R)",
                 &(&excess * rat(BPS) / (&slack * &one_plus_b)),
             );
+        } else {
+            let overcharge = &at_bonus - &received;
+            let at_bonus_unit = &repaid_unit * &one_plus_b / rat(BPS);
+            prop_assert!(
+                overcharge <= rat(2) * &at_bonus_unit + &tol,
+                "P3: partial paid {} at bonus for {} received; {}",
+                at_bonus,
+                received,
+                ctx
+            );
+            record_max(stats, "P3 partial: overcharge, WAD", &overcharge);
             record_max(
                 stats,
-                "P3 seize_all: undercharge / R",
-                &(&undercharge / &slack),
+                "P3 partial: overcharge / ((1 + b) * R)",
+                &(&overcharge / &at_bonus_unit),
             );
         }
     }
@@ -1103,6 +1101,11 @@ fn liquidate_step(
             if after < before {
                 bump(stats, "P4: C/D fell inside the 1e-12 tolerance");
             }
+            record_max(
+                stats,
+                "P4: relative C/D drop",
+                &BigRational::new(&before - &after, before),
+            );
         }
     }
 
@@ -1191,12 +1194,12 @@ fn run_case(case: &Case, stats: &Stats) -> Result<(), TestCaseError> {
 
 /// Runs `f` on an unnamed thread, so the host writes no per-`Env` test snapshot.
 fn unnamed_thread<F: FnOnce() + Send + 'static>(f: F) {
-    std::thread::Builder::new()
+    thread::Builder::new()
         .stack_size(64 * 1024 * 1024)
         .spawn(f)
         .expect("spawn")
         .join()
-        .unwrap_or_else(|e| std::panic::resume_unwind(e));
+        .unwrap_or_else(|e| panic::resume_unwind(e));
 }
 
 #[test]
