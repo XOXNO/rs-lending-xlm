@@ -191,26 +191,42 @@ one surviving leg is not a fallback. A single-source key has no top-level
 agreement check, although its transitive source may have multiple dependencies.
 Sanity bands constrain accepted prices but cannot establish economic correctness.
 
-A single-source feed can report any price `p` in its band `[min, max]`. The
-true NAV `P` is also in the band, so `P / p <= u = max / min`. The 10%
-single-source cap gives `u <= 11/9`. Bad debt occurs only when the reported
-collateral is less than the debt. At true NAV, that is `C / D < P / p <= u`.
-The price deviation is not the threshold; the band ratio `u` is. A healthy
-account has `C / D >= 1 / LT`. A borrow at an in-band price keeps
-`C / D >= 1 / (u * LTV)`. A liquidation does not decrease the units held for
-each unit of debt. Thus lenders cannot lose while `LT < 1 / u`. The Liqvid hub
-(LT 60% or 53%, `u` at most 1.22) has a large margin.
+A single-source feed can report any price `p` in its band `[min, max]`. Two
+reports `p1` and `p2` in the same band have `p1 / p2 <= u = max / min`. The
+10% single-source cap gives `u <= 11/9`, which is about 1.222. The true NAV
+`P` is also in the band, so `P / p <= u`.
+
+Lender safety depends only on the reported collateral prices. Bad debt occurs
+only when the reported collateral is less than the debt. Take one collateral
+leg with `n` units and a debt `D`. A borrow at the reported price `p1` gives
+`D <= LTV * n * p1`. Bad debt at a later reported price `p2` needs
+`n * p2 < D`. Both conditions need `p1 / p2 > 1 / LTV >= 1 / LT`. When
+`LT < 1 / u`, `1 / LT > u`, and the band does not allow this ratio. An account
+that is healthy at a report `p1` has `D <= LT * n * p1`, so the same result
+applies from that report. A liquidation does not decrease the units held for
+each unit of debt, so the result also applies after a liquidation. Thus
+lenders cannot lose while `LT < 1 / u`. The band ratio `u` is the threshold,
+not the price deviation. The Liqvid hub has LT 60% or 53% and `u` at most
+11/9, so it has a large margin.
+
+This result has limits. It applies to one collateral leg. It prices the debt
+at its true value. If the debt feed can also move in its own band, the
+effective `u` is the product of the two band ratios. It does not include
+interest that accrues after the borrow. When governance moves the band, the
+result applies again only from a report in the new band at which the account
+is healthy.
 
 The borrower has less protection. The bonus `b` is the curve bonus at the
 reported HF, capped at `HF / LT - 1`. It is not the base bonus. On the default
 curve (target HF 1.10, maximum bonus at HF 0.80) with LT 60%, a reported HF of
-0.98 gives `b` of about 29%, not 5%. The curve 1.06/0.90/598 with LT 53% keeps
-`b` at or below 10%. One liquidation that pays `R` at price `p` costs the
-borrower at most `min(E, R * ((1 + b) * P / p - 1))` at true NAV. `E` is the
-equity at true NAV. A full close on a whole-unit leg can add one unit at true
-NAV. When `b` reaches the cap, one liquidation takes all of `E`. With LT 60%
-and `u = 11/9`, this occurs for an account at true HF 1.01 when `P` is the
-band top and `p` is the band floor. The
+0.98 gives `b` of about 30%, not 5%. The curve 1.06/0.90/598 with LT 53% keeps
+`b` at or below 10%. One liquidation at the reported price `p` that pays `R`
+retires exactly `R` of debt. At true NAV, it costs the borrower at most
+`min(E, R * ((1 + b) * P / p - 1))`. `E` is the equity at true NAV. A full
+close on a whole-unit leg can add one unit at true NAV. When `b` reaches the
+cap, one liquidation takes all of `E`. With LT 60% and `u = 11/9`, this occurs
+for an account at true HF 1.01 when `P` is the band top and `p` is the band
+floor. The
 [oracle-deviation bound tests](../../tests/test-harness/tests/controller/liqvid_oracle_deviation_bounds.rs)
 pin these bounds.
 
