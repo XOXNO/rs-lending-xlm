@@ -52,6 +52,11 @@ The account becomes liquidatable when `HF(p) < 1`:
 The harness shows the edge. At `p = 0.944 R` the account is not
 liquidatable. At `p = 0.943 R` it is.
 
+Interest also lowers HF. With a flat NAV and a borrow rate of 5 % a year, an
+account at the LTV limit reaches HF 1 after about 14 months
+(`ln(1.06) / 0.05`). A liquidation caused by interest always has a price
+inside the band.
+
 The previous listing needed `p / R < 5000 / 6000 = 0.8333`, a drop of
 16.67 %. That is outside the ±5 % band and outside the widest band that one
 source can have (10 %). The oracle refused the price that had to start the
