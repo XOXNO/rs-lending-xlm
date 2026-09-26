@@ -207,7 +207,7 @@ deploy-artifacts: optimize
 
 
 release-artifacts:
-	@if [ -z "$(RELEASE_TAG)" ]; then echo "Set RELEASE_TAG, e.g. RELEASE_TAG=v1.1.0"; exit 1; fi
+	@if [ -z "$(RELEASE_TAG)" ]; then echo "Set RELEASE_TAG, e.g. RELEASE_TAG=v1.0.1"; exit 1; fi
 	@rm -rf $(DEPLOY_DIR) && mkdir -p $(DEPLOY_DIR)
 	@gh release download "$(RELEASE_TAG)" -R $(RELEASE_REPO) -D $(DEPLOY_DIR) \
 		$(foreach c,$(RELEASE_CONTRACTS),-p '$(c).wasm')
@@ -2201,7 +2201,7 @@ help-deploy:
 	$(call BLANK)
 	$(call H2,Upgrades (timelocked))
 	$(call NOTE,make <n> upgradeController | upgradeGovernance | upgradePool | upgradePriceAggregator | upgradeAll)
-	$(call NOTE,RELEASE_TAG=v1.1.0 make mainnet upgradeAll    (attested release WASM, not a local build))
+	$(call NOTE,RELEASE_TAG=v1.0.1 make mainnet upgradeAll    (attested release WASM, not a local build))
 	$(call BLANK)
 	$(call H2,Mainnet env (optional))
 	$(call NOTE,AGGREGATOR_CONTRACT=C... ACCUMULATOR_CONTRACT=G... make mainnet setup)

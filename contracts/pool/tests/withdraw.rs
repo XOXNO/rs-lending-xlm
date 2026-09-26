@@ -6,13 +6,14 @@ use crate::storage;
 use crate::test_support::{hub, init_ledger};
 use crate::{LiquidityPool, LiquidityPoolClient};
 use common::constants::RAY;
+use common::errors::CollateralError;
 use common::math::fp::Ray;
 use common::types::{
     MarketParamsRaw, PoolAction, PoolBorrowEntry, PoolStateRaw, PoolSupplyEntry, PoolWithdrawEntry,
     ScaledPositionRaw,
 };
-use soroban_sdk::testutils::Address as _;
-use soroban_sdk::{token, vec, xdr, Address, Env, TryIntoVal};
+use soroban_sdk::testutils::{Address as _, Events as _};
+use soroban_sdk::{token, vec, xdr, Address, Env, Error, TryIntoVal};
 
 struct TestSetup {
     env: Env,
@@ -414,5 +415,108 @@ fn zero_value_full_close_succeeds_without_recipient_trustline() {
         let state = t.as_contract(|| storage::read_state(&t.env, &hub(&t.params.asset_id)));
         assert_eq!(state.supplied, 0);
         assert_eq!(state.cash, 0);
+    }
+}
+
+fn write_market_state(t: &TestSetup, supplied: i128, borrowed: i128, cash: i128) {
+    t.as_contract(|| {
+        storage::write_state(
+            &t.env,
+            &hub(&t.params.asset_id),
+            &PoolStateRaw {
+                supplied,
+                borrowed,
+                revenue: 0,
+                borrow_index: RAY,
+                supply_index: RAY,
+                last_timestamp: 1_000,
+                cash,
+            },
+        )
+    });
+}
+
+fn withdraw_entry(t: &TestSetup, scaled_amount: i128, amount: i128) -> PoolWithdrawEntry {
+    PoolWithdrawEntry {
+        action: PoolAction {
+            hub_asset: hub(&t.params.asset_id),
+            amount,
+            position: ScaledPositionRaw { scaled_amount },
+        },
+        protocol_fee: 0,
+    }
+}
+
+fn transfers_to(env: &Env, recipient: &Address) -> usize {
+    let to = xdr::ScVal::Address(xdr::ScAddress::from(recipient));
+    env.events()
+        .all()
+        .events()
+        .iter()
+        .filter(|event| {
+            let xdr::ContractEventBody::V0(body) = &event.body;
+            let is_transfer = matches!(
+                body.topics.first(),
+                Some(xdr::ScVal::Symbol(name)) if name.0.to_utf8_string().as_deref() == Ok("transfer")
+            );
+            is_transfer && body.topics.get(2) == Some(&to)
+        })
+        .count()
+}
+
+#[test]
+fn zero_value_close_touches_recipient_only_for_a_live_leg_or_an_explicit_full_close() {
+    let dust = RAY / 10_000_000 - 1;
+    for (scaled, amount, touches) in [
+        (dust, 1, 1),
+        (dust, i128::MAX, 1),
+        (0, i128::MAX, 1),
+        (0, 0, 0),
+        (0, 5, 0),
+    ] {
+        let t = TestSetup::new();
+        write_market_state(&t, scaled, 0, 0);
+        let recipient = Address::generate(&t.env);
+        let mutation = LiquidityPoolClient::new(&t.env, &t.contract)
+            .withdraw(
+                &recipient,
+                &false,
+                &vec![&t.env, withdraw_entry(&t, scaled, amount)],
+            )
+            .get(0)
+            .unwrap();
+        assert_eq!(mutation.actual_amount, 0);
+        assert_eq!(mutation.position.scaled_amount, 0);
+        assert_eq!(
+            transfers_to(&t.env, &recipient),
+            touches,
+            "scaled {scaled}, amount {amount}"
+        );
+    }
+}
+
+#[test]
+fn full_close_keeps_the_utilization_gate_and_an_empty_close_skips_it() {
+    for (scaled, expected) in [
+        (
+            10 * RAY,
+            Some(Error::from_contract_error(
+                CollateralError::UtilizationAboveMax as u32,
+            )),
+        ),
+        (0, None),
+    ] {
+        let t = TestSetup::new();
+        write_market_state(&t, 1_000 * RAY, 960 * RAY, 400_000_000);
+        let result = LiquidityPoolClient::new(&t.env, &t.contract).try_withdraw(
+            &Address::generate(&t.env),
+            &false,
+            &vec![&t.env, withdraw_entry(&t, scaled, i128::MAX)],
+        );
+        assert_eq!(
+            result.err().map(|err| err.expect("contract error")),
+            expected,
+            "scaled {scaled}"
+        );
     }
 }
