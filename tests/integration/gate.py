@@ -11,7 +11,7 @@ from pathlib import Path
 if not __debug__:
     raise RuntimeError('release verification requires Python assertions; unset PYTHONOPTIMIZE')
 from resources import check as check_resources
-from receipts import verify as verify_receipt
+from receipts import footprint_drift, verify as verify_receipt
 from artifacts import CONTRACTS, digest
 
 ACTION_FIELDS = 'seq phase label status fn hash instructions read_bytes write_bytes resource_fee note'.split()
@@ -159,6 +159,15 @@ def validate(run, expected_lane=None):
                 if resources != decoded_resources:
                     raise ValueError(f'action {i}: resource sidecar differs from committed envelope')
                 check_resources(json.loads((run / 'network-limits.json').read_text()), resources, result)
+    for i, a in enumerate(actions, 1):
+        if a['status'] != 'retry' or a['execution'] != 'rejected_transaction':
+            continue
+        follow = next((b for b in actions[i:] if b['label'] == a['label']), None)
+        if follow is None or (follow['status'], follow['execution'], follow['contract'], follow['fn']) != ('ok', 'transaction', a['contract'], a['fn']):
+            raise ValueError(f'action {i}: footprint retry lacks a successful same-call transaction')
+        receipt = lambda h: json.loads((run / 'logs' / f'{h}.receipt.json').read_text())
+        footprint_drift(receipt(a['hash']), a['hash'], metadata['network_passphrase'], a['contract'], a['fn'],
+                        receipt(follow['hash']), follow['hash'])
     cases = rows(run / 'cases.tsv', ['id', 'status', 'first_action', 'last_action'])
     seen = set()
     previous_end = 0

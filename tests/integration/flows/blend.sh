@@ -135,7 +135,7 @@ import json,sys
 from pathlib import Path
 sys.path.insert(0,sys.argv[1])
 from receipts import decode
-before_file,after_file,receipt_file,reserves_file,coll_json,supply_json,debt_json,requested,returned,hub,asset,blend,pool,caller=sys.argv[2:]
+before_file,after_file,receipt_file,reserves_file,coll_json,supply_json,debt_json,requested,returned,hub,asset,blend,pool,caller,*retried=sys.argv[2:]
 b=json.loads(Path(before_file).read_text()); a=json.loads(Path(after_file).read_text())
 receipt=json.loads(Path(receipt_file).read_text())['result']
 meta=decode('TransactionMeta',receipt['resultMetaXdr'])
@@ -207,7 +207,8 @@ for side in range(2):
 for name in ('controller_usdc','caller_usdc','controller_xlm','owner_usdc','pool_usdc'):
     assert a[name]==b[name], f'unrelated/residual balance changed: {name}'
 assert int(a['pool_xlm'])-int(b['pool_xlm'])==credits.get(asset,0)-paid.get(asset,0), 'hub XLM backing differs from Blend receipts/debt repayment'
-assert int(a['caller_xlm'])-int(b['caller_xlm'])==-int(result['fee_charged']), 'migration took or refunded unexpected caller XLM'
+retry_fees=sum(int(decode('TransactionResult',json.loads(Path(p).read_text())['result']['resultXdr'])['fee_charged']) for p in retried)
+assert int(a['caller_xlm'])-int(b['caller_xlm'])==-int(result['fee_charged'])-retry_fees, 'migration took or refunded unexpected caller XLM'
 assert a.get('extra_balances',{}).keys()==b.get('extra_balances',{}).keys()
 assert tokens-{asset}<=b.get('extra_balances',{}).keys(), 'missing token balance snapshots'
 for token,old in b.get('extra_balances',{}).items():
@@ -236,6 +237,8 @@ blend_migrate_checked() {
     local label="$1" wallet="$2" addr="$3" account_id="$4"
     local coll_json="$5" supply_json="$6" debt_json="$7"
     local before="$LOG_DIR/$label.before.json" after="$LOG_DIR/$label.after.json" owner="$addr" other="$ADMIN_ACCT" acct hash
+    local failed
+    local -a retried=()
     if [ "$account_id" != 0 ]; then
         owner=$(view "${label}_owner_before" "$POSITION_NFT" -- owner_of --token_id "$account_id" | tr -d '"') || return 1
     fi
@@ -251,12 +254,15 @@ blend_migrate_checked() {
     if [ "$submit" = inv ]; then
         hash=$(extract_signing_hash "$LOG_DIR/$label.err") || return 1
     else
-        hash=$(cat "$LOG_DIR/$label.hash") || return 1
+        hash=$(jq -er '.hash | select(type == "string" and test("^[0-9a-f]{64}$"))' "$LOG_DIR/$label.sdk.json") || return 1
     fi
+    while IFS= read -r failed; do
+        retried+=("$LOG_DIR/$failed.receipt.json")
+    done < <(awk -F'\t' -v label="$label" '$3 == label && $4 == "retry" && length($6) == 64 { print $6 }' "$ACTIONS_TSV")
     [[ "$hash" =~ ^[0-9a-f]{64}$ ]] || { _assert_fail "${label}_receipt" "missing signed transaction hash"; return 1; }
     blend_assert_migration "${label}_financial" "$before" "$after" "$LOG_DIR/$hash.receipt.json" \
         "$RUN_DIR/blend-reserves.json" "$coll_json" "$supply_json" "$debt_json" "$account_id" "$acct" \
-        "$PRIMARY_HUB_ID" "$XLM_SAC" "$BLEND_POOL" "$POOL" "$addr" || return 1
+        "$PRIMARY_HUB_ID" "$XLM_SAC" "$BLEND_POOL" "$POOL" "$addr" ${retried[@]+"${retried[@]}"} || return 1
     printf '%s\n' "$acct"
 }
 

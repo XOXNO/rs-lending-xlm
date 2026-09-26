@@ -88,9 +88,18 @@ The 20M policy covers that measured delta with additional margin. The original
 runs remain failed; maximum dimensions and the 10% resource headroom gate remain
 unchanged. A fixed margin does not guarantee every future state transition.
 SDK-prepared envelopes are not patched. Retry is
-limited to classified transient failures without a signed hash. After a hash
-exists, reconcile that hash; never rebuild the mutation. Unexpected submitted
-Trapped/ResourceLimitExceeded failures remain fatal.
+limited to classified transient failures without a signed hash, and to the one
+exception below. After a hash exists, reconcile that hash; never rebuild the
+mutation while its outcome is unknown. A submitted Trapped/ResourceLimitExceeded
+failure remains fatal, except for the Reflector round race: the committed FAILED
+receipt shows the testnet Reflector CEX contract reading one of its own round
+keys outside the footprint. For that case only, `inv` and `sdk_inv` rebuild the
+same call once and record the failed transaction as `retry` with
+`rejected_transaction` evidence. `gate.py` then requires the next action with the
+same label to be a successful transaction with the same source, contract,
+function and arguments, an unchanged read-write footprint, and a read-only
+footprint that differs only by Reflector round entries, including the missing
+one (`receipts.py footprint_drift`).
 If the CLI loses a successful response, recovery verifies the signed envelope,
 host operation and receipt return/event hash before recovering the result;
 the original CLI status and output remain in attempt evidence.
@@ -166,8 +175,10 @@ Complete liquidation, stress and flash smokes passed their 15, 12 and 11 cases. 
 lifecycle, routed strategy and Blend passed financial checks; its earlier
 error-mapping and instruction-budget failures require a fresh run with SDK 1.0.221. These smokes used
 uncommitted harness snapshots and do
-not satisfy final-SHA acceptance. An older smoke hit a submitted Reflector
-storage-footprint race, which remains a sticky failure. Fresh complete runs
+not satisfy final-SHA acceptance. Submitted Reflector
+storage-footprint races (for example release run 36260155105, attempt 2,
+`sdk_borrow`) are retried once under the rule above; every other
+storage-footprint failure stays sticky. Fresh complete runs
 must demonstrate all required cases; an
 ABI map, successful offline regression, or partial smoke cannot certify them.
 An aggregation smoke caught a real dust-close footprint failure: accrued

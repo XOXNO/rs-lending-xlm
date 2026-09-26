@@ -175,3 +175,71 @@ with tempfile.TemporaryDirectory() as directory:
     assert spent(logs,fee_source)==321
     assert spent(logs,payer)==0
 print('Fee-bump identity, result, recovery and fee-payer regressions passed')
+
+from receipts import cli, envelope_hash, footprint_drift
+failed=json.loads(Path(__file__).with_name('fixtures').joinpath('footprint-drift-receipt.json').read_text())
+failed_hash=failed['result']['txHash']
+passphrase='Test SDF Network ; September 2015'
+controller='CAUY6MOHNUSWODWJKFPSYJGZJROJ2UBF5RG7XQJLA326WNKZBSLTJ4WV'
+footprint_drift(failed,failed_hash,passphrase,controller,'borrow')
+encode=lambda kind,value: cli(['xdr','encode','--type',kind],json.dumps(value))
+
+def rejected(receipt,*binding):
+    try: footprint_drift(receipt,*binding)
+    except (ValueError,KeyError,subprocess.CalledProcessError): return
+    raise AssertionError('footprint drift accepted: '+binding[3]+' '+str(binding[5:6]))
+
+rejected(failed,failed_hash,passphrase,controller,'repay')
+meta=decode('TransactionMeta',failed['result']['resultMetaXdr'])
+meta['v4']['diagnostic_events']=[e for e in meta['v4']['diagnostic_events'] if e['event']['body']['v0']['topics'][:1]!=[{'symbol':'host_fn_failed'}]]
+no_limit=deepcopy(failed); no_limit['result']['resultMetaXdr']=encode('TransactionMeta',meta)
+rejected(no_limit,failed_hash,passphrase,controller,'borrow')
+
+def retried(edit):
+    envelope=decode('TransactionEnvelope',failed['result']['envelopeXdr'])
+    edit(envelope['tx']['tx'])
+    receipt=deepcopy(failed)
+    receipt['result'].update(status='SUCCESS',envelopeXdr=encode('TransactionEnvelope',envelope),txHash=envelope_hash(envelope,passphrase),
+        resultXdr=encode('TransactionResult',{'fee_charged':'49227','result':{'tx_success':[{'op_inner':{'invoke_host_function':{'success':'0'*64}}}]},'ext':'v0'}))
+    return receipt,receipt['result']['txHash']
+
+def next_round(tx):
+    tx['seq_num']=str(int(tx['seq_num'])+1)
+    keys=tx['ext']['v1']['resources']['footprint']['read_only']
+    rounds=[k for k in keys if k.get('contract_data',{}).get('durability')=='temporary']
+    keys.append({'contract_data':{**rounds[-1]['contract_data'],'key':{'u64':'1790448600000'}}})
+def same_footprint(tx): tx['seq_num']=str(int(tx['seq_num'])+1)
+def other_args(tx):
+    next_round(tx)
+    tx['operations'][0]['body']['invoke_host_function']['host_function']['invoke_contract']['args'][1]={'u64':'999'}
+
+footprint_drift(failed,failed_hash,passphrase,controller,'borrow',*retried(next_round))
+rejected(failed,failed_hash,passphrase,controller,'borrow',*retried(same_footprint))
+rejected(failed,failed_hash,passphrase,controller,'borrow',*retried(other_args))
+rejected(failed,failed_hash,passphrase,controller,'borrow',failed,failed_hash)
+
+moved=decode('TransactionMeta',failed['result']['resultMetaXdr'])
+for event in moved['v4']['diagnostic_events']:
+    data=event['event']['body']['v0']['data']
+    if isinstance(data,dict) and data.get('vec',[{}])[0]=={'string':'trying to access contract data key outside of the footprint'}:
+        data['vec'][1]={'address':controller}
+pool_fault=deepcopy(failed); pool_fault['result']['resultMetaXdr']=encode('TransactionMeta',moved)
+rejected(pool_fault,failed_hash,passphrase,controller,'borrow')
+
+def also(edit):
+    def change(tx): next_round(tx); edit(tx['ext']['v1']['resources']['footprint'])
+    return change
+def to_read_write(fp):
+    entry=next(k for k in fp['read_only'] if k.get('contract_data',{}).get('durability')=='persistent')
+    fp['read_only'].remove(entry); fp['read_write'].append(entry)
+def extra_persistent(fp):
+    entry=deepcopy(next(k for k in fp['read_only'] if k.get('contract_data',{}).get('durability')=='persistent'))
+    entry['contract_data']['key']={'u64':'7'}; fp['read_only'].append(entry)
+def wrong_round(fp):
+    fp['read_only'][-1]['contract_data']['key']={'u64':'1790448900000'}
+def extra_read_write(fp):
+    entry=deepcopy(next(k for k in fp['read_write'] if 'contract_data' in k))
+    entry['contract_data']['key']={'u64':'8'}; fp['read_write'].append(entry)
+for edit in (to_read_write, extra_persistent, wrong_round, extra_read_write):
+    rejected(failed,failed_hash,passphrase,controller,'borrow',*retried(also(edit)))
+print('Footprint-drift retries need a committed storage-limit failure and the same call with a moved footprint')

@@ -63,14 +63,17 @@ def scenario(coll=True, supply=True, debt=True, existing=False, delegate=False):
     return before, after, receipt, args, key
 
 
-def check(before, after, receipt, args, succeeds=True):
+def check(before, after, receipt, args, succeeds=True, retried=()):
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         # Isolate only the native XDR codec; execute the production checker as-is.
         (root / 'receipts.py').write_text('import json\ndef decode(kind, value): return json.loads(value)\n')
         for name, value in [('before', before), ('after', after), ('receipt', receipt), ('reserves', [{'asset': 'XLM', 'index': 0, 'decimals': 7}] + ([{'asset': 'BLEND_USDC', 'index': 2, 'decimals': 6}] if 'BLEND_USDC' in before.get('extra_balances', {}) else []))]:
             (root / name).write_text(json.dumps(value))
-        result = subprocess.run(['python3', '-', directory, *[str(root / p) for p in ['before', 'after', 'receipt', 'reserves']], *args],
+        for n, value in enumerate(retried):
+            (root / f'retried{n}').write_text(json.dumps(value))
+        result = subprocess.run(['python3', '-', directory, *[str(root / p) for p in ['before', 'after', 'receipt', 'reserves']], *args,
+                                 *[str(root / f'retried{n}') for n in range(len(retried))]],
                                 input=CHECK, text=True, capture_output=True)
         assert (result.returncode == 0) == succeeds, result.stderr or 'bad migration was accepted'
 
@@ -147,6 +150,12 @@ for multiple in (False, True):
     broken['result']['resultMetaXdr']=json.dumps(missing)
     check(before,after,broken,args,False)
 
+before, after, receipt, args, key = scenario(True, True, True, False, False)
+failed = {'result': {'resultXdr': json.dumps({'fee_charged': '77'})}}
+check(before, after, receipt, args, False, [failed])
+paid_twice = copy.deepcopy(after); paid_twice['caller_xlm'] = str(int(after['caller_xlm']) - 77)
+check(before, paid_twice, receipt, args, True, [failed])
+check(before, paid_twice, receipt, args, False)
 print('Blend single/cross-reserve/multiple-liability accounting and mutation checks passed')
 
 # SDK transport preserves arrays and i128/u64 decimal strings before invoking
@@ -154,13 +163,15 @@ print('Blend single/cross-reserve/multiple-liability accounting and mutation che
 transport = r'''set -uo pipefail
 source "$1/flows/blend.sh"
 source "$1/flows/sdk.sh"
-LOG_DIR="$2"; RUN_DIR="$2"; INTEG_DIR="$1"
+LOG_DIR="$2"; RUN_DIR="$2"; INTEG_DIR="$1"; ACTIONS_TSV="$2/actions.tsv"
+printf '1\ttest\tsdk_blend\tretry\tmigrate_from_blend\t%064d\t\t\t\t\tfootprint retry\n2\ttest\tsdk_blend\tretry\tmigrate_from_blend\t\t\t\t\t\tprerequisite\n' 1 > "$ACTIONS_TSV"
 ALICE=alice; ALICE_ADDR=caller; ADMIN_ACCT=1; PRIMARY_HUB_ID=3; PRIMARY_SPOKE_ID=2
 CONTROLLER=CTRL; POSITION_NFT=NFT; XLM_SAC=XLM; BLEND_POOL=BLEND; POOL=POOL
 sdk_inv() {
     [ "$2" = buildStellarMigrateFromBlendTx ] || return 1
     printf '%s' "$3" > "$LOG_DIR/args.json"
     printf '%064d' 1 > "$LOG_DIR/$1.hash"
+    printf '{"hash":"%064d"}' 2 > "$LOG_DIR/$1.sdk.json"
     printf '77\n'
 }
 blend_snapshot() { printf '{}\n'; }
@@ -168,7 +179,8 @@ view() { printf '"caller"\n'; }
 _assert_fail() { return 1; }
 blend_assert_migration() {
     [ "$1" = sdk_blend_financial ] && [ -f "$2" ] && [ -f "$3" ] || return 1
-    [ "$4" = "$LOG_DIR/$(printf '%064d' 1).receipt.json" ] || return 1
+    [ "$4" = "$LOG_DIR/$(printf '%064d' 2).receipt.json" ] || return 1
+    [ "$#" = 16 ] && [ "${16}" = "$LOG_DIR/$(printf '%064d' 1).receipt.json" ] || return 1
     [ "${13}" = BLEND ] && [ "${14}" = POOL ] && [ "${15}" = caller ] || return 1
     [ "$CHECK_FAIL" = 0 ]
 }

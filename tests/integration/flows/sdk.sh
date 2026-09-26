@@ -8,23 +8,39 @@ sdk_inv() {
         *) _assert_fail "$label" "unmapped published builder $builder"; return 1;;
     esac
     export RPC_URL CONTROLLER
-    if stellar keys secret "$ALICE" | "${NODE_BIN:-node}" "$INTEG_DIR/sdk/invoke.mjs" "$builder" "$args" "$LOG_DIR/$label" > "$result" 2> "$LOG_DIR/$label.err"; then
-        if [ -n "${EXPECT_ERROR:-}" ]; then
-            record "$label" xfail "$method" "" "" "" "" "" "published SDK error mapping: $EXPECT_ERROR" simulation "$CONTROLLER"
-        else
-            record "$label" ok "$method" "$(jq -r '.hash // empty' "$result")" "" "" "" "" "published SDK 1.0.221; Stellar SDK 16.3.0" transaction "$CONTROLLER"
+    local evidence="$LOG_DIR/$label" drifted='' hash execution
+    while :; do
+        if stellar keys secret "$ALICE" | "${NODE_BIN:-node}" "$INTEG_DIR/sdk/invoke.mjs" "$builder" "$args" "$evidence" > "$result" 2> "$evidence.err"; then
+            if [ -n "${EXPECT_ERROR:-}" ]; then
+                record "$label" xfail "$method" "" "" "" "" "" "published SDK error mapping: $EXPECT_ERROR" simulation "$CONTROLLER"
+            else
+                hash=$(jq -r '.hash // empty' "$result")
+                if [ -n "$drifted" ] && ! receipt_drift "$LOG_DIR/$drifted.receipt.json" "$drifted" "$NETWORK_PASSPHRASE" \
+                    "$CONTROLLER" "$method" "$LOG_DIR/$hash.receipt.json" "$hash" 2>>"$LOG_DIR/$drifted.drift.err"; then
+                    record "$label" FAIL "$method" "$hash" "" "" "" "" "retry of $drifted not proven: $(tail -n1 "$LOG_DIR/$drifted.drift.err")" transaction "$CONTROLLER"
+                    return 1
+                fi
+                record "$label" ok "$method" "$hash" "" "" "" "" "published SDK 1.0.221; Stellar SDK 16.3.0" transaction "$CONTROLLER"
+            fi
+            jq -r '.value' "$result"
+            return 0
         fi
-        jq -r '.value' "$result"
-    else
-        local hash='' execution=simulation
-        if [ -f "$LOG_DIR/$label.hash" ]; then
-            hash=$(cat "$LOG_DIR/$label.hash")
+        hash='' execution=simulation
+        if [ -f "$evidence.hash" ]; then
+            hash=$(cat "$evidence.hash")
             [[ "$hash" =~ ^[0-9a-f]{64}$ ]] || hash=''
             [ -z "$hash" ] || execution=transaction
         fi
-        record "$label" FAIL "$method" "$hash" "" "" "" "" "$(tail_err_note "$LOG_DIR/$label.err")" "$execution" "$CONTROLLER"
+        if [ -n "$hash" ] && [ -z "$drifted" ] && [ -z "${EXPECT_ERROR:-}" ] \
+            && receipt_drift "$LOG_DIR/$hash.receipt.json" "$hash" "$NETWORK_PASSPHRASE" "$CONTROLLER" "$method" 2>>"$LOG_DIR/$hash.drift.err"; then
+            drifted="$hash"
+            record "$label" retry "$method" "$hash" "" "" "" "" "published SDK transaction FAILED on a storage footprint limit; preparing once more" rejected_transaction "$CONTROLLER"
+            evidence="$LOG_DIR/${label}_retry"
+            continue
+        fi
+        record "$label" FAIL "$method" "$hash" "" "" "" "" "$(tail_err_note "$evidence.err")" "$execution" "$CONTROLLER"
         return 1
-    fi
+    done
 }
 
 # Same financial checker as CLI lifecycle; only public-builder transport differs.

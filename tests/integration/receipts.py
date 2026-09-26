@@ -95,6 +95,60 @@ def verify(receipt, hash_, passphrase, status, contract=None, method=None):
     raise ValueError('unsupported transaction extension')
 
 
+ROUND_ORACLES = {'CCYOZJCOPG34LLQQ7N24YXBM7LL62R7ONMZ3G6WZAAYPB5OYKOMJRN63'}
+OUTSIDE_FOOTPRINT = {'string': 'trying to access contract data key outside of the footprint'}
+
+
+def footprint_limit_failure(receipt, hash_, passphrase, contract, method):
+    """Accept only a committed FAILED call that read a live oracle round outside its footprint."""
+    verify(receipt, hash_, passphrase, 'FAILED', contract, method)
+    result = receipt['result']
+    envelope, outcome = unwrap(decode('TransactionEnvelope', result['envelopeXdr']),
+                               decode('TransactionResult', result['resultXdr']))
+    if outcome['result'].get('tx_failed') not in ([{'op_inner': {'invoke_host_function': 'trapped'}}],
+                                                  [{'op_inner': {'invoke_host_function': 'resource_limit_exceeded'}}]):
+        raise ValueError('failure is not a host-function trap or resource limit')
+    limit = [{'error': {'storage': 'exceeded_limit'}}]
+    events = [event['event']['body']['v0'] for event in
+              (decode('TransactionMeta', result['resultMetaXdr']).get('v4') or {}).get('diagnostic_events') or []]
+    if not any(event['topics'] == [{'symbol': 'host_fn_failed'}, *limit] for event in events):
+        raise ValueError('failure is not a storage footprint limit')
+    missing = {(event['data']['vec'][1]['address'], json.dumps(event['data']['vec'][2], sort_keys=True))
+               for event in events if event['topics'] == [{'symbol': 'error'}, *limit]
+               and isinstance(event['data'], dict) and event['data'].get('vec', [None])[0] == OUTSIDE_FOOTPRINT}
+    transaction = envelope['tx']['tx']
+    declared = {(entry['contract_data']['contract'], json.dumps(entry['contract_data']['key'], sort_keys=True))
+                for keys in transaction['ext']['v1']['resources']['footprint'].values()
+                for entry in keys if 'contract_data' in entry}
+    if not missing or any(address not in ROUND_ORACLES for address, _ in missing) or missing & declared:
+        raise ValueError('failure is not a live oracle round outside the footprint')
+    return transaction, missing
+
+
+def footprint_drift(failed, failed_hash, passphrase, contract, method, succeeded=None, succeeded_hash=None):
+    """Prove a retried call is the same call and only added the missing oracle round."""
+    before, missing = footprint_limit_failure(failed, failed_hash, passphrase, contract, method)
+    if succeeded is None:
+        return
+    verify(succeeded, succeeded_hash, passphrase, 'SUCCESS', contract, method)
+    after = unwrap(decode('TransactionEnvelope', succeeded['result']['envelopeXdr']),
+                   decode('TransactionResult', succeeded['result']['resultXdr']))[0]['tx']['tx']
+    call = lambda tx: (tx['source_account'], tx['operations'][0]['body']['invoke_host_function']['host_function'])
+    keys = lambda tx, kind: {json.dumps(entry, sort_keys=True) for entry in tx['ext']['v1']['resources']['footprint'][kind]}
+    if call(before) != call(after):
+        raise ValueError('retry is not the same call')
+    if keys(before, 'read_write') != keys(after, 'read_write'):
+        raise ValueError('retry changed the read-write footprint')
+    moved = [json.loads(entry) for entry in keys(before, 'read_only') ^ keys(after, 'read_only')]
+    if any(entry.get('contract_data', {}).get('contract') not in ROUND_ORACLES
+           or entry['contract_data']['durability'] != 'temporary' for entry in moved):
+        raise ValueError('retry moved a footprint entry that is not a live oracle round')
+    added = {(entry['contract_data']['contract'], json.dumps(entry['contract_data']['key'], sort_keys=True))
+             for entry in moved if json.dumps(entry, sort_keys=True) in keys(after, 'read_only')}
+    if not missing <= added:
+        raise ValueError('retry footprint lacks the missing oracle round')
+
+
 def return_json(value):
     """Lossless CLI-shaped JSON for values returned by harness mutations."""
     if value == 'void':
@@ -172,5 +226,10 @@ def recover(receipt, hash_, passphrase, mode, *binding):
 
 
 if __name__ == '__main__':
+    if sys.argv[1] == 'drift':
+        failed, failed_hash, passphrase, contract, method, *retried = sys.argv[2:]
+        footprint_drift(json.loads(Path(failed).read_text()), failed_hash, passphrase, contract, method,
+                        *([json.loads(Path(retried[0]).read_text()), retried[1]] if retried else []))
+        sys.exit(0)
     receipt_path, hash_, passphrase, mode, *binding = sys.argv[1:]
     print(json.dumps(recover(json.loads(Path(receipt_path).read_text()), hash_, passphrase, mode, *binding), separators=(',', ':')))
