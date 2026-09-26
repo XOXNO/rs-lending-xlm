@@ -74,6 +74,43 @@ mkdir -p "$INTEG_DIR/runs"
 
 export E2E_LIMITS_FILE="$INTEG_DIR/runs/$BASE-network-limits.json"
 "${NODE_BIN:-node}" "$INTEG_DIR/sdk/limits.mjs" "$NETWORKS_FILE" "$E2E_LIMITS_FILE" || exit 1
+
+install_wasms() {
+    local dir="$INTEG_DIR/runs/$BASE-wasm-install/logs" alias="e2e_installer_$BASE"
+    local names name wasm want got rc attempt addr
+    local -a wasms=()
+    mkdir -p "$dir"
+    names=$(jq -r '.artifacts | keys[]' "$WASM_DIR/candidate.json") && [ -n "$names" ] \
+        || { log_orch "no candidate artifacts in $WASM_DIR/candidate.json"; return 1; }
+    for name in $names; do wasms+=("$WASM_DIR/$name"); done
+    for wasm in "$FIXTURE_WASM_DIR"/*.wasm; do [ ! -f "$wasm" ] || wasms+=("$wasm"); done
+    stellar keys address "$alias" >/dev/null 2>&1 || stellar keys generate "$alias" "${NET_ARGS[@]}" >"$dir/installer.log" 2>&1
+    addr=$(stellar keys address "$alias") || { log_orch "installer key $alias missing — see $dir/installer.log"; return 1; }
+    for attempt in 1 2 3 4 5; do
+        curl -fsS -m 30 "https://horizon-testnet.stellar.org/accounts/$addr" >/dev/null 2>>"$dir/installer.log" && break
+        [ "$attempt" -lt 5 ] || { log_orch "installer wallet $addr was not funded — see $dir/installer.log"; return 1; }
+        curl -sS -m 30 "https://friendbot.stellar.org/?addr=$addr" >>"$dir/installer.log" 2>&1
+        sleep "$attempt"
+    done
+    for wasm in "${wasms[@]}"; do
+        name=$(basename "$wasm" .wasm)
+        want=$(python3 -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest())' "$wasm") \
+            || { log_orch "cannot read $wasm"; return 1; }
+        for attempt in 1 2 3 4 5; do
+            rc=0
+            got=$(stellar contract upload --wasm "$wasm" --source "$alias" "${NET_ARGS[@]}" \
+                --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" 2>"$dir/$name.$attempt.err") || rc=$?
+            got="${got//[[:space:]\"]/}"
+            [ "$rc" -eq 0 ] || [ "$attempt" -eq 5 ] || { sleep $((attempt * 5)); continue; }
+            break
+        done
+        [ "$rc" -eq 0 ] && [ "$got" = "$want" ] \
+            || { log_orch "install of $name.wasm failed (rc=$rc, hash '$got') — see $dir/$name.$attempt.err"; return 1; }
+        log_orch "installed $name.wasm $want"
+    done
+}
+install_wasms || exit 1
+
 pids=()
 stop_children() {
     trap - INT TERM
