@@ -30,6 +30,7 @@ const USDC_CAP_RAW: i128 = 1_000_000_000 * USDC_UNIT;
 
 const LTV: u32 = 5_000;
 const LT: u32 = 5_300;
+const PREVIOUS_LT: u32 = 6_000;
 const BASE_BONUS: u32 = 500;
 const TARGET_HF: i128 = WAD * 106 / 100;
 const FULL_BONUS_HF: i128 = WAD * 90 / 100;
@@ -59,9 +60,40 @@ fn supply_cap_units(nav_ref: i128) -> i128 {
     MAX_COLLATERAL_USD * WAD * 1_000 / (nav_ref * BAND_CEILING_PER_MILLE)
 }
 
+/// The share's spoke listing with liquidation threshold `threshold`.
+fn liq_listing(
+    hub: u32,
+    liq: &Address,
+    spoke: u32,
+    nav_ref: i128,
+    threshold: u32,
+) -> SpokeAssetArgs {
+    SpokeAssetArgs {
+        hub_id: hub,
+        asset: liq.clone(),
+        spoke_id: spoke,
+        can_collateral: true,
+        can_borrow: false,
+        paused: false,
+        frozen: false,
+        no_seize: false,
+        ltv: LTV,
+        threshold,
+        bonus: BASE_BONUS,
+        liquidation_fees: 0,
+        supply_cap: supply_cap_units(nav_ref),
+        borrow_cap: 0,
+    }
+}
+
 /// Lists the share at `nav_cents` per share with the listing parameters and
 /// opens the gate with only the pool allowlisted.
 fn setup(nav_cents: i128) -> Params {
+    setup_with_threshold(nav_cents, LT)
+}
+
+/// `setup` with the share listed at liquidation threshold `threshold`.
+fn setup_with_threshold(nav_cents: i128, threshold: u32) -> Params {
     let nav_ref = usd_cents(nav_cents);
     let t = LendingTest::new()
         .with_market(MarketPreset {
@@ -103,22 +135,7 @@ fn setup(nav_cents: i128) -> Params {
     let spoke = u32::try_from_val(&t.env, &spoke_val).unwrap();
     gov.execute_immediate(
         &admin,
-        &AdminOperation::AddAssetToSpoke(SpokeAssetArgs {
-            hub_id: hub,
-            asset: liq.clone(),
-            spoke_id: spoke,
-            can_collateral: true,
-            can_borrow: false,
-            paused: false,
-            frozen: false,
-            no_seize: false,
-            ltv: LTV,
-            threshold: LT,
-            bonus: BASE_BONUS,
-            liquidation_fees: 0,
-            supply_cap: supply_cap_units(nav_ref),
-            borrow_cap: 0,
-        }),
+        &AdminOperation::AddAssetToSpoke(liq_listing(hub, &liq, spoke, nav_ref, threshold)),
     );
     gov.execute_immediate(
         &admin,
@@ -357,6 +374,16 @@ impl Params {
 
     fn liquidatable(&self, account_id: u64) -> bool {
         self.t.ctrl_client().is_liquidatable(&account_id)
+    }
+
+    fn stored_lt(&self, account_id: u64) -> u32 {
+        self.t
+            .ctrl_client()
+            .get_account_positions(&account_id)
+            .0
+            .get(self.liq_key())
+            .unwrap()
+            .liquidation_threshold
     }
 }
 
@@ -671,19 +698,36 @@ fn loss_cents(shares: i128, nav_wad: i128, paid_raw: i128) -> i128 {
     (loss_raw + USDC_UNIT / 200) / (USDC_UNIT / 100)
 }
 
-/// 1,000 shares opened at $1 with $500 of debt. One jump to the band floor
-/// costs the borrower $16.75. A path of 1% NAV steps liquidates at 0.94 and
-/// 0.88 only, costs $8.76 in total, and leaves HF above 1 at the floor.
+/// 1,000 shares opened at max LTV. One jump to the band floor liquidates to
+/// HF 1.06 and costs the borrower $16.75 when it borrowed at $1, $18.37 at
+/// $1.015 and $20.07 at the $1.03 ceiling. A path of 1% NAV steps from $1
+/// liquidates at 0.94 and 0.88 only, costs $8.76 in total, and leaves HF 1.022
+/// at the floor.
 #[test]
 fn lqv_params_floor_jump_costs_more_than_one_percent_steps() {
     let mut p = setup(100);
-    let id = p.open_at_max_ltv("jump", 1_000, p.nav_ref);
     let floor = p.nav_ref * BAND_FLOOR_PER_MILLE / 1_000;
-    p.post_nav(floor);
-    let (shares, paid) = p.try_liquidate("liquidator", id).unwrap();
-    assert_eq!(shares, 217);
-    assert_eq!(loss_cents(shares, floor, paid), 1_675);
-    assert!(p.hf(id) > WAD);
+    for (borrow_per_mille, seized, cents) in [
+        (1_000i128, 217i128, 1_675i128),
+        (1_015, 238, 1_837),
+        (1_030, 260, 2_007),
+    ] {
+        let borrow_nav = p.nav_ref * borrow_per_mille / 1_000;
+        p.post_nav(borrow_nav);
+        let id = p.open_at_max_ltv(&format!("jump-{borrow_per_mille}"), 1_000, borrow_nav);
+        p.post_nav(floor);
+        let (shares, paid) = p.try_liquidate("liquidator", id).unwrap();
+        assert_eq!(
+            (shares, loss_cents(shares, floor, paid)),
+            (seized, cents),
+            "borrowed at {borrow_per_mille}/1000"
+        );
+        let post = p.hf(id);
+        assert!(
+            (WAD * 1_055 / 1_000..=WAD * 1_065 / 1_000).contains(&post),
+            "borrowed at {borrow_per_mille}/1000: HF {post} after the jump"
+        );
+    }
 
     p.post_nav(p.nav_ref);
     let id = p.open_at_max_ltv("steps", 1_000, p.nav_ref);
@@ -701,5 +745,55 @@ fn lqv_params_floor_jump_costs_more_than_one_percent_steps() {
     }
     assert_eq!(liquidated_at, [940, 880]);
     assert_eq!(total_cents, 876);
-    assert!(p.hf(id) > WAD, "HF at the floor after the steps");
+    let hf = p.hf(id);
+    assert!(
+        (WAD * 1_020 / 1_000..=WAD * 1_025 / 1_000).contains(&hf),
+        "HF {hf} at the floor after the steps"
+    );
+}
+
+/// Accounts opened at max LTV under LT 6000 keep it after the listing edit to
+/// LT 5300 until `update_account_threshold(has_risks = true)` refreshes them.
+/// The refresh applies LT 5300 while the HF with LT 5300 is at least 1.05, at
+/// a NAV of 0.9906 R or more. Below that it keeps LT 6000 and succeeds while
+/// the HF with LT 6000 is at least 1.05, at 0.875 R or more. Lower, it reverts
+/// with `HealthFactorTooLow` and keeps LT 6000.
+#[test]
+fn lqv_params_restamp_applies_lt_5300_only_above_the_gate() {
+    let mut p = setup_with_threshold(100, PREVIOUS_LT);
+    let cases = [
+        (1_000i128, Ok(()), LT),
+        (991, Ok(()), LT),
+        (990, Ok(()), PREVIOUS_LT),
+        (876, Ok(()), PREVIOUS_LT),
+        (
+            874,
+            Err(contract_error(errors::HEALTH_FACTOR_TOO_LOW)),
+            PREVIOUS_LT,
+        ),
+    ];
+    let ids: Vec<u64> = cases
+        .iter()
+        .map(|(per_mille, _, _)| {
+            p.open_at_max_ltv(&format!("restamp-{per_mille}"), 10_000, p.nav_ref)
+        })
+        .collect();
+
+    let admin = p.t.admin();
+    p.t.gov_client().execute_immediate(
+        &admin,
+        &AdminOperation::EditAssetInSpoke(liq_listing(p.hub, &p.liq, p.spoke, p.nav_ref, LT)),
+    );
+    for (id, (per_mille, outcome, lt)) in ids.into_iter().zip(cases) {
+        assert_eq!(p.stored_lt(id), PREVIOUS_LT, "the edit does not restamp");
+        p.post_nav(p.nav_ref * per_mille / 1_000);
+        assert_eq!(
+            (
+                p.t.try_update_account_threshold(true, &[id]),
+                p.stored_lt(id)
+            ),
+            (outcome, lt),
+            "NAV {per_mille}/1000"
+        );
+    }
 }
