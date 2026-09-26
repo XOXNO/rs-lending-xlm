@@ -48,9 +48,40 @@ prod_fetch_receipts() {
     return "$failed"
 }
 
+PROD_UPGRADES='upgradeControllerHash upgradePoolHash upgradePositionNftHash upgradePriceAggregatorHash upgradeGovernanceHash'
+
+prod_upgrade_hash() {
+    case "$1" in
+        upgradeControllerHash) echo "$CTRL_HASH";;
+        upgradePoolHash) echo "$POOL_HASH";;
+        upgradePositionNftHash) echo "$NFT_HASH";;
+        upgradePriceAggregatorHash) echo "$PA_HASH";;
+        upgradeGovernanceHash) jq -er '.artifacts["governance.wasm"]' "$RUN_DIR/candidate.json";;
+        *) return 1;;
+    esac
+}
+
+prod_propose() {
+    local tag="$1"; shift
+    PROD_OP_TAG="${tag}_propose" PROD_SPLIT_TAG="$tag" PROD_PROPOSE_ONLY=1 prod_ops "$@" >/dev/null
+}
+
+prod_execute_split() {
+    local tag="$1" verb="$2" wasm="${3:-}" op_var="PROD_SPLIT_${1}_OP" salt_var="PROD_SPLIT_${1}_SALT"
+    local op="${!op_var:-}" salt="${!salt_var:-}"
+    [ -n "$op" ] && [ -n "$salt" ] || { _assert_fail "operator_$tag" 'no proposed operation to execute'; return 1; }
+    NETWORK=testnet CONFIG_ROOT="$RUN_DIR/config" OPS_ROOT="$RUN_DIR/ops" SIGNER="$ADMIN" \
+        AWAIT_MAX_WAIT_SECONDS=180 AWAIT_POLL_SECONDS=1 UNSET_MAX_POLLS=30 bash "$REPO_ROOT/configs/script.sh" awaitOp "$op" \
+        >"$LOG_DIR/operator_${tag}_await.out" 2>"$LOG_DIR/operator_${tag}_await.err" \
+        || { _assert_fail "operator_$tag" "proposed operation $op never became ready"; return 1; }
+    PROD_OP_TAG="$tag" PROD_OP_VERB="$verb" PROD_OP_WASM="$wasm" PROD_SPLIT_OP="$op" PROD_SPLIT_SALT="$salt" prod_ops executeOp "$op"
+}
+
 prod_ops() {
     local verb="$1" tag="${PROD_OP_TAG:-$1}"; shift
-    if NETWORK=testnet CONFIG_ROOT="$RUN_DIR/config" OPS_ROOT="$RUN_DIR/ops" SIGNER="$ADMIN" AUTO_EXECUTE=1 STELLAR_SEND=yes \
+    local logical="${PROD_OP_VERB:-$verb}" wasm="${PROD_OP_WASM:-${1:-}}" auto=1 executed_call='' op record_path
+    [ -z "${PROD_PROPOSE_ONLY:-}" ] || auto=0
+    if NETWORK=testnet CONFIG_ROOT="$RUN_DIR/config" OPS_ROOT="$RUN_DIR/ops" SIGNER="$ADMIN" AUTO_EXECUTE="$auto" STELLAR_SEND=yes \
         AWAIT_MAX_WAIT_SECONDS=180 AWAIT_POLL_SECONDS=1 UNSET_MAX_POLLS=30 bash "$REPO_ROOT/configs/script.sh" "$verb" "$@" >"$LOG_DIR/operator_$tag.out" 2>"$LOG_DIR/operator_$tag.err"; then
         local hash n=0 invocation method target proposed=0 executed=0 proposal_salt='' execution_salt='' salt
         local hashes="$LOG_DIR/operator_$tag.hashes"
@@ -63,10 +94,13 @@ prod_ops() {
             invocation=$(cat "$LOG_DIR/$hash.invocation.json")
             method=$(jq -r '.function_name' <<<"$invocation"); target=$(jq -r '.contract_address' <<<"$invocation")
             if [ "$target" = "$GOVERNANCE" ]; then
-                case "$method" in propose) proposed=$((proposed+1));; execute|execute_self) executed=$((executed+1));; esac
+                case "$method" in
+                    propose) proposed=$((proposed+1)); proposal_salt=$(jq -r '.args[-1].bytes // empty' <<<"$invocation");;
+                    execute|execute_self) executed=$((executed+1)); execution_salt=$(jq -r '.args[-1].bytes // empty' <<<"$invocation"); executed_call="$invocation";;
+                esac
             fi
-            if [[ "$verb" = upgrade*Hash ]]; then
-                salt=$(prod_upgrade_invocation "$verb" "$1" "$GOVERNANCE" "$CONTROLLER" "$PRICE_AGGREGATOR" "$invocation") \
+            if [[ "$logical" = upgrade*Hash ]]; then
+                salt=$(prod_upgrade_invocation "$logical" "$wasm" "$GOVERNANCE" "$CONTROLLER" "$PRICE_AGGREGATOR" "$invocation") \
                     || { _assert_fail "operator_${tag}_binding" 'upgrade receipt differs from requested target, operation or WASM hash'; return 1; }
                 if [ "$method" = propose ]; then proposal_salt="$salt"; else execution_salt="$salt"; fi
             fi
@@ -76,11 +110,30 @@ prod_ops() {
             validateConfigs|setupAll_replay) ;;
             *) [ "$n" -gt 0 ] || { _assert_fail "operator_$tag" 'mutation returned without a confirmed submission'; return 1; };;
         esac
-        if [[ "$verb" = upgrade*Hash ]]; then
+        if [ -n "${PROD_PROPOSE_ONLY:-}" ]; then
+            op=$(grep -oE 'Scheduled op [0-9a-f]+ \(AUTO_EXECUTE=0' "$LOG_DIR/operator_$tag.err" | awk '{print $3}' | tail -n1)
+            record_path="$RUN_DIR/ops/testnet/$op.json"
+            [ "$proposed" -eq 1 ] && [ "$executed" -eq 0 ] && [ -n "$op" ] && [ -f "$record_path" ] \
+                && [ "$(jq -r '.salt' "$record_path")" = "$proposal_salt" ] \
+                || { _assert_fail "operator_$tag" 'propose-only call needs one confirmed proposal matching its op record'; return 1; }
+            save_state "PROD_SPLIT_${PROD_SPLIT_TAG}_OP" "$op"
+            save_state "PROD_SPLIT_${PROD_SPLIT_TAG}_SALT" "$proposal_salt"
+            record "operator_$tag" ok propose "" "" "" "" "" "scheduled op $op; execute pending"
+            return 0
+        fi
+        if [ -n "${PROD_SPLIT_OP:-}" ]; then
+            record_path="$RUN_DIR/ops/testnet/$PROD_SPLIT_OP.json"
+            [ "$proposed" -eq 0 ] && [ "$executed" -eq 1 ] && [ "$execution_salt" = "$PROD_SPLIT_SALT" ] && [ -f "$record_path" ] \
+                && jq -e --argjson call "$executed_call" '.salt == $call.args[-1].bytes and ((.kind // "controller") == "governance_self"
+                    or ($call.function_name == "execute" and $call.args[1].address == .target and $call.args[2].symbol == .function))' "$record_path" >/dev/null \
+                || { _assert_fail "operator_$tag" 'execute differs from the proposed operation record'; return 1; }
+            proposed=1; proposal_salt="$PROD_SPLIT_SALT"
+        fi
+        if [[ "$logical" = upgrade*Hash ]]; then
             [ "$proposed" -eq 1 ] && [ "$executed" -eq 1 ] && [ "$proposal_salt" = "$execution_salt" ] || { _assert_fail "operator_${tag}_receipts" 'upgrade needs confirmed governance propose and execute'; return 1; }
             record "operator_${tag}_receipts" ok assert "" "" "" "" "" 'confirmed governance schedule and execution'
         fi
-        record "operator_$tag" ok "$verb" "" "" "" "" "" "disposable config and operation records; $n confirmed submissions"
+        record "operator_$tag" ok "$logical" "" "" "" "" "" "disposable config and operation records; $n confirmed submissions"
         cat "$LOG_DIR/operator_$tag.out"
     else
         record "operator_$tag" FAIL "$verb" "" "" "" "" "" "$(tail_err_note "$LOG_DIR/operator_$tag.err")"
@@ -164,6 +217,8 @@ flow_production_operator() {
     jq --arg c "$CONTROLLER" --arg g "$GOVERNANCE" --arg p "$pa" --arg a "$OWNED_AGGREGATOR" --arg owner "$ADMIN_ADDR" --arg rpc "$RPC_URL" --arg pass "$NETWORK_PASSPHRASE" \
         '.testnet.rpc_url=$rpc | .testnet.network_passphrase=$pass | .testnet.controller=$c | .testnet.governance=$g | .testnet.price_aggregator=$p | .testnet.aggregator=$a | .testnet.accumulator=$owner | .testnet.hub_ids={} | .testnet.spoke_ids={}' \
         "$NETWORKS_FILE" > "$RUN_DIR/config/networks.json" || return 1
+    prod_propose setPriceAggregator setPriceAggregator || return 1
+    prod_propose setAggregator setAggregator || return 1
     pool=$(prod_ops deployPool "$POOL_HASH" | tail -n1 | tr -d '\"[:space:]') || return 1
     is_contract_id "$pool" || return 1
     nft=$(prod_ops deployPositionNft "$NFT_HASH" | tail -n1 | tr -d '\"[:space:]') || return 1
@@ -174,8 +229,8 @@ flow_production_operator() {
     verify_candidate_contract production_pa "$PRICE_AGGREGATOR" price_aggregator || return 1
     jq --arg p "$pool" --arg n "$nft" '.testnet.pool=$p | .testnet.position_nft=$n' "$RUN_DIR/config/networks.json" > "$RUN_DIR/config/networks.tmp" || return 1
     mv "$RUN_DIR/config/networks.tmp" "$RUN_DIR/config/networks.json"
-    prod_ops setPriceAggregator >/dev/null || return 1
-    prod_ops setAggregator >/dev/null || return 1
+    prod_execute_split setPriceAggregator setPriceAggregator >/dev/null || return 1
+    prod_execute_split setAggregator setAggregator >/dev/null || return 1
     prod_ops setAccumulator >/dev/null || return 1
     prod_ops validateConfigs >/dev/null || return 1
     prod_ops setupAll >/dev/null || return 1
@@ -298,7 +353,7 @@ prod_caller_authority() {
     after=$(prod_position_snapshot prod_auth_after "$acct" "$asset" "$runner") || return 1
     prod_caller_state prod_contract_external_unchanged "$before" "$after" "$runner" || return 1
 
-    PROD_OP_TAG=prod_manager_on prod_ops setPositionManager "$BOB_ADDR" true >/dev/null || return 1
+    prod_execute_split prod_manager_on setPositionManager >/dev/null || return 1
     ops=$(jq -nc --argjson id "$acct" --arg delegate "$BOB_ADDR" \
         '[{AddDelegate:{account_id:$id,delegate:$delegate}},{RenewAccount:{account_id:$id}}]')
     inv prod_contract_delegate_add "$ADMIN" "$runner" -- run --controller "$CONTROLLER" --nft "$POSITION_NFT" --ops "$ops" >/dev/null || return 1
@@ -341,7 +396,7 @@ prod_caller_authority() {
     after=$(prod_position_snapshot prod_renew_after "$acct" "$asset" "$runner") || return 1
     prod_caller_state prod_contract_renew_unchanged "$before" "$after" "$runner" || return 1
 
-    PROD_OP_TAG=prod_manager_off prod_ops setPositionManager "$BOB_ADDR" false >/dev/null || return 1
+    prod_execute_split prod_manager_off setPositionManager >/dev/null || return 1
     ops=$(jq -nc --argjson id "$acct" --arg delegate "$BOB_ADDR" '[{AddDelegate:{account_id:$id,delegate:$delegate}}]')
     xfail_sim prod_contract_inactive_manager_denied 'Error\(Contract, #44\)' "$ADMIN" "$runner" -- run \
         --controller "$CONTROLLER" --nft "$POSITION_NFT" --ops "$ops" || return 1
@@ -391,15 +446,9 @@ flow_production_caller() {
     view prod_position_before "$CONTROLLER" -- get_collateral_amount --account_id "$acct" --hub_asset "$(hub_key 1 "$asset")" >/dev/null || return 1
     before=$(prod_position_snapshot prod_upgrade_before "$acct" "$asset" "$runner") || return 1
     local verb hash
-    for verb in upgradeControllerHash upgradePoolHash upgradePositionNftHash upgradePriceAggregatorHash upgradeGovernanceHash; do
-        case "$verb" in
-            upgradeControllerHash) hash="$CTRL_HASH";;
-            upgradePoolHash) hash="$POOL_HASH";;
-            upgradePositionNftHash) hash="$NFT_HASH";;
-            upgradePriceAggregatorHash) hash="$PA_HASH";;
-            upgradeGovernanceHash) hash=$(jq -er '.artifacts["governance.wasm"]' "$RUN_DIR/candidate.json") || return 1;;
-        esac
-        prod_ops "$verb" "$hash" >/dev/null || return 1
+    for verb in $PROD_UPGRADES; do
+        hash=$(prod_upgrade_hash "$verb") || return 1
+        prod_execute_split "$verb" "$verb" "$hash" >/dev/null || return 1
     done
     after=$(prod_position_snapshot prod_upgrade_after "$acct" "$asset" "$runner") || return 1
     [ "$before" = "$after" ] || { _assert_fail prod_upgrade_state "position, owner, usage or balances changed"; return 1; }
@@ -439,7 +488,13 @@ flow_production_caller() {
 # underlying token/provider data are explicitly disposable fixtures.
 flow_production_lending() {
     phase production_lending
-    local plan asset hub amount spoke debt debt_hub supplier acct
+    local plan asset hub amount spoke debt debt_hub supplier acct verb hash
+    for verb in $PROD_UPGRADES; do
+        hash=$(prod_upgrade_hash "$verb") || return 1
+        prod_propose "$verb" "$verb" "$hash" || return 1
+    done
+    prod_propose prod_manager_on setPositionManager "$BOB_ADDR" true || return 1
+    prod_propose prod_manager_off setPositionManager "$BOB_ADDR" false || return 1
     plan=$(python3 "$INTEG_DIR/production_config.py" lending "$RUN_DIR/config/testnet" "$RUN_DIR/config/networks.json") || return 1
     asset=$(jq -r '.asset' <<<"$plan"); hub=$(jq -r '.hub_id' <<<"$plan"); amount=$(jq -r '.amount' <<<"$plan")
     spoke=$(jq -r '.spoke_id' <<<"$plan"); debt=$(jq -r '.debt' <<<"$plan"); debt_hub=$(jq -r '.debt_hub' <<<"$plan")
