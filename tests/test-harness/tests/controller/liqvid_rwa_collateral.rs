@@ -47,12 +47,12 @@ const THOUSAND_DOLLAR_SHARES: Listing = Listing {
     bonus: 500,
 };
 
-/// The testnet LIQVID1039 listing: $1 shares, LTV 50% / LT 60% / bonus 5%.
+/// The testnet LIQVID1039 listing: $1 shares, LTV 50% / LT 53% / bonus 5%.
 const LISTED_ONE_DOLLAR_SHARES: Listing = Listing {
     decimals: 0,
     unit_cents: 100,
     ltv: 5_000,
-    threshold: 6_000,
+    threshold: 5_300,
     bonus: 500,
 };
 
