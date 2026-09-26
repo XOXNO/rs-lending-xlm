@@ -114,6 +114,50 @@ exit 1
             for verb,tag,ok in [('upgradeControllerHash','upgradeControllerHash',False),('setupAll','setupAll',False),('validateConfigs','validateConfigs',True),('setupAll','setupAll_replay',True)]:
                 result=shell('flows/production.sh','RUN_DIR="$1"; LOG_DIR="$1/logs"; REPO_ROOT="$1"; ADMIN=admin; PROD_OP_TAG="$3"; prod_ops "$2"',d,verb,tag)
                 self.assertEqual(result.returncode==0,ok,result.stderr)
+    def test_operator_receipts_fetch_in_parallel_and_fail_closed(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);(root/'configs').mkdir();(root/'logs').mkdir()
+            (root/'configs/script.sh').write_text("for n in $(seq 1 12); do printf 'Signing transaction: %064d\\n' $n >&2; done\n")
+            body='''RUN_DIR="$1"; LOG_DIR="$1/logs"; REPO_ROOT="$1"; ADMIN=admin; GOVERNANCE=GOV
+record() { echo "$1 $2 $4" >> "$RUN_DIR/records"; }
+tx_status() { sleep 1; echo '{"result":{"envelopeXdr":"x"}}' > "$LOG_DIR/$1.receipt.json"; [ "$1" = "${BAD:-}" ] && echo FAILED || echo SUCCESS; }
+fetch_resources() { RES_INSTR=1 RES_READ=2 RES_WRITE=3 RES_FEE=4; }
+stellar() { echo '{"tx":{"tx":{"operations":[{"body":{"invoke_host_function":{"host_function":{"invoke_contract":{"function_name":"propose","contract_address":"GOV"}}}}}]}}}'; }
+start=$(date +%s); prod_ops setupAll >/dev/null; rc=$?; echo "$(( $(date +%s) - start ))" > "$RUN_DIR/elapsed"; exit $rc'''
+            result=shell('flows/production.sh',body,d)
+            self.assertEqual(result.returncode,0,result.stderr)
+            self.assertLess(int((root/'elapsed').read_text()),6)
+            rows=(root/'records').read_text().split('\n')
+            self.assertEqual([r.split()[2] for r in rows if r.startswith('operator_setupAll_tx_')],[f'{n:064d}' for n in range(1,13)])
+            (root/'records').unlink()
+            result=shell('flows/production.sh','BAD=$(printf "%064d" 7); '+body,d)
+            self.assertNotEqual(result.returncode,0)
+            self.assertNotIn('operator_setupAll ok',(root/'records').read_text())
+    def test_governance_wait_is_deadline_based(self):
+        body='''count=$(mktemp); gov_state() { local n=$(( $(cat "$count") + 1 )); echo "$n" > "$count"; [ "$n" -ge "$READY_AT" ] && echo Ready || echo Waiting; }
+echo 0 > "$count"; READY_AT="$1"; start=$(date +%s); out=$(gov_await_ready op "$2"); rc=$?; echo "$rc $out $(( $(date +%s) - start ))"; rm -f "$count"'''
+        rc,state,elapsed=shell('flows/governance.sh',body,'3','180').stdout.split()
+        self.assertEqual((rc,state),('0','Ready')); self.assertLessEqual(int(elapsed),4)
+        rc,state,elapsed=shell('flows/governance.sh',body,'999','2').stdout.split()
+        self.assertEqual((rc,state),('1','Waiting')); self.assertLessEqual(int(elapsed),5)
+    def test_wallet_funding_is_parallel_and_calls_friendbot_only_when_unfunded(self):
+        with tempfile.TemporaryDirectory() as d:
+            body='''RUN_DIR="$1"; LOG_DIR="$1"; RUN_TS=t; NET_ARGS=(--rpc-url x); save_state() { :; }; die() { exit 9; }
+stellar() { case "$1 $2" in 'keys address') [ -f "$RUN_DIR/key.$3" ] && echo "G$3" || return 1;; 'keys generate') sleep 1; touch "$RUN_DIR/key.$3";; esac; }
+curl() { local url; for url; do :; done; echo "$url" >> "$RUN_DIR/curl"
+  case "$url" in *friendbot*) touch "$RUN_DIR/funded";; *horizon*) [ -f "$RUN_DIR/funded" ] || [ -z "${UNFUNDED:-}" ] || return 22
+  echo '{"balances":[{"asset_type":"native","balance":"10000.0"}]}';; esac; }
+start=$(date +%s); prefund_wallets admin alice bob carol dave; echo "$(( $(date +%s) - start ))" > "$RUN_DIR/prefund"
+new_wallet ADMIN admin'''
+            result=shell('lib/wallet.sh',body,d)
+            self.assertEqual(result.returncode,0,result.stderr)
+            self.assertLessEqual(int((Path(d)/'prefund').read_text()),3)
+            self.assertFalse(any('friendbot' in c for c in (Path(d)/'curl').read_text().split()))
+            (Path(d)/'curl').unlink()
+            result=shell('lib/wallet.sh','UNFUNDED=1; '+body.replace('prefund_wallets admin alice bob carol dave','true'),d)
+            self.assertEqual(result.returncode,0,result.stderr)
+            calls=(Path(d)/'curl').read_text().split()
+            self.assertEqual([('friendbot' in c) for c in calls],[False,True,False])
     def test_flash_fee_destination(self):
         p=dict(borrowed='0',supply_index=str(10**27),revenue='0',supplied=str(100*10**27),cash='1000000000')
         q={**p,'revenue':str(50000*10**20),'supplied':str(100*10**27+50000*10**20),'cash':'1000050000'}

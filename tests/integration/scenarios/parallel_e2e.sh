@@ -153,6 +153,15 @@ for i in "${!LANES[@]}"; do
     pids[$i]=""
 done
 
+declare -a gate_pids
+for i in "${!LANES[@]}"; do
+    lane_ts="${BASE}-${LANES[$i]}"
+    gate_pids[$i]=""
+    [ "${lane_exit[$i]}" -eq 0 ] && grep -q "run complete" "$INTEG_DIR/runs/${lane_ts}.log" 2>/dev/null || continue
+    RUN_TS="$lane_ts" bash "$HERE/assert_green.sh" >"$INTEG_DIR/runs/${lane_ts}.gate.log" 2>&1 &
+    gate_pids[$i]=$!
+done
+
 overall=0
 for i in "${!LANES[@]}"; do
     lane="${LANES[$i]}"
@@ -164,14 +173,16 @@ for i in "${!LANES[@]}"; do
         overall=1
         continue
     fi
-    if ! grep -q "run complete" "$lane_log" 2>/dev/null; then
+    if [ -z "${gate_pids[$i]}" ]; then
         log_orch "lane '$lane' FAILED — no 'run complete' marker (phases incomplete) in ${lane_ts}.log"
         overall=1
         continue
     fi
-    if RUN_TS="$lane_ts" bash "$HERE/assert_green.sh"; then
+    if wait "${gate_pids[$i]}"; then
+        cat "$INTEG_DIR/runs/${lane_ts}.gate.log"
         log_orch "lane '$lane' GREEN"
     else
+        cat "$INTEG_DIR/runs/${lane_ts}.gate.log" >&2
         log_orch "lane '$lane' FAILED gate"
         overall=1
     fi

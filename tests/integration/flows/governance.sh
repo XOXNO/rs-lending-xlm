@@ -26,11 +26,12 @@ gov_assert_state() {
 }
 
 gov_await_ready() {
-    local op_id="$1" tries="${2:-30}" st i
-    for ((i = 0; i < tries; i++)); do
+    local op_id="$1" deadline=$(( $(date +%s) + ${2:-180} )) st
+    while :; do
         st=$(gov_state "$op_id")
         if [ "$st" = "Ready" ] || [ "$st" = "Done" ]; then echo "$st"; return 0; fi
-        sleep 5
+        [ "$(date +%s)" -lt "$deadline" ] || break
+        sleep 1
     done
     echo "$st"
     return 1

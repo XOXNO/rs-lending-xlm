@@ -35,6 +35,7 @@ trap 'finish_run $?' EXIT
 trap 'exit 130' INT TERM
 
 wallets() {
+    prefund_wallets admin alice bob
     new_wallet ADMIN admin || return 1
     new_wallet ALICE alice || return 1
     new_wallet BOB bob || return 1

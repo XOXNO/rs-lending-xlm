@@ -26,15 +26,41 @@ print(salt)
 PYUPGRADE
 }
 
+prod_fetch_receipt() {
+    local hash="$1"
+    rm -f "$LOG_DIR/$hash.res" "$LOG_DIR/$hash.invocation.json"
+    [ "$(tx_status "$hash")" = SUCCESS ] && fetch_resources "$hash" || return 1
+    jq -r '.result.envelopeXdr' "$LOG_DIR/$hash.receipt.json" | stellar xdr decode --type TransactionEnvelope --output json \
+        | jq -ce '.tx.tx.operations[0].body.invoke_host_function.host_function.invoke_contract' > "$LOG_DIR/$hash.invocation.json" || return 1
+    printf '%s\n' "$RES_INSTR" "$RES_READ" "$RES_WRITE" "$RES_FEE" > "$LOG_DIR/$hash.res"
+}
+
+prod_fetch_receipts() {
+    local hash pids=() failed=0 pid
+    while read -r hash; do
+        prod_fetch_receipt "$hash" 2>"$LOG_DIR/$hash.fetch.err" & pids+=("$!")
+        if [ "${#pids[@]}" -ge "${PROD_FETCH_JOBS:-16}" ]; then
+            for pid in "${pids[@]}"; do wait "$pid" || failed=1; done
+            pids=()
+        fi
+    done
+    for pid in ${pids[@]+"${pids[@]}"}; do wait "$pid" || failed=1; done
+    return "$failed"
+}
+
 prod_ops() {
     local verb="$1" tag="${PROD_OP_TAG:-$1}"; shift
     if NETWORK=testnet CONFIG_ROOT="$RUN_DIR/config" OPS_ROOT="$RUN_DIR/ops" SIGNER="$ADMIN" AUTO_EXECUTE=1 STELLAR_SEND=yes \
-        AWAIT_MAX_WAIT_SECONDS=180 bash "$REPO_ROOT/configs/script.sh" "$verb" "$@" >"$LOG_DIR/operator_$tag.out" 2>"$LOG_DIR/operator_$tag.err"; then
+        AWAIT_MAX_WAIT_SECONDS=180 AWAIT_POLL_SECONDS=1 UNSET_MAX_POLLS=30 bash "$REPO_ROOT/configs/script.sh" "$verb" "$@" >"$LOG_DIR/operator_$tag.out" 2>"$LOG_DIR/operator_$tag.err"; then
         local hash n=0 invocation method target proposed=0 executed=0 proposal_salt='' execution_salt='' salt
+        local hashes="$LOG_DIR/operator_$tag.hashes"
+        grep -oE 'Signing transaction: [0-9a-f]{64}' "$LOG_DIR/operator_$tag.err" | awk '{print $3}' | sort -u > "$hashes"
+        prod_fetch_receipts < "$hashes" || true
         while read -r hash; do
             n=$((n+1))
-            [ "$(tx_status "$hash")" = SUCCESS ] && fetch_resources "$hash" || { _assert_fail "operator_$tag" "unconfirmed receipt/resources $hash"; return 1; }
-            invocation=$(jq -r '.result.envelopeXdr' "$LOG_DIR/$hash.receipt.json" | stellar xdr decode --type TransactionEnvelope --output json | jq -ce '.tx.tx.operations[0].body.invoke_host_function.host_function.invoke_contract') || return 1
+            { [ -s "$LOG_DIR/$hash.res" ] && [ -s "$LOG_DIR/$hash.invocation.json" ]; } || { _assert_fail "operator_$tag" "unconfirmed receipt/resources $hash"; return 1; }
+            { read -r RES_INSTR; read -r RES_READ; read -r RES_WRITE; read -r RES_FEE; } < "$LOG_DIR/$hash.res"
+            invocation=$(cat "$LOG_DIR/$hash.invocation.json")
             method=$(jq -r '.function_name' <<<"$invocation"); target=$(jq -r '.contract_address' <<<"$invocation")
             if [ "$target" = "$GOVERNANCE" ]; then
                 case "$method" in propose) proposed=$((proposed+1));; execute|execute_self) executed=$((executed+1));; esac
@@ -45,7 +71,7 @@ prod_ops() {
                 if [ "$method" = propose ]; then proposal_salt="$salt"; else execution_salt="$salt"; fi
             fi
             record "operator_${tag}_tx_$n" ok "$method" "$hash" "$RES_INSTR" "$RES_READ" "$RES_WRITE" "$RES_FEE" "operator confirmed receipt" transaction "$target"
-        done < <(grep -oE 'Signing transaction: [0-9a-f]{64}' "$LOG_DIR/operator_$tag.err" | awk '{print $3}' | sort -u)
+        done < "$hashes"
         case "$tag" in
             validateConfigs|setupAll_replay) ;;
             *) [ "$n" -gt 0 ] || { _assert_fail "operator_$tag" 'mutation returned without a confirmed submission'; return 1; };;
