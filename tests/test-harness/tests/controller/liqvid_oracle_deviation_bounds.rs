@@ -7,25 +7,29 @@
 //! - I1: from accounts healthy at true NAV, no sequence of borrow, Transfer or
 //!   Credit liquidation, and borrow against credited shares at in-band prices
 //!   reaches USDC lenders. The supply index does not move, every liquidation
-//!   pays for the debt it retires, and every open debt stays backed at the
+//!   pays exactly the debt it retires, and every open debt stays backed at the
 //!   band floor.
-//! - I2: one liquidation at `p` that pays `R` and retires `repaid` costs the
-//!   borrower, at true NAV, at most `min(E, R * (1 + b) * P / p - repaid + F)`.
+//! - I2: one liquidation at `p` that pays `R` retires `R` of debt and costs the
+//!   borrower, at true NAV, at most `min(E, R * ((1 + b) * P / p - 1) + F)`.
 //!   `E` is the equity at true NAV, `b` the curve bonus at the reported HF, and
-//!   `F` one share at true NAV on a full close, else zero.
+//!   `F` one share at true NAV on a full close, else zero. The check rounds
+//!   the loss up and the bound down, within `ROUNDING_TOLERANCE_RAW`.
 //! - I3: the one-unit sale and the full close by one unit keep I1 and I2.
 //!
 //! Tests prefixed `lqv_oracle_bound_`.
 
+use common::math::fp_core::{mul_div_ceil, mul_div_floor, mul_div_half_up};
 use common::types::{AssetOracle, HubAssetKey, PriceKey, SeizeMode};
 use controller::constants::{
-    BPS, DEFAULT_MIN_BORROW_COLLATERAL_USD_WAD, MIN_WHOLE_UNIT_COLLATERAL, WAD,
+    BPS, DEFAULT_HF_FOR_MAX_BONUS_WAD, DEFAULT_LIQUIDATION_BONUS_FACTOR_BPS,
+    DEFAULT_LIQUIDATION_TARGET_HF_WAD, DEFAULT_MIN_BORROW_COLLATERAL_USD_WAD,
+    MIN_WHOLE_UNIT_COLLATERAL, WAD,
 };
 use governance::op::{
     AdminOperation, ConfigureAssetOracleArgs, CreatePoolArgs, SpokeAssetArgs,
     SpokeLiquidationCurveArgs,
 };
-use soroban_sdk::{token, vec, Address, TryFromVal};
+use soroban_sdk::{token, vec, Address, Env, TryFromVal};
 use test_harness::rwa_gated_token::RwaGatedTokenClient;
 use test_harness::{
     usd_cents, usdc_preset, xlm_preset, AssetConfigPreset, LendingTest, MarketPreset,
@@ -38,11 +42,13 @@ const WAD_PER_USDC_RAW: i128 = WAD / USDC_UNIT;
 const FEED_STEP_WAD: i128 = 10_000;
 const THOUSAND_DOLLARS: i128 = 100_000;
 const ONE_DOLLAR: i128 = 100;
+/// Raw USDC rounding slack of the I2 check.
+const ROUNDING_TOLERANCE_RAW: i128 = 2;
 
 #[derive(Clone, Copy)]
 struct Curve {
-    target_bps: i128,
-    knee_bps: i128,
+    target_hf_wad: i128,
+    hf_for_max_bonus_wad: i128,
     factor_bps: u32,
 }
 
@@ -58,9 +64,9 @@ struct Case {
 }
 
 const DEFAULT_CURVE: Curve = Curve {
-    target_bps: 11_000,
-    knee_bps: 8_000,
-    factor_bps: 10_000,
+    target_hf_wad: DEFAULT_LIQUIDATION_TARGET_HF_WAD,
+    hf_for_max_bonus_wad: DEFAULT_HF_FOR_MAX_BONUS_WAD,
+    factor_bps: DEFAULT_LIQUIDATION_BONUS_FACTOR_BPS,
 };
 
 /// The widest band a single source admits: `(max - min) / (max + min) = 10%`.
@@ -81,42 +87,49 @@ const TESTNET_BAND: Case = Case {
     ..CAP_BAND
 };
 
+const TESTNET_BAND_LTV_55: Case = Case {
+    name: "LT 60% LTV 55% default curve, band [0.95, 1.05]",
+    ltv: 5_500,
+    ..TESTNET_BAND
+};
+
 const LISTING_PARAMS: Case = Case {
     name: "LT 53% curve 1.06/0.90/598, band [0.849, 1.03]",
     ltv: 5_000,
     threshold: 5_300,
     bonus: 500,
     curve: Curve {
-        target_bps: 10_600,
-        knee_bps: 9_000,
+        target_hf_wad: WAD / 100 * 106,
+        hf_for_max_bonus_wad: WAD / 100 * 90,
         factor_bps: 598,
     },
     band_min_bps: 8_490,
     band_max_bps: 10_300,
 };
 
-const CASES: [Case; 3] = [CAP_BAND, TESTNET_BAND, LISTING_PARAMS];
+const CASES: [Case; 4] = [CAP_BAND, TESTNET_BAND, TESTNET_BAND_LTV_55, LISTING_PARAMS];
 
 /// The curve bonus at reported `hf` for a single-leg account, capped so the
-/// seizure keeps HF: `min(curve(hf), hf / LT - 1)`.
-fn curve_bonus_bps(case: &Case, hf: i128) -> i128 {
+/// seizure keeps HF: `min(curve(hf), hf / LT - 1)`. The curve steps round half
+/// up and the cap rounds down, as in the controller.
+fn curve_bonus_bps(env: &Env, case: &Case, hf: i128) -> i128 {
     let lt = i128::from(case.threshold);
-    let max = BPS * (BPS - lt) / lt;
+    let max = mul_div_floor(env, BPS, BPS - lt, lt);
     let base = i128::from(case.bonus).min(max);
-    let target = case.curve.target_bps * WAD / BPS;
-    let knee = case.curve.knee_bps * WAD / BPS;
+    let (target, knee) = (case.curve.target_hf_wad, case.curve.hf_for_max_bonus_wad);
     let curve = if hf >= target {
         base
     } else {
-        let scale = ((target - hf) * WAD / (target - knee)).min(WAD);
-        base + (max - base) * scale / WAD * i128::from(case.curve.factor_bps) / BPS
+        let scale = mul_div_half_up(env, target - hf, WAD, target - knee).min(WAD);
+        let increment = mul_div_half_up(env, max - base, scale, WAD);
+        base + mul_div_half_up(env, increment, i128::from(case.curve.factor_bps), BPS)
     };
-    curve.min(hf_cap_bps(case, hf))
+    curve.min(hf_cap_bps(env, case, hf))
 }
 
 /// The bonus at which a single-leg seizure keeps HF: `hf / LT - 1`.
-fn hf_cap_bps(case: &Case, hf: i128) -> i128 {
-    hf * BPS * BPS / (i128::from(case.threshold) * WAD) - BPS
+fn hf_cap_bps(env: &Env, case: &Case, hf: i128) -> i128 {
+    mul_div_floor(env, hf, BPS * BPS, i128::from(case.threshold) * WAD) - BPS
 }
 
 /// USDC raw value of `units` shares at `price_wad` per share.
@@ -126,8 +139,8 @@ fn value_raw(units: i128, price_wad: i128) -> i128 {
 
 struct Outcome {
     receiver: u64,
-    loss: i128,
-    equity: i128,
+    paid: i128,
+    debt: i128,
 }
 
 struct Z {
@@ -237,8 +250,8 @@ fn setup(case: Case, nav_cents: i128) -> Z {
         &admin,
         &AdminOperation::SetSpokeLiquidationCurve(SpokeLiquidationCurveArgs {
             spoke_id: spoke,
-            target_hf_wad: case.curve.target_bps * WAD / BPS,
-            hf_for_max_bonus_wad: case.curve.knee_bps * WAD / BPS,
+            target_hf_wad: case.curve.target_hf_wad,
+            hf_for_max_bonus_wad: case.curve.hf_for_max_bonus_wad,
             liquidation_bonus_factor_bps: case.curve.factor_bps,
         }),
     );
@@ -393,18 +406,19 @@ impl Z {
     /// The receiver is zero for Transfer.
     fn liquidate(&mut self, id: u64, mode: SeizeMode) -> Outcome {
         let (p, nav, name) = (self.reported, self.nav, self.case.name);
+        let env = self.t.env.clone();
         let hf = self.t.ctrl_client().get_health_factor(&id);
         let (n0, d0) = (self.units(id), self.debt(id));
-        let bonus = curve_bonus_bps(&self.case, hf);
-        let payment = vec![&self.t.env, (self.usdc_key(), d0 + 10)];
+        let bonus = curve_bonus_bps(&env, &self.case, hf);
+        let payment = vec![&env, (self.usdc_key(), d0 + 10)];
         let quoted = self
             .t
             .ctrl_client()
             .get_liquidation_estimate(&id, &payment, &SeizeMode::Transfer)
             .bonus_rate_bps;
-        assert!(
-            (quoted - bonus).abs() <= 1,
-            "{name}: the quote applies the curve bonus at the reported HF {hf}: {quoted} vs {bonus}"
+        assert_eq!(
+            quoted, bonus,
+            "{name}: the quote applies the curve bonus at the reported HF {hf}"
         );
 
         let keeper = self.t.get_or_create_user("keeper");
@@ -426,33 +440,26 @@ impl Z {
         let (n1, d1) = (self.units(id), self.debt(id));
         let repaid = d0 - d1;
 
-        assert!(
-            paid >= repaid,
-            "{name}: debt retired without payment: paid {paid}, retired {repaid}"
+        assert_eq!(
+            paid, repaid,
+            "{name}: the liquidator pays exactly the debt it retires"
         );
         assert!(
-            n1 > 0 || d1 == 0,
-            "{name}: no debt stays without collateral"
+            d1 <= value_raw(n1, nav),
+            "{name}: borrower loss above equity at true NAV: debt {d1} stays on {n1} shares"
         );
 
-        let unit = value_raw(1, nav);
-        let loss = (n0 - n1) * unit - repaid;
-        let equity = n0 * unit - d0;
-        let full_close = if d1 == 0 { unit } else { 0 };
-        let seized_bound = paid * (BPS + bonus.max(quoted)) * nav;
-        let bound = (seized_bound + BPS * p - 1) / (BPS * p) - repaid + full_close;
+        let loss = mul_div_ceil(&env, n0 - n1, nav, WAD_PER_USDC_RAW) - repaid;
+        let full_close = if d1 == 0 { value_raw(1, nav) } else { 0 };
+        let bound = mul_div_floor(&env, paid, (BPS + bonus) * nav, BPS * p) - paid + full_close;
         assert!(
-            loss <= equity,
-            "{name}: borrower loss {loss} above equity {equity} at true NAV"
-        );
-        assert!(
-            loss <= bound,
+            loss <= bound + ROUNDING_TOLERANCE_RAW,
             "{name}: borrower loss {loss} above the curve bound {bound} (bonus {bonus}, paid {paid})"
         );
         Outcome {
             receiver,
-            loss,
-            equity,
+            paid,
+            debt: d0,
         }
     }
 
@@ -503,8 +510,18 @@ impl Z {
     fn move_to_floor_hf(&mut self, ids: &[u64]) {
         let lt = i128::from(self.case.threshold);
         let (units, debt) = (self.units(ids[0]), self.debt(ids[0]));
-        let floor = debt * WAD_PER_USDC_RAW * 98 / 100 * BPS / (units * lt);
-        self.move_band(floor * self.case.band_max_bps / self.case.band_min_bps);
+        let floor = mul_div_floor(
+            &self.t.env,
+            debt * WAD_PER_USDC_RAW,
+            98 * BPS,
+            100 * units * lt,
+        );
+        self.move_band(mul_div_floor(
+            &self.t.env,
+            floor,
+            self.case.band_max_bps,
+            self.case.band_min_bps,
+        ));
         self.report(self.band.0);
         for id in ids {
             assert!(
@@ -522,8 +539,8 @@ impl Z {
     }
 
     fn true_hf(&self, id: u64) -> i128 {
-        value_raw(self.units(id), self.nav) * i128::from(self.case.threshold) / BPS * WAD
-            / self.debt(id)
+        let weighted = value_raw(self.units(id), self.nav) * i128::from(self.case.threshold);
+        mul_div_floor(&self.t.env, weighted, WAD, BPS * self.debt(id))
     }
 
     /// Opens one account per size, each borrowed to the LTV limit.
@@ -643,10 +660,14 @@ fn lqv_oracle_bound_markdown_to_hf_one_then_band_floor() {
                 SeizeMode::Transfer
             };
             let out = z.liquidate(*id, mode);
-            if curve_bonus_bps(&case, hf) == hf_cap_bps(&case, hf) {
+            if curve_bonus_bps(&z.t.env, &case, hf) == hf_cap_bps(&z.t.env, &case, hf) {
                 at_cap += 1;
-                assert_eq!(out.loss, out.equity, "{}", case.name);
-                assert!(!z.exists(*id), "{}", case.name);
+                assert!(!z.exists(*id), "{}: the account closes", case.name);
+                assert_eq!(
+                    out.paid, out.debt,
+                    "{}: the liquidator repays the whole debt",
+                    case.name
+                );
             }
             if out.receiver != 0 {
                 accounts.push(("keeper".into(), out.receiver));
@@ -684,7 +705,7 @@ fn lqv_oracle_bound_one_unit_sale() {
     for case in CASES {
         let (mut z, accounts) = whole_unit_setup(case);
         let hf = z.t.ctrl_client().get_health_factor(&accounts[0].1);
-        let bonus = curve_bonus_bps(&case, hf);
+        let bonus = curve_bonus_bps(&z.t.env, &case, hf);
         if case.curve.factor_bps == DEFAULT_CURVE.factor_bps {
             assert!(
                 bonus > 5 * i128::from(case.bonus),
@@ -719,7 +740,11 @@ fn lqv_oracle_bound_full_close_by_one_unit() {
             assert_eq!(z.units(id), 1, "{}", case.name);
             let out = z.liquidate(id, mode);
             assert!(!z.exists(id), "{}: the account closes", case.name);
-            assert_eq!(out.loss, out.equity, "{}", case.name);
+            assert_eq!(
+                out.paid, out.debt,
+                "{}: the liquidator repays the whole debt for one share",
+                case.name
+            );
             if out.receiver != 0 {
                 assert_eq!(z.units(out.receiver), 1, "{}", case.name);
             }
