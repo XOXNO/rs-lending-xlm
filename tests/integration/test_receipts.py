@@ -226,6 +226,16 @@ for event in moved['v4']['diagnostic_events']:
 pool_fault=deepcopy(failed); pool_fault['result']['resultMetaXdr']=encode('TransactionMeta',moved)
 rejected(pool_fault,failed_hash,passphrase,controller,'borrow')
 
+def outside_key(value):
+    meta=decode('TransactionMeta',failed['result']['resultMetaXdr'])
+    for event in meta['v4']['diagnostic_events']:
+        data=event['event']['body']['v0']['data']
+        if isinstance(data,dict) and data.get('vec',[{}])[0]=={'string':'trying to access contract data key outside of the footprint'}:
+            data['vec'][2]=value
+    receipt=deepcopy(failed); receipt['result']['resultMetaXdr']=encode('TransactionMeta',meta)
+    return receipt
+rejected(outside_key({'symbol':'LastTimestamp'}),failed_hash,passphrase,controller,'borrow')
+
 def also(edit):
     def change(tx): next_round(tx); edit(tx['ext']['v1']['resources']['footprint'])
     return change
@@ -240,6 +250,8 @@ def wrong_round(fp):
 def extra_read_write(fp):
     entry=deepcopy(next(k for k in fp['read_write'] if 'contract_data' in k))
     entry['contract_data']['key']={'u64':'8'}; fp['read_write'].append(entry)
-for edit in (to_read_write, extra_persistent, wrong_round, extra_read_write):
+def non_round_entry(fp):
+    entry=deepcopy(fp['read_only'][-1]); entry['contract_data']['key']={'symbol':'LastTimestamp'}; fp['read_only'].append(entry)
+for edit in (to_read_write, extra_persistent, wrong_round, extra_read_write, non_round_entry):
     rejected(failed,failed_hash,passphrase,controller,'borrow',*retried(also(edit)))
 print('Footprint-drift retries need a committed storage-limit failure and the same call with a moved footprint')

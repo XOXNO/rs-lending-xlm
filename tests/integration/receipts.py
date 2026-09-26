@@ -99,6 +99,10 @@ ROUND_ORACLES = {'CCYOZJCOPG34LLQQ7N24YXBM7LL62R7ONMZ3G6WZAAYPB5OYKOMJRN63'}
 OUTSIDE_FOOTPRINT = {'string': 'trying to access contract data key outside of the footprint'}
 
 
+def is_round(key):
+    return isinstance(key, dict) and set(key) == {'u64'} and str(key['u64']).isdigit()
+
+
 def footprint_limit_failure(receipt, hash_, passphrase, contract, method):
     """Accept only a committed FAILED call that read a live oracle round outside its footprint."""
     verify(receipt, hash_, passphrase, 'FAILED', contract, method)
@@ -113,9 +117,12 @@ def footprint_limit_failure(receipt, hash_, passphrase, contract, method):
               (decode('TransactionMeta', result['resultMetaXdr']).get('v4') or {}).get('diagnostic_events') or []]
     if not any(event['topics'] == [{'symbol': 'host_fn_failed'}, *limit] for event in events):
         raise ValueError('failure is not a storage footprint limit')
-    missing = {(event['data']['vec'][1]['address'], json.dumps(event['data']['vec'][2], sort_keys=True))
+    outside = [(event['data']['vec'][1]['address'], event['data']['vec'][2])
                for event in events if event['topics'] == [{'symbol': 'error'}, *limit]
-               and isinstance(event['data'], dict) and event['data'].get('vec', [None])[0] == OUTSIDE_FOOTPRINT}
+               and isinstance(event['data'], dict) and event['data'].get('vec', [None])[0] == OUTSIDE_FOOTPRINT]
+    if any(not is_round(key) for _, key in outside):
+        raise ValueError('missing key is not an oracle round key')
+    missing = {(address, json.dumps(key, sort_keys=True)) for address, key in outside}
     transaction = envelope['tx']['tx']
     declared = {(entry['contract_data']['contract'], json.dumps(entry['contract_data']['key'], sort_keys=True))
                 for keys in transaction['ext']['v1']['resources']['footprint'].values()
@@ -141,7 +148,8 @@ def footprint_drift(failed, failed_hash, passphrase, contract, method, succeeded
         raise ValueError('retry changed the read-write footprint')
     moved = [json.loads(entry) for entry in keys(before, 'read_only') ^ keys(after, 'read_only')]
     if any(entry.get('contract_data', {}).get('contract') not in ROUND_ORACLES
-           or entry['contract_data']['durability'] != 'temporary' for entry in moved):
+           or entry['contract_data']['durability'] != 'temporary'
+           or not is_round(entry['contract_data']['key']) for entry in moved):
         raise ValueError('retry moved a footprint entry that is not a live oracle round')
     added = {(entry['contract_data']['contract'], json.dumps(entry['contract_data']['key'], sort_keys=True))
              for entry in moved if json.dumps(entry, sort_keys=True) in keys(after, 'read_only')}
