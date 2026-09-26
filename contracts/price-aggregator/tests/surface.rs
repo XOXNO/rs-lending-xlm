@@ -131,6 +131,68 @@ fn set_oracle_roundtrips_through_storage() {
 }
 
 #[test]
+fn set_oracle_rejects_a_decimals_change_on_an_existing_key() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_owner, client) = register_agg(&env);
+    let key = PriceKey::Token(Address::generate(&env));
+    let (feed, feed_client) = register_feed(&env);
+    feed_client.set_price(&String::from_str(&env, "NAV"), &WAD);
+
+    let mut listed = redstone_single(&env, &feed, "NAV", 900);
+    listed.asset_decimals = 0;
+    client.set_oracle(&key, &listed);
+
+    for relabelled in [2u32, 3, 7, 18] {
+        let mut changed = listed.clone();
+        changed.asset_decimals = relabelled;
+        assert_eq!(
+            client.try_set_oracle(&key, &changed),
+            Err(Ok(soroban_sdk::Error::from_contract_error(
+                Error::InvalidOracleDecimals as u32,
+            ))),
+            "a replacement moved asset_decimals 0 -> {relabelled}"
+        );
+    }
+    assert_eq!(client.oracle(&key), Some(listed));
+
+    let seven_key = PriceKey::Token(Address::generate(&env));
+    let seven = redstone_single(&env, &feed, "NAV", 900);
+    client.set_oracle(&seven_key, &seven);
+    for lowered in [0u32, 6] {
+        let mut changed = seven.clone();
+        changed.asset_decimals = lowered;
+        assert_eq!(
+            client.try_set_oracle(&seven_key, &changed),
+            Err(Ok(soroban_sdk::Error::from_contract_error(
+                Error::InvalidOracleDecimals as u32,
+            ))),
+            "a replacement moved asset_decimals 7 -> {lowered}"
+        );
+    }
+    assert_eq!(client.oracle(&seven_key), Some(seven));
+}
+
+#[test]
+fn set_oracle_replaces_a_key_that_keeps_its_decimals() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_owner, client) = register_agg(&env);
+    let key = PriceKey::Token(Address::generate(&env));
+    let (feed, feed_client) = register_feed(&env);
+    feed_client.set_price(&String::from_str(&env, "NAV"), &WAD);
+
+    let mut listed = redstone_single(&env, &feed, "NAV", 900);
+    listed.asset_decimals = 0;
+    client.set_oracle(&key, &listed);
+
+    let mut retuned = listed.clone();
+    retuned.min_sanity_price_wad = WAD * 96 / 100;
+    client.set_oracle(&key, &retuned);
+    assert_eq!(client.oracle(&key), Some(retuned));
+}
+
+#[test]
 fn child_reconfiguration_cannot_invalidate_parent_independence() {
     let env = Env::default();
     env.mock_all_auths();

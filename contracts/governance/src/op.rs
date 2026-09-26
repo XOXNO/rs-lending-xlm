@@ -32,13 +32,16 @@ fn validate_spoke_asset(env: &Env, args: &SpokeAssetArgs) {
     validate::asset::validate_spoke_cap_args(env, args.supply_cap, args.borrow_cap);
 }
 
-/// Returns a copy of `oracle` with `asset_decimals` set from the on-chain
-/// token contract for a `PriceKey::Token` key, or `0` for a `PriceKey::Ref`
-/// key.
+/// Returns a copy of `oracle` with `asset_decimals` set for `key`: for a
+/// `PriceKey::Token`, the stored oracle's decimals when one exists, otherwise
+/// the on-chain token decimals; `0` for a `PriceKey::Ref`.
 pub(crate) fn resolve_oracle(env: &Env, key: &PriceKey, oracle: &AssetOracle) -> AssetOracle {
     let mut resolved = oracle.clone();
     resolved.asset_decimals = match key {
-        PriceKey::Token(asset) => validate::asset::validate_and_fetch_token_decimals(env, asset),
+        PriceKey::Token(asset) => {
+            let token_decimals = validate::asset::validate_and_fetch_token_decimals(env, asset);
+            validate::asset::listed_token_decimals(env, asset, token_decimals)
+        }
         PriceKey::Ref(_) => 0,
     };
     resolved
@@ -288,7 +291,7 @@ pub(crate) fn resolve_op(env: &Env, op: &AdminOperation) -> ResolvedOperation {
                 env,
                 &args.asset,
                 &args.params,
-                token_decimals,
+                validate::asset::listed_token_decimals(env, &args.asset, token_decimals),
             );
             controller_operation(
                 env,

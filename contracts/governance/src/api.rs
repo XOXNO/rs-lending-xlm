@@ -108,8 +108,9 @@ impl GovernanceInterface for Governance {
         validate_and_calculate_tolerances(&env, tolerance)
     }
 
-    /// Resolves `oracle` for `key`, filling in `asset_decimals` from the
-    /// token contract for a `PriceKey::Token` key or `0` for `PriceKey::Ref`.
+    /// Resolves `oracle` for `key`, filling in `asset_decimals` for a
+    /// `PriceKey::Token` key from the stored oracle when one exists, otherwise
+    /// from the token contract, or `0` for `PriceKey::Ref`.
     fn resolve_asset_oracle(env: Env, key: PriceKey, oracle: AssetOracle) -> AssetOracle {
         op::resolve_oracle(&env, &key, &oracle)
     }

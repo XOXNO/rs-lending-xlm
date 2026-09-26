@@ -24,9 +24,10 @@ use crate::timelock::*;
 ///
 /// `RevokeGovRole` rejects a target that is the proposer or the owner, and records
 /// the target so it cannot cancel its own revocation. Ownership transfers, code
-/// upgrades, controller migration, price aggregator and oracle configuration, the
-/// swap aggregator, Blend pool approval, the revenue accumulator, and role grants
-/// also require the proposer to be the owner. These checks fail with
+/// upgrades, controller migration, the timelock minimum delay, price aggregator
+/// and oracle configuration, the swap aggregator, Blend pool approval, the
+/// revenue accumulator, and role grants also require the proposer to be the
+/// owner. These checks fail with
 /// `GenericError::NotAuthorized`. The delay comes from the operation's delay tier.
 pub(crate) fn propose(
     env: &Env,
@@ -52,6 +53,7 @@ pub(crate) fn propose(
         | AdminOperation::UpgradePositionNft(_)
         | AdminOperation::UpgradePriceAggregator(_)
         | AdminOperation::MigrateController(_)
+        | AdminOperation::UpdateGovDelay(_)
         | AdminOperation::SetPriceAggregator(_)
         | AdminOperation::ConfigureAssetOracle(_)
         | AdminOperation::EditOracleTolerance(_)
