@@ -35,6 +35,7 @@ harness suite runs at libtest's default of one thread per core.
 | `strategy_multiply_budget.rs` | `multiply` under Soroban budget limits |
 | `strategy_router_invariants.rs` | HF, allowance, swap payload guards |
 | `liquidation_vs_reference.rs` | Liquidation vs `BigRational` reference |
+| `whole_unit_liquidation.rs` | Whole-unit liquidation of a collateral leg below 3 decimals vs the documented rules |
 
 ## Properties
 
@@ -55,6 +56,8 @@ harness suite runs at libtest's default of one thread per core.
 | `prop_liquidation_matches_bigrational_reference` | Every generated account is liquidatable and in differential scope; liquidation in `SeizeMode::Transfer` or `SeizeMode::Credit` succeeds and matches `reference::compute_liquidation` (repaid, seized, protocol fee) within the ULP bounds | Liquidation math drift and silently skipped cases |
 | `prop_below_base_liquidation_matches_reference_and_never_loses_the_liquidator_money` | Band (`D <= C < D * (1 + base)`) and insolvent accounts, offers up to 1.5x the debt: bonus within 1 bps and repayment within one debt-token unit of the reference, insolvent pull capped at the collateral-backed quote, liquidator receives at least what it spends (within 2 raw USDC units), a band partial never lowers coverage | Band and insolvent quote drift, liquidator loss |
 | `below_base_differential_holds_at_exact_cover` | The same checks at collateral equal to debt, with offers of 5%, 100% and 150% of the debt | Exact-cover boundary |
+| `prop_whole_unit_liquidation_holds_the_documented_bounds` | A 0-, 1- or 2-decimal collateral leg ($0.50 to $100,000 a unit, 2 to 50,000 units, LT 25% to 90%, random curve) borrows USDC and an optional 6- or 18-decimal leg. The price falls into an HF band, below cover, or onto the edge where one unit at `1 + b` equals the debt. Debt-sized liquidations of the residue follow. Each settled call moves whole units only (P1). The liquidator receives at most `paid * (1 + b)`, plus one unit when it repays all debt, or plus `(1 + b)` times one base unit per debt leg (P2). A plan that leaves debt charges at least `units * U / (1 + b)` less one base unit per debt leg (P3). `C / D` does not fall on a solvent account, within 1e-12 (P4). Debt falls, and no debt stays without collateral (P5). Pool units equal account units plus revenue (P6). Execution equals `get_liquidation_estimate` (P7). A debt-sized offer on a solvent account reverts only inside the margin band (P8). The run prints the outcome and revert counts | Whole-unit rounding, rule 1 and rule 2 drift, liquidator over-reward, estimate drift, liveness gaps outside the band |
+| `wul_*` | Deterministic unit-edge cases: inside the margin band every offer reverts until one day of accrual; above it a debt-sized offer closes the debt for one unit; below it the offer sells one unit; a one-unit residue at cover closes at bonus 0; two units at the testnet LIQVID1039 listing stay healthy at the unit edge | Band, rule 1, rule 2 and residue boundaries |
 
 Flash-loan repayment with strict per-call auth is covered by deterministic tests in `tests/controller/flash_loan.rs`.
 
