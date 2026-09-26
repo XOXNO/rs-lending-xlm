@@ -54,7 +54,7 @@ concurrency:
 
 jobs:
   pr-fuzz:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     name: Fuzz smoke (PR)
     runs-on: self-hosted
     steps:
@@ -112,7 +112,7 @@ jobs:
         run: make fuzz-contract FUZZ_TIME=60
 
   pr-proptest:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     name: Proptest smoke (PR)
     runs-on: self-hosted
     steps:
@@ -149,7 +149,7 @@ jobs:
         run: make proptest
 
   miri:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     name: Miri pass (common fp_core)
     runs-on: self-hosted
 
@@ -169,7 +169,7 @@ jobs:
       - run: make miri-all
 
   mutants-diff:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     name: Mutants (PR diff) ${{ matrix.shard }}
     runs-on: self-hosted
     timeout-minutes: 360

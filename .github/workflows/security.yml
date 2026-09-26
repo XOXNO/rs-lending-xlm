@@ -32,6 +32,7 @@ concurrency:
 
 jobs:
   access-control:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     name: Access Control Gate
     runs-on: self-hosted
     steps:
@@ -50,6 +51,7 @@ jobs:
         run: make access-control-check
 
   security-scan:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     name: Security Scan (OpenZeppelin)
     runs-on: self-hosted
     steps:

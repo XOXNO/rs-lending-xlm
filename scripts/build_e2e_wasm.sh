@@ -14,7 +14,7 @@ candidate)
     out=artifacts/wasm/deploy
     mkdir -p "$out" target/optimized
     for pkg in controller pool governance price-aggregator position-nft defindex-strategy swap-aggregator xoxno-oracle; do
-        stellar contract build --package "$pkg" --optimize --out-dir target/optimized
+        stellar contract build --locked --package "$pkg" --optimize --out-dir target/optimized
         name="${pkg//-/_}"
         case "$pkg" in swap-aggregator) name=aggregator;; xoxno-oracle) name=xoxno-oracle-adapter;; esac
         if [ "$name" != "${pkg//-/_}" ]; then
@@ -28,7 +28,7 @@ fixtures)
     out=artifacts/wasm/fixtures
     mkdir -p "$out"
     for pkg in mock-oracle mock-redstone flash-loan-receiver flash-position-receiver script-runner production-fixture; do
-        stellar contract build --package "$pkg" --optimize --out-dir "$out"
+        stellar contract build --locked --package "$pkg" --optimize --out-dir "$out"
     done
     ;;
 *) echo "unknown build mode: $mode" >&2; exit 2;;

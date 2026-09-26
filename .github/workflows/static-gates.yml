@@ -17,8 +17,20 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  fork-pull-request:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
+    name: Fork pull request
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Self-hosted gates need a branch in this repository
+        run: |
+          echo "::error::Fork pull requests do not run the self-hosted gates. A maintainer must push this branch to this repository to run them."
+          exit 1
+
   # Offline gates: no contract deployment or live-network tests.
   static-gates:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     name: Static Gates
     runs-on: self-hosted
     steps:
@@ -31,8 +43,10 @@ jobs:
           git reset --hard
           git clean -ffdx -e target
 
-      - name: Workflow actions pinned, Static Gates unfiltered
-        run: python3 .github/scripts/check_workflows.py
+      - name: Workflow actions pinned, Static Gates unfiltered, self-hosted jobs fork-guarded
+        run: |
+          python3 .github/scripts/test_check_workflows.py
+          python3 .github/scripts/check_workflows.py
 
       - name: stellar-cli installer verifies its download
         run: bash .github/scripts/test_install_stellar_cli.sh
