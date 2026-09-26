@@ -164,16 +164,21 @@
   },
   "5": {
     "name": "Liqvid Private Credit",
+    "liquidation_curve": {
+      "target_hf_wad": "1060000000000000000",
+      "hf_for_max_bonus_wad": "900000000000000000",
+      "liquidation_bonus_factor_bps": 598
+    },
     "assets": {
       "LIQVID1039": {
         "hub_id": 4,
         "can_be_collateral": true,
         "can_be_borrowed": false,
         "ltv": 5000,
-        "liquidation_threshold": 6000,
+        "liquidation_threshold": 5300,
         "liquidation_bonus": 500,
         "liquidation_fees": 0,
-        "supply_cap": "1000000",
+        "supply_cap": "970873",
         "borrow_cap": "0"
       },
       "USDC_LIQVID": {

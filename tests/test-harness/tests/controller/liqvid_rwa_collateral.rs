@@ -47,12 +47,15 @@ const THOUSAND_DOLLAR_SHARES: Listing = Listing {
     bonus: 500,
 };
 
-/// The testnet LIQVID1039 listing: $1 shares, LTV 50% / LT 60% / bonus 5%.
+/// $1 shares with the LTV, LT and bonus of the testnet LIQVID1039 listing:
+/// LTV 50% / LT 53% / bonus 5%. The spoke keeps the default curve (target
+/// HF 1.10, full bonus at HF 0.80, factor 10000) and the harness oracle, not
+/// the listing curve and band; `liqvid_listing_params.rs` covers those.
 const LISTED_ONE_DOLLAR_SHARES: Listing = Listing {
     decimals: 0,
     unit_cents: 100,
     ltv: 5_000,
-    threshold: 6_000,
+    threshold: 5_300,
     bonus: 500,
 };
 
@@ -1014,7 +1017,7 @@ fn lqv_a_share_leg_stays_its_accounts_only_supply_position() {
     assert_eq!(supplies.len(), 1);
 }
 
-/// The testnet listing ($1 shares, LT 60%): a NAV markdown path liquidates in
+/// $1 shares at LT 53% on the default curve: a NAV markdown path liquidates in
 /// whole shares, and a gap into insolvency seizes every remaining share.
 #[test]
 fn lqv_listed_one_dollar_shares_markdown_and_insolvency() {
