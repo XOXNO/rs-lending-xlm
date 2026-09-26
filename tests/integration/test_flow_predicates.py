@@ -133,6 +133,26 @@ start=$(date +%s); prod_ops setupAll >/dev/null; rc=$?; echo "$(( $(date +%s) - 
             result=shell('flows/production.sh','BAD=$(printf "%064d" 7); '+body,d)
             self.assertNotEqual(result.returncode,0)
             self.assertNotIn('operator_setupAll ok',(root/'records').read_text())
+    def test_setup_binds_proposals_to_executions_and_replay_sends_nothing(self):
+        def call(fn,salt):
+            return {'function_name':fn,'contract_address':'GOV','args':[{'address':'ADMIN'},{'bytes':salt}]}
+        for tag,calls,ok in [('setupAll',[call('propose','aa'),call('propose','bb'),call('execute','aa'),call('execute','bb')],True),
+                             ('setupAll',[call('propose','aa'),call('propose','bb'),call('execute','aa')],False),
+                             ('setupAll',[call('propose','aa'),call('propose','bb'),call('execute','aa'),call('execute','aa')],False),
+                             ('setupAll_replay',[call('propose','aa')],False),
+                             ('setupAll_replay',[],True)]:
+            with tempfile.TemporaryDirectory() as d:
+                root=Path(d);(root/'configs').mkdir();(root/'logs').mkdir()
+                for n,c in enumerate(calls,1): (root/f'inv.{n}').write_text(json.dumps(c))
+                (root/'configs/script.sh').write_text(''.join(f"echo 'Signing transaction: {n:064d}' >&2\n" for n in range(1,len(calls)+1)) or 'true\n')
+                body='''RUN_DIR="$1"; LOG_DIR="$1/logs"; REPO_ROOT="$1"; ADMIN=admin; GOVERNANCE=GOV
+record() { :; }
+tx_status() { echo "{\\"result\\":{\\"envelopeXdr\\":\\"$(( 10#$1 ))\\"}}" > "$LOG_DIR/$1.receipt.json"; echo SUCCESS; }
+fetch_resources() { RES_INSTR=1 RES_READ=2 RES_WRITE=3 RES_FEE=4; }
+stellar() { local n; n=$(cat); echo "{\\"tx\\":{\\"tx\\":{\\"operations\\":[{\\"body\\":{\\"invoke_host_function\\":{\\"host_function\\":{\\"invoke_contract\\":$(cat "$RUN_DIR/inv.$n")}}}}]}}}"; }
+PROD_OP_TAG="$2" prod_ops setupAll >/dev/null'''
+                result=shell('flows/production.sh',body,d,tag)
+                self.assertEqual(result.returncode==0,ok,(tag,len(calls),result.stderr[-300:]))
     def test_split_governance_op_binds_propose_execute_and_record(self):
         salt='ab'*32; op='cd'*32
         propose={'function_name':'propose','contract_address':'GOV','args':[{'address':'ADMIN'},{'vec':[]},{'bytes':salt}]}

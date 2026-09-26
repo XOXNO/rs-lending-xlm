@@ -95,10 +95,12 @@ prod_execute_split() {
 prod_ops() {
     local verb="$1" tag="${PROD_OP_TAG:-$1}"; shift
     local logical="${PROD_OP_VERB:-$verb}" wasm="${PROD_OP_WASM:-${1:-}}" auto=1 executed_call='' op record_path
+    local proposal_salts='' execution_salts='' wave_log=''
+    [ "${PROD_SETUP_JOBS:-1}" -le 1 ] || wave_log="$LOG_DIR/operator_${tag}_wave"
     [ -z "${PROD_PROPOSE_ONLY:-}" ] || auto=0
     if NETWORK=testnet CONFIG_ROOT="$RUN_DIR/config" OPS_ROOT="$RUN_DIR/ops" SIGNER="$ADMIN" AUTO_EXECUTE="$auto" STELLAR_SEND=yes \
         AWAIT_MAX_WAIT_SECONDS=180 AWAIT_POLL_SECONDS=1 UNSET_MAX_POLLS=30 SETUP_JOBS="${PROD_SETUP_JOBS:-1}" SETUP_SOURCES="${PROD_SETUP_SOURCES:-}" \
-        bash "$REPO_ROOT/configs/script.sh" "$verb" "$@" >"$LOG_DIR/operator_$tag.out" 2>"$LOG_DIR/operator_$tag.err"; then
+        WAVE_LOG_DIR="$wave_log" bash "$REPO_ROOT/configs/script.sh" "$verb" "$@" >"$LOG_DIR/operator_$tag.out" 2>"$LOG_DIR/operator_$tag.err"; then
         local hash n=0 invocation method target proposed=0 executed=0 proposal_salt='' execution_salt='' salt
         local hashes="$LOG_DIR/operator_$tag.hashes"
         grep -oE 'Signing transaction: [0-9a-f]{64}' "$LOG_DIR/operator_$tag.err" | awk '{print $3}' | sort -u > "$hashes"
@@ -111,8 +113,8 @@ prod_ops() {
             method=$(jq -r '.function_name' <<<"$invocation"); target=$(jq -r '.contract_address' <<<"$invocation")
             if [ "$target" = "$GOVERNANCE" ]; then
                 case "$method" in
-                    propose) proposed=$((proposed+1)); proposal_salt=$(jq -r '.args[-1].bytes // empty' <<<"$invocation");;
-                    execute|execute_self) executed=$((executed+1)); execution_salt=$(jq -r '.args[-1].bytes // empty' <<<"$invocation"); executed_call="$invocation";;
+                    propose) proposed=$((proposed+1)); proposal_salt=$(jq -r '.args[-1].bytes // empty' <<<"$invocation"); proposal_salts="$proposal_salts $proposal_salt";;
+                    execute|execute_self) executed=$((executed+1)); execution_salt=$(jq -r '.args[-1].bytes // empty' <<<"$invocation"); executed_call="$invocation"; execution_salts="$execution_salts $execution_salt";;
                 esac
             fi
             if [[ "$logical" = upgrade*Hash ]]; then
@@ -123,9 +125,14 @@ prod_ops() {
             record "operator_${tag}_tx_$n" ok "$method" "$hash" "$RES_INSTR" "$RES_READ" "$RES_WRITE" "$RES_FEE" "operator confirmed receipt" transaction "$target"
         done < "$hashes"
         case "$tag" in
-            validateConfigs|setupAll_replay) ;;
+            validateConfigs) ;;
+            setupAll_replay) [ "$n" -eq 0 ] || { _assert_fail "operator_$tag" 'serial replay submitted transactions; the setup left work'; return 1; };;
             *) [ "$n" -gt 0 ] || { _assert_fail "operator_$tag" 'mutation returned without a confirmed submission'; return 1; };;
         esac
+        if [ "$tag" = setupAll ]; then
+            [ "$(printf '%s\n' $proposal_salts | sort)" = "$(printf '%s\n' $execution_salts | sort)" ] \
+                || { _assert_fail "operator_$tag" 'setup proposals and executions differ'; return 1; }
+        fi
         if [ -n "${PROD_PROPOSE_ONLY:-}" ]; then
             op=$(grep -oE 'Scheduled op [0-9a-f]+ \(AUTO_EXECUTE=0' "$LOG_DIR/operator_$tag.err" | awk '{print $3}' | tail -n1)
             record_path="$RUN_DIR/ops/testnet/$op.json"

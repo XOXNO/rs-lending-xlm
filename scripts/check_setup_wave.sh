@@ -41,15 +41,18 @@ require_spoke_caps_configured() { :; }
 enabled_market_names() { echo "M1 M2 M3 M4 M5 M6"; }
 enabled_spoke_ids() { echo "1 2"; }
 enabled_spoke_asset_names() { echo "A B C"; }
+op_state() { [ "$1" = "${DONE_OP:-}" ] && echo Done || echo Ready; }
 ensure_spoke() {
     log spoke "$1"
+    if [ "$1" = "${SLOW_SPOKE:-}" ]; then sleep 4; touch "$LOG.spoke-end.$1"; fi
     jq --arg c "$1" --argjson id "$(( $1 + 10 ))" '.testnet.spoke_ids[$c] = $id' "$NETWORKS_FILE" > "$NETWORKS_FILE.tmp" && mv "$NETWORKS_FILE.tmp" "$NETWORKS_FILE"
     echo "$(( $1 + 10 ))"
 }
-get_mapped_spoke_id() { jq -r --arg c "$1" '.testnet.spoke_ids[$c] // empty' "$NETWORKS_FILE"; }
+get_mapped_spoke_id() { [ "$1" != "${MISSING_SPOKE:-}" ] || return 0; jq -r --arg c "$1" '.testnet.spoke_ids[$c] // empty' "$NETWORKS_FILE"; }
 setup_all_reference_oracles() { log refs; }
 create_market() {
     [ "${FAIL_MARKET:-}" != "$1" ] || return 1
+    if [ "${BARE_FAIL_MARKET:-}" = "$1" ]; then false; log after-false "$1"; fi
     log market "$1" "cfg=$NETWORKS_FILE"; sleep 1
 }
 configure_market_oracle() {
@@ -65,9 +68,12 @@ EOF
 
 run_wave() {
     : > "$tmp/log"
+    rm -f "$tmp"/log.spoke-end.*
     echo '{"testnet":{"spoke_ids":{}}}' > "$tmp/networks.json"
     env LOG="$tmp/log" NETWORKS_FILE="$tmp/networks.json" NETWORK="${NET:-testnet}" SIGNER="${SIGNER_ID:-admin}" \
         SETUP_JOBS="${JOBS:-5}" SETUP_SOURCES="${SOURCES:-c0 c1 c2 c3 c4}" MARKET_CONFIG_FILE=markets.json FAIL_MARKET="${FAIL_MARKET:-}" \
+        BARE_FAIL_MARKET="${BARE_FAIL_MARKET:-}" SLOW_SPOKE="${SLOW_SPOKE:-}" MISSING_SPOKE="${MISSING_SPOKE:-}" DONE_OP="${DONE_OP:-}" \
+        ${WAVE_LOG_DIR:+WAVE_LOG_DIR="$WAVE_LOG_DIR"} \
         bash -c "source '$tmp/stubs.sh'; source '$tmp/lib.sh'; setup_all_wave" > "$tmp/out" 2> "$tmp/err"
 }
 
@@ -96,5 +102,17 @@ NET=mainnet run_wave && fail "wave mode ran on mainnet"
 grep -q 'testnet-only' "$tmp/err" || fail "mainnet refusal message missing"
 SIGNER_ID=ledger run_wave && fail "wave mode ran with a Ledger signer"
 SOURCES="c0 c1" run_wave && fail "wave mode ran with fewer than 3 sources"
-FAIL_MARKET=M3 run_wave && fail "a failed market worker did not fail the wave"
+FAIL_MARKET=M3 SLOW_SPOKE=2 WAVE_LOG_DIR="$tmp/wave" run_wave && fail "a failed market worker did not fail the wave"
+[ -f "$tmp/log.spoke-end.2" ] || fail "a failed wave returned while the spoke stream was still running"
+grep -q ' refs ' "$tmp/log" || fail "the reference stream was not drained after a failed market"
+ls "$tmp"/wave/create_market.*.err >/dev/null 2>&1 || fail "failed wave logs were not kept in WAVE_LOG_DIR"
+BARE_FAIL_MARKET=M3 run_wave && fail "a bare failing command in a worker did not fail the wave"
+grep -q ' after-false ' "$tmp/log" && fail "a worker kept running after a failing command (errexit lost)"
+MISSING_SPOKE=2 run_wave && fail "a missing spoke id did not fail the wave"
+[ "$(grep -c ' exec-end ' "$tmp/log")" = 6 ] && grep -q ' curves ' "$tmp/log" || fail "streams were not drained before the listing failure"
+grep -q ' asset ' "$tmp/log" && fail "spoke assets were listed despite a missing spoke id"
+DONE_OP=030 run_wave || fail "a Done oracle op failed the wave"
+grep -q ' exec-start 030 ' "$tmp/log" && fail "a Done oracle op was executed again"
+WAVE_LOG_DIR="$tmp/keep" run_wave || fail "green wave with WAVE_LOG_DIR failed"
+[ -d "$tmp/keep" ] || fail "WAVE_LOG_DIR was removed after a green wave"
 echo "setupAll wave mode: default stays serial, testnet-only, isolated sources, serial oracle executes"
