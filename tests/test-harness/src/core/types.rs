@@ -36,6 +36,7 @@ pub(crate) struct PendingMarket {
     pub configure_oracle: bool,
 
     pub freezable: bool,
+    pub rwa_gated: bool,
     pub shortfall_bps: i128,
     pub extra_bps: i128,
     pub transfer_hook: bool,
@@ -52,6 +53,7 @@ impl PendingMarket {
             params: preset.params,
             configure_oracle: true,
             freezable: false,
+            rwa_gated: false,
             shortfall_bps: 0,
             extra_bps: 0,
             transfer_hook: false,

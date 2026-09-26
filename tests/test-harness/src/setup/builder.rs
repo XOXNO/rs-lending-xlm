@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use governance::op::{AdminOperation, ConfigureAssetOracleArgs, CreatePoolArgs, SpokeAssetArgs};
 use soroban_sdk::testutils::{Address as _, Ledger, LedgerInfo};
-use soroban_sdk::{token, Address, Env, TryFromVal};
+use soroban_sdk::{token, Address, Env, String, TryFromVal};
 
 use crate::core::{LendingTest, MarketState, PendingMarket, PendingSpoke};
 use crate::helpers::{f64_to_i128, hub_asset, HARNESS_HUB, HARNESS_SPOKE};
@@ -12,6 +12,7 @@ use crate::presets::{
     unconstrained_test_cap, AssetConfigPreset, MarketParamsPreset, MarketPreset, SpokePreset,
     DEFAULT_TOLERANCE, LEDGER_PROTOCOL_VERSION,
 };
+use crate::rwa_gated_token::{RwaGatedToken, RwaGatedTokenClient};
 
 pub struct LendingTestBuilder {
     pending_markets: Vec<PendingMarket>,
@@ -44,6 +45,13 @@ impl LendingTestBuilder {
     pub fn with_freezable_market(mut self, preset: MarketPreset) -> Self {
         let mut pending = PendingMarket::from_preset(preset);
         pending.freezable = true;
+        self.pending_markets.push(pending);
+        self
+    }
+
+    pub fn with_rwa_gated_market(mut self, preset: MarketPreset) -> Self {
+        let mut pending = PendingMarket::from_preset(preset);
+        pending.rwa_gated = true;
         self.pending_markets.push(pending);
         self
     }
@@ -293,6 +301,7 @@ impl LendingTestBuilder {
 
         for pm in &self.pending_markets {
             let needs_mock_token = pm.freezable
+                || pm.rwa_gated
                 || pm.decimals != 7
                 || pm.shortfall_bps != 0
                 || pm.extra_bps != 0
@@ -310,6 +319,14 @@ impl LendingTestBuilder {
                 if pm.transfer_hook {
                     client.set_hook(&controller_address);
                 }
+                addr
+            } else if pm.rwa_gated {
+                let addr = env.register(RwaGatedToken, ());
+                RwaGatedTokenClient::new(&env, &addr).set_metadata(
+                    &pm.decimals,
+                    &String::from_str(&env, pm.name),
+                    &String::from_str(&env, pm.name),
+                );
                 addr
             } else if needs_mock_token {
                 let addr = env.register(crate::freezable_token::FreezableToken, ());
