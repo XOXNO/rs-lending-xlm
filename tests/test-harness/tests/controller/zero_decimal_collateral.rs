@@ -1015,25 +1015,31 @@ fn zdc_liquidator_sized_to_whole_units_keeps_the_bonus() {
 }
 
 /// Closes `units` shares at `C / D = ratio_ppm / 1e6` with an offer of twice
-/// the debt. Returns profit, collateral and debt in WAD USD, and the outcome.
-fn zdc_payoff_at_cover_ratio(units: i128, ratio_ppm: i128) -> (i128, i128, i128, LiqOutcome) {
+/// the debt. Returns profit, collateral and debt in WAD USD, the outcome, and
+/// the drop of the USDC supply index (RAY).
+fn zdc_payoff_at_cover_ratio(units: i128, ratio_ppm: i128) -> (i128, i128, i128, LiqOutcome, i128) {
     let mut z = setup(nav(1_000));
+    z.t.supply("bob", "USDC", 100_000.0);
     let id = open(&mut z, "alice", units, 1_000, 5_990);
     let debt = z.t.ctrl_client().get_total_borrow_usd(&id);
     let price = debt * ratio_ppm / (1_000_000 * units);
     z.t.set_price(LIQ, price);
     let collateral = z.t.ctrl_client().get_total_collateral_usd(&id);
     let offer = 2 * z.debt_raw(id);
+    let idx_before = z.supply_index(z.usdc_key());
     let out = z.liquidate(id, offer, SeizeMode::Transfer).unwrap();
+    let idx_drop = idx_before - z.supply_index(z.usdc_key());
     let profit = out.got_units * price - out.paid_usdc_raw * (WAD / USDC_UNIT);
-    (profit, collateral, debt, out)
+    (profit, collateral, debt, out, idx_drop)
 }
 
 #[test]
 fn zdc_liquidator_payoff_jumps_where_collateral_falls_below_debt() {
     for units in 2..=5i128 {
-        let (above, c_above, d_above, out_above) = zdc_payoff_at_cover_ratio(units, 1_005_000);
-        let (below, c_below, d_below, out_below) = zdc_payoff_at_cover_ratio(units, 995_000);
+        let (above, c_above, d_above, out_above, drop_above) =
+            zdc_payoff_at_cover_ratio(units, 1_005_000);
+        let (below, c_below, d_below, out_below, drop_below) =
+            zdc_payoff_at_cover_ratio(units, 995_000);
         std::println!(
             "{units} units, D ${}: profit ${:.4} at C/D 1.005, ${:.4} at 0.995",
             d_above / WAD,
@@ -1054,6 +1060,7 @@ fn zdc_liquidator_payoff_jumps_where_collateral_falls_below_debt() {
             (above - (c_above - d_above)).abs() <= WAD / USDC_UNIT,
             "{units}: the band pays C - D within one USDC unit"
         );
+        assert_eq!(drop_above, 0, "{units}: the band leaves the USDC index");
 
         assert_eq!(
             out_below.got_units, units,
@@ -1063,6 +1070,7 @@ fn zdc_liquidator_payoff_jumps_where_collateral_falls_below_debt() {
             !out_below.account_exists,
             "{units}: the residue is socialized"
         );
+        assert!(drop_below > 0, "{units}: the USDC index drops");
         let backed = c_below * 20 / 21;
         assert_eq!(
             below,

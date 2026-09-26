@@ -77,6 +77,8 @@ At `C / D = 0.995` the lenders lose `D - floor(C / 1.05)`. That is 5.238 % of
 `D`, or $73.33 at `D = $1,400`. The hub socializes this loss in the same call.
 At `C / D = 1.005` the lenders lose nothing. The 7-decimal test reads both
 results from the bad-debt event: $73.33 below `C = D`, and no event above it.
+The 0-decimal test adds a USDC supplier. It checks that the USDC supply index
+falls below `C = D` and does not change above it.
 
 ## Why no small change is safe
 
@@ -123,10 +125,13 @@ The rule would not hold for `β(x)`. Two changes stop the split:
 Each change touches `curve.rs`, `math.rs`, the Certora specifications and the
 liquidator tools. Neither is small.
 
-The continuous payoff also removes the incentive near `C = D`. It gives a lower
-lender loss only when a liquidator acts at a profit below
-`D * b / (2 * (1 + b))`, which is 2.38 % of `D` at `b = 5 %`. A liquidator of an
-illiquid, allowlisted share can need more margin than that.
+The continuous payoff also removes the incentive near `C = D`. The baseline is
+the lender loss of today just below `C = D`: `D * b / (1 + b)`, which is
+4.76 % of `D` at `b = 5 %`. When the continuous payoff pays `P = D - C`, the
+lender loss is `2 * P`. Thus it gives a lower lender loss only when a
+liquidator acts at a profit below `D * b / (2 * (1 + b))`, which is 2.38 % of
+`D`. A liquidator of an illiquid, allowlisted share can need more margin than
+that.
 
 ### The audit option (b) makes new bad debt
 
@@ -146,8 +151,10 @@ debt. This option is not acceptable.
   $66.33 below `C = D`.
 - The highest profit comes before the band. The harness gives 16.30 % of `D`
   at `x = 1.163` for LT 8000 (a probe, not a pinned test). The real-valued
-  model agrees with it. The model gives 29.46 % at `x = 1.2946` for LT 7000,
-  and 48.26 % at `x = 1.4826` for LT 6000 with the default curve.
+  model agrees with it. The model gives 29.45 % at `x = 1.2945` for LT 7000,
+  and 48.26 % at `x = 1.4826` for LT 6000 with the default curve. The model
+  uses the maximum bonus that the contract floors to whole BPS: 4285 BPS for
+  LT 7000, with the peak at `x = 1.294539`.
 - The gain from a wait is at most `D * b / (1 + b) - (x - 1) * D` for each
   account. It stays in one account, and the hub socializes it.
 - A NAV step that goes over the band makes the window not important. The
