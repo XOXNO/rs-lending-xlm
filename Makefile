@@ -614,6 +614,7 @@ access-control-check:
 ops-script-check:
 	@bash -n configs/script.sh
 	@bash scripts/check_spoke_script_guards.sh
+	@bash scripts/check_setup_wave.sh
 	@bash scripts/check_script_verbs.sh "$(ALL_ACTIONS)" "$(MAKEFILE_ACTIONS)"
 
 

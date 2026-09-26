@@ -38,7 +38,7 @@ inv() {
         fresh_at=$now; refreshed=$((refreshed+1))
     else echo '"PA"'; fi
 }
-prod_propose() { :; }; prod_execute_split() { :; }
+prod_propose() { :; }; prod_execute_split() { :; }; prod_channels() { PROD_CHANNELS=c; }
 prod_ops() {
     case "$1" in
         deployPool) echo '"POOL"';; deployPositionNft) echo '"NFT"';;

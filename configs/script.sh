@@ -2974,6 +2974,81 @@ setup_all_markets() {
     echo "=== All markets configured ==="
 }
 
+wave_each() {
+    local dir=$1 fn=$2; shift 2
+    local -a sources=($WAVE_SOURCES) items=("$@") pids=()
+    local jobs=${#sources[@]} w i failed=0
+    [ "$jobs" -gt 0 ] || die "wave ${fn}: no channel sources"
+    [ "${#items[@]}" -ge "$jobs" ] || jobs=${#items[@]}
+    for ((w = 0; w < jobs; w++)); do
+        (
+            SOURCE_FLAG="--source ${sources[$w]}"
+            for ((i = w; i < ${#items[@]}; i += jobs)); do
+                "$fn" ${items[$i]} || exit 1
+            done
+        ) >"$dir/$fn.$w.out" 2>"$dir/$fn.$w.err" &
+        pids+=($!)
+    done
+    for ((w = 0; w < ${#pids[@]}; w++)); do wait "${pids[$w]}" || failed=1; done
+    for ((w = 0; w < jobs; w++)); do cat "$dir/$fn.$w.out"; cat "$dir/$fn.$w.err" >&2; done
+    [ "$failed" -eq 0 ] || die "wave ${fn} failed; see output above"
+}
+
+wave_stream_wait() {
+    local dir=$1 name=$2 pid=$3 failed=0
+    wait "$pid" || failed=1
+    cat "$dir/$name.out"; cat "$dir/$name.err" >&2
+    [ "$failed" -eq 0 ] || die "wave ${name} failed; see output above"
+}
+
+setup_all_wave() {
+    local -a sources=($SETUP_SOURCES) items=()
+    [ "$NETWORK" != "mainnet" ] || die "SETUP_JOBS>1 is testnet-only; mainnet setupAll stays serial"
+    [ "$SIGNER" != "ledger" ] || die "SETUP_JOBS>1 needs local channel identities, not a Ledger signer"
+    [ "${#sources[@]}" -ge 3 ] || die "SETUP_JOBS=${SETUP_JOBS} needs at least 3 SETUP_SOURCES channel identities"
+    [ "${#sources[@]}" -le "$SETUP_JOBS" ] || sources=("${sources[@]:0:$SETUP_JOBS}")
+    require_spoke_caps_configured
+    local dir snapshot markets spokes cat_id asset onchain_id ops p_spokes p_refs p_exec p_curves
+    markets=$(enabled_market_names)
+    [ -n "$markets" ] || die "no enabled markets in ${MARKET_CONFIG_FILE}"
+    spokes=$(enabled_spoke_ids)
+    dir=$(mktemp -d)
+    echo "=== Wave setup for ${NETWORK}: ${#sources[@]} channel sources ==="
+
+    ensure_hubs
+    snapshot="$dir/networks.json"
+    cp "$NETWORKS_FILE" "$snapshot"
+    ( SOURCE_FLAG="--source ${sources[0]}"; for cat_id in $spokes; do ensure_spoke "$cat_id" >/dev/null || exit 1; done ) \
+        >"$dir/spokes.out" 2>"$dir/spokes.err" &
+    p_spokes=$!
+    ( SOURCE_FLAG="--source ${sources[1]}"; NETWORKS_FILE="$snapshot"; setup_all_reference_oracles ) \
+        >"$dir/refs.out" 2>"$dir/refs.err" &
+    p_refs=$!
+    NETWORKS_FILE="$snapshot" WAVE_SOURCES="${sources[*]:2}" wave_each "$dir" create_market $markets
+    wave_stream_wait "$dir" spokes "$p_spokes"
+    wave_stream_wait "$dir" refs "$p_refs"
+
+    AUTO_EXECUTE=0 WAVE_SOURCES="${sources[*]}" wave_each "$dir" configure_market_oracle $markets
+    ops=$(cat "$dir"/configure_market_oracle.*.err | grep -oE 'Scheduled op [0-9a-f]+ \(AUTO_EXECUTE=0' | awk '{print $3}')
+    ( SOURCE_FLAG="--source ${sources[0]}"; for op in $ops; do await_op_ready "$op"; execute_op "$op" || exit 1; done ) \
+        >"$dir/oracles.out" 2>"$dir/oracles.err" &
+    p_exec=$!
+    ( SOURCE_FLAG="--source ${sources[1]}"; configure_spoke_curves ) >"$dir/curves.out" 2>"$dir/curves.err" &
+    p_curves=$!
+    for cat_id in $spokes; do
+        onchain_id=$(get_mapped_spoke_id "$cat_id")
+        [ -n "$onchain_id" ] || die "spoke ${cat_id} has no on-chain id after the wave spoke stream"
+        for asset in $(enabled_spoke_asset_names "$cat_id"); do
+            items+=("$onchain_id $asset $cat_id")
+        done
+    done
+    [ "${#items[@]}" -eq 0 ] || WAVE_SOURCES="${sources[*]:2}" wave_each "$dir" ensure_asset_in_spoke "${items[@]}"
+    wave_stream_wait "$dir" oracles "$p_exec"
+    wave_stream_wait "$dir" curves "$p_curves"
+    rm -rf "$dir"
+    echo "=== All markets and Spoke categories configured (wave) ==="
+}
+
 require_market_address() {
     local market_name=$1
     local asset_address
@@ -4854,8 +4929,12 @@ case "$1" in
         export REAPPLY_ON_DONE=${REAPPLY_ON_DONE:-0}
         validate_configs
 
-        setup_all_markets
-        setup_all_spokes
+        if [ "${SETUP_JOBS:-1}" -gt 1 ]; then
+            setup_all_wave
+        else
+            setup_all_markets
+            setup_all_spokes
+        fi
         echo "=== Full setup complete ==="
         ;;
     "whitelistBlendPools")

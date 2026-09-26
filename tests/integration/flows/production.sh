@@ -61,6 +61,21 @@ prod_upgrade_hash() {
     esac
 }
 
+prod_channels() {
+    local n="$1" i alias addr chans='' pids=() pid
+    for i in $(seq 1 "$n"); do fund_wallet "e2e_chan${i}_${RUN_TS}" & pids+=("$!"); done
+    for pid in "${pids[@]}"; do wait "$pid" || true; done
+    for i in $(seq 1 "$n"); do
+        alias="e2e_chan${i}_${RUN_TS}"
+        addr=$(stellar keys address "$alias") || { _assert_fail "prod_channel_$i" 'channel key missing'; return 1; }
+        wallet_funded "$addr" "$LOG_DIR/channel_${i}_funding.json" \
+            || { curl -s -m 30 "https://friendbot.stellar.org/?addr=$addr" >/dev/null 2>&1; wallet_funded "$addr" "$LOG_DIR/channel_${i}_funding.json"; } \
+            || { _assert_fail "prod_channel_$i" 'channel funding not confirmed (minimum 100 XLM)'; return 1; }
+        chans="$chans $alias"
+    done
+    save_state PROD_CHANNELS "${chans# }"
+}
+
 prod_propose() {
     local tag="$1"; shift
     PROD_OP_TAG="${tag}_propose" PROD_SPLIT_TAG="$tag" PROD_PROPOSE_ONLY=1 prod_ops "$@" >/dev/null
@@ -82,7 +97,8 @@ prod_ops() {
     local logical="${PROD_OP_VERB:-$verb}" wasm="${PROD_OP_WASM:-${1:-}}" auto=1 executed_call='' op record_path
     [ -z "${PROD_PROPOSE_ONLY:-}" ] || auto=0
     if NETWORK=testnet CONFIG_ROOT="$RUN_DIR/config" OPS_ROOT="$RUN_DIR/ops" SIGNER="$ADMIN" AUTO_EXECUTE="$auto" STELLAR_SEND=yes \
-        AWAIT_MAX_WAIT_SECONDS=180 AWAIT_POLL_SECONDS=1 UNSET_MAX_POLLS=30 bash "$REPO_ROOT/configs/script.sh" "$verb" "$@" >"$LOG_DIR/operator_$tag.out" 2>"$LOG_DIR/operator_$tag.err"; then
+        AWAIT_MAX_WAIT_SECONDS=180 AWAIT_POLL_SECONDS=1 UNSET_MAX_POLLS=30 SETUP_JOBS="${PROD_SETUP_JOBS:-1}" SETUP_SOURCES="${PROD_SETUP_SOURCES:-}" \
+        bash "$REPO_ROOT/configs/script.sh" "$verb" "$@" >"$LOG_DIR/operator_$tag.out" 2>"$LOG_DIR/operator_$tag.err"; then
         local hash n=0 invocation method target proposed=0 executed=0 proposal_salt='' execution_salt='' salt
         local hashes="$LOG_DIR/operator_$tag.hashes"
         grep -oE 'Signing transaction: [0-9a-f]{64}' "$LOG_DIR/operator_$tag.err" | awk '{print $3}' | sort -u > "$hashes"
@@ -233,7 +249,8 @@ flow_production_operator() {
     prod_execute_split setAggregator setAggregator >/dev/null || return 1
     prod_ops setAccumulator >/dev/null || return 1
     prod_ops validateConfigs >/dev/null || return 1
-    prod_ops setupAll >/dev/null || return 1
+    prod_channels 12 || return 1
+    PROD_SETUP_JOBS=12 PROD_SETUP_SOURCES="$PROD_CHANNELS" prod_ops setupAll >/dev/null || return 1
     cp "$RUN_DIR/config/networks.json" "$RUN_DIR/operator-before-replay.json"
     PROD_OP_TAG=setupAll_replay prod_ops setupAll >/dev/null || return 1
     cmp -s "$RUN_DIR/operator-before-replay.json" "$RUN_DIR/config/networks.json" || { _assert_fail operator_replay "setup replay changed deployment mappings"; return 1; }
