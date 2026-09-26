@@ -24,6 +24,7 @@ configuration require separate verification.
 | Safety properties and their limits | [Invariants](docs/reference/invariants.md) |
 | Units, rounding, interest, risk, numeric limits | [Formulas](docs/reference/formulas.md) |
 | Design rationale | [Decisions](docs/explanation/decisions.md) |
+| Open decision: liquidator payoff at `C = D` (R-23) | [R-23 memo](docs/explanation/decisions-r23.md) |
 | Callable surface and authorization | [Endpoints](docs/reference/endpoints.md) |
 | Event payloads and indexing | [Events](docs/reference/events.md) |
 | Failure codes and causes | [Errors](docs/reference/errors.md) |
