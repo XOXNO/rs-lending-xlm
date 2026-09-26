@@ -36,6 +36,7 @@ mod liquidation_ratchet;
 mod liquidation_seize_modes;
 mod liquidation_under_delivering_debt_token;
 mod liqvid_listing_params;
+mod liqvid_oracle_deviation_bounds;
 mod liqvid_rwa_collateral;
 mod max_utilization;
 mod min_borrow_collateral;
