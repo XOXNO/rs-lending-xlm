@@ -6,7 +6,8 @@ use soroban_sdk::vec;
 use soroban_sdk::xdr::ScVal;
 use test_harness::{
     assert_contract_error, eth_preset, hub_asset, map_try_ok_value, seed_band_usdc_eth,
-    usdc_preset, LendingTest, ALICE, LIQUIDATOR,
+    usdc_preset, AssetConfigPreset, LendingTest, MarketPreset, ALICE, DEFAULT_ASSET_CONFIG,
+    LIQUIDATOR,
 };
 
 const SAC_INSUFFICIENT_BALANCE: u32 = 10;
@@ -206,5 +207,102 @@ fn an_exact_cover_full_close_leaves_the_floored_collateral_unit_with_the_debt_fr
         t.snapshot_revenue("USDC"),
         revenue_before,
         "a debt-free account is not swept by bad-debt cleanup"
+    );
+}
+
+struct CoverPayoff {
+    profit: i128,
+    collateral: i128,
+    debt: i128,
+    paid: i128,
+    account_exists: bool,
+}
+
+/// Closes 1 fee-free 7-decimal ETH leg against a $1,400 USDC debt at
+/// `C / D = ratio_ppm / 1e6`, with an offer of twice the debt.
+fn payoff_at_cover_ratio(ratio_ppm: i128) -> CoverPayoff {
+    let mut t = LendingTest::new()
+        .with_market(usdc_preset())
+        .with_market(MarketPreset {
+            config: AssetConfigPreset {
+                liquidation_fees: 0,
+                ..DEFAULT_ASSET_CONFIG
+            },
+            ..eth_preset()
+        })
+        .build();
+    t.supply(ALICE, "ETH", 1.0);
+    t.borrow(ALICE, "USDC", 1_400.0);
+    let debt = t.total_debt_raw(ALICE);
+    let eth_price = debt * ratio_ppm / 1_000_000;
+    t.set_price("ETH", eth_price);
+    let collateral = t.total_collateral_raw(ALICE);
+    let account_id = t.resolve_account_id(ALICE);
+    let offer = 2 * t.borrow_balance_raw(ALICE, "USDC");
+    let liquidator = t.get_or_create_user(LIQUIDATOR);
+    t.resolve_market("USDC")
+        .token_admin
+        .mint(&liquidator, &offer);
+    let usdc_before = t.token_balance_raw(LIQUIDATOR, "USDC");
+    let eth_before = t.token_balance_raw(LIQUIDATOR, "ETH");
+
+    t.ctrl_client().liquidate(
+        &liquidator,
+        &account_id,
+        &vec![&t.env, (hub_asset(t.resolve_asset("USDC")), offer)],
+        &SeizeMode::Transfer,
+    );
+
+    let paid = usdc_before - t.token_balance_raw(LIQUIDATOR, "USDC");
+    let seized = t.token_balance_raw(LIQUIDATOR, "ETH") - eth_before;
+    CoverPayoff {
+        profit: seized * eth_price / 10_000_000 - paid * (WAD / 10_000_000),
+        collateral,
+        debt,
+        paid: paid * (WAD / 10_000_000),
+        account_exists: t.ctrl_client().account_exists(&account_id),
+    }
+}
+
+#[test]
+fn the_liquidator_payoff_jumps_where_collateral_falls_below_debt() {
+    let above = payoff_at_cover_ratio(1_005_000);
+    let below = payoff_at_cover_ratio(995_000);
+    let band_top = payoff_at_cover_ratio(1_050_000);
+    std::println!(
+        "D ${}: profit ${:.4} at C/D 1.005, ${:.4} at 0.995, ${:.4} at 1.05",
+        above.debt / WAD,
+        above.profit as f64 / WAD as f64,
+        below.profit as f64 / WAD as f64,
+        band_top.profit as f64 / WAD as f64
+    );
+
+    assert_eq!(above.paid, above.debt, "the band repays the whole debt");
+    assert!(
+        above.profit >= above.debt / 200 - above.debt / 10_000
+            && above.profit <= above.collateral - above.debt,
+        "the band pays C - D less at most one BPS of D: {}",
+        above.profit
+    );
+
+    assert!(
+        !below.account_exists && below.paid < below.debt,
+        "the unbacked residue is socialized"
+    );
+    let backed = below.collateral * 20 / 21;
+    let paid_usdc = backed / (WAD / 10_000_000) * (WAD / 10_000_000);
+    assert_eq!(
+        below.profit,
+        below.collateral - paid_usdc,
+        "the insolvent arm pays C - floor(C / 1.05)"
+    );
+
+    assert!(
+        below.profit - above.profit > above.debt * 4 / 100,
+        "crossing C = D raises the payoff by more than 4% of D"
+    );
+    assert!(
+        band_top.profit > below.profit,
+        "a liquidator that waits from the band top earns less"
     );
 }

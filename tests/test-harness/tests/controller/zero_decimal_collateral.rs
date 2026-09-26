@@ -1014,6 +1014,69 @@ fn zdc_liquidator_sized_to_whole_units_keeps_the_bonus() {
     assert!(pnl > 0);
 }
 
+/// Closes `units` shares at `C / D = ratio_ppm / 1e6` with an offer of twice
+/// the debt. Returns profit, collateral and debt in WAD USD, and the outcome.
+fn zdc_payoff_at_cover_ratio(units: i128, ratio_ppm: i128) -> (i128, i128, i128, LiqOutcome) {
+    let mut z = setup(nav(1_000));
+    let id = open(&mut z, "alice", units, 1_000, 5_990);
+    let debt = z.t.ctrl_client().get_total_borrow_usd(&id);
+    let price = debt * ratio_ppm / (1_000_000 * units);
+    z.t.set_price(LIQ, price);
+    let collateral = z.t.ctrl_client().get_total_collateral_usd(&id);
+    let offer = 2 * z.debt_raw(id);
+    let out = z.liquidate(id, offer, SeizeMode::Transfer).unwrap();
+    let profit = out.got_units * price - out.paid_usdc_raw * (WAD / USDC_UNIT);
+    (profit, collateral, debt, out)
+}
+
+#[test]
+fn zdc_liquidator_payoff_jumps_where_collateral_falls_below_debt() {
+    for units in 2..=5i128 {
+        let (above, c_above, d_above, out_above) = zdc_payoff_at_cover_ratio(units, 1_005_000);
+        let (below, c_below, d_below, out_below) = zdc_payoff_at_cover_ratio(units, 995_000);
+        std::println!(
+            "{units} units, D ${}: profit ${:.4} at C/D 1.005, ${:.4} at 0.995",
+            d_above / WAD,
+            above as f64 / WAD as f64,
+            below as f64 / WAD as f64
+        );
+
+        assert_eq!(
+            out_above.got_units, units,
+            "{units}: the band takes every unit"
+        );
+        assert_eq!(out_above.debt_after, 0, "{units}: the band closes the debt");
+        assert_eq!(
+            out_above.paid_usdc_raw, out_above.debt_before,
+            "{units}: the band repays the whole debt"
+        );
+        assert!(
+            (above - (c_above - d_above)).abs() <= WAD / USDC_UNIT,
+            "{units}: the band pays C - D within one USDC unit"
+        );
+
+        assert_eq!(
+            out_below.got_units, units,
+            "{units}: seize_all takes every unit"
+        );
+        assert!(
+            !out_below.account_exists,
+            "{units}: the residue is socialized"
+        );
+        let backed = c_below * 20 / 21;
+        assert_eq!(
+            below,
+            c_below - backed / (WAD / USDC_UNIT) * (WAD / USDC_UNIT),
+            "{units}: the insolvent arm pays C - floor(C / 1.05)"
+        );
+
+        assert!(
+            below - above > d_below * 4 / 100,
+            "{units}: crossing C = D raises the payoff by more than 4% of D"
+        );
+    }
+}
+
 #[test]
 fn zdc_large_position_near_cap() {
     let mut z = setup(nav(1_000));
