@@ -233,10 +233,11 @@ gov_await_ready() { echo "await $1" >> "$1.log"; echo Ready; }'''
         self.assertEqual(calls.count('inv gov_propose_grant_guardian'),1)
         self.assertLess(calls.index('await op_gov_propose_grant_guardian'),calls.index('inv gov_execute_grant_guardian'))
     def test_liq_setup_lists_only_the_lane_markets(self):
-        body='''ALICE=alice BOB=bob CAROL=carol ADMIN_ADDR=GADMIN BOB_ADDR=GBOB CAROL_ADDR=GCAROL PRIMARY_HUB_ID=1 PRIMARY_SPOKE_ID=1 CONTROLLER=CTRL WAD=1
-phase() { :; }; deploy_mock_reflector() { :; }; deploy_mock_redstone() { :; }; mint_to() { :; }; dual_px() { :; }; save_state() { :; }
+        body='''ADMIN=admin ALICE=alice BOB=bob CAROL=carol ADMIN_ADDR=GADMIN BOB_ADDR=GBOB CAROL_ADDR=GCAROL PRIMARY_HUB_ID=1 PRIMARY_SPOKE_ID=1 CONTROLLER=CTRL WAD=1
+phase() { :; }; deploy_mock_reflector() { :; }; deploy_mock_redstone() { :; }; dual_px() { :; }; save_state() { :; }
 issue_sac() { eval "$1=SAC$2"; }; oracle_cfg_mock_dual() { echo '{}'; }; asset_config_json() { echo "$3"; }; pay_vec() { shift; echo "$*"; }
-trustline() { echo "trust $1 $2" >> "$LOG"; }
+trustline() { echo "trustline $*" >> "$LOG"; }; mint_to() { echo "mint_to $*" >> "$LOG"; }
+classic_batch() { echo "batch $*" >> "$LOG"; }
 create_market() { echo "market $1 $3 $6" >> "$LOG"; }
 inv() { echo "inv $1 ${13}" >> "$LOG"; }
 E2E_LANE=liq-c flow_liq_setup'''
@@ -246,8 +247,11 @@ E2E_LANE=liq-c flow_liq_setup'''
             calls=(Path(d)/'calls').read_text().splitlines()
         self.assertEqual([c for c in calls if c.startswith('market')],['market LIQE SACLIQE 200','market LIQF SACLIQF 200'])
         self.assertEqual([c for c in calls if c.startswith('inv')],['inv liq_seed_liquidity SACLIQF 500000000000'])
-        self.assertEqual(sorted(c for c in calls if c.startswith('trust')),
-                         ['trust bob LIQE','trust bob LIQF','trust carol LIQE','trust carol LIQF'])
+        self.assertEqual([c for c in calls if c.startswith(('batch','trustline','mint_to'))],
+                         ['batch liq_trust_bob change_trust bob trust:LIQE:GADMIN trust:LIQF:GADMIN',
+                          'batch liq_trust_carol change_trust carol trust:LIQE:GADMIN trust:LIQF:GADMIN',
+                          'batch liq_mint_classic payment admin pay:GBOB:LIQE:GADMIN:1000000000000 pay:GCAROL:LIQE:GADMIN:1000000000000'
+                          ' pay:GBOB:LIQF:GADMIN:1000000000000 pay:GCAROL:LIQF:GADMIN:1000000000000'])
     def test_flash_fee_destination(self):
         p=dict(borrowed='0',supply_index=str(10**27),revenue='0',supplied=str(100*10**27),cash='1000000000')
         q={**p,'revenue':str(50000*10**20),'supplied':str(100*10**27+50000*10**20),'cash':'1000050000'}

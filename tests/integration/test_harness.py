@@ -173,10 +173,108 @@ def check_gate():
         attempts_with(lambda x: x[-1].update(hash=committed))
         assert gate.validate(run, expected_lane='agg-core') == len(required)
         baseline()
+        trust = {'change_trust': {'line': {'credit_alphanum4': {'asset_code': 'USDC', 'issuer': ISSUER}}, 'limit': '9223372036854775807'}}
+        pay = {'payment': {'destination': SIGNER, 'asset': {'credit_alphanum4': {'asset_code': 'USDC', 'issuer': ISSUER}}, 'amount': '1'}}
+        def classic(note, bodies, sources=(None, None, None), fn='change_trust'):
+            envelope = {'tx': {'tx': {'source_account': SIGNER, 'fee': 3000, 'seq_num': '1', 'cond': 'none', 'memo': 'none', 'ext': 'v0',
+                'operations': [{'source_account': s, 'body': b} for b, s in zip(bodies, sources)]}, 'signatures': []}}
+            classic_hash = 'c'*64
+            (run/'logs'/f'{classic_hash}.receipt.json').write_text(json.dumps({'result': dict(status='SUCCESS', txHash=classic_hash, ledger=1,
+                envelopeXdr=subprocess.check_output(['stellar', 'tx', 'encode'], input=json.dumps(envelope), text=True).strip(),
+                resultMetaXdr='AA==', resultXdr='AA==')}))
+            seq = str(len(actions)+1)
+            write('actions.tsv', gate.ACTION_FIELDS, actions+[[seq, 'test', 'trust_batch', 'ok', fn, classic_hash, '', '', '', '', note]])
+            write('evidence.tsv', ['seq', 'execution', 'contract'], proofs+[[seq, 'classic_transaction', '']])
+        classic('3 ops', [trust]*3)
+        assert gate.validate(run, expected_lane='agg-core') == len(required)
+        for note, bodies, sources in [('2 ops', [trust]*3, (None,)*3), ('3 ops', [trust, pay, trust], (None,)*3),
+                                      ('3 ops', [trust]*3, (None, ISSUER, None))]:
+            classic(note, bodies, sources); rejected()
+        classic('1 ops', [{'bump_sequence': {'bump_to': '1'}}], fn='bump_sequence'); rejected()
+        baseline()
     gate.verify_receipt = original_verify
 
 
+SIGNER = 'GB62OPRQMZDSTWCWFAUJQC2VXN7E53GB5JOHXCZ7UIROO7F4GP4WWWAW'
+ISSUER = 'GCAYNZ74L6MS2GGLNJ65MCTFRBCGFHFBZQFITYITZA2MIPK6WGPNBOSU'
 check_gate()
+CLASSIC = f'''
+SIGNER_ADDR={SIGNER}; ISSUER={ISSUER}; NETWORK_PASSPHRASE='Test SDF Network ; September 2015'; HASH=$(printf '%064d' 7)
+printf '{{"tx":{{"tx":{{"source_account":"%s","fee":100,"seq_num":"4294967297","cond":"none","memo":"none","operations":[],"ext":"v0"}},"signatures":[]}}}}' \\
+    "$SIGNER_ADDR" | command stellar tx encode > "$LOG_DIR/empty.xdr" || exit 90
+adds=0
+stellar() {{
+    echo "$*" >> "$LOG_DIR/calls"
+    case "$1 $2" in
+        'keys address') echo "${{KEY_ADDR:-$SIGNER_ADDR}}";;
+        'tx new') shift 2; command stellar tx op add "$@" < "$LOG_DIR/empty.xdr";;
+        'tx op') adds=$((adds+1))
+            case "${{MODE:-}}:$adds" in
+                drop:1) cat;;
+                source:1) command stellar "$@" --op-source "$ISSUER";;
+                body:1) command stellar tx op add change-trust --line "XXXX:$ISSUER" --source-account x;;
+                *) command stellar "$@";;
+            esac;;
+        'tx encode') if [ "${{MODE:-}}" = fee ]; then cat >/dev/null; cat "$LOG_DIR/$LABEL.built.xdr"; else command stellar "$@"; fi;;
+        'tx decode') command stellar "$@";;
+        'tx sign') cat;;
+        'tx hash') cat >/dev/null; echo "$HASH";;
+        'tx send') grep -qx "Signing transaction: $HASH" "$LOG_DIR/$LABEL.err" || return 8
+            echo sent >> "$LOG_DIR/sends"; return "${{SEND_RC:-0}}";;
+        *) return 1;;
+    esac
+}}
+tx_status() {{ echo "${{STATUS:-SUCCESS}}"; }}
+sends() {{ [ "$(cat "$LOG_DIR/sends" 2>/dev/null | wc -l | tr -d ' ')" = "$1" ]; }}
+rows() {{ awk -F'\\t' -v l="$1" -v s="$2" -v f="$3" 'NR>1 && $3==l && $4==s && $5==f {{n++}} END {{print n+0}}' "$ACTIONS_TSV"; }}
+'''
+for fn, items in [('change_trust', [f'trust:USDC:{ISSUER}', f'trust:EURC:{ISSUER}', f'trust:LONGCODE12:{ISSUER}']),
+                  ('payment', [f'pay:{ISSUER}:ST0{n}:{ISSUER}:10000000000000' for n in range(3)])]:
+    shell(CLASSIC + f'''
+LABEL=batch
+classic_batch batch {fn} alice {' '.join(items)} || exit 1
+sends 1 || exit 2
+awk -F'\\t' -v h="$HASH" 'NR>1 && $3=="batch" && $4=="ok" && $5=="{fn}" && $6==h && $11=="3 ops" {{n++}} END {{exit n!=1}}' "$ACTIONS_TSV" || exit 3
+awk -F'\\t' 'END {{exit !($2=="classic_transaction" && $3=="")}}' "$RUN_DIR/evidence.tsv" || exit 4
+grep -q '^tx sign --sign-with-key alice ' "$LOG_DIR/calls" && grep -q '^tx new ' "$LOG_DIR/calls" || exit 5
+[ "$(command stellar tx decode < "$LOG_DIR/batch.signed.xdr" | jq .tx.tx.fee)" = 3000 ] || exit 6
+python3 - "$RUN_DIR/attempts.jsonl" "$HASH" <<'PY' || exit 7
+import json, sys
+from datetime import datetime
+rows = [json.loads(line) for line in open(sys.argv[1])]
+assert len(rows) == 1 and (rows[0]['label'], rows[0]['hash'], rows[0]['cli_exit'], rows[0]['action_seq']) == ('batch', sys.argv[2], 0, 1)
+assert datetime.fromisoformat(rows[0]['started_at']) <= datetime.fromisoformat(rows[0]['observed_at'])
+PY
+''')
+for mode, env, sent in [('drop', '', 0), ('source', '', 0), ('body', '', 0), ('fee', '', 0), ('', f'KEY_ADDR={ISSUER}', 0),
+                        ('', 'STATUS=UNKNOWN', 1), ('', 'STATUS=FAILED', 1), ('', 'SEND_RC=1', 1)]:
+    shell(CLASSIC + f'''
+LABEL=batch; MODE={mode}; {env}
+! classic_batch batch change_trust alice trust:USDC:$ISSUER trust:EURC:$ISSUER trust:AQUA:$ISSUER || exit 1
+sends {sent} && [ "$(rows batch FAIL change_trust)" = 1 ] && [ "$(rows batch ok change_trust)" = 0 ] || exit 2
+''')
+shell(CLASSIC + '''
+LABEL=trust_USDC_alice
+trustline alice USDC "$ISSUER" || exit 1
+sends 1 && [ "$(rows trust_USDC_alice ok change_trust)" = 1 ] || exit 2
+awk -F'\\t' 'NR>1 && $3=="trust_USDC_alice" && $11=="1 ops"' "$ACTIONS_TSV" | grep -q . || exit 3
+''')
+shell(CLASSIC + '''
+items=(); for n in $(seq 41); do items+=("trust:A$n:$ISSUER"); done
+! classic_batch batch change_trust alice "${items[@]}" || exit 1
+! classic_batch empty change_trust alice || exit 2
+! classic_batch odd change_trust alice "burn:USDC:$ISSUER" || exit 3
+[ ! -e "$LOG_DIR/calls" ] && [ "$(rows batch FAIL change_trust)" = 1 ] && [ "$(rows empty FAIL change_trust)" = 1 ] \\
+    && [ "$(rows odd FAIL change_trust)" = 1 ] || exit 4
+''')
+shell(CLASSIC + '''
+LABEL=mixed
+! classic_batch mixed change_trust alice "trust:USDC:$ISSUER" "pay:$ISSUER:USDC:$ISSUER:1" || exit 1
+sends 0 && [ "$(rows mixed FAIL change_trust)" = 1 ] && grep -q 'does not match change_trust' "$LOG_DIR/mixed.build.err" || exit 2
+LABEL=mixed_pay
+! classic_batch mixed_pay payment admin "pay:$ISSUER:USDC:$ISSUER:1" "trust:USDC:$ISSUER" || exit 3
+sends 0 && [ "$(rows mixed_pay FAIL payment)" = 1 ] && grep -q 'does not match payment' "$LOG_DIR/mixed_pay.build.err" || exit 4
+''')
 # A signed timeout or budget failure never executes a second mutation.
 for error in ['timeout', 'Trapped', 'ResourceLimitExceeded']:
     shell('''

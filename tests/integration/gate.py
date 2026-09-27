@@ -11,7 +11,7 @@ from pathlib import Path
 if not __debug__:
     raise RuntimeError('release verification requires Python assertions; unset PYTHONOPTIMIZE')
 from resources import check as check_resources
-from receipts import footprint_drift, verify as verify_receipt
+from receipts import decode, footprint_drift, verify as verify_receipt
 from artifacts import CONTRACTS, digest
 
 ACTION_FIELDS = 'seq phase label status fn hash instructions read_bytes write_bytes resource_fee note'.split()
@@ -173,6 +173,12 @@ def validate(run, expected_lane=None):
             decoded_resources = verify_receipt(receipt, a['hash'], metadata['network_passphrase'], status,
                 proof['contract'] if proof['execution'] not in {'classic_transaction','deployment'} else None,
                 a['fn'] if proof['execution'] not in {'classic_transaction','deployment'} else None)
+            if proof['execution'] == 'classic_transaction':
+                operations = decode('TransactionEnvelope', result['envelopeXdr'])['tx']['tx']['operations']
+                count = re.match(r'([1-9][0-9]*) ops( |$)', a['note'])
+                if a['fn'] not in {'change_trust', 'payment'} or not count or int(count[1]) != len(operations) \
+                        or any(set(op['body']) != {a['fn']} or op['source_account'] is not None for op in operations):
+                    raise ValueError(f'action {i}: classic operations differ from the recorded batch')
             if proof['execution'] in {'transaction','deployment'}:
                 resources = json.loads((run / 'logs' / f'{a["hash"]}.resources.json').read_text())
                 if resources != decoded_resources:

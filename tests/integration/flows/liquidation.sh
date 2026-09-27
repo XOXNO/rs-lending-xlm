@@ -3,7 +3,7 @@
 flow_liq_setup() {
     phase liq_setup
     [ -n "${LIQ_SETUP_DONE:-}" ] && return 0
-    local codes code var sac bonus seed=()
+    local codes code var sac bonus seed=() trust=() mint=()
     case "${E2E_LANE:-}" in
         liq-a) codes="LIQA LIQB LIQE LIQF LIQG" ;;
         liq-b) codes="LIQA LIQB LIQC LIQD" ;;
@@ -13,15 +13,16 @@ flow_liq_setup() {
     deploy_mock_reflector
     deploy_mock_redstone
     for code in $codes; do
+        trust+=("trust:$code:$ADMIN_ADDR")
+        mint+=("pay:$BOB_ADDR:$code:$ADMIN_ADDR:$((100000 * LIQ_UNIT))" "pay:$CAROL_ADDR:$code:$ADMIN_ADDR:$((100000 * LIQ_UNIT))")
+    done
+    classic_batch liq_trust_bob change_trust "$BOB" "${trust[@]}" || return 1
+    classic_batch liq_trust_carol change_trust "$CAROL" "${trust[@]}" || return 1
+    classic_batch liq_mint_classic payment "$ADMIN" "${mint[@]}" || return 1
+    for code in $codes; do
         var="SAC_$code"
         issue_sac "$var" "$code"
         sac="${!var}"
-        for w in "$BOB" "$CAROL"; do
-            trustline "$w" "$code" "$ADMIN_ADDR"
-        done
-        mint_to "$sac" "$code" "$BOB_ADDR"   $((100000 * LIQ_UNIT))
-        mint_to "$sac" "$code" "$CAROL_ADDR" $((100000 * LIQ_UNIT))
-
         dual_px "$sac" "$code" "$WAD" "px_init_$code"
     done
 

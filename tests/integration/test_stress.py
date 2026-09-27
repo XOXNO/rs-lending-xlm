@@ -125,6 +125,32 @@ flow_stress_delayed
                     self.assertIn('stress_delayed_dimensions ok assert', records)
                     self.assertIn('stress_delayed_repay', sequence)
 
+    def test_setup_funds_fixtures_with_three_classic_batches(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result = self.run_shell(r'''
+STRESS_N=20; STRESS_UNIT=10000000; ADMIN=admin; ADMIN_ADDR=GADMIN; DAVE=dave; DAVE_ADDR=GDAVE; CAROL=carol; CAROL_ADDR=GCAROL
+PRIMARY_HUB_ID=1; PRIMARY_SPOKE_ID=1; CONTROLLER=controller; WAD=1
+phase() { :; }; save_state() { :; }; set_mock_price() { :; }; pay_vec() { echo '[]'; }; oracle_cfg_mock_single() { :; }; asset_config_json() { :; }
+deploy_mock_reflector() { echo fixture >> "$WORK/calls"; }; deploy_mock_redstone() { :; }
+issue_sac() { eval "$1=SAC$2"; }; create_market() { :; }; inv() { :; }
+trustline() { echo trustline >> "$WORK/calls"; }; mint_to() { echo mint_to >> "$WORK/calls"; }
+classic_batch() { printf '%s\n' "batch $1 $2 $3 $(($# - 3))" "${@:4}" >> "$WORK/calls"; }
+flow_stress_setup
+''', directory)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            calls = Path(directory, 'calls').read_text().splitlines()
+        batches = [(i, c) for i, c in enumerate(calls) if c.startswith('batch ')]
+        self.assertEqual([c for _, c in batches], ['batch stress_trust_dave change_trust dave 20',
+                                                   'batch stress_trust_carol change_trust carol 20',
+                                                   'batch stress_mint_classic payment admin 40'])
+        self.assertNotIn('trustline', calls)
+        self.assertNotIn('mint_to', calls)
+        self.assertLess(batches[-1][0], calls.index('fixture'))
+        trust = [f'trust:ST{i:02d}:GADMIN' for i in range(20)]
+        self.assertEqual(calls[1:21], trust)
+        self.assertEqual(calls[22:42], trust)
+        self.assertEqual(calls[43:83], [f'pay:{who}:ST{i:02d}:GADMIN:10000000000000' for i in range(20) for who in ('GDAVE', 'GCAROL')])
+
     def test_latest_ledger_rejects_malformed_or_error_responses(self):
         for payload in ('{}', '{"error":{}}', 'garbage', '{"jsonrpc":"2.0","id":1,"result":{"sequence":1.5}}'):
             with self.subTest(payload=payload), tempfile.TemporaryDirectory() as directory:

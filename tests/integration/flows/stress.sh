@@ -4,7 +4,15 @@ stress_sac()  { local v="SAC_ST$(printf '%02d' "$1")"; echo "${!v}"; }
 flow_stress_setup() {
     phase stress_setup
     [ -n "${STRESS_SETUP_DONE:-}" ] && return 0
-    local i code var sac
+    local i code var sac trust=() mint=()
+    for i in $(seq 0 $((STRESS_N - 1))); do
+        code=$(stress_code "$i")
+        trust+=("trust:$code:$ADMIN_ADDR")
+        mint+=("pay:$DAVE_ADDR:$code:$ADMIN_ADDR:$((1000000 * STRESS_UNIT))" "pay:$CAROL_ADDR:$code:$ADMIN_ADDR:$((1000000 * STRESS_UNIT))")
+    done
+    classic_batch stress_trust_dave change_trust "$DAVE" "${trust[@]}" || return 1
+    classic_batch stress_trust_carol change_trust "$CAROL" "${trust[@]}" || return 1
+    classic_batch stress_mint_classic payment "$ADMIN" "${mint[@]}" || return 1
     for i in $(seq 0 $((STRESS_N - 1))); do
         code=$(stress_code "$i")
         MOCK=''; MOCKRS=''
@@ -15,10 +23,6 @@ flow_stress_setup() {
         var="SAC_$code"
         issue_sac "$var" "$code"
         sac="${!var}"
-        trustline "$DAVE" "$code" "$ADMIN_ADDR"
-        trustline "$CAROL" "$code" "$ADMIN_ADDR"
-        mint_to "$sac" "$code" "$DAVE_ADDR"  $((1000000 * STRESS_UNIT))
-        mint_to "$sac" "$code" "$CAROL_ADDR" $((1000000 * STRESS_UNIT))
         set_mock_price "$sac" "$WAD" "px_init_$code"
         create_market "$code" "$PRIMARY_HUB_ID" "$sac" 7 "$(oracle_cfg_mock_single "$sac")" "$(asset_config_json 7000 7500 800)"
     done
