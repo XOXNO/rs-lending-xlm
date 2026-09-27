@@ -9,7 +9,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
-use lending_exporter::collector::scrape_once;
+use lending_exporter::collector::{scrape_once, wall_clock_secs};
 use lending_exporter::config::ExporterConfig;
 use lending_exporter::metrics::{self, Metrics};
 use lending_exporter::stellar::RpcClient;
@@ -20,11 +20,7 @@ use lending_exporter::stellar::RpcClient;
     about = "Read-only Prometheus exporter for XOXNO Lending"
 )]
 struct Args {
-    #[arg(
-        long,
-        env = "EXPORTER_CONFIG",
-        default_value = "/etc/lending-exporter/testnet.yaml"
-    )]
+    #[arg(long, env = "EXPORTER_CONFIG")]
     config: PathBuf,
 }
 
@@ -40,6 +36,9 @@ async fn main() -> Result<()> {
     let contracts = cfg.resolve().context("resolve contract addresses")?;
     let client = Arc::new(RpcClient::new(&cfg.rpc).context("build RPC client")?);
     let metrics = Arc::new(Metrics::new().context("build metrics registry")?);
+    metrics
+        .publish_startup(cfg.network.as_str(), wall_clock_secs())
+        .context("publish startup metrics")?;
     let cancel = CancellationToken::new();
 
     let metrics_task = tokio::spawn(metrics::serve(
@@ -126,5 +125,20 @@ async fn wait_for_shutdown() {
     #[cfg(not(unix))]
     {
         let _ = tokio::signal::ctrl_c().await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::env;
+
+    use super::*;
+
+    #[test]
+    fn config_path_is_required() {
+        env::remove_var("EXPORTER_CONFIG");
+        assert!(Args::try_parse_from(["lending-exporter"]).is_err());
+        let args = Args::try_parse_from(["lending-exporter", "--config", "x.yaml"]).unwrap();
+        assert_eq!(args.config, PathBuf::from("x.yaml"));
     }
 }

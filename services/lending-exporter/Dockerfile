@@ -34,7 +34,6 @@ COPY config /etc/lending-exporter
 USER nonroot:nonroot
 EXPOSE 9110
 
-ENV EXPORTER_CONFIG=/etc/lending-exporter/mainnet.yaml \
-    RUST_LOG=info
+ENV RUST_LOG=info
 
 ENTRYPOINT ["/usr/local/bin/lending-exporter"]

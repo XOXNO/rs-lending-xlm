@@ -87,7 +87,7 @@ groups:
         labels: { severity: critical }
         annotations:
           summary: "Lending exporter has not completed a scrape ({{ $labels.network }})"
-          description: "No successful scrape for 5 minutes (10× the 30s scrape interval); dashboard data and every rule above are going blind."
+          description: "No successful scrape for 5 minutes (10× the 30s scrape interval), counted from process start until the first scrape completes; dashboard data and every rule above are going blind."
 
       - alert: LendingExporterDown
         expr: up{job=~"stellar-lending-exporter.*"} == 0

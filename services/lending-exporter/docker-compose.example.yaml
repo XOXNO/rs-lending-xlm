@@ -13,7 +13,7 @@ services:
 
   # Mainnet stays behind a profile so `docker compose up` does not start it by
   # accident; run it with `--profile mainnet`. The deployed addresses are in
-  # config/mainnet.yaml, so no environment override is needed.
+  # config/mainnet.yaml; only EXPORTER_CONFIG must be set.
   lending-exporter-mainnet:
     build: .
     image: xoxno/lending-exporter:latest
