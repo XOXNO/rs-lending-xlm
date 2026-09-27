@@ -357,6 +357,28 @@ for m in $MARKETS; do td_residue_job "${m%%:*}" "${m##*:}"; done
         self.assertEqual(floor, 18)
         self.assertEqual([r[2:] for r in rows[floor+1:]], [r[2:] for r in rows[:floor]])
 
+    def test_teardown_trustline_reads_share_the_simulation_slots(self):
+        body = self.GROUPED_READS + r'''
+E2E_SIM_SLOTS=1 DELAY_UNIT=0.0
+cat > "$RUN_DIR/node" <<'NODE'
+#!/bin/bash
+span="$(dirname "$0")/span"; echo "start node" >> "$span"; sleep 0.3; echo "end node" >> "$span"
+out=$6; shift 6
+jq -n '[$ARGS.positional[] | {(.): {balance: "3"}}] | add // {}' --args "$@" > "$out"
+NODE
+eval "$(declare -f stellar | sed '1s/^stellar/stellar_mock/')"
+stellar() { echo "start view" >> "$RUN_DIR/span"; stellar_mock "$@"; local rc=$?; echo "end view" >> "$RUN_DIR/span"; return "$rc"; }
+group_begin before_cleanup 8 reads || exit 1
+group_spawn td_snapshot_job 1 SAC2; group_spawn td_snapshot_job 2 SAC2
+group_end || exit 2
+'''
+        with tempfile.TemporaryDirectory() as d:
+            result = subprocess.run(['bash', '-c', body, '_', str(HERE), d], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr[-2000:])
+            spans = (Path(d)/'span').read_text().split('\n')[:-1]
+        self.assertEqual(spans.count('start node'), 2)
+        self.assertEqual([line.split()[0] for line in spans], ['start', 'end'] * (len(spans) // 2), spans)
+
     def test_teardown_groups_keep_serial_rows_and_snapshot_order(self):
         markets = ' '.join([f'1:SAC{n}' for n in range(1, 9)] + ['2:SAC1', '1:SACA'])
         grouped = self.GROUPED_READS + f'MARKETS="{markets}"; TOTAL_SEQ="3 0"; DELAY_UNIT=0.0\nflow_teardown; echo "$?" > "$RUN_DIR/rc"\n'

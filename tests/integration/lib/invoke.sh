@@ -25,7 +25,7 @@ sim_hold() {
 }
 
 latest_ledger() {
-    curl --fail-with-body -sS -m 30 "$RPC_URL" -H 'Content-Type: application/json' \
+    curl --fail-with-body -sS -m "${1:-30}" "$RPC_URL" -H 'Content-Type: application/json' \
         -d '{"jsonrpc":"2.0","id":1,"method":"getLatestLedger"}' \
         | jq -er 'select(.jsonrpc=="2.0" and .id==1 and (has("error")|not)) | .result.sequence | select(type=="number" and .>0 and floor==.)'
 }

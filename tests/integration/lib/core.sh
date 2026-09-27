@@ -271,7 +271,7 @@ PYGROUP
 }
 
 group_ledger_floor() {
-    local label="${1}_ledger_floor" floor latest='' n
+    local label="${1}_ledger_floor" floor latest='' n start left
     floor=$(python3 - "$LOG_DIR" <<'PYFLOOR'
 import json, re, sys
 from pathlib import Path
@@ -286,16 +286,19 @@ for path in Path(sys.argv[1]).iterdir():
 print(floor)
 PYFLOOR
     ) || { log "ASSERT FAIL [$label]: unreadable receipt ledgers"; record "$label" FAIL assert '' '' '' '' '' 'unreadable receipt ledgers in the lane logs'; return 1; }
+    start=$SECONDS
     for ((n = 0; n <= 30; n++)); do
         [ "$n" -eq 0 ] || sleep 1
-        latest=$(latest_ledger) || latest=''
+        left=$((start + 30 - SECONDS))
+        [ "$left" -gt 0 ] || break
+        latest=$(latest_ledger "$left") || latest=''
         if [[ "$latest" =~ ^[0-9]{1,18}$ ]] && [ "$latest" -ge "$floor" ]; then
             record "$label" ok assert '' '' '' '' '' "latest=$latest floor=$floor"
             return
         fi
     done
-    log "ASSERT FAIL [$label]: RPC ledger ${latest:-unknown} below the lane floor $floor after 30 s"
-    record "$label" FAIL assert '' '' '' '' '' "latest=${latest:-unknown} below floor=$floor after 30 s"
+    log "ASSERT FAIL [$label]: RPC ledger ${latest:-unknown} below the lane floor $floor after $((SECONDS - start)) s"
+    record "$label" FAIL assert '' '' '' '' '' "latest=${latest:-unknown} below floor=$floor after $((SECONDS - start)) s"
     return 1
 }
 

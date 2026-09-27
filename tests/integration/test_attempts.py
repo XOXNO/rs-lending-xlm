@@ -1116,7 +1116,22 @@ printf '{"jsonrpc":"2.0","id":1,"result":{"status":"FAILED","ledger":100}}' > "$
 if readf; then exit 1; fi
 [ "$(cat "$RUN_DIR/polls")" = 31 ] && [ ! -e "$RUN_DIR/calls" ] && [ ! -e "$RUN_DIR/jobs" ] || exit 2
 ''')
-assert [(a['label'], a['status'], a['note']) for a in actions] == [('g_ledger_floor', 'FAIL', 'latest=99 below floor=100 after 30 s')], actions
+assert [(a['label'], a['status']) for a in actions] == [('g_ledger_floor', 'FAIL')], actions
+assert actions[0]['note'] in ('latest=99 below floor=100 after 0 s', 'latest=99 below floor=100 after 1 s'), actions
+assert not attempts
+
+# R5: a slow RPC cannot stretch the floor wait past 30 s, and each poll gets only the time left.
+attempts, _, actions = shell(R_SETUP + r'''
+printf '{"jsonrpc":"2.0","id":1,"result":{"status":"SUCCESS","ledger":100}}' > "$LOG_DIR/$(printf '%064d' 1).receipt.json"
+sleep() { SECONDS=$((SECONDS + 10)); }
+latest_ledger() { echo "$1" >> "$RUN_DIR/limits"; echo 99; }
+if readf; then exit 1; fi
+[ ! -e "$RUN_DIR/calls" ] && [ ! -e "$RUN_DIR/jobs" ] || exit 2
+set -- $(cat "$RUN_DIR/limits")
+[ "$#" = 3 ] && [ "$1" -ge 29 ] && [ "$1" -le 30 ] && [ $(($1 - $2)) -ge 10 ] && [ $(($2 - $3)) -ge 10 ] && [ "$3" -ge 1 ] || exit 3
+''')
+assert [(a['label'], a['status']) for a in actions] == [('g_ledger_floor', 'FAIL')], actions
+assert actions[0]['note'] in ('latest=99 below floor=100 after 30 s', 'latest=99 below floor=100 after 31 s'), actions
 assert not attempts
 
 # R4: a committed receipt without a ledger fails the floor closed before any poll or view call.
