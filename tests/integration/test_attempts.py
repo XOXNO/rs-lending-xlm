@@ -1416,7 +1416,7 @@ with tempfile.TemporaryDirectory() as directory:
     quick.write_text('#!/bin/bash\necho call >> "$SPAN"\n')
     for stub in (real, quick):
         stub.chmod(0o755)
-    env = dict(os.environ, E2E_STELLAR=str(real), E2E_RPC_SLOTS='3', E2E_RPC_READ_SLOTS='1', E2E_SLOT_DIR=str(root/'slots'),
+    env = dict({k: v for k, v in os.environ.items() if k != 'E2E_SLOT_FDS'}, E2E_STELLAR=str(real), E2E_RPC_SLOTS='3', E2E_RPC_READ_SLOTS='1', E2E_SLOT_DIR=str(root/'slots'),
                E2E_RPC_WAIT_LOG=str(root/'waits'), SPAN=str(root/'span'))
     env.pop('E2E_RPC_DEADLINE', None)
     lane = r"""set -u
@@ -1502,6 +1502,12 @@ for pid in "${pids[@]}"; do wait "$pid" || exit 2; done
     done = subprocess.run(['bash', '-c', 'source "$1/lib/core.sh"; rpc_hold || exit 9; exec "$0" tx send', str(root/'bin/stellar'), str(HERE)],
                           env=env, capture_output=True, text=True, timeout=10)
     assert done.returncode == 1 and 'already holds a slot (nested hold)' in done.stderr, (done.returncode, done.stderr)
+    for bash in ['/bin/bash', 'bash']:
+        leak = subprocess.run([bash, '-c', '''source "$1/lib/core.sh"; exec 150>>"$2/leaked"; slot_take "$2/pool" 1 150 5 || exit 9
+python3 -c 'import fcntl, sys; fcntl.flock(open(sys.argv[1], "a"), fcntl.LOCK_EX | fcntl.LOCK_NB)' "$2/pool.1" 2>/dev/null && exit 8
+echo held >&150; exit 0''', '_', str(HERE), str(root)], env=env, capture_output=True, text=True, timeout=30)
+        assert leak.returncode == 0 and (root/'pool.1').read_text() == 'held\n' and not (root/'leaked').read_text(), (bash, leak.returncode, leak.stderr)
+        (root/'pool.1').write_text('')
     for inherited in ['exec 151>/dev/null', 'exec 151>/dev/null; export E2E_SLOT_FDS=150']:
         done = subprocess.run(['bash', '-c', inherited + '; exec "$0" tx send', str(root/'bin/stellar')], env=env, capture_output=True, text=True, timeout=10)
         assert done.returncode == 0, (inherited, done.stderr)

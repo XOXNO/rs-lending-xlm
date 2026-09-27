@@ -465,7 +465,7 @@ slot_take() {
     done
     mkdir -p "$(dirname "$prefix")" || { SLOT_ERR="cannot create $(dirname "$prefix")"; return 1; }
     for ((fd = base; fd < base + count; fd++)); do
-        eval "exec $fd>>\"\$prefix.$((fd - base + 1))\"" || { SLOT_ERR="cannot open fd $fd (ulimit -n $(ulimit -n))"; break; }
+        eval "exec $fd>&- $fd>>\"\$prefix.$((fd - base + 1))\"" || { SLOT_ERR="cannot open fd $fd (ulimit -n $(ulimit -n))"; break; }
     done
     [ "$fd" -lt $((base + count)) ] || got=$(python3 -c '
 import fcntl, sys, time

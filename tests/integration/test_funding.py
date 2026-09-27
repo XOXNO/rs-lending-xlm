@@ -191,7 +191,7 @@ curl() {
 def friendbot(directory, body, codes, funded_at, **env):
     (Path(directory) / 'codes').write_text(''.join(c + '\n' for c in codes))
     return subprocess.run(['bash', '-c', FRIENDBOT + body, '_', str(HERE), directory], capture_output=True, text=True, timeout=30,
-                          env=dict(os.environ, FUNDED_AT=str(funded_at), **env))
+                          env=dict({k: v for k, v in os.environ.items() if k != 'E2E_SLOT_FDS'}, FUNDED_AT=str(funded_at), **env))
 
 for codes, funded_at, succeeds in [(['429', '429', '200'], 3, True), (['403'], 99, False)]:
     with tempfile.TemporaryDirectory() as directory:
@@ -279,5 +279,5 @@ result = subprocess.run(['bash', '-c', 'source "$1/env.sh" && printf "%s|%s|%s" 
                         capture_output=True, text=True, timeout=30,
                         env={k: v for k, v in {**os.environ, 'RUN_TS': 't', 'NETWORK': 'testnet'}.items() if k not in ('E2E_RPC_READ_SLOTS', 'THROTTLE_RETRIES', 'E2E_SLOT_DIR')})
 assert result.returncode == 0 and result.stdout == f'6|6|/tmp/rs-lending-e2e-slots-{os.getuid()}', result.stdout
-print('Friendbot retries throttling, logs every code, fails closed at the deadline, caps concurrency and refuses an inherited slot fd')
+print('Friendbot retries throttling, logs every code, fails closed at the deadline, caps concurrency, refuses a listed nested slot fd and replaces an unlisted inherited one')
 print('Horizon funding reads back off on 429 within a bound and inside the friendbot deadline; env.sh validates and exports the RPC knobs and routes stellar through one shim')

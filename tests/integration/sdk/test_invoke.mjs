@@ -1,6 +1,6 @@
 // Exercise the real invocation and shell recorder against offline RPC fixtures.
 import assert from 'node:assert/strict';
-import {mkdtempSync,readFileSync,writeFileSync,appendFileSync,mkdirSync,rmSync,fstatSync,existsSync} from 'node:fs';
+import {mkdtempSync,readFileSync,writeFileSync,appendFileSync,mkdirSync,rmSync,fstatSync,statSync,existsSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join,dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -14,7 +14,7 @@ const asset=Address.contract(Buffer.alloc(32,3)).toString();
 const mode=process.env.SDK_INVOKE_FIXTURE;
 if (mode) {
   const trace=message=>appendFileSync(join(process.env.LOG_DIR,'trace'),message+'\n');
-  trace([...Array(12).keys()].some(i=>{ try { fstatSync(150+i); return true; } catch { return false; } })?'slot':'no-slot');
+  trace([...Array(12).keys()].some(i=>{ try { const held=fstatSync(150+i), slot=statSync(join(process.env.E2E_SLOT_DIR,`rpc.${i+1}`)); return held.ino===slot.ino&&held.dev===slot.dev; } catch { return false; } })?'slot':'no-slot');
   const data=new SorobanDataBuilder().setResources(200000,100,200).setResourceFee('300');
   const raw={latestLedger:100,minResourceFee:'300',transactionData:data.build().toXDR('base64'),
     results:[{auth:[],xdr:xdr.ScVal.scvVoid().toXDR('base64')}]};
@@ -71,7 +71,7 @@ if (mode) {
         sdk_inv fixture buildStellarSupplyTx "$FIXTURE_ARGS"
       `],{encoding:'utf8',env:{...process.env,SDK_INVOKE_FIXTURE:fixture,
         NODE_OPTIONS:`--import=${import.meta.url}`,NODE_BIN:process.execPath,
-        INTEG_DIR:dirname(here),E2E_SLOT_DIR:join(run,'slots'),RUN_DIR:run,LOG_DIR:logs,ACTIONS_TSV:join(run,'actions.tsv'),PHASE:'sdk',
+        INTEG_DIR:dirname(here),E2E_SLOT_DIR:join(run,'slots'),E2E_SLOT_FDS:'',RUN_DIR:run,LOG_DIR:logs,ACTIONS_TSV:join(run,'actions.tsv'),PHASE:'sdk',
         RPC_URL:'https://rpc.invalid',NETWORK_PASSPHRASE:'Test SDF Network ; September 2015',CONTROLLER:controller,ALICE:'fixture',EXPECT_ERROR:'',
         FIXTURE_SECRET:key.secret(),FIXTURE_ARGS:JSON.stringify({asset,hubId:1,spokeId:1,amount:'10000001',accountNonce:0})}});
       assert.equal(result.status,1,result.stderr);
