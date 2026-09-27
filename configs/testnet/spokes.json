@@ -1,6 +1,11 @@
 {
   "1": {
     "name": "Blue Chip",
+    "liquidation_curve": {
+      "target_hf_wad": "1150000000000000000",
+      "hf_for_max_bonus_wad": "900000000000000000",
+      "liquidation_bonus_factor_bps": 1500
+    },
     "assets": {
       "USDC": {
         "hub_id": 1,
@@ -50,6 +55,11 @@
   },
   "2": {
     "name": "XLM & USDC",
+    "liquidation_curve": {
+      "target_hf_wad": "1150000000000000000",
+      "hf_for_max_bonus_wad": "900000000000000000",
+      "liquidation_bonus_factor_bps": 1500
+    },
     "assets": {
       "XLM": {
         "hub_id": 1,
@@ -77,6 +87,11 @@
   },
   "3": {
     "name": "All Assets (Multi-Hub)",
+    "liquidation_curve": {
+      "target_hf_wad": "1150000000000000000",
+      "hf_for_max_bonus_wad": "900000000000000000",
+      "liquidation_bonus_factor_bps": 1500
+    },
     "assets": {
       "BTC": {
         "hub_id": 1,
@@ -148,6 +163,11 @@
   },
   "4": {
     "name": "LP Tokens",
+    "liquidation_curve": {
+      "target_hf_wad": "1150000000000000000",
+      "hf_for_max_bonus_wad": "900000000000000000",
+      "liquidation_bonus_factor_bps": 1000
+    },
     "assets": {
       "XLMUSDC_LP": {
         "hub_id": 3,
@@ -196,6 +216,11 @@
   },
   "6": {
     "name": "Liqvid USDC Lenders",
+    "liquidation_curve": {
+      "target_hf_wad": "1150000000000000000",
+      "hf_for_max_bonus_wad": "900000000000000000",
+      "liquidation_bonus_factor_bps": 1500
+    },
     "assets": {
       "USDC_LIQVID": {
         "hub_id": 4,

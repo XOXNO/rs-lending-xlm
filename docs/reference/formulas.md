@@ -238,7 +238,25 @@ weight, using half-up division and multiplication. It is bounded by
 bound; zero collateral also gives a zero base bonus.
 
 The configured curve ramps the base-to-maximum increment as health falls, then
-applies its BPS factor. The HF-preserving cap above limits the result. With a
+applies its BPS factor `f`. `H` is the spoke's `liquidation_target_hf_wad` and
+`K` is its `hf_for_max_bonus_wad`:
+
+```rust
+let s = if HF >= H { 0 } else { min(WAD, half_up((H - HF) * WAD / (H - K))) };
+let curve = base + half_up(f * half_up((max - base) * s / WAD) / BPS);
+```
+
+The ramp starts at `H`, not at `HF = 1`. An account becomes liquidatable only
+below `HF = 1`, so its first bonus is already about
+`base + f * (max - base) * (H - 1) / (H - K)`. The maximum comes only from the
+blended threshold, not from the listed `liquidation_bonus`: `LT = 6000` gives
+`max = 6666`. With `H = 1.10`, `K = 0.80`, `f = 10000` and `base = 500`, the
+bonus is about 2557 BPS just below `HF = 1` and 4611 BPS at `HF = 0.90`. Size
+`H`, `K` and `f` from the bonus at `HF = 1` and at `K`, not from the listed
+bonus. The [Liqvid bonus curve](runbooks/liqvid-listing-params.md#4-the-bonus-curve)
+shows a full table.
+
+The HF-preserving cap above limits the result. With a
 positive `p`, insolvency or a cap below base bypasses the target formula:
 
 ```rust

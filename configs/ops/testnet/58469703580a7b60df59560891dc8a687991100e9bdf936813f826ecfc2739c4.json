@@ -1,0 +1,25 @@
+{
+  "kind": "controller",
+  "op_id": "58469703580a7b60df59560891dc8a687991100e9bdf936813f826ecfc2739c4",
+  "network": "testnet",
+  "target": "CCXRWJ6SIU2WPFEGLFGJVITPL57QAYIMIO6OAM2NBGNDQSSCK2FFV3F3",
+  "function": "set_spoke_liquidation_curve",
+  "args": [
+    {
+      "u32": 3
+    },
+    {
+      "i128": "1150000000000000000"
+    },
+    {
+      "i128": "900000000000000000"
+    },
+    {
+      "u32": 1500
+    }
+  ],
+  "predecessor": "0000000000000000000000000000000000000000000000000000000000000000",
+  "salt": "388ef2f67825023e3ab3aa3c2d69befe65b45c65334a022700e07f75136757ee",
+  "cli_executable": true,
+  "executed": true
+}
