@@ -262,6 +262,125 @@ else:
         self.assertEqual([w for w in writes if w['label'] in ('prod_reflector_seed','prod_redstone_seed','prod_reflector_base')],[])
         self.assertEqual([(a['label'],a['status']) for a in actions if a['status']=='FAIL'],[('prod_seed_dedupe','FAIL')])
         self.assertIn('conflicting prices',next(a['note'] for a in actions if a['label']=='prod_seed_dedupe'))
+    GROUPED_READS = r"""source "$1/lib/core.sh"; source "$1/lib/invoke.sh"; source "$1/lib/assert.sh"; source "$1/lib/assets.sh"; source "$1/lib/protocol.sh"
+source "$1/flows/lifecycle.sh"; source "$1/flows/teardown.sh"; source "$1/flows/production.sh"
+set -uo pipefail
+RUN_DIR="$2"; LOG_DIR="$2/logs"; ACTIONS_TSV="$2/actions.tsv"; STATE_ENV="$2/state.env"; PHASE=init; INTEG_DIR="$2/integ"
+mkdir -p "$LOG_DIR"; printf 'seq\tphase\tlabel\tstatus\tfn\thash\tinstructions\tread_bytes\twrite_bytes\tresource_fee\tnote\n' > "$ACTIONS_TSV"
+ADMIN=admin ADMIN_ADDR=GADMIN ALICE_ADDR=GALICE BOB_ADDR=GISSUER RPC_URL=rpc NET_ARGS=(--network testnet)
+CONTROLLER=CCTRL POOL=CPOOL POSITION_NFT=CNFT GOVERNANCE=CGOV PRICE_AGGREGATOR=CPA PRIMARY_SPOKE_ID=4
+log() { :; }; latest_ledger() { echo 1; }
+cat > "$RUN_DIR/node" <<'NODE'
+#!/bin/bash
+out=$6; shift 6
+jq -n '[$ARGS.positional[] | {(.): {balance: "3"}}] | add // {}' --args "$@" > "$out"
+NODE
+chmod +x "$RUN_DIR/node"; NODE_BIN="$RUN_DIR/node"
+stellar() {
+    local a prev='' id='' fn='' args='' after=0 n v
+    for a; do
+        if [ "$after" = 1 ]; then if [ -z "$fn" ]; then fn="$a"; else args="$args $a"; fi; continue; fi
+        [ "$a" != -- ] || after=1
+        [ "$prev" != --id ] || id="$a"; prev="$a"
+    done
+    [ -z "${E2E_JOB:-}" ] || command sleep "${DELAY_UNIT:-0.}$(( (20 - ${E2E_JOB##*-}) % 10 ))"
+    v=$(printf '%s' "$id$args" | cksum | cut -d' ' -f1)
+    case "$fn" in
+        name) if [ "$id" = SAC2 ]; then echo '"USDC:GISSUER"'; else echo "\"name-$id\""; fi;;
+        total_supply) n=$(( $(cat "$RUN_DIR/totals" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$RUN_DIR/totals"; echo "${TOTAL_SEQ:-3 3}" | cut -d' ' -f"$n";;
+        get_token_id) echo "\"$(( ${args##* } + 10 ))\"";;
+        account_exists) echo false;;
+        get_revenue) echo '"0"';;
+        get_reserves) echo "\"$(( v % 10 ))\"";;
+        get_borrowed_amount|get_supplied_amount) echo "\"$(( v % 20 ))\"";;
+        balance) case "$args" in *CPOOL*) echo "\"$(( 10 + v % 20000 ))\"";; *) echo "\"$(( v % 2000 ))\"";; esac;;
+        *) jq -nc --arg fn "$fn" --arg id "$id" --arg args "$args" '{fn:$fn,id:$id,args:$args}';;
+    esac
+}
+"""
+
+    SERIAL_SNAPSHOT = r"""
+serial_snapshot() {
+    local label="$1" acct="$2" asset="$3" runner="$4" positions attributes usage owner wallet pool
+    positions=$(view "${label}_positions" "$CONTROLLER" -- get_account_positions --account_id "$acct") || return 1
+    attributes=$(view "${label}_attributes" "$CONTROLLER" -- get_account_attributes --account_id "$acct") || return 1
+    usage=$(view "${label}_usage" "$CONTROLLER" -- get_spoke_usage --spoke_id "$PRIMARY_SPOKE_ID" --hub_asset "$(hub_key 1 "$asset")") || return 1
+    owner=$(view "${label}_owner" "$POSITION_NFT" -- owner_of --token_id "$acct") || return 1
+    local controller_cash book nft_state roles='[]' role held pa_owner
+    book=$(view "${label}_pool_book" "$POOL" -- get_sync_data --hub_asset "$(hub_key 1 "$asset")") || return 1
+    nft_state=$(jq -nc --argjson name "$(view "${label}_name" "$POSITION_NFT" -- name)" \
+        --argjson symbol "$(view "${label}_symbol" "$POSITION_NFT" -- symbol)" \
+        --argjson uri "$(view "${label}_uri" "$POSITION_NFT" -- token_uri --token_id "$acct")" \
+        --argjson total "$(view "${label}_total" "$POSITION_NFT" -- total_supply)" \
+        '{name:$name,symbol:$symbol,uri:$uri,total:$total}') || return 1
+    for role in PROPOSER EXECUTOR CANCELLER GUARDIAN ORACLE; do
+        held=$(view "${label}_role_$role" "$GOVERNANCE" -- has_role --account "$ADMIN_ADDR" --role "$role") || return 1
+        roles=$(jq -nc --argjson roles "$roles" --arg role "$role" --argjson held "$held" '$roles+[{role:$role,held:$held}]') || return 1
+    done
+    pa_owner=$(view "${label}_pa_owner" "$PRICE_AGGREGATOR" -- get_owner) || return 1
+    controller_cash=$(balance "$asset" "$CONTROLLER") || return 1
+    wallet=$(balance "$asset" "$runner") || return 1
+    pool=$(balance "$asset" "$POOL") || return 1
+    jq -ncS --argjson positions "$positions" --argjson attributes "$attributes" --argjson usage "$usage" \
+        --argjson owner "$owner" --arg wallet "$wallet" --arg pool "$pool" --arg controller_cash "$controller_cash" \
+        --argjson book "$book" --argjson nft "$nft_state" --argjson roles "$roles" --argjson pa_owner "$pa_owner" \
+        '{positions:$positions,attributes:$attributes,usage:$usage,owner:$owner,wallet:$wallet,pool:$pool,controller_cash:$controller_cash,book:$book,nft:$nft,roles:$roles,pa_owner:$pa_owner}'
+}
+serial=$(serial_snapshot prod_snap 7 CUSDC CRUNNER) || exit 1
+grouped=$(prod_position_snapshot prod_snap 7 CUSDC CRUNNER) || exit 2
+printf '%s\n' "$serial" > "$RUN_DIR/serial.json"; printf '%s\n' "$grouped" > "$RUN_DIR/grouped.json"
+"""
+
+    SERIAL_TEARDOWN = r"""
+for m in $MARKETS; do E2E_JOB_DIR="$RUN_DIR" td_snapshot_job "${m%%:*}" "${m##*:}" || exit 1; done
+mv "$RUN_DIR/snapshot.jsonl" "$RUN_DIR/before-cleanup.jsonl"
+for m in $MARKETS; do td_residue_job "${m%%:*}" "${m##*:}"; done
+"""
+
+    @staticmethod
+    def rows(root):
+        return [line.split('\t') for line in (root/'actions.tsv').read_text().splitlines()[1:]]
+
+    def test_position_snapshot_group_equals_serial(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            result = subprocess.run(['bash', '-c', self.GROUPED_READS + self.SERIAL_SNAPSHOT, '_', str(HERE), d], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr[-2000:])
+            serial, grouped = (root/'serial.json').read_text(), (root/'grouped.json').read_text()
+            rows = self.rows(root)
+        self.assertEqual(grouped, serial)
+        snapshot = json.loads(grouped)
+        self.assertEqual([r['role'] for r in snapshot['roles']], ['PROPOSER', 'EXECUTOR', 'CANCELLER', 'GUARDIAN', 'ORACLE'])
+        self.assertEqual(snapshot['nft']['name'], 'name-CNFT')
+        self.assertEqual(len({snapshot['wallet'], snapshot['pool'], snapshot['controller_cash']}), 3)
+        floor = next(i for i, r in enumerate(rows) if r[2] == 'prod_snap_ledger_floor')
+        self.assertEqual(floor, 18)
+        self.assertEqual([r[2:] for r in rows[floor+1:]], [r[2:] for r in rows[:floor]])
+
+    def test_teardown_groups_keep_serial_rows_and_snapshot_order(self):
+        markets = ' '.join([f'1:SAC{n}' for n in range(1, 9)] + ['2:SAC1', '1:SACA'])
+        grouped = self.GROUPED_READS + f'MARKETS="{markets}"; TOTAL_SEQ="3 0"; DELAY_UNIT=0.0\nflow_teardown; echo "$?" > "$RUN_DIR/rc"\n'
+        serial = self.GROUPED_READS + f'MARKETS="{markets}"\n' + self.SERIAL_TEARDOWN
+        with tempfile.TemporaryDirectory() as a, tempfile.TemporaryDirectory() as b:
+            ran, ref = [subprocess.Popen(['bash', '-c', body, '_', str(HERE), d], stderr=subprocess.PIPE, text=True) for body, d in ((grouped, a), (serial, b))]
+            ran_err, ref_err = ran.communicate()[1], ref.communicate()[1]
+            self.assertEqual(ref.returncode, 0, ref_err[-2000:])
+            self.assertEqual((Path(a)/'rc').read_text().strip(), '1', ran_err[-2000:])
+            got, want = (Path(a)/'before-cleanup.jsonl').read_text(), (Path(b)/'before-cleanup.jsonl').read_text()
+            rows, reference = self.rows(Path(a)), self.rows(Path(b))
+        self.assertEqual(got, want)
+        lines = [json.loads(line) for line in got.splitlines()]
+        self.assertEqual([f"{r['hub']}:{r['asset']}" for r in lines if 'hub' in r], markets.split())
+        labels = [r[2] for r in rows]
+        start, end = labels.index('before_cleanup_ledger_floor'), labels.index('pre_cleanup_conservation')
+        snapshot_rows = [r[2:] for r in rows[start+1:end]]
+        self.assertEqual(snapshot_rows, [r[2:] for r in reference[:len(snapshot_rows)]])
+        residue_rows = [r[2:] for r in rows[labels.index('td_residue_ledger_floor')+1:]]
+        self.assertEqual(residue_rows, [r[2:] for r in reference[len(snapshot_rows):]])
+        self.assertTrue(any(r[1] == 'FAIL' for r in residue_rows) and any(r[0].startswith('td_residue_') for r in residue_rows))
+        self.assertEqual([l for l in labels if l.startswith('td_exists_')], ['td_exists_10', 'td_exists_11', 'td_exists_12'])
+        self.assertEqual([l for l in labels if l.startswith('td_token_')], ['td_token_0', 'td_token_1', 'td_token_2'])
+
     def test_governance_wait_is_deadline_based(self):
         body='''count=$(mktemp); gov_state() { local n=$(( $(cat "$count") + 1 )); echo "$n" > "$count"; [ "$n" -ge "$READY_AT" ] && echo Ready || echo Waiting; }
 echo 0 > "$count"; READY_AT="$1"; start=$(date +%s); out=$(gov_await_ready op "$2"); rc=$?; echo "$rc $out $(( $(date +%s) - start ))"; rm -f "$count"'''

@@ -40,6 +40,7 @@ inv() {
 }
 prod_propose() { :; }; prod_execute_split() { :; }; CHANNELS=c
 group_each() { local items="$3" item; shift 3; while IFS= read -r item; do [ -z "$item" ] || "$@" "$item" || return 1; done <<<"$items"; }
+group_begin() { :; }; group_spawn() { "$@" >/dev/null || GROUP_FAILED=1; }; group_end() { [ -z "${GROUP_FAILED:-}" ]; }
 prod_ops() {
     case "$1" in
         deployPool) echo '"POOL"';; deployPositionNft) echo '"NFT"';;
@@ -53,7 +54,7 @@ view() {
     # Three mock observations are now, now-300, now-600. A 56-minute
     # operator setup expires the oldest one under the unchanged 3600s cap.
     [ "$refreshed" = 2 ] && [ "$((now-fresh_at+600))" -le 3600 ] || return 1
-    echo '{}'
+    echo '{}' | tee "$LOG_DIR/$1.out"
 }
 [ "$3" != missing ] || prod_refresh_reflectors() { :; }
 [ "$3" != failed ] || FAIL_REFRESH=1

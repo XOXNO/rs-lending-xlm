@@ -629,6 +629,7 @@ stellar() {
 status_of() { echo SUCCESS; }
 tx_status() { local st; st=$(status_of "$1"); printf '{"result":{"status":"%s"}}' "$st" > "$LOG_DIR/$1.receipt.json"; echo "$st"; }
 fetch_resources() { RES_INSTR=1 RES_READ=0 RES_WRITE=0 RES_FEE=1; }
+latest_ledger() { echo 1; }
 case_files() { printf '{"selected_cases":["c"]}' > "$RUN_DIR/metadata.json"; printf 'id\tstatus\tfirst_action\tlast_action\n' > "$RUN_DIR/cases.tsv"; }
 gate_attempts() {
 python3 - "$RUN_DIR" "{HERE}" <<'PYGATE'
@@ -694,7 +695,7 @@ jobf() { inv lbl admin c -- supply >/dev/null; }
 group_begin x 2 || exit 1
 group_spawn jobf; group_spawn jobf
 if group_end; then exit 2; fi
-[ -f "$RUN_DIR/active-attempt.json" ] && [ -f "$RUN_DIR/jobs/x.$GROUP_ID/1/active.json" ] || exit 3
+[ -f "$RUN_DIR/active-attempt.json" ] && [ -f "$RUN_DIR/jobs/x.$GROUP_ID/1/active.json" ] && [ "$GROUP_LAST" = "$RUN_DIR/jobs/x.$GROUP_ID" ] || exit 3
 python3 "$INTEG_DIR/gate.py" summary "$RUN_DIR" completed 1 || exit 4
 python3 - "$RUN_DIR" "$INTEG_DIR" "$(hash_of "$GROUP_ID-1")" "$(hash_of "$GROUP_ID-2")" <<'PY' || exit 5
 import json, sys
@@ -796,9 +797,9 @@ record before ok assert
 jobf() { record inside ok assert; }
 casef() { record pre ok assert; group_begin g 2 reads || return 1; group_spawn jobf; group_spawn jobf; group_end || return 1; record post ok assert; }
 run_case c casef || exit 1
-tail -1 "$RUN_DIR/cases.tsv" | awk -F'\t' '{exit !($1=="c" && $2=="pass" && $3+0==2 && $4+0==5)}' || exit 2
+tail -1 "$RUN_DIR/cases.tsv" | awk -F'\t' '{exit !($1=="c" && $2=="pass" && $3+0==2 && $4+0==6)}' || exit 2
 ''')
-assert [a['label'] for a in actions] == ['before', 'pre', 'inside', 'inside', 'post']
+assert [a['label'] for a in actions] == ['before', 'pre', 'g_ledger_floor', 'inside', 'inside', 'post']
 
 # G10: a deployment in a job keeps its attempt, action row and deployed-artifact line.
 CID = 'C' + 'A'*54 + 'B'
@@ -894,14 +895,14 @@ if group_end; then exit 6; fi
 if group_spawn jobf; then exit 8; fi
 if group_end; then exit 9; fi
 '''.replace('{HERE}', str(HERE)))
-assert [(a['label'], a['status']) for a in actions] == [('group_g_parent_writes', 'FAIL'), ('group_spawn_jobf', 'FAIL'), ('group_end', 'FAIL')], actions
-assert actions[0]['note'].startswith('6 parent writes refused while the group was open: prod_ops validateConfigs;sdk_inv parent_sdk;begin_attempt parent;'), actions
+assert [(a['label'], a['status']) for a in actions] == [('g_ledger_floor', 'ok'), ('group_g_parent_writes', 'FAIL'), ('group_spawn_jobf', 'FAIL'), ('group_end', 'FAIL')], actions
+assert actions[1]['note'].startswith('6 parent writes refused while the group was open: prod_ops validateConfigs;sdk_inv parent_sdk;begin_attempt parent;'), actions
 attempts, _, actions = shell(GROUP_SETUP + r'''
 f() { command sleep 0.3; }
 (group_begin g 2 reads; group_spawn f; die fatal_lbl boom)
 [ -f "$RUN_DIR/active-attempt.json" ] || exit 1
 ''', interrupted=True)
-assert [(a['label'], a['status'], a['note']) for a in actions] == [('fatal_lbl', 'FAIL', 'boom')], actions
+assert [(a['label'], a['status'], a['note']) for a in actions] == [('g_ledger_floor', 'ok', 'latest=1 floor=0'), ('fatal_lbl', 'FAIL', 'boom')], actions
 attempts, _, actions = shell(GROUP_SETUP + r'''
 jobf() {
     inv bad_source '../x' c -- supply
@@ -930,9 +931,9 @@ record lbl ok assert '' '' '' '' '' "$note" transaction CX
 group_begin g 1 reads || exit 1
 group_spawn jobf
 group_end || exit 2
-cmp <(sed -n 2p "$ACTIONS_TSV" | cut -f2-) <(sed -n 3p "$ACTIONS_TSV" | cut -f2-) || exit 3
-cmp <(sed -n 2p "$RUN_DIR/evidence.tsv" | cut -f2-) <(sed -n 3p "$RUN_DIR/evidence.tsv" | cut -f2-) || exit 4
-[ "$(sed -n 3p "$ACTIONS_TSV" | cut -f11)" = "$note" ] || exit 5
+cmp <(sed -n 2p "$ACTIONS_TSV" | cut -f2-) <(sed -n 4p "$ACTIONS_TSV" | cut -f2-) || exit 3
+cmp <(sed -n 2p "$RUN_DIR/evidence.tsv" | cut -f2-) <(sed -n 4p "$RUN_DIR/evidence.tsv" | cut -f2-) || exit 4
+[ "$(sed -n 4p "$ACTIONS_TSV" | cut -f11)" = "$note" ] || exit 5
 ''')
 
 # G15: under /bin/bash and set -u, a read group needs no channels and a write group refuses without them.
@@ -951,7 +952,7 @@ if group_begin z 0; then exit 5; fi
 if group_begin z 2 writes; then exit 6; fi
 [ ! -e "$RUN_DIR/active-attempt.json" ] && [ ! -e "$RUN_DIR/calls" ] || exit 7
 ''', bash='/bin/bash')
-assert [(a['label'], a['status']) for a in actions] == [('v', 'read'), ('v', 'read')] + [(f'group_{n}', 'FAIL') for n in ('w', 'bad name', 'z', 'z')], actions
+assert [(a['label'], a['status']) for a in actions] == [('r_ledger_floor', 'ok'), ('v', 'read'), ('v', 'read')] + [(f'group_{n}', 'FAIL') for n in ('w', 'bad name', 'z', 'z')], actions
 print('Parent writes, case-level open groups, journal quoting and channel-free reads all hold')
 
 # G16: a spawn from a pipeline or a command substitution is refused before any job starts.
@@ -1057,3 +1058,73 @@ assert [(a['label'], a['status'], a['fn'], a['instructions'], a['read_bytes'], a
     ('issue_sac_USDC', 'ok', 'asset_deploy', '11', '12', '13', '14')], actions
 assert [a['label'] for a in attempts] == ['deploy_mock', 'deploy_mockrs', 'sac_USDC'] and len({a['hash'] for a in actions}) == 3 and all(a['hash'] for a in actions)
 print('Grouped mock-oracle, mock-RedStone and SAC deployments sign with the job channel and replay as deployments with sidecar resources')
+
+# R1: a read group records its ledger floor, then replays each view in spawn order with contiguous attempts.
+attempts, _, actions = shell(GROUP_SETUP + r'''
+stellar() {
+    local n; n=$(( $(cat "$RUN_DIR/count.$E2E_JOB" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$RUN_DIR/count.$E2E_JOB"
+    [ "${E2E_JOB##*-}" != 2 ] || [ "$n" -gt 1 ] || { echo 'transient' >&2; return 1; }
+    command sleep "0.$(( 4 - ${E2E_JOB##*-} ))"
+    echo "\"${E2E_JOB##*-}\""
+}
+group_begin g 8 reads || exit 1
+for n in 1 2 3; do group_spawn view "v$n" c -- balance; done
+group_end || exit 2
+gate_attempts || exit 3
+''')
+assert [(a['label'], a['status'], a['fn']) for a in actions] == [('g_ledger_floor', 'ok', 'assert'), ('v1', 'read', 'balance'), ('v2', 'read', 'balance'), ('v3', 'read', 'balance')], actions
+assert actions[0]['note'] == 'latest=1 floor=0', actions
+assert [(a['label'], a['attempt'], a['cli_exit'], a['action_seq']) for a in attempts] == [('v1', 1, 0, 2), ('v2', 1, 1, 3), ('v2', 2, 0, 3), ('v3', 1, 0, 4)], attempts
+
+# R2: the floor is the highest committed ledger over CLI and SDK receipts, and the group waits until the RPC reaches it.
+R_SETUP = GROUP_SETUP + r'''
+source "{HERE}/flows/sdk.sh"
+export LOG_DIR
+ALICE=alice CONTROLLER=controller
+cat > "$RUN_DIR/node" <<'NODE'
+#!/bin/bash
+cat >/dev/null
+h=$(printf '%064d' 7)
+printf '%s' "$h" > "$4.hash"
+printf '{"jsonrpc":"2.0","id":1,"result":{"status":"SUCCESS","ledger":100}}' > "$LOG_DIR/$h.receipt.json"
+printf '{"hash":"%s","value":7}' "$h"
+NODE
+chmod +x "$RUN_DIR/node"; NODE_BIN="$RUN_DIR/node"
+tx_status() { printf '{"jsonrpc":"2.0","id":1,"result":{"status":"SUCCESS","ledger":90}}' > "$LOG_DIR/$1.receipt.json"; echo SUCCESS; }
+latest_ledger() {
+    local n; n=$(( $(cat "$RUN_DIR/polls" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$RUN_DIR/polls"
+    if [ "$n" -eq 1 ]; then echo "$LATEST_FIRST"; else echo "$LATEST_NEXT"; fi
+}
+printf '{"result":{"status":"SUCCESS","ledger":500}}' > "$LOG_DIR/$(printf '%064d' 9).receipt.1.json"
+printf '{"result":{"status":"NOT_FOUND","latestLedger":600}}' > "$LOG_DIR/$(printf '%064d' 8).receipt.json"
+readf() { group_begin g 8 reads || return 1; group_spawn view v c -- balance; group_end; }
+'''.replace('{HERE}', str(HERE))
+attempts, _, actions = shell(R_SETUP + r'''
+LATEST_FIRST=99 LATEST_NEXT=100
+inv cli admin c -- supply >/dev/null || exit 1
+[ "$(sdk_inv sdk_borrow buildStellarBorrowTx '{}')" = 7 ] || exit 2
+readf || exit 3
+[ "$(cat "$RUN_DIR/polls")" = 2 ] && grep -q ' contract invoke .* balance$' "$RUN_DIR/calls" || exit 4
+''')
+assert [(a['label'], a['status']) for a in actions] == [('cli', 'ok'), ('sdk_borrow', 'ok'), ('g_ledger_floor', 'ok'), ('v', 'read')], actions
+assert actions[2]['note'] == 'latest=100 floor=100', actions
+
+# R3: an RPC that never reaches the floor fails the group before any job or view call.
+attempts, _, actions = shell(R_SETUP + r'''
+LATEST_FIRST=99 LATEST_NEXT=99
+printf '{"jsonrpc":"2.0","id":1,"result":{"status":"FAILED","ledger":100}}' > "$LOG_DIR/$(printf '%064d' 1).receipt.json"
+if readf; then exit 1; fi
+[ "$(cat "$RUN_DIR/polls")" = 31 ] && [ ! -e "$RUN_DIR/calls" ] && [ ! -e "$RUN_DIR/jobs" ] || exit 2
+''')
+assert [(a['label'], a['status'], a['note']) for a in actions] == [('g_ledger_floor', 'FAIL', 'latest=99 below floor=100 after 30 s')], actions
+assert not attempts
+
+# R4: a committed receipt without a ledger fails the floor closed before any poll or view call.
+attempts, _, actions = shell(R_SETUP + r'''
+LATEST_FIRST=100 LATEST_NEXT=100
+printf '{"jsonrpc":"2.0","id":1,"result":{"status":"SUCCESS"}}' > "$LOG_DIR/$(printf '%064d' 1).receipt.json"
+if readf; then exit 1; fi
+[ ! -e "$RUN_DIR/polls" ] && [ ! -e "$RUN_DIR/calls" ] && [ ! -e "$RUN_DIR/jobs" ] || exit 2
+''')
+assert [(a['label'], a['status'], a['note']) for a in actions] == [('g_ledger_floor', 'FAIL', 'unreadable receipt ledgers in the lane logs')], actions
+print('Read groups wait for the ledger floor of every CLI and SDK receipt, and fail closed before any view')

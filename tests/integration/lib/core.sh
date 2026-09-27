@@ -249,6 +249,7 @@ group_begin() {
         record "group_$name" FAIL group "" "" "" "" "" "write group refused: no channel sources in CHANNELS"
         return 1
     fi
+    [ "$mode" != reads ] || group_ledger_floor "$name" || return 1
     local dir
     mkdir -p "$RUN_DIR/jobs" && dir=$(mktemp -d "$RUN_DIR/jobs/$name.XXXXXX") \
         || { record "group_$name" FAIL group "" "" "" "" "" "cannot create the group directory"; return 1; }
@@ -265,8 +266,37 @@ temporary = path.with_suffix('.json.tmp')
 temporary.write_text(json.dumps(item)+'\n')
 temporary.replace(path)
 PYGROUP
-    GROUP_DIR="$dir" GROUP_ID="${dir##*.}" GROUP_NAME="$name" GROUP_WIDTH="$width" GROUP_N=0 GROUP_SUBSHELL="$BASH_SUBSHELL"
+    GROUP_DIR="$dir" GROUP_LAST="$dir" GROUP_ID="${dir##*.}" GROUP_NAME="$name" GROUP_WIDTH="$width" GROUP_N=0 GROUP_SUBSHELL="$BASH_SUBSHELL"
     GROUP_SRCS=(${CHANNELS:-}) GROUP_PIDS=() GROUP_BATCH=()
+}
+
+group_ledger_floor() {
+    local label="${1}_ledger_floor" floor latest='' n
+    floor=$(python3 - "$LOG_DIR" <<'PYFLOOR'
+import json, re, sys
+from pathlib import Path
+floor = 0
+for path in Path(sys.argv[1]).iterdir():
+    if re.fullmatch(r'[0-9a-f]{64}\.receipt\.json', path.name):
+        result = json.loads(path.read_text()).get('result')
+        if isinstance(result, dict) and result.get('status') in ('SUCCESS', 'FAILED'):
+            if type(result.get('ledger')) is not int or result['ledger'] <= 0:
+                raise SystemExit(f'{path.name}: final receipt without a ledger')
+            floor = max(floor, result['ledger'])
+print(floor)
+PYFLOOR
+    ) || { log "ASSERT FAIL [$label]: unreadable receipt ledgers"; record "$label" FAIL assert '' '' '' '' '' 'unreadable receipt ledgers in the lane logs'; return 1; }
+    for ((n = 0; n <= 30; n++)); do
+        [ "$n" -eq 0 ] || sleep 1
+        latest=$(latest_ledger) || latest=''
+        if [[ "$latest" =~ ^[0-9]{1,18}$ ]] && [ "$latest" -ge "$floor" ]; then
+            record "$label" ok assert '' '' '' '' '' "latest=$latest floor=$floor"
+            return
+        fi
+    done
+    log "ASSERT FAIL [$label]: RPC ledger ${latest:-unknown} below the lane floor $floor after 30 s"
+    record "$label" FAIL assert '' '' '' '' '' "latest=${latest:-unknown} below floor=$floor after 30 s"
+    return 1
 }
 
 group_spawn() {
@@ -348,7 +378,6 @@ group_end() {
         return 1
     fi
     rm -f "$RUN_DIR/active-attempt.json"
-    GROUP_LAST="$GROUP_DIR"
     unset GROUP_DIR; GROUP_PIDS=()
     awk -F'\t' -v first="$first" 'NR>1 && $1>=first && ($4=="FAIL" || $4=="UNEXPECTED-OK") {exit 1}' "$ACTIONS_TSV"
 }

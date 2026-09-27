@@ -275,38 +275,52 @@ flow_production_operator() {
     cmp -s "$RUN_DIR/operator-before-replay.json" "$RUN_DIR/config/networks.json" || { _assert_fail operator_replay "setup replay changed deployment mappings"; return 1; }
     prod_ops unpause >/dev/null || return 1
     prod_refresh_reflectors prod_reflector_after_setup || return 1
-    local m asset hub key oracle decimals
+    local m asset oracle markets="$RUN_DIR/config/testnet/markets.json"
     save_state MARKETS ''
+    group_begin prod_markets 8 reads || return 1
+    while read -r m; do group_spawn prod_market_job "$m"; done < <(jq -c '.markets[]' "$markets")
+    group_end || return 1
     while read -r m; do
-        asset=$(jq -r '.asset_address' <<<"$m"); hub=$(jq -r '.hub_id' <<<"$m")
-        decimals=$(jq -r '.oracle.asset_decimals' <<<"$m")
-        assert_view_eq_at "$asset" "prod_decimals_${asset:0:8}" "$decimals" decimals || return 1
-        key=$(price_key_token "$asset")
-        view "prod_price_${asset:0:8}" "$PRICE_AGGREGATOR" -- prices --keys "[$key]" >/dev/null || return 1
+        asset=$(jq -r '.asset_address' <<<"$m")
         python3 "$INTEG_DIR/production_config.py" verify-price "$RUN_DIR/config/testnet" "$(jq -r '.name' <<<"$m")" "$LOG_DIR/prod_price_${asset:0:8}.out" \
             || { _assert_fail "prod_price_${asset:0:8}" "price/decimals differ from seeded production fixture"; return 1; }
-        oracle=$(view "prod_oracle_${asset:0:8}" "$PRICE_AGGREGATOR" -- oracle --key "$key") || return 1
-        [ -n "$oracle" ] || return 1
-        save_state MARKETS "${MARKETS:+$MARKETS }$hub:$asset"
-    done < <(jq -c '.markets[]' "$RUN_DIR/config/testnet/markets.json")
+        oracle=$(cat "$LOG_DIR/prod_oracle_${asset:0:8}.out") && [ -n "$oracle" ] || return 1
+        save_state MARKETS "${MARKETS:+$MARKETS }$(jq -r '.hub_id' <<<"$m"):$asset"
+    done < <(jq -c '.markets[]' "$markets")
     save_state PRIMARY_HUB_ID 1
     save_state PRIMARY_SPOKE_ID "$(jq -r '.testnet.spoke_ids["1"]' "$RUN_DIR/config/networks.json")"
     prod_verify_policy || return 1
 }
 
+prod_market_job() {
+    local asset key
+    asset=$(jq -r '.asset_address' <<<"$1"); key=$(price_key_token "$asset")
+    assert_view_eq_at "$asset" "prod_decimals_${asset:0:8}" "$(jq -r '.oracle.asset_decimals' <<<"$1")" decimals || return 1
+    view "prod_price_${asset:0:8}" "$PRICE_AGGREGATOR" -- prices --keys "[$key]" >/dev/null || return 1
+    view "prod_oracle_${asset:0:8}" "$PRICE_AGGREGATOR" -- oracle --key "$key" >/dev/null
+}
+
 prod_verify_policy() {
-    local checks="$RUN_DIR/production-policy-checks.json" row i=0 target method arg
+    local checks="$RUN_DIR/production-policy-checks.json" row i=0 n
     python3 "$INTEG_DIR/production_config.py" checks "$RUN_DIR/config/testnet" "$RUN_DIR/config/networks.json" > "$checks" || return 1
+    group_begin prod_policy 8 reads || return 1
     while read -r row; do
-        target=$(jq -r '.contract' <<<"$row"); method=$(jq -r '.method' <<<"$row")
-        local args=()
-        while IFS= read -r arg; do args+=("$arg"); done < <(jq -r '.args[]' <<<"$row")
-        view "prod_policy_$i" "${!target}" -- "$method" ${args[@]+"${args[@]}"} >/dev/null || return 1
-        python3 "$INTEG_DIR/production_config.py" verify "$checks" "$i" "$LOG_DIR/prod_policy_$i.out" \
-            || { _assert_fail "prod_policy_$i" "$method differs from production policy"; return 1; }
+        group_spawn prod_policy_job "$i" "$row"
         i=$((i+1))
     done < <(jq -c '.[]' "$checks")
+    group_end || return 1
+    for ((n = 0; n < i; n++)); do
+        python3 "$INTEG_DIR/production_config.py" verify "$checks" "$n" "$LOG_DIR/prod_policy_$n.out" \
+            || { _assert_fail "prod_policy_$n" "$(jq -r --argjson n "$n" '.[$n].method' "$checks") differs from production policy"; return 1; }
+    done
     record prod_policy_equal ok assert "" "" "" "" "" "$i oracle/market/spoke policy readbacks matched"
+}
+
+prod_policy_job() {
+    local target method arg args=()
+    target=$(jq -r '.contract' <<<"$2"); method=$(jq -r '.method' <<<"$2")
+    while IFS= read -r arg; do args+=("$arg"); done < <(jq -r '.args[]' <<<"$2")
+    view "prod_policy_$1" "${!target}" -- "$method" ${args[@]+"${args[@]}"} >/dev/null
 }
 
 prod_decimal_roundtrips() {
@@ -340,25 +354,34 @@ prod_decimal_roundtrips() {
 # Stable state only: ledger timestamps are deliberately excluded.
 prod_position_snapshot() {
     local label="$1" acct="$2" asset="$3" runner="$4" positions attributes usage owner wallet pool
-    positions=$(view "${label}_positions" "$CONTROLLER" -- get_account_positions --account_id "$acct") || return 1
-    attributes=$(view "${label}_attributes" "$CONTROLLER" -- get_account_attributes --account_id "$acct") || return 1
-    usage=$(view "${label}_usage" "$CONTROLLER" -- get_spoke_usage --spoke_id "$PRIMARY_SPOKE_ID" --hub_asset "$(hub_key 1 "$asset")") || return 1
-    owner=$(view "${label}_owner" "$POSITION_NFT" -- owner_of --token_id "$acct") || return 1
-    local controller_cash book nft_state roles='[]' role held pa_owner
-    book=$(view "${label}_pool_book" "$POOL" -- get_sync_data --hub_asset "$(hub_key 1 "$asset")") || return 1
-    nft_state=$(jq -nc --argjson name "$(view "${label}_name" "$POSITION_NFT" -- name)" \
-        --argjson symbol "$(view "${label}_symbol" "$POSITION_NFT" -- symbol)" \
-        --argjson uri "$(view "${label}_uri" "$POSITION_NFT" -- token_uri --token_id "$acct")" \
-        --argjson total "$(view "${label}_total" "$POSITION_NFT" -- total_supply)" \
+    local controller_cash book nft_state roles='[]' role held pa_owner n=9
+    group_begin "$label" 8 reads || return 1
+    group_spawn view "${label}_positions" "$CONTROLLER" -- get_account_positions --account_id "$acct"
+    group_spawn view "${label}_attributes" "$CONTROLLER" -- get_account_attributes --account_id "$acct"
+    group_spawn view "${label}_usage" "$CONTROLLER" -- get_spoke_usage --spoke_id "$PRIMARY_SPOKE_ID" --hub_asset "$(hub_key 1 "$asset")"
+    group_spawn view "${label}_owner" "$POSITION_NFT" -- owner_of --token_id "$acct"
+    group_spawn view "${label}_pool_book" "$POOL" -- get_sync_data --hub_asset "$(hub_key 1 "$asset")"
+    group_spawn view "${label}_name" "$POSITION_NFT" -- name
+    group_spawn view "${label}_symbol" "$POSITION_NFT" -- symbol
+    group_spawn view "${label}_uri" "$POSITION_NFT" -- token_uri --token_id "$acct"
+    group_spawn view "${label}_total" "$POSITION_NFT" -- total_supply
+    for role in PROPOSER EXECUTOR CANCELLER GUARDIAN ORACLE; do
+        group_spawn view "${label}_role_$role" "$GOVERNANCE" -- has_role --account "$ADMIN_ADDR" --role "$role"
+    done
+    group_spawn view "${label}_pa_owner" "$PRICE_AGGREGATOR" -- get_owner
+    group_spawn balance "$asset" "$CONTROLLER"
+    group_spawn balance "$asset" "$runner"
+    group_spawn balance "$asset" "$POOL"
+    group_end || return 1
+    positions=$(group_out 1); attributes=$(group_out 2); usage=$(group_out 3); owner=$(group_out 4); book=$(group_out 5)
+    nft_state=$(jq -nc --argjson name "$(group_out 6)" --argjson symbol "$(group_out 7)" \
+        --argjson uri "$(group_out 8)" --argjson total "$(group_out 9)" \
         '{name:$name,symbol:$symbol,uri:$uri,total:$total}') || return 1
     for role in PROPOSER EXECUTOR CANCELLER GUARDIAN ORACLE; do
-        held=$(view "${label}_role_$role" "$GOVERNANCE" -- has_role --account "$ADMIN_ADDR" --role "$role") || return 1
+        n=$((n+1)); held=$(group_out "$n")
         roles=$(jq -nc --argjson roles "$roles" --arg role "$role" --argjson held "$held" '$roles+[{role:$role,held:$held}]') || return 1
     done
-    pa_owner=$(view "${label}_pa_owner" "$PRICE_AGGREGATOR" -- get_owner) || return 1
-    controller_cash=$(balance "$asset" "$CONTROLLER") || return 1
-    wallet=$(balance "$asset" "$runner") || return 1
-    pool=$(balance "$asset" "$POOL") || return 1
+    pa_owner=$(group_out 15); controller_cash=$(group_out 16); wallet=$(group_out 17); pool=$(group_out 18)
     jq -ncS --argjson positions "$positions" --argjson attributes "$attributes" --argjson usage "$usage" \
         --argjson owner "$owner" --arg wallet "$wallet" --arg pool "$pool" --arg controller_cash "$controller_cash" \
         --argjson book "$book" --argjson nft "$nft_state" --argjson roles "$roles" --argjson pa_owner "$pa_owner" \
