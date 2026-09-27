@@ -3016,8 +3016,8 @@ setup_all_wave() {
     local -a sources=($SETUP_SOURCES) items=()
     [ "$NETWORK" != "mainnet" ] || die "SETUP_JOBS>1 is testnet-only; mainnet setupAll stays serial"
     [ "$SIGNER" != "ledger" ] || die "SETUP_JOBS>1 needs local channel identities, not a Ledger signer"
-    [ "${#sources[@]}" -ge 3 ] || die "SETUP_JOBS=${SETUP_JOBS} needs at least 3 SETUP_SOURCES channel identities"
     [ "${#sources[@]}" -le "$SETUP_JOBS" ] || sources=("${sources[@]:0:$SETUP_JOBS}")
+    [ "${#sources[@]}" -ge 3 ] || die "SETUP_JOBS=${SETUP_JOBS} needs SETUP_JOBS>=3 and at least 3 SETUP_SOURCES channel identities"
     require_spoke_caps_configured
     local dir snapshot markets market spokes cat_id asset onchain_id ops p_spokes p_refs p_exec p_curves
     WAVE_FAILED=0
