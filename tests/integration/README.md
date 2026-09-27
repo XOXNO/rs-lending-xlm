@@ -51,7 +51,10 @@ GitHub run IDs include `run_attempt`. Reusing a local ID requires explicit
 `E2E_RESUME=1`; interrupted cases, unknown submissions and completed-case
 manifest drift cannot be resumed as fresh work. Use a new ID after fixing code.
 Standalone scenarios use the same complete lane manifest and gate; arbitrarily
-omitting cases produces incomplete coverage.
+omitting cases produces incomplete coverage. A standalone run covers one lane:
+`full_e2e.sh` defaults to `agg-core` and `flash_position.sh` to `flash-a`. Set
+`E2E_LANE`, or use `make integration-flash-position`, which runs `flash-a` and
+then `flash-b`.
 
 ## Lanes and evidence
 
@@ -113,7 +116,9 @@ the original CLI status and output remain in attempt evidence.
 Funding swaps share a checkout-wide file lock from quote acquisition through
 receipt confirmation. Quote snapshots must reach the RPC ledger observed after
 acquiring the lock. A cancelled or unresolved funding operation leaves
-`runs/.external-funding.pending.json`; subsequent funding fails before quoting.
+`runs/.external-funding.<RUN_TS>.pending.json`; later funding with that RUN_TS
+(the same lane, or an `E2E_RESUME` of it) fails before quoting. Other lanes and
+new runs continue, and the checkout-wide lock still serializes their quotes.
 Reconcile the recorded operation before removing that marker. This coordination
 does not control unrelated external traders or the deliberate contention tests.
 SDK evidence includes native simulation responses/resources and failed wire

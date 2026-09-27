@@ -323,4 +323,20 @@ everything = re.findall(r"inputs\.lanes == 'all' && '([^']*)'", dispatch)
 assert len(everything) == 1, everything
 everything = everything[0].split()
 assert len(everything) == len(set(everything)) and set(everything) == LANES, everything
-print('Lane membership, orchestrator and dispatch lane pins passed')
+script_for = re.search(r'^script_for\(\) \{\n.*?^\}\n', orchestrator, re.M | re.S).group(0)
+routes = {'strategies.sh': {'strategies'}}
+for lane in sorted(LANES):
+    script = subprocess.run(['bash', '-c', script_for + 'script_for "$1"', '_', lane],
+                            capture_output=True, text=True, check=True).stdout.strip()
+    routes.setdefault(script, set()).add(lane)
+scenarios = ROOT/'tests/integration/scenarios'
+assert {p.name for p in scenarios.glob('*.sh') if re.search(r'^\s*run_case\s', p.read_text(), re.M)} == set(routes), routes
+selected = {c['id']: set(c['lanes']) for c in manifest}
+for script, lanes in routes.items():
+    ids = re.findall(r'^\s*run_case\s+(\S+)', (scenarios/script).read_text(), re.M)
+    assert len(ids) == len(set(ids)), (script, ids)
+    for case_id in ids:
+        assert selected.get(case_id, set()) & lanes, f'{script} runs {case_id}, which no lane routed to it selects'
+    for lane in lanes:
+        assert {i for i, l in selected.items() if lane in l} <= set(ids), (script, lane)
+print('Lane membership, orchestrator, dispatch and scenario run_case pins passed')

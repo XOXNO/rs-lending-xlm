@@ -8,7 +8,8 @@ friendbot_fund() {
     stellar keys address "$alias" >/dev/null 2>&1 \
         || stellar keys generate "$alias" "${NET_ARGS[@]}" >/dev/null 2>&1 || return 1
     addr=$(stellar keys address "$alias") || return 1
-    slot_take "$INTEG_DIR/runs/.slots/friendbot" "${E2E_FRIENDBOT_SLOTS:-6}" 30 300 || return 1
+    slot_take "$INTEG_DIR/runs/.slots/friendbot" "${E2E_FRIENDBOT_SLOTS:-6}" 30 300 \
+        || { printf 'slot-unavailable\n' >> "$base.codes"; return 2; }
     slot="$SLOT_FD"
     deadline=$(( $(date +%s) + 90 ))
     while :; do
@@ -49,7 +50,10 @@ new_wallet() {
     local addr funding="$LOG_DIR/wallet_${role}_funding.json"
     if ! addr=$(stellar keys address "$alias" 2>/dev/null) || ! wallet_funded "$addr" "$funding"; then
         log "funding wallet $alias"
-        friendbot_fund "$alias" || die "wallet_$role" "funding not confirmed (minimum 100 XLM)"
+        friendbot_fund "$alias" || {
+            [ $? -ne 2 ] || die "wallet_$role" "no friendbot slot free within 300 s (E2E_FRIENDBOT_SLOTS=${E2E_FRIENDBOT_SLOTS:-6})"
+            die "wallet_$role" "funding not confirmed (minimum 100 XLM)"
+        }
         addr=$(stellar keys address "$alias") || die "wallet_$role" "funded key $alias is missing"
     fi
     save_state "$var" "$alias"

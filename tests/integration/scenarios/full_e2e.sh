@@ -48,8 +48,6 @@ run_case flow_nft flow_nft || die flow_nft "required case failed"
 run_case flow_flash_loans flow_flash_loans || die flow_flash_loans "required case failed"
 run_case flow_strategies flow_strategies || die flow_strategies "required case failed"
 
-run_case flow_flash_position flow_flash_position || die flow_flash_position "required case failed"
-
 INV_TRANSIENT_CONTRACT_RE='Error\(Contract, #'
 run_case flow_liq_setup flow_liq_setup || die flow_liq_setup "required case failed"
 run_case flow_liq_single flow_liq_single || die flow_liq_single "required case failed"

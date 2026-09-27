@@ -210,4 +210,21 @@ with tempfile.TemporaryDirectory() as directory:
     span = [line.split() for line in (root / 'span').read_text().splitlines()]
     assert result.returncode == 0 and len(span) == 4, (result.stderr, span)
     assert [s[0] for s in span] == ['start', 'end', 'start', 'end'] and span[0][1] == span[1][1] != span[2][1] == span[3][1], span
-print('Friendbot retries throttling, logs every code, fails closed at the deadline and caps concurrency')
+with tempfile.TemporaryDirectory() as directory:
+    root = Path(directory)
+    result = friendbot(directory, 'exec 30>>"$2/held"; new_wallet ALICE alice', ['200'], 1)
+    assert result.returncode == 1 and not (root / 'span').exists(), result.stderr
+    assert (root / 'logs/friendbot_e2e_alice_t.codes').read_text().split() == ['slot-unavailable']
+    assert 'wallet_alice\tFAIL\tfatal' in (root / 'actions.tsv').read_text() and 'no friendbot slot' in (root / 'actions.tsv').read_text()
+with tempfile.TemporaryDirectory() as directory:
+    root = Path(directory)
+    result = friendbot(directory, '''source "$1/flows/production.sh"
+_assert_fail() { printf '%s\\t%s\\n' "$1" "$2" >> "$RUN_DIR/fails"; }
+exec 30>>"$2/held"; prod_channels 1''', ['200'], 999)
+    assert result.returncode == 1 and not (root / 'span').exists(), result.stderr
+    assert (root / 'fails').read_text() == 'prod_channel_1\tno friendbot slot free within 300 s\n', result.stderr
+for slots, valid in [('0', False), ('abc', False), ('6', True)]:
+    result = subprocess.run(['bash', '-c', 'source "$1/env.sh"', '_', str(HERE)], capture_output=True, text=True, timeout=30,
+                            env=dict(os.environ, RUN_TS='t', NETWORK='testnet', E2E_FRIENDBOT_SLOTS=slots))
+    assert (result.returncode == 0) == valid and (valid or 'invalid E2E_FRIENDBOT_SLOTS' in result.stderr), (slots, result.stderr)
+print('Friendbot retries throttling, logs every code, fails closed at the deadline, caps concurrency and refuses an inherited slot fd')

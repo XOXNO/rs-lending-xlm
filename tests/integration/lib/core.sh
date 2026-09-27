@@ -170,6 +170,9 @@ slot_take() {
     SLOT_FD=""
     [[ "$count" =~ ^[1-9][0-9]?$ && "$base" =~ ^[1-9][0-9]{0,2}$ && "$deadline" =~ ^[0-9]{1,5}$ ]] \
         && [ $((base + count)) -le 255 ] || return 1
+    for ((fd = base; fd < base + count; fd++)); do
+        { : >&"$fd"; } 2>/dev/null && return 1
+    done
     mkdir -p "$(dirname "$prefix")" || return 1
     for ((fd = base; fd < base + count; fd++)); do
         eval "exec $fd>>\"\$prefix.$((fd - base + 1))\"" || break
