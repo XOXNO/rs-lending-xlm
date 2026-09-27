@@ -79,6 +79,13 @@
         "tag": "Stellar",
         "value": "CAH7FDDP6IDC76VTXNPN6MF5TWVZMM2N3PCU5C7TXRLTCKBSG6BGUGEA"
       }
+    },
+    {
+      "feed_id": "LIQVID1037",
+      "asset": {
+        "tag": "Stellar",
+        "value": "CDCS4Y5BZY62YS2ABQHZSQXWGFHNQXID64CYDCBSQDNDKEG6T2OE2HWC"
+      }
     }
   ]
 }

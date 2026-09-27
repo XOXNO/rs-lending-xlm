@@ -554,6 +554,50 @@
         "is_flashloanable": false,
         "flashloan_fee": 0
       }
+    },
+    {
+      "name": "LIQVID1037",
+      "hub_id": 4,
+      "asset_address": "CDCS4Y5BZY62YS2ABQHZSQXWGFHNQXID64CYDCBSQDNDKEG6T2OE2HWC",
+      "oracle": {
+        "asset_decimals": 0,
+        "max_price_stale_seconds": 93600,
+        "sources": [
+          {
+            "Feed": {
+              "provider": {
+                "Xoxno": {
+                  "contract": "CDYX4ZEO556YZDYDJLUE5XQUE2DLWVFJDTBJJGF7HYQP5HK5NICNTQ6F",
+                  "feed_id": "LIQVID1037",
+                  "nature": "Fundamental"
+                }
+              },
+              "decimals": 8,
+              "max_stale_seconds": 93600
+            }
+          }
+        ],
+        "tolerance": {
+          "upper_ratio_bps": 10500,
+          "lower_ratio_bps": 9524
+        },
+        "independence": "RequireDisjoint",
+        "min_sanity_price_wad": "849000000000000000",
+        "max_sanity_price_wad": "1030000000000000000"
+      },
+      "market_params": {
+        "max_borrow_rate": "10000000000000000000000000",
+        "base_borrow_rate": "0",
+        "slope1": "0",
+        "slope2": "0",
+        "slope3": "0",
+        "mid_utilization": "495000000000000000000000000",
+        "optimal_utilization": "990000000000000000000000000",
+        "max_utilization": "1000000000000000000000000000",
+        "reserve_factor": 2500,
+        "is_flashloanable": false,
+        "flashloan_fee": 0
+      }
     }
   ]
 }
