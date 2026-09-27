@@ -251,27 +251,19 @@ It measures the time of the write. If the limit stays at 86,400 s, reads fail
 with `StaleData` at 24 h and the 93,600 s of the aggregator never applies.
 The limit applies to every feed of that adapter.
 
-The owner of the Liqvid NAV adapter must set the limit to at least 93,600 s.
-`set_max_stale_seconds` is an owner-only call. It fails with
-`InvalidSubmissionAge` when the value is below the adapter's
-`max_submission_age_seconds`:
+The `LIQVID1039` source names the core Xoxno adapter,
+`configs/networks.json` `testnet.xoxno_oracle_adapter`
+(`CDYX4ZEO556YZDYDJLUE5XQUE2DLWVFJDTBJJGF7HYQP5HK5NICNTQ6F`). The testnet
+oracle bot in `xoxno-lending-functions` feeds this adapter. Its limit must be
+at least 93,600 s. `configs/testnet/oracle_feeds.json` `max_stale_seconds`
+holds the value (93,600), and `make testnet setOracleMaxStale 93600` or
+`make testnet configureOracleWindows` applies it. `set_max_stale_seconds` is an
+owner-only call. It fails with `InvalidSubmissionAge` when the value is below
+the adapter's `max_submission_age_seconds`. `validateConfigs` warns when a
+market's Xoxno source names a different contract.
 
-    stellar contract invoke --id <Liqvid NAV adapter> --network testnet \
-      --source-account <adapter owner> -- set_max_stale_seconds --seconds 93600
-
-Use the adapter that the `LIQVID1039` source names, not the adapter in
-`configs/networks.json`. On testnet these are two different contracts:
-
-| Config | Adapter | Staleness in config |
-|---|---|---|
-| `markets.json` `LIQVID1039` `sources[0]` `Xoxno.contract` | `CDHPWYORLKTMN2XAG7Q7KMSBRNVEO3ZECDDKOAZ3EIZCLS42JOLX4JKL` | none |
-| `networks.json` `testnet.xoxno_oracle_adapter` | `CDYX4ZEO556YZDYDJLUE5XQUE2DLWVFJDTBJJGF7HYQP5HK5NICNTQ6F` | `oracle_feeds.json` `max_stale_seconds` 86,400 |
-
-`configureOracleWindows` and `setOracleMaxStale` in `configs/script.sh` call
-only the `networks.json` adapter. They cannot set the limit of the Liqvid NAV
-adapter. `validateConfigs` warns that the two contracts differ. A read-only
-simulation of `max_stale_seconds` on 2026-09-26 gave 86,400 s on both
-contracts.
+The limit applies to every feed of the adapter. It does not relax any market:
+each market's own `max_price_stale_seconds` still bounds its reads.
 
 The harness uses a mock adapter that has no limit of its own. The staleness
 test in section 12 does not cover the adapter limit.
@@ -441,8 +433,9 @@ Nothing in this runbook is applied on chain. Steps 2 to 4 are timelocked
 governance operations: propose, wait for the delay, then execute. You can
 propose them at the same time, but execute them in the order below.
 
-1. **Adapter staleness.** The owner of the Liqvid NAV adapter calls
-   `set_max_stale_seconds` with 93,600 (section 6). On testnet the owner is
+1. **Adapter staleness.** The owner of the core Xoxno adapter sets
+   `set_max_stale_seconds` to 93,600 with `make testnet setOracleMaxStale 93600`
+   (section 6). On testnet the owner is
    the `deployer` key (read with `get_owner` on 2026-09-26), so this call is
    immediate. If the owner is a governance contract, this step is a
    timelocked governance operation too. It changes nothing while the
@@ -529,10 +522,8 @@ those cases the harness checks the bonus, the trigger, the seizure and
 - A NAV fall larger than 15.1 % fails closed until a new band is live. On
   mainnet this can take the full timelock delay. Accounts can become
   insolvent in that time.
-- The Liqvid NAV adapter reads 86,400 s today (section 6). No file in
-  `configs/` holds its limit, and `configs/script.sh` cannot set it. The
-  `networks.json` adapter and `oracle_feeds.json` are for a different
-  contract (G-17).
+- The core Xoxno adapter limit is `oracle_feeds.json` `max_stale_seconds`
+  (93,600 s on testnet, section 6). It applies to every feed of that adapter.
 - Positions opened before the listing edit keep LT 6000 until a refresh
   passes the gate (section 10). A position that keeps LT 6000 and borrowed at
   the ceiling becomes liquidatable inside the band, below `0.8583 R`.

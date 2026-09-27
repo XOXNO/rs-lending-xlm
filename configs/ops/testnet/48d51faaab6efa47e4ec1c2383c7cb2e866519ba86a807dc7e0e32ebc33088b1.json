@@ -1,0 +1,12 @@
+{
+  "kind": "governance_self",
+  "op_id": "48d51faaab6efa47e4ec1c2383c7cb2e866519ba86a807dc7e0e32ebc33088b1",
+  "network": "testnet",
+  "execute_label": "upgrade_gov",
+  "salt": "0d799bff80cd2a0168c73150fb38722dc18c43fb3d83c0b7270642f69dff1ed6",
+  "op": {
+    "UpgradeGov": "9a15c97e17f0421fa84fa457dfd231909a37bebebe6e1a6b65bf0ecf0104c230"
+  },
+  "cli_executable": true,
+  "executed": true
+}
