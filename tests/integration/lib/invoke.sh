@@ -32,7 +32,7 @@ latest_ledger() {
 
 run_deploy() {
     [ -n "${E2E_JOB:-}" ] || { run_deploy_body "$@"; return; }
-    local arg previous='' source=''
+    local arg previous='' source='' hash
     for arg in "$@"; do
         case "$previous" in --source|--source-account) [ -n "$source" ] || source="$arg";; esac
         previous="$arg"
@@ -43,7 +43,11 @@ run_deploy() {
         run_deploy_body "$@" || rc=$?
         echo "deploy attempts: ${DEPLOY_ATTEMPTS:-0}" >&2
         exit "$rc"
-    )
+    ) || return
+    RES_INSTR='' RES_READ='' RES_WRITE='' RES_FEE=''
+    hash=$(extract_signing_hash "$2")
+    [ -z "$hash" ] || [ ! -f "$LOG_DIR/$hash.resources.json" ] || res_load "$LOG_DIR/$hash.resources.json"
+    return 0
 }
 
 run_deploy_body() {
@@ -89,6 +93,7 @@ run_deploy_body() {
     local attempt rc hash sequence label st
     sequence=$(next_seq)
     label=$(basename "$out_f" .out)
+    [ -z "${E2E_JOB:-}" ] || label="${label%.j$E2E_JOB}"
     DEPLOY_ATTEMPTS=0
     for attempt in $(seq 1 "$DEPLOY_MAX_ATTEMPTS"); do
         DEPLOY_ATTEMPTS=$attempt
@@ -178,14 +183,18 @@ fetch_resources() {
     local sdata
     sdata=$(jq -c '[.. | objects | select(has("resources"))] | first // empty' <<<"$env_json")
     [ -z "$sdata" ] && return 1
-    RES_INSTR=$(jq -r '.resources.instructions // empty' <<<"$sdata")
-    RES_READ=$(jq -r '.resources.disk_read_bytes // .resources.read_bytes // empty' <<<"$sdata")
-    RES_WRITE=$(jq -r '.resources.write_bytes // empty' <<<"$sdata")
-    RES_FEE=$(jq -r '.resource_fee // empty' <<<"$sdata")
     printf '%s\n' "$sdata" > "$LOG_DIR/$hash.resources.json"
+    res_load "$LOG_DIR/$hash.resources.json"
     python3 "$INTEG_DIR/resources.py" "$RUN_DIR/network-limits.json" "$LOG_DIR/$hash.resources.json" "$LOG_DIR/$hash.receipt.json" \
         > "$LOG_DIR/$hash.budget.json" || return 1
     [[ "$RES_INSTR" =~ ^[0-9]+$ && "$RES_READ" =~ ^[0-9]+$ && "$RES_WRITE" =~ ^[0-9]+$ && "$RES_FEE" =~ ^[0-9]+$ ]]
+}
+
+res_load() {
+    RES_INSTR=$(jq -r '.resources.instructions // empty' "$1")
+    RES_READ=$(jq -r '.resources.disk_read_bytes // .resources.read_bytes // empty' "$1")
+    RES_WRITE=$(jq -r '.resources.write_bytes // empty' "$1")
+    RES_FEE=$(jq -r '.resource_fee // empty' "$1")
 }
 
 receipt_drift() {

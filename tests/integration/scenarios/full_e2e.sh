@@ -32,6 +32,7 @@ wallets() {
     new_wallet BOB bob || return 1
     new_wallet CAROL carol || return 1
     new_wallet DAVE dave || return 1
+    [ "$E2E_LANE" != stress ] || lane_channels 10 || return 1
 }
 run_case wallets wallets || die wallets "wallet preflight failed"
 

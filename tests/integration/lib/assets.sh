@@ -24,7 +24,7 @@ issue_sac() {
         record "issue_sac_$code" ok "asset_id" "" "" "" "" "" "$sac (pre-existing)"
     else
 
-        if ! run_deploy "$out_f" "$err_f" -- stellar contract asset deploy --asset "$asset" --source "$ADMIN" "${NET_ARGS[@]}"; then
+        if ! run_deploy "$out_f" "$err_f" -- stellar contract asset deploy --asset "$asset" --source "${E2E_SRC:-$ADMIN}" "${NET_ARGS[@]}"; then
             record "issue_sac_$code" FAIL asset_deploy "$(extract_signing_hash "$err_f")" "" "" "" "" "SAC deployment unconfirmed; never resubmit"
             return 1
         fi

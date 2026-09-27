@@ -38,7 +38,8 @@ inv() {
         fresh_at=$now; refreshed=$((refreshed+1))
     else echo '"PA"'; fi
 }
-prod_propose() { :; }; prod_execute_split() { :; }; lane_channels() { CHANNELS=c; }
+prod_propose() { :; }; prod_execute_split() { :; }; CHANNELS=c
+group_each() { local items="$3" item; shift 3; while IFS= read -r item; do [ -z "$item" ] || "$@" "$item" || return 1; done <<<"$items"; }
 prod_ops() {
     case "$1" in
         deployPool) echo '"POOL"';; deployPositionNft) echo '"NFT"';;

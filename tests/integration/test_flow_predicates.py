@@ -1,4 +1,5 @@
 """Fault injection for risk snapshots, NFT enumeration and route headers."""
+import csv
 import json
 import subprocess
 import unittest
@@ -190,6 +191,77 @@ prod_execute_split setPriceAggregator setPriceAggregator >/dev/null'''
             (Path(d)/'logs').mkdir()
             result=shell('flows/production.sh','RUN_DIR="$1"; LOG_DIR="$1/logs"; prod_execute_split setAggregator setAggregator',d)
             self.assertNotEqual(result.returncode,0)
+    def test_production_fixture_groups_keep_plan_order_and_serial_xoxno(self):
+        plan={'CZ1':{'kind':'Reflector'},'CA2':{'kind':'RedStone'},'CM3':{'kind':'Xoxno'},'CB4':{'kind':'token','decimals':7,'name':'T'},'CC5':{'kind':'pool','decimals':7,'name':'LPPOOL'}}
+        seeds=[dict(kind='Reflector',contract='R1',asset={'Other':'A'},price='1'),dict(kind='RedStone',contract='S',feed='F',price='2'),
+               dict(kind='Xoxno',contract='X',feed='XF',price='30000000000'),dict(kind='RedStone',contract='S',feed='F',price='2'),
+               dict(kind='Reflector',contract='R1',asset={'Other':'B'},price='3')]
+        body=r'''source "$1/lib/core.sh"; source "$1/lib/assert.sh"; source "$1/flows/production.sh"
+RUN_DIR="$2"; LOG_DIR="$2/logs"; ACTIONS_TSV="$2/actions.tsv"; STATE_ENV="$2/state.env"; PHASE=init
+mkdir -p "$LOG_DIR"; printf 'seq\tphase\tlabel\tstatus\tfn\thash\tinstructions\tread_bytes\twrite_bytes\tresource_fee\tnote\n' > "$ACTIONS_TSV"
+CHANNELS="c1 c2 c3"; ADMIN=admin; ADMIN_ADDR=GADMIN; INTEG_DIR="$2/fake"; REPO_ROOT=unused; FIXTURE_WASM_DIR=fx; WASM_DIR=w; NET_ARGS=(--network testnet)
+phase() { PHASE="$1"; }; log() { :; }
+cid() { printf 'C%055d' "$1" | tr 0-9 A-J; }
+run_deploy() {
+    local a prev='' src='' n
+    for a; do [ "$prev" != --source ] || src="$a"; prev="$a"; done
+    n=$(basename "$1" .out); n=${n#fixture_}; n=${n%%.*}
+    command sleep "$(awk -v n="$n" 'BEGIN { print (6 - n) * 0.3 }')"
+    echo "$n|$src" >> "$RUN_DIR/deploys"
+    cid "$n" > "$1"; printf 'Signing transaction: %064d\n' "$n" > "$2"
+    RES_INSTR=1 RES_READ=2 RES_WRITE=3 RES_FEE=4
+}
+inv() {
+    printf '%s|%s|%s|%s|%s\n' "$1" "${E2E_JOB:-}" "$2" "$3" "$5" >> "$RUN_DIR/writes"
+    record "$1" ok "$5" "$(python3 -c 'import hashlib, sys; print(hashlib.sha256(sys.argv[1].encode()).hexdigest())' "${E2E_JOB:-p} $*")" 1 2 3 4 '' transaction "$3"
+}
+flow_production_fixtures'''
+        def run(d,fixture_seeds):
+            fake=Path(d)/'fake';fake.mkdir()
+            (fake/'fixtures.json').write_text(json.dumps(dict(bases={'CZ1x':{'Other':'USD'}},seeds=fixture_seeds,pools=[dict(contract='P',snapshot={})])))
+            (fake/'production_config.py').write_text(f'''import json, shutil, sys
+from pathlib import Path
+if sys.argv[1] == 'plan':
+    print({json.dumps(json.dumps(plan))})
+else:
+    shutil.copy(Path(__file__).with_name('fixtures.json'), Path(sys.argv[3])/'fixtures.json')
+''')
+            result=subprocess.run(['bash','-c',body,'_',str(HERE),d],capture_output=True,text=True)
+            root=Path(d)
+            writes=[dict(zip(('label','job','signer','contract','fn'),w.split('|'))) for w in (root/'writes').read_text().splitlines()] if (root/'writes').exists() else []
+            actions=list(csv.DictReader((root/'actions.tsv').read_text().splitlines(),delimiter='\t'))
+            evidence=list(csv.DictReader((root/'evidence.tsv').read_text().splitlines(),delimiter='\t'))
+            return result,root,writes,actions,evidence
+        with tempfile.TemporaryDirectory() as d:
+            result,root,writes,actions,evidence=run(d,seeds)
+            mapping=json.loads((root/'address-map.json').read_text())
+            seed_jobs=[j for g in root.glob('jobs/prod_seeds.*') for j in g.iterdir() if j.name.isdigit()]
+            deploys=sorted((root/'deploys').read_text().split())
+        self.assertEqual(result.returncode,0,result.stderr)
+        cid=lambda n:'C'+f'{n:055d}'.translate(str.maketrans('0123456789','ABCDEFGHIJ'))
+        self.assertEqual(list(mapping.items()),[(k,cid(n)) for n,k in enumerate(plan,1)])
+        fixtures=[(a,e) for a,e in zip(actions,evidence) if a['label'].startswith('production_fixture_')]
+        self.assertEqual([(a['label'],a['status'],a['fn'],e['execution'],e['contract']) for a,e in fixtures],
+                         [(f'production_fixture_{n}','ok','deploy','deployment',cid(n)) for n in range(1,6)])
+        self.assertTrue(all(len(a['hash'])==64 for a,_ in fixtures))
+        self.assertEqual(deploys,[f'{n}|c{(n-1)%3+1}' for n in range(1,6)])
+        required=next(c for c in json.loads((HERE/'cases.json').read_text()) if c['id']=='flow_production_fixtures')['required_actions']
+        for r in required:
+            self.assertGreaterEqual(len([a for a in actions if (a['label'],a['fn'],a['status'])==(r['label'],r['method'],r['status'])]),r['count'],r)
+        for w in writes:
+            serial=w['label'] in ('prod_xoxno_register','prod_xoxno_seed','prod_lp_fixture')
+            self.assertEqual((w['job']=='',w['signer']=='admin'),(serial,serial),w)
+        self.assertEqual(len([w for w in writes if w['label']=='prod_redstone_seed']),1)
+        self.assertEqual(len(seed_jobs),3)
+        seeds[3]=dict(seeds[3],price='9')
+        with tempfile.TemporaryDirectory() as d:
+            result,root,writes,actions,_=run(d,seeds)
+            spawned=list(root.glob('jobs/prod_seeds.*'))+list(root.glob('jobs/prod_bases.*'))
+        self.assertNotEqual(result.returncode,0)
+        self.assertEqual(spawned,[])
+        self.assertEqual([w for w in writes if w['label'] in ('prod_reflector_seed','prod_redstone_seed','prod_reflector_base')],[])
+        self.assertEqual([(a['label'],a['status']) for a in actions if a['status']=='FAIL'],[('prod_seed_dedupe','FAIL')])
+        self.assertIn('conflicting prices',next(a['note'] for a in actions if a['label']=='prod_seed_dedupe'))
     def test_governance_wait_is_deadline_based(self):
         body='''count=$(mktemp); gov_state() { local n=$(( $(cat "$count") + 1 )); echo "$n" > "$count"; [ "$n" -ge "$READY_AT" ] && echo Ready || echo Waiting; }
 echo 0 > "$count"; READY_AT="$1"; start=$(date +%s); out=$(gov_await_ready op "$2"); rc=$?; echo "$rc $out $(( $(date +%s) - start ))"; rm -f "$count"'''

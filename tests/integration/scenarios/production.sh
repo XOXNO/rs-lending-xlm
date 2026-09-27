@@ -17,6 +17,7 @@ wallets() {
     new_wallet BOB bob || return 1
     new_wallet CAROL carol || return 1
     new_wallet DAVE dave || return 1
+    lane_channels 12 || return 1
 }
 run_case wallets wallets || die wallets "funding failed"
 run_case deploy_protocol deploy_protocol || die deploy_protocol "required case failed"

@@ -154,68 +154,94 @@ prod_ops() {
 flow_production_fixtures() {
     phase production_fixtures
     mkdir -p "$RUN_DIR/config/testnet"
-    local plan="$RUN_DIR/fixture-plan.json" mapping="$RUN_DIR/address-map.json" row original kind wasm id n=0
+    local plan="$RUN_DIR/fixture-plan.json" mapping="$RUN_DIR/address-map.json" original got id n=0
     python3 "$INTEG_DIR/production_config.py" plan "$REPO_ROOT/configs/mainnet" > "$plan" || return 1
+    group_each production_fixtures 40 "$(jq -c 'to_entries | to_entries[] | .value + {n: (.key + 1)}' "$plan")" prod_fixture_job || return 1
     printf '{}\n' > "$mapping"
-    while read -r row; do
-        original=$(jq -r '.key' <<<"$row"); kind=$(jq -r '.value.kind' <<<"$row"); n=$((n+1))
-        case "$kind" in
-            Reflector) wasm=mock_oracle;; RedStone) wasm=mock_redstone;; Xoxno) wasm=xoxno-oracle-adapter;; *) wasm=production_fixture;;
-        esac
-        local args=()
-        if [ "$wasm" = production_fixture ]; then
-            args=(-- --admin "$ADMIN_ADDR" --decimals "$(jq -r '.value.decimals' <<<"$row")" --symbol "$(jq -r '.value.name' <<<"$row")")
-        fi
-        local wasm_path="$FIXTURE_WASM_DIR/$wasm.wasm"
-        if [ "$kind" = Xoxno ]; then
-            wasm_path="$WASM_DIR/$wasm.wasm"
-            args=(-- --admin "$ADMIN_ADDR" --signers "[\"$ADMIN_ADDR\"]" --threshold 1 --resolution 60)
-        fi
-        run_deploy "$LOG_DIR/fixture_$n.out" "$LOG_DIR/fixture_$n.err" -- stellar contract deploy \
-            --source "$ADMIN" "${NET_ARGS[@]}" --wasm "$wasm_path" ${args[@]+"${args[@]}"} || return 1
-        id=$(sanitize_output "$LOG_DIR/fixture_$n.out")
-        is_contract_id "$id" || return 1
-        jq --arg o "$original" --arg i "$id" '.[$o]=$i' "$mapping" > "$mapping.tmp" && mv "$mapping.tmp" "$mapping"
-        record "production_fixture_$n" ok deploy "$(extract_signing_hash "$LOG_DIR/fixture_$n.err")" "$RES_INSTR" "$RES_READ" "$RES_WRITE" "$RES_FEE" "$kind $original -> $id (fixture)" deployment "$id"
-    done < <(jq -c 'to_entries[]' "$plan")
+    while read -r original; do
+        n=$((n+1))
+        read -r got id <<<"$(group_out "$n" | tail -n1)"
+        [ "$got" = "$original" ] && is_contract_id "$id" \
+            || { _assert_fail "production_fixture_$n" "fixture job output '$got $id' does not map $original"; return 1; }
+        jq --arg o "$original" --arg i "$id" '.[$o]=$i' "$mapping" > "$mapping.tmp" && mv "$mapping.tmp" "$mapping" || return 1
+    done < <(jq -r 'keys_unsorted[]' "$plan")
     python3 "$INTEG_DIR/production_config.py" materialize "$REPO_ROOT/configs/mainnet" "$RUN_DIR/config/testnet" "$mapping" || return 1
-    local fixtures="$RUN_DIR/config/testnet/fixtures.json" seed price
+    local fixtures="$RUN_DIR/config/testnet/fixtures.json" seeds seed row feed_id
     cp "$fixtures" "$RUN_DIR/production-fixtures.json" || return 1
-    while read -r row; do
-        inv prod_reflector_base "$ADMIN" "$(jq -r '.key' <<<"$row")" -- set_base --base "$(jq -c '.value' <<<"$row")" >/dev/null || return 1
-    done < <(jq -c '.bases|to_entries[]' "$fixtures")
+    seeds=$(prod_price_seeds "$fixtures" 2>"$LOG_DIR/prod_seed_dedupe.err") \
+        || { _assert_fail prod_seed_dedupe "$(tail_err_note "$LOG_DIR/prod_seed_dedupe.err")"; return 1; }
+    group_each prod_bases 40 "$(jq -c '.bases|to_entries[]' "$fixtures")" prod_base_job || return 1
+    group_each prod_seeds 40 "$seeds" prod_seed_job || return 1
     while read -r seed; do
-        kind=$(jq -r '.kind' <<<"$seed"); id=$(jq -r '.contract' <<<"$seed"); price=$(jq -r '.price' <<<"$seed")
-        if [ "$kind" = Reflector ]; then
-            inv prod_reflector_seed "$ADMIN" "$id" -- set_price --asset "$(jq -c '.asset' <<<"$seed")" --price_wad "$price" >/dev/null || return 1
-        elif [ "$kind" = Xoxno ]; then
-            local feed_id
-            feed_id=$(jq -r '.feed' <<<"$seed")
-            inv prod_xoxno_register "$ADMIN" "$id" -- register_feed --feed_id "$feed_id" >/dev/null || return 1
-            inv prod_xoxno_seed "$ADMIN" "$id" -- submit_price --signer "$ADMIN_ADDR" --feed_id "$feed_id" \
-                --price "$(python3 -c 'import sys; print(int(sys.argv[1])//10**10)' "$price")" \
-                --package_timestamp "$(( ($(date +%s) - 10) * 1000 ))" >/dev/null || return 1
-        else
-            inv prod_redstone_seed "$ADMIN" "$id" -- set_price --feed_id "$(jq -r '.feed' <<<"$seed")" --price_wad "$price" >/dev/null || return 1
-        fi
-    done < <(jq -c '.seeds[]' "$fixtures")
+        id=$(jq -r '.contract' <<<"$seed"); feed_id=$(jq -r '.feed' <<<"$seed")
+        inv prod_xoxno_register "$ADMIN" "$id" -- register_feed --feed_id "$feed_id" >/dev/null || return 1
+        inv prod_xoxno_seed "$ADMIN" "$id" -- submit_price --signer "$ADMIN_ADDR" --feed_id "$feed_id" \
+            --price "$(python3 -c 'import sys; print(int(sys.argv[1])//10**10)' "$(jq -r '.price' <<<"$seed")")" \
+            --package_timestamp "$(( ($(date +%s) - 10) * 1000 ))" >/dev/null || return 1
+    done < <(jq -c '.seeds[] | select(.kind == "Xoxno")' "$fixtures")
     while read -r row; do
         inv prod_lp_fixture "$ADMIN" "$(jq -r '.contract' <<<"$row")" -- configure_pool --snapshot "$(jq -c '.snapshot' <<<"$row")" >/dev/null || return 1
     done < <(jq -c '.pools[]' "$fixtures")
 }
 
+prod_fixture_job() {
+    local row="$1" n original kind wasm wasm_path id base args=()
+    n=$(jq -r '.n' <<<"$row"); original=$(jq -r '.key' <<<"$row"); kind=$(jq -r '.value.kind' <<<"$row")
+    case "$kind" in
+        Reflector) wasm=mock_oracle;; RedStone) wasm=mock_redstone;; Xoxno) wasm=xoxno-oracle-adapter;; *) wasm=production_fixture;;
+    esac
+    if [ "$wasm" = production_fixture ]; then
+        args=(-- --admin "$ADMIN_ADDR" --decimals "$(jq -r '.value.decimals' <<<"$row")" --symbol "$(jq -r '.value.name' <<<"$row")")
+    fi
+    wasm_path="$FIXTURE_WASM_DIR/$wasm.wasm"
+    if [ "$kind" = Xoxno ]; then
+        wasm_path="$WASM_DIR/$wasm.wasm"
+        args=(-- --admin "$ADMIN_ADDR" --signers "[\"$ADMIN_ADDR\"]" --threshold 1 --resolution 60)
+    fi
+    base=$(job_log "fixture_$n")
+    run_deploy "$base.out" "$base.err" -- stellar contract deploy \
+        --source "${E2E_SRC:-$ADMIN}" "${NET_ARGS[@]}" --wasm "$wasm_path" ${args[@]+"${args[@]}"} || return 1
+    id=$(sanitize_output "$base.out")
+    is_contract_id "$id" || return 1
+    record "production_fixture_$n" ok deploy "$(extract_signing_hash "$base.err")" "$RES_INSTR" "$RES_READ" "$RES_WRITE" "$RES_FEE" "$kind $original -> $id (fixture)" deployment "$id"
+    printf '%s %s\n' "$original" "$id"
+}
+
+prod_price_seeds() {
+    jq -c '[.seeds[] | select(.kind == "Reflector" or .kind == "RedStone")]
+        | group_by([.contract, (.asset // .feed)])
+        | map(if (map(.price) | unique | length) == 1 then .[0]
+              else error("seed \(.[0].contract) \(.[0].asset // .[0].feed | tojson) has conflicting prices \(map(.price) | unique)") end)
+        | .[]' "$1"
+}
+
+prod_base_job() {
+    inv prod_reflector_base "${E2E_SRC:-$ADMIN}" "$(jq -r '.key' <<<"$1")" -- set_base --base "$(jq -c '.value' <<<"$1")" >/dev/null
+}
+
+prod_seed_job() {
+    local id price
+    id=$(jq -r '.contract' <<<"$1"); price=$(jq -r '.price' <<<"$1")
+    if [ "$(jq -r '.kind' <<<"$1")" = Reflector ]; then
+        inv prod_reflector_seed "${E2E_SRC:-$ADMIN}" "$id" -- set_price --asset "$(jq -c '.asset' <<<"$1")" --price_wad "$price" >/dev/null
+    else
+        inv prod_redstone_seed "${E2E_SRC:-$ADMIN}" "$id" -- set_price --feed_id "$(jq -r '.feed' <<<"$1")" --price_wad "$price" >/dev/null
+    fi
+}
+
 # Reflector TWAP includes two older 300-second samples. Keep fixture prices
 # fresh after the long governance setup without changing production policy.
 prod_refresh_reflectors() {
-    local label="$1" seeds seed n=0
+    local label="$1" seeds
     seeds=$(jq -ce '[.seeds[] | select(.kind == "Reflector")] | if length > 0 then . else error("missing Reflector fixtures") end' \
         "$RUN_DIR/config/testnet/fixtures.json") || return 1
-    while read -r seed; do
-        inv "$label" "$ADMIN" "$(jq -r '.contract' <<<"$seed")" -- set_price \
-            --asset "$(jq -c '.asset' <<<"$seed")" --price_wad "$(jq -r '.price' <<<"$seed")" >/dev/null || return 1
-        n=$((n+1))
-    done < <(jq -c '.[]' <<<"$seeds")
-    record "${label}_complete" ok assert "" "" "" "" "" "$n Reflector fixture timestamps refreshed; prices and policy unchanged"
+    group_each prod_refresh 40 "$(jq -c '.[]' <<<"$seeds")" prod_refresh_job "$label" || return 1
+    record "${label}_complete" ok assert "" "" "" "" "" "$(jq length <<<"$seeds") Reflector fixture timestamps refreshed; prices and policy unchanged"
+}
+
+prod_refresh_job() {
+    inv "$1" "${E2E_SRC:-$ADMIN}" "$(jq -r '.contract' <<<"$2")" -- set_price \
+        --asset "$(jq -c '.asset' <<<"$2")" --price_wad "$(jq -r '.price' <<<"$2")" >/dev/null
 }
 
 flow_production_operator() {
@@ -243,7 +269,6 @@ flow_production_operator() {
     prod_execute_split setAggregator setAggregator >/dev/null || return 1
     prod_ops setAccumulator >/dev/null || return 1
     prod_ops validateConfigs >/dev/null || return 1
-    lane_channels 12 || return 1
     PROD_SETUP_JOBS=12 PROD_SETUP_SOURCES="$CHANNELS" prod_ops setupAll >/dev/null || return 1
     cp "$RUN_DIR/config/networks.json" "$RUN_DIR/operator-before-replay.json"
     PROD_OP_TAG=setupAll_replay prod_ops setupAll >/dev/null || return 1

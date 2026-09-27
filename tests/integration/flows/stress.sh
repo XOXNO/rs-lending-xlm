@@ -4,7 +4,7 @@ stress_sac()  { local v="SAC_ST$(printf '%02d' "$1")"; echo "${!v}"; }
 flow_stress_setup() {
     phase stress_setup
     [ -n "${STRESS_SETUP_DONE:-}" ] && return 0
-    local i code var sac trust=() mint=()
+    local i code sac trust=() mint=()
     for i in $(seq 0 $((STRESS_N - 1))); do
         code=$(stress_code "$i")
         trust+=("trust:$code:$ADMIN_ADDR")
@@ -13,17 +13,11 @@ flow_stress_setup() {
     classic_batch stress_trust_dave change_trust "$DAVE" "${trust[@]}" || return 1
     classic_batch stress_trust_carol change_trust "$CAROL" "${trust[@]}" || return 1
     classic_batch stress_mint_classic payment "$ADMIN" "${mint[@]}" || return 1
+    group_each stress_fixtures 10 "$(seq 0 $((STRESS_N - 1)))" stress_fixture_job || return 1
     for i in $(seq 0 $((STRESS_N - 1))); do
         code=$(stress_code "$i")
-        MOCK=''; MOCKRS=''
-        deploy_mock_reflector || return 1
-        deploy_mock_redstone || return 1
-        save_state "STRESS_REF_$i" "$MOCK"
-        save_state "STRESS_RS_$i" "$MOCKRS"
-        var="SAC_$code"
-        issue_sac "$var" "$code"
-        sac="${!var}"
-        set_mock_price "$sac" "$WAD" "px_init_$code"
+        stress_select_oracles "$i" || return 1
+        sac=$(stress_sac "$i")
         create_market "$code" "$PRIMARY_HUB_ID" "$sac" 7 "$(oracle_cfg_mock_single "$sac")" "$(asset_config_json 7000 7500 800)"
     done
 
@@ -37,6 +31,24 @@ flow_stress_setup() {
         --caller "$CAROL_ADDR" --account_id 0 --spoke_id "$PRIMARY_SPOKE_ID" \
         --assets "$(pay_vec "$PRIMARY_HUB_ID" $args2)" >/dev/null || return 1
     save_state STRESS_SETUP_DONE 1
+}
+
+stress_fixture_job() {
+    local i="$1" code var
+    code=$(stress_code "$i"); var="SAC_$code"
+    MOCK=''; MOCKRS=''
+    deploy_mock_reflector || return 1
+    deploy_mock_redstone || return 1
+    save_state "STRESS_REF_$i" "$MOCK" || return 1
+    save_state "STRESS_RS_$i" "$MOCKRS" || return 1
+    issue_sac "$var" "$code" || return 1
+    set_mock_price "${!var}" "$WAD" "px_init_$code" || return 1
+    set_rs_price "$code" "$WAD" "rs_px_$code"
+}
+
+stress_crash_job() {
+    stress_select_oracles "$1" || return 1
+    dual_px "$(stress_sac "$1")" "$(stress_code "$1")" $((WAD / 10 * 6)) "crash_$(stress_code "$1")"
 }
 
 # Required probes stay inside the supported dimensions; budget failure blocks the gate. A contract error is recorded as `sim-error` and counts, so
@@ -130,7 +142,6 @@ flow_stress_dualify() {
         code=$(stress_code "$i")
         sac=$(stress_sac "$i")
         stress_select_oracles "$i" || return 1
-        set_rs_price "$code" "$WAD" "rs_px_$code"
         local resolved_dual
         local dual_key dual_oracle_file dual_resolved_file
         dual_key=$(price_key_token "$sac")
@@ -187,10 +198,7 @@ local k i args acct var debt_args repay_args
     fi
 
     # Only collaterals 0-4 back these accounts, so only their prices move.
-    for i in $(seq 0 4); do
-        stress_select_oracles "$i" || return 1
-        dual_px "$(stress_sac $i)" "$(stress_code $i)" $((WAD / 10 * 6)) "crash_$(stress_code $i)"
-    done
+    group_each stress_crash 10 "$(seq 0 4)" stress_crash_job || return 1
     local best_k=0
     for k in 3 4 5; do
         var="LIQF_ACCT_$k"

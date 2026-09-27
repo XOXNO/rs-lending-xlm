@@ -576,6 +576,7 @@ print('The delayed stress submission records when its send started')
 attempts, _, actions = shell(f'''
 source "{HERE}/flows/production.sh"
 phase() {{ :; }}
+STATE_ENV="$RUN_DIR/state.env"; CHANNELS="chan1 chan2"
 INTEG_DIR="$RUN_DIR/fake"; REPO_ROOT=unused; FIXTURE_WASM_DIR=fixtures; WASM_DIR=wasm; ADMIN_ADDR=GADMIN
 mkdir -p "$INTEG_DIR"
 cat > "$INTEG_DIR/production_config.py" <<'FAKE'
@@ -585,15 +586,22 @@ if sys.argv[1] == 'plan':
 else:
     open(sys.argv[3] + '/fixtures.json', 'w').write(json.dumps(dict(bases={{}}, seeds=[], pools=[])))
 FAKE
-calls=0
 stellar() {{
     [ "$1 $2" != 'fees stats' ] || return 0
-    calls=$((calls+1)); echo "Signing transaction: $(printf '%064d' "$calls")" >&2; echo '"{SAC}"'
+    local a prev='' src=''
+    for a; do [ "$prev" != --source ] || src="$a"; prev="$a"; done
+    echo "${{E2E_JOB##*-}} $src" >> "$RUN_DIR/sources"
+    echo "Signing transaction: $(printf '%064d' "${{E2E_JOB##*-}}")" >&2; echo '"{SAC}"'
 }}
 tx_status() {{ printf '{{"result":{{"status":"SUCCESS"}}}}' > "$LOG_DIR/$1.receipt.json"; echo SUCCESS; }}
-fetch_resources() {{ RES_INSTR=$calls RES_READ=2 RES_WRITE=3 RES_FEE=4; }}
+fetch_resources() {{ printf '{{"resources":{{"instructions":%d,"disk_read_bytes":2,"write_bytes":3}},"resource_fee":4}}\\n' "$((10#$1))" > "$LOG_DIR/$1.resources.json"; }}
 verify_deployed_wasm() {{ :; }}
 flow_production_fixtures || exit 1
+[ "$(sort "$RUN_DIR/sources" | tr '\\n' ' ')" = '1 chan1 2 chan2 ' ] || exit 2
+for n in 1 2; do
+    [ -f "$LOG_DIR/$(printf '%064d' "$n").resources.json" ] && [ -s "$LOG_DIR/fixture_$n.err" ] || exit 3
+done
+[ "$(cut -f2 "$RUN_DIR/evidence.tsv" | tail -n +2 | tr '\\n' ' ')" = 'deployment deployment ' ] || exit 4
 python3 - "$RUN_DIR" <<'CHECK'
 import csv, sys
 from pathlib import Path
@@ -605,7 +613,8 @@ CHECK
 ''')
 assert [(a['label'], a['hash'], a['instructions'], a['resource_fee']) for a in actions] == [
     (f'production_fixture_{n}', f'{n:064d}', str(n), '4') for n in (1, 2)], actions
-print('Production fixture deployments carry their committed hash and resources')
+assert [(a['label'], a['hash']) for a in attempts] == [(f'fixture_{n}', f'{n:064d}') for n in (1, 2)], attempts
+print('Grouped production fixture deployments carry their channel source, committed hash and sidecar resources')
 
 GROUP_SETUP = r'''
 STATE_ENV="$RUN_DIR/state.env"; CHANNELS="chan1 chan2"
@@ -1007,3 +1016,39 @@ assert [(a['label'], a['status']) for a in actions] == [('group_g_untracked', 'F
     ('serial_after', 'FAIL'), ('group_h', 'FAIL'), ('c', 'FAIL')], actions
 assert actions[2]['note'] == actions[3]['note'] == 'an unfinished group marker is still active' and not attempts, actions
 print('Untracked spawns, live job processes and kept group markers fail the case and keep the marker')
+
+# G19: a mock-oracle and a SAC deployment in a job sign with the job's channel and replay as deployments with sidecar resources.
+SAC = 'C' + 'A'*54 + 'B'
+MOCK_ID = 'C' + 'A'*54 + 'C'
+attempts, _, actions = shell(GROUP_SETUP + r'''
+source "{HERE}/lib/oracle.sh"; source "{HERE}/lib/assets.sh"
+FIXTURE_WASM_DIR="$RUN_DIR"; printf wasm > "$RUN_DIR/mock_oracle.wasm"; ADMIN_ADDR=GADMIN
+stellar() {
+    local a prev='' src=''
+    for a; do [ "$prev" != --source ] || src="$a"; prev="$a"; done
+    case "$1 $2" in
+        'fees stats') echo '{}';;
+        'contract id') echo SAC_ID;;
+        'contract invoke') [ -f "$RUN_DIR/sac_live" ];;
+        'contract asset') echo "asset $src" >> "$RUN_DIR/sources"; touch "$RUN_DIR/sac_live"
+            echo "Signing transaction: $(hash_of "$E2E_JOB-asset")" >&2; echo '"SAC_ID"';;
+        'contract deploy') echo "deploy $src" >> "$RUN_DIR/sources"
+            echo "Signing transaction: $(hash_of "$E2E_JOB-deploy")" >&2; echo '"MOCK_ID"';;
+        'contract fetch') for a; do :; done; cp "$RUN_DIR/mock_oracle.wasm" "$a";;
+        *) return 1;;
+    esac
+}
+fetch_resources() { printf '{"resources":{"instructions":11,"disk_read_bytes":12,"write_bytes":13},"resource_fee":14}\n' > "$LOG_DIR/$1.resources.json"; }
+jobf() { MOCK=''; deploy_mock_reflector || return 1; issue_sac SAC_USDC USDC; }
+group_begin g 2 || exit 1
+group_spawn jobf
+group_end || exit 2
+[ "$(tr '\n' ' ' < "$RUN_DIR/sources")" = 'deploy chan1 asset chan1 ' ] && [ "$MOCK" = MOCK_ID ] && [ "$SAC_USDC" = SAC_ID ] || exit 3
+for h in $(awk -F'\t' 'NR>1 {print $6}' "$ACTIONS_TSV"); do [ -f "$LOG_DIR/$h.resources.json" ] || exit 4; done
+[ "$(cut -f2,3 "$RUN_DIR/evidence.tsv" | tail -n +2 | tr '\t\n' ': ')" = 'deployment:MOCK_ID deployment:SAC_ID ' ] && [ -s "$LOG_DIR/deploy_mock.out" ] || exit 5
+gate_attempts || exit 6
+'''.replace('{HERE}', str(HERE)).replace('SAC_ID', SAC).replace('MOCK_ID', MOCK_ID))
+assert [(a['label'], a['status'], a['fn'], a['instructions'], a['read_bytes'], a['write_bytes'], a['resource_fee']) for a in actions] == [
+    ('deploy_mock_reflector', 'ok', 'deploy', '11', '12', '13', '14'), ('issue_sac_USDC', 'ok', 'asset_deploy', '11', '12', '13', '14')], actions
+assert [a['label'] for a in attempts] == ['deploy_mock', 'sac_USDC'] and all(a['hash'] for a in actions)
+print('Grouped mock-oracle and SAC deployments sign with the job channel and replay as deployments with sidecar resources')

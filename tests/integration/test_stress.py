@@ -10,6 +10,41 @@ ROOT = Path(__file__).resolve().parents[2]
 FLOW = ROOT / 'tests/integration/flows/stress.sh'
 
 
+GROUPED = r'''
+ROOT="${FLOW%/flows/stress.sh}"
+for f in core assert oracle protocol; do source "$ROOT/lib/$f.sh"; done
+RUN_DIR="$WORK"; LOG_DIR="$WORK/logs"; ACTIONS_TSV="$WORK/actions.tsv"; STATE_ENV="$WORK/state.env"; PHASE=init
+mkdir -p "$LOG_DIR"; : > "$STATE_ENV"
+printf 'seq\tphase\tlabel\tstatus\tfn\thash\tinstructions\tread_bytes\twrite_bytes\tresource_fee\tnote\n' > "$ACTIONS_TSV"
+CHANNELS="c1 c2 c3 c4 c5 c6 c7 c8 c9 c10"
+STRESS_N=20; STRESS_UNIT=10000000; WAD=1000000000000000000; ADMIN=admin; ADMIN_ADDR=GADMIN; DAVE=dave; DAVE_ADDR=GDAVE
+CAROL=carol; CAROL_ADDR=GCAROL; PRIMARY_HUB_ID=1; PRIMARY_SPOKE_ID=1; CONTROLLER=controller; GOVERNANCE=gov; PRICE_AGGREGATOR=pa
+FIXTURE_WASM_DIR=fx; NET_ARGS=(--network testnet)
+phase() { PHASE="$1"; }
+log() { :; }
+cid() { printf 'C%055d' "$1" | tr 0-9 A-J; }
+written() {
+    printf '%s|%s|%s|%s|%s|%s\n' "$PHASE" "$1" "${E2E_JOB:-}" "$2" "$3" "$4" >> "$WORK/writes"
+    [ -z "${E2E_JOB:-}" ] || printf '%s|%s\n' "$E2E_JOB" "$(cksum < "$STATE_ENV")" >> "$WORK/cksums"
+}
+run_deploy() {
+    local a prev='' src='' wasm='' k
+    for a; do case "$prev" in --source) src="$a";; --wasm) wasm="$a";; esac; prev="$a"; done
+    k=$(( ${E2E_JOB##*-} * 2 )); [ "${wasm##*/}" != mock_redstone.wasm ] || k=$((k + 1))
+    written "$(basename "$1" .out)" "$src" deploy "$(cid "$k")"
+    cid "$k" > "$1"; printf 'Signing transaction: %064d\n' "$k" > "$2"
+    RES_INSTR=1 RES_READ=2 RES_WRITE=3 RES_FEE=4
+}
+inv() { written "$1" "$2" "$5" "$3"; echo '"5"'; }
+issue_sac() { written "issue_sac_$2" "${E2E_SRC:-}" asset_deploy ''; save_state "$1" "SAC$2"; }
+classic_batch() { written "$1" "$3" batch ''; printf '%s\n' "batch $1 $2 $3 $(($# - 3))" "${@:4}" >> "$WORK/calls"; }
+market_listing_exists() { return 1; }; market_wait_listed() { :; }
+view() { written "$1" '' view "$2"; echo '{}'; }
+eval "real_$(declare -f create_market)"
+create_market() { printf '%s' "$5" > "$WORK/oracle_arg.$1"; real_create_market "$@"; }
+'''
+
+
 class StressChecks(unittest.TestCase):
     def run_shell(self, code, directory, **env):
         return subprocess.run(['bash', '-c', 'set -uo pipefail\nsource "$FLOW"\n' + code],
@@ -127,29 +162,79 @@ flow_stress_delayed
 
     def test_setup_funds_fixtures_with_three_classic_batches(self):
         with tempfile.TemporaryDirectory() as directory:
-            result = self.run_shell(r'''
-STRESS_N=20; STRESS_UNIT=10000000; ADMIN=admin; ADMIN_ADDR=GADMIN; DAVE=dave; DAVE_ADDR=GDAVE; CAROL=carol; CAROL_ADDR=GCAROL
-PRIMARY_HUB_ID=1; PRIMARY_SPOKE_ID=1; CONTROLLER=controller; WAD=1
-phase() { :; }; save_state() { :; }; set_mock_price() { :; }; pay_vec() { echo '[]'; }; oracle_cfg_mock_single() { :; }; asset_config_json() { :; }
-deploy_mock_reflector() { echo fixture >> "$WORK/calls"; }; deploy_mock_redstone() { :; }
-issue_sac() { eval "$1=SAC$2"; }; create_market() { :; }; inv() { :; }
+            result = self.run_shell(GROUPED + r'''
 trustline() { echo trustline >> "$WORK/calls"; }; mint_to() { echo mint_to >> "$WORK/calls"; }
-classic_batch() { printf '%s\n' "batch $1 $2 $3 $(($# - 3))" "${@:4}" >> "$WORK/calls"; }
 flow_stress_setup
 ''', directory)
             self.assertEqual(result.returncode, 0, result.stderr)
             calls = Path(directory, 'calls').read_text().splitlines()
-        batches = [(i, c) for i, c in enumerate(calls) if c.startswith('batch ')]
-        self.assertEqual([c for _, c in batches], ['batch stress_trust_dave change_trust dave 20',
-                                                   'batch stress_trust_carol change_trust carol 20',
-                                                   'batch stress_mint_classic payment admin 40'])
+            kinds = [w.split('|')[4] for w in Path(directory, 'writes').read_text().splitlines()]
+        batches = [c for c in calls if c.startswith('batch ')]
+        self.assertEqual(batches, ['batch stress_trust_dave change_trust dave 20',
+                                   'batch stress_trust_carol change_trust carol 20',
+                                   'batch stress_mint_classic payment admin 40'])
         self.assertNotIn('trustline', calls)
         self.assertNotIn('mint_to', calls)
-        self.assertLess(batches[-1][0], calls.index('fixture'))
+        self.assertEqual(kinds[:4], ['batch', 'batch', 'batch', 'deploy'])
+        self.assertNotIn('batch', kinds[3:])
         trust = [f'trust:ST{i:02d}:GADMIN' for i in range(20)]
         self.assertEqual(calls[1:21], trust)
         self.assertEqual(calls[22:42], trust)
         self.assertEqual(calls[43:83], [f'pay:{who}:ST{i:02d}:GADMIN:10000000000000' for i in range(20) for who in ('GDAVE', 'GCAROL')])
+
+    def test_grouped_fixture_and_crash_writes_use_channels_and_keep_new_keys_serial(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result = self.run_shell(GROUPED + r'''
+cksum < "$STATE_ENV" > "$WORK/cksum0"
+flow_stress_setup || exit 1
+flow_stress_dualify || exit 2
+flow_stress_borrow_frontier() { :; }
+flow_stress_composed || exit 3
+POSITION_NFT=nft; inv_create() { echo 5; }; sim_probe() { PROBE_STATUS=ok; }; assert_view_eq_at() { :; }
+flow_stress_liq_frontier || exit 4
+''', directory)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            work = Path(directory)
+            writes = [dict(zip(('phase', 'label', 'job', 'signer', 'fn', 'contract'), w.split('|')))
+                      for w in (work / 'writes').read_text().splitlines()]
+            state = dict(line.split('=', 1) for line in (work / 'state.env').read_text().splitlines())
+            cksums = [line.split('|') for line in (work / 'cksums').read_text().splitlines()]
+            initial = (work / 'cksum0').read_text().strip()
+            oracles = {i: json.loads((work / f'oracle_arg.ST{i:02d}').read_text()) for i in range(20)}
+            fixture_dirs = sorted(int(d.name) for g in work.glob('jobs/stress_fixtures.*') for d in g.iterdir() if d.name.isdigit())
+
+        def cid(k):
+            return 'C' + f'{k:055d}'.translate(str.maketrans('0123456789', 'ABCDEFGHIJ'))
+
+        fixture = [w for w in writes if w['phase'] == 'stress_setup' and w['job']]
+        jobs = sorted({w['job'] for w in fixture}, key=lambda j: int(j.rsplit('-', 1)[1]))
+        self.assertEqual([int(j.rsplit('-', 1)[1]) for j in jobs], list(range(1, 21)))
+        self.assertEqual(fixture_dirs, list(range(1, 21)))
+        self.assertEqual(len({j.rsplit('-', 1)[0] for j in jobs}), 1)
+        for job in jobs:
+            n = int(job.rsplit('-', 1)[1])
+            code = f'ST{n - 1:02d}'
+            rows = [w for w in fixture if w['job'] == job]
+            self.assertEqual([w['label'].split('.j')[0] for w in rows],
+                             ['deploy_mock', 'deploy_mockrs', f'issue_sac_{code}', f'px_init_{code}', f'rs_px_{code}'], rows)
+            self.assertEqual({w['signer'] for w in rows}, {f'c{(n - 1) % 10 + 1}'}, rows)
+            self.assertEqual([w['contract'] for w in rows[3:]], [cid(2 * n), cid(2 * n + 1)])
+        self.assertEqual({c for job, c in cksums if job in jobs}, {initial})
+        for i in range(20):
+            self.assertEqual((state[f'STRESS_REF_{i}'], state[f'STRESS_RS_{i}'], state[f'SAC_ST{i:02d}']),
+                             (cid(2 * i + 2), cid(2 * i + 3), f'SACST{i:02d}'))
+            self.assertEqual(oracles[i]['sources'][0]['Feed']['provider']['Reflector']['contract'], state[f'STRESS_REF_{i}'])
+        self.assertFalse([w for w in writes if w['phase'] == 'stress_dualify' and w['fn'] == 'set_price'])
+        self.assertEqual(len([w for w in writes if w['phase'] == 'stress_dualify' and w['fn'] == 'set_oracle']), 20)
+        new_keys = [w for w in writes if w['label'].startswith(('set_oracle_', 'stress_composed_quote_'))]
+        self.assertEqual(len(new_keys), 30)
+        self.assertEqual({(w['job'], w['signer'], w['fn']) for w in new_keys}, {('', 'admin', 'set_oracle')})
+        crash = [w for w in writes if w['label'].startswith('crash_')]
+        self.assertEqual(len(crash), 10)
+        for w in crash:
+            i = int(w['label'][8:10])
+            self.assertEqual((w['job'].rsplit('-', 1)[-1], w['signer']), (str(i + 1), f'c{i + 1}'), w)
+            self.assertEqual(w['contract'], state[f'STRESS_REF_{i}' if w['label'].endswith('_p') else f'STRESS_RS_{i}'])
 
     def test_latest_ledger_rejects_malformed_or_error_responses(self):
         for payload in ('{}', '{"error":{}}', 'garbage', '{"jsonrpc":"2.0","id":1,"result":{"sequence":1.5}}',

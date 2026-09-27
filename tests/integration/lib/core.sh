@@ -372,6 +372,16 @@ group_out() {
     cat "$GROUP_LAST/$1/stdout"
 }
 
+group_each() {
+    local name="$1" width="$2" items="$3" item
+    shift 3
+    group_begin "$name" "$width" || return 1
+    while IFS= read -r item; do
+        [ -z "$item" ] || group_spawn "$@" "$item"
+    done <<<"$items"
+    group_end
+}
+
 group_replay() {
     local dir="$1" line ps key value
     python3 - "$RUN_DIR" "$LOG_DIR" "$dir" "$GROUP_ID-${dir##*/}" "$(next_seq)" <<'PYREPLAY' || return 1
