@@ -1,19 +1,17 @@
 # Position NFT
 
-Ownership record for lending accounts. Every controller account is exactly one
-token in this collection, and the token id is the account id. The controller
-stores no owner address for an account; it calls `owner_of(account_id)` on this
-contract every time it needs to know who may act on a position. A lending
-position is therefore an ordinary transferable non-fungible token (NFT), so
-wallets, indexers, and marketplaces can read and move it with no
-protocol-specific tooling.
+Ownership record for lending accounts. Each controller account is one token,
+and the token id is the account id. The controller stores no owner; it calls
+`owner_of(account_id)` each time it checks who may act. A position is therefore
+a plain transferable NFT that wallets, indexers and marketplaces can read and
+move.
 
 | | |
 | --- | --- |
 | Base standard | OpenZeppelin `stellar-tokens` 0.7.1 (git rev `fbfde388`), non-fungible |
 | Extension | `Enumerable` (`type ContractType = Enumerable;`) with sequential ids |
 | Not used | `Consecutive`, `Burnable` |
-| Interface | [`interfaces/position-nft`](../../interfaces/position-nft) |
+| Client | [`interfaces/position-nft`](../../interfaces/position-nft) |
 | Deployed by | Controller, at salt `[1u8; 32]`, one-shot |
 
 ## Role in the protocol
@@ -42,39 +40,36 @@ accepts it. Collateral and debt both move with the token.
 
 ## Entrypoints
 
-Own entrypoints, defined in [`src/contract.rs`](src/contract.rs):
+Own entrypoints are in [`src/contract.rs`](src/contract.rs); the generated
+client drops the `Env` argument.
 
-| Call | Signature | Caller | Does |
-| --- | --- | --- | --- |
-| `__constructor` | `fn __constructor(e: &Env, controller: Address, uri: String, name: String, symbol: String)` | Deployer, once | Stores `controller`, sets collection metadata, consumes token id 0 |
-| `mint` | `fn mint(e: &Env, to: Address) -> u32` | `controller` only | Mints the next sequential id to `to` and returns it; extends `Owner` and `Balance` to the per-user window; renews instance TTL |
-| `burn` | `fn burn(e: &Env, token_id: u32)` | `controller` only | Removes the owner, approval, and enumeration entries; decrements the holder's `Balance` and the total supply; emits `Burn`; renews instance TTL |
-| `renew` | `fn renew(e: &Env, token_id: u32)` | Anyone | Extends `Owner(token_id)` and the holder's `Balance` to the per-user window; renews instance TTL |
-| `upgrade` | `fn upgrade(e: &Env, new_wasm_hash: BytesN<32>)` | `controller` only | Renews instance TTL, replaces the contract Wasm |
-| `token_uri` | `fn token_uri(e: &Env, token_id: u32) -> String` | Anyone | Overrides the standard default; returns `{base_uri}{token_id}?isStatic=true&chain=STELLAR` |
+| Entrypoint | Caller | Does |
+| --- | --- | --- |
+| `__constructor(controller, uri, name, symbol)` | deployer, once | Stores `controller`, sets metadata, consumes token id 0 |
+| `mint(to) -> u32` | controller | Mints the next id; extends `Owner` and `Balance` to the per-user window |
+| `burn(token_id)` | controller | Removes owner, approval and enumeration entries; decrements `Balance` and total supply; emits `Burn` |
+| `renew(token_id)` | anyone | Extends `Owner(token_id)` and the holder's `Balance` to the per-user window |
+| `upgrade(new_wasm_hash)` | controller | Replaces the Wasm |
+| `token_uri(token_id) -> String` | anyone | `{base_uri}{token_id}?isStatic=true&chain=STELLAR` |
 
-Inherited from the OpenZeppelin `NonFungibleToken` trait, exported unchanged:
+`mint`, `burn`, `renew` and `upgrade` also renew the instance TTL.
 
-| Call | Signature | Caller | Does |
-| --- | --- | --- | --- |
-| `balance` | `fn balance(e: &Env, account: Address) -> u32` | Anyone | Number of positions held by `account` |
-| `owner_of` | `fn owner_of(e: &Env, token_id: u32) -> Address` | Anyone | Current holder; panics `NonExistentToken` if never minted or burned |
-| `transfer` | `fn transfer(e: &Env, from: Address, to: Address, token_id: u32)` | `from` must authorize | Moves the position to `to` |
-| `transfer_from` | `fn transfer_from(e: &Env, spender: Address, from: Address, to: Address, token_id: u32)` | `spender` must authorize and be `from`, approved for the token, or an operator for `from` | Moves the position to `to` |
-| `approve` | `fn approve(e: &Env, approver: Address, approved: Address, token_id: u32, live_until_ledger: u32)` | `approver` must authorize and be the owner or an operator | Grants `approved` the right to move that one position until `live_until_ledger` |
-| `approve_for_all` | `fn approve_for_all(e: &Env, owner: Address, operator: Address, live_until_ledger: u32)` | `owner` must authorize | Makes `operator` able to move every position `owner` holds until `live_until_ledger`; `0` revokes |
-| `get_approved` | `fn get_approved(e: &Env, token_id: u32) -> Option<Address>` | Anyone | Live per-token approval, if any |
-| `is_approved_for_all` | `fn is_approved_for_all(e: &Env, owner: Address, operator: Address) -> bool` | Anyone | Whether `operator` may move all of `owner`'s positions |
-| `name` | `fn name(e: &Env) -> String` | Anyone | Collection name from metadata |
-| `symbol` | `fn symbol(e: &Env) -> String` | Anyone | Collection symbol from metadata |
+Inherited unchanged from OpenZeppelin `NonFungibleToken` and
+`NonFungibleEnumerable`:
 
-Inherited from the `NonFungibleEnumerable` extension, exported unchanged:
-
-| Call | Signature | Caller | Does |
-| --- | --- | --- | --- |
-| `total_supply` | `fn total_supply(e: &Env) -> u32` | Anyone | Number of live positions |
-| `get_owner_token_id` | `fn get_owner_token_id(e: &Env, owner: Address, index: u32) -> u32` | Anyone | Walks one holder's positions; pair with `balance` |
-| `get_token_id` | `fn get_token_id(e: &Env, index: u32) -> u32` | Anyone | Walks all live positions; pair with `total_supply` |
+| Entrypoint | Caller | Does |
+| --- | --- | --- |
+| `transfer(from, to, token_id)` | `from` | Moves the position |
+| `transfer_from(spender, from, to, token_id)` | `spender`: `from`, approved for the token, or an operator for `from` | Moves the position |
+| `approve(approver, approved, token_id, live_until_ledger)` | `approver`: owner or operator | Lets `approved` move this position until `live_until_ledger` |
+| `approve_for_all(owner, operator, live_until_ledger)` | `owner` | Lets `operator` move all of `owner`'s positions; `0` revokes |
+| `owner_of(token_id)` | anyone | Current holder; panics `NonExistentToken` if never minted or burned |
+| `balance(account)` | anyone | Positions held by `account` |
+| `get_approved(token_id)`, `is_approved_for_all(owner, operator)` | anyone | Live approvals |
+| `name()`, `symbol()` | anyone | Collection metadata |
+| `total_supply()` | anyone | Live positions |
+| `get_owner_token_id(owner, index)` | anyone | Walks one holder's positions; pair with `balance` |
+| `get_token_id(index)` | anyone | Walks all positions; pair with `total_supply` |
 
 Errors are the stock `NonFungibleTokenError` codes 200–214.
 [`interfaces/position-nft/src/lib.rs`](../../interfaces/position-nft/src/lib.rs)
@@ -136,7 +131,7 @@ A burn emits `Burn` only. It does not emit a `Transfer` to a zero address,
 because `burn` clears the owner through `Base::update`, which publishes
 nothing, and then calls `emit_burn` directly.
 
-## Security rules
+## Security properties
 
 **Mint and burn are controller-only.** Both call
 `controller(e).require_auth()`, where `controller` is the address fixed at
@@ -183,21 +178,23 @@ authorization, and the only controller path is the owner-gated
 `upgrade_position_nft`, which governance runs as a sensitive, timelocked
 operation.
 
-## Source
+## Layout
 
 ```text
 contracts/position-nft/src/
   lib.rs        # crate root; exports PositionNft and PositionNftClient
-  contract.rs   # constructor, mint, burn, renew, upgrade, token_uri override,
-                # NonFungibleToken and NonFungibleEnumerable trait exports
+  contract.rs   # constructor, mint, burn, renew, upgrade, token_uri,
+                # NonFungibleToken and NonFungibleEnumerable exports
   test.rs       # unit tests: id 0 reservation, auth gates, TTL windows, token_uri
-
-interfaces/position-nft/src/
-  lib.rs        # PositionNftInterface — the controller-facing client ABI
 ```
 
 Controller side: [`external/position_nft.rs`](../controller/src/external/position_nft.rs)
-(call wrappers and id widening), [`storage/account.rs`](../controller/src/storage/account.rs)
+(call wrappers, id widening), [`storage/account.rs`](../controller/src/storage/account.rs)
 (owner resolution, delegate grants), [`markets.rs`](../controller/src/markets.rs)
-(deploy and upgrade). Integration tests:
-[`tests/test-harness/tests/controller/position_nft.rs`](../../tests/test-harness/tests/controller/position_nft.rs).
+(deploy, upgrade).
+
+## References
+
+- Invariants (INV-STOR-02): [`docs/reference/invariants.md`](../../docs/reference/invariants.md)
+- Threat model, account authority: [`docs/explanation/threat-model.md`](../../docs/explanation/threat-model.md#account-authority)
+- Integration tests: [`tests/test-harness/tests/controller/position_nft.rs`](../../tests/test-harness/tests/controller/position_nft.rs)
