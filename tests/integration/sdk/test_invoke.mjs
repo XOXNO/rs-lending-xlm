@@ -1,6 +1,6 @@
 // Exercise the real invocation and shell recorder against offline RPC fixtures.
 import assert from 'node:assert/strict';
-import {mkdtempSync,readFileSync,writeFileSync,appendFileSync,mkdirSync,rmSync,fstatSync} from 'node:fs';
+import {mkdtempSync,readFileSync,writeFileSync,appendFileSync,mkdirSync,rmSync,fstatSync,existsSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join,dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -80,6 +80,8 @@ if (mode) {
       assert.equal(action[3],'FAIL');
       assert.equal(action[4],'supply');
       assert.equal(proof[2],controller);
+      assert(existsSync(join(logs,'fixture.simulation-1.json')),
+        `no simulation evidence: ${action[10]}\n${existsSync(join(logs,'fixture.err'))?readFileSync(join(logs,'fixture.err'),'utf8'):'no fixture.err'}`);
       const sim=JSON.parse(readFileSync(join(logs,'fixture.simulation-1.json'),'utf8'));
       assert.equal(sim.latestLedger,100);
       const trace=readFileSync(join(logs,'trace'),'utf8').trim().split('\n');

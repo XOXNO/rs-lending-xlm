@@ -1498,7 +1498,7 @@ for pid in "${pids[@]}"; do wait "$pid" || exit 2; done
         assert proc.wait(timeout=30) == 0, proc.stderr.read()
     started = time.monotonic()
     done = subprocess.run(['bash', '-c', 'exec 150>/dev/null; exec "$0" tx send', str(root/'bin/stellar')], env=env, capture_output=True, text=True, timeout=10)
-    assert done.returncode == 1 and 'rpc slot pool refused the call' in done.stderr and time.monotonic() - started < 5, done.stderr
+    assert done.returncode == 1 and 'rpc slot pool refused the call: fd 150 is already open' in done.stderr and time.monotonic() - started < 5, done.stderr
     for bad, message in [('', 'absolute path'), ('stellar', 'absolute path'), (str(root/'bin/stellar'), 'shim itself')]:
         done = subprocess.run([str(root/'bin/stellar'), 'contract', 'invoke'], env=dict(env, E2E_STELLAR=bad), capture_output=True, text=True, timeout=10)
         assert done.returncode == 1 and message in done.stderr, (bad, done.stderr)

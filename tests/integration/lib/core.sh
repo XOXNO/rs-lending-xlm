@@ -455,15 +455,15 @@ PYREPLAY
 
 slot_take() {
     local prefix="$1" count="$2" base="$3" deadline="$4" fd got=""
-    SLOT_FD=""
+    SLOT_FD="" SLOT_ERR=""
     [[ "$count" =~ ^[1-9][0-9]?$ && "$base" =~ ^[1-9][0-9]{0,2}$ && "$deadline" =~ ^[0-9]{1,5}$ ]] \
-        && [ $((base + count)) -le 255 ] || return 1
+        && [ $((base + count)) -le 255 ] || { SLOT_ERR="invalid slot count $count, base $base or wait $deadline"; return 1; }
     for ((fd = base; fd < base + count; fd++)); do
-        { : >&"$fd"; } 2>/dev/null && return 1
+        { : >&"$fd"; } 2>/dev/null && { SLOT_ERR="fd $fd is already open (nested hold or inherited fd)"; return 1; }
     done
-    mkdir -p "$(dirname "$prefix")" || return 1
+    mkdir -p "$(dirname "$prefix")" || { SLOT_ERR="cannot create $(dirname "$prefix")"; return 1; }
     for ((fd = base; fd < base + count; fd++)); do
-        eval "exec $fd>>\"\$prefix.$((fd - base + 1))\"" || break
+        eval "exec $fd>>\"\$prefix.$((fd - base + 1))\"" || { SLOT_ERR="cannot open fd $fd (ulimit -n $(ulimit -n))"; break; }
     done
     [ "$fd" -lt $((base + count)) ] || got=$(python3 -c '
 import fcntl, sys, time
@@ -504,7 +504,7 @@ rpc_take() {
     if [ $((SECONDS - start)) -ge "$wait" ]; then
         echo "error: no RPC slot free within $wait s ($name pool of $count)" >&2
     else
-        echo "error: $name slot pool refused the call: nested hold, invalid slot count or fd limit" >&2
+        echo "error: $name slot pool refused the call: ${SLOT_ERR:-no slot}" >&2
     fi
     return 1
 }
