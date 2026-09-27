@@ -68,8 +68,7 @@ prod_channels() {
     for i in $(seq 1 "$n"); do
         alias="e2e_chan${i}_${RUN_TS}"
         addr=$(stellar keys address "$alias") || { _assert_fail "prod_channel_$i" 'channel key missing'; return 1; }
-        wallet_funded "$addr" "$LOG_DIR/channel_${i}_funding.json" \
-            || { curl -s -m 30 "https://friendbot.stellar.org/?addr=$addr" >/dev/null 2>&1; wallet_funded "$addr" "$LOG_DIR/channel_${i}_funding.json"; } \
+        wallet_funded "$addr" "$LOG_DIR/channel_${i}_funding.json" || friendbot_fund "$alias" \
             || { _assert_fail "prod_channel_$i" 'channel funding not confirmed (minimum 100 XLM)'; return 1; }
         chans="$chans $alias"
     done

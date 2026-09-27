@@ -169,7 +169,7 @@ assert "if: github.event_name != 'workflow_dispatch' || !inputs.dry_run" in publ
 assert "if: github.event_name == 'workflow_dispatch' && inputs.dry_run && inputs.inject_e2e_failure" in workflow
 assert workflow.index('Inject failed E2E gate') < workflow.index('Run parallel testnet e2e')
 # Only a guaranteed pre-deployment failure may use the hosted runner. Normal
-# dry runs and tag releases retain the live runner and all seven lanes.
+# dry runs and tag releases retain the live runner and all release lanes.
 e2e = workflow.split('  testnet-e2e:',1)[1].split('  publish:',1)[0]
 runner = re.search(r'    runs-on: \$\{\{ (.*?) \}\}', e2e).group(1)
 guard = re.search(r"      - name: Inject failed E2E gate.*?        if: (.*?)\n", e2e, re.S).group(1)
@@ -241,3 +241,86 @@ for name in ['e2e.yml','release.yml']:
         fixture.unlink(); assert not checked()
 assert 'e2e-fixtures' not in publish and 'artifacts/wasm/fixtures' not in publish
 print('Build-only fixture handoff and checksum rejection checks passed')
+
+EXPECTED_LANES = {
+    'wallets': ['agg-admin', 'agg-core', 'agg-gov', 'blend', 'flash-a', 'flash-b', 'liq-a', 'liq-b', 'liq-c', 'production', 'sdk', 'stress'],
+    'deploy_protocol': ['agg-admin', 'agg-core', 'agg-gov', 'blend', 'flash-a', 'flash-b', 'liq-a', 'liq-b', 'liq-c', 'production', 'sdk', 'stress'],
+    'flow_real_markets': ['agg-admin', 'agg-core', 'blend', 'sdk'],
+    'flow_fund_usdc': ['agg-admin', 'agg-core', 'agg-gov', 'sdk'],
+    'flow_seed_liquidity': ['agg-admin', 'agg-core', 'flash-a', 'flash-b', 'sdk'],
+    'flow_lifecycle': ['agg-core'],
+    'flow_flash_loans': ['agg-admin'],
+    'flow_strategies': ['agg-core'],
+    'flow_admin': ['agg-admin'],
+    'flow_gap_hunt_admin': ['agg-admin'],
+    'flow_pool_surface': ['agg-admin'],
+    'flow_swap_aggregator_admin': ['agg-gov'],
+    'flow_governance': ['agg-gov'],
+    'flow_admin_upgrade': ['agg-core'],
+    'flow_teardown': ['agg-admin', 'agg-core', 'agg-gov', 'blend', 'flash-a', 'flash-b', 'liq-a', 'liq-b', 'liq-c', 'production', 'sdk', 'stress'],
+    'flow_liq_setup': ['liq-a', 'liq-b', 'liq-c'],
+    'flow_liq_single': ['liq-a'],
+    'flow_liq_bulk': ['liq-b'],
+    'flow_liq_spoke': ['liq-a'],
+    'flow_liq_credit': ['liq-a'],
+    'flow_liq_credit_rejections': ['liq-a'],
+    'flow_clean_bad_debt': ['liq-b'],
+    'flow_force_socialize_and_recap': ['liq-b'],
+    'flow_spoke_flags_and_curve': ['liq-a'],
+    'flow_liq_deprecated_spoke_credit': ['liq-c'],
+    'flow_defindex_strategy': ['liq-c'],
+    'flow_stress_setup': ['stress'],
+    'flow_stress_supply_frontier': ['stress'],
+    'flow_stress_borrow_frontier:single': ['stress'],
+    'flow_stress_dualify': ['stress'],
+    'flow_stress_borrow_frontier:dual': ['stress'],
+    'flow_stress_liq_frontier': ['stress'],
+    'flow_xoxno_oracle': ['liq-c'],
+    'flow_flash_position_markets': ['flash-a', 'flash-b'],
+    'flow_flash_position_fund': ['flash-a', 'flash-b'],
+    'flow_flash_position': ['flash-a', 'flash-b'],
+    'flow_flash_position_matrix': ['flash-a'],
+    'flow_flash_position_gaps': ['flash-b'],
+    'flow_flash_position_gates': ['flash-b'],
+    'flow_flash_position_malicious': ['flash-a'],
+    'flow_blend_hub_liquidity': ['blend'],
+    'flow_blend_allowlist': ['blend', 'sdk'],
+    'flow_blend_rejects': ['blend'],
+    'flow_blend_migrate': ['blend'],
+    'flow_sdk_lifecycle': ['sdk'],
+    'flow_sdk_strategy': ['sdk'],
+    'flow_sdk_blend': ['sdk'],
+    'flow_production_fixtures': ['production'],
+    'flow_production_operator': ['production'],
+    'flow_production_caller': ['production'],
+    'flow_same_market': ['agg-admin'],
+    'flow_nft': ['agg-admin'],
+    'flow_risk_refresh': ['agg-gov'],
+    'flow_stress_composed': ['stress'],
+    'flow_stress_delayed': ['stress'],
+    'flow_liq_multi_hub': ['liq-b'],
+    'flow_blend_multireserve': ['blend'],
+    'flow_production_lending': ['production'],
+    'flow_sdk_errors': ['sdk'],
+}
+ROOT = Path(__file__).resolve().parents[2]
+manifest = json.loads((ROOT/'tests/integration/cases.json').read_text())
+assert len(manifest) == len(EXPECTED_LANES) and all(EXPECTED_LANES.values())
+assert {c['id']: sorted(set(c['lanes']) & LANES) for c in manifest} == EXPECTED_LANES
+for case in manifest:
+    if case['id'] in {'wallets', 'deploy_protocol', 'flow_teardown'}:
+        assert LANES <= set(case['lanes']), case['id']
+orchestrator = (ROOT/'tests/integration/scenarios/parallel_e2e.sh').read_text()
+release_lanes = re.findall(r"^RELEASE_LANES='([^']*)'$", orchestrator, re.M)
+assert len(release_lanes) == 1, release_lanes
+release_lanes = release_lanes[0].split()
+assert len(release_lanes) == len(set(release_lanes)) and set(release_lanes) == LANES, release_lanes
+dispatch = (ROOT/'.github/workflows/e2e.yml').read_text()
+choices = re.search(r'^        options:\n((?:          - .*\n)+)', dispatch, re.M).group(1)
+choices = re.findall(r'^          - (\S+)$', choices, re.M)
+assert len(choices) == len(set(choices)) and set(choices) == LANES | {'all'}, choices
+everything = re.findall(r"inputs\.lanes == 'all' && '([^']*)'", dispatch)
+assert len(everything) == 1, everything
+everything = everything[0].split()
+assert len(everything) == len(set(everything)) and set(everything) == LANES, everything
+print('Lane membership, orchestrator and dispatch lane pins passed')

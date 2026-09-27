@@ -197,24 +197,57 @@ echo 0 > "$count"; READY_AT="$1"; start=$(date +%s); out=$(gov_await_ready op "$
         self.assertEqual((rc,state),('0','Ready')); self.assertLessEqual(int(elapsed),4)
         rc,state,elapsed=shell('flows/governance.sh',body,'999','2').stdout.split()
         self.assertEqual((rc,state),('1','Waiting')); self.assertLessEqual(int(elapsed),5)
-    def test_wallet_funding_is_parallel_and_calls_friendbot_only_when_unfunded(self):
+    def test_wallet_funding_is_parallel_and_new_wallet_calls_friendbot_only_when_unfunded(self):
         with tempfile.TemporaryDirectory() as d:
-            body='''RUN_DIR="$1"; LOG_DIR="$1"; RUN_TS=t; NET_ARGS=(--rpc-url x); save_state() { :; }; die() { exit 9; }
+            body='''source "$2/lib/core.sh"; record() { :; }; log() { :; }; backoff_sleep() { :; }
+RUN_DIR="$1"; LOG_DIR="$1"; INTEG_DIR="$1"; RUN_TS=t; NET_ARGS=(--rpc-url x); save_state() { :; }; die() { exit 9; }
 stellar() { case "$1 $2" in 'keys address') [ -f "$RUN_DIR/key.$3" ] && echo "G$3" || return 1;; 'keys generate') sleep 1; touch "$RUN_DIR/key.$3";; esac; }
 curl() { local url; for url; do :; done; echo "$url" >> "$RUN_DIR/curl"
-  case "$url" in *friendbot*) touch "$RUN_DIR/funded";; *horizon*) [ -f "$RUN_DIR/funded" ] || [ -z "${UNFUNDED:-}" ] || return 22
+  case "$url" in *friendbot*) touch "$RUN_DIR/funded"; printf 200;; *horizon*) [ -f "$RUN_DIR/funded" ] || [ -z "${UNFUNDED:-}" ] || return 22
   echo '{"balances":[{"asset_type":"native","balance":"10000.0"}]}';; esac; }
 start=$(date +%s); prefund_wallets admin alice bob carol dave; echo "$(( $(date +%s) - start ))" > "$RUN_DIR/prefund"
 new_wallet ADMIN admin'''
-            result=shell('lib/wallet.sh',body,d)
+            result=shell('lib/wallet.sh',body,d,str(HERE))
             self.assertEqual(result.returncode,0,result.stderr)
             self.assertLessEqual(int((Path(d)/'prefund').read_text()),3)
-            self.assertFalse(any('friendbot' in c for c in (Path(d)/'curl').read_text().split()))
-            (Path(d)/'curl').unlink()
-            result=shell('lib/wallet.sh','UNFUNDED=1; '+body.replace('prefund_wallets admin alice bob carol dave','true'),d)
+            calls=(Path(d)/'curl').read_text().split()
+            self.assertEqual(sum('friendbot' in c for c in calls),5)
+            self.assertEqual(calls[-1],'https://horizon-testnet.stellar.org/accounts/Ge2e_admin_t')
+            (Path(d)/'curl').unlink();(Path(d)/'funded').unlink()
+            result=shell('lib/wallet.sh','UNFUNDED=1; '+body.replace('prefund_wallets admin alice bob carol dave','true'),d,str(HERE))
             self.assertEqual(result.returncode,0,result.stderr)
             calls=(Path(d)/'curl').read_text().split()
             self.assertEqual([('friendbot' in c) for c in calls],[False,True,False])
+    def test_grant_guardian_is_proposed_before_governance_work(self):
+        body='''ADMIN=admin ALICE=alice DAVE_ADDR=GDAVE GOVERNANCE=GOV GOV_CONTROLLER=CTRL
+phase() { :; }; xfail() { :; }; gov_assert_state() { :; }; pay_vec() { echo '[]'; }; view() { echo 5; }
+gov_scval_args() { echo '[]'; }
+inv() { echo "inv $1" >> "$1.log"; echo "op_$1"; }
+gov_await_ready() { echo "await $1" >> "$1.log"; echo Ready; }'''
+        with tempfile.TemporaryDirectory() as d:
+            result=shell('flows/governance.sh',body.replace('$1.log',d+'/calls')+'\nflow_governance')
+            self.assertEqual(result.returncode,0,result.stderr)
+            calls=(Path(d)/'calls').read_text().splitlines()
+        self.assertEqual(calls[0],'inv gov_propose_grant_guardian')
+        self.assertLess(calls.index('inv gov_propose_grant_guardian'),calls.index('inv gov_create_hub'))
+        self.assertEqual(calls.count('inv gov_propose_grant_guardian'),1)
+        self.assertLess(calls.index('await op_gov_propose_grant_guardian'),calls.index('inv gov_execute_grant_guardian'))
+    def test_liq_setup_lists_only_the_lane_markets(self):
+        body='''ALICE=alice BOB=bob CAROL=carol ADMIN_ADDR=GADMIN BOB_ADDR=GBOB CAROL_ADDR=GCAROL PRIMARY_HUB_ID=1 PRIMARY_SPOKE_ID=1 CONTROLLER=CTRL WAD=1
+phase() { :; }; deploy_mock_reflector() { :; }; deploy_mock_redstone() { :; }; mint_to() { :; }; dual_px() { :; }; save_state() { :; }
+issue_sac() { eval "$1=SAC$2"; }; oracle_cfg_mock_dual() { echo '{}'; }; asset_config_json() { echo "$3"; }; pay_vec() { shift; echo "$*"; }
+trustline() { echo "trust $1 $2" >> "$LOG"; }
+create_market() { echo "market $1 $3 $6" >> "$LOG"; }
+inv() { echo "inv $1 ${13}" >> "$LOG"; }
+E2E_LANE=liq-c flow_liq_setup'''
+        with tempfile.TemporaryDirectory() as d:
+            result=shell('flows/liquidation.sh',f'LOG={d}/calls; '+body)
+            self.assertEqual(result.returncode,0,result.stderr)
+            calls=(Path(d)/'calls').read_text().splitlines()
+        self.assertEqual([c for c in calls if c.startswith('market')],['market LIQE SACLIQE 200','market LIQF SACLIQF 200'])
+        self.assertEqual([c for c in calls if c.startswith('inv')],['inv liq_seed_liquidity SACLIQF 500000000000'])
+        self.assertEqual(sorted(c for c in calls if c.startswith('trust')),
+                         ['trust bob LIQE','trust bob LIQF','trust carol LIQE','trust carol LIQF'])
     def test_flash_fee_destination(self):
         p=dict(borrowed='0',supply_index=str(10**27),revenue='0',supplied=str(100*10**27),cash='1000000000')
         q={**p,'revenue':str(50000*10**20),'supplied':str(100*10**27+50000*10**20),'cash':'1000050000'}

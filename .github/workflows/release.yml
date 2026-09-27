@@ -285,7 +285,7 @@ jobs:
       - name: Report verified dry run
         if: github.event_name == 'workflow_dispatch' && inputs.dry_run
         run: |
-          echo "All seven lanes passed; exact tested candidate verified; publication disabled." >> "$GITHUB_STEP_SUMMARY"
+          echo "All release lanes passed; exact tested candidate verified; publication disabled." >> "$GITHUB_STEP_SUMMARY"
           cat dist/candidate.json >> "$GITHUB_STEP_SUMMARY"
 
       - name: Publish release

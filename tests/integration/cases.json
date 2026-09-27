@@ -2,10 +2,15 @@
   {
     "id": "wallets",
     "lanes": [
-      "agg",
-      "liq",
+      "agg-core",
+      "agg-admin",
+      "agg-gov",
+      "liq-a",
+      "liq-b",
+      "liq-c",
+      "flash-a",
+      "flash-b",
       "stress",
-      "flash",
       "blend",
       "strategies",
       "sdk",
@@ -20,10 +25,15 @@
   {
     "id": "deploy_protocol",
     "lanes": [
-      "agg",
-      "liq",
+      "agg-core",
+      "agg-admin",
+      "agg-gov",
+      "liq-a",
+      "liq-b",
+      "liq-c",
+      "flash-a",
+      "flash-b",
       "stress",
-      "flash",
       "blend",
       "strategies",
       "sdk",
@@ -218,7 +228,8 @@
   {
     "id": "flow_real_markets",
     "lanes": [
-      "agg",
+      "agg-core",
+      "agg-admin",
       "blend",
       "strategies",
       "sdk"
@@ -263,7 +274,9 @@
   {
     "id": "flow_fund_usdc",
     "lanes": [
-      "agg",
+      "agg-core",
+      "agg-admin",
+      "agg-gov",
       "strategies",
       "sdk"
     ],
@@ -276,8 +289,10 @@
   {
     "id": "flow_seed_liquidity",
     "lanes": [
-      "agg",
-      "flash",
+      "agg-core",
+      "agg-admin",
+      "flash-a",
+      "flash-b",
       "strategies",
       "sdk"
     ],
@@ -300,7 +315,7 @@
   {
     "id": "flow_lifecycle",
     "lanes": [
-      "agg",
+      "agg-core",
       "strategies"
     ],
     "contract_methods": [
@@ -1114,7 +1129,7 @@
   {
     "id": "flow_flash_loans",
     "lanes": [
-      "agg",
+      "agg-admin",
       "strategies"
     ],
     "contract_methods": [
@@ -1246,7 +1261,7 @@
   {
     "id": "flow_strategies",
     "lanes": [
-      "agg",
+      "agg-core",
       "strategies"
     ],
     "contract_methods": [
@@ -1413,7 +1428,7 @@
   {
     "id": "flow_admin",
     "lanes": [
-      "agg"
+      "agg-admin"
     ],
     "contract_methods": [
       "add_asset_to_spoke",
@@ -2060,7 +2075,7 @@
   {
     "id": "flow_gap_hunt_admin",
     "lanes": [
-      "agg"
+      "agg-admin"
     ],
     "contract_methods": [
       "borrow",
@@ -2181,7 +2196,7 @@
   {
     "id": "flow_pool_surface",
     "lanes": [
-      "agg"
+      "agg-admin"
     ],
     "contract_methods": [
       "create_market",
@@ -2269,7 +2284,7 @@
   {
     "id": "flow_swap_aggregator_admin",
     "lanes": [
-      "agg"
+      "agg-gov"
     ],
     "contract_methods": [
       "add_referral",
@@ -2876,7 +2891,7 @@
   {
     "id": "flow_governance",
     "lanes": [
-      "agg"
+      "agg-gov"
     ],
     "contract_methods": [
       "cancel",
@@ -3345,7 +3360,7 @@
   {
     "id": "flow_admin_upgrade",
     "lanes": [
-      "agg"
+      "agg-core"
     ],
     "contract_methods": [
       "accept_ownership",
@@ -3541,10 +3556,15 @@
   {
     "id": "flow_teardown",
     "lanes": [
-      "agg",
-      "liq",
+      "agg-core",
+      "agg-admin",
+      "agg-gov",
+      "liq-a",
+      "liq-b",
+      "liq-c",
+      "flash-a",
+      "flash-b",
       "stress",
-      "flash",
       "blend",
       "sdk",
       "production"
@@ -3588,7 +3608,9 @@
   {
     "id": "flow_liq_setup",
     "lanes": [
-      "liq"
+      "liq-a",
+      "liq-b",
+      "liq-c"
     ],
     "contract_methods": [
       "supply"
@@ -3609,7 +3631,7 @@
   {
     "id": "flow_liq_single",
     "lanes": [
-      "liq"
+      "liq-a"
     ],
     "contract_methods": [
       "borrow",
@@ -3836,7 +3858,7 @@
   {
     "id": "flow_liq_bulk",
     "lanes": [
-      "liq"
+      "liq-b"
     ],
     "contract_methods": [
       "borrow",
@@ -3878,7 +3900,7 @@
   {
     "id": "flow_liq_spoke",
     "lanes": [
-      "liq"
+      "liq-a"
     ],
     "contract_methods": [
       "add_asset_to_spoke",
@@ -3959,7 +3981,7 @@
   {
     "id": "flow_liq_credit",
     "lanes": [
-      "liq"
+      "liq-a"
     ],
     "contract_methods": [
       "borrow",
@@ -4137,7 +4159,7 @@
   {
     "id": "flow_liq_credit_rejections",
     "lanes": [
-      "liq"
+      "liq-a"
     ],
     "contract_methods": [
       "liquidate",
@@ -4189,7 +4211,7 @@
   {
     "id": "flow_clean_bad_debt",
     "lanes": [
-      "liq"
+      "liq-b"
     ],
     "contract_methods": [
       "borrow",
@@ -4241,7 +4263,7 @@
   {
     "id": "flow_force_socialize_and_recap",
     "lanes": [
-      "liq"
+      "liq-b"
     ],
     "contract_methods": [
       "borrow",
@@ -4378,7 +4400,7 @@
   {
     "id": "flow_spoke_flags_and_curve",
     "lanes": [
-      "liq"
+      "liq-a"
     ],
     "contract_methods": [
       "get_spoke",
@@ -4442,7 +4464,7 @@
   {
     "id": "flow_liq_deprecated_spoke_credit",
     "lanes": [
-      "liq"
+      "liq-c"
     ],
     "contract_methods": [
       "add_asset_to_spoke",
@@ -4542,7 +4564,7 @@
   {
     "id": "flow_defindex_strategy",
     "lanes": [
-      "liq"
+      "liq-c"
     ],
     "contract_methods": [
       "deposit",
@@ -5269,7 +5291,7 @@
   {
     "id": "flow_xoxno_oracle",
     "lanes": [
-      "stress"
+      "liq-c"
     ],
     "contract_methods": [
       "add_feed",
@@ -6391,7 +6413,8 @@
   {
     "id": "flow_flash_position_markets",
     "lanes": [
-      "flash"
+      "flash-a",
+      "flash-b"
     ],
     "contract_methods": [
       "prerequisite"
@@ -6402,7 +6425,8 @@
   {
     "id": "flow_flash_position_fund",
     "lanes": [
-      "flash"
+      "flash-a",
+      "flash-b"
     ],
     "contract_methods": [
       "prerequisite"
@@ -6413,7 +6437,8 @@
   {
     "id": "flow_flash_position",
     "lanes": [
-      "flash"
+      "flash-a",
+      "flash-b"
     ],
     "contract_methods": [
       "flash_position",
@@ -6523,7 +6548,7 @@
   {
     "id": "flow_flash_position_matrix",
     "lanes": [
-      "flash"
+      "flash-a"
     ],
     "contract_methods": [
       "edit_asset_in_spoke",
@@ -7017,7 +7042,7 @@
   {
     "id": "flow_flash_position_gaps",
     "lanes": [
-      "flash"
+      "flash-b"
     ],
     "contract_methods": [
       "add_spoke",
@@ -8124,7 +8149,7 @@
   {
     "id": "flow_flash_position_gates",
     "lanes": [
-      "flash"
+      "flash-b"
     ],
     "contract_methods": [
       "flash_position",
@@ -8205,7 +8230,7 @@
   {
     "id": "flow_flash_position_malicious",
     "lanes": [
-      "flash"
+      "flash-a"
     ],
     "contract_methods": [
       "flash_position",
@@ -10451,7 +10476,7 @@
   {
     "id": "flow_same_market",
     "lanes": [
-      "agg"
+      "agg-admin"
     ],
     "contract_methods": [
       "assert",
@@ -10549,7 +10574,7 @@
   {
     "id": "flow_nft",
     "lanes": [
-      "agg"
+      "agg-admin"
     ],
     "contract_methods": [
       "approve",
@@ -10870,7 +10895,7 @@
   {
     "id": "flow_risk_refresh",
     "lanes": [
-      "agg"
+      "agg-gov"
     ],
     "contract_methods": [
       "create_liquidity_pool",
@@ -11781,7 +11806,7 @@
   {
     "id": "flow_liq_multi_hub",
     "lanes": [
-      "liq"
+      "liq-b"
     ],
     "contract_methods": [
       "assert",

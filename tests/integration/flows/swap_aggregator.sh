@@ -35,8 +35,8 @@ flow_swap_aggregator_admin() {
 
     # --- whitelist ---
     # XLM_SAC, not a LIQ* asset: deploy_protocol sets XLM_SAC in every lane,
-    # but only the `liq` lane runs flow_liq_setup. An unset SAC_LIQA aborts the
-    # `agg` lane under `set -u`.
+    # but only the `liq-*` lanes run flow_liq_setup. An unset SAC_LIQA aborts the
+    # `agg-gov` lane under `set -u`.
     local tok="$XLM_SAC"
     assert_view_eq_at "$agg" sa_wl_before false is_whitelisted --token "$tok"
     inv sa_wl_add "$ADMIN" "$agg" -- add_to_whitelist --token "$tok" >/dev/null

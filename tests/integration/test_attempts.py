@@ -218,7 +218,7 @@ assert outputs == ['1\n', '2\n'] and actions[-1]['status'] == 'xfail'
 with tempfile.TemporaryDirectory() as directory:
     run = Path(directory)
     (run/'logs').mkdir()
-    metadata = dict(lane='agg', selected_cases=['finished', 'interrupted'], run_id='audit',
+    metadata = dict(lane='agg-core', selected_cases=['finished', 'interrupted'], run_id='audit',
         started_at='2026-09-25T00:00:00+00:00', workflow_run_id='123', workflow_run_attempt='2')
     (run/'metadata.json').write_text(json.dumps(metadata))
     (run/'cases.tsv').write_text('id\tstatus\tfirst_action\tlast_action\nfinished\tpass\t1\t1\n')
@@ -269,7 +269,7 @@ set -uo pipefail
 source "{HERE}/lib/core.sh"
 INTEG_DIR="{HERE}"; RUN_DIR="{root}/run"; LOG_DIR="$RUN_DIR/logs"
 STATE_ENV="$RUN_DIR/state.env"; ACTIONS_TSV="$RUN_DIR/actions.tsv"
-RUN_TS=identity-test; E2E_LANE=agg; WASM_DIR="{wasm}"
+RUN_TS=identity-test; E2E_LANE=agg-core; WASM_DIR="{wasm}"
 NETWORKS_FILE="{root}/networks.json"; E2E_LIMITS_FILE="{root}/limits.json"
 RPC_URL=https://unused; NETWORK_PASSPHRASE='Test SDF Network ; September 2015'
 init_run

@@ -87,7 +87,7 @@ sac_transfer() {
 
 swap_xlm_to() (
     local wallet="$1" addr="$2" to_sac="$3" amount_in="$4" label="$5"
-    local swap_hex AGGREGATOR_MIN_LEDGER rc=0 hash pending="$INTEG_DIR/runs/.external-funding.pending.json"
+    local swap_hex AGGREGATOR_MIN_LEDGER rc=0 hash pending="$INTEG_DIR/runs/.external-funding.${RUN_TS}.pending.json"
     # ponytail: one checkout-wide funding lock; use per-pool locks if throughput matters.
     # The subshell retains fd 9 through confirmation; exit/cancellation releases it.
     exec 9>"$INTEG_DIR/runs/.external-funding.lock" || { _assert_fail "$label" 'cannot open funding lock'; return 1; }

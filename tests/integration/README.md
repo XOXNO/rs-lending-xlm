@@ -2,7 +2,7 @@
 
 Live execution is manual or release-only, on Stellar testnet. PRs run offline
 harness, RPC-fixture and operator regressions. Release ordering is canonical
-build → offline/contract checks → seven live lanes → publication of those exact
+build → offline/contract checks → twelve live lanes → publication of those exact
 files. A passing smoke or a mapped ABI is not release acceptance.
 
 Builds use `stellar contract build --optimize --out-dir` and consume that
@@ -33,15 +33,15 @@ set -o pipefail
 cargo test --workspace --no-fail-fast 2>&1 | tee controlled-tests.log
 python3 tests/integration/controlled.py controlled-tests.log artifacts/wasm/deploy
 
-# Seven fresh independent worlds; default caps: 95m per lane, 150m CI job.
+# Twelve fresh independent worlds; default caps: 95m per lane, 150m CI job.
 NETWORK=testnet RUN_TS="local-$(date +%Y%m%d-%H%M%S)" \
   bash tests/integration/scenarios/parallel_e2e.sh
 
 # Focused smoke; does not satisfy the full release gate.
-NETWORK=testnet RUN_TS="liq-$(date +%Y%m%d-%H%M%S)" E2E_LANES=liq \
+NETWORK=testnet RUN_TS="liq-$(date +%Y%m%d-%H%M%S)" E2E_LANES="liq-a liq-b liq-c" \
   bash tests/integration/scenarios/parallel_e2e.sh
 
-python3 tests/integration/gate.py tests/integration/runs/<base>-liq
+python3 tests/integration/gate.py tests/integration/runs/<base>-liq-a
 python3 tests/integration/release_gate.py collect tests/integration/runs <base>
 ```
 
@@ -51,24 +51,30 @@ GitHub run IDs include `run_attempt`. Reusing a local ID requires explicit
 `E2E_RESUME=1`; interrupted cases, unknown submissions and completed-case
 manifest drift cannot be resumed as fresh work. Use a new ID after fixing code.
 Standalone scenarios use the same complete lane manifest and gate; arbitrarily
-omitting phases produces incomplete coverage.
+omitting cases produces incomplete coverage.
 
 ## Lanes and evidence
 
 | Lane | Required surface | Environment |
 |---|---|---|
-| `agg` | lifecycle, NFT, same-market settlement, routed strategies, fees, risk/admin/governance | live Reflector and quote routes; fresh candidate aggregator |
-| `liq` | Transfer/Credit liquidation and multi-hub isolation, exact bad debt/recap, two-vault and contract-vault DeFindex | isolated SACs and oracle fixtures |
-| `stress` | five collateral plus five debt positions, dual sources, Transfer/Credit maximum liquidation, five-asset exits, composed providers, delayed submission; oracle history/quorum | independent provider fixtures; deterministic shared-account interleaving |
-| `flash` | callback success/rejections, protected balances, Long/multiple collateral, delegates and rollback snapshots | live Reflector; existing receiver fixtures |
+| `agg-core` | lifecycle, routed strategies, fees, admin upgrade | live Reflector and quote routes; fresh candidate aggregator |
+| `agg-admin` | same-market settlement, NFT, flash loans, admin, gap-hunt admin, pool surface | live Reflector and quote routes; fresh candidate aggregator |
+| `agg-gov` | risk refresh, swap-aggregator admin, governance | live Reflector and quote routes; fresh candidate aggregator |
+| `liq-a` | Transfer/Credit liquidation, spoke liquidation, credit rejections, spoke flags and curve | isolated SACs and oracle fixtures |
+| `liq-b` | multi-hub isolation, bulk liquidation, exact bad debt/recap | isolated SACs and oracle fixtures |
+| `liq-c` | deprecated-spoke credit, two-vault and contract-vault DeFindex; oracle history/quorum | isolated SACs and oracle fixtures |
+| `stress` | five collateral plus five debt positions, dual sources, Transfer/Credit maximum liquidation, five-asset exits, composed providers, delayed submission | independent provider fixtures; deterministic shared-account interleaving |
+| `flash-a` | callback success, protected balances, Long/multiple collateral, delegates and rollback snapshots, malicious receiver | live Reflector; existing receiver fixtures |
+| `flash-b` | callback success, create-path and dual-path rejections, strategy-mode and flash-loan gates | live Reflector; existing receiver fixtures |
 | `blend` | actual pool allowlist/reserve addresses, six XLM paths plus distinct-token/multiple-liability migration, committed-rate shares/refunds/identity/unrelated balances | real Blend TestnetV2 pool |
 | `production` | governance operator setup/replay, enabled mainnet policy readbacks, 7/8/9/18 decimal round trips, XOXNO-backed borrowing, contract caller, same-schema upgrades | disposable policy/wallet roots; explicit provider/LP/token fixtures |
 | `sdk` | supply/borrow/repay/withdraw, routed multiply, Blend, events/error mapping/delayed signing | published SDK 1.0.221 and Stellar SDK 16.3.0; fresh contracts |
 
 `cases.json` defines required terminal cases and action predicates, qualified by
-contract role and execution type. `abi-coverage.json` maps all 218 candidate
-exports, including generated NFT methods and constructors, to required actions
-or justified controlled tests. Nested-call mappings are source-traced; they are
+contract role and execution type. Its `lanes` field selects the cases each lane
+runs; `run_case` skips the others, and `test_release_gate.py` pins the map.
+`abi-coverage.json` maps all 218 candidate exports, including generated NFT
+methods and constructors, to required actions or justified controlled tests. Nested-call mappings are source-traced; they are
 not runtime host call traces. `abi_coverage.py` compares actual WASM exports.
 
 Required cases cannot pass via `research`, `sim-exceeded`, `environment-blocked`,
@@ -155,11 +161,11 @@ real external-provider availability. Current upgrade evidence explicitly records
 identical baseline/candidate controller hashes and `executable_differs=false`; controller/pool/NFT/price-aggregator/governance and oracle history preservation are checked; no v1.0.0
 storage migration claim is made.
 
-Final acceptance still requires two fresh complete seven-lane runs on the final
+Final acceptance still requires two fresh complete twelve-lane runs on the final
 candidate SHA and a release-workflow dry run. Release dispatch defaults to `dry_run=true`; a branch can run the complete gate
 without publication. `inject_e2e_failure=true` deliberately stops the E2E job
 before deployment and must leave publication skipped. A successful dry run still
-requires all seven live lanes. Local publication regressions inject failed lanes
+requires all twelve live lanes. Local publication regressions inject failed lanes
 and wrong artifacts. The injected-failure dry run at
 [3d4153e0](https://github.com/XOXNO/rs-lending-xlm/actions/runs/36127604894)
 passed build/checks, failed E2E deliberately, and skipped publication. A successful

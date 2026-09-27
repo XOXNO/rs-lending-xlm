@@ -43,7 +43,7 @@ def orchestrator(base,**extra):
     (base/'wasm/candidate.json').write_text(json.dumps({'artifacts':{p.name:hashlib.sha256(b).hexdigest() for p,b in wasms.items() if p.parent.name=='wasm'}}))
     (base/'bin').mkdir();(base/'bin/stellar').write_text(STELLAR);(base/'bin/stellar').chmod(0o755)
     (base/'bin/curl').write_text(CURL);(base/'bin/curl').chmod(0o755)
-    env=dict(os.environ,INTEG_DIR=str(base),E2E_LANES='agg',NODE_BIN=str(base/'no_network'),
+    env=dict(os.environ,INTEG_DIR=str(base),E2E_LANES='agg-core',NODE_BIN=str(base/'no_network'),
         PATH=f"{base/'bin'}:{os.environ['PATH']}",STELLAR_CALLS=str(base/'calls'),**extra)
     return scripts,env,sorted(str(p) for p in wasms)
 
@@ -72,7 +72,7 @@ trap 'kill "$child" 2>/dev/null || true; wait "$child" 2>/dev/null; exit 130' TE
 wait "$child"
 ''')
         process=subprocess.Popen(['bash',str(scripts/'parallel_e2e.sh')],env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
-        marker=base/'runs/fixture-agg/child.pid'
+        marker=base/'runs/fixture-agg-core/child.pid'
         for _ in range(1000):
             if marker.exists():break
             if process.poll() is not None:raise AssertionError(process.communicate())
@@ -101,7 +101,7 @@ with tempfile.TemporaryDirectory() as directory:
     done=subprocess.run(['bash',str(scripts/'parallel_e2e.sh')],env=env,capture_output=True,text=True,timeout=30)
     sent,lane=uploads(base)
     assert done.returncode!=0 and not lane and 'install of pool.wasm failed' in done.stderr,(done.stderr,sent)
-    assert not (base/'runs/fixture-agg').exists()
+    assert not (base/'runs/fixture-agg-core').exists()
 print('A WASM hash mismatch at install stops the run before any lane starts')
 
 with tempfile.TemporaryDirectory() as directory:
@@ -117,13 +117,24 @@ print('An unfunded installer wallet stops the run before any upload or lane')
 with tempfile.TemporaryDirectory() as directory:
     base=Path(directory)
     scripts,env,wasms=orchestrator(base,LANE_TIMEOUT='30s')
-    env['E2E_LANES']='agg liq'
+    env['E2E_LANES']='agg-core liq-a'
     (scripts/'full_e2e.sh').write_text('#!/bin/bash\necho "run complete"\n')
     (scripts/'assert_green.sh').write_text('#!/bin/bash\nsleep 3\necho "GREEN $RUN_TS"\n')
     started=time.monotonic()
     done=subprocess.run(['bash',str(scripts/'parallel_e2e.sh')],env=env,capture_output=True,text=True,timeout=60)
     elapsed=time.monotonic()-started
     assert done.returncode==0,done.stderr
-    assert done.stdout.index('GREEN fixture-agg')<done.stdout.index('GREEN fixture-liq'),done.stdout
+    assert done.stdout.index('GREEN fixture-agg-core')<done.stdout.index('GREEN fixture-liq-a'),done.stdout
     assert elapsed<5.5,elapsed
 print('Lane gates run in parallel and report in lane order')
+
+for lanes in ['agg','strategies']:
+    with tempfile.TemporaryDirectory() as directory:
+        base=Path(directory)
+        scripts,env,wasms=orchestrator(base,LANE_TIMEOUT='1s')
+        env['E2E_LANES']=lanes
+        (scripts/'full_e2e.sh').write_text('#!/bin/bash\necho "lane $RUN_TS" >> "$STELLAR_CALLS"\n')
+        done=subprocess.run(['bash',str(scripts/'parallel_e2e.sh')],env=env,capture_output=True,text=True,timeout=30)
+        assert done.returncode==2 and f"unknown lane '{lanes}'" in done.stderr,done.stderr
+        assert not (base/'calls').exists() and not (base/'runs').exists(),lanes
+print('Lanes outside the release set exit 2 before any upload')

@@ -35,12 +35,12 @@ def check_gate():
     original_verify = gate.verify_receipt
     gate.verify_receipt = lambda *args: resources
     manifest = json.loads((HERE / 'cases.json').read_text())
-    definitions = [c for c in manifest if 'agg' in c['lanes']]
+    definitions = [c for c in manifest if 'agg-core' in c['lanes']]
     required = [c['id'] for c in definitions]
     with tempfile.TemporaryDirectory() as directory:
         run = Path(directory)
         (run / 'logs').mkdir()
-        (run / 'metadata.json').write_text(json.dumps(dict(lane='agg', selected_cases=required, source_sha='a'*40, configuration_sha256='b'*64, case_manifest_sha256=gate.digest(HERE/'cases.json'),sdk_lock_sha256=gate.digest(HERE/'sdk/package-lock.json'), instruction_leeway=20000000,network='testnet',network_passphrase='Test SDF Network ; September 2015',rpc_url='https://example.invalid',cli_version='stellar 28.0.0',sdk_version='1.0.221',stellar_sdk_version='16.3.0')))
+        (run / 'metadata.json').write_text(json.dumps(dict(lane='agg-core', selected_cases=required, source_sha='a'*40, configuration_sha256='b'*64, case_manifest_sha256=gate.digest(HERE/'cases.json'),sdk_lock_sha256=gate.digest(HERE/'sdk/package-lock.json'), instruction_leeway=20000000,network='testnet',network_passphrase='Test SDF Network ; September 2015',rpc_url='https://example.invalid',cli_version='stellar 28.0.0',sdk_version='1.0.221',stellar_sdk_version='16.3.0')))
         (run / 'candidate.json').write_text(json.dumps({'source_sha': 'a'*40, 'artifacts': {f'{c}.wasm': 'a'*64 for c in gate.CONTRACTS}}))
         limits = dict(txMaxInstructions=400000000, txMaxDiskReadBytes=200000,
                       txMaxWriteBytes=132096, txMaxDiskReadEntries=200, txMaxWriteLedgerEntries=200,
@@ -81,12 +81,12 @@ def check_gate():
             except (ValueError,OSError,KeyError,AssertionError): return
             raise AssertionError('false green')
         baseline()
-        assert gate.validate(run, expected_lane='agg') == len(required)
+        assert gate.validate(run, expected_lane='agg-core') == len(required)
         wrong=[r.copy() for r in proofs]
         for row in wrong: row[2]='C'+'Z'*55
         write('evidence.tsv',['seq','execution','contract'],wrong); rejected(); baseline()
         meta=run/'metadata.json'; saved_meta=meta.read_text()
-        meta.write_text(json.dumps({'lane':'agg','selected_cases':required,'source_sha':'a'*40})); rejected(); meta.write_text(saved_meta)
+        meta.write_text(json.dumps({'lane':'agg-core','selected_cases':required,'source_sha':'a'*40})); rejected(); meta.write_text(saved_meta)
         for leeway in [1000000, 2000000, 0, '20000000', 20000000.0]:
             wrong_policy=json.loads(saved_meta); wrong_policy['instruction_leeway']=leeway
             meta.write_text(json.dumps(wrong_policy)); rejected(); meta.write_text(saved_meta)
@@ -140,7 +140,7 @@ def check_gate():
         calls=[]
         gate.footprint_drift=lambda *a: calls.append(a)
         failed_hash, follow=with_retry()
-        assert gate.validate(run, expected_lane='agg') == len(required)
+        assert gate.validate(run, expected_lane='agg-core') == len(required)
         assert len(calls)==1 and calls[0][1]==failed_hash and calls[0][3:5]==(proofs[index][2],follow[4]) and calls[0][6]==follow[5]
         def refuse(*a): raise ValueError('retry footprint equals the failed footprint')
         gate.footprint_drift=refuse; rejected()
@@ -150,7 +150,7 @@ def check_gate():
         baseline()
         filled=[r.copy() for r in actions]; filled[index][6:10]=['1000000','0','0','1']
         write('actions.tsv',gate.ACTION_FIELDS,filled)
-        assert gate.validate(run, expected_lane='agg') == len(required)
+        assert gate.validate(run, expected_lane='agg-core') == len(required)
         for column in range(6,10):
             wrong=[r.copy() for r in filled]; wrong[index][column]='7'
             write('actions.tsv',gate.ACTION_FIELDS,wrong); rejected()
@@ -168,10 +168,10 @@ def check_gate():
         assert index > 0
         for seq in (index, index+1):
             attempts_with(lambda x: x[index].update(action_seq=seq))
-            assert gate.validate(run, expected_lane='agg') == len(required)
+            assert gate.validate(run, expected_lane='agg-core') == len(required)
         (run/'logs'/f'{committed}.receipt.json').unlink()
         attempts_with(lambda x: x[-1].update(hash=committed))
-        assert gate.validate(run, expected_lane='agg') == len(required)
+        assert gate.validate(run, expected_lane='agg-core') == len(required)
         baseline()
     gate.verify_receipt = original_verify
 
@@ -206,6 +206,7 @@ shell('n=0; leg() { n=$((n+1)); return 1; }; ! retry_leg leg; [ "$n" = 1 ]')
 # action with the same label succeeds. Earlier cases stay outside this range.
 for status in ['FAIL', 'UNEXPECTED-OK']:
     shell('''
+printf '{"selected_cases":["good","ignored"]}' > "$RUN_DIR/metadata.json"
 printf 'id\\tstatus\\tfirst_action\\tlast_action\\n' > "$RUN_DIR/cases.tsv"
 record previous FAIL assert
 good() { record good ok assert; }
@@ -215,6 +216,22 @@ if run_case ignored ignored_failure; then exit 1; fi
 awk -F'\\t' '$1=="good" && $2=="pass" {good=1} $1=="ignored" && $2=="fail" {bad=1} END {exit !(good && bad)}' "$RUN_DIR/cases.tsv"
 [ ! -e "$RUN_DIR/active-case" ]
 '''.replace('STATUS', status))
+shell('''
+printf '{"selected_cases":["a"]}' > "$RUN_DIR/metadata.json"
+printf 'id\\tstatus\\tfirst_action\\tlast_action\\n' > "$RUN_DIR/cases.tsv"
+record before ok assert
+cp "$RUN_DIR/cases.tsv" "$RUN_DIR/cases.before"; cp "$ACTIONS_TSV" "$RUN_DIR/actions.before"
+fn() { echo called >> "$RUN_DIR/calls"; record inside ok assert; }
+run_case b fn || exit 1
+[ ! -e "$RUN_DIR/calls" ] && cmp -s "$RUN_DIR/cases.tsv" "$RUN_DIR/cases.before" && cmp -s "$ACTIONS_TSV" "$RUN_DIR/actions.before" || exit 2
+run_case a fn || exit 3
+[ "$(cat "$RUN_DIR/calls")" = called ] || exit 4
+tail -1 "$RUN_DIR/cases.tsv" | awk -F'\\t' '{exit !($1=="a" && $2=="pass" && $3+0==2 && $4+0==2)}' || exit 5
+printf 'corrupt' > "$RUN_DIR/metadata.json"
+rc=0; run_case b fn || rc=$?
+[ "$rc" = 1 ] && [ "$(wc -l < "$RUN_DIR/calls" | tr -d ' ')" = 1 ] || exit 6
+awk -F'\\t' '$3=="b_selection" && $4=="FAIL" && $5=="case" && $11 ~ /case selection unreadable \\(jq exit [0-9]+\\)/ {found=1} END {exit !found}' "$ACTIONS_TSV" || exit 7
+''')
 print('E2E offline harness regressions passed')
 # Teardown batches full withdrawals by account, retaining mixed hub keys and
 # the burn proof. A submitted failure must never fall back to per-asset calls.
@@ -259,6 +276,7 @@ shell('assert_delta large 100000000000000000000000 100000000000000000000001 1')
 shell(f'source "{HERE}/flows/blend.sh"; ! blend_maps_empty \'{{"collateral":{{}},"liabilities":{{}},"supply":{{"0":"50"}}}}\'; ! blend_maps_empty \'{{}}\'')
 # An interrupted case cannot replay a mutation when local resume is requested.
 shell('''
+printf '{"selected_cases":["partial"]}' > "$RUN_DIR/metadata.json"
 printf 'id\\tstatus\\tfirst_action\\tlast_action\\n' > "$RUN_DIR/cases.tsv"
 mutate_then_exit() { echo committed >> "$RUN_DIR/commits"; exit 7; }
 (run_case partial mutate_then_exit) && exit 1

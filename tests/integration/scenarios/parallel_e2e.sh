@@ -9,42 +9,30 @@ BASE="$RUN_TS"
 LANE_TIMEOUT="${LANE_TIMEOUT:-95m}"
 [[ "$LANE_TIMEOUT" =~ ^[1-9][0-9]*[smh]$ ]] || { echo 'invalid LANE_TIMEOUT' >&2; exit 2; }
 
-# E2E_LANES selects the lanes, so a caller can run only the lane a change
-# affects (for example `liq` after a liquidation change). Unset runs all seven.
+# E2E_LANES selects the lanes, so a caller can run only the lanes a change
+# affects (for example `liq-a liq-b liq-c` after a liquidation change). Unset
+# runs every release lane.
 #
 # `-`, not `:-`: an explicitly empty E2E_LANES must reach the zero-lane check
 # below and abort, not expand to the default and run every lane.
-read -r -a LANES <<<"${E2E_LANES-agg liq stress flash blend production sdk}"
+RELEASE_LANES='agg-core agg-admin agg-gov liq-a liq-b liq-c stress flash-a flash-b blend production sdk'
+read -r -a RELEASE <<<"$RELEASE_LANES"
+read -r -a LANES <<<"${E2E_LANES-$RELEASE_LANES}"
 
-phases_for() {
-    case "$1" in
-        agg)    echo "deploy lifecycle strategies admin governance teardown" ;;
-        liq)    echo "deploy liquidation defindex teardown" ;;
-        stress) echo "deploy stress oracle teardown" ;;
-    esac
-}
-
-# Lanes backed by a dedicated scenario instead of full_e2e.sh phases. The
-# scenarios carry their own wallet sets, wasm preflights, and green gate, so
+# The scenarios carry their own wallet sets, wasm preflights, and green gate, so
 # the orchestrator only maps lane -> script and applies the same outer gate.
 script_for() {
     case "$1" in
         production) echo "production.sh" ;;
         sdk) echo "sdk.sh" ;;
-        flash) echo "flash_position.sh" ;;
+        flash-a|flash-b) echo "flash_position.sh" ;;
         blend) echo "blend.sh" ;;
         *)     echo "full_e2e.sh" ;;
     esac
 }
 
 describe_lane() {
-    local script
-    script="$(script_for "$1")"
-    if [ "$script" = "full_e2e.sh" ]; then
-        echo "phases: $(phases_for "$1")"
-    else
-        echo "scenario: $script"
-    fi
+    echo "scenario: $(script_for "$1")"
 }
 
 timeout_bin=""
@@ -53,15 +41,12 @@ command -v gtimeout >/dev/null 2>&1 && timeout_bin="gtimeout"
 
 log_orch() { printf '[%s] [orchestrator] %s\n' "$(date +%H:%M:%S)" "$*" >&2; }
 
-# Rejects an unknown lane up front. `phases_for` prints nothing for one, and
-# full_e2e.sh's `${PHASES:-...}` treats empty as unset, so a typo would run the
-# default phases under the wrong lane name.
 [ "${#LANES[@]}" -gt 0 ] || { log_orch "E2E_LANES resolved to no lanes"; exit 2; }
 for lane in "${LANES[@]}"; do
-    if [ -z "$(phases_for "$lane")" ] && [ "$(script_for "$lane")" = "full_e2e.sh" ]; then
-        log_orch "unknown lane '$lane' (known: agg liq stress flash blend production sdk)"
-        exit 2
-    fi
+    case " $RELEASE_LANES " in
+        *" $lane "*) ;;
+        *) log_orch "unknown lane '$lane' (known: $RELEASE_LANES)"; exit 2 ;;
+    esac
 done
 
 [ -n "$timeout_bin" ] || { log_orch "timeout utility required"; exit 2; }
@@ -131,11 +116,7 @@ for lane in "${LANES[@]}"; do
     (
         export RUN_TS="$lane_ts"
         export E2E_LANE="$lane"
-        script="$(script_for "$lane")"
-        if [ "$script" = "full_e2e.sh" ]; then
-            export PHASES="$(phases_for "$lane")"
-        fi
-        exec "$timeout_bin" --kill-after=10s "$LANE_TIMEOUT" bash "$HERE/$script"
+        exec "$timeout_bin" --kill-after=10s "$LANE_TIMEOUT" bash "$HERE/$(script_for "$lane")"
     ) >"$INTEG_DIR/runs/${lane_ts}.log" 2>&1 &
     pids+=("$!")
 done
@@ -198,9 +179,9 @@ combined="$INTEG_DIR/runs/${BASE}-combined.md"
     else
         echo "**Result: FAILED (lanes run: ${LANES[*]})**"
     fi
-    if [ "${#LANES[@]}" -lt 7 ]; then
+    if [ "${#LANES[@]}" -lt "${#RELEASE[@]}" ]; then
         echo
-        echo "> Partial run — only ${#LANES[@]} of 7 lanes. Phases not covered here were not executed."
+        echo "> Partial run — only ${#LANES[@]} of ${#RELEASE[@]} lanes. Cases not covered here were not executed."
     fi
     echo
     for lane in "${LANES[@]}"; do
