@@ -11,6 +11,7 @@ trap 'exit 130' INT TERM
 check_tools || die preflight "required tools missing"
 check_stellar_version || die preflight "CLI version mismatch"
 wallets() {
+    prefund_wallets admin alice bob carol dave
     new_wallet ADMIN admin || return 1
     new_wallet ALICE alice || return 1
     new_wallet BOB bob || return 1

@@ -114,6 +114,107 @@ exit 1
             for verb,tag,ok in [('upgradeControllerHash','upgradeControllerHash',False),('setupAll','setupAll',False),('validateConfigs','validateConfigs',True),('setupAll','setupAll_replay',True)]:
                 result=shell('flows/production.sh','RUN_DIR="$1"; LOG_DIR="$1/logs"; REPO_ROOT="$1"; ADMIN=admin; PROD_OP_TAG="$3"; prod_ops "$2"',d,verb,tag)
                 self.assertEqual(result.returncode==0,ok,result.stderr)
+    def test_operator_receipts_fetch_in_parallel_and_fail_closed(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);(root/'configs').mkdir();(root/'logs').mkdir()
+            (root/'configs/script.sh').write_text("for n in $(seq 1 12); do printf 'Signing transaction: %064d\\n' $n >&2; done\n")
+            body='''RUN_DIR="$1"; LOG_DIR="$1/logs"; REPO_ROOT="$1"; ADMIN=admin; GOVERNANCE=GOV
+record() { echo "$1 $2 $4" >> "$RUN_DIR/records"; }
+tx_status() { sleep 1; echo '{"result":{"envelopeXdr":"x"}}' > "$LOG_DIR/$1.receipt.json"; [ "$1" = "${BAD:-}" ] && echo FAILED || echo SUCCESS; }
+fetch_resources() { RES_INSTR=1 RES_READ=2 RES_WRITE=3 RES_FEE=4; }
+stellar() { echo '{"tx":{"tx":{"operations":[{"body":{"invoke_host_function":{"host_function":{"invoke_contract":{"function_name":"propose","contract_address":"GOV"}}}}}]}}}'; }
+start=$(date +%s); prod_ops setupAll >/dev/null; rc=$?; echo "$(( $(date +%s) - start ))" > "$RUN_DIR/elapsed"; exit $rc'''
+            result=shell('flows/production.sh',body,d)
+            self.assertEqual(result.returncode,0,result.stderr)
+            self.assertLess(int((root/'elapsed').read_text()),6)
+            rows=(root/'records').read_text().split('\n')
+            self.assertEqual([r.split()[2] for r in rows if r.startswith('operator_setupAll_tx_')],[f'{n:064d}' for n in range(1,13)])
+            (root/'records').unlink()
+            result=shell('flows/production.sh','BAD=$(printf "%064d" 7); '+body,d)
+            self.assertNotEqual(result.returncode,0)
+            self.assertNotIn('operator_setupAll ok',(root/'records').read_text())
+    def test_setup_binds_proposals_to_executions_and_replay_sends_nothing(self):
+        def call(fn,salt):
+            return {'function_name':fn,'contract_address':'GOV','args':[{'address':'ADMIN'},{'bytes':salt}]}
+        for tag,calls,ok in [('setupAll',[call('propose','aa'),call('propose','bb'),call('execute','aa'),call('execute','bb')],True),
+                             ('setupAll',[call('propose','aa'),call('propose','bb'),call('execute','aa')],False),
+                             ('setupAll',[call('propose','aa'),call('propose','bb'),call('execute','aa'),call('execute','aa')],False),
+                             ('setupAll_replay',[call('propose','aa')],False),
+                             ('setupAll_replay',[],True)]:
+            with tempfile.TemporaryDirectory() as d:
+                root=Path(d);(root/'configs').mkdir();(root/'logs').mkdir()
+                for n,c in enumerate(calls,1): (root/f'inv.{n}').write_text(json.dumps(c))
+                (root/'configs/script.sh').write_text(''.join(f"echo 'Signing transaction: {n:064d}' >&2\n" for n in range(1,len(calls)+1)) or 'true\n')
+                body='''RUN_DIR="$1"; LOG_DIR="$1/logs"; REPO_ROOT="$1"; ADMIN=admin; GOVERNANCE=GOV
+record() { :; }
+tx_status() { echo "{\\"result\\":{\\"envelopeXdr\\":\\"$(( 10#$1 ))\\"}}" > "$LOG_DIR/$1.receipt.json"; echo SUCCESS; }
+fetch_resources() { RES_INSTR=1 RES_READ=2 RES_WRITE=3 RES_FEE=4; }
+stellar() { local n; n=$(cat); echo "{\\"tx\\":{\\"tx\\":{\\"operations\\":[{\\"body\\":{\\"invoke_host_function\\":{\\"host_function\\":{\\"invoke_contract\\":$(cat "$RUN_DIR/inv.$n")}}}}]}}}"; }
+PROD_OP_TAG="$2" prod_ops setupAll >/dev/null'''
+                result=shell('flows/production.sh',body,d,tag)
+                self.assertEqual(result.returncode==0,ok,(tag,len(calls),result.stderr[-300:]))
+    def test_split_governance_op_binds_propose_execute_and_record(self):
+        salt='ab'*32; op='cd'*32
+        propose={'function_name':'propose','contract_address':'GOV','args':[{'address':'ADMIN'},{'vec':[]},{'bytes':salt}]}
+        def execute(s_,target='CTRL',fn='set_price_aggregator'):
+            return {'function_name':'execute','contract_address':'GOV','args':[{'address':'ADMIN'},{'address':target},{'symbol':fn},{'vec':[]},{'bytes':'00'*32},{'bytes':s_}]}
+        for case,exec_call,record_salt,ok in [('good',execute(salt),salt,True),('salt',execute('ee'*32),salt,False),
+                                              ('target',execute(salt,target='OTHER'),salt,False),('record',execute(salt),'ff'*32,False)]:
+            with tempfile.TemporaryDirectory() as d:
+                root=Path(d);(root/'configs').mkdir();(root/'logs').mkdir();(root/'ops/testnet').mkdir(parents=True)
+                (root/'inv.1').write_text(json.dumps(propose));(root/'inv.2').write_text(json.dumps(exec_call))
+                (root/'configs/script.sh').write_text(f"""case "$1" in
+  awaitOp) exit 0;;
+  executeOp) printf 'Signing transaction: %064d\\n' 2 >&2;;
+  *) printf 'Signing transaction: %064d\\n' 1 >&2
+     echo '{{"kind":"controller","target":"CTRL","function":"set_price_aggregator","salt":"{record_salt}"}}' > "$OPS_ROOT/testnet/{op}.json"
+     echo "Scheduled op {op} (AUTO_EXECUTE=0; run 'executeOp {op}' after the delay)." >&2;;
+esac
+""")
+                body='''RUN_DIR="$1"; LOG_DIR="$1/logs"; REPO_ROOT="$1"; ADMIN=admin; GOVERNANCE=GOV; STATE_ENV="$1/state.env"
+record() { echo "$1 $2 $3" >> "$RUN_DIR/records"; }
+tx_status() { echo "{\\"result\\":{\\"envelopeXdr\\":\\"$(( 10#$1 ))\\"}}" > "$LOG_DIR/$1.receipt.json"; echo SUCCESS; }
+fetch_resources() { RES_INSTR=1 RES_READ=2 RES_WRITE=3 RES_FEE=4; }
+stellar() { local n; n=$(cat); echo "{\\"tx\\":{\\"tx\\":{\\"operations\\":[{\\"body\\":{\\"invoke_host_function\\":{\\"host_function\\":{\\"invoke_contract\\":$(cat "$RUN_DIR/inv.$n")}}}}]}}}"; }
+source "$1/lib/core.sh" 2>/dev/null || true
+save_state() { eval "$1=\\$2"; }
+prod_propose setPriceAggregator setPriceAggregator || exit 3
+grep -q '^operator_setPriceAggregator ok' "$RUN_DIR/records" && exit 4
+prod_execute_split setPriceAggregator setPriceAggregator >/dev/null'''
+                result=shell('flows/production.sh',body,d)
+                rows=(root/'records').read_text()
+                self.assertEqual('operator_setPriceAggregator_propose ok propose' in rows,record_salt==salt,(case,rows))
+                self.assertEqual(result.returncode==0,ok,(case,result.returncode,result.stderr[-500:]))
+                self.assertEqual('operator_setPriceAggregator ok setPriceAggregator' in rows,ok,(case,rows))
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d)/'logs').mkdir()
+            result=shell('flows/production.sh','RUN_DIR="$1"; LOG_DIR="$1/logs"; prod_execute_split setAggregator setAggregator',d)
+            self.assertNotEqual(result.returncode,0)
+    def test_governance_wait_is_deadline_based(self):
+        body='''count=$(mktemp); gov_state() { local n=$(( $(cat "$count") + 1 )); echo "$n" > "$count"; [ "$n" -ge "$READY_AT" ] && echo Ready || echo Waiting; }
+echo 0 > "$count"; READY_AT="$1"; start=$(date +%s); out=$(gov_await_ready op "$2"); rc=$?; echo "$rc $out $(( $(date +%s) - start ))"; rm -f "$count"'''
+        rc,state,elapsed=shell('flows/governance.sh',body,'3','180').stdout.split()
+        self.assertEqual((rc,state),('0','Ready')); self.assertLessEqual(int(elapsed),4)
+        rc,state,elapsed=shell('flows/governance.sh',body,'999','2').stdout.split()
+        self.assertEqual((rc,state),('1','Waiting')); self.assertLessEqual(int(elapsed),5)
+    def test_wallet_funding_is_parallel_and_calls_friendbot_only_when_unfunded(self):
+        with tempfile.TemporaryDirectory() as d:
+            body='''RUN_DIR="$1"; LOG_DIR="$1"; RUN_TS=t; NET_ARGS=(--rpc-url x); save_state() { :; }; die() { exit 9; }
+stellar() { case "$1 $2" in 'keys address') [ -f "$RUN_DIR/key.$3" ] && echo "G$3" || return 1;; 'keys generate') sleep 1; touch "$RUN_DIR/key.$3";; esac; }
+curl() { local url; for url; do :; done; echo "$url" >> "$RUN_DIR/curl"
+  case "$url" in *friendbot*) touch "$RUN_DIR/funded";; *horizon*) [ -f "$RUN_DIR/funded" ] || [ -z "${UNFUNDED:-}" ] || return 22
+  echo '{"balances":[{"asset_type":"native","balance":"10000.0"}]}';; esac; }
+start=$(date +%s); prefund_wallets admin alice bob carol dave; echo "$(( $(date +%s) - start ))" > "$RUN_DIR/prefund"
+new_wallet ADMIN admin'''
+            result=shell('lib/wallet.sh',body,d)
+            self.assertEqual(result.returncode,0,result.stderr)
+            self.assertLessEqual(int((Path(d)/'prefund').read_text()),3)
+            self.assertFalse(any('friendbot' in c for c in (Path(d)/'curl').read_text().split()))
+            (Path(d)/'curl').unlink()
+            result=shell('lib/wallet.sh','UNFUNDED=1; '+body.replace('prefund_wallets admin alice bob carol dave','true'),d)
+            self.assertEqual(result.returncode,0,result.stderr)
+            calls=(Path(d)/'curl').read_text().split()
+            self.assertEqual([('friendbot' in c) for c in calls],[False,True,False])
     def test_flash_fee_destination(self):
         p=dict(borrowed='0',supply_index=str(10**27),revenue='0',supplied=str(100*10**27),cash='1000000000')
         q={**p,'revenue':str(50000*10**20),'supplied':str(100*10**27+50000*10**20),'cash':'1000050000'}

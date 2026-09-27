@@ -2,6 +2,7 @@
 """Bind the full seven-lane proof to the exact release files."""
 import json
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 if not __debug__:
@@ -17,9 +18,12 @@ def collect(runs, base, directory=None):
     candidate = None
     completed = {}
     controlled = None
+    with ThreadPoolExecutor(max_workers=len(LANES)) as pool:
+        pending = {lane: pool.submit(validate, runs / f'{base}-{lane}', lane) for lane in sorted(LANES)}
+        for lane in sorted(LANES):
+            completed[lane] = pending[lane].result()
     for lane in sorted(LANES):
         run = runs / f'{base}-{lane}'
-        completed[lane] = validate(run, expected_lane=lane)
         current = json.loads((run / 'candidate.json').read_text())
         if candidate is not None and current != candidate:
             raise ValueError('lanes tested different candidates')

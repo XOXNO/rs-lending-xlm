@@ -116,9 +116,11 @@ stop_children() {
     trap - INT TERM
     # GNU timeout owns a process group; kill that group, including CLI/RPC children.
     for pid in "${pids[@]}"; do [ -z "$pid" ] || kill -TERM -- "-$pid" 2>/dev/null || true; done
+    for pid in ${gate_pids[@]+"${gate_pids[@]}"}; do [ -z "$pid" ] || { kill -STOP "$pid"; pkill -TERM -P "$pid"; kill -TERM "$pid"; kill -CONT "$pid"; } 2>/dev/null || true; done
     sleep 2
     for pid in "${pids[@]}"; do [ -z "$pid" ] || kill -KILL -- "-$pid" 2>/dev/null || true; done
-    for pid in "${pids[@]}"; do [ -z "$pid" ] || wait "$pid" 2>/dev/null || true; done
+    for pid in ${gate_pids[@]+"${gate_pids[@]}"}; do [ -z "$pid" ] || { kill -STOP "$pid"; pkill -KILL -P "$pid"; kill -KILL "$pid"; } 2>/dev/null || true; done
+    for pid in "${pids[@]}" ${gate_pids[@]+"${gate_pids[@]}"}; do [ -z "$pid" ] || wait "$pid" 2>/dev/null || true; done
     for lane in "${LANES[@]}"; do
         [ ! -f "$INTEG_DIR/runs/$BASE-$lane/metadata.json" ] || python3 "$INTEG_DIR/gate.py" mark-incomplete "$INTEG_DIR/runs/$BASE-$lane" cancelled
     done
@@ -153,6 +155,15 @@ for i in "${!LANES[@]}"; do
     pids[$i]=""
 done
 
+declare -a gate_pids
+for i in "${!LANES[@]}"; do
+    lane_ts="${BASE}-${LANES[$i]}"
+    gate_pids[$i]=""
+    [ "${lane_exit[$i]}" -eq 0 ] && grep -q "run complete" "$INTEG_DIR/runs/${lane_ts}.log" 2>/dev/null || continue
+    RUN_TS="$lane_ts" bash "$HERE/assert_green.sh" >"$INTEG_DIR/runs/${lane_ts}.gate.log" 2>&1 &
+    gate_pids[$i]=$!
+done
+
 overall=0
 for i in "${!LANES[@]}"; do
     lane="${LANES[$i]}"
@@ -164,14 +175,16 @@ for i in "${!LANES[@]}"; do
         overall=1
         continue
     fi
-    if ! grep -q "run complete" "$lane_log" 2>/dev/null; then
+    if [ -z "${gate_pids[$i]}" ]; then
         log_orch "lane '$lane' FAILED — no 'run complete' marker (phases incomplete) in ${lane_ts}.log"
         overall=1
         continue
     fi
-    if RUN_TS="$lane_ts" bash "$HERE/assert_green.sh"; then
+    if wait "${gate_pids[$i]}"; then
+        cat "$INTEG_DIR/runs/${lane_ts}.gate.log"
         log_orch "lane '$lane' GREEN"
     else
+        cat "$INTEG_DIR/runs/${lane_ts}.gate.log" >&2
         log_orch "lane '$lane' FAILED gate"
         overall=1
     fi

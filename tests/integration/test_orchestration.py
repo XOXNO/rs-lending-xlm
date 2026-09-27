@@ -113,3 +113,36 @@ with tempfile.TemporaryDirectory() as directory:
     assert done.returncode!=0 and not sent and not lane and 'installer wallet GINSTALLER was not funded' in done.stderr,done.stderr
     assert sum('friendbot' in c for c in (base/'calls').read_text().splitlines())==4
 print('An unfunded installer wallet stops the run before any upload or lane')
+
+with tempfile.TemporaryDirectory() as directory:
+    base=Path(directory)
+    scripts,env,wasms=orchestrator(base,LANE_TIMEOUT='30s')
+    env['E2E_LANES']='agg liq'
+    (scripts/'full_e2e.sh').write_text('#!/bin/bash\necho "run complete"\n')
+    (scripts/'assert_green.sh').write_text('#!/bin/bash\nsleep 3\necho "GREEN $RUN_TS"\n')
+    started=time.monotonic()
+    done=subprocess.run(['bash',str(scripts/'parallel_e2e.sh')],env=env,capture_output=True,text=True,timeout=60)
+    elapsed=time.monotonic()-started
+    assert done.returncode==0,done.stderr
+    assert done.stdout.index('GREEN fixture-agg')<done.stdout.index('GREEN fixture-liq'),done.stdout
+    assert elapsed<5.5,elapsed
+print('Lane gates run in parallel and report in lane order')
+
+with tempfile.TemporaryDirectory() as directory:
+    base=Path(directory)
+    scripts,env,wasms=orchestrator(base,LANE_TIMEOUT='30s')
+    (scripts/'full_e2e.sh').write_text('#!/bin/bash\nmkdir -p "$INTEG_DIR/runs/$RUN_TS"; echo "{}" > "$INTEG_DIR/runs/$RUN_TS/metadata.json"; echo "run complete"\n')
+    (scripts/'assert_green.sh').write_text('#!/bin/bash\necho started > "$INTEG_DIR/runs/$RUN_TS.gate-started"\nsleep 6\necho passed > "$INTEG_DIR/runs/$RUN_TS.gate-passed"\n')
+    process=subprocess.Popen(['bash',str(scripts/'parallel_e2e.sh')],env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+    started=base/'runs/fixture-agg.gate-started'
+    for _ in range(1000):
+        if started.exists(): break
+        if process.poll() is not None: raise AssertionError(process.communicate())
+        time.sleep(.02)
+    assert started.exists()
+    process.send_signal(signal.SIGTERM)
+    process.communicate(timeout=30)
+    assert process.returncode!=0
+    time.sleep(7)
+    assert not (base/'runs/fixture-agg.gate-passed').exists(), 'a gate survived cancellation'
+print('Cancellation during gating stops the gate processes before marking the run incomplete')
