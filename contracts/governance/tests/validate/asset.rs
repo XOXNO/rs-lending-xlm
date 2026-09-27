@@ -1,7 +1,10 @@
 use super::*;
+use crate::test_support::register_governance;
 use common::constants::{MAX_ASSET_DECIMALS, RAY};
+use common::types::{AssetOracle, IndependencePolicy, OracleTolerance};
+use price_aggregator::{PriceAggregator, PriceAggregatorClient as SeedClient};
 use soroban_sdk::testutils::Address as _;
-use soroban_sdk::Env;
+use soroban_sdk::{vec, Env};
 
 fn sample_market_params(asset: &Address, decimals: u32) -> MarketParamsRaw {
     MarketParamsRaw {
@@ -109,4 +112,56 @@ fn validate_market_creation_rejects_decimals_mismatch() {
     let asset = Address::generate(&env);
     let params = sample_market_params(&asset, 7);
     validate_market_creation(&env, &asset, &params, 6);
+}
+
+fn oracle_in(env: &Env, asset_decimals: u32) -> AssetOracle {
+    AssetOracle {
+        asset_decimals,
+        max_price_stale_seconds: 900,
+        sources: vec![env],
+        tolerance: OracleTolerance {
+            upper_ratio_bps: 10_500,
+            lower_ratio_bps: 9_524,
+        },
+        independence: IndependencePolicy::RequireDisjoint,
+        min_sanity_price_wad: 1,
+        max_sanity_price_wad: i128::MAX,
+    }
+}
+
+#[test]
+fn listed_token_decimals_uses_live_decimals_without_an_aggregator() {
+    let env = Env::default();
+    let (_admin, gov_id, _gov) = register_governance(&env);
+    let token = Address::generate(&env);
+    for live in [0u32, 7, 18] {
+        assert_eq!(
+            env.as_contract(&gov_id, || listed_token_decimals(&env, &token, live)),
+            live
+        );
+    }
+}
+
+#[test]
+fn listed_token_decimals_keeps_the_stored_oracle_unit_over_a_relabel() {
+    let env = Env::default();
+    let (_admin, gov_id, gov) = register_governance(&env);
+    let agg_id = env.register(PriceAggregator, (gov_id.clone(),));
+    gov.set_price_aggregator(&agg_id);
+    let agg = SeedClient::new(&env, &agg_id);
+    let rwa = Address::generate(&env);
+    let seven = Address::generate(&env);
+    let unlisted = Address::generate(&env);
+    agg.seed_oracle(&PriceKey::Token(rwa.clone()), &oracle_in(&env, 0));
+    agg.seed_oracle(&PriceKey::Token(seven.clone()), &oracle_in(&env, 7));
+
+    let listed = |token: &Address, live: u32| {
+        env.as_contract(&gov_id, || listed_token_decimals(&env, token, live))
+    };
+    assert_eq!(listed(&rwa, 2), 0);
+    assert_eq!(listed(&rwa, 0), 0);
+    assert_eq!(listed(&seven, 6), 7);
+    assert_eq!(listed(&seven, 7), 7);
+    assert_eq!(listed(&unlisted, 7), 7);
+    assert_eq!(listed(&unlisted, 0), 0);
 }
