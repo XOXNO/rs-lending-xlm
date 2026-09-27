@@ -197,6 +197,18 @@ for codes, funded_at, succeeds in [(['429', '429', '200'], 3, True), (['403'], 9
         assert (result.returncode == 0) == succeeds, result.stderr
         assert (root / 'logs/friendbot_alice.codes').read_text().split() == codes
         assert (root / 'Galice.hz').read_text().strip() == str(len(codes))
+for code in ['200', '400']:
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        result = friendbot(directory, 'friendbot_fund alice', [code], 3)
+        assert result.returncode == 0, (code, result.stderr)
+        assert (root / 'logs/friendbot_alice.codes').read_text().split() == [code]
+        assert (root / 'Galice.hz').read_text().strip() == '3'
+with tempfile.TemporaryDirectory() as directory:
+    root = Path(directory)
+    result = friendbot(directory, 'friendbot_fund alice', ['200'], 999)
+    assert result.returncode == 1 and (root / 'logs/friendbot_alice.codes').read_text().split() == ['200'], result.stderr
+    assert int((root / 'Galice.hz').read_text()) > 1
 with tempfile.TemporaryDirectory() as directory:
     root = Path(directory)
     result = friendbot(directory, 'new_wallet ALICE alice', [], 999)
