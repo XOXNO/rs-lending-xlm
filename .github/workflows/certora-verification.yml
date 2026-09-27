@@ -167,6 +167,8 @@ jobs:
       - name: Record the verdict in the job summary
         if: always()
         working-directory: ${{ matrix.conf_dir }}
+        env:
+          RULE: ${{ matrix.rule }}
         run: |
           # One row per job. With --wait_for_results ALL the log carries a real
           # verdict. A row that still says "none" means the CLI did not wait:
@@ -186,12 +188,21 @@ jobs:
             verdict="$(grep -v 'rule_not_vacuous_tac' prover.log 2>/dev/null | grep -Eo '(Verified|Violated|Timeout|Error)[^ ]*' | tail -1)"
           fi
           url="$(grep -Eo 'https://[^ ]*prover.certora.com[^ ]*' prover.log 2>/dev/null | tail -1)"
+          if [ -z "$verdict" ] && [ -n "$RULE" ] && [[ "$url" =~ ^https://prover\.certora\.com/output/[0-9]+/[0-9a-f]+\?anonymousKey=[0-9a-f]+$ ]]; then
+            verdict="$(curl -fsS --retry 3 -m 30 "$(printf '%s' "$url" | sed 's#?anonymousKey=#/output.json?anonymousKey=#')" | jq -r --arg r "$RULE" '.rules[$r] | if type == "string" then . else tojson end' 2>/dev/null)" || verdict=""
+            [ "$verdict" != null ] || verdict=""
+            if [ -n "$verdict" ] && [ "$verdict" != SUCCESS ]; then
+              echo "::error::prover output.json reports $verdict for ${{ matrix.conf }} ($RULE)"
+              failed=1
+            fi
+          fi
           {
             echo "| conf | rule | outcome | verdict | report |"
             echo "|---|---|---|---|---|"
             echo "| ${{ matrix.conf }} | ${{ matrix.rule || 'all' }} | ${{ steps.prove.outcome }} | ${verdict:-none} | ${url:-none} |"
           } >> "$GITHUB_STEP_SUMMARY"
           if [ -z "$verdict" ]; then
-            echo "::error::no prover verdict found in prover.log for ${{ matrix.conf }} (${{ matrix.rule || 'all' }}); the job is unproved, not passing"
+            echo "::error::no prover verdict found in prover.log or output.json for ${{ matrix.conf }} (${{ matrix.rule || 'all' }}); the job is unproved, not passing"
             exit 1
           fi
+          [ -z "${failed:-}" ] || exit 1
