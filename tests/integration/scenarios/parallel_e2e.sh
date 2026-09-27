@@ -20,7 +20,7 @@ E2E_LANE_STAGGER="${E2E_LANE_STAGGER:-60}"
 RELEASE_LANES='agg-core agg-admin agg-gov liq-a liq-b liq-c stress flash-a flash-b blend prod-full prod-caller sdk'
 read -r -a RELEASE <<<"$RELEASE_LANES"
 read -r -a LANES <<<"${E2E_LANES-$RELEASE_LANES}"
-CRITICAL_LANES='production stress'
+CRITICAL_LANES='prod-full prod-caller stress'
 
 # The scenarios carry their own wallet sets, wasm preflights, and green gate, so
 # the orchestrator only maps lane -> script and applies the same outer gate.
@@ -106,9 +106,11 @@ stop_children() {
     [ -z "$stagger_pid" ] || kill "$stagger_pid" 2>/dev/null || true
     # GNU timeout owns a process group; kill that group, including CLI/RPC children.
     for pid in "${pids[@]}"; do [ -z "$pid" ] || kill -TERM -- "-$pid" 2>/dev/null || true; done
+    for pid in ${gate_pids[@]+"${gate_pids[@]}"}; do [ -z "$pid" ] || { kill -STOP "$pid"; pkill -TERM -P "$pid"; kill -TERM "$pid"; kill -CONT "$pid"; } 2>/dev/null || true; done
     sleep 2
     for pid in "${pids[@]}"; do [ -z "$pid" ] || kill -KILL -- "-$pid" 2>/dev/null || true; done
-    for pid in "${pids[@]}"; do [ -z "$pid" ] || wait "$pid" 2>/dev/null || true; done
+    for pid in ${gate_pids[@]+"${gate_pids[@]}"}; do [ -z "$pid" ] || { kill -STOP "$pid"; pkill -KILL -P "$pid"; kill -KILL "$pid"; } 2>/dev/null || true; done
+    for pid in "${pids[@]}" ${gate_pids[@]+"${gate_pids[@]}"}; do [ -z "$pid" ] || wait "$pid" 2>/dev/null || true; done
     for lane in "${LANES[@]}"; do
         [ ! -f "$INTEG_DIR/runs/$BASE-$lane/metadata.json" ] || python3 "$INTEG_DIR/gate.py" mark-incomplete "$INTEG_DIR/runs/$BASE-$lane" cancelled
     done

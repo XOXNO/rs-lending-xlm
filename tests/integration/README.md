@@ -68,7 +68,7 @@ so every run of one user on one host shares them. A read that gets HTTP 429
 backs off with jitter for the `retry_after` the gateway sends (at most 120 s),
 or 8, 16, 32 and then 60 s, at most `THROTTLE_RETRIES` (default 6, 0 to 20)
 times. A signed send that gets 429 stays `UNKNOWN` and fails.
-`parallel_e2e.sh` starts `production` and `stress` first and the other lanes
+`parallel_e2e.sh` starts `prod-full`, `prod-caller` and `stress` first and the other lanes
 `E2E_LANE_STAGGER` seconds later (default 60).
 
 Do not edit scripts during a live run: Bash may read their remaining contents

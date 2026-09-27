@@ -142,25 +142,25 @@ print('Lanes outside the release set exit 2 before any upload')
 with tempfile.TemporaryDirectory() as directory:
     base=Path(directory)
     scripts,env,wasms=orchestrator(base,LANE_TIMEOUT='30s',E2E_LANE_STAGGER='2')
-    env['E2E_LANES']='agg-core production sdk stress'
+    env['E2E_LANES']='agg-core prod-full sdk stress prod-caller'
     stub='#!/bin/bash\necho "lane $RUN_TS $(python3 -c "import time; print(time.time())")" >> "$STELLAR_CALLS"\necho "run complete"\n'
     for name in ['full_e2e.sh','production.sh','sdk.sh']:(scripts/name).write_text(stub)
     (scripts/'assert_green.sh').write_text('#!/bin/bash\necho "GREEN $RUN_TS"\n')
     done=subprocess.run(['bash',str(scripts/'parallel_e2e.sh')],env=env,capture_output=True,text=True,timeout=60)
     assert done.returncode==0,done.stderr
     started={line.split()[1][len('fixture-'):]:float(line.split()[2]) for line in (base/'calls').read_text().splitlines() if line.startswith('lane ')}
-    assert sorted(started)==['agg-core','production','sdk','stress'],started
-    assert max(started['production'],started['stress'])+1.5<=min(started['agg-core'],started['sdk']),started
+    assert sorted(started)==['agg-core','prod-caller','prod-full','sdk','stress'],started
+    assert max(started['prod-full'],started['prod-caller'],started['stress'])+1.5<=min(started['agg-core'],started['sdk']),started
     launched=[line.split("'")[1] for line in done.stderr.splitlines() if 'launching lane' in line]
-    assert launched==['production','stress','agg-core','sdk'],launched
+    assert launched==['prod-full','stress','prod-caller','agg-core','sdk'],launched
     gated=[line.split()[1][len('fixture-'):] for line in done.stdout.splitlines() if line.startswith('GREEN ')]
-    assert gated==['agg-core','production','sdk','stress'],gated
+    assert gated==['agg-core','prod-full','sdk','stress','prod-caller'],gated
 print('Critical lanes start first; the rest start after E2E_LANE_STAGGER; gating keeps lane order')
 
 with tempfile.TemporaryDirectory() as directory:
     base=Path(directory)
     scripts,env,wasms=orchestrator(base,LANE_TIMEOUT='30s',E2E_LANE_STAGGER='1')
-    env['E2E_LANES']='agg-core production'
+    env['E2E_LANES']='agg-core prod-full'
     lane='''#!/bin/bash
 run="$INTEG_DIR/runs/$RUN_TS"
 mkdir -p "$run"
@@ -172,8 +172,8 @@ printf 'id\\tstatus\\tfirst_action\\tlast_action\\n' > "$run/cases.tsv"
     (scripts/'assert_green.sh').write_text('#!/bin/bash\necho "GREEN $RUN_TS"\n')
     done=subprocess.run(['bash',str(scripts/'parallel_e2e.sh')],env=env,capture_output=True,text=True,timeout=60)
     assert done.returncode!=0,done.stderr
-    assert "lane 'production' FAILED — process did not exit cleanly (1)" in done.stderr and "lane 'agg-core' GREEN" in done.stderr,done.stderr
-    assert 'incomplete' in (base/'runs/fixture-production/cases.tsv').read_text()
+    assert "lane 'prod-full' FAILED — process did not exit cleanly (1)" in done.stderr and "lane 'agg-core' GREEN" in done.stderr,done.stderr
+    assert 'incomplete' in (base/'runs/fixture-prod-full/cases.tsv').read_text()
     assert 'incomplete' not in (base/'runs/fixture-agg-core/cases.tsv').read_text()
 print('After the critical-first reorder, each lane keeps its own exit code and incomplete mark')
 
@@ -220,3 +220,23 @@ for bad in ['-1','x','12345']:
         done=subprocess.run(['bash',str(scripts/'parallel_e2e.sh')],env=env,capture_output=True,text=True,timeout=30)
         assert done.returncode==2 and 'invalid E2E_LANE_STAGGER' in done.stderr and not (base/'calls').exists(),done.stderr
 print('An invalid E2E_LANE_STAGGER exits 2 before any upload')
+
+with tempfile.TemporaryDirectory() as directory:
+    base=Path(directory)
+    scripts,env,wasms=orchestrator(base,LANE_TIMEOUT='30s')
+    (scripts/'full_e2e.sh').write_text('#!/bin/bash\nmkdir -p "$INTEG_DIR/runs/$RUN_TS"; echo "{}" > "$INTEG_DIR/runs/$RUN_TS/metadata.json"; echo "run complete"\n')
+    (scripts/'assert_green.sh').write_text('#!/bin/bash\necho started > "$INTEG_DIR/runs/$RUN_TS.gate-started"\nsleep 6\necho passed > "$INTEG_DIR/runs/$RUN_TS.gate-passed"\n')
+    process=subprocess.Popen(['bash',str(scripts/'parallel_e2e.sh')],env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+    lane=env['E2E_LANES'].split()[0]
+    started=base/f'runs/fixture-{lane}.gate-started'
+    for _ in range(1000):
+        if started.exists(): break
+        if process.poll() is not None: raise AssertionError(process.communicate())
+        time.sleep(.02)
+    assert started.exists()
+    process.send_signal(signal.SIGTERM)
+    process.communicate(timeout=30)
+    assert process.returncode!=0
+    time.sleep(7)
+    assert not (base/f'runs/fixture-{lane}.gate-passed').exists(), 'a gate survived cancellation'
+print('Cancellation during gating stops the gate processes before marking the run incomplete')

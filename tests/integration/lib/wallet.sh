@@ -8,7 +8,7 @@ wallet_funded() {
 }
 
 friendbot_fund() {
-    local alias="$1" addr code slot rc=1 attempt=0 deadline base="$LOG_DIR/friendbot_$1"
+    local alias="$1" addr code slot rc=1 attempt=0 deadline accepted='' base="$LOG_DIR/friendbot_$1"
     stellar keys address "$alias" >/dev/null 2>&1 \
         || stellar keys generate "$alias" "${NET_ARGS[@]}" >/dev/null 2>&1 || return 1
     addr=$(stellar keys address "$alias") || return 1
@@ -18,11 +18,14 @@ friendbot_fund() {
     deadline=$(( $(date +%s) + 90 ))
     while :; do
         attempt=$((attempt + 1))
-        code=$(curl -sS -m 30 -o "$base.json" -w '%{http_code}' "https://friendbot.stellar.org/?addr=$addr" 2>>"$base.err") || :
-        code="${code:-000}"
-        printf '%s\n' "$code" >> "$base.codes"
+        if [ -z "$accepted" ]; then
+            code=$(curl -sS -m 30 -o "$base.json" -w '%{http_code}' "https://friendbot.stellar.org/?addr=$addr" 2>>"$base.err") || :
+            code="${code:-000}"
+            printf '%s\n' "$code" >> "$base.codes"
+            case "$code" in 200|400) accepted=1;; esac
+        fi
         if E2E_RPC_DEADLINE="$deadline" wallet_funded "$addr" "$base.balance.json"; then rc=0; break; fi
-        case "$code" in 429|5[0-9][0-9]|000) ;; *) break;; esac
+        case "$code" in 200|400|429|5[0-9][0-9]|000) ;; *) break;; esac
         [ "$(date +%s)" -lt "$deadline" ] || break
         backoff_sleep "$((attempt + 1))"
     done
