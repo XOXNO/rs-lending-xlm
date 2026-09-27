@@ -1,0 +1,36 @@
+{
+  "kind": "controller",
+  "op_id": "070dbbd1822c512a705145f6a83f2a52216ec2f428e5f75f14908ca84e59a6ba",
+  "network": "testnet",
+  "target": "CCXRWJ6SIU2WPFEGLFGJVITPL57QAYIMIO6OAM2NBGNDQSSCK2FFV3F3",
+  "function": "remove_asset_from_spoke",
+  "args": [
+    {
+      "map": [
+        {
+          "key": {
+            "symbol": "asset"
+          },
+          "val": {
+            "address": "CCUUDM434BMZMYWYDITHFXHDMIVTGGD6T2I5UKNX5BSLXLW7HVR4MCGZ"
+          }
+        },
+        {
+          "key": {
+            "symbol": "hub_id"
+          },
+          "val": {
+            "u32": 4
+          }
+        }
+      ]
+    },
+    {
+      "u32": 7
+    }
+  ],
+  "predecessor": "0000000000000000000000000000000000000000000000000000000000000000",
+  "salt": "fa54c8346be0ec415a50020be7565a1647b043132a5061112d2eea7405d09b56",
+  "cli_executable": true,
+  "executed": true
+}

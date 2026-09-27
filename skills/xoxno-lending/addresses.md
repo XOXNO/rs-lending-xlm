@@ -164,9 +164,9 @@ Live listing parameters: `get_spoke_asset(spoke_id, hub_asset)`.
 | 2 | XLM & USDC | 2 | XLM@hub1, USDC@hub1 |
 | 3 | All Assets (Multi-Hub) | 3 | BTC@hub1, XLM@hub1, EURC@hub1, XLMUSDC_LP@hub3, USDC@hub1, USDC_HUB2@hub2 |
 | 4 | LP Tokens | 4 | XLMUSDC_LP@hub3 |
-| 5 | Liqvid Deal #1039 | 5 | LIQVID1039@hub4, USDC_LIQVID@hub4, EURC_LIQVID@hub4 |
-| 6 | Liqvid USDC Lenders | 6 | USDC_LIQVID@hub4, EURC_LIQVID@hub4 |
-| 7 | Liqvid Deal #1037 | 7 | LIQVID1037@hub4, USDC_LIQVID@hub4, EURC_LIQVID@hub4 |
+| 5 | Liqvid Deal #1039 | 5 | LIQVID1039@hub4, USDC_LIQVID@hub4 |
+| 6 | Liqvid USDC Lenders | 6 | USDC_LIQVID@hub4 |
+| 7 | Liqvid Deal #1037 | 7 | LIQVID1037@hub4, USDC_LIQVID@hub4 |
 
 ### Blend pools approved for `migrate_from_blend`
 
