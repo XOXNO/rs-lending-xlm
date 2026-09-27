@@ -192,10 +192,6 @@ pub async fn scrape_once(
         .protocol_spokes
         .with_label_values(&[net])
         .set(cfg.spokes.len() as f64);
-    metrics
-        .build_info
-        .with_label_values(&[net, env!("CARGO_PKG_VERSION")])
-        .set(1.0);
 
     info!(
         target: "exporter.collector",
@@ -1167,7 +1163,7 @@ fn bucket_error_code(msg: &str) -> String {
     "unknown".to_string()
 }
 
-fn wall_clock_secs() -> i64 {
+pub fn wall_clock_secs() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)

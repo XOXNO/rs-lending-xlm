@@ -207,7 +207,7 @@ impl Metrics {
             ledger_sequence: register_gauge_vec(&registry, "lending_ledger_sequence", "Latest ledger sequence", &["network"])?,
             ledger_skew_seconds: register_gauge_vec(&registry, "lending_exporter_ledger_skew_seconds", "Ledger close time minus exporter wall clock (s)", &["network"])?,
             scrape_duration_seconds: register_gauge_vec(&registry, "lending_exporter_scrape_duration_seconds", "Duration of the last scrape cycle (s)", &["network"])?,
-            last_success_timestamp: register_gauge_vec(&registry, "lending_exporter_last_success_timestamp", "Unix seconds of the last completed scrape", &["network"])?,
+            last_success_timestamp: register_gauge_vec(&registry, "lending_exporter_last_success_timestamp", "Unix seconds of the last completed scrape; the process start time until the first one completes", &["network"])?,
             build_info: register_gauge_vec(&registry, "lending_exporter_build_info", "Build info; value is always 1", &["network", "version"])?,
             rpc_errors: register_counter_vec(&registry, "lending_exporter_rpc_errors_total", "RPC transport errors by op", &["network", "op"])?,
             view_failures: register_counter_vec(&registry, "lending_exporter_view_failures_total", "Contract view failures by view/asset/code", &["network", "view", "asset", "code"])?,
@@ -241,6 +241,18 @@ impl Metrics {
         ] {
             let _ = gauge.remove_label_values(labels);
         }
+    }
+
+    /// Publishes the build series and seeds the last-success time with the
+    /// process start.
+    pub fn publish_startup(&self, network: &str, started_at: i64) -> Result<()> {
+        self.build_info
+            .with_label_values(&[network, env!("CARGO_PKG_VERSION")])
+            .set(1.0);
+        self.last_success_timestamp
+            .with_label_values(&[network])
+            .set(started_at as f64);
+        self.publish_snapshot()
     }
 
     /// Replaces the HTTP body only after a scrape has finished mutating gauges.
@@ -325,6 +337,20 @@ mod tests {
 
         assert!(published.contains(" 1\n"));
         assert_eq!(metrics.rendered_snapshot(), published);
+    }
+
+    #[test]
+    fn startup_publishes_build_info_and_seeds_last_success() {
+        let metrics = Metrics::new().unwrap();
+        metrics.publish_startup("mainnet", 1_790_000_000).unwrap();
+        let rendered = metrics.rendered_snapshot();
+
+        assert!(rendered.contains(&format!(
+            "lending_exporter_build_info{{network=\"mainnet\",version=\"{}\"}} 1\n",
+            env!("CARGO_PKG_VERSION")
+        )));
+        assert!(rendered
+            .contains("lending_exporter_last_success_timestamp{network=\"mainnet\"} 1790000000\n"));
     }
 
     #[test]

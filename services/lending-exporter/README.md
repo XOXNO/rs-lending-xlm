@@ -117,14 +117,17 @@ skips are the `SPIKO*` markets, which are disabled and not deployed.
 ### Environment variables
 
 `--config` is the only command-line flag. `EXPORTER_CONFIG` sets the same path
-when the flag is absent. The RPC and address variables replace YAML values
-before validation. An empty `EXPORTER_RPC_URL` or `EXPORTER_CONTROLLER` is
-ignored, so the committed value wins. An empty `EXPORTER_PRICE_AGGREGATOR` or
-`EXPORTER_XOXNO_ORACLE_ADAPTER` clears that address.
+when the flag is absent. One of the two is required: the binary and the image
+have no default, so a container without it exits and `LendingExporterDown`
+fires instead of another network's data being reported. The RPC and address
+variables replace YAML values before validation. An empty `EXPORTER_RPC_URL` or
+`EXPORTER_CONTROLLER` is ignored, so the committed value wins. An empty
+`EXPORTER_PRICE_AGGREGATOR` or `EXPORTER_XOXNO_ORACLE_ADAPTER` clears that
+address.
 
 | Variable | Overrides |
 |---|---|
-| `EXPORTER_CONFIG` | the config file path (binary default `/etc/lending-exporter/testnet.yaml`; the image sets `/etc/lending-exporter/mainnet.yaml`) |
+| `EXPORTER_CONFIG` | the config file path (required; the image ships `/etc/lending-exporter/testnet.yaml` and `/etc/lending-exporter/mainnet.yaml`) |
 | `EXPORTER_RPC_URL` | the RPC URL |
 | `EXPORTER_CONTROLLER` | the controller address |
 | `EXPORTER_PRICE_AGGREGATOR` | the price-aggregator address |
