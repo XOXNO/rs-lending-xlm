@@ -188,8 +188,8 @@
         "ltv": 9701,
         "liquidation_threshold": 9800,
         "liquidation_bonus": 200,
-        "supply_cap": "100000000000",
-        "borrow_cap": "100000000000",
+        "supply_cap": "1000000000000",
+        "borrow_cap": "1000000000000",
         "liquidation_fees": 100
       },
       "EURC_LIQVID": {
@@ -215,7 +215,7 @@
         "ltv": 9701,
         "liquidation_threshold": 9800,
         "liquidation_bonus": 200,
-        "supply_cap": "100000000000",
+        "supply_cap": "1000000000000",
         "borrow_cap": "0",
         "liquidation_fees": 100
       },
@@ -258,8 +258,8 @@
         "ltv": 9701,
         "liquidation_threshold": 9800,
         "liquidation_bonus": 200,
-        "supply_cap": "100000000000",
-        "borrow_cap": "100000000000",
+        "supply_cap": "1000000000000",
+        "borrow_cap": "1000000000000",
         "liquidation_fees": 100
       },
       "EURC_LIQVID": {
