@@ -1,6 +1,6 @@
 {
   "max_submission_age_seconds": 900,
-  "max_stale_seconds": 86400,
+  "max_stale_seconds": 93600,
   "max_relative_skew_seconds": 900,
   "feeds": [
     {
