@@ -48,6 +48,11 @@ gov_scval_args() {
 
 flow_governance() {
     phase governance
+    local grant_op op_grant
+    grant_op='{"GrantGovRole":{"account":"'"$DAVE_ADDR"'","role":"GUARDIAN"}}'
+    op_grant=$(inv gov_propose_grant_guardian "$ADMIN" "$GOVERNANCE" -- propose \
+        --proposer "$ADMIN_ADDR" --op "$grant_op" \
+        --salt "$GOV_SALT_GRANT_GUARDIAN" | tr -d '"[:space:]')
 
     inv gov_create_hub "$ADMIN" "$GOVERNANCE" -- create_hub --caller "$ADMIN_ADDR" >/dev/null || return 1
     inv gov_add_spoke "$ADMIN" "$GOVERNANCE" -- add_spoke --caller "$ADMIN_ADDR" >/dev/null || return 1
@@ -169,7 +174,7 @@ xfail gov_execute_immediate_absent 'execute_immediate|unknown|not found|No such'
 xfail gov_set_controller_absent 'set_controller|unknown|not found|No such' \
 "$ADMIN" "$GOVERNANCE" -- set_controller --addr "$CONTROLLER"
 
-    flow_gov_recovery_and_roles
+    flow_gov_recovery_and_roles "$grant_op" "$op_grant"
 
     inv gov_pause "$ADMIN" "$GOVERNANCE" -- pause --caller "$ADMIN_ADDR" >/dev/null
     # governance `pause` is a guardian action that pauses the controller, not
@@ -185,6 +190,7 @@ xfail gov_set_controller_absent 'set_controller|unknown|not found|No such' \
 # ADMIN holds every default operational role from the constructor, so it is both
 # owner and ORACLE/GUARDIAN here.
 flow_gov_recovery_and_roles() {
+    local grant_op="$1" op_grant="$2" grant_st
     # `set_sanity_band` forwards to `price_aggregator_client`, so governance
     # needs its own aggregator first. This step also covers
     # `deploy_price_aggregator` and `price_aggregator`.
@@ -204,7 +210,7 @@ flow_gov_recovery_and_roles() {
         xfail gov_deploy_price_agg_twice 'Error\(Contract, #5\)' "$ADMIN" "$GOVERNANCE" -- deploy_price_aggregator \
             --wasm_hash "$PA_HASH"
 
-        # XLM_SAC, not SAC_LIQA: the LIQ* assets exist only in the `liq` lane,
+        # XLM_SAC, not SAC_LIQA: the LIQ* assets exist only in the `liq-*` lanes,
         # and an empty --key fails before the call reaches the contract.
         local band_key band_min band_max
         band_key=$(price_key_token "$XLM_SAC")
@@ -238,11 +244,6 @@ flow_gov_recovery_and_roles() {
 
     # The happy path therefore needs a non-owner holder: grant GUARDIAN to DAVE
     # through the timelock, then revoke it.
-    local op_grant grant_st grant_op
-    grant_op='{"GrantGovRole":{"account":"'"$DAVE_ADDR"'","role":"GUARDIAN"}}'
-    op_grant=$(inv gov_propose_grant_guardian "$ADMIN" "$GOVERNANCE" -- propose \
-        --proposer "$ADMIN_ADDR" --op "$grant_op" \
-        --salt "$GOV_SALT_GRANT_GUARDIAN" | tr -d '"[:space:]')
     grant_st=$(gov_await_ready "$op_grant")
     if [ "$grant_st" = "Ready" ] || [ "$grant_st" = "Done" ]; then
         inv gov_execute_grant_guardian "$ADMIN" "$GOVERNANCE" -- execute_self \

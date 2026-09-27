@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bind the full seven-lane proof to the exact release files."""
+"""Bind the full release-lane proof to the exact release files."""
 import json
 import sys
 from concurrent.futures import ThreadPoolExecutor
@@ -11,7 +11,8 @@ from artifacts import check, distribution
 from gate import validate
 from controlled import verify as verify_controlled
 
-LANES = {'agg', 'liq', 'stress', 'flash', 'blend', 'production', 'sdk'}
+LANES = {'agg-core', 'agg-admin', 'agg-gov', 'liq-a', 'liq-b', 'liq-c', 'stress', 'flash-a', 'flash-b',
+         'blend', 'production', 'sdk'}
 
 
 def collect(runs, base, directory=None):

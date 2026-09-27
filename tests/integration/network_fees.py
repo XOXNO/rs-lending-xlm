@@ -1,5 +1,6 @@
 """Normalize native-XLM balance deltas by actual committed network fees."""
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -21,7 +22,9 @@ def spent(logs, address):
                    else envelope['tx']['tx']['source_account'])
             charge=dict(payer=payer,fee=int(result['fee_charged']))
             if charge['fee']<0: raise ValueError('negative committed fee')
-            cache.write_text(json.dumps(charge)+'\n')
+            temporary=cache.with_name(f'{cache.name}.{os.getpid()}.tmp')
+            temporary.write_text(json.dumps(charge)+'\n')
+            os.replace(temporary,cache)
         if charge['payer']==address: total+=charge['fee']
     return total
 

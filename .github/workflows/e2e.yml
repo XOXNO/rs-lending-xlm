@@ -15,10 +15,15 @@ on:
         type: choice
         options:
           - all
-          - agg
-          - liq
+          - agg-core
+          - agg-admin
+          - agg-gov
+          - liq-a
+          - liq-b
+          - liq-c
           - stress
-          - flash
+          - flash-a
+          - flash-b
           - blend
           - production
           - sdk
@@ -144,7 +149,7 @@ jobs:
       - name: Run testnet e2e
         env:
           RUN_TS: e2e-${{ github.run_id }}-${{ github.run_attempt }}
-          E2E_LANES: ${{ inputs.lanes == 'all' && 'agg liq stress flash blend production sdk' || inputs.lanes }}
+          E2E_LANES: ${{ inputs.lanes == 'all' && 'agg-core agg-admin agg-gov liq-a liq-b liq-c stress flash-a flash-b blend production sdk' || inputs.lanes }}
           LANE_TIMEOUT: ${{ inputs.lane_timeout }}
         run: bash tests/integration/scenarios/parallel_e2e.sh
 

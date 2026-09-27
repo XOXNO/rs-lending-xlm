@@ -35,12 +35,12 @@ def check_gate():
     original_verify = gate.verify_receipt
     gate.verify_receipt = lambda *args: resources
     manifest = json.loads((HERE / 'cases.json').read_text())
-    definitions = [c for c in manifest if 'agg' in c['lanes']]
+    definitions = [c for c in manifest if 'agg-core' in c['lanes']]
     required = [c['id'] for c in definitions]
     with tempfile.TemporaryDirectory() as directory:
         run = Path(directory)
         (run / 'logs').mkdir()
-        (run / 'metadata.json').write_text(json.dumps(dict(lane='agg', selected_cases=required, source_sha='a'*40, configuration_sha256='b'*64, case_manifest_sha256=gate.digest(HERE/'cases.json'),sdk_lock_sha256=gate.digest(HERE/'sdk/package-lock.json'), instruction_leeway=20000000,network='testnet',network_passphrase='Test SDF Network ; September 2015',rpc_url='https://example.invalid',cli_version='stellar 28.0.0',sdk_version='1.0.221',stellar_sdk_version='16.3.0')))
+        (run / 'metadata.json').write_text(json.dumps(dict(lane='agg-core', selected_cases=required, source_sha='a'*40, configuration_sha256='b'*64, case_manifest_sha256=gate.digest(HERE/'cases.json'),sdk_lock_sha256=gate.digest(HERE/'sdk/package-lock.json'), instruction_leeway=20000000,network='testnet',network_passphrase='Test SDF Network ; September 2015',rpc_url='https://example.invalid',cli_version='stellar 28.0.0',sdk_version='1.0.221',stellar_sdk_version='16.3.0')))
         (run / 'candidate.json').write_text(json.dumps({'source_sha': 'a'*40, 'artifacts': {f'{c}.wasm': 'a'*64 for c in gate.CONTRACTS}}))
         limits = dict(txMaxInstructions=400000000, txMaxDiskReadBytes=200000,
                       txMaxWriteBytes=132096, txMaxDiskReadEntries=200, txMaxWriteLedgerEntries=200,
@@ -61,28 +61,32 @@ def check_gate():
                     proofs.append([str(seq),kind,addresses[demand.get('contract','controller')]])
                     if hash_:
                         receipt = dict(status='SUCCESS',txHash=hash_,ledger=1,envelopeXdr='AA==',resultMetaXdr='AA==',resultXdr='AA==',events={'contractEventsXdr':[]})
-                        resources = dict(resources=dict(instructions=1000000,disk_read_bytes=0,write_bytes=0,footprint={'read_only':[],'read_write':[]}))
+                        resources = dict(resource_fee='1',resources=dict(instructions=1000000,disk_read_bytes=0,write_bytes=0,footprint={'read_only':[],'read_write':[]}))
                         (run/'logs'/f'{hash_}.receipt.json').write_text(json.dumps({'result':receipt}))
                         (run/'logs'/f'{hash_}.resources.json').write_text(json.dumps(resources))
             cases.append([case['id'],'pass',first,len(actions)])
         def write(name, fields, records):
             with (run/name).open('w') as f:
                 w=csv.writer(f,delimiter='\t',lineterminator='\n'); w.writerow(fields); w.writerows(records)
+        attempts=[dict(id=n,action_seq=n,hash=r[5] or None,receipt=f'logs/{r[5]}.receipt.json' if r[5] else None) for n,r in enumerate(actions,1)]
+        def write_attempts(items):
+            (run/'attempts.jsonl').write_text(''.join(json.dumps(a)+'\n' for a in items))
         def baseline():
             write('actions.tsv',gate.ACTION_FIELDS,actions)
             write('cases.tsv',['id','status','first_action','last_action'],cases)
             write('evidence.tsv',['seq','execution','contract'],proofs)
+            write_attempts(attempts)
         def rejected():
             try: gate.validate(run)
             except (ValueError,OSError,KeyError,AssertionError): return
             raise AssertionError('false green')
         baseline()
-        assert gate.validate(run, expected_lane='agg') == len(required)
+        assert gate.validate(run, expected_lane='agg-core') == len(required)
         wrong=[r.copy() for r in proofs]
         for row in wrong: row[2]='C'+'Z'*55
         write('evidence.tsv',['seq','execution','contract'],wrong); rejected(); baseline()
         meta=run/'metadata.json'; saved_meta=meta.read_text()
-        meta.write_text(json.dumps({'lane':'agg','selected_cases':required,'source_sha':'a'*40})); rejected(); meta.write_text(saved_meta)
+        meta.write_text(json.dumps({'lane':'agg-core','selected_cases':required,'source_sha':'a'*40})); rejected(); meta.write_text(saved_meta)
         for leeway in [1000000, 2000000, 0, '20000000', 20000000.0]:
             wrong_policy=json.loads(saved_meta); wrong_policy['instruction_leeway']=leeway
             meta.write_text(json.dumps(wrong_policy)); rejected(); meta.write_text(saved_meta)
@@ -136,7 +140,7 @@ def check_gate():
         calls=[]
         gate.footprint_drift=lambda *a: calls.append(a)
         failed_hash, follow=with_retry()
-        assert gate.validate(run, expected_lane='agg') == len(required)
+        assert gate.validate(run, expected_lane='agg-core') == len(required)
         assert len(calls)==1 and calls[0][1]==failed_hash and calls[0][3:5]==(proofs[index][2],follow[4]) and calls[0][6]==follow[5]
         def refuse(*a): raise ValueError('retry footprint equals the failed footprint')
         gate.footprint_drift=refuse; rejected()
@@ -144,10 +148,143 @@ def check_gate():
         with_retry(relabel=True); rejected()
         gate.footprint_drift=original_drift
         baseline()
+        filled=[r.copy() for r in actions]; filled[index][6:10]=['1000000','0','0','1']
+        write('actions.tsv',gate.ACTION_FIELDS,filled)
+        assert gate.validate(run, expected_lane='agg-core') == len(required)
+        for column in range(6,10):
+            wrong=[r.copy() for r in filled]; wrong[index][column]='7'
+            write('actions.tsv',gate.ACTION_FIELDS,wrong); rejected()
+        baseline()
+        committed='e'*64
+        (run/'logs'/f'{committed}.receipt.json').write_text(json.dumps({'result':{'status':'SUCCESS'}}))
+        def attempts_with(change):
+            items=[dict(a) for a in attempts]; change(items); write_attempts(items)
+        for change in [lambda x: x.pop(1), lambda x: x[0].update(id=None), lambda x: x[0].update(id=True),
+                       lambda x: x[0].update(action_seq=0), lambda x: x[0].update(action_seq=3),
+                       lambda x: x[-1].update(action_seq=len(actions)+1), lambda x: x[-1].update(hash=committed),
+                       lambda x: x[index].update(action_seq=index+2)]:
+            attempts_with(change); rejected()
+        (run/'attempts.jsonl').unlink(); rejected()
+        assert index > 0
+        for seq in (index, index+1):
+            attempts_with(lambda x: x[index].update(action_seq=seq))
+            assert gate.validate(run, expected_lane='agg-core') == len(required)
+        (run/'logs'/f'{committed}.receipt.json').unlink()
+        attempts_with(lambda x: x[-1].update(hash=committed))
+        assert gate.validate(run, expected_lane='agg-core') == len(required)
+        baseline()
+        trust = {'change_trust': {'line': {'credit_alphanum4': {'asset_code': 'USDC', 'issuer': ISSUER}}, 'limit': '9223372036854775807'}}
+        pay = {'payment': {'destination': SIGNER, 'asset': {'credit_alphanum4': {'asset_code': 'USDC', 'issuer': ISSUER}}, 'amount': '1'}}
+        def classic(note, bodies, sources=(None, None, None), fn='change_trust'):
+            envelope = {'tx': {'tx': {'source_account': SIGNER, 'fee': 3000, 'seq_num': '1', 'cond': 'none', 'memo': 'none', 'ext': 'v0',
+                'operations': [{'source_account': s, 'body': b} for b, s in zip(bodies, sources)]}, 'signatures': []}}
+            classic_hash = 'c'*64
+            (run/'logs'/f'{classic_hash}.receipt.json').write_text(json.dumps({'result': dict(status='SUCCESS', txHash=classic_hash, ledger=1,
+                envelopeXdr=subprocess.check_output(['stellar', 'tx', 'encode'], input=json.dumps(envelope), text=True).strip(),
+                resultMetaXdr='AA==', resultXdr='AA==')}))
+            seq = str(len(actions)+1)
+            write('actions.tsv', gate.ACTION_FIELDS, actions+[[seq, 'test', 'trust_batch', 'ok', fn, classic_hash, '', '', '', '', note]])
+            write('evidence.tsv', ['seq', 'execution', 'contract'], proofs+[[seq, 'classic_transaction', '']])
+        classic('3 ops', [trust]*3)
+        assert gate.validate(run, expected_lane='agg-core') == len(required)
+        for note, bodies, sources in [('2 ops', [trust]*3, (None,)*3), ('3 ops', [trust, pay, trust], (None,)*3),
+                                      ('3 ops', [trust]*3, (None, ISSUER, None))]:
+            classic(note, bodies, sources); rejected()
+        classic('1 ops', [{'bump_sequence': {'bump_to': '1'}}], fn='bump_sequence'); rejected()
+        baseline()
     gate.verify_receipt = original_verify
 
 
+SIGNER = 'GB62OPRQMZDSTWCWFAUJQC2VXN7E53GB5JOHXCZ7UIROO7F4GP4WWWAW'
+ISSUER = 'GCAYNZ74L6MS2GGLNJ65MCTFRBCGFHFBZQFITYITZA2MIPK6WGPNBOSU'
 check_gate()
+CLASSIC = f'''
+unset E2E_CLASSIC_OP_FEE STELLAR_INCLUSION_FEE
+SIGNER_ADDR={SIGNER}; ISSUER={ISSUER}; NETWORK_PASSPHRASE='Test SDF Network ; September 2015'; HASH=$(printf '%064d' 7)
+printf '{{"tx":{{"tx":{{"source_account":"%s","fee":100,"seq_num":"4294967297","cond":"none","memo":"none","operations":[],"ext":"v0"}},"signatures":[]}}}}' \\
+    "$SIGNER_ADDR" | command stellar tx encode > "$LOG_DIR/empty.xdr" || exit 90
+adds=0
+stellar() {{
+    echo "$*" >> "$LOG_DIR/calls"
+    case "$1 $2" in
+        'keys address') echo "${{KEY_ADDR:-$SIGNER_ADDR}}";;
+        'tx new') shift 2; command stellar tx op add "$@" < "$LOG_DIR/empty.xdr";;
+        'tx op') adds=$((adds+1))
+            case "${{MODE:-}}:$adds" in
+                drop:1) cat;;
+                source:1) command stellar "$@" --op-source "$ISSUER";;
+                body:1) command stellar tx op add change-trust --line "XXXX:$ISSUER" --source-account x;;
+                *) command stellar "$@";;
+            esac;;
+        'tx encode') if [ "${{MODE:-}}" = fee ]; then cat >/dev/null; cat "$LOG_DIR/$LABEL.built.xdr"; else command stellar "$@"; fi;;
+        'tx decode') command stellar "$@";;
+        'tx sign') cat;;
+        'tx hash') cat >/dev/null; echo "$HASH";;
+        'tx send') grep -qx "Signing transaction: $HASH" "$LOG_DIR/$LABEL.err" || return 8
+            echo sent >> "$LOG_DIR/sends"; return "${{SEND_RC:-0}}";;
+        *) return 1;;
+    esac
+}}
+tx_status() {{ echo "${{STATUS:-SUCCESS}}"; }}
+sends() {{ [ "$(cat "$LOG_DIR/sends" 2>/dev/null | wc -l | tr -d ' ')" = "$1" ]; }}
+rows() {{ awk -F'\\t' -v l="$1" -v s="$2" -v f="$3" 'NR>1 && $3==l && $4==s && $5==f {{n++}} END {{print n+0}}' "$ACTIONS_TSV"; }}
+'''
+for fn, items in [('change_trust', [f'trust:USDC:{ISSUER}', f'trust:EURC:{ISSUER}', f'trust:LONGCODE12:{ISSUER}']),
+                  ('payment', [f'pay:{ISSUER}:ST0{n}:{ISSUER}:10000000000000' for n in range(3)])]:
+    shell(CLASSIC + f'''
+LABEL=batch
+classic_batch batch {fn} alice {' '.join(items)} || exit 1
+sends 1 || exit 2
+awk -F'\\t' -v h="$HASH" 'NR>1 && $3=="batch" && $4=="ok" && $5=="{fn}" && $6==h && $11=="3 ops" {{n++}} END {{exit n!=1}}' "$ACTIONS_TSV" || exit 3
+awk -F'\\t' 'END {{exit !($2=="classic_transaction" && $3=="")}}' "$RUN_DIR/evidence.tsv" || exit 4
+grep -q '^tx sign --sign-with-key alice ' "$LOG_DIR/calls" && grep -q '^tx new ' "$LOG_DIR/calls" || exit 5
+[ "$(command stellar tx decode < "$LOG_DIR/batch.signed.xdr" | jq .tx.tx.fee)" = 3000 ] || exit 6
+python3 - "$RUN_DIR/attempts.jsonl" "$HASH" <<'PY' || exit 7
+import json, sys
+from datetime import datetime
+rows = [json.loads(line) for line in open(sys.argv[1])]
+assert len(rows) == 1 and (rows[0]['label'], rows[0]['hash'], rows[0]['cli_exit'], rows[0]['action_seq']) == ('batch', sys.argv[2], 0, 1)
+assert datetime.fromisoformat(rows[0]['started_at']) <= datetime.fromisoformat(rows[0]['observed_at'])
+PY
+''')
+for env, fee in [('STELLAR_INCLUSION_FEE=1000000', 3000000), ('STELLAR_INCLUSION_FEE=1000000 E2E_CLASSIC_OP_FEE=500', 1500)]:
+    shell(CLASSIC + f'''
+LABEL=batch; export {env}
+classic_batch batch change_trust alice trust:USDC:$ISSUER trust:EURC:$ISSUER trust:AQUA:$ISSUER || exit 1
+sends 1 && [ "$(command stellar tx decode < "$LOG_DIR/batch.signed.xdr" | jq .tx.tx.fee)" = {fee} ] || exit 2
+''')
+for mode, env, sent in [('drop', '', 0), ('source', '', 0), ('body', '', 0), ('fee', '', 0), ('', f'KEY_ADDR={ISSUER}', 0),
+                        ('', 'STATUS=UNKNOWN', 1), ('', 'STATUS=FAILED', 1), ('', 'SEND_RC=1', 1)]:
+    shell(CLASSIC + f'''
+LABEL=batch; MODE={mode}; {env}
+! classic_batch batch change_trust alice trust:USDC:$ISSUER trust:EURC:$ISSUER trust:AQUA:$ISSUER || exit 1
+sends {sent} && [ "$(rows batch FAIL change_trust)" = 1 ] && [ "$(rows batch ok change_trust)" = 0 ] || exit 2
+''')
+shell(CLASSIC + '''
+LABEL=trust_USDC_alice
+trustline alice USDC "$ISSUER" || exit 1
+sends 1 && [ "$(rows trust_USDC_alice ok change_trust)" = 1 ] || exit 2
+awk -F'\\t' 'NR>1 && $3=="trust_USDC_alice" && $11=="1 ops"' "$ACTIONS_TSV" | grep -q . || exit 3
+''')
+shell(CLASSIC + '''
+items=(); for n in $(seq 41); do items+=("trust:A$n:$ISSUER"); done
+! classic_batch batch change_trust alice "${items[@]}" || exit 1
+! classic_batch empty change_trust alice || exit 2
+! classic_batch odd change_trust alice "burn:USDC:$ISSUER" || exit 3
+! STELLAR_INCLUSION_FEE=10000000 classic_batch bigfee change_trust alice "trust:USDC:$ISSUER" || exit 5
+! E2E_CLASSIC_OP_FEE=0 classic_batch zerofee change_trust alice "trust:USDC:$ISSUER" || exit 6
+[ ! -e "$LOG_DIR/calls" ] && [ "$(rows batch FAIL change_trust)" = 1 ] && [ "$(rows empty FAIL change_trust)" = 1 ] \\
+    && [ "$(rows odd FAIL change_trust)" = 1 ] && [ "$(rows bigfee FAIL change_trust)" = 1 ] \\
+    && [ "$(rows zerofee FAIL change_trust)" = 1 ] || exit 4
+''')
+shell(CLASSIC + '''
+LABEL=mixed
+! classic_batch mixed change_trust alice "trust:USDC:$ISSUER" "pay:$ISSUER:USDC:$ISSUER:1" || exit 1
+sends 0 && [ "$(rows mixed FAIL change_trust)" = 1 ] && grep -q 'does not match change_trust' "$LOG_DIR/mixed.build.err" || exit 2
+LABEL=mixed_pay
+! classic_batch mixed_pay payment admin "pay:$ISSUER:USDC:$ISSUER:1" "trust:USDC:$ISSUER" || exit 3
+sends 0 && [ "$(rows mixed_pay FAIL payment)" = 1 ] && grep -q 'does not match payment' "$LOG_DIR/mixed_pay.build.err" || exit 4
+''')
 # A signed timeout or budget failure never executes a second mutation.
 for error in ['timeout', 'Trapped', 'ResourceLimitExceeded']:
     shell('''
@@ -177,6 +314,7 @@ shell('n=0; leg() { n=$((n+1)); return 1; }; ! retry_leg leg; [ "$n" = 1 ]')
 # action with the same label succeeds. Earlier cases stay outside this range.
 for status in ['FAIL', 'UNEXPECTED-OK']:
     shell('''
+printf '{"selected_cases":["good","ignored"]}' > "$RUN_DIR/metadata.json"
 printf 'id\\tstatus\\tfirst_action\\tlast_action\\n' > "$RUN_DIR/cases.tsv"
 record previous FAIL assert
 good() { record good ok assert; }
@@ -186,6 +324,22 @@ if run_case ignored ignored_failure; then exit 1; fi
 awk -F'\\t' '$1=="good" && $2=="pass" {good=1} $1=="ignored" && $2=="fail" {bad=1} END {exit !(good && bad)}' "$RUN_DIR/cases.tsv"
 [ ! -e "$RUN_DIR/active-case" ]
 '''.replace('STATUS', status))
+shell('''
+printf '{"selected_cases":["a"]}' > "$RUN_DIR/metadata.json"
+printf 'id\\tstatus\\tfirst_action\\tlast_action\\n' > "$RUN_DIR/cases.tsv"
+record before ok assert
+cp "$RUN_DIR/cases.tsv" "$RUN_DIR/cases.before"; cp "$ACTIONS_TSV" "$RUN_DIR/actions.before"
+fn() { echo called >> "$RUN_DIR/calls"; record inside ok assert; }
+run_case b fn || exit 1
+[ ! -e "$RUN_DIR/calls" ] && cmp -s "$RUN_DIR/cases.tsv" "$RUN_DIR/cases.before" && cmp -s "$ACTIONS_TSV" "$RUN_DIR/actions.before" || exit 2
+run_case a fn || exit 3
+[ "$(cat "$RUN_DIR/calls")" = called ] || exit 4
+tail -1 "$RUN_DIR/cases.tsv" | awk -F'\\t' '{exit !($1=="a" && $2=="pass" && $3+0==2 && $4+0==2)}' || exit 5
+printf 'corrupt' > "$RUN_DIR/metadata.json"
+rc=0; run_case b fn || rc=$?
+[ "$rc" = 1 ] && [ "$(wc -l < "$RUN_DIR/calls" | tr -d ' ')" = 1 ] || exit 6
+awk -F'\\t' '$3=="b_selection" && $4=="FAIL" && $5=="case" && $11 ~ /case selection unreadable \\(jq exit [0-9]+\\)/ {found=1} END {exit !found}' "$ACTIONS_TSV" || exit 7
+''')
 print('E2E offline harness regressions passed')
 # Teardown batches full withdrawals by account, retaining mixed hub keys and
 # the burn proof. A submitted failure must never fall back to per-asset calls.
@@ -230,6 +384,7 @@ shell('assert_delta large 100000000000000000000000 100000000000000000000001 1')
 shell(f'source "{HERE}/flows/blend.sh"; ! blend_maps_empty \'{{"collateral":{{}},"liabilities":{{}},"supply":{{"0":"50"}}}}\'; ! blend_maps_empty \'{{}}\'')
 # An interrupted case cannot replay a mutation when local resume is requested.
 shell('''
+printf '{"selected_cases":["partial"]}' > "$RUN_DIR/metadata.json"
 printf 'id\\tstatus\\tfirst_action\\tlast_action\\n' > "$RUN_DIR/cases.tsv"
 mutate_then_exit() { echo committed >> "$RUN_DIR/commits"; exit 7; }
 (run_case partial mutate_then_exit) && exit 1

@@ -11,10 +11,11 @@ from pathlib import Path
 if not __debug__:
     raise RuntimeError('release verification requires Python assertions; unset PYTHONOPTIMIZE')
 from resources import check as check_resources
-from receipts import footprint_drift, verify as verify_receipt
+from receipts import decode, footprint_drift, verify as verify_receipt
 from artifacts import CONTRACTS, digest
 
 ACTION_FIELDS = 'seq phase label status fn hash instructions read_bytes write_bytes resource_fee note'.split()
+RESOURCE_FIELDS = 'instructions read_bytes write_bytes resource_fee'.split()
 GOOD = {'ok', 'read', 'xfail', 'sim-ok', 'retry', 'diagnostic'}
 
 
@@ -91,6 +92,24 @@ def write_summary(run, status, reason=None, exit_code=None):
     temporary.replace(path)
 
 
+def check_attempts(run, actions):
+    attempts = [json.loads(line) for line in (run/'attempts.jsonl').read_text().splitlines()]
+    if [(type(a['id']), a['id']) for a in attempts] != [(int, n) for n in range(1, len(attempts)+1)]:
+        raise ValueError('attempt ids are not exactly 1..N')
+    latest = {}
+    for a in actions:
+        latest[a['hash']] = max(latest.get(a['hash'], 0), int(a['seq']))
+    previous = 1
+    for a in attempts:
+        if type(a['action_seq']) is not int or not previous <= a['action_seq'] <= len(actions):
+            raise ValueError(f'attempt {a["id"]}: action_seq out of order or range')
+        previous = a['action_seq']
+        receipt = run/'logs'/f'{a["hash"]}.receipt.json'
+        if a['hash'] and receipt.exists() and json.loads(receipt.read_text()).get('result', {}).get('status') in {'SUCCESS', 'FAILED'} \
+                and latest.get(a['hash'], 0) < a['action_seq']:
+            raise ValueError(f'attempt {a["id"]}: committed {a["hash"]} has no action row')
+
+
 def validate(run, expected_lane=None):
     if (run/'interruption.json').exists() or (run/'active-attempt.json').exists():
         raise ValueError('run was interrupted; start a fresh run')
@@ -154,10 +173,21 @@ def validate(run, expected_lane=None):
             decoded_resources = verify_receipt(receipt, a['hash'], metadata['network_passphrase'], status,
                 proof['contract'] if proof['execution'] not in {'classic_transaction','deployment'} else None,
                 a['fn'] if proof['execution'] not in {'classic_transaction','deployment'} else None)
+            if proof['execution'] == 'classic_transaction':
+                operations = decode('TransactionEnvelope', result['envelopeXdr'])['tx']['tx']['operations']
+                count = re.match(r'([1-9][0-9]*) ops( |$)', a['note'])
+                if a['fn'] not in {'change_trust', 'payment'} or not count or int(count[1]) != len(operations) \
+                        or any(set(op['body']) != {a['fn']} or op['source_account'] is not None for op in operations):
+                    raise ValueError(f'action {i}: classic operations differ from the recorded batch')
             if proof['execution'] in {'transaction','deployment'}:
                 resources = json.loads((run / 'logs' / f'{a["hash"]}.resources.json').read_text())
                 if resources != decoded_resources:
                     raise ValueError(f'action {i}: resource sidecar differs from committed envelope')
+                columns = [a[k] for k in RESOURCE_FIELDS]
+                if any(columns):
+                    r = resources['resources']
+                    if columns != [str(v) for v in (r['instructions'], r.get('disk_read_bytes', r.get('read_bytes')), r['write_bytes'], resources['resource_fee'])]:
+                        raise ValueError(f'action {i}: resource columns differ from the committed envelope')
                 check_resources(json.loads((run / 'network-limits.json').read_text()), resources, result)
     for i, a in enumerate(actions, 1):
         if a['status'] != 'retry' or a['execution'] != 'rejected_transaction':
@@ -168,6 +198,7 @@ def validate(run, expected_lane=None):
         receipt = lambda h: json.loads((run / 'logs' / f'{h}.receipt.json').read_text())
         footprint_drift(receipt(a['hash']), a['hash'], metadata['network_passphrase'], a['contract'], a['fn'],
                         receipt(follow['hash']), follow['hash'])
+    check_attempts(run, actions)
     cases = rows(run / 'cases.tsv', ['id', 'status', 'first_action', 'last_action'])
     seen = set()
     previous_end = 0

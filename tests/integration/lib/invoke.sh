@@ -2,6 +2,8 @@ RPC_TRANSIENT_RE='rejected .?50[0-9]|status_code: 50[0-9]|No status yet|Transpor
 
 DEPLOY_PROPAGATION_RE='Contract not found|non-existing value for contract instance'
 
+PRESIGN_RE='(^|[^0-9a-fA-F])429([^0-9a-fA-F]|$)|Too Many Requests|preflight queue full|rejected .?50[0-9]|status_code: 50[0-9]|timed out|connection (reset|refused)'
+
 INV_MAX_ATTEMPTS="${INV_MAX_ATTEMPTS:-8}"
 DEPLOY_MAX_ATTEMPTS="${DEPLOY_MAX_ATTEMPTS:-8}"
 XFAIL_MAX_ATTEMPTS="${XFAIL_MAX_ATTEMPTS:-5}"
@@ -24,7 +26,8 @@ run_deploy() {
             # Diagnostic only: historical fee stats cannot prove admission.
             if [ ! -f "$LOG_DIR/deployment-fee-stats.json" ]; then
                 stellar fees stats "${NET_ARGS[@]}" --output json \
-                    > "$LOG_DIR/deployment-fee-stats.json" 2> "$LOG_DIR/deployment-fee-stats.err" || true
+                    > "$LOG_DIR/deployment-fee-stats.json.tmp" 2> "$LOG_DIR/deployment-fee-stats.err" || true
+                mv "$LOG_DIR/deployment-fee-stats.json.tmp" "$LOG_DIR/deployment-fee-stats.json"
             fi
             local verb="$3" leeway="${INSTRUCTION_LEEWAY:-20000000}" explicit=0 value
             local deployment_args=()
@@ -93,7 +96,7 @@ run_deploy() {
             return 0
         fi
         [ -z "$(extract_signing_hash "$err_f")" ] || break
-        grep -qE "$DEPLOY_PROPAGATION_RE|Wasm does not exist|TxInsufficientFee" "$err_f" || break
+        grep -qE "$DEPLOY_PROPAGATION_RE|Wasm does not exist|TxInsufficientFee|$PRESIGN_RE" "$err_f" || break
     done
     return 1
 }
@@ -120,7 +123,7 @@ tx_status() {
             case "$st" in
                 SUCCESS|FAILED)
                     if jq -e --arg h "$hash" '.result | .txHash == $h and (.resultMetaXdr | type == "string" and length > 0) and (.ledger | type == "number") and (.envelopeXdr | type == "string" and length > 0) and (.resultXdr | type == "string" and length > 0)' "$resp" >/dev/null; then
-                        cp "$resp" "$LOG_DIR/$hash.receipt.json"
+                        cp "$resp" "$LOG_DIR/$hash.receipt.json.tmp" && mv "$LOG_DIR/$hash.receipt.json.tmp" "$LOG_DIR/$hash.receipt.json"
                         echo "$st"; return 0
                     fi ;;
             esac
@@ -203,6 +206,11 @@ inv() {
             record "$label" retry "$fn" "" "" "" "" "" "explicit simulation prerequisite unavailable, attempt $attempt"
             continue
         fi
+        if [ -z "$hash" ] && [ "$rc" -ne 0 ] && [ "$attempt" -lt "$INV_MAX_ATTEMPTS" ] && [ -z "$drifted" ] \
+            && ! grep -q 'Error(Contract' "$err_f" && grep -qE "$PRESIGN_RE" "$err_f"; then
+            record "$label" retry "$fn" "" "" "" "" "" "pre-sign transport or overload failure, attempt $attempt"
+            continue
+        fi
         record "$label" FAIL "$fn" "" "" "" "" "" "missing confirmed transaction: $(tail_err_note "$err_f")"
         return 1
     done
@@ -257,6 +265,11 @@ xfail() {
             && grep -qE "$DEPLOY_PROPAGATION_RE" "$err_f" \
             && ! grep -q "Error(Contract" "$err_f"; then
             record "$label" retry "$fn" "" "" "" "" "" "transient infra failure; resimulating"
+            continue
+        fi
+        if [ -z "$signed_hash" ] && [ "$rc" -ne 0 ] && [ "$attempt" -lt "$XFAIL_MAX_ATTEMPTS" ] \
+            && ! grep -q 'Error(Contract' "$err_f" && grep -qE "$PRESIGN_RE" "$err_f"; then
+            record "$label" retry "$fn" "" "" "" "" "" "pre-sign transport or overload failure, attempt $attempt"
             continue
         fi
         break

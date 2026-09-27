@@ -292,7 +292,9 @@ integration-appendix:
 .PHONY: integration-preflight integration-validate integration-shellcheck integration-flash-position integration-strategies integration-blend
 
 integration-flash-position: integration-wasm
-	RUN_TS=$$(date +%Y%m%d-%H%M%S) bash tests/integration/scenarios/flash_position.sh
+	ts=$$(date +%Y%m%d-%H%M%S); for lane in flash-a flash-b; do \
+	  RUN_TS=$$ts-$$lane E2E_LANE=$$lane bash tests/integration/scenarios/flash_position.sh || exit 1; \
+	done
 
 integration-strategies: integration-wasm
 	RUN_TS=$$(date +%Y%m%d-%H%M%S) bash tests/integration/scenarios/strategies.sh
@@ -2150,7 +2152,7 @@ help-build:
 	$(call ROW,make deploy-artifacts,mainnet WASM -> $(DEPLOY_DIR))
 	$(call ROW,make wasm-size-check,deploy artifacts + size budget)
 	$(call ROW,make integration-wasm,deploy-sized WASM + harness mocks)
-	$(call ROW,make integration-flash-position,live testnet flash_position only)
+	$(call ROW,make integration-flash-position,live testnet flash-a then flash-b lanes)
 	$(call ROW,make integration-strategies,live testnet flash_loan + strategies)
 	$(call ROW,make integration-blend,live testnet Blend migrate_from_blend)
 	$(call ROW,make certora-wasm,Certora-feature WASM)

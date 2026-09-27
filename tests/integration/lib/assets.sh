@@ -17,45 +17,111 @@ issue_sac() {
     if [ -n "${!var:-}" ]; then return 0; fi
     local asset="$code:$ADMIN_ADDR"
     local out_f="$LOG_DIR/sac_$code.out" err_f="$LOG_DIR/sac_$code.err"
-    local sac hash attempt
+    local sac hash
     sac=$(stellar contract id asset --asset "$asset" "${NET_ARGS[@]}")
     if sac_live "$sac"; then
 
         record "issue_sac_$code" ok "asset_id" "" "" "" "" "" "$sac (pre-existing)"
     else
 
-        local rc=0
-        stellar contract asset deploy --asset "$asset" --source "$ADMIN" \
-            "${NET_ARGS[@]}" >"$out_f" 2>"$err_f" || rc=$?
+        if ! run_deploy "$out_f" "$err_f" -- stellar contract asset deploy --asset "$asset" --source "$ADMIN" "${NET_ARGS[@]}"; then
+            record "issue_sac_$code" FAIL asset_deploy "$(extract_signing_hash "$err_f")" "" "" "" "" "SAC deployment unconfirmed; never resubmit"
+            return 1
+        fi
         hash=$(extract_signing_hash "$err_f")
-        if [ -z "$hash" ] || [ "$(tx_status "$hash")" != SUCCESS ] || [ "$rc" -ne 0 ]; then
-            record "issue_sac_$code" FAIL asset_deploy "$hash" "" "" "" "" "SAC deployment unconfirmed; never resubmit"
+        if [ "$(sanitize_output "$out_f")" != "$sac" ]; then
+            record "issue_sac_$code" FAIL asset_deploy "$hash" "" "" "" "" "deployed SAC id differs from $sac"
             return 1
         fi
         if ! sac_wait_live "$sac"; then
             die "issue_sac_$code" \
-                "SAC $code not live after ${attempt:-0} deploy attempt(s): $(tail_err_note "$err_f" 200)"
+                "SAC $code not live after $DEPLOY_ATTEMPTS deploy attempt(s): $(tail_err_note "$err_f" 200)"
         fi
-        record "issue_sac_$code" ok "asset_deploy" "${hash:-}" "" "" "" "" "$sac"
+        record "issue_sac_$code" ok asset_deploy "$hash" "$RES_INSTR" "$RES_READ" "$RES_WRITE" "$RES_FEE" "$sac" deployment "$sac"
     fi
     save_state "$var" "$sac"
     log "SAC $code = $sac"
 }
 
-trustline() {
-    local wallet="$1" code="$2" issuer="$3"
-    local label="trust_${code}_${wallet%%_e2e*}"
-    local err_f="$LOG_DIR/$label.err"
-    local rc=0 hash
-    stellar tx new change-trust --source-account "$wallet" --line "$code:$issuer" \
-        "${NET_ARGS[@]}" >"$LOG_DIR/$label.out" 2>"$err_f" || rc=$?
-    hash=$(extract_signing_hash "$err_f")
-    if [ -n "$hash" ] && [ "$(tx_status "$hash")" = SUCCESS ] && [ "$rc" -eq 0 ]; then
-        record "$label" ok change_trust "$hash" "" "" "" "" "$code" classic_transaction
+classic_batch() {
+    local label="$1" fn="$2" signer="$3"; shift 3
+    local base="$LOG_DIR/$label" per_op="${E2E_CLASSIC_OP_FEE:-${STELLAR_INCLUSION_FEE:-1000}}" count=$# i=0 item kind a b c d addr hash rc=0 st sequence
+    local -a op
+    if [ "$count" -lt 1 ] || [ "$count" -gt 40 ] || [[ ! "$per_op" =~ ^[1-9][0-9]{0,6}$ ]]; then
+        record "$label" FAIL "$fn" "" "" "" "" "" "classic batch refused: $count items (allowed 1-40), per-op fee '$per_op'"
+        return 1
+    fi
+    : >"$base.build.err"
+    for item in "$@"; do
+        IFS=: read -r kind a b c d <<<"$item"
+        case "$kind" in
+            trust) op=(change-trust --line "$a:$b") ;;
+            pay) op=(payment --destination "$a" --asset "$b:$c" --amount "$d") ;;
+            *) record "$label" FAIL "$fn" "" "" "" "" "" "unknown classic batch item '$item'"; return 1 ;;
+        esac
+        if [ "$i" -eq 0 ]; then
+            stellar tx new "${op[@]}" --build-only --source-account "$signer" "${NET_ARGS[@]}" \
+                >"$base.built.xdr" 2>>"$base.build.err" || rc=$?
+        else
+            stellar tx op add "${op[@]}" --source-account "$signer" <"$base.built.xdr" >"$base.next.xdr" 2>>"$base.build.err" \
+                && mv "$base.next.xdr" "$base.built.xdr" || rc=$?
+        fi
+        i=$((i + 1))
+        [ "$rc" -eq 0 ] || { record "$label" FAIL "$fn" "" "" "" "" "" "classic batch build failed at item $i: $(tail_err_note "$base.build.err")"; return 1; }
+    done
+    stellar tx decode <"$base.built.xdr" 2>>"$base.build.err" \
+        | jq -c --argjson fee "$((per_op * count))" '.tx.tx.fee = $fee' \
+        | stellar tx encode >"$base.unsigned.xdr" 2>>"$base.build.err" \
+        && addr=$(stellar keys address "$signer" 2>>"$base.build.err") \
+        && stellar tx decode <"$base.unsigned.xdr" >"$base.unsigned.json" 2>>"$base.build.err" \
+        && python3 - "$base.unsigned.json" "$addr" "$((per_op * count))" "$fn" "$@" 2>>"$base.build.err" <<'PYCLASSIC' \
+        && stellar tx sign --sign-with-key "$signer" "${NET_ARGS[@]}" <"$base.unsigned.xdr" >"$base.signed.xdr" 2>>"$base.build.err" \
+        && hash=$(stellar tx hash --network-passphrase "$NETWORK_PASSPHRASE" <"$base.signed.xdr" 2>>"$base.build.err") \
+        && [[ "$hash" =~ ^[0-9a-f]{64}$ ]] || rc=$?
+import json, sys
+path, source, fee, method, *items = sys.argv[1:]
+tx = json.load(open(path))['tx']['tx']
+def asset(code, issuer):
+    return {'credit_alphanum4' if len(code) <= 4 else 'credit_alphanum12': {'asset_code': code, 'issuer': issuer}}
+expected = []
+for item in items:
+    kind, *fields = item.split(':')
+    if (kind, len(fields), method) == ('trust', 2, 'change_trust'):
+        expected.append({'change_trust': {'line': asset(*fields), 'limit': '9223372036854775807'}})
+    elif (kind, len(fields), method) == ('pay', 4, 'payment'):
+        expected.append({'payment': {'destination': fields[0], 'asset': asset(*fields[1:3]), 'amount': fields[3]}})
+    else:
+        sys.exit(f'item {item} does not match {method}')
+problems = [name for name, good in [
+    ('source', tx['source_account'] == source),
+    ('fee', tx['fee'] == int(fee)),
+    ('operation count', len(tx['operations']) == len(items)),
+    ('operation source', all(op['source_account'] is None for op in tx['operations'])),
+    ('operation bodies', [op['body'] for op in tx['operations']] == expected)] if not good]
+if problems:
+    sys.exit('pre-sign mismatch: ' + ', '.join(problems))
+PYCLASSIC
+    if [ "$rc" -ne 0 ]; then
+        record "$label" FAIL "$fn" "" "" "" "" "" "classic batch not sent; build, verification or signing failed: $(tail_err_note "$base.build.err")"
+        return 1
+    fi
+    sequence=$(wc -l < "$ACTIONS_TSV")
+    begin_attempt "$label" "$fn" "$sequence" 1 "$base.out" "$base.err" "" || return 1
+    printf 'Signing transaction: %s\n' "$hash" >>"$base.err" || return 1
+    stellar tx send "${NET_ARGS[@]}" <"$base.signed.xdr" >"$base.out" 2>>"$base.err" || rc=$?
+    record_attempt "$label" "$fn" "$sequence" 1 "$rc" "$hash" "$base.out" "$base.err" "" || return 1
+    st=$(tx_status "$hash")
+    if [ "$rc" -eq 0 ] && [ "$st" = SUCCESS ]; then
+        record "$label" ok "$fn" "$hash" "" "" "" "" "$count ops" classic_transaction
         return 0
     fi
-    record "$label" FAIL change_trust "$hash" "" "" "" "" "unconfirmed trustline; never resubmit: $(tail_err_note "$err_f")"
+    record "$label" FAIL "$fn" "$hash" "" "" "" "" "unconfirmed classic transaction; never resubmit: status=$st cli=$rc; $(tail_err_note "$base.err")"
     return 1
+}
+
+trustline() {
+    local wallet="$1" code="$2" issuer="$3"
+    classic_batch "trust_${code}_${wallet%%_e2e*}" change_trust "$wallet" "trust:$code:$issuer"
 }
 
 mint_to() {
@@ -86,7 +152,7 @@ sac_transfer() {
 
 swap_xlm_to() (
     local wallet="$1" addr="$2" to_sac="$3" amount_in="$4" label="$5"
-    local swap_hex AGGREGATOR_MIN_LEDGER rc=0 hash pending="$INTEG_DIR/runs/.external-funding.pending.json"
+    local swap_hex AGGREGATOR_MIN_LEDGER rc=0 hash pending="$INTEG_DIR/runs/.external-funding.${RUN_TS}.pending.json"
     # ponytail: one checkout-wide funding lock; use per-pool locks if throughput matters.
     # The subshell retains fd 9 through confirmation; exit/cancellation releases it.
     exec 9>"$INTEG_DIR/runs/.external-funding.lock" || { _assert_fail "$label" 'cannot open funding lock'; return 1; }

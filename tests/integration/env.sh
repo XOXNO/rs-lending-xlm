@@ -49,6 +49,7 @@ WASM_DIR="${WASM_DIR:-$REPO_ROOT/artifacts/wasm/deploy}"
 
 RUN_TS="${RUN_TS:?set RUN_TS=<unique-run-name> (e.g. \$(date +%Y%m%d-%H%M%S))}"
 [[ "$RUN_TS" =~ ^[A-Za-z0-9_-]+$ ]] || { echo "invalid RUN_TS" >&2; exit 1; }
+[[ "${E2E_FRIENDBOT_SLOTS:-6}" =~ ^[1-9][0-9]?$ ]] || { echo "invalid E2E_FRIENDBOT_SLOTS (1-99)" >&2; exit 1; }
 [ "$NETWORK" = testnet ] || { echo "E2E requires testnet" >&2; exit 1; }
 RUN_DIR="$INTEG_DIR/runs/$RUN_TS"
 STATE_ENV="$RUN_DIR/state.env"
@@ -68,7 +69,6 @@ STELLAR_CLI_MIN_VERSION="28.0"
 STRESS_N=20
 STRESS_UNIT=10000000
 
-LIQ_CODES=(LIQA LIQB LIQC LIQD LIQE LIQF LIQG)
 LIQ_UNIT=10000000
 
 DFX_UNIT=10000000

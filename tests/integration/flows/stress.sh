@@ -4,7 +4,15 @@ stress_sac()  { local v="SAC_ST$(printf '%02d' "$1")"; echo "${!v}"; }
 flow_stress_setup() {
     phase stress_setup
     [ -n "${STRESS_SETUP_DONE:-}" ] && return 0
-    local i code var sac
+    local i code var sac trust=() mint=()
+    for i in $(seq 0 $((STRESS_N - 1))); do
+        code=$(stress_code "$i")
+        trust+=("trust:$code:$ADMIN_ADDR")
+        mint+=("pay:$DAVE_ADDR:$code:$ADMIN_ADDR:$((1000000 * STRESS_UNIT))" "pay:$CAROL_ADDR:$code:$ADMIN_ADDR:$((1000000 * STRESS_UNIT))")
+    done
+    classic_batch stress_trust_dave change_trust "$DAVE" "${trust[@]}" || return 1
+    classic_batch stress_trust_carol change_trust "$CAROL" "${trust[@]}" || return 1
+    classic_batch stress_mint_classic payment "$ADMIN" "${mint[@]}" || return 1
     for i in $(seq 0 $((STRESS_N - 1))); do
         code=$(stress_code "$i")
         MOCK=''; MOCKRS=''
@@ -15,10 +23,6 @@ flow_stress_setup() {
         var="SAC_$code"
         issue_sac "$var" "$code"
         sac="${!var}"
-        trustline "$DAVE" "$code" "$ADMIN_ADDR"
-        trustline "$CAROL" "$code" "$ADMIN_ADDR"
-        mint_to "$sac" "$code" "$DAVE_ADDR"  $((1000000 * STRESS_UNIT))
-        mint_to "$sac" "$code" "$CAROL_ADDR" $((1000000 * STRESS_UNIT))
         set_mock_price "$sac" "$WAD" "px_init_$code"
         create_market "$code" "$PRIMARY_HUB_ID" "$sac" 7 "$(oracle_cfg_mock_single "$sac")" "$(asset_config_json 7000 7500 800)"
     done
@@ -299,8 +303,10 @@ flow_stress_delayed() {
     [ "$now" -ge "$((start+3))" ] || { _assert_fail stress_delayed_ledgers "ledger did not advance by three"; return 1; }
     printf '{"prepared_after_ledger":%s,"submitted_after_ledger":%s,"hash":"%s"}\n' "$start" "$now" "$hash" >"$LOG_DIR/$label.delay.json"
     sequence=$(wc -l < "$ACTIONS_TSV")
+    begin_attempt "$label" borrow "$sequence" 1 "$LOG_DIR/$label.out" "$LOG_DIR/$label.err" "$CONTROLLER" || return 1
+    printf 'Signing transaction: %s\n' "$hash" >"$LOG_DIR/$label.err" || return 1
     stellar tx send "${NET_ARGS[@]}" <"$LOG_DIR/$label.signed.xdr" \
-        >"$LOG_DIR/$label.out" 2>"$LOG_DIR/$label.err" || rc=$?
+        >"$LOG_DIR/$label.out" 2>>"$LOG_DIR/$label.err" || rc=$?
     record_attempt "$label" borrow "$sequence" 1 "$rc" "$hash" "$LOG_DIR/$label.out" "$LOG_DIR/$label.err" "$CONTROLLER" || return 1
     st=$(tx_status "$hash")
     if [ "$rc" -ne 0 ] || [ "$st" != SUCCESS ] || ! fetch_resources "$hash"; then

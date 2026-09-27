@@ -218,7 +218,7 @@ assert outputs == ['1\n', '2\n'] and actions[-1]['status'] == 'xfail'
 with tempfile.TemporaryDirectory() as directory:
     run = Path(directory)
     (run/'logs').mkdir()
-    metadata = dict(lane='agg', selected_cases=['finished', 'interrupted'], run_id='audit',
+    metadata = dict(lane='agg-core', selected_cases=['finished', 'interrupted'], run_id='audit',
         started_at='2026-09-25T00:00:00+00:00', workflow_run_id='123', workflow_run_attempt='2')
     (run/'metadata.json').write_text(json.dumps(metadata))
     (run/'cases.tsv').write_text('id\tstatus\tfirst_action\tlast_action\nfinished\tpass\t1\t1\n')
@@ -269,7 +269,7 @@ set -uo pipefail
 source "{HERE}/lib/core.sh"
 INTEG_DIR="{HERE}"; RUN_DIR="{root}/run"; LOG_DIR="$RUN_DIR/logs"
 STATE_ENV="$RUN_DIR/state.env"; ACTIONS_TSV="$RUN_DIR/actions.tsv"
-RUN_TS=identity-test; E2E_LANE=agg; WASM_DIR="{wasm}"
+RUN_TS=identity-test; E2E_LANE=agg-core; WASM_DIR="{wasm}"
 NETWORKS_FILE="{root}/networks.json"; E2E_LIMITS_FILE="{root}/limits.json"
 RPC_URL=https://unused; NETWORK_PASSPHRASE='Test SDF Network ; September 2015'
 init_run
@@ -442,6 +442,167 @@ verify_deployed_wasm() { :; }
 run_deploy "$LOG_DIR/first.out" "$LOG_DIR/first.err" -- stellar contract upload --wasm unused || exit 1
 run_deploy "$LOG_DIR/second.out" "$LOG_DIR/second.err" -- stellar contract upload --wasm unused || exit 1
 [ "$fee_reads" = 1 ] && jq -e '.latestLedger == 123' "$LOG_DIR/deployment-fee-stats.json" >/dev/null || exit 1
+[ ! -e "$LOG_DIR/deployment-fee-stats.json.tmp" ] || exit 1
 ''')
 assert len(attempts) == 2
 print('Deployment fee diagnostics retain one RPC snapshot without changing fee policy')
+
+attempts, _, actions = shell('''
+n=0
+stellar() {
+    n=$((n+1)); echo "$n"
+    if [ "$n" = 1 ]; then echo 'error: preflight queue full' >&2; return 1; fi
+    echo "Signing transaction: $(printf '%064d' 1)" >&2
+}
+tx_status() { echo SUCCESS; }
+fetch_resources() { RES_INSTR=1 RES_READ=0 RES_WRITE=0 RES_FEE=1; }
+inv mutation admin contract -- supply >/dev/null || exit 1
+[ "$n" = 2 ]
+''')
+assert [a['status'] for a in actions] == ['retry', 'ok'] and 'pre-sign transport or overload failure, attempt 1' in actions[0]['note']
+assert len(attempts) == 2 and len({a['hash'] for a in attempts if a['hash']}) == 1
+hex_429 = 'Error(Auth, InvalidAction) tx/429f209e 20429517'
+for call, status, error in [('inv mutation admin contract -- supply', 'UNKNOWN', '429 Too Many Requests'),
+                            ("xfail rejected 'Error\\(Contract, #24\\)' admin contract -- borrow", 'FAILED', '429 Too Many Requests'),
+                            ('inv mutation admin contract -- supply', 'UNKNOWN', 'Error(Contract, #7) status_code: 503'),
+                            ("xfail rejected 'Error\\(Contract, #24\\)' admin contract -- borrow", 'FAILED', 'Error(Contract, #7) status_code: 503'),
+                            ('inv mutation admin contract -- supply', 'UNKNOWN', hex_429),
+                            ("xfail rejected 'Error\\(Contract, #24\\)' admin contract -- borrow", 'FAILED', hex_429)]:
+    signing = '' if 'Error' in error else 'echo "Signing transaction: $(printf \'%064d\' 1)" >&2; '
+    attempts, _, actions = shell(f'''
+n=0
+stellar() {{ n=$((n+1)); {signing}echo '{error}' >&2; return 1; }}
+tx_status() {{ echo {status}; }}
+if {call} >/dev/null; then exit 1; fi
+[ "$n" = 1 ]
+''')
+    assert len(attempts) == 1 and [a['status'] for a in actions] == ['FAIL'], (call, error, actions)
+attempts, _, actions = shell('''
+n=0
+stellar() {
+    n=$((n+1))
+    if [ "$n" = 1 ]; then echo 'Transport(Rejected { status_code: 503 })' >&2; else echo 'Error(Contract, #24)' >&2; fi
+    return 1
+}
+xfail rejected 'Error\\(Contract, #24\\)' admin contract -- borrow || exit 1
+[ "$n" = 2 ]
+''')
+assert [a['status'] for a in actions] == ['retry', 'xfail'] and len(attempts) == 2
+attempts, outputs, _ = shell('''
+n=0
+cli_upload() {
+    n=$((n+1))
+    if [ "$n" = 1 ]; then echo '429 Too Many Requests' >&2; return 1; fi
+    printf '%064d' "$n"
+}
+verify_deployed_wasm() { return 0; }
+run_deploy "$LOG_DIR/upload.out" "$LOG_DIR/upload.err" -- cli_upload || exit 1
+''')
+assert [a['attempt'] for a in attempts] == [1, 2] and outputs == ['', '0'*63+'2']
+attempts, _, _ = shell(f'''
+n=0
+cli_upload() {{ n=$((n+1)); echo '{hex_429}' >&2; return 1; }}
+if run_deploy "$LOG_DIR/upload.out" "$LOG_DIR/upload.err" -- cli_upload; then exit 1; fi
+[ "$n" = 1 ]
+''')
+assert len(attempts) == 1
+attempts, _, actions = shell(DRIFT_SETUP + '''
+stellar() {
+    n=$((n+1))
+    if [ "$n" = 1 ]; then echo "Signing transaction: $(printf '%064d' 1)" >&2; return 0; fi
+    echo 'error: preflight queue full' >&2; return 1
+}
+tx_status() { echo FAILED; }
+receipt_drift() { :; }
+if inv mutation admin contract -- borrow >/dev/null; then exit 1; fi
+[ "$n" = 2 ]
+''')
+assert [a['status'] for a in actions] == ['retry', 'FAIL'] and len(attempts) == 2
+print('Pre-sign overload retries only while no signed envelope exists')
+
+SAC = 'C' + 'A'*54 + 'B'
+for deployed, succeeds in [(SAC, True), ('C' + 'A'*54 + 'C', False)]:
+    outcome = f'grep -qx "1\tdeployment\t{SAC}" "$RUN_DIR/evidence.tsv" && [ "$USDC_SAC" = {SAC} ]' if succeeds else '[ -z "${USDC_SAC:-}" ]'
+    attempts, _, actions = shell(f'''
+source "{HERE}/lib/assets.sh"
+STATE_ENV="$RUN_DIR/state.env"; ADMIN_ADDR=GADMIN
+n=0
+stellar() {{
+    case "$1 $2" in
+        'contract id') echo {SAC};;
+        'contract invoke') [ -f "$RUN_DIR/deployed" ];;
+        'contract asset') n=$((n+1)); touch "$RUN_DIR/deployed"; echo "Signing transaction: $(printf '%064d' 1)" >&2; echo '"{deployed}"';;
+        *) return 1;;
+    esac
+}}
+tx_status() {{ echo SUCCESS; }}
+fetch_resources() {{ RES_INSTR=11 RES_READ=12 RES_WRITE=13 RES_FEE=14; }}
+rc=0; issue_sac USDC_SAC USDC || rc=$?
+[ "$n" = 1 ] && [ "$rc" {'=' if succeeds else '!='} 0 ] || exit 1
+{outcome}
+''')
+    assert len(attempts) == 1 and attempts[0]['label'] == 'sac_USDC' and attempts[0]['hash'] == '0'*63+'1'
+    row = [(a['label'], a['status'], a['fn'], a['hash'], a['instructions'], a['read_bytes'], a['write_bytes'], a['resource_fee']) for a in actions]
+    assert row == [('issue_sac_USDC', 'ok' if succeeds else 'FAIL', 'asset_deploy', '0'*63+'1') + (('11', '12', '13', '14') if succeeds else ('',)*4)], row
+print('SAC deployments are submitted through run_deploy and recorded as verified deployments')
+
+attempts, _, actions = shell(f'''
+source "{HERE}/lib/assert.sh"
+source "{HERE}/flows/stress.sh"
+DAVE_DUAL_ACCT=7; PRIMARY_HUB_ID=1; PRIMARY_SPOKE_ID=1; STRESS_UNIT=10000000
+DAVE=dave; DAVE_ADDR=dave_address; CAROL=carol; CAROL_ADDR=carol_address; CONTROLLER=controller
+phase() {{ :; }}
+stress_sac() {{ echo "token$1"; }}
+hub_key() {{ echo key; }}
+pay_vec() {{ echo '[]'; }}
+_view_int() {{ case "$1" in *before*) echo 100;; *) echo 10000100;; esac; }}
+balance() {{ if [ -f "$RUN_DIR/sent" ]; then echo 10000000000; else echo 0; fi; }}
+stress_latest_ledger() {{ local n=10; [ ! -f "$RUN_DIR/ledger" ] || n=$(cat "$RUN_DIR/ledger"); echo $((n+1)) > "$RUN_DIR/ledger"; echo "$n"; }}
+inv() {{ :; }}
+stellar() {{
+    case "$1 $2" in
+        'tx hash') printf '%064d\\n' 1;;
+        'tx send') touch "$RUN_DIR/sent";;
+    esac
+}}
+tx_status() {{ echo SUCCESS; }}
+fetch_resources() {{ RES_INSTR=1; RES_READ=2; RES_WRITE=3; RES_FEE=4; }}
+view() {{ echo '[{{"a":1,"b":1,"c":1,"d":1,"e":1}},{{"a":1,"b":1,"c":1,"d":1,"e":1}}]'; }}
+flow_stress_delayed || exit 1
+''')
+assert [a['label'] for a in attempts] == ['stress_delayed_borrow'] and attempts[0]['started_at'] <= attempts[0]['observed_at']
+print('The delayed stress submission records when its send started')
+
+attempts, _, actions = shell(f'''
+source "{HERE}/flows/production.sh"
+phase() {{ :; }}
+INTEG_DIR="$RUN_DIR/fake"; REPO_ROOT=unused; FIXTURE_WASM_DIR=fixtures; WASM_DIR=wasm; ADMIN_ADDR=GADMIN
+mkdir -p "$INTEG_DIR"
+cat > "$INTEG_DIR/production_config.py" <<'FAKE'
+import json, sys
+if sys.argv[1] == 'plan':
+    print(json.dumps({{'CREFLECTOR': {{'kind': 'Reflector'}}, 'CTOKEN': {{'kind': 'Token', 'decimals': 7, 'name': 'T'}}}}))
+else:
+    open(sys.argv[3] + '/fixtures.json', 'w').write(json.dumps(dict(bases={{}}, seeds=[], pools=[])))
+FAKE
+calls=0
+stellar() {{
+    [ "$1 $2" != 'fees stats' ] || return 0
+    calls=$((calls+1)); echo "Signing transaction: $(printf '%064d' "$calls")" >&2; echo '"{SAC}"'
+}}
+tx_status() {{ printf '{{"result":{{"status":"SUCCESS"}}}}' > "$LOG_DIR/$1.receipt.json"; echo SUCCESS; }}
+fetch_resources() {{ RES_INSTR=$calls RES_READ=2 RES_WRITE=3 RES_FEE=4; }}
+verify_deployed_wasm() {{ :; }}
+flow_production_fixtures || exit 1
+python3 - "$RUN_DIR" <<'CHECK'
+import csv, sys
+from pathlib import Path
+sys.path.insert(0, '{HERE}')
+import gate
+run = Path(sys.argv[1])
+gate.check_attempts(run, list(csv.DictReader((run/'actions.tsv').open(newline=''), delimiter='\\t')))
+CHECK
+''')
+assert [(a['label'], a['hash'], a['instructions'], a['resource_fee']) for a in actions] == [
+    (f'production_fixture_{n}', f'{n:064d}', str(n), '4') for n in (1, 2)], actions
+print('Production fixture deployments carry their committed hash and resources')

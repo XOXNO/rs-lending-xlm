@@ -165,6 +165,41 @@ die() {
     exit 1
 }
 
+slot_take() {
+    local prefix="$1" count="$2" base="$3" deadline="$4" fd got=""
+    SLOT_FD=""
+    [[ "$count" =~ ^[1-9][0-9]?$ && "$base" =~ ^[1-9][0-9]{0,2}$ && "$deadline" =~ ^[0-9]{1,5}$ ]] \
+        && [ $((base + count)) -le 255 ] || return 1
+    for ((fd = base; fd < base + count; fd++)); do
+        { : >&"$fd"; } 2>/dev/null && return 1
+    done
+    mkdir -p "$(dirname "$prefix")" || return 1
+    for ((fd = base; fd < base + count; fd++)); do
+        eval "exec $fd>>\"\$prefix.$((fd - base + 1))\"" || break
+    done
+    [ "$fd" -lt $((base + count)) ] || got=$(python3 -c '
+import fcntl, sys, time
+end = time.monotonic() + int(sys.argv[1])
+fds = [int(fd) for fd in sys.argv[2:]]
+while True:
+    for fd in fds:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            continue
+        print(fd)
+        sys.exit(0)
+    if time.monotonic() >= end:
+        sys.exit(1)
+    time.sleep(0.5)
+' "$deadline" $(seq "$base" $((base + count - 1)))) || got=""
+    for ((fd = base; fd < base + count; fd++)); do
+        [ "$fd" = "$got" ] || eval "exec $fd>&-"
+    done
+    [ -n "$got" ] || return 1
+    SLOT_FD="$got"
+}
+
 is_contract_id() { [[ "$1" =~ ^C[A-Z2-7]{55}$ ]]; }
 
 is_wasm_hash() { [[ "$1" =~ ^[0-9a-f]{64}$ ]]; }
@@ -239,7 +274,16 @@ run_captured() {
 # The gate requires a terminal record for each checked-in case. Failures in
 # command substitutions still append to actions.tsv and remain sticky.
 run_case() {
-    local id="$1" first last rc=0; shift
+    local id="$1" first last rc=0 sel=0; shift
+    jq -e --arg id "$id" '.selected_cases | if type == "array" then index($id) != null else error("selected_cases is not an array") end' \
+        "$RUN_DIR/metadata.json" >/dev/null 2>&1 || sel=$?
+    if [ "$sel" -eq 1 ]; then
+        log "case $id not selected for lane ${E2E_LANE:-}"
+        return 0
+    elif [ "$sel" -ne 0 ]; then
+        record "${id}_selection" FAIL case "" "" "" "" "" "case selection unreadable (jq exit $sel)"
+        return 1
+    fi
     if [ "${E2E_RESUME:-0}" = 1 ] && awk -F'\t' -v id="$id" '$1==id && $2=="pass" {found=1} END {exit !found}' "$RUN_DIR/cases.tsv"; then
         log "resuming completed case $id"
         return 0

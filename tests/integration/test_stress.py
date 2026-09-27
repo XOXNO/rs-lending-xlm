@@ -85,10 +85,13 @@ stellar() {
         'tx simulate') [ "$(cat)" = BUILT ] || return 1; echo PREPARED;;
         'tx sign') [ "$(cat)" = PREPARED ] || return 1; echo SIGNED;;
         'tx hash') [ "$(cat)" = SIGNED ] || return 1; printf '%064d\n' 1;;
-        'tx send') [ "$(cat)" = SIGNED ] || return 1; touch "$WORK/sent"; return "$FAIL_SEND";;
+        'tx send') [ "$(cat)" = SIGNED ] || return 1
+            ! grep -qx "Signing transaction: $(printf '%064d' 1)" "$WORK/stress_delayed_borrow.err" || echo 'signing line before send' >> "$WORK/sequence"
+            echo 'Transaction hash is sent' >&2; touch "$WORK/sent"; return "$FAIL_SEND";;
         *) return 1;;
     esac
 }
+begin_attempt() { echo "begin_attempt $1 $2 $4" >> "$WORK/sequence"; : > "$6"; }
 record_attempt() { echo "$1 $4 $5 $6" >> "$WORK/attempts"; }
 tx_status() { echo "$TX_STATUS"; }
 fetch_resources() { RES_INSTR=1; RES_READ=2; RES_WRITE=3; RES_FEE=4; return "$BUDGET_FAIL"; }
@@ -104,6 +107,10 @@ flow_stress_delayed
                 self.assertEqual(sequence.count('tx send'), 1)
                 self.assertLess(sequence.index('tx sign'), sequence.index('stress_shared_topup'))
                 self.assertLess(sequence.index('stress_shared_topup'), sequence.index('tx send'))
+                self.assertEqual(sequence.index('begin_attempt stress_delayed_borrow borrow 1'), sequence.index('tx send') - 1)
+                self.assertEqual(sequence.index('signing line before send'), sequence.index('tx send') + 1)
+                self.assertEqual(Path(directory, 'stress_delayed_borrow.err').read_text(),
+                                 f"Signing transaction: {'0'*63}1\nTransaction hash is sent\n")
                 delay = json.loads(Path(directory, 'stress_delayed_borrow.delay.json').read_text())
                 self.assertGreaterEqual(delay['submitted_after_ledger'] - delay['prepared_after_ledger'], 3)
                 attempts = Path(directory, 'attempts').read_text().splitlines()
@@ -117,6 +124,32 @@ flow_stress_delayed
                     self.assertIn('stress_delayed_borrow ok borrow', records)
                     self.assertIn('stress_delayed_dimensions ok assert', records)
                     self.assertIn('stress_delayed_repay', sequence)
+
+    def test_setup_funds_fixtures_with_three_classic_batches(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result = self.run_shell(r'''
+STRESS_N=20; STRESS_UNIT=10000000; ADMIN=admin; ADMIN_ADDR=GADMIN; DAVE=dave; DAVE_ADDR=GDAVE; CAROL=carol; CAROL_ADDR=GCAROL
+PRIMARY_HUB_ID=1; PRIMARY_SPOKE_ID=1; CONTROLLER=controller; WAD=1
+phase() { :; }; save_state() { :; }; set_mock_price() { :; }; pay_vec() { echo '[]'; }; oracle_cfg_mock_single() { :; }; asset_config_json() { :; }
+deploy_mock_reflector() { echo fixture >> "$WORK/calls"; }; deploy_mock_redstone() { :; }
+issue_sac() { eval "$1=SAC$2"; }; create_market() { :; }; inv() { :; }
+trustline() { echo trustline >> "$WORK/calls"; }; mint_to() { echo mint_to >> "$WORK/calls"; }
+classic_batch() { printf '%s\n' "batch $1 $2 $3 $(($# - 3))" "${@:4}" >> "$WORK/calls"; }
+flow_stress_setup
+''', directory)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            calls = Path(directory, 'calls').read_text().splitlines()
+        batches = [(i, c) for i, c in enumerate(calls) if c.startswith('batch ')]
+        self.assertEqual([c for _, c in batches], ['batch stress_trust_dave change_trust dave 20',
+                                                   'batch stress_trust_carol change_trust carol 20',
+                                                   'batch stress_mint_classic payment admin 40'])
+        self.assertNotIn('trustline', calls)
+        self.assertNotIn('mint_to', calls)
+        self.assertLess(batches[-1][0], calls.index('fixture'))
+        trust = [f'trust:ST{i:02d}:GADMIN' for i in range(20)]
+        self.assertEqual(calls[1:21], trust)
+        self.assertEqual(calls[22:42], trust)
+        self.assertEqual(calls[43:83], [f'pay:{who}:ST{i:02d}:GADMIN:10000000000000' for i in range(20) for who in ('GDAVE', 'GCAROL')])
 
     def test_latest_ledger_rejects_malformed_or_error_responses(self):
         for payload in ('{}', '{"error":{}}', 'garbage', '{"jsonrpc":"2.0","id":1,"result":{"sequence":1.5}}'):

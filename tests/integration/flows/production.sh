@@ -68,9 +68,10 @@ prod_channels() {
     for i in $(seq 1 "$n"); do
         alias="e2e_chan${i}_${RUN_TS}"
         addr=$(stellar keys address "$alias") || { _assert_fail "prod_channel_$i" 'channel key missing'; return 1; }
-        wallet_funded "$addr" "$LOG_DIR/channel_${i}_funding.json" \
-            || { curl -s -m 30 "https://friendbot.stellar.org/?addr=$addr" >/dev/null 2>&1; wallet_funded "$addr" "$LOG_DIR/channel_${i}_funding.json"; } \
-            || { _assert_fail "prod_channel_$i" 'channel funding not confirmed (minimum 100 XLM)'; return 1; }
+        wallet_funded "$addr" "$LOG_DIR/channel_${i}_funding.json" || friendbot_fund "$alias" || {
+            [ $? -ne 2 ] || { _assert_fail "prod_channel_$i" 'no friendbot slot free within 300 s'; return 1; }
+            _assert_fail "prod_channel_$i" 'channel funding not confirmed (minimum 100 XLM)'; return 1
+        }
         chans="$chans $alias"
     done
     save_state PROD_CHANNELS "${chans# }"
@@ -189,7 +190,7 @@ flow_production_fixtures() {
         id=$(sanitize_output "$LOG_DIR/fixture_$n.out")
         is_contract_id "$id" || return 1
         jq --arg o "$original" --arg i "$id" '.[$o]=$i' "$mapping" > "$mapping.tmp" && mv "$mapping.tmp" "$mapping"
-        record "production_fixture_$n" ok deploy "" "" "" "" "" "$kind $original -> $id (fixture)"
+        record "production_fixture_$n" ok deploy "$(extract_signing_hash "$LOG_DIR/fixture_$n.err")" "$RES_INSTR" "$RES_READ" "$RES_WRITE" "$RES_FEE" "$kind $original -> $id (fixture)" deployment "$id"
     done < <(jq -c 'to_entries[]' "$plan")
     python3 "$INTEG_DIR/production_config.py" materialize "$REPO_ROOT/configs/mainnet" "$RUN_DIR/config/testnet" "$mapping" || return 1
     local fixtures="$RUN_DIR/config/testnet/fixtures.json" seed price

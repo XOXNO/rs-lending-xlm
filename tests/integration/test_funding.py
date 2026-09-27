@@ -23,7 +23,7 @@ with tempfile.TemporaryDirectory() as directory:
     script = r'''set -uo pipefail
 source "$1/lib/assets.sh"
 INTEG_DIR="$2"; LOG_DIR="$2"; RPC_URL=unused; XLM_SAC=X; AGGREGATOR=A
-label="$3"; mode="$4"
+label="$3"; mode="$4"; RUN_TS="$5"
 _assert_fail() { echo "$*" >&2; return 1; }
 record() { echo "$*" >> "$LOG_DIR/failures"; }
 extract_signing_hash() { cat "$1"; }
@@ -57,8 +57,8 @@ inv() {
 swap_xlm_to wallet addr token 1 "$label"
 '''
     (root / 'ledger').write_text('100')
-    def launch(label, mode='ok'):
-        return subprocess.Popen(['bash', '-c', script, '_', str(HERE), directory, label, mode], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
+    def launch(label, mode='ok', lane='lane-a'):
+        return subprocess.Popen(['bash', '-c', script, '_', str(HERE), directory, label, mode, lane], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
     def reached(label, stage='quoted'):
         for _ in range(200):
             if (root / f'{label}.{stage}').exists():
@@ -82,14 +82,21 @@ swap_xlm_to wallet addr token 1 "$label"
     out, err = after.communicate(timeout=5)
     assert after.returncode == 1 and 'unresolved' in err, out + err
     assert not (root / 'after-cancel.quoted').exists(), 'quote raced potentially pending submission'
-    assert (root / 'runs/.external-funding.pending.json').exists()
+    assert (root / 'runs/.external-funding.lane-a.pending.json').exists()
+    other = launch('other-lane', lane='lane-b')
+    out, err = other.communicate(timeout=5)
+    assert other.returncode == 0 and (root / 'other-lane.quoted').exists(), out + err
+    assert not (root / 'runs/.external-funding.lane-b.pending.json').exists()
+    again = launch('again')
+    out, err = again.communicate(timeout=5)
+    assert again.returncode == 1 and 'earlier funding submission unresolved' in err, out + err
     for mode in ('rpc_transport', 'rpc_empty', 'rpc_error', 'rpc_string'):
         failed_rpc = root / mode
         (failed_rpc / 'runs').mkdir(parents=True)
-        result = subprocess.run(['bash', '-c', script, '_', str(HERE), str(failed_rpc), 'rpc', mode], capture_output=True, text=True, timeout=5)
+        result = subprocess.run(['bash', '-c', script, '_', str(HERE), str(failed_rpc), 'rpc', mode, 'lane-a'], capture_output=True, text=True, timeout=5)
         assert result.returncode == 1 and 'funding ledger' in result.stderr, result.stderr
         assert not (failed_rpc / 'rpc.quoted').exists()
-        assert not (failed_rpc / 'runs/.external-funding.pending.json').exists()
+        assert not (failed_rpc / 'runs/.external-funding.lane-a.pending.json').exists()
 
     # Actual quote helper: save stale attempts, then accept fresh; never accept
     # malformed or permanently stale snapshots, and keep route encoding intact.
@@ -144,3 +151,105 @@ if flow_fund_usdc; then exit 1; fi
 ''', HERE, root, fail)
         assert (root / 'steps').read_text().splitlines() == steps[:index + 1]
 print('Funding lock, cancellation, quote freshness, no-resubmit and prerequisite regressions passed')
+
+FRIENDBOT = r"""set -uo pipefail
+source "$1/lib/core.sh"; source "$1/lib/wallet.sh"
+INTEG_DIR="$2"; RUN_DIR="$2"; LOG_DIR="$2/logs"; ACTIONS_TSV="$2/actions.tsv"; PHASE=test; RUN_TS=t; NET_ARGS=(--rpc-url x)
+mkdir -p "$LOG_DIR"; printf 'header\n' > "$ACTIONS_TSV"
+backoff_sleep() { [ -z "${HANG:-}" ] || { echo "sleep ${3:-20} $(cat "$RUN_DIR/clock")" >> "$RUN_DIR/waits"; echo $(( $(cat "$RUN_DIR/clock") + ${3:-20} )) > "$RUN_DIR/clock"; }; }
+date() {
+    [ "$1" = +%s ] || { command date "$@"; return; }
+    local now; now=$(( $(cat "$RUN_DIR/clock" 2>/dev/null || echo 1000) + 10 )); echo "$now" > "$RUN_DIR/clock"; echo "$now"
+}
+stellar() {
+    case "$1 $2" in
+        'keys address') [ -f "$RUN_DIR/key.$3" ] && echo "G$3" || return 1;;
+        'keys generate') touch "$RUN_DIR/key.$3";;
+    esac
+}
+curl() {
+    local url n code m='' prev=''; for url; do [ "$prev" != -m ] || m="$url"; prev="$url"; done
+    if [ -n "${HANG:-}" ]; then
+        echo "curl $m $(cat "$RUN_DIR/clock")" >> "$RUN_DIR/waits"; echo $(( $(cat "$RUN_DIR/clock") + (m < HANG ? m : HANG) )) > "$RUN_DIR/clock"
+        case "$url" in *friendbot*) printf '000';; esac
+        return 28
+    fi
+    case "$url" in
+        *friendbot*)
+            echo "start ${url##*=}" >> "$RUN_DIR/span"
+            n=$(( $(cat "$RUN_DIR/${url##*=}.fb" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$RUN_DIR/${url##*=}.fb"
+            code=$(sed -n "${n}p" "$RUN_DIR/codes"); code="${code:-429}"
+            [ -z "${SPAN:-}" ] || sleep "$SPAN"
+            echo "end ${url##*=}" >> "$RUN_DIR/span"
+            printf '%s' "$code";;
+        *horizon*)
+            n=$(( $(cat "$RUN_DIR/${url##*/}.hz" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$RUN_DIR/${url##*/}.hz"
+            [ "$n" -ge "$FUNDED_AT" ] || return 22
+            echo '{"balances":[{"asset_type":"native","balance":"10000.0"}]}';;
+    esac
+}
+"""
+
+def friendbot(directory, body, codes, funded_at, **env):
+    (Path(directory) / 'codes').write_text(''.join(c + '\n' for c in codes))
+    return subprocess.run(['bash', '-c', FRIENDBOT + body, '_', str(HERE), directory], capture_output=True, text=True, timeout=30,
+                          env=dict(os.environ, FUNDED_AT=str(funded_at), **env))
+
+for codes, funded_at, succeeds in [(['429', '429', '200'], 3, True), (['403'], 99, False)]:
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        result = friendbot(directory, 'friendbot_fund alice', codes, funded_at)
+        assert (result.returncode == 0) == succeeds, result.stderr
+        assert (root / 'logs/friendbot_alice.codes').read_text().split() == codes
+        assert (root / 'Galice.hz').read_text().strip() == str(len(codes))
+for code in ['200', '400']:
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        result = friendbot(directory, 'friendbot_fund alice', [code], 3)
+        assert result.returncode == 0, (code, result.stderr)
+        assert (root / 'logs/friendbot_alice.codes').read_text().split() == [code]
+        assert (root / 'Galice.hz').read_text().strip() == '3'
+with tempfile.TemporaryDirectory() as directory:
+    root = Path(directory)
+    result = friendbot(directory, 'friendbot_fund alice', ['200'], 999)
+    assert result.returncode == 1 and (root / 'logs/friendbot_alice.codes').read_text().split() == ['200'], result.stderr
+    assert int((root / 'Galice.hz').read_text()) > 1
+with tempfile.TemporaryDirectory() as directory:
+    root = Path(directory)
+    for hang, kinds in [('999', {'curl'}), ('5', {'curl', 'sleep'})]:
+        (root / 'clock').unlink(missing_ok=True); (root / 'waits').unlink(missing_ok=True)
+        result = friendbot(directory, 'friendbot_fund alice', [], 999, HANG=hang)
+        waits = [line.split() for line in (root / 'waits').read_text().splitlines()]
+        assert result.returncode == 1 and waits[0] == ['curl', '30', '1020'] and {w[0] for w in waits} == kinds, (hang, result.stderr, waits)
+        assert all(int(m) > 0 and int(at) + int(m) <= 1100 for _, m, at in waits), (hang, waits)
+with tempfile.TemporaryDirectory() as directory:
+    root = Path(directory)
+    result = friendbot(directory, 'new_wallet ALICE alice', [], 999)
+    recorded = (root / 'logs/friendbot_e2e_alice_t.codes').read_text().split()
+    assert result.returncode == 1 and len(recorded) >= 3 and set(recorded) == {'429'}, result.stderr
+    assert 'wallet_alice\tFAIL' in (root / 'actions.tsv').read_text()
+with tempfile.TemporaryDirectory() as directory:
+    root = Path(directory)
+    result = friendbot(directory, 'friendbot_fund alice & a=$!; friendbot_fund bob & b=$!; wait "$a" && wait "$b"', ['200'], 1,
+                       E2E_FRIENDBOT_SLOTS='1', SPAN='0.3')
+    span = [line.split() for line in (root / 'span').read_text().splitlines()]
+    assert result.returncode == 0 and len(span) == 4, (result.stderr, span)
+    assert [s[0] for s in span] == ['start', 'end', 'start', 'end'] and span[0][1] == span[1][1] != span[2][1] == span[3][1], span
+with tempfile.TemporaryDirectory() as directory:
+    root = Path(directory)
+    result = friendbot(directory, 'exec 30>>"$2/held"; new_wallet ALICE alice', ['200'], 1)
+    assert result.returncode == 1 and not (root / 'span').exists(), result.stderr
+    assert (root / 'logs/friendbot_e2e_alice_t.codes').read_text().split() == ['slot-unavailable']
+    assert 'wallet_alice\tFAIL\tfatal' in (root / 'actions.tsv').read_text() and 'no friendbot slot' in (root / 'actions.tsv').read_text()
+with tempfile.TemporaryDirectory() as directory:
+    root = Path(directory)
+    result = friendbot(directory, '''source "$1/flows/production.sh"
+_assert_fail() { printf '%s\\t%s\\n' "$1" "$2" >> "$RUN_DIR/fails"; }
+exec 30>>"$2/held"; prod_channels 1''', ['200'], 999)
+    assert result.returncode == 1 and not (root / 'span').exists(), result.stderr
+    assert (root / 'fails').read_text() == 'prod_channel_1\tno friendbot slot free within 300 s\n', result.stderr
+for slots, valid in [('0', False), ('abc', False), ('6', True)]:
+    result = subprocess.run(['bash', '-c', 'source "$1/env.sh"', '_', str(HERE)], capture_output=True, text=True, timeout=30,
+                            env=dict(os.environ, RUN_TS='t', NETWORK='testnet', E2E_FRIENDBOT_SLOTS=slots))
+    assert (result.returncode == 0) == valid and (valid or 'invalid E2E_FRIENDBOT_SLOTS' in result.stderr), (slots, result.stderr)
+print('Friendbot retries throttling, logs every code, fails closed at the deadline, caps concurrency and refuses an inherited slot fd')

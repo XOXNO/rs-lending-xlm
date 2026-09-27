@@ -1,36 +1,43 @@
 : "${LIQ_UNIT:=10000000}"
-: "${LIQ_CODES:=(LIQA LIQB LIQC LIQD LIQE LIQF LIQG)}"
 
 flow_liq_setup() {
     phase liq_setup
     [ -n "${LIQ_SETUP_DONE:-}" ] && return 0
+    local codes code var sac bonus seed=() trust=() mint=()
+    case "${E2E_LANE:-}" in
+        liq-a) codes="LIQA LIQB LIQE LIQF LIQG" ;;
+        liq-b) codes="LIQA LIQB LIQC LIQD" ;;
+        liq-c) codes="LIQE LIQF" ;;
+        *) codes="LIQA LIQB LIQC LIQD LIQE LIQF LIQG" ;;
+    esac
     deploy_mock_reflector
     deploy_mock_redstone
-    local code var sac
-    for code in "${LIQ_CODES[@]}"; do
+    for code in $codes; do
+        trust+=("trust:$code:$ADMIN_ADDR")
+        mint+=("pay:$BOB_ADDR:$code:$ADMIN_ADDR:$((100000 * LIQ_UNIT))" "pay:$CAROL_ADDR:$code:$ADMIN_ADDR:$((100000 * LIQ_UNIT))")
+    done
+    classic_batch liq_trust_bob change_trust "$BOB" "${trust[@]}" || return 1
+    classic_batch liq_trust_carol change_trust "$CAROL" "${trust[@]}" || return 1
+    classic_batch liq_mint_classic payment "$ADMIN" "${mint[@]}" || return 1
+    for code in $codes; do
         var="SAC_$code"
         issue_sac "$var" "$code"
         sac="${!var}"
-        for w in "$ALICE" "$BOB" "$CAROL"; do
-            trustline "$w" "$code" "$ADMIN_ADDR"
-        done
-        mint_to "$sac" "$code" "$BOB_ADDR"   $((100000 * LIQ_UNIT))
-        mint_to "$sac" "$code" "$CAROL_ADDR" $((100000 * LIQ_UNIT))
-
         dual_px "$sac" "$code" "$WAD" "px_init_$code"
     done
 
-    create_market LIQA "$PRIMARY_HUB_ID" "$SAC_LIQA" 7 "$(oracle_cfg_mock_dual "$SAC_LIQA" LIQA)" "$(asset_config_json 7000 7500 800)"
-    create_market LIQB "$PRIMARY_HUB_ID" "$SAC_LIQB" 7 "$(oracle_cfg_mock_dual "$SAC_LIQB" LIQB)" "$(asset_config_json 7000 7500 800)"
-    create_market LIQC "$PRIMARY_HUB_ID" "$SAC_LIQC" 7 "$(oracle_cfg_mock_dual "$SAC_LIQC" LIQC)" "$(asset_config_json 7000 7500 800)"
-    create_market LIQD "$PRIMARY_HUB_ID" "$SAC_LIQD" 7 "$(oracle_cfg_mock_dual "$SAC_LIQD" LIQD)" "$(asset_config_json 7000 7500 800)"
-    create_market LIQE "$PRIMARY_HUB_ID" "$SAC_LIQE" 7 "$(oracle_cfg_mock_dual "$SAC_LIQE" LIQE)" "$(asset_config_json 7000 7500 200)"
-    create_market LIQF "$PRIMARY_HUB_ID" "$SAC_LIQF" 7 "$(oracle_cfg_mock_dual "$SAC_LIQF" LIQF)" "$(asset_config_json 7000 7500 200)"
-    create_market LIQG "$PRIMARY_HUB_ID" "$SAC_LIQG" 7 "$(oracle_cfg_mock_dual "$SAC_LIQG" LIQG)" "$(asset_config_json 7000 7500 800)"
+    for code in $codes; do
+        var="SAC_$code"
+        sac="${!var}"
+        bonus=800
+        case "$code" in LIQE|LIQF) bonus=200 ;; esac
+        create_market "$code" "$PRIMARY_HUB_ID" "$sac" 7 "$(oracle_cfg_mock_dual "$sac" "$code")" "$(asset_config_json 7000 7500 "$bonus")"
+        case "$code" in LIQB|LIQD|LIQF) seed+=("$sac" $((50000 * LIQ_UNIT))) ;; esac
+    done
 
     inv liq_seed_liquidity "$CAROL" "$CONTROLLER" -- supply \
         --caller "$CAROL_ADDR" --account_id 0 --spoke_id "$PRIMARY_SPOKE_ID" \
-        --assets "$(pay_vec "$PRIMARY_HUB_ID" "$SAC_LIQB" $((50000 * LIQ_UNIT)) "$SAC_LIQD" $((50000 * LIQ_UNIT)) "$SAC_LIQF" $((50000 * LIQ_UNIT)))" >/dev/null || return 1
+        --assets "$(pay_vec "$PRIMARY_HUB_ID" "${seed[@]}")" >/dev/null || return 1
     save_state LIQ_SETUP_DONE 1
 }
 

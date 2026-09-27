@@ -15,7 +15,7 @@ source "$INTEG_DIR/flows/lifecycle.sh"
 source "$INTEG_DIR/flows/flash_position.sh"
 source "$INTEG_DIR/flows/teardown.sh"
 
-E2E_LANE="${E2E_LANE:-flash}"
+E2E_LANE="${E2E_LANE:-flash-a}"
 init_run
 if [ -f "$INTEG_DIR/appendix.md" ]; then
     cp -n "$INTEG_DIR/appendix.md" "$RUN_DIR/appendix.md" 2>/dev/null || cp "$INTEG_DIR/appendix.md" "$RUN_DIR/appendix.md" 2>/dev/null || true
