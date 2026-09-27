@@ -45,7 +45,7 @@ issue_sac() {
 
 classic_batch() {
     local label="$1" fn="$2" signer="$3"; shift 3
-    local base="$LOG_DIR/$label" per_op="${E2E_CLASSIC_OP_FEE:-1000}" count=$# i=0 item kind a b c d addr hash rc=0 st sequence
+    local base="$LOG_DIR/$label" per_op="${E2E_CLASSIC_OP_FEE:-${STELLAR_INCLUSION_FEE:-1000}}" count=$# i=0 item kind a b c d addr hash rc=0 st sequence
     local -a op
     if [ "$count" -lt 1 ] || [ "$count" -gt 40 ] || [[ ! "$per_op" =~ ^[1-9][0-9]{0,6}$ ]]; then
         record "$label" FAIL "$fn" "" "" "" "" "" "classic batch refused: $count items (allowed 1-40), per-op fee '$per_op'"

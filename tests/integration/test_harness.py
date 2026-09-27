@@ -199,6 +199,7 @@ SIGNER = 'GB62OPRQMZDSTWCWFAUJQC2VXN7E53GB5JOHXCZ7UIROO7F4GP4WWWAW'
 ISSUER = 'GCAYNZ74L6MS2GGLNJ65MCTFRBCGFHFBZQFITYITZA2MIPK6WGPNBOSU'
 check_gate()
 CLASSIC = f'''
+unset E2E_CLASSIC_OP_FEE STELLAR_INCLUSION_FEE
 SIGNER_ADDR={SIGNER}; ISSUER={ISSUER}; NETWORK_PASSPHRASE='Test SDF Network ; September 2015'; HASH=$(printf '%064d' 7)
 printf '{{"tx":{{"tx":{{"source_account":"%s","fee":100,"seq_num":"4294967297","cond":"none","memo":"none","operations":[],"ext":"v0"}},"signatures":[]}}}}' \\
     "$SIGNER_ADDR" | command stellar tx encode > "$LOG_DIR/empty.xdr" || exit 90
@@ -246,6 +247,12 @@ assert len(rows) == 1 and (rows[0]['label'], rows[0]['hash'], rows[0]['cli_exit'
 assert datetime.fromisoformat(rows[0]['started_at']) <= datetime.fromisoformat(rows[0]['observed_at'])
 PY
 ''')
+for env, fee in [('STELLAR_INCLUSION_FEE=1000000', 3000000), ('STELLAR_INCLUSION_FEE=1000000 E2E_CLASSIC_OP_FEE=500', 1500)]:
+    shell(CLASSIC + f'''
+LABEL=batch; export {env}
+classic_batch batch change_trust alice trust:USDC:$ISSUER trust:EURC:$ISSUER trust:AQUA:$ISSUER || exit 1
+sends 1 && [ "$(command stellar tx decode < "$LOG_DIR/batch.signed.xdr" | jq .tx.tx.fee)" = {fee} ] || exit 2
+''')
 for mode, env, sent in [('drop', '', 0), ('source', '', 0), ('body', '', 0), ('fee', '', 0), ('', f'KEY_ADDR={ISSUER}', 0),
                         ('', 'STATUS=UNKNOWN', 1), ('', 'STATUS=FAILED', 1), ('', 'SEND_RC=1', 1)]:
     shell(CLASSIC + f'''
@@ -264,8 +271,11 @@ items=(); for n in $(seq 41); do items+=("trust:A$n:$ISSUER"); done
 ! classic_batch batch change_trust alice "${items[@]}" || exit 1
 ! classic_batch empty change_trust alice || exit 2
 ! classic_batch odd change_trust alice "burn:USDC:$ISSUER" || exit 3
+! STELLAR_INCLUSION_FEE=10000000 classic_batch bigfee change_trust alice "trust:USDC:$ISSUER" || exit 5
+! E2E_CLASSIC_OP_FEE=0 classic_batch zerofee change_trust alice "trust:USDC:$ISSUER" || exit 6
 [ ! -e "$LOG_DIR/calls" ] && [ "$(rows batch FAIL change_trust)" = 1 ] && [ "$(rows empty FAIL change_trust)" = 1 ] \\
-    && [ "$(rows odd FAIL change_trust)" = 1 ] || exit 4
+    && [ "$(rows odd FAIL change_trust)" = 1 ] && [ "$(rows bigfee FAIL change_trust)" = 1 ] \\
+    && [ "$(rows zerofee FAIL change_trust)" = 1 ] || exit 4
 ''')
 shell(CLASSIC + '''
 LABEL=mixed
