@@ -488,6 +488,18 @@ while True:
     SLOT_FD="$got"
 }
 
+rpc_hold() {
+    slot_take "$INTEG_DIR/runs/.slots/rpc" "${E2E_RPC_SLOTS:-12}" 150 600
+}
+
+throttle_sleep() {
+    [[ "$1" =~ ^[1-9][0-9]*$ ]] && [ "$1" -le "${THROTTLE_RETRIES:-6}" ] || return 1
+    local s=$((2 << ($1 < 5 ? $1 - 1 : 4)))
+    s=$((s + RANDOM % (s / 2 + 1)))
+    log "rate-limited read; backoff $1 of ${THROTTLE_RETRIES:-6}: ${s}s"
+    sleep "$s"
+}
+
 is_contract_id() { [[ "$1" =~ ^C[A-Z2-7]{55}$ ]]; }
 
 is_wasm_hash() { [[ "$1" =~ ^[0-9a-f]{64}$ ]]; }

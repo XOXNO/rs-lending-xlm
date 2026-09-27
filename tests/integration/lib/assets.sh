@@ -161,8 +161,7 @@ swap_xlm_to() (
     python3 -c 'import fcntl; fcntl.flock(9, fcntl.LOCK_EX)' || { _assert_fail "$label" 'funding lock failed'; return 1; }
     [ ! -e "$pending" ] || { _assert_fail "$label" "earlier funding submission unresolved; reconcile evidence in $pending before removing it"; return 1; }
     # The quote indexer must include trades confirmed by the preceding holder.
-    if ! curl --fail-with-body -sS -m 30 "$RPC_URL" -H 'Content-Type: application/json' \
-        -d '{"jsonrpc":"2.0","id":1,"method":"getLatestLedger"}' >"$LOG_DIR/$label.funding-ledger.json"; then
+    if ! rpc_post 30 '{"jsonrpc":"2.0","id":1,"method":"getLatestLedger"}' >"$LOG_DIR/$label.funding-ledger.json"; then
         _assert_fail "$label" 'funding ledger transport failed'; return 1
     fi
     AGGREGATOR_MIN_LEDGER=$(jq -er 'select(.jsonrpc=="2.0" and .id==1 and (has("error")|not)) | .result.sequence | select(type=="number" and .>0 and floor==.)' \

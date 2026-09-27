@@ -303,8 +303,7 @@ flow_admin_upgrade() {
     xfail nft_renew_missing 'Error\(Contract, #200\)' "$ALICE" "$POSITION_NFT" -- renew --token_id 4000000000
 
     local ledger
-    ledger=$(curl -s -m 30 -X POST "$RPC_URL" -H 'Content-Type: application/json' \
-        -d '{"jsonrpc":"2.0","id":1,"method":"getLatestLedger"}' | jq -r '.result.sequence')
+    ledger=$(latest_ledger) || { _assert_fail ownership_ledger 'latest ledger unavailable'; return 1; }
     # Each leg asserts who holds controller ownership. The controller has no
     # get_owner, so the probe is set_position_limits, an #[only_owner] entry
     # point. The probe re-sets the same valid limits, so it changes nothing.

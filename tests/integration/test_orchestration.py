@@ -138,3 +138,65 @@ for lanes in ['agg','strategies']:
         assert done.returncode==2 and f"unknown lane '{lanes}'" in done.stderr,done.stderr
         assert not (base/'calls').exists() and not (base/'runs').exists(),lanes
 print('Lanes outside the release set exit 2 before any upload')
+
+with tempfile.TemporaryDirectory() as directory:
+    base=Path(directory)
+    scripts,env,wasms=orchestrator(base,LANE_TIMEOUT='30s',E2E_LANE_STAGGER='2')
+    env['E2E_LANES']='agg-core production sdk stress'
+    stub='#!/bin/bash\necho "lane $RUN_TS $(python3 -c "import time; print(time.time())")" >> "$STELLAR_CALLS"\necho "run complete"\n'
+    for name in ['full_e2e.sh','production.sh','sdk.sh']:(scripts/name).write_text(stub)
+    (scripts/'assert_green.sh').write_text('#!/bin/bash\necho "GREEN $RUN_TS"\n')
+    done=subprocess.run(['bash',str(scripts/'parallel_e2e.sh')],env=env,capture_output=True,text=True,timeout=60)
+    assert done.returncode==0,done.stderr
+    started={line.split()[1][len('fixture-'):]:float(line.split()[2]) for line in (base/'calls').read_text().splitlines() if line.startswith('lane ')}
+    assert sorted(started)==['agg-core','production','sdk','stress'],started
+    assert max(started['production'],started['stress'])+1.5<=min(started['agg-core'],started['sdk']),started
+    launched=[line.split("'")[1] for line in done.stderr.splitlines() if 'launching lane' in line]
+    assert launched==['production','stress','agg-core','sdk'],launched
+    gated=[line.split()[1][len('fixture-'):] for line in done.stdout.splitlines() if line.startswith('GREEN ')]
+    assert gated==['agg-core','production','sdk','stress'],gated
+print('Critical lanes start first; the rest start after E2E_LANE_STAGGER; gating keeps lane order')
+
+with tempfile.TemporaryDirectory() as directory:
+    base=Path(directory)
+    scripts,env,wasms=orchestrator(base,LANE_TIMEOUT='60s',E2E_LANE_STAGGER='29')
+    env['E2E_LANES']='agg-core stress'
+    (scripts/'full_e2e.sh').write_text('''#!/bin/bash
+echo "lane $RUN_TS" >> "$STELLAR_CALLS"
+run="$INTEG_DIR/runs/$RUN_TS"
+mkdir -p "$run"
+printf '{"selected_cases":["unfinished"]}' > "$run/metadata.json"
+printf 'id\\tstatus\\tfirst_action\\tlast_action\\n' > "$run/cases.tsv"
+sleep 300 &
+child=$!
+echo "$child" > "$run/child.pid"
+trap 'kill "$child" 2>/dev/null || true; wait "$child" 2>/dev/null; exit 130' TERM INT
+wait "$child"
+''')
+    process=subprocess.Popen(['bash',str(scripts/'parallel_e2e.sh')],env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+    marker=base/'runs/fixture-stress/child.pid'
+    for _ in range(1000):
+        if marker.exists():break
+        if process.poll() is not None:raise AssertionError(process.communicate())
+        time.sleep(.02)
+    time.sleep(.5)
+    cancelled=time.monotonic()
+    process.send_signal(signal.SIGTERM)
+    out,err=process.communicate(timeout=15)
+    assert process.returncode==130 and time.monotonic()-cancelled<10,(process.returncode,err)
+    assert 'other lanes start in 29s' in err and "launching lane 'agg-core'" not in err,err
+    for _ in range(100):
+        if subprocess.run(['pgrep','-fx','sleep 29'],capture_output=True).returncode==1:break
+        time.sleep(.02)
+    else:raise AssertionError('the stagger sleep outlives the cancelled orchestrator')
+    assert not (base/'runs/fixture-agg-core').exists() and 'lane fixture-agg-core' not in (base/'calls').read_text()
+    assert 'incomplete' in (base/'runs/fixture-stress/cases.tsv').read_text()
+print('Cancellation during the stagger delay stops at once, reaps started lanes and never starts the rest')
+
+for bad in ['-1','x','12345']:
+    with tempfile.TemporaryDirectory() as directory:
+        base=Path(directory)
+        scripts,env,wasms=orchestrator(base,LANE_TIMEOUT='1s',E2E_LANE_STAGGER=bad)
+        done=subprocess.run(['bash',str(scripts/'parallel_e2e.sh')],env=env,capture_output=True,text=True,timeout=30)
+        assert done.returncode==2 and 'invalid E2E_LANE_STAGGER' in done.stderr and not (base/'calls').exists(),done.stderr
+print('An invalid E2E_LANE_STAGGER exits 2 before any upload')

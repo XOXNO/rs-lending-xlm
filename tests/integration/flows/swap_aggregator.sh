@@ -133,7 +133,7 @@ flow_swap_aggregator_admin() {
     candidate_hash=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["artifacts"]["aggregator.wasm"])' "$RUN_DIR/candidate.json") || return 1
     inv sa_upgrade "$ADMIN" "$agg" -- upgrade --new_wasm_hash "$candidate_hash" >/dev/null || return 1
     assert_view_eq_at "$agg" sa_upgrade_fee 50 static_fee_bps || return 1
-    ledger=$(curl --fail-with-body -sS -m 30 "$RPC_URL" -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"getLatestLedger"}' | jq -er '.result.sequence') || return 1
+    ledger=$(latest_ledger) || return 1
     inv sa_transfer_owner "$ADMIN" "$agg" -- transfer_ownership --new_owner "$BOB_ADDR" --live_until_ledger "$((ledger+1000))" >/dev/null || return 1
     inv sa_accept_owner "$BOB" "$agg" -- accept_ownership >/dev/null || return 1
     assert_view_eq_at "$agg" sa_new_owner "$BOB_ADDR" get_owner || return 1

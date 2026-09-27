@@ -275,7 +275,7 @@ flow_stress_liq_frontier || exit 4
         for payload in ('{}', '{"error":{}}', 'garbage', '{"jsonrpc":"2.0","id":1,"result":{"sequence":1.5}}',
                         '{"jsonrpc":"2.0","id":1,"result":{"sequence":42}}'):
             with self.subTest(payload=payload), tempfile.TemporaryDirectory() as directory:
-                result = self.run_shell('source "${FLOW%/flows/stress.sh}/lib/invoke.sh"; RPC_URL=rpc; curl() { printf "%s" "$PAYLOAD"; }; latest_ledger',
+                result = self.run_shell('for f in core invoke; do source "${FLOW%/flows/stress.sh}/lib/$f.sh"; done; INTEG_DIR="$WORK"; RPC_URL=rpc; curl() { printf "%s\\n200" "$PAYLOAD"; }; latest_ledger',
                                         directory, PAYLOAD=payload)
                 if '42' in payload:
                     self.assertEqual((result.returncode, result.stdout), (0, '42\n'), result.stderr)

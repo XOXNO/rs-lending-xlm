@@ -4,6 +4,8 @@ DEPLOY_PROPAGATION_RE='Contract not found|non-existing value for contract instan
 
 PRESIGN_RE='(^|[^0-9a-fA-F])429([^0-9a-fA-F]|$)|Too Many Requests|preflight queue full|rejected .?50[0-9]|status_code: 50[0-9]|timed out|connection (reset|refused)'
 
+THROTTLE_RE='(^|[^0-9a-fA-F])429([^0-9a-fA-F]|$)|Too Many Requests'
+
 INV_MAX_ATTEMPTS="${INV_MAX_ATTEMPTS:-8}"
 DEPLOY_MAX_ATTEMPTS="${DEPLOY_MAX_ATTEMPTS:-8}"
 XFAIL_MAX_ATTEMPTS="${XFAIL_MAX_ATTEMPTS:-5}"
@@ -24,9 +26,25 @@ sim_hold() {
     slot_take "$INTEG_DIR/runs/.slots/sim" "${E2E_SIM_SLOTS:-16}" 20 600
 }
 
+rpc_curl() {
+    ( rpc_hold || { echo 'error: no RPC slot free within 600 s' >&2; exit 1; }; curl "$@" )
+}
+
+rpc_post() {
+    local n=0 out code
+    while :; do
+        out=$(rpc_curl -sS -m "$1" -X POST "$RPC_URL" -H 'Content-Type: application/json' -d "$2" -w '\n%{http_code}') || out=$'\n000'
+        code="${out##*$'\n'}"
+        [ "$code" = 429 ] || break
+        n=$((n + 1))
+        throttle_sleep "$n" || break
+    done
+    printf '%s\n' "${out%$'\n'*}"
+    [ "$code" = 200 ]
+}
+
 latest_ledger() {
-    curl --fail-with-body -sS -m "${1:-30}" "$RPC_URL" -H 'Content-Type: application/json' \
-        -d '{"jsonrpc":"2.0","id":1,"method":"getLatestLedger"}' \
+    rpc_post "${1:-30}" '{"jsonrpc":"2.0","id":1,"method":"getLatestLedger"}' \
         | jq -er 'select(.jsonrpc=="2.0" and .id==1 and (has("error")|not)) | .result.sequence | select(type=="number" and .>0 and floor==.)'
 }
 
@@ -153,8 +171,7 @@ tx_status() {
     [[ "$hash" =~ ^[0-9a-f]{64}$ ]] || return 1
     for attempt in 1 2 3 4 5; do
         resp="$LOG_DIR/$hash.receipt.$attempt.json"
-        if curl --fail-with-body -sS -m 30 -X POST "$RPC_URL" -H 'Content-Type: application/json' \
-            -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getTransaction\",\"params\":{\"hash\":\"$hash\"}}" >"$resp" \
+        if rpc_post 30 "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getTransaction\",\"params\":{\"hash\":\"$hash\"}}" >"$resp" \
             && jq -e '.jsonrpc == "2.0" and .id == 1 and (has("error") | not) and (.result | type == "object")' "$resp" >/dev/null; then
             st=$(jq -r '.result.status' "$resp")
             case "$st" in
@@ -380,7 +397,7 @@ view_body() {
     local attempt rc sequence
     sequence=$(next_seq)
     for attempt in $(seq 1 "$INV_MAX_ATTEMPTS"); do
-        [ "$attempt" -gt 1 ] && backoff_sleep "$attempt"
+        [ "$attempt" -gt 1 ] && { grep -qE "$THROTTLE_RE" "$err_f" && throttle_sleep "$((attempt - 1))" || backoff_sleep "$attempt"; }
         rc=0
         begin_attempt "$label" "$fn" "$sequence" "$attempt" "$out_f" "$err_f" "$contract" || return 1
         stellar contract invoke --id "$contract" --source "$ADMIN" "${NET_ARGS[@]}" --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --send=no -- "$@" \
@@ -415,8 +432,7 @@ sim_probe() {
         record "$label" FAIL "$fn" "" "" "" "" "" "build-only failed"
         return 1
     fi
-    if ! curl --fail-with-body -sS -m 60 -X POST "$RPC_URL" -H 'Content-Type: application/json' \
-        -d "$(jq -n --argjson leeway "${INSTRUCTION_LEEWAY:-20000000}" --rawfile tx "$tx_f" '{jsonrpc:"2.0",id:1,method:"simulateTransaction",params:{transaction:($tx|rtrimstr("\n")),resourceConfig:{instructionLeeway:$leeway}}}')" \
+    if ! rpc_post 60 "$(jq -n --argjson leeway "${INSTRUCTION_LEEWAY:-20000000}" --rawfile tx "$tx_f" '{jsonrpc:"2.0",id:1,method:"simulateTransaction",params:{transaction:($tx|rtrimstr("\n")),resourceConfig:{instructionLeeway:$leeway}}}')" \
         >"$sim_f" || ! jq -e '.jsonrpc == "2.0" and .id == 1 and (has("error") | not) and (.result | type == "object")' "$sim_f" >/dev/null; then
         record "$label" FAIL "$fn" "" "" "" "" "" "invalid simulation transport or JSON-RPC response"
         return 1
@@ -455,7 +471,7 @@ sim_probe() {
 }
 
 verify_deployed_wasm() {
-    local result="$1" wasm="" previous="" arg id fetched attempt fetched_ok=0
+    local result="$1" wasm="" previous="" arg id fetched attempt=0 throttled=0 fetched_ok=0
     shift
     for arg in "$@"; do
         [ "$previous" != --wasm ] || wasm="$arg"
@@ -471,15 +487,19 @@ PYHASH
         return $?
     fi
     is_contract_id "$id" || return 1
-    for attempt in 1 2 3; do
+    while :; do
+        attempt=$((attempt + 1))
         fetched="$LOG_DIR/$id.fetch$attempt.wasm"
         rm -f "$fetched"
         if stellar contract fetch --id "$id" "${NET_ARGS[@]}" --out-file "$fetched" \
             > "$LOG_DIR/$id.fetch$attempt.out" 2> "$LOG_DIR/$id.fetch$attempt.err" && [ -f "$fetched" ]; then
             fetched_ok=1; break
         fi
-        [ "$attempt" -lt 3 ] && grep -qE "$RPC_TRANSIENT_RE|Connect" "$LOG_DIR/$id.fetch$attempt.err" || break
-        backoff_sleep "$((attempt+1))" 2 4
+        if grep -qE "$THROTTLE_RE" "$LOG_DIR/$id.fetch$attempt.err" && throttle_sleep "$((throttled + 1))"; then
+            throttled=$((throttled + 1)); continue
+        fi
+        [ "$((attempt - throttled))" -lt 3 ] && grep -qE "$RPC_TRANSIENT_RE|Connect" "$LOG_DIR/$id.fetch$attempt.err" || break
+        backoff_sleep "$((attempt - throttled + 1))" 2 4
     done
     if [ "$fetched_ok" -ne 1 ]; then
         record deployed_fetch FAIL deploy "" "" "" "" "" "unable to fetch $id candidate bytecode: $(tail_err_note "$LOG_DIR/$id.fetch$attempt.err")"

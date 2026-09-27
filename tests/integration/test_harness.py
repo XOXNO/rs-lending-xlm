@@ -21,7 +21,7 @@ source "{HERE}/lib/core.sh"
 source "{HERE}/lib/invoke.sh"
 source "{HERE}/lib/assert.sh"
 source "{HERE}/lib/assets.sh"
-LOG_DIR={directory}; RUN_DIR={directory}; ACTIONS_TSV={directory}/actions.tsv
+LOG_DIR={directory}; RUN_DIR={directory}; INTEG_DIR={directory}; ACTIONS_TSV={directory}/actions.tsv
 PHASE=test; ADMIN=admin; RPC_URL=unused; NET_ARGS=(--network testnet)
 printf 'seq\\tphase\\tlabel\\tstatus\\tfn\\thash\\tinstructions\\tread_bytes\\twrite_bytes\\tresource_fee\\tnote\\n' > "$ACTIONS_TSV"
 backoff_sleep() {{ :; }}
@@ -300,7 +300,7 @@ shell('stellar() { echo 1; }; if inv missing admin contract -- supply; then exit
 for payload in ['', '{}', '{', '{"error":{"code":-1}}', '{"jsonrpc":"2.0","id":1,"result":{}}']:
     shell('''
 stellar() { echo invalid; }
-curl() { printf '%s' PAYLOAD; }
+curl() { printf '%s\n200' PAYLOAD; }
 if sim_probe bad admin contract -- supply; then exit 1; fi
 [ "$PROBE_STATUS" = error ] && grep -q FAIL "$ACTIONS_TSV"
 '''.replace('PAYLOAD', "'" + payload + "'"))

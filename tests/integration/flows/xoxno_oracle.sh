@@ -259,7 +259,7 @@ flow_xoxno_oracle() {
     inv xo_purge_xlmx "$ADMIN" "$XO" -- purge_feed --feed_id XLMX >/dev/null
     xfail xo_purge_gone 'Error\(Contract, #14\)' "$ADMIN" "$XO" -- purge_feed --feed_id XLMX
     local ledger
-    ledger=$(curl --fail-with-body -sS -m 30 "$RPC_URL" -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"getLatestLedger"}' | jq -er '.result.sequence') || return 1
+    ledger=$(latest_ledger) || return 1
     inv xo_transfer_owner "$ADMIN" "$XO" -- transfer_ownership --new_owner "$BOB_ADDR" --live_until_ledger "$((ledger+1000))" >/dev/null || return 1
     inv xo_accept_owner "$BOB" "$XO" -- accept_ownership >/dev/null || return 1
     assert_view_eq_at "$XO" xo_new_owner "$BOB_ADDR" get_owner || return 1

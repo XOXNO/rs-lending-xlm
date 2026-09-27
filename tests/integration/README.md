@@ -45,6 +45,16 @@ python3 tests/integration/gate.py tests/integration/runs/<base>-liq-a
 python3 tests/integration/release_gate.py collect tests/integration/runs <base>
 ```
 
+All lanes share one RPC budget. `env.sh` puts `bin/stellar` first on `PATH`,
+so each network CLI call, `configs/script.sh` calls included, and each
+JSON-RPC `curl` holds one of `E2E_RPC_SLOTS` (default 12) runner-wide slots in
+`runs/.slots/rpc.*`. Local verbs (`keys`, `xdr`, `tx sign|hash|decode|encode|op`,
+`contract id|alias`, `version`) do not take a slot. A read that gets HTTP 429
+backs off exponentially with jitter, at most `THROTTLE_RETRIES` (default 6)
+times. A signed send that gets 429 stays `UNKNOWN` and fails. `parallel_e2e.sh`
+starts `production` and `stress` first and the other lanes
+`E2E_LANE_STAGGER` seconds later (default 60).
+
 Do not edit scripts during a live run: Bash may read their remaining contents
 later. Use an immutable checkout or a copied harness for concurrent development.
 GitHub run IDs include `run_attempt`. Reusing a local ID requires explicit

@@ -416,8 +416,8 @@ echo 0 > "$count"; READY_AT="$1"; start=$(date +%s); out=$(gov_await_ready op "$
 RUN_DIR="$1"; LOG_DIR="$1"; INTEG_DIR="$1"; RUN_TS=t; NET_ARGS=(--rpc-url x); save_state() { :; }; die() { exit 9; }
 stellar() { case "$1 $2" in 'keys address') [ -f "$RUN_DIR/key.$3" ] && echo "G$3" || return 1;; 'keys generate') sleep 1; touch "$RUN_DIR/key.$3";; esac; }
 curl() { local url; for url; do :; done; echo "$url" >> "$RUN_DIR/curl"
-  case "$url" in *friendbot*) touch "$RUN_DIR/funded"; printf 200;; *horizon*) [ -f "$RUN_DIR/funded" ] || [ -z "${UNFUNDED:-}" ] || return 22
-  echo '{"balances":[{"asset_type":"native","balance":"10000.0"}]}';; esac; }
+  case "$url" in *friendbot*) touch "$RUN_DIR/funded"; printf 200;; *horizon*) [ -f "$RUN_DIR/funded" ] || [ -z "${UNFUNDED:-}" ] || { printf 404; return 22; }
+  echo '{"balances":[{"asset_type":"native","balance":"10000.0"}]}' > "$6"; printf 200;; esac; }
 start=$(date +%s); prefund_wallets admin alice bob carol dave; echo "$(( $(date +%s) - start ))" > "$RUN_DIR/prefund"
 new_wallet ADMIN admin'''
             result=shell('lib/wallet.sh',body,d,str(HERE))

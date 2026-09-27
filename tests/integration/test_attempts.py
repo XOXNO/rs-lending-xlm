@@ -3,8 +3,10 @@
 import csv
 import json
 import os
+import shutil
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 
 import gate
@@ -1214,3 +1216,162 @@ if inv_owner lbl contract -- create_liquidity_pool >/dev/null; then exit 1; fi
 ''')
 assert [(a['status'], a['hash']) for a in actions] == [('FAIL', '0'*63+'1')], actions
 print('owner_submit signs the owner entry from stdin, logs its hash before one send, recovers the receipt value and never re-signs after a FAILED receipt')
+
+THROTTLED = r'''
+INTEG_DIR="$RUN_DIR"
+sleep() { echo "$1" >> "$RUN_DIR/slept"; }
+H=$(printf '%064d' 5)
+curl() {
+    local n; n=$(( $(cat "$RUN_DIR/curls" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$RUN_DIR/curls"
+    if [ "$n" -le "${CURL_429:-0}" ]; then printf '{"error":"rate_limited","retry_after":60}\n429'; return; fi
+    case "$*" in
+        *getLatestLedger*) printf '{"jsonrpc":"2.0","id":1,"result":{"sequence":100}}\n200';;
+        *getTransaction*)
+            if [ -n "${LANDED:-}" ]; then
+                printf '{"jsonrpc":"2.0","id":1,"result":{"status":"SUCCESS","txHash":"%s","ledger":9,"envelopeXdr":"e","resultXdr":"r","resultMetaXdr":"m"}}\n200' "$H"
+            else
+                printf '{"jsonrpc":"2.0","id":1,"result":{"status":"NOT_FOUND","latestLedger":9}}\n200'
+            fi;;
+    esac
+}
+backoffs() {
+    set -- $(cat "$RUN_DIR/slept" 2>/dev/null)
+    [ "$#" -ge "$BACKOFFS" ] || return 1
+    local n=0 s low
+    for s; do
+        n=$((n + 1)); [ "$n" -le "$BACKOFFS" ] || break
+        low=$((2 << (n - 1))); [ "$s" -ge "$low" ] && [ "$s" -le $((low + low / 2)) ] || return 1
+    done
+}
+'''
+shell(THROTTLED + r'''
+CURL_429=2 LANDED=1 BACKOFFS=2
+[ "$(tx_status "$H")" = SUCCESS ] && [ "$(cat "$RUN_DIR/curls")" = 3 ] && [ -s "$LOG_DIR/$H.receipt.json" ] || exit 1
+backoffs && [ "$(wc -l < "$RUN_DIR/slept")" -eq 2 ] || exit 2
+''')
+shell(THROTTLED + r'''
+CURL_429=1 BACKOFFS=1
+[ "$(latest_ledger 5)" = 100 ] && [ "$(cat "$RUN_DIR/curls")" = 2 ] && backoffs || exit 1
+''')
+shell(THROTTLED + r'''
+CURL_429=99 THROTTLE_RETRIES=3 BACKOFFS=3
+if latest_ledger 5; then exit 1; fi
+[ "$(cat "$RUN_DIR/curls")" = 4 ] && backoffs && [ "$(wc -l < "$RUN_DIR/slept")" -eq 3 ] || exit 2
+''')
+attempts, _, actions = shell(THROTTLED + r'''
+BACKOFFS=1 n=0
+stellar() { n=$((n+1)); if [ "$n" = 1 ]; then echo '❌ error: Request rejected `429`' >&2; return 1; fi; echo '"7"'; }
+[ "$(view throttled contract -- balance)" = '"7"' ] && backoffs || exit 1
+n=0; rm "$RUN_DIR/slept"
+stellar() { n=$((n+1)); if [ "$n" = 1 ]; then echo "error: tx ab4290cd rejected" >&2; return 1; fi; echo '"8"'; }
+[ "$(view hexsafe contract -- balance)" = '"8"' ] && [ ! -e "$RUN_DIR/slept" ] || exit 2
+''')
+assert [(a['label'], a['cli_exit']) for a in attempts] == [('throttled', 1), ('throttled', 0), ('hexsafe', 1), ('hexsafe', 0)], attempts
+assert [(a['label'], a['status']) for a in actions] == [('throttled', 'read'), ('hexsafe', 'read')], actions
+for always in (False, True):
+    attempts, _, actions = shell(THROTTLED + r'''
+BACKOFFS=2 n=0
+id=CAFVLWR3CPMH4CYZDJOKNK2FIJ54RR5PSADCQEBNFFDB3SBASL6EBQHD
+printf '%s' "$id" > "$LOG_DIR/id.out"; printf candidate > "$LOG_DIR/candidate.wasm"
+stellar() {
+    n=$((n+1))
+    if [ "$n" -le ALWAYS ]; then echo '❌ error: Request rejected `429`' >&2; return 1; fi
+    local last=''; for last in "$@"; do :; done
+    printf candidate > "$last"
+}
+rc=0; verify_deployed_wasm "$LOG_DIR/id.out" --wasm "$LOG_DIR/candidate.wasm" || rc=$?
+backoffs && [ -s "$LOG_DIR/$id.fetch1.err" ] && [ -s "$LOG_DIR/$id.fetch2.err" ] || exit 1
+if [ ALWAYS = 2 ]; then [ "$rc" = 0 ] && [ "$n" = 3 ] && [ -s "$LOG_DIR/$id.deployed.wasm" ] || exit 2
+else [ "$rc" != 0 ] && [ "$n" = 7 ] && [ "$(wc -l < "$RUN_DIR/slept")" -eq 6 ] || exit 3; fi
+'''.replace('ALWAYS', '99' if always else '2'))
+    assert [a['status'] for a in actions] == ([] if not always else ['FAIL']), actions
+    assert not always or actions[0]['label'] == 'deployed_fetch' and '429' in actions[0]['note'], actions
+print('HTTP 429 on getTransaction, getLatestLedger, a view and a bytecode fetch backs off exponentially, bounded, hex-safe')
+
+attempts, _, actions = shell(THROTTLED + r'''
+CURL_429=1 n=0
+stellar() { n=$((n+1)); echo "Signing transaction: $H" >&2; echo '❌ error: Request rejected `429`' >&2; return 1; }
+if inv sent admin contract -- supply; then exit 1; fi
+[ "$n" = 1 ] || exit 2
+cli_deploy() { n=$((n+1)); echo "Signing transaction: $H" >&2; echo '❌ error: Request rejected `429`' >&2; return 1; }
+if run_deploy "$LOG_DIR/deploy.out" "$LOG_DIR/deploy.err" -- cli_deploy; then exit 3; fi
+[ "$n" = 2 ] && [ "$DEPLOY_ATTEMPTS" = 1 ] && [ ! -s "$LOG_DIR/deploy.out" ] || exit 4
+''')
+assert [(a['label'], a['hash']) for a in attempts] == [('sent', '0'*63+'5'), ('deploy', '0'*63+'5')], attempts
+assert [(a['label'], a['status']) for a in actions] == [('sent', 'FAIL'), ('deployment_receipt', 'FAIL')], actions
+assert all('status=UNKNOWN' in a['note'] for a in actions), actions
+attempts, _, actions = shell(OWNER_SETUP + THROTTLED + r'''
+eval "base_$(declare -f stellar)"
+stellar() {
+    if [ "$1 $2" = 'tx send' ]; then base_stellar "$@" >/dev/null || return; echo '❌ error: Request rejected `429`' >&2; return 1; fi
+    base_stellar "$@"
+}
+H=$(printf '%064d' 1)
+if inv_owner lbl contract -- create_liquidity_pool >/dev/null; then exit 1; fi
+[ "$(cat "$RUN_DIR/sends")" = "$H" ] && [ "$(built)" = 1 ] && [ ! -e "$RUN_DIR/recover" ] || exit 2
+''')
+assert [(a['status'], a['hash']) for a in actions] == [('FAIL', '0'*63+'1')], actions
+assert 'status=UNKNOWN' in actions[0]['note'], actions
+print('A signed send rejected with 429 stays UNKNOWN: one send, no rebuild, sticky FAIL (inv, run_deploy, owner_submit)')
+
+with tempfile.TemporaryDirectory() as directory:
+    root = Path(directory)
+    (root/'bin').mkdir(); (root/'lib').mkdir()
+    shutil.copy2(HERE/'bin/stellar', root/'bin/stellar')
+    shutil.copy2(HERE/'lib/core.sh', root/'lib/core.sh')
+    real = root/'real-stellar'
+    real.write_text('#!/bin/bash\n[ "$1" != keys ] || { echo local >> "$SPAN"; exit 0; }\necho + >> "$SPAN"; sleep 0.3; echo - >> "$SPAN"\n')
+    quick = root/'quick-stellar'
+    quick.write_text('#!/bin/bash\necho call >> "$SPAN"\n')
+    for stub in (real, quick):
+        stub.chmod(0o755)
+    env = dict(os.environ, E2E_STELLAR=str(real), E2E_RPC_SLOTS='2', SPAN=str(root/'span'))
+    lane = r'''set -u
+source "$1/lib/core.sh"; source "$1/lib/invoke.sh"
+INTEG_DIR="$2"; RPC_URL=unused; PATH="$2/bin:$PATH"
+curl() { echo + >> "$SPAN"; command sleep 0.3; echo - >> "$SPAN"; printf '{}\n200'; }
+pids=()
+for i in 1 2 3; do
+    stellar contract invoke --id C -- f & pids+=("$!")
+    rpc_post 5 '{}' >/dev/null & pids+=("$!")
+done
+stellar keys address a || exit 1
+for pid in "${pids[@]}"; do wait "$pid" || exit 2; done
+'''
+    lanes = [subprocess.Popen(['bash', '-c', lane, '_', str(HERE), directory], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) for _ in range(2)]
+    for proc in lanes:
+        out, err = proc.communicate(timeout=120)
+        assert proc.returncode == 0, out + err
+    events = (root/'span').read_text().split()
+    depth = peak = 0
+    for event in events:
+        depth += {'+': 1, '-': -1}.get(event, 0)
+        peak = max(peak, depth)
+    assert events.count('+') == events.count('-') == 12 and events.count('local') == 2 and peak == 2, events
+    (root/'span').unlink()
+    env['E2E_STELLAR'] = str(quick)
+    slots = [str(root/f'runs/.slots/rpc.{i}') for i in (1, 2)]
+    holder = subprocess.Popen(['python3', '-c', 'import fcntl,sys,time\nfs=[open(p,"a") for p in sys.argv[1:]]\n'
+                               '[fcntl.flock(f,fcntl.LOCK_EX) for f in fs]\nprint("held",flush=True)\ntime.sleep(120)', *slots],
+                              stdout=subprocess.PIPE, text=True)
+    try:
+        assert holder.stdout.readline().strip() == 'held'
+        network = [['contract', 'invoke', '--id', 'C', '--send=no'], ['contract', 'fetch', '--id', 'C'], ['tx', 'send'],
+                   ['keys', 'fund', 'a'], ['keys', 'generate', 'a', '--fund'], ['--quiet', 'contract', 'invoke']]
+        local = [['keys', 'address', 'a'], ['keys', 'generate', 'a'], ['xdr', 'decode'], ['tx', 'sign'], ['tx', 'hash'],
+                 ['contract', 'id', 'asset'], ['contract', 'alias', 'show', 'x'], ['--version'], ['version']]
+        waiting = [subprocess.Popen([str(root/'bin/stellar'), *args], env=env, stderr=subprocess.PIPE, text=True) for args in network]
+        for args in local:
+            done = subprocess.run([str(root/'bin/stellar'), *args], env=env, capture_output=True, text=True, timeout=10)
+            assert done.returncode == 0, (args, done.stderr)
+        time.sleep(1.5)
+        assert all(proc.poll() is None for proc in waiting), [proc.poll() for proc in waiting]
+        assert (root/'span').read_text().split() == ['call'] * len(local)
+    finally:
+        holder.kill(); holder.wait()
+    for proc in waiting:
+        assert proc.wait(timeout=30) == 0, proc.stderr.read()
+    for bad, message in [('', 'absolute path'), ('stellar', 'absolute path'), (str(root/'bin/stellar'), 'shim itself')]:
+        done = subprocess.run([str(root/'bin/stellar'), 'contract', 'invoke'], env=dict(env, E2E_STELLAR=bad), capture_output=True, text=True, timeout=10)
+        assert done.returncode == 1 and message in done.stderr, (bad, done.stderr)
+print('Two lanes never exceed E2E_RPC_SLOTS across CLI and curl calls; only local CLI verbs bypass the pool')

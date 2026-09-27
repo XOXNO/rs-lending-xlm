@@ -21,7 +21,7 @@ flow_nft() {
     local acct until ledger total_before
     total_before=$(view nft_total_before "$POSITION_NFT" -- total_supply | tr -d '"[:space:]') || return 1
     acct=$(inv_create nft_supply "$ALICE" "$CONTROLLER" -- supply --caller "$ALICE_ADDR" --account_id 0 --spoke_id "$PRIMARY_SPOKE_ID" --assets "$(pay_vec "$PRIMARY_HUB_ID" "$USDC_SAC" 10000000)") || return 1
-    ledger=$(curl --fail-with-body -sS -m 30 "$RPC_URL" -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"getLatestLedger"}' | jq -er '.result.sequence') || return 1
+    ledger=$(latest_ledger) || return 1
     until=$((ledger + 1000))
     local name
     name=$(view nft_name "$POSITION_NFT" -- name | jq -er '.') || return 1

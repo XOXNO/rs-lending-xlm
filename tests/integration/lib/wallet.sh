@@ -1,6 +1,10 @@
 wallet_funded() {
-    curl --fail-with-body -sS -m 30 "https://horizon-testnet.stellar.org/accounts/$1" > "$2" \
-        && jq -e '.balances | any(.asset_type == "native" and (.balance | tonumber) >= 100)' "$2" >/dev/null
+    local n=0 code
+    while ! code=$(curl --fail-with-body -sS -m 30 -o "$2" -w '%{http_code}' "https://horizon-testnet.stellar.org/accounts/$1"); do
+        n=$((n + 1))
+        [ "$code" = 429 ] && throttle_sleep "$n" || return 1
+    done
+    jq -e '.balances | any(.asset_type == "native" and (.balance | tonumber) >= 100)' "$2" >/dev/null
 }
 
 friendbot_fund() {
