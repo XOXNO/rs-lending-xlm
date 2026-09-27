@@ -13,7 +13,7 @@ from artifacts import CONTRACTS, digest
 HERE = Path(__file__).resolve().parent
 
 
-def shell(body, interrupted=False):
+def shell(body, interrupted=False, bash='bash'):
     with tempfile.TemporaryDirectory() as directory:
         run = Path(directory)
         setup = f'''
@@ -29,7 +29,7 @@ printf 'seq\\tphase\\tlabel\\tstatus\\tfn\\thash\\tinstructions\\tread_bytes\\tw
 backoff_sleep() {{ :; }}
 sleep() {{ :; }}
 '''
-        result = subprocess.run(['bash', '-c', setup+body], text=True, capture_output=True)
+        result = subprocess.run([bash, '-c', setup+body], text=True, capture_output=True)
         assert result.returncode == 0, result.stdout+result.stderr
         attempts_path = run/'attempts.jsonl'
         attempts = [json.loads(line) for line in attempts_path.read_text().splitlines()] if attempts_path.exists() else []
@@ -557,7 +557,7 @@ hub_key() {{ echo key; }}
 pay_vec() {{ echo '[]'; }}
 _view_int() {{ case "$1" in *before*) echo 100;; *) echo 10000100;; esac; }}
 balance() {{ if [ -f "$RUN_DIR/sent" ]; then echo 10000000000; else echo 0; fi; }}
-stress_latest_ledger() {{ local n=10; [ ! -f "$RUN_DIR/ledger" ] || n=$(cat "$RUN_DIR/ledger"); echo $((n+1)) > "$RUN_DIR/ledger"; echo "$n"; }}
+latest_ledger() {{ local n=10; [ ! -f "$RUN_DIR/ledger" ] || n=$(cat "$RUN_DIR/ledger"); echo $((n+1)) > "$RUN_DIR/ledger"; echo "$n"; }}
 inv() {{ :; }}
 stellar() {{
     case "$1 $2" in
@@ -606,3 +606,333 @@ CHECK
 assert [(a['label'], a['hash'], a['instructions'], a['resource_fee']) for a in actions] == [
     (f'production_fixture_{n}', f'{n:064d}', str(n), '4') for n in (1, 2)], actions
 print('Production fixture deployments carry their committed hash and resources')
+
+GROUP_SETUP = r'''
+STATE_ENV="$RUN_DIR/state.env"; CHANNELS="chan1 chan2"
+hash_of() { python3 -c 'import hashlib, sys; print(hashlib.sha256(sys.argv[1].encode()).hexdigest())' "$1"; }
+stellar() {
+    printf '%s %s\n' "${E2E_JOB:-parent}" "$*" >> "$RUN_DIR/calls"
+    local k
+    k=$(grep -c "^${E2E_JOB:-parent} contract invoke" "$RUN_DIR/calls")
+    echo '"ok"'
+    echo "Signing transaction: $(hash_of "${E2E_JOB:-parent}$k")" >&2
+}
+status_of() { echo SUCCESS; }
+tx_status() { local st; st=$(status_of "$1"); printf '{"result":{"status":"%s"}}' "$st" > "$LOG_DIR/$1.receipt.json"; echo "$st"; }
+fetch_resources() { RES_INSTR=1 RES_READ=0 RES_WRITE=0 RES_FEE=1; }
+case_files() { printf '{"selected_cases":["c"]}' > "$RUN_DIR/metadata.json"; printf 'id\tstatus\tfirst_action\tlast_action\n' > "$RUN_DIR/cases.tsv"; }
+gate_attempts() {
+python3 - "$RUN_DIR" "{HERE}" <<'PYGATE'
+import csv, sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[2])
+import gate
+run = Path(sys.argv[1])
+actions = list(csv.DictReader((run/'actions.tsv').open(newline=''), delimiter='\t'))
+evidence = list(csv.DictReader((run/'evidence.tsv').open(newline=''), delimiter='\t'))
+assert [a['seq'] for a in actions] == [e['seq'] for e in evidence] == [str(n) for n in range(1, len(actions)+1)]
+gate.check_attempts(run, actions)
+PYGATE
+}
+'''.replace('{HERE}', str(HERE))
+
+# G1: jobs sharing a label replay in spawn order with contiguous ids and mapped action_seq.
+attempts, _, actions = shell(GROUP_SETUP + r'''
+jobf() { inv lbl admin c -- supply >/dev/null; }
+group_begin g 2 || exit 1
+group_spawn jobf; group_spawn jobf; group_spawn jobf
+group_end || exit 2
+gid=${GROUP_LAST##*.}
+for n in 1 2 3; do
+    [ "$(awk -F'\t' -v n="$n" 'NR==n+1 {print $6}' "$ACTIONS_TSV")" = "$(hash_of "$gid-${n}1")" ] || exit 3
+done
+[ -s "$LOG_DIR/lbl.out" ] && [ ! -e "$RUN_DIR/active-attempt.json" ] || exit 4
+gate_attempts || exit 5
+''')
+assert [(a['seq'], a['status']) for a in actions] == [('1', 'ok'), ('2', 'ok'), ('3', 'ok')], actions
+assert len({a['hash'] for a in actions}) == 3 and [a['id'] for a in attempts] == [1, 2, 3]
+assert [a['action_seq'] for a in attempts] == [next(int(r['seq']) for r in actions if r['hash'] == a['hash']) for a in attempts]
+
+# G2: a footprint drift retry inside a job keeps its receipt pair and the next job's row.
+attempts, _, actions = shell(GROUP_SETUP + r'''
+receipt_drift() { printf '%s %s\n' "$2" "${7:-none}" >> "$RUN_DIR/drift"; }
+status_of() { if [ "$1" = "$(hash_of "${E2E_JOB%-*}-11")" ]; then echo FAILED; else echo SUCCESS; fi; }
+jobf() { inv lbl admin c -- borrow >/dev/null; }
+group_begin g 2 || exit 1
+group_spawn jobf; group_spawn jobf
+group_end || exit 2
+gid=${GROUP_LAST##*.}
+h1=$(hash_of "$gid-11"); h1b=$(hash_of "$gid-12"); h2=$(hash_of "$gid-21")
+[ "$(cat "$RUN_DIR/drift")" = "$h1 none
+$h1 $h1b" ] || exit 3
+[ "$(awk -F'\t' 'NR>1 {print $4, $6}' "$ACTIONS_TSV")" = "retry $h1
+ok $h1b
+ok $h2" ] || exit 4
+gate_attempts || exit 5
+''')
+assert [a['status'] for a in actions] == ['retry', 'ok', 'ok'] and [a['action_seq'] for a in attempts] == [1, 1, 3]
+print('Group jobs replay in spawn order with contiguous attempt ids, mapped action_seq and the drift pair')
+
+# G3: a job killed after signing keeps the group marker, fails the group, and the summary names its hash.
+attempts, _, actions = shell(GROUP_SETUP + r'''
+case_files
+stellar() {
+    echo "Signing transaction: $(hash_of "$E2E_JOB")" >&2
+    [ "${E2E_JOB##*-}" != 1 ] || exit 130
+    echo '"ok"'
+}
+jobf() { inv lbl admin c -- supply >/dev/null; }
+group_begin x 2 || exit 1
+group_spawn jobf; group_spawn jobf
+if group_end; then exit 2; fi
+[ -f "$RUN_DIR/active-attempt.json" ] && [ -f "$RUN_DIR/jobs/x.$GROUP_ID/1/active.json" ] || exit 3
+python3 "$INTEG_DIR/gate.py" summary "$RUN_DIR" completed 1 || exit 4
+python3 - "$RUN_DIR" "$INTEG_DIR" "$(hash_of "$GROUP_ID-1")" "$(hash_of "$GROUP_ID-2")" <<'PY' || exit 5
+import json, sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[2])
+import gate
+run = Path(sys.argv[1])
+summary = json.loads((run/'summary.json').read_text())
+active = summary['active_attempt']
+assert active['group'].startswith('jobs/x.') and sys.argv[3] in active['hashes'], active
+assert [(a['label'], a['hash'], a['receipt_status']) for a in summary['group_attempts']] == [('lbl', sys.argv[4], 'SUCCESS')], summary['group_attempts']
+try:
+    gate.validate(run)
+except ValueError as error:
+    assert 'interrupted' in str(error)
+else:
+    raise AssertionError('interrupted group accepted')
+PY
+''', interrupted=True)
+assert [(a['label'], a['status']) for a in actions] == [('group_x_job_1', 'FAIL'), ('lbl', 'ok')], actions
+assert actions[0]['note'] == 'job exited 130'
+print('A job interrupted after signing keeps the marker; the summary lists its hash and group attempts')
+
+# G4: serial-only helpers refuse inside a job before any CLI or RPC call.
+attempts, _, actions = shell(GROUP_SETUP + r'''
+source "{HERE}/lib/assets.sh"; source "{HERE}/lib/protocol.sh"; source "{HERE}/flows/sdk.sh"; source "{HERE}/flows/stress.sh"
+curl() { echo curl >> "$RUN_DIR/calls"; return 7; }
+jobf() {
+    xfail r1 'x' admin c -- borrow
+    xfail_sim r2 'x' admin c -- borrow
+    sim_probe r3 admin c -- supply
+    sdk_inv r4 buildStellarSupplyTx '{}'
+    run_case r5 true
+    create_market r6 1 sac 7 '{}' '{}'
+    classic_batch r7 change_trust admin "trust:USDC:GISSUER"
+    swap_xlm_to admin GADDR sac 1 r8
+    flow_stress_delayed
+    group_begin r9 1 reads
+    group_spawn true
+    group_end
+    return 0
+}
+group_begin g 1 || exit 1
+group_spawn jobf
+if group_end; then exit 2; fi
+[ ! -e "$RUN_DIR/calls" ] || exit 3
+'''.replace('{HERE}', str(HERE)))
+assert [(a['label'], a['status'], a['fn']) for a in actions] == [
+    ('r1', 'FAIL', 'xfail'), ('r2', 'FAIL', 'xfail'), ('r3', 'FAIL', 'sim_probe'), ('r4', 'FAIL', 'sdk_inv'),
+    ('r5', 'FAIL', 'run_case'), ('create_market_r6', 'FAIL', 'create_market'), ('r7', 'FAIL', 'classic_batch'),
+    ('r8', 'FAIL', 'swap_xlm_to'), ('stress_delayed_borrow', 'FAIL', 'flow_stress_delayed'), ('group_r9', 'FAIL', 'group_begin'),
+    ('group_spawn_true', 'FAIL', 'group_spawn'), ('group_end', 'FAIL', 'group_end')], actions
+assert not attempts
+print('Serial-only helpers refuse in a job with one FAIL row each and no CLI call')
+
+# G5: job state reaches state.env and the parent only through the replay.
+shell(GROUP_SETUP + r'''
+jobf() { save_state K 'v 1'; [ "$K" = 'v 1' ]; }
+group_begin g 1 reads || exit 1
+group_spawn jobf
+[ ! -e "$STATE_ENV" ] && [ -z "${K:-}" ] || exit 2
+group_end || exit 3
+[ "$K" = 'v 1' ] && [ "$(grep '^K=' "$STATE_ENV")" = 'K=v\ 1' ] || exit 4
+''')
+
+# G6/G7: one pending transaction per source and the runner-wide simulation slots.
+for mode, extra, call in [('', '', 'inv lbl admin c -- supply'), (' reads', 'INTEG_DIR="$RUN_DIR"; E2E_SIM_SLOTS=1', 'view lbl c -- balance')]:
+    shell(GROUP_SETUP + extra + r'''
+stellar() {
+    echo "start $E2E_JOB" >> "$RUN_DIR/span"; command sleep 0.3; echo "end $E2E_JOB" >> "$RUN_DIR/span"
+    echo '"1"'; echo "Signing transaction: $(hash_of "$E2E_JOB")" >&2
+}
+jobf() { CALL >/dev/null; }
+group_begin g 2MODE || exit 1
+group_spawn jobf; group_spawn jobf
+group_end || exit 2
+[ "$(awk '{print $1}' "$RUN_DIR/span" | tr '\n' ' ')" = 'start end start end ' ] || exit 3
+[ "$(sed -n 1p "$RUN_DIR/span" | cut -d' ' -f2)" = "$(sed -n 2p "$RUN_DIR/span" | cut -d' ' -f2)" ] || exit 4
+'''.replace('CALL', call).replace('MODE', mode))
+print('Jobs never overlap on one source, and E2E_SIM_SLOTS bounds concurrent simulations')
+
+# G8: jobs spawned inside a while-read loop cannot consume the loop input.
+shell(GROUP_SETUP + r'''
+jobf() { cat >/dev/null; echo "$1" >> "$RUN_DIR/seen"; }
+printf 'a\nb\nc\n' > "$RUN_DIR/lines"
+group_begin g 1 reads || exit 1
+while IFS= read -r x; do group_spawn jobf "$x"; done < "$RUN_DIR/lines"
+group_end || exit 2
+[ "$(tr '\n' ' ' < "$RUN_DIR/seen")" = 'a b c ' ] || exit 3
+''')
+
+# G9: the case range covers every replayed row.
+attempts, _, actions = shell(GROUP_SETUP + r'''
+case_files
+record before ok assert
+jobf() { record inside ok assert; }
+casef() { record pre ok assert; group_begin g 2 reads || return 1; group_spawn jobf; group_spawn jobf; group_end || return 1; record post ok assert; }
+run_case c casef || exit 1
+tail -1 "$RUN_DIR/cases.tsv" | awk -F'\t' '{exit !($1=="c" && $2=="pass" && $3+0==2 && $4+0==5)}' || exit 2
+''')
+assert [a['label'] for a in actions] == ['before', 'pre', 'inside', 'inside', 'post']
+
+# G10: a deployment in a job keeps its attempt, action row and deployed-artifact line.
+CID = 'C' + 'A'*54 + 'B'
+attempts, _, actions = shell(GROUP_SETUP + r'''
+W="$RUN_DIR/c.wasm"; printf wasm > "$W"; CID=CID_VALUE
+stellar() {
+    printf '%s %s\n' "${E2E_JOB:-parent}" "$*" >> "$RUN_DIR/calls"
+    case "$1 $2" in
+        'fees stats') echo '{}';;
+        'contract deploy') echo "Signing transaction: $(hash_of "$E2E_JOB")" >&2; echo "\"$CID\"";;
+        'contract fetch') local last; for last; do :; done; cp "$W" "$last";;
+        *) return 1;;
+    esac
+}
+jobf() {
+    run_deploy "$LOG_DIR/dep.out" "$LOG_DIR/dep.err" -- stellar contract deploy --wasm "$W" --source admin || return 1
+    record dep ok deploy "$(extract_signing_hash "$LOG_DIR/dep.err")" '' '' '' '' "$CID" deployment "$CID"
+}
+group_begin g 2 || exit 1
+group_spawn jobf
+group_end || exit 2
+grep -qx 'deploy attempts: 1' "$GROUP_LAST/1/stderr" || exit 3
+[ "$(jq -r .address "$RUN_DIR/deployed-artifacts.jsonl")" = "$CID" ] && [ -s "$LOG_DIR/deployment-fee-stats.json" ] || exit 4
+[ "$(awk -F'\t' 'NR==2 {print $2}' "$RUN_DIR/evidence.tsv")" = deployment ] || exit 5
+gate_attempts || exit 6
+'''.replace('CID_VALUE', CID))
+assert [(a['label'], a['status'], a['fn']) for a in actions] == [('dep', 'ok', 'deploy')] and actions[0]['hash']
+assert [(a['label'], a['method'], a['action_seq'], a['hash']) for a in attempts] == [('dep', 'deploy', 1, actions[0]['hash'])]
+print('A grouped deployment replays its attempt, action and deployed-artifact line')
+
+# G11: a job that dies under set -u fails the case even when the caller drops group_end's status.
+attempts, _, actions = shell(GROUP_SETUP + r'''
+case_files
+badjob() { echo "$UNSET_VAR"; }
+casef() { group_begin g 1 reads; group_spawn badjob; group_end; return 0; }
+if run_case c casef; then exit 1; fi
+[ "$(tail -1 "$RUN_DIR/cases.tsv" | cut -f1,2)" = "$(printf 'c\tfail')" ] || exit 2
+''')
+assert ('group_g_job_1', 'FAIL', 'job exited without status') in [(a['label'], a['status'], a['note']) for a in actions], actions
+
+# G12: an exiting lane kills every job tree before the summary.
+attempts, _, actions = shell(GROUP_SETUP + r'''
+case_files
+write_report() { :; }
+slowjob() {
+    sh -c 'echo $PPID' >> "$RUN_DIR/pids"
+    command sleep 10 & echo "$!" >> "$RUN_DIR/pids"; wait "$!"
+    inv lbl admin c -- supply >/dev/null
+}
+(
+    trap 'finish_run $?' EXIT
+    group_begin g 2 || exit 9
+    group_spawn slowjob
+    n=0
+    until [ -f "$RUN_DIR/pids" ] && [ "$(wc -l < "$RUN_DIR/pids")" -ge 2 ] || [ "$n" -ge 200 ]; do command sleep 0.05; n=$((n+1)); done
+    exit 1
+)
+[ "$(wc -l < "$RUN_DIR/pids")" -ge 2 ] || exit 2
+for pid in $(cat "$RUN_DIR/pids"); do
+    n=0
+    while job_alive "$pid" && [ "$n" -lt 40 ]; do command sleep 0.05; n=$((n+1)); done
+    ! job_alive "$pid" || exit 3
+done
+python3 - "$RUN_DIR" <<'PY' || exit 4
+import json, re, sys
+from pathlib import Path
+run = Path(sys.argv[1])
+summary = json.loads((run/'summary.json').read_text())
+active = summary['active_attempt']
+assert summary['status'] == 'incomplete' and active['group'].startswith('jobs/g.'), summary
+signed = {h for f in (run/'logs').glob('*.err') for h in re.findall(r'Signing transaction: ([0-9a-f]{64})', f.read_text())}
+assert signed <= set(active['hashes']), (signed, active)
+PY
+''', interrupted=True)
+print('A failed job, a lane exit and an open group all fail closed and leave no live job')
+
+# G13: parent writes while a group is open are refused, and an open group at case return aborts the case.
+attempts, _, actions = shell(GROUP_SETUP + r'''
+jobf() { command sleep 0.3; }
+group_begin g 2 reads || exit 1
+group_spawn jobf
+if inv parent admin c -- supply; then exit 2; fi
+if record parent_row ok assert; then exit 3; fi
+if save_state P 1; then exit 4; fi
+if group_begin nested 1 reads; then exit 5; fi
+if group_end; then exit 6; fi
+[ ! -e "$RUN_DIR/calls" ] && [ -z "${P:-}" ] || exit 7
+if group_spawn jobf; then exit 8; fi
+if group_end; then exit 9; fi
+''')
+assert [(a['label'], a['status']) for a in actions] == [('group_g_parent_writes', 'FAIL'), ('group_spawn_jobf', 'FAIL'), ('group_end', 'FAIL')], actions
+assert actions[0]['note'].startswith('4 parent writes'), actions
+attempts, _, actions = shell(GROUP_SETUP + r'''
+f() { command sleep 0.3; }
+(group_begin g 2 reads; group_spawn f; die fatal_lbl boom)
+[ -f "$RUN_DIR/active-attempt.json" ] || exit 1
+''', interrupted=True)
+assert [(a['label'], a['status'], a['note']) for a in actions] == [('fatal_lbl', 'FAIL', 'boom')], actions
+attempts, _, actions = shell(GROUP_SETUP + r'''
+jobf() {
+    inv bad_source '../x' c -- supply
+    run_deploy "$LOG_DIR/dep.out" "$LOG_DIR/dep.err" -- stellar contract deploy --wasm w
+    return 0
+}
+group_begin g 1 || exit 1
+group_spawn jobf
+if group_end; then exit 2; fi
+[ ! -e "$RUN_DIR/calls" ] || exit 3
+''')
+assert [(a['label'], a['status'], a['note']) for a in actions] == [('bad_source', 'FAIL', 'no source lock'), ('dep', 'FAIL', 'no source lock')], actions
+attempts, _, actions = shell(GROUP_SETUP + r'''
+case_files
+f() { command sleep 0.3; }
+casef() { group_begin x 2 reads; group_spawn f; return 0; }
+if run_case c casef; then exit 1; fi
+[ -f "$RUN_DIR/active-attempt.json" ] && [ "$(tail -1 "$RUN_DIR/cases.tsv" | cut -f1,2)" = "$(printf 'c\tfail')" ] || exit 2
+''', interrupted=True)
+
+# G14: %q journaling keeps a replayed row byte-identical to the serial row.
+shell(GROUP_SETUP + r'''
+note=$(printf "a\037b'c")
+jobf() { record lbl ok assert '' '' '' '' '' "$note" transaction CX; }
+record lbl ok assert '' '' '' '' '' "$note" transaction CX
+group_begin g 1 reads || exit 1
+group_spawn jobf
+group_end || exit 2
+cmp <(sed -n 2p "$ACTIONS_TSV" | cut -f2-) <(sed -n 3p "$ACTIONS_TSV" | cut -f2-) || exit 3
+cmp <(sed -n 2p "$RUN_DIR/evidence.tsv" | cut -f2-) <(sed -n 3p "$RUN_DIR/evidence.tsv" | cut -f2-) || exit 4
+[ "$(sed -n 3p "$ACTIONS_TSV" | cut -f11)" = "$note" ] || exit 5
+''')
+
+# G15: under /bin/bash and set -u, a read group needs no channels and a write group refuses without them.
+attempts, _, actions = shell(GROUP_SETUP + r'''
+unset CHANNELS
+INTEG_DIR="$RUN_DIR"
+stellar() { echo '"1"'; }
+jobf() { view v c -- balance >/dev/null; }
+group_begin r 2 reads || exit 1
+group_spawn jobf; group_spawn jobf
+group_end || exit 2
+if group_begin w 2; then exit 3; fi
+CHANNELS=chan1
+if group_begin 'bad name' 2; then exit 4; fi
+if group_begin z 0; then exit 5; fi
+if group_begin z 2 writes; then exit 6; fi
+[ ! -e "$RUN_DIR/active-attempt.json" ] && [ ! -e "$RUN_DIR/calls" ] || exit 7
+''', bash='/bin/bash')
+assert [(a['label'], a['status']) for a in actions] == [('v', 'read'), ('v', 'read')] + [(f'group_{n}', 'FAIL') for n in ('w', 'bad name', 'z', 'z')], actions
+print('Parent writes, case-level open groups, journal quoting and channel-free reads all hold')

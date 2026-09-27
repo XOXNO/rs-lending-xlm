@@ -462,6 +462,7 @@ market_wait_listed() {
 
 create_market() {
     local name="$1" hub_id="$2" sac="$3" decimals="$4" oracle_json="$5" active_cfg="$6"
+    [ -z "${E2E_JOB:-}" ] || { job_refuse create_market "create_market_$name"; return 1; }
     local done_var="MKT_${name}_DONE"
     if [ -n "${!done_var:-}" ]; then return 0; fi
 

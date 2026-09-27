@@ -61,22 +61,6 @@ prod_upgrade_hash() {
     esac
 }
 
-prod_channels() {
-    local n="$1" i alias addr chans='' pids=() pid
-    for i in $(seq 1 "$n"); do fund_wallet "e2e_chan${i}_${RUN_TS}" & pids+=("$!"); done
-    for pid in "${pids[@]}"; do wait "$pid" || true; done
-    for i in $(seq 1 "$n"); do
-        alias="e2e_chan${i}_${RUN_TS}"
-        addr=$(stellar keys address "$alias") || { _assert_fail "prod_channel_$i" 'channel key missing'; return 1; }
-        wallet_funded "$addr" "$LOG_DIR/channel_${i}_funding.json" || friendbot_fund "$alias" || {
-            [ $? -ne 2 ] || { _assert_fail "prod_channel_$i" 'no friendbot slot free within 300 s'; return 1; }
-            _assert_fail "prod_channel_$i" 'channel funding not confirmed (minimum 100 XLM)'; return 1
-        }
-        chans="$chans $alias"
-    done
-    save_state PROD_CHANNELS "${chans# }"
-}
-
 prod_propose() {
     local tag="$1"; shift
     PROD_OP_TAG="${tag}_propose" PROD_SPLIT_TAG="$tag" PROD_PROPOSE_ONLY=1 prod_ops "$@" >/dev/null
@@ -257,8 +241,8 @@ flow_production_operator() {
     prod_execute_split setAggregator setAggregator >/dev/null || return 1
     prod_ops setAccumulator >/dev/null || return 1
     prod_ops validateConfigs >/dev/null || return 1
-    prod_channels 12 || return 1
-    PROD_SETUP_JOBS=12 PROD_SETUP_SOURCES="$PROD_CHANNELS" prod_ops setupAll >/dev/null || return 1
+    lane_channels 12 || return 1
+    PROD_SETUP_JOBS=12 PROD_SETUP_SOURCES="$CHANNELS" prod_ops setupAll >/dev/null || return 1
     cp "$RUN_DIR/config/networks.json" "$RUN_DIR/operator-before-replay.json"
     PROD_OP_TAG=setupAll_replay prod_ops setupAll >/dev/null || return 1
     cmp -s "$RUN_DIR/operator-before-replay.json" "$RUN_DIR/config/networks.json" || { _assert_fail operator_replay "setup replay changed deployment mappings"; return 1; }

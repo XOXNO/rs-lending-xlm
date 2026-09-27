@@ -218,11 +218,10 @@ with tempfile.TemporaryDirectory() as directory:
     assert 'wallet_alice\tFAIL\tfatal' in (root / 'actions.tsv').read_text() and 'no friendbot slot' in (root / 'actions.tsv').read_text()
 with tempfile.TemporaryDirectory() as directory:
     root = Path(directory)
-    result = friendbot(directory, '''source "$1/flows/production.sh"
-_assert_fail() { printf '%s\\t%s\\n' "$1" "$2" >> "$RUN_DIR/fails"; }
-exec 30>>"$2/held"; prod_channels 1''', ['200'], 999)
+    result = friendbot(directory, '''_assert_fail() { printf '%s\\t%s\\n' "$1" "$2" >> "$RUN_DIR/fails"; }
+exec 30>>"$2/held"; lane_channels 1''', ['200'], 999)
     assert result.returncode == 1 and not (root / 'span').exists(), result.stderr
-    assert (root / 'fails').read_text() == 'prod_channel_1\tno friendbot slot free within 300 s\n', result.stderr
+    assert (root / 'fails').read_text() == 'lane_channel_1\tno friendbot slot free within 300 s\n', result.stderr
 for slots, valid in [('0', False), ('abc', False), ('6', True)]:
     result = subprocess.run(['bash', '-c', 'source "$1/env.sh"', '_', str(HERE)], capture_output=True, text=True, timeout=30,
                             env=dict(os.environ, RUN_TS='t', NETWORK='testnet', E2E_FRIENDBOT_SLOTS=slots))

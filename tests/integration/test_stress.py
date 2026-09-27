@@ -69,7 +69,7 @@ hub_key() { echo key; }
 pay_vec() { echo '[]'; }
 _view_int() { case "$1" in *before*) echo 100;; *) echo 10000100;; esac; }
 balance() { if [ -f "$WORK/sent" ]; then echo 10000000000; else echo 0; fi; }
-stress_latest_ledger() {
+latest_ledger() {
     local n=10
     [ ! -f "$WORK/ledger" ] || n=$(cat "$WORK/ledger")
     echo $((n+1)) > "$WORK/ledger"
@@ -152,10 +152,15 @@ flow_stress_setup
         self.assertEqual(calls[43:83], [f'pay:{who}:ST{i:02d}:GADMIN:10000000000000' for i in range(20) for who in ('GDAVE', 'GCAROL')])
 
     def test_latest_ledger_rejects_malformed_or_error_responses(self):
-        for payload in ('{}', '{"error":{}}', 'garbage', '{"jsonrpc":"2.0","id":1,"result":{"sequence":1.5}}'):
+        for payload in ('{}', '{"error":{}}', 'garbage', '{"jsonrpc":"2.0","id":1,"result":{"sequence":1.5}}',
+                        '{"jsonrpc":"2.0","id":1,"result":{"sequence":42}}'):
             with self.subTest(payload=payload), tempfile.TemporaryDirectory() as directory:
-                result = self.run_shell('curl() { printf "%s" "$PAYLOAD"; }; stress_latest_ledger', directory, PAYLOAD=payload)
-                self.assertNotEqual(result.returncode, 0)
+                result = self.run_shell('source "${FLOW%/flows/stress.sh}/lib/invoke.sh"; RPC_URL=rpc; curl() { printf "%s" "$PAYLOAD"; }; latest_ledger',
+                                        directory, PAYLOAD=payload)
+                if '42' in payload:
+                    self.assertEqual((result.returncode, result.stdout), (0, '42\n'), result.stderr)
+                else:
+                    self.assertNotEqual(result.returncode, 0)
 
 
 if __name__ == '__main__':

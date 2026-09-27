@@ -79,6 +79,12 @@ log() {
 
 save_state() {
     local key="$1" value="$2"
+    if [ -n "${E2E_JOB:-}" ]; then
+        printf '%s=%q\n' "$key" "$value" >> "$E2E_JOB_DIR/state.part" || return 1
+        eval "$key=\$value"
+        return 0
+    fi
+    group_guard "save_state $key" || return 1
     touch "$STATE_ENV"
     grep -v "^${key}=" "$STATE_ENV" > "$STATE_ENV.tmp" 2>/dev/null || true
     printf '%s=%q\n' "$key" "$value" >> "$STATE_ENV.tmp"
@@ -86,8 +92,41 @@ save_state() {
     eval "$key=\$value"
 }
 
+next_seq() {
+    if [ -n "${E2E_JOB:-}" ]; then
+        echo $(( $(wc -l < "$E2E_JOB_DIR/actions.part") + 1 ))
+    else
+        echo $(( $(wc -l < "$ACTIONS_TSV") ))
+    fi
+}
+
+job_log() {
+    printf '%s\n' "$LOG_DIR/$1${E2E_JOB:+.j$E2E_JOB}"
+}
+
+group_violation() {
+    log "refused while group ${GROUP_DIR##*/} is open: $1"
+    printf '%s\n' "$1" >> "$GROUP_DIR/violations"
+    return 1
+}
+
+group_guard() {
+    [ -z "${GROUP_DIR:-}" ] || [ -n "${GROUP_REPLAYING:-}" ] || group_violation "$1"
+}
+
+job_refuse() {
+    log "refused in group job $E2E_JOB: $1 [$2]"
+    record "$2" FAIL "$1" "" "" "" "" "" "$1 is serial-only; refused in group job $E2E_JOB"
+}
+
 record() {
     local seq
+    if [ -n "${E2E_JOB:-}" ]; then
+        { printf '%q ' "$PHASE" "$1" "$2" "$3" "${4:-}" "${5:-}" "${6:-}" "${7:-}" "${8:-}" "${9:-}" "${10:-}" "${11:-}"; echo; } \
+            >> "$E2E_JOB_DIR/actions.part"
+        return
+    fi
+    group_guard "record $1" || return 1
     seq=$(($(wc -l < "$ACTIONS_TSV")))
     printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
         "$seq" "$PHASE" "$1" "$2" "$3" "${4:-}" "${5:-}" "${6:-}" "${7:-}" "${8:-}" "${9:-}" >> "$ACTIONS_TSV"
@@ -100,18 +139,24 @@ record() {
 # Keep every CLI attempt separate, including attempts interrupted before receipt
 # polling finishes. actions.tsv remains the stable action/result interface.
 begin_attempt() {
-    python3 - "$RUN_DIR" "$PHASE" "$@" <<'PYBEGIN'
+    local marker="$RUN_DIR/active-attempt.json"
+    if [ -n "${E2E_JOB:-}" ]; then
+        marker="$E2E_JOB_DIR/active.json"
+    else
+        group_guard "begin_attempt $1" || return 1
+    fi
+    python3 - "$RUN_DIR" "$PHASE" "$marker" "$@" <<'PYBEGIN'
 import json, sys
 from datetime import datetime, timezone
 from pathlib import Path
-run, phase, label, method, sequence, attempt, out, err, contract = sys.argv[1:]
+run, phase, marker, label, method, sequence, attempt, out, err, contract = sys.argv[1:]
 root = Path(run)
 Path(out).write_text('')
 Path(err).write_text('')
 item = dict(action_seq=int(sequence), phase=phase, label=label, method=method,
     attempt=int(attempt), contract=contract or None, started_at=datetime.now(timezone.utc).isoformat(),
     stdout=str(Path(out).relative_to(root)), stderr=str(Path(err).relative_to(root)))
-path = root/'active-attempt.json'
+path = Path(marker)
 temporary = path.with_suffix('.json.tmp')
 temporary.write_text(json.dumps(item)+'\n')
 temporary.replace(path)
@@ -120,25 +165,31 @@ PYBEGIN
 
 record_attempt() {
     local label="$1" fn="$2" sequence="$3" attempt="$4" rc="$5" hash="$6" out="$7" err="$8" contract="${9:-}"
-    local ordinal=1
-    [ ! -f "$RUN_DIR/attempts.jsonl" ] || ordinal=$(( $(wc -l < "$RUN_DIR/attempts.jsonl") + 1 ))
-    local prefix="$LOG_DIR/$label.s$sequence.a$attempt.t$ordinal"
+    local ordinal=1 sink="$RUN_DIR/attempts.jsonl" marker="$RUN_DIR/active-attempt.json"
+    if [ -n "${E2E_JOB:-}" ]; then
+        sink="$E2E_JOB_DIR/attempts.part" marker="$E2E_JOB_DIR/active.json"
+    else
+        group_guard "record_attempt $label" || return 1
+    fi
+    [ ! -f "$sink" ] || ordinal=$(( $(wc -l < "$sink") + 1 ))
+    local prefix
+    prefix="$(job_log "$label").s$sequence.a$attempt.t$ordinal"
     cp "$out" "$prefix.out" && cp "$err" "$prefix.err" || return 1
-    python3 - "$RUN_DIR" "$PHASE" "$label" "$fn" "$sequence" "$attempt" "$rc" "$hash" "$prefix" "$contract" "$ordinal" <<'PYATTEMPT'
+    python3 - "$RUN_DIR" "$PHASE" "$label" "$fn" "$sequence" "$attempt" "$rc" "$hash" "$prefix" "$contract" "$ordinal" "$sink" "$marker" "${E2E_JOB:-}" <<'PYATTEMPT'
 import json, sys
 from datetime import datetime, timezone
 from pathlib import Path
-run, phase, label, method, sequence, attempt, rc, hash_, prefix, contract, ordinal = sys.argv[1:]
+run, phase, label, method, sequence, attempt, rc, hash_, prefix, contract, ordinal, sink, marker, job = sys.argv[1:]
 root = Path(run)
-item = dict(id=int(ordinal), action_seq=int(sequence), phase=phase, label=label, method=method,
+item = dict(id=None if job else int(ordinal), action_seq=int(sequence), phase=phase, label=label, method=method,
     attempt=int(attempt), cli_exit=int(rc), hash=hash_ or None, contract=contract or None,
     observed_at=datetime.now(timezone.utc).isoformat(),
     stdout=str(Path(prefix+'.out').relative_to(root)), stderr=str(Path(prefix+'.err').relative_to(root)),
     receipt='logs/'+hash_+'.receipt.json' if hash_ else None)
-active = root/'active-attempt.json'
+active = Path(marker)
 if active.exists():
     item['started_at'] = json.loads(active.read_text())['started_at']
-with (root/'attempts.jsonl').open('a') as stream:
+with Path(sink).open('a') as stream:
     stream.write(json.dumps(item)+'\n')
 active.unlink(missing_ok=True)
 PYATTEMPT
@@ -150,6 +201,7 @@ run_summary() {
 
 finish_run() {
     local rc="$1"
+    [ -z "${GROUP_DIR:-}" ] || group_abort
     if [ "$rc" -ne 0 ]; then
         python3 "$INTEG_DIR/gate.py" mark-incomplete "$RUN_DIR" "scenario exit $rc" || true
     fi
@@ -160,9 +212,160 @@ finish_run() {
 
 die() {
     local label="$1" msg="$2"
+    [ -n "${E2E_JOB:-}" ] || [ -z "${GROUP_DIR:-}" ] || group_abort
     log "FATAL [$label]: $msg"
     record "$label" FAIL fatal "" "" "" "" "" "$msg"
     exit 1
+}
+
+kill_tree() {
+    local sig="$1" pid="$2" child
+    kill -STOP "$pid" 2>/dev/null || return 0
+    for child in $(pgrep -P "$pid" 2>/dev/null); do kill_tree "$sig" "$child"; done
+    kill "$sig" "$pid" 2>/dev/null
+    kill -CONT "$pid" 2>/dev/null
+    return 0
+}
+
+job_alive() {
+    ps -o stat= -p "$1" 2>/dev/null | grep -qv '^Z'
+}
+
+group_begin() {
+    local name="$1" width="${2:-}" mode="${3:-}"
+    [ -z "${E2E_JOB:-}" ] || { job_refuse group_begin "group_$name"; return 1; }
+    [ -z "${GROUP_DIR:-}" ] || { group_violation "group_begin $name"; return 1; }
+    if [[ ! "$name" =~ ^[A-Za-z0-9_]+$ || ! "$width" =~ ^[1-9][0-9]?$ ]] || { [ -n "$mode" ] && [ "$mode" != reads ]; }; then
+        record "group_$name" FAIL group "" "" "" "" "" "group refused: width '$width', mode '$mode'"
+        return 1
+    fi
+    if [ "$mode" != reads ] && [ -z "${CHANNELS:-}" ]; then
+        record "group_$name" FAIL group "" "" "" "" "" "write group refused: no channel sources in CHANNELS"
+        return 1
+    fi
+    local dir
+    mkdir -p "$RUN_DIR/jobs" && dir=$(mktemp -d "$RUN_DIR/jobs/$name.XXXXXX") \
+        || { record "group_$name" FAIL group "" "" "" "" "" "cannot create the group directory"; return 1; }
+    python3 - "$RUN_DIR" "$PHASE" "$name" "$(next_seq)" "${dir#"$RUN_DIR"/}" <<'PYGROUP' \
+        || { rm -rf "$dir"; record "group_$name" FAIL group "" "" "" "" "" "cannot write the group marker"; return 1; }
+import json, sys
+from datetime import datetime, timezone
+from pathlib import Path
+run, phase, name, sequence, group = sys.argv[1:]
+item = dict(action_seq=int(sequence), phase=phase, label='group:'+name, method='group', attempt=1, contract=None,
+    started_at=datetime.now(timezone.utc).isoformat(), stdout=group, stderr=group+'/signing.err', group=group)
+path = Path(run)/'active-attempt.json'
+temporary = path.with_suffix('.json.tmp')
+temporary.write_text(json.dumps(item)+'\n')
+temporary.replace(path)
+PYGROUP
+    GROUP_DIR="$dir" GROUP_ID="${dir##*.}" GROUP_NAME="$name" GROUP_WIDTH="$width" GROUP_N=0
+    GROUP_SRCS=(${CHANNELS:-}) GROUP_PIDS=() GROUP_BATCH=()
+}
+
+group_spawn() {
+    local dir src='' pid
+    [ -z "${E2E_JOB:-}" ] || { job_refuse group_spawn "group_spawn_$1"; return 1; }
+    [ -n "${GROUP_DIR:-}" ] || { record "group_spawn_$1" FAIL group "" "" "" "" "" "no open group"; return 1; }
+    GROUP_N=$((GROUP_N + 1))
+    dir="$GROUP_DIR/$GROUP_N"
+    mkdir "$dir" && : > "$dir/actions.part" || { group_violation "group_spawn $1: cannot create $dir"; return 1; }
+    [ "${#GROUP_SRCS[@]}" -eq 0 ] || src="${GROUP_SRCS[$(( (GROUP_N - 1) % ${#GROUP_SRCS[@]} ))]}"
+    ( E2E_JOB="$GROUP_ID-$GROUP_N" E2E_JOB_DIR="$dir" E2E_SRC="$src"; "$@"; echo "$?" > "$dir/rc" ) \
+        </dev/null >"$dir/stdout" 2>"$dir/stderr" &
+    GROUP_PIDS+=("$!") GROUP_BATCH+=("$!")
+    if [ "${#GROUP_BATCH[@]}" -ge "$GROUP_WIDTH" ]; then
+        for pid in "${GROUP_BATCH[@]}"; do wait "$pid" 2>/dev/null || :; done
+        GROUP_BATCH=()
+    fi
+}
+
+group_end() {
+    local n dir rc pid first kept='' marker
+    [ -z "${E2E_JOB:-}" ] || { job_refuse group_end group_end; return 1; }
+    [ -n "${GROUP_DIR:-}" ] || { record group_end FAIL group "" "" "" "" "" "no open group"; return 1; }
+    for pid in ${GROUP_BATCH[@]+"${GROUP_BATCH[@]}"}; do wait "$pid" 2>/dev/null || :; done
+    GROUP_BATCH=()
+    first=$(next_seq)
+    GROUP_REPLAYING=1
+    for ((n = 1; n <= GROUP_N; n++)); do
+        dir="$GROUP_DIR/$n"
+        cat "$dir/stderr" >&2
+        group_replay "$dir" || record "group_${GROUP_NAME}_replay_$n" FAIL group "" "" "" "" "" "job journal replay failed"
+        rc=$(cat "$dir/rc" 2>/dev/null) || rc=''
+        [ "$rc" = 0 ] || record "group_${GROUP_NAME}_job_$n" FAIL group '' '' '' '' '' "job exited ${rc:-without status}"
+    done
+    [ ! -s "$GROUP_DIR/violations" ] || record "group_${GROUP_NAME}_parent_writes" FAIL group '' '' '' '' '' \
+        "$(wc -l < "$GROUP_DIR/violations" | tr -d ' ') parent writes refused while the group was open: $(tr '\n' ';' < "$GROUP_DIR/violations")"
+    unset GROUP_REPLAYING
+    for marker in "$GROUP_DIR"/*/active.json; do [ ! -e "$marker" ] || kept=1; done
+    if [ -n "$kept" ]; then
+        log "group ${GROUP_DIR##*/}: a job attempt did not finish; keeping the group marker"
+        unset GROUP_DIR; GROUP_PIDS=()
+        return 1
+    fi
+    rm -f "$RUN_DIR/active-attempt.json"
+    GROUP_LAST="$GROUP_DIR"
+    unset GROUP_DIR; GROUP_PIDS=()
+    awk -F'\t' -v first="$first" 'NR>1 && $1>=first && ($4=="FAIL" || $4=="UNEXPECTED-OK") {exit 1}' "$ACTIONS_TSV"
+}
+
+group_abort() {
+    local pid end=$((SECONDS + 20)) alive
+    for pid in ${GROUP_BATCH[@]+"${GROUP_BATCH[@]}"}; do kill_tree -TERM "$pid"; done
+    while :; do
+        alive=''
+        for pid in ${GROUP_BATCH[@]+"${GROUP_BATCH[@]}"}; do job_alive "$pid" && alive="$alive $pid"; done
+        [ -n "$alive" ] && [ "$SECONDS" -lt "$end" ] || break
+        command sleep 0.2
+    done
+    for pid in $alive; do kill_tree -KILL "$pid"; done
+    for pid in ${GROUP_BATCH[@]+"${GROUP_BATCH[@]}"}; do wait "$pid" 2>/dev/null || :; done
+    log "group ${GROUP_DIR##*/} aborted; its marker is kept"
+    unset GROUP_DIR; GROUP_PIDS=() GROUP_BATCH=()
+}
+
+group_out() {
+    cat "$GROUP_LAST/$1/stdout"
+}
+
+group_replay() {
+    local dir="$1" line ps key value
+    python3 - "$RUN_DIR" "$LOG_DIR" "$dir" "$GROUP_ID-${dir##*/}" "$(next_seq)" <<'PYREPLAY' || return 1
+import json, shutil, sys
+from pathlib import Path
+run, logs, job_dir, job, base = sys.argv[1:]
+part, sink = Path(job_dir)/'attempts.part', Path(run)/'attempts.jsonl'
+count = len(sink.read_text().splitlines()) if sink.exists() else 0
+labels = []
+with sink.open('a') as stream:
+    for line in part.read_text().splitlines() if part.exists() else []:
+        item = json.loads(line)
+        count += 1
+        item['id'] = count
+        item['action_seq'] = int(base) + item['action_seq'] - 1
+        stream.write(json.dumps(item)+'\n')
+        labels.append(item['label'])
+for label in dict.fromkeys(labels):
+    for suffix in ('.out', '.err'):
+        source = Path(logs)/f'{label}.j{job}{suffix}'
+        if source.exists():
+            shutil.copyfile(source, Path(logs)/f'{label}{suffix}')
+PYREPLAY
+    while IFS= read -r line; do
+        eval "set -- $line"
+        ps="$PHASE" PHASE="$1"
+        shift
+        record "$@"
+        PHASE="$ps"
+    done < "$dir/actions.part"
+    [ ! -s "$dir/deployed.part" ] || cat "$dir/deployed.part" >> "$RUN_DIR/deployed-artifacts.jsonl" || return 1
+    [ -f "$dir/state.part" ] || return 0
+    while IFS= read -r line; do
+        key="${line%%=*}"
+        eval "value=${line#*=}"
+        save_state "$key" "$value" || return 1
+    done < "$dir/state.part"
 }
 
 slot_take() {
@@ -275,6 +478,7 @@ run_captured() {
 # command substitutions still append to actions.tsv and remain sticky.
 run_case() {
     local id="$1" first last rc=0 sel=0; shift
+    [ -z "${E2E_JOB:-}" ] || { job_refuse run_case "$id"; return 1; }
     jq -e --arg id "$id" '.selected_cases | if type == "array" then index($id) != null else error("selected_cases is not an array") end' \
         "$RUN_DIR/metadata.json" >/dev/null 2>&1 || sel=$?
     if [ "$sel" -eq 1 ]; then
@@ -292,6 +496,11 @@ run_case() {
     first=$(wc -l < "$ACTIONS_TSV")
     printf '%s\t%s\n' "$id" "$first" > "$RUN_DIR/active-case"
     "$@" || rc=$?
+    if [ -n "${GROUP_DIR:-}" ]; then
+        log "case $id returned with group ${GROUP_DIR##*/} still open"
+        group_abort
+        rc=1
+    fi
     last=$(( $(wc -l < "$ACTIONS_TSV") - 1 ))
     if [ "$rc" -eq 0 ] && ! awk -F'\t' -v first="$first" -v last="$last" \
         'NR>1 && $1>=first && $1<=last && ($4=="FAIL" || $4=="UNEXPECTED-OK") {exit 1}' "$ACTIONS_TSV"; then

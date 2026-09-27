@@ -262,15 +262,10 @@ flow_stress_composed() {
     done
 }
 
-stress_latest_ledger() {
-    curl --fail-with-body -sS -m 30 "$RPC_URL" -H 'Content-Type: application/json' \
-        -d '{"jsonrpc":"2.0","id":1,"method":"getLatestLedger"}' \
-        | jq -er 'select(.jsonrpc=="2.0" and .id==1 and (has("error")|not)) | .result.sequence | select(type=="number" and .>0 and floor==.)'
-}
-
 # Prepare once, change the same account using another signer, then submit the
 # stale envelope after three ledgers. No resimulation or submission retry.
 flow_stress_delayed() {
+    [ -z "${E2E_JOB:-}" ] || { job_refuse flow_stress_delayed stress_delayed_borrow; return 1; }
     phase stress_delayed
     local acct="${DAVE_DUAL_ACCT:?dual resource scenario must run first}"
     local label=stress_delayed_borrow i args="" tops="" key after start now attempt hash rc=0 st positions sequence
@@ -291,12 +286,12 @@ flow_stress_delayed() {
         <"$LOG_DIR/$label.prepared.xdr" >"$LOG_DIR/$label.signed.xdr" 2>>"$LOG_DIR/$label.prepare.err" || return 1
     hash=$(stellar tx hash --network-passphrase "$NETWORK_PASSPHRASE" <"$LOG_DIR/$label.signed.xdr") || return 1
     is_wasm_hash "$hash" || return 1
-    start=$(stress_latest_ledger) || return 1
+    start=$(latest_ledger) || return 1
     inv stress_shared_topup "$CAROL" "$CONTROLLER" -- supply --caller "$CAROL_ADDR" --account_id "$acct" \
         --spoke_id "$PRIMARY_SPOKE_ID" --assets "$(pay_vec "$PRIMARY_HUB_ID" $tops)" >/dev/null || return 1
     now=$start
     for ((attempt=1; attempt<=20; attempt++)); do
-        now=$(stress_latest_ledger) || return 1
+        now=$(latest_ledger) || return 1
         [ "$now" -ge "$((start+3))" ] && break
         sleep 3
     done

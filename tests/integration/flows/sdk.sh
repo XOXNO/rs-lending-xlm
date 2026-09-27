@@ -1,5 +1,6 @@
 sdk_inv() {
     local label="$1" builder="$2" args="$3" result="$LOG_DIR/$1.sdk.json"
+    [ -z "${E2E_JOB:-}" ] || { job_refuse sdk_inv "$label"; return 1; }
     local method
     case "$builder" in
         buildStellarSupplyTx) method=supply;; buildStellarBorrowTx) method=borrow;;

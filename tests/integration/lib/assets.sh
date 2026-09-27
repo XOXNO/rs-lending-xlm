@@ -45,6 +45,7 @@ issue_sac() {
 
 classic_batch() {
     local label="$1" fn="$2" signer="$3"; shift 3
+    [ -z "${E2E_JOB:-}" ] || { job_refuse classic_batch "$label"; return 1; }
     local base="$LOG_DIR/$label" per_op="${E2E_CLASSIC_OP_FEE:-${STELLAR_INCLUSION_FEE:-1000}}" count=$# i=0 item kind a b c d addr hash rc=0 st sequence
     local -a op
     if [ "$count" -lt 1 ] || [ "$count" -gt 40 ] || [[ ! "$per_op" =~ ^[1-9][0-9]{0,6}$ ]]; then
@@ -152,6 +153,7 @@ sac_transfer() {
 
 swap_xlm_to() (
     local wallet="$1" addr="$2" to_sac="$3" amount_in="$4" label="$5"
+    [ -z "${E2E_JOB:-}" ] || { job_refuse swap_xlm_to "$label"; return 1; }
     local swap_hex AGGREGATOR_MIN_LEDGER rc=0 hash pending="$INTEG_DIR/runs/.external-funding.${RUN_TS}.pending.json"
     # ponytail: one checkout-wide funding lock; use per-pool locks if throughput matters.
     # The subshell retains fd 9 through confirmation; exit/cancellation releases it.

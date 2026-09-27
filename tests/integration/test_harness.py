@@ -570,3 +570,31 @@ flash_loan_checked checked "$MODE" || exit 1
 committed=0; suppress_fee=1
 if flash_loan_checked suppressed "$MODE"; then exit 1; fi
 ''')
+
+# Every submission path lies in a function that owns one signed transaction and its evidence.
+import re
+SUBMIT = re.compile(r'--send=yes|tx send|contract (deploy|upload)|asset deploy|sendTransaction|configs/script\.sh')
+SUBMITTERS = {'inv_cli', 'owner_submit', 'xfail', 'run_deploy', 'run_deploy_body', 'classic_batch', 'flow_stress_delayed',
+              'install_wasms', 'prod_ops', 'prod_execute_split'}
+HEADER = re.compile(r'^([A-Za-z_][A-Za-z0-9_]*)\(\)\s*[{(]')
+def submit_sites():
+    for path in sorted(p for d in ('lib', 'flows', 'scenarios') for p in (HERE/d).glob('*.sh')):
+        function = None
+        for number, line in enumerate(path.read_text().splitlines(), 1):
+            header = HEADER.match(line)
+            if header:
+                function = header[1]
+            if SUBMIT.search(line) and not line.lstrip().startswith('#'):
+                yield f'{path.relative_to(HERE)}:{number}', function, line
+            if line in ('}', ')') or (header and line.rstrip().endswith(('}', ')'))):
+                function = None
+    for path in sorted((HERE/'sdk').glob('*.mjs')):
+        if not path.name.startswith('test_'):
+            for number, line in enumerate(path.read_text().splitlines(), 1):
+                if SUBMIT.search(line):
+                    yield f'{path.relative_to(HERE)}:{number}', path.name, line
+sites = list(submit_sites())
+offenders = [s for s in sites if s[1] not in SUBMITTERS | {'invoke.mjs'} and not re.search(r'\brun_deploy\b', s[2])]
+assert not offenders, offenders
+assert {'inv_cli', 'classic_batch', 'flow_stress_delayed', 'install_wasms', 'prod_ops', 'invoke.mjs'} <= {s[1] for s in sites}, sites
+print('Every submission path is an allowlisted single-transaction helper')
