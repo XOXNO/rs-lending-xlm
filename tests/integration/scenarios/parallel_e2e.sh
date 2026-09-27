@@ -101,10 +101,10 @@ stop_children() {
     trap - INT TERM
     # GNU timeout owns a process group; kill that group, including CLI/RPC children.
     for pid in "${pids[@]}"; do [ -z "$pid" ] || kill -TERM -- "-$pid" 2>/dev/null || true; done
-    for pid in ${gate_pids[@]+"${gate_pids[@]}"}; do [ -z "$pid" ] || { pkill -TERM -P "$pid"; kill -TERM "$pid"; } 2>/dev/null || true; done
+    for pid in ${gate_pids[@]+"${gate_pids[@]}"}; do [ -z "$pid" ] || { kill -STOP "$pid"; pkill -TERM -P "$pid"; kill -TERM "$pid"; kill -CONT "$pid"; } 2>/dev/null || true; done
     sleep 2
     for pid in "${pids[@]}"; do [ -z "$pid" ] || kill -KILL -- "-$pid" 2>/dev/null || true; done
-    for pid in ${gate_pids[@]+"${gate_pids[@]}"}; do [ -z "$pid" ] || { pkill -KILL -P "$pid"; kill -KILL "$pid"; } 2>/dev/null || true; done
+    for pid in ${gate_pids[@]+"${gate_pids[@]}"}; do [ -z "$pid" ] || { kill -STOP "$pid"; pkill -KILL -P "$pid"; kill -KILL "$pid"; } 2>/dev/null || true; done
     for pid in "${pids[@]}" ${gate_pids[@]+"${gate_pids[@]}"}; do [ -z "$pid" ] || wait "$pid" 2>/dev/null || true; done
     for lane in "${LANES[@]}"; do
         [ ! -f "$INTEG_DIR/runs/$BASE-$lane/metadata.json" ] || python3 "$INTEG_DIR/gate.py" mark-incomplete "$INTEG_DIR/runs/$BASE-$lane" cancelled
