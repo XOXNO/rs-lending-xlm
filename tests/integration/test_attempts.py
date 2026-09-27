@@ -1017,38 +1017,43 @@ assert [(a['label'], a['status']) for a in actions] == [('group_g_untracked', 'F
 assert actions[2]['note'] == actions[3]['note'] == 'an unfinished group marker is still active' and not attempts, actions
 print('Untracked spawns, live job processes and kept group markers fail the case and keep the marker')
 
-# G19: a mock-oracle and a SAC deployment in a job sign with the job's channel and replay as deployments with sidecar resources.
+# G19: mock-oracle, mock-RedStone and SAC deployments in a job sign with the job's channel and replay as deployments with sidecar resources.
 SAC = 'C' + 'A'*54 + 'B'
 MOCK_ID = 'C' + 'A'*54 + 'C'
+MOCKRS_ID = 'C' + 'A'*54 + 'D'
 attempts, _, actions = shell(GROUP_SETUP + r'''
 source "{HERE}/lib/oracle.sh"; source "{HERE}/lib/assets.sh"
-FIXTURE_WASM_DIR="$RUN_DIR"; printf wasm > "$RUN_DIR/mock_oracle.wasm"; ADMIN_ADDR=GADMIN
+FIXTURE_WASM_DIR="$RUN_DIR"; printf wasm > "$RUN_DIR/mock_oracle.wasm"; printf wasmrs > "$RUN_DIR/mock_redstone.wasm"; ADMIN_ADDR=GADMIN
 stellar() {
-    local a prev='' src=''
-    for a; do [ "$prev" != --source ] || src="$a"; prev="$a"; done
+    local a prev='' src='' wasm='' id=''
+    for a; do [ "$prev" != --source ] || src="$a"; [ "$prev" != --wasm ] || wasm="${a##*/}"; [ "$prev" != --id ] || id="$a"; prev="$a"; done
     case "$1 $2" in
         'fees stats') echo '{}';;
         'contract id') echo SAC_ID;;
         'contract invoke') [ -f "$RUN_DIR/sac_live" ];;
         'contract asset') echo "asset $src" >> "$RUN_DIR/sources"; touch "$RUN_DIR/sac_live"
             echo "Signing transaction: $(hash_of "$E2E_JOB-asset")" >&2; echo '"SAC_ID"';;
-        'contract deploy') echo "deploy $src" >> "$RUN_DIR/sources"
-            echo "Signing transaction: $(hash_of "$E2E_JOB-deploy")" >&2; echo '"MOCK_ID"';;
-        'contract fetch') for a; do :; done; cp "$RUN_DIR/mock_oracle.wasm" "$a";;
+        'contract deploy') echo "deploy $wasm $src" >> "$RUN_DIR/sources"
+            echo "Signing transaction: $(hash_of "$E2E_JOB-$wasm")" >&2
+            if [ "$wasm" = mock_redstone.wasm ]; then echo '"MOCKRS_ID"'; else echo '"MOCK_ID"'; fi;;
+        'contract fetch') for a; do :; done
+            if [ "$id" = MOCKRS_ID ]; then cp "$RUN_DIR/mock_redstone.wasm" "$a"; else cp "$RUN_DIR/mock_oracle.wasm" "$a"; fi;;
         *) return 1;;
     esac
 }
 fetch_resources() { printf '{"resources":{"instructions":11,"disk_read_bytes":12,"write_bytes":13},"resource_fee":14}\n' > "$LOG_DIR/$1.resources.json"; }
-jobf() { MOCK=''; deploy_mock_reflector || return 1; issue_sac SAC_USDC USDC; }
+jobf() { MOCK=''; MOCKRS=''; deploy_mock_reflector || return 1; deploy_mock_redstone || return 1; issue_sac SAC_USDC USDC; }
 group_begin g 2 || exit 1
 group_spawn jobf
 group_end || exit 2
-[ "$(tr '\n' ' ' < "$RUN_DIR/sources")" = 'deploy chan1 asset chan1 ' ] && [ "$MOCK" = MOCK_ID ] && [ "$SAC_USDC" = SAC_ID ] || exit 3
+[ "$(tr '\n' ' ' < "$RUN_DIR/sources")" = 'deploy mock_oracle.wasm chan1 deploy mock_redstone.wasm chan1 asset chan1 ' ] || exit 3
+[ "$MOCK" = MOCK_ID ] && [ "$MOCKRS" = MOCKRS_ID ] && [ "$SAC_USDC" = SAC_ID ] || exit 3
 for h in $(awk -F'\t' 'NR>1 {print $6}' "$ACTIONS_TSV"); do [ -f "$LOG_DIR/$h.resources.json" ] || exit 4; done
-[ "$(cut -f2,3 "$RUN_DIR/evidence.tsv" | tail -n +2 | tr '\t\n' ': ')" = 'deployment:MOCK_ID deployment:SAC_ID ' ] && [ -s "$LOG_DIR/deploy_mock.out" ] || exit 5
+[ "$(cut -f2,3 "$RUN_DIR/evidence.tsv" | tail -n +2 | tr '\t\n' ': ')" = 'deployment:MOCK_ID deployment:MOCKRS_ID deployment:SAC_ID ' ] && [ -s "$LOG_DIR/deploy_mock.out" ] && [ -s "$LOG_DIR/deploy_mockrs.out" ] || exit 5
 gate_attempts || exit 6
-'''.replace('{HERE}', str(HERE)).replace('SAC_ID', SAC).replace('MOCK_ID', MOCK_ID))
+'''.replace('{HERE}', str(HERE)).replace('SAC_ID', SAC).replace('MOCKRS_ID', MOCKRS_ID).replace('MOCK_ID', MOCK_ID))
 assert [(a['label'], a['status'], a['fn'], a['instructions'], a['read_bytes'], a['write_bytes'], a['resource_fee']) for a in actions] == [
-    ('deploy_mock_reflector', 'ok', 'deploy', '11', '12', '13', '14'), ('issue_sac_USDC', 'ok', 'asset_deploy', '11', '12', '13', '14')], actions
-assert [a['label'] for a in attempts] == ['deploy_mock', 'sac_USDC'] and all(a['hash'] for a in actions)
-print('Grouped mock-oracle and SAC deployments sign with the job channel and replay as deployments with sidecar resources')
+    ('deploy_mock_reflector', 'ok', 'deploy', '11', '12', '13', '14'), ('deploy_mock_redstone', 'ok', 'deploy', '11', '12', '13', '14'),
+    ('issue_sac_USDC', 'ok', 'asset_deploy', '11', '12', '13', '14')], actions
+assert [a['label'] for a in attempts] == ['deploy_mock', 'deploy_mockrs', 'sac_USDC'] and len({a['hash'] for a in actions}) == 3 and all(a['hash'] for a in actions)
+print('Grouped mock-oracle, mock-RedStone and SAC deployments sign with the job channel and replay as deployments with sidecar resources')
