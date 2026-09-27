@@ -140,39 +140,14 @@ _td_withdraw_account() {
 }
 
 snapshot_before_cleanup() {
-    local market hub asset cash held role address amount line issuer balances
-    local file="$RUN_DIR/before-cleanup.jsonl"
+    local market n=0 file="$RUN_DIR/before-cleanup.jsonl"
     : > "$file"
+    group_begin before_cleanup 8 reads || return 1
+    for market in $MARKETS; do group_spawn td_snapshot_job "${market%%:*}" "${market##*:}"; done
+    group_end || return 1
     for market in $MARKETS; do
-        hub="${market%%:*}"; asset="${market##*:}"
-        cash=$(_view_pool_int "before_cleanup_cash_${hub}_${asset:0:8}" get_reserves --hub_asset "$(hub_key "$hub" "$asset")") || return 1
-        held=$(balance "$asset" "$POOL") || return 1
-        jq -nc --arg hub "$hub" --arg asset "$asset" --arg cash "$cash" --arg held "$held" \
-            '{hub:$hub,asset:$asset,cash:$cash,pool_balance:$held}' >> "$file"
-        # A SAC rejects balance() for an absent classic trustline. Prove
-        # absence directly at the ledger, separately from numeric view reads.
-        balances='{}'
-        line=$(classic_line "$asset") || return 1
-        if [[ "$line" = *:* ]]; then
-            issuer="${line##*:}"
-            local addresses=() av
-            for role in ADMIN ALICE BOB CAROL DAVE EVE FRANK; do
-                av="${role}_ADDR"; address="${!av:-}"
-                [ -z "$address" ] || [ "$address" = "$issuer" ] || addresses+=("$address")
-            done
-            "${NODE_BIN:-node}" "$INTEG_DIR/sdk/balances.mjs" "$RPC_URL" "$asset" "${line%%:*}" "$issuer" "$LOG_DIR/pre_cleanup_${asset}_trustlines.json" "${addresses[@]}" || return 1
-            balances=$(cat "$LOG_DIR/pre_cleanup_${asset}_trustlines.json") || return 1
-        fi
-        for role in ADMIN ALICE BOB CAROL DAVE EVE FRANK CONTROLLER; do
-            if [ "$role" = CONTROLLER ]; then address="$CONTROLLER"; else local av="${role}_ADDR"; address="${!av:-}"; fi
-            [ -n "$address" ] || continue
-            if jq -e --arg a "$address" 'has($a)' <<<"$balances" >/dev/null; then
-                amount=$(jq -er --arg a "$address" '.[$a].balance | select(type=="string" and test("^[0-9]+$"))' <<<"$balances") || return 1
-            else
-                amount=$(balance "$asset" "$address") || return 1
-            fi
-            jq -nc --arg role "$role" --arg asset "$asset" --arg amount "$amount" '{role:$role,asset:$asset,balance:$amount}' >> "$file"
-        done
+        n=$((n+1))
+        cat "$GROUP_LAST/$n/snapshot.jsonl" >> "$file" || return 1
     done
     if ! python3 - "$file" <<'PYBACKING'
 import json,sys
@@ -199,6 +174,43 @@ PYBACKING
     record pre_cleanup_conservation ok assert "" "" "" "" "" "all-hub cash backed before any cleanup mint/top-up"
 }
 
+td_snapshot_job() {
+    local hub="$1" asset="$2" cash held role address amount line issuer balances file="$E2E_JOB_DIR/snapshot.jsonl" trust
+    cash=$(_view_pool_int "before_cleanup_cash_${hub}_${asset:0:8}" get_reserves --hub_asset "$(hub_key "$hub" "$asset")") || return 1
+    held=$(balance "$asset" "$POOL") || return 1
+    jq -nc --arg hub "$hub" --arg asset "$asset" --arg cash "$cash" --arg held "$held" \
+        '{hub:$hub,asset:$asset,cash:$cash,pool_balance:$held}' >> "$file"
+    # A SAC rejects balance() for an absent classic trustline. Prove
+    # absence directly at the ledger, separately from numeric view reads.
+    balances='{}'
+    line=$(classic_line "$asset") || return 1
+    if [[ "$line" = *:* ]]; then
+        issuer="${line##*:}"
+        local addresses=() av
+        for role in ADMIN ALICE BOB CAROL DAVE EVE FRANK; do
+            av="${role}_ADDR"; address="${!av:-}"
+            [ -z "$address" ] || [ "$address" = "$issuer" ] || addresses+=("$address")
+        done
+        trust="$(job_log "pre_cleanup_${asset}_trustlines").json"
+        (
+            [ -z "${E2E_JOB:-}" ] || sim_hold || { record "pre_cleanup_${asset:0:8}_trustlines" FAIL getLedgerEntries '' '' '' '' '' 'no simulation slot'; exit 1; }
+            rpc_hold read || { record "pre_cleanup_${asset:0:8}_trustlines" FAIL getLedgerEntries '' '' '' '' '' 'no RPC slot'; exit 1; }
+            "${NODE_BIN:-node}" "$INTEG_DIR/sdk/balances.mjs" "$RPC_URL" "$asset" "${line%%:*}" "$issuer" "$trust" "${addresses[@]}"
+        ) || return 1
+        balances=$(cat "$trust") || return 1
+    fi
+    for role in ADMIN ALICE BOB CAROL DAVE EVE FRANK CONTROLLER; do
+        if [ "$role" = CONTROLLER ]; then address="$CONTROLLER"; else local av="${role}_ADDR"; address="${!av:-}"; fi
+        [ -n "$address" ] || continue
+        if jq -e --arg a "$address" 'has($a)' <<<"$balances" >/dev/null; then
+            amount=$(jq -er --arg a "$address" '.[$a].balance | select(type=="string" and test("^[0-9]+$"))' <<<"$balances") || return 1
+        else
+            amount=$(balance "$asset" "$address") || return 1
+        fi
+        jq -nc --arg role "$role" --arg asset "$asset" --arg amount "$amount" '{role:$role,asset:$asset,balance:$amount}' >> "$file"
+    done
+}
+
 flow_teardown() {
     phase teardown
     require_var MARKETS
@@ -222,11 +234,12 @@ flow_teardown() {
     total=$(view td_nft_total "$POSITION_NFT" -- total_supply | tr -d '"')
     [[ "$total" =~ ^[0-9]+$ ]] || die td_nft_total "total_supply unreadable: '$total'"
     log "teardown: $total live account(s)"
-    i=0
-    while [ "$i" -lt "$total" ]; do
-        id=$(view "td_token_$i" "$POSITION_NFT" -- get_token_id --index "$i" | tr -d '"')
+    group_begin td_tokens 8 reads || return 1
+    for ((i = 0; i < total; i++)); do group_spawn view "td_token_$i" "$POSITION_NFT" -- get_token_id --index "$i"; done
+    group_end
+    for ((i = 1; i <= total; i++)); do
+        id=$(group_out "$i" | tr -d '"')
         [[ "$id" =~ ^[0-9]+$ ]] && ids+=("$id")
-        i=$((i + 1))
     done
 
     for id in ${ids[@]+"${ids[@]}"}; do _td_repay_account "$id"; done
@@ -248,35 +261,38 @@ flow_teardown() {
     # The zero-state proof, then the residue report: what the protocol still
     # holds per market after every participant has left.
     assert_view_eq_at "$POSITION_NFT" td_nft_zero 0 total_supply
-    local borrowed revenue supplied reserves pool_bal ctrl_bal
-    for m in $MARKETS; do
-        hub="${m%%:*}"; sac="${m##*:}"
-        borrowed=$(_view_pool_int "td_borrowed_${hub}_${sac:0:6}" get_borrowed_amount \
-            --hub_asset "$(hub_key "$hub" "$sac")")
-        supplied=$(_view_pool_int "td_supplied_${hub}_${sac:0:6}" get_supplied_amount \
-            --hub_asset "$(hub_key "$hub" "$sac")")
-        revenue=$(_view_pool_int "td_revenue_${hub}_${sac:0:6}" get_revenue \
-            --hub_asset "$(hub_key "$hub" "$sac")")
-        reserves=$(_view_pool_int "td_reserves_${hub}_${sac:0:6}" get_reserves \
-            --hub_asset "$(hub_key "$hub" "$sac")")
-        pool_bal=$(balance "$sac" "$POOL") || return 1
-        ctrl_bal=$(balance "$sac" "$CONTROLLER") || return 1
-
-        _uint_le "$borrowed" "$TEARDOWN_ACCT_DUST" \
-            || _assert_fail "td_zero_borrowed_${hub}_${sac:0:6}" \
-               "borrowed=$borrowed > dust cap $TEARDOWN_ACCT_DUST"
-        _uint_le "$supplied" "$TEARDOWN_ACCT_DUST" \
-            || _assert_fail "td_zero_supplied_${hub}_${sac:0:6}" \
-               "supplied=$supplied > dust cap $TEARDOWN_ACCT_DUST"
-        _uint_le "$revenue" "$TEARDOWN_ACCT_DUST" \
-            || _assert_fail "td_zero_revenue_${hub}_${sac:0:6}" \
-               "revenue=$revenue > dust cap $TEARDOWN_ACCT_DUST after claim"
-        _uint_le "$pool_bal" "$TEARDOWN_POOL_DUST" \
-            || _assert_fail "td_pool_dust_${hub}_${sac:0:6}" "pool balance $pool_bal > dust cap $TEARDOWN_POOL_DUST"
-        _uint_le "$ctrl_bal" "$TEARDOWN_CTRL_DUST" \
-            || _assert_fail "td_ctrl_dust_${hub}_${sac:0:6}" "controller balance $ctrl_bal > dust cap $TEARDOWN_CTRL_DUST"
-        record "td_residue_${hub}_${sac:0:6}" ok residue "" "" "" "" "" \
-            "supplied=$supplied borrowed=$borrowed revenue=$revenue reserves=$reserves pool_bal=$pool_bal ctrl_bal=$ctrl_bal"
-    done
+    group_begin td_residue 8 reads || return 1
+    for m in $MARKETS; do group_spawn td_residue_job "${m%%:*}" "${m##*:}"; done
+    group_end || return 1
     log "teardown: zero state proven for markets: $MARKETS"
+}
+
+td_residue_job() {
+    local hub="$1" sac="$2" borrowed revenue supplied reserves pool_bal ctrl_bal
+    borrowed=$(_view_pool_int "td_borrowed_${hub}_${sac:0:6}" get_borrowed_amount \
+        --hub_asset "$(hub_key "$hub" "$sac")")
+    supplied=$(_view_pool_int "td_supplied_${hub}_${sac:0:6}" get_supplied_amount \
+        --hub_asset "$(hub_key "$hub" "$sac")")
+    revenue=$(_view_pool_int "td_revenue_${hub}_${sac:0:6}" get_revenue \
+        --hub_asset "$(hub_key "$hub" "$sac")")
+    reserves=$(_view_pool_int "td_reserves_${hub}_${sac:0:6}" get_reserves \
+        --hub_asset "$(hub_key "$hub" "$sac")")
+    pool_bal=$(balance "$sac" "$POOL") || return 1
+    ctrl_bal=$(balance "$sac" "$CONTROLLER") || return 1
+
+    _uint_le "$borrowed" "$TEARDOWN_ACCT_DUST" \
+        || _assert_fail "td_zero_borrowed_${hub}_${sac:0:6}" \
+           "borrowed=$borrowed > dust cap $TEARDOWN_ACCT_DUST"
+    _uint_le "$supplied" "$TEARDOWN_ACCT_DUST" \
+        || _assert_fail "td_zero_supplied_${hub}_${sac:0:6}" \
+           "supplied=$supplied > dust cap $TEARDOWN_ACCT_DUST"
+    _uint_le "$revenue" "$TEARDOWN_ACCT_DUST" \
+        || _assert_fail "td_zero_revenue_${hub}_${sac:0:6}" \
+           "revenue=$revenue > dust cap $TEARDOWN_ACCT_DUST after claim"
+    _uint_le "$pool_bal" "$TEARDOWN_POOL_DUST" \
+        || _assert_fail "td_pool_dust_${hub}_${sac:0:6}" "pool balance $pool_bal > dust cap $TEARDOWN_POOL_DUST"
+    _uint_le "$ctrl_bal" "$TEARDOWN_CTRL_DUST" \
+        || _assert_fail "td_ctrl_dust_${hub}_${sac:0:6}" "controller balance $ctrl_bal > dust cap $TEARDOWN_CTRL_DUST"
+    record "td_residue_${hub}_${sac:0:6}" ok residue "" "" "" "" "" \
+        "supplied=$supplied borrowed=$borrowed revenue=$revenue reserves=$reserves pool_bal=$pool_bal ctrl_bal=$ctrl_bal"
 }

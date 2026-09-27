@@ -21,7 +21,7 @@ source "{HERE}/lib/core.sh"
 source "{HERE}/lib/invoke.sh"
 source "{HERE}/lib/assert.sh"
 source "{HERE}/lib/assets.sh"
-LOG_DIR={directory}; RUN_DIR={directory}; ACTIONS_TSV={directory}/actions.tsv
+LOG_DIR={directory}; RUN_DIR={directory}; INTEG_DIR={directory}; ACTIONS_TSV={directory}/actions.tsv
 PHASE=test; ADMIN=admin; RPC_URL=unused; NET_ARGS=(--network testnet)
 printf 'seq\\tphase\\tlabel\\tstatus\\tfn\\thash\\tinstructions\\tread_bytes\\twrite_bytes\\tresource_fee\\tnote\\n' > "$ACTIONS_TSV"
 backoff_sleep() {{ :; }}
@@ -300,7 +300,7 @@ shell('stellar() { echo 1; }; if inv missing admin contract -- supply; then exit
 for payload in ['', '{}', '{', '{"error":{"code":-1}}', '{"jsonrpc":"2.0","id":1,"result":{}}']:
     shell('''
 stellar() { echo invalid; }
-curl() { printf '%s' PAYLOAD; }
+curl() { printf '%s\n200' PAYLOAD; }
 if sim_probe bad admin contract -- supply; then exit 1; fi
 [ "$PROBE_STATUS" = error ] && grep -q FAIL "$ACTIONS_TSV"
 '''.replace('PAYLOAD', "'" + payload + "'"))
@@ -570,3 +570,65 @@ flash_loan_checked checked "$MODE" || exit 1
 committed=0; suppress_fee=1
 if flash_loan_checked suppressed "$MODE"; then exit 1; fi
 ''')
+
+# Every submission path lies in a function that owns one signed transaction and its evidence.
+import re
+SUBMIT = re.compile(r'--send(=|\s+)(?!no\b)|\btx send\b|\bcontract (deploy|upload|extend|restore)\b|\basset deploy\b|sendTransaction|configs/script\.sh')
+QUIET = re.compile(r'--send(=|\s+)no\b|--build-only\b')
+SUBMITTERS = {'inv_cli', 'owner_submit', 'xfail', 'run_deploy', 'run_deploy_body', 'classic_batch', 'flow_stress_delayed',
+              'install_wasms', 'prod_ops', 'prod_execute_split'}
+HEADER = re.compile(r'^([A-Za-z_][A-Za-z0-9_]*)\(\)\s*[{(]')
+def submits(text):
+    return bool(SUBMIT.search(text) or (re.search(r'\bcontract invoke\b', text) and not QUIET.search(text))
+        or (re.search(r'\btx new\b', text) and '--build-only' not in text))
+def submit_sites(root):
+    for path in sorted(p for d in ('lib', 'flows', 'scenarios') for p in (root/d).glob('*.sh')):
+        function = None
+        pending = None
+        for number, line in enumerate(path.read_text().splitlines(), 1):
+            header = HEADER.match(line)
+            if header:
+                function = header[1]
+            if pending is None:
+                pending = (number, function, '')
+            pending = (pending[0], pending[1], pending[2] + line.rstrip('\\') + ' ')
+            if not line.endswith('\\'):
+                start, owner, text = pending
+                pending = None
+                if submits(text) and not text.lstrip().startswith('#'):
+                    yield f'{path.relative_to(root)}:{start}', owner, text
+            if line in ('}', ')') or (header and line.rstrip().endswith(('}', ')'))):
+                function = None
+    for path in sorted((root/'sdk').glob('*.mjs')):
+        if not path.name.startswith('test_'):
+            for number, line in enumerate(path.read_text().splitlines(), 1):
+                if SUBMIT.search(line):
+                    yield f'{path.relative_to(root)}:{number}', path.name, line
+def offenders(sites):
+    return [s for s in sites if s[1] not in SUBMITTERS | {'invoke.mjs'} and not re.search(r'\brun_deploy\b', s[2])]
+sites = list(submit_sites(HERE))
+assert not offenders(sites), offenders(sites)
+assert {'inv_cli', 'xfail', 'classic_batch', 'flow_stress_delayed', 'install_wasms', 'prod_ops', 'invoke.mjs'} <= {s[1] for s in sites}, sites
+with tempfile.TemporaryDirectory() as directory:
+    root = Path(directory)
+    for d in ('lib', 'flows', 'scenarios', 'sdk'):
+        (root/d).mkdir()
+    (root/'flows/planted.sh').write_text(r"""planted() {
+    stellar contract invoke --id "$C" --source "$ADMIN" "${NET_ARGS[@]}" -- set_aggregator --a 1
+    stellar contract invoke --id "$C" --source "$ADMIN" "${NET_ARGS[@]}" \
+        --send="${MODE:-yes}" -- pause
+    stellar contract invoke --id "$C" --source "$ADMIN" --send yes -- pause
+    stellar contract extend --id "$C" --source "$ADMIN" --ledgers-to-extend 1000
+    stellar contract restore --id "$C" --source "$ADMIN"
+    stellar tx new payment --source-account "$ADMIN" --destination "$B" --amount 1
+    stellar tx send < signed.xdr
+    stellar contract upload --wasm w --source "$ADMIN"
+    stellar contract invoke --id "$C" --source "$ADMIN" \
+        --send=no -- get
+    stellar contract invoke --id "$C" --source "$ADMIN" --build-only -- borrow
+    stellar tx new payment --build-only --source-account "$ADMIN"
+}
+""")
+    planted = offenders(submit_sites(root))
+    assert [s[0] for s in planted] == [f'flows/planted.sh:{n}' for n in (2, 3, 5, 6, 7, 8, 9, 10)], planted
+print('Every submission path is an allowlisted single-transaction helper')

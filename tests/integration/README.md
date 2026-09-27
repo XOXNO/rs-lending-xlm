@@ -2,7 +2,7 @@
 
 Live execution is manual or release-only, on Stellar testnet. PRs run offline
 harness, RPC-fixture and operator regressions. Release ordering is canonical
-build → offline/contract checks → twelve live lanes → publication of those exact
+build → offline/contract checks → thirteen live lanes → publication of those exact
 files. A passing smoke or a mapped ABI is not release acceptance.
 
 Builds use `stellar contract build --optimize --out-dir` and consume that
@@ -33,7 +33,7 @@ set -o pipefail
 cargo test --workspace --no-fail-fast 2>&1 | tee controlled-tests.log
 python3 tests/integration/controlled.py controlled-tests.log artifacts/wasm/deploy
 
-# Twelve fresh independent worlds; default caps: 95m per lane, 150m CI job.
+# Thirteen fresh independent worlds; default caps: 95m per lane, 150m CI job.
 NETWORK=testnet RUN_TS="local-$(date +%Y%m%d-%H%M%S)" \
   bash tests/integration/scenarios/parallel_e2e.sh
 
@@ -44,6 +44,32 @@ NETWORK=testnet RUN_TS="liq-$(date +%Y%m%d-%H%M%S)" E2E_LANES="liq-a liq-b liq-c
 python3 tests/integration/gate.py tests/integration/runs/<base>-liq-a
 python3 tests/integration/release_gate.py collect tests/integration/runs <base>
 ```
+
+All lanes share one RPC budget. `env.sh` puts `bin/stellar` first on `PATH`,
+so each network CLI call, `configs/script.sh` calls included, each JSON-RPC
+`curl` and each SDK RPC process (`sdk/invoke.mjs`, `sdk/balances.mjs`) holds
+one of `E2E_RPC_SLOTS` (default 12) slots. Simulation-only calls (`--send=no`,
+`--build-only`, `tx simulate`, `contract fetch`, `fees stats`, `ledger`,
+read-only `curl`, `sdk/balances.mjs`) first take one of `E2E_RPC_READ_SLOTS`
+(default 6). Local verbs (`keys`, `xdr`, `tx sign|hash|decode|encode|op`,
+`contract id|alias`, `version`) take no slot. The orchestrator's single
+`sdk/limits.mjs` call runs before any lane and takes no slot.
+
+A slot caps processes, not requests. A CLI view makes 2 to 3 requests in about
+0.4 s; a CLI send makes about 6 in about 4 s. So 6 read slots and 6 sends give
+about 40 requests per second at median latency, under the gateway limit of
+about 65 per second measured from one IP (Inferred from the
+`local-full2-063501` attempt timings). Record per-second request counts in a
+live run before you raise either default. Each wait of 1 s or more is logged to
+`runs/<run>/rpc-wait.tsv`.
+
+The pools live in `E2E_SLOT_DIR` (default `/tmp/rs-lending-e2e-slots-<uid>`),
+so every run of one user on one host shares them. A read that gets HTTP 429
+backs off with jitter for the `retry_after` the gateway sends (at most 120 s),
+or 8, 16, 32 and then 60 s, at most `THROTTLE_RETRIES` (default 6, 0 to 20)
+times. A signed send that gets 429 stays `UNKNOWN` and fails.
+`parallel_e2e.sh` starts `prod-full`, `prod-caller` and `stress` first and the other lanes
+`E2E_LANE_STAGGER` seconds later (default 60).
 
 Do not edit scripts during a live run: Bash may read their remaining contents
 later. Use an immutable checkout or a copied harness for concurrent development.
@@ -70,7 +96,8 @@ then `flash-b`.
 | `flash-a` | callback success, protected balances, Long/multiple collateral, delegates and rollback snapshots, malicious receiver | live Reflector; existing receiver fixtures |
 | `flash-b` | callback success, create-path and dual-path rejections, strategy-mode and flash-loan gates | live Reflector; existing receiver fixtures |
 | `blend` | actual pool allowlist/reserve addresses, six XLM paths plus distinct-token/multiple-liability migration, committed-rate shares/refunds/identity/unrelated balances | real Blend TestnetV2 pool |
-| `production` | governance operator setup/replay, enabled mainnet policy readbacks, 7/8/9/18 decimal round trips, XOXNO-backed borrowing, contract caller, same-schema upgrades | disposable policy/wallet roots; explicit provider/LP/token fixtures |
+| `prod-full` | governance operator setup/replay, full enabled mainnet policy readbacks, 5 same-hash upgrades with a live contract-owned position on a book with a repaid borrow, the full policy readback, then governance band, flags and pause on the upgraded contracts | disposable policy/wallet roots; explicit provider/LP/token fixtures for every enabled mainnet market |
+| `prod-caller` | the same operator on the filtered config (7 markets and reference BTC, policies from `configs/mainnet`); 7/8/9/18 decimal round trips, XOXNO-backed borrowing, contract caller and authority chain | disposable policy/wallet roots; `production_config.py --only caller` fixtures |
 | `sdk` | supply/borrow/repay/withdraw, routed multiply, Blend, events/error mapping/delayed signing | published SDK 1.0.221 and Stellar SDK 16.3.0; fresh contracts |
 
 `cases.json` defines required terminal cases and action predicates, qualified by
@@ -166,11 +193,11 @@ real external-provider availability. Current upgrade evidence explicitly records
 identical baseline/candidate controller hashes and `executable_differs=false`; controller/pool/NFT/price-aggregator/governance and oracle history preservation are checked; no v1.0.0
 storage migration claim is made.
 
-Final acceptance still requires two fresh complete twelve-lane runs on the final
+Final acceptance still requires two fresh complete thirteen-lane runs on the final
 candidate SHA and a release-workflow dry run. Release dispatch defaults to `dry_run=true`; a branch can run the complete gate
 without publication. `inject_e2e_failure=true` deliberately stops the E2E job
 before deployment and must leave publication skipped. A successful dry run still
-requires all twelve live lanes. Local publication regressions inject failed lanes
+requires all thirteen live lanes. Local publication regressions inject failed lanes
 and wrong artifacts. The injected-failure dry run at
 [3d4153e0](https://github.com/XOXNO/rs-lending-xlm/actions/runs/36127604894)
 passed build/checks, failed E2E deliberately, and skipped publication. A successful

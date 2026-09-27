@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+case "${E2E_STELLAR:-}" in
+    /*) [ ! "$E2E_STELLAR" -ef "${BASH_SOURCE[0]}" ] || { echo 'error: E2E_STELLAR names the RPC shim itself' >&2; exit 1; };;
+    *) echo 'error: E2E_STELLAR must be the absolute path of the stellar CLI' >&2; exit 1;;
+esac
+case "${1:-} ${2:-}" in
+    'keys fund') ;;
+    --version*|'version '*|'keys '*|'xdr '*|'tx sign'|'tx hash'|'tx decode'|'tx encode'|'tx op'|'contract id'|'contract alias')
+        case " $* " in *' --fund '*) ;; *) exec "$E2E_STELLAR" "$@";; esac;;
+esac
+pool=
+case "${1:-} ${2:-}" in 'tx simulate'|'contract fetch'|'fees stats'|'ledger '*) pool='read';; esac
+case " $* " in *' --send=no '*|*' --build-only '*) pool='read';; esac
+INTEG_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)" || exit 1
+source "$INTEG_DIR/lib/core.sh" || exit 1
+rpc_hold "$pool" || exit 1
+exec "$E2E_STELLAR" "$@"

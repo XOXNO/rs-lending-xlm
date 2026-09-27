@@ -1,5 +1,7 @@
 sdk_inv() {
     local label="$1" builder="$2" args="$3" result="$LOG_DIR/$1.sdk.json"
+    [ -z "${E2E_JOB:-}" ] || { job_refuse sdk_inv "$label"; return 1; }
+    [ -z "${GROUP_DIR:-}" ] || group_guard "sdk_inv $label" || return 1
     local method
     case "$builder" in
         buildStellarSupplyTx) method=supply;; buildStellarBorrowTx) method=borrow;;
@@ -10,7 +12,7 @@ sdk_inv() {
     export RPC_URL CONTROLLER
     local evidence="$LOG_DIR/$label" drifted='' hash execution
     while :; do
-        if stellar keys secret "$ALICE" | "${NODE_BIN:-node}" "$INTEG_DIR/sdk/invoke.mjs" "$builder" "$args" "$evidence" > "$result" 2> "$evidence.err"; then
+        if stellar keys secret "$ALICE" | ( rpc_hold || exit 1; exec "${NODE_BIN:-node}" "$INTEG_DIR/sdk/invoke.mjs" "$builder" "$args" "$evidence" ) > "$result" 2> "$evidence.err"; then
             if [ -n "${EXPECT_ERROR:-}" ]; then
                 record "$label" xfail "$method" "" "" "" "" "" "published SDK error mapping: $EXPECT_ERROR" simulation "$CONTROLLER"
             else

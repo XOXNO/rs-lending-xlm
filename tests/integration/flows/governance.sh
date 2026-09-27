@@ -9,9 +9,10 @@ GOV_SALT_UNPAUSE="77777777777777777777777777777777777777777777777777777777777777
 GOV_SALT_SELF_SENSITIVE="8888888888888888888888888888888888888888888888888888888888888888"
 GOV_SALT_CANCELLER_RESET="9999999999999999999999999999999999999999999999999999999999999999"
 GOV_SALT_GRANT_GUARDIAN="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+GOV_SENSITIVE_MIN_DELAY=12
 
 gov_state() {
-    stellar contract invoke --id "$GOVERNANCE" --source "$ADMIN" "${NET_ARGS[@]}" --send=no \
+    cli_read stellar contract invoke --id "$GOVERNANCE" --source "$ADMIN" "${NET_ARGS[@]}" --send=no \
         -- get_operation_state --operation_id "$1" 2>/dev/null | tr -d '"[:space:]'
 }
 
@@ -23,6 +24,30 @@ gov_assert_state() {
     else
         _assert_fail "$label" "op state=$got want $want"
     fi
+}
+
+gov_assert_scheduled() {
+    local label="$1" propose_label="$2" op_id="$3" delay="$4" hash incl ready before after st
+    [[ "$delay" =~ ^[1-9][0-9]*$ ]] || { _assert_fail "$label" "invalid expected delay '$delay'"; return 1; }
+    hash=$(extract_signing_hash "$(job_log "$propose_label").err")
+    incl=$(jq -er --arg h "$hash" '.result | select(.status == "SUCCESS" and .txHash == $h) | .ledger | select(type == "number" and . > 0 and floor == .)' \
+        "$LOG_DIR/$hash.receipt.json" 2>/dev/null) \
+        || { _assert_fail "$label" "no committed receipt ledger for $propose_label"; return 1; }
+    ready=$(view "${label}_ledger" "$GOVERNANCE" -- get_operation_ledger --operation_id "$op_id" | tr -d '"[:space:]') || return 1
+    if [ "$ready" != "$((incl + delay))" ]; then
+        _assert_fail "$label" "ready ledger $ready != inclusion $incl + delay $delay"
+        return 1
+    fi
+    before=$(latest_ledger) || { _assert_fail "$label" "no latest ledger before the state read"; return 1; }
+    st=$(view "$label" "$GOVERNANCE" -- get_operation_state --operation_id "$op_id" | tr -d '"[:space:]') || return 1
+    after=$(latest_ledger) || { _assert_fail "$label" "no latest ledger after the state read"; return 1; }
+    [ "$after" -ge "$before" ] || { _assert_fail "$label" "RPC latest ledger went backwards ($before..$after)"; return 1; }
+    case "$st" in
+        Waiting) [ "$before" -lt "$ready" ] ;;
+        Ready) [ "$after" -ge "$ready" ] ;;
+        *) false ;;
+    esac || { _assert_fail "$label" "op state=$st read within ledgers $before..$after, ready at $ready"; return 1; }
+    record "$label" ok assert "" "" "" "" "" "ready $ready = inclusion $incl + delay $delay; $st within ledgers $before..$after"
 }
 
 gov_await_ready() {
@@ -40,7 +65,7 @@ gov_await_ready() {
 gov_scval_args() {
     local fn="$1"; shift
     local txb
-    txb=$(stellar contract invoke --id "$GOV_CONTROLLER" --source "$ADMIN" "${NET_ARGS[@]}" \
+    txb=$(cli_read stellar contract invoke --id "$GOV_CONTROLLER" --source "$ADMIN" "${NET_ARGS[@]}" \
         --build-only --send=no -- "$fn" "$@" 2>/dev/null) || return 1
     printf '%s' "$txb" | stellar tx decode \
         | jq -c 'first(.. | objects | select(has("invoke_contract")) | .invoke_contract.args)'
@@ -78,7 +103,8 @@ flow_governance() {
     inv gov_execute_unpause "$ADMIN" "$GOVERNANCE" -- execute \
         --executor null --target "$GOV_CONTROLLER" --function unpause \
         --args-file-path "$unpause_args_f" --predecessor "$GOV_ZERO32" --salt "$GOV_SALT_UNPAUSE" >/dev/null
-view gov_min_delay "$GOVERNANCE" -- get_min_delay >/dev/null
+local gov_delay
+gov_delay=$(view gov_min_delay "$GOVERNANCE" -- get_min_delay | tr -d '"[:space:]')
 view gov_has_role_admin_executor "$GOVERNANCE" -- has_role \
 --account "$ADMIN_ADDR" --role EXECUTOR >/dev/null
 view gov_resolve_tol "$GOVERNANCE" -- resolve_oracle_tolerance \
@@ -89,7 +115,7 @@ view gov_resolve_tol "$GOVERNANCE" -- resolve_oracle_tolerance \
         --proposer "$ADMIN_ADDR" \
         --op '{"SetPositionLimits":{"max_supply_positions":3,"max_borrow_positions":3}}' \
         --salt "$GOV_SALT_CANCEL" | tr -d '"[:space:]')
-    gov_assert_state gov_state_waiting "$op_cancel" Waiting
+    gov_assert_scheduled gov_state_waiting gov_propose_cancel "$op_cancel" "$gov_delay"
     inv gov_cancel "$ADMIN" "$GOVERNANCE" -- cancel \
         --canceller "$ADMIN_ADDR" --operation_id "$op_cancel" >/dev/null
     gov_assert_state gov_state_unset "$op_cancel" Unset
@@ -142,7 +168,7 @@ op_self=$(inv gov_self_propose_delay "$ADMIN" "$GOVERNANCE" -- propose \
     --proposer "$ADMIN_ADDR" \
     --op "{\"UpdateGovDelay\":$delay_next}" \
     --salt "$GOV_SALT_SELF_DELAY" | tr -d '"[:space:]')
-gov_assert_state gov_self_state_waiting "$op_self" Waiting
+gov_assert_scheduled gov_self_state_waiting gov_self_propose_delay "$op_self" "$delay_now"
 st=$(gov_await_ready "$op_self")
 if [ "$st" != "Ready" ] && [ "$st" != "Done" ]; then
     _assert_fail gov_self_await_ready "op $op_self never reached Ready (state=$st)"
@@ -162,7 +188,8 @@ op_sensitive=$(inv gov_self_propose_grant "$ADMIN" "$GOVERNANCE" -- propose \
     --proposer "$ADMIN_ADDR" \
     --op '{"GrantGovRole":{"account":"'"$DAVE_ADDR"'","role":"EXECUTOR"}}' \
     --salt "$GOV_SALT_SELF_SENSITIVE" | tr -d '"[:space:]')
-gov_assert_state gov_self_sensitive_waiting "$op_sensitive" Waiting
+gov_assert_scheduled gov_self_sensitive_waiting gov_self_propose_grant "$op_sensitive" \
+    "$((delay_next > GOV_SENSITIVE_MIN_DELAY ? delay_next : GOV_SENSITIVE_MIN_DELAY))"
 inv gov_self_cancel_grant "$ADMIN" "$GOVERNANCE" -- cancel \
     --canceller "$ADMIN_ADDR" --operation_id "$op_sensitive" >/dev/null
 gov_assert_state gov_self_sensitive_unset "$op_sensitive" Unset

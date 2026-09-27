@@ -56,23 +56,33 @@ def write_summary(run, status, reason=None, exit_code=None):
             return list(csv.DictReader(stream, delimiter='\t'))
     metadata = json.loads((run/'metadata.json').read_text())
     actions, cases = table('actions.tsv'), table('cases.tsv')
-    attempts = []
-    path = run/'attempts.jsonl'
-    for line in path.read_text().splitlines() if path.exists() else []:
-        attempt = json.loads(line)
+    def with_status(attempt):
         receipt = run / attempt['receipt'] if attempt['receipt'] else None
         attempt['receipt_status'] = (json.loads(receipt.read_text()).get('result', {}).get('status', 'UNKNOWN')
             if receipt is not None and receipt.exists() else 'UNKNOWN' if attempt['hash'] else 'NOT_SUBMITTED')
-        attempts.append(attempt)
+        return attempt
+    def signed(path):
+        return re.findall(r'Signing transaction: ([0-9a-f]{64})', path.read_text() if path.exists() else '')
+    path = run/'attempts.jsonl'
+    attempts = [with_status(json.loads(line)) for line in (path.read_text().splitlines() if path.exists() else [])]
     path = run/'summary.json'
     previous = json.loads(path.read_text()) if path.exists() else {}
     active_path = run/'active-attempt.json'
     active = json.loads(active_path.read_text()) if active_path.exists() else None
+    group_attempts = None
     if active:
-        stderr = run/active['stderr']
-        hashes = re.findall(r'Signing transaction: ([0-9a-f]{64})', stderr.read_text() if stderr.exists() else '')
+        hashes = signed(run/active['stderr'])
         active['hash'] = hashes[-1] if hashes else None
         active['receipt_status'] = 'UNKNOWN'
+        if active.get('group'):
+            group = run/active['group']
+            jobs = sorted((p for p in group.iterdir() if p.name.isdigit()), key=lambda p: int(p.name)) if group.is_dir() else []
+            group_attempts = [with_status(json.loads(line)) for job in jobs if (job/'attempts.part').exists()
+                for line in (job/'attempts.part').read_text().splitlines()]
+            found = [h for err in sorted((run/'logs').glob(f'*.j{active["group"].rsplit(".", 1)[-1]}-*.err')) for h in signed(err)]
+            found += [h for job in jobs if (job/'active.json').exists()
+                for h in signed(run/json.loads((job/'active.json').read_text())['stderr'])]
+            active['hashes'] = list(dict.fromkeys(found))
     if status == 'completed':
         status = 'incomplete' if (run/'interruption.json').exists() else ('failed' if exit_code else previous.get('status', 'completed'))
         if status == 'running':
@@ -86,6 +96,8 @@ def write_summary(run, status, reason=None, exit_code=None):
         cases=dict(Counter(c.get('status', 'malformed') for c in cases)),
         actions=dict(Counter(a.get('status', 'malformed') for a in actions)), attempts=attempts,
         active_attempt=active)
+    if group_attempts is not None:
+        summary['group_attempts'] = group_attempts
     # Atomic replacement preserves an earlier summary if a process is killed.
     temporary = path.with_suffix('.json.tmp')
     temporary.write_text(json.dumps(summary, indent=2)+'\n')

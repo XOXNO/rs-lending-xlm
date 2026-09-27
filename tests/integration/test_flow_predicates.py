@@ -1,4 +1,5 @@
 """Fault injection for risk snapshots, NFT enumeration and route headers."""
+import csv
 import json
 import subprocess
 import unittest
@@ -190,6 +191,313 @@ prod_execute_split setPriceAggregator setPriceAggregator >/dev/null'''
             (Path(d)/'logs').mkdir()
             result=shell('flows/production.sh','RUN_DIR="$1"; LOG_DIR="$1/logs"; prod_execute_split setAggregator setAggregator',d)
             self.assertNotEqual(result.returncode,0)
+    def test_production_fixture_groups_keep_plan_order_and_serial_xoxno(self):
+        plan={'CZ1':{'kind':'Reflector'},'CA2':{'kind':'RedStone'},'CM3':{'kind':'Xoxno'},'CB4':{'kind':'token','decimals':7,'name':'T'},'CC5':{'kind':'pool','decimals':7,'name':'LPPOOL'}}
+        seeds=[dict(kind='Reflector',contract='R1',asset={'Other':'A'},price='1'),dict(kind='RedStone',contract='S',feed='F',price='2'),
+               dict(kind='Xoxno',contract='X',feed='XF',price='30000000000'),dict(kind='RedStone',contract='S',feed='F',price='2'),
+               dict(kind='Reflector',contract='R1',asset={'Other':'B'},price='3')]
+        body=r'''source "$1/lib/core.sh"; source "$1/lib/assert.sh"; source "$1/flows/production.sh"
+RUN_DIR="$2"; LOG_DIR="$2/logs"; ACTIONS_TSV="$2/actions.tsv"; STATE_ENV="$2/state.env"; PHASE=init
+mkdir -p "$LOG_DIR"; printf 'seq\tphase\tlabel\tstatus\tfn\thash\tinstructions\tread_bytes\twrite_bytes\tresource_fee\tnote\n' > "$ACTIONS_TSV"
+CHANNELS="c1 c2 c3"; ADMIN=admin; ADMIN_ADDR=GADMIN; INTEG_DIR="$2/fake"; REPO_ROOT=unused; FIXTURE_WASM_DIR=fx; WASM_DIR=w; NET_ARGS=(--network testnet)
+PROD_CONFIG_ONLY=caller
+phase() { PHASE="$1"; }; log() { :; }
+cid() { printf 'C%055d' "$1" | tr 0-9 A-J; }
+deploy_protocol() {
+    touch "$RUN_DIR/deploy_started"
+    echo "${E2E_JOB:-}" > "$RUN_DIR/deploy_job"
+    inv deploy_marker "$ADMIN" CTRL -- noop >/dev/null
+}
+run_deploy() {
+    local a prev='' src='' n i=0
+    for a; do [ "$prev" != --source ] || src="$a"; prev="$a"; done
+    n=$(basename "$1" .out); n=${n#fixture_}; n=${n%%.*}
+    until [ -e "$RUN_DIR/deploy_started" ]; do i=$((i+1)); [ "$i" -le 300 ] || return 1; command sleep 0.1; done
+    command sleep "$(awk -v n="$n" 'BEGIN { print (6 - n) * 0.3 }')"
+    echo "$n|$src" >> "$RUN_DIR/deploys"
+    cid "$n" > "$1"; printf 'Signing transaction: %064d\n' "$n" > "$2"
+    RES_INSTR=1 RES_READ=2 RES_WRITE=3 RES_FEE=4
+}
+inv() {
+    printf '%s|%s|%s|%s|%s\n' "$1" "${E2E_JOB:-}" "$2" "$3" "$5" >> "$RUN_DIR/writes"
+    record "$1" ok "$5" "$(python3 -c 'import hashlib, sys; print(hashlib.sha256(sys.argv[1].encode()).hexdigest())' "${E2E_JOB:-p} $*")" 1 2 3 4 '' transaction "$3"
+}
+prod_deploy_protocol && flow_production_fixtures'''
+        def run(d,fixture_seeds):
+            fake=Path(d)/'fake';fake.mkdir()
+            (fake/'fixtures.json').write_text(json.dumps(dict(bases={'CZ1x':{'Other':'USD'}},seeds=fixture_seeds,pools=[dict(contract='P',snapshot={})])))
+            (fake/'production_config.py').write_text(f'''import json, shutil, sys
+from pathlib import Path
+with open(Path(__file__).with_name('argv'), 'a') as log:
+    log.write(json.dumps(sys.argv[1:]) + '\\n')
+if sys.argv[1] == 'plan':
+    print({json.dumps(json.dumps(plan))})
+else:
+    shutil.copy(Path(__file__).with_name('fixtures.json'), Path(sys.argv[3])/'fixtures.json')
+''')
+            result=subprocess.run(['bash','-c',body,'_',str(HERE),d],capture_output=True,text=True)
+            root=Path(d)
+            writes=[dict(zip(('label','job','signer','contract','fn'),w.split('|'))) for w in (root/'writes').read_text().splitlines()] if (root/'writes').exists() else []
+            actions=list(csv.DictReader((root/'actions.tsv').read_text().splitlines(),delimiter='\t'))
+            evidence=list(csv.DictReader((root/'evidence.tsv').read_text().splitlines(),delimiter='\t'))
+            return result,root,writes,actions,evidence
+        with tempfile.TemporaryDirectory() as d:
+            result,root,writes,actions,evidence=run(d,seeds)
+            mapping=json.loads((root/'address-map.json').read_text())
+            seed_jobs=[j for g in root.glob('jobs/prod_seeds.*') for j in g.iterdir() if j.name.isdigit()]
+            deploys=sorted((root/'deploys').read_text().split())
+            groups=list(root.glob('jobs/production_deploy.*'))
+            deploy_jobs=sorted(int(j.name) for g in groups for j in g.iterdir() if j.name.isdigit())
+            deploy_job=(root/'deploy_job').read_text().split()
+            argv=[json.loads(line) for line in (root/'fake/argv').read_text().splitlines()]
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual(len(groups),1)
+        self.assertEqual(deploy_jobs,list(range(1,len(plan)+2)))
+        self.assertEqual(deploy_job,[f'{groups[0].name.split(".")[-1]}-{len(plan)+1}'])
+        self.assertEqual([a[0] for a in argv],['plan','materialize'])
+        self.assertTrue(all(a[-2:]==['--only','caller'] for a in argv),argv)
+        labels=[a['label'] for a in actions]
+        self.assertGreater(labels.index('deploy_marker'),max(i for i,l in enumerate(labels) if l.startswith('production_fixture_')))
+        self.assertEqual([(w['job']!='',w['signer']) for w in writes if w['label']=='deploy_marker'],[(True,'admin')])
+        cid=lambda n:'C'+f'{n:055d}'.translate(str.maketrans('0123456789','ABCDEFGHIJ'))
+        self.assertEqual(list(mapping.items()),[(k,cid(n)) for n,k in enumerate(plan,1)])
+        fixtures=[(a,e) for a,e in zip(actions,evidence) if a['label'].startswith('production_fixture_')]
+        self.assertEqual([(a['label'],a['status'],a['fn'],e['execution'],e['contract']) for a,e in fixtures],
+                         [(f'production_fixture_{n}','ok','deploy','deployment',cid(n)) for n in range(1,6)])
+        self.assertTrue(all(len(a['hash'])==64 for a,_ in fixtures))
+        self.assertEqual(deploys,[f'{n}|c{(n-1)%3+1}' for n in range(1,6)])
+        required=next(c for c in json.loads((HERE/'cases.json').read_text()) if c['id']=='flow_production_fixtures')['required_actions']
+        for r in required:
+            self.assertGreaterEqual(len([a for a in actions if (a['label'],a['fn'],a['status'])==(r['label'],r['method'],r['status'])]),r['count'],r)
+        for w in writes:
+            if w['label']=='deploy_marker': continue
+            serial=w['label'] in ('prod_xoxno_register','prod_xoxno_seed','prod_lp_fixture')
+            self.assertEqual((w['job']=='',w['signer']=='admin'),(serial,serial),w)
+        self.assertEqual(len([w for w in writes if w['label']=='prod_redstone_seed']),1)
+        self.assertEqual(len(seed_jobs),3)
+        seeds[3]=dict(seeds[3],price='9')
+        with tempfile.TemporaryDirectory() as d:
+            result,root,writes,actions,_=run(d,seeds)
+            spawned=list(root.glob('jobs/prod_seeds.*'))+list(root.glob('jobs/prod_bases.*'))
+        self.assertNotEqual(result.returncode,0)
+        self.assertEqual(spawned,[])
+        self.assertEqual([w for w in writes if w['label'] in ('prod_reflector_seed','prod_redstone_seed','prod_reflector_base')],[])
+        self.assertEqual([(a['label'],a['status']) for a in actions if a['status']=='FAIL'],[('prod_seed_dedupe','FAIL')])
+        self.assertIn('conflicting prices',next(a['note'] for a in actions if a['label']=='prod_seed_dedupe'))
+    UPGRADES=['upgradeControllerHash','upgradePoolHash','upgradePositionNftHash','upgradePriceAggregatorHash','upgradeGovernanceHash']
+    UPGRADE_MOCKS=r"""RUN_DIR="$1"; LOG="$1/calls"; INTEG_DIR=integ; REPO_ROOT=repo; POSITION_NFT=NFT; CONTROLLER=CTRL
+CTRL_HASH=hc; POOL_HASH=hp; NFT_HASH=hn; PA_HASH=ha; echo '{"artifacts":{"governance.wasm":"hg"}}' > "$RUN_DIR/candidate.json"
+python3() { if [ "$1" = -c ]; then command python3 "$@"; else echo "$2" >> "$LOG"; [ "${FULL_FAIL:-}" != 1 ]; fi; }
+record() { echo "record $1 $2" >> "$LOG"; }
+inv() { echo "inv $1" >> "$LOG"; }
+assert_int_view_eq() { echo "assert_int $1 $2" >> "$LOG"; }
+price_key_token() { echo PK; }
+mkdir -p "$RUN_DIR/config/testnet"
+echo '{"markets":[{"name":"USDC","asset_address":"A","oracle":{"min_sanity_price_wad":"1","max_sanity_price_wad":"2"}}]}' > "$RUN_DIR/config/testnet/markets.json"
+_assert_fail() { echo "fail $1" >> "$LOG"; return 1; }
+prod_propose() { echo "propose $1 $2 $3" >> "$LOG"; }
+prod_execute_split() { echo "execute $1 $2 $3" >> "$LOG"; }
+prod_ops() { echo "ops ${PROD_OP_TAG:-$1}" >> "$LOG"; }
+prod_contract_open() { echo open >> "$LOG"; asset=A runner=R acct=7 decimals=9; }
+prod_contract_close() { echo "close $asset $runner $acct $decimals" >> "$LOG"; }
+view() { echo "view $1" >> "$LOG"; echo 0; }
+hub_key() { echo HK; }
+prod_position_snapshot() { echo "snap $1 $2 $3 $4" >> "$LOG"; echo "{\"book\":{\"state\":{\"borrow_index\":\"${BOOK_INDEX:-1000000000000000000000000001}\",\"supply_index\":\"1000000000000000000000000001\"}}}"; }
+prod_verify_policy() { echo policy >> "$LOG"; }
+assert_view_eq_at() { echo "assert $2 $3 $6" >> "$LOG"; }
+"""
+
+    def test_upgrade_case_full_config_and_order(self):
+        hashes=dict(zip(self.UPGRADES,['hc','hp','hn','ha','hg']))
+        with tempfile.TemporaryDirectory() as d:
+            result=shell('flows/production.sh',self.UPGRADE_MOCKS+'flow_production_upgrade',d)
+            calls=(Path(d)/'calls').read_text().splitlines()
+            self.assertTrue((Path(d)/'upgrade.json').exists())
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual(calls,['full','record prod_upgrade_full_config ok']
+            +[f'propose {v} {v} {hashes[v]}' for v in self.UPGRADES]
+            +['open','inv prod_upgrade_mint','inv prod_upgrade_borrow','inv prod_upgrade_repay','assert_int prod_upgrade_debt_zero 0',
+              'view prod_position_before','snap prod_upgrade_before 7 A R','record prod_upgrade_book_history ok']
+            +[f'execute {v} {v} {hashes[v]}' for v in self.UPGRADES]
+            +['snap prod_upgrade_after 7 A R','record prod_upgrade_state ok','view prod_position_after','policy',
+              'ops unpause_after_upgrade','assert prod_upgrade_owner R 7','close A R 7 9',
+              'inv prod_governance_band','inv prod_governance_flags','ops pause','ops unpause_after_pause'])
+        with tempfile.TemporaryDirectory() as d:
+            result=shell('flows/production.sh','FULL_FAIL=1; '+self.UPGRADE_MOCKS+'flow_production_upgrade',d)
+            calls=(Path(d)/'calls').read_text().splitlines()
+        self.assertNotEqual(result.returncode,0)
+        self.assertEqual(calls,['full','fail prod_upgrade_full_config'])
+        with tempfile.TemporaryDirectory() as d:
+            result=shell('flows/production.sh','BOOK_INDEX=1000000000000000000000000000; '+self.UPGRADE_MOCKS+'flow_production_upgrade',d)
+            calls=(Path(d)/'calls').read_text().splitlines()
+        self.assertNotEqual(result.returncode,0)
+        self.assertEqual(calls[-2:],['snap prod_upgrade_before 7 A R','fail prod_upgrade_book_history'])
+
+    def test_caller_and_lending_leave_upgrades_to_prod_full(self):
+        body=self.UPGRADE_MOCKS+r"""BOB_ADDR=GBOB; ADMIN_ADDR=GADMIN; PRIMARY_SPOKE_ID=1; WAD=1
+python3() { echo "$2" >> "$LOG"; echo '{"asset":"A","hub_id":3,"amount":"1","spoke_id":9,"debt":"D","debt_hub":1}'; }
+for f in lifecycle_inv assert_hf_at_least assert_bool_view pay_vec xfail_sim prod_decimal_roundtrips prod_caller_authority; do
+    eval "$f() { echo 1; }"
+done
+"$2"
+"""
+        with tempfile.TemporaryDirectory() as d:
+            result=shell('flows/production.sh',body,d,'flow_production_lending')
+            calls=(Path(d)/'calls').read_text().splitlines()
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual([c for c in calls if c.startswith(('propose','execute'))],
+                         ['propose prod_manager_on setPositionManager GBOB','propose prod_manager_off setPositionManager GBOB'])
+        with tempfile.TemporaryDirectory() as d:
+            result=shell('flows/production.sh',body,d,'flow_production_caller')
+            calls=(Path(d)/'calls').read_text().splitlines()
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual([c for c in calls if c.split()[0] in ('propose','execute','policy','ops')],[])
+        self.assertEqual(calls[-1],'close A R 7 9')
+        self.assertFalse([c for c in calls if c.startswith('inv prod_governance')],calls)
+
+    GROUPED_READS = r"""source "$1/lib/core.sh"; source "$1/lib/invoke.sh"; source "$1/lib/assert.sh"; source "$1/lib/assets.sh"; source "$1/lib/protocol.sh"
+source "$1/flows/lifecycle.sh"; source "$1/flows/teardown.sh"; source "$1/flows/production.sh"
+set -uo pipefail
+RUN_DIR="$2"; LOG_DIR="$2/logs"; ACTIONS_TSV="$2/actions.tsv"; STATE_ENV="$2/state.env"; PHASE=init; INTEG_DIR="$2/integ"
+mkdir -p "$LOG_DIR"; printf 'seq\tphase\tlabel\tstatus\tfn\thash\tinstructions\tread_bytes\twrite_bytes\tresource_fee\tnote\n' > "$ACTIONS_TSV"
+ADMIN=admin ADMIN_ADDR=GADMIN ALICE_ADDR=GALICE BOB_ADDR=GISSUER RPC_URL=rpc NET_ARGS=(--network testnet)
+CONTROLLER=CCTRL POOL=CPOOL POSITION_NFT=CNFT GOVERNANCE=CGOV PRICE_AGGREGATOR=CPA PRIMARY_SPOKE_ID=4
+log() { :; }; latest_ledger() { echo 1; }
+cat > "$RUN_DIR/node" <<'NODE'
+#!/bin/bash
+out=$6; shift 6
+jq -n '[$ARGS.positional[] | {(.): {balance: "3"}}] | add // {}' --args "$@" > "$out"
+NODE
+chmod +x "$RUN_DIR/node"; NODE_BIN="$RUN_DIR/node"
+stellar() {
+    local a prev='' id='' fn='' args='' after=0 n v
+    for a; do
+        if [ "$after" = 1 ]; then if [ -z "$fn" ]; then fn="$a"; else args="$args $a"; fi; continue; fi
+        [ "$a" != -- ] || after=1
+        [ "$prev" != --id ] || id="$a"; prev="$a"
+    done
+    [ -z "${E2E_JOB:-}" ] || command sleep "${DELAY_UNIT:-0.}$(( (20 - ${E2E_JOB##*-}) % 10 ))"
+    v=$(printf '%s' "$id$args" | cksum | cut -d' ' -f1)
+    case "$fn" in
+        name) if [ "$id" = SAC2 ]; then echo '"USDC:GISSUER"'; else echo "\"name-$id\""; fi;;
+        total_supply) n=$(( $(cat "$RUN_DIR/totals" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$RUN_DIR/totals"; echo "${TOTAL_SEQ:-3 3}" | cut -d' ' -f"$n";;
+        get_token_id) echo "\"$(( ${args##* } + 10 ))\"";;
+        account_exists) echo false;;
+        get_revenue) echo '"0"';;
+        get_reserves) echo "\"$(( v % 10 ))\"";;
+        get_borrowed_amount|get_supplied_amount) echo "\"$(( v % 20 ))\"";;
+        balance) case "$args" in *CPOOL*) echo "\"$(( 10 + v % 20000 ))\"";; *) echo "\"$(( v % 2000 ))\"";; esac;;
+        *) jq -nc --arg fn "$fn" --arg id "$id" --arg args "$args" '{fn:$fn,id:$id,args:$args}';;
+    esac
+}
+"""
+
+    SERIAL_SNAPSHOT = r"""
+serial_snapshot() {
+    local label="$1" acct="$2" asset="$3" runner="$4" positions attributes usage owner wallet pool
+    positions=$(view "${label}_positions" "$CONTROLLER" -- get_account_positions --account_id "$acct") || return 1
+    attributes=$(view "${label}_attributes" "$CONTROLLER" -- get_account_attributes --account_id "$acct") || return 1
+    usage=$(view "${label}_usage" "$CONTROLLER" -- get_spoke_usage --spoke_id "$PRIMARY_SPOKE_ID" --hub_asset "$(hub_key 1 "$asset")") || return 1
+    owner=$(view "${label}_owner" "$POSITION_NFT" -- owner_of --token_id "$acct") || return 1
+    local controller_cash book nft_state roles='[]' role held pa_owner
+    book=$(view "${label}_pool_book" "$POOL" -- get_sync_data --hub_asset "$(hub_key 1 "$asset")") || return 1
+    nft_state=$(jq -nc --argjson name "$(view "${label}_name" "$POSITION_NFT" -- name)" \
+        --argjson symbol "$(view "${label}_symbol" "$POSITION_NFT" -- symbol)" \
+        --argjson uri "$(view "${label}_uri" "$POSITION_NFT" -- token_uri --token_id "$acct")" \
+        --argjson total "$(view "${label}_total" "$POSITION_NFT" -- total_supply)" \
+        '{name:$name,symbol:$symbol,uri:$uri,total:$total}') || return 1
+    for role in PROPOSER EXECUTOR CANCELLER GUARDIAN ORACLE; do
+        held=$(view "${label}_role_$role" "$GOVERNANCE" -- has_role --account "$ADMIN_ADDR" --role "$role") || return 1
+        roles=$(jq -nc --argjson roles "$roles" --arg role "$role" --argjson held "$held" '$roles+[{role:$role,held:$held}]') || return 1
+    done
+    pa_owner=$(view "${label}_pa_owner" "$PRICE_AGGREGATOR" -- get_owner) || return 1
+    controller_cash=$(balance "$asset" "$CONTROLLER") || return 1
+    wallet=$(balance "$asset" "$runner") || return 1
+    pool=$(balance "$asset" "$POOL") || return 1
+    jq -ncS --argjson positions "$positions" --argjson attributes "$attributes" --argjson usage "$usage" \
+        --argjson owner "$owner" --arg wallet "$wallet" --arg pool "$pool" --arg controller_cash "$controller_cash" \
+        --argjson book "$book" --argjson nft "$nft_state" --argjson roles "$roles" --argjson pa_owner "$pa_owner" \
+        '{positions:$positions,attributes:$attributes,usage:$usage,owner:$owner,wallet:$wallet,pool:$pool,controller_cash:$controller_cash,book:$book,nft:$nft,roles:$roles,pa_owner:$pa_owner}'
+}
+serial=$(serial_snapshot prod_snap 7 CUSDC CRUNNER) || exit 1
+grouped=$(prod_position_snapshot prod_snap 7 CUSDC CRUNNER) || exit 2
+printf '%s\n' "$serial" > "$RUN_DIR/serial.json"; printf '%s\n' "$grouped" > "$RUN_DIR/grouped.json"
+"""
+
+    SERIAL_TEARDOWN = r"""
+for m in $MARKETS; do E2E_JOB_DIR="$RUN_DIR" td_snapshot_job "${m%%:*}" "${m##*:}" || exit 1; done
+mv "$RUN_DIR/snapshot.jsonl" "$RUN_DIR/before-cleanup.jsonl"
+for m in $MARKETS; do td_residue_job "${m%%:*}" "${m##*:}"; done
+"""
+
+    @staticmethod
+    def rows(root):
+        return [line.split('\t') for line in (root/'actions.tsv').read_text().splitlines()[1:]]
+
+    def test_position_snapshot_group_equals_serial(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            result = subprocess.run(['bash', '-c', self.GROUPED_READS + self.SERIAL_SNAPSHOT, '_', str(HERE), d], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr[-2000:])
+            serial, grouped = (root/'serial.json').read_text(), (root/'grouped.json').read_text()
+            rows = self.rows(root)
+        self.assertEqual(grouped, serial)
+        snapshot = json.loads(grouped)
+        self.assertEqual([r['role'] for r in snapshot['roles']], ['PROPOSER', 'EXECUTOR', 'CANCELLER', 'GUARDIAN', 'ORACLE'])
+        self.assertEqual(snapshot['nft']['name'], 'name-CNFT')
+        self.assertEqual(len({snapshot['wallet'], snapshot['pool'], snapshot['controller_cash']}), 3)
+        floor = next(i for i, r in enumerate(rows) if r[2] == 'prod_snap_ledger_floor')
+        self.assertEqual(floor, 18)
+        self.assertEqual([r[2:] for r in rows[floor+1:]], [r[2:] for r in rows[:floor]])
+
+    def test_teardown_trustline_reads_share_the_simulation_slots(self):
+        body = self.GROUPED_READS + r'''
+E2E_SIM_SLOTS=1 DELAY_UNIT=0.0
+cat > "$RUN_DIR/node" <<'NODE'
+#!/bin/bash
+span="$(dirname "$0")/span"; echo "start node" >> "$span"; sleep 0.3; echo "end node" >> "$span"
+held=no; for fd in 130 131 132 133 134 135; do { : >&"$fd"; } 2>/dev/null && held=yes; done; echo "$held" >> "$(dirname "$0")/read-slot"
+out=$6; shift 6
+jq -n '[$ARGS.positional[] | {(.): {balance: "3"}}] | add // {}' --args "$@" > "$out"
+NODE
+eval "$(declare -f stellar | sed '1s/^stellar/stellar_mock/')"
+stellar() { echo "start view" >> "$RUN_DIR/span"; stellar_mock "$@"; local rc=$?; echo "end view" >> "$RUN_DIR/span"; return "$rc"; }
+group_begin before_cleanup 8 reads || exit 1
+group_spawn td_snapshot_job 1 SAC2; group_spawn td_snapshot_job 2 SAC2
+group_end || exit 2
+'''
+        with tempfile.TemporaryDirectory() as d:
+            result = subprocess.run(['bash', '-c', body, '_', str(HERE), d], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr[-2000:])
+            spans = (Path(d)/'span').read_text().split('\n')[:-1]
+            self.assertEqual((Path(d)/'read-slot').read_text().split(), ['yes', 'yes'])
+        self.assertEqual(spans.count('start node'), 2)
+        self.assertEqual([line.split()[0] for line in spans], ['start', 'end'] * (len(spans) // 2), spans)
+
+    def test_teardown_groups_keep_serial_rows_and_snapshot_order(self):
+        markets = ' '.join([f'1:SAC{n}' for n in range(1, 9)] + ['2:SAC1', '1:SACA'])
+        grouped = self.GROUPED_READS + f'MARKETS="{markets}"; TOTAL_SEQ="3 0"; DELAY_UNIT=0.0\nflow_teardown; echo "$?" > "$RUN_DIR/rc"\n'
+        serial = self.GROUPED_READS + f'MARKETS="{markets}"\n' + self.SERIAL_TEARDOWN
+        with tempfile.TemporaryDirectory() as a, tempfile.TemporaryDirectory() as b:
+            ran, ref = [subprocess.Popen(['bash', '-c', body, '_', str(HERE), d], stderr=subprocess.PIPE, text=True) for body, d in ((grouped, a), (serial, b))]
+            ran_err, ref_err = ran.communicate()[1], ref.communicate()[1]
+            self.assertEqual(ref.returncode, 0, ref_err[-2000:])
+            self.assertEqual((Path(a)/'rc').read_text().strip(), '1', ran_err[-2000:])
+            got, want = (Path(a)/'before-cleanup.jsonl').read_text(), (Path(b)/'before-cleanup.jsonl').read_text()
+            rows, reference = self.rows(Path(a)), self.rows(Path(b))
+        self.assertEqual(got, want)
+        lines = [json.loads(line) for line in got.splitlines()]
+        self.assertEqual([f"{r['hub']}:{r['asset']}" for r in lines if 'hub' in r], markets.split())
+        labels = [r[2] for r in rows]
+        start, end = labels.index('before_cleanup_ledger_floor'), labels.index('pre_cleanup_conservation')
+        snapshot_rows = [r[2:] for r in rows[start+1:end]]
+        self.assertEqual(snapshot_rows, [r[2:] for r in reference[:len(snapshot_rows)]])
+        residue_rows = [r[2:] for r in rows[labels.index('td_residue_ledger_floor')+1:]]
+        self.assertEqual(residue_rows, [r[2:] for r in reference[len(snapshot_rows):]])
+        self.assertTrue(any(r[1] == 'FAIL' for r in residue_rows) and any(r[0].startswith('td_residue_') for r in residue_rows))
+        self.assertEqual([l for l in labels if l.startswith('td_exists_')], ['td_exists_10', 'td_exists_11', 'td_exists_12'])
+        self.assertEqual([l for l in labels if l.startswith('td_token_')], ['td_token_0', 'td_token_1', 'td_token_2'])
+
     def test_governance_wait_is_deadline_based(self):
         body='''count=$(mktemp); gov_state() { local n=$(( $(cat "$count") + 1 )); echo "$n" > "$count"; [ "$n" -ge "$READY_AT" ] && echo Ready || echo Waiting; }
 echo 0 > "$count"; READY_AT="$1"; start=$(date +%s); out=$(gov_await_ready op "$2"); rc=$?; echo "$rc $out $(( $(date +%s) - start ))"; rm -f "$count"'''
@@ -203,8 +511,8 @@ echo 0 > "$count"; READY_AT="$1"; start=$(date +%s); out=$(gov_await_ready op "$
 RUN_DIR="$1"; LOG_DIR="$1"; INTEG_DIR="$1"; RUN_TS=t; NET_ARGS=(--rpc-url x); save_state() { :; }; die() { exit 9; }
 stellar() { case "$1 $2" in 'keys address') [ -f "$RUN_DIR/key.$3" ] && echo "G$3" || return 1;; 'keys generate') sleep 1; touch "$RUN_DIR/key.$3";; esac; }
 curl() { local url; for url; do :; done; echo "$url" >> "$RUN_DIR/curl"
-  case "$url" in *friendbot*) touch "$RUN_DIR/funded"; printf 200;; *horizon*) [ -f "$RUN_DIR/funded" ] || [ -z "${UNFUNDED:-}" ] || return 22
-  echo '{"balances":[{"asset_type":"native","balance":"10000.0"}]}';; esac; }
+  case "$url" in *friendbot*) touch "$RUN_DIR/funded"; printf 200;; *horizon*) [ -f "$RUN_DIR/funded" ] || [ -z "${UNFUNDED:-}" ] || { printf 404; return 22; }
+  echo '{"balances":[{"asset_type":"native","balance":"10000.0"}]}' > "$6"; printf 200;; esac; }
 start=$(date +%s); prefund_wallets admin alice bob carol dave; echo "$(( $(date +%s) - start ))" > "$RUN_DIR/prefund"
 new_wallet ADMIN admin'''
             result=shell('lib/wallet.sh',body,d,str(HERE))
@@ -220,7 +528,7 @@ new_wallet ADMIN admin'''
             self.assertEqual([('friendbot' in c) for c in calls],[False,True,False])
     def test_grant_guardian_is_proposed_before_governance_work(self):
         body='''ADMIN=admin ALICE=alice DAVE_ADDR=GDAVE GOVERNANCE=GOV GOV_CONTROLLER=CTRL
-phase() { :; }; xfail() { :; }; gov_assert_state() { :; }; pay_vec() { echo '[]'; }; view() { echo 5; }
+phase() { :; }; xfail() { :; }; gov_assert_state() { :; }; gov_assert_scheduled() { :; }; pay_vec() { echo '[]'; }; view() { echo 5; }
 gov_scval_args() { echo '[]'; }
 inv() { echo "inv $1" >> "$1.log"; echo "op_$1"; }
 gov_await_ready() { echo "await $1" >> "$1.log"; echo Ready; }'''
@@ -232,6 +540,76 @@ gov_await_ready() { echo "await $1" >> "$1.log"; echo Ready; }'''
         self.assertLess(calls.index('inv gov_propose_grant_guardian'),calls.index('inv gov_create_hub'))
         self.assertEqual(calls.count('inv gov_propose_grant_guardian'),1)
         self.assertLess(calls.index('await op_gov_propose_grant_guardian'),calls.index('inv gov_execute_grant_guardian'))
+
+    def test_governance_schedule_uses_tier_delay_of_each_proposal(self):
+        body='''ADMIN=admin ALICE=alice DAVE_ADDR=GDAVE GOVERNANCE=GOV GOV_CONTROLLER=CTRL
+phase() { :; }; xfail() { :; }; inv() { echo "op_$1"; }; gov_assert_state() { :; }; gov_await_ready() { echo Ready; }
+pay_vec() { echo '[]'; }; gov_scval_args() { echo '[]'; }; view() { echo "$MIN"; }
+gov_assert_scheduled() { echo "$*" >> "$SCHED_LOG"; }
+MIN="$1"; SCHED_LOG="$2"; flow_governance'''
+        for min_delay,sensitive in [(5,12),(11,12),(12,13),(20,21)]:
+            with tempfile.TemporaryDirectory() as d:
+                result=shell('flows/governance.sh',body,str(min_delay),d+'/calls')
+                self.assertEqual(result.returncode,0,result.stderr)
+                self.assertEqual((Path(d)/'calls').read_text().splitlines(),[
+                    f'gov_state_waiting gov_propose_cancel op_gov_propose_cancel {min_delay}',
+                    f'gov_self_state_waiting gov_self_propose_delay op_gov_self_propose_delay {min_delay}',
+                    f'gov_self_sensitive_waiting gov_self_propose_grant op_gov_self_propose_grant {sensitive}'])
+        required=next(c for c in json.loads((HERE/'cases.json').read_text()) if c['id']=='flow_governance')['required_actions']
+        for label in ['gov_state_waiting','gov_self_state_waiting','gov_self_sensitive_waiting']:
+            self.assertIn(dict(label=label,method='assert',status='ok',count=1,execution=['assertion']),required)
+
+    def test_governance_schedule_and_ledger_bound_state(self):
+        tx='ab'*32
+        body='''GOVERNANCE=GOV; LOG_DIR="$1"; READY="$2"; ST="$3"; BEFORE="$4"; AFTER="$5"; DELAY="$6"
+job_log() { printf '%s\\n' "$LOG_DIR/$1"; }; extract_signing_hash() { cat "$1"; }
+latest_ledger() { cat "$LOG_DIR/latest"; }
+view() { case "$4" in
+    get_operation_ledger) [ "$1" = lbl_ledger ] && echo "$READY";;
+    get_operation_state) [ "$1" = lbl ] || return 1; rm -f "$LOG_DIR/latest"; [ "$AFTER" = none ] || echo "$AFTER" > "$LOG_DIR/latest"; echo "\\"$ST\\"";;
+esac; }
+record() { printf '%s|%s|%s|%s\\n' "$1" "$2" "$3" "$9" >> "$LOG_DIR/rows"; }
+_assert_fail() { record "$1" FAIL assert "" "" "" "" "" "$2"; return 1; }
+[ "$BEFORE" = none ] || echo "$BEFORE" > "$LOG_DIR/latest"; gov_assert_scheduled lbl prop op "$DELAY"'''
+        def run(ready,state,before,after,delay=1,status='SUCCESS',txhash=tx,ledger=100):
+            with tempfile.TemporaryDirectory() as d:
+                (Path(d)/'prop.err').write_text(tx)
+                (Path(d)/f'{tx}.receipt.json').write_text(json.dumps({'result':{'status':status,'txHash':txhash,'ledger':ledger}}))
+                rc=shell('flows/governance.sh',body,d,str(ready),state,str(before),str(after),str(delay)).returncode
+                rows=(Path(d)/'rows').read_text().splitlines() if (Path(d)/'rows').exists() else []
+                return rc,rows
+        def ok(ready,state,before,after,delay=1):
+            rc,rows=run(ready,state,before,after,delay)
+            self.assertEqual((rc,rows),(0,[f'lbl|ok|assert|ready {ready} = inclusion 100 + delay {delay}; {state} within ledgers {before}..{after}']))
+        def bad(*args,**kw):
+            rc,rows=run(*args,**kw)
+            self.assertNotEqual(rc,0,(args,kw))
+            self.assertEqual(len(rows),1,(args,kw,rows))
+            self.assertTrue(rows[0].startswith('lbl|FAIL|assert|'),(args,kw,rows))
+        ok(101,'Waiting',100,100)
+        bad(101,'Ready',100,100)
+        ok(101,'Ready',101,101)
+        ok(101,'Ready',102,103)
+        bad(101,'Waiting',101,101)
+        bad(101,'Waiting',101,99)
+        bad(101,'Waiting',100,99)
+        bad(101,'Ready',102,101)
+        ok(101,'Waiting',100,101)
+        ok(101,'Ready',100,101)
+        ok(112,'Waiting',100,111,delay=12)
+        ok(112,'Waiting',100,130,delay=12)
+        for ready,delay in [(102,1),(100,1),(0,1),(1,1),(101,12),('',1)]:
+            bad(ready,'Waiting',100,100,delay=delay)
+        for state in ['Unset','Done','Expired','','waiting']:
+            bad(101,state,100,101)
+        bad(101,'Waiting',100,100,status='FAILED')
+        bad(101,'Waiting',100,100,txhash='cd'*32)
+        bad(101,'Waiting',100,100,ledger='100')
+        for delay in [0,'','x']:
+            bad(100,'Ready',100,101,delay=delay)
+        bad(101,'Ready','none',101)
+        bad(101,'Waiting',100,'none')
+
     def test_liq_setup_lists_only_the_lane_markets(self):
         body='''ADMIN=admin ALICE=alice BOB=bob CAROL=carol ADMIN_ADDR=GADMIN BOB_ADDR=GBOB CAROL_ADDR=GCAROL PRIMARY_HUB_ID=1 PRIMARY_SPOKE_ID=1 CONTROLLER=CTRL WAD=1
 phase() { :; }; deploy_mock_reflector() { :; }; deploy_mock_redstone() { :; }; dual_px() { :; }; save_state() { :; }

@@ -8,6 +8,8 @@ source "$HERE/../env.sh"
 BASE="$RUN_TS"
 LANE_TIMEOUT="${LANE_TIMEOUT:-95m}"
 [[ "$LANE_TIMEOUT" =~ ^[1-9][0-9]*[smh]$ ]] || { echo 'invalid LANE_TIMEOUT' >&2; exit 2; }
+E2E_LANE_STAGGER="${E2E_LANE_STAGGER:-60}"
+[[ "$E2E_LANE_STAGGER" =~ ^[0-9]{1,4}$ ]] || { echo 'invalid E2E_LANE_STAGGER' >&2; exit 2; }
 
 # E2E_LANES selects the lanes, so a caller can run only the lanes a change
 # affects (for example `liq-a liq-b liq-c` after a liquidation change). Unset
@@ -15,15 +17,16 @@ LANE_TIMEOUT="${LANE_TIMEOUT:-95m}"
 #
 # `-`, not `:-`: an explicitly empty E2E_LANES must reach the zero-lane check
 # below and abort, not expand to the default and run every lane.
-RELEASE_LANES='agg-core agg-admin agg-gov liq-a liq-b liq-c stress flash-a flash-b blend production sdk'
+RELEASE_LANES='agg-core agg-admin agg-gov liq-a liq-b liq-c stress flash-a flash-b blend prod-full prod-caller sdk'
 read -r -a RELEASE <<<"$RELEASE_LANES"
 read -r -a LANES <<<"${E2E_LANES-$RELEASE_LANES}"
+CRITICAL_LANES='prod-full prod-caller stress'
 
 # The scenarios carry their own wallet sets, wasm preflights, and green gate, so
 # the orchestrator only maps lane -> script and applies the same outer gate.
 script_for() {
     case "$1" in
-        production) echo "production.sh" ;;
+        prod-full|prod-caller) echo "production.sh" ;;
         sdk) echo "sdk.sh" ;;
         flash-a|flash-b) echo "flash_position.sh" ;;
         blend) echo "blend.sh" ;;
@@ -97,8 +100,10 @@ install_wasms() {
 install_wasms || exit 1
 
 pids=()
+stagger_pid=''
 stop_children() {
     trap - INT TERM
+    [ -z "$stagger_pid" ] || kill "$stagger_pid" 2>/dev/null || true
     # GNU timeout owns a process group; kill that group, including CLI/RPC children.
     for pid in "${pids[@]}"; do [ -z "$pid" ] || kill -TERM -- "-$pid" 2>/dev/null || true; done
     for pid in ${gate_pids[@]+"${gate_pids[@]}"}; do [ -z "$pid" ] || { kill -STOP "$pid"; pkill -TERM -P "$pid"; kill -TERM "$pid"; kill -CONT "$pid"; } 2>/dev/null || true; done
@@ -112,7 +117,20 @@ stop_children() {
     exit 130
 }
 trap stop_children INT TERM
-for lane in "${LANES[@]}"; do
+order=()
+for i in "${!LANES[@]}"; do case " $CRITICAL_LANES " in *" ${LANES[$i]} "*) order+=("$i");; esac; done
+first=${#order[@]}
+for i in "${!LANES[@]}"; do case " $CRITICAL_LANES " in *" ${LANES[$i]} "*) ;; *) order+=("$i");; esac; done
+for n in "${!order[@]}"; do
+    i="${order[$n]}"
+    lane="${LANES[$i]}"
+    if [ "$n" -eq "$first" ] && [ "$first" -gt 0 ] && [ "$E2E_LANE_STAGGER" -gt 0 ]; then
+        log_orch "critical lanes started; the other lanes start in ${E2E_LANE_STAGGER}s"
+        sleep "$E2E_LANE_STAGGER" >/dev/null 2>&1 &
+        stagger_pid=$!
+        wait "$stagger_pid"
+        stagger_pid=''
+    fi
     lane_ts="${BASE}-${lane}"
     log_orch "launching lane '$lane' (RUN_TS=$lane_ts) $(describe_lane "$lane")"
     (
@@ -120,7 +138,7 @@ for lane in "${LANES[@]}"; do
         export E2E_LANE="$lane"
         exec "$timeout_bin" --kill-after=10s "$LANE_TIMEOUT" bash "$HERE/$(script_for "$lane")"
     ) >"$INTEG_DIR/runs/${lane_ts}.log" 2>&1 &
-    pids+=("$!")
+    pids[$i]=$!
 done
 
 declare -a lane_exit

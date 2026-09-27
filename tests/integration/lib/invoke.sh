@@ -2,7 +2,9 @@ RPC_TRANSIENT_RE='rejected .?50[0-9]|status_code: 50[0-9]|No status yet|Transpor
 
 DEPLOY_PROPAGATION_RE='Contract not found|non-existing value for contract instance'
 
-PRESIGN_RE='(^|[^0-9a-fA-F])429([^0-9a-fA-F]|$)|Too Many Requests|preflight queue full|rejected .?50[0-9]|status_code: 50[0-9]|timed out|connection (reset|refused)'
+PRESIGN_RE='(^|[^0-9a-fA-F])429([^0-9a-fA-F]|$)|Too Many Requests|preflight queue full|rejected .?50[0-9]|status_code: 50[0-9]|timed out|connection (reset|refused)|no RPC slot free'
+
+THROTTLE_RE='rejected .?429([^0-9]|$)|status_code: 429([^0-9]|$)|Too Many Requests'
 
 INV_MAX_ATTEMPTS="${INV_MAX_ATTEMPTS:-8}"
 DEPLOY_MAX_ATTEMPTS="${DEPLOY_MAX_ATTEMPTS:-8}"
@@ -16,7 +18,87 @@ backoff_sleep() {
     return 0
 }
 
+retry_sleep() {
+    local err_f="$1" attempt="$2"; shift 2
+    if grep -qE "$THROTTLE_RE" "$err_f" 2>/dev/null && throttle_sleep "$((attempt - 1))"; then
+        return 0
+    fi
+    backoff_sleep "$attempt" "$@"
+}
+
+cli_read() {
+    local n=0 rc out err_f
+    err_f=$(mktemp "${TMPDIR:-/tmp}/cli_read.XXXXXX") || return 1
+    while :; do
+        rc=0
+        out=$("$@" </dev/null 2>"$err_f") || rc=$?
+        if [ "$rc" -eq 0 ] || ! grep -qE "$THROTTLE_RE" "$err_f"; then break; fi
+        n=$((n + 1))
+        throttle_sleep "$n" || break
+    done
+    cat "$err_f" >&2
+    rm -f "$err_f"
+    [ "$rc" -ne 0 ] || printf '%s\n' "$out"
+    return "$rc"
+}
+
+job_hold() {
+    [[ "${1:-}" =~ ^[A-Za-z0-9_-]+$ ]] && slot_take "$RUN_DIR/locks/$1" 1 7 "${E2E_SOURCE_WAIT:-600}"
+}
+
+sim_hold() {
+    slot_take "${E2E_SLOT_DIR:-$INTEG_DIR/runs/.slots}/sim" "${E2E_SIM_SLOTS:-16}" 20 600
+}
+
+rpc_curl() {
+    ( rpc_hold read || exit 1; curl "$@" )
+}
+
+rpc_post() {
+    local n=0 out code
+    jq -e '.method == "getLatestLedger" or .method == "getTransaction" or .method == "simulateTransaction" or .method == "getLedgerEntries"' \
+        <<<"$2" >/dev/null 2>&1 || { echo 'error: rpc_post sends only read-only JSON-RPC methods' >&2; return 1; }
+    while :; do
+        out=$(rpc_curl -sS -m "$1" -X POST "$RPC_URL" -H 'Content-Type: application/json' -d "$2" -w '\n%{http_code}') || out=$'\n000'
+        code="${out##*$'\n'}"
+        [ "$code" = 429 ] || break
+        n=$((n + 1))
+        throttle_sleep "$n" "$(jq -r '.retry_after // empty' <<<"${out%$'\n'*}" 2>/dev/null)" || break
+    done
+    printf '%s\n' "${out%$'\n'*}"
+    [ "$code" = 200 ]
+}
+
+latest_ledger() {
+    rpc_post "${1:-30}" '{"jsonrpc":"2.0","id":1,"method":"getLatestLedger"}' \
+        | jq -er 'select(.jsonrpc=="2.0" and .id==1 and (has("error")|not)) | .result.sequence | select(type=="number" and .>0 and floor==.)'
+}
+
 run_deploy() {
+    [ -n "${E2E_JOB:-}" ] || { run_deploy_body "$@"; return; }
+    local arg previous='' source='' hash rc=0
+    for arg in "$@"; do
+        case "$previous" in --source|--source-account) [ -n "$source" ] || source="$arg";; esac
+        previous="$arg"
+    done
+    rm -f "$E2E_JOB_DIR/deploy_attempts"
+    (
+        job_hold "$source" || { record "$(basename "$1" .out)" FAIL deploy '' '' '' '' '' 'no source lock'; exit 1; }
+        rc=0
+        run_deploy_body "$@" || rc=$?
+        echo "deploy attempts: ${DEPLOY_ATTEMPTS:-0}" >&2
+        echo "${DEPLOY_ATTEMPTS:-0}" > "$E2E_JOB_DIR/deploy_attempts"
+        exit "$rc"
+    ) || rc=$?
+    DEPLOY_ATTEMPTS=$(cat "$E2E_JOB_DIR/deploy_attempts" 2>/dev/null) || DEPLOY_ATTEMPTS=0
+    [ "$rc" -eq 0 ] || return "$rc"
+    RES_INSTR='' RES_READ='' RES_WRITE='' RES_FEE=''
+    hash=$(extract_signing_hash "$2")
+    [ -z "$hash" ] || [ ! -f "$LOG_DIR/$hash.resources.json" ] || res_load "$LOG_DIR/$hash.resources.json"
+    return 0
+}
+
+run_deploy_body() {
     local out_f="$1" err_f="$2"; shift 2
     [ "$1" = "--" ] && shift
     # Upload and deploy use the same native simulation policy as inv(). Insert
@@ -25,9 +107,11 @@ run_deploy() {
         'stellar contract upload'|'stellar contract deploy')
             # Diagnostic only: historical fee stats cannot prove admission.
             if [ ! -f "$LOG_DIR/deployment-fee-stats.json" ]; then
+                local fee_log
+                fee_log=$(job_log deployment-fee-stats)
                 stellar fees stats "${NET_ARGS[@]}" --output json \
-                    > "$LOG_DIR/deployment-fee-stats.json.tmp" 2> "$LOG_DIR/deployment-fee-stats.err" || true
-                mv "$LOG_DIR/deployment-fee-stats.json.tmp" "$LOG_DIR/deployment-fee-stats.json"
+                    > "$fee_log.json.tmp" 2> "$fee_log.err" || true
+                mv "$fee_log.json.tmp" "$LOG_DIR/deployment-fee-stats.json"
             fi
             local verb="$3" leeway="${INSTRUCTION_LEEWAY:-20000000}" explicit=0 value
             local deployment_args=()
@@ -55,12 +139,13 @@ run_deploy() {
                 --instruction-leeway "$leeway" "${deployment_args[@]}";;
     esac
     local attempt rc hash sequence label st
-    sequence=$(wc -l < "$ACTIONS_TSV")
+    sequence=$(next_seq)
     label=$(basename "$out_f" .out)
+    [ -z "${E2E_JOB:-}" ] || label="${label%.j$E2E_JOB}"
     DEPLOY_ATTEMPTS=0
     for attempt in $(seq 1 "$DEPLOY_MAX_ATTEMPTS"); do
         DEPLOY_ATTEMPTS=$attempt
-        [ "$attempt" -gt 1 ] && backoff_sleep "$attempt" 3 15
+        [ "$attempt" -gt 1 ] && retry_sleep "$err_f" "$attempt" 3 15
         rc=0
         begin_attempt "$label" deploy "$sequence" "$attempt" "$out_f" "$err_f" "" || return 1
         "$@" >"$out_f" 2>"$err_f" || rc=$?
@@ -116,8 +201,7 @@ tx_status() {
     [[ "$hash" =~ ^[0-9a-f]{64}$ ]] || return 1
     for attempt in 1 2 3 4 5; do
         resp="$LOG_DIR/$hash.receipt.$attempt.json"
-        if curl --fail-with-body -sS -m 30 -X POST "$RPC_URL" -H 'Content-Type: application/json' \
-            -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getTransaction\",\"params\":{\"hash\":\"$hash\"}}" >"$resp" \
+        if rpc_post 30 "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getTransaction\",\"params\":{\"hash\":\"$hash\"}}" >"$resp" \
             && jq -e '.jsonrpc == "2.0" and .id == 1 and (has("error") | not) and (.result | type == "object")' "$resp" >/dev/null; then
             st=$(jq -r '.result.status' "$resp")
             case "$st" in
@@ -146,32 +230,77 @@ fetch_resources() {
     local sdata
     sdata=$(jq -c '[.. | objects | select(has("resources"))] | first // empty' <<<"$env_json")
     [ -z "$sdata" ] && return 1
-    RES_INSTR=$(jq -r '.resources.instructions // empty' <<<"$sdata")
-    RES_READ=$(jq -r '.resources.disk_read_bytes // .resources.read_bytes // empty' <<<"$sdata")
-    RES_WRITE=$(jq -r '.resources.write_bytes // empty' <<<"$sdata")
-    RES_FEE=$(jq -r '.resource_fee // empty' <<<"$sdata")
     printf '%s\n' "$sdata" > "$LOG_DIR/$hash.resources.json"
+    res_load "$LOG_DIR/$hash.resources.json"
     python3 "$INTEG_DIR/resources.py" "$RUN_DIR/network-limits.json" "$LOG_DIR/$hash.resources.json" "$LOG_DIR/$hash.receipt.json" \
         > "$LOG_DIR/$hash.budget.json" || return 1
     [[ "$RES_INSTR" =~ ^[0-9]+$ && "$RES_READ" =~ ^[0-9]+$ && "$RES_WRITE" =~ ^[0-9]+$ && "$RES_FEE" =~ ^[0-9]+$ ]]
+}
+
+res_load() {
+    RES_INSTR=$(jq -r '.resources.instructions // empty' "$1")
+    RES_READ=$(jq -r '.resources.disk_read_bytes // .resources.read_bytes // empty' "$1")
+    RES_WRITE=$(jq -r '.resources.write_bytes // empty' "$1")
+    RES_FEE=$(jq -r '.resource_fee // empty' "$1")
 }
 
 receipt_drift() {
     python3 "$INTEG_DIR/receipts.py" drift "$@"
 }
 
+inv_cli() {
+    local contract="$1" signer="$2" base="$3"; shift 3
+    stellar contract invoke --id "$contract" --source "$signer" "${NET_ARGS[@]}" \
+        --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --send=yes -- "$@" >"$base.out" 2>"$base.err"
+}
+
+owner_submit() {
+    local contract="$1" source="$2" stem="$3" ledger hash deadline; shift 3
+    stellar contract invoke --id "$contract" --source "$source" "${NET_ARGS[@]}" --build-only -- "$@" \
+        >"$stem.built.xdr" 2>>"$stem.err" || return
+    stellar tx simulate --source "$source" "${NET_ARGS[@]}" --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" \
+        <"$stem.built.xdr" >"$stem.sim.xdr" 2>>"$stem.err" || return
+    ledger=$(latest_ledger 2>>"$stem.err") || return
+    deadline=$(( $(date +%s) + 120 ))
+    stellar keys secret "$ADMIN" 2>>"$stem.err" \
+        | "${NODE_BIN:-node}" "$INTEG_DIR/sdk/sign_auth.mjs" "$stem.sim.xdr" "$ADMIN_ADDR" "$((ledger + 60))" "$NETWORK_PASSPHRASE" \
+        >"$stem.auth.xdr" 2>>"$stem.err" || return
+    E2E_RPC_DEADLINE="$deadline" stellar tx simulate --source "$source" "${NET_ARGS[@]}" --auth-mode enforce --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" \
+        <"$stem.auth.xdr" >"$stem.prepared.xdr" 2>>"$stem.err" || return
+    stellar tx sign --sign-with-key "$source" "${NET_ARGS[@]}" \
+        <"$stem.prepared.xdr" >"$stem.signed.xdr" 2>>"$stem.err" || return
+    hash=$(stellar tx hash --network-passphrase "$NETWORK_PASSPHRASE" <"$stem.signed.xdr" 2>>"$stem.err") || return
+    is_wasm_hash "$hash" || return 1
+    printf 'Signing transaction: %s\n' "$hash" >>"$stem.err"
+    E2E_RPC_DEADLINE="$deadline" stellar tx send "${NET_ARGS[@]}" <"$stem.signed.xdr" >"$stem.send.json" 2>>"$stem.err"
+}
+
+inv_owner() {
+    if [ -n "${E2E_SRC:-}" ] && [ "$E2E_SRC" != "$ADMIN" ]; then
+        INV_SUBMIT=owner_submit inv "$1" "$E2E_SRC" "${@:2}"
+    else
+        inv "$1" "$ADMIN" "${@:2}"
+    fi
+}
+
 inv() {
+    [ -n "${E2E_JOB:-}" ] || { inv_body "$@"; return; }
+    local fn="${4:-}"
+    [ "$fn" != -- ] || fn="${5:-}"
+    ( job_hold "$2" || { record "$1" FAIL "$fn" '' '' '' '' '' 'no source lock'; exit 1; }; inv_body "$@" )
+}
+
+inv_body() {
     local label="$1" signer="$2" contract="$3"; shift 3
     [ "$1" = "--" ] && shift
-    local fn="$1" attempt hash rc st sequence drifted=''
-    sequence=$(wc -l < "$ACTIONS_TSV")
-    local out_f="$LOG_DIR/$label.out" err_f="$LOG_DIR/$label.err"
+    local fn="$1" attempt hash rc st sequence drifted='' out_f err_f
+    sequence=$(next_seq)
+    out_f="$(job_log "$label").out" err_f="$(job_log "$label").err"
     for attempt in $(seq 1 "$INV_MAX_ATTEMPTS"); do
-        [ "$attempt" -gt 1 ] && backoff_sleep "$attempt"
+        [ "$attempt" -gt 1 ] && retry_sleep "$err_f" "$attempt"
         rc=0
         begin_attempt "$label" "$fn" "$sequence" "$attempt" "$out_f" "$err_f" "$contract" || return 1
-        stellar contract invoke --id "$contract" --source "$signer" "${NET_ARGS[@]}" \
-            --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --send=yes -- "$@" >"$out_f" 2>"$err_f" || rc=$?
+        "${INV_SUBMIT:-inv_cli}" "$contract" "$signer" "${out_f%.out}" "$@" || rc=$?
         hash=$(extract_signing_hash "$err_f")
         record_attempt "$label" "$fn" "$sequence" "$attempt" "$rc" "$hash" "$out_f" "$err_f" "$contract" || return 1
         if [ -n "$hash" ]; then
@@ -189,7 +318,7 @@ inv() {
                 fi
             fi
             if [ "$st" = FAILED ] && [ -z "$drifted" ] && [ "$attempt" -lt "$INV_MAX_ATTEMPTS" ] \
-                && receipt_drift "$LOG_DIR/$hash.receipt.json" "$hash" "$NETWORK_PASSPHRASE" "$contract" "$fn" 2>>"$LOG_DIR/$hash.drift.err"; then
+                && [ "${INV_SUBMIT:-}" != owner_submit ] && receipt_drift "$LOG_DIR/$hash.receipt.json" "$hash" "$NETWORK_PASSPHRASE" "$contract" "$fn" 2>>"$LOG_DIR/$hash.drift.err"; then
                 drifted="$hash"
                 record "$label" retry "$fn" "$hash" "" "" "" "" "submitted attempt $attempt FAILED on a storage footprint limit; resimulating once" rejected_transaction "$contract"
                 continue
@@ -229,7 +358,8 @@ inv_create() {
 xfail() {
     local label="$1" pattern="$2" signer="$3" contract="$4"; shift 4
     [ "$1" = "--" ] && shift
-    local fn="$1" config="$RUN_DIR/private/negative-$(wc -l < "$ACTIONS_TSV")"
+    [ -z "${E2E_JOB:-}" ] || { job_refuse xfail "$label"; return 1; }
+    local fn="$1" config="$RUN_DIR/private/negative-$(next_seq)"
     # CLI auto-signs every available identity. Negative authorization probes
     # must expose only the selected signer's key, never the victim's key.
     mkdir -p "$config/identity" || return 1
@@ -237,9 +367,9 @@ xfail() {
         || { _assert_fail "$label" "cannot isolate negative-test signer"; return 1; }
     local out_f="$LOG_DIR/$label.out" err_f="$LOG_DIR/$label.err"
     local attempt rc signed_hash sequence
-    sequence=$(wc -l < "$ACTIONS_TSV")
+    sequence=$(next_seq)
     for attempt in $(seq 1 "$XFAIL_MAX_ATTEMPTS"); do
-        [ "$attempt" -gt 1 ] && backoff_sleep "$attempt"
+        [ "$attempt" -gt 1 ] && retry_sleep "$err_f" "$attempt"
         log "xfail [$label] $fn (expect: $pattern)"
         rc=0
         begin_attempt "$label" "$fn" "$sequence" "$attempt" "$out_f" "$err_f" "$contract" || return 1
@@ -284,14 +414,21 @@ xfail_sim() {
 }
 
 view() {
+    [ -n "${E2E_JOB:-}" ] || { view_body "$@"; return; }
+    local fn="${3:-}"
+    [ "$fn" != -- ] || fn="${4:-}"
+    ( sim_hold || { record "$1" FAIL "$fn" '' '' '' '' '' 'no simulation slot'; exit 1; }; view_body "$@" )
+}
+
+view_body() {
     local label="$1" contract="$2"; shift 2
     [ "$1" = "--" ] && shift
-    local fn="$1"
-    local out_f="$LOG_DIR/$label.out" err_f="$LOG_DIR/$label.err"
+    local fn="$1" out_f err_f
+    out_f="$(job_log "$label").out" err_f="$(job_log "$label").err"
     local attempt rc sequence
-    sequence=$(wc -l < "$ACTIONS_TSV")
+    sequence=$(next_seq)
     for attempt in $(seq 1 "$INV_MAX_ATTEMPTS"); do
-        [ "$attempt" -gt 1 ] && backoff_sleep "$attempt"
+        [ "$attempt" -gt 1 ] && retry_sleep "$err_f" "$attempt"
         rc=0
         begin_attempt "$label" "$fn" "$sequence" "$attempt" "$out_f" "$err_f" "$contract" || return 1
         stellar contract invoke --id "$contract" --source "$ADMIN" "${NET_ARGS[@]}" --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --send=no -- "$@" \
@@ -318,15 +455,15 @@ sim_probe() {
     local label="$1" signer="$2" contract="$3"; shift 3
     [ "$1" = "--" ] && shift
     local fn="$1"
+    [ -z "${E2E_JOB:-}" ] || { job_refuse sim_probe "$label"; return 1; }
     local tx_f="$LOG_DIR/$label.txb64" sim_f="$LOG_DIR/$label.sim.json"
     PROBE_STATUS=error
-    if ! stellar contract invoke --id "$contract" --source "$signer" "${NET_ARGS[@]}" --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --build-only -- "$@" \
+    if ! cli_read stellar contract invoke --id "$contract" --source "$signer" "${NET_ARGS[@]}" --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --build-only -- "$@" \
         >"$tx_f" 2>"$LOG_DIR/$label.err"; then
         record "$label" FAIL "$fn" "" "" "" "" "" "build-only failed"
         return 1
     fi
-    if ! curl --fail-with-body -sS -m 60 -X POST "$RPC_URL" -H 'Content-Type: application/json' \
-        -d "$(jq -n --argjson leeway "${INSTRUCTION_LEEWAY:-20000000}" --rawfile tx "$tx_f" '{jsonrpc:"2.0",id:1,method:"simulateTransaction",params:{transaction:($tx|rtrimstr("\n")),resourceConfig:{instructionLeeway:$leeway}}}')" \
+    if ! rpc_post 60 "$(jq -n --argjson leeway "${INSTRUCTION_LEEWAY:-20000000}" --rawfile tx "$tx_f" '{jsonrpc:"2.0",id:1,method:"simulateTransaction",params:{transaction:($tx|rtrimstr("\n")),resourceConfig:{instructionLeeway:$leeway}}}')" \
         >"$sim_f" || ! jq -e '.jsonrpc == "2.0" and .id == 1 and (has("error") | not) and (.result | type == "object")' "$sim_f" >/dev/null; then
         record "$label" FAIL "$fn" "" "" "" "" "" "invalid simulation transport or JSON-RPC response"
         return 1
@@ -365,7 +502,7 @@ sim_probe() {
 }
 
 verify_deployed_wasm() {
-    local result="$1" wasm="" previous="" arg id fetched attempt fetched_ok=0
+    local result="$1" wasm="" previous="" arg id fetched attempt=0 throttled=0 fetched_ok=0
     shift
     for arg in "$@"; do
         [ "$previous" != --wasm ] || wasm="$arg"
@@ -381,15 +518,19 @@ PYHASH
         return $?
     fi
     is_contract_id "$id" || return 1
-    for attempt in 1 2 3; do
+    while :; do
+        attempt=$((attempt + 1))
         fetched="$LOG_DIR/$id.fetch$attempt.wasm"
         rm -f "$fetched"
         if stellar contract fetch --id "$id" "${NET_ARGS[@]}" --out-file "$fetched" \
             > "$LOG_DIR/$id.fetch$attempt.out" 2> "$LOG_DIR/$id.fetch$attempt.err" && [ -f "$fetched" ]; then
             fetched_ok=1; break
         fi
-        [ "$attempt" -lt 3 ] && grep -qE "$RPC_TRANSIENT_RE|Connect" "$LOG_DIR/$id.fetch$attempt.err" || break
-        backoff_sleep "$((attempt+1))" 2 4
+        if grep -qE "$THROTTLE_RE" "$LOG_DIR/$id.fetch$attempt.err" && throttle_sleep "$((throttled + 1))"; then
+            throttled=$((throttled + 1)); continue
+        fi
+        [ "$((attempt - throttled))" -lt 3 ] && grep -qE "$RPC_TRANSIENT_RE|Connect" "$LOG_DIR/$id.fetch$attempt.err" || break
+        backoff_sleep "$((attempt - throttled + 1))" 2 4
     done
     if [ "$fetched_ok" -ne 1 ]; then
         record deployed_fetch FAIL deploy "" "" "" "" "" "unable to fetch $id candidate bytecode: $(tail_err_note "$LOG_DIR/$id.fetch$attempt.err")"
@@ -397,7 +538,9 @@ PYHASH
     fi
     cmp -s "$wasm" "$fetched" || { record deployed_hash FAIL deploy "" "" "" "" "" "deployed WASM differs from $wasm"; return 1; }
     cp "$fetched" "$LOG_DIR/$id.deployed.wasm" || return 1
-    python3 - "$RUN_DIR/deployed-artifacts.jsonl" "$id" "$wasm" <<'PYDEPLOY'
+    local sink="$RUN_DIR/deployed-artifacts.jsonl"
+    [ -z "${E2E_JOB:-}" ] || sink="$E2E_JOB_DIR/deployed.part"
+    python3 - "$sink" "$id" "$wasm" <<'PYDEPLOY'
 import hashlib,json,sys
 from pathlib import Path
 path,address,wasm=sys.argv[1:]

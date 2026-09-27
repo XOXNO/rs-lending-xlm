@@ -1,6 +1,7 @@
 """Offline checks for prepared-envelope stress sequencing and composition shape."""
 import json
 import os
+import shlex
 from pathlib import Path
 import subprocess
 import tempfile
@@ -10,49 +11,87 @@ ROOT = Path(__file__).resolve().parents[2]
 FLOW = ROOT / 'tests/integration/flows/stress.sh'
 
 
+GROUPED = r'''
+ROOT="${FLOW%/flows/stress.sh}"
+for f in core invoke assert oracle protocol; do source "$ROOT/lib/$f.sh"; done
+RUN_DIR="$WORK"; LOG_DIR="$WORK/logs"; ACTIONS_TSV="$WORK/actions.tsv"; STATE_ENV="$WORK/state.env"; PHASE=init
+mkdir -p "$LOG_DIR"; : > "$STATE_ENV"
+printf 'seq\tphase\tlabel\tstatus\tfn\thash\tinstructions\tread_bytes\twrite_bytes\tresource_fee\tnote\n' > "$ACTIONS_TSV"
+CHANNELS="c1 c2 c3 c4 c5 c6 c7 c8 c9 c10"
+STRESS_N=20; STRESS_UNIT=10000000; WAD=1000000000000000000; ADMIN=admin; ADMIN_ADDR=GADMIN; DAVE=dave; DAVE_ADDR=GDAVE
+CAROL=carol; CAROL_ADDR=GCAROL; PRIMARY_HUB_ID=1; PRIMARY_SPOKE_ID=1; CONTROLLER=controller; GOVERNANCE=gov; PRICE_AGGREGATOR=pa
+FIXTURE_WASM_DIR=fx; NET_ARGS=(--network testnet)
+phase() { PHASE="$1"; }
+log() { :; }
+cid() { printf 'C%055d' "$1" | tr 0-9 A-J; }
+written() {
+    printf '%s|%s|%s|%s|%s|%s|%s|%s\n' "$PHASE" "$1" "${E2E_JOB:-}" "$2" "$3" "$4" "${INV_SUBMIT:-}" "${GROUP_WIDTH:-}" >> "$WORK/writes"
+    [ -z "${E2E_JOB:-}" ] || printf '%s|%s\n' "$E2E_JOB" "$(cksum < "$STATE_ENV")" >> "$WORK/cksums"
+}
+run_deploy() {
+    local a prev='' src='' wasm='' k
+    for a; do case "$prev" in --source) src="$a";; --wasm) wasm="$a";; esac; prev="$a"; done
+    k=$(( ${E2E_JOB##*-} * 2 )); [ "${wasm##*/}" != mock_redstone.wasm ] || k=$((k + 1))
+    written "$(basename "$1" .out)" "$src" deploy "$(cid "$k")"
+    cid "$k" > "$1"; printf 'Signing transaction: %064d\n' "$k" > "$2"
+    RES_INSTR=1 RES_READ=2 RES_WRITE=3 RES_FEE=4
+}
+file_arg() { local a prev=''; for a in "${@:3}"; do [ "$prev" != --oracle-file-path ] || cp "$a" "$WORK/$1.$2"; prev="$a"; done; }
+inv() { file_arg resolved_arg "$@"; written "$1" "$2" "$5" "$3"; echo '"5"'; }
+issue_sac() { written "issue_sac_$2" "${E2E_SRC:-}" asset_deploy ''; save_state "$1" "SAC$2"; }
+classic_batch() { written "$1" "$3" batch ''; printf '%s\n' "batch $1 $2 $3 $(($# - 3))" "${@:4}" >> "$WORK/calls"; }
+market_listing_exists() { return 1; }; market_wait_listed() { :; }; latest_ledger() { echo 1; }
+view() { file_arg oracle_arg "$@"; written "$1" '' view "$2"; printf '{"resolved":"%s"}\n' "$1"; }
+'''
+
+
 class StressChecks(unittest.TestCase):
     def run_shell(self, code, directory, **env):
         return subprocess.run(['bash', '-c', 'set -uo pipefail\nsource "$FLOW"\n' + code],
                               env={**os.environ, 'FLOW': str(FLOW), 'WORK': str(directory), **env},
                               capture_output=True, text=True)
 
-    def test_composed_roots_use_distinct_reference_keys_then_restore(self):
+    def test_composed_quotes_stay_serial_admin_and_owner_writes_use_channels(self):
         with tempfile.TemporaryDirectory() as directory:
-            result = self.run_shell(r'''
-source "${FLOW%/flows/stress.sh}/lib/protocol.sh"
-ADMIN=admin; PRICE_AGGREGATOR=pa
-phase() { :; }
+            result = self.run_shell(GROUPED + r'''
 stress_sac() { echo "token$1"; }
 stress_select_oracles() { MOCK="reflector-$1"; MOCKRS="redstone-$1"; }
 inv() {
-    local label="$1"; shift 5
-    printf '%s\t%s\t%s\n' "$label" "$2" "$4" >> "$WORK/configs"
+    local label="$1" signer="$2"; shift 5
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$label" "$2" "$4" "${E2E_JOB:-}" "$signer" "${INV_SUBMIT:-}" >> "$WORK/configs"
 }
-flow_stress_borrow_frontier() { echo "$1" > "$WORK/mode"; }
+flow_stress_borrow_frontier() { echo "$1" > "$WORK/mode"; echo frontier >> "$WORK/configs"; }
 flow_stress_composed
 ''', directory)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(Path(directory, 'mode').read_text().strip(), 'composed')
-            configs = [line.split('\t') for line in Path(directory, 'configs').read_text().splitlines()]
-            self.assertEqual(len(configs), 30)
-            for index in range(10):
-                quote, token = configs[index * 2:index * 2 + 2]
-                qkey, qcfg = json.loads(quote[1]), json.loads(quote[2])
-                tcfg = json.loads(token[2])
-                scaled = tcfg['sources'][0]['Scaled']
-                self.assertEqual(qcfg['asset_decimals'], 0)
-                self.assertEqual(scaled['quote'], qkey)
-                self.assertIn('RedStone', scaled['factor']['provider'])
-                self.assertIn('Reflector', qcfg['sources'][0]['Feed']['provider'])
-                for config in (qcfg, tcfg):
-                    lo, hi = int(config['min_sanity_price_wad']), int(config['max_sanity_price_wad'])
-                    self.assertGreaterEqual((hi - lo) * 10000 // (hi + lo), 50)
-                    self.assertLessEqual(((hi - lo) * 10000 + hi + lo - 1) // (hi + lo), 1000)
-                    self.assertLess(lo, 10**18)
-                    self.assertGreater(hi, 10**18)
-            self.assertEqual(len({json.loads(x[1])['Ref'] for x in configs[:20:2]}), 10)
-            for restore in configs[20:]:
-                self.assertEqual(len(json.loads(restore[2])['sources']), 2)
+            lines = Path(directory, 'configs').read_text().splitlines()
+        rows = [dict(zip(('label', 'key', 'config', 'job', 'signer', 'submit'), line.split('\t'))) for line in lines]
+        kinds = [r['label'].split('_')[2] if r['label'] != 'frontier' else 'frontier' for r in rows]
+        self.assertEqual(kinds, ['quote'] * 10 + ['token'] * 10 + ['frontier'] + ['restore'] * 10)
+        quotes = {r['label'][-4:]: r for r in rows[:10]}
+        self.assertEqual({(r['job'], r['signer'], r['submit']) for r in quotes.values()}, {('', 'admin', '')})
+        self.assertEqual({json.loads(q['key'])['Ref'] for q in quotes.values()}, {f'Q{code}' for code in quotes})
+        for token in rows[10:20]:
+            qcfg, tcfg = json.loads(quotes[token['label'][-4:]]['config']), json.loads(token['config'])
+            scaled = tcfg['sources'][0]['Scaled']
+            self.assertEqual(scaled['quote'], json.loads(quotes[token['label'][-4:]]['key']))
+            self.assertEqual(qcfg['asset_decimals'], 0)
+            self.assertIn('RedStone', scaled['factor']['provider'])
+            self.assertIn('Reflector', qcfg['sources'][0]['Feed']['provider'])
+            for config in (qcfg, tcfg):
+                lo, hi = int(config['min_sanity_price_wad']), int(config['max_sanity_price_wad'])
+                self.assertGreaterEqual((hi - lo) * 10000 // (hi + lo), 50)
+                self.assertLessEqual(((hi - lo) * 10000 + hi + lo - 1) // (hi + lo), 1000)
+                self.assertLess(lo, 10**18)
+                self.assertGreater(hi, 10**18)
+        self.assertEqual(sorted(r['label'][-4:] for r in rows[10:20]), sorted(quotes))
+        self.assertEqual(sorted(r['label'][-4:] for r in rows[21:]), sorted(quotes))
+        for owner in rows[10:20] + rows[21:]:
+            self.assertTrue(owner['job'] and owner['signer'].startswith('c') and owner['submit'] == 'owner_submit', owner)
+        for restore in rows[21:]:
+            self.assertEqual(len(json.loads(restore['config'])['sources']), 2)
+        self.assertGreaterEqual(len({r['signer'] for r in rows[21:]}), 2)
 
     def test_delayed_borrow_never_rebuilds_after_shared_write_or_retries_send(self):
         for fail, status, budget in (('0', 'SUCCESS', '0'), ('1', 'SUCCESS', '0'),
@@ -60,6 +99,7 @@ flow_stress_composed
             failed = fail != '0' or status != 'SUCCESS' or budget != '0'
             with self.subTest(fail_send=fail, status=status, budget=budget), tempfile.TemporaryDirectory() as directory:
                 result = self.run_shell(r'''
+source "${FLOW%/flows/stress.sh}/lib/invoke.sh"
 LOG_DIR="$WORK"; ACTIONS_TSV="$WORK/actions.tsv"; touch "$ACTIONS_TSV"; DAVE_DUAL_ACCT=7; PRIMARY_HUB_ID=1; PRIMARY_SPOKE_ID=1
 DAVE=dave; DAVE_ADDR=dave_address; CAROL=carol; CAROL_ADDR=carol_address
 CONTROLLER=controller; NETWORK_PASSPHRASE=test; STRESS_UNIT=10000000; NET_ARGS=(--network testnet)
@@ -69,7 +109,7 @@ hub_key() { echo key; }
 pay_vec() { echo '[]'; }
 _view_int() { case "$1" in *before*) echo 100;; *) echo 10000100;; esac; }
 balance() { if [ -f "$WORK/sent" ]; then echo 10000000000; else echo 0; fi; }
-stress_latest_ledger() {
+latest_ledger() {
     local n=10
     [ ! -f "$WORK/ledger" ] || n=$(cat "$WORK/ledger")
     echo $((n+1)) > "$WORK/ledger"
@@ -127,35 +167,121 @@ flow_stress_delayed
 
     def test_setup_funds_fixtures_with_three_classic_batches(self):
         with tempfile.TemporaryDirectory() as directory:
-            result = self.run_shell(r'''
-STRESS_N=20; STRESS_UNIT=10000000; ADMIN=admin; ADMIN_ADDR=GADMIN; DAVE=dave; DAVE_ADDR=GDAVE; CAROL=carol; CAROL_ADDR=GCAROL
-PRIMARY_HUB_ID=1; PRIMARY_SPOKE_ID=1; CONTROLLER=controller; WAD=1
-phase() { :; }; save_state() { :; }; set_mock_price() { :; }; pay_vec() { echo '[]'; }; oracle_cfg_mock_single() { :; }; asset_config_json() { :; }
-deploy_mock_reflector() { echo fixture >> "$WORK/calls"; }; deploy_mock_redstone() { :; }
-issue_sac() { eval "$1=SAC$2"; }; create_market() { :; }; inv() { :; }
+            result = self.run_shell(GROUPED + r'''
 trustline() { echo trustline >> "$WORK/calls"; }; mint_to() { echo mint_to >> "$WORK/calls"; }
-classic_batch() { printf '%s\n' "batch $1 $2 $3 $(($# - 3))" "${@:4}" >> "$WORK/calls"; }
 flow_stress_setup
 ''', directory)
             self.assertEqual(result.returncode, 0, result.stderr)
             calls = Path(directory, 'calls').read_text().splitlines()
-        batches = [(i, c) for i, c in enumerate(calls) if c.startswith('batch ')]
-        self.assertEqual([c for _, c in batches], ['batch stress_trust_dave change_trust dave 20',
-                                                   'batch stress_trust_carol change_trust carol 20',
-                                                   'batch stress_mint_classic payment admin 40'])
+            kinds = [w.split('|')[4] for w in Path(directory, 'writes').read_text().splitlines()]
+        batches = [c for c in calls if c.startswith('batch ')]
+        self.assertEqual(batches, ['batch stress_trust_dave change_trust dave 20',
+                                   'batch stress_trust_carol change_trust carol 20',
+                                   'batch stress_mint_classic payment admin 40'])
         self.assertNotIn('trustline', calls)
         self.assertNotIn('mint_to', calls)
-        self.assertLess(batches[-1][0], calls.index('fixture'))
+        self.assertEqual(kinds[:4], ['batch', 'batch', 'batch', 'deploy'])
+        self.assertNotIn('batch', kinds[3:])
         trust = [f'trust:ST{i:02d}:GADMIN' for i in range(20)]
         self.assertEqual(calls[1:21], trust)
         self.assertEqual(calls[22:42], trust)
         self.assertEqual(calls[43:83], [f'pay:{who}:ST{i:02d}:GADMIN:10000000000000' for i in range(20) for who in ('GDAVE', 'GCAROL')])
 
+    def test_grouped_fixture_and_crash_writes_use_channels_and_keep_new_keys_serial(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result = self.run_shell(GROUPED + r'''
+cksum < "$STATE_ENV" > "$WORK/cksum0"
+flow_stress_setup || exit 1
+flow_stress_dualify || exit 2
+flow_stress_borrow_frontier() { :; }
+flow_stress_composed || exit 3
+POSITION_NFT=nft; inv_create() { echo 5; }; sim_probe() { PROBE_STATUS=ok; }; assert_view_eq_at() { :; }
+flow_stress_liq_frontier || exit 4
+''', directory)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            work = Path(directory)
+            writes = [dict(zip(('phase', 'label', 'job', 'signer', 'fn', 'contract', 'submit', 'width'), w.split('|')))
+                      for w in (work / 'writes').read_text().splitlines()]
+            state = {k: shlex.split(v)[0] for k, v in (line.split('=', 1) for line in (work / 'state.env').read_text().splitlines())}
+            cksums = [line.split('|') for line in (work / 'cksums').read_text().splitlines()]
+            initial = (work / 'cksum0').read_text().strip()
+            oracles = {i: json.loads((work / f'oracle_arg.resolve_oracle_ST{i:02d}').read_text()) for i in range(20)}
+            resolved = {p.name.split('.', 1)[1]: json.loads(p.read_text()) for p in work.glob('resolved_arg.*')}
+            groups = {d.name.split('.')[0]: d.name.split('.')[1] for d in (work / 'jobs').iterdir()}
+            fixture_dirs = sorted(int(d.name) for d in (work / 'jobs' / f'stress_fixtures.{groups["stress_fixtures"]}').iterdir() if d.name.isdigit())
+
+        def cid(k):
+            return 'C' + f'{k:055d}'.translate(str.maketrans('0123456789', 'ABCDEFGHIJ'))
+
+        def group(name):
+            return [w for w in writes if w['job'].rsplit('-', 1)[0] == groups[name]]
+
+        def job(w):
+            return int(w['job'].rsplit('-', 1)[1])
+
+        fixture = group('stress_fixtures')
+        jobs = sorted({w['job'] for w in fixture}, key=lambda j: int(j.rsplit('-', 1)[1]))
+        self.assertEqual([int(j.rsplit('-', 1)[1]) for j in jobs], list(range(1, 21)))
+        self.assertEqual(fixture_dirs, list(range(1, 21)))
+        for j in jobs:
+            n = int(j.rsplit('-', 1)[1])
+            code = f'ST{n - 1:02d}'
+            rows = [w for w in fixture if w['job'] == j]
+            self.assertEqual([w['label'].split('.j')[0] for w in rows],
+                             ['deploy_mock', 'deploy_mockrs', f'issue_sac_{code}', f'px_init_{code}', f'rs_px_{code}'], rows)
+            self.assertEqual({w['signer'] for w in rows}, {f'c{(n - 1) % 10 + 1}'}, rows)
+            self.assertEqual([w['contract'] for w in rows[3:]], [cid(2 * n), cid(2 * n + 1)])
+        self.assertEqual({c for j, c in cksums if j in jobs}, {initial})
+        for i in range(20):
+            self.assertEqual((state[f'STRESS_REF_{i}'], state[f'STRESS_RS_{i}'], state[f'SAC_ST{i:02d}']),
+                             (cid(2 * i + 2), cid(2 * i + 3), f'SACST{i:02d}'))
+            self.assertEqual(oracles[i]['sources'][0]['Feed']['provider']['Reflector']['contract'], state[f'STRESS_REF_{i}'])
+            self.assertEqual(resolved[f'set_oracle_ST{i:02d}'], {'resolved': f'resolve_oracle_ST{i:02d}'})
+            self.assertEqual(resolved[f'dualify_ST{i:02d}'], {'resolved': f'dualify_resolve_ST{i:02d}'})
+            self.assertEqual(state[f'MKT_ST{i:02d}_DONE'], '1')
+        self.assertEqual(state['MARKETS'], ' '.join(f'1:SACST{i:02d}' for i in range(20)))
+
+        markets, resolves, listing = group('stress_markets'), group('stress_resolve'), group('stress_listing')
+        self.assertEqual(sorted((job(w), w['label'], w['fn'], w['signer'], w['submit']) for w in markets),
+                         [(i + 1, f'create_market_ST{i:02d}', 'create_liquidity_pool', f'c{i % 10 + 1}', 'owner_submit') for i in range(20)])
+        self.assertEqual({w['width'] for w in markets}, {'10'})
+        self.assertEqual(sorted((job(w), w['label'], w['fn']) for w in resolves),
+                         [(i + 1, f'resolve_oracle_ST{i:02d}', 'view') for i in range(20)])
+        set_oracles = [w for w in listing if w['fn'] == 'set_oracle']
+        self.assertEqual([w['label'] for w in set_oracles], [f'set_oracle_ST{i:02d}' for i in range(20)])
+        self.assertEqual({(job(w), w['signer'], w['submit']) for w in set_oracles}, {(1, 'admin', '')})
+        self.assertEqual(sorted((job(w), w['label'], w['fn'], w['signer'], w['submit']) for w in listing if w['fn'] != 'set_oracle'),
+                         [(i + 2, f'activate_ST{i:02d}', 'add_asset_to_spoke', f'c{(i + 1) % 10 + 1}', 'owner_submit') for i in range(20)])
+        order = [writes.index(w) for w in markets + resolves + listing]
+        self.assertLess(max(order[:20]), min(order[20:40]))
+        self.assertLess(max(order[20:40]), min(order[40:]))
+
+        self.assertFalse([w for w in writes if w['phase'] == 'stress_dualify' and w['fn'] == 'set_price'])
+        dual = [w for w in writes if w['phase'] == 'stress_dualify' and w['fn'] == 'set_oracle']
+        self.assertEqual(dual, [w for w in group('stress_dualify') if w['fn'] == 'set_oracle'])
+        self.assertEqual(sorted((job(w), w['label'], w['signer'], w['submit']) for w in dual),
+                         [(i + 1, f'dualify_ST{i:02d}', f'c{i % 10 + 1}', 'owner_submit') for i in range(20)])
+        new_keys = [w for w in writes if w['label'].startswith(('set_oracle_', 'stress_composed_quote_'))]
+        self.assertEqual(len(new_keys), 30)
+        self.assertEqual({(w['signer'], w['fn'], w['submit']) for w in new_keys}, {('admin', 'set_oracle', '')})
+        self.assertEqual({w['job'] for w in new_keys if w['label'].startswith('stress_composed_quote_')}, {''})
+        crash = [w for w in writes if w['label'].startswith('crash_')]
+        self.assertEqual(len(crash), 10)
+        for w in crash:
+            i = int(w['label'][8:10])
+            self.assertEqual((w['job'].rsplit('-', 1)[-1], w['signer']), (str(i + 1), f'c{i + 1}'), w)
+            self.assertEqual(w['contract'], state[f'STRESS_REF_{i}' if w['label'].endswith('_p') else f'STRESS_RS_{i}'])
+
     def test_latest_ledger_rejects_malformed_or_error_responses(self):
-        for payload in ('{}', '{"error":{}}', 'garbage', '{"jsonrpc":"2.0","id":1,"result":{"sequence":1.5}}'):
+        for payload in ('{}', '{"error":{}}', 'garbage', '{"jsonrpc":"2.0","id":1,"result":{"sequence":1.5}}',
+                        '{"jsonrpc":"2.0","id":1,"result":{"sequence":42}}'):
             with self.subTest(payload=payload), tempfile.TemporaryDirectory() as directory:
-                result = self.run_shell('curl() { printf "%s" "$PAYLOAD"; }; stress_latest_ledger', directory, PAYLOAD=payload)
-                self.assertNotEqual(result.returncode, 0)
+                result = self.run_shell('for f in core invoke; do source "${FLOW%/flows/stress.sh}/lib/$f.sh"; done; INTEG_DIR="$WORK"; RPC_URL=rpc; curl() { printf "%s\\n200" "$PAYLOAD"; }; latest_ledger',
+                                        directory, PAYLOAD=payload)
+                if '42' in payload:
+                    self.assertEqual((result.returncode, result.stdout), (0, '42\n'), result.stderr)
+                else:
+                    self.assertNotEqual(result.returncode, 0)
 
 
 if __name__ == '__main__':

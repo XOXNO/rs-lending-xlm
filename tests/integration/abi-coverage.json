@@ -1199,7 +1199,7 @@
   {
     "contract": "governance",
     "method": "set_sanity_band",
-    "case": "flow_production_caller",
+    "case": "flow_production_upgrade",
     "label": "prod_governance_band",
     "root_contract": "governance",
     "root_method": "set_sanity_band",
@@ -1241,10 +1241,9 @@
     "root_method": "get_operation_state",
     "execution": "direct-call",
     "path": [
-      "gov_assert_state",
-      "gov_state"
+      "gov_assert_scheduled"
     ],
-    "source": "tests/integration/flows/governance.sh:84"
+    "source": "tests/integration/flows/governance.sh:118"
   },
   {
     "contract": "governance",
@@ -1283,7 +1282,7 @@
   {
     "contract": "governance",
     "method": "set_spoke_asset_flags",
-    "case": "flow_production_caller",
+    "case": "flow_production_upgrade",
     "label": "prod_governance_flags",
     "root_contract": "governance",
     "root_method": "set_spoke_asset_flags",

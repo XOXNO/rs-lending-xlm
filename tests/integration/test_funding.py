@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Funding swaps serialize quote-through-receipt and never mask prerequisites."""
 import os
+import shutil
 import signal
 import subprocess
 import tempfile
@@ -21,7 +22,7 @@ with tempfile.TemporaryDirectory() as directory:
     # Real file lock, separate processes; a second quote cannot race a submitted
     # operation. The mock receipt advances the ledger seen by the next holder.
     script = r'''set -uo pipefail
-source "$1/lib/assets.sh"
+source "$1/lib/core.sh"; source "$1/lib/invoke.sh"; source "$1/lib/assets.sh"
 INTEG_DIR="$2"; LOG_DIR="$2"; RPC_URL=unused; XLM_SAC=X; AGGREGATOR=A
 label="$3"; mode="$4"; RUN_TS="$5"
 _assert_fail() { echo "$*" >&2; return 1; }
@@ -30,11 +31,12 @@ extract_signing_hash() { cat "$1"; }
 curl() {
     case "$mode" in
         rpc_transport) return 7;;
-        rpc_empty) return 0;;
-        rpc_error) echo '{"jsonrpc":"2.0","id":1,"error":{"code":-1}}'; return;;
-        rpc_string) echo '{"jsonrpc":"2.0","id":1,"result":{"sequence":"100"}}'; return;;
+        rpc_empty) ;;
+        rpc_error) echo '{"jsonrpc":"2.0","id":1,"error":{"code":-1}}';;
+        rpc_string) echo '{"jsonrpc":"2.0","id":1,"result":{"sequence":"100"}}';;
+        *) printf '{"jsonrpc":"2.0","id":1,"result":{"sequence":%s}}' "$(cat "$LOG_DIR/ledger")";;
     esac
-    printf '{"jsonrpc":"2.0","id":1,"result":{"sequence":%s}}' "$(cat "$LOG_DIR/ledger")"
+    printf '\n200'
 }
 agg_route_hex() {
     echo "$label quote $AGGREGATOR_MIN_LEDGER" >> "$LOG_DIR/order"
@@ -184,8 +186,10 @@ curl() {
             printf '%s' "$code";;
         *horizon*)
             n=$(( $(cat "$RUN_DIR/${url##*/}.hz" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$RUN_DIR/${url##*/}.hz"
-            [ "$n" -ge "$FUNDED_AT" ] || return 22
-            echo '{"balances":[{"asset_type":"native","balance":"10000.0"}]}';;
+            echo "$m $(cat "$RUN_DIR/clock" 2>/dev/null || echo 1000)" >> "$RUN_DIR/hzlog"
+            [ "$n" -gt "${HZ429:-0}" ] || { printf 429; return 22; }
+            [ "$n" -ge "$FUNDED_AT" ] || { printf 404; return 22; }
+            echo '{"balances":[{"asset_type":"native","balance":"10000.0"}]}' > "$6"; printf 200;;
     esac
 }
 """
@@ -193,7 +197,7 @@ curl() {
 def friendbot(directory, body, codes, funded_at, **env):
     (Path(directory) / 'codes').write_text(''.join(c + '\n' for c in codes))
     return subprocess.run(['bash', '-c', FRIENDBOT + body, '_', str(HERE), directory], capture_output=True, text=True, timeout=30,
-                          env=dict(os.environ, FUNDED_AT=str(funded_at), **env))
+                          env=dict({k: v for k, v in os.environ.items() if k != 'E2E_SLOT_FDS'}, FUNDED_AT=str(funded_at), **env))
 
 for codes, funded_at, succeeds in [(['429', '429', '200'], 3, True), (['403'], 99, False)]:
     with tempfile.TemporaryDirectory() as directory:
@@ -237,19 +241,59 @@ with tempfile.TemporaryDirectory() as directory:
     assert [s[0] for s in span] == ['start', 'end', 'start', 'end'] and span[0][1] == span[1][1] != span[2][1] == span[3][1], span
 with tempfile.TemporaryDirectory() as directory:
     root = Path(directory)
-    result = friendbot(directory, 'exec 30>>"$2/held"; new_wallet ALICE alice', ['200'], 1)
+    result = friendbot(directory, 'exec 30>>"$2/held"; export E2E_SLOT_FDS=30; new_wallet ALICE alice', ['200'], 1)
     assert result.returncode == 1 and not (root / 'span').exists(), result.stderr
     assert (root / 'logs/friendbot_e2e_alice_t.codes').read_text().split() == ['slot-unavailable']
     assert 'wallet_alice\tFAIL\tfatal' in (root / 'actions.tsv').read_text() and 'no friendbot slot' in (root / 'actions.tsv').read_text()
 with tempfile.TemporaryDirectory() as directory:
     root = Path(directory)
-    result = friendbot(directory, '''source "$1/flows/production.sh"
-_assert_fail() { printf '%s\\t%s\\n' "$1" "$2" >> "$RUN_DIR/fails"; }
-exec 30>>"$2/held"; prod_channels 1''', ['200'], 999)
+    result = friendbot(directory, '''_assert_fail() { printf '%s\\t%s\\n' "$1" "$2" >> "$RUN_DIR/fails"; }
+exec 30>>"$2/held"; export E2E_SLOT_FDS=30; lane_channels 1''', ['200'], 999)
     assert result.returncode == 1 and not (root / 'span').exists(), result.stderr
-    assert (root / 'fails').read_text() == 'prod_channel_1\tno friendbot slot free within 300 s\n', result.stderr
+    assert (root / 'fails').read_text() == 'lane_channel_1\tno friendbot slot free within 300 s\n', result.stderr
+with tempfile.TemporaryDirectory() as directory:
+    root = Path(directory)
+    result = friendbot(directory, 'exec 30>>"$2/held"; friendbot_fund alice && [[ " $E2E_SLOT_FDS " == *" 30 "* ]]', ['200'], 1)
+    assert result.returncode == 0 and (root / 'logs/friendbot_alice.codes').read_text().split() == ['200'], result.stderr
+for throttled, funded, checks in [('2', True, 3), ('99', False, 7)]:
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        result = friendbot(directory, 'sleep() { echo "$1" >> "$RUN_DIR/slept"; }\nwallet_funded Galice "$RUN_DIR/alice.json"', [], 1, HZ429=throttled)
+        slept = [int(s) for s in (root / 'slept').read_text().split()]
+        assert (result.returncode == 0) == funded and (root / 'Galice.hz').read_text().strip() == str(checks), result.stderr
+        assert len(slept) == checks - 1 and all(min(8 << i, 60) <= s <= 3 * min(8 << i, 60) // 2 for i, s in enumerate(slept)), slept
+with tempfile.TemporaryDirectory() as directory:
+    root = Path(directory)
+    result = friendbot(directory, 'sleep() { echo "$1" >> "$RUN_DIR/slept"; echo $(( $(cat "$RUN_DIR/clock" 2>/dev/null || echo 1000) + $1 )) > "$RUN_DIR/clock"; }\nfriendbot_fund alice', ['200'], 1, HZ429='99')
+    slept = [int(s) for s in (root / 'slept').read_text().split()]
+    assert result.returncode == 1 and slept and sum(slept) <= 90, (result.stderr, slept)
+    assert (root / 'logs/friendbot_alice.codes').read_text().split() == ['200'] and int((root / 'Galice.hz').read_text()) >= len(slept), result.stderr
+    hz = [line.split() for line in (root / 'hzlog').read_text().splitlines()]
+    assert len(hz) >= 2 and all(0 < int(m) and int(at) + int(m) <= 1100 for m, at in hz), hz
 for slots, valid in [('0', False), ('abc', False), ('6', True)]:
     result = subprocess.run(['bash', '-c', 'source "$1/env.sh"', '_', str(HERE)], capture_output=True, text=True, timeout=30,
                             env=dict(os.environ, RUN_TS='t', NETWORK='testnet', E2E_FRIENDBOT_SLOTS=slots))
     assert (result.returncode == 0) == valid and (valid or 'invalid E2E_FRIENDBOT_SLOTS' in result.stderr), (slots, result.stderr)
-print('Friendbot retries throttling, logs every code, fails closed at the deadline, caps concurrency and refuses an inherited slot fd')
+for slots, valid in [('0', False), ('100', False), ('12', True)]:
+    result = subprocess.run(['bash', '-c', 'source "$1/env.sh" && source "$1/env.sh" && printf "%s\\n%s\\n%s\\n" "$PATH" "$E2E_STELLAR" "$E2E_RPC_SLOTS"', '_', str(HERE)],
+                            capture_output=True, text=True, timeout=30, env=dict(os.environ, RUN_TS='t', NETWORK='testnet', E2E_RPC_SLOTS=slots))
+    assert (result.returncode == 0) == valid and (valid or 'invalid E2E_RPC_SLOTS' in result.stderr), (slots, result.stderr)
+    if valid:
+        path, stellar, exported = result.stdout.splitlines()
+        assert path.split(':').count(str(HERE / 'bin')) == 1 and path.split(':')[0] == str(HERE / 'bin'), path
+        assert stellar == (shutil.which('stellar') or '') and exported == '12', (stellar, exported)
+for name, value, valid in [('E2E_RPC_READ_SLOTS', '0', False), ('E2E_RPC_READ_SLOTS', '21', False), ('E2E_RPC_READ_SLOTS', '20', True),
+                           ('THROTTLE_RETRIES', 'x', False), ('THROTTLE_RETRIES', '21', False), ('THROTTLE_RETRIES', '0', True),
+                           ('E2E_SLOT_DIR', 'relative/slots', False), ('E2E_SLOT_DIR', '/tmp/shared-slots', True)]:
+    result = subprocess.run(['bash', '-c', 'source "$1/env.sh" && printf "%s|%s|%s|%s\\n" "$E2E_RPC_READ_SLOTS" "$THROTTLE_RETRIES" "$E2E_SLOT_DIR" "$E2E_RPC_WAIT_LOG"', '_', str(HERE)],
+                            capture_output=True, text=True, timeout=30, env={**os.environ, 'RUN_TS': 't', 'NETWORK': 'testnet', name: value})
+    assert (result.returncode == 0) == valid and (valid or f'invalid {name}' in result.stderr), (name, value, result.stderr)
+    if valid:
+        exported = dict(zip(['E2E_RPC_READ_SLOTS', 'THROTTLE_RETRIES', 'E2E_SLOT_DIR'], result.stdout.strip().split('|')))
+        assert exported[name] == value and result.stdout.strip().endswith(f'/runs/t/rpc-wait.tsv'), result.stdout
+result = subprocess.run(['bash', '-c', 'source "$1/env.sh" && printf "%s|%s|%s" "$E2E_RPC_READ_SLOTS" "$THROTTLE_RETRIES" "$E2E_SLOT_DIR"', '_', str(HERE)],
+                        capture_output=True, text=True, timeout=30,
+                        env={k: v for k, v in {**os.environ, 'RUN_TS': 't', 'NETWORK': 'testnet'}.items() if k not in ('E2E_RPC_READ_SLOTS', 'THROTTLE_RETRIES', 'E2E_SLOT_DIR')})
+assert result.returncode == 0 and result.stdout == f'6|6|/tmp/rs-lending-e2e-slots-{os.getuid()}', result.stdout
+print('Friendbot retries throttling, logs every code, fails closed at the deadline, caps concurrency, refuses a listed nested slot fd and replaces an unlisted inherited one')
+print('Horizon funding reads back off on 429 within a bound and inside the friendbot deadline; env.sh validates and exports the RPC knobs and routes stellar through one shim')

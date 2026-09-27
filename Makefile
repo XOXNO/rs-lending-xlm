@@ -318,6 +318,7 @@ integration-preflight:
 integration-sdk-validate:
 	@$${NODE_BIN:-node} tests/integration/sdk/test_rpc.mjs
 	@$${NODE_BIN:-node} tests/integration/sdk/test_invoke.mjs
+	@$${NODE_BIN:-node} tests/integration/sdk/test_sign_auth.mjs
 
 integration-validate:
 	@python3 tests/integration/test_preflight.py

@@ -1,6 +1,11 @@
 wallet_funded() {
-    curl --fail-with-body -sS -m "${3:-30}" "https://horizon-testnet.stellar.org/accounts/$1" > "$2" \
-        && jq -e '.balances | any(.asset_type == "native" and (.balance | tonumber) >= 100)' "$2" >/dev/null
+    local n=0 code m="${3:-30}"
+    while ! code=$(curl --fail-with-body -sS -m "$m" -o "$2" -w '%{http_code}' "https://horizon-testnet.stellar.org/accounts/$1"); do
+        n=$((n + 1))
+        [ "$code" = 429 ] && throttle_sleep "$n" || return 1
+        m=$(rpc_deadline_wait "${3:-30}") && [ "$m" -gt 0 ] || return 1
+    done
+    jq -e '.balances | any(.asset_type == "native" and (.balance | tonumber) >= 100)' "$2" >/dev/null
 }
 
 friendbot_fund() {
@@ -8,7 +13,7 @@ friendbot_fund() {
     stellar keys address "$alias" >/dev/null 2>&1 \
         || stellar keys generate "$alias" "${NET_ARGS[@]}" >/dev/null 2>&1 || return 1
     addr=$(stellar keys address "$alias") || return 1
-    slot_take "$INTEG_DIR/runs/.slots/friendbot" "${E2E_FRIENDBOT_SLOTS:-6}" 30 300 \
+    slot_take "${E2E_SLOT_DIR:-$INTEG_DIR/runs/.slots}/friendbot" "${E2E_FRIENDBOT_SLOTS:-6}" 30 300 \
         || { printf 'slot-unavailable\n' >> "$base.codes"; return 2; }
     slot="$SLOT_FD"
     deadline=$(( $(date +%s) + 90 ))
@@ -24,7 +29,7 @@ friendbot_fund() {
             left=$((deadline - $(date +%s)))
             [ "$left" -gt 0 ] || break
         fi
-        if wallet_funded "$addr" "$base.balance.json" "$((left < 30 ? left : 30))"; then rc=0; break; fi
+        if E2E_RPC_DEADLINE="$deadline" wallet_funded "$addr" "$base.balance.json" "$((left < 30 ? left : 30))"; then rc=0; break; fi
         case "$code" in 200|400|429|5[0-9][0-9]|000) ;; *) break;; esac
         left=$((deadline - $(date +%s)))
         [ "$left" -gt 0 ] || break
@@ -68,4 +73,20 @@ new_wallet() {
     save_state "$addr_var" "$addr"
     record "wallet_$role" ok "friendbot" "" "" "" "" "" "$addr"
     log "wallet $role = $addr"
+}
+
+lane_channels() {
+    local n="$1" i alias addr chans='' pids=() pid
+    for i in $(seq 1 "$n"); do fund_wallet "e2e_chan${i}_${RUN_TS}" & pids+=("$!"); done
+    for pid in "${pids[@]}"; do wait "$pid" || true; done
+    for i in $(seq 1 "$n"); do
+        alias="e2e_chan${i}_${RUN_TS}"
+        addr=$(stellar keys address "$alias") || { _assert_fail "lane_channel_$i" 'channel key missing'; return 1; }
+        wallet_funded "$addr" "$LOG_DIR/channel_${i}_funding.json" || friendbot_fund "$alias" || {
+            [ $? -ne 2 ] || { _assert_fail "lane_channel_$i" 'no friendbot slot free within 300 s'; return 1; }
+            _assert_fail "lane_channel_$i" 'channel funding not confirmed (minimum 100 XLM)'; return 1
+        }
+        chans="$chans $alias"
+    done
+    save_state CHANNELS "${chans# }"
 }

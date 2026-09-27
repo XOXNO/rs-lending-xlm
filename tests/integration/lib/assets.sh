@@ -1,5 +1,5 @@
 sac_live() {
-    stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$1" --source "$ADMIN" "${NET_ARGS[@]}" --send=no \
+    cli_read stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$1" --source "$ADMIN" "${NET_ARGS[@]}" --send=no \
         -- decimals >/dev/null 2>&1
 }
 
@@ -24,7 +24,7 @@ issue_sac() {
         record "issue_sac_$code" ok "asset_id" "" "" "" "" "" "$sac (pre-existing)"
     else
 
-        if ! run_deploy "$out_f" "$err_f" -- stellar contract asset deploy --asset "$asset" --source "$ADMIN" "${NET_ARGS[@]}"; then
+        if ! run_deploy "$out_f" "$err_f" -- stellar contract asset deploy --asset "$asset" --source "${E2E_SRC:-$ADMIN}" "${NET_ARGS[@]}"; then
             record "issue_sac_$code" FAIL asset_deploy "$(extract_signing_hash "$err_f")" "" "" "" "" "SAC deployment unconfirmed; never resubmit"
             return 1
         fi
@@ -45,6 +45,7 @@ issue_sac() {
 
 classic_batch() {
     local label="$1" fn="$2" signer="$3"; shift 3
+    [ -z "${E2E_JOB:-}" ] || { job_refuse classic_batch "$label"; return 1; }
     local base="$LOG_DIR/$label" per_op="${E2E_CLASSIC_OP_FEE:-${STELLAR_INCLUSION_FEE:-1000}}" count=$# i=0 item kind a b c d addr hash rc=0 st sequence
     local -a op
     if [ "$count" -lt 1 ] || [ "$count" -gt 40 ] || [[ ! "$per_op" =~ ^[1-9][0-9]{0,6}$ ]]; then
@@ -152,6 +153,7 @@ sac_transfer() {
 
 swap_xlm_to() (
     local wallet="$1" addr="$2" to_sac="$3" amount_in="$4" label="$5"
+    [ -z "${E2E_JOB:-}" ] || { job_refuse swap_xlm_to "$label"; return 1; }
     local swap_hex AGGREGATOR_MIN_LEDGER rc=0 hash pending="$INTEG_DIR/runs/.external-funding.${RUN_TS}.pending.json"
     # ponytail: one checkout-wide funding lock; use per-pool locks if throughput matters.
     # The subshell retains fd 9 through confirmation; exit/cancellation releases it.
@@ -159,8 +161,7 @@ swap_xlm_to() (
     python3 -c 'import fcntl; fcntl.flock(9, fcntl.LOCK_EX)' || { _assert_fail "$label" 'funding lock failed'; return 1; }
     [ ! -e "$pending" ] || { _assert_fail "$label" "earlier funding submission unresolved; reconcile evidence in $pending before removing it"; return 1; }
     # The quote indexer must include trades confirmed by the preceding holder.
-    if ! curl --fail-with-body -sS -m 30 "$RPC_URL" -H 'Content-Type: application/json' \
-        -d '{"jsonrpc":"2.0","id":1,"method":"getLatestLedger"}' >"$LOG_DIR/$label.funding-ledger.json"; then
+    if ! rpc_post 30 '{"jsonrpc":"2.0","id":1,"method":"getLatestLedger"}' >"$LOG_DIR/$label.funding-ledger.json"; then
         _assert_fail "$label" 'funding ledger transport failed'; return 1
     fi
     AGGREGATOR_MIN_LEDGER=$(jq -er 'select(.jsonrpc=="2.0" and .id==1 and (has("error")|not)) | .result.sequence | select(type=="number" and .>0 and floor==.)' \

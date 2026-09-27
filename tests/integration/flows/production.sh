@@ -61,22 +61,6 @@ prod_upgrade_hash() {
     esac
 }
 
-prod_channels() {
-    local n="$1" i alias addr chans='' pids=() pid
-    for i in $(seq 1 "$n"); do fund_wallet "e2e_chan${i}_${RUN_TS}" & pids+=("$!"); done
-    for pid in "${pids[@]}"; do wait "$pid" || true; done
-    for i in $(seq 1 "$n"); do
-        alias="e2e_chan${i}_${RUN_TS}"
-        addr=$(stellar keys address "$alias") || { _assert_fail "prod_channel_$i" 'channel key missing'; return 1; }
-        wallet_funded "$addr" "$LOG_DIR/channel_${i}_funding.json" || friendbot_fund "$alias" || {
-            [ $? -ne 2 ] || { _assert_fail "prod_channel_$i" 'no friendbot slot free within 300 s'; return 1; }
-            _assert_fail "prod_channel_$i" 'channel funding not confirmed (minimum 100 XLM)'; return 1
-        }
-        chans="$chans $alias"
-    done
-    save_state PROD_CHANNELS "${chans# }"
-}
-
 prod_propose() {
     local tag="$1"; shift
     PROD_OP_TAG="${tag}_propose" PROD_SPLIT_TAG="$tag" PROD_PROPOSE_ONLY=1 prod_ops "$@" >/dev/null
@@ -95,6 +79,8 @@ prod_execute_split() {
 
 prod_ops() {
     local verb="$1" tag="${PROD_OP_TAG:-$1}"; shift
+    [ -z "${E2E_JOB:-}" ] || { job_refuse prod_ops "operator_$tag"; return 1; }
+    [ -z "${GROUP_DIR:-}" ] || group_guard "prod_ops $verb" || return 1
     local logical="${PROD_OP_VERB:-$verb}" wasm="${PROD_OP_WASM:-${1:-}}" auto=1 executed_call='' op record_path
     local proposal_salts='' execution_salts='' wave_log=''
     [ "${PROD_SETUP_JOBS:-1}" -le 1 ] || wave_log="$LOG_DIR/operator_${tag}_wave"
@@ -165,71 +151,104 @@ prod_ops() {
     fi
 }
 
+prod_deploy_protocol() {
+    local plan="$RUN_DIR/fixture-plan.json" mapping="$RUN_DIR/address-map.json" original got id row n=0
+    python3 "$INTEG_DIR/production_config.py" plan "$REPO_ROOT/configs/mainnet" ${PROD_CONFIG_ONLY:+--only "$PROD_CONFIG_ONLY"} > "$plan" || return 1
+    group_begin production_deploy "$(( $(jq length "$plan") + 1 ))" || return 1
+    while read -r row; do group_spawn prod_fixture_job "$row"; done < <(jq -c 'to_entries | to_entries[] | .value + {n: (.key + 1)}' "$plan")
+    group_spawn deploy_protocol
+    group_end || return 1
+    printf '{}\n' > "$mapping"
+    while read -r original; do
+        n=$((n+1))
+        read -r got id <<<"$(group_out "$n" | tail -n1)"
+        [ "$got" = "$original" ] && is_contract_id "$id" \
+            || { _assert_fail "production_fixture_$n" "fixture job output '$got $id' does not map $original"; return 1; }
+        jq --arg o "$original" --arg i "$id" '.[$o]=$i' "$mapping" > "$mapping.tmp" && mv "$mapping.tmp" "$mapping" || return 1
+    done < <(jq -r 'keys_unsorted[]' "$plan")
+}
+
 flow_production_fixtures() {
     phase production_fixtures
     mkdir -p "$RUN_DIR/config/testnet"
-    local plan="$RUN_DIR/fixture-plan.json" mapping="$RUN_DIR/address-map.json" row original kind wasm id n=0
-    python3 "$INTEG_DIR/production_config.py" plan "$REPO_ROOT/configs/mainnet" > "$plan" || return 1
-    printf '{}\n' > "$mapping"
-    while read -r row; do
-        original=$(jq -r '.key' <<<"$row"); kind=$(jq -r '.value.kind' <<<"$row"); n=$((n+1))
-        case "$kind" in
-            Reflector) wasm=mock_oracle;; RedStone) wasm=mock_redstone;; Xoxno) wasm=xoxno-oracle-adapter;; *) wasm=production_fixture;;
-        esac
-        local args=()
-        if [ "$wasm" = production_fixture ]; then
-            args=(-- --admin "$ADMIN_ADDR" --decimals "$(jq -r '.value.decimals' <<<"$row")" --symbol "$(jq -r '.value.name' <<<"$row")")
-        fi
-        local wasm_path="$FIXTURE_WASM_DIR/$wasm.wasm"
-        if [ "$kind" = Xoxno ]; then
-            wasm_path="$WASM_DIR/$wasm.wasm"
-            args=(-- --admin "$ADMIN_ADDR" --signers "[\"$ADMIN_ADDR\"]" --threshold 1 --resolution 60)
-        fi
-        run_deploy "$LOG_DIR/fixture_$n.out" "$LOG_DIR/fixture_$n.err" -- stellar contract deploy \
-            --source "$ADMIN" "${NET_ARGS[@]}" --wasm "$wasm_path" ${args[@]+"${args[@]}"} || return 1
-        id=$(sanitize_output "$LOG_DIR/fixture_$n.out")
-        is_contract_id "$id" || return 1
-        jq --arg o "$original" --arg i "$id" '.[$o]=$i' "$mapping" > "$mapping.tmp" && mv "$mapping.tmp" "$mapping"
-        record "production_fixture_$n" ok deploy "$(extract_signing_hash "$LOG_DIR/fixture_$n.err")" "$RES_INSTR" "$RES_READ" "$RES_WRITE" "$RES_FEE" "$kind $original -> $id (fixture)" deployment "$id"
-    done < <(jq -c 'to_entries[]' "$plan")
-    python3 "$INTEG_DIR/production_config.py" materialize "$REPO_ROOT/configs/mainnet" "$RUN_DIR/config/testnet" "$mapping" || return 1
-    local fixtures="$RUN_DIR/config/testnet/fixtures.json" seed price
+    python3 "$INTEG_DIR/production_config.py" materialize "$REPO_ROOT/configs/mainnet" "$RUN_DIR/config/testnet" "$RUN_DIR/address-map.json" \
+        ${PROD_CONFIG_ONLY:+--only "$PROD_CONFIG_ONLY"} || return 1
+    local fixtures="$RUN_DIR/config/testnet/fixtures.json" seeds seed row feed_id id
     cp "$fixtures" "$RUN_DIR/production-fixtures.json" || return 1
-    while read -r row; do
-        inv prod_reflector_base "$ADMIN" "$(jq -r '.key' <<<"$row")" -- set_base --base "$(jq -c '.value' <<<"$row")" >/dev/null || return 1
-    done < <(jq -c '.bases|to_entries[]' "$fixtures")
+    seeds=$(prod_price_seeds "$fixtures" 2>"$LOG_DIR/prod_seed_dedupe.err") \
+        || { _assert_fail prod_seed_dedupe "$(tail_err_note "$LOG_DIR/prod_seed_dedupe.err")"; return 1; }
+    group_each prod_bases 40 "$(jq -c '.bases|to_entries[]' "$fixtures")" prod_base_job || return 1
+    group_each prod_seeds 40 "$seeds" prod_seed_job || return 1
     while read -r seed; do
-        kind=$(jq -r '.kind' <<<"$seed"); id=$(jq -r '.contract' <<<"$seed"); price=$(jq -r '.price' <<<"$seed")
-        if [ "$kind" = Reflector ]; then
-            inv prod_reflector_seed "$ADMIN" "$id" -- set_price --asset "$(jq -c '.asset' <<<"$seed")" --price_wad "$price" >/dev/null || return 1
-        elif [ "$kind" = Xoxno ]; then
-            local feed_id
-            feed_id=$(jq -r '.feed' <<<"$seed")
-            inv prod_xoxno_register "$ADMIN" "$id" -- register_feed --feed_id "$feed_id" >/dev/null || return 1
-            inv prod_xoxno_seed "$ADMIN" "$id" -- submit_price --signer "$ADMIN_ADDR" --feed_id "$feed_id" \
-                --price "$(python3 -c 'import sys; print(int(sys.argv[1])//10**10)' "$price")" \
-                --package_timestamp "$(( ($(date +%s) - 10) * 1000 ))" >/dev/null || return 1
-        else
-            inv prod_redstone_seed "$ADMIN" "$id" -- set_price --feed_id "$(jq -r '.feed' <<<"$seed")" --price_wad "$price" >/dev/null || return 1
-        fi
-    done < <(jq -c '.seeds[]' "$fixtures")
+        id=$(jq -r '.contract' <<<"$seed"); feed_id=$(jq -r '.feed' <<<"$seed")
+        inv prod_xoxno_register "$ADMIN" "$id" -- register_feed --feed_id "$feed_id" >/dev/null || return 1
+        inv prod_xoxno_seed "$ADMIN" "$id" -- submit_price --signer "$ADMIN_ADDR" --feed_id "$feed_id" \
+            --price "$(python3 -c 'import sys; print(int(sys.argv[1])//10**10)' "$(jq -r '.price' <<<"$seed")")" \
+            --package_timestamp "$(( ($(date +%s) - 10) * 1000 ))" >/dev/null || return 1
+    done < <(jq -c '.seeds[] | select(.kind == "Xoxno")' "$fixtures")
     while read -r row; do
         inv prod_lp_fixture "$ADMIN" "$(jq -r '.contract' <<<"$row")" -- configure_pool --snapshot "$(jq -c '.snapshot' <<<"$row")" >/dev/null || return 1
     done < <(jq -c '.pools[]' "$fixtures")
 }
 
+prod_fixture_job() {
+    local row="$1" n original kind wasm wasm_path id base args=()
+    n=$(jq -r '.n' <<<"$row"); original=$(jq -r '.key' <<<"$row"); kind=$(jq -r '.value.kind' <<<"$row")
+    case "$kind" in
+        Reflector) wasm=mock_oracle;; RedStone) wasm=mock_redstone;; Xoxno) wasm=xoxno-oracle-adapter;; *) wasm=production_fixture;;
+    esac
+    if [ "$wasm" = production_fixture ]; then
+        args=(-- --admin "$ADMIN_ADDR" --decimals "$(jq -r '.value.decimals' <<<"$row")" --symbol "$(jq -r '.value.name' <<<"$row")")
+    fi
+    wasm_path="$FIXTURE_WASM_DIR/$wasm.wasm"
+    if [ "$kind" = Xoxno ]; then
+        wasm_path="$WASM_DIR/$wasm.wasm"
+        args=(-- --admin "$ADMIN_ADDR" --signers "[\"$ADMIN_ADDR\"]" --threshold 1 --resolution 60)
+    fi
+    base=$(job_log "fixture_$n")
+    run_deploy "$base.out" "$base.err" -- stellar contract deploy \
+        --source "${E2E_SRC:-$ADMIN}" "${NET_ARGS[@]}" --wasm "$wasm_path" ${args[@]+"${args[@]}"} || return 1
+    id=$(sanitize_output "$base.out")
+    is_contract_id "$id" || return 1
+    record "production_fixture_$n" ok deploy "$(extract_signing_hash "$base.err")" "$RES_INSTR" "$RES_READ" "$RES_WRITE" "$RES_FEE" "$kind $original -> $id (fixture)" deployment "$id"
+    printf '%s %s\n' "$original" "$id"
+}
+
+prod_price_seeds() {
+    jq -c '[.seeds[] | select(.kind == "Reflector" or .kind == "RedStone")]
+        | group_by([.contract, (.asset // .feed)])
+        | map(if (map(.price) | unique | length) == 1 then .[0]
+              else error("seed \(.[0].contract) \(.[0].asset // .[0].feed | tojson) has conflicting prices \(map(.price) | unique)") end)
+        | .[]' "$1"
+}
+
+prod_base_job() {
+    inv prod_reflector_base "${E2E_SRC:-$ADMIN}" "$(jq -r '.key' <<<"$1")" -- set_base --base "$(jq -c '.value' <<<"$1")" >/dev/null
+}
+
+prod_seed_job() {
+    local id price
+    id=$(jq -r '.contract' <<<"$1"); price=$(jq -r '.price' <<<"$1")
+    if [ "$(jq -r '.kind' <<<"$1")" = Reflector ]; then
+        inv prod_reflector_seed "${E2E_SRC:-$ADMIN}" "$id" -- set_price --asset "$(jq -c '.asset' <<<"$1")" --price_wad "$price" >/dev/null
+    else
+        inv prod_redstone_seed "${E2E_SRC:-$ADMIN}" "$id" -- set_price --feed_id "$(jq -r '.feed' <<<"$1")" --price_wad "$price" >/dev/null
+    fi
+}
+
 # Reflector TWAP includes two older 300-second samples. Keep fixture prices
 # fresh after the long governance setup without changing production policy.
 prod_refresh_reflectors() {
-    local label="$1" seeds seed n=0
+    local label="$1" seeds
     seeds=$(jq -ce '[.seeds[] | select(.kind == "Reflector")] | if length > 0 then . else error("missing Reflector fixtures") end' \
         "$RUN_DIR/config/testnet/fixtures.json") || return 1
-    while read -r seed; do
-        inv "$label" "$ADMIN" "$(jq -r '.contract' <<<"$seed")" -- set_price \
-            --asset "$(jq -c '.asset' <<<"$seed")" --price_wad "$(jq -r '.price' <<<"$seed")" >/dev/null || return 1
-        n=$((n+1))
-    done < <(jq -c '.[]' <<<"$seeds")
-    record "${label}_complete" ok assert "" "" "" "" "" "$n Reflector fixture timestamps refreshed; prices and policy unchanged"
+    group_each prod_refresh 40 "$(jq -c '.[]' <<<"$seeds")" prod_refresh_job "$label" || return 1
+    record "${label}_complete" ok assert "" "" "" "" "" "$(jq length <<<"$seeds") Reflector fixture timestamps refreshed; prices and policy unchanged"
+}
+
+prod_refresh_job() {
+    inv "$1" "${E2E_SRC:-$ADMIN}" "$(jq -r '.contract' <<<"$2")" -- set_price \
+        --asset "$(jq -c '.asset' <<<"$2")" --price_wad "$(jq -r '.price' <<<"$2")" >/dev/null
 }
 
 flow_production_operator() {
@@ -257,45 +276,58 @@ flow_production_operator() {
     prod_execute_split setAggregator setAggregator >/dev/null || return 1
     prod_ops setAccumulator >/dev/null || return 1
     prod_ops validateConfigs >/dev/null || return 1
-    prod_channels 12 || return 1
-    PROD_SETUP_JOBS=12 PROD_SETUP_SOURCES="$PROD_CHANNELS" prod_ops setupAll >/dev/null || return 1
+    PROD_SETUP_JOBS=12 PROD_SETUP_SOURCES="$CHANNELS" prod_ops setupAll >/dev/null || return 1
     cp "$RUN_DIR/config/networks.json" "$RUN_DIR/operator-before-replay.json"
     PROD_OP_TAG=setupAll_replay prod_ops setupAll >/dev/null || return 1
     cmp -s "$RUN_DIR/operator-before-replay.json" "$RUN_DIR/config/networks.json" || { _assert_fail operator_replay "setup replay changed deployment mappings"; return 1; }
     prod_ops unpause >/dev/null || return 1
     prod_refresh_reflectors prod_reflector_after_setup || return 1
-    local m asset hub key oracle decimals
+    local m asset oracle markets="$RUN_DIR/config/testnet/markets.json"
     save_state MARKETS ''
+    group_begin prod_markets 8 reads || return 1
+    while read -r m; do group_spawn prod_market_job "$m"; done < <(jq -c '.markets[]' "$markets")
+    group_end || return 1
     while read -r m; do
-        asset=$(jq -r '.asset_address' <<<"$m"); hub=$(jq -r '.hub_id' <<<"$m")
-        decimals=$(jq -r '.oracle.asset_decimals' <<<"$m")
-        assert_view_eq_at "$asset" "prod_decimals_${asset:0:8}" "$decimals" decimals || return 1
-        key=$(price_key_token "$asset")
-        view "prod_price_${asset:0:8}" "$PRICE_AGGREGATOR" -- prices --keys "[$key]" >/dev/null || return 1
+        asset=$(jq -r '.asset_address' <<<"$m")
         python3 "$INTEG_DIR/production_config.py" verify-price "$RUN_DIR/config/testnet" "$(jq -r '.name' <<<"$m")" "$LOG_DIR/prod_price_${asset:0:8}.out" \
             || { _assert_fail "prod_price_${asset:0:8}" "price/decimals differ from seeded production fixture"; return 1; }
-        oracle=$(view "prod_oracle_${asset:0:8}" "$PRICE_AGGREGATOR" -- oracle --key "$key") || return 1
-        [ -n "$oracle" ] || return 1
-        save_state MARKETS "${MARKETS:+$MARKETS }$hub:$asset"
-    done < <(jq -c '.markets[]' "$RUN_DIR/config/testnet/markets.json")
+        oracle=$(cat "$LOG_DIR/prod_oracle_${asset:0:8}.out") && [ -n "$oracle" ] || return 1
+        save_state MARKETS "${MARKETS:+$MARKETS }$(jq -r '.hub_id' <<<"$m"):$asset"
+    done < <(jq -c '.markets[]' "$markets")
     save_state PRIMARY_HUB_ID 1
     save_state PRIMARY_SPOKE_ID "$(jq -r '.testnet.spoke_ids["1"]' "$RUN_DIR/config/networks.json")"
     prod_verify_policy || return 1
 }
 
+prod_market_job() {
+    local asset key
+    asset=$(jq -r '.asset_address' <<<"$1"); key=$(price_key_token "$asset")
+    assert_view_eq_at "$asset" "prod_decimals_${asset:0:8}" "$(jq -r '.oracle.asset_decimals' <<<"$1")" decimals || return 1
+    view "prod_price_${asset:0:8}" "$PRICE_AGGREGATOR" -- prices --keys "[$key]" >/dev/null || return 1
+    view "prod_oracle_${asset:0:8}" "$PRICE_AGGREGATOR" -- oracle --key "$key" >/dev/null
+}
+
 prod_verify_policy() {
-    local checks="$RUN_DIR/production-policy-checks.json" row i=0 target method arg
+    local checks="$RUN_DIR/production-policy-checks.json" row i=0 n
     python3 "$INTEG_DIR/production_config.py" checks "$RUN_DIR/config/testnet" "$RUN_DIR/config/networks.json" > "$checks" || return 1
+    group_begin prod_policy 8 reads || return 1
     while read -r row; do
-        target=$(jq -r '.contract' <<<"$row"); method=$(jq -r '.method' <<<"$row")
-        local args=()
-        while IFS= read -r arg; do args+=("$arg"); done < <(jq -r '.args[]' <<<"$row")
-        view "prod_policy_$i" "${!target}" -- "$method" ${args[@]+"${args[@]}"} >/dev/null || return 1
-        python3 "$INTEG_DIR/production_config.py" verify "$checks" "$i" "$LOG_DIR/prod_policy_$i.out" \
-            || { _assert_fail "prod_policy_$i" "$method differs from production policy"; return 1; }
+        group_spawn prod_policy_job "$i" "$row"
         i=$((i+1))
     done < <(jq -c '.[]' "$checks")
+    group_end || return 1
+    for ((n = 0; n < i; n++)); do
+        python3 "$INTEG_DIR/production_config.py" verify "$checks" "$n" "$LOG_DIR/prod_policy_$n.out" \
+            || { _assert_fail "prod_policy_$n" "$(jq -r --argjson n "$n" '.[$n].method' "$checks") differs from production policy"; return 1; }
+    done
     record prod_policy_equal ok assert "" "" "" "" "" "$i oracle/market/spoke policy readbacks matched"
+}
+
+prod_policy_job() {
+    local target method arg args=()
+    target=$(jq -r '.contract' <<<"$2"); method=$(jq -r '.method' <<<"$2")
+    while IFS= read -r arg; do args+=("$arg"); done < <(jq -r '.args[]' <<<"$2")
+    view "prod_policy_$1" "${!target}" -- "$method" ${args[@]+"${args[@]}"} >/dev/null
 }
 
 prod_decimal_roundtrips() {
@@ -329,25 +361,34 @@ prod_decimal_roundtrips() {
 # Stable state only: ledger timestamps are deliberately excluded.
 prod_position_snapshot() {
     local label="$1" acct="$2" asset="$3" runner="$4" positions attributes usage owner wallet pool
-    positions=$(view "${label}_positions" "$CONTROLLER" -- get_account_positions --account_id "$acct") || return 1
-    attributes=$(view "${label}_attributes" "$CONTROLLER" -- get_account_attributes --account_id "$acct") || return 1
-    usage=$(view "${label}_usage" "$CONTROLLER" -- get_spoke_usage --spoke_id "$PRIMARY_SPOKE_ID" --hub_asset "$(hub_key 1 "$asset")") || return 1
-    owner=$(view "${label}_owner" "$POSITION_NFT" -- owner_of --token_id "$acct") || return 1
-    local controller_cash book nft_state roles='[]' role held pa_owner
-    book=$(view "${label}_pool_book" "$POOL" -- get_sync_data --hub_asset "$(hub_key 1 "$asset")") || return 1
-    nft_state=$(jq -nc --argjson name "$(view "${label}_name" "$POSITION_NFT" -- name)" \
-        --argjson symbol "$(view "${label}_symbol" "$POSITION_NFT" -- symbol)" \
-        --argjson uri "$(view "${label}_uri" "$POSITION_NFT" -- token_uri --token_id "$acct")" \
-        --argjson total "$(view "${label}_total" "$POSITION_NFT" -- total_supply)" \
+    local controller_cash book nft_state roles='[]' role held pa_owner n=9
+    group_begin "$label" 8 reads || return 1
+    group_spawn view "${label}_positions" "$CONTROLLER" -- get_account_positions --account_id "$acct"
+    group_spawn view "${label}_attributes" "$CONTROLLER" -- get_account_attributes --account_id "$acct"
+    group_spawn view "${label}_usage" "$CONTROLLER" -- get_spoke_usage --spoke_id "$PRIMARY_SPOKE_ID" --hub_asset "$(hub_key 1 "$asset")"
+    group_spawn view "${label}_owner" "$POSITION_NFT" -- owner_of --token_id "$acct"
+    group_spawn view "${label}_pool_book" "$POOL" -- get_sync_data --hub_asset "$(hub_key 1 "$asset")"
+    group_spawn view "${label}_name" "$POSITION_NFT" -- name
+    group_spawn view "${label}_symbol" "$POSITION_NFT" -- symbol
+    group_spawn view "${label}_uri" "$POSITION_NFT" -- token_uri --token_id "$acct"
+    group_spawn view "${label}_total" "$POSITION_NFT" -- total_supply
+    for role in PROPOSER EXECUTOR CANCELLER GUARDIAN ORACLE; do
+        group_spawn view "${label}_role_$role" "$GOVERNANCE" -- has_role --account "$ADMIN_ADDR" --role "$role"
+    done
+    group_spawn view "${label}_pa_owner" "$PRICE_AGGREGATOR" -- get_owner
+    group_spawn balance "$asset" "$CONTROLLER"
+    group_spawn balance "$asset" "$runner"
+    group_spawn balance "$asset" "$POOL"
+    group_end || return 1
+    positions=$(group_out 1); attributes=$(group_out 2); usage=$(group_out 3); owner=$(group_out 4); book=$(group_out 5)
+    nft_state=$(jq -nc --argjson name "$(group_out 6)" --argjson symbol "$(group_out 7)" \
+        --argjson uri "$(group_out 8)" --argjson total "$(group_out 9)" \
         '{name:$name,symbol:$symbol,uri:$uri,total:$total}') || return 1
     for role in PROPOSER EXECUTOR CANCELLER GUARDIAN ORACLE; do
-        held=$(view "${label}_role_$role" "$GOVERNANCE" -- has_role --account "$ADMIN_ADDR" --role "$role") || return 1
+        n=$((n+1)); held=$(group_out "$n")
         roles=$(jq -nc --argjson roles "$roles" --arg role "$role" --argjson held "$held" '$roles+[{role:$role,held:$held}]') || return 1
     done
-    pa_owner=$(view "${label}_pa_owner" "$PRICE_AGGREGATOR" -- get_owner) || return 1
-    controller_cash=$(balance "$asset" "$CONTROLLER") || return 1
-    wallet=$(balance "$asset" "$runner") || return 1
-    pool=$(balance "$asset" "$POOL") || return 1
+    pa_owner=$(group_out 15); controller_cash=$(group_out 16); wallet=$(group_out 17); pool=$(group_out 18)
     jq -ncS --argjson positions "$positions" --argjson attributes "$attributes" --argjson usage "$usage" \
         --argjson owner "$owner" --arg wallet "$wallet" --arg pool "$pool" --arg controller_cash "$controller_cash" \
         --argjson book "$book" --argjson nft "$nft_state" --argjson roles "$roles" --argjson pa_owner "$pa_owner" \
@@ -429,10 +470,8 @@ prod_caller_authority() {
     prod_caller_state prod_contract_inactive_manager_unchanged "$before" "$after" "$runner"
 }
 
-flow_production_caller() {
-    phase production_caller
-    prod_decimal_roundtrips || return 1
-    local asset runner acct ops amount pool_before controller_before positions synced decimals paid
+prod_contract_open() {
+    local amount pool_before controller_before positions synced paid ops
     asset=$(jq -r '.markets[]|select(.name=="USDC")|.asset_address' "$RUN_DIR/config/testnet/markets.json")
     amount=10000000
     run_deploy "$LOG_DIR/script_runner.out" "$LOG_DIR/script_runner.err" -- stellar contract deploy \
@@ -456,9 +495,34 @@ flow_production_caller() {
     record prod_contract_supply_shares ok assert "" "" "" "" "" 'exact committed-index contract supply shares'
     assert_delta prod_contract_supply_pool "$pool_before" "$(balance "$asset" "$POOL")" "$paid" || return 1
     assert_delta prod_contract_supply_controller "$controller_before" "$(balance "$asset" "$CONTROLLER")" 0 || return 1
+}
+
+prod_contract_close() {
+    local positions pool_before controller_before wallet_before closed synced paid ops
+    positions=$(view prod_contract_close_before "$CONTROLLER" -- get_account_positions --account_id "$acct") || return 1
+    pool_before=$(balance "$asset" "$POOL") || return 1
+    controller_before=$(balance "$asset" "$CONTROLLER") || return 1
+    wallet_before=$(balance "$asset" "$runner") || return 1
+    ops=$(jq -nc --arg a "$asset" --argjson id "$acct" '[{Withdraw:{account_id:$id,withdrawals:[[{hub_id:1,asset:$a},"0"]],to:null}}]')
+    inv prod_contract_withdraw "$ADMIN" "$runner" -- run --controller "$CONTROLLER" --nft "$POSITION_NFT" --ops "$ops" >/dev/null || return 1
+    closed=$(view prod_contract_close_after "$CONTROLLER" -- get_account_positions --account_id "$acct") || return 1
+    synced=$(view prod_contract_close_sync "$POOL" -- get_sync_data --hub_asset "$(hub_key 1 "$asset")") || return 1
+    paid=$(lifecycle_amount '"withdraw"' "$(hub_key 1 "$asset")" "$positions" "$closed" "$synced" 0 "$decimals") \
+        || { _assert_fail prod_contract_close_shares 'contract close burned wrong principal'; return 1; }
+    record prod_contract_close_shares ok assert "" "" "" "" "" 'exact committed-index contract close payout and shares'
+    assert_delta prod_contract_return "$wallet_before" "$(balance "$asset" "$runner")" "$paid" || return 1
+    assert_delta prod_contract_close_pool "$pool_before" "$(balance "$asset" "$POOL")" "-$paid" || return 1
+    assert_delta prod_contract_close_controller "$controller_before" "$(balance "$asset" "$CONTROLLER")" 0 || return 1
+    assert_bool_view prod_contract_closed false account_exists --account_id "$acct" || return 1
+}
+
+flow_production_caller() {
+    phase production_caller
+    prod_decimal_roundtrips || return 1
+    local asset runner acct decimals before after ops
+    prod_contract_open || return 1
     prod_caller_authority "$runner" "$acct" "$asset" || return 1
     # A successful first leg followed by an invalid second leg must leave no effects.
-    local before after
     inv prod_mint_rollback "$ADMIN" "$asset" -- mint --to "$runner" --amount 1 >/dev/null || return 1
     before=$(prod_position_snapshot prod_rollback_before "$acct" "$asset" "$runner") || return 1
     ops=$(jq -nc --arg a "$asset" --argjson id "$acct" --argjson s "$PRIMARY_SPOKE_ID" \
@@ -467,10 +531,32 @@ flow_production_caller() {
     after=$(prod_position_snapshot prod_rollback_after "$acct" "$asset" "$runner") || return 1
     [ "$before" = "$after" ] || { _assert_fail prod_contract_rollback_state "failed script changed position, owner, usage or balances"; return 1; }
     record prod_contract_rollback_state ok assert "" "" "" "" "" "simulation rejected; stored position, usage and balances unchanged"
-    # Snapshot active positions, attributes, usage, ownership and cash across upgrade.
+    prod_contract_close
+}
+
+flow_production_upgrade() {
+    phase production_upgrade
+    local verb hash asset runner acct decimals before after ops
+    python3 "$INTEG_DIR/production_config.py" full "$REPO_ROOT/configs/mainnet" "$RUN_DIR/config/testnet" \
+        || { _assert_fail prod_upgrade_full_config 'upgrade proof needs the full mainnet-shaped config'; return 1; }
+    record prod_upgrade_full_config ok assert "" "" "" "" "" 'every enabled mainnet market, reference, spoke and listing is configured'
+    for verb in $PROD_UPGRADES; do
+        hash=$(prod_upgrade_hash "$verb") || return 1
+        prod_propose "$verb" "$verb" "$hash" || return 1
+    done
+    prod_contract_open || return 1
+    inv prod_upgrade_mint "$ADMIN" "$asset" -- mint --to "$runner" --amount 110000000 >/dev/null || return 1
+    ops=$(jq -nc --arg a "$asset" --argjson id "$acct" --argjson s "$PRIMARY_SPOKE_ID" \
+        '[{Supply:{account_id:$id,spoke_id:$s,assets:[[{hub_id:1,asset:$a},"100000000"]]}},{Borrow:{account_id:$id,borrows:[[{hub_id:1,asset:$a},"10000000"]],to:null}}]')
+    inv prod_upgrade_borrow "$ADMIN" "$runner" -- run --controller "$CONTROLLER" --nft "$POSITION_NFT" --ops "$ops" >/dev/null || return 1
+    ops=$(jq -nc --arg a "$asset" --argjson id "$acct" '[{Repay:{account_id:$id,payments:[[{hub_id:1,asset:$a},"20000000"]]}}]')
+    inv prod_upgrade_repay "$ADMIN" "$runner" -- run --controller "$CONTROLLER" --nft "$POSITION_NFT" --ops "$ops" >/dev/null || return 1
+    assert_int_view_eq prod_upgrade_debt_zero 0 get_borrow_amount --account_id "$acct" --hub_asset "$(hub_key 1 "$asset")" || return 1
     view prod_position_before "$CONTROLLER" -- get_collateral_amount --account_id "$acct" --hub_asset "$(hub_key 1 "$asset")" >/dev/null || return 1
     before=$(prod_position_snapshot prod_upgrade_before "$acct" "$asset" "$runner") || return 1
-    local verb hash
+    python3 -c 'import json,sys; s=json.loads(sys.argv[1])["book"]["state"]; assert min(int(s["borrow_index"]),int(s["supply_index"]))>10**27' "$before" \
+        || { _assert_fail prod_upgrade_book_history 'upgrade snapshot book has no accrued borrow history'; return 1; }
+    record prod_upgrade_book_history ok assert "" "" "" "" "" 'upgrade snapshot book: borrow and supply indexes above RAY after a repaid borrow'
     for verb in $PROD_UPGRADES; do
         hash=$(prod_upgrade_hash "$verb") || return 1
         prod_execute_split "$verb" "$verb" "$hash" >/dev/null || return 1
@@ -485,22 +571,7 @@ flow_production_caller() {
     PROD_OP_TAG=unpause_after_upgrade prod_ops unpause >/dev/null || return 1
     assert_view_eq_at "$POSITION_NFT" prod_upgrade_owner "$runner" owner_of --token_id "$acct" || return 1
     printf '{"baseline":"%s","candidate":"%s","executable_differs":false,"schema":"current"}\n' "$CTRL_HASH" "$CTRL_HASH" > "$RUN_DIR/upgrade.json"
-    positions=$(view prod_contract_close_before "$CONTROLLER" -- get_account_positions --account_id "$acct") || return 1
-    pool_before=$(balance "$asset" "$POOL") || return 1
-    controller_before=$(balance "$asset" "$CONTROLLER") || return 1
-    local wallet_before closed
-    wallet_before=$(balance "$asset" "$runner") || return 1
-    ops=$(jq -nc --arg a "$asset" --argjson id "$acct" '[{Withdraw:{account_id:$id,withdrawals:[[{hub_id:1,asset:$a},"0"]],to:null}}]')
-    inv prod_contract_withdraw "$ADMIN" "$runner" -- run --controller "$CONTROLLER" --nft "$POSITION_NFT" --ops "$ops" >/dev/null || return 1
-    closed=$(view prod_contract_close_after "$CONTROLLER" -- get_account_positions --account_id "$acct") || return 1
-    synced=$(view prod_contract_close_sync "$POOL" -- get_sync_data --hub_asset "$(hub_key 1 "$asset")") || return 1
-    paid=$(lifecycle_amount '"withdraw"' "$(hub_key 1 "$asset")" "$positions" "$closed" "$synced" 0 "$decimals") \
-        || { _assert_fail prod_contract_close_shares 'contract close burned wrong principal'; return 1; }
-    record prod_contract_close_shares ok assert "" "" "" "" "" 'exact committed-index contract close payout and shares'
-    assert_delta prod_contract_return "$wallet_before" "$(balance "$asset" "$runner")" "$paid" || return 1
-    assert_delta prod_contract_close_pool "$pool_before" "$(balance "$asset" "$POOL")" "-$paid" || return 1
-    assert_delta prod_contract_close_controller "$controller_before" "$(balance "$asset" "$CONTROLLER")" 0 || return 1
-    assert_bool_view prod_contract_closed false account_exists --account_id "$acct" || return 1
+    prod_contract_close || return 1
     local market
     market=$(jq -c '.markets[]|select(.name=="USDC")' "$RUN_DIR/config/testnet/markets.json") || return 1
     inv prod_governance_band "$ADMIN" "$GOVERNANCE" -- set_sanity_band --caller "$ADMIN_ADDR" --key "$(price_key_token "$asset")" --min_wad "$(jq -r '.oracle.min_sanity_price_wad' <<<"$market")" --max_wad "$(jq -r '.oracle.max_sanity_price_wad' <<<"$market")" >/dev/null || return 1
@@ -513,11 +584,7 @@ flow_production_caller() {
 # underlying token/provider data are explicitly disposable fixtures.
 flow_production_lending() {
     phase production_lending
-    local plan asset hub amount spoke debt debt_hub supplier acct verb hash
-    for verb in $PROD_UPGRADES; do
-        hash=$(prod_upgrade_hash "$verb") || return 1
-        prod_propose "$verb" "$verb" "$hash" || return 1
-    done
+    local plan asset hub amount spoke debt debt_hub supplier acct
     prod_propose prod_manager_on setPositionManager "$BOB_ADDR" true || return 1
     prod_propose prod_manager_off setPositionManager "$BOB_ADDR" false || return 1
     plan=$(python3 "$INTEG_DIR/production_config.py" lending "$RUN_DIR/config/testnet" "$RUN_DIR/config/networks.json") || return 1
