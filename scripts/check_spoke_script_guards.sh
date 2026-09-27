@@ -231,23 +231,109 @@ NETWORK=testnet SOURCE_FLAG= MARKET_CONFIG_FILE='$tmp/market.json'
 get_pool() { echo CSTALE; }
 get_controller() { echo CCTRL; }
 get_market_value() { jq -r --arg k "\$2" '.markets[0][\$k]' "\$MARKET_CONFIG_FILE"; }
-get_contract_decimals() { echo 7; }
+listed_token_decimals() { echo read >> '$tmp/market-decimal-reads'; [ "\${LISTED_FAIL:-}" != 1 ] || return 1; echo 0; }
 build_hub_assets_json() { echo '[{"hub_id":1,"asset":"CASSET"}]'; }
 stellar() {
     [[ "\$*" == *'--id CCTRL '* && "\$*" == *'--send=no -- get_market_index --hub_asset '* ]] || exit 99
     [ "\$MARKET_EXISTS" = yes ]
 }
-scval_market_params() { echo '{}'; }
+scval_market_params() { printf '%s' "\$1"; }
 gen_salt() { echo salt; }
 admin_op() { echo '{}'; }
-schedule_via_proposer() { echo scheduled >> '$tmp/market-schedules'; echo op; }
+schedule_via_proposer() { echo scheduled >> '$tmp/market-schedules'; printf '%s\n' "\$3" > '$tmp/market-proposed'; echo op; }
 schedule_and_maybe_execute() { [ "\$1" = op ]; }
 $(extract create_market)
 EOF
 bash -c 'source "$1"; MARKET_EXISTS=yes create_market XLM' _ "$tmp/market.sh" >/dev/null || fail 'existing pool market must skip creation without a spoke'
 [ ! -e "$tmp/market-schedules" ] || fail 'existing market was scheduled again'
+[ ! -e "$tmp/market-decimal-reads" ] || fail 'an existing market must skip the decimals reads'
+if bash -c 'source "$1"; MARKET_EXISTS=no LISTED_FAIL=1 create_market XLM' _ "$tmp/market.sh" >/dev/null 2>&1; then
+    fail 'create_market must stop when the listed decimals cannot be resolved'
+fi
+[ ! -e "$tmp/market-schedules" ] || fail 'create_market scheduled a market without its listed decimals'
 bash -c 'source "$1"; MARKET_EXISTS=no create_market XLM; MARKET_EXISTS=yes create_market XLM' _ "$tmp/market.sh" >/dev/null || fail 'missing market creation or replay failed'
 [ "$(wc -l < "$tmp/market-schedules" | tr -d ' ')" = 1 ] || fail 'market creation must schedule exactly once'
+[ "$(jq -r '.[2].asset_decimals' "$tmp/market-proposed")" = 0 ] || fail "create_market must propose the listed decimals: $(cat "$tmp/market-proposed")"
+
+cat > "$tmp/decimals.json" <<'JSON'
+{"markets":[{"name":"A","asset_address":"CASSET","hub_id":1},{"name":"A2","asset_address":"CASSET","hub_id":2},{"name":"B","asset_address":"COTHER","hub_id":3}]}
+JSON
+cat > "$tmp/decimals.sh" <<EOF
+NETWORK=testnet SOURCE_FLAG= MARKET_CONFIG_FILE='$tmp/decimals.json'
+die() { echo "ERROR: \$*" >&2; exit 1; }
+get_contract_decimals() { echo "\$LIVE"; }
+get_price_aggregator() { echo CAGG; }
+get_controller() { echo CCTRL; }
+stellar() {
+    echo "\$*" >> '$tmp/decimal-calls'
+    case "\$*" in
+        *'--id CAGG '*'--send=no -- oracle --key {"Token":"CASSET"}')
+            case "\${STORED:-}" in
+                '') echo null ;;
+                fail) echo 'error: connection refused' >&2; return 1 ;;
+                *) echo "{\"asset_decimals\":\$STORED,\"max_price_stale_seconds\":900}" ;;
+            esac ;;
+        *'--id CCTRL '*'--send=no -- get_pool_address') echo '"CPOOL"' ;;
+        *'--id CPOOL '*'--send=no -- get_sync_data --hub_asset {"hub_id":'[12]',"asset":"CASSET"}')
+            local v
+            v=POOL_\$(printf '%s' "\$*" | sed -E 's/.*"hub_id":([0-9]+).*/\1/')
+            case "\${!v:-}" in
+                '') echo 'error: transaction simulation failed: HostError: Error(Contract, #30)' >&2; return 1 ;;
+                rpc) echo 'error: tcp connect error' >&2; return 1 ;;
+                *) echo "{\"params\":{\"asset_decimals\":\${!v}},\"state\":{}}" ;;
+            esac ;;
+        *) echo "unexpected stellar call: \$*" >&2; return 1 ;;
+    esac
+}
+$(extract price_key_token)
+$(extract listed_token_decimals)
+EOF
+listed() { rm -f "$tmp/decimal-calls"; env "$@" bash -c 'source "$1"; listed_token_decimals CASSET' _ "$tmp/decimals.sh"; }
+expect_listed() {
+    local want=$1 got; shift
+    got=$(listed "$@" 2>"$tmp/decimals.err") || fail "listed_token_decimals $* failed: $(cat "$tmp/decimals.err")"
+    [ "$got" = "$want" ] || fail "listed_token_decimals $* returned '$got', expected '$want'"
+}
+expect_listed_die() {
+    if listed "$@" >/dev/null 2>"$tmp/decimals.err"; then fail "listed_token_decimals $* must fail closed"; fi
+}
+pool_reads() { grep -c -- '-- get_sync_data ' "$tmp/decimal-calls" || true; }
+
+expect_listed 0 LIVE=2 STORED=0
+grep -q 'keeps the listed 0' "$tmp/decimals.err" || fail 'a relabel against the stored oracle must warn'
+[ "$(pool_reads)" = 0 ] || fail 'a stored oracle fixes the unit; no pool read is needed'
+expect_listed 7 LIVE=7 STORED=7
+[ ! -s "$tmp/decimals.err" ] || fail "a matching stored oracle must not warn: $(cat "$tmp/decimals.err")"
+expect_listed 18 LIVE=18
+[ "$(pool_reads)" = 2 ] || fail 'without a stored oracle, every configured hub of the token must be read'
+grep -q '"hub_id":3' "$tmp/decimal-calls" && fail "another token's hub was read"
+expect_listed 7 LIVE=7 POOL_1=7
+expect_listed_die LIVE=2 POOL_1=0
+grep -q 'hub 1 pool is listed with 0' "$tmp/decimals.err" || fail "a pool/live mismatch must name the pool: $(cat "$tmp/decimals.err")"
+expect_listed_die LIVE=7 POOL_1=7 POOL_2=0
+expect_listed_die LIVE=7 POOL_2=rpc
+expect_listed_die LIVE=7 STORED=fail
+expect_listed_die LIVE=
+expect_listed_die LIVE=null
+
+cat > "$tmp/oracle.sh" <<EOF
+source '$tmp/decimals.sh'
+ensure_reference_oracles_for_market() { :; }
+oracle_cfg_cli_union() { cat; }
+preflight_oracle_sanity() { :; }
+require_market_address() { echo CASSET; }
+schedule_configure_asset_oracle() { echo "\$2" >> '$tmp/oracle-schedules'; }
+$(extract configure_market_oracle)
+EOF
+jq '.markets[0].oracle = {"asset_decimals": 7}' "$tmp/decimals.json" > "$tmp/decimals.next" && mv "$tmp/decimals.next" "$tmp/decimals.json"
+if env LIVE=2 POOL_1=0 bash -c 'source "$1"; configure_market_oracle A' _ "$tmp/oracle.sh" >/dev/null 2>&1; then
+    fail 'configure_market_oracle must refuse a unit that differs from an existing pool'
+fi
+[ ! -e "$tmp/oracle-schedules" ] || fail 'configure_market_oracle scheduled an oracle in a unit no pool uses'
+env LIVE=2 STORED=0 POOL_1=0 bash -c 'source "$1"; configure_market_oracle A' _ "$tmp/oracle.sh" >/dev/null 2>&1 \
+    || fail 'oracle maintenance after a relabel must still schedule'
+[ "$(cat "$tmp/oracle-schedules")" = '{"Token":"CASSET"}' ] || fail 'configure_market_oracle scheduled the wrong key'
+echo 'listed token decimals: OK'
 
 # Explicit hub listings need one qualified read, never the discarded spoke read.
 cat > "$tmp/listing-spokes.json" <<'JSON'

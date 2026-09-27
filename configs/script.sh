@@ -2161,6 +2161,46 @@ ensure_hubs() {
     echo "=== Hubs ready ===" >&2
 }
 
+listed_token_decimals() {
+    local asset=$1 live stored pool hub out errf
+    live=$(get_contract_decimals "$asset")
+    case "$live" in
+        ''|*[!0-9]*) die "cannot read the on-chain decimals of ${asset} (got '${live}')" ;;
+    esac
+    stored=$(stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$(get_price_aggregator)" $SOURCE_FLAG --network "$NETWORK" \
+        --send=no -- oracle --key "$(price_key_token "$asset")") \
+        || die "cannot read the stored oracle of ${asset}"
+    stored=$(printf '%s' "$stored" | jq -r 'if type == "object" then .asset_decimals else empty end') \
+        || die "unreadable stored oracle of ${asset}"
+    if [ -n "$stored" ]; then
+        if [ "$stored" != "$live" ]; then
+            echo "WARNING: ${asset} now reports ${live} decimals; its stored oracle keeps the listed ${stored}, which governance enforces." >&2
+        fi
+        echo "$stored"
+        return 0
+    fi
+    pool=$(stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$(get_controller)" $SOURCE_FLAG --network "$NETWORK" \
+        --send=no -- get_pool_address) || die "cannot read the pool address from the controller"
+    pool=$(printf '%s' "$pool" | tr -d '"[:space:]')
+    errf=$(mktemp)
+    for hub in $(jq -r --arg a "$asset" '[.markets[] | select(.asset_address == $a) | .hub_id] | unique | .[]' "$MARKET_CONFIG_FILE"); do
+        if out=$(stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$pool" $SOURCE_FLAG --network "$NETWORK" \
+            --send=no -- get_sync_data --hub_asset "$(jq -nc --argjson h "$hub" --arg a "$asset" '{hub_id:$h, asset:$a}')" 2>"$errf"); then
+            out=$(printf '%s' "$out" | jq -r '.params.asset_decimals')
+            if [ "$out" != "$live" ]; then
+                rm -f "$errf"
+                die "${asset} reports ${live} decimals, but its hub ${hub} pool is listed with ${out} and no oracle is stored, so governance would fix ${live}. Resolve the decimals relabel before you list or price this token."
+            fi
+        elif ! grep -q 'Error(Contract, #30)' "$errf"; then
+            cat "$errf" >&2
+            rm -f "$errf"
+            die "cannot read the hub ${hub} pool of ${asset}"
+        fi
+    done
+    rm -f "$errf"
+    echo "$live"
+}
+
 create_market() {
     local market_name=$1
 
@@ -2168,18 +2208,11 @@ create_market() {
 
     local asset_address
     asset_address=$(get_market_value "$market_name" "asset_address")
-    local decimals
-    decimals=$(get_contract_decimals "$asset_address")
 
     echo "  Asset Address: ${asset_address}"
-    echo "  On-chain Decimals: ${decimals}"
 
     if [ -z "$asset_address" ] || [ "$asset_address" = "null" ] || [ "$asset_address" = "" ]; then
         echo "ERROR: No asset address for ${market_name}. Set it in ${MARKET_CONFIG_FILE}"
-        exit 1
-    fi
-    if [ -z "$decimals" ] || [ "$decimals" = "null" ] || [ "$decimals" = "" ]; then
-        echo "ERROR: Could not read on-chain decimals for ${market_name} (${asset_address})"
         exit 1
     fi
 
@@ -2195,6 +2228,10 @@ create_market() {
         echo "Market for ${market_name} already exists, skipping creation."
         return 0
     fi
+
+    local decimals
+    decimals=$(listed_token_decimals "$asset_address") || exit 1
+    echo "  Listed Decimals: ${decimals}"
 
     local params
     params=$(jq -c --arg decimals "$decimals" \
@@ -2852,6 +2889,7 @@ configure_market_oracle() {
     local asset_address key_json
     asset_address=$(require_market_address "$market_name")
     key_json=$(price_key_token "$asset_address")
+    listed_token_decimals "$asset_address" >/dev/null || exit 1
 
     schedule_configure_asset_oracle "market ${market_name}" "$key_json" "$cfg_json"
 }
