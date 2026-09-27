@@ -1143,3 +1143,76 @@ if readf; then exit 1; fi
 ''')
 assert [(a['label'], a['status'], a['note']) for a in actions] == [('g_ledger_floor', 'FAIL', 'unreadable receipt ledgers in the lane logs')], actions
 print('Read groups wait for the ledger floor of every CLI and SDK receipt, and fail closed before any view')
+
+# O1-O3: owner_submit signs the owner auth entry through stdin, logs the hash before its single send, and takes the return from the receipt.
+OWNER_SETUP = r'''
+ADMIN_ADDR=GADMIN; E2E_SRC=chan1; export RUN_DIR
+latest_ledger() { echo 100; }
+built() { grep -c '^contract invoke' "$RUN_DIR/calls"; }
+stellar() {
+    printf '%s\n' "$*" >> "$RUN_DIR/calls"
+    local h input
+    case "$1 $2" in
+        'contract invoke') echo "BUILT$(built)";;
+        'keys secret') echo SECRETX;;
+        'tx simulate') input=$(cat)
+            case "$* $input" in
+                *'--auth-mode enforce'*' AUTH:SIM:BUILT'*) echo "PREPARED:$input";;
+                *'--auth-mode'*) return 1;;
+                *' BUILT'*) echo "SIM:$input";;
+                *) return 1;;
+            esac;;
+        'tx sign') input=$(cat); [ "${input#PREPARED:AUTH:SIM:BUILT}" != "$input" ] || return 1; echo "SIGNED:$input";;
+        'tx hash') cat >/dev/null; printf '%064d\n' "$(built)";;
+        'tx send') input=$(cat); h=$(printf '%064d' "$(built)")
+            [ "${input#SIGNED:PREPARED:AUTH:SIM:BUILT}" != "$input" ] || return 1
+            grep -qx "Signing transaction: $h" "$LOG_DIR/lbl.err" || { echo "send before the signing line of $h" >> "$RUN_DIR/violations"; return 9; }
+            echo "$h" >> "$RUN_DIR/sends"; echo '{"status":"SUCCESS"}';;
+        *) return 1;;
+    esac
+}
+cat > "$RUN_DIR/node" <<'NODE'
+#!/bin/bash
+printf '%s\n' "$*" >> "$RUN_DIR/node.argv"
+[ "$(cat)" = SECRETX ] && [ "${1##*/}" = sign_auth.mjs ] || exit 3
+printf 'AUTH:%s\n' "$(cat "$2")"
+NODE
+chmod +x "$RUN_DIR/node"; NODE_BIN="$RUN_DIR/node"
+fetch_resources() { RES_INSTR=1 RES_READ=0 RES_WRITE=0 RES_FEE=1; }
+eval "real_$(declare -f recover_output)"
+recover_output() { echo "$*" >> "$RUN_DIR/recover"; real_recover_output "$@"; }
+python3() { if [ "${1##*/}" = receipts.py ]; then echo '"77"'; else command python3 "$@"; fi; }
+sources_are_chan1() {
+    [ "$(grep -oE -- '--(source|sign-with-key) [^ ]+' "$RUN_DIR/calls" | sort -u)" = '--sign-with-key chan1
+--source chan1' ]
+}
+'''
+attempts, _, actions = shell(OWNER_SETUP + r'''
+tx_status() { echo SUCCESS; }
+out=$(inv_owner lbl contract -- create_liquidity_pool --hub_id 1) || exit 1
+[ "$out" = '"77"' ] && [ "$(cat "$LOG_DIR/lbl.out")" = "$(cat "$LOG_DIR/lbl.recovered.json")" ] || exit 2
+[ "$(cat "$RUN_DIR/recover")" = "$(printf '%064d' 1) $LOG_DIR/lbl.out invoke contract create_liquidity_pool" ] || exit 3
+[ ! -e "$RUN_DIR/violations" ] && [ "$(cat "$RUN_DIR/sends")" = "$(printf '%064d' 1)" ] || exit 4
+[ "$(cat "$RUN_DIR/node.argv")" = "$INTEG_DIR/sdk/sign_auth.mjs $LOG_DIR/lbl.sim.xdr GADMIN 160 $NETWORK_PASSPHRASE" ] || exit 5
+! grep -rq SECRETX "$RUN_DIR/node.argv" "$LOG_DIR" || exit 6
+[ "$(grep -c '^tx send' "$RUN_DIR/calls")" = 1 ] && sources_are_chan1 || exit 7
+''')
+assert [(a['label'], a['status'], a['fn'], a['hash']) for a in actions] == [('lbl', 'ok', 'create_liquidity_pool', '0'*63+'1')], actions
+assert [(a['label'], a['cli_exit'], a['hash']) for a in attempts] == [('lbl', 0, '0'*63+'1')], attempts
+attempts, _, actions = shell(OWNER_SETUP + r'''
+tx_status() { if [ "$1" = "$(printf '%064d' 1)" ]; then echo FAILED; else echo SUCCESS; fi; }
+receipt_drift() { echo "$#:$2:${7:-}" >> "$RUN_DIR/drift"; }
+inv_owner lbl contract -- create_liquidity_pool >/dev/null || exit 1
+[ "$(built)" = 2 ] && sources_are_chan1 || exit 2
+[ "$(tr '\n' ' ' < "$RUN_DIR/drift")" = "5:$(printf '%064d' 1): 7:$(printf '%064d' 1):$(printf '%064d' 2) " ] || exit 3
+[ "$(sort "$RUN_DIR/sends" | uniq -d)" = '' ] && [ "$(wc -l < "$RUN_DIR/sends" | tr -d ' ')" = 2 ] && [ ! -e "$RUN_DIR/violations" ] || exit 4
+[ "$(wc -l < "$RUN_DIR/recover" | tr -d ' ')" = 1 ] || exit 5
+''')
+assert [(a['status'], a['hash']) for a in actions] == [('retry', '0'*63+'1'), ('ok', '0'*63+'2')], actions
+attempts, _, actions = shell(OWNER_SETUP + r'''
+tx_status() { echo UNKNOWN; }
+if inv_owner lbl contract -- create_liquidity_pool >/dev/null; then exit 1; fi
+[ "$(cat "$RUN_DIR/sends")" = "$(printf '%064d' 1)" ] && [ "$(built)" = 1 ] && [ ! -e "$RUN_DIR/recover" ] || exit 2
+''')
+assert [(a['status'], a['hash']) for a in actions] == [('FAIL', '0'*63+'1')], actions
+print('owner_submit signs the owner entry from stdin, logs its hash before one send, recovers the receipt value and retries drift on the same channel')

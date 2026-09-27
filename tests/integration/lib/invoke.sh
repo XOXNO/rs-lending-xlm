@@ -207,6 +207,34 @@ inv_cli() {
         --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --send=yes -- "$@" >"$base.out" 2>"$base.err"
 }
 
+owner_submit() {
+    local contract="$1" source="$2" stem="$3" ledger hash; shift 3
+    stellar contract invoke --id "$contract" --source "$source" "${NET_ARGS[@]}" --build-only -- "$@" \
+        >"$stem.built.xdr" 2>>"$stem.err" || return
+    stellar tx simulate --source "$source" "${NET_ARGS[@]}" --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" \
+        <"$stem.built.xdr" >"$stem.sim.xdr" 2>>"$stem.err" || return
+    ledger=$(latest_ledger 2>>"$stem.err") || return
+    stellar keys secret "$ADMIN" 2>>"$stem.err" \
+        | "${NODE_BIN:-node}" "$INTEG_DIR/sdk/sign_auth.mjs" "$stem.sim.xdr" "$ADMIN_ADDR" "$((ledger + 60))" "$NETWORK_PASSPHRASE" \
+        >"$stem.auth.xdr" 2>>"$stem.err" || return
+    stellar tx simulate --source "$source" "${NET_ARGS[@]}" --auth-mode enforce --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" \
+        <"$stem.auth.xdr" >"$stem.prepared.xdr" 2>>"$stem.err" || return
+    stellar tx sign --sign-with-key "$source" "${NET_ARGS[@]}" \
+        <"$stem.prepared.xdr" >"$stem.signed.xdr" 2>>"$stem.err" || return
+    hash=$(stellar tx hash --network-passphrase "$NETWORK_PASSPHRASE" <"$stem.signed.xdr" 2>>"$stem.err") || return
+    is_wasm_hash "$hash" || return 1
+    printf 'Signing transaction: %s\n' "$hash" >>"$stem.err"
+    stellar tx send "${NET_ARGS[@]}" <"$stem.signed.xdr" >"$stem.send.json" 2>>"$stem.err"
+}
+
+inv_owner() {
+    if [ -n "${E2E_SRC:-}" ] && [ "$E2E_SRC" != "$ADMIN" ]; then
+        INV_SUBMIT=owner_submit inv "$1" "$E2E_SRC" "${@:2}"
+    else
+        inv "$1" "$ADMIN" "${@:2}"
+    fi
+}
+
 inv() {
     [ -n "${E2E_JOB:-}" ] || { inv_body "$@"; return; }
     local fn="${4:-}"
