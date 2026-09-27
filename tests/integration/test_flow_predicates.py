@@ -555,6 +555,9 @@ MIN="$1"; SCHED_LOG="$2"; flow_governance'''
                     f'gov_state_waiting gov_propose_cancel op_gov_propose_cancel {min_delay}',
                     f'gov_self_state_waiting gov_self_propose_delay op_gov_self_propose_delay {min_delay}',
                     f'gov_self_sensitive_waiting gov_self_propose_grant op_gov_self_propose_grant {sensitive}'])
+        required=next(c for c in json.loads((HERE/'cases.json').read_text()) if c['id']=='flow_governance')['required_actions']
+        for label in ['gov_state_waiting','gov_self_state_waiting','gov_self_sensitive_waiting']:
+            self.assertIn(dict(label=label,method='assert',status='ok',count=1,execution=['assertion']),required)
 
     def test_governance_schedule_and_ledger_bound_state(self):
         tx='ab'*32
@@ -565,33 +568,47 @@ view() { case "$4" in
     get_operation_ledger) [ "$1" = lbl_ledger ] && echo "$READY";;
     get_operation_state) [ "$1" = lbl ] || return 1; rm -f "$LOG_DIR/latest"; [ "$AFTER" = none ] || echo "$AFTER" > "$LOG_DIR/latest"; echo "\\"$ST\\"";;
 esac; }
+record() { printf '%s|%s|%s|%s\\n' "$1" "$2" "$3" "$9" >> "$LOG_DIR/rows"; }
+_assert_fail() { record "$1" FAIL assert "" "" "" "" "" "$2"; return 1; }
 [ "$BEFORE" = none ] || echo "$BEFORE" > "$LOG_DIR/latest"; gov_assert_scheduled lbl prop op "$DELAY"'''
         def run(ready,state,before,after,delay=1,status='SUCCESS',txhash=tx,ledger=100):
             with tempfile.TemporaryDirectory() as d:
                 (Path(d)/'prop.err').write_text(tx)
                 (Path(d)/f'{tx}.receipt.json').write_text(json.dumps({'result':{'status':status,'txHash':txhash,'ledger':ledger}}))
-                return shell('flows/governance.sh',body,d,str(ready),state,str(before),str(after),str(delay)).returncode==0
-        self.assertTrue(run(101,'Waiting',100,100))
-        self.assertFalse(run(101,'Ready',100,100))
-        self.assertTrue(run(101,'Ready',101,101))
-        self.assertTrue(run(101,'Ready',102,103))
-        self.assertFalse(run(101,'Waiting',101,101))
-        self.assertFalse(run(101,'Waiting',101,99))
-        self.assertTrue(run(101,'Waiting',100,101))
-        self.assertTrue(run(101,'Ready',100,101))
-        self.assertTrue(run(112,'Waiting',100,111,delay=12))
-        self.assertTrue(run(112,'Waiting',100,130,delay=12))
+                rc=shell('flows/governance.sh',body,d,str(ready),state,str(before),str(after),str(delay)).returncode
+                rows=(Path(d)/'rows').read_text().splitlines() if (Path(d)/'rows').exists() else []
+                return rc,rows
+        def ok(ready,state,before,after,delay=1):
+            rc,rows=run(ready,state,before,after,delay)
+            self.assertEqual((rc,rows),(0,[f'lbl|ok|assert|ready {ready} = inclusion 100 + delay {delay}; {state} within ledgers {before}..{after}']))
+        def bad(*args,**kw):
+            rc,rows=run(*args,**kw)
+            self.assertNotEqual(rc,0,(args,kw))
+            self.assertEqual(len(rows),1,(args,kw,rows))
+            self.assertTrue(rows[0].startswith('lbl|FAIL|assert|'),(args,kw,rows))
+        ok(101,'Waiting',100,100)
+        bad(101,'Ready',100,100)
+        ok(101,'Ready',101,101)
+        ok(101,'Ready',102,103)
+        bad(101,'Waiting',101,101)
+        bad(101,'Waiting',101,99)
+        bad(101,'Waiting',100,99)
+        bad(101,'Ready',102,101)
+        ok(101,'Waiting',100,101)
+        ok(101,'Ready',100,101)
+        ok(112,'Waiting',100,111,delay=12)
+        ok(112,'Waiting',100,130,delay=12)
         for ready,delay in [(102,1),(100,1),(0,1),(1,1),(101,12),('',1)]:
-            self.assertFalse(run(ready,'Waiting',100,100,delay=delay))
+            bad(ready,'Waiting',100,100,delay=delay)
         for state in ['Unset','Done','Expired','','waiting']:
-            self.assertFalse(run(101,state,100,101))
-        self.assertFalse(run(101,'Waiting',100,100,status='FAILED'))
-        self.assertFalse(run(101,'Waiting',100,100,txhash='cd'*32))
-        self.assertFalse(run(101,'Waiting',100,100,ledger='100'))
+            bad(101,state,100,101)
+        bad(101,'Waiting',100,100,status='FAILED')
+        bad(101,'Waiting',100,100,txhash='cd'*32)
+        bad(101,'Waiting',100,100,ledger='100')
         for delay in [0,'','x']:
-            self.assertFalse(run(100,'Ready',100,101,delay=delay))
-        self.assertFalse(run(101,'Ready','none',101))
-        self.assertFalse(run(101,'Waiting',100,'none'))
+            bad(100,'Ready',100,101,delay=delay)
+        bad(101,'Ready','none',101)
+        bad(101,'Waiting',100,'none')
 
     def test_liq_setup_lists_only_the_lane_markets(self):
         body='''ADMIN=admin ALICE=alice BOB=bob CAROL=carol ADMIN_ADDR=GADMIN BOB_ADDR=GBOB CAROL_ADDR=GCAROL PRIMARY_HUB_ID=1 PRIMARY_SPOKE_ID=1 CONTROLLER=CTRL WAD=1

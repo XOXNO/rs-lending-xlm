@@ -41,6 +41,7 @@ gov_assert_scheduled() {
     before=$(latest_ledger) || { _assert_fail "$label" "no latest ledger before the state read"; return 1; }
     st=$(view "$label" "$GOVERNANCE" -- get_operation_state --operation_id "$op_id" | tr -d '"[:space:]') || return 1
     after=$(latest_ledger) || { _assert_fail "$label" "no latest ledger after the state read"; return 1; }
+    [ "$after" -ge "$before" ] || { _assert_fail "$label" "RPC latest ledger went backwards ($before..$after)"; return 1; }
     case "$st" in
         Waiting) [ "$before" -lt "$ready" ] ;;
         Ready) [ "$after" -ge "$ready" ] ;;

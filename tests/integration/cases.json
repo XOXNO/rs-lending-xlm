@@ -3356,6 +3356,33 @@
           "simulation"
         ],
         "contract": "governance"
+      },
+      {
+        "label": "gov_state_waiting",
+        "method": "assert",
+        "status": "ok",
+        "count": 1,
+        "execution": [
+          "assertion"
+        ]
+      },
+      {
+        "label": "gov_self_state_waiting",
+        "method": "assert",
+        "status": "ok",
+        "count": 1,
+        "execution": [
+          "assertion"
+        ]
+      },
+      {
+        "label": "gov_self_sensitive_waiting",
+        "method": "assert",
+        "status": "ok",
+        "count": 1,
+        "execution": [
+          "assertion"
+        ]
       }
     ]
   },
