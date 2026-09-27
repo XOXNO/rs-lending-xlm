@@ -1,40 +1,44 @@
 # DeFindex Strategy
 
-DeFindex vault adapter over the lending controller: **one vault ↔ one
-controller account**. Deposits and withdrawals move supply collateral. `harvest`
-emits the supply index as a 12-decimal price per share, rounded down, and claims
-no external yield.
+DeFindex vault adapter over the lending controller: **one vault, one
+controller account**. Deposits and withdrawals move supply collateral.
+`harvest` claims no external yield; it emits the supply index as a price per
+share.
 
 | | |
 | --- | --- |
 | Config | `hub_id`, `spoke_id`, `asset`, `controller`, `pool` |
 | Mapping | `VaultAccount(vault)` → controller `account_id` |
-| Client | `interfaces/controller` |
+| Client | Uses [`interfaces/controller`](../../interfaces/controller); has no client of its own |
 
-## Surface
+Full signatures are in `contracts/defindex-strategy/src/lib.rs`; the generated
+client drops the `Env` argument.
 
-| Call | Behavior |
-| --- | --- |
-| `asset` | Configured underlying |
-| `deposit(amount, from)` | Auth `from`; pull tokens → controller `supply` into vault’s account |
-| `withdraw(amount, from, to)` | Auth `from`; controller `withdraw`; pay `to`; clear mapping on full exit |
-| `balance(from)` | Live collateral for vault’s account |
-| `harvest(from, data)` | Auth `from`; emit PPS from supply index (amount = 0) |
+## Entrypoints
 
-Constructor takes `asset` and `init_args` = `(controller, hub_id, spoke_id)`;
-it reads `pool` from the controller.
+| Entrypoint | Caller | Does |
+| --- | --- | --- |
+| `__constructor(asset, init_args)` | deployer, once | `init_args` = `(controller, hub_id, spoke_id)`; reads `pool` from the controller |
+| `deposit(amount, from) -> i128` | `from` | Pulls tokens and calls controller `supply` into the vault's account |
+| `withdraw(amount, from, to) -> i128` | `from` | Calls controller `withdraw`, pays `to`; a full exit clears the mapping |
+| `harvest(from, data)` | `from` | Emits the price per share (12 decimals, rounded down) with amount 0 |
+| `balance(from) -> i128` | anyone | Live collateral of the vault's account |
+| `asset() -> Address` | anyone | The underlying asset |
+
+## Notes
+
+- A full withdrawal clears `VaultAccount`, so the next deposit opens a new
+  account. Two vaults never share an account.
+- The mapping TTL extends to 120 days (`TTL_BUMP_USER`) when it drops below
+  30 days (`TTL_THRESHOLD_USER`).
 
 ## Layout
 
 ```text
 src/
-  lib.rs   Strategy trait, vault↔account mapping, TTL extend on read
+  lib.rs   Strategy trait, vault ↔ account mapping, TTL extension on read
 ```
 
-## Notes
+## References
 
-- A full withdrawal clears `VaultAccount`, so the next deposit opens a new
-  account.
-- Two vaults never share a lending account.
-- The vault mapping TTL extends to 120 days (`TTL_BUMP_USER`) when it falls
-  below 30 days (`TTL_THRESHOLD_USER`).
+- Controller `supply` and `withdraw`: [`contracts/controller`](../controller/README.md)

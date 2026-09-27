@@ -1,6 +1,16 @@
 # Price Aggregator
 
-Single oracle entry for the lending protocol. All pricing uses `PriceKey`.
+The single oracle entry of the lending protocol. It combines provider feeds
+into one WAD USD price per `PriceKey` and fails closed when they disagree.
+
+| | |
+| --- | --- |
+| Owner | Governance, set at construction. No transfer, accept or renounce |
+| Called by | Controller: `prices` for risk checks, `quotes` for views. It lifts `Address` to `PriceKey::Token` first |
+| Client | [`interfaces/price-aggregator`](../../interfaces/price-aggregator) |
+
+Full signatures are in `contracts/price-aggregator/src/lib.rs`; the generated
+client drops the `Env` argument.
 
 ## Pipeline
 
@@ -11,49 +21,43 @@ prices(keys) / quotes(keys)
   → force (hard) | to_status (soft)
 ```
 
-## Three gates
+A price must pass three gates:
 
-1. **Stale** (`PriceFeedStale`) — a leg is older than its feed's
+1. **Stale** (`PriceFeedStale`): a leg is older than its feed's
    `max_stale_seconds` or the asset's `max_price_stale_seconds`, or two market
-   legs differ in age by more than `MAX_LEG_AGE_SPREAD_SECONDS`
-2. **Disagree** (`UnsafePriceNotAllowed`) — two legs fall outside the tolerance
-   band, or one of two legs has no reading
-3. **Sanity** — the final WAD USD price is not positive (`InvalidPrice`) or is
-   outside `[min_sanity_price_wad, max_sanity_price_wad]` (`SanityBoundViolated`)
+   legs differ in age by more than `MAX_LEG_AGE_SPREAD_SECONDS`.
+2. **Disagree** (`UnsafePriceNotAllowed`): two legs are outside the tolerance
+   band, or one of two legs has no reading.
+3. **Sanity**: the final price is not positive (`InvalidPrice`) or is outside
+   `[min_sanity_price_wad, max_sanity_price_wad]` (`SanityBoundViolated`).
 
-## Surface
+## Entrypoints
 
-`prices` and `quotes` are bulk: there is no single-key `price` or `quote` call.
-Pass a `Vec<PriceKey>` even for one key.
+`prices` and `quotes` are bulk only. Pass a `Vec<PriceKey>` even for one key.
 
-| Entrypoint | Signature | Who may call | What it does |
-| --- | --- | --- | --- |
-| `get_owner` | `get_owner(env: Env) -> Option<Address>` | anyone | Returns the configured owner, or `None` when unset. |
-| `prices` | `prices(env: Env, keys: Vec<PriceKey>) -> Map<PriceKey, PriceFeedRaw>` | anyone | Fail-closed read. Panics when a key fails any gate. |
-| `quotes` | `quotes(env: Env, keys: Vec<PriceKey>) -> Map<PriceKey, PriceStatus>` | anyone | Soft read. Does not panic on a failing key; returns `PriceStatus { valid: false }` with its `error_code`. |
-| `price_spread` | `price_spread(env: Env, key: PriceKey) -> (i128, i128)` | anyone | Returns the two leg prices (WAD) as `(low, high)`. Fail-closed. |
-| `oracle` | `oracle(env: Env, key: PriceKey) -> Option<AssetOracle>` | anyone | Reads the registered configuration for one key. |
-| `set_oracle` | `set_oracle(env: Env, key: PriceKey, oracle: AssetOracle)` | owner | Registers a configuration after validation and attestation. A replacement must keep the stored `asset_decimals`, else it panics with `InvalidOracleDecimals`. |
-| `set_sanity_band` | `set_sanity_band(env: Env, key: PriceKey, min_wad: i128, max_wad: i128)` | owner | Narrows the accepted WAD USD range. Live-probes before committing. |
-| `set_tolerance` | `set_tolerance(env: Env, key: PriceKey, tolerance: OracleTolerance)` | owner | Sets the dual-source disagreement tolerance. Live-probes before committing. |
-| `upgrade` | `upgrade(env: Env, new_wasm_hash: BytesN<32>)` | owner | Renews the instance TTL, then replaces the contract Wasm. |
+| Entrypoint | Caller | Does |
+| --- | --- | --- |
+| `prices(keys) -> Map<PriceKey, PriceFeedRaw>` | anyone | Fail-closed read; panics when a key fails a gate |
+| `quotes(keys) -> Map<PriceKey, PriceStatus>` | anyone | Soft read; a failing key returns `valid: false` with its `error_code` |
+| `price_spread(key) -> (low, high)` | anyone | The two leg prices (WAD). Fail-closed |
+| `oracle(key) -> Option<AssetOracle>` | anyone | The registered configuration |
+| `get_owner() -> Option<Address>` | anyone | The owner |
+| `set_oracle(key, oracle)` | owner | Registers a configuration after validation and attestation. A replacement must keep the stored `asset_decimals` (`InvalidOracleDecimals`) |
+| `set_sanity_band(key, min_wad, max_wad)` | owner | Narrows the accepted range; a wider band reverts `SanityBandMustTighten`. Live-probes first |
+| `set_tolerance(key, tolerance)` | owner | Sets the dual-source tolerance. Live-probes first |
+| `upgrade(new_wasm_hash)` | owner | Renews the instance TTL, then replaces the Wasm |
 
-`set_sanity_band` only narrows the band: `min_wad` must be >= the current min
-and `max_wad` <= the current max, else it panics with `SanityBandMustTighten`.
-Governance calls it on the immediate (no-timelock) path. Widening goes through
+Governance calls `set_sanity_band` on its immediate path. To widen a band, use
 the timelocked `ConfigureAssetOracle` operation, which calls `set_oracle`.
 
-Two further entrypoints, `seed_oracle` and `remove_oracle`, are compiled only
-under `cfg(test)` or the `testing` feature. They write the registry directly,
-skipping owner authorization, validation and attestation, so they are absent
-from a release build.
-
-The controller lifts `Address` to `PriceKey::Token` before calling.
+`seed_oracle` and `remove_oracle` write the registry with no auth, validation
+or attestation. They exist only under `cfg(test)` or the `testing` feature,
+never in a release build.
 
 ## Layout
 
 ```text
-lib.rs          # contract entrypoints + session orchestration
+lib.rs          # entrypoints + session orchestration
 session.rs      # clock, stack, multi-feed warm, memos
 engine.rs       # resolve → Outcome → force | to_status
 admin.rs        # set_oracle / set_sanity_band / set_tolerance, attest, cascade
@@ -63,12 +67,10 @@ tolerance.rs    # dual-source disagreement bounds
 observation.rs  # provider payload → normalized WAD observation
 properties.rs   # write-time dependency walk
 providers/      # aquarius (LP) + multi_feed (bulk) + reflector
-interfaces/…    # client ABI mirror
 ```
 
-## Owner
+## References
 
-Governance deploys the contract and passes itself as the constructor's
-`owner`. `#[only_owner]` gates every write, `upgrade` included. The ABI has no
-ownership transfer, accept, or renounce entrypoint. The controller reads
-`prices` for risk checks and `quotes` for views.
+- Errors: [`docs/reference/errors.md`](../../docs/reference/errors.md)
+- Events: [`docs/reference/events.md`](../../docs/reference/events.md)
+- Formal proofs: [`certora/README.md`](../../certora/README.md) (price system)

@@ -158,7 +158,7 @@ FRIENDBOT = r"""set -uo pipefail
 source "$1/lib/core.sh"; source "$1/lib/wallet.sh"
 INTEG_DIR="$2"; RUN_DIR="$2"; LOG_DIR="$2/logs"; ACTIONS_TSV="$2/actions.tsv"; PHASE=test; RUN_TS=t; NET_ARGS=(--rpc-url x)
 mkdir -p "$LOG_DIR"; printf 'header\n' > "$ACTIONS_TSV"
-backoff_sleep() { :; }
+backoff_sleep() { [ -z "${HANG:-}" ] || { echo "sleep ${3:-20} $(cat "$RUN_DIR/clock")" >> "$RUN_DIR/waits"; echo $(( $(cat "$RUN_DIR/clock") + ${3:-20} )) > "$RUN_DIR/clock"; }; }
 date() {
     [ "$1" = +%s ] || { command date "$@"; return; }
     local now; now=$(( $(cat "$RUN_DIR/clock" 2>/dev/null || echo 1000) + 10 )); echo "$now" > "$RUN_DIR/clock"; echo "$now"
@@ -170,7 +170,12 @@ stellar() {
     esac
 }
 curl() {
-    local url n code; for url; do :; done
+    local url n code m='' prev=''; for url; do [ "$prev" != -m ] || m="$url"; prev="$url"; done
+    if [ -n "${HANG:-}" ]; then
+        echo "curl $m $(cat "$RUN_DIR/clock")" >> "$RUN_DIR/waits"; echo $(( $(cat "$RUN_DIR/clock") + (m < HANG ? m : HANG) )) > "$RUN_DIR/clock"
+        case "$url" in *friendbot*) printf '000';; esac
+        return 28
+    fi
     case "$url" in
         *friendbot*)
             echo "start ${url##*=}" >> "$RUN_DIR/span"
@@ -181,6 +186,7 @@ curl() {
             printf '%s' "$code";;
         *horizon*)
             n=$(( $(cat "$RUN_DIR/${url##*/}.hz" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$RUN_DIR/${url##*/}.hz"
+            echo "$m $(cat "$RUN_DIR/clock" 2>/dev/null || echo 1000)" >> "$RUN_DIR/hzlog"
             [ "$n" -gt "${HZ429:-0}" ] || { printf 429; return 22; }
             [ "$n" -ge "$FUNDED_AT" ] || { printf 404; return 22; }
             echo '{"balances":[{"asset_type":"native","balance":"10000.0"}]}' > "$6"; printf 200;;
@@ -214,9 +220,17 @@ with tempfile.TemporaryDirectory() as directory:
     assert int((root / 'Galice.hz').read_text()) > 1
 with tempfile.TemporaryDirectory() as directory:
     root = Path(directory)
+    for hang, kinds in [('999', {'curl'}), ('5', {'curl', 'sleep'})]:
+        (root / 'clock').unlink(missing_ok=True); (root / 'waits').unlink(missing_ok=True)
+        result = friendbot(directory, 'friendbot_fund alice', [], 999, HANG=hang)
+        waits = [line.split() for line in (root / 'waits').read_text().splitlines()]
+        assert result.returncode == 1 and waits[0] == ['curl', '30', '1020'] and {w[0] for w in waits} == kinds, (hang, result.stderr, waits)
+        assert all(int(m) > 0 and int(at) + int(m) <= 1100 for _, m, at in waits), (hang, waits)
+with tempfile.TemporaryDirectory() as directory:
+    root = Path(directory)
     result = friendbot(directory, 'new_wallet ALICE alice', [], 999)
     recorded = (root / 'logs/friendbot_e2e_alice_t.codes').read_text().split()
-    assert result.returncode == 1 and len(recorded) >= 5 and set(recorded) == {'429'}, result.stderr
+    assert result.returncode == 1 and len(recorded) >= 3 and set(recorded) == {'429'}, result.stderr
     assert 'wallet_alice\tFAIL' in (root / 'actions.tsv').read_text()
 with tempfile.TemporaryDirectory() as directory:
     root = Path(directory)
@@ -253,7 +267,9 @@ with tempfile.TemporaryDirectory() as directory:
     result = friendbot(directory, 'sleep() { echo "$1" >> "$RUN_DIR/slept"; echo $(( $(cat "$RUN_DIR/clock" 2>/dev/null || echo 1000) + $1 )) > "$RUN_DIR/clock"; }\nfriendbot_fund alice', ['200'], 1, HZ429='99')
     slept = [int(s) for s in (root / 'slept').read_text().split()]
     assert result.returncode == 1 and slept and sum(slept) <= 90, (result.stderr, slept)
-    assert (root / 'logs/friendbot_alice.codes').read_text().split() == ['200'] and int((root / 'Galice.hz').read_text()) > len(slept), result.stderr
+    assert (root / 'logs/friendbot_alice.codes').read_text().split() == ['200'] and int((root / 'Galice.hz').read_text()) >= len(slept), result.stderr
+    hz = [line.split() for line in (root / 'hzlog').read_text().splitlines()]
+    assert len(hz) >= 2 and all(0 < int(m) and int(at) + int(m) <= 1100 for m, at in hz), hz
 for slots, valid in [('0', False), ('abc', False), ('6', True)]:
     result = subprocess.run(['bash', '-c', 'source "$1/env.sh"', '_', str(HERE)], capture_output=True, text=True, timeout=30,
                             env=dict(os.environ, RUN_TS='t', NETWORK='testnet', E2E_FRIENDBOT_SLOTS=slots))

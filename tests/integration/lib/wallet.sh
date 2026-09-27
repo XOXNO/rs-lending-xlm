@@ -1,14 +1,15 @@
 wallet_funded() {
-    local n=0 code
-    while ! code=$(curl --fail-with-body -sS -m 30 -o "$2" -w '%{http_code}' "https://horizon-testnet.stellar.org/accounts/$1"); do
+    local n=0 code m="${3:-30}"
+    while ! code=$(curl --fail-with-body -sS -m "$m" -o "$2" -w '%{http_code}' "https://horizon-testnet.stellar.org/accounts/$1"); do
         n=$((n + 1))
         [ "$code" = 429 ] && throttle_sleep "$n" || return 1
+        m=$(rpc_deadline_wait "${3:-30}") && [ "$m" -gt 0 ] || return 1
     done
     jq -e '.balances | any(.asset_type == "native" and (.balance | tonumber) >= 100)' "$2" >/dev/null
 }
 
 friendbot_fund() {
-    local alias="$1" addr code slot rc=1 attempt=0 deadline accepted='' base="$LOG_DIR/friendbot_$1"
+    local alias="$1" addr code slot rc=1 attempt=0 deadline left accepted='' base="$LOG_DIR/friendbot_$1"
     stellar keys address "$alias" >/dev/null 2>&1 \
         || stellar keys generate "$alias" "${NET_ARGS[@]}" >/dev/null 2>&1 || return 1
     addr=$(stellar keys address "$alias") || return 1
@@ -18,16 +19,21 @@ friendbot_fund() {
     deadline=$(( $(date +%s) + 90 ))
     while :; do
         attempt=$((attempt + 1))
+        left=$((deadline - $(date +%s)))
+        [ "$left" -gt 0 ] || break
         if [ -z "$accepted" ]; then
-            code=$(curl -sS -m 30 -o "$base.json" -w '%{http_code}' "https://friendbot.stellar.org/?addr=$addr" 2>>"$base.err") || :
+            code=$(curl -sS -m "$((left < 30 ? left : 30))" -o "$base.json" -w '%{http_code}' "https://friendbot.stellar.org/?addr=$addr" 2>>"$base.err") || :
             code="${code:-000}"
             printf '%s\n' "$code" >> "$base.codes"
             case "$code" in 200|400) accepted=1;; esac
+            left=$((deadline - $(date +%s)))
+            [ "$left" -gt 0 ] || break
         fi
-        if E2E_RPC_DEADLINE="$deadline" wallet_funded "$addr" "$base.balance.json"; then rc=0; break; fi
+        if E2E_RPC_DEADLINE="$deadline" wallet_funded "$addr" "$base.balance.json" "$((left < 30 ? left : 30))"; then rc=0; break; fi
         case "$code" in 200|400|429|5[0-9][0-9]|000) ;; *) break;; esac
-        [ "$(date +%s)" -lt "$deadline" ] || break
-        backoff_sleep "$((attempt + 1))"
+        left=$((deadline - $(date +%s)))
+        [ "$left" -gt 0 ] || break
+        backoff_sleep "$((attempt + 1))" 5 "$((left < 20 ? left : 20))"
     done
     eval "exec $slot>&-"
     return "$rc"
