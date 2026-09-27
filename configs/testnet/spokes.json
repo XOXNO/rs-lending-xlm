@@ -191,17 +191,6 @@
         "supply_cap": "1000000000000",
         "borrow_cap": "1000000000000",
         "liquidation_fees": 100
-      },
-      "EURC_LIQVID": {
-        "hub_id": 4,
-        "can_be_collateral": false,
-        "can_be_borrowed": true,
-        "ltv": 9700,
-        "liquidation_threshold": 9800,
-        "liquidation_bonus": 200,
-        "supply_cap": "50000000000000",
-        "borrow_cap": "25000000000000",
-        "liquidation_fees": 100
       }
     }
   },
@@ -216,17 +205,6 @@
         "liquidation_threshold": 9800,
         "liquidation_bonus": 200,
         "supply_cap": "1000000000000",
-        "borrow_cap": "0",
-        "liquidation_fees": 100
-      },
-      "EURC_LIQVID": {
-        "hub_id": 4,
-        "can_be_collateral": true,
-        "can_be_borrowed": false,
-        "ltv": 9700,
-        "liquidation_threshold": 9800,
-        "liquidation_bonus": 200,
-        "supply_cap": "50000000000000",
         "borrow_cap": "0",
         "liquidation_fees": 100
       }
@@ -260,17 +238,6 @@
         "liquidation_bonus": 200,
         "supply_cap": "1000000000000",
         "borrow_cap": "1000000000000",
-        "liquidation_fees": 100
-      },
-      "EURC_LIQVID": {
-        "hub_id": 4,
-        "can_be_collateral": false,
-        "can_be_borrowed": true,
-        "ltv": 9700,
-        "liquidation_threshold": 9800,
-        "liquidation_bonus": 200,
-        "supply_cap": "50000000000000",
-        "borrow_cap": "25000000000000",
         "liquidation_fees": 100
       }
     }
