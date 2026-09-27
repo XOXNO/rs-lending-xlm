@@ -264,10 +264,6 @@ invoke_view() {
     fi
 }
 
-get_contract_decimals() {
-    invoke_view "$1" decimals | tail -n1
-}
-
 ZERO_PREDECESSOR_HEX="0000000000000000000000000000000000000000000000000000000000000000"
 
 OPS_DIR="${OPS_ROOT:-$ROOT_DIR/configs/ops}/$NETWORK"
@@ -2161,35 +2157,47 @@ ensure_hubs() {
     echo "=== Hubs ready ===" >&2
 }
 
+market_oracle_cfg() {
+    local cfg
+    cfg=$(jq -c --arg market "$1" 'first(.markets[] | select(.name == $market) | .oracle) // empty' "$MARKET_CONFIG_FILE")
+    [ -n "$cfg" ] || die "market $1 has no oracle config in ${MARKET_CONFIG_FILE}"
+    printf '%s' "$cfg" | oracle_cfg_cli_union
+}
+
 listed_token_decimals() {
-    local asset=$1 live stored pool hub out errf
-    live=$(get_contract_decimals "$asset")
-    case "$live" in
-        ''|*[!0-9]*) die "cannot read the on-chain decimals of ${asset} (got '${live}')" ;;
+    local asset=$1 cfg=$2 key cfg_file resolved stored pool hub out errf
+    key=$(price_key_token "$asset")
+    cfg_file=$(mktemp)
+    printf '%s' "$cfg" > "$cfg_file"
+    resolved=$(retry_tx stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$(get_governance)" $SOURCE_FLAG --network "$NETWORK" \
+        --send=no -- resolve_asset_oracle --key "$key" --oracle-file-path "$cfg_file") || resolved=''
+    rm -f "$cfg_file"
+    resolved=$(printf '%s' "$resolved" | jq -r '.asset_decimals' 2>/dev/null) || resolved=''
+    case "$resolved" in
+        ''|*[!0-9]*) die "governance cannot resolve the decimals of ${asset} (got '${resolved}')" ;;
     esac
-    stored=$(stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$(get_price_aggregator)" $SOURCE_FLAG --network "$NETWORK" \
-        --send=no -- oracle --key "$(price_key_token "$asset")") \
+    stored=$(retry_tx stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$(get_price_aggregator)" $SOURCE_FLAG --network "$NETWORK" \
+        --send=no -- oracle --key "$key") \
         || die "cannot read the stored oracle of ${asset}"
     stored=$(printf '%s' "$stored" | jq -r 'if type == "object" then .asset_decimals else empty end') \
         || die "unreadable stored oracle of ${asset}"
     if [ -n "$stored" ]; then
-        if [ "$stored" != "$live" ]; then
-            echo "WARNING: ${asset} now reports ${live} decimals; its stored oracle keeps the listed ${stored}, which governance enforces." >&2
-        fi
-        echo "$stored"
+        [ "$stored" = "$resolved" ] \
+            || die "governance resolves ${asset} to ${resolved} decimals, but its stored oracle keeps ${stored}. Resolve the decimals relabel before you list or price this token."
+        echo "$resolved"
         return 0
     fi
-    pool=$(stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$(get_controller)" $SOURCE_FLAG --network "$NETWORK" \
+    pool=$(retry_tx stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$(get_controller)" $SOURCE_FLAG --network "$NETWORK" \
         --send=no -- get_pool_address) || die "cannot read the pool address from the controller"
     pool=$(printf '%s' "$pool" | tr -d '"[:space:]')
     errf=$(mktemp)
     for hub in $(jq -r --arg a "$asset" '[.markets[] | select(.asset_address == $a) | .hub_id] | unique | .[]' "$MARKET_CONFIG_FILE"); do
-        if out=$(stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$pool" $SOURCE_FLAG --network "$NETWORK" \
+        if out=$(retry_tx stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$pool" $SOURCE_FLAG --network "$NETWORK" \
             --send=no -- get_sync_data --hub_asset "$(jq -nc --argjson h "$hub" --arg a "$asset" '{hub_id:$h, asset:$a}')" 2>"$errf"); then
             out=$(printf '%s' "$out" | jq -r '.params.asset_decimals')
-            if [ "$out" != "$live" ]; then
+            if [ "$out" != "$resolved" ]; then
                 rm -f "$errf"
-                die "${asset} reports ${live} decimals, but its hub ${hub} pool is listed with ${out} and no oracle is stored, so governance would fix ${live}. Resolve the decimals relabel before you list or price this token."
+                die "governance resolves ${asset} to ${resolved} decimals, but its hub ${hub} pool is listed with ${out} and no oracle is stored. Resolve the decimals relabel before you list or price this token."
             fi
         elif ! grep -q 'Error(Contract, #30)' "$errf"; then
             cat "$errf" >&2
@@ -2198,7 +2206,7 @@ listed_token_decimals() {
         fi
     done
     rm -f "$errf"
-    echo "$live"
+    echo "$resolved"
 }
 
 create_market() {
@@ -2229,8 +2237,9 @@ create_market() {
         return 0
     fi
 
-    local decimals
-    decimals=$(listed_token_decimals "$asset_address") || exit 1
+    local oracle_cfg decimals
+    oracle_cfg=$(market_oracle_cfg "$market_name") || exit 1
+    decimals=$(listed_token_decimals "$asset_address" "$oracle_cfg") || exit 1
     echo "  Listed Decimals: ${decimals}"
 
     local params
@@ -2876,20 +2885,13 @@ configure_market_oracle() {
     ensure_reference_oracles_for_market "$market_name"
 
     local cfg_json
-    cfg_json=$(jq -c --arg market "$market_name" '
-        first(.markets[] | select(.name == $market) | .oracle) // empty
-    ' "$MARKET_CONFIG_FILE")
-    if [ -z "$cfg_json" ] || [ "$cfg_json" = "null" ]; then
-        echo "ERROR: market ${market_name} has no oracle config in ${MARKET_CONFIG_FILE}" >&2
-        exit 1
-    fi
-    cfg_json=$(printf '%s' "$cfg_json" | oracle_cfg_cli_union)
+    cfg_json=$(market_oracle_cfg "$market_name") || exit 1
     preflight_oracle_sanity "market ${market_name}" "$cfg_json"
 
     local asset_address key_json
     asset_address=$(require_market_address "$market_name")
     key_json=$(price_key_token "$asset_address")
-    listed_token_decimals "$asset_address" >/dev/null || exit 1
+    listed_token_decimals "$asset_address" "$cfg_json" >/dev/null || exit 1
 
     schedule_configure_asset_oracle "market ${market_name}" "$key_json" "$cfg_json"
 }

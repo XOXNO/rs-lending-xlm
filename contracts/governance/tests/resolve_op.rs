@@ -8,7 +8,9 @@ extern crate std;
 use super::*;
 
 use crate::test_support::register_governance;
-use common::types::{HubAssetKey, IndependencePolicy, OracleTolerance};
+use common::constants::RAY;
+use common::types::{HubAssetKey, IndependencePolicy, MarketParamsRaw, OracleTolerance};
+use price_aggregator::PriceAggregatorClient as SeedClient;
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{symbol_short, BytesN, String as SorobanString};
 
@@ -258,4 +260,93 @@ fn apply_self_op_rejects_an_operation_that_does_not_target_governance() {
     // `Unpause` resolves to the controller, so `execute_self` never routes it
     // here. Reaching this arm is an internal invariant failure (`InternalError`).
     env.as_contract(&gov_id, || apply_self_op(&env, &AdminOperation::Unpause));
+}
+
+fn token_oracle(env: &Env, asset_decimals: u32) -> AssetOracle {
+    AssetOracle {
+        asset_decimals,
+        max_price_stale_seconds: 900,
+        sources: vec![env],
+        tolerance: OracleTolerance {
+            upper_ratio_bps: 10_500,
+            lower_ratio_bps: 9_524,
+        },
+        independence: IndependencePolicy::RequireDisjoint,
+        min_sanity_price_wad: 1,
+        max_sanity_price_wad: i128::MAX,
+    }
+}
+
+fn pool_args(asset: &Address, asset_decimals: u32) -> CreatePoolArgs {
+    CreatePoolArgs {
+        hub_id: 1,
+        asset: asset.clone(),
+        params: MarketParamsRaw {
+            max_borrow_rate: RAY,
+            base_borrow_rate: 0,
+            slope1: RAY / 100,
+            slope2: RAY / 10,
+            slope3: RAY / 2,
+            mid_utilization: RAY / 2,
+            optimal_utilization: 8 * RAY / 10,
+            max_utilization: 95 * RAY / 100,
+            reserve_factor: 1_000,
+            is_flashloanable: false,
+            flashloan_fee: 0,
+            asset_id: asset.clone(),
+            asset_decimals,
+        },
+    }
+}
+
+fn gov_with_relabelled_sac(env: &Env, listed: u32) -> (Address, Address, Address) {
+    env.mock_all_auths();
+    let (_admin, gov_id, gov) = register_governance(env);
+    let controller_id = env.register(controller::Controller, (gov_id.clone(),));
+    gov.set_controller(&controller_id);
+    let agg_id = env.register(price_aggregator::PriceAggregator, (gov_id.clone(),));
+    gov.set_price_aggregator(&agg_id);
+    let sac = env
+        .register_stellar_asset_contract_v2(Address::generate(env))
+        .address();
+    SeedClient::new(env, &agg_id)
+        .seed_oracle(&PriceKey::Token(sac.clone()), &token_oracle(env, listed));
+    (gov_id, controller_id, sac)
+}
+
+#[test]
+fn resolve_oracle_keeps_the_stored_unit_of_a_relabelled_token() {
+    let env = Env::default();
+    let (gov_id, _controller_id, sac) = gov_with_relabelled_sac(&env, 0);
+
+    let resolved = env.as_contract(&gov_id, || {
+        resolve_oracle(&env, &PriceKey::Token(sac.clone()), &token_oracle(&env, 7))
+    });
+
+    assert_eq!(resolved.asset_decimals, 0);
+}
+
+#[test]
+fn create_liquidity_pool_accepts_the_stored_unit_of_a_relabelled_token() {
+    let env = Env::default();
+    let (gov_id, controller_id, sac) = gov_with_relabelled_sac(&env, 0);
+    let op = AdminOperation::CreateLiquidityPool(pool_args(&sac, 0));
+
+    let resolved = env.as_contract(&gov_id, || resolve_op(&env, &op));
+
+    assert_eq!(resolved.target, controller_id);
+    assert_eq!(
+        resolved.function,
+        Symbol::new(&env, "create_liquidity_pool")
+    );
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #6)")]
+fn create_liquidity_pool_rejects_the_live_unit_of_a_relabelled_token() {
+    let env = Env::default();
+    let (gov_id, _controller_id, sac) = gov_with_relabelled_sac(&env, 0);
+    let op = AdminOperation::CreateLiquidityPool(pool_args(&sac, 7));
+
+    env.as_contract(&gov_id, || resolve_op(&env, &op));
 }
