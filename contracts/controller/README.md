@@ -1,182 +1,173 @@
 # Controller
 
-The controller is the only user-facing **lending** contract. It holds account
-state, applies risk rules, and drives the pool that holds the money. Users never
-call the pool directly; the swap aggregator remains directly callable for
-standalone swaps.
+The only user-facing lending contract. It holds account state, applies risk
+rules and drives the pool that holds the tokens. Users never call the pool
+directly. The swap aggregator stays callable on its own for plain swaps.
 
-It calls four other protocol contracts:
-
-| Contract | Why |
+| Calls | Why |
 | --- | --- |
-| pool | Holds token custody and per-market share accounting. The controller owns it. |
-| price-aggregator | Supplies USD prices. A failed price read reverts any state-changing call; the `get_market_indexes_detailed` view instead reports it as an unusable price status (`valid: false`). |
-| swap-aggregator | Executes swap routes for the strategy entrypoints. Treated as untrusted. |
-| position-nft | Records account ownership. `account_id` equals the NFT `token_id`. See [`../position-nft/README.md`](../position-nft/README.md). |
+| pool | Token custody and per-market share accounting. The controller owns it. See [`../pool/README.md`](../pool/README.md) |
+| price-aggregator | USD prices. A failed price read reverts every state-changing call; `get_market_indexes_detailed` reports it as `valid: false` instead |
+| swap-aggregator | Swap routes for the strategy entrypoints. Untrusted |
+| position-nft | Account ownership. `account_id` equals the NFT `token_id`. See [`../position-nft/README.md`](../position-nft/README.md) |
+
+| | |
+| --- | --- |
+| Owner | Governance, after deployment |
+| Client | [`interfaces/controller`](../../interfaces/controller) |
+
+Full signatures are in `contracts/controller/src/lib.rs`; the generated client
+drops the `Env` argument.
 
 ## Authorization
 
-There are three levels.
+**Owner** (`#[only_owner]`). After deployment the owner is the governance
+contract. Most owner calls go through the governance timelock. A GUARDIAN can
+call `pause`, `set_spoke_asset_flags`, `create_hub` and `add_spoke` through
+governance with no delay
+([`timelock/immediate.rs`](../governance/src/timelock/immediate.rs)).
 
-- **Owner.** Marked `#[only_owner]` in the source. After deployment the owner is
-  the governance contract. Most owner calls run through a governance timelock,
-  but a GUARDIAN-role holder can call `pause`, `set_spoke_asset_flags`,
-  `create_hub` and `add_spoke` through governance with no delay. See
-  [`../governance/src/timelock/immediate.rs`](../governance/src/timelock/immediate.rs).
-- **Global pause.** Marked `#[when_not_paused]`. These calls revert while the
-  contract is paused. `withdraw`, `repay`, `liquidate`, `clean_bad_debt`,
-  `recapitalize`, `renew_account` and `remove_delegate` do not carry it and stay
-  open during a pause.
-- **Caller.** Other state-changing entrypoints require the auth of their
-  `caller`, `liquidator` or `payer` argument. `borrow`, `withdraw` and every
-  strategy entrypoint except `flash_loan` also require the caller to be the
-  account owner or an active delegate that the owner added. Several position
-  entrypoints are permissionless instead: anyone may `repay` any account's
-  debt, `liquidate` an account whose health factor is below one (including the
-  account's own owner), and `clean_bad_debt` on an insolvent account once its
-  remaining collateral is at or below the dust threshold. A third-party
-  `supply` may only top up hub assets the account already holds a supply
-  position in; an `account_id` of 0 creates a new account owned by the caller.
+**Global pause** (`#[when_not_paused]`). Every user entrypoint stops during a
+pause except these, which stay open so users can exit and the protocol can
+clean up: `withdraw`, `repay`, `liquidate`, `clean_bad_debt`, `recapitalize`,
+`renew_account`, `remove_delegate`.
+
+**Caller.** Other state-changing entrypoints require auth from their `caller`,
+`liquidator` or `payer` argument. In addition:
+
+- `borrow`, `withdraw` and every strategy entrypoint except `flash_loan`
+  require the account owner or an active delegate the owner added.
+- `supply` by a third party may only top up hub assets the account already
+  supplies. `account_id` 0 creates a new account owned by the caller.
+- Permissionless on any account: `repay`; `liquidate` when health factor < 1
+  (the owner too); `clean_bad_debt` when the account is insolvent and its
+  collateral is at or below the dust threshold.
 
 ## Halt flags
 
-Each spoke asset carries three independent flags.
+Each spoke asset has three independent flags:
 
-| Flag | What it blocks |
+| Flag | Blocks |
 | --- | --- |
-| `paused` | Entries and exits for that spoke asset. |
-| `frozen` | New entries; exits stay open. |
-| `no_seize` | The liquidation seizure leg. This is the only flag that stops a seizure. |
+| `paused` | Entries and exits for that spoke asset |
+| `frozen` | New entries; exits stay open |
+| `no_seize` | The liquidation seizure leg. The only flag that stops a seizure |
 
-`set_spoke_asset_flags` and `edit_asset_in_spoke` may only keep or tighten a
-flag; clearing one reverts with `SpokeAssetFlagRelaxation`. Clearing a flag goes
-through the owner-only `relax_spoke_asset_flags`, which governance timelocks and
-which reverts unless its `expected_epoch` equals the listing's flags epoch. See
-[`../governance/README.md`](../governance/README.md).
+`set_spoke_asset_flags` and `edit_asset_in_spoke` can only keep or tighten a
+flag; clearing one reverts with `SpokeAssetFlagRelaxation`. To clear, use the
+owner-only, timelocked `relax_spoke_asset_flags`, which reverts unless
+`expected_epoch` equals the listing's flags epoch
+(`get_spoke_asset_flags_epoch`). See [`../governance/README.md`](../governance/README.md).
 
 ## Entrypoints
 
-Signatures are copied from `contracts/controller/src/lib.rs`. The `Env` argument
-is dropped by the generated client, so a client call takes one fewer argument
-than the signature shows.
-
-### Construction
-
-| Entrypoint | Signature | Notes | What it does |
-| --- | --- | --- | --- |
-| `__constructor` | `pub fn __constructor(env: Env, admin: Address)` | — | Sets `admin` as owner, both position limits to `POSITION_LIMIT_MAX`, the borrow collateral floor to `DEFAULT_MIN_BORROW_COLLATERAL_USD_WAD` and the app version to `INITIAL_APP_VERSION`, and leaves the contract paused. |
+Amount lists are `Vec<(HubAssetKey, i128)>`. An `account_id` of 0 creates a
+new account where noted; those entrypoints return the account id.
 
 ### Positions
 
-| Entrypoint | Signature | Notes | What it does |
-| --- | --- | --- | --- |
-| `supply` | `fn supply( env: Env, caller: Address, account_id: u64, spoke_id: u32, assets: Vec<(HubAssetKey, i128)>, ) -> u64` | blocked by global pause | Supplies `assets` as collateral to `account_id` in spoke `spoke_id`, creating a new account when `account_id` is 0, and returns the account id. |
-| `borrow` | `fn borrow( env: Env, caller: Address, account_id: u64, borrows: Vec<(HubAssetKey, i128)>, to: Option<Address>, )` | blocked by global pause | Borrows `borrows` against `account_id`'s collateral, sending the funds to `to` if provided or to the caller otherwise; reverts if the resulting position breaches the account's solvency limits. |
-| `withdraw` | `fn withdraw( env: Env, caller: Address, account_id: u64, withdrawals: Vec<(HubAssetKey, i128)>, to: Option<Address>, ) -> Vec<(HubAssetKey, i128)>` | — | Withdraws `withdrawals` from `account_id`'s supplied collateral, sending the funds to `to` if provided or to the caller otherwise, and returns the amounts actually withdrawn; a zero amount for an asset withdraws the entire position. |
-| `repay` | `fn repay(env: Env, caller: Address, account_id: u64, payments: Vec<(HubAssetKey, i128)>)` | — | Repays `payments` against `account_id`'s debt positions, pulling the funds from the caller and refunding any excess. |
-| `liquidate` | `fn liquidate( env: Env, liquidator: Address, account_id: u64, debt_payments: Vec<(HubAssetKey, i128)>, seize_mode: SeizeMode, ) -> u64` | — | Liquidates `account_id` by having `liquidator` repay `debt_payments` and seizing collateral at a bonus scaled by the account's health factor. Returns the `Credit` receiver's account id, or 0 for `Transfer`. |
-| `clean_bad_debt` | `fn clean_bad_debt(env: Env, caller: Address, account_id: u64)` | — | Socializes `account_id`'s debt into the supply index and removes the account when it is insolvent and its remaining collateral value is at or below the dust threshold; reverts otherwise. |
+| Entrypoint | Does |
+| --- | --- |
+| `supply(caller, account_id, spoke_id, assets) -> u64` | Supplies collateral in spoke `spoke_id`. Account 0 creates one |
+| `borrow(caller, account_id, borrows, to)` | Borrows against the account's collateral; sends to `to` or the caller. Reverts if the position breaks solvency limits |
+| `withdraw(caller, account_id, withdrawals, to) -> amounts` | Withdraws collateral to `to` or the caller. **Amount 0 withdraws the whole position.** Returns the amounts withdrawn |
+| `repay(caller, account_id, payments)` | Pulls funds from the caller, repays debt, refunds the excess |
+| `liquidate(liquidator, account_id, debt_payments, seize_mode) -> u64` | Repays debt and seizes collateral at a bonus set by the health factor. Returns the `Credit` receiver's account id, or 0 for `Transfer` |
+| `clean_bad_debt(caller, account_id)` | For an insolvent account with dust collateral: socializes the debt into the supply index and removes the account |
 
 ### Strategies and flash loans
 
-| Entrypoint | Signature | Notes | What it does |
-| --- | --- | --- | --- |
-| `flash_loan` | `fn flash_loan( env: Env, caller: Address, asset: HubAssetKey, amount: i128, receiver: Address, data: Bytes, )` | blocked by global pause | Flash-loans `amount` of `asset` to `receiver`, invoking its callback with `data`; the pool pulls back the principal plus fee before the call returns. |
-| `flash_position` | `fn flash_position( env: Env, caller: Address, account_id: u64, spoke_id: u32, mode: PositionMode, debt: HubAssetKey, amount: i128, receiver: Address, data: Bytes, collaterals: Vec<(HubAssetKey, i128)>, refund_assets: Vec<Address>, ) -> u64` | blocked by global pause | Mints `amount` of `debt` onto `account_id` with no flash fee, forwards the measured tokens to `receiver`, invokes `execute_flash_position`, and deposits measured controller-balance increases of `collaterals`; the account must be solvent after the callback. Returns the account id; `account_id` 0 creates a new account. |
-| `multiply` | `fn multiply( env: Env, caller: Address, account_id: u64, spoke_id: u32, collateral: HubAssetKey, debt_to_flash_loan: i128, debt: HubAssetKey, mode: PositionMode, swap: Bytes, initial_payment: Option<(HubAssetKey, i128)>, convert_swap: Option<Bytes>, ) -> u64` | blocked by global pause | Opens or extends a leveraged position on `account_id`: borrows `debt_to_flash_loan` of `debt`, swaps it into `collateral` via `swap`, and deposits the result. An `initial_payment` in `collateral` joins the deposit, one in `debt` joins the swap, and one in a third asset needs `convert_swap`. Returns the account id; `account_id` 0 creates a new account. |
-| `swap_debt` | `fn swap_debt( env: Env, caller: Address, account_id: u64, existing_debt: HubAssetKey, amount: i128, new_debt: HubAssetKey, swap: Bytes, )` | blocked by global pause | Replaces `account_id`'s `existing_debt` position with `new_debt` by borrowing `amount` of `new_debt`, swapping it to `existing_debt` via `swap`, and repaying the existing position with the proceeds. |
-| `swap_collateral` | `fn swap_collateral( env: Env, caller: Address, account_id: u64, current: HubAssetKey, amount: i128, new: HubAssetKey, swap: Bytes, )` | blocked by global pause | Replaces `amount` of `account_id`'s `current` collateral with `new` by withdrawing it, swapping to `new` via `swap`, and depositing the proceeds as collateral. |
-| `repay_debt_with_collateral` | `fn repay_debt_with_collateral( env: Env, caller: Address, account_id: u64, collateral: HubAssetKey, collateral_amount: i128, debt: HubAssetKey, swap: Bytes, close_position: bool, )` | blocked by global pause | Repays `account_id`'s `debt` position using `collateral_amount` of `collateral`, netting them directly when the two assets match or swapping via `swap` otherwise. |
-| `migrate_from_blend` | `fn migrate_from_blend( env: Env, caller: Address, account_id: u64, spoke_id: u32, hub_id: u32, blend_pool: Address, collateral_assets: Vec<Address>, supply_assets: Vec<Address>, debt_caps: Vec<(Address, i128)>, ) -> u64` | blocked by global pause | Migrates the caller's position from `blend_pool` (which must be approved) into `account_id`: borrows each `debt_caps` amount, repays the caller's Blend debt, repays the unused borrow, then sweeps `collateral_assets` and `supply_assets` from Blend into the pool as collateral. Returns the account id; `account_id` 0 creates a new account. |
+All of these stop during a global pause.
+
+| Entrypoint | Does |
+| --- | --- |
+| `flash_loan(caller, asset, amount, receiver, data)` | Lends `amount` to `receiver`, calls its callback with `data`; the pool pulls back principal + fee before return |
+| `flash_position(caller, account_id, spoke_id, mode, debt, amount, receiver, data, collaterals, refund_assets) -> u64` | Mints `debt` onto the account with no fee, forwards the measured tokens to `receiver`, calls `execute_flash_position`, then deposits the measured balance increase of `collaterals`. The account must be solvent after. Account 0 creates one |
+| `multiply(caller, account_id, spoke_id, collateral, debt_to_flash_loan, debt, mode, swap, initial_payment, convert_swap) -> u64` | Opens or grows a leveraged position: borrows `debt`, swaps to `collateral`, deposits. An `initial_payment` in `collateral` joins the deposit, in `debt` joins the swap, in a third asset needs `convert_swap`. Account 0 creates one |
+| `swap_debt(caller, account_id, existing_debt, amount, new_debt, swap)` | Borrows `new_debt`, swaps to `existing_debt`, repays it |
+| `swap_collateral(caller, account_id, current, amount, new, swap)` | Withdraws `current`, swaps to `new`, deposits it |
+| `repay_debt_with_collateral(caller, account_id, collateral, collateral_amount, debt, swap, close_position)` | Repays `debt` with collateral: nets directly for the same asset, swaps otherwise |
+| `migrate_from_blend(caller, account_id, spoke_id, hub_id, blend_pool, collateral_assets, supply_assets, debt_caps) -> u64` | Moves a position from an approved Blend pool: borrows each `debt_caps` amount, repays Blend, repays the unused borrow, then sweeps the Blend collateral and supply into the pool. Account 0 creates one |
 
 ### Account management
 
-| Entrypoint | Signature | Notes | What it does |
-| --- | --- | --- | --- |
-| `renew_account` | `fn renew_account(env: Env, caller: Address, account_id: u64)` | — | Extends `account_id`'s storage TTL; the caller must be the account owner. |
-| `add_delegate` | `fn add_delegate(env: Env, caller: Address, account_id: u64, delegate: Address)` | blocked by global pause | Grants `delegate` authority to act on behalf of `account_id`'s owner; `delegate` must already be an active, governance-approved position manager. |
-| `remove_delegate` | `fn remove_delegate(env: Env, caller: Address, account_id: u64, delegate: Address)` | — | Revokes `delegate`'s authority over `account_id`; the caller must be the account owner. |
-| `update_account_threshold` | `fn update_account_threshold(env: Env, caller: Address, has_risks: bool, account_ids: Vec<u64>)` | blocked by global pause | Refreshes the LTV of each supply position of each account in `account_ids`. With `has_risks`, also refreshes the liquidation parameters and requires a final health factor of at least 1.05 WAD. |
+| Entrypoint | Does |
+| --- | --- |
+| `renew_account(caller, account_id)` | Extends the account's storage TTL. Owner only |
+| `add_delegate(caller, account_id, delegate)` | Lets `delegate` act for the owner. `delegate` must be an active, governance-approved position manager |
+| `remove_delegate(caller, account_id, delegate)` | Revokes a delegate. Owner only |
+| `update_account_threshold(caller, has_risks, account_ids)` | Refreshes the LTV of each supply position. With `has_risks`, also refreshes liquidation parameters and requires a final health factor of at least 1.05 |
 
 ### Maintenance
 
-| Entrypoint | Signature | Notes | What it does |
-| --- | --- | --- | --- |
-| `update_indexes` | `fn update_indexes(env: Env, caller: Address, assets: Vec<HubAssetKey>)` | blocked by global pause | Accrues the borrow and supply indexes for each hub asset in `assets` on the pool. |
-| `claim_revenue` | `fn claim_revenue(env: Env, caller: Address, assets: Vec<HubAssetKey>) -> Vec<i128>` | blocked by global pause | Claims accrued protocol revenue for each hub asset in `assets` from the pool and forwards it to the configured accumulator, returning the amount claimed per asset. |
-| `recapitalize` | `fn recapitalize(env: Env, payer: Address, hub_asset: HubAssetKey, amount: i128) -> i128` | — | Transfers `amount` of `hub_asset` from `payer` into the pool to cover a backing shortfall, applying only up to the shortfall and refunding any excess; returns the amount actually applied. |
+| Entrypoint | Does |
+| --- | --- |
+| `update_indexes(caller, assets)` | Accrues pool indexes for each hub asset |
+| `claim_revenue(caller, assets) -> Vec<i128>` | Claims protocol revenue from the pool to the accumulator; returns the amount per asset |
+| `recapitalize(payer, hub_asset, amount) -> i128` | Pays into the pool up to the backing shortfall, refunds the excess, returns the amount applied |
 
-### Views (read-only)
+### Views
 
-| Entrypoint | Signature | Notes | What it does |
-| --- | --- | --- | --- |
-| `is_liquidatable` | `fn is_liquidatable(env: Env, account_id: u64) -> bool` | — | Returns whether `account_id`'s health factor is below one (WAD-scaled), meaning it is eligible for liquidation. |
-| `get_health_factor` | `fn get_health_factor(env: Env, account_id: u64) -> i128` | — | Returns `account_id`'s health factor as a WAD-scaled ratio of liquidation-weighted collateral to debt, or `i128::MAX` when the account has no debt or does not exist. |
-| `get_total_collateral_usd` | `fn get_total_collateral_usd(env: Env, account_id: u64) -> i128` | — | Returns the USD value (WAD) of `account_id`'s total supplied collateral. |
-| `get_total_borrow_usd` | `fn get_total_borrow_usd(env: Env, account_id: u64) -> i128` | — | Returns the USD value (WAD) of `account_id`'s total borrowed debt. |
-| `get_collateral_amount` | `fn get_collateral_amount(env: Env, account_id: u64, hub_asset: HubAssetKey) -> i128` | — | Returns `account_id`'s supplied amount of `hub_asset` in the asset's own decimals, or zero if it holds no such position. |
-| `get_borrow_amount` | `fn get_borrow_amount(env: Env, account_id: u64, hub_asset: HubAssetKey) -> i128` | — | Returns `account_id`'s borrowed amount of `hub_asset` in the asset's own decimals, or zero if it holds no such position. |
-| `get_account_positions` | `fn get_account_positions( env: Env, account_id: u64, ) -> ( Map<HubAssetKey, AccountPositionRaw>, Map<HubAssetKey, DebtPositionRaw>, )` | — | Returns `account_id`'s supply and debt positions, keyed by hub asset. |
-| `get_account_attributes` | `fn get_account_attributes(env: Env, account_id: u64) -> AccountAttributes` | — | Returns `account_id`'s spoke id and position mode. |
-| `account_exists` | `fn account_exists(env: Env, account_id: u64) -> bool` | — | Returns whether `account_id` currently exists. |
-| `get_liquidation_estimate` | `fn get_liquidation_estimate( env: Env, account_id: u64, debt_payments: Vec<(HubAssetKey, i128)>, seize_mode: SeizeMode, ) -> LiquidationEstimate` | — | Simulates liquidating `account_id` with `debt_payments` under `seize_mode` without changing state. |
-| `get_liquidation_collateral` | `fn get_liquidation_collateral(env: Env, account_id: u64) -> i128` | — | Returns `account_id`'s liquidation-threshold-weighted collateral value (WAD), the health-factor numerator, or 0 if the account does not exist. |
-| `get_ltv_collateral_usd` | `fn get_ltv_collateral_usd(env: Env, account_id: u64) -> i128` | — | Returns `account_id`'s LTV-weighted collateral value (WAD), the ceiling on its borrowing power. |
-| `get_pool_address` | `fn get_pool_address(env: Env) -> Address` | — | Returns the address of the deployed liquidity pool contract. |
-| `get_market_index` | `fn get_market_index(env: Env, hub_asset: HubAssetKey) -> MarketIndexRaw` | — | Returns the current supply and borrow indexes (RAY) for `hub_asset`. |
-| `get_market_indexes_detailed` | `fn get_market_indexes_detailed(env: Env, hub_assets: Vec<HubAssetKey>) -> Vec<MarketIndexView>` | — | Returns the supply/borrow indexes and current oracle price status for each hub asset in `hub_assets`; reverts above `MAX_VIEW_INPUTS` assets. |
-| `get_spoke` | `fn get_spoke(env: Env, spoke_id: u32) -> SpokeConfig` | — | Returns the configuration of spoke `spoke_id`. |
-| `get_spoke_asset` | `fn get_spoke_asset(env: Env, spoke_id: u32, hub_asset: HubAssetKey) -> SpokeAssetConfig` | — | Returns the configuration of `hub_asset` within spoke `spoke_id`; reverts with `AssetNotInSpoke` if the asset is not listed there. |
-| `get_spoke_usage` | `fn get_spoke_usage(env: Env, spoke_id: u32, hub_asset: HubAssetKey) -> SpokeUsageRaw` | — | Returns the current supplied and borrowed usage of `hub_asset` within spoke `spoke_id`, or a zeroed value if none is recorded. |
-| `get_spoke_asset_flags_epoch` | `fn get_spoke_asset_flags_epoch(env: Env, spoke_id: u32, hub_asset: HubAssetKey) -> u64` | — | Returns the flags epoch of `hub_asset` within spoke `spoke_id`, the `expected_epoch` that `relax_spoke_asset_flags` must name, or 0 if no flag was written. |
-| `price_aggregator` | `fn price_aggregator(env: Env) -> Address` | — | Returns the configured price aggregator contract address. |
-| `get_min_borrow_collateral_usd` | `fn get_min_borrow_collateral_usd(env: Env) -> i128` | — | Returns the minimum LTV-weighted collateral value (WAD) that an account with debt must keep after a borrow, withdrawal or strategy call; 0 disables the check. |
-| `is_blend_pool_approved` | `fn is_blend_pool_approved(env: Env, pool: Address) -> bool` | — | Returns whether `pool` is approved as a Blend migration source. |
-| `get_app_version` | `fn get_app_version(env: Env) -> u32` | — | Returns the contract's current app version. |
+Values in USD are WAD; indexes are RAY; asset amounts use the asset's
+decimals.
 
-### Administration (owner only)
+| View | Returns |
+| --- | --- |
+| `get_health_factor(account_id)` | Liquidation-weighted collateral / debt; `i128::MAX` with no debt or no account |
+| `is_liquidatable(account_id)` | Health factor < 1 |
+| `get_total_collateral_usd`, `get_total_borrow_usd` | Total supplied / borrowed value |
+| `get_liquidation_collateral` | Threshold-weighted collateral (the health-factor numerator); 0 for no account |
+| `get_ltv_collateral_usd` | LTV-weighted collateral (the borrow ceiling) |
+| `get_collateral_amount`, `get_borrow_amount` `(account_id, hub_asset)` | Position amount, or 0 |
+| `get_account_positions(account_id)` | Supply and debt position maps, keyed by hub asset |
+| `get_account_attributes(account_id)` | Spoke id and position mode |
+| `account_exists(account_id)` | Whether the account exists |
+| `get_liquidation_estimate(account_id, debt_payments, seize_mode)` | Simulated liquidation, no state change |
+| `get_market_index(hub_asset)` | Current supply and borrow index |
+| `get_market_indexes_detailed(hub_assets)` | Indexes plus oracle price status; reverts above `MAX_VIEW_INPUTS` |
+| `get_spoke(spoke_id)` | Spoke configuration |
+| `get_spoke_asset(spoke_id, hub_asset)` | Asset configuration in the spoke; reverts with `AssetNotInSpoke` if unlisted |
+| `get_spoke_usage(spoke_id, hub_asset)` | Supplied and borrowed usage, or zero |
+| `get_spoke_asset_flags_epoch(spoke_id, hub_asset)` | The `expected_epoch` for `relax_spoke_asset_flags`; 0 if no flag was written |
+| `get_min_borrow_collateral_usd` | Minimum LTV-weighted collateral an account with debt must keep after a borrow, withdrawal or strategy call; 0 disables it |
+| `get_pool_address`, `price_aggregator` | Contract addresses |
+| `is_blend_pool_approved(pool)` | Whether `pool` is an approved migration source |
+| `get_app_version` | Stored app version |
 
-| Entrypoint | Signature | Notes | What it does |
-| --- | --- | --- | --- |
-| `set_swap_aggregator` | `fn set_swap_aggregator(env: Env, addr: Address)` | owner-only | Sets the swap aggregator contract address used by strategy swaps. |
-| `set_price_aggregator` | `fn set_price_aggregator(env: Env, addr: Address)` | owner-only | Sets the price aggregator contract address used for oracle lookups. |
-| `set_accumulator` | `fn set_accumulator(env: Env, addr: Address)` | owner-only | Sets the accumulator address that receives claimed protocol revenue. |
-| `set_position_limits` | `fn set_position_limits(env: Env, limits: PositionLimits)` | owner-only | Sets the maximum number of supply and borrow positions an account may hold, each in `1..=POSITION_LIMIT_MAX`. |
-| `set_min_borrow_collateral_usd` | `fn set_min_borrow_collateral_usd(env: Env, floor_wad: i128)` | owner-only | Sets the minimum LTV-weighted collateral value (WAD) for an account with debt; 0 disables the check. |
-| `set_position_manager` | `fn set_position_manager(env: Env, manager: Address, is_active: bool)` | owner-only | Activates or deactivates `manager` as a position manager eligible to be granted delegate access on accounts. |
-| `approve_blend_pool` | `fn approve_blend_pool(env: Env, pool: Address)` | owner-only | Approves `pool` as a Blend migration source. |
-| `revoke_blend_pool` | `fn revoke_blend_pool(env: Env, pool: Address)` | owner-only | Revokes `pool` as an approved Blend migration source. |
-| `create_hub` | `fn create_hub(env: Env) -> u32` | owner-only | Creates a new active hub and returns its id. |
-| `add_spoke` | `fn add_spoke(env: Env) -> u32` | owner-only | Creates a new spoke with the default liquidation curve and returns its id. |
-| `remove_spoke` | `fn remove_spoke(env: Env, id: u32)` | owner-only | Marks spoke `id` as deprecated, blocking new positions in it. |
-| `set_spoke_liquidation_curve` | `fn set_spoke_liquidation_curve( env: Env, id: u32, target_hf_wad: i128, hf_for_max_bonus_wad: i128, liquidation_bonus_factor_bps: u32, )` | owner-only | Sets spoke `id`'s liquidation curve: the target health factor, the health factor at which the bonus is maximal, and the bonus scaling factor (BPS). |
-| `add_asset_to_spoke` | `fn add_asset_to_spoke(env: Env, input: SpokeAssetArgs)` | owner-only | Lists a new asset in a spoke with its risk parameters and caps, validating them against the asset's pool decimals. |
-| `edit_asset_in_spoke` | `fn edit_asset_in_spoke(env: Env, input: SpokeAssetArgs)` | owner-only | Updates an already-listed spoke asset's risk parameters and caps, revalidating them against the asset's pool decimals. |
-| `set_spoke_asset_flags` | `fn set_spoke_asset_flags( env: Env, spoke_id: u32, hub_asset: HubAssetKey, paused: bool, frozen: bool, no_seize: bool, )` | owner-only | Tightens the paused, frozen, and no-seize flags for `hub_asset` within spoke `spoke_id`; reverts with `SpokeAssetFlagRelaxation` if a flag would clear. |
-| `relax_spoke_asset_flags` | `fn relax_spoke_asset_flags( env: Env, spoke_id: u32, hub_asset: HubAssetKey, expected_epoch: u64, paused: bool, frozen: bool, no_seize: bool, )` | owner-only | Sets any paused, frozen, and no-seize combination for `hub_asset` within spoke `spoke_id`, clearing included, when `expected_epoch` equals the listing's flags epoch. |
-| `remove_asset_from_spoke` | `fn remove_asset_from_spoke(env: Env, hub_asset: HubAssetKey, spoke_id: u32)` | owner-only | Removes `hub_asset` from spoke `spoke_id` when it has no supply or borrow usage there. |
-| `deploy_pool` | `fn deploy_pool(env: Env, wasm_hash: BytesN<32>) -> Address` | owner-only | Deploys the liquidity pool contract from `wasm_hash` and records its address. |
-| `deploy_position_nft` | `fn deploy_position_nft( env: Env, wasm_hash: BytesN<32>, uri: String, name: String, symbol: String, ) -> Address` | owner-only | Deploys the position-NFT contract that anchors account ownership. |
-| `create_liquidity_pool` | `fn create_liquidity_pool( env: Env, hub_id: u32, asset: Address, params: MarketParamsRaw, ) -> Address` | owner-only | Creates a new market for `asset` under hub `hub_id` on the pool using `params`. |
-| `upgrade_liquidity_pool_params` | `fn upgrade_liquidity_pool_params(env: Env, hub_asset: HubAssetKey, params: InterestRateModel)` | owner-only | Accrues `hub_asset`'s indexes, then updates its interest rate model to `params` on the pool. |
-| `upgrade_pool` | `fn upgrade_pool(env: Env, new_wasm_hash: BytesN<32>)` | owner-only | Upgrades the liquidity pool contract to `new_wasm_hash`. |
-| `upgrade_position_nft` | `fn upgrade_position_nft(env: Env, new_wasm_hash: BytesN<32>)` | owner-only | Upgrades the position-NFT contract's Wasm bytecode to `new_wasm_hash`. |
-| `force_socialize_bad_debt` | `fn force_socialize_bad_debt(env: Env, account_id: u64)` | owner-only | Socializes `account_id`'s debt into the supply index and removes the account when its debt exceeds its collateral, with no dust threshold. |
-| `pause` | `fn pause(env: Env)` | owner-only | Pauses the contract. |
-| `unpause` | `fn unpause(env: Env)` | owner-only | Unpauses the contract. |
-| `upgrade` | `fn upgrade(env: Env, new_wasm_hash: BytesN<32>)` | owner-only | Pauses the contract if it is not already paused, then upgrades it to `new_wasm_hash`. |
-| `migrate` | `fn migrate(env: Env, new_version: u32)` | owner-only | Sets the stored app version to `new_version`, which must exceed the current version. |
-| `transfer_ownership` | `fn transfer_ownership(env: Env, new_owner: Address, live_until_ledger: u32)` | owner-only | Begins a two-step transfer of ownership to `new_owner`. |
-| `accept_ownership` | `fn accept_ownership(env: Env)` | pending-owner-only | Completes a pending ownership transfer, making the caller the new owner. |
+### Administration
 
-## Errors and events
+Owner only, except `accept_ownership` (pending owner).
 
-Error codes are listed in [`../../docs/reference/errors.md`](../../docs/reference/errors.md).
-Event topics, fields and their scales are listed in
-[`../../docs/reference/events.md`](../../docs/reference/events.md).
+| Entrypoint | Does |
+| --- | --- |
+| `__constructor(admin)` | Sets the owner, both position limits to `POSITION_LIMIT_MAX`, the borrow collateral floor to `DEFAULT_MIN_BORROW_COLLATERAL_USD_WAD`, the version to `INITIAL_APP_VERSION`. **Starts paused** |
+| `set_swap_aggregator(addr)`, `set_price_aggregator(addr)`, `set_accumulator(addr)` | Set the swap router, the price source and the revenue receiver |
+| `set_position_limits(limits)` | Max supply and borrow positions per account, each in `1..=POSITION_LIMIT_MAX` |
+| `set_min_borrow_collateral_usd(floor_wad)` | Minimum LTV-weighted collateral for an account with debt; 0 disables |
+| `set_position_manager(manager, is_active)` | Allow or disallow `manager` as a delegate |
+| `approve_blend_pool(pool)`, `revoke_blend_pool(pool)` | Manage Blend migration sources |
+| `create_hub() -> u32` | New active hub |
+| `add_spoke() -> u32` | New spoke with the default liquidation curve |
+| `remove_spoke(id)` | Deprecates a spoke; blocks new positions |
+| `set_spoke_liquidation_curve(id, target_hf_wad, hf_for_max_bonus_wad, liquidation_bonus_factor_bps)` | Target health factor, health factor at max bonus, bonus factor |
+| `add_asset_to_spoke(input)`, `edit_asset_in_spoke(input)` | List or update a spoke asset's risk parameters and caps, validated against the pool decimals |
+| `set_spoke_asset_flags(spoke_id, hub_asset, paused, frozen, no_seize)` | Tighten flags only |
+| `relax_spoke_asset_flags(spoke_id, hub_asset, expected_epoch, paused, frozen, no_seize)` | Set any flag combination, clearing included, at the matching epoch |
+| `remove_asset_from_spoke(hub_asset, spoke_id)` | Unlist an asset with no usage in the spoke |
+| `deploy_pool(wasm_hash)`, `deploy_position_nft(wasm_hash, uri, name, symbol)` | Deploy and record the pool and the position NFT |
+| `create_liquidity_pool(hub_id, asset, params)` | Create a market on the pool |
+| `upgrade_liquidity_pool_params(hub_asset, params)` | Accrue, then replace the interest rate model |
+| `upgrade_pool(new_wasm_hash)`, `upgrade_position_nft(new_wasm_hash)` | Upgrade the pool or the position NFT |
+| `force_socialize_bad_debt(account_id)` | Socialize debt when debt > collateral, with no dust threshold |
+| `pause()`, `unpause()` | Global pause |
+| `upgrade(new_wasm_hash)` | **Pauses first**, then upgrades. Call `unpause` after |
+| `migrate(new_version)` | Set the app version; must be higher than the current one |
+| `transfer_ownership(new_owner, live_until_ledger)`, `accept_ownership()` | Two-step ownership transfer |
 
-## Further reading
+## References
 
-- Shared model: [`../../skills/xoxno-lending/SKILL.md`](../../skills/xoxno-lending/SKILL.md)
-- Protocol math: [`../../docs/reference/formulas.md`](../../docs/reference/formulas.md)
-- Client ABI: [`../../interfaces/controller`](../../interfaces/controller)
+- Errors: [`docs/reference/errors.md`](../../docs/reference/errors.md)
+- Events, fields and scales: [`docs/reference/events.md`](../../docs/reference/events.md)
+- Formulas: [`docs/reference/formulas.md`](../../docs/reference/formulas.md)
+- Integration model: [`skills/xoxno-lending/SKILL.md`](../../skills/xoxno-lending/SKILL.md)
+- Formal proofs: [`certora/controller/spec`](../../certora/controller/spec/README.md)
