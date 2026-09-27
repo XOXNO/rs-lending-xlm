@@ -74,7 +74,7 @@ Generated from `configs/networks.json` and `configs/<network>/*.json` in the pro
 | XLMAQUA_LP | 3 | `CBOHAVUYKQD4C7FIVXEDJCVLUZYUO6RN3VIKEDOTIJGDDV3QN33Y4T4D` | 7 |
 | AQUAUSDC_LP | 3 | `CDOY7ILRR7PDGLBXZUPSENB6XOET77PR2JY3HXDGQS3TS4T764OYBUGO` | 7 |
 
-The decimals column is the oracle configuration value. The market unit is the listed decimals: the stored oracle's `asset_decimals` when the price aggregator holds an oracle for the token, otherwise the token's `decimals()` at first listing. An issuer relabel does not change it. The pool never reads decimals itself.
+The decimals column is the oracle configuration value; the pool reads the token contract's own `decimals` at market creation.
 
 ### Spokes
 
@@ -118,7 +118,7 @@ Blend pool factory v2: `CDSYOAVXFY7SM5S64IZPPPYB4GVGGLMQVFREPSQQEZVIWXX5R23G4QSU
 | Controller (the only user-facing lending contract) | `CCXRWJ6SIU2WPFEGLFGJVITPL57QAYIMIO6OAM2NBGNDQSSCK2FFV3F3` |
 | Pool (custody + accounting; controller-only mutators) | `CBSGF6QOQAMPFBEVSYPEQHSZRIHJ6RCGUPCRDMUX36DEKRWFAO2PZB5A` |
 | Position NFT (token id == account id) | `CDVN5JU675MEDPVRPCYC45AHFC275UH57WEU5OTFE4WFGZBNN7HTLPSY` |
-| Price aggregator | `CAALOOTIDXCX7D7FMQIBSSAJLPKOM3GMXS4UUSTDIG42JCRRJHOPUHOP` |
+| Price aggregator | `CBMARXSYE56NPDLX42TTICM5GS5XQCYRD5VMCJME624TS6C2S53VETYU` |
 | Swap aggregator router (`execute_strategy`) | `CDNTWMWW2WGYTKIZTJYNGNVQQZI4KTC5BQRZ3275KESRX5T4O3AYECL5` |
 | XOXNO oracle adapter | `CDYX4ZEO556YZDYDJLUE5XQUE2DLWVFJDTBJJGF7HYQP5HK5NICNTQ6F` |
 | RedStone adapter (external) | `CBIHT4HVRIT5OMVLSXZ44J2ZAXYBDDGOSCN3LTN2DOC6SWHDS5IP6BK3` |
@@ -131,9 +131,10 @@ Blend pool factory v2: `CDSYOAVXFY7SM5S64IZPPPYB4GVGGLMQVFREPSQQEZVIWXX5R23G4QSU
 
 | On-chain `hub_id` | Name | Markets |
 |---|---|---|
-| 1 | Main | USDC, XLM, EURC, BTC, ETH |
-| 2 | Secondary | USDC_HUB2 |
-| 3 | Aquarius | XLMUSDC_LP |
+| 1 | Core | USDC, XLM, EURC, BTC, ETH |
+| 2 | Secondary USDC | USDC_HUB2 |
+| 3 | Liquidity Pools | XLMUSDC_LP |
+| 4 | Liqvid Private Credit | USDC_LIQVID, EURC_LIQVID, LIQVID1039, LIQVID1037 |
 
 ### Markets (`HubAssetKey { hub_id, asset }`)
 
@@ -146,8 +147,12 @@ Blend pool factory v2: `CDSYOAVXFY7SM5S64IZPPPYB4GVGGLMQVFREPSQQEZVIWXX5R23G4QSU
 | ETH | 1 | `CBFNIHC2B7WMAH2CKNKQJOB3CWBUXXNNRQXYISJ7VZONM77YBMHCOULJ` | 7 |
 | USDC_HUB2 | 2 | `CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA` | 7 |
 | XLMUSDC_LP | 3 | `CDEUHPEUQAQNLCHFVBX3ZOSIR2FUWD2COYTSHUPQPJWK2BCLLQCW66FY` | 7 |
+| USDC_LIQVID | 4 | `CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA` | 7 |
+| EURC_LIQVID | 4 | `CCUUDM434BMZMYWYDITHFXHDMIVTGGD6T2I5UKNX5BSLXLW7HVR4MCGZ` | 7 |
+| LIQVID1039 | 4 | `CAH7FDDP6IDC76VTXNPN6MF5TWVZMM2N3PCU5C7TXRLTCKBSG6BGUGEA` | 0 |
+| LIQVID1037 | 4 | `CDCS4Y5BZY62YS2ABQHZSQXWGFHNQXID64CYDCBSQDNDKEG6T2OE2HWC` | 0 |
 
-The decimals column is the oracle configuration value. The market unit is the listed decimals: the stored oracle's `asset_decimals` when the price aggregator holds an oracle for the token, otherwise the token's `decimals()` at first listing. An issuer relabel does not change it. The pool never reads decimals itself.
+The decimals column is the oracle configuration value; the pool reads the token contract's own `decimals` at market creation.
 
 ### Spokes
 
@@ -155,10 +160,13 @@ Live listing parameters: `get_spoke_asset(spoke_id, hub_asset)`.
 
 | On-chain `spoke_id` | Name | Config key | Listed markets |
 |---|---|---|---|
-| 1 | Main (USDC/EURC/XLM/BTC) | 1 | USDC@hub1, EURC@hub1, XLM@hub1, BTC@hub1 |
-| 2 | XLM + USDC | 2 | XLM@hub1, USDC@hub1 |
-| 3 | Full (BTC/USDC/XLM/EURC/LP + Dual USDC) | 3 | BTC@hub1, XLM@hub1, EURC@hub1, XLMUSDC_LP@hub3, USDC@hub1, USDC_HUB2@hub2 |
+| 1 | Blue Chip | 1 | USDC@hub1, EURC@hub1, XLM@hub1, BTC@hub1 |
+| 2 | XLM & USDC | 2 | XLM@hub1, USDC@hub1 |
+| 3 | All Assets (Multi-Hub) | 3 | BTC@hub1, XLM@hub1, EURC@hub1, XLMUSDC_LP@hub3, USDC@hub1, USDC_HUB2@hub2 |
 | 4 | LP Tokens | 4 | XLMUSDC_LP@hub3 |
+| 5 | Liqvid Deal #1039 | 5 | LIQVID1039@hub4, USDC_LIQVID@hub4, EURC_LIQVID@hub4 |
+| 6 | Liqvid USDC Lenders | 6 | USDC_LIQVID@hub4, EURC_LIQVID@hub4 |
+| 7 | Liqvid Deal #1037 | 7 | LIQVID1037@hub4, USDC_LIQVID@hub4, EURC_LIQVID@hub4 |
 
 ### Blend pools approved for `migrate_from_blend`
 

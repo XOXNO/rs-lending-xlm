@@ -1,6 +1,6 @@
 {
   "1": {
-    "name": "Main (USDC/EURC/XLM/BTC)",
+    "name": "Blue Chip",
     "assets": {
       "USDC": {
         "hub_id": 1,
@@ -49,7 +49,7 @@
     }
   },
   "2": {
-    "name": "XLM + USDC",
+    "name": "XLM & USDC",
     "assets": {
       "XLM": {
         "hub_id": 1,
@@ -76,7 +76,7 @@
     }
   },
   "3": {
-    "name": "Full (BTC/USDC/XLM/EURC/LP + Dual USDC)",
+    "name": "All Assets (Multi-Hub)",
     "assets": {
       "BTC": {
         "hub_id": 1,
@@ -163,7 +163,7 @@
     }
   },
   "5": {
-    "name": "Liqvid Private Credit",
+    "name": "Liqvid Deal #1039",
     "liquidation_curve": {
       "target_hf_wad": "1060000000000000000",
       "hf_for_max_bonus_wad": "900000000000000000",
@@ -188,8 +188,8 @@
         "ltv": 9701,
         "liquidation_threshold": 9800,
         "liquidation_bonus": 200,
-        "supply_cap": "100000000000",
-        "borrow_cap": "100000000000",
+        "supply_cap": "1000000000000",
+        "borrow_cap": "1000000000000",
         "liquidation_fees": 100
       },
       "EURC_LIQVID": {
@@ -206,7 +206,7 @@
     }
   },
   "6": {
-    "name": "Liqvid Lenders",
+    "name": "Liqvid USDC Lenders",
     "assets": {
       "USDC_LIQVID": {
         "hub_id": 4,
@@ -215,7 +215,7 @@
         "ltv": 9701,
         "liquidation_threshold": 9800,
         "liquidation_bonus": 200,
-        "supply_cap": "100000000000",
+        "supply_cap": "1000000000000",
         "borrow_cap": "0",
         "liquidation_fees": 100
       },
@@ -228,6 +228,49 @@
         "liquidation_bonus": 200,
         "supply_cap": "50000000000000",
         "borrow_cap": "0",
+        "liquidation_fees": 100
+      }
+    }
+  },
+  "7": {
+    "name": "Liqvid Deal #1037",
+    "liquidation_curve": {
+      "target_hf_wad": "1060000000000000000",
+      "hf_for_max_bonus_wad": "900000000000000000",
+      "liquidation_bonus_factor_bps": 598
+    },
+    "assets": {
+      "LIQVID1037": {
+        "hub_id": 4,
+        "can_be_collateral": true,
+        "can_be_borrowed": false,
+        "ltv": 5000,
+        "liquidation_threshold": 5300,
+        "liquidation_bonus": 500,
+        "liquidation_fees": 0,
+        "supply_cap": "970873",
+        "borrow_cap": "0"
+      },
+      "USDC_LIQVID": {
+        "hub_id": 4,
+        "can_be_collateral": false,
+        "can_be_borrowed": true,
+        "ltv": 9701,
+        "liquidation_threshold": 9800,
+        "liquidation_bonus": 200,
+        "supply_cap": "1000000000000",
+        "borrow_cap": "1000000000000",
+        "liquidation_fees": 100
+      },
+      "EURC_LIQVID": {
+        "hub_id": 4,
+        "can_be_collateral": false,
+        "can_be_borrowed": true,
+        "ltv": 9700,
+        "liquidation_threshold": 9800,
+        "liquidation_bonus": 200,
+        "supply_cap": "50000000000000",
+        "borrow_cap": "25000000000000",
         "liquidation_fees": 100
       }
     }

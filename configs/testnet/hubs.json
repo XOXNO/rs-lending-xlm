@@ -1,14 +1,14 @@
 {
   "1": {
-    "name": "Main"
+    "name": "Core"
   },
   "2": {
-    "name": "Secondary"
+    "name": "Secondary USDC"
   },
   "3": {
-    "name": "Aquarius"
+    "name": "Liquidity Pools"
   },
   "4": {
-    "name": "Liqvid"
+    "name": "Liqvid Private Credit"
   }
 }
