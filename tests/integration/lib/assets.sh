@@ -17,26 +17,27 @@ issue_sac() {
     if [ -n "${!var:-}" ]; then return 0; fi
     local asset="$code:$ADMIN_ADDR"
     local out_f="$LOG_DIR/sac_$code.out" err_f="$LOG_DIR/sac_$code.err"
-    local sac hash attempt
+    local sac hash
     sac=$(stellar contract id asset --asset "$asset" "${NET_ARGS[@]}")
     if sac_live "$sac"; then
 
         record "issue_sac_$code" ok "asset_id" "" "" "" "" "" "$sac (pre-existing)"
     else
 
-        local rc=0
-        stellar contract asset deploy --asset "$asset" --source "$ADMIN" \
-            "${NET_ARGS[@]}" >"$out_f" 2>"$err_f" || rc=$?
+        if ! run_deploy "$out_f" "$err_f" -- stellar contract asset deploy --asset "$asset" --source "$ADMIN" "${NET_ARGS[@]}"; then
+            record "issue_sac_$code" FAIL asset_deploy "$(extract_signing_hash "$err_f")" "" "" "" "" "SAC deployment unconfirmed; never resubmit"
+            return 1
+        fi
         hash=$(extract_signing_hash "$err_f")
-        if [ -z "$hash" ] || [ "$(tx_status "$hash")" != SUCCESS ] || [ "$rc" -ne 0 ]; then
-            record "issue_sac_$code" FAIL asset_deploy "$hash" "" "" "" "" "SAC deployment unconfirmed; never resubmit"
+        if [ "$(sanitize_output "$out_f")" != "$sac" ]; then
+            record "issue_sac_$code" FAIL asset_deploy "$hash" "" "" "" "" "deployed SAC id differs from $sac"
             return 1
         fi
         if ! sac_wait_live "$sac"; then
             die "issue_sac_$code" \
-                "SAC $code not live after ${attempt:-0} deploy attempt(s): $(tail_err_note "$err_f" 200)"
+                "SAC $code not live after $DEPLOY_ATTEMPTS deploy attempt(s): $(tail_err_note "$err_f" 200)"
         fi
-        record "issue_sac_$code" ok "asset_deploy" "${hash:-}" "" "" "" "" "$sac"
+        record "issue_sac_$code" ok asset_deploy "$hash" "$RES_INSTR" "$RES_READ" "$RES_WRITE" "$RES_FEE" "$sac" deployment "$sac"
     fi
     save_state "$var" "$sac"
     log "SAC $code = $sac"

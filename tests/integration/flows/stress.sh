@@ -299,6 +299,7 @@ flow_stress_delayed() {
     [ "$now" -ge "$((start+3))" ] || { _assert_fail stress_delayed_ledgers "ledger did not advance by three"; return 1; }
     printf '{"prepared_after_ledger":%s,"submitted_after_ledger":%s,"hash":"%s"}\n' "$start" "$now" "$hash" >"$LOG_DIR/$label.delay.json"
     sequence=$(wc -l < "$ACTIONS_TSV")
+    begin_attempt "$label" borrow "$sequence" 1 "$LOG_DIR/$label.out" "$LOG_DIR/$label.err" "$CONTROLLER" || return 1
     stellar tx send "${NET_ARGS[@]}" <"$LOG_DIR/$label.signed.xdr" \
         >"$LOG_DIR/$label.out" 2>"$LOG_DIR/$label.err" || rc=$?
     record_attempt "$label" borrow "$sequence" 1 "$rc" "$hash" "$LOG_DIR/$label.out" "$LOG_DIR/$label.err" "$CONTROLLER" || return 1

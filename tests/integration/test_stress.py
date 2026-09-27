@@ -89,6 +89,7 @@ stellar() {
         *) return 1;;
     esac
 }
+begin_attempt() { echo "begin_attempt $1 $2 $4" >> "$WORK/sequence"; }
 record_attempt() { echo "$1 $4 $5 $6" >> "$WORK/attempts"; }
 tx_status() { echo "$TX_STATUS"; }
 fetch_resources() { RES_INSTR=1; RES_READ=2; RES_WRITE=3; RES_FEE=4; return "$BUDGET_FAIL"; }
@@ -104,6 +105,7 @@ flow_stress_delayed
                 self.assertEqual(sequence.count('tx send'), 1)
                 self.assertLess(sequence.index('tx sign'), sequence.index('stress_shared_topup'))
                 self.assertLess(sequence.index('stress_shared_topup'), sequence.index('tx send'))
+                self.assertEqual(sequence.index('begin_attempt stress_delayed_borrow borrow 1'), sequence.index('tx send') - 1)
                 delay = json.loads(Path(directory, 'stress_delayed_borrow.delay.json').read_text())
                 self.assertGreaterEqual(delay['submitted_after_ledger'] - delay['prepared_after_ledger'], 3)
                 attempts = Path(directory, 'attempts').read_text().splitlines()

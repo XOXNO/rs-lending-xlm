@@ -61,17 +61,21 @@ def check_gate():
                     proofs.append([str(seq),kind,addresses[demand.get('contract','controller')]])
                     if hash_:
                         receipt = dict(status='SUCCESS',txHash=hash_,ledger=1,envelopeXdr='AA==',resultMetaXdr='AA==',resultXdr='AA==',events={'contractEventsXdr':[]})
-                        resources = dict(resources=dict(instructions=1000000,disk_read_bytes=0,write_bytes=0,footprint={'read_only':[],'read_write':[]}))
+                        resources = dict(resource_fee='1',resources=dict(instructions=1000000,disk_read_bytes=0,write_bytes=0,footprint={'read_only':[],'read_write':[]}))
                         (run/'logs'/f'{hash_}.receipt.json').write_text(json.dumps({'result':receipt}))
                         (run/'logs'/f'{hash_}.resources.json').write_text(json.dumps(resources))
             cases.append([case['id'],'pass',first,len(actions)])
         def write(name, fields, records):
             with (run/name).open('w') as f:
                 w=csv.writer(f,delimiter='\t',lineterminator='\n'); w.writerow(fields); w.writerows(records)
+        attempts=[dict(id=n,action_seq=n,hash=r[5] or None,receipt=f'logs/{r[5]}.receipt.json' if r[5] else None) for n,r in enumerate(actions,1)]
+        def write_attempts(items):
+            (run/'attempts.jsonl').write_text(''.join(json.dumps(a)+'\n' for a in items))
         def baseline():
             write('actions.tsv',gate.ACTION_FIELDS,actions)
             write('cases.tsv',['id','status','first_action','last_action'],cases)
             write('evidence.tsv',['seq','execution','contract'],proofs)
+            write_attempts(attempts)
         def rejected():
             try: gate.validate(run)
             except (ValueError,OSError,KeyError,AssertionError): return
@@ -143,6 +147,29 @@ def check_gate():
         gate.footprint_drift=lambda *a: None
         with_retry(relabel=True); rejected()
         gate.footprint_drift=original_drift
+        baseline()
+        filled=[r.copy() for r in actions]; filled[index][6:10]=['1000000','0','0','1']
+        write('actions.tsv',gate.ACTION_FIELDS,filled)
+        assert gate.validate(run, expected_lane='agg') == len(required)
+        for column in range(6,10):
+            wrong=[r.copy() for r in filled]; wrong[index][column]='7'
+            write('actions.tsv',gate.ACTION_FIELDS,wrong); rejected()
+        baseline()
+        committed='e'*64
+        (run/'logs'/f'{committed}.receipt.json').write_text(json.dumps({'result':{'status':'SUCCESS'}}))
+        def attempts_with(change):
+            items=[dict(a) for a in attempts]; change(items); write_attempts(items)
+        for change in [lambda x: x.pop(1), lambda x: x[0].update(id=None), lambda x: x[0].update(id=True),
+                       lambda x: x[0].update(action_seq=0), lambda x: x[0].update(action_seq=3),
+                       lambda x: x[-1].update(action_seq=len(actions)+1), lambda x: x[-1].update(hash=committed),
+                       lambda x: x[index].update(action_seq=index+2)]:
+            attempts_with(change); rejected()
+        (run/'attempts.jsonl').unlink(); rejected()
+        attempts_with(lambda x: x[index].update(action_seq=index+1))
+        assert gate.validate(run, expected_lane='agg') == len(required)
+        (run/'logs'/f'{committed}.receipt.json').unlink()
+        attempts_with(lambda x: x[-1].update(hash=committed))
+        assert gate.validate(run, expected_lane='agg') == len(required)
         baseline()
     gate.verify_receipt = original_verify
 
