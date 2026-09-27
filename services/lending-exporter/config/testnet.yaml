@@ -26,18 +26,26 @@ markets:
   - { hub_id: 1, asset: CBFNIHC2B7WMAH2CKNKQJOB3CWBUXXNNRQXYISJ7VZONM77YBMHCOULJ, symbol: ETH }
   - { hub_id: 2, asset: CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA, symbol: USDC }
   - { hub_id: 3, asset: CDEUHPEUQAQNLCHFVBX3ZOSIR2FUWD2COYTSHUPQPJWK2BCLLQCW66FY, symbol: XLMUSDC_LP }
-spokes: [1, 2, 3, 4]
+  - { hub_id: 4, asset: CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA, symbol: USDC }
+  - { hub_id: 4, asset: CCUUDM434BMZMYWYDITHFXHDMIVTGGD6T2I5UKNX5BSLXLW7HVR4MCGZ, symbol: EURC }
+  - { hub_id: 4, asset: CAH7FDDP6IDC76VTXNPN6MF5TWVZMM2N3PCU5C7TXRLTCKBSG6BGUGEA, symbol: LIQVID1039 }
+  - { hub_id: 4, asset: CDCS4Y5BZY62YS2ABQHZSQXWGFHNQXID64CYDCBSQDNDKEG6T2OE2HWC, symbol: LIQVID1037 }
+spokes: [1, 2, 3, 4, 5, 6, 7]
 
 hubs:
-  1: Main
-  2: Secondary
-  3: Aquarius
+  1: Core
+  2: Secondary USDC
+  3: Liquidity Pools
+  4: Liqvid Private Credit
 
 spoke_names:
-  1: Main (USDC/EURC/XLM/BTC)
-  2: XLM + USDC
-  3: BTC + Dual USDC
+  1: Blue Chip
+  2: XLM & USDC
+  3: All Assets (Multi-Hub)
   4: LP Tokens
+  5: "Liqvid Deal #1039"
+  6: Liqvid USDC Lenders
+  7: "Liqvid Deal #1037"
 scrape_interval_seconds: 30
 metrics:
   bind: 0.0.0.0:9110
