@@ -2,7 +2,7 @@
 
 Live execution is manual or release-only, on Stellar testnet. PRs run offline
 harness, RPC-fixture and operator regressions. Release ordering is canonical
-build → offline/contract checks → twelve live lanes → publication of those exact
+build → offline/contract checks → thirteen live lanes → publication of those exact
 files. A passing smoke or a mapped ABI is not release acceptance.
 
 Builds use `stellar contract build --optimize --out-dir` and consume that
@@ -33,7 +33,7 @@ set -o pipefail
 cargo test --workspace --no-fail-fast 2>&1 | tee controlled-tests.log
 python3 tests/integration/controlled.py controlled-tests.log artifacts/wasm/deploy
 
-# Twelve fresh independent worlds; default caps: 95m per lane, 150m CI job.
+# Thirteen fresh independent worlds; default caps: 95m per lane, 150m CI job.
 NETWORK=testnet RUN_TS="local-$(date +%Y%m%d-%H%M%S)" \
   bash tests/integration/scenarios/parallel_e2e.sh
 
@@ -70,7 +70,8 @@ then `flash-b`.
 | `flash-a` | callback success, protected balances, Long/multiple collateral, delegates and rollback snapshots, malicious receiver | live Reflector; existing receiver fixtures |
 | `flash-b` | callback success, create-path and dual-path rejections, strategy-mode and flash-loan gates | live Reflector; existing receiver fixtures |
 | `blend` | actual pool allowlist/reserve addresses, six XLM paths plus distinct-token/multiple-liability migration, committed-rate shares/refunds/identity/unrelated balances | real Blend TestnetV2 pool |
-| `production` | governance operator setup/replay, enabled mainnet policy readbacks, 7/8/9/18 decimal round trips, XOXNO-backed borrowing, contract caller, same-schema upgrades | disposable policy/wallet roots; explicit provider/LP/token fixtures |
+| `prod-full` | governance operator setup/replay, full enabled mainnet policy readbacks, 5 same-hash upgrades with a live contract-owned position, then the full policy readback | disposable policy/wallet roots; explicit provider/LP/token fixtures for every enabled mainnet market |
+| `prod-caller` | the same operator on the filtered config (7 markets and reference BTC, policies from `configs/mainnet`); 7/8/9/18 decimal round trips, XOXNO-backed borrowing, contract caller and authority chain, governance band, flags and pause | disposable policy/wallet roots; `production_config.py --only caller` fixtures |
 | `sdk` | supply/borrow/repay/withdraw, routed multiply, Blend, events/error mapping/delayed signing | published SDK 1.0.221 and Stellar SDK 16.3.0; fresh contracts |
 
 `cases.json` defines required terminal cases and action predicates, qualified by
@@ -166,11 +167,11 @@ real external-provider availability. Current upgrade evidence explicitly records
 identical baseline/candidate controller hashes and `executable_differs=false`; controller/pool/NFT/price-aggregator/governance and oracle history preservation are checked; no v1.0.0
 storage migration claim is made.
 
-Final acceptance still requires two fresh complete twelve-lane runs on the final
+Final acceptance still requires two fresh complete thirteen-lane runs on the final
 candidate SHA and a release-workflow dry run. Release dispatch defaults to `dry_run=true`; a branch can run the complete gate
 without publication. `inject_e2e_failure=true` deliberately stops the E2E job
 before deployment and must leave publication skipped. A successful dry run still
-requires all twelve live lanes. Local publication regressions inject failed lanes
+requires all thirteen live lanes. Local publication regressions inject failed lanes
 and wrong artifacts. The injected-failure dry run at
 [3d4153e0](https://github.com/XOXNO/rs-lending-xlm/actions/runs/36127604894)
 passed build/checks, failed E2E deliberately, and skipped publication. A successful

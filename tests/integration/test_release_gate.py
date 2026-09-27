@@ -243,8 +243,8 @@ assert 'e2e-fixtures' not in publish and 'artifacts/wasm/fixtures' not in publis
 print('Build-only fixture handoff and checksum rejection checks passed')
 
 EXPECTED_LANES = {
-    'wallets': ['agg-admin', 'agg-core', 'agg-gov', 'blend', 'flash-a', 'flash-b', 'liq-a', 'liq-b', 'liq-c', 'production', 'sdk', 'stress'],
-    'deploy_protocol': ['agg-admin', 'agg-core', 'agg-gov', 'blend', 'flash-a', 'flash-b', 'liq-a', 'liq-b', 'liq-c', 'production', 'sdk', 'stress'],
+    'wallets': ['agg-admin', 'agg-core', 'agg-gov', 'blend', 'flash-a', 'flash-b', 'liq-a', 'liq-b', 'liq-c', 'prod-caller', 'prod-full', 'sdk', 'stress'],
+    'deploy_protocol': ['agg-admin', 'agg-core', 'agg-gov', 'blend', 'flash-a', 'flash-b', 'liq-a', 'liq-b', 'liq-c', 'prod-caller', 'prod-full', 'sdk', 'stress'],
     'flow_real_markets': ['agg-admin', 'agg-core', 'blend', 'sdk'],
     'flow_fund_usdc': ['agg-admin', 'agg-core', 'agg-gov', 'sdk'],
     'flow_seed_liquidity': ['agg-admin', 'agg-core', 'flash-a', 'flash-b', 'sdk'],
@@ -257,7 +257,7 @@ EXPECTED_LANES = {
     'flow_swap_aggregator_admin': ['agg-gov'],
     'flow_governance': ['agg-gov'],
     'flow_admin_upgrade': ['agg-core'],
-    'flow_teardown': ['agg-admin', 'agg-core', 'agg-gov', 'blend', 'flash-a', 'flash-b', 'liq-a', 'liq-b', 'liq-c', 'production', 'sdk', 'stress'],
+    'flow_teardown': ['agg-admin', 'agg-core', 'agg-gov', 'blend', 'flash-a', 'flash-b', 'liq-a', 'liq-b', 'liq-c', 'prod-caller', 'prod-full', 'sdk', 'stress'],
     'flow_liq_setup': ['liq-a', 'liq-b', 'liq-c'],
     'flow_liq_single': ['liq-a'],
     'flow_liq_bulk': ['liq-b'],
@@ -290,9 +290,10 @@ EXPECTED_LANES = {
     'flow_sdk_lifecycle': ['sdk'],
     'flow_sdk_strategy': ['sdk'],
     'flow_sdk_blend': ['sdk'],
-    'flow_production_fixtures': ['production'],
-    'flow_production_operator': ['production'],
-    'flow_production_caller': ['production'],
+    'flow_production_fixtures': ['prod-caller', 'prod-full'],
+    'flow_production_operator': ['prod-caller', 'prod-full'],
+    'flow_production_caller': ['prod-caller'],
+    'flow_production_upgrade': ['prod-full'],
     'flow_same_market': ['agg-admin'],
     'flow_nft': ['agg-admin'],
     'flow_risk_refresh': ['agg-gov'],
@@ -300,7 +301,7 @@ EXPECTED_LANES = {
     'flow_stress_delayed': ['stress'],
     'flow_liq_multi_hub': ['liq-b'],
     'flow_blend_multireserve': ['blend'],
-    'flow_production_lending': ['production'],
+    'flow_production_lending': ['prod-caller'],
     'flow_sdk_errors': ['sdk'],
 }
 ROOT = Path(__file__).resolve().parents[2]
@@ -340,3 +341,24 @@ for script, lanes in routes.items():
     for lane in lanes:
         assert {i for i, l in selected.items() if lane in l} <= set(ids), (script, lane)
 print('Lane membership, orchestrator, dispatch and scenario run_case pins passed')
+
+production = (scenarios/'production.sh').read_text()
+arms = re.search(r'^case "\$E2E_LANE" in\n.*?^esac\n', production, re.M | re.S).group(0)
+only = {}
+for lane in routes['production.sh']:
+    only[lane] = subprocess.run(['bash', '-c', f'E2E_LANE="$1"\n{arms}printf %s "$PROD_CONFIG_ONLY"', '_', lane],
+                                capture_output=True, text=True, check=True).stdout
+full_lanes = {lane for lane, value in only.items() if value == ''}
+assert full_lanes == {'prod-full'} and set(only) - full_lanes == {'prod-caller'}, only
+pinned = {'upgrade': 0, 'replay': 0}
+for case in manifest:
+    labels = {a['label'] for a in case['required_actions']}
+    if any(re.fullmatch(r'operator_upgrade\w+Hash', label) for label in labels):
+        pinned['upgrade'] += 1
+        assert set(case['lanes']) & LANES <= full_lanes, case['id']
+        assert {'prod_upgrade_full_config', 'prod_policy_equal'} <= labels, case['id']
+    if 'operator_setupAll_replay' in labels:
+        pinned['replay'] += 1
+        assert set(case['lanes']) & full_lanes, case['id']
+assert all(pinned.values()), pinned
+print('Upgrade proofs and the setup replay run only on the full mainnet-shaped production config')

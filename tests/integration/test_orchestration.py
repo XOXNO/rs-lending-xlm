@@ -128,7 +128,7 @@ with tempfile.TemporaryDirectory() as directory:
     assert elapsed<5.5,elapsed
 print('Lane gates run in parallel and report in lane order')
 
-for lanes in ['agg','strategies']:
+for lanes in ['agg','strategies','production']:
     with tempfile.TemporaryDirectory() as directory:
         base=Path(directory)
         scripts,env,wasms=orchestrator(base,LANE_TIMEOUT='1s')

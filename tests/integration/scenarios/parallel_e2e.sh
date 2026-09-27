@@ -15,7 +15,7 @@ LANE_TIMEOUT="${LANE_TIMEOUT:-95m}"
 #
 # `-`, not `:-`: an explicitly empty E2E_LANES must reach the zero-lane check
 # below and abort, not expand to the default and run every lane.
-RELEASE_LANES='agg-core agg-admin agg-gov liq-a liq-b liq-c stress flash-a flash-b blend production sdk'
+RELEASE_LANES='agg-core agg-admin agg-gov liq-a liq-b liq-c stress flash-a flash-b blend prod-full prod-caller sdk'
 read -r -a RELEASE <<<"$RELEASE_LANES"
 read -r -a LANES <<<"${E2E_LANES-$RELEASE_LANES}"
 
@@ -23,7 +23,7 @@ read -r -a LANES <<<"${E2E_LANES-$RELEASE_LANES}"
 # the orchestrator only maps lane -> script and applies the same outer gate.
 script_for() {
     case "$1" in
-        production) echo "production.sh" ;;
+        prod-full|prod-caller) echo "production.sh" ;;
         sdk) echo "sdk.sh" ;;
         flash-a|flash-b) echo "flash_position.sh" ;;
         blend) echo "blend.sh" ;;

@@ -12,7 +12,7 @@ from gate import validate
 from controlled import verify as verify_controlled
 
 LANES = {'agg-core', 'agg-admin', 'agg-gov', 'liq-a', 'liq-b', 'liq-c', 'stress', 'flash-a', 'flash-b',
-         'blend', 'production', 'sdk'}
+         'blend', 'prod-full', 'prod-caller', 'sdk'}
 
 
 def collect(runs, base, directory=None):

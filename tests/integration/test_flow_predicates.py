@@ -200,13 +200,21 @@ prod_execute_split setPriceAggregator setPriceAggregator >/dev/null'''
 RUN_DIR="$2"; LOG_DIR="$2/logs"; ACTIONS_TSV="$2/actions.tsv"; STATE_ENV="$2/state.env"; PHASE=init
 mkdir -p "$LOG_DIR"; printf 'seq\tphase\tlabel\tstatus\tfn\thash\tinstructions\tread_bytes\twrite_bytes\tresource_fee\tnote\n' > "$ACTIONS_TSV"
 CHANNELS="c1 c2 c3"; ADMIN=admin; ADMIN_ADDR=GADMIN; INTEG_DIR="$2/fake"; REPO_ROOT=unused; FIXTURE_WASM_DIR=fx; WASM_DIR=w; NET_ARGS=(--network testnet)
+PROD_CONFIG_ONLY=caller
 phase() { PHASE="$1"; }; log() { :; }
 cid() { printf 'C%055d' "$1" | tr 0-9 A-J; }
+deploy_protocol() {
+    local s
+    [ -e "$RUN_DIR/fixture_done_1" ] && s=late || s=early
+    echo "${E2E_JOB:-}|$s" > "$RUN_DIR/deploy_job"
+    inv deploy_marker "$ADMIN" CTRL -- noop >/dev/null
+}
 run_deploy() {
     local a prev='' src='' n
     for a; do [ "$prev" != --source ] || src="$a"; prev="$a"; done
     n=$(basename "$1" .out); n=${n#fixture_}; n=${n%%.*}
     command sleep "$(awk -v n="$n" 'BEGIN { print (6 - n) * 0.3 }')"
+    touch "$RUN_DIR/fixture_done_$n"
     echo "$n|$src" >> "$RUN_DIR/deploys"
     cid "$n" > "$1"; printf 'Signing transaction: %064d\n' "$n" > "$2"
     RES_INSTR=1 RES_READ=2 RES_WRITE=3 RES_FEE=4
@@ -215,12 +223,14 @@ inv() {
     printf '%s|%s|%s|%s|%s\n' "$1" "${E2E_JOB:-}" "$2" "$3" "$5" >> "$RUN_DIR/writes"
     record "$1" ok "$5" "$(python3 -c 'import hashlib, sys; print(hashlib.sha256(sys.argv[1].encode()).hexdigest())' "${E2E_JOB:-p} $*")" 1 2 3 4 '' transaction "$3"
 }
-flow_production_fixtures'''
+prod_deploy_protocol && flow_production_fixtures'''
         def run(d,fixture_seeds):
             fake=Path(d)/'fake';fake.mkdir()
             (fake/'fixtures.json').write_text(json.dumps(dict(bases={'CZ1x':{'Other':'USD'}},seeds=fixture_seeds,pools=[dict(contract='P',snapshot={})])))
             (fake/'production_config.py').write_text(f'''import json, shutil, sys
 from pathlib import Path
+with open(Path(__file__).with_name('argv'), 'a') as log:
+    log.write(json.dumps(sys.argv[1:]) + '\\n')
 if sys.argv[1] == 'plan':
     print({json.dumps(json.dumps(plan))})
 else:
@@ -237,7 +247,19 @@ else:
             mapping=json.loads((root/'address-map.json').read_text())
             seed_jobs=[j for g in root.glob('jobs/prod_seeds.*') for j in g.iterdir() if j.name.isdigit()]
             deploys=sorted((root/'deploys').read_text().split())
+            groups=list(root.glob('jobs/production_deploy.*'))
+            deploy_jobs=sorted(int(j.name) for g in groups for j in g.iterdir() if j.name.isdigit())
+            deploy_job=(root/'deploy_job').read_text().split()[0].split('|')
+            argv=[json.loads(line) for line in (root/'fake/argv').read_text().splitlines()]
         self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual(len(groups),1)
+        self.assertEqual(deploy_jobs,list(range(1,len(plan)+2)))
+        self.assertEqual(deploy_job,[f'{groups[0].name.split(".")[-1]}-{len(plan)+1}','early'])
+        self.assertEqual([a[0] for a in argv],['plan','materialize'])
+        self.assertTrue(all(a[-2:]==['--only','caller'] for a in argv),argv)
+        labels=[a['label'] for a in actions]
+        self.assertGreater(labels.index('deploy_marker'),max(i for i,l in enumerate(labels) if l.startswith('production_fixture_')))
+        self.assertEqual([(w['job']!='',w['signer']) for w in writes if w['label']=='deploy_marker'],[(True,'admin')])
         cid=lambda n:'C'+f'{n:055d}'.translate(str.maketrans('0123456789','ABCDEFGHIJ'))
         self.assertEqual(list(mapping.items()),[(k,cid(n)) for n,k in enumerate(plan,1)])
         fixtures=[(a,e) for a,e in zip(actions,evidence) if a['label'].startswith('production_fixture_')]
@@ -249,6 +271,7 @@ else:
         for r in required:
             self.assertGreaterEqual(len([a for a in actions if (a['label'],a['fn'],a['status'])==(r['label'],r['method'],r['status'])]),r['count'],r)
         for w in writes:
+            if w['label']=='deploy_marker': continue
             serial=w['label'] in ('prod_xoxno_register','prod_xoxno_seed','prod_lp_fixture')
             self.assertEqual((w['job']=='',w['signer']=='admin'),(serial,serial),w)
         self.assertEqual(len([w for w in writes if w['label']=='prod_redstone_seed']),1)
@@ -262,6 +285,66 @@ else:
         self.assertEqual([w for w in writes if w['label'] in ('prod_reflector_seed','prod_redstone_seed','prod_reflector_base')],[])
         self.assertEqual([(a['label'],a['status']) for a in actions if a['status']=='FAIL'],[('prod_seed_dedupe','FAIL')])
         self.assertIn('conflicting prices',next(a['note'] for a in actions if a['label']=='prod_seed_dedupe'))
+    UPGRADES=['upgradeControllerHash','upgradePoolHash','upgradePositionNftHash','upgradePriceAggregatorHash','upgradeGovernanceHash']
+    UPGRADE_MOCKS=r"""RUN_DIR="$1"; LOG="$1/calls"; INTEG_DIR=integ; REPO_ROOT=repo; POSITION_NFT=NFT; CONTROLLER=CTRL
+CTRL_HASH=hc; POOL_HASH=hp; NFT_HASH=hn; PA_HASH=ha; echo '{"artifacts":{"governance.wasm":"hg"}}' > "$RUN_DIR/candidate.json"
+python3() { echo "$2" >> "$LOG"; [ "${FULL_FAIL:-}" != 1 ]; }
+record() { echo "record $1 $2" >> "$LOG"; }
+_assert_fail() { echo "fail $1" >> "$LOG"; return 1; }
+prod_propose() { echo "propose $1 $2 $3" >> "$LOG"; }
+prod_execute_split() { echo "execute $1 $2 $3" >> "$LOG"; }
+prod_ops() { echo "ops ${PROD_OP_TAG:-$1}" >> "$LOG"; }
+prod_contract_open() { echo open >> "$LOG"; asset=A runner=R acct=7 decimals=9; }
+prod_contract_close() { echo "close $asset $runner $acct $decimals" >> "$LOG"; }
+view() { echo "view $1" >> "$LOG"; echo 0; }
+hub_key() { echo HK; }
+prod_position_snapshot() { echo "snap $1 $2 $3 $4" >> "$LOG"; echo '{}'; }
+prod_verify_policy() { echo policy >> "$LOG"; }
+assert_view_eq_at() { echo "assert $2 $3 $6" >> "$LOG"; }
+"""
+
+    def test_upgrade_case_full_config_and_order(self):
+        hashes=dict(zip(self.UPGRADES,['hc','hp','hn','ha','hg']))
+        with tempfile.TemporaryDirectory() as d:
+            result=shell('flows/production.sh',self.UPGRADE_MOCKS+'flow_production_upgrade',d)
+            calls=(Path(d)/'calls').read_text().splitlines()
+            self.assertTrue((Path(d)/'upgrade.json').exists())
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual(calls,['full','record prod_upgrade_full_config ok']
+            +[f'propose {v} {v} {hashes[v]}' for v in self.UPGRADES]
+            +['open','view prod_position_before','snap prod_upgrade_before 7 A R']
+            +[f'execute {v} {v} {hashes[v]}' for v in self.UPGRADES]
+            +['snap prod_upgrade_after 7 A R','record prod_upgrade_state ok','view prod_position_after','policy',
+              'ops unpause_after_upgrade','assert prod_upgrade_owner R 7','close A R 7 9'])
+        with tempfile.TemporaryDirectory() as d:
+            result=shell('flows/production.sh','FULL_FAIL=1; '+self.UPGRADE_MOCKS+'flow_production_upgrade',d)
+            calls=(Path(d)/'calls').read_text().splitlines()
+        self.assertNotEqual(result.returncode,0)
+        self.assertEqual(calls,['full','fail prod_upgrade_full_config'])
+
+    def test_caller_and_lending_leave_upgrades_to_prod_full(self):
+        body=self.UPGRADE_MOCKS+r"""BOB_ADDR=GBOB; ADMIN_ADDR=GADMIN; PRIMARY_SPOKE_ID=1; WAD=1
+python3() { echo "$2" >> "$LOG"; echo '{"asset":"A","hub_id":3,"amount":"1","spoke_id":9,"debt":"D","debt_hub":1}'; }
+for f in inv lifecycle_inv assert_hf_at_least assert_int_view_eq assert_bool_view pay_vec price_key_token xfail_sim prod_decimal_roundtrips prod_caller_authority; do
+    eval "$f() { echo 1; }"
+done
+mkdir -p "$RUN_DIR/config/testnet"
+echo '{"markets":[{"name":"USDC","asset_address":"A","oracle":{"min_sanity_price_wad":"1","max_sanity_price_wad":"2"}}]}' > "$RUN_DIR/config/testnet/markets.json"
+"$2"
+"""
+        with tempfile.TemporaryDirectory() as d:
+            result=shell('flows/production.sh',body,d,'flow_production_lending')
+            calls=(Path(d)/'calls').read_text().splitlines()
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual([c for c in calls if c.startswith(('propose','execute'))],
+                         ['propose prod_manager_on setPositionManager GBOB','propose prod_manager_off setPositionManager GBOB'])
+        with tempfile.TemporaryDirectory() as d:
+            result=shell('flows/production.sh',body,d,'flow_production_caller')
+            calls=(Path(d)/'calls').read_text().splitlines()
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual([c for c in calls if c.split()[0] in ('propose','execute','policy','ops')],['ops pause','ops unpause_after_pause'])
+        self.assertIn('close A R 7 9',calls)
+
     GROUPED_READS = r"""source "$1/lib/core.sh"; source "$1/lib/invoke.sh"; source "$1/lib/assert.sh"; source "$1/lib/assets.sh"; source "$1/lib/protocol.sh"
 source "$1/flows/lifecycle.sh"; source "$1/flows/teardown.sh"; source "$1/flows/production.sh"
 set -uo pipefail
