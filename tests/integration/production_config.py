@@ -7,6 +7,9 @@ import re
 import sys
 from pathlib import Path
 
+if not __debug__:
+    raise RuntimeError('release verification requires Python assertions; unset PYTHONOPTIMIZE')
+
 
 def walk(value):
     if isinstance(value, dict):

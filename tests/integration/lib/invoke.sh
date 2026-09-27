@@ -32,18 +32,22 @@ latest_ledger() {
 
 run_deploy() {
     [ -n "${E2E_JOB:-}" ] || { run_deploy_body "$@"; return; }
-    local arg previous='' source='' hash
+    local arg previous='' source='' hash rc=0
     for arg in "$@"; do
         case "$previous" in --source|--source-account) [ -n "$source" ] || source="$arg";; esac
         previous="$arg"
     done
+    rm -f "$E2E_JOB_DIR/deploy_attempts"
     (
         job_hold "$source" || { record "$(basename "$1" .out)" FAIL deploy '' '' '' '' '' 'no source lock'; exit 1; }
         rc=0
         run_deploy_body "$@" || rc=$?
         echo "deploy attempts: ${DEPLOY_ATTEMPTS:-0}" >&2
+        echo "${DEPLOY_ATTEMPTS:-0}" > "$E2E_JOB_DIR/deploy_attempts"
         exit "$rc"
-    ) || return
+    ) || rc=$?
+    DEPLOY_ATTEMPTS=$(cat "$E2E_JOB_DIR/deploy_attempts" 2>/dev/null) || DEPLOY_ATTEMPTS=0
+    [ "$rc" -eq 0 ] || return "$rc"
     RES_INSTR='' RES_READ='' RES_WRITE='' RES_FEE=''
     hash=$(extract_signing_hash "$2")
     [ -z "$hash" ] || [ ! -f "$LOG_DIR/$hash.resources.json" ] || res_load "$LOG_DIR/$hash.resources.json"

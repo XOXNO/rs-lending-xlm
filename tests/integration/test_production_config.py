@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Offline policy/decimal assertions; no network or signing keys required."""
 import json
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -173,6 +174,18 @@ flow_production_operator
             full(source, full_dir)
             with self.assertRaises(AssertionError):
                 full(source, filtered_dir)
+            broken = Path(directory) / 'broken'
+            for name, change in (('spokes.json', lambda s: next(iter(s.values()))['assets'].popitem()),
+                                 ('spokes.json', lambda s: s.pop(next(iter(s)))),
+                                 ('fixtures.json', lambda f: f.update(market_filter=list(CALLER_MARKETS))),
+                                 ('markets.json', lambda m: m['references'].pop())):
+                shutil.rmtree(broken, ignore_errors=True)
+                shutil.copytree(full_dir, broken)
+                data = load(broken, name)
+                change(data)
+                (broken / name).write_text(json.dumps(data))
+                with self.assertRaises(AssertionError, msg=name):
+                    full(source, broken)
         for only in (('AQUA',), ('NOPE',)):
             with self.assertRaises(AssertionError):
                 plan(source, only)
@@ -180,6 +193,9 @@ flow_production_operator
         cli = subprocess.run([sys.executable, str(script), 'plan', str(source), '--only', 'caller'], capture_output=True, text=True, check=True)
         self.assertEqual(json.loads(cli.stdout), filtered)
         self.assertNotEqual(subprocess.run([sys.executable, str(script), 'plan', str(source), '--only', 'other'], capture_output=True).returncode, 0)
+        optimized = subprocess.run([sys.executable, '-O', str(script), 'plan', str(source)], capture_output=True, text=True)
+        self.assertNotEqual(optimized.returncode, 0)
+        self.assertIn('requires Python assertions', optimized.stderr)
 
     def test_upgrade_receipts_bind_requested_target_and_hash(self):
         script = Path(__file__).resolve().parent/'flows/production.sh'

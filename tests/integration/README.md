@@ -70,8 +70,8 @@ then `flash-b`.
 | `flash-a` | callback success, protected balances, Long/multiple collateral, delegates and rollback snapshots, malicious receiver | live Reflector; existing receiver fixtures |
 | `flash-b` | callback success, create-path and dual-path rejections, strategy-mode and flash-loan gates | live Reflector; existing receiver fixtures |
 | `blend` | actual pool allowlist/reserve addresses, six XLM paths plus distinct-token/multiple-liability migration, committed-rate shares/refunds/identity/unrelated balances | real Blend TestnetV2 pool |
-| `prod-full` | governance operator setup/replay, full enabled mainnet policy readbacks, 5 same-hash upgrades with a live contract-owned position, then the full policy readback | disposable policy/wallet roots; explicit provider/LP/token fixtures for every enabled mainnet market |
-| `prod-caller` | the same operator on the filtered config (7 markets and reference BTC, policies from `configs/mainnet`); 7/8/9/18 decimal round trips, XOXNO-backed borrowing, contract caller and authority chain, governance band, flags and pause | disposable policy/wallet roots; `production_config.py --only caller` fixtures |
+| `prod-full` | governance operator setup/replay, full enabled mainnet policy readbacks, 5 same-hash upgrades with a live contract-owned position on a book with a repaid borrow, the full policy readback, then governance band, flags and pause on the upgraded contracts | disposable policy/wallet roots; explicit provider/LP/token fixtures for every enabled mainnet market |
+| `prod-caller` | the same operator on the filtered config (7 markets and reference BTC, policies from `configs/mainnet`); 7/8/9/18 decimal round trips, XOXNO-backed borrowing, contract caller and authority chain | disposable policy/wallet roots; `production_config.py --only caller` fixtures |
 | `sdk` | supply/borrow/repay/withdraw, routed multiply, Blend, events/error mapping/delayed signing | published SDK 1.0.221 and Stellar SDK 16.3.0; fresh contracts |
 
 `cases.json` defines required terminal cases and action predicates, qualified by

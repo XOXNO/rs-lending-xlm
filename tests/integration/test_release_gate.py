@@ -356,9 +356,10 @@ for case in manifest:
     if any(re.fullmatch(r'operator_upgrade\w+Hash', label) for label in labels):
         pinned['upgrade'] += 1
         assert set(case['lanes']) & LANES <= full_lanes, case['id']
-        assert {'prod_upgrade_full_config', 'prod_policy_equal'} <= labels, case['id']
+        assert {'prod_upgrade_full_config', 'prod_policy_equal', 'prod_upgrade_book_history', 'prod_governance_band',
+                'prod_governance_flags', 'operator_unpause_after_pause'} <= labels, case['id']
     if 'operator_setupAll_replay' in labels:
         pinned['replay'] += 1
         assert set(case['lanes']) & full_lanes, case['id']
 assert all(pinned.values()), pinned
-print('Upgrade proofs and the setup replay run only on the full mainnet-shaped production config')
+print('Upgrade proofs and the governance writes after them run only on prod-full; the setup replay runs at least on prod-full')

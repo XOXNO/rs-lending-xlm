@@ -531,18 +531,12 @@ flow_production_caller() {
     after=$(prod_position_snapshot prod_rollback_after "$acct" "$asset" "$runner") || return 1
     [ "$before" = "$after" ] || { _assert_fail prod_contract_rollback_state "failed script changed position, owner, usage or balances"; return 1; }
     record prod_contract_rollback_state ok assert "" "" "" "" "" "simulation rejected; stored position, usage and balances unchanged"
-    prod_contract_close || return 1
-    local market
-    market=$(jq -c '.markets[]|select(.name=="USDC")' "$RUN_DIR/config/testnet/markets.json") || return 1
-    inv prod_governance_band "$ADMIN" "$GOVERNANCE" -- set_sanity_band --caller "$ADMIN_ADDR" --key "$(price_key_token "$asset")" --min_wad "$(jq -r '.oracle.min_sanity_price_wad' <<<"$market")" --max_wad "$(jq -r '.oracle.max_sanity_price_wad' <<<"$market")" >/dev/null || return 1
-    inv prod_governance_flags "$ADMIN" "$GOVERNANCE" -- set_spoke_asset_flags --caller "$ADMIN_ADDR" --spoke_id "$PRIMARY_SPOKE_ID" --hub_asset "$(hub_key 1 "$asset")" --paused true --frozen true --no_seize false >/dev/null || return 1
-    prod_ops pause >/dev/null || return 1
-    PROD_OP_TAG=unpause_after_pause prod_ops unpause >/dev/null
+    prod_contract_close
 }
 
 flow_production_upgrade() {
     phase production_upgrade
-    local verb hash asset runner acct decimals before after
+    local verb hash asset runner acct decimals before after ops
     python3 "$INTEG_DIR/production_config.py" full "$REPO_ROOT/configs/mainnet" "$RUN_DIR/config/testnet" \
         || { _assert_fail prod_upgrade_full_config 'upgrade proof needs the full mainnet-shaped config'; return 1; }
     record prod_upgrade_full_config ok assert "" "" "" "" "" 'every enabled mainnet market, reference, spoke and listing is configured'
@@ -551,8 +545,18 @@ flow_production_upgrade() {
         prod_propose "$verb" "$verb" "$hash" || return 1
     done
     prod_contract_open || return 1
+    inv prod_upgrade_mint "$ADMIN" "$asset" -- mint --to "$runner" --amount 110000000 >/dev/null || return 1
+    ops=$(jq -nc --arg a "$asset" --argjson id "$acct" --argjson s "$PRIMARY_SPOKE_ID" \
+        '[{Supply:{account_id:$id,spoke_id:$s,assets:[[{hub_id:1,asset:$a},"100000000"]]}},{Borrow:{account_id:$id,borrows:[[{hub_id:1,asset:$a},"10000000"]],to:null}}]')
+    inv prod_upgrade_borrow "$ADMIN" "$runner" -- run --controller "$CONTROLLER" --nft "$POSITION_NFT" --ops "$ops" >/dev/null || return 1
+    ops=$(jq -nc --arg a "$asset" --argjson id "$acct" '[{Repay:{account_id:$id,payments:[[{hub_id:1,asset:$a},"20000000"]]}}]')
+    inv prod_upgrade_repay "$ADMIN" "$runner" -- run --controller "$CONTROLLER" --nft "$POSITION_NFT" --ops "$ops" >/dev/null || return 1
+    assert_int_view_eq prod_upgrade_debt_zero 0 get_borrow_amount --account_id "$acct" --hub_asset "$(hub_key 1 "$asset")" || return 1
     view prod_position_before "$CONTROLLER" -- get_collateral_amount --account_id "$acct" --hub_asset "$(hub_key 1 "$asset")" >/dev/null || return 1
     before=$(prod_position_snapshot prod_upgrade_before "$acct" "$asset" "$runner") || return 1
+    python3 -c 'import json,sys; s=json.loads(sys.argv[1])["book"]["state"]; assert min(int(s["borrow_index"]),int(s["supply_index"]))>10**27' "$before" \
+        || { _assert_fail prod_upgrade_book_history 'upgrade snapshot book has no accrued borrow history'; return 1; }
+    record prod_upgrade_book_history ok assert "" "" "" "" "" 'upgrade snapshot book: borrow and supply indexes above RAY after a repaid borrow'
     for verb in $PROD_UPGRADES; do
         hash=$(prod_upgrade_hash "$verb") || return 1
         prod_execute_split "$verb" "$verb" "$hash" >/dev/null || return 1
@@ -567,7 +571,13 @@ flow_production_upgrade() {
     PROD_OP_TAG=unpause_after_upgrade prod_ops unpause >/dev/null || return 1
     assert_view_eq_at "$POSITION_NFT" prod_upgrade_owner "$runner" owner_of --token_id "$acct" || return 1
     printf '{"baseline":"%s","candidate":"%s","executable_differs":false,"schema":"current"}\n' "$CTRL_HASH" "$CTRL_HASH" > "$RUN_DIR/upgrade.json"
-    prod_contract_close
+    prod_contract_close || return 1
+    local market
+    market=$(jq -c '.markets[]|select(.name=="USDC")' "$RUN_DIR/config/testnet/markets.json") || return 1
+    inv prod_governance_band "$ADMIN" "$GOVERNANCE" -- set_sanity_band --caller "$ADMIN_ADDR" --key "$(price_key_token "$asset")" --min_wad "$(jq -r '.oracle.min_sanity_price_wad' <<<"$market")" --max_wad "$(jq -r '.oracle.max_sanity_price_wad' <<<"$market")" >/dev/null || return 1
+    inv prod_governance_flags "$ADMIN" "$GOVERNANCE" -- set_spoke_asset_flags --caller "$ADMIN_ADDR" --spoke_id "$PRIMARY_SPOKE_ID" --hub_asset "$(hub_key 1 "$asset")" --paused true --frozen true --no_seize false >/dev/null || return 1
+    prod_ops pause >/dev/null || return 1
+    PROD_OP_TAG=unpause_after_pause prod_ops unpause >/dev/null
 }
 
 # Real candidate XOXNO adapter feeds the production-shaped risk path. The

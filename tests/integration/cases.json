@@ -9413,7 +9413,6 @@
       "supply",
       "withdraw",
       "account_exists",
-      "unpause",
       "deploy",
       "configure_vault",
       "transfer",
@@ -9447,26 +9446,6 @@
         "execution": [
           "transaction"
         ]
-      },
-      {
-        "label": "prod_governance_band",
-        "method": "set_sanity_band",
-        "status": "ok",
-        "count": 1,
-        "execution": [
-          "transaction"
-        ],
-        "contract": "governance"
-      },
-      {
-        "label": "prod_governance_flags",
-        "method": "set_spoke_asset_flags",
-        "status": "ok",
-        "count": 1,
-        "execution": [
-          "transaction"
-        ],
-        "contract": "governance"
       },
       {
         "label": "prod_decimal_7_supply",
@@ -9883,15 +9862,6 @@
       {
         "label": "prod_contract_return",
         "method": "assert",
-        "status": "ok",
-        "count": 1,
-        "execution": [
-          "assertion"
-        ]
-      },
-      {
-        "label": "operator_unpause_after_pause",
-        "method": "unpause",
         "status": "ok",
         "count": 1,
         "execution": [
@@ -10630,6 +10600,81 @@
           "simulation"
         ],
         "contract": "controller"
+      },
+      {
+        "label": "prod_upgrade_mint",
+        "method": "mint",
+        "status": "ok",
+        "count": 1,
+        "execution": [
+          "transaction"
+        ]
+      },
+      {
+        "label": "prod_upgrade_borrow",
+        "method": "run",
+        "status": "ok",
+        "count": 1,
+        "execution": [
+          "transaction"
+        ]
+      },
+      {
+        "label": "prod_upgrade_repay",
+        "method": "run",
+        "status": "ok",
+        "count": 1,
+        "execution": [
+          "transaction"
+        ]
+      },
+      {
+        "label": "prod_upgrade_debt_zero",
+        "method": "get_borrow_amount",
+        "status": "read",
+        "count": 1,
+        "execution": [
+          "simulation"
+        ],
+        "contract": "controller"
+      },
+      {
+        "label": "prod_upgrade_book_history",
+        "method": "assert",
+        "status": "ok",
+        "count": 1,
+        "execution": [
+          "assertion"
+        ]
+      },
+      {
+        "label": "prod_governance_band",
+        "method": "set_sanity_band",
+        "status": "ok",
+        "count": 1,
+        "execution": [
+          "transaction"
+        ],
+        "contract": "governance"
+      },
+      {
+        "label": "prod_governance_flags",
+        "method": "set_spoke_asset_flags",
+        "status": "ok",
+        "count": 1,
+        "execution": [
+          "transaction"
+        ],
+        "contract": "governance"
+      },
+      {
+        "label": "operator_unpause_after_pause",
+        "method": "unpause",
+        "status": "ok",
+        "count": 1,
+        "execution": [
+          "assertion"
+        ]
       }
     ]
   },

@@ -816,12 +816,14 @@ stellar() {
 }
 jobf() {
     run_deploy "$LOG_DIR/dep.out" "$LOG_DIR/dep.err" -- stellar contract deploy --wasm "$W" --source admin || return 1
+    echo "$DEPLOY_ATTEMPTS" > "$RUN_DIR/job_attempts"
     record dep ok deploy "$(extract_signing_hash "$LOG_DIR/dep.err")" '' '' '' '' "$CID" deployment "$CID"
 }
 group_begin g 2 || exit 1
 group_spawn jobf
 group_end || exit 2
 grep -qx 'deploy attempts: 1' "$GROUP_LAST/1/stderr" || exit 3
+[ "$(cat "$RUN_DIR/job_attempts")" = 1 ] || exit 7
 [ "$(jq -r .address "$RUN_DIR/deployed-artifacts.jsonl")" = "$CID" ] && [ -s "$LOG_DIR/deployment-fee-stats.json" ] || exit 4
 [ "$(awk -F'\t' 'NR==2 {print $2}' "$RUN_DIR/evidence.tsv")" = deployment ] || exit 5
 gate_attempts || exit 6
