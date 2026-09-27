@@ -363,6 +363,7 @@ E2E_SIM_SLOTS=1 DELAY_UNIT=0.0
 cat > "$RUN_DIR/node" <<'NODE'
 #!/bin/bash
 span="$(dirname "$0")/span"; echo "start node" >> "$span"; sleep 0.3; echo "end node" >> "$span"
+held=no; for fd in 130 131 132 133 134 135; do { : >&"$fd"; } 2>/dev/null && held=yes; done; echo "$held" >> "$(dirname "$0")/read-slot"
 out=$6; shift 6
 jq -n '[$ARGS.positional[] | {(.): {balance: "3"}}] | add // {}' --args "$@" > "$out"
 NODE
@@ -376,6 +377,7 @@ group_end || exit 2
             result = subprocess.run(['bash', '-c', body, '_', str(HERE), d], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr[-2000:])
             spans = (Path(d)/'span').read_text().split('\n')[:-1]
+            self.assertEqual((Path(d)/'read-slot').read_text().split(), ['yes', 'yes'])
         self.assertEqual(spans.count('start node'), 2)
         self.assertEqual([line.split()[0] for line in spans], ['start', 'end'] * (len(spans) // 2), spans)
 

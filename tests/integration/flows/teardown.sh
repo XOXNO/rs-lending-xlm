@@ -194,6 +194,7 @@ td_snapshot_job() {
         trust="$(job_log "pre_cleanup_${asset}_trustlines").json"
         (
             [ -z "${E2E_JOB:-}" ] || sim_hold || { record "pre_cleanup_${asset:0:8}_trustlines" FAIL getLedgerEntries '' '' '' '' '' 'no simulation slot'; exit 1; }
+            rpc_hold read || { record "pre_cleanup_${asset:0:8}_trustlines" FAIL getLedgerEntries '' '' '' '' '' 'no RPC slot'; exit 1; }
             "${NODE_BIN:-node}" "$INTEG_DIR/sdk/balances.mjs" "$RPC_URL" "$asset" "${line%%:*}" "$issuer" "$trust" "${addresses[@]}"
         ) || return 1
         balances=$(cat "$trust") || return 1

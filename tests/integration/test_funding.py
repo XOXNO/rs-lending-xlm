@@ -231,7 +231,12 @@ for throttled, funded, checks in [('2', True, 3), ('99', False, 7)]:
         result = friendbot(directory, 'sleep() { echo "$1" >> "$RUN_DIR/slept"; }\nwallet_funded Galice "$RUN_DIR/alice.json"', [], 1, HZ429=throttled)
         slept = [int(s) for s in (root / 'slept').read_text().split()]
         assert (result.returncode == 0) == funded and (root / 'Galice.hz').read_text().strip() == str(checks), result.stderr
-        assert len(slept) == checks - 1 and all(2 << min(i, 4) <= s <= 3 * (2 << min(i, 4)) // 2 for i, s in enumerate(slept)), slept
+        assert len(slept) == checks - 1 and all(min(8 << i, 60) <= s <= 3 * min(8 << i, 60) // 2 for i, s in enumerate(slept)), slept
+with tempfile.TemporaryDirectory() as directory:
+    root = Path(directory)
+    result = friendbot(directory, 'sleep() { echo "$1" >> "$RUN_DIR/slept"; }\nfriendbot_fund alice', ['200'], 1, HZ429='99')
+    slept = [int(s) for s in (root / 'slept').read_text().split()]
+    assert result.returncode == 1 and len(slept) == 3 and (root / 'Galice.hz').read_text().strip() == '4', (result.stderr, slept)
 for slots, valid in [('0', False), ('abc', False), ('6', True)]:
     result = subprocess.run(['bash', '-c', 'source "$1/env.sh"', '_', str(HERE)], capture_output=True, text=True, timeout=30,
                             env=dict(os.environ, RUN_TS='t', NETWORK='testnet', E2E_FRIENDBOT_SLOTS=slots))
@@ -244,5 +249,18 @@ for slots, valid in [('0', False), ('100', False), ('12', True)]:
         path, stellar, exported = result.stdout.splitlines()
         assert path.split(':').count(str(HERE / 'bin')) == 1 and path.split(':')[0] == str(HERE / 'bin'), path
         assert stellar == (shutil.which('stellar') or '') and exported == '12', (stellar, exported)
+for name, value, valid in [('E2E_RPC_READ_SLOTS', '0', False), ('E2E_RPC_READ_SLOTS', '21', False), ('E2E_RPC_READ_SLOTS', '20', True),
+                           ('THROTTLE_RETRIES', 'x', False), ('THROTTLE_RETRIES', '21', False), ('THROTTLE_RETRIES', '0', True),
+                           ('E2E_SLOT_DIR', 'relative/slots', False), ('E2E_SLOT_DIR', '/tmp/shared-slots', True)]:
+    result = subprocess.run(['bash', '-c', 'source "$1/env.sh" && printf "%s|%s|%s|%s\\n" "$E2E_RPC_READ_SLOTS" "$THROTTLE_RETRIES" "$E2E_SLOT_DIR" "$E2E_RPC_WAIT_LOG"', '_', str(HERE)],
+                            capture_output=True, text=True, timeout=30, env={**os.environ, 'RUN_TS': 't', 'NETWORK': 'testnet', name: value})
+    assert (result.returncode == 0) == valid and (valid or f'invalid {name}' in result.stderr), (name, value, result.stderr)
+    if valid:
+        exported = dict(zip(['E2E_RPC_READ_SLOTS', 'THROTTLE_RETRIES', 'E2E_SLOT_DIR'], result.stdout.strip().split('|')))
+        assert exported[name] == value and result.stdout.strip().endswith(f'/runs/t/rpc-wait.tsv'), result.stdout
+result = subprocess.run(['bash', '-c', 'source "$1/env.sh" && printf "%s|%s|%s" "$E2E_RPC_READ_SLOTS" "$THROTTLE_RETRIES" "$E2E_SLOT_DIR"', '_', str(HERE)],
+                        capture_output=True, text=True, timeout=30,
+                        env={k: v for k, v in {**os.environ, 'RUN_TS': 't', 'NETWORK': 'testnet'}.items() if k not in ('E2E_RPC_READ_SLOTS', 'THROTTLE_RETRIES', 'E2E_SLOT_DIR')})
+assert result.returncode == 0 and result.stdout == f'6|6|/tmp/rs-lending-e2e-slots-{os.getuid()}', result.stdout
 print('Friendbot retries throttling, logs every code, fails closed at the deadline, caps concurrency and refuses an inherited slot fd')
-print('Horizon funding reads back off on 429 within a bound; env.sh validates E2E_RPC_SLOTS and routes stellar through one shim')
+print('Horizon funding reads back off on 429 within a bound and inside the friendbot deadline; env.sh validates and exports the RPC knobs and routes stellar through one shim')

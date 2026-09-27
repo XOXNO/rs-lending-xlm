@@ -1,6 +1,6 @@
 // Exercise the real invocation and shell recorder against offline RPC fixtures.
 import assert from 'node:assert/strict';
-import {mkdtempSync,readFileSync,writeFileSync,appendFileSync,mkdirSync,rmSync} from 'node:fs';
+import {mkdtempSync,readFileSync,writeFileSync,appendFileSync,mkdirSync,rmSync,fstatSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join,dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -14,6 +14,7 @@ const asset=Address.contract(Buffer.alloc(32,3)).toString();
 const mode=process.env.SDK_INVOKE_FIXTURE;
 if (mode) {
   const trace=message=>appendFileSync(join(process.env.LOG_DIR,'trace'),message+'\n');
+  trace([...Array(12).keys()].some(i=>{ try { fstatSync(150+i); return true; } catch { return false; } })?'slot':'no-slot');
   const data=new SorobanDataBuilder().setResources(200000,100,200).setResourceFee('300');
   const raw={latestLedger:100,minResourceFee:'300',transactionData:data.build().toXDR('base64'),
     results:[{auth:[],xdr:xdr.ScVal.scvVoid().toXDR('base64')}]};
@@ -21,9 +22,16 @@ if (mode) {
     ? {latestLedger:100,error:'HostError: Error(Contract, #14)'}
     : mode==='native' ? rpc.parseRawSimulation(raw) : raw;
   const before=JSON.stringify(simulation);
-  rpc.Server.prototype.getAccount=async()=>new Account(key.publicKey(),'11');
+  const limited=new Set();
+  const throttle=name=>{
+    if (mode!=='throttled'||limited.has(name)) return;
+    limited.add(name); trace(`${name}-429`);
+    throw Object.assign(new Error('Request failed with status code 429'),{response:{status:429,data:{error:'rate_limited',retry_after:1}}});
+  };
+  rpc.Server.prototype.getAccount=async()=>{ throttle('account'); return new Account(key.publicKey(),'11'); };
   rpc.Server.prototype.simulateTransaction=async function() {
     assert(this instanceof rpc.Server);
+    throttle('simulate');
     trace('simulate');
     return simulation;
   };
@@ -32,9 +40,11 @@ if (mode) {
     assert.equal(JSON.stringify(simulation),before,'observer changed simulation');
     const hash=transaction.hash().toString('hex');
     if (mode==='send-error') throw new Error('uncertain submission');
+    if (mode==='throttled') throw Object.assign(new Error('Request failed with status code 429'),{response:{status:429,data:{retry_after:1}}});
     return {status:'PENDING',hash};
   };
   rpc.Server.prototype.getTransaction=async hash=>{
+    throttle('poll');
     trace('poll');
     return {status:'FAILED',txHash:hash,ledger:101};
   };
@@ -47,7 +57,7 @@ if (mode) {
   };
 } else {
   assert.equal(process.versions.node.split('.')[0],'24');
-  for (const fixture of ['failed','send-error','simulation-error','native']) {
+  for (const fixture of ['failed','send-error','simulation-error','native','throttled']) {
     const run=mkdtempSync(join(tmpdir(),'sdk-invoke-'));
     try {
       const logs=join(run,'logs');
@@ -61,7 +71,7 @@ if (mode) {
         sdk_inv fixture buildStellarSupplyTx "$FIXTURE_ARGS"
       `],{encoding:'utf8',env:{...process.env,SDK_INVOKE_FIXTURE:fixture,
         NODE_OPTIONS:`--import=${import.meta.url}`,NODE_BIN:process.execPath,
-        INTEG_DIR:dirname(here),RUN_DIR:run,LOG_DIR:logs,ACTIONS_TSV:join(run,'actions.tsv'),PHASE:'sdk',
+        INTEG_DIR:dirname(here),E2E_SLOT_DIR:join(run,'slots'),RUN_DIR:run,LOG_DIR:logs,ACTIONS_TSV:join(run,'actions.tsv'),PHASE:'sdk',
         RPC_URL:'https://rpc.invalid',NETWORK_PASSPHRASE:'Test SDF Network ; September 2015',CONTROLLER:controller,ALICE:'fixture',EXPECT_ERROR:'',
         FIXTURE_SECRET:key.secret(),FIXTURE_ARGS:JSON.stringify({asset,hubId:1,spokeId:1,amount:'10000001',accountNonce:0})}});
       assert.equal(result.status,1,result.stderr);
@@ -78,7 +88,7 @@ if (mode) {
         assert.match(sim.error,/#14/);
         assert.equal(action[5],'');
         assert.equal(proof[1],'simulation');
-        assert.deepEqual(trace,['simulate']);
+        assert.deepEqual(trace,['slot','simulate']);
       } else {
         const resources=JSON.parse(readFileSync(join(logs,'fixture.simulation-1.resources.json'),'utf8'));
         assert.equal(resources.latestLedger,100);
@@ -90,10 +100,12 @@ if (mode) {
         const receipt=JSON.parse(readFileSync(join(logs,`${action[5]}.receipt.json`),'utf8'));
         assert.equal(receipt.result.status,'FAILED');
         assert.equal(receipt.result.txHash,action[5]);
-        assert.deepEqual(trace,['simulate','send','poll','wire']);
+        assert.deepEqual(trace,fixture==='throttled'?['slot','account-429','simulate-429','simulate','send','poll-429','poll','wire']:['slot','simulate','send','poll','wire']);
         if (fixture==='send-error') assert.match(readFileSync(join(logs,'fixture.submission-error.txt'),'utf8'),/uncertain submission/);
+        if (fixture==='throttled') assert.match(readFileSync(join(logs,'fixture.submission-error.txt'),'utf8'),/status code 429/);
       }
     } finally { rmSync(run,{recursive:true,force:true}); }
   }
   console.log('SDK simulation evidence, failed wire receipt, single submission, and sticky shell failure checks passed');
+  console.log('SDK pre-sign reads and receipt polls retry a 429 once each; a 429 on send is never resubmitted');
 }

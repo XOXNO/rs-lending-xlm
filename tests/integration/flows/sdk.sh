@@ -12,7 +12,7 @@ sdk_inv() {
     export RPC_URL CONTROLLER
     local evidence="$LOG_DIR/$label" drifted='' hash execution
     while :; do
-        if stellar keys secret "$ALICE" | "${NODE_BIN:-node}" "$INTEG_DIR/sdk/invoke.mjs" "$builder" "$args" "$evidence" > "$result" 2> "$evidence.err"; then
+        if stellar keys secret "$ALICE" | ( rpc_hold || exit 1; exec "${NODE_BIN:-node}" "$INTEG_DIR/sdk/invoke.mjs" "$builder" "$args" "$evidence" ) > "$result" 2> "$evidence.err"; then
             if [ -n "${EXPECT_ERROR:-}" ]; then
                 record "$label" xfail "$method" "" "" "" "" "" "published SDK error mapping: $EXPECT_ERROR" simulation "$CONTROLLER"
             else

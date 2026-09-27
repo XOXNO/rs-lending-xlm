@@ -423,7 +423,7 @@ oracle_cfg_reflector() {
 # list a market that its oracle rejects. Reflector CEX prices have 14 decimals.
 reflector_band() {
     local sym="$1" pct="${2:-9}" raw px14
-    raw=$(stellar contract invoke --id "$REFLECTOR_CEX" --source "$ADMIN" "${NET_ARGS[@]}" \
+    raw=$(cli_read stellar contract invoke --id "$REFLECTOR_CEX" --source "$ADMIN" "${NET_ARGS[@]}" \
         --send=no -- lastprice --asset "{\"Other\":\"$sym\"}" 2>/dev/null) || return 1
     px14=$(printf '%s' "$raw" | jq -r '.price // empty' 2>/dev/null)
     case "$px14" in
@@ -444,14 +444,14 @@ wad_band_from_px14() {
 
 market_listing_exists() {
     local hub_id="$1" sac="$2"
-    stellar contract invoke --id "$CONTROLLER" --source "$ADMIN" "${NET_ARGS[@]}" \
+    cli_read stellar contract invoke --id "$CONTROLLER" --source "$ADMIN" "${NET_ARGS[@]}" \
         --send=no -- get_spoke_asset --spoke_id "$PRIMARY_SPOKE_ID" --hub_asset "$(hub_key "$hub_id" "$sac")" >/dev/null 2>&1
 }
 
 market_wait_listed() {
     local hub_id="$1" sac="$2" probe got
     for probe in $(seq 1 8); do
-        got=$(stellar contract invoke --id "$CONTROLLER" --source "$ADMIN" "${NET_ARGS[@]}" \
+        got=$(cli_read stellar contract invoke --id "$CONTROLLER" --source "$ADMIN" "${NET_ARGS[@]}" \
             --send=no -- get_spoke_asset --spoke_id "$PRIMARY_SPOKE_ID" --hub_asset "$(hub_key "$hub_id" "$sac")" 2>/dev/null \
             | jq -r '.is_borrowable // empty' 2>/dev/null)
         [ "$got" = "true" ] && return 0

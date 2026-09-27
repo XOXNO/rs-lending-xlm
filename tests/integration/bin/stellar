@@ -8,7 +8,10 @@ case "${1:-} ${2:-}" in
     --version*|'version '*|'keys '*|'xdr '*|'tx sign'|'tx hash'|'tx decode'|'tx encode'|'tx op'|'contract id'|'contract alias')
         case " $* " in *' --fund '*) ;; *) exec "$E2E_STELLAR" "$@";; esac;;
 esac
+pool=
+case "${1:-} ${2:-}" in 'tx simulate'|'contract fetch'|'fees stats'|'ledger '*) pool='read';; esac
+case " $* " in *' --send=no '*|*' --build-only '*) pool='read';; esac
 INTEG_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)" || exit 1
 source "$INTEG_DIR/lib/core.sh" || exit 1
-rpc_hold || { echo "error: no RPC slot free within 600 s (E2E_RPC_SLOTS=${E2E_RPC_SLOTS:-12})" >&2; exit 1; }
+rpc_hold "$pool" || exit 1
 exec "$E2E_STELLAR" "$@"

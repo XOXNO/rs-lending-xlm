@@ -99,6 +99,7 @@ flow_stress_composed
             failed = fail != '0' or status != 'SUCCESS' or budget != '0'
             with self.subTest(fail_send=fail, status=status, budget=budget), tempfile.TemporaryDirectory() as directory:
                 result = self.run_shell(r'''
+source "${FLOW%/flows/stress.sh}/lib/invoke.sh"
 LOG_DIR="$WORK"; ACTIONS_TSV="$WORK/actions.tsv"; touch "$ACTIONS_TSV"; DAVE_DUAL_ACCT=7; PRIMARY_HUB_ID=1; PRIMARY_SPOKE_ID=1
 DAVE=dave; DAVE_ADDR=dave_address; CAROL=carol; CAROL_ADDR=carol_address
 CONTROLLER=controller; NETWORK_PASSPHRASE=test; STRESS_UNIT=10000000; NET_ARGS=(--network testnet)

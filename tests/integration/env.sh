@@ -51,13 +51,18 @@ RUN_TS="${RUN_TS:?set RUN_TS=<unique-run-name> (e.g. \$(date +%Y%m%d-%H%M%S))}"
 [[ "$RUN_TS" =~ ^[A-Za-z0-9_-]+$ ]] || { echo "invalid RUN_TS" >&2; exit 1; }
 [[ "${E2E_FRIENDBOT_SLOTS:-6}" =~ ^[1-9][0-9]?$ ]] || { echo "invalid E2E_FRIENDBOT_SLOTS (1-99)" >&2; exit 1; }
 [[ "${E2E_RPC_SLOTS:-12}" =~ ^[1-9][0-9]?$ ]] || { echo "invalid E2E_RPC_SLOTS (1-99)" >&2; exit 1; }
-export E2E_RPC_SLOTS="${E2E_RPC_SLOTS:-12}"
+[[ "${E2E_RPC_READ_SLOTS:-6}" =~ ^([1-9]|1[0-9]|20)$ ]] || { echo "invalid E2E_RPC_READ_SLOTS (1-20)" >&2; exit 1; }
+[[ "${THROTTLE_RETRIES:-6}" =~ ^([0-9]|1[0-9]|20)$ ]] || { echo "invalid THROTTLE_RETRIES (0-20)" >&2; exit 1; }
+export E2E_RPC_SLOTS="${E2E_RPC_SLOTS:-12}" E2E_RPC_READ_SLOTS="${E2E_RPC_READ_SLOTS:-6}" THROTTLE_RETRIES="${THROTTLE_RETRIES:-6}"
+export E2E_SLOT_DIR="${E2E_SLOT_DIR:-/tmp/rs-lending-e2e-slots-$(id -u)}"
+case "$E2E_SLOT_DIR" in /*) ;; *) echo "invalid E2E_SLOT_DIR (absolute path)" >&2; exit 1;; esac
 case ":$PATH:" in
     *":$INTEG_DIR/bin:"*) ;;
     *) export E2E_STELLAR="${E2E_STELLAR:-$(command -v stellar)}" PATH="$INTEG_DIR/bin:$PATH";;
 esac
 [ "$NETWORK" = testnet ] || { echo "E2E requires testnet" >&2; exit 1; }
 RUN_DIR="$INTEG_DIR/runs/$RUN_TS"
+export E2E_RPC_WAIT_LOG="$RUN_DIR/rpc-wait.tsv"
 STATE_ENV="$RUN_DIR/state.env"
 ACTIONS_TSV="$RUN_DIR/actions.tsv"
 LOG_DIR="$RUN_DIR/logs"

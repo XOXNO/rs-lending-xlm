@@ -159,6 +159,26 @@ print('Critical lanes start first; the rest start after E2E_LANE_STAGGER; gating
 
 with tempfile.TemporaryDirectory() as directory:
     base=Path(directory)
+    scripts,env,wasms=orchestrator(base,LANE_TIMEOUT='30s',E2E_LANE_STAGGER='1')
+    env['E2E_LANES']='agg-core production'
+    lane='''#!/bin/bash
+run="$INTEG_DIR/runs/$RUN_TS"
+mkdir -p "$run"
+printf '{"selected_cases":["only"]}' > "$run/metadata.json"
+printf 'id\\tstatus\\tfirst_action\\tlast_action\\n' > "$run/cases.tsv"
+'''
+    (scripts/'full_e2e.sh').write_text(lane+'echo "run complete"\n')
+    (scripts/'production.sh').write_text(lane+'exit 1\n')
+    (scripts/'assert_green.sh').write_text('#!/bin/bash\necho "GREEN $RUN_TS"\n')
+    done=subprocess.run(['bash',str(scripts/'parallel_e2e.sh')],env=env,capture_output=True,text=True,timeout=60)
+    assert done.returncode!=0,done.stderr
+    assert "lane 'production' FAILED — process did not exit cleanly (1)" in done.stderr and "lane 'agg-core' GREEN" in done.stderr,done.stderr
+    assert 'incomplete' in (base/'runs/fixture-production/cases.tsv').read_text()
+    assert 'incomplete' not in (base/'runs/fixture-agg-core/cases.tsv').read_text()
+print('After the critical-first reorder, each lane keeps its own exit code and incomplete mark')
+
+with tempfile.TemporaryDirectory() as directory:
+    base=Path(directory)
     scripts,env,wasms=orchestrator(base,LANE_TIMEOUT='60s',E2E_LANE_STAGGER='29')
     env['E2E_LANES']='agg-core stress'
     (scripts/'full_e2e.sh').write_text('''#!/bin/bash

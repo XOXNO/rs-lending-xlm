@@ -24,7 +24,7 @@ source "{HERE}/lib/core.sh"
 source "{HERE}/lib/invoke.sh"
 RUN_DIR={directory}; LOG_DIR="$RUN_DIR/logs"; ACTIONS_TSV="$RUN_DIR/actions.tsv"
 PHASE=test; ADMIN=admin; RPC_URL=unused; NET_ARGS=(--network testnet); NETWORK_PASSPHRASE='Test SDF Network ; September 2015'; INTEG_DIR="{HERE}"
-XDG_CONFIG_HOME="$RUN_DIR/private"
+XDG_CONFIG_HOME="$RUN_DIR/private"; E2E_SLOT_DIR="$RUN_DIR/slots"
 mkdir -p "$LOG_DIR" "$XDG_CONFIG_HOME/stellar/identity"
 printf 'mock key' > "$XDG_CONFIG_HOME/stellar/identity/admin.toml"
 printf 'seq\\tphase\\tlabel\\tstatus\\tfn\\thash\\tinstructions\\tread_bytes\\twrite_bytes\\tresource_fee\\tnote\\n' > "$ACTIONS_TSV"
@@ -1126,11 +1126,12 @@ assert not attempts
 attempts, _, actions = shell(R_SETUP + r'''
 printf '{"jsonrpc":"2.0","id":1,"result":{"status":"SUCCESS","ledger":100}}' > "$LOG_DIR/$(printf '%064d' 1).receipt.json"
 sleep() { SECONDS=$((SECONDS + 10)); }
-latest_ledger() { echo "$1" >> "$RUN_DIR/limits"; echo 99; }
+latest_ledger() { echo "$1" >> "$RUN_DIR/limits"; echo "$1 $(( ${E2E_RPC_DEADLINE:-0} - $(date +%s) ))" >> "$RUN_DIR/deadlines"; echo 99; }
 if readf; then exit 1; fi
 [ ! -e "$RUN_DIR/calls" ] && [ ! -e "$RUN_DIR/jobs" ] || exit 2
 set -- $(cat "$RUN_DIR/limits")
 [ "$#" = 3 ] && [ "$1" -ge 29 ] && [ "$1" -le 30 ] && [ $(($1 - $2)) -ge 10 ] && [ $(($2 - $3)) -ge 10 ] && [ "$3" -ge 1 ] || exit 3
+while read -r limit left; do [ "$left" -le "$limit" ] && [ "$left" -ge $((limit - 1)) ] || exit 4; done < "$RUN_DIR/deadlines"
 ''')
 assert [(a['label'], a['status']) for a in actions] == [('g_ledger_floor', 'FAIL')], actions
 assert actions[0]['note'] in ('latest=99 below floor=100 after 30 s', 'latest=99 below floor=100 after 31 s'), actions
@@ -1240,21 +1241,22 @@ backoffs() {
     local n=0 s low
     for s; do
         n=$((n + 1)); [ "$n" -le "$BACKOFFS" ] || break
-        low=$((2 << (n - 1))); [ "$s" -ge "$low" ] && [ "$s" -le $((low + low / 2)) ] || return 1
+        low=${AFTER:-$((8 << (n - 1)))}; [ "$low" -le 60 ] || low=60
+        [ "$s" -ge "$low" ] && [ "$s" -le $((low + low / 2)) ] || return 1
     done
 }
 '''
 shell(THROTTLED + r'''
-CURL_429=2 LANDED=1 BACKOFFS=2
+CURL_429=2 LANDED=1 BACKOFFS=2 AFTER=60
 [ "$(tx_status "$H")" = SUCCESS ] && [ "$(cat "$RUN_DIR/curls")" = 3 ] && [ -s "$LOG_DIR/$H.receipt.json" ] || exit 1
 backoffs && [ "$(wc -l < "$RUN_DIR/slept")" -eq 2 ] || exit 2
 ''')
 shell(THROTTLED + r'''
-CURL_429=1 BACKOFFS=1
+CURL_429=1 BACKOFFS=1 AFTER=60
 [ "$(latest_ledger 5)" = 100 ] && [ "$(cat "$RUN_DIR/curls")" = 2 ] && backoffs || exit 1
 ''')
 shell(THROTTLED + r'''
-CURL_429=99 THROTTLE_RETRIES=3 BACKOFFS=3
+CURL_429=99 THROTTLE_RETRIES=3 BACKOFFS=3 AFTER=60
 if latest_ledger 5; then exit 1; fi
 [ "$(cat "$RUN_DIR/curls")" = 4 ] && backoffs && [ "$(wc -l < "$RUN_DIR/slept")" -eq 3 ] || exit 2
 ''')
@@ -1263,11 +1265,14 @@ BACKOFFS=1 n=0
 stellar() { n=$((n+1)); if [ "$n" = 1 ]; then echo '❌ error: Request rejected `429`' >&2; return 1; fi; echo '"7"'; }
 [ "$(view throttled contract -- balance)" = '"7"' ] && backoffs || exit 1
 n=0; rm "$RUN_DIR/slept"
-stellar() { n=$((n+1)); if [ "$n" = 1 ]; then echo "error: tx ab4290cd rejected" >&2; return 1; fi; echo '"8"'; }
+stellar() { n=$((n+1)); if [ "$n" = 1 ]; then echo 'error: tx ab4290cd rejected {"i128":"429"} "u32":429}' >&2; return 1; fi; echo '"8"'; }
 [ "$(view hexsafe contract -- balance)" = '"8"' ] && [ ! -e "$RUN_DIR/slept" ] || exit 2
+n=0
+stellar() { n=$((n+1)); if [ "$n" = 1 ]; then printf 'error: No status yet:  Transport(\n  Rejected {\n    status_code: 429,\n  },\n)\n' >&2; return 1; fi; echo '"9"'; }
+[ "$(view transport contract -- balance)" = '"9"' ] && backoffs || exit 3
 ''')
-assert [(a['label'], a['cli_exit']) for a in attempts] == [('throttled', 1), ('throttled', 0), ('hexsafe', 1), ('hexsafe', 0)], attempts
-assert [(a['label'], a['status']) for a in actions] == [('throttled', 'read'), ('hexsafe', 'read')], actions
+assert [(a['label'], a['cli_exit']) for a in attempts] == [('throttled', 1), ('throttled', 0), ('hexsafe', 1), ('hexsafe', 0), ('transport', 1), ('transport', 0)], attempts
+assert [(a['label'], a['status']) for a in actions] == [('throttled', 'read'), ('hexsafe', 'read'), ('transport', 'read')], actions
 for always in (False, True):
     attempts, _, actions = shell(THROTTLED + r'''
 BACKOFFS=2 n=0
@@ -1287,6 +1292,89 @@ else [ "$rc" != 0 ] && [ "$n" = 7 ] && [ "$(wc -l < "$RUN_DIR/slept")" -eq 6 ] |
     assert [a['status'] for a in actions] == ([] if not always else ['FAIL']), actions
     assert not always or actions[0]['label'] == 'deployed_fetch' and '429' in actions[0]['note'], actions
 print('HTTP 429 on getTransaction, getLatestLedger, a view and a bytecode fetch backs off exponentially, bounded, hex-safe')
+
+shell(THROTTLED + r'''
+for payload in '{"jsonrpc":"2.0","id":1,"method":"sendTransaction","params":{"transaction":"AAAA"}}' '[{"method":"getLatestLedger"}]' 'garbage'; do
+    if rpc_post 5 "$payload" 2>"$RUN_DIR/refused"; then exit 1; fi
+    grep -q 'only read-only JSON-RPC methods' "$RUN_DIR/refused" || exit 2
+done
+[ ! -e "$RUN_DIR/curls" ] || exit 3
+''')
+print('rpc_post refuses sendTransaction and any non-read payload before curl runs')
+
+attempts, _, actions = shell(THROTTLED + r'''
+LANDED=1 BACKOFFS=1 n=0
+fetch_resources() { RES_INSTR=1 RES_READ=0 RES_WRITE=0 RES_FEE=1; }
+stellar() {
+    n=$((n+1))
+    if [ "$n" = 1 ]; then echo '❌ error: Request rejected `429`' >&2; return 1; fi
+    echo "Signing transaction: $H" >&2; echo '"1"'
+}
+inv presign admin contract -- supply > "$RUN_DIR/presign.out" || exit 2
+[ "$(cat "$RUN_DIR/presign.out")" = '"1"' ] && [ "$n" = 2 ] && backoffs && [ "$(wc -l < "$RUN_DIR/slept")" -eq 1 ] || exit 1
+''')
+assert [(a['label'], a['cli_exit'], a['hash']) for a in attempts] == [('presign', 1, None), ('presign', 0, '0'*63+'5')], attempts
+assert [a['status'] for a in actions] == ['retry', 'ok'], actions
+print('A pre-sign 429 on inv backs off with the throttle schedule, then one signed send confirms')
+
+shell(THROTTLED + r'''
+BACKOFFS=2
+calls() { cat "$RUN_DIR/calls" 2>/dev/null || echo 0; }
+tick() { echo $(( $(calls) + 1 )) > "$RUN_DIR/calls"; calls; }
+stellar() {
+    echo "$*" | grep -q -- '--send=no' || exit 9
+    if [ "$(tick)" -le 2 ]; then echo '❌ error: Request rejected `429`' >&2; return 1; fi
+    echo '{"price":"20000000000000"}'
+}
+REFLECTOR_CEX=R; source "HERE_DIR/lib/protocol.sh"; source "HERE_DIR/lib/assets.sh"
+[ "$(reflector_band XLM 9)" = '182000000000000000 218000000000000000' ] && [ "$(calls)" = 3 ] && backoffs || exit 1
+rm "$RUN_DIR/calls" "$RUN_DIR/slept"
+stellar() { tick >/dev/null; echo 'error: HostError: Error(Contract, #100)' >&2; return 1; }
+CONTROLLER=C PRIMARY_SPOKE_ID=1; hub_key() { echo key; }
+if market_listing_exists 1 S; then exit 2; fi
+[ "$(calls)" = 1 ] && [ ! -e "$RUN_DIR/slept" ] || exit 3
+rm "$RUN_DIR/calls"
+stellar() { if [ "$(tick)" = 1 ]; then echo '❌ error: Request rejected `429`' >&2; return 1; fi; echo '{}'; }
+market_listing_exists 1 S && [ "$(calls)" = 2 ] || exit 4
+rm "$RUN_DIR/calls" "$RUN_DIR/slept"
+stellar() { tick >/dev/null; echo '❌ error: Request rejected `429`' >&2; return 1; }
+THROTTLE_RETRIES=2 BACKOFFS=2
+if sac_live CSAC; then exit 5; fi
+[ "$(calls)" = 3 ] && backoffs && [ "$(wc -l < "$RUN_DIR/slept")" -eq 2 ] || exit 6
+'''.replace('HERE_DIR', str(HERE)))
+print('Inline CLI reads retry only a 429 within THROTTLE_RETRIES; other errors keep their first result')
+
+shell(THROTTLED + r'''
+now=$(date +%s)
+if E2E_RPC_DEADLINE=$((now + 5)) throttle_sleep 1; then exit 1; fi
+[ ! -e "$RUN_DIR/slept" ] || exit 2
+E2E_RPC_DEADLINE=$((now + 100)) throttle_sleep 1 && [ "$(wc -l < "$RUN_DIR/slept")" -eq 1 ] || exit 3
+throttle_sleep 1 3600 && s=$(tail -n1 "$RUN_DIR/slept") && [ "$s" -ge 120 ] && [ "$s" -le 180 ] || exit 7
+throttle_sleep 1 45 && s=$(tail -n1 "$RUN_DIR/slept") && [ "$s" -ge 45 ] && [ "$s" -le 67 ] || exit 8
+if E2E_RPC_DEADLINE=bad throttle_sleep 1; then exit 4; fi
+rm "$RUN_DIR/slept"; CURL_429=99
+if E2E_RPC_DEADLINE=$((now + 5)) latest_ledger 5; then exit 5; fi
+[ "$(cat "$RUN_DIR/curls")" = 1 ] && [ ! -e "$RUN_DIR/slept" ] || exit 6
+''')
+print('E2E_RPC_DEADLINE bounds every throttle backoff; a read that cannot wait fails at once')
+
+attempts, _, actions = shell(OWNER_SETUP + r'''
+eval "base_$(declare -f stellar)"
+stellar() { echo "$1 $2 ${E2E_RPC_DEADLINE:-none}" >> "$RUN_DIR/deadlines"; base_stellar "$@"; }
+tx_status() { echo SUCCESS; }
+start=$(date +%s)
+[ "$(inv_owner lbl contract -- create_liquidity_pool)" = '"77"' ] || exit 1
+while read -r a b d; do
+    case "$a $b" in
+        'tx send') [ "$d" -ge $((start + 120)) ] && [ "$d" -le $(( $(date +%s) + 120 )) ] || exit 2; sent=$d;;
+        'tx simulate') [ "$d" = none ] || enforce=$d;;
+        *) [ "$d" = none ] || exit 3;;
+    esac
+done < "$RUN_DIR/deadlines"
+[ -n "${sent:-}" ] && [ "${enforce:-}" = "$sent" ] && [ "$(grep -c '^tx simulate none$' "$RUN_DIR/deadlines")" = 1 ] || exit 4
+''')
+assert [a['status'] for a in actions] == ['ok'], actions
+print('owner_submit bounds the RPC slot wait of its post-signature simulate and send inside the auth expiry')
 
 attempts, _, actions = shell(THROTTLED + r'''
 CURL_429=1 n=0
@@ -1320,43 +1408,53 @@ with tempfile.TemporaryDirectory() as directory:
     shutil.copy2(HERE/'bin/stellar', root/'bin/stellar')
     shutil.copy2(HERE/'lib/core.sh', root/'lib/core.sh')
     real = root/'real-stellar'
-    real.write_text('#!/bin/bash\n[ "$1" != keys ] || { echo local >> "$SPAN"; exit 0; }\necho + >> "$SPAN"; sleep 0.3; echo - >> "$SPAN"\n')
+    real.write_text('#!/bin/bash\n[ "$1" != keys ] || { echo local >> "$SPAN"; exit 0; }\n'
+                    'k=W; case " $* " in *" --send=no "*) k=R;; esac\necho "+$k" >> "$SPAN"; sleep 0.3; echo "-$k" >> "$SPAN"\n')
     quick = root/'quick-stellar'
     quick.write_text('#!/bin/bash\necho call >> "$SPAN"\n')
     for stub in (real, quick):
         stub.chmod(0o755)
-    env = dict(os.environ, E2E_STELLAR=str(real), E2E_RPC_SLOTS='2', SPAN=str(root/'span'))
-    lane = r'''set -u
+    env = dict(os.environ, E2E_STELLAR=str(real), E2E_RPC_SLOTS='3', E2E_RPC_READ_SLOTS='1', E2E_SLOT_DIR=str(root/'slots'),
+               E2E_RPC_WAIT_LOG=str(root/'waits'), SPAN=str(root/'span'))
+    env.pop('E2E_RPC_DEADLINE', None)
+    lane = r"""set -u
 source "$1/lib/core.sh"; source "$1/lib/invoke.sh"
 INTEG_DIR="$2"; RPC_URL=unused; PATH="$2/bin:$PATH"
-curl() { echo + >> "$SPAN"; command sleep 0.3; echo - >> "$SPAN"; printf '{}\n200'; }
+curl() { echo +R >> "$SPAN"; command sleep 0.3; echo -R >> "$SPAN"; printf '{}\n200'; }
 pids=()
 for i in 1 2 3; do
-    stellar contract invoke --id C -- f & pids+=("$!")
-    rpc_post 5 '{}' >/dev/null & pids+=("$!")
+    stellar contract invoke --id C --send=yes -- f & pids+=("$!")
+    stellar contract invoke --id C --send=no -- f & pids+=("$!")
+    rpc_post 5 '{"jsonrpc":"2.0","id":1,"method":"getLatestLedger"}' >/dev/null & pids+=("$!")
 done
 stellar keys address a || exit 1
 for pid in "${pids[@]}"; do wait "$pid" || exit 2; done
-'''
+"""
     lanes = [subprocess.Popen(['bash', '-c', lane, '_', str(HERE), directory], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) for _ in range(2)]
     for proc in lanes:
         out, err = proc.communicate(timeout=120)
         assert proc.returncode == 0, out + err
     events = (root/'span').read_text().split()
-    depth = peak = 0
+    depth = reads = peak = read_peak = 0
     for event in events:
-        depth += {'+': 1, '-': -1}.get(event, 0)
-        peak = max(peak, depth)
-    assert events.count('+') == events.count('-') == 12 and events.count('local') == 2 and peak == 2, events
-    (root/'span').unlink()
+        if event == 'local':
+            continue
+        step = 1 if event[0] == '+' else -1
+        depth += step
+        reads += step if event[1] == 'R' else 0
+        peak, read_peak = max(peak, depth), max(read_peak, reads)
+    assert events.count('+R') == events.count('-R') == 12 and events.count('+W') == events.count('-W') == 6, events
+    assert events.count('local') == 2 and 2 <= peak <= 3 and read_peak == 1, events
+    (root/'span').unlink(); (root/'waits').unlink()
     env['E2E_STELLAR'] = str(quick)
-    slots = [str(root/f'runs/.slots/rpc.{i}') for i in (1, 2)]
+    slots = [str(root/f'slots/rpc.{i}') for i in (1, 2, 3)]
     holder = subprocess.Popen(['python3', '-c', 'import fcntl,sys,time\nfs=[open(p,"a") for p in sys.argv[1:]]\n'
                                '[fcntl.flock(f,fcntl.LOCK_EX) for f in fs]\nprint("held",flush=True)\ntime.sleep(120)', *slots],
                               stdout=subprocess.PIPE, text=True)
     try:
         assert holder.stdout.readline().strip() == 'held'
         network = [['contract', 'invoke', '--id', 'C', '--send=no'], ['contract', 'fetch', '--id', 'C'], ['tx', 'send'],
+                   ['tx', 'simulate'], ['ledger', 'latest'], ['fees', 'stats'], ['contract', 'invoke', '--id', 'C', '--send=yes'],
                    ['keys', 'fund', 'a'], ['keys', 'generate', 'a', '--fund'], ['--quiet', 'contract', 'invoke']]
         local = [['keys', 'address', 'a'], ['keys', 'generate', 'a'], ['xdr', 'decode'], ['tx', 'sign'], ['tx', 'hash'],
                  ['contract', 'id', 'asset'], ['contract', 'alias', 'show', 'x'], ['--version'], ['version']]
@@ -1364,6 +1462,13 @@ for pid in "${pids[@]}"; do wait "$pid" || exit 2; done
         for args in local:
             done = subprocess.run([str(root/'bin/stellar'), *args], env=env, capture_output=True, text=True, timeout=10)
             assert done.returncode == 0, (args, done.stderr)
+        past = dict(env, E2E_RPC_DEADLINE=str(int(time.time()) - 1))
+        done = subprocess.run([str(root/'bin/stellar'), 'tx', 'send'], env=past, capture_output=True, text=True, timeout=10)
+        assert done.returncode == 1 and 'no RPC slot free within 0 s' in done.stderr, done.stderr
+        presign = subprocess.run(['bash', '-c', 'source "$1/lib/invoke.sh"; grep -qE "$PRESIGN_RE" <<<"$2"', '_', str(HERE), done.stderr])
+        assert presign.returncode == 0, done.stderr
+        done = subprocess.run([str(root/'bin/stellar'), 'tx', 'send'], env=dict(env, E2E_RPC_DEADLINE='soon'), capture_output=True, text=True, timeout=10)
+        assert done.returncode == 1 and 'invalid E2E_RPC_DEADLINE' in done.stderr, done.stderr
         time.sleep(1.5)
         assert all(proc.poll() is None for proc in waiting), [proc.poll() for proc in waiting]
         assert (root/'span').read_text().split() == ['call'] * len(local)
@@ -1371,7 +1476,29 @@ for pid in "${pids[@]}"; do wait "$pid" || exit 2; done
         holder.kill(); holder.wait()
     for proc in waiting:
         assert proc.wait(timeout=30) == 0, proc.stderr.read()
+    waits = [line.split('\t') for line in (root/'waits').read_text().splitlines()]
+    assert len(waits) == len(network) and {w[2] for w in waits} == {'read', 'send'} and all(int(w[3]) >= 1 for w in waits), waits
+    holder = subprocess.Popen(['python3', '-c', 'import fcntl,sys,time\nf=open(sys.argv[1],"a")\nfcntl.flock(f,fcntl.LOCK_EX)\nprint("held",flush=True)\ntime.sleep(120)',
+                               str(root/'slots/rpc-read.1')], stdout=subprocess.PIPE, text=True)
+    try:
+        assert holder.stdout.readline().strip() == 'held'
+        reads = [['contract', 'invoke', '--id', 'C', '--send=no'], ['contract', 'invoke', '--id', 'C', '--build-only'], ['contract', 'fetch', '--id', 'C'],
+                 ['tx', 'simulate'], ['ledger', 'latest'], ['fees', 'stats']]
+        blocked = [subprocess.Popen([str(root/'bin/stellar'), *args], env=env, stderr=subprocess.PIPE, text=True) for args in reads]
+        for args in [['tx', 'send'], ['contract', 'invoke', '--id', 'C', '--send=yes'], ['contract', 'deploy', '--wasm', 'w']]:
+            done = subprocess.run([str(root/'bin/stellar'), *args], env=env, capture_output=True, text=True, timeout=10)
+            assert done.returncode == 0, (args, done.stderr)
+        time.sleep(1.5)
+        assert all(proc.poll() is None for proc in blocked), [proc.poll() for proc in blocked]
+    finally:
+        holder.kill(); holder.wait()
+    for proc in blocked:
+        assert proc.wait(timeout=30) == 0, proc.stderr.read()
+    started = time.monotonic()
+    done = subprocess.run(['bash', '-c', 'exec 150>/dev/null; exec "$0" tx send', str(root/'bin/stellar')], env=env, capture_output=True, text=True, timeout=10)
+    assert done.returncode == 1 and 'rpc slot pool refused the call' in done.stderr and time.monotonic() - started < 5, done.stderr
     for bad, message in [('', 'absolute path'), ('stellar', 'absolute path'), (str(root/'bin/stellar'), 'shim itself')]:
         done = subprocess.run([str(root/'bin/stellar'), 'contract', 'invoke'], env=dict(env, E2E_STELLAR=bad), capture_output=True, text=True, timeout=10)
         assert done.returncode == 1 and message in done.stderr, (bad, done.stderr)
-print('Two lanes never exceed E2E_RPC_SLOTS across CLI and curl calls; only local CLI verbs bypass the pool')
+print('Two lanes never exceed E2E_RPC_SLOTS, reads never exceed E2E_RPC_READ_SLOTS; only local CLI verbs bypass the pool;'
+      ' a slot timeout is a pre-sign failure, a nested hold is refused at once, and each wait is logged')

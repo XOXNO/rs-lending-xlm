@@ -2,8 +2,9 @@
 import assert from 'node:assert/strict';
 import {writeFileSync} from 'node:fs';
 import {Asset,Keypair,Networks,xdr} from '@stellar/stellar-sdk';
+import {postRead,throttleBudget} from './throttle.mjs';
 
-export async function trustlineBalances(url, contract, code, issuer, addresses, fetcher=fetch) {
+export async function trustlineBalances(url, contract, code, issuer, addresses, fetcher=fetch, wait) {
   const asset = new Asset(code,issuer);
   assert.equal(asset.contractId(Networks.TESTNET),contract,'SAC identity does not match classic asset');
   assert.equal(new Set(addresses).size,addresses.length);
@@ -14,8 +15,8 @@ export async function trustlineBalances(url, contract, code, issuer, addresses, 
   })));
   // Check the wire response before SDK parsing can turn missing/null entries
   // into an empty list and incorrectly prove an absent trustline.
-  const response=await fetcher(url,{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({jsonrpc:'2.0',id:1,method:'getLedgerEntries',params:{keys:keys.map(key=>key.toXDR('base64'))}})});
+  const response=await postRead(fetcher,url,{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({jsonrpc:'2.0',id:1,method:'getLedgerEntries',params:{keys:keys.map(key=>key.toXDR('base64'))}})},throttleBudget(),wait);
   assert(response.ok, `trustline HTTP ${response.status}`);
   const wire=await response.json();
   assert.equal(wire.jsonrpc,'2.0'); assert.equal(wire.id,1);

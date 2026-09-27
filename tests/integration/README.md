@@ -46,13 +46,29 @@ python3 tests/integration/release_gate.py collect tests/integration/runs <base>
 ```
 
 All lanes share one RPC budget. `env.sh` puts `bin/stellar` first on `PATH`,
-so each network CLI call, `configs/script.sh` calls included, and each
-JSON-RPC `curl` holds one of `E2E_RPC_SLOTS` (default 12) runner-wide slots in
-`runs/.slots/rpc.*`. Local verbs (`keys`, `xdr`, `tx sign|hash|decode|encode|op`,
-`contract id|alias`, `version`) do not take a slot. A read that gets HTTP 429
-backs off exponentially with jitter, at most `THROTTLE_RETRIES` (default 6)
-times. A signed send that gets 429 stays `UNKNOWN` and fails. `parallel_e2e.sh`
-starts `production` and `stress` first and the other lanes
+so each network CLI call, `configs/script.sh` calls included, each JSON-RPC
+`curl` and each SDK RPC process (`sdk/invoke.mjs`, `sdk/balances.mjs`) holds
+one of `E2E_RPC_SLOTS` (default 12) slots. Simulation-only calls (`--send=no`,
+`--build-only`, `tx simulate`, `contract fetch`, `fees stats`, `ledger`,
+read-only `curl`, `sdk/balances.mjs`) first take one of `E2E_RPC_READ_SLOTS`
+(default 6). Local verbs (`keys`, `xdr`, `tx sign|hash|decode|encode|op`,
+`contract id|alias`, `version`) take no slot. The orchestrator's single
+`sdk/limits.mjs` call runs before any lane and takes no slot.
+
+A slot caps processes, not requests. A CLI view makes 2 to 3 requests in about
+0.4 s; a CLI send makes about 6 in about 4 s. So 6 read slots and 6 sends give
+about 40 requests per second at median latency, under the gateway limit of
+about 65 per second measured from one IP (Inferred from the
+`local-full2-063501` attempt timings). Record per-second request counts in a
+live run before you raise either default. Each wait of 1 s or more is logged to
+`runs/<run>/rpc-wait.tsv`.
+
+The pools live in `E2E_SLOT_DIR` (default `/tmp/rs-lending-e2e-slots-<uid>`),
+so every run of one user on one host shares them. A read that gets HTTP 429
+backs off with jitter for the `retry_after` the gateway sends (at most 120 s),
+or 8, 16, 32 and then 60 s, at most `THROTTLE_RETRIES` (default 6, 0 to 20)
+times. A signed send that gets 429 stays `UNKNOWN` and fails.
+`parallel_e2e.sh` starts `production` and `stress` first and the other lanes
 `E2E_LANE_STAGGER` seconds later (default 60).
 
 Do not edit scripts during a live run: Bash may read their remaining contents

@@ -12,7 +12,7 @@ friendbot_fund() {
     stellar keys address "$alias" >/dev/null 2>&1 \
         || stellar keys generate "$alias" "${NET_ARGS[@]}" >/dev/null 2>&1 || return 1
     addr=$(stellar keys address "$alias") || return 1
-    slot_take "$INTEG_DIR/runs/.slots/friendbot" "${E2E_FRIENDBOT_SLOTS:-6}" 30 300 \
+    slot_take "${E2E_SLOT_DIR:-$INTEG_DIR/runs/.slots}/friendbot" "${E2E_FRIENDBOT_SLOTS:-6}" 30 300 \
         || { printf 'slot-unavailable\n' >> "$base.codes"; return 2; }
     slot="$SLOT_FD"
     deadline=$(( $(date +%s) + 90 ))
@@ -21,7 +21,7 @@ friendbot_fund() {
         code=$(curl -sS -m 30 -o "$base.json" -w '%{http_code}' "https://friendbot.stellar.org/?addr=$addr" 2>>"$base.err") || :
         code="${code:-000}"
         printf '%s\n' "$code" >> "$base.codes"
-        if wallet_funded "$addr" "$base.balance.json"; then rc=0; break; fi
+        if E2E_RPC_DEADLINE="$deadline" wallet_funded "$addr" "$base.balance.json"; then rc=0; break; fi
         case "$code" in 429|5[0-9][0-9]|000) ;; *) break;; esac
         [ "$(date +%s)" -lt "$deadline" ] || break
         backoff_sleep "$((attempt + 1))"

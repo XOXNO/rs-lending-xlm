@@ -6,6 +6,7 @@ import { dirname, join } from 'node:path';
 import { Keypair, rpc, TransactionBuilder, Networks, scValToNative } from '@stellar/stellar-sdk';
 import * as sdk from '@xoxno/sdk-js/stellar-lending';
 import { receiptAccountId } from './account.mjs';
+import { postRead, throttleBudget, whileThrottled } from './throttle.mjs';
 
 assert.equal(process.versions.node.split('.')[0], '24', 'SDK lane requires Node 24');
 for (const [name,version] of [['@xoxno/sdk-js','1.0.221'],['@stellar/stellar-sdk','16.3.0']]) {
@@ -17,13 +18,14 @@ const caller = key.publicKey();
 const server = new rpc.Server(process.env.RPC_URL);
 const controllerAddress = process.env.CONTROLLER;
 const json = value => JSON.stringify(value, (_, v) => typeof v === 'bigint' ? v.toString() : v, 2);
+const throttled = throttleBudget();
 // Observe the native RPC boundary; return the exact response to the preparer.
 const simulate = server.simulateTransaction.bind(server);
 let simulation = 0;
 server.simulateTransaction = async (...args) => {
   const prefix = `${evidence}.simulation-${++simulation}`;
   let response;
-  try { response = await simulate(...args); }
+  try { response = await whileThrottled(() => simulate(...args), throttled); }
   catch (error) {
     writeFileSync(`${prefix}.error.txt`, String(error));
     throw error;
@@ -43,7 +45,7 @@ server.simulateTransaction = async (...args) => {
   }
   return response;
 };
-const account = await server.getAccount(caller);
+const account = await whileThrottled(() => server.getAccount(caller), throttled);
 const options = {network: 'testnet', caller, sourceSequence: account.sequenceNumber(), controllerAddress, fee: '1000000'};
 assert.equal(typeof sdk[builder], 'function', `published builder missing: ${builder}`);
 const built = sdk[builder](options, JSON.parse(argsJSON));
@@ -77,7 +79,7 @@ try {
 }
 let receipt;
 for (let attempt = 0; attempt < 30; attempt++) {
-  try { receipt = await server.getTransaction(hash); }
+  try { receipt = await whileThrottled(() => server.getTransaction(hash), throttled); }
   catch (error) { writeFileSync(`${evidence}.poll-${attempt}.txt`, String(error)); }
   if (receipt) writeFileSync(`${evidence}.receipt.json`, json(receipt));
   if (receipt?.status === 'SUCCESS' || receipt?.status === 'FAILED') break;
@@ -89,8 +91,8 @@ for (let attempt = 0; attempt < 30; attempt++) {
 const logs = dirname(evidence);
 let wire;
 try {
-  const response = await fetch(process.env.RPC_URL, {method:'POST', headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({jsonrpc:'2.0',id:1,method:'getTransaction',params:{hash}})});
+  const response = await postRead(fetch, process.env.RPC_URL, {method:'POST', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({jsonrpc:'2.0',id:1,method:'getTransaction',params:{hash}})}, throttled);
   wire = await response.json();
   writeFileSync(join(logs, `${hash}.receipt.json`), json(wire));
   assert(response.ok, `receipt HTTP ${response.status}`);

@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {createRequire} from 'node:module';
+import {spawnSync} from 'node:child_process';
 import {Account,Address,Keypair,Networks,Operation,SorobanDataBuilder,TransactionBuilder,rpc,xdr} from '@stellar/stellar-sdk';
 import {buildStellarSupplyTx,prepareStellarTxXdr,mapSorobanError} from '@xoxno/sdk-js/stellar-lending';
 assert.equal(process.versions.node.split('.')[0],'24');
@@ -155,3 +156,37 @@ for(const mutate of [
 await assert.rejects(()=>balances(noLines,controller));
 await assert.rejects(()=>balances(noLines,sac,[caller,caller]));
 console.log('Explicit trustline absence, raw malformed-response rejection, and numeric balances passed');
+
+const {throttleBudget,throttleDelay,whileThrottled,postRead}=await import('./throttle.mjs');
+const limited=(after)=>Object.assign(new Error('Request failed with status code 429'),{response:{status:429,data:after===undefined?undefined:{retry_after:after}}});
+for(let attempt=1;attempt<=6;attempt++) {
+  const base=Math.min(60,8*2**(attempt-1));
+  for(let i=0;i<50;i++) { const ms=throttleDelay(attempt); assert(ms>=base*1000&&ms<=Math.floor(base*1.5)*1000,ms); }
+}
+for(let i=0;i<50;i++) { const ms=throttleDelay(1,60); assert(ms>=60000&&ms<=90000,ms); }
+for(let i=0;i<50;i++) { const ms=throttleDelay(1,3600); assert(ms>=120000&&ms<=180000,ms); }
+let waits=[], calls=0;
+const record=async ms=>{waits.push(ms);};
+assert.equal(await whileThrottled(async()=>{ if(++calls<=2) throw limited(60); return 'read'; },throttleBudget(),record),'read');
+assert.equal(calls,3); assert.equal(waits.length,2); assert(waits.every(ms=>ms>=60000&&ms<=90000),waits);
+waits=[]; calls=0;
+await assert.rejects(()=>whileThrottled(async()=>{ calls++; throw Object.assign(new Error('503'),{response:{status:503}}); },throttleBudget(),record),/503/);
+assert.equal(calls,1); assert.equal(waits.length,0);
+const shared=throttleBudget(3); calls=0;
+await assert.rejects(()=>whileThrottled(async()=>{ calls++; throw limited(); },shared,record),/429/);
+await assert.rejects(()=>whileThrottled(async()=>{ calls++; throw limited(); },shared,record),/429/);
+assert.equal(calls,5); assert.equal(waits.length,3); assert.equal(shared.used,3);
+waits=[]; calls=0;
+const throttledThenEmpty=async(...request)=>++calls<=2?{ok:false,status:429,json:async()=>({error:'rate_limited',retry_after:60})}:noLines(...request);
+assert.deepEqual(await trustlineBalances(url,sac,'TEST',issuer,[caller],throttledThenEmpty,record),{[caller]:{balance:'0',trustline_present:false,ledger:100}});
+assert.equal(calls,3); assert(waits.length===2&&waits.every(ms=>ms>=60000&&ms<=90000),waits);
+calls=0;
+const always=await postRead(async()=>{ calls++; return {ok:false,status:429,json:async()=>({})}; },url,{},throttleBudget(2),record);
+assert.equal(always.status,429); assert.equal(calls,3);
+await assert.rejects(()=>trustlineBalances(url,sac,'TEST',issuer,[caller],async()=>({ok:false,status:429,json:async()=>({})}),async()=>{}),/HTTP 429/);
+for(const bad of ['x','21','-1']) {
+  const run=spawnSync(process.execPath,['--input-type=module','-e',`await import(${JSON.stringify(new URL('./throttle.mjs',import.meta.url).href)})`],
+    {encoding:'utf8',env:{...process.env,THROTTLE_RETRIES:bad}});
+  assert.notEqual(run.status,0); assert.match(run.stderr,/invalid THROTTLE_RETRIES/);
+}
+console.log('429 reads retry with jitter inside one bounded budget, honour retry_after, and refuse an invalid THROTTLE_RETRIES');

@@ -346,7 +346,7 @@ flow_stress_delayed() {
         balances[$i]=$(balance "$(stress_sac "$((i+10))")" "$DAVE_ADDR") || return 1
         args+=" $(stress_sac "$((i+10))") $((1000 * STRESS_UNIT))"
     done
-    stellar contract invoke --id "$CONTROLLER" --source "$DAVE" "${NET_ARGS[@]}" --build-only -- borrow \
+    cli_read stellar contract invoke --id "$CONTROLLER" --source "$DAVE" "${NET_ARGS[@]}" --build-only -- borrow \
         --caller "$DAVE_ADDR" --account_id "$acct" --borrows "$(pay_vec "$PRIMARY_HUB_ID" $args)" --to null \
         >"$LOG_DIR/$label.built.xdr" 2>"$LOG_DIR/$label.prepare.err" || return 1
     stellar tx simulate --source "$DAVE" "${NET_ARGS[@]}" --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" \

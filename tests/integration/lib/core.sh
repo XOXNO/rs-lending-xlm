@@ -291,7 +291,7 @@ PYFLOOR
         [ "$n" -eq 0 ] || sleep 1
         left=$((start + 30 - SECONDS))
         [ "$left" -gt 0 ] || break
-        latest=$(latest_ledger "$left") || latest=''
+        latest=$(E2E_RPC_DEADLINE=$(( $(date +%s) + left )) latest_ledger "$left") || latest=''
         if [[ "$latest" =~ ^[0-9]{1,18}$ ]] && [ "$latest" -ge "$floor" ]; then
             record "$label" ok assert '' '' '' '' '' "latest=$latest floor=$floor"
             return
@@ -488,14 +488,45 @@ while True:
     SLOT_FD="$got"
 }
 
+rpc_deadline_wait() {
+    local cap="$1" left
+    [ -n "${E2E_RPC_DEADLINE:-}" ] || { echo "$cap"; return; }
+    [[ "$E2E_RPC_DEADLINE" =~ ^[0-9]{1,12}$ ]] || return 1
+    left=$((E2E_RPC_DEADLINE - $(date +%s)))
+    [ "$left" -gt 0 ] || left=0
+    echo $((left < cap ? left : cap))
+}
+
+rpc_take() {
+    local name="$1" count="$2" base="$3" wait start=$SECONDS
+    wait=$(rpc_deadline_wait 600) || { echo 'error: invalid E2E_RPC_DEADLINE' >&2; return 1; }
+    slot_take "${E2E_SLOT_DIR:-$INTEG_DIR/runs/.slots}/$name" "$count" "$base" "$wait" && return 0
+    if [ $((SECONDS - start)) -ge "$wait" ]; then
+        echo "error: no RPC slot free within $wait s ($name pool of $count)" >&2
+    else
+        echo "error: $name slot pool refused the call: nested hold, invalid slot count or fd limit" >&2
+    fi
+    return 1
+}
+
 rpc_hold() {
-    slot_take "$INTEG_DIR/runs/.slots/rpc" "${E2E_RPC_SLOTS:-12}" 150 600
+    local start=$SECONDS
+    if [ "${1:-}" = read ]; then
+        rpc_take rpc-read "${E2E_RPC_READ_SLOTS:-6}" 130 || return 1
+    fi
+    rpc_take rpc "${E2E_RPC_SLOTS:-12}" 150 || return 1
+    [ $((SECONDS - start)) -lt 1 ] || [ -z "${E2E_RPC_WAIT_LOG:-}" ] \
+        || { printf '%s\t%s\t%s\t%s\n' "$(date +%s)" "${E2E_LANE:-}" "${1:-send}" "$((SECONDS - start))" >> "$E2E_RPC_WAIT_LOG"; } 2>/dev/null \
+        || true
 }
 
 throttle_sleep() {
     [[ "$1" =~ ^[1-9][0-9]*$ ]] && [ "$1" -le "${THROTTLE_RETRIES:-6}" ] || return 1
-    local s=$((2 << ($1 < 5 ? $1 - 1 : 4)))
+    local s left
+    if [[ "${2:-}" =~ ^[1-9][0-9]{0,5}$ ]]; then s="$2"; [ "$s" -le 120 ] || s=120
+    else s=$((8 << ($1 < 4 ? $1 - 1 : 3))); [ "$s" -le 60 ] || s=60; fi
     s=$((s + RANDOM % (s / 2 + 1)))
+    left=$(rpc_deadline_wait "$s") && [ "$left" -ge "$s" ] || return 1
     log "rate-limited read; backoff $1 of ${THROTTLE_RETRIES:-6}: ${s}s"
     sleep "$s"
 }

@@ -1,5 +1,5 @@
 sac_live() {
-    stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$1" --source "$ADMIN" "${NET_ARGS[@]}" --send=no \
+    cli_read stellar contract invoke --instruction-leeway "${INSTRUCTION_LEEWAY:-20000000}" --id "$1" --source "$ADMIN" "${NET_ARGS[@]}" --send=no \
         -- decimals >/dev/null 2>&1
 }
 
