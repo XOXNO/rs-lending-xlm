@@ -528,7 +528,7 @@ new_wallet ADMIN admin'''
             self.assertEqual([('friendbot' in c) for c in calls],[False,True,False])
     def test_grant_guardian_is_proposed_before_governance_work(self):
         body='''ADMIN=admin ALICE=alice DAVE_ADDR=GDAVE GOVERNANCE=GOV GOV_CONTROLLER=CTRL
-phase() { :; }; xfail() { :; }; gov_assert_state() { :; }; pay_vec() { echo '[]'; }; view() { echo 5; }
+phase() { :; }; xfail() { :; }; gov_assert_state() { :; }; gov_assert_scheduled() { :; }; pay_vec() { echo '[]'; }; view() { echo 5; }
 gov_scval_args() { echo '[]'; }
 inv() { echo "inv $1" >> "$1.log"; echo "op_$1"; }
 gov_await_ready() { echo "await $1" >> "$1.log"; echo Ready; }'''
@@ -540,6 +540,59 @@ gov_await_ready() { echo "await $1" >> "$1.log"; echo Ready; }'''
         self.assertLess(calls.index('inv gov_propose_grant_guardian'),calls.index('inv gov_create_hub'))
         self.assertEqual(calls.count('inv gov_propose_grant_guardian'),1)
         self.assertLess(calls.index('await op_gov_propose_grant_guardian'),calls.index('inv gov_execute_grant_guardian'))
+
+    def test_governance_schedule_uses_tier_delay_of_each_proposal(self):
+        body='''ADMIN=admin ALICE=alice DAVE_ADDR=GDAVE GOVERNANCE=GOV GOV_CONTROLLER=CTRL
+phase() { :; }; xfail() { :; }; inv() { echo "op_$1"; }; gov_assert_state() { :; }; gov_await_ready() { echo Ready; }
+pay_vec() { echo '[]'; }; gov_scval_args() { echo '[]'; }; view() { echo "$MIN"; }
+gov_assert_scheduled() { echo "$*" >> "$SCHED_LOG"; }
+MIN="$1"; SCHED_LOG="$2"; flow_governance'''
+        for min_delay,sensitive in [(5,12),(11,12),(12,13),(20,21)]:
+            with tempfile.TemporaryDirectory() as d:
+                result=shell('flows/governance.sh',body,str(min_delay),d+'/calls')
+                self.assertEqual(result.returncode,0,result.stderr)
+                self.assertEqual((Path(d)/'calls').read_text().splitlines(),[
+                    f'gov_state_waiting gov_propose_cancel op_gov_propose_cancel {min_delay}',
+                    f'gov_self_state_waiting gov_self_propose_delay op_gov_self_propose_delay {min_delay}',
+                    f'gov_self_sensitive_waiting gov_self_propose_grant op_gov_self_propose_grant {sensitive}'])
+
+    def test_governance_schedule_and_ledger_bound_state(self):
+        tx='ab'*32
+        body='''GOVERNANCE=GOV; LOG_DIR="$1"; READY="$2"; ST="$3"; BEFORE="$4"; AFTER="$5"; DELAY="$6"
+job_log() { printf '%s\\n' "$LOG_DIR/$1"; }; extract_signing_hash() { cat "$1"; }
+latest_ledger() { cat "$LOG_DIR/latest"; }
+view() { case "$4" in
+    get_operation_ledger) [ "$1" = lbl_ledger ] && echo "$READY";;
+    get_operation_state) [ "$1" = lbl ] || return 1; rm -f "$LOG_DIR/latest"; [ "$AFTER" = none ] || echo "$AFTER" > "$LOG_DIR/latest"; echo "\\"$ST\\"";;
+esac; }
+[ "$BEFORE" = none ] || echo "$BEFORE" > "$LOG_DIR/latest"; gov_assert_scheduled lbl prop op "$DELAY"'''
+        def run(ready,state,before,after,delay=1,status='SUCCESS',txhash=tx,ledger=100):
+            with tempfile.TemporaryDirectory() as d:
+                (Path(d)/'prop.err').write_text(tx)
+                (Path(d)/f'{tx}.receipt.json').write_text(json.dumps({'result':{'status':status,'txHash':txhash,'ledger':ledger}}))
+                return shell('flows/governance.sh',body,d,str(ready),state,str(before),str(after),str(delay)).returncode==0
+        self.assertTrue(run(101,'Waiting',100,100))
+        self.assertFalse(run(101,'Ready',100,100))
+        self.assertTrue(run(101,'Ready',101,101))
+        self.assertTrue(run(101,'Ready',102,103))
+        self.assertFalse(run(101,'Waiting',101,101))
+        self.assertFalse(run(101,'Waiting',101,99))
+        self.assertTrue(run(101,'Waiting',100,101))
+        self.assertTrue(run(101,'Ready',100,101))
+        self.assertTrue(run(112,'Waiting',100,111,delay=12))
+        self.assertTrue(run(112,'Waiting',100,130,delay=12))
+        for ready,delay in [(102,1),(100,1),(0,1),(1,1),(101,12),('',1)]:
+            self.assertFalse(run(ready,'Waiting',100,100,delay=delay))
+        for state in ['Unset','Done','Expired','','waiting']:
+            self.assertFalse(run(101,state,100,101))
+        self.assertFalse(run(101,'Waiting',100,100,status='FAILED'))
+        self.assertFalse(run(101,'Waiting',100,100,txhash='cd'*32))
+        self.assertFalse(run(101,'Waiting',100,100,ledger='100'))
+        for delay in [0,'','x']:
+            self.assertFalse(run(100,'Ready',100,101,delay=delay))
+        self.assertFalse(run(101,'Ready','none',101))
+        self.assertFalse(run(101,'Waiting',100,'none'))
+
     def test_liq_setup_lists_only_the_lane_markets(self):
         body='''ADMIN=admin ALICE=alice BOB=bob CAROL=carol ADMIN_ADDR=GADMIN BOB_ADDR=GBOB CAROL_ADDR=GCAROL PRIMARY_HUB_ID=1 PRIMARY_SPOKE_ID=1 CONTROLLER=CTRL WAD=1
 phase() { :; }; deploy_mock_reflector() { :; }; deploy_mock_redstone() { :; }; dual_px() { :; }; save_state() { :; }

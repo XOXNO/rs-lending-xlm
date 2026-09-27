@@ -1241,10 +1241,9 @@
     "root_method": "get_operation_state",
     "execution": "direct-call",
     "path": [
-      "gov_assert_state",
-      "gov_state"
+      "gov_assert_scheduled"
     ],
-    "source": "tests/integration/flows/governance.sh:84"
+    "source": "tests/integration/flows/governance.sh:117"
   },
   {
     "contract": "governance",
