@@ -461,10 +461,13 @@ inv mutation admin contract -- supply >/dev/null || exit 1
 ''')
 assert [a['status'] for a in actions] == ['retry', 'ok'] and 'pre-sign transport or overload failure, attempt 1' in actions[0]['note']
 assert len(attempts) == 2 and len({a['hash'] for a in attempts if a['hash']}) == 1
+hex_429 = 'Error(Auth, InvalidAction) tx/429f209e 20429517'
 for call, status, error in [('inv mutation admin contract -- supply', 'UNKNOWN', '429 Too Many Requests'),
-                            ("xfail rejected 'Error\\\\(Contract, #24\\\\)' admin contract -- borrow", 'FAILED', '429 Too Many Requests'),
+                            ("xfail rejected 'Error\\(Contract, #24\\)' admin contract -- borrow", 'FAILED', '429 Too Many Requests'),
                             ('inv mutation admin contract -- supply', 'UNKNOWN', 'Error(Contract, #7) status_code: 503'),
-                            ("xfail rejected 'Error\\\\(Contract, #24\\\\)' admin contract -- borrow", 'FAILED', 'Error(Contract, #7) status_code: 503')]:
+                            ("xfail rejected 'Error\\(Contract, #24\\)' admin contract -- borrow", 'FAILED', 'Error(Contract, #7) status_code: 503'),
+                            ('inv mutation admin contract -- supply', 'UNKNOWN', hex_429),
+                            ("xfail rejected 'Error\\(Contract, #24\\)' admin contract -- borrow", 'FAILED', hex_429)]:
     signing = '' if 'Error' in error else 'echo "Signing transaction: $(printf \'%064d\' 1)" >&2; '
     attempts, _, actions = shell(f'''
 n=0
@@ -496,6 +499,25 @@ verify_deployed_wasm() { return 0; }
 run_deploy "$LOG_DIR/upload.out" "$LOG_DIR/upload.err" -- cli_upload || exit 1
 ''')
 assert [a['attempt'] for a in attempts] == [1, 2] and outputs == ['', '0'*63+'2']
+attempts, _, _ = shell(f'''
+n=0
+cli_upload() {{ n=$((n+1)); echo '{hex_429}' >&2; return 1; }}
+if run_deploy "$LOG_DIR/upload.out" "$LOG_DIR/upload.err" -- cli_upload; then exit 1; fi
+[ "$n" = 1 ]
+''')
+assert len(attempts) == 1
+attempts, _, actions = shell(DRIFT_SETUP + '''
+stellar() {
+    n=$((n+1))
+    if [ "$n" = 1 ]; then echo "Signing transaction: $(printf '%064d' 1)" >&2; return 0; fi
+    echo 'error: preflight queue full' >&2; return 1
+}
+tx_status() { echo FAILED; }
+receipt_drift() { :; }
+if inv mutation admin contract -- borrow >/dev/null; then exit 1; fi
+[ "$n" = 2 ]
+''')
+assert [a['status'] for a in actions] == ['retry', 'FAIL'] and len(attempts) == 2
 print('Pre-sign overload retries only while no signed envelope exists')
 
 SAC = 'C' + 'A'*54 + 'B'

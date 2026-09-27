@@ -85,11 +85,13 @@ stellar() {
         'tx simulate') [ "$(cat)" = BUILT ] || return 1; echo PREPARED;;
         'tx sign') [ "$(cat)" = PREPARED ] || return 1; echo SIGNED;;
         'tx hash') [ "$(cat)" = SIGNED ] || return 1; printf '%064d\n' 1;;
-        'tx send') [ "$(cat)" = SIGNED ] || return 1; touch "$WORK/sent"; return "$FAIL_SEND";;
+        'tx send') [ "$(cat)" = SIGNED ] || return 1
+            ! grep -qx "Signing transaction: $(printf '%064d' 1)" "$WORK/stress_delayed_borrow.err" || echo 'signing line before send' >> "$WORK/sequence"
+            echo 'Transaction hash is sent' >&2; touch "$WORK/sent"; return "$FAIL_SEND";;
         *) return 1;;
     esac
 }
-begin_attempt() { echo "begin_attempt $1 $2 $4" >> "$WORK/sequence"; }
+begin_attempt() { echo "begin_attempt $1 $2 $4" >> "$WORK/sequence"; : > "$6"; }
 record_attempt() { echo "$1 $4 $5 $6" >> "$WORK/attempts"; }
 tx_status() { echo "$TX_STATUS"; }
 fetch_resources() { RES_INSTR=1; RES_READ=2; RES_WRITE=3; RES_FEE=4; return "$BUDGET_FAIL"; }
@@ -106,6 +108,9 @@ flow_stress_delayed
                 self.assertLess(sequence.index('tx sign'), sequence.index('stress_shared_topup'))
                 self.assertLess(sequence.index('stress_shared_topup'), sequence.index('tx send'))
                 self.assertEqual(sequence.index('begin_attempt stress_delayed_borrow borrow 1'), sequence.index('tx send') - 1)
+                self.assertEqual(sequence.index('signing line before send'), sequence.index('tx send') + 1)
+                self.assertEqual(Path(directory, 'stress_delayed_borrow.err').read_text(),
+                                 f"Signing transaction: {'0'*63}1\nTransaction hash is sent\n")
                 delay = json.loads(Path(directory, 'stress_delayed_borrow.delay.json').read_text())
                 self.assertGreaterEqual(delay['submitted_after_ledger'] - delay['prepared_after_ledger'], 3)
                 attempts = Path(directory, 'attempts').read_text().splitlines()

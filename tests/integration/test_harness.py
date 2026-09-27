@@ -165,8 +165,10 @@ def check_gate():
                        lambda x: x[index].update(action_seq=index+2)]:
             attempts_with(change); rejected()
         (run/'attempts.jsonl').unlink(); rejected()
-        attempts_with(lambda x: x[index].update(action_seq=index+1))
-        assert gate.validate(run, expected_lane='agg') == len(required)
+        assert index > 0
+        for seq in (index, index+1):
+            attempts_with(lambda x: x[index].update(action_seq=seq))
+            assert gate.validate(run, expected_lane='agg') == len(required)
         (run/'logs'/f'{committed}.receipt.json').unlink()
         attempts_with(lambda x: x[-1].update(hash=committed))
         assert gate.validate(run, expected_lane='agg') == len(required)

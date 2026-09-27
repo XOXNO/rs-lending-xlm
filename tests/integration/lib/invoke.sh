@@ -2,7 +2,7 @@ RPC_TRANSIENT_RE='rejected .?50[0-9]|status_code: 50[0-9]|No status yet|Transpor
 
 DEPLOY_PROPAGATION_RE='Contract not found|non-existing value for contract instance'
 
-PRESIGN_RE='429|Too Many Requests|preflight queue full|rejected .?50[0-9]|status_code: 50[0-9]|timed out|connection (reset|refused)'
+PRESIGN_RE='(^|[^0-9a-fA-F])429([^0-9a-fA-F]|$)|Too Many Requests|preflight queue full|rejected .?50[0-9]|status_code: 50[0-9]|timed out|connection (reset|refused)'
 
 INV_MAX_ATTEMPTS="${INV_MAX_ATTEMPTS:-8}"
 DEPLOY_MAX_ATTEMPTS="${DEPLOY_MAX_ATTEMPTS:-8}"

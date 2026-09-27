@@ -300,8 +300,9 @@ flow_stress_delayed() {
     printf '{"prepared_after_ledger":%s,"submitted_after_ledger":%s,"hash":"%s"}\n' "$start" "$now" "$hash" >"$LOG_DIR/$label.delay.json"
     sequence=$(wc -l < "$ACTIONS_TSV")
     begin_attempt "$label" borrow "$sequence" 1 "$LOG_DIR/$label.out" "$LOG_DIR/$label.err" "$CONTROLLER" || return 1
+    printf 'Signing transaction: %s\n' "$hash" >"$LOG_DIR/$label.err" || return 1
     stellar tx send "${NET_ARGS[@]}" <"$LOG_DIR/$label.signed.xdr" \
-        >"$LOG_DIR/$label.out" 2>"$LOG_DIR/$label.err" || rc=$?
+        >"$LOG_DIR/$label.out" 2>>"$LOG_DIR/$label.err" || rc=$?
     record_attempt "$label" borrow "$sequence" 1 "$rc" "$hash" "$LOG_DIR/$label.out" "$LOG_DIR/$label.err" "$CONTROLLER" || return 1
     st=$(tx_status "$hash")
     if [ "$rc" -ne 0 ] || [ "$st" != SUCCESS ] || ! fetch_resources "$hash"; then
