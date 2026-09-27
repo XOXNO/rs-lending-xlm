@@ -4,7 +4,12 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$HERE/../env.sh"
 for f in core invoke assert wallet assets aggregator oracle protocol report; do source "$INTEG_DIR/lib/$f.sh"; done
 for f in lifecycle blend sdk production teardown; do source "$INTEG_DIR/flows/$f.sh"; done
-E2E_LANE=production
+E2E_LANE="${E2E_LANE:-prod-full}"
+case "$E2E_LANE" in
+    prod-full) PROD_CONFIG_ONLY=''; PROD_CHANNELS=12 ;;
+    prod-caller) PROD_CONFIG_ONLY=caller; PROD_CHANNELS=6 ;;
+    *) echo "unknown production lane '$E2E_LANE'" >&2; exit 2 ;;
+esac
 init_run
 trap 'finish_run $?' EXIT
 trap 'exit 130' INT TERM
@@ -17,14 +22,15 @@ wallets() {
     new_wallet BOB bob || return 1
     new_wallet CAROL carol || return 1
     new_wallet DAVE dave || return 1
-    lane_channels 12 || return 1
+    lane_channels "$PROD_CHANNELS" || return 1
 }
 run_case wallets wallets || die wallets "funding failed"
-run_case deploy_protocol deploy_protocol || die deploy_protocol "required case failed"
+run_case deploy_protocol prod_deploy_protocol || die deploy_protocol "required case failed"
 run_case flow_production_fixtures flow_production_fixtures || die flow_production_fixtures "required case failed"
 run_case flow_production_operator flow_production_operator || die flow_production_operator "required case failed"
 run_case flow_production_lending flow_production_lending || die flow_production_lending "required case failed"
 run_case flow_production_caller flow_production_caller || die flow_production_caller "required case failed"
+run_case flow_production_upgrade flow_production_upgrade || die flow_production_upgrade "required case failed"
 run_case flow_teardown flow_teardown || die flow_teardown "required case failed"
 python3 "$INTEG_DIR/gate.py" "$RUN_DIR" || exit 1
 log "run complete"

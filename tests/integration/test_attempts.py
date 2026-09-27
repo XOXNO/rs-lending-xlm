@@ -598,7 +598,7 @@ stellar() {{
 tx_status() {{ printf '{{"result":{{"status":"SUCCESS"}}}}' > "$LOG_DIR/$1.receipt.json"; echo SUCCESS; }}
 fetch_resources() {{ printf '{{"resources":{{"instructions":%d,"disk_read_bytes":2,"write_bytes":3}},"resource_fee":4}}\\n' "$((10#$1))" > "$LOG_DIR/$1.resources.json"; }}
 verify_deployed_wasm() {{ :; }}
-flow_production_fixtures || exit 1
+deploy_protocol() {{ :; }}; prod_deploy_protocol || exit 1
 [ "$(sort "$RUN_DIR/sources" | tr '\\n' ' ')" = '1 chan1 2 chan2 ' ] || exit 2
 for n in 1 2; do
     [ -f "$LOG_DIR/$(printf '%064d' "$n").resources.json" ] && [ -s "$LOG_DIR/fixture_$n.err" ] || exit 3
@@ -818,12 +818,14 @@ stellar() {
 }
 jobf() {
     run_deploy "$LOG_DIR/dep.out" "$LOG_DIR/dep.err" -- stellar contract deploy --wasm "$W" --source admin || return 1
+    echo "$DEPLOY_ATTEMPTS" > "$RUN_DIR/job_attempts"
     record dep ok deploy "$(extract_signing_hash "$LOG_DIR/dep.err")" '' '' '' '' "$CID" deployment "$CID"
 }
 group_begin g 2 || exit 1
 group_spawn jobf
 group_end || exit 2
 grep -qx 'deploy attempts: 1' "$GROUP_LAST/1/stderr" || exit 3
+[ "$(cat "$RUN_DIR/job_attempts")" = 1 ] || exit 7
 [ "$(jq -r .address "$RUN_DIR/deployed-artifacts.jsonl")" = "$CID" ] && [ -s "$LOG_DIR/deployment-fee-stats.json" ] || exit 4
 [ "$(awk -F'\t' 'NR==2 {print $2}' "$RUN_DIR/evidence.tsv")" = deployment ] || exit 5
 gate_attempts || exit 6

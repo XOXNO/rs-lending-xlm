@@ -7,6 +7,9 @@ import re
 import sys
 from pathlib import Path
 
+if not __debug__:
+    raise RuntimeError('release verification requires Python assertions; unset PYTHONOPTIMIZE')
+
 
 def walk(value):
     if isinstance(value, dict):
@@ -184,10 +187,43 @@ def fixture_price(root, key):
     return resolve(key)
 
 
-def plan(root):
+CALLER_MARKETS = ('XLM', 'USDC', 'SolvBTC', 'XAUM', 'USST', 'AQUA', 'XAUMUSDC_LP')
+
+
+def restrict_markets(markets, only):
+    if only is None:
+        return markets
+    kept = [m for m in markets['markets'] if m['name'] in only]
+    assert {m['name'] for m in kept} == set(only), 'unknown or disabled market in --only'
+    def dependencies(entries):
+        return [node[k] for node in walk([e['oracle'] for e in entries]) for k in ('quote', 'key_a', 'key_b') if k in node]
+    used = dependencies(kept)
+    references = [r for r in markets.get('references', []) if r['key'] in used]
+    used += dependencies(references)
+    addresses = {m['asset_address'] for m in kept}
+    keys = [r['key'] for r in references]
+    assert all(k['Token'] in addresses if 'Token' in k else k in keys for k in used), \
+        'kept market depends on a dropped market or reference'
+    return dict(markets, markets=kept, references=references)
+
+
+def restrict_spokes(spokes, only):
+    if only is None:
+        return spokes
+    kept = {}
+    for config_id, spoke in spokes.items():
+        assets = {name: listing for name, listing in spoke['assets'].items() if name in only}
+        if any(listing['can_be_collateral'] for listing in assets.values()):
+            kept[config_id] = dict(spoke, assets=assets)
+    return kept
+
+
+def plan(root, only=None):
     markets = load(root, 'markets.json')
+    markets['markets'] = [m for m in markets['markets'] if m.get('enabled', True)]
+    markets = restrict_markets(markets, only)
     definitions = {}
-    enabled = [m for m in markets['markets'] if m.get('enabled', True)]
+    enabled = markets['markets']
     for m in enabled:
         definitions[m['asset_address']] = dict(kind='token', decimals=m['oracle']['asset_decimals'], name=m['name'])
     for node in walk([enabled, markets.get('references', [])]):
@@ -200,9 +236,9 @@ def plan(root):
     return definitions
 
 
-def materialize(source, output, mapping, network):
+def materialize(source, output, mapping, network, only=None):
     output.mkdir(parents=True, exist_ok=True)
-    assert set(mapping) == set(plan(source)), 'missing or extraneous fixture addresses'
+    assert set(mapping) == set(plan(source, only)), 'missing or extraneous fixture addresses'
     assert len(set(mapping.values())) == len(mapping), 'provider/token fixture aliasing'
     def remap(value):
         if isinstance(value, str):
@@ -214,6 +250,7 @@ def materialize(source, output, mapping, network):
         return value
     original = load(source, 'markets.json')
     original['markets'] = [m for m in original['markets'] if m.get('enabled', True)]
+    original = restrict_markets(original, only)
     prices = {}
     for ref in original.get('references', []):
         prices[json.dumps(ref['key'], sort_keys=True)] = (int(ref['oracle']['min_sanity_price_wad']) + int(ref['oracle']['max_sanity_price_wad'])) // 2
@@ -277,33 +314,59 @@ def materialize(source, output, mapping, network):
             config={k:v for k,v in config.items() if v.get('enabled',True)}
             for spoke in config.values():
                 spoke['assets']={k:v for k,v in spoke['assets'].items() if v.get('enabled',True)}
+            config=restrict_spokes(config,only)
         (output/name).write_text(json.dumps(remap(config),indent=2)+'\n')
     (output/'blend.json').write_text('{"pools":[]}\n')
     (output/'oracle_feeds.json').write_text('{"feeds":[]}\n')
     evidence=dict(source_sha256=hashlib.sha256((source/'markets.json').read_bytes()).hexdigest(),
                   source_files_sha256={name:hashlib.sha256((source/name).read_bytes()).hexdigest() for name in ('markets.json','hubs.json','spokes.json')},
-                  address_mapping=mapping, provider_execution='fixture', seeds=seeds,pools=pools,bases=bases,
+                  address_mapping=mapping, provider_execution='fixture', market_filter=list(only) if only else None,
+                  seeds=seeds,pools=pools,bases=bases,
                   prices={json.dumps(remap(json.loads(key)),sort_keys=True):str(price) for key,price in prices.items()})
     (output/'fixtures.json').write_text(json.dumps(evidence,indent=2)+'\n')
 
 
+def full(source, root):
+    markets, config = load(source, 'markets.json'), load(root, 'markets.json')
+    assert [m['name'] for m in config['markets']] == [m['name'] for m in markets['markets'] if m.get('enabled', True)], \
+        'configured markets differ from the enabled mainnet markets'
+    assert [r['key'] for r in config.get('references', [])] == [r['key'] for r in markets.get('references', [])], \
+        'configured references differ from the mainnet references'
+    spokes = {k: v for k, v in load(source, 'spokes.json').items() if v.get('enabled', True)}
+    configured = load(root, 'spokes.json')
+    assert list(configured) == list(spokes), 'configured spokes differ from the enabled mainnet spokes'
+    for config_id, spoke in spokes.items():
+        assert list(configured[config_id]['assets']) == [k for k, v in spoke['assets'].items() if v.get('enabled', True)], \
+            f'spoke {config_id} listings differ from the enabled mainnet listings'
+    assert load(root, 'fixtures.json')['market_filter'] is None, 'fixtures were materialized with a market filter'
+
+
 if __name__=='__main__':
-    mode,source=sys.argv[1],Path(sys.argv[2])
+    argv,only=sys.argv[1:],None
+    while '--only' in argv:
+        i=argv.index('--only')
+        if only is not None or argv[i+1:i+2]!=['caller']:
+            raise SystemExit("--only takes one value: caller")
+        only=CALLER_MARKETS
+        del argv[i:i+2]
+    mode,source=argv[0],Path(argv[1])
     if mode=='plan':
-        print(json.dumps(plan(source)))
+        print(json.dumps(plan(source,only)))
     elif mode=='materialize':
-        materialize(source,Path(sys.argv[3]),json.loads(Path(sys.argv[4]).read_text()),'testnet')
+        materialize(source,Path(argv[2]),json.loads(Path(argv[3]).read_text()),'testnet',only)
+    elif mode=='full':
+        full(source,Path(argv[2]))
     elif mode=='checks':
-        print(json.dumps(policy_checks(source, json.loads(Path(sys.argv[3]).read_text()))))
+        print(json.dumps(policy_checks(source, json.loads(Path(argv[2]).read_text()))))
     elif mode=='decimals':
-        print(json.dumps(decimal_cases(source, json.loads(Path(sys.argv[3]).read_text()))))
+        print(json.dumps(decimal_cases(source, json.loads(Path(argv[2]).read_text()))))
     elif mode=='lending':
-        print(json.dumps(lending_case(source, json.loads(Path(sys.argv[3]).read_text()))))
+        print(json.dumps(lending_case(source, json.loads(Path(argv[2]).read_text()))))
     elif mode=='verify':
-        check=json.loads(source.read_text())[int(sys.argv[3])]
-        actual=json.loads(Path(sys.argv[4]).read_text())
+        check=json.loads(source.read_text())[int(argv[2])]
+        actual=json.loads(Path(argv[3]).read_text())
         verify_equal(check['expected'], actual[check['field']] if 'field' in check else actual)
     elif mode=='verify-price':
-        verify_price(source, sys.argv[3], json.loads(Path(sys.argv[4]).read_text()))
+        verify_price(source, argv[2], json.loads(Path(argv[3]).read_text()))
     else:
-        raise SystemExit('expected plan/materialize/checks/decimals/verify/verify-price')
+        raise SystemExit('expected plan/materialize [--only caller], full, checks, decimals, lending, verify or verify-price')

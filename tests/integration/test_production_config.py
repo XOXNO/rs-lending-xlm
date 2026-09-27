@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """Offline policy/decimal assertions; no network or signing keys required."""
 import json
+import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from copy import deepcopy
 from pathlib import Path
 
-from production_config import decimal_cases, fixture_price, lending_case, load, materialize, plan, policy_checks, verify_equal, verify_price
+from production_config import CALLER_MARKETS, decimal_cases, fixture_price, full, lending_case, load, materialize, plan, policy_checks, verify_equal, verify_price
 
 
 class ProductionPolicyChecks(unittest.TestCase):
@@ -126,6 +128,74 @@ flow_production_operator
                     verify_price(root, market['name'], {key: dict(value, price_wad=str(int(value['price_wad']) + 1))})
                 with self.assertRaises(AssertionError):
                     verify_price(root, market['name'], {key: dict(value, asset_decimals=value['asset_decimals'] + 1)})
+
+    def test_caller_filter_keeps_mainnet_policy_and_flow_selections(self):
+        source = Path(__file__).resolve().parents[2] / 'configs' / 'mainnet'
+        complete, filtered = plan(source), plan(source, CALLER_MARKETS)
+        self.assertLessEqual(set(filtered), set(complete))
+        self.assertLessEqual({'Reflector', 'RedStone', 'Xoxno', 'token', 'pool'}, {d['kind'] for d in filtered.values()})
+        self.assertLessEqual(len(complete) + 1, 99)
+        mapping = {address: f'fixture-{i}' for i, address in enumerate(complete)}
+        with tempfile.TemporaryDirectory() as directory:
+            full_dir, filtered_dir = Path(directory) / 'full', Path(directory) / 'filtered'
+            materialize(source, full_dir, mapping, 'testnet')
+            materialize(source, filtered_dir, {k: mapping[k] for k in filtered}, 'testnet', CALLER_MARKETS)
+            a, b = load(full_dir, 'markets.json'), load(filtered_dir, 'markets.json')
+            names = [m['name'] for m in b['markets']]
+            self.assertEqual(names, [m['name'] for m in a['markets'] if m['name'] in CALLER_MARKETS])
+            self.assertEqual(set(names), set(CALLER_MARKETS))
+            by_name = {m['name']: m for m in a['markets']}
+            for market in b['markets']:
+                self.assertEqual(market, by_name[market['name']])
+            self.assertEqual(b['references'], a['references'])
+            full_spokes, spokes = load(full_dir, 'spokes.json'), load(filtered_dir, 'spokes.json')
+            self.assertEqual(list(spokes), ['1', '5', '8', '9'])
+            for config_id, spoke in spokes.items():
+                self.assertEqual({k: v for k, v in spoke.items() if k != 'assets'},
+                                 {k: v for k, v in full_spokes[config_id].items() if k != 'assets'})
+                for name, listing in spoke['assets'].items():
+                    self.assertEqual(listing, full_spokes[config_id]['assets'][name])
+            self.assertTrue(spokes['1']['assets']['USDC']['can_be_collateral'])
+            self.assertEqual(load(filtered_dir, 'hubs.json'), load(full_dir, 'hubs.json'))
+            fa, fb = load(full_dir, 'fixtures.json'), load(filtered_dir, 'fixtures.json')
+            self.assertIsNone(fa['market_filter'])
+            self.assertEqual(fb['market_filter'], list(CALLER_MARKETS))
+            for key in ('seeds', 'pools'):
+                self.assertTrue(all(item in fa[key] for item in fb[key]), key)
+            self.assertLessEqual(fb['prices'].items(), fa['prices'].items())
+            self.assertEqual(fb['bases'], fa['bases'])
+            self.assertTrue(fb['bases'] and fb['pools'])
+            nets = {root: {'testnet': {'spoke_ids': {k: int(k) + 20 for k in load(root, 'spokes.json')}}}
+                    for root in (full_dir, filtered_dir)}
+            self.assertEqual(decimal_cases(filtered_dir, nets[filtered_dir]), decimal_cases(full_dir, nets[full_dir]))
+            self.assertEqual(lending_case(filtered_dir, nets[filtered_dir]), lending_case(full_dir, nets[full_dir]))
+            checks = policy_checks(full_dir, nets[full_dir])
+            self.assertTrue(all(check in checks for check in policy_checks(filtered_dir, nets[filtered_dir])))
+            full(source, full_dir)
+            with self.assertRaises(AssertionError):
+                full(source, filtered_dir)
+            broken = Path(directory) / 'broken'
+            for name, change in (('spokes.json', lambda s: next(iter(s.values()))['assets'].popitem()),
+                                 ('spokes.json', lambda s: s.pop(next(iter(s)))),
+                                 ('fixtures.json', lambda f: f.update(market_filter=list(CALLER_MARKETS))),
+                                 ('markets.json', lambda m: m['references'].pop())):
+                shutil.rmtree(broken, ignore_errors=True)
+                shutil.copytree(full_dir, broken)
+                data = load(broken, name)
+                change(data)
+                (broken / name).write_text(json.dumps(data))
+                with self.assertRaises(AssertionError, msg=name):
+                    full(source, broken)
+        for only in (('AQUA',), ('NOPE',)):
+            with self.assertRaises(AssertionError):
+                plan(source, only)
+        script = Path(__file__).resolve().parent / 'production_config.py'
+        cli = subprocess.run([sys.executable, str(script), 'plan', str(source), '--only', 'caller'], capture_output=True, text=True, check=True)
+        self.assertEqual(json.loads(cli.stdout), filtered)
+        self.assertNotEqual(subprocess.run([sys.executable, str(script), 'plan', str(source), '--only', 'other'], capture_output=True).returncode, 0)
+        optimized = subprocess.run([sys.executable, '-O', str(script), 'plan', str(source)], capture_output=True, text=True)
+        self.assertNotEqual(optimized.returncode, 0)
+        self.assertIn('requires Python assertions', optimized.stderr)
 
     def test_upgrade_receipts_bind_requested_target_and_hash(self):
         script = Path(__file__).resolve().parent/'flows/production.sh'

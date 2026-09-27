@@ -1199,7 +1199,7 @@
   {
     "contract": "governance",
     "method": "set_sanity_band",
-    "case": "flow_production_caller",
+    "case": "flow_production_upgrade",
     "label": "prod_governance_band",
     "root_contract": "governance",
     "root_method": "set_sanity_band",
@@ -1283,7 +1283,7 @@
   {
     "contract": "governance",
     "method": "set_spoke_asset_flags",
-    "case": "flow_production_caller",
+    "case": "flow_production_upgrade",
     "label": "prod_governance_flags",
     "root_contract": "governance",
     "root_method": "set_spoke_asset_flags",

@@ -14,7 +14,8 @@
       "blend",
       "strategies",
       "sdk",
-      "production"
+      "prod-full",
+      "prod-caller"
     ],
     "contract_methods": [
       "prerequisite"
@@ -37,7 +38,8 @@
       "blend",
       "strategies",
       "sdk",
-      "production"
+      "prod-full",
+      "prod-caller"
     ],
     "contract_methods": [
       "assert",
@@ -3567,7 +3569,8 @@
       "stress",
       "blend",
       "sdk",
-      "production"
+      "prod-full",
+      "prod-caller"
     ],
     "contract_methods": [
       "total_supply",
@@ -9182,7 +9185,8 @@
   {
     "id": "flow_production_fixtures",
     "lanes": [
-      "production"
+      "prod-full",
+      "prod-caller"
     ],
     "contract_methods": [
       "configure_pool",
@@ -9252,7 +9256,8 @@
   {
     "id": "flow_production_operator",
     "lanes": [
-      "production"
+      "prod-full",
+      "prod-caller"
     ],
     "contract_methods": [
       "assert",
@@ -9398,7 +9403,7 @@
   {
     "id": "flow_production_caller",
     "lanes": [
-      "production"
+      "prod-caller"
     ],
     "contract_methods": [
       "get_collateral_amount",
@@ -9408,11 +9413,6 @@
       "supply",
       "withdraw",
       "account_exists",
-      "upgradePoolHash",
-      "upgradePositionNftHash",
-      "upgradePriceAggregatorHash",
-      "upgradeGovernanceHash",
-      "unpause",
       "deploy",
       "configure_vault",
       "transfer",
@@ -9439,59 +9439,12 @@
         ]
       },
       {
-        "label": "prod_position_before",
-        "method": "get_collateral_amount",
-        "status": "read",
-        "count": 1,
-        "execution": [
-          "simulation"
-        ]
-      },
-      {
-        "label": "prod_position_after",
-        "method": "get_collateral_amount",
-        "status": "read",
-        "count": 1,
-        "execution": [
-          "simulation"
-        ]
-      },
-      {
         "label": "prod_contract_withdraw",
         "method": "run",
         "status": "ok",
         "count": 1,
         "execution": [
           "transaction"
-        ]
-      },
-      {
-        "label": "prod_governance_band",
-        "method": "set_sanity_band",
-        "status": "ok",
-        "count": 1,
-        "execution": [
-          "transaction"
-        ],
-        "contract": "governance"
-      },
-      {
-        "label": "prod_governance_flags",
-        "method": "set_spoke_asset_flags",
-        "status": "ok",
-        "count": 1,
-        "execution": [
-          "transaction"
-        ],
-        "contract": "governance"
-      },
-      {
-        "label": "prod_policy_equal",
-        "method": "assert",
-        "status": "ok",
-        "count": 1,
-        "execution": [
-          "assertion"
         ]
       },
       {
@@ -9898,15 +9851,6 @@
         ]
       },
       {
-        "label": "prod_upgrade_state",
-        "method": "assert",
-        "status": "ok",
-        "count": 1,
-        "execution": [
-          "assertion"
-        ]
-      },
-      {
         "label": "prod_contract_payment",
         "method": "assert",
         "status": "ok",
@@ -9918,114 +9862,6 @@
       {
         "label": "prod_contract_return",
         "method": "assert",
-        "status": "ok",
-        "count": 1,
-        "execution": [
-          "assertion"
-        ]
-      },
-      {
-        "label": "operator_upgradeControllerHash",
-        "method": "upgradeControllerHash",
-        "status": "ok",
-        "count": 1,
-        "execution": [
-          "assertion"
-        ]
-      },
-      {
-        "label": "operator_upgradeControllerHash_receipts",
-        "method": "assert",
-        "status": "ok",
-        "count": 1,
-        "execution": [
-          "assertion"
-        ]
-      },
-      {
-        "label": "operator_upgradePoolHash",
-        "method": "upgradePoolHash",
-        "status": "ok",
-        "count": 1,
-        "execution": [
-          "assertion"
-        ]
-      },
-      {
-        "label": "operator_upgradePoolHash_receipts",
-        "method": "assert",
-        "status": "ok",
-        "count": 1,
-        "execution": [
-          "assertion"
-        ]
-      },
-      {
-        "label": "operator_upgradePositionNftHash",
-        "method": "upgradePositionNftHash",
-        "status": "ok",
-        "count": 1,
-        "execution": [
-          "assertion"
-        ]
-      },
-      {
-        "label": "operator_upgradePositionNftHash_receipts",
-        "method": "assert",
-        "status": "ok",
-        "count": 1,
-        "execution": [
-          "assertion"
-        ]
-      },
-      {
-        "label": "operator_upgradePriceAggregatorHash",
-        "method": "upgradePriceAggregatorHash",
-        "status": "ok",
-        "count": 1,
-        "execution": [
-          "assertion"
-        ]
-      },
-      {
-        "label": "operator_upgradePriceAggregatorHash_receipts",
-        "method": "assert",
-        "status": "ok",
-        "count": 1,
-        "execution": [
-          "assertion"
-        ]
-      },
-      {
-        "label": "operator_upgradeGovernanceHash",
-        "method": "upgradeGovernanceHash",
-        "status": "ok",
-        "count": 1,
-        "execution": [
-          "assertion"
-        ]
-      },
-      {
-        "label": "operator_upgradeGovernanceHash_receipts",
-        "method": "assert",
-        "status": "ok",
-        "count": 1,
-        "execution": [
-          "assertion"
-        ]
-      },
-      {
-        "label": "operator_unpause_after_upgrade",
-        "method": "unpause",
-        "status": "ok",
-        "count": 1,
-        "execution": [
-          "assertion"
-        ]
-      },
-      {
-        "label": "operator_unpause_after_pause",
-        "method": "unpause",
         "status": "ok",
         "count": 1,
         "execution": [
@@ -10470,6 +10306,375 @@
           "simulation"
         ],
         "contract": "controller"
+      }
+    ]
+  },
+  {
+    "id": "flow_production_upgrade",
+    "lanes": [
+      "prod-full"
+    ],
+    "contract_methods": [
+      "get_collateral_amount",
+      "mint",
+      "run",
+      "assert",
+      "account_exists",
+      "upgradePoolHash",
+      "upgradePositionNftHash",
+      "upgradePriceAggregatorHash",
+      "upgradeGovernanceHash",
+      "unpause",
+      "deploy",
+      "configure_vault"
+    ],
+    "execution": "assertion",
+    "required_actions": [
+      {
+        "label": "prod_upgrade_full_config",
+        "method": "assert",
+        "status": "ok",
+        "count": 1,
+        "execution": [
+          "assertion"
+        ]
+      },
+      {
+        "label": "prod_mint_caller",
+        "method": "mint",
+        "status": "ok",
+        "count": 1,
+        "execution": [
+          "transaction"
+        ]
+      },
+      {
+        "label": "prod_contract_supply",
+        "method": "run",
+        "status": "ok",
+        "count": 1,
+        "execution": [
+          "transaction"
+        ]
+      },
+      {
+        "label": "prod_position_before",
+        "method": "get_collateral_amount",
+        "status": "read",
+        "count": 1,
+        "execution": [
+          "simulation"
+        ]
+      },
+      {
+        "label": "prod_position_after",
+        "method": "get_collateral_amount",
+        "status": "read",
+        "count": 1,
+        "execution": [
+          "simulation"
+        ]
+      },
+      {
+        "label": "prod_contract_withdraw",
+        "method": "run",
+        "status": "ok",
+        "count": 1,
+        "execution": [
+          "transaction"
+        ]
+      },
+      {
+        "label": "prod_policy_equal",
+        "method": "assert",
+        "status": "ok",
+        "count": 1,
+        "execution": [
+          "assertion"
+        ]
+      },
+      {
+        "label": "prod_upgrade_state",
+        "method": "assert",
+        "status": "ok",
+        "count": 1,
+        "execution": [
+          "assertion"
+        ]
+      },
+      {
+        "label": "prod_contract_payment",
+        "method": "assert",
+        "status": "ok",
+        "count": 1,
+        "execution": [
+          "assertion"
+        ]
+      },
+      {
+        "label": "prod_contract_return",
+        "method": "assert",
+        "status": "ok",
+        "count": 1,
+        "execution": [
+          "assertion"
+        ]
+      },
+      {
+        "label": "operator_upgradeControllerHash",
+        "method": "upgradeControllerHash",
+        "status": "ok",
+        "count": 1,
+        "execution": [
+          "assertion"
+        ]
+      },
+      {
+        "label": "operator_upgradeControllerHash_receipts",
+        "method": "assert",
+        "status": "ok",
+        "count": 1,
+        "execution": [
+          "assertion"
+        ]
+      },
+      {
+        "label": "operator_upgradePoolHash",
+        "method": "upgradePoolHash",
+        "status": "ok",
+        "count": 1,
+        "execution": [
+          "assertion"
+        ]
+      },
+      {
+        "label": "operator_upgradePoolHash_receipts",
+        "method": "assert",
+        "status": "ok",
+        "count": 1,
+        "execution": [
+          "assertion"
+        ]
+      },
+      {
+        "label": "operator_upgradePositionNftHash",
+        "method": "upgradePositionNftHash",
+        "status": "ok",
+        "count": 1,
+        "execution": [
+          "assertion"
+        ]
+      },
+      {
+        "label": "operator_upgradePositionNftHash_receipts",
+        "method": "assert",
+        "status": "ok",
+        "count": 1,
+        "execution": [
+          "assertion"
+        ]
+      },
+      {
+        "label": "operator_upgradePriceAggregatorHash",
+        "method": "upgradePriceAggregatorHash",
+        "status": "ok",
+        "count": 1,
+        "execution": [
+          "assertion"
+        ]
+      },
+      {
+        "label": "operator_upgradePriceAggregatorHash_receipts",
+        "method": "assert",
+        "status": "ok",
+        "count": 1,
+        "execution": [
+          "assertion"
+        ]
+      },
+      {
+        "label": "operator_upgradeGovernanceHash",
+        "method": "upgradeGovernanceHash",
+        "status": "ok",
+        "count": 1,
+        "execution": [
+          "assertion"
+        ]
+      },
+      {
+        "label": "operator_upgradeGovernanceHash_receipts",
+        "method": "assert",
+        "status": "ok",
+        "count": 1,
+        "execution": [
+          "assertion"
+        ]
+      },
+      {
+        "label": "operator_unpause_after_upgrade",
+        "method": "unpause",
+        "status": "ok",
+        "count": 1,
+        "execution": [
+          "assertion"
+        ]
+      },
+      {
+        "label": "prod_contract_runner",
+        "method": "deploy",
+        "status": "ok",
+        "count": 1,
+        "execution": [
+          "deployment"
+        ]
+      },
+      {
+        "label": "prod_contract_configure",
+        "method": "configure_vault",
+        "status": "ok",
+        "count": 1,
+        "execution": [
+          "transaction"
+        ]
+      },
+      {
+        "label": "prod_contract_supply_shares",
+        "method": "assert",
+        "status": "ok",
+        "count": 1,
+        "execution": [
+          "assertion"
+        ]
+      },
+      {
+        "label": "prod_contract_supply_pool",
+        "method": "assert",
+        "status": "ok",
+        "count": 1,
+        "execution": [
+          "assertion"
+        ]
+      },
+      {
+        "label": "prod_contract_supply_controller",
+        "method": "assert",
+        "status": "ok",
+        "count": 1,
+        "execution": [
+          "assertion"
+        ]
+      },
+      {
+        "label": "prod_contract_close_shares",
+        "method": "assert",
+        "status": "ok",
+        "count": 1,
+        "execution": [
+          "assertion"
+        ]
+      },
+      {
+        "label": "prod_contract_close_pool",
+        "method": "assert",
+        "status": "ok",
+        "count": 1,
+        "execution": [
+          "assertion"
+        ]
+      },
+      {
+        "label": "prod_contract_close_controller",
+        "method": "assert",
+        "status": "ok",
+        "count": 1,
+        "execution": [
+          "assertion"
+        ]
+      },
+      {
+        "label": "prod_contract_closed",
+        "method": "account_exists",
+        "status": "read",
+        "count": 1,
+        "execution": [
+          "simulation"
+        ],
+        "contract": "controller"
+      },
+      {
+        "label": "prod_upgrade_mint",
+        "method": "mint",
+        "status": "ok",
+        "count": 1,
+        "execution": [
+          "transaction"
+        ]
+      },
+      {
+        "label": "prod_upgrade_borrow",
+        "method": "run",
+        "status": "ok",
+        "count": 1,
+        "execution": [
+          "transaction"
+        ]
+      },
+      {
+        "label": "prod_upgrade_repay",
+        "method": "run",
+        "status": "ok",
+        "count": 1,
+        "execution": [
+          "transaction"
+        ]
+      },
+      {
+        "label": "prod_upgrade_debt_zero",
+        "method": "get_borrow_amount",
+        "status": "read",
+        "count": 1,
+        "execution": [
+          "simulation"
+        ],
+        "contract": "controller"
+      },
+      {
+        "label": "prod_upgrade_book_history",
+        "method": "assert",
+        "status": "ok",
+        "count": 1,
+        "execution": [
+          "assertion"
+        ]
+      },
+      {
+        "label": "prod_governance_band",
+        "method": "set_sanity_band",
+        "status": "ok",
+        "count": 1,
+        "execution": [
+          "transaction"
+        ],
+        "contract": "governance"
+      },
+      {
+        "label": "prod_governance_flags",
+        "method": "set_spoke_asset_flags",
+        "status": "ok",
+        "count": 1,
+        "execution": [
+          "transaction"
+        ],
+        "contract": "governance"
+      },
+      {
+        "label": "operator_unpause_after_pause",
+        "method": "unpause",
+        "status": "ok",
+        "count": 1,
+        "execution": [
+          "assertion"
+        ]
       }
     ]
   },
@@ -12032,7 +12237,7 @@
   {
     "id": "flow_production_lending",
     "lanes": [
-      "production"
+      "prod-caller"
     ],
     "contract_methods": [
       "supply",
