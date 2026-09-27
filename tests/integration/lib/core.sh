@@ -114,6 +114,10 @@ group_guard() {
     [ -z "${GROUP_DIR:-}" ] || [ -n "${GROUP_REPLAYING:-}" ] || group_violation "$1"
 }
 
+group_marker_open() {
+    [ -f "$RUN_DIR/active-attempt.json" ] && jq -e 'has("group")' "$RUN_DIR/active-attempt.json" >/dev/null 2>&1
+}
+
 job_refuse() {
     log "refused in group job $E2E_JOB: $1 [$2]"
     record "$2" FAIL "$1" "" "" "" "" "" "$1 is serial-only; refused in group job $E2E_JOB"
@@ -144,6 +148,7 @@ begin_attempt() {
         marker="$E2E_JOB_DIR/active.json"
     else
         group_guard "begin_attempt $1" || return 1
+        ! group_marker_open || { record "$1" FAIL "$2" "" "" "" "" "" "an unfinished group marker is still active"; return 1; }
     fi
     python3 - "$RUN_DIR" "$PHASE" "$marker" "$@" <<'PYBEGIN'
 import json, sys
@@ -235,6 +240,7 @@ group_begin() {
     local name="$1" width="${2:-}" mode="${3:-}"
     [ -z "${E2E_JOB:-}" ] || { job_refuse group_begin "group_$name"; return 1; }
     [ -z "${GROUP_DIR:-}" ] || { group_violation "group_begin $name"; return 1; }
+    ! group_marker_open || { record "group_$name" FAIL group "" "" "" "" "" "an unfinished group marker is still active"; return 1; }
     if [[ ! "$name" =~ ^[A-Za-z0-9_]+$ || ! "$width" =~ ^[1-9][0-9]?$ ]] || { [ -n "$mode" ] && [ "$mode" != reads ]; }; then
         record "group_$name" FAIL group "" "" "" "" "" "group refused: width '$width', mode '$mode'"
         return 1
@@ -259,7 +265,7 @@ temporary = path.with_suffix('.json.tmp')
 temporary.write_text(json.dumps(item)+'\n')
 temporary.replace(path)
 PYGROUP
-    GROUP_DIR="$dir" GROUP_ID="${dir##*.}" GROUP_NAME="$name" GROUP_WIDTH="$width" GROUP_N=0
+    GROUP_DIR="$dir" GROUP_ID="${dir##*.}" GROUP_NAME="$name" GROUP_WIDTH="$width" GROUP_N=0 GROUP_SUBSHELL="$BASH_SUBSHELL"
     GROUP_SRCS=(${CHANNELS:-}) GROUP_PIDS=() GROUP_BATCH=()
 }
 
@@ -267,11 +273,19 @@ group_spawn() {
     local dir src='' pid
     [ -z "${E2E_JOB:-}" ] || { job_refuse group_spawn "group_spawn_$1"; return 1; }
     [ -n "${GROUP_DIR:-}" ] || { record "group_spawn_$1" FAIL group "" "" "" "" "" "no open group"; return 1; }
+    [ "$BASH_SUBSHELL" = "$GROUP_SUBSHELL" ] || {
+        log "refused: group_spawn $1 in a subshell of group ${GROUP_DIR##*/}"
+        printf '%s\n' "group_spawn $1 in a subshell" >> "$GROUP_DIR/untracked"
+        return 1
+    }
     GROUP_N=$((GROUP_N + 1))
     dir="$GROUP_DIR/$GROUP_N"
     mkdir "$dir" && : > "$dir/actions.part" || { group_violation "group_spawn $1: cannot create $dir"; return 1; }
     [ "${#GROUP_SRCS[@]}" -eq 0 ] || src="${GROUP_SRCS[$(( (GROUP_N - 1) % ${#GROUP_SRCS[@]} ))]}"
-    ( E2E_JOB="$GROUP_ID-$GROUP_N" E2E_JOB_DIR="$dir" E2E_SRC="$src"; "$@"; echo "$?" > "$dir/rc" ) \
+    (
+        exec 8>"$dir/alive" && python3 -c 'import fcntl; fcntl.flock(8, fcntl.LOCK_EX | fcntl.LOCK_NB)' || exit 1
+        E2E_JOB="$GROUP_ID-$GROUP_N" E2E_JOB_DIR="$dir" E2E_SRC="$src"; "$@"; echo "$?" > "$dir/rc"
+    ) \
         </dev/null >"$dir/stdout" 2>"$dir/stderr" &
     GROUP_PIDS+=("$!") GROUP_BATCH+=("$!")
     if [ "${#GROUP_BATCH[@]}" -ge "$GROUP_WIDTH" ]; then
@@ -280,12 +294,36 @@ group_spawn() {
     fi
 }
 
+group_gaps() {
+    python3 - "$GROUP_DIR" "$GROUP_N" <<'PYGAPS'
+import fcntl, os, sys
+from pathlib import Path
+group, count = Path(sys.argv[1]), int(sys.argv[2])
+jobs = sorted(int(p.name) for p in group.iterdir() if p.name.isdigit())
+gaps = [] if jobs == list(range(1, count + 1)) else [f'job directories {jobs} differ from the {count} spawned jobs']
+for n in jobs:
+    alive = group/str(n)/'alive'
+    if alive.exists():
+        fd = os.open(alive, os.O_RDONLY)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            gaps.append(f'job {n} left a live process')
+        finally:
+            os.close(fd)
+path = group/'untracked'
+gaps += path.read_text().splitlines() if path.exists() else []
+print('; '.join(gaps))
+PYGAPS
+}
+
 group_end() {
-    local n dir rc pid first kept='' marker
+    local n dir rc pid first kept='' marker gaps unfinished=''
     [ -z "${E2E_JOB:-}" ] || { job_refuse group_end group_end; return 1; }
     [ -n "${GROUP_DIR:-}" ] || { record group_end FAIL group "" "" "" "" "" "no open group"; return 1; }
     for pid in ${GROUP_BATCH[@]+"${GROUP_BATCH[@]}"}; do wait "$pid" 2>/dev/null || :; done
     GROUP_BATCH=()
+    gaps=$(group_gaps) || gaps='cannot check the job directories'
     first=$(next_seq)
     GROUP_REPLAYING=1
     for ((n = 1; n <= GROUP_N; n++)); do
@@ -297,10 +335,15 @@ group_end() {
     done
     [ ! -s "$GROUP_DIR/violations" ] || record "group_${GROUP_NAME}_parent_writes" FAIL group '' '' '' '' '' \
         "$(wc -l < "$GROUP_DIR/violations" | tr -d ' ') parent writes refused while the group was open: $(tr '\n' ';' < "$GROUP_DIR/violations")"
+    [ -z "$gaps" ] || { kept=1; record "group_${GROUP_NAME}_untracked" FAIL group '' '' '' '' '' "$gaps"; }
+    for marker in "$GROUP_DIR"/*/active.json; do
+        [ ! -e "$marker" ] || { dir="${marker%/active.json}"; unfinished="$unfinished ${dir##*/}"; }
+    done
+    [ -z "$unfinished" ] || { kept=1; record "group_${GROUP_NAME}_unfinished" FAIL group '' '' '' '' '' \
+        "an attempt did not finish in job(s)$unfinished; the group marker is kept"; }
     unset GROUP_REPLAYING
-    for marker in "$GROUP_DIR"/*/active.json; do [ ! -e "$marker" ] || kept=1; done
     if [ -n "$kept" ]; then
-        log "group ${GROUP_DIR##*/}: a job attempt did not finish; keeping the group marker"
+        log "group ${GROUP_DIR##*/}: journals incomplete; keeping the group marker"
         unset GROUP_DIR; GROUP_PIDS=()
         return 1
     fi

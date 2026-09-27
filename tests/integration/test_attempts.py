@@ -705,15 +705,18 @@ else:
     raise AssertionError('interrupted group accepted')
 PY
 ''', interrupted=True)
-assert [(a['label'], a['status']) for a in actions] == [('group_x_job_1', 'FAIL'), ('lbl', 'ok')], actions
-assert actions[0]['note'] == 'job exited 130'
+assert [(a['label'], a['status']) for a in actions] == [('group_x_job_1', 'FAIL'), ('lbl', 'ok'), ('group_x_unfinished', 'FAIL')], actions
+assert actions[0]['note'] == 'job exited 130' and actions[2]['note'].startswith('an attempt did not finish in job(s) 1;'), actions
 print('A job interrupted after signing keeps the marker; the summary lists its hash and group attempts')
 
 # G4: serial-only helpers refuse inside a job before any CLI or RPC call.
 attempts, _, actions = shell(GROUP_SETUP + r'''
 source "{HERE}/lib/assets.sh"; source "{HERE}/lib/protocol.sh"; source "{HERE}/flows/sdk.sh"; source "{HERE}/flows/stress.sh"
+source "{HERE}/flows/production.sh"
 curl() { echo curl >> "$RUN_DIR/calls"; return 7; }
+REPO_ROOT="$RUN_DIR/repo"; mkdir -p "$REPO_ROOT/configs"; printf 'echo script.sh >> %q\n' "$RUN_DIR/calls" > "$REPO_ROOT/configs/script.sh"
 jobf() {
+    prod_ops validateConfigs
     xfail r1 'x' admin c -- borrow
     xfail_sim r2 'x' admin c -- borrow
     sim_probe r3 admin c -- supply
@@ -733,7 +736,7 @@ group_spawn jobf
 if group_end; then exit 2; fi
 [ ! -e "$RUN_DIR/calls" ] || exit 3
 '''.replace('{HERE}', str(HERE)))
-assert [(a['label'], a['status'], a['fn']) for a in actions] == [
+assert [(a['label'], a['status'], a['fn']) for a in actions] == [('operator_validateConfigs', 'FAIL', 'prod_ops'),
     ('r1', 'FAIL', 'xfail'), ('r2', 'FAIL', 'xfail'), ('r3', 'FAIL', 'sim_probe'), ('r4', 'FAIL', 'sdk_inv'),
     ('r5', 'FAIL', 'run_case'), ('create_market_r6', 'FAIL', 'create_market'), ('r7', 'FAIL', 'classic_batch'),
     ('r8', 'FAIL', 'swap_xlm_to'), ('stress_delayed_borrow', 'FAIL', 'flow_stress_delayed'), ('group_r9', 'FAIL', 'group_begin'),
@@ -865,9 +868,14 @@ print('A failed job, a lane exit and an open group all fail closed and leave no 
 
 # G13: parent writes while a group is open are refused, and an open group at case return aborts the case.
 attempts, _, actions = shell(GROUP_SETUP + r'''
+source "{HERE}/flows/sdk.sh"; source "{HERE}/flows/production.sh"
+REPO_ROOT="$RUN_DIR/repo"; mkdir -p "$REPO_ROOT/configs"; printf 'echo script.sh >> %q\n' "$RUN_DIR/calls" > "$REPO_ROOT/configs/script.sh"
+ALICE=admin CONTROLLER=c NODE_BIN=false
 jobf() { command sleep 0.3; }
 group_begin g 2 reads || exit 1
 group_spawn jobf
+if prod_ops validateConfigs; then exit 10; fi
+if sdk_inv parent_sdk buildStellarSupplyTx '{}'; then exit 11; fi
 if inv parent admin c -- supply; then exit 2; fi
 if record parent_row ok assert; then exit 3; fi
 if save_state P 1; then exit 4; fi
@@ -876,9 +884,9 @@ if group_end; then exit 6; fi
 [ ! -e "$RUN_DIR/calls" ] && [ -z "${P:-}" ] || exit 7
 if group_spawn jobf; then exit 8; fi
 if group_end; then exit 9; fi
-''')
+'''.replace('{HERE}', str(HERE)))
 assert [(a['label'], a['status']) for a in actions] == [('group_g_parent_writes', 'FAIL'), ('group_spawn_jobf', 'FAIL'), ('group_end', 'FAIL')], actions
-assert actions[0]['note'].startswith('4 parent writes'), actions
+assert actions[0]['note'].startswith('6 parent writes refused while the group was open: prod_ops validateConfigs;sdk_inv parent_sdk;begin_attempt parent;'), actions
 attempts, _, actions = shell(GROUP_SETUP + r'''
 f() { command sleep 0.3; }
 (group_begin g 2 reads; group_spawn f; die fatal_lbl boom)
@@ -936,3 +944,66 @@ if group_begin z 2 writes; then exit 6; fi
 ''', bash='/bin/bash')
 assert [(a['label'], a['status']) for a in actions] == [('v', 'read'), ('v', 'read')] + [(f'group_{n}', 'FAIL') for n in ('w', 'bad name', 'z', 'z')], actions
 print('Parent writes, case-level open groups, journal quoting and channel-free reads all hold')
+
+# G16: a spawn from a pipeline or a command substitution is refused before any job starts.
+attempts, _, actions = shell(GROUP_SETUP + r"""
+case_files
+jobf() { inv "lbl_$1" admin c -- supply >/dev/null; }
+casef() {
+    group_begin g 2 || return 1
+    printf 'a\nb\n' | while IFS= read -r x; do group_spawn jobf "$x"; done
+    out=$(group_spawn jobf c)
+    group_end
+    return 0
+}
+if run_case c casef; then exit 1; fi
+[ ! -e "$RUN_DIR/calls" ] && [ -z "$(ls "$RUN_DIR"/jobs/g.*/ | grep -x '[0-9][0-9]*')" ] || exit 2
+""", interrupted=True)
+assert [(a['label'], a['status'], a['note']) for a in actions] == [
+    ('group_g_untracked', 'FAIL', 'group_spawn jobf in a subshell; group_spawn jobf in a subshell; group_spawn jobf in a subshell'),
+    ('c', 'FAIL', 'case returned 1')], actions
+
+# G17: a job spawned by a subshell that bypasses the guard, or a job that leaves a live process, keeps the marker.
+for spawn, gap in [('( GROUP_SUBSHELL=$BASH_SUBSHELL; group_spawn jobf )', 'job directories [1] differ from the 0 spawned jobs'),
+                   ('group_spawn bgjob', 'job 1 left a live process')]:
+    attempts, _, actions = shell(GROUP_SETUP + r"""
+case_files
+jobf() { inv lbl admin c -- supply >/dev/null; }
+bgjob() { ( until [ -e "$RUN_DIR/go" ]; do command sleep 0.05; done; inv lbl admin c -- supply >/dev/null ) & return 0; }
+casef() { group_begin g 2 || return 1; SPAWN; group_end; touch "$RUN_DIR/go"; return 0; }
+if run_case c casef; then exit 1; fi
+n=0
+until [ -s "$(echo "$RUN_DIR"/jobs/g.*/1/actions.part)" ] || [ "$n" -ge 100 ]; do command sleep 0.05; n=$((n+1)); done
+[ -s "$(echo "$RUN_DIR"/jobs/g.*/1/actions.part)" ] || exit 2
+""".replace('SPAWN', spawn), interrupted=True)
+    assert [(a['label'], a['status']) for a in actions][0] == ('group_g_untracked', 'FAIL') and gap in actions[0]['note'], actions
+    assert actions[-1]['label'] == 'c' and not attempts and not any(a['label'] == 'lbl' for a in actions), actions
+
+# G18: a kept group marker refuses every later serial attempt and group until the lane stops.
+attempts, _, actions = shell(GROUP_SETUP + r"""
+case_files
+stellar() {
+    printf '%s %s\n' "${E2E_JOB:-parent}" "$*" >> "$RUN_DIR/calls"
+    echo "Signing transaction: $(hash_of "${E2E_JOB:-parent}")" >&2
+    [ -z "${E2E_JOB:-}" ] || until [ -e "$RUN_DIR/go" ]; do command sleep 0.05; done
+    echo '"ok"'
+}
+jobf() { inv lbl_bg admin c -- supply >/dev/null & return 0; }
+casef() {
+    group_begin g 2 || return 1
+    group_spawn jobf
+    n=0; until [ -s "$RUN_DIR/calls" ] || [ "$n" -ge 200 ]; do command sleep 0.05; n=$((n+1)); done
+    group_end
+    inv serial_after admin c -- supply >/dev/null
+    group_begin h 1 reads
+    touch "$RUN_DIR/go"
+    return 0
+}
+if run_case c casef; then exit 1; fi
+n=0; until [ -s "$(echo "$RUN_DIR"/jobs/g.*/1/attempts.part)" ] || [ "$n" -ge 100 ]; do command sleep 0.05; n=$((n+1)); done
+! grep -q '^parent' "$RUN_DIR/calls" && grep -q '"group"' "$RUN_DIR/active-attempt.json" || exit 2
+""", interrupted=True)
+assert [(a['label'], a['status']) for a in actions] == [('group_g_untracked', 'FAIL'), ('group_g_unfinished', 'FAIL'),
+    ('serial_after', 'FAIL'), ('group_h', 'FAIL'), ('c', 'FAIL')], actions
+assert actions[2]['note'] == actions[3]['note'] == 'an unfinished group marker is still active' and not attempts, actions
+print('Untracked spawns, live job processes and kept group markers fail the case and keep the marker')

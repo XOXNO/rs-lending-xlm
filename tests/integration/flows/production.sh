@@ -79,6 +79,8 @@ prod_execute_split() {
 
 prod_ops() {
     local verb="$1" tag="${PROD_OP_TAG:-$1}"; shift
+    [ -z "${E2E_JOB:-}" ] || { job_refuse prod_ops "operator_$tag"; return 1; }
+    [ -z "${GROUP_DIR:-}" ] || group_guard "prod_ops $verb" || return 1
     local logical="${PROD_OP_VERB:-$verb}" wasm="${PROD_OP_WASM:-${1:-}}" auto=1 executed_call='' op record_path
     local proposal_salts='' execution_salts='' wave_log=''
     [ "${PROD_SETUP_JOBS:-1}" -le 1 ] || wave_log="$LOG_DIR/operator_${tag}_wave"
