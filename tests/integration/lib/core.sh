@@ -459,7 +459,9 @@ slot_take() {
     [[ "$count" =~ ^[1-9][0-9]?$ && "$base" =~ ^[1-9][0-9]{0,2}$ && "$deadline" =~ ^[0-9]{1,5}$ ]] \
         && [ $((base + count)) -le 255 ] || { SLOT_ERR="invalid slot count $count, base $base or wait $deadline"; return 1; }
     for ((fd = base; fd < base + count; fd++)); do
-        { : >&"$fd"; } 2>/dev/null && { SLOT_ERR="fd $fd is already open (nested hold or inherited fd)"; return 1; }
+        case " ${E2E_SLOT_FDS:-} " in
+            *" $fd "*) { : >&"$fd"; } 2>/dev/null && { SLOT_ERR="fd $fd already holds a slot (nested hold)"; return 1; } ;;
+        esac
     done
     mkdir -p "$(dirname "$prefix")" || { SLOT_ERR="cannot create $(dirname "$prefix")"; return 1; }
     for ((fd = base; fd < base + count; fd++)); do
@@ -486,6 +488,7 @@ while True:
     done
     [ -n "$got" ] || return 1
     SLOT_FD="$got"
+    case " ${E2E_SLOT_FDS:-} " in *" $got "*) ;; *) export E2E_SLOT_FDS="${E2E_SLOT_FDS:+$E2E_SLOT_FDS }$got" ;; esac
 }
 
 rpc_deadline_wait() {

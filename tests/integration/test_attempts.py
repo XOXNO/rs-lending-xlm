@@ -1497,8 +1497,14 @@ for pid in "${pids[@]}"; do wait "$pid" || exit 2; done
     for proc in blocked:
         assert proc.wait(timeout=30) == 0, proc.stderr.read()
     started = time.monotonic()
-    done = subprocess.run(['bash', '-c', 'exec 150>/dev/null; exec "$0" tx send', str(root/'bin/stellar')], env=env, capture_output=True, text=True, timeout=10)
-    assert done.returncode == 1 and 'rpc slot pool refused the call: fd 150 is already open' in done.stderr and time.monotonic() - started < 5, done.stderr
+    done = subprocess.run(['bash', '-c', 'exec 150>/dev/null; E2E_SLOT_FDS="7 150" exec "$0" tx send', str(root/'bin/stellar')], env=env, capture_output=True, text=True, timeout=10)
+    assert done.returncode == 1 and 'rpc slot pool refused the call: fd 150 already holds a slot' in done.stderr and time.monotonic() - started < 5, done.stderr
+    done = subprocess.run(['bash', '-c', 'source "$1/lib/core.sh"; rpc_hold || exit 9; exec "$0" tx send', str(root/'bin/stellar'), str(HERE)],
+                          env=env, capture_output=True, text=True, timeout=10)
+    assert done.returncode == 1 and 'already holds a slot (nested hold)' in done.stderr, (done.returncode, done.stderr)
+    for inherited in ['exec 151>/dev/null', 'exec 151>/dev/null; export E2E_SLOT_FDS=150']:
+        done = subprocess.run(['bash', '-c', inherited + '; exec "$0" tx send', str(root/'bin/stellar')], env=env, capture_output=True, text=True, timeout=10)
+        assert done.returncode == 0, (inherited, done.stderr)
     for bad, message in [('', 'absolute path'), ('stellar', 'absolute path'), (str(root/'bin/stellar'), 'shim itself')]:
         done = subprocess.run([str(root/'bin/stellar'), 'contract', 'invoke'], env=dict(env, E2E_STELLAR=bad), capture_output=True, text=True, timeout=10)
         assert done.returncode == 1 and message in done.stderr, (bad, done.stderr)

@@ -227,16 +227,20 @@ with tempfile.TemporaryDirectory() as directory:
     assert [s[0] for s in span] == ['start', 'end', 'start', 'end'] and span[0][1] == span[1][1] != span[2][1] == span[3][1], span
 with tempfile.TemporaryDirectory() as directory:
     root = Path(directory)
-    result = friendbot(directory, 'exec 30>>"$2/held"; new_wallet ALICE alice', ['200'], 1)
+    result = friendbot(directory, 'exec 30>>"$2/held"; export E2E_SLOT_FDS=30; new_wallet ALICE alice', ['200'], 1)
     assert result.returncode == 1 and not (root / 'span').exists(), result.stderr
     assert (root / 'logs/friendbot_e2e_alice_t.codes').read_text().split() == ['slot-unavailable']
     assert 'wallet_alice\tFAIL\tfatal' in (root / 'actions.tsv').read_text() and 'no friendbot slot' in (root / 'actions.tsv').read_text()
 with tempfile.TemporaryDirectory() as directory:
     root = Path(directory)
     result = friendbot(directory, '''_assert_fail() { printf '%s\\t%s\\n' "$1" "$2" >> "$RUN_DIR/fails"; }
-exec 30>>"$2/held"; lane_channels 1''', ['200'], 999)
+exec 30>>"$2/held"; export E2E_SLOT_FDS=30; lane_channels 1''', ['200'], 999)
     assert result.returncode == 1 and not (root / 'span').exists(), result.stderr
     assert (root / 'fails').read_text() == 'lane_channel_1\tno friendbot slot free within 300 s\n', result.stderr
+with tempfile.TemporaryDirectory() as directory:
+    root = Path(directory)
+    result = friendbot(directory, 'exec 30>>"$2/held"; friendbot_fund alice && [[ " $E2E_SLOT_FDS " == *" 30 "* ]]', ['200'], 1)
+    assert result.returncode == 0 and (root / 'logs/friendbot_alice.codes').read_text().split() == ['200'], result.stderr
 for throttled, funded, checks in [('2', True, 3), ('99', False, 7)]:
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
