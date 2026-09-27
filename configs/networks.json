@@ -44,8 +44,8 @@
     "controller": "CAUCMIN5KSXEVZ7NMXR3LZATGD5EFIEUI5XWTFLYRO2R5OTXI22WE5JX",
     "aggregator": "CCVENFSVCBYDHVOACFZXMNNYVOZ3LKXPZYU5LUI4N7KTXOKRVYD7F3TR",
     "accumulator": "GAVWFZK5BGCGBWH4O2CXAHXVRIYVAMGCTZJ24IPLVNLT2WQ2LJBDEEBP",
-    "pool_wasm_hash": "c2857740717a87b58c20b11e68dbacd4f4ab2da1a1cde03f0bc179a8a9f11228",
-    "controller_wasm_hash": "03a8630ff42439b7484d7cf4971e3311504a79a98db9b88c81ab0efe748f8fe3",
+    "pool_wasm_hash": "0be54b45afe46f40b82e66d8569074f421e872d0304c7c540db8dd14df528965",
+    "controller_wasm_hash": "52ed959d53933c4616b927cea04acb2dddc9a7b159c394e926978655ff17fd9b",
     "ledger_index": 64140891,
     "reflector_cex_oracle": "CAFJZQWSED6YAWZU3GWRTOCNPPCGBN32L7QV43XX5LZLFTK6JLN34DLN",
     "reflector_dex_oracle": "CALI2BYU2JE6WVRUFYTS6MSBNEHGJ35P4AVCZYF3B6QOE3QKOB2PLE6M",
@@ -54,7 +54,7 @@
     "xoxno_oracle_adapter": "CDA3XS2HETVCW5GSRN3FH4X3YJ45IA6DNVSZTEOYDFGOCXQK4ZJG22JM",
     "flash_loan_receiver": "",
     "pool": "CBXRNDQMAJFG4VUKMKFEMFS75UUXE2SPSNV4LEEFCSNBCN66PYRWBKXO",
-    "governance_wasm_hash": "754486d7d80cc6de6af86a5db0ea6be39b6b654e6e61a9390a1e3ec13c2662c5",
+    "governance_wasm_hash": "9a15c97e17f0421fa84fa457dfd231909a37bebebe6e1a6b65bf0ecf0104c230",
     "hub_ids": {
       "1": 1,
       "2": 2,
@@ -72,9 +72,9 @@
     },
     "price_aggregator": "CBGUF2G2Q7HCVCWYISDXBHPVBGMYNXA7PG2VET66YBZX6IKOOV27NSMV",
     "position_nft": "CAWCSG77AY2W24QZ6ZXLHZU4UXEFHZBM6EI4A4IF7JB5CTY4XND3TI6C",
-    "price_aggregator_wasm_hash": "7807901b2c98c19a56de016c5cf42b4df1c37702a34e38b6d567ce08e41bc8e4",
-    "position_nft_wasm_hash": "b93a6e6cf89bea479f87fbc0781d3058257e001a2fe041b5b1ee00e4b919243c",
-    "aggregator_wasm_hash": "8d58bbc589739888a61a804090215ec387e642a367dc01b34d7c9d13fe341604",
-    "oracle_adapter_wasm_hash": "b0b044e551cf7279a975c119a3cef8030fa1a68439cece1d22cfa8225d027e6e"
+    "price_aggregator_wasm_hash": "7c38fc75e1774fbbdd459ccbfdfe2f224817db8707da6bafcf06561ecb5fee9b",
+    "position_nft_wasm_hash": "09a3970aca2d72a3195771441108f07330b46e1f8479064c9b727b7653c487ab",
+    "aggregator_wasm_hash": "18eb766e87ed578892828cbb8c14817731dd8e570cf3861771fb944b85c352e8",
+    "oracle_adapter_wasm_hash": "5a579a63eebef923becd21382eb49678c5119f8a23b6a0d0e9565a9b53d525f7"
   }
 }

@@ -14,7 +14,7 @@ rpc:
 
 contracts:
   controller: CAUCMIN5KSXEVZ7NMXR3LZATGD5EFIEUI5XWTFLYRO2R5OTXI22WE5JX
-  pool_wasm_hash: c2857740717a87b58c20b11e68dbacd4f4ab2da1a1cde03f0bc179a8a9f11228
+  pool_wasm_hash: 0be54b45afe46f40b82e66d8569074f421e872d0304c7c540db8dd14df528965
   markets:
     # Every market in configs/mainnet/markets.json except those marked
     # `enabled: false`. A disabled market is not listed on-chain, so its pool
