@@ -25,7 +25,7 @@ phase() { PHASE="$1"; }
 log() { :; }
 cid() { printf 'C%055d' "$1" | tr 0-9 A-J; }
 written() {
-    printf '%s|%s|%s|%s|%s|%s|%s\n' "$PHASE" "$1" "${E2E_JOB:-}" "$2" "$3" "$4" "${INV_SUBMIT:-}" >> "$WORK/writes"
+    printf '%s|%s|%s|%s|%s|%s|%s|%s\n' "$PHASE" "$1" "${E2E_JOB:-}" "$2" "$3" "$4" "${INV_SUBMIT:-}" "${GROUP_WIDTH:-}" >> "$WORK/writes"
     [ -z "${E2E_JOB:-}" ] || printf '%s|%s\n' "$E2E_JOB" "$(cksum < "$STATE_ENV")" >> "$WORK/cksums"
 }
 run_deploy() {
@@ -199,7 +199,7 @@ flow_stress_liq_frontier || exit 4
 ''', directory)
             self.assertEqual(result.returncode, 0, result.stderr)
             work = Path(directory)
-            writes = [dict(zip(('phase', 'label', 'job', 'signer', 'fn', 'contract', 'submit'), w.split('|')))
+            writes = [dict(zip(('phase', 'label', 'job', 'signer', 'fn', 'contract', 'submit', 'width'), w.split('|')))
                       for w in (work / 'writes').read_text().splitlines()]
             state = {k: shlex.split(v)[0] for k, v in (line.split('=', 1) for line in (work / 'state.env').read_text().splitlines())}
             cksums = [line.split('|') for line in (work / 'cksums').read_text().splitlines()]
@@ -243,6 +243,7 @@ flow_stress_liq_frontier || exit 4
         markets, resolves, listing = group('stress_markets'), group('stress_resolve'), group('stress_listing')
         self.assertEqual(sorted((job(w), w['label'], w['fn'], w['signer'], w['submit']) for w in markets),
                          [(i + 1, f'create_market_ST{i:02d}', 'create_liquidity_pool', f'c{i % 10 + 1}', 'owner_submit') for i in range(20)])
+        self.assertEqual({w['width'] for w in markets}, {'10'})
         self.assertEqual(sorted((job(w), w['label'], w['fn']) for w in resolves),
                          [(i + 1, f'resolve_oracle_ST{i:02d}', 'view') for i in range(20)])
         set_oracles = [w for w in listing if w['fn'] == 'set_oracle']

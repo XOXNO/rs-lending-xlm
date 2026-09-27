@@ -48,7 +48,7 @@ stress_create_markets() {
         [ -n "${!var:-}" ] || pending+="$i"$'\n'
     done
     [ -n "$pending" ] || return 0
-    group_each stress_markets 20 "$pending" stress_market_job || return 1
+    group_each stress_markets 10 "$pending" stress_market_job || return 1
     group_begin stress_resolve 8 reads || return 1
     for i in $pending; do group_spawn stress_resolve_job "$i"; done
     group_end || return 1

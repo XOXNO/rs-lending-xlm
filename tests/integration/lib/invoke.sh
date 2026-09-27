@@ -270,7 +270,7 @@ inv_body() {
                 fi
             fi
             if [ "$st" = FAILED ] && [ -z "$drifted" ] && [ "$attempt" -lt "$INV_MAX_ATTEMPTS" ] \
-                && receipt_drift "$LOG_DIR/$hash.receipt.json" "$hash" "$NETWORK_PASSPHRASE" "$contract" "$fn" 2>>"$LOG_DIR/$hash.drift.err"; then
+                && [ "${INV_SUBMIT:-}" != owner_submit ] && receipt_drift "$LOG_DIR/$hash.receipt.json" "$hash" "$NETWORK_PASSPHRASE" "$contract" "$fn" 2>>"$LOG_DIR/$hash.drift.err"; then
                 drifted="$hash"
                 record "$label" retry "$fn" "$hash" "" "" "" "" "submitted attempt $attempt FAILED on a storage footprint limit; resimulating once" rejected_transaction "$contract"
                 continue

@@ -1201,18 +1201,16 @@ assert [(a['label'], a['status'], a['fn'], a['hash']) for a in actions] == [('lb
 assert [(a['label'], a['cli_exit'], a['hash']) for a in attempts] == [('lbl', 0, '0'*63+'1')], attempts
 attempts, _, actions = shell(OWNER_SETUP + r'''
 tx_status() { if [ "$1" = "$(printf '%064d' 1)" ]; then echo FAILED; else echo SUCCESS; fi; }
-receipt_drift() { echo "$#:$2:${7:-}" >> "$RUN_DIR/drift"; }
-inv_owner lbl contract -- create_liquidity_pool >/dev/null || exit 1
-[ "$(built)" = 2 ] && sources_are_chan1 || exit 2
-[ "$(tr '\n' ' ' < "$RUN_DIR/drift")" = "5:$(printf '%064d' 1): 7:$(printf '%064d' 1):$(printf '%064d' 2) " ] || exit 3
-[ "$(sort "$RUN_DIR/sends" | uniq -d)" = '' ] && [ "$(wc -l < "$RUN_DIR/sends" | tr -d ' ')" = 2 ] && [ ! -e "$RUN_DIR/violations" ] || exit 4
-[ "$(wc -l < "$RUN_DIR/recover" | tr -d ' ')" = 1 ] || exit 5
+receipt_drift() { echo "$*" >> "$RUN_DIR/drift"; }
+if inv_owner lbl contract -- create_liquidity_pool >/dev/null; then exit 1; fi
+[ "$(built)" = 1 ] && sources_are_chan1 && [ ! -e "$RUN_DIR/drift" ] || exit 2
+[ "$(cat "$RUN_DIR/sends")" = "$(printf '%064d' 1)" ] && [ ! -e "$RUN_DIR/violations" ] && [ ! -e "$RUN_DIR/recover" ] || exit 3
 ''')
-assert [(a['status'], a['hash']) for a in actions] == [('retry', '0'*63+'1'), ('ok', '0'*63+'2')], actions
+assert [(a['status'], a['hash']) for a in actions] == [('FAIL', '0'*63+'1')], actions
 attempts, _, actions = shell(OWNER_SETUP + r'''
 tx_status() { echo UNKNOWN; }
 if inv_owner lbl contract -- create_liquidity_pool >/dev/null; then exit 1; fi
 [ "$(cat "$RUN_DIR/sends")" = "$(printf '%064d' 1)" ] && [ "$(built)" = 1 ] && [ ! -e "$RUN_DIR/recover" ] || exit 2
 ''')
 assert [(a['status'], a['hash']) for a in actions] == [('FAIL', '0'*63+'1')], actions
-print('owner_submit signs the owner entry from stdin, logs its hash before one send, recovers the receipt value and retries drift on the same channel')
+print('owner_submit signs the owner entry from stdin, logs its hash before one send, recovers the receipt value and never re-signs after a FAILED receipt')
