@@ -138,3 +138,22 @@ for lanes in ['agg','strategies']:
         assert done.returncode==2 and f"unknown lane '{lanes}'" in done.stderr,done.stderr
         assert not (base/'calls').exists() and not (base/'runs').exists(),lanes
 print('Lanes outside the release set exit 2 before any upload')
+with tempfile.TemporaryDirectory() as directory:
+    base=Path(directory)
+    scripts,env,wasms=orchestrator(base,LANE_TIMEOUT='30s')
+    (scripts/'full_e2e.sh').write_text('#!/bin/bash\nmkdir -p "$INTEG_DIR/runs/$RUN_TS"; echo "{}" > "$INTEG_DIR/runs/$RUN_TS/metadata.json"; echo "run complete"\n')
+    (scripts/'assert_green.sh').write_text('#!/bin/bash\necho started > "$INTEG_DIR/runs/$RUN_TS.gate-started"\nsleep 6\necho passed > "$INTEG_DIR/runs/$RUN_TS.gate-passed"\n')
+    process=subprocess.Popen(['bash',str(scripts/'parallel_e2e.sh')],env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+    lane=env['E2E_LANES'].split()[0]
+    started=base/f'runs/fixture-{lane}.gate-started'
+    for _ in range(1000):
+        if started.exists(): break
+        if process.poll() is not None: raise AssertionError(process.communicate())
+        time.sleep(.02)
+    assert started.exists()
+    process.send_signal(signal.SIGTERM)
+    process.communicate(timeout=30)
+    assert process.returncode!=0
+    time.sleep(7)
+    assert not (base/f'runs/fixture-{lane}.gate-passed').exists(), 'a gate survived cancellation'
+print('Cancellation during gating stops the gate processes before marking the run incomplete')
