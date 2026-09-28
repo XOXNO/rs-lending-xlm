@@ -47,6 +47,8 @@ mod position_limit_lowering_keeps_topups;
 mod position_nft;
 mod position_nft_ttl_and_ownership_reads;
 mod recipient_is_protocol_contract;
+mod redteam_liqvid;
+mod redteam_liqvid_calibration;
 mod redteam_mainnet_a1_a2;
 mod redteam_mainnet_boundaries;
 mod redteam_mainnet_calibration;
