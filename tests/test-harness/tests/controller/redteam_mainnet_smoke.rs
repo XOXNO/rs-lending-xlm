@@ -74,7 +74,7 @@ const CASES: [Case; 8] = [
     },
 ];
 
-fn assert_estimate_matches(
+pub(crate) fn assert_estimate_matches(
     book: &ExactBook,
     plan: &ExactPlan,
     estimate: &LiquidationEstimate,
