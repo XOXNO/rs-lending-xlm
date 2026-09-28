@@ -29,6 +29,7 @@ xoxno-oracle = { path = "../../contracts/xoxno-oracle" }
 num-rational = { version = "0.4", default-features = false, features = ["std", "num-bigint-std"], optional = true }
 num-bigint = { version = "0.4", default-features = false, features = ["std"], optional = true }
 num-traits = { version = "0.2", default-features = false, features = ["std"], optional = true }
+serde_json = "1"
 
 [dev-dependencies]
 

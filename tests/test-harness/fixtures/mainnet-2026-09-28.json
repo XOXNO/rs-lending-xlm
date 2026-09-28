@@ -1,0 +1,1290 @@
+{
+  "source": {
+    "configs_commit": "c50f25aba163ef726c1ece205e14751fd4f56093",
+    "prices": "price aggregator prices() simulated with --send=no",
+    "date": "2026-09-28"
+  },
+  "hubs": {
+    "1": {
+      "onchain_id": 1,
+      "name": "Core"
+    },
+    "2": {
+      "onchain_id": 2,
+      "name": "RWA"
+    },
+    "3": {
+      "onchain_id": 3,
+      "name": "AMM"
+    }
+  },
+  "spokes": {
+    "1": {
+      "onchain_id": 1,
+      "name": "Blue Chip",
+      "liquidation_curve": {
+        "target_hf_wad": "1150000000000000000",
+        "hf_for_max_bonus_wad": "900000000000000000",
+        "liquidation_bonus_factor_bps": 1500
+      },
+      "assets": {
+        "XLM": {
+          "hub_id": 1,
+          "can_be_collateral": true,
+          "can_be_borrowed": true,
+          "ltv": 7500,
+          "liquidation_threshold": 7800,
+          "liquidation_bonus": 900,
+          "liquidation_fees": 1200,
+          "supply_cap": "500000000000000",
+          "borrow_cap": "300000000000000"
+        },
+        "USDC": {
+          "hub_id": 1,
+          "can_be_collateral": true,
+          "can_be_borrowed": true,
+          "ltv": 7600,
+          "liquidation_threshold": 8000,
+          "liquidation_bonus": 400,
+          "liquidation_fees": 1000,
+          "supply_cap": "50000000000000",
+          "borrow_cap": "37500000000000"
+        },
+        "EURC": {
+          "hub_id": 1,
+          "can_be_collateral": true,
+          "can_be_borrowed": true,
+          "ltv": 7200,
+          "liquidation_threshold": 7900,
+          "liquidation_bonus": 500,
+          "liquidation_fees": 1000,
+          "supply_cap": "4200000000000",
+          "borrow_cap": "3150000000000"
+        },
+        "PYUSD": {
+          "hub_id": 1,
+          "can_be_collateral": true,
+          "can_be_borrowed": true,
+          "ltv": 7200,
+          "liquidation_threshold": 7900,
+          "liquidation_bonus": 500,
+          "liquidation_fees": 1000,
+          "supply_cap": "980000000000",
+          "borrow_cap": "735000000000"
+        },
+        "USDT0": {
+          "hub_id": 1,
+          "can_be_collateral": true,
+          "can_be_borrowed": true,
+          "ltv": 7200,
+          "liquidation_threshold": 7900,
+          "liquidation_bonus": 500,
+          "liquidation_fees": 1000,
+          "supply_cap": "500000000000",
+          "borrow_cap": "375000000000"
+        },
+        "SolvBTC": {
+          "hub_id": 1,
+          "can_be_collateral": true,
+          "can_be_borrowed": true,
+          "ltv": 6000,
+          "liquidation_threshold": 7000,
+          "liquidation_bonus": 900,
+          "liquidation_fees": 1200,
+          "supply_cap": "5000000000",
+          "borrow_cap": "3000000000"
+        },
+        "xSolvBTC": {
+          "hub_id": 1,
+          "can_be_collateral": true,
+          "can_be_borrowed": true,
+          "ltv": 6000,
+          "liquidation_threshold": 7000,
+          "liquidation_bonus": 900,
+          "liquidation_fees": 1200,
+          "supply_cap": "1000000000",
+          "borrow_cap": "500000000"
+        }
+      }
+    },
+    "2": {
+      "onchain_id": 2,
+      "name": "Etherfuse RWA",
+      "liquidation_curve": {
+        "target_hf_wad": "1150000000000000000",
+        "hf_for_max_bonus_wad": "900000000000000000",
+        "liquidation_bonus_factor_bps": 1500
+      },
+      "assets": {
+        "USTRY": {
+          "hub_id": 2,
+          "can_be_collateral": true,
+          "can_be_borrowed": false,
+          "ltv": 6000,
+          "liquidation_threshold": 7000,
+          "liquidation_bonus": 600,
+          "liquidation_fees": 1200,
+          "supply_cap": "2500000000000",
+          "borrow_cap": "0"
+        },
+        "CETES": {
+          "hub_id": 2,
+          "can_be_collateral": true,
+          "can_be_borrowed": false,
+          "ltv": 6000,
+          "liquidation_threshold": 7000,
+          "liquidation_bonus": 600,
+          "liquidation_fees": 1200,
+          "supply_cap": "15000000000000",
+          "borrow_cap": "0"
+        },
+        "USDC": {
+          "hub_id": 1,
+          "can_be_collateral": false,
+          "can_be_borrowed": true,
+          "ltv": 7600,
+          "liquidation_threshold": 8000,
+          "liquidation_bonus": 400,
+          "liquidation_fees": 1000,
+          "supply_cap": "14960000000000",
+          "borrow_cap": "2300000000000"
+        },
+        "XLM": {
+          "hub_id": 1,
+          "can_be_collateral": false,
+          "can_be_borrowed": true,
+          "ltv": 7500,
+          "liquidation_threshold": 7800,
+          "liquidation_bonus": 900,
+          "liquidation_fees": 1200,
+          "supply_cap": "400000000000000",
+          "borrow_cap": "2450000000000"
+        },
+        "EURC": {
+          "hub_id": 1,
+          "can_be_collateral": false,
+          "can_be_borrowed": true,
+          "ltv": 7200,
+          "liquidation_threshold": 7900,
+          "liquidation_bonus": 500,
+          "liquidation_fees": 1000,
+          "supply_cap": "850000000000",
+          "borrow_cap": "560000000000"
+        },
+        "PYUSD": {
+          "hub_id": 1,
+          "can_be_collateral": false,
+          "can_be_borrowed": true,
+          "ltv": 7200,
+          "liquidation_threshold": 7900,
+          "liquidation_bonus": 500,
+          "liquidation_fees": 1000,
+          "supply_cap": "98000000000",
+          "borrow_cap": "100000000000"
+        }
+      }
+    },
+    "4": {
+      "onchain_id": 3,
+      "name": "Centrifuge RWA",
+      "liquidation_curve": {
+        "target_hf_wad": "1150000000000000000",
+        "hf_for_max_bonus_wad": "900000000000000000",
+        "liquidation_bonus_factor_bps": 1500
+      },
+      "assets": {
+        "DEJTRSY": {
+          "hub_id": 2,
+          "can_be_collateral": true,
+          "can_be_borrowed": false,
+          "ltv": 6000,
+          "liquidation_threshold": 7000,
+          "liquidation_bonus": 600,
+          "liquidation_fees": 1200,
+          "supply_cap": "100000000000000000000000",
+          "borrow_cap": "0"
+        },
+        "DEJAAA": {
+          "hub_id": 2,
+          "can_be_collateral": true,
+          "can_be_borrowed": false,
+          "ltv": 6000,
+          "liquidation_threshold": 7000,
+          "liquidation_bonus": 600,
+          "liquidation_fees": 1200,
+          "supply_cap": "100000000000000000000000",
+          "borrow_cap": "0"
+        },
+        "USDC": {
+          "hub_id": 1,
+          "can_be_collateral": false,
+          "can_be_borrowed": true,
+          "ltv": 7600,
+          "liquidation_threshold": 8000,
+          "liquidation_bonus": 400,
+          "liquidation_fees": 1000,
+          "supply_cap": "9970000000000",
+          "borrow_cap": "1230000000000"
+        },
+        "XLM": {
+          "hub_id": 1,
+          "can_be_collateral": false,
+          "can_be_borrowed": true,
+          "ltv": 7500,
+          "liquidation_threshold": 7800,
+          "liquidation_bonus": 900,
+          "liquidation_fees": 1200,
+          "supply_cap": "400000000000000",
+          "borrow_cap": "1290000000000"
+        },
+        "EURC": {
+          "hub_id": 1,
+          "can_be_collateral": false,
+          "can_be_borrowed": true,
+          "ltv": 7200,
+          "liquidation_threshold": 7900,
+          "liquidation_bonus": 500,
+          "liquidation_fees": 1000,
+          "supply_cap": "650000000000",
+          "borrow_cap": "290000000000"
+        },
+        "PYUSD": {
+          "hub_id": 1,
+          "can_be_collateral": false,
+          "can_be_borrowed": true,
+          "ltv": 7200,
+          "liquidation_threshold": 7900,
+          "liquidation_bonus": 500,
+          "liquidation_fees": 1000,
+          "supply_cap": "98000000000",
+          "borrow_cap": "50000000000"
+        }
+      }
+    },
+    "5": {
+      "onchain_id": 4,
+      "name": "Stables & FX",
+      "liquidation_curve": {
+        "target_hf_wad": "1020000000000000000",
+        "hf_for_max_bonus_wad": "800000000000000000",
+        "liquidation_bonus_factor_bps": 10000
+      },
+      "assets": {
+        "USDC": {
+          "hub_id": 1,
+          "can_be_collateral": true,
+          "can_be_borrowed": true,
+          "ltv": 8800,
+          "liquidation_threshold": 9200,
+          "liquidation_bonus": 400,
+          "liquidation_fees": 1000,
+          "supply_cap": "149600000000000",
+          "borrow_cap": "112200000000000"
+        },
+        "EURC": {
+          "hub_id": 1,
+          "can_be_collateral": true,
+          "can_be_borrowed": true,
+          "ltv": 8400,
+          "liquidation_threshold": 8800,
+          "liquidation_bonus": 400,
+          "liquidation_fees": 1000,
+          "supply_cap": "13000000000000",
+          "borrow_cap": "9750000000000"
+        },
+        "PYUSD": {
+          "hub_id": 1,
+          "can_be_collateral": true,
+          "can_be_borrowed": true,
+          "ltv": 8600,
+          "liquidation_threshold": 9000,
+          "liquidation_bonus": 300,
+          "liquidation_fees": 1000,
+          "supply_cap": "2000000000000",
+          "borrow_cap": "1500000000000"
+        },
+        "USDT0": {
+          "hub_id": 1,
+          "can_be_collateral": true,
+          "can_be_borrowed": true,
+          "ltv": 8400,
+          "liquidation_threshold": 8800,
+          "liquidation_bonus": 400,
+          "liquidation_fees": 1000,
+          "supply_cap": "1000000000000",
+          "borrow_cap": "750000000000"
+        },
+        "USST": {
+          "hub_id": 2,
+          "can_be_collateral": true,
+          "can_be_borrowed": false,
+          "ltv": 8000,
+          "liquidation_threshold": 8500,
+          "liquidation_bonus": 500,
+          "liquidation_fees": 1000,
+          "supply_cap": "247000000000000000000000",
+          "borrow_cap": "0"
+        },
+        "USDY": {
+          "hub_id": 2,
+          "can_be_collateral": true,
+          "can_be_borrowed": false,
+          "ltv": 8000,
+          "liquidation_threshold": 8500,
+          "liquidation_bonus": 500,
+          "liquidation_fees": 1000,
+          "supply_cap": "44000000000000",
+          "borrow_cap": "0"
+        }
+      }
+    },
+    "6": {
+      "onchain_id": 5,
+      "name": "AMM Collateral",
+      "liquidation_curve": {
+        "target_hf_wad": "1150000000000000000",
+        "hf_for_max_bonus_wad": "900000000000000000",
+        "liquidation_bonus_factor_bps": 1000
+      },
+      "assets": {
+        "XLMUSDC_LP": {
+          "hub_id": 3,
+          "can_be_collateral": true,
+          "can_be_borrowed": false,
+          "ltv": 5000,
+          "liquidation_threshold": 6000,
+          "liquidation_bonus": 1000,
+          "liquidation_fees": 1000,
+          "supply_cap": "5000000000",
+          "borrow_cap": "0"
+        },
+        "XLMSolvBTC_LP": {
+          "hub_id": 3,
+          "can_be_collateral": true,
+          "can_be_borrowed": false,
+          "ltv": 5000,
+          "liquidation_threshold": 6000,
+          "liquidation_bonus": 1000,
+          "liquidation_fees": 1000,
+          "supply_cap": "5000000000",
+          "borrow_cap": "0"
+        },
+        "xSolvBTCSolvBTC_LP": {
+          "hub_id": 3,
+          "can_be_collateral": true,
+          "can_be_borrowed": false,
+          "ltv": 5000,
+          "liquidation_threshold": 6000,
+          "liquidation_bonus": 1000,
+          "liquidation_fees": 1000,
+          "supply_cap": "2000000000",
+          "borrow_cap": "0"
+        },
+        "CETESUSDC_LP": {
+          "hub_id": 3,
+          "can_be_collateral": true,
+          "can_be_borrowed": false,
+          "ltv": 5000,
+          "liquidation_threshold": 6000,
+          "liquidation_bonus": 1000,
+          "liquidation_fees": 1000,
+          "supply_cap": "5000000000",
+          "borrow_cap": "0"
+        },
+        "USTRYUSDC_LP": {
+          "hub_id": 3,
+          "can_be_collateral": true,
+          "can_be_borrowed": false,
+          "ltv": 5000,
+          "liquidation_threshold": 6000,
+          "liquidation_bonus": 1000,
+          "liquidation_fees": 1000,
+          "supply_cap": "5000000000",
+          "borrow_cap": "0"
+        },
+        "USDYUSDC_LP": {
+          "hub_id": 3,
+          "can_be_collateral": true,
+          "can_be_borrowed": false,
+          "ltv": 5000,
+          "liquidation_threshold": 6000,
+          "liquidation_bonus": 1000,
+          "liquidation_fees": 1000,
+          "supply_cap": "5000000000",
+          "borrow_cap": "0"
+        },
+        "PYUSDUSDC_LP": {
+          "hub_id": 3,
+          "can_be_collateral": true,
+          "can_be_borrowed": false,
+          "ltv": 5000,
+          "liquidation_threshold": 6000,
+          "liquidation_bonus": 1000,
+          "liquidation_fees": 1000,
+          "supply_cap": "5000000000",
+          "borrow_cap": "0"
+        },
+        "XLMAQUA_LP": {
+          "hub_id": 3,
+          "can_be_collateral": true,
+          "can_be_borrowed": false,
+          "ltv": 5000,
+          "liquidation_threshold": 6000,
+          "liquidation_bonus": 1000,
+          "liquidation_fees": 1000,
+          "supply_cap": "50000000000000",
+          "borrow_cap": "0"
+        },
+        "AQUAUSDC_LP": {
+          "hub_id": 3,
+          "can_be_collateral": true,
+          "can_be_borrowed": false,
+          "ltv": 5000,
+          "liquidation_threshold": 6000,
+          "liquidation_bonus": 1000,
+          "liquidation_fees": 1000,
+          "supply_cap": "50000000000000",
+          "borrow_cap": "0"
+        },
+        "USDC": {
+          "hub_id": 1,
+          "can_be_collateral": false,
+          "can_be_borrowed": true,
+          "ltv": 7600,
+          "liquidation_threshold": 8000,
+          "liquidation_bonus": 400,
+          "liquidation_fees": 1000,
+          "supply_cap": "9970000000000",
+          "borrow_cap": "620000000000"
+        },
+        "EURC": {
+          "hub_id": 1,
+          "can_be_collateral": false,
+          "can_be_borrowed": true,
+          "ltv": 7200,
+          "liquidation_threshold": 7900,
+          "liquidation_bonus": 500,
+          "liquidation_fees": 1000,
+          "supply_cap": "650000000000",
+          "borrow_cap": "150000000000"
+        },
+        "XLM": {
+          "hub_id": 1,
+          "can_be_collateral": false,
+          "can_be_borrowed": true,
+          "ltv": 7500,
+          "liquidation_threshold": 7800,
+          "liquidation_bonus": 900,
+          "liquidation_fees": 1200,
+          "supply_cap": "400000000000000",
+          "borrow_cap": "650000000000"
+        },
+        "PYUSD": {
+          "hub_id": 1,
+          "can_be_collateral": false,
+          "can_be_borrowed": true,
+          "ltv": 7200,
+          "liquidation_threshold": 7900,
+          "liquidation_bonus": 500,
+          "liquidation_fees": 1000,
+          "supply_cap": "98000000000",
+          "borrow_cap": "20000000000"
+        }
+      }
+    },
+    "7": {
+      "onchain_id": 6,
+      "name": "Ondo RWA",
+      "liquidation_curve": {
+        "target_hf_wad": "1150000000000000000",
+        "hf_for_max_bonus_wad": "900000000000000000",
+        "liquidation_bonus_factor_bps": 1000
+      },
+      "assets": {
+        "USDY": {
+          "hub_id": 2,
+          "can_be_collateral": true,
+          "can_be_borrowed": false,
+          "ltv": 8000,
+          "liquidation_threshold": 8500,
+          "liquidation_bonus": 500,
+          "liquidation_fees": 1000,
+          "supply_cap": "3000000000000",
+          "borrow_cap": "0"
+        },
+        "USDYUSDC_LP": {
+          "hub_id": 3,
+          "can_be_collateral": true,
+          "can_be_borrowed": false,
+          "ltv": 5000,
+          "liquidation_threshold": 6000,
+          "liquidation_bonus": 1000,
+          "liquidation_fees": 1000,
+          "supply_cap": "1000000000000",
+          "borrow_cap": "0"
+        },
+        "USDC": {
+          "hub_id": 1,
+          "can_be_collateral": false,
+          "can_be_borrowed": true,
+          "ltv": 7600,
+          "liquidation_threshold": 8000,
+          "liquidation_bonus": 400,
+          "liquidation_fees": 1000,
+          "supply_cap": "9970000000000",
+          "borrow_cap": "4010000000000"
+        },
+        "EURC": {
+          "hub_id": 1,
+          "can_be_collateral": false,
+          "can_be_borrowed": true,
+          "ltv": 7200,
+          "liquidation_threshold": 7900,
+          "liquidation_bonus": 500,
+          "liquidation_fees": 1000,
+          "supply_cap": "650000000000",
+          "borrow_cap": "970000000000"
+        },
+        "XLM": {
+          "hub_id": 1,
+          "can_be_collateral": false,
+          "can_be_borrowed": true,
+          "ltv": 7500,
+          "liquidation_threshold": 7800,
+          "liquidation_bonus": 900,
+          "liquidation_fees": 1200,
+          "supply_cap": "400000000000000",
+          "borrow_cap": "4210000000000"
+        },
+        "PYUSD": {
+          "hub_id": 1,
+          "can_be_collateral": false,
+          "can_be_borrowed": true,
+          "ltv": 7200,
+          "liquidation_threshold": 7900,
+          "liquidation_bonus": 500,
+          "liquidation_fees": 1000,
+          "supply_cap": "98000000000",
+          "borrow_cap": "170000000000"
+        }
+      }
+    },
+    "8": {
+      "onchain_id": 7,
+      "name": "Commodities",
+      "liquidation_curve": {
+        "target_hf_wad": "1150000000000000000",
+        "hf_for_max_bonus_wad": "900000000000000000",
+        "liquidation_bonus_factor_bps": 1000
+      },
+      "assets": {
+        "XAUM": {
+          "hub_id": 2,
+          "can_be_collateral": true,
+          "can_be_borrowed": false,
+          "ltv": 6500,
+          "liquidation_threshold": 7500,
+          "liquidation_bonus": 800,
+          "liquidation_fees": 1000,
+          "supply_cap": "2000000000",
+          "borrow_cap": "0"
+        },
+        "XAUMUSDC_LP": {
+          "hub_id": 3,
+          "can_be_collateral": true,
+          "can_be_borrowed": false,
+          "ltv": 5000,
+          "liquidation_threshold": 6000,
+          "liquidation_bonus": 1000,
+          "liquidation_fees": 1000,
+          "supply_cap": "5000000000",
+          "borrow_cap": "0"
+        },
+        "USDC": {
+          "hub_id": 1,
+          "can_be_collateral": false,
+          "can_be_borrowed": true,
+          "ltv": 7600,
+          "liquidation_threshold": 8000,
+          "liquidation_bonus": 400,
+          "liquidation_fees": 1000,
+          "supply_cap": "9970000000000",
+          "borrow_cap": "134000000000"
+        },
+        "EURC": {
+          "hub_id": 1,
+          "can_be_collateral": false,
+          "can_be_borrowed": true,
+          "ltv": 7200,
+          "liquidation_threshold": 7900,
+          "liquidation_bonus": 500,
+          "liquidation_fees": 1000,
+          "supply_cap": "650000000000",
+          "borrow_cap": "30000000000"
+        },
+        "XLM": {
+          "hub_id": 1,
+          "can_be_collateral": false,
+          "can_be_borrowed": true,
+          "ltv": 7500,
+          "liquidation_threshold": 7800,
+          "liquidation_bonus": 900,
+          "liquidation_fees": 1200,
+          "supply_cap": "400000000000000",
+          "borrow_cap": "141000000000"
+        },
+        "PYUSD": {
+          "hub_id": 1,
+          "can_be_collateral": false,
+          "can_be_borrowed": true,
+          "ltv": 7200,
+          "liquidation_threshold": 7900,
+          "liquidation_bonus": 500,
+          "liquidation_fees": 1000,
+          "supply_cap": "98000000000",
+          "borrow_cap": "10000000000"
+        }
+      }
+    },
+    "9": {
+      "onchain_id": 8,
+      "name": "Aquarius Ecosystem",
+      "liquidation_curve": {
+        "target_hf_wad": "1150000000000000000",
+        "hf_for_max_bonus_wad": "900000000000000000",
+        "liquidation_bonus_factor_bps": 1000
+      },
+      "assets": {
+        "AQUA": {
+          "hub_id": 3,
+          "can_be_collateral": true,
+          "can_be_borrowed": false,
+          "ltv": 5500,
+          "liquidation_threshold": 6000,
+          "liquidation_bonus": 1000,
+          "liquidation_fees": 1200,
+          "supply_cap": "5000000000000000",
+          "borrow_cap": "0"
+        },
+        "XLMAQUA_LP": {
+          "hub_id": 3,
+          "can_be_collateral": true,
+          "can_be_borrowed": false,
+          "ltv": 5000,
+          "liquidation_threshold": 6000,
+          "liquidation_bonus": 1000,
+          "liquidation_fees": 1000,
+          "supply_cap": "50000000000000",
+          "borrow_cap": "0"
+        },
+        "AQUAUSDC_LP": {
+          "hub_id": 3,
+          "can_be_collateral": true,
+          "can_be_borrowed": false,
+          "ltv": 5000,
+          "liquidation_threshold": 6000,
+          "liquidation_bonus": 1000,
+          "liquidation_fees": 1000,
+          "supply_cap": "50000000000000",
+          "borrow_cap": "0"
+        },
+        "USDC": {
+          "hub_id": 1,
+          "can_be_collateral": false,
+          "can_be_borrowed": true,
+          "ltv": 7600,
+          "liquidation_threshold": 8000,
+          "liquidation_bonus": 400,
+          "liquidation_fees": 1000,
+          "supply_cap": "9970000000000",
+          "borrow_cap": "5000000000000"
+        },
+        "XLM": {
+          "hub_id": 1,
+          "can_be_collateral": false,
+          "can_be_borrowed": true,
+          "ltv": 7500,
+          "liquidation_threshold": 7800,
+          "liquidation_bonus": 900,
+          "liquidation_fees": 1200,
+          "supply_cap": "400000000000000",
+          "borrow_cap": "5000000000000"
+        },
+        "EURC": {
+          "hub_id": 1,
+          "can_be_collateral": false,
+          "can_be_borrowed": true,
+          "ltv": 7200,
+          "liquidation_threshold": 7900,
+          "liquidation_bonus": 500,
+          "liquidation_fees": 1000,
+          "supply_cap": "650000000000",
+          "borrow_cap": "1400000000000"
+        },
+        "PYUSD": {
+          "hub_id": 1,
+          "can_be_collateral": false,
+          "can_be_borrowed": true,
+          "ltv": 7200,
+          "liquidation_threshold": 7900,
+          "liquidation_bonus": 500,
+          "liquidation_fees": 1000,
+          "supply_cap": "98000000000",
+          "borrow_cap": "220000000000"
+        }
+      }
+    }
+  },
+  "markets": {
+    "XLM": {
+      "hub_id": 1,
+      "asset_address": "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA",
+      "decimals": 7,
+      "min_sanity_price_wad": "50000000000000000",
+      "max_sanity_price_wad": "1000000000000000000",
+      "price_wad": "212414871690620000",
+      "price_timestamp": 1790595900,
+      "market_params": {
+        "max_borrow_rate": "640000000000000000000000000",
+        "base_borrow_rate": "0",
+        "slope1": "20000000000000000000000000",
+        "slope2": "20000000000000000000000000",
+        "slope3": "600000000000000000000000000",
+        "mid_utilization": "400000000000000000000000000",
+        "optimal_utilization": "800000000000000000000000000",
+        "max_utilization": "900000000000000000000000000",
+        "reserve_factor": 2000,
+        "is_flashloanable": true,
+        "flashloan_fee": 9
+      }
+    },
+    "USDC": {
+      "hub_id": 1,
+      "asset_address": "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75",
+      "decimals": 7,
+      "min_sanity_price_wad": "950000000000000000",
+      "max_sanity_price_wad": "1050000000000000000",
+      "price_wad": "999990697386260000",
+      "price_timestamp": 1790572358,
+      "market_params": {
+        "max_borrow_rate": "250000000000000000000000000",
+        "base_borrow_rate": "0",
+        "slope1": "25000000000000000000000000",
+        "slope2": "25000000000000000000000000",
+        "slope3": "200000000000000000000000000",
+        "mid_utilization": "460000000000000000000000000",
+        "optimal_utilization": "920000000000000000000000000",
+        "max_utilization": "950000000000000000000000000",
+        "reserve_factor": 1000,
+        "is_flashloanable": true,
+        "flashloan_fee": 9
+      }
+    },
+    "EURC": {
+      "hub_id": 1,
+      "asset_address": "CDTKPWPLOURQA2SGTKTUQOWRCBZEORB4BWBOMJ3D3ZTQQSGE5F6JBQLV",
+      "decimals": 7,
+      "min_sanity_price_wad": "1060000000000000000",
+      "max_sanity_price_wad": "1220000000000000000",
+      "price_wad": "1137204846581870000",
+      "price_timestamp": 1790594050,
+      "market_params": {
+        "max_borrow_rate": "405000000000000000000000000",
+        "base_borrow_rate": "0",
+        "slope1": "27500000000000000000000000",
+        "slope2": "27500000000000000000000000",
+        "slope3": "350000000000000000000000000",
+        "mid_utilization": "450000000000000000000000000",
+        "optimal_utilization": "900000000000000000000000000",
+        "max_utilization": "950000000000000000000000000",
+        "reserve_factor": 1000,
+        "is_flashloanable": true,
+        "flashloan_fee": 9
+      }
+    },
+    "PYUSD": {
+      "hub_id": 1,
+      "asset_address": "CCCRWH6Q3FNP3I2I57BDLM5AFAT7O6OF6GKQOC6SSJNDAVRZ57SPHGU2",
+      "decimals": 7,
+      "min_sanity_price_wad": "950000000000000000",
+      "max_sanity_price_wad": "1050000000000000000",
+      "price_wad": "999380070000000000",
+      "price_timestamp": 1790593320,
+      "market_params": {
+        "max_borrow_rate": "240000000000000000000000000",
+        "base_borrow_rate": "0",
+        "slope1": "20000000000000000000000000",
+        "slope2": "20000000000000000000000000",
+        "slope3": "200000000000000000000000000",
+        "mid_utilization": "450000000000000000000000000",
+        "optimal_utilization": "900000000000000000000000000",
+        "max_utilization": "950000000000000000000000000",
+        "reserve_factor": 1000,
+        "is_flashloanable": true,
+        "flashloan_fee": 9
+      }
+    },
+    "USDT0": {
+      "hub_id": 1,
+      "asset_address": "CBSJZEIO5C7KC2SF3MKSNXXJSW5G3VTNBX4ATMKUI3B2MR4JKM4R26YF",
+      "decimals": 7,
+      "min_sanity_price_wad": "950000000000000000",
+      "max_sanity_price_wad": "1050000000000000000",
+      "price_wad": "999570934083290000",
+      "price_timestamp": 1790594050,
+      "market_params": {
+        "max_borrow_rate": "240000000000000000000000000",
+        "base_borrow_rate": "0",
+        "slope1": "20000000000000000000000000",
+        "slope2": "20000000000000000000000000",
+        "slope3": "200000000000000000000000000",
+        "mid_utilization": "460000000000000000000000000",
+        "optimal_utilization": "920000000000000000000000000",
+        "max_utilization": "950000000000000000000000000",
+        "reserve_factor": 1000,
+        "is_flashloanable": true,
+        "flashloan_fee": 9
+      }
+    },
+    "USST": {
+      "hub_id": 2,
+      "asset_address": "CBZ4DCE7PYMUTOAKKUTRSUPT3FJFVOWCSKWUM5A72D6SAVMUJE5JN2PJ",
+      "decimals": 18,
+      "min_sanity_price_wad": "920000000000000000",
+      "max_sanity_price_wad": "1124000000000000000",
+      "price_wad": "1009337850000000000",
+      "price_timestamp": 1790572410,
+      "market_params": {
+        "max_borrow_rate": "10000000000000000000000000",
+        "base_borrow_rate": "0",
+        "slope1": "0",
+        "slope2": "0",
+        "slope3": "0",
+        "mid_utilization": "495000000000000000000000000",
+        "optimal_utilization": "990000000000000000000000000",
+        "max_utilization": "1000000000000000000000000000",
+        "reserve_factor": 2500,
+        "is_flashloanable": true,
+        "flashloan_fee": 9
+      }
+    },
+    "DEJTRSY": {
+      "hub_id": 2,
+      "asset_address": "CBI7UCH5KGSVQRO5H4SUCZUTZABCITZLRHQQZTWL2TK4RZ72TAR6IHRV",
+      "decimals": 18,
+      "min_sanity_price_wad": "990000000000000000",
+      "max_sanity_price_wad": "1210000000000000000",
+      "price_wad": "1037577800000000000",
+      "price_timestamp": 1790572410,
+      "market_params": {
+        "max_borrow_rate": "10000000000000000000000000",
+        "base_borrow_rate": "0",
+        "slope1": "0",
+        "slope2": "0",
+        "slope3": "0",
+        "mid_utilization": "495000000000000000000000000",
+        "optimal_utilization": "990000000000000000000000000",
+        "max_utilization": "1000000000000000000000000000",
+        "reserve_factor": 2500,
+        "is_flashloanable": false,
+        "flashloan_fee": 0
+      }
+    },
+    "DEJAAA": {
+      "hub_id": 2,
+      "asset_address": "CC64WBDGS6QQP22QTTIACYIXT3WF7BBQEYOQPLTP7GTKYY7PZ74QYGSL",
+      "decimals": 18,
+      "min_sanity_price_wad": "990000000000000000",
+      "max_sanity_price_wad": "1210000000000000000",
+      "price_wad": "1049374500000000000",
+      "price_timestamp": 1790572410,
+      "market_params": {
+        "max_borrow_rate": "10000000000000000000000000",
+        "base_borrow_rate": "0",
+        "slope1": "0",
+        "slope2": "0",
+        "slope3": "0",
+        "mid_utilization": "495000000000000000000000000",
+        "optimal_utilization": "990000000000000000000000000",
+        "max_utilization": "1000000000000000000000000000",
+        "reserve_factor": 2500,
+        "is_flashloanable": false,
+        "flashloan_fee": 0
+      }
+    },
+    "USTRY": {
+      "hub_id": 2,
+      "asset_address": "CBLV4ATSIWU67CFSQU2NVRKINQIKUZ2ODSZBUJTJ43VJVRSBTZYOPNUR",
+      "decimals": 7,
+      "min_sanity_price_wad": "984400000000000000",
+      "max_sanity_price_wad": "1155600000000000000",
+      "price_wad": "1076058546409975739",
+      "price_timestamp": 1790572358,
+      "market_params": {
+        "max_borrow_rate": "10000000000000000000000000",
+        "base_borrow_rate": "0",
+        "slope1": "0",
+        "slope2": "0",
+        "slope3": "0",
+        "mid_utilization": "495000000000000000000000000",
+        "optimal_utilization": "990000000000000000000000000",
+        "max_utilization": "1000000000000000000000000000",
+        "reserve_factor": 2500,
+        "is_flashloanable": false,
+        "flashloan_fee": 0
+      }
+    },
+    "CETES": {
+      "hub_id": 2,
+      "asset_address": "CAL6ER2TI6CTRAY6BFXWNWA7WTYXUXTQCHUBCIBU5O6KM3HJFG6Z6VXV",
+      "decimals": 7,
+      "min_sanity_price_wad": "61548000000000000",
+      "max_sanity_price_wad": "72252000000000000",
+      "price_wad": "66519200916065103",
+      "price_timestamp": 1790572358,
+      "market_params": {
+        "max_borrow_rate": "10000000000000000000000000",
+        "base_borrow_rate": "0",
+        "slope1": "0",
+        "slope2": "0",
+        "slope3": "0",
+        "mid_utilization": "495000000000000000000000000",
+        "optimal_utilization": "990000000000000000000000000",
+        "max_utilization": "1000000000000000000000000000",
+        "reserve_factor": 2500,
+        "is_flashloanable": false,
+        "flashloan_fee": 0
+      }
+    },
+    "USDY": {
+      "hub_id": 2,
+      "asset_address": "CB3YA656OYIHU57657I5KGSBRHE5I3OZU4VFC22PYAOANFZHEWNYGAGP",
+      "decimals": 7,
+      "min_sanity_price_wad": "1080000000000000000",
+      "max_sanity_price_wad": "1320000000000000000",
+      "price_wad": "1147744770000000000",
+      "price_timestamp": 1790572410,
+      "market_params": {
+        "max_borrow_rate": "10000000000000000000000000",
+        "base_borrow_rate": "0",
+        "slope1": "0",
+        "slope2": "0",
+        "slope3": "0",
+        "mid_utilization": "495000000000000000000000000",
+        "optimal_utilization": "990000000000000000000000000",
+        "max_utilization": "1000000000000000000000000000",
+        "reserve_factor": 2500,
+        "is_flashloanable": false,
+        "flashloan_fee": 0
+      }
+    },
+    "XAUM": {
+      "hub_id": 2,
+      "asset_address": "CC2RBGYNCFBCVENIDL5BFBWPH4OUZM2UA3OD2K2N54GLMWCC4KWPVAGO",
+      "decimals": 9,
+      "min_sanity_price_wad": "2500000000000000000000",
+      "max_sanity_price_wad": "12000000000000000000000",
+      "price_wad": "4191135031763473690000",
+      "price_timestamp": 1790584170,
+      "market_params": {
+        "max_borrow_rate": "10000000000000000000000000",
+        "base_borrow_rate": "0",
+        "slope1": "0",
+        "slope2": "0",
+        "slope3": "0",
+        "mid_utilization": "495000000000000000000000000",
+        "optimal_utilization": "990000000000000000000000000",
+        "max_utilization": "1000000000000000000000000000",
+        "reserve_factor": 2500,
+        "is_flashloanable": false,
+        "flashloan_fee": 0
+      }
+    },
+    "SolvBTC": {
+      "hub_id": 1,
+      "asset_address": "CBIJBDNZNF4X35BJ4FFZWCDBSCKOP5NB4PLG4SNENRMLAPYG4P5FM6VN",
+      "decimals": 8,
+      "min_sanity_price_wad": "20000000000000000000000",
+      "max_sanity_price_wad": "300000000000000000000000",
+      "price_wad": "83267941382436313845504",
+      "price_timestamp": 1790572350,
+      "market_params": {
+        "max_borrow_rate": "642500000000000000000000000",
+        "base_borrow_rate": "2500000000000000000000000",
+        "slope1": "20000000000000000000000000",
+        "slope2": "20000000000000000000000000",
+        "slope3": "600000000000000000000000000",
+        "mid_utilization": "400000000000000000000000000",
+        "optimal_utilization": "800000000000000000000000000",
+        "max_utilization": "900000000000000000000000000",
+        "reserve_factor": 2000,
+        "is_flashloanable": true,
+        "flashloan_fee": 9
+      }
+    },
+    "xSolvBTC": {
+      "hub_id": 1,
+      "asset_address": "CAUP7NFABXE5TJRL3FKTPMWRLC7IAXYDCTHQRFSCLR5TMGKHOOQO772J",
+      "decimals": 8,
+      "min_sanity_price_wad": "20000000000000000000000",
+      "max_sanity_price_wad": "300000000000000000000000",
+      "price_wad": "83267941382436313845504",
+      "price_timestamp": 1790572350,
+      "market_params": {
+        "max_borrow_rate": "642500000000000000000000000",
+        "base_borrow_rate": "2500000000000000000000000",
+        "slope1": "20000000000000000000000000",
+        "slope2": "20000000000000000000000000",
+        "slope3": "600000000000000000000000000",
+        "mid_utilization": "400000000000000000000000000",
+        "optimal_utilization": "800000000000000000000000000",
+        "max_utilization": "900000000000000000000000000",
+        "reserve_factor": 2000,
+        "is_flashloanable": false,
+        "flashloan_fee": 0
+      }
+    },
+    "AQUA": {
+      "hub_id": 3,
+      "asset_address": "CAUIKL3IYGMERDRUN6YSCLWVAKIFG5Q4YJHUKM4S4NJZQIA3BAS6OJPK",
+      "decimals": 7,
+      "min_sanity_price_wad": "65950000000000",
+      "max_sanity_price_wad": "1648750000000000",
+      "price_wad": "362206653686974",
+      "price_timestamp": 1790572358,
+      "market_params": {
+        "max_borrow_rate": "10000000000000000000000000",
+        "base_borrow_rate": "0",
+        "slope1": "0",
+        "slope2": "0",
+        "slope3": "0",
+        "mid_utilization": "495000000000000000000000000",
+        "optimal_utilization": "990000000000000000000000000",
+        "max_utilization": "1000000000000000000000000000",
+        "reserve_factor": 3000,
+        "is_flashloanable": false,
+        "flashloan_fee": 0
+      }
+    },
+    "XLMUSDC_LP": {
+      "hub_id": 3,
+      "asset_address": "CAVKLYY4RWFQBRA2YI5GTGGXKUKJQI3JLAHDGXMS7L5RDH6X6A47NMOZ",
+      "decimals": 7,
+      "min_sanity_price_wad": "450000000000000000",
+      "max_sanity_price_wad": "2500000000000000000",
+      "price_wad": "1015643847822322538",
+      "price_timestamp": 1790572358,
+      "market_params": {
+        "max_borrow_rate": "10000000000000000000000000",
+        "base_borrow_rate": "0",
+        "slope1": "0",
+        "slope2": "0",
+        "slope3": "0",
+        "mid_utilization": "495000000000000000000000000",
+        "optimal_utilization": "990000000000000000000000000",
+        "max_utilization": "1000000000000000000000000000",
+        "reserve_factor": 2000,
+        "is_flashloanable": false,
+        "flashloan_fee": 0
+      }
+    },
+    "XLMSolvBTC_LP": {
+      "hub_id": 3,
+      "asset_address": "CAPPL34NF6X7M3EQFIPDXZHQX2PT3EOE2LYCDORH3PF2LTRDSFGWV6NL",
+      "decimals": 7,
+      "min_sanity_price_wad": "25000000000000000000",
+      "max_sanity_price_wad": "250000000000000000000",
+      "price_wad": "84525633866849980497",
+      "price_timestamp": 1790572350,
+      "market_params": {
+        "max_borrow_rate": "10000000000000000000000000",
+        "base_borrow_rate": "0",
+        "slope1": "0",
+        "slope2": "0",
+        "slope3": "0",
+        "mid_utilization": "495000000000000000000000000",
+        "optimal_utilization": "990000000000000000000000000",
+        "max_utilization": "1000000000000000000000000000",
+        "reserve_factor": 2000,
+        "is_flashloanable": false,
+        "flashloan_fee": 0
+      }
+    },
+    "xSolvBTCSolvBTC_LP": {
+      "hub_id": 3,
+      "asset_address": "CDZ4QRNY63YKJY7FLBTJUVPX3Z3U56JY5KHNHQEYI5F5MYLMC5YNRIXE",
+      "decimals": 7,
+      "min_sanity_price_wad": "4000000000000000000000",
+      "max_sanity_price_wad": "12000000000000000000000",
+      "price_wad": "8337008483093660583164",
+      "price_timestamp": 1790572350,
+      "market_params": {
+        "max_borrow_rate": "10000000000000000000000000",
+        "base_borrow_rate": "0",
+        "slope1": "0",
+        "slope2": "0",
+        "slope3": "0",
+        "mid_utilization": "495000000000000000000000000",
+        "optimal_utilization": "990000000000000000000000000",
+        "max_utilization": "1000000000000000000000000000",
+        "reserve_factor": 2000,
+        "is_flashloanable": false,
+        "flashloan_fee": 0
+      }
+    },
+    "CETESUSDC_LP": {
+      "hub_id": 3,
+      "asset_address": "CB2WUVUP2SKZVFZFNU33EZCISH65DKHQP4WBEHJ4WE3BF7QOABYGCQMS",
+      "decimals": 7,
+      "min_sanity_price_wad": "430000000000000000",
+      "max_sanity_price_wad": "610000000000000000",
+      "price_wad": "516152393544509607",
+      "price_timestamp": 1790572358,
+      "market_params": {
+        "max_borrow_rate": "10000000000000000000000000",
+        "base_borrow_rate": "0",
+        "slope1": "0",
+        "slope2": "0",
+        "slope3": "0",
+        "mid_utilization": "495000000000000000000000000",
+        "optimal_utilization": "990000000000000000000000000",
+        "max_utilization": "1000000000000000000000000000",
+        "reserve_factor": 2000,
+        "is_flashloanable": false,
+        "flashloan_fee": 0
+      }
+    },
+    "USTRYUSDC_LP": {
+      "hub_id": 3,
+      "asset_address": "CCLJBNY2KMUOSAW7URIZHREO5ORQREDX7NIHLFRAT6KAZ5GO7652OA4I",
+      "decimals": 7,
+      "min_sanity_price_wad": "1740000000000000000",
+      "max_sanity_price_wad": "2440000000000000000",
+      "price_wad": "2085082809223370045",
+      "price_timestamp": 1790572358,
+      "market_params": {
+        "max_borrow_rate": "10000000000000000000000000",
+        "base_borrow_rate": "0",
+        "slope1": "0",
+        "slope2": "0",
+        "slope3": "0",
+        "mid_utilization": "495000000000000000000000000",
+        "optimal_utilization": "990000000000000000000000000",
+        "max_utilization": "1000000000000000000000000000",
+        "reserve_factor": 2000,
+        "is_flashloanable": false,
+        "flashloan_fee": 0
+      }
+    },
+    "USDYUSDC_LP": {
+      "hub_id": 3,
+      "asset_address": "CCYD4C2WFWIIDF235SCDXEWL5RT6S53WQWLDHUTQ5USZ5VNF5NHJGVW7",
+      "decimals": 7,
+      "min_sanity_price_wad": "1790000000000000000",
+      "max_sanity_price_wad": "2510000000000000000",
+      "price_wad": "2142859647295943045",
+      "price_timestamp": 1790572358,
+      "market_params": {
+        "max_borrow_rate": "10000000000000000000000000",
+        "base_borrow_rate": "0",
+        "slope1": "0",
+        "slope2": "0",
+        "slope3": "0",
+        "mid_utilization": "495000000000000000000000000",
+        "optimal_utilization": "990000000000000000000000000",
+        "max_utilization": "1000000000000000000000000000",
+        "reserve_factor": 2000,
+        "is_flashloanable": false,
+        "flashloan_fee": 0
+      }
+    },
+    "XAUMUSDC_LP": {
+      "hub_id": 3,
+      "asset_address": "CACO4IS27ANIDC45UN5LWTYZYEELSJWA3WVWGI6QAF6Q2ZY4ZMZFSJRW",
+      "decimals": 7,
+      "min_sanity_price_wad": "6000000000000000000",
+      "max_sanity_price_wad": "25000000000000000000",
+      "price_wad": "12949271541079476497",
+      "price_timestamp": 1790572358,
+      "market_params": {
+        "max_borrow_rate": "10000000000000000000000000",
+        "base_borrow_rate": "0",
+        "slope1": "0",
+        "slope2": "0",
+        "slope3": "0",
+        "mid_utilization": "495000000000000000000000000",
+        "optimal_utilization": "990000000000000000000000000",
+        "max_utilization": "1000000000000000000000000000",
+        "reserve_factor": 2000,
+        "is_flashloanable": false,
+        "flashloan_fee": 0
+      }
+    },
+    "PYUSDUSDC_LP": {
+      "hub_id": 3,
+      "asset_address": "CD3EQXQGRYUKM7LZ6MZVTXSW74ROXU6YI2SXHJ6KTB5BQ425E5KXRDBC",
+      "decimals": 7,
+      "min_sanity_price_wad": "900000000000000000",
+      "max_sanity_price_wad": "1200000000000000000",
+      "price_wad": "1000655272574562009",
+      "price_timestamp": 1790572358,
+      "market_params": {
+        "max_borrow_rate": "10000000000000000000000000",
+        "base_borrow_rate": "0",
+        "slope1": "0",
+        "slope2": "0",
+        "slope3": "0",
+        "mid_utilization": "495000000000000000000000000",
+        "optimal_utilization": "990000000000000000000000000",
+        "max_utilization": "1000000000000000000000000000",
+        "reserve_factor": 2000,
+        "is_flashloanable": false,
+        "flashloan_fee": 0
+      }
+    },
+    "XLMAQUA_LP": {
+      "hub_id": 3,
+      "asset_address": "CBOHAVUYKQD4C7FIVXEDJCVLUZYUO6RN3VIKEDOTIJGDDV3QN33Y4T4D",
+      "decimals": 7,
+      "min_sanity_price_wad": "5356670329052813",
+      "max_sanity_price_wad": "53566703290528136",
+      "price_wad": "18503251131641099",
+      "price_timestamp": 1790572358,
+      "market_params": {
+        "max_borrow_rate": "10000000000000000000000000",
+        "base_borrow_rate": "0",
+        "slope1": "0",
+        "slope2": "0",
+        "slope3": "0",
+        "mid_utilization": "495000000000000000000000000",
+        "optimal_utilization": "990000000000000000000000000",
+        "max_utilization": "1000000000000000000000000000",
+        "reserve_factor": 2000,
+        "is_flashloanable": false,
+        "flashloan_fee": 0
+      }
+    },
+    "AQUAUSDC_LP": {
+      "hub_id": 3,
+      "asset_address": "CDOY7ILRR7PDGLBXZUPSENB6XOET77PR2JY3HXDGQS3TS4T764OYBUGO",
+      "decimals": 7,
+      "min_sanity_price_wad": "12851039215266326",
+      "max_sanity_price_wad": "128510392152663280",
+      "price_wad": "41198623400785847",
+      "price_timestamp": 1790572358,
+      "market_params": {
+        "max_borrow_rate": "10000000000000000000000000",
+        "base_borrow_rate": "0",
+        "slope1": "0",
+        "slope2": "0",
+        "slope3": "0",
+        "mid_utilization": "495000000000000000000000000",
+        "optimal_utilization": "990000000000000000000000000",
+        "max_utilization": "1000000000000000000000000000",
+        "reserve_factor": 2000,
+        "is_flashloanable": false,
+        "flashloan_fee": 0
+      }
+    }
+  }
+}

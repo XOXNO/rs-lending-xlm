@@ -2267,6 +2267,7 @@ dependencies = [
  "price-aggregator",
  "proptest",
  "script-runner",
+ "serde_json",
  "soroban-sdk",
  "xoxno-oracle",
 ]

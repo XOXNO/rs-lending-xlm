@@ -41,4 +41,6 @@ pub mod rwa_gated_token;
 pub mod weird_token;
 
 #[cfg(feature = "reference-math")]
+pub mod mainnet;
+#[cfg(feature = "reference-math")]
 pub mod reference;
