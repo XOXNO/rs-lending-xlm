@@ -1447,3 +1447,56 @@ fn residual_debt_promotion_overshoot_is_bounded_by_the_threshold() {
         }
     }
 }
+
+fn mainnet_curve(
+    target_hf_wad: i128,
+    hf_for_max_bonus_wad: i128,
+    factor_bps: u32,
+) -> LiquidationCurve {
+    LiquidationCurve::from_config(&SpokeConfig {
+        is_deprecated: false,
+        liquidation_target_hf_wad: target_hf_wad,
+        hf_for_max_bonus_wad,
+        liquidation_bonus_factor_bps: factor_bps,
+    })
+}
+
+#[test]
+fn knee_continuity_mainnet_blue_chip_curve() {
+    let env = Env::default();
+    let target = 1_150_000_000_000_000_000;
+    let knee = 900_000_000_000_000_000;
+    let curve = mainnet_curve(target, knee, 1_500);
+    let bonus_at = |hf: i128| {
+        calculate_linear_bonus_with_target(
+            &env,
+            Wad::from(hf),
+            Bps::from(900i128),
+            Bps::from(2_820i128),
+            &curve,
+            Wad::from(target),
+        )
+        .raw()
+    };
+    assert_eq!(
+        (bonus_at(knee - 1), bonus_at(knee), bonus_at(knee + 1)),
+        (1_188, 1_188, 1_188)
+    );
+    assert_eq!(bonus_at(target - 1), 900);
+    assert_eq!(bonus_at(target), 900);
+}
+
+#[test]
+fn zero_proportion_dust_quotes_the_full_debt_at_zero_bonus_on_stables_curve() {
+    let env = Env::default();
+    let curve = mainnet_curve(1_020_000_000_000_000_000, 800_000_000_000_000_000, 10_000);
+    let s = snap(99_999_069_739, 1, 0, 0, 0);
+    assert_eq!(max_hf_preserving_bonus_bps(&s), None);
+    let bounds = BonusBounds {
+        base: Bps::from(0i128),
+        max: max_bonus_for_threshold(&env, s.proportion_seized),
+    };
+    assert_eq!(bounds.max.raw(), 0);
+    let (quote, bonus) = estimate_liquidation_amount(&env, &s, bounds, &curve);
+    assert_eq!((quote.raw(), bonus.raw()), (99_999_069_739, 0));
+}
