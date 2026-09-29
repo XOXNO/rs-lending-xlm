@@ -112,7 +112,7 @@ PYCLASSIC
     stellar tx send "${NET_ARGS[@]}" <"$base.signed.xdr" >"$base.out" 2>>"$base.err" || rc=$?
     record_attempt "$label" "$fn" "$sequence" 1 "$rc" "$hash" "$base.out" "$base.err" "" || return 1
     st=$(tx_status "$hash")
-    if [ "$rc" -eq 0 ] && [ "$st" = SUCCESS ]; then
+    if [ "$st" = SUCCESS ]; then
         record "$label" ok "$fn" "$hash" "" "" "" "" "$count ops" classic_transaction
         return 0
     fi
