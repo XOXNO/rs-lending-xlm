@@ -1,0 +1,25 @@
+[package]
+name = "oracle-staleness-proof"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[lib]
+crate-type = ["cdylib"]
+doctest = false
+
+[dependencies]
+common = { path = "../../common" }
+soroban-sdk = "=28.0.0"
+
+[profile.release]
+opt-level = "z"
+overflow-checks = true
+debug = 0
+strip = "symbols"
+debug-assertions = false
+panic = "abort"
+codegen-units = 1
+lto = "fat"

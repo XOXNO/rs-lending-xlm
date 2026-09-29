@@ -1,0 +1,48 @@
+[package]
+name = "pool-math-proof"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[lib]
+crate-type = ["cdylib"]
+doctest = false
+
+[features]
+default = ["half-up", "utilization", "borrow-index", "controls"]
+half-up = []
+half-two = []
+utilization = []
+borrow-index = []
+borrow-double = []
+controls = []
+signed-floor = []
+signed-ceil = []
+signed-saturation = []
+scaled-supply = []
+scaled-borrow = []
+index-exact = []
+supply-index = []
+reward-conservation = []
+interest-split = []
+fee-shares = []
+flash-fee = []
+repay = []
+withdrawal = []
+net-settle = []
+
+[dependencies]
+common = { path = "../../common" }
+soroban-sdk = "=28.0.0"
+
+[profile.release]
+opt-level = "z"
+overflow-checks = true
+debug = 0
+strip = "symbols"
+debug-assertions = false
+panic = "abort"
+codegen-units = 1
+lto = "fat"
