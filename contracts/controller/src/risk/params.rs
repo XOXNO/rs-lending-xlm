@@ -7,6 +7,7 @@ use soroban_sdk::{assert_with_error, Address, Env, Map, Vec};
 use crate::account::update_or_remove_supply_position;
 use crate::constants::THRESHOLD_UPDATE_MIN_HF_RAW;
 use crate::context::Context;
+use crate::risk::totals::portfolio_hub_keys;
 use crate::risk::{calculate_account_risk_totals, validation};
 use crate::{events, storage};
 
@@ -40,7 +41,8 @@ pub(crate) fn refresh_supply_risk_params(
 }
 
 /// Refreshes stored LTV snapshots in memory for listed supply assets, skipping
-/// unlisted assets. Returns whether any position changed.
+/// unlisted assets, and buffers a `ParamUpd` delta for each changed leg.
+/// Returns whether any position changed.
 pub(crate) fn restamp_listed_supply_ltv(cache: &mut Context, account: &mut Account) -> bool {
     let mut changed = false;
     let keys = account.supply_positions.keys();
@@ -58,6 +60,20 @@ pub(crate) fn restamp_listed_supply_ltv(cache: &mut Context, account: &mut Accou
         }
         position.loan_to_value = config.loan_to_value;
         update_or_remove_supply_position(account, &hub_asset, &position);
+        if !changed {
+            cache.fetch_market_indexes(&portfolio_hub_keys(
+                keys.clone(),
+                &account.borrow_positions.keys(),
+            ));
+        }
+        let market_index = cache.cached_market_index(&hub_asset);
+        cache.record_supply_position_update(
+            events::PositionAction::ParamUpd,
+            &hub_asset,
+            market_index.supply_index.raw(),
+            0,
+            &position,
+        );
         changed = true;
     }
     changed

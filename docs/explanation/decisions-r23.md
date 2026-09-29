@@ -201,10 +201,12 @@ paths copy the listed tuple into the position. Each calls
 
 The refresh applies a tuple that favors the liquidator (a lower threshold, a
 higher bonus or a lower fee) to an account with debt only if the health factor
-with the new threshold is at least 1.05. Otherwise the stored tuple stays. A
-lower bonus alone does not favor the liquidator, so the refresh applies it at
-any health factor. `update_account_threshold` with `has_risks` also reverts
-if the final health factor is below 1.05. Thus it cannot apply the lower bonus
+with the new threshold is at least 1.05. A supply reads that health factor
+after its own deposit; a withdrawal reads it after its own withdrawal.
+Otherwise the stored tuple stays. A lower bonus alone does not favor the
+liquidator, so the refresh applies it at any health factor.
+`update_account_threshold` with `has_risks` also reverts if the final health
+factor is below 1.05. Thus it cannot apply the lower bonus
 to an account near liquidation, but a supply to the leg can. A position that
 no path touches keeps the old bonus.
 
