@@ -133,6 +133,24 @@ with tempfile.TemporaryDirectory() as directory:
     else: raise AssertionError('wrong upload candidate accepted')
 print('Verified return recovery and deployment operation binding passed')
 
+issuer='GC66WOIIVXEQYCD2WYUT7QPYTK6YBZJRLJXV2ECIFGBQ7B5NI3LKMCFB'
+sac=deepcopy(r); envelope=decode('TransactionEnvelope',sac['result']['envelopeXdr'])
+envelope['tx']['tx']['operations'][0]['body']['invoke_host_function']['host_function']={'create_contract':{
+    'contract_id_preimage':{'asset':{'credit_alphanum4':{'asset_code':'LIQG','issuer':issuer}}},'executable':'stellar_asset'}}
+sac['result']['envelopeXdr']=encode('TransactionEnvelope',envelope)
+sac['result']['txHash']=cli(['tx','hash','--network-passphrase',args[1]],sac['result']['envelopeXdr'])
+asset_deploy=['stellar','contract','asset','deploy','--asset',f'LIQG:{issuer}','--source','admin']
+assert recover(sac,sac['result']['txHash'],args[1],'command',*asset_deploy).startswith('C')
+for command in [['stellar','contract','asset','deploy','--asset',f'LIQE:{issuer}'],['stellar','contract','asset','deploy','--asset','native'],
+                ['stellar','contract','asset','deploy','--asset',f'LIQG:{args[3]}']]:
+    try: recover(sac,sac['result']['txHash'],args[1],'command',*command)
+    except ValueError: pass
+    else: raise AssertionError('asset deployment accepted for another asset: '+command[-1])
+try: recover(r,args[0],args[1],'command',*asset_deploy)
+except ValueError: pass
+else: raise AssertionError('invoke accepted as asset deployment')
+print('Asset contract deployment recovery binds the requested asset')
+
 # CLI 28 wraps high fees in a fee bump; RPC can be queried by either hash.
 from receipts import envelope_hash
 fee_source='GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF'

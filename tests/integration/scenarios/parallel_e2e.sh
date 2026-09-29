@@ -10,6 +10,8 @@ LANE_TIMEOUT="${LANE_TIMEOUT:-95m}"
 [[ "$LANE_TIMEOUT" =~ ^[1-9][0-9]*[smh]$ ]] || { echo 'invalid LANE_TIMEOUT' >&2; exit 2; }
 E2E_LANE_STAGGER="${E2E_LANE_STAGGER:-60}"
 [[ "$E2E_LANE_STAGGER" =~ ^[0-9]{1,4}$ ]] || { echo 'invalid E2E_LANE_STAGGER' >&2; exit 2; }
+E2E_LANE_GAP="${E2E_LANE_GAP:-10}"
+[[ "$E2E_LANE_GAP" =~ ^[0-9]{1,3}$ ]] || { echo 'invalid E2E_LANE_GAP' >&2; exit 2; }
 
 # E2E_LANES selects the lanes, so a caller can run only the lanes a change
 # affects (for example `liq-a liq-b liq-c` after a liquidation change). Unset
@@ -124,9 +126,15 @@ for i in "${!LANES[@]}"; do case " $CRITICAL_LANES " in *" ${LANES[$i]} "*) ;; *
 for n in "${!order[@]}"; do
     i="${order[$n]}"
     lane="${LANES[$i]}"
+    delay=0
     if [ "$n" -eq "$first" ] && [ "$first" -gt 0 ] && [ "$E2E_LANE_STAGGER" -gt 0 ]; then
         log_orch "critical lanes started; the other lanes start in ${E2E_LANE_STAGGER}s"
-        sleep "$E2E_LANE_STAGGER" >/dev/null 2>&1 &
+        delay="$E2E_LANE_STAGGER"
+    elif [ "$n" -gt 0 ]; then
+        delay="$E2E_LANE_GAP"
+    fi
+    if [ "$delay" -gt 0 ]; then
+        sleep "$delay" >/dev/null 2>&1 &
         stagger_pid=$!
         wait "$stagger_pid"
         stagger_pid=''

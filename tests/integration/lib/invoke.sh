@@ -2,7 +2,7 @@ RPC_TRANSIENT_RE='rejected .?50[0-9]|status_code: 50[0-9]|No status yet|Transpor
 
 DEPLOY_PROPAGATION_RE='Contract not found|non-existing value for contract instance'
 
-PRESIGN_RE='(^|[^0-9a-fA-F])429([^0-9a-fA-F]|$)|Too Many Requests|preflight queue full|rejected .?50[0-9]|status_code: 50[0-9]|timed out|connection (reset|refused)|no RPC slot free'
+PRESIGN_RE='(^|[^0-9a-fA-F])429([^0-9a-fA-F]|$)|Too Many Requests|preflight queue full|rejected .?50[0-9]|status_code: 50[0-9]|timed out|connection (reset|refused|closed)|error reading a body|error sending request|no RPC slot free'
 
 THROTTLE_RE='rejected .?429([^0-9]|$)|status_code: 429([^0-9]|$)|Too Many Requests'
 
@@ -61,7 +61,7 @@ rpc_post() {
     while :; do
         out=$(rpc_curl -sS -m "$1" -X POST "$RPC_URL" -H 'Content-Type: application/json' -d "$2" -w '\n%{http_code}') || out=$'\n000'
         code="${out##*$'\n'}"
-        [ "$code" = 429 ] || break
+        case "$code" in 429|5[0-9][0-9]|000) ;; *) break;; esac
         n=$((n + 1))
         throttle_sleep "$n" "$(jq -r '.retry_after // empty' <<<"${out%$'\n'*}" 2>/dev/null)" || break
     done

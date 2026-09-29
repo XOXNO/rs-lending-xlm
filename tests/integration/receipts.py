@@ -194,7 +194,15 @@ def recover(receipt, hash_, passphrase, mode, *binding):
     if len(operations) != 1:
         raise ValueError('expected one recovery operation')
     host = operations[0]['body']['invoke_host_function']['host_function']
-    if mode == 'command':
+    if mode == 'command' and list(binding[:4]) == ['stellar', 'contract', 'asset', 'deploy']:
+        verb = 'asset'
+        spec = binding[binding.index('--asset')+1]
+        code, _, issuer = spec.partition(':')
+        asset = 'native' if spec == 'native' else {
+            'credit_alphanum4' if len(code) <= 4 else 'credit_alphanum12': {'asset_code': code, 'issuer': issuer}}
+        if host != {'create_contract': {'contract_id_preimage': {'asset': asset}, 'executable': 'stellar_asset'}}:
+            raise ValueError('receipt differs from requested asset contract deployment')
+    elif mode == 'command':
         command = list(binding)
         if command[:2] != ['stellar', 'contract'] or command[2] not in {'deploy', 'upload'}:
             raise ValueError('unsupported recovery command')
@@ -228,7 +236,7 @@ def recover(receipt, hash_, passphrase, mode, *binding):
     if mode == 'command':
         if verb == 'upload' and value != {'bytes': wasm_hash}:
             raise ValueError('unexpected uploaded WASM return value')
-        if verb == 'deploy' and (set(value) != {'address'} or not re.fullmatch(r'C[A-Z2-7]{55}', value['address'])):
+        if verb in {'deploy', 'asset'} and (set(value) != {'address'} or not re.fullmatch(r'C[A-Z2-7]{55}', value['address'])):
             raise ValueError('unexpected deployed contract return value')
     return return_json(value)
 
