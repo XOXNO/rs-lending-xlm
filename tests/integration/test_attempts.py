@@ -1543,12 +1543,12 @@ with tempfile.TemporaryDirectory() as directory:
     shutil.copy2(HERE/'lib/core.sh', root/'lib/core.sh')
     (root/'fast/sleep').write_text('#!/bin/bash\necho "$1" >> "$SLEPT"\n')
     real = root/'real-stellar'
-    real.write_text('#!/bin/bash\nn=$(( $(cat "$CALLS" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$CALLS"\nif [ "$n" -le "$FAILS" ]; then\n    echo partial\n    [ -z "${SIGNED:-}" ] || echo "Signing transaction: $(printf \'%064d\' 3)" >&2\n    printf \'%s\\n\' "$ERROR" >&2\n    exit 1\nfi\n[ "$1 $2" != \'tx simulate\' ] || { cat; exit 0; }\necho final\n')
+    real.write_text('#!/bin/bash\nn=$(( $(cat "$SHIM_CALLS" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$SHIM_CALLS"\nif [ "$n" -le "$FAILS" ]; then\n    echo partial\n    [ -z "${SIGNED:-}" ] || echo "Signing transaction: $(printf \'%064d\' 3)" >&2\n    printf \'%s\\n\' "$ERROR" >&2\n    exit 1\nfi\n[ "$1 $2" != \'tx simulate\' ] || { cat; exit 0; }\necho final\n')
     for stub in (real, root/'fast/sleep'):
         stub.chmod(0o755)
     base = dict({k: v for k, v in os.environ.items() if k not in ('E2E_SLOT_FDS', 'E2E_RPC_DEADLINE')},
                 PATH=f"{root/'fast'}:{os.environ['PATH']}", E2E_STELLAR=str(real), E2E_SLOT_DIR=str(root/'slots'),
-                CALLS=str(root/'calls'), SLEPT=str(root/'slept'), THROTTLE_RETRIES='3', ERROR='error: Request rejected `502`')
+                SHIM_CALLS=str(root/'calls'), SLEPT=str(root/'slept'), THROTTLE_RETRIES='3', ERROR='error: Request rejected `502`')
     def shim(args, stdin=None, **extra):
         for name in ('calls', 'slept'):
             (root/name).unlink(missing_ok=True)
