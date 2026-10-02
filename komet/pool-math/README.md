@@ -36,7 +36,7 @@ work without reducing the selected claim's input domain.
 | `scaled-borrow` | `test_scaled_borrow` | Same domain; exact ceiling. |
 | `utilization` | `test_utilization_bounds` | `0 <= borrowed <= supplied`, `supplied > 0`; result in `[0,RAY]`. |
 | `borrow-index` | `test_borrow_index_bounds` | `RAY <= old <= 10^36`, `RAY <= factor <= 8*RAY`; result in `[old,10^36]`. |
-| `borrow-double` | `test_borrow_double` | Every valid old borrow index, factor fixed at `2*RAY`; result exactly `min(2*old,10^36)`. |
+| `borrow-double` | `test_borrow_double`, `test_borrow_double_wrong` | Every valid old borrow index, factor fixed at `2*RAY`; result exactly `min(2*old,10^36)`. Separate false uncapped control at `old=10^36/2+1`. |
 | `index-exact` | `test_borrow_index_exact` | Valid old index, factor at least RAY, representable pre-cap result; exact half-up growth and cap. |
 | `supply-index` | `test_supply_index_exact` | Valid supply index, nonnegative shares/rewards; exact early returns or representable old value plus rewards; capped floor growth. |
 | `reward-conservation` | `test_supply_rewards` | Same index domain, representable old value plus rewards; distributed value plus actual shortfall equals rewards. |
@@ -68,7 +68,7 @@ models, 1,502 executions across its 17 positive claims passed; the deliberately
 false concrete utilization assertion failed as expected. These generated inputs
 can include premise-skipping cases; native witnesses exercise valid arithmetic
 and both cap branches. No broad-domain pool arithmetic claim is yet accepted
-as proved. The current harness has 25 exports: 22 positive claims and three
+as proved. The current harness has 26 exports: 22 positive claims and four
 deliberately false controls. All nine native boundary checks pass. The five
 new positive claims (signed-half, flash fee and the three settlements) passed
 500 additional concrete K executions; the false tie assertion failed.

@@ -9,9 +9,11 @@ semantics.
 
 ## Source and versions
 
-The working fork is `/tmp/komet-sdk28`, based on
-[`XOXNO/komet` at `5ad9c98`](https://github.com/XOXNO/komet/commit/5ad9c98a4d3495c8beee71e4c62ecd136566c418).
-Current local commit `157b6f3e3b56ac43aadf4a3af3a24777f18fa92e` includes the earlier
+The complete reviewed baseline is published on
+[`XOXNO/komet`, branch `proof/sdk28-host-models-2026-09-29`](https://github.com/XOXNO/komet/tree/proof/sdk28-host-models-2026-09-29),
+pinned at [`157b6f3`](https://github.com/XOXNO/komet/commit/157b6f3e3b56ac43aadf4a3af3a24777f18fa92e).
+Historical `/tmp/komet-sdk28` paths in the evidence are not persistent checkouts.
+The pinned commit includes the earlier
 `87586bd` repairs to forced-allocation tags, integer host ABI/arithmetic,
 macOS Booster worker stacks and proof bookkeeping, plus guarded symbolic word
 bounds and memory wrapping. It also normalizes signed casts, Boolean words and
@@ -45,8 +47,8 @@ queries at 5000 ms, with the native retry policy unchanged. The previously
 timed-out range query returns typed UNSAT in 0.585 seconds in the separate
 OR-model diagnostic; it was not rerun on the current signed cache. The integrated
 runtime passes 153 unit checks in 2.68 seconds; no new contract proof follows.
-These repairs are **not included in
-that published commit**. Preserve the complete fork source, including
+These repairs are included in the published `157b6f3` baseline. Preserve
+its complete source, including
 `src/komet/native_stack.c`, its Python launcher and regression tests, with the
 run evidence. The repair commit includes these files; a source archive must
 retain them too.

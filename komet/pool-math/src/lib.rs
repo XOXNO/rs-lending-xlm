@@ -80,6 +80,7 @@ mod tests {
             assert!((RAY..=MAX_BORROW_INDEX_RAY).contains(&old));
             assert!(PoolMathProof::test_borrow_double(env.clone(), old));
         }
+        assert!(!PoolMathProof::test_borrow_double_wrong(env));
     }
 }
 
@@ -117,6 +118,13 @@ impl PoolMathProof {
             return true;
         }
         production_borrow_index(&env, old, 2 * RAY) == (2 * old).min(MAX_BORROW_INDEX_RAY)
+    }
+
+    /// Deliberately false uncapped result just above the saturation boundary.
+    #[cfg(feature = "borrow-double")]
+    pub fn test_borrow_double_wrong(env: Env) -> bool {
+        let old = MAX_BORROW_INDEX_RAY / 2 + 1;
+        production_borrow_index(&env, old, 2 * RAY) == 2 * old
     }
 
     #[cfg(feature = "signed-floor")]
