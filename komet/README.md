@@ -2,7 +2,9 @@
 
 These harnesses call production Rust through local Cargo dependencies.
 [Pool math](pool-math/README.md), [pool state](pool-state/README.md) and
-[oracle freshness](oracle-staleness/README.md) record individual claims and their limits. The full pool is not proved.
+[oracle freshness](oracle-staleness/README.md) record individual claims and their limits. The completed
+[borrow-index doubling proof](pool-math/proofs/borrow-double/README.md) covers
+its full valid index domain and both cap outcomes. The full pool is not proved.
 Earlier arithmetic-bearing symbolic results remain provisional. The unsafe
 inherited KWasm optimization module is removed; fresh proofs must use rebuilt
 semantics.

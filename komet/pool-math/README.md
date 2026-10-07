@@ -18,6 +18,13 @@ Broad arithmetic runs remain incomplete. These tooling checks establish no
 financial invariant; source and validation evidence are under `signed-in-range/`,
 `smt-budget/` and the earlier model archives.
 
+The fixed-factor [borrow-index doubling proof](proofs/borrow-double/README.md)
+is complete: native APR `PASSED`, both cap branches covered, no open or failing
+leaves, and a genuine false cap control rejected. Its exact Wasm, graphs, extra
+module, Lean helper proofs, runtime hashes and independent reviews are archived
+with an executable artifact check. General borrow growth and pool endpoints
+remain separate obligations.
+
 ## Current executable claims
 
 Build one feature with `--no-default-features --features FEATURE`. The default
@@ -67,9 +74,9 @@ symbolic theorem. The earlier 19-claim harness compiled successfully. On the cle
 models, 1,502 executions across its 17 positive claims passed; the deliberately
 false concrete utilization assertion failed as expected. These generated inputs
 can include premise-skipping cases; native witnesses exercise valid arithmetic
-and both cap branches. No broad-domain pool arithmetic claim is yet accepted
-as proved. The current harness has 26 exports: 22 positive claims and four
-deliberately false controls. All nine native boundary checks pass. The five
+and both cap branches. The fixed doubling theorem is now proved; the other
+broad-domain arithmetic claims below remain open. The current harness has 26
+exports: 22 positive claims and four deliberately false controls. All nine native boundary checks pass. The five
 new positive claims (signed-half, flash fee and the three settlements) passed
 500 additional concrete K executions; the false tie assertion failed.
 Settlement specifications retain both valuation rounding stages and
