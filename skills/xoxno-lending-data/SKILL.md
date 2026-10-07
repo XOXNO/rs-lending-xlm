@@ -16,6 +16,20 @@ operational rules needed to consume it.
 Use [api.md](api.md) for the public REST surface and
 [addresses.md](../xoxno-lending/addresses.md) for deployment coordinates.
 
+## Wallet and application reads
+
+Use the [v1 arrays](api.md#integrator-v1-arrays) for portfolio and asset screens.
+The responses already include balances, prices, token labels/logos, APYs,
+capacity estimates, and one position per indexed owned NFT. Ordinary rendering
+needs no event indexing or manual joins. The optional SDK read entry handles
+pagination and exports the public types; plain HTTP works from any language.
+
+Keep raw strings and nullable fields intact. Follow pagination through an empty
+page with a next link. Indexed data and cached prices can lag the ledger;
+recheck NFT ownership and prepare transactions through the selected network's
+RPC before signing. See the
+[wallet guide](https://xoxno.com/docs/stellar-lending/dev/wallet-integration).
+
 ## Subscribe by contract address
 
 Resolve addresses for the selected network (`testnet` or `mainnet`) from

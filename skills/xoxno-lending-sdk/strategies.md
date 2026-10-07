@@ -110,9 +110,9 @@ For builder and risk decisions:
 
 Application formulas are pseudocode in
 [../xoxno-lending/math.md](../xoxno-lending/math.md).
-`@xoxno/sdk-js@1.0.214` exports no `projectAccountRisk` or `maxBorrow`. Later
-SDK versions export both; do not present their output as an admission
-guarantee.
+Published SDK `1.0.228` exports `projectAccountRisk` and `maxBorrow`.
+Their inputs use advanced raw state, not v1 display positions. Treat their
+output as a preview; it does not guarantee admission.
 
 Even a careful client estimate or earlier simulation can fail later because
 of:

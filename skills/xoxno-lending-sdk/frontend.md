@@ -6,22 +6,47 @@ retry policy in the React hook.
 
 ## Wallet boundary
 
-Hide browser wallets, WalletConnect, and mobile webviews behind one interface:
+Your wallet provider must receive the selected signing network. Browser wallets,
+WalletConnect, mobile wallets, and webviews can share a callback shape:
 
 ```ts
 export interface StellarSigner {
-  signTransactions(xdrs: string[]): Promise<string[]>
+  signTransaction(xdr: string, networkPassphrase: string): Promise<string>
 }
 ```
 
-Pass only RPC-prepared XDR to this interface and use
-`STELLAR_NETWORK_PASSPHRASE[network]`. Treat wallet rejection separately from
-contract failure: wallet providers commonly throw plain objects, with rejection
-codes such as `5000` or `-4`, rather than `Error` instances.
+Pass only RPC-prepared XDR and the matching
+`STELLAR_NETWORK_PASSPHRASE[network]`. Verify the signed transaction's hash
+matches the prepared transaction before sending. Keep keys in the wallet.
 
-Mobile app switching can exceed 30 seconds. The builder default timebound is
-300 seconds (`timeoutSeconds`). Do not rebuild only because the wallet prompt
-was slow; read the envelope's actual max timebound.
+Treat wallet rejection separately from ledger failure. Providers can throw plain
+objects, including rejection codes `5000` or `-4`; inspect the provider's actual
+error contract. Mobile app switching can be slow. Read the envelope's actual
+max timebound rather than rebuilding because a prompt took time. The builder's
+default `timeoutSeconds` is 300.
+
+## Render a portfolio
+
+Use plain HTTP or `createStellarLendingReadClient` from the SDK read entry.
+`positions(owner)` returns one item per indexed owned NFT; `assets()` returns
+collateral asset/spoke choices. Fetch them in parallel if the screen needs both.
+No token metadata join or RAY balance conversion is required.
+
+Render `supplied` and `borrow` lists directly. Keep `accountId` and `amountRaw`
+as strings. APYs are fractions; `0.05` displays as 5%. Missing fields display as
+“Unavailable”, not zero. Display “No debt” only when `hasDebt === false`.
+Use `(network, nftContract, accountId)` as a position key and `(hubId, sac)` as a
+leg key. Select accounts explicitly before actions.
+
+Use a fallback icon for absent or failed logos. Browser HTML images can render
+`nftImage` SVGs. React Native needs an SVG renderer, such as `SvgUri` from
+`react-native-svg`; native `Image` is suitable for supported raster formats.
+Use the public HTTPS API on mobile. A physical device's `localhost` is the
+device, not the development computer.
+
+Keep loading, empty, HTTP error, and incomplete-data states distinct. Abort or
+discard an old wallet/network request after selection changes. See
+[reads.md](reads.md) for nullable fields, pagination, and cache semantics.
 
 ## Prepared-XDR prefetch
 
@@ -40,25 +65,9 @@ in prepared XDR. Never use cache freshness as proof that an envelope remains
 admissible. Recheck the current position-NFT owner and account/reserve
 coordinates before preparation.
 
-```ts
-type Entry = { createdAt: number; promise: Promise<string> }
-const prepared = new Map<string, Entry>()
-const TTL_MS = 15_000
-
-export function cachedPreparation(
-  key: string,
-  prepare: () => Promise<string>,
-): Promise<string> {
-  const hit = prepared.get(key)
-  if (hit && Date.now() - hit.createdAt < TTL_MS) return hit.promise
-  const promise = prepare()
-  prepared.set(key, { createdAt: Date.now(), promise })
-  promise.catch(() => {
-    if (prepared.get(key)?.promise === promise) prepared.delete(key)
-  })
-  return promise
-}
-```
+Most applications can prepare after the user confirms the action. Add a shared
+cache only when measured preparation latency justifies it; keep the policy above
+if one is used. No cache removes the need to check sequence and timebounds.
 
 ## UI transaction states
 
@@ -74,11 +83,12 @@ Render lifecycle states by evidence:
 - `FAILED`: terminal ledger failure;
 - `SUCCESS`: terminal product success.
 
-Persist the original hash and exact signed envelope before send. On an
+Persist the original network, hash, and exact signed envelope durably before send. On an
 uncertain state, query that hash and, if needed, resubmit the unchanged
 envelope. A resubmission `ERROR` keeps the state uncertain: the original may
-already have applied. Do not build a replacement until the retained envelope's
-timebounds expire. The full policy and reference helper are in
+already have applied. Expiry alone does not prove failure. Reconcile the original
+network's retained history and account state before deciding on a replacement;
+keep an unproven outcome unresolved. The full policy and reference helper are in
 [transactions.md#canonical-lifecycle](transactions.md#canonical-lifecycle).
 
 Use one toast/activity record per transaction hash. `DUPLICATE` must not emit a
@@ -104,27 +114,26 @@ controller. Use the single SDK interpretation flow in
 
 ## Live state and reconciliation
 
-Keep one shared `liveState()` query, normally polled every 10 seconds. Fetch
-`context()` on page load/navigation and refetch `userPositions(owner)` only
-after ledger `SUCCESS`.
+Refresh v1 arrays when the wallet or network changes, after ledger `SUCCESS`,
+and as the screen needs fresher data. Advanced screens can share one
+`liveState()` query rather than polling separately in each component.
 
 After success:
 
-1. refresh live state and positions together;
-2. compare the expected account id and legs with the returned/indexed state;
-3. tolerate indexer lag without claiming the old state is final;
-4. recheck `owner_of(accountId)` before enabling another mutation.
+1. Refresh the selected wallet's positions and the affected asset data.
+2. Compare the returned account id and expected legs with indexed state.
+3. Keep a refreshing state while the indexer lags; do not repeat the action.
+4. Recheck `owner_of(accountId)` before the next owner-wallet mutation.
 
-Float fields (`*Short`, `*Usd`, `*Native`, APY percentages, formatted
-leverage) are UI estimates. Builder inputs and risk decisions remain raw
-base-unit/RAY/WAD `BigInt` values, and successful preparation is still not a
-guarantee of ledger admission.
+Float fields and formatted leverage are display estimates. For decisions, use
+raw base-unit/RAY/WAD `bigint` inputs with directed rounding. API capacities,
+flags, and successful preparation do not guarantee ledger admission.
 
 ## Spokes and trustlines
 
 The UI may label a spoke as an “e-mode,” but the protocol has no separate
 e-mode identifier. Parse values such as `STELLAR:3` into spoke `3`, reject
-zero, and populate choices from `context()`; changing spoke means selecting or
+zero, and populate choices from v1 asset `spokes` or advanced `context()`; changing spoke means selecting or
 creating a different lending account.
 
 Before an action delivers a classic Stellar asset to a wallet, verify the
@@ -135,4 +144,4 @@ trustline is still present.
 
 Apply the canonical [completion gates](SKILL.md#completion-gates). A frontend
 must also pass two checks: the prepared-XDR cache is invalidated immediately
-after signing, and the retained envelope and hash survive a page reload.
+after signing, and the original network, envelope, and hash survive reloads and mobile app switching.

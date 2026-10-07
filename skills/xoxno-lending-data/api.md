@@ -3,6 +3,49 @@
 Endpoint reference for consumers in any language. The Rust `lending-api` service
 (`XOXNO/lending-api`, a separate repository) is **not** the production API; do not target it.
 
+## Integrator v1 arrays
+
+Use these routes for wallet, web, and React Native screens:
+
+| Route | Body | HTTP cache |
+| --- | --- | --- |
+| `GET /stellar-lending/v1/assets` | `LendingAsset[]`; collateral listings | `public, s-maxage=10` |
+| `GET /stellar-lending/v1/assets?usage=borrow` | `LendingAsset[]`; borrow listings | `public, s-maxage=10` |
+| `GET /stellar-lending/v1/users/{owner}/positions` | `LendingPosition[]`; one item per indexed owned NFT | `no-store` |
+
+These routes are deployed on both network roots below. They require no API key.
+`owner` must be a valid Stellar `G...` or `C...` address. Invalid owner, usage,
+page size, or cursor returns HTTP 400.
+
+Positions contain `supplied` and `borrow` arrays, `healthFactor`,
+`borrowLimitUsd`, `availableBorrowUsd`, `spokeName`, `netApy`, and `nftImage`.
+Each token leg includes `sac`, `amountRaw`, `amount`, `decimals`, `apy`,
+`valueUsd`, `priceUsd`, `logoUrl`, `name`, and `symbol`.
+Raw amounts are integer token base-unit strings; do not apply RAY conversion.
+APYs are fractions. Nullable values mean unavailable; `healthFactor` is also
+null without debt, so inspect `hasDebt`.
+
+Assets identify `(hubId, sac)` markets and contain matching `spokes`.
+Each spoke includes LTV in BPS, supply/borrow `Capacity` objects, and action
+flags. Each capacity has `amountRaw`, `amount`, and `usd`. Flags and capacities
+are snapshot estimates, not complete contract admission checks.
+
+Positions use `limit` 1–100, default 50, and an opaque `cursor`.
+Follow `Link` with `rel="next"` until absent, including after an empty page.
+Resolve relative links against the current URL; keep the same endpoint and
+detect cycles. Several pages are not one atomic ledger snapshot.
+
+Backend caches asset bodies for 5 seconds, position bodies for 3 seconds,
+and token metadata for 600 seconds. Indexed NFT inventory is queried before
+reusing a wallet body. These TTLs do not bound total age across indexing,
+oracle state, metadata, and HTTP caches. Ownership is indexed, not live.
+
+Public types, schemas, and the optional pagination client are exported from
+`@xoxno/sdk-js/stellar-lending/read` in SDK `1.0.228`. The published
+[API reference](https://xoxno.com/docs/stellar-lending/dev/integrator-api)
+defines every field and missing-data rule. Build supply synchronously in the
+SDK, then prepare with RPC; there is no supply API endpoint.
+
 ## Base URLs, auth, limits, caching
 
 | Item | Value | Source |
@@ -11,13 +54,13 @@ Endpoint reference for consumers in any language. The Rust `lending-api` service
 | Testnet | `https://testnet-api.xoxno.com` | `apiHosts.testnet.public` |
 | Path prefix | none; routes are absolute `/stellar-lending/...` (`@Controller()` with no prefix, no global prefix) | controller |
 | Auth | none — no header, no API key on any route. The global `ThrottlerGuard` (30 requests / 3 s per client IP) skips every `GET` on these routes (`skipIf`) | `app-core.module.ts` |
-| Caching | every route sets `Cache-Control: public, s-maxage=N, stale-while-revalidate=N`; `N` is listed per route below. Exception: `/users/{owner}/positions` and `/accounts/{accountId}/positions` set `stale-while-revalidate=10`. Poll no faster than `s-maxage` — the edge serves the same body until then. `/assets/{asset}/page` sets it only when `owner` is absent | controller `@Header` |
+| Legacy caching | unversioned routes set `Cache-Control: public, s-maxage=N, stale-while-revalidate=N`; `N` is listed per route below. Exception: `/users/{owner}/positions` and `/accounts/{accountId}/positions` set `stale-while-revalidate=10`. Poll no faster than `s-maxage` — the edge serves the same body until then. `/assets/{asset}/page` sets it only when `owner` is absent | controller `@Header` |
 | Content | JSON; bigint-precision fields are decimal **strings**: `*Ray`, `*Wad`, `supplyCap` / `borrowCap`, `supplyAmount` / `borrowAmount`, and on `/live-state` and `/markets/detailed` the RAY indexes `supplyIndex` / `borrowIndex` and the WAD prices `usdPrice`, `primaryPriceUsd`, `anchorPriceUsd`. Display fields are JS numbers: `*Short`, `*Usd`, `*Apy`, `utilization`, and `usdPrice` on every other route | DTOs |
 
 One deployment serves both MultiversX and Stellar per environment. An app pinned to Stellar
 testnet uses `testnet-api.xoxno.com` for every call (`network.ts` `apiEnvironment`).
 
-## Parameter conventions
+## Legacy parameter conventions
 
 | Parameter | Format | Validation (`src/utils/pipes/common.pipe.ts`) |
 |---|---|---|
@@ -50,9 +93,10 @@ network configuration or an explicit user selection, then choose an exact
 `(spokeId, hubId, asset)` reserve. Symbols and names are display metadata only: never choose
 the first symbol match or first reserve result.
 
-## Endpoint table
+## Legacy endpoint table
 
-Cache = `s-maxage` seconds. DTO names are the NestJS classes, identical in
+The tables below cover unversioned routes. Cache = `s-maxage` seconds.
+DTO names are the NestJS classes, identical in
 `lending-api-types.ts`. That file does not define `HubPageDto`, `SpokePageDto`,
 `ReservePageDto` or `HoldersBothSidesDto`.
 
@@ -196,4 +240,4 @@ tvl = list(zip(stats["timestamps"], stats["supplied"], stats["borrowed"], stats[
 dims = get("/stellar-lending/defillama", **{"from": "2026-01-01", "to": "2026-09-14", "bin": "1d"})["points"]
 ```
 
-Sources: `xoxno-api-v2/src/endpoints/stellar-lending/stellar-lending.controller.ts` and `dto/*.ts`, `sdk-js/src/sdk/swagger.json`, `sdk-js/src/sdk/stellar/lending-api-types.ts` (`@xoxno/sdk-js` 1.0.214).
+Sources: `xoxno-api-v2/src/endpoints/stellar-lending/stellar-lending.controller.ts`, `stellar-lending.integrator.controller.ts`, `stellar-lending.integrator.service.ts`, and `dto/*.ts`, `sdk-js/src/sdk/swagger.json`, `sdk-js/src/sdk/stellar/lending-api-types.ts` (`@xoxno/sdk-js` 1.0.228).

@@ -15,7 +15,7 @@ reference needed for the task. Reserve `evals/` for skill testing.
 | You are… | Load |
 |---|---|
 | Writing a Soroban contract that supplies, borrows, holds a position, or receives a flash loan | [../xoxno-lending-contracts/SKILL.md](../xoxno-lending-contracts/SKILL.md) |
-| Building a dApp, backend, or bot in TypeScript on the SDK and the REST API | [../xoxno-lending-sdk/SKILL.md](../xoxno-lending-sdk/SKILL.md) |
+| Building a wallet, web app, React Native app, backend, or bot in TypeScript | [../xoxno-lending-sdk/SKILL.md](../xoxno-lending-sdk/SKILL.md) |
 | Swapping tokens, or embedding a swap inside a lending action (leverage, collateral/debt swap, repay with collateral) | [../xoxno-swap-aggregator/SKILL.md](../xoxno-swap-aggregator/SKILL.md) |
 | Building a liquidation bot, keeper, or risk monitor | [../xoxno-lending-liquidations/SKILL.md](../xoxno-lending-liquidations/SKILL.md) |
 | Indexing events, building analytics, or calling the REST API from any language | [../xoxno-lending-data/SKILL.md](../xoxno-lending-data/SKILL.md) |
@@ -29,13 +29,26 @@ load the lending skill first and the swap skill only for its quote or payload.
 | Task | File |
 |------|------|
 | Contract addresses, RPC and API endpoints, hub ids, spoke ids, listed markets and their token contracts | [addresses.md](addresses.md) (generated from `configs/`) |
-| API `supplyAmount` / RAY → token units | [math.md](math.md#api-position-fields-are-ray-quantities) |
+| Legacy API `supplyAmount` / RAY → token units | [math.md](math.md#api-position-fields-are-ray-quantities) |
 | Full repay / withdraw sizing and share rounding | [math.md](math.md#shares-and-token-amounts) |
 | Health factor, LTV weights | [math.md](math.md#health-factor-and-ltv-weighting) |
 | Borrow curve, deposit rate, APR vs APY | [math.md](math.md#borrow-rate-curve) |
 
 Reference selection is complete when every interpreted value has an explicit
 unit and every market identifier includes both `hub_id` and asset address.
+
+## Integrator read path
+
+For ordinary wallet rendering, start with the deployed v1 API. It returns
+one position per indexed owned NFT and asset/spoke arrays with prices, APYs,
+labels, logos, and capacities. No client-side token joins or RAY conversion
+are needed. Types and schemas belong to the SDK read entry.
+
+Use [SDK reads](../xoxno-lending-sdk/reads.md) or
+[HTTP reference](../xoxno-lending-data/api.md#integrator-v1-arrays).
+Supply remains a synchronous SDK builder followed by explicit RPC preparation;
+there is no supply HTTP endpoint. A displayed position is an indexed estimate,
+not current ownership or proof that an action will succeed.
 
 ## Shared model
 

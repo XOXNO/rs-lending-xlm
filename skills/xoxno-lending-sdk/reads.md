@@ -1,106 +1,111 @@
-# Reads: API state and contract views
+# Read positions, assets, and current contract state
 
-Companion to [SKILL.md](SKILL.md). `stellarLendingRead` is an HTTP-only reader:
-it does not simulate, authorize, or submit transactions. The complete route
-inventory belongs in
-[../xoxno-lending-data/api.md](../xoxno-lending-data/api.md); this page covers
-only the active SDK calls needed by an application.
+Companion to [SKILL.md](SKILL.md). Use the v1 API for ordinary wallet rendering.
+Use contract views when current ledger state is required. Neither read path signs
+or submits a transaction.
+
+## Read arrays with HTTP or the SDK
+
+Both networks serve these routes without an API key:
+
+| Route | Body |
+| --- | --- |
+| `GET /stellar-lending/v1/assets` | `LendingAsset[]`; collateral listings |
+| `GET /stellar-lending/v1/assets?usage=borrow` | `LendingAsset[]`; borrow listings |
+| `GET /stellar-lending/v1/users/{owner}/positions` | `LendingPosition[]`; one item per indexed owned NFT |
+
+Use `https://api.xoxno.com` for mainnet and `https://testnet-api.xoxno.com`
+for testnet. Keep API, RPC, contracts, and signing network aligned.
 
 ```ts
 import {
-  XOXNOClient,
-  stellarLendingRead,
-} from '@xoxno/sdk-js/stellar-lending'
+  createStellarLendingReadClient,
+  type LendingPosition,
+} from '@xoxno/sdk-js/stellar-lending/read'
 
-const read = stellarLendingRead(
-  new XOXNOClient({ apiUrl: 'https://api.xoxno.com' }),
-)
+const read = createStellarLendingReadClient({ baseUrl: 'https://api.xoxno.com' })
 
-const [context, live, positions] = await Promise.all([
-  read.context(),
-  read.liveState(),
-  read.userPositions(owner),
-])
+export async function portfolio(owner: string, signal?: AbortSignal) {
+  const [positions, assets] = await Promise.all([
+    read.positions(owner, { signal }),
+    read.assets({ signal }),
+  ])
+  return { positions, assets }
+}
 ```
 
-Use:
+A position includes `supplied`, `borrow`, risk estimates, and `nftImage`.
+Each token leg includes its contract, labels, logo, decimals, raw and formatted
+amounts, APY, price, and USD value. No token-catalog join or balance conversion is
+needed. The exact JSON debt key is `borrow`.
 
-- `context()` for assets, hubs, spokes, reserves, decimals, caps, flags, and
-  the `reserveDetailsByKey` coordinate lookup.
-- `liveState()` for current mirrored indexes, WAD prices, and the configurable
-  minimum-borrow-collateral floor.
-- `reserves(...)` / `reserve(spokeId, hubId, asset)` for market display and
-  the exact selected reserve.
-- `userPositions(owner)` for the accounts indexed for a wallet and
-  `accountPositions(accountId)` for one lending account.
-- `marketsDetailed()` when oracle validity, staleness, or deviation flags are
-  needed.
+The SDK read client collects pages, checks HTTP status and array bodies,
+rejects redirects and links to other endpoints, and detects pagination cycles.
+It does not validate every field against a schema. Public types and JSON schemas
+come from the same read entry; keep them in the SDK.
 
-The SDK declares `walletBalance(...)` and `userActivityPage(...)`, but the API
-does not serve their routes; a deployment without a route returns 404. Do not
-make either one a required production path. Read wallet balances from Horizon
-or the Soroban token contract. See the endpoint reference for route
-availability.
+For direct HTTP positions, follow `Link` with `rel="next"` until absent,
+including after an empty page. Resolve relative links against the current URL.
+Keep the same endpoint and detect cycles. `limit` is 1–100, default 50;
+`cursor` is opaque. An HTTP error is not an empty portfolio.
 
-## Units and DTO semantics
+See the [API reference](https://xoxno.com/docs/stellar-lending/dev/integrator-api)
+for fields, nullable values, capacity semantics, and validation rules.
 
-The canonical formulas and rounding directions are in
-[../xoxno-lending/math.md](../xoxno-lending/math.md).
+## Units and missing data
 
-### DTO field semantics
+- v1 `amountRaw` is an integer token base-unit string. Do not apply RAY conversion.
+- `amount` is a decimal whole-token string; keep large ids and amounts as strings.
+- APYs are fractions: `0.05` means 5%.
+- `priceUsd`, `valueUsd`, and risk values are display estimates.
+- `null` means unavailable, except `healthFactor` is also null without debt.
+  Use `hasDebt === false` to display “No debt”.
+- Names and symbols are labels. Token identity is `sac`; a market also needs
+  `hubId`, and account actions need the selected `spokeId`.
 
-- `supplyScaledRay` and `borrowScaledRay` are RAY shares.
-- `supplyAmount` and `borrowAmount` are RAY token quantities, not builder-ready
-  base units.
-- `live*IndexRay` falls back to the stored position index when the API has no
-  live index. `null` means it has neither, and `*Amount` then repeats the raw
-  shares.
-- `liveSupplyIndexRay`, `liveBorrowIndexRay`, and market index fields use RAY
-  (`1e27`).
-- Exact USD prices and risk values use WAD (`1e18`); risk weights and fees use
-  BPS (`1e4`).
-- `supplyCap` / `borrowCap` are base-unit strings and `0` means closed, not
-  unlimited.
-- `supplyApy`, `borrowApy`, `utilization`, `*Short`, and `*Usd` are display
-  numbers. Never feed them into builders or admission checks.
-
-A display-only RAY conversion is:
-
-```ts
-const rayQuantityToBaseFloor = (
-  amountRay: string,
-  decimals: number,
-): bigint => BigInt(amountRay) / 10n ** BigInt(27 - decimals)
-```
-
-For exact withdrawal, repayment, valuation, and post-action gates, apply the
-contract-specific floor/ceil rules from the math reference or simulate the
-contract view. Do not generalize the display conversion into contract
-admission math.
-
-## Coordinates and ownership
-
-Reserve identity is the full `(spokeId, hubId, asset)` tuple. The same token
-may exist on multiple hubs and spokes. `accountId` is the position-NFT token
-id; it does not encode any reserve coordinate. A wallet may own multiple
-accounts on one spoke.
-
-Group position rows by `accountId`, let the user select the account, then
-verify every row in that account reports the expected `spokeId`. Before a
-mutation, confirm the current NFT owner; indexed `owner` is not authoritative
-after a transfer. See [positions.md](positions.md).
+Keep known balances visible when another field is missing. Do not replace
+missing values with zero or treat an NFT image as a balance authority.
 
 ## Freshness and authority
 
-- Fetch `context()` on page load/navigation.
-- Poll one shared `liveState()` query about every 10 seconds.
-- Refetch positions only after transaction `SUCCESS`, then retry reconciliation
-  if the indexer still serves the prior snapshot.
-- Present a price as trustworthy only when its `marketsDetailed()` row has
-  `valid: true`. `stale` and `deviation` flag two causes of `valid: false`.
-- For liquidation, final sizing, or post-transaction verification, contract
-  simulation at the current ledger is authoritative. API data is an indexed
-  mirror.
+Assets send `Cache-Control: public, s-maxage=10`; positions send `no-store`.
+Backend body caches are 5 seconds for assets and 3 seconds for positions;
+token metadata is cached for 600 seconds. Indexed NFT inventory is queried
+on every wallet request before a position body is reused.
+
+These TTLs do not bound total data age. Indexing, oracle state, market snapshots,
+metadata, and HTTP caches have separate freshness limits. Indexed ownership can
+lag a transfer. Use `owner_of(accountId)` for current ownership and simulate
+mutations before signing.
+
+Refresh when the wallet or network changes, after ledger `SUCCESS`, and as the
+screen's freshness needs require. Discard results from an old selection. After
+success, keep a refreshing state until the indexer catches up; do not repeat the
+transaction because the API still shows the prior snapshot.
+
+<a id="units-and-dto-semantics"></a>
+<a id="dto-field-semantics"></a>
+
+## Advanced and legacy reads
+
+`stellarLendingRead(new XOXNOClient({ apiUrl }))` remains available from
+`@xoxno/sdk-js/stellar-lending`. Use `context()`, `liveState()`,
+`reserves(...)`, `accountPositions(accountId)`, and `marketsDetailed()` for
+raw configuration, indexes, and advanced math. Its `userPositions(owner)`
+returns an object with position rows, not the v1 array.
+
+Legacy `supplyAmount` and `borrowAmount` are RAY token quantities when an index
+is available, not builder base units. `live*IndexRay` prefers the live index,
+then the stored position index. If both are absent, the corresponding `*Amount`
+repeats scaled shares; it is not a token balance. Scaled fields are shares. Follow the
+[math reference](../xoxno-lending/math.md#api-position-fields-are-ray-quantities)
+for those fields only. Caps use base-unit strings; `0` means closed.
+The API's mirrored indexes and prices remain estimates of current ledger state.
+
+The generated client declares `walletBalance(...)` and `userActivityPage(...)`,
+but the controller does not serve their routes. Read wallet balances with Horizon
+or the token's `balance` view. The full route inventory is in
+[api.md](../xoxno-lending-data/api.md).
 
 ## One contract-view simulation helper
 
