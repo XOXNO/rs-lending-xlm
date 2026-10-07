@@ -859,7 +859,7 @@ fn rv_delegate_lifecycle_dave_balances_follow_grant_flag_and_nft() {
     assert_eq!(
         got,
         Out::Contract(202),
-        "an unapproved transfer fails with NonFungibleTokenError::InsufficientApproval"
+        "an unapproved transfer fails with the NFT InsufficientApproval error (202)"
     );
     assert_eq!(t.nft_owner_of(acc), alice);
 
