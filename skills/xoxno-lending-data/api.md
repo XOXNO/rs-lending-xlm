@@ -1,7 +1,14 @@
-# XOXNO Lending REST API (`/stellar-lending/*`)
+# XOXNO Lending REST API
 
-Endpoint reference for consumers in any language. The Rust `lending-api` service
-(`XOXNO/lending-api`, a separate repository) is **not** the production API; do not target it.
+Use the public API for wallet screens and historical analytics.
+
+| Network | Base URL |
+| --- | --- |
+| Mainnet | `https://api.xoxno.com` |
+| Testnet | `https://testnet-api.xoxno.com` |
+
+Select the API and RPC for the same network. These routes require no API key.
+The SDK owns the public v1 types and schemas.
 
 ## Integrator v1 arrays
 
@@ -13,7 +20,7 @@ Use these routes for wallet, web, and React Native screens:
 | `GET /stellar-lending/v1/assets?usage=borrow` | `LendingAsset[]`; borrow listings | `public, s-maxage=10` |
 | `GET /stellar-lending/v1/users/{owner}/positions` | `LendingPosition[]`; one item per indexed owned NFT | `no-store` |
 
-These routes are deployed on both network roots below. They require no API key.
+These routes are deployed on both network roots above. They require no API key.
 `owner` must be a valid Stellar `G...` or `C...` address. Invalid owner, usage,
 page size, or cursor returns HTTP 400.
 
@@ -46,93 +53,25 @@ Public types, schemas, and the optional pagination client are exported from
 defines every field and missing-data rule. Build supply synchronously in the
 SDK, then prepare with RPC; there is no supply API endpoint.
 
-## Base URLs, auth, limits, caching
+## Historical analytics
 
-| Item | Value | Source |
-|---|---|---|
-| Mainnet | `https://api.xoxno.com` | `xoxno-ui/src/lib/blockchain/network.ts` `apiHosts.mainnet.public` |
-| Testnet | `https://testnet-api.xoxno.com` | `apiHosts.testnet.public` |
-| Path prefix | none; routes are absolute `/stellar-lending/...` (`@Controller()` with no prefix, no global prefix) | controller |
-| Auth | none — no header, no API key on any route. The global `ThrottlerGuard` (30 requests / 3 s per client IP) skips every `GET` on these routes (`skipIf`) | `app-core.module.ts` |
-| Legacy caching | unversioned routes set `Cache-Control: public, s-maxage=N, stale-while-revalidate=N`; `N` is listed per route below. Exception: `/users/{owner}/positions` and `/accounts/{accountId}/positions` set `stale-while-revalidate=10`. Poll no faster than `s-maxage` — the edge serves the same body until then. `/assets/{asset}/page` sets it only when `owner` is absent | controller `@Header` |
-| Content | JSON; bigint-precision fields are decimal **strings**: `*Ray`, `*Wad`, `supplyCap` / `borrowCap`, `supplyAmount` / `borrowAmount`, and on `/live-state` and `/markets/detailed` the RAY indexes `supplyIndex` / `borrowIndex` and the WAD prices `usdPrice`, `primaryPriceUsd`, `anchorPriceUsd`. Display fields are JS numbers: `*Short`, `*Usd`, `*Apy`, `utilization`, and `usdPrice` on every other route | DTOs |
+Use the following routes for charts and accounting. Use the v1 arrays above
+for current wallet positions and asset selection.
 
-One deployment serves both MultiversX and Stellar per environment. An app pinned to Stellar
-testnet uses `testnet-api.xoxno.com` for every call (`network.ts` `apiEnvironment`).
+| Parameter | Format |
+| --- | --- |
+| `from`, `to` | UTC calendar date, `yyyy-MM-dd` |
+| `bin` | `Nd`, `Nh`, or `Nm`; for example, `1d`, `4h`, or `15m` |
+| `spokeId`, `hubId` | On-chain integer ID, at least 1 |
+| `asset`, `token` | Token contract address, `C...`; URL-encode path values |
+| `scope` | `asset`, `hub`, or `protocol` |
 
-## Legacy parameter conventions
+The cache column gives `s-maxage` in seconds. These routes also permit stale
+responses during revalidation. Cache expiry does not prove that indexed data
+matches the current ledger. Respect the response cache headers.
 
-| Parameter | Format | Validation (`src/utils/pipes/common.pipe.ts`) |
-|---|---|---|
-| `from`, `to` | `yyyy-MM-dd` (calendar date, UTC) | `ParseDatePipe` regex `^\d{4}-\d{2}-\d{2}$` → 400 otherwise. Not ISO timestamps, not unix seconds |
-| `bin` | `Nd`, `Nh`, or `Nm` — `1d`, `4h`, `15m` | `ParseTimeSpanPipe` regex `^\d+[d\|h\|m]$`; `1w` and `1M` are rejected |
-| `spokeId`, `hubId` path params | integers ≥ 1; on-chain spoke and hub ids start at 1 | `ExtendedParseIntPipe` with no minimum: `0` and negative values pass validation |
-| `hubId`, `spokeId` query filters | integer; omit or `-1` for "all" | `DefaultValuePipe(-1)` |
-| `asset`, `token` | Soroban contract address `C...` (SAC or custom token); URL-encode it | `@Param('asset')` |
-| `owner` | Stellar `G...` (or `C...` for contract owners) | string |
-| `accountId` | decimal position-NFT token id, as a string | string |
-| `skip`, `top` | offset pagination; `top` capped per route (see table) | `ExtendedParseIntPipe(min, max)` |
-| `continuationToken` | opaque Cosmos cursor; pass back the previous response's `continuationToken` until `hasMoreResults` is false | `/governance/proposals` only |
-| `side` | `deposits` \| `borrows` (holders, distribution) or `deposit` \| `borrow` (asset markets) | `ParseEnumPipe` |
-| `scope` | `asset` \| `hub` \| `protocol` | `StellarAnalyticsScope` |
-
-Series endpoints return one point per bin between `from` and `to`. When `to` reaches today,
-the `/graph` routes, the `graph` field of the `/page` routes, `/stats/history`, `/revenue`
-and `/defillama` extend to the bin that contains `now()`, revalued at the live index
-(`stellar-lending.graphs.ts`). Every other series stops at `to`: `/revenue/fees`, the
-`fees[]` of `MarketGraphDto`, `/volume`, `/liquidations`, `/active-users`, `/rate-spread`,
-`/users/{accountId}/history` and the `graphSeries` of `/assets/{asset}/page`.
-
-REST responses are indexed, derived views. They can seed balances, charts, candidate
-watchlists, or recovery state. They do not reconstruct canonical raw Soroban events, their
-exact ordering, or omitted payloads; only an independent archival source can prove that
-provenance.
-
-Resolve markets contract-address-first. Start from an asset contract address in the selected
-network configuration or an explicit user selection, then choose an exact
-`(spokeId, hubId, asset)` reserve. Symbols and names are display metadata only: never choose
-the first symbol match or first reserve result.
-
-## Legacy endpoint table
-
-The tables below cover unversioned routes. Cache = `s-maxage` seconds.
-DTO names are the NestJS classes, identical in
-`lending-api-types.ts`. That file does not define `HubPageDto`, `SpokePageDto`,
-`ReservePageDto` or `HoldersBothSidesDto`.
-
-### Lists, context, live state
-
-| Route | Params | DTO | Meaning | Cache |
-|---|---|---|---|---|
-| `GET /stellar-lending/assets` | — | `StellarAssetListItemDto[]` | every listed asset with cross-hub totals, APY ranges, `hubCount`, `marketCount` | 30 |
-| `GET /stellar-lending/hubs` | — | `StellarHubListItemDto[]` | per-hub `tvlUsd`, deposits, borrows, counts | 30 |
-| `GET /stellar-lending/spokes` | — | `StellarSpokeListItemDto[]` | per-spoke totals and `connectedHubIds` | 30 |
-| `GET /stellar-lending/reserves` | `?hubId&spokeId&asset` (all optional) | `StellarReserveListItemDto[]` | every `spoke × hub × asset` market row with `utilizationRate`, `totalDepositsUsd`, `totalBorrowsUsd`; filterable | 30 |
-| `GET /stellar-lending/context` | — | `StellarLendingContextDto` | `assets`, `hubs`, `spokes`, `reserves`, `reserveDetailsByKey` in one call | 30 |
-| `GET /stellar-lending/live-state` | — | `StellarLendingLiveStateDto` | live `indexes: StellarMarketIndexByHub[]` (`supplyIndex`/`borrowIndex` raw RAY + `*Short`), `minBorrowCollateralUsdWad` | 10 |
-| `GET /stellar-lending/markets/detailed` | — | `StellarDetailedMarketDto[]` | live indexes plus composed oracle price with `stale`, `deviation`, `valid` flags | 30 |
-
-### Entity detail and page views
-
-| Route | Params | DTO | Meaning | Cache |
-|---|---|---|---|---|
-| `GET /stellar-lending/assets/{asset}` | — | `AssetDto` | header totals, `min/maxSupplyApy`, `min/maxBorrowApy`, `oracleProvider` | 30 |
-| `GET /stellar-lending/assets/{asset}/page` | `?from&to&bin&owner?` | `AssetPageDto` | `AssetDto` + `depositMarkets`, `borrowMarkets`, `graphSeries` | 30 (no `owner`) |
-| `GET /stellar-lending/assets/{asset}/markets` | `?side=deposit\|borrow` | `AssetMarketDto[]` | per spoke/hub markets for one asset | 30 |
-| `GET /stellar-lending/hubs/{hubId}` | — | `HubDto` | totals, `utilization`, `assets: HubAssetDto[]` | 30 |
-| `GET /stellar-lending/hubs/{hubId}/page` | `?from&to&bin` | `HubPageDto` | `HubDto` + `graph: MarketGraphDto` + `holders` | 30 |
-| `GET /stellar-lending/spokes/{spokeId}` | — | `SpokeDto` | `connectedHubs`, `markets`, liquidation curve (`liquidationTargetHfWad`, `healthFactorForMaxBonusWad`) | 30 |
-| `GET /stellar-lending/spokes/{spokeId}/page` | `?from&to&bin` | `SpokePageDto` | `SpokeDto` + `graph: SpokeGraphDto` + `holders` | 30 |
-| `GET /stellar-lending/reserves/{spokeId}/{hubId}/{asset}` | — | `ReserveDto` | one market in one spoke: APYs, `utilization`, caps, `irm` curve (RAY strings), `liveSupplyIndexRay`, `liveBorrowIndexRay`, risk BPS. `suppliedShort` / `borrowedShort` are the spoke's slice; APYs, `utilization` and `hubPool` are hub-wide | 30 |
-| `GET /stellar-lending/reserves/{spokeId}/{hubId}/{asset}/page` | `?from&to&bin` | `ReservePageDto` | `ReserveDto` + `graph: MarketGraphDto` + `holders: HoldersBothSidesDto` | 30 |
-
-### Holders
-
-| Route | Params | DTO | Meaning | Cache |
-|---|---|---|---|---|
-| `GET /stellar-lending/reserves/{spokeId}/{hubId}/{asset}/holders` | `?side=deposits\|borrows` | `TopHoldersDto` | top accounts: `scaledRay`, `amountShort`, `sharePct`; `totalScaledRay` | 120 |
-| `GET /stellar-lending/hubs/{hubId}/holders` | `?side` | `TopHoldersDto` | same, hub-wide | 120 |
-| `GET /stellar-lending/spokes/{spokeId}/holders` | `?side` | `TopHoldersDto` | same, spoke-wide | 120 |
+APYs and utilization are fractions: `0.05` means 5%. USD values are display
+numbers. Keep integer strings when exact arithmetic is required.
 
 ### History graphs
 
@@ -143,18 +82,6 @@ DTO names are the NestJS classes, identical in
 | `GET /stellar-lending/hubs/{hubId}/graph` | `?from&to&bin` | `MarketGraphDto` | hub | 120 |
 | `GET /stellar-lending/spokes/{spokeId}/graph` | `?from&to&bin` | `SpokeGraphDto` | spoke-attributed `suppliedUsd`, `borrowedUsd`, `*Native`, APYs | 120 |
 | `GET /stellar-lending/stats/history` | `?from&to&bin` | `StellarStatsHistoryDto` | protocol-wide parallel arrays `timestamps[]`, `supplied[]`, `borrowed[]`, `revenue[]` (USD) | 120 |
-
-### Users, accounts, positions
-
-| Route | Params | DTO | Meaning | Cache |
-|---|---|---|---|---|
-| `GET /stellar-lending/users/{owner}/positions` | — | `AccountPositionsDto` | all positions for a wallet across spokes/hubs | 5 |
-| `GET /stellar-lending/accounts/{accountId}/positions` | — | `AccountPositionsDto` | positions of one account (NFT id) | 5 |
-| `GET /stellar-lending/users/{owner}/activity` | `?skip=0&top=50` (top ≤ 200) | `StellarUserActivityItemDto[]` | action feed, newest first: `action`, `side`, `token`, `amountShort`, `usd`, `liquidator`, `seq` | 30 |
-| `GET /stellar-lending/users/{accountId}/history` | `?from&to&bin` | `UserHistoryDto` | per-account supplied/borrowed series per token (`points[].side`, `native`, `usd`) | 120 |
-| `GET /stellar-lending/pnl` | `?accountId=` | `StellarPositionsPnlDto` | realized + unrealized PnL per asset: `pnlUsd`, `pnlToken`, `interestUsd`, `debtUsd` | 30 |
-| `GET /stellar-lending/pnl/scope` | `?scope=asset\|hub\|protocol` | `PnlByScopeDto` | cross-account PnL grouped by scope | 120 |
-| `GET /stellar-lending/positions` | `?token&orderBy=Supplied\|Borrowed\|HealthFactor&orderDirection=asc\|desc&skip&top` (top ≤ 100) | `StellarPositionsRankDto` | wallet leaderboard with `healthFactor` = debt / liquidation-weighted collateral × 100 (higher is riskier; not the on-chain WAD health factor) | 120 |
 
 ### Analytics series
 
@@ -171,73 +98,63 @@ DTO names are the NestJS classes, identical in
 | `GET /stellar-lending/rate-spread` | `?from&to&bin&hubId?&token?` | `RateSpreadSeriesDto` | `borrowApy - supplyApy` per (hub, token) | 120 |
 | `GET /stellar-lending/defillama` | `?from&to&bin` | `DefiLlamaDimensionsDto` | per bin: `tvl`, `borrowed`, `fees` (borrow interest accrued), `revenue` (reserve revenue accrued), USD | 120 |
 
-### Governance and campaign
+Reserve graph `points[]` describe the shared `(hubId, asset)` pool across
+spokes. `spokeId` filters optional `fees[]`, not pool balances. Use
+`/stellar-lending/spokes/{spokeId}/graph` for spoke-attributed balances.
 
-| Route | Params | DTO | Meaning | Cache |
-|---|---|---|---|---|
-| `GET /stellar-lending/governance/proposals` | `?top=25&continuationToken?` (top ≤ 100) | `GovernanceProposalsPageDto` | `resources[]`, `hasMoreResults`, `continuationToken` | 60 |
-| `GET /stellar-lending/campaign/leaderboard` | `?skip&top` (top ≤ 100) | `StellarCampaignLeaderboardDto` | airdrop campaign rows | 120 |
-| `GET /stellar-lending/campaign/me` | `?owner=` | `StellarCampaignMeDto` | one wallet's campaign row | 120 |
+The graph, stats/history, revenue, and defillama routes can extend to the
+current bin when `to` reaches today. Other series stop at `to`. A current bin
+can change as the indexer receives new data.
 
-`swagger.json` / `lending-api-types.ts` also list `GET /users/{owner}/assets/{asset}/balance` and `GET /users/{owner}/activity/page`; neither exists in `stellar-lending.controller.ts`. The reverse case: `/hubs/{hubId}/page`, `/spokes/{spokeId}/page` and `/reserves/{spokeId}/{hubId}/{asset}/page` exist in the controller but not in `swagger.json`.
-The controller is authoritative.
+Historical REST data is derived. It cannot prove raw event order or recover
+omitted event payloads. Use an archival event source for those tasks.
 
-## Field scales
-
-`AccountPositionDto` (`/users/{owner}/positions`, `/accounts/{accountId}/positions`) `supplyAmount` / `borrowAmount` are RAY token quantities, not base units: [math.md#api-position-fields-are-ray-quantities](../xoxno-lending/math.md#api-position-fields-are-ray-quantities).
-`supplyCap` / `borrowCap` are base-unit strings (`0` = closed); `supplyCapShort` / `borrowCapShort` are human-scaled.
-`utilization` and `supplyApy` / `borrowApy` are display fractions, not percentages (`0.05` = 5%): [reads.md#dto-field-semantics](../xoxno-lending-sdk/reads.md#dto-field-semantics).
-
-## Example: DefiLlama-style history in Python (stdlib only)
+## Example: market history in Python
 
 ```python
 import json
 import urllib.parse
 import urllib.request
 
-BASE = "https://api.xoxno.com"  # testnet: https://testnet-api.xoxno.com
+BASE = "https://api.xoxno.com"
 
 
 def get(path: str, **params: str) -> dict | list:
     url = f"{BASE}{path}"
     if params:
         url += "?" + urllib.parse.urlencode(params)
-    with urllib.request.urlopen(urllib.request.Request(url, headers={"Accept": "application/json"})) as r:
-        return json.load(r)  # no auth header; respect Cache-Control s-maxage (120 s on history routes)
+    request = urllib.request.Request(url, headers={"Accept": "application/json"})
+    with urllib.request.urlopen(request, timeout=30) as response:
+        return json.load(response)
 
 
-def reserve_for(asset: str, spoke_id: int, hub_id: int) -> dict:
-    """Resolve one explicit market coordinate; never select the first symbol/result."""
+def market_for(sac: str, spoke_id: int, hub_id: int) -> dict:
+    assets = get("/stellar-lending/v1/assets")
     matches = [
-        row
-        for row in get("/stellar-lending/reserves", asset=asset, spokeId=str(spoke_id), hubId=str(hub_id))
-        if row["asset"] == asset and row["spokeId"] == spoke_id and row["hubId"] == hub_id
+        asset for asset in assets
+        if asset["sac"] == sac and asset["hubId"] == hub_id
+        and any(spoke["spokeId"] == spoke_id for spoke in asset["spokes"])
     ]
     if len(matches) != 1:
-        raise LookupError((spoke_id, hub_id, asset))
+        raise LookupError((spoke_id, hub_id, sac))
     return matches[0]
 
 
-# Take the asset address and the on-chain spoke and hub ids (not config keys) from
-# configs/networks.json, addresses.md, or explicit user input.
-asset = "C..."  # asset contract address, not a display-symbol lookup
+# Get these coordinates from trusted configuration or explicit user selection.
+asset = "C..."
 spoke_id = 1
 hub_id = 1
-reserve = reserve_for(asset, spoke_id, hub_id)
-
-# Per-market borrow APY history: from/to are yyyy-MM-dd, bin is Nd / Nh / Nm.
+market = market_for(asset, spoke_id, hub_id)
 graph = get(
     f"/stellar-lending/reserves/{spoke_id}/{hub_id}/{urllib.parse.quote(asset, safe='')}/graph",
-    **{"from": "2026-01-01", "to": "2026-09-14", "bin": "1d"},
+    **{"from": "2026-01-01", "to": "2026-10-01", "bin": "1d"},
 )
-borrow_apy = [(p["timestamp"], p["borrowApy"], p["utilization"], p["totalDepositsUsd"]) for p in graph["points"]]
-
-# Protocol-wide TVL / borrowed / revenue (USD per bin).
-stats = get("/stellar-lending/stats/history", **{"from": "2026-01-01", "to": "2026-09-14", "bin": "1d"})
-tvl = list(zip(stats["timestamps"], stats["supplied"], stats["borrowed"], stats["revenue"]))
-
-# Ready-made DefiLlama dimensions: tvl, borrowed, fees, revenue per bin.
-dims = get("/stellar-lending/defillama", **{"from": "2026-01-01", "to": "2026-09-14", "bin": "1d"})["points"]
+borrow_apy = [(point["timestamp"], point["borrowApy"]) for point in graph["points"]
+dimensions = get(
+    "/stellar-lending/defillama",
+    **{"from": "2026-01-01", "to": "2026-10-01", "bin": "1d"},
+)["points"]
 ```
 
-Sources: `xoxno-api-v2/src/endpoints/stellar-lending/stellar-lending.controller.ts`, `stellar-lending.integrator.controller.ts`, `stellar-lending.integrator.service.ts`, and `dto/*.ts`, `sdk-js/src/sdk/swagger.json`, `sdk-js/src/sdk/stellar/lending-api-types.ts` (`@xoxno/sdk-js` 1.0.228).
+Source: `xoxno-api-v2` commit `8d891f562b0322d659c6ea0ccc3a1f168afb4d03`.
+Public types: `@xoxno/sdk-js` version `1.0.228`.

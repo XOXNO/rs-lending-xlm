@@ -1,13 +1,13 @@
 # Composing controller operations
 
-One contract invocation can sequence controller verbs atomically. Each token
-pull still needs an exact nested authorization, and account state must be
-revalidated at the branch where it is used.
+A contract can call several controller operations in one atomic invocation.
+Authorize each token transfer separately. Check account state before each
+operation that uses it.
 
 ## Token-pull ordering
 
-Perform reads and local pointer reconciliation first. Then authorize, then
-immediately invoke the consuming contract:
+Complete reads and resolve the stored account ID. Authorize the exact token
+transfer. Immediately call the contract that uses the authorization:
 
 | Call | Authorized nested transfer |
 |---|---|

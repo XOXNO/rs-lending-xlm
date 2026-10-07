@@ -69,15 +69,16 @@ Controller methods without a dedicated 1.0.228 builder can use the exported
 3. Build unsigned XDR with its current sequence and fresh timebounds.
 4. Prepare through the host RPC with `prepareStellarBuiltTx`.
 5. Sign **only the prepared XDR** using the matching network passphrase.
-6. Verify the wallet signed the prepared transaction unchanged. Persist the
-   original network, signed envelope, and hash in durable storage before sending.
-7. Submit. `PENDING`, `DUPLICATE`, and `TRY_AGAIN_LATER` all mean “poll the
-   original hash.”
-8. Confirm `SUCCESS` or `FAILED`. Always pass `attempts` to
-   `pollTransaction`: in Stellar SDK v16 the JSDoc states a default of 5
-   attempts, but the runtime uses `DEFAULT_GET_TRANSACTION_TIMEOUT = 30`.
-9. On `SUCCESS`, reconcile live state, indexed positions, returned account id,
-   and current NFT owner.
+6. Verify that the wallet signed the prepared transaction without changing it.
+7. Persist the original network, signed envelope, and hash before sending.
+8. Submit the signed envelope.
+9. Poll the original hash after `PENDING`, `DUPLICATE`, or `TRY_AGAIN_LATER`.
+10. Keep the outcome unknown after transport errors or polling limits.
+11. Confirm ledger `SUCCESS` or `FAILED` for that hash.
+12. After `SUCCESS`, reconcile the returned account id, indexed positions, and current NFT owner.
+
+Always pass an explicit `attempts` value to `pollTransaction`. A bounded poll
+that finds no transaction is not proof of failure.
 
 The helper below is for the first submission of a newly signed transaction.
 Recovery must use the original record and the policy below; do not treat a retry
@@ -170,8 +171,9 @@ Numeric codes overlap between controller, pool, router, NFT, governance, and
 DEX contracts.
 
 `invokedContractId` on `prepareStellarBuiltTx` prefixes a preparation error
-with the contract id you pass, normally the **top-level** contract. It does
-not identify a nested contract that panicked. Therefore:
+with the contract id you pass, normally the **top-level** contract. Resolve
+the actual emitter from diagnostics. Read its address and error from the same
+entry. An earlier handled error can belong to another contract. Therefore:
 
 - map a code only when diagnostics identify the emitting contract, or when the
   top-level contract itself is proven to be the emitter;

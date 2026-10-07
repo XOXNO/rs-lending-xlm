@@ -26,8 +26,8 @@ argument-hint: "[error string, hash, or test setup]"
    replacement yet.
 4. **Does `getTransaction(hash)` return `NOT_FOUND`?**
    This is not a terminal failure. Keep polling the hash and resubmit the
-   original envelope until it confirms or its timebounds expire. Rebuild only
-   after expiry or another definitive terminal result.
+   original envelope until it confirms or its timebounds expire. After expiry, resolve the original outcome and reconcile state. Do not
+   submit a replacement while the outcome is unknown.
 5. **Did the transaction confirm `FAILED`?**
    Decode its diagnostic events, again pairing code with panicking contract.
 6. **Did it confirm `SUCCESS`?**
@@ -50,10 +50,12 @@ can traverse the controller, pool, price aggregator, oracle, token, position
 NFT, router, and DEX contracts, and their codes overlap.
 
 1. Extract only `Error(Contract, #N)`.
-2. Locate the diagnostic `error` event and its emitting `contractId` (or the
-   adjacent `contract:C…` diagnostic log).
-3. Match that address against the deployment manifest and invoked contracts.
-4. Only then map `N` using the canonical error reference.
+2. Find the code and emitting address in the same diagnostic event.
+3. Trace handled and propagated errors. A caught nested error can appear
+   before the final failure. Do not pair the raw code with the first error
+   event or with an adjacent unrelated log.
+4. Match that address against the deployment manifest and invoked contracts.
+5. Only then map `N` using the canonical error reference.
 
 Do not maintain a "non-user/collision" set containing controller #101 or #114:
 
@@ -82,26 +84,28 @@ export async function inspectSimulation(
   const tx = TransactionBuilder.fromXDR(transactionXdr, passphrase)
   const simulation = await server.simulateTransaction(tx)
   if (rpc.Api.isSimulationRestore(simulation)) {
-    return { kind: 'restore' as const, preamble: simulation.restorePreamble }
+    return { kind: 'restore' as const, preamble: simulation.restorePreamble, simulation }
   }
   if (!rpc.Api.isSimulationError(simulation)) {
     return { kind: 'ok' as const, simulation }
   }
 
   const events = humanizeEvents(simulation.events)
-  const diagnostic = events.find(
-    (event) => event.type === 'diagnostic' && event.topics[0] === 'error',
-  )
   const code = simulation.error.match(CONTRACT_CODE)?.[1]
   return {
     kind: 'error' as const,
-    code: code === undefined ? null : Number(code),
-    contractId: diagnostic?.contractId ?? null,
+    codeHint: code === undefined ? null : Number(code),
+    // Determine the namespace from the complete diagnostic trace.
+    contractId: null,
     events,
+    diagnosticEvents: simulation.events,
     raw: simulation.error,
   }
 }
 ```
+
+Keep the original simulation and diagnostic records. Use humanized events
+for display only.
 
 An SDK helper that maps the raw number without the diagnostic contract id is a
 hint only. Never present its lending name as final diagnosis.
@@ -110,7 +114,7 @@ hint only. Never present its lending name as final diagnosis.
 
 Before the first send, durably persist:
 
-- the signed envelope XDR;
+- the original network and signed envelope XDR;
 - its transaction hash;
 - sequence and timebounds;
 - the operation's application idempotency key.
@@ -122,14 +126,17 @@ Interpret statuses as follows:
 | `ERROR` | Decode the transaction result and diagnostics. It was rejected by this RPC submission. Check the original hash before deciding sequence reuse is safe. |
 | `PENDING` | Poll the original hash. |
 | `DUPLICATE` | Poll the original hash; do not submit a replacement or show another success. |
-| `TRY_AGAIN_LATER` | Check the original hash, then retry the identical signed envelope; preserve it until terminal or expired. |
+| `TRY_AGAIN_LATER` | Check the original hash, then retry the identical signed envelope; keep its record until the original outcome is resolved. |
 | `getTransaction NOT_FOUND` | Keep checking/resubmitting the original envelope while its timebounds remain valid. |
 | confirmed `FAILED` | Decode result and diagnostics; terminal for this hash. |
 | confirmed `SUCCESS` | Verify return, events, and post-state; terminal for this hash. |
 
-After the original envelope expires, verify it is still unconfirmed, then fetch
-the current account sequence, rebuild, re-simulate, re-sign, persist the new
-hash, and submit. This prevents duplicate effects from two distinct envelopes.
+Check expiry against ledger close time. Expiry prevents future inclusion but
+cannot prove non-inclusion before expiry. Resolve the original hash through
+retained or complete transaction history. Reconcile account and token state.
+If the outcome remains unknown, keep the record and stop replacement
+submission. After a resolved failure or proven non-inclusion, fetch sequence,
+rebuild, re-simulate, sign, and persist the replacement before sending.
 
 `txBAD_SEQ` commonly means another envelope consumed the sequence. `txTOO_LATE`
 means the original timebounds expired. Neither justifies forgetting another
@@ -177,8 +184,10 @@ id, so the contract cannot derive and authorize each repeated-address leg.
 - `SpokeMismatch`: load the account's stored spoke and keep all account legs in
   that spoke.
 - Pause/freeze/no-seize failures: read the exact spoke-asset configuration.
-  Seizure is pro-rata across every collateral, so one `no_seize` collateral
-  blocks the whole liquidation.
+  `no_seize` blocks a generated nonzero seizure leg. Rounded-empty legs do
+  not block liquidation. Repayment permits frozen listings and rejects paused
+  listings. Seizure permits paused/frozen listings. A missing listing permits
+  repayment and Transfer seizure; a new Credit supply position needs a listing.
 - Router slippage or venue errors: identify the router/venue contract, fetch a
   fresh quote, rebuild route XDR, and re-simulate the composed call.
 - `InvalidPayments`: check the exact endpoint's rules for empty lists, list
@@ -211,7 +220,7 @@ Completion checks:
 
 - [ ] Final write was simulated with the same operations that were signed.
 - [ ] Error number was mapped only after identifying the panicking contract.
-- [ ] Original signed envelope/hash was persisted through terminal or expiry.
+- [ ] Original signed envelope/hash was persisted until its outcome was resolved.
 - [ ] Success was confirmed for the original hash, not inferred from send.
 - [ ] Expected events were reconciled with post-transaction state.
 - [ ] Event/indexer cursor and application idempotency state were persisted.

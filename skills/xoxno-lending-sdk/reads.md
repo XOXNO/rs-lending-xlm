@@ -46,7 +46,7 @@ come from the same read entry; keep them in the SDK.
 
 For direct HTTP positions, follow `Link` with `rel="next"` until absent,
 including after an empty page. Resolve relative links against the current URL.
-Keep the same endpoint and detect cycles. `limit` is 1–100, default 50;
+Reject links to another endpoint. Reject repeated links. `limit` is 1–100, default 50;
 `cursor` is opaque. An HTTP error is not an empty portfolio.
 
 See the [API reference](https://xoxno.com/docs/stellar-lending/dev/integrator-api)
@@ -78,34 +78,11 @@ metadata, and HTTP caches have separate freshness limits. Indexed ownership can
 lag a transfer. Use `owner_of(accountId)` for current ownership and simulate
 mutations before signing.
 
-Refresh when the wallet or network changes, after ledger `SUCCESS`, and as the
-screen's freshness needs require. Discard results from an old selection. After
+Refresh when the wallet or network changes. Refresh after ledger `SUCCESS`.
+Choose a polling interval for the screen's freshness needs. Discard results
+from an old wallet or network selection. After
 success, keep a refreshing state until the indexer catches up; do not repeat the
 transaction because the API still shows the prior snapshot.
-
-<a id="units-and-dto-semantics"></a>
-<a id="dto-field-semantics"></a>
-
-## Advanced and legacy reads
-
-`stellarLendingRead(new XOXNOClient({ apiUrl }))` remains available from
-`@xoxno/sdk-js/stellar-lending`. Use `context()`, `liveState()`,
-`reserves(...)`, `accountPositions(accountId)`, and `marketsDetailed()` for
-raw configuration, indexes, and advanced math. Its `userPositions(owner)`
-returns an object with position rows, not the v1 array.
-
-Legacy `supplyAmount` and `borrowAmount` are RAY token quantities when an index
-is available, not builder base units. `live*IndexRay` prefers the live index,
-then the stored position index. If both are absent, the corresponding `*Amount`
-repeats scaled shares; it is not a token balance. Scaled fields are shares. Follow the
-[math reference](../xoxno-lending/math.md#api-position-fields-are-ray-quantities)
-for those fields only. Caps use base-unit strings; `0` means closed.
-The API's mirrored indexes and prices remain estimates of current ledger state.
-
-The generated client declares `walletBalance(...)` and `userActivityPage(...)`,
-but the controller does not serve their routes. Read wallet balances with Horizon
-or the token's `balance` view. The full route inventory is in
-[api.md](../xoxno-lending-data/api.md).
 
 ## One contract-view simulation helper
 

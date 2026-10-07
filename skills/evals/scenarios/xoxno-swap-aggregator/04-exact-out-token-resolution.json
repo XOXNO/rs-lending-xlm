@@ -11,7 +11,7 @@
     "Does not pass a `router` param, does not hardcode a router address, and re-quotes before execution because the quote carries no TTL and `snapshot.ledger`/`ageSeconds` only describe the search snapshot"
   ],
   "machine_checkable": [
-    "Generated TypeScript passes tsc --noEmit against @xoxno/sdk-js 1.0.214 and @stellar/stellar-sdk ^16",
+    "Generated TypeScript passes tsc --noEmit against @xoxno/sdk-js 1.0.228 and @stellar/stellar-sdk ^16",
     "The quote request object contains `amountOut` and no `amountIn`, and no `router` key",
     "Every `slippage` literal in the generated code is < 1",
     "Quote `from`/`to` values are derived from the /api/v1/tokens response, with no 'XLM' or 'USDC' string passed as a quote param"

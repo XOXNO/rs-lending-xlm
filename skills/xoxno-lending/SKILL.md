@@ -1,14 +1,14 @@
 ---
 name: xoxno-lending
-description: Use for XOXNO Lending tasks on Stellar: choose the contract, SDK, API, liquidation, data, or swap guidance; resolve network addresses and ids; or interpret hubs, spokes, accounts, position NFTs, health factors, WAD, RAY, and BPS.
+description: "Use for XOXNO Lending tasks on Stellar: choose the contract, SDK, API, liquidation, data, or swap guidance; resolve network addresses and ids; or interpret hubs, spokes, accounts, position NFTs, health factors, WAD, RAY, and BPS."
 user-invocable: true
 argument-hint: "[XOXNO Lending task]"
 ---
 
 # XOXNO Lending
 
-Start here, select one `xoxno-*` task skill, then load only the companion
-reference needed for the task. Reserve `evals/` for skill testing.
+Start here. Select one `xoxno-*` task skill. Load the companion reference
+for that task. Reserve `evals/` for skill testing.
 
 ## Route the task
 
@@ -29,7 +29,7 @@ load the lending skill first and the swap skill only for its quote or payload.
 | Task | File |
 |------|------|
 | Contract addresses, RPC and API endpoints, hub ids, spoke ids, listed markets and their token contracts | [addresses.md](addresses.md) (generated from `configs/`) |
-| Legacy API `supplyAmount` / RAY → token units | [math.md](math.md#api-position-fields-are-ray-quantities) |
+| Portfolio balances, prices, APYs, and missing values | [SDK reads](../xoxno-lending-sdk/reads.md#units-and-missing-data) |
 | Full repay / withdraw sizing and share rounding | [math.md](math.md#shares-and-token-amounts) |
 | Health factor, LTV weights | [math.md](math.md#health-factor-and-ltv-weighting) |
 | Borrow curve, deposit rate, APR vs APY | [math.md](math.md#borrow-rate-curve) |
@@ -47,8 +47,8 @@ are needed. Types and schemas belong to the SDK read entry.
 Use [SDK reads](../xoxno-lending-sdk/reads.md) or
 [HTTP reference](../xoxno-lending-data/api.md#integrator-v1-arrays).
 Supply remains a synchronous SDK builder followed by explicit RPC preparation;
-there is no supply HTTP endpoint. A displayed position is an indexed estimate,
-not current ownership or proof that an action will succeed.
+there is no supply HTTP endpoint. A displayed position is an indexed estimate. Verify current NFT ownership
+and simulate the action before signing.
 
 ## Shared model
 
@@ -62,22 +62,20 @@ not current ownership or proof that an action will succeed.
   current configuration before opening a position.
 - A position belongs to a `u64` account id. Its position NFT
   (`token_id == account_id`) is the live ownership authority.
-- Token transfers and caps use asset base units; USD values and health factors
-  use WAD (`1e18`); shares, indexes, and annual rates use RAY (`1e27`); risk
-  ratios and fees use BPS (`10_000 = 100%`).
+- Token transfers and caps use asset base units. USD values and health
+  factors use WAD (`1e18`). Shares, indexes, and annual rates use RAY (`1e27`).
+  Risk ratios and fees use BPS (`10_000 = 100%`).
 
 ## Execute safely
 
-1. Resolve the network, contract address, `hub_id`, asset address, and
-   `spoke_id` from [addresses.md](addresses.md) or live configuration.
-2. Load the routed task skill and its task-specific reference. Use
-   [math.md](math.md) whenever conversion, accrual, health, close sizing, or
-   rounding affects the result.
-3. Build with integer arithmetic and the authorization model documented by the
-   task skill. Simulate the exact transaction before requesting a signature.
-4. Complete the task only when the network and ids are explicit, units and
-   rounding are identified, authorization is satisfied, simulation succeeds,
-   and the routed skill's completion criteria pass.
+1. Resolve the network and contract addresses from [addresses.md](addresses.md) or live configuration.
+2. Select the exact spoke, hub, and token contract.
+3. Load the task skill and its required reference.
+4. Check units and rounding in [math.md](math.md) when arithmetic affects the action.
+5. Build the transaction with integer arithmetic.
+6. Verify the required authorization.
+7. Simulate the exact transaction before requesting a signature.
+8. Apply the task skill's completion checks.
 
 For generic Stellar storage, auth, and contract testing, use the `stellar-dev`
 `smart-contracts` skill. For wallet signing and submission, use its `dapp`

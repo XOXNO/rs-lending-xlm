@@ -39,7 +39,7 @@ Use `(network, nftContract, accountId)` as a position key and `(hubId, sac)` as 
 leg key. Select accounts explicitly before actions.
 
 Use a fallback icon for absent or failed logos. Browser HTML images can render
-`nftImage` SVGs. React Native needs an SVG renderer, such as `SvgUri` from
+`nftImage` SVGs. React Native needs an SVG renderer, such as SvgUri from
 `react-native-svg`; native `Image` is suitable for supported raster formats.
 Use the public HTTPS API on mobile. A physical device's `localhost` is the
 device, not the development computer.
@@ -103,10 +103,10 @@ codes overlap.
 
 For nested errors:
 
-1. inspect diagnostic events for the emitting contract id;
-2. map only against that contract's namespace;
-3. if diagnostics do not identify the emitter, display an unmapped nested
-   contract error and retain the raw diagnostic.
+1. Read the error and contract id from the same diagnostic entry.
+2. Trace propagated errors and handled nested failures.
+3. Map the error only when the emitting contract is established.
+4. If the emitter is unknown, display the raw error with an unknown namespace.
 
 Do not call `mapSorobanError` solely because the top-level tag is the lending
 controller. Use the single SDK interpretation flow in
@@ -115,15 +115,16 @@ controller. Use the single SDK interpretation flow in
 ## Live state and reconciliation
 
 Refresh v1 arrays when the wallet or network changes, after ledger `SUCCESS`,
-and as the screen needs fresher data. Advanced screens can share one
-`liveState()` query rather than polling separately in each component.
+and as the screen needs fresher data. Use one shared read query when several components need the same data.
 
 After success:
 
-1. Refresh the selected wallet's positions and the affected asset data.
-2. Compare the returned account id and expected legs with indexed state.
-3. Keep a refreshing state while the indexer lags; do not repeat the action.
-4. Recheck `owner_of(accountId)` before the next owner-wallet mutation.
+1. Refresh the selected wallet's positions.
+2. Refresh the affected asset data.
+3. Compare the returned account id and expected positions with indexed state.
+4. Keep a refreshing state while the indexer lags.
+5. Keep the confirmed action complete; do not repeat it to refresh data.
+6. Recheck `owner_of(accountId)` before the next owner-wallet mutation.
 
 Float fields and formatted leverage are display estimates. For decisions, use
 raw base-unit/RAY/WAD `bigint` inputs with directed rounding. API capacities,
@@ -133,8 +134,8 @@ flags, and successful preparation do not guarantee ledger admission.
 
 The UI may label a spoke as an “e-mode,” but the protocol has no separate
 e-mode identifier. Parse values such as `STELLAR:3` into spoke `3`, reject
-zero, and populate choices from v1 asset `spokes` or advanced `context()`; changing spoke means selecting or
-creating a different lending account.
+zero. Populate choices from v1 asset `spokes`. To use another spoke, select or
+create a different lending account.
 
 Before an action delivers a classic Stellar asset to a wallet, verify the
 trustline through Horizon. This includes borrow, withdraw, close-position
@@ -143,5 +144,6 @@ use classic trustlines. Resolve code/issuer from catalog data; a zero-balance
 trustline is still present.
 
 Apply the canonical [completion gates](SKILL.md#completion-gates). A frontend
-must also pass two checks: the prepared-XDR cache is invalidated immediately
-after signing, and the original network, envelope, and hash survive reloads and mobile app switching.
+must invalidate its prepared-XDR cache immediately after signing.
+It must retain the original network, envelope, and hash through reloads and
+mobile app switching.

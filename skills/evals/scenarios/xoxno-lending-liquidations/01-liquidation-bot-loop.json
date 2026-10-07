@@ -4,15 +4,16 @@
   ],
   "query": "Write me a liquidation bot for XOXNO Lending in TypeScript.",
   "expected_behavior": [
-    "Discovers candidates from position:batch_update events (or the API liquidations/positions feeds), not by scanning account ids from 1 upward",
-    "Treats get_health_factor == i128::MAX as 'missing or debt-free account', not as healthy, and uses is_liquidatable / HF < 1e18 WAD as the eligibility test",
-    "Simulates get_liquidation_estimate with the same debt_payments and seize_mode it will pass to liquidate, and computes profit as seized_collaterals minus protocol_fees (gross vs net), never seized_collaterals alone",
-    "Builds the transaction with buildStellarLiquidateTx from '@xoxno/sdk-js/stellar-lending' (not '@xoxno/sdk-js/stellar'), passing debtPayments as base-unit strings and an explicit seizeMode, then prepareStellarBuiltTx, sign, sendTransaction, and polls getTransaction treating PENDING/NOT_FOUND as 'keep polling', not failure",
+    "Discover candidates from successful position events, archival event seeds, or paginated v1 positions for known owners. Do not scan account IDs.",
+    "Treat i128::MAX as ineligible. It can mean missing, debt-free, or saturated. Use is_liquidatable for eligibility.",
+    "Estimate exact payments and mode. For Transfer, clamp gross tokens to the floor held claim before fee subtraction. For Credit, subtract fee shares before conversion.",
+    "Build with buildStellarLiquidateTx from @xoxno/sdk-js/stellar-lending. Pass base-unit debtPayments and explicit seizeMode. Prepare before signing. For send PENDING or DUPLICATE, poll the original hash. Treat getTransaction NOT_FOUND as unknown.",
     "Reads controller/pool addresses from configs/networks.json or the network manifest instead of hardcoding C... addresses",
-    "Confirms execution via the position:liquidation event plus LiqRepay (4) / LiqSeize (5) legs, noting LiqSeize is gross of the protocol fee"
+    "Confirm the original hash reaches SUCCESS. Reconcile liquidation, LiqRepay, LiqSeize, token transfers, and state. LiqSeize is gross of fees.",
+    "Persist original network, signed XDR, and hash. Expiry alone does not prove non-inclusion. Stop replacement submission while the original outcome is unknown."
   ],
   "machine_checkable": [
-    "Generated TypeScript passes tsc --noEmit against @xoxno/sdk-js@1.0.214 and @stellar/stellar-sdk@16",
+    "Generated TypeScript passes tsc --noEmit against @xoxno/sdk-js@1.0.228 and @stellar/stellar-sdk@16",
     "No literal C-address (regex /C[A-Z2-7]{55}/) appears in the generated source"
   ]
 }

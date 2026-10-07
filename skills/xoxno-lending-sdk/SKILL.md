@@ -1,6 +1,6 @@
 ---
 name: xoxno-lending-sdk
-description: Use when integrating XOXNO Lending from TypeScript with the public SDK: wallet/web/mobile reads, positions, transaction builders, strategy swaps, preparation, signing, submission, and frontend lifecycle.
+description: "Use when integrating XOXNO Lending from TypeScript with the public SDK: wallet/web/mobile reads, positions, transaction builders, strategy swaps, preparation, signing, submission, and frontend lifecycle."
 user-invocable: true
 argument-hint: "[read | positions | transaction | strategy | frontend]"
 ---
@@ -90,9 +90,8 @@ withdraw-all sentinel, not as a positive amount to this helper.
 - Resolve controller, router, governance, and position-NFT addresses from
   `getStellarDeployment(network)`.
 - Resolve `(spokeId, hubId, sac)` and token decimals from the selected v1 asset
-  and spoke. Pass `sac` as the builder's `asset`. For legacy reads, use the reserve
-  tuple `(spokeId, hubId, asset)`. These coordinates are independent; none can be inferred from
-  another.
+  and spoke. Pass `sac` as the builder's `asset`. These coordinates are
+  independent. Do not infer one from another.
 - `sourceSequence` is a Stellar account sequence. `accountNonce` is a lending
   account id / position-NFT token id. Never interchange them.
 - Amounts passed to builders are decimal `i128` strings in token base units.
@@ -114,9 +113,9 @@ Before calling an integration complete:
 1. Every documented import compiles against the pinned published package.
 2. The selected account, spoke, hub, asset, and network coordinates match.
 3. Only RPC-prepared XDR reaches the signer.
-4. The original network, signed envelope, and hash survive reloads. Retain
-   unresolved records even after expiry; reconcile the original history before
-   deciding whether a replacement is needed.
-5. `SUCCESS`, not send acceptance or a polling timeout, is confirmed.
-6. API and live-state caches are reconciled after confirmation.
-7. The position-NFT owner is rechecked before the next account mutation.
+4. The original network, signed envelope, and hash survive reloads.
+5. Unresolved records remain stored after expiry.
+6. The original outcome is established before any replacement submission.
+7. Ledger `SUCCESS` is confirmed for the original hash.
+8. API caches are refreshed after confirmation.
+9. Current NFT ownership is verified before the next owner or delegate action.
