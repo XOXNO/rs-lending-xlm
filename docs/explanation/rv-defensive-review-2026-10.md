@@ -255,6 +255,92 @@ These are documented mechanics whose magnitude the tests measured.
    market with no real suppliers activates the utilization gate against the
    next strategy debt. Fail-closed liveness only.
 
+## Second pass: adversarial hunt for critical and high defects
+
+After the suites above, a second pass looked only for defects that drain cash
+or supplier claims, break the accounting identities, steal or bypass revenue,
+escape a solvency or authorization gate, or brick a market cheaply. Six
+independent finders, each with one attack lens (accounting conservation,
+liquidation value extraction, index and precision extremes, token semantics
+versus measured receipts, composition and cross-contract ordering, oracle and
+configuration races), traced the code with concrete numbers; any candidate
+would have gone to a skeptic and then to an executable proof of concept. The
+finders raised no candidate. Their negative evidence, in brief:
+
+- Liquidation: an exact-integer mirror of the plan and seizure arithmetic swept
+  18,000 random mainnet-like books (one to three collateral legs at 7, 8, 9 and
+  18 decimals, one or two debt legs, indexes from one RAY to 1.5 RAY and the
+  floor, offers from 1% to 300% of debt) under both mainnet curves. The
+  liquidator's net collateral never exceeded repaid times one plus bonus by a
+  single WAD unit in either seize mode, and the insolvent quote never underpaid
+  the collateral-backed amount by more than one native debt unit.
+- Accounting: every controller position writer takes its value from the pool's
+  returned mutation or from the credit-mode triple that is asserted to sum
+  exactly; a fresh executable probe of credit-mode liquidation into a receiver
+  that already held supply and debt in the same market, followed by cleanup,
+  net settlement and closure, left every identity gap at zero. A second probe
+  listed one token on two hubs and showed each hub's cash book, flash-loan
+  reserve check and revenue stay isolated while the pool balance equals the
+  sum of the books.
+- Precision: the surplus (cash plus debt value minus supplier claims) is
+  non-decreasing under every operation except the documented floor clamp, so
+  utilization cannot exceed one, the supply index can never bind at its cap
+  before the borrow index, and the rounds-to-zero-shares gates are unreachable
+  for positive amounts at any admitted decimals. Cap saturation at the floor
+  index affects one mainnet supply cap (AQUA), which only admits more
+  collateral.
+- Tokens: every inbound leg credits a measured recipient delta and every
+  outbound refund is sized from that measured receipt; no path transfers a raw
+  controller balance, so a residual left by a hostile token or router cannot be
+  swept by a later caller.
+- Composition: each top-level verb reloads the account and resolves ownership
+  from the NFT; nothing a user controls moves a health factor below one inside
+  one ledger; callbacks, routers and Blend carry no controller authority, so
+  pool mutators are unreachable from them; the host refuses re-entry into any
+  contract on the call stack.
+- Oracle and configuration: risk stamps are only ever written from the current
+  listing; LTV is restamped ungated on every risk-increasing action and the
+  effective LTV is the minimum of LTV and threshold, so a stale generous
+  threshold never raises borrowing power; the midpoint skew bound at the
+  mainnet tolerances stays inside the lender-safety bound of the threat model;
+  Aquarius fair value is at most the redemption value in every reachable
+  state.
+
+Two observations below the bar came out of the pass and are recorded here:
+
+- A debt-free account that receives shares through a credit-mode liquidation
+  keeps its own risk tuple without the gated refresh that a supply would run
+  (ADR-0019 documents this). Its owner can then borrow in the same transaction
+  to a health factor below 1.05 and keep a threshold that governance has
+  already lowered. The exposure is the same class as the restamp ratchet and
+  needs a prior governance tightening.
+- A supply top-up to an indebted account whose leg has a pending
+  liquidator-favouring listing change values the whole account for the 1.05
+  gate, so a feed outage on an unrelated debt asset blocks that supply.
+  Availability only.
+
+### The documented risk worth escalating
+
+The threat model's DoS.1 says an indebted borrower can add a dust leg of any
+listed collateral and choose which feed outage shields the account, and that
+for an Aquarius LP leg liquidity providers can cause that outage by taking the
+pool below `min_pool_value_wad`. `audit_supply_stale_shield.rs` pins the stale
+feed case. The mainnet spoke layout makes the LP variant practical: spokes 6
+to 9 list up to nine LP collaterals beside the borrowable majors, with LP
+floors of $200k to $1M. A borrower who also provides liquidity to one of the
+thinner pools can take the pool under its floor at will, which halts every
+valuation of its account (liquidation, cleanup, withdrawal) until the pool is
+refilled, and then restore it. That is a self-serve liquidation delay whose
+cost is only the liquidity the attacker holds anyway. Lenders carry the
+bad-debt risk while the delay lasts.
+
+Options, in increasing order of change: keep LP collateral in spokes that do
+not share accounts with the majors, so a dust LP leg cannot be added to a
+USDC or XLM account; size each `min_pool_value_wad` far below the plausible
+pool value and monitor the gap; or add a guardian-settable listing flag that
+excludes an asset from valuation and seizure while its feed is known to be
+unusable, so the rest of the account stays liquidatable.
+
 ## Scope and limits
 
 - The harness registers the controller natively and uses mocked
