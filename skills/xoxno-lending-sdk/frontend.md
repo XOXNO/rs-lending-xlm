@@ -25,6 +25,18 @@ error contract. Mobile app switching can be slow. Read the envelope's actual
 max timebound rather than rebuilding because a prompt took time. The builder's
 default `timeoutSeconds` is 300.
 
+## React Native runtime
+
+The optional SDK reader requires standards-compatible `URL` and `URLSearchParams`.
+It also requires `fetch` and cancellation support.
+If the wallet runtime lacks compatible URL support, install `react-native-url-polyfill@2.0.0`.
+Load `import 'react-native-url-polyfill/auto'` first in the app entry point, before SDK and app imports.
+Plain HTTP reads do not require the SDK reader.
+
+Before transaction SDK imports, initialize `TextEncoder` and `TextDecoder`.
+Use the wallet integration's Stellar SDK and Metro runtime setup.
+Verify preparation, signing, submission, and recovery on the target device.
+
 ## Render a portfolio
 
 Use plain HTTP or `createStellarLendingReadClient` from the SDK read entry.
