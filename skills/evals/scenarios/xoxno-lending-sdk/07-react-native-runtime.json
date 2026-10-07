@@ -1,0 +1,17 @@
+{
+  "skills": ["xoxno-lending-sdk"],
+  "query": "Our React Native 0.81 wallet uses SDK1.0.228. The lending reader fails with a getter-only URL.pathname error. Transaction imports fail without TextDecoder. Explain the runtime setup and keep portfolio reads simple.",
+  "expected_behavior": [
+    "Offer plain HTTP reads when the app does not need the optional SDK reader.",
+    "Require standards-compatible URL and URLSearchParams for the SDK reader, plus fetch and cancellation support.",
+    "If compatible URL support is missing, install react-native-url-polyfill@2.0.0. Load its auto entry first, before SDK and app imports.",
+    "Initialize TextEncoder and TextDecoder before transaction SDK imports. Use the wallet's Stellar SDK and Metro setup.",
+    "Distinguish the Babel/Node compatibility check from native device execution. Require target-device transaction lifecycle verification."
+  ],
+  "machine_checkable": [
+    "The published SDK reader rejects the stock React Native URL implementation before fetch.",
+    "Polyfilling only URLSearchParams still fails reader construction.",
+    "The complete URL polyfill preserves cursor=a=b and follows relative pagination after an empty page.",
+    "Transaction entry imports fail when either TextEncoder or TextDecoder is absent."
+  ]
+}
