@@ -11,6 +11,7 @@ use crate::constants::{
     TIMELOCK_OPERATION_GRACE_LEDGERS, TIMELOCK_RECOVERY_MIN_DELAY_LEDGERS,
     TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS,
 };
+use crate::events::ExpiredOperationClearedEvent;
 use crate::op::{
     AdminOperation, ConfigureAssetOracleArgs, EditToleranceArgs, RoleArgs, TransferOwnershipArgs,
 };
@@ -876,4 +877,94 @@ fn canceller_reset_of_a_full_council_fits_the_event_limit() {
     for account in new_set.iter() {
         assert!(gov.has_role(&account, &role));
     }
+}
+
+fn limits_op() -> AdminOperation {
+    AdminOperation::SetPositionLimits(PositionLimits {
+        max_supply_positions: 4,
+        max_borrow_positions: 3,
+    })
+}
+
+#[test]
+fn expired_operation_is_replaced_by_a_same_salt_proposal() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let delay = 10u32;
+    let (admin, _controller, gov) = register_with_controller(&env, delay);
+    let salt = zero_salt(&env);
+    let id = gov.propose(&admin, &limits_op(), &salt);
+    env.ledger()
+        .with_mut(|l| l.sequence_number += delay + TIMELOCK_OPERATION_GRACE_LEDGERS + 1);
+
+    let again = gov.propose(&admin, &limits_op(), &salt);
+
+    assert_eq!(again, id);
+    assert_eq!(gov.get_operation_state(&id), OperationState::Waiting);
+    assert_eq!(
+        gov.get_operation_ledger(&id),
+        env.ledger().sequence() + delay
+    );
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #4000)")]
+fn live_operation_still_blocks_a_same_salt_proposal() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let delay = 10u32;
+    let (admin, _controller, gov) = register_with_controller(&env, delay);
+    let salt = zero_salt(&env);
+    gov.propose(&admin, &limits_op(), &salt);
+    env.ledger()
+        .with_mut(|l| l.sequence_number += delay + TIMELOCK_OPERATION_GRACE_LEDGERS);
+
+    gov.propose(&admin, &limits_op(), &salt);
+}
+
+#[test]
+fn expired_recovery_reset_is_replaced_by_a_same_salt_proposal() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, _controller, gov) = register_with_controller(&env, 10);
+    let fresh = Address::generate(&env);
+    let new_set = soroban_sdk::vec![&env, fresh.clone()];
+    let salt = BytesN::<32>::from_array(&env, &[7u8; 32]);
+    let id = gov.propose_canceller_reset(&new_set, &salt);
+    env.ledger().with_mut(|l| {
+        l.sequence_number +=
+            TIMELOCK_RECOVERY_MIN_DELAY_LEDGERS + TIMELOCK_OPERATION_GRACE_LEDGERS + 1
+    });
+
+    assert_eq!(gov.propose_canceller_reset(&new_set, &salt), id);
+    assert_eq!(gov.get_operation_state(&id), OperationState::Waiting);
+    env.ledger()
+        .with_mut(|l| l.sequence_number += TIMELOCK_RECOVERY_MIN_DELAY_LEDGERS);
+    gov.execute_canceller_reset(&None, &new_set, &salt);
+    assert!(gov.has_role(&fresh, &Symbol::new(&env, CANCELLER_ROLE)));
+    assert!(gov.has_role(&admin, &Symbol::new(&env, CANCELLER_ROLE)));
+}
+
+#[test]
+fn clearing_an_expired_operation_emits_an_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let delay = 10u32;
+    let (admin, _controller, gov) = register_with_controller(&env, delay);
+    let salt = zero_salt(&env);
+    let id = gov.propose(&admin, &limits_op(), &salt);
+    env.ledger()
+        .with_mut(|l| l.sequence_number += delay + TIMELOCK_OPERATION_GRACE_LEDGERS + 1);
+
+    gov.propose(&admin, &limits_op(), &salt);
+
+    use soroban_sdk::testutils::Events as _;
+    use soroban_sdk::Event as _;
+    let cleared = ExpiredOperationClearedEvent { operation_id: id };
+    assert!(env
+        .events()
+        .all()
+        .filter_by_contract(&gov.address)
+        .events()
+        .contains(&cleared.to_xdr(&env, &gov.address)));
 }

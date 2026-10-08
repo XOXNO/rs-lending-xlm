@@ -20,7 +20,8 @@ use crate::storage;
 use crate::timelock::*;
 
 /// Schedules `op` for later execution and returns its operation id; requires the
-/// caller to hold `PROPOSER_ROLE`.
+/// caller to hold `PROPOSER_ROLE`. An expired operation with the same id is
+/// cleared first.
 ///
 /// `RevokeGovRole` rejects a target that is the proposer or the owner, and records
 /// the target so it cannot cancel its own revocation. Ownership transfers, code
@@ -71,6 +72,7 @@ pub(crate) fn propose(
     }
     let (operation, delay_tier) = operation_for_admin_op(env, op, salt);
     let delay = operation_delay(env, delay_tier);
+    clear_expired_operation(env, &operation);
     let operation_id = schedule_operation(env, &operation, delay);
     if let AdminOperation::RevokeGovRole(args) = op {
         storage::mark_role_revocation_target(env, &operation_id, &args.account);

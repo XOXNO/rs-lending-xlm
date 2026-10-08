@@ -23,6 +23,7 @@ use stellar_governance::timelock::{
 };
 
 use crate::access::EXECUTOR_ROLE;
+use crate::events::ExpiredOperationClearedEvent;
 use crate::op::{resolve_op, AdminOperation};
 use crate::{constants, storage};
 
@@ -81,21 +82,34 @@ pub(crate) fn authorize_executor(env: &Env, executor: Option<&Address>) {
     }
 }
 
-/// Panics with `GenericError::TimelockOperationExpired` if `operation_id`'s
-/// grace-period deadline has passed. A ready-ledger of 0 (unset) or 1 (done)
-/// skips the check.
-pub(crate) fn require_operation_not_expired(env: &Env, operation_id: &BytesN<32>) {
+/// Returns whether `operation_id` is scheduled and its grace-period deadline
+/// has passed. A ready-ledger of 0 (unset) or 1 (done) is never expired.
+fn operation_expired(env: &Env, operation_id: &BytesN<32>) -> bool {
     let ready_ledger = get_operation_ledger(env, operation_id);
-    if ready_ledger <= 1 {
-        return;
-    }
+    ready_ledger > 1
+        && env.ledger().sequence()
+            > ready_ledger.saturating_add(constants::TIMELOCK_OPERATION_GRACE_LEDGERS)
+}
 
-    let expires_at = ready_ledger.saturating_add(constants::TIMELOCK_OPERATION_GRACE_LEDGERS);
+/// Panics with `GenericError::TimelockOperationExpired` if `operation_id`'s
+/// grace-period deadline has passed.
+pub(crate) fn require_operation_not_expired(env: &Env, operation_id: &BytesN<32>) {
     assert_with_error!(
         env,
-        env.ledger().sequence() <= expires_at,
+        !operation_expired(env, operation_id),
         GenericError::TimelockOperationExpired
     );
+}
+
+/// Removes an expired operation with `operation`'s id and its sidecar state,
+/// emitting `ExpiredOperationClearedEvent`, so the id can be scheduled again.
+/// A live, done or unknown id is left untouched.
+fn clear_expired_operation(env: &Env, operation: &Operation) {
+    let operation_id = hash_operation(env, operation);
+    if operation_expired(env, &operation_id) {
+        finish_execute(env, &operation_id);
+        ExpiredOperationClearedEvent { operation_id }.publish(env);
+    }
 }
 
 /// Computes the operation id that would result from scheduling an operation
@@ -189,6 +203,7 @@ fn prepare_execute(env: &Env, executor: Option<&Address>, operation: &Operation)
 
 /// Removes the operation's scheduled-ledger entry and clears any sidecar state
 /// (such as recovery or role-revocation markers) associated with `operation_id`.
+/// Execution and expired-operation clearing share it.
 fn finish_execute(env: &Env, operation_id: &BytesN<32>) {
     env.storage()
         .persistent()

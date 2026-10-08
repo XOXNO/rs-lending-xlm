@@ -33,7 +33,7 @@ SDK `try_` calls distinguish contract errors from host, authorization, storage, 
 | 36 `InvalidPositionLimits` | A supply or borrow position limit is zero or above `POSITION_LIMIT_MAX`. | Use limits inside the allowed range. |
 | 38 `SpotOnlyNotProductionSafe` | Both available source paths contain an unsmoothed market leg, or the only source does. | Configure a permitted smoothed or fundamental source composition. |
 | 39 `InvalidTimelockDelay` | Constructor delay is zero; a delay update is zero, below the current minimum, or above `TIMELOCK_MAX_DELAY_LEDGERS`. | Use a nonzero constructor delay and an allowed update. |
-| 40 `TimelockOperationExpired` | The scheduled operation's grace period has already elapsed. | Propose the operation again. |
+| 40 `TimelockOperationExpired` | The scheduled operation's grace period has already elapsed. | Propose the operation again; the same salt reuses the id, and the proposal clears the expired entry. |
 | 41 `InvalidRole` | The role symbol is not a known governance role, a non-owner grant would combine executor and canceller, the role is not held on revoke, or an immediate revoke names a role other than guardian or oracle. | Use a valid role assignment. |
 | 42 `BlendPoolNotApproved` | The target Blend pool is not on the controller's approved list. | Ask governance to approve the pool. |
 | 43 `HubNotActive` | The hub id does not exist or has been deactivated. | Use an active hub. |
@@ -241,7 +241,7 @@ OpenZeppelin stellar-contracts revision `59b98f8e127f0e877a3870e8eb82fa282a4aadf
 | Ownable | 2100 OwnerNotSet: missing owner; 2101 TransferInProgress: only `renounce_ownership` raises it, and no contract in this tree exports that call; 2102 OwnerAlreadySet: helper rejects repeated initialization. Role-transfer errors below cover pending-owner state; auth can raise host errors. |
 | RoleTransfer | 2200 NoPendingTransfer: initiate transfer first; 2201 InvalidLiveUntilLedger: use current-to-max valid ledger; 2202 InvalidPendingAccount: cancellation address must match; 2203 TransferExpired: initiate a fresh window. Zero deadline cancels, and acceptance checks the explicit deadline even if storage remains alive. |
 | AccessControl | 2000 Unauthorized, 2001 AdminNotSet, 2002 IndexOutOfBounds, 2003 AdminRoleNotFound, 2004 RoleCountIsNotZero, 2005 RoleNotFound, 2006 AdminAlreadySet, 2007 RoleNotHeld, 2008 RoleIsEmpty, 2009 TransferInProgress, 2010 MaxRolesExceeded. Use valid held roles/admin/membership indices; generic admin APIs are not exported by governance. |
-| Timelock | 4000 OperationAlreadyScheduled: new salt or existing operation; 4001 InsufficientDelay: respect minimum; 4002 InvalidOperationState: wait/check schedule; 4003 UnexecutedPredecessor: execute predecessor; 4004 Unauthorized: eligible role; 4005 MinDelayNotSet: initialize; 4006 OperationNotScheduled: schedule matching hash. |
+| Timelock | 4000 OperationAlreadyScheduled: new salt or existing operation (an expired operation no longer blocks its id); 4001 InsufficientDelay: respect minimum; 4002 InvalidOperationState: wait/check schedule; 4003 UnexecutedPredecessor: execute predecessor; 4004 Unauthorized: eligible role; 4005 MinDelayNotSet: initialize; 4006 OperationNotScheduled: schedule matching hash. |
 
 ## Source map
 

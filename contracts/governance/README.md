@@ -24,6 +24,9 @@ are in its rustdoc.
   re-proposed op a new id.
 - An op executes once ready and before it expires. `execute` runs ops that
   target another contract; `execute_self` runs ops that target governance.
+- An expired op stays `Ready` until its id is proposed again: `propose` and
+  `propose_canceller_reset` remove an expired entry with the same id and its
+  sidecars, emit `ExpiredOperationClearedEvent`, then schedule afresh.
 - The owner must be the proposer for: ownership, upgrade, migration, delay
   (`UpdateGovDelay`), oracle, swap-aggregator, Blend approval, accumulator and
   role-grant ops.
