@@ -343,8 +343,9 @@ half-up, so an account at
 `C == D`, or a few raw WAD units above it, can compute a cap of `-1`. Such a
 covered account takes the band quote with the cap clamped to zero. A full close
 repays all of `D`, so no debt is left to socialize. Seizure floors to whole
-token units, so it takes `C` less at most one token unit per collateral leg.
-That unit stays with the account as collateral. Bad-debt cleanup does not
+token units, so it takes `C` less at most one token unit per collateral leg,
+or two when the request stops short of the pool's full close (see
+[seizure](#seizure-and-fees)). That residue stays with the account as collateral. Bad-debt cleanup does not
 sweep it, because the account has no debt.
 
 An ideal residual debt strictly between zero and $5 also promotes the quote to
@@ -370,7 +371,12 @@ Seizure is proportional to collateral value and capped at held value. The bonus
 is the capped seizure minus the floor-divided uncapped principal, bounded below
 by zero. A collateral cap below principal leaves no bonus to charge.
 
-Partial seizure floors the token amount and seized shares. Full seizure uses
+Partial seizure floors the token amount and seized shares. The pool closes a
+withdrawal at or above the half-up balance in full, so a partial transfer
+request that reaches it is lowered by one token unit and the account keeps its
+residue; Credit shares are unchanged. A rounded-down leg below 3 decimals
+drops that unit from the seizure in both modes and refunds its repayment.
+Full seizure uses
 the half-up token amount to request a full pool withdrawal and takes the exact
 held shares for Credit mode; the pool payout still floors the supply claim.
 Bonus shares floor at the supply index and cannot exceed seized shares.

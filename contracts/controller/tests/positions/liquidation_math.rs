@@ -351,6 +351,98 @@ fn partial_seizure_floors_amount_and_zero_fee_stays_zero() {
     assert_eq!(entry.protocol_fee, 0);
 }
 
+/// Seizes `repay_usd_raw` at zero bonus from one $1 collateral leg of
+/// `decimals` holding `scaled` RAY tokens at index one. Returns the seizures,
+/// the unbacked repayment, and the position's scaled balance.
+fn seize_from_one_leg(
+    env: &Env,
+    decimals: u32,
+    scaled: i128,
+    repay_usd_raw: i128,
+) -> (Vec<SeizeEntry>, Wad) {
+    let contract = env.register(Controller, (Address::generate(env),));
+    let hub_asset = hub_key(env);
+    let mut supply_positions = Map::new(env);
+    supply_positions.set(
+        hub_asset.clone(),
+        AccountPositionRaw {
+            scaled_amount: scaled,
+            liquidation_threshold: 8_000,
+            liquidation_bonus: 0,
+            loan_to_value: 7_500,
+            liquidation_fees: 0,
+        },
+    );
+    let account = Account {
+        supply_positions,
+        ..empty_account(env)
+    };
+    env.as_contract(&contract, || {
+        let mut cache = Context::new_view(env);
+        let mut prices = Map::new(env);
+        prices.set(
+            hub_asset.asset.clone(),
+            PriceFeedRaw {
+                price_wad: WAD,
+                asset_decimals: decimals,
+                timestamp: 0,
+            },
+        );
+        cache.set_prices(prices);
+        cache.put_market_index(&hub_asset, &index_raw());
+        let total = Ray::from(scaled).to_wad(env);
+        let plan = plan_for_seizure(env, repay_usd_raw, 0);
+        calculate_seized_collateral(env, &account, total, &plan, &mut cache)
+    })
+}
+
+/// MC-2. A 3-decimal leg holds 10 270.2 native units, so the pool full-closes
+/// any request of 10 270 or more. A partial seizure of 10 270.06 units asks for
+/// 10 269, keeping the residue with the account, while Credit keeps its exact
+/// floored shares.
+#[test]
+fn a_partial_transfer_request_stops_short_of_the_pool_full_close() {
+    let env = Env::default();
+    let scaled = Ray::from_asset(&env, 10_270, 3).raw() + 2 * 10i128.pow(23);
+    let repay = 10_270_060 * 10i128.pow(12);
+
+    let (seized, unbacked) = seize_from_one_leg(&env, 3, scaled, repay);
+
+    let entry = seized.get_unchecked(0);
+    assert_eq!(entry.amount, 10_269, "one native unit below the full close");
+    let (burned, paid) = resolve_withdrawal(&env, entry.amount, Ray::from(scaled), Ray::ONE, 3);
+    assert!(
+        burned < Ray::from(scaled),
+        "the pool takes the partial path"
+    );
+    assert_eq!(paid, 10_269);
+    assert_eq!(
+        entry.scaled_amount,
+        Ray::from_asset(&env, 10_270_060, 6).raw(),
+        "credit shares stay at the planned seizure"
+    );
+    assert_eq!(unbacked, Wad::ZERO);
+}
+
+/// MC-2. A whole-unit leg holding 10.2 units seizes nine, not the ten the pool
+/// would treat as a full close, and refunds the dropped unit's repayment.
+#[test]
+fn a_rounded_down_whole_unit_seizure_stops_short_of_the_pool_full_close() {
+    let env = Env::default();
+    let scaled = Ray::from_asset(&env, 10, 0).raw() + RAY / 5;
+
+    let (seized, unbacked) = seize_from_one_leg(&env, 0, scaled, 10 * WAD + WAD / 100);
+
+    let entry = seized.get_unchecked(0);
+    assert_eq!(entry.amount, 9);
+    assert_eq!(entry.scaled_amount, Ray::from_asset(&env, 9, 0).raw());
+    assert_eq!(
+        unbacked,
+        Wad::from(WAD + WAD / 100),
+        "the dropped unit and fraction leave the repayment"
+    );
+}
+
 /// Ten stroops repaid at a 50% bonus seize 15: five stroops are realised above
 /// the repayment, and the 10% fee on them, half a stroop, becomes one stroop.
 #[test]
