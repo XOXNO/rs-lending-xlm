@@ -77,7 +77,7 @@ cargo +nightly fuzz run --fuzz-dir . flow_e2e --sanitizer=thread -Zbuild-std -- 
 | Property (`--test fuzz`) | Scope |
 |---|---|
 | `prop_accounting_conservation` | Pool accounting laws, non-negative reserves, index monotonicity. |
-| `prop_seed_adjusted_cash_conservation_and_token_custody` / `prop_seed_adjusted_cash_conservation_through_liquidation_and_bad_debt` | Seed-adjusted cash conservation and token custody, also through liquidation and bad debt. |
+| `prop_cash_conservation_and_token_custody` / `prop_cash_conservation_through_liquidation_and_bad_debt` | Cash conservation and token custody, also through liquidation and bad debt. |
 | `owner_only_endpoints_reject_unauthed_before_validation` / `governance_endpoints_reject_unauthed_before_validation` | Deterministic privileged endpoint auth matrices. |
 | `prop_valid_multiply_fits_default_budget` | Valid `multiply` calls under Soroban default budget limits. |
 | `prop_multiply_succeeds_with_safe_hf_and_clean_router` / `prop_swap_collateral_conserves_position_delta` | Strategy success, exact deltas, HF, allowance, and flash-guard cleanup. |
@@ -121,7 +121,7 @@ cargo +nightly fuzz tmin --fuzz-dir . <target> artifacts/<target>/crash-<hash>
 
 Proptest stores minimized failures in
 `tests/test-harness/tests/fuzz/*.proptest-regressions`. The files are
-committed, so each stored case replays on every run. The two seed-adjusted cash
+committed, so each stored case replays on every run. The two cash-conservation
 properties do not persist failures.
 
 ## Coverage

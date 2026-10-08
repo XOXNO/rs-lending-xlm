@@ -98,8 +98,8 @@ floored supplied token value. Borrow, user withdrawal and revenue claims
 enforce the configured utilization ceiling; liquidation withdrawal skips it.
 That gate divides ceiled debt value by floored supply value and rounds the
 ratio up; debt against a zero floored supply value fails it.
-Withdrawal, net settlement and revenue claims reject zero total supply with
-outstanding debt. These checks apply at their respective boundaries; they do
+Debt mints, withdrawal, net settlement and revenue claims reject zero total
+supply with outstanding debt. These checks apply at their respective boundaries; they do
 not establish full backing after every mutation.
 
 ### Revenue payout

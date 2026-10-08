@@ -71,7 +71,7 @@ error, not a contract code. Error numbers are from `common/src/errors.rs`.
 | `update_params(hub_asset, model)` | — | Accrues on the **old** curve, then writes the new model | `InterestRateModel::verify` |
 | `update_indexes(hub_assets)` | — | Accrues each market; writes only if time elapsed | — |
 | `supply(entries)` | in | Mints supply shares, credits cash | 14, `PoolInsolvent` (123), `SupplyRoundsToZeroShares` (51) |
-| `borrow(receiver, entries)` | out | Mints debt shares, debits cash, transfers | 14 (zero too), `InsufficientLiquidity` (112), `BorrowRoundsToZeroShares` (47), `UtilizationAboveMax` (127) |
+| `borrow(receiver, entries)` | out | Mints debt shares, debits cash, transfers | 14 (zero too), `InsufficientLiquidity` (112), `BorrowRoundsToZeroShares` (47), `PoolInsolvent` (123), `UtilizationAboveMax` (127) |
 | `withdraw(receiver, is_liquidation, entries)` | out | Burns supply shares, keeps the liquidation fee, transfers the net | 14, `WithdrawRoundsToZeroShares` (49), `WithdrawLessThanFee` (115), 112, 127 (non-liquidation), 123, `InternalError` (34) |
 | `repay(payer, actions)` | in/out | Burns debt shares, credits the net, refunds overpayment | 14, `RepayRoundsToZeroShares` (52) |
 | `net_settle(entry)` | — | Offsets one user's supply against their own debt; one entry, not a batch | 14, `NetSettleRoundsToZeroShares` (50), 123, 34 |
@@ -224,7 +224,7 @@ runs every `borrow` guard.
 | `require_reserves` | `borrow`, `create_strategy`, `withdraw`, `flash_loan`, `claim_revenue` | — | 112 |
 | `require_liquidation_buffer` | `borrow`, `create_strategy` | `withdraw`, `flash_loan` | 112 |
 | `require_utilization_below_max` | `borrow`, `create_strategy`, non-liquidation `withdraw`, `claim_revenue` | `net_settle`, `seize_positions`, liquidation | 127 |
-| `require_supply_for_debt` | `withdraw`, `net_settle`, `claim_revenue` | — | 123 |
+| `require_supply_for_debt` | `borrow`, `create_strategy`, `withdraw`, `net_settle`, `claim_revenue` | — | 123 |
 
 **Liquidation buffer.** `require_liquidation_buffer` keeps a flat
 `LIQUIDATION_BUFFER_BPS` (200 bps) of the floored supplied amount for

@@ -6,7 +6,10 @@ use test_harness::{build_aggregator_swap, hub_asset, LendingTest, ALICE, BOB};
 /// five seconds of interest leave a remainder to withdraw during inclusion.
 #[test]
 fn rdwc_close_preserves_recipient_footprint_when_accrual_adds_a_close_leg() {
-    let mut t = LendingTest::new().standard_two_asset().build();
+    let mut t = LendingTest::new()
+        .standard_two_asset()
+        .with_initial_liquidity("USDC", 0.0)
+        .build();
     t.supply("BOOT", "USDC", 200_000.0);
     t.supply(ALICE, "USDC", 400.0);
     t.borrow(ALICE, "ETH", 0.01);

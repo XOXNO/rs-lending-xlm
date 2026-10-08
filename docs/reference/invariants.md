@@ -190,10 +190,12 @@ the ceiling; it is not a market-wide bound maintained by every operation.
 <a id="inv-acct-09"></a>
 <a id="inv-acct-09--exits-cannot-leave-debt-without-supply"></a>
 
-### INV-ACCT-09 — Selected exits cannot leave debt without supply
+### INV-ACCT-09 — Debt mints and selected exits cannot leave debt without supply
 
-Withdrawal, same-asset net settlement and revenue claims reject a resulting
-zero total supplied-share balance with non-zero debt shares. This prevents an
+Borrowing, strategy debt mints, withdrawal, same-asset net settlement and
+revenue claims reject a resulting zero total supplied-share balance with
+non-zero debt shares. A debt mint into a market whose suppliers have all exited
+therefore fails, even when rounding left cash behind. This prevents an
 empty-supply state, without establishing full backing or a liquidation cash
 reserve.
 
@@ -216,8 +218,9 @@ any other source, or that sends a stale position to the pool, breaks this
 invariant without a revert.
 
 The `prop_accounting_conservation` property test checks both equalities in
-token units, within 4 units, after every operation. The seed-adjusted cash tests
-subtract the seeded pool liquidity, so their cash bound is tight. No
+token units, within 4 units, after every operation on markets without seeded
+liquidity. The cash-conservation tests bound cash plus debt value minus supplier
+claims, with the harness seed booked as supply, so their cash bound is tight. No
 on-chain view enumerates accounts, so on a live network only the spoke-level
 identity (pool supplied minus the sum of spoke usage equals revenue) can be
 read.

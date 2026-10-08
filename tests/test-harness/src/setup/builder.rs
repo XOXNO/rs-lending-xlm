@@ -2,6 +2,8 @@ extern crate std;
 
 use std::collections::HashMap;
 
+use common::math::fp::Ray;
+use common::rates::calculate_scaled_supply;
 use governance::op::{AdminOperation, ConfigureAssetOracleArgs, CreatePoolArgs, SpokeAssetArgs};
 use soroban_sdk::testutils::{Address as _, Ledger, LedgerInfo};
 use soroban_sdk::{token, Address, Env, String, TryFromVal};
@@ -103,6 +105,25 @@ impl LendingTestBuilder {
             }
         }
         panic!("market '{}' not found -- call .with_market() first", name);
+    }
+
+    /// Sets the supply the builder seeds into `name`'s pool, in whole tokens.
+    pub fn with_initial_liquidity(mut self, name: &str, initial_liquidity: f64) -> Self {
+        for pm in &mut self.pending_markets {
+            if pm.name == name {
+                pm.initial_liquidity = initial_liquidity;
+                return self;
+            }
+        }
+        panic!("market '{}' not found -- call .with_market() first", name);
+    }
+
+    /// Seeds no supply into any market listed so far.
+    pub fn without_initial_liquidity(mut self) -> Self {
+        for pm in &mut self.pending_markets {
+            pm.initial_liquidity = 0.0;
+        }
+        self
     }
 
     pub fn with_position_limits(mut self, max_supply: u32, max_borrow: u32) -> Self {
@@ -408,6 +429,13 @@ impl LendingTestBuilder {
                 let mut state: controller::types::PoolStateRaw =
                     env.storage().persistent().get(&key).unwrap();
                 state.cash += liquidity_amount;
+                state.supplied += calculate_scaled_supply(
+                    &env,
+                    liquidity_amount,
+                    market_decimals,
+                    Ray::from(state.supply_index),
+                )
+                .raw();
                 env.storage().persistent().set(&key, &state);
             });
 

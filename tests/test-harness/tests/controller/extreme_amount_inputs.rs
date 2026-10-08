@@ -39,9 +39,15 @@ fn lift_caps(t: &LendingTest, asset: &str, decimals: u32) {
 }
 
 fn setup(decimals: u32) -> LendingTest {
+    setup_with_liquidity(decimals, market("A", decimals, usd(1)).initial_liquidity)
+}
+
+/// Seeds `a_liquidity` whole tokens of supply into market A.
+fn setup_with_liquidity(decimals: u32, a_liquidity: f64) -> LendingTest {
     let mut t = LendingTest::new()
         .with_market(market("A", decimals, usd(1)))
         .with_market(market("USDC", 7, usd(1)))
+        .with_initial_liquidity("A", a_liquidity)
         .with_min_borrow_collateral_disabled()
         .with_max_utilization_disabled_all_markets()
         .build();
@@ -57,7 +63,7 @@ fn leg(t: &LendingTest, asset: &str, amount: i128) -> Vec<(HubAssetKey, i128)> {
 #[test]
 fn supply_at_the_domain_ceiling_succeeds_and_one_unit_more_is_rejected() {
     for decimals in [3u32, 7, 18] {
-        let mut t = setup(decimals);
+        let mut t = setup_with_liquidity(decimals, 0.0);
         let cap = max_cap_for_decimals(decimals);
         t.supply_raw(ALICE, "A", cap);
         assert_eq!(
