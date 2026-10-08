@@ -31,7 +31,9 @@ proposal and delay before reuse.
 
 An operation can also be bound to the governance state it was proposed
 under. An owner-only operation records the owner epoch, so a handover voids
-the former owner's queued operations.
+the former owner's queued operations. Operations carry no predecessor, so
+where order matters governance forbids the pair outright: `Unpause` and
+`UpgradeController` cannot be pending together.
 
 Execution is permissionless when the executor identity is omitted. Cancellation
 and owner-dependent recovery have distinct rules. Their security depends on

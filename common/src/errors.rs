@@ -101,6 +101,9 @@ pub enum GenericError {
     /// An `Unpause` is proposed while the controller is open, or executes
     /// after the controller was paused again since its proposal.
     PauseEpochMismatch = 57,
+
+    /// An `Unpause` and an `UpgradeController` cannot be pending together.
+    ConflictingOperationPending = 58,
 }
 
 /// Error codes for collateral, position, interest-rate-curve, and

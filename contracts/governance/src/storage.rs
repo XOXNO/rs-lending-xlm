@@ -2,12 +2,13 @@
 //! controller and price-aggregator addresses, the owner epoch, the
 //! ownership-nomination nonce, and per-operation sidecar state
 //! (role-revocation target, recovery-operation marker, proposal owner epoch,
-//! cancelled nomination, execution guard).
+//! cancelled nomination, execution guard), and the ids of pending operations
+//! that exclude each other.
 
 use common::constants::{TTL_BUMP_SHARED, TTL_THRESHOLD_SHARED};
 use common::errors::GenericError;
 
-use soroban_sdk::{contracttype, panic_with_error, Address, BytesN, Env};
+use soroban_sdk::{contracttype, panic_with_error, Address, BytesN, Env, Vec};
 
 /// Storage keys for governance contract state. `RoleRevocationTarget`,
 /// `RecoveryOp`, `ProposalOwnerEpoch`, `CancelledNomination` and
@@ -24,6 +25,17 @@ enum GovernanceKey {
     NominationNonce,
     CancelledNomination(BytesN<32>),
     ExecutionGuard(BytesN<32>),
+    PendingExclusive(ExclusiveKind),
+}
+
+/// Operation kinds that must not be pending together: an `Unpause` executed
+/// ahead of a pending `UpgradeController` reopens the controller on the code
+/// the upgrade replaces.
+#[contracttype]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ExclusiveKind {
+    Unpause,
+    ControllerUpgrade,
 }
 
 /// State an operation is bound to at proposal. Execution reverts once that
@@ -144,6 +156,22 @@ pub(crate) fn execution_guard(env: &Env, operation_id: &BytesN<32>) -> Option<Ex
     env.storage()
         .persistent()
         .get(&GovernanceKey::ExecutionGuard(operation_id.clone()))
+}
+
+/// Returns the operation ids recorded as pending for `kind`. Some may since
+/// have executed, been cancelled or expired.
+pub(crate) fn pending_exclusive(env: &Env, kind: ExclusiveKind) -> Vec<BytesN<32>> {
+    env.storage()
+        .instance()
+        .get(&GovernanceKey::PendingExclusive(kind))
+        .unwrap_or_else(|| Vec::new(env))
+}
+
+/// Overwrites the operation ids recorded as pending for `kind`.
+pub(crate) fn set_pending_exclusive(env: &Env, kind: ExclusiveKind, ids: &Vec<BytesN<32>>) {
+    env.storage()
+        .instance()
+        .set(&GovernanceKey::PendingExclusive(kind), ids);
 }
 
 /// Removes every sidecar entry recorded for `operation_id` from persistent

@@ -478,3 +478,62 @@ fn unpause_without_a_pause_epoch_record_keeps_its_unbound_behaviour() {
         .expect("an unpause scheduled before the upgrade still applies");
     assert!(!paused(&env, &controller));
 }
+
+fn conflicting_operation_pending() -> Error {
+    Error::from_contract_error(GenericError::ConflictingOperationPending as u32)
+}
+
+fn upgrade_controller(env: &Env, byte: u8) -> AdminOperation {
+    AdminOperation::UpgradeController(BytesN::from_array(env, &[byte; 32]))
+}
+
+#[test]
+fn unpause_cannot_be_proposed_while_a_controller_upgrade_is_pending() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (owner, _controller, gov) = register_with_controller(&env, MIN_DELAY);
+    queue(&gov, &owner, upgrade_controller(&env, 7), 1);
+    wait_sensitive(&env);
+
+    let result = gov.try_propose(
+        &owner,
+        &AdminOperation::Unpause,
+        &BytesN::from_array(&env, &[2u8; 32]),
+    );
+
+    assert_eq!(result.err(), Some(Ok(conflicting_operation_pending())));
+}
+
+#[test]
+fn controller_upgrade_cannot_be_proposed_while_an_unpause_is_pending() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (owner, _controller, gov) = register_with_controller(&env, MIN_DELAY);
+    queue(&gov, &owner, AdminOperation::Unpause, 1);
+
+    let result = gov.try_propose(
+        &owner,
+        &upgrade_controller(&env, 7),
+        &BytesN::from_array(&env, &[2u8; 32]),
+    );
+
+    assert_eq!(result.err(), Some(Ok(conflicting_operation_pending())));
+}
+
+#[test]
+fn unpause_can_be_proposed_once_the_upgrade_is_no_longer_pending() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (owner, controller, gov) = register_with_controller(&env, MIN_DELAY);
+    let cancelled = queue(&gov, &owner, upgrade_controller(&env, 7), 1);
+    gov.cancel(&owner, &cancelled.id);
+    let expired = queue(&gov, &owner, upgrade_controller(&env, 8), 2);
+    let expiry =
+        gov.get_operation_ledger(&expired.id) + crate::constants::TIMELOCK_OPERATION_GRACE_LEDGERS;
+    env.ledger().with_mut(|l| l.sequence_number = expiry + 1);
+
+    let unpause = queue(&gov, &owner, AdminOperation::Unpause, 3);
+    wait_standard(&env);
+    execute_unpause(&gov, &controller, &unpause).expect("the unpause reopens");
+    assert!(!paused(&env, &controller));
+}

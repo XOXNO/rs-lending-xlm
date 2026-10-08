@@ -83,13 +83,23 @@ pub(crate) fn authorize_executor(env: &Env, executor: Option<&Address>) {
     }
 }
 
-/// Returns whether `operation_id` is scheduled and its grace-period deadline
-/// has passed. A ready-ledger of 0 (unset) or 1 (done) is never expired.
-fn operation_expired(env: &Env, operation_id: &BytesN<32>) -> bool {
+/// Returns the last ledger at which a waiting or ready `operation_id` may
+/// execute, or `None` when it is unset or done.
+fn grace_deadline(env: &Env, operation_id: &BytesN<32>) -> Option<u32> {
     let ready_ledger = get_operation_ledger(env, operation_id);
-    ready_ledger > 1
-        && env.ledger().sequence()
-            > ready_ledger.saturating_add(constants::TIMELOCK_OPERATION_GRACE_LEDGERS)
+    (ready_ledger > 1)
+        .then(|| ready_ledger.saturating_add(constants::TIMELOCK_OPERATION_GRACE_LEDGERS))
+}
+
+/// Returns whether `operation_id` is scheduled and its grace-period deadline
+/// has passed.
+fn operation_expired(env: &Env, operation_id: &BytesN<32>) -> bool {
+    grace_deadline(env, operation_id).is_some_and(|deadline| env.ledger().sequence() > deadline)
+}
+
+/// Returns whether `operation_id` is waiting or ready and not expired.
+fn operation_live(env: &Env, operation_id: &BytesN<32>) -> bool {
+    grace_deadline(env, operation_id).is_some_and(|deadline| env.ledger().sequence() <= deadline)
 }
 
 /// Panics with `GenericError::TimelockOperationExpired` if `operation_id`'s

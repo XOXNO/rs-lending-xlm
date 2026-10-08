@@ -72,8 +72,11 @@ before this binding existed carry no epoch and stay executable.
 
 Typed proposals perform proposal-time checks; targets retain execution-time
 validation. Ready operations must also be within the grace window. Anyone may
-execute with no executor identity; supplying one requires its authorization
-and EXECUTOR role. Executor/canceller separation exempts the governance owner.
+execute with no executor identity and in any order, so `Unpause` and
+`UpgradeController` cannot be pending together: an `Unpause` executed first
+would reopen the controller on the code being replaced. An operation scheduled
+before this rule existed is not tracked by it. Supplying an executor identity
+requires its authorization and EXECUTOR role. Executor/canceller separation exempts the governance owner.
 A revocation target cannot cancel its own removal, but an independent canceller
 can veto it. Owner-proposed Recovery operations cannot be cancelled and replace
 cancellers after their delay; they do not recover a lost owner key. A

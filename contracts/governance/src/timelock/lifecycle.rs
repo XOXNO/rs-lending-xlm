@@ -55,6 +55,7 @@ pub(crate) fn propose(
             GenericError::NotAuthorized
         );
     }
+    guard::require_no_conflict(env, op);
     let (operation, delay_tier) = operation_for_admin_op(env, op, salt);
     let delay = operation_delay(env, delay_tier);
     clear_expired_operation(env, &operation);
