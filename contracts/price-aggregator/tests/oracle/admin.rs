@@ -1,7 +1,6 @@
-//! Coverage for the dependency-graph half of `admin.rs`: the cascade that
-//! revalidates composed oracles when a key they are built on changes, the
-//! cycle guard that keeps that walk from recursing forever, and the LP
-//! source-count rule.
+//! Coverage for the dependency-graph half of `admin.rs`: the reverse-dependency
+//! index, the cascade that revalidates composed oracles when a key they are
+//! built on changes, and the LP source-count rule.
 use super::*;
 
 use crate::registry;
@@ -105,57 +104,69 @@ fn chain(env: &Env, adapter: &Address) -> (PriceKey, PriceKey, PriceKey) {
 }
 
 #[test]
-fn depends_on_follows_the_chain_past_its_direct_quote() {
+fn the_dependents_index_follows_a_quote_being_repointed() {
     let env = Env::default();
     let adapter = Address::generate(&env);
     in_contract(&env, || {
         let (base, mid, leaf) = chain(&env, &adapter);
+        assert_eq!(
+            registry::dependents(&env, &base),
+            Vec::from_array(&env, [mid.clone()])
+        );
+        assert_eq!(
+            registry::dependents(&env, &mid),
+            Vec::from_array(&env, [leaf.clone()])
+        );
 
-        // The direct edge, which is all a non-recursive walk would find.
-        assert!(depends_on(&env, &mid, &base, &mut Vec::new(&env)));
-        // The transitive one: leaf quotes mid, and only mid quotes base.
-        assert!(depends_on(&env, &leaf, &base, &mut Vec::new(&env)));
-        // Direction matters -- the base does not depend on what is built on it.
-        assert!(!depends_on(&env, &base, &leaf, &mut Vec::new(&env)));
+        // leaf stops quoting mid and starts quoting base.
+        registry::store_oracle(
+            &env,
+            &leaf,
+            &oracle_of(&env, one(&env, scaled_onto(&env, &adapter, base.clone()))),
+        );
+        assert!(registry::dependents(&env, &mid).is_empty());
+        assert_eq!(
+            registry::dependents(&env, &base),
+            Vec::from_array(&env, [mid, leaf])
+        );
     });
 }
 
+/// Two dependents that share a quote, and a dependent of both, are each
+/// revalidated once.
 #[test]
-fn depends_on_reports_no_match_for_a_key_outside_the_graph() {
+fn set_oracle_revalidates_a_shared_dependent_once() {
     let env = Env::default();
-    let adapter = Address::generate(&env);
-    in_contract(&env, || {
-        let (_base, _mid, leaf) = chain(&env, &adapter);
-        let stranger = PriceKey::Ref(Symbol::new(&env, "OTHER"));
-        assert!(!depends_on(&env, &leaf, &stranger, &mut Vec::new(&env)));
-    });
-}
+    at_now(&env);
+    let (adapter, client) = register_redstone_feed(&env);
+    publish(&client, &env, "BASE", 100 * WAD);
+    publish(&client, &env, "RATIO", WAD);
 
-#[test]
-fn depends_on_terminates_on_a_cycle_rather_than_recursing_forever() {
-    let env = Env::default();
-    let adapter = Address::generate(&env);
     in_contract(&env, || {
-        // A quotes B and B quotes A. `set_oracle` rejects this cycle, so the
-        // registry is written directly.
-        let a = PriceKey::Token(Address::generate(&env));
-        let b = PriceKey::Token(Address::generate(&env));
+        let (base, mid, leaf) = chain(&env, &adapter);
+        let sibling = PriceKey::Token(Address::generate(&env));
         registry::store_oracle(
             &env,
-            &a,
-            &oracle_of(&env, one(&env, scaled_onto(&env, &adapter, b.clone()))),
+            &sibling,
+            &oracle_of(&env, one(&env, scaled_onto(&env, &adapter, base.clone()))),
         );
-        registry::store_oracle(
-            &env,
-            &b,
-            &oracle_of(&env, one(&env, scaled_onto(&env, &adapter, a.clone()))),
+        assert_eq!(
+            registry::dependents(&env, &base),
+            Vec::from_array(&env, [mid, sibling])
         );
 
-        // Without the `visiting` guard this walk recurses until the host traps.
-        let stranger = PriceKey::Ref(Symbol::new(&env, "OTHER"));
-        assert!(!depends_on(&env, &a, &stranger, &mut Vec::new(&env)));
-        // The direct edge from `a` to `b` still matches.
-        assert!(depends_on(&env, &a, &b, &mut Vec::new(&env)));
+        set_oracle(
+            &env,
+            base,
+            oracle_of(
+                &env,
+                one(
+                    &env,
+                    PriceSource::Feed(feed(&env, &adapter, "BASE", CEILING)),
+                ),
+            ),
+        );
+        assert!(registry::get_oracle(&env, &leaf).is_some());
     });
 }
 

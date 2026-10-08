@@ -395,6 +395,84 @@ fn test_revalidation_touches_only_the_keys_that_actually_depend_on_the_change() 
     });
 }
 
+/// Writes `oracle` the way a registry stored before the dependents index did:
+/// the configuration and the registered-keys entry, with no index entry.
+fn store_legacy_oracle(env: &Env, key: &PriceKey, oracle: &AssetOracle) {
+    env.storage()
+        .persistent()
+        .set(&AggregatorKey::Oracle(key.clone()), oracle);
+    let mut keys = oracle_keys(env);
+    keys.push_back(key.clone());
+    store_keys(env, &keys);
+}
+
+fn legacy_feed_oracle(env: &Env, adapter: &Address, feed_id: &str) -> AssetOracle {
+    let mut cfg = oracle(env, 8);
+    cfg.sources = Vec::from_array(
+        env,
+        [PriceSource::Feed(FeedSource {
+            provider: ProviderRef::RedStone(MultiFeedRef {
+                contract: adapter.clone(),
+                feed_id: String::from_str(env, feed_id),
+                nature: FeedNature::Fundamental,
+            }),
+            decimals: 8,
+            max_stale_seconds: 43_200,
+        })],
+    );
+    cfg.min_sanity_price_wad = WAD - WAD / 20;
+    cfg.max_sanity_price_wad = WAD + WAD / 20;
+    cfg
+}
+
+fn legacy_scaled_oracle(env: &Env, adapter: &Address, quote: &PriceKey) -> AssetOracle {
+    let mut cfg = legacy_feed_oracle(env, adapter, "RATIO");
+    let PriceSource::Feed(factor) = cfg.sources.get_unchecked(0) else {
+        unreachable!("legacy_feed_oracle builds a single feed");
+    };
+    cfg.sources = Vec::from_array(
+        env,
+        [PriceSource::Scaled(ScaledSource {
+            factor,
+            quote: quote.clone(),
+            min_factor_wad: WAD / 2,
+            max_factor_wad: 2 * WAD,
+        })],
+    );
+    cfg
+}
+
+/// A registry stored before the dependents index existed is indexed on the
+/// first `set_oracle`, so its dependents are still revalidated: re-pointing
+/// `base` onto a two-deep stack pushes the legacy `leaf` past the depth limit.
+#[test]
+#[should_panic(expected = "Error(Contract, #229)")]
+fn test_set_oracle_indexes_a_legacy_registry_before_revalidating() {
+    let env = Env::default();
+    env.ledger().set_timestamp(1_000_000);
+    with_contract(&env, || {
+        let (adapter, client) = crate::test_support::register_redstone_feed(&env);
+        let ts = env.ledger().timestamp() * 1_000;
+        for feed in ["BASE", "RATIO"] {
+            client.set_price_data(&String::from_str(&env, feed), &WAD, &ts, &ts);
+        }
+        let base = PriceKey::Token(Address::generate(&env));
+        let mid = PriceKey::Token(Address::generate(&env));
+        let leaf = PriceKey::Token(Address::generate(&env));
+        store_legacy_oracle(&env, &base, &legacy_feed_oracle(&env, &adapter, "BASE"));
+        store_legacy_oracle(&env, &mid, &legacy_scaled_oracle(&env, &adapter, &base));
+        store_legacy_oracle(&env, &leaf, &legacy_scaled_oracle(&env, &adapter, &mid));
+        assert!(dependents(&env, &base).is_empty());
+
+        let deeper = PriceKey::Token(Address::generate(&env));
+        let deep = PriceKey::Token(Address::generate(&env));
+        store_oracle(&env, &deeper, &legacy_feed_oracle(&env, &adapter, "BASE"));
+        store_oracle(&env, &deep, &legacy_scaled_oracle(&env, &adapter, &deeper));
+
+        set_oracle(&env, base, legacy_scaled_oracle(&env, &adapter, &deep));
+    });
+}
+
 /// A reband that tightens `reflector_oracle`'s +/-5% band: `set_sanity_band`
 /// refuses a wider one with `SanityBandMustTighten`. At 3% the band is 300 bps
 /// wide, above `MIN_SANITY_BAND_BPS`.

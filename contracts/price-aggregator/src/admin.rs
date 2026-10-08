@@ -8,7 +8,10 @@ use common::errors::OracleError;
 use common::oracle::providers::redstone::REDSTONE_DECIMALS;
 use common::oracle::providers::reflector::ReflectorClient;
 use common::oracle::providers::xoxno::XoxnoOracleAdapterClient;
-use common::types::{AssetOracle, FeedSource, OracleTolerance, PriceKey, PriceSource, ProviderRef};
+use common::types::{
+    AssetOracle, FeedSource, OracleTolerance, PriceKey, PriceSource, ProviderRef,
+    MAX_RESOLUTION_DEPTH,
+};
 use common::validation::{
     validate_lp_sanity_band, validate_oracle_tolerance, validate_sanity_bounds,
     validate_single_source_sanity_band,
@@ -95,9 +98,16 @@ pub(crate) fn set_oracle(env: &Env, key: PriceKey, oracle: AssetOracle) {
     registry::emit(env, &key, &oracle);
 }
 
-/// Revalidates every oracle registered in the registry whose composition
-/// transitively depends on `changed`, panicking if any of them fails
-/// validation under the new state.
+/// Revalidates every registered oracle whose composition transitively depends
+/// on `changed`, panicking if any of them fails validation under the new
+/// state.
+///
+/// Walks the reverse-dependency index upward from `changed`, one level per
+/// composition step, so the cost follows the actual dependents rather than the
+/// size of the append-only registry. `MAX_RESOLUTION_DEPTH` levels reach every
+/// dependent: a key that sat further above `changed` would already have
+/// exceeded the depth limit. The first call on a registry stored before the
+/// index existed builds the index once.
 ///
 /// Structural only: the walk reads the registry and never crosses a contract
 /// boundary. A live re-probe costs one VM instantiation per provider call, and
@@ -106,36 +116,25 @@ pub(crate) fn set_oracle(env: &Env, key: PriceKey, oracle: AssetOracle) {
 /// `UnsupportedAquariusPool`, it ran when the dependent was admitted, and
 /// `changed` cannot alter the pool kind.
 fn revalidate_dependents(env: &Env, changed: &PriceKey) {
-    for candidate in registry::oracle_keys(env).iter() {
-        if candidate == *changed || !depends_on(env, &candidate, changed, &mut Vec::new(env)) {
-            continue;
+    registry::ensure_dependents_indexed(env);
+    let mut visited = Vec::from_array(env, [changed.clone()]);
+    let mut level = visited.clone();
+    for _ in 0..MAX_RESOLUTION_DEPTH {
+        let mut next = Vec::new(env);
+        for key in level.iter() {
+            for dependent in registry::dependents(env, &key).iter() {
+                if visited.contains(&dependent) {
+                    continue;
+                }
+                let oracle = registry::get_oracle(env, &dependent)
+                    .unwrap_or_else(|| panic_with_error!(env, OracleError::OracleNotConfigured));
+                validate_asset_oracle(env, &dependent, &oracle);
+                visited.push_back(dependent.clone());
+                next.push_back(dependent);
+            }
         }
-        let oracle = registry::get_oracle(env, &candidate)
-            .unwrap_or_else(|| panic_with_error!(env, OracleError::OracleNotConfigured));
-        validate_asset_oracle(env, &candidate, &oracle);
+        level = next;
     }
-}
-
-/// Returns whether `root`'s registered oracle composition depends, directly or
-/// transitively, on `target`. Guards against cycles in the dependency graph via
-/// `visiting`, treating a key already on the current path as a non-match.
-fn depends_on(env: &Env, root: &PriceKey, target: &PriceKey, visiting: &mut Vec<PriceKey>) -> bool {
-    if visiting.first_index_of(root).is_some() {
-        return false;
-    }
-    visiting.push_back(root.clone());
-    let found = registry::get_oracle(env, root).is_some_and(|oracle| {
-        oracle.sources.iter().any(|source| {
-            properties::local_properties(env, &source)
-                .dependencies
-                .iter()
-                .any(|dependency| {
-                    dependency == *target || depends_on(env, &dependency, target, visiting)
-                })
-        })
-    });
-    visiting.pop_back();
-    found
 }
 
 /// Runs the full validation suite for `oracle` under `key`, covering sanity
