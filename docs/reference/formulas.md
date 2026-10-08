@@ -299,7 +299,7 @@ below `D`, the leg is the account's only supply position, and the leg holds at
 least one whole unit. Let `U` be the WAD USD value of one whole unit, `b` the
 bonus and `m = max(floor(U / 1e6), 1)` in raw WAD. Let `R` be the sum, over the
 account's debt legs, of the USD value of one base unit of that debt token. `R`
-is the per-leg ceiling rounding that a full close can record. The controller
+is the per-leg ceiling rounding that a full close can pull. The controller
 applies the first rule that matches:
 
 1. If `floor(U / (1 + b)) >= D + R`, the quote becomes `D`. The plan closes in
@@ -350,7 +350,10 @@ also trims the inputs above the quote from the last leg backward before tokens
 are pulled, and execution pulls the trimmed amount. On a solvent account the
 trim floors the refund, so the kept amount can round up by one token unit. A
 full-debt quote trims nothing: the per-leg ceilings can exceed `D` by unit
-rounding, and the repayment credits every unit of them. Execution then pulls
+rounding. A leg paid at its ceiling is credited the debt it clears, valued
+with floor rounding, not the rounded-up units, so the rounding sizes no
+seizure and a band partial that closes one coarse leg cannot push `C` below
+`D`. Execution then pulls
 each merged offered amount and the pool refunds what exceeds each leg's debt,
 which is exactly the listed refund. Neither a full-debt quote nor the target
 health factor guarantees an executed full close after rounding or

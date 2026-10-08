@@ -2,7 +2,7 @@ use common::constants::{BPS, MIN_BORROWABLE_ASSET_DECIMALS};
 use common::errors::{CollateralError, GenericError};
 use common::math::fp::{Bps, Ray, Wad};
 use common::math::fp_core::{mul_div_ceil, mul_div_floor};
-use common::rates::{resolve_withdrawal, unscale_borrow_ceil};
+use common::rates::{position_value_floor, resolve_withdrawal, unscale_borrow_ceil};
 use common::types::{
     Account, AccountPositionRaw, DebtPosition, HubAssetKey, HubPayment, LiquidationResult,
     PaymentTuple, RepayEntry, SeizeEntry,
@@ -107,6 +107,8 @@ pub(crate) fn calculate_seizure_proportions(
 /// Merges positive payments and caps each at its ceiling-rounded debt balance.
 /// Requires an existing debt position. Returns planned WAD USD repayments and
 /// records unused inputs in `refunds`; this planning step moves no tokens.
+/// A payment at the cap pulls the ceiling-rounded amount but is valued at the
+/// floor-rounded debt it clears, so per-leg unit rounding buys no collateral.
 pub(crate) fn calculate_repayment_amounts(
     env: &Env,
     raw_payments: &Vec<HubPayment>,
@@ -146,7 +148,16 @@ pub(crate) fn calculate_repayment_amounts(
             payment_amount = actual_debt;
         }
 
-        let payment_usd = feed.usd_value_wad(env, payment_amount);
+        let payment_usd = if payment_amount == actual_debt {
+            position_value_floor(
+                env,
+                position.scaled_amount,
+                market_index.borrow_index,
+                feed.price,
+            )
+        } else {
+            feed.usd_value_wad(env, payment_amount)
+        };
 
         total_repaid_usd = total_repaid_usd.checked_add(env, payment_usd);
         repaid_tokens.push_back(RepayEntry {
@@ -163,8 +174,8 @@ pub(crate) fn calculate_repayment_amounts(
 
 /// Trims planned repayments above the ideal WAD USD amount and records unused
 /// inputs. A payment below the ideal is accepted as offered. A full-close plan
-/// is not trimmed: each leg stays at its own ceiling-rounded debt cap, so
-/// `repay_usd` can exceed the total debt by per-leg unit rounding. On an
+/// is not trimmed: each leg stays at its own ceiling-rounded debt cap, and
+/// `repay_usd` is the debt those legs clear. On an
 /// insolvent account the trim rounds kept amounts down, so `repay_usd` never
 /// exceeds the collateral-backed quote. On a solvent partial plan whose only
 /// collateral leg is below `MIN_BORROWABLE_ASSET_DECIMALS`, the ideal rises to

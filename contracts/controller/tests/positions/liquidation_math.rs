@@ -663,10 +663,10 @@ fn racing_insolvent_liquidations_never_repay_more_than_the_collateral_backs() {
 
 /// Two 3-decimal legs at $1 per unit, each owing 100 400.4 units: the ceilings
 /// (100 401 each) exceed the debt by 1.2 units. The full-close plan keeps both
-/// legs at their ceilings, refunds only the offer above them, and credits
-/// every ceiling unit instead of trimming one unit it would still pull.
+/// legs at their ceilings and refunds only the offer above them, but credits
+/// only the debt the legs clear, so the ceiling units buy no collateral.
 #[test]
-fn a_full_close_plan_credits_every_legs_ceiling_without_a_trim_refund() {
+fn a_full_close_plan_keeps_every_leg_at_its_ceiling_and_credits_the_debt() {
     let env = Env::default();
     let contract = env.register(Controller, (Address::generate(&env),));
     let (d1, d2) = (hub_key(&env), hub_key(&env));
@@ -730,8 +730,8 @@ fn a_full_close_plan_credits_every_legs_ceiling_without_a_trim_refund() {
         }
         assert_eq!(
             plan.repay_usd.raw(),
-            200_802 * WAD,
-            "every ceiling unit is credited"
+            debt,
+            "the credit is the debt cleared, not the ceilings"
         );
     });
 }
@@ -2011,11 +2011,10 @@ fn an_exactly_covered_account_quotes_the_full_debt_at_zero_bonus_not_the_insolve
 // `V < L_round / (b * (1 - f))`, where `L_round` bounds the summed rounding loss,
 // `b` the bonus and `f` the protocol's cut of the bonus.
 //
-// The debt leg adds no rounding loss. Its asset-unit ceiling
-// (`unscale_borrow_ceil` in `calculate_repayment_amounts`) is priced into
-// `RepayEntry::usd_wad`, which `calculate_seized_collateral` multiplies by
-// `(1 + bonus)`, so the liquidator is credited for every unit it rounds up.
-// Both rounding sites are on the collateral leg, per seized position:
+// A fully repaid debt leg pulls its asset-unit ceiling (`unscale_borrow_ceil`
+// in `calculate_repayment_amounts`) but credits only the floor-valued debt it
+// clears, so it can cost the liquidator up to one debt-token unit per leg.
+// `L_round` below counts the collateral leg only, per seized position:
 //
 //   1. `capped_ray.to_asset_floor(&env, decimals)` on a partial seizure  -> <= 1 unit
 //   2. the dust fee bump, `protocol_fee_ray > 0 && fee_asset == 0` -> <= 1 unit
@@ -2027,12 +2026,12 @@ fn an_exactly_covered_account_quotes_the_full_debt_at_zero_bonus_not_the_insolve
 // See `docs/reference/formulas.md#liquidation-sizing-and-fees`
 
 /// The debt-leg half of that claim: a full close pays `ceil(debt)` asset units,
-/// and `RepayEntry::usd_wad` is the price of what was transferred, not of the
-/// exact debt. `calculate_seized_collateral` then sizes the seizure from
-/// `repay_usd * (1 + bonus)`, so the ceiling returns to the liquidator with the
-/// bonus on top instead of being a loss.
+/// but `RepayEntry::usd_wad` is the floor value of the exact debt the pool
+/// burns. `calculate_seized_collateral` sizes the seizure from
+/// `repay_usd * (1 + bonus)`, so the rounded-up units buy no collateral and
+/// cannot push a covered account across `C = D`.
 #[test]
-fn the_debt_legs_asset_unit_ceiling_is_priced_into_the_repayment_credit() {
+fn the_debt_legs_asset_unit_ceiling_is_credited_at_the_debt_it_clears() {
     let env = Env::default();
     let contract = env.register(Controller, (Address::generate(&env),));
     let asset = Address::generate(&env);
@@ -2081,12 +2080,8 @@ fn the_debt_legs_asset_unit_ceiling_is_priced_into_the_repayment_credit() {
         assert_eq!(repaid.get_unchecked(0).amount, 2);
         assert_eq!(
             total.raw(),
-            2 * WAD,
-            "the credit is the price of the ceiling, not of the 1.5-token debt",
-        );
-        assert!(
-            total.raw() > 3 * WAD / 2,
-            "and it strictly exceeds the exact debt value",
+            3 * WAD / 2,
+            "the credit is the 1.5-token debt, not the price of the ceiling",
         );
     });
 }
