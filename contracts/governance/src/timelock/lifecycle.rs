@@ -29,7 +29,9 @@ use crate::timelock::*;
 /// and oracle configuration, the swap aggregator, Blend pool approval, the
 /// revenue accumulator, and role grants also require the proposer to be the
 /// owner. These checks fail with
-/// `GenericError::NotAuthorized`. The delay comes from the operation's delay tier.
+/// `GenericError::NotAuthorized`. An owner-only operation records the current
+/// owner epoch, and execution rejects it after a later ownership handover.
+/// The delay comes from the operation's delay tier.
 pub(crate) fn propose(
     env: &Env,
     proposer: &Address,
@@ -37,38 +39,21 @@ pub(crate) fn propose(
     salt: BytesN<32>,
 ) -> BytesN<32> {
     begin_immediate(env, proposer, PROPOSER_ROLE);
-    match op {
-        AdminOperation::RevokeGovRole(args) => {
-            assert_with_error!(env, &args.account != proposer, GenericError::NotAuthorized);
-            assert_with_error!(
-                env,
-                args.account != access::owner_or_panic(env),
-                GenericError::NotAuthorized
-            );
-        }
-        AdminOperation::TransferGovOwnership(_)
-        | AdminOperation::TransferCtrlOwnership(_)
-        | AdminOperation::UpgradeGov(_)
-        | AdminOperation::UpgradeController(_)
-        | AdminOperation::UpgradePool(_)
-        | AdminOperation::UpgradePositionNft(_)
-        | AdminOperation::UpgradePriceAggregator(_)
-        | AdminOperation::MigrateController(_)
-        | AdminOperation::UpdateGovDelay(_)
-        | AdminOperation::SetPriceAggregator(_)
-        | AdminOperation::ConfigureAssetOracle(_)
-        | AdminOperation::EditOracleTolerance(_)
-        | AdminOperation::SetSwapAggregator(_)
-        | AdminOperation::ApproveBlendPool(_)
-        | AdminOperation::SetAccumulator(_)
-        | AdminOperation::GrantGovRole(_) => {
-            assert_with_error!(
-                env,
-                proposer == &access::owner_or_panic(env),
-                GenericError::NotAuthorized
-            );
-        }
-        _ => {}
+    let owner_only = requires_owner_proposer(op);
+    if owner_only {
+        assert_with_error!(
+            env,
+            proposer == &access::owner_or_panic(env),
+            GenericError::NotAuthorized
+        );
+    }
+    if let AdminOperation::RevokeGovRole(args) = op {
+        assert_with_error!(env, &args.account != proposer, GenericError::NotAuthorized);
+        assert_with_error!(
+            env,
+            args.account != access::owner_or_panic(env),
+            GenericError::NotAuthorized
+        );
     }
     let (operation, delay_tier) = operation_for_admin_op(env, op, salt);
     let delay = operation_delay(env, delay_tier);
@@ -77,7 +62,34 @@ pub(crate) fn propose(
     if let AdminOperation::RevokeGovRole(args) = op {
         storage::mark_role_revocation_target(env, &operation_id, &args.account);
     }
+    if owner_only {
+        storage::mark_proposal_owner_epoch(env, &operation_id);
+    }
     operation_id
+}
+
+/// Returns whether `op` replaces code, prices, ownership or authority, so only
+/// the owner may propose it and only under that owner's tenure may it execute.
+fn requires_owner_proposer(op: &AdminOperation) -> bool {
+    matches!(
+        op,
+        AdminOperation::TransferGovOwnership(_)
+            | AdminOperation::TransferCtrlOwnership(_)
+            | AdminOperation::UpgradeGov(_)
+            | AdminOperation::UpgradeController(_)
+            | AdminOperation::UpgradePool(_)
+            | AdminOperation::UpgradePositionNft(_)
+            | AdminOperation::UpgradePriceAggregator(_)
+            | AdminOperation::MigrateController(_)
+            | AdminOperation::UpdateGovDelay(_)
+            | AdminOperation::SetPriceAggregator(_)
+            | AdminOperation::ConfigureAssetOracle(_)
+            | AdminOperation::EditOracleTolerance(_)
+            | AdminOperation::SetSwapAggregator(_)
+            | AdminOperation::ApproveBlendPool(_)
+            | AdminOperation::SetAccumulator(_)
+            | AdminOperation::GrantGovRole(_)
+    )
 }
 
 /// Executes a scheduled operation against `target` once its delay has elapsed and

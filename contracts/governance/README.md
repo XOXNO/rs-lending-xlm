@@ -29,7 +29,9 @@ are in its rustdoc.
   sidecars, emit `ExpiredOperationClearedEvent`, then schedule afresh.
 - The owner must be the proposer for: ownership, upgrade, migration, delay
   (`UpdateGovDelay`), oracle, swap-aggregator, Blend approval, accumulator and
-  role-grant ops.
+  role-grant ops. Such an op writes a `ProposalOwnerEpoch` sidecar;
+  `accept_ownership` advances the owner epoch, and executing an op recorded
+  under an earlier epoch reverts `NotAuthorized`.
 
 ## Entrypoints
 

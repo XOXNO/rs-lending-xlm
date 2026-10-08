@@ -64,6 +64,11 @@ so no later delay update can lower it. An owner `UpgradeGov` can still replace
 the governance code and its delay rules
 ([INV-AUTH-05](../reference/invariants.md#inv-auth-05)).
 
+An owner-only operation records the owner epoch it was proposed under, and
+`accept_ownership` advances that epoch, so a former owner's queued
+operations fail with `NotAuthorized` after a handover. Operations scheduled
+before this binding existed carry no epoch and stay executable.
+
 Typed proposals perform proposal-time checks; targets retain execution-time
 validation. Ready operations must also be within the grace window. Anyone may
 execute with no executor identity; supplying one requires its authorization

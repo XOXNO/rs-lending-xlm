@@ -190,14 +190,28 @@ fn begin_immediate(env: &Env, caller: &Address, role: &str) {
     access_control::ensure_role(env, &Symbol::new(env, role), caller);
 }
 
+/// Panics with `GenericError::NotAuthorized` if `operation_id` recorded an
+/// owner epoch that a later ownership handover has superseded.
+fn require_proposing_owner_tenure(env: &Env, operation_id: &BytesN<32>) {
+    if let Some(epoch) = storage::proposal_owner_epoch(env, operation_id) {
+        assert_with_error!(
+            env,
+            epoch == storage::owner_epoch(env),
+            GenericError::NotAuthorized
+        );
+    }
+}
+
 /// Renews the governance instance's storage TTL, authorizes `executor` if
 /// present, computes `operation`'s id, and checks that the operation has not
-/// expired. Returns the operation id.
+/// expired and was not proposed under a previous owner. Returns the operation
+/// id.
 fn prepare_execute(env: &Env, executor: Option<&Address>, operation: &Operation) -> BytesN<32> {
     renew_instance(env);
     authorize_executor(env, executor);
     let operation_id = hash_operation(env, operation);
     require_operation_not_expired(env, &operation_id);
+    require_proposing_owner_tenure(env, &operation_id);
     operation_id
 }
 

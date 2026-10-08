@@ -29,6 +29,10 @@ bound payload only after its delay and within its grace window. Target
 contracts also validate at execution. Completed operations require a fresh
 proposal and delay before reuse.
 
+An operation can also be bound to the governance state it was proposed
+under. An owner-only operation records the owner epoch, so a handover voids
+the former owner's queued operations.
+
 Execution is permissionless when the executor identity is omitted. Cancellation
 and owner-dependent recovery have distinct rules. Their security depends on
 the effective review window and key custody; see

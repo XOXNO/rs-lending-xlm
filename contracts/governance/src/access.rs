@@ -15,7 +15,7 @@ use stellar_access::{access_control, ownable, role_transfer};
 use stellar_governance::timelock::set_min_delay;
 
 use crate::constants::MAX_CANCELLERS;
-use crate::{timelock, Governance, GovernanceArgs, GovernanceClient};
+use crate::{storage, timelock, Governance, GovernanceArgs, GovernanceClient};
 
 /// Role that may call `set_sanity_band`.
 pub(crate) const ORACLE_ROLE: &str = "ORACLE";
@@ -240,13 +240,14 @@ pub(crate) fn apply_revoke_role(env: &Env, account: &Address, role: &Symbol) {
 }
 
 /// Renews the governance instance's storage TTL, completes a pending
-/// ownership transfer to the caller, and synchronizes the access-control
-/// admin and operational-role holders from the previous owner to the new
-/// owner.
+/// ownership transfer to the caller, advances the owner epoch, and
+/// synchronizes the access-control admin and operational-role holders from
+/// the previous owner to the new owner.
 pub(crate) fn accept_ownership(env: &Env) {
     renew_instance(env);
     let previous_owner = owner_or_panic(env);
     ownable::accept_ownership(env);
+    storage::bump_owner_epoch(env);
     let new_owner = owner_or_panic(env);
     sync_owner_access_control(env, &previous_owner, &new_owner);
 }

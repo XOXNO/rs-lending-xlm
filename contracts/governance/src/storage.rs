@@ -1,14 +1,15 @@
 //! Persistent and instance storage access for the governance contract:
-//! controller and price-aggregator addresses, and per-operation sidecar
-//! state (role-revocation target, recovery-operation marker).
+//! controller and price-aggregator addresses, the owner epoch, and
+//! per-operation sidecar state (role-revocation target, recovery-operation
+//! marker, proposal owner epoch).
 
 use common::constants::{TTL_BUMP_SHARED, TTL_THRESHOLD_SHARED};
 use common::errors::GenericError;
 
 use soroban_sdk::{contracttype, panic_with_error, Address, BytesN, Env};
 
-/// Storage keys for governance contract state. `RoleRevocationTarget` and
-/// `RecoveryOp` are keyed per timelock operation id.
+/// Storage keys for governance contract state. `RoleRevocationTarget`,
+/// `RecoveryOp` and `ProposalOwnerEpoch` are keyed per timelock operation id.
 #[contracttype]
 #[derive(Clone, Debug)]
 enum GovernanceKey {
@@ -16,6 +17,8 @@ enum GovernanceKey {
     PriceAggregator,
     RoleRevocationTarget(BytesN<32>),
     RecoveryOp(BytesN<32>),
+    OwnerEpoch,
+    ProposalOwnerEpoch(BytesN<32>),
 }
 
 /// Records `account` as the role-revocation target for `operation_id` in
@@ -38,8 +41,45 @@ pub(crate) fn mark_recovery_op(env: &Env, operation_id: &BytesN<32>) {
         .extend_ttl(&key, TTL_THRESHOLD_SHARED, TTL_BUMP_SHARED);
 }
 
-/// Removes the recovery-operation marker and role-revocation target entries
-/// for `operation_id` from persistent storage.
+/// Returns the number of completed ownership handovers, 0 before the first.
+pub(crate) fn owner_epoch(env: &Env) -> u64 {
+    env.storage()
+        .instance()
+        .get(&GovernanceKey::OwnerEpoch)
+        .unwrap_or(0)
+}
+
+/// Advances the owner epoch. Panics with `GenericError::MathOverflow` on
+/// overflow.
+pub(crate) fn bump_owner_epoch(env: &Env) {
+    let next = owner_epoch(env)
+        .checked_add(1)
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
+    env.storage()
+        .instance()
+        .set(&GovernanceKey::OwnerEpoch, &next);
+}
+
+/// Records the current owner epoch for `operation_id` in persistent storage
+/// and extends the entry's TTL.
+pub(crate) fn mark_proposal_owner_epoch(env: &Env, operation_id: &BytesN<32>) {
+    let key = GovernanceKey::ProposalOwnerEpoch(operation_id.clone());
+    env.storage().persistent().set(&key, &owner_epoch(env));
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, TTL_THRESHOLD_SHARED, TTL_BUMP_SHARED);
+}
+
+/// Returns the owner epoch recorded for `operation_id`, or `None` if the
+/// operation carries no such record.
+pub(crate) fn proposal_owner_epoch(env: &Env, operation_id: &BytesN<32>) -> Option<u64> {
+    env.storage()
+        .persistent()
+        .get(&GovernanceKey::ProposalOwnerEpoch(operation_id.clone()))
+}
+
+/// Removes every sidecar entry recorded for `operation_id` from persistent
+/// storage.
 pub(crate) fn clear_operation_sidecars(env: &Env, operation_id: &BytesN<32>) {
     env.storage()
         .persistent()
@@ -47,6 +87,9 @@ pub(crate) fn clear_operation_sidecars(env: &Env, operation_id: &BytesN<32>) {
     env.storage()
         .persistent()
         .remove(&GovernanceKey::RoleRevocationTarget(operation_id.clone()));
+    env.storage()
+        .persistent()
+        .remove(&GovernanceKey::ProposalOwnerEpoch(operation_id.clone()));
 }
 
 /// Returns the account recorded as the role-revocation target for
