@@ -214,8 +214,8 @@ liquidator, so the refresh applies it at any health factor.
 Within a strategy, a withdrawal leg refreshes before a subsequent repayment
 or replacement deposit. Final strategy checks refresh LTV without retrying
 the liquidation tuple.
-`update_account_threshold` with `has_risks` also reverts if the final health
-factor is below 1.05. Thus it cannot apply the lower bonus
+`update_account_threshold` with `has_risks` also reverts if an account with
+debt ends with a health factor below 1.05. Thus it cannot apply the lower bonus
 to an account near liquidation, but a supply to the leg can. A position that
 no path touches keeps the old bonus.
 

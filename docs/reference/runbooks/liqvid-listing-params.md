@@ -395,9 +395,10 @@ refresh LTV without retrying the liquidation tuple. The gate reads the prices
 of all assets of the account. When the gate runs, a stale price or a price outside
 the band makes the call fail, also a supply.
 
-`update_account_threshold` with `has_risks = true` also checks the account HF
-after the refresh. If that HF is below 1.05, the call reverts with
-`HealthFactorTooLow` (102), and one such account reverts the whole batch.
+`update_account_threshold` with `has_risks = true` also checks the HF of an
+account with debt after the refresh. If that HF is below 1.05, the call reverts
+with `HealthFactorTooLow` (102), and one such account reverts the whole batch.
+A debt-free account reads no price, so a stale feed does not revert it.
 Anyone can call it with the auth of `caller`. The controller refuses it while
 it is paused or while a flash loan is open.
 

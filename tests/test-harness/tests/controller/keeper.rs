@@ -542,3 +542,65 @@ fn test_update_account_threshold_emits_param_upd_only_for_changed_assets() {
         "unchanged asset must keep its stamps and skip ParamUpd"
     );
 }
+
+/// Debt-free ALICE (USDC + WBTC) and indebted BOB (USDC, ETH debt) after a new
+/// USDC listing tuple, with WBTC's feed stalled past its staleness limit.
+fn debt_free_account_beside_a_stalled_feed() -> (LendingTest, u64, u64) {
+    const FEED_STALL_SECS: u64 = 1_000;
+    let mut t = LendingTest::new()
+        .three_asset_usdc_eth_wbtc()
+        .with_dust_disabled_all_markets()
+        .build();
+    t.supply(ALICE, "USDC", 10_000.0);
+    t.supply(ALICE, "WBTC", 0.01);
+    t.supply(BOB, "USDC", 100_000.0);
+    t.borrow(BOB, "ETH", 1.0);
+    let alice = t.resolve_account_id(ALICE);
+    let bob = t.resolve_account_id(BOB);
+
+    let (_, bonus_before, _) = supply_risk_fields(&t, alice, "USDC");
+    t.edit_asset_config("USDC", |c| {
+        c.loan_to_value = 5_000;
+        c.liquidation_threshold = 6_100;
+        c.liquidation_bonus = bonus_before + 500;
+    });
+
+    t.refresh_oracle_prices();
+    let wbtc_round = t.env.ledger().timestamp();
+    t.advance_time(FEED_STALL_SECS);
+    let wbtc = t.resolve_market("WBTC");
+    let reflector = t.mock_reflector_client();
+    reflector.set_price_at(&wbtc.asset, &wbtc.price_wad, &wbtc_round);
+    reflector.set_twap_price_at(&wbtc.asset, &wbtc.price_wad, &wbtc_round);
+    (t, alice, bob)
+}
+
+/// CR-16: a debt-free account has no health factor to gate, so the full-tuple
+/// refresh reads no price and a stalled collateral feed cannot revert it.
+#[test]
+fn test_update_account_threshold_full_tuple_skips_prices_for_debt_free_account() {
+    let (t, alice, _) = debt_free_account_beside_a_stalled_feed();
+
+    t.try_update_account_threshold(true, &[alice])
+        .expect("a debt-free refresh reads no price");
+
+    let (lt, _, ltv) = supply_risk_fields(&t, alice, "USDC");
+    assert_eq!(
+        (ltv, lt),
+        (5_000, 6_100),
+        "the debt-free account takes the new tuple"
+    );
+}
+
+/// CR-16: a stalled debt-free account no longer rolls back an indebted account
+/// in the same batch.
+#[test]
+fn test_update_account_threshold_batch_with_stalled_debt_free_account_lands() {
+    let (t, alice, bob) = debt_free_account_beside_a_stalled_feed();
+
+    t.try_update_account_threshold(true, &[bob, alice])
+        .expect("the batch lands");
+
+    assert_eq!(supply_threshold_bps(&t, bob, "USDC"), 6_100);
+    assert_eq!(supply_threshold_bps(&t, alice, "USDC"), 6_100);
+}
