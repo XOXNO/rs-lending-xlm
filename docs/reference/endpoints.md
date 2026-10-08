@@ -227,6 +227,8 @@ Constructor `(admin: Address, min_delay: u32)` initializes the owner, access-con
 
 Governance exports no generic `grant_role`, `revoke_role`, `renounce_ownership`, `get_owner`, `schedule`, or `update_delay` endpoint. Role, owner, delay and upgrade changes go through `AdminOperation` handlers. The exceptions are `revoke_role_immediate`, the canceller reset and `accept_ownership`.
 
+`AdminOperation::TransferGovOwnership` with `live_until_ledger = 0` cancels a nomination. `propose` records the nomination nonce; every nomination advances it. At execution the cancel clears the pending owner only when no nomination has been made since and `new_owner` is still pending; otherwise it completes without effect, so it cannot void a later nomination.
+
 `AdminOperation::RelaxSpokeAssetFlags(RelaxSpokeAssetFlagsArgs)` schedules controller `relax_spoke_asset_flags` on the Standard delay tier. `propose` rejects it with `SpokeFlagsEpochMismatch` when `expected_epoch` differs from the listing's live flags epoch; execution checks the epoch again.
 
 ## Position NFT

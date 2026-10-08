@@ -119,13 +119,17 @@ pub(crate) fn apply_upgrade(env: &Env, new_wasm_hash: &BytesN<32>) {
 }
 
 /// Renews the governance instance's storage TTL, updates the pending-owner
-/// entry for `new_owner` (recording it as pending until `live_until_ledger`,
-/// or clearing an existing pending transfer to it when `live_until_ledger`
-/// is zero), emits an ownership-transfer event, and mirrors the pending
-/// transfer onto the access-control admin role.
+/// entry for `new_owner` (recording it as pending until `live_until_ledger`
+/// and advancing the nomination nonce, or clearing an existing pending
+/// transfer to it when `live_until_ledger` is zero), emits an
+/// ownership-transfer event, and mirrors the pending transfer onto the
+/// access-control admin role.
 pub(crate) fn apply_transfer_ownership(env: &Env, new_owner: &Address, live_until_ledger: u32) {
     renew_instance(env);
     let current_owner = owner_or_panic(env);
+    if live_until_ledger != 0 {
+        storage::bump_nomination_nonce(env);
+    }
 
     role_transfer::transfer_role(
         env,
@@ -135,6 +139,18 @@ pub(crate) fn apply_transfer_ownership(env: &Env, new_owner: &Address, live_unti
     );
     ownable::emit_ownership_transfer(env, &current_owner, new_owner, live_until_ledger);
     sync_pending_admin_transfer(env, new_owner, live_until_ledger);
+}
+
+/// Returns whether a nomination cancellation recorded against nomination
+/// `nonce` still targets the live nomination: no nomination has been made
+/// since, and `new_owner` is the pending owner.
+pub(crate) fn nomination_cancel_is_current(env: &Env, new_owner: &Address, nonce: u64) -> bool {
+    nonce == storage::nomination_nonce(env)
+        && env
+            .storage()
+            .temporary()
+            .get::<_, role_transfer::PendingTransfer>(&ownable::OwnableStorageKey::PendingOwner)
+            .is_some_and(|pending| &pending.address == new_owner)
 }
 
 /// Panics with `GenericError::InvalidRole` if granting `role` to `account`

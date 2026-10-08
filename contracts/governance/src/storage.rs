@@ -1,7 +1,8 @@
 //! Persistent and instance storage access for the governance contract:
-//! controller and price-aggregator addresses, the owner epoch, and
-//! per-operation sidecar state (role-revocation target, recovery-operation
-//! marker, proposal owner epoch).
+//! controller and price-aggregator addresses, the owner epoch, the
+//! ownership-nomination nonce, and per-operation sidecar state
+//! (role-revocation target, recovery-operation marker, proposal owner epoch,
+//! cancelled nomination).
 
 use common::constants::{TTL_BUMP_SHARED, TTL_THRESHOLD_SHARED};
 use common::errors::GenericError;
@@ -9,7 +10,8 @@ use common::errors::GenericError;
 use soroban_sdk::{contracttype, panic_with_error, Address, BytesN, Env};
 
 /// Storage keys for governance contract state. `RoleRevocationTarget`,
-/// `RecoveryOp` and `ProposalOwnerEpoch` are keyed per timelock operation id.
+/// `RecoveryOp`, `ProposalOwnerEpoch` and `CancelledNomination` are keyed per
+/// timelock operation id.
 #[contracttype]
 #[derive(Clone, Debug)]
 enum GovernanceKey {
@@ -19,6 +21,8 @@ enum GovernanceKey {
     RecoveryOp(BytesN<32>),
     OwnerEpoch,
     ProposalOwnerEpoch(BytesN<32>),
+    NominationNonce,
+    CancelledNomination(BytesN<32>),
 }
 
 /// Records `account` as the role-revocation target for `operation_id` in
@@ -78,6 +82,43 @@ pub(crate) fn proposal_owner_epoch(env: &Env, operation_id: &BytesN<32>) -> Opti
         .get(&GovernanceKey::ProposalOwnerEpoch(operation_id.clone()))
 }
 
+/// Returns the number of ownership nominations made, 0 before the first.
+pub(crate) fn nomination_nonce(env: &Env) -> u64 {
+    env.storage()
+        .instance()
+        .get(&GovernanceKey::NominationNonce)
+        .unwrap_or(0)
+}
+
+/// Advances the nomination nonce. Panics with `GenericError::MathOverflow`
+/// on overflow.
+pub(crate) fn bump_nomination_nonce(env: &Env) {
+    let next = nomination_nonce(env)
+        .checked_add(1)
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
+    env.storage()
+        .instance()
+        .set(&GovernanceKey::NominationNonce, &next);
+}
+
+/// Records the current nomination nonce as the nomination that the
+/// cancellation `operation_id` targets, and extends the entry's TTL.
+pub(crate) fn mark_cancelled_nomination(env: &Env, operation_id: &BytesN<32>) {
+    let key = GovernanceKey::CancelledNomination(operation_id.clone());
+    env.storage().persistent().set(&key, &nomination_nonce(env));
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, TTL_THRESHOLD_SHARED, TTL_BUMP_SHARED);
+}
+
+/// Returns the nomination nonce the cancellation `operation_id` targets, or
+/// `None` if the operation carries no such record.
+pub(crate) fn cancelled_nomination(env: &Env, operation_id: &BytesN<32>) -> Option<u64> {
+    env.storage()
+        .persistent()
+        .get(&GovernanceKey::CancelledNomination(operation_id.clone()))
+}
+
 /// Removes every sidecar entry recorded for `operation_id` from persistent
 /// storage.
 pub(crate) fn clear_operation_sidecars(env: &Env, operation_id: &BytesN<32>) {
@@ -90,6 +131,9 @@ pub(crate) fn clear_operation_sidecars(env: &Env, operation_id: &BytesN<32>) {
     env.storage()
         .persistent()
         .remove(&GovernanceKey::ProposalOwnerEpoch(operation_id.clone()));
+    env.storage()
+        .persistent()
+        .remove(&GovernanceKey::CancelledNomination(operation_id.clone()));
 }
 
 /// Returns the account recorded as the role-revocation target for

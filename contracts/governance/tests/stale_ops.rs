@@ -279,3 +279,102 @@ fn legacy_canceller_reset_is_rejected_after_a_handover() {
     assert_eq!(execute_reset(&gov, &list, &salt), Err(not_authorized()));
     assert!(!gov.has_role(&planted, &Symbol::new(&env, CANCELLER_ROLE)));
 }
+
+fn cancel_nomination(to: &Address) -> AdminOperation {
+    AdminOperation::TransferGovOwnership(TransferOwnershipArgs {
+        new_owner: to.clone(),
+        live_until_ledger: 0,
+    })
+}
+
+fn pending_owner(env: &Env, gov: &GovernanceClient<'_>) -> Option<Address> {
+    env.as_contract(&gov.address, || {
+        env.storage()
+            .temporary()
+            .get::<_, stellar_access::role_transfer::PendingTransfer>(
+                &ownable::OwnableStorageKey::PendingOwner,
+            )
+            .map(|pending| pending.address)
+    })
+}
+
+#[test]
+fn nomination_cancel_outrun_by_another_nomination_is_consumed_as_a_no_op() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (o1, _controller, gov) = register_with_controller(&env, MIN_DELAY);
+    let (x, y) = (Address::generate(&env), Address::generate(&env));
+    let nominate_x = queue(&gov, &o1, transfer(&env, &x), 1);
+    wait_sensitive(&env);
+    execute_self(&gov, &nominate_x).expect("X is nominated");
+    let cancel_x = queue(&gov, &o1, cancel_nomination(&x), 2);
+    let nominate_y = queue(&gov, &o1, transfer(&env, &y), 3);
+    wait_sensitive(&env);
+    execute_self(&gov, &nominate_y).expect("Y replaces X");
+
+    execute_self(&gov, &cancel_x).expect("the outrun cancel is consumed");
+
+    assert_eq!(gov.get_operation_state(&cancel_x.id), OperationState::Unset);
+    assert_eq!(pending_owner(&env, &gov), Some(y));
+}
+
+#[test]
+fn nomination_cancel_cannot_void_a_later_nomination_of_the_same_account() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (o1, _controller, gov) = register_with_controller(&env, MIN_DELAY);
+    let x = Address::generate(&env);
+    let first = queue(&gov, &o1, transfer(&env, &x), 1);
+    wait_sensitive(&env);
+    execute_self(&gov, &first).expect("X is nominated");
+    let cancel_x = queue(&gov, &o1, cancel_nomination(&x), 2);
+    let second = queue(&gov, &o1, transfer(&env, &x), 3);
+    wait_sensitive(&env);
+    execute_self(&gov, &second).expect("X is nominated again");
+
+    execute_self(&gov, &cancel_x).expect("the stale cancel is consumed");
+
+    assert_eq!(pending_owner(&env, &gov), Some(x.clone()));
+    gov.accept_ownership();
+    assert_eq!(owner(&env, &gov), x);
+}
+
+#[test]
+fn nomination_cancel_clears_the_nomination_it_was_proposed_against() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (o1, _controller, gov) = register_with_controller(&env, MIN_DELAY);
+    let x = Address::generate(&env);
+    let nominate_x = queue(&gov, &o1, transfer(&env, &x), 1);
+    wait_sensitive(&env);
+    execute_self(&gov, &nominate_x).expect("X is nominated");
+    let cancel_x = queue(&gov, &o1, cancel_nomination(&x), 2);
+    wait_sensitive(&env);
+
+    execute_self(&gov, &cancel_x).expect("the cancel executes");
+
+    assert_eq!(pending_owner(&env, &gov), None);
+    assert!(gov.try_accept_ownership().is_err());
+}
+
+#[test]
+fn legacy_nomination_cancel_keeps_its_unbound_behaviour() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (o1, _controller, gov) = register_with_controller(&env, MIN_DELAY);
+    let x = Address::generate(&env);
+    let first = queue(&gov, &o1, transfer(&env, &x), 1);
+    wait_sensitive(&env);
+    execute_self(&gov, &first).expect("X is nominated");
+    let cancel_x = queue(&gov, &o1, cancel_nomination(&x), 2);
+    env.as_contract(&gov.address, || {
+        storage::clear_operation_sidecars(&env, &cancel_x.id);
+    });
+    let second = queue(&gov, &o1, transfer(&env, &x), 3);
+    wait_sensitive(&env);
+    execute_self(&gov, &second).expect("X is nominated again");
+
+    execute_self(&gov, &cancel_x).expect("a cancel scheduled before the upgrade still applies");
+
+    assert_eq!(pending_owner(&env, &gov), None);
+}

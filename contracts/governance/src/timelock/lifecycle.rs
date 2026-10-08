@@ -65,6 +65,11 @@ pub(crate) fn propose(
     if owner_only {
         storage::mark_proposal_owner_epoch(env, &operation_id);
     }
+    if let AdminOperation::TransferGovOwnership(args) = op {
+        if args.live_until_ledger == 0 {
+            storage::mark_cancelled_nomination(env, &operation_id);
+        }
+    }
     operation_id
 }
 
@@ -126,6 +131,10 @@ pub(crate) fn execute(
 /// Executes a scheduled admin operation that targets this contract itself, once
 /// its delay has elapsed and it has not expired. Rejects operations resolved to a
 /// different target. Clears the operation's scheduled state on completion.
+///
+/// A nomination cancellation (`TransferGovOwnership` with `live_until_ledger`
+/// 0) recorded against an earlier nomination, or whose account is no longer
+/// pending, completes without changing the pending owner.
 pub(crate) fn execute_self(
     env: &Env,
     executor: Option<Address>,
@@ -140,8 +149,21 @@ pub(crate) fn execute_self(
     );
     let operation_id = prepare_execute(env, executor.as_ref(), &operation);
     set_execute_operation(env, &operation);
-    apply_self_op(env, op);
+    if targets_live_state(env, &operation_id, op) {
+        apply_self_op(env, op);
+    }
     finish_execute(env, &operation_id);
+}
+
+/// Returns `false` only for a nomination cancellation whose recorded
+/// nomination is no longer the pending one.
+fn targets_live_state(env: &Env, operation_id: &BytesN<32>, op: &AdminOperation) -> bool {
+    match (op, storage::cancelled_nomination(env, operation_id)) {
+        (AdminOperation::TransferGovOwnership(args), Some(nonce)) => {
+            access::nomination_cancel_is_current(env, &args.new_owner, nonce)
+        }
+        _ => true,
+    }
 }
 
 /// Cancels a pending operation; requires the caller to hold `CANCELLER_ROLE`.

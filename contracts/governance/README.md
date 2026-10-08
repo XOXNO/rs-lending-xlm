@@ -24,6 +24,11 @@ are in its rustdoc.
   re-proposed op a new id.
 - An op executes once ready and before it expires. `execute` runs ops that
   target another contract; `execute_self` runs ops that target governance.
+- `TransferGovOwnership` with `live_until_ledger` 0 cancels a nomination. It
+  writes a `CancelledNomination` sidecar holding the nomination nonce, which
+  every nomination advances. At execution it clears the pending owner only if
+  no nomination has been made since and `new_owner` is still pending;
+  otherwise it completes as a no-op and is consumed.
 - An expired op stays `Ready` until its id is proposed again: `propose` and
   `propose_canceller_reset` remove an expired entry with the same id and its
   sidecars, emit `ExpiredOperationClearedEvent`, then schedule afresh.
