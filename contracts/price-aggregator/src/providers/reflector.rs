@@ -22,9 +22,9 @@ use crate::session::Session;
 /// `max_stale`: the quote base is denominated as `quote` requires, reported
 /// decimals match `decimals`, and the resolution is at least
 /// `MIN_ORACLE_RESOLUTION_SECONDS` and at most `max_stale`. For TWAP mode,
-/// also checks that the span covered by the requested record count does not
-/// exceed `max_stale`. Panics with `InvalidOracleBase`,
-/// `InvalidOracleDecimals` or `InvalidOracleResolution`.
+/// also checks that the age a read can date itself to, `records + 1`
+/// resolution periods, does not exceed `max_stale`. Panics with
+/// `InvalidOracleBase`, `InvalidOracleDecimals` or `InvalidOracleResolution`.
 ///
 /// `quote` is `None` for a bare feed and `Some` for the factor leg of a
 /// `Scaled` source. See [`attest_base`] for the rule each case enforces.
@@ -51,7 +51,7 @@ pub(crate) fn attest(
     if let OracleReadMode::Twap(records) = feed.read_mode {
         assert_with_error!(
             env,
-            twap_required_span(records, resolution) <= max_stale,
+            twap_read_age(records, resolution) <= max_stale,
             OracleError::InvalidOracleResolution
         );
     }
@@ -60,6 +60,21 @@ pub(crate) fn attest(
 /// Seconds a `Twap(records)` window spans at `resolution`.
 fn twap_required_span(records: u32, resolution: u32) -> u64 {
     u64::from(records.saturating_sub(1)).saturating_mul(u64::from(resolution))
+}
+
+/// Oldest age a `Twap(records)` read reaches while Reflector publishes every
+/// round: it returns `records + 1` rounds, the oldest one `records`
+/// resolutions before the newest, and the newest is up to one resolution old.
+/// A `max_stale` below this is stale on every read.
+///
+/// The bound does not reserve a further period for a late or missed round,
+/// so a read at this exact budget can be stale for the publication delay at
+/// the end of each round. A wider margin is the operator's choice of
+/// `max_stale`.
+fn twap_read_age(records: u32, resolution: u32) -> u64 {
+    u64::from(records)
+        .saturating_add(1)
+        .saturating_mul(u64::from(resolution))
 }
 
 /// Panics with `InvalidOracleBase` unless a Reflector contract's quote base

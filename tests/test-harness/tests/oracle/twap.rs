@@ -191,6 +191,9 @@ fn test_twap_invalid_price_blocks_strict_borrow() {
 fn test_twap_stale_history_blocks_strict_borrow() {
     let mut t = setup();
     let usdc_asset = t.resolve_asset("USDC");
+    // Mode 5 dates the oldest sample at timestamp 1; move the ledger far
+    // enough that this is past the harness's 1,200 s Reflector budget.
+    t.advance_time(2_000);
     t.mock_reflector_client()
         .set_twap_history_mode(&usdc_asset, &5);
 

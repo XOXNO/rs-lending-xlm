@@ -211,6 +211,51 @@ fn test_set_oracle_attests_the_factor_leg_of_a_scaled_source() {
     });
 }
 
+/// `TwapReflector` serves a 300 s resolution, so a `Twap(3)` read can date
+/// itself `(3 + 1) * 300` seconds back: the window plus the current period.
+const TWAP_THREE_READ_AGE_SECS: u64 = 1_200;
+
+fn twap_oracle_with_budget(env: &Env, contract: &Address, max_stale: u64) -> AssetOracle {
+    let mut cfg = reflector_oracle(env, contract, 14);
+    let mut leg = reflector_leg(env, contract, 14);
+    leg.max_stale_seconds = max_stale;
+    cfg.sources = Vec::from_array(env, [PriceSource::Feed(leg)]);
+    cfg
+}
+
+#[test]
+fn test_set_oracle_accepts_a_twap_budget_covering_the_window_and_current_period() {
+    let env = Env::default();
+    env.ledger().set_timestamp(1_000_000);
+    with_contract(&env, || {
+        let reflector = env.register(TwapReflector, ());
+        let key = PriceKey::Token(Address::generate(&env));
+        set_oracle(
+            &env,
+            key.clone(),
+            twap_oracle_with_budget(&env, &reflector, TWAP_THREE_READ_AGE_SECS),
+        );
+        assert!(get_oracle(&env, &key).is_some());
+    });
+}
+
+/// A budget that covers only the `records - 1` spacings is stale on every
+/// read of a provider that answers with `records + 1` rounds.
+#[test]
+#[should_panic(expected = "Error(Contract, #222)")]
+fn test_set_oracle_rejects_a_twap_budget_shorter_than_the_oldest_read_sample() {
+    let env = Env::default();
+    env.ledger().set_timestamp(1_000_000);
+    with_contract(&env, || {
+        let reflector = env.register(TwapReflector, ());
+        set_oracle(
+            &env,
+            PriceKey::Token(Address::generate(&env)),
+            twap_oracle_with_budget(&env, &reflector, TWAP_THREE_READ_AGE_SECS - 1),
+        );
+    });
+}
+
 fn xoxno_oracle(env: &Env, contract: &Address, max_stale: u64) -> AssetOracle {
     let mut sources = Vec::new(env);
     sources.push_back(PriceSource::Feed(FeedSource {
