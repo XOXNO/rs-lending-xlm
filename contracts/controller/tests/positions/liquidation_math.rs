@@ -178,7 +178,15 @@ fn run_seizure(env: &Env, fees_bps: u32, repay_usd_raw: i128, bonus_bps: i128) -
         cache.set_prices(single_price(env, &hub_asset.asset));
         cache.put_market_index(&hub_asset, &index_raw());
         let plan = plan_for_seizure(env, repay_usd_raw, bonus_bps);
-        calculate_seized_collateral(env, &account, Wad::from(1_000 * WAD), &plan, &mut cache).0
+        calculate_seized_collateral(
+            env,
+            &account,
+            Wad::from(1_000 * WAD),
+            Wad::from(1_000 * WAD),
+            &plan,
+            &mut cache,
+        )
+        .0
     })
 }
 
@@ -392,7 +400,7 @@ fn seize_from_one_leg(
         cache.put_market_index(&hub_asset, &index_raw());
         let total = Ray::from(scaled).to_wad(env);
         let plan = plan_for_seizure(env, repay_usd_raw, 0);
-        calculate_seized_collateral(env, &account, total, &plan, &mut cache)
+        calculate_seized_collateral(env, &account, total, total, &plan, &mut cache)
     })
 }
 
@@ -1391,6 +1399,7 @@ fn full_close_in_the_solvent_toxic_band_pays_the_liquidator_a_positive_net() {
             &env,
             &account,
             Wad::from(collateral_tokens * WAD),
+            Wad::from(collateral_tokens * WAD),
             &plan,
             &mut cache,
         )
@@ -1428,6 +1437,7 @@ fn seize_at(env: &Env, collateral_tokens: i128, repaid_usd: i128) -> SeizeEntry 
         calculate_seized_collateral(
             env,
             &account,
+            Wad::from(collateral_tokens * WAD),
             Wad::from(collateral_tokens * WAD),
             &plan,
             &mut cache,
@@ -1581,7 +1591,15 @@ fn seize_legs(
             );
         }
         let plan = plan_for_seizure(env, repay_usd_raw, plan_bonus_bps);
-        calculate_seized_collateral(env, &account, total_collateral, &plan, &mut cache).0
+        calculate_seized_collateral(
+            env,
+            &account,
+            total_collateral,
+            total_collateral,
+            &plan,
+            &mut cache,
+        )
+        .0
     });
 
     (assets, seized)
@@ -2681,9 +2699,15 @@ fn liquidate_slice(
         let payments = vec![env, (book.debt.clone(), offer_stroops)];
         let plan =
             normalize_repayment_plan(env, &account, &payments, &s, bounds, &curve, &mut cache);
-        let seized =
-            calculate_seized_collateral(env, &account, totals.total_collateral, &plan, &mut cache)
-                .0;
+        let seized = calculate_seized_collateral(
+            env,
+            &account,
+            totals.total_collateral,
+            totals.total_debt,
+            &plan,
+            &mut cache,
+        )
+        .0;
 
         SliceOutcome {
             seized: seized.iter().map(|e| e.amount).sum(),

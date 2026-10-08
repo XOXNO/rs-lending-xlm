@@ -4,6 +4,7 @@
 //!
 //! Tests prefixed `zdc_`. Tables print with `--nocapture`.
 
+use common::math::fp_core::mul_div_floor;
 use common::types::{HubAssetKey, InterestRateModel, LiquidationEstimate, SeizeMode};
 use common::validation::max_cap_for_decimals;
 use controller::constants::{RAY, WAD};
@@ -687,6 +688,76 @@ fn zdc_insolvent_underpaid_offer_does_not_seize_all() {
         out.paid_usdc_raw >= fair && out.paid_usdc_raw <= fair + 1,
         "paid {} for 4 units, fair {fair}",
         out.paid_usdc_raw
+    );
+}
+
+/// MC-5. Two units at $800 back $560 of paused USDC and $620 of XLM: HF 0.95,
+/// solvent. Repaying the whole XLM leg backs less than one unit at the curve
+/// bonus, and liquidation cannot repay the paused leg, but $620 backs a unit at
+/// the account's `C / D`. The call sells that unit and `C / D` does not fall.
+#[test]
+fn zdc_paused_debt_leg_leaves_the_account_liquidatable_by_one_unit() {
+    let mut z = setup(nav(1_000));
+    let xlm = HubAssetKey {
+        hub_id: HARNESS_HUB,
+        asset: z.t.resolve_asset("XLM"),
+    };
+    let admin = z.t.admin();
+    z.t.gov_client().execute_immediate(
+        &admin,
+        &AdminOperation::AddAssetToSpoke(SpokeAssetArgs {
+            hub_id: HARNESS_HUB,
+            asset: xlm.asset.clone(),
+            spoke_id: z.spoke,
+            can_collateral: false,
+            can_borrow: true,
+            paused: false,
+            frozen: false,
+            no_seize: false,
+            ltv: 7_500,
+            threshold: 8_000,
+            bonus: 500,
+            liquidation_fees: 0,
+            supply_cap: USDC_CAP_RAW,
+            borrow_cap: USDC_CAP_RAW,
+        }),
+    );
+    let id = z.supply("alice", 0, 2);
+    z.borrow("alice", id, usdc_raw(560));
+    let xlm_debt = 6_200 * USDC_UNIT;
+    let alice = z.user("alice");
+    z.t.ctrl_client()
+        .borrow(&alice, &id, &vec![&z.t.env, (xlm.clone(), xlm_debt)], &None);
+    z.t.ctrl_client()
+        .set_spoke_asset_flags(&z.spoke, &z.usdc_key(), &true, &false, &false);
+    z.t.set_price(LIQ, nav(800));
+    assert!(z.hf(id) < WAD);
+    let (collateral, debt) = (
+        z.t.ctrl_client().get_total_collateral_usd(&id),
+        z.t.ctrl_client().get_total_borrow_usd(&id),
+    );
+    assert!(collateral >= debt, "the account is solvent");
+
+    let liquidator = z.user("liquidator");
+    z.t.resolve_market("XLM")
+        .token_admin
+        .mint(&liquidator, &xlm_debt);
+    z.t.ctrl_client().liquidate(
+        &liquidator,
+        &id,
+        &vec![&z.t.env, (xlm.clone(), xlm_debt)],
+        &SeizeMode::Transfer,
+    );
+
+    assert_eq!(z.liq_balance(&liquidator), 1, "one unit is sold");
+    assert_eq!(z.collateral_units(id), 1);
+    let (collateral_after, debt_after) = (
+        z.t.ctrl_client().get_total_collateral_usd(&id),
+        z.t.ctrl_client().get_total_borrow_usd(&id),
+    );
+    assert!(
+        mul_div_floor(&z.t.env, collateral_after, debt, debt_after) >= collateral,
+        "C / D does not fall"
     );
 }
 

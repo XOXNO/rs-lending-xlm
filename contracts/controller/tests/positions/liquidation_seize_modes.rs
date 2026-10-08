@@ -288,6 +288,7 @@ fn run_seizure(
             env,
             &account,
             Wad::from(total_collateral_wad),
+            Wad::from(total_collateral_wad),
             &plan,
             &mut cache,
         )

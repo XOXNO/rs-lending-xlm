@@ -330,6 +330,14 @@ one-unit sale or by a full close. There is one exception. While
 rule 2 applies. If the curve quote then backs less than one unit, every offer
 reverts until accrual or a price move ends that state.
 
+A paused debt leg cannot be repaid, so the other legs may back less than one
+unit at `1 + b`. When a plan repays every unpaused leg at its ceiling-rounded
+balance, leaves at least one paused leg unpaid, and its repayment `x` backs one
+unit at the account's ratio, `U * D <= x * C`, a seizure that rounds down to
+zero takes one unit instead. `C / D` does not fall, and the effective bonus is
+`U / x - 1`, at most `C / D - 1`; `bonus_bps` still shows `b`. A smaller offer,
+or one that leaves an unpaused leg partly unpaid, still reverts.
+
 A rule-1 full close pays the liquidator one unit worth `U` for `D`. Its
 effective bonus is `U / D - 1`, not `b`. With `k` held units and liquidation
 threshold `LT`, `HF < 1` gives `k * U * LT < D`, so the effective bonus is at

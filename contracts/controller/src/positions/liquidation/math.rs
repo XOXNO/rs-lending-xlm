@@ -361,6 +361,9 @@ pub(crate) fn sum_repaid_usd(env: &Env, repaid_tokens: &Vec<RepayEntry>) -> Wad 
 ///
 /// A partial leg below `MIN_BORROWABLE_ASSET_DECIMALS` seizes whole units only:
 /// rounded up to the held balance when the plan repays all debt, down otherwise.
+/// A seizure that rounds down to zero takes one unit instead when a paused debt
+/// leg is all the plan leaves unpaid and the repayment backs that unit at the
+/// account's `C / D`, so the ratio does not fall.
 /// Returns the seizures and the repayment USD that the dropped fractions no
 /// longer back, floored so the kept repayment rounds toward the protocol.
 ///
@@ -372,6 +375,7 @@ pub(crate) fn calculate_seized_collateral(
     env: &Env,
     account: &Account,
     total_collateral: Wad,
+    total_debt: Wad,
     repayment: &NormalizedRepaymentPlan,
     cache: &mut Context,
 ) -> (Vec<SeizeEntry>, Wad) {
@@ -415,6 +419,21 @@ pub(crate) fn calculate_seized_collateral(
                 seizure_ray = Ray::from_asset(env, whole, feed.asset_decimals).min(actual_ray);
             } else {
                 let mut whole = seizure_ray.to_asset_floor(env, feed.asset_decimals);
+                if whole == 0 {
+                    let unit_usd =
+                        Wad::from_token(env, 1, feed.asset_decimals).mul(env, feed.price);
+                    let leg_repay_usd = repayment.repay_usd.mul(env, share);
+                    if backs_unit_at_coverage(
+                        env,
+                        leg_repay_usd,
+                        unit_usd,
+                        total_collateral,
+                        total_debt,
+                    ) && leaves_only_paused_debt(env, account, &repayment.repaid, cache)
+                    {
+                        whole = 1;
+                    }
+                }
                 if whole > 0
                     && pool_closes_position(
                         env,
@@ -533,6 +552,56 @@ pub(crate) fn calculate_seized_collateral(
     }
 
     (seized, unseized_usd.div_floor(env, one_plus_bonus))
+}
+
+/// Returns whether `repay_usd` backs `unit_usd` at the collateral-to-debt ratio,
+/// `unit * D <= repay * C`, so selling the unit for it does not lower `C / D`.
+fn backs_unit_at_coverage(
+    env: &Env,
+    repay_usd: Wad,
+    unit_usd: Wad,
+    total_collateral: Wad,
+    total_debt: Wad,
+) -> bool {
+    total_debt > Wad::ZERO
+        && mul_div_floor(
+            env,
+            repay_usd.raw(),
+            total_collateral.raw(),
+            total_debt.raw(),
+        ) >= unit_usd.raw()
+}
+
+/// Returns whether every debt leg the plan leaves unpaid is paused in the
+/// account's spoke, with at least one such leg: liquidation repays every leg it
+/// may at its ceiling-rounded balance.
+fn leaves_only_paused_debt(
+    env: &Env,
+    account: &Account,
+    repaid: &Vec<RepayEntry>,
+    cache: &mut Context,
+) -> bool {
+    let mut paused_leg_left = false;
+    for (hub_asset, raw) in account.borrow_positions.iter() {
+        let position: DebtPosition = (&raw).into();
+        let borrow_index = cache.cached_market_index(&hub_asset).borrow_index;
+        let decimals = cache.cached_price(&hub_asset.asset).asset_decimals;
+        let ceil = unscale_borrow_ceil(env, position.scaled_amount, borrow_index, decimals);
+        if repaid
+            .iter()
+            .any(|entry| entry.hub_asset == hub_asset && entry.amount >= ceil)
+        {
+            continue;
+        }
+        let paused = cache
+            .cached_spoke_asset(account.spoke_id, &hub_asset)
+            .is_some_and(|config| config.paused);
+        if !paused {
+            return false;
+        }
+        paused_leg_left = true;
+    }
+    paused_leg_left
 }
 
 /// Returns whether the pool closes the whole position for a withdrawal of `amount`.
