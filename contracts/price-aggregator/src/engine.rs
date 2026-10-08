@@ -291,8 +291,10 @@ fn compute_hard(
 /// (for example a scaled source's quote leg). Returns the session-cached price
 /// or cached error if present, after validating that the cached path still
 /// respects the depth and cycle-detection limits at `depth`. Otherwise computes
-/// the outcome fresh, caches either the resulting price or the resulting error
-/// on the session, and returns the corresponding `Result`.
+/// the outcome fresh, caches the resulting price or a position-independent
+/// error on the session, and returns the corresponding `Result`. Depth and
+/// cycle errors depend on where `key` sits in the resolution, so they are not
+/// cached; `validate_cached_path` re-derives them at each position.
 pub(crate) fn resolve_nested(
     session: &mut Session,
     key: &PriceKey,
@@ -308,7 +310,12 @@ pub(crate) fn resolve_nested(
     }
     let (outcome, oracle) = resolve_outcome(session, key, depth, None);
     if let Some(err) = outcome.failure(oracle.as_ref()) {
-        session.store_error(key, err);
+        if !matches!(
+            err,
+            OracleError::OracleDepthExceeded | OracleError::OracleCycleDetected
+        ) {
+            session.store_error(key, err);
+        }
         return Err(err);
     }
     let oracle = oracle.ok_or(OracleError::OracleNotConfigured)?;

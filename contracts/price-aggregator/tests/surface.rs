@@ -1345,3 +1345,68 @@ fn market_leg_past_its_own_budget_is_stale_under_a_loose_asset_ceiling() {
     market.set_price(&String::from_str(&env, "MKT"), &WAD);
     assert_eq!(hard_price(&env, &client, key).price_wad, WAD);
 }
+
+/// A depth failure depends on where a key sits in the resolution, so it must
+/// not be replayed when the same key is later resolved from a shallower
+/// position in the same `quotes` call. Only the testing ABI can seed a
+/// registry taller than `MAX_RESOLUTION_DEPTH`.
+#[test]
+fn quotes_do_not_replay_a_depth_failure_at_a_shallower_position() {
+    let env = Env::default();
+    env.mock_all_auths();
+    env.ledger().with_mut(|li| li.timestamp = 1_700_000_000);
+    let (_owner, client) = register_agg(&env);
+    let (feed, feed_client) = register_feed(&env);
+    feed_client.set_price(&String::from_str(&env, "BASE"), &WAD);
+    feed_client.set_price(&String::from_str(&env, "RATIO"), &WAD);
+
+    let reference = |name: &str| PriceKey::Ref(soroban_sdk::Symbol::new(&env, name));
+    let reference_oracle = |source: PriceSource| AssetOracle {
+        asset_decimals: 0,
+        max_price_stale_seconds: 900,
+        sources: soroban_sdk::vec![&env, source],
+        tolerance: OracleTolerance {
+            upper_ratio_bps: 10_500,
+            lower_ratio_bps: 9_524,
+        },
+        independence: IndependencePolicy::RequireDisjoint,
+        min_sanity_price_wad: WAD / 2,
+        max_sanity_price_wad: 2 * WAD,
+    };
+
+    let mut chain = std::vec![reference("L0")];
+    client.seed_oracle(
+        &chain[0],
+        &reference_oracle(redstone_feed(&env, &feed, "BASE", 900)),
+    );
+    for name in ["L1", "L2", "L3", "L4", "L5"] {
+        let key = reference(name);
+        let PriceSource::Feed(factor) = redstone_feed(&env, &feed, "RATIO", 900) else {
+            unreachable!("redstone_feed builds a Feed source");
+        };
+        client.seed_oracle(
+            &key,
+            &reference_oracle(PriceSource::Scaled(ScaledSource {
+                factor,
+                quote: chain.last().cloned().expect("chain starts non-empty"),
+                min_factor_wad: WAD,
+                max_factor_wad: WAD,
+            })),
+        );
+        chain.push(key);
+    }
+    let tall = chain[5].clone();
+    let short = chain[2].clone();
+
+    assert!(soft_quote(&env, &client, short.clone()).valid);
+    let batch = client.quotes(&Vec::from_array(&env, [tall.clone(), short.clone()]));
+    assert_eq!(
+        batch.get(tall).and_then(|status| status.error_code),
+        Some(Error::OracleDepthExceeded as u32)
+    );
+    let short_status = batch
+        .get(short)
+        .expect("quotes() must return every requested key");
+    assert!(short_status.valid, "{short_status:?}");
+    assert_eq!(short_status.final_wad, WAD);
+}
