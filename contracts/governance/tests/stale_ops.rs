@@ -13,7 +13,7 @@ use common::errors::GenericError;
 use common::types::PositionLimits;
 
 use crate::access::{CANCELLER_ROLE, GUARDIAN_ROLE, PROPOSER_ROLE};
-use crate::constants::TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS;
+use crate::constants::{TIMELOCK_RECOVERY_MIN_DELAY_LEDGERS, TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS};
 use crate::op::{AdminOperation, RoleArgs, TransferOwnershipArgs};
 use crate::test_support::register_with_controller;
 use crate::{storage, GovernanceClient};
@@ -175,4 +175,107 @@ fn owner_only_operation_without_an_owner_epoch_record_executes() {
 
     execute_self(&gov, &legacy).expect("an operation scheduled before the upgrade executes");
     assert!(gov.has_role(&guardian, &Symbol::new(&env, GUARDIAN_ROLE)));
+}
+
+fn reset_to(env: &Env, account: &Address) -> soroban_sdk::Vec<Address> {
+    soroban_sdk::vec![env, account.clone()]
+}
+
+fn wait_recovery(env: &Env) {
+    env.ledger()
+        .with_mut(|l| l.sequence_number += TIMELOCK_RECOVERY_MIN_DELAY_LEDGERS);
+}
+
+fn execute_reset(
+    gov: &GovernanceClient<'_>,
+    list: &soroban_sdk::Vec<Address>,
+    salt: &BytesN<32>,
+) -> Result<(), Error> {
+    match gov.try_execute_canceller_reset(&None, list, salt) {
+        Ok(_) => Ok(()),
+        Err(Ok(error)) => Err(error),
+        Err(Err(invoke)) => panic!("expected a contract error, got {invoke:?}"),
+    }
+}
+
+#[test]
+fn former_owner_canceller_reset_is_rejected_after_a_handover() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (o1, _controller, gov) = register_with_controller(&env, MIN_DELAY);
+    let (o2, planted) = (Address::generate(&env), Address::generate(&env));
+    let handover = queue(&gov, &o1, transfer(&env, &o2), 1);
+    let list = reset_to(&env, &planted);
+    let salt = BytesN::from_array(&env, &[2u8; 32]);
+    gov.propose_canceller_reset(&list, &salt);
+    wait_sensitive(&env);
+    hand_over(&gov, &handover, &o2);
+    wait_recovery(&env);
+
+    assert_eq!(execute_reset(&gov, &list, &salt), Err(not_authorized()));
+    let canceller = Symbol::new(&env, CANCELLER_ROLE);
+    assert!(!gov.has_role(&planted, &canceller));
+    assert!(gov.has_role(&o2, &canceller));
+}
+
+#[test]
+fn canceller_reset_proposed_by_the_new_owner_executes() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (o1, _controller, gov) = register_with_controller(&env, MIN_DELAY);
+    let (o2, chosen) = (Address::generate(&env), Address::generate(&env));
+    let handover = queue(&gov, &o1, transfer(&env, &o2), 1);
+    wait_sensitive(&env);
+    hand_over(&gov, &handover, &o2);
+    let list = reset_to(&env, &chosen);
+    let salt = BytesN::from_array(&env, &[2u8; 32]);
+    gov.propose_canceller_reset(&list, &salt);
+    wait_recovery(&env);
+
+    execute_reset(&gov, &list, &salt).expect("the new owner's reset executes");
+    assert!(gov.has_role(&chosen, &Symbol::new(&env, CANCELLER_ROLE)));
+}
+
+/// Rewrites a reset's sidecars to the form stored before resets recorded an
+/// owner epoch: the bare `RecoveryOp` marker.
+fn as_legacy_reset(env: &Env, gov: &GovernanceClient<'_>, id: &BytesN<32>) {
+    env.as_contract(&gov.address, || {
+        storage::clear_operation_sidecars(env, id);
+        storage::mark_recovery_op(env, id);
+    });
+}
+
+#[test]
+fn legacy_canceller_reset_executes_while_the_owner_is_unchanged() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_o1, _controller, gov) = register_with_controller(&env, MIN_DELAY);
+    let chosen = Address::generate(&env);
+    let list = reset_to(&env, &chosen);
+    let salt = BytesN::from_array(&env, &[2u8; 32]);
+    let id = gov.propose_canceller_reset(&list, &salt);
+    as_legacy_reset(&env, &gov, &id);
+    wait_recovery(&env);
+
+    execute_reset(&gov, &list, &salt).expect("a legacy reset executes under its owner");
+    assert!(gov.has_role(&chosen, &Symbol::new(&env, CANCELLER_ROLE)));
+}
+
+#[test]
+fn legacy_canceller_reset_is_rejected_after_a_handover() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (o1, _controller, gov) = register_with_controller(&env, MIN_DELAY);
+    let (o2, planted) = (Address::generate(&env), Address::generate(&env));
+    let handover = queue(&gov, &o1, transfer(&env, &o2), 1);
+    let list = reset_to(&env, &planted);
+    let salt = BytesN::from_array(&env, &[2u8; 32]);
+    let id = gov.propose_canceller_reset(&list, &salt);
+    as_legacy_reset(&env, &gov, &id);
+    wait_sensitive(&env);
+    hand_over(&gov, &handover, &o2);
+    wait_recovery(&env);
+
+    assert_eq!(execute_reset(&gov, &list, &salt), Err(not_authorized()));
+    assert!(!gov.has_role(&planted, &Symbol::new(&env, CANCELLER_ROLE)));
 }

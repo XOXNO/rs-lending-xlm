@@ -190,10 +190,20 @@ fn begin_immediate(env: &Env, caller: &Address, role: &str) {
     access_control::ensure_role(env, &Symbol::new(env, role), caller);
 }
 
+/// Owner epoch a recovery operation carrying only the bare `RecoveryOp`
+/// marker is bound to: such a reset was proposed before resets recorded an
+/// epoch, so it may execute only until the first ownership handover.
+const LEGACY_RECOVERY_OWNER_EPOCH: u64 = 0;
+
 /// Panics with `GenericError::NotAuthorized` if `operation_id` recorded an
-/// owner epoch that a later ownership handover has superseded.
+/// owner epoch that a later ownership handover has superseded. A recovery
+/// operation without a recorded epoch is bound to
+/// `LEGACY_RECOVERY_OWNER_EPOCH`.
 fn require_proposing_owner_tenure(env: &Env, operation_id: &BytesN<32>) {
-    if let Some(epoch) = storage::proposal_owner_epoch(env, operation_id) {
+    let recorded = storage::proposal_owner_epoch(env, operation_id).or_else(|| {
+        storage::is_recovery_op(env, operation_id).then_some(LEGACY_RECOVERY_OWNER_EPOCH)
+    });
+    if let Some(epoch) = recorded {
         assert_with_error!(
             env,
             epoch == storage::owner_epoch(env),
