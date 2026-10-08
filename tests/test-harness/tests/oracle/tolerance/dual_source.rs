@@ -102,7 +102,7 @@ fn test_liquidation_collateral_extraction_via_averaging() {
         c.liquidation_threshold = 9500;
     });
 
-    t.set_tolerance("ETH", test_harness::LOOSE_TOLERANCE);
+    t.seed_tolerance("ETH", test_harness::LOOSE_TOLERANCE);
 
     t.supply(ALICE, "ETH", 10.0);
 

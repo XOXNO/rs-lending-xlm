@@ -1,6 +1,7 @@
 use crate::context::LendingTest;
 use crate::oracle::config::{
-    tight_single_source_band, DEFAULT_MAX_SANITY_PRICE_WAD, DEFAULT_MIN_SANITY_PRICE_WAD,
+    tight_single_source_band, tolerance_band, DEFAULT_MAX_SANITY_PRICE_WAD,
+    DEFAULT_MIN_SANITY_PRICE_WAD,
 };
 use crate::presets::TolerancePreset;
 use controller::types::{
@@ -79,6 +80,18 @@ impl LendingTest {
                 tolerance: preset.tolerance_bps,
             }),
         );
+    }
+
+    /// Writes `preset` straight into the stored oracle, bypassing validation.
+    /// For the `enable_dual_source_oracle` fixture, whose two legs read one
+    /// mock contract: governance's tolerance edit validates the oracle and
+    /// holds such a pair to the single-source band, which the fixture's wide
+    /// band does not meet.
+    pub fn seed_tolerance(&self, asset_name: &str, preset: TolerancePreset) {
+        let key = PriceKey::Token(self.resolve_asset(asset_name));
+        let mut oracle = self.price_agg_client().oracle(&key).unwrap();
+        oracle.tolerance = tolerance_band(&self.env, preset.tolerance_bps);
+        self.price_agg_client().seed_oracle(&key, &oracle);
     }
 
     pub fn configure_market_oracle(&self, asset: &Address, oracle: &AssetOracle) {

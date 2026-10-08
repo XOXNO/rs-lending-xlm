@@ -378,10 +378,13 @@ fn register_btc_reference_sharing(env: &Env, reflector: &Address, adapter: &Addr
     let mut sources = one(env, PriceSource::Feed(twap_feed(env, reflector)));
     sources.push_back(PriceSource::Feed(nav_feed(env, adapter, "BTC")));
     let mut oracle = oracle_of(env, sources);
+    oracle.asset_decimals = 0;
     oracle.tolerance = OracleTolerance {
         upper_ratio_bps: 11_000,
         lower_ratio_bps: 9_091,
     };
+    oracle.min_sanity_price_wad = 20_000 * 10i128.pow(18);
+    oracle.max_sanity_price_wad = 300_000 * 10i128.pow(18);
     registry::store_oracle(env, &btc, &oracle);
     btc
 }
@@ -431,6 +434,63 @@ fn test_a_shared_contract_with_a_wide_factor_is_held_to_the_band_cap() {
 #[should_panic(expected = "Error(Contract, #226)")]
 fn test_a_shared_contract_reaching_the_quote_is_held_to_the_band_cap() {
     validate_solvbtc_sharing_its_quote(110 * 10i128.pow(16));
+}
+
+/// Admits the deployed SolvBTC shape, then applies `tolerance` to `target`:
+/// the SolvBTC key itself, or its BTC quote when `on_quote`.
+fn retune_solvbtc_shape(upper_ratio_bps: u32, lower_ratio_bps: u32, on_quote: bool) {
+    let env = Env::default();
+    let reflector = Address::generate(&env);
+    let adapter = Address::generate(&env);
+    let solvbtc = PriceKey::Token(Address::generate(&env));
+
+    with_contract(&env, || {
+        let btc = register_btc_reference_sharing(&env, &reflector, &adapter);
+        let declared = Vec::from_array(&env, [adapter.clone()]);
+        let mut oracle = solvbtc_oracle(
+            &env,
+            &adapter,
+            btc.clone(),
+            IndependencePolicy::AllowShared(declared),
+        );
+        oracle.max_sanity_price_wad = 300_000 * 10i128.pow(18);
+        crate::admin::validate_asset_oracle(&env, &solvbtc, &oracle);
+        registry::store_oracle(&env, &solvbtc, &oracle);
+
+        let target = if on_quote { btc } else { solvbtc };
+        crate::admin::set_tolerance(
+            &env,
+            target,
+            OracleTolerance {
+                upper_ratio_bps,
+                lower_ratio_bps,
+            },
+        );
+    });
+}
+
+/// Widening the pair tolerance to 10% lets the shared adapter move the price
+/// by 1.155 x 1.10, past 11/9, so the exempt band no longer validates.
+#[test]
+#[should_panic(expected = "Error(Contract, #226)")]
+fn test_set_tolerance_cannot_widen_an_exempt_pair_past_the_band_cap() {
+    retune_solvbtc_shape(11_000, 9_091, false);
+}
+
+/// A 4% tolerance keeps the shared adapter's reach at 1.155 x 1.04, inside
+/// 11/9.
+#[test]
+fn test_set_tolerance_within_the_cap_keeps_the_exemption() {
+    retune_solvbtc_shape(10_400, 9_615, false);
+}
+
+/// Widening the BTC quote's tolerance to 25% widens the shared adapter's
+/// reach into every pair built on it; the dependent SolvBTC pair is
+/// revalidated and refuses the change.
+#[test]
+#[should_panic(expected = "Error(Contract, #226)")]
+fn test_set_tolerance_on_a_quote_revalidates_its_dependents() {
+    retune_solvbtc_shape(12_500, 8_000, true);
 }
 
 fn store_single(env: &Env, key: PriceKey, source: PriceSource, asset_decimals: u32) {

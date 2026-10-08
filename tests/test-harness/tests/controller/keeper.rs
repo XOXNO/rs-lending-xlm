@@ -171,7 +171,7 @@ fn test_clean_bad_debt_rejected_under_oracle_deviation() {
 
     t.enable_dual_source_oracle("USDC");
 
-    t.set_tolerance("USDC", TIGHT_TOLERANCE);
+    t.seed_tolerance("USDC", TIGHT_TOLERANCE);
 
     t.supply(ALICE, "USDC", 10.0);
     t.borrow(ALICE, "ETH", 0.003);

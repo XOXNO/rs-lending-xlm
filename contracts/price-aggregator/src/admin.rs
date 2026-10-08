@@ -241,9 +241,14 @@ pub(crate) fn set_sanity_band(env: &Env, key: PriceKey, min_wad: i128, max_wad: 
 }
 
 /// Updates the tolerance of the oracle registered under `key`. Rejects Aquarius LP
-/// oracles, validates the new tolerance, re-probes the oracle, and commits the
-/// result to the registry. Panics if the oracle is not configured, has an
-/// Aquarius LP source, or the tolerance fails validation.
+/// oracles, validates the new tolerance and the oracle under it, re-probes the
+/// oracle, commits the result to the registry, and revalidates its dependents.
+/// Panics if the oracle is not configured, has an Aquarius LP source, or the
+/// tolerance fails validation for the key or any dependent.
+///
+/// The tolerance bounds how far a contract shared by the key's legs can move
+/// the blended price, which decides the key's own band-cap exemption and,
+/// through the key's quote role, those of its dependents.
 pub(crate) fn set_tolerance(env: &Env, key: PriceKey, tolerance: OracleTolerance) {
     let mut oracle = registry::get_oracle(env, &key)
         .unwrap_or_else(|| panic_with_error!(env, OracleError::OracleNotConfigured));
@@ -254,9 +259,11 @@ pub(crate) fn set_tolerance(env: &Env, key: PriceKey, tolerance: OracleTolerance
     );
     validate_oracle_tolerance(env, &tolerance);
     oracle.tolerance = tolerance;
+    validate_asset_oracle(env, &key, &oracle);
     let mut session = Session::new(env);
     engine::probe(&mut session, &key, &oracle);
     registry::commit(env, &key, &oracle);
+    revalidate_dependents(env, &key);
 }
 
 #[cfg(test)]
