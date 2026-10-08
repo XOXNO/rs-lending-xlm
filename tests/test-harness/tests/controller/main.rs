@@ -47,6 +47,7 @@ mod ownership;
 mod position_limit_lowering_keeps_topups;
 mod position_nft;
 mod position_nft_ttl_and_ownership_reads;
+mod recapitalization_survives_accrual;
 mod recipient_is_protocol_contract;
 mod repay;
 mod round_trip_exactness_and_loop_drift;

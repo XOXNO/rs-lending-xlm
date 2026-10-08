@@ -83,15 +83,21 @@ not increase.
 
 ### Backing and cash constraints
 
-The market's backing check uses native units:
+The market's backing check subtracts at RAY precision and floors once to native
+units:
 
 ```rust
-let shortfall = max(0, floor(supply_value) - (cash + ceil(debt_value)));
+let uncovered = floor_native(floor_ray(supplied * supply_index) - ceil_ray(borrowed * borrow_index));
+let shortfall = max(0, uncovered - cash);
 ```
 
-Addition and subtraction saturate. Supply entry rejects a positive shortfall.
-Recapitalization credits at most that shortfall, refunds excess and mints no
-shares.
+`uncovered` is 0 when debt value covers claims. Because cash is a whole number of
+native units, the shortfall is the floor of the exact gap between claims and
+cash plus debt. Supply entry rejects a positive shortfall. Recapitalization
+credits at most that shortfall, refunds excess and mints no shares; a full fill
+leaves an exact gap below one native unit. Accrual adds the same interest to
+claims and debt, up to RAY-precision rounding, so it does not turn that gap
+back into a shortfall.
 
 Borrow draws must retain a 200 BPS liquidation buffer, rounded up from the
 floored supplied token value. Borrow, user withdrawal and revenue claims

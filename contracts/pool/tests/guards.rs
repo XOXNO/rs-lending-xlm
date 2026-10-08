@@ -245,3 +245,54 @@ fn test_require_liquidation_buffer_admits_cash_at_the_rounded_up_reserve() {
         require_liquidation_buffer(&t.env, &cache, 999);
     });
 }
+
+/// One native unit of the 7-decimal test asset, in RAY.
+const NATIVE_UNIT_RAY: i128 = RAY / 10_000_000;
+
+/// Shortfall for claims and debt in tenths of a native unit (indexes at RAY)
+/// and cash in native units.
+fn shortfall_for(t: &TestSetup, claims_tenths: i128, debt_tenths: i128, cash: i128) -> i128 {
+    t.as_contract(|| {
+        let cache = cache_with(
+            &t.env,
+            &t.params,
+            claims_tenths * NATIVE_UNIT_RAY / 10,
+            debt_tenths * NATIVE_UNIT_RAY / 10,
+            cash,
+        );
+        backing_shortfall(&cache)
+    })
+}
+
+/// Claims 100.9, debt 50.1, cash 49: the exact gap is 1.8 units. Rounding
+/// claims and debt to whole units before subtracting would read 0.
+#[test]
+fn test_backing_shortfall_floors_the_exact_gap_once() {
+    let t = TestSetup::new();
+    assert_eq!(shortfall_for(&t, 1_009, 501, 49), 1);
+}
+
+/// Accrual moves claims and debt by the same interest; the shortfall follows
+/// the exact gap, not the fractional parts of either side.
+#[test]
+fn test_backing_shortfall_depends_only_on_the_exact_gap() {
+    let t = TestSetup::new();
+    assert_eq!(shortfall_for(&t, 1_011, 503, 49), 1);
+    assert_eq!(shortfall_for(&t, 1_019, 511, 49), 1);
+}
+
+/// A gap below one native unit reads 0, so supply stays open.
+#[test]
+fn test_backing_shortfall_reads_zero_below_one_unit() {
+    let t = TestSetup::new();
+    assert_eq!(shortfall_for(&t, 1_009, 510, 49), 0);
+    assert_eq!(shortfall_for(&t, 1_009, 519, 49), 0);
+}
+
+/// Debt value at or above claims leaves no shortfall, whatever the cash.
+#[test]
+fn test_backing_shortfall_is_zero_when_debt_covers_claims() {
+    let t = TestSetup::new();
+    assert_eq!(shortfall_for(&t, 1_000, 1_000, 0), 0);
+    assert_eq!(shortfall_for(&t, 1_000, 1_001, 0), 0);
+}

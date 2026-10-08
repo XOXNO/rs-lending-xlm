@@ -127,12 +127,15 @@ incoming collateral tokens.
 
 ### INV-ACCT-04 — Backing shortfall blocks new supply
 
-New token-funded supply rejects a positive backing shortfall. The check compares
-floored supplied claims against tracked cash plus ceiled debt value in native
-token units, using saturating arithmetic.
+New token-funded supply rejects a positive backing shortfall. The check
+subtracts ceiled debt value from floored supplied claims at RAY precision,
+floors the difference once to native token units, then subtracts tracked cash.
+The shortfall is the floor of the exact gap.
 
 Recapitalization fills at most that shortfall, refunds excess and mints no
-shares. It cannot restore a written-down index. The non-zero supply-index floor
+shares; a full fill leaves an exact gap below one native unit. Accrual adds the
+same interest to claims and debt, up to RAY-precision rounding, so it does not
+reopen that gap. It cannot restore a written-down index. The non-zero supply-index floor
 can leave residual claims requiring recapitalization; see the
 [backing calculation](formulas.md#backing-and-cash-constraints).
 
