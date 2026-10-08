@@ -141,6 +141,8 @@ pub(crate) fn process_flash_position(
             );
             (amount_received, collateral_before, refund_before)
         });
+    // The callback may move the position NFT; events name the current holder.
+    account.owner = storage::account_owner(env, account_id);
 
     let deposits = collect_collateral_deposits(env, &controller, collaterals, &collateral_before);
     process_deposit(env, &controller, &mut account, &deposits, &mut cache);
