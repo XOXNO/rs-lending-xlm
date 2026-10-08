@@ -18,13 +18,14 @@ use crate::session::Session;
 use crate::tolerance::{midpoint_price_or_zero, within_tolerance_band};
 
 /// A single source's resolved value: price, observation timestamp, whether it
-/// is considered stale, and the feed nature used to decide whether the two-leg
-/// age-spread bound applies.
+/// is considered stale, and the timestamp of its oldest market-nature input,
+/// which the two-leg age-spread bound compares. `market_timestamp` is `None`
+/// when every input behind the reading is fundamental.
 struct Reading {
     price_wad: i128,
     timestamp: u64,
     stale: bool,
-    nature: FeedNature,
+    market_timestamp: Option<u64>,
 }
 
 /// Identifies which of an oracle's two source legs a `Legs::Partial` reading fills.
@@ -45,11 +46,12 @@ enum Legs {
 }
 
 /// The result of resolving an oracle's price: the blended price and timestamp,
-/// each leg's raw value, staleness and deviation flags, and an error when
-/// resolution failed outright.
+/// the timestamp of its oldest market-nature input, each leg's raw value,
+/// staleness and deviation flags, and an error when resolution failed outright.
 pub(crate) struct Outcome {
     pub price_wad: i128,
     pub timestamp: u64,
+    pub market_timestamp: Option<u64>,
     pub first_wad: i128,
     pub second_wad: i128,
     pub stale: bool,
@@ -63,6 +65,7 @@ impl Outcome {
         Outcome {
             price_wad: 0,
             timestamp: 0,
+            market_timestamp: None,
             first_wad: 0,
             second_wad: 0,
             stale: false,
@@ -91,6 +94,7 @@ impl Outcome {
         Outcome {
             price_wad: r.price_wad,
             timestamp: r.timestamp,
+            market_timestamp: r.market_timestamp,
             first_wad: r.price_wad,
             second_wad: r.price_wad,
             stale: r.stale,
@@ -110,6 +114,7 @@ impl Outcome {
         Outcome {
             price_wad: 0,
             timestamp: reading.timestamp,
+            market_timestamp: reading.market_timestamp,
             first_wad,
             second_wad,
             stale: reading.stale,
@@ -221,8 +226,8 @@ pub(crate) fn resolve(session: &mut Session, key: &PriceKey, depth: u32) -> Pric
     if let Some(cached) = session.cached_price(key) {
         return cached;
     }
-    let (feed, _) = compute_hard(session, key, depth, None);
-    session.store_price(key, feed.clone());
+    let (feed, outcome) = compute_hard(session, key, depth, None);
+    session.store_price(key, feed.clone(), outcome.market_timestamp);
     feed
 }
 
@@ -269,7 +274,7 @@ pub(crate) fn resolve_detailed(
     depth: u32,
 ) -> (PriceFeedRaw, Outcome) {
     let (feed, outcome) = compute_hard(session, key, depth, None);
-    session.store_price(key, feed.clone());
+    session.store_price(key, feed.clone(), outcome.market_timestamp);
     (feed, outcome)
 }
 
@@ -288,8 +293,9 @@ fn compute_hard(
 }
 
 /// Resolves the price feed for `key` during composition of a dependent source
-/// (for example a scaled source's quote leg). Returns the session-cached price
-/// or cached error if present, after validating that the cached path still
+/// (for example a scaled source's quote leg), together with the timestamp of
+/// its oldest market-nature input. Returns the session-cached price or cached
+/// error if present, after validating that the cached path still
 /// respects the depth and cycle-detection limits at `depth`. Otherwise computes
 /// the outcome fresh, caches the resulting price or a position-independent
 /// error on the session, and returns the corresponding `Result`. Depth and
@@ -299,10 +305,10 @@ pub(crate) fn resolve_nested(
     session: &mut Session,
     key: &PriceKey,
     depth: u32,
-) -> Result<PriceFeedRaw, OracleError> {
+) -> Result<(PriceFeedRaw, Option<u64>), OracleError> {
     if let Some(cached) = session.cached_price(key) {
         validate_cached_path(session, key, depth)?;
-        return Ok(cached);
+        return Ok((cached, session.cached_market_timestamp(key)));
     }
     if let Some(cached) = session.cached_error(key) {
         validate_cached_path(session, key, depth)?;
@@ -320,8 +326,8 @@ pub(crate) fn resolve_nested(
     }
     let oracle = oracle.ok_or(OracleError::OracleNotConfigured)?;
     let feed = outcome.to_feed(oracle.asset_decimals);
-    session.store_price(key, feed.clone());
-    Ok(feed)
+    session.store_price(key, feed.clone(), outcome.market_timestamp);
+    Ok((feed, outcome.market_timestamp))
 }
 
 /// Validates that resolving `key` from a session cache hit would still respect
@@ -413,8 +419,9 @@ fn resolve_outcome(
 
 /// Converts composed `Legs` into an `Outcome`. For two readings, marks the
 /// outcome stale when either leg is individually stale, or when both legs
-/// are market-nature feeds whose timestamps differ by more than
-/// `MAX_LEG_AGE_SPREAD_SECONDS`. Takes the earlier of the two timestamps,
+/// have a market-nature input and the oldest market inputs of the two legs
+/// are more than `MAX_LEG_AGE_SPREAD_SECONDS` apart. A fundamental input may
+/// lag without tripping the bound. Takes the earlier of the two timestamps,
 /// flags a deviation when the legs fall outside the oracle's tolerance band, and
 /// sets the blended price to the midpoint of the two legs (zero if the
 /// midpoint computation fails).
@@ -424,12 +431,13 @@ fn blend(env: &Env, oracle: &AssetOracle, legs: Legs) -> Outcome {
         Legs::One(r) => Outcome::one(r),
         Legs::Partial { reading, slot } => Outcome::partial(reading, slot),
         Legs::Two { primary, anchor } => {
-            let spread_bounded =
-                primary.nature == FeedNature::Market && anchor.nature == FeedNature::Market;
-            let age_spread = primary.timestamp.abs_diff(anchor.timestamp);
-            let stale = primary.stale
-                || anchor.stale
-                || (spread_bounded && age_spread > MAX_LEG_AGE_SPREAD_SECONDS);
+            let spread_exceeded = match (primary.market_timestamp, anchor.market_timestamp) {
+                (Some(primary_ts), Some(anchor_ts)) => {
+                    primary_ts.abs_diff(anchor_ts) > MAX_LEG_AGE_SPREAD_SECONDS
+                }
+                _ => false,
+            };
+            let stale = primary.stale || anchor.stale || spread_exceeded;
             let ts = primary.timestamp.min(anchor.timestamp);
             let deviation =
                 !within_tolerance_band(env, anchor.price_wad, primary.price_wad, &oracle.tolerance);
@@ -438,6 +446,7 @@ fn blend(env: &Env, oracle: &AssetOracle, legs: Legs) -> Outcome {
             Outcome {
                 price_wad,
                 timestamp: ts,
+                market_timestamp: oldest(primary.market_timestamp, anchor.market_timestamp),
                 first_wad: primary.price_wad,
                 second_wad: anchor.price_wad,
                 stale,
@@ -487,7 +496,7 @@ pub(crate) fn blend_partial(
                 price_wad,
                 timestamp,
                 stale,
-                nature: FeedNature::Market,
+                market_timestamp: Some(timestamp),
             },
             slot,
         },
@@ -545,7 +554,8 @@ fn compose(
 
 /// Evaluates `source` into a `Reading`, if it produces one. Combines the
 /// source's own component-level staleness with staleness computed against
-/// `oracle.max_price_stale_seconds`.
+/// `oracle.max_price_stale_seconds`, and carries the timestamp of the
+/// source's oldest market-nature input.
 fn read_source(
     session: &mut Session,
     key: &PriceKey,
@@ -553,7 +563,7 @@ fn read_source(
     source: &PriceSource,
     depth: u32,
 ) -> Result<Option<Reading>, OracleError> {
-    let Some((observation, component_stale)) =
+    let Some((observation, component_stale, market_timestamp)) =
         evaluate_source(session, key, source, oracle.asset_decimals, depth)?
     else {
         return Ok(None);
@@ -569,42 +579,63 @@ fn read_source(
         price_wad: observation.price_wad,
         timestamp,
         stale,
-        nature: source_nature(source),
+        market_timestamp,
     }))
 }
 
-/// Returns the feed nature of `source`: the provider's nature for a plain
-/// feed, the factor feed's provider nature for a scaled source (the quote
-/// leg's nature is not considered), and always `Market` for an Aquarius LP
-/// or Aquarius stable-LP source.
-fn source_nature(source: &PriceSource) -> FeedNature {
-    match source {
-        PriceSource::Feed(feed) => feed.provider.nature(),
-        PriceSource::Scaled(scaled) => scaled.factor.provider.nature(),
-        PriceSource::AquariusLp(_) | PriceSource::AquariusStableLp(_) => FeedNature::Market,
+/// An evaluated source: its observation, its component-level staleness, and
+/// the timestamp of its oldest market-nature input.
+type SourceObservation = (OracleObservation, bool, Option<u64>);
+
+/// Returns the earlier of two optional timestamps, or whichever one is set.
+fn oldest(left: Option<u64>, right: Option<u64>) -> Option<u64> {
+    match (left, right) {
+        (Some(left), Some(right)) => Some(left.min(right)),
+        (left, right) => left.or(right),
     }
 }
 
+/// Returns `timestamp` when `feed` is market-nature, `None` when it is
+/// fundamental.
+fn feed_market_timestamp(feed: &FeedSource, timestamp: u64) -> Option<u64> {
+    (feed.provider.nature() == FeedNature::Market).then_some(timestamp)
+}
+
 /// Dispatches `source` to its evaluation routine (feed, scaled, Aquarius LP, or
-/// Aquarius stable LP), returning the resulting observation and its
-/// component-level staleness flag, if any.
+/// Aquarius stable LP), returning the resulting observation, its
+/// component-level staleness flag, and the timestamp of its oldest
+/// market-nature input, if any. A plain feed's market input is itself when it
+/// is market-nature; a scaled source's are its factor and its quote's market
+/// inputs; an Aquarius LP is market-nature and dated by its legs' prices.
 fn evaluate_source(
     session: &mut Session,
     key: &PriceKey,
     source: &PriceSource,
     asset_decimals: u32,
     depth: u32,
-) -> Result<Option<(OracleObservation, bool)>, OracleError> {
+) -> Result<Option<SourceObservation>, OracleError> {
     match source {
-        PriceSource::Feed(feed) => Ok(read_feed(session, feed)),
+        PriceSource::Feed(feed) => Ok(read_feed(session, feed).map(|(observation, stale)| {
+            let market_timestamp = feed_market_timestamp(feed, observation.timestamp);
+            (observation, stale, market_timestamp)
+        })),
         PriceSource::Scaled(scaled) => read_scaled(session, scaled, depth),
         PriceSource::AquariusLp(lp) => {
-            aquarius::read(session, key, lp, asset_decimals, depth, false)
+            aquarius::read(session, key, lp, asset_decimals, depth, false).map(dated_as_market)
         }
         PriceSource::AquariusStableLp(lp) => {
-            aquarius::read(session, key, lp, asset_decimals, depth, true)
+            aquarius::read(session, key, lp, asset_decimals, depth, true).map(dated_as_market)
         }
     }
+}
+
+/// Marks an Aquarius LP observation as market-nature, dated by its own
+/// timestamp.
+fn dated_as_market(lp: Option<(OracleObservation, bool)>) -> Option<SourceObservation> {
+    lp.map(|(observation, stale)| {
+        let market_timestamp = Some(observation.timestamp);
+        (observation, stale, market_timestamp)
+    })
 }
 
 /// Reads `feed` from its provider (Reflector, RedStone, or Xoxno), returning
@@ -628,7 +659,8 @@ fn read_feed(session: &mut Session, feed: &FeedSource) -> Option<(OracleObservat
 /// Reads a scaled source: reads the factor feed (returning `None` if unread),
 /// checks it falls within `scaled.min_factor_wad`/`max_factor_wad`, resolves the
 /// nested `quote` price at `depth + 1`, and multiplies factor and quote into a
-/// price using the earlier of their two timestamps. Returns
+/// price using the earlier of their two timestamps. Its market timestamp is the
+/// oldest of the factor's (when market-nature) and the quote's. Returns
 /// `FactorOutOfBounds` if the factor is out of range, the quote's resolution
 /// error if the quote is unusable, and `InvalidPrice` if the multiplication
 /// fails.
@@ -636,7 +668,7 @@ fn read_scaled(
     session: &mut Session,
     scaled: &ScaledSource,
     depth: u32,
-) -> Result<Option<(OracleObservation, bool)>, OracleError> {
+) -> Result<Option<SourceObservation>, OracleError> {
     let env = session.env().clone();
     let Some((factor, factor_stale)) = read_feed(session, &scaled.factor) else {
         return Ok(None);
@@ -646,7 +678,7 @@ fn read_scaled(
         return Err(OracleError::FactorOutOfBounds);
     }
 
-    let quote = resolve_nested(session, &scaled.quote, depth + 1)?;
+    let (quote, quote_market_timestamp) = resolve_nested(session, &scaled.quote, depth + 1)?;
 
     let Some(price_wad) = Wad::from(factor.price_wad).try_mul(&env, Wad::from(quote.price_wad))
     else {
@@ -659,6 +691,10 @@ fn read_scaled(
             timestamp: factor.timestamp.min(quote.timestamp),
         },
         factor_stale,
+        oldest(
+            feed_market_timestamp(&scaled.factor, factor.timestamp),
+            quote_market_timestamp,
+        ),
     )))
 }
 

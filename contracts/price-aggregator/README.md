@@ -24,8 +24,10 @@ prices(keys) / quotes(keys)
 A price must pass three gates:
 
 1. **Stale** (`PriceFeedStale`): a leg is older than its feed's
-   `max_stale_seconds` or the asset's `max_price_stale_seconds`, or two market
-   legs differ in age by more than `MAX_LEG_AGE_SPREAD_SECONDS`.
+   `max_stale_seconds` or the asset's `max_price_stale_seconds`, or the oldest
+   market-nature inputs of two legs differ in age by more than
+   `MAX_LEG_AGE_SPREAD_SECONDS`. A `Scaled` leg's market inputs are its
+   factor, when market-nature, and its quote's market inputs.
 2. **Disagree** (`UnsafePriceNotAllowed`): two legs are outside the tolerance
    band, or one of two legs has no reading.
 3. **Sanity**: the final price is not positive (`InvalidPrice`) or is outside
