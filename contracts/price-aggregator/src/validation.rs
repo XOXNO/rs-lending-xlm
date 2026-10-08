@@ -7,7 +7,8 @@
 use common::constants::{MAX_ASSET_DECIMALS, MAX_REASONABLE_PRICE_WAD, MIN_ASSET_DECIMALS};
 use common::errors::{GenericError, OracleError};
 use common::oracle::observation::{
-    MAX_ORACLE_DECIMALS, MAX_PRICE_STALE_SECONDS, MIN_ORACLE_DECIMALS, MIN_PRICE_STALE_SECONDS,
+    MAX_LEG_AGE_SPREAD_SECONDS, MAX_ORACLE_DECIMALS, MAX_PRICE_STALE_SECONDS, MIN_ORACLE_DECIMALS,
+    MIN_PRICE_STALE_SECONDS,
 };
 use common::types::{
     AquariusLpSource, FeedSource, IndependencePolicy, OracleReadMode, PriceKey, PriceSource,
@@ -50,6 +51,26 @@ pub(crate) fn staleness_envelope(
         || properties.loosest_max_stale_seconds > asset_max_stale_seconds
     {
         panic_with_error!(env, OracleError::InvalidStalenessConfig);
+    }
+}
+
+/// Panics with `OracleError::InvalidStalenessConfig` when both legs have a
+/// market-nature input and either leg allows one of them to lag by more than
+/// `MAX_LEG_AGE_SPREAD_SECONDS`.
+///
+/// The read marks such a pair stale once its legs' oldest market inputs are
+/// further apart than that bound. Holding every market budget to the bound
+/// also holds every Reflector TWAP window to it, since `attest` caps the
+/// window by the budget; a wider window would be admitted and then fail
+/// every read while both legs are fresh.
+pub(crate) fn leg_spread_budget(env: &Env, first: &SourceProperties, second: &SourceProperties) {
+    if let (Some(first_budget), Some(second_budget)) = (
+        first.loosest_market_max_stale_seconds,
+        second.loosest_market_max_stale_seconds,
+    ) {
+        if first_budget.max(second_budget) > MAX_LEG_AGE_SPREAD_SECONDS {
+            panic_with_error!(env, OracleError::InvalidStalenessConfig);
+        }
     }
 }
 

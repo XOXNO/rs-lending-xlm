@@ -140,7 +140,8 @@ fn depends_on(env: &Env, root: &PriceKey, target: &PriceKey, visiting: &mut Vec<
 
 /// Runs the full validation suite for `oracle` under `key`, covering sanity
 /// bounds, source shape and count, asset decimals, composition depth,
-/// staleness, smoothing, tolerance, and source independence, with the
+/// staleness, smoothing, tolerance, the leg-spread budget, and source
+/// independence, with the
 /// smoothing and tolerance checks waived for Aquarius LP oracles. Panics if
 /// any check fails.
 pub(crate) fn validate_asset_oracle(env: &Env, key: &PriceKey, oracle: &AssetOracle) {
@@ -196,6 +197,7 @@ pub(crate) fn validate_asset_oracle(env: &Env, key: &PriceKey, oracle: &AssetOra
         validate_oracle_tolerance(env, &oracle.tolerance);
     }
     if let Some(second) = derived.second.as_ref() {
+        validation::leg_spread_budget(env, &derived.first, second);
         validation::independence(env, &derived.first, second, &oracle.independence);
     }
 }

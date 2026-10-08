@@ -130,6 +130,11 @@ fn test_scaled_source_folds_in_its_quote() {
             "a fundamental ratio over a TWAP quote has nothing trading can move"
         );
         assert_eq!(props.loosest_max_stale_seconds, 86_400);
+        assert_eq!(
+            props.loosest_market_max_stale_seconds,
+            Some(3_600),
+            "the quote's market leg dates the composite; the fundamental ratio does not"
+        );
     });
 }
 
