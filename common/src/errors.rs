@@ -94,6 +94,9 @@ pub enum GenericError {
     PositionNftAlreadyDeployed = 54,
 
     DivisionByZero = 55,
+
+    /// The `CANCELLER` role would exceed `MAX_CANCELLERS` holders.
+    CancellerLimitExceeded = 56,
 }
 
 /// Error codes for collateral, position, interest-rate-curve, and

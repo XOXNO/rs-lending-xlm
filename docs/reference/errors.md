@@ -8,7 +8,7 @@ SDK `try_` calls distinguish contract errors from host, authorization, storage, 
 
 [Shared error definitions](../../common/src/errors.rs) group lending failures by domain. Gaps in the numeric ranges are reserved. The tables describe failure conditions; the checks a call reaches depend on its execution path.
 
-### Generic errors (1–55)
+### Generic errors (1–56)
 
 | Code / variant | Condition | Response |
 | --- | --- | --- |
@@ -49,6 +49,7 @@ SDK `try_` calls distinguish contract errors from host, authorization, storage, 
 | 53 `PositionNftNotSet` | The position-NFT contract address is unset in controller storage. | Wait for governance to deploy the position NFT. |
 | 54 `PositionNftAlreadyDeployed` | A position-NFT contract address is already recorded. | Use the recorded deployment. |
 | 55 `DivisionByZero` | A fixed-point multiply-divide received a zero denominator. Distinct from `MathOverflow`, which the same operations raise when the result does not fit `i128`. | Report it; a zero index or denominator is an internal inconsistency. |
+| 56 `CancellerLimitExceeded` | A canceller grant or canceller reset would leave more than `MAX_CANCELLERS` (32) `CANCELLER` holders, the owner included, or a proposed reset list has 32 or more entries. | Revoke a canceller first or shorten the reset list. |
 
 ### Collateral and market errors (100–135)
 

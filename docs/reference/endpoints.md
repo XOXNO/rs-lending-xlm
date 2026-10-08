@@ -220,7 +220,7 @@ Constructor `(admin: Address, min_delay: u32)` initializes the owner, access-con
 | `add_spoke(caller: Address) -> u32` | GUARDIAN_ROLE; immediate |
 | `revoke_role_immediate(account: Address, role: Symbol)` | Owner; only guardian/oracle roles |
 | `execute_self(executor: Option<Address>, op: AdminOperation, salt: BytesN<32>)` | Ready scheduled self-operation; optional executor |
-| `propose_canceller_reset(new_cancellers: Vec<Address>, salt: BytesN<32>) -> BytesN<32>` | Owner; schedule uncancellable recovery |
+| `propose_canceller_reset(new_cancellers: Vec<Address>, salt: BytesN<32>) -> BytesN<32>` | Owner; schedule uncancellable recovery; the list plus the owner's seat must fit `MAX_CANCELLERS` (32) |
 | `execute_canceller_reset(executor: Option<Address>, new_cancellers: Vec<Address>, salt: BytesN<32>)` | Ready recovery; optional executor |
 | `accept_ownership()` | Pending owner; synchronizes access-control admin and roles |
 | `has_role(account: Address, role: Symbol) -> bool` | Open view / resolver |

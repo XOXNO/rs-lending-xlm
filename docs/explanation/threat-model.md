@@ -70,7 +70,9 @@ execute with no executor identity; supplying one requires its authorization
 and EXECUTOR role. Executor/canceller separation exempts the governance owner.
 A revocation target cannot cancel its own removal, but an independent canceller
 can veto it. Owner-proposed Recovery operations cannot be cancelled and replace
-cancellers after their delay; they do not recover a lost owner key.
+cancellers after their delay; they do not recover a lost owner key. The
+canceller role is capped at 32 holders, so a reset of a full council stays
+within one transaction's event limit.
 
 ## Account authority
 

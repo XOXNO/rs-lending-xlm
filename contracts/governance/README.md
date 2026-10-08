@@ -43,7 +43,9 @@ are in its rustdoc.
 
 With `executor = None` anyone may execute a ready op; with `Some(address)`
 that address must authorize and hold `EXECUTOR`. A canceller reset uses the
-Recovery delay and cannot be cancelled.
+Recovery delay and cannot be cancelled. `CANCELLER` holds at most
+`MAX_CANCELLERS` (32) accounts, the owner included, so a reset of a full
+council fits one transaction's event limit.
 
 ### Immediate (no delay)
 

@@ -14,6 +14,7 @@ use soroban_sdk::{
 use stellar_access::{access_control, ownable, role_transfer};
 use stellar_governance::timelock::set_min_delay;
 
+use crate::constants::MAX_CANCELLERS;
 use crate::{timelock, Governance, GovernanceArgs, GovernanceClient};
 
 /// Role that may call `set_sanity_band`.
@@ -164,21 +165,35 @@ fn require_executor_canceller_separation(
     );
 }
 
+/// Panics with `GenericError::CancellerLimitExceeded` if the canceller role
+/// has more than `MAX_CANCELLERS` holders.
+pub(crate) fn require_canceller_count_within_cap(env: &Env, holders: u32) {
+    assert_with_error!(
+        env,
+        holders <= MAX_CANCELLERS,
+        GenericError::CancellerLimitExceeded
+    );
+}
+
 /// Renews the governance instance's storage TTL and grants `role` to
 /// `account`, after checking that the grant does not give `account` both
-/// the executor and canceller roles.
+/// the executor and canceller roles and keeps the canceller role within
+/// `MAX_CANCELLERS` holders.
 pub(crate) fn apply_grant_role(env: &Env, account: &Address, role: &Symbol) {
     renew_instance(env);
     let owner = owner_or_panic(env);
     require_executor_canceller_separation(env, &owner, account, role);
     access_control::grant_role_no_auth(env, account, role, &owner);
+    if *role == Symbol::new(env, CANCELLER_ROLE) {
+        require_canceller_count_within_cap(env, access_control::get_role_member_count(env, role));
+    }
 }
 
 /// Renews the governance instance's storage TTL, revokes the canceller role
 /// from every current holder other than `owner`, then grants it to each
 /// address in `new_cancellers` that does not already hold it, skipping
 /// `owner` and enforcing the executor/canceller separation on each new
-/// grant.
+/// grant. The resulting role keeps at most `MAX_CANCELLERS` holders.
 pub(crate) fn apply_canceller_reset(env: &Env, new_cancellers: &Vec<Address>) {
     renew_instance(env);
     let owner = owner_or_panic(env);
@@ -197,6 +212,7 @@ pub(crate) fn apply_canceller_reset(env: &Env, new_cancellers: &Vec<Address>) {
             access_control::grant_role_no_auth(env, &account, &role, &owner);
         }
     }
+    require_canceller_count_within_cap(env, access_control::get_role_member_count(env, &role));
 }
 
 /// Renews the governance instance's storage TTL and revokes `role` from

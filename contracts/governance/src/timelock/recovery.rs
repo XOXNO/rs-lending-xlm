@@ -13,12 +13,13 @@ use crate::timelock::*;
 
 /// Schedules a canceller-set reset to `new_cancellers` using the `Recovery` delay
 /// tier, marks the resulting operation as a recovery operation, and returns its
-/// id.
+/// id. Rejects a list that, with the owner's seat, exceeds `MAX_CANCELLERS`.
 pub(crate) fn propose_canceller_reset(
     env: &Env,
     new_cancellers: &Vec<Address>,
     salt: BytesN<32>,
 ) -> BytesN<32> {
+    access::require_canceller_count_within_cap(env, new_cancellers.len().saturating_add(1));
     let operation = canceller_reset_operation(env, new_cancellers, salt);
     let delay = operation_delay(env, DelayTier::Recovery);
     let id = schedule_operation(env, &operation, delay);
