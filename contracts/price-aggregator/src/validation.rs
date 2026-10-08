@@ -4,11 +4,13 @@
 //! check panics with the corresponding `OracleError` or `GenericError`
 //! variant when the configuration is invalid.
 
-use common::constants::{MAX_ASSET_DECIMALS, MAX_REASONABLE_PRICE_WAD, MIN_ASSET_DECIMALS};
+use common::constants::{
+    BPS, MAX_ASSET_DECIMALS, MAX_REASONABLE_PRICE_WAD, MIN_ASSET_DECIMALS, WAD,
+};
 use common::errors::{GenericError, OracleError};
 use common::oracle::observation::{
-    MAX_LEG_AGE_SPREAD_SECONDS, MAX_ORACLE_DECIMALS, MAX_PRICE_STALE_SECONDS, MIN_ORACLE_DECIMALS,
-    MIN_PRICE_STALE_SECONDS,
+    MAX_LEG_AGE_SPREAD_SECONDS, MAX_ORACLE_DECIMALS, MAX_PRICE_STALE_SECONDS,
+    MAX_SINGLE_SOURCE_SANITY_BAND_BPS, MIN_ORACLE_DECIMALS, MIN_PRICE_STALE_SECONDS,
 };
 use common::types::{
     AquariusLpSource, FeedSource, IndependencePolicy, OracleReadMode, PriceKey, PriceSource,
@@ -108,6 +110,16 @@ pub(crate) fn independence(
         }
         _ => {}
     }
+}
+
+/// Returns whether a contract that can move a price by at most `reach` (a
+/// WAD ratio, `None` when unbounded) stays inside the single-source band cap:
+/// a band of `MAX_SINGLE_SOURCE_SANITY_BAND_BPS` spans the ratio
+/// `(BPS + cap) / (BPS - cap)`, 11/9.
+pub(crate) fn reach_within_single_source_cap(reach: Option<i128>) -> bool {
+    const CAP_RATIO_WAD: i128 =
+        (BPS + MAX_SINGLE_SOURCE_SANITY_BAND_BPS) * WAD / (BPS - MAX_SINGLE_SOURCE_SANITY_BAND_BPS);
+    reach.is_some_and(|reach| reach <= CAP_RATIO_WAD)
 }
 
 /// Returns whether `left` and `right` contain exactly the same addresses,

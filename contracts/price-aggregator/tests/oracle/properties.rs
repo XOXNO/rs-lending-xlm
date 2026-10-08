@@ -247,11 +247,24 @@ fn test_config_properties_carry_the_one_or_two_arity() {
     });
 }
 
+/// Mainnet SolvBTC factor bounds: the ratio may move between 1.00 and 1.05.
+const SOLVBTC_MAX_FACTOR_WAD: i128 = 105 * 10i128.pow(16);
+
 fn solvbtc_oracle(
     env: &Env,
     adapter: &Address,
     btc: PriceKey,
     independence: IndependencePolicy,
+) -> AssetOracle {
+    solvbtc_oracle_with_factor_cap(env, adapter, btc, independence, SOLVBTC_MAX_FACTOR_WAD)
+}
+
+fn solvbtc_oracle_with_factor_cap(
+    env: &Env,
+    adapter: &Address,
+    btc: PriceKey,
+    independence: IndependencePolicy,
+    max_factor_wad: i128,
 ) -> AssetOracle {
     let mut sources = Vec::new(env);
     sources.push_back(PriceSource::Scaled(ScaledSource {
@@ -259,7 +272,7 @@ fn solvbtc_oracle(
         quote: btc,
 
         min_factor_wad: 10i128.pow(18),
-        max_factor_wad: 2 * 10i128.pow(18),
+        max_factor_wad,
     }));
     sources.push_back(PriceSource::Feed(nav_feed(
         env,
@@ -356,6 +369,68 @@ fn test_a_ratio_leg_outliving_the_asset_ceiling_is_rejected() {
         oracle.max_price_stale_seconds = 3_600;
         crate::admin::validate_asset_oracle(&env, &solvbtc, &oracle);
     });
+}
+
+/// Mainnet BTC reference: a Reflector TWAP leg and a RedStone leg served by
+/// `adapter`, the same contract that serves the SolvBTC legs.
+fn register_btc_reference_sharing(env: &Env, reflector: &Address, adapter: &Address) -> PriceKey {
+    let btc = PriceKey::Ref(Symbol::new(env, "BTC"));
+    let mut sources = one(env, PriceSource::Feed(twap_feed(env, reflector)));
+    sources.push_back(PriceSource::Feed(nav_feed(env, adapter, "BTC")));
+    let mut oracle = oracle_of(env, sources);
+    oracle.tolerance = OracleTolerance {
+        upper_ratio_bps: 11_000,
+        lower_ratio_bps: 9_091,
+    };
+    registry::store_oracle(env, &btc, &oracle);
+    btc
+}
+
+/// Validates a SolvBTC-shaped pair whose BTC quote also reads `adapter`,
+/// with the ratio capped at `max_factor_wad`.
+fn validate_solvbtc_sharing_its_quote(max_factor_wad: i128) {
+    let env = Env::default();
+    let reflector = Address::generate(&env);
+    let adapter = Address::generate(&env);
+    let solvbtc = PriceKey::Token(Address::generate(&env));
+
+    with_contract(&env, || {
+        let btc = register_btc_reference_sharing(&env, &reflector, &adapter);
+        let declared = Vec::from_array(&env, [adapter.clone()]);
+        let mut oracle = solvbtc_oracle_with_factor_cap(
+            &env,
+            &adapter,
+            btc,
+            IndependencePolicy::AllowShared(declared),
+            max_factor_wad,
+        );
+        oracle.max_sanity_price_wad = 300_000 * 10i128.pow(18);
+        crate::admin::validate_asset_oracle(&env, &solvbtc, &oracle);
+    });
+}
+
+/// The deployed SolvBTC shape keeps its wide band: the shared adapter can move
+/// the price by at most 1.05 (ratio) x 1.10 (BTC pair) x 1.05 (SolvBTC pair),
+/// about 1.213, inside the single-source cap of 11/9.
+#[test]
+fn test_mainnet_solvbtc_shape_keeps_the_band_cap_exemption() {
+    validate_solvbtc_sharing_its_quote(SOLVBTC_MAX_FACTOR_WAD);
+}
+
+/// A ratio the shared adapter can double lets that one contract move both
+/// legs past the cap, so the pair is held to the single-source band.
+#[test]
+#[should_panic(expected = "Error(Contract, #226)")]
+fn test_a_shared_contract_with_a_wide_factor_is_held_to_the_band_cap() {
+    validate_solvbtc_sharing_its_quote(2 * 10i128.pow(18));
+}
+
+/// The shared adapter's reach into the BTC quote counts too: a 1.10 ratio
+/// alone is inside the cap, but with the quote's 1.10 it is not.
+#[test]
+#[should_panic(expected = "Error(Contract, #226)")]
+fn test_a_shared_contract_reaching_the_quote_is_held_to_the_band_cap() {
+    validate_solvbtc_sharing_its_quote(110 * 10i128.pow(16));
 }
 
 fn store_single(env: &Env, key: PriceKey, source: PriceSource, asset_decimals: u32) {

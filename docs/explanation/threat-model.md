@@ -196,6 +196,12 @@ reports `p1` and `p2` in the same band have `p1 / p2 <= u = max / min`. The
 10% single-source cap gives `u <= 11/9`, which is about 1.222. The true NAV
 `P` is also in the band, so `P / p <= u`.
 
+A pair escapes the cap only when no provider contract shared by its legs can
+move the blended price by more than `11/9` on its own. Admission bounds that
+reach by the factor bounds of a `Scaled` leg the contract serves, its reach
+into the quote, and the pair tolerance. A contract that serves a plain feed
+in both legs is unbounded, so that pair keeps the cap.
+
 Lender safety depends only on the reported collateral prices. Bad debt occurs
 only when the reported collateral is less than the debt. Take one collateral
 leg with `n` units and a debt `D`. A borrow at the reported price `p1` gives

@@ -2,8 +2,11 @@
 //! provider contracts, unsmoothed-market-leg presence, loosest staleness bound,
 //! and composition depth — by recursing through a source's dependencies.
 
+use common::constants::{BPS, WAD};
 use common::errors::OracleError;
-use common::types::{FeedNature, FeedSource, PriceKey, PriceSource, MAX_RESOLUTION_DEPTH};
+use common::types::{
+    FeedNature, FeedSource, OracleTolerance, PriceKey, PriceSource, MAX_RESOLUTION_DEPTH,
+};
 use soroban_sdk::{panic_with_error, Address, Env, Vec};
 
 use crate::registry;
@@ -213,6 +216,94 @@ pub(crate) fn properties_of_config(
         None
     };
     ConfigProperties { first, second }
+}
+
+/// Upper bound on how far `contract` alone can move the price that `sources`
+/// blend under `tolerance`: the largest ratio, in WAD, between two prices it
+/// can produce while every other input holds still. `None` means unbounded.
+///
+/// A feed served by `contract` is unbounded. A scaled factor it serves moves
+/// within `max_factor_wad / min_factor_wad`, times its reach into the quote.
+/// A nested key's price cannot leave its sanity band. An LP moves no further
+/// than its more exposed leg. Of two legs, the midpoint follows the less
+/// exposed one within the tolerance, `(BPS + upper) / (BPS + lower)`, and
+/// never exceeds the more exposed one. Every ratio rounds up.
+///
+/// Reads only registered oracles; `properties_of_config` has already proved
+/// the composition acyclic and within depth.
+pub(crate) fn contract_reach(
+    env: &Env,
+    contract: &Address,
+    sources: &Vec<PriceSource>,
+    tolerance: &OracleTolerance,
+) -> Option<i128> {
+    let first = source_reach(env, contract, &sources.get_unchecked(0));
+    if sources.len() == 1 {
+        return first;
+    }
+    let second = source_reach(env, contract, &sources.get_unchecked(1));
+    let (less, more) = match (first, second) {
+        (Some(first), Some(second)) => (Some(first.min(second)), Some(first.max(second))),
+        (Some(bounded), None) | (None, Some(bounded)) => (Some(bounded), None),
+        (None, None) => (None, None),
+    };
+    let tolerance_ratio = ratio_up(
+        WAD,
+        BPS + i128::from(tolerance.upper_ratio_bps),
+        BPS + i128::from(tolerance.lower_ratio_bps),
+    );
+    let followed = less.map(|less| ratio_up(less, tolerance_ratio, WAD));
+    match (followed, more) {
+        (Some(followed), Some(more)) => Some(followed.min(more)),
+        (followed, more) => followed.or(more),
+    }
+}
+
+/// `contract`'s reach into a single source; see [`contract_reach`].
+fn source_reach(env: &Env, contract: &Address, source: &PriceSource) -> Option<i128> {
+    match source {
+        PriceSource::Feed(feed) => (feed.provider.contract() != contract).then_some(WAD),
+        PriceSource::Scaled(scaled) => {
+            let factor = if scaled.factor.provider.contract() == contract {
+                ratio_up(scaled.max_factor_wad, WAD, scaled.min_factor_wad)
+            } else {
+                WAD
+            };
+            key_reach(env, contract, &scaled.quote).map(|quote| ratio_up(factor, quote, WAD))
+        }
+        PriceSource::AquariusLp(lp) | PriceSource::AquariusStableLp(lp) => {
+            key_reach(env, contract, &lp.key_a).max(key_reach(env, contract, &lp.key_b))
+        }
+    }
+}
+
+/// `contract`'s reach into the price registered for `key`, capped by that
+/// key's sanity band.
+fn key_reach(env: &Env, contract: &Address, key: &PriceKey) -> Option<i128> {
+    let Some(oracle) = registry::get_oracle(env, key) else {
+        panic_with_error!(env, OracleError::OracleNotConfigured)
+    };
+    let band = ratio_up(
+        oracle.max_sanity_price_wad,
+        WAD,
+        oracle.min_sanity_price_wad,
+    );
+    Some(
+        contract_reach(env, contract, &oracle.sources, &oracle.tolerance)
+            .map_or(band, |reach| reach.min(band)),
+    )
+}
+
+/// `x * y / d` for positive operands, rounded up, saturating at `i128::MAX`
+/// on overflow or a nonpositive divisor so that an unrepresentable reach
+/// counts as unbounded.
+fn ratio_up(x: i128, y: i128, d: i128) -> i128 {
+    if d <= 0 {
+        return i128::MAX;
+    }
+    x.checked_mul(y)
+        .and_then(|product| product.checked_add(d - 1))
+        .map_or(i128::MAX, |rounded| rounded / d)
 }
 
 /// Panics with `OracleDepthExceeded` if `depth` exceeds the maximum resolution

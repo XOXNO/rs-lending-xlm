@@ -163,8 +163,22 @@ pub(crate) fn validate_asset_oracle(env: &Env, key: &PriceKey, oracle: &AssetOra
             oracle.max_sanity_price_wad,
         );
     } else {
+        // A pair cross-checks its band only when no single contract can move
+        // the blended price further than the single-source cap allows.
         let exempt_from_band_cap = derived.second.as_ref().is_some_and(|second| {
             !validation::same_address_set(&derived.first.trust, &second.trust)
+                && derived
+                    .first
+                    .shared_contracts_with(env, second)
+                    .iter()
+                    .all(|contract| {
+                        validation::reach_within_single_source_cap(properties::contract_reach(
+                            env,
+                            &contract,
+                            &oracle.sources,
+                            &oracle.tolerance,
+                        ))
+                    })
         });
         validate_single_source_sanity_band(
             env,
