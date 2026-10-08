@@ -817,6 +817,41 @@ fn test_insolvent_liquidation_reverts_when_no_debt_unit_fits_the_backed_quote() 
     assert_eq!(t.borrow_balance_raw(ALICE, "EXP"), 2);
 }
 
+/// MC-3. $105 of collateral backs $100 at the 5% base bonus. An offer of $85
+/// of CHEAP and one $10 EXP unit stays below that quote, so it seizes only
+/// `repay * (1 + b)` and leaves the rest of the collateral with the account,
+/// even though one debt unit per leg would bridge the gap.
+#[test]
+fn test_insolvent_under_offer_within_a_debt_unit_of_the_quote_does_not_seize_all() {
+    let (mut t, account_id) = insolvent_book_with_a_ten_dollar_unit(usd(105) / 1_000);
+    let payments = vec![
+        &t.env,
+        (hub_asset(t.resolve_asset("CHEAP")), 85_0000000),
+        (hub_asset(t.resolve_asset("EXP")), 1),
+    ];
+    let estimate =
+        t.ctrl_client()
+            .get_liquidation_estimate(&account_id, &payments, &SeizeMode::Transfer);
+    assert_eq!(estimate.max_payment_wad, 95 * WAD);
+    let seized = estimate.seized_collaterals.get(0).expect("COL leg").amount;
+    assert_eq!(seized, 950_0000000, "$95 * 1.05 of COL at $0.105");
+
+    let liquidator = t.get_or_create_user(LIQUIDATOR);
+    t.resolve_market("CHEAP")
+        .token_admin
+        .mint(&liquidator, &85_0000000);
+    t.resolve_market("EXP").token_admin.mint(&liquidator, &1);
+    t.ctrl_client()
+        .liquidate(&liquidator, &account_id, &payments, &SeizeMode::Transfer);
+
+    assert_eq!(
+        t.supply_balance_raw(ALICE, "COL"),
+        50_0000000,
+        "the unseized collateral stays with the account"
+    );
+    assert_eq!(t.borrow_balance_raw(ALICE, "EXP"), 1);
+}
+
 #[test]
 fn test_paused_debt_leg_rejects_liquidation() {
     let mut t = LendingTest::new()

@@ -726,8 +726,8 @@ fn refunded(estimate: &LiquidationEstimate, asset: &Address) -> i128 {
 /// Runs one liquidation, checks P1-P8 and returns whether the account is
 /// still liquidatable with debt left. P2 and P3 allow `tol`, which is
 /// `price / 2e18 + (1 + b) + 1` raw WAD. P2 allows one more unit on a full close,
-/// and `(1 + b) * R`, with `R` one base unit per repaid leg, when an insolvent
-/// call pays within `R` of the collateral-backed quote and receives every unit.
+/// and `(1 + b)` times one base unit of the leg the trim floored, when an
+/// insolvent offer reached the collateral-backed quote and receives every unit.
 /// P3 bounds a partial plan from the other side: the liquidator pays at most
 /// `2 * (1 + b) * R + tol` more than the units it receives are worth.
 fn liquidate_step(
@@ -991,17 +991,30 @@ fn liquidate_step(
     let units_after = scaled_after / unit_scaled;
     let quote = Wad::from(c).div_floor(&env, one_plus_bonus_m).raw().min(d);
     let paid_legs = || legs.iter().zip(&paid).filter(|(_, p)| **p > 0);
-    let paid_unit_wad = paid_legs()
-        .map(|(l, _)| {
+    // The insolvent trim floors at most one kept leg below its capped offer.
+    let floored_legs = || {
+        legs.iter()
+            .enumerate()
+            .filter(|(i, _)| paid[*i] > 0 && paid[*i] < offers[*i].min(debts[*i]))
+            .map(|(_, l)| l)
+    };
+    let floored_unit_wad = floored_legs()
+        .map(|l| {
             Wad::from_token(&env, 1, l.decimals)
                 .mul(&env, Wad::from(l.price))
                 .raw()
         })
         .sum::<i128>();
+    let floored_unit = floored_legs()
+        .map(|l| per_unit(l.price, l.decimals))
+        .fold(rat(0), |a, b| a + b);
     let repaid_unit = paid_legs()
         .map(|(l, _)| per_unit(l.price, l.decimals))
         .fold(rat(0), |a, b| a + b);
-    let seize_all = !solvent && paid_usd_wad > 0 && paid_usd_wad + paid_unit_wad >= quote;
+    let seize_all = !solvent
+        && paid_usd_wad > 0
+        && offered_usd >= quote
+        && paid_usd_wad + floored_unit_wad >= quote;
     let tol = per_unit(w.liq_price, 18) / rat(2) + &one_plus_b / rat(BPS) + rat(1);
     let full_close = debts.iter().zip(&paid).all(|(debt, p)| p >= debt);
     let at_bonus = &paid_value * &one_plus_b / rat(BPS);
@@ -1044,10 +1057,10 @@ fn liquidate_step(
             prop_assert_eq!(
                 received_scaled,
                 scaled_before,
-                "an insolvent call within one unit per leg of the quote receives every unit; {}",
+                "an insolvent offer that reached the quote receives every unit; {}",
                 &ctx
             );
-            repaid_unit.clone()
+            floored_unit.clone()
         } else {
             rat(0)
         };
@@ -1066,10 +1079,10 @@ fn liquidate_step(
             &format!("P2 {path}: excess over paid * (1 + b), WAD"),
             &excess,
         );
-        if seize_all {
+        if seize_all && slack > rat(0) {
             record_max(
                 stats,
-                "P2 seize_all: excess / ((1 + b) * R)",
+                "P2 seize_all: excess / ((1 + b) * floored unit)",
                 &(&excess * rat(BPS) / (&slack * &one_plus_b)),
             );
         } else {

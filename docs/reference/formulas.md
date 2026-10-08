@@ -277,7 +277,12 @@ than it seizes. On an insolvent account the trim rounds each kept leg down to
 whole token units, so the kept
 value never exceeds the quote. A leg whose kept amount rounds to zero is
 dropped and its whole offer refunded; if no leg remains, `liquidate` reverts
-with `InvalidPayments` (16) and the estimate shows a zero payment. This insolvency
+with `InvalidPayments` (16) and the estimate shows a zero payment. An offer
+that reaches the quote seizes every collateral unit when the trim keeps the
+last trimmed leg, whose floor leaves the kept repayment less than one of that
+leg's native units below the quote. Any other plan, including an offer below
+the quote or one whose trim drops the last leg whole, seizes
+`repay * (1 + base)`. This insolvency
 branch does not promote the quote to full debt; bad-debt cleanup takes the unbacked
 residue. With `p == 0`, the target formula and dust promotion below apply instead.
 
@@ -287,8 +292,8 @@ the debt closes. Otherwise it rounds down: the dropped fraction's USD value,
 divided by `1 + bonus` and floored, is trimmed from the repayment and
 refunded, kept amounts rounding up, so the liquidator pays for the units it
 receives, and a plan that then seizes nothing reverts with `InvalidPayments`
-(16). Neither applies when an insolvent account's repayment reaches the
-collateral-backed quote: that call seizes every unit. Such a leg is its
+(16). Neither applies when an insolvent account's offer reaches the
+collateral-backed quote and the call seizes every unit, as above. Such a leg is its
 account's only supply position, so it is the whole collateral and the seizure
 stays proportional, and an action that leaves debt needs at least 2 whole
 units in it.

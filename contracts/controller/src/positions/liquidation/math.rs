@@ -28,8 +28,9 @@ pub(crate) struct NormalizedRepaymentPlan {
     pub full_close: bool,
     /// The kept repayment covers the account's whole debt.
     pub repays_all_debt: bool,
-    /// The account is insolvent and the kept repayment reaches the collateral-backed
-    /// quote within one native unit per debt leg.
+    /// The account is insolvent, the offer reached the collateral-backed quote,
+    /// and the kept repayment falls short of it by less than one native unit of
+    /// the leg the trim floored and kept.
     pub seize_all: bool,
 }
 
@@ -202,11 +203,13 @@ pub(crate) fn normalize_repayment_plan(
         whole_unit_repayment(env, account, snap, curve_repayment_usd, bonus, cache)
     };
     let full_close = ideal_repayment_usd >= snap.total_debt;
+    let offer_reaches_quote = total_debt_payment_usd >= ideal_repayment_usd;
 
     let mut final_repayment_tokens = repaid_tokens;
+    let mut floored_unit_usd = Wad::ZERO;
     if !full_close && total_debt_payment_usd > ideal_repayment_usd {
         let excess_usd = total_debt_payment_usd.checked_sub(env, ideal_repayment_usd);
-        process_excess_payment(
+        floored_unit_usd = process_excess_payment(
             env,
             &mut final_repayment_tokens,
             &mut refunds,
@@ -219,8 +222,8 @@ pub(crate) fn normalize_repayment_plan(
     let repay_usd = sum_repaid_usd(env, &final_repayment_tokens);
     let seize_all = insolvent
         && repay_usd > Wad::ZERO
-        && repay_usd.checked_add(env, one_unit_per_leg_usd(env, &final_repayment_tokens))
-            >= ideal_repayment_usd;
+        && offer_reaches_quote
+        && repay_usd.checked_add(env, floored_unit_usd) >= ideal_repayment_usd;
     let repays_all_debt =
         full_close && repays_every_debt_leg(env, account, &final_repayment_tokens, cache);
     NormalizedRepaymentPlan {
@@ -333,17 +336,6 @@ fn one_unit_per_debt_leg_usd(env: &Env, account: &Account, cache: &mut Context) 
     for hub_asset in account.borrow_positions.keys() {
         let feed = cache.cached_price(&hub_asset.asset);
         let unit = Wad::from_token(env, 1, feed.asset_decimals).mul(env, feed.price);
-        total = total.checked_add(env, unit);
-    }
-    total
-}
-
-/// Sums the WAD USD value of one native unit of each repayment leg.
-fn one_unit_per_leg_usd(env: &Env, repaid_tokens: &Vec<RepayEntry>) -> Wad {
-    let mut total = Wad::ZERO;
-    for entry in repaid_tokens.iter() {
-        let unit = Wad::from_token(env, 1, entry.feed.asset_decimals)
-            .mul(env, Wad::from(entry.feed.price_wad));
         total = total.checked_add(env, unit);
     }
     total
@@ -525,7 +517,7 @@ pub(crate) fn release_unbacked_repayment(
     if excess_usd <= Wad::ZERO {
         return;
     }
-    process_excess_payment(
+    let _ = process_excess_payment(
         env,
         &mut repayment.repaid,
         &mut repayment.refunds,
@@ -653,14 +645,16 @@ pub(crate) fn scale_seizures_to_received(
 /// inputs in `refunds`. A partial removal uses a floor-rounded ratio; with
 /// `keep_within_quote` it floors the kept amount instead, so the kept value
 /// never exceeds the quote, and drops a leg whose kept amount reaches zero.
-/// No tokens move.
+/// Returns the WAD USD value of one native unit of the leg whose kept amount
+/// was floored, or zero when no leg kept a floored amount. No tokens move.
 fn process_excess_payment(
     env: &Env,
     repaid_tokens: &mut Vec<RepayEntry>,
     refunds: &mut Vec<PaymentTuple>,
     excess_usd: Wad,
     keep_within_quote: bool,
-) {
+) -> Wad {
+    let mut floored_unit_usd = Wad::ZERO;
     let mut remaining_excess_usd = excess_usd;
     let mut current_index = repaid_tokens.len();
     while remaining_excess_usd > Wad::ZERO && current_index > 0 {
@@ -696,6 +690,9 @@ fn process_excess_payment(
             if new_amount == 0 {
                 repaid_tokens.remove(current_index);
             } else {
+                if keep_within_quote {
+                    floored_unit_usd = Wad::from_token(env, 1, decimals).mul(env, price);
+                }
                 repaid_tokens.set(
                     current_index,
                     RepayEntry {
@@ -726,4 +723,5 @@ fn process_excess_payment(
             remaining_excess_usd = remaining_excess_usd.checked_sub(env, usd);
         }
     }
+    floored_unit_usd
 }

@@ -382,7 +382,11 @@ fn process_excess_payment_zero_excess_is_noop() {
     repaid.push_back(repay_entry(&env, stroops(100), 100 * WAD));
     let mut refunds = Vec::new(&env);
 
-    process_excess_payment(&env, &mut repaid, &mut refunds, Wad::ZERO, false);
+    assert_eq!(
+        process_excess_payment(&env, &mut repaid, &mut refunds, Wad::ZERO, false),
+        Wad::ZERO,
+        "a ratio trim floors no kept leg"
+    );
 
     assert_eq!(refunds.len(), 0);
     assert_eq!(repaid.len(), 1);
@@ -397,7 +401,11 @@ fn process_excess_payment_boundary_leg_is_removed() {
     repaid.push_back(repay_entry(&env, stroops(5), 5 * WAD));
     let mut refunds = Vec::new(&env);
 
-    process_excess_payment(&env, &mut repaid, &mut refunds, Wad::from(5 * WAD), false);
+    assert_eq!(
+        process_excess_payment(&env, &mut repaid, &mut refunds, Wad::from(5 * WAD), false),
+        Wad::ZERO,
+        "a ratio trim floors no kept leg"
+    );
 
     assert_eq!(repaid.len(), 1, "the exactly-consumed leg must be removed");
     assert_eq!(repaid.get_unchecked(0).amount, stroops(10));
@@ -412,7 +420,11 @@ fn process_excess_payment_survives_exhausting_all_legs() {
     repaid.push_back(repay_entry(&env, stroops(10), 5 * WAD));
     let mut refunds = Vec::new(&env);
 
-    process_excess_payment(&env, &mut repaid, &mut refunds, Wad::from(8 * WAD), false);
+    assert_eq!(
+        process_excess_payment(&env, &mut repaid, &mut refunds, Wad::from(8 * WAD), false),
+        Wad::ZERO,
+        "a ratio trim floors no kept leg"
+    );
 
     assert_eq!(repaid.len(), 0);
     assert_eq!(refunds.len(), 1);
@@ -427,7 +439,11 @@ fn process_excess_payment_spans_legs_with_pro_rata_split() {
     repaid.push_back(repay_entry(&env, stroops(40), 40 * WAD));
     let mut refunds = Vec::new(&env);
 
-    process_excess_payment(&env, &mut repaid, &mut refunds, Wad::from(60 * WAD), false);
+    assert_eq!(
+        process_excess_payment(&env, &mut repaid, &mut refunds, Wad::from(60 * WAD), false),
+        Wad::ZERO,
+        "a ratio trim floors no kept leg"
+    );
 
     assert_eq!(refunds.len(), 2);
     assert_eq!(refunds.get_unchecked(0).amount, stroops(40));
