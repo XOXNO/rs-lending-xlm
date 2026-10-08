@@ -53,7 +53,9 @@ the asset to that spoke must keep or tighten them. Clearing is a separate timelo
 `relax_spoke_asset_flags`, bound to the listing's flags epoch. Every guardian
 flag call and every flag change advances the epoch, so a relaxation proposed
 before a later guardian action reverts when executed. The ORACLE role can
-narrow sanity bands; widening requires timelocked oracle reconfiguration.
+narrow sanity bands; widening requires timelocked oracle reconfiguration
+proposed after the narrowing. The aggregator records each narrowing's ledger,
+and governance binds a `ConfigureAssetOracle` to its proposal ledger.
 The [listing-freeze runbook](../reference/runbooks/freeze-a-listing.md) gives the
 operator steps.
 

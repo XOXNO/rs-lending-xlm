@@ -1202,3 +1202,20 @@ fn test_the_first_stable_lp_leg_is_resolved_one_level_below_the_lp() {
 fn test_the_second_stable_lp_leg_is_resolved_one_level_below_the_lp() {
     assert_deepened_stable_leg_exhausts_the_cap(false);
 }
+
+#[test]
+fn band_narrowing_ledger_defaults_to_zero_and_tracks_the_last_narrowing() {
+    let env = Env::default();
+    let contract = env.register(PriceAggregator, (Address::generate(&env),));
+    let key = PriceKey::Ref(Symbol::new(&env, "BAND"));
+
+    env.as_contract(&contract, || {
+        assert_eq!(band_narrowed_at(&env, &key), 0);
+        env.ledger().set_sequence_number(77);
+        record_band_narrowing(&env, &key);
+        assert_eq!(band_narrowed_at(&env, &key), 77);
+        env.ledger().set_sequence_number(90);
+        record_band_narrowing(&env, &key);
+        assert_eq!(band_narrowed_at(&env, &key), 90);
+    });
+}

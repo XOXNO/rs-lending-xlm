@@ -47,7 +47,10 @@ its review window before funding. Raising the configured minimum and changing a
 compiled tier floor are different actions.
 
 GUARDIAN can immediately pause, tighten listing flags, and create empty hubs
-or spokes. ORACLE can immediately narrow sanity bands. The owner can revoke
+or spokes. ORACLE can immediately narrow sanity bands; a narrowing voids every
+`ConfigureAssetOracle` for that key proposed at or before it. A rogue ORACLE
+can thereby delay the owner's reconfiguration, and the owner's remedy is
+`revoke_role_immediate`. The owner can revoke
 those two hot roles immediately and perform one-time deployment bootstrap.
 Reopening, global position-manager changes, and ordinary upgrades use delayed
 operations. An `Unpause` must be proposed while the controller is paused and

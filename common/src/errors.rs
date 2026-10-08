@@ -236,6 +236,10 @@ pub enum OracleError {
     UnsupportedAquariusPool = 234,
 
     InsufficientAquariusLiquidity = 235,
+
+    /// A `ConfigureAssetOracle` executes although `set_sanity_band` narrowed
+    /// the key's band at or after the operation's proposal ledger.
+    SanityBandNarrowedAfterProposal = 236,
 }
 
 /// Error codes for spoke registration and per-spoke asset configuration

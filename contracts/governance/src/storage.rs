@@ -7,6 +7,7 @@
 
 use common::constants::{TTL_BUMP_SHARED, TTL_THRESHOLD_SHARED};
 use common::errors::GenericError;
+use common::types::PriceKey;
 
 use soroban_sdk::{contracttype, panic_with_error, Address, BytesN, Env, Vec};
 
@@ -45,6 +46,8 @@ pub(crate) enum ExclusiveKind {
 pub(crate) enum ExecutionGuard {
     /// Controller pause epoch an `Unpause` was proposed under.
     PauseEpoch(u64),
+    /// Price key and proposal ledger of a `ConfigureAssetOracle`.
+    OracleBand(PriceKey, u32),
 }
 
 /// Records `account` as the role-revocation target for `operation_id` in

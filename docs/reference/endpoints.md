@@ -216,7 +216,7 @@ Constructor `(admin: Address, min_delay: u32)` initializes the owner, access-con
 | `propose(proposer: Address, op: AdminOperation, salt: BytesN<32>) -> BytesN<32>` | PROPOSER_ROLE; the proposer must also be the current owner for ownership transfers, code upgrades (`UpgradeGov`, `UpgradeController`, `UpgradePool`, `UpgradePositionNft`, `UpgradePriceAggregator`, `MigrateController`), the timelock minimum delay (`UpdateGovDelay`), price and swap sources (`SetPriceAggregator`, `ConfigureAssetOracle`, `EditOracleTolerance`, `SetSwapAggregator`), `ApproveBlendPool`, `SetAccumulator` and `GrantGovRole`; `RevokeGovRole` cannot target the proposer or the owner; `Unpause` needs a paused controller and binds to its pause epoch; `Unpause` and `UpgradeController` cannot be pending together |
 | `pause(caller: Address)` | GUARDIAN_ROLE; immediate |
 | `set_spoke_asset_flags(caller: Address, spoke_id: u32, hub_asset: HubAssetKey, paused: bool, frozen: bool, no_seize: bool)` | GUARDIAN_ROLE; immediate tightening only |
-| `set_sanity_band(caller: Address, key: PriceKey, min_wad: i128, max_wad: i128)` | ORACLE_ROLE; immediate tightening only |
+| `set_sanity_band(caller: Address, key: PriceKey, min_wad: i128, max_wad: i128)` | ORACLE_ROLE; immediate tightening only; voids every `ConfigureAssetOracle` for the key proposed at or before this ledger |
 | `create_hub(caller: Address) -> u32` | GUARDIAN_ROLE; immediate |
 | `add_spoke(caller: Address) -> u32` | GUARDIAN_ROLE; immediate |
 | `revoke_role_immediate(account: Address, role: Symbol)` | Owner; only guardian/oracle roles |
@@ -315,6 +315,7 @@ Constructor `(owner: Address)` sets owner and emits OwnershipTransferCompleted.
 | `quotes(keys: Vec<PriceKey>) -> Map<PriceKey, PriceStatus>` | Open; unusable price status returned |
 | `price_spread(key: PriceKey) -> (i128, i128)` | Open; unusable price fails |
 | `oracle(key: PriceKey) -> Option<AssetOracle>` | Open view |
+| `sanity_band_narrowed_at(key: PriceKey) -> u32` | Open view; ledger of the key's last `set_sanity_band`, 0 if never |
 | `set_oracle(key: PriceKey, oracle: AssetOracle)` | Owner; a replacement keeps the stored `asset_decimals` |
 | `set_sanity_band(key: PriceKey, min_wad: i128, max_wad: i128)` | Owner |
 | `set_tolerance(key: PriceKey, tolerance: OracleTolerance)` | Owner |

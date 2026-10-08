@@ -19,6 +19,8 @@ pub trait PriceAggregatorInterface {
 
     fn oracle(env: Env, key: PriceKey) -> Option<AssetOracle>;
 
+    fn sanity_band_narrowed_at(env: Env, key: PriceKey) -> u32;
+
     fn set_oracle(env: Env, key: PriceKey, oracle: AssetOracle);
 
     fn set_sanity_band(env: Env, key: PriceKey, min_wad: i128, max_wad: i128);

@@ -63,7 +63,8 @@ Removing a listing retains any set flag, and re-adding the asset to that spoke
 can only keep or tighten the retained flags. Only the timelocked
 `relax_spoke_asset_flags` clears one, and only while the listing's flags epoch
 equals its `expected_epoch`. The oracle role's immediate
-`set_sanity_band` can only keep or narrow a band.
+`set_sanity_band` can only keep or narrow a band, and a `ConfigureAssetOracle`
+proposed at or before the narrowing's ledger reverts.
 
 <a id="inv-auth-05"></a>
 <a id="inv-auth-05--governance-delay-cannot-be-shortened"></a>

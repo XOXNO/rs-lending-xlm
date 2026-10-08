@@ -3,8 +3,9 @@
 //! instead of being undone by it; and the exclusion that keeps an `Unpause`
 //! and an `UpgradeController` from being pending together.
 
-use common::errors::GenericError;
+use common::errors::{GenericError, OracleError};
 use controller_interface::ControllerClient;
+use price_aggregator_interface::PriceAggregatorClient;
 
 use soroban_sdk::{assert_with_error, panic_with_error, Address, BytesN, Env, Vec};
 
@@ -53,6 +54,7 @@ pub(crate) fn require_no_conflict(env: &Env, op: &AdminOperation) {
 ///
 /// `Unpause` binds to the controller's current pause epoch and panics with
 /// `GenericError::PauseEpochMismatch` while the controller is open.
+/// `ConfigureAssetOracle` binds to its key and the proposal ledger.
 pub(crate) fn record(env: &Env, operation_id: &BytesN<32>, op: &AdminOperation) {
     if let Some((kind, _)) = exclusion(op) {
         let mut pending = live_pending(env, kind);
@@ -65,6 +67,9 @@ pub(crate) fn record(env: &Env, operation_id: &BytesN<32>, op: &AdminOperation) 
                 .get_pause_epoch()
                 .unwrap_or_else(|| panic_with_error!(env, GenericError::PauseEpochMismatch)),
         ),
+        AdminOperation::ConfigureAssetOracle(args) => {
+            ExecutionGuard::OracleBand(args.key.clone(), env.ledger().sequence())
+        }
         _ => return,
     };
     storage::set_execution_guard(env, operation_id, &guard);
@@ -79,6 +84,11 @@ pub(crate) fn require_holds(env: &Env, operation_id: &BytesN<32>, target: &Addre
             env,
             ControllerClient::new(env, target).get_pause_epoch() == Some(epoch),
             GenericError::PauseEpochMismatch
+        ),
+        Some(ExecutionGuard::OracleBand(key, proposed_at)) => assert_with_error!(
+            env,
+            PriceAggregatorClient::new(env, target).sanity_band_narrowed_at(&key) < proposed_at,
+            OracleError::SanityBandNarrowedAfterProposal
         ),
         None => {}
     }

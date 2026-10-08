@@ -202,11 +202,12 @@ pub(crate) fn validate_asset_oracle(env: &Env, key: &PriceKey, oracle: &AssetOra
 
 /// Narrows the sanity band of the oracle under `key`; panics with
 /// `SanityBandMustTighten` if either bound widens. Revalidates and re-probes
-/// before committing.
+/// before committing, and records the ledger of the narrowing.
 ///
 /// Governance calls this on the immediate `ORACLE_ROLE` path, so it only
 /// narrows and repeated calls cannot walk the band. Widening goes through the
-/// timelocked `ConfigureAssetOracle` (INV-AUTH-04).
+/// timelocked `ConfigureAssetOracle` (INV-AUTH-04), which governance rejects
+/// when proposed at or before this ledger.
 pub(crate) fn set_sanity_band(env: &Env, key: PriceKey, min_wad: i128, max_wad: i128) {
     let mut oracle = registry::get_oracle(env, &key)
         .unwrap_or_else(|| panic_with_error!(env, OracleError::OracleNotConfigured));
@@ -222,6 +223,7 @@ pub(crate) fn set_sanity_band(env: &Env, key: PriceKey, min_wad: i128, max_wad: 
 
     let mut session = Session::new(env);
     engine::probe(&mut session, &key, &oracle);
+    registry::record_band_narrowing(env, &key);
     registry::commit(env, &key, &oracle);
 }
 

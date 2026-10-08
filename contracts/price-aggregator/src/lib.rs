@@ -105,6 +105,12 @@ impl PriceAggregatorInterface for PriceAggregator {
         registry::get_oracle(&env, &key)
     }
 
+    /// Returns the ledger of the last `set_sanity_band` on `key`, or 0 if
+    /// its band was never narrowed.
+    fn sanity_band_narrowed_at(env: Env, key: PriceKey) -> u32 {
+        registry::band_narrowed_at(&env, &key)
+    }
+
     /// Owner-only. Registers or replaces the oracle configuration for `key`. A
     /// replacement must keep the stored `asset_decimals`.
     #[only_owner]
