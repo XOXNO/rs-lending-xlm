@@ -97,6 +97,10 @@ pub enum GenericError {
 
     /// The `CANCELLER` role would exceed `MAX_CANCELLERS` holders.
     CancellerLimitExceeded = 56,
+
+    /// An `Unpause` is proposed while the controller is open, or executes
+    /// after the controller was paused again since its proposal.
+    PauseEpochMismatch = 57,
 }
 
 /// Error codes for collateral, position, interest-rate-curve, and

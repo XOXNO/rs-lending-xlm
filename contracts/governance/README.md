@@ -95,7 +95,7 @@ council fits one transaction's event limit.
 
 | Control | Immediate (`GUARDIAN`) | Clear (timelocked) |
 | --- | --- | --- |
-| Global controller pause | `pause` | `AdminOperation::Unpause` |
+| Global controller pause | `pause` | `AdminOperation::Unpause`, proposed during the pause it ends |
 | Listing flags `paused`, `frozen`, `no_seize` | `set_spoke_asset_flags`, tighten only | `AdminOperation::RelaxSpokeAssetFlags` at the listing's flags epoch |
 
 - A call that would clear a flag through `set_spoke_asset_flags` or
@@ -104,6 +104,10 @@ council fits one transaction's event limit.
 - `RemoveAssetFromSpoke` retains the listing's set flags. An
   `AddAssetToSpoke` for the same asset and spoke that clears one reverts
   `SpokeAssetFlagRelaxation`.
+- `Unpause` can only be proposed while the controller is paused. It writes
+  an `ExecutionGuard::PauseEpoch` sidecar from `get_pause_epoch`, and
+  execution reverts `PauseEpochMismatch` if a later pause advanced the
+  epoch.
 - `RelaxSpokeAssetFlags` carries the `expected_epoch` from
   `get_spoke_asset_flags_epoch`. Every flag change advances the epoch, so a
   relaxation proposed before a later guardian action reverts

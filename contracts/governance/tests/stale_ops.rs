@@ -378,3 +378,103 @@ fn legacy_nomination_cancel_keeps_its_unbound_behaviour() {
 
     assert_eq!(pending_owner(&env, &gov), None);
 }
+
+fn pause_epoch_mismatch() -> Error {
+    Error::from_contract_error(GenericError::PauseEpochMismatch as u32)
+}
+
+fn paused(env: &Env, controller: &Address) -> bool {
+    env.as_contract(controller, || stellar_contract_utils::pausable::paused(env))
+}
+
+fn wait_standard(env: &Env) {
+    env.ledger().with_mut(|l| l.sequence_number += MIN_DELAY);
+}
+
+fn execute_unpause(
+    gov: &GovernanceClient<'_>,
+    controller: &Address,
+    queued: &Queued,
+) -> Result<(), Error> {
+    let env = &gov.env;
+    match gov.try_execute(
+        &None,
+        controller,
+        &Symbol::new(env, "unpause"),
+        &soroban_sdk::Vec::new(env),
+        &BytesN::from_array(env, &[0u8; 32]),
+        &queued.salt,
+    ) {
+        Ok(_) => Ok(()),
+        Err(Ok(error)) => Err(error),
+        Err(Err(invoke)) => panic!("expected a contract error, got {invoke:?}"),
+    }
+}
+
+#[test]
+fn unpause_proposed_before_a_later_pause_is_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (owner, controller, gov) = register_with_controller(&env, MIN_DELAY);
+    let first = queue(&gov, &owner, AdminOperation::Unpause, 1);
+    let stale = queue(&gov, &owner, AdminOperation::Unpause, 2);
+    wait_standard(&env);
+    execute_unpause(&gov, &controller, &first).expect("the first unpause reopens");
+    gov.pause(&owner);
+
+    assert_eq!(
+        execute_unpause(&gov, &controller, &stale),
+        Err(pause_epoch_mismatch())
+    );
+    assert!(paused(&env, &controller));
+}
+
+#[test]
+fn unpause_cannot_be_proposed_while_the_controller_is_open() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (owner, controller, gov) = register_with_controller(&env, MIN_DELAY);
+    gov.execute_immediate(&owner, &AdminOperation::Unpause);
+    assert!(!paused(&env, &controller));
+
+    let result = gov.try_propose(
+        &owner,
+        &AdminOperation::Unpause,
+        &BytesN::from_array(&env, &[1u8; 32]),
+    );
+
+    assert_eq!(result.err(), Some(Ok(pause_epoch_mismatch())));
+}
+
+#[test]
+fn unpause_proposed_during_the_current_pause_executes() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (owner, controller, gov) = register_with_controller(&env, MIN_DELAY);
+    gov.execute_immediate(&owner, &AdminOperation::Unpause);
+    gov.pause(&owner);
+    let unpause = queue(&gov, &owner, AdminOperation::Unpause, 1);
+    wait_standard(&env);
+
+    execute_unpause(&gov, &controller, &unpause).expect("the unpause reopens");
+    assert!(!paused(&env, &controller));
+}
+
+#[test]
+fn unpause_without_a_pause_epoch_record_keeps_its_unbound_behaviour() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (owner, controller, gov) = register_with_controller(&env, MIN_DELAY);
+    let first = queue(&gov, &owner, AdminOperation::Unpause, 1);
+    let legacy = queue(&gov, &owner, AdminOperation::Unpause, 2);
+    env.as_contract(&gov.address, || {
+        storage::clear_operation_sidecars(&env, &legacy.id);
+    });
+    wait_standard(&env);
+    execute_unpause(&gov, &controller, &first).expect("the first unpause reopens");
+    gov.pause(&owner);
+
+    execute_unpause(&gov, &controller, &legacy)
+        .expect("an unpause scheduled before the upgrade still applies");
+    assert!(!paused(&env, &controller));
+}

@@ -2,6 +2,7 @@
 //! operation construction, expiry checks, and the clients and helpers used by the
 //! `immediate`, `lifecycle`, and `recovery` submodules.
 
+mod guard;
 pub(crate) mod immediate;
 pub(crate) mod lifecycle;
 pub(crate) mod recovery;
@@ -214,14 +215,15 @@ fn require_proposing_owner_tenure(env: &Env, operation_id: &BytesN<32>) {
 
 /// Renews the governance instance's storage TTL, authorizes `executor` if
 /// present, computes `operation`'s id, and checks that the operation has not
-/// expired and was not proposed under a previous owner. Returns the operation
-/// id.
+/// expired, was not proposed under a previous owner, and that the state its
+/// execution guard bound it to still holds. Returns the operation id.
 fn prepare_execute(env: &Env, executor: Option<&Address>, operation: &Operation) -> BytesN<32> {
     renew_instance(env);
     authorize_executor(env, executor);
     let operation_id = hash_operation(env, operation);
     require_operation_not_expired(env, &operation_id);
     require_proposing_owner_tenure(env, &operation_id);
+    guard::require_holds(env, &operation_id, &operation.target);
     operation_id
 }
 

@@ -29,13 +29,13 @@ pub(crate) fn init(env: &Env, admin: &Address) {
         .instance()
         .set(&ControllerKey::AppVersion, &INITIAL_APP_VERSION);
 
-    pausable::pause(env);
+    pause(env);
 }
 
 /// Pauses if needed, then schedules replacement of the controller Wasm.
 pub(crate) fn upgrade(env: &Env, new_wasm_hash: &BytesN<32>) {
     if !pausable::paused(env) {
-        pausable::pause(env);
+        pause(env);
     }
     env.deployer()
         .update_current_contract(ContractExecutable::Wasm(new_wasm_hash.clone()));
@@ -66,9 +66,31 @@ pub(crate) fn get_app_version(env: &Env) -> u32 {
         .unwrap_or(INITIAL_APP_VERSION)
 }
 
-/// Pauses the controller; fails if already paused.
+/// Pauses the controller and advances the pause epoch; fails if already
+/// paused.
 pub(crate) fn pause(env: &Env) {
     pausable::pause(env);
+    let next = env
+        .storage()
+        .instance()
+        .get::<_, u64>(&ControllerKey::PauseEpoch)
+        .unwrap_or(0)
+        .checked_add(1)
+        .unwrap_or_else(|| panic_with_error!(env, GenericError::MathOverflow));
+    env.storage()
+        .instance()
+        .set(&ControllerKey::PauseEpoch, &next);
+}
+
+/// Returns the current pause's epoch while paused, or `None` while unpaused.
+/// A pause recorded before the epoch existed reads as epoch 0.
+pub(crate) fn pause_epoch(env: &Env) -> Option<u64> {
+    pausable::paused(env).then(|| {
+        env.storage()
+            .instance()
+            .get(&ControllerKey::PauseEpoch)
+            .unwrap_or(0)
+    })
 }
 
 /// Unpauses the controller; fails if already unpaused.

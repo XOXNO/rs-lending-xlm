@@ -50,7 +50,8 @@ GUARDIAN can immediately pause, tighten listing flags, and create empty hubs
 or spokes. ORACLE can immediately narrow sanity bands. The owner can revoke
 those two hot roles immediately and perform one-time deployment bootstrap.
 Reopening, global position-manager changes, and ordinary upgrades use delayed
-operations. Controller construction and upgrade pause the controller. Pool,
+operations. An `Unpause` must be proposed while the controller is paused and
+reverts if the controller was paused again after its proposal. Controller construction and upgrade pause the controller. Pool,
 position NFT, price aggregator and governance upgrades do not pause lending.
 
 A PROPOSER that is not the owner can schedule listing, cap, curve and limit

@@ -529,7 +529,7 @@ mod tests {
     }
 }
 
-/// Controller storage keys: singleton protocol settings, per-hub and per-spoke configuration,
+/// Controller storage keys: singleton protocol settings and the pause epoch, per-hub and per-spoke configuration,
 /// per-spoke-asset configuration, usage, flags epoch and the flags a removed listing held,
 /// the address-keyed position-manager
 /// and Blend-pool registries, and per-account metadata, positions, and delegates, all keyed
@@ -563,4 +563,5 @@ pub enum ControllerKey {
     BorrowPositions(u64),
     SpokeFlagsEpoch(u32, HubAssetKey),
     DelistedSpokeAssetFlags(u32, HubAssetKey),
+    PauseEpoch,
 }

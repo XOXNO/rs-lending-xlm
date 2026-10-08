@@ -131,6 +131,7 @@ decimals.
 | `get_spoke_asset(spoke_id, hub_asset)` | Asset configuration in the spoke; reverts with `AssetNotInSpoke` if unlisted |
 | `get_spoke_usage(spoke_id, hub_asset)` | Supplied and borrowed usage, or zero |
 | `get_spoke_asset_flags_epoch(spoke_id, hub_asset)` | The `expected_epoch` for `relax_spoke_asset_flags`; 0 if no flag was written |
+| `get_pause_epoch()` | The current pause's epoch while paused, `None` while unpaused; every pause, including the one inside `upgrade`, advances it |
 | `get_min_borrow_collateral_usd` | Minimum LTV-weighted collateral an account with debt must keep after a borrow, withdrawal or strategy call; 0 disables it |
 | `get_pool_address`, `price_aggregator` | Contract addresses |
 | `is_blend_pool_approved(pool)` | Whether `pool` is an approved migration source |

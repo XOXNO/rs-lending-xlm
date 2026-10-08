@@ -80,3 +80,32 @@ fn init_emits_owner_and_default_limits() {
         "constructor must publish the default borrow floor"
     );
 }
+
+#[test]
+fn every_pause_advances_the_pause_epoch() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(Controller, (Address::generate(&env),));
+    let client = crate::ControllerClient::new(&env, &contract_id);
+    assert_eq!(client.get_pause_epoch(), Some(1), "construction pauses");
+
+    client.unpause();
+    assert_eq!(client.get_pause_epoch(), None);
+    client.pause();
+    assert_eq!(client.get_pause_epoch(), Some(2));
+    client.unpause();
+    client.pause();
+    assert_eq!(client.get_pause_epoch(), Some(3));
+}
+
+#[test]
+fn pause_recorded_before_the_epoch_existed_reads_as_epoch_zero() {
+    let env = Env::default();
+    let contract_id = env.register(Controller, (Address::generate(&env),));
+    let client = crate::ControllerClient::new(&env, &contract_id);
+    env.as_contract(&contract_id, || {
+        env.storage().instance().remove(&ControllerKey::PauseEpoch);
+    });
+
+    assert_eq!(client.get_pause_epoch(), Some(0));
+}

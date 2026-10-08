@@ -2,7 +2,7 @@
 //! controller and price-aggregator addresses, the owner epoch, the
 //! ownership-nomination nonce, and per-operation sidecar state
 //! (role-revocation target, recovery-operation marker, proposal owner epoch,
-//! cancelled nomination).
+//! cancelled nomination, execution guard).
 
 use common::constants::{TTL_BUMP_SHARED, TTL_THRESHOLD_SHARED};
 use common::errors::GenericError;
@@ -10,8 +10,8 @@ use common::errors::GenericError;
 use soroban_sdk::{contracttype, panic_with_error, Address, BytesN, Env};
 
 /// Storage keys for governance contract state. `RoleRevocationTarget`,
-/// `RecoveryOp`, `ProposalOwnerEpoch` and `CancelledNomination` are keyed per
-/// timelock operation id.
+/// `RecoveryOp`, `ProposalOwnerEpoch`, `CancelledNomination` and
+/// `ExecutionGuard` are keyed per timelock operation id.
 #[contracttype]
 #[derive(Clone, Debug)]
 enum GovernanceKey {
@@ -23,6 +23,16 @@ enum GovernanceKey {
     ProposalOwnerEpoch(BytesN<32>),
     NominationNonce,
     CancelledNomination(BytesN<32>),
+    ExecutionGuard(BytesN<32>),
+}
+
+/// State an operation is bound to at proposal. Execution reverts once that
+/// state has moved.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum ExecutionGuard {
+    /// Controller pause epoch an `Unpause` was proposed under.
+    PauseEpoch(u64),
 }
 
 /// Records `account` as the role-revocation target for `operation_id` in
@@ -119,6 +129,23 @@ pub(crate) fn cancelled_nomination(env: &Env, operation_id: &BytesN<32>) -> Opti
         .get(&GovernanceKey::CancelledNomination(operation_id.clone()))
 }
 
+/// Records `guard` for `operation_id` in persistent storage and extends the
+/// entry's TTL.
+pub(crate) fn set_execution_guard(env: &Env, operation_id: &BytesN<32>, guard: &ExecutionGuard) {
+    let key = GovernanceKey::ExecutionGuard(operation_id.clone());
+    env.storage().persistent().set(&key, guard);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, TTL_THRESHOLD_SHARED, TTL_BUMP_SHARED);
+}
+
+/// Returns the execution guard recorded for `operation_id`, if any.
+pub(crate) fn execution_guard(env: &Env, operation_id: &BytesN<32>) -> Option<ExecutionGuard> {
+    env.storage()
+        .persistent()
+        .get(&GovernanceKey::ExecutionGuard(operation_id.clone()))
+}
+
 /// Removes every sidecar entry recorded for `operation_id` from persistent
 /// storage.
 pub(crate) fn clear_operation_sidecars(env: &Env, operation_id: &BytesN<32>) {
@@ -134,6 +161,9 @@ pub(crate) fn clear_operation_sidecars(env: &Env, operation_id: &BytesN<32>) {
     env.storage()
         .persistent()
         .remove(&GovernanceKey::CancelledNomination(operation_id.clone()));
+    env.storage()
+        .persistent()
+        .remove(&GovernanceKey::ExecutionGuard(operation_id.clone()));
 }
 
 /// Returns the account recorded as the role-revocation target for

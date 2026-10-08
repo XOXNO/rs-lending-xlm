@@ -29,7 +29,8 @@ rejects an edit that turns a set flag off. A removal and re-listing cannot
 either: removal retains the set flags, and the re-listing must carry them. A relaxation proposed before the
 freeze cannot clear it either, because every flag write advances the listing's
 flags epoch and the old relaxation names the old epoch. Other pending
-operations, such as `Unpause`, still execute as proposed.
+operations still execute as proposed, including an `Unpause` proposed during
+the current global pause: a listing freeze does not void it.
 
 1. The verb prints every operation recorded in `configs/ops/<network>/` with its
    live state. `make <network> listOps` prints the same list. An operation

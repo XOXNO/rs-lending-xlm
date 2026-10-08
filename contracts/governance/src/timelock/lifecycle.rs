@@ -70,6 +70,7 @@ pub(crate) fn propose(
             storage::mark_cancelled_nomination(env, &operation_id);
         }
     }
+    guard::record(env, &operation_id, op);
     operation_id
 }
 

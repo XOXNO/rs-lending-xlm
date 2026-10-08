@@ -54,7 +54,9 @@ not imply that every operation preserves health or collateral value.
 ### INV-AUTH-04 — Emergency power only tightens
 
 Immediate guardian power can pause and add listing restrictions. Unpausing or
-clearing restrictions requires a timelock under the repository wiring.
+clearing restrictions requires a timelock under the repository wiring. An
+`Unpause` binds to the pause epoch in force when it is proposed, so one
+proposed before a later pause reverts.
 
 A listing edit and the guardian flag method can only keep or tighten flags.
 Removing a listing retains any set flag, and re-adding the asset to that spoke
