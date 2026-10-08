@@ -264,10 +264,13 @@ pub(crate) fn record_share_credit_updates(
 }
 
 /// Enforces receiver position limits to preserve the liquidation resource bound.
+/// The limit admits at least the liquidated account's supply leg count, so
+/// `Credit(0)` has room for every seized leg after governance lowers the limit.
 /// The liquidator can choose `Credit(0)` if the existing receiver has no room.
 pub(crate) fn require_credit_position_limit(
     env: &Env,
     receiver: &Account,
+    liquidated: &Account,
     seized: &Vec<SeizeEntry>,
     cache: &mut Context,
 ) {
@@ -277,11 +280,11 @@ pub(crate) fn require_credit_position_limit(
             aggregated.push_back((entry.hub_asset.clone(), entry.amount));
         }
     }
-    validation::validate_bulk_position_limits(
+    validation::validate_credit_receiver_position_limit(
         env,
         receiver,
-        AccountPositionType::Deposit,
         &aggregated,
+        liquidated.supply_positions.len(),
     );
     validation::require_whole_unit_isolation(env, cache, receiver, &aggregated);
 }
