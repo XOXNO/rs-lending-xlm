@@ -655,12 +655,15 @@ fn test_lp_reverts_when_underlyings_missing() {
     });
 }
 
+/// The factor is readable, so resolution reaches the quote and trips the cycle
+/// check rather than failing earlier on an unreadable factor.
 #[test]
-#[should_panic(expected = "Error(Contract, #210)")]
+#[should_panic(expected = "Error(Contract, #225)")]
 fn test_a_scaled_cycle_reverts_at_read_time_too() {
     let env = Env::default();
     at_now(&env);
-    let (adapter, _client) = register_redstone_feed(&env);
+    let (adapter, client) = register_redstone_feed(&env);
+    publish(&client, &env, "RATIO", WAD, 0);
 
     in_contract(&env, || {
         let key = PriceKey::Ref(Symbol::new(&env, "LOOP"));
