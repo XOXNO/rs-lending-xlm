@@ -2,6 +2,9 @@
 
 Status: proposed. An owner decision is necessary. Date: 2026-09-26.
 
+This memo records source behavior and design alternatives for auditor review.
+Proposed changes remain subject to audit and an owner decision.
+
 Source: upgrade audit finding R-23 (Addendum A.1.7), severity Info. The
 audit found that the liquidator profit jumps where collateral `C` falls below
 debt `D`. This memo gives the measured jump and the options. It does not
@@ -191,20 +194,26 @@ An open position keeps its stored tuple of threshold, bonus and fees. These
 paths copy the listed tuple into the position. Each calls
 `refresh_supply_risk_params` with `FullTuple`:
 
-- A supply to that leg, through `merge_supply_leg`. The owner, a delegate, or
+- A supply to that leg, through `process_deposit`. The owner, a delegate, or
   any caller that tops up the leg can do this. A deposit to the leg from
   `multiply`, `swap_collateral`, `flash_position` or `migrate_from_blend`
   uses the same path. A Credit-mode liquidation credit to the leg does not.
 - A withdrawal that is not a liquidation and leaves a balance on a listed leg,
-  through `merge_withdraw_leg`.
+  through `apply_withdraw_batch`. A single-leg strategy net-settlement uses
+  `merge_withdraw_leg`.
 - `update_account_threshold` with `has_risks`, for each listed leg.
 
 The refresh applies a tuple that favors the liquidator (a lower threshold, a
 higher bonus or a lower fee) to an account with debt only if the health factor
-with the new threshold is at least 1.05. A supply reads that health factor
-after its own deposit; a withdrawal reads it after its own withdrawal.
+with the new threshold is at least 1.05. A supply or normal withdrawal batch
+merges all balances and market indexes before refreshing its touched positions
+in asset-key order. Each gate sees the completed balances and any tuples already
+refreshed in that order; emitted deltas carry the resulting tuples.
 Otherwise the stored tuple stays. A lower bonus alone does not favor the
 liquidator, so the refresh applies it at any health factor.
+Within a strategy, a withdrawal leg refreshes before a subsequent repayment
+or replacement deposit. Final strategy checks refresh LTV without retrying
+the liquidation tuple.
 `update_account_threshold` with `has_risks` also reverts if the final health
 factor is below 1.05. Thus it cannot apply the lower bonus
 to an account near liquidation, but a supply to the leg can. A position that

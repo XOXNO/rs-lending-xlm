@@ -373,8 +373,8 @@ in these paths:
 
 | Path | Code |
 |---|---|
-| A supply of the asset into the account | `merge_supply_leg` calls `refresh_supply_risk_params` |
-| A withdrawal of the asset that is not a liquidation and leaves a balance | `merge_withdraw_leg` |
+| A supply of the asset into the account | `process_deposit` |
+| A withdrawal of the asset that is not a liquidation and leaves a balance | `apply_withdraw_batch`; strategy net-settlement uses `merge_withdraw_leg` |
 | `update_account_threshold(caller, has_risks = true, account_ids)` | `sync_account_thresholds` |
 
 A liquidation never refreshes them. `update_account_threshold` with
@@ -386,9 +386,13 @@ the fee. For an account with debt, such a change applies only when the
 account HF, calculated with the new LT, is at least 1.05
 (`THRESHOLD_UPDATE_MIN_HF_RAW`). If the HF is lower, the position keeps its
 old LT, bonus and fee, and the call does not fail. A debt-free account always
-takes the new values. In the supply path, the gate calculates the HF before
-the new supply adds to the collateral. The gate reads the prices of all
-assets of the account. When the gate runs, a stale price or a price outside
+takes the new values. The supply gate includes the deposited collateral.
+Supply and normal withdrawal batches merge all balances and market indexes
+before refreshing touched positions in asset-key order. Each gate sees any
+tuples already refreshed in that order. Strategy withdrawal legs refresh
+before a subsequent repayment or replacement deposit; their final checks
+refresh LTV without retrying the liquidation tuple. The gate reads the prices
+of all assets of the account. When the gate runs, a stale price or a price outside
 the band makes the call fail, also a supply.
 
 `update_account_threshold` with `has_risks = true` also checks the account HF

@@ -3,7 +3,9 @@
 //! afterwards, and it does apply a loosened one. The gate reads the health
 //! factor after the deposit, so a deposit counts toward its own gate.
 
+use crate::shared::{as_vec, data_for_topic};
 use controller::types::PositionMode;
+use soroban_sdk::{testutils::Events, xdr::ScVal, TryFromVal, Vec};
 use test_harness::{
     build_aggregator_swap, f64_to_i128, hub_asset, LendingTest, ALICE, BOB, CAROL, HARNESS_SPOKE,
 };
@@ -14,13 +16,43 @@ fn stamped_threshold(t: &LendingTest, account: u64) -> u32 {
 
 /// `(threshold, bonus, fees)` stored on the account's USDC leg.
 fn stamped_tuple(t: &LendingTest, account: u64) -> (u32, u32, u32) {
+    asset_tuple(t, account, "USDC")
+}
+
+fn asset_tuple(t: &LendingTest, account: u64, asset: &str) -> (u32, u32, u32) {
     let (supplies, _) = t.ctrl_client().get_account_positions(&account);
-    let leg = supplies.get(hub_asset(t.resolve_asset("USDC"))).unwrap();
+    let leg = supplies.get(hub_asset(t.resolve_asset(asset))).unwrap();
     (
         leg.liquidation_threshold,
         leg.liquidation_bonus,
         leg.liquidation_fees,
     )
+}
+
+fn assert_batch_events(t: &LendingTest, account: u64, assets: &[&str]) {
+    let batches = data_for_topic(&t.env.events().all(), "position", "batch_update");
+    let batch = as_vec(batches.last().unwrap());
+    let legs = as_vec(&batch[2]);
+    let (supplies, _) = t.ctrl_client().get_account_positions(&account);
+    assert_eq!(legs.len(), assets.len());
+    for (leg, asset) in legs.iter().zip(assets) {
+        let leg = as_vec(leg);
+        let address = t.resolve_asset(asset);
+        assert_eq!(
+            leg[2],
+            ScVal::try_from_val(&t.env, &address.to_val()).unwrap()
+        );
+        let position = supplies.get(hub_asset(address)).unwrap();
+        for (field, value) in [
+            (6, position.liquidation_threshold),
+            (7, position.liquidation_bonus),
+            (8, position.loan_to_value),
+            (9, position.liquidation_fees),
+        ] {
+            assert_eq!(leg[field], ScVal::U32(value));
+        }
+    }
+    t.assert_spoke_usage_matches_positions();
 }
 
 const STALE_TUPLE: (u32, u32, u32) = (8_000, 500, 1_200);
@@ -140,6 +172,83 @@ fn a_withdraw_that_ends_under_the_floor_keeps_the_stale_tuple() {
     t.withdraw(ALICE, "USDC", 200.0);
     assert_eq!(stamped_tuple(&t, account), STALE_TUPLE);
     t.assert_spoke_usage_matches_positions();
+}
+
+#[test]
+fn supply_batch_refresh_sees_all_deposits_in_either_order() {
+    for order in [
+        [("USDC", 1.0), ("ETH", 0.25)],
+        [("ETH", 0.25), ("USDC", 1.0)],
+    ] {
+        let (mut t, account) = stale_account();
+        t.supply_bulk(ALICE, &order);
+        assert_batch_events(&t, account, &order.map(|(asset, _)| asset));
+        assert_eq!(stamped_tuple(&t, account), TIGHT_TUPLE);
+        t.assert_supply_near(ALICE, "USDC", 10_001.0, 0.000001);
+        t.assert_supply_near(ALICE, "ETH", 0.25, 0.000001);
+    }
+}
+
+#[test]
+fn withdraw_batch_refresh_sees_all_exits_in_either_order() {
+    for order in [
+        [("USDC", 300.0), ("ETH", 0.2)],
+        [("ETH", 0.2), ("USDC", 300.0)],
+    ] {
+        let mut t = LendingTest::new().standard_two_asset().build();
+        t.supply(BOB, "ETH", 100.0);
+        t.supply_bulk(ALICE, &[("USDC", 10_600.0), ("ETH", 0.25)]);
+        t.borrow(ALICE, "ETH", 3.5);
+        let account = t.account_id(ALICE);
+        t.edit_asset_in_spoke("USDC", HARNESS_SPOKE, true, true, 6_900, 7_000, 600);
+        let mut withdrawals = Vec::new(&t.env);
+        for (asset, amount) in order {
+            withdrawals.push_back((hub_asset(t.resolve_asset(asset)), f64_to_i128(amount, 7)));
+        }
+        let caller = t.users.get(ALICE).unwrap().address.clone();
+        let paid = t
+            .ctrl_client()
+            .withdraw(&caller, &account, &withdrawals, &None);
+        assert_eq!(paid, withdrawals);
+        assert_batch_events(&t, account, &order.map(|(asset, _)| asset));
+        assert_eq!(stamped_tuple(&t, account), STALE_TUPLE);
+        t.assert_supply_near(ALICE, "USDC", 10_300.0, 0.000001);
+        t.assert_supply_near(ALICE, "ETH", 0.05, 0.000001);
+    }
+}
+
+#[test]
+fn multiple_pending_tightenings_use_asset_key_order() {
+    let mut expected = None;
+    for order in [
+        [("USDC", 1.0), ("ETH", 0.0005)],
+        [("ETH", 0.0005), ("USDC", 1.0)],
+    ] {
+        let mut t = LendingTest::new().standard_two_asset().build();
+        t.supply(BOB, "ETH", 100.0);
+        t.supply_bulk(ALICE, &[("USDC", 5_999.0), ("ETH", 2.9995)]);
+        t.borrow(ALICE, "ETH", 4.0);
+        let account = t.account_id(ALICE);
+        for asset in ["USDC", "ETH"] {
+            t.edit_asset_in_spoke(asset, HARNESS_SPOKE, true, true, 6_000, 6_500, 600);
+        }
+        t.supply_bulk(ALICE, &order);
+        assert_batch_events(&t, account, &order.map(|(asset, _)| asset));
+        let tuples = (
+            asset_tuple(&t, account, "USDC"),
+            asset_tuple(&t, account, "ETH"),
+        );
+        let (supplies, _) = t.ctrl_client().get_account_positions(&account);
+        let thresholds: std::vec::Vec<_> = supplies
+            .iter()
+            .map(|(_, position)| position.liquidation_threshold)
+            .collect();
+        assert_eq!(thresholds, [6_500, 8_000]);
+        if let Some(previous) = expected {
+            assert_eq!(tuples, previous);
+        }
+        expected = Some(tuples);
+    }
 }
 
 #[test]
