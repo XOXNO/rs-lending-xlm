@@ -341,14 +341,158 @@ pool value and monitor the gap; or add a guardian-settable listing flag that
 excludes an asset from valuation and seizure while its feed is known to be
 unusable, so the rest of the account stays liquidatable.
 
+## Third pass: break attempt on the router, the DeFindex adapter and governance
+
+Same method as the second pass, pointed at the three contracts the first two
+passes left out: eight attack lenses (three on the swap aggregator, two on the
+DeFindex adapter, three on governance) read the sources against a brief of
+seeded hypotheses, a skeptic re-derived every candidate from code and existing
+tests, and anything that survived was to become an executable proof. Each lens
+also left its probes behind as tests. One integration test was written outside
+the workflow: the controller driving the production router WASM, which no
+earlier test did.
+
+Result: no candidate survived. The router and the adapter raised none; the
+four governance candidates are the documented reach of a stolen non-owner
+proposer key, refuted as code defects and escalated below because the
+configured delay makes the documented control (a canceller veto) nominal.
+
+### Suites added
+
+| Suite | Tests | Pins |
+|---|---|---|
+| `contracts/swap-aggregator/tests/unit/rv_router_reserves.rs` | 5 | Greedy Aquarius, LP mint, LP burn and Comet venues under enforcing auth cannot take a second unit of the input or one unit of a parked fee reserve; a duplicate registry entry round-trips with one input fee |
+| `contracts/swap-aggregator/tests/unit/rv_router_fees.rs` | 4 | Fee base is the whitelisted side's final balance; a referral owned by the router itself keeps `ReservedTotal` equal to the bucket sum; components floor independently; the route minimum is enforced net of fee |
+| `contracts/swap-aggregator/tests/unit/rv_router_auth.rs` | 3 | A hop pool cannot replay the sender's transfer entry; a mint whose pool pulls less than offered is refused under enforcing auth; the index-based same-token check is documented |
+| `tests/test-harness/tests/rv_real_router.rs` | 4 | Production router WASM behind the controller: settlement equals the pool payout, fees come off the input into backed buckets a sweep cannot take, an unmet route minimum reverts the whole multiply, and under enforcing auth the user signs one invocation plus the payment |
+| `contracts/defindex-strategy/tests/rv_adapter_lifecycle.rs` | 4 | Partial exits leave at most one base unit, stale full amounts and donation front-runs stay reachable, a dust account is recovered by deposit then close |
+| `contracts/defindex-strategy/tests/rv_adapter_halts.rs` | 9 | Global pause, frozen, paused, deprecated spoke and supply cap each block or admit exactly what INV-HALT-02 says; a fee-on-transfer asset is haircut twice with nothing stranded; constructor misconfiguration moves no funds; a foreign-asset donation is refused |
+| `tests/test-harness/tests/rv_gov_identity.rs` | 6 | Replay after execution is refused, the operation hash binds function, args and predecessor, self and external paths are not interchangeable, expiry residue blocks only the same salt, the recovery operation is isolated, self-operations re-validate at execution |
+| `tests/test-harness/tests/rv_gov_proposer_powers.rs` | 5 | Characterization of what a non-owner proposer can execute after the delay (see below); these assert the documented outcome, not a safe expectation |
+
+### What held
+
+**Router.** For every token, the router's real balance change over one
+`execute_strategy` equals the vault's closing balance plus the fees it booked:
+every vault credit is a measured balance increase, every non-fee debit is a
+measured and enforced-equal decrease, and the payout and the residual sweep
+both read the vault, never a declared amount. That identity is why no venue
+can reach the fee reserve: the router grants exactly one invoker entry per
+pull, for the offered amount, and the host drops the entry when the callee
+returns. Four greedy venues (an Aquarius hop, an LP mint listing the reserve
+token as an unfunded constituent, an LP burn naming the reserve token as its
+share token, and a Comet pool that re-spends its allowance) each got exactly
+their authorized pull and nothing more, with only the sender's own tree
+mocked. A hop pool that replays the sender's input transfer, into the router
+or into itself, is refused and the strategy rolls back. The decoder's caps,
+index checks and chain rules hold at every boundary, and the referral id is a
+byte the sender controls, so every fee is opt-in by construction. Driving the
+production router WASM through the controller's multiply confirmed the
+cross-contract contract on both sides: the account is credited exactly the
+pool payout, the controller and the router keep nothing, and the user's
+signature covers one invocation.
+
+**Adapter.** Each vault owns one controller account whose id is a sequential
+position-NFT id that is never reused, and the adapter authorizes only its own
+direct supply and withdraw calls on that id. No path reaches another vault's
+account; third parties can only top up the asset the account already holds.
+Partial exits burn ceil shares and pay exactly the amount, a terminal close
+pays floor, so a vault loses at most one base unit over any sequence. Every
+halt state behaves as INV-HALT-02 states: the global pause and the frozen
+flag block deposits and keep exits open, a deprecated spoke keeps exits open,
+a paused listing blocks exits until the owner relaxes it.
+
+**Governance.** The operation id binds target, function, arguments and
+predecessor; a tampered tuple is simply unscheduled. Execution removes the
+entry, so the same tuple cannot run twice without a fresh proposal and a
+fresh delay. A self-targeted operation cannot be driven through the generic
+path nor a controller operation through the self path. The recovery operation
+has no proposer-reachable twin and the owner-canceller cannot cancel it. A
+self-operation is re-validated against current state when it executes, so a
+delay update that was valid when proposed is refused after a larger one
+lands.
+
+### Router observations
+
+**R-A. Verify before routing LP mints on mainnet: the mint authority is
+exact-amount.** `add_liquidity` offers the vault's whole balance of each
+constituent and grants the pool one transfer entry for exactly that amount.
+Under enforcing auth, a pool that pulls one unit less than offered is refused
+(the pin in `rv_router_auth`). The in-repo Aquarius LP mock pulls the desired
+amounts and refunds the excess, which matches that grant; the live Aquarius
+standard pool could not be checked from this environment. If the live pool
+pulls the proportional amounts it computes rather than the desired ones, every
+mint whose offer is not already exactly proportional to the reserves fails
+closed. No funds are at risk either way; the strategy reverts. The adapter
+would then need to offer the pool's own computed amounts, read from its
+reserves in the same call, instead of the full vault balances.
+
+**R-B. Low, hardening: the same-token check compares registry indices.** A
+registry that lists the input token twice can declare the input as the output.
+The router then pays the unrouted input back to the sender as the output and
+books the hop's real output as admin residual. The payout is bounded by the
+vault ledger and the controller rejects the case with `NoSwapOutput`, so it
+costs the sender their own hop output and nothing else. Comparing addresses in
+`decode` closes it.
+
+**R-C. Informational.** The Soroswap adapter assumes a 30 basis-point pair fee
+and the address ordering of the pair's tokens; a pair on another tier
+under-requests output or fails closed. The fee policy charges the whitelisted
+side's final balance, so a sender-owned tail hop can shrink the base; since
+the sender can omit the referral byte altogether, this is not an avoidance
+path. Neither adapter has been exercised against a live venue.
+
+### Adapter observations
+
+- A paused listing traps a vault's exit until the owner relaxes the flag.
+  Documented in INV-HALT-02, reversible, and the balance keeps reporting.
+- The constructor does not validate the spoke id; a wrong one is caught by the
+  first deposit before any transfer. Low hardening: probe the spoke at
+  construction as the hub market is probed.
+- A fee-on-transfer asset is haircut twice (vault to adapter, adapter to pool)
+  and credited at the pool-measured amount. Nothing strands on the adapter.
+- A third-party donation into the vault account inflates its reported balance.
+  Already documented; the NAV defence belongs to the DeFindex vault.
+
+### Governance: the proposer key is a liquidation-terms key
+
+Nothing here escapes a gate. The threat model already says a stolen non-owner
+proposer key "can schedule listing, cap, curve and limit changes" and calls
+them disruptive. The characterization suite puts numbers on what that means,
+because the word understates it. Every row is executable by anyone once the
+delay elapses, and the repository's network configuration sets the delay to
+12 ledgers on testnet and mainnet (about one minute), which is also the
+sensitive-tier floor during the audit period.
+
+| Operation a non-owner proposer can schedule | Delay tier | Outcome pinned |
+|---|---|---|
+| `EditAssetInSpoke` to threshold 3200 bps with the largest bonus the bounds admit (21250 bps), then the permissionless restamp | Standard | An account at health factor 2.67 restamps to 1.07 (the gate passes); an 8% price dip makes it liquidatable and, on the threshold-times-bonus boundary, one liquidation repays the whole debt and seizes 9.9998 of 10 ETH |
+| `ForceSocializeBadDebt` on a merely insolvent account | Sensitive | The whole debt is written against the debt market's suppliers and all collateral is booked as protocol revenue; a permissionless liquidation would have left a quarter of that loss |
+| `RemoveSpoke` | Standard | Irreversible; indebted accounts can no longer add collateral, no account can open in the spoke; exits and repayment stay open |
+| `SetPositionManager(manager, true)` | Sensitive | Every grant stored under a manager the owner had deactivated is live again; a compromised manager drains the accounts that granted it |
+| `UpgradeLiquidityPoolParams` | Standard | A 200% borrow rate at every utilisation with a 99.99% reserve factor; one day adds 32 USDC to a 6000 USDC debt |
+
+The first row is the one to act on. `validate_risk_bounds` admits any
+threshold above the loan-to-value and any bonus up to the solvency bound, the
+restamp gate only requires 1.05 after the new threshold, and the
+health-factor-preserving bonus cap turns every liquidation below 1 into a
+full close on that boundary. Three controls, in increasing order of change:
+set the configured minimum delay to the seven-day target before funding, so a
+canceller can act; move threshold decreases, curve edits, forced
+socialization and manager activation into the owner-only proposal set; or
+bound a single threshold cut (for example 500 bps per operation) so a ratchet
+takes several delays. The threat model's sentence on proposer powers should
+also name forced socialization, spoke removal and manager re-activation.
+
 ## Scope and limits
 
 - The harness registers the controller natively and uses mocked
   authorization, so signature trees are not exercised; the controller's own
   owner, delegate and NFT checks are. The existing rogue-hop tests under `tests/test-harness/tests/strategy/` cover
   enforced authorization trees.
-- Governance, the swap aggregator, the XOXNO oracle contract and the DeFindex
-  adapter are outside this pass.
+- The XOXNO oracle contract and the position NFT are outside these passes.
+  The router was exercised against in-crate venue doubles and, behind the
+  controller, as its production WASM; no live venue was reached.
 - The test environment restores expired entries, so multi-year jumps do not
   model archival.
 - Certora, libFuzzer, mutants and the full workspace suite were not re-run as
