@@ -87,6 +87,9 @@ Recovery delay and cannot be cancelled.
 - A call that would clear a flag through `set_spoke_asset_flags` or
   `EditAssetInSpoke` reverts `SpokeAssetFlagRelaxation`. `EditAssetInSpoke`
   rewrites the full listing, but its flags can only keep or tighten.
+- `RemoveAssetFromSpoke` retains the listing's set flags. An
+  `AddAssetToSpoke` for the same asset and spoke that clears one reverts
+  `SpokeAssetFlagRelaxation`.
 - `RelaxSpokeAssetFlags` carries the `expected_epoch` from
   `get_spoke_asset_flags_epoch`. Every flag change advances the epoch, so a
   relaxation proposed before a later guardian action reverts

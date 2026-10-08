@@ -54,7 +54,9 @@ Each spoke asset has three independent flags:
 | `no_seize` | The liquidation seizure leg. The only flag that stops a seizure |
 
 `set_spoke_asset_flags` and `edit_asset_in_spoke` can only keep or tighten a
-flag; clearing one reverts with `SpokeAssetFlagRelaxation`. To clear, use the
+flag; clearing one reverts with `SpokeAssetFlagRelaxation`.
+`remove_asset_from_spoke` retains any set flag, and `add_asset_to_spoke` for
+that asset and spoke reverts the same way if it clears one. To clear, use the
 owner-only, timelocked `relax_spoke_asset_flags`, which reverts unless
 `expected_epoch` equals the listing's flags epoch
 (`get_spoke_asset_flags_epoch`). See [`../governance/README.md`](../governance/README.md).

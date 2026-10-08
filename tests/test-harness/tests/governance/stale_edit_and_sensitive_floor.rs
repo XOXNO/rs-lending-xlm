@@ -1,10 +1,11 @@
-//! A listing edit or flag relaxation queued before a guardian freeze cannot
-//! clear it when executed; a timely relaxation can; a `Sensitive` operation is
-//! ready at `max(min_delay, floor)`.
+//! A listing edit, flag relaxation or removal-and-relisting queued before a
+//! guardian freeze cannot clear it when executed; a timely relaxation can; a
+//! `Sensitive` operation is ready at `max(min_delay, floor)`.
 
 use controller::types::{HubAssetKey, PositionLimits};
 use governance::op::{
-    AdminOperation, RelaxSpokeAssetFlagsArgs, RoleArgs, SpokeAssetArgs, TransferOwnershipArgs,
+    AdminOperation, RelaxSpokeAssetFlagsArgs, RemoveAssetFromSpokeArgs, RoleArgs, SpokeAssetArgs,
+    TransferOwnershipArgs,
 };
 use governance_interface::OperationState;
 use soroban_sdk::testutils::{Address as _, Ledger as _};
@@ -316,6 +317,131 @@ fn guardian_reasserting_the_same_flags_cancels_a_pending_relax() {
     );
 
     assert!(t.ctrl_client().get_spoke_asset(&HARNESS_SPOKE, &key).paused);
+    assert_contract_error(
+        t.try_supply(ALICE, "USDC", 10.0),
+        errors::SPOKE_ASSET_PAUSED,
+    );
+}
+
+/// Executes a Ready controller operation with no signature at all.
+fn execute_as_stranger(
+    t: &LendingTest,
+    function: &str,
+    args: Vec<Val>,
+    salt_byte: u8,
+) -> Result<(), soroban_sdk::Error> {
+    let gov = governance_interface::GovernanceClient::new(&t.env, &t.governance);
+    t.env.set_auths(&[]);
+    let result = flatten(gov.try_execute(
+        &None,
+        &t.controller,
+        &Symbol::new(&t.env, function),
+        &args,
+        &salt(&t.env, 0),
+        &salt(&t.env, salt_byte),
+    ));
+    t.env.mock_all_auths_allowing_non_root_auth();
+    result
+}
+
+/// The live listing's parameters with the given flags.
+fn relisting(t: &LendingTest, key: &HubAssetKey, flags: (bool, bool, bool)) -> SpokeAssetArgs {
+    let cfg = t.ctrl_client().get_spoke_asset(&HARNESS_SPOKE, key);
+    SpokeAssetArgs {
+        hub_id: HARNESS_HUB,
+        asset: key.asset.clone(),
+        spoke_id: HARNESS_SPOKE,
+        can_collateral: cfg.is_collateralizable,
+        can_borrow: cfg.is_borrowable,
+        paused: flags.0,
+        frozen: flags.1,
+        no_seize: flags.2,
+        ltv: cfg.loan_to_value,
+        threshold: cfg.liquidation_threshold,
+        bonus: cfg.liquidation_bonus,
+        liquidation_fees: cfg.liquidation_fees,
+        supply_cap: cfg.supply_cap,
+        borrow_cap: cfg.borrow_cap,
+    }
+}
+
+#[test]
+fn stale_removal_and_relisting_cannot_clear_a_guardian_freeze() {
+    let mut t = LendingTest::new().with_market(usdc_preset()).build();
+    let key = hub_asset(t.resolve_asset("USDC"));
+    let gov = governance_interface::GovernanceClient::new(&t.env, &t.governance);
+    let guardian = grant_guardian(&t);
+    let proposer = Address::generate(&t.env);
+    t.gov_client().execute_immediate(
+        &t.admin(),
+        &AdminOperation::GrantGovRole(RoleArgs {
+            account: proposer.clone(),
+            role: Symbol::new(&t.env, "PROPOSER"),
+        }),
+    );
+
+    let stale_relist = relisting(&t, &key, (false, false, false));
+    let remove = RemoveAssetFromSpokeArgs {
+        hub_asset: key.clone(),
+        spoke_id: HARNESS_SPOKE,
+    };
+    gov.propose(
+        &proposer,
+        &AdminOperation::RemoveAssetFromSpoke(remove),
+        &salt(&t.env, 7),
+    );
+    gov.propose(
+        &proposer,
+        &AdminOperation::AddAssetToSpoke(stale_relist.clone()),
+        &salt(&t.env, 8),
+    );
+
+    gov.set_spoke_asset_flags(&guardian, &HARNESS_SPOKE, &key, &true, &true, &false);
+    let frozen_relist = relisting(&t, &key, (true, true, false));
+
+    let delay = gov.get_min_delay();
+    t.env.ledger().with_mut(|l| l.sequence_number += delay);
+    execute_as_stranger(
+        &t,
+        "remove_asset_from_spoke",
+        soroban_sdk::vec![
+            &t.env,
+            key.clone().into_val(&t.env),
+            HARNESS_SPOKE.into_val(&t.env)
+        ],
+        7,
+    )
+    .expect("the zero-usage listing is removed");
+    assert_contract_error(
+        execute_as_stranger(
+            &t,
+            "add_asset_to_spoke",
+            soroban_sdk::vec![&t.env, stale_relist.into_val(&t.env)],
+            8,
+        ),
+        errors::SPOKE_ASSET_FLAG_RELAXATION,
+    );
+    assert_contract_error(
+        t.try_supply(ALICE, "USDC", 10.0),
+        errors::ASSET_NOT_IN_SPOKE,
+    );
+
+    // A relisting proposed after the freeze, carrying its flags, still lands.
+    gov.propose(
+        &proposer,
+        &AdminOperation::AddAssetToSpoke(frozen_relist.clone()),
+        &salt(&t.env, 9),
+    );
+    t.env.ledger().with_mut(|l| l.sequence_number += delay);
+    execute_as_stranger(
+        &t,
+        "add_asset_to_spoke",
+        soroban_sdk::vec![&t.env, frozen_relist.into_val(&t.env)],
+        9,
+    )
+    .expect("a relisting that keeps the retained flags executes");
+    let after = t.ctrl_client().get_spoke_asset(&HARNESS_SPOKE, &key);
+    assert!(after.paused && after.frozen && !after.no_seize);
     assert_contract_error(
         t.try_supply(ALICE, "USDC", 10.0),
         errors::SPOKE_ASSET_PAUSED,

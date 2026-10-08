@@ -6,8 +6,9 @@ one spoke must stop, and a global pause is too wide.
 [ADR-0007](../../explanation/decisions.md#adr-0007) and
 [ADR-0008](../../explanation/decisions.md#adr-0008) define what each flag stops.
 
-The guardian can only raise a flag, and a listing edit cannot clear one either.
-Clearing needs the timelocked `RelaxSpokeAssetFlags` operation.
+The guardian can only raise a flag, and neither a listing edit nor a removal
+followed by a re-listing can clear one. Clearing needs the timelocked
+`RelaxSpokeAssetFlags` operation.
 
 ## Raise the flags
 
@@ -24,7 +25,8 @@ the on-chain id.
 Do this immediately after the flags are set.
 
 A listing edit proposed before the freeze cannot clear it: the controller
-rejects an edit that turns a set flag off. A relaxation proposed before the
+rejects an edit that turns a set flag off. A removal and re-listing cannot
+either: removal retains the set flags, and the re-listing must carry them. A relaxation proposed before the
 freeze cannot clear it either, because every flag write advances the listing's
 flags epoch and the old relaxation names the old epoch. Other pending
 operations, such as `Unpause`, still execute as proposed.

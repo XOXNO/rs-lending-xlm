@@ -57,8 +57,10 @@ Immediate guardian power can pause and add listing restrictions. Unpausing or
 clearing restrictions requires a timelock under the repository wiring.
 
 A listing edit and the guardian flag method can only keep or tighten flags.
-Only the timelocked `relax_spoke_asset_flags` clears one, and only while the
-listing's flags epoch equals its `expected_epoch`. The oracle role's immediate
+Removing a listing retains any set flag, and re-adding the asset to that spoke
+can only keep or tighten the retained flags. Only the timelocked
+`relax_spoke_asset_flags` clears one, and only while the listing's flags epoch
+equals its `expected_epoch`. The oracle role's immediate
 `set_sanity_band` can only keep or narrow a band.
 
 <a id="inv-auth-05"></a>

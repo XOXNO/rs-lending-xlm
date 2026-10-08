@@ -29,7 +29,8 @@ pub(crate) use protocol::{
 };
 pub(crate) use spoke::{
     bump_spoke_flags_epoch, get_spoke, get_spoke_asset, get_spoke_flags_epoch, get_spoke_usage,
-    increment_spoke_id, remove_spoke_asset, set_spoke, set_spoke_asset, set_spoke_usage,
+    increment_spoke_id, remove_spoke_asset, set_delisted_flags, set_spoke, set_spoke_asset,
+    set_spoke_usage, take_delisted_flags,
 };
 
 #[cfg(any(test, feature = "testing", feature = "certora"))]
