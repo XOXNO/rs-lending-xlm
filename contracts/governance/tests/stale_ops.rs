@@ -5,17 +5,22 @@
 extern crate std;
 
 use soroban_sdk::testutils::{Address as _, Ledger as _};
-use soroban_sdk::{Address, BytesN, Env, Error, Symbol};
+use soroban_sdk::{vec, Address, BytesN, Env, Error, IntoVal, Symbol, Vec};
 use stellar_access::ownable;
+use stellar_access::role_transfer::PendingTransfer;
+use stellar_contract_utils::pausable;
 use stellar_governance::timelock::OperationState;
 
 use common::errors::GenericError;
 use common::types::PositionLimits;
 
 use crate::access::{CANCELLER_ROLE, GUARDIAN_ROLE, PROPOSER_ROLE};
-use crate::constants::{TIMELOCK_RECOVERY_MIN_DELAY_LEDGERS, TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS};
+use crate::constants::{
+    TIMELOCK_OPERATION_GRACE_LEDGERS, TIMELOCK_RECOVERY_MIN_DELAY_LEDGERS,
+    TIMELOCK_SENSITIVE_MIN_DELAY_LEDGERS,
+};
 use crate::op::{AdminOperation, RoleArgs, TransferOwnershipArgs};
-use crate::test_support::register_with_controller;
+use crate::test_support::{register_with_controller, upload_controller_wasm};
 use crate::{storage, GovernanceClient};
 
 /// Minimum delay configured on testnet and mainnet.
@@ -152,7 +157,7 @@ fn operation_open_to_any_proposer_survives_a_handover() {
         &None,
         &controller,
         &Symbol::new(&env, "set_position_limits"),
-        &soroban_sdk::vec![&env, soroban_sdk::IntoVal::into_val(&limits, &env)],
+        &vec![&env, limits.into_val(&env)],
         &BytesN::from_array(&env, &[0u8; 32]),
         &routine.salt,
     );
@@ -177,8 +182,8 @@ fn owner_only_operation_without_an_owner_epoch_record_executes() {
     assert!(gov.has_role(&guardian, &Symbol::new(&env, GUARDIAN_ROLE)));
 }
 
-fn reset_to(env: &Env, account: &Address) -> soroban_sdk::Vec<Address> {
-    soroban_sdk::vec![env, account.clone()]
+fn reset_to(env: &Env, account: &Address) -> Vec<Address> {
+    vec![env, account.clone()]
 }
 
 fn wait_recovery(env: &Env) {
@@ -188,7 +193,7 @@ fn wait_recovery(env: &Env) {
 
 fn execute_reset(
     gov: &GovernanceClient<'_>,
-    list: &soroban_sdk::Vec<Address>,
+    list: &Vec<Address>,
     salt: &BytesN<32>,
 ) -> Result<(), Error> {
     match gov.try_execute_canceller_reset(&None, list, salt) {
@@ -291,9 +296,7 @@ fn pending_owner(env: &Env, gov: &GovernanceClient<'_>) -> Option<Address> {
     env.as_contract(&gov.address, || {
         env.storage()
             .temporary()
-            .get::<_, stellar_access::role_transfer::PendingTransfer>(
-                &ownable::OwnableStorageKey::PendingOwner,
-            )
+            .get::<_, PendingTransfer>(&ownable::OwnableStorageKey::PendingOwner)
             .map(|pending| pending.address)
     })
 }
@@ -384,7 +387,7 @@ fn pause_epoch_mismatch() -> Error {
 }
 
 fn paused(env: &Env, controller: &Address) -> bool {
-    env.as_contract(controller, || stellar_contract_utils::pausable::paused(env))
+    env.as_contract(controller, || pausable::paused(env))
 }
 
 fn wait_standard(env: &Env) {
@@ -401,7 +404,7 @@ fn execute_unpause(
         &None,
         controller,
         &Symbol::new(env, "unpause"),
-        &soroban_sdk::Vec::new(env),
+        &Vec::new(env),
         &BytesN::from_array(env, &[0u8; 32]),
         &queued.salt,
     ) {
@@ -565,8 +568,7 @@ fn unpause_executes_once_the_upgrade_is_cancelled_or_expired() {
     gov.pause(&owner);
     let expired = queue(&gov, &owner, upgrade_controller(some_hash(&env, 8)), 3);
     let second = queue(&gov, &owner, AdminOperation::Unpause, 4);
-    let expiry =
-        gov.get_operation_ledger(&expired.id) + crate::constants::TIMELOCK_OPERATION_GRACE_LEDGERS;
+    let expiry = gov.get_operation_ledger(&expired.id) + TIMELOCK_OPERATION_GRACE_LEDGERS;
     env.ledger().with_mut(|l| l.sequence_number = expiry + 1);
     // The Unpause is past its own grace window too; re-propose it.
     let third = queue(&gov, &owner, AdminOperation::Unpause, 5);
@@ -583,7 +585,7 @@ fn unpause_must_be_proposed_after_the_upgrade_executes() {
     env.cost_estimate().disable_resource_limits();
     env.mock_all_auths();
     let (owner, controller, gov) = register_with_controller(&env, MIN_DELAY);
-    let wasm = crate::test_support::upload_controller_wasm(&env);
+    let wasm = upload_controller_wasm(&env);
     let upgrade = queue(&gov, &owner, upgrade_controller(wasm.clone()), 1);
     let early = queue(&gov, &owner, AdminOperation::Unpause, 2);
     wait_sensitive(&env);
@@ -591,7 +593,7 @@ fn unpause_must_be_proposed_after_the_upgrade_executes() {
         &None,
         &controller,
         &Symbol::new(&env, "upgrade"),
-        &soroban_sdk::vec![&env, soroban_sdk::IntoVal::into_val(&wasm, &env)],
+        &vec![&env, wasm.into_val(&env)],
         &BytesN::from_array(&env, &[0u8; 32]),
         &upgrade.salt,
     );

@@ -7,7 +7,7 @@ use governance::op::{
     AdminOperation, RelaxSpokeAssetFlagsArgs, RemoveAssetFromSpokeArgs, RoleArgs, SpokeAssetArgs,
     TransferOwnershipArgs,
 };
-use governance_interface::OperationState;
+use governance_interface::{GovernanceClient, OperationState};
 use soroban_sdk::testutils::{Address as _, Ledger as _};
 use soroban_sdk::{Address, BytesN, Env, IntoVal, Symbol, Val, Vec};
 use test_harness::{
@@ -330,7 +330,7 @@ fn execute_as_stranger(
     args: Vec<Val>,
     salt_byte: u8,
 ) -> Result<(), soroban_sdk::Error> {
-    let gov = governance_interface::GovernanceClient::new(&t.env, &t.governance);
+    let gov = GovernanceClient::new(&t.env, &t.governance);
     t.env.set_auths(&[]);
     let result = flatten(gov.try_execute(
         &None,
@@ -369,7 +369,7 @@ fn relisting(t: &LendingTest, key: &HubAssetKey, flags: (bool, bool, bool)) -> S
 fn stale_removal_and_relisting_cannot_clear_a_guardian_freeze() {
     let mut t = LendingTest::new().with_market(usdc_preset()).build();
     let key = hub_asset(t.resolve_asset("USDC"));
-    let gov = governance_interface::GovernanceClient::new(&t.env, &t.governance);
+    let gov = GovernanceClient::new(&t.env, &t.governance);
     let guardian = grant_guardian(&t);
     let proposer = Address::generate(&t.env);
     t.gov_client().execute_immediate(

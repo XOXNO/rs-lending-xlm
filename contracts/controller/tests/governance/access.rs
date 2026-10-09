@@ -3,6 +3,8 @@ use soroban_sdk::testutils::Address as _;
 use stellar_access::access_control::AccessControlStorageKey;
 use stellar_access::ownable::OwnableStorageKey;
 
+use crate::ControllerClient;
+
 #[test]
 fn init_sets_owner_not_access_control_admin() {
     let env = Env::default();
@@ -86,7 +88,7 @@ fn every_pause_advances_the_pause_epoch() {
     let env = Env::default();
     env.mock_all_auths();
     let contract_id = env.register(Controller, (Address::generate(&env),));
-    let client = crate::ControllerClient::new(&env, &contract_id);
+    let client = ControllerClient::new(&env, &contract_id);
     assert_eq!(client.get_pause_epoch(), Some(1), "construction pauses");
 
     client.unpause();
@@ -102,7 +104,7 @@ fn every_pause_advances_the_pause_epoch() {
 fn pause_recorded_before_the_epoch_existed_reads_as_epoch_zero() {
     let env = Env::default();
     let contract_id = env.register(Controller, (Address::generate(&env),));
-    let client = crate::ControllerClient::new(&env, &contract_id);
+    let client = ControllerClient::new(&env, &contract_id);
     env.as_contract(&contract_id, || {
         env.storage().instance().remove(&ControllerKey::PauseEpoch);
     });
