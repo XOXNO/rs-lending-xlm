@@ -3,7 +3,8 @@ use crate::registry;
 use crate::session::Session;
 use crate::test_support::{
     in_contract, register_redstone_feed, CountingReflector, GappedReflector, LongHistoryReflector,
-    TightWindowReflector, TwapReflector, TWAP_GAPPED_OLDER_AGE_SECS, TWAP_OLDER_AGE_SECS,
+    TightWindowReflector, TwapReflector, REFLECTOR_RESOLUTION_SECS, TWAP_GAPPED_OLDER_AGE_SECS,
+    TWAP_NEWER_AGE_KEY, TWAP_OLDER_AGE_SECS,
 };
 use common::constants::WAD;
 use common::oracle::observation::MAX_LEG_AGE_SPREAD_SECONDS;
@@ -1097,4 +1098,32 @@ fn validate_cached_path_refuses_a_key_already_on_the_resolution_stack() {
             Err(OracleError::OracleCycleDetected)
         );
     });
+}
+
+fn twap_at_oldest_age(env: &Env, oldest_age: u64) -> PriceFeedRaw {
+    let reflector = env.register(LongHistoryReflector, ());
+    let newest_age = oldest_age - 3 * u64::from(REFLECTOR_RESOLUTION_SECS);
+    env.as_contract(&reflector, || {
+        env.storage()
+            .instance()
+            .set(&TWAP_NEWER_AGE_KEY, &newest_age);
+    });
+    in_contract(env, || resolve_twap(env, &reflector, 3))
+}
+
+#[test]
+fn test_twap_leg_accepts_the_oldest_sample_at_the_stale_bound() {
+    let env = Env::default();
+    at_now(&env);
+    let feed = twap_at_oldest_age(&env, ASSET_CEILING);
+    assert_eq!(feed.price_wad, WAD);
+    assert_eq!(feed.timestamp, NOW - ASSET_CEILING);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #206)")]
+fn test_twap_leg_rejects_the_oldest_sample_one_second_past_the_stale_bound() {
+    let env = Env::default();
+    at_now(&env);
+    twap_at_oldest_age(&env, ASSET_CEILING + 1);
 }

@@ -49,6 +49,7 @@ mod position_nft;
 mod position_nft_ttl_and_ownership_reads;
 mod recipient_is_protocol_contract;
 mod repay;
+mod retained_agent_regressions;
 mod round_trip_exactness_and_loop_drift;
 mod same_market_bad_debt_cleanup_arithmetic;
 mod security_audit;

@@ -20,6 +20,8 @@ pub(crate) const REFLECTOR_RESOLUTION_SECS: u32 = 300;
 
 pub(crate) const TWAP_NEWER_AGE_SECS: u64 = 100;
 
+pub(crate) const TWAP_NEWER_AGE_KEY: Symbol = soroban_sdk::symbol_short!("twap_age");
+
 pub(crate) const TWAP_OLDER_AGE_SECS: u64 = TWAP_NEWER_AGE_SECS + 300;
 
 pub(crate) const TWAP_TIGHT_SPACING_SECS: u64 = REFLECTOR_RESOLUTION_SECS as u64 - 1;
@@ -205,6 +207,11 @@ impl ReflectorOracle for LongHistoryReflector {
 
     fn prices(env: Env, _asset: ReflectorAsset, _records: u32) -> Option<Vec<ReflectorPriceData>> {
         let now = env.ledger().timestamp();
+        let newest_age: u64 = env
+            .storage()
+            .instance()
+            .get(&TWAP_NEWER_AGE_KEY)
+            .unwrap_or(TWAP_NEWER_AGE_SECS);
         let sample = |age: u64| ReflectorPriceData {
             price: REFLECTOR_ONE_RAW,
             timestamp: now.saturating_sub(age),
@@ -212,10 +219,10 @@ impl ReflectorOracle for LongHistoryReflector {
         Some(Vec::from_array(
             &env,
             [
-                sample(TWAP_NEWER_AGE_SECS),
-                sample(TWAP_OLDER_AGE_SECS),
-                sample(TWAP_OLDER_AGE_SECS + u64::from(REFLECTOR_RESOLUTION_SECS)),
-                sample(TWAP_OLDER_AGE_SECS + 2 * u64::from(REFLECTOR_RESOLUTION_SECS)),
+                sample(newest_age),
+                sample(newest_age + u64::from(REFLECTOR_RESOLUTION_SECS)),
+                sample(newest_age + 2 * u64::from(REFLECTOR_RESOLUTION_SECS)),
+                sample(newest_age + 3 * u64::from(REFLECTOR_RESOLUTION_SECS)),
             ],
         ))
     }
