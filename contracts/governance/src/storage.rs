@@ -47,13 +47,25 @@ impl Epoch {
 }
 
 /// The sanity band (min WAD, max WAD) of a price key as a
-/// `ConfigureAssetOracle` found it at proposal, or `Unbound` when the
-/// operation does not bind one.
+/// `ConfigureAssetOracle` found it at proposal: `Band` when the key had an
+/// oracle, `Missing` when it had none yet. `NotBound` is for operations that
+/// bind no band.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum OracleBandGuard {
-    Unbound,
-    Bound(PriceKey, i128, i128),
+    NotBound,
+    Missing(PriceKey),
+    Band(PriceKey, i128, i128),
+}
+
+impl OracleBandGuard {
+    /// Returns the bound price key, if the guard binds one.
+    pub(crate) fn key(&self) -> Option<&PriceKey> {
+        match self {
+            OracleBandGuard::NotBound => None,
+            OracleBandGuard::Missing(key) | OracleBandGuard::Band(key, _, _) => Some(key),
+        }
+    }
 }
 
 /// Governance state an operation is bound to at proposal. Each `Some` field
@@ -72,7 +84,7 @@ impl OperationGuard {
         owner_epoch: None,
         nomination_epoch: None,
         emergency_epoch: None,
-        oracle_band: OracleBandGuard::Unbound,
+        oracle_band: OracleBandGuard::NotBound,
     };
 
     fn is_none(&self) -> bool {

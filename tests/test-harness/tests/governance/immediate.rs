@@ -472,3 +472,46 @@ fn oracle_reconfiguration_without_a_guard_record_keeps_its_unbound_behaviour() {
     let after = t.market_oracle_config(&usdc);
     assert_eq!(after.max_sanity_price_wad, wide.max_sanity_price_wad);
 }
+
+#[test]
+fn second_configuration_of_a_new_key_cannot_undo_a_narrowing_made_after_the_first() {
+    let t = LendingTest::new().with_market(usdc_preset()).build();
+    let gov = t.gov_iface_client();
+    let admin = t.admin();
+    let usdc = t.resolve_asset("USDC");
+    let key = controller::types::PriceKey::Ref(Symbol::new(&t.env, "NEWKEY"));
+    assert!(t.price_agg_client().oracle(&key).is_none());
+    let args = ConfigureAssetOracleArgs {
+        key: key.clone(),
+        oracle: t.market_oracle_config(&usdc),
+    };
+    let first = BytesN::from_array(&t.env, &[0x51; 32]);
+    let second = BytesN::from_array(&t.env, &[0x52; 32]);
+    gov.propose(
+        &admin,
+        &AdminOperation::ConfigureAssetOracle(args.clone()),
+        &first,
+    );
+    gov.propose(
+        &admin,
+        &AdminOperation::ConfigureAssetOracle(args.clone()),
+        &second,
+    );
+    let delay = gov.get_min_delay();
+    t.env.ledger().with_mut(|l| l.sequence_number += delay);
+
+    execute_oracle_config_as_stranger(&t, &args, &first)
+        .expect("the first configuration of a new key executes");
+    let (narrow_min, narrow_max) = (usd(1) * 995 / 1000, usd(1) * 1005 / 1000);
+    gov.set_sanity_band(&admin, &key, &narrow_min, &narrow_max);
+
+    assert_contract_error(
+        execute_oracle_config_as_stranger(&t, &args, &second),
+        GenericError::OracleBandChangedAfterProposal as u32,
+    );
+    let held = t.price_agg_client().oracle(&key).expect("configured");
+    assert_eq!(
+        (held.min_sanity_price_wad, held.max_sanity_price_wad),
+        (narrow_min, narrow_max)
+    );
+}

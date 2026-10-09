@@ -51,7 +51,7 @@ SDK `try_` calls distinguish contract errors from host, authorization, storage, 
 | 55 `DivisionByZero` | A fixed-point multiply-divide received a zero denominator. Distinct from `MathOverflow`, which the same operations raise when the result does not fit `i128`. | Report it; a zero index or denominator is an internal inconsistency. |
 | 56 `CancellerLimitExceeded` | A canceller grant or canceller reset would leave more than `MAX_CANCELLERS` (32) `CANCELLER` holders, the owner included, or a proposed reset list has 32 or more entries. | Revoke a canceller first or shorten the reset list. |
 | 57 `EmergencyEpochMismatch` | An `Unpause` or `GrantGovRole` executes after an emergency action taken since its proposal: a guardian `pause`, an executed `UpgradeController` or a `revoke_role_immediate`. | Propose the operation again after the emergency. |
-| 58 `OracleBandChangedAfterProposal` | A `ConfigureAssetOracle` executes although the key's sanity band on the price aggregator differs from the band it had at proposal, for example after an `ORACLE` `set_sanity_band`. | Review the narrowing, then propose the reconfiguration again. |
+| 58 `OracleBandChangedAfterProposal` | A `ConfigureAssetOracle` executes although the key's sanity band on the price aggregator differs from what it was at proposal: narrowed by an `ORACLE` `set_sanity_band`, or configured for the first time by another operation. | Review the current band, then propose the reconfiguration again. |
 
 ### Collateral and market errors (100–135)
 

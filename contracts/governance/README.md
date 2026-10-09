@@ -42,8 +42,8 @@ are in its rustdoc.
   `pause`, an executed `UpgradeController` and `revoke_role_immediate`
   advance; a stale op reverts `EmergencyEpochMismatch`. A
   `ConfigureAssetOracle` guard holds the key's current sanity band read from
-  the aggregator's `oracle` view; execution reverts
-  `OracleBandChangedAfterProposal` unless it is unchanged. An op scheduled
+  the aggregator's `oracle` view, or that the key has none yet; execution
+  reverts `OracleBandChangedAfterProposal` unless that is unchanged. An op scheduled
   without a guard is not checked.
 
 ## Entrypoints

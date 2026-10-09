@@ -17,12 +17,12 @@ use crate::storage::{self, OperationGuard, OracleBandGuard};
 const LEGACY_RECOVERY_OWNER_EPOCH: u64 = 0;
 
 /// Returns the sanity band the price aggregator holds for `key`, or
-/// `Unbound` when the key has no oracle.
+/// `Missing(key)` when the key has no oracle.
 fn sanity_band(env: &Env, aggregator: &Address, key: &PriceKey) -> OracleBandGuard {
     PriceAggregatorClient::new(env, aggregator)
         .oracle(key)
-        .map_or(OracleBandGuard::Unbound, |oracle| {
-            OracleBandGuard::Bound(
+        .map_or(OracleBandGuard::Missing(key.clone()), |oracle| {
+            OracleBandGuard::Band(
                 key.clone(),
                 oracle.min_sanity_price_wad,
                 oracle.max_sanity_price_wad,
@@ -33,7 +33,7 @@ fn sanity_band(env: &Env, aggregator: &Address, key: &PriceKey) -> OracleBandGua
 /// Builds the guard `op` is bound to: the owner epoch for owner-only
 /// operations, the nomination epoch for a nomination cancellation, the
 /// emergency epoch for `Unpause` and `GrantGovRole`, and the current sanity
-/// band for `ConfigureAssetOracle`.
+/// band, or its absence, for `ConfigureAssetOracle`.
 pub(crate) fn for_op(env: &Env, op: &AdminOperation) -> OperationGuard {
     OperationGuard {
         owner_epoch: requires_owner_proposer(op).then(|| storage::owner_epoch(env)),
@@ -52,7 +52,7 @@ pub(crate) fn for_op(env: &Env, op: &AdminOperation) -> OperationGuard {
             AdminOperation::ConfigureAssetOracle(args) => {
                 sanity_band(env, &storage::get_price_aggregator(env), &args.key)
             }
-            _ => OracleBandGuard::Unbound,
+            _ => OracleBandGuard::NotBound,
         },
     }
 }
@@ -68,8 +68,8 @@ pub(crate) fn for_canceller_reset(env: &Env) -> OperationGuard {
 /// Panics if the state `operation_id`'s guard bound it to has moved:
 /// `NotAuthorized` after an ownership handover, `EmergencyEpochMismatch`
 /// after an emergency action, `OracleBandChangedAfterProposal` when the
-/// aggregator at `target` no longer holds the recorded band. Returns the
-/// guard for the caller's own checks.
+/// aggregator at `target` does not hold the recorded band, or holds one where
+/// none was recorded. Returns the guard for the caller's own checks.
 pub(crate) fn require_holds(
     env: &Env,
     operation_id: &BytesN<32>,
@@ -93,7 +93,7 @@ pub(crate) fn require_holds(
             GenericError::EmergencyEpochMismatch
         );
     }
-    if let OracleBandGuard::Bound(key, _, _) = &guard.oracle_band {
+    if let Some(key) = guard.oracle_band.key() {
         assert_with_error!(
             env,
             sanity_band(env, target, key) == guard.oracle_band,
